@@ -1,0 +1,15 @@
+# Rust build output
+/target/
+**/*.rs.bk
+
+# Owner-derived data: corpora, real session prompts, recorded briefs, load fixtures. Never commit (public repository).
+/private/
+
+# Local tool and editor state
+.claude/settings.local.json
+.vscode/
+.idea/
+*.swp
+*~
+.DS_Store
+Thumbs.db
