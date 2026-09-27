@@ -1,6 +1,6 @@
 # 50 — The moirai query language: Lachesis (LQ)
 
-*Design document for owner requirement **R5** (2026-09-26): "And there must also be a query language for our graph DB." Date: 2026-09-26. **Revision 2**, which answers the adversarial review [51] (3 blockers, 10 major and 11 minor issues; the resolution of each is in §12). Status: research and design only. Nothing in moirai is implemented, and this file is the only change made to the repository. On 2026-09-26 this design was integrated into [AR] (as [AR] §7.7) and reconciled with [40] revision 2 and [60] issue 2; §12.4 lists the few edits that made here, and this file stays normative for R5's detail. Amended again on 2026-09-26 by the final editorial pass over the priority audits [70]–[74] (speed, RAM, correctness, tokens, feasibility and configuration); §12.5 lists the changes. Amended on 2026-09-26 for owner decision #32 ([80], revision 2): named-query image files are named by a hash of the query name, and the transport rules hold for every shell of Windows, Linux and macOS (§12.7). Amended on 2026-09-26 for the owner's answers to [AR §11]: LQ-Bench runs on Opus 5.5 only for now (#38 (a)), and every owner decision of §9.2 is decided as recommended (§12.11).*
+*Design document for owner requirement **R5** (2026-09-26): "And there must also be a query language for our graph DB." Date: 2026-09-26. **Revision 2**, which answers the adversarial review [51] (3 blockers, 10 major and 11 minor issues; the resolution of each is in §12). Status: research and design only. Nothing in moirai is implemented, and this file is the only change made to the repository. On 2026-09-26 this design was integrated into [AR] (as [AR] §7.7) and reconciled with [40] revision 2 and [60] issue 2; §12.4 lists the few edits that made here, and this file stays normative for R5's detail. Amended again on 2026-09-26 by the final editorial pass over the priority audits [70]–[74] (speed, RAM, correctness, tokens, feasibility and configuration); §12.5 lists the changes. Amended on 2026-09-26 for owner decision #32 ([80], revision 2): named-query image files are named by a hash of the query name, and the transport rules hold for every shell of Windows, Linux and macOS (§12.7). Amended on 2026-09-26 for the owner's answers to [AR §11]: LQ-Bench runs on Opus 5.5 only for now (#38 (a)), and every owner decision of §9.2 is decided as recommended (§12.11). Amended on 2026-09-27 for the owner review of the approval checklist ([AR] binding inputs): LQ-Bench at M0 runs on the reference model's own parser and binder (LQ-3) with §7.4 item 6 and [AR §7.7.5] as the normative gate list, and runs through the owner's Claude Code subscription in headless mode, with no API billing, a documented shrink rule if the quota is short (§7.4 items 3, 5 and 6, §8.2; §12.14).*
 
 *Inputs, all read in full: the three R5 reports [14] (languages and how well LLMs write them), [15] (execution engines in Rust) and [16] (versioned querying, mutations, the safety envelope); the data-model and query sections of [06]; the CLI output contract of [07]; the design of record [AR] (`docs/ARCHITECTURE-RESEARCH.md`: §3 data model, §4 storage, §5 version control and git image, §7 agent interface), which supersedes the proposals [10]–[13] wherever they differ; the file-link design [40] (R4), whose §6.5 is now the R4 part of this language (§2.6, §3.8); the roadmap of record [60] and its review [61]; and the review of this document [51].*
 
@@ -372,7 +372,7 @@ LQ binds against the branch's schema-as-data [AR §2.12], so a project kind or f
 **Edge types.** Each stored edge kind [AR §3.3] gets an LQ name that reads correctly left to right in its stored direction, a set of **reverse aliases** that read correctly in the other direction, a **reading** used by the reading echo (§6.4), and declared endpoint kinds (F1, §8.1). Direction typing is layered, because endpoint kinds alone cannot catch the reversals that matter most [51 M3]:
 
 1. **Endpoint kinds that exclude the written direction** (`GATES`, `SCOPED_TO`, `ANSWERS`, and `ABOUT` whenever a label or a literal id fixes the kinds): a reversed pattern leaves a variable with an empty kind set, which is E106 with the reversed pattern, or the edge kinds that do connect those kinds, as the suggestion.
-2. **Same-kind edges** (edge kinds whose source and destination kind sets intersect: `BLOCKS`, `CHILD_OF`, `SUPERSEDES`, `DEPENDS_ON`, `DUPLICATE_OF`, `MERGE_AFTER`, and the any → any kinds): endpoint kinds cannot see a reversal, so (a) reverse aliases let an agent write the direction it means (`(#51)-[:BLOCKED_BY]->(b)` is canonicalised to `(b)-[:BLOCKS]->(#51)`); (b) every anchored hop on such an edge prints a one-line **reading echo** (`reads: #88 CHILD_OF c · #88 is a child of c`) before the rows; (c) notice N07 fires when such an anchored hop matched nothing while the reverse direction has edges (one CSR slice length).
+2. **Same-kind edges** (edge kinds whose source and destination kind sets intersect: `BLOCKS`, `CHILD_OF`, `SUPERSEDES`, `DEPENDS_ON`, `DUPLICATE_OF`, `MERGE_AFTER`, and the any → any kinds): endpoint kinds cannot see a reversal, so (a) reverse aliases let an agent write the direction it means (`(#51)-[:BLOCKED_BY]->(b)` is canonicalised to `(b)-[:BLOCKS]->(#51)`); (b) every anchored hop on such an edge prints a one-line **reading echo** (`reads: #88 CHILD_OF c | #88 is a child of c`) before the rows; (c) notice N07 fires when such an anchored hop matched nothing while the reverse direction has edges (one CSR slice length).
 3. **Symmetric kinds** (`CONTRADICTS`, `RELATES`) are stored in one direction but mean a symmetric relation [AR §3.3]; a pattern on them matches the stored edge whichever way the arrow points (F1 `symmetric`).
 
 | LQ type | Reverse aliases | Stored as | From → to | Reading of `(a)-[:T]->(b)` | Class | Acyclic |
@@ -517,7 +517,7 @@ The examples use the campaign of [AR §7.6]: `main` at `c9c0aa17` (rev 4480), `l
 MATCH (t {id: #51}) RETURN t
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 1 row
+branch: main | rev 4480 | 1 row
 #51 task open P1 "Wire lease reclaim" parent:#9 blockers:#12,#17 inherited:#7 BLOCKED
 ```
 ```json
@@ -541,7 +541,7 @@ ORDER BY t.priority, t.updated DESC
 LIMIT 20
 ```
 ```
-branch: lane/l5np · rev 4471 · c9b2e6c1 · 4 rows
+branch: lane/l5np | rev 4471 | 4 rows
 #89 task in_progress P1 "Narrowphase SoA layout" parent:#88 labels:l5 lease:dev#1(L-18)
 #95 task open P1 "Contact cache eviction" parent:#88 labels:l5 children:0/1
 #90 task open P1 "Broadphase pair cache" parent:#88 labels:l5
@@ -557,8 +557,8 @@ RETURN s.id, s.status, s.children_done, s.children_total
 ORDER BY s.id
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 6 rows
-reads: s CHILD_OF{1,2} #88 · s is a child of #88 (through 1 to 2 steps)
+branch: main | rev 4480 | 6 rows
+reads: s CHILD_OF{1,2} #88 | s is a child of #88 (through 1 to 2 steps)
 s.id  s.status     s.children_done  s.children_total
 #89   in_progress  0                0
 #90   open         0                0
@@ -574,8 +574,8 @@ s.id  s.status     s.children_done  s.children_total
 MATCH (b)-[:BLOCKS]->(#51) RETURN b
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 2 rows
-reads: b BLOCKS #51 · b must finish before #51 starts
+branch: main | rev 4480 | 2 rows
+reads: b BLOCKS #51 | b must finish before #51 starts
 #12 task in_progress P1 "Byte-range lock protocol" parent:#9 lease:dev#1(L-9)
 #17 task open P2 "HEAD slot format" parent:#9
 ```
@@ -585,8 +585,8 @@ The reverse alias gives the same rows in the direction the question is asked ("w
 MATCH (#51)-[:BLOCKED_BY]->(b) RETURN b
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 2 rows
-reads: b BLOCKS #51 (written #51 BLOCKED_BY b) · b must finish before #51 starts
+branch: main | rev 4480 | 2 rows
+reads: b BLOCKS #51 (written #51 BLOCKED_BY b) | b must finish before #51 starts
 #12 task in_progress P1 "Byte-range lock protocol" parent:#9 lease:dev#1(L-9)
 #17 task open P2 "HEAD slot format" parent:#9
 ```
@@ -597,7 +597,7 @@ CALL blockers(#51, transitive: true) YIELD blocker, depth, via, reason
 RETURN blocker, depth, via, reason
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · live · 4 rows
+branch: main | rev 4480 | live | 4 rows
 blocker  depth  via  reason
 #7       1      #9   inherited
 #12      1      -    direct
@@ -612,8 +612,8 @@ MATCH (x:task)((a:task)-[:BLOCKS]->(b) WHERE a.unfinished){1,5}(#93)
 RETURN x
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 2 rows
-reads: x BLOCKS{1,5} #93 · x must finish before #93 starts (through 1 to 5 steps)
+branch: main | rev 4480 | 2 rows
+reads: x BLOCKS{1,5} #93 | x must finish before #93 starts (through 1 to 5 steps)
 #90 task open P1 "Broadphase pair cache" parent:#88 labels:l5
 #98 task in_progress P2 "Pair cache invalidation" parent:#90 lease:dev#3(L-21)
 ```
@@ -625,8 +625,8 @@ MATCH (x:task)-[:BLOCKS]->{2,}(#93)
 RETURN x
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 1 row
-reads: x BLOCKS{2,} #93 · x must finish before #93 starts (through 2 or more steps)
+branch: main | rev 4480 | 1 row
+reads: x BLOCKS{2,} #93 | x must finish before #93 starts (through 2 or more steps)
 #98 task in_progress P2 "Pair cache invalidation" parent:#90 lease:dev#3(L-21)
 ```
 #98 qualifies because a walk of length 2 leads from it to #93, as in GQL and Cypher; the first revision's BFS-distance rule returned nothing here, because #98's shortest distance is 1 [M, `semantics_toy2.py` on [51]'s toy graph of the same shape].
@@ -644,7 +644,7 @@ RETURN f.round AS round,
 ORDER BY round
 ```
 ```
-branch: lane/l5np · rev 4471 · c9b2e6c1 · 2 rows
+branch: lane/l5np | rev 4471 | 2 rows
 round  raised  confirmed  refuted  blocking
 1      4       2          2        1
 2      3       1          0        0
@@ -673,7 +673,7 @@ RETURN critic, raised, refuted, round(100.0 * refuted / raised, 1) AS pct
 ORDER BY critic
 ```
 ```
-branch: lane/l5np · rev 4471 · c9b2e6c1 · 2 rows
+branch: lane/l5np | rev 4471 | 2 rows
 critic               raised  refuted  pct
 architecture-critic  7       2        28.6
 code-reviewer        3       0        0.0
@@ -691,7 +691,7 @@ ORDER BY score DESC
 LIMIT 5
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 3 rows · search: 3 terms · titles+abstracts · index
+branch: main | rev 4480 | 3 rows | search: 3 terms | titles+abstracts | index
 #301 decision accepted "Fencing tokens on every lease mutation" score=7.412
 #288 note active "Lease reclaim runs under the maintenance byte" score=6.905
 #305 rule active high "Reclaim only expired leases whose process is gone" score=5.118
@@ -706,7 +706,7 @@ RETURN k, f.path AS path, a.kind AS anchor, a.scope AS scope, link_state(a) AS l
 ORDER BY path, k
 ```
 ```
-branch: lane/l5np · rev 4471 · c9b2e6c1 · live · 3 rows · files @ <lanes-dir>/l5np (u/l5np 7c1e0a)
+branch: lane/l5np | rev 4471 | live | 3 rows | files @ <lanes-dir>/l5np (u/l5np 7c1e0a)
 #161 finding confirmed important perf r1 "Archetype move copies twice" path=crates/ecs/src/archetype.rs anchor=symbol scope="rust:fn move_entity" link=stale-anchor
 #288 note active hazard "Entity ids are recycled after despawn" path=crates/ecs/src/entity.rs anchor=symbol scope="rust:fn spawn_entity" link=ok
 #412 rule active critical owner "Never hold a World borrow across a system boundary" path=crates/ecs/src/world.rs anchor=symbol scope="rust:impl World/fn run_system" link=moved-auto
@@ -717,7 +717,7 @@ branch: lane/l5np · rev 4471 · c9b2e6c1 · live · 3 rows · files @ <lanes-di
 MATCH (n)-[a:AT]->(f) WHERE n IN subtree(#88) AND link_state(a) <> 'ok' RETURN f, a, link_state(a)
 ```
 ```
-branch: lane/l5np · rev 4473 · c7a0d31e · live · 6 rows · files @ <lanes-dir>/l5np (u/l5np 7c1e0a, dirty 3)
+branch: lane/l5np | rev 4473 | live | 6 rows | files @ <lanes-dir>/l5np (u/l5np 7c1e0a, dirty 3)
 f     a                       link_state(a)
 #812  #51 AT a17 symbol       moved-auto
 #811  #88 AT a31 symbol       stale-anchor
@@ -737,7 +737,7 @@ WHERE r.status = 'active' AND r.criticality = 'critical'
 RETURN r
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 2 rows
+branch: main | rev 4480 | 2 rows
 #212 rule active critical owner "Never kill processes by image name; only the PID tree you started" applies_to=*
 #412 rule active critical owner "Never hold a World borrow across a system boundary" applies_to=crates/ecs/**
 ```
@@ -751,8 +751,8 @@ WHERE t.status IN ['open', 'in_progress']
 RETURN t.id, t.status, t.unblocked
 ```
 ```
-branch: main · rev 4400 · c4b71d20 · as-of (USE s4400) · 4 rows · derived recomputed for 3 nodes (80 ops reverse-applied)
-reads: t CHILD_OF+ #88 · t is a child of #88 (through 1 or more steps)
+branch: main | rev 4400 | as-of (USE s4400) | 4 rows | derived recomputed for 3 nodes (80 ops reverse-applied)
+reads: t CHILD_OF+ #88 | t is a child of #88 (through 1 or more steps)
 t.id  t.status     t.unblocked
 #89   open         true
 #90   open         true
@@ -769,7 +769,7 @@ WHERE diverged
 RETURN node, name, ref, value
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · across main c9c0aa17, lane/l5np c9b2e6c1 · 4 rows
+branch: main | rev 4480 | across main c9c0aa17, lane/l5np c9b2e6c1 | 4 rows
 node  name    ref        value
 #89   status  lane/l5np  in_progress
 #89   status  main       open
@@ -785,7 +785,7 @@ YIELD change, node, aspect, name, before, after, side
 WHERE side = 'both' OR aspect = 'exists'
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · diff main...lane/l10 (LCA rev 4456 c4456a0e) · 2 rows
+branch: main | rev 4480 | diff main...lane/l10 (LCA rev 4456 c4456a0e) | 2 rows
 - #40 task exists "Reader registry" deleted ("dup of #52", replaced_by #52) [theirs] rev 4468 dev#2
 ~ #91 doc body 3 lines +2 -1 [both] rev 4470 dev#3
 ```
@@ -796,7 +796,7 @@ branch: main · rev 4480 · c9c0aa17 · diff main...lane/l10 (LCA rev 4456 c4456
 CALL history(#12, field: 'status')
 ```
 ```
-branch: lane/l5np · rev 4471 · c9b2e6c1 · 3 rows
+branch: lane/l5np | rev 4471 | 3 rows
 rev 4468 c41d7e0b lane/l5np dev#2 developer 2026-09-25T12:03Z ~ status in_progress->done "complete L-9" via tx.complete
 rev 4455 c2a91f3c lane/l5np dev#2 developer 2026-09-25T10:41Z ~ status open->in_progress "claim --start" via tx.claim
 rev 4410 c9b1e77a main orchestrator orchestrator 2026-09-24T09:12Z + exists task "add task" via tx.add
@@ -805,7 +805,7 @@ rev 4410 c9b1e77a main orchestrator orchestrator 2026-09-24T09:12Z + exists task
 CALL blame(#12)
 ```
 ```
-branch: lane/l5np · rev 4471 · c9b2e6c1 · 5 rows
+branch: lane/l5np | rev 4471 | 5 rows
 aspect  name         value                       rev   commit    actor
 edge    BLOCKS->#51  present                     4412  c0e7a3d9  orchestrator
 field   priority     1                           4410  c9b1e77a  orchestrator
@@ -822,7 +822,7 @@ EXCEPT
 USE main~5 MATCH (t:task) WHERE t.unblocked RETURN t
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 EXCEPT main~5 = rev 4474 c7e2a9d4 (as-of) · 2 rows
+branch: main | rev 4480 c9c0aa17 EXCEPT main~5 = rev 4474 c7e2a9d4 (as-of) | 2 rows
 #52 task open P1 "Lock protocol v2" parent:#9
 #96 task open P2 "SIMD narrowphase kernel" parent:#88
 ```
@@ -834,18 +834,18 @@ USE lane/l5np
 CALL conflicts() YIELD key, node, class, base, ours, theirs
 ```
 ```
-branch: lane/l5np · rev 4471 · c9b2e6c1 · 1 row
+branch: lane/l5np | rev 4471 | 1 row
 #91.body TextHunk base="Pairs are batched per frame." ours="Pairs are batched per archetype." theirs="Pairs are batched per grid cell." (sync rev 4469)
   resolve: TX ON lane/l5np { RESOLVE '#91.body' TAKE OURS }   (or THEIRS, BASE, VALUE $text)
 ```
 ```
-USE merge/main/from/lane/l10
+USE merge/lane/l10/from/main
 CALL violations() YIELD key, class, detail, suggested
 ```
 ```
-branch: merge/main/from/lane/l10 · rev 4481 · c5e1a0d2 · staged (read-only) · 1 row
+branch: merge/lane/l10/from/main | rev 4481 | staged (read-only) | 1 row
 edge:#203:blocks:#40 DanglingEdge main added #203 BLOCKS #40; lane/l10 deleted #40 (replaced_by #52)
-  suggested: TX ON merge/main/from/lane/l10 { RESOLVE 'edge:#203:blocks:#40' TAKE REPOINT #52 }, then moirai merge --continue lane/l10 --into main
+  suggested: TX ON merge/lane/l10/from/main { RESOLVE 'edge:#203:blocks:#40' TAKE REPOINT #52 }, then moirai merge --continue lane/l10 --into main
 ```
 
 **Q17 — Parameters, as a Bash-less critic sends them through MCP.**
@@ -856,7 +856,7 @@ edge:#203:blocks:#40 DanglingEdge main added #203 BLOCKS #40; lane/l10 deleted #
                "params": {"plan": 130, "round": 2}, "branch": "lane/l5np", "limit": 20}}
 ```
 ```
-branch: lane/l5np · rev 4471 · c9b2e6c1 · 1 row
+branch: lane/l5np | rev 4471 | 1 row
 #162 finding confirmed important perf r2 C2 "Pair cache rebuilt every frame" about:#133
 ```
 `$plan` is typed `node` from its use site, so the integer 130 binds as `#130`; a string such as `"#130 OR 1=1"` is a type error (E110), never syntax. `RETURN DISTINCT` is there because the pattern binds once per (finding, target) pair; without it a finding about two sections of the plan would print twice, and notice N09 would say so.
@@ -871,16 +871,16 @@ TX ON lane/l5np KEY 'wf:r7/dev1/complete-89' LEASE 'L-18' {
 ```
 Success:
 ```
-branch: lane/l5np · rev 4471 -> 4472 · c41d7e0b · committed · key wf:r7/dev1/complete-89 · lease L-18
-1 MATCH … EXPECT 1: matched 1 (#89)
+branch: lane/l5np | rev 4471 -> 4472 | committed c41d7e0b | key wf:r7/dev1/complete-89 | lease L-18
+1 MATCH ... EXPECT 1: matched 1 (#89)
   SET #89.done = true: status in_progress->done (resolution completed); lease L-18 released into settled
-affected: newly ready #93 · marker settled #89 (lane/l5np)
+affected: newly ready #93 | marker settled #89 (lane/l5np)
 ```
 Failure, because another agent completed #89 first (exit 4):
 ```
 error[E401 expect_mismatch]: statement 1 matched 0 bindings, expected 1
   #89 now: status=done rev=4470 (changed at c3e9a1f0 by dev#2 on lane/l5np: "complete L-17")
-  nothing was written · hint: re-read with `moirai q show ids=89`
+  nothing was written | hint: re-read with `moirai q show ids=89`
 ```
 ```json
 {"v":1,"branch":"lane/l5np","rev":4471,
@@ -901,12 +901,12 @@ TX ON lane/l5np KEY 'wf:r7/orch/reprio' IF TIP c9b2e6c1 {
 } DRY
 ```
 ```
-branch: lane/l5np · rev 4471 · c9b2e6c1 · tx (dry) · IF TIP ok · would commit 3 changes · nothing written
+branch: lane/l5np | rev 4471 | tx (dry) | IF TIP ok | would commit 3 changes | nothing written
 ~ #90 task field priority 2->1
 ~ #93 task field priority 3->1
 ~ #95 task field priority 2->1
-assert 2: COUNT {…} = 0 -> true
-affected: none · invariants ok
+assert 2: COUNT {...} = 0 -> true
+affected: none | invariants ok
 to apply: send the same TX without DRY; IF TIP c9b2e6c1 refuses it if lane/l5np moved in between
 ```
 Had the filter matched four tasks, the output would be `error[E401 expect_mismatch]: statement 1 matched 4 bindings, expected 3` followed by the four ids, exit 4, nothing written.
@@ -922,7 +922,7 @@ TX ON lane/l5np KEY 'ch:3f9a07c1' {
 }
 ```
 ```
-branch: lane/l5np · rev 4472 -> 4473 · c7a0d31e · committed · key ch:3f9a07c1
+branch: lane/l5np | rev 4472 -> 4473 | committed c7a0d31e | key ch:3f9a07c1
 1 CREATE finding #165 "Pair cache thrashes under churn" -[:ABOUT]-> #130 (UNLESS EXISTS matched 0)
 2 CREATE #165 -[:DERIVED_FROM]-> #133
 affected: none
@@ -942,12 +942,12 @@ TX KEY 'orch:define-stale-blockers' MESSAGE 'project query: stale in-progress bl
 }
 ```
 ```
-branch: main · rev 4480 -> 4483 · c0f3e9a7 · committed · key orch:define-stale-blockers
-1 DEFINE QUERY stale_blockers($scope: node = #9, $days: int = 3) SHAPE node · LQ 1 · bound against schema v3 · ok
-  stored portable: #9 -> #u:018f3c2e7a117b3c9d5e4c2f1a0b9e09 · exported as schema/queries/<q>.moi (q = BLAKE3 of the name)
+branch: main | rev 4480 -> 4483 | committed c0f3e9a7 | key orch:define-stale-blockers
+1 DEFINE QUERY stale_blockers($scope: node = #9, $days: int = 3) SHAPE node | LQ 1 | bound against schema v3 | ok
+  stored portable: #9 -> #u:018f3c2e7a117b3c9d5e4c2f1a0b9e09 | exported as schema/queries/<q>.moi (q = BLAKE3 of the name)
 
 $ moirai q stale_blockers days=2
-branch: main · rev 4483 · c0f3e9a7 · 1 row
+branch: main | rev 4483 | 1 row
 #12 task in_progress P1 "Byte-range lock protocol" parent:#9 lease:dev#1(L-9) updated_at=2026-09-23T16:40Z
 ```
 The stored text, the exported `.moi` file and the commit id contain `#u:018f…9e09`, never `#9`, so another store that imports the image binds the default to the same node whatever local number it gave it (§4.4, [AR §5b.5 rule 7]).
@@ -958,7 +958,7 @@ The stored text, the exported `.moi` file and the commit id contain `#u:018f…9
 CALL schema(kind: 'finding')
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 14 rows · schema v3
+branch: main | rev 4480 | 14 rows | schema v3
 kind     field             type                                                          optional  index
 finding  status            enum{open<confirmed|refuted<fixed|deferred|withdrawn}         no        bitmap
 finding  severity          enum{blocker,important,optional}                              no        bitmap
@@ -966,7 +966,7 @@ finding  f_kind            enum{correctness,perf,complexity,security,plan,style,
 finding  local_id          sym                                                           yes       column
 finding  round             int                                                           yes       column
 finding  failure_scenario  text                                                          no        -
-…  (8 more; --limit 50 or CALL schema(kind: 'finding') --json)
+...  (8 more; --limit 50 or CALL schema(kind: 'finding') --json)
 ```
 
 **Q23 — EXPLAIN.**
@@ -979,18 +979,18 @@ ORDER BY open_findings DESC
 LIMIT 10
 ```
 ```
-explain · branch main · rev 4480 · c9c0aa17 · tip · pinned · query q:7f3a19c2 · parse+bind 8 µs
-vars    f: finding · t: task
-reads   t CHILD_OF+ #88 · t is a child of #88 (through 1 or more steps)
-plan    1 Subtree(#88, CHILD_OF reverse, depth ≤ 12)           exact 6,329 (bounded probe)   units 6.3k
-        2 Filter t:task (kind column, vectorized)               est. 6,100
+explain | branch main | rev 4480 | c9c0aa17 | tip | pinned | query q:7f3a19c2 | parse+bind 8 us
+vars    f: finding | t: task
+reads: t CHILD_OF+ #88 | t is a child of #88 (through 1 or more steps)
+plan    1 Subtree(#88, CHILD_OF reverse, depth <= 12)            exact 6,329 (bounded probe)   units 6.3k
+        2 Filter t:task (kind column, vectorized)                est. 6,100
         3 Expand t <-ABOUT- f (reverse CSR, factorized)          est. 1,580 (avg in-degree 0.26)
         4 Filter f.status = 'open' (column)                      est. 700
-        5 Aggregate count(f) by t (bounded hash, mem)            ≤ 1,580 groups · ~48 KiB
+        5 Aggregate count(f) by t (bounded hash, mem)            <= 1,580 groups | ~48 KiB
         6 TopK 10 by open_findings DESC, t                       heap 10
-rejected anchor: BitmapScan(finding ∧ status=open) exact 140,213 (22× larger than the subtree)
-views   none (tip) · runtime none · tree none
-budget  lower bound 6.3k / est. 22k of 2,000,000 units · mem est. ~60 KiB of 1 MiB · rows 10/50 · resumable: no (aggregate)
+rejected anchor: BitmapScan(finding AND status=open) exact 140,213 (22x larger than the subtree)
+views   none (tip) | runtime none | tree none
+budget  lower bound 6.3k / est. 22k of 2,000,000 units | mem est. ~60 KiB of 1 MiB | rows 10/50 | resumable: no (aggregate)
 ```
 
 **Q24 — Delete with a replacement** (orchestrator, CLI only; the schema's per-edge policies run, X4).
@@ -1001,24 +1001,24 @@ TX ON lane/l10 KEY 'orch:rm-40' {
 }
 ```
 ```
-branch: lane/l10 · rev 4467 -> 4468 · c812e0f3 · committed · key orch:rm-40
+branch: lane/l10 | rev 4467 -> 4468 | committed c812e0f3 | key orch:rm-40
 1 DELETE #40 task "Reader registry" REPLACED BY #52
     #40 -[:BLOCKS]-> #12     re-pointed: #52 -[:BLOCKS]-> #12
     #203 -[:BLOCKS]-> #40    dropped (the dependent is deleted)
     #17 -[:CITES]-> #40      kept as a tombstone reference; #17 suspect
     #77 -[:MENTIONS]-> #40   kept as a tombstone reference
-markers: deleted #40 (lane/l10) · affected: #12 #17 #77
+markers: deleted #40 (lane/l10) | affected: #12 #17 #77
 ```
 
 **Q25 — Resolving a staged violation** (orchestrator, CLI only).
 
 ```
-TX ON merge/main/from/lane/l10 {
+TX ON merge/lane/l10/from/main {
   RESOLVE 'edge:#203:blocks:#40' TAKE REPOINT #52
 }
 ```
 ```
-branch: merge/main/from/lane/l10 · rev 4481 -> 4482 · c5e1a0d2 · committed (Resolve on the staging ref)
+branch: merge/lane/l10/from/main | rev 4481 -> 4482 | committed c5e1a0d2 (Resolve on the staging ref)
 1 RESOLVE edge:#203:blocks:#40 TAKE REPOINT #52: the edge becomes #203 -[:BLOCKS]-> #52
 next: moirai merge --continue lane/l10 --into main
 ```
@@ -1031,7 +1031,7 @@ WHERE blocker.status = 'in_progress'
 RETURN blocker, depth, via
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · live · 1 row
+branch: main | rev 4480 | live | 1 row
 #98 task in_progress P2 "Pair cache invalidation" parent:#90 lease:dev#3(L-21) depth=2 via=#90
 ```
 
@@ -1044,10 +1044,10 @@ RETURN t, collect(v) AS gating
 ORDER BY t
 ```
 ```
-branch: lane/l5np · rev 4471 · c9b2e6c1 · 8 rows
+branch: lane/l5np | rev 4471 | 8 rows
 #88 task open P1 "Narrowphase batching (L5)" parent:#7 children:1/8 gating=[]
 #89 task in_progress P1 "Narrowphase SoA layout" parent:#88 gating=[#164]
-…  (6 more rows)
+...  (6 more rows)
 ```
 
 **Q28 — An id that exists only on another branch** (on `main`; the critic wrote finding #165 on `lane/l5np` in Q20).
@@ -1056,7 +1056,7 @@ branch: lane/l5np · rev 4471 · c9b2e6c1 · 8 rows
 MATCH (f {id: #165}) RETURN f
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 0 rows
+branch: main | rev 4480 | 0 rows
 N06: #165 is not in this view: created on lane/l5np at rev 4473 (c7a0d31e), not merged into main
      USE lane/l5np, or CALL across(refs: [main, lane/l5np], ids: [#165])
 ```
@@ -1072,7 +1072,7 @@ ORDER BY blockers DESC, t.id
 LIMIT 3
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 2 rows
+branch: main | rev 4480 | 2 rows
 t.id  blockers
 #93   2
 #96   1
@@ -1083,8 +1083,8 @@ One binding per matched `BLOCKS` edge, as in Cypher: the anonymous blocker count
 MATCH (x:task)-[:BLOCKS]->+(#93) RETURN count(*) AS upstream
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 1 row
-reads: x BLOCKS+ #93 · x must finish before #93 starts (through 1 or more steps)
+branch: main | rev 4480 | 1 row
+reads: x BLOCKS+ #93 | x must finish before #93 starts (through 1 or more steps)
 upstream
 2
 N08: count(*) over a quantified pattern counts (x, #93) endpoint pairs, not paths
@@ -1094,7 +1094,7 @@ N08: count(*) over a quantified pattern counts (x, #93) endpoint pairs, not path
 
 ```
 $ moirai q ready scope=88 --branch lane/l5np
-branch: lane/l5np · rev 4471 · c9b2e6c1 · live · 2 rows
+branch: lane/l5np | rev 4471 | live | 2 rows
 #90 task open P1 "Broadphase pair cache" parent:#88 labels:l5
 #96 task open P2 "SIMD narrowphase kernel" parent:#88
 
@@ -1121,14 +1121,14 @@ error[E101 unknown_field]: kind `task` has no field `stauts`
   |
 2 | WHERE t.stauts = 'open'
   |         ^^^^^^ did you mean `status`?
-  = help: task fields: status, priority, labels, assignee, work_kind, phase_state, acceptance, … (CALL schema(kind: 'task'))
+  = help: task fields: status, priority, labels, assignee, work_kind, phase_state, acceptance, ... (CALL schema(kind: 'task'))
 ```
 ```json
 {"v":1,"branch":"main","rev":4480,
  "errors":[{"code":"E101","name":"unknown_field","severity":"error",
             "span":{"start":22,"end":28,"line":2,"col":9},
             "message":"kind `task` has no field `stauts`","suggest":["status"],
-            "help":"task fields: status, priority, labels, assignee, work_kind, phase_state, acceptance, … (CALL schema(kind: 'task'))"}],
+            "help":"task fields: status, priority, labels, assignee, work_kind, phase_state, acceptance, ... (CALL schema(kind: 'task'))"}],
  "exit":2}
 ```
 ```
@@ -1153,8 +1153,8 @@ error[E302 not_at_this_view]: `ready` uses leases and markers, which exist only 
   |                        ^^^^^ use `t.unblocked` (structural, valid at any version)
 ```
 ```
-branch: main · rev 4480 · c9c0aa17 · 0 rows
-reads: #51 BLOCKS b · #51 must finish before b starts
+branch: main | rev 4480 | 0 rows
+reads: #51 BLOCKS b | #51 must finish before b starts
 N07: nothing matched, but 2 BLOCKS edges point the other way: (b)-[:BLOCKS]->(#51), also written (#51)-[:BLOCKED_BY]->(b)
 ```
 The last block is the output of `MATCH (#51)-[:BLOCKS]->(b) RETURN b` written to mean "what does #51 wait on". Had #51 blocked other tasks, the rows would have appeared under the reading echo `#51 must finish before b starts`, which states the opposite of the question.
@@ -1645,7 +1645,7 @@ Logical operators: `Scan(kind)`, `IdList`, `BitmapScan`, `RuntimeScan(markers|le
 2. desugar pattern predicates, `exists(path)` and `size(path)` to `EXISTS {}`/`COUNT {}`; canonicalise reverse aliases;
 3. push filters to the variable they constrain, and into quantified groups when they reference only step variables;
 4. turn predicates on maintained state into bitsets: `t.unblocked` and `t.ready` (structural clauses), `t.is_blocker`, `t.suspect`, `t.conflicted`, `kind`, `(kind, status)`, and `FIDX` value bitmaps for promoted fields (`'l5' IN t.labels`); time-dependent clauses (`defer_until ≤ now()`) stay per-candidate filters evaluated at the view's `now()` [51 M7];
-5. **anchor runtime predicates on their tables** [51 M8]: a predicate that can be true only for ids present in a runtime table — `settled_elsewhere`, `deleted_elsewhere` (the `MARKERS` keys), `claimed`, `lease IS NOT NULL` (the `LEASES` keys) — is anchored on `RuntimeScan` of that table, and a disjunction with bitset predicates becomes a union, so `brief_triage` costs O(markers + |has_dangling|) instead of one marker probe per task;
+5. **anchor runtime predicates on their tables** [51 M8]: a predicate that can be true only for ids present in a runtime table — `settled_elsewhere`, `deleted_elsewhere` (the `MARKERS` keys), `claimed`, `lease IS NOT NULL` (the `#N` of the `LEASES` keys, role leases at `#N` = 0 skipped, [AR §4.4]) — is anchored on `RuntimeScan` of that table, and a disjunction with bitset predicates becomes a union, so `brief_triage` costs O(markers + |has_dangling|) instead of one marker probe per task;
 6. `t IN subtree(x)`, `t IN descendants(x)` and `(t)-[:CHILD_OF]->+(x)` become the same `Subtree(x)` operator; `ancestors()` walks the `parent` column; `f = file(p)` becomes an `IdList` from `PATHIDX`/`ALIASIDX`;
 7. equality joins and grouping on `FIDX`-promoted fields (`a.local_id = b.local_id AND a.round = b.round`, `WITH f.local_id, f.round, count(*)`) become `ValueJoin`/postings-ordered aggregation that walks the value postings in order and holds one value group at a time, so duplicate audits at 1e6 run in O(n) with O(largest group) memory instead of a cartesian product or a 140k-group hash map [51 M8];
 8. `ORDER BY … LIMIT k` becomes `TopK(k)`; `count(*)` over a pure bitset predicate becomes a popcount; a group-by over an enum or kind becomes a fixed array;
@@ -1658,7 +1658,7 @@ Logical operators: `Scan(kind)`, `IdList`, `BitmapScan`, `RuntimeScan(markers|le
 |---|---|---|
 | `IdList` | dense `#N` row index; `UID` column for `#u:` | 1–5 µs per id with fields |
 | `BitmapScan` (AND/OR/ANDNOT) | frozen bitsets (sorted-u16 or 8 KiB chunks) ⊕ overlay ± lists; exact `card()` from chunk counts (F6) | three-way AND at 1e6: 12–14 µs |
-| `RuntimeScan` | `MARKERS` (active markers only — the globally inert ones live in the cold `MARKERS_OLD`, [AR §4.4], [70 S4]) / `LEASES` sorted by `#N` ⊕ tail records; one `absorbed[ref_id]` lookup per marker | O(active rows) — dozens of markers, independent of history; ~0.2–1 µs per row [AR §3.5] (est.) |
+| `RuntimeScan` | `MARKERS` (active markers only — the globally inert ones live in the cold `MARKERS_OLD`, [AR §4.4], [70 S4]) / `LEASES` sorted by `(#N, lease id)`, role leases (`#N` = 0) skipped [AR §4.4] ⊕ tail records; one `absorbed[ref_id]` lookup per marker | O(active rows) — dozens of markers, independent of history; ~0.2–1 µs per row [AR §3.5] (est.) |
 | `ColumnScan` (vectorized, merge-on-read) | 60-byte header columns; overlay rows replace base rows per batch | 3 ns/row; 3.3 ms at 1e6 |
 | `FieldScan` | tagged-varint field blocks, or a promoted `FCOL` column (F5) | est. 5–10× a column scan [I, 15 §12 caveat 4] |
 | `Expand` (factorized) | forward/reverse CSR sorted by (kind, dst): the slice of one kind is contiguous; overlay adjacency ± vectors | anchored 2–3-hop pattern ≤ 0.3 ms at 1e6 |
@@ -1805,7 +1805,7 @@ flags: --branch R (default view for parts without USE) · --at REV · --tree DIR
 - **Named-query arguments** are `k=v` or `k:v` (so [AR]'s GitHub-style `find kind:task status:open` works unchanged). The first required parameter may be positional (`moirai q show 40 41`, `moirai q blockers 51`). Node values are bare integers (`scope=88`); `#N` inside a token is accepted (`scope=#88` arrives intact in bash, dash, Git Bash and PowerShell [M, X20 §2.3; 16 §6.10] and in the agents' zsh, derived from its source and manual, not run [S, X20 §2.3]) but not taught, because an interactive zsh with `EXTENDED_GLOB` treats it as a glob ([80 §4] T1); lists are comma-separated (`ids=40,41,52`); ranges are `..1`, `0..1`, `2..`; revisions are revspecs (`at=main~5`, `since=s4400`, `range=main...lane/l10`); booleans `true`/`false`; text with spaces in single quotes (`text='lease reclaim'`; double quotes in cmd, which has no single-quote quoting — free text is better on stdin, [80 §4] T3). An unknown parameter is E110 with the signature.
 - **The verbs are aliases:** `moirai ready --scope 88` = `moirai q ready scope=88`; `moirai set 12 priority=1 --if-rev 4460` = the `TX` of §4.2. Every verb prints the frozen v1 envelope of §6.4, which is [AR §7.1]'s and [40 §6.1]'s envelope extended only by additive fields, so hooks and skills written against [AR §7.1] keep parsing the first line and the JSON keys they know.
 - **Dispatch rule:** if the first argument is a named query, it is a named call; `-f`/`-` read text; otherwise the single remaining argument is LQ text. Named-query names cannot collide with LQ keywords.
-- **Where query files go** [51 m6]. The owner has 44 worktrees; a `q.lq` written into one of them is an untracked file that shows up in `dirty_files` and in packs. The documented forms are the Bash heredoc (no file at all) and `%TEMP%\moirai\q.lq` in PowerShell on Windows; on Linux and macOS agents use the heredoc only, because a sandboxed and an unsandboxed process see different `TMPDIR`s and the Write tool cannot expand the variable, and scripts put `-f` files under the store's `tmp/` ([80 §4] T5); `-f` with a path inside a git working tree prints W08.
+- **Where query files go** [51 m6]. The owner has 44 worktrees; a `q.lq` written into one of them is an untracked file that shows up in the tree's dirty count (the runtime `TREES.dirty` row, [AR §4.4]) and in packs. The documented forms are the Bash heredoc (no file at all) and `%TEMP%\moirai\q.lq` in PowerShell on Windows; on Linux and macOS agents use the heredoc only, because a sandboxed and an unsandboxed process see different `TMPDIR`s and the Write tool cannot expand the variable, and scripts put `-f` files under the store's `tmp/` ([80 §4] T5); `-f` with a path inside a git working tree prints W08.
 - **`@file` is removed** from the CLI contract. Under PowerShell 5.1 an unquoted `@notes.txt` is a parse error that kills the whole command and an unquoted `@c4471` silently vanishes [M, 16 §6.10]; files are passed with `-f`, `--param-file` and `--stdin`.
 
 ### 6.2 Windows transport, measured
@@ -1916,7 +1916,7 @@ One envelope for every verb, frozen in the M0 contract [51 m4]. It is [AR §7.1]
 | Channel | Content | Cost |
 |---|---|---|
 | core `moirai` skill [AR §7.5] | one line: "prefer verbs; for anything else see `moirai-ql`; ids bare in argv" | ~40 tokens |
-| **`moirai-ql` skill card** (§7.2) | how to run queries and where query files go, shape, **counting semantics**, edge directions and reverse names, the reading echo, built-ins, absent values, revisions, 7 examples, write rules, retry advice | 3,003 characters, 439 words [M, `card_check2.txt`]; 750 tokens at 4 characters per token, 1,191 by [14]'s proxy, which over-counts punctuation-heavy text. Target ≤ 1,000 tokens by the maximum over the Claude and o200k tokenizers (and ≤ 3,500 bytes), **measured before the freeze** as part of the LQ-Bench gate (§7.4, [90 §9]); if it misses, the card shrinks before the grammar does |
+| **`moirai-ql` skill card** (§7.2) | how to run queries and where query files go, shape, **counting semantics**, edge directions and reverse names, the reading echo, built-ins, absent values, revisions, 7 examples, write rules, retry advice | 3,013 characters and 442 words as printed in §7.2 (the probe's `card2.md` measured 3,003 and 439 [M, `card_check2.txt`]); ≈ 750 tokens at 4 characters per token, 1,191 by [14]'s proxy on `card2.md`, which over-counts punctuation-heavy text. Target ≤ 1,000 tokens by the maximum over the Claude and o200k tokenizers (and ≤ 3,500 bytes), **measured before the freeze** as part of the LQ-Bench gate (§7.4, [90 §9]); if it misses, the card shrinks before the grammar does |
 | `reference-ql.md` (linked, loaded on demand) | the grammar, every built-in and table function, the error-code table, the compatibility table | 0 until read; long references can hurt accuracy (jq 76 % → 31 % for Opus 4.1 with the manual [C, 14 §4.3]), so the card never inlines it |
 | MCP `query` description + server-instruction sentences | §6.3 | ~60 tokens up front under tool search |
 | `CALL schema()`, `CALL schema_edges()`, `CALL queries()` | the live schema of the branch, including reverse aliases and readings | on demand, one call |
@@ -1925,7 +1925,7 @@ One envelope for every verb, frozen in the M0 contract [51 m4]. It is [AR §7.1]
 
 ### 7.2 The skill card (draft)
 
-The card is `card2.md` in the probe folder [M: 3,003 characters; all seven examples parse under `lqcheck2.py`]. Its text:
+The card is `card2.md` in the probe folder [M on `card2.md`: 3,003 characters; the text as printed below is 3,013 characters and 442 words; all seven examples parse under `lqcheck2.py`]. Its text:
 
 ```
 ## moirai-ql: asking moirai questions in LQ
@@ -1982,12 +1982,12 @@ A permanent test asset, not a one-off experiment, run before the grammar and the
    - **Real sessions: ~30 questions mined from recorded BoykoEngine sessions**, as [14 §8] specified and the first revision dropped: loop termination, refuted share, "what is blocking the merge of lane L", "rules about files owned by lane L", history questions — each kept in the words it was asked. They are the owner's words: they live in the gitignored local corpus directory, never in the public repository or on hosted runners ([AR §11] #36, #37), and go only to Anthropic (#38 (a)).
    - **Adversarial: 40 tasks** that target the traps this revision exists to catch, each tagged with its construct: reversed `BLOCKS`/`CHILD_OF`/`SUPERSEDES` (with and without aliases), `BLOCKED_BY`-style retries, counts over anonymous elements, counts over quantified parts, "indirect" hop bounds on DAGs with shortcuts, `= NULL`, `labels()`, `t.open`, `t.done` with cancelled tasks, `priority DESC`, hand-written `ready`, ids created on another branch, runtime and link states at past views, `s1`-style variables, ranges, `#` in argv, write keywords in `q`, integer division.
    That is 450 + 30 + 40 = 520 prompts.
-3. **Harness.** Two axes ([90 §8.3]): model capability on a neutral runner (the card as system text; the tools `moirai_q` and `moirai_named` as strict-compatible function definitions; the same 3-turn budget and engine responses for every model), and transport in the real harnesses (20 literal prompts each in Claude Code and a scripted generic stdio client, driven by Opus 5.5 — a Codex arm joins only if a later decision adds its model, #38 (a); 0 transport failures). On the runner the agent gets the card (and nothing else about LQ), the task, and the real tool surface: MCP `query`/`write`, or Bash with `moirai q`. It may run as many calls as it likes within 3 turns; errors, warnings, notices and reading echoes come back exactly as the engine prints them. Before the engine exists, the executor is the model's evaluator behind the real parser and binder (§8.2 LQ-3), so the benchmark gates the freeze of the grammar and the card without any throwaway component.
+3. **Harness.** Two axes ([90 §8.3]): model capability on one fixed runner (the card as system text; the tools `moirai_q` and `moirai_named`; the same 3-turn budget and engine responses for every model and every arm), and transport in the real harnesses (20 literal prompts each in Claude Code and a scripted generic stdio client, driven by Opus 5.5 — a Codex arm joins only if a later decision adds its model, #38 (a); 0 transport failures). **The runner is Claude Code in headless mode under the owner's subscription** (the owner review of 2026-09-27, V1, [AR] binding inputs: no API billing and no API key): `claude -p` on the laptop with the card appended to its system prompt, the two tools served by a test-only stdio MCP server, every other Claude Code tool denied and three turns at most; the scripted generic stdio client uses the same headless Claude Code as its model endpoint. [90 §8.3] states what that changes and how each result records it — the harness's own system prompt and kept tool definitions in every call, sampling that cannot be set (a repeated sample measures the run-to-run spread), Claude Code's reported token usage, a pinned and recorded Claude Code version, one runner for every arm. On the runner the agent gets the card (and nothing else about LQ), the task, and the real tool surface: MCP `query`/`write`, or Bash with `moirai q`. It may run as many calls as it likes within 3 turns; errors, warnings, notices and reading echoes come back exactly as the engine prints them. Before the engine exists, the executor is the reference model's evaluator behind the model's own parser and binder (§8.2 LQ-3; the owner review of 2026-09-27, A6), so the benchmark gates the freeze of the grammar and the card without any throwaway component; the product's LQ-1 front end and LQ-2 binder, built in M7, must reproduce the frozen error texts and lints, which GT13's re-run on the product checks.
 4. **Metrics.** First-try execution accuracy (result equals gold under the task's ordering rule); accuracy after one retry; **confident-wrong rate** — the final answer ran with exit 0 and no warning, notice or reading that contradicts the question, and its result differs from gold — **reported per construct tag**; hedged-wrong rate (wrong, but a warning, notice or reading echo exposed it); invalid-query rate split into parse / bind / plan errors, and the share of errors whose suggestion the agent's retry followed; named-query use where one exists; tokens written and read; latency; for writes, the rate of `DRY` diffs that differ from gold and of any write outside the gold target set.
-5. **Models** ([90 §8.3]; owner decision [AR §11] #38, reopened by #43 because the owner's Codex agents write LQ with a GPT model, and **decided on 2026-09-26 as option (a): "For now benchmarks only on Opus 5.5."**). **Gate tier:** Opus 5.5 alone, re-run when the owner's default changes; the freeze needs every gate of item 6 on it. There is no floor tier and no Codex arm: GPT-5.6-Luna is unmeasured, so the `codex` client writes under the `unknown` profile (item 9) until a later decision adds a model. Budget ≈ 53 M tokens at M0 (≈ 45 M on the neutral runner, ≈ 8 M in the two transport arms; ≈ $280 at list prices, range ≈ $160–540); fixtures sent to the vendor are synthetic, except the real-session stratum. **Later options** ([90 §8.3]): (b) GPT-5.6-Luna at `xhigh` in the gate tier with 0 confident-wrong writes under its profile (taking `compatible` or `unknown` if it misses an accuracy gate after the card, error and lint changes), a Codex transport arm, and a floor tier — one local open-weight model, 130 prompts, gated only on 0 confident-wrong writes — which needs a machine #34 did not buy or a hosted open-weight model (≈ 115 M tokens, ≈ $310 in all); (c) (b) plus a compatibility tier (GPT-6-Sol, Gemini 3.1 Pro, Sonnet 5 on the stratified 260 prompts; ≈ 130 M, ≈ $360).
-6. **Gates for freezing the grammar and card:** first-try accuracy ≥ 85 % and ≥ 95 % after one retry on the literal and short phrasings and on the real-session stratum; confident-wrong ≤ 2 % on reads overall **and ≤ 5 % for every construct tag**, and **0** on writes (the `EXPECT` and `DRY` design exists to make wrong writes loud); named-query use ≥ 80 % where one exists; no stratum below 75 % after one retry; the card ≤ 1,000 tokens by the maximum over the Claude and o200k tokenizers; each gate per gate-tier model as item 5 states. **A failed gate may change anything except the benchmark**: the card, an error text, a lint, a built-in, the compatibility table, **or the semantics** (counting, hop bounds, aliases, coercions) — before the freeze the grammar version is still open [51 M10]. After the freeze, a semantic change is a new grammar version; definitions stored under version 1 keep version-1 semantics forever.
+5. **Models** ([90 §8.3]; owner decision [AR §11] #38, reopened by #43 because the owner's Codex agents write LQ with a GPT model, and **decided on 2026-09-26 as option (a): "For now benchmarks only on Opus 5.5."**). **Gate tier:** Opus 5.5 alone, re-run when the owner's default changes; the freeze needs every gate of item 6 on it. There is no floor tier and no Codex arm: GPT-5.6-Luna is unmeasured, so the `codex` client writes under the `unknown` profile (item 9) until a later decision adds a model. Budget ≈ 53 M tokens at M0, mostly cached input (≈ 45 M on the Claude Code headless runner, ≈ 8 M in the two transport arms), plus ≈ 1 M for the repeated 52-prompt sample that measures the run-to-run spread ([90 §8.3]) — the estimate made for a neutral API runner (≈ 2.3 calls per prompt, ≈ 7k input tokens per call), before Claude Code's own system prompt and kept tool definitions, which add input to every call; M0's first usage window measures that per-call overhead from Claude Code's reported usage and the quota plan is re-issued on it, with the shrink rule below as the fallback — paid from the owner's Claude Code subscription quota in several usage windows inside M0 within its weekly limits and scheduled beside the build lanes' own Opus use — no API billing (≈ $280 at list prices, range ≈ $160–540, only as a reference; the owner review of 2026-09-27, V1); fixtures sent to the vendor are synthetic, except the real-session stratum, which goes only to Anthropic, through Claude Code. **If the quota cannot carry a run**, the prompt set shrinks by this documented rule, step by step, stopping at the first step that fits: (i) the non-gate ablations of item 7 (every one but D8, D11 and the display spelling) run on a stratified 130-prompt quarter instead of the 260-prompt half; (ii) the two alternative surfaces and the display-spelling ablation move to the stratified 260-prompt half; (iii) the gate-deciding ablations D8 and D11 drop the paraphrased phrasing (370 prompts). The baseline's 520 prompts and the two transport arms are never cut (if even they do not fit, the run takes more windows), and no gate is skipped: each gate is reported with its sample size and the 95 % interval of its estimate — at 85 %, ≈ ± 3.1 points with 520 prompts, ± 3.6 with 370, ± 4.3 with 260 — which states the resulting statistical power. **Later options** ([90 §8.3]): (b) GPT-5.6-Luna at `xhigh` in the gate tier with 0 confident-wrong writes under its profile (taking `compatible` or `unknown` if it misses an accuracy gate after the card, error and lint changes), a Codex transport arm, and a floor tier — one local open-weight model, 130 prompts, gated only on 0 confident-wrong writes — which needs a machine #34 did not buy or a hosted open-weight model (≈ 115 M tokens, ≈ $310 in all); (c) (b) plus a compatibility tier (GPT-6-Sol, Gemini 3.1 Pro, Sonnet 5 on the stratified 260 prompts; ≈ 130 M, ≈ $360). Both need access to non-Claude models, which the subscription route does not give (V1).
+6. **Gates for freezing the grammar and card:** first-try accuracy ≥ 85 % and ≥ 95 % after one retry on the literal and short phrasings and on the real-session stratum; confident-wrong ≤ 2 % on reads overall **and ≤ 5 % for every construct tag**, and **0** on writes (the `EXPECT` and `DRY` design exists to make wrong writes loud); named-query use ≥ 80 % where one exists; no stratum below 75 % after one retry; the card ≤ 1,000 tokens by the maximum over the Claude and o200k tokenizers; each gate per gate-tier model as item 5 states. This list, with [AR §7.7.5], is the normative GT13 gate list wherever GT13 is cited ([60 §3.1, §3.13]); there is no "within 5 points of the best candidate" gate — the alternative surfaces of §8.2's LQ-Bench row are ablations (the owner review of 2026-09-27, A6). **A failed gate may change anything except the benchmark**: the card, an error text, a lint, a built-in, the compatibility table, **or the semantics** (counting, hop bounds, aliases, coercions) — before the freeze the grammar version is still open [51 M10]. After the freeze, a semantic change is a new grammar version; definitions stored under version 1 keep version-1 semantics forever.
 7. **Ablations** reported with every run: card vs no card; 0/4/7 examples; Cypher-spelling tolerance on vs off (measures what §2.8 buys); the absent-value rule vs three-valued logic (D8); **bag vs set counting (D11)**; **walk vs BFS-distance hop bounds**; **reverse aliases on vs off**; **reading echo on vs off**; error texts with vs without suggestions; W07 on vs off; BM25 vs a statistics-free scorer on the search stratum (§5.5, [74 A15]); **the display spelling of quantifiers, Cypher vs GQL, in the card, `--show-query` and error rewrites, per gate-tier model** — Opus 5.5 alone under #38 (a), so the Cypher spelling, the prior GPT models share, is kept unless GQL wins beyond the ablation's run-to-run spread ([90 §8.1] L1).
-8. **Regression.** The benchmark runs on every change to the card, grammar, error texts or lints and before each release; results are stored as `measurement` nodes in moirai itself, with the model and card version as environment.
+8. **Regression.** The benchmark runs on every change to the card, grammar, error texts or lints and before each release; results are stored as `measurement` nodes in moirai itself, with the model, the card version and the Claude Code version of the runner as environment.
 9. **Model profiles** ([90 §8.2]). Each run writes the defaults of `lq.model-profile.<family>`: `gated` for a gate-tier model that passed the write gates, `compatible` for a family at ≥ 75 % after one retry on every stratum, `unknown` otherwise; `lq.model-profile.default.<client>` maps a session that declares no model to its harness's measured model — `claude` to Opus 5.5's profile, and `codex` to `unknown` while #38 (a) leaves GPT-5.6-Luna unmeasured. An `unknown` model's writes are named mutations only, refused otherwise with a dedicated error code; the `DRY` → `IF TARGETS` pair, whose `DRY` lists every target by id and title, is an opt-in (`query.safelist.model.unknown = dry-targets`); the reading echo is always on for `compatible` and `unknown` models; every error with a mechanical fix prints the replacement text ([90 §8.1] L2–L4, L8).
 
 ---
@@ -2003,7 +2003,7 @@ The owner has ruled out interim stages, so the plan below has no "subset first" 
 | F1 | schema `edges` rows gain `lq_name` (symbol), `src_kinds`, `dst_kinds` (u64 masks; project kinds ≥ 64 use an extension mask), `symmetric` (bool), `reverse_names` (list of symbols), `reading` (text template, e.g. "{a} must finish before {b} starts") | schema tables; `schema/edges.moi` | ~60 B per edge kind | direction typing (E106), reverse aliases, symmetric matching, the reading echo, E107 |
 | F2 | schema `fields` rows gain `optional` (bool), `default` (value), `index` (u8: none, column, bitmap), `sort_rank` for enum values, `coerce` (u8: none, priority `P<n>`, revision-integer) | schema tables; `schema/fields.moi` | a few B per field | absent semantics (§3.3), promotion (F5), enum ordering (§3.5), type-directed coercion (§3.2) |
 | F3 | schema `QUERIES` item: name, LQ grammar version (u16), parameter signature, shape, budget class, text blob in **portable form** (hashed); canonical-AST hash (BLAKE3-128, **unhashed, derived**); `Schema{weaken, query}` op whose canonical key is the name and whose value is the whole definition (atomic for merge); image file `schema/queries/<q>.moi` (q = hex(BLAKE3-256(name))[0..32], [80] X-F9) with the ABNF of §4.4 | schema tables, log, image | per query | project named queries (§4.4); [AR §5b.5 rule 7] |
-| F4 | cold column `CREATOR` = `(actor u16, role u16)` per row, set at `Create`, never changed | segments | 4 B/node (0.4 MB at 1e5) | provenance filters (`created_role`, `created_by`) without a commit lookup per row (Q7) |
+| F4 | cold column `CREATOR` = `(actor u32, role u16)` per row (actor widened to u32 at the integration, [AR §3.1], [71 RAM-m6]), set at `Create`, never changed | segments | 6 B/node (0.6 MB at 1e5) | provenance filters (`created_role`, `created_by`) without a commit lookup per row (Q7) |
 | F5 | section-tag ranges `FCOL.<field>` (dense typed column + absent bitmap) and `FIDX.<field>` (value → frozen bitset, walkable in value order) for fields with `index ≠ none`; default promotions: `labels`, `assignee`, `work_kind`, `phase_state`, `severity`, `f_kind`, `round`, `local_id`, `outcome`, `metric` | segment header tag space | 0 until used; ~1–5 B/node per promoted field | Q2-style label filters, finding filters at 1e6, `ValueJoin` and postings-ordered grouping (§5.4 rule 7) |
 | F6 | frozen-bitset chunk index carries a `card u32` per chunk; the segment header carries each bitset's total | bitsets | 4 B per 65,536-id chunk | exact counts and lower bounds in O(chunks) for the planner |
 | F7 | `STATS` section: per edge kind × direction `{edges u64, max_degree u32, log2 degree histogram [16]u32}`; per (kind, field) `{present u32, distinct_estimate u32}` | segments (written at checkpoint) | ~4–8 KB | estimates and anchor choice (§5.6) |
@@ -2030,11 +2030,11 @@ The roadmap of record, [60] issue 2, adopted the dependency order that [61 §7] 
 | **LQ-0 contract** | this document; F1–F18 into the format spec; grammar v1 with its trace; the error table; the v1 output envelope (§6.4) for every verb; std and tx signatures; the `.moi` query ABNF | on-disk format (C0) | M0 | — | M0 specification review; F1–F18 in the frozen format; the envelope agreed with [AR] and [40] (§10) |
 | **LQ-1 front end** | lexer, parser (grammar v1 incl. `TX`), AST with spans, pretty-printer, diagnostics (text + JSON), the targeted E004/E113/E117/E118/E308 errors, conformance fixtures from `lqcheck2`/`fixtures2`, fuzz target | none but the format's names; second lane | M7, built in the second lane from M0 exit ([60 §3.8]) | 2.3–3.2k lines | every text of this document parses; token and AST fixtures pass; parse → print → parse identity; GT5 grammar fuzzer 24 h clean |
 | **LQ-2 binder** | kind sets, schema binding, direction typing with aliases, readings and symmetric kinds, type-directed coercion, absent typing, parameter typing, W07 and the other lints, portable rewrite and canonical form + hash, view-validity rules, pinned/live classification, role-policy pre-check with field allowlists | graph core schema module (C2) | M7 (from M2 exit) | 2.5–3.5k | golden errors for every E1xx code and every lint; hash invariance; the two-store portable-hash test |
-| **LQ-3 reference evaluator** | in `moirai-model` [60 §4]: nested loops over materialised state with Cypher/GQL binding semantics, derived predicates by definition, walk-bounded reachability by brute force, aggregates by sorting, history relations by replay from genesis, link states from a model of [40]'s resolver over a fixture tree; written by the model's separate author | the model's graph-core, VC and file-link semantics | M0 (lane B, [60 §3.1] item 9) | 1.5–2.5k (test code) | GT10 fixtures written by hand from this document |
-| **LQ-Bench surface freeze** | fixture generator, 150 × 3 + 30 + 40 prompts, scorer (§7.4), run on LQ-1 + LQ-2 + LQ-3 against LQ, LQ with strict GQL spellings, and the JSON IR as input | LQ-1..3 only | M0 (GT13 on the model) | 1–1.5k + corpus | §7.4 gates → **grammar v1, semantics, error texts, lints and card frozen**. The freeze precedes LQ-4 and any stored definition; running it at M0 also settles the canonical-AST encoding before the format freeze |
+| **LQ-3 reference parser, binder and evaluator** | in `moirai-model` [60 §4]: its own naive lexer/parser and binder (≈ 1–1.5k lines), written independently of LQ-1/LQ-2 from LQ-0's grammar and error table, on which LQ-Bench runs at M0 (the owner review of 2026-09-27, A6); nested loops over materialised state with Cypher/GQL binding semantics, derived predicates by definition, walk-bounded reachability by brute force, aggregates by sorting, history relations by replay from genesis, link states from a model of [40]'s resolver over a fixture tree; written by the model's separate author | the model's graph-core, VC and file-link semantics | M0 (lane B, [60 §3.1] item 9) | 2.5–4k (test code: parser and binder 1–1.5k, evaluator 1.5–2.5k; inside the reference model's ≈ 8–10k lines, [60 §3.1] size basis) | GT10 fixtures written by hand from this document |
+| **LQ-Bench surface freeze** | fixture generator, 150 × 3 + 30 + 40 prompts, scorer (§7.4), run on LQ-3 — the reference model's own parser, binder and evaluator — against LQ, LQ with strict GQL spellings, and the JSON IR as input (the owner review of 2026-09-27, A6: LQ-1 and LQ-2 stay in M7 and must reproduce the frozen error texts and lints, checked by GT13's re-run on the product) | LQ-3 and LQ-0's contract | M0 (GT13 on the model) | 1–1.5k + corpus | §7.4 gates → **grammar v1, semantics, error texts, lints and card frozen**. The freeze precedes LQ-4 and any stored definition; running it at M0 also settles the canonical-AST encoding before the format freeze |
 | **LQ-4 executor core** | `View` consumer; `IdList`, `BitmapScan`, `RuntimeScan`, `ColumnScan`, `FieldScan`, `Filter`, `Project`, `TopK`, `Sort`, `Aggregate`, `Distinct`, `Limit`; pinned and live cursors; budgets incl. `mem` and cancellation; output writer (envelope, reading echo, shapes, footers, `--ids` streaming) | storage engine read path and `View` (C1), graph core (C2) incl. `LEASES`/`MARKERS`/`ALLOC` | M7 (from M2 exit, second lane) | 3–4k | GT2 against LQ-3; GT9 budget-stop replay on resumable plans |
 | **LQ-5 graph operators** | `Expand` (factorized), `SemiJoin`, `Intersect`, `Closure` (visited and layered frontier), `Subtree`, `Ancestors`, `Blockers`, `ValueJoin`/postings aggregation, `neighbors`, the `search()` operator over C2's FTS tiers with view statistics | graph core (C2: CSR, derived state, FTS, `FIDX`) | M7 (from M2 exit, second lane) | 1.8–2.6k | GT2; verb == named-query property; tier-1 = tier-2 rankings |
-| **LQ-6 planner** | rewrites incl. runtime anchors and value joins, exact-count anchor choice, semijoin placement, lower-bound pre-flight, resumability, EXPLAIN/PROFILE/check | F6, F7 in the storage engine | M7 (from M2 exit, second lane) | 1–1.5k | plan-choice benchmark: the P1–P4 pairs of [15 §4.2] pick the fast plan at 1e5 and 1e6; `brief_triage` ≤ 5 ms at 1e5 |
+| **LQ-6 planner** | rewrites incl. runtime anchors and value joins, exact-count anchor choice, semijoin placement, lower-bound pre-flight, resumability, EXPLAIN/PROFILE/check | F6, F7 in the storage engine | M7 (from M2 exit, second lane) | 1–1.5k | plan-choice benchmark: the P1–P4 pairs of [15 §4.2] pick the fast plan at 1e5 and 1e6; `brief_triage` ≤ 50 µs at 1e4, 1e5 and 1e6 ([AR §8.3], [70 S4]) |
 | **LQ-7 transactions** | statement compiler to changeset ops, candidate overlay, `EXPECT`/`IF TIP`/`ASSERT`/`LEASE`, deferred validation incl. named-query validators, idempotency on the canonical AST, per-op and per-field role policy, `DRY` diff, `tx.*` named mutations, the JSON IR shared with `apply` | graph core write semantics (C2); version-control staging refs for `RESOLVE` (C3) | M7 | 2.5–3.5k | GT3 simulation with concurrent writers: `EXPECT`/`IF TIP` never admit a lost update; `DRY` diff = committed diff; the I26′ door test through `TX` |
 | **LQ-9 versioned queries** | revision resolution with the fixed ref grammar, the three as-of strategies charged to `mem`, derived-at-view cone with the `affected_complete` fallback, relation wrappers over C3's `log`/`diff`/`blame`/`history`/as-of, `conflicts`/`violations`, `across`, composites | version control (C3); F16 | M7 | 1.2–2.2k | GT2 against the model's replay from genesis; as-of within `mem` at the CLI maximum |
 | **LQ-10 ancestry built-in** | `staleness()` and the tree gate through the in-process git reader | git object layer (C4) | M7 (weak edge from M4) | 0.1–0.2k | ancestry agrees with `git merge-base` (GT7) |
@@ -2044,7 +2044,7 @@ The roadmap of record, [60] issue 2, adopted the dependency order that [61 §7] 
 | **LQ-12 agent interface** | pack/brief candidate classes as named queries (C2 via `diff`, `brief_triage` via `RuntimeScan`); `moirai-ql` card and `reference-ql.md`; hooks on std named queries | agent interface (C9) | M9 | 0.3–0.5k + docs | pack classes equal the model's (GT2); card within budget; LQ-Bench on the real binary |
 | **LQ-14 MCP** | `query` and `write` tools, annotations, cancellation slices, `--read-only`, [40]'s write ops | MCP (C10) | M10 | 0.3–0.5k | GT12 conformance; LQ-Bench through MCP |
 
-**Size** [51 M6]. The query-language component (LQ-1, -2, -4, -5, -6, -7, -9, -10) is ≈ 15–21.5k lines of product code, plus ≈ 2.5–4k lines of test code (LQ-3 and the benchmark) and the grammar fuzzer (est.). Against the first revision's 14–20k: the untraced productions removed (path variables and the shortest-path operator, `SKIP`/`OFFSET`, comprehensions, slices, `XOR`, `%`, `single()`, `FOR`, `LET`, `FILTER`) save ≈ 0.8–1.2k lines, and the checks that make mistakes loud (pattern predicates, reverse aliases and readings, coercion, lints, portable definitions, live cursors, runtime anchors, value joins, the layered frontier, the unified `mem` budget) cost ≈ 2–2.5k. At [60]'s ratio of ≈ 3 units per 1k product lines including their tests, that is **≈ 45–64 units**; [60] issue 2 had carried this document's first-revision size for M7 (14–20k lines, 42–60 units) and was raised at the integration of 2026-09-26 to these figures (M7 49.5–70 units in [60 §3.8], 51–72.5 with the priority audits' delta); the rest (≈ 2.5–4k lines across the CLI, image, file-link, agent-interface and MCP components) lands in the milestones that own it. No new dependency. The permanent surface is what shrank: 69 syntactic productions instead of 71, 14 alternatives fewer inside them, and no path values (§2.3).
+**Size** [51 M6]. The query-language component (LQ-1, -2, -4, -5, -6, -7, -9, -10) is ≈ 15–21.5k lines of product code, plus ≈ 3.5–5.5k lines of test code (LQ-3 with its own parser and binder, and the benchmark, both sized in M0: [60 §3.1]) and the grammar fuzzer (est.). Against the first revision's 14–20k: the untraced productions removed (path variables and the shortest-path operator, `SKIP`/`OFFSET`, comprehensions, slices, `XOR`, `%`, `single()`, `FOR`, `LET`, `FILTER`) save ≈ 0.8–1.2k lines, and the checks that make mistakes loud (pattern predicates, reverse aliases and readings, coercion, lints, portable definitions, live cursors, runtime anchors, value joins, the layered frontier, the unified `mem` budget) cost ≈ 2–2.5k. At [60]'s ratio of ≈ 3 units per 1k product lines including their tests, that is **≈ 45–64 units**; [60] issue 2 had carried this document's first-revision size for M7 (14–20k lines, 42–60 units) and was raised at the integration of 2026-09-26 to these figures (M7 49.5–70 units in [60 §3.8], 51–72.5 with the priority audits' delta); the rest (≈ 2.5–4k lines across the CLI, image, file-link, agent-interface and MCP components) lands in the milestones that own it. No new dependency. The permanent surface is what shrank: 69 syntactic productions instead of 71, 14 alternatives fewer inside them, and no path values (§2.3).
 
 ### 8.3 Tests
 
@@ -2052,7 +2052,7 @@ The roadmap of record, [60] issue 2, adopted the dependency order that [61 §7] 
 - **Parser fuzzing and conformance** (GT5): byte-level fuzzing (no panic, bounded time and memory, every error span inside the input); grammar-directed generation; parse → pretty-print → parse yields the same AST; `lqcheck2.py` and the Rust parser agree on the **token and AST streams** for the whole corpus, not only on accept/reject [51 M1].
 - **Property tests** (GT9 and the query properties of [60 §3.6]): verb output = named-query output for every std query and every argv form; `p` / `NOT p` partition every input (the metamorphic TLP test, two-valued, [15 §14.3]); composite-query set laws; bag laws (`count(*)` = the model's match count; `RETURN DISTINCT` = set of `RETURN`); hop bounds = brute-force walk enumeration; reverse alias ≡ swapped pattern; as-of derived values via the cone = the model's full recomputation, including windows with `affected_complete = 0`; a budget stop is deterministic, and **on resumable plans** resuming from its cursor yields exactly the full result; pinned cursor pages never skip or repeat; canonical hash invariant under formatting, spelling, aliases, variable names and parameter order; **two stores that import the same bundle bind every named query to the same uids and compute the same hash**; no stored definition contains a store-local datum; idempotent replay; `DRY` diff = committed diff; `EXPECT`/`IF TIP` atomic under the deterministic multi-process simulator [AR §8.2]; the role-policy matrix including field allowlists; markers produced by every write door (CB3) including `TX`; **zero log bytes appended by any read** (I-F5), including reads that resolve link states.
 - **Golden tests** (GT10, GT12): every error, warning and notice code has a text and a JSON fixture; every shape has fixtures; the envelope has fixtures shared with [AR]'s verbs and [40]'s; the card's examples run in CI against the fixture store; the ten mistakes of §2.9 produce the listed outcome.
-- **Performance and RAM gates** (GT11; measured on the owner's laptop — nightly in its agent-free windows and at the query milestone's exit, never on the hosted runners, [60 §3.13, §5]): parse + bind ≤ 20 µs for queries ≤ 1 KB; each §5.12 row within 2× of its estimate at 1e5 (nightly at 1e6); `brief_triage` ≤ 5 ms at 1e5; the composed RSS case of §5.12; the plan-choice benchmark; zero idle CPU for the MCP server with a cancelled query outstanding.
+- **Performance and RAM gates** (GT11; measured on the owner's laptop — nightly in its agent-free windows and at the query milestone's exit, never on the hosted runners, [60 §3.13, §5]): parse + bind ≤ 20 µs for queries ≤ 1 KB; each §5.12 row within 2× of its estimate at 1e5 (nightly at 1e6); `brief_triage` ≤ 50 µs at 1e4, 1e5 and 1e6 ([70 S4]); the composed RSS case of §5.12; the plan-choice benchmark; zero idle CPU for the MCP server with a cancelled query outstanding.
 - **LLM gates** (GT13): LQ-Bench (§7.4) before freeze, on every card/grammar/error-text/lint change and before release.
 
 ---
@@ -2127,7 +2127,7 @@ This file edits neither [AR], [60] nor [40]. The edits it implies, for whoever m
 | §7.3 role policy | enforced per statement, op and field (§6.5); widening is D12 |
 | §7.4 packs | candidate classes C1–C8 are named queries; C2's `~main` class is defined with `diff(HEAD...main)` |
 | §7.5 skills | add `moirai-ql` (card ≤ 1k tokens by the real tokenizer) and `reference-ql.md`; the core skill points to it |
-| §8.1–8.2 budgets and benchmarks | the §5.12 rows as budget gates; `brief_triage` ≤ 5 ms at 1e5; the composed RSS case; LQ-Bench as a gate; work-unit calibration |
+| §8.1–8.2 budgets and benchmarks | the §5.12 rows as budget gates; `brief_triage` ≤ 50 µs at 1e4, 1e5 and 1e6 ([70 S4]); the composed RSS case; LQ-Bench as a gate; work-unit calibration |
 | §9 roadmap | as replaced by [60]; the LQ packages of §8.2 |
 
 ### 10.2 [60]
@@ -2136,7 +2136,7 @@ This file edits neither [AR], [60] nor [40]. The edits it implies, for whoever m
 |---|---|
 | §2.5 (what M0 freezes) | add F1–F18 (`PATHIDX`, `STATS`, typed `EDGE_PROPS` and the named-query item kind are already there); the "derived-state semantics" row keeps its content (the persisted bitset is structural) with the names of §3.8; the output envelope of §6.4 for every verb; the `.moi` query ABNF |
 | §2.1 C5, §3.6 M5 scope | replace the placeholder by this document: `unblocked`/`ready` instead of `ready`/`dispatchable`; tier-B filtering is a query anchored on `CALL changes(since:)`, with no stored subscription objects (§1.3); one `mem` budget (default min(1 MiB, gate headroom), agent maxima 2 MiB CLI / 4 MiB MCP) instead of separate arena caps of 4/8 MiB; pinned and live cursors instead of "cursors pinned to a commit" |
-| §3.6 M5 surface decision, GT13 | the experiment is LQ-Bench (§7.4): 450 synthetic + 30 real-session + 40 adversarial prompts, per-construct confident-wrong gates, semantic remedies allowed; it needs only LQ-1..3, so it may run at M0 on the model as [61 §7] proposes |
+| §3.6 M5 surface decision, GT13 | the experiment is LQ-Bench (§7.4): 450 synthetic + 30 real-session + 40 adversarial prompts, per-construct confident-wrong gates, semantic remedies allowed; it needs only LQ-1..3, so it may run at M0 on the model as [61 §7] proposes (superseded by the owner review of 2026-09-27, A6: GT13 at M0 runs on LQ-3 alone, the model's own parser, binder and evaluator; LQ-1 and LQ-2 stay in M7; §7.4 item 3, §12.14) |
 | §3.6 M5 size | ≈ 45–64 units instead of 23–39 (§8.2) |
 | §3.9 M8 scope | "link status exposed as relations and built-ins" = LQ-13 of §8.2 ([40 §6.5] vocabulary) |
 | §3.13 GT9 | with two-valued logic the partition is `p` / `NOT p`; resumption properties hold on resumable plans only |
@@ -2300,3 +2300,11 @@ The owner answered (verbatim translation, [AR] binding inputs): "For now no addi
 ### 12.12 Verification pass after the owner's answers (2026-09-26)
 
 [AR]'s Review log lists the pass. Changes here: §9 is "Risks and owner decisions"; §9.2's heading, intro and columns state the decisions ("Decided", "Applies from") instead of recommendations and due dates; risk 13 and §8.2's size paragraph give M7 as 51–72.5 units with the audits' delta ([60 §3.8]); §8.3's performance and RAM gates run on the owner's laptop, never on the hosted runners ([60 §3.13]); §10.1's budget row says "budget gates". No production, semantic rule, frozen string or reservation changes.
+
+### 12.13 Cross-document consistency pass after the Russian approval review (2026-09-27)
+
+The owner-approval description in `docs/architecture-approval-ru/` listed the contradictions left between the documents of record (its approval checklist, item A5); [AR]'s Review log entry of the same title lists the whole pass. Items fixed here: **CREATOR-width** — F4 (§8.1) gives `CREATOR` as `(actor u32, role u16)`, 6 B per node, as [AR §3.1] does; **sync-first-DanglingEdge** — Q16 and Q25 read and resolve the `DanglingEdge` on the sync's staging ref `merge/lane/l10/from/main`, because under sync-first ([AR §5a.7] step 0) the sync raises it and stages the whole merge; **LQ-card-size-and-dirty_files** — §7.1 and §7.2 give the card's size as printed (3,013 characters, 442 words) beside the probe's `card2.md` measurement (3,003 and 439), and §6.1 names the runtime `TREES.dirty` row instead of the removed `dirty_files`; **brief_triage-gate-50** — LQ-6 (§8.2), §8.3 and §10.1 carry the gate of record, `brief_triage` ≤ 50 µs at 1e4, 1e5 and 1e6 ([70 S4]); **LQ-example-headers** — every example header and `reads:` line uses the frozen envelope of §6.4 (ASCII ` | ` separators; no commit id on reads; `committed <id>` on writes; composite parts, `across` and `diff` keep their ids), and the rest of every example output is ASCII too ([90 §8.1] L5, [73 F15]): the write and `DEFINE` results and their `affected:` and `markers:` footers (Q18–Q21, Q24), the E401 text, Q23's whole EXPLAIN block (its reading echo is now a `reads:` line), the truncation lines of Q22 and Q27, E101's `= help:` text and §2.5's inline reading echo use ` | `, `...`, `<=`, `AND`, `x` and `us` instead of ` · `, `…`, `≤`, `∧`, `×` and `µs`. **LEASES-row-layout-50** — §5.5's `RuntimeScan` row and §5.4 item 5 read `LEASES` in its `(#N, lease id)` order and skip role leases at `#N` = 0, which hold no task ([AR §4.4]). No line above this entry was added or removed, and no production, semantic rule, frozen string or reservation changes.
+
+### 12.14 The owner review of 2026-09-27
+
+The owner answered the approval checklist of the Russian description (`docs/architecture-approval-ru/15-approval-checklist.md`; items А1–А8, Б1–Б14 and В1–В10, cited as A1–A8, B1–B14 and V1–V10); [AR]'s binding inputs record the answers and its Review log entry of the same date lists the whole change. Changes here, every one in place: **A6 (a)** — LQ-Bench at M0 runs on LQ-3, the reference model's own parser, binder and evaluator; LQ-1 and LQ-2 stay in M7 and must reproduce the frozen error texts and lints (§7.4 item 3, §8.2's LQ-Bench row, whose dependency is now LQ-3 and LQ-0's contract); §7.4 item 6 with [AR §7.7.5] is the normative GT13 gate list, with no "within 5 points of the best candidate" gate ([60 §3.1]'s exit criterion now lists the same gates). **V1** ("I will not buy API access; only Claude Code by subscription is available") — no API billing and no API key: the neutral runner becomes Claude Code in headless mode under the owner's subscription, and the scripted generic stdio client uses it as its model endpoint (§7.4 item 3; what that changes is [90 §8.3]'s); the ≈ 53 M tokens at M0, mostly cached input, are subscription quota in several usage windows inside M0; item 5 gains the documented shrink rule and states each gate's sample size and 95 % interval instead of skipping a gate; options (b) and (c) need non-Claude model access; item 8 records the Claude Code version. The rest of the review (A1–A5, A7, A8, B1–B14, V7) changes nothing here. **Follow-up checks of the same day:** §8.2's LQ-3 row is now the reference parser, binder and evaluator — the model's own naive lexer/parser and binder (≈ 1–1.5k lines, as [60 §4] sizes them), written independently of LQ-1/LQ-2 from LQ-0's grammar and error table, beside the evaluator; its size is 2.5–4k lines of test code inside the reference model's ≈ 8–10k ([60 §3.1]), so §8.2's test-code total becomes ≈ 3.5–5.5k lines, with no unit or calendar change; §10.2's row "§3.6 M5 surface decision, GT13" carries a superseded note (A6: GT13 at M0 runs on LQ-3 alone); item 5 labels the ≈ 53 M as the neutral-API estimate (≈ 2.3 calls per prompt, ≈ 7k input tokens per call) before Claude Code's per-call overhead, adds ≈ 1 M for the repeated 52-prompt sample, and has M0's first usage window measure that overhead and re-issue the quota plan, with the shrink rule as the fallback. No line above this entry was added or removed, and no production, semantic rule, frozen string or reservation changes.

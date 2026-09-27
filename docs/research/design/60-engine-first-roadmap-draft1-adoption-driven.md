@@ -1,5 +1,7 @@
 # 60 — Engine-first roadmap: building moirai with no third-party database
 
+> **SUPERSEDED — historical record.** This first draft is superseded by [60-roadmap.md](60-roadmap.md), the roadmap of record, and by [docs/ARCHITECTURE-RESEARCH.md](../../ARCHITECTURE-RESEARCH.md) §9; its claim to be "the roadmap of record for the build order" no longer holds. Its allowance of redb and heed/LMDB as optional out-of-tree benchmark reference points (binding consequence 3, §0, §4.4 and the edit-list rows of §7) is **withdrawn** by the owner's rule that no third-party embedded database is built, linked or run anywhere, not even as a benchmark ([AR §9], `AGENTS.md`; [60-roadmap.md](60-roadmap.md) deleted the same allowance). The text below is kept unchanged.
+
 *moirai research/design, 2026-09-26. Status: research only; nothing is implemented. Trigger: the owner decision of 2026-09-26 (verbatim, translated): "No, we do not use SQLite — we build our own [engine] right away." It rejects the recommended default of owner decision #2 in [AR §11]. That default ran S1–S5 on a throw-away SQLite backend behind the engine trait and landed the from-scratch engine at S6. The decision therefore replaces the oracle-first plan of [AR §9] and [22 §7.3]. This file is the roadmap of record for the build order. [AR] is to be amended by the edit list in §7; this file does not edit it.*
 
 **Binding consequences.** These come from the decision and constrain everything below.
