@@ -1,0 +1,574 @@
+(* =============================================================================================
+   Title         LQ (Lachesis) grammar, version 1: the 54 + 15 + 13 productions of [50 §2.3], the
+                 parser decisions they need, the refused forms with their codes, the strict-GQL
+                 spelling mode and the requirement trace
+   Chapter       [LQ/grammar-v1.ebnf], docs/spec/lq/grammar-v1.ebnf; a production section is cited
+                 [LQ/grammar-v1.ebnf §n], an annex item [LQ/grammar-v1.ebnf §X.n] (X = A, P, R, G,
+                 T, C), an open point [LQ/grammar-v1.ebnf] O-n
+   Status        draft, pass 1 pending
+   Work package  WP-19a (R-SPEC-F), part of WP-19 of [PLAN §3.2] item 1
+   Sources       [50 §2.1] shape of a query; [50 §2.2] lexical rules 1-10; [50 §2.3] the EBNF
+                 (54 + 15 + 13 productions) and its parser notes; [50 §2.3.1] requirement trace;
+                 [50 §2.4] revision grammar (REF@{n}); [50 §2.8] compatibility tables;
+                 [50 §3.2] binder rules the parser defers to; [50 §3.10] items 1-3, 8-9 (TX);
+                 [50 §4.4] portable definitions, E117; [50 §5.2] parser and error codes E001-E009,
+                 E113, E114, E118, E308; [50 §7.4] items 3 and 7 and [50 §8.2] LQ-Bench row (the
+                 strict-GQL surface); [50 §12.2] M1, M6 and [50 §12.5] (IF TARGETS);
+                 [AR §7.7.1]; [90 §8.1] L1, L4; [80 §3] X-F9 ("LQ ref_word stays as is").
+   Depends on    [LQ/lexical] (tokens, modes, literals; normative for section 7),
+                 [LQ/canonical-ast] (the S-AST this grammar produces, section 3),
+                 [LQ/errors] (the texts of the codes named here), [LQ/std] (relation signatures),
+                 [LQ/gql-spelling] (the spelling table behind Annex G), [F01] (conventions).
+   Freeze        with the rest of the query surface, after WP-72 (GT13) and any WP-73 remedy
+                 ([PLAN §3.2] WP-19: "frozen only after WP-72"); see §O O-11.
+   ============================================================================================= *)
+
+(* ---------------------------------------------------------------------------------------------
+   §0 Conventions
+
+   0.1 This file is normative for grammar version 1 (lq = 1). Every production shipped here is
+       permanent: a stored named query records its grammar version and must parse and evaluate
+       with version-1 semantics forever [50 §2.3], [50 §4.4]. A later grammar version may only
+       add productions.
+   0.2 Notation (ISO 14977 style, as [50 §2.3]): juxtaposition is concatenation; { a } is zero
+       or more; [ a ] is optional; ( a | b ) is a choice; a - b is a without b. A double-quoted
+       terminal "WORD" is a keyword matched ASCII-case-insensitively; a single-quoted terminal
+       'x' is matched exactly, byte for byte. Two exceptions, both in revision mode: "HEAD" is
+       matched exactly in upper case, and the letters 's' and 'c' of seq_lit and commit_lit are
+       exact lower case ([LQ/lexical §7.2]).
+   0.3 Productions §1-§7 are the 82 productions of [50 §2.3]: 54 syntactic productions for reads
+       and revisions (§1-§5), 15 for transactions (§6) and 13 lexical ones (§7). Annex C lists
+       them. Names are frozen: a reviewer or fixture cites them. Annex A defines the character
+       classes and the two name aliases that [50 §2.3] uses without defining; they are not
+       productions and are not counted.
+   0.4 The lexical productions of §7 summarise [LQ/lexical], which is normative for tokens,
+       modes, limits and literal values. Where the two differ, [LQ/lexical] wins and the
+       difference is a finding.
+   0.5 Parser decisions that EBNF cannot state (lookahead, backtracking, modes, recovery) are
+       Annex P. The forms the parser refuses with a specific code are Annex R. The strict-GQL
+       spelling mode is Annex G. The requirement trace is Annex T.
+   0.6 Spelling classes. A comment [C] marks a Cypher-only spelling and [G] a GQL-only spelling
+       (Annex G). Unmarked alternatives are shared or moirai's own.
+   0.7 What the parser produces: the S-AST of [LQ/canonical-ast §3]. The spelling
+       normalisations of [LQ/canonical-ast §3.1] are applied while parsing; the canonical form
+       and every hash are independent of the display spelling of quantifiers ([90 §8.1] L1).
+   0.8 Comments in this file never contain the two-character sequences that open or close an
+       ISO 14977 comment; count( * ) is written with spaces for that reason.
+   --------------------------------------------------------------------------------------------- *)
+
+
+(* §1 Entry points                                                  trace: [50 §1.1], §6.1, §6.3 *)
+
+read_input      = [ "EXPLAIN" | "PROFILE" ] query ;                (* moirai q, MCP query; P1 *)
+write_input     = tx ;                                             (* moirai tx, MCP write; P1 *)
+
+
+(* §2 Read queries                               trace: EX1-EX8, EX11, EX15, EX16; every std query *)
+
+query           = single_query { set_op single_query } ;
+set_op          = "UNION" [ "ALL" ] | "EXCEPT" | "INTERSECT" ;     (* EX11, Q15 *)
+single_query    = [ "USE" revspec ] ( standalone_call | { clause } return_clause ) ;   (* P7 *)
+clause          = match_clause | optional_clause | call_clause | unwind_clause | with_clause ;
+match_clause    = "MATCH" [ match_mode ] pattern_list [ where ] ;
+optional_clause = "OPTIONAL" "MATCH" pattern_list [ where ] ;      (* EX6; pack_target, Q27 *)
+match_mode      = "WALK" | "TRAIL" | "ACYCLIC" | "SIMPLE"          (* [G] accepted, W02 *)
+                | "DIFFERENT" ( "RELATIONSHIPS" | "EDGES" ) ;      (* the default; no warning *)
+where           = "WHERE" expr ;
+call_clause     = "CALL" proc_name "(" [ args ] ")" "YIELD" yield_items [ where ] ;
+standalone_call = "CALL" proc_name "(" [ args ] ")"
+                  [ "YIELD" ( '*' | yield_items ) [ where ] ] order_limit ;
+yield_items     = ident [ "AS" ident ] { ',' ident [ "AS" ident ] } ;  (* P3: field names are plain names *)
+unwind_clause   = "UNWIND" expr "AS" ident ;                       (* EX7, EX13 *)
+with_clause     = "WITH" [ "DISTINCT" ] proj_items [ where ] order_limit ;   (* EX7; P16 *)
+return_clause   = "RETURN" [ "DISTINCT" | "ALL" ] proj_items       (* "ALL" [G], the default bag *)
+                  [ "GROUP" "BY" expr { ',' expr } ] order_limit ; (* GROUP BY [G], checked *)
+proj_items      = ( '*' | proj_item ) { ',' proj_item } ;
+proj_item       = expr [ "AS" ident ] ;
+order_limit     = [ "ORDER" "BY" sort_item { ',' sort_item } ] [ "LIMIT" count ] ;   (* SKIP: R *)
+sort_item       = expr [ "ASC" | "ASCENDING" | "DESC" | "DESCENDING" ] ;
+count           = int | param ;
+proc_name       = ident { '.' ident } ;           (* a tx.* name is refused here: E006 (R) *)
+
+
+(* §3 Patterns                                   trace: EX1-EX6, EX10; ready scope, Q5, notes, Q9 *)
+
+pattern_list    = path { ',' path } ;
+path            = node_pat { ( edge_pat | group_pat ) node_pat } ;
+group_pat       = '(' path [ where ] ')' quantifier ;              (* [G] quantified path pattern; P6 *)
+node_pat        = '(' node_lit ')'
+                | '(' [ ident ] [ ':' label_expr ] [ prop_map ] [ where ] ')' ;
+label_expr      = label { '|' label } ;           (* a second ':' is E004: one kind per node *)
+edge_pat        = ( '-' '[' edge_body ']' '->'
+                  | '<-' '[' edge_body ']' '-'
+                  | '-' '[' edge_body ']' '-'
+                  | '-' '->' | '<-' '-' | '-' '-' ) [ quantifier ] ;   (* P4 for the '<-' token *)
+edge_body       = [ ident ] [ ':' type_name { '|' type_name } ]
+                  [ '*' [ int ] [ '..' [ int ] ] ]                 (* [C] Cypher spelling of a quantifier *)
+                  [ prop_map ] [ where ] ;
+quantifier      = '+' | '*' | '{' int ',' [ int ] '}' | '{' int '}' | '{' ',' int '}' ;   (* [G] *)
+prop_map        = '{' [ ident ':' expr { ',' ident ':' expr } ] '}' ;   (* {p: null} in a pattern: E118 *)
+
+
+(* §4 Expressions, lowest precedence first      trace: EX2, EX5-EX7, EX9, EX10, EX13; Q6, Q7, Q19 *)
+
+expr            = and_expr { "OR" and_expr } ;
+and_expr        = not_expr { "AND" not_expr } ;
+not_expr        = "NOT" not_expr | pred_expr ;
+pred_expr       = add_expr [ cmp_op add_expr                       (* '= NULL', '<> NULL': E118 *)
+                           | "IS" [ "NOT" ] "NULL"
+                           | [ "NOT" ] "IN" add_expr
+                           | ( "STARTS" | "ENDS" ) "WITH" add_expr
+                           | "CONTAINS" add_expr
+                           | ':' label_expr ] ;                    (* label test: k:note|rule *)
+cmp_op          = '=' | '<>' | '!=' | '<' | '<=' | '>' | '>=' ;    (* '!=' [C] *)
+add_expr        = mul_expr { ( '+' | '-' ) mul_expr } ;
+mul_expr        = unary_expr { ( '*' | '/' ) unary_expr } ;
+unary_expr      = [ '-' ] postfix_expr ;
+postfix_expr    = primary { '.' ident } ;         (* '.' ident '(' is E004: no method calls *)
+primary         = literal | param | node_lit | ident | path_pred | '(' expr ')'
+                | func_call | list_lit | map_lit | case_expr
+                | "EXISTS" '{' subquery '}' | "COUNT" '{' subquery '}' ;
+path_pred       = path ;                          (* [C] Cypher pattern predicate = EXISTS { path };
+                                                     a path of at least one edge; P5 *)
+subquery        = { clause } [ return_clause ] | pattern_list [ where ] ;   (* no USE: E308; P8 *)
+func_call       = ident '(' [ "DISTINCT" ] [ args ] ')'
+                | "count" '(' '*' ')'
+                | ( "all" | "any" | "none" ) '(' ident "IN" expr "WHERE" expr ')'
+                | ( "exists" | "size" ) '(' path ')' ;             (* [C] = EXISTS { path } / COUNT { path }; P9 *)
+args            = arg { ',' arg } ;
+arg             = [ ident ':' ] ( expr | rev_arg ) ;               (* rev_arg in revision-typed positions; P2, P10 *)
+list_lit        = '[' [ expr { ',' expr } ] ']' ;
+map_lit         = prop_map ;
+case_expr       = "CASE" [ expr ] "WHEN" expr "THEN" expr { "WHEN" expr "THEN" expr }
+                  [ "ELSE" expr ] "END" ;
+literal         = int | float | string | duration | "TRUE" | "FALSE" | "NULL" ;
+
+
+(* §5 Revisions: revision mode, only in the positions of [LQ/lexical §4.2]      trace: EX11 *)
+
+revspec         = param | rev_base { rev_suffix } ;
+rev_base        = "HEAD" | commit_lit | seq_lit | ref_name ;       (* "HEAD" exact, see 0.2 *)
+rev_suffix      = '~' [ int ] | '^' [ int ] | '@' ( int | datetime )
+                | '@' '{' int '}' ;                                (* git's REF@{n} [50 §2.4]; = '@' int *)
+rev_arg         = revspec [ ( '..' | '...' ) revspec ] | '[' revspec { ',' revspec } ']' ;
+
+
+(* §6 Transactions                                             trace: EX12, EX14, EX15; §4.2 verbs *)
+
+tx              = "TX" { tx_option } '{' tx_stmt { ';' tx_stmt } [ ';' ] '}' [ "DRY" ] ;
+tx_option       = "ON" revspec | "IF" "TIP" revspec
+                | ( "KEY" | "LEASE" | "MESSAGE" ) string
+                | "IF" "TARGETS" string ;         (* the target-set digest a DRY printed, [72 m1] *)
+tx_stmt         = "MATCH" pattern_list [ where ] "EXPECT" expect mutation { mutation }
+                | mutation { mutation }
+                | create_stmt
+                | "CALL" tx_name '(' [ args ] ')' [ "YIELD" yield_items ]
+                | "ASSERT" expr [ "ELSE" string ]
+                | resolve_stmt | define_stmt | "DROP" "QUERY" qname ;
+tx_name         = "tx" '.' ident ;                                 (* named mutations *)
+expect          = int [ '..' int ] | '<=' int | '>=' int | param ;
+mutation        = "SET" target '.' ident '=' expr { ',' target '.' ident '=' expr }
+                | "REMOVE" target '.' ident { ',' target '.' ident }
+                | "DELETE" target { ',' target } { delete_opt }
+                | "MOVE" target "UNDER" target [ ( "BEFORE" | "AFTER" ) target | "FIRST" | "LAST" ]
+                | ( "CREATE" | "INSERT" ) '(' target ')' edge_step '(' target ')'   (* "INSERT" [G] *)
+                | "REOPEN" target "REASON" expr
+                | "PATCH" target '.' ident "REMOVE" expr "ADD" expr ;
+delete_opt      = "POLICY" ( "RESTRICT" | "CASCADE" | "REPARENT" )
+                | "REPLACED" "BY" target | "RELEASE" | "REASON" expr ;
+target          = ident | node_lit | param ;
+edge_step       = '-' '[' ':' type_name [ prop_map ] ']' '->'
+                | '<-' '[' ':' type_name [ prop_map ] ']' '-' ;
+create_stmt     = ( "CREATE" | "INSERT" ) '(' ident ':' label [ prop_map ] ')'     (* "INSERT" [G]; P11 *)
+                  { edge_step '(' target ')' } [ "UNDER" target ]
+                  [ "UNLESS" "EXISTS" '{' subquery '}' ] ;
+resolve_stmt    = "RESOLVE" ( string | '(' query ')' "EXPECT" expect )
+                  "TAKE" ( "OURS" | "THEIRS" | "BASE" | "VALUE" expr | "REPOINT" target ) ;
+define_stmt     = "DEFINE" "QUERY" qname '(' [ param_decl { ',' param_decl } ] ')'
+                  [ "SHAPE" ident ] [ "BUDGET" ident ] "AS" '{' query '}' ;   (* reflog revspecs: E117 *)
+param_decl      = param ':' type [ '?' ] [ '=' ( literal | node_lit ) ] ;
+type            = ident [ '<' ident '>' ] ;
+qname           = ident { '.' ident } ;
+
+
+(* §7 Lexical summary; [LQ/lexical] is normative (0.4)                                         *)
+
+ident           = ( letter | '_' ) { letter | digit | '_' } | '`' { any - '`' | '``' } '`' ;
+node_lit        = '#' digit { digit } | '#u:' hex32 ;
+param           = '$' ( letter | '_' ) { letter | digit | '_' } ;
+int             = digit { digit } ;
+float           = digit { digit } '.' digit { digit } [ exponent ] | digit { digit } exponent ;
+duration        = int ( 's' | 'm' | 'h' | 'd' | 'w' ) ;
+string          = "'" { char | escape } "'" | '"' { char | escape } '"' ;
+seq_lit         = 's' digit { digit } ;                            (* revision mode only *)
+commit_lit      = 'c' hex hex hex hex hex hex hex { hex } ;        (* 7..64 lower-case hex; revision mode only *)
+ref_name        = ref_seg { '/' ref_seg } ;
+ref_seg         = ref_word { '.' ref_word } ;                      (* never '..', never a leading or trailing '.' *)
+ref_word        = ( lower | digit | '_' ) { lower | digit | '_' | '-' } ;
+datetime        = yyyy '-' mm '-' dd [ 'T' hh ':' mm [ ':' ss ] ] [ 'Z' ] ;
+
+
+(* =============================================================================================
+   Annex A. Character classes and name aliases (not productions; not counted in Annex C)
+
+   A.1 letter    = 'A'..'Z' | 'a'..'z' ;              ASCII only
+   A.2 digit     = '0'..'9' ;
+   A.3 lower     = 'a'..'z' ;
+   A.4 hex       = digit | 'a'..'f' ;                 lower case only (commit_lit, hex32)
+   A.5 hex32     = 32 x hex ;
+   A.6 exponent  = ( 'e' | 'E' ) [ '+' | '-' ] digit { digit } ;
+   A.7 any       = any Unicode scalar value except LF, CR and the controls of [LQ/lexical §5.2]
+   A.8 char      = any - ( the delimiting quote | '\' ) ;   inside a string
+   A.9 escape    = '\' ( '\' | "'" | '"' | 'n' | 'r' | 't' | 'u' '{' uhex [uhex [uhex [uhex [uhex [uhex]]]]] '}' ) ;
+                   uhex = digit | 'a'..'f' | 'A'..'F' ; the value is a Unicode scalar value
+                   ([LQ/lexical §5.7])
+   A.10 yyyy     = digit digit digit digit ;   mm, dd, hh, ss = digit digit ;  ranges in
+                   [LQ/lexical §7.5]; the mm of the time part is minutes
+   A.11 label     = ident ;   a kind name (or the pseudo-label DELETED); after ':' or '|' any word
+                   is a plain name (P3)
+   A.12 type_name = ident ;   an edge type name (an LQ name, a forward synonym, a stored snake-case
+                   name or a reverse alias, [LQ/canonical-ast §5.4]); any word is a plain name
+   ============================================================================================= *)
+
+
+(* =============================================================================================
+   Annex P. Parser decisions (normative; the EBNF alone does not fix them)
+
+   P1  Entry points. `moirai q` and MCP `query` parse read_input; `moirai tx` and MCP `write`
+       parse write_input, and a first token other than TX is E001 (hint: reads go through
+       `moirai q`). The standard-library sources ([LQ/std], fixtures/lq/std/*.lq) are parsed
+       with start symbol define_stmt, and a named-mutation source with start symbol tx; this is
+       an entry mode, not a production. A JSON IR document ([LQ/json-ir]) bypasses the text
+       parser and enters as the S-AST.
+   P2  Lexer modes. The parser drives the lexer. It switches to revision mode exactly at the
+       revision positions of [LQ/lexical §4.2]: after USE, after TX ... ON, after IF TIP, and
+       at the revision-typed arguments of the standard relations diff, log, changes, history,
+       across and violations. In an argument position the parser reads rev_arg unless the next
+       byte is a quote, in which case it reads an ordinary expr (a string the binder coerces to
+       a revision, [50 §3.2]). After USE, ON and IF TIP a quote is E001 (hint: write the
+       revision unquoted).
+   P3  Keywords. The words of [LQ/lexical §6.1] are reserved everywhere except in the plain-
+       name positions of [LQ/lexical §6.3] (after '.', as a prop_map key, as a named-argument
+       name, as a label or type name after ':' or '|', as a yield field name, as a proc_name,
+       tx_name, qname or type segment, and after SHAPE and BUDGET). Every other keyword of this
+       grammar is contextual: a word is that keyword exactly where the grammar admits the
+       keyword at that point, and an identifier elsewhere. A back-quoted identifier is never a
+       keyword.
+   P4  The token '<-' exists only when the byte after '<-' is '[' or '-' ([50 §2.3] parser
+       notes): a<-1 is a < -1. '->' is always one token. '--' is never a token: (a)--(b) is
+       '-' '-', and --> is '-' '->'.
+   P5  '(' in expression position. The parser first tries path (node_pat followed by at least one
+       edge_pat or group_pat). The attempt starts only when the tokens after the first node_pat
+       are '<-', or '-' followed by '[', '-' or '->', or '('. If the path parse succeeds, the
+       primary is a path_pred. Otherwise the parser restores its position and parses '(' expr ')'
+       (fixtures paren-arith, undirected-minus: (a.priority) - 1, a.priority - -1). If both
+       fail, the error reported is the one of the alternative that consumed more tokens; on a
+       tie, the path alternative's error.
+   P6  '{' right after an edge_pat or after the ')' of a parenthesised path is a quantifier. A
+       '(' right after a node_pat inside a path starts a group_pat, which must end with a
+       quantifier (E001 otherwise: "a parenthesised path group needs a quantifier"). Elsewhere
+       '{' starts a prop_map or map_lit, or the braces of EXISTS, COUNT, UNLESS EXISTS, TX and
+       AS. A '{' after an edge_pat that is not a well-formed quantifier is E114 when it holds
+       integers and E001 otherwise.
+   P7  standalone_call versus call_clause. A CALL that begins a single_query (after an optional
+       USE) is parsed as CALL proc_name ( args ) followed by an optional YIELD part. If the next
+       token then begins a clause (MATCH, OPTIONAL, CALL, UNWIND, WITH) or is RETURN, the CALL was
+       a call_clause: it must have had YIELD with named items (no '*'), and its WHERE, if any,
+       filters the yielded rows; otherwise E001. If not, it is a standalone_call and the
+       single_query ends after its order_limit. A CALL that follows another clause is always a
+       call_clause (YIELD required, E001 otherwise).
+   P8  subquery. After EXISTS {, COUNT { or UNLESS EXISTS {: if the next token is USE, E308; if it
+       is MATCH, OPTIONAL, CALL, UNWIND, WITH or RETURN, the clause form; if it is '(', the
+       pattern form; if it is '}', E001 (an empty subquery). Inside a subquery a RETURN is
+       optional.
+   P9  Function forms. count( * ) is the count of bindings; count( [DISTINCT] args ) is the
+       generic form. all( any( none( are always the list predicate (E001 without IN and WHERE).
+       exists( and size( followed by a node_pat and an edge operator (as P5) try path first; on
+       success they give EXISTS { path } and COUNT { path }. Otherwise they are generic calls,
+       and exists( e ) with exactly one positional argument and no DISTINCT is normalised to
+       e IS NOT NULL ([50 §2.8]; [LQ/canonical-ast §3.1] item 6). EXISTS followed by '{' and
+       COUNT followed by '{' are subqueries.
+   P10 Named arguments. Inside an argument list, a word (any word, P3) followed by ':' at the
+       start of an argument is the argument's name; a label test there needs parentheses:
+       f((k:note)). Named-argument names are case-sensitive.
+   P11 CREATE and INSERT inside TX. After CREATE ( or INSERT (: a target followed by ':' is a
+       create_stmt (node creation); a target followed by ')' is the edge-creation mutation. The
+       word after ':' is a label. CREATE of a node inside a MATCH ... EXPECT mutation list is E001
+       (node creation is a statement of its own).
+   P12 TX options. Each tx_option appears at most once (E001 on a repeat), in any order. The
+       statements are separated by ';'; one ';' may precede '}'. TX { } is E009 (reported by the
+       parser, not as E001). A MATCH statement without EXPECT is E007. CALL inside TX must name a
+       tx.* mutation (E109 otherwise, "inside TX, CALL names a named mutation").
+   P13 Nesting. The nesting depth of expressions and patterns is at most 64 [50 §5.2]. The depth
+       increases by one on entry to each of: not_expr's NOT, '(' expr ')', a func_call argument
+       list, list_lit, map_lit, prop_map, case_expr, the braces of EXISTS, COUNT and UNLESS
+       EXISTS, path_pred and group_pat. The 65th nested entry is E001. Binary operator chains are
+       loops and do not deepen. Parser, binder and closures keep their stacks on the heap
+       ([71 RAM-m8]).
+   P14 Recovery. Panic-mode recovery resynchronises at ',', ')', '}' and at the clause keywords,
+       so that at most three errors are reported per pass [50 §5.2]. Only the first error of a
+       pass decides the exit code; fixtures assert the first error's code and position.
+   P15 Normalisation while parsing. The parser builds the S-AST with the spelling normalisations
+       of [LQ/canonical-ast §3.1]; a spelling it refuses is Annex R (and, in the strict-GQL
+       mode, Annex G).
+   P16 WITH. The order is WITH items, WHERE, ORDER BY, LIMIT, as with_clause states; it filters,
+       then orders, then limits. Cypher's order (ORDER BY or LIMIT before WHERE) is E001 with
+       the rewrite into this order.
+   P17 End of input. After a complete read_input: ';' is E005; a clause keyword, RETURN or a
+       second statement is E005; WHERE is E001 with the WITH ... WHERE rewrite; SKIP or OFFSET is
+       E004; a write keyword is E006; anything else is E001. After the '}' (and DRY) of a TX,
+       any token is E005.
+   P18 E118. A cmp_op of '=', '<>' or '!=' with the NULL literal as either operand, and a
+       prop_map entry whose value is the NULL literal inside a node_pat or edge_body, are E118.
+       Ordered comparisons with NULL are left to the binder.
+   P19 USE. USE may only begin a single_query. USE after a clause is E001 (hint: move it to the
+       start of the query part); USE inside a subquery is E308 (P8).
+   ============================================================================================= *)
+
+
+(* =============================================================================================
+   Annex R. Refused forms: detection point, code and the replacement text L4 asks for
+   ([50 §2.3.1], [50 §2.8] second table, [50 §5.2], [90 §8.1] L4). The texts themselves are
+   [LQ/errors]'s; each needs the replacement shown here.
+
+   Form                                   Detected at                          Code  Replacement
+   ------------------------------------   ----------------------------------   ----  -------------------------------------------
+   MERGE                                  clause or statement position         E004  CREATE ... UNLESS EXISTS { ... }
+   DETACH DELETE, NODETACH DELETE         clause or mutation position          E004  DELETE x (the schema's per-edge policies;
+                                                                                     add POLICY or REPLACED BY)
+   p = <pattern> (path variable)          pattern start: a non-reserved word   E113  CALL blockers(#N, transitive: true)
+                                          followed by '='                            YIELD blocker, depth, via
+   shortestPath(, allShortestPaths(,      function or pattern position         E004  as for E113
+   nodes(, relationships(                 (name ASCII-case-insensitive)
+   SHORTEST, ANY SHORTEST, ALL SHORTEST,  right after MATCH                    E004  drop the selector
+   ANY/ALL PATH(S) selectors
+   REPEATABLE ELEMENTS                    match_mode position                  E004  drop it (see match modes, [50 §2.8])
+   SKIP, OFFSET                           order_limit position, end of input   E004  the next cursor (--cursor, MCP cursor)
+   CALL {                                 clause position                      E004  EXISTS { }, COUNT { }, WITH
+   NEXT, FOREACH, FOR, LET, FILTER        clause position                      E004  WITH, UNWIND, WITH * WHERE ..., one SET
+                                                                                     per MATCH target
+   [x IN list ...], [ ... | ... ]         list_lit: '[' word IN; or '|' after  E004  any()/all()/none(), IN, COUNT { }, UNWIND
+                                          an element
+   x[i], x[a..b]                          '[' right after a postfix_expr       E004  IN, any()/all()/none()
+   single(                                function position                    E004  COUNT { ... } = 1
+   XOR                                    binary operator position             E004  (a OR b) AND NOT (a AND b)
+   %                                      binary operator position             E004  a - b * toInteger(a / b)
+   :a:b                                   a second ':' after a label_expr      E004  :a|b
+   x.f(                                   '(' after postfix '.' ident          E004  f(x, ...)
+   = NULL, <> NULL, != NULL               pred_expr (P18)                      E118  IS NULL / IS NOT NULL
+   {p: null} in a pattern                 prop_map in node_pat or edge_body    E118  WHERE x.p IS NULL
+   =~                                     binary operator position             E004  CONTAINS, STARTS WITH, glob_match(),
+                                                                                     search()
+   timestamp(                             function position                    E004  now()
+   x IS LABELED a (GQL label test)        pred_expr: IS followed by LABELED    E004  x:a
+   CAST(x AS T) (GQL conversion)          function position                    E004  toInteger(x), toFloat(x), toString(x)
+   apoc.*, gds.*, db.*, dbms.*            proc_name first segment              E004  the built-in table functions;
+                                          (ASCII-case-insensitive)                   CALL schema()
+   LOAD CSV, SHOW ..., CREATE INDEX,      clause position                      E004  CALL schema(), moirai apply
+   CREATE CONSTRAINT, DROP INDEX,
+   DROP CONSTRAINT
+   <-[...]-> (two arrowheads)             edge_pat                             E004  -[...]- (either direction)
+   SET, REMOVE, DELETE, CREATE, INSERT,   clause position of read_input        E006  moirai tx (MCP write)
+   MOVE, REOPEN, PATCH, RESOLVE, DEFINE,
+   DROP QUERY, ASSERT, TX, CALL tx.*
+   USE inside EXISTS/COUNT/UNLESS EXISTS  subquery start (P8)                  E308  diff(), across(), or a composite query
+   USE after the first clause             clause position (P19)                E001  USE at the start of the part
+   WHERE after RETURN                     end of input (P17)                   E001  WITH <items> WHERE <cond> RETURN <items>
+   Cypher WITH order                      after the LIMIT of a WITH (P16)      E001  WITH ... WHERE ... ORDER BY ... LIMIT ...
+   ';' or a second statement              end of input (P17)                   E005  one statement per call
+   MATCH without EXPECT inside TX         tx_stmt (P12)                        E007  add EXPECT n
+   TX { }                                 tx (P12)                             E009  a write statement
+   two quantifiers on one edge; a lower   edge_pat, quantifier                 E114  one quantifier with lower <= upper
+   bound above the upper; a bound above
+   4294967295
+   :name as a parameter                   expression position                  E001  $name
+   a bare '@' in a revision               revision mode                        E001  REF@n, REF@<datetime>
+   a reflog revision (REF@n, REF@time)    revision mode inside define_stmt     E117  a $param of type rev, a c<hex> commit
+                                                                                     id or a ref name ([50 §4.4])
+
+   Refused words are contextual: FOR, LET, FILTER, NEXT and the others trigger only at the
+   positions shown; elsewhere they are identifiers ([LQ/lexical §6.4]).
+   ============================================================================================= *)
+
+
+(* =============================================================================================
+   Annex G. The strict-GQL spelling mode
+
+   G.1 Purpose. LQ-Bench runs "LQ with strict GQL spellings" as an alternative surface and the
+       Cypher-spelling tolerance ablation ([50 §7.4] items 3 and 7, [50 §8.2] LQ-Bench row,
+       [60 §3.1] exit, PLAN WP-72). The model's front end (WP-93a) implements this mode; the
+       product need not. It is a parser flag, not a grammar version: it accepts a subset of this
+       grammar, and every text it accepts parses to the same S-AST as in the default mode.
+   G.2 In the strict-GQL mode the parser refuses each [C] spelling below with E004 and prints the
+       GQL spelling as the replacement (L4). Every [G] spelling and every unmarked construct
+       (moirai's additions included: #N, #u:, USE, revisions, TX, the built-ins) stays accepted.
+
+       Refused [C] spelling                         Replacement printed
+       -------------------------------------------  ---------------------------------------------
+       -[:T*m..n]->, -[:T*]->, -[:T*n]->, *..n, *m..  -[:T]->{m,n}, -[:T]->+, -[:T]->{n},
+                                                      -[:T]->{1,n}, -[:T]->{m,}
+       !=                                           <>
+       a pattern predicate (a)-[:T]->(b) in an      EXISTS { (a)-[:T]->(b) }
+       expression
+       exists(<path>)                               EXISTS { <path> }
+       size(<path>)                                 COUNT { <path> }
+       exists(x.p)                                  x.p IS NOT NULL
+       CREATE (statement or edge mutation)          INSERT
+       toLower(, toUpper(, collect(, size(         lower(, upper(, collect_list(, cardinality(
+       (function spellings, ASCII-case-insensitive)
+
+   G.3 Nothing else differs. The Cypher-only clauses that have no GQL spelling inside LQ (WITH,
+       UNWIND, OPTIONAL MATCH, CASE, COUNT { }, the -->/<--/-- abbreviations, labels(), type(),
+       id()) stay accepted in both modes. Which arm uses the mode, and with which card, is
+       WP-70/WP-72's; see Open point O-9.
+   ============================================================================================= *)
+
+
+(* =============================================================================================
+   Annex T. Requirement trace of grammar v1 ([50 §2.3.1]; EX1-EX16 are [50 §1.2])
+
+   Production group                                           Trace                          In v1
+   ---------------------------------------------------------  -----------------------------  ------------
+   MATCH, node and edge patterns, WHERE, RETURN, ORDER BY,     EX1-EX8; every std query       in
+   LIMIT
+   quantified paths + * {m,n}, Cypher *m..n, per-step WHERE    EX3, EX4; ready scope, Q5      in
+   OPTIONAL MATCH                                              EX6; pack_target, Q27          in
+   CALL ... YIELD (clause and standalone)                      EX5, EX9, EX11, EX12           in
+   UNWIND                                                      EX7, EX13                      in
+   WITH [DISTINCT] ... WHERE                                   EX7; refuted_share             in
+   RETURN DISTINCT, RETURN ALL, GROUP BY                       EX8; spelling tolerance        in
+   UNION [ALL], EXCEPT, INTERSECT                              EX11 (Q15)                     in
+   EXISTS {}, COUNT {}, pattern predicates, exists(path),      EX6; notes, find, Q6, Q7, Q19  in
+   size(path)
+   CASE                                                        EX7 (Q6, loop)                 in
+   list and map literals                                       EX2; record-typed TX values    in
+   any/all/none(x IN list WHERE p)                             EX2 (set-valued fields)        in
+   label tests x:a|b, one kind per node                        EX2; notes                     in
+   match modes WALK TRAIL ACYCLIC SIMPLE DIFFERENT ...         GQL-trained restrictors        in, no effect
+                                                                                              (W02; the
+                                                                                              DIFFERENT
+                                                                                              forms silent)
+   USE, revision grammar, ranges                               EX11                           in
+   #u: literals                                                EX1; portable definitions      in
+   TX statements (incl. EXPECT, IF TIP, IF TARGETS, KEY,       EX12, EX14, EX15               in
+   LEASE, MESSAGE, DRY)
+   path variables, SHORTEST, ANY selectors, nodes()/edges()/   none                           not in v1
+   length(p), shortestPath()                                                                  (E113/E004)
+   SKIP / OFFSET                                               keyset cursor instead          not in v1 (E004)
+   list comprehensions, indexing, slices                       none                           not in v1 (E004)
+   XOR, %, single()                                            none                           not in v1 (E004)
+   FOR, LET, FILTER                                            none beyond UNWIND/WITH        not in v1 (E004)
+   REPEATABLE ELEMENTS                                         none                           not in v1 (E004)
+   ============================================================================================= *)
+
+
+(* =============================================================================================
+   Annex C. Production count (checked against [50 §2.3]: 54 + 15 + 13 = 82)
+
+   §1-§5, 54: read_input write_input | query set_op single_query clause match_clause
+     optional_clause match_mode where call_clause standalone_call yield_items unwind_clause
+     with_clause return_clause proj_items proj_item order_limit sort_item count proc_name (20) |
+     pattern_list path group_pat node_pat label_expr edge_pat edge_body quantifier prop_map (9) |
+     expr and_expr not_expr pred_expr cmp_op add_expr mul_expr unary_expr postfix_expr primary
+     path_pred subquery func_call args arg list_lit map_lit case_expr literal (19) |
+     revspec rev_base rev_suffix rev_arg (4)                         2 + 20 + 9 + 19 + 4 = 54
+   §6, 15: tx tx_option tx_stmt tx_name expect mutation delete_opt target edge_step create_stmt
+     resolve_stmt define_stmt param_decl type qname                                        15
+   §7, 13: ident node_lit param int float duration string seq_lit commit_lit ref_name ref_seg
+     ref_word datetime                                                                     13
+   The only change to [50 §2.3]'s text is rev_suffix's fourth alternative (Open point O-2); the
+   count is unchanged.
+   ============================================================================================= *)
+
+
+(* =============================================================================================
+   §V Coverage
+
+   Item                          Part covered here                                    Section
+   ----------------------------  ---------------------------------------------------  ----------------
+   [50] F3                       the grammar version 1 that every QUERIES item        §0.1, §6
+                                 records, and define_stmt, the production a stored    define_stmt,
+                                 text parses with (start symbol, P1). The item        §P.1
+                                 layout is [F08]'s, the query file [F14]'s, the
+                                 canonical-AST hash [LQ/canonical-ast]'s
+   [50] F18                      the parse half of QueryInvalid ("a definition that   §P.1
+                                 no longer parses"): parsing with start symbol
+                                 define_stmt. The violation classes are [F19]'s
+   [80] X-F9                     "LQ ref_word stays as is": ref_name, ref_seg,        §7, Annex A
+                                 ref_word unchanged. The ref-name fold and NFC
+                                 rules are [F12]'s
+   [PLAN §3.2] WP-19 output      "grammar v1 EBNF with its trace"; the strict-GQL     §1-§7, Annex T,
+                                 spelling mode's detection (PLAN WP-93a)              Annex G
+
+   No other [60 §2.5] row, R-1...R-18 item, F-item, X-F item or [90 §10.1] item is specified
+   here.
+   ============================================================================================= *)
+
+
+(* =============================================================================================
+   §H Holes
+
+   None. No byte, value or code in this file waits on an M0 measurement. The file freezes with
+   the query surface after WP-72; a remedy of WP-73 that changes a spelling, a refusal or a
+   production's content is a specification edit before the tag, not a hole fill (§O O-11).
+   ============================================================================================= *)
+
+
+(* =============================================================================================
+   §O Open points for the review
+
+   O-1  Undefined names in [50 §2.3]. label, type_name, letter, digit, lower, hex, hex32,
+        exponent, char, escape, any, yyyy, mm, dd, hh and ss are used but not defined. Annex A
+        defines them as character classes and aliases, outside the 82 counted productions.
+   O-2  REF@{n}. [50 §2.4] accepts git's REF@{n} "in files", but [50 §2.3]'s rev_suffix does not
+        derive it. Resolution: a fourth alternative '@' '{' int '}' with the meaning of '@' int;
+        the production count is unchanged. Braces are only safe in files, heredocs and MCP
+        strings ([80 §4] T3), which is where LQ text travels.
+   O-3  "HEAD" is double-quoted in [50]'s rev_base, which the notation makes case-insensitive,
+        but head is a valid ref_word. Resolution: HEAD is exact upper case in revision mode; any
+        other upper-case letter in a revision is E003 ([LQ/lexical §7.2]).
+   O-4  violations. [50 §2.2] rule 6 lists violations among the relations with revision-typed
+        arguments, while [50 §2.6] shows violations() with none. Resolution: the revision
+        position is positional argument 0 or the named argument ref (as the design's probe
+        parser lqcheck2.py has it). [LQ/std §2.8] item 1 and §2.9 adopt it: violations takes the
+        optional argument ref: rev, the staging ref to read, equal to a USE of that ref.
+   O-5  changes(ref:). [50 §2.6] gives changes(since: rev, ref: ...). Resolution: ref is a
+        revision position too ([LQ/lexical §4.2]), so ref: lane/x needs no quotes; the probe
+        parser had since only. [LQ/std §2.8] item 1 adopts ref: rev.
+   O-6  Refused spellings added beyond [50 §2.8]'s table, each with the code the design's probe
+        parser used or the closest code of [50 §5.2]: nodes( and relationships( (E004, [50
+        §2.3.1] lists nodes()/edges() as not in v1); <-[...]-> (E004); CREATE/DROP INDEX and
+        CONSTRAINT (E004 rather than E006); a CALL of a non-tx name inside TX (E109, as the probe
+        parser did); Cypher's WITH order (E001 with rewrite); the empty subquery (E001); TX { }
+        (E009 rather than E001). [LQ/errors] carries the texts.
+   O-7  E118 scope. The probe parser raised E118 only for =, <> and != against NULL; P18 keeps
+        that and leaves ordered comparisons with NULL to the binder (a type error there).
+   O-8  Edge variables on a quantified edge (-[e:T*1..3]->, -[e:T]->+) parse; LQ has no list or
+        path values, so the binder refuses them (E113, hint: a quantified group
+        ((a)-[e:T]->(b) WHERE ...){1,3}). The rule belongs to the binder's error table
+        ([LQ/errors]); recorded here because the grammar admits the form.
+   O-9  Strict-GQL mode. [50] names the alternative surface "LQ with strict GQL spellings" but
+        does not define it. Annex G defines it as a parser flag over this grammar. Open for
+        WP-70/WP-72: whether the "Cypher-spelling tolerance off" ablation uses the same flag
+        (this file assumes it does) and which card each arm gets.
+   O-10 Named-argument names are case-sensitive (P10), as parameter names are ([50 §2.2] rule 4);
+        the probe parser lower-cased them.
+   O-11 Freeze with remedies. [50 §7.4] item 6 lets a failed GT13 gate change "the compatibility
+        table, or the semantics" before the freeze, so Annex R, Annex G and the content of a
+        production may still change through WP-73; the production names and the count of
+        Annex C stay. That is a freeze condition, not a measured value, so it is not a named
+        hole ([F01 §2.5]). After the tag, a change is a new grammar version, and definitions
+        stored under version 1 keep version-1 syntax and semantics ([50 §7.4] item 6).
+   O-12 PLAN gap "Canonical-AST encoding; JSON IR schema" ([PLAN §3.3], WP-19) is resolved in
+        [LQ/canonical-ast] and [LQ/json-ir]; this file supplies the productions they cite.
+   O-13 Two GQL spellings outside v1 are refused with their LQ form rather than a generic E001:
+        IS LABELED (write x:a) and CAST(x AS T) (write toInteger, toFloat or toString), as
+        [LQ/errors] open point 12 asked. LABELED and CAST are refused words
+        ([LQ/lexical §6.4]); elsewhere they are names.
+   O-14 The design's probe parser (lqcheck2.py and its 47 fixtures, [50 §11]; unpublished probe
+        scripts, not in the repository) was read as evidence of [50]'s intent. This file follows
+        it (the '<-' rule, Cypher quantifier bounds, E109 for a non-tx CALL inside TX, E113 for a
+        path variable) except where listed: E004 for nodes( and relationships(, which the probe
+        left to the binder (O-6); case-sensitive named arguments (O-10); changes(ref:) as a
+        revision position (O-5).
+   ============================================================================================= *)
