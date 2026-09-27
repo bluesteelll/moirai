@@ -1,0 +1,21 @@
+# Test-only crate (docs/m0/PLAN.md §2.2). Allowed dependencies: moirai-files, moirai-model; serde_json. Filled by WP-74 to WP-77 (R-REPLAY).
+[package]
+name = "moirai-replay"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "Replay-corpora harness and FL-1's differential tests against git and the scanner oracle (test-only)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+moirai-files.workspace = true
+moirai-model.workspace = true
+
+[lints]
+workspace = true

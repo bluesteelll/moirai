@@ -1,0 +1,19 @@
+# Test-only crate (docs/m0/PLAN.md §2.2). Allowed dependencies: blake3, xxhash-rust; no workspace crate. Filled by WP-95 and WP-95b (R-ORA).
+[package]
+name = "moirai-format-oracle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "Independent decoder and test-only re-encoder of every frozen structure, and the ABNF check (test-only)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

@@ -1,0 +1,28 @@
+# Build-script and native-code allow-list: GT20 (b) rules 1 and 2 ([90 §11.2]; docs/m0/PLAN.md §2.4).
+#
+# Rule 1: every package with a `custom-build` target in any checked graph (`cargo metadata --filter-platform <t>` for
+# each of the four targets) must have an entry here: a reviewed reason and the asserted resolved feature set, so a
+# build script that runs a compiler through `std::process::Command` still needs a human review.
+# Rule 2: no package outside this file declares a `links` key or has a build dependency on `cc`, `cmake`, `bindgen`,
+# `pkg-config`, `vcpkg`, `autotools`, `nasm-rs`, `cxx-build` or a `cc`-wrapping crate.
+# WP-01 seeds one entry for every build-script package of the resolved graph, each reviewed before WP-02 turns rule 1
+# on (PLAN §2.4).
+#
+# Entry fields ([[package]]):
+#   name      = the package name
+#   versions  = the semver range the entry covers
+#   graphs    = where it may appear: "checked", "host-only" (moirai-tsoracle only) or "fuzz" (fuzz/Cargo.lock only)
+#   features  = the asserted resolved feature set; the lint fails if the resolved features differ
+#   links     = the `links` value, if the package declares one
+#   script    = what the build script does, as reviewed
+#   reason    = why it is acceptable
+#
+# Nothing is listed yet: the resolved graph holds only workspace crates, and none has a build script. The entries
+# PLAN §2.4 and [90 §11.2] name arrive with the downloads of the day-1 bundle, among them: blake3 (its `cc` build
+# dependency is inert only with the `pure` feature, which the entry asserts), libc (the script probes rustc),
+# windows-targets import-library crates if they declare `links`, proc-macro2, quote, serde, serde_json, thiserror,
+# zerocopy, anyhow, getrandom, num-traits, rmcp (its script runs `git config core.hooksPath .githooks` when it finds
+# ../../.git; never vendored), and, host-only, tree-sitter, tree-sitter-language and tree-sitter-rust.
+
+version = 1
+package = []

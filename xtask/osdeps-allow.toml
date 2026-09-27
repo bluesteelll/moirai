@@ -1,0 +1,26 @@
+# GT20 (d) and (a) exemptions (docs/m0/PLAN.md §2.1, §6.2 R8 and R18; [80 §5.5] (a)). Enforced from M0.
+#
+# Scopes of the scans (PLAN §2.1):
+# - GT20 (d), OS surface: `cfg(target_os)`, `cfg(windows)`, `cfg(unix)`, `std::os::*` and direct `windows-sys` or
+#   `libc` dependencies are forbidden in every crate except `moirai-os`, tests included.
+# - GT20 (d), store-file calls: `File::lock` and `std::fs::rename` are forbidden in product crates only.
+# - GT20 (a), process spawn: forbidden in the non-test code of product crates (provisioned at M0, mandatory from M1).
+#
+# `[[crate]]` entries exempt a test-only or tool workspace crate from a scan it would otherwise fail. A product crate
+# can never be listed, and `moirai-os` needs no entry.
+#   name    = the package name
+#   scans   = any of "cfg-os", "std-os", "direct-osdep" (the GT20 (d) OS-surface checks)
+#   reason  = why the crate needs the exemption
+#
+# `[[transitive]]` entries allow a third-party path to `windows-sys` or `libc` ([80 §5.5] (a): a reviewed allow-list;
+# a dependency update must extend it by review, and an unlisted path fails the lint).
+#   crate    = the third-party package that depends on windows-sys or libc
+#   versions = the semver range the entry covers
+#   osdep    = "windows-sys" or "libc"
+#   reason   = why the path is acceptable
+#
+# Nothing is listed yet: no crate uses these calls, and no external dependency is adopted.
+
+version = 1
+crate = []
+transitive = []

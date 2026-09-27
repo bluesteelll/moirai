@@ -1,0 +1,19 @@
+# Test-only crate (docs/m0/PLAN.md §2.2). Allowed dependencies: blake3, sha1, sha2, xxhash-rust; no workspace crate. Filled by WP-90 to WP-94 (R-MODEL).
+[package]
+name = "moirai-model"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "The reference model of the roadmap's section 4, with LQ-3 and the independent canonical-form encoder (test-only)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

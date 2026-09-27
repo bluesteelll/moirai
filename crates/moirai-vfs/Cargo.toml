@@ -1,0 +1,19 @@
+# Product crate (docs/m0/PLAN.md §2.2). Allowed dependencies: none. Filled by WP-30 (R-HARN-S).
+[package]
+name = "moirai-vfs"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "The storage seam: Vfs, ProjectFs and Meter traits, LockBytes grant table, clocks and evidence types."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

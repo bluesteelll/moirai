@@ -1,0 +1,20 @@
+# Test-only crate (docs/m0/PLAN.md §2.2). Allowed dependencies: moirai-vfs; dev: proptest. Filled by WP-31 and WP-32 (R-HARN-S).
+[package]
+name = "moirai-vfs-sim"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "In-memory Vfs enforcing the fault model, and the crash enumerator (test-only)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+moirai-vfs.workspace = true
+
+[lints]
+workspace = true

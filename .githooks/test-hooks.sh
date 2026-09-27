@@ -1,0 +1,306 @@
+#!/bin/sh
+# Tests for .githooks/commit-msg and .githooks/pre-commit (WP-03; docs/m0/PLAN.md §3.2 item 7, E10).
+#
+# Builds its own scratch repository with core.hooksPath pointing at this directory, then commits in it: every refusal
+# case must be refused by the hook named in the case, and every legitimate case must be committed. It never touches
+# the repository it lives in, its configuration or its hooks, and it uses synthetic data only.
+#
+# Usage: sh .githooks/test-hooks.sh [parent directory for the scratch repository, default $TMPDIR or /tmp]
+# Exit status: 0 when every case passes, 1 otherwise. The scratch directory is removed on success and kept on failure.
+# POSIX sh; runs under Git for Windows' sh, bash and dash.
+
+set -u
+LC_ALL=C
+export LC_ALL
+
+# Isolation: no inherited repository, no system or global git configuration, a synthetic identity.
+unset GIT_DIR GIT_WORK_TREE GIT_INDEX_FILE GIT_COMMON_DIR GIT_OBJECT_DIRECTORY GIT_ALTERNATE_OBJECT_DIRECTORIES \
+    GIT_PREFIX GIT_CEILING_DIRECTORIES GIT_EDITOR 2>/dev/null || true
+GIT_CONFIG_NOSYSTEM=1
+GIT_AUTHOR_NAME='Test Author'
+GIT_AUTHOR_EMAIL='author@example.invalid'
+GIT_COMMITTER_NAME='Test Author'
+GIT_COMMITTER_EMAIL='author@example.invalid'
+GIT_TERMINAL_PROMPT=0
+export GIT_CONFIG_NOSYSTEM GIT_AUTHOR_NAME GIT_AUTHOR_EMAIL GIT_COMMITTER_NAME GIT_COMMITTER_EMAIL GIT_TERMINAL_PROMPT
+
+# Absolute paths. Under Git for Windows they are given in the mixed form (C:/...), which git.exe and every MSYS shell
+# accept alike; elsewhere `pwd` is already right.
+abspath() {
+    (
+        cd "$1" || exit 1
+        if command -v cygpath >/dev/null 2>&1; then cygpath -m "$(pwd)"; else pwd -W 2>/dev/null || pwd; fi
+    )
+}
+
+hooks=$(abspath "$(dirname "$0")") || exit 1
+for h in commit-msg pre-commit; do
+    [ -f "$hooks/$h" ] || { echo "test-hooks: missing $hooks/$h" >&2; exit 1; }
+    [ -x "$hooks/$h" ] || echo "test-hooks: warning: $hooks/$h is not executable here; git will skip it on Linux and macOS" >&2
+done
+
+parent=${1:-${TMPDIR:-/tmp}}
+work=$(mktemp -d "$parent/moirai-hooks-test.XXXXXX") || exit 1
+work=$(abspath "$work") || exit 1
+: >"$work/gitconfig"
+GIT_CONFIG_GLOBAL="$work/gitconfig"
+export GIT_CONFIG_GLOBAL
+
+repo="$work/repo"
+git -c init.defaultBranch=main init -q "$repo" || exit 1
+git -C "$repo" config core.hooksPath "$hooks"
+git -C "$repo" config core.autocrlf false
+printf '/private/\n' >"$repo/.gitignore"
+git -C "$repo" add .gitignore
+git -C "$repo" commit -q -m 'Initial commit of the scratch repository' || exit 1
+
+passed=0
+failed=0
+out="$work/out.txt"
+
+ok() { passed=$((passed + 1)); printf 'ok      %s\n' "$1"; }
+bad() {
+    failed=$((failed + 1))
+    printf 'FAILED  %s\n' "$1"
+    sed 's/^/        | /' "$out"
+}
+
+# expect_refused <name> <expected refusal text> <command...>: the command fails, and the hook's output contains the
+# expected refusal text (a fixed string naming the rule or check).
+expect_refused() {
+    name=$1 expected=$2
+    shift 2
+    if "$@" >"$out" 2>&1; then
+        bad "$name (was accepted)"
+    elif grep -F -q -- "$expected" "$out"; then
+        ok "refused: $name"
+    else
+        bad "$name (refused, but without: $expected)"
+    fi
+}
+
+# expect_accepted <name> <command...>: the command succeeds.
+expect_accepted() {
+    name=$1
+    shift
+    if "$@" >"$out" 2>&1; then
+        ok "accepted: $name"
+    else
+        bad "$name (was refused)"
+    fi
+}
+
+msgfile="$work/msg.txt"
+# commit_msg <message text with printf escapes>: an empty commit with that message.
+commit_msg() {
+    printf "$1" >"$msgfile"
+    git -C "$repo" commit -q --allow-empty -F "$msgfile"
+}
+
+robot=$(printf '\360\237\244\226')
+
+echo '== commit-msg: refused'
+expect_refused 'Co-authored-by trailer naming Claude' 'commit-msg: refused (rule 1,' \
+    commit_msg 'WP-01: add the workspace\n\nCo-authored-by: Claude <noreply@anthropic.com>\n'
+expect_refused 'Co-authored-by trailer naming a person' 'commit-msg: refused (rule 1,' \
+    commit_msg 'WP-01: add the workspace\n\nCo-authored-by: Jane Example <jane@example.invalid>\n'
+expect_refused 'co-authored-by in lower case' 'commit-msg: refused (rule 1,' \
+    commit_msg 'WP-01: add the workspace\n\nco-authored-by: someone <someone@example.invalid>\n'
+expect_refused 'CO-AUTHORED-BY in upper case' 'commit-msg: refused (rule 1,' \
+    commit_msg 'WP-01: add the workspace\n\nCO-AUTHORED-BY: SOMEONE <SOMEONE@EXAMPLE.INVALID>\n'
+expect_refused 'Co-authored-by in the middle of the body' 'commit-msg: refused (rule 1,' \
+    commit_msg 'WP-01: add the workspace\n\nCo-authored-by: someone <someone@example.invalid>\n\nMore text.\n'
+expect_refused 'robot emoji with Generated with Claude Code' 'commit-msg: refused (rule 5,' \
+    commit_msg "WP-01: add the workspace\n\n$robot Generated with [Claude Code](https://claude.com/claude-code)\n"
+expect_refused 'Generated with Claude Code' 'commit-msg: refused (rule 2,' \
+    commit_msg 'WP-01: add the workspace\n\nGenerated with Claude Code\n'
+expect_refused 'generated by OpenAI Codex, lower case' 'commit-msg: refused (rule 2,' \
+    commit_msg 'WP-01: add the workspace\n\nThis change was generated by openai codex.\n'
+expect_refused 'Generated with GitHub Copilot' 'commit-msg: refused (rule 2,' \
+    commit_msg 'WP-01: add the workspace\n\nGenerated with GitHub Copilot\n'
+expect_refused 'Generated by ChatGPT' 'commit-msg: refused (rule 2,' \
+    commit_msg 'WP-01: add the workspace\n\nGenerated by ChatGPT\n'
+expect_refused 'Generated with GPT-5' 'commit-msg: refused (rule 2,' \
+    commit_msg 'WP-01: add the workspace\n\nGenerated with GPT-5 in a chat.\n'
+expect_refused 'Generated by Gemini in the subject' 'commit-msg: refused (rule 2,' \
+    commit_msg 'Generated by Gemini\n'
+expect_refused 'noreply@anthropic.com in the body' 'commit-msg: refused (rule 3,' \
+    commit_msg 'WP-01: add the workspace\n\nContact noreply@anthropic.com for details.\n'
+expect_refused 'an address at openai.com' 'commit-msg: refused (rule 3,' \
+    commit_msg 'WP-01: add the workspace\n\nSigned-off-by: Bot <codex@openai.com>\n'
+expect_refused 'the GitHub noreply address of the Copilot agent' 'commit-msg: refused (rule 3,' \
+    commit_msg 'WP-01: add the workspace\n\nThanks: 198982749+Copilot@users.noreply.github.com\n'
+expect_refused 'a bot noreply address with [bot]' 'commit-msg: refused (rule 3,' \
+    commit_msg 'WP-01: add the workspace\n\nSee copilot-swe-agent[bot]@users.noreply.github.com\n'
+expect_refused 'Assisted-by: Claude trailer' 'commit-msg: refused (rule 4,' \
+    commit_msg 'WP-01: add the workspace\n\nAssisted-by: Claude\n'
+expect_refused 'Reviewed-by: OpenAI Codex trailer, mixed case' 'commit-msg: refused (rule 4,' \
+    commit_msg 'WP-01: add the workspace\n\nBody text.\n\nReviewed-by: oPeNaI cOdEx\n'
+expect_refused 'Helped-by: Copilot in a middle paragraph' 'commit-msg: refused (rule 4,' \
+    commit_msg 'WP-01: add the workspace\n\nHelped-by: GitHub Copilot\n\nClosing paragraph.\n'
+expect_refused 'Signed-off-by naming Anthropic' 'commit-msg: refused (rule 4,' \
+    commit_msg 'WP-01: add the workspace\n\nSigned-off-by: Anthropic Assistant <assistant@example.invalid>\n'
+expect_refused 'Tool: Codex trailer in the last paragraph' 'commit-msg: refused (rule 4,' \
+    commit_msg 'WP-01: add the workspace\n\nBody text.\n\nRefs: WP-01\nTool: Codex\n'
+expect_refused 'Written by Claude attribution line' 'commit-msg: refused (rule 4,' \
+    commit_msg 'WP-01: add the workspace\n\nWritten by Claude.\n'
+expect_refused 'Created using Copilot attribution line' 'commit-msg: refused (rule 4,' \
+    commit_msg 'WP-01: add the workspace\n\n(created using Copilot)\n'
+expect_refused 'Co-authored by Claude without a colon' 'commit-msg: refused (rule 4,' \
+    commit_msg 'WP-01: add the workspace\n\nCo-authored by Claude\n'
+expect_refused 'robot emoji alone in the subject' 'commit-msg: refused (rule 5,' \
+    commit_msg "WP-01: add the workspace $robot\n"
+expect_refused 'Co-authored-by with CRLF line ends' 'commit-msg: refused (rule 1,' \
+    commit_msg 'WP-01: add the workspace\r\n\r\nCo-authored-by: Claude <noreply@anthropic.com>\r\n'
+expect_refused 'a marker after a fake scissors line in a -F message' 'commit-msg: refused (rule 1,' \
+    commit_msg 'WP-01: add the workspace\n\n# ------------------------ >8 ------------------------\nCo-authored-by: Claude <noreply@anthropic.com>\n'
+
+echo '== commit-msg: accepted'
+expect_accepted 'Codex as the topic of the subject' \
+    commit_msg 'WP-56: Codex P1-P7 probes through the harness stub\n'
+expect_accepted 'Claude Code as the topic of the subject' \
+    commit_msg 'Claude Code: add the plugin wrapper to the harness stub\n'
+expect_accepted 'Codex: topic with a body' \
+    commit_msg "Codex: record the commit-attribution behaviour\n\nCodex's apply_patch keeps the file id; Claude Code's Write tool does not.\nThe OpenAI tokenizer counts are taken offline.\n\nRefs: WP-03\n"
+expect_accepted 'WP-58 subject naming Claude Code headless' \
+    commit_msg 'WP-58: headless Claude Code invocation with the model pinned\n'
+expect_accepted 'a bare Generated with' \
+    commit_msg 'WP-61: fold_v1 tables\n\nGenerated with\n'
+expect_accepted 'Generated with a non-AI tool' \
+    commit_msg 'WP-61: fold_v1 tables\n\nGenerated with xtask ucd from the pinned UCD 17.0.0 files.\nGenerated by the build script.\n'
+expect_accepted 'a human Signed-off-by trailer' \
+    commit_msg 'WP-01: add the workspace\n\nSigned-off-by: Test Author <author@example.invalid>\nRefs: WP-01\n'
+expect_accepted 'a subject about the co-author rule' \
+    commit_msg 'WP-03: refuse AI co-author trailers in commit-msg\n'
+expect_accepted 'an Anthropic topic in body prose' \
+    commit_msg 'WP-54: token ratios\n\nThe Anthropic and OpenAI tokenizers differ on Cyrillic prose.\n\nMeasured on synthetic classes only.\n'
+
+# A verbose commit: the diff below the scissors line quotes the markers, and git never stores it.
+printf 'Co-authored-by: Claude <noreply@anthropic.com>\n%s Generated with Claude Code\n' "$robot" >"$repo/quoted-markers.txt"
+git -C "$repo" add quoted-markers.txt
+cat >"$work/editor.sh" <<'EOF'
+#!/bin/sh
+{ printf 'WP-03: add a synthetic file that quotes the refused markers\n\n'; cat "$1"; } >"$1.new" && mv "$1.new" "$1"
+EOF
+expect_accepted 'git commit -v whose diff quotes the markers' \
+    env GIT_EDITOR="sh '$work/editor.sh'" git -C "$repo" commit -q -v
+
+echo '== pre-commit: refused'
+reset_index() { git -C "$repo" reset -q; }
+# stage <path> <size in bytes, or "text">: create the file and force-add it (as an agent might).
+stage() {
+    mkdir -p "$(dirname "$repo/$1")"
+    if [ "$2" = text ]; then
+        printf 'synthetic\n' >"$repo/$1"
+    else
+        dd if=/dev/zero of="$repo/$1" bs="$2" count=1 2>/dev/null
+    fi
+    git -C "$repo" add -f "$1"
+}
+try_commit() { git -C "$repo" commit -q -m "$1"; }
+
+stage private/notes.txt text
+expect_refused 'a file under private/' 'owner data under private/' try_commit 'WP-03: add notes'
+reset_index
+rm -rf "$repo/private"
+stage Private/Notes.txt text
+expect_refused 'a file under Private/ (case-folded)' 'owner data under private/' try_commit 'WP-03: add notes'
+reset_index
+stage big.bin 1048577
+expect_refused 'a file of 1 MiB + 1 byte at the root' 'over 1 MiB outside fixtures/' try_commit 'WP-03: add a large file'
+reset_index
+stage crates/fixtures/big.bin 1048577
+expect_refused 'a file of 1 MiB + 1 byte under crates/fixtures/ (not the root fixtures/)' 'over 1 MiB outside fixtures/' \
+    try_commit 'WP-03: add a large file'
+reset_index
+rm -rf "$repo/private" "$repo/Private" "$repo/big.bin" "$repo/crates"
+
+echo '== pre-commit: accepted'
+stage exact.bin 1048576
+expect_accepted 'a file of exactly 1 MiB' try_commit 'WP-03: add a file of exactly 1 MiB'
+stage fixtures/big.bin 1048577
+expect_accepted 'a file of 1 MiB + 1 byte under fixtures/' try_commit 'WP-03: add a large fixture'
+stage crates/example/src/private/mod.rs text
+expect_accepted 'a nested module directory named private' try_commit 'WP-03: add a nested private module'
+
+echo '== pre-commit: the private guard'
+fake="$work/fake-xtask.sh"
+cat >"$fake" <<'EOF'
+#!/bin/sh
+printf '%s\n' "$@" >"$FAKE_XTASK_LOG"
+exit "${FAKE_XTASK_EXIT:-0}"
+EOF
+chmod +x "$fake"
+FAKE_XTASK_LOG="$work/fake-xtask.log"
+export FAKE_XTASK_LOG
+# The main worktree's private directory, as git names it (the hook derives it the same way, from the common dir).
+private_main="$(dirname "$(git -C "$repo" rev-parse --path-format=absolute --git-common-dir)")/private"
+n=0
+next_file() { n=$((n + 1)); stage "docs/change-$n.txt" text; }
+
+git -C "$repo" config moirai.private-guard true
+next_file
+expect_refused 'guard true and no MANIFEST.b3 (fail closed)' 'MANIFEST.b3 is missing: failing closed' try_commit 'WP-03: guarded change'
+mkdir -p "$private_main"
+printf 'synthetic manifest\n' >"$private_main/MANIFEST.b3"
+expect_refused 'guard true, manifest present, no xtask configured (fail closed)' 'no prebuilt xtask is configured (git config moirai.xtask): the manifest and shingle checks cannot run; failing closed' \
+    try_commit 'WP-03: guarded change'
+git -C "$repo" config moirai.xtask "$work/no-such-xtask"
+expect_refused 'guard true, moirai.xtask not an executable file (fail closed)' 'which is not an executable file: failing closed' \
+    try_commit 'WP-03: guarded change'
+git -C "$repo" config moirai.xtask "$fake"
+FAKE_XTASK_EXIT=3
+export FAKE_XTASK_EXIT
+expect_refused 'guard true, the delegated xtask check refuses' 'hook pre-commit'"'"' refused the commit (exit 3)' try_commit 'WP-03: guarded change'
+FAKE_XTASK_EXIT=0
+expect_accepted 'guard true, manifest present, the delegated xtask check passes' try_commit 'WP-03: guarded change'
+if grep -qx -- '--private-dir' "$FAKE_XTASK_LOG" && grep -qx "$private_main" "$FAKE_XTASK_LOG" &&
+    grep -qx 'pre-commit' "$FAKE_XTASK_LOG"; then
+    ok 'xtask called as: hook pre-commit --guard true --private-dir <main>/private'
+else
+    printf 'arguments seen by the fake xtask:\n' >"$out"
+    cat "$FAKE_XTASK_LOG" >>"$out"
+    bad 'xtask called with the main worktree private directory'
+fi
+git -C "$repo" config moirai.private-guard maybe
+next_file
+expect_refused 'guard set to a non-boolean value (fail closed)' 'is not a boolean' try_commit 'WP-03: guarded change'
+git -C "$repo" config moirai.private-guard false
+git -C "$repo" config --unset moirai.xtask
+expect_accepted 'guard false, manifest present, no xtask (notice only)' try_commit 'WP-03: unguarded change'
+
+echo '== pre-commit: a linked worktree with no /private/ of its own'
+wt="$work/wt"
+git -C "$repo" worktree add -q -b wt-branch "$wt" || exit 1
+wt=$(abspath "$wt")
+git -C "$repo" config moirai.private-guard true
+git -C "$repo" config moirai.xtask "$fake"
+: >"$FAKE_XTASK_LOG"
+printf 'synthetic\n' >"$wt/wt-change.txt"
+git -C "$wt" add wt-change.txt
+expect_accepted 'linked worktree, main manifest present, xtask passes' git -C "$wt" commit -q -m 'WP-03: worktree change'
+if grep -qx "$private_main" "$FAKE_XTASK_LOG" && [ ! -e "$wt/private" ]; then
+    ok 'linked worktree checked against the main worktree private directory'
+else
+    printf 'arguments seen by the fake xtask:\n' >"$out"
+    cat "$FAKE_XTASK_LOG" >>"$out"
+    bad 'linked worktree checked against the main worktree private directory'
+fi
+rm -f "$private_main/MANIFEST.b3"
+printf 'synthetic\n' >"$wt/wt-change-2.txt"
+git -C "$wt" add wt-change-2.txt
+expect_refused 'linked worktree, main manifest missing, guard true (fail closed)' 'MANIFEST.b3 is missing: failing closed' \
+    git -C "$wt" commit -q -m 'WP-03: worktree change'
+expect_refused 'linked worktree, a private/ path' 'owner data under private/' \
+    sh -c 'mkdir -p "$1/private" && printf x >"$1/private/a.txt" && git -C "$1" add -f private/a.txt &&
+        git -C "$1" commit -q -m "WP-03: add private data"' sh "$wt"
+
+echo
+printf 'test-hooks: %d passed, %d failed\n' "$passed" "$failed"
+if [ "$failed" -eq 0 ]; then
+    git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
+    rm -rf "$work"
+    exit 0
+fi
+printf 'test-hooks: scratch directory kept: %s\n' "$work"
+exit 1

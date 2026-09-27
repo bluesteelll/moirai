@@ -1,0 +1,21 @@
+# Host-only crates (docs/m0/PLAN.md §2.1, §2.2; [90 §11.1] scope item 2; §6.2 R7).
+#
+# A host-only crate stays a workspace member, so GT20 (b)'s dependency-direction rule sees it, but it is excluded
+# from the GT20 (e) cross-target check and from the gate's fmt, clippy and test runs: `xtask gate` passes one
+# `--exclude <name>` per entry. `cargo xtask host-only --list` prints the names, one per line (WP-02).
+#
+# Rules (enforced by WP-02's lints):
+# - A product crate can never be listed.
+# - No checked crate may depend on a listed crate: normal, build or dev-dependencies (GT20 (b) rule 3).
+# - Each entry states why the crate cannot pass the pure-Rust gate.
+# A crate outside the workspace (the `fuzz/` workspace) needs no entry.
+#
+# Fields: name (package name), kind, reason, built_by (the job that builds it, unpoisoned).
+
+version = 1
+
+[[crate]]
+name = "moirai-tsoracle"
+kind = "test-only oracle"
+reason = "tree-sitter and tree-sitter-rust compile C (decision #9 keeps them test-only); the oracle checks FL-1's Rust scope scanner (WP-63, WP-74)"
+built_by = "the replay job, unpoisoned; the MSVC cl.exe version is recorded in docs/m0/tools.md"

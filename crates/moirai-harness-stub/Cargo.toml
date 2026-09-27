@@ -1,0 +1,19 @@
+# Test-only crate, permanent probe and conformance fixture (docs/m0/PLAN.md §2.2). Allowed dependencies: serde_json. Written by R-HARN.
+[package]
+name = "moirai-harness-stub"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "Hand-written dual-era MCP stdio loop and plugin wrappers: the permanent harness probe and conformance fixture (test-only)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

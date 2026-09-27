@@ -1,0 +1,23 @@
+# Test-only crate (docs/m0/PLAN.md §2.2). Allowed dependencies: moirai-vfs, xxhash-rust; dev: moirai-vfs-sim, proptest. Filled by WP-40 and WP-40b (R-TOY).
+[package]
+name = "moirai-toylog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "Toy log over Vfs with seeded-bug switches, for harness validation and measurements (test-only)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+moirai-vfs.workspace = true
+
+[dev-dependencies]
+moirai-vfs-sim.workspace = true
+
+[lints]
+workspace = true

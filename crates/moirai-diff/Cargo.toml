@@ -1,0 +1,19 @@
+# Product crate (docs/m0/PLAN.md §2.2). Allowed dependencies: none. Filled by WP-60 (R-FL1B).
+[package]
+name = "moirai-diff"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "Myers bit-parallel matcher and histogram line diff."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+
+[lints]
+workspace = true

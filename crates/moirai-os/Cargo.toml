@@ -1,0 +1,31 @@
+# Product crate, the only OS crate (docs/m0/PLAN.md §2.2). Allowed dependencies: moirai-vfs; windows-sys (cfg windows);
+# blake3. Only a composition root (xtask/roots.toml) may depend on it. Filled by WP-33 (R-HARN-O).
+[package]
+name = "moirai-os"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "The OS layer: Windows modules at M0 (fs, lock, map, env, proc, mem, project, path, Meter); Unix configured out."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+moirai-vfs.workspace = true
+
+# moirai-os is the only crate allowed `unsafe` code (PLAN §2.1), so it cannot inherit [workspace.lints]
+# (`unsafe_code = "forbid"`). It keeps every workspace lint and differs only in the unsafe-code rules below; WP-02's
+# gate checks that no other member overrides the workspace table.
+[lints.rust]
+# Each module that needs FFI, mapping, the vectored exception handler or `CountingAlloc` opts in with
+# `#[allow(unsafe_code)]`; everything else stays free of `unsafe`.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+# Every unsafe block carries a `// SAFETY:` comment (PLAN §2.1).
+undocumented_unsafe_blocks = "deny"

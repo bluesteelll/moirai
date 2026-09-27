@@ -1,0 +1,78 @@
+# Licence allow-list for every crate in any lockfile (docs/m0/PLAN.md §2.4, §6.2 R19; AGENTS.md "License").
+#
+# The lint (WP-02) reads the `license` field of every package in Cargo.lock and fuzz/Cargo.lock and evaluates it as an
+# SPDX expression: every AND term must be allowed, and at least one alternative of each OR. A `WITH` expression is
+# one term and must be listed whole. It fails closed on a package with only `license-file`, or with no licence.
+#
+# Entry fields ([[licence]]):
+#   spdx      = the SPDX identifier or WITH expression
+#   lockfiles = the lockfiles in which the licence is allowed
+#   basis     = "named": AGENTS.md names it (MIT, Apache-2.0, BSD, ISC, Zlib);
+#               "similar": allowed as one of AGENTS.md's "similar" licences, shown to the owner for confirmation
+#               (day-1 bundle point 7, PLAN §8)
+#   note      = the known users, where PLAN §2.4 names them
+
+version = 1
+
+[[licence]]
+spdx = "MIT"
+lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"]
+basis = "named"
+
+[[licence]]
+spdx = "Apache-2.0"
+lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"]
+basis = "named"
+
+[[licence]]
+spdx = "Apache-2.0 WITH LLVM-exception"
+lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"]
+basis = "named"
+
+[[licence]]
+spdx = "BSD-2-Clause"
+lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"]
+basis = "named"
+
+[[licence]]
+spdx = "BSD-3-Clause"
+lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"]
+basis = "named"
+
+[[licence]]
+spdx = "ISC"
+lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"]
+basis = "named"
+
+[[licence]]
+spdx = "Zlib"
+lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"]
+basis = "named"
+
+[[licence]]
+spdx = "MIT-0"
+lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"]
+basis = "similar"
+
+[[licence]]
+spdx = "BSL-1.0"
+lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"]
+basis = "similar"
+note = "xxhash-rust"
+
+[[licence]]
+spdx = "CC0-1.0"
+lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"]
+basis = "similar"
+
+[[licence]]
+spdx = "Unicode-3.0"
+lockfiles = ["Cargo.lock", "fuzz/Cargo.lock"]
+basis = "similar"
+note = "unicode-ident; the UCD 17.0.0 files in fixtures/ucd/17.0.0/ (text in LICENSES/)"
+
+[[licence]]
+spdx = "NCSA"
+lockfiles = ["fuzz/Cargo.lock"]
+basis = "similar"
+note = "libfuzzer-sys, fuzz/ workspace only"
