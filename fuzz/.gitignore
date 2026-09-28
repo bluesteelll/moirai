@@ -1,0 +1,6 @@
+# cargo-fuzz output (docs/m0/PLAN.md §2.5; docs/m0/tools.md §4.2). The root .gitignore lists the first three from the
+# repository root. Cargo.lock is not ignored: the first target's work package commits it.
+/target/
+/corpus/
+/artifacts/
+/coverage/

@@ -1,0 +1,7 @@
+# Pinned nightly for the fuzz workspace only (docs/m0/PLAN.md §2.2, WP-06; docs/m0/tools.md §2.2). cargo-fuzz needs a
+# nightly; the root workspace keeps its stable pin. The date is the latest nightly that shipped clippy and rustfmt for
+# x86_64-pc-windows-msvc when WP-06 ran: rustc 1.101.0-nightly (75a75c3e0 2026-09-26). Changing it is a tools.md change.
+[toolchain]
+channel = "nightly-2026-09-27"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
