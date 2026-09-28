@@ -15,5 +15,9 @@ path = "src/lib.rs"
 
 [dependencies]
 
+[dev-dependencies]
+# Property tests of the grant table (PLAN WP-30 acceptance, [OS/lock §5.5]) and of the byte codecs.
+proptest.workspace = true
+
 [lints]
 workspace = true
