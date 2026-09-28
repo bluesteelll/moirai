@@ -15,5 +15,9 @@ path = "src/lib.rs"
 
 [dependencies]
 
+[dev-dependencies]
+blake3.workspace = true
+proptest.workspace = true
+
 [lints]
 workspace = true

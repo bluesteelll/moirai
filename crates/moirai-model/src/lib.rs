@@ -6,3 +6,5 @@
 //! Test-only crate with no workspace dependency; checked by GT20 (e) on every target. Filled by WP-90 to WP-94
 //! (R-MODEL), whose author never reads engine code (S2). Sources: [60 §4], [50 §8.2]; `docs/m0/PLAN.md` §2.2, §3.2
 //! item 9, §6.2 R5.
+
+pub mod lq;
