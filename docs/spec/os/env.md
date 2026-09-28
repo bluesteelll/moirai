@@ -231,21 +231,26 @@ built in.
      under `F_GETPATH_NOFIRMLINK`, or the File Provider domain of the folder, whichever the port-phase probe confirms [I].
    A refusal ends the probe.
 2. `check_os_version()`.
-3. **Durable-write probe:** `create_new(tmp/probe)`; `write_at` 4,096 bytes; `sync(Data)`; `sync(DataAndMeta)`;
+The probe's files are `tmp/probe.<nonce>` names of [F02 §5.3] and §6.3: three nonces a, b and c, each a `u64` drawn from
+`Entropy::fill_random` ([OS/README §4.6]) and written in decimal, drawn again while a name exists (pass 1, A1-40, P1-32,
+S1-38).
+
+3. **Durable-write probe:** `create_new(tmp/probe.a)`; `write_at` 4,096 bytes; `sync(Data)`; `sync(DataAndMeta)`;
    `sync_dir(tmp)`; `sync_dir(store)`. A `DurabilityFailure` here is **not** passed to `fail_stop` — no commit is at
    stake — but becomes `NoDurableFlush { call, os }`. On macOS `sync(Data)` is `F_FULLFSYNC`, so an `ENOTSUP` there is
    caught by this step.
-4. **Lock probe:** open `tmp/probe` as a lock handle ([OS/lock §9.2] flags), try-acquire the byte 2^62, release it, close.
-   An error other than "busy" → `NoByteLocks { os }` (`LOCK` does not exist yet, so the probe never touches it).
-5. **Rename probe:** `create_new(tmp/probe.2)`; `rename_noreplace(tmp/probe → tmp/probe.1)` must succeed and
-   `rename_noreplace(tmp/probe.1 → tmp/probe.2)` must fail with `AlreadyExists`; `Unsupported`, or a replace instead of
+4. **Lock probe:** open `tmp/probe.a` as a lock handle ([OS/lock §9.2] flags), try-acquire the byte 2^62, release it,
+   close. An error other than "busy" → `NoByteLocks { os }` (`LOCK` does not exist yet, so the probe never touches it).
+5. **Rename probe:** `create_new(tmp/probe.c)`; `rename_noreplace(tmp/probe.a → tmp/probe.b)` must succeed and
+   `rename_noreplace(tmp/probe.b → tmp/probe.c)` must fail with `AlreadyExists`; `Unsupported`, or a replace instead of
    the failure, → `NoNoReplaceRename { os }`.
 6. **Clean-up:** `unlink` every probe file; `sync_dir(tmp)`.
 7. Return `Admitted(ProbeReport { volume, os })`; any refusal of steps 1–5 returns `Refused(refusal)` after step 6.
 
 On any refusal, `init` removes the probe files and the directories it created (`remove_dir`) and exits 7 with the
-refusal. The probe files `tmp/probe`, `tmp/probe.1` and `tmp/probe.2` are names [F02] lists (fixed ASCII words and
-decimal numbers, X-F10); the orphan sweep removes any left by a crash.
+refusal. The probe files are names of [F02 §6.3]'s `tmp-entry` grammar (a fixed ASCII word and a decimal nonce, X-F10),
+so a `restore` probe inside an existing store, or a crash, leaves nothing foreign: the orphan sweep removes a
+`probe.<nonce>` left behind ([F02 §5.3], [F16] P-79).
 
 ---
 
@@ -315,12 +320,23 @@ tests at M0 need no admission: they run on NTFS.
 | Volatile | `DRIVE_RAMDISK` | tmpfs, ramfs | — |
 | Read-only volume | `FILE_READ_ONLY_VOLUME` | `ST_RDONLY` | `MNT_RDONLY` |
 | Durable-write probe (§5 step 3) | `NtFlushBuffersFileEx(DATA_SYNC_ONLY)`, `FlushFileBuffers`, directory `FlushFileBuffers` | `fdatasync`, `fsync`, `fsync(dirfd)` | `F_FULLFSYNC` (must not be `ENOTSUP`), `fsync(dirfd)` + `F_FULLFSYNC` |
-| Lock probe (§5 step 4) | `LockFileEx` at 2^62 on `tmp/probe` | `F_OFD_SETLK` at 2^62 | `F_OFD_SETLK` (90) at 2^62 |
+| Lock probe (§5 step 4) | `LockFileEx` at 2^62 on `tmp/probe.a` | `F_OFD_SETLK` at 2^62 on `tmp/probe.a` | `F_OFD_SETLK` (90) at 2^62 on `tmp/probe.a` |
 | Rename probe (§5 step 5) | `MoveFileExW(MOVEFILE_WRITE_THROUGH)` | `renameat2(RENAME_NOREPLACE)` | `renameatx_np(RENAME_EXCL)` |
 | OS version | `RtlGetVersion` build ≥ 17134 (≥ 22000 supported) | `uname` ≥ 5.10 | `kern.osproductversion` ≥ 14.0 |
 | Verified at M0 | measurement 22: NTFS, ReFS, exFAT, a `subst` drive, a UNC path, a OneDrive folder | port-phase probes | port-phase probes, incl. both Claude Code sandboxes |
 
 ---
+
+## Coverage
+
+The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
+
+| Item | Part covered here | Section |
+|---|---|---|
+| `60-I2-PD(m)` (protocol decision (m)) | the allow-lists and refusals; the classification at every open; the full probe at `init` and `restore`. The mapping policy is [OS/map]'s | §3, §4, §5 |
+| `60-AU-CrossPlatform` (the "Cross-platform" summary row) | X-F6's environment guard, whose parts are the row `X-F6` | — |
+| `X-F6` ([80] X-F6) | the allow-lists and refusals; the classification at every open; the full probe at `init` and `restore`; the OS-version check. The mapping rules are [OS/map]'s | §3, §4, §5, §6 |
+| `X-F10` ([80] X-F10) | the probe's file names; the naming rule is [F02 §6]'s | §5 |
 
 ## Holes
 
@@ -336,7 +352,7 @@ tests at M0 need no admission: they run on NTFS.
 | 2 | The open-time check must stay near ≤ 20 µs | at open only the store directory's own attributes and reparse tag are checked for cloud management; the sync-root API, the ancestors and the environment folders run at `init`, `restore` and `doctor`. A repository moved into a cloud folder after `init` is caught at open only if its store directory carries the attributes; `doctor` catches the rest | R-REV-P |
 | 3 | [80 §2.13] states "Windows 11" as the minimum and 1803 as the technical floor, but no refusal threshold | refuse below build 17134; allow Windows 10 with a `doctor` warning; supported and tested from 22000 | R-REV-P, owner visibility (V2) |
 | 4 | ext2 and ext3 share ext4's `statfs` magic | told apart through `mountinfo` at full depth only (`init`, `restore`, `doctor`), so an ext3 volume mounted after `init` is caught by `doctor`, not at open | R-REV-P (port) |
-| 5 | The probe's file names | `tmp/probe`, `tmp/probe.1`, `tmp/probe.2`; [F02] lists them | WP-10 |
+| 5 | The probe's file names | **pass 1 (A1-40, P1-32, S1-38):** `tmp/probe.<nonce>` with three fresh nonces (§5), the `probe` word of [F02 §5.3] and §6.3's grammar; the fixed names `probe`, `probe.1` and `probe.2` of the first draft were outside the grammar and would have been foreign entries the orphan sweep never removes | — |
 | 6 | A Windows RAM disk formatted NTFS passes the name-based allow-list although it cannot provide `durable` | refused as `Volatile` (`DRIVE_RAMDISK`), the counterpart of Linux's tmpfs refusal under X5; [80 §2.6]'s table does not list it, so the review confirms or removes the row | R-REV-P |
 | 7 | [OS/fs §4.4.5] makes every durability failure a `fail_stop` | inside `probe_store` a failure is a refusal instead, since no commit is at stake; nowhere else | R-REV-P |
 | 8 | macOS detection of iCloud-managed `~/Desktop`/`~/Documents` and of external volumes | left to the port-phase probe, as [80 §2.6] says ([I]) | port phase |

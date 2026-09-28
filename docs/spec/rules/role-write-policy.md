@@ -48,8 +48,8 @@ Every table follows [RULES/README]. In addition:
 - **Field cells.** A field name of [AR §3.1]-[AR §3.2], `status`, or `*` = the writable field set W (WT-009).
 - **Constraint cells** (`role-create`): `field=value` or `field=v1,v2` (a comma without a space stays inside one
   token); `role=self` means the created verdict's `role` field equals the caller's effective role.
-- **Refusal cells.** A code of `role-refusals` (`E406`, `E407`, ...), a symbolic code whose number [F19] or [F18] fixes
-  (`F19:exit5-declared-agent`), or a HOLE. `-` where the row cannot refuse. Exit cells hold the exit code, `-` or a HOLE.
+- **Refusal cells.** A code of `role-refusals`: an LQ code of [LQ/errors] (`E406`, `E407`, ...) or a named code of
+  [F19 §10.2] (`not_writer_tree`). `-` where the row cannot refuse. Exit cells hold the exit code or `-`.
 
 ## 3. Terms
 
@@ -317,7 +317,7 @@ with `authority = owner` needs `owner_quote` (for rules, [AR §3.2]); a `verdict
 | WQ-001 | * | read-verbs | yes | - | - | - | design | [50 §6.5] "Reads are the default everywhere" | WV-042. |
 | WQ-002 | * | named-query | yes | - | - | - | design | [50 §4.4] | - |
 | WQ-003 | * | free-form-query | yes | query.safelist.<role> | E406 | 6 | design | [AR §7.3] "unless its safelist (`query.safelist.<role> = named-only`) restricts it"; [50 §4.4]; [OP-18] | Default `off`; under `named-only` a free-form `q` or `query` is refused. |
-| WQ-004 | profile-unknown | free-form-tx | no | query.safelist.model.unknown | HOLE(unknown-model-write-code) | HOLE(unknown-model-write-code) | design | [90 §8.1] L2; [AR §13] `query.safelist.model.<profile>` | Default `named-only` for `unknown`; WR-012. |
+| WQ-004 | profile-unknown | free-form-tx | no | query.safelist.model.unknown | E411 | 6 | design | [90 §8.1] L2; [AR §13] `query.safelist.model.<profile>`; [F19 §11.1] | Default `named-only` for `unknown`; WR-012. |
 | WQ-005 | profile-unknown | dry-targets-tx | yes | query.safelist.model.unknown | - | - | design | [90 §8.1] L2 | Only when the key is `dry-targets` (opt-in): a `TX` applied with `IF TARGETS` from a `DRY`. |
 
 <!-- table: role-hooks -->
@@ -335,16 +335,16 @@ with `authority = owner` needs `owner_quote` (for rules, [AR §3.2]); a `verdict
 <!-- table: role-refusals -->
 | row | situation | code | name | exit | text_owner | basis | source | note |
 |---|---|---|---|---|---|---|---|---|
-| WZ-001 | role-policy | E406 | role_policy | 6 | F19 | design | [50 §5.2] E406; [AR §7.3]; [90 §4.3] | Names the statement (1-based), the table and the (role, op, kind, field) no row allowed ([OP-23]). For an unleased caller it adds the fix line of [AR §7.3]: "this write needs a lease; an orchestrator presents its session lease with --lease (mint it once per session: moirai claim --role orchestrator --session)" (152 B). |
+| WZ-001 | role-policy | E406 | role_policy | 6 | F19 | design | [50 §5.2] E406; [AR §7.3]; [90 §4.3] | Names the statement (1-based), the table and the (role, op, kind, field) no row allowed ([OP-23]). For an unleased caller it adds the fix line of [AR §7.3]: "this write needs a lease; an orchestrator presents its session lease with --lease (mint it once per session: moirai claim --role orchestrator --session)" (152 B). That is the design's one-line text; [F19 §11.3] and [LQ/errors §5.5] render the same words split at the semicolon, as the message `this write needs a lease` and a `= help:` line with the rest, a deliberate rendering and no change of wording (review pass 1, A1-51). |
 | WZ-002 | cli-only-over-mcp | E406 | role_policy | 6 | F19 | design | [50 §6.3]; [AR §7.2] | WX-013 to WX-016. |
 | WZ-003 | lease-invalid | E407 | lease | 5 | F19 | design | [50 §5.2] E407 "missing, stale token, branch mismatch"; [AR §6.2] | WR-003, WR-005. |
-| WZ-004 | declared-agent-mismatch | F19:exit5-declared-agent | - | 5 | F19 | design | [90 §4.1] Actor row; [90 §10.1] "two exit-5 texts" | WR-004. Code and name: HOLE(exit5-codes). |
-| WZ-005 | env-lease-bound | F19:exit5-env-lease-bound | - | 5 | F19 | design | [90 §4.1] binding rule; [90 §10.1] | WR-002. The design's text: "`L-18 is bound to codex:T1; pass your own lease`". Code and name: HOLE(exit5-codes). |
+| WZ-004 | declared-agent-mismatch | E407 | lease | 5 | F19 | design | [90 §4.1] Actor row; [90 §10.1] "two exit-5 texts"; [F19 §11.2]; [LQ/errors §5.5] | WR-004. The "declared agent" row of E407. |
+| WZ-005 | env-lease-bound | E407 | lease | 5 | F19 | design | [90 §4.1] binding rule; [90 §10.1]; [F19 §11.2]; [LQ/errors §5.5] | WR-002. The design's text: "`L-18 is bound to codex:T1; pass your own lease`". The "bound lease" row of E407. |
 | WZ-006 | write-in-read-surface | E006 | read_only | 2 | F19 | design | [50 §5.2] E006 | WX-017. |
 | WZ-007 | not-writable | E115 | not_writable | 2 | F19 | design | [50 §5.2] E115; [50 §3.10] | Fields outside W (WT-009) that no verb may set. |
 | WZ-008 | read-only-view | E305 | read_only_view | 6 | F19 | design | [50 §5.2] E305; [50 §3.9] item 6 | A `TX ON` a commit, tag, masked `plan/*` field or staging ref. |
-| WZ-009 | not-writer-tree | F18:not_writer_tree | not_writer_tree | 5 | F18 | design | [40 §5.3]; [AR §7.1] exit 5 "a file verb outside the writer tree" | WV-030 to WV-032. |
-| WZ-010 | unknown-model-write | HOLE(unknown-model-write-code) | - | HOLE(unknown-model-write-code) | F19 | design | [90 §8.1] L2 "a new error code naming the matching named mutation"; [90 §10.1] | WR-012, WQ-004. |
+| WZ-009 | not-writer-tree | not_writer_tree | not_writer_tree | 5 | F19 | design | [40 §5.3]; [AR §7.1] exit 5 "a file verb outside the writer tree"; [F19 §10.2] `not_writer_tree` | WV-030 to WV-032. The code and its text are [F19 §10.2]'s, which owns the store and file-verb codes (review pass 1 round 2, A1-39); the first draft named [F18], which defines no code. |
+| WZ-010 | unknown-model-write | E411 | unknown_model_write | 6 | F19 | design | [90 §8.1] L2 "a new error code naming the matching named mutation"; [90 §10.1]; [F19 §11.1]; [LQ/errors §5.5] | WR-012, WQ-004. |
 | WZ-011 | safelist | E406 | role_policy | 6 | F19 | proposed | [50 §4.4] safelist; [OP-18] | WQ-003. |
 | WZ-012 | mint-refused | E406 | role_policy | 6 | F19 | proposed | [90 §4.3] mint; [OP-19] | WM-001 to WM-005, WM-008. |
 | WZ-013 | confirm-by-acceptor | E406 | role_policy | 6 | F19 | design | [40 §3.7] "must come from an actor other than the acceptor" | WV-038. |
@@ -383,7 +383,7 @@ Rule tables specify semantics. The layouts of the values used here are [F11]'s (
 | Checklist row | Covered by |
 |---|---|
 | [90 §10.1] `LEASES` runtime rows: `kind ∈ {task, role}`, `role`, `run`, `bound` | WR-002, WR-005, WR-006, WO rows `carried_by`, WM-002, WM-004, WM-005 (meaning of each field for rights; layout [F11]) |
-| [90 §10.1] "Error table and refusal texts": the new unknown-profile write code; the two exit-5 texts | WZ-004, WZ-005, WZ-010, WR-004, WR-012 (codes are HOLEs for [F19]) |
+| [90 §10.1] "Error table and refusal texts": the new unknown-profile write code; the two exit-5 texts | WZ-004, WZ-005, WZ-010, WR-004, WR-012 (the codes are [F19 §11]'s: E411 and two E407 rows) |
 | [60 §2.5] "Harness-agnostic interface" row: `LEASES` fields, one error code, two exit-5 texts | as the two rows above |
 | [50 §8.1] F4: cold column `CREATOR` (actor, role) | WT-004 (use; layout [F09]) |
 | [40 §2.11] R-13: config key `files.confirm-roles` | WV-038, WV-039, WA-004 |
@@ -393,12 +393,10 @@ No X-F row concerns the role policy.
 
 ## Holes
 
-| id | what | decided by | candidates | constraint |
-|---|---|---|---|---|
-| HOLE(unknown-model-write-code) | the error code, name and exit code refusing a free-form `TX` under the `unknown` model profile (WZ-010, WQ-004) | WP-18 / WP-19 ([F19], [LQ/errors]) | a new code in the `tx` range (E411 is the next free number after [50 §5.2]'s E410); exit 6 | never reuses a retired number; ASCII text <= 600 B naming the matching named mutation ([90 §8.1] L2, L4) |
-| HOLE(exit5-codes) | the codes and names of the two exit-5 refusals: a declared agent that differs from the lease holder (WZ-004), an environment lease bound to another thread (WZ-005) | WP-18 ([F19]) | two names under E407 `lease`, or two new codes | exit 5 ([AR §7.1]); ASCII text <= 600 B |
-
-No value in this file waits on an M0 measurement.
+None. No value in this file waits on an M0 measurement. The three refusal codes first written as holes were naming
+decisions, which [F01 §2.5] does not make holes, and are decided (review pass 1, S1-40; [HOLES.md](../HOLES.md) §3):
+E411 `unknown_model_write`, exit 6, for WQ-004 and WZ-010 ([F19 §11.1]); the "declared agent" and "bound lease" rows
+of E407 `lease`, exit 5, for WZ-004 and WZ-005 ([F19 §11.2]).
 
 ## Open points for the review
 
@@ -485,9 +483,9 @@ No value in this file waits on an M0 measurement.
     [50 §6.5] treats apart from fields; accepting a decision or making a plan `current` stays with the orchestrator and
     owner.
 25. **PLAN §3.3 assigns no gap to WP-90.** Every resolution above was found while writing this table.
-26. **Registry rows for [RULES/README] §7.** This file's tables are not yet in the registry, and README §1.1 does not list
-    `role-write-policy.md` (it is the WP-90 "role write policy" of [m0/PLAN §3.2] item 9). The parser refuses this file
-    until the README adds these rows:
+26. **Registry rows for [RULES/README] §7.** README §1.1 now lists `role-write-policy.md` (the WP-90 "role write
+    policy" of [m0/PLAN §3.2] item 9), and §7 registers its tables as RG-054 to RG-068 (review pass 1 S1-47), with
+    these rows:
 
     ```
     | RG-054 | `role-terms` | role-write-policy.md | vocabulary | WT | row:id, term:token, sort:enum(input/scope/set/pred), basis:enum, source:cite, definition:text | §3 |

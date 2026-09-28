@@ -260,7 +260,8 @@ significant group first; every byte except the last has bit 7 set; the last byte
 - **Canonical form.** An encoding is valid only if it is the shortest one for its value: its last byte is not `00`,
   unless the whole encoding is the single byte `00`.
 - **Decoding refuses** a non-canonical encoding, an encoding longer than the bound's maximum, a value above the bound
-  (for `uvar64`, a tenth byte other than `00` or `01`), and an encoding cut off by the end of its container. A refused
+  (for `uvar64`, a tenth byte other than `01`: `00` there is non-canonical and anything above `01` exceeds 2^64 − 1),
+  and an encoding cut off by the end of its container. A refused
   varint makes its containing structure invalid, with the consequence the owning chapter states (for a log record:
   the record is invalid, [F05]).
 
@@ -561,9 +562,10 @@ may add a class before the freeze; its width is `u32` unless S5's condition hold
   no byte of any layout; it raises the bound from 65,535 to 2^32 − 1. Ref names, git branch names and worktree paths
   grow with every lane (open point 1).
 - Every fixed-width symbol field keeps the width the design gives it: `CREATOR` = (`actor` u32, `role` u16), 6 bytes per
-  node ([50] F4); `LEASES.role` u16; the `path` root u16 ([40] R-1). The row sizes [AR §4.4] states for `TOMB`
-  (16 bytes: `id`, `tx`, `reason_sym`, `replaced_by`) and `IDEM` (40 bytes: two 16-byte hashes, `branch_sym`, a result
-  reference) leave 4 bytes for each symbol id, which is the `u32` width of `reason` and `ref`.
+  node ([50] F4); `LEASES.role` u16; the `path` root u16 ([40] R-1). The row size [AR §4.4] states for `TOMB`
+  (16 bytes: `id`, `tx`, `reason_sym`, `replaced_by`) leaves 4 bytes for its symbol id, which is the `u32` width of
+  `reason`; `IDEM.branch_sym` is a 4-byte field, the `u32` width of `ref`. The `IDEM` row itself is [F11 §8]'s, which
+  owns its bytes and its size; this chapter fixes only the width of its symbol field.
 - *(Informative)* Why classes. With one shared id space, ≈ 16,000 new actor symbols a year ([71 RAM-m6]) would push
   every later role, root or ref name past 65,535, where a two-byte field could no longer refer to it. Separate id
   spaces keep each class within its own width.
@@ -695,7 +697,12 @@ None. This chapter fixes no value that an M0 measurement or benchmark decides.
 14. **Format-version refusal** (§9.1): a newer version is exit 7, "store unavailable". Pass 1 should confirm that exit 7
     is the intended code; [F19] owns the text.
 15. **Hole ids across parts** (§2.5). The format chapters written so far use `F<NN>-<name>` ([F15], [F17], [F02]). Some
-    `[OS/...]` and `[LQ/...]` files use `os-<name>` or an unprefixed name (`HOLE(os-win-boot-source)`,
-    `HOLE(share-retry-ms)`, `HOLE(display-spelling)`). Proposal for the review: those files rename their ids to
+    `[OS/...]` and `[LQ/...]` files use `os-<name>` or an unprefixed name (the ids `os-win-boot-source`,
+    `share-retry-ms` and `display-spelling`). Proposal for the review: those files rename their ids to
     `OS-<name>` and `LQ-<name>` before WP-81a, so that one `xtask` check can find every hole by its prefix and prove the
-    ids unique.
+    ids unique. **Pass 1 (P1-33, S1-40, A1-42): adopted.** Every id outside the `<part>-<name>` form is renamed as
+    [HOLES.md §4] lists, and a value owned by one chapter is cited by that chapter's id, never by a second id. A "hole"
+    whose value is a naming decision already made is not a hole (§2.5): its value is written ([HOLES.md §3]). Each part
+    applies the renames in its own files; `HOLES.md` records the old and the new id until pass 2. Round 1 re-check: a
+    scan of every `HOLE(` outside `reviews/` finds exactly the 53 ids of [HOLES.md §2] (this point names the old ids
+    without that form).

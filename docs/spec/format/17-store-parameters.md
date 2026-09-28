@@ -95,8 +95,9 @@ Resource refusals in the differential:
   never predicts a resource-class refusal.
 - **Deterministic refusals stay compared.** Refusals that come from deterministic caps (`tx.max-statements`, `tx.max-ops`)
   are compared like any other result.
-- **`wmem` under the test profile.** Under the test profile, `wmem` is fixed at `tx.wmem-max` instead of being derived from
-  RSS headroom ([AR §4.5] step 4). A run therefore draws the same `wmem` every time (OP-17-12).
+- **`wmem` under the test profile.** Under the test profile, `wmem` is the caller's `query.caps.<role>.wmem` ([CFG §10.5])
+  instead of being derived from RSS headroom ([AR §4.5] step 4). A run therefore draws the same `wmem` every time
+  (OP-17-12; pass 1, P1-11: `tx.wmem-max` is retired, [CFG §6.4]).
 
 ### 1.6 Units and clocks
 
@@ -110,39 +111,48 @@ Resource refusals in the differential:
 - **Lock waits** (§10) are measured on the waiting process's monotonic clock ([80 §2.2.1] item 5).
 - **Test profile.** Under the test profile, every clock is the injected deterministic clock of [60 §4.4] item 1.
 
-## 2. Init-fixed parameters: the `InitParams` block in `HEAD`
+## 2. Init-fixed parameters: the `InitParams` block and `project_oid_algo` in `HEAD`
 
 ### 2.1 Layout
 
-`InitParams` is 32 bytes and byte-packed ([F01 §4.3]); its integers are little-endian ([F01 §4.1]). [F04] places it at a
-fixed offset inside the reserved area of the `HEAD` slot ([AR §4.2]; [60 §2.5] "`HEAD`" row, "the store parameters of the
-row below"), and the slot's `xxh3_128` covers it. Offsets are relative to the first byte of the block.
+`InitParams` is 32 bytes and byte-packed ([F01 §4.3]); its integers are little-endian ([F01 §4.1]). [F04 §4.4] places it at
+slot offset 1024 ([AR §4.2]; [60 §2.5] "`HEAD`" row, "the store parameters of the row below"), and the slot's `xxh3_128`
+covers it. Offsets are relative to the first byte of the block. The layout is [F04 §4.4]'s, restated here for the
+parameters' meanings (pass 1, A1-13, S1-12, P1-4).
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
 | 0 | 8 | `u64` | `log_extent_bytes` | `store.log-extent-bytes` (§4.1): the length of every `log.<n>` extent; a power of two in [2^16, 2^30] |
 | 8 | 4 | `u32` | `hist_frame_commits` | `store.hist-frame-commits` (§4.3): the most commits in one `hist` frame; 1 to 65,536 |
 | 12 | 4 | `u32` | `hist_frame_bytes` | `store.hist-frame-bytes` (§4.3): the most raw bytes in one `hist` frame, and the block size of a split frame; 4,096 to 1,048,576 |
-| 16 | 16 | `[16]u8` | `_reserved` | reserved-zero ([F01 §10]); tested by IP-2 |
+| 16 | 16 | `b16` | `store_id` | the store id ([F02 §4]); never all zero (IP-2) |
 | total | 32 | | | |
+
+One further value is init-fixed and lives beside the block: **`project_oid_algo`**, the `u8` at slot offset 1072
+([F04 §5.16]) that holds the `project` root's content-hash algorithm A(`project`) of [F20 §2.3] (1 `sha1`, 2 `sha256`).
+It is not a configuration key and has no `--set`: `init` takes it from the repository's `extensions.objectFormat`, or 1
+without a repository ([CFG §7.6]). It is not a threshold, so it has no row in §3 (pass 1, A1-15, S1-28, P1-4).
 
 ### 2.2 Rules
 
-- **IP-1 (written once).** `init` writes the block into both slots. Every later publish is a read-modify-write of the newest
-  valid slot ([80 §2.4.3]), so it copies the block unchanged. `restore` and `repair --rebuild-from-log` keep the source
-  store's values. No verb changes an init-fixed value. A different value needs a new store, filled by an image import.
-- **IP-2 (validated on read).** A process that selects a slot validates the block: every field lies in its range (§3), and
-  `_reserved` is zero ([F01 §10] rule 3). If a slot has a valid checksum but a block that fails this check, the process
-  exits 7, naming `HEAD` and `moirai doctor --fsck`.
-- **IP-3 (both slots agree).** When both slots are valid, their blocks must be byte-identical. If they differ, the process
-  exits 7 in the same way.
+- **IP-1 (written once).** `init` writes the block and `project_oid_algo` into both slots. Every later publish is a
+  read-modify-write of the newest valid slot ([80 §2.4.3]), so it copies them unchanged. `restore` and
+  `repair --rebuild-from-log` keep the source store's values, the store id included ([F02 §4]). No verb changes an
+  init-fixed value. A different value needs a new store, filled by an image import.
+- **IP-2 (validated on read).** A process that selects a slot validates the block and the byte: every parameter lies in
+  its range (§3), `store_id` is not all zero, and `project_oid_algo` ∈ {1, 2}. If a slot has a valid checksum but a block
+  or byte that fails this check, the process exits 7, naming `HEAD` and `moirai doctor --fsck`.
+- **IP-3 (both slots agree).** When both slots are valid, their blocks must be byte-identical and their `project_oid_algo`
+  equal. If they differ, the process exits 7 in the same way.
 - **IP-4 (never from `config`).** `moirai config set` of an init-fixed key is refused with exit 2. If a hand-edited `config`
   file names one, `config check` and `doctor` report the value as ignored. The `HEAD` value governs.
 - **IP-5 (source at `init`).** `init` takes each value from its command line ([CFG] names the flag), or else uses the
   production value. The test harness passes the test profile (§12).
 - **IP-6 (derived format facts).**
   - Every `log.<n>` file is exactly `log_extent_bytes` long ([80 §2.3.3]). A different length found at open or by
-    recovery is corruption: exit 7, then `doctor --fsck`.
+    recovery is corruption — exit 7, then `doctor --fsck` — for an extent at or below the one that holds the end of the
+    valid log, and for a longer file anywhere. A shorter file beyond that extent is an interrupted preparation, which the
+    next rotation re-prepares ([F05 §2.2], [F16] P-72; pass 1, S1-24, A1-24).
   - `hist` framing follows §4.3 with the block's two values.
 
 ## 3. Parameter table
@@ -166,7 +176,7 @@ production value written HOLE(…) is listed in the Holes section, with the desi
 | P11 | `quiet.tail-cap-multiplier` | hot | int | 1 to 64 | HOLE(F17-quiet-mult) [8] | 2 | I | 5.3 |
 | P12 | `store.tail.runtime-bytes` | hot | size | 512 B to 2^26 | 2 MiB (D) | 1 KiB | I | 5.4 |
 | P13 | `maintenance.cli-threshold-multiplier` | hot | int | 1 to 16 | 2 (D) | 2 | I | 5.2 |
-| P14 | `store.fold-width` | hot | int | 1 to 6 | 3 (D) | 2 | I | 6.1 |
+| P14 | `store.fold-width` | hot | int | 1 to 5 | 3 (D) | 2 | I | 6.1 |
 | P15 | `maintenance.rollup-threshold` | hot | percent | 1 to 1,000 | 25 (D) | 25 | I | 6.2 |
 | P16 | `store.dict.train-sample-bytes` | hot | size | 4 KiB to 2^26 | 4 MiB (D) | 4 KiB | I | 6.3 |
 | P17 | `store.dict.retrain-growth` *(new)* | hot | percent | 1 to 1,000 | 25 (D) | 25 | I | 6.3 |
@@ -188,14 +198,19 @@ production value written HOLE(…) is listed in the Holes section, with the desi
 | P33 | `gc.fileobs-idle-expire` | hot | duration | 1 h to 3,650 d | 30 d (D) | 1 h | I (R4 subset-consistent, §11.3) | 11.3 |
 | P34 | `gc.delete-grace` *(new)* | hot | duration | 0 to 1 h | 60 s (D) | 1 s | I | 11.4 |
 
-Cross-parameter constraints (checked by `init` for init-fixed values, and by `config set` and at every read for tunable
-values; a violating tunable value falls back to its production value and is reported as an invalid value, [AR §13]):
+Cross-parameter constraints (pass 1, P1-12). `init` checks them over its `--set` values and the production values of every
+other key, and refuses a violating combination with exit 2 (`config_value` naming the constraint) before anything is
+created ([CFG §7.6], [API §8.1]). `config set` and every read check them for tunable values; a violating tunable value
+falls back to min(its production value, the largest value the constraints admit under the recorded init-fixed values)
+([CFG §5.3] step 2) and is reported as an invalid value ([AR §13]), so a fallback never breaks a constraint on a store
+whose init-fixed values are not the production ones:
 
 - **C-1.** `P05 ≤ P01 / 8`, and every log group fits one extent (§4.4 W3).
 - **C-2.** `P09 ≤ P10`.
 - **C-3.** `P29 ≤ P28`.
-- **C-4.** `1 + P14 + n_other ≤ 8`. Here `n_other` is the number of `HEAD.segments` entries that [F04] reserves for segment
-  kinds other than `main`'s base and deltas (OP-17-06).
+- **C-4.** `2 + P14 + n_other ≤ 8`. Here `n_other` is the number of `HEAD.segments` entries that [F04] reserves for segment
+  kinds other than `main`'s base and deltas (OP-17-06), and the further 1 is the one yield delta that a long maintenance
+  holding may add above P14 ([F16] P-98; pass 1, P1-9). With `n_other` = 1, P14 ≤ 5.
 
 ## 4. Log, history and commit size
 
@@ -205,8 +220,9 @@ values; a violating tunable value falls back to its production value and is repo
   and so the mapping from an `lsn` to an extent and an offset, must not change during the store's life ([F05] defines that
   mapping). A power of two keeps the mapping a shift and a mask (OP-17-04).
 - **Decision points.** Extent creation and rotation. A group that does not fit into the remainder of the active extent
-  causes a rotation. The old extent is padded with one lazy `Noop` group that ends at its last byte ([80 §2.4.3]). [F05]
-  gives the padding rule when fewer bytes remain than a minimal `Noop` group needs.
+  causes a rotation. The old extent is padded with one lazy `Noop` group that ends at its last byte ([80 §2.4.3]), and the
+  next extent opens with its extent-head group ([F05 §4.4] G-3, §4.5). [F05 §4.4] G-4 leaves 0 or at least 40 bytes at
+  every group boundary, so the pad always has room for a minimal `Noop` group (pass 1, S1-18, P1-8).
 - **Visibility.** I.
 - **Test value 64 KiB** ([60 §2.5]). At model scale (≤ 1e4 commands of ≈ 0.35–0.5 KB, [AR §4.3]) this gives dozens of
   rotations and retirements per run.
@@ -216,17 +232,18 @@ values; a violating tunable value falls back to its production value and is repo
 - **Meaning.** The number of unretired log extents that are kept before the oldest is retired into `hist.<n>`
   ([AR §4.1]: "≤ 4 kept as active history before retirement"; [AR §4.9] "History retirement").
 - **Retirement rule.** At a delta checkpoint (the decision point), while more than P02 extents are unretired, the
-  maintenance holder retires the oldest unretired extent, provided every record in it lies before `checkpoint_lsn`. An
-  extent that holds a record at or after `checkpoint_lsn` is never retired. Retirement follows [AR §4.9] and [F16].
+  maintenance holder retires the oldest unretired extent n, provided every record in it lies before the new
+  `checkpoint_lsn` ([F05 §2.5] EX-4) and that `checkpoint_lsn` > n·E, so at least one group of extent n + 1 is folded too
+  (EX-5). An extent that holds a record at or after `checkpoint_lsn` is never retired. Retirement follows [AR §4.9] and
+  [F16] P-73 (pass 1, S1-49).
 - **Visibility.** I. **Test value 2**, so that retirement happens in every run of more than a few hundred commits.
 
 ### 4.3 `store.hist-frame-commits`, `store.hist-frame-bytes` (P03, P04)
 
-- **Meaning.** Retirement packs the commits of an extent, in `lsn` order, into compressed frames ([AR §4.1], [F10]).
-- **Frame rule.** A frame is closed when it holds P03 commits, or when adding the next commit would take its raw bytes above
-  P04.
-- **Split rule.** A commit whose raw bytes exceed P04 is its own frame. That frame consists of independently decompressible
-  blocks of at most P04 raw bytes each ([AR §4.1], [71] RAM-B1).
+- **Meaning.** Retirement packs the records of an extent, in `lsn` order, into compressed frames ([AR §4.1], [F10]).
+- **Frame and split rules.** [F10 §4.2] is the one statement of the cut: P03 bounds the `Commit` records of a frame, P04
+  bounds its raw bytes counting every record, and a record above P04 is a split frame of blocks of at most P04 raw bytes
+  each ([AR §4.1], [71] RAM-B1). This section gives only the two values (pass 1, S1-29, P1-30).
 - **Frame header.** The frame header states the frame's counts and bounds ([F10], [50] F8). A reader therefore decodes a
   frame without consulting P03 or P04 (SP-R2). The init-fixed values bind the writer only.
 - **Why init-fixed.** They are init-fixed by [AR §13].
@@ -246,19 +263,27 @@ with their before-images and `prev` deltas, and the body payloads the commit rec
 The write-size switch has four rules:
 
 - **W1.** If `cs_bytes(c) > P05`, `c` is a **bulk commit** ([AR §4.3]): its ops are streamed into a sealed `cs.<n>`
-  segment, and the `Commit` record carries `cs_ref` and no inline ops. Only verbs of the bulk class of [API] may produce a
-  bulk commit. [AR §4.3] lists the class: import, `migrate`, `rm --cascade`, a directory `file mv`, and long merges. For an
-  agent verb (`TX`, `apply`, MCP `write`), W1 is a refusal instead: E501 naming the split, with nothing written ([AR §4.3]
-  "Agent-facing verbs never create bulk commits").
-- **W2.** Independently of W1, phase 1's working set is charged to `wmem`: `min(1 MiB, RSS headroom)`, never below
-  256 KiB, and at most `tx.wmem-max` ([AR §4.5] step 4). Above `wmem`, a bulk-class verb switches to the bulk commit, and an
-  agent verb refuses with E501.
+  segment, and the `Commit` record carries `cs_ref` and no inline ops. Only verbs of the bulk class may produce a bulk
+  commit: image import, `migrate`, `rm --cascade`, a directory `file mv`, `merge` and `merge --continue`, `sync`, `revert`
+  and `cherry-pick` ([AR §4.3], [API §9.10]; pass 1, P1-19: `sync` joins the long merges, whose item-10 production
+  spills by [F07 §10.6]). For an agent verb (`TX`, `apply`, MCP `write`), W1 is a refusal instead: E501 naming the
+  split, with nothing written ([AR §4.3] "Agent-facing verbs never create bulk commits").
+- **W2.** Independently of W1, phase 1's working set — the candidate, its canonical form, and every sort a producer holds
+  in memory ([F07 §10.6]) — is charged to `wmem`, the write budget of [CFG §10.5]: requested by
+  `query.budget.default.wmem` (1 MiB) or a per-call `--budget wmem=<v>` up to `query.caps.<role>.wmem` (4 MiB for agents),
+  and effective as `max(256 KiB, min(requested, RSS headroom))` ([AR §4.5] step 4, [50 §5.10]; pass 1, P1-11). Above
+  `wmem`, a bulk-class verb switches to the bulk commit and spills its sorts to `tmp/sort.<nonce>` runs ([F07 §10.6]),
+  and an agent verb refuses with E501, whose text names the raise ([LQ/errors §5.4]).
 - **W3.** Every group appended to the log, bulk commits included, fits one extent. That is, its length is at most P01 minus
-  the rotation reserve of [F05]. The recovery scan treats a longer record as invalid ([AR §4.3]). C-1 makes W3 hold for
-  every inline group at the test and production scales (OP-17-05).
-- **W4.** Both W1 and W2 apply to agent verbs. An agent `TX` whose candidate fits `wmem` (up to 4 MiB with `tx.wmem-max`)
-  but whose `cs_bytes` exceeds P05 is refused under W1. This closes the case in which `tx.wmem-max > P05` would otherwise
-  admit a changeset that only a bulk commit could hold (OP-17-11).
+  the rotation reserve R = 178 bytes of [F05 §4.4] G-2 (pass 1, S1-18). The recovery scan treats a longer record as
+  invalid ([AR §4.3]). C-1 makes W3 hold for every inline group at the test and production scales (OP-17-05).
+- **W4.** Both W1 and W2 apply to agent verbs. An agent `TX` whose candidate fits `wmem` (up to the caller's
+  `query.caps.<role>.wmem`) but whose `cs_bytes` exceeds P05 is refused under W1. This closes the case in which a raised
+  `wmem` above P05 would otherwise admit a changeset that only a bulk commit could hold (OP-17-11). An agent `TX` is
+  therefore bounded by P05 of changeset whatever its `wmem`: at the production P05 of 1 MiB and ≈ 190–240 B per op
+  ([50 §5.12]) that is ≈ 4,400–5,500 ops, below the default `tx.max-ops` of 10,000. Within that bound a `TX` whose working
+  set exceeds the default 1 MiB needs a `wmem` raise, which E501 names ([CFG §10.5]). Whether a default-cap `TX` should
+  fit (a larger P05 or a smaller `tx.max-ops` default) is an owner question (OP-17-25).
 
 **Visibility.** I for bulk-class verbs: a bulk commit and an inline commit give the same commit id, state and result. Rs for
 agent verbs, because the refusal depends on the stored encoding, which the model does not produce (SP-2).
@@ -297,20 +322,30 @@ Define `m = 1` in the MCP server and `m = P13` in a CLI or hook process ([70] S1
 - **C2, runtime-only fold.** C1 is false and `rt_bytes(T) > m·q·P12`.
 
 When C1 or C2 holds, the process tries the maintenance byte (try only, [80 §2.2.3]). If the byte is busy, another process is
-maintaining, and nothing more is done. Otherwise the process runs the delta checkpoint of [AR §4.9] (C1) or the runtime-only
-fold into `FILEOBS`, `FPRINT`, `GITRENAMES` and `ANCHORRES` (C2). Both run outside the writer byte, as [F16] specifies.
+maintaining, and nothing more is done: the holder keeps the tail bounded itself (below, [F16] P-98). Otherwise the process runs the delta checkpoint of [AR §4.9] (C1) or the runtime-only
+fold of §5.4 into the runtime-window sections of [F09 §15.1] (C2). Both run outside the writer byte, as [F16] specifies.
 
 The overlay cap P09 is never multiplied by `m`. Every process replays the whole tail into its own overlay, so the cap is a
 RAM bound for every process kind ([AR §8.3] RAM: "compact tail overlay ≤ 1 MiB"). A CLI that meets C1 on its `ovl` clause
 therefore checkpoints at 1× (OP-17-08).
+
+**Long maintenance holdings** (pass 1, P1-9, P1-43). A busy maintenance byte must not suspend the bound: a rollup, a GC
+rewrite or a `backup` copy that holds the byte for seconds would otherwise let the tail, and every process's overlay, grow
+without limit. Such a **long job** evaluates C1 with m = 1 (and the quiet cap of §5.3 while quiet mode is on) at every step
+boundary — after each output file it seals, or each file it copies — and when C1 holds it runs one **yield checkpoint**
+under its own holding before its next step ([F16] P-98): a delta checkpoint that folds the tail, retires and
+promotes nothing and releases only the job's own earlier yield deltas, so the files the job reads stay named. The resulting bound: while any maintenance job holds the byte,
+`ovl(T)` exceeds P09 (or P10 in quiet mode) by at most the tail that writers append during one step of the job. Measurement
+10 (WP-53d) records the step durations of a rollup and a GC at 1e6 on the owner's NTFS volume in background mode, and the
+overlay's high-water mark while they run, which must stay within the RAM row's 1 MiB plus that margin.
 
 "Exceeds" is strict (`>`) in every clause. A **full tail** in the sense of [AR §4.7] and [60 §5.2] item 10 is a tail at the
 threshold. Writers that append concurrently before a checkpoint runs may exceed it by the ops of their own commits.
 
 ### 5.3 Quiet mode: the cap
 
-While `HEAD.flags.quiet` is set, or quiet mode is implied by a lane in `measuring` (under `quiet.from-lane-measuring`,
-[AR §6.6]):
+While `HEAD.flags.quiet` is set, or a process holds one of the quiet bytes of `LOCK` (the probe rule of [F03 §3.1]), or
+quiet mode is implied by a lane in `measuring` (under `quiet.from-lane-measuring`, [AR §6.6]):
 
 - no delta checkpoint and no runtime-only fold runs below the cap;
 - the cap is C1 with `m = 1` for every process kind, `q = P11`, and P10 in place of P09 ([AR §2.2] "8× the tail threshold,
@@ -324,8 +359,9 @@ Removing the process-kind multiplier in quiet mode is a resolution (OP-17-08). W
 
 ### 5.4 Runtime-only fold
 
-A runtime-only fold seals the `K_RT` records of the tail into the runtime sections of the segment set: `FILEOBS`, `FPRINT`,
-`GITRENAMES` and `ANCHORRES` ([AR §4.5] step 12, [F11]). It does not touch graph sections. [F16] gives its record and its
+A runtime-only fold seals the `K_RT` records of the tail into the runtime sections of the segment set, the runtime window
+that [F09 §15.1] lists (`TREES`, `FILEOBS`, `PENDING`, `FPRINT`, `JOURNALCUR`, `DIRMAP`, `PREFIXEV`, `ANCESTRY`,
+`GITRENAMES` and `ANCHORRES`; [AR §4.5] step 12, [F11]; pass 1, A1-46). It does not touch graph sections. [F16] gives its record and its
 publish. Replay indexes `K_RT` records by key → `lsn` and decodes them only on use ([AR §4.3], [71] RAM-M5), which is why
 `rt_bytes` has its own threshold and is not part of `rec_bytes` (OP-17-07).
 
@@ -350,6 +386,9 @@ the open gate at the chosen checkpoint threshold ([60 §3.1], E8).
   [AR §4.9]).
 - **Decision point.** Each delta checkpoint.
 - **Constraint.** C-4 (the `HEAD.segments[8]` capacity and the open budget of ≤ 8 maps, [AR §4.7]).
+- **`gitmap` pages.** P14 also bounds the `gitmap` pages of one (destination, algorithm) pair: a checkpoint that would
+  leave more than P14 + 1 of them folds them as a tiered fold does, so a lookup opens at most 1 + P14 pages, or 2 + P14
+  while a long maintenance job yields ([F10 §7.1], [F16] P-98; pass 1, P1-22).
 - **Visibility.** I. **Test value 2**, so that tiered folds happen every few checkpoints at model scale.
 
 ### 6.2 `maintenance.rollup-threshold` (P15)
@@ -460,11 +499,11 @@ model scale.
 - If `|S(c)| > P23`:
   - `affected(c) = A(c)` and `affected_complete = 0` (I42′, [50] F15, F16);
   - the command's result carries a hint-class record ([AR §5a.8] "hint"), not a `Violation` op, because `Violation` ops
-    exist only on staging refs ([AR §4.6]). [F19] gives the hint's code and text.
+    exist only on staging refs ([AR §4.6]). The hint is `SuspectBudget` (code 131, [F19 §12.3]), which never changes the exit code.
 - **Consequence.** A past-view query whose window contains `c` recomputes derived state in full for the queried subgraph
   instead of trusting the stored cone ([50 §5.8]).
 
-This reading resolves the "violation record beyond it" of [AR §2.5] and [20 §7] T5 (OP-17-15).
+This reading resolves the "violation record beyond it" of [AR §2.5] and [20 §7] T5 (OP-17-15). Review pass 1 confirmed it from the correctness side (lens S decision D-4); the owner's sign-off is owner question OQ-P-1, and [AR §2.5] is edited at WP-81a.
 
 **Decision point.** Phase 1 of every write ([AR §4.5] step 4).
 
@@ -558,7 +597,11 @@ The opening record of each window is named below. Elapsed time is measured by §
   - P34 has elapsed since the `append_hlc` of the first `Checkpoint` record whose covering publish stopped naming the file;
   - the two-slot `HEAD` barrier has run ([AR §4.1]: "deleted after `HEAD` has pointed elsewhere for 60 s";
     [60 §2.5] decision (c); [F16]).
-- **Other deletion paths.** The grace does not apply to orphan-sweep candidates that no record ever named ([AR §4.1]).
+- **Other deletion paths.** The grace does not apply to orphan-sweep candidates that no record ever named ([AR §4.1]):
+  a numbered file that no slot, record or pin names is claimed by the sweeper's next `Checkpoint` and deleted without the
+  grace once that `Checkpoint` passed its identity check ([F16] P-78, P-79). An entry of `tmp/` is deleted by the sweep
+  when its last-modification time is more than P34 before the sweeper's wall clock ([F16] P-79), the one use of P34 on a
+  file-system time.
 - **Decision point.** Each deletion decision.
 - **Visibility.** I. A reader that loses the race sees a delete-pending miss, then re-reads `HEAD` and retries, a bounded
   number of times ([AR §4.7]).
@@ -572,8 +615,10 @@ the reference model and the engine reach every threshold-gated path at model sca
 
 - **TP-1.** A test run draws either the whole test profile or the whole production profile ([60 §4.4] item 1). [CFG]'s
   one-at-a-time and pairwise sweeps apply on top of the production profile.
-- **TP-2.** Init-fixed values reach the store through `init` (IP-5), and tunable values through the store's `config`.
-- **TP-3.** Clocks are the injected deterministic clock. `wmem` is fixed at `tx.wmem-max` (§1.5 SP-2).
+- **TP-2.** Init-fixed values reach the store through `init` (IP-5), and tunable values through the store's `config`. The
+  harness passes the whole profile to `init` with `--set` ([CFG §7.6]), never an init-fixed value alone, so C-1 holds from the
+  first command: a test-profile P01 of 64 KiB with the production P05 of 1 MiB is refused by `init` (pass 1, P1-12).
+- **TP-3.** Clocks are the injected deterministic clock. `wmem` is the caller's `query.caps.<role>.wmem`, not reduced by RSS headroom (§1.5 SP-2; [CFG §10.5]).
 - **TP-4.** The profile is adequate only if GT2's coverage report (section tags, WP-94) shows every path in the table
   below reached in some run of the PR tier. Where a value fails this, the value is changed through a specification finding,
   not in the harness.
@@ -612,7 +657,7 @@ test profile.
 | `maintenance.rollup` | [CFG] | enum `auto`\|`explicit`; selects who starts the rollup of §6.2 |
 | `quiet.from-lane-measuring` | [CFG] | bool; implies quiet mode (§5.3) |
 | `durability.lazy-kinds` | [CFG], [F05] | a set; graph mutations are always durable (a rule) |
-| `tx.wmem-max`, `tx.max-statements`, `tx.max-ops`, `tx.max-work-in-lock` | [CFG], [50 §3.10], [50 §5.10] | `wmem` and `tx.max-*` feed the write-size switch of §4.4; `tx.max-work-in-lock` chooses between a recompute under the lock and a release with a phase-1 re-run ([AR §4.5] step 7) |
+| `query.budget.default.wmem`, `query.caps.<role>.wmem` (the `wmem` budget; `tx.wmem-max` retired, pass 1, P1-11), `tx.max-statements`, `tx.max-ops`, `tx.max-work-in-lock` | [CFG §10.5], [50 §3.10], [50 §5.10] | `wmem` and `tx.max-*` feed the write-size switch of §4.4; `tx.max-work-in-lock` chooses between a recompute under the lock and a release with a phase-1 re-run ([AR §4.5] step 7) |
 | `query.budget.default.*`, `query.caps.<role>.*`, `query.asof.max-ops.cli`, `.mcp` | [CFG], [50 §5.10] | query budgets; the as-of op caps replace [AR §5a.6]'s "within 50k ops" rule with [50 §5.8]'s `mem`-bounded strategy choice (OP-17-18) |
 | `mcp.overlay-bytes`, `mcp.overlay-bytes.<client>`, `mcp.overlay-lru`, `git.delta-cache-bytes.cli`, `.mcp` | [CFG] | process-local caches |
 | `hooks.sync-auto-keys`, `hooks.delta.max-commits` | [CFG] | hook bounds |
@@ -634,9 +679,11 @@ change, not a configuration change.
 | largest commit `seq` | 2^32 − 1 (exit 7 beyond it) | [AR §3.1], [AR §4.5] step 4 |
 | `parent` depth | ≤ 12 | I4, [F13] |
 | frozen-bitset chunk form | per 65,536-id chunk: a sorted u16 array while ≤ 4,096 members, else an 8 KiB bitmap | [AR §4.4], [F09]: the choice is part of the canonical bytes |
-| `wmem` floor and default | ≥ 256 KiB; `min(1 MiB, headroom)` | [AR §4.5] step 4, [50 §5.10] (the maximum is `tx.wmem-max`) |
+| `wmem` floor | ≥ 256 KiB (the request and its cap are the budget keys of [CFG §10.5]) | [AR §4.5] step 4, [50 §5.10] |
 | inline body cap | 64 KiB (larger content is an `artifact` node) | [AR §2.6], [F08] (OP-17-19) |
 | free-space check before a sparse extent rotation | 2 × P01 | [80 §2.3.3] (port file systems) |
+| spare-extent preparation point | when the end of the valid log reaches offset E / 2 of its extent ([F16] P-96) | [F16] P-96; group-commit and extent rules are never keys ([AR §13]) (pass 1, P1-7) |
+| extent-head group; rotation reserve | 138 B; 178 B | [F05 §4.4], §9.28 (a frozen layout) |
 | quiescence, E3d, E6 window and every other resolver constant | R-14 | [40] R-14, [F20]; "never a key", [AR §13] |
 | `MARKERS` to `MARKERS_OLD` inertness | globally inert markers at each fold | [AR §4.4]: a rule, not a threshold |
 | MCP maintenance slice; body decode buffer; project read buffer | 5 ms; 64 KiB; 128 KiB | [AR §4.9], [AR §4.7], [AR §5e.3] (time quanta and buffer sizes; the slice is a GT11 budget, OP-17-20) |
@@ -679,7 +726,7 @@ a fixture by WP-20b (store-parameter values in `HEAD`, [60 §3.1]). Measurement 
 | F17-promo-age | production value of `store.promotion.age-checkpoints` (P21) | measurements 3 (WP-53a) and 5 (WP-53c) | 16 ([20] G16: ≈ 1–2 weeks); 8 | the first-read budgets of F17-promo-ops for quiet long-lived branches; ≤ 2 base segments mapped by live branches after any rollup; pinned disk for 50 branches within 25–60 MB at 1e5 ([AR §8.1]) |
 | F17-loose-pack | production value of `store.image.loose-pack-threshold` (P24) | measurement 8 (WP-54) | 8 ([AR §2.15]); 4; 16 | an incremental checkpoint export (`main` + 2 lanes) ≤ 50 ms against measurement 8's rename floor ([AR §8.3] SPEED) |
 | F17-lock-writer | production value of `lock.writer-wait-ms` (P26) | measurements 2 and 12 (WP-52) | 2,000 ms ([AR §13]); 1,000 ms; 5,000 ms | above measurement 12's maximum lock-release delay after `TerminateProcess` (idle and loaded, writer byte) with margin; no timeout in measurement 2's 16-writer bursts |
-| F17-lock-flush | production value of `lock.flush-wait-ms` (P27) | measurement 2 (WP-52), with measurement 12 for the flush byte | 2,000 ms ([80] X-F11); 1,000 ms; 5,000 ms | above the measured flush-byte hand-off latency maximum under load plus one flush p99; above measurement 12's maximum release delay for the flush byte; no `pending` timeout in measurement 2's bursts |
+| F17-lock-flush | production value of `lock.flush-wait-ms` (P27) | measurement 2 (WP-52), with measurement 12 for the flush byte | 2,000 ms ([80] X-F11); 1,000 ms; 5,000 ms | above the measured flush-byte hand-off latency maximum under load plus one flush p99; above measurement 12's maximum release delay for the flush byte; no `pending` or `store_locked` timeout in measurement 2's bursts, which include extent rotations with a spare prepared ([F16] P-72, P-96) and with the fallback preparation under the flush byte (pass 1, P1-7) |
 
 The following holes of other chapters condition this one. P16 and P17 are inert without a dictionary, which is
 `HOLE(F02-dict-file)` ([F02 §5.1], [F10]; measurement 6). `body_bytes` counts raw or compressed bytes according to [F10]'s
@@ -709,9 +756,10 @@ body-placement hole (measurement 6).
   body payloads the record carries, but not the header, the message, `affected` or the absorbed vector. C-1 (`P05 ≤ P01 / 8`)
   is a sufficient condition for W3 at the design's scales. [F06] should confirm the largest non-changeset record size and
   state W3's check in the writer.
-- **OP-17-06 (`HEAD.segments` capacity).** It is not settled whether `HEAD.segments[8]` also lists `dict.D`, `blobs` or
-  other kinds besides `main`'s base and deltas. C-4 and the range 1–6 of P14 assume at most one such entry. [F04] (WP-11)
-  decides.
+- **OP-17-06 (`HEAD.segments` capacity).** The question was whether `HEAD.segments[8]` also lists `dict.D`, `blobs` or
+  other kinds besides `main`'s base and deltas. **Closed:** [F04 §4.1] and [F04] open point 4 list only `main`'s base, its
+  deltas, the one yield delta of [F16] P-98 and the dictionary, so `n_other` = 1 and C-4 gives P14 ≤ 5, the range of §3
+  (pass 1, P1-9; closure NC-4).
 - **OP-17-07 (what `rec_bytes` excludes).** The `K_RT` runtime records are excluded from `store.checkpoint.bytes` and get
   their own threshold, so that a large settle triggers only the cheap runtime-only fold ([71] RAM-M5 item 3). The
   alternative is to count them in both. It is rejected because it would restore the eager-decode problem that RAM-M5
@@ -729,9 +777,10 @@ body-placement hole (measurement 6).
   their opening record. A forward wall-clock step can shorten them; a backward step pauses them. [F16] decision (e) (WP-16b)
   says which protocol quantities need the monotonic clock. For the deletion grace, the chapter argues the HLC is safe,
   because a lost race is a bounded retry ([AR §4.7]). The lock waits use the waiting process's monotonic clock.
-- **OP-17-11 (the agent-verb bound).** With `tx.wmem-max` = 4 MiB and P05 = 1 MiB, an agent `TX` could fit `wmem` with a
-  changeset that only a bulk commit holds, and agent verbs never create bulk commits ([AR §4.3]). Rule W4 refuses it with
-  E501. [50 §3.10] and [F19] should list both causes under E501.
+- **OP-17-11 (the agent-verb bound).** With an agent `wmem` cap of 4 MiB (`query.caps.<role>.wmem`, [CFG §10.5]) and P05 =
+  1 MiB, an agent `TX` could fit `wmem` with a changeset that only a bulk commit holds, and agent verbs never create bulk
+  commits ([AR §4.3]). Rule W4 refuses it with E501. [50 §3.10] and [F19] should list both causes under E501. Pass 1
+  (P1-11): `wmem` is a budget with a raise path; `tx.wmem-max` is retired.
 - **OP-17-12 (resource refusals in GT2).**
   - E501 from `wmem` or from the inline bound, and exit-7 lock timeouts, depend on memory accounting and timing. The model
     does not predict them. The GT2 harness skips the command on the model side (SP-2) and fixes `wmem` under the test
@@ -756,7 +805,10 @@ body-placement hole (measurement 6).
   - (c) truncate the eager maintenance: it violates I9.
 
   The budget counts `|S(c)|`, which the model can compute, rather than engine edge visits. The review decides. The owner signs
-  the rule table that carries it.
+  the rule table that carries it. **Pass 1 (A1-26, lens S decision D-4):** the review confirms the reading (the bitset
+  complete for I9, `affected` incomplete with `affected_complete = 0` for I42′, the hint `SuspectBudget` of [F19 §12.3]);
+  it stays open only for the owner's sign-off, listed as OQ-P-1 in `reviews/owner-questions.md`, and [AR §2.5]'s
+  "a violation record is written" is edited at WP-81a.
 - **OP-17-16 (default keys in `IDEM`).** The default-key window (P29) needs each `IDEM` row to record whether its key was a
   default key. [F11] (WP-13) owns the row layout and should reserve the bit.
 - **OP-17-17 (GC semantics in the model).** [60 §4.3] puts GC out of the model's scope. Reflog and cruft expiry are still
@@ -776,7 +828,22 @@ body-placement hole (measurement 6).
   - this chapter defines the parameter set and the 32-byte `InitParams` block (§2);
   - [F04] fixes its offset in the slot's reserved area.
 
-  If [F04] lays the three fields out individually instead, [F04] wins, and §2.1 becomes informative.
+  If [F04] lays the three fields out individually instead, [F04] wins, and §2.1 becomes informative. **Pass 1 (A1-13,
+  S1-12, P1-4, A1-15, S1-28):** [F04 §4.4]'s layout, with `store_id` at bytes 16–31, is the one layout, and §2.1 restates
+  it; the `project` root's algorithm is the init-fixed byte `project_oid_algo` at slot offset 1072 ([F04 §5.16]).
+- **OP-17-25 (a default-cap agent `TX` does not fit the inline bound; owner question OQ-P-2).** [AR §8.3] budgets "a
+  default-cap `TX` ≤ 4 MB" of write memory, and [CFG §10.5] lets an agent raise `wmem` to 4 MiB, but W1 and W4 refuse any
+  agent changeset above P05 = 1 MiB (design-fixed, [AR §4.3]), which holds ≈ 4,400–5,500 ops, while `tx.max-ops`
+  defaults to 10,000 ([50 §5.10]). So the op cap never binds at production values: E501 refuses first. Options for the
+  owner: (a) keep both values and document that a `TX` is bounded by P05 (E501 names the split); (b) lower the default
+  `tx.max-ops` to what P05 holds (≈ 4,000); (c) raise P05 within C-1 (≤ P01 / 8 = 8 MiB). Recommendation: (a) now, with
+  (b) if the owner wants the op cap to be the visible bound. No text of this chapter changes under (a).
+- **OP-17-26 (long maintenance holdings; pass 1, P1-9, P1-43).** The review offered two variants: long jobs work outside
+  the maintenance byte on a pinned set and take it only to publish, or they keep the byte and yield. This chapter and
+  [F16] P-98 take the second: a job keeps the byte for its whole run (so a rollup's inputs, a GC's rewrite and a backup's
+  copy set need no new pin holder), and at every step boundary runs a yield checkpoint when C1 holds. A yield checkpoint
+  releases none of the job's inputs (only the job's own earlier yield deltas, which it folds), so it never invalidates them; one extra `HEAD.segments` entry holds its delta (C-4, P14 ≤
+  5). The bound of §5.2 follows, and measurement 10 checks it.
 - **OP-17-22 ([PLAN §3.3] gaps).** [PLAN §3.3] assigns WP-16 two gaps:
   - the `MOVEFILE_WRITE_THROUGH` rule without measurement 17;
   - the widest reading of fault-model item (3).

@@ -157,7 +157,7 @@ The keys are [CFG]'s; the defaults are [90 §6.4]'s and [AR §13]'s.
 
 | Surface | What is bounded | Key | `claude` | `codex` | `generic` |
 |---|---|---|---|---|---|
-| MCP result | the whole `content[0].text` | `mcp.result-max-bytes`, `.<client>` | 25,000 B | 16,000 B (≤ 36,000 B by key for a classic-mode model) | 25,000 B |
+| MCP result | the whole `content[0].text` | `mcp.result-max-bytes`, `.<client>` | 25,000 B | HOLE(CFG-codex-mcp-result): the design value 16,000 B, decided by measurement 7's probes P3 and P4 ([CFG §10.8]; ≤ 36,000 B by key for a classic-mode model) | 25,000 B |
 | MCP id-dense result | an MCP result whose body lines are ids only | `mcp.ids-page-bytes` | 8,000 B | 8,000 B | 8,000 B |
 | MCP pack | the pack text | `pack.mcp.max-bytes`, capped by the MCP result ceiling | 25,000 B | 16,000 B | 25,000 B |
 | CLI pack | stdout of `pack` without `-o` | `pack.cli.max-bytes` (≤ 28,000) | 24,000 B | 24,000 B | 24,000 B |
@@ -165,7 +165,7 @@ The keys are [CFG]'s; the defaults are [90 §6.4]'s and [AR §13]'s.
 | CLI stdout of a non-zero exit | §3.3 | `output.nonzero-exit-max-bytes`, `.<client>` | 8,000 B | 8,000 B | 8,000 B |
 | LQ result page | [LQ/envelope §5.18] | `query.budget.default.bytes` (agent maximum 24,000) | 8,000 B | 8,000 B | 8,000 B |
 | brief | the brief text | `brief.budget` | 8,000 B | 8,000 B | 8,000 B |
-| hook context | any hook's injected text ([AR §7.5]) | the hook budget keys | ≤ 10,000 B | ≤ 10,000 B | ≤ 8,000 B |
+| hook context | any hook's injected text ([AR §7.5]) | the hook budget keys | ≤ 10,000 B | ≤ 10,000 B | ≤ 8,000 B ([90 §6.4]'s `generic` row; [RULES/pack-classes] PE-006 to PE-008 give the three profiles' hook ceilings, pass 1 A1-57) |
 | one error, warning, notice or hint | its text, continuation lines included | fixed, not a key | 600 B | 600 B | 600 B |
 
 - A result never exceeds the ceiling of its surface, except `pack -o FILE`, which writes a file.
@@ -211,9 +211,9 @@ The header's fields fall into four **parts**; the reader note is a fifth, on lin
 
 | Part | Fields ([LQ/envelope §3.1], §9.1–§9.3) | Limit |
 |---|---|---|
-| base | `branch: <ref>`; `rev <seq>` or `rev <old> -> <new>`; one view flag (`as-of (USE <revspec>)`, `staged (read-only)`, `live`); `<n> row`, `<n> rows`, `<n>+ rows` or `check`; `committed <c8>`; `replayed`; `staged` on a write to a staging ref | ≤ 60 B |
+| base | `branch: <ref>`; `rev <seq>` or `rev <old> -> <new>`; one view flag (`as-of (USE <revspec>)`, `staged (read-only)`, `live`); `<n> row`, `<n> rows`, `<n>+ rows`, `check` or `tx (dry)` (a `DRY` result has no rows field; its `tx (dry)` takes that place); `committed <c8>`; `replayed`; `staged` on a write to a staging ref | ≤ 60 B |
 | files | the `files @` field or `files: no tree bound` (§4.3) | ≤ 80 B |
-| extras | every other field: a composite rev part, the `across` field, the `diff` field, the three search fields, the `derived recomputed` field, `schema v<n>`, `behind main <n>`, `view moved +<k> commits since page 1`, `key <key>`, `lease <lease>`, `tx (dry)`, `IF TIP ok`, `IF TARGETS ok`, `would commit <n> changes`, `nothing written` | ≤ 60 B, all extras of the line together |
+| extras | every other field: a composite rev part, the `across` field, the `diff` field, the three search fields, the `derived recomputed` field, `schema v<n>`, `behind main <n>`, `view moved +<k> commits since page 1`, `key <key>`, `lease <lease>`, `IF TIP ok`, `IF TARGETS ok`, `would commit <n> changes` | ≤ 60 B, all extras of the line together |
 | continuation | `dropped <n>`; `more: cursor <cursor>` with the cursor text itself not counted | ≤ 30 B |
 | reader note | line 2 (§4.4) | ≤ 80 B |
 
@@ -229,7 +229,10 @@ The header's fields fall into four **parts**; the reader note is a fifth, on lin
    and shell-safe ([LQ/envelope §8.3]).
 
 *(Informative)* `branch: lane/l5np | rev 4471 -> 4472 | committed c4472a0f1` has a base part of 58 B;
-` | behind main 3` is an extras part of 16 B; ` | dropped 4 | more: cursor ` is a continuation part of 28 B.
+` | behind main 3` is an extras part of 16 B; ` | dropped 4 | more: cursor ` is a continuation part of 28 B. A `DRY`
+header's extras (pass 1, A1-30; open point 1 adopted) are at most ` | IF TIP ok | IF TARGETS ok | would commit 99999 changes`,
+57 B: `nothing written` is not printed (a dry run writes nothing by definition) and `tx (dry)` is counted in the base part.
+A composite rev part prints each part without its `<c8>` (JSON `parts` carries the commits, [LQ/envelope §3.2]).
 
 ### 4.3 The `files` part and the tree display label
 
@@ -328,8 +331,8 @@ mextra       = <the extra the table below gives for the state>
 |---|---|
 | `moved-auto` | `[moved-auto from <old path>]` |
 | `moved-auto` whose `relink` is a guess ([F18 §5.6]) | `[accepted guess <c8> \| confirm <handle>]` |
-| `moved-needs-confirm` | `[moved-needs-confirm -> <candidate path> <score> \| verify <handle>]` |
-| `ambiguous` | `[<qualified state> \| verify <handle>]` |
+| `moved-needs-confirm` | `[moved-needs-confirm <score> \| verify <handle>]`; without a score `[moved-needs-confirm \| verify <handle>]`. The candidate path is on the `verify` output, not in the marker |
+| `ambiguous` | `[<qualified state> \| verify <handle>]`; when that exceeds 50 B, `[ambiguous \| verify <handle>]` |
 | `deleted` | `[deleted <c8>]`, or `[deleted <c8> -> <replacement path>]` |
 | `replaced` | `[replaced since <c8> \| verify <handle>]` |
 | `stale-anchor` | `[<qualified state> <score> \| verify <handle>]`; without a score `[<qualified state> \| verify <handle>]` |
@@ -345,8 +348,10 @@ mextra       = <the extra the table below gives for the state>
 4. **Legend lines**, one each per result, after the class lines: `verify #N: moirai file where N --evidence` when any marker
    carries `verify`; `confirm #N: moirai links fix N --confirm (orchestrator or owner)` when any carries `confirm`. No
    marker and no legend prints a command that accepts a guess ([41 M6], [40 §6.2]).
-5. **Limit**: every marker is at most 90 B, and the median marker of the golden packs is at most 50 B (review A-m1; open
-   point 23).
+5. **Limit**: every marker is at most 50 B ([AR §8.3] TOKENS row "Link marker"; pass 1, A1-29). With a path cut to 20 B,
+   a score of 4 B, a `<c8>` of 9 B and a handle of at most 11 B (`#4294967295`), the forms above are at most 49 B, except
+   the qualified `ambiguous (normalization collision)`, which rule 1's fallback replaces by the bare state. The goldens
+   (GT12, WP-71a) check every marker against 50 B (open point 23).
 
 ## 5. The both-ends rule
 
@@ -408,7 +413,7 @@ its error texts to stderr instead of the footer ([LQ/errors §3.1]). Each text i
 | 5 | lease or view mismatch | The presented lease is missing, lost, stale, held by another holder or bound to another thread; an explicit branch or tree disagrees with the lease; a file verb runs outside the writer tree; a binding conflicts with another |
 | 6 | precondition | The store refuses the operation in its present state: a status transition, an invariant, an assertion, the role policy, a restricted delete, an ambiguous bind, a read-only view, an unknown-profile free-form write, a staged merge, sync, import, revert or cherry-pick, `--strict` with conflicts or non-`ok` links, an open staging pair, a placement refusal, quiet mode |
 | 7 | store unavailable | The store cannot be found, opened, locked, written or trusted, or a write's outcome is not known: discovery misses, bad pointers, a swap, a newer format, a refused location, a read-only volume, flag or sandbox, lock waits, a pending or unknown outcome, a durability failure, a mapping fault, a size mismatch, corruption, an exhausted id space, a busy file, a cross-volume move, a full disk, no git for an image verb |
-| 8 | partial batch | A command made of several independent commits committed some and not others (`apply` over several runs; `image import` or `image pull` over several refs). A `TX` is all or nothing and never exits 8 |
+| 8 | partial batch | A command made of several independent commits committed some and not others (`apply` over several runs; `image import` or `image pull` over several refs), or a file verb whose commit recorded failed items (`file mv`, `file rm` or `file revert` over several items, some done and some failed: [F05 §9.16], [API §12.4] step 5). A `TX` is all or nothing and never exits 8 |
 | 9 | idempotency mismatch | The key was used for another payload or on another branch; the original result is printed |
 | 10 | incomplete result | A budget ran out, a pre-flight check refused on a lower bound, the query was cancelled, `fs` units ran out, or an `--ids` result was cut. Rows printed before the cut are correct, and the continuation says how to go on |
 
@@ -433,12 +438,12 @@ its error texts to stderr instead of the footer ([LQ/errors §3.1]). Each text i
 |---|---|---|
 | 0 | none; `W01`–`W09`, `N01`–`N12` and hints never set a code | — |
 | 1 | none | `internal` |
-| 2 | E001–E007, E009, E101–E118, E302, E306, E308 | `usage`, `bad_path`, `nonportable_name`, `ambiguous_path`, `anchor_spec`, `bad_value`, `config_key`, `config_value` |
-| 3 | E301; the `detail` shape's missing ids (N01, N06, N12, [LQ/envelope §5.6]) | `not_found` |
+| 2 | E001–E007, E009, E101–E118, E302, E306, E308 | `usage`, `bad_path`, `nonportable_name`, `ambiguous_path`, `anchor_spec`, `bad_value`, `config_key`, `config_value`, `bad_ref_name`, `ref_exists`, `ref_prefix` |
+| 3 | E301; the `detail` shape's missing ids (N01, N06, N12, [LQ/envelope §5.6]) | `not_found` (a write to a node that is not live included), `commit_pruned` |
 | 4 | E401, E402 | — |
 | 5 | E407 | `not_writer_tree`, `tree_mismatch`, `binding_conflict` |
-| 6 | E305, E403, E404, E405, E406, E409, E410, E411 | `placement_refused`, `staged`, `staging_exists`, `conflicted_src`, `links_not_ok`, `repin_needs_at`, `confirm_refused`, `path_claimed`, `quiet_mode` |
-| 7 | none | `no_store`, `not_a_store`, `bad_pointer`, `swap_in_progress`, `other_store`, `format_version`, `refused_location`, `read_only_volume`, `readonly_flag`, `store_read_only`, `sandbox_write`, `store_locked`, `no_slot`, `outcome_pending`, `outcome_unknown`, `durability_failure`, `store_io_fault`, `sealed_size`, `store_corrupt`, `id_space_exhausted`, `commit_too_large`, `uid_collision`, `fs_busy`, `cross_volume`, `disk_full`, `no_git` |
+| 6 | E305, E403, E404, E405, E406, E409, E410, E411 | `placement_refused`, `staged`, `staging_exists`, `conflicted_src`, `links_not_ok`, `repin_needs_at`, `confirm_refused`, `path_claimed`, `quiet_mode`, `name_taken`, `not_merged`, `revert_refused`, `not_fresh` |
+| 7 | none | `no_store`, `not_a_store`, `bad_pointer`, `swap_in_progress`, `store_retired`, `no_canonical_path`, `other_store`, `format_version`, `refused_location`, `read_only_volume`, `readonly_flag`, `store_read_only`, `sandbox_write`, `store_locked`, `maintenance_busy`, `no_slot`, `outcome_pending`, `outcome_unknown`, `durability_failure`, `store_io_fault`, `sealed_size`, `store_corrupt`, `id_space_exhausted`, `commit_too_large`, `uid_collision`, `fs_busy`, `cross_volume`, `no_dir_flush`, `disk_full`, `no_git` |
 | 8 | none | `partial_batch` |
 | 9 | E408 | — |
 | 10 | E201, E202, E303, E304, E501–E505 | none: the `--ids` cut has no error text (§6.2) |
@@ -486,7 +491,8 @@ The keys appear in this order; a key marked "when" is omitted otherwise.
 
 ### 8.3 Values
 
-- Node ids are strings `"#N"`; commit ids are 64 lower-case hexadecimal digits without the `c` prefix (review A-m7);
+- Node ids are strings `"#N"`; commit ids are `c` followed by 64 lower-case hexadecimal digits ([50 §2.9] Q18, the A1
+  disposition A-m7; [LQ/envelope §7.3]; pass 1, S1-17, A1-16), the form a revspec takes back;
   sequence numbers are integers; timestamps are RFC 3339 UTC strings with milliseconds (`2026-09-25T12:03:00.000Z`);
   durations and byte quantities are integers (milliseconds, bytes); enumerations are their names; an absent value is
   `null` ([LQ/envelope §7.3]).
@@ -602,6 +608,7 @@ are "the `query` tool", "the `write` tool".
 |---|---|
 | `<store>` | the store directory's canonical absolute path (§2.4) |
 | `<path>`, `<dir>`, `<file>` | a project path, or a file-system path, bare or quoted (§2.5 rule 3) |
+| `<spec>` | a path or anchor spec as the caller wrote it (an `--at` value, a file-verb operand), bare or quoted (§2.5 rule 3) |
 | `<tree>` | a tree's display label (§4.3) |
 | `<treepath>` | a tree's canonical absolute path |
 | `<oserr>` | the OS-error unit (§2.4) |
@@ -628,9 +635,11 @@ Messages are line 1 after `error[<name>]: `; "detail" lists the detail lines; "h
 | | | extra or conflicting arguments | `unexpected argument <arg>`; `<a> and <b> cannot be combined` | — | `moirai <verb> --help` |
 | | | argv not UTF-8 ([OS/shell §4] item 1) | `argument <n> is not valid UTF-8` | — | `pass non-ASCII text on stdin or with -f FILE` |
 | | | an input file | `cannot read <file>: <oserr>` | — | — |
+| | | stdin or `-f FILE` longer than `input.max-bytes` ([CFG §10.5], [LQ/lexical §8]; pass 1, P1-39) | `<source> is longer than input.max-bytes (<n> bytes)` — `<source>`: `stdin` or the file | — | `split the input, or raise input.max-bytes` |
 | | | MCP parameters | `<tool>: missing <param>`; `<tool>: unknown parameter <param>`; `<tool>: <param> must be <type>; got <value>`; `<tool>: <param> takes one of <list>` | — | — |
 | `bad_path` | 2 | P1, P4 ([OS/path]) | `<path> is refused: <reason> (<rule>)` — `<reason>`: `a segment contains "\"`, `a segment contains a control character`, `a name is not valid UTF-8`, `a name has an unpaired surrogate`, `it has an empty, . or .. segment`; `<rule>`: `P1` or `P4` | — | P4: `rename the file; such a name cannot be linked`; P1: `write a root-relative path with / separators` |
 | | | a root that is not configured | `root <name> is not configured` | — | `moirai config set --user roots.<name> PATH` |
+| | | a drive-relative `X:rel` or a device form `\\.\…`, `\\?\…` path argument on Windows ([OS/path §7] step 3; pass 1, round 1, P1-37) | `<path> is refused: <reason>` — `<reason>`: `a drive-relative path depends on that drive's current directory`, `a device path bypasses Windows name checks` | — | `write the full path X:/..., or a path relative to the current directory` |
 | `nonportable_name` | 2 | `file mv` to a name with a P5 issue under `files.portable-names = refuse` ([OS/path §8.2]) | `<path> is not portable: <issue>` — `device-name`: `<stem> is a Windows device name`; `trailing-dot-or-space`: `it ends in a dot or a space`; `reserved-char`: `it contains <char>`; `too-long`: `a segment is longer than 255 bytes`; `fold-sibling`: `it differs from <sibling> only in case or normalization` | — | `choose another name, or pass --allow-nonportable` |
 | `ambiguous_path` | 2 | a relative spec matches several files ([40 §3.8]) | `<spec> matches <n> files in <tree>` | the matches, root-relative, ascending bytewise, at most 10 | `write the root-relative path` |
 | `anchor_spec` | 2 | span out of range ([F20 §6.1] step 1) | `<path>:<L>-<M> is outside the file (<n> lines)` | — | — |
@@ -638,15 +647,21 @@ Messages are line 1 after `error[<name>]: `; "detail" lists the detail lines; "h
 | | | quote input with U+FFFD ([F20 §6.1] step 3) | `the quote text contains U+FFFD (a replacement character)` | — | `pass the original bytes with --quote-file FILE` |
 | | | quote input empty after trimming | `the quote text is empty` | — | — |
 | | | quote not in the file | `the quote does not occur in <path>` | — | `copy the quote from the file as it is now` |
-| | | symbol or heading not found | `<path> has no <kind> <scope>` | — | `candidates: <list>` when scope names lie within Levenshtein distance 2 |
+| | | a `path::A/B` or `path#H` form while [F20 §6.1]'s interim scanner rule holds ([F08 §10.3.1]; pass 1, round 1, A1-14, S1-4, P1-20) | `<spec>: symbol and heading anchors are not available yet` | — | `anchor the lines instead: --at <path>:L-M, with the item's first and last line` |
+| | | symbol or heading not found (once the scanner appendix of [F20] exists) | `<path> has no <kind> <scope>` | — | `candidates: <list>` when scope names lie within Levenshtein distance 2 |
 | | | a span of trivial lines with an empty window (I-F9, [F18] open point 23) | `<path>:<L>-<M> holds only blank or brace lines and no line around it to anchor on` | — | `anchor a line with text, or link the whole file` |
 | `bad_value` | 2 | a value that does not fit its type or shape outside LQ binding ([F08 §5.4.5], [F06 §5.2]) | `<field> expects <shape>; got <value>`; `NaN is not a value of <field>` | — | — |
 | | | a path value whose root differs from its node's `root` ([F18 §2.8]) | `<path>'s root <r> differs from the node's root <s>` | — | — |
 | | | a git branch name that is not UTF-8 ([F18 §3.2] rule 1) | `the git branch of <tree> is not valid UTF-8` | — | `rename the branch` |
 | | | `--base` ([F18 §3.5]) | `--base <sha> does not name exactly one commit of <tree>'s repository` | — | `write more hex digits` |
+| `bad_ref_name` | 2 | a ref name that breaks [F12 §2.1] or [F12 §2.4] (RN-1–RN-6, IN-3); pass 1, A1-39 | `<name> is not a valid ref name: <reason>` — `<reason>`: `use lower-case a-z, 0-9, _ and - in segments joined by . and /` (RN-1), `branches start with lane/ or plan/, tags with tags/` (RN-1, IN-3), `--kind <k> does not match <prefix>` (IN-3), `the segment <s> is reserved` (RN-2), `the segment <s> reads as a commit or sequence number` (RN-3), `the segment <s> is a Windows device name` (RN-4), `the segment <s> ends in .lock` (RN-5), `it is longer than 128 bytes` (RN-6) | — | — |
+| `ref_exists` | 2 | a new ref whose name a live ref holds (RN-7) | `<name> already exists` | — | — |
+| `ref_prefix` | 2 | a new ref whose name is a prefix of a live ref's, or the reverse (RN-8) | `<name> and <other> cannot both exist: one is a prefix of the other` | — | — |
 | `config_key` | 2 | `config get\|set\|unset` of an unregistered key ([CFG]) | `unknown configuration key <key>` | — | `did you mean <s>?`, else `moirai config list --defaults lists the keys` |
 | `config_value` | 2 | `config set` with a value outside the key's type or range ([CFG]) | `<key> takes <type>; got <value>` | — | `<key>: <allowed values or range>` |
 | `not_found` | 3 | a named object other than a revision or an LQ node id | `<what> <value> does not exist` — `<what>`: `lease`, `anchor`, `run`, `lane`, `intent`, `conflict key`, `staging ref`, `backup`, `path`, `file node`, `directory`; optionally ` on <ref>` | — | staging ref: `moirai conflicts lists the open staging refs`; directory (a `file mv` destination parent, [F18] open point 28): `create the directory, then run the command again`; else — |
+| | | a write outside LQ that names a node that is not live on its view ([AR §5d.3] L3, [RULES/delete-policy-matrix] DP-003; [API] open point 5; pass 1, A1-39) | `node <id> is not live on <ref>` | the tombstone line or the not-found line of [LQ/errors] N01, N06 | — |
+| `commit_pruned` | 3 | `revert`, `cherry-pick`, `diff` or `history --patch` of a commit `gc` pruned to its header ([F06 §4.4.15]) | `commit <c8> was pruned by gc; its changes are gone` | — | — |
 | `not_writer_tree` | 5 | a file verb or R4 write outside the writer tree ([40 §3.4], [40 §5.3]) | `<tree> is not the writer tree of <ref> (writer tree: <tree>)`; `<ref> has no writer tree` | every role: `use a raw mv or rm instead; links follow by evidence once the code reaches <tree>, or ask the orchestrator` (with no writer tree: `ask the orchestrator to bind a tree for <ref>`). Orchestrator and owner roles only (review A-m4): `bind: moirai worktree bind <treepath> <ref> --replace` (without `--replace` when <ref> has no writer tree) | — |
 | `tree_mismatch` | 5 | an explicit tree outside the presented lease's lane, for a tree-derived write ([90 §4.1] Tree row) | `tree <tree> is outside lease <lease>'s lane <lane>` | `lane tree: <tree>` | `drop --tree (the tool: tree); the lease fixes the tree` |
 | `binding_conflict` | 5 | the checks of `lane open` and `worktree bind` (I-F12, [F18 §3.5]) | `<ref> already has the designated tree <tree>`; `<tree> is already the designated tree of <ref>` | every role: `ask the orchestrator`. Orchestrator and owner roles only: `move the designation: add --replace` | — |
@@ -666,10 +681,16 @@ Messages are line 1 after `error[<name>]: `; "detail" lists the detail lines; "h
 | `confirm_refused` | 6 | `links fix --confirm` ([F18 §5.5]) | `<id>'s relink is <how>/...; nothing to confirm`; `<actor> set this guess; another actor confirms it`; `role <role> may not confirm (files.confirm-roles = <list>)` | — | — |
 | `path_claimed` | 6 | a write that would give an I-F1 key a second live holder ([F18 §2.1]) | `<root>:<path> is already held by <id>` | — | `link to <id>, or resolve the PathClaim first` |
 | `quiet_mode` | 6 | a verb or flag quiet mode refuses ([AR §6.6]) | `<verb> is refused in quiet mode` | — | `pass --force, or run moirai quiet off` |
+| `name_taken` | 6 | `run open` with a run name the view already holds ([API §10.7]; pass 1, A1-39) | `run <name> already exists on <ref>` | — | `choose another run name` |
+| `not_merged` | 6 | `branch -d` of a branch whose tip `main` has not absorbed ([AR §5a.9], [API §11.2]) | `<ref> is not merged into main` | — | `merge it first, or delete it with moirai branch -D <ref>` |
+| `revert_refused` | 6 | `revert` of a `sync` commit, of a merge without `--mainline 1`, or of a commit with a dependent set ([AR §5a.5], [API §11.10]) | `<c8> is a sync commit; a sync is never reverted`; `<c8> is a merge; revert it with --mainline 1`; `<c8> has dependent commits` | for a dependent set: the dependents as `<c8> <message>`, at most 10, then `... <n> more` | for a dependent set: `revert the dependents first, newest first` |
+| `not_fresh` | 6 | `file mv` of an alias source whose node this tree is not fresh for ([40 §3.4], [API §12.4] step 1) | `<path> is an old path of <id>, and this tree has not seen its latest move` | — | `moirai links sync, then run the command again` |
 | `no_store` | 7 | discovery found nothing ([F02 §3.1] step 5, [F02 §3.5] step 5) | `no moirai store found for <dir>` | `walk-up: <n> directories from <dir> to <top>, no .moirai entry`; `git hint: <path> and <path>: nothing there`, `git hint: no .git entry above <dir>` or `git hint: off (discovery.git-hint = false)`; `store reachable by the git hint: <store>` when the hint is off and would have found one; `denied: <path> (<oserr>)`, at most 3 | CLI: `moirai init --link <store> links this directory to a store; moirai init creates one`; MCP without `tree`: `pass tree = your working directory` ([90 §2.2]) |
 | `not_a_store` | 7 | an entry that is not a store ([F02 §3.2]); `--store` or `MOIRAI_DIR` naming one | `<path> is not a store (initialisation in progress, or damaged)`; `<path> (from --store) is not a store directory`; `<path> (from MOIRAI_DIR) is not a store directory` | — | `moirai doctor store` |
 | `bad_pointer` | 7 | a malformed or stale pointer file ([F02 §3.3] rule 5) | `pointer file <path> is malformed: <reason>` — `line <n> does not match the grammar`, `it is larger than 4,096 bytes`, `it has lines after store-id`; `pointer file <path> is stale: <reason>` — `its target is not a store`, `its target is a pointer file`, `the store ids differ` | `target: <path>` when it parsed; `store id: recorded <32 hex>, found <32 hex>` when both exist | `remove <path>, then run moirai init --link <store>` |
 | `swap_in_progress` | 7 | a `restore` swap intent ([F02 §3.2]) | `a restore swap of <store> is running or was interrupted (<file>)` | — | `retry; if it persists, run moirai doctor, which completes or rolls back the swap` |
+| `store_retired` | 7 | discovery yields again, after [F16] P-86's probe delays, a store whose `HEAD.flags.retired` is set with no swap intent beside it: a `restore` ended without clearing the flag ([F02 §3.6], [F16] P-85, its open point 10; pass 1, round 2) | `<store> is marked retired by a restore that did not finish, and no swap is pending` | `nothing was read or changed` | `run moirai doctor, which clears the flag` |
+| `no_canonical_path` | 7 | a directory whose canonical path the OS cannot give: `GetFinalPathNameByHandleW` fails on a volume mounted only in a folder or on a virtual provider ([OS/path §4.1] step 3; pass 1, round 1, P1-37) | `<dir> has no canonical path on this volume: <oserr>` | `nothing was changed` | `reach it through a drive letter, or move the repository to a volume that has one` |
 | `other_store` | 7 | an MCP call whose `tree` belongs to another store ([F02 §3.5], [90 §2.2]) | `<tree> belongs to the store <store>; this server serves <store>` | — | `use the moirai server of that repository, or the CLI there` |
 | `format_version` | 7 | a structure with a newer format version ([F01 §9.1], [F03 §4.2] LH-2) | `<file> has format version <n>; this moirai reads version 1` | `nothing was read or changed` | `use a moirai release that reads format <n>` |
 | `refused_location` | 7 | the environment guard at `init`, `restore` and every open ([OS/env §3], [80 §2.6]) | `<store> is refused: <reason>` — by reason id: `fs-type` `the file system <fs> is not supported here (supported: <list>)`; `network` `it is on a network volume (<fs>)`; `unc` `it is on a UNC path`; `cross-kernel` `it is on another kernel's file system (<fs>)`; `cloud` `it is in a cloud-managed folder (<cloud kind>)`; `fuse` `it is on a FUSE mount (<fs>)`; `overlay` `it is on an overlay file system`; `volatile` `it is on a volatile file system (<fs>)`; `no-durable-flush` `the file system refused <call> (<oserr>)`; `no-byte-locks` `the file system refused byte-range locks (<oserr>)`; `no-noreplace-rename` `the file system refused a no-replace rename (<oserr>)`; `os-too-old` `<os> <found> is older than the minimum <minimum>` | at `init` and `restore`: `nothing was created` | `os-too-old`: `update to <os> <minimum> or later`; every other reason: `keep the repository and its store on a local <list> volume` |
@@ -677,20 +698,22 @@ Messages are line 1 after `error[<name>]: `; "detail" lists the detail lines; "h
 | `readonly_flag` | 7 | a write, maintenance or GC while `HEAD.flags.readonly` is set ([F04 §5.2]) | `the store is read-only (HEAD flag readonly): reads work, writes do not` | — | — |
 | `store_read_only` | 7 | a writer that cannot open `LOCK` or the log for writing ([90 §5.3], [OS/env §7]) | §11.4 | §11.4 | §11.4 |
 | `sandbox_write` | 7 | a sandboxed CLI that cannot write outside the store: an image destination, `backup DIR`, the `restore` swap ([80 §2.6]) | `this sandbox cannot write <path> (<reason>)` | `owner fix: add "/<parent>" to sandbox.filesystem.allowWrite`, where `/<parent>` is `/` followed by the canonical absolute path of the destination's parent | — |
-| `store_locked` | 7 | the writer byte's bounded wait timed out ([OS/lock §4], [AR §4.5] step 5) | `the writer lock of <store> was held for <t> ms (lock.writer-wait-ms)` | `holder: <cmd> (pid <pid>, <activity>, since <timestamp>, session <liveness>)` from `WriterDiag` ([F03 §6.3] WD-4): `<cmd>` quoted and cut to 80 bytes, `<activity>` the enumeration name, `<liveness>` `alive`, `dead`, `unknown` or `none` for a zero session hash; `holder not recorded` when the record fails its check; then `nothing was written` | `retry; a dead holder's lock is released by the OS` |
+| `store_locked` | 7 | a store lock's bounded wait timed out before anything was written: the writer byte's ([OS/lock §4], [AR §4.5] step 5), or the flush byte's while a rotation held it ([F16] P-72; pass 1, P1-31), or the retries of a quiet-mode requester that found all nine quiet bytes busy ([F03 §3.1] rule 4; pass 1, P1-10) | `the <lock> lock of <store> was held for <t> ms (<key>)` — `<lock>` `<key>`: `writer` `lock.writer-wait-ms`, `flush` `lock.flush-wait-ms`, `quiet` `lock.writer-wait-ms` (every quiet byte busy, [F03 §3.1] rule 4; pass 1, P1-10) | writer lock: `holder: <cmd> (pid <pid>, <activity>, since <timestamp>, session <liveness>)` from `WriterDiag` ([F03 §6.3] WD-4): `<cmd>` quoted and cut to 80 bytes, `<activity>` the enumeration name, `<liveness>` `alive`, `dead`, `unknown` or `none` for a zero session hash; `holder not recorded` when the record fails its check; then, for both locks, `nothing was written` | `retry; a dead holder's lock is released by the OS` |
+| `maintenance_busy` | 7 | an explicit maintenance verb (`gc`, `backup`, `repair`, `maintain`) that finds the maintenance byte held; the byte is only tried, never waited for ([F16] P-1, P-76; [OS/lock §6]; pass 1, P1-31) | `maintenance of <store> is running in another process` | `nothing was changed` | `retry when it ends; moirai doctor agents names the holder` |
 | `no_slot` | 7 | `file mv` or `file rm` with no liveness slot ([F03 §8.4] SR-4, §8.7) | `no liveness slot of <store> is free` | `nothing was changed` | `retry when fewer moirai processes run; moirai doctor agents lists slot use` |
 | `outcome_pending` | 7 | the flush byte's bounded wait timed out after the append ([AR §4.5] step 10.2, [OS/lock §4]) | `the commit is appended but not yet durable after <t> ms (lock.flush-wait-ms); outcome pending` | `key: <key>` | `re-run the same command with the same key: it completes the commit, or replays it once durable` |
 | `outcome_unknown` | 7 | a group lost before its flush twice ([AR §4.5] step 10.5, [50 §5.9] step 5) | `outcome unknown: re-run with the same key or check moirai changes` ([AR §6.4]) | `key: <key>` | — |
 | `durability_failure` | 7 | `fail_stop` ([OS/fs §4.4.5]), stderr, one line | the whole line: `error[durability_failure]: <call> (<class>) failed: <oserr>; outcome unknown: re-run with the same key or check moirai changes` | — | — |
-| `store_io_fault` | 7 | the mapping-fault handler ([OS/map §8], [80 §2.5] rule 6), stderr, one line | the whole line, frozen by [80 §2.5] rule 6 without an `error[` prefix: `store I/O fault in <file> at <offset>: run moirai doctor --fsck` | — | — |
+| `store_io_fault` | 7 | the mapping-fault handler ([OS/map §8], [80 §2.5] rule 6); a writer's scan that fails to read the log at or above `durable_lsn` ([F16] P-92; pass 1, S1-25); stderr, one line | the whole line, frozen by [80 §2.5] rule 6 without an `error[` prefix: `store I/O fault in <file> at <offset>: run moirai doctor --fsck` | — | — |
 | `sealed_size` | 7 | a sealed file whose size differs from its `total_len` after one re-read of `HEAD` ([80 §2.5] rule 4, [F10 §2.4], [OS/map §4]) | `<file> is <n> bytes but its header says <m>` | — | `run moirai doctor --fsck` |
-| `store_corrupt` | 7 | `LOCK` of another size or with a bad header ([F03 §2.1], §4.2); `HEAD` of another size or a fatal slot ([F04 §2], §7); a segment that fails an open check ([F09 §17.2]); an invalid group below `durable_lsn` ([F05 §5.3], decision (b)) | `<file> is damaged: <what>` — `<what>`: `its size is <n> bytes, not <m>`, `its header fails its check`, `a slot passes its checksum but not its validity rules`, `its <section> fails its check`, `an invalid group at lsn <L> lies below the durable end of the log` | — | the log: `run moirai repair`; every other file: `run moirai doctor --fsck` |
+| `store_corrupt` | 7 | `LOCK` of another size or with a bad header ([F03 §2.1], §4.2); `HEAD` of another size or a fatal slot ([F04 §2], §7); a segment that fails an open check ([F09 §17.2]); an invalid group below `durable_lsn` ([F05 §5.3], decision (b)); a valid log record whose payload is malformed, wherever it lies ([F05 §5.4], [F06 §2.4]; pass 1, closure NC-6) | `<file> is damaged: <what>` — `<what>`: `its size is <n> bytes, not <m>`, `its header fails its check`, `a slot passes its checksum but not its validity rules`, `its <section> fails its check`, `an invalid group at lsn <L> lies below the durable end of the log`, `the record at lsn <L> has a malformed payload` | — | an invalid group of the log: `run moirai repair`; a malformed payload and every other file: `run moirai doctor --fsck` |
 | | | no valid `HEAD` slot after three reads ([F04 §8.1]) | `HEAD has no valid slot` | — | `run moirai repair` |
 | `id_space_exhausted` | 7 | a write that needs an id beyond its space ([AR §4.5] step 4, [F01 §8.1] S4, [F02 §6.2], [F04 §5.7], [F05 §2.3], [F06 §4.4.3], [F08 §2.1], [F08 §8.3]) | `the <space> space of this store is full at <max>` — `<space>`: `node id`, `anchor handle`, `commit sequence`, `log extent`, `<family> file number`, `symbol class <class>`, `schema <space> id` | `nothing was written` | — |
 | `commit_too_large` | 7 | a group that no extent can hold, even as a bulk commit ([F06 §4.6]) | `the commit needs <n> bytes; a log extent holds <m>` | `nothing was written` | `split the write into smaller commits` |
 | `uid_collision` | 7 | a derived uid that is all zero ([F08 §2.2]) | `the derived uid of <what> is all zero and cannot be stored` | `nothing was written` | — |
 | `fs_busy` | 7 | errors 5 and 32 after the bounded retry, `Busy`, and the Unix busy states of `file mv` and `file rm` ([OS/fs §6.2], §6.3, [F20 §5.19]) | `<op> of <path> failed after <t> ms and <n> retries: <oserr>` — `<op>`: `rename`, `delete`, `open` | a directory: `a process has an open handle or its current directory inside <path>` and `common causes: a shell cd'ed inside, an editor, a watcher`; a file whose holders are known: `held by: <image> (pid <pid>)`, at most 3; a file verb: `intent <intent> aborted; nothing changed` | `close what holds it, then run the command again` |
-| `cross_volume` | 7 | `file mv` across volumes ([OS/project §6.4], [F20 §5.19]) | `<path> and <path> are on different volumes; moirai file mv never copies` | `intent <intent> aborted; nothing changed` when an intent was opened | `move it with a raw mv; links re-bind by evidence` |
+| `cross_volume` | 7 | `file mv` across volumes ([OS/project §6.4], [F20 §5.19]) | `<path> and <path> are on different volumes; moirai file mv never copies` | `intent <intent> aborted; nothing changed` when an intent was opened | `move it with a raw mv; links re-bind by evidence or show a proposal to confirm` (pass 1, A1-59) |
+| `no_dir_flush` | 7 | `file mv`, `file rm` or `file revert` whose plan step finds that a parent directory on the project volume cannot be flushed (`Unsupported` or `AccessDenied` from `sync_dir`: SMB, FUSE, `\\wsl$`; [OS/project §6.2], [API §12.4] step 1; pass 1, P1-16); `doctor`, for an intent whose recovery re-barrier met such a volume and left it open ([F16] P-71; round 1) | `<dir> is on a volume where moirai cannot flush a directory: <oserr>` | `nothing was changed` | `move it with a raw mv; links re-bind by evidence or show a proposal to confirm` |
 | | | `file rm --trash` with the store on another volume ([40 §3.5]) | `<path> is on another volume than the store; --trash moves within one volume` | — | `run moirai file rm without --trash` |
 | `disk_full` | 7 | a write, flush or create that failed with disk full, or the sparse-extent early warning (decision (f), [OS/fs §6.2]) | `no space left on the volume of <path>: <oserr>` | `the command was not acknowledged` | `free space, then run the command again with the same key` |
 | `no_git` | 7 | an image verb that needs the git command ([AR §7.1], [AR §5b.8]) | `image <verb> needs the git command for <what>, and git is not on PATH` — `<what>`: `a reftable destination`, `the remote <remote>` | — | `install git, or export to a destination with refStorage = files (moirai image export --to DEST --create)` |
@@ -704,11 +727,20 @@ After [LQ/errors §4.1]'s common keys (§8.6), in this order:
 |---|---|
 | `internal` | `"component":<string>`, `"version":<string>` |
 | `usage` | `"argument":<string or null>` |
-| `bad_path`, `nonportable_name` | `"path":<string>`, `"rule":<string>` (the rule id or the issue name) |
+| `bad_path`, `nonportable_name` | `"path":<string>`, `"rule":<string>` (the rule id, the issue name, or `drive-relative` or `device` for [OS/path §7] step 3) |
 | `ambiguous_path` | `"matches":[<string>...]` |
-| `anchor_spec`, `bad_value`, `placement_refused`, `confirm_refused` | `"case":<string>`, naming the case in the order of §10.2's rows for the code: `range`, `binary`, `fffd`, `empty`, `not-found`, `no-scope`, `no-window`; `shape`, `nan`, `root`, `branch-utf8`, `base`; `shadow`, `linked-worktree`, `subdirectory`, `broken-git`, `non-store`, `exists`, `link-target`, `not-empty`; `not-a-guess`, `same-actor`, `role`) |
+| `anchor_spec`, `bad_value`, `placement_refused`, `confirm_refused` | `"case":<string>`, naming the case in the order of §10.2's rows for the code: `range`, `binary`, `fffd`, `empty`, `not-found`, `no-scanner`, `no-scope`, `no-window`; `shape`, `nan`, `root`, `branch-utf8`, `base`; `shadow`, `linked-worktree`, `subdirectory`, `broken-git`, `non-store`, `exists`, `link-target`, `not-empty`; `not-a-guess`, `same-actor`, `role`) |
+| `bad_ref_name` | `"name":<string>`, `"rule":<string>` (`RN-1` … `RN-6`, `IN-3`) |
+| `ref_exists` | `"name":<string>` |
+| `ref_prefix` | `"name":<string>`, `"other":<string>` |
 | `config_key`, `config_value` | `"key":<string>` |
-| `not_found` | `"what":<string>`, `"value":<string>` |
+| `not_found` | `"what":<string>` (`node` for a node that is not live), `"value":<string>` |
+| `commit_pruned` | `"commit":<string>` |
+| `name_taken` | `"name":<string>` |
+| `not_merged` | `"ref":<string>` |
+| `revert_refused` | `"commit":<string>`, `"case":<string>` (`sync`, `mainline`, `dependents`), `"dependents":[<string>...]` |
+| `not_fresh` | `"path":<string>`, `"node":"#N"` |
+| `no_dir_flush` | `"dir":<string>`, `"os":{"code":<int>,"symbol":<string>}` |
 | `not_writer_tree`, `binding_conflict` | `"tree":<string>` (canonical path), `"writer_tree":<string or null>`, `"ref":<string>` |
 | `tree_mismatch` | `"tree":<string>`, `"lease":<string>`, `"lane_tree":<string>` |
 | `staged` | `"staging_ref":<string>`, `"violations":[{"key":<string>,"class":<string>,"code":<int>,"description":<string>,"suggested":<string>}...]`, `"conflicts":<int>` |
@@ -718,14 +750,15 @@ After [LQ/errors §4.1]'s common keys (§8.6), in this order:
 | `repin_needs_at` | `"anchor":<string>`, `"state":<string>` |
 | `path_claimed` | `"root":<string>`, `"path":<string>`, `"holder":"#N"` |
 | `no_store` | `"dir":<string>`, `"examined":[<string>...]`, `"hinted_store":<string or null>` |
-| `not_a_store`, `swap_in_progress` | `"path":<string>` |
+| `not_a_store`, `swap_in_progress`, `store_retired` | `"path":<string>` |
+| `no_canonical_path` | `"dir":<string>`, `"os":{"code":<int>,"symbol":<string>}` |
 | `bad_pointer` | `"pointer":<string>`, `"state":"malformed"` or `"stale"`, `"target":<string or null>`, `"recorded_id":<32 hex or null>`, `"found_id":<32 hex or null>` |
 | `other_store` | `"tree":<string>`, `"store":<string>`, `"served_store":<string>` |
 | `format_version` | `"file":<string>`, `"version":<int>` |
 | `refused_location` | `"reason":<string>` (the reason id), `"fs":<string or null>` |
 | `store_read_only` | `"store":<string>`, `"profile":<string>`, `"mcp_call":<string or null>` |
 | `sandbox_write` | `"path":<string>`, `"allow_write":<string>` |
-| `store_locked` | `"waited_ms":<int>`, `"holder":{"cmd":<string>,"pid":<int>,"activity":<string>,"since":<timestamp>,"session":<string>}` or `null` |
+| `store_locked` | `"lock":"writer"`, `"flush"` or `"quiet"`, `"waited_ms":<int>`, `"holder":{"cmd":<string>,"pid":<int>,"activity":<string>,"since":<timestamp>,"session":<string>}` or `null` (always `null` for the flush and quiet locks) |
 | `no_slot` | none |
 | `outcome_pending`, `outcome_unknown` | `"key":<string>` |
 | `sealed_size` | `"file":<string>`, `"size":<int>`, `"total_len":<int>` |
@@ -754,6 +787,7 @@ After [LQ/errors §4.1]'s common keys (§8.6), in this order:
 | `removable_drive` | `doctor` | `warning[removable_drive]: <store> is on a removable or external drive; some USB bridges ignore flushes` |
 | `untested_os` | `doctor` | `warning[untested_os]: <os> <found> is allowed but outside the tested set` |
 | `user_config_unresolved` | `doctor` ([F02 §7.3] rule 2, [OS/path §10]) | `warning[user_config_unresolved]: the user configuration file has no location (<variable> is unset or not absolute)` |
+| `graph_only_revert` | `revert` or `cherry-pick` of a commit whose group carried an `FsIntentDone` ([40 §3.6], [API §11.10]; pass 1, A1-39) | `warning[graph_only_revert]: <c8> moved files on disk; moirai file revert <c8> moves them back` |
 
 ### 10.5 Refusals named by other chapters
 
@@ -767,22 +801,27 @@ Each refusal another chapter delegates here, with its code. A chapter that state
 | `init` placement and the shadow guard | [F02 §2.1]–§2.2, its open point 13 | `placement_refused` | 6 |
 | a refused location at `init` | [F02 §2.4], [OS/env] | `refused_location` | 7 |
 | discovery: nothing found; not a store; a bad pointer; a swap | [F02 §3.1]–§3.3 | `no_store`, `not_a_store`, `bad_pointer`, `swap_in_progress` | 7 |
+| discovery: a retired store with no swap intent | [F02 §3.6], [F16] open point 10 | `store_retired` | 7 |
 | `LOCK` of another size or with a bad header | [F03 §2.1], §4.2 | `store_corrupt` | 7 |
 | no liveness slot free | [F03 §8.4], §8.7 | `no_slot` | 7 |
 | the writer wait timed out | [F03 §6.3] WD-4, [OS/lock §4] | `store_locked` | 7 |
+| the flush wait at a rotation timed out; every quiet byte stayed busy | [F16] P-72, [F03 §3.1] rule 4 | `store_locked` | 7 |
 | `HEAD` of another size; a fatal slot; no valid slot | [F04 §2], §7, §8.1 | `store_corrupt` | 7 |
 | `next_id` or `next_anchor` beyond 2^32 − 1 | [F04 §5.7] | `id_space_exhausted` | 7 |
 | `HEAD.flags.readonly` | [F04 §5.2] | `readonly_flag` | 7 |
 | an extent beyond `log.4294967295` | [F05 §2.3] | `id_space_exhausted` | 7 |
 | an invalid group below `durable_lsn` | [F05 §5.3] | `store_corrupt` | 7 |
+| a valid log record with a malformed payload, wherever it lies | [F05 §5.4], [F06 §2.4] | `store_corrupt` | 7 |
 | a commit `seq` beyond 2^32 − 1 | [F06 §4.4.3], [AR §4.5] step 4 | `id_space_exhausted` | 7 |
 | an over-long commit | [F06 §4.6], its open point 17 | `commit_too_large` | 7 |
 | NaN at write; a value that does not match its shape | [F06 §5.2], [F08 §5.4.5] | `bad_value` | 2 |
 | `#N` = 2^32 | [F08 §2.1] | `id_space_exhausted` | 7 |
 | an all-zero derived uid | [F08 §2.2] | `uid_collision` | 7 |
 | exhausted schema id spaces | [F08 §8.3] | `id_space_exhausted` | 7 |
-| a result that does not conform to the schema (I11) | [F08 §8.6] | the binder's E1xx code, else E405 with the rule `schema conformance (I11)` (open point 16) | 2 or 6 |
-| `rm` of a root node | [F08 §11.3] | E409 (open point 16) | 6 |
+| a result that does not conform to the schema (I11) | [F08 §8.6] | the binder's E1xx code, else E405 with the rule `schema conformance (I11)` ([LQ/errors §5.5]) | 2 or 6 |
+| `rm` of a root node | [F08 §11.3], [RULES/delete-policy-matrix] DP-010 | E409, its root-node case ([LQ/errors §5.5]) | 6 |
+| a node delete under a live lease without `RELEASE` (I32′) | [API §9.1], [RULES/delete-policy-matrix] DP-005 | E409, its lease case ([LQ/errors §5.5]) | 6 |
+| a delete whose replacement is not live, lies in the deleted set or does not fit a re-pointed edge | [RULES/delete-policy-matrix] DP-007 | E409, its replacement case ([LQ/errors §5.5]) | 6 |
 | a segment or sealed file that fails an open check | [F09 §17.2] | `store_corrupt` | 7 |
 | a size mismatch before mapping | [F10 §2.4], [OS/map §4] | `sealed_size` | 7 |
 | a structural violation on a write | [F13 §5] VO-3 | §12.4 | 6 |
@@ -798,11 +837,29 @@ Each refusal another chapter delegates here, with its code. A chapter that state
 | anchor capture refusals | [F20 §6.1], its open point 31 | `anchor_spec` | 2 |
 | Unix busy states of `file mv` and `file rm` | [F20 §5.19] | `fs_busy` | 7 |
 | cross-volume `file mv` | [F20 §5.19], [OS/project §6.4] | `cross_volume` | 7 |
+| a project volume that cannot flush a directory | [OS/project §6.2], [API §12.4] | `no_dir_flush` | 7 |
+| a pruned commit named by `revert`, `cherry-pick` or `diff` | [F06 §4.4.15] | `commit_pruned` | 3 |
+| a busy maintenance byte seen by an explicit maintenance verb | [F16] P-76, [OS/lock §6] | `maintenance_busy` | 7 |
+| ref-name grammar, an existing name, a prefix clash | [F12 §2.1], §2.4 | `bad_ref_name`, `ref_exists`, `ref_prefix` | 2 |
+| a run name in use; an unmerged branch; a refused revert; a stale alias source | [API §10.7], §11.2, §11.10, §12.4 | `name_taken`, `not_merged`, `revert_refused`, `not_fresh` | 6 |
+| a write to a node that is not live | [API §9.1], [RULES/delete-policy-matrix] DP-003 | `not_found` (`node`) | 3 |
 | argv that is not UTF-8 | [OS/shell §4] item 1 | `usage` | 2 |
+| a drive-relative or device-form path argument | [OS/path §7] step 3 | `bad_path` | 2 |
+| a directory whose canonical path the OS cannot give | [OS/path §4.1] step 3 | `no_canonical_path` | 7 |
 | stdin that is not UTF-8 | [OS/shell §5.2] step 4, [80 §4.2] T6 | E003 | 2 |
 | a durability failure | [OS/fs §4.4.5] | `durability_failure` | 7 |
 | a mapping fault | [OS/map §8] | `store_io_fault` | 7 |
+| a failed read of the log at or above `durable_lsn` in a writer's scan | [F16] P-92, [F05 §5.3] | `store_io_fault` | 7 |
 | the environment guard's refusals | [OS/env §3], §6, §7 | `refused_location`, `read_only_volume`, `store_read_only`, `sandbox_write` | 7 |
+
+### 10.6 Configuration diagnostics
+
+The configuration diagnostics `CFG01`–`CFG17` ([CFG §6.2]) are numbered by this chapter, which owns code numbering across
+the specification (pass 1, A1-39): the numbers and names of [CFG §6.2]'s table are frozen as they stand, and [CFG §6.2]
+owns their texts and severities. They are warnings or notices and never change an exit code ([LQ/errors §4.4]). In text a
+diagnostic renders `CFGnn: <message>`; its continuation lines are indented seven spaces, the width of `CFGnn: `; in the
+footer block they follow the LQ warnings and notices, in ascending code order ([LQ/errors §4.2]; pass 1, A1-62). In JSON
+they are objects of the `warnings` array ([LQ/errors §4.3]).
 
 ## 11. The refusals of [90 §10.1]
 
@@ -850,8 +907,11 @@ error[E407 lease]: <lease> is bound to <identity>; pass your own lease
 
 ### 11.3 E406's unleased text
 
-The unleased refusal of [AR §7.3] and [90 §4.3] is frozen verbatim (the [PLAN §3.3] gap "whether E406's new fix text is
-frozen"), split at the semicolon as [LQ/errors §5.5] does:
+The unleased refusal of [AR §7.3] and [90 §4.3] is frozen (the [PLAN §3.3] gap "whether E406's new fix text is frozen").
+The design writes it as one line (152 B); this chapter **renders** it as a message line and a help line, split at the
+semicolon: the words are the design's, the `; ` becomes an LF, two spaces and `= help: `, and nothing else changes
+([LQ/errors §5.5] renders it the same way; pass 1, A1-51). [RULES/role-write-policy] WZ-001 quotes the design's one-line
+form, which is the same text:
 
 ```
 error[E406 role_policy]: this write needs a lease
@@ -895,7 +955,7 @@ A class is stored as one `u8` code wherever a stored structure carries one: the 
 | Codes | Classes | Owner |
 |---|---|---|
 | 0 | none; invalid in every stored structure | — |
-| 1–63 | value-conflict classes (`FieldEdit`, `StatusFork`, `TextHunk`, `DeleteVsModify`, `SupersedeFork`, `OwnerFieldEdited`, `DATA`, `PathClaim`) | [F12] |
+| 1–63 | value-conflict classes (`FieldEdit`, `StatusFork`, `TextHunk`, `DeleteVsModify`, `SupersedeFork`, `OwnerFieldEdited`, `PathClaim`; [AR §5a.8]'s `DATA` has no code, [F12 §6.1]; pass 1, P1-31) | [F12] |
 | 64–127 | structural-violation classes: may be stored as `Violation` ops | this chapter, §12.2 |
 | 128–191 | hint classes: never stored | this chapter, §12.3 |
 | 192–255 | reserved, invalid in format v1 ([F01 §5.4]) | — |
@@ -911,12 +971,12 @@ A class is stored as one `u8` code wherever a stored structure carries one: the 
 | 64 | `HierarchyCycle` | V01 (a Kleppmann move skipped because it would close a cycle) and V05 ([F13 §5]) | the `parent` forest has no cycle (I4) |
 | 65 | `Cycle` | V03 ([F13 §5]); [RULES/merge-table] VA-016 | the combined precedence graph is acyclic (I5′); the declared-acyclic kinds |
 | 66 | `DanglingEdge` | V04 | structural edges have live endpoints (I2) |
-| 67 | `DepthExceeded` | V05 | the `parent` forest has depth ≤ 12 (I4); proposed ([F13] OP-13-06) |
-| 68 | `Cardinality` | V07 | `duplicate_of` chains of length 1 (I7), `runs_in` ≤ 1, `answers` ≤ 1 active ([AR §3.3]); proposed (OP-13-06) |
+| 67 | `DepthExceeded` | V05 | the `parent` forest has depth ≤ 12 (I4); [F13] OP-13-06, confirmed at pass 1 (P1-21, S1-33) |
+| 68 | `Cardinality` | V07 | `duplicate_of` chains of length 1 (I7), `runs_in` ≤ 1, `answers` ≤ 1 active ([AR §3.3]); confirmed at pass 1 |
 | 69 | `SchemaConflict` | V09 | schema conformance, strengthening included (I11) |
 | 70 | `QueryInvalid` | V10 (§12.5) | every named query in scope parses and binds ([50] F18) |
 | 71 | `QueryCycle` | V11 (§12.5) | the named-query call graph is acyclic ([50] F18) |
-| 72 | `PlanMask` | V12 | `plan/*` masked fields are not written (I33′); proposed (OP-13-06) |
+| 72 | `PlanMask` | V12 | `plan/*` masked fields are not written (I33′); confirmed at pass 1 |
 | 73 | `RemovedTextNotInBase` | the text merge rule ([RULES/merge-table] MR-036) | a `doc.section` body's removed text exists in the base |
 | 74 | `IdCollision` | import ([AR §5b.6] step 4); merge ([RULES/merge-table] MR-045) | two creations of one random uid |
 | 75 | `ImageParse` | import ([AR §5b.6] step 4, [F14]) | an image file that does not parse or re-bind |
@@ -949,9 +1009,9 @@ On a write (a verb, `tx`, `apply`, MCP `write`) a structural violation refuses t
 | `HierarchyCycle`, `DepthExceeded` | E405, rule `forest depth 12 (I4)` | staged |
 | `Cycle` | E405, rule `acyclic precedence (I5')` | staged |
 | `DanglingEdge` | E405, rule `live endpoints (I2)` | staged |
-| `Cardinality` | E405, rule `canonical duplicate target (I7)` for `duplicate_of`; for `runs_in` and `answers` a rule text [LQ/errors] adds (open point 16) | staged |
-| `SchemaConflict` | the binder's E1xx code, else E405 with a rule text [LQ/errors] adds (open point 16) | staged |
-| `QueryInvalid` | E405 with a rule text [LQ/errors] adds (open point 16) | staged |
+| `Cardinality` | E405, rule `canonical duplicate target (I7)` for `duplicate_of`; for `runs_in` and `answers` the rule `at most one <edge> (cardinality)` ([LQ/errors §5.5]) | staged |
+| `SchemaConflict` | the binder's E1xx code, else E405 with the rule `schema conformance (I11)` ([LQ/errors §5.5]) | staged |
+| `QueryInvalid` | E405 with the rule `named queries bind (QueryInvalid)` ([LQ/errors §5.5]) | staged |
 | `QueryCycle` | E405, rule `named-query cycle (QueryCycle)` | staged |
 | `PlanMask` | E305 `field <field> is masked on plan branches` | staged |
 | `RemovedTextNotInBase`, `IdCollision`, `ImageParse`, `NotFound`, `TombstoneRemoved` | cannot arise | staged |
@@ -994,8 +1054,8 @@ contains a query of S, makes one `QueryCycle` violation:
 which is the canonical key order of `QUERIES` items ([F07]; open point 17).
 
 **12.5.6 Outcome.** §12.4. On a write the first violation refuses the block with E405: for `QueryCycle` the rule
-`named-query cycle (QueryCycle)` with the cycle as its detail line; for `QueryInvalid` the rule text of open point 16 with
-the detail line `<name>: <code> <message>` from the first diagnostic.
+`named-query cycle (QueryCycle)` with the cycle as its detail line; for `QueryInvalid` the rule `named queries bind
+(QueryInvalid)` ([LQ/errors §5.5]) with the detail line `<name>: <code> <message>` from the first diagnostic.
 
 ### 12.6 `Violation` op contents for F18's classes
 
@@ -1042,7 +1102,9 @@ detail line `<skey> <class> <description>`. A conflict renders as [LQ/envelope �
 
 None. No value of this chapter waits on an M0 measurement. The ceilings of §3.2 are [CFG] keys with the design's
 defaults; WP-81a records any change that measurement 7 (the Bash tool's caps) or probe P3 ([90 §10.5]) motivates in [CFG]
-and [AR §13], not here. The display spelling inside LQ replacement texts is [LQ/errors]' `HOLE(display-spelling)`.
+and [AR §13], not here. The display spelling inside LQ replacement texts is `HOLE(LQ-display-spelling)`, owned by
+[LQ/gql-spelling] (the id formerly written `display-spelling`, [HOLES.md §4]). The default of `mcp.result-max-bytes.codex`
+(§3.2) is `HOLE(CFG-codex-mcp-result)`, owned by [CFG].
 
 ## Open points for the review
 
@@ -1054,7 +1116,9 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is [LQ
    for WP-19: [LQ/envelope §3.3] restates the totals and must cite §4.2; "extras" is read as one budget for all extras of a
    line, as A-M3's fix asks, so [LQ/envelope §9.3]'s `DRY` header (65 B of extras in [50 §2.9] Q19) and the composite
    header of Q15 (64 B) exceed it. Proposals: drop `nothing written` from the `DRY` header (a dry run writes nothing by
-   definition) and drop each part's `<c8>` from the composite rev part (JSON `parts` carries the commits).
+   definition) and drop each part's `<c8>` from the composite rev part (JSON `parts` carries the commits). **Pass 1
+   (A1-30): adopted**, with one more step the arithmetic needs: `tx (dry)` counts in the base part, in the place of the
+   rows field a `DRY` result lacks (§4.2). [LQ/envelope §3.2] and §9.3 follow.
 2. **Limits are golden checks.** §4.2 rule 3: moirai cuts only labels, git branches and the reader note's slots. Cutting a
    ref would weaken the D2/D3 branch signal the header exists for.
 3. **The cursor text is not counted** in the continuation part (§4.2 rule 4). [LQ/envelope §8]'s cursors are at least ≈ 100
@@ -1070,7 +1134,10 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is [LQ
    Code ≈ 10,000 characters). A 24,000-B page with exit 10 would be cut by Claude Code, which is what the page exists to
    prevent ([90 §2.1]). §6.2 resolves: a result that fits `output.ids-max-bytes` prints whole with exit 0; a cut prints at
    most min(`output.ids-max-bytes`, `output.nonzero-exit-max-bytes`) with exit 10; `output.ids-max-bytes` = 0 disables
-   both limits for scripts. Measurement 7 re-checks the Bash tool's caps.
+   both limits for scripts. Measurement 7 re-checks the Bash tool's caps. **Pass 1 (A1-31):** [LQ/envelope §6.5] now cites
+   §6.2. The owner confirms at WP-81a that a cut `--ids` page holds min(24,000, 8,000) = 8,000 B by default, against
+   [AR §7.1]'s "pages at `output.ids-max-bytes` (24,000 B)"; a whole result still prints up to 24,000 B with exit 0.
+   Round 1: the question is OQ-F-1 of `reviews/owner-questions.md`.
 7. **`doc patch` exit (conflict).** [AR §7.1] gives exit 4 for a removed text that is not a substring; [50 §5.2] and
    [LQ/errors] put it under E404, exit 6. The error table is not a reservation of [F01 §2.4] rule 2's list, so [AR] would
    win; a code has one exit code, so following [AR] needs a new LQ code (proposal: `E412 patch_mismatch`, exit 4, the
@@ -1096,7 +1163,8 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is [LQ
     class codes in [F12]; [PLAN §3.2] WP-18 and this work package put F18's classes and the violation-class enum here.
     Resolution: one `u8` space (§12.1), [F12] owning codes 1–63 (value conflicts) and this chapter 64–191. [F12] cites §12.1;
     R-MODEL updates [RULES/merge-table] §9's sentence and fills VA-005, VA-007, VA-008 and VA-013 with §12.2's classes; the
-    owner re-signs that table (V3).
+    owner re-signs that table (V3). **Done** (pass 1, round 1, P1-21): §9's sentence gives §12.1's one code space, and
+    VA-005, VA-007, VA-008 and VA-013 carry codes 67, 68 and 72 (OQ-M-1 for the re-signature).
 15. **Three new structural classes** (§12.2, closing [F13] OP-13-06 as proposed there): `DepthExceeded` (67),
     `Cardinality` (68, `duplicate_of`, `runs_in`, `answers`) and `PlanMask` (72). [AR §5a.8] names none; classes are frozen
     format, so pass 1 confirms them.
@@ -1104,6 +1172,8 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is [LQ
     `runs_in` and `answers` cardinalities and schema conformance. Proposals: `named queries bind (QueryInvalid)`,
     `at most one <edge> (cardinality)`, `schema conformance (I11)`. [F08 §11.3]'s refusal of `rm` on a root node needs an E409
     case (`<id> is a root node`). [F17] OP-17-11 asks [LQ/errors] to list both causes (`wmem`, the inline bound) under E501.
+    **Closed** (pass 1, round 1, P1-21, P1-11): [LQ/errors §5.5] takes the three rule texts and the root-node case of
+    E409, and [LQ/errors §5.4]'s E501 names the inline bound beside `wmem`; §10.5 and §12.4 cite them.
 17. **The named-query validator** (§12.5–§12.6).
     - The scope rule 3 over-approximates [50 §4.4]'s set; I12 makes the results equal (§12.5.2).
     - The key text form `query:<name>` is a proposal for [F12]; [F07] must order `QUERIES` items by name bytes for §12.5.5.
@@ -1128,18 +1198,25 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is [LQ
     reproduce the pack; the digest is `<rev>-<8 hex>` (NR-002), where [AR §7.4] shows `digest 7f3a`; the last line uses
     [90 §6.3]'s `dropped: <what> | more: <continuation>` rather than [AR §7.4]'s `-> moirai pack 51 --more`. The MCP `brief` tool has no
     continuation parameter, so a brief delivered through MCP prints the CLI continuation; [AR §7.2] may add one at M10.
-    `HOLE(pack-digest-param)` of [RULES/pack-classes] is a naming decision for WP-25, not a measurement; this chapter agrees
-    with its candidates.
-23. **Link markers** (§4.6, answering [F18] open point 17 and review A-m1). Markers use [F18 §4.7]'s qualified forms, so
-    `moved-needs-confirm` markers exceed 50 B. The gate is restated as A-m1 offers: every marker ≤ 90 B and the golden
-    median ≤ 50 B. The `was:` quote stays in link lines ([F18 §4.7] rule 5) and leaves markers; `pending` prints the plain
-    state rather than [F18]'s proposed `pending: not in this tree yet`, to keep the qualified-form rule.
+    The names of [RULES/pack-classes]' digest parameter (NR-001) are a naming decision of WP-25, not a measurement; this
+    chapter agrees with them.
+23. **Link markers** (§4.6, answering [F18] open point 17 and review A-m1). Markers use [F18 §4.7]'s qualified forms.
+    The `was:` quote stays in link lines ([F18 §4.7] rule 5) and leaves markers; `pending` prints the plain state rather
+    than [F18]'s proposed `pending: not in this tree yet`, to keep the qualified-form rule. **Pass 1 (A1-29):** the draft's
+    restated gate (every marker ≤ 90 B, golden median ≤ 50 B) changed [AR §8.3] without an owner decision and is
+    withdrawn. The shapes are shortened instead, so that every marker meets [AR §8.3]'s ≤ 50 B at the widest handle: the
+    `moved-needs-confirm` marker drops the candidate path (which the `verify` command prints; [40 §6.2]'s `moved? ->
+    storage-v2.md` example is informative and has a 3-digit id), and an `ambiguous` marker whose qualified form would
+    exceed 50 B prints the bare state (only `ambiguous (normalization collision)` with a handle of 9 or more digits). No
+    owner decision is needed; if the owner prefers the richer shapes, [AR §8.3] must change at WP-81a.
 24. **Examples are illustrative** (reviews A-m3, S-08). The layouts of [40 §3.8], [AR §7.1]'s example I/O and [50 §2.9]
-    are re-counted and re-spelled in the goldens from §4 and [LQ/envelope]; text commits are `c<8 hex>` and JSON commits 64
-    hex digits (A-m7); `error[guard_conflict]` is E401 ([LQ/errors] open point 3).
+    are re-counted and re-spelled in the goldens from §4 and [LQ/envelope]; text commits are `c<8 hex>` and JSON commits `c`
+    + 64 lower-case hex digits (A-m7, [50 §2.9] Q18, §8.3; pass 1, S1-17, A1-16); `error[guard_conflict]` is E401
+    ([LQ/errors] open point 3).
 25. **Escapes** (§2.5, §8.3). `\u{h}` is written without leading zeros, matching the LQ literal escape; [LQ/envelope
     §5.16]'s `\u{XX}` is read so. JSON `\u00xx` uses lower-case digits. Proposal for pass 1: also escape C1 controls
     (U+0080–U+009F) and U+2028, U+2029 in the quoted form of both chapters, since some renderers treat them as line breaks.
+    **Pass 1 (A1-48):** one spelling, `\u{h}` without leading zeros; [LQ/envelope §5.16] and [LQ/errors §2.1] now say so.
 26. **Shell hints** (T9). moirai prints the hint as its `= help:` line (`'#' starts a shell comment; write 40`), the form
     [LQ/errors] uses, rather than [80 §4.2]'s `hint:` prefix. The zsh hint, which only skills and documentation print,
     reads `zsh: no matches found -> quote the value or use stdin` ([OS/shell] open point 4).
@@ -1157,4 +1234,29 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is [LQ
     accept upper case, because git does; every moirai-defined hexadecimal input stays lower-case only.
 33. **Index and coverage files.** `docs/spec/README.md` still lists this chapter as `planned`, and `docs/spec/COVERAGE.md`
     needs the rows of the Coverage section above. Both files belong to other work packages (WP-10); their owners update
-    them.
+    them. (Pass 1: both are current.)
+34. **Pass 1 changes** (S1-17, A1-16, S1-44, P1-31, S1-32, A1-43, P1-16, A1-39, A1-57, A1-59, A1-62, S1-21). JSON commit
+    ids are `c` + 64 hex (§8.3). Exit 8 covers a file verb with failed items (§7.1). `store_locked` names the writer or the
+    flush lock; `maintenance_busy` (exit 7) is new; `DATA` is gone from §12.1. New codes: `bad_ref_name`, `ref_exists`,
+    `ref_prefix` (exit 2, [F12] open point 16), `commit_pruned` (exit 3, [F06 §4.4.15]), a `not_found` case for a node
+    that is not live (exit 3, [API] open point 5), `name_taken`, `not_merged`, `revert_refused`, `not_fresh` (exit 6,
+    [API] open point 20), `no_dir_flush` (exit 7, P1-16), the warning `graph_only_revert` ([API] open point 38), and
+    §10.6's numbering of `CFG01`–`CFG17`. The Codex MCP ceiling cites its hole; the `generic` hook ceiling stays 8,000 B
+    by [90 §6.4]; the `cross_volume` help names the proposal outcome.
+35. **Pass 1, round 1** (P1-37, P1-31, P1-10, P1-16, S1-25, A1-14, S1-4, P1-20, P1-21, P1-11). New code
+    `no_canonical_path` (exit 7) for a directory whose canonical path the OS cannot give ([OS/path §4.1] step 3), and a
+    `bad_path` case for a drive-relative or device-form argument ([OS/path §7] step 3). `maintenance_busy` no longer
+    claims a wait: the maintenance byte is only tried ([F16] P-76), so its text and JSON carry no duration. `store_locked`
+    names the quiet bytes' retries (R-SPEC-P's edit, kept), and `store_io_fault` a writer's failed read above
+    `durable_lsn` (R-SPEC-P's edit, kept). `no_dir_flush` also covers `doctor`'s report of an intent that recovery left
+    open. `anchor_spec` refuses the `path::A/B` and `path#H` forms while [F20 §6.1]'s interim scanner rule holds (case
+    `no-scanner`). The E405 rule texts and the E409 root-node case of open point 16 are in [LQ/errors §5.5], and E501's
+    inline-bound case in [LQ/errors §5.4].
+36. **Pass 1, round 2** (closure NC-6; [F16] open point 10). `store_corrupt` also names a valid log record whose payload
+    is malformed, which [F05 §5.4] and [F06 §2.4] make corrupt wherever it lies, with `moirai doctor --fsck` as its fix
+    (the invalid-group case keeps `moirai repair`); §10.5 lists it. New code `store_retired` (exit 7): discovery that
+    finds a store still marked `retired` with no swap intent after [F16] P-86's probe delays, a `restore` that ended
+    without clearing the flag ([F02 §3.6]); only `doctor` clears it, as [F16] open point 10 says.
+37. **Pass 1, round 3** (closure NC-8, A1-39's residue). §10.5 lists the two E409 refusals that [API §9.1] and
+    [RULES/delete-policy-matrix] DP-005 and DP-007 delegate: a node delete under a live lease without `RELEASE` (I32′)
+    and an invalid replacement. Their texts and JSON keys are [LQ/errors §5.5] and §5.7's new cases.

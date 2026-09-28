@@ -21,11 +21,11 @@ examples).
 ([50 §4.3]); the classes here only decide membership, so `pack --explain` can name the query behind each item and the reference
 model can test class membership against the same definitions.
 
-1.4. The library freezes at WP-72 with the query surface; the pack and brief classes are also a rule table the owner signs
-(V3, [PLAN §3.2] WP-90).
-
 1.3. Project named queries (`DEFINE QUERY` by the orchestrator, [50 §4.4]) share the catalog model of §2 but are data of a store,
 not of this chapter.
+
+1.4. The library freezes at WP-72 with the query surface; the pack and brief classes are also a rule table the owner signs
+(V3, [PLAN §3.2] WP-90).
 
 ## 2. The catalog model
 
@@ -59,9 +59,11 @@ A value that does not convert, an unknown parameter and a missing required one a
 closed v1 set: `node`, `table`, `tree`, `detail`, `diff`, `history`, `conflict`, `violation`, `across`, `loop`, `links`,
 `changes`, `blockers`. In the `node` shape, columns after the first render as extras ([LQ/envelope §5.4]).
 
-2.4. **Budget classes.** `BUDGET light`, `medium` or `heavy` sets the default `work` budget of a run of the query to 200,000,
-2,000,000 or 20,000,000 units ([50 §4.1]: "light ≤ 2e5 units, medium ≤ 2e6, heavy ≤ 2e7"); every other budget keeps its default
-([50 §5.10]). A caller raises a budget up to the agent maximum as for any query. A definition without `BUDGET` is `medium`.
+2.4. **Budget classes.** `BUDGET light`, `medium` or `heavy` sets the default `work` budget of a run of the query to a tenth of,
+once, or ten times `query.budget.default.work` ([CFG §10.5]; pass 1, A1-37, [CFG] open point 18), which gives 200,000,
+2,000,000 or 20,000,000 units at the key's default ([50 §4.1]: "light ≤ 2e5 units, medium ≤ 2e6, heavy ≤ 2e7"). The key is
+runtime policy, so a store that changes it moves all three classes. Every other budget keeps its default ([50 §5.10]). A
+caller raises a budget up to its role's cap as for any query. A definition without `BUDGET` is `medium`.
 
 2.5. **Cursor class.** Each query is `pinned` or `live` by the binder's rule ([50 §3.5]: live when it reads runtime or
 tree-derived state). The catalog's cursor column records the expected class; a definition whose bound class differs from its
@@ -123,11 +125,39 @@ optional parameter; the yields are [50 §2.6]'s with the §2.8 corrections. Revi
 
 `search`'s `fields` default is `['title', 'abstract']`: bodies are opt-in ([50 §2.6], [AR §2.11]).
 
+2.10. **Signatures of the scalar built-in functions** (pass 1, A1-54). The functions of [50 §2.6] with LQ-specific meaning; the
+generic scalars (`size`, `lower`, `substring`, `coalesce`, `round` and the rest of [LQ/canonical-ast] Table 5.3) keep their
+Cypher signatures. Function names and relation names are separate namespaces, so these defaults are not §2.9's: the scalar
+`subtree` has **no depth bound** when `depth` is omitted, where the relation `subtree` defaults to 3.
+
+| Function | Parameters | Returns |
+|---|---|---|
+| `subtree` | `n: node`, `depth: int?` (omitted: unbounded) | set of nodes: n and its `CHILD_OF` descendants within `depth` levels |
+| `descendants` | `n: node`, `depth: int?` (omitted: unbounded) | set of nodes: as `subtree`, n excluded |
+| `ancestors` | `n: node` | set of nodes: n's `parent` chain, n excluded |
+| `children` | `n: node` | set of nodes: n's direct children |
+| `applies` | `k: node`, `glob: text` | bool |
+| `applies_role` | `k: node`, `role: text` | bool |
+| `applies_phase` | `k: node`, `phase: text` | bool |
+| `fits_role` | `t: node`, `role: text` | bool |
+| `glob_match` | `path: text`, `glob: text` | bool |
+| `text_match` | `n: node`, `terms: text` | bool |
+| `file` | `path: text`, `root: text = 'project'` | node or absent |
+| `link_state` | `x: node or edge` | text |
+| `staleness` | `n: node` | text |
+| `relevant_to` | `n: node`, `agent: text` | bool |
+| `now`, `me`, `view_ref` | none | timestamp, text, text |
+| `datetime` | none (then `now()`), or `s: text` | timestamp |
+| `date` | `s: text` | timestamp |
+| `duration` | `s: text` | duration |
+
+So `t IN subtree(#88)`, as the card and `std.ready` write it, is the whole subtree of #88.
+
 ## 3. The read catalog
 
 | Name | Signature | Shape | Order | Class | Cursor | Verb alias ([AR §7.1]) |
 |---|---|---|---|---|---|---|
-| `ready` | `$scope: node?, $role: text?, $limit: int = 20` | node | priority, topo, id | light | live | `ready [--scope ID] [--role R] [--limit N]` |
+| `ready` | `$scope: node?, $role: text?, $limit: int = 20` | node | priority, id | light | live | `ready [--scope ID] [--role R] [--limit N]` |
 | `blocking` | `$scope: node?` | node | id | light | live | `blocking [--scope ID]` |
 | `blockers` | `$id: node, $transitive: bool = false` | blockers | depth, blocker | light | live | `blockers ID [--transitive]` |
 | `tree` | `$id: node, $depth: int = 3` | tree | position | medium | pinned | `tree ID [--depth N]` |
@@ -161,8 +191,11 @@ parameter (open point 3).
 
 ## 4. Definitions of the read catalog
 
-4.1. **`ready`** ([50 §4.1], verbatim but for `BUDGET`). The planner anchors it on `subtree($scope)` when a scope is given and on
-the maintained `unblocked` bitset otherwise ([50 §4.1]).
+4.1. **`ready`** ([50 §4.1], verbatim but for `BUDGET` and the order). The planner anchors it on `subtree($scope)` when a scope is
+given and on the maintained `unblocked` bitset otherwise ([50 §4.1]). The order is `priority, id`: [50 §4.1]'s `priority, topo, id`
+is not total, because no precedence path joins two ready tasks and `topo` among them is whatever valid order Pearce–Kelly kept
+([F08 §3.4]), so the model and the engine would print different first pages (pass 1, A1-38; [API] open point 11). [50 §4.1] is
+corrected at WP-81a.
 
 ```lq-define
 DEFINE QUERY ready($scope: node? = NULL, $role: text? = NULL, $limit: int = 20) SHAPE node BUDGET light AS {
@@ -170,7 +203,7 @@ DEFINE QUERY ready($scope: node? = NULL, $role: text? = NULL, $limit: int = 20) 
   WHERE t.ready
     AND ($scope IS NULL OR t IN subtree($scope))
     AND ($role IS NULL OR fits_role(t, $role))
-  RETURN t ORDER BY t.priority, t.topo, t.id LIMIT $limit
+  RETURN t ORDER BY t.priority, t.id LIMIT $limit
 }
 ```
 
@@ -746,8 +779,8 @@ TX { CREATE (n:finding {title: $title, failure_scenario: $failure_scenario, seve
 
 | Procedure | Parameters | Yields | Effect |
 |---|---|---|---|
-| `tx.complete` | `$id: node, $outcome: text, $summary: text, $evidence: list<text>? = NULL, $digest: text? = NULL` | `task, status, ready` | with `outcome = 'done'`: match the leased task (`EXPECT 1`), perform `open → in_progress → done` in one commit, release the lease into a `settled` marker, yield the newly ready ids ([50 §4.2], [AR §6.2]); `failed` and `abandoned` release the lease without the transition; refused with E404 while a child is open or a `fail_*` verdict gates the task; the link settle is a separate CAS-guarded commit after it ([72 M11]); `$digest` is the pack digest ([AR §7.4] step 4) |
-| `tx.claim` | `$ids: list<node>? = NULL, $next: bool = false, $scope: node? = NULL, $role: text? = NULL, $agent: text? = NULL, $ttl: text = '15m', $start: bool = false, $run: text? = NULL, $session: bool = false` | `lease, token, branch, expires` | a `Lease` record only; `$start` also performs `open → in_progress`; `$ttl` is a duration or `run`; `$run` and `$session` mint role leases under [AR §7.3]'s minting policy ([AR §6.2], [90 §4.3]) |
+| `tx.complete` | `$id: node, $outcome: text, $summary: text, $evidence: list<text>? = NULL, $digest: text? = NULL` | `task, status, ready` | for every outcome (`done`, `failed`, `abandoned`): match the leased task (`EXPECT 1`), perform `open → in_progress → done` in one commit with `resolution` `completed`, `rework` or `wontdo` for `done`, `failed` or `abandoned`, release the lease into a `settled` marker whose outcome records `$outcome`, and yield the newly ready ids ([AR §6.2], [50 §4.2], [RULES/status-machines] CO-002, CO-003, [API §10.5]; pass 1, A1-36); refused with E404 while a child is open or a `fail_*` verdict gates the task; the link settle is a separate CAS-guarded commit after it ([72 M11]); `$digest` is the pack digest ([AR §7.4] step 4) |
+| `tx.claim` | `$ids: list<node>? = NULL, $next: bool = false, $scope: node? = NULL, $role: text? = NULL, $agent: text? = NULL, $ttl: text? = NULL, $start: bool = false, $run: text? = NULL, $session: bool = false` | `lease, token, branch, expires` | a `Lease` record only; `$start` also performs `open → in_progress`; `$ttl` is a duration or `run`, and `NULL` means the store's `lease.ttl-default` ([CFG]; pass 1, A1-37), so the named mutation and the verb honour the key alike; `$run` and `$session` mint role leases under [AR §7.3]'s minting policy ([AR §6.2], [90 §4.3]) |
 | `tx.heartbeat` | `$lease: text` | `lease, expires` | a lazy renewal record |
 | `tx.release` | `$lease: text` | `lease` | releases the lease |
 | `tx.reclaim` | `$older_than: duration? = NULL, $run: text? = NULL` | `lease` | releases the matching leases ([AR §6.2]) |
@@ -846,3 +879,8 @@ None. The library's text is frozen at WP-72; it holds no measured value. The bud
     names case-insensitively ([LQ/lexical §9]); §2.9 names every relation parameter as C-5 needs. The relation yields for
     `schema_edges()` and `queries()` are this chapter's choice from F1 and F3's fields; `leases()` and `markers()` yield their
     tables' row fields.
+17. **Pass 1 changes** (A1-36, A1-37, A1-38, A1-54, A1-58). `tx.complete` writes `done` for every outcome, as [AR §6.2], the
+    rule table and [API §10.5] do (§7.3); `tx.claim`'s `$ttl` defaults to `NULL`, meaning `lease.ttl-default`; the `BUDGET`
+    classes derive from `query.budget.default.work` (§2.4); `std.ready` orders by `priority, id` (§4.1; [50 §4.1] is corrected
+    at WP-81a); §2.10 gives the scalar built-ins' signatures, with `subtree(n [, depth])` unbounded by default; §1's paragraphs
+    are in order.

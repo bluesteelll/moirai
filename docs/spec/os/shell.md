@@ -100,9 +100,12 @@ Free text — LQ queries, `TX` blocks, bodies, summaries, quote text — travels
 
 1. **Only on request.** stdin is read only when the argv has the operand `-` or the flag `--stdin`; otherwise it is never
    touched (the Bash tool's stdin is `/dev/null`).
-2. **Read.** All bytes until end of input. When stdin is a Windows console, the characters are read as UTF-16
-   (`ReadConsoleW`), a Ctrl+Z (U+001A) ends the input, and the text is converted to UTF-8; an unpaired surrogate is invalid.
-   Otherwise the raw bytes are read.
+2. **Read.** All bytes until end of input, **incrementally** (a 64 KiB buffer at a time), counting them: as soon as the
+   count exceeds `input.max-bytes` ([CFG §10.5], 16 MiB by default) the read stops and the command exits 2 with
+   [F19 §10.2]'s `usage` text for an over-long input, before anything is lexed or written (pass 1, P1-39; [LQ/lexical §8]).
+   A `-f FILE` operand is read the same way. When stdin is a Windows console, the characters are read as UTF-16
+   (`ReadConsoleW`), a Ctrl+Z (U+001A) ends the input, and the text is converted to UTF-8, the bound counting the UTF-8
+   bytes; an unpaired surrogate is invalid. Otherwise the raw bytes are read.
 3. **BOM.** If the bytes start with EF BB BF, those three bytes are removed, once.
 4. **Validate.** The rest must be valid UTF-8 (no overlong forms, no surrogates, no value above U+10FFFF); otherwise
    exit 2 with E003 ([LQ/errors], [LQ/lexical §2.1, §10.1], [50 §6.2] rule 6). This turns dash's heredoc corruption into
@@ -197,6 +200,15 @@ a write to a closed pipe returns `ErrorKind::BrokenPipe` on every OS (the Rust r
 through `std::io` without an OS seam, and `moirai-os` carries **no `term` code** unless GT12 shows a deviation, in which
 case the fix is added to `moirai-os::term` behind a trait in `moirai-vfs` (open point 1). The only OS reading the
 transport needs is the parent image, which comes through `ProcHost` ([OS/proc §8]).
+
+## Coverage
+
+The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
+
+| Item | Part covered here | Section |
+|---|---|---|
+| `60-AU-CrossPlatform` (the "Cross-platform" summary row) | X-F12, whose parts are the row `X-F12` | — |
+| `X-F12` ([80] X-F12) | T1: the emitted argv alphabet; accepted argv; stdin forms and decoding (T5, T6); output bytes (T7); hooks and MCP entries (T8); shell-problem hints (T9); GT12 (T10); `os::term`. The LQ side is [LQ/lexical]'s, [LQ/errors]'s and [LQ/envelope]'s, the output contract [F19]'s | §3, §4, §5, §6, §7, §8, §9, §10 |
 
 ## Holes
 

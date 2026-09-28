@@ -118,11 +118,12 @@ Checked in this order before anything is written; the first failure refuses the 
 |---|---|---|---|---|---|---|
 | DP-001 | role | E406 | 6 | design | [AR §7.3]; [50 §6.5]; [AR §7.2] `write` row; [90 §4.3] | Node `DELETE` is orchestrator or owner only, through the CLI; MCP `write` refuses a node `DELETE` for every role. Edge deletes follow [RULES/status-machines]'s roles and [50 §6.5]. |
 | DP-002 | view | E305 | 6 | derived | [50 §3.9] item 6; [AR §5a.1] | A `work` or `plan` tip. The `plan/*` mask covers status, resolution, assignee and claims ([AR §3.4] I33′), not existence. |
-| DP-003 | target-live | - | 3 | design | [AR §7.1] exit 3 | The target must be live in the view; the tombstone is printed otherwise. |
-| DP-004 | options | - | 2 | derived | [AR §3.3]; [50 §3.10] | `--cascade` together with `--reparent` is a usage error. |
-| DP-005 | lease | F19 | 6 | design | [AR §3.4] I32′; [AR §5d.3] row 3; [50 §3.10] | A live lease ([RULES/state-definition] LL rows) on any node of the deleted set, on any branch, refuses the delete unless `--release`; the message names the holder, the branch and the lease (`leased by dev#2 on lane/y (L-19)`). The error code is [F19]'s ([OP-9]). |
-| DP-006 | restrict | E409 | 6 | design | [50 §3.10]; [AR §3.3] | Any edge whose `edge-policy` action is `refuse`; the impact list is printed. |
-| DP-007 | replacement | E409 | 6 | proposed | [AR §3.3]; [AR §7.1]; [OP-3] | `--replaced-by Y`: Y is live, outside the deleted set, and valid at the re-pointed end of every edge that `repoint`s to it (endpoint kinds of [50 §2.5]). |
+| DP-003 | target-live | not_found | 3 | design | [AR §7.1] exit 3; [F19 §10.2] `not_found`; [API §9.1] | The target must be live in the view; otherwise [F19 §10.2] `not_found` with `what` = `node`, and the tombstone line (N01) or N06's line is printed. |
+| DP-004 | options | usage | 2 | derived | [AR §3.3]; [50 §3.10]; [F19 §10.2] `usage` | `--cascade` together with `--reparent` is a usage error ([F19 §10.2] `usage`). |
+| DP-010 | root-node | E409 | 6 | derived | [F08 §11.3]; [LQ/errors §5.5] E409 root-node case; [F19 §10.5]; [RULES/link-merge-rules LM-013]; [OP-14] | No node of the deleted set is a root node: [F08 §11.3] never engine-deletes one, so `rm` of a root node, or a `--cascade` whose subtree holds one, is refused. The text is [LQ/errors §5.5]'s root-node case, naming the root node of the deleted set with the smallest `#N`. Checked after DP-004, because the deleted set is defined only once the options are valid, and before DP-005, so this case is printed before the lease, reference and replacement cases of E409 (review pass 1 round 3). |
+| DP-005 | lease | E409 | 6 | design | [AR §3.4] I32′; [AR §5d.3] row 3; [50 §3.10]; [API §9.1]; [LQ/errors §5.5] E409 lease case; [OP-9] | A live lease ([RULES/state-definition] LL rows) on any node of the deleted set, on any branch, refuses the delete unless `--release`; the message names the holder, the branch and the lease (`leased by dev#2 on lane/y (L-19)`). The code is E409 `restricted_delete`, exit 6, as [API §9.1]'s refusal table states ([OP-9]); the text is [LQ/errors §5.5]'s lease case. |
+| DP-006 | restrict | E409 | 6 | design | [50 §3.10]; [AR §3.3]; [LQ/errors §5.5] E409 | Any edge whose `edge-policy` action is `refuse`; the impact list is printed (E409's restricted references, in [LQ/errors §5.5]'s edge order). |
+| DP-007 | replacement | E409 | 6 | proposed | [AR §3.3]; [AR §7.1]; [LQ/errors §5.5] E409 replacement case; [OP-3] | `--replaced-by Y`: Y is live, outside the deleted set, and valid at the re-pointed end of every edge that `repoint`s to it (endpoint kinds of [50 §2.5]). The text is [LQ/errors §5.5]'s replacement case. |
 | DP-008 | acyclic | E405 | 6 | design | [AR §3.4] I5′, I37′; [50 §3.10] item 5 | Every re-pointed `blocks` or `gates` edge and every `--reparent` move is checked at the end of the block, in I37′ order. |
 | DP-009 | cardinality | E405 | 6 | design | [AR §3.4] I6, I7 | A re-pointed `duplicate_of` must end at a canonical node. |
 
@@ -210,7 +211,7 @@ Checked in this order before anything is written; the first failure refuses the 
 | DS-007 | 7 | release | design | [AR §3.4] I32′; [AR §5d.3] row 3 | Under `--release`, every live lease on the deleted set is released, with a triage note attached to the tombstone. |
 | DS-008 | 8 | hold | design | [AR §4.5] step 4; [RULES/state-definition OR-003] | The commit is the origin of the `deleted` hold of every deleted node on its branch; the marker cache writes `deleted` records ([RULES/state-definition ME-001]). |
 | DS-009 | 9 | affected | design | [AR §5d.3]; [AR §3.4] I42′ | `affected` lists every other endpoint whose derived state changed (EF rows), every source made `suspect`, and every notified endpoint; the tombstone, the markers and the change-feed entry are in the same flushed group. |
-| DS-010 | 10 | suspect-budget | proposed | [AR §2.5]; [AR §13] `store.suspect-budget`; [OP-10] | If the transitive `suspect` closure exceeds `store.suspect-budget`, the commit carries `affected_complete = 0` (I42′) and readers recompute `suspect`. |
+| DS-010 | 10 | suspect-budget | proposed | [AR §2.5]; [AR §13] `store.suspect-budget`; [F17 §8.2]; [F13 §6.3]; [F19 §12.3] `SuspectBudget`; [OP-10] | [F17 §8.2]'s rule: when the nodes whose single-hop `suspect` value the delete changes outnumber `store.suspect-budget`, `affected` omits the `suspect`-only changes and the commit carries `affected_complete = 0` (I42′); the `suspect` bitset itself stays complete (I9), the command prints the hint `SuspectBudget` and keeps its exit code, and a past-view query whose window holds the commit recomputes derived state. |
 | DS-011 | * | dry-run | design | [AR §7.1] `rm … --dry-run` | Steps 1 to 4 run and print the impact (structural edges with their actions, historical edges with their effects, leases, markers); nothing is written. |
 
 ## 7. Flagged edges
@@ -258,6 +259,9 @@ op; the tombstone keeps only the rows marked `yes`.
 
 `Undelete` is the inverse of `Delete`: the op written by a `revert` of the deleting commit ([RULES/merge-table DM-004]),
 by a cherry-pick of such a revert, or by an import that sees a tombstone file become a live node ([AR §5b.6] step 2).
+The inverse goes both ways ([F06 §7.10]): a `revert` of an `Undelete` writes a `Delete` that takes the `Undelete`'s
+`reason`, `replaced_by` and image, so the node returns to the tombstone state(p1(c)) held, as DM-004's three-way apply
+gives in state terms.
 
 <!-- table: undelete -->
 | row | item | effect | basis | source | note |
@@ -472,13 +476,13 @@ lease `L-19` on #40 held by `dev#2` on `lane/y`). Actions are written `verb:arg:
 
 These tables specify semantics, not bytes. The byte layouts are [F06]'s (`Delete`, `Undelete`, `RemoveEdge`, `AddEdge`,
 `Move`, the `flagged` edge property), [F08]'s (the schema's per-edge delete policy, [60 §2.5] "Schema as data"), [F09]'s
-(`TOMB`), [F14]'s (tombstone `.moi` lines) and [F19]'s (E305, E405, E406, E409 and the lease refusal).
+(`TOMB`), [F14]'s (tombstone `.moi` lines), and [F19 §10.5]'s and [LQ/errors §5.5]'s (E305, E405, E406, and E409 with
+its root-node, lease, restricted-reference and replacement cases).
 
 | Checklist row | Covered by | Fixture | Model function |
 |---|---|---|---|
 | [60 §2.5] "Schema as data": edges (class, **policy**, acyclicity, cardinality), the policy part | `edge-policy`, the vocabularies, DP-008, DP-009 | WP-94 suite `delete-policy`; GT10 node-40 (WP-22) | `model::delete::edge_policy` |
-| [AR §3.4] I2, I3, I32′, I39′ | FL-004, EA-006, DP-005, TB-009, TB-010 | WP-94; GT10 node-40 | `model::delete::apply` |
-| GT10 node-40 table on one branch and across branches ([60 §3.13]) | `n40-nodes`, `n40-edges`, `n40-cases`, `n40-expect` | WP-22 `fixtures/gt10/` (owner-verified core set) | `model::delete::apply`, `model::i26::excluded` |
+| [AR §3.4] I2, I3, I32′, I39′ | FL-004, EA-006, DP-005, TB-009, TB-010 | WP-94; GT10 node-40 | `model::delete::apply` || GT10 node-40 table on one branch and across branches ([60 §3.13]) | `n40-nodes`, `n40-edges`, `n40-cases`, `n40-expect` | WP-22 `fixtures/gt10/` (owner-verified core set) | `model::delete::apply`, `model::i26::excluded` |
 | [40 §2.11] R-12: I-F14 (only `Undelete` and `links fix --restore` bring a dead derived uid back), delete part | UD-007, XB-007 | WP-94 | `model::delete::undelete` |
 
 No F-row, X-F row or [90 §10.1] item concerns delete policies.
@@ -498,10 +502,14 @@ value changes only whether `affected` is complete (DS-010).
 2. **Re-pointing in-edges to the replacement** (EG-006, EG-012, EF-006, EF-011). [AR §3.3] says "drop" for a `blocks` or
    `gates` edge into the deleted node, but [AR §7.1]'s dry run re-points `#203 --blocks-> #40` to #52 under
    `--replaced-by`. Proposed: re-point when a replacement is given, drop otherwise; the example is the more specific
-   statement.
+   statement. Review pass 1 (S1-46) found that [F08 §8.4.6]'s `on_dst`/`on_src` values cannot express EG-006, EG-009,
+   EG-012 and EG-015. The values are kept (the schema enumeration names each edge kind's default action, and a project
+   edge kind is always `tombstone`/`retain`, [F08 §8.5.4]); [F08 §8.4.6] and [F08 §9.6] now state that for the core
+   kinds the `edge-policy` rows refine them per delete option, policy value and condition, and are authoritative.
 3. **Replacement validity** (DP-007). Proposed: the replacement must be live, outside the deleted set, and of a kind the
-   re-pointed edge accepts at that end ([50 §2.5] endpoint kinds); otherwise E409 with the edge named. [F19] may give it
-   its own code.
+   re-pointed edge accepts at that end ([50 §2.5] endpoint kinds); otherwise E409 with the edge named. The code is
+   settled: [API §9.1] maps the refusal to E409, and [LQ/errors §5.5] gives it its own case (`replacement <id> is not
+   live`, `is in the deleted set` or `does not fit <id> -[:<edge>]-> <id>`), which DP-007 cites (review pass 1 round 3).
 4. **`duplicate_of` "re-point to canonical"** (EG-029, EF-016). Read as: with `--replaced-by Y`, the duplicate points at
    Y, which must itself be canonical (I7); without it, restrict.
 5. **`depends_on` "drop + src `suspect`"** (EG-031, EF-017). A dropped edge leaves nothing from which `suspect` can be
@@ -517,18 +525,23 @@ value changes only whether `affected` is complete (DS-010).
    edges are retained as the source tombstone's out-edges; structural ones are dropped, since no live dependent is left
    to protect and I39′ retains only flagged edges.
 9. **The lease refusal's code** (DP-005). [50 §3.10] says "a live lease refuses unless `RELEASE` (I32′)" without a code;
-   E407 is for a missing or stale presented lease. [F19] assigns one (WP-18).
+   E407 is for a missing or stale presented lease. **Decided** by [API §9.1]'s refusal table: E409 ("a restricted delete;
+   a live lease without `release`"), exit 6 (review pass 1 round 2, A1-39). The text is [LQ/errors §5.5]'s E409 lease
+   case (review pass 1 round 3, closure NC-8; R-SPEC-F's alignment edit), and DP-007's invalid replacement has its own
+   E409 case there.
 10. **The `suspect` budget** (DS-010). [AR §2.5] says "a violation record is written" beyond the budget, but `Violation`
-    ops exist only on staging refs ([AR §5b.4]). Proposed: `affected_complete = 0` (I42′), and readers recompute
-    `suspect`. [AR §3.5] defines `suspect` by one hop while its maintenance cost says "O(closure)"; the model uses the
-    one-hop definition, and WP-14 states which is meant.
+    ops exist only on staging refs ([AR §5b.4]). [AR §3.5] defines `suspect` by one hop while its maintenance cost says
+    "O(closure)". **Decided** by [F17 §8.2] and [F13 §6.3] (review pass 1, A1-26, lens S decision D-4): the one-hop
+    predicate; beyond the budget `affected` omits the `suspect`-only changes with `affected_complete = 0`, the bitset
+    stays complete, and the hint `SuspectBudget` ([F19 §12.3]) replaces the violation record. The first draft's "readers
+    recompute `suspect`" and "transitive closure" contradicted that text and were replaced in pass 1 round 2. The
+    owner's sign-off of the reading is OQ-P-1.
 11. **Resolving a flagged edge without a replacement** (FL-006, NC-005). [AR §7.1] shows `resolve 'edge:#40:blocks:#12'`
     and the option `repoint:ID`, but no spelling for "drop the flagged edge". Proposed: the drop outcome exists and is
     also reached by `unlink`/`DELETE e`; WP-18 and WP-19 fix the `resolve` spelling.
-12. **File name and registry.** This file is named as its commissioning task names it, `delete-policy-matrix.md`;
-    [RULES/README] §1.1 and the specification index list it as `delete-policy.md`. One of them is renamed at
-    integration, and every `[RULES/delete-policy-matrix]` citation follows. Its tables must be added to
-    [RULES/README] §7:
+12. **File name and registry.** This file is named as its commissioning task names it, `delete-policy-matrix.md`.
+    [RULES/README] §1.1 and the specification index now list it under that name, and its tables are registered in
+    [RULES/README] §7 (RG-096 to RG-111, review pass 1 S1-47) with the columns below:
 
     ```
     | RG-0xx | `delete-options` | delete-policy-matrix.md | vocabulary | DO | row:id, option:token, basis:enum, source:cite, definition:text | - |
@@ -552,3 +565,11 @@ value changes only whether `affected` is complete (DS-010).
 13. **Worked rows versus GT10 fixtures.** The `n40-*` tables are rule data the owner signs; WP-22's `fixtures/gt10/`
     files are written from the specification by another author (S3). A disagreement between the two is a
     specification finding, not a fixture fix.
+14. **The root-node precondition** (DP-010; review pass 1 round 3, R-SPEC-F's note on closure NC-8). [F08 §11.3] refuses
+    `rm` of a root node and [LQ/errors §5.5] gives E409 a root-node case, but §4 had no row for it, so which E409 case a
+    delete set holding a root node and a live lease prints was unstated. DP-010 states it: a root node anywhere in the
+    deleted set refuses the delete (a `--cascade` included, since [F08 §11.3] never engine-deletes one and
+    [RULES/link-merge-rules] LM-013 relies on that), checked after DP-004 and before DP-005. R-SPEC-F proposed the place
+    right after DP-003; it is taken one row later because under `--cascade` the deleted set is the target's subtree,
+    which exists only once DP-004 has accepted the options. The node named is the root node of the deleted set with the
+    smallest `#N`, as E409's lease case names the first lease in `#N` order.

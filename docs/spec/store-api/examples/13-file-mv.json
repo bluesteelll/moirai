@@ -7,7 +7,7 @@
     "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
     "budget values",
     "git object ids and oids",
-    "the anchor record's captured, window and span_hash values, its hint and its quote",
+    "the anchor record's captured, window and span_hash values; its kind, hint, quote, prefix and suffix are F20 §6.1's for the spec docs/api.md:3 (a quote anchor: the path#H heading form is refused while F20 §6.1's interim scanner rule holds) at the draft CONTEXT of 32 bytes",
     "the intent id (the FsIntent record's lsn, API §16.3)",
     "the link state counts and evidence token of the settle",
     "the observation composites and the other rows of the R4 commits"
@@ -143,7 +143,7 @@
         "args": {
           "node": "#2",
           "specs": [
-            "docs/api.md#Commands"
+            "docs/api.md:3"
           ]
         }
       },
@@ -195,9 +195,9 @@
                 "anchor": {
                   "handle": "a1",
                   "uid": "ac000000000000000000000000000001",
-                  "kind": "heading",
+                  "kind": "quote",
                   "mode": "live",
-                  "watch": "header",
+                  "watch": "span",
                   "resolver": 1,
                   "captured": "cacacacacacacacacacacacacacacaca",
                   "hint": [
@@ -209,8 +209,8 @@
                   "blob": "sha1:4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d",
                   "git": "sha1:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
                   "quote": "## Commands",
-                  "prefix": "",
-                  "suffix": ""
+                  "prefix": "# API\n\n",
+                  "suffix": "\n\nTx, Mutation and Apply."
                 }
               }
             },
@@ -330,7 +330,7 @@
                 "file": "#5",
                 "path": "project:docs/api.md",
                 "anchor": "a1",
-                "kind": "heading",
+                "kind": "quote",
                 "created": true
               }
             ]
@@ -378,8 +378,8 @@
           "path_move": {
             "hlc": "117309440000000008",
             "class": "explicit",
-            "from": "project:docs",
-            "to": "project:handbook",
+            "from": "project:docs/",
+            "to": "project:handbook/",
             "git": null
           },
           "globs": [],

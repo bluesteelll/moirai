@@ -75,7 +75,8 @@ as its integer ([F01] open point 9). This covers:
 | `pathmove` class | `explicit`, `confirmed`, `committed`, `observed` ([40 §2.4]) |
 | anchor `kind`, `mode`, `watch` | `file`, `heading`, `symbol`, `quote`, `range`, `lines`; `live`, `pinned`; `header`, `span` ([40 §2.7]) |
 | git object format | `sha1`, `sha256` ([F01 §7.5]); the empty string for `none` |
-| conflict class | `FieldEdit`, `StatusFork`, `TextHunk`, `DeleteVsModify`, `SupersedeFork`, `OwnerFieldEdited`, `DATA`, `PathClaim` ([AR §5a.8], [F12]) |
+| conflict class | `FieldEdit`, `StatusFork`, `TextHunk`, `DeleteVsModify`, `SupersedeFork`, `OwnerFieldEdited`, `PathClaim` ([F12 §6.1]; [AR §5a.8]'s `DATA` has no code and never enters, pass 1, P1-31, S1-32, A1-43) |
+| provisional side of an existence conflict (`prov`) | `ours`, `theirs` ([F12 §6.3]) |
 
 Names are case-sensitive bytes. A name that its owning table spells with a hyphen (`cherry-pick`, `delete-wins`,
 `max-1-per-src`) enters with the hyphen.
@@ -165,7 +166,9 @@ Every item of [AR §4.6] is in C, in its order, and nothing else is ([AR §4.6] 
 ### 3.4 Item 3: `hlc`
 
 The commit header's `hlc` ([F06 §4.4.4]), as a `u64` ([F01 §5.7]). A re-parent under the writer byte assigns a new
-`hlc` ([AR §4.5] step 7), so it changes `commit_id` but not `changeset_digest` (§3.12).
+`hlc` ([AR §4.5] step 7), so it changes `commit_id` but not `changeset_digest` (§3.12). A local commit's value comes from
+the store's one HLC sequence, which only semantic durable records advance ([F16] P-36, [API §6.2] CK-4; pass 1, P1-5,
+S1-13, A1-17), so the engine and the model compute the same item 3 and maintenance never changes it.
 
 ### 3.5 Item 4: actor, role, session
 
@@ -323,7 +326,9 @@ hold has the value `absent`. Keys belong to eight **node key classes**, owned by
 | 8 | body | (uid) | the BLAKE3-128 of the body | the `---` section |
 | — | schema item | (item class, item key) | the item (§9) | `schema/*.moi`, `schema/queries/<q>.moi` |
 
-**Order of classes.** The class code is the class's rank inside one uid (§10.3). It follows the `.moi` line order of
+**Order of classes.** The class code is the class's rank inside one uid (§10.3). The store-local `ckey` classes of
+[F06 §6.1] use the same codes 1–8 (and 9 for a schema key), so one numbering serves both chapters (pass 1, A1-46). It
+follows the `.moi` line order of
 [AR §5b.2] ([AR §4.6], [60 §2.5] audit row "Canonical form"): the header's `kind`, `status` and `parent`/`order` lines,
 then the `field` lines, the `incr` lines, the `edge` and `anchor` lines, and the body. Three kinds of line sit elsewhere in
 a `.moi` file than their class's rank: the header lines of class-4 keys (`title`, the four header enumerations, `flags`),
@@ -427,9 +432,10 @@ line for a key is omitted while a `conflict` line exists for it").
 
 ### 7.1 Typed values: `cv`
 
-A typed value (a field value, a set element's payload, a default) is a tag byte and a payload. The tag numbers equal
-[F06 §5.1]'s where the two coincide; tag 8 is unused, because the interned and inline forms of a text are one value
-([F06 §5.2]).
+A typed value (a field value, a set element's payload, a default) is a tag byte and a payload. These **canonical tags**
+are this chapter's own and are never stored: the stored type bytes are [F08 §5.1]'s, which a writer maps to the tags
+below (pass 1, P1-1: the stored registry has one owner, [F08]). Tag 8 is unused, because the interned and inline forms of
+a text (`sym` and `text`, [F08 §5.1]) are one value.
 
 | Tag | Name | Payload | Rule |
 |---|---|---|---|
@@ -484,9 +490,13 @@ The value of every key of classes 1–5, 7 and 8, and of every schema key, in an
 | 4 | `base` | the class's value | `cs` = 1 | base side, plain |
 | 5 | `ours` | the class's value | `cs` = 1 | dst side, plain |
 | 6 | `theirs` | the class's value | `cs` = 1 | src side, plain |
+| 7 | `prov` | `lp(name)` | `cs` = 1 and the key's class is existence (1) | the provisional side, `ours` or `theirs` ([F12 §6.3], [F06 §6.2]; pass 1, S1-5, A1-9) |
 
 Two values of one key are **equal** when their `cstate` encodings are byte-equal. This is the equality of
-[RULES/merge-table] §2 ("two values are equal if and only if their canonical encodings are byte-equal").
+[RULES/merge-table] §2 ("two values are equal if and only if their canonical encodings are byte-equal"), and the one rule
+of value equality: [F12 §7.3] cites it (pass 1, A1-19). A plain `live` value has `snap` = 0 and no image (§7.2), so plain
+existence values compare by kind alone; a node image takes part only inside a conflict value's side, where it is part of
+the value, and `prov` takes part in an existence conflict.
 
 ### 7.4 Node images
 
@@ -526,18 +536,19 @@ a sign and a magnitude, 9 bytes:
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `ef` | `u8` | always | 0 absent, 1 present |
-| 2 | `pmask` | `u8` | `ef` = 1 | bit 0 `flagged`, bit 1 `pinned`, bit 2 `anchor`; bits 3–7 zero |
-| 3 | `pinned` | `b32` | `pmask` bit 1 | the full id of the pinned commit (`pinned_commit`, [AR §3.3]) |
-| 4 | `selector` | the selector block (§8.2) | `pmask` bit 2 | the anchor of an `at` edge |
+| 2 | `pflags` | `u8` | `ef` = 1 | [F08 §10.2]'s `pflags`: bit 0 `has_pin`, bit 1 `flagged`, bit 2 `anchor`; bits 3–7 zero |
+| 3 | `pinned` | `b32` | `pflags` bit 0 | the full id of the pinned commit (`pinned_commit`, [AR §3.3]) |
+| 4 | `selector` | the selector block (§8.2) | `pflags` bit 2 | the anchor of an `at` edge |
 
-- The bits follow the edge kind's `props` ([F08 §8.4.6], [F08 §10.2]): `flagged` only on `blocks` and `gates`, set on a
-  retained out-edge that was neither re-pointed nor resolved (X4, [AR §5b.2] rule 8); `pinned` only on kinds with
+- The bits are the stored block's ([F08 §10.2]; pass 1, S1-2, A1-3): `flagged` only on `blocks` and `gates`, set on a
+  retained out-edge that was neither re-pointed nor resolved (X4, [AR §5b.2] rule 8); `has_pin` only on kinds with
   `props = pinned`, set when the edge has a pin; `anchor` exactly on `at` edges.
-- `pinned` is the full 32-byte id even where a store keeps a 16-byte prefix (open point 9).
+- `pinned` is the full 32-byte id, which every stored form keeps ([F08 §10.2], [F09] `EDGE_PROPS`).
 
 ### 8.2 The selector block
 
-The anchor record of one `at` edge ([40 §2.7], R-4; stored by [F06 §7.5.3] and [F08 §10.3]) enters as this block. Its
+The anchor record of one `at` edge ([40 §2.7], R-4; stored in [F08 §10.3]'s one layout, which the ops of [F06 §7.5] carry)
+enters as this block. Its
 field order is the `anchor` line's order of [AR §5b.2] rule 9, with `occurrence` after `end_h` and `marker` after `pred`
 (open point 21). Every field is written; an absent one is `lp("")`.
 
@@ -709,7 +720,7 @@ The existence transitions of [AR §4.6] item 10 and [AR §2.15] are renderings o
 | absent | `live(k)` | `created(k)` |
 | `live(k)` | `deleted(k, r, b)` | `deleted(r, b)` |
 | `deleted(…)` | `live(k)` | `undeleted` |
-| absent | `deleted(k, r, b)` | a tombstone landed by a merge, sync or import (open point 5) |
+| absent | `deleted(k, r, b)` | a tombstone landed by a merge, sync or import: stored as [F06 §7.4]'s `CreateDeleted` (open point 5) |
 | `deleted(k, r, b)` | `deleted(k, r′, b′)` | a changed tombstone |
 
 A node that is created and deleted inside one commit, or deleted and undeleted to the same values, has no existence entry
@@ -780,6 +791,12 @@ no extra I/O or storage.
 - **Bulk producers** (a bulk commit, [AR §4.3]; `migrate`; a directory `file mv` with thousands of links) stream entries
   into BLAKE3 in the order of §10.3. A producer whose input is not in that order sorts externally, in spill runs of at most
   1 MiB named `tmp/sort.<nonce>` ([F02 §5.3], [AR §4.6]).
+- **Every producer whose entries exceed its write budget spills** (pass 1, P1-19). The rule of the previous item is not
+  limited to verbs of the bulk class: a merge, a `sync` (item 10 of a sync is the full diff over `main`'s window, §10.5,
+  which for a lane 14 days behind can be large) and a revert or cherry-pick whose entries, held in memory for sorting,
+  would exceed `wmem` ([F17 §4.4] W2) spill to `tmp/sort.<nonce>` runs by the same rule and merge them in §10.3's order.
+  [F17 §4.4] W1's bulk class lists `sync` with the long merges, and GT11's RAM gate covers a sync 14 days behind
+  ([AR §8.3] RAM row "sync"; the case is added to [60 §3.13] GT11 at WP-81a).
 - **Checkpoint imports** read the tree in git order, which is uid order under `nodes/` ([AR §5b.1]), buffer one node at a
   time (§6.1), then read `schema/`, and so hash a whole checkpoint with memory bounded by the largest node.
 
@@ -799,7 +816,8 @@ Every field of the stored record that §3 does not name, and every stored datum 
 | `affected`, `affected_len`, `affected_complete` ([50] F15, F16) | order 37 |
 | `cs_ref` (a bulk commit hashes its entries, not its file) | order 39 |
 | inside ops: every `#N`, `aN`, `prev`, symbol id, before-image, `Create.c_actor`/`c_role` (`CREATOR`), `Violation` ops | [F06 §7] |
-| anchor `quote`, `prefix`, `suffix` and `end` texts (their digests are hashed) and the `text-unavailable` state | [F06 §7.5.3], [F08 §10.3] |
+| anchor `quote`, `prefix`, `suffix` and `end` texts (their digests are hashed) and the `text-unavailable` state | [F08 §10.3] |
+| an import-checkpoint's image-only data (`ckimg`) and the header-only form's `pruned` bit | [F06 §4.4.14], [F06 §4.4.15] |
 | bodies' bytes, codec and compressed form (the body key hashes BLAKE3-128 of the raw bytes) | [F06 §8], [F10] |
 | every runtime table: markers, leases, `ALLOC` and `UIDX` ([50] F17), `IDEM`, `REFS`, `PINS`, `HEADS`, R4's resolution and evidence tables (file ids, volume serials, stat caches, fingerprints, proposals, intents, `ANCHORRES`; I-F4) | [F05], [F11] |
 | derived state: every derived column and flag, `rev_seq`, virtual `done`, `ready`, the named query's `ast_hash` | [F08 §3.4], [F08 §8.5.5] |
@@ -910,6 +928,7 @@ reference model recompute the digest from states, and a difference is a corrupti
 |---|---|
 | `Create{uid, kind, image}` | existence → `live(kind)`; one entry per non-absent value key of the image (§6.3): status, fields, counters (delta = the total), body |
 | `Delete{reason, replaced_by, before}` | existence → `deleted(kind, reason, uid of replaced_by)`; every value key of `before` except `title` → absent (a counter's delta is minus its total); for a kind with a derived title, `title` → the last `path` text (§6.4). Hierarchy and edges change through their own ops |
+| `CreateDeleted{uid, kind, reason, replaced_by, image}` | existence: absent → `deleted(kind, reason, uid of replaced_by)`; the `title` entry of the image, if any: absent → that title. Retained out-edges come from the record's `AddEdge` ops ([F06] NF-11) |
 | `Undelete{image}` | existence → `live(kind)`; one entry per value key of the image that differs from the tombstone state (§6.4) |
 | `SetField{name, new}` | field (uid, name) → `new` as a canonical value (§6.3); none when the canonical values are equal (a default written explicitly, `text` versus `sym` forms) |
 | `SetStatus` | status → (new status, new resolution), or absent when they are the initial status and `none` |
@@ -918,7 +937,7 @@ reference model recompute the digest from states, and a difference is a corrupti
 | `AddEdge`, `RemoveEdge`, `SetEdgeProps` | edge → `present(props)` or absent; none when the canonical props are equal (§8.3) |
 | `Move` | hierarchy → (new parent's uid, new order), or absent |
 | `Schema` | schema key → the new item (§9), or absent |
-| `Conflict{key, class, base, ours, theirs}` | key → the conflict value; for the observation key, each member field key that held a value → absent (§6.5) |
+| `Conflict{key, class, base, ours, theirs, prov}` | key → the conflict value (with `prov` on an existence key); for the observation key, each member field key that held a value → absent (§6.5) |
 | `Resolve{key, new}` | key → `new` as a plain value; for the observation key, the observation key → absent and each member field whose resolved value is not absent → that value |
 | `Violation` | none |
 
@@ -1146,7 +1165,9 @@ depends on the fill. The codec holes of [F10] do not reach the canonical form, w
    diff (§10.1). [F06] has no stored op for it (`Delete` needs an existing node, and NF-1 forbids a `Create` and a
    `Delete` of one key), and [AR §5b.6] step 2 lists no import rule for an absent → tombstone file. Proposal: [F06] allows
    a `Delete` whose before-image is empty with a new flag, or a merge stores the tombstone as `Create` with a deleted
-   image; [F14] adds the import rule; [F12] confirms the merge produces the tombstone.
+   image; [F14] adds the import rule; [F12] confirms the merge produces the tombstone. **Pass 1 (S1-6, A1-4): closed.**
+   [F06 §7.4] adds op 16 `CreateDeleted` with NF-11; §10.1 and §13 map it; [F12 §7.8] states that merges emit it; the
+   import rule is [F14 §11.2]'s.
 6. **Key-class order** (§6.1). Class order follows the `.moi` groups (header `kind`, `status`, `parent`/`order`, then
    `field`, `incr`, `edge`/`anchor`, body). Header-carried fields, `label` lines and `conflict` lines sit elsewhere in a
    file, so an importer buffers one node, which [AR §4.6]'s "node by node" allows. `at` edges sort among edge kinds by
@@ -1170,6 +1191,10 @@ depends on the fill. The codec holes of [F10] do not reach the canonical form, w
    - presence of `hint` and `window`: flag-driven in [F06], kind-driven in [F08]; the block encodes presence, so either
      rule gives one encoding, but the two chapters must agree on which one the record follows;
    - `blob` with no content: allowed in [F06] (`algo` 0), refused in [F08] (`algo` ≠ `none`); the block encodes both.
+
+   **Pass 1 (P1-1, S1-1, S1-3, A1-1, A1-2): closed.** [F08 §5] and [F08 §10] are the only stored forms and [F06] cites
+   them: empty text and set are absent, `commitref` and `pinned_commit` are 32 bytes, the anchor record is [F08]'s with the
+   binary scope and kind-driven presence, and `blob` may be empty for a planned target. The canonical form is unchanged.
 10. **The tombstone's canonical state is the image's** (§6.4): title, reason, replaced_by and retained out-edges.
     [F08 §3.5] keeps status and the header enumerations in a tombstone's `NodeHdr`; they are store-local and unhashed, since
     no carrier holds them.
@@ -1180,6 +1205,9 @@ depends on the fill. The codec holes of [F10] do not reach the canonical form, w
 12. **Node images hold no hierarchy or edge** (§7.4), mirroring [F06 §6.3]. A `DeleteVsModify` resolved towards the live
     side under `delete-wins` therefore cannot restore the node's parent or its non-retained out-edges. For [F06],
     [F12] and [RULES/merge-table] open point 5: add them to the snapshot, or record that `resolve` restores value keys only.
+    **Pass 1 (S1-22): closed without a change here.** [F12 §6.5] states that a take towards a live side restores value
+    keys from the image and the hierarchy key and out-edges from that side's state at the conflict's introducing commit,
+    with ordinary `Move` and `AddEdge` ops in the `Resolve` commit. Images stay as they are, so no hashed byte changes.
 13. **Counter deltas are sign and magnitude** (§7.5), because a delta between two `i64` totals (a deletion of a node whose
     counter is −2^63, for example) can exceed `i64`.
 14. **Enumerations enter by name** (§2.2), settling [F01] open point 9 for the canonical form and [F19 §12.1]'s question:
@@ -1218,7 +1246,12 @@ depends on the fill. The codec holes of [F10] do not reach the canonical form, w
     The `.moi` text sorts sets by their text; the importer re-encodes and re-sorts.
 26. **An empty body** (§6.3): the canonical body key follows the store's notion of "has a body". Proposal for [F08] and
     [F06]: writing an empty body removes the body, so that one empty value has one form, as for fields; otherwise [F14]
-    must carry an empty body (`---` followed by one LF) distinctly from no body.
+    must carry an empty body (`---` followed by one LF) distinctly from no body. **Pass 1 (S1-34): closed** by
+    [F08 §7.2]: an empty body is no body, and `SetBody` to empty stores `new` absent.
 27. **Proposed model functions** for `COVERAGE.md` (R-MODEL decides): `canon::commit_id`, `canon::changeset_digest`,
     `canon::state_diff`, `canon::normalise_message`, `canon::normalise_imported_message`, `canon::selector_block`,
     `canon::foreign_id`, `canon::checkpoint_id`; [F13]'s `canon::i28p_commit_id` and `canon::i38p_gate0` use them.
+28. **Pass 1 changes** (P1-19, S1-5, A1-9, A1-19, A1-46, P1-5). §10.6 extends external sorting to every producer whose
+    entries exceed `wmem`, merges and syncs included; §7.3 adds `prov` to existence conflicts and is the one equality rule
+    [F12 §7.3] cites; §6.1's codes are also [F06 §6.1]'s `ckey` classes; §8.1's `pflags` takes [F08 §10.2]'s bit order;
+    §3.4 cites the corrected HLC rule; `DATA` is removed from §2.2.

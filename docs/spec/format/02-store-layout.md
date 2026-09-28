@@ -190,7 +190,8 @@ UTF8-NONASCII = <a UTF-8 encoded scalar value above U+007F, [RFC 3629]>
 6. **Creating.** `init --link` refuses when `./.moirai` already exists as any entry. It creates the file with
    create-new semantics, writes its bytes in one write, and makes it durable (`durable+meta` on the file,
    `durable-name` on its directory, [80 §2.3.1]) before it reports success (open point 1). A pointer file left torn by
-   a crash is malformed, and discovery reports it.
+   a crash is malformed, and discovery reports it. This durability point is a protocol point of [F16] with a seeded bug
+   ([F16] P-99: success reported before `durable-name`; pass 1, S1-41).
 
 *(Informative)* A pointer file in `D:/scratch/notes` for the store `D:/work/demo/.moirai` with the synthetic store id
 `0123456789abcdef0123456789abcdef` is these 78 bytes:
@@ -252,7 +253,11 @@ for harness rules, [F01 §2.4]):
   and the step that found it. The process then reads the store id from `HEAD`.
 - Two discovery results name the same store when their canonical absolute paths are equal.
 - A process that sees `HEAD.retired` set ([AR §4.2]) runs discovery again from its original inputs (`restore`'s swap,
-  [AR §4.10], [72 m6]).
+  [AR §4.10], [72 m6]). A running `restore` sets `retired` before it creates its swap intent ([F16] P-85 steps 2–3), so
+  when that discovery yields the same store again, `retired` still set and no swap intent `P/<a>.swap` beside it (§3.2),
+  the process repeats the probe with [F16] P-86's delays; if the same state persists, a `restore` ended without clearing
+  the flag ([F16] open point 10), and the process exits 7 `store_retired` ([F19 §10.2]) without using the store. Only
+  `doctor` clears the flag.
 
 ### 3.7 `doctor store`
 
@@ -265,7 +270,7 @@ two store directories that carry the same store id (a copied store).
 ## 4. The store id
 
 - The store id is a `b16` ([F01 §5.6]): 16 bytes drawn from the operating system's cryptographically secure random
-  source by `init`. `init` never uses the all-zero value (it draws again).
+  source (`Entropy::fill_random`, [OS/README §4.6]) by `init`. `init` never uses the all-zero value (it draws again).
 - It is fixed at `init` and constant for the store's life. `backup`, `restore` and `repair` keep it; `restore` and
   `repair` re-roll the epoch instead ([AR §4.2], G25). The epoch is a different value.
 - It is recorded in `HEAD` among the parameters fixed at `init` ([F04], [F17 §2]; open point 2), and every process reads
@@ -330,7 +335,7 @@ These restate [AR §4.1], [AR §4.10] and [80 §2.3.2, §2.5] for the directory 
 - `init` creates `tmp/`. A process that needs it and finds it missing creates it again; a directory that already exists
   is not an error.
 - A temporary file that moirai creates is named `<word>.<nonce>` (§6.3). The nonce is a `u64` drawn from the OS's
-  cryptographically secure random source and written in decimal. The file is created with create-new semantics; if the
+  cryptographically secure random source (`Entropy::fill_random`, [OS/README §4.6]) and written in decimal. The file is created with create-new semantics; if the
   name exists, the process draws a new nonce.
 
 | Word | Content | Lives until | Owner |
@@ -338,7 +343,18 @@ These restate [AR §4.1], [AR §4.10] and [80 §2.3.2, §2.5] for the directory 
 | `cs` | a bulk commit's changeset segment under construction | its `rename_noreplace` to `cs.<n>` (§5.2 rule 2) | [F09], [F16] |
 | `config` | the next text of the store's `config` | its `rename_replace` onto `config`, then `durable-name` ([80 §2.3.2]) | [CFG], [F16] |
 | `head` | the initial `HEAD` written by `init` | its `rename_noreplace` to `HEAD` (§5.5; open point 14) | [F16] |
-| `sort` | a spill run of at most 1 MiB for the external sort of a bulk producer ([AR §4.1], [AR §4.6]) | the end of the command that made it | [F16] |
+| `sort` | a spill run of at most 1 MiB for the external sort of a producer whose entries exceed its write budget ([AR §4.1], [AR §4.6], [F07 §10.6]) | the end of the command that made it | [F16] |
+| `probe` | a file of the full probe at `init` and `restore` ([OS/env §5]): the durable-write, lock and rename probes, each file named with its own nonce | the end of the probe | [OS/env] |
+| `extent` | a spare log extent that maintenance prepares ahead of rotation ([F16] P-96): `create_extent`, `durable+meta`, then `rename_noreplace` onto `log.<n+1>` (pass 1, P1-7) | its rename to `log.<n+1>`, or its deletion when a rotation made that extent first | [F16], [OS/fs §4.5] |
+
+One `tmp/` entry has a fixed name instead of `<word>.<nonce>` (pass 1, P1-32, S1-38, A1-40):
+
+| Name | Content | Lives until | Owner |
+|---|---|---|---|
+| `settle.stamp` | a 1-byte file whose mtime a settle rewrites at its start: the racy threshold of the Linux and macOS frontier ([OS/project §5.9], [OS/clock §6], [F20 §5.12.1]) | the life of the store; a missing one is created again | [OS/project], [F20] |
+
+- The orphan sweep may remove a `probe.<nonce>` left by a dead process, and may remove `settle.stamp`: a settle writes the
+  stamp, creating it when absent, before it reads T0 ([F20 §5.12.1]), so removing it changes no result.
 
 - Files of other names may appear in `tmp/`: a script may put its temporary query file there ([80 §4.2] T5). moirai
   never opens such a file as a store file.
@@ -406,8 +422,8 @@ fixed-name    = %s"HEAD" / %s"LOCK" / %s"config"
 numbered-name = %s"log." fnum / %s"hist." fnum / %s"blobs." fnum / %s"gitmap." fnum
               / %s"cs." fnum / %s"dict." fnum
               / %s"seg.base." fnum / %s"seg.d" fnum / %s"seg.b" u32dec "." fnum
-tmp-entry     = tmp-word "." u64dec           ; an entry of tmp/
-tmp-word      = %s"cs" / %s"config" / %s"head" / %s"sort"
+tmp-entry     = tmp-word "." u64dec / %s"settle.stamp"   ; an entry of tmp/
+tmp-word      = %s"cs" / %s"config" / %s"head" / %s"sort" / %s"probe" / %s"extent"
 trash-intent  = u64dec                        ; an entry of trash/
 trash-item    = u32dec                        ; an entry of trash/<intent>/
 fnum          = NZDIGIT *9DIGIT               ; 1 .. 4294967295
@@ -564,7 +580,10 @@ environment can make the server resolve another file than the CLI (open point 20
     This chapter keeps discovery free of writes. Discovery runs in lock-free readers, which cannot tell a crashed swap
     from one still in progress under the writer and maintenance bytes, and recovering a running swap would undo it
     halfway. Discovery therefore retries and then exits 7 pointing at `moirai doctor`, as [F15]'s OP-11 proposes for
-    [F16]. The review should settle the rule in `[OS/fs]`, [F16] and here together.
+    [F16]. The review should settle the rule in `[OS/fs]`, [F16] and here together. **Pass 1 (P1-13, S1-26, A1-18):
+    settled as here**: discovery never runs `swap_recover` ([F16] P-86, whose seeded bug is exactly that); only `doctor` and a
+    restarted `restore` do. **Closed** (round 1): `[OS/fs §4.9.4]` states the same (only `doctor`, and `restore` for its
+    own failed swap).
 18. **The backup directory's layout** is left to [F16] and M1. Pass 1 should confirm that a backup directory is not
     itself a discoverable store, for example because its `HEAD` is written last or under another name.
 19. **Unknown values of `MOIRAI_GIT_HINT`** follow [CFG]'s rule for an invalid value (the default applies and `doctor`
@@ -577,3 +596,8 @@ environment can make the server resolve another file than the CLI (open point 20
     entry's `env_vars`, and `doctor agents` compares the server's resolved path with the CLI's. A Windows fallback to
     the Roaming AppData known folder was considered and not adopted, following `[OS/path]`'s reason (it would load
     `shell32.dll` into every process) and X-F11's literal `%APPDATA%`.
+21. **A store left `retired`** (§3.6; [F16] open point 10, recorded in pass 1, round 2). `restore` makes `retired`
+    durable before it creates its swap intent and clears it after a failed swap ([F16] P-85); a crash between those
+    steps leaves the live store marked `retired` with no intent. Discovery then finds the same store again, so a process
+    repeats the probe with [F16] P-86's delays (covering a running `restore` between its steps 2 and 3) and then exits 7
+    `store_retired` ([F19 §10.2]) instead of looping; only `doctor` clears the flag.

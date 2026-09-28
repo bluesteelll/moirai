@@ -304,7 +304,9 @@ datetime        = yyyy '-' mm '-' dd [ 'T' hh ':' mm [ ':' ss ] ] [ 'Z' ] ;
        list, list_lit, map_lit, prop_map, case_expr, the braces of EXISTS, COUNT and UNLESS
        EXISTS, path_pred and group_pat. The 65th nested entry is E001. Binary operator chains are
        loops and do not deepen. Parser, binder and closures keep their stacks on the heap
-       ([71 RAM-m8]).
+       ([71 RAM-m8]). For a JSON IR document the JSON decoder first applies its own limit of 256
+       nested levels while parsing (E001, [LQ/json-ir §2] item 7; pass 1, P1-41); this rule then
+       applies to the tree.
    P14 Recovery. Panic-mode recovery resynchronises at ',', ')', '}' and at the clause keywords,
        so that at most three errors are reported per pass [50 §5.2]. Only the first error of a
        pass decides the exit code; fixtures assert the first error's code and position.

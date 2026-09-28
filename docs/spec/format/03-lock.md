@@ -82,9 +82,10 @@ frozen by X-F1 and owned by this chapter; [OS/lock §2] restates them for the op
 | writer | `ROLE_BASE` + 0 | the innermost byte: append, the flush holder's scan and re-write, every publish of `HEAD` | appenders, the flush holder, every publisher ([F16]) | bounded wait (`lock.writer-wait-ms`, [F17 §10]) | 4 |
 | leader | `ROLE_BASE` + 1 | the optional leader ([80 §2.8]) | the leader for its lifetime, only if the leader is built | try | 1 |
 | maintenance | `ROLE_BASE` + 2 | checkpoint, promotion, rollup, GC, `restore` | the maintenance holder | try | 2 |
-| quiet-advisory | `ROLE_BASE` + 3 | process-lifetime quiet mode (§3.1) | a process that requests quiet mode for its own lifetime | try; probed by every maintenance decision | — (never waited for) |
+| quiet 0 (quiet-advisory) | `ROLE_BASE` + 3 | process-lifetime quiet mode (§3.1) | a process that requests quiet mode for its own lifetime | try; probed by every maintenance decision | — (never waited for) |
 | flush | `ROLE_BASE` + 4 | group commit and boot-change recovery | the flush holder ([80 §2.4.3]) | bounded wait (`lock.flush-wait-ms`) | 3 |
-| reserved | `ROLE_BASE` + 5 … `ROLE_BASE` + 63 | none | never locked by moirai; `ROLE_BASE` + 63 is probed by the foreign-lock check ([OS/lock §11]) | — | — |
+| quiet 1 … quiet 8 | `ROLE_BASE` + 5 … `ROLE_BASE` + 12 | process-lifetime quiet mode (§3.1) | further requesters of quiet mode, one byte each (pass 1, P1-10) | try; probed by every maintenance decision | — (never waited for) |
+| reserved | `ROLE_BASE` + 13 … `ROLE_BASE` + 63 | none | never locked by moirai; `ROLE_BASE` + 63 is probed by the foreign-lock check ([OS/lock §11]) | — | — |
 | slot i, 0 ≤ i < 256 | `SLOT_BASE` + i | liveness slot i (§8) | a session's MCP server from the moment it knows its session identity until it exits, or a CLI for the life of one file intent | try only; a busy slot sends the caller to the next one (§8.7) | 0 |
 
 - No other byte offset is ever locked by moirai. The ranges `ROLE_BASE + 64 … SLOT_BASE − 1` and
@@ -92,21 +93,28 @@ frozen by X-F1 and owned by this chapter; [OS/lock §2] restates them for the op
 - The lock order, slot < leader < maintenance < flush < writer, and the rule that waits go only upward and only on the
   writer and flush bytes are [OS/lock §6]'s (X-F4).
 
-### 3.1 The quiet-advisory byte
+### 3.1 The quiet bytes
 
-The design reserves the byte ([AR §4.1], [80 §2.2.3]) without stating its meaning. This chapter fixes it (open point 9):
+The design reserves the quiet-advisory byte ([AR §4.1], [80 §2.2.3]) without stating its meaning. This chapter fixes it
+(open point 9) and, in review pass 1 (P1-10), adds eight more: the **quiet bytes** are quiet 0 = `ROLE_BASE` + 3 (the
+design's quiet-advisory byte) and quiet 1 … quiet 8 = `ROLE_BASE` + 5 … `ROLE_BASE` + 12, nine bytes in all.
 
-1. While any process holds the quiet-advisory byte, **quiet mode is in effect** for the store exactly as when
-   `HEAD.flags` bit 0 is set ([F04 §5.2], [AR §6.6], [F17 §5.3]).
+1. While any process holds any quiet byte, **quiet mode is in effect** for the store exactly as when `HEAD.flags` bit 0
+   is set ([F04 §5.2], [AR §6.6], [F17 §5.3]).
 2. A process that decides whether to run automatic maintenance ([F17 §5.2]) evaluates quiet mode as: `HEAD.flags` bit 0
-   set, **or** a probe of the quiet-advisory byte answering `Held` or `Unknown` ([OS/lock §8]). `Unknown` counts as quiet
-   because quiet mode only defers optional maintenance up to its hard cap ([F17 §5.3]); treating an unprobeable byte as
-   quiet never weakens a guarantee.
-3. The byte ends with its holder: a crashed holder never leaves the store in quiet mode, unlike the persistent flag.
-4. The byte is only tried and probed, never waited for. A second requester that gets `Busy` knows quiet mode is already in
-   effect.
-5. Which verbs take the byte is the CLI's and [CFG]'s (proposal: `moirai quiet hold -- <command>`, and the M0 measurement
-   drivers of [PLAN §3.2] item 5).
+   set, **or** a probe of **any** quiet byte answering `Held` or `Unknown` ([OS/lock §8]); it probes all nine. `Unknown`
+   counts as quiet because quiet mode only defers optional maintenance up to its hard cap ([F17 §5.3]); treating an
+   unprobeable byte as quiet never weakens a guarantee.
+3. A byte ends with its holder: a crashed holder never leaves the store in quiet mode, unlike the persistent flag.
+4. **Each requester holds a quiet byte of its own for its whole run.** It tries quiet 0, then quiet 1 … quiet 8 in
+   order, with `try_acquire` only, and keeps the first byte granted until it ends. If all nine answer `Busy`, it tries all
+   nine again every 10 ms on its monotonic clock for at most `lock.writer-wait-ms` ([F17 §10]), then exits 7
+   `store_locked` naming the quiet bytes. A `Busy` answer proves nothing by itself: on Windows it may come from a
+   maintenance decider's probe, which holds the byte for a moment ([OS/lock §8]), and another requester may end before
+   this one does. Holding its own byte makes the requester's quiet mode last exactly as long as its run.
+5. Which verbs take a quiet byte is the CLI's and [CFG]'s (proposal: `moirai quiet hold -- <command>`, and the M0
+   measurement drivers of [PLAN §3.2] item 5, whose numbers decide `HOLE(F17-ckpt-ops)` and `HOLE(F17-tail-overlay)` and
+   must be taken without maintenance noise).
 
 ## 4. `LockHdr`
 
@@ -218,7 +226,11 @@ body, path, key or other user datum reaches `LOCK` (open point 2).
 
 - **WD-1 (who writes).** Only the holder of the writer byte writes `WriterDiag`, once per holding, immediately after the
   grant and before any other step under the byte. It writes all 512 bytes in one `write_at` of class `lazy`
-  ([F15 §4.1]); it never flushes them.
+  ([F15 §4.1]); it never flushes them. **Cost** (pass 1, P1-24): one positional write of 512 B to a page of `LOCK` that
+  stays in the page cache, about one system call per holding (three per durable commit: the append, the flush holder's
+  scan and its publish); measurement 2 includes it in the writer-hold time it reports ([AR §8.3] SPEED row "writer
+  hold"). Writing it only for long holdings would lose the holder in exactly the case WD-4 serves (a holder that dies
+  early in a holding), so the record is written every time.
 - **WD-2 (failure).** A failed write of `WriterDiag` is not an error of the command: the record is diagnostics only
   ([80] X-F5's error policy covers classes other than `lazy`). The holder continues.
 - **WD-3 (no clearing).** The holder does not clear the record at release. A record therefore names the most recent
@@ -246,7 +258,7 @@ reserved in format v1 either way.
 | 42 | 1 | `u8` | `endpoint_kind` | 1 = named pipe (Windows), 2 = pathname Unix socket (Linux, macOS) ([80 §2.8]); other values invalid |
 | 43 | 5 | `[5]u8` | `_reserved` | reserved-zero |
 | 48 | 200 | `fstr<200>` | `endpoint` | the endpoint name ([80 §2.8]): at most 198 bytes of UTF-8 |
-| 248 | 16 | `b16` | `nonce` | a random 128-bit value drawn from the OS's cryptographically secure source at each election; never all zero |
+| 248 | 16 | `b16` | `nonce` | a random 128-bit value drawn from the OS's cryptographically secure source (`Entropy::fill_random`, [OS/README §4.6]) at each election; never all zero (an all-zero draw is drawn again) |
 | 264 | 240 | `[240]u8` | `_reserved2` | reserved-zero |
 | 504 | 8 | `u64` | `xxh3` | XXH3-64, seed 0, over bytes `[0, 504)` of the record |
 | total | 512 | | | |
@@ -277,7 +289,7 @@ A `LeaderRec` whose checksum fails is absent. Absence sends every client to the 
 | 3 | 1 | `u8` | `flags` | §8.3 |
 | 4 | 2 | `u16` | `slot` | the slot index i of this record; equal to its position |
 | 6 | 2 | `u16` | `_reserved` | reserved-zero |
-| 8 | 8 | `u64` | `nonce` | a random non-zero value drawn at the start of the holding from the OS's cryptographically secure source |
+| 8 | 8 | `u64` | `nonce` | a random non-zero value from the OS's cryptographically secure source (`Entropy::fill_random`, [OS/README §4.6]; a zero draw is drawn again), drawn once per holding: by an intent holder **before** it chooses its slot, because §8.7 starts the search at `nonce mod 256`, and by a server when it takes its slot; kept unchanged for the whole holding (SR-3; pass 1, S1-42) |
 | 16 | 16 | `b16` | `session_hash` | kind 1: the **primary** session hash (§9) of the identity whose lifetime the server tracks. Kind 2: the session hash of the CLI's own session identity, zero when it has none (diagnostics) |
 | 32 | 16 | `b16` | `alias_hash` | kind 1: the alias hash after Claude Code's `/clear` (§9.3); zero when none. Kind 2: zero |
 | 48 | 32 | `ProcId` | `proc` | the holder process (§5.1) |
@@ -433,8 +445,9 @@ The holder anchor that `LEASES` rows and `FsIntent` records embed ([80] X-F2 as 
 
 ### 10.3 Making an anchor
 
-**For an `FsIntent`** (kind 2; [40 §3.4] step 2): the CLI takes a slot by §8.7 with a fresh `nonce`, writes its
-`SlotRec` (SR-2), and builds `{kind 2, os, slot i, nonce, session_hash_lo, boot_hash}`. Only then does it append the
+**For an `FsIntent`** (kind 2; [40 §3.4] step 2): the CLI draws its `nonce` (§8.1), takes a slot by §8.7 starting at
+`nonce mod 256`, writes its `SlotRec` with that `nonce` (SR-2), and builds `{kind 2, os, slot i, nonce, session_hash_lo,
+boot_hash}`. Only then does it append the
 `FsIntent` record ([F05 §9.15]).
 
 **For a lease** (kinds 0, 1, 4; [AR §6.2], [90 §4.4]):
@@ -512,7 +525,7 @@ every such read into "absent" or "not recorded", never into a wrong holder.
 
 None. No value in this chapter is decided by an M0 measurement. Related holes live elsewhere:
 `HOLE(F17-lock-writer)` and `HOLE(F17-lock-flush)` ([F17 §10]) bound the waits on the writer and flush bytes;
-`HOLE(F15-lock-release)` models release after death; `HOLE(os-win-boot-source)` ([OS/proc §4.2]) decides the Windows
+`HOLE(F15-lock-release)` models release after death; `HOLE(OS-win-boot-source)` ([OS/proc §4.2]) decides the Windows
 source of `boot_hash`. Measurement 22 checks `LOCK` v1's bytes on NTFS ([60 §5.2] item 22) but decides no value here.
 
 ## Open points for the review
@@ -549,7 +562,13 @@ source of `boot_hash`. Measurement 22 checks `LOCK` v1's bytes on NTFS ([60 §5.
 9. **The quiet-advisory byte's meaning** (§3.1). The design reserves the byte ([AR §4.1], [80 §2.2.3] "as in [AR §4.1]")
    but never says what holding it does. Proposed: holding it puts the store in quiet mode for the holder's lifetime; a
    probe answering `Unknown` counts as quiet. [F16] and [F17 §5.3] should cite §3.1, and [CFG] or the CLI should name the
-   verb that holds it (proposal `moirai quiet hold -- <command>`), used by the M0 measurement drivers.
+   verb that holds it (proposal `moirai quiet hold -- <command>`), used by the M0 measurement drivers. **Pass 1 (P1-10):**
+   the first draft's rule 4 ("a requester that gets `Busy` knows quiet mode is already in effect") was unsound — the
+   `Busy` could come from a Windows probe, and the first holder could exit while the second requester still measured.
+   Eight more quiet bytes, taken from the reserved range `ROLE_BASE` + 5 … + 12, let each requester hold one of its own;
+   the decider probes all nine. X-F1's five role offsets are unchanged; the reserved range shrinks to + 13 … + 63.
+   [F17 §5.3] cites §3.1, and [F16] §17.4 L-8 seeds the decider that probes one byte only. Code follow-up for WP-30:
+   [OS/lock §2]'s `LockByte::Quiet` takes an index 0–8.
 10. **One owner for `ProcId`'s bytes** (§5.1). [OS/proc §3.1] says it "repeats" the layout, and [PLAN §3.2] WP-11 lists
     `ProcId` in this chapter. Proposal: this chapter owns the bytes and [OS/proc] owns the per-OS values, as §5.1 states;
     both tables are identical today. If the review prefers [OS/proc] as owner, §5.1 becomes informative.

@@ -52,7 +52,8 @@
             "idempotency.retention=1h",
             "idempotency.default-window=1m",
             "gc.reflog-expire=2h",
-            "gc.cruft-delay=30m"
+            "gc.cruft-delay=30m",
+            "store.commit.inline-max-bytes=4KiB"
           ]
         }
       },
@@ -78,7 +79,8 @@
             "gc.cruft-delay": "30m",
             "gc.reflog-expire": "2h",
             "idempotency.default-window": "1m",
-            "idempotency.retention": "1h"
+            "idempotency.retention": "1h",
+            "store.commit.inline-max-bytes": "4KiB"
           }
         },
         "next": null,

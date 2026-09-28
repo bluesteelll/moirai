@@ -7,7 +7,7 @@
 | Status | draft, pass 1 pending |
 | Work package | WP-13a (the `09-segments.md` part of WP-13, [PLAN §3.2] item 1), author role R-SPEC-R |
 | Sources | [AR §3.1] (the 60-byte header, row = `#N` − 1, cold columns `uid`, `topo`, `defer_until`, `due`, `CREATOR`; the field block); [AR §3.3] (edge key with the R4 discriminator, one CSR entry per (src, dst) for `at`, `pinned_commit` props); [AR §3.5] (the persisted bitsets); [AR §4.1] (rows `seg.base.G`, `seg.dK`, `seg.b<ref_id>.K`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, file count); [AR §4.2] (`SegRef`, `refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `next_id`, `next_anchor`); [AR §4.3] (bulk commits: "delta-segment layout", "readers map it as one more delta layer"; lazy runtime records decoded on use); [AR §4.4] (the whole section: `SegHdr`, the section tables, frozen bitsets, delta segments, hot bytes per node); [AR §4.5] step 12 (delta checkpoint, runtime-only fold, promotion); [AR §4.6] "Reserved in format v1" (the R4/R5 table and the audit, port and harness lists as they touch segments); [AR §4.7] (size check before mapping, `SYMTAB` probed in place); [AR §4.8] (the index table); [AR §4.9] (delta checkpoint, tiered fold, rollup, pins, `MARKERS_OLD`, GC); [AR §4.10] (`doctor --fsck`, `repair --rebuild-from-log`); [AR §5a.1] (ref, pin); [AR §5a.3] (the view formula, promotion, `TOUCH`); [AR §5d.1] (versioned versus store-level runtime state); [AR §2.11] T11 (tier-2 text search: front-coded dictionary, delta-varint postings per delta segment); [AR §2.12] T12 (schema as data per branch); [40 §2.4] (`PATHIDX` order), [40 §2.6] (runtime tables), [40 §2.7] (anchor handles `aN`, anchor uid), [40 §2.8] (`at` edges and the `ANCHORS` key), [40 §2.11] R-4, R-8, R-9, R-18 (authoritative); [50 §5.5] (search tokenisation "fixed in the format spec with a version byte", ranking statistics on the view), [50 §8.1] F3, F4, F5, F6, F7, F11, F12, F13, F17; [80 §2.5] rule 4, [80 §3.1] X-F6, X-F8, [80 §3.2] (8-byte section alignment); [60 §2.5] ([AR] row "Segments"; audit row "Segments"; the R4 and R5 tables), [60 §2.6] (the section-producer registry and its layout classes); [PLAN §3.2] WP-13, [PLAN §3.3] (WP-13's gaps: `MARKERS` field set, which sealed files carry `SegHdr`); `docs/spec/reviews/a1-S.md` S-09, S-22 and `a1-P.md` A1P-16 (dispositions in the open points); the sibling drafts [F04 §4.1] (`SegRef`), [F06 §7.3, §8, §9] (`prev`, bodies, bulk commits BK-1–BK-6), [F08 §3, §8.3, §8.4.3, §10.1] (`NodeHdr`, store-local schema ids, `index`, edges) and [F11 §1.3, §2] (runtime section bodies, forms and proposed tags), with which this chapter is reconciled (OP-09-23) |
-| Depends on | [F01], [F02]; cites [F04], [F05], [F06], [F07], [F08], [F10], [F11], [F12], [F13], [F15], [F16], [F17], [F19], [F20], `[OS/map]`, `[OS/fs]`, `[LQ/std]` |
+| Depends on | [F01], [F02]; cites [F04], [F05], [F06], [F07], [F08], [F10], [F11], [F12], [F13], [F15], [F16], [F17], [F19], [F20], [OS/map], [OS/fs], [LQ/std] |
 
 ## 1. Scope
 
@@ -65,7 +65,7 @@ Every graph segment, every `hist` file and every `blobs` file begins with `SegHd
 | 40 | 8 | `u64` | `from_lsn` | the first log position folded, per kind (§2.3) |
 | 48 | 8 | `u64` | `upto_lsn` | the log position below which the segment folds every record, per kind (§2.3) |
 | 56 | 8 | `u64` | `rt_upto_lsn` | the log position below which the segment folds every lazy runtime record of the kinds `K_RT` ([F17 §5.1]), per kind (§2.3, §15.1) |
-| 64 | 8 | `u64` | `total_len` | the file's exact length in bytes ([80] X-F6); checked against the file size before mapping (`[OS/map §4]`) |
+| 64 | 8 | `u64` | `total_len` | the file's exact length in bytes ([80] X-F6); checked against the file size before mapping ([OS/map §4]) |
 | 72 | 32 | `b32` | `seg_digest` | BLAKE3-256 ([F01 §7.1]) over the byte range `[data_off, total_len)` (§2.2): every section and every padding byte between sections |
 | 104 | 8 | `u64` | `table_xxh3` | XXH3-64, seed 0, over the section table `[120, data_off)` |
 | 112 | 8 | `u64` | `hdr_xxh3` | XXH3-64, seed 0, over `[0, 112)` |
@@ -172,7 +172,7 @@ placement.
 | `0x0023` | `IN_OFF` | column `u32` | row | R | R | R | R | this chapter | §7.1 |
 | `0x0024` | `IN_SRC` | column `u32` | row | R | R | R | R | this chapter | §7.1 |
 | `0x0025` | `IN_KIND` | column `u8` | row | R | R | R | R | [F08 §8.3] (edge id) | §7.1 |
-| `0x0026` | `EDGE_PROPS` | fixed table (20 B) | row | R | R | R | R | this chapter | §7.2 |
+| `0x0026` | `EDGE_PROPS` | fixed table (40 B) | row | R | R | R | R | this chapter; block [F08 §10.2] | §7.2 |
 | `0x0030` | `TOMB` | fixed table (16 B) | row | R | R | R | R | this chapter | §8.1 |
 | `0x0031` | `CONFLICTS` | RtHdr body | row | R | R | R | R | [F11 §10] | §8.2 |
 | `0x0032` | `SCHEMA` | variable table | full (view) | R | C | C | C | [F08 §8] (items) | §8.3 |
@@ -190,10 +190,11 @@ placement.
 | `0x0084` | `GLOBIDX` | RtHdr body | index | R | R | R | R | [F11 §11] | §13.5 |
 | `0x00C0` | `PREV` | column `u64` | — | — | — | — | R | this chapter | §16.4 |
 | `0x00C1` | `VIOLATIONS` | variable table | — | — | — | — | C | [F06] (op) | §16.4 |
+| `0x00C2` | `CKIMG` | variable table | — | — | — | — | C | [F06 §4.4.14] (entry) | §16.4 |
 | `0x0100` | `SYMTAB` | symbol table | symbols | R | R | — | — | this chapter | §14.2 |
 | `0x0101` | `SCHEMAIDS` | RtHdr body | snapshot / layer | R | R | — | — | this chapter | §14.3 |
 | `0x0102` | `FILES` | RtHdr body | snapshot | R | R | — | — | this chapter | §14.4 |
-| `0x0201`–`0x0209` | `REFS`, `PINS`, `HEADS`, `LEASES`, `MARKERS`, `MARKERS_OLD`, `IDEM`, `ALLOC`, `UIDX` | RtHdr body | [F11 §1.3] | R | R | — | — | [F11] | §14.5 |
+| `0x0201`–`0x020C` | `REFS`, `PINS`, `HEADS`, `LEASES`, `MARKERS`, `MARKERS_OLD`, `IDEM`, `ALLOC`, `UIDX`, `CURSORS`, `SESSMARKS`, `BACKUPS` | RtHdr body | [F11 §1.3] | R | R | — | — | [F11] | §14.5 |
 | `0x0210`–`0x021A` | `TREES`, `FILEOBS`, `PENDING`, `FSINTENT`, `FPRINT`, `JOURNALCUR`, `DIRMAP`, `PREFIXEV`, `ANCESTRY`, `GITRENAMES`, `ANCHORRES` | RtHdr body | [F11 §1.3]; runtime window (§15.1) except `FSINTENT` | R or O (§3.3) | R or O | — | — | [F11 §12] | §15.2 |
 | `0x0300`–`0x0302` | `HFRAMES`, `HCIDX`, `HDATA` | [F10 §4.3] | — | — | — | — | — | [F10] | `hist` only |
 | `0x0310`–`0x0311` | `BLOBIDX`, `BLOBDATA` | [F10 §5.2] | — | — | — | — | — | [F10] | `blobs` only |
@@ -212,10 +213,11 @@ The individual tags of the two runtime ranges are those [F11 §2.8] proposes, ad
 | `0x0204` | `LEASES` | `0x0210` | `TREES` | `0x0216` | `DIRMAP` |
 | `0x0205` | `MARKERS` | `0x0211` | `FILEOBS` | `0x0217` | `PREFIXEV` |
 | `0x0206` | `MARKERS_OLD` | `0x0212` | `PENDING` | `0x0218` | `ANCESTRY` |
-| | | | | `0x0219` | `GITRENAMES` |
-| | | | | `0x021A` | `ANCHORRES` |
+| `0x020A` | `CURSORS` | | | `0x0219` | `GITRENAMES` |
+| `0x020B` | `SESSMARKS` | | | `0x021A` | `ANCHORRES` |
+| `0x020C` | `BACKUPS` | | | | |
 
-`0x020A`–`0x020F` are reserved. A `hist` file carries only the tags `0x0300`–`0x0302` and a `blobs` file only
+`0x020D`–`0x020F` are reserved. `0x020A`–`0x020C` are [F11 §13]'s session and backup tables (pass 1, A1-23). A `hist` file carries only the tags `0x0300`–`0x0302` and a `blobs` file only
 `0x0310`–`0x0311` ([F10]); a graph segment never carries them.
 
 ### 3.2 Tag ranges
@@ -485,15 +487,28 @@ Six column sections ([AR §4.4]):
 
 ### 7.2 `EDGE_PROPS`
 
-Fixed table, `row_w` = 20, key `edge` ([AR §4.4] "(edge idx u32, pinned_commit id16)"):
+Fixed table, `row_w` = 40, key `edge` ([AR §4.4] "(edge idx u32, pinned_commit id16)", widened by pass 1: S1-2, A1-3,
+P1-1). The row stores the parts of [F08 §10.2]'s edge property block other than the anchor, at fixed places:
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
 | 0 | 4 | `u32` | `edge` | the index of the edge in this segment's `OUT_DST`; less than e_out |
-| 4 | 16 | `b16` | `pinned_commit` | the first 16 bytes of the pinned commit id of a `cites`, `implements` or `derived_from` edge ([AR §3.3], [F01 §5.6]) |
-| total | 20 | | | |
+| 4 | 1 | `u8` | `pflags` | [F08 §10.2]'s `pflags` with bit 2 (`anchor`) clear: bit 0 `has_pin`, bit 1 `flagged`; not 0 |
+| 5 | 3 | `[3]u8` | `_reserved` | zero |
+| 8 | 32 | `b32` | `pinned_commit` | with `has_pin`: the full 32-byte id of the pinned commit ([F08 §10.2]; [F07 §8.1] hashes it and the image writes it); all zero otherwise |
+| total | 40 | | | |
 
-An edge with no `pinned_commit` has no entry. R4's anchor records are not edge props here (§13.3).
+- **Entries.** One row per out-edge of this segment's rows whose property block, without its anchor, is not the single
+  byte `00`: an edge of a kind whose `props` ([F08 §8.4.6]) is `pinned` — `derived_from`, `cites`, `implements` and
+  `consumed` among the core kinds ([F08 §9.6]) — that carries a pin, and an edge of a kind whose `props` is `flagged` —
+  `blocks` and `gates` — retained with `flagged` by a tombstone source (I39′, [AR §5b.2] rule 8). An edge with `pflags`
+  0 has no row.
+- **Composition.** The block of an edge i whose kind is not `at` is its row's `pflags` (`00` when it has no row),
+  then `pinned_commit` when `has_pin`. An `at` entry of the CSR stands for one edge key per `ANCHORS` row of its
+  (src, dst) (§7.1, §13.3; the key's disc is that anchor's uid, §13.4), and each such key's block is `pflags` = `04`
+  (`anchor` alone, as [F08 §10.2] requires of kind `at`) followed by that row's anchor record; an `at` edge never has an
+  `EDGE_PROPS` row. So a view rebuilt from segments reproduces every byte [F07 §8.1] hashes: the `flagged` bit, the
+  whole pin and each anchor record, from which [F07 §8.2]'s selector block is derived.
 
 ## 8. Versioned records
 
@@ -514,14 +529,18 @@ deleted `NodeHdr`.
 
 ### 8.2 `CONFLICTS` ([50] F11)
 
-The unresolved conflict values of the view. Its body, rows and key `(n, key bytes)` are [F11 §10]'s. This chapter fixes its
-tag (`0x0031`), its presence in every graph segment kind, and its fold "row": a layer holds the complete set of conflict
-values of each of its rows and no other. Structural violations never land ([AR §5a.8]) and have no row here.
+The unresolved conflict values of the view. Its body, rows and key `(n, key bytes)` are [F11 §10]'s: each side is the
+[F06 §6.2] `kval` of its key's class, with `prov` for an existence key (pass 1, S1-7). This chapter fixes its tag
+(`0x0031`), its presence in every graph segment kind, and its fold "row": a layer holds the complete set of conflict
+values of each of its rows and no other. Rows of schema keys (`n` = 0) are not row-scoped: they fold with `SCHEMA`
+("full (view)", §8.3), so a layer that carries `SCHEMA` carries every schema-key conflict row of its view and a layer
+without `SCHEMA` carries none. Structural violations never land ([AR §5a.8]) and have no row here.
 
 ### 8.3 `SCHEMA`
 
 Variable table of the view's schema ([AR §2.12] T12; [50] F1–F3): kinds, fields, edges and `QUERIES` items, each row one
-schema item in [F08 §8]'s item encoding, sorted by [F08]'s item key. Fold "full (view)": the base carries the whole schema of
+schema item in [F08 §8]'s item encoding, sorted by [F08 §8.5]'s item key order (class, then the component name strings
+bytewise, `*` = `2A`; pass 1, A1-41). Fold "full (view)": the base carries the whole schema of
 its view; an upper segment carries `SCHEMA` iff a `Schema` op in its window changed the schema, and then carries the whole
 schema of its view. [AR §4.4] lists no schema section although schema is versioned per branch; this section closes that gap
 ([F08 §8.1] "[F09] stores the view's items in a segment section"; OP-09-08). A named query's canonical-AST hash, derived and
@@ -590,7 +609,7 @@ Fixed table, `row_w` = 12, key `field_sym`, present iff the segment carries any 
 | 5 `enum` | 2 | `u16`: the enumeration value's integer ([F08 §8.3]) |
 | 7 `sym` | 4 | `u32`: the symbol id, class `text` |
 | 9 `ref` | 4 | `u32`: the `#N` |
-| 10 `commitref` | 16 | `b16`: the `id16` |
+| 10 `commitref` | 16 | `b16`: the `id16`, an index key only: the 32-byte value stays in the row's field block, which a reader reads and confirms a match against ([F08 §5.1]; pass 1, P1-1) |
 
   `text`, `path`, `oid` and `pathmove` have none and are never promoted, alone or as set elements ([F08] refuses
   `index ≠ none` for them).
@@ -623,7 +642,8 @@ value for the field (absent rows included). Then:
   set;
 - **set form**: `off: [u32; n + 1]` (`off[0] = 0`, non-decreasing, `off[n] = n_vals`), then `n_vals × elem_w` bytes;
   row i's elements are `[off[i], off[i + 1])`, unique and ascending in the value order of §10.4; a row whose bit is set has
-  an empty range.
+  an empty range. Uniqueness is of the promoted encoding: two `commitref` elements of one row whose full ids share an
+  `id16` are stored once, and the field block holds both (§10.1).
 
 `count = n`.
 
@@ -944,7 +964,7 @@ snapshot in every base and delta: the complete list as of the segment's `upto_ls
 | 0 | 9 | `FileRef` | `file` | [F11 §2.5]: family 2 `hist`, 5 `seg-branch`, 6 `blobs`, 7 `dict`, 8 `gitmap` or 9 `cs`, its `ref_id` and number |
 | 9 | 1 | `u8` | `dest` | `gitmap`: the page's destination ([F10 §7.2]); 0 otherwise |
 | 10 | 1 | `u8` | `algo` | `gitmap`: the page's object format ([F01 §7.5]); 0 otherwise |
-| 11 | 1 | `u8` | `flags` | reserved-zero |
+| 11 | 1 | `u8` | `flags` | bit 0 `reserved`: a `cs` or `blobs` number claimed by a `Reserve` record ([F05 §9.27]) whose bulk `Commit` the segment does not fold; `upto_lsn`, `total_len` and `digest16` are then zero (the file may not exist yet). Bits 1–7 reserved-zero |
 | 12 | 4 | `u32` | `_reserved` | reserved-zero |
 | 16 | 8 | `u64` | `from_lsn` | `hist`: its `SegHdr.from_lsn`; 0 otherwise |
 | 24 | 8 | `u64` | `upto_lsn` | `hist` and `seg-branch`: its `SegHdr.upto_lsn`; `cs`: the lsn of the `Commit` record that names it; 0 otherwise |
@@ -958,10 +978,20 @@ Key `file` (`family`, `ref_id`, `file_no`). No heap. A file enters the list with
 ([F10 §5.5]) and the `gitmap` pages of a (destination, algorithm) pair; GC and `doctor --fsck` use it to enumerate the
 store's files (OP-09-25).
 
+**Reserved numbers** (pass 1, P1-3). The `cs.<n>` and `blobs.<n>` numbers of a `Reserve` record ([F05 §9.27]) enter with
+`flags` bit 0 set when a fold covers the record but not the bulk `Commit` that names them, so they stay named ([F16] P-77
+condition 2) while the file streams; the fold that covers that `Commit` writes their real `upto_lsn`, `total_len` and
+`digest16` and clears the bit, and a `gc` `Checkpoint` that releases the reservation's files ([F16] P-84) removes the
+rows. A `reserved` row is no part of any view: readers, a backup's copy ([F16] P-87) and `doctor --fsck`'s file checks
+skip it; only the deletion conditions of [F16] P-77 read it. The file itself becomes part of a view through the bulk
+`Commit` that names it, once that record lies in the view's log range: P-87 copies it exactly then, whatever the row's
+bit says.
+
 ### 14.5 Runtime tables whose sections [F11] owns
 
-`REFS`, `PINS`, `HEADS`, `LEASES`, `MARKERS`, `MARKERS_OLD`, `IDEM`, `ALLOC`, `UIDX` (tags `0x0201`–`0x0209`): bodies,
-rows, keys, forms, retention and lookup are [F11 §2–§9]'s. This chapter fixes their tags (§3.1, adopting [F11 §2.8]),
+`REFS`, `PINS`, `HEADS`, `LEASES`, `MARKERS`, `MARKERS_OLD`, `IDEM`, `ALLOC`, `UIDX`, `CURSORS`, `SESSMARKS`, `BACKUPS`
+(tags `0x0201`–`0x020C`): bodies, rows, keys, forms, retention and lookup are [F11 §2–§9] and [F11 §13]'s. This chapter
+fixes their tags (§3.1, adopting [F11 §2.8]),
 their placement in every `seg-base` and `seg-delta` and nowhere else, and that they fold against `upto_lsn`. The marker key
 `(#N, ref_id, commit)` ([AR §4.4], [60 §2.5]) and the field set are [F11 §7]'s (the [PLAN §3.3] gap "the `MARKERS` field
 set", closed there).
@@ -991,9 +1021,9 @@ The lazy runtime record kinds `K_RT` = {`FileObs`, `Pending`, `FPrint`, `Journal
 their tags, their placement in every `seg-base` and `seg-delta` (R, or O for the five `derived-optional` sections of §3.3)
 and nowhere else, and their fold window (§15.1).
 
-**`FPRINT` and R-9.** `FPRINT`'s row maps an `oid` to the content address of a fingerprint blob ([F11 §12.8]); the blob
-itself is [F10 §5.3]'s fingerprint class in a `blobs` file, found by that address among the `blobs` files that `FILES`
-lists ([F10 §5.5]).
+**`FPRINT` and R-9.** `FPRINT`'s row maps an `oid` to the content address of a fingerprint blob and the number of the
+`blobs` file that holds it ([F11 §12.8]; OP-09-14 adopted, pass 1, P1-22); the blob itself is [F10 §5.3]'s fingerprint
+class in that file, found by one binary search of its `BLOBIDX` ([F10 §5.5]).
 
 ## 16. Segment kinds
 
@@ -1048,20 +1078,33 @@ them from its base state):
 |---|---|
 | created nodes with uid, kind and creator | `IDS`, `NODE`, `UID`, `CREATOR` |
 | deleted nodes with reason and replacement; undeleted nodes | `NODE` (`deleted`), `TOMB`; an undelete is a touched row no longer deleted |
+| nodes that go from absent to deleted ([F06 §7.4] `CreateDeleted`) with kind, reason, replacement and creator | a touched row that is deleted here and absent in the state the segment applies to: `NODE` (`deleted`, `kind`, the retained title), `UID`, `CREATOR`, `TOMB`, and its retained out-edges in the CSR and `EDGE_PROPS` (pass 1, S1-6) |
 | per touched row, its `prev` | `PREV` (below) |
 | conflict values; resolutions | `CONFLICTS`; a resolution is the touched row without the conflict and with the chosen value |
 | violations (a bulk merge that stages) | `VIOLATIONS` (below) |
 | schema items | `SCHEMA` |
 | anchors with their `aN` and edge props | `ANCHORS`, `ANCHOR_UID`, `EDGE_PROPS` |
 | bodies | `BLOBTAB`, pointing into the `blobs` file sealed before it ([F06 §9] BK-3) |
+| a bulk import-checkpoint's image-only data ([F06 §4.4.14]) | `CKIMG` (below; pass 1, S1-23, A1-10) |
 
 - **`PREV`** (tag `0x00C0`, required): column of `u64`, parallel to `IDS`: the **absolute** lsn of the newest earlier
   `Commit` record with the same `ref_id` whose changeset touches the row, 0 when there is none — the lsn that [F06 §7.3]'s
   `prev` would subtract from the commit's own. The commit's own lsn is unknown when the file is sealed, so the delta cannot
-  be written; a walker computes it from the bulk commit's lsn (OP-09-15).
+  be written; a walker computes it from the bulk commit's lsn (OP-09-15). The sealed values stay right because [F16] P-34
+  re-validates a bulk commit **by node**: every node owning a row of the segment counts as read and written, and an
+  intervening commit that touches one forces phase 1 to re-run and the file to be re-streamed ([F06 §7.3]; pass 1,
+  S1-20).
 - **`VIOLATIONS`** (tag `0x00C1`): variable table whose rows are the commit's `Violation` ops, each exactly as [F06] encodes
   it in an inline op list, in [F06]'s op order (not re-sorted; the variable-table order rule of §4.3 is replaced by it).
   Present iff the commit carries at least one; `Violation` ops exist only on staging refs ([AR §4.6]).
+- **`CKIMG`** (tag `0x00C2`): variable table whose rows are the entries of [F06 §4.4.14]'s `ckimg` group, each exactly
+  as [F06] encodes one entry (`id`, `iflags`, the provenance values, the ledger lines), sorted by `id` strictly ascending
+  (the variable-table order of §4.3 with `id` as the key). Present iff the bulk commit is an import-checkpoint whose
+  checkpoint tree holds at least one node file that differs from its parent checkpoint's tree, the condition under which
+  an inline commit sets presence bit 17; the bulk commit's record never sets that bit ([F06 §4.2]). Its rows obey
+  [F06 §4.4.14]'s V- and C-rules; `CKIMG` is not row-scoped (§4.7): it belongs to the commit, not to a layer's view, and
+  a checkpoint that folds the segment's rows does not fold it. A re-export reads it from the `cs.<n>` that the kept
+  record names ([F10 §8]; [F14 §11.3]).
 - **Values fixed at append.** The commit's `seq` and `lsn` are allocated when its `Commit` record is appended, after the file
   is sealed ([AR §4.5] steps 8–9). In a changeset segment's `NODE` rows, therefore: `rev_seq` = 0, `updated_tx` = 0,
   `created_tx` = 0 for a row the commit creates, and `last_op_lsn` = 2^64 − 1. A reader substitutes the bulk commit's `seq`
@@ -1069,9 +1112,13 @@ them from its base state):
   value; OP-09-16).
 - **Ids.** Every `#N`, `aN`, symbol id and store-local schema id in the file is final. The bulk producer must hold them
   before it writes the file ([AR §4.5] step 8 allocates `#N`s under the writer byte; [F06 §7.3] fills the placeholders of an
-  inline commit there). How a bulk producer obtains them is [F16]'s and [F05]'s (OP-09-17).
+  inline commit there). It obtains them from its durable reservation group: one `Reserve` record (kind 27, [F05 §9.27])
+  appended under the writer byte before the file is streamed, which allocates the `#N`s, `aN`s, new symbols (its `SymDefs`
+  block), schema ids and the file numbers of the `cs.<n>` and its `blobs.<n>` ([F16] P-84). Ids of a reservation whose
+  commit never lands are skipped, never reused ([F11 §9.1]; OP-09-17, closed in pass 1).
 - `base_seq`, `from_lsn`, `upto_lsn` and `rt_upto_lsn` are 0 (§2.3). `FTSSTAT` is never written (§12.4).
-- The commit's `cs_ref` names the file by number, length and digest ([F06 §9] BK-2; OP-09-03).
+- The commit's `cs_ref` names the file by number, length and digest: `cs_ref.b3` = `seg_digest[0..16]`, the value
+  `FILES.digest16` holds ([F06 §9] BK-2; OP-09-03, closed in pass 1).
 
 ## 17. Validation, errors and canonical encoding
 
@@ -1087,21 +1134,21 @@ copied into a new segment. [F11 §2.7] adds the checks of the `RtHdr` bodies.
 | V-1 | `magic`; `format` = 1 (a higher value refuses the store with exit 7 naming both versions; 0 is invalid, [F01 §9.1]) |
 | V-2 | `hdr_xxh3` |
 | V-3 | `seg_kind` matches the file's name family, `file_no` (and `ref_id` for `seg-branch`) match the name ([F02 §6]) |
-| V-4 | `total_len` equals the file size (`[OS/map §4]`) |
+| V-4 | `total_len` equals the file size ([OS/map §4]) |
 | V-5 | every reserved field and bit of the header is zero; §2.3's zero fields are zero; `tok_ver` ∈ {0, 1} (0 for `hist` and `blobs`) |
 | V-6 | `table_xxh3` |
 | V-7 | P-1–P-4 of §2.2; every tag is registered for this kind with its §3.1 placement, or is unknown and `derived-optional`; every required section present; `flags` as §3.3 |
 | V-8 | the header fields against the reference that names the file: `HEAD`'s `SegRef` (`upto_lsn`, `blake3_16`, [F04 §4.1]), a `FILES` row (§14.4), a commit's `cs_ref` ([F06 §9]), a ref's `promoted_seg` ([F11 §3.1]) |
 | V-9 | each section's `xxh3`; `seg_digest` |
 | V-10 | each section's container rules (§4, [F11 §2]) and its own rules: sort orders, uniqueness, offset arrays, reserved bytes, canonical forms (bitset containers, pool order) |
-| V-11 | cross-section rules: column lengths equal `n_rows` or the `IDS` length; `IDS` covers every row-scoped and index entry; `NodeHdr` offsets fall inside their pools or are `NONE32`; `body_ref` within `BLOBTAB`; `EDGE_PROPS.edge` < e_out; `BMDIR` and `FPROMO` match the tags present |
+| V-11 | cross-section rules: column lengths equal `n_rows` or the `IDS` length; `IDS` covers every row-scoped and index entry; `NodeHdr` offsets fall inside their pools or are `NONE32`; `body_ref` within `BLOBTAB`; `EDGE_PROPS.edge` < e_out, its `pflags` admitted by the edge's kind ([F08 §10.2]) and `pinned_commit` zero without `has_pin`; `BMDIR` and `FPROMO` match the tags present |
 | V-12 | view-level rules over a whole stack: I-P3 of §7.1, `TOUCH` = `IDS`, main-set continuity (§2.3), ± list preconditions (§4.6) |
 | V-13 | derived content equals a recomputation (`doctor --verify`, I9) |
 
 ### 17.2 Consequences
 
 - A segment that `HEAD` names and that fails an open check makes the process exit 7, naming the file and `moirai doctor
-  --fsck` (texts in [F19]); after a size mismatch the process first re-reads `HEAD` and retries once (`[OS/map §4]`). A
+  --fsck` (texts in [F19]); after a size mismatch the process first re-reads `HEAD` and retries once ([OS/map §4]). A
   `SegRef` mismatch is handled like a missing file ([F04 §4.1]): recovery rebuilds the segment set from durable
   `Checkpoint` records ([AR §4.2], [F16]).
 - A failed full check is reported by `doctor --fsck` with the file and section; `repair --rebuild-from-log` rebuilds every
@@ -1124,7 +1171,7 @@ section-producer registry's byte-identical rebuild ([60 §2.6]) and the format o
 |---|---|---|
 | [60 §2.5] [AR] row "Segments": `SegHdr` with `total_len` and every section of [AR §4.4] incl. `REFS`/`PINS`/`HEADS`/`MARKERS`, `EDGE_PROPS`, `TERMS`/`POST`; the promoted-branch segment and `TOUCH` | complete for the segment header, the tag registry and placement of every section, and every versioned section this chapter owns; the runtime bodies and rows (and `CONFLICTS`, `GLOBIDX`) are [F11]'s; `hist`, `blobs`, `gitmap` are [F10]'s | §2–§16 |
 | [60 §2.5] audit row "Segments" | `seg_kind` `cs`; the `derived-optional` flag; the tags and placement of `MARKERS`/`MARKERS_OLD`, `LEASES`, `ALLOC`/`UIDX`, `ANCHORRES`, `GLOBIDX`, `TREES` (their rows, the marker key, the epoch list and dirty row are [F11]'s); the `hist` bounds are [F10]'s and [F17]'s | §2.1, §3, §14.5, §15.2 |
-| [60 §2.5] audit row "Commit body": the `cs.NNNN` changeset segment kind | the segment's sections for [F06 §9] BK-5, `PREV`, `VIOLATIONS`, values fixed at append; the header fields are [F06]'s | §16.4 |
+| [60 §2.5] audit row "Commit body": the `cs.NNNN` changeset segment kind | the segment's sections for [F06 §9] BK-5, `PREV`, `VIOLATIONS`, `CKIMG`, the absent-to-deleted row, values fixed at append; the header fields are [F06]'s | §16.4 |
 | [60 §2.5] issue-2 row "Store parameters" | the formats the FTS tier-2 threshold and the fold width act on; the values are [F17]'s | §12, §16.2 |
 | [60 §2.5] "Schema as data" row | where a view's schema items live (`SCHEMA`) and the store-local id map (`SCHEMAIDS`); the items are [F08]'s | §8.3, §14.3 |
 | [50] F3 | where `QUERIES` items live in a segment (`SCHEMA`); the item is [F08]'s | §8.3 |
@@ -1140,7 +1187,7 @@ section-producer registry's byte-identical rebuild ([60 §2.6]) and the format o
 | [40] R-8 | complete for `PATHIDX`, `ALIASIDX`, `ANCHORS`, `ANCHOR_UID`; tags, placement, fold windows and `derived-optional` for `FILEOBS`, `PENDING`, `FSINTENT`, `FPRINT`, `JOURNALCUR`, `DIRMAP`, `TREES`, `PREFIXEV`, `GITRENAMES`, `ANCHORRES`, `GLOBIDX` (sections [F11]) | §3, §13, §15 |
 | [40] R-9 | how `FPRINT` reaches the fingerprint blob (through `FILES`); the row is [F11 §12.8]'s, the blob class [F10]'s | §14.4, §15.2 |
 | [40] R-18 | the `FILEOBS` tag, placement and fold window; the row is [F11 §12.5]'s | §15.2 |
-| [80] X-F6 | `total_len` in `SegHdr` and the checks before mapping; the other sealed files are [F10]'s; the mapping policy is `[OS/map]`'s | §2.1, §17 |
+| [80] X-F6 | `total_len` in `SegHdr` and the checks before mapping; the other sealed files are [F10]'s; the mapping policy is [OS/map]'s | §2.1, §17 |
 | [80] X-F8 | the `JOURNALCUR`, `DIRMAP` (`derived-optional`) and `TREES` tags and placement; the layouts are [F11 §12]'s | §3.3, §15.2 |
 | [90 §10.1] `LEASES` runtime rows | the `LEASES` tag and placement; the section is [F11 §6]'s | §14.5 |
 | [90 §10.1] codec | none here: [F10] | — |
@@ -1177,18 +1224,16 @@ The following decisions of other work packages condition this chapter without be
     graph window, and [F11 §2.4] leaves "the bound" to this chapter; one header must carry both bounds. The alternative, a
     separate segment kind for runtime-only segments, was rejected because it would add a kind to `HEAD.segments` and to
     every set rule;
-  - `table_xxh3`, `hdr_xxh3` — `[OS/map §4]` step 1 checks "the header's own magic and checksum" with one read before
+  - `table_xxh3`, `hdr_xxh3` — [OS/map §4] step 1 checks "the header's own magic and checksum" with one read before
     mapping; the design's BLAKE3 digest covers the file and cannot be checked without reading it;
   - the per-entry `count` — [50] F6 requires "the segment header carries each bitset's total"; giving every entry a count
     makes that uniform.
   The design's `blake3 [32]` is `seg_digest`, placed in the header ([F01 §7.1] calls it a "footer"); it covers every byte
   after the section table, and `hdr_xxh3` covers it in turn. Hashing the bytes after the table, not the whole file, lets a
   streaming writer hash sections as it writes them and write the header last.
-- **OP-09-03 (`cs_ref.b3`: a conflict between [F04] and [F06]).** [F04 §4.1] makes `SegRef.blake3_16` the first 16 bytes of
-  the digest the file's header records, which is `seg_digest[0..16]` here. [F06 §9] BK-2 makes `cs_ref.b3` BLAKE3-128 of the
-  whole file `[0, len)`. Both work; the header form lets V-8 compare fields without reading the file and gives every
-  `SegHdr` file one digest. Proposal: [F06] adopts `cs_ref.b3` = `seg_digest[0..16]`; `FILES.digest16` (§14.4) already uses
-  it. Until the review decides, a changeset segment satisfies both: BK-2's digest is checked by `doctor --fsck`.
+- **OP-09-03 (`cs_ref.b3`) — closed in pass 1** (P1-6, S1-19, A1-21). [F06 §9] BK-2 adopted `cs_ref.b3` =
+  `seg_digest[0..16]`, the value `FILES.digest16` (§14.4) and [F04 §4.1]'s `SegRef.blake3_16` also use, so V-8 compares
+  header fields without reading the file and every `SegHdr` file has one digest; `doctor --fsck` recomputes `seg_digest`.
 - **OP-09-04 (which sealed files carry `SegHdr`).** Gap of [PLAN §3.3]; closed in [F10 §2.3]: segments, `cs`, `hist` and
   `blobs` carry it ([AR §4.4] `seg_kind` lists `hist` and `blobs`; [80 §2.5] rule 4 says the same); `gitmap` pages and
   `dict` files have their own headers.
@@ -1224,21 +1269,24 @@ The following decisions of other work packages condition this chapter without be
 - **OP-09-13 (`CONFLICTS` and `GLOBIDX` rows).** [PLAN §3.2] lists `CONFLICTS` under both `09-segments.md` ("F11–F13") and
   `11-runtime-tables.md`. [F11 §10–§11] specifies both sections' rows; this chapter adopts them and keeps only the tag,
   placement and fold. Both are versioned, not runtime: they compose along a view's layers ("row" and "index", §4.7), which
-  [F11 §10] states the same way. [F11]'s `RtHdr.form` for a versioned section should be stated there (for example
-  `snapshot` in a base and `layer` in an upper segment).
-- **OP-09-14 (the fingerprint path).** [F11 §12.8] keys `FPRINT` by `oid` and stores the fingerprint blob's content
-  address only. A reader therefore finds the blob by address among the `blobs` files `FILES` lists ([F10 §5.5]): a binary
-  search of each file's `BLOBIDX`, a handful of files between folds (CL3). Alternative for the review: add the `blobs`
-  file number to the `FPRINT` row (4 bytes) for a direct lookup.
+  [F11 §10] states the same way. [F11 §2.4] now states their `RtHdr.form`: `snapshot` in a base, `layer` in a delta,
+  promoted-branch or changeset segment (pass 1, round 2). Closed.
+- **OP-09-14 (the fingerprint path) — adopted in pass 1** (P1-22). [F11 §12.8]'s `FPRINT` row carries the `blobs` file
+  number beside the blob's content address (4 bytes more), so a fingerprint lookup opens one file instead of searching
+  every `blobs` file `FILES` lists; whatever replaces a `blobs` file rewrites the rows that name it ([F11 §12.8]).
 - **OP-09-15 (`prev` of a bulk commit).** [F06 §7.3] defines `prev` relative to the record's own lsn and [F06 §9] BK-5
   requires "per touched row, its `prev`" in the changeset segment. The segment is sealed before that lsn exists, so `PREV`
-  stores the absolute lsn of the previous commit. [F06] should cite `PREV` in BK-5. With BK-5's "no before-images", history,
-  merge folds and sync-window expansion read a bulk commit as a state delta, and the design's "ops streamed into `cs`"
-  ([AR §4.3]) is read as "their effects"; no op list is stored besides `VIOLATIONS`.
+  stores the absolute lsn of the previous commit; it stays right under [F16] P-34's node-granular re-validation, which
+  [F06 §7.3] and §16.4 cite (pass 1, S1-20). With BK-5's "no before-images", history, merge folds and sync-window
+  expansion read a bulk commit as a state delta, and the design's "ops streamed into `cs`" ([AR §4.3]) is read as "their
+  effects"; no op list is stored besides `VIOLATIONS` (and [F10 §8] says so, pass 1, A1-22).
 - **OP-09-16 (values fixed at append in a changeset segment).** `rev_seq`, `updated_tx`, `created_tx` of created rows and
   `last_op_lsn` cannot be known when the file is sealed. The sentinels (0, and 2^64 − 1 for `last_op_lsn`) require that
   commit `seq` starts at 1 ([F06], [F08]); `lsn` 2^64 − 1 is never a position.
-- **OP-09-17 (final ids in a changeset segment; needs a protocol decision).** A bulk commit's file is sealed in phase 1,
+- **OP-09-17 (final ids in a changeset segment) — closed in pass 1** (P1-3, S1-11, A1-12): [F05 §9.27] (kind 27
+  `Reserve`) and [F16] P-84 adopted the proposal below, with schema ids and an `hlc` for releasing the files of a
+  reservation whose commit never lands; §16.4 cites them and [F11 §9.1] states the `ALLOC` rows of reserved ids. The
+  original text: A bulk commit's file is sealed in phase 1,
   before [AR §4.5] step 8 allocates `#N`s and before new symbols, `aN`s and schema ids are allocated under the writer byte.
   The file must still hold final ids, because every reference inside it (CSR, field blocks, `CREATOR`, `ANCHORS`) uses them.
   Proposal for [F16] and [F05] (WP-16, WP-11): the bulk producer first appends, under the writer byte, a reservation group
@@ -1246,8 +1294,8 @@ The following decisions of other work packages condition this chapter without be
   streams the file with those ids; the phase-2 re-validation checks the reserved uids and symbols as read keys. Ids of a
   reservation whose commit never lands are skipped, never reused ([F11 §9.1] already treats them as holes). The alternative —
   provisional ids translated at append — needs a reserved id range in every `u32` reference and was rejected.
-- **OP-09-18 (marker field set; gap of [PLAN §3.3]).** Closed by [F11 §7] (the 64-byte row, the key and the active/old
-  split); this chapter adds nothing.
+- **OP-09-18 (marker field set; gap of [PLAN §3.3]).** Closed by [F11 §7] (the 72-byte row with its holder list, the key
+  and the active/old split); this chapter adds nothing.
 - **OP-09-19 (the `index` values of `FPROMO`).** [50] F5 creates `FCOL` and `FIDX` "for fields with `index ≠ none`". This
   chapter follows [F08 §8.4.3]: `column` gives an `FCOL`; `bitmap` gives an `FIDX` and, unless the type is `set`, an `FCOL`.
   A `set` field with `index` = `column` uses `FCOL`'s set form.
@@ -1266,8 +1314,8 @@ The following decisions of other work packages condition this chapter without be
   chapter. This chapter adopts their choices where they own the bytes: [F11]'s runtime section body, forms and proposed tags
   (`0x0201`–`0x021A`, so the `hist` and `blobs` tags sit at `0x0300`–`0x0311`), its `FileFamily` values for `seg_kind`
   ([F11] open point 11), its `CONFLICTS`, `GLOBIDX` and `FPRINT` rows and its `derived-optional` proposal; [F08]'s `NONE32`
-  offsets, `kind` = 0 absent rows, edge ids and `index` values; [F04]'s `SegRef` digest rule; [F06]'s BK-5 list. The one
-  open disagreement is OP-09-03.
+  offsets, `kind` = 0 absent rows, edge ids and `index` values; [F04]'s `SegRef` digest rule; [F06]'s BK-5 list. OP-09-03,
+  the one disagreement, closed in pass 1.
 - **OP-09-24 (the reverse index of `parent`).** [F08 §10.1] holds `parent` in `NodeHdr.parent` and leaves its reverse
   direction to this chapter. The children of p are the in-list entries of kind `parent` in p's row, so `subtree`,
   `children_total` checks and I4's forest test read one CSR slice; the out-lists carry no `parent` entry, so the forward
@@ -1286,3 +1334,12 @@ The following decisions of other work packages condition this chapter without be
   sets and `FIDX` agree and a writer needs no string comparison. `ValueJoin` and postings-ordered grouping need only a
   consistent order; `ORDER BY` in `sort_rank` or string order re-sorts the directory. An earlier draft of this chapter used
   string and `sort_rank` order; [F08] (drafted in parallel) settled the stored order first.
+- **OP-09-28 (pass 1 additions).** `EDGE_PROPS` widened to 40 bytes with `pflags` and the full pin (S1-2, A1-3, P1-1);
+  `CKIMG` in changeset segments for a bulk import-checkpoint (S1-23, A1-10); the absent-to-deleted row of a bulk
+  `CreateDeleted` (S1-6); schema-key conflict rows folding with `SCHEMA` (S1-7); the tags `0x020A`–`0x020C` of
+  [F11 §13]'s session and backup tables (A1-23). The review should re-check §7.2, §8.2 and §16.4 against [F08 §10.2],
+  [F11 §10] and [F06 §9] BK-5.
+- **OP-09-29 (pass 1, round 2).** `FILES.flags` bit 0 `reserved` keeps the `cs` and `blobs` numbers of a folded
+  `Reserve` record ([F05 §9.27]) named until its bulk `Commit` folds or `gc` releases them, which [F16] P-77 condition 2
+  and P-84 need once the record leaves the tail (§14.4; P1-3); a promoted `commitref` set stores each `id16` once (§10.2);
+  §16.4 cites [F05 §9.27] and [F16] P-84 for the ids of a changeset segment (OP-09-17 closed).

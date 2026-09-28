@@ -34,8 +34,9 @@ data, so Windows' mandatory byte-range locking never blocks a read of `LOCK`'s r
 | `Maintenance` | 2^62 + 2 | `0x4000_0000_0000_0002` | maintenance | checkpoint, promotion, rollup, GC | try; release; probe (never waited for) | 2 |
 | `Flush` | 2^62 + 4 | `0x4000_0000_0000_0004` | flush | the process that flushes the log and publishes `HEAD` for everyone; boot-change recovery | try; **bounded wait**; release; probe | 3 |
 | `Writer` | 2^62 + 0 | `0x4000_0000_0000_0000` | writer (innermost) | the appender (scan, re-validate, append), the flush holder (scan and re-write the pending range; publish), every publisher | try; **bounded wait**; release; probe | 4 |
-| `Quiet` | 2^62 + 3 | `0x4000_0000_0000_0003` | quiet-advisory ([AR §4.1]) | as [F03] and [F16] define | probe; try; release | — (never waited) |
-| reserved | 2^62 + 5 … 2^62 + 63 | `0x…0005` – `0x…003F` | reserved | never locked by moirai | none; 2^62 + 63 is probed by `foreign_lock_check` (§11) | — |
+| `Quiet(0)` | 2^62 + 3 | `0x4000_0000_0000_0003` | quiet byte 0, the design's quiet-advisory byte ([AR §4.1]) | a requester of quiet mode, for its run ([F03 §3.1]) | probe; try; release | — (never waited) |
+| `Quiet(k)`, 1 ≤ k ≤ 8 | 2^62 + 4 + k | `0x…0005` – `0x…000C` | quiet bytes 1–8 (pass 1, P1-10) | as `Quiet(0)` | probe; try; release | — (never waited) |
+| reserved | 2^62 + 13 … 2^62 + 63 | `0x…000D` – `0x…003F` | reserved | never locked by moirai | none; 2^62 + 63 is probed by `foreign_lock_check` (§11) | — |
 
 ```rust
 pub const ROLE_BASE: u64 = 1 << 62;                 // 0x4000_0000_0000_0000
@@ -46,8 +47,12 @@ pub const FOREIGN_CHECK_BYTE: u64 = ROLE_BASE + 63; // reserved; never locked by
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
 pub struct SlotIndex(u8);                           // 0..=255; `SlotIndex::new(u16) -> Option<SlotIndex>`
 
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct QuietIndex(u8);                          // 0..=8; offset ROLE_BASE + 3 for 0, ROLE_BASE + 4 + k for k ≥ 1
+pub const N_QUIET: u8 = 9;
+
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
-pub enum LockByte { Writer, Leader, Maintenance, Quiet, Flush, Slot(SlotIndex) }
+pub enum LockByte { Writer, Leader, Maintenance, Quiet(QuietIndex), Flush, Slot(SlotIndex) }
 
 impl LockByte {
     /// Offset of the byte in `LOCK` (table above).
@@ -190,8 +195,8 @@ Programming errors — reentrant acquisition (item 3), a wait on a byte that is 
 (item 4), an acquisition through a `Probe`-mode client, releasing a grant through another client — panic in every build.
 A product process aborts on panic (exit 1, "internal").
 
-Callers choose `within_ms`: `lock.writer-wait-ms` for the writer byte (default `HOLE(lock-writer-wait-ms)`, registered
-as 2,000) and `lock.flush-wait-ms` for the flush byte (default `HOLE(lock-flush-wait-ms)`, registered as 2,000)
+Callers choose `within_ms`: `lock.writer-wait-ms` for the writer byte (default `HOLE(F17-lock-writer)`, registered
+as 2,000) and `lock.flush-wait-ms` for the flush byte (default `HOLE(F17-lock-flush)`, registered as 2,000)
 ([AR §13], [CFG]); on hook and MCP-server paths `min(key, remaining cap)` (A1P-06). A `Busy` from the writer byte is exit 7
 naming the holder from `WriterDiag` ([F03]) and its anchor's liveness; a `Busy` from the flush byte is exit 7 with outcome
 `pending` ([80 §2.4.3] phase 2b step 2). Texts are [F19].
@@ -361,7 +366,7 @@ only: moirai supports 64-bit targets only, which avoids the 32-bit `off_t` probl
 
 `moirai-vfs-sim` implements the kernel side as a per-store map `byte → (simulated process, handle)` with FIFO or random
 wake-up (both are allowed by item 10), the release delay after a simulated process's death drawn from measurement 12's
-distribution `HOLE(lock-release-delay)` plus a heavy tail beyond the 2 s bound (fault-model item (8), [F15]), and the
+distribution `HOLE(F15-lock-release)` plus a heavy tail beyond the 2 s bound (fault-model item (8), [F15]), and the
 same step protocol as §7.1 or
 §7.2 according to the seed's `WaitMode`.
 
@@ -386,7 +391,10 @@ same step protocol as §7.1 or
    ([AR §6.2]).
 4. Readers of slot records accept a record only if its checksum is valid, and re-read it after probing (seqlock style,
    X-F1); the procedure is [F03]'s.
-5. Cost: 2–9 µs on Windows [M, X18 §5]; one `fcntl` on Unix (unmeasured).
+5. Cost: 2–9 µs on Windows [M, X18 §5]; one `fcntl` on Unix (unmeasured). A maintenance decision probes the nine quiet
+   bytes ([F03 §3.1] rule 2), stopping at the first `Held` or `Unknown`: at most nine probes, ≈ 20–80 µs on Windows.
+6. Because of the Windows side effect above, a `Busy` from `try_acquire` on a quiet byte never proves that a requester
+   holds it; [F03 §3.1] rule 4 therefore gives each requester a quiet byte of its own (pass 1, P1-10).
 
 ---
 
@@ -470,13 +478,29 @@ moirai never calls `flock` or `File::lock` on a store file (GT20 (d) in product 
 
 ---
 
+## Coverage
+
+The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
+
+| Item | Part covered here | Section |
+|---|---|---|
+| `60-AR-LOCK` (`LOCK` layout v1, [80] X-F1) | the lock-byte map as the lock layer uses it; the `LOCK` bytes are [F03]'s | §2 |
+| `60-I2-FM(8)` (fault-model item (8)) | the release lag after death; sharing violations and delete-pending are [OS/fs §6.3, §6.4]'s | §7.3 |
+| `60-I2-PD(j)` (protocol decision (j)) | the contract, items 1–10; user-space ownership and the grant table; the lock order | §3, §5, §6 |
+| `60-AU-LOCK` (audit row "`LOCK`") | lock bytes beyond EOF; the slot records are [F03 §8]'s | §2 |
+| `60-AU-CrossPlatform` (the "Cross-platform" summary row) | X-F4, whose parts are the row `X-F4` | — |
+| `X-F1` ([80] X-F1) | the lock-byte map | §2 |
+| `X-F3` ([80] X-F3) | the flush byte in the lock order; group commit is [F16]'s and [F05]'s | §6 |
+| `X-F4` ([80] X-F4) | the contract items 1–10; user-space ownership, the grant table, invariants I-L1–I-L10; the lock order; per-OS acquisition, bounded waits, release lag; probes `Held`/`Free`/`Unknown`; `LOCK` identity and handles; foreign locks (item 8). The byte map's ranks are [F03 §3]'s | §3, §5, §6, §7, §8, §9, §11 |
+| `90-Anchor` ([90 §10.1] "Holder anchor") | slots at the lock level: try-only, lazy, own handle; the anchor bytes are [F03]'s, the liveness decision [OS/proc §6]'s | §10 |
+
 ## Holes
 
 | Id | What | Decided by | Candidates | Constraint the value must meet |
 |---|---|---|---|---|
-| `lock-writer-wait-ms` (referenced; the key `lock.writer-wait-ms` is registered in [CFG], which owns the hole) | default bound of the writer-byte wait | measurements 2 and 12 (WP-52) → WP-81a | 2,000 ms (the registered default, [AR §13]) | > the measured p99 writer-byte wait of the 16-writer burst plus the p99 release lag after `TerminateProcess`, loaded; the 16-writer last-acknowledgement gate (p99 ≤ 50 ms) is met far below it |
-| `lock-flush-wait-ms` (referenced; key `lock.flush-wait-ms`, [CFG]) | default bound of the flush-byte wait | measurement 2 (WP-52) → WP-81a | 2,000 ms ([AR §13], [80] X-F11) | > the measured p99 flush-byte hand-off latency under the 16-writer burst, loaded; a timeout is exit 7 with outcome `pending` |
-| `lock-release-delay` (referenced; the simulator's injection parameters, [F15]) | distribution of lock release after `TerminateProcess` for writer, flush and slot bytes | measurement 12 (WP-52) | measured p50/p99/max plus a heavy tail beyond 2 s | covers the measured maximum; the tail exceeds the wait bounds above so GT1/GT3 exercise the timeout paths |
+| `F17-lock-writer` (referenced; the hole is [F17 §3] P26's, and the key `lock.writer-wait-ms` is registered in [CFG]) | default bound of the writer-byte wait | measurements 2 and 12 (WP-52) → WP-81a | 2,000 ms (the registered default, [AR §13]) | > the measured p99 writer-byte wait of the 16-writer burst plus the p99 release lag after `TerminateProcess`, loaded; the 16-writer last-acknowledgement gate (p99 ≤ 50 ms) is met far below it |
+| `F17-lock-flush` (referenced; the hole is [F17 §3] P27's, key `lock.flush-wait-ms`, [CFG]) | default bound of the flush-byte wait | measurement 2 (WP-52) → WP-81a | 2,000 ms ([AR §13], [80] X-F11) | > the measured p99 flush-byte hand-off latency under the 16-writer burst, loaded; a timeout is exit 7 with outcome `pending` |
+| `F15-lock-release` (referenced; the simulator's injection parameters, [F15 §3.8] FM-8.1) | distribution of lock release after `TerminateProcess` for writer, flush and slot bytes | measurement 12 (WP-52) | measured p50/p99/max plus a heavy tail beyond 2 s | covers the measured maximum; the tail exceeds the wait bounds above so GT1/GT3 exercise the timeout paths |
 
 ## Open points for the review
 
@@ -492,3 +516,4 @@ moirai never calls `flock` or `File::lock` on a store file (GT20 (d) in product 
 | 8 | [80 §2.2.1] item 8 names only the Unix `flock` probe | `foreign_lock_check` per OS (§11): the reserved byte 2^62 + 63 on Windows and macOS (a `flock` probe on macOS would collide with moirai's own OFD locks), both checks on Linux | R-REV-P |
 | 9 | A Windows `LockFileEx` try with `FAIL_IMMEDIATELY` on an overlapped handle may complete as pending | settled with `GetOverlappedResult(TRUE)` (§7.1) [I]; WP-33 tests both completions | WP-33 |
 | 10 | Which bytes `restore` holds and in which order | try `Maintenance`, then wait `Writer` (§6); [F16] owns the sequence | WP-16 |
+| 11 | Pass 1, P1-10: one quiet-advisory byte cannot tell a requester whether quiet mode will outlast its run | nine quiet bytes (§2: `Quiet(0)` at 2^62 + 3, `Quiet(1)`–`Quiet(8)` at 2^62 + 5 … + 12), one per requester; the decider probes all nine (§8 item 5); [F03 §3.1] owns the rule. Code follow-up for WP-30: `LockByte::Quiet` takes a `QuietIndex` | WP-30 |

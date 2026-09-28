@@ -117,8 +117,9 @@ uid's `#N`.
   `captured` and `pred` never change (a repin changes selectors only). Every uid is therefore recomputable by
   `doctor --verify` and by image import.
 - A node or anchor imported with a uid that does not match its derivation is accepted as **foreign**, flagged in
-  `image doctor`, and treated as random from then on ([40 §2.3], [40 §5.7]). For such a node I-F2 requires only that it
-  carries the foreign mark ([F08] and [F14] encode it).
+  `image doctor`, and treated as random from then on ([40 §2.3], [40 §5.7]). For such a node I-F2 requires nothing more:
+  no chapter encodes a foreign mark, because the mismatch is a property of the stored inputs that every reader and importer
+  recomputes ([F08 §11.5], [F14 §9.3]; pass 1, A1-44).
 - `#N` reuse goes through the store-wide `UIDX` probe under the writer byte ([F11], [AR §4.5] step 8). The anchor analogue
   is [40 §2.7]'s: a merge, sync or import that lands an anchor uid the store already knows reuses its `aN` (A1P-12).
 
@@ -287,8 +288,9 @@ rules.
 
 [F13 §3.9] states each I-F row with its enforcement point, model function and gates. Its statements were written before this
 chapter and differ from §2.1–§2.14 in four places: I-F2 omits the anchor's `pred` input, I-F7 omits `links fix --split`, I-F8
-omits the root clause of review S-19, and I-F14 omits the history-verb doors of review S-14. Proposal for WP-16 (open
-point 21): [F13 §3.9] cites this section for each statement and keeps only its own columns.
+omits the root clause of review S-19, and I-F14 omits the history-verb doors of review S-14. §2.1–§2.14 are the statements
+of record; [F13 §3.9] cites them for each statement, lists the four differences and keeps only its own columns (open
+point 21; pass 1, A1-44).
 
 ## 3. R-15: tree bindings
 
@@ -324,8 +326,11 @@ Bits 1–7 are reserved-zero ([F01 §10]).
 **Rules.**
 1. **Short form of a git ref.** `expected_ref` names a branch as the bytes after `refs/heads/` of its full ref name, as git
    spells it (`u/l5np`, not `refs/heads/u/l5np`). A value given with the `refs/heads/` prefix is stored without it. A branch
-   name that is not valid UTF-8 cannot be recorded, and the verb refuses it (exit 2, [F19]). [F06] is asked to use the same
-   form for the commit header's `git.branch`, which shares the class (open point 4).
+   name that is not valid UTF-8 cannot be recorded, and the verb refuses it (exit 2, [F19]). The short form is the **one
+   spelling** of a git branch in every stored and hashed form: the commit header's `git.branch` ([F06 §4.4.6]) and canonical
+   item 5 ([F07 §3.6]), which share the class, the `HEADS` row and the `ClientHead` record (§3.7), and the comparison of
+   §3.6 (pass 1, S1-10; open point 4). P1-2 and A1-8 preferred the full name; the short form is kept because item 5
+   already hashes it and a second spelling would intern two symbols for one branch.
 2. **No git line without designation.** When `designated` = 0, `base_algo`, `expected_ref` and `base` are zero.
 3. **Validity.** A `BindingExt` is invalid when a reserved bit or byte is non-zero, when `base_algo` is not 0, 1 or 2, when
    `base_algo` = 0 and `base` is not all zero, when `base_algo` = 1 and `digest_hi` is not zero, or when rule 2 is broken. An
@@ -333,9 +338,13 @@ Bits 1–7 are reserved-zero ([F01 §10]).
    the enclosing record is [F05]'s.
 4. **Byte order.** `expected_ref` is little-endian ([F01 §4.1]); `base` is a byte string.
 
-*(Informative)* The binding row of [40 §2.6] is ≈ 60 B: the 16-byte key, the 4-byte `ref_id` and this 40-byte extension.
-A designated binding of `lane/l5np` expecting `u/l5np` (symbol id 7) at the SHA-1 base `7c1e0a4d…` begins
-`01 01 00 00 07 00 00 00 7c 1e 0a 4d …`, with 12 zero bytes at offsets 28–39.
+*(Informative)* The binding row of [40 §2.6] is ≈ 60 B: the 16-byte key, the 4-byte `ref_id` and this 40-byte extension;
+[F11 §5]'s `HEADS` row, which also holds the directory's `root_id`, the detached-head fields and the key text, is 161 B
+with this extension at offsets 105–144. A designated binding of `lane/l5np` expecting `u/l5np` (symbol id 7) at the SHA-1
+base `7c1e0a4d…` begins `01 01 00 00 07 00 00 00 7c 1e 0a 4d …`, with 12 zero bytes at offsets 28–39 (row offsets
+133–144); the same 40 bytes sit at the same place in the `HEADS` row image its `ClientHead` record carries
+([F05 §9.3]). This is the byte
+fixture of `COVERAGE.md` row R-15 (pass 1, P1-2; R-FIX builds the files).
 
 ### 3.3 Designation
 
@@ -415,13 +424,17 @@ the orchestrator and owner.
 
 ### 3.7 Where `BindingExt` is carried
 
-- **[F11] `HEADS`.** Every binding row carries exactly one `BindingExt`. A row that is not a binding carries none, or, if
-  [F11] makes the row fixed-size, a zero one, which is valid and non-designated. The lookup of a binding by root id first
-  ([OS/path §4.4]) needs the root `OsFileId` of the bound directory; [F11] either stores it in the binding row or requires the
-  binding verbs to register the tree in `TREES` durably (open point 5).
-- **[F05].** The durable record that creates, changes or removes a binding (the `ClientHead` record of [AR §4.3], or a
-  record kind [F05] adds for bindings) carries the row's full new value, `BindingExt` included, so that replay rebuilds
-  `HEADS` exactly. A `--replace` writes both affected rows in one durable group.
+This section owns the bytes of `BindingExt`; the other chapters embed it **verbatim**, 40 bytes at a fixed place, and hold
+no field of their own for the designation, the expected ref or the base (pass 1, S1-10, A1-8, P1-2):
+
+- **[F11] `HEADS`.** Every binding row carries exactly one `BindingExt` (at row offset 105, [F11 §5]), in place of any
+  separate flags, base-commit or git-ref field. A row that is not a binding carries a zero one, which is valid and
+  non-designated. The lookup of a binding by root id first ([OS/path §4.4]) uses the bound directory's root `OsFileId`,
+  which the row stores as `root_id` ([F11 §5]; open point 5).
+- **[F05] `ClientHead`.** The durable record that creates, changes or removes a binding carries the row's full new value
+  as the image of the `HEADS` row it folds into ([F05 §9.3], [F11 §2.9]: [F11] owns the row, [F05] frames it), so
+  `BindingExt` travels as the same 40 bytes and replay rebuilds `HEADS` exactly. A `--replace` writes both affected rows
+  in one durable group.
 - **[F12]/[AR §5a.4].** The client-key order is unchanged: a binding still resolves a command's branch by its longest bound
   prefix, designated or not.
 
@@ -574,7 +587,7 @@ the single byte `|` (Markdown escaping), so text 25 is `merge conflict: <path> |
 | 41 | `never-candidate` | `missing` | `moved to a temporary or backup name` | `moved to a temporary or backup name` |
 | 42 | `cloud-target` | `missing` | `moved to a cloud-only file` | `moved to a cloud-only file` |
 | 43 | `deleted-in-git` | `missing` | `deleted in git` | `deleted in git <g7>` |
-| 44 | `not-representable` | `missing` | `not representable on this OS` | `not representable on this OS` |
+| 44 | `not-representable` | `missing` | `not representable on this OS` | `not representable on this OS` (decided by `representable_here` ([OS/path §8.1]) before any OS call on the path, [F20]'s cascade testing it first: a Windows segment with `:`, or ending in `.` or a space, never reaches the OS; `--allow-nonportable` never overrides it; pass 1, P1-15) |
 | 45 | `unrepresentable` | `missing` | `unrepresentable path` | `unrepresentable path` |
 | 46 | `nothing-written` | `missing` | — | `nothing written` |
 | 47 | `behind` | `absent-in-tree` | `behind` | `behind` |
@@ -664,6 +677,10 @@ which are not link details:
 a31  stale-anchor          crates/engine/src/log.rs::Log/append  edited 0.86 | was: "pub fn append(&mut se..." | verify a31
 ```
 
+The anchor `a31` is of kind `symbol`. While [F20 §6.1]'s interim scanner rule holds, a store holds such an anchor only by
+import: no capture makes a `symbol` or `heading` anchor ([F08 §10.3.1]), as [F14 §17.2] says of its own example (pass 1,
+closure round 1, editorial residue).
+
 ### 4.8 Header strings
 
 1. **No tree.** When the tree resolved for a file-bearing result is not eligible ([40 §5.1]), the header's `files` field is
@@ -707,9 +724,28 @@ The only strings that differ by OS are the two texts of detail 40 (`trash`), whi
 
 Runtime rows that store a state, a detail or a proposal class ([F11]: `FILEOBS.state` with its detail, the proposals'
 evidence, `ANCHORRES.state`) use the `u8` codes of §4.2 (file states 1–6 and 8–12; the link-only codes 7 and 13 are never
-stored), §4.3 (anchor states 1–6; 7 is never stored), §4.6 (details) and §5.2 (evidence tokens). Code 0 is invalid in every
+stored), §4.3 (anchor states 1–5; 6 `unverified` and 7 `unresolved` are never stored: an undecided anchor leaves no
+`ANCHORRES` row, since its reason is transient), §4.6 (details) and §5.2 (evidence tokens). Code 0 is invalid in every
 such field; a row that has no detail has no detail field or marks it absent as [F11] specifies. Codes are never reused for
 another meaning ([F01 §5.4]).
+
+**One owner per code** (pass 1, S1-9, A1-7, P1-2). This section and §5.2 own the codes; [F11]'s rows and [F05]'s records
+cite them verbatim and define no numbering of their own (`replaced` is 6 and `missing` 8 in every chapter). Which of
+the codes a row records is the row's owner's: [F11 §12.5] records only the file states a settle decides (1–4, 6, 8
+and 12) and computes 5, 9, 10 and 11 when a link is rendered.
+A **proposal** stored in a runtime row ([F11 §12.5] `FILEOBS` proposals and the [F05] records that fold into them) is
+the tuple below. A `PENDING` row ([F11 §12.6]) stores the same `class` and an `evidence` code, which may also be an
+exact token (codes 1–12), since hooks record exact evidence there ([F20 §5.6]):
+
+| part | encoding | meaning |
+|---|---|---|
+| `class` | `u8` | the evidence class of [F20 §1.5]: 1 `exact`, 2 `strong`, 3 `copy`, 4 `weak` (strongest first; `none` is never stored) |
+| `evidence` | `u8` | a proposal-class token of §5.2, codes 13–26 |
+| `path` | [F08 §5.2] `path` | the candidate path with its root |
+| `score` | [F11]'s encoding | the exact rational score of [F20 §1.2]; §5.3 renders it with two decimals |
+
+[F11] owns the row's bytes and [F05] frames them; this chapter owns the two codes. The `class` numbering follows [F20 §1.5]'s
+order, which names the classes without numbers.
 
 ## 5. R-17: the `relink` provenance vocabulary
 
@@ -741,7 +777,7 @@ score        = "0." 2DIGIT / "1.00"
 
 - A value is ASCII and at most 27 bytes (`merge-observation/oid+ctime`, `confirmed/edited+moved/0.81`).
 - A score is present exactly when the evidence token is scored.
-- The value is stored as a `text` value ([F06]; [F01 §8.2] class `text`), hashed as its bytes ([F07]) and written in the image
+- The value is stored as a `text` or `sym` value ([F08 §5.1]; [F01 §8.2] class `text`), hashed as its bytes ([F07]) and written in the image
   as `field relink: <value>` ([F14], [40 §5.7]).
 
 ### 5.2 Evidence tokens
@@ -841,10 +877,10 @@ is confirmed ([40 §3.7], [40 §6.2]). `owner/*` and `confirmed/*` values are de
 
 | R-row | Reservation ([40 §2.11], authoritative) | Specified in |
 |---|---|---|
-| R-1 | value types `path`, `oid`, `pathmove` | [F06] (value encodings, [PLAN §3.2] WP-12); [F07] (canonical encoding, the root by name, review S-19); [F14] (text forms); the primitives: [F01 §6.2] (`vstr`), [F01 §7.5] (`algo`), [F01 §8.2] (the `root` class, `u16`) |
+| R-1 | value types `path`, `oid`, `pathmove` | [F08 §5] (value encodings; pass 1, P1-1); [F06 §5.5] (`pathmove.hlc` in commits); [F07] (canonical encoding, the root by name, review S-19); [F14] (text forms); the primitives: [F01 §6.2] (`vstr`), [F01 §7.5] (`algo`), [F01 §8.2] (the `root` class, `u16`) |
 | R-2 | the `artifact` field set, statuses `planned`/`removed`, merge classes `observation` and `identity`, `area` fields `root` and `path_moves` | [F08]; merge semantics [RULES/link-merge-rules], [F12] |
 | R-3 | `uid_derivation`; the length-prefixed derivations; predecessor order; the dead-uid rule; the merge re-key with edge re-pointing | [F08] (column, derivations, predecessor, dead uids); [F12] and [RULES/link-merge-rules] (re-key); [F01 §6.3] (`lp()`) |
-| R-4 | edge kind `at`; the 128-bit discriminator; the anchor record with `captured` and `pred`; `SetEdgeProps`; the unhashed `aN` | [F06] (ops with `disc`, the anchor record as props, `aN`); [F08] (the `at` edge kind); [F07] (the item-10 edge key) |
+| R-4 | edge kind `at`; the 128-bit discriminator; the anchor record with `captured` and `pred`; `SetEdgeProps`; the unhashed `aN` | [F06] (ops with `disc` and `aN`); [F08] (the `at` edge kind, the property block §10.2 and the anchor record §10.3); [F07] (the item-10 edge key) |
 | R-5 | the root node | [F08] |
 | R-6 | `HEAD.next_anchor` | [F04]; its recovery from the log [F05], [F16] |
 | R-7 | record kinds `FsIntent`, `FsIntentDone`, `FsIntentAborted`, `FileObs`, `Pending`, `FPrint`, `JournalCursor`, `DirMap`, `TreeReg`, `PrefixEv`, `GitFacts`, `AnchorRes` | [F05] |
@@ -857,7 +893,7 @@ is confirmed ([40 §3.7], [40 §6.2]). `owner/*` and `confirmed/*` values are de
 | R-14 | the resolver-version constant table | [F20] |
 | R-15 | the binding-row extension; I-F12 | this chapter §3; the row [F11], the record [F05] |
 | R-16 | the frozen state, detail and header strings | this chapter §4; rendering [F19], [LQ/envelope §5.13] |
-| R-17 | the `relink` vocabulary | this chapter §5; its encoding [F06], hashing [F07], image [F14] |
+| R-17 | the `relink` vocabulary | this chapter §5; its encoding [F08 §5], hashing [F07], image [F14] |
 | R-18 | the `FILEOBS` row layout | [F11]; `OsFileId`, `FsTime`, `FileAttrs` [OS/project]; the meaning of the compared fields [F20 §5.2–§5.4] |
 
 ## Coverage
@@ -889,6 +925,8 @@ are fixed here, and the thresholds they mention are [F20]'s holes.
    layouts (and [F20] the anchor record) in [F08]; [PLAN §3.2] WP-12 puts "the closed value set including R-1" in [F06], and
    this chapter's index follows [PLAN]. Proposal: [F06] owns the value encodings and the anchor record as edge props, [F08]
    the schema, kinds and derivations; [F01] and [F20] correct their citations at pass 1. Both chapters are R-SPEC-F's.
+   **Pass 1 (P1-1, S1-1, S1-3): decided the other way.** [F08 §5] owns every value's bytes and [F08 §10.3] the anchor
+   record; [F06] cites them. §6's index is corrected; [F01] and [F20]'s citations were already right.
 3. **R-15 layout** (§3.2). [40 §2.6] gives the fields but no bytes. Resolution: 40 bytes — a flag byte, the `algo` byte, 2
    reserved bytes, the expected ref as a `git-branch` symbol (`u32`, [F01 §8.2]) and the base in [F01 §7.5]'s 32-byte slot —
    which gives [40 §2.6]'s ≈ 60 B per binding with the key and `ref_id`. A symbol keeps the row fixed-size; the ref name is
@@ -899,7 +937,8 @@ are fixed here, and the thresholds they mention are [F20]'s holes.
 5. **For WP-13: lookup of a binding by root id** (§3.7). [OS/path §4.4] looks bindings up by the root `OsFileId` first, but
    [40 §2.6]'s binding row has no id. [F11] either adds the 57-byte root `OsFileId` to the binding row or requires the binding
    verbs to write the tree's `TREES` registration durably; this chapter needs one of the two for I-F12's "two spellings, one
-   tree".
+   tree". **Closed** (pass 1, round 1): [F11 §5] stores the 57-byte `root_id` in every directory row, and its rules refuse a
+   second binding of the same object.
 6. **Nothing but a binding verb changes `expected_ref` and `base`** (§3.5). [AR §5c]'s `post-checkout` "binding refresh" is
    read as refreshing displayed provenance only; a hook that followed `git switch` would recreate [41 M2]. The review should
    confirm the reading and [AR §5c] should say so at WP-81a.
@@ -941,11 +980,8 @@ are fixed here, and the thresholds they mention are [F20]'s holes.
 16. **Absent `relink`** (§5.4). [40 §2.2] does not say what a newly registered node carries. Resolution: absent until the first
     re-bind; the empty string is invalid. [F08] marks `relink` optional; [F14] omits the line when absent.
 17. **Review A-m1: marker lengths** (§4.7 rule 5). The `was:` quote is cut to 24 bytes with `...`, so the stale-anchor detail
-    is ≤ 31 bytes beyond its sub-reason. The markers themselves are [F19]'s ([RULES/pack-classes] RN-008). Proposal for [F19]:
-    the `pending` marker drops the ref and prints `[pending: not in this tree yet | verify #N]`, the diverged marker
-    `[absent-in-tree (diverged) | verify #N]`, and the accepted-guess marker `[accepted guess <c8> | confirm #N]` with the
-    command in the legend; with these, every marker fits ≤ 50 B except a long path in `path reused; original at <path>`, which
-    [F19] cuts from the left as the header cuts labels.
+    is ≤ 31 bytes beyond its sub-reason. The markers themselves are [F19]'s ([RULES/pack-classes] RN-008). **Pass 1 (A1-44,
+    A1-29): closed.** [F19 §4.6] owns the marker shapes, every one ≤ 50 B; this chapter's earlier proposal is superseded.
 18. **Ages** (§1.3). [AR §7.1]'s example `since 3 min` becomes `since 3m`, the unit form [LQ/envelope §3.2] already freezes
     for the dirty row's age, so one age form exists.
 19. **One qualified spelling** (§4.7 rule 3): `<state> (<label>)` with a space. [40 §3.8]'s and [AR §7.1]'s
@@ -954,7 +990,8 @@ are fixed here, and the thresholds they mention are [F20]'s holes.
     reader case through its slot values (`detached <g7>`, `no git`, `tree <label>`, `a bound tree`, `a git line`); without
     them a second, non-designated tree on the expected git branch would print "tree on u/l5np, branch expects u/l5np".
 21. **For WP-16: [F13 §3.9]'s statements** (§2.15) predate reviews S-01/S-03 (I-F2's `pred`), S-14 (I-F14's history doors),
-    S-19 (I-F8's root clause) and this chapter's I-F7 addition. Proposal: [F13] cites §2 for the wording.
+    S-19 (I-F8's root clause) and this chapter's I-F7 addition. Proposal: [F13] cites §2 for the wording. **Closed** (pass 1,
+    round 1, A1-44): [F13 §3.9] names §2.1–§2.14 as the statements of record and lets this chapter win.
 22. **I-F7 and `links fix --split`** (§2.7). [40 §3.7] makes the split's old node `removed{reason: split}`, but [40 §2.10]'s
     I-F7 list omits it. It is an explicit door, so adding it keeps the invariant's intent; [40 §2.10] should list it at
     WP-81a.
@@ -979,7 +1016,8 @@ are fixed here, and the thresholds they mention are [F20]'s holes.
     (exit 3, naming the directory; [F19] owns the text), so `ProjectFs` needs no directory creation.
 29. **Codes for runtime rows** (§4.10, §5.2). [40] fixes strings but no numbers; the `u8` codes here let [F11] (WP-13) store
     `FILEOBS` states, details and proposal classes and `ANCHORRES` states without a second numbering. WP-13 adopts them or
-    records why not.
+    records why not. **Closed** (pass 1, round 1, S1-9, A1-7): [F11 §12.5], §12.6 and §12.13 cite §4.2, §4.3, §4.6,
+    §4.10 and §5.2 and number nothing of their own; a `PENDING` row may hold an exact evidence token (§4.10).
 30. **An engine-deleted file node renders `deleted`** (§4.2, detail 31 `node deleted in <c8>`). [40 §2.9] defines `deleted`
     as status `removed`, and [40 §2.8] only says that the `at` edge becomes a tombstone reference and the source `suspect`
     when the file node itself is deleted. Resolution: the link keeps a state, `deleted`, with its own principal detail, so
@@ -987,3 +1025,11 @@ are fixed here, and the thresholds they mention are [F20]'s holes.
 31. **Refusal codes this chapter proposes for [F19]**: I-F12 violations exit 5 ([40 §5.3]); an invalid `--base` or a non-UTF-8
     branch name exit 2; `--confirm` with nothing to confirm, or by the acceptor or a role outside `files.confirm-roles`,
     exit 6 ([40 §3.1]); an I-F1 violation at write time exit 6 (precondition); an invalid `relink` at write time exit 1.
+32. **Pass 1, round 1** (S1-9, A1-7, S1-10, A1-8, P1-2, A1-44). The other chapters now cite this chapter's bytes and codes:
+    [F11 §5] embeds `BindingExt` at row offset 105 and stores the directory's `root_id` (open point 5 closed), [F05 §9.3]
+    carries the `HEADS` row image, [F11 §12.5], §12.6 and §12.13 store the §4.10 codes (open point 29 closed; §4.10 now
+    says which codes a `FILEOBS` row records and that a `PENDING` row may hold an exact token, R-SPEC-R's alignment, kept),
+    and [F13 §3.9] takes §2 as the statements of record (open point 21 closed). §3.2's example is the byte fixture of
+    `COVERAGE.md` row R-15. The reviewers' preference for the full git-ref spelling stays declined: besides §3.2 rule 1's
+    reason, the design writes the expected ref in the short form: [40 §5.3] item 2 equates it with `lane.git_branch`, and
+    [40 §5.4] item 1 binds a tree "with expected ref `u/l5np`".

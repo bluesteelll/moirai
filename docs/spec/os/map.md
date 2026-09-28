@@ -139,7 +139,7 @@ file, without taking a lock.
 
 - **Capacity:** `MAP_REGISTRY_SLOTS = 512` entries; allocated once, at the first `map_sealed` of the process (a process
   that maps nothing pays nothing), and never freed. A registration that finds no free entry fails with
-  `MapError::RegistryFull` and maps nothing, so no mapping ever exists that the handler cannot attribute.
+  `MapError::RegistryFull` and maps nothing, so no mapping ever exists that the handler cannot attribute; the caller then reads the file positionally (§10).
 - **Entry (in memory, 64 bytes; not an on-disk layout):**
 
 | Field | Type | Meaning |
@@ -224,9 +224,20 @@ and never enters the format. Never `MAP_POPULATE`, `mlock` or `mremap` ([80 §2.
 
 - A process maps only the segments of its current set and the blob, `hist` and pinned files it actually reads
   ([AR §4.1]); on a segment-set change it releases the old maps with the region arenas that used them ([AR §6.1]).
-- GC deletes a file only after `HEAD` has not named it for 60 s and no pin references it; a process that still maps it
-  keeps reading valid bytes (Windows: the delete fails or leaves the file delete-pending; Unix: the inode stays valid)
-  ([OS/fs §6.4]).
+- **The mapping bound** (pass 1, P1-40). A process keeps mapped at most the files of its current segment set (≤ 8,
+  [F04 §4.1]), the promoted segments and pinned sets of the refs it serves, and the sealed files (`hist`, `blobs`,
+  `gitmap`, `cs`, `dict`) that the **current request** reads. At the end of each request — a CLI command, one MCP request —
+  it unmaps every sealed file outside the first two groups, as `mcp.overlay-bytes` bounds overlays; a long-lived MCP
+  server therefore holds a mapping count bounded by the segment sets it serves, not by the store's age. With ≤ 8
+  segments, ≤ 2 bases after any rollup ([F17 §7]) and the per-request files, the count stays far below
+  `MAP_REGISTRY_SLOTS` (open point 3).
+- **`RegistryFull` is not a failure of the command.** When `map_sealed` finds the registry full, the reader falls back to
+  positional reads (`read_exact_at`, [OS/fs §4.3]) of the sections it needs from that file, with the same `total_len`
+  check (§4) and the same checksums; no mapping is made, so the fault handler has nothing to attribute. The fallback is
+  slower, never different ([F16] P-93: mapping is a choice, not a correctness condition).
+- GC deletes a file only after `HEAD` no longer names it, `gc.delete-grace` has passed ([F17 §11.4]) and no pin
+  references it; a process that still maps it keeps reading valid bytes (Windows: the delete fails or leaves the file
+  delete-pending; Unix: the inode stays valid) ([OS/fs §6.4], [F16] P-77).
 - A mapping outlives the file handle it was made from; the caller may close the handle at once.
 
 ---
@@ -258,6 +269,18 @@ and never enters the format. Never `MAP_POPULATE`, `mlock` or `mremap` ([80 §2.
 
 ---
 
+## Coverage
+
+The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
+
+| Item | Part covered here | Section |
+|---|---|---|
+| `60-I2-FM(9)` (fault-model item (9): a mapped read may end the process) | the fault handler | §8 |
+| `60-I2-FM(10)` (item (10)) | mapping rules 1–3; sealing on disk is [OS/fs §4.6]'s | §2 |
+| `60-I2-PD(m)` (protocol decision (m)) | the mapping rules; the fault registry. The environment guard is [OS/env]'s | §2, §7 |
+| `60-AU-CrossPlatform` (the "Cross-platform" summary row) | X-F6's mapping policy, whose parts are the row `X-F6` | — |
+| `X-F6` ([80] X-F6) | rules 1–3; the `total_len` check; `FromBytes`-only access; the registry; the fault handler and exit 7. The allow-lists and the probe are [OS/env]'s, `total_len` in the headers [F09 §2.1]'s and [F10]'s | §2, §4, §6, §7, §8 |
+
 ## Holes
 
 | Id | What | Decided by | Candidates | Constraint the value must meet |
@@ -270,7 +293,7 @@ and never enters the format. Never `MAP_POPULATE`, `mlock` or `mremap` ([80 §2.
 |---|---|---|---|
 | 1 | [X17 §4.6] rule 6 exits with code 10 on a mapping fault; [80 §2.5] rule 6 with code 7 | code 7 ([80] is authoritative for its own reservation; exit 10 means "incomplete result" in [AR §7.1]) | R-REV-P |
 | 2 | [X17 §4.6] rule 4 compares the size with a length named by the durable `Checkpoint`; [80 §2.5] rule 4 with the header's `total_len` | the header's `total_len` ([80] wins; [81] m15 showed `SegRef` has no length and no `HEAD` field is added) | R-REV-P |
-| 3 | The registry's capacity and allocation are not fixed by any design document ("fixed-size", [80 §2.5]) | 512 entries of 64 bytes (32 KiB), allocated at the first mapping; a full registry refuses the mapping rather than leave a fault unattributable. The bound must stay above the most mappings any process kind holds at once (the MCP server with 8 branch views and their pinned sets is the largest, est. < 200); [F16] or [F17] may state that bound | R-REV-P, WP-16 |
+| 3 | The registry's capacity and allocation are not fixed by any design document ("fixed-size", [80 §2.5]) | 512 entries of 64 bytes (32 KiB), allocated at the first mapping; a full registry refuses the mapping rather than leave a fault unattributable. The bound must stay above the most mappings any process kind holds at once (the MCP server with 8 branch views and their pinned sets is the largest, est. < 200). **Pass 1 (P1-40):** §10 states the bound (the current segment sets and pinned sets served, plus the current request's sealed files, released at request end) and makes `RegistryFull` a fall-back to positional reads instead of a failure of the command | WP-30 |
 | 4 | `map_sealed` takes the file's name, which [80 §2.1]'s `map_sealed(file, expected_len)` does not | needed for the fault line ("in `<file>`") without a lookup inside the handler | WP-30 |
 | 5 | The registry uses a per-entry seqlock so that a concurrent unmap and remap on another thread cannot pair one entry's `start` with another's `len` | stated in §7 | R-REV-P |
 | 6 | Chaining to a previous `SIG_IGN` for a synchronous `SIGBUS` | reinstalled as `SIG_DFL` so the fault terminates instead of looping | R-REV-P |

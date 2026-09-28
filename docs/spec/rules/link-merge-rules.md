@@ -28,9 +28,9 @@ As [RULES/merge-table] §2. In addition:
 
 - A file node's **observation composite** is one key whose value is the tuple (`path`, `oid`, `bytes`,
   `observed_git`, `observed_blob`, `relink`); it is equal on two sides only if all six fields are equal.
-- An anchor's value is its selector block as the canonical form encodes it ([40 §2.11] R-10): quote, prefix and suffix
-  enter only as their BLAKE3-128 digests. Two anchors are therefore equal whether or not a store holds their text (a
-  `hash-only` import compares equal to a `full` one).
+- An anchor's value is its selector block as the canonical form encodes it ([40 §2.11] R-10; [F07 §8.2], the block
+  of [F08 §10.3]'s record): quote, prefix, suffix and a `range` anchor's end enter only as their BLAKE3-128 digests. Two anchors are therefore equal whether or not a store holds their text (a `hash-only` import,
+  whose record has `text_unavailable` set, compares equal to a `full` one, [F07 §8.3]).
 - "Gained since the base" for a set-valued field means: in the side's final value and not in b's value.
 - S′ and S name the two sides of a composition: S′ is the side whose root node gained the directory move, S the side
   whose path is composed.
@@ -44,7 +44,7 @@ As [RULES/merge-table] §2. In addition:
 | LC-002 | `both-compose` | observation | `both`; b is present; o's `path` ≠ t's `path`; and exactly one side S′ gained since the base, on the root node of the file node's `root`, at least one `path_moves` entry of class `explicit`, `confirmed` or `committed` whose `from` is a byte prefix of both b's `path` and the other side S's `path`. |
 | LC-003 | `created-vs-dead` | derived-existence | The uid is `file-key`; b is `absent`; one side S holds the uid live with a status other than `removed`; the other side's final state for the uid is deleted, or live with status `removed`. |
 | LC-004 | `created-both-live` | derived-existence | b is `absent`, and o and t both hold the uid live with a status other than `removed`. |
-| LC-005 | `root-created-vs-dead` | derived-existence | As LC-003 for a `root-key` uid (a root node). |
+| LC-005 | `root-created-vs-dead` | derived-existence | As LC-003 for a `root-key` uid (a root node). No store's history reaches it: a root node is never engine-deleted and an `area` has no `removed` status ([F08 §11.3]; LM-013). |
 
 <!-- table: link-results -->
 | row | result | definition |
@@ -54,6 +54,7 @@ As [RULES/merge-table] §2. In addition:
 | LR-003 | `rekey` | The re-key of RK rows, performed before per-key evaluation (PR-007). |
 | LR-004 | `union3-aliases` | `union3` of [RULES/merge-table] RS-005, plus every pre-composition path LR-001 produced for this node in this merge. |
 | LR-005 | `union3-compose` | `union3`, then every element that side S added (in S's value, not in b's) is rewritten through the other side's gained directory moves (CP-009 to CP-011). |
+| LR-006 | `refuse-internal` | No key takes a value: the merge is refused with [F19 §10.2]'s `internal` code (`internal error: <check> failed`, exit 1), as a failed internal check, the way [F08 §11.2] step 4 refuses an over-long derivation loop. Used only for a case that the chapters that own the data make unreachable; the model reports reaching it as a test failure naming the row, never as `SpecGap`. |
 
 ## 4. The link merge rules
 
@@ -72,7 +73,7 @@ As [RULES/merge-table] §2. In addition:
 | LM-010 | `derived-existence` | `deleted-vs-modified` | `policy` | DeleteVsModify | value | design | [40 §5.5] "existed at the LCA", "engine-deleted on one side, modified on the other"; [OP-5] | "no automatic policy for `artifact`": EP-014 and EP-013 give `none`, so dst's state stands provisionally. |
 | LM-011 | `derived-existence` | `ours-only` | `take-o` | - | clean | derived | [RULES/merge-table MR-043] | - |
 | LM-012 | `derived-existence` | `theirs-only` | `take-t` | - | clean | derived | [RULES/merge-table MR-044] | - |
-| LM-013 | `derived-existence` | `root-created-vs-dead` | `gap` | - | gap | gap | [40 §5.5]; [40 §2.3]; [OP-4] | A root-node uid derives from the root name alone, so it cannot be re-keyed. |
+| LM-013 | `derived-existence` | `root-created-vs-dead` | `refuse-internal` | - | none | derived | [F08 §11.3]; [F19 §10.2] `internal`; [LQ/errors §5.5] E409; [40 §2.3]; [OP-4] | A root-node uid derives from the root name alone, so it cannot be re-keyed. [F08 §11.3] makes the case unreachable: `rm` of a root node is refused (E409's root-node case) and no other path deletes one, so a dead root node on one side is a failed internal check (review pass 1, P1-21). |
 | LM-014 | `derived-existence` | `both` | `take-o` | - | clean | proposed | [RULES/merge-table MR-046]; [RULES/merge-table OP-7] | Both sides ended the node differently (for example deleted with different reasons): dst's state. |
 | LM-015 | `alias-set` | `any` | `union3-aliases` | - | clean | design | [40 §2.2] "add-wins set"; [40 §5.5] | An alias never captures a new file. |
 | LM-016 | `glob-set` | `any` | `union3-compose` | - | clean | design | [40 §5.5] "globs"; [40 §2.4]; [72 M5] | A composition changes a key only one side touched (CP-012). |
@@ -108,7 +109,7 @@ I-F1 after a merge: at most one live `present` or `planned` file node per (root,
 |---|---|---|---|---|---|
 | CP-001 | 1 | select-root-node | design | [40 §2.4]; [40 §2.3] | The root node of the file node's `root`: the `area` whose uid is the root-key derivation of that root name. |
 | CP-002 | 2 | select-gained-entries | design | [40 §5.5]; [40 §2.4] | Entries of that root node's `path_moves` in S′'s final value and not in b's, with class `explicit`, `confirmed` or `committed`. `observed` entries never compose. |
-| CP-003 | 3 | order-entries | design | [40 §5.5] "`path_moves`" | Ascending (hlc, from, to): hlc numerically, `from` and `to` bytewise. |
+| CP-003 | 3 | order-entries | design | [40 §5.5] "`path_moves`"; [F08 §5.5] | Ascending (hlc, from, to): hlc numerically, `from` and `to` bytewise. Entries equal in (hlc, from, to) differ only in `class` or `git` and rewrite alike; [F08 §5.5]'s stored order is this order extended to a total one. |
 | CP-004 | 4 | rewrite-path | design | [40 §5.5] "compose: apply P→P′ to the other side's new path" | p := S's `path`; for each entry in order, if its `from` is a byte prefix of p, then p := its `to` followed by the rest of p after `from`. |
 | CP-005 | 5 | result-composite | derived | [40 §5.5]; [OP-1] | The result is S's composite with `path` := p; `oid`, `bytes`, `observed_git` and `observed_blob` stay S's. |
 | CP-006 | 6 | set-relink | design | [40 §5.5]; [40 §2.2]; [40 §2.11] R-17 | `relink` := `merge-compose/prefix`. |
@@ -117,7 +118,7 @@ I-F1 after a merge: at most one live `present` or `planned` file node per (root,
 | CP-009 | 9 | glob-literal-prefix | design | [40 §2.4] "Globs"; [OP-6] | A glob's literal prefix runs up to the last `/` before its first wildcard character. |
 | CP-010 | 10 | glob-rewrite | design | [40 §5.5] "globs"; [40 §2.4]; [72 M5] | A glob element added on side S whose literal prefix starts with an entry's `from` has that leading `from` replaced by the entry's `to`, for each of the other side's gained entries (CP-002) in CP-003 order. Base elements are not rewritten here: the side that moved the directory rewrote its own globs in the move's commit. |
 | CP-011 | 11 | glob-root | design | [40 §2.4] "Globs … rooted at `project`" | The entries used for globs are those of the `project` root node. |
-| CP-012 | 12 | sync-residue | design | [AR §5a.3]; [AR §4.6]; [72 M5] | A composition or a re-key changes a key only one side touched; a `sync` records the composed value in its residue. The model's canonical op list is the full state diff and needs no residue. |
+| CP-012 | 12 | sync-residue | design | [AR §5a.3]; [AR §4.6]; [72 M5] | A composition or a re-key changes a key only one side touched; a `sync` records the composed value in its residue (a re-key's keys: RK-011). The model's canonical op list is the full state diff and needs no residue. |
 
 ## 7. Re-key, never resurrect
 
@@ -126,14 +127,15 @@ I-F1 after a merge: at most one live `present` or `planned` file node per (root,
 |---|---|---|---|---|---|
 | RK-001 | 1 | when | design | [40 §5.5]; [RULES/merge-table PR-007] | For every uid matching LC-003, before any per-key rule, in real and virtual merges alike (VB-012). |
 | RK-002 | 2 | name-predecessor | design | [40 §5.5] | U := the uid; S := the side holding it live and not `removed`. |
-| RK-003 | 3 | derive | design | [40 §2.3]; [40 §5.5] "uid′ = uid(root, `origin_path`, U)" | uid′ := BLAKE3-128(lp("moirai-file-v1") ‖ lp(root) ‖ lp(origin_path) ‖ lp(U)), with S's `root` and `origin_path` and lp(x) = u32-le(len x) ‖ x. |
-| RK-004 | 4 | skip-dead | proposed | [40 §2.3] "Dead uids are never re-created"; [OP-3] | While uid′ is deleted, or live with status `removed`, in the base, o or t: U := uid′ and repeat step 3. |
-| RK-005 | 5 | move-keys | design | [40 §5.5] "S's node becomes uid′ with S's fields and `origin_pred = U`" | On S's state every key of U moves to uid′ and `origin_pred` := U. Derived detail: `created` is S's creating commit, since the node is S's. |
-| RK-006 | 6 | repoint-anchors | design | [40 §5.5] "S's anchors are re-pointed to uid′ in the merge commit"; [40 §2.7] | Every `at` edge on S whose destination is U gets destination uid′. Anchor uids do not change: they derive from the source uid and `captured`. |
+| RK-003 | 3 | derive | design | [40 §2.3]; [40 §5.5] "uid′ = uid(root, `origin_path`, U)"; [F08 §11.2] | q := U; uid′ := BLAKE3-128(lp("moirai-file-v1") ‖ lp(root) ‖ lp(origin_path) ‖ lp(q)), with S's `root` and `origin_path` and lp(x) = u32-le(len x) ‖ x. |
+| RK-004 | 4 | skip-dead | derived | [40 §2.3] "Dead uids are never re-created"; [F08 §11.2] step 4; [F12 §7.6] step 2; [OP-3] | While uid′ is the uid of any node of the base, o or t — live at any path, live with status `removed`, or a tombstone: q := uid′ and uid′ := the derivation of RK-003 over q. This is [F08 §11.2] step 4's test with the view replaced by the three merge inputs. A loop that ran more times than the three states hold artifact nodes together is refused as an internal error, as in [F08 §11.2] step 4. |
+| RK-005 | 5 | move-keys | design | [40 §5.5] "S's node becomes uid′ with S's fields and `origin_pred = U`"; [F12 §7.6] step 3 | On S's state every key owned by U ([F06 §2.3]: value keys, status, body, existence, hierarchy, and out-edges, `at` edges with their anchors included) moves to uid′, and `origin_pred` := q, the predecessor of RK-004's last derivation (U when RK-004 did not re-derive), so that uid′ verifies over its stored inputs ([40 §2.10] I-F2; [F08 §11.2] step 5). Derived detail: `created` is S's creating commit, since the node is S's. |
+| RK-006 | 6 | repoint-added-referrers | design | [40 §5.5] "every edge incident to U that side S added since the LCA … is re-pointed to uid′ in the merge commit"; [F12 §7.6] step 3; [F12] open point 25; [40 §2.7]; [OP-10] | On S's state: every edge key present in S and absent in the base whose destination is U — every edge kind: `at` edges with their anchors, `produced`, `consumed`, `mentions`, `implements`, `cites` and the rest — is replaced by the same edge with destination uid′, its properties and anchors unchanged; every existence value `deleted(reason, replaced_by = U)` and every `ref`-typed field value equal to U (`replaced_by`, `parent` and the rest) that S set since the base is set to uid′. Anchor uids do not change: they derive from the source uid and `captured`. U's own out-edges move with RK-005. |
 | RK-007 | 7 | predecessor-keeps | design | [40 §5.5] "U keeps the other side's state and referrers" | U keeps the other side's keys, anchors and referrers. |
 | RK-008 | 8 | new-number | design | [40 §2.3] "A re-keyed node gets a new `#N`" | uid′ gets a new `#N` (store runtime `ALLOC`/`UIDX`, RE-012); U keeps its own. |
 | RK-009 | 9 | pure | design | [40 §5.5] | A pure function of the two histories: every store computes the same uid′, equal to the uid a registration after the removal derives. |
-| RK-010 | 10 | no-resurrection | design | [40 §2.10] I-F14; [40 §8.3.2] P13 | U is never live again through the merge; only `links fix --restore` or `Undelete` bring it back. |
+| RK-010 | 10 | no-resurrection | design | [40 §2.10] I-F14; [40 §8.3.2] P13 | U is never live again through the merge; only `links fix --restore` or `Undelete` bring it back. P13's cases, which the model's suite runs against these rows: a file removed on one branch and an unrelated file re-created at the same path on another, merged in either order; a store that never held the removing branch; a registration after a checkpoint-granularity import at a path with two or more predecessors; and a re-keyed side that added non-anchor edges to U (`produced`, `mentions`, `cites`) and U's own out-edges, all of which must follow the node (RK-005, RK-006). |
+| RK-011 | 11 | sync-residue | design | [40 §5.5] "a sync records the re-key with its re-pointings in its residue"; [F12 §7.6] step 5; [AR §5a.3]; [72 M5]; [OP-10] | A `sync` whose merge re-keys records in its residue every key RK-005 to RK-007 changed, because those keys differ from what `main`'s window alone yields. The model's canonical op list is the full state diff and needs no residue (CP-012). |
 
 ## 8. Settling link conflicts after a merge
 
@@ -178,7 +180,7 @@ resolves each, so the model's R4 part (WP-92) and the replay rows can check the 
 | LX-003 | 40-5.5-r03-composite-compose | LM-005, CP-001, CP-002, CP-003, CP-004, CP-005, CP-006, CP-007, CP-008 | - |
 | LX-004 | 40-5.5-r04-composite-otherwise | LM-006, LV-001, LV-002, LV-003 | - |
 | LX-005 | 40-5.5-r05-created-both | LM-008 | - |
-| LX-006 | 40-5.5-r06-rekey | LM-007, RK-001, RK-002, RK-003, RK-004, RK-005, RK-006, RK-007, RK-008, RK-009, RK-010 | - |
+| LX-006 | 40-5.5-r06-rekey | LM-007, RK-001, RK-002, RK-003, RK-004, RK-005, RK-006, RK-007, RK-008, RK-009, RK-010, RK-011 | - |
 | LX-007 | 40-5.5-r07-deleted-vs-modified | LM-010, EP-014, LV-009 | - |
 | LX-008 | 40-5.5-r08-status-one-side | MR-022, MR-023 | "the other side's composite change is kept as data on the removed node": the composite key merges separately (LM-002, LM-003). |
 | LX-009 | 40-5.5-r09-planned-vs-present | MR-024, SL-040 | - |
@@ -203,7 +205,7 @@ Rule tables specify semantics, not bytes; the layouts of the values named here a
 | Checklist row | Covered by |
 |---|---|
 | [40 §2.11] R-2: merge classes `observation` (composite) and `identity` (immutable) | LM-001 to LM-006, LM-023 to LM-026; FC rows in [RULES/merge-table] |
-| [40 §2.11] R-3: the merge re-key rule; the predecessor order by (generation, commit id) as used by a merge | RK-001 to RK-010, LR-002 |
+| [40 §2.11] R-3: the merge re-key rule with its edge-complete re-pointing and its record in a sync's residue; the `created` rule of a dual creation by (generation, commit id) | RK-001 to RK-011, LR-002 |
 | [40 §2.11] R-4: anchors merge add-wins by anchor uid; `SetEdgeProps` repins | LM-018 to LM-022 |
 | [40 §2.11] R-5: `path_moves` is an ordinary add-wins set, with no op, canonical item or trailer | LM-017, CP-002, CP-003, LH-003, LH-004 |
 | [40 §2.11] R-10: anchor selectors compared through their digests | §2 (equality of anchor values) |
@@ -228,14 +230,20 @@ resolver constants only through the settle itself, which [F20] specifies.
 2. **Path-claim scope** (PC-003). [40 §2.10] I-F1 says "present or planned"; [40 §5.5] says "two live present nodes".
    Both are [40]; the invariant's wording is used, because a `planned` node and a `present` node at one path break
    I-F1 just as two `present` nodes do.
-3. **Re-key iteration** (RK-004). [40 §2.3]'s registration rule repeats "until the result is not known as dead", where
-   "known" is store-wide. For the merge to stay a pure function of two histories (RK-009), the dead test uses the base,
-   dst and src states only. The review confirms that the two rules then give the same uid in every store that holds
-   both histories.
+3. **Re-key iteration** (RK-003 to RK-005). Settled in review pass 1 (S1-48): the dead test is [F08 §11.2] step 4's —
+   the uid names **any** node of the state, live at another path, `removed` or a tombstone — applied to the base, dst
+   and src states, as [F12 §7.6] step 2 states. It reads the three states only, so the merge stays a pure function of
+   the two histories (RK-009), as [40 §2.3]'s view-scoped rule (A1 re-review S-01, FB-2) intends. The loop keeps U and
+   the running predecessor q apart: the keys that move are U's, and `origin_pred` is the last q, so that a re-derived
+   uid′ verifies over its stored inputs (I-F2).
 4. **Root nodes cannot be re-keyed** (LC-005, LM-013). A root-node uid is BLAKE3-128(lp("moirai-root-v1") ‖ lp(root
    name)) with no predecessor input, so "re-key, never resurrect" has no root-node form. It arises only if a root node
-   is engine-deleted on one side and created on the other; the row is a gap until the review decides (for example:
-   root nodes are never deleted, so the case is refused at write time).
+   is engine-deleted on one side and created on the other. **Decided** in review pass 1 (P1-21) by [F08 §11.3] (its
+   open point 25): a root node is never engine-deleted — `rm` of one is refused with E409's root-node case
+   ([LQ/errors §5.5]) — and an `area` has no `removed` status, so no store's history reaches LC-005. LM-013 is no longer
+   a gap: reaching it is a failed internal check (LR-006, [F19 §10.2] `internal`, exit 1). The model's generators draw
+   root nodes live only, as [F08 §11.3] guarantees; a hand-built triple that reaches the row fails the test that built
+   it.
 5. **`DeleteVsModify` on file nodes** (LM-010). "No automatic policy" is read as `none`: dst's state stands
    provisionally until `resolve` ([RULES/merge-table] Open point 5).
 6. **Glob wildcards** (CP-009). The literal-prefix rule needs the set of wildcard characters (`*`, `?`, `[` are
@@ -247,3 +255,9 @@ resolver constants only through the settle itself, which [F20] specifies.
    `IdCollision`.
 9. **Where `PathClaim` sits** (PC-002). The value is placed on each claiming node's observation composite key; the
    `.moi` conflict key for the composite (one line for six fields) is WP-15's.
+10. **Re-key scope** (RK-006, RK-011; review pass 1 S1-14). The first draft re-pointed only S's `at` edges, as [40]
+    revision 2 did. [40 §5.5] as revised by the A1 re-review (S-01, disposition FB-3) and [F12 §7.6] re-point every edge
+    S added since the base whose destination is U, and the `replaced_by` references; [F12] open point 25 adds every
+    other `ref`-typed value equal to U that S set, because leaving it on U is the same wrong answer. RK-006 now states
+    that scope and RK-011 the sync residue; [40 §8.3.2] P13's non-anchor case is listed in RK-010. The rows changed
+    after the first draft, so the owner re-signs this file (V3).

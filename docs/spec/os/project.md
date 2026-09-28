@@ -134,20 +134,28 @@ diagnostics (rendered `<OSERR>` in golden files, [OS/shell §6]). It uses [OS/fs
 | `NotFound` | the path or a parent is absent, where an operation needs the object (`stat` returns `Absent` instead) | 2, 3 | `ENOENT`, `ENOTDIR` |
 | `AlreadyExists` | the destination of a no-replace rename exists | 80, 183 | `EEXIST` |
 | `NotEmpty` | `remove_dir` of a non-empty directory | 145 | `ENOTEMPTY` |
-| `AccessDenied` | access refused: another principal, a sandbox, TCC, SIP; on a Windows rename or delete also the transient form of a sharing conflict, retried per `ShareRetry` ([OS/fs §6.3]) and returned as is after the bound | 5, 1920 | `EACCES`, `EPERM` |
+| `AccessDenied` | access refused: another principal, a sandbox, TCC, SIP; on a Windows rename or delete also the transient form of a sharing conflict, retried per `ShareRetry` ([OS/fs §6.3]) and returned as is after the bound; from `sync_dir`, a directory that may not be opened for flushing although the rename would be allowed (§6.2, `no_dir_flush`) | 5, 1920 | `EACCES`, `EPERM` |
 | `SharingViolation` | a Windows sharing conflict after the `ShareRetry` bound (the verb prints the holders, §5.8) | 32, 33 | — |
 | `DeletePending` | the name belongs to a file another process deleted while holding it open | `STATUS_DELETE_PENDING`, 303 | — |
 | `DiskFull` | disk full or quota | 39, 112, 1295 | `ENOSPC`, `EDQUOT` |
 | `ReadOnlyVolume` | the project volume is write-protected | 19 | `EROFS` |
-| `Unsupported` | the volume lacks the capability: a Linux directory rename without `RENAME_NOREPLACE`, a macOS volume without `RENAME_EXCL`, restart-manager holders of a directory | 50, 1 | `EINVAL` from `renameat2`, `ENOTSUP` |
+| `Unsupported` | the volume lacks the capability: a Linux directory rename without `RENAME_NOREPLACE`, a macOS volume without `RENAME_EXCL`, restart-manager holders of a directory; from `sync_dir`, a volume that cannot flush a directory (an SMB share, some FUSE mounts, `\\wsl$`; §6.2, `no_dir_flush`) | 50, 1 | `EINVAL` from `renameat2`, `ENOTSUP` |
 | `CrossDevice` | the operation would cross volumes or mounts (§6.4) | 17 | `EXDEV` |
 | `Busy` | a busy object (a mount point) | 170 | `EBUSY` |
-| `InvalidName` | a component or path exceeds the OS limit or cannot be expressed ([OS/path §6]) | 123, 206 | `ENAMETOOLONG`, `EILSEQ` |
+| `InvalidName` | a component or path exceeds the OS limit or cannot be expressed ([OS/path §6]); on Windows also a segment that fails `representable_here` ([OS/path §8.1]), found before any OS call (below) | 123, 206; the name check | `ENAMETOOLONG`, `EILSEQ` |
 | `Io` | read errors and anything else on a read (fault-model item (12)) | 23, 1117, 483, … | `EIO`, … |
 | `Other` | any other code | other | other |
 
-`ProjectFs` needs five kinds that [OS/fs §6.1] does not list yet; the enum is `#[non_exhaustive]`, and they are added
-there (open point 6):
+**The Windows name check** (pass 1, P1-15). On Windows every `ProjectFs` method tests every segment of every `At` path it
+is given, and of every path it builds, with [OS/path §8.1]'s `representable_here` before it makes any OS call, and returns
+`InvalidName` for a failing segment without calling the OS. `\\?\` paths bypass Win32 name normalisation ([OS/path §6]),
+so without the check a git path such as `x::$DATA` would open the default stream of `x` and hash another file's content,
+`a:b` would address the alternate stream `b` of `a`, and a segment ending in `.` or a space would be created literally.
+`--allow-nonportable` never relaxes this check; it relaxes only [OS/path §8.2]'s portability issues for other OSes. On
+Linux and macOS `representable_here` tests only the length, which the OS enforces anyway.
+
+`ProjectFs` needs five kinds beyond those of store files; [OS/fs §6.1] lists them in `VfsErrorKind`, with their mapping
+rows in [OS/fs §6.2] (pass 1, A1-33; open point 6):
 
 | Kind (added) | Meaning | Windows | Linux, macOS |
 |---|---|---|---|
@@ -193,6 +201,7 @@ A verb's flush accounting reads the store's log data flushes from [OS/fs]'s coun
 | 33 | 16 | [u8; 16] | `parent` | the parent directory's id in the same encoding; all zero when unknown |
 | 49 | 4 | u32 | `aux` | reserved, zero |
 | 53 | 4 | u32 | `docid` | macOS document id if owner decision #21 (d) enables it; else zero |
+| total | 57 | | | |
 
 | Kind | `id` bytes 0–15 | Source (entry) | Source (parent) |
 |---|---|---|---|
@@ -223,6 +232,7 @@ are reused aggressively ([40 §2.6]).
 |---|---|---|---|---|
 | 0 | 8 | i64 | `ns` | nanoseconds since 1970-01-01T00:00:00Z; 0 when absent |
 | 8 | 1 | u8 | `gran` | the nominal resolution of the field's source as a decimal exponent `e`: the source stores the time in units of at most 10^e ns, `e` = 0…10; `0xFF` = absent; 11…254 reserved (uninterpretable → absent) |
+| total | 9 | | | |
 
 | Source | `mtime`, `ctime` | `btime` | `added` | `gran` |
 |---|---|---|---|---|
@@ -306,19 +316,26 @@ pub struct VolumeCaps {
     pub ids_persistent: bool,           // ids survive unmount and reboot (tmpfs: false)
     pub docids: bool,                   // macOS document ids in use (#21 (d))
     pub mtime_granularity_ns: u64,      // effective, measured (§4.4); 0 = not measured, use the nominal
+    pub dir_flush_doubtful: bool,       // the file-system class may refuse a directory flush (§4.3, §6.2)
 }
 ```
+
+`dir_flush_doubtful` (pass 1, P1-16) is set from the file-system class, never by a probe: on the rows of §4.3 whose
+volumes are known to refuse or fake a directory flush (a Windows network redirector, `\\wsl$` and other non-local
+volumes; Linux NFS, CIFS, FUSE and 9p). It only lets `doctor` and `links` hints warn in advance; the plan step's own
+`sync_dir` decides (§6.2).
 
 The snapshot stored in `TREES` ([80 §2.11.2], [F11]):
 
 | Offset | Width | Type | Name | Meaning |
 |---|---|---|---|---|
-| 0 | 4 | u32 | `flags` | bit 0 `case_insensitive_default`; bit 1 `norm_insensitive_always`; bit 2 `norm_follows_case`; bit 3 `ctime_on_rename` known; bit 4 `ctime_on_rename` value (0 when bit 3 is 0); bits 5–6 `id_locate` (0 none, 1 by-id, 2 frontier, 3 reserved); bits 7–8 `journal` (0 none, 1 usn, 2 fsevents, 3 reserved); bits 9–10 `rename_noreplace` (0 unsupported, 1 native, 2 link-unlink for files, 3 reserved); bit 11 `clone_indicators`; bit 12 `ids_persistent`; bit 13 `docids`; bits 14–31 reserved, zero |
+| 0 | 4 | u32 | `flags` | bit 0 `case_insensitive_default`; bit 1 `norm_insensitive_always`; bit 2 `norm_follows_case`; bit 3 `ctime_on_rename` known; bit 4 `ctime_on_rename` value (0 when bit 3 is 0); bits 5–6 `id_locate` (0 none, 1 by-id, 2 frontier, 3 reserved); bits 7–8 `journal` (0 none, 1 usn, 2 fsevents, 3 reserved); bits 9–10 `rename_noreplace` (0 unsupported, 1 native, 2 link-unlink for files, 3 reserved); bit 11 `clone_indicators`; bit 12 `ids_persistent`; bit 13 `docids`; bit 14 `dir_flush_doubtful`; bits 15–31 reserved, zero |
 | 4 | 1 | u8 | `id_kind` | 0–4 as `OsFileId.kind`; 5–255 reserved |
 | 5 | 1 | u8 | `btime` | 0 absent, 1 tunneled-not-copied, 2 unforgeable, 3 copied-by-clones; 4–255 reserved |
 | 6 | 1 | u8 | `case_rule` | 0 sensitive (then bit 0 of `flags` is 0), 1 per-directory flag, 2 volume; 3–255 reserved |
 | 7 | 1 | u8 | `cloud` | 0 none, 1 recall attributes, 2 dataless; 3–255 reserved |
 | 8 | 8 | u64 | `mtime_granularity_ns` | effective granularity in ns; 0 = not measured |
+| total | 16 | | | |
 
 A snapshot with a reserved bit or value set is uninterpretable, and its `TREES` row behaves like a first settle ([80] X1).
 `VolumeCaps` converts to and from the snapshot losslessly.
@@ -332,10 +349,10 @@ A snapshot with a reserved bit or value set is uninterpretable, and its `TREES` 
 | Windows NTFS | `ntfs128` | by-id | `usn` if `FILE_SUPPORTS_USN_JOURNAL` and `FSCTL_QUERY_USN_JOURNAL` on a root handle succeeds, else none | HOLE(F20-btime-ntfs), draft tunneled-not-copied | known; value HOLE(F20-ctime-rename), draft true (S-16) | per-dir flag (insensitive) | none | recall attributes | native | `ids_persistent` | 100 ns |
 | Windows ReFS | `refs128` | by-id | as NTFS | **absent** until verified (open point 8) | unknown | per-dir flag (insensitive) | none | recall attributes | native | `ids_persistent` | 100 ns |
 | Windows FAT32, exFAT | none | none | none | absent | unknown | volume (insensitive) | none | none | native | — | 2 s / 10 ms |
-| Windows, any other or a network redirector | none | none | none | absent | unknown | volume (insensitive) | none | none | native | — | 100 ns |
+| Windows, any other or a network redirector | none | none | none | absent | unknown | volume (insensitive) | none | none | native | `dir_flush_doubtful` | 100 ns |
 | Linux ext4, XFS, btrfs, f2fs, bcachefs, ZFS (port) | `linux_ino` iff an unprivileged `name_to_handle_at` on the root succeeds, else none | frontier (none without ids) | none | unforgeable iff `statx` on the root reports `STATX_BTIME`, else absent | known, true on ext4, btrfs, XFS; unknown elsewhere | per-dir flag (sensitive) on ext4 and f2fs; sensitive elsewhere | follows case where per-dir | none | native iff `renameat2(RENAME_NOREPLACE)` works (probed on the store's `tmp/`, or assumed from the kernel floor for ext4 ≥ 3.15, XFS ≥ 4.0), else link-unlink | `ids_persistent` | 1 ns |
 | Linux tmpfs (port) | as above | frontier | none | as above | unknown | sensitive | none | none | native | not persistent | 1 ns |
-| Linux vfat, exFAT, overlayfs (unverified `xino`), NFS, CIFS, FUSE, 9p (port) | none | none | none | absent | unknown | volume (insensitive) for vfat/exFAT, sensitive otherwise | none | none | native or link-unlink | — | FS-specific |
+| Linux vfat, exFAT, overlayfs (unverified `xino`), NFS, CIFS, FUSE, 9p (port) | none | none | none | absent | unknown | volume (insensitive) for vfat/exFAT, sensitive otherwise | none | none | native or link-unlink | `dir_flush_doubtful` for NFS, CIFS, FUSE, 9p | FS-specific |
 | macOS APFS (port) | `darwin_fileid` iff `VOL_CAP_FMT_PERSISTENTOBJECTIDS` | by-id iff `VOL_CAP_FMT_PATH_FROM_ID`, else none | `fsevents` | copied-by-clones | unknown (probe) | volume (insensitive unless `VOL_CAP_FMT_CASE_SENSITIVE`) | always | dataless | native iff `VOL_CAP_INT_RENAME_EXCL`, else unsupported | `clone_indicators`, `ids_persistent`; `docids` iff #21 (d) | 1 ns |
 | macOS HFS+ (port) | as APFS | as APFS | `fsevents` | copied-by-clones | unknown | volume | always | dataless | as APFS | `ids_persistent` | 1 s |
 
@@ -503,6 +520,11 @@ source and opens nothing itself, A1P-10):
 3. **Containment.** Windows: `GetFinalPathNameByHandleW` of the handle, rewritten as [OS/path §4.1], must lie under the
    root's text; otherwise the handle is closed and the result is `OutsideRoot` (a junction or directory symlink on the
    path, [40 §2.4]). Linux and macOS get this from `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS` and `O_NOFOLLOW_ANY`.
+   **Placeholder re-check through the handle** (pass 1, P1-38): before the first read, Windows reads
+   `GetFileInformationByHandleEx(FileAttributeTagInfo)` on the open handle; if the entry became cloud-only between step 1
+   and the open (a file replaced by a placeholder) and `!opts.allow_hydrate`, the handle is closed unread and the result is
+   `CloudOnly`. Opening a placeholder for attributes hydrates nothing; only a data read does. macOS re-checks
+   `SF_DATALESS` on the descriptor as step 2 states.
 4. The returned `Reader` reads sequentially (`ReadFile`, `read`); `rewind` returns to offset 0 on the **same handle**;
    `snapshot` reads size and last-write time **through the handle** (Windows `GetFileInformationByHandleEx`
    `FileStandardInfo` and `FileBasicInfo`; Unix `fstat`), and `identity` reads the object's `OsFileId` through it.
@@ -555,8 +577,8 @@ absent (Windows `CreateFileW(GENERIC_WRITE, full sharing, OPEN_ALWAYS)`; Unix `o
 0o644)`), closes it, and returns its `mtime` from a `Read` stat. It is used only on `<store>/tmp/settle.stamp`: at the
 start of a settle, to take the frontier's racy threshold from a file-system timestamp ([80 §2.11.3], [F20 §5.12.1]), and
 by §4.4. It is lazy: no flush, and nothing depends on the stamp surviving a crash. It is the one store file `ProjectFs`
-writes, because only `ProjectFs` reads file-system timestamps; [F02 §5.3]'s `tmp/` names do not list it yet (open point
-18).
+writes, because only `ProjectFs` reads file-system timestamps; [F02 §5.3] lists `settle.stamp` as the one fixed `tmp/`
+name, which the orphan sweep may remove (open point 18; pass 1, P1-32, S1-38).
 
 ### 5.10 Cloud placeholders are never hydrated
 
@@ -606,9 +628,21 @@ pub enum Renamed { Renamed, LinkedThenUnlinked }   // the second: Linux's file f
 | Linux (port) | `fsync(openat(root_fd, dir, O_RDONLY \| O_DIRECTORY \| O_CLOEXEC))` |
 | macOS (port) | `fsync(dirfd)`, then `fcntl(dirfd, F_FULLFSYNC)` (or folded into a `sync_group`'s last `F_FULLFSYNC`, §6.3) |
 
-`sync_dir` is a non-lazy durability class: any error is a `DurabilityFailure`, which the caller hands to `fail_stop`
-([OS/fs §4.4.5]); it is never retried on the same handle and never downgraded ([80 §2.3.1]). It is idempotent, which the
-recovery re-barrier relies on (§6.5).
+`sync_dir` is a non-lazy durability class: any error is a `DurabilityFailure` whose `kind` ([OS/fs §6.1]) names the
+cause; it is never retried on the same handle and never downgraded ([80 §2.3.1]). It is idempotent, which the recovery
+re-barrier relies on (§6.5). The caller hands the failure to `fail_stop` ([OS/fs §4.4.5]), with two exceptions where no
+namespace step depends on it yet or where the process runs it for another process (pass 1, P1-16):
+
+- **The plan step** of `file mv`, `file rm` and `file revert` calls `sync_dir` on every parent it will touch before the
+  `FsIntent` group ([API §12.4] step 1). A failure of kind `Unsupported` or `AccessDenied` — an SMB share, some FUSE
+  mounts, `\\wsl$`, where flushing a directory handle fails or opening a directory for `GENERIC_WRITE` is denied although
+  the rename would be allowed — refuses the verb with exit 7 `no_dir_flush` and nothing changed ([F19 §10.2]); any other
+  kind is `fail_stop`.
+- **Intent recovery's re-barrier** (§6.5) on such a volume leaves the intent open and reports it through `doctor`
+  ([F16] P-71), instead of failing the process that runs recovery.
+
+Without the plan-step call, such a volume would fail the barrier after the rename and fail-stop, and every later
+recovery would fail the same way.
 
 ### 6.3 Composite and plain operations
 
@@ -627,8 +661,9 @@ independently until its parent is flushed).
 
 `ProjectFs` has no copy operation. A `file mv` of a file or a directory whose `rename_noreplace` reports `CrossDevice`
 (Windows 17, Unix `EXDEV`: another volume, a bind mount, a btrfs subvolume, an overlay lower directory), or whose source
-and destination `VolumeKey`s differ in the plan step, is **refused** with exit 7 and the fix line "move it with a raw mv;
-links re-bind by evidence" ([F19] owns the text). This adopts A1P-01's preferred fix: the alternative copy path had no
+and destination `VolumeKey`s differ in the plan step, is **refused** with exit 7 `cross_volume` and the fix line "move it
+with a raw mv; links re-bind by evidence or show a proposal to confirm" ([F19 §10.2] owns the text; pass 1, A1-59: a raw
+cross-volume `mv` loses the file id, so an identical copy usually lands as a proposal). This adopts A1P-01's preferred fix: the alternative copy path had no
 namespace ordering and could lose the user's only copy on power loss. It supersedes the copy branch of [40 §3.4] step 3
 and the `EXDEV` copy clause of [80 §2.11.4] rule 6 for the explicit verb; a raw cross-volume move is still resolved lazily
 by evidence (open point 1). `file rm --trash` with the store on another volume was already refused ([40 §3.5]).
@@ -660,6 +695,7 @@ never versioned, merged, exported or hashed (I-F4). A row whose `kind` or `os` t
 | 1 | 16 | [u8; 16] | `vol_key` | §4.1 |
 | 17 | 16 | [u8; 16] | `instance` | `usn`: `u64le(UsnJournalID) ‖ 8 zero bytes`; `fsevents`: the device UUID (`FSEventsCopyUUIDForDevice`); none: zero |
 | 33 | 8 | u64 | `cursor` | `usn`: the next USN to read (a non-negative `USN` as u64); `fsevents`: the `FSEventStreamEventId` after the last processed event; none: 0 |
+| total | 41 | | | |
 
 No M0–M11 code writes it; the record kind `JournalCursor` and the section stay reserved (R-7, R-8, A1P-17).
 
@@ -718,7 +754,10 @@ counter-allocated ids), replace-by-rename, tunneling of creation times within a 
 32) and delete-pending, the Recycle Bin and OS trash, case- and normalization-insensitivity per directory and per volume,
 git-style checkout rewrites, cloud placeholders (and a hydration counter that must stay 0 on automatic paths), and
 fault-model item (2) for `sync_dir` (unsynced renames and unlinks lost in any subset after a crash). `VolumeCaps` profiles
-for the three OSes are data ([80 §3.2], [80 §5.5] (c)).
+for the three OSes are data ([80 §3.2], [80 §5.5] (c)). A profile of a volume that cannot flush a directory (an SMB share,
+a FUSE mount, `\\wsl$`) makes `sync_dir` fail with `Unsupported` or `AccessDenied`, at the plan step and at recovery's
+re-barrier alike, so FL-2 exercises both paths of §6.2 (pass 1, P1-16). On the Windows profile the name check of §2.3
+refuses `:`, reserved characters, device names and trailing dots or spaces before any simulated call (P1-15).
 
 ## 10. Measurement 15 rows (WP-55)
 
@@ -743,6 +782,21 @@ idle and loaded, and records:
    chapter 20's skew margin, [OS/clock §8]).
 8. The effective mtime granularity probe of §4.4 with the candidate parameters of its holes.
 
+## Coverage
+
+The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
+
+| Item | Part covered here | Section |
+|---|---|---|
+| `60-AU-Vfs-sims` (audit row "`Vfs`/`ProjectFs`": the fault model in both simulators) | the `ProjectFs` simulator's obligations; the items are [F15 §3]'s and their applicability [F15 §6.5]'s | §9 |
+| `60-AU-Vfs-projfs` (the same row: `VolumeCaps`, `OsFileId`, `JOURNALCUR`, `DIRMAP`) | file identity and its per-OS sources; volumes and `VolumeCaps` values; runtime-row sources. The layouts are [F11 §12]'s | §3, §4, §7 |
+| `60-AU-R14-identity` (whole-`OsFileId` identity) | the per-kind id encoding | §3.2 |
+| `60-AU-R14-denials` (denials as `Unknown`) | the per-OS resolver rules at the OS level | §8 |
+| `60-PA-(h)` (the paragraph after the audit rows, (h)) | the `file mv` and `file rm` protocol points; the rename calls are [OS/fs §4.8]'s | §6 |
+| `R-14` ([40] R-14) | the btime class and clone indicator per file system; reads with ids, trash places, busy holders, denials never absence; cross-volume moves (`EXDEV`); the per-OS resolver rules at the OS level. The constants are [F20]'s | §4.3, §5, §6.4, §8 |
+| `R-18` ([40] R-18: the `FILEOBS` row) | the OS-defined fields; the row sources. The layout is [F11]'s | §3.4, §7.4 |
+| `X-F8` ([80] X-F8) | identity and timestamps per OS; volumes, `VolumeCaps`, granularity; the read side (reads with ids, trash, busy holders, denials); cross-volume moves; runtime-row sources; the per-OS resolver rules at the OS level. The layouts are [F11 §12]'s, the resolver rules [F20]'s | §3, §4, §5, §6.4, §7, §8 |
+
 ## Holes
 
 | Id | What | Decided by | Candidates | Constraint the value must meet |
@@ -759,7 +813,7 @@ idle and loaded, and records:
 | 3 | A1P-05: the two passes of the `oid` reader must use one handle and detect an in-place writer | `ProjectRead::rewind` and `snapshot` (§5.5) | WP-62, WP-64 |
 | 4 | A1P-07: flush accounting must separate log flushes from directory flushes | `PfsCounters.dir_syncs` (§2.4) | WP-50, WP-55 |
 | 5 | A1P-17: `journal_since` is excluded from the M0 trait | omitted (§1); `JOURNALCUR`'s 41 bytes are still fixed (§7.1) because the format reserves them | WP-30, WP-13 |
-| 6 | [OS/fs §6.1]'s `VfsErrorKind` (non-exhaustive) lacks five kinds `ProjectFs` needs | §2.3 uses [OS/fs §6.2]'s mapping unchanged and asks [OS/fs §6.1] to add `CloudOnly`, `IsSymlink`, `IsDirectory`, `OutsideRoot` and `Stale` | WP-17a, WP-30 |
+| 6 | [OS/fs §6.1]'s `VfsErrorKind` (non-exhaustive) lacks five kinds `ProjectFs` needs | §2.3 uses [OS/fs §6.2]'s mapping unchanged; **pass 1 (A1-33):** [OS/fs §6.1] lists `CloudOnly`, `IsSymlink`, `IsDirectory`, `OutsideRoot` and `Stale`, with mapping rows in [OS/fs §6.2] | WP-30 |
 | 7 | [OS/README §4.2] says `sync_dir` shares [OS/fs]'s calls; a flush failure must reach `fail_stop` | `sync_dir` returns `DurabilityFailure`; the composites return `RenameFailure` distinguishing "not done" from "done, not durable" (§2.1, §6.3) | WP-17a, WP-30 |
 | 8 | [80 §2.11.1] gives Windows `btime = TunneledNotCopied` without distinguishing ReFS; [F20] makes the NTFS class and ChangeTime-on-rename its holes | NTFS takes HOLE(F20-btime-ntfs) and HOLE(F20-ctime-rename) (§4.3); ReFS reports `absent` until a ReFS measurement shows tunneling and non-copying (a conservative reading: the copy rule then yields at most STRONG) | R-REV-P, WP-14b |
 | 9 | Deleting a read-only project file: [40] does not say whether moirai clears the attribute | as [OS/fs §4.7] (clear, then delete), which gives parity with Unix, where `unlink` ignores the mode; unlike a store file, a project file whose delete fails gets its attribute back, so a failed `file rm` changes nothing (§6.3) | R-REV-A |
@@ -771,7 +825,10 @@ idle and loaded, and records:
 | 15 | PLAN §3.3 assigns "Codex `apply_patch` parity in measurement 15" to WP-17 and WP-55 | §10 item 3 adds the four `apply_patch` operations beside Claude Code's tools; results feed R-14 through WP-81a; without Codex access the rows wait | WP-55 |
 | 16 | Whether `file mv` creates a missing destination parent is not stated in [40 §3.4] | `ProjectFs` has no directory creation in project trees; the verb refuses a missing destination parent unless [F18]/[40] decide otherwise (then a `create_dir` with a `sync_dir` of its parent is added) | WP-14 |
 | 17 | The effective-granularity probe writes only in `<store>/tmp/`, so it measures only the store's volume | other volumes record 0 and use the nominal resolution; their racy threshold is [F20 §5.12.1]'s largest `DIRMAP` mtime (§4.4) | WP-14b |
-| 18 | [F02 §5.3]'s `tmp/` names are `<word>.<nonce>` and do not include `settle.stamp`, which [80 §2.11.3] and [F20 §5.12.1] use | [F02 §5.3] adds the fixed name `settle.stamp` (written by `ProjectFs::touch_stamp`, never mapped or read as store data; the orphan sweep may remove it, and the next settle recreates it) | WP-10 |
+| 18 | [F02 §5.3]'s `tmp/` names are `<word>.<nonce>` and do not include `settle.stamp`, which [80 §2.11.3] and [F20 §5.12.1] use | **closed (pass 1, P1-32, S1-38):** [F02 §5.3] and §6.3 list the fixed name `settle.stamp` (written by `ProjectFs::touch_stamp`, never mapped or read as store data; the orphan sweep may remove it, and the next settle recreates it) | — |
 | 19 | [OS/README §4.2] says project roots are "held as text and root id, not as open directory handles" | true on Windows (§2.2); on Linux and macOS a project `Root` holds an `O_PATH`/`O_DIRECTORY` descriptor for `openat` walks (P10), which blocks no rename there; README §4.2's sentence may name Windows | WP-17a |
 | 20 | [F20 §3.6] takes a path's on-disk spelling from `GetFinalPathNameByHandleW` on Windows, which no listed `ProjectFs` method gave | `disk_spelling` added (§5.3) | WP-30 |
 | 21 | [F01] open point 15 proposes the prefix `OS-` for hole ids in `docs/spec/os/` | adopted: HOLE(OS-pfs-gran-probe-k), HOLE(OS-pfs-gran-probe-budget) | WP-10 |
+| 22 | Pass 1, P1-15: project paths reach NTFS through `\\?\`, which skips Win32 name normalisation, so `:` (alternate streams), reserved characters, device names and trailing dots or spaces were not refused | the Windows name check of §2.3 on every segment before any OS call, `InvalidName`, never relaxed by `--allow-nonportable`; [F20 §4.9] applies `representable_here` before any cascade call and [F18 §4.6] detail 44 renders it | WP-30, WP-63 |
+| 23 | Pass 1, P1-16: a project volume without directory flush failed `file mv` after the rename and blocked intent recovery | the plan step's `sync_dir` and its `no_dir_flush` refusal (§6.2, [API §12.4] step 1, [F19 §10.2]); recovery leaves the intent open with a `doctor` text ([F16] P-71); `VolumeCaps` bit 14 `dir_flush_doubtful` by file-system class (§4.2); FL-2 profiles for both paths (§9) | WP-30, WP-66 |
+| 24 | Pass 1, P1-38: `read_for_hash` checked cloud attributes by path and then opened the file | the attributes are re-read through the handle before the first read (§5.5 step 3, [OS/mapping-appendix §2.1]) | WP-30 |

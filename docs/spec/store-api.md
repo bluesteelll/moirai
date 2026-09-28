@@ -6,7 +6,7 @@
 | Chapter | [API], `docs/spec/store-api.md`; examples in `docs/spec/store-api/examples/*.json` |
 | Status | draft, pass 1 pending |
 | Work package | WP-25 (R-SPEC-F), [PLAN §3.2] item 2 |
-| Sources | [60 §3.1] item 2 and item 9; [60 §4.1]–[60 §4.4] (the model's role, scope, what is out of scope, how engine and model are compared); [60 §3.13] GT2, GT18; [60 §2.5] rows "Store parameters", "Derived-state semantics", "Harness-agnostic interface and pure Rust"; [AR §2.13] (T13: the `Store` API is an M0 deliverable); [AR §2.16] (T16: versioned versus runtime state); [AR §3.1]–[AR §3.6]; [AR §4.5] steps 2–11 (the three-phase write, idempotency order, markers from net ops, the printed result); [AR §4.6] "Not hashed" and "Net changeset = state diff"; [AR §5a.1]–[AR §5a.9]; [AR §5d.1]–[AR §5d.3]; [AR §6.2]–[AR §6.6]; [AR §7.1] (verbs, flags, conventions, exit codes), [AR §7.2] (MCP tools, branch resolution), [AR §7.3], [AR §7.6]; [AR §8.3] row "GT2 differential, runtime tables included"; [50 §3.1], [50 §3.8]–[50 §3.10], [50 §4.2], [50 §4.4]; [90 §4.1]–[90 §4.4], [90 §7.1]–[90 §7.2], [90 §10.1]; [40 §3.2]–[40 §3.7], [40 §8.3.2] (subset consistency); [80 §2.7.1], [80 §2.7.2]; [PLAN §3.2] WP-25 and WP-90, [PLAN §6.2] R4; the delegations of the written chapters: [F05 §8.7] and §9.6 (`Idem.result`), [F06 §4.4.7] (the payload of a verb without a `TX` block), [F06 §5.5] (`pathmove.hlc` under the injected clock), [F08 §5.4.4] (order-key generation), [F11 §8] and its open point 4, [F17 §1.5] SP-1, SP-2 and OP-17-17, [F19 §1.2], §8.2 and its open point 30, [CFG §7.6] and its open point 11, [OS/clock §1], [RULES/status-machines] open point 16 (rows CO-002, CO-003), [RULES/role-write-policy] WS-004, [RULES/pack-classes] `HOLE(pack-digest-param)`; the rules this chapter follows from chapters written after its first draft: [F12 §2.4]–§2.6 (ref-name rules and completion), §3.2 and §3.8 (commit literals and forms), §6.6 (key texts), §9 (staging); [F07 §6.3] (canonical values, defaults absent); [LQ/std §4.15] (the `diff` order) and §7.3 (procedure yields); [LQ/errors §5.7] (code-specific keys); [RULES/role-write-policy] WR-005; [RULES/delete-policy-matrix] DP-003; [OS/clock §7] |
+| Sources | [60 §3.1] item 2 and item 9; [60 §4.1]–[60 §4.4] (the model's role, scope, what is out of scope, how engine and model are compared); [60 §3.13] GT2, GT18; [60 §2.5] rows "Store parameters", "Derived-state semantics", "Harness-agnostic interface and pure Rust"; [AR §2.13] (T13: the `Store` API is an M0 deliverable); [AR §2.16] (T16: versioned versus runtime state); [AR §3.1]–[AR §3.6]; [AR §4.5] steps 2–11 (the three-phase write, idempotency order, markers from net ops, the printed result); [AR §4.6] "Not hashed" and "Net changeset = state diff"; [AR §5a.1]–[AR §5a.9]; [AR §5d.1]–[AR §5d.3]; [AR §6.2]–[AR §6.6]; [AR §7.1] (verbs, flags, conventions, exit codes), [AR §7.2] (MCP tools, branch resolution), [AR §7.3], [AR §7.6]; [AR §8.3] row "GT2 differential, runtime tables included"; [50 §3.1], [50 §3.8]–[50 §3.10], [50 §4.2], [50 §4.4]; [90 §4.1]–[90 §4.4], [90 §7.1]–[90 §7.2], [90 §10.1]; [40 §3.2]–[40 §3.7], [40 §8.3.2] (subset consistency); [80 §2.7.1], [80 §2.7.2]; [PLAN §3.2] WP-25 and WP-90, [PLAN §6.2] R4; the delegations of the written chapters: [F05 §8.7] and §9.6 (`Idem.result`), [F06 §4.4.7] (the payload of a verb without a `TX` block), [F06 §5.5] (`pathmove.hlc` under the injected clock), [F08 §5.4.4] (order-key generation), [F11 §8] and its open point 4, [F17 §1.5] SP-1, SP-2 and OP-17-17, [F19 §1.2], §8.2 and its open point 30, [CFG §7.6] and its open point 11, [OS/clock §1], [RULES/status-machines] open point 16 (rows CO-002, CO-003), [RULES/role-write-policy] WS-004, [RULES/pack-classes] NR-001 (the names of the digest parameter); the rules this chapter follows from chapters written after its first draft: [F12 §2.4]–§2.6 (ref-name rules and completion), §3.2 and §3.8 (commit literals and forms), §6.6 (key texts), §9 (staging); [F07 §6.3] (canonical values, defaults absent); [LQ/std §4.15] (the `diff` order) and §7.3 (procedure yields); [LQ/errors §5.7] (code-specific keys); [RULES/role-write-policy] WR-005; [RULES/delete-policy-matrix] DP-003; [OS/clock §7] |
 | Depends on | [F01], [F02], [F05], [F06], [F08]; cites [F03], [F04], [F07], [F11], [F12], [F13], [F14], [F16], [F17], [F18], [F19], [F20], [CFG], [OS/clock], [OS/proc], [OS/path], [LQ/envelope], [LQ/errors], [LQ/std], [LQ/canonical-ast], [LQ/json-ir], [RULES/state-definition], [RULES/status-machines], [RULES/role-write-policy], [RULES/delete-policy-matrix], [RULES/merge-table], [RULES/link-merge-rules], [RULES/pack-classes] |
 
 ## 1. Scope
@@ -333,14 +333,16 @@ A move with `move_lease` succeeds with the warning the verb prints ([AR §5a.4])
 
 ### 5.2 Typed values
 
-The closed value set of [F06 §5.1] and [F08 §5.1]. Tag numbers never appear in JSON: a value's type is its field's.
+The closed value set of [F08 §5.1], the one stored registry, which [F06 §5.1] cites (pass 1, P1-1). Type bytes never appear in
+JSON: a value's type is its field's. An empty text, an empty set and an empty `oid` are absent (`null`) here as in the store
+([F08 §5.3]).
 
 | Type | In arguments and results | In `state(ref)` (§15) |
 |---|---|---|
 | bool | `true`, `false` | same |
 | int | integer (§5.1) | same |
 | counter | integer: the total; an increment carries a delta (§9.2 `incr`) | the total |
-| f64 | JSON number in the shortest round-trip form with a `.` or an exponent ([LQ/envelope §5.2]); NaN and infinities are refused (`bad_value`), −0.0 is +0.0 ([F06 §5.2]) | same |
+| f64 | JSON number in the shortest round-trip form with a `.` or an exponent ([LQ/envelope §5.2]); NaN and infinities are refused (`bad_value`), −0.0 is +0.0 ([F08 §5.3]) | same |
 | enum | the value's name; for `priority` also `"P0"`–`"P4"` and 0–4 in arguments ([50 §3.2]); results give `priority` as an integer | name; `priority` integer |
 | text (both stored forms, [F08 §5.1]) | string | same |
 | set | array; in arguments any order, a duplicate element is `bad_value`; in results in the order of §5.5 | array in §5.5's order |
@@ -503,17 +505,22 @@ model use this section. Environment commands take no `ctx`, are never keyed and 
   take a value are the **semantic durable records** a command of this API writes: `Commit` (a local commit's `hlc`, which is
   also its `append_hlc`, [F06 §4.4.4]; an imported commit keeps its own `hlc` and takes only its `append_hlc`),
   `RefUpdate`, `ClientHead`, `Lease`, `Marker` (one value per record, carried by each entry), `Idem`, `Backup`, `FsIntent`,
-  `FsIntentDone` and `FsIntentAborted` ([F05 §9]). A record of another kind that has an HLC field — `Checkpoint`, `Lazy`,
-  `SessionMark`, the lazy runtime rows — carries `hlc_next(wall_ms, h)` for the current h but does not advance the sequence,
-  and no result, snapshot or digest of this chapter shows its value. So class-I maintenance changes no HLC and no commit id
-  ([F17 §1.5] SP-1), and a lazy record lost in a crash changes none either. This departs from [F16] P-36, which advances
-  one HLC over every "HLC at append" field of [F05 §9] (open point 39).
+  `FsIntentDone` and `FsIntentAborted` ([F05 §9]). A record of another kind that has an HLC field — `Checkpoint`, `Reserve`,
+  `Lazy`, `SessionMark`, the lazy runtime rows — carries `hlc_next(wall_ms, h)` for the current h but does not advance the
+  sequence, and no result, snapshot or digest of this chapter shows its value. So class-I maintenance changes no HLC and no
+  commit id ([F17 §1.5] SP-1), and a lazy record lost in a crash changes none either. `append_hlc` stays strictly increasing
+  in `seq` order (I43′). This is the rule of record, and [F16] P-36 and [OS/clock §7] state the same (pass 1, S1-13, P1-5,
+  A1-17): the engine keeps the sequence's maximum as `HEAD.hlc_seq` and the greatest commit `hlc` as `HEAD.hlc_commit`
+  ([F04 §5.15]); a local commit draws from the larger of the two (open point 39).
 - **CK-5 (`pathmove.hlc`).** A `path_moves` entry that a command adds carries the `hlc` of the first commit the command
   appends. This is the value "the writer's HLC when the candidate was computed" of [F06 §5.5] under a clock that is constant
   within the command; a re-parent never changes it.
 - **CK-6 (windows).** A retention window measures `now_ms − (t >> 16)`, with t the HLC value of the record that opens it
   (a commit's `append_hlc`, a record's `hlc`) and `now_ms` = max(`wall_ms`, h >> 16), h the greatest value of CK-4's sequence
-  and of any commit's `hlc` ([OS/clock §6], [F17 §1.6]).
+  and of any commit's `hlc` ([OS/clock §6], [F17 §1.6]). h never restarts: the engine keeps it as `HEAD.hlc_seq` and
+  `hlc_commit` ([F04 §5.15]) and carries both across an epoch re-roll in the epoch-start extent head ([F05 §9.28],
+  [F16] P-75; pass 1, P1-8, P1-44), so a window never opens early on a machine whose clock is behind. The model's stream
+  has no epochs and keeps h throughout.
 - **CK-7 (wall now).** `defer_until ≤ now()` and the other wall-clock tests of `ready` use `floor(wall_ms / 1000)` seconds
   ([RULES/state-definition] PD-016).
 
@@ -549,7 +556,9 @@ another principal or a sandbox).
 
 The `seed` argument of `Init` (§8.1) is the stream's entropy. The store id (§17.3) and every random uid (§17.4) derive from it;
 nothing else visible is random. Engine-internal random values (the epoch, the `tmp/` nonces, [F02 §5.3], [F04]) are never
-compared.
+compared. In a production process every one of these values comes from the seam `Entropy::fill_random` ([OS/README §4.6]); the
+engine under this API draws the store id and random uids from the seed by §17.3 and §17.4 instead, through the seam's
+simulator (pass 1, P1-14).
 
 ### 6.5 Simulated project trees: `EnvTree`
 
@@ -611,9 +620,15 @@ tree gate of [40 §5.2].
   state is unchanged, and the engine must equal it after recovery.
 - **`in-next`.** The next write command is interrupted at a point the engine's harness chooses. Its result is the error
   envelope with `outcome_unknown` (exit 7, [F19 §10.2]). After recovery the store equals either the state with that command
-  applied or the state without it ([60 §4.4] item 4). The model keeps both candidates and adopts the one the engine's next
-  `State` and `Runtime` snapshots show; an acknowledged commit is never missing, and a retry with the same key converges
-  (I14′). A write that was not applied leaves no marker, lease or idempotency entry (I27′).
+  applied or the state without it ([60 §4.4] item 4). For a command of the bulk class (§9.10) the state without it has a
+  second form: the command's durable reservation ([F05 §9.27], [F16] P-84) survived without its commit, so `next_id` and
+  `next_anchor` stand where the applied candidate leaves them and the reserved `#N`s and `aN`s are skipped for good
+  ([F11 §9.1]); nothing else of the command is applied. Of §15.7's `counters` a `Reserve` fold moves only these two
+  ([F05 §10.2]; the file numbers and schema ids it also reserves are not in the snapshot): `commit_seq`, `fence` and
+  `next_ref_id` stand where the state without the command leaves them. The model keeps these candidates (two, or
+  three for a bulk-class command) and adopts the one the engine's next `State` and `Runtime` snapshots show; an
+  acknowledged commit is never missing, and a retry with the same key converges (I14′). A write that was not applied leaves
+  no marker, lease or idempotency entry (I27′).
 
 **Result** (family X): `data` = `{"at":<value>}`.
 
@@ -703,8 +718,11 @@ commit); no commit; `next_id` = 1, `next_anchor` = 1, `fence` = 0, `commit_seq` 
 [F08 §9] and no schema item; every runtime table empty. The first commit that lands on `main` is the store's root commit
 ([F06 §3.3]). [F16] fixes the groups `init` writes and their order ([F04 §10], [F02 §5.5]).
 
-**Refusals.** An unknown key, a user-scope key or an invalid value: `config_key` or `config_value`, exit 2 ([CFG §7.6]). A second
-`Init` in one stream: `usage`, exit 2.
+**Refusals.** An unknown key, a user-scope key or an invalid value: `config_key` or `config_value`, exit 2 ([CFG §7.6]). A set of
+values that fails a constraint of [F17 §3] (C-1–C-4) with the defaults of the other keys, for example a 64 KiB extent with the
+default 1 MiB inline bound: `config_value` naming the constraint, exit 2, nothing created ([CFG §7.6]; pass 1, P1-12). A test
+stream therefore passes the whole test profile, or at least `store.commit.inline-max-bytes=4KiB` with a small extent (examples
+01 and 02). A second `Init` in one stream: `usage`, exit 2.
 
 **Result.** `branch` = `"main"`, `rev` = 0; `data` = `{"store_id":<32 hex>,"main_ref_id":0,"schema_version":1,"init":{<init-fixed
 key>:<int>…},"config":{<key>:<value>…}}`: `init` holds the three init-fixed values ([F17 §2.1]) in bytes or counts, always
@@ -807,14 +825,14 @@ writes nothing. A block whose net changeset is empty and that emits no runtime r
 | a derived, runtime or tree-derived property; an artifact observation field, identity field or status; `CREATE (:artifact …)`; a created `AT` edge; an edge property | E115, naming the verb that writes it | 2 |
 | a value outside its field's shape (record list, range, NaN, one-line text) | `bad_value` | 2 |
 | a node id never allocated, a uid this store does not know | E111 | 2 |
-| a literal target that is not live on the view (a tombstone, a node of another branch) | `not_found` with `what` = `node` and `value` = the id, the tombstone line (N01's text) or N06's text as its `detail` ([AR §5d.3] L3, [RULES/delete-policy-matrix] DP-003, [50 §3.6]) (open point 5) | 3 |
+| a literal target that is not live on the view (a tombstone, a node of another branch) | `not_found` with `what` = `node` and `value` = the id, the tombstone line (N01's text) or N06's text as its `detail` ([AR §5d.3] L3, [RULES/delete-policy-matrix] DP-003, [50 §3.6]); [F19 §10.2]'s case `node <id> is not live on <ref>` (open point 5) | 3 |
 | a guard: `EXPECT`, `if_rev`, `if_status`, `if_holder`; `IF TIP`; `IF TARGETS` | E401; E402 | 4 |
 | a stale fencing token | E407 | 5 |
 | the role write policy ([RULES/role-write-policy]) | E406 | 6 |
 | a transition or a guard of [RULES/status-machines] (a gating `fail_*` verdict, an unfinished child, a missing `answers` edge, …) | E404 | 6 |
 | an invariant of [F13 §3] or a deferred validator (I2, I4, I5′, I6, I7, I11, `QueryInvalid`, `QueryCycle`) | E405 | 6 |
 | a second live holder of an (root, exact path) key (I-F1) | `path_claimed` | 6 |
-| a restricted delete; a live lease without `release` (I32′) | E409 | 6 |
+| a restricted delete; a live lease without `release` (I32′); a `replaced_by` that is not live, lies in the deleted set or does not fit a re-pointed edge ([RULES/delete-policy-matrix] DP-005 to DP-007; each case's text is [LQ/errors §5.5]'s) | E409 | 6 |
 | `UNLESS EXISTS` matching more than one node | E410 | 6 |
 | a free-form block under the `unknown` model profile ([90 §8.1] L2) | E411 | 6 |
 | a read-only view (§4.3 row 7) | E305 | 6 |
@@ -988,7 +1006,9 @@ on the branch must conform to the new effective schema (I11). **Refusals.** A no
 The commands whose commits may be bulk commits ([F17 §4.4] W1, [AR §4.3]): `Merge`, `MergeContinue`, `Sync`, `Revert`,
 `CherryPick`, `Migrate`, `Mutation` `tx.rm` with `policy` = `cascade` through `ctx.door` = `cli`, `FileMv` of a directory,
 `ImageImport` (open point 19). A bulk and an inline commit of one changeset are identical to every observer of this API
-(class I). Every other write command is an agent verb: above the inline bound it refuses with E501 (Rs, §16.4).
+(class I): the reservation of a bulk commit ([F05 §9.27]) allocates the ids the inline commit would, in §9.6's order. Only a
+bulk-class command that ends before its commit lands can leave a trace, its skipped ids (§6.7, §16.4; pass 1, P1-3). Every
+other write command is an agent verb: above the inline bound it refuses with E501 (Rs, §16.4).
 
 ## 10. Coordination commands (group C)
 
@@ -1138,10 +1158,13 @@ Both are family W with `branch` = the resolved branch. Rights: [RULES/role-write
 
 ### 10.8 Markers in results
 
-Every write result lists the markers its commits emitted ([F13 §4.2] MC-1, MC-5; [F05 §9.5]) as
-`{"kind":"settled"|"deleted"|"cleared","id":"#N","ref":<ref name>,"commit":<commit>,"outcome":<name or null>,"cause":"ops"|"undo"|"op-restore"|"branch-delete"}`,
-ordered by §5.5. Family T carries them in `markers` ([LQ/envelope §7.7], which gives `kind`, `id`, `ref`; the other members are
-additive); family W in `data.markers`.
+Every write result lists the `settled`, `deleted` and `cleared` entries its commits and ref moves wrote ([F13 §4.2] MC-1,
+MC-5; [F05 §9.5] `mkind` 1 to 3) as
+`{"kind":"settled"|"deleted"|"cleared","id":"#N","ref":<ref name>,"commit":<commit>,"outcome":<name or null>,"cause":"ops"|"undo"|"op-restore"|"branch-delete"|"fork"}`,
+ordered by §5.5, where `ref` and `commit` name the marker's origin ([F11 §7]). Family T carries the listed entries in
+`markers` ([LQ/envelope §7.7], which gives `kind`, `id`, `ref`; the other members are additive); family W in
+`data.markers`. The holder-set and `nonlinear` entries (`mkind` 4 and 5) are cache bookkeeping and are not listed; the
+runtime snapshot shows their effect (§15.7).
 
 ## 11. Version-control commands (group V)
 
@@ -1177,8 +1200,9 @@ pin is engine-internal. No commit. **Refusals.** The rules RN-1 to RN-8 of [F12 
 
 Arguments `name` (required) and `force` (bool, `-D`). **Effect** ([AR §5a.9], [F13 §4.2] MC-5, [RULES/state-definition]
 LE-008): a `RefUpdate` (reason 2) with the `RefTable` entry marked deleted; every live lease on the branch released (`Lease`
-event 2, reason 5); the ref's pins released (engine-internal); with `force`, the markers the branch still held unabsorbed are
-re-attributed to a live ref that contains their commit or cleared (`Marker` records, cause 4); each with a triage line.
+event 2, reason 5); the ref's pins released (engine-internal); the branch leaves the holder set of every marker it held
+([RULES/state-definition] ME-005, for `-d` and `-D` alike): a marker another live work ref still holds stays active at its
+origin, and one left with no holder is cleared (`Marker` records, cause 4), each `cleared` with a triage line.
 **Refusals.** Without `force`, a branch whose tip `main` has not absorbed: `not_merged`, exit 6 (open point 20); `main`, a
 staging ref (use `MergeAbort`), an `import/*` or an `orphans/*` ref ([F12 §2.6]): `usage`, exit 2; a name no live ref holds:
 E301, exit 3. **Result.**
@@ -1198,9 +1222,9 @@ Arguments `target` (a revision, required) and `branch_new` (a ref name). **Key**
 ### 11.4 `WorktreeBind`, `WorktreeUnbind`
 
 `WorktreeBind` takes `dir` (absolute path), `ref` and `replace` (bool); `WorktreeUnbind` takes `dir`. **Effect**: [F18 §3.5]'s
-table and checks: a `ClientHead` record of key kind `directory` with the `binding` flag, `designated` when `dir` is a tree, and
-the expected git ref and base from the tree's simulated git state (§6.6); with `replace`, the displaced row is rewritten in the
-same group. **Refusals.** The I-F12 checks: `binding_conflict`, exit 5; a designation of a directory that is not a tree is not
+table and checks: a `ClientHead` record setting a `HEADS` row of kind `directory` ([F11 §5]) whose `BindingExt` is
+`designated` when `dir` is a tree and carries the expected git ref and base from the tree's simulated git state (§6.6); with
+`replace`, the displaced row is rewritten in the same group. **Refusals.** The I-F12 checks: `binding_conflict`, exit 5; a designation of a directory that is not a tree is not
 refused: the result carries the warning `not_a_tree` ([F19 §10.4]). **Result.** `data` = `{"dir":…,"ref":…,"designated":<bool>,
 "expected_ref":<text or null>,"base":<git id or null>,"replaced":[{"dir":…,"ref":…}…]}`; `WorktreeUnbind` `{"dir":…,
 "removed":<bool>}`.
@@ -1306,8 +1330,9 @@ a dependent set ([AR §5a.5]): `revert_refused`, exit 6, listing the dependents 
 
 `Undo` takes `ref` (default the resolved branch), `n` (default 1) and `expect` (a commit). **Effect** ([AR §5a.5]): a
 `RefUpdate` (reason 3) moving the ref back to its value n moves ago, with its recomputed absorbed vector and `moves_back` = n;
-the markers of the moved range recomputed (MC-5): `cleared` for every completion or deletion that leaves the ref's history,
-re-emitted `settled`/`deleted` for every one that re-enters it while the state still holds, each with a triage line. `expect`
+the markers recomputed for every node whose hold differs between the old and the new tip (MC-5; [RULES/state-definition]
+ME-006): the ref leaves the holder set of a hold it no longer has (`cleared` when no holder remains) and joins, or re-emits,
+the marker of a hold it has again, each `settled`, `deleted` or `cleared` entry with a triage line. `expect`
 absent means no check (open point 24). **Refusals.** `expect` differs from the tip: E402, exit 4; fewer than n moves: E301, exit
 3. **Result.** `data` = `{"ref":…,"old":<commit>,"new":<commit or null>,"moved_back":<int>,"markers":[…],"triage":[<text>…]}`.
 
@@ -1365,8 +1390,11 @@ back to its path; an item removed without `trash` has no bytes to restore and en
 [40 §3.4]–§3.6 at the logical level:
 
 1. **Plan.** The tree must be the writer tree of the caller's branch (`not_writer_tree`, exit 5); sources exist; the destination
-   does not; one volume (`cross_volume`, exit 7); an alias source is accepted only when the tree is fresh for the node (open point
-   20: `not_fresh`, exit 6); affected nodes by path and aliases; affected globs by literal prefix. `FileRm` without `yes` stops
+   does not; one volume (`cross_volume`, exit 7); an alias source is accepted only when the tree is fresh for the node
+   (`not_fresh`, exit 6, [F19 §10.2]); both parent directories can be flushed: the plan calls `sync_dir` on the source and
+   destination parents before the `FsIntent` group, and `Unsupported` or `AccessDenied` refuses with `no_dir_flush`, exit 7,
+   before anything changes ([OS/project §6.2]; pass 1, P1-16; in the simulated tree, the `caps` of §6.5 say whether a directory
+   flush is supported); affected nodes by path and aliases; affected globs by literal prefix. `FileRm` without `yes` stops
    here and returns the impact as a dry run (exit 0).
 2. **Intent.** An `FsIntent` record in its own group; the command's intent slot (SL-3).
 3. **File system.** The rename or deletion in the simulated tree (§6.5); `trash` moves into `trash/<intent>/<i>` ([F02 §5.4]).
@@ -1376,7 +1404,7 @@ back to its path; an item removed without `trash` has no bytes to restore and en
    and rewrites globs; `FileRm` sets status `removed` with `reason` and `replaced_by` and re-points anchors ([40 §3.5] step 3);
    `FsIntentDone` is in the same group. Each node is guarded on its `rev_seq`. `stmt_origin` `file-verb`, `stmt_sym` `mv`,
    `rm`, or `revert` (open point 27).
-5. **Several items.** Items that fail are reported and the rest commit; the command exits 8 ([40 §3.4]).
+5. **Several items.** Items that fail are reported and the rest commit; the command exits 8 ([40 §3.4], [F19 §7.1]).
 6. **Crash.** With `EnvCrash` `in-next`, recovery follows [40 §3.4]'s table (roll forward after the re-barrier, abort,
    `ambiguous`, `missing`); the model decides it from the simulated tree.
 
@@ -1559,13 +1587,13 @@ snapshot on a mismatch ([60 §4.4] item 2).
 |---|---|
 | `counters` | `{"commit_seq":…,"next_id":…,"next_anchor":…,"fence":…,"next_ref_id":…}` ([F04]) |
 | `refs` | per ref, by `ref_id`: `{"ref_id":…,"name":…,"kind":…,"deleted":<bool>,"tip":<commit or null>,"tip_seq":<int or null>,"ref_seq_next":…,"fork":<commit or null>,"absorbed":{<ref name>:<ref_seq>…},"message":<text or null>,"pinned":<bool>}` ([F11 §3]) |
-| `moves` | the ref moves that no commit carries, by the order they happened: `{"ref":…,"reason":"create"\|"delete"\|"undo"\|"op-restore","old":…,"new":…,"actor":…,"hlc":<string>}` ([F05 §9.2]) |
+| `moves` | the ref moves that no commit carries, by the order they happened: `{"ref":…,"reason":"create"\|"delete"\|"undo"\|"op-restore"\|"park","old":…,"new":…,"actor":…,"hlc":<string>}` ([F05 §9.2]; `park` is the move of `orphans/<R>` to a commit whose ref CAS failed, reason 5, which the first appender whose scan meets it writes, [F16] P-70, [F12 §8.2]) |
 | `leases` | every lease that has not ended, by (`#N`, lease id): `{"lease":"L-n","task":<"#N" or null>,"kind":"task"\|"role","role":…,"holder":…,"branch":…,"run":<name or null>,"token":…,"run_scoped":<bool>,"session_role":<bool>,"ttl_ms":…,"expires":<deadline>,"claimed_hlc":<string>,"anchor":{"kind":…,"session":<32 hex or null>},"bound":<32 hex or null>,"root_session":<32 hex or null>,"files_owned":[…],"live":"alive"\|"dead"\|"unknown"\|"deadline"}`; `live` is `lease-live` of [RULES/state-definition] at the current environment, `deadline` meaning not live only because its deadline passed ([RULES/state-definition] LE-009) |
-| `markers` | every marker, by §5.5: `{"kind":…,"id":"#N","ref":…,"commit":…,"outcome":<name or null>,"origin":"op"\|"undo"\|"op-restore"\|"reattributed"\|"branch-delete","ref_seq":…,"actor":…,"orig_ref":…,"seq":…,"hlc":<string>,"active_on":[<ref>…]}` ([F11 §7]); `active_on` lists the live refs on which MC-4 makes it active |
+| `markers` | every marker, by §5.5: `{"kind":…,"id":"#N","ref":<origin ref name>,"commit":<origin commit>,"outcome":<name or null>,"cause":"ops"\|"undo"\|"op-restore"\|"branch-delete"\|"fork","ref_seq":…,"actor":<name or null>,"seq":…,"hlc":<string>,"nonlinear":<bool>,"holders":[<ref>…],"active_on":[<ref>…]}` ([F11 §7]); `actor` is null where the row's `actor` is 0, that is on every entry but the `settled` one whose `complete` presented a lease ([F05 §9.5] field 9); `holders` are the live work refs that hold its origin, and `active_on` lists the live refs that have not absorbed it while it is active ([F13 §4.2] MC-4) |
 | `exclusions` | every pair of a live ref R and a task `#N` with `excluded(R, #N)` of [F13 §4.1], by (ref name, `#N`): `{"ref":…,"id":"#N","held_on":[<ref>…]}`; the engine computes it from the marker cache, the model from the definition (MC-7, GT18) |
 | `idem` | every entry within its retention window, by key: `{"key":<32 hex>,"payload":<32 hex>,"branch":…,"commit":<commit or null>,"default_key":<bool>,"append_hlc":<string>}` ([F11 §8]) |
 | `heads` | every client head and binding, by (kind, key text): `{"kind":"directory"\|"client"\|"session","key":<text>,"ref":<name or null>,"commit":<commit or null>,"binding":<bool>,"designated":<bool>,"expected_ref":<text or null>,"base":<git id or null>}` ([F11 §5], [F18 §3]) |
-| `alloc` | every allocated `#N`: `{"id":"#N","uid":…,"ref":<name>,"create_seq":…}` ([F11 §9]) |
+| `alloc` | every allocated `#N` that is bound to a uid: `{"id":"#N","uid":…,"ref":<name>,"create_seq":…}` ([F11 §9]); a skipped id (an `ALLOC` hole, [F11 §9.1]) is not listed, and `counters.next_id` counts it |
 | `intents` | every `FsIntent` of the last `gc.trash-expire` window: `{"intent":"i-n","op":…,"items":[…],"state":"open"\|"done"\|"aborted","outcomes":[…]}` ([F11 §12.7]) |
 | `quiet` | bool |
 | `digest` | `BLAKE3-256( lp("moirai-api-runtime-v1") ‖ lp(CJ(<this object without digest>)) )`, 64 hex |
@@ -1632,7 +1660,9 @@ A member this chapter does not define is a comparison failure, except the additi
 When the engine's outcome is a resource-class refusal — E501 from `wmem` or from the inline bound of an agent verb
 ([F17 §4.4] W1, W2, W4), E502, E503, E504, `store_locked`, `outcome_pending`, `disk_full`, `fs_busy`, `durability_failure`,
 `store_io_fault` — or `outcome_unknown` under `EnvCrash`, the command is not compared: the model applies nothing (for
-`EnvCrash`, it adopts the candidate of §6.7), and the harness counts such commands per run ([F17 §1.5] SP-2). A refusal from a
+`EnvCrash`, it adopts the candidate of §6.7; for a refused bulk-class command, it adopts the one of "nothing" and "nothing
+but the command's reservation" of §6.7 that the engine's next `Runtime` snapshot shows), and the harness counts such
+commands per run ([F17 §1.5] SP-2). A refusal from a
 deterministic cap (`tx.max-statements`, `tx.max-ops`) is compared.
 
 ### 16.5 Subset consistency for tree-derived answers
@@ -1644,9 +1674,9 @@ then applies exactly the engine's commit, so the streams stay in lock step.
 
 ### 16.6 Orders the engine chooses
 
-A result whose order uses `topo` (for example `std.ready`, whose order is `priority, topo, id`, [LQ/std §4.1]) is compared with
-the rows that agree on every order key before `topo` taken as a set, and each side's order checked to be a valid topological
-order ([F13 §6.2]: only `topo`'s validity is semantic) (open point 11).
+A result whose order uses `topo` is compared with the rows that agree on every order key before `topo` taken as a set, and
+each side's order checked to be a valid topological order ([F13 §6.2]: only `topo`'s validity is semantic) (open point 11).
+`std.ready` no longer orders by `topo` ([LQ/std §4.1], `priority, id`; pass 1, A1-38), so its pages compare exactly.
 
 ### 16.7 Class-I invariance
 
@@ -1868,23 +1898,24 @@ No other [60 §2.5] row, R-item, F-item or X-F item is specified here: this chap
 
 ## Holes
 
-None. No value of this chapter is decided by an M0 measurement or benchmark. `HOLE(pack-digest-param)` of [RULES/pack-classes]
-is a naming decision, not a measurement; it is decided here (open point 29).
+None. No value of this chapter is decided by an M0 measurement or benchmark. The names of [RULES/pack-classes]' digest
+parameter (NR-001), first written there as a hole, are a naming decision, not a measurement; they are decided here (open
+point 29).
 
 ## Open points for the review
 
 1. **The JSON form of commit ids (conflict between spec files).** The A1 dispositions record A-m7 as "fixed (varied)": JSON
-   carries `c` + 64 lower-case hex. [LQ/envelope §7.3], [LQ/errors §5.7] and [F12 §3.8] follow that; [F19 §8.3] and its open
-   point 24 write "64 hexadecimal digits without the `c` prefix", the finding's original proposal. This chapter follows the
-   dispositions (§5.1). [F19 §8.3] should be corrected by WP-18's owner. Commit literals in arguments are [F12 §3.2]'s (7 to 64
-   digits), not the 4-digit minimum an earlier draft of §5.1 had.
+   carries `c` + 64 lower-case hex. [LQ/envelope §7.3], [LQ/errors §5.7] and [F12 §3.8] follow that, and this chapter
+   follows the dispositions (§5.1). **Closed** (pass 1, S1-17, A1-16): [F19 §8.3] and its open point 24 now write `c` + 64
+   lower-case hex digits too. Commit literals in arguments are [F12 §3.2]'s (7 to 64 digits), not the 4-digit minimum an
+   earlier draft of §5.1 had.
 2. **What this chapter closes.** [PLAN §3.3] assigns WP-25 no gap. The delegations of the written chapters are closed here: the
    `Idem.result` bytes ([F05 §8.7], §9.6) in §17.1; the payload of a verb that compiles to no `TX` block ([F06 §4.4.7]) in §7.3;
    `pathmove.hlc` under the injected clock ([F06 §5.5]) in CK-5; the order-key generation ([F08 §5.4.4]) in §17.2; the displayed
    run name ([F11] open point 4, [F19] open point 30): a run is named by its node's `title` (§10.6 LP-5, §10.7); the Store API form
    of `init --set` ([CFG] open point 11): `Init.params`, and `ConfigSet`/`ConfigUnset` between commands (§8.1, §8.2); `gc` as a
    GT2 command ([F17] OP-17-17): confirmed (§8.5); the `complete` outcomes ([RULES/role-write-policy] WS-004,
-   [RULES/status-machines] CO-002, CO-003): point 13; `HOLE(pack-digest-param)`: point 29.
+   [RULES/status-machines] CO-002, CO-003): point 13; the digest parameter's names ([RULES/pack-classes] NR-001): point 29.
 3. **Family T readings** (§3.3). [LQ/envelope §7.7] does not say what `commit` holds for a write, a `DRY` or a replay; §3.3 reads
    it as the created commit, else the tip read, else the original. The appended key `yields` and the marker members `commit`,
    `outcome` and `cause` (§10.8) are additive under [F19 §8.4]. WP-19 folds them into [LQ/envelope §7.7], or states other forms
@@ -1898,7 +1929,7 @@ is a naming decision, not a measurement; it is decided here (open point 29).
    error code carries it yet: [F19 §10.2]'s `not_found` excludes LQ node ids and [LQ/errors] has no exit-3 write code. This
    chapter uses `not_found` with `what` = `node` and N01's or N06's text as the detail; WP-18 extends `not_found`'s `<what>`
    list, or WP-19 assigns an LQ code at exit 3, and this chapter then cites it. An earlier draft read the case as E401 (exit 4),
-   which contradicts both sources.
+   which contradicts both sources. **Pass 1 (A1-39): closed** by [F19 §10.2]'s `not_found` case for a node that is not live.
 6. **The session's checkout in branch resolution** (§4.2 CX-2). [AR §5a.4] and [AR §7.2] say that unresolved MCP reads use the
    session's checkout; [90 §4.1]'s Branch row does not list it. It is placed before the `default-branch` key and used by
    `ctx.door` = `mcp` only.
@@ -1921,7 +1952,8 @@ is a naming decision, not a measurement; it is decided here (open point 29).
     exists (a ready task has no open blocker, is no container and has no ancestor with an open exogenous blocker), so any
     topological order is valid and `topo` only breaks ties arbitrarily between implementations. `Claim.next` therefore picks by
     (`priority`, `#N`), and the comparison treats `topo` ties as sets. Proposal for WP-19: replace `t.topo` in `std.ready`'s order
-    by `t.id`.
+    by `t.id`. **Pass 1 (A1-38): adopted** in [LQ/std §4.1]; §16.6 keeps the set rule for other `topo` orders. The change of
+    [50 §4.1]'s text awaits the owner (OQ-F-2 of `reviews/owner-questions.md`).
 12. **`claim` of a task that is not ready** is E404 (exit 6) with the failing clause (§10.1). [LQ/errors] adds the case text.
 13. **`complete --outcome failed|abandoned`** ([RULES/status-machines] CO-002, CO-003; [RULES/role-write-policy] WS-004).
     Confirmed: every outcome writes status `done` ([AR §6.2]: "writes `done` on the lease's branch"; [50 §4.2]), so a failed task
@@ -1929,6 +1961,7 @@ is a naming decision, not a measurement; it is decided here (open point 29).
     `wontdo`), which [F11] open point 1 expects, and in the `settled` marker's `outcome` byte ([F05 §9.5]). Conflict: [LQ/std §7.3]
     says `failed` and `abandoned` "release the lease without the transition"; [AR] wins ([F01 §2.4] rule 2), and WP-19 aligns
     [LQ/std §7.3]. The alternative (release without the transition) would leave a failed task `in_progress` and re-dispatchable.
+    **Pass 1 (A1-36):** [LQ/std §7.3] is aligned.
 14. **`complete`'s summary and evidence** (§10.5) become the commit message; the design names both flags but no carrier. The
     evidence line keeps the message one normalised text ([F07]) and adds no field.
 15. **Run nodes** (§10.6, §10.7). [90 §7.1] has the run record its harness and model, which CX-6 reads; [F08 §9.3]'s `run` kind has
@@ -1949,7 +1982,8 @@ is a naming decision, not a measurement; it is decided here (open point 29).
     a dependent set, [AR §5a.5]), `not_fresh` (exit 6: a `file mv` of an alias source the tree is not fresh for, [40 §3.4]), and
     `not_found`'s `what` = `node` (point 5). Ref and tag names use [F12]'s proposed codes instead (its open point 16:
     `bad_ref_name`, `ref_exists`, `ref_prefix`, all exit 2; an earlier draft of this chapter used `bad_value` and `name_taken`,
-    exit 6, for them). WP-18 adds them to [F19 §10.2] and §7.3, or maps each onto an existing code.
+    exit 6, for them). WP-18 adds them to [F19 §10.2] and §7.3, or maps each onto an existing code. **Pass 1 (A1-39): closed**;
+    [F19 §10.2] has every one of them with its text and exit code.
 21. **`rev`, `created`, `updated`** (§15.4) are defined over the first-parent chain, which gives "after a merge, the merge
     commit's seq" ([AR §3.1]) and, for a `sync`, the sync commit's seq for the nodes `main`'s window changed. WP-13 and M2 confirm
     that the engine's by-reference expansion of sync windows sets the same values.
@@ -1966,20 +2000,22 @@ is a naming decision, not a measurement; it is decided here (open point 29).
 27. **`file revert`'s `stmt_sym`** is `revert`; [F06 §3.4] lists the file-verb words `mv`, `rm`, `add` and should add it.
 28. **An empty `TX`** (§9.1): a block whose net changeset is empty and that emits no runtime record appends nothing, so no commit
     has an empty changeset; `TX { REOPEN t; SET t.done = true }` still commits its `reopen_count` increment ([F06 §7.8] NF-10).
-29. **`HOLE(pack-digest-param)`** ([RULES/pack-classes]) is decided with its candidates: the CLI flag `--pack-digest`, the MCP
+29. **The digest parameter's names** ([RULES/pack-classes] NR-001, first written there as a hole) are decided with its candidates: the CLI flag `--pack-digest`, the MCP
     `complete` parameter `pack_digest`, and the `result.v1` field `pack_digest` (additive, `string` or `null`). The API argument is
-    `Complete.pack_digest` (§10.5). R-MODEL records the value in the table.
+    `Complete.pack_digest` (§10.5). R-MODEL has written the values into the table (review pass 1, S1-40).
 30. **[F06 §11]'s example message** `claim --start` is illustrative: `Claim` with `start` writes an empty message (§9.1).
 31. **Conflicted keys in `state(ref)`** (§15.3): the key's own member holds the provisional value the node's row holds while
     the conflict stands, which is [F12]'s and [RULES/merge-table]'s; the conflict itself is listed under `conflicts`.
 32. **Two layouts of one anchor record.** [F06 §7.5.3] and [F08 §10.3] both lay out the anchor record, with different member sets
     and enumeration numbers (`akind` 0–5 against `kind` 1–6). The API names members and values by name and is unaffected; the
-    review settles one owner ([F06] open point 15, [F08] open point 37).
+    review settles one owner ([F06] open point 15, [F08] open point 37). **Pass 1 (P1-1, S1-3, A1-2): closed**: [F08 §10.3].
 33. **Two value-tag registries.** [F06 §5.1] (tags 0–14, `absent`, `false`, `true` as tags) and [F08 §5.1] (type ids 1–13 with the
     bool in bit 7) number the closed type set differently. The API's JSON is by type and unaffected; the review settles one.
+    **Pass 1 (P1-1, S1-1, A1-1): closed**: [F08 §5.1] is the one registry.
 34. **The marker's `outcome`.** [F05 §9.5] carries `complete --outcome` in the `Marker` record, and [F11 §7]'s row keeps only the
     status (`done`/`cancelled`). The runtime snapshot (§15.7) shows the record's `outcome` for `settled` markers; [F11] should keep
-    it in the row, or the snapshot shows the status only.
+    it in the row, or the snapshot shows the status only. **Closed in pass 1, round 1 (A1-6):** [F11 §7] stores it at byte 36
+    (`outcome`: 0 none, 1 `done`, 2 `failed`, 3 `abandoned`), beside `status` at byte 25; §15.7's `outcome` is that byte by name.
 35. **Runtime-snapshot scope** (§15.7). The R4 evidence tables are excluded from the runtime digest because their answers are
     compared by subset consistency (§16.5); `intents` are included because `FsIntent` outcomes are durable facts ([AR §6.5]).
 36. **Procedure yields** (§3.3, §10). [LQ/std §7.3] gives `tx.claim` the yields `lease, token, branch, expires` and
@@ -1987,14 +2023,16 @@ is a naming decision, not a measurement; it is decided here (open point 29).
     (`task`, `role`, `holder`, `anchor`, `run`, `reused`; `outcome`, `lease`, `settle_commit`, `changed_since_pack`). A `YIELD`
     in LQ text can name only [LQ/std]'s columns; WP-19 adds the others to [LQ/std §7.3] or states that the API's members are
     additive. Also for WP-19: [LQ/std §7.3]'s `tx.claim` default `$ttl = '15m'` is the production value of the key
-    `lease.ttl-default`, which a store may change ([CFG]); the key governs (§10.1).
+    `lease.ttl-default`, which a store may change ([CFG]); the key governs (§10.1). **Pass 1 (A1-37):** [LQ/std §7.3]'s `$ttl`
+    now defaults to `NULL`, meaning the key.
 37. **`reclaim` without arguments** (§10.4). [CFG]'s `lease.reclaim-older-than` (default 30 min) is the bound of a `reclaim`
     given neither `--older-than` nor `--run`; an earlier draft of §10.4 required exactly one of them.
 38. **`file revert` and plain history verbs over file-moving commits** (§11.10, §12.4). [40 §3.6] says `file revert` runs "the
     inverse filesystem operations" of a commit that carried `FsIntentDone`, and that a plain `revert` of such a commit warns.
     This chapter adds: an item removed without `--trash` cannot be restored and ends `missing`; the warning's name is
     `graph_only_revert` (text proposed for [F19 §10.4]: `warning[graph_only_revert]: <c8> moved files on disk; moirai file
-    revert <c8> moves them back`), compared by GT2 because it depends only on the stream (§16.3).
+    revert <c8> moves them back`), compared by GT2 because it depends only on the stream (§16.3). **Pass 1 (A1-39):** the text
+    is [F19 §10.4]'s.
 39. **One store HLC over semantic records — conflict with [F16] P-36** (§6.2 CK-4). [F16] P-36 assigns every append-time HLC
     of a group — a local commit's `hlc`, an imported commit's `append_hlc` and every [F05 §9] field described as "HLC at
     append", `Checkpoint.append_hlc` and `Lazy.hlc` included — from `h_last`, "the greatest append-time HLC in the scanned
@@ -2010,7 +2048,11 @@ is a naming decision, not a measurement; it is decided here (open point 29).
     which SP-1 and crash determinism hold, and this chapter then cites it. A rejected alternative: advance the injected wall
     clock by 1 ms before every store command, which makes counters restart per command but fails after a backward step.
     An earlier draft of CK-4 drew commits and non-commit records from separate maxima, which left the `hlc` of `Lease`,
-    `Marker`, `Idem` and `RefUpdate` records, and so the runtime digest, unspecified.
+    `Marker`, `Idem` and `RefUpdate` records, and so the runtime digest, unspecified. **Pass 1 (S1-13, P1-5, A1-17):** the
+    review confirms CK-4 as the rule and routes P-36's change to WP-16; [F06 §4.4.4] and [F07 §3.4] cite it, and CK-6 carries h
+    across an epoch re-roll (P1-44). **Closed in round 1:** [F16] P-36 and [OS/clock §7] now state CK-4 over the two maxima
+    `hlc_seq` (the semantic records) and `hlc_commit` (every commit's `hlc`), kept in `HEAD` ([F04 §5.15]) and in every extent
+    head ([F05 §9.28]); CK-4's "h, and for a local commit also the greatest commit `hlc`" is the same rule.
 40. **The session role lease has no branch** (§4.2 CX-2, §4.3 row 3, §10.1). [RULES/role-write-policy] WR-005 (citing
     [AR §7.3], "everything on any branch") says the orchestrator's session role lease "carries no branch, so its holder writes
     on any branch". [90 §4.1]'s Branch row lists "the presented lease's branch" without distinguishing lease kinds. This
@@ -2030,3 +2072,32 @@ is a naming decision, not a measurement; it is decided here (open point 29).
     lists. Values whose rules other chapters still leave open — the R4 observation values of `13-file-mv.json`, the `affected`
     sets of staged commits, the texts of errors whose templates [F19] has not frozen (`bad_ref_name`, `not_merged`) — are
     marked illustrative in their files.
+45. **Pass 1 changes** (P1-1, P1-5, P1-12, P1-14, P1-16, P1-44, S1-44, A1-38, A1-39, A1-52). §5.2 cites [F08 §5.1] as the
+    one value registry; CK-4 is confirmed as the HLC rule and CK-6 keeps h across epochs; `Init` refuses values that fail
+    [F17 §3]'s constraints, and examples 01 and 02 now pass `store.commit.inline-max-bytes=4KiB` with their 64 KiB extent so
+    that C-1 holds; §6.4 names the production seam `Entropy::fill_random`; `FileMv`'s plan refuses a project volume that cannot
+    flush a directory (`no_dir_flush`) and a partial item set exits 8; §16.6 notes that `std.ready` no longer uses `topo`;
+    the refusal codes of open points 5, 20 and 38 are [F19]'s; E408's `key` and `original` may be `null` ([LQ/errors §5.7]).
+46. **Pass 1, round 1** (P1-5, S1-13, A1-17, A1-6, A1-38). CK-4 now states that [F16] P-36 and [OS/clock §7] carry the
+    same rule, over `HEAD.hlc_seq` and `HEAD.hlc_commit` ([F04 §5.15]), and lists `Reserve` among the records that carry a
+    value without advancing the sequence; open point 39 is closed. Open point 34 is closed by [F11 §7]'s `outcome` byte.
+    CK-6 names the extent head that carries h across a re-roll (R-SPEC-P's edit, kept), and §11.4 describes the binding
+    by `BindingExt.designated` (R-SPEC-R's edit, kept). The change of [50 §4.1]'s order (open point 11) awaits OQ-F-2.
+47. **Pass 1, round 2** (closure NC-2, NC-5; P1-3, S1-11, A1-12 residue; S1-17, A1-16 residue). Example
+    `13-file-mv.json` captures a `quote` anchor with the spec `docs/api.md:3`, since the `path#H` form it used is refused
+    while [F20 §6.1]'s interim scanner rule holds, and its `path_move` writes `from` and `to` as directory prefixes ending
+    in `/` ([F08 §5.4.2]). The reservation of a bulk commit ([F05 §9.27], [F16] P-84) is the one way a command that did not
+    land can still move `next_id` and `next_anchor`: §6.7 and §16.4 give the model the third candidate "nothing but the
+    reservation" for a bulk-class command, §9.10 states that a bulk commit takes the ids an inline one would, and the
+    runtime snapshot's `alloc` lists no skipped id. The `moves` member admits `park` ([F05 §9.2] reason 5). Open point 1
+    is closed.
+48. **Pass 1, round 3** (closure NC-8, the editorial residues of its §4.2, and R-SPEC-P's round-3 note). §9.1's E409 row
+    names the lease and replacement cases, whose texts are [LQ/errors §5.5]'s. §6.7 names the counters a surviving
+    reservation moves (`next_id`, `next_anchor`) and those it leaves where the not-applied state leaves them
+    (`commit_seq`, `fence`, `next_ref_id`). §15.7's `park` is the move [F16] P-70 has the first appender whose scan meets a
+    failed ref CAS write, the wording of [F11 §3.2]. **The C8 pack cursor:** [F05 §9.11]'s `feed` 2 record is the
+    cursor, folded into [F11 §13.1]'s row; which actor appends it (the `pack` verb or the layer that delivers the pack)
+    is OQ-F-3's call, and §14.1 (after [40] I-F5) makes every `Query`, `pack` included, append nothing.
+    [RULES/pack-classes] PX-011 (round 3), [F05 §9.11] and [F11 §13.1] (closure NC-11) state the same interim: until
+    OQ-F-3 is answered, `Query` appends nothing on either side and no M0 command appends a pack cursor (open point 25),
+    so C8 is empty in the engine and in the model alike and GT2 compares it as such.

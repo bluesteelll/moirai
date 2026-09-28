@@ -32,15 +32,16 @@ Every rule file ends with the sections "Coverage", "Holes" and "Open points for 
 | `README.md` | this contract: column types and the registry of every table | WP-90 | this draft |
 | `merge-table.md` | key class → typed merge rule → conflict class for every key class of the data model, the recursive virtual base, validators, land-or-stage | WP-90, WP-91 | this draft |
 | `link-merge-rules.md` | the R4 link merge rules of [40 §5.5]: observation composite, derived identity and re-key, anchors, globs, `path_moves`, path claims | WP-92 | this draft |
-| `status-machines.md` | guarded status transitions per kind ([AR §3.6]) | WP-90 | planned |
-| `delete-policy.md` | the delete-policy matrix per edge kind ([AR §3.3], [AR §2.5]) | WP-90 | planned |
-| `pack-classes.md` | pack and brief candidate classes ([AR §7.4], [50 §4.3]) | WP-90 | planned |
-| `i26-state.md` | the I26′ state definition with its marker-cache rules ([AR §3.4], [72 M4]) | WP-90 | planned |
+| `status-machines.md` | guarded status transitions per kind, their doors and derived effects ([AR §3.6]) | WP-90 | this draft |
+| `delete-policy-matrix.md` | the delete-policy matrix: edge kind × delete policy × effect on dependents ([AR §3.3], [AR §2.5]) | WP-90 | this draft |
+| `pack-classes.md` | pack and brief candidate classes: membership, levels, order, byte budgets, the stale-pack notice ([AR §7.4], [50 §4.3]) | WP-90 | this draft |
+| `state-definition.md` | the I26′ state definition with its marker-cache rules, `ready` and `unblocked`, absorbed vectors and leases ([AR §3.4], [72 M4]) | WP-90 | this draft |
+| `role-write-policy.md` | the role write policy: roles × verbs, kinds, fields and edges → allowed or refused ([AR §7.3]) | WP-90 | this draft |
 | `policy-keys.md` | every operational-policy key and policy-data row → model function ([AR §13], [60 §3.14]) | WP-90 | planned |
 | `SIGNED.md` | the owner's BLAKE3 digests of the files above | owner | written by the owner (§6) |
 
-Tables of a planned file are added to the registry (§7) when the file is written; the registry below lists only
-tables that exist, plus `SIGNED.md`'s.
+Tables of a planned file are added to the registry (§7) when the file is written; the registry below lists every
+table of the files written so far, plus `SIGNED.md`'s (RG-031 to RG-111 were added in review pass 1, S1-47).
 
 ## 2. Byte-level rules for a rule file
 
@@ -199,6 +200,87 @@ Table kinds:
 | RG-028 | `link-resolution` | link-merge-rules.md | procedure | LV | row:id, conflict:token, resolved_by:token, condition:token, provenance:token, basis:enum, source:cite, note:text | how link conflicts are settled after a merge |
 | RG-029 | `link-history` | link-merge-rules.md | procedure | LH | row:id, operation:tokens, effect:token, basis:enum, source:cite, note:text | history verbs and files |
 | RG-030 | `link-source-map` | link-merge-rules.md | map | LX | row:id, source_row:token, realized_by:tokens, note:text | [40 §5.5] rows → rule rows |
+| RG-031 | `pack-terms` | pack-classes.md | vocabulary | PT | row:id, term:token, sort:enum(input/view/set/pred/fn/order), basis:enum, source:cite, definition:text | §3 |
+| RG-032 | `pack-kinds` | pack-classes.md | decision | PK | row:id, pack:token, trigger:tokens, classes:tokens, budget_key:token, default_bytes:token, basis:enum, source:cite, note:text | §4 |
+| RG-033 | `pack-budgets` | pack-classes.md | decision | PB | row:id, role:token, key:token, default_bytes:int, final_at:token, basis:enum, source:cite, note:text | §4 |
+| RG-034 | `pack-ceilings` | pack-classes.md | decision | PE | row:id, surface:enum(cli/mcp/file/hook), client:token, key:token, default_bytes:token, max_bytes:token, basis:enum, source:cite, note:text | §4 |
+| RG-035 | `pack-bytes` | pack-classes.md | procedure | PY | row:id, rule:token, basis:enum, source:cite, definition:text | §4 |
+| RG-036 | `pack-classes` | pack-classes.md | vocabulary | CL | row:id, class:token, rank:int, name:token, named_query:token, basis:enum, source:cite, definition:text | §5.1 |
+| RG-037 | `pack-quotas` | pack-classes.md | decision | PQ | row:id, class:token, roles:tokens, key:token, default_pct:int, basis:enum, source:cite, note:text | §5.1 |
+| RG-038 | `pack-floors` | pack-classes.md | procedure | PF | row:id, class:token, basis:enum, source:cite, definition:text | §5.1 |
+| RG-039 | `pack-members` | pack-classes.md | procedure | PM | row:id, class:token, part:token, roles:tokens, view:enum(B/M/U/feed), kinds:tokens, level:token, basis:enum, source:cite, definition:text | §5.2 |
+| RG-040 | `pack-levels` | pack-classes.md | procedure | PL | row:id, kind:token, level:enum(ID/L0/L1/L2), content:tokens, basis:enum, source:cite, note:text | §5.3 |
+| RG-041 | `pack-order` | pack-classes.md | procedure | PO | row:id, class:token, keys:tokens, basis:enum, source:cite, note:text | §5.4 |
+| RG-042 | `pack-header` | pack-classes.md | procedure | PH | row:id, position:int, item:token, when:token, basis:enum, source:cite, definition:text | §5.4 |
+| RG-043 | `pack-render` | pack-classes.md | procedure | RN | row:id, rule:token, basis:enum, source:cite, definition:text | §5.4 |
+| RG-044 | `pack-fill` | pack-classes.md | procedure | PX | row:id, step:int, action:token, basis:enum, source:cite, definition:text | §5.4 |
+| RG-045 | `hook-pack` | pack-classes.md | procedure | HP | row:id, position:int, item:token, level:token, basis:enum, source:cite, definition:text | §6 |
+| RG-046 | `brief-classes` | pack-classes.md | procedure | BR | row:id, class:token, rank:int, named_query:token, kinds:tokens, level:token, basis:enum, source:cite, definition:text | §6 |
+| RG-047 | `delta-rules` | pack-classes.md | procedure | DL | row:id, pack:token, rule:token, basis:enum, source:cite, definition:text | §6 |
+| RG-048 | `notice-sets` | pack-classes.md | procedure | NS | row:id, set:token, code:int, view:enum(B/M), kinds:tokens, basis:enum, source:cite, definition:text | §7 |
+| RG-049 | `notice-rules` | pack-classes.md | procedure | NR | row:id, step:int, rule:token, basis:enum, source:cite, definition:text | §7 |
+| RG-050 | `notice-digest` | pack-classes.md | procedure | ND | row:id, offset:token, width:token, type:token, name:token, basis:enum, source:cite, meaning:text | §7 |
+| RG-051 | `notice-entry` | pack-classes.md | procedure | NE | row:id, offset:token, width:token, type:token, name:token, basis:enum, source:cite, meaning:text | §7 |
+| RG-052 | `notice-modes` | pack-classes.md | decision | NM | row:id, mode:token, output:token, cap_bytes:int, basis:enum, source:cite, note:text | §7 |
+| RG-053 | `pack-source-map` | pack-classes.md | map | PS | row:id, source_row:token, realized_by:tokens, note:text | §8 |
+| RG-054 | `role-terms` | role-write-policy.md | vocabulary | WT | row:id, term:token, sort:enum(input/scope/set/pred), basis:enum, source:cite, definition:text | §3 |
+| RG-055 | `role-rights` | role-write-policy.md | procedure | WR | row:id, step:int, rule:token, basis:enum, source:cite, definition:text | §4 |
+| RG-056 | `role-rows` | role-write-policy.md | vocabulary | WO | row:id, role:token, carried_by:tokens, self_claim:enum(yes/no), mcp_write:enum(yes/no), basis:enum, source:cite, note:text | §5 |
+| RG-057 | `role-mint` | role-write-policy.md | decision | WM | row:id, form:token, commands:tokens, allowed:tokens, key:token, refusal:token, exit:token, basis:enum, source:cite, note:text | §6 |
+| RG-058 | `role-verbs` | role-write-policy.md | decision | WV | row:id, verb:token, class:enum(ref/graph/runtime/file-fs/file-link/admin/read/surface), surface:enum(cli/mcp/both), roles:tokens, key:token, refusal:token, exit:token, basis:enum, source:cite, note:text | §7 |
+| RG-059 | `role-statements` | role-write-policy.md | decision | WX | row:id, statement:token, roles:tokens, surface:enum(cli/mcp/both), key:token, refusal:token, exit:token, basis:enum, source:cite, note:text | §8 |
+| RG-060 | `role-create` | role-write-policy.md | decision | WC | row:id, role:token, kind:token, constraint:tokens, required:tokens, basis:enum, source:cite, note:text | §9 |
+| RG-061 | `role-values` | role-write-policy.md | decision | WA | row:id, field:token, value:tokens, roles:tokens, requires:tokens, basis:enum, source:cite, note:text | §9 |
+| RG-062 | `role-fields` | role-write-policy.md | decision | WF | row:id, role:token, kind:token, scope:token, fields:tokens, key:token, basis:enum, source:cite, note:text | §9 |
+| RG-063 | `role-status` | role-write-policy.md | decision | WS | row:id, role:token, kind:token, scope:token, from:tokens, to:token, via:token, basis:enum, source:cite, note:text | §9 |
+| RG-064 | `role-edges` | role-write-policy.md | decision | WE | row:id, role:token, edge:token, ops:tokens, src_scope:token, dst_scope:token, basis:enum, source:cite, note:text | §9 |
+| RG-065 | `role-reads` | role-write-policy.md | decision | WQ | row:id, subject:token, what:token, allowed:enum(yes/no), key:token, refusal:token, exit:token, basis:enum, source:cite, note:text | §10 |
+| RG-066 | `role-hooks` | role-write-policy.md | procedure | WH | row:id, hook:token, writes:tokens, basis:enum, source:cite, note:text | §10 |
+| RG-067 | `role-refusals` | role-write-policy.md | vocabulary | WZ | row:id, situation:token, code:token, name:token, exit:token, text_owner:token, basis:enum, source:cite, note:text | §10 |
+| RG-068 | `role-source-map` | role-write-policy.md | map | WY | row:id, source_row:token, realized_by:tokens, note:text | §11 |
+| RG-069 | `view-kinds` | state-definition.md | decision | VK | row:id, ref_kind:token, holds_count:enum(yes/no), tip_reads:enum(yes/no), basis:enum, source:cite, note:text | - |
+| RG-070 | `hold-values` | state-definition.md | decision | HV | row:id, kind:token, state:token, hold:token, basis:enum, source:cite, note:text | - |
+| RG-071 | `origin-rules` | state-definition.md | decision | OR | row:id, parents:int, condition:token, origin:token, basis:enum, source:cite, note:text | first match in order |
+| RG-072 | `predicates` | state-definition.md | procedure | PD | row:id, predicate:token, clause:token, basis:enum, source:cite, note:text | - |
+| RG-073 | `validity` | state-definition.md | decision | VD | row:id, predicate:token, valid_at:enum(any-view/tip-only), past_view:token, basis:enum, source:cite, note:text | - |
+| RG-074 | `blocker-terms` | state-definition.md | decision | BT | row:id, edge:token, source_state:token, counts_in:token, weight:int, basis:enum, source:cite, note:text | - |
+| RG-075 | `lease-live` | state-definition.md | decision | LL | row:id, scope:enum(run/ttl), anchor:token, boot:token, slot:token, deadline:token, live:token, basis:enum, source:cite, note:text | first match in order |
+| RG-076 | `lease-ends` | state-definition.md | procedure | LE | row:id, event:token, effect:token, basis:enum, source:cite, note:text | - |
+| RG-077 | `lease-effects` | state-definition.md | procedure | LF | row:id, consumer:token, rule:token, basis:enum, source:cite, note:text | - |
+| RG-078 | `marker-fields` | state-definition.md | vocabulary | MF | row:id, field:tokens, basis:enum, source:cite, note:text | `tokens`: MF-008 and MF-009 name two fields each (review pass 1 round 1, A1-35) |
+| RG-079 | `marker-events` | state-definition.md | procedure | ME | row:id, event:token, condition:token, record:token, basis:enum, source:cite, note:text | - |
+| RG-080 | `absorption` | state-definition.md | decision | AB | row:id, marker_state:token, test:token, basis:enum, source:cite, note:text | - |
+| RG-081 | `vector-rules` | state-definition.md | procedure | VR | row:id, event:token, rule:token, basis:enum, source:cite, note:text | - |
+| RG-082 | `door-coverage` | state-definition.md | map | DC | row:id, door:token, events:tokens, basis:enum, source:cite, note:text | - |
+| RG-083 | `scenarios` | state-definition.md | decision | SN | row:id, scenario:token, step:int, ref:token, action:token, basis:enum, source:cite, note:text | fixture data |
+| RG-084 | `scenario-expect` | state-definition.md | decision | SX | row:id, scenario:token, step:int, check_ref:token, excluded:enum(yes/no), basis:enum, source:cite, note:text | fixture data |
+| RG-085 | `status-fields` | status-machines.md | decision | SF | row:id, kind:token, field:token, stored:enum(yes/no), guarded:enum(yes/no), basis:enum, source:cite, note:text | - |
+| RG-086 | `statuses` | status-machines.md | decision | ST | row:id, kind:token, status:token, initial:enum(yes/no), done:enum(yes/no/derived/absent), lattice:token, basis:enum, source:cite, note:text | - |
+| RG-087 | `doors` | status-machines.md | vocabulary | DR | row:id, door:token, requires:tokens, basis:enum, source:cite, note:text | - |
+| RG-088 | `transitions` | status-machines.md | decision | TR | row:id, kind:token, from:token, to:token, door:token, move:enum(up/down/to-side/from-side), basis:enum, source:cite, note:text | - |
+| RG-089 | `guards` | status-machines.md | vocabulary | GD | row:id, guard:token, refusal:token, exit:token, basis:enum, source:cite, definition:text | - |
+| RG-090 | `transition-guards` | status-machines.md | decision | TG | row:id, kind:token, from:token, to:token, guard:token, basis:enum, source:cite, note:text | - |
+| RG-091 | `door-roles` | status-machines.md | map | DG | row:id, door:token, realized_by:tokens, basis:enum, source:cite, note:text | - |
+| RG-092 | `branch-mask` | status-machines.md | decision | BM | row:id, view:token, status_writes:enum(yes/no), refusal:token, exit:token, basis:enum, source:cite, note:text | - |
+| RG-093 | `derived-effects` | status-machines.md | procedure | DE | row:id, kind:token, from:token, to:token, predicate:token, subject:token, basis:enum, source:cite, note:text | - |
+| RG-094 | `complete-outcomes` | status-machines.md | decision | CO | row:id, outcome:token, status:token, lease:token, hold:token, basis:enum, source:cite, note:text | - |
+| RG-095 | `general-rules` | status-machines.md | procedure | GR | row:id, rule:token, applies_to:token, refusal:token, exit:token, basis:enum, source:cite, note:text | - |
+| RG-096 | `delete-options` | delete-policy-matrix.md | vocabulary | DO | row:id, option:token, basis:enum, source:cite, definition:text | - |
+| RG-097 | `edge-conditions` | delete-policy-matrix.md | vocabulary | CD | row:id, condition:token, basis:enum, source:cite, definition:text | - |
+| RG-098 | `edge-actions` | delete-policy-matrix.md | vocabulary | EA | row:id, action:token, basis:enum, source:cite, definition:text | - |
+| RG-099 | `edge-effects` | delete-policy-matrix.md | vocabulary | EF | row:id, effect:token, basis:enum, source:cite, definition:text | - |
+| RG-100 | `delete-preconditions` | delete-policy-matrix.md | procedure | DP | row:id, check:token, refusal:token, exit:token, basis:enum, source:cite, note:text | - |
+| RG-101 | `edge-policy` | delete-policy-matrix.md | decision | EG | row:id, edge:token, end:enum(dst-deleted/src-deleted), option:token, policy:token, condition:token, action:token, effect:token, basis:enum, source:cite, note:text | - |
+| RG-102 | `delete-steps` | delete-policy-matrix.md | procedure | DS | row:id, step:token, action:token, basis:enum, source:cite, note:text | - |
+| RG-103 | `flagged-edges` | delete-policy-matrix.md | procedure | FL | row:id, rule:token, basis:enum, source:cite, note:text | - |
+| RG-104 | `tombstone` | delete-policy-matrix.md | decision | TB | row:id, item:token, kept:enum(yes/no), basis:enum, source:cite, note:text | - |
+| RG-105 | `undelete` | delete-policy-matrix.md | procedure | UD | row:id, item:token, effect:token, basis:enum, source:cite, note:text | - |
+| RG-106 | `cross-branch` | delete-policy-matrix.md | map | XB | row:id, case:token, realized_by:tokens, basis:enum, source:cite, note:text | - |
+| RG-107 | `n40-nodes` | delete-policy-matrix.md | decision | NN | row:id, node:token, kind:token, status:token, parent:token, note:text | fixture data |
+| RG-108 | `n40-edges` | delete-policy-matrix.md | decision | NG | row:id, src:token, kind:token, dst:token, props:token, note:text | fixture data |
+| RG-109 | `n40-cases` | delete-policy-matrix.md | decision | NC | row:id, case:token, ref:token, after:token, action:token, basis:enum, source:cite, note:text | fixture data |
+| RG-110 | `n40-properties` | delete-policy-matrix.md | vocabulary | NP | row:id, property:token, definition:text | - |
+| RG-111 | `n40-expect` | delete-policy-matrix.md | decision | NX | row:id, case:token, ref:token, subject:token, property:token, value:token, basis:enum, source:cite, note:text | fixture data |
 
 A column written `basis:enum` or `disposition:enum` without a set uses the shared enum of §5.
 
@@ -247,8 +329,11 @@ None. The contract contains no value that an M0 measurement decides.
 3. **`gap` rows fail every tier.** A row with basis `gap` makes any case that reaches it fail. This forces each gap to
    be closed by the review before E5; until then, randomized suites that hit a gap report it as a specification
    finding rather than a model bug. The review confirms this is the wanted pressure.
-4. **Registry ownership of planned tables.** The five planned rule files (§1.1) add their tables to §7 when written;
-   each addition changes this README and needs its re-signature.
+4. **Registry ownership of planned tables.** A planned rule file (§1.1) adds its tables to §7 when written; each
+   addition changes this README and needs its re-signature. The five files written in wave 1 proposed their rows in
+   their own open points; review pass 1 (S1-47) found §1.1 stale and the rows unregistered, and they are now RG-031 to
+   RG-111, with the columns and prefixes each file proposed (checked against every table's header row and against every
+   other prefix: no two tables share one). Only `policy-keys.md` remains planned.
 5. **Protecting `SIGNED.md` mechanically.** Proposed for WP-01/WP-02 (`docs/m0/authors.md` path precedence): make
    `docs/spec/rules/SIGNED.md` an owner-only path that no WP's role may write, so `xtask authors` refuses any `WP-xx:`
    commit touching it; the owner's signing commits carry no `WP-` subject. Until then the rule is procedural.

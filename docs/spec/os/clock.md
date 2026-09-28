@@ -67,6 +67,7 @@ another boot, or one without a boot identity, can still judge by the wall clock.
 | 0 | 8 | u64 | `wall` | wall clock in ms since the Unix epoch; a negative `wall_ms` is stored as 0 |
 | 8 | 8 | u64 | `boot_hash` | `boot_hash` of the writer's boot ([OS/proc §4.3]); 0 = the writer was in Unknown-boot mode |
 | 16 | 8 | u64 | `mono` | the boot clock in ns (named `mono` in [80] X-F2, "mono being the boot clock"); 0 when `boot_hash` = 0 |
+| total | 24 | | | |
 
 This is the lease deadline form `expires = {wall, boot_hash, mono}` of [80] X-F2 and [AR §6.2]; [F11] stores it in
 `LEASES` unchanged. In Rust the third field is named `boot_ns`, so it cannot be confused with `Clock::mono_ns`, which is
@@ -144,10 +145,11 @@ by the same rule when the thread's own server serves a call ([90 §4.4]).
 | 2 | both known and different | `true`: every process of the earlier boot is gone |
 | 3 | otherwise | `now.wall − start.wall ≥ g_ms` (saturating: a backward step yields 0, never a negative interval) |
 
-This rule serves the 60 s delete-pending grace of GC ([AR §4.9]) and any other cross-process grace. Its only
-wall-clock case (row 3, Unknown-boot mode) can end a grace early after a forward wall step; the consequence is benign
-(the file's deletion is still behind the two-slot barrier; on Windows a delete of a mapped file fails and is retried, on
-Unix an unlinked mapped inode stays valid), and it is recorded here as the one place the wall clock shortens an interval.
+This rule serves a cross-process grace that is measured from a stamp. The GC deletion grace (`gc.delete-grace`) is **not**
+such a grace: it opens at the releasing `Checkpoint`'s `append_hlc`, which is an HLC and not a stamp, and is measured on
+the HLC by [F17 §11.4] and [F16] P-89 (pass 1, P1-34, S1-43). No rule of format v1 uses this function today; it stays
+for a later grace that must survive a wall step. Its only wall-clock case (row 3, Unknown-boot mode) can end a grace
+early after a forward wall step, which is why a safety condition must never rest on it.
 
 ## 5. Fault-model item (7) and the simulator
 
@@ -179,10 +181,10 @@ sources:
 |---|---|---|---|
 | lease deadline, `session-ttl` deadline, half-TTL renewal | stamp (§4.3, §4.4): the boot clock on the same boot; the wall clock only in Unknown-boot mode | none on a known boot; in Unknown-boot mode a forward step can end a lease early — the documented cost of the mode | [AR §6.2], [80] X-F2 |
 | boot change (every non-run-scoped lease Dead; boot-change recovery) | the boot identity, never a clock | none | [AR §4.2], [OS/proc §4] |
-| GC delete-pending grace (60 s) | §4.5 | none on a known boot | [AR §4.9] |
+| GC deletion grace (`gc.delete-grace`, 60 s) | the HLC, from the releasing `Checkpoint`'s `append_hlc`, as the retention windows below ([F17 §11.4], [F16] P-89; pass 1, P1-34, S1-43) | a forward step can end the grace early, which is harmless: the grace is not a safety condition ([F16] P-77: the barrier and the delete-pending and inode rules protect readers) | [AR §4.9] |
 | lock waits (`lock.writer-wait-ms`, `lock.flush-wait-ms`), the share-violation retry bound, `file mv --retry-ms`, read and settle budgets (`files.read-budget-ms`, `files.session-start-cap-ms`, `files.links-sync-ms`), the MCP server's ≤ 5 ms slices, the 50 ms quiescence | mono, in-process | none | [OS/lock], [OS/fs], [40 §4.2], [AR §6.1] |
 | `hlc` of a commit, `append_hlc`, every `hlc` stamp in runtime records (`acquired_hlc`, `created_hlc`, `verified_at`, `missing_since`, `PENDING` and `path_moves` entries) | the HLC (§7): the wall clock made monotonic in log order | a backward step never decreases the HLC; a forward step moves it forward for good | [AR §4.3], [50] F14 |
-| retention windows: `idempotency.default-window` (10 min), `gc.reflog-expire`, `gc.cruft-delay`, `gc.trash-expire`, `gc.fileobs-idle-expire`, `files.pending-escalate`, the 30-day explicit-key idempotency retention, the `PENDING` 30-day retention | HLC milliseconds: an entry's `hlc >> 16` against `max(now.wall, newest hlc >> 16 of the view)` | a forward step can end a window early; for `idempotency.default-window` that can turn a key-less retry after ≥ the step into a new commit. These are retention policies, not safety rules; the explicit-key path is unaffected within its 30 days | [AR §6.4], [AR §13] |
+| retention windows: `idempotency.default-window` (10 min), `gc.reflog-expire`, `gc.cruft-delay`, `gc.trash-expire`, `gc.fileobs-idle-expire`, `files.pending-escalate`, the 30-day explicit-key idempotency retention, the `PENDING` 30-day retention | HLC milliseconds: an entry's `hlc >> 16` against `max(now.wall, max(hlc_seq, hlc_commit) >> 16)`, the store's HLC maxima of [F04 §5.15] ([API §6.2] CK-6) | a forward step can end a window early; for `idempotency.default-window` that can turn a key-less retry after ≥ the step into a new commit. These are retention policies, not safety rules; the explicit-key path is unaffected within its 30 days | [AR §6.4], [AR §13] |
 | the Linux and macOS frontier's racy threshold (a directory changed since the last settle) | a **file-system timestamp**: the mtime of `<store>/tmp/settle.stamp` rewritten at the start of a settle ([OS/project §5.9], [F20 §5.12.1]), never a process clock | none (both sides are file-system time) | [80 §2.11.3] |
 | comparisons between file times, HLCs and git committer times (copy-rule lines 2–3, E7 on Windows, E8, G4's window, `planned` binding) | the conversions of §8 and the margin `SKEW` = HOLE(F20-clock-skew), both applied by [F20 §5.1] | bounded by the margin; each comparison takes the side that never adds an automatic re-bind | [40 §4.3], `a1-S.md` S-17 |
 | `ProcId.start` | the OS process start clock, equality only | none | [OS/proc §3] |
@@ -193,14 +195,25 @@ The `hlc` of a commit is a hybrid logical clock `ms << 16 | counter` ([AR §4.3]
 step [F16]'s. The clock rule it must satisfy is fixed here:
 
 ```
-hlc_next = max( (max(0, wall_ms) as u64) << 16 ,  hlc_last + 1 )
+hlc_next(wall_ms, h) = max( (max(0, wall_ms) as u64) << 16 ,  h + 1 )
 ```
 
-where `hlc_last` is the greatest `hlc` (for `append_hlc`: the greatest `append_hlc`) in the log as scanned under the
-writer byte ([80 §2.4.3] phase 2a step 3). Consequences: `hlc` never decreases in log order whatever the wall clock does
-(a backward step advances the counter; 65,536 commits in one millisecond carry into the millisecond, which is harmless);
-a forward step moves the physical part forward for good. `append_hlc` follows the same rule and is therefore monotonic in
-`seq` order ([50] F14, I43′). A foreign or imported commit keeps its own `hlc`; only `append_hlc` is this store's.
+where h is the store's HLC maximum that the record draws from, derived under the writer byte from the newest `HEAD`
+slot and the log scanned beyond it ([80 §2.4.3] phase 2a step 3). Which records draw, and from which maximum, is
+[F16] P-36's (the rule of record is [API §6.2] CK-4; pass 1, S1-13, P1-5, A1-17):
+
+- the **semantic durable records** (`Commit`, `RefUpdate`, `ClientHead`, `Lease`, `Marker`, `Idem`, `Backup`,
+  `FsIntent`, `FsIntentDone`, `FsIntentAborted`) draw from `hlc_seq`, the greatest value of the store's HLC sequence, and
+  raise it; a local commit draws from max(`hlc_seq`, `hlc_commit`), `hlc_commit` being the greatest `hlc` of any commit
+  the store holds, so that it lies above an imported commit whose `hlc` is ahead ([F04 §5.15]);
+- every other record with an HLC field (`Checkpoint`, `Reserve`, `Lazy`, `SessionMark`, the lazy runtime rows) takes
+  `hlc_next(wall_ms, hlc_seq)` and raises nothing, so maintenance and lazy records never move a commit's `hlc`.
+
+Consequences: the semantic records' HLCs never decrease in log order whatever the wall clock does (a backward step
+advances the counter; 65,536 records in one millisecond carry into the millisecond, which is harmless); a forward step
+moves the physical part forward for good. `append_hlc` is therefore strictly monotonic in `seq` order ([50] F14, I43′).
+A foreign or imported commit keeps its own `hlc`; only `append_hlc` is this store's. The maxima survive an epoch re-roll
+in the epoch-start extent head ([F05 §9.28], [F16] P-75).
 
 ## 8. Clock domains and conversions
 
@@ -259,8 +272,8 @@ impl Stamp {
     pub fn from_bytes(b: &[u8; 24]) -> Stamp;
 }
 
-/// §7: the next HLC after `last`, from the wall clock.
-pub fn hlc_next(wall_ms: i64, last: u64) -> u64;
+/// §7: the next HLC after the maximum `h`, from the wall clock; which maximum a record draws from is [F16] P-36's.
+pub fn hlc_next(wall_ms: i64, h: u64) -> u64;
 ```
 
 All of these are pure functions in `moirai-vfs`; only `Clock` reaches the OS.
@@ -271,6 +284,18 @@ Measurement 22 ([AR §8.2] item 22) records, on the owner's laptop, `boot_ns` an
 a sleep of known length, a hibernation, a Fast Startup cycle and a ±1 h manual wall step, in two processes, and checks
 that `boot_ns` advanced by the elapsed wall time across the sleep and the hibernation (within the tick granularity),
 never decreased, and agreed between the two processes; the result fills HOLE(OS-win-boot-clock).
+
+## Coverage
+
+The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
+
+| Item | Part covered here | Section |
+|---|---|---|
+| `60-I2-FM(7)` (fault-model item (7)) | the clocks under the fault model and the simulator's obligations; Unknown-boot mode is [OS/proc §5]'s | §5 |
+| `60-I2-PD(e)` (protocol decision (e)) | which clock each rule uses; the HLC rule | §6, §7 |
+| `60-AU-Seg-leases` (audit row "Segments": `LEASES`) | the 24 B `Stamp` deadline; the row is [F11 §6]'s | §3 |
+| `F14` ([50] F14: `append_hlc`) | the HLC rule; the header field is [F06]'s | §7 |
+| `X-F2` ([80] X-F2) | the `Stamp` deadline; evaluation, renewal, grace. `ProcId`, the boot identity and liveness are [OS/proc]'s | §3, §4 |
 
 ## Holes
 
@@ -286,7 +311,7 @@ never decreased, and agreed between the two processes; the result fills HOLE(OS-
 | 2 | [60 §2.5] decision (e) lists three rules; the design has more time-dependent rules | the complete table of §6, with the one wall-clock shortening (Unknown-boot grace) and the retention windows' HLC basis stated | R-REV-P, WP-16 |
 | 3 | S-17 (`a1-S.md`) puts a skew margin in chapter 20 decided by measurements 15 and 22 | the domains and units are fixed here (§8) and agree with [F20 §1.2, §5.1] (`hlc_ns(h) = (h >> 16) × 10^6`, committer seconds × 10^9); measurement 15 gains the mtime-versus-wall row ([OS/project §10] item 7) and measurement 22 the clock rows of §11; the margin is HOLE(F20-clock-skew) | WP-14b, WP-52, WP-55 |
 | 4 | If measurement 22 finds no Windows clock that includes sleep, [80 §2.7.1]'s "a suspended laptop's lease expires by elapsed time" cannot hold on Windows | a clock that excludes sleep is still immune to wall steps and errs towards later expiry (safe); the review decides whether that is acceptable or Windows deadlines fall back to Unknown-boot rules | R-REV-P |
-| 5 | The HLC rule (§7) is stated here as the clock rule because [AR §4.3] gives only the field shape | [F06] and [F16] adopt it or state an equivalent rule that keeps `hlc` and `append_hlc` monotonic under wall steps | WP-12, WP-16 |
+| 5 | The HLC rule (§7) is stated here as the clock rule because [AR §4.3] gives only the field shape | [F06] and [F16] adopt it or state an equivalent rule that keeps `hlc` and `append_hlc` monotonic under wall steps. **Pass 1 (S1-13, P1-5, A1-17):** the earlier text took `hlc_last` over every append-time HLC of the log, so a `Checkpoint` or lazy record raised the next commit's hashed `hlc`; §7 now follows [API §6.2] CK-4 and [F16] P-36 (one sequence over the semantic durable records, kept as `HEAD.hlc_seq` and `hlc_commit`) | WP-12, WP-16 |
 | 6 | Where the clocks are specified | resolved: [OS/README §1.3, §3] list this file | — |
 | 7 | [F15] FM-7.2 makes the monotonic clock comparable across the processes of one boot; [OS/README §4.4]'s doc comment says only "never goes backward within a process" | the stronger reading is adopted (§2): the implementation reads the system-wide counter and subtracts no per-process origin, which every source of §2.1 allows; README §4.4's comment may say "within one boot" | WP-17a |
 | 8 | [F01] open point 15 proposes the prefix `OS-` for hole ids in `docs/spec/os/` | adopted: HOLE(OS-win-boot-clock) | WP-10 |

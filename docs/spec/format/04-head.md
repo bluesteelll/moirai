@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Title | The `HEAD` file: two 4 KiB checksummed slots in the G18 layout (`refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `image_cursor[4]`, `seq_ring`, `flags` bits 0–3, `durable_lsn`, `boot_id`, `config_gen`, [40] R-6's `next_anchor`), the home of the parameters fixed at `init` (`InitParams`, with the store id), the slot validity, torn-slot and two-slot rules, and what every publish writes |
+| Title | The `HEAD` file: two 4 KiB checksummed slots in the G18 layout (`refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `image_cursor[4]`, `seq_ring`, `flags` bits 0–3, `durable_lsn`, `boot_id`, `config_gen`, [40] R-6's `next_anchor`), the home of the parameters fixed at `init` (`InitParams`, with the store id, and `project_oid_algo`), the HLC maxima `hlc_seq` and `hlc_commit`, the slot validity, torn-slot and two-slot rules, and what every publish writes |
 | Chapter | [F04], `docs/spec/format/04-head.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-11 (R-SPEC-P), [60 §3.1] item 1 |
@@ -69,7 +69,11 @@ fields are therefore not 8-aligned, which readers tolerate ([F01 §4.3]). Offset
 | 1056 | 8 | `u64` | `epoch_lsn` | the lsn of the first group of the current epoch, the epoch-start group ([F05 §4.5]) (§5.3) |
 | 1064 | 4 | `u32` | `next_file_no` | the store-wide allocator of sealed-file numbers (§5.13); ≥ 1 |
 | 1068 | 4 | `u32` | `next_ref_id` | the allocator of never-reused ref ids (§5.14) |
-| 1072 | 3008 | `[3008]u8` | `_reserved1` | reserved-zero |
+| 1072 | 1 | `u8` | `project_oid_algo` | the `project` root's content-hash algorithm, fixed at `init` (§5.16); 1 `sha1` or 2 `sha256` |
+| 1073 | 7 | `[7]u8` | `_pad1` | reserved-zero |
+| 1080 | 8 | `u64` | `hlc_seq` | the greatest value of the store's HLC sequence (§5.15) |
+| 1088 | 8 | `u64` | `hlc_commit` | the greatest `hlc` of any commit the store holds (§5.15) |
+| 1096 | 2984 | `[2984]u8` | `_reserved1` | reserved-zero |
 | 4080 | 16 | `XXH3-128` | `xxh3_128` | XXH3-128, seed 0, over bytes `[0, 4080)` of the slot, stored as (`low64`, `high64`), each a little-endian `u64` ([F01 §7.2]) |
 | total | 4096 | | | |
 
@@ -106,8 +110,9 @@ Byte-packed, as [AR §4.2] states (the 29-byte size is the [PLAN §3.3] gap this
 `delta` entries, oldest first (increasing `file_no`, the fold order d1..dk of [AR §4.9]); then at most one `dict`, last.
 `upto_lsn` does not decrease along the base and delta entries.
 
-**Capacity.** Eight entries hold one base, up to `store.fold-width` deltas ([F17 §6.1], at most 6) and one dictionary,
-so [F17]'s constraint C-4 holds with `n_other` = 1 (open point 4). Every other sealed file (`hist`, `blobs`, `gitmap`,
+**Capacity.** Eight entries hold one base, up to `store.fold-width` deltas ([F17 §6.1], at most 5), the one yield delta
+a long maintenance holding may add above them ([F16] P-98) and one dictionary, so [F17]'s constraint C-4 holds with
+`n_other` = 1 (open point 4; pass 1, P1-9). Every other sealed file (`hist`, `blobs`, `gitmap`,
 `cs`, a promoted branch's `seg.b<ref_id>.<K>`) is named by log records ([F05 §9.1], [F05 §9.9]) and the segment sections
 that fold them ([F09], [F10], [F11]), never by `HEAD`.
 
@@ -147,8 +152,8 @@ The parameters fixed at `init`, whose set, meaning, ranges and rules IP-1 to IP-
 | 16 | 16 | `b16` | `store_id` | the store id ([F02 §4]); never all zero |
 | total | 32 | | | |
 
-The first 16 bytes are exactly [F17 §2.1]'s layout; bytes 16–31, which [F17 §2.1] reserves, hold the store id
-(open point 2).
+This is exactly [F17 §2.1]'s layout (pass 1, A1-13, S1-12, P1-4). The one further `init`-fixed value,
+`project_oid_algo`, does not fit the block and sits at slot offset 1072 (§5.16), under the same rules IP-1 to IP-3.
 
 ## 5. Field semantics
 
@@ -170,8 +175,9 @@ Bits 4–15 are reserved-zero.
 
 ### 5.3 `epoch` and `epoch_lsn`
 
-- `epoch` is a `u64` drawn from the OS's cryptographically secure random source at `init`, never 0. `restore` and
-  `repair --rebuild-from-log` re-roll it to a new random non-zero value different from the previous one ([AR §4.2], G25).
+- `epoch` is a `u64` drawn from the OS's cryptographically secure random source (`Entropy::fill_random`,
+  [OS/README §4.6]) at `init`, never 0. `restore` and `repair --rebuild-from-log` re-roll it to a new random non-zero
+  value different from the previous one ([AR §4.2], G25). A draw that breaks either condition is drawn again.
 - A log record is valid only if its `epoch` equals the `epoch` of the slot the scanning process uses ([F05 §5.2]).
 - The chain seed of the first group of an epoch is `XXH3-64(epoch)` over the 8 little-endian bytes of `epoch`
   ([F01 §7.3], [80] X-F3).
@@ -281,7 +287,9 @@ A store-wide allocator of file numbers for every sealed-file family (`hist`, `se
    file number.
 3. The orphan sweep ([F02 §5.6], [F16]) deletes an unnamed numbered file only after a published `next_file_no` exceeds
    its number, so a deleted orphan's number is never taken again. Maintenance advances the counter past an orphan through
-   the `next_file_no` field of its next `Checkpoint` record ([F05 §9.9]).
+   the `next_file_no` field of its next `Checkpoint` record ([F05 §9.9]). Which durable group claims a number first, and
+   the creator's check under the writer byte that closes the race with a sweeper, are [F16] P-78's; a bulk producer's
+   `Reserve` record claims its files by the same rule ([F05 §9.27]).
 
 Log extents do not use this allocator: their numbers follow from lsns ([F05 §2.3]) and never repeat.
 
@@ -290,17 +298,45 @@ Log extents do not use this allocator: their numbers follow from lsns ([F05 §2.
 The next `ref_id` to allocate ([AR §4.2] "`ref_id u32 (never reused)`"). A publish sets it to the maximum of the newest
 slot's value and one plus every `ref_id` that covered `RefUpdate` and `RefTable` records create ([F05 §9.2],
 [F05 §9.10]). Because the counter lives in `HEAD`, a ref id stays unused after `gc` drops the deleted ref's entry
-(open point 3). `main`'s ref id and the initial value follow from the groups `init` writes ([F16]; §10).
+(open point 3). `main`'s ref id and the initial value follow from the groups `init` writes ([F16] P-88; §10).
+
+### 5.15 `hlc_seq` and `hlc_commit`
+
+The two maxima from which every append-time HLC is drawn ([F16] P-36, [OS/clock §7], [API §6.2] CK-4; pass 1, S1-13,
+P1-5, A1-17):
+
+- `hlc_seq` is the greatest HLC of the store's **HLC sequence**: the values carried by the semantic durable records
+  (`Commit` `append_hlc`, `RefUpdate`, `ClientHead`, `Lease`, `Marker`, `Idem`, `Backup`, `FsIntent`, `FsIntentDone`,
+  `FsIntentAborted`; [F05 §10.2]). Records of other kinds carry an HLC without raising it.
+- `hlc_commit` is the greatest `hlc` of any commit the store holds, local or imported (an imported commit keeps its own
+  `hlc`, which can lie ahead of this store's clock).
+
+A publish folds both from the covered records ([F05 §10.2]); a writer takes the maximum of the newest slot's values and
+of the groups its scan finds beyond that slot's `committed_lsn` (P-36), so no append needs a scan below `committed_lsn`.
+Both are 0 in a new store. An epoch re-roll carries them into the new epoch through the epoch-start extent head
+([F05 §9.28]), so they never restart ([API §6.2] CK-6). Retention windows measure `now` from max(`wall_ms`,
+max(`hlc_seq`, `hlc_commit`) >> 16) ([F17 §1.6]).
+
+### 5.16 `project_oid_algo`
+
+The content-hash algorithm A(`project`) of the `project` root ([F20 §2.3]), one value of [F01 §7.5]'s `algo` registry:
+1 `sha1` or 2 `sha256`. `init` takes it from the object format of the store's repository (`extensions.objectFormat`) and
+takes 1 when the store has no repository ([CFG §7.6]); it is never a configuration key. It is `init`-fixed ([F17 §2]):
+written into both slots by `init`, kept by every publish, `restore` and `repair`, never recomputed from the repository, and
+validated with the `init` block ([F17 §2.2] IP-1–IP-3). Every other root uses `sha1` ([F20 §2.3]). (Pass 1, A1-15,
+S1-28, P1-4: the 32-byte block has no spare byte, so the value takes the first byte of the former reserved area.)
 
 ## 6. Field classes
 
 | Class | Fields | Source of truth | How a change becomes durable |
 |---|---|---|---|
-| **log-derived** | `committed_lsn`, `durable_lsn`, `checkpoint_lsn`, `active_log`, `n_segments`, `segments`, `commit_seq`, `next_id`, `next_anchor`, `fence`, `refs_lsn`, `pins_lsn`, `heads_lsn`, `markers_lsn`, `image_cursor`, `seq_ring`, `next_file_no`, `next_ref_id`, `flags.fts_tier2` | the log: each is a fold of records ([F05 §10]) | the records are durable; a lost slot update is re-derived by the next scan ([AR §4.2] "durable bound") |
-| **kept in `HEAD`** | `slot_seq`, `epoch`, `epoch_lsn`, `boot_id`, `config_gen`, `flags.quiet`, `flags.readonly`, `flags.retired`, `init` | `HEAD` itself | `epoch`, `epoch_lsn`, `init`: written by `init`, `restore` and `repair`, which flush `HEAD` ([F16]); `boot_id`: boot-change recovery, a durable publish (§9.4); `quiet`, `readonly`, `retired`: a durable publish (§9.2); `config_gen`: an ordinary publish (§5.6); `slot_seq`: every publish |
+| **log-derived** | `committed_lsn`, `durable_lsn`, `checkpoint_lsn`, `active_log`, `n_segments`, `segments`, `commit_seq`, `next_id`, `next_anchor`, `fence`, `refs_lsn`, `pins_lsn`, `heads_lsn`, `markers_lsn`, `image_cursor`, `seq_ring`, `next_file_no`, `next_ref_id`, `hlc_seq`, `hlc_commit`, `flags.fts_tier2` | the log: each is a fold of records ([F05 §10]) | the records are durable; a lost slot update is re-derived by the next scan ([AR §4.2] "durable bound") |
+| **kept in `HEAD`** | `slot_seq`, `epoch`, `epoch_lsn`, `boot_id`, `config_gen`, `flags.quiet`, `flags.readonly`, `flags.retired`, `init`, `project_oid_algo` | `HEAD` itself | `epoch`, `epoch_lsn`, `init`, `project_oid_algo`: written by `init`, `restore` and `repair`, which flush `HEAD` ([F16]); `boot_id`: boot-change recovery, a durable publish (§9.4); `quiet`, `readonly`, `retired`: a durable publish (§9.2); `config_gen`: an ordinary publish (§5.6); `slot_seq`: every publish |
 
-A field kept in `HEAD` is never re-derived from the log. Every publish copies it from the newest valid slot unless the
-publish is the one that changes it.
+A field kept in `HEAD` is never re-derived from the log by a publish. Every publish copies it from the newest valid slot
+unless the publish is the one that changes it. The log's extent heads repeat `epoch_lsn`, `init`, `project_oid_algo`
+and the `quiet` and `readonly` flags, and the log-derived counters as of each head ([F05 §9.28]), for `repair` alone
+(§8.1; pass 1, P1-8).
 
 ## 7. Slot validity
 
@@ -310,12 +346,12 @@ A process classifies each slot it reads by these checks, in order:
 2. **Checksum.** `xxh3_128` does not match bytes `[0, 4080)` → the slot is **absent** (torn, never written, or damaged).
 3. **Version.** `format` = 0 → **absent**. `format` > 1 → **fatal**: exit 7, naming `HEAD` and both versions
    ([F01 §9.1]).
-4. **Reserved bytes.** `flags` bits 4–15, `_pad0`, `_reserved0` and `_reserved1` are zero; every `segments` entry at
+4. **Reserved bytes.** `flags` bits 4–15, `_pad0`, `_pad1`, `_reserved0` and `_reserved1` are zero; every `segments` entry at
    index ≥ `n_segments`, every empty `image_cursor` entry and every empty `seq_ring` entry is all zero. Otherwise
    **fatal**.
 5. **Ranges.** Otherwise **fatal** unless all hold:
    - `epoch` ≠ 0; `n_segments` ≤ 8; `next_id` ≥ 1; `next_anchor` ≥ 1; `active_log` ≥ 1; `next_file_no` ≥ 1;
-   - `init` passes [F17 §2.2] IP-2 and `init.store_id` is not all zero;
+   - `init` passes [F17 §2.2] IP-2 (which includes `init.store_id` not all zero) and `project_oid_algo` ∈ {1, 2};
    - `epoch_lsn` is a multiple of `E`, and the orderings of §5.4 and §5.8 hold;
    - every `segments` entry below `n_segments` has `kind` ∈ 1–3 and `file_no` ≥ 1, the entries follow §4.1's order and
      multiplicity, and `checkpoint_lsn` equals the greater of `epoch_lsn` and the greatest base or delta `upto_lsn`;
@@ -345,10 +381,12 @@ A process reads both slots with one `read_at` and classifies them (§7):
 - **Torn-slot rule** (decision (d) of [60 §2.5]): a reader that finds one slot absent uses the other. Because every
   publish writes only the slot that does not hold the newest valid state (§9.1), a torn publish never destroys the newest
   valid state.
-- **Both slots valid** additionally requires byte-identical `init` blocks ([F17 §2.2] IP-3); otherwise exit 7.
+- **Both slots valid** additionally requires byte-identical `init` blocks and equal `project_oid_algo` values
+  ([F17 §2.2] IP-3); otherwise exit 7.
 - The re-reads of the last row cover a read that raced two consecutive publishes (fault-model item (4), [F15]); a store
-  in that state after a crash needs `repair`, which recovers the epoch from the log's epoch-start group and its chain
-  seed ([F15] OP-1, [F05 §4.5]).
+  in that state after a crash needs `repair`, which rebuilds the slot state from the log's extent heads ([F05 §4.5],
+  §9.28): the epoch, `epoch_lsn`, `init`, `project_oid_algo`, the `quiet` and `readonly` flags and the counters of the
+  head of the lowest surviving extent, then the fold of the log after it ([F15] OP-1, [F16] P-85; pass 1, P1-8).
 
 ### 8.2 The nine two-slot states (informative)
 
@@ -422,14 +460,16 @@ process in Unknown-boot mode never runs it (rule U2 of [OS/proc §5]).
 
 ## 10. Initial contents
 
-After `init` has written the store's first log extent with its epoch-start group ([F05 §4.5]), both slots hold:
+`init` writes the store's first log extent with its epoch-start group ([F05 §4.5]) at lsn 0 and then one durable group
+that creates `main` (ref id 0), with the `ClientHead` binding of `main` when the store lies inside a git repository
+([F16] P-88 step 5). Both slots then hold the fold of those groups (pass 1, A1-25, S1-45):
 
 | Field | Value |
 |---|---|
 | `magic`, `format`, `flags` | `"MOIR"`, 1, 0 |
-| `slot_seq` | 1 in slot A, 2 in slot B; every other byte identical |
+| `slot_seq` | 1 in slot A, 2 in slot B; every other field equal (the two `xxh3_128` values differ with `slot_seq`) |
 | `epoch` | a random non-zero `u64` |
-| `committed_lsn`, `durable_lsn` | the end of the groups `init` wrote and flushed: 40 when the epoch-start group is the only one |
+| `committed_lsn`, `durable_lsn` | the end of the `main` group, which begins at lsn 138, right after the 138-byte epoch-start group |
 | `checkpoint_lsn`, `epoch_lsn` | 0 |
 | `boot_id` | `init`'s boot identity, or zero in Unknown-boot mode |
 | `config_gen` | 0 |
@@ -437,12 +477,17 @@ After `init` has written the store's first log extent with its epoch-start group
 | `next_id`, `next_anchor`, `next_file_no` | 1 |
 | `active_log` | 1 |
 | `n_segments`, `segments` | 0, all zero |
-| table pointers, `image_cursor`, `seq_ring` | zero |
-| `next_ref_id` | 0 |
+| `refs_lsn` | the lsn of the `RefTable` record of the `main` group |
+| `heads_lsn` | the lsn of its `ClientHead` record when `init` bound `main` to the main worktree, else 0 |
+| `pins_lsn`, `markers_lsn`, `image_cursor`, `seq_ring` | zero |
+| `next_ref_id` | 1 (`main` took ref id 0) |
+| `hlc_seq` | the HLC of the `main` group's semantic records ([F05 §10.2]): its `RefUpdate`, and its `ClientHead` when present |
+| `hlc_commit` | 0 |
 | `init` | the values of [F17 §2.2] IP-5 and a fresh store id ([F02 §4]) |
+| `project_oid_algo` | the repository's object format at `init`, or 1 without a repository (§5.16) |
 
-When `init` writes further groups before `HEAD` (for example to create `main`), the log-derived fields hold the fold of
-those groups ([F05 §10]); [F16] fixes the initial group set (open point 11).
+`next_ref_id` also lives, as a fold bound, in [F11 §3.7]'s `REFS.aux`, which equals the covering slot's `next_ref_id` at the
+segment's bound and never exceeds it; `HEAD` is the allocator ([F11 §3.7]; pass 1, S1-45).
 
 ## Coverage
 
@@ -450,7 +495,7 @@ those groups ([F05 §10]); [F16] fixes the initial group set (open point 11).
 |---|---|---|
 | [60 §2.5] [AR] row "`HEAD`": two 4 KiB slots, G18 layout incl. `refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `image_cursor[4]`, `seq_ring`, `flags` bits 0–2, "the store parameters of the row below", other bits reserved-zero | complete | §2–§5, §7 |
 | [60 §2.5] audit row "`HEAD`": `durable_lsn`, `boot_id`, `config_gen`, flag bit 3 `retired`; the boot-change recovery rule and the two-slot barrier; the boot-identity rule and Unknown-boot mode; every publish a read-modify-write of the newest slot | the fields, the slot side of the barrier and of boot-change recovery, the publish rule. The protocol steps are [F16]'s; the boot identity is [OS/proc §4]'s | §5.4, §5.5, §5.6, §5.2, §9 |
-| [60 §2.5] issue-2 row "Store parameters": init-fixed parameters live in `HEAD` | their place (`InitParams` at 1024) and the store id; the parameters and rules IP-1–IP-6 are [F17 §2]'s | §4.4 |
+| [60 §2.5] issue-2 row "Store parameters": init-fixed parameters live in `HEAD` | their place (`InitParams` at 1024, `project_oid_algo` at 1072) and the store id; the parameters and rules IP-1–IP-6 are [F17 §2]'s | §4.4, §5.16 |
 | [60 §2.5] "Protocol decisions" (c) and (d) | (d) complete (the torn-slot rule); (c) the slot side of the barrier; the procedure is [F16]'s | §8, §9.2, §9.3 |
 | [60 §2.5] "Protocol decisions" (g), (k) | the slot side: boot-change republish; the publish fold and I-G6's monotone fields | §9.1, §9.4 |
 | [40] R-6 | complete: `next_anchor u32` at offset 80 (the former reserved `u32` after `next_id`), re-derived from the log | §3.1, §5.7 |
@@ -472,20 +517,25 @@ appears in `segments`.
    the product codec's little-endian types have alignment 1. Re-ordering for alignment was rejected because the design
    gives the order and fixtures are written from it.
 2. **`InitParams` at slot offset 1024 with the store id** (§4.4). This closes [F17] OP-17-21 (the block keeps its
-   32-byte form, at a fixed offset) and [F02] open point 2 (the store id in `HEAD`). [F17 §2.1]'s reserved bytes 16–31
-   become `store_id`, validated non-zero with IP-2 and kept by IP-1 through `restore` and `repair`; WP-16c edits
-   [F17 §2.1] to match.
-3. **Three fields added in reserved space** (§5.3, §5.13, §5.14). Conflict recorded with [80 §2.4.3]'s "No `HEAD` field is
-   added", which concerns group commit; none of the three changes the group-commit protocol.
+   32-byte form, at a fixed offset) and [F02] open point 2 (the store id in `HEAD`). [F17 §2.1]'s former reserved bytes
+   16–31 are `store_id`, validated non-zero with IP-2 and kept by IP-1 through `restore` and `repair`; **pass 1
+   (A1-13, S1-12, P1-4):** [F17 §2.1] now has this layout, and the `project` root's algorithm is the separate init-fixed
+   byte `project_oid_algo` at offset 1072 (§5.16; A1-15, S1-28).
+3. **Six fields added in reserved space** (§5.3, §5.13, §5.14, §5.15, §5.16). Conflict recorded with [80 §2.4.3]'s "No
+   `HEAD` field is added", which concerns group commit; none of the six changes the group-commit protocol. Pass 1 added
+   `project_oid_algo` (an init-fixed value with nowhere else to live) and the HLC maxima `hlc_seq` and `hlc_commit`
+   (P1-5: one sequence over the semantic records, kept in the fold so that an append needs no scan below
+   `committed_lsn`).
    - `epoch_lsn` fixes where "the first group after an epoch re-roll" is ([80] X-F3): without it a scan starting at the
      re-roll point cannot tell whether to seed with `XXH3-64(epoch)` or with the preceding 8 bytes.
    - `next_file_no` closes [F02] open point 4: a number taken from the directory listing could be reused after `gc`
      deletes a family's highest file.
    - `next_ref_id` keeps ref ids never reused after `gc` drops an expired deleted ref ([AR §4.2]); the alternative, a
      counter in the `REFS` section ([F11]), is equivalent, and the review may move it there.
-4. **What `segments` lists** (§4.1; closes [F17] OP-17-06). Only `main`'s base, its deltas and the dictionary: C-4 holds
-   with `n_other` = 1 and P14 ≤ 6. `hist`, `blobs`, `gitmap`, `cs` and promoted-branch files are named by records and
-   folded registries. [F09] and [F10] must define those registries (see [F05] open point 8).
+4. **What `segments` lists** (§4.1; closes [F17] OP-17-06). Only `main`'s base, its deltas, the one yield delta of
+   [F16] P-98 and the dictionary: C-4 (`2 + P14 + n_other ≤ 8`) holds with `n_other` = 1 and P14 ≤ 5, the range of
+   [F17 §3] (pass 1, P1-9; closure NC-4). `hist`, `blobs`, `gitmap`, `cs` and promoted-branch files are named by records and
+   folded registries: [F09 §14.4] `FILES` (see [F05] open point 8).
 5. **`active_log` is the oldest unretired extent**, not the extent being appended to (§5.8). This follows [80 §2.4.3]'s
    "a covered `Checkpoint` sets … `active_log`": only a checkpoint's retirement changes it. The append extent follows
    from `committed_lsn`.
@@ -494,17 +544,17 @@ appears in `segments`.
 7. **`image_cursor` with more than four destinations** (§5.11). The cursor is a cache; a pair without an entry is exported
    from the `gitmap` walk ([AR §5b.6] step 2). Destination numbers are declared by `GitMap` records ([F05 §9.7]).
 8. **`readonly`** (§5.2). [AR §4.2] names the bit without a meaning or a verb. Proposed: write verbs, maintenance and GC
-   exit 7 while it is set; reads are served; an administrative verb sets and clears it by a durable publish. [F19] needs
-   the text; the CLI names the verb.
+   exit 7 while it is set; reads are served; an administrative verb sets and clears it by a durable publish. The CLI
+   names the verb; the text is [F19 §10.2] `readonly_flag`.
 9. **Fields kept in `HEAD` and their durability** (§6, §9.2). `quiet`, `readonly` and `retired` must survive an OS
    crash, so they change by a durable publish shaped like the barrier. `config_gen` needs no flush (§5.6). This keeps the
    commit path free of `HEAD` flushes.
 10. **Semantic failures stop the store** (§7). A slot whose checksum matches but whose fields break the rules of §7 is a
     writer defect; the store exits 7 instead of falling back to the other slot, as [F17 §2.2] IP-2 already does for the
     `init` block. Both slots absent after three reads is exit 7 for `repair` ([F15] OP-1).
-11. **Initial contents** (§10; [F02] open point 14). This chapter gives the slot values after `init` writes only the
-    epoch-start group, slot A `slot_seq` 1 and slot B 2, and `next_ref_id` 0. Whether `init` also writes the groups that
-    create `main` (then `next_ref_id` ≥ 1 and `refs_lsn` ≠ 0) is [F16]'s decision.
+11. **Initial contents** (§10; [F02] open point 14). **Pass 1 (A1-25, S1-45):** [F16] P-88 has `init` write the
+    epoch-start group and one group creating `main`, so §10 gives `next_ref_id` = 1, `refs_lsn` ≠ 0 and, with a binding,
+    `heads_lsn` ≠ 0; slot A has `slot_seq` 1 and slot B 2.
 12. **A zero `boot_id`** means "none recorded" (§5.5): a process that can read its boot identity treats it as a
     mismatch and runs boot-change recovery once, which is harmless and records its boot.
 13. **Table pointers use 0 for "none"** (§5.10), relying on [F05 §4.5]'s rule that lsn 0 always holds the epoch-start

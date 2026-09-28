@@ -6,7 +6,7 @@
 | Status | draft, pass 1 pending |
 | Work package | WP-17a (role R-SPEC-P), part 1 of WP-17 ([PLAN §3.2] item 1). Part 2 (WP-17b) writes the remaining module files listed in §3 |
 | Files of part 1 | `README.md` (this file), `fs.md`, `lock.md`, `map.md`, `env.md` |
-| Sources | [80 §1] X3, X4, X5, X8, X9; [80 §2.1] (module table and boundary rules); [80 §2.9] (metering); [80 §3.1] X-F4, X-F5, X-F6; [AR §14]; [AR §2.2] T2; [AR §4.10] "The OS layer" bullet; [60 §2.5] row "`Vfs`/`ProjectFs`" (audits) and row "Cross-platform"; [90 §11.1] (composition root, GT20 (e)); PLAN §2.1, §2.2 (rows `moirai-vfs`, `moirai-os`, `moirai-vfs-sim`, `moirai-probes`, `moirai-probes-bin`), §3.3 (gap "Placement of `ProjectFs`, `Meter` and the grant table; `os::fs`/`mem`/`proc` additions"), §6.2 R1, R2, R8, R17, R18; review `docs/spec/reviews/a1-P.md` findings A1P-02, A1P-07, A1P-09, A1P-10, A1P-17 and its R1/R2 conditions |
+| Sources | [80 §1] X3, X4, X5, X8, X9; [80 §2.1] (module table and boundary rules); [80 §2.9] (metering); [80 §3.1] X-F4, X-F5, X-F6; [AR §14]; [AR §2.2] T2; [AR §4.10] "The OS layer" bullet; [60 §2.5] row "`Vfs`/`ProjectFs`" (audits) and row "Cross-platform"; [90 §11.1] (composition root, GT20 (e)); PLAN §2.1, §2.2 (rows `moirai-vfs`, `moirai-os`, `moirai-vfs-sim`, `moirai-probes`, `moirai-probes-bin`), §3.3 (gap "Placement of `ProjectFs`, `Meter` and the grant table; `os::fs`/`mem`/`proc` additions"), §6.2 R1, R2, R8, R17, R18; review `docs/spec/reviews/a1-P.md` findings A1P-02, A1P-07, A1P-09, A1P-10, A1P-17 and its R1/R2 conditions; pass-1 review `docs/spec/reviews/S-pass1.md` findings S1-27 (§4.6) and S1-47 (the Coverage sections) |
 | Reconciled with | part 2's drafts [OS/proc] (open points 1, 6), [OS/clock] §1, [OS/mem] (open points 1, 2), [OS/path] (open point 1) |
 
 Citation forms used in `docs/spec/os/`: `[OS/<file> §x]` for this directory (`[OS/README §4.1]`, `[OS/fs §4.4]`),
@@ -55,12 +55,13 @@ of these rows and never changes a byte or a rule.
 | Environment guard: classification at every open, the full probe at `init`/`restore`, the OS-version check, per-OS allow-lists | [OS/env] | X-F6 (allow-lists and refusals); X-F5's "no downgrade" at `init` |
 | `ProcId`, boot identity and Unknown-boot mode, liveness, parent watch, the `ProcHost` seam | [OS/proc] (part 2) | X-F2 |
 | The wall, monotonic and boot clocks; stamps and lease deadlines; the clock rules of fault-model item (7) | [OS/clock] (part 2) | X-F2 (deadline form) |
+| The cryptographically secure random source (`Entropy`): the store id, the epoch, `tmp/` nonces, slot and leader nonces, random uids | this file, §4.6; per-OS rows in [OS/mapping-appendix] | — |
 | Metering (the `Meter` methods' sources, `CountingAlloc`) | [OS/mem] (part 2) | — |
 | Paths P1–P12, `RelPath` and the other path types, canonical root | [OS/path] (part 2) | X-F7, X-F9 (names) |
 | `ProjectFs` (R4 file identity and change tracking; project-file renames and deletes) | [OS/project] (part 2) | X-F8 |
 | Shell transport rules T1–T10 | [OS/shell] (part 2) | X-F12 |
 | Part 2's per-OS mapping appendix | [OS/mapping-appendix] (part 2) | — |
-| IPC endpoint (leader only), spawn, terminal, test host | part 2 (file not yet named) | — |
+| IPC endpoint (leader only), spawn, test host; terminal | [OS/proc §12], §11, §13; [OS/shell §10] (part 2) | — |
 
 ---
 
@@ -76,7 +77,7 @@ This section closes the PLAN §3.3 gap "Placement of `ProjectFs`, `Meter` and th
 
 | Item | Kind | Specified in |
 |---|---|---|
-| `Vfs` and its sub-traits `VfsTypes`, `StoreFs`, `Locks`, `SealedMaps`, `EnvGuard`, `Clock`, `ProcHost` | traits | §4.1; [OS/fs], [OS/lock], [OS/map], [OS/env]; `Clock` signature §4.4, semantics [OS/clock]; `ProcHost` [OS/proc §10] |
+| `Vfs` and its sub-traits `VfsTypes`, `StoreFs`, `Locks`, `SealedMaps`, `EnvGuard`, `Clock`, `ProcHost`, `Entropy` | traits | §4.1; [OS/fs], [OS/lock], [OS/map], [OS/env]; `Clock` signature §4.4, semantics [OS/clock]; `ProcHost` [OS/proc §10]; `Entropy` §4.6 |
 | `ProjectFs` | trait | §4.2 (surface), [OS/project] (signatures) |
 | `Meter` | trait | §4.3; sources in [OS/mem] |
 | `GrantTable` — the in-process lock-ownership state machine | struct, pure (no I/O, no clock, no thread) | [OS/lock §5] |
@@ -163,20 +164,20 @@ specified at M0.
 | `os::lock` | `lock_client`, `try_acquire`, `acquire_within`, `release`, `probe`, `holds_any_role`, `foreign_lock_check`; the kernel half under the `GrantTable` | `Vfs` (`Locks`) | [OS/lock] | 1 | yes |
 | `os::map` | `map_sealed`, `advise`, unmap on drop; the mapping registry; the fault handler | `Vfs` (`SealedMaps`) | [OS/map] | 1 | yes |
 | `os::env` | `classify`, `probe_store`, `check_os_version`, `doctor_warnings` | `Vfs` (`EnvGuard`) | [OS/env] | 1 | yes |
-| `os::proc` | `ProcId` of self and parent; the boot identity; `alive` (diagnostics); `watch_parent`; the clocks' sources | `Vfs` (`ProcHost`, `Clock`), injected | [OS/proc], [OS/clock] | 2 | yes (with `peak_of_child` for the `Meter`) |
-| `os::ipc` | `bind_endpoint`, `connect`, peer credentials (leader only) | — | part 2 (not yet named) | 2 | no (leader not decided) |
+| `os::proc` | `ProcId` of self and parent; the boot identity; `alive` (diagnostics); `watch_parent`; the clocks' sources; the random source (`fill_random`, §4.6) | `Vfs` (`ProcHost`, `Clock`, `Entropy`), injected | [OS/proc], [OS/clock], §4.6 | 2 | yes (with `peak_of_child` for the `Meter`) |
+| `os::ipc` | `bind_endpoint`, `connect`, peer credentials (leader only) | — | [OS/proc §12] | 2 | no (leader not decided) |
 | `os::mem` | `private_now`, `private_peak`, `available_physical`, `peak_of_child`, the running-child readings of §4.3, `CountingAlloc` | `Meter` | [OS/mem] | 2 | yes |
 | `os::path` | OS path ↔ stored path; `canonical_root`; reserved and unrepresentable names | `ProjectFs` | [OS/path] | 2 | yes |
 | `os::project` | the `ProjectFs` surface of §4.2 | `ProjectFs` | [OS/project] | 2 | yes (the complete trait, PLAN §6.2 R1) |
-| `os::spawn` | the detached `moirai gc` child; priorities; no inheritable handles | — | part 2 (not yet named) | 2 | no |
-| `os::term` | console vs pipe; UTF-8 output; broken pipe | — | part 2 (not yet named) | 2 | no |
-| `os::test_host` (feature `test-host`) | `kill`, `suspend`, `resume`, `small_volume`, clock offset ([OS/clock §9]) | — | part 2 (not yet named) | 2 | yes |
+| `os::spawn` | the detached `moirai gc` child; priorities; no inheritable handles | — | [OS/proc §11] | 2 | no |
+| `os::term` | console vs pipe; UTF-8 output; broken pipe | — | [OS/shell §10] | 2 | no |
+| `os::test_host` (feature `test-host`) | `kill`, `suspend`, `resume`, `small_volume`, clock offset ([OS/clock §9]) | — | [OS/proc §13] | 2 | yes |
 
 Additions to [80 §2.1]'s surface made by part 1, each explained in its file ([OS/fs] open point 1): `open_root`,
 `create_root`, `create_dir`, `remove_dir`, `list_dir`, `read_exact_at`, `fail_stop`, `recycle_extent`, `swap_recover`,
 `root_identity`, `path_identity`, `free_space`, `advise_dontneed` and `counters` in `os::fs` (`open_store_file` is split
 into `open` and `create_new`); `lock_client`, `holds_any_role` and `foreign_lock_check` in `os::lock`; `doctor_warnings`
-in `os::env`. Together they close the PLAN §3.3 gap "`os::fs` … additions" for WP-17 (open point 3). The `mem` and
+in `os::env`; the random source `fill_random` in `os::proc` (§4.6; open point 12). Together they close the PLAN §3.3 gap "`os::fs` … additions" for WP-17 (open point 3). The `mem` and
 `proc` additions (`private_now`, `private_peak`, `available_physical`, `peak_of_child`, the running-child readings and the
 pre-spawn hook) are fixed at seam level in §4.3 and specified by [OS/mem] and [OS/proc].
 
@@ -186,7 +187,8 @@ pre-spawn hook) are fixed at seam level in §4.3 and specified by [OS/mem] and [
 
 ### 4.1 `Vfs`
 
-`Vfs` is the store-side seam. It is the union of six sub-traits, one per module file, over one set of handle types:
+`Vfs` is the store-side seam. It is the union of seven sub-traits over one set of handle types (six have a module file
+each; `Entropy` is fixed in §4.6):
 
 ```rust
 /// Handle types shared by every sub-trait. All handles are owned values; dropping one closes it.
@@ -203,10 +205,13 @@ pub trait SealedMaps: VfsTypes { /* [OS/map §3] */ }
 pub trait EnvGuard: VfsTypes { /* [OS/env §2] */ }
 pub trait Clock { /* §4.4; semantics [OS/clock] */ }
 pub trait ProcHost { /* [OS/proc §10] */ }
+pub trait Entropy { /* §4.6 */ }
 
 /// The store-side seam. Implemented by `moirai_os::OsVfs` and by `moirai_vfs_sim::SimVfs`.
-pub trait Vfs: StoreFs + Locks + SealedMaps + EnvGuard + Clock + ProcHost + Send + Sync + 'static {}
-impl<T> Vfs for T where T: StoreFs + Locks + SealedMaps + EnvGuard + Clock + ProcHost + Send + Sync + 'static {}
+pub trait Vfs:
+    StoreFs + Locks + SealedMaps + EnvGuard + Clock + ProcHost + Entropy + Send + Sync + 'static {}
+impl<T> Vfs for T where
+    T: StoreFs + Locks + SealedMaps + EnvGuard + Clock + ProcHost + Entropy + Send + Sync + 'static {}
 ```
 
 `ProcHost` is a supertrait of `Vfs` rather than a separate bound ([OS/proc] open point 1): every store process needs the
@@ -233,8 +238,9 @@ surface so that WP-30 creates the complete trait once (PLAN §6.2 R2):
   recovery re-establishes the namespace barrier before it rolls forward), the path conversions and `canonical_root`.
 - **Not in the M0 trait:** `journal_since` (A1P-17: E2 is not built, [AR §11] #41; `JOURNALCUR`/`JournalCursor` stay
   reserved in the format, and a later E2 adds the method additively).
-- **Open for part 2:** the cross-volume `file mv` of a file (A1P-01) either becomes a refusal or a `ProjectFs` copy
-  operation with its own protocol point; [OS/project] records the disposition.
+- **Cross-volume `file mv`** (A1P-01): decided as a refusal. `ProjectFs` has no copy operation; a move whose parents
+  lie on different volumes is refused with exit 7 `cross_volume` ([OS/project §6.4], [F16] P-83, FS-4; pass 1, P1-35,
+  A1-47).
 - **Shared primitives:** `ProjectFs::rename_noreplace`, `durable_rename`, `durable_unlink` and `sync_dir` use the same
   per-OS calls, flags and error mapping as [OS/fs §4.7, §4.8, §4.4.3] (including `MOVEFILE_WRITE_THROUGH` on Windows and
   the bounded retry on errors 5 and 32 of [OS/fs §6.3]); project-file opens follow [80 §2.12]'s "Project-file reads"
@@ -344,6 +350,73 @@ pub trait Clock {
 | `DurabilityFailure` | an error from a non-lazy durability class; consumed only by `fail_stop` | [OS/fs §4.4.5] |
 | `FileIdentity` | a process-local identity of an open file (volume, file id), used by the `LOCK` identity check and the swap intent | [OS/fs §2.6] |
 
+### 4.6 `Entropy`: the random source
+
+Every random value that moirai stores, or names a file with, comes from one seam call. The OS call stays inside
+`moirai-os` ([80] X3), and the simulator can make every draw reproducible ([F15 §6.4], "Determinism"). The design
+documents require "the OS's cryptographically secure random source" for these values and name no call; this section
+names it (open point 12).
+
+```rust
+/// The cryptographically secure random source; a supertrait of `Vfs` (§4.1).
+/// Implemented by `moirai_os::OsVfs` (module `os::proc`) and by `moirai_vfs_sim::SimVfs`.
+pub trait Entropy {
+    /// Fills all of `buf` with bytes from the OS's cryptographically secure random source.
+    /// Never returns an error and never fills less than `buf.len()` bytes (the failure rule below).
+    fn fill_random(&self, buf: &mut [u8]);
+}
+```
+
+**The draws.** Each value below is drawn with one call of exactly its width. An integer is the drawn bytes read
+little-endian ([F01 §4.1]). `fill_random` never filters values: the rule that draws again is the caller's and is stated
+by the owning chapter.
+
+| Value | Width | Drawn by | Drawn again when | Owner |
+|---|---|---|---|---|
+| store id | 16 B (`b16`) | `init` | all zero | [F02 §4] |
+| `epoch` | 8 B (`u64`) | `init`; the re-roll of `restore` and `repair --rebuild-from-log` | 0; for a re-roll also equal to the previous epoch | [F04 §5.3] |
+| `tmp/` nonce | 8 B (`u64`) | every creator of a temporary file in the store's `tmp/` | the name exists | [F02 §5.3] |
+| user-file nonce | 8 B (`u64`) | the rewrite of the user-scope `config` | the name exists | [CFG §7.5] |
+| `LeaderRec.nonce` | 16 B (`b16`) | each leader election | all zero | [F03 §7.1] |
+| `SlotRec.nonce` | 8 B (`u64`) | the start of each slot holding | 0 | [F03 §8.1] |
+| random uid | 16 B (`b16`) | the create of a node whose kind has `uid_derivation` = `random` | all zero, or `UIDX` already holds it | [F08 §2.2] |
+
+**Per-OS calls** (the rows of [OS/mapping-appendix] §2.9, §3.6 and §4.6 abbreviate these):
+
+- **Windows:** `BCryptGenRandom(NULL, buf, n, BCRYPT_USE_SYSTEM_PREFERRED_RNG)`, success `STATUS_SUCCESS` (0); `n` is
+  at most `u32::MAX` per call, and a longer buffer is filled in chunks. `windows-sys` family `Win32_Security_Cryptography`.
+- **Linux:** the `getrandom(buf, n, 0)` system call (through `libc`), repeated after a short count or `EINTR` until `buf`
+  is full. Flags 0 blocks only until the kernel's random pool is first initialised after boot. Never `GRND_NONBLOCK`,
+  `GRND_RANDOM` or `GRND_INSECURE`.
+- **macOS:** `getentropy(buf, n)` (`<sys/random.h>`, public SDK) with `n` at most 256 per call, repeated until `buf` is
+  full.
+- **Never:** a read of `/dev/urandom` or `/dev/random` as a fallback; `CryptGenRandom` (the deprecated CryptoAPI);
+  `RtlGenRandom` (`SystemFunction036`, whose documentation reserves its removal); a user-space generator seeded from a
+  clock, a pid or an address; the `getrandom` or `rand` crates (§2.2 limits `moirai-os`'s dependencies to `moirai-vfs`,
+  `windows-sys`, `libc` and `blake3`).
+
+**Failure rule.** With a valid buffer, these calls do not fail on the supported OS versions (Windows 11, Linux ≥ 5.10,
+macOS 14; Appendix A). If one fails anyway (for example under a `seccomp` filter that denies `getrandom`),
+`fill_random` panics with a message that names the call and the OS code. The panic hook prints the `internal` text,
+exit 1 ([F19 §7.2] item 8). There is no retry with another call and no weaker source ([80] X5). The panic is a process
+death at that point, which every protocol point already tolerates ([F15 §6.4], "Process death").
+
+**Cost and state.** A command draws a handful of values at most (one per slot holding, temporary file and random uid).
+`fill_random` takes no lock, keeps no process-global state (§5.4 is unchanged) and may be called under any held byte.
+
+**Simulator form.** `SimVfs` implements `Entropy` per simulated process. The bytes are the next bytes of a stream that
+the simulator derives from the test seed and the simulated process, so that one seed replays byte-identically and every
+drawn value appears in the replayable trace ([F15 §6.4], "Determinism"; WP-31 acceptance). Two simulated processes never
+share a stream. A test may script the next values of one simulated process, such as an all-zero value or a repeat of a
+value already drawn, to reach a caller's draw-again branch in the table above. The crash gates and the enumerator never
+script values: the protocol assumes that draws do not repeat except where a draw-again rule covers it, and a collision
+of the store id, a slot nonce or the leader nonce is outside the fault model ([F15 §6.3] A-7).
+
+**The reference model and the Store API.** The model draws nothing: [API §6.4] injects the stream's entropy as the
+`seed` of `Init`, and the store id and every random uid derive from it ([API §17.3], [API §17.4]). An engine that executes
+a Store API stream runs over an injected `Entropy`, never over the OS source ([API §2.5] DT-3); its engine-internal draws
+(the epoch and the nonces) are never compared ([API §6.4]).
+
 ---
 
 ## 5. Rules for every implementation
@@ -411,6 +484,16 @@ test process keep their independent ownership ([OS/lock §5.1]).
 
 ---
 
+## Coverage
+
+The rows of `COVERAGE.md` that cite this file ([F01 §2.7]). The seams, the crate placement, the implementation rules and
+the random source (§4.6) freeze no item of their own; they are the frame that the other `os/` files fill.
+
+| Item | Part covered here | Section |
+|---|---|---|
+| `60-AU-Vfs-classes` ([60 §2.5] audit row "`Vfs`/`ProjectFs`": the durability classes and their per-OS calls) | `ProjectFs`'s `rename_noreplace`, `durable_rename`, `durable_unlink` and `sync_dir` use the per-OS calls, flags and error mapping of [OS/fs]; the classes and calls are [OS/fs §4.4]'s and [F15 §4]'s | §4.2 |
+| `60-AU-Vfs-sims` (the same row: the amended fault model in both simulators) | the simulator crates and what each enforces; the items are [F15 §3]'s, the `ProjectFs` simulator's obligations [OS/project §9]'s | §2.3 |
+
 ## Holes
 
 | Id | What | Decided by | Candidates | Constraint the value must meet |
@@ -428,10 +511,12 @@ release-delay distribution, referenced from [CFG] and [F15]), [OS/env] (none), [
 | 2 | [80 §2.1]'s "never used anywhere" for `File::lock` and `std::fs::rename` is enforced for product crates only (PLAN §2.1 scopes) | narrowed to product crates, with direct `std::fs` file access added to the product-crate ban (A1P-10); test and tool crates may use them on their own scratch files only | R-REV-P |
 | 3 | PLAN §3.3 gap "`os::fs`/`mem`/`proc` additions" | `os::fs` gains the operations listed in §3, each justified in [OS/fs]; `mem`/`proc` gain `private_now`, `private_peak`, `available_physical`, `peak_of_child`, the running-child readings and the pre-spawn hook at seam level (§4.3), specified by [OS/mem] and [OS/proc] | R-REV-P, WP-30 |
 | 4 | `Meter` gains `private_now` and `private_peak` (A1P-09); `ProjectFs` gains `sync_dir` and drops `journal_since` (A1P-02, A1P-17) | applied at seam level (§4.2, §4.3) | WP-30, WP-17b |
-| 5 | A1P-01 (cross-volume `file mv` of a file) needs either a refusal or a `ProjectFs` copy operation with a protocol point | left to [OS/project] (WP-17b) and chapter 16 (WP-16); this part fixes nothing that prejudges it | WP-16, WP-17b |
-| 6 | Part 2's files are `proc.md`, `clock.md`, `mem.md`, `path.md`, `project.md`, `shell.md`, `mapping-appendix.md` ([OS/proc] header); `os::ipc`, `os::spawn`, `os::term` and `os::test_host` have no named file yet | §1.3 and §3 follow part 2's list; the four modules stay "part 2 (not yet named)" until WP-17b places them | WP-17b |
+| 5 | A1P-01 (cross-volume `file mv` of a file) needs either a refusal or a `ProjectFs` copy operation with a protocol point | **closed (pass 1, P1-35):** refusal, [OS/project §6.4] and [F16] P-83; §4.2 says so | — |
+| 6 | Part 2's files are `proc.md`, `clock.md`, `mem.md`, `path.md`, `project.md`, `shell.md`, `mapping-appendix.md` ([OS/proc] header); `os::ipc`, `os::spawn`, `os::term` and `os::test_host` have no named file yet | **closed (pass 1, A1-47):** §1.3 and §3 name [OS/proc §11]–§13 and [OS/shell §10] | — |
 | 7 | The `Clock` signature is fixed here because [OS/lock] needs `mono_ns` | [OS/clock] keeps it unchanged (its §1); if it must change, this file and [OS/lock §7] change together | WP-17b |
 | 8 | The implementation value types (`OsVfs`, `OsProjectFs`, `OsMeter`) are named here so that `moirai-probes-bin` can wire them | names are part of the contract WP-33 implements | WP-33 |
 | 9 | [OS/proc] open point 1: `ProcHost` as a separate bound or a supertrait of `Vfs` | supertrait (§4.1): every store process needs the boot identity before its first read | WP-17b, WP-30 |
 | 10 | [OS/mem] open point 1 proposes running-child readings and `reset_heap_high_water`; [OS/proc] open point 6 and [OS/mem] open point 2 ask whether `Meter` gets a pre-spawn hook now | adopted now (§4.3): `child_private_now`, `child_threads`, `cpu_times`, `reset_heap_high_water`, and the pair `prepare_child`/`bind_child` (a hook that never spawns, so GT20 (a) keeps spawns out of product crates); `peak_of_child`'s signature is unchanged. Adding them later would change the seam after M0, which R2 excludes | WP-17b, WP-30 |
 | 11 | [OS/path] open point 1: one `RelPath` type for store and project paths, or two | one type, with [OS/path §2.1]'s grammar (store names are a subset); [OS/fs §2.1] keeps only use-time checks for store operations (for example Windows refuses a component NTFS cannot hold) | WP-17b, WP-30 |
+| 12 | Pass-1 finding S1-27 and [F08] open point 41: [F02 §4, §5.3], [F03 §7.1, §8.1], [F04 §5.3], [F08 §2.2] and [CFG §7.5] draw from "the OS's cryptographically secure random source", and no design document names a call or a seam | a seventh sub-trait `Entropy` of `Vfs` with one infallible method `fill_random` (§4.6), implemented in `os::proc`, per-OS calls `BCryptGenRandom` (system-preferred RNG), `getrandom` and `getentropy`; an impossible failure panics (exit 1), never a weaker source; the simulator draws per simulated process from the seed. WP-30 adds the trait to `moirai-vfs` and to the `Vfs` bound; [F15 §6.3] A-7 records the no-repeat assumption | WP-30, WP-31, WP-33 |
+| 13 | Pass-1 finding S1-47: the `os/` files had no Coverage section ([F01 §2.3]; `COVERAGE.md` open point 1) | every `os/` file now ends with Coverage, Holes and Open points; each Coverage section lists the `COVERAGE.md` rows that cite the file, by the part and sections cited. This file's rows were added to `COVERAGE.md` rows `60-AU-Vfs-classes` and `60-AU-Vfs-sims` | R-SPEC-F (`COVERAGE.md`) |

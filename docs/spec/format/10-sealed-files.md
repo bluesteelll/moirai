@@ -7,7 +7,7 @@
 | Status | draft, pass 1 pending |
 | Work package | WP-13a (the `10-sealed-files.md` part of WP-13, [PLAN §3.2] item 1), author role R-SPEC-R |
 | Sources | [AR §4.1] (rows `hist.NNNN`, `blobs.NNNN`, `dict.D`, `gitmap.NNNN`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, CL3); [AR §4.3] (bodies in the tail raw with a codec byte; bulk commits; "if the M0 measurement shows the tail must hold compressed bodies…"; ≈ 1.5–2.5× `hist` ratio); [AR §4.4] (`SegHdr` `seg_kind` `hist`, `blobs`; `BLOBTAB`); [AR §4.7] (one reused 64 KiB body buffer); [AR §4.8] ("commit id → lsn: per-frame fan-out index in `hist`"); [AR §4.9] (delta checkpoint sealing bodies; tiered fold and rollup merging blob files; dictionary retraining; history retirement; GC: `hist` rewrite, blob GC, `gitmap` compaction); [AR §4.6] "Reserved in format v1" (byte-bounded `hist` frames; the harness list's codec items); [AR §5a.6] (a cold `hist` frame decodes in ≤ 0.1–0.5 ms); [AR §5b.6] (export frontier through `gitmap`); [AR §2.6] T6 (bodies ≤ 64 KiB, content-addressed BLAKE3-128); [AR §2.10] T10 (the pure-Rust codec); [40 §2.5] (fingerprints: ≈ 300 B, runtime, retention), [40 §2.11] R-9; [50 §8.1] F8; [80 §2.5] rules 1–4, [80 §3.1] X-F6; [90 §10.1] (codec row), [90 §11.3] (options (1)–(4) and the decision rule), [90 §11.4]; [60 §2.5] ([AR] row "Segments"; audit rows "Segments" and "Commit body"; the harness row), [60 §3.1] "Decisions fixed at M0 exit", [60 §5.2] row 6; [71 RAM-B1] (≤ 2 MB per commit decode), [71 RAM-m3] (`gitmap` sorted with a fan-out table), [71 RAM-M6] (≤ 0.5 MB compression context); [PLAN §3.2] WP-13, WP-54, [PLAN §3.3] (WP-13's gaps: `gitmap` entry size 41 vs 50 B; which sealed files carry `SegHdr`; R-9's fingerprint blob class), [PLAN §6.2] R3; external: [RFC 8878] (zstd frames and dictionaries), [LZ4-block] (the LZ4 block format) |
-| Depends on | [F01], [F02], [F09]; cites [F04], [F05], [F06], [F11], [F14], [F15], [F16], [F17], [F19], [F20], `[OS/fs]`, `[OS/map]` |
+| Depends on | [F01], [F02], [F09]; cites [F04], [F05], [F06], [F11], [F14], [F15], [F16], [F17], [F19], [F20], [OS/fs], [OS/map] |
 
 ## 1. Scope
 
@@ -27,7 +27,7 @@ fixed here.
 
 `SegHdr`, the section table, the layout classes and the canonical placement rules are [F09 §2]–[F09 §4]'s. The sealing
 protocol (create under the final number, `durable+meta`, `seal`, `durable-name`, then the record that names the file) is
-[F02 §5.2], `[OS/fs §4.4.6, §4.6]` and [F16]'s. Log records, which `hist` frames hold, are [F05]'s; the `Commit` body and
+[F02 §5.2], [OS/fs §4.4.6, §4.6] and [F16]'s. Log records, which `hist` frames hold, are [F05]'s; the `Commit` body and
 its header-only form are [F06]'s; the `FPRINT` row is [F11 §12.8]'s and the `FILES` registry [F09 §14.4]'s.
 
 ## 2. Sealed files
@@ -41,7 +41,7 @@ its header-only form are [F06]'s; the `FPRINT` row is [F11 §12.8]'s and the `FI
 | `seg.b<ref_id>.<K>` | 5 `seg-branch` | `SegHdr` | [F09 §16.3] | promotion | `REFS.promoted_seg` ([F11 §3.1]); `FILES` | a promoted branch's overrides and `TOUCH` |
 | `hist.<n>` | 2 `hist` | `SegHdr` | §4 | history retirement, `gc` rewrite | `FILES` ([F09 §14.4]) | a retired log extent as compressed frames with a commit index |
 | `blobs.<n>` | 6 `blobs` | `SegHdr` | §5 | delta checkpoint, runtime-only fold, bulk commit, fold, rollup, blob GC | `FILES`; `BLOBTAB` entries ([F09 §6.3]) | body blobs and fingerprint blobs |
-| `cs.<n>` | 9 `cs` | `SegHdr` | [F09 §16.4] | a bulk commit | the `Commit` record's `cs_ref` ([F06 §9]); `FILES` | one bulk commit's changeset |
+| `cs.<n>` | 9 `cs` | `SegHdr` | [F09 §16.4] | a bulk commit | the `Commit` record's `cs_ref` ([F06 §9]); before it lands, the `Reserve` record that claimed the number ([F05 §9.27]); `FILES` | one bulk commit's changeset |
 | `dict.<D>` | 7 `dict` | `DictHdr` (§6) | §6 | `init` or a rollup that retrains | `HEAD.segments` (the current one, `SegRef` kind 3); `FILES` | the compression dictionary, when `HOLE(F02-dict-file)` says one exists |
 | `gitmap.<n>` | 8 `gitmap` | `GitmapHdr` (§7) | §7 | checkpoint fold of `GitMap` records, `gitmap` compaction | `FILES` | one page of the git id map |
 
@@ -64,7 +64,7 @@ extents are not sealed files.
 ### 2.4 Rules common to every sealed file
 
 - **Length.** Every sealed file's header states its exact length, `total_len u64` ([80] X-F6). Before mapping, a reader
-  checks the header's magic and checksum with one read, then the file size against `total_len` (`[OS/map §4]`); a mismatch
+  checks the header's magic and checksum with one read, then the file size against `total_len` ([OS/map §4]); a mismatch
   re-reads `HEAD` and retries once, then exits 7 naming the file and `moirai doctor --fsck` ([F19]).
 - **Immutability.** A sealed file is complete, durable and read-only on disk before any record names it; it is never
   truncated, extended, renamed over or reused, and its number is never used again in its family ([F02 §5.2], [F02 §6.2],
@@ -156,8 +156,14 @@ The fallback to 0 is decided per payload by comparing lengths, so it is determin
 `hist.<n>` holds the records of one retired log extent ([AR §4.1], [AR §4.9] "History retirement"), compressed in frames,
 with a frame directory and a commit index. Retirement keeps every record of the extent in `lsn` order, byte for byte as
 [F05] wrote it (its `RecHdr` included), except the rotation padding: the `Noop` group that pads the extent after its last
-group ([80 §2.4.3], [F05]) is not kept. Nothing else is dropped by retirement ([AR §4.9] "nothing is dropped by default").
-A bulk commit's `Commit` record keeps its `cs_ref`, and the `cs.<n>` it names stays alive with it ([AR §4.9], §8).
+group ([80 §2.4.3], [F05 §4.4] G-3) is not kept. Nothing else is dropped by retirement ([AR §4.9] "nothing is dropped by
+default"). In particular the extent's first record, its `ExtentHead` (kind 28, [F05 §4.5], §9.28), is kept as the
+first record of the `hist` file's first frame. Its `chain_in` is the chain value at the extent's first byte (the trailer
+of the previous extent's pad, or `XXH3-64(epoch)` at an epoch start), so the chain value that this extent's own dropped
+pad held survives as the next extent's `ExtentHead.chain_in`. The head also carries the epoch's `epoch_lsn`, the `init`
+parameters, `project_oid_algo` and the counters and HLC maxima a slot-less `repair` starts from ([F16] P-85, P-97;
+pass 1, P1-8). A bulk commit's `Commit` record keeps its `cs_ref`, and the `cs.<n>` it names stays alive with it
+([AR §4.9], §8).
 
 *(Informative)* Records other than commits — ref moves, leases, markers, idempotency results, checkpoints with their per-ref
 `lsn` lists, pins, client heads, the lazy runtime records — stay readable, which reflog, `op log`, overlay builds of old
@@ -179,8 +185,8 @@ The raw bytes of a frame are the concatenation of its records. A reader never ne
 counts and every block's lengths ([F17 §1.4] SP-R2). A block's raw length never exceeds 1,048,576, the upper bound of P04's
 range, so decoding one commit never needs more than two such buffers ([AR §8.3] RAM "≤ 2 MB").
 
-This rule counts records, not commits, for the byte bound, and counts commits for the count bound; [F17 §4.3] states it for
-commits only (OP-10-03).
+This rule counts records, not commits, for the byte bound, and counts commits for the count bound. It is the one frame
+rule: [F17 §4.3] gives P03's and P04's values and cites this section for the cut (OP-10-03; pass 1, S1-29, P1-30).
 
 ### 4.3 Sections of a `hist` file
 
@@ -267,8 +273,10 @@ Then n entries of 24 bytes, sorted by `(id16, lsn)`, `id16` bytewise:
 rewrite writes a new `hist` file under a new number and never changes an existing one:
 
 - it keeps every record it does not drop, byte for byte, except that a dropped commit whose header is kept (the default;
-  `--prune-headers` drops it) is replaced by [F06]'s header-only form of its `Commit` record, with `RecHdr.len` and
-  `RecHdr.xxh3_64` recomputed ([F05]);
+  `--prune-headers` drops it) is replaced by [F06 §4.4.15]'s header-only form of its `Commit` record (presence bit
+  `pruned`, `n_ops` = `n_bodies` = 0, `changeset_digest` and every other header field kept), with `RecHdr.len` and
+  `RecHdr.xxh3_64` recomputed ([F05]); a bulk commit's pruned form drops `cs_ref`, so its `cs.<n>` leaves `FILES` with
+  the rewrite (§8);
 - it cuts frames by §4.2 again and rebuilds `HCIDX`; a header-only commit stays in `HCIDX`, a dropped one leaves it;
 - the group chain trailers of [80] X-F3 are a rule of the log and are not verified inside `hist`; the frame's `raw_xxh3`,
   the section checksums and `seg_digest` protect `hist` bytes.
@@ -332,7 +340,8 @@ Values 0 and 3–255 are reserved.
 
 - A **delta checkpoint** seals the bodies of its window into one new `blobs` file, compressing them here ([AR §4.9]).
 - A **bulk commit** writes its bodies into a `blobs` file before its changeset segment ([AR §4.3] "bodies straight to
-  `blobs`"); both are sealed before the `Commit` record.
+  `blobs`"); both are sealed before the `Commit` record, under the numbers its `Reserve` record claimed ([F05 §9.27],
+  [F16] P-84).
 - A **tiered fold** merges the `blobs` files of the deltas it folds into one; a **rollup** merges all of them ([AR §4.1],
   CL3); **blob GC** writes a file without the blobs that no live row, retained history or ref references ([AR §4.9]). Each
   merge writes a new file under a new number and re-encodes payloads only as §3.5 requires.
@@ -343,10 +352,10 @@ Values 0 and 3–255 are reserved.
 
 - **A body** is found by its `BlobRef`: through `NodeHdr.body_ref` and `BLOBTAB`, or, for a hash alone, by a binary search
   of `BLOBTAB` in the layers of the view after the tail records that carry bodies ([F09 §6.3], [F06 §8] BD-6).
-- **A fingerprint** is found by the `hash` in its `FPRINT` row ([F11 §12.8]): a binary search for `(hash, 2)` in the
-  `BLOBIDX` of each `blobs` file that `FILES` lists ([F09 §14.4]), highest file number first; the first hit decides. Between
-  folds the store holds a handful of `blobs` files ([AR §4.1] CL3), so this costs a few binary searches in mapped pages
-  ([F09] OP-09-14 proposes a file number in the `FPRINT` row instead).
+- **A fingerprint** is found by its `FPRINT` row ([F11 §12.8]), which names the `blobs` file and the `hash`: one binary
+  search for `(hash, 2)` in that file's `BLOBIDX`, so a lookup opens one file however many `blobs` files the store holds
+  ([F09] OP-09-14 adopted; pass 1, P1-22). A row whose file is not live, or whose file holds no such entry, is a defect
+  that `doctor --fsck` reports; the resolver then treats the fingerprint as absent and recomputes it ([F20 §1.3]).
 - A `blobs` file that no live structure names is garbage; GC removes it from `FILES` and deletes it ([F16]).
 
 ## 6. `dict.<D>`
@@ -394,6 +403,21 @@ commit id with a fan-out table, probed in place and never loaded into a per-proc
 entries not yet folded are `GitMap` log records ([F05]); a checkpoint folds them into new pages, one per (destination,
 algorithm) with entries, and `gitmap` compaction merges pages ([AR §4.9]). The map is store-level runtime state ([AR §5d.1]).
 
+**Page bound** (pass 1, P1-22). The live pages of a pair, ordered by file number, are tiered like `main`'s segment set
+([F17 §6.1]): with P14 = `store.fold-width`,
+
+- a rollup writes one page per pair, holding every entry of the pair's pages, and releases the others;
+- a checkpoint that folds `GitMap` entries of a pair that already has 1 + P14 live pages writes one page holding the
+  entries of every page but the oldest, together with the new entries, and releases the pages it merged; otherwise it
+  adds one page.
+
+So a pair never has more than 1 + P14 pages, and a lookup opens at most that many whatever the store's age; while a long
+maintenance job holds the maintenance byte, its yield checkpoints merge no page but the one page per pair that the same
+holding's earlier yield checkpoint wrote (which the new one replaces and releases), so the bound is 2 + P14 until the next
+ordinary checkpoint ([F16] P-98; pass 1, P1-9). A merge
+copies entries (a commit maps to one git id per pair, §7.3, so entries never conflict) and writes a new file number; the
+`Checkpoint` record names the new page in `added` and the merged ones in `released` ([F05 §9.9]).
+
 ### 7.2 `GitmapHdr`
 
 The `gitmap` page header of [80 §2.5] rule 4:
@@ -439,15 +463,20 @@ The sections of a changeset segment are [F09 §16.4]'s. As a sealed file:
 - It is built as `tmp/cs.<nonce>` ([F02 §5.3]), written, made durable (`durable+meta`), moved to `cs.<n>` by
   `rename_noreplace`, and both names are made durable (`durable-name` on `tmp/` and on the store directory) before the
   `Commit` record that names it ([F02 §5.2] rule 2, [AR §4.3], [80 §2.3.2]); the file is sealed before the rename or after
-  it, as `[OS/fs §4.4.6]` orders.
+  it, as [OS/fs §4.4.6] orders.
 - Its `SegHdr.file_no` is n, chosen before the rename; `total_len` and `seg_digest` are final when it is sealed.
 - The `Commit` record's `cs_ref {file, len, b3}` ([AR §4.3], [F06 §9] BK-2) names it: `file` = n, `len` = `total_len`,
-  and `b3` as BK-2 defines it (BLAKE3-128 of the whole file); [F09] OP-09-03 proposes `seg_digest[0..16]` instead, the digest
-  `FILES` records for it.
+  and `b3` = `seg_digest[0..16]`, the first 16 bytes of the digest its own header records and the value `FILES.digest16`
+  holds ([F06 §9] BK-2, [F09 §14.4]; pass 1, S1-19, P1-6, A1-21).
 - It is never compressed: readers map it as one more delta layer ([AR §4.3]).
 - It lives while the `Commit` record that names it is kept (in the log or in a `hist` file, §4.1); the next checkpoint folds
-  its rows into a delta, but its `OPS` stay the commit's op list. A `cs` file no record names is an orphan that the sweep
-  removes ([AR §4.3] "the crash state 'segment flushed, record not'", [F16]).
+  its rows into a delta, but the file stays the commit's changeset for history: its rows (the state after the commit,
+  with `PREV`), its `VIOLATIONS` and its `CKIMG` ([F09 §16.4]). A bulk commit stores no op list; history, `revert`, `blame`
+  and `show` read it as a state delta against its base state ([F06 §9] BK-5; pass 1, A1-22, P1-27, S1-35). Before its
+  `Commit` lands, the file is named by the `Reserve` record that claimed its number ([F05 §9.27], [F16] P-84), or by a
+  `FILES` row with the `reserved` flag once a fold covers that record ([F09 §14.4]). A `cs` file no record names is an
+  orphan that the sweep removes ([AR §4.3] "the crash state 'segment flushed, record not'", [F16]); a
+  `gc` rewrite that keeps only the pruned header of its commit (§4.6) releases it.
 
 ## 9. Validation
 
@@ -475,7 +504,7 @@ A decode of a `hist` frame also checks `raw_xxh3` at run time; a mismatch is exi
 | [90 §10.1] codec | complete as above | §3, §6 |
 | [50] F8 | complete: `first_seq`, `last_seq`, `first_append_hlc`, `last_append_hlc` in the frame header, and the lookups they serve; the overlay's `seq → lsn` is process state, not format | §4.3, §4.5 |
 | [40] R-9 | complete: the fingerprint blob class, its content and codec, and how `FPRINT`'s `hash` ([F11 §12.8]) finds it through `FILES` | §5.3, §5.5 |
-| [80] X-F6 | `total_len` in the `hist` and `blobs` `SegHdr`, the `gitmap` page header and the `dict` header, and the check before mapping; `SegHdr` itself is [F09 §2]'s, the mapping policy `[OS/map]`'s | §2.4, §6.1, §7.2 |
+| [80] X-F6 | `total_len` in the `hist` and `blobs` `SegHdr`, the `gitmap` page header and the `dict` header, and the check before mapping; `SegHdr` itself is [F09 §2]'s, the mapping policy [OS/map]'s | §2.4, §6.1, §7.2 |
 | [60 §2.5] issue-2 row "Store parameters": `hist` frame size | how P03 and P04 cut frames; the values are [F17]'s | §4.2 |
 
 ## Holes
@@ -501,10 +530,10 @@ A decode of a `hist` frame also checks `raw_xxh3` at run time; a mismatch is exi
   or 48 bytes (SHA-256). SHA-1 meets the 41-byte sizing; SHA-256 exceeds it by 7 bytes, which [AR §8.1]'s `gitmap` row
   should state at WP-81a ("36 B/entry SHA-1, 48 B SHA-256"). The 32-byte slot of [F01 §7.5] was not used here, because
   entries of one page share one algorithm.
-- **OP-10-03 (the frame rule counts records).** [AR §4.1] and [F17 §4.3] bound frames by commits and raw bytes. A retired
-  extent also holds non-commit records, which retirement keeps ([AR §4.9] "nothing is dropped"). This chapter counts every
-  record's bytes toward P04 and only `Commit` records toward P03, and applies the split rule to any record above P04. [F17
-  §4.3] should cite §4.2 for the rule.
+- **OP-10-03 (the frame rule counts records) — closed in pass 1** (S1-29, P1-30, A1-46). [AR §4.1] bounds frames by
+  commits and raw bytes. A retired extent also holds non-commit records, which retirement keeps ([AR §4.9] "nothing is
+  dropped"). This chapter counts every record's bytes toward P04 and only `Commit` records toward P03, and applies the
+  split rule to any record above P04; [F17 §4.3] now cites §4.2 for the rule and keeps only the values.
 - **OP-10-04 (one commit index per file).** [AR §4.1] says "a per-frame commit index (`id16 → lsn`)", [AR §4.8] "per-frame
   fan-out index". A fan-out table per frame of at most 256 commits costs 1 KiB per frame and saves nothing over one index
   per file whose entries give the `lsn`, from which the frame follows by binary search. This chapter keeps one `HCIDX` per
@@ -524,12 +553,12 @@ A decode of a `hist` frame also checks `raw_xxh3` at run time; a mismatch is exi
 - **OP-10-09 (`dest` numbering).** `gitmap` and `HEAD.image_cursor` use a `dest u8`. [F04] open point 7 says destination
   numbers are declared by `GitMap` records ([F05]); [F14] (WP-15) names the destinations. This chapter only requires that a
   number is never reused for another destination, since `gitmap` pages outlive a destination's configuration.
-- **OP-10-10 (header-only commits).** `gc` keeps the headers of dropped commits ([AR §4.9]). [F06] (WP-12) should define that
-  form (the header with `n_ops` = 0 and a marker that the ops were pruned), so that `hist` rewrites have one encoding to
-  write.
-- **OP-10-11 (`cs` lifetime).** A changeset segment outlives the checkpoint that folds its rows, because its `OPS` are the
-  bulk commit's op list for history (§8). GC removes it when no kept record names it. [F16] should state this with the orphan
-  sweep rule of [F02] open point 5.
+- **OP-10-10 (header-only commits) — closed in pass 1** (S1-21, A1-5). [F06 §4.4.15] defines the form (presence bit
+  `pruned`, `n_ops` = `n_bodies` = 0, the digest kept); §4.6 writes it.
+- **OP-10-11 (`cs` lifetime).** A changeset segment outlives the checkpoint that folds its rows, because its rows,
+  `VIOLATIONS` and `CKIMG` are the bulk commit's changeset for history (§8; pass 1, A1-22: an earlier text named an
+  `OPS` section, which [F09 §16.4] does not have). GC removes it when no kept record names it. [F16] should state this
+  with the orphan sweep rule of [F02] open point 5.
 - **OP-10-12 (determinism of compressed bytes).** Byte-identical rebuilds of `hist` and `blobs` hold only for one pinned codec
   implementation and version; a codec upgrade changes compressed bytes, never raw content, ids or `hash`es. The format oracle
   treats compressed payloads as opaque at M0 ([PLAN §6.2] R3).
@@ -547,3 +576,12 @@ A decode of a `hist` frame also checks `raw_xxh3` at run time; a mismatch is exi
   three values, which name only what `HEAD.segments` may hold. The review may unify the two; nothing here depends on it.
 - **OP-10-17 (`hist` and `blobs` tags).** [F11 §2.8] proposed `0x0201`–`0x021A` for the runtime tables, so this chapter's
   sections moved to `0x0300`–`0x0302` (`hist`) and `0x0310`–`0x0311` (`blobs`), registered in [F09 §3.1].
+- **OP-10-18 (lookups bounded by file count; pass 1, P1-22).** A fingerprint lookup opens the one `blobs` file its
+  `FPRINT` row names (§5.5), and a pair's `gitmap` pages are tiered by `store.fold-width` (§7.1), so neither lookup grows
+  with the store's age. [F17 §6.1] states P14 for segments and, since pass 1, for `gitmap` pages too (1 + P14, or
+  2 + P14 while a long job yields). Closed.
+- **OP-10-19 (the anchor record of P1-8) — closed in pass 1.** Review pass 1 (P1-8) asks that retirement keep, in `hist`,
+  a durable anchor record written at every epoch start and at the start of every extent. That record is [F05 §9.28]'s
+  `ExtentHead` (kind 28, the first group of every extent, [F05 §4.5]; [F16] P-97), and §4.1 keeps it by the existing rule
+  (every record but the rotation pad), as the first record of each retired extent; the chain value a dropped pad's
+  trailer held is the next extent's `ExtentHead.chain_in`. No byte of this chapter changes.

@@ -292,10 +292,10 @@ Every value of the closed type set ([F08 §5.1], [F07 §7.1]) has one **single-l
 | `pathmove` | the JSON array of §5.2 | |
 | `set` | §5.3 | |
 
-The empty text, the empty set and an `oid` of algorithm `none` are absent values ([F08 §6.2], [F07 §7.1]) and are never
-written as values; a line that would carry one is omitted. The one exception is an explicitly stored empty set, which
-[F06 §5.3] allows and [F08 §6.2] forbids: if a store holds one, it is written `[]` (open point 14). An importer reads `[]`,
-like every empty value, as absent, which is the canonical value of an empty set ([F07 §7.1]).
+The empty text, the empty set and an `oid` of algorithm `none` are absent values ([F08 §5.3], [F08 §6.2], [F07 §7.1]) and
+are never written as values; a line that would carry one is omitted. No store holds an explicit empty set (pass 1, A1-1:
+[F06 §5] cites [F08]'s one encoding), so a writer never writes `[]`; an importer still reads `[]`, like every empty value,
+as absent, which is the canonical value of an empty set ([F07 §7.1]) (open point 14).
 
 ### 5.2 Paths and the root by name
 
@@ -370,8 +370,9 @@ importer decodes the token and parses the result by the key's type.
 ### 5.6 The scope text
 
 The `scope` selector of an anchor is the structured value of [F08 §10.3.1] (a language and one to 64 segments of
-item kind, name and qualifier), whose bytes enter `captured` and the selector block ([F07 §8.2]). Its text form is the
-string [F06 §7.5.3] stores and [40 §5.7] writes:
+item kind, name and qualifier), whose bytes enter `captured` and the selector block ([F07 §8.2]); the anchor record that
+[F06 §7.5.3] carries and [F09 §13.3] stores holds those bytes. Its text form, which [40 §5.7] writes, is the bijective
+image of those bytes (pass 1, A1-2):
 
 ```abnf
 scope-text  = lang ":" seg *( "/" seg )
@@ -394,6 +395,8 @@ pct         = "%" 2LHEX
   bijection, so the importer rebuilds the exact bytes that enter `captured`.
 - In a property list the scope is a token (§5.5); since every segment holds SP, it is always a JSON string:
   `scope="rust:struct LockFile/impl LockFile/fn acquire"`.
+- While [F20 §6.1]'s interim scanner rule holds, no capture records a scope, so a store writes this text only for an
+  imported anchor that carries one ([F08 §10.3.1]); the grammar and the bijection are unchanged by the rule.
 
 ### 5.7 Anchor texts
 
@@ -621,12 +624,13 @@ is the order of the selector block ([F07 §8.2]) with the four texts after the d
   on a line: `quote`, `prefix` and `suffix` come together, and `end` comes with them on a `range` line.
 - **`hash-only` mode** writes no text. An anchor that arrives without its texts — from a `hash-only` destination, or from
   a store that itself holds the anchor without its texts — is imported in the **`text-unavailable`** sub-state ([40 §5.7];
-  [F08 §10.3] `text_unavailable`, [F06 §7.5.3] `aflags.text` clear; the detail string is [F18 §4.6]'s): it resolves by hint,
+  [F08 §10.3] `aflags` bit 5 `text_unavailable`; the detail string is [F18 §4.6]'s): it resolves by hint,
   window and scope only, never `fresh` by quote, until `links fix --repin --at …` recaptures it. The sub-state covers `end`.
 - **`v=`** is the anchor's resolver version, a selector field hashed with the block; it is not the version of the line format,
   which is the file's `moirai-node 1` (open point 1).
-- Presence follows the stored record: [F08 §10.3] ties `hint`, `window` and `span` to `kind ≠ file`, [F06 §7.5.3] to its
-  flags; the line writes whatever the record holds, and the importer rebuilds the same record (open point 12). I-F9 requires
+- Presence follows the stored record, which [F08 §10.3] alone lays out ([F06 §7.5.3] cites it): `hint`, `window` and
+  `span` are present exactly when `kind ≠ file`, and `blob` may be `none` only for a planned `file` anchor; the line
+  writes whatever the record holds, and the importer rebuilds the same record (open point 12). I-F9 requires
   a quote on `heading`, `symbol`, `quote` and `range` anchors and a window on `lines` anchors ([F18 §2.9]); a line that breaks
   it is `ImageParse`.
 - An anchor with a `conflict edge.at.<dst>.<anchor>` line is omitted. An anchor line whose dst uid names no node of the
@@ -659,8 +663,9 @@ c-key       = %s"field." iname / %s"status" / %s"body" / %s"parent" / %s"existen
   (`base= ours=5 theirs=7`). No non-absent side is empty: the empty text and the empty set are absent values (§5.1). A
   side that holds a field's default is absent and written empty ([F07 §6.3]); a `status` side is written by name even at
   the kind's initial status with resolution `none`, as the `status:` line is (§6.2), and is read as absent.
-- `<class>` is a value-conflict class name of [F12] ([F19 §12.1], [F07 §2.2]): `FieldEdit`, `StatusFork`, `TextHunk`,
-  `DeleteVsModify`, `SupersedeFork`, `OwnerFieldEdited`, `DATA`, `PathClaim`. Another name is `ImageParse`.
+- `<class>` is a value-conflict class name of [F12 §6.1] ([F19 §12.1], [F07 §2.2]): `FieldEdit`, `StatusFork`, `TextHunk`,
+  `DeleteVsModify`, `SupersedeFork`, `OwnerFieldEdited`, `PathClaim`. Another name, `DATA` included (no store holds that
+  class, [F12 §6.1]; pass 1, S1-32, A1-43), is `ImageParse`.
 - Lines are sorted bytewise by key. Sides are plain values ([F07 §6.5]).
 - A body conflict omits the `---` section ([AR §5b.2] rule 3). Its sides are the body texts; the canonical sides are their
   BLAKE3-128 hashes, which the importer computes, and it stores the texts as bodies ([F06 §8] BD-4).
@@ -692,7 +697,8 @@ fval-1      = sval / v-f64 / v-set / v-pathmove     ; single-line forms only: a 
   not `none`; the initial status with `none` is read as absent, as in §6.2), then its title, header, flag and field keys as `title:` and `field <name>:` lines (the header enumerations and
   flags by their field names: `field priority: P1`, `field pinned: true`), sorted by field name, then `label` lines, then one
   `total <field> <value>` line per non-zero counter (the node image holds totals, not ledgers), then the body as
-  `body <JSON string of its bytes>`. The image holds no hierarchy or edge key ([F07] open point 12).
+  `body <JSON string of its bytes>`. The image holds no hierarchy or edge key ([F06 §6.3]): a `--take` towards the live
+  side restores them from that side's state with ordinary ops ([F12 §6.5]).
 - `deleted <kind>` carries the tombstone's reason and replacement.
 - This settles [RULES/merge-table] open point 5 (d) and [F06] open point 13: a provisionally deleted node is a tombstone
   file carrying its `conflict existence` line, and a provisionally live node is a live file carrying it.
@@ -705,8 +711,8 @@ the file never ends without LF. Bodies are byte-exact: hard breaks, inner `---` 
 BLAKE3-128 of the decoded bytes equals the body key ([F07 §6.3], I40′). A body is valid UTF-8 without CR ([F08 §7.2]); it may
 contain U+0000.
 
-- A node without a body has no `---` line. A store that holds an empty body would write `---` and two LF; [F07] open
-  point 26 proposes that an empty body is no body, and then the form never occurs.
+- A node without a body has no `---` line. An empty body is no body ([F08 §7.2]; pass 1, S1-34), so a native file never
+  ends in the `---` line and the one LF an empty body would give; an importer reads that form as no body.
 - The only normalisation a body receives is the store's CR LF → LF at write time; an importer applies the same rule to a
   git-side file that has CR LF ([AR §5b.2] rule 7) and never touches the bytes otherwise.
 
@@ -1238,7 +1244,7 @@ For each node path whose blob differs between the first parent's tree and the co
 | live | tombstone | `deleted(kind, reason, replaced_by)` | every value key except `title` → absent; `title` as kept; out-edges not retained → absent | `Delete`; edge ops ([F07 §13]) |
 | tombstone | live | `live(kind)` (undeleted) | each restored value key | `Undelete` with its image |
 | tombstone | tombstone | changed when `kind:`, the reason or the replacement differ | changed retained edges, a changed `conflict` line | edge ops, `Conflict`, `Resolve` |
-| absent | tombstone | `deleted(kind, reason, replaced_by)` from the absent state | `title`; the retained out-edges | [F06] has no op yet ([F07] open point 5); the importer lands the tombstone state |
+| absent | tombstone | `deleted(kind, reason, replaced_by)` from the absent state | `title`; the retained out-edges | `CreateDeleted` ([F06 §7.4], NF-11) with the kind, reason, replacement, the creator by [F06 §7.4]'s rule, and the retained title as its image; the retained out-edges as `AddEdge` ops (pass 1, S1-6, A1-4) |
 | live | absent | foreign only: `deleted(kind, "image:file-removed", none)` | as live → tombstone; the title and the retained out-edges come from the first parent's file by each edge kind's `on_src` policy ([F08 §8.4.6]): `repoint-or-flag` edges stay with `flagged` (there is no replacement), `retain`, `retain-warn`, `retain-anchors` and `recompute` edges stay, the others become absent — so a hand-deleted blocker never unblocks silently (X4) | foreign `Delete{image:file-removed}`; a re-export writes the tombstone file ([AR §5b.6] step 2) |
 | tombstone | absent | foreign only: none | none | `TombstoneRemoved`: a hint when nothing references the node, a violation when something does ([F19 §12.2]) |
 
@@ -1261,11 +1267,11 @@ store to a new destination reproduces every head tree byte-identically", [AR §5
 
 | Data | Kept for | Where ([F06]) |
 |---|---|---|
-| anchor texts (`quote`, `prefix`, `suffix`, `end`) | every anchor imported with its texts | the anchor record ([F06 §7.5.3], [F08 §10.3]) |
+| anchor texts (`quote`, `prefix`, `suffix`, `end`) | every anchor imported with its texts | the anchor record ([F08 §10.3], carried by the op of [F06 §7.5]) |
 | `Moirai-Ref`, `Moirai-Idem` as imported | native and checkpoint imports | `xtr` ([F06 §4.4.12]) |
 | `Moirai-Head`, `Moirai-Folded` | checkpoint imports | `ckpt` ([F06 §4.4.11]) |
 | the stated parent ids | native imports below a demoted parent | `stated` ([F06 §4.4.1]) |
-| per node file brought in by an import-checkpoint commit: its `created:`, `updated:` and `deleted:` values (commit token and time text as written) and its ledger lines (field, token, delta) | import-checkpoint commits | not yet in [F06]: open point 22 |
+| per node file brought in by an import-checkpoint commit: its `created:`, `updated:` and `deleted:` values (commit token and time text as written) and its ledger lines (field, token, delta) | import-checkpoint commits | `ckimg` ([F06 §4.4.14]) of an inline commit; the `CKIMG` section of the `cs.<n>` of a bulk one ([F09 §16.4], [F06 §9] BK-5); pass 1, S1-23, A1-10 |
 
 Everything else in a tree is a function of the canonical state and the commit graph (§3.3, §6.3, §6.5).
 
@@ -1347,7 +1353,7 @@ commits included.
 | ledger tokens | the last field of each `incr` line |
 | anchor texts | `quote=`, `prefix=`, `suffix=`, `end=` in `full` mode |
 | the ref's name and kind | the git ref name; `refs/heads.moi`, `refs/tags.moi` (§8) |
-| store id, granularity per ref, image format, anchor-text mode, export cursor; `#N` | the side ref `refs/moirai/meta/<store-id>`: `meta.moi`, `aliases.moi` (§14.1) |
+| store id, granularity per ref, image format, anchor-text mode, export cursor; `#N` | the side ref `refs/moirai/meta/<store-id>`: `meta.moi`, `aliases/<h1>.moi` (§14.1) |
 | reflog and client-head events | `refs/moirai/ops/<store-id>` with `--with-oplog` (§14.2) |
 
 ### 12.5 Never exported
@@ -1436,7 +1442,10 @@ as hints.
 `<store-id>` is the exporting store's id as 32 lower-case hexadecimal digits ([F02 §4]). The ref names a commit with no
 parent, rewritten by every export run of that store to that destination:
 
-- **tree**: two blobs, `aliases.moi` and `meta.moi`, mode `100644`;
+- **tree**: the blob `meta.moi` (mode `100644`) and the subtree `aliases/` (mode `40000`), which holds one blob
+  `<h1>.moi` (mode `100644`) per first uid byte h1 that some row has, h1 written as two lower-case hexadecimal digits
+  (`00.moi` … `ff.moi`); a prefix without rows has no file (pass 1, P1-17; the fan-out of open point 32, pending the
+  owner's sign-off of the [AR §5b.1] change, `reviews/owner-questions.md`);
 - **author and committer**: `moirai/image <image@moirai.invalid>`, with the time of the `hlc` of the newest commit the run
   exported (§10.2);
 - **message**: `moirai image metadata` and LF.
@@ -1450,16 +1459,20 @@ meta-file   = %s"moirai-meta 1" LF
               *( %s"ref " refname SP ( %s"checkpoint" / %s"commit" ) LF )
 
 aliases-file = %s"moirai-aliases 1" LF
-               *( uid %s" #" NZDIGIT *DIGIT LF )
+               1*( uid %s" #" NZDIGIT *DIGIT LF )    ; every uid of one file begins with the file's byte h1
 ```
 
 - `meta.moi`: the store id; the image format version (1); the destination's anchor-text mode ([40 §5.7]: "the destination's
   mode is recorded in the unhashed side ref"); `last-export-seq`, the greatest store `seq` this store has exported to the
   destination ([F04 §5.11]); one `ref` row per ref this store has exported there, with its granularity, sorted by name.
-- `aliases.moi`: one row `uid #N` per node file in the trees of the refs this store has exported to the destination, as
-  they stand after the run, with this store's `#N` for the uid, sorted by uid ([AR §5b.1]). An importer honours `#N` only
-  when N ≥ its `next_id` and otherwise records the alias `(origin store id, #N) → local #N` ([AR §5b.6] step 5, N11,
-  I35′).
+- `aliases/<h1>.moi`: one row `uid #N` per node file in the trees of the refs this store has exported to the destination
+  whose uid begins with the byte h1, as they stand after the run, with this store's `#N` for the uid, sorted by uid
+  ([AR §5b.1]); each file follows `aliases-file`. The union of the files is [AR §5b.1]'s alias table. An export run
+  writes the blob of every prefix whose rows it changed and takes every other entry of `aliases/` unchanged from the side
+  ref's previous tree, so a run that touches a few nodes writes a few small blobs, not the whole table (≈ 4.2 MB at 1e5
+  nodes, [AR §5b.9]'s ≤ 50 ms incremental export). The tree is a function of the rows alone, so the rewrite is
+  deterministic whichever blobs are reused. An importer honours `#N` only when N ≥ its `next_id` and otherwise records the
+  alias `(origin store id, #N) → local #N` ([AR §5b.6] step 5, N11, I35′).
 - Gate 1's "byte-identical objects and refs" ([AR §5b.7]) covers every hashed object and the image refs of §13.1; the side
   refs differ by construction, since their names carry the store id (open point 31).
 
@@ -1525,7 +1538,7 @@ and values of §11.1); each negative fixture is named for the `ImageParse` rule 
 | R4 | a file node with every field; a `removed` file node; a `planned` file node; a root node with `path_moves` |
 | schema | `kinds.moi`, `fields.moi` with field rows (defaults and ranges) and value rows (covers, `*` kind), `edges.moi` with a reading that needs JSON |
 | queries | a query file with parameters, one without, one with a string default holding HT (JSON `params:`), a conflicted definition with an absent side |
-| side refs and rows | `.moirai-image` in both object formats, `meta.moi`, `aliases.moi`, `ops.moi`, `refs/heads.moi`, `refs/tags.moi` |
+| side refs and rows | `.moirai-image` in both object formats, `meta.moi`, `aliases/<h1>.moi`, `ops.moi`, `refs/heads.moi`, `refs/tags.moi` |
 | superset inputs | a BOM, CR LF, trailing SP, reordered lines, `\u` and `\/` escapes, a default written explicitly, a live file without provenance lines |
 | `ImageParse` | one negative per rule of §9.2 |
 
@@ -1620,8 +1633,9 @@ Task `018f3c2e7a117b3c9d5e4c2f1a0b9e51` cites the file twice: a `file` anchor an
 32-byte prefix `" Blocks until the byte is ours.\n"` and the 32-byte suffix `" {\nlet mut spins = 0u32;\nloop {\n"`, and a
 window of three hashes before and two after. The digests, `captured` and both anchor uids are computed ([F08 §11.4]; the
 symbol anchor's `captured` over the file uid above, the kind name, the scope bytes of [F08 §10.3.1], the three texts and
-empty `end`, `occurrence` and window). The two lines of the referrer's file, sorted by (dst uid, anchor uid), in `full`
-mode:
+empty `end`, `occurrence` and window). While [F20 §6.1]'s interim scanner rule holds, a store holds such a `symbol`
+anchor only by import (a capture refuses the `path::A/B` form); its bytes and lines are the same either way. The two lines
+of the referrer's file, sorted by (dst uid, anchor uid), in `full` mode:
 
 ```
 anchor 6b8c72caccb5d1cb7d3c9fc37f1ac98e -> d706fcde60f0b6cbf56c23297162b652 kind=file mode=live watch=header blob=sha1:de177738b58e970465382658e69b18745029e248 captured=bcf306557fb04ecf570128703b7ac5fe v=1
@@ -1806,20 +1820,19 @@ the quote and context lengths ([F20 §6.1]); the codec holes of [F10] never reac
    --take` restores ([F06 §8] BD-4).
 9. **Tombstones may carry `conflict` lines** (§6.10): the existence conflict and conflicts on retained edges. [AR §5b.2]
    rule 8 lists no such line.
-10. **The scope text** (§5.6) is a bijection with [F08 §10.3.1]'s structured value and equals the single string [F06 §7.5.3]
-    stores; this closes the [F06]/[F08] divergence for the image ([F07] open point 9). [F06] and [F08] should adopt one
-    stored form; either way the image bytes are fixed.
+10. **The scope text** (§5.6) is a bijection with [F08 §10.3.1]'s structured value, which the one anchor record of
+    [F08 §10.3] stores and [F06 §7.5.3] cites — closed in pass 1 (A1-2, S1-3).
 11. **Anchor texts that are not UTF-8** (§5.7) are written as `%` and base64url. Text content (`is_text`, [F20 §2.1]) may
     be Latin-1 or another encoding, and a `.moi` file is UTF-8; without this form a `full` export would have to drop such
-    texts. [F08 §10.3]'s "valid UTF-8 for text content" should be corrected: `is_text` does not imply UTF-8.
-12. **[F06]/[F08] divergences the image absorbs**: `blob` may be absent ([F06]) or not ([F08]) — the line writes it when
-    present; `hint`, `window` and `span` presence is flag-driven in [F06] and kind-driven in [F08] — the line writes what the
-    record holds; codes of anchor kinds and `pathmove` classes differ — the image uses names ([F07] open point 9).
-13. **`commitref` and `pinned_commit` need 32 bytes** (§5.1, §6.6): the image writes `c<64 hex>` ([AR §5b.2] rule 4) and
-    the canonical form hashes the full id ([F07 §8.1]); [F08 §5.1]'s 16-byte `commitref` and [F08 §10.2]'s 16-byte
-    `pinned_commit` cannot supply it for a commit the store does not hold. [F08] should widen both to `b32`, as [F06] stores.
-14. **Empty sets** (§5.1): the image writes none, following [F08 §6.2] and [F07 §7.1]; `[]` is admitted by the grammar only
-    so that a store holding [F06 §5.3]'s explicit empty set stays lossless until [F06] and [F08] align.
+    texts. Closed in pass 1: [F08 §10.3] stores the texts as `vbytes` (S1-3).
+12. **[F06]/[F08] divergences the image absorbed** — closed in pass 1 (A1-2, S1-3): [F08 §10.3] is the one record,
+    `blob` is `none` only for a planned `file` anchor, `hint`, `window` and `span` presence is kind-driven, and the image
+    writes kinds and `pathmove` classes by name.
+13. **`commitref` and `pinned_commit` need 32 bytes** (§5.1, §6.6) — closed in pass 1 (A1-1, A1-3, S1-2): [F08 §5.1]
+    and §10.2 store the full id, and [F09 §7.2]'s `EDGE_PROPS` row keeps all 32 bytes, so a store rebuilt from segments
+    writes `c<64 hex>` ([AR §5b.2] rule 4) and hashes the full id ([F07 §8.1]).
+14. **Empty sets** (§5.1): the image writes none, following [F08 §5.3], §6.2 and [F07 §7.1]; `[]` stays admitted on import
+    and reads as absent. No store holds an explicit empty set since pass 1 (A1-1).
 15. **New trailer `Moirai-Parent`** (§10.4). [AR §5b.4] carries item 2 by "the git parents, each mapped to its own
     `Moirai-Commit` trailer". That fails for a child of a demoted parent re-exported to another destination: the parent is
     written there natively with its foreign id, which differs from the child's stated id, and the child would be demoted in
@@ -1838,7 +1851,8 @@ the quote and context lengths ([F20 §6.1]); the codec holes of [F10] never reac
     end of a git message line, where git tools trim it.
 19. **Checkpoint commits** (§10.7): message `checkpoint <R>`, author `moirai/checkpoint` with the head's time, parent the
     destination ref's current commit, and `Moirai-Folded` over H(H) minus H(G). For n = 0 (after `undo`), the trailer has no
-    `from … to …`, and [F06 §4.4.11] should allow zero ids in `ckpt.first` and `ckpt.last`. Gate 2's "commit objects differ
+    `from … to …`, and [F06 §4.4.11] allows all-zero `ckpt.first` and `ckpt.last` exactly when `n_folded` = 0 (done in
+    pass 1, S1-23). Gate 2's "commit objects differ
     only in the import-checkpoint ids and parents" also covers `Moirai-Folded`'s count, which a re-exporting store computes
     over its own history.
 20. **Tags at checkpoint granularity** (§10.7): [AR] does not say what a tag points to when its commit was folded. A tag
@@ -1847,10 +1861,11 @@ the quote and context lengths ([F20 §6.1]); the codec holes of [F10] never reac
 21. **`refs/heads.moi` and `refs/tags.moi` hold one row**, the checkpointed ref (§8), so that a checkpoint tree is a
     function of its ref alone: a row per exported ref would change every ref's next checkpoint whenever a lane is created.
     The row is informational; the ref name and kind come from the git ref ([F07 §14.3]).
-22. **Image-only data after a checkpoint import** (§11.3), a requirement on [F06] (and [F09] for bulk commits): an
-    import-checkpoint commit must record, per node file it brings in, the file's `created:`, `updated:` and `deleted:`
-    values and its ledger lines (tokens as written), unhashed, as `ckpt` records `Moirai-Head`. Without them a re-export of
-    the importing store rewrites provenance and ledgers with its own commit ids and gate 2's byte-identical head trees fail.
+22. **Image-only data after a checkpoint import** (§11.3) — closed in pass 1 (S1-23, A1-10): an import-checkpoint
+    commit records, per node file it brings in, the file's `created:`, `updated:` and `deleted:` values and its ledger
+    lines (tokens as written), unhashed: in `ckimg` ([F06 §4.4.14]) when inline, in its `cs.<n>`'s `CKIMG` section
+    ([F09 §16.4]) when bulk. An exporter that re-exports the commit's tree writes these values instead of deriving them
+    from its own history, so gate 2's byte-identical head trees hold.
 23. **Provenance lines are functions of the commit graph** (§6.3): `created` by [40 §2.3]'s least (generation, commit id)
     rule, `updated` as the last first-parent commit that changed the file, `deleted` following the side that deleted the
     node. [F08]'s `created_tx`/`updated_tx` are store-local `seq`s and are not what the image writes.
@@ -1859,8 +1874,8 @@ the quote and context lengths ([F20 §6.1]); the codec holes of [F10] never reac
     always sum to the counter, stay append-only along a ref, and do not depend on a merge base. A foreign commit's
     hand-written tokens are summed and replaced by its own id in the store; an import-checkpoint keeps its imported lines
     (point 22).
-25. **A tombstone from the absent state** (§11.2) is imported as the tombstone state ([F07] open point 5); [F06] still needs
-    an op form for it.
+25. **A tombstone from the absent state** (§11.2) is stored as [F06 §7.4]'s `CreateDeleted` (NF-11) — closed in pass 1
+    (S1-6, A1-4).
 26. **T(C, d) and subtree reuse** (§3.3): a subtree is reused only when it equals T(C, d); after a foreign parent the files
     it changed are re-encoded and entries outside the layout dropped; after an anchor-text mode change every file with an
     anchor line is re-encoded. This keeps [CFG]'s `hot` reload class for `anchor-text` compatible with I28′.
@@ -1877,17 +1892,21 @@ the quote and context lengths ([F20 §6.1]); the codec holes of [F10] never reac
     destination repository itself; the anchor-text mode and format version in `meta.moi`.
 31. **The side ref is a parentless commit** rewritten per run (§14.1), so it adds no history; its name carries the store id,
     so gate 1's byte identity covers the hashed objects and the image refs, not the side refs.
-32. **`aliases.moi` is rewritten whole** at every run ([AR §5b.1] names one file). At 1e5 nodes it is ≈ 4.2 MB raw, which the
-    ≤ 50 ms incremental checkpoint export of [AR §5b.9] may not absorb. M5 measures it; a fan-out `aliases/<h1>.moi` would be
-    a change of [AR §5b.1] for the review, not of this chapter alone.
+32. **The alias table fans out** (§14.1; pass 1, P1-17). A single `aliases.moi` ([AR §5b.1] names one file) would be
+    rewritten and hashed whole at every run: ≈ 4.2 MB raw at 1e5 nodes (42 MB at 1e6), which the ≤ 50 ms incremental
+    checkpoint export of [AR §5b.9] cannot absorb, and the side-ref layout freezes at M0, before M5 could measure it. The
+    side ref therefore holds `aliases/<h1>.moi`, 256 blobs keyed by the uid's first byte, and a run rewrites only the
+    prefixes it touched. This changes [AR §5b.1]'s file name: recorded for the owner in `reviews/owner-questions.md`
+    (sign-off, then the [AR §5b.1] and §5b.6 step 4 texts at WP-81a); if the owner keeps one file, §14.1 reverts to
+    `aliases.moi` with the same row grammar. P1-17 also asks that measurement 8 time the side-ref write; the measurement
+    list is [60 §5.2]'s, so WP-81a adds it there.
 33. **`refs/moirai/ops/<store-id>`** (§14.2) is given a layout here because the side-ref layout is frozen at M0; it carries
     no directory path, file id or binding field.
 34. **Foreign messages** use [F07 §5.3]'s N_imp, including the U+FFFD substitution and the 65,535-byte cut; a demoted
     commit's message keeps its trailer block ([F07 §12.5]).
 35. **More than two git parents** stage `ImageParse` ([F07] open point 17, confirmed).
-36. **The foreign-uid mark is not encoded** (§9.3). [F18 §2.2] says "[F08] and [F14] encode it"; the mismatch is recomputed
-    from stored inputs on every import, so no line is needed. [F18] should drop the reference to [F14] or the review should
-    ask for an explicit mark.
+36. **The foreign-uid mark is not encoded** (§9.3): the mismatch is recomputed from stored inputs on every import, so no
+    line is needed. Closed in pass 1 (A1-44): [F18 §2.2] now says no chapter encodes the mark.
 37. **The `f64` text form** (§2.8) is [ECMA-262]'s `Number::toString` with `.0` appended, the rule [LQ/envelope §5.2]
     already uses; [AR §5b.2] rule 4's "Ryu" names the digit algorithm, which gives the same digits.
 38. **Tree mode bytes** (§3.2): git writes directories as `40000` in tree objects; [AR §5b.5] rule 1 and [80 §3.2] quote

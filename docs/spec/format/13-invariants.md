@@ -114,7 +114,7 @@ invariants are checked at every crash state of GT1 and GT3.
 | ID | Invariant | Enforcement | Model function | Gates |
 |---|---|---|---|---|
 | I1 | A `#N` is unique across all branches, is allocated under the writer byte from `next_id`, and is never reused. A `uid` is unique. A `Create` of a derived uid (R4 file and root nodes) that the store already knows, on any branch, reuses that uid's `#N`, which it finds through the store-wide `UIDX`. This holds for two unmerged lanes too ([72] M7) | EP-W8 (P: allocation and the `UIDX` probe under the writer byte); EP-IM (P: an `id:` hint is honoured only if `N ≥ next_id`); EP-CK (M: the `UIDX` and `ALLOC` folds); EP-DV (V) | `inv::i1_ids_unique`, with `alloc::allocate` | GT18 uid→`#N` uniqueness (M0 on the model; M2); GT2 (M1) |
-| I35′ | A `#N` is bound to at most one `uid` over the store's life, across imports and GC ([21 §8]) | EP-W8 (C: `ALLOC` rows are never rewritten); EP-IM (P: on collision the alias map `(origin store, foreign #N) → local #N` records the remap); EP-GC (C: GC never frees a `#N`); EP-DV (V) | `inv::i35p_id_binds_one_uid` | GT18 uid→`#N` uniqueness (M0 on the model; M2); GT8 import cases (M5) |
+| I35′ | A `#N` is bound to at most one `uid` over the store's life, across imports and GC ([21 §8]) | EP-W8 (C: an `ALLOC` row that binds a uid is never rewritten; only the hole of an id reserved by a `Reserve` record is filled, once, by the fold of the bulk commit that uses it, [F11 §9.1]); EP-IM (P: on collision the alias map `(origin store, foreign #N) → local #N` records the remap); EP-GC (C: GC never frees a `#N`); EP-DV (V) | `inv::i35p_id_binds_one_uid` | GT18 uid→`#N` uniqueness (M0 on the model; M2); GT8 import cases (M5) |
 
 ### 3.2 Graph structure
 
@@ -146,7 +146,7 @@ invariants are checked at every crash state of GT1 and GT3.
 |---|---|---|---|---|
 | I14′ | An idempotency key is bound to its payload hash and its branch. A hit with a different payload is exit 9. A hit on another branch is exit 9, unless the original branch was merged into the caller's branch or deleted after merge, in which case the original result is returned ([AR §6.4], N13e). Windows per [F17 §11.1] | EP-W2 (P); EP-W6 (P: evaluated after the scan, pending groups included; a hit on a pending group is returned only after that group's identity check); EP-CK (M: retention) | `idem::lookup` ([F17 §11.1]) and `inv::i14p_key_binding` | GT1 (M0 toy log; M1); GT2 (M1); GT4 retry streams (M1) |
 | I17′ | A lease mutation must present the current fencing token. Expiry never bumps the token. The same holder may renew an expired, unreclaimed lease | EP-W4 (P: token check); EP-W7 (P: re-checked by key under the lock) | `lease::i17p_fencing` | GT18 lease liveness (M2 semantics; M8; M10); GT4 lease variants (M1); GT2 (M2) |
-| I26′ | Defined on states (§4.1): `#N` is excluded from `ready` and `claim` on branch R, and is never listed there as a live blocker, if and only if some live ref X ≠ R of kind `work` holds `#N` done, cancelled or deleted at `tip(X)`, and the commit on X's history that last set that state is not an ancestor-or-self of `tip(R)`. The markers and absorbed vectors are a cache of this definition (§4.2) | EP-W4 (M: markers from the net ops); EP-VC (M: marker recomputation on `undo`, `op restore` and `branch -D`); EP-CK (M: `MARKERS_OLD`); EP-RD (P: the exclusion in `ready`, `claim`, `blocking`, `brief`); EP-DV (V: cache against definition) | `coord::i26p_excluded` (the definition, evaluated over all live refs, never from markers, [60 §4.2]) | GT18 I26′ state oracle (M0 on the model: ≥ 10^6 histories nightly, 10^4 in the PR tier; M3); GT10 node-40 table across branches (M0 on the model; M3) |
+| I26′ | Defined on states (§4.1): `#N` is excluded from `ready` and `claim` on branch R, and is never listed there as a live blocker, if and only if some live ref X ≠ R of kind `work` holds `#N` done, cancelled or deleted at `tip(X)`, and the commit on X's history that last set that state (its origin, §4.1) is not an ancestor-or-self of `tip(R)`. The markers and absorbed vectors are a cache of this definition (§4.2) | EP-W4 (M: markers from the hold changes of each landing commit); EP-VC (M: marker recomputation on `undo`, `op restore`, forks and `branch -d`/`-D`); EP-CK (M: `MARKERS_OLD`); EP-RD (P: the exclusion in `ready`, `claim`, `blocking`, `brief`); EP-DV (V: cache against definition) | `coord::i26p_excluded` (the definition, evaluated over all live refs, never from markers, [60 §4.2]) | GT18 I26′ state oracle (M0 on the model: ≥ 10^6 histories nightly, 10^4 in the PR tier; M3); GT10 node-40 table across branches (M0 on the model; M3) |
 | I27′ | Every commit reachable in the log after recovery is reachable from a ref, the reflog or a pin, or is marked orphan and never satisfies an idempotency lookup | EP-W6 and EP-RC (P: a commit whose implied ref move fails its CAS is parked on `orphans/<ref>`); EP-W2 and EP-W6 (P: lookups ignore orphans) | `crash::i27p_orphans` | GT1 (M0 toy log: the torn ref move N3; M1); GT3 (M1); GT4 (M1) |
 | I32′ | `rm` refuses while any live lease covers the `#N` on any branch, unless `--release` is given | EP-W4 (P: a `LEASES` probe by `#N`); EP-W7 (P) | `lease::i32p_rm_refused_under_lease` | GT10 node-40 table (M0 on the model); GT2 (M2) |
 | I33′ | On `plan/*`, `status`, `resolution`, `assignee` and claims are read-only. `blocks`, `parent` and `gates` are writable and validated | EP-W4 (P: the branch-kind write mask); EP-WD V12 (P) | `policy::i33p_plan_mask` | GT2 (M3); GT6 CM9 shapes, a lane forked from `plan/*` (M3) |
@@ -157,7 +157,7 @@ invariants are checked at every crash state of GT1 and GT3.
 | ID | Invariant | Enforcement | Model function | Gates |
 |---|---|---|---|---|
 | I25′ | For every key untouched on side S since the LCA, `merge` never emits a conflict on that key. The base of a key is its value at the LCA | EP-MG (P: the base per key is found by reverse-applying dst's per-node chain past the LCA) | `merge::i25p_untouched_no_conflict` | GT6 I25′ over random DAGs with interleaved `sync` and `merge` (M3); GT2 (M3) |
-| I31′ | `merge` has exactly one base-selection rule for several LCAs: the recursive virtual base. The LCAs are merged pairwise in generation order, ties broken by the lowest commit id. A key whose virtual-base value is a conflict value is clean when both sides hold the same value, and conflicts whenever they differ | EP-MG (P) | `merge::i31p_virtual_base` (each LCA state materialised and merged recursively, [60 §4.2]) | GT6 I31′, including both sides equal → clean (M3); GT2 (M3) |
+| I31′ | `merge` has exactly one base-selection rule for several LCAs: the recursive virtual base. The LCAs are merged pairwise in generation order, ties broken by the lowest commit id. A key whose virtual-base value is a conflict value is clean when both sides hold the same value, takes the other side's value when one side still holds the base's conflict value (that side did not touch the key since the base, I25′), and conflicts when both sides changed it and they differ ([F12 §5.4] RVB-1 to RVB-4; [RULES/merge-table] MR-001 to MR-004, VB-018). [AR §3.4] and [60 §3.4] say "conflicts whenever they differ"; review pass 1 (S1-15) reads that as "whenever both sides changed it and they differ", and WP-81a edits both texts | EP-MG (P) | `merge::i31p_virtual_base` (each LCA state materialised and merged recursively, [60 §4.2]) | GT6 I31′, including both sides equal → clean and one side untouched → the other side's value ([F12 §5.7] VBC-1, VBC-3) (M3); GT2 (M3) |
 | I34′ | `revert` and `cherry-pick` stage on `NotFound`, and record a `DATA` mismatch as a `FieldEdit` conflict value | EP-VC (P) | `vcs::i34p_revert_cherry_pick` | GT2 (M3); GT6 (M3) |
 | I37′ | At merge, `parent` moves are applied, and the implied I5′ edges re-derived, before any precedence edge is checked. The full order is §5 | EP-WD (P: V01 and V02 before V03, §5) | `merge::i37p_validator_order`, with `merge::validate_in_order` | GT6 I37′ and the X1 merge variant (M3); GT2 (M3) |
 | I41′ | Staging refs exist per `(dst, src)` pair. A staged merge or sync of one pair never blocks another pair. A `sync` of lane L is refused only while its own staging ref `merge/<L>/from/main` exists | EP-MS (P) | `merge::i41p_staging_per_pair` | GT6 CM5 shapes: two staged syncs plus a third clean one (M3); GT2 (M3) |
@@ -194,6 +194,11 @@ invariants are checked at every crash state of GT1 and GT3.
 
 ### 3.9 File links (R-12, [40 §2.10])
 
+The statements of record are [F18 §2.1]–[F18 §2.14], one section per invariant I-F1 … I-F14 in order ([F18 §2.15];
+review pass 1, A1-44). The "Invariant" column below is a summary for this table's enforcement points, model functions and
+gates; where it and [F18 §2] differ — [F18] adds the anchor's `pred` input to I-F2, `links fix --split` to I-F7, the root
+clause of review S-19 to I-F8 and the history-verb doors of review S-14 to I-F14 — [F18 §2] wins.
+
 | ID | Invariant | Enforcement | Model function | Gates |
 |---|---|---|---|---|
 | I-F1 | On every branch view, at most one live file node with status `present` or `planned` exists per (root, exact path). This is enforced at write time. After a merge, a duplicate is a `PathClaim` conflict value. Case-insensitive collisions are a resolve-time state | EP-W4 (P: the `PATHIDX` probe); EP-WD V08 (P); EP-DV (V) | `r4::if1_one_live_file_per_path` | GT2 FL-3 (M2); GT6 FL-7 and P8 (M3) |
@@ -215,42 +220,52 @@ invariants are checked at every crash state of GT1 and GT3.
 
 ### 4.1 The definition
 
-The owner signs this definition as the rule table "the I26′ state definition with its marker-cache rules" ([PLAN §7] E1).
-The reference model evaluates it directly and never uses markers ([60 §4.2]).
+The owner signs this definition as the rule table "the I26′ state definition with its marker-cache rules" ([PLAN §7] E1):
+[RULES/state-definition] `view-kinds` (VK), `hold-values` (HV), `origin-rules` (OR) and PD-012 to PD-018. This section
+restates it; where the two differ, the rule table wins. The reference model evaluates it directly and never uses markers
+([60 §4.2]).
 
-- **Live work refs.** Let `W` be the set of live refs of kind `work` (`main` and `lane/*`). Refs of kinds `plan`, `merge`
-  (staging), `import`, `tag` and `orphans` are never in `W`.
-- **Terminal state.** For a commit `c` and a task `#N`, `term(c, #N)` holds when `#N` is deleted in `state_at(c)`, or when it
-  is a task with status `done` or `cancelled` there. Call that state `s(c, #N)`.
-- **Setter.** For `X` in `W` with `term(tip(X), #N)`, let `c0 = tip(X), c1, c2, …` be the first-parent chain of `tip(X)`. At
-  a fork, that chain continues on the parent ref through `fork_commit`. The **setter** `set(X, #N)` is the oldest `c_k` such
-  that `s(c_j, #N) = s(tip(X), #N)` for every `j ≤ k`. In words: it is the commit at which `#N`'s current terminal state
-  began on X's first-parent history. A merge or sync commit is the setter when its net changeset against its first parent
-  produced that state (OP-13-04).
-- **Exclusion.** For every live ref `R` (of any kind) and every task `#N`:
-  `excluded(R, #N)` ⇔ ∃ `X ∈ W`, `X ≠ R`: `term(tip(X), #N)` ∧ `set(X, #N) ∉ ancestors-or-self(tip(R))`.
-- **Effect.** An excluded `#N` is not in `ready` on R, `claim` of it on R is refused, and `blocking` on R never lists it as a
-  live blocker. It is rendered as "done on `<branch>` (unmerged)" or "deleted on `<branch>`" ([AR §2.16]).
-  `settled_elsewhere` and `deleted_elsewhere` ([AR §3.5]) are the read-time names of the same predicate.
+- **Live work refs.** Let `W` be the set of live refs of kind `work` (`main` and `lane/*`, VK-001). Refs of kinds `plan`,
+  `merge` (staging), `import`, `tag` and `orphans` are never in `W` (VK-002 to VK-005, VK-007).
+- **Hold.** For a commit `c` and a node `#N`, the hold `h(c, #N)` is `deleted` when `#N` is a tombstone in `state_at(c)`,
+  `done` or `cancelled` when `#N` is a live task with that status there, and `none` otherwise (HV-001 to HV-004). Let
+  `S` = {`done`, `cancelled`, `deleted`}.
+- **Origin.** For `h(c, #N) ∈ S`, the origin `org(c, #N)` is "the commit on X's history that last set that state" ([AR §3.4]
+  I26′): the commit where that exact hold value first appears on the way back from `c` through its parents, first parent
+  first (OR-001 to OR-006). A root commit is its own origin. A commit whose first parent holds the same value inherits that
+  parent's origin; a two-parent commit (merge or sync) whose second parent holds the same value inherits that parent's
+  origin; any other commit produced the value itself (an ordinary commit, a revert, a cherry-pick, an imported commit, a
+  `Delete`, an `Undelete` that restores a closed status, a merge's own resolution) and is the origin. A merge that takes a
+  lane's completion therefore does not originate it again (OP-13-04, closed).
+- **Exclusion.** For every live ref `R` (of any kind) and every node `#N`:
+  `excluded(R, #N)` ⇔ ∃ `X ∈ W`, `X ≠ R`: `h(tip(X), #N) ∈ S` ∧ `org(tip(X), #N) ∉ ancestors-or-self(tip(R))` (PD-012).
+  `deleted_elsewhere` and `settled_elsewhere` ([AR §3.5]) are its restrictions to the hold `deleted` and to the holds
+  `done` and `cancelled` (PD-013, PD-014).
+- **Effect.** An excluded `#N` is not in `ready` on R (PD-015), `claim` of it on R is refused (PD-017), and `blocking` on R
+  never lists it as a live blocker (PD-018). It is rendered as "done on `<branch>` (unmerged)" or "deleted on `<branch>`"
+  ([AR §2.16]).
 
 ### 4.2 The marker cache (engine)
 
 The engine answers `excluded` in O(1) from markers and absorbed vectors ([AR §2.16], [AR §4.4], [AR §5a.7] step 7). The
-rules below restate [AR §2.16], [AR §4.5] step 4, [AR §5a.5] and [AR §5a.9]. [F11] gives the byte layout of `MARKERS` and
-`MARKERS_OLD`.
+cache's rules are [RULES/state-definition] §6: the marker fields MF-001 to MF-009, the events ME-001 to ME-013, the
+reader's test AB-001 to AB-004 and the absorbed-vector rules VR-001 to VR-006, with the argument there that the cache
+equals §4.1. [F11 §7] gives the byte layout of `MARKERS` and `MARKERS_OLD`, and [F05 §9.5] the `Marker` record that
+carries every marker change. The labels below are kept for citation; each points at the rule rows, which win.
 
 | # | Rule |
 |---|---|
-| MC-1 | **Emission from net ops.** Every commit that lands on a ref of kind `work` emits markers from its net changeset against its first parent: `settled` for each task whose net op sets `done` or `cancelled`; `deleted` for each `Delete`; `cleared`, scoped to `(#N, ref_id)`, for each net `SetStatus` from `done` or `cancelled` to another status and for each `Undelete`. This holds whatever produced the commit: verb, batch, `TX`, merge, sync, cherry-pick, revert or import. Commits on other ref kinds, staging refs included, emit none ([72] M4). `TX { REOPEN t; SET t.done = true }` on a done task emits none, because its net ops are empty for `t` ([AR §4.3]) |
-| MC-2 | **Key.** `(#N, ref_id, commit)` with `ref_seq`, `hlc` and `seq` ([AR §4.4]) |
-| MC-3 | **Absorbed vectors.** Every ref carries `absorbed[(ref_id, ref_seq)]`, maintained by commit, fork, sync, merge (`absorbed_dst[src] = ref_seq(tip src)`, every other entry the maximum of both sides) and `undo` ([AR §5a.2], [AR §5a.5], [AR §5a.7] step 7) |
-| MC-4 | **Active on R.** A `settled` or `deleted` marker `(#N, X, c)` with `X ≠ R` excludes `#N` on R while no later `cleared (#N, X)` exists and `absorbed_R[X] < ref_seq(c)` |
-| MC-5 | **Ref moves.** `undo` and `op restore` recompute the markers of every ref they move, in both directions. They emit `cleared` for each completion or deletion that leaves the ref's history, and re-emit `settled` or `deleted` for each one that re-enters it while the state still holds at the new tip. `branch -D` re-attributes every marker the branch still held unabsorbed to a live ref that contains the marker's commit (`absorbed_Y[X] ≥ ref_seq`), and clears only the markers that no live ref holds. Each case prints a triage line ([AR §5a.5], [AR §5a.9]) |
-| MC-6 | **Inertness.** At each checkpoint fold, markers that are globally inert (cleared, or absorbed by every live ref) move from `MARKERS` to `MARKERS_OLD`, which no scan reads ([AR §4.4]). `gc` drops `MARKERS_OLD` rows older than `gc.reflog-expire` ([F17 §11.2]) |
-| MC-7 | **Equivalence obligation.** For every live ref R and every task `#N`, the cache answer (an MC-4-active marker exists) equals `excluded(R, #N)` of §4.1. GT18's I26′ oracle checks this equivalence through every door: `complete`, `set --done`, `set --status`, MCP `write`, `apply`, `cherry-pick`, `revert`, `merge`, `sync`, image import. It also checks every ref move: `reopen`, `Undelete`, `undo` of either, `op restore` both ways, forks with `branch -D` or `undo` on the parent, staging and `merge --abort`, and `TX` coalescing ([AR §8.2]). `doctor --verify` re-checks it ([AR §4.10]) |
+| MC-1 | **Emission follows holds.** A commit that lands on a ref X of kind `work` changes the cache only where X's hold of a node changes between its first parent and the commit: a hold the commit produced itself originates a marker with holders {X} (ME-001); a hold taken from the other parent adds X to the holder set of that hold's origin, or re-emits that marker if it is inactive (ME-002, ME-003); a hold that ends removes X from its origin's holder set, and `cleared` is written only when no holder remains (ME-004). This holds whatever produced the commit: verb, batch, `TX`, merge, sync, cherry-pick, revert or import. Commits on other ref kinds, staging refs included, change nothing (ME-008), and neither does a commit that leaves every hold as it was (ME-010): `TX { REOPEN t; SET t.done = true }` on a done task emits nothing ([AR §4.3]) |
+| MC-2 | **Key and state.** A marker is keyed (`#N`, origin ref, origin commit) and carries the origin's `ref_seq`, `hlc` and `seq`, the set of live work refs that hold `#N` with that origin, and a `nonlinear` flag (MF-001 to MF-009). It is **active** while its holder set is non-empty (MF-006) |
+| MC-3 | **Absorbed vectors.** Every ref carries `absorbed[(ref_id, ref_seq)]`: `absorbed_R[Y]` is the greatest `ref_seq` of a Y-landed commit in ancestors-or-self(tip(R)), maintained by commit, fork, sync, merge (`absorbed_dst[src] = ref_seq(tip src)`, every other entry the maximum of both sides) and `undo` (VR-001 to VR-006; [AR §5a.2], [AR §5a.5], [AR §5a.7] step 7) |
+| MC-4 | **Excluded on R.** `#N` is excluded on R iff some active marker of `#N` is not absorbed by R: a linear marker when `absorbed_R[origin ref] < ref_seq`, a nonlinear one when its origin commit ∉ ancestors-or-self(tip(R)) (AB-001 to AB-004) |
+| MC-5 | **Ref moves and the ref set.** A ref deletion (`branch -d`, `-D`) removes the ref from every holder set and clears only the markers left with no holder, which is the design's "re-attribution to a live ref that contains the marker's commit" (ME-005). `undo` and `op restore` apply MC-1's changes for every node whose hold differs between the old and the new tip, in both directions (ME-006). A fork joins the holder sets of every closed hold at its fork commit (ME-007). The first commit to land on a ref that `undo` or `op restore` moved off a marker's origin flags that marker nonlinear for good (ME-011). Each `settled`, `deleted` or `cleared` record prints a triage line ([AR §5a.5], [AR §5a.9]) |
+| MC-6 | **Inertness.** At each checkpoint fold, cleared markers and markers absorbed by every live ref move from `MARKERS` to `MARKERS_OLD`, which no scan reads (ME-012, [AR §4.4]); a ref move or a fork that makes such a marker count again returns it to `MARKERS`, flagged nonlinear (ME-013). `gc` drops `MARKERS_OLD` rows older than `gc.reflog-expire` ([F17 §11.2]) |
+| MC-7 | **Equivalence obligation.** For every live ref R and every task `#N`, the cache answer (MC-4) equals `excluded(R, #N)` of §4.1. GT18's I26′ oracle checks this equivalence through every door: `complete`, `set --done`, `set --status`, MCP `write`, `apply`, `cherry-pick`, `revert`, `merge`, `sync`, image import. It also checks every ref move: `reopen`, `Undelete`, `undo` of either, `op restore` both ways, forks with `branch -D` or `undo` on the parent, staging and `merge --abort`, and `TX` coalescing ([AR §8.2]; [RULES/state-definition] `door-coverage` and the scenarios S1 to S13). `doctor --verify` re-checks it ([AR §4.10]) |
 
-A case in which MC-1–MC-6 as written and §4.1 disagree is recorded as OP-13-05. The review decides which side changes, and
-the owner signs the result.
+The first draft's own rules MC-1 to MC-6 disagreed with §4.1 when a parent ref reopened a completion that a fork still held
+(OP-13-05). The holder set settles that case: the marker stays active while the fork holds its origin
+([RULES/state-definition] scenario S7, there reached by a sync instead of a fork).
 
 ## 5. I37′: the validator order
 
@@ -263,14 +278,14 @@ row gives the validator id, its position, the rule, the candidates it runs for a
 | V02 | 2 | Re-derive the implied exogenous edge set from the parent CSR (derived on the fly, never materialised, [71] RAM-m4) | all | none (a preparation step) | M2 |
 | V03 | 3 | Precedence acyclicity (I5′) of every added `blocks` or `gates` edge and every implied edge whose endpoints moved: incremental Pearce–Kelly, or full Kahn when their count exceeds `store.kahn-fallback-edges` ([F17 §8.1]). The reported **witness** is canonical: the least edge, in canonical edge-key order (src uid, kind, dst uid, [AR §4.6] item 10), among the added or moved precedence edges that lie on a cycle | candidates that add or move precedence edges | `Cycle` (structural, staged) | M2 |
 | V04 | 4 | Dangling structural edges (I2): the reverse index intersected with deletions on either side | all | `DanglingEdge` (structural, staged) | M3 |
-| V05 | 5 | The `parent` forest (I4): no cycle, depth ≤ 12 | candidates with `Move` or `Create` | `HierarchyCycle` for a cycle; the class for depth > 12 is open (OP-13-06) | M2 |
+| V05 | 5 | The `parent` forest (I4): no cycle, depth ≤ 12 | candidates with `Move` or `Create` | `HierarchyCycle` for a cycle; `DepthExceeded` (67) for depth > 12 (structural, staged; [F19 §12.2], key [F12 §7.9]) | M2 |
 | V06 | 6 | `supersedes` cardinality (I6) | all | `SupersedeFork` (value conflict, lands unless `--strict`) | M3 |
-| V07 | 7 | Other cardinalities: `duplicate_of` chain length 1 (I7); `runs_in` ≤ 1; `answers` ≤ 1 active ([AR §3.3]) | all | class open (OP-13-06) | M2 |
+| V07 | 7 | Other cardinalities: `duplicate_of` chain length 1 (I7); `runs_in` ≤ 1; `answers` ≤ 1 active ([AR §3.3]) | all | `Cardinality` (68; structural, staged; [F19 §12.2], key [F12 §7.9]) | M2 |
 | V08 | 8 | Path claims (I-F1) | candidates that touch file nodes | `PathClaim` (value conflict) | M3 (FL-7) |
 | V09 | 9 | Schema conformance (I11), strengthening included | all | `SchemaConflict` (structural, staged) | M2, M3 |
 | V10 | 10 | Every named query the candidate touched, or whose referenced schema it touched, parses and binds | all | `QueryInvalid` (structural, staged; [50] F18) | M7 |
 | V11 | 11 | The named-query call graph is acyclic | all | `QueryCycle` (structural, staged; [50] F18) | M7 |
-| V12 | 12 | `plan/*` read-only fields (I33′) | candidates landing on `plan/*` | a refusal; the class at a merge into `plan/*` is open (OP-13-06) | M3 |
+| V12 | 12 | `plan/*` read-only fields (I33′) | candidates landing on `plan/*` | a refusal on a write; `PlanMask` (72; structural, staged) at a merge into `plan/*` ([F19 §12.2], key [F12 §7.9]) | M3 |
 | V13 | 13 | `Duplicate` and `Contradiction` hints | merge, sync, import | hint (lands as a log line) | M3 |
 
 Rules:
@@ -314,7 +329,8 @@ once, is shared by the write path, the verbs and LQ ([50 §3.8]), and is recompu
 | `unfinished` | `NOT done`, for kinds with a status machine | — | yes |
 | `unblocked` (structural) | `kind = task ∧ status = open ∧ ¬deleted ∧ ¬conflicted ∧ ¬container ∧ open_blockers = 0 ∧` no ancestor has `open_blockers_exo > 0`, with flagged dangling edges counted | `BM_unblocked` | yes; the time clause `defer_until ≤ now()` is outside `P_F15` |
 | `blocked` | `kind = task ∧ unfinished ∧ (open_blockers > 0 ∨` an ancestor has an open exogenous blocker`)` | — | yes |
-| `open_blockers`, `open_blockers_exo` | counts of `blocks` and `gates` in-edges whose source is not done or accepted, flagged edges included; the exogenous count excludes sources inside the subtree | `NodeHdr` u16 columns | yes |
+| `open_blockers`, `open_blockers_exo` | counts of `blocks` in-edges whose source is unfinished (a task not `done` or `cancelled`, a question not `answered`), flagged `blocks` edges included; the exogenous count excludes sources inside the subtree ([RULES/state-definition] BT-001 to BT-004). `gates` in-edges never count here (BT-006) | `NodeHdr` u16 columns | yes |
+| `gated` | `kind = task ∧` some `gates` in-edge has a live source verdict with status `open` and outcome `fail_fixable` or `fail_fundamental`, or is flagged ([RULES/state-definition] PD-024, BT-005, BT-007, BT-008). It drives only the `complete` guard ([RULES/status-machines] GD-002), never `unblocked`, `ready` or `claim` | — | yes |
 | `is_blocker` | not done ∧ has an outgoing `blocks` edge to a task that is not done | `BM_is_blocker` | yes |
 | `children_total`, `children_done`, `ready_to_close` | direct children; a container whose children are all done | `NodeHdr` u16 columns | yes |
 | `container` | has children ([AR §3.1] flags bit 4) | flags, `BM_container` | yes |
@@ -327,6 +343,11 @@ once, is shared by the write path, the verbs and LQ ([50 §3.8]), and is recompu
 | critical path; review-loop termination; refuted share | on demand ([AR §3.5]) | — | no |
 | `ready` | `unblocked` ∧ no live lease by another holder ∧ not `excluded` (§4.1) ∧ `defer_until ≤` the wall clock now | — | no (tip-only runtime) |
 | `stale`; `diverged`; link and anchor states | [AR §3.5], [40 §2.9] | — | no (on demand, read-time or tree-derived) |
+
+`gates` constrains `complete` and never `claim` ([AR §3.3] X5, [AR §6.2]): counting its in-edges in `open_blockers`, as
+[AR §3.5] does, would keep a task gated by an `open` `fail_fixable` verdict out of `ready`, so nobody could claim the fix
+that lets the verdict be accepted. Review pass 1 (S1-30) adopted the rule table's reading above; [AR §3.5] is edited at
+WP-81a.
 
 ### 6.3 `affected` and `affected_complete` (F15, F16, I42′)
 
@@ -392,24 +413,16 @@ are specified in [F17], where the production values that measurements decide are
 
   Otherwise every edge insertion would list renumbered nodes in `affected`, and the model, which uses DFS, could not
   reproduce the values.
-- **OP-13-04 (the setter in I26′).** "The commit on X's history that last set that state" is formalised as the oldest commit
-  of the contiguous run on X's first-parent chain, counted from the tip, in which `#N` has its current terminal state. This
-  makes the setter the commit whose net changeset against its first parent produced the state, which is the commit MC-1 keys
-  its marker with. For a merge into `main`, the setter is the merge commit, not the lane commit it absorbed. An alternative
-  reading (the lane commit) gives the same exclusions everywhere except for refs that merged the lane directly without
-  `main`. The first-parent reading is the one the marker cache can mirror. The owner signs it with the rule table.
-- **OP-13-05 (major: `reopen` on a parent ref).**
-  - **The case.** Let P be a work ref, `c` a commit on P that completes `#N`, X a lane forked from P after `c`, and R a lane
-    forked from P before `c`. P then `reopen`s `#N`, which emits `cleared (#N, P)`.
-  - **§4.1.** X still holds `#N` done by inheritance, its setter is `c`, and `c` is not an ancestor of R, so `#N` stays
-    excluded on R.
-  - **MC-1–MC-6.** The only marker for `c` is keyed `(#N, P, c)`, and it is now cleared, so the cache answers "not
-    excluded". X's fork emitted no marker.
-  - **Consequence.** GT18 would report the disagreement.
-  - **Proposed fix.** Extend MC-5's `-D` re-attribution to `cleared`: a `cleared (#N, P)` re-attributes marker `(#N, P, c)`
-    to every live work ref Y with `absorbed_Y[P] ≥ ref_seq(c)` that still holds the terminal state at `tip(Y)`. This is a
-    change to the signed marker-cache rules, so R-MODEL publishes it for the owner's signature, or the owner prefers to
-    change §4.1 instead. Until then the model implements §4.1 as written.
+- **OP-13-04 (the setter in I26′) — closed in review pass 1 (S1-16).** The first draft formalised "the commit on X's history
+  that last set that state" as the oldest commit of the run on X's first-parent chain, which made a merge into `main` the
+  setter. The review adopted [RULES/state-definition]'s origin reading (OR rows, its open point 1): the origin follows the
+  parents, first parent first, so the lane commit stays the origin, and a ref that merged the lane directly and reopened
+  the task on purpose is not overridden by `main`'s merge commit (its scenario S8). §4.1 states that reading.
+- **OP-13-05 (`reopen` on a parent ref) — closed in review pass 1 (S1-16).** The first draft's cache scoped `cleared` to
+  (`#N`, ref) and lost a completion that a fork still held, so it disagreed with its own definition. The review adopted the
+  holder-set cache of [RULES/state-definition] §6 (MF-006, ME-004, ME-005; scenario S7): a marker stays active while any
+  live work ref holds its origin. §4.2 cites those rows; [F11 §7] stores the holder set and the `nonlinear` flag, and
+  [F05 §9.5] records every holder change.
 - **OP-13-06 (unnamed violation classes).** [AR §5a.8] names no class for:
   - depth > 12 at a merge (V05);
   - `duplicate_of`, `runs_in` and `answers` cardinality at a merge (V07);
@@ -417,7 +430,9 @@ are specified in [F17], where the production values that measurements decide are
 
   The proposal is one structural class per case, such as `DepthExceeded`, `Cardinality` and `PlanMask`, added to the
   violation-class enum in [F12] and to [F19]'s code table. Classes are part of the frozen format, so the decision belongs to
-  pass 1.
+  pass 1. **Closed in review pass 1 (P1-21, S1-33):** [F19 §12.2] assigns `DepthExceeded` 67, `Cardinality` 68 and
+  `PlanMask` 72, [F12 §7.9] gives their keys, and §5 cites them. The merge-table rows that stage them are
+  [RULES/merge-table]'s.
 - **OP-13-07 (the canonical cycle witness).** V03 reports the least added or moved precedence edge on a cycle, in canonical
   edge-key order. Without a canonical witness, Pearce–Kelly and Kahn would name different cycles, `store.kahn-fallback-edges`
   would become visible, and GT2's exact comparison of violation lists would fail.
@@ -430,11 +445,16 @@ are specified in [F17], where the production values that measurements decide are
 
   An exact definition is needed because the write result is compared by GT2. [AR §6.3] should be edited at WP-81a.
 - **OP-13-09 (I13 "different actor").** The rule does not say whom the actor of the `addresses` edge must differ from. The
-  proposed reading is: different from the actor of the commit that moves the finding to `fixed`. R-MODEL's status-machine
-  table carries the reading, and the owner signs it.
+  proposed reading is: different from the actor of the commit that moves the finding to `fixed`, which the first draft asked
+  R-MODEL's status-machine table to carry for the owner's signature. **Pass 1, round 2:** [RULES/status-machines] GD-005 reads it
+  differently (the actor of the `addresses` edge differs from the creator of the reviewing verdict), and the two readings
+  accept different histories; the choice is the owner's (owner question OQ-M-2), and this point then cites the chosen
+  row. The I13 row states no reading of its own.
 - **OP-13-10 (I43′ strictness).** The invariant is stated as non-decreasing, which is what "monotonic" guarantees. Whether
   [F16]'s HLC rule makes `append_hlc` strictly increasing per commit is [F16]'s decision (WP-16b), and a strict rule would
-  tighten the check at EP-W9.
+  tighten the check at EP-W9. Review pass 1 (S1-13, P1-5): [F16] P-36 draws every commit's `append_hlc` from one
+  sequence over the semantic durable records ([API §6.2] CK-4), strictly increasing in `seq` order, so the check at EP-W9
+  may be strict.
 - **OP-13-11 ([PLAN §3.3] gaps).** [PLAN §3.3] assigns no gap to this chapter. The two WP-16 gaps (`MOVEFILE_WRITE_THROUGH`
   without measurement 17, and the widest reading of fault-model item (3)) belong to [F16] and [F15]. This chapter depends on
   them only through the I-G gates.

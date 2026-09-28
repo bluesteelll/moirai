@@ -58,7 +58,8 @@ are [F01 §8]'s.
   portable LQ text it is `#u:<32 hex>` ([50 §4.4]). It is the identity in canonical hashes and in the image, and it
   never changes ([AR §3.1]).
 - Every kind's schema row gives its `uid_derivation` (R-3, §8.4.7):
-  - `random`: 16 bytes from the operating system's cryptographically secure random source (open point 41); a value
+  - `random`: 16 bytes from the operating system's cryptographically secure random source (`Entropy::fill_random`,
+    [OS/README §4.6]; open point 41); a value
     that is all zero, or that `UIDX` already holds, is drawn again;
   - `file-key`: the file-node derivation of §11.2;
   - `root-key`: the root-node derivation of §11.3;
@@ -139,7 +140,9 @@ query library's and the pack classes' ([LQ/std], [RULES/pack-classes]).
 
 `open_blockers`, `open_blockers_exo`, `children_total`, `children_done`, and the flags `suspect`, `has_dangling`,
 `container` and `conflicted` are derived state: their definitions and maintenance are [AR §3.5]'s and [F13]'s (I9, F15).
-This chapter fixes only their storage:
+`open_blockers` and `open_blockers_exo` count `blocks` in-edges only, flagged ones included; `gates` in-edges never count
+in them and constrain only `complete` ([F13 §6.2]; [RULES/state-definition] BT rows; review pass 1 S1-30). This chapter
+fixes only their storage:
 
 - The four counters are `u16`. They **saturate** at 65,535: a writer that would raise a counter above 65,535 stores
   65,535, and a stored 65,535 means "65,535 or more". A reader that needs the exact value of a saturated counter, and a
@@ -185,7 +188,7 @@ owns their sections. The logical columns:
 | total | 6 | | | |
 
 LQ reads `CREATOR` as `created_by` and `created_role` ([50 §2.5]); the rule tables use `CREATOR.role` as the owner of a
-node ([RULES/role-write-policy] WT-004, [RULES/status-machines] SC-002).
+node ([RULES/role-write-policy] WT-004, which [RULES/status-machines] GR-002 applies to status writes).
 
 ## 5. Values
 
@@ -203,7 +206,7 @@ byte**:
 
 | value | name | logical type | stored encoding (§5.2) |
 |---|---|---|---|
-| 0 | — | — | invalid |
+| 0 | `absent` | no value | no value bytes; `vbit` 0. Valid only in a value position that admits absence: the old and new value of an op and the sides of a key value or conflict value ([F06 §5.1], [F06 §6.2]). Invalid in a field block, a set element, a default, a promoted column and every other position |
 | 1 | `bool` | bool | no value bytes: the value is `vbit` |
 | 2 | `int` | int | `svar64` ([F01 §5.3]) |
 | 3 | `counter` | counter | `svar64`: the current value, the sum of every `Incr` ([AR §3.1]); merge rule `Incr` |
@@ -213,7 +216,7 @@ byte**:
 | 7 | `sym` | text | `uvar32`: a symbol id of class `text` ([F01 §8.2]), ≠ 0; the interned form of a text value |
 | 8 | `set` | set | §5.2 |
 | 9 | `ref` | ref | `u32`: a `#N` ≠ 0; it denotes the node's uid (§2.1) |
-| 10 | `commitref` | commit-ref | `b16`: the `id16` of a moirai commit ([F01 §5.6]), ≠ all zero |
+| 10 | `commitref` | commit-ref | `b32`: the full 32-byte id of a moirai commit ([F07 §3.1]), ≠ all zero. The full id, because the canonical form hashes it and the image writes it ([F07 §7.1], [F14 §5.1]) and a cited commit need not be one this store holds |
 | 11 | `path` | path (R-1) | §5.2 |
 | 12 | `oid` | oid (R-1) | §5.2 |
 | 13 | `pathmove` | pathmove (R-1) | §5.2 |
@@ -223,6 +226,16 @@ Values 14–63 are reserved and invalid in format v1. `text` and `sym` are two s
 ("strings are interned symbols or length-prefixed bytes", [AR §3.1]). Store-local parts of values — symbol ids, `#N`,
 enumeration integers, the `path` root id — are rendered by name, uid or full commit id in canonical forms ([F07]) and in
 the image ([F14]).
+
+**One registry, one encoding** (pass 1, P1-1, S1-1, A1-1). This section and §5.2–§5.5 are the only definition of a
+stored value's bytes. Every structure that stores a value uses them byte for byte: the field block (§6), the ops,
+key values, conflict values and node images of a commit ([F06 §5]–§7, which cite this section and define no tag of their
+own), the sections and columns of segments ([F09]) and the rows of runtime tables ([F11]). [F07] maps these bytes to its
+canonical encoding, which is its own and never stored. The one derived form is an index key, not a stored value: the
+promoted element of a `commitref` field in [F09 §10.1] (`FCOL`, `FIDX`) is the id's first 16 bytes (`id16`), an index
+column as review pass 1 (S1-1) allows. A promoted field keeps its storage `field` (§8.4.2), so the full 32-byte value
+stays in the row's field block: a reader takes the value from there, and confirms against it every row an `id16` key
+selects (pass 1, round 1, P1-1).
 
 ### 5.2 Stored encodings
 
@@ -266,9 +279,14 @@ is an absent field (§6.2). Two `oid` values are equal only when their `algo` an
 - **Lengths.** A `text` value is at most 65,536 bytes; a `sym` value is 1–4,096 bytes; a title is 1–200 bytes; a body is
   at most 65,536 bytes ([AR §2.6]); larger content is an `artifact` ([F17] OP-17-19). The empty text is never stored: an
   empty value is an absent field (§6.2).
+- **Empty is absent, everywhere.** The empty text (a `text` of length 0; `sym` id 0 is never a value), the empty set and
+  an `oid` of algorithm `none` are never stored as values in any structure: a field block, an op's old or new value, a
+  key value, a conflict side or a node image stores `absent` instead (§6.2; [F06 §5.2]). An empty body is no body (§7.2).
 - **`int`** values stay within their field's range when its schema row gives one (§8.5.2); `int` arithmetic never wraps
   ([50 §3.3]).
-- **`f64`** ([F01] open point 8): NaN and ±infinity are refused at write time; −0.0 is stored as +0.0.
+- **`f64`** ([F01] open point 8): NaN and ±infinity are refused at write time (exit 2, [F19] `bad_value`); −0.0 is stored
+  as +0.0. A stored NaN pattern, either infinity (`0x7FF0000000000000`, `0xFFF0000000000000`) or −0.0
+  (`0x8000000000000000`) makes the structure that holds it invalid: a decoder refuses it wherever it finds it.
 - **`ref`**: an allocated `#N` (1 ≤ N < `next_id`); the node need not be live on the view.
 - **`enum`**: a non-retired value of the field for the node's kind (§8.5.3).
 
@@ -361,6 +379,37 @@ The stored order of set elements (strictly ascending) and of the field block (§
 
 The stored order is store-local where it uses ids; the canonical order of a set is [F07]'s.
 
+### 5.6 One value of every type in each form
+
+*(Informative; pass 1, round 1, P1-1.)* One value per type as this section stores it and as [F07 §7.1] hashes it. The
+stored form is the same in every structure that stores a value: a field-block entry (§6) writes its `field_sym`
+before it, and an op, key value or conflict side ([F06 §5.1]) writes it as it stands; a set element is the value bytes
+without the type byte. The store-local numbers assumed: root `project` = root symbol 1; the text `ok` interned as
+symbol 7; a field whose enumeration numbers `high` as 2; #40 with uid U (16 bytes); a commit id C (32 bytes); a SHA-1
+digest D (20 bytes). These are the values of the cross-chapter byte fixture of `COVERAGE.md` row 60-AR-Values, which
+R-FIX (WP-20) builds as files, together with the uid and digest bytes it chooses.
+
+| type | value | type byte | value bytes (§5.2) | canonical `cv` ([F07 §7.1]) |
+|---|---|---|---|---|
+| 0 `absent` | none (op and conflict positions only) | `00` | none | `00` |
+| 1 `bool` | false; true | `01`; `81` | none | `01`; `02` |
+| 2 `int` | −3 | `02` | `05` | `03 FD FF FF FF FF FF FF FF` |
+| 3 `counter` | 300 (a node image only, [F06 §6.3]) | `03` | `D8 04` | `04 2C 01 00 00 00 00 00 00` |
+| 4 `f64` | 1.5 | `04` | `00 00 00 00 00 00 F8 3F` | `05 00 00 00 00 00 00 F8 3F` |
+| 5 `enum` | `high` | `05` | `02` | `06 04 00 00 00 68 69 67 68` |
+| 6 `text` | `ok` | `06` | `02 6F 6B` | `07 02 00 00 00 6F 6B` |
+| 7 `sym` | `ok` | `07` | `07` | `07 02 00 00 00 6F 6B` (one value with `text`) |
+| 8 `set` | {1, 5} of `int` | `08` | `02 02 02 0A` | `09 03 02 00 00 00 01 00 00 00 00 00 00 00 05 00 00 00 00 00 00 00` |
+| 9 `ref` | #40 | `09` | `28 00 00 00` | `0A` ‖ U |
+| 10 `commitref` | C | `0A` | C | `0B` ‖ C |
+| 11 `path` | `project`, `docs/a.md` | `0B` | `01 00 09 64 6F 63 73 2F 61 2E 6D 64` | `0C 07 00 00 00 70 72 6F 6A 65 63 74 09 00 00 00 64 6F 63 73 2F 61 2E 6D 64` |
+| 12 `oid` | SHA-1 D | `0C` | `01` ‖ D | `0D 04 00 00 00 73 68 61 31 14 00 00 00` ‖ D |
+| 13 `pathmove` | `hlc` `0x01A0C4506C000003`, `explicit`, `project:a/` → `project:b/` (directory prefixes, §5.4.2), no git | `0D` | `03 00 00 6C 50 C4 A0 01 01 01 00 02 61 2F 01 00 02 62 2F 00` | `0E 03 00 00 6C 50 C4 A0 01 08 00 00 00 65 78 70 6C 69 63 69 74 07 00 00 00 70 72 6F 6A 65 63 74 02 00 00 00 61 2F 07 00 00 00 70 72 6F 6A 65 63 74 02 00 00 00 62 2F 00 00 00 00 00 00 00 00` |
+
+The `int` −3 is zigzag 5; the counter 300 is zigzag 600, `uvar64` `D8 04` ([F01 §5.3]); the set's `02 02 02 0A` is the
+element type byte `02`, `n` = 2 and the zigzag elements 2 and 10; its `cv` has element tag 3, count 2 and the two `i64`
+payloads in bytewise order ([F07 §2.4]).
+
 ## 6. The field block
 
 ### 6.1 Layout
@@ -388,7 +437,8 @@ A decoder can skip an entry of any type without the schema: every encoding is se
 
 - A field is **absent** when it has no entry. Absence is the one representation of an empty value: an empty text, an
   empty set, an empty `oid`, a counter of 0 and a value equal to the field's default are never stored. So every value
-  has exactly one stored form (open point 12).
+  has exactly one stored form (open point 12). The empty-value part of this rule (not the default part, which is a
+  property of a view's field block) holds in every value position of [F06] too (§5.3).
 - An entry's field must have a non-retired field item for the node's kind, or for every kind (`*`), whose storage is
   `field` (§8.5.2); header columns, flags, cold columns, the title and the body are never field entries.
 - Field values obey §5.3 and their schema row's constraints (§8.5.2). A node with no entry has `fields_off` = `NONE32`.
@@ -418,6 +468,10 @@ A decoder can skip an entry of any type without the schema: every encoding is se
   tail and in `blobs` files ([F10]), found through `body_ref` and `BLOBTAB` ([F09]).
 - Every kind may carry a body. Bodies merge as text, except the bodies of `doc` nodes whose `doc_kind` is `section`,
   which also run the removed-text guard ([AR §5a.7]; [RULES/merge-table] MC-009).
+- **An empty body is no body** (pass 1, S1-34; [F07] open point 26). A body of zero bytes is never stored: a write that
+  sets the body to the empty text stores `new` absent ([F06 §7.4] `SetBody`, `bflags` bit 1 clear), `body_ref` becomes 0,
+  and the body key is absent in the canonical state ([F07 §6.3]). A diff3 result of zero bytes is absent in the same way
+  ([F12 §7.5]).
 
 ## 8. Schema as data
 
@@ -472,7 +526,9 @@ open point 7):
   given to any item of that space (for enumeration values: of that (kind, field)); an item key that the store already
   knows, on any branch, keeps its id (as `UIDX` does for uids, I1). Ids are never reused, retired items included.
   Exhaustion refuses the write ([F19]).
-- **Record.** The op that first lands an item carries its id, unhashed ([F06]); recovery rebuilds the store-wide map
+- **Record.** The item record holds its id in its *store-local* field (§8.5.1 `kind_id`, §8.5.3 `value`, §8.5.4
+  `edge_id`), so the `Schema` op that first lands an item carries the id inside its `new` bytes ([F06 §7.6]), unhashed
+  ([F07 §9]); no separate op field exists (pass 1, A1-20). Recovery rebuilds the store-wide map
   (space, key) → id from the log, as it rebuilds `UIDX`; checkpoints fold the map into a section ([F09], [F11]; the
   proposed name is `SCHEMAIDS`); `repair --rebuild-from-log` rebuilds it.
 - **Never hashed, never exported.** Canonical forms and the image name kinds, edge kinds and values by name ([F07],
@@ -551,7 +607,7 @@ On destination deleted (`on_dst`):
 | 2 | `restrict-cascade-reparent` | refused, unless `--cascade` (the subtree is deleted) or `--reparent` (children move up) |
 | 3 | `restrict-reassign` | refused, unless `--reassign` to the parent area |
 | 4 | `restrict-repoint` | refused, unless re-pointed to the canonical node |
-| 5 | `drop` | the edge is removed |
+| 5 | `drop` | the edge is removed; for `blocks` and `gates`, re-pointed to the replacement under `--replaced-by` instead ([RULES/delete-policy-matrix] EG-006, EG-012) |
 | 6 | `drop-notify` | removed, with a notice |
 | 7 | `drop-src-suspect` | removed; the source is reported `suspect` ([RULES/delete-policy-matrix] open point 5) |
 | 8 | `tombstone` | kept as a tombstone reference |
@@ -563,7 +619,7 @@ On source deleted (`on_src`):
 |---|---|---|
 | 1 | `drop` | removed |
 | 2 | `drop-rollups` | removed; the parent's rollups are updated |
-| 3 | `repoint-or-flag` | re-pointed to `--replaced-by`, else kept as a `flagged` retained out-edge (X4) |
+| 3 | `repoint-or-flag` | re-pointed to `--replaced-by`; else, under the default policy, kept as a `flagged` retained out-edge when the source was an open blocker (an unfinished `blocks` source, a gating `gates` verdict) and removed otherwise (X4; [RULES/delete-policy-matrix] EG-008, EG-009, EG-014, EG-015); under the policy `drop-notify` of `edges.<kind>.on-src-deleted`, removed with a notice (EG-010, EG-016) |
 | 4 | `drop-reopen` | removed; the question reopens |
 | 5 | `retain-warn` | kept as a retained out-edge; the target stays as it is and `doctor` warns |
 | 6 | `retain` | kept as a retained out-edge (I39′) |
@@ -623,6 +679,11 @@ Every item starts with:
 The item **key** (what the canonical form sorts and merges by) is: kind name; (kind name or `*`, field name); (kind name
 or `*`, field name, value name); edge kind name; query name. Every other part of the body is the item's value, except
 the parts marked *store-local*, which are not hashed; symbol ids are hashed as their strings ([F07]).
+
+**Item key order** (pass 1, A1-41). Wherever a stored structure sorts items by key (the view's schema section,
+[F09 §8.3]), items are ordered by (`class`, then the key's components in the order above), each component compared as its
+**name string** bytewise ([F01 §6.6]), never as a symbol id; `*` is the one-byte string `2A`, which sorts before every
+name of §8.2. Two items of one view never have equal keys. The canonical order of schema entries is [F07 §10.3]'s.
 
 #### 8.5.1 Kind
 
@@ -1060,6 +1121,12 @@ The 25 core edge kinds of [AR §3.3] with [50 §2.5]'s F1 values. "any" is `Kind
 `uid_derivation` is `anchor-key` for `at` and `none` for the others. Ids 26–63 are reserved for core edge kinds of later
 schema versions; 0 and 255 are invalid.
 
+The `on_dst` and `on_src` values name each core kind's default action on a delete. [RULES/delete-policy-matrix]
+`edge-policy` refines them per delete option (`--replaced-by`, `--cascade`, `--reparent`, `--reassign`), per value of the
+policy data `edges.<kind>.on-src-deleted` and per condition on the other endpoint, and is authoritative for the action
+and its effect (review pass 1 S1-46); the value stored in the schema row does not change. A project edge kind is always
+`tombstone`/`retain` (§8.5.4), so no refinement applies to it.
+
 F1's LQ columns:
 
 | edge | `lq_name` | `reverse_names` | `reading` ([LQ/envelope §4.5]) |
@@ -1112,22 +1179,39 @@ F1's LQ columns:
 
 ### 10.2 Property blocks
 
-Every edge value carries a property block by its kind's `props` ([AR §3.3], [60 §2.5] typed property blocks):
+Every edge value carries one **edge property block** ([AR §3.3], [60 §2.5] typed property blocks). This section is the
+only definition of its bytes (pass 1, S1-2, A1-3, P1-1): the ops of [F06 §7.5] carry it byte for byte, and [F09]'s
+`EDGE_PROPS` row and `ANCHORS` record store its parts.
 
-| `props` | block |
-|---|---|
-| `none` | zero bytes |
-| `pinned` | `pflags u8` (bit 0 `has_pin`; bits 1–7 reserved-zero), then `pinned_commit b16` when `has_pin`: the `id16` of the pinned commit ([AR §3.3]) |
-| `flagged` | `pflags u8` (bit 1 `flagged`; the other bits reserved-zero): a retained out-edge of a deleted source, neither re-pointed nor resolved (X4, [AR §5b.2] rule 8) |
-| `anchor` | the anchor record (§10.3) |
+| order | name | encoding | present when | meaning |
+|---|---|---|---|---|
+| 1 | `pflags` | `u8` | always | bit table below |
+| 2 | `pinned_commit` | `b32` | `has_pin` | the full id of the pinned commit ([AR §3.3], [AR §7.4] step 5); ≠ all zero; the full id for the reasons of `commitref` (§5.1) |
+| 3 | `anchor` | the anchor record (§10.3) | `anchor` | the anchor of an `at` edge |
 
-A `flagged` edge exists only with a tombstone source; its destination has `has_dangling` (§3.2).
+`pflags`:
+
+| bit | name | meaning |
+|---|---|---|
+| 0 | `has_pin` | `pinned_commit` follows |
+| 1 | `flagged` | a retained out-edge of a deleted source, neither re-pointed nor resolved (X4, [AR §5b.2] rule 8) |
+| 2 | `anchor` | the anchor record follows |
+
+Bits 3–7 are reserved-zero. The bits an edge admits follow its kind's `props` (§8.4.6; checked at write, §8.6 rule 5, and
+by the format oracle): `none` — `pflags` = 0; `pinned` — only `has_pin`, which is optional; `flagged` — only `flagged`;
+`anchor` — exactly `anchor`, which is always set. So a block is one byte (`00`) on most edges, 33 bytes on a pinned edge
+and 1 byte plus the anchor record on an `at` edge. A `flagged` edge exists only with a tombstone source; its destination has
+`has_dangling` (§3.2).
 
 ### 10.3 The anchor record
 
 An anchor is the property value of one `at` edge ([40 §2.7], R-4). Its store-local handle `aN` is allocated from
-`HEAD.next_anchor` ([F04], R-6), carried unhashed by the op that creates the anchor ([F06]), and is part of the
-`ANCHORS` key (src `#N`, dst `#N`, `aN`) ([F09]); it is not in the record. The record:
+`HEAD.next_anchor` ([F04], R-6), carried unhashed by the op that creates the anchor ([F06 §7.5.1] `anchor_no`), and is
+part of the `ANCHORS` key (src `#N`, dst `#N`, `aN`) ([F09]); it is not in the record.
+
+**Owner** (pass 1, P1-1, S1-3, A1-2). This section is the only layout of the anchor record. The ops of [F06 §7.5] carry
+it byte for byte inside the edge property block (§10.2), [F09]'s `ANCHORS` section stores it, [F07 §8.2] maps it to the
+canonical selector block and [F14 §6.7] to the bijective `anchor` line. The record:
 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
@@ -1153,7 +1237,7 @@ An anchor is the property value of one `at` edge ([40 §2.7], R-4). Its store-lo
 | 20 | `occurrence` | `u16` | `has_occurrence` | 1-based occurrence index ([F20 §6.1] step 8) |
 | 21 | `window` | `vbytes` | `kind` ≠ `file` | the window value W of [F20 §2.7.3] |
 | 22 | `span_hash` | `u64` | `kind` ≠ `file` | [F20 §2.8]; a `file` anchor has none: the field is omitted |
-| 23 | `blob` | `oid` | always | the file's `oid` at capture; `algo` ≠ `none` |
+| 23 | `blob` | `oid`, or empty | always | the file's `oid` at capture ([F20 §2.3]); `algo` `none` (the single byte `00`) when the target had no content at capture: a planned target (`link --planned`), whose anchor is a `file` anchor |
 | 24 | `git` | `oid` | `has_git` | the observed git commit at capture; `algo` ≠ `none` |
 | 25 | `marker` | `vstr` | `has_marker` | the opt-in in-file marker id ([40 §9.2] decision 3); one line, 1–64 bytes |
 
@@ -1168,12 +1252,19 @@ An anchor is the property value of one `at` edge ([40 §2.7], R-4). Its store-lo
 | 4 | `has_marker` | `marker` is present |
 | 5 | `text_unavailable` | the quote, prefix, suffix and end texts are not held; their digests are ([40 §5.7]: an anchor imported without its text) |
 
-Bits 6–15 are reserved-zero. `quote`, `prefix`, `suffix` and `end` are the exact bytes of N, which is valid UTF-8 for
-text content ([F20 §2.5]); they are `vbytes` so that no normalisation is ever applied to them. I-F9 holds by
+Bits 6–15 are reserved-zero. `quote`, `prefix`, `suffix` and `end` are the exact bytes of N ([F20 §2.5]); `is_text`
+does not imply valid UTF-8 ([F20 §2.1]), so they are `vbytes` and no normalisation is ever applied to them. I-F9 holds by
 construction: `heading`, `symbol`, `quote` and `range` carry a quote, `lines` a window. The selector fields (orders 3–6
 and 9–25) form one merge key that changes only by a repin (`SetEdgeProps`, [F06]); `uid`, `captured` and `pred` never
 change ([40 §2.7]). The canonical selector block, with quote, prefix, suffix and end entering only as digests, is [F07]'s (R-10);
 the image line is [F14]'s (R-11).
+
+**Validity** (V for every decoder: [F06], [F09], the format oracle). Every enumeration holds a listed value; `resolver` ≥ 1;
+`hint_last` ≥ `hint_first` ≥ 1; `text_unavailable` only when `kind` carries a quote (`heading`, `symbol`, `quote`,
+`range`); `scope`, `window` and `marker` are non-empty when present; `window` is a valid window value of [F20 §2.7.3];
+`occurrence` ≥ 1; `blob` has `algo` `none` only when `kind` = `file`; `git` has `algo` ≠ `none`. **Consistency** (C):
+when the texts are held, each digest [F07 §8.2] computes from them is the digest of the exact bytes; an import whose
+`anchor` line carries both a text and a digest that disagree is `ImageParse` ([40 §5.7], [F14]).
 
 #### 10.3.1 The scope value
 
@@ -1194,8 +1285,18 @@ enter `captured` (§11.4):
 | 2 | `name` | `vstr` | always | the item's name as the scanner reports it (Rust: the type of an `impl`; Markdown: the heading text without its numbering; TOML: the table path or key); non-empty, one line |
 | 3 | `qual` | `vstr` | always | Rust `impl Trait for T`: `Trait`; Markdown: the stripped numbering (`3.2`, `§3`); empty otherwise |
 
-What the scanners report — item boundaries, names, numbering — is the scanner grammar of resolver version 1, which
-[F20] open point 30 leaves to review pass 1.
+What the scanners report — item boundaries, names, numbering, TOML paths — is the scanner grammar of resolver version 1.
+Pass 1 (P1-20, S1-4, A1-14) requires it as a normative appendix of [F20] with a fixture per construct, before the freeze
+and before WP-63 is accepted; this section fixes only the bytes. **Until that appendix exists, no writer records a
+scope**: `has_scope` is clear on every anchor a store captures, capture's uniqueness ladder skips its scope rung
+([F20 §6.1] step 8.2), and `captured` takes `lp("")` for scope (§11.1). The scanners also decide the header line, and
+so the quote, hint and header span hash, of a `symbol` or `heading` anchor, which enter `captured` and the hashed
+selector block ([F07 §8.2]); so, under the same interim rule, no writer captures an anchor of kind 2 `heading` or 3
+`symbol`: the `path#H` and `path::A/B` authoring forms are refused (exit 2, [F19 §10.2] `anchor_spec`), as
+[F20 §6.1]'s interim scanner rule states. An imported anchor that carries a scope, or is of kind 2 or 3, keeps its
+bytes as stored (its `captured` is trusted, §11.5). If the appendix is not written by the freeze, the owner decides
+between keeping this interim rule in format v1 and removing the scanner-derived bytes from the hashed inputs (a change of
+[PLAN] FB-4; `reviews/owner-questions.md` OQ-R-2).
 
 ### 10.4 `mentions`
 
@@ -1256,7 +1357,7 @@ destination — is:
 `origin_path` is spelled as P7 says ([OS/path §3]): git's HEAD spelling for a tracked file, else the enumerated
 spelling; never case-folded ([40 §2.3]). A uid created on one line while another line removed it is re-keyed at merge to
 `uid_file(r, origin_path, U)` with U the removed uid — the rule of [40 §5.5], whose procedure is
-[RULES/link-merge-rules] RK-001–RK-010 and [F12] (open point 35). A foreign node whose uid does not equal its derivation
+[RULES/link-merge-rules] RK-001–RK-011 and [F12 §7.6] (open point 35). A foreign node whose uid does not equal its derivation
 over its stored inputs is accepted as foreign, flagged by `image doctor`, and treated as random ([40 §2.3]).
 
 *(Informative)* For root `project`, path `docs/a.md` and no predecessor, the 46 hashed bytes are
@@ -1409,6 +1510,12 @@ lengths ([F20 §7]); whether `DOCLEN` exists ([F09]).
     [50] reservation additively; WP-19 confirms.
 12. **One stored form per value** (§6.2): empty values and defaults are absent; `bool` carries its value in the type
     byte's bit 7, which is how "bool carries no value bytes" ([AR §3.1]) still distinguishes true from false.
+    **Pass 1 (P1-1, S1-1, A1-1): closed.** §5.1 is the one registry for every stored structure; [F06]'s tag table is
+    removed. The decisions: type id 0 is `absent` where an op or a conflict side admits it; `ref` is `u32` ([AR §3.1]
+    "node refs are u32"); `commitref` and `pinned_commit` are 32 bytes; empty text, empty set and empty `oid` are absent in
+    every position; NaN, ±infinity and −0.0 are invalid patterns; `pathmove` classes are 1–4 with 0 invalid; the set order
+    is §5.5's. The edge property block (§10.2) is one layout with `pflags` bit 0 `has_pin`, bit 1 `flagged`, bit 2
+    `anchor` (S1-2; A1-3's alternative, [F06]'s old bit order, is not taken because this chapter owns the block).
 13. **`f64`** ([F01] open point 8): NaN and infinities refused, −0.0 stored as +0.0.
 14. **Text normalisation and limits** (§5.3). The CR → LF store rule of bodies is extended to every text value; U+0000
     is refused outside bodies; `text` values ≤ 64 KiB and `sym` values ≤ 4,096 B are this chapter's caps (the design
@@ -1469,22 +1576,36 @@ lengths ([F20 §7]); whether `DOCLEN` exists ([F09]).
     rule ("least (generation, commit id)") is provenance only and is not specified here.
 35. **Re-key edge scope** (conflict inside [40]). [40 §0.1] item 4 and R-3 say the re-key moves "every edge that side
     added"; [40 §5.5]'s row and [RULES/link-merge-rules] RK-006 re-point only anchors. §11.2 gives only the derivation;
-    WP-12 ([F12]) and R-MODEL align the procedure with R-3's wording.
+    WP-12 ([F12]) and R-MODEL align the procedure with R-3's wording. **Closed** (pass 1, S1-14): [F12 §7.6] re-points
+    every edge the re-keyed side added, every kind, and [RULES/link-merge-rules] RK-006 (`repoint-added-referrers`) states
+    the same scope, with RK-011 for the residue ([F12] open point 25).
 36. **Anchor de-duplication and loops** (§11.4): "equal current selectors" is read as equality of the `captured`
     inputs other than the file uid; the predecessor loops are bounded; an all-zero derived uid is refused.
 37. **Anchor record ownership.** [F20] cites [F08] for the anchor record; review a1-S (S-03) names chapter 18. This
     chapter holds the stored record and the derivation; chapter 18 (R-12, R-16, R-17) and [F07] (R-10) cite it.
+    **Pass 1 (P1-1, S1-3, A1-2): closed.** §10.3 is the only layout; [F06 §7.5.3]'s second layout is removed and the ops
+    carry this record. From [F06]'s former layout this record takes one change: `blob` may be empty for a planned target
+    (§10.3 order 23). Codes stay 1-based, the uid stays in the record (the op's discriminator must equal it, [F06 §7.5.1]),
+    presence follows `kind` and `aflags`, texts stay `vbytes`, and `text_unavailable` marks held digests.
 38. **Name grammars** (§8.2, §5.4.1), including root names, are this chapter's; [CFG] must accept exactly the root-name
     grammar for `roots.<name>`.
 39. **The scope value** (§10.3.1) fixes bytes that enter `captured`; what the scanners report is [F20] open point 30.
+    **Pass 1 (P1-20, S1-4, A1-14):** the scanner grammar becomes a normative [F20] appendix before the freeze; until it
+    exists no scope is recorded (§10.3.1), so an engine and the model cannot derive different uids from an unspecified
+    scanner. **Round 1** (closure open point 2): the interim rule also refuses the `symbol` and `heading` forms, whose
+    header line, quote, hint and span hash a scanner decides ([F20 §6.1]); the owner question is OQ-R-2.
 40. **`text-unavailable` anchors** store the four digests in place of the texts (§10.3), so a hash-only import keeps every
     canonical input.
 41. **Tombstone-reference `#N`s** (§2.1): an unknown uid referenced by an import gets a `#N` with no node; [F11] states
     the `ALLOC`/`UIDX` row for it. **The random source** of random uids (§2.2) — also needed by the store id and the
-    `tmp/` nonces of [F02 §4, §5.3] — has no call in the OS-layer files written so far; WP-17 names one.
+    `tmp/` nonces of [F02 §4, §5.3] — has no call in the OS-layer files written so far; WP-17 names one. Resolved
+    (pass-1 finding S1-27): `Entropy::fill_random` ([OS/README §4.6]).
+    **Pass 1 (P1-14):** the same seam; its simulator derives the draws from the stream seed ([OS/README §4.6],
+    [API §6.4], [API §17.3], [API §17.4]).
 42. **Resolution column rule** (§3.1) follows [RULES/status-machines] GR-014; **owner quote** is required only on rules,
     as [AR §3.2] states; **measurement mandatory fields** stay a role-policy rule.
 43. **`SUBTASK_OF`** is a forward synonym, which F1's `reverse_names` cannot hold; WP-19 puts it in LQ's alias table.
+    **Pass 1 (A1-56): closed.** [LQ/canonical-ast §5.4] fixes the synonym table, which holds it.
 44. **Where schema items are stored.** [AR §4.4] lists no schema section; [F09] (WP-13) adds one for the view's items and
     the `SCHEMAIDS` map (open point 7).
 45. **For WP-12.** [F06] should encode op values with §5's encodings and carry the store-local ids of §8.3; [F07] should
@@ -1494,3 +1615,12 @@ lengths ([F20 §7]); whether `DOCLEN` exists ([F09]).
 47. **[PLAN §3.3]** assigns WP-14 the R-12, R-15, R-16 and R-17 gap; chapter 18 closes it. This chapter closes the
     review items S-01 and S-03 (derivations), S-19 (the root invariant, §8.6) and S-20 (`pathmove.hlc`, §5.2) on its
     side.
+48. **Pass 1, round 1** (P1-1; A1-14, S1-4, P1-20). §5.1 names the one derived form of a value that is not a stored
+    value: [F09 §10.1]'s promoted `commitref` element is an `id16` index key, and the 32-byte value stays in the field
+    block, which a reader reads and confirms against (the 16-byte index column review pass 1, S1-1, allows). §5.6 gives
+    one value of every type in its stored and canonical forms, the values of the cross-chapter fixture of
+    `COVERAGE.md` row 60-AR-Values. §10.3.1's interim rule also covers the `symbol` and `heading` forms, as
+    [F20 §6.1] states it.
+49. **Pass 1, round 2** (closure NC-5). §5.6's `pathmove` value now holds directory prefixes (`a/`, `b/`), as §5.2 and
+    §5.4.2 require of `from` and `to`; its stored bytes and its `cv` were re-derived from §5.2 and [F07 §7.1], and every
+    other row of §5.6 was re-derived and is unchanged.

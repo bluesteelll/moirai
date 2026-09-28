@@ -78,7 +78,7 @@ The remaining names (`ref`, `revspec`, `composite`, `across`, `diff`, `treelabel
 |---|---|
 | `ref` | the ref of the view the rows were read from ([50 §6.4]): the ref a `USE` names (after its suffixes); for a commit, sequence-number or reflog view, the ref recorded in the view commit's header; without `USE`, the caller's resolved branch ([90 §4.1]) |
 | `revpart` | `rev ` and the sequence number of the view's commit (the tip for a tip view) |
-| `composite` | for a query of several parts ([50 §3.9] item 2): the parts joined by ` UNION `, ` UNION ALL `, ` EXCEPT ` or ` INTERSECT `; each part is `[<revspec> = ]rev <seq> <c8>[ (as-of)]`, the `<revspec> = ` prefix present iff the part has a `USE` ([50 §2.9] Q15) |
+| `composite` | for a query of several parts ([50 §3.9] item 2): the parts joined by ` UNION `, ` UNION ALL `, ` EXCEPT ` or ` INTERSECT `; each part is `[<revspec> = ]rev <seq>[ (as-of)]`, the `<revspec> = ` prefix present iff the part has a `USE` ([50 §2.9] Q15). A part prints no `<c8>`: JSON `parts` carries each part's commit (§7.1), and the extras part stays within 60 B ([F19 §4.2]; pass 1, A1-30) |
 | `viewflag` | at most one: `as-of (USE <revspec>)` for a past view of a single-part query (the revspec as written, or `--at`'s value), `staged (read-only)` for a staging ref, `live` when the result reads runtime or tree-derived state ([50 §3.5]) |
 | `across` | `across <ref> <c8>, <ref> <c8>...` for `across()` ([50 §2.9] Q12) |
 | `diff` | `diff <range>` for `diff()`, plus ` (LCA rev <seq> <c8>)` when the base is an LCA ([50 §2.9] Q13, N05) |
@@ -94,10 +94,11 @@ The remaining names (`ref`, `revspec`, `composite`, `across`, `diff`, `treelabel
 | `moved` | `view moved +<k> commits since page 1` on page 2 and later of a pinned cursor when the branch tip moved ([50 §3.5]) |
 
 3.3. **Byte limits**, counted per part ([AR §7.1] header rules, [AR §8.3] TOKENS row; [F19] freezes them): the base fields
-(§1.3) with their separators ≤ 60 B; the `files` segment with its separator ≤ 80 B; the view descriptors and extras (`across`,
-`diff`, composite parts, `search`, `recompute`, `schema`, `behind`, `moved`, and a write's `key`, `lease` and dry-run parts,
-§9) ≤ 60 B; `dropped` and `more` ≤ 30 B; the reader note of line 2 ≤ 80 B. [90 §6.3]'s combined figures are superseded
-([50 §6.4] as amended).
+(§1.3) with their separators ≤ 60 B, `tx (dry)` of a `DRY` header included in the place of the rows field; the `files` segment
+with its separator ≤ 80 B; the view descriptors and extras (`across`, `diff`, composite parts, `search`, `recompute`, `schema`,
+`behind`, `moved`, and a write's `key`, `lease`, `IF TIP ok`, `IF TARGETS ok` and `would commit <n> changes`, §9) ≤ 60 B;
+`dropped` and `more` ≤ 30 B; the reader note of line 2 ≤ 80 B. [F19 §4.2] owns these numbers, which this section restates;
+[90 §6.3]'s combined figures are superseded ([50 §6.4] as amended).
 
 3.4. **Headers of writes, explain and check** are §9.1–§9.4 and §10.
 
@@ -261,10 +262,11 @@ is [F12]'s conflict key (`#91.body`, `edge:#203:blocks:#40`).
 `confirmed blockers in round <r>: 0 -> DESIGN APPROVED` ([50 §6.4], [AR §7.6]); `<r>` is the last round listed.
 
 5.13. **Links** ([40 §3.8] as corrected by [LQ/std §2.8] item 2 and §4.21). One line per link: `<handle>  <state>  <path>[ -> <now>]  <detail>
-[ | verify #N]` where `<handle>` is the file node `#N` for file rows and the anchor handle `aN` for anchor rows, `<state>` the link
-state padded to 20 bytes, `<detail>` R-16's detail text ([F18]); then one legend line `verify #N: moirai file where N --evidence`
-when any line carries `verify`. The line never prints a command that accepts a guess: its last part is the next command, evidence
-or settle ([41 M6]; `links()`'s `next` column; the A1 re-review's A-m2).
+[ | verify <handle>]` where `<handle>` is the file node `#N` for file rows and the anchor handle `aN` for anchor rows, `<state>`
+the link state padded to 20 bytes, `<detail>` R-16's detail text ([F18]); the `verify` part repeats the line's own handle
+(`verify #815`, `verify a31`; pass 1, A1-48). Then one legend line `verify #N: moirai file where N --evidence` when any line
+carries `verify` ([F19 §4.6] rule 4). The line never prints a command that accepts a guess: its last part is the next command,
+evidence or settle ([41 M6]; `links()`'s `next` column; the A1 re-review's A-m2).
 
 5.14. **Changes** (`changes`, `delta`). `rev <seq> <ref> <id> <op> <aspect>[ <name>] <actor>`.
 
@@ -272,7 +274,9 @@ or settle ([41 M6]; `links()`'s `next` column; the A1 re-review's A-m2).
 flag when `flagged`, and `elsewhere=<ref>` when set.
 
 5.16. **Untrusted text** ([50 §6.4], [16 §6.9]). A quoted value is `"` + the value with `"` → `\"`, `\` → `\\`, CR → `\r`, LF →
-`\n`, TAB → `\t`, other C0 controls and DEL → `\u{XX}` + `"`. When the escaped value exceeds 120 bytes it is cut at the last
+`\n`, TAB → `\t`, other C0 controls and DEL → `\u{h}` + `"`, where h is the code point in lower-case hexadecimal without leading
+zeros (`\u{1}`, `\u{1b}`, `\u{7f}`), the one spelling of [F19 §2.5] rule 1 and of LQ's string escapes ([LQ/lexical]; pass 1,
+A1-48). When the escaped value exceeds 120 bytes it is cut at the last
 scalar boundary at or before byte 117 that does not split an escape, and `...` is appended inside the quotes. Bodies appear only
 when projected or with `--full`, fenced:
 `--- body <id> | <n> B | by <actor> rev <seq> | untrusted text ---`, the body bytes, then `--- end body <id> ---`. If the body
@@ -305,9 +309,11 @@ exit 10` ([50 §6.4]). `<rerun>` is, for a named query invoked by argv, `moirai 
 argument order; for free-form text, `run the same query with --cursor <cursor>`; for the `query` tool, `call query again with
 cursor=<cursor>` (open point 2).
 
-6.5. **`--ids`.** Stdout carries `#N` lines only, no header, no row cap, up to `output.ids-max-bytes` (24,000 B; `0` = unlimited)
-([90 §2.1]). A cut by that page or by a budget writes to stderr the line `ids: <n> printed | more | cursor <cursor> | <rerun>`,
-after any warnings and notices, and exits 10 ([50 §3.5]).
+6.5. **`--ids`.** Stdout carries `#N` lines only, no header and no row cap. The page and the exit code are [F19 §6.2]'s, which this
+section cites (pass 1, A1-31): a result that fits `output.ids-max-bytes` (24,000 B; `0` = unlimited, [90 §2.1]) prints whole and
+exits 0; a cut page prints at most min(`output.ids-max-bytes`, `output.nonzero-exit-max-bytes`) bytes, 8,000 B by default, and
+exits 10. A cut by that page or by a budget writes to stderr the line `ids: <n> printed | more | cursor <cursor> | <rerun>`,
+after any warnings and notices ([50 §3.5]).
 
 6.6. **Both ends.** The header carries `dropped` and `more` whenever the footer does, so a head, middle or tail cut of one result
 keeps one of them ([90 §6.3]).
@@ -373,23 +379,33 @@ after `commit`: `"rev_new":<int or null>`, `"key":<string or null>`, `"lease":<s
 ## 8. Cursors
 
 8.1. **Contents** ([50 §3.5], [16 §6.4]): the query hash, the view commit per part, page 1's `now()`, the last sort key, the page
-size and the remaining work budget, plus the `live` flag. Binary layout, little-endian:
+size and the remaining work budget, plus the `live` flag. The fixed head is an offset table; the whole cursor is a sequence
+table ([F01 §2.6]; pass 1, A1-48), little-endian:
 
-| Offset | Width | Type | Name | Meaning |
+`CursorHead`:
+
+| offset | width | type | name | meaning |
 |---|---|---|---|---|
-| 0 | 1 | u8 | `version` | `1` |
-| 1 | 1 | u8 | `flags` | bit 0 `live`; bit 1 `ids` (an `--ids` byte page); bits 2–7 reserved, zero |
-| 2 | 2 | u16 | `page_rows` | rows per page; 0 under `--ids` |
-| 4 | 4 | u32 | `pages` | pages already served (≥ 1) |
-| 8 | 8 | u64 | `query_hash` | the first 8 bytes of the query hash `H` read as little-endian u64 ([LQ/canonical-ast §1.1], [50 §5.3]) |
-| 16 | 8 | u64 | `now_ms` | page 1's `now()`, milliseconds since the Unix epoch, UTC |
-| 24 | 8 | u64 | `work_left` | work units left of the query's budget |
-| 32 | 1 | u8 | `n_parts` | number of view commits that follow; 0 for a live cursor |
-| 33 | 1 | u8 | `n_keys` | number of sort-key values that follow |
-| 34 | 2 | u16 | `_` | reserved, zero |
-| 36 | 16 × `n_parts` | [16] each | `part_commit` | each part's view commit, its `id16` (first 16 bytes of the commit id) |
-| 36 + 16·`n_parts` | var | values | `key` | the last emitted row's full sort key (§8.2): the `ORDER BY` values, then the binding identity |
-| end − 8 | 8 | u64 | `check` | XXH3-64 (seed 0) over every preceding byte |
+| 0 | 1 | `u8` | `version` | `1` |
+| 1 | 1 | `u8` | `flags` | bit 0 `live`; bit 1 `ids` (an `--ids` byte page); bits 2–7 reserved, zero |
+| 2 | 2 | `u16` | `page_rows` | rows per page; 0 under `--ids` |
+| 4 | 4 | `u32` | `pages` | pages already served (≥ 1) |
+| 8 | 8 | `u64` | `query_hash` | the first 8 bytes of the query hash `H` read as little-endian u64 ([LQ/canonical-ast §1.1], [50 §5.3]) |
+| 16 | 8 | `u64` | `now_ms` | page 1's `now()`, milliseconds since the Unix epoch, UTC |
+| 24 | 8 | `u64` | `work_left` | work units left of the query's budget |
+| 32 | 1 | `u8` | `n_parts` | number of view commits that follow; 0 for a live cursor |
+| 33 | 1 | `u8` | `n_keys` | number of sort-key values that follow |
+| 34 | 2 | `u16` | `_reserved` | zero |
+| total | 36 | | | |
+
+The cursor:
+
+| order | name | encoding | present when | meaning |
+|---|---|---|---|---|
+| 1 | `head` | `CursorHead` | always | above |
+| 2 | `part_commit` | `n_parts` × `b16` | always | each part's view commit, its `id16` (first 16 bytes of the commit id) |
+| 3 | `key` | `n_keys` sort-key values (§8.2) | always | the last emitted row's full sort key: the `ORDER BY` values, then the binding identity |
+| 4 | `check` | `u64` | always | XXH3-64 (seed 0) over every preceding byte |
 
 8.2. **Sort-key values.** Each is a tag byte and a payload:
 
@@ -454,8 +470,9 @@ and Q24 `affected: #12 #17 #77 | markers: deleted #40 (lane/l10)`. Then, on a st
 9.2. **Replayed.** `branch: <ref> | rev <tip> | replayed`, then `replayed: rev <seq> <c8> (key <key>)`, exit 0 ([50 §2.9] Q20,
 [AR §6.4]).
 
-9.3. **`DRY`.** Header: `branch: <ref> | rev <tip> | tx (dry)[ | IF TIP ok][ | IF TARGETS ok] | would commit <n> changes | nothing
-written` ([50 §2.9] Q19). Body: the statement lines of §9.1, where each `MATCH … EXPECT` lists its targets under it as
+9.3. **`DRY`.** Header: `branch: <ref> | rev <tip> | tx (dry)[ | IF TIP ok][ | IF TARGETS ok] | would commit <n> changes`
+([50 §2.9] Q19 without its `nothing written`, which a dry run implies; `tx (dry)` counts in the base part and the rest in the
+extras part, at most 57 B: [F19 §4.2], pass 1, A1-30). Body: the statement lines of §9.1, where each `MATCH … EXPECT` lists its targets under it as
 `  target <id> <kind> "<title>"` ([90 §8.1] L3; at most 50 per statement, then `  ... <n> more targets (the digest covers all)`);
 the `diff` rows of §5.8 without `rev`/actor; `<i> ASSERT <expr> -> true` lines; `affected: <...> | invariants ok`;
 `targets: <digest>`; and `to apply: send the same TX without DRY, with IF TARGETS '<digest>'`, followed by
@@ -555,3 +572,9 @@ target-set digest and every text of this chapter are decided here, with no measu
    if the search-stratum ablation keeps BM25; it belongs with F12's statistics ([F09]), and this chapter fixes only how `score` is
    printed. Goldens (WP-71a) are authored from this text, never copied from [50 §2.9]'s examples (S-24).
 9. **The comparison form** (§11) is offered to WP-70; if WP-70's scorer defines another, §11 follows it.
+10. **Pass 1 changes** (A1-30, A1-31, A1-48). The `DRY` header drops `nothing written` and counts `tx (dry)` in the base part,
+    and composite parts drop their `<c8>` (§3.2, §3.3, §9.3), as [F19] open point 1 proposed, so every golden header meets the
+    60 B extras limit. `--ids` pages cite [F19 §6.2] (§6.5): a cut page holds at most 8,000 B by default, which the owner
+    confirms at WP-81a against [AR §7.1]'s 24,000 B. Link lines print `verify <handle>` with the line's own handle (§5.13);
+    control characters escape as `\u{h}` without leading zeros (§5.16); the cursor layout is an offset table for its fixed
+    head plus a sequence table (§8.1).

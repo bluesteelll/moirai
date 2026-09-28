@@ -182,6 +182,10 @@ operator `-` and the integer 1 (there is no negative literal; `unary_expr` appli
 `m` is minutes. Floats and durations keep their source text as the token value, so that the syntax tree reproduces
 them ([LQ/canonical-ast §3.2]); their numeric values enter only the canonical form.
 
+The configuration files use another duration grammar ([CFG §4.1]: `ms s m h d`, no `w`), on purpose: configuration needs
+millisecond waits and no weeks, query text the reverse. The two never meet as text; the Store API takes durations as integer
+milliseconds or this section's form ([API §5.1]; pass 1, A1-55).
+
 ### 5.7 Strings
 
 A string starts with `'` or `"` and ends at the next unescaped occurrence of the same quote. Inside it:
@@ -390,8 +394,11 @@ A comment or whitespace ends a revision, so `main /* x */ ~2` is the ref `main` 
 | suffix count | 0 … 2^32 − 1 | E003 |
 | quantifier bound, `EXPECT` count | 0 … 2^32 − 1 (quantifier); 0 … 2^63 − 1 (`EXPECT`, an integer) | E114 (parser, [LQ/grammar-v1.ebnf §R]); E003 |
 | nesting depth | 64 | E001 (parser, [LQ/grammar-v1.ebnf §P.13]) |
+| input text on stdin or from `-f FILE` | `input.max-bytes` ([CFG §10.5], 16 MiB by default), counted while reading | exit 2 ([F19 §10.2] `usage`), before lexing |
 
-There is no lexical limit on the length of a query, a string or a name; the budgets of [50 §5.10] bound the work.
+There is no lexical limit on the length of a query, a string or a name; the budgets of [50 §5.10] bound the work. The input
+bound of the last row is not lexical: stdin and `-f FILE` are read incrementally and refused as soon as they pass
+`input.max-bytes`, so no budget has to apply to a text that was never bounded (pass 1, P1-39; [OS/shell §5.2] reads).
 
 ## 9. Name matching
 

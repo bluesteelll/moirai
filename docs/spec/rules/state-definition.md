@@ -52,6 +52,7 @@ The format is [RULES/README]. Notation used in the notes:
 | VK-004 | import | no | yes | derived | [AR §5a.1]; [72 M4] fix 2 | A staging ref of the importer, like VK-003. |
 | VK-005 | tag | no | no | proposed | [AR §5a.1]; [50 §3.9] items 4, 6; [OP-11] | A tag is immutable and not a branch tip: `ready` there is E302. |
 | VK-006 | past-view | no | no | design | [50 §3.8]; [50 §3.9] item 4; [AR §3.5] `ready` | A commit, `s…`, `~n`, `@n` or `@time`: `ready` is E302 with `unblocked` as the fix. |
+| VK-007 | orphans | no | yes | derived | [AR §3.4] I26′ "some live ref X ≠ R of kind `work`"; [F12 §2]; [F13 §4.1]; [F05 §9.2] reason 5 `park` | An `orphans/<ref>` ref (kind 6) holds a commit whose ref CAS failed at replay, parked there by [F16] P-70; it is not of kind `work`, so it never holds, and its tip is read like VK-004's (review pass 1 round 2, residue of P1-3, S1-11, A1-11). |
 
 The **hold** of `#N` at a commit c is the closed value its state has there; `none` otherwise. A deleted node's hold is
 `deleted` whatever its status was.
@@ -171,7 +172,7 @@ deadline in Unknown-boot mode).
 | LL-011 | ttl | session-ttl | * | not-named | * | no | design | [80 §2.7.2] | - |
 | LL-012 | ttl | session-ttl | * | unreadable | not-passed | yes | design | [AR §6.2]; [80 §2.7.2] | - |
 | LL-013 | ttl | session-ttl | * | unreadable | passed | no | design | [AR §6.2] | - |
-| LL-014 | ttl | leader | * | * | * | - | gap | [AR §4.4] `LEASES` anchor kinds; [80 §2.7.2] `leader`; [OP-12] | The optional leader is not built; no lease carries this anchor until it is. |
+| LL-014 | ttl | leader | * | * | * | - | derived | [AR §4.4] `LEASES` anchor kinds; [80 §2.7.2] `leader`; [F03 §10.3]; [F11 §6]; [OP-12] | Unreachable: a lease carries anchor kinds 0 `none`, 1 `session` and 4 `session-ttl` only ([F03 §10.3]), and a `LEASES` row with kind 2 `intent` or 3 `leader` is invalid ([F11 §6]), so no lease reaches this row in format v1. A case that reaches this row is a failed internal check, which the model reports as a test failure naming the row, never as `SpecGap` (as [RULES/link-merge-rules] LR-006 does; review pass 1 round 2, P1-21). The optional leader, if built, adds its rule here. |
 
 <!-- table: lease-ends -->
 | row | event | effect | basis | source | note |
@@ -203,7 +204,9 @@ deadline in Unknown-boot mode).
 
 The engine does not evaluate PD-012 by walking the DAG: it keeps one marker per closed hold origin and answers PD-012
 with one probe and one vector lookup (CM1). This section is the cache's exact specification; the byte layout of
-`MARKERS` and `MARKERS_OLD` is [F11]'s.
+`MARKERS` and `MARKERS_OLD` is [F11 §7]'s (the key of MF-001, MF-003 and MF-004, the holder set of MF-006 and the flag of
+MF-007 included), and the log record that carries every change is [F05 §9.5]'s. [F13 §4] cites these rows as I26′'s
+definition and marker-cache rules.
 
 <!-- table: marker-fields -->
 | row | field | basis | source | note |
@@ -213,32 +216,36 @@ with one probe and one vector lookup (CM1). This section is the cache's exact sp
 | MF-003 | origin-commit | design | [AR §4.4] "commit id16"; [60 §2.5] "the marker key `(#N, ref_id, commit)`" | The origin o of the hold (OR rows). |
 | MF-004 | origin-ref | design | [AR §4.4] `ref_id`; [AR §5d.1] | ref(o): the ref o landed on, which may since have been deleted or be a staging ref. |
 | MF-005 | origin-ref-seq | design | [AR §4.4] `ref_seq` | ref_seq(o). |
-| MF-006 | holders | proposed | [AR §5a.9] "re-attributes … to a live ref that contains the marker's commit"; [72 M4] fix 2; [OP-3] | The set of live refs that hold `#N` with this origin (`view-kinds` `holds_count = yes`). The marker is **active** while it is non-empty. |
-| MF-007 | nonlinear | proposed | [72 M4]; [OP-4] | Set once, never cleared (ME-011); selects the exact DAG test (AB-002). |
+| MF-006 | holders | proposed | [AR §5a.9] "re-attributes … to a live ref that contains the marker's commit"; [72 M4] fix 2; [OP-3] | The set of live refs that hold `#N` with this origin (`view-kinds` `holds_count = yes`). The marker is **active** while it is non-empty. Stored as a list of `ref_id`s in the row ([F11 §7]) and in every record that changes it ([F05 §9.5]). |
+| MF-007 | nonlinear | proposed | [72 M4]; [OP-4] | Set once, never cleared (ME-011, ME-013); selects the exact DAG test (AB-002). A flag bit of the row ([F11 §7]). |
 | MF-008 | hlc, seq | design | [AR §4.4] | Bookkeeping: when the record was written. |
-| MF-009 | holder-actor, outcome | design | [AR §5d.1] `settled` `{…, holder, outcome, …}` | For `settled` records written by `complete`: the lease holder and the outcome, for triage lines only. |
+| MF-009 | holder-actor, outcome | design | [AR §5d.1] `settled` `{…, holder, outcome, …}`; [API §10.5]; [F05 §9.5] fields 9, 11; [F11 §7] `actor`, `outcome` | For `settled` records written by `complete`: the lease holder and the outcome, for triage lines only. Exactly one entry carries them: the `settled` entry (ME-001) that the commit of a `complete` writes for the task it settles, with the holder of the task lease that `complete` presented and released and its `--outcome` (1 `done`, 2 `failed`, 3 `abandoned`; CO-001 to CO-003). Every other entry carries 0 for both: the other doors of ME-001, `cancelled` holds, and every re-emit (ME-003, ME-006, ME-007), even of a marker a `complete` once wrote, so a re-emit resets the row's `actor` and `outcome` to 0. Entries that keep the marker (`holders`, `flag-nonlinear`, a revival by ME-013) carry neither field and leave the row's values unchanged (review pass 1 round 3). |
 
 Each row of `marker-events` fires for every node whose hold changes at a live ref. "(v0, o0)" is the ref's hold before
-the event and "(v1, o1)" after it. `record` names what is appended to the log (in the same flushed group as the commit
-or `RefUpdate`, [AR §4.3]); `none` means the change is derived state the `MARKERS` fold recomputes on replay
-([AR §4.5] step 6).
+the event and "(v1, o1)" after it. `record` names the `Marker` entries appended to the log ([F05 §9.5]), in the same
+flushed group as the commit or `RefUpdate` that caused them ([AR §4.3]): `settled-or-deleted` writes or re-emits the
+marker with its complete holder set; `holders` replaces the holder set of an existing marker; `cleared` ends a marker
+whose holder set emptied; `flag-nonlinear` sets MF-007. Every change of a marker's holder set or flag is recorded, so
+replay applies the records in log order and never derives a holder change; the model maintains the cache by these rules
+itself and GT2 compares the two ([60 §4.4] item 5). `none` means that no marker changes (ME-008 to ME-010);
+`move-cold` is the checkpoint fold's own change and writes no record (ME-012).
 
 <!-- table: marker-events -->
 | row | event | condition | record | basis | source | note |
 |---|---|---|---|---|---|---|
 | ME-001 | commit-lands | new-origin-here | settled-or-deleted | design | [AR §4.5] step 4; [72 M4] fix 2 | v1 in S and o1 = this commit: a new marker with holders {X}. Covers every door (`door-coverage`). |
-| ME-002 | commit-lands | new-origin-active | none | proposed | [AR §5a.7] step 7; [OP-2] | v1 in S, o1 older and its marker active: X joins its holders. The typical merge into `main` or `sync`. |
+| ME-002 | commit-lands | new-origin-active | holders | proposed | [AR §5a.7] step 7; [OP-2] | v1 in S, o1 older and its marker active: X joins its holders. The typical merge into `main` or `sync`. |
 | ME-003 | commit-lands | new-origin-inactive | settled-or-deleted | proposed | [72 M4] fix 2 "the landing commit does"; [OP-2] | v1 in S, o1 older and its marker inactive or never written (for example an origin on a staging or import ref): the marker is written, or re-emitted, with holders {X}. |
-| ME-004 | commit-lands | old-hold-ends | cleared-if-last | proposed | [AR §4.5] step 4 "`cleared` scoped to `(#N, ref_id)`"; [72 M4] fix 2; [OP-3]; [OP-5] | v0 in S and (v1, o1) ≠ (v0, o0): X leaves o0's holders; if none remain, `cleared` is written for (`#N`, o0). Any exit from S counts, not only `→ open` and `Undelete`. |
-| ME-005 | ref-deleted | work-ref | cleared-if-last | design | [AR §5a.9] `-D` "clears only the markers no live ref still holds"; [72 M4] fix 2 | The ref leaves every holder set; each marker left with no holder is cleared, with a triage line. A marker that keeps a holder stays active at its origin position: the design's "re-attribution" ([OP-3]). Applies to `-d` as well. |
-| ME-006 | ref-moved | work-ref | re-emit-or-cleared | design | [AR §5a.5] `undo`, `op restore` "recomputes the markers … in both directions"; [72 M4] fix 2 | For every node whose hold differs between the old and the new tip: ME-004 for the old hold, ME-002 or ME-003 for the new one; one triage line per record. |
-| ME-007 | ref-created | work-ref | re-emit-if-inactive | derived | [AR §5a.3] fork; [72 M4] scenario 3 | A fork Y at commit f joins the holders of every closed hold at f (ME-002 or ME-003). |
+| ME-004 | commit-lands | old-hold-ends | holders-or-cleared | proposed | [AR §4.5] step 4 "`cleared` scoped to `(#N, ref_id)`"; [72 M4] fix 2; [OP-3]; [OP-5] | v0 in S and (v1, o1) ≠ (v0, o0): X leaves o0's holders (`holders`); if none remain, `cleared` is written for the marker key (`#N`, ref(o0), o0) instead. Any exit from S counts, not only `→ open` and `Undelete`. |
+| ME-005 | ref-deleted | work-ref | holders-or-cleared | design | [AR §5a.9] `-D` "clears only the markers no live ref still holds"; [72 M4] fix 2 | The ref leaves every holder set (`holders`); each marker left with no holder is cleared instead, with a triage line. A marker that keeps a holder stays active at its origin position: the design's "re-attribution" ([OP-3]). Applies to `-d` as well. |
+| ME-006 | ref-moved | work-ref | per-hold-change | design | [AR §5a.5] `undo`, `op restore` "recomputes the markers … in both directions"; [72 M4] fix 2 | For every node whose hold differs between the old and the new tip: ME-004 for the old hold, ME-002 or ME-003 for the new one, each with its record; one triage line per `settled`, `deleted` or `cleared` record. |
+| ME-007 | ref-created | work-ref | holders-or-re-emit | derived | [AR §5a.3] fork; [72 M4] scenario 3 | A fork Y at commit f joins the holders of every closed hold at f: `holders` for an active marker (ME-002), a re-emitted marker for an inactive one (ME-003). |
 | ME-008 | commit-lands | non-work-ref | none | design | [72 M4] fix 2 "Staging refs produce no markers"; [AR §3.4] I26′; [AR §2.17] X13 | Commits on `merge/*`, `import/*` and `plan/*` refs. |
 | ME-009 | ref-deleted | non-work-ref | none | design | [AR §5a.7] step 8 `merge --abort`; [RULES/merge-table RE-004] | - |
 | ME-010 | commit-lands | hold-unchanged | none | design | [72 M4] fix 2 "on a done task emits nothing"; [AR §4.3] | Markers follow net state, never statements. |
-| ME-011 | commit-lands | origin-ref-diverged | flag-nonlinear | proposed | [OP-4] | A commit d lands on ref Y while some Y-landed commit o that is the origin of a marker (active or in `MARKERS_OLD`) is not in anc*(d), because `undo` or `op restore` moved Y off o. o's marker becomes nonlinear for good. |
-| ME-012 | checkpoint-fold | inert | move-cold | design | [AR §4.4] "`MARKERS_OLD` … globally inert … move there"; [70 S4] | A cleared marker, or one that every live ref (of every kind) has absorbed (`absorption`), moves to `MARKERS_OLD`; its holder set is no longer maintained. |
-| ME-013 | ref-moved-or-created | revive | move-hot | proposed | [AR §4.4]; [OP-10] | After `undo`, `op restore` or a fork from a commit other than a tip, a `MARKERS_OLD` row whose origin some live ref no longer contains, and which some live work ref still holds, returns to `MARKERS` with its holders recomputed. |
+| ME-011 | commit-lands | origin-ref-diverged | flag-nonlinear | proposed | [OP-4] | A commit d lands on ref Y while some Y-landed commit o that is the origin of a marker in `MARKERS` is not in anc*(d), because `undo` or `op restore` moved Y off o. o's marker becomes nonlinear for good. A marker in `MARKERS_OLD` is not flagged here: ME-013 flags every marker it revives. |
+| ME-012 | checkpoint-fold | inert | move-cold | design | [AR §4.4] "`MARKERS_OLD` … globally inert … move there"; [70 S4] | A cleared marker, or one that every live ref (of every kind) has absorbed (`absorption`), moves to `MARKERS_OLD` with an empty holder set; its holder set is no longer maintained. The fold decides this from the rows and the absorbed vectors alone, so it writes no record. |
+| ME-013 | ref-moved-or-created | revive | holders-and-nonlinear | proposed | [AR §4.4]; [OP-10] | After `undo`, `op restore` or a fork from a commit other than a tip, a `MARKERS_OLD` row whose origin some live ref no longer contains, and which some live work ref still holds, returns to `MARKERS` with its holders recomputed (`holders`) and flagged nonlinear (`flag-nonlinear`): a revival follows exactly such a ref move, and AB-002 is exact, so the flag can cost a walk but never an answer. |
 
 A reader on view R tests a marker for `#N` like this; `absorbed_R` is the vector of `vector-rules`.
 
@@ -417,11 +424,12 @@ None. The TTLs are configuration keys (`lease.ttl-default`, `lease.reclaim-older
    sync's non-residue keys, so cache and definition would disagree. (b) *The newest commit whose stored ops set the
    value* depends on the sync residue, a storage detail, and over-excludes: after `lane/b` merges `lane/a` directly and
    reopens `#89` on purpose, `main`'s merge commit would keep `#89` excluded on `lane/b` until `lane/b` syncs `main`
-   (S8). The origin reading is a pure function of states, as [72 M4] fix 1 requires.
+   (S8). The origin reading is a pure function of states, as [72 M4] fix 1 requires. Review pass 1 (S1-16) adopted it:
+   [F13 §4.1] now cites the OR rows and PD-012, and its OP-13-04 is closed.
 2. **Merges and syncs propagate holds; they do not originate them** (ME-002, ME-003, DC-009, DC-010). [AR §4.5] step 4
-   and [RULES/merge-table RE-003] write a marker for "every net `SetStatus{→ done|cancelled}` … whatever … merge, sync
-   … produced the op". Under the origin reading a merge that takes a side's value adds that side's origin to the
-   destination's holds instead. Proposed edit: RE-003 cites ME-001 to ME-004 of this file.
+   writes a marker for "every net `SetStatus{→ done|cancelled}` … whatever … merge, sync … produced the op". Under the
+   origin reading a merge that takes a side's value adds that side's origin to the destination's holds instead.
+   [RULES/merge-table RE-003] now cites ME-001 to ME-004; [AR §4.5] step 4 should say so at WP-81a.
 3. **Holders, and the scope of `cleared`** (MF-006, ME-004, ME-005, AB-003, S7). [AR §5d.1] scopes `cleared` to
    (`#N`, `ref_id`). That is exact only when no other live ref holds the same origin. Counter-example (S7): `main`
    completes `#89`, `lane/a` syncs, `main` reopens; `lane/a` still holds `done` from c1, and `lane/b`, which has
@@ -429,11 +437,16 @@ None. The TTLs are configuration keys (`lease.ttl-default`, `lease.reclaim-older
    the set of live refs that hold its origin, `cleared` is written only when that set empties, and it is keyed by the
    marker key (`#N`, origin-ref, origin-commit). The design's `-D` "re-attribution to a live fork" becomes the special
    case of ME-005 (the position stays the origin's, so a ref that absorbed the origin through another route is not
-   excluded). WP-13 adds the holder set (a bitset over live `ref_id`s) and the `nonlinear` flag to `MARKERS` in [F11].
-4. **Nonlinear markers** (MF-007, ME-011, AB-002, S12). `undo` or `op restore` followed by a new commit on the same ref
-   gives that ref two histories. A ref that absorbed the new one then has `absorbed[ref] ≥ ref_seq(o)` without o in its
-   history, so the O(1) test (CM1) answers wrongly for an origin still held elsewhere. Proposed: flag such markers and
-   test them by a DAG walk. The cost falls only on explicit, rare verbs.
+   excluded). Review pass 1 (S1-16) adopted the holder-set cache: [F13 §4.2] cites these rows (its OP-13-05, the
+   `reopen` on a parent ref, is the case S7 settles), [F11 §7] keys the row by (`#N`, origin ref, origin commit) and
+   stores the holder set as a heap list of `ref_id`s with the `nonlinear` flag, and [F05 §9.5] records every holder
+   change (the `record` column), because replay cannot recompute a holder set from net ops: a `sync` stores only its
+   residue, and a fork or a ref move changes holds with no op at all.
+4. **Nonlinear markers** (MF-007, ME-011, ME-013, AB-002, S12). `undo` or `op restore` followed by a new commit on the
+   same ref gives that ref two histories. A ref that absorbed the new one then has `absorbed[ref] ≥ ref_seq(o)` without
+   o in its history, so the O(1) test (CM1) answers wrongly for an origin still held elsewhere. Proposed: flag such
+   markers and test them by a DAG walk. The cost falls only on explicit, rare verbs. A marker in `MARKERS_OLD` is not
+   tracked by ME-011; ME-013 flags every marker it revives, which is safe because AB-002 is the definition itself.
 5. **Every exit from S ends a hold** (ME-004, S10). [AR §4.5] step 4 clears only on `SetStatus{done|cancelled → open}`
    and `Undelete`; a revert of a completion (`done → in_progress`) would leave a stale marker.
 6. **`Undelete` of a closed node** (DC-013, S11). The design writes only `cleared` for an `Undelete`. When the restored
@@ -443,12 +456,14 @@ None. The TTLs are configuration keys (`lease.ttl-default`, `lease.reclaim-older
    would take a task gated by a `fail_fixable` verdict out of `ready` and `claim` — the deadlock X5 was adopted to
    prevent ("`gates` constrains `complete` … never `claim`", [AR §3.3], [AR §6.2]). Proposed: `gates` counts only in
    the completion guard (`gated`), including a flagged `gates` edge. The name `gated` is new; WP-19 may rename it.
+   Review pass 1 (S1-30) adopted this reading: [F13 §6.2] and [F08 §3.4] count `blocks` in-edges only, and [AR §3.5]
+   should be edited at WP-81a.
 8. **`blocking` and deleted nodes** (PD-018). I26′ says a node completed *or deleted* elsewhere is never listed as a
    live blocker; [50 §4.1]'s `std.blocking` filters only `NOT t.settled_elsewhere`. Proposed: WP-19's `LQ/std` text
    adds `AND NOT t.deleted_elsewhere` (or uses `excluded`).
 9. **Absorbed vectors** (VR-003, VR-004). Defined as the maximum over ancestors (VR-001); the incremental rules follow.
    The design's "`absorbed_dst[src] = ref_seq(tip src)`" and "a fork … copies X's vector" agree with it only when
-   tip(src) landed on src and when the fork is at tip(X); [RULES/merge-table RE-005] should cite VR-003.
+   tip(src) landed on src and when the fork is at tip(X); [RULES/merge-table RE-005] now cites VR-003.
 10. **Retention and revival** (VR-006, ME-013). Markers may name deleted refs (MF-004), so their vector entries stay
     while any marker names them. A backward ref move or a fork from an old commit can make an inert marker count
     again; its `MARKERS_OLD` row then returns to `MARKERS`. Both are bounded by explicit verbs.
@@ -458,15 +473,17 @@ None. The TTLs are configuration keys (`lease.ttl-default`, `lease.reclaim-older
 12. **Leases: `session` anchors and the deadline; the leader anchor** (LL-005, LL-014). [90 §4.4] keeps a Claude Code
     session-anchored lease Alive while its server holds the slot, whatever the TTL; [AR §6.2] lists "TTL (15 min
     self-claims)" as the liveness rule. Proposed: the TTL decides only when the liveness is Unknown, for `none` anchors
-    and for `session-ttl`. A `leader` anchor ([AR §4.4] lists it) has no rule until the optional leader is built.
+    and for `session-ttl`. A `leader` anchor ([AR §4.4] lists it) has no rule until the optional leader is built;
+    [F03 §10.3] and [F11 §6] keep it off every lease (a lease carries anchor kinds 0, 1 and 4 only), so LL-014 is an
+    unreachable row, no longer a `gap` (review pass 1 round 2: it was the last `gap` row of the rule files, P1-21).
 13. **"Another holder"** (PD-011, LF-001). The holder compared is the caller's resolved actor ([90 §4.1] Actor row); a
     caller with no actor is excluded by every live lease. The design does not say how an anonymous `ready` treats
     leases.
 14. **`container`** (PD-022). [50 §2.5] lists `container` as a derived property, and [RULES/merge-table FC-018] as a
     derived flag. Proposed: a node with at least one live child. The header's flag bit 4 is its cache.
-15. **File name and registry.** This file is named as its commissioning task names it, `state-definition.md`;
-    [RULES/README] §1.1 and the specification index list it as `i26-state.md`. One is renamed at integration. Its
-    tables must be added to [RULES/README] §7:
+15. **File name and registry.** This file is named as its commissioning task names it, `state-definition.md`.
+    [RULES/README] §1.1 now lists it under that name, and its tables are registered in [RULES/README] §7 (RG-069 to
+    RG-084, review pass 1 S1-47) with the columns below:
 
     ```
     | RG-0xx | `view-kinds` | state-definition.md | decision | VK | row:id, ref_kind:token, holds_count:enum(yes/no), tip_reads:enum(yes/no), basis:enum, source:cite, note:text | - |

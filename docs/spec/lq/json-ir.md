@@ -44,6 +44,12 @@ two alternative surfaces, and the ablation's result changes nothing in the gramm
    `tools/list` (Open point J-7).
 5. At M0 the only reader is the LQ-Bench harness (WP-71b). The product's doors for IR input are M8's (§9).
 6. An object must not repeat a key (E001). Key order does not matter. A key the tag does not have is E001.
+7. **Nesting limit, checked while parsing** (pass 1, P1-41). The JSON decoder counts the depth of nested objects and arrays
+   as it reads and refuses a document whose depth exceeds **256** with E001, at the byte where the 257th level opens,
+   before any tree is built. The limit of [LQ/grammar-v1.ebnf] P13 (nesting depth 64 of LQ constructs) is checked afterwards on
+   the tree (§5.2); 256 JSON levels hold every tree P13 admits (each LQ level is at most a node object and one array), so the
+   first limit never refuses a document the second would accept, and a deeply nested document can no longer exhaust the
+   decoder's stack.
 
 ## 3. Mapping rules
 

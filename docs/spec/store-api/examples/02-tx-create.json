@@ -50,7 +50,8 @@
           "params": [
             "store.log-extent-bytes=64KiB",
             "store.hist-frame-commits=4",
-            "store.hist-frame-bytes=4KiB"
+            "store.hist-frame-bytes=4KiB",
+            "store.commit.inline-max-bytes=4KiB"
           ]
         }
       },
@@ -72,7 +73,9 @@
             "store.hist-frame-commits": 4,
             "store.log-extent-bytes": 65536
           },
-          "config": {}
+          "config": {
+            "store.commit.inline-max-bytes": "4KiB"
+          }
         },
         "next": null,
         "dropped": null,

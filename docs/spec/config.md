@@ -233,7 +233,7 @@ are compared after ASCII case folding; the canonical form is what `moirai config
 | `bool` | `true`, `yes`, `on`, `1`; `false`, `no`, `off`, `0`; an entry with no `=` is `true`; the empty value is `false` | `true` or `false` | git's boolean spellings |
 | `int[lo..hi]` | decimal digits, optionally followed by `e` or `E` and one or two digits (`2e6` = 2,000,000); a `-` sign only if `lo` < 0 | decimal digits, no leading zeros | the value must be an integer in `[lo, hi]`; `hi` ≤ 2^63 − 1 |
 | `size[lo..hi]` | an `int` in bytes, optionally followed, with no white space, by one unit: `B` (×1); `k`, `K` or `KiB` (×1,024); `m`, `M` or `MiB` (×1,048,576); `g`, `G` or `GiB` (×1,073,741,824) | if the value is a non-zero multiple of 1,024, the number followed by the largest of `GiB`, `MiB`, `KiB` that divides it exactly (`64MiB`, `15625KiB`); else plain decimal (`24000`) | bytes; git's `k`/`m`/`g` suffixes are binary |
-| `duration[lo..hi]` | decimal digits followed, with no white space, by one unit: `ms`, `s`, `m` (minutes), `h`, `d` | the number followed by the largest of `d`, `h`, `m`, `s`, `ms` that divides the value exactly (`15m`, `90d`, `2s`) | held in milliseconds; a bare number is invalid |
+| `duration[lo..hi]` | decimal digits followed, with no white space, by one unit: `ms`, `s`, `m` (minutes), `h`, `d` | the number followed by the largest of `d`, `h`, `m`, `s`, `ms` that divides the value exactly (`15m`, `90d`, `2s`) | held in milliseconds; a bare number is invalid. This grammar differs from LQ's duration literal ([LQ/lexical §5.6]: `s m h d w`, no `ms`) on purpose: configuration needs millisecond waits and no weeks, query text the reverse. The two never meet as text; the Store API passes durations as integer milliseconds and accepts LQ's form ([API §5.1]; pass 1, A1-55) |
 | `percent[lo..hi]` | decimal digits, optionally followed by `%` | decimal digits | an integer percentage |
 | `enum(a\|b\|…)` | one listed word | the word | |
 | `set(a\|b\|…)` | listed words separated by `,`, each trimmed of white space; the empty value is the empty set | the members in the listed order, joined by `,` | a repeated member is invalid |
@@ -255,7 +255,7 @@ letters, digits, `-` and `_`, beginning with a letter or a digit (the `segment` 
 
 | Parameter | Vocabulary | Reserved values |
 |---|---|---|
-| `<name>` in `roots.<name>` | a root name ([40 §2.4]) | `project`, `abs` (built-in roots; `roots.project` and `roots.abs` are unknown keys) |
+| `<name>` in `roots.<name>` | a root name: exactly [F08 §5.4.1]'s grammar, 1–64 bytes of `[a-z0-9_-]` **starting with a letter** ([40 §2.4]; pass 1, S1-39, [F08] open point 38). A `roots.<name>` whose name starts with a digit, `_` or `-` matches no pattern and is an unknown key (§6.1) | `project`, `abs` (built-in roots; `roots.project` and `roots.abs` are unknown keys) |
 | `<name>` in `image.dest.<name>.*` | a destination name | none; `default` is the destination used without `--to` (§10.10) |
 | `<role>` | a role name ([AR §7.3]); roles are schema data, so any word is accepted, and a role no schema defines has no effect | none |
 | `<client>` | `claude`, `codex`, `generic` (Tier B names only if owner decision #45 builds them, [90 §6.4]) | — |
@@ -316,12 +316,17 @@ Some keys constrain one another: [F17 §3] C-1 to C-4 among store parameters, an
 every key is resolved:
 
 1. each constraint is evaluated on the effective values;
-2. for each constraint that fails, every key it names whose effective value is not its default takes its default, and
-   `CFG09` is reported;
-3. registry invariant RG-2 (§9.2) guarantees that the defaults satisfy every constraint, so one pass suffices.
+2. for each constraint that fails, every **tunable** key it names whose effective value is not its fallback takes its
+   fallback, and `CFG09` is reported. The **fallback** of a tunable key is min(its default, the largest value that satisfies
+   every constraint with the recorded `init` values and the other keys' effective values) (pass 1, P1-12). When every `init`
+   key has its default the fallback is the default, which is [F17 §3]'s "a violating tunable value falls back to its
+   production value"; a store created with other `init` values (the test profile's 64 KiB extent, [F17 §12]) gets the
+   largest value its extent admits instead, so the fallback never breaks C-1;
+3. registry invariant RG-2 (§9.2) guarantees that the defaults satisfy every constraint with the default `init` values, and
+   §7.6 refuses an `init` whose values leave some tunable no admissible value, so one pass suffices.
 
-This is the mechanics of [F17 §3]'s "a violating tunable value falls back to its production value". `moirai config set`
-refuses a value that would make a constraint fail with the other effective values (exit 2, naming the constraint).
+`init` keys never fall back: their values are recorded and fixed ([F17 §2]). `moirai config set` refuses a value that would
+make a constraint fail with the other effective values (exit 2, naming the constraint).
 
 ### 5.4 When values are read: the reload classes
 
@@ -383,9 +388,10 @@ key that the command read had a non-default effective value:
 ### 6.2 Configuration diagnostics
 
 Each diagnostic has a code, a severity and one ASCII message line of at most 200 bytes; `<…>` are substitutions. In `--json`
-they use [LQ/errors §4.3]'s object form (`{"code","name","message","detail"}`); in text they render as `<code>: <message>`
-([LQ/errors §4.2]). They never change an exit code ([LQ/errors §4.4]). [F19] owns code numbering across the specification and
-may renumber them (open point 21).
+they use [LQ/errors §4.3]'s object form (`{"code","name","message","detail"}`); in text they render as `<code>: <message>`,
+continuation lines indented seven spaces, after the LQ warnings and notices of the footer ([LQ/errors §4.2]). They never
+change an exit code ([LQ/errors §4.4]). [F19 §10.6] owns code numbering across the specification and freezes these numbers
+and names (open point 21; pass 1, A1-39, A1-62).
 
 | Code | Name | Severity | Message |
 |---|---|---|---|
@@ -432,6 +438,7 @@ A retired name is never reused with another meaning. A retired name in a file is
 | `mcp.result-max-chars`, `mcp.result-max-chars.<client>` | renamed | `mcp.result-max-bytes`, `.<client>` |
 | `output.nonzero-exit-max-chars`, `.<client>` | renamed | `output.nonzero-exit-max-bytes`, `.<client>` |
 | `query.budget.default.chars` | renamed | `query.budget.default.bytes` |
+| `tx.wmem-max` | renamed (pass 1, P1-11) | `query.caps.<role>.wmem`, with `query.budget.default.wmem` as the request (§10.5) |
 | `files.usn` | removed with E2 ([74 A13], [40] R-13) | a later E2 build brings `files.journal` |
 | `files.hooks.nudge` | removed with the move nudge ([74 A17]) | — |
 | `files.budget.window` | never a key | the E6 window bound is an R-14 constant ([F20]) |
@@ -525,7 +532,7 @@ still lose one update; the loser's own step 5 cannot see it. Configuration write
 The same steps as §7.4, with these differences (this resolves [F02] open point 15):
 - The directory `<base>/moirai` is created if it is missing ([F02 §7.3] rule 5).
 - The temporary file is `<base>/moirai/config.<nonce>`, `<nonce>` a `u64` from the OS's cryptographically secure random source
-  in decimal ([F02 §5.3]'s rule). Before step 4, the process deletes every other entry of that directory named
+  (`Entropy::fill_random`, [OS/README §4.6]) in decimal ([F02 §5.3]'s rule). Before step 4, the process deletes every other entry of that directory named
   `config.<u64dec>` ([F02 §6.3]'s `u64dec`): only an interrupted rewrite leaves one, and a concurrent writer whose temporary file
   is deleted fails at step 6 and restarts at step 2.
 - `durable-name` applies to `<base>/moirai` only.
@@ -540,9 +547,15 @@ The same steps as §7.4, with these differences (this resolves [F02] open point 
 - **`--set KEY=VALUE`** (repeatable; open point 11) accepts a store key. An `init` key ([F17 §2]: `store.log-extent-bytes`,
   `store.hist-frame-commits`, `store.hist-frame-bytes`) goes into `HEAD`'s `InitParams` ([F17 §2.2] IP-5); any other store key
   is written into the initial store file. A user key, an unknown key or an invalid value refuses `init` (exit 2) before
-  anything is created. The test harness passes [F17 §12]'s test profile this way ([F17 §12] TP-2); the Store API equivalent is
-  [API]'s.
+  anything is created. So does a set of values that fails a constraint of [F17 §3] (C-1–C-4) with the given `--set` values
+  and the defaults of every other key: `init` exits 2 with `config_value` naming the constraint (for example `C-1:
+  store.commit.inline-max-bytes (1MiB) does not fit store.log-extent-bytes (64KiB)`), before anything is created (pass 1,
+  P1-12). The test harness passes [F17 §12]'s full test profile this way, never an extent alone ([F17 §12] TP-2); the Store
+  API equivalent is [API §8.1].
 - **`--default-branch B`** is `--set default-branch=B`.
+- **The `project` root's content-hash algorithm** is not a key and has no `--set`: `init` reads the object format of the
+  store's repository (`extensions.objectFormat`; `sha1` when the store has no repository) and records it in `HEAD`'s
+  `project_oid_algo` ([F04 §5.16], [F17 §2.1], [F20 §2.3]; pass 1, A1-15, S1-28, P1-4).
 - **The initial store file** is `tmp/config.<nonce>` renamed into place as part of `init`'s initial set ([F02 §2.4]; [F16] fixes
   the sequence). Its bytes, in order:
   1. the line `# moirai store configuration (git-config syntax); moirai config list --defaults lists every key` and LF;
@@ -615,12 +628,15 @@ documentation is generated from it. The fields:
 A unit test of `moirai-config` and `xtask coverage` check them.
 
 - **RG-1.** No key instance matches two patterns (§3.3 rule 5).
-- **RG-2.** Every default is valid for its type and range, and the defaults satisfy every constraint.
+- **RG-2.** Every default is valid for its type and range, and the defaults satisfy every constraint when every `init` key has
+  its default; with other recorded `init` values §5.3's fallback applies (pass 1, P1-12).
 - **RG-3.** Every key has exactly one scope; `q` appears only on user keys; `user-lower` only on store keys.
 - **RG-4.** No key begins with the segment `stores`; no key reuses a retired name (§6.4).
 - **RG-5.** Every environment variable begins `MOIRAI_`, is named by one key only, and contains none of `KEY`, `TOKEN`,
   `SECRET`, `PASSWORD` ([90 §2.1]: harnesses strip such variables from MCP server environments).
-- **RG-6.** Every key of visibility class V (§9.4) has a model function in [RULES/policy-keys] ([PLAN §3.2] WP-90, WP-94).
+- **RG-6.** Every key of visibility class V (§9.4) has a model function in [RULES/policy-keys] ([PLAN §3.2] WP-90, WP-94), a
+  rule file that R-MODEL writes in WP-90 and that the index lists as planned; the citation is made before the file exists as
+  [F01 §2.2] allows (pass 1, A1-50).
 - **RG-7.** Every key pattern is at most 255 bytes and 16 segments, and each fixed segment follows §3.2's `segment` rule in
   lower case.
 
@@ -770,7 +786,6 @@ Constraints C-1 to C-4 are [F17 §3]'s; §5.3 applies them.
 | `mcp.overlay-lru` | `int[1..8]` | `8` | store | hot | I | MCP server overlay cache: count ceiling beside the byte bound | as above | [AR §13] (open point 22) |
 | `git.delta-cache-bytes.cli` | `size[0..64MiB]` | `256KiB` | store | hot | I | git object layer, CLI and hook processes: delta-chain cache | `moirai-git` | [AR §13] |
 | `git.delta-cache-bytes.mcp` | `size[0..64MiB]` | `1MiB` | store | hot | I | as above, MCP server | `moirai-git` | [AR §13] |
-| `tx.wmem-max` | `size[256KiB..64MiB]` | `4MiB` | store | hot | Rs | phase 1 of every write: `wmem` = min(1 MiB, RSS headroom), never below 256 KiB, at most this value ([F17 §4.4] W2); under the test profile `wmem` is this value ([F17 §12] TP-3) | `moirai-store` write path, `moirai-lq` `TX` | [AR §13], [50 §5.10] |
 | `mem.rss-gate.cli` | `size[1MiB..1GiB]` | `4000000` | store | hot | Rs | a CLI or hook process: headroom = this + `mem.rss-gate.cli-per-view` × extra ref views − private bytes, at the start of every query (`mem`) and in phase 1 of every write (`wmem`) ([50 §5.10], [OS/mem §3]) | `moirai-lq`, `moirai-store` | [50 §5.10] "a named store parameter", [AR §8.3] RAM (open point 14) |
 | `mem.rss-gate.cli-per-view` | `size[0..64MiB]` | `1MiB` | store | hot | Rs | as above | as above | as above |
 | `mem.rss-gate.mcp` | `size[1MiB..1GiB]` | `15625KiB` (16,000,000 B) | store | hot | Rs | the MCP server: headroom = this − private bytes | as above | as above |
@@ -779,8 +794,8 @@ Constraints C-1 to C-4 are [F17 §3]'s; §5.3 applies them.
 | `files.deep.threads` | `int[1..64]` | `8` | store | hot | I | `links check\|sync --deep`: walk threads | `moirai-links` | [AR §13] |
 | `files.deep.content-readers` | `int[1..8]` | `2` | store | hot | I | `--deep`: files read at once | `moirai-links` | [AR §13] |
 
-When private bytes cannot be read (`MeterError`, [OS/mem §3]), `mem` is `query.budget.default.mem` and `wmem` is 1 MiB, as if
-the headroom were large (open point 15).
+When private bytes cannot be read (`MeterError`, [OS/mem §3]), `mem` and `wmem` are their requested values (the default or
+the per-call raise, §10.5), as if the headroom were large (open point 15).
 
 ### 10.5 Queries and `TX`
 
@@ -788,12 +803,20 @@ the headroom were large (open point 15).
 `query.caps.<role>.<b>` is the ceiling up to which a caller whose presented lease has role `<role>` ([90 §4.1] rights row) may
 raise it with `--budget` or the MCP `budget` parameter; an unleased caller has the role `general-purpose`. A requested value
 above the ceiling is handled as [LQ/errors] states (open point 13). The effective `mem` is min(value, headroom), never below
-256 KiB (§10.4). `<b>` and the defaults:
+256 KiB (§10.4). **`wmem`** (pass 1, P1-11) is the write working set of phase 1 ([AR §4.5] step 4, [F17 §4.4] W2): a budget
+like the others, requested by `query.budget.default.wmem` or a per-call `--budget wmem=<v>` up to `query.caps.<role>.wmem`,
+and effective as max(256 KiB, min(requested, headroom)). It replaces the former `tx.wmem-max` (§6.4), which could never
+bind under W2's old `min(1 MiB, headroom)`. A raise of `wmem` never admits a larger changeset: an agent `TX` is bounded by
+`store.commit.inline-max-bytes` of changeset whatever its `wmem` ([F17 §4.4] W1, W4; at the production value ≈ 4,400–5,500
+ops, below the default `tx.max-ops`, owner question OQ-P-2). Within that bound, a `TX` whose phase-1 working set exceeds the
+default 1 MiB needs `--budget wmem=<v>` up to 4 MiB; E501 names the raise for `wmem` and the split for the inline bound
+([LQ/errors §5.4]; pass 1, round 1). `<b>` and the defaults:
 
 | `<b>` | type | `query.budget.default.<b>` | agent maximum ([50 §5.10]) = `query.caps.<role>.<b>` default for every role but `orchestrator` and `owner` | `query.caps.orchestrator.<b>`, `query.caps.owner.<b>` default (10 × the agent maximum, [AR §13]) |
 |---|---|---|---|---|
 | `work` | `int[1..10000000000]` | `2000000` | `20000000` | `200000000` |
 | `mem` | `size[256KiB..1GiB]` | `1MiB` | 2 MiB in a CLI or hook process, 4 MiB in the MCP server (`rule:agent-max-mem`) | 20 MiB CLI, 40 MiB MCP (`rule:agent-max-mem` × 10) |
+| `wmem` | `size[256KiB..1GiB]` | `1MiB` | `4MiB` ([AR §4.5] step 4, [50 §5.10]: the agent maximum of a write's working set) | `40MiB` |
 | `rows` | `int[1..1000000]` | `50` | `500` | `5000` |
 | `bytes` | `size[1000..10000000]` | `8000` | `24000` | `240000` |
 | `visited` | `int[1..1000000000]` | `100000` | `1000000` | `10000000` |
@@ -804,13 +827,14 @@ above the ceiling is handled as [LQ/errors] states (open point 13). The effectiv
 
 | key | type | default | scope | reload | vis | effect point | read by | source |
 |---|---|---|---|---|---|---|---|---|
-| `query.budget.default.<b>` (nine keys) | as the table above | as the table above | store | hot | B | the start of every query run: read verbs, `q`, `TX` evaluation, MCP `query`, the class queries of `pack` and `brief`; [LQ/std §2.4]'s `BUDGET` classes set `work` (open point 18) | `moirai-lq` budgets; model `budget::effective` (arithmetic only) | [AR §13], [50 §5.10] |
-| `query.caps.<role>.<b>` (nine per role) | as the table above | `per-param` as the table above | store | hot | B | a per-call raise by a caller of that role; `links check` runs its `fs` at `query.caps.orchestrator.fs` ([LQ/std §4.21]) | `moirai-lq`; model `budget::effective` | [AR §13], [50 §5.10] ([50] D6) |
+| `query.budget.default.<b>` (ten keys) | as the table above | as the table above | store | hot | B | the start of every query run: read verbs, `q`, `TX` evaluation, MCP `query`, the class queries of `pack` and `brief`; `wmem` at phase 1 of every write ([F17 §4.4] W2); [LQ/std §2.4]'s `BUDGET` classes derive `work` from this key (open point 18) | `moirai-lq` budgets, `moirai-store` write path; model `budget::effective` (arithmetic only) | [AR §13], [50 §5.10] |
+| `query.caps.<role>.<b>` (ten per role) | as the table above | `per-param` as the table above | store | hot | B | a per-call raise by a caller of that role; `links check` runs its `fs` at `query.caps.orchestrator.fs` ([LQ/std §4.21]); under the test profile ([F17 §12] TP-3) `wmem`'s request is its cap | `moirai-lq`; model `budget::effective` | [AR §13], [50 §5.10] ([50] D6) |
 | `query.safelist.<role>` | `enum(off\|named-only)` | `off` | store | hot | V | the binder, for a caller of that role: free-form LQ is refused with E406 ([LQ/errors]) | `moirai-lq` binder; model `policy::read_safelist` | [AR §13] ([50] D3) |
 | `query.asof.max-ops.cli` | `int[0..10000000]` | `16000` | store | hot | B | as-of view construction in a CLI or hook process: beyond it E303 ([50 §5.8]) | `moirai-lq` planner | [AR §13], [50 §5.8] |
 | `query.asof.max-ops.mcp` | `int[0..10000000]` | `100000` | store | hot | B | as above, MCP server | `moirai-lq` planner | as above |
 | `files.read.max-uncached-ancestry` | `int[0..64]` | `1` | store | hot | B | every read path's git work: beyond it `unverified (git)` ([F20 §5.11]) | `moirai-links` | [AR §13], [40] R-13 |
 | `files.read.max-e6-commits` | `int[0..4096]` | `32` | store | hot | B | as above, E6 commits per command | `moirai-links` | as above |
+| `input.max-bytes` | `size[64KiB..1GiB]` | `16MiB` | store | hot | O | every text a command reads from stdin or `-f FILE` (LQ text, `apply` batches, bodies, quote files): read incrementally, and refused with exit 2 as soon as it exceeds this many bytes, before any budget applies ([LQ/lexical §8], [OS/shell §5.2]; pass 1, P1-39) | `moirai-app` CLI input | this chapter (P1-39) |
 | `tx.max-statements` | `int[1..1000000]` | `1000` | store | hot | V | `TX` binding: a larger block is refused with E501 naming the split ([50 §3.10] item 10) | `moirai-lq` `TX`; model `tx::check_caps` | [AR §13] |
 | `tx.max-ops` | `int[1..1000000]` | `10000` (a call may raise it to the agent maximum 50,000, [50 §5.10]) | store | hot | V | `TX` execution, as above | `moirai-lq` `TX`; model `tx::check_caps` | [AR §13] |
 | `tx.max-work-in-lock` | `int[0..1000000000]` | `500000` (provisional; M7's work-unit calibration sets it, [50 §3.10] item 10) | store | hot | I | re-validation under the writer byte: re-evaluate within this many units, else release and re-run phase 1 ([AR §4.5] step 7) | `moirai-lq`, `moirai-store` | [AR §13], [50 §3.10] |
@@ -966,7 +990,7 @@ Versioned per branch, store-wide, read at every write the row governs; changed b
 | `policy.role.developer.fields` | field list | the [AR §7.3] allowlist | `set` and `TX SET` by a developer lease | `policy::role_rights` | [AR §13] ([50] D12) |
 | `policy.role.<role>.define-query` | yes, no | yes for `orchestrator`, `owner` | `DEFINE QUERY`, `DROP QUERY` | `policy::role_rights` | [AR §13] (#25) |
 | `policy.role.<role>.authority-owner` | yes, no | the owner's main session with `--owner-quote` | writes with `authority = owner` | `policy::role_rights` | [AR §13] (#13) |
-| `edges.blocks.on-src-deleted`, `edges.gates.on-src-deleted` | `flag`, `drop-notify` | `flag` | deletion of an edge source ([AR §3.3]) | [RULES/delete-policy] | [AR §13] (#9) |
+| `edges.blocks.on-src-deleted`, `edges.gates.on-src-deleted` | `flag`, `drop-notify` | `flag` | deletion of an edge source ([AR §3.3]) | [RULES/delete-policy-matrix] | [AR §13] (#9) |
 | `merge.policy.<kind>` | the values of [RULES/merge-table] `auto-policy` | none (opt-in) | merge resolution per kind | [RULES/merge-table] `auto-policy` | [AR §13], [AR §5a.7] |
 
 Unleased callers always get the `general-purpose` row ([AR §7.3], [90 §4.3]; a rule, not a row).
@@ -982,7 +1006,7 @@ value. This table maps each to its keys and class, for [RULES/policy-keys] (WP-9
 | #4 | `image.dest.<name>.{path, refs, granularity, object-format, kind}` | X, V, V, X, X | `image::export_set` for refs and granularity; GT7 for the rest |
 | #6 | `hooks.stamp.permission`, `hooks.stamp.ask-for` | X | GT12 |
 | #7 | `policy.role.<role>.mcp-write` | V | `policy::role_rights` |
-| #9, policy half | `edges.blocks.on-src-deleted`, `edges.gates.on-src-deleted` | V | [RULES/delete-policy] |
+| #9, policy half | `edges.blocks.on-src-deleted`, `edges.gates.on-src-deleted` | V | [RULES/delete-policy-matrix] |
 | #10 | `merge.strict` | V | [RULES/merge-table] `land-or-stage` |
 | #12 | `durability.lazy-kinds`, `quiet.tail-cap-multiplier`, `quiet.from-lane-measuring` | V, I, V | `crash::survives`; SP-1; `quiet::in_quiet_mode` |
 | #13 | `brief.lang`; `policy.role.<role>.authority-owner` | O; V | GT12; `policy::role_rights` |
@@ -1041,7 +1065,7 @@ layout and protocol constants of [F17 §13.2] are not keys either.
 This chapter's own holes. The store-parameter holes (`F17-ckpt-ops`, `F17-ckpt-bytes`, `F17-ckpt-body`, `F17-tail-overlay`,
 `F17-tail-overlay-quiet`, `F17-quiet-mult`, `F17-promo-ops`, `F17-promo-bytes`, `F17-promo-age`, `F17-loose-pack`,
 `F17-lock-writer`, `F17-lock-flush`) are [F17]'s; §10.2 references them. The share-retry bound of the configuration rename is
-[OS/fs]'s `share-retry-ms`.
+[OS/fs]'s `OS-share-retry-ms`.
 
 | id | what | decided by | candidates | constraint the value must meet |
 |---|---|---|---|---|
@@ -1104,14 +1128,15 @@ This chapter's own holes. The store-parameter holes (`F17-ckpt-ops`, `F17-ckpt-b
     rule, and lets orchestrator and owner raise the deadline 10 ×; their `refs` ceiling is 80, above E304's "(at most 8)", which
     [LQ/errors] should word per role. How a request above the
     ceiling is answered (clamped with a notice, or refused) is [LQ/errors]'s; proposal: clamp and show the applied value in
-    the `budget` object, with a notice.
+    the `budget` object, with a notice. **Pass 1 (A1-53):** E304's help renders the caller's own ceiling ([LQ/errors §5.4]).
 14. **The RSS-gate keys** (§10.4). [50 §5.10] asks for "a named store parameter (chapter 17 or the configuration registry)"
     for the process kind's RSS gate; [F17] does not register it, so this chapter does (`mem.rss-gate.*`). The design writes
     the gates in MB; the defaults read MB as 10^6 bytes (4,000,000 and 16,000,000, canonically `4000000` and `15625KiB`), the
     conservative reading.
 15. **Unknown private bytes** (§10.4). [OS/mem §3] leaves the `mem` value for a failed meter reading to [CFG] and [LQ]. This
     chapter uses the configured maximum (`query.budget.default.mem`, and 1 MiB for `wmem`), so a meter failure never shrinks
-    a query below what the test profile uses.
+    a query below what the test profile uses. **Pass 1 (P1-11):** `wmem` is now a budget; a failed reading gives both `mem`
+    and `wmem` their requested values (§10.4).
 16. **Model family names** (§4.3). The design keys `lq.model-profile.<family>` by family but gives no spelling; this chapter
     derives a family name from the declared model id and reserves `default` and `unknown`. The Opus 5.5 family is
     `claude-opus-5-5`.
@@ -1119,17 +1144,19 @@ This chapter's own holes. The store-parameter holes (`F17-ckpt-ops`, `F17-ckpt-b
     environment variable `MOIRAI_IDS_MAX_BYTES`, which obeys [90 §2.1]'s naming rule.
 18. **`BUDGET` classes and `query.budget.default.work`.** [LQ/std §2.4] fixes `light`, `medium` and `heavy` at 200,000,
     2,000,000 and 20,000,000. Proposal for [LQ/std] (WP-19): `medium` is `query.budget.default.work`, `light` a tenth and
-    `heavy` ten times it, so the key moves all three and the defaults stay as written.
-19. **Hole-id conflict across spec files.** [OS/lock §4] writes `HOLE(lock-writer-wait-ms)` and `HOLE(lock-flush-wait-ms)`, and
-    its Holes section says [CFG] owns them; [F17] owns the same values as `F17-lock-writer` and `F17-lock-flush` (OP-17-23). This chapter
-    references [F17]'s ids and owns neither; [OS/lock] should cite [F17]'s ids ([F01] open point 15).
+    `heavy` ten times it, so the key moves all three and the defaults stay as written. **Pass 1 (A1-37): adopted** in
+    [LQ/std §2.4].
+19. **Hole-id conflict across spec files** — closed in review pass 1 (S1-40). [OS/lock §4] wrote `lock-writer-wait-ms` and
+    `lock-flush-wait-ms` and said [CFG] owned them; [F17] owns the same values as `F17-lock-writer` and `F17-lock-flush`
+    (OP-17-23). [OS/lock] now cites [F17]'s ids; this chapter references them and owns neither ([F01] open point 15).
 20. **Open points of other chapters closed here.** [F01] open point 10 (§3.1 cites [F01 §6.7]); [F02] open point 15 (§7.5),
     16 (§2.5) and 19 (§10.1: `MOIRAI_GIT_HINT` uses the `bool` spellings, and an invalid value is `CFG12`); [F17] OP-17-03
     (§10.2) and IP-5's flag (§7.6).
 21. **[PLAN §3.3]'s gaps for WP-18** — the unknown-model write error code, whether E406's new fix text is frozen, F18's
     violation classes — belong to WP-18's other chapter [F19] and to [LQ/errors] (which already lists E411
     `unknown_model_write`); this chapter does not resolve them. The configuration diagnostics CFG01–CFG17 (§6.2) are proposed
-    for [F19]'s code table, which may renumber them.
+    for [F19]'s code table, which may renumber them. **Pass 1 (A1-39, A1-62): closed.** [F19 §10.6] keeps the numbers and
+    names as they stand; the text form, the seven-space continuation indent and the footer order are [LQ/errors §4.2]'s.
 22. **`mcp.overlay-lru`'s default.** [74 §5.3] proposed 4; [AR §13], the design of record after the audits, has 8. This
     chapter follows [AR].
 23. **Reload class of the evidence-hook keys.** [AR §13] gives `files.hooks.evidence` and `.edit-evidence` the class `hot`
@@ -1156,3 +1183,12 @@ This chapter's own holes. The store-parameter holes (`F17-ckpt-ops`, `F17-ckpt-b
     envelope should list it, after the keys they already name.
 32. **Canonical spellings of design defaults.** The registry prints defaults in canonical form (§4.1), so the design's "24 h"
     is `1d`, "60 s" is `1m`, "64m" is `64MiB`, and the MCP RSS gate is `15625KiB`. The values are unchanged.
+33. **Pass 1 changes** (P1-11, P1-12, P1-39, S1-39, A1-50, A1-55). `wmem` becomes a budget (`query.budget.default.wmem` =
+    1 MiB, `query.caps.<role>.wmem` = 4 MiB for agents), effective as max(256 KiB, min(requested, headroom)); `tx.wmem-max`
+    is retired (§6.4), and [F17 §4.4] W2, W4, §12 TP-3 and its tables restate these keys (round 1). A default-cap `TX` does
+    not fit the inline bound whatever its `wmem` ([F17 §4.4] W4, OQ-P-2); E501 names the split for that and the raise for
+    `wmem`. `init` refuses a set of values that fails C-1–C-4 (exit 2, §7.6), and a
+    tunable's fallback is min(default, the largest admissible value under the recorded `init` values) (§5.3, RG-2).
+    `input.max-bytes` (16 MiB) bounds stdin and `-f` input before any budget. Root names start with a letter, as [F08 §5.4.1]
+    requires. `[RULES/delete-policy]` is corrected to `delete-policy-matrix`; `[RULES/policy-keys]` stays cited as a planned
+    file. The configuration duration grammar and LQ's differ on purpose, and both chapters say so (§4.1, [LQ/lexical §5.6]).

@@ -47,7 +47,10 @@
 - Units are bytes (u64). Each call is one syscall or one small file read; neither allocates on the heap beyond a fixed
   stack buffer (Linux reads `smaps_rollup` into a 4 KiB stack buffer).
 - `private_now` is cheap enough to call at the start of every query ([50 §5.10]): one `GetProcessMemoryInfo` on Windows
-  (≈ µs).
+  (≈ µs). On Linux, `smaps_rollup` walks every mapping of the process under its memory-map lock, which costs tens to
+  hundreds of microseconds with hundreds of mappings; the port measures it (port-phase probe) and, if it exceeds the
+  per-query budget, caches the reading per request: a long-lived MCP server reads it once per request, not per query of
+  a request (pass 1, P1-36). macOS `task_info` is one Mach call.
 - A failed reading is a `MeterError`, never a store error ([OS/README §4.3]). The query engine then uses the default that
   [CFG] and [LQ] give for `mem` when private bytes are unknown; this file sets no value.
 
@@ -97,7 +100,7 @@ Three process-global atomics, all accessed with `Ordering::Relaxed`: `LIVE: Atom
 
 | Operation | After calling `System` | Counts |
 |---|---|---|
-| `alloc(layout)`, `alloc_zeroed(layout)` | on a non-null result | `live = LIVE.fetch_add(size) + size`; `HIGH.fetch_max(live)`; `ACTIVE.store(true)` |
+| `alloc(layout)`, `alloc_zeroed(layout)` | on a non-null result | `live = LIVE.fetch_add(size) + size`; `HIGH.fetch_max(live)`; `ACTIVE.store(true)` only when a relaxed `ACTIVE.load()` reads false (once per process) |
 | `dealloc(ptr, layout)` | always | `LIVE.fetch_sub(size)` |
 | `realloc(ptr, layout, new_size)` | on a non-null result | if `new_size > size`: `live = LIVE.fetch_add(new_size − size) + (new_size − size)`, `HIGH.fetch_max(live)`; else `LIVE.fetch_sub(size − new_size)` |
 | `realloc` | on a null result | nothing (the old block is still allocated) |
@@ -106,7 +109,9 @@ Three process-global atomics, all accessed with `Ordering::Relaxed`: `LIVE: Atom
   counted; the difference from private bytes is what VMMap's breakdown shows (measurement 11).
 - With `Relaxed` ordering and the ≤ 2 threads a moirai process runs, a concurrent allocation can make `HIGH` miss a
   transient peak by at most the bytes of allocations in flight on the other thread; the counters are a report, not a gate.
-- The cost per allocation is two relaxed atomic operations; this is why the product binary never installs it.
+- The cost per allocation is two relaxed atomic read-modify-writes and one relaxed load (`ACTIVE` is stored once, after
+  a load reads false, so it adds no third read-modify-write; pass 1, P1-36); this is why the product binary never
+  installs it.
 - `Meter::heap_counts()` returns `Some(HeapCounts { live_bytes: LIVE, high_water_bytes: HIGH })` when `ACTIVE` is set and
   `None` otherwise: in a binary that installed `CountingAlloc`, the first allocation of the process sets `ACTIVE`, so
   `None` means "not installed" ([OS/README §4.3]).
@@ -148,6 +153,16 @@ bodies are generic over `M: Meter`, so [OS/README §4.3] carries these methods (
 - **`heap_peak`** (the `CountingAlloc` high-water) is reported beside every RSS gate in measure builds.
 - **Linking.** On macOS the binary links only `libSystem` (checked with `otool -L`); on Linux it is static musl
   ([80 §2.13]). Nothing here adds a native library.
+
+## Coverage
+
+No `COVERAGE.md` row cites this file ([F01 §2.7]): metering freezes no byte and no rule of [60 §2.5], [40 §2.11],
+[50 §8.1], [80 §3] or [90 §10.1]. The file specifies the sources of the `Meter` seam ([OS/README §4.3]), which the
+memory and CPU gates of [60 §3.13] and [60 §5] read.
+
+| Item | Part covered here | Section |
+|---|---|---|
+| — | none | — |
 
 ## Holes
 

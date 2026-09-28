@@ -45,7 +45,12 @@ both from [40 §2.2] and [AR §3.1]: the six observation fields of an `artifact`
 field whose components have their own FC rows (`applies_to`) is merged per component.
 
 **Values.** `absent` is a value. Two values are equal if and only if their canonical encodings ([F07]) are
-byte-equal. A conflict value `{class, base, ours, theirs}` is a value like any other.
+byte-equal ([F12 §7.3]). A conflict value `{class, base, ours, theirs}` is a value like any other. On an existence key it
+also carries its provisional side `prov` (`ours` or `theirs`, set by RS-008, RS-010 or RS-015 from the policy in force),
+and a `live` side carries its node image ([F06 §6.2]); both are part of the value and of its equality ([F12 §6.3],
+[F12 §7.3]). Where a plain value of a conflicted key is needed (derived state, validators, RE-009), the rules use its
+provisional value: the side `prov` names on an existence key; on every other key `ours`, or `theirs` when `ours` is
+`absent` ([F12 §6.3]).
 
 **Evaluation.** PR rows give the order: re-keys, then existence keys, then every other key. For a key of class C the
 model evaluates the `conflicted-key` rows first if b, o or t is a conflict value, and otherwise the rows of C in table
@@ -105,17 +110,17 @@ cites the open point that explains it.
 <!-- table: cases -->
 | row | case | classes | definition |
 |---|---|---|---|
-| CS-001 | `same` | * | o = t. Two `absent` values are equal. |
+| CS-001 | `same` | * | o = t. Two `absent` values are equal. An empty value is `absent` in every state the rules read or produce: the empty text, the empty set and a counter of 0 are never values ([F08 §5.3], [F08 §6.2]; an empty body is no body, [F08 §7.2]). |
 | CS-002 | `ours-only` | * | o ≠ b and t = b. |
 | CS-003 | `theirs-only` | * | t ≠ b and o = b. |
 | CS-004 | `both` | * | o ≠ b, t ≠ b and o ≠ t. After `same`, `ours-only` and `theirs-only` it is the only case left, so a class whose last row is `both` or `any` is exhaustive. |
 | CS-005 | `any` | counter, set, hierarchy, alias-set, glob-set, pathmove-set | Always true. |
-| CS-006 | `base-conflicted` | conflicted-key | b is a conflict value and o ≠ t; in practice the recursive virtual base of a criss-cross holds a conflict value on this key ([60 §3.4]). |
+| CS-006 | `base-conflicted` | conflicted-key | b is a conflict value, o ≠ b, t ≠ b and o ≠ t: both sides changed the key since a conflict-valued base, to different values ([F12 §5.4] RVB-4). In practice the recursive virtual base of a criss-cross holds a conflict value on this key ([60 §3.4]). |
 | CS-007 | `both-forward-comparable` | status | `both`, and: neither o nor t is a side state (SL `side = yes`); b is `absent` or a non-side state; b < o and b < t in the kind's merge order (the transitive closure of the SL `covers` relation, with `absent` below every non-side state); o and t have different statuses; and those two statuses are comparable. Resolutions travel with their status and play no part in the order. |
 | CS-008 | `dst-main-changed` | owner | dst is the ref `main` (never true inside a virtual merge, VB-007) and o ≠ t. |
 | CS-009 | `dst-main-owner-involved` | authority | dst is the ref `main` (never inside a virtual merge), o ≠ t, and at least one of b, o, t is `owner`. |
 | CS-010 | `both-owner-involved` | authority | `both`, and at least one of b, o, t is `owner`. |
-| CS-011 | `both-diff3-clean` | text, section-text | `both`, and diff3 of (b, o, t) over the line diff of [F12] has no conflicting hunk; `absent` is read as the empty text. |
+| CS-011 | `both-diff3-clean` | text, section-text | `both`, and diff3 of (b, o, t) over the line diff of [F12] has no conflicting hunk and its result is at most 65,536 bytes, the bound of a text value and of a body ([F12 §7.5] "Length"; [F08 §5.3], [F08 §7.2]); `absent` is read as the empty text. A clean diff3 whose result is longer falls to the class's `both` row (`TextHunk`). |
 | CS-012 | `both-guard-fail` | section-text | `both-diff3-clean`, and the removed-text guard fails for the diff3 result R: for S = o or S = t, the multiset of S's lines minus the multiset of R's lines is not contained in the multiset of b's lines (text a side had, the merge dropped, and the base never held). |
 | CS-013 | `kleppmann-skipped` | hierarchy | The `kleppmann` result (RS-007) skipped this key's move, because applying it would have made a node its own ancestor. |
 | CS-014 | `deleted-vs-modified` | existence, derived-existence | b is live; one side's value is deleted; the other side's value is live, and that side changed at least one other key of the same uid since the base: a field, status, counter, body or hierarchy key of the uid, or an out-edge key whose source is the uid. In-edges belong to their sources and do not count; they meet VA-004 or become tombstone references ([AR §5d.3]). |
@@ -131,16 +136,17 @@ cites the open point that explains it.
 | RS-001 | `take-o` | The key's value is o. |
 | RS-002 | `take-t` | The key's value is t. |
 | RS-003 | `join` | The greater of o and t in the kind's merge order; the resolution travels with the status that wins. |
-| RS-004 | `sum` | o + t − b, each `absent` read as 0, in checked i64 arithmetic. An overflow is a specification finding: the model panics. |
-| RS-005 | `union3` | (b ∩ o ∩ t) ∪ (o − b) ∪ (t − b), each `absent` read as the empty set: an element survives unless a side removed it, and an element either side added is kept. Sorted as the set type's canonical encoding requires. |
-| RS-006 | `diff3` | The merged text of the clean diff3 of CS-011. |
+| RS-004 | `sum` | o + t − b, each `absent` read as 0, in checked i64 arithmetic; a sum of 0 is `absent` ([F07 §6.3], [F08 §6.2]). An overflow is a specification finding: the model panics. |
+| RS-005 | `union3` | (b ∩ o ∩ t) ∪ (o − b) ∪ (t − b), each `absent` read as the empty set: an element survives unless a side removed it, and an element either side added is kept. Sorted as the set type's canonical encoding requires; an empty result is `absent` ([F08 §5.3]). |
+| RS-006 | `diff3` | The merged text of the clean diff3 of CS-011; an empty result is `absent`, for a text field and for a body alike ([F12 §7.5] "Empty result"). |
 | RS-007 | `kleppmann` | Computed once per merge for all hierarchy keys. Start from b's (parent, order) for every node. Collect one move per hierarchy key that o or t changed: that side's value, with the (hlc, commit id) of that side's newest commit since the base whose net diff changed the key. A key both sides changed to the same value contributes one move, with the smaller (hlc, commit id); a key they changed differently contributes both moves. Apply the moves in ascending (hlc, commit id) order, commit ids compared bytewise; skip a move that would make a node its own ancestor. Each key's value is its node's final (parent, order). Keys of a uid fixed by an existence policy (PR-007) take no part. |
-| RS-008 | `policy` | `DeleteVsModify` on the existence key. The key holds the conflict value {DeleteVsModify, base b, ours o, theirs t}. The node's other keys take, provisionally, the values of the side the policy names: `delete-wins`, the deleting side (the node is deleted and keeps only its retained out-edges, [AR §3.4] I39′); `resurrect`, the modifying side (the node is live with that side's keys); `none`, dst's side. The policy is the kind's EP row unless `--policy` or `merge.policy.<kind>` overrides it (AP rows). No other conflict is emitted for the node's keys. What the conflict value keeps of the losing side's keys is [OP-5]. |
+| RS-008 | `policy` | `DeleteVsModify` on the existence key. The key holds the conflict value {DeleteVsModify, base b, ours o, theirs t}. The node's other keys take, provisionally, the values of the side the policy names: `delete-wins`, the deleting side (the node is deleted and keeps only its retained out-edges, [AR §3.4] I39′); `resurrect`, the modifying side (the node is live with that side's keys); `none`, dst's side. The policy is the kind's EP row unless `--policy` or `merge.policy.<kind>` overrides it (AP rows). No other conflict is emitted for the node's keys. A `live` side of the conflict value carries that side's node image, its value keys only ([F06 §6.2] `snap` = 1). A `resolve --take` towards a live side restores the value keys from that image, and the node's hierarchy key and out-edges from that side's state at the conflict's introducing commit M (the state of M's first parent for `ours`, of its second parent for `theirs`), as ordinary `Move`, `AddEdge` and `SetEdgeProps` ops of the `Resolve` commit, under the write path's checks ([F12 §6.5]; [OP-5]). |
 | RS-009 | `conflict-value` | The key holds the conflict value {class, base b, ours o, theirs t}, the class taken from the row's `conflict` cell; the node gets `conflicted` (RE-008). |
-| RS-010 | `conflict-as-class` | As `conflict-value`. Its class is found by evaluating the key's own class rows on (b′, o, t), where b′ is the `base` field of the conflict value b, skipping every row whose disposition is not `value`: the first matching row's `conflict` cell is the class. The conflict value's base is b′ ([OP-18]). |
+| RS-010 | `conflict-as-class` | As `conflict-value`, with base b′, ours flat(o) and theirs flat(t) ([F12 §5.4] RVB-4): b′ is the `base` field of the conflict value b, and flat(v) is v when v is plain and v's provisional value ([F12 §6.3], §6.4) when v is itself a conflict value, so a conflict value never nests. Its class is found by evaluating the key's own class rows on (b′, flat(o), flat(t)), skipping every row whose disposition is not `value`: the first matching row's `conflict` cell is the class, or the class of b when no such row matches ([OP-18]). When the class is `DeleteVsModify` on an existence key, the node's other keys take RS-008's provisional state if exactly one of flat(o), flat(t) is live, and o's values otherwise; the conflict value's provisional side follows ([F12 §5.4], [F12 §6.3]). |
+| RS-015 | `conflict-plain-base` | As `conflict-value`, with base b, ours flat(o) and theirs flat(t) (flat as in RS-010): b is plain and at least one of o, t is a conflict value ([F12 §5.4] "A plain base with a conflict-valued side"). Its class is found by evaluating the key's own class rows on (b, flat(o), flat(t)), skipping every row whose disposition is not `value`: the first matching row's `conflict` cell is the class, or, when no such row matches, the class of the side that holds a conflict value (o's when both do). An existence key's provisional state follows RS-010's last sentence. The conflicted side's own conflict value stays readable as the `old` of the new `Conflict` op ([F12 §6.4]). |
 | RS-011 | `keep-defined` | `DeleteVsModify` on a named query: the modified definition stays provisionally, and the key's conflict value records {base b, ours o, theirs t}. |
 | RS-012 | `stage-take-o` | A structural violation: the staged candidate carries o for this key, and the merge commit on the staging ref holds one `Violation` op naming the key and b, o, t. |
-| RS-013 | `stage-diff3` | A structural violation after a clean diff3: the staged candidate carries the diff3 result, and a `Violation` op names the key and b, o, t. |
+| RS-013 | `stage-diff3` | A structural violation after a clean diff3: the staged candidate carries the diff3 result (`absent` when empty, as RS-006), and a `Violation` op names the key and b, o, t. |
 | RS-014 | `gap` | No rule is specified: the model raises `SpecGap(<row id>)`. |
 
 ## 5. The merge rules
@@ -150,11 +156,11 @@ Rows are grouped by class; within a class the first matching row wins.
 <!-- table: merge-rules -->
 | row | class | case | result | conflict | disposition | basis | source | note |
 |---|---|---|---|---|---|---|---|---|
-| MR-001 | `conflicted-key` | `same` | `take-o` | - | clean | design | [60 §3.4]; [AR §5a.7] step 1 | Two sides holding the same value never conflict, whatever the base holds: "resolved identically never conflict". |
-| MR-002 | `conflicted-key` | `base-conflicted` | `conflict-as-class` | - | value | design | [60 §3.4]; [AR §2.7]; [AR §5a.7] step 1 | "A key whose virtual-base value is a conflict value … conflicts whenever they differ", even when one side still holds the base's conflict value. The class comes from RS-010; its base is [OP-18]. |
-| MR-003 | `conflicted-key` | `ours-only` | `take-o` | - | clean | derived | [AR §5a.7] step 4; [AR §3.4] I25′ | A conflict value landed on dst and src did not touch the key: it stays. A resolution made on dst stays. |
-| MR-004 | `conflicted-key` | `theirs-only` | `take-t` | - | clean | derived | [AR §5a.7] step 4; [AR §3.4] I25′ | A conflict value landed on src and dst did not touch the key: it is carried to dst (into `main` only as PR-003 allows). A resolution made on src lands. |
-| MR-005 | `conflicted-key` | `both` | `gap` | - | gap | gap | [AR §5a.7]; [OP-18] | Both sides changed the key and at least one holds a conflict value: the design has no rule for merging over a conflict value. |
+| MR-001 | `conflicted-key` | `same` | `take-o` | - | clean | design | [60 §3.4]; [AR §5a.7] step 1; [F12 §5.4] RVB-1 | Two sides holding the same value never conflict, whatever the base holds: "resolved identically never conflict". A conflict value held by both sides stays, and no new `Conflict` op is emitted. |
+| MR-003 | `conflicted-key` | `ours-only` | `take-o` | - | clean | derived | [AR §5a.7] step 4; [AR §3.4] I25′; [F12 §5.4] RVB-3 | src did not touch the key since the base: dst's value stays. At a real LCA: a conflict value landed on dst stays, and a resolution made on dst stays. Over a conflict-valued (virtual) base: dst resolved it and src still holds the base's conflict value, so dst's resolution stands ([OP-18]). |
+| MR-004 | `conflicted-key` | `theirs-only` | `take-t` | - | clean | derived | [AR §5a.7] step 4; [AR §3.4] I25′; [F12 §5.4] RVB-2 | dst did not touch the key since the base: src's value lands. At a real LCA: a conflict value landed on src is carried to dst (into `main` only as PR-003 allows), and a resolution made on src lands. Over a conflict-valued (virtual) base: src resolved it and dst still holds the base's conflict value, so src's resolution lands ([OP-18]). |
+| MR-002 | `conflicted-key` | `base-conflicted` | `conflict-as-class` | - | value | design | [60 §3.4]; [AR §2.7]; [AR §5a.7] step 1; [F12 §5.4] RVB-4; [OP-18] | The base holds a conflict value and both sides changed the key since it, to different values: "two sides that resolved a criss-cross differently always conflict". A side that still holds the base's conflict value did not touch the key, so MR-003 or MR-004 decides it first (I25′). The class, the sides and the base come from RS-010. |
+| MR-005 | `conflicted-key` | `both` | `conflict-plain-base` | - | value | derived | [F12 §5.4] "A plain base with a conflict-valued side"; [AR §5a.7]; [OP-18] | A plain base, both sides changed the key, and at least one side holds a conflict value. The design has no rule; [F12 §5.4] states RVB-4's flat form over the plain base (review pass 1, P1-21), so no merge input reaches `SpecGap`. The class, the sides and the base come from RS-015. |
 | MR-006 | `scalar` | `same` | `take-o` | - | clean | design | [AR §5a.7] step 4 row "enum / number scalar" | "equal → take". |
 | MR-007 | `scalar` | `ours-only` | `take-o` | - | clean | design | [AR §5a.7] step 4 row "enum / number scalar"; [AR §3.4] I25′ | "one side = base → take the other". |
 | MR-008 | `scalar` | `theirs-only` | `take-t` | - | clean | design | [AR §5a.7] step 4 row "enum / number scalar"; [AR §3.4] I25′ | As MR-007. |
@@ -181,13 +187,13 @@ Rows are grouped by class; within a class the first matching row wins.
 | MR-029 | `text` | `ours-only` | `take-o` | - | clean | derived | [AR §3.4] I25′ | - |
 | MR-030 | `text` | `theirs-only` | `take-t` | - | clean | derived | [AR §3.4] I25′ | - |
 | MR-031 | `text` | `both-diff3-clean` | `diff3` | - | clean | design | [AR §5a.7] step 4 row "text"; [OP-13] | "line diff3 against the base blob", over [F12]'s line diff. |
-| MR-032 | `text` | `both` | `conflict-value` | TextHunk | value | design | [AR §5a.7] step 4 row "text"; [AR §5a.8] | The conflict value holds the three whole texts; packs render the base text (N15). |
+| MR-032 | `text` | `both` | `conflict-value` | TextHunk | value | design | [AR §5a.7] step 4 row "text"; [AR §5a.8] | The conflict value holds the three whole texts; packs render the base text (N15). Also reached by a clean diff3 whose result exceeds 65,536 bytes (CS-011; [F12 §7.5] "Length"). |
 | MR-033 | `section-text` | `same` | `take-o` | - | clean | design | [AR §5a.7] step 4 row "text" | - |
 | MR-034 | `section-text` | `ours-only` | `take-o` | - | clean | derived | [AR §3.4] I25′ | - |
 | MR-035 | `section-text` | `theirs-only` | `take-t` | - | clean | derived | [AR §3.4] I25′ | - |
 | MR-036 | `section-text` | `both-guard-fail` | `stage-diff3` | RemovedTextNotInBase | structural | design | [AR §5a.7] step 4 row "text"; [AR §5a.8]; [OP-14] | "`doc.section` bodies also run the removed-text guard"; the guard's formula (CS-012) is [OP-14]. |
 | MR-037 | `section-text` | `both-diff3-clean` | `diff3` | - | clean | design | [AR §5a.7] step 4 row "text" | - |
-| MR-038 | `section-text` | `both` | `conflict-value` | TextHunk | value | design | [AR §5a.7] step 4 row "text" | The guard runs only on a clean diff3; a `TextHunk` value keeps all three texts and drops nothing. |
+| MR-038 | `section-text` | `both` | `conflict-value` | TextHunk | value | design | [AR §5a.7] step 4 row "text" | The guard runs only on a clean diff3; a `TextHunk` value keeps all three texts and drops nothing. Also reached by a clean diff3 whose result exceeds 65,536 bytes (CS-011). |
 | MR-039 | `hierarchy` | `kleppmann-skipped` | `kleppmann` | HierarchyCycle | structural | design | [AR §5a.7] step 4 row "parent / order"; [AR §5a.8]; [OP-15] | "a cycle-creating move is skipped and logged"; `HierarchyCycle` is structural, so the merge stages. |
 | MR-040 | `hierarchy` | `any` | `kleppmann` | - | clean | design | [AR §2.7]; [AR §5a.7] step 4 row "parent / order" | Two different moves of one node do not conflict: the later one in (hlc, commit id) order wins. |
 | MR-041 | `existence` | `same` | `take-o` | - | clean | design | [AR §5a.7] step 4 row "existence" | Both live, or both deleted with the same reason and replacement. |
@@ -499,7 +505,10 @@ Every edge kind of [AR §3.3] (25 kinds) with its class. `props` names the prope
 
 ## 9. Conflict and violation classes
 
-The taxonomy of [AR §5a.8] with the rows that emit each class. Numeric codes of the classes are [F12]'s.
+The taxonomy of [AR §5a.8] with the rows that emit each class, and the three structural classes review pass 1 added
+for validators the taxonomy left without one (CM-023 to CM-025; P1-21). Numeric codes are one `u8` space
+([F19 §12.1]): [F12 §6.1] owns the value-conflict codes 1–63, [F19 §12.2] the structural codes 64–127 and [F19 §12.3]
+the hint codes 128–191.
 
 <!-- table: class-map -->
 | row | conflict | kind | lands | emitted_by | basis | source | note |
@@ -510,11 +519,11 @@ The taxonomy of [AR §5a.8] with the rows that emit each class. Numeric codes of
 | CM-004 | `DeleteVsModify` | value | yes | MR-042, MR-060, LM-010 | design | [AR §5a.8] | - |
 | CM-005 | `SupersedeFork` | value | yes | VA-006 | design | [AR §5a.8] | Where the value sits is [OP-9]. |
 | CM-006 | `OwnerFieldEdited` | value | yes | MR-014, MR-019 | design | [AR §5a.8] | Only when dst is not `main`. |
-| CM-007 | `DATA` | value | yes | - | proposed | [AR §5a.8]; [AR §5a.5]; [AR §2.7]; [OP-20] | The revert and cherry-pick case "before-image no longer matches"; emitted with class `FieldEdit` (DM-013). |
+| CM-007 | `DATA` | value | yes | - | proposed | [AR §5a.8]; [AR §5a.5]; [AR §2.7]; [F12 §6.1]; [OP-20] | The revert and cherry-pick case "before-image no longer matches"; emitted with the class of its key's `both` row (DM-013), `FieldEdit` for a scalar. `DATA` has no code and is never stored ([F12 §6.1]). |
 | CM-008 | `PathClaim` | value | yes | VA-009, PC-002 | design | [AR §5a.8]; [40 §5.5] | - |
 | CM-009 | `DanglingEdge` | structural | no | VA-004 | design | [AR §5a.8] | - |
 | CM-010 | `Cycle` | structural | no | VA-003, VA-016 | design | [AR §5a.8] | - |
-| CM-011 | `HierarchyCycle` | structural | no | MR-039 | design | [AR §5a.8] | - |
+| CM-011 | `HierarchyCycle` | structural | no | MR-039, VA-001 | design | [AR §5a.8] | VA-001 applies the moves and reports the ones MR-039 skipped ([F13 §5] V01). |
 | CM-012 | `IdCollision` | structural | no | MR-045, LM-026 | design | [AR §5a.8]; [AR §5b.6] step 4 | Named for import; the merge rows are proposed ([OP-27]). |
 | CM-013 | `SchemaConflict` | structural | no | MR-055, MR-056, VA-010 | design | [AR §5a.8] | - |
 | CM-014 | `RemovedTextNotInBase` | structural | no | MR-036 | design | [AR §5a.8] | - |
@@ -526,6 +535,9 @@ The taxonomy of [AR §5a.8] with the rows that emit each class. Numeric codes of
 | CM-020 | `Duplicate` | hint | log | VA-014 | design | [AR §5a.8] | - |
 | CM-021 | `Contradiction` | hint | log | VA-015 | design | [AR §5a.8] | - |
 | CM-022 | `ForeignMerge` | hint | log | HT-003 | design | [AR §5a.8] | - |
+| CM-023 | `DepthExceeded` | structural | no | VA-005 | derived | [AR §3.4] I4; [F19 §12.2] code 67; [F13 §5] V05 | Not in [AR §5a.8]'s taxonomy: I4 holds at every head (I12), so a candidate deeper than 12 stages (I37′). |
+| CM-024 | `Cardinality` | structural | no | VA-007, VA-008 | derived | [AR §3.4] I7; [AR §3.3]; [F19 §12.2] code 68; [F13 §5] V07 | Not in [AR §5a.8]'s taxonomy: one class for the `duplicate_of` chain, `runs_in` and `answers` bounds. |
+| CM-025 | `PlanMask` | structural | no | VA-013 | derived | [AR §3.4] I33′; [F19 §12.2] code 72; [F13 §5] V12 | Not in [AR §5a.8]'s taxonomy: a merge into `plan/*` that would write a masked field stages. |
 
 ## 10. The merge procedure
 
@@ -533,8 +545,8 @@ The taxonomy of [AR §5a.8] with the rows that emit each class. Numeric codes of
 | row | step | action | basis | source | note |
 |---|---|---|---|---|---|
 | PR-001 | 0 | sync-first | design | [AR §5a.7] step 0 | A merge into `main` whose src does not contain tip(main) first merges `main` into src (a `sync`, DM-002). Both are computed before the writer byte and committed as one flushed group; if the sync stages, the whole merge stages. Afterwards LCA(src, main) = tip(main). |
-| PR-002 | 0 | refuse-pair-staged | design | [AR §5a.7] step 8; [AR §3.4] I41′ | A second merge of one (dst, src) pair is refused while `merge/<dst>/from/<src>` exists; a sync of lane L is refused while `merge/<L>/from/main` exists; other pairs are never blocked. |
-| PR-003 | 0 | refuse-src-conflicted | proposed | [AR §5a.7] step 0; [OP-22] | A merge into `main` is refused (exit 6) while tip(src) holds an unresolved conflict value; `merge-check` lists them. |
+| PR-002 | 0 | refuse-pair-staged | design | [AR §5a.7] step 8; [AR §3.4] I41′ | A second merge of one (dst, src) pair is refused while `merge/<dst>/from/<src>` exists; a sync of lane L is refused while `merge/<L>/from/main` exists; other pairs are never blocked. The refusal is [F19 §10.2] `staging_exists`, exit 6. |
+| PR-003 | 0 | refuse-src-conflicted | proposed | [AR §5a.7] step 0; [OP-22] | A merge into `main` is refused while tip(src) holds an unresolved conflict value, with [F19 §10.2] `conflicted_src`, exit 6; `merge-check` lists them. |
 | PR-004 | 1 | base | design | [AR §5a.7] step 1 | The base state: VB rows, or `--base <commit>`. |
 | PR-005 | 2 | sides | derived | [AR §5a.7] step 2; [AR §4.6]; [60 §4.2] | The engine folds each side since the base (segment walk); the model materialises the states at tip(dst) and tip(src) and compares them key by key with the base state. Both give the same (b, o, t) because a net changeset is a state diff ([AR §4.6]). |
 | PR-006 | 3 | base-per-key | design | [AR §5a.7] step 3; [AR §3.4] I25′ | b is the key's value in the base state, never an earliest before-image (N1). |
@@ -544,34 +556,36 @@ The taxonomy of [AR §5a.8] with the rows that emit each class. Numeric codes of
 | PR-010 | 6 | validate | design | [AR §5a.7] step 6; [AR §3.4] I37′ | VA rows by their `order`; derived state is recomputed where a check needs it (RE-009). |
 | PR-011 | 7 | emit | design | [AR §5a.7] step 7 | One merge commit with parents (tip(dst), tip(src)); its net ops are the state diff against tip(dst); one `Conflict` op per value conflict; one `Violation` op per structural problem; `affected`; markers (RE-003); dst's new absorbed vector (RE-006). |
 | PR-012 | 8 | land-or-stage | design | [AR §5a.7] step 8 | LS rows. |
-| PR-013 | 8 | resolve | design | [AR §5a.7] step 8 | `resolve <key>` with `--take` ours, theirs or base, or `--value V`, and `resolve --all --policy P`, append `Resolve` commits on the staging ref. |
-| PR-014 | 8 | continue | design | [AR §5a.7] step 8 | `merge --continue` re-runs PR-009 to PR-012 against the current tip(dst), with the staged resolutions as an overlay. |
+| PR-013 | 8 | resolve | design | [AR §5a.7] step 8; [F12 §6.5] | `resolve <key>` with `--take` ours, theirs or base, or `--value V`, and `resolve --all --policy P`, append `Resolve` commits on the staging ref. A take towards a live side of a `DeleteVsModify` also restores the node's hierarchy key and out-edges (RS-008). |
+| PR-014 | 8 | continue | derived | [AR §5a.7] step 8; [F12 §9.4] | `merge --continue` re-runs PR-009 to PR-012 against the current tip(dst), with the staged resolutions as an overlay. A resolution whose key's value on the current tip(dst) differs from its value at the dst tip it was made against is stale: the key keeps the recomputed candidate's value and the command prints a notice naming it, so no resolution silently overwrites a later dst change ([F12 §9.4] step 2). When dst did not move, every resolution applies. |
 | PR-015 | 8 | abort | design | [AR §5a.7] step 8 | `merge --abort` deletes the staging ref; no marker was written for it (RE-004). |
 | PR-016 | * | pure | design | [AR §5a.7] step 6; [40 §5.5]; [AR §3.4] I28′, I30′ | The merge reads neither the file system nor git. Its result is a function of the base, dst and src states, whether dst is `main`, the (hlc, commit id) of side commits (RS-007) and these tables; conflicts only the file system can settle land as values ([RULES/link-merge-rules] LV rows). |
 | PR-017 | * | order-independent | derived | [60 §3.4] GT6 | The result does not depend on the order in which keys are visited; RS-007 fixes the only order that matters. |
 
-Validators run on the candidate in this order ([AR §3.4] I37′, [AR §5a.7] step 6). The model checks each by
+Validators run on the candidate in this order ([AR §3.4] I37′, [AR §5a.7] step 6). `order` is the position of the
+validator V01–V13 of [F13 §5] that the row realises, whose order is normative: violations and conflicts are emitted in
+it, and within one position in canonical key order ([F13 §5] VO-2; review pass 1, P1-21). The model checks each by
 recomputation over the whole candidate ([60 §4.2]: DFS over the combined graph), never incrementally.
 
 <!-- table: validators -->
 | row | order | check | emits | disposition | basis | source | note |
 |---|---|---|---|---|---|---|---|
-| VA-001 | 1 | apply-parent-moves | HierarchyCycle | structural | design | [AR §5a.7] step 6; [AR §3.4] I37′ | The `kleppmann` result is applied before anything else; its skipped moves are MR-039's. |
-| VA-002 | 2 | derive-implied-exogenous-edges | - | none | design | [AR §5a.7] step 6; [AR §3.4] I5′ | Implied edges {X→D : blocks(X,P), X ∉ subtree(P), D ∈ subtree(P)} over the merged hierarchy. |
-| VA-003 | 3 | precedence-acyclic | Cycle | structural | design | [AR §5a.7] step 6; [AR §3.4] I5′ | blocks ∪ gates ∪ child→parent ∪ implied edges must be acyclic. |
-| VA-004 | 4 | structural-endpoints-live | DanglingEdge | structural | design | [AR §5a.7] step 6; [AR §3.4] I2; [AR §5d.3] | A live, unflagged structural edge with a deleted endpoint. Historical edges are exempt (tombstone references, I3). Suggested resolution: the edge kind's delete policy, or `--replaced-by`. |
-| VA-005 | 5 | forest-depth | gap | gap | gap | [AR §3.4] I4; [OP-10] | `parent` must stay a forest of depth ≤ 12; cycles are VA-001's, but no class exists for a depth above 12. |
-| VA-006 | 6 | one-active-superseder | SupersedeFork | value | design | [AR §5a.7] step 4 row "supersedes"; [AR §3.4] I6 | "second active superseder → `SupersedeFork`"; where the value sits is [OP-9]. |
-| VA-007 | 6 | duplicate-of-canonical | gap | gap | gap | [AR §3.4] I7; [OP-10] | The target of `duplicate_of` must be canonical; two sides can build a chain of two. |
-| VA-008 | 6 | structural-cardinality | gap | gap | gap | [AR §3.3]; [OP-10] | `runs_in` ≤ 1 per run, `answers` ≤ 1 active per question. |
-| VA-009 | 7 | path-claims | PathClaim | value | design | [AR §5a.7] step 6; [AR §3.4] I-F1; [40 §5.5] | Details in [RULES/link-merge-rules] PC rows. |
-| VA-010 | 8 | schema-conformance | SchemaConflict | structural | design | [AR §5a.7] step 6; [AR §2.12] | Every node of the candidate conforms to the merged schema. |
-| VA-011 | 9 | named-queries-bind | QueryInvalid | structural | design | [AR §5a.7] step 6; [50 §4.4]; [50 §8.1] F18 | Every named query the merge touched, or whose referenced schema it touched, parses and binds. |
-| VA-012 | 9 | named-query-call-graph | QueryCycle | structural | design | [AR §5a.7] step 6; [50 §4.4]; [50 §8.1] F18 | The named-query call graph stays acyclic. |
-| VA-013 | 10 | plan-read-only | gap | gap | gap | [AR §5a.7] step 6; [AR §3.4] I33′; [OP-10] | On `plan/*`, `status`, `resolution`, `assignee` and claims are read-only; the class a violating merge emits is unnamed. |
-| VA-014 | 11 | duplicate-hint | Duplicate | hint | design | [AR §5a.7] step 6; [AR §5a.8] | Trigger: HT-001. |
-| VA-015 | 11 | contradiction-hint | Contradiction | hint | design | [AR §5a.7] step 6; [AR §5a.8] | Trigger: HT-002. |
-| VA-016 | 3 | other-kinds-acyclic | Cycle | structural | proposed | [AR §3.3]; [OP-10] | `merge_after`, `depends_on`, `supersedes`, `derived_from` and `discovered_from` are declared acyclic but are not in I37′'s list. |
+| VA-001 | 1 | apply-parent-moves | HierarchyCycle | structural | design | [AR §5a.7] step 6; [AR §3.4] I37′; [F13 §5] V01 | The `kleppmann` result is applied before anything else; its skipped moves are MR-039's. |
+| VA-002 | 2 | derive-implied-exogenous-edges | - | none | design | [AR §5a.7] step 6; [AR §3.4] I5′; [F13 §5] V02 | Implied edges {X→D : blocks(X,P), X ∉ subtree(P), D ∈ subtree(P)} over the merged hierarchy. |
+| VA-003 | 3 | precedence-acyclic | Cycle | structural | design | [AR §5a.7] step 6; [AR §3.4] I5′; [F13 §5] V03 | blocks ∪ gates ∪ child→parent ∪ implied edges must be acyclic. |
+| VA-004 | 4 | structural-endpoints-live | DanglingEdge | structural | design | [AR §5a.7] step 6; [AR §3.4] I2; [AR §5d.3]; [F13 §5] V04 | A live, unflagged structural edge with a deleted endpoint. Historical edges are exempt (tombstone references, I3). Suggested resolution: the edge kind's delete policy, or `--replaced-by`. |
+| VA-005 | 5 | forest-depth | DepthExceeded | structural | derived | [AR §3.4] I4; [F13 §5] V05; [F19 §12.2] code 67; [F12 §7.9]; [OP-10] | `parent` must stay a forest of depth ≤ 12; cycles are VA-001's. I4 holds at every head (I12), so a deeper candidate stages; the `Violation` op's key is the hierarchy key of the least uid deeper than the bound ([F12 §7.9]). |
+| VA-006 | 6 | one-active-superseder | SupersedeFork | value | design | [AR §5a.7] step 4 row "supersedes"; [AR §3.4] I6; [F13 §5] V06 | "second active superseder → `SupersedeFork`"; where the value sits is [OP-9]. |
+| VA-007 | 7 | duplicate-of-canonical | Cardinality | structural | derived | [AR §3.4] I7; [F13 §5] V07; [F19 §12.2] code 68; [F12 §7.9]; [OP-10] | The target of `duplicate_of` must be canonical; two sides can build a chain of two, which stages. Key: the greatest offending edge key in canonical order ([F12 §7.9]). |
+| VA-008 | 7 | structural-cardinality | Cardinality | structural | derived | [AR §3.3]; [F13 §5] V07; [F19 §12.2] code 68; [F12 §7.9]; [OP-10] | `runs_in` ≤ 1 per run, `answers` ≤ 1 active per question; a candidate above either bound stages. Key: as VA-007. |
+| VA-009 | 8 | path-claims | PathClaim | value | design | [AR §5a.7] step 6; [AR §3.4] I-F1; [40 §5.5]; [F13 §5] V08 | Details in [RULES/link-merge-rules] PC rows. |
+| VA-010 | 9 | schema-conformance | SchemaConflict | structural | design | [AR §5a.7] step 6; [AR §2.12]; [F13 §5] V09 | Every node of the candidate conforms to the merged schema. |
+| VA-011 | 10 | named-queries-bind | QueryInvalid | structural | design | [AR §5a.7] step 6; [50 §4.4]; [50 §8.1] F18; [F13 §5] V10 | Every named query the merge touched, or whose referenced schema it touched, parses and binds. |
+| VA-012 | 11 | named-query-call-graph | QueryCycle | structural | design | [AR §5a.7] step 6; [50 §4.4]; [50 §8.1] F18; [F13 §5] V11 | The named-query call graph stays acyclic. |
+| VA-013 | 12 | plan-read-only | PlanMask | structural | derived | [AR §5a.7] step 6; [AR §3.4] I33′; [F13 §5] V12; [F19 §12.2] code 72; [F12 §7.9]; [OP-10] | On `plan/*`, `status`, `resolution`, `assignee` and claims are read-only; a merge into `plan/*` that would write one of them stages. Key: the masked key ([F12 §7.9]). |
+| VA-014 | 13 | duplicate-hint | Duplicate | hint | design | [AR §5a.7] step 6; [AR §5a.8]; [F13 §5] V13 | Trigger: HT-001. |
+| VA-015 | 13 | contradiction-hint | Contradiction | hint | design | [AR §5a.7] step 6; [AR §5a.8]; [F13 §5] V13 | Trigger: HT-002. |
+| VA-016 | 3 | other-kinds-acyclic | Cycle | structural | proposed | [AR §3.3]; [F13 §5] V03; [F19 §12.2] code 65; [OP-10] | `merge_after`, `depends_on`, `supersedes`, `derived_from` and `discovered_from` are declared acyclic but are not in I37′'s list; checked at V03's position, with V03's class. |
 
 The land-or-stage decision. *strict* is `--strict` or the store key `merge.strict` (default `false`, [AR §13]); a
 command-line flag outranks the key.
@@ -605,8 +619,10 @@ sets, maximal common ancestors, and each LCA's state materialised and merged by 
 | VB-010 | virtual-merge | conflicts=kept-as-values | design | [AR §5a.7] step 1; [60 §3.4] | A key the inner merge leaves in conflict holds that conflict value in the base. |
 | VB-011 | virtual-merge | move-order=newest-real-commit | proposed | [OP-19] | For RS-007 on a virtual side, a key's move carries the (hlc, commit id) of the newest real commit in that side's ancestry since the inner base whose net diff changed the key. |
 | VB-012 | virtual-merge | link-rules=apply | derived | [40 §5.5]; [60 §3.4] | Composition and re-key ([RULES/link-merge-rules]) run inside virtual merges like every other rule. |
+| VB-019 | virtual-merge | auto-policy=ignored | proposed | [F12 §5.3] VM-2; [OP-19] | No automatic policy applies inside a virtual merge: `merge.policy.<kind>`, `--policy` and `--strict` of the outer command are ignored, and a `DeleteVsModify` takes the kind's EP row from the schema of the virtual merge's dst state. An automatic `ours`/`theirs` there would pick one LCA's value by generation order, the silent choice the virtual base exists to prevent, and the base would depend on the command line. |
 | VB-013 | vb-conflict | same=clean | design | [60 §3.4] | MR-001: "two sides that resolved it identically never do". |
-| VB-014 | vb-conflict | differ=conflict | design | [60 §3.4] | MR-002: "two sides that resolved a criss-cross differently always conflict". |
+| VB-014 | vb-conflict | differ=conflict | design | [60 §3.4]; [F12 §5.4] RVB-4 | MR-002: "two sides that resolved a criss-cross differently always conflict", read as "both sides changed the key since the virtual base and differ" ([OP-18]). |
+| VB-018 | vb-conflict | one-side-untouched=other-side | derived | [AR §3.4] I25′; [F12 §5.4] RVB-2, RVB-3; [F12 §5.7] VBC-3; [OP-18] | MR-003 and MR-004: a side that still holds the virtual base's conflict value did not touch the key since the base, so the other side's value lands, clean, as at a real LCA. |
 | VB-015 | property | independent-of-lca-enumeration-order | design | [60 §3.4] GT6 | Follows from VB-005's total order. |
 | VB-016 | property | agreed-untouched-key-never-conflicts | design | [60 §3.4] GT6 | "a key both LCAs agree on and neither side touched never conflicts". |
 | VB-017 | daily-path | sync-first=single-lca | design | [AR §5a.7] step 0 | After PR-001 the LCA of a merge into `main` is tip(main); the virtual base arises only in cross-lane and branch-of-branch merges (CM9). |
@@ -621,12 +637,12 @@ computed for the row's dst and src.
 |---|---|---|---|---|---|---|---|---|
 | DM-001 | merge | tip(dst) | tip(src) | vbase | - | design | [AR §5a.7] | - |
 | DM-002 | sync | tip(lane) | tip(main) | vbase | - | design | [AR §5a.3]; [AR §5a.7] step 0 | `sync` = `merge main --into <lane>`; dst is the lane, never `main`. The engine stores only the residue; the canonical op list is the full state diff ([AR §4.6], [72 M5]). |
-| DM-003 | cherry-pick | tip(R) | state(c) | state(p1(c)) | DM-012, DM-013 | design | [AR §5a.5] | "3-way apply of the commit's changeset with base = its first parent onto R's view". |
-| DM-004 | revert | tip(R) | state(p1(c)) | state(c) | DM-012, DM-013 | design | [AR §5a.5]; [60 §4.2] | The inverse changeset as a three-way apply; before-images make it exact. |
-| DM-005 | revert-merge-mainline-1 | tip(R) | state(p1(c)) | state(c) | DM-012, DM-013 | design | [AR §5a.5] CL8 | The merge record stores the merged ops with before-images. |
-| DM-006 | revert-merge-mainline-2 | - | - | - | refuse | design | [AR §5a.5] | "`--mainline 2` is refused". |
-| DM-007 | revert-sync | - | - | - | refuse | design | [AR §5a.5] | A sync stores only the residue; use `undo` on the lane. |
-| DM-008 | revert-with-dependents | - | - | - | refuse | design | [AR §5a.5] | Refused with the dependent set when a later commit on R depends structurally on the reverted one: it added a structural edge to, or a child of, a node the reverted commit created; it completed a task the reverted commit reopened; or it resolved a conflict the reverted commit introduced. |
+| DM-003 | cherry-pick | tip(R) | state(c) | state(p1(c)) | DM-012, DM-013, DM-016 | design | [AR §5a.5] | "3-way apply of the commit's changeset with base = its first parent onto R's view". |
+| DM-004 | revert | tip(R) | state(p1(c)) | state(c) | DM-012, DM-013, DM-016, DM-017 | design | [AR §5a.5]; [60 §4.2]; [F06 §7.10] | The inverse changeset as a three-way apply; before-images make it exact. A node c created is never made absent (DM-017). |
+| DM-005 | revert-merge-mainline-1 | tip(R) | state(p1(c)) | state(c) | DM-012, DM-013, DM-016, DM-017 | design | [AR §5a.5] CL8; [F06 §7.10] | The merge record stores the merged ops with before-images. |
+| DM-006 | revert-merge-mainline-2 | - | - | - | refuse | design | [AR §5a.5]; [F19 §10.2] `revert_refused` | "`--mainline 2` is refused": [F19 §10.2] `revert_refused`, exit 6. |
+| DM-007 | revert-sync | - | - | - | refuse | design | [AR §5a.5]; [F19 §10.2] `revert_refused` | A sync stores only the residue; use `undo` on the lane. Refused with `revert_refused`, exit 6. |
+| DM-008 | revert-with-dependents | - | - | - | refuse | design | [AR §5a.5]; [F19 §10.2] `revert_refused` | Refused with the dependent set when a later commit on R depends structurally on the reverted one: it added a structural edge to, or a child of, a node the reverted commit created; it completed a task the reverted commit reopened; or it resolved a conflict the reverted commit introduced. The refusal is [F19 §10.2] `revert_refused`, exit 6. |
 | DM-009 | virtual | V(k-1) | L(k) | vbase | VB-007, VB-009 | design | [60 §3.4] | §11. |
 | DM-010 | foreign-merge-import | state(p1) | state(p2) | vbase | DM-014, DM-015 | design | [AR §5b.6] step 3; [AR §3.4] I30′ | A two-parent foreign git commit is imported as a moirai merge computed by these rules. |
 | DM-011 | import-merge | tip(ref) | tip(import/ref) | vbase | - | design | [AR §5b.6] step 4 | A clean imported chain behind a moved local ref: `merge import/<ref> --into <ref>`, its LCA at the last common exported commit; `image.import-merge = stage` stages instead. |
@@ -634,6 +650,8 @@ computed for the row's dst and src.
 | DM-013 | revert-or-cherry-pick | - | - | - | data | proposed | [AR §5a.5]; [AR §2.7]; [OP-20] | The `DATA` case is the `both` case of the key's class; for `scalar` keys it lands as `FieldEdit` (MR-009). |
 | DM-014 | foreign-merge-import | - | - | - | texthunk-from-foreign-tree | design | [AR §5b.6] step 3 | For a `TextHunk`, a line present in the foreign file and in exactly one side is taken as that side's resolution; any remaining disagreement is a conflict value. |
 | DM-015 | foreign-merge-import | - | - | - | counters-from-ledger | design | [AR §5b.6] step 3; [AR §3.4] I30′ | Counters come from the union of the `incr` ledger lines, never from a text merge. |
+| DM-016 | revert-or-cherry-pick-pruned | - | - | - | refuse | derived | [F06 §4.4.15]; [F06 §7.10]; [F19 §10.2] `commit_pruned` | A commit `gc` pruned to its header has no ops or before-images, so it is never reverted or picked: [F19 §10.2] `commit_pruned`, exit 3, before any state is read (review pass 1 round 2, S1-21 and A1-5). |
+| DM-017 | revert-creation | - | - | - | src-absent-reads-inverse | proposed | [F06 §7.10] "`Create` → `Delete`", "`CreateDeleted` has no inverse"; [F12 §7.8]; [OP-33] | On an existence key whose base value (state(c)) is not `absent` and whose src value (state(p1(c))) is `absent`, c brought the node into being, and a revert never makes a node `absent`: when c created it live, src reads as the tombstone that [F06 §7.10]'s inverse `Delete` writes, `deleted(kind, "", none)` (`reason` 0, `replaced_by` 0), so the node is deleted (CS-014 and DM-012 apply as to any delete); when c took it from `absent` to `deleted` (`CreateDeleted`), src reads as b, so dst's value stays and no existence op is emitted. The node's other keys follow their own rows. |
 
 ## 13. Runtime and derived state
 
@@ -645,14 +663,14 @@ them only through the commit it lands.
 |---|---|---|---|---|---|
 | RE-001 | lease | not-merged | design | [AR §5d.1]; [AR §3.4] I36′ | Leases are store-wide and keyed by (#N, lease id); a merge never creates, moves or releases one. |
 | RE-002 | marker | not-merged | design | [AR §5d.1]; [AR §3.4] I36′ | `settled`, `deleted` and `cleared` markers are never versioned or exported. |
-| RE-003 | marker | emit-from-net-ops | design | [AR §4.5] step 4; [AR §5a.7] step 7; [72 M4] | The landing commit emits, from its net ops (the diff against tip(dst)): `settled` for each `SetStatus` to `done` or `cancelled` on a task; `deleted` for each `Delete`; `cleared`, scoped to (#N, ref_id), for each `SetStatus` from `done` or `cancelled` to `open` and each `Undelete`. |
+| RE-003 | marker | follow-hold-changes | derived | [AR §4.5] step 4; [AR §5a.7] step 7; [72 M4]; [RULES/state-definition ME-001]; [RULES/state-definition ME-002]; [RULES/state-definition ME-003]; [RULES/state-definition ME-004] | The landing commit changes the marker cache exactly where dst's hold of a node changes between tip(dst) and the merge commit (its net ops against tip(dst)): a hold the merge itself produced originates a marker (ME-001); a hold taken from src joins the holder set of src's origin (ME-002, ME-003), so a merge propagates a completion and does not originate it again; a hold that ends leaves its holder set, and `cleared` is written for the marker key (#N, origin ref, origin commit) only when no holder remains (ME-004). Review pass 1 (S1-16) adopted this origin reading. |
 | RE-004 | marker | none-on-staging | design | [AR §5a.7] step 7; [72 M4] | A commit on a staging ref emits no marker; the landing commit of `merge --continue` does. |
-| RE-005 | absorbed | src-seq-and-max | design | [AR §5a.7] step 7; [AR §5d.1] | dst's new vector: `absorbed_dst[src] = ref_seq(tip src)`, every other entry the maximum of both sides' entries. |
+| RE-005 | absorbed | src-seq-and-max | design | [AR §5a.7] step 7; [AR §5d.1]; [RULES/state-definition VR-003] | dst's new vector: `absorbed_dst[src] = ref_seq(tip src)`, every other entry the maximum of both sides' entries. This equals VR-003's pointwise maximum whenever tip(src) landed on src. |
 | RE-006 | absorbed | recorded-in-commit | design | [AR §4.3] `n_absorbed`; [AR §5a.7] step 7 | The merge and sync records carry dst's vector after the commit. |
 | RE-007 | rev_seq | merge-seq | design | [AR §5a.7] step 7 | `rev_seq` of every touched node becomes the merge commit's seq, above both inputs. |
 | RE-008 | conflicted | set-on-conflict-value | design | [AR §3.5]; [AR §5a.7] step 8 | A node that holds a conflict value is `conflicted` and out of `ready`; `resolve` clears it. |
 | RE-009 | derived | recompute | design | [AR §3.5]; [AR §3.4] I9; [60 §4.2] | `open_blockers`, rollups, `suspect`, `has_dangling`, `unblocked`, `is_blocker` and `topo` are recomputed from the merged primary data; the model recomputes them from scratch. |
-| RE-010 | affected | complete-or-flagged | design | [AR §3.4] I42′; [50 §8.1] F15, F16 | `affected` names every node whose derived predicates changed, or the commit has `affected_complete = 0`. |
+| RE-010 | affected | complete-or-flagged | design | [AR §3.4] I42′; [50 §8.1] F15, F16; [F13 §6.3]; [F17 §8.2] | `affected` names every node whose derived predicates changed, or the commit has `affected_complete = 0`, which happens only when the number of nodes whose `suspect` value changed (S(c)) exceeds `store.suspect-budget` ([F13 §6.3], [F17 §8.2]; [RULES/delete-policy-matrix] DS-010). |
 | RE-011 | idempotency | not-merged | design | [AR §5d.1]; [AR §6.4] | Keyed by branch; a replay on a branch the original was merged into returns the original result (N13e). |
 | RE-012 | alloc-uidx | not-merged | design | [AR §5d.1]; [40 §2.3] | `#N` allocation is store-wide; a re-keyed node gets a new `#N` (RK-008). |
 | RE-013 | refs-heads-pins | not-merged | design | [AR §5d.1] | Refs, client heads, pins, `gitmap`, the alias map and caches are runtime. |
@@ -695,15 +713,15 @@ exist; the owner uses this table to check that nothing was dropped.
 | SM-017 | AR-5a.7-r17-r4-anchors-globs-pathmoves | LM-016, LM-017, LM-018, LM-019, LM-021 | R4 anchors, globs, `path_moves`. |
 | SM-018 | AR-5a.7-r18-r5-named-query | MR-057, MR-058, MR-060, MR-061, MR-062, VA-011, VA-012 | R5 named-query definition. |
 | SM-019 | AR-5a.7-step0-sync-first | PR-001, VB-017 | - |
-| SM-020 | AR-5a.7-step1-lca-rvb | VB-001, VB-004, VB-005, VB-006, VB-013, VB-014 | - |
+| SM-020 | AR-5a.7-step1-lca-rvb | VB-001, VB-004, VB-005, VB-006, VB-013, VB-014, VB-018 | - |
 | SM-021 | AR-5a.7-step6-validators | VA-001, VA-002, VA-003, VA-004, VA-009, VA-010, VA-011, VA-012, VA-013, VA-014 | I37′ order. |
 | SM-022 | AR-5a.7-step7-emit | PR-011, RE-003, RE-004, RE-005, RE-007 | - |
 | SM-023 | AR-5a.7-step8-land-or-stage | LS-001, LS-002, LS-003, LS-004, PR-013, PR-014, PR-015 | - |
 | SM-024 | AR-5a.8-taxonomy | CM-001, CM-009, CM-020 | With every CM row. |
 | SM-025 | AR-5d.3-node-40-at-merge | MR-042, MR-043, VA-004, EC-012 | "main only read #40 → delete wins"; "modified → `DeleteVsModify`"; "structural edge → `DanglingEdge`"; historical edges become tombstone references. |
 | SM-026 | 50-4.4-versioning-and-merge | MR-058, MR-060, MR-061, MR-062, VA-011, VA-012 | [50 §4.4] "Versioning and merge". |
-| SM-027 | 60-3.4-rvb | VB-005, VB-006, VB-013, VB-014, VB-015, VB-016 | [60 §3.4] "The recursive virtual base" and its GT6 properties. |
-| SM-028 | AR-5a.5-revert-cherry-pick | DM-003, DM-004, DM-005, DM-006, DM-007, DM-008, DM-012, DM-013 | - |
+| SM-027 | 60-3.4-rvb | VB-005, VB-006, VB-013, VB-014, VB-015, VB-016, VB-018 | [60 §3.4] "The recursive virtual base" and its GT6 properties; VB-018 reads its "conflicts whenever they differ" with I25′ ([OP-18]). |
+| SM-028 | AR-5a.5-revert-cherry-pick | DM-003, DM-004, DM-005, DM-006, DM-007, DM-008, DM-012, DM-013, DM-016, DM-017 | - |
 | SM-029 | AR-5b.6-import-merges | DM-010, DM-011, DM-014, DM-015 | I30′. |
 
 ## Coverage
@@ -721,8 +739,8 @@ Rule tables specify semantics, not bytes; the byte layouts of the values and cod
 | [40 §2.11] R-2: merge classes `observation` and `identity` in the schema's merge-class enum | MC-015, MC-016, FC-106 to FC-114 |
 | [40 §2.11] R-3: the merge re-key rule | MC-020; rules in [RULES/link-merge-rules] |
 | [40 §2.11] R-12: I-F1 at merge | VA-009 |
-| [60 §3.4]: the recursive virtual base | `virtual-base`, MR-001, MR-002 |
-| [AR §3.4] I25′, I31′, I34′, I36′, I37′, I41′ | MR rows (I25′), VB-005/VB-006 (I31′), DM-012/DM-013 (I34′), RE-001/RE-002 (I36′), `validators` (I37′), PR-002 (I41′) |
+| [60 §3.4]: the recursive virtual base | `virtual-base`, MR-001 to MR-004 |
+| [AR §3.4] I25′, I31′, I34′, I36′, I37′, I41′ | MR rows (I25′), VB-005/VB-006 with MR-001 to MR-004 and VB-018 (I31′), DM-012/DM-013 (I34′), RE-001/RE-002 (I36′), `validators` (I37′), PR-002 (I41′) |
 
 No X-F row and no [90 §10.1] item concerns merge rules.
 
@@ -758,10 +776,13 @@ Each point names the rows it affects and the chapter or WP that owns the final t
    (`delete-wins`) and knowledge (`resurrect`); every other random-uid kind is proposed `resurrect` because the conflict
    value always lands, so resurrecting loses nothing and keeps structural referrers valid. (b) For `artifact` ("no
    automatic policy") and root nodes, dst's state stands provisionally. (c) Under `delete-wins` the conflict value must
-   keep the modifying side's other keys, or `resolve --take` cannot restore them; the value then holds a node
-   snapshot, a value shape outside the closed type set ([F06], WP-12). (d) A tombstone `.moi` file keeps no fields
-   ([AR §5b.2] rule 8), so the `conflict existence` line of a provisionally deleted node needs a place in the image
-   (WP-15).
+   keep the modifying side's other keys, or `resolve --take` cannot restore them. **Settled** (review pass 1, S1-22):
+   a `live` side carries its node image of value keys inside the closed set ([F06 §6.2] `snap`, [F06 §6.3]); the
+   hierarchy key and the out-edges, which the image does not hold, are restored from that side's state at the
+   conflict's introducing commit by ordinary ops of the `Resolve` commit ([F12 §6.5]; RS-008). No hashed byte changes, and the model
+   computes the same side state from history. (d) A tombstone `.moi` file keeps no fields ([AR §5b.2] rule 8), so the
+   `conflict existence` line of a provisionally deleted node needs a place in the image. **Settled** by [F14 §6.8.1]: a
+   provisionally deleted node is a tombstone file carrying its `conflict existence` line.
 6. **"Modified" for `DeleteVsModify`** (CS-014). Defined as any change to a key whose first component is the uid,
    out-edges included and in-edges excluded. This matches [AR §5d.3]'s three cases (read, modified, structural edge
    added) and is proposed as their exact boundary.
@@ -772,11 +793,17 @@ Each point names the rows it affects and the chapter or WP that owns the final t
    drop the re-pin.
 9. **Where `SupersedeFork` sits** (VA-006, CM-005). Two superseders are two different edge keys, while a conflict value
    needs one key. Proposed: the value sits on the src-side superseder's edge key (base `absent`, ours `absent`, theirs
-   present), and both superseders are `conflicted`. WP-12 fixes the key form.
+   present). WP-12 fixed that key form ([F12 §6.2]). This file first also proposed that both superseders be
+   `conflicted`; it now follows [F12 §6.3], where `conflicted` follows key ownership, so only the src-side superseder
+   (the owner of the edge key) is flagged, and flagging the other would need a derived rule beyond ownership ([F12] open
+   point 7).
 10. **Validator classes the taxonomy lacks** (VA-005, VA-007, VA-008, VA-013, VA-016). [AR §5a.8] names no class for a
     forest deeper than 12 (I4), a `duplicate_of` chain of two (I7), `runs_in` or `answers` cardinality, or a merge that
-    would write read-only fields on `plan/*` (I33′). Those rows are `gap` until [F12] adds classes (proposed: structural
-    classes, since each breaks an invariant that I12 requires at every head). Separately, VA-016 proposes that every
+    would write read-only fields on `plan/*` (I33′). Proposed: structural classes, since each breaks an invariant that
+    I12 requires at every head. **Settled** in review pass 1 (P1-21): [F19 §12.2] assigns `DepthExceeded` (67),
+    `Cardinality` (68) and `PlanMask` (72), [F12 §7.9] gives their `Violation` keys and [F13 §5] V05, V07 and V12 emit
+    them; VA-005, VA-007, VA-008 and VA-013 now emit them (basis `derived`), CM-023 to CM-025 list them, and the `order`
+    column takes [F13 §5]'s positions. Separately, VA-016 proposes that every
     edge kind declared acyclic be checked with `Cycle`, because two branches can close a cycle that each branch's
     "acyclic by construction" cannot see.
 11. **Field types outside the closed type set** (FC-004, FC-005, FC-050, FC-051, FC-077, FC-081, FC-104). The closed
@@ -790,10 +817,10 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     whether a side that empties a component should conflict instead.
 13. **diff3 must be one specified function** (MR-031, CS-011). Whether diff3 finds a conflict depends on the line
     diff. The model and the engine agree only if [F12] specifies the diff (FL-1's histogram diff) and the hunk rule
-    exactly; the model then implements that text independently.
+    exactly; the model then implements that text independently. Answered by [F12 §7.5] (the line diff HD and diff3).
 14. **Removed-text guard** (CS-012, MR-036). The design names the guard without a formula. Proposed: for each side S,
     the lines S has and the merged text lacks (as multisets) must all be in the base. A correct diff3 always passes, so
-    the guard catches hunk misalignment and repeated lines.
+    the guard catches hunk misalignment and repeated lines. [F12 §7.5] states the guard over its lines.
 15. **Kleppmann details** (RS-007, MR-039, MR-040). The move order key is (hlc, commit id) of the side's newest commit
     that changed the key; a key both sides moved identically counts once at the earlier position. "Skipped and
     logged" is read together with `HierarchyCycle` being structural: the move is skipped in the staged candidate and
@@ -804,16 +831,29 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     allocated store-wide, like `#N`, is WP-14's.
 17. **Named queries** (MR-060, MR-061). Proposed: under `DROP` versus modify, the modified definition stays until
     resolved; when both sides reach the same canonical-AST hash with different texts, dst's text lands.
-18. **Merging over conflict values** (MR-002, MR-005, RS-010). The design defines only the virtual-base case, and even
-    there a conflict value whose base is itself a conflict value would nest. Proposed for MR-002: the emitted conflict
-    takes the inner base (b's `base` field) and the class the key's rules give on it. MR-005 (both sides changed a key
-    and one side holds a conflict value) stays a gap; one option is to refuse such merges until the side resolves.
-19. **Recursive virtual base details** (VB-003, VB-007 to VB-011). Proposed: no common ancestor means an empty base;
-    inside a virtual merge dst is never `main`, validators do not run, dst is the earlier fold and moves carry their
-    real commits' order.
+18. **Merging over conflict values** (MR-001 to MR-005, RS-010, VB-014, VB-018). Settled in review pass 1 (S1-15) with
+    [F12 §5.4] RVB-1 to RVB-4. [60 §3.4] and [AR §5a.7] step 1 say a key whose virtual-base value is a conflict value
+    "conflicts whenever they differ". Read literally, a side that still holds the base's conflict value (it never
+    touched the key) would conflict with a side that resolved it, which I25′ forbids and which MR-004 does not do at a
+    real LCA. The rows now run in the order MR-001 (same: clean), MR-003 and MR-004 (one side untouched: the other
+    side's value lands, clean), MR-002 (both changed and differ: conflict), so the sentence reads "conflicts whenever
+    both sides changed it and they differ" (VB-018). MR-002's conflict value takes the inner base b′ (b's
+    `base` field), the flat sides and the class of the key's value rows on them, else b's class (RS-010), so it never
+    nests. [60 §3.4], [AR §5a.7] step 1 and [AR §3.4] I31′ should be edited to that wording at WP-81a, and [60 §3.13] GT6
+    gains the property "one side untouched → the other side's value" ([F12 §5.7] VBC-3). The rows changed, so the owner
+    re-signs this file (V3). MR-005 (a plain base, both sides changed, one holding a conflict value) was a gap; review
+    pass 1 (P1-21) adopted [F12] open point 3 as [F12 §5.4]'s normative rule, and MR-005 now takes it through RS-015:
+    the plain base b, the flat sides, the class of the key's value rows on them, else the conflicted side's class (o's
+    when both are conflicted). RS-010 and RS-015 give an existence key's provisional state as [F12 §5.4] does. The
+    owner re-signs the rows (V3).
+19. **Recursive virtual base details** (VB-003, VB-007 to VB-011, VB-019). Proposed: no common ancestor means an empty
+    base; inside a virtual merge dst is never `main`, validators do not run, dst is the earlier fold, moves carry their
+    real commits' order, and no automatic policy or outer `--strict` applies (VB-019, added for [F12 §5.3] VM-2 and
+    [F12] open point 8). [F12 §5.3] VM-1 to VM-8 state the same rules.
 20. **`DATA` versus `FieldEdit`** (CM-007, DM-013). [AR §2.7] and [AR §5a.5] record a `DATA` mismatch "as a
     `FieldEdit` conflict value", while [AR §5a.8] lists `DATA` as a class. This table emits `FieldEdit`; WP-12 decides
-    whether `DATA` keeps an enum code.
+    whether `DATA` keeps an enum code. **Decided** by [F12 §6.1] (open point 5 there): `DATA` has no code; the case is
+    stored with its key's `both` class and told apart by the commit's kind (CM-007).
 21. **`NotFound` in state terms** (DM-012). The design states it on ops ("a `RemoveEdge`/`SetField` whose target …
     no longer matches"); the model works on states. The state-based definition is proposed.
 22. **Conflicted nodes and merges into `main`** (PR-003, MR-004). [AR §5a.7] step 0 says the merge "can still be
@@ -841,3 +881,14 @@ Each point names the rows it affects and the chapter or WP that owns the final t
 32. **`abs` artifact fields** (FC-124, FC-126, FC-130). [AR §3.3] says `lane.worktree_path` and `run.script_path`/
     `journal_path` "are `abs` artifacts"; whether the field holds a path or a ref to an artifact node is WP-14's. Either
     way the class is `scalar`.
+33. **Reverting a creation** (DM-017; review pass 1 round 2, residue of S1-6 and A1-4). A revert is a three-way apply
+    with base state(c) and src state(p1(c)), so for a node that c created, src holds `absent` and `theirs-only` would
+    make the node absent, a state no op of [F06 §7.4] can write ([F12 §7.8]). [F06 §7.10] inverts a `Create` to a
+    `Delete` and gives `CreateDeleted` no inverse ("a revert leaves the tombstone"); DM-017 states that in state terms.
+    The tombstone's `reason` and `replaced_by` are those of [F06 §7.10]'s inverse `Delete`: the empty reason and no
+    replacement, as R-MODEL proposed (review pass 1 round 3, closure NC-9; R-SPEC-F's alignment edit).
+34. **Empty merge results** (CS-001, CS-011, RS-004 to RS-006, RS-013; review pass 1 round 2, residue of S1-1 and
+    S1-34). The rules produce `absent`, never an empty value: a sum of 0, an empty `union3` and an empty diff3 result
+    are `absent` ([F08 §5.3], [F08 §6.2], [F12 §7.5]), so the model's states compare with the engine's canonical states
+    byte for byte. [F12 §7.5]'s length bound is part of the case `both-diff3-clean`: a clean diff3 longer than 65,536
+    bytes is a `TextHunk`, as [F12 §7.5] says.

@@ -59,8 +59,8 @@ No value of this chapter is a configuration key, an environment variable or a fl
   written as a threshold denotes the exact rational (0.29 is 29/100). Comparisons, differences and margins are
   evaluated exactly by cross-multiplication in integer arithmetic; every intermediate value of this chapter fits in
   `i128`. Floating point is never used by the resolver, the capture, or the model's implementation of either.
-- **Time** ([F01 §5.7]): file timestamps are `unix_ns` values, each with a granularity G in nanoseconds (≥ 1) as
-  [F11] records it; an `hlc` is `(unix_ms << 16) | counter`, and `hlc_ns(h) = (h >> 16) × 1,000,000`. Git committer
+- **Time** ([F01 §5.7]): file timestamps are `unix_ns` values, each with a granularity G in nanoseconds (≥ 1): G =
+  `max(10^gran, VolumeCaps.mtime_granularity_ns)` of the tree's volume, as [F11 §12.2] defines it; an `hlc` is `(unix_ms << 16) | counter`, and `hlc_ns(h) = (h >> 16) × 1,000,000`. Git committer
   times are whole seconds since the epoch, as the commit object states them.
 - **States and details** are named by their frozen strings ([40 §2.9], [F18]); this chapter never defines a string.
 
@@ -120,9 +120,11 @@ them as "resolver v1 constants". This chapter reconciles the two (open point 1):
   three-valued `oid` test that is *unknown* (§2.3) contributes nothing in the same way.
 - **`missing` needs every source.** If the cascade would end `missing`, and a source that applied to the link was
   Unavailable, the link is `unverified` with the reason of the first such source in source order (§5.5) instead
-  ([40 §4.3] step 5). An anchor whose file content is Unavailable is `unverified` with that reason. [40 §2.9] closes the
-  detail set at `budget`, `cloud-only`, `commit not in this repository`, `no tree`, `git` and `size` ([F18], R-16):
-  `unstable` renders `budget`, and `unreadable` has no detail yet (open point 22).
+  ([40 §4.3] step 5). An anchor whose file content is Unavailable is `unverified` with that reason. The reasons render as
+  [F18 §4.6]'s `unverified` details: `budget` 53, `cloud-only` 54, `commit not in this repository` 55, `no tree` 56,
+  `git` 57, `size` 58 and `unreadable` 59; `unstable` renders `budget` (pass 1, A1-45; [F18] adds 59 to [40 §2.9]'s
+  closed set, with 60 `unmapped root` and 61 `oid algorithm differs`, for the owner's sign-off, [F18] open point 12;
+  open point 22).
 
 ## 2. Content functions
 
@@ -185,8 +187,10 @@ oid_H(b) = H("blob " ‖ dec(len(norm(b))) ‖ 00 ‖ norm(b))
   the object format of the store's repository as read at `init` (`extensions.objectFormat`; `sha1` when the store has no
   repository), for the store's life; every named root and `abs` use `sha1`. Every `oid` the resolver or a capture
   computes for a file of root R — the node's `oid`, `FILEOBS.last_oid`, an anchor's `blob`, a `PENDING` captured `oid`,
-  an `FPRINT` key — uses A(R). Where the `project` root's value is kept is [F04]'s and [F17]'s (the `init`-fixed
-  parameters; open point 27).
+  an `FPRINT` key — uses A(R). A(`project`) is one `u8` of [F01 §7.5]'s `algo` registry (1 `sha1` or 2 `sha256`),
+  recorded once at `init` and kept by `restore` and `repair`; a reader takes it from the store, never from the
+  repository, so adding or converting a repository later changes nothing. It is `HEAD.project_oid_algo`, the `u8` at slot
+  offset 1072 ([F04 §5.16]), an `init`-fixed parameter under [F17 §2.2] IP-1–IP-3 (open point 27).
 - **Comparison.** Two `oid` values are equal iff their `algo` bytes and digests are equal; `none` equals nothing. Two
   values of different algorithms are never equal and never different: the pair is **content unknown** ([40 §2.5]). A
   test "`oid(q) ∈ S`" for a set S of stored values is three-valued: *true* if `oid_A(R)(q)` equals an element of S;
@@ -222,7 +226,11 @@ oid_H(b) = H("blob " ‖ dec(len(norm(b))) ‖ 00 ‖ norm(b))
   2. it is not a cloud-only entry (§4.5) — an automatic path never reads one; an explicit verb reads it only with
      `--allow-hydrate` — otherwise `Unavailable(cloud-only)`;
   3. the open and every read succeed; a denial (Windows `ERROR_ACCESS_DENIED` 5, Unix `EACCES`, `EPERM`), a sharing
-     or lock violation (Windows 32, 33) or any other read error gives `Unavailable(unreadable)` (§4.8);
+     or lock violation (Windows 32, 33) or any other read error gives `Unavailable(unreadable)` (§4.8). Of the
+     `ProjectFs` kinds ([OS/project §2.3]): `CloudOnly` — the entry is, or became between its stat and the open, a
+     cloud placeholder ([OS/project §5.5] steps 1 and 3; pass 1, P1-38) — gives `Unavailable(cloud-only)` as item 2;
+     `IsSymlink` is no error: the content is the link's target text, read by `read_link`, and its `oid` is §2.3's;
+     `IsDirectory`, `OutsideRoot` and `Stale` are read errors of this item;
   4. the content is stable (below); otherwise `Unavailable(unstable)`.
 - **Two passes, one handle** (disposition of review A1P-05). Both passes read through one handle from offset 0. Before
   pass 1 and after pass 2 the handle's size and last-write time are read. Pass 1 computes the statistics of §2.1, the
@@ -545,7 +553,7 @@ needs no composition table.
 ## 4. Candidate eligibility
 
 A path q is a **candidate** for file node F only if it passes every test of this section ([40 §4.1] P4, P6; [40 §4.3]
-step 3).
+step 3), §4.9's representability test first.
 
 ### 4.1 Candidate order ([80 §2.11.4] rule 4)
 
@@ -654,6 +662,22 @@ every OS (open point 12).
 | an `OsFileId` row whose kind this OS cannot interpret, or whose `vol_key` names no mounted volume | the row is absent ([80 §2.11.2]); the id sources contribute nothing |
 | a Linux frontier search that exhausts its budget before it finds or excludes an id | `Unavailable(budget)` ([80 §2.11.3] step 5) |
 
+### 4.9 Paths this OS cannot represent (pass 1, P1-15)
+
+Before any OS call on a path — a node's path p, an alias, a candidate q, a path an evidence source or a `path_moves` entry
+yields — the resolver tests every segment of it with `representable_here` ([OS/path §8.1]), so no such path ever
+reaches `ProjectFs` or the OS (a `\\?\` path would otherwise bypass Win32's name checks, [OS/path §6]), and the outcome
+is a state, never an error:
+
+- a node whose own path p has a segment that fails is `missing (not representable on this OS)` (detail 44, [F18 §4.6]),
+  decided with no OS call and no evidence source; on Windows this covers a segment containing `:` (an NTFS alternate
+  data stream, `x::$DATA`), ending in `.` or a space, or naming a device;
+- a candidate or a derived path with a failing segment is never a candidate, and an evidence line that would need it
+  contributes nothing;
+- `--allow-nonportable` relaxes only [OS/path §8.2]'s portability warnings for other OSes, never this test.
+
+This is the first step of the cascade, before §3.5's twin grouping and §5.4's checks.
+
 ## 5. The file cascade
 
 ### 5.1 Time comparisons and clock domains (disposition of review S-17)
@@ -697,8 +721,8 @@ with equal size, mtime and creation time; the next settle sees it ([40 §2.6]).
 
 ### 5.4 Checks at a present path
 
-When p stats in T, these checks run in this order; the first that decides the state ends the file cascade ([40 §4.3]
-step 1):
+p is stat-ed only after §4.9's test has passed. When p stats in T, these checks run in this order; the first that decides
+the state ends the file cascade ([40 §4.3] step 1):
 
 1. **Twins** (§3.5), when F's twin-candidate group has at least 2 members.
 2. **Cloud-only p** (§4.5): decide from size, mtime and id only.
@@ -728,8 +752,8 @@ At a settle, p is `replaced` (nothing is written) iff all hold:
 At a settle, when p's file id differs from `FILEOBS.file_id`: one lookup of the recorded id — `OpenFileById` on Windows,
 `fsgetpath` on macOS, the `DIRMAP` frontier on Linux (a hit counts only with the stored `hgen`; an incomplete search is
 `Unavailable(budget)`) — locates the original. If it is alive at a path q ≠ p inside R with (size equal and mtime `teq`
-`FILEOBS`) or `oid(q) ∈ {o, last_oid}`, F is `ambiguous (path reused; original at q)`, recorded in `FILEOBS.state`. A
-denial contributes nothing (§4.8).
+`FILEOBS`) or `oid(q) ∈ {o, last_oid}`, F is `ambiguous (path reused; original at q)`, recorded in `FILEOBS` as state 4
+with detail 29 and q ([F11 §12.5]). A denial contributes nothing (§4.8).
 
 #### 5.4.3 Rename-over and swap ([40 §4.3] step 1, §4.6)
 
@@ -887,14 +911,48 @@ For x ∈ `deleted(c)` with no exact pair and no ambiguous group, with old blob 
 are the entries of `added(c)` of the same class that are in no exact pair or ambiguous group of c; the **host
 candidates** are the entries of `modified(c)`. Both blobs of every pair are read in process.
 
-- **The git pair score** `gs(X, a)` is git's similarity index of the pair, an integer percentage 0–100: git's rename
-  score ([D] git 2.54.0 `diffcore-rename.c` `estimate_similarity`, over `diffcore-delta.c`'s span hashes) times 100
-  divided by git's `MAX_SCORE` (60,000), rounded down, the percentage `git diff -M` prints ([40 §4.4] "E6 per-commit
-  pair ≥ 90 %", "git pair 20–49 %"; [40 §2.2] `relink` "`git-pair` git's per-commit similarity divided by 100"). git's
-  size pre-filter only skips pairs that cannot reach its minimum score, so it is not part of the definition. *(Informative:
-  git splits each blob into chunks ending at LF or after 64 bytes, ignores a CR before LF in text, hashes each chunk,
-  counts the bytes both blobs share per chunk hash, and divides the shared bytes by the larger blob size.)* WP-74's
-  differential checks the in-process value against `git diff-tree -M20%` on synthetic histories (open point 36).
+- **The git pair score** `gs(X, a)` is an integer percentage 0–100, defined here normatively (pass 1, A1-34; the value
+  enters the hashed `relink` text `git-pair/<score>`, [F18 §5.1]). For a blob b of n bytes, its **span counts** are:
+
+  ```
+  text = no byte 00 in b[0 .. min(n, 8000))
+  S = {}                          # map from a hash value to a byte count
+  a1 = a2 = 0; k = 0              # a1, a2 are u32: every step below is modulo 2^32
+  for i in 0 .. n-1:
+      c = b[i]
+      if text and c == 0x0D and i + 1 < n and b[i+1] == 0x0A: continue    # a CR before LF is skipped
+      t = a1
+      a1 = (a1 << 7) ^ (a2 >> 25)
+      a2 = (a2 << 7) ^ (t >> 25)
+      a1 = a1 + c
+      k = k + 1
+      if k < 64 and c != 0x0A: continue
+      h = ((a1 + a2 × 97) mod 2^32) mod 107927
+      S[h] = S[h] + k;  k = 0;  a1 = a2 = 0
+  if k > 0: h = ((a1 + a2 × 97) mod 2^32) mod 107927;  S[h] = S[h] + k
+  ```
+
+  Then, with S_X and S_a the span counts of the two blobs and m = max(len(X), len(a)) their larger raw length (CR bytes
+  included): `gs(X, a) = ⌊100 × Σ_h min(S_X[h], S_a[h]) / m⌋`, and `gs` = 0 when m = 0 or when X or a is of class
+  `link` (only regular files are scored). `gs` is symmetric. This is git's similarity index of the pair —
+  git 2.54.0's `estimate_similarity` over `diffcore-delta.c`'s span hashes, as `git diff -M` prints it
+  (`⌊⌊60,000 × shared / m⌋ × 100 / 60,000⌋`, which equals the formula) — for every pair git scores, with two deliberate
+  differences: no `.gitattributes` binary or text setting is read (the text test is the NUL test above), and the
+  product is exact, where git on an LLP64 platform overflows it for more than 71,582 shared bytes. git's size pre-filter
+  only skips pairs that cannot reach its minimum score, so it is not part of the definition ([40 §4.4] "E6 per-commit
+  pair ≥ 90 %", "git pair 20–49 %"; [40 §2.2] `relink` "`git-pair` git's per-commit similarity divided by 100").
+- **Golden vectors** (checked against `git diff --no-index -M1% --name-status` of git 2.54.0 with `core.autocrlf=false`;
+  WP-74 keeps them as fixtures and adds its differential against `git diff-tree -M20%` on synthetic histories):
+
+  | X | a | `len` X, a | `gs` |
+  |---|---|---|---|
+  | `alpha␊beta␊gamma␊delta␊` | `alpha␊beta␊gamma␊epsilon␊` | 23, 25 | 68 |
+  | `alpha␊beta␊gamma␊delta␊` | the same lines ending in CR LF | 23, 27 | 85 |
+  | 130 × `x`, then LF | 128 × `x`, `yy`, then LF | 131, 131 | 97 |
+  | `one␊` … `ten␊` (the English numbers one to ten, one per line) | `one␊` … `five␊` | 49, 24 | 48 |
+  | 10 × `line␊` | 5 × `line␊` | 50, 25 | 50 |
+
+  (␊ is the byte `0A`.)
 - **Containments** `oin` and `nio` of a pair are §2.10.1's exact measures over the two blobs (their estimates when the
   exact limit fails).
 
@@ -1028,10 +1086,10 @@ The anchor holes of this section are decided by replay row 2 of [40 §8.3.4] (WP
 ### 6.1 Capture ([40 §2.7])
 
 Capture runs on the captured content b, which must be text for every kind except `file` (a span anchor on binary
-content is refused; [F19] gives the code). Let t = `atext(b)` and N = N(t).
+content is refused: [F19 §10.2] `anchor_spec`, case `binary`, exit 2). Let t = `atext(b)` and N = N(t).
 
 1. **Span.** `path:L-M` (or `path:L`, M = L) names lines [L, M]; 1 ≤ L ≤ M ≤ the number of lines, else the form is
-   refused ([F19]). s is the first and e the last non-trivial line in [L, M] ("spans skip lines that are blank or contain only
+   refused ([F19 §10.2] `anchor_spec`, case `range`). s is the first and e the last non-trivial line in [L, M] ("spans skip lines that are blank or contain only
    braces"). If there is none, the kind is `lines`, with hint [L, M] and the window around [L, M].
 2. **Kind.** `quote` iff [s, e] has at most `QUOTE_LINES` = HOLE(F20-quote-lines) (draft 4) non-trivial lines and
    `len(ST(s, e)) ≤ QUOTE_MAX` = HOLE(F20-quote-max) (draft 128); otherwise `range`.
@@ -1042,9 +1100,10 @@ content is refused; [F19] gives the code). Let t = `atext(b)` and N = N(t).
      [40 §2.7]; open point 19).
    - `symbol`, `heading`: `exact = cutp(header(l, kind), QUOTE_MAX)` for the item's header line l.
    - Quote text from `--quote-file` or stdin: one leading `EF BB BF` is removed; input containing `EF BF BD` (U+FFFD) is
-     refused (exit 2, [F19]); CRLF pairs become LF; the text is split by `lines`, each line is `nl`-trimmed, leading and
-     trailing lines that are then empty are dropped, and the rest is joined by `0A`. The result must be non-empty and
-     must occur in N; the lines it covers are [s, e], and the kind is chosen by step 2 with this text as the span text.
+     refused ([F19 §10.2] `anchor_spec`, case `fffd`, exit 2); CRLF pairs become LF; the text is split by `lines`, each
+     line is `nl`-trimmed, leading and trailing lines that are then empty are dropped, and the rest is joined by `0A`.
+     The result must be non-empty and must occur in N (else `anchor_spec`, case `empty` or `not-found`); the lines it
+     covers are [s, e], and the kind is chosen by step 2 with this text as the span text.
 4. **Quote span.** The lines [qs, qe] the quote covers: [s, e] for `quote` and `range`; the header line for `symbol` and
    `heading`.
 5. **Context.** `prefix = cuts(N[0 .. o), CTX)` and `suffix = cutp(N[o′ ..), CTX)`, where o is the offset of the quote
@@ -1057,13 +1116,32 @@ content is refused; [F19] gives the code). Let t = `atext(b)` and N = N(t).
    the exact step of §6.2, run on the captured content with the anchor's selectors (window included) and no occurrence,
    yields its captured position. If it does not:
    1. `prefix` and `suffix` are recomputed with `CONTEXT_MAX` = HOLE(F20-context-max) (draft 64);
-   2. then the enclosing scope, if a scanner finds one and it was not already recorded;
+   2. then the enclosing scope, if a scanner finds one and it was not already recorded — skipped while the interim rule
+      below holds;
    3. then `occurrence` is recorded: the 1-based index of the captured hit among the exact hits of the search region, in
       offset order.
-   For `path:L-M`, `symbol` and `heading` forms the scope is recorded whenever a scanner finds one ([40 §2.7] authoring
-   table), so rung 2 applies only to quote-file forms. `lines` anchors have no quote and skip the ladder.
+   Once the scanner appendix exists, the scope of a `path:L-M`, `symbol` or `heading` form is recorded whenever a scanner
+   finds one ([40 §2.7] authoring table), so rung 2 applies only to quote-file forms; until then no form records one.
+   `lines` anchors have no quote and skip the ladder.
 9. **`span_hash`** (§2.8), `blob` = `oid(b)` (§2.3), `git`, `captured` and `pred` ([F08]; `captured` covers the widened
    prefix and suffix and, for `lines`, the window, [40 §2.7] as revised for review S-03) and `resolver` = 1.
+
+**The interim scanner rule** (pass 1, A1-14, S1-4, P1-20; [F08 §10.3.1]). The scope scanners of [40 §2.7.1] decide the
+`scope` bytes and, for the `symbol` and `heading` forms, the item's header line, hence its quote, its hint and its header
+span hash; every one of these enters `captured` or the hashed selector block ([F08 §11.4], [F07 §8.2]). Until the scanner
+grammar exists as a normative appendix of this chapter (open point 30), engine and model must not depend on a scanner
+for a hashed byte, so:
+
+- no capture records a scope: `has_scope` is clear, `captured` takes `lp("")` for it, and step 8 skips rung 2
+  ([F08 §10.3.1]);
+- the `path::A/B` (`symbol`) and `path#H` (`heading`) authoring forms are refused with exit 2, the text naming the
+  `path:L-M` form of the same lines ([F19 §10.2] `anchor_spec`, case `no-scanner`); `path`, `path:L-M`, `path@<commit>:L-M` and quote-file forms are
+  unaffected;
+- an imported anchor that carries a scope, or is of kind `symbol` or `heading`, keeps its bytes ([F08 §10.3.1]); it
+  resolves without scanner steps: the scope-only step of §6.5 does not run, and its header quote is matched as a quote.
+
+If the appendix is not written by the freeze, the owner chooses between keeping this rule in format v1 and removing the
+scanner-derived bytes from the hashed inputs (a change of [PLAN] FB-4); `reviews/owner-questions.md` records the question.
 
 ### 6.2 Resolve: hint and exact quote ([40 §4.5] steps 1–3)
 
@@ -1125,6 +1203,8 @@ The cascade runs on the current content b′, with t′ = `atext(b′)` and N′
 - **Same-kind headers.** For a `symbol` or `heading` anchor whose scope did not resolve uniquely, only candidates that lie
   inside the header text of an item header of the same kind (a Rust item of the same keyword; a Markdown heading of the
   same level) count, and the margin is `HEADER_MARGIN` = HOLE(F20-header-margin) (draft 1/10) ([40 §4.5], [41 m8]).
+  Finding item headers needs a scanner, so while §6.1's interim scanner rule holds this restriction does not apply: an
+  imported `symbol` or `heading` anchor's header quote is matched as a quote, with every candidate and `FUZZY_MARGIN`.
 - **`range` anchors.** The start quote is matched as above; for each start candidate the end quote is searched exactly,
   then fuzzily with its own k, after the start candidate and within the spread of §6.2 step 4; the best end candidate by
   (q descending, offset ascending) is taken, and a start candidate without one is discarded. The pair's q is the smaller
@@ -1134,7 +1214,7 @@ The cascade runs on the current content b′, with t′ = `atext(b′)` and N′
 ### 6.5 Scope only, `lines` anchors, watch, cross-file ([40 §4.5] steps 5–8)
 
 - **Scope only.** A `symbol` or `heading` anchor whose scope resolves uniquely while steps 3–4 found nothing →
-  `edited` (coarse).
+  `edited` (coarse). The step needs a scanner and does not run while §6.1's interim scanner rule holds.
 - **`lines` anchors.** L = h2 − h1 + 1. For every line j with j + L − 1 ≤ the number of lines of t′, the window around
   [j, j + L − 1] is scored against the stored window (§6.3). The best j by (score descending, j ascending) is accepted when
   its score is at least `LINES_MIN` = HOLE(F20-lines-min) (draft 1/2) and exceeds the second best by at least
@@ -1197,6 +1277,9 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
 | `SPLIT_MIN_PIECES` | 2 | files | 5.11.4 | [40 §4.4] |
 | `SPLIT_NIO` | 4/5 | containment | 5.11.4 | [40 §4.4] |
 | `SPLIT_SUM` | 3/5 | containment | 5.11.4 | [40 §4.4] |
+| `GS_CHUNK` | 64 | bytes per span at most | 5.11.4 | git 2.54.0 `diffcore-delta.c` |
+| `GS_HASHBASE` | 107,927 | span hash modulus | 5.11.4 | git 2.54.0 `diffcore-delta.c` |
+| `GS_TEXT_PREFIX` | 8,000 | bytes tested for NUL | 5.11.4 | git 2.54.0 `buffer_is_binary` |
 | `E6_STRONG` | 90 | git similarity index (%) | 5.11.4 | [40 §4.4] |
 | `E6_WEAK` | 20 to below 50, with containment ≥ 4/5 | git similarity index (%) | 5.11.4 | [40 §4.4] |
 | `E8_MIN` | 4/5, both directions | containment | 5.13 | [40 §4.3] |
@@ -1234,7 +1317,7 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
 | [80] X-F8 | the R-14 half: rules 1–9 of [80 §2.11.4] and the frontier's racy threshold from a file-system timestamp. The tagged layouts (`OsFileId`, timestamps, `JOURNALCUR`, `DIRMAP`, the `TREES` additions, the `FSINTENT` holder) are [F11]'s | §3.5, §3.6, §4.1, §4.6–§4.8, §5.2, §5.3, §5.9, §5.12.1, §5.19, §5.20 |
 | [40] R-8 and [50] F13 (`PATHIDX`) | the fold function of the key order only; the section is [F09]'s | §3.3 |
 | [40] R-9 (fingerprint blob class) | the fingerprint value's bytes; where and how it is stored is [F10]'s and [F11]'s | §2.6.4 |
-| [40] R-4 and R-10 (anchor record, selector block) | the contents of the `window`, `span_hash`, `hint`, quote, `end`, prefix, suffix and `occurrence` values at capture, and the window value's bytes; the record and block layouts are [F08]'s and [F07]'s | §2.7, §2.8, §6.1 |
+| [40] R-4 and R-10 (anchor record, selector block) | the contents of the `window`, `span_hash`, `hint`, quote, `end`, prefix, suffix and `occurrence` values at capture, and the window value's bytes; the record and block layouts are [F08]'s and [F07]'s. The per-kind anchor fixtures of `COVERAGE.md` row R-4 (R-FIX, WP-20) take these values from §2.7.3, §2.8 and §6.1 over a stated content, and capture no scope while §6.1's interim scanner rule holds | §2.7, §2.8, §6.1 |
 | [40] R-12 (I-F10, I-F13) | the resolver's inputs and the constants that make the invariants hold; the invariant texts are [F13]'s and [F18]'s | §1.3, §5.9 |
 | [40] R-18 (`FILEOBS`) | the meaning of the fields the resolver compares (stat quadruple, `verified_at`, `last_oid`, recorded state); the layout is [F11]'s | §5.2, §5.4, §5.9 |
 
@@ -1260,7 +1343,7 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
 | F20-lines-min | least window score for aligning a `lines` anchor | replay row 2 (WP-76) and P11's generated cases (WP-77) | 1/2 (draft, this chapter); 3/4 | 0 silent wrong for `lines` anchors; P11 subset-consistent |
 | F20-winnow-k | winnowing k-gram length in tokens | WP-66 (stage-2 measurements on synthetic rename, reflow and identifier-rename sets, [10 §5.8b]'s method) with WP-76 | 5 (draft, [10 §5.8b]); 4; 6 | on [10 §5.8b]'s variants, the true file ranks first and the pair score (the maximum of lines and tokens) stays ≥ 1/2 for the reflow and identifier-rename variants; WP-66's recall@10 target holds |
 | F20-winnow-w | winnowing window in k-grams | as F20-winnow-k | 4 (draft, [10 §5.8b]); 8 | as above; the guarantee threshold `K + W − 1` tokens |
-| F20-btime-ntfs | `VolumeCaps.btime` class of NTFS volumes on Windows 11 | measurement 15 ([40 §8.3.6]: creation-time behaviour of `mv`, `cp`, `cp -p`, Claude Code's tools, Codex `apply_patch`, NTFS tunneling, on the project volume; WP-55) | `TunneledNotCopied` (draft, [80 §2.11.1]); `Unforgeable` (copy-rule line 2 never applies on Windows) | `TunneledNotCopied` only if no measured tool gives a new file its source's creation time |
+| F20-btime-ntfs | `VolumeCaps.btime` class of NTFS volumes on Windows 11 | measurement 15 ([40 §8.3.6]: creation-time behaviour of `mv`, `cp`, `cp -p`, Claude Code's tools, Codex `apply_patch`, NTFS tunneling, on the project volume; WP-55), with the copy paths an agent machine runs added (pass 1, S1-31, lens S decision D-1): `robocopy /COPY:DAT`, PowerShell `Copy-Item`, Explorer copy and paste, archive extraction (`tar -x`, `Expand-Archive`), and `git checkout` of a moved file | `TunneledNotCopied` (draft, [80 §2.11.1]); `Unforgeable` (copy-rule line 2 never applies on Windows); `Absent` — some measured tool gives a copy its source's creation time, so creation times identify nothing and line 2 never applies on NTFS, as for `CopiedByClones` on macOS (the value [OS/project §4.3] gives ReFS) | `TunneledNotCopied` only if no measured tool gives a new file its source's creation time; if one does, `Absent` |
 | F20-ctime-rename | whether copy-rule line 2 requires q's ChangeTime clearly after V | measurement 15 (a same-volume rename by `MoveFileExW` with and without `MOVEFILE_WRITE_THROUGH`, `mv`, `Move-Item`, `os.rename`, on the project volume; WP-55) | required (draft, review S-16; [80 §2.11.1] "ChangeTime, set by rename", [10 §5.5]); line 2 never `exact` on Windows | "required" only if every measured rename sets the moved file's ChangeTime to a value not before the rename's start minus the volume's granularity |
 | F20-clock-skew | `SKEW`: the largest difference between a file timestamp and the `hlc` wall time of the same moment on one machine | measurement 15 (fresh-file timestamps against the process `hlc`, idle and loaded, on the project and system volumes; WP-55) and measurement 22 (clock step, sleep, hibernation rows; WP-52) | the smallest whole number of milliseconds ≥ the measured maximum plus the volume's recorded granularity; no draft (at M0 only WP-92 uses it, as a parameter) | ≥ the measured maximum; every rule of §5.1 stays on its conservative side |
 
@@ -1287,8 +1370,9 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
    line. Re-indentation is absorbed by trimming; interior whitespace changes change a hash.
 8. **For WP-12 and WP-15: the window value** (§2.7.3). [40 §2.7] puts "the span's offset in the window" in a ≤ 68-byte
    value; [40 §5.7] writes the `.moi` `window` as "base64url of the u16 hashes". This chapter defines W with a 4-byte
-   header (`n_before`, `n_after`) and asks [F07] to carry W as one byte string in the selector block and [F14] to write
-   base64url(W) without padding.
+   header (`n_before`, `n_after`); [F07 §8.2] carries W as one byte string, `lp(W)`, in the selector block (field 11)
+   and [F14 §6.7] writes base64url(W) without padding ([F14 §2.6]), as this point asked. Closed (checked in pass 1,
+   round 3).
 9. **`replaced` and E8 always use sketch estimates** (§2.10.2), even when git holds the old blob, so a tree with and
    without the git object gives the same state (I-F10).
 10. **Similarity never depends on `files.max-line-hashes`** (§2.10.5): `EXACT_LIMIT` = 65,536 is a resolver constant equal
@@ -1311,7 +1395,12 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
     present" time that reads may not write (I-F5) or HOLE(F20-btime-ntfs) showing that no tool copies creation times on
     NTFS, which makes the residue unreachable. Residue: V is a lower bound of the true last verification (review A1P-04), so a
     creation-time-preserving copy made between V and the true last verification can still pass; it needs a tool that
-    copies creation times on NTFS, which HOLE(F20-btime-ntfs) tests.
+    copies creation times on NTFS, which HOLE(F20-btime-ntfs) tests. Pass 1 (S1-31, lens S decision D-1): the ChangeTime
+    condition is kept; the hole gains the candidate `Absent` (a measured tool copies creation times: line 2 never applies
+    on NTFS) and measurement 15 tests the copy paths an agent machine runs (`robocopy /COPY:DAT`, `Copy-Item`, Explorer,
+    archive extraction, `git checkout`). With the hole's constraint met, the residue is unreachable for every measured
+    tool; a creation-time-copying tool outside the measured set remains a known risk, which the owner signs with the
+    measurement's result (`reviews/owner-questions.md`).
 16. **E6 for named roots** (§5.11): E6 applies only to root `project` of a git worktree. A named root that is a git
     worktree top-level of another repository could use that repository's history; resolver version 1 does not.
 17. **For WP-13: the frontier's racy threshold** (§5.12.1). [80 §2.11.3] needs to know at the next settle that a
@@ -1324,13 +1413,12 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
 20. **Range spread in lines** (§6.2): the anchor stores its hint in lines, not the span's byte length, so "twice the
     captured span length" is counted in lines.
 21. **"±16 KB"** (§6.4) is read as 16,384 bytes of N′ on each side of the hint lines.
-22. **For WP-14 (R-16) and the design owner: `unverified` details.** [40 §2.9] (as revised for review S-08) closes the
+22. **`unverified` details** — resolved with [F18] in pass 1 (A1-45). [40 §2.9] (as revised for review S-08) closes the
     `unverified` detail set at `budget`, `cloud-only`, `commit not in this repository`, `no tree`, `git` and `size`. This
     chapter maps its reason `unstable` (§2.4: a read whose passes disagreed twice; [40 §2.5] says only "unverified") to
-    `budget`. Its reason `unreadable` — a denial on the stat of p or on a content read ([80 §2.11.4] rule 9, §4.8) — fits
-    no detail: `budget` would suggest a retry with a larger budget, which cannot help. Proposal: add `unreadable` to the
-    closed set. The place details ("in the Recycle Bin", "in the trash", "moved outside the root", "moved into ignored
-    output") and the E3d detail "directory moved, file replaced" must also be in WP-14's closed list.
+    `budget`. Its reason `unreadable` — a denial on the stat of p or on a content read ([80 §2.11.4] rule 9, §4.8) — is
+    [F18 §4.6]'s detail 59, which [F18] adds to the closed set with 60 and 61 for the owner's sign-off ([F18] open point
+    12). The place details (codes 38–42) and the E3d detail "directory moved, file replaced" (21) are in [F18 §4.6].
 23. **`LINES_MIN`** (§6.5) is a constant [40] does not name; it closes a silent-wrong path for `lines` anchors, whose span
     is trivial text by definition. It is a hole with draft 1/2.
 24. **Disposition of review S-12** (§6.6): [40 §8.3.2] now states the order; §6.6 restates it for this chapter's
@@ -1346,7 +1434,9 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
     "content unknown". This chapter makes membership tests three-valued so that "unknown" is never read as "equal" or as
     "different". For WP-11 and WP-16: the `project` root's algorithm is an `init`-fixed parameter that [F04] must hold
     and [F17] must list; neither chapter lists it yet. (An earlier draft of this chapter compared contents per stored
-    algorithm; it was withdrawn when [40] fixed the rule.)
+    algorithm; it was withdrawn when [40] fixed the rule.) Pass 1 (A1-15, S1-28, P1-4): closed. The `InitParams` block
+    has no spare byte, so [F04 §5.16] holds the value as `project_oid_algo` at slot offset 1072, [F17 §2.1] lists it
+    beside the block under IP-1–IP-3, and [CFG §7.6] records it at `init`; §2.3 cites it.
 28. **Disposition of review A1P-05** (§2.4): adopted as [40 §2.5] now states it (one handle, the normalised length, size
     and last-write time, one retry); this chapter adds a raw-bytes XXH3-64 comparison between the passes to the
     size and last-write checks, which a same-size overwrite within one timestamp tick would pass.
@@ -1354,10 +1444,16 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
     [F16]'s.
 30. **Scope scanners are not specified by any chapter.** The Rust, Markdown and TOML scanners ([40 §2.7.1]) decide the
     `scope` selector, header lines, item kinds and heading levels that §6 uses, and therefore resolution results, but no
-    chapter fixes their grammar (WP-63 builds them from [40]). Proposal for pass 1: a scanner grammar appendix, as part of
-    resolver version 1, before WP-63 is accepted.
+    chapter fixes their grammar (WP-63 builds them from [40]). Pass 1 (A1-14, S1-4, P1-20): the grammar is required as a
+    normative appendix of this chapter (item kinds per language, the exact name text, the numbering-stripping pattern,
+    the TOML table-path form, item boundaries, behaviour on unparsable input, a fixture per construct) before the freeze
+    and before WP-63 is accepted. Until it exists, §6.1's interim scanner rule keeps every hashed byte scanner-free: no
+    scope is recorded (as [F08 §10.3.1] states), and the `symbol` and `heading` forms, whose header line, quote, hint and
+    span hash a scanner would decide, are refused (the closure check's open point 2). The appendix is not written in pass 1:
+    it is a grammar of three languages with fixtures, beyond a review round; its owner is R-SPEC-R with WP-63.
 31. **Span anchors on binary content** (§6.1, §6.5) are refused at capture and resolve `orphaned`; [40] does not say.
-    [F19] needs the refusal code.
+    The refusal is [F19 §10.2] `anchor_spec`, case `binary` (exit 2), which §6.1 cites with the other capture cases
+    (pass 1, round 3). Closed.
 32. **A BOM at the start of a file** is removed from the anchor text (§2.5), matching the removal from quote input
     ([40 §2.7]), so a quote captured from line 1 and the same quote given by `--quote-file` agree.
 33. **Several distinct `strong` targets are `ambiguous`** (§5.5 selection step 3). [40 §4.3] says "the best STRONG result
@@ -1372,9 +1468,10 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
     across processes and in the model (P3). Stored or rendered scores (`FILEOBS` proposals, the `relink` score) are
     rounded by their owning chapters ([F11], [F18]; review A-M1 gives `relink` two decimals, half-even).
 36. **E6's inexact pairs are scored with git's similarity index** (§5.11.4), because [40 §4.4] states their thresholds in
-    git's percentages and [40 §2.2]'s `relink` records "git's per-commit similarity divided by 100". The index is
-    defined by git's source at a pinned version; the chapter summarises it informatively rather than restating git's
-    chunk hash, and WP-74's differential against `git diff-tree -M20%` is the conformance test. [40 §4.4] gives no class
+    git's percentages and [40 §2.2]'s `relink` records "git's per-commit similarity divided by 100". Pass 1 (A1-34): the
+    index is now defined normatively in §5.11.4 (the span hash, the counts, the exact integer formula), with golden
+    vectors checked against git 2.54.0, so no normative reference to git's source is needed in [F01 §2.2]; WP-74's
+    differential against `git diff-tree -M20%` stays a conformance test. [40 §4.4] gives no class
     for a pair between 50 % and 89 %; this chapter applies its similarity row (≥ 0.5, margin ≥ 0.2, a directory or
     basename corroboration) with `gs / 100` as the score. Containments for the split, merged and weak tests stay this
     chapter's line measures, as [40 §4.4] asks ("old blob from git").
@@ -1382,3 +1479,14 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
     that answer the A1 re-review (S-01 … S-20, A-M1, A-M2, A1P-01 … A1P-16). This chapter follows the text as it stood on
     2026-09-27: §2.3 (S-18), §2.4 (A1P-05), §5.1 (S-17), §5.10 (A-M2/S-20), §5.11.4 (A-M1's `git-pair`), §5.19 (A1P-01)
     and the closed `unverified` detail set (S-08). Pass 1 should re-check these sections against [40] as committed.
+    Re-checked in pass 1, round 2, against [40] as committed (§2.5 S-18 and A1P-05, §4.3 "Clock domains" S-17, §2.4
+    A-M2/S-20, §2.2 A-M1, §3.4 A1P-01, the §2.9 `unverified` row S-08): the sections agree; the one extension beyond
+    [40]'s closed `unverified` set is detail 59 `unreadable`, which open point 22 and [F18] open point 12 carry to the
+    owner. Closed.
+38. **Representability before any OS call** (§4.9; pass 1, P1-15). A git-tracked path such as `x::$DATA` or `a:b` is
+    legal on Linux but names an NTFS alternate data stream on Windows, and a `\?\` open bypasses Win32's name checks, so
+    a stat could hash another file's content and a link could read `ok`. The cascade therefore tests every segment of
+    every path with `representable_here` first and decides [F18 §4.6] detail 44 with no OS call. The matching check
+    inside `ProjectFs` ([OS/path], [OS/project §2.3], [OS/fs §2.1]) is R-SPEC-P's; this chapter does not rely on it.
+39. **Golden vectors for `gs`** (§5.11.4; pass 1, A1-34) were computed by an implementation of the §5.11.4 definition and
+    agree with git 2.54.0 on them and on 60 random edited pairs of up to 65,000 bytes; WP-74 turns them into fixtures.

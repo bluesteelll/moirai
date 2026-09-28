@@ -244,4 +244,4 @@ grouping, and for functions the canonical names of [LQ/canonical-ast §5.3] Tabl
    the strict mode governs what one LQ-Bench arm accepts. A GQL display spelling does not imply the strict mode, and the strict
    arm's card uses GQL quantifiers whatever the display spelling is.
 9. **Hole id.** [F01 §2.5] makes hole ids `<part>-<name>`; this chapter's hole is `HOLE(LQ-display-spelling)`, and
-   [LQ/canonical-ast]'s mention of `HOLE(display-spelling)` should use the same id.
+   [LQ/canonical-ast]'s mention now uses the same id (review pass 1 S1-40).

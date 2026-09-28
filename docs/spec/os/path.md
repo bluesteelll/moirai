@@ -118,6 +118,12 @@ an argument is a literal name character, so P4 refuses it rather than guessing; 
    OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, NULL)`. Reparse points on the path (junctions, directory symlinks) and a
    `subst` drive are followed, so the result names the final directory.
 3. `GetFinalPathNameByHandleW(h, …, FILE_NAME_NORMALIZED | VOLUME_NAME_DOS)`: every component in its on-disk spelling.
+   The call fails on a volume mounted only in a folder (no drive letter) and on some virtual providers
+   (`ERROR_PATH_NOT_FOUND`, `ERROR_INVALID_FUNCTION`, `ERROR_NOT_SUPPORTED`). `canonical_root` then returns the failure —
+   `NotFound` for the first, `Unsupported` for the others, with `call` = `GetFinalPathNameByHandleW` — and invents no
+   other spelling, because a guessed text could key a second tree for one directory (P9). The caller refuses the
+   operation with exit 7 `no_canonical_path` ([F19 §10.2]), naming the directory and the OS error, and `doctor` names
+   the same cause (pass 1, P1-37; the code, text and JSON keys are [F19]'s).
 4. Rewrite the result: a leading `\\?\UNC\` becomes `//`; a leading `\\?\` is removed; every `\` becomes `/`; an ASCII
    lower-case drive letter at position 0 before `:` is upper-cased; a trailing `/` is removed except in a drive root
    `X:/`. The result must parse as `win-drive-path` or `win-unc-path` (§2.2) and be valid UTF-16 (else
@@ -184,7 +190,7 @@ only possible reading, and the value is only ever existence-checked.
 
 | | Windows (built) | Linux (port) | macOS (port) |
 |---|---|---|---|
-| Opening `root` + `rel` | the wide string `\\?\` + root text with `/`→`\` (UNC: `\\?\UNC\server\share\…`) + `\` + `rel` with `/`→`\`, UTF-8 → UTF-16; passed to `CreateFileW` and friends; no `MAX_PATH` limit, and no Win32 name normalisation (trailing dots and spaces, device names) happens | `openat2(root_fd, rel, {flags, resolve: RESOLVE_BENEATH \| RESOLVE_NO_SYMLINKS})` (Linux ≥ 5.6) for opens; `fstatat`/`statx(root_fd, rel, AT_SYMLINK_NOFOLLOW)` for stats | `openat(root_fd, rel, flags \| O_NOFOLLOW_ANY)`; `fstatat(root_fd, rel, AT_SYMLINK_NOFOLLOW)`; `getattrlistat` |
+| Opening `root` + `rel` | the wide string `\\?\` + root text with `/`→`\` (UNC: `\\?\UNC\server\share\…`) + `\` + `rel` with `/`→`\`, UTF-8 → UTF-16; passed to `CreateFileW` and friends; no `MAX_PATH` limit, and no Win32 name normalisation (trailing dots and spaces, device names, `:` streams) happens, which is why `ProjectFs` tests every segment with §8.1 first ([OS/project §2.3]) | `openat2(root_fd, rel, {flags, resolve: RESOLVE_BENEATH \| RESOLVE_NO_SYMLINKS})` (Linux ≥ 5.6) for opens; `fstatat`/`statx(root_fd, rel, AT_SYMLINK_NOFOLLOW)` for stats | `openat(root_fd, rel, flags \| O_NOFOLLOW_ANY)`; `fstatat(root_fd, rel, AT_SYMLINK_NOFOLLOW)`; `getattrlistat` |
 | Component limit | 255 UTF-16 code units (NTFS) | 255 bytes (`NAME_MAX`) | 255 UTF-8 bytes (APFS) |
 | OS name → `EntryName` | UTF-16 → UTF-8 if valid and P4 holds, else `Unrepresentable(WTF-8 bytes)` | bytes → `Utf8` if valid UTF-8 and P4 holds, else `Unrepresentable(bytes)` | as Linux (APFS stores valid UTF-8 only) |
 
@@ -203,7 +209,11 @@ only possible reading, and the value is only ever existence-checked.
    exit 2).
 2. **Separators.** Windows: every `\` becomes `/`. Unix: a `\` stays a name character, so step 5 refuses it (P4).
 3. **Absolute or relative.** Windows: `X:/…` and `//…` are absolute; a leading single `/` means the root of the current
-   directory's drive; anything else is relative. Unix: a leading `/` is absolute.
+   directory's drive; a drive-relative `X:rel` (a drive letter and `:` not followed by `/`) and the device forms `//./…`
+   and `//?/…` (from `\\.\…` and `\\?\…` after step 2) are refused with exit 2 `bad_path` (`rule` `drive-relative`
+   or `device`, [F19 §10.2]), because their meaning depends on a per-drive current directory or bypasses Win32 name
+   handling (pass 1, P1-37); anything else is relative. Unix: a leading
+   `/` is absolute.
 4. **Join and normalise.** A relative argument is joined to the canonical current directory (§4 applied to `cwd`); the
    result is normalised lexically as in §5 step 2.
 5. **Strip the root.** The tree's canonical text followed by `/` must be a byte prefix of the result (the tree root itself
@@ -218,7 +228,9 @@ on-disk spelling is the link layer's job.
 ### 8.1 Representable on this OS
 
 `representable_here(segment) → bool` decides whether this OS can hold a name, which is what renders `missing (not
-representable on this OS)` for a tracked path ([80 §2.10] P5, [F18] R-16):
+representable on this OS)` for a tracked path ([80 §2.10] P5, [F18] R-16). On Windows every `ProjectFs` method applies it
+to every segment of every path before any OS call and returns `InvalidName` for a failing one ([OS/project §2.3]), and
+[F20 §4.9] applies it before any cascade step; `--allow-nonportable` never relaxes it (pass 1, P1-15):
 
 | OS | A segment is representable iff |
 |---|---|
@@ -234,7 +246,7 @@ representable on this OS)` for a tracked path ([80 §2.10] P5, [F18] R-16):
 
 | Issue | Condition |
 |---|---|
-| `device-name` | the segment's stem — the part before its first `.`, with trailing ASCII spaces removed — equals, ignoring ASCII case, one of `CON`, `PRN`, `AUX`, `NUL`, `COM0`–`COM9`, `LPT0`–`LPT9` |
+| `device-name` | the segment's stem — the part before its first `.`, with trailing ASCII spaces removed — equals, ignoring ASCII case, one of `CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0`–`COM9`, `LPT0`–`LPT9`, or `COM` or `LPT` followed by one of the superscript digits `¹`, `²`, `³` (U+00B9, U+00B2, U+00B3), which Windows also reserves (pass 1, A1-60) |
 | `trailing-dot-or-space` | the segment ends in `.` (U+002E) or ` ` (U+0020) |
 | `reserved-char` | the segment contains any of `<`, `>`, `:`, `"`, `\|`, `?`, `*` |
 | `too-long` | the segment is longer than 255 UTF-8 bytes |
@@ -300,6 +312,19 @@ pub fn user_config_path() -> Option<AbsPath>;                                   
 
 `portable_issues` and `fold_v1` are `moirai-files` functions ([F20]).
 
+## Coverage
+
+The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
+
+| Item | Part covered here | Section |
+|---|---|---|
+| `60-AR-Layout-userconf` (the per-OS user-scope configuration locations) | the lookup per OS; the locations are frozen by [F02 §7] | §10 |
+| `60-AU-CrossPlatform` (the "Cross-platform" summary row) | X-F7 and X-F9 (a), whose parts are the rows `X-F7` and `X-F9` | — |
+| `R-16` ([40] R-16: the frozen strings) | when a path is unrepresentable; representability. The strings are [F18 §4]'s | §2.4, §8.1 |
+| `X-F7` ([80] X-F7) | the path value types `RelPath`, `AbsPath`, `CanonicalRoot`, `EntryName`; the rules P1–P12 (P3 NFC); canonical roots (P9); the `abs` form (P12); OS path construction and entry names (P10); the CLI boundary. `fold_v1` is [F20 §3.1]'s, the stored keys [F08] and [F11]'s | §2, §3, §4, §5, §6, §7 |
+| `X-F9` ([80] X-F9) | P11; the query file name is [F14 §7.2.1]'s, the ref-name grammar [F12 §2]'s | §3 |
+| `X-F11` ([80] X-F11) | the lookup; the locations are [F02 §7]'s, the keys [CFG]'s | §10 |
+
 ## Holes
 
 | Id | What | Decided by | Candidates | Constraint the value must meet |
@@ -312,7 +337,7 @@ pub fn user_config_path() -> Option<AbsPath>;                                   
 |---|---|---|---|
 | 1 | One `RelPath` for store and project paths, or two? | resolved with [OS/README §2.1] and [OS/fs §2.1]: one type with §2.1's grammar, defined here; `os::fs` adds use-time checks only | — |
 | 2 | P3 says `NFC(name)` "as git records it"; git on macOS precomposes with `iconv` from `UTF-8-MAC`, which is Apple's variant of NFC, not Unicode 17.0.0 NFC | P3's function is **git's precomposition** (the port reproduces it exactly and tests it against git on APFS); X-F7's intent (the same bytes as git) wins over the letter "NFC" | R-REV-P, port phase |
-| 3 | P5's device list omits Windows' superscript-digit forms (`COM¹`–`COM³`, `LPT¹`–`LPT³`) and `CONIN$`/`CONOUT$` | not added: P5 is a portability warning list and [80 §2.10] fixes its content; the review may extend it (a resolver-independent change) | R-REV-A |
+| 3 | P5's device list omits Windows' superscript-digit forms (`COM¹`–`COM³`, `LPT¹`–`LPT³`) and `CONIN$`/`CONOUT$` | **added (pass 1, A1-60)** to §8.2: P5's condition is "a name some supported OS cannot hold", and Windows reserves these names too, so the list is completed rather than changed. P11 (b) uses the same list; ref-name segments cannot contain `$` or superscripts anyway ([F12 §2]) | — |
 | 4 | "with any extension" and the handling of spaces before the extension are not specified in P5 or P11 (b) | the stem is the part before the first `.` with trailing ASCII spaces removed (§8.2), matching Windows' Win32 name normalisation | R-REV-P, WP-12 |
 | 5 | `\xNN` does not say upper or lower case | lower case (§9); [F19] adopts it with the output contract | WP-18 |
 | 6 | X-F11 on Windows names `%APPDATA%`; the documented alternative `SHGetKnownFolderPath` loads `shell32.dll` | the environment variable, with `None` and a `doctor` warning when it is unset (§10) | R-REV-P |

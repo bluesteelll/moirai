@@ -95,11 +95,11 @@ and "Branch kinds and write masks"). The kind codes are [F05 §9.10]'s `rkind` (
 | tags | `tags/<u>` | 5 `tag` | `tag` | never: a tag never moves after its creation | no | yes | yes |
 | staging | `merge/<dst>/from/<src>` | 3 `merge` | the merge machinery (§9.2) | staged commits and `Resolve` commits only (§9) | no | no | never |
 | imports | `import/<ref>` | 4 `import` | `image import` ([F14], [AR §5b.6] step 4) | imported commits and `Resolve` commits only | no | yes | never |
-| orphans | `orphans/<ref>` | 6 `orphans` | recovery only, parking a commit whose ref CAS failed (I27′, [F16]) | none: parking moves the ref without a commit of its own (§8.2) | no | yes, when `<ref>` is a branch | never |
+| orphans | `orphans/<ref>` | 6 `orphans` | only the park of [F16] P-70: the first appender whose scan meets a commit whose ref CAS failed parks it here (I27′) | none: parking moves the ref without a commit of its own (§8.2) | no | yes, when `<ref>` is a branch | never |
 
 - A ref's kind is fixed for its life and equals the kind of its namespace (V for the format oracle: a `REFS` row or
   `RefEntry` whose `kind` differs from its name's namespace is invalid).
-- Kind 6 `orphans` ([F11] open point 7) is confirmed: none of the five kinds of [AR §5a.1] fits a ref that only recovery
+- Kind 6 `orphans` ([F11] open point 7) is confirmed: none of the five kinds of [AR §5a.1] fits a ref that only the park
   writes, and [AR §5a.1] names `orphans/<n>` refs.
 
 ### 2.3 The names the store holds
@@ -398,7 +398,7 @@ VM(dst, src, base) is the typed three-way merge of §7 and the rule tables with 
 | # | Rule inside a virtual merge | Row |
 |---|---|---|
 | VM-1 | dst is never `main`: the owner-authority rows that need "dst is the ref `main`" (MR-011, MR-016) never apply | VB-007 |
-| VM-2 | No automatic policy applies: `merge.policy.<kind>`, `--policy` and `--strict` of the outer command are ignored. A `DeleteVsModify` takes the kind's existence policy from the schema of the virtual merge's dst state ([F08 §8.5.1]) | new (open point 8) |
+| VM-2 | No automatic policy applies: `merge.policy.<kind>`, `--policy` and `--strict` of the outer command are ignored. A `DeleteVsModify` takes the kind's existence policy from the schema of the virtual merge's dst state ([F08 §8.5.1]) | VB-019 (open point 8) |
 | VM-3 | Validators (V01 to V13 of [F13 §5]) do not run; a virtual merge never stages and records no violation and no hint | VB-009 |
 | VM-4 | A row whose disposition is `structural` yields its `result` value (`stage-take-o`: o; `stage-diff3`: the diff3 result) and records nothing | VB-009 |
 | VM-5 | Conflict values are kept as values: a key the virtual merge leaves in conflict holds that conflict value in the result | VB-010 |
@@ -432,8 +432,17 @@ provisional side). A conflict value's sides are never conflict values, so RVB-4 
   [RULES/merge-table] RS-008 if exactly one of flat(o), flat(t) is live, and o's values otherwise; the conflict value's
   provisional side (§6.3) is set accordingly.
 
-These rows replace the order of [RULES/merge-table] MR-001 to MR-005 for a conflict-valued base; the case of a plain base
-with a conflict-valued side (MR-005, a `gap`) is not part of this addendum (open point 3).
+[RULES/merge-table] states these rows in its evaluation order MR-001 (RVB-1), MR-003 (RVB-3), MR-004 (RVB-2) and MR-002
+(RVB-4, with RS-010 and VB-018; review pass 1 S1-15).
+
+**A plain base with a conflict-valued side** (MR-005; pass 1, P1-21; open point 3 adopted). When b is plain, o ≠ b,
+t ≠ b, o ≠ t, and o or t (or both) holds a conflict value, the result is the conflict value {class, base b, ours flat(o),
+theirs flat(t)}, where class is the `conflict` cell of the first row of k's merge class whose disposition is `value` and
+whose case holds for (b, flat(o), flat(t)), or, when no such row holds, the class of the conflicted side (dst's when both
+are conflicted). On an existence key the provisional side follows the last bullet above. The conflicted side's own
+conflict value stays readable as the `Conflict` op's `old` (§6.4). No merge input therefore leaves the model in
+`SpecGap`: [RULES/merge-table] MR-005 states this rule with RS-015 (pass 1, round 1), and the owner re-signs the table
+(V3, `reviews/owner-questions.md` OQ-M-1).
 
 ### 5.5 Termination, cycles and criss-cross
 
@@ -451,6 +460,15 @@ with a conflict-valued side (MR-005, a `gap`) is not part of this addendum (open
   runs its sync first ([AR §5a.7] step 0), after which LCA(src, main) = {tip(main)}, so the daily path never builds a
   virtual base ([RULES/merge-table] VB-017).
 - **Unrelated histories.** An empty LCA set, at any level, gives the empty state as base (§4.3).
+
+### 5.5a Work and memory
+
+A virtual base is built inside the merge that needs it and is charged to that merge (pass 1, P1-29): every virtual
+merge's keys, entries and text merges count against the command's `wmem` and work budget ([F17 §4.4] W1–W2, [CFG §10.4]),
+exactly as the real merge's do. A merge whose virtual bases, held in memory, would exceed `wmem` is a bulk-class producer:
+it streams per-key results and spills sorted runs as [F07 §10.6] requires, or is refused with the budget error when it may
+not ([F17 §4.4] W1). Memoised states (§5.5) are released when the merge ends. Criss-cross histories are rare on the daily
+path (§5.5), so the rule bounds a worst case and costs nothing on the usual one.
 
 ### 5.6 Determinism
 
@@ -526,13 +544,15 @@ A conflict value sits on exactly one key and replaces that key's value. The key 
 
 | Class | Key (`ckey` class) | Sides (`kval` of the key class) | Emitted by |
 |---|---|---|---|
-| `FieldEdit` | `field` (2) of merge class `scalar` or `authority`; `edge` (7), `at` edges with their anchor props included; `observation` (4); `schema` (8) of a `query` item | the key's b, o, t | [RULES/merge-table] MR-009, MR-020, MR-050, MR-051, MR-062, DM-013; [RULES/link-merge-rules] LM-006, LM-021, LM-022 |
-| `StatusFork` | `status` (1) | b, o, t | MR-025 |
-| `TextHunk` | `field` (2) of merge class `text`; `body` (5) | the three whole texts (`body`: the three body hashes) | MR-032, MR-038; §7.5's length rule |
-| `DeleteVsModify` | `existence` (0) of the node; `schema` (8) of a `query` item | b, o, t; a `live` side carries its node image (`snap` = 1, [F06 §6.2]) | MR-042, MR-060, LM-010 |
+| `FieldEdit` | `field` (4) of merge class `scalar` or `authority`; `edge` (7), `at` edges with their anchor props included; `observation` (5); `schema` (9) of a `query` item | the key's b, o, t | [RULES/merge-table] MR-009, MR-020, MR-050, MR-051, MR-062, DM-013; [RULES/link-merge-rules] LM-006, LM-021, LM-022 |
+| `StatusFork` | `status` (2) | b, o, t | MR-025 |
+| `TextHunk` | `field` (4) of merge class `text`; `body` (8) | the three whole texts (`body`: the three body hashes) | MR-032, MR-038; §7.5's length rule |
+| `DeleteVsModify` | `existence` (1) of the node; `schema` (9) of a `query` item | b, o, t; a `live` side carries its node image (`snap` = 1, [F06 §6.2]); on an existence key the `prov` byte (§6.3) | MR-042, MR-060, LM-010 |
 | `SupersedeFork` | `edge` (7) of kind `supersedes` from the **src side's** superseder S to the target T | base `absent`, ours `absent`, theirs = S's edge value | V06 ([F13 §5]); key form fixed here ([RULES/merge-table] open point 9) |
-| `OwnerFieldEdited` | `field` (2) of merge class `owner` or `authority` | b, o, t | MR-014, MR-019 |
-| `PathClaim` | `observation` (4) of **each** claiming file node | that node's composite b, o, t | V08 ([F13 §5]); [RULES/link-merge-rules] PC-002 |
+| `OwnerFieldEdited` | `field` (4) of merge class `owner` or `authority` | b, o, t | MR-014, MR-019 |
+| `PathClaim` | `observation` (5) of **each** claiming file node | that node's composite b, o, t | V08 ([F13 §5]); [RULES/link-merge-rules] PC-002 |
+
+The numbers in parentheses are [F06 §6.1]'s `ckey` class values, which equal [F07 §6.1]'s class codes (pass 1, A1-46).
 
 A key holds at most one conflict value. When several rules would put one on a key, the one that runs first in [F13 §5]'s
 order wins and the later rule sees the key already conflicted (the conflicted-key rows).
@@ -562,8 +582,9 @@ order wins and the later rule sees the key already conflicted (the conflicted-ke
   which `--policy` and `merge.policy.<kind>` can override (AP-004, AP-005), so it cannot be derived from the sides. This
   chapter requires one byte, `prov` (`u8`: 0 `ours`, 1 `theirs`, 2–255 invalid), in every `cstate` with `cs` = 1 whose key
   class is `existence`, placed after `theirs`; it is part of the state, so [F07] hashes it with the conflict value, and the
-  image carries it as the node file's form (a tombstone file when P is `deleted`, [AR §5b.2] rule 8). [F06 §6.2] and [F07]
-  are asked to carry it (open point 4).
+  image carries it as the node file's form (a tombstone file when P is `deleted`, [AR §5b.2] rule 8). [F06 §6.2] stores it
+  after `theirs` in the `cstate` and in the `Conflict` op ([F06 §7.7]), [F07 §7.3] hashes it by name, and [F11 §10]
+  keeps it in the `CONFLICTS` row (pass 1, S1-5, A1-9; open point 4).
 
 ### 6.4 Flat sides
 
@@ -584,7 +605,15 @@ A `Resolve` op ([F06 §7.7]) replaces a key's conflict value, or on a staging re
 | 3 `value` | a value the caller supplies, checked against the key's type ([F08 §8.6]) |
 | 4 `repoint` | violations only: the edge key becomes `absent` and an `AddEdge` to the target is in the same commit ([F06 §7.7]) |
 
-- A `live` existence side restores the node's value keys from its node image (`snap` = 1, [F06 §6.2]).
+- A `live` existence side restores the node's value keys from its node image (`snap` = 1, [F06 §6.2]). Its **hierarchy key
+  and out-edges** are restored from that side's state at the conflict's introducing commit M (the commit whose `Conflict`
+  op set the value; `CONFLICTS.commit`, [F11 §10]): `state(first parent of M)` for `ours`, `state(second parent of M)` for
+  `theirs`. The `Resolve` commit carries, as ordinary ops of the same commit, a `Move` that sets the node's (parent, order)
+  to that state's and an `AddEdge` or `SetEdgeProps` for each out-edge of the node in that state that the view lacks or
+  holds with other props (pass 1, S1-22). The write path's checks apply to them as to any write ([F08 §8.6]); a restore
+  that would break an invariant (a parent that is no longer live, a structural edge to a deleted target) refuses the
+  `resolve` with that check's code, and the caller clears the obstacle first. The node image keeps only value keys
+  ([F06 §6.3], [F07 §7.4]), so no hashed byte changes; the model computes the same side state from history.
 - **`SupersedeFork`.** `ours` and `base` remove S's edge (`absent`). `theirs` keeps S's edge and the same commit removes, by
   `RemoveEdge`, every other active `supersedes` edge to T, so at most one remains (I6). `value` is refused (usage, exit 2)
   (open point 7).
@@ -668,17 +697,20 @@ the rule tables. It reads neither the file system nor git ([AR §5a.7] step 6, P
 
 ### 7.3 Value equality
 
-Two values are equal exactly when their canonical encodings ([F07]) are byte-equal ([RULES/merge-table §2]). On store-local
-`cstate`s ([F06 §6.2]) this is equivalent to bytewise equality after these normalisations:
+Two values are equal exactly when their canonical encodings are byte-equal: [F07 §7.3] states the rule, which is
+[RULES/merge-table §2]'s, and this chapter cites it (pass 1, A1-19). On store-local `cstate`s ([F06 §6.2]) this is
+equivalent to bytewise equality after these normalisations:
 
-1. `text-sym` becomes `text` with the symbol's string ([F06 §5.2]);
-2. an existence value `live` compares by (`ex`, `kind`) only: a node image carried with `snap` = 1 is not part of the value;
+1. a `sym` value becomes a `text` value with the symbol's string ([F08 §5.1]);
+2. a plain existence value never carries a node image (`snap` = 0, [F06 §6.2]), so plain `live` values compare by
+   (`ex`, `kind`); inside a conflict value, a `live` side's node image is part of the side and compares with it, as
+   [F07 §7.3] hashes it;
 3. symbol ids, `#N`, store-local enumeration and schema ids compare as the strings, uids and names they stand for — within
    one store equal ids are equal names, so a bytewise comparison suffices;
-4. a conflict value compares by class, the three sides and, on an existence key, the provisional side.
+4. a conflict value compares by class, the three sides and, on an existence key, the provisional side (`prov`).
 
-`absent` equals only `absent`. No other normalisation applies: `f64` values are already canonical ([F06 §5.2]), sets are
-sorted and unique, and texts compare as exact bytes.
+`absent` equals only `absent`. No other normalisation applies: `f64` values are already canonical ([F08 §5.3]), sets are
+sorted and unique, empty values are absent ([F08 §5.3]), and texts compare as exact bytes.
 
 ### 7.4 Order keys
 
@@ -725,6 +757,13 @@ HD(p0, p1, q0, q1):
 The constant 64 (`DIFF_MAX_RARITY`) is part of format v1: a merged text enters commit ids, so it is never a configuration
 key or store parameter. Two maximal regions never share a start, so the choice is unique and HD is a function.
 
+**Complexity** (pass 1, P1-29). With n the number of lines, the region search is O(64 · n) per call and the recursion
+depth is at most n, so HD is O(64 · n²) in the worst case (a text of repeated rare lines); prefix and suffix stripping make
+the usual edit O(n). Texts and bodies are at most 65,536 bytes ([F08 §5.3]), so n ≤ 65,536. WP-60 (`moirai-diff`)
+measures HD and diff3 on worst-case inputs at that bound and on the usual edits, and records both against the merge's
+share of the commit-path budget ([AR §8.3] SPEED); the constant 64 does not change with the result, which only decides
+whether the implementation needs a faster equivalent of the same function.
+
 **diff3(Ob, Ao, Bt)** takes the base, ours and theirs texts. Let O = lines(Ob), A = lines(Ao), B = lines(Bt), MA = HD(O, A),
 MB = HD(O, B), and ma(i), mb(i) the partner of O's line i in MA, MB when it has one. From (p, q, r) = (0, 0, 0), repeat:
 
@@ -755,16 +794,19 @@ stable `a`, unstable (`b`, `B`, `b`) → `B`, stable `c`, unstable (∅, ∅, `d
 ### 7.6 The re-key (R-3)
 
 [40 §5.5] as revised by the A1 re-review (S-01; [PLAN] disposition FB-3), [40 §2.11] R-3 and [RULES/link-merge-rules]
-RK-001 to RK-010. The re-key is a transformation of one side's state that runs before any per-key rule, in real and
+RK-001 to RK-011. The re-key is a transformation of one side's state that runs before any per-key rule, in real and
 virtual merges alike ([RULES/merge-table] PR-007, VM-6):
 
 1. **When.** For a uid U of a derived-uid kind (`file-key`, [F08 §8.4.7]) that is `absent` in B, that side S holds live
    and not `removed`, and whose final state on the other side is `removed` or deleted ([RULES/link-merge-rules] LC-003,
    LM-007).
 2. **uid′** is the file uid of [F08 §11.2] over S's `root` and `origin_path` with predecessor U, re-derived while the
-   result is dead in B, O or T (RK-003, RK-004).
+   result names any node of B, O or T — live at another path, `removed`, or a tombstone, as [F08 §11.2] step 4 tests a
+   view (RK-003, RK-004).
 3. **S′** is S's state with:
-   - every key owned by U (value keys, existence, hierarchy and out-edges) moved to uid′, and `origin_pred` = U (RK-005);
+   - every key owned by U (value keys, existence, hierarchy and out-edges) moved to uid′, and `origin_pred` = the
+     predecessor of step 2's last derivation, which is U unless step 2 re-derived, so that uid′ verifies over its stored
+     inputs (I-F2; RK-005);
    - every key owned by U, in S′, set to its value in B (U keeps the other side's state, RK-007);
    - every edge key present in S and absent in B whose **destination** is U — every edge kind, `at` edges with their
      anchors, `produced`, `consumed`, `mentions`, `implements` and the rest — replaced by the same edge with destination
@@ -776,8 +818,9 @@ virtual merges alike ([RULES/merge-table] PR-007, VM-6):
 5. A `sync` whose merge re-keys records every key the transformation changed in its residue, because those keys differ
    from what `main`'s window alone yields ([AR §5a.3], [72 M5]).
 
-[40 §0.1] item 4 and [RULES/link-merge-rules] RK-006, which re-point only anchors, are superseded by FB-3; R-MODEL amends
-RK-006 ([F08] open point 35; open point 25 here).
+[RULES/link-merge-rules] RK-003 to RK-007 and RK-011 state this procedure; RK-006, which re-pointed only anchors in its
+first draft, was amended to this edge-complete scope in review pass 1 (S1-14; FB-3; [F08] open point 35; open point 25
+here).
 
 ### 7.7 Directional rules
 
@@ -795,7 +838,7 @@ state diff"; a `sync` stores its residue instead, [AR §5a.3]). For each key k w
 
 | o | r | Op ([F06 §7]) |
 |---|---|---|
-| plain | plain | the key class's ordinary op with `old` = o, `new` = r: `Create`, `Delete`, `Undelete` (existence), `SetStatus`, `SetField`, `Incr` (delta r − o), `SetBody`, `Move`, `AddEdge`, `RemoveEdge`, `SetEdgeProps`, `Schema` |
+| plain | plain | the key class's ordinary op with `old` = o, `new` = r: `Create`, `Delete`, `Undelete`, `CreateDeleted` (existence; the last for o = absent and r = `deleted`, pass 1, S1-6), `SetStatus`, `SetField`, `Incr` (delta r − o), `SetBody`, `Move`, `AddEdge`, `RemoveEdge`, `SetEdgeProps`, `Schema` |
 | any | conflict value | `Conflict` with `old` = o, the class and the three sides (and `prov` on an existence key, §6.3) |
 | conflict value | plain | `Resolve` with `choice` 3 `value`, `old` = o, `new` = r |
 
@@ -860,9 +903,11 @@ record in the same group ([F05 §9.2], [F05 §9.10]); `checkout` writes a `Clien
 
 - A new branch, tag or staging ref is created at its fork commit: `RefUpdate` reason 1 with `old` zero and `new` = the fork
   commit (zero for `main` at `init`); its `RefTable` entry has `tip` = `fork_commit` = that commit.
-- **Parking on `orphans/<R>`.** Recovery moves `orphans/<R>` (created on its first use) to each commit whose ref CAS
-  failed; the commit record itself is unchanged ([F06 §4.4.2]). No `RefUpdate` reason fits this move; this chapter asks
-  [F05 §9.2] for reason 5 `park` (`old` = the previous orphans tip or zero, `new` = the parked commit) (open point 14).
+- **Parking on `orphans/<R>`.** Every replay treats a commit whose ref CAS failed as parked (I27′), and the first
+  appender whose scan meets it moves `orphans/<R>` (created on its first use) to it, before its own group ([F16] P-70);
+  the commit record itself is unchanged ([F06 §4.4.2]). The move is a `RefUpdate` with reason 5 `park` (`old` =
+  the previous orphans tip or zero, `new` = the parked commit), which [F05 §9.2] defines and [F16] P-70 writes (pass 1,
+  P1-3, S1-11, A1-11; open point 14).
 
 ## 9. Staging refs
 
@@ -950,7 +995,7 @@ reflog until they expire ([F17 §11.2]).
 | [50] F18 | the text form of the keys of `QueryInvalid` and `QueryCycle` violations (`query:<name>`); the classes and the validator are [F19 §12]'s | §6.6, §7.9 |
 | [40] R-2 | the placement of `FieldEdit` and `PathClaim` on the `observation` composite key and the provisional composite; the merge-class enumeration is [F08 §8.4.1]'s | §6.2, §6.3 |
 | [40] R-3 | the merge re-key with its edge-complete re-pointing and its record in a sync's residue (FB-3); the derivation is [F08 §11.2]'s, the rows [RULES/link-merge-rules]' | §7.6 |
-| [40] R-4 | only the anchor handle in the key text form of an `at` edge; the anchor record is [F06 §7.5]'s | §6.6 |
+| [40] R-4 | only the anchor handle in the key text form of an `at` edge; the anchor record is [F08 §10.3]'s, which [F06 §7.5]'s ops carry | §6.6 |
 | [60 §2.5] [AR] row "Commit body" | only the values the VCS operations give `ref`, `ref_old`, `prev_on_ref`, `ref_seq`, `sync_base`, the absorbed vector, `origin` and `stmt_origin`; the bytes are [F06 §4]'s | §8.1, §9.2, §9.4 |
 | [60 §2.5] [AR] row "Log" (`RefUpdate`, `RefTable`) | only which operations write them and with which reason; the payloads are [F05 §9.2], §9.10's (reason 5 proposed) | §8.2, §9 |
 
@@ -978,13 +1023,16 @@ rule 3 (open points 11 and 13), not measured values.
    base's conflict value (it never resolved k) against a side that resolved k would conflict, although that side did not
    touch k since the base — which I25′ forbids — and although the same situation at a real LCA takes the resolution
    ([RULES/merge-table] MR-004). RVB-2 and RVB-3 follow I25′; RVB-1 and RVB-4 keep every GT6 property of [60 §3.13] (equal →
-   clean; resolved differently → conflict; agreed and untouched → clean). Consequence for R-MODEL: [RULES/merge-table] MR-002
-   must run after MR-003 and MR-004 (CS-006 restricted to the `both` case), and the owner re-signs the table (V3).
+   clean; resolved differently → conflict; agreed and untouched → clean). Decided in review pass 1 (S1-15): [RULES/merge-table]
+   runs MR-002 after MR-003 and MR-004 with CS-006 restricted to the `both` case, [F13 §3.5] restates I31′, [60 §3.4],
+   [60 §3.13] GT6 (VBC-3) and [AR §5a.7] step 1 are edited at WP-81a, and the owner re-signs the table (V3).
 3. **Flattening and MR-005** (§6.4). A conflict value's sides stay flat ([F06] open point 21). RVB-4 uses flat(v) = the
    side's provisional value; the side's own conflict value stays in the `Conflict` op's `old`. Proposal for R-MODEL:
    MR-005 (a plain base, both sides changed, one of them holding a conflict value), today a `gap`, takes the same form —
    a conflict value {class from the key's value rows on (b, flat(o), flat(t)), else the conflicted side's class; base b;
-   ours flat(o); theirs flat(t)} — so no merge input leaves the model in `SpecGap`.
+   ours flat(o); theirs flat(t)} — so no merge input leaves the model in `SpecGap`. **Pass 1 (P1-21): adopted** as the
+   normative rule of §5.4's last paragraph. **Done** (round 1): [RULES/merge-table] MR-005 (`conflict-plain-base`) with
+   RS-015 states it; the owner re-signs (OQ-M-1).
 4. **The provisional value and the `prov` byte** (§6.3). Readers, indexes, derived predicates and I26′'s `term()` need a
    plain value of a conflicted key, which no chapter defined. For every key but existence it is derived from the sides
    (`ours`, else `theirs` when `ours` is `absent`), which also covers [RULES/merge-table] RS-011 ("the modified definition
@@ -995,7 +1043,7 @@ rule 3 (open points 11 and 13), not measured values.
    row holds P). Owners: WP-12a ([F06]), WP-12b ([F07]), WP-15 ([F14]). Known limit: a `PathClaim` raised on a composite
    that the merge composed (LM-005) has dst's composite as its provisional value, not the composed one; the claim is
    settled by observation anyway ([RULES/link-merge-rules] LV rows), and keeping the composed value would need a fourth
-   stored side.
+   stored side. **Pass 1 (S1-5, A1-9): done** — [F06 §6.2], [F06 §7.7] and [F07 §7.3] carry `prov`; [F11 §10] stores it.
 5. **`DATA` gets no code** (§6.1). Conflict inside [AR]: §5a.8 lists `DATA` as a class; I34′, §2.7 and §5a.5 record it as
    `FieldEdit`. This chapter follows the invariant and [RULES/merge-table] DM-013; [F19 §12.1]'s code-range row is asked to
    drop `DATA` from its list. The alternative, a code 8 `DATA` that revert and cherry-pick emit, would change I34′.
@@ -1005,11 +1053,13 @@ rule 3 (open points 11 and 13), not measured values.
    and ours `absent` and theirs its edge value; its provisional value keeps both superseders present. `--take theirs` also
    removes the other active superseders of the target, and `--value` is refused. The `conflicted` flag follows ownership
    (§6.3), so only the src-side superseder is flagged; the merge table's proposal to flag both would need a derived rule
-   beyond ownership. R-MODEL confirms or amends. [F13] states that I6 does not hold for a target while a `SupersedeFork`
-   value on one of its `supersedes` edges stands, as the design lets a `PathClaim` value stand against I-F1.
+   beyond ownership. [F13] states that I6 does not hold for a target while a `SupersedeFork` value on one of its
+   `supersedes` edges stands, as the design lets a `PathClaim` value stand against I-F1. **Confirmed** (pass 1, round 1):
+   [RULES/merge-table] open point 9 takes this ownership rule, so only the src-side superseder is `conflicted`.
 8. **Virtual merges ignore automatic policies** (VM-2). An automatic `ours`/`theirs` inside a virtual merge would pick one
    LCA's value by generation order — the silent choice the virtual base exists to prevent — and a flag of the outer
-   command would make the base depend on the command line. Proposed as a new VB row; R-MODEL adds it.
+   command would make the base depend on the command line. **Done** (pass 1, round 1): [RULES/merge-table] VB-019
+   (`auto-policy=ignored`), which §5.3's VM-2 row cites.
 9. **Hierarchy order uses the canonical `hlc`** (§7.4), never `append_hlc`, which differs between stores and would make an
    imported merge recompute differently (I30′). "Newest" is the greatest (hlc, id).
 10. **Zero LCAs → empty base** ([RULES/merge-table] VB-003), at every level of the recursion (§4.3, §5.1). git refuses
@@ -1030,8 +1080,10 @@ rule 3 (open points 11 and 13), not measured values.
     bytes keeps a loose ref's path within Windows' 260-character limit for an image repository at an ordinary depth; it is
     a chapter decision. (d) A merge's src is a ref; merging an arbitrary commit is refused, because the absorbed vector and
     the staging name need a ref (cherry-pick applies one commit).
-14. **`RefUpdate` reason 5 `park`** (§8.2) for [F05 §9.2] and [F16]: recovery's move of `orphans/<ref>` is a non-commit
-    move ([AR §5a.2]) that no reason 1–4 describes.
+14. **`RefUpdate` reason 5 `park`** (§8.2) for [F05 §9.2] and [F16]: the park of `orphans/<ref>` is a non-commit
+    move ([AR §5a.2]) that no reason 1–4 describes. **Pass 1 (P1-3, S1-11, A1-11):** [F05 §9.2] defines reason 5; §8.2
+    cites it. **Closed** (round 1): [F05 §9.2] has reason 5 (`old` zero when it creates `orphans/<R>`), [F05 §9.10] the
+    park's partial upsert, and [F16] P-70 cites the bytes.
 15. **Namespace completion** (IN-3) is a convenience of `branch`, `checkout --branch-new` and `tag` only; revisions are
     never completed, so a revision never silently names a different ref.
 16. **Error codes for [F19 §10.2]** (all exit 2, X-F9 fixing exit 2 for the fold rule): `bad_ref_name` — `<name> is not a
@@ -1040,12 +1092,13 @@ rule 3 (open points 11 and 13), not measured values.
     `the segment <s> is reserved` (RN-2), `the segment <s> reads as a commit or sequence number` (RN-3), `the segment <s>
     is a Windows device name` (RN-4), `the segment <s> ends in .lock` (RN-5), `it is longer than 128 bytes` (RN-6);
     `ref_exists` — `<name> already exists` (RN-7); `ref_prefix` — `<name> and <other> cannot both exist: one is a prefix
-    of the other` (RN-8). [F19] owns the final texts.
+    of the other` (RN-8). [F19] owns the final texts. **Pass 1 (A1-39):** [F19 §10.2] adds the three codes.
 17. **Reserved field names** (§6.6). [F08 §8.2]'s field-name uniqueness list gains `existence` and `observation`, so
     `#N.<name>` is unambiguous. The other key words (`status`, `body`, `parent`, `order`) are already common fields.
 18. **`CONFLICTS.n` for schema keys** (§6.3): [F11 §10] defines `n` as the node's `#N`; a conflict on a schema item or a
     named query has no node, and 0 (never a `#N`) is proposed. The row order (`n`, key bytes) then puts schema conflicts
-    first.
+    first. **Closed** (pass 1, round 1, S1-7): [F11 §10] takes `n` = 0 for schema keys, whose rows fold with `SCHEMA`
+    ([F09 §8.3]).
 19. **Violation keys** (§7.9) are fixed here because GT2 compares keys exactly and only [F19 §12.5] (F18's classes) and
     [F13 §5] V03 (the `Cycle` witness) had chosen one. [F13] and [F19] cite §7.9.
 20. **Revision edge cases** (§3.4, §3.5). A reflog suffix is valid only directly on a ref name or on `HEAD` resolving to a
@@ -1063,17 +1116,22 @@ rule 3 (open points 11 and 13), not measured values.
 23. **`merge --continue` when dst moved** (§9.4). [AR §5a.7] step 8 and PR-014 re-apply the staged resolutions "against the
     current dst tip"; the design does not say what happens to a key dst changed after staging. §9.4 recomputes the
     candidate and drops a resolution whose key dst changed since the tip it was made against, with a notice; when dst did
-    not move the result equals PR-014's. R-MODEL aligns PR-014.
+    not move the result equals PR-014's. **Done** (pass 1, round 1): [RULES/merge-table] PR-014 states the same rule.
 24. **The staging ref's vector and fork fields** (§9.2): a staging ref is a fork of dst at its tip, so its view, its
     absorbed vector and its first commit's `ref_old` follow the ordinary fork rules; staging commits emit no markers
     (RE-004), so the vector only serves reads of the staged view.
 25. **Re-key scope** (§7.6). FB-3 names edges, `replaced_by` references and the node's own out-edges; this chapter also
     re-points `ref`-typed field values equal to U that the re-keyed side set, because leaving them on U is the same wrong
-    answer S-01 describes for edges. R-MODEL amends RK-006 (anchors only) to the edge-complete scope; [F08] open point 35
-    is closed by §7.6.
+    answer S-01 describes for edges. [RULES/link-merge-rules] RK-006 now has this edge-complete scope and RK-011 the residue
+    (review pass 1 S1-14); [F08] open point 35 is closed by §7.6.
 26. **`fork_ref_id` 0 in [F11 §3.1]** means "no fork", while `main` has `ref_id` 0, so a fork from `main` also stores 0.
     `fork_commit` (zero only without a fork) disambiguates; [F11] may state it.
 27. **Empty text** (§7.5). [F06 §5.2] calls empty text "a value distinct from `absent`", while [F08 §5.3] says "the empty
     text is never stored: an empty value is an absent field". The text rule follows [F08] (an empty diff3 result is
     `absent`), which also makes "`absent` reads as the empty text" symmetric; [F06] and [F08] settle the conflict between
-    them.
+    them. **Pass 1 (P1-1, S1-1): closed**: empty text is absent in every stored form ([F08 §5.3]).
+28. **Pass 1 changes** (S1-6, S1-22, A1-19, A1-46, P1-29). §7.8 emits [F06]'s `CreateDeleted` for a key that goes from
+    absent to deleted; §6.5 restores a taken live side's hierarchy key and out-edges from that side's state at the
+    introducing commit (images stay value keys only); §7.3 cites [F07 §7.3] as the one equality rule; §6.2 uses the
+    renumbered `ckey` classes; §5.5a charges virtual-base work to the merge's budgets and §7.5 states HD's complexity for
+    WP-60 to measure.

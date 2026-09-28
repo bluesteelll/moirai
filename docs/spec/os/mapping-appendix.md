@@ -2,10 +2,10 @@
 
 | Field | Value |
 |---|---|
-| Title | OS layer specification, part 2: one table per OS mapping every method of `ProjectFs`, `Clock`, `ProcHost`, `Meter`, `os::path`, `os::ipc`, `os::term` and `os::test_host` to its calls, and an index of part 1's mappings for `StoreFs`, `Locks`, `SealedMaps` and `EnvGuard` |
+| Title | OS layer specification, part 2: one table per OS mapping every method of `ProjectFs`, `Clock`, `ProcHost`, `Entropy`, `Meter`, `os::path`, `os::ipc`, `os::term` and `os::test_host` to its calls, and an index of part 1's mappings for `StoreFs`, `Locks`, `SealedMaps` and `EnvGuard` |
 | Status | draft, pass 1 pending |
 | Work package | WP-17b (role R-SPEC-P), part 2 of WP-17 ([PLAN §3.2] item 1: "the mapping appendix for Windows, Linux and macOS") |
-| Sources | [80 §2.1]–[80 §2.13] (every per-OS row); [AR §14] (compact mapping); [80 §5.2] (port scope); the part-2 chapters [OS/proc], [OS/clock], [OS/mem], [OS/project], [OS/path], [OS/shell], whose text is normative where this table abbreviates it |
+| Sources | [80 §2.1]–[80 §2.13] (every per-OS row); [AR §14] (compact mapping); [80 §5.2] (port scope); the part-2 chapters [OS/proc], [OS/clock], [OS/mem], [OS/project], [OS/path], [OS/shell], and [OS/README §4.6] for `Entropy`, whose text is normative where this table abbreviates it |
 | Reconciled with | [OS/README §1.3, §3, Appendix A]; the Appendix A of [OS/fs], [OS/lock], [OS/map] and [OS/env] (part 1's own per-OS tables, indexed in §5 and not repeated) |
 
 ---
@@ -33,7 +33,7 @@
 | `canonical_root(dir)` | `GetFullPathNameW` (relative input) → `CreateFileW(\\?\p, FILE_READ_ATTRIBUTES, share R\|W\|D, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS)` → `GetFinalPathNameByHandleW(FILE_NAME_NORMALIZED \| VOLUME_NAME_DOS)` → `GetFileInformationByHandleEx(FileIdInfo)` → `GetVolumeInformationByHandleW` (file-system name for the id kind) → `CloseHandle` | [OS/path §4.1] |
 | `canonical_abs(p)` | existing: as `canonical_root`; absent: `GetFullPathNameW` + lexical normalisation | [OS/path §5] |
 | `cli_path(arg, cwd, tree)` | `std::env::args_os` (the MSVC rules over `GetCommandLineW`) gives `arg`; `canonical_root(cwd)`; then pure string work | [OS/path §7], [OS/shell §4] |
-| `representable_here(seg)` | none (pure: device names, trailing `.`/space, reserved characters, ≤ 255 UTF-16 units) | [OS/path §8.1] |
+| `representable_here(seg)` | none (pure: device names, trailing `.`/space, reserved characters, ≤ 255 UTF-16 units); every `ProjectFs` method below applies it to every segment of its paths before its first call, `InvalidName` on failure (pass 1, P1-15) | [OS/path §8.1], [OS/project §2.3] |
 | `user_config_path()` | the `APPDATA` environment variable (`std::env::var_os`); no `SHGetKnownFolderPath` | [OS/path §10] |
 | OS name → `EntryName` | UTF-16 → UTF-8, or WTF-8 bytes when not valid | [OS/path §2.4, §6] |
 | `open_root(c)` | `CreateFileW(\\?\c.text, FILE_READ_ATTRIBUTES, …, FILE_FLAG_BACKUP_SEMANTICS)` → `GetFileInformationByHandleEx(FileIdInfo)` (root-id check) → `CloseHandle`; the `Root` keeps text and id only | [OS/project §2.2] |
@@ -47,7 +47,7 @@
 | `enumerate(dir, visit)` | `CreateFileW(\\?\dir, FILE_LIST_DIRECTORY \| FILE_READ_ATTRIBUTES, …, FILE_FLAG_BACKUP_SEMANTICS)` → `GetFileInformationByHandleEx(FileIdInfo)` → `GetFileInformationByHandleEx(FileIdExtdDirectoryRestartInfo)`, then `FileIdExtdDirectoryInfo` until `ERROR_NO_MORE_FILES` (64 KiB, 8-byte aligned) → `CloseHandle`. Never on a `RECALL_ON_DATA_ACCESS` directory | [OS/project §5.2] |
 | `locate_id(root, id, recorded)` | `CreateFileW(root, FILE_READ_ATTRIBUTES, …)` (volume hint) → `OpenFileById(hint, {sizeof, ExtendedFileIdType, FILE_ID_128}, FILE_READ_ATTRIBUTES, share R\|W\|D, NULL, FILE_FLAG_BACKUP_SEMANTICS \| FILE_FLAG_OPEN_REPARSE_POINT)` → `GetFinalPathNameByHandleW(FILE_NAME_NORMALIZED \| VOLUME_NAME_DOS)` → `CloseHandle` ×2 | [OS/project §5.4] |
 | `file_handle_digest(at)` | none: `Ok(None)` | [OS/project §5.4] |
-| `read_for_hash(at, opts)` | `GetFileAttributesExW` (placeholder gate) → `CreateFileW(\\?\p, GENERIC_READ, share R\|W\|D, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN \| FILE_FLAG_OPEN_REPARSE_POINT)` → `GetFinalPathNameByHandleW` (containment) | [OS/project §5.5] |
+| `read_for_hash(at, opts)` | `GetFileAttributesExW` (placeholder gate) → `CreateFileW(\\?\p, GENERIC_READ, share R\|W\|D, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN \| FILE_FLAG_OPEN_REPARSE_POINT)` → `GetFinalPathNameByHandleW` (containment) → `GetFileInformationByHandleEx(FileAttributeTagInfo)` (the placeholder gate re-checked through the handle before the first `ReadFile`; pass 1, P1-38) | [OS/project §5.5] |
 | `Reader::read` / `rewind` / `snapshot` / `identity` / drop | `ReadFile` / `SetFilePointerEx(0, FILE_BEGIN)` / `GetFileInformationByHandleEx(FileStandardInfo, FileBasicInfo)` / `GetFileInformationByHandleEx(FileIdInfo)` / `CloseHandle` | [OS/project §5.5] |
 | `read_link(at, out)` | `CreateFileW(\\?\p, FILE_READ_ATTRIBUTES, …, FILE_FLAG_OPEN_REPARSE_POINT \| FILE_FLAG_BACKUP_SEMANTICS)` → `DeviceIoControl(FSCTL_GET_REPARSE_POINT)` (`IO_REPARSE_TAG_SYMLINK` only; `PrintName`, `\` → `/`) → `CloseHandle` | [OS/project §5.6] |
 | `busy_holders(at)` | `RmStartSession` → `RmRegisterResources` (one file) → `RmGetList` → `RmEndSession`; a directory → `Unsupported` | [OS/project §5.8] |
@@ -133,9 +133,16 @@ priorities, `SetProcessInformation`), `Win32_System_ProcessStatus` (`GetProcessM
 `Win32_System_SystemInformation` (`GlobalMemoryStatusEx`, `GetSystemTimePreciseAsFileTime`),
 `Win32_System_WindowsProgramming` (`QueryInterruptTimePrecise`), `Win32_System_Performance` (`QueryPerformanceCounter`),
 `Win32_System_Diagnostics_ToolHelp` (snapshots), `Win32_System_Registry` (`RegGetValueW`), `Win32_System_RestartManager`
-(`Rm*`), `Wdk_System_SystemServices` (`KUSER_SHARED_DATA`); for the leader only `Win32_System_Pipes`, `Win32_Security`,
-`Win32_Security_Authorization`; for `test-host` only `Win32_Storage_Vhd`. WP-33 confirms the family of each item against
-the pinned `windows-sys` release (README Appendix A lists part 1's).
+(`Rm*`), `Wdk_System_SystemServices` (`KUSER_SHARED_DATA`), `Win32_Security_Cryptography` (`BCryptGenRandom`, §2.9);
+for the leader only `Win32_System_Pipes`, `Win32_Security`, `Win32_Security_Authorization`; for `test-host` only
+`Win32_Storage_Vhd`. WP-33 confirms the family of each item against the pinned `windows-sys` release (README Appendix A
+lists part 1's).
+
+### 2.9 `Entropy` (`os::proc`)
+
+| Method | Windows calls | Spec |
+|---|---|---|
+| `fill_random(buf)` | `BCryptGenRandom(NULL, buf, n, BCRYPT_USE_SYSTEM_PREFERRED_RNG)`, `n` ≤ `u32::MAX` per call; a status other than `STATUS_SUCCESS` panics | [OS/README §4.6] |
 
 ## 3. Linux ≥ 5.10, 64-bit, static musl (port phase)
 
@@ -210,6 +217,12 @@ the pinned `windows-sys` release (README Appendix A lists part 1's).
 | `kill` / `suspend` / `resume` | `kill(SIGKILL)` / `kill(SIGSTOP)` / `kill(SIGCONT)` | [OS/proc §13] |
 | `small_volume` | a loop-mounted image (privileged CI job) | [OS/proc §13] |
 
+### 3.6 `Entropy`
+
+| Method | Linux calls | Spec |
+|---|---|---|
+| `fill_random(buf)` | `getrandom(buf, n, 0)`, repeated after a short count or `EINTR` until full; any other error panics | [OS/README §4.6] |
+
 ## 4. macOS ≥ 14, arm64 (port phase)
 
 ### 4.1 `ProjectFs` and `os::path`
@@ -276,6 +289,12 @@ the pinned `windows-sys` release (README Appendix A lists part 1's).
 | `os::term` | as Linux | [OS/shell §10] |
 | `kill` / `suspend` / `resume` / `small_volume` | as Linux; `hdiutil create` + `attach` for the volume | [OS/proc §13] |
 
+### 4.6 `Entropy`
+
+| Method | macOS calls | Spec |
+|---|---|---|
+| `fill_random(buf)` | `getentropy(buf, n)`, `n` ≤ 256 per call, repeated until full; an error panics | [OS/README §4.6] |
+
 ## 5. Index of part 1's mappings (`StoreFs`, `Locks`, `SealedMaps`, `EnvGuard`)
 
 Part 1 maps its sub-traits of `Vfs` in the Appendix A of its own files; they are not repeated here, so that one table owns
@@ -288,6 +307,7 @@ each row.
 | `SealedMaps` ([OS/map §3]) | `map_sealed`, `advise`, unmap on drop; the registry; the fault handler | [OS/map] Appendix A |
 | `EnvGuard` ([OS/env §2]) | `classify`, `probe_store`, `check_os_version`, `doctor_warnings` | [OS/env] Appendix A |
 | `Clock`, `ProcHost` | as §2.2–§2.3, §3.2–§3.3, §4.2–§4.3 of this file | this file |
+| `Entropy` ([OS/README §4.6]) | `fill_random` | §2.9, §3.6, §4.6 of this file |
 
 ## 6. Calls never used by the part-2 surfaces
 
@@ -304,8 +324,25 @@ each row.
 | libproc (`proc_pidinfo`, `proc_pid_rusage`) in product code | private (X9); harness only | [OS/proc §3.2], [OS/mem §7] |
 | `SHGetKnownFolderPath` for the user-scope config | loads `shell32.dll` | [OS/path §10] |
 | `FormatMessageW`, `strerror` texts in output | localised, not ASCII | [OS/shell §6] |
+| `/dev/urandom` or `/dev/random` as a fallback; `CryptGenRandom`; `RtlGenRandom`; a clock-, pid- or address-seeded generator | no weaker random source ([80] X5); `CryptGenRandom` is deprecated and `RtlGenRandom`'s documentation reserves its removal | [OS/README §4.6] |
 | an abstract Unix socket; a `$TMPDIR`-derived endpoint; a socket inside `.git/moirai` | [80 §2.8] | [OS/proc §12] |
 | `ru_maxrss`, `/proc/*/status` RSS as a gated quantity | includes file-backed pages | [OS/mem §2] |
+
+## Coverage
+
+None as normative text ([F01 §2.7]): every row of this appendix abbreviates the section named in its last column, which
+is normative (§1), and `COVERAGE.md` cites that section. The appendix is the per-OS call index for the parts of these
+items that the part-2 files and [OS/README] specify:
+
+| Item | Part indexed here | Section | Normative in |
+|---|---|---|---|
+| [80] X-F2 | per-OS `ProcId`, boot-identity, liveness and clock calls | §2.2, §2.3, §3.2, §3.3, §4.2, §4.3 | [OS/proc], [OS/clock] |
+| [80] X-F7 | per-OS canonical roots and path conversions | §2.1, §3.1, §4.1 | [OS/path] |
+| [80] X-F8; [40] R-14 | per-OS `ProjectFs` calls (identity, volumes, reads, renames, trash, denials) | §2.1, §3.1, §4.1 | [OS/project] |
+| [80] X-F11 | the per-OS user-scope configuration lookup | §2.1, §3.1, §4.1 (`user_config_path`) | [OS/path §10] |
+| [80] X-F12 | `os::term` per OS | §2.6, §3.5, §4.5 | [OS/shell §10] |
+| [60 §2.5] audit row "`Vfs`/`ProjectFs`" | `ProjectFs`'s `sync_dir`, `durable_rename`, `durable_unlink` per OS | §2.1, §3.1, §4.1 | [OS/project §6], [OS/fs §4.4] |
+| — (no frozen item) | `Entropy::fill_random` per OS | §2.9, §3.6, §4.6 | [OS/README §4.6] |
 
 ## Holes
 
@@ -324,3 +361,4 @@ HOLE(OS-win-boot-clock) ([OS/clock]), HOLE(OS-pfs-gran-probe-k) and HOLE(OS-pfs-
 | 1 | PLAN WP-17 asks for "the mapping appendix for Windows, Linux and macOS", while part 1 wrote an Appendix A in each of its files | this file maps the part-2 surfaces per OS and indexes part 1's appendices (§5), so every method of `Vfs`, `ProjectFs` and `Meter` has exactly one per-OS row owner | WP-17a |
 | 2 | The `windows-sys` feature families of §2.8 are named from memory of the crate's layout [I] | WP-33 confirms each against the pinned release; a different family name changes no call | WP-33 |
 | 3 | `NtSuspendProcess`/`NtResumeProcess` are undocumented | allowed only in `os::test_host` (test builds), as GT4's suspend variant needs ([AR §8.2]); never reachable from the product root ([OS/README §2.4]) | R-REV-P |
+| 4 | Pass-1 finding S1-27: no OS-layer call for the random source | rows §2.9, §3.6 and §4.6 for `Entropy::fill_random`, abbreviating [OS/README §4.6] (normative); `Win32_Security_Cryptography` added to §2.8 | WP-30, WP-33 |

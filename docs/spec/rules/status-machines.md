@@ -338,7 +338,7 @@ node's `at` in-edges); `store`.
 | DE-024 | measurement | * | `retracted` | suspect | derivation-src | design | [AR §3.5] | - |
 | DE-025 | artifact | * | `removed` | suspect | at-src | design | [40 §2.9]; [AR §3.5] | "a file node that is `removed` … makes its referrers `suspect`". |
 | DE-026 | artifact | `removed` | * | suspect | at-src | design | [40 §2.9]; [AR §3.5] | `links fix --restore` clears it. |
-| DE-027 | lane | * | `measuring` | quiet | store | design | [AR §6.6] | "any lane with status `measuring` implies it (the explicit flag wins)". |
+| DE-027 | lane | * | `measuring` | quiet | store | design | [AR §6.6]; [F17 §5.3] | "any lane with status `measuring` implies it (the explicit flag wins)", while `quiet.from-lane-measuring` is true ([CFG]); [F17 §5.3] lists the other sources of quiet mode (the flag and a held quiet byte of `LOCK`). |
 | DE-028 | lane | `measuring` | * | quiet | store | design | [AR §6.6] | - |
 | DE-029 | finding | * | * | - | - | derived | [AR §3.5] review-loop termination, refuted share | These are queries over statuses; no maintained predicate changes. |
 
@@ -347,9 +347,9 @@ node's `at` in-edges); `store`.
 <!-- table: complete-outcomes -->
 | row | outcome | status | lease | hold | basis | source | note |
 |---|---|---|---|---|---|---|---|
-| CO-001 | done | `done` | released-settled | done | design | [AR §6.2]; [50 §4.2] | "writes `done` on the lease's branch, releases the lease into `settled`". |
-| CO-002 | failed | `done` | released-settled | done | proposed | [AR §6.2]; [OP-16] | The literal reading: `complete` writes `done` for every outcome; the outcome travels in the `settled` marker. |
-| CO-003 | abandoned | `done` | released-settled | done | proposed | [AR §6.2]; [OP-16] | As CO-002. |
+| CO-001 | done | `done` | released-settled | done | design | [AR §6.2]; [50 §4.2]; [API §10.5] | "writes `done` on the lease's branch, releases the lease into `settled`". Resolution `completed` ([API §10.5] step 1). |
+| CO-002 | failed | `done` | released-settled | done | proposed | [AR §6.2]; [API §10.5]; [LQ/std §7.3]; [OP-16] | The literal reading: `complete` writes `done` for every outcome, here with resolution `rework`; the outcome travels in the `settled` marker ([F11 §7] `outcome` 2). Confirmed by WP-25 ([API §10.5] step 1) and [LQ/std §7.3] `tx.complete` (review pass 1, A1-36). |
+| CO-003 | abandoned | `done` | released-settled | done | proposed | [AR §6.2]; [API §10.5]; [LQ/std §7.3]; [OP-16] | As CO-002, with resolution `wontdo` and `outcome` 3. |
 
 ## 12. General rules
 
@@ -358,7 +358,7 @@ node's `at` in-edges); `store`.
 |---|---|---|---|---|---|---|---|
 | GR-001 | no-transition | status-write | E404 | 6 | design | [AR §3.4] I8; [50 §3.10] item 5 | A status write whose (kind, from, to, door) matches no `transitions` row is refused; the message names the door that exists, for example `REOPEN` for `done → open`. |
 | GR-002 | role-policy | status-write | E406 | 6 | design | [AR §7.3]; [50 §6.5]; [RULES/role-write-policy WR-009] | Whether the caller's effective role may make the transition is decided by [RULES/role-write-policy] (`door-roles` names the rows). A role row is usable only through a door that `transitions` lists for the transition. |
-| GR-005 | target-live | status-write | - | 3 | design | [AR §7.1] exit 3 | A status write on a deleted or absent node is "not found"; the tombstone is printed. |
+| GR-005 | target-live | status-write | not_found | 3 | design | [AR §7.1] exit 3; [F19 §10.2] `not_found`; [API §9.1] | A status write on a deleted or absent node is "not found": [F19 §10.2] `not_found` with `what` = `node`, and the tombstone is printed ([RULES/delete-policy-matrix] DP-003). |
 | GR-006 | create-status | create | E404 | 6 | proposed | [50 §3.10] item 6; [OP-17] | A `Create` takes an initial status. A `Create` that names another status is checked as a path of `transitions` rows from an initial status to it, every step with its guards and a role grant; `CREATE (x:artifact …)` stays E115 ([50 §3.10]). |
 | GR-007 | per-statement | tx | - | - | design | [50 §3.10] items 2, 5; [AR §4.3] coalescing | Statements are checked in order on the candidate; a guard sees the effects of earlier statements. The stored op is the net `SetStatus` per node, so `TX { REOPEN t; SET t.done = true }` on a done task stores nothing. |
 | GR-008 | non-door | merge-history-import | - | - | design | [AR §5a.5]; [AR §5a.7]; [AR §5b.6]; [AR §3.4] I8 | Merge, `sync`, revert, cherry-pick, `undo`, `op restore` and import are not checked against `transitions` or the role write policy's status rows; I8 is checked on the resulting state: the status is one of the kind's `statuses` or a conflict value. |
@@ -375,7 +375,7 @@ node's `at` in-edges); `store`.
 ## Coverage
 
 These tables specify semantics, not bytes. The byte layouts they rely on are [F08]'s (`NodeHdr.status`, the status
-and resolution codes, `CREATOR`), [F06]'s (`SetStatus`, `Incr`) and [F19]'s (E115, E305, E404, E406).
+and resolution codes, `CREATOR`), [F06]'s (`SetStatus`, `Incr`) and [F19]'s (E115, E305, E404, E406, `not_found`).
 
 | Checklist row | Covered by | Fixture | Model function |
 |---|---|---|---|
@@ -395,8 +395,8 @@ None. No transition, guard or grant depends on a value an M0 measurement decides
 ## Open points for the review
 
 1. **File name and registry.** The task that commissioned this file names it `status-machines.md`, as [RULES/README]
-   §1.1 does. Its tables must be added to [RULES/README] §7 before the model can parse them (README Open point 4).
-   Proposed registry rows (prefixes checked against the existing ones):
+   §1.1 does. Its tables are registered in [RULES/README] §7 as RG-085 to RG-095 (review pass 1 S1-47), with these
+   rows:
 
    ```
    | RG-0xx | `status-fields` | status-machines.md | decision | SF | row:id, kind:token, field:token, stored:enum(yes/no), guarded:enum(yes/no), basis:enum, source:cite, note:text | - |
@@ -457,7 +457,9 @@ None. No transition, guard or grant depends on a value an M0 measurement decides
     outcome, and the `settled` marker records the outcome. Consequence: a failed task is excluded from dispatch on
     every branch until someone reopens it, which is safe against double dispatch. The alternative (failed and
     abandoned return the task to `open`) would need a transition the design does not state. [RULES/role-write-policy]
-    WS-004 leaves the outcomes to [API] (WP-25); CO-002 and CO-003 are the rows WP-25 confirms or overturns.
+    WS-004 leaves the outcomes to [API] (WP-25); CO-002 and CO-003 are the rows WP-25 confirms or overturns. **Confirmed**
+    (review pass 1, A1-36): [API §10.5] step 1 and [LQ/std §7.3] write `done` for every outcome, with resolution
+    `completed`, `rework` or `wontdo` for `done`, `failed` or `abandoned`; the CO notes name them.
 17. **Creating a node in a non-initial status** (GR-006). Proposed: allowed as a checked path of transitions, so
     `remember` can create an accepted decision only for a role that may accept it.
 18. **Resolution** (GR-014). The design lists the resolution values but not which statuses carry them. Proposed as in
@@ -473,7 +475,8 @@ None. No transition, guard or grant depends on a value an M0 measurement decides
     kinds `done` is `absent` (an LQ absent value), and writing it is E115.
 22. **`gates` and readiness.** [AR §3.5] counts `gates` in-edges in `open_blockers`, but X5 and [AR §6.2] say `gates`
     constrains completion only, never `claim`. This file keeps `gates` in the completion guard (GD-002) and
-    [RULES/state-definition] BT-006 keeps it out of `open_blockers`.
+    [RULES/state-definition] BT-006 keeps it out of `open_blockers`. Review pass 1 (S1-30) adopted this reading for
+    [F13 §6.2] and [F08 §3.4]; [AR §3.5] should be edited at WP-81a.
 23. **Verdict `superseded`** (TR-046). [AR §3.6] ties the `supersedes` edge to knowledge (note, rule, decision, doc)
     only, and [50 §2.5] gives `SUPERSEDES` the endpoints "knowledge → same kind"; so a verdict moves to `superseded` by
     `set-status` with no edge.

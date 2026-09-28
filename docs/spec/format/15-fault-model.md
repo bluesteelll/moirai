@@ -590,7 +590,9 @@ that GT1 and GT3 check.
 - **FM-12.3** A read error never delivers wrong bytes as success. Silent corruption of durable sectors is outside the
   model (§6.3 A-5).
 - **FM-12.4** Informative: the protocol treats an unreadable log range below `durable_lsn` as corruption (exit 7,
-  `repair`), and one above it as the end of the log under the chain rule. That rule is [F16]'s.
+  `repair`). One at or above it ends a reader's view, but stops a writer (exit 7, nothing appended), because
+  `durable_lsn` may understate the durable end after a crash and the range may hold acknowledged groups. That rule is
+  [F16] P-92's (pass 1, S1-25).
 
 **In-memory `Vfs`.** Injection of transient and persistent read errors per range, seeded. Mapped reads are covered by
 FM-9.
@@ -874,6 +876,7 @@ A gate may rely on §6.1, must not rely on anything in §6.2, and runs under the
 | A-4 | Every write-back failure of a sector is reported by some flush call on that file, or leaves later reads returning the sector's durable content. A failure that no flush reports and that leaves reads returning the new bytes is outside the model | Documented for Linux (errseq) and macOS (invalidation) ([X17 §3.5]). **Unknown on Windows**: measurement 18 is the evidence, and if the VHDX is deferred it stays unverified ([AR §10] risk 17; OP-9) |
 | A-5 | Durable sectors do not change silently. Media corruption surfaces as a read error (FM-12) or is caught by moirai's checksums | By design. Checksums detect a change; the model does not inject silent changes except through FM-10 |
 | A-6 | The outcome of a dead process's in-flight flush resolves no later than its death (§2.5) | Model simplification (OP-10) |
+| A-7 | Values drawn from the random source ([OS/README §4.6]) do not repeat, except where the owning chapter draws again on a repeat (a `tmp/` name that exists, a re-rolled epoch equal to the previous one, a random uid `UIDX` holds). A repeated store id, slot nonce or leader nonce is outside the model | By design: 8- and 16-byte draws from a cryptographically secure source. The in-memory `Vfs` repeats a value only when a test scripts it ([OS/README §4.6], "Simulator form") |
 
 ### 6.4 Enumeration obligations
 
@@ -896,6 +899,8 @@ fixed by the design and are not holes.
 
 **Determinism.** Every adversary choice comes from a seeded generator and is recorded in a replayable trace. The same
 seed and the same sequence of calls, with their clients and schedule, give a byte-identical trace (WP-31 acceptance).
+The random draws of `Entropy` ([OS/README §4.6]) come from the same seed, one stream per simulated process, like the
+clock readings of FM-7.6.
 
 ### 6.5 Applicability to the `ProjectFs` simulator
 
@@ -906,9 +911,9 @@ simulator arrives with FL-2 (M6).
 |---|---|---|
 | FM-1 | yes | yes, for project files that other tools write: after a crash their content may revert, and R4 re-observes it |
 | FM-2 | yes | yes: `file mv`, `file rm`, `--trash` ([40 §8.3.5]) |
-| FM-3 | yes | yes, for the cross-volume copy of [80 §2.11.4] rule 6 (copy, flush, verify, delete) |
+| FM-3 | yes | only its namespace reading: a failed `sync_dir` of a project directory leaves its renames and unlinks pending (FM-3.7). `ProjectFs` flushes no file content: `file mv` never copies, and a cross-volume move is refused before its intent ([OS/project §6.4], [F16] P-83; FS-4, pass 1, A1-28) |
 | FM-4 | yes | yes: reads concurrent with other tools' writes |
-| FM-5 | yes | yes: renames, copies and trash moves |
+| FM-5 | yes | yes: renames, unlinks and trash moves (there are no copies, [OS/project §6.4]) |
 | FM-6, FM-7 | yes | yes |
 | FM-8 | yes | FM-8.2 and FM-8.3 yes. They are central to R4 ([40 §8.3.1] row 21). The lock delay applies through `LOCK` |
 | FM-9 | yes | no: project files are never mapped |

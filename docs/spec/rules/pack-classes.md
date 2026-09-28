@@ -85,8 +85,8 @@ Every table follows [RULES/README]. In addition:
 | PT-024 | changed(d) | pred | design | [AR §7.4] C4 critic; [AR §3.2] `changed_in_round` | `changed_in_round(d)` > k. |
 | PT-025 | S6 | set | proposed | [AR §7.4] C6 "for the lane and main"; [OP-6] | sub(T) ∪ anc(T), plus LB when it exists. |
 | PT-026 | own(n) | pred | proposed | [AR §7.4] C5 "own previous findings"; [50 §2.5] `created_role` (F4); [OP-4] | CREATOR(n).role = R: the node was created under the same role, in any round and by any agent. |
-| PT-027 | mark(A) | input | design | [AR §7.4] C2; [AR §7.5] `SubagentStart`; [AR §4.3] `SessionMark` | The latest lazy `SessionMark` record `{agent, rule ids, rev}` whose agent is A; absent when none. |
-| PT-028 | cursor(A,T) | input | proposed | [AR §7.4] C8 "delta since this (agent, T) cursor"; [OP-8] | The seq of the latest lazy pack-cursor record for (A, T) (PX-011); absent when none. |
+| PT-027 | mark(A) | input | design | [AR §7.4] C2; [AR §7.5] `SubagentStart`; [AR §4.3] `SessionMark`; [F05 §9.14]; [F11 §13.2] | The latest lazy `SessionMark` record `{agent, rule ids, rev}` whose agent is A: the `SESSMARKS` row (session, A) of the session the pack runs in, which each record replaces; absent when none. |
+| PT-028 | cursor(A,T) | input | proposed | [AR §7.4] C8 "delta since this (agent, T) cursor"; [F05 §9.11]; [F11 §13.1]; [OP-8] | The seq of the latest lazy pack-cursor record for (A, T) (PX-011): the `cursor_seq` of the `CURSORS` row (session, A, `feed` 2, `#N` of T) of the session the pack runs in. Absent when that row is absent (none appended, dropped by retention, or T re-keyed to a new `#N`). |
 | PT-029 | crit(n) | fn | design | [AR §3.1] `criticality` | 0 critical, 1 high, 2 normal, 3 low. |
 | PT-030 | authr(n) | fn | design | [AR §7.4] C2 "owner > orchestrator > measured > research > agent" | 0 owner, 1 orchestrator, 2 measured, 3 research, 4 agent. |
 | PT-031 | sev(f) | fn | design | [AR §3.2] `finding.severity` | 0 blocker, 1 important, 2 optional. |
@@ -123,9 +123,11 @@ Every table follows [RULES/README]. In addition:
 | PE-001 | cli | * | pack.cli.max-bytes | 24000 | 28000 | design | [AR §13] `pack.cli.max-bytes`; [73 F1]; [90 §6.1] | Store scope; a user file may lower it. A value above 28,000 is refused by `config set` (exit 2). |
 | PE-002 | file | * | - | none | none | design | [AR §7.1] `pack ... -o FILE`; [AR §13] "(larger needs `-o FILE`)" | With `-o FILE` the pack is written to the file and E = N. |
 | PE-003 | mcp | claude | pack.mcp.max-bytes | 25000 | 25000 | design | [AR §13] `pack.mcp.max-bytes`; [90 §6.4] `claude` | Capped by `mcp.result-max-bytes` (25,000). |
-| PE-004 | mcp | codex | pack.mcp.max-bytes | 16000 | 36000 | design | [90 §6.4] `codex`; [90 §10.8] `mcp.result-max-bytes.codex` | 25,000 capped by the profile's MCP result ceiling, 16,000; the key allows up to 36,000 for a classic-mode model. |
+| PE-004 | mcp | codex | pack.mcp.max-bytes | HOLE(CFG-codex-mcp-result) | 36000 | design | [90 §6.4] `codex`; [90 §10.8] `mcp.result-max-bytes.codex`; [CFG §10.8]; [F19 §3.2] | 25,000 capped by the profile's MCP result ceiling `mcp.result-max-bytes.codex`, whose default is HOLE(CFG-codex-mcp-result), owned by [CFG] (16,000 B, the design value, until measurement 7 decides it); the key allows up to 36,000 for a classic-mode model (review pass 1, A1-57). |
 | PE-005 | mcp | generic | pack.mcp.max-bytes | 25000 | 25000 | design | [90 §6.4] `generic` | Capped by `mcp.result-max-bytes` (25,000). |
-| PE-006 | hook | * | - | 10000 | 10000 | design | [90 §6.1] hook-injected context; [AR §7.5] | Every hook output, whatever its own budget key says. |
+| PE-006 | hook | claude | - | 10000 | 10000 | design | [90 §6.1] hook-injected context; [90 §6.4] `claude`; [AR §7.5]; [F19 §3.2] | Every hook output, whatever its own budget key says. Review pass 1 (A1-57) split the first draft's one row for every client into PE-006 to PE-008 by [90 §6.4]'s profile table. |
+| PE-007 | hook | codex | - | 10000 | 10000 | design | [90 §6.1] hook-injected context; [90 §6.4] `codex`; [AR §7.5]; [F19 §3.2] | As PE-006: Codex's `additionalContextLimit` of 2,500 approximate tokens is 10,000 B per handler ([90 §6.1]). |
+| PE-008 | hook | generic | - | 8000 | 8000 | design | [90 §6.4] `generic`; [AR §7.5]; [F19 §3.2] | As PE-006, at the `generic` profile's hook context of 8,000 B. |
 
 <!-- table: pack-bytes -->
 | row | rule | basis | source | definition |
@@ -260,7 +262,7 @@ phase takes a class's candidates in class order whatever their floor ([AR §7.4]
 | PH-004 | 4 | tree | tree-resolved | design | [AR §7.4] C1; [90 §4.1] Tree row | The resolved tree: worktree path, git branch, base, tip, and LB's `target_dir`; `files: no tree bound` when none. |
 | PH-005 | 5 | dirty | tree-resolved | design | [AR §7.4] C1 "from `TREES.dirty`, never a worktree scan"; [70 S5] | The tree's dirty count and its age. |
 | PH-006 | 6 | do-not-touch | leases-elsewhere | design | [AR §7.4] C1; [AR §6.2] captured `files_owned`; [70 S5] | The `files_owned` globs captured in the live `LEASES` rows whose branch is not B, per lane. Read from lease rows only, O(live leases). |
-| PH-007 | 7 | quiet | quiet-on | design | [AR §7.4] C1; [AR §6.6] | Quiet state: `HEAD.flags.quiet` set, or a lane in status `measuring`. |
+| PH-007 | 7 | quiet | quiet-on | design | [AR §7.4] C1; [AR §6.6]; [F17 §5.3]; [F03 §3.1] | Quiet state as [F17 §5.3] defines it: `HEAD.flags.quiet` set, a quiet byte of `LOCK` held (the probe rule of [F03 §3.1]; review pass 1, P1-10), or a lane in status `measuring` while `quiet.from-lane-measuring` is true. |
 | PH-008 | 8 | critical-count | always | design | [AR §7.4] C1 "global critical-rule count" | The number of rules n on view B with auth(n) and crit(n) = 0, not filtered by role. |
 | PH-009 | 9 | link-segment | links-rendered | design | [AR §7.4] C1; [40 §6.2] header segment | Link states counted over the `AT` anchors of every node rendered at L1 or L2 ([OP-18]); only `absent-in-tree (behind)` is folded into a count; every other non-`ok` state is also marked on its link. |
 
@@ -274,7 +276,7 @@ phase takes a class's candidates in class order whatever their floor ([AR §7.4]
 | RN-005 | whole-entry | design | [AR §7.4] step 3 "never cut mid-text" | An entry renders whole at one level or not at all. |
 | RN-006 | conflicted | design | [AR §7.4] step 3 (N15) | A `conflicted` knowledge node renders as one L1 line with the base text and `~conflicted (moirai resolve '#N.<field>')`, never with conflict markers. |
 | RN-007 | markers-kept | design | [AR §7.4] step 3 "`suspect`/`stale` items keep their marker rather than being dropped" | Flags (`SUSPECT`, `CONFLICTED`, `SETTLED-ELSEWHERE`, `DELETED-ELSEWHERE`) and cached staleness stay on the line at every level. |
-| RN-008 | link-marker | design | [AR §7.4] step 3; [40 §6.2]; [73 F13] | A link that is not `ok` renders one ASCII marker with its state and `verify #N`; never a command that accepts a guess. One legend line `verify #N: moirai file where N --evidence` per pack when any marker is printed. Non-`ok` links of critical rules and owner rulings are never dropped below L1. |
+| RN-008 | link-marker | design | [AR §7.4] step 3; [40 §6.2]; [73 F13]; [F19 §4.6] | A link that is not `ok` renders one ASCII marker, spelled and bounded (at most 50 B) by [F19 §4.6]: its state and `verify <handle>`, or `confirm <handle>` on an accepted guess, the handle being the file node's `#N` for a file-level state and the anchor's `aN` for an anchor-level one; never a command that accepts a guess. The legend lines are [F19 §4.6] rule 4's, one per pack: `verify #N: moirai file where N --evidence` when any marker carries `verify`, and the `confirm` line when any carries `confirm`. Non-`ok` links of critical rules and owner rulings are never dropped below L1. |
 | RN-009 | mark-ids | design | [AR §7.4] C2; [73 F4] | When mark(A) exists, every PM-001 or PM-002 member whose id is in mark(A)'s rule ids and whose `rev_seq` on its view is at most mark(A)'s rev renders at ID level in one line (`rules: <n> critical shown at start (#...) \| moirai pack <T> --rules`). A member added or changed after the mark renders by its row. No mark, or `--rules` (PK-002): every member renders by its row. |
 | RN-010 | contradicts-adjacent | design | [AR §7.4] C2 "`contradicts` pairs shown together" | After ordering C2, each rule with a `CONTRADICTS` edge to an earlier C2 entry is moved to directly after that entry; ties keep PO-001's order. |
 | RN-011 | owner-quote | design | [AR §7.4] step 2; [73 F16] | `owner_quote` is shown only in C3, and only for a ruling whose `text` is empty; otherwise the ruling's line carries `quote: show N`. |
@@ -298,7 +300,7 @@ phase takes a class's candidates in class order whatever their floor ([AR §7.4]
 | PX-008 | 8 | drop | design | [AR §7.4] step 4; [01 §7] L1 via [AR] | Every entry not taken is dropped; the footer lists the dropped ids per class, and PY-004 holds. Nothing is truncated silently. |
 | PX-009 | 9 | degrade-bookkeeping | proposed | [AR §7.4] step 3 | An entry taken below its assigned level is not dropped and is not counted as dropped; `--more` (PX-012) re-renders it at its assigned level. |
 | PX-010 | 10 | emit | design | [AR §7.4] step 4 "deterministic order (prompt-cache friendly)" | Emit C1, then C2 to C8 in rank order; inside a class, the entries in class order (not fill order), each at the level it was taken; then the legend and the footer. |
-| PX-011 | 11 | cursor | proposed | [AR §7.4] C8; [AR §6.5] lazy kinds "read cursors"; [OP-8] | After emitting, the pack appends one lazy pack-cursor record (A, T, rev). It is runtime state, never versioned, so the pack stays a pure read of versioned state. |
+| PX-011 | 11 | cursor | proposed | [AR §7.4] C8; [AR §6.5] lazy kinds "read cursors"; [F05 §9.11]; [F11 §13.1]; [OP-8] | After emitting, one lazy pack-cursor record (A, T, rev) is appended: a `Lazy` record of `sub` 2, `feed` 2, `task` = T's `#N` and `cursor_seq` = rev (PT-032), in the session the pack runs in. It is runtime state, never versioned, so the pack stays a pure read of versioned state. Whether the `pack` verb or the layer that delivers the pack appends it is the owner's call ([OP-8]); until then no M0 command appends it, so C8 is empty in the engine and the model alike. |
 | PX-012 | 12 | more | proposed | [AR §7.4] step 4 "`more: moirai pack 51 --more`"; [OP-9] | `--more` recomputes steps 1-4 at the current view and emits C1 and, in PO-008 order, the entries the base pack drops or degrades, at their assigned levels, within E. If that page must drop again, its footer names `--budget` and `-o FILE`; there is no third page. |
 | PX-013 | 13 | record-run | design | [AR §7.4] step 5 | With `--record-run` only: one commit of `consumed` edges with `pinned_commit` from the run to every entry rendered at L1 or L2; who may do so is [RULES/role-write-policy] WV-040. Without it the pack writes nothing versioned. |
 
@@ -365,7 +367,7 @@ digest below differ from the design's wording "the rev plus the C2/C3 member uid
 <!-- table: notice-rules -->
 | row | step | rule | basis | source | definition |
 |---|---|---|---|---|---|
-| NR-001 | 1 | input | proposed | [AR §6.2] "when the caller passes the digest its pack printed"; [OP-11] | The token passed to `complete`, MCP `complete` or an `apply` entry (parameter names: HOLE(pack-digest-param)) matches `^[0-9]{1,20}-[0-9a-f]{8}$`; any other value is a usage error (exit 2) found before the write, and nothing is written. |
+| NR-001 | 1 | input | proposed | [AR §6.2] "when the caller passes the digest its pack printed"; [OP-11] | The token passed to `complete`, MCP `complete` or an `apply` entry (named `--pack-digest` on the CLI, and `pack_digest` as the MCP `complete` parameter and as the additive `result.v1` field an `apply --from` entry carries; [API §10.5], [API] open point 29) matches `^[0-9]{1,20}-[0-9a-f]{8}$`; any other value is a usage error (exit 2) found before the write, and nothing is written. |
 | NR-002 | 2 | token | proposed | [AR §7.4] step 4 "digest of the rev plus ..."; [OP-11] | The pack prints `<rev>-<h>`: rev in decimal without separators, then 8 lower-case hex digits h = the first 4 bytes of BLAKE3-256 over the `notice-digest` bytes computed at the pack's views (tip(B) at rev, tip(main) when the pack read it). |
 | NR-003 | 3 | old-views | proposed | [AR §5a.2] reflog; [OP-11] | B_old = the value of ref B after the last ref update whose seq is at most rev; M_old likewise for main. No value at rev means an empty old set. |
 | NR-004 | 4 | fast-path | proposed | [72 m2] | Recompute the digest over K1, K1M, K2 and K3 at the current tips; if its 8 hex digits equal h, nothing is listed and no notice is printed. |
@@ -421,7 +423,7 @@ little-endian; there is no padding.
 | PS-011 | AR-7.4-step3-fill | PQ-001, PQ-002, PQ-003, PQ-004, PQ-006, PF-001, PF-002, PF-003, PX-005, PX-006, PX-007, RN-001, RN-002, RN-003, RN-004, RN-005, RN-006, RN-007, RN-008 | - |
 | PS-012 | AR-7.4-step4-emit | PX-008, PX-010, PY-003, PY-004, PH-001, NR-002 | - |
 | PS-013 | AR-7.4-step5-record | PX-013 | - |
-| PS-014 | AR-7.4-budgets | PB-001, PB-002, PB-003, PB-004, PB-005, PB-006, PE-001, PE-002, PE-003, PE-004, PE-005, PY-001 | - |
+| PS-014 | AR-7.4-budgets | PB-001, PB-002, PB-003, PB-004, PB-005, PB-006, PE-001, PE-002, PE-003, PE-004, PE-005, PE-006, PE-007, PE-008, PY-001 | PE-006 to PE-008: the hook ceilings of [90 §6.4]. |
 | PS-015 | AR-7.4-brief | PK-005, BR-001, BR-002, BR-003, BR-004, BR-005, BR-006, BR-007, BR-008, BR-009, BR-010, BR-011 | - |
 | PS-016 | AR-7.5-SubagentStart | PK-004, HP-001, HP-002, HP-003, HP-004, HP-005, HP-006 | - |
 | PS-017 | AR-7.5-UserPromptSubmit | PK-008, DL-001, DL-002, DL-003, DL-004, DL-005, DL-007 | - |
@@ -432,7 +434,8 @@ little-endian; there is no padding.
 ## Coverage
 
 Rule tables specify semantics; the frozen strings (header, footer, marker and notice spellings) are [F19]'s, the
-`SessionMark` and pack-cursor record layouts are [F05]'s, `LEASES` rows are [F11]'s and the uid encoding is [F07]'s.
+`SessionMark` and pack-cursor record layouts are [F05]'s ([F05 §9.14], §9.11), their rows and the `LEASES` rows are
+[F11]'s ([F11 §13.2], §13.1, §6) and the uid encoding is [F07]'s.
 The one byte-level structure this file defines is the digest input of §7 (ND and NE rows), which no checklist row
 reserves: it is hashed, never stored.
 
@@ -448,12 +451,14 @@ No X-F row concerns packs.
 
 ## Holes
 
-No value in this file waits on an M0 measurement. The final per-role pack budgets (PB rows) are set at M9 by the
-recorded-dispatch test ([AR §7.4]); the provisional defaults stand until then and are configuration, not holes.
-
-| id | what | decided by | candidates | constraint |
-|---|---|---|---|---|
-| HOLE(pack-digest-param) | the name of the `complete` flag, the MCP `complete` parameter and the additive `result.v1` field that carry the digest token (NR-001) | WP-25 ([API]) with WP-18 ([F19]); `result.v1` at M8 per [90 §7.2] | `--pack-digest`, `pack_digest`, `pack_digest` | ASCII; argv-safe by [80 §4] T1-T10 (no leading `#`, `~`, `=`, `@`, `!`); additive to `result.v1` (a `string` or `null`, strict-compatible) |
+None. No value in this file waits on an M0 measurement of its own. The final per-role pack budgets (PB rows) are set at M9
+by the recorded-dispatch test ([AR §7.4]); the provisional defaults stand until then and are configuration, not holes.
+The `codex` MCP ceiling in PE-004 is the default of `mcp.result-max-bytes.codex`, `HOLE(CFG-codex-mcp-result)`, owned by
+[CFG] (review pass 1, A1-57). The
+names of the digest parameter, first written as a hole, were a naming decision, which [F01 §2.5] does not make a hole;
+WP-25 decided them (review pass 1, S1-40; [HOLES.md](../HOLES.md) §3): the CLI flag `--pack-digest`, the MCP `complete`
+parameter `pack_digest`, the additive `result.v1` field `pack_digest` (a `string` or `null`), and the API argument
+`Complete.pack_digest` ([API §10.5]).
 
 ## Open points for the review
 
@@ -485,7 +490,17 @@ recorded-dispatch test ([AR §7.4]); the provisional defaults stand until then a
 8. **The C8 cursor.** "Delta since this (agent, T) cursor" needs a cursor that `pack`, a pure read, must advance.
    Proposed: a lazy pack-cursor record (A, T, rev) appended after emitting (PX-011), in the lazy class that already
    holds "read cursors" ([AR §6.5]); its record kind is WP-11's (PLAN §3.3 "record kinds for ... cursor"). No cursor:
-   C8 is empty. C8's limit is 10 ([AR §7.4]) where `std.delta` has 12.
+   C8 is empty. C8's limit is 10 ([AR §7.4]) where `std.delta` has 12. Review pass 1 round 2 (residue of A1-23): the
+   cursor records then had no `feed` value that carries T, so PX-011's record had no bytes. **Bytes settled** in round 3
+   (closure NC-10): [F05 §9.11] `Lazy` `sub` 2 gains `feed` 2 with a `task` field, T's `#N`, and [F11 §13.1] `CURSORS`
+   keys the row by (session, agent, feed, task); PT-028 and PX-011 cite both. R-MODEL's round-2 request named T's uid;
+   the `#N` is taken instead (store-wide, never reused, [F11 §9]; a re-keyed T gets a new `#N` and starts with no
+   cursor), which changes no rule. The key includes the session, so cursor(A, T), like mark(A) (PT-027, [F11 §13.2]),
+   is read in the session the pack runs in; a dropped row leaves C8 empty. **Who appends** is open with the owner
+   (OQ-F-3): [40] I-F5 lists `pack` among the read verbs that append nothing, while PX-011 has the pack append the
+   cursor; the recommended answer is the layer that delivers the pack (hook or MCP server), which would change PX-011's
+   actor, not its record. Until the owner answers, no M0 command appends a pack cursor ([API] open point 48), so C8 is
+   empty on both sides of GT2 and PX-011 appends nothing in the model.
 9. **`--more`.** The design prints the continuation but not what the next page holds. Proposed (PX-012, PK-006): a
    stateless complement page, recomputed at the current view; no third page.
 10. **Brief classes.** (a) [AR §7.4] names five brief queries but eleven kinds of content; BR rows map them (checkpoint,
@@ -500,7 +515,7 @@ recorded-dispatch test ([AR §7.4]); the provisional defaults stand until then a
     and carry the rev in the token in clear (`4471-7f3a9c01`), because `complete` needs the rev to list what changed
     and a hash cannot give it back. The listing is conservative: a rule changed on `main` between the lane's tip and
     the moment of the pack is listed although the pack showed it. `result.v1` ([90 §7.2]) needs an additive digest
-    field for `apply --from` entries (HOLE(pack-digest-param)).
+    field for `apply --from` entries (`pack_digest`, a `string` or `null`; [API] open point 29).
 12. **Byte accounting and the header limit.** The budget covers the whole text, header and footer included (PY-002).
     [90 §6.3]'s <= 90/130 B header limits are for the result header `branch: ... | rev ... | n rows`; the pack header
     of [AR §7.4] step 4 is about 120 B in the design's own example, so [F19] needs a separate limit for the pack line.
@@ -519,8 +534,8 @@ recorded-dispatch test ([AR §7.4]); the provisional defaults stand until then a
     (44 links) implies more than T's own links.
 19. **The resume budget key.** [AR §7.5] bounds the resume output at 600 B without naming a key; PK-007 uses
     `hooks.delta.budget`, which has the same default.
-20. **Registry rows for [RULES/README] §7.** This file's tables are not yet in the registry, so the parser refuses the
-    file until the README adds these rows (and lists `pack-classes.md` as written in its §1.1):
+20. **Registry rows for [RULES/README] §7.** The README now lists `pack-classes.md` as written in its §1.1 and
+    registers its tables as RG-031 to RG-053 (review pass 1 S1-47), with these rows:
 
     ```
     | RG-031 | `pack-terms` | pack-classes.md | vocabulary | PT | row:id, term:token, sort:enum(input/view/set/pred/fn/order), basis:enum, source:cite, definition:text | §3 |

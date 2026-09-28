@@ -64,6 +64,7 @@ their meaning, and `doctor` may still print a foreign `ProcId` for diagnostics (
 | 8 | 8 | u64 | `start` | the process start time in nanoseconds (§3.2); 0 when `start_known` = 0 |
 | 16 | 8 | u64 | `boot_hash` | `boot_hash` of the process's boot identity (§4.3); 0 when `boot_known` = 0 (Unknown-boot mode) |
 | 24 | 8 | u64 | `pidns` | Linux: the inode number of `/proc/self/ns/pid`; 0 elsewhere and when `pidns_known` = 0 |
+| total | 32 | | | |
 
 A value whose reserved bits or bytes are non-zero, or whose `os` is not 1–3, is **uninterpretable**: it is displayed as
 `?` and `alive` answers `Unknown` for it (§6.1). Writers set every reserved bit and byte to zero.
@@ -433,6 +434,10 @@ sequential open hint and `advise_dontneed` of [OS/fs §4.12]; on Windows they al
 `SetProcessInformation(ProcessMemoryPriority, MEMORY_PRIORITY_LOW)` through `enter_background` ([80 §2.12] "Bulk
 passes").
 
+Lowered priority makes a long maintenance job slower exactly when the machine is busy. It never lengthens the tail: the
+job keeps the maintenance byte and runs the yield checkpoints of [F16] P-98 at its step boundaries, so the bound of
+[F17 §5.2] holds whatever its priority (pass 1, P1-9).
+
 ## 12. `os::ipc`: the leader's endpoint (built only if the leader is)
 
 [80 §2.8]. The endpoint exists only if the M0 measurements 1 and 2 put the optional leader into M1 ([60 §3.1] "Decisions
@@ -487,6 +492,18 @@ pub mod test_host {
 | `suspend`, `resume` | `NtSuspendProcess`, `NtResumeProcess` (ntdll; test-only) | `kill(pid, SIGSTOP)`, `kill(pid, SIGCONT)` | same |
 | `small_volume` | `CreateVirtualDisk` + `AttachVirtualDisk` of a VHDX (needs elevation: owner-run only; profile L's nightly never calls it, [AR §8.2]) | a loop-mounted ext4, XFS or btrfs image | `hdiutil create` + `attach` of an APFS image |
 | wall offset | read once at process start from `MOIRAI_TEST_WALL_OFFSET_MS`; `set_wall_offset_ms` overrides it for the current process | same | same |
+
+## Coverage
+
+The rows of `COVERAGE.md` that cite this file ([F01 §2.7]). The random source that `os::proc` implements
+([OS/README §4.6]) freezes no item.
+
+| Item | Part covered here | Section |
+|---|---|---|
+| `60-I2-FM(7)` (fault-model item (7)) | Unknown-boot mode; the clocks are [OS/clock]'s | §5 |
+| `60-AU-HEAD-bootid` (audit row "`HEAD`": the boot-identity rule and Unknown-boot mode) | the boot-identity rule; Unknown-boot mode (U1–U6). `HEAD.boot_id` is [F04 §5.5]'s | §4, §5 |
+| `X-F2` ([80] X-F2) | the per-OS `ProcId` values; the boot-identity rule; Unknown-boot mode; liveness. The `ProcId` and `Anchor` bytes are [F03]'s, the deadline [OS/clock]'s | §3, §4, §5, §6 |
+| `90-Anchor` ([90 §10.1] "Holder anchor") | the lock-anchored decision per anchor kind, `session-ttl` included; the namespaced identity (no identity, no slot, anchor `none`); slot selection (lazy). The identity string and the hash are [F03 §9]'s | §6.2, §6.3, §6.4 |
 
 ## Holes
 

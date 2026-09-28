@@ -363,14 +363,24 @@ spelling in the first column, byte for byte.
 | `collect` | `collect_list` | aggregate |
 | `blockers`, `subtree`, `neighbors`, `search`, `history`, `blame`, `log`, `diff`, `changes`, `conflicts`, `violations`, `across`, `refs`, `leases`, `markers`, `links`, `root_moves`, `schema`, `schema_edges`, `queries` | — | relation (table function) |
 
-Function names and relation names are separate namespaces ([50 §2.6]): `subtree` is both.
+Function names and relation names are separate namespaces ([50 §2.6]): `subtree` is both, with different defaults. The
+scalar `subtree(n [, depth])` has no depth bound when `depth` is omitted; the relation `subtree(n, depth: 3)` defaults to 3.
+The scalar signatures are [LQ/std §2.10]'s, the relation signatures [LQ/std §2.9]'s (pass 1, A1-54).
 
 ### 5.4 Edge types and directions
 
 Each written type name is resolved against the view's edge schema (F1), ASCII-case-insensitively, in this order: the
-kind's `lq_name`; its forward synonyms (`SUBTASK_OF` for `CHILD_OF`, Open point C-8); its stored snake-case name
-(`derived_from`, [50 §2.5]); its `reverse_names`. The C-AST names the kind by its `lq_name`. `parent` and `PARENT` are
-E107; an unknown name is E104 ([50 §2.5]).
+kind's `lq_name`; its forward synonyms (the table below); its stored snake-case name (`derived_from`, [50 §2.5]); its
+`reverse_names`. The C-AST names the kind by its `lq_name`. `parent` and `PARENT` are E107; an unknown name is E104
+([50 §2.5]).
+
+**Forward synonyms** (grammar version 1; pass 1, A1-56, closing Open point C-8). A forward synonym names a kind in its
+forward direction (no direction flip) and is part of LQ, not of the edge schema: F1's `reverse_names` cannot hold it
+([F08] open point 43), project edge kinds have none, and a later grammar version may add rows.
+
+| Synonym | Resolves to (`lq_name`) | Source |
+|---|---|---|
+| `SUBTASK_OF` | `CHILD_OF` | [50 §2.5] |
 
 **Patterns (`epat`).** Each type gets an effective direction from the written direction and the name's orientation:
 
@@ -808,7 +818,7 @@ No other [60 §2.5] row, R-1…R-18 item, F-item, X-F item or [90 §10.1] item i
 
 None. No byte, tag, code or rule of this chapter waits on an M0 measurement. The chapter freezes with the query surface
 after WP-72; a WP-73 remedy that changes the grammar or the semantics updates §3 and §5 before the tag
-([LQ/grammar-v1.ebnf] O-11). The display spelling (the L1 ablation, `HOLE(display-spelling)` of [LQ/gql-spelling])
+([LQ/grammar-v1.ebnf] O-11). The display spelling (the L1 ablation, `HOLE(LQ-display-spelling)` of [LQ/gql-spelling])
 does not touch this chapter (§1.3).
 
 ## Open points for the review
@@ -822,7 +832,7 @@ does not touch this chapter (§1.3).
 | C-5 | "Parameter order normalised away" ([50 §3.10] item 8). The CLI verb passes `complete 89` positionally while MCP passes `id=89` by name. | Calls to relations, named queries and named mutations have their arguments named and ordered by the callee's signature (N2), so all doors hash alike; defaults are not filled in, so a later default change does not change a stored hash. Depends on [LQ/std] naming every parameter, including the first positional one of each relation (`blockers(n, …)`, `search(terms, …)`). |
 | C-6 | Name resolution for `CALL`. [50 §4.4] says "std first, then the project" for named queries; relations share names with std named queries (`blockers`, `diff`, `history`). | Relations first, then `std.<name>`, then project names; `std.x` explicitly names the std query. A std named query whose body calls the relation of the same name (`std.blockers`) would otherwise call itself. [LQ/std] and the binder confirm. |
 | C-7 | Symmetric kinds. | Canonicalised to `both` in patterns only; never in created edges, whose stored direction is part of the edge key. |
-| C-8 | [50 §2.5] lists `SUBTASK_OF` as a synonym of `CHILD_OF`, but F1 has `lq_name` and `reverse_names` only. | Resolved here as a forward synonym (no direction flip). WP-14 ([F08] F1 row) must add a forward-name list to the edge schema, or the synonym leaves the vocabulary. |
+| C-8 | [50 §2.5] lists `SUBTASK_OF` as a synonym of `CHILD_OF`, but F1 has `lq_name` and `reverse_names` only. | Resolved here as a forward synonym (no direction flip). **Closed at pass 1 (A1-56):** §5.4's synonym table owns it; [F08] adds no forward-name list. |
 | C-9 | F10's `stmt_hash` for commits not produced by an LQ statement. | Absent (presence bit clear) for `stmt_origin` merge, import and file verb. WP-12 ([F06]) owns the presence bitmap and confirms. |
 | C-10 | [AR §6.4]'s default key hashes "the canonical bound AST" with other inputs. | This chapter supplies `H`; the framing (the `lp()` of each input and their order) is [F06]/[API]'s. |
 | C-11 | **Unassigned gap: the `IF TARGETS` target-set digest** ([50 §3.10] items 4, 9; [72 m1]). [PLAN §3.3] assigns it to no WP, yet the model (WP-93b) must compute it and fixtures must print it. | Proposal for WP-19's envelope part or WP-80a to adopt: digest = BLAKE3-128 of `lp("moirai-lq-targets-v1")` ‖ `lq` u16 ‖ for each `MATCH … EXPECT` statement in order: its 1-based index u32 ‖ its binding count u32 ‖ the bindings sorted bytewise, each the concatenation, in variable-index order, of the values of the variables its mutations use (a node as its 16-byte uid; an edge as source uid, `lp(lq_name)`, destination uid and the 16-byte discriminator or zeros); printed and written as 32 lower-case hex digits in `IF TARGETS '<hex>'`. |

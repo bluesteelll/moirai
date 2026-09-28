@@ -33,8 +33,8 @@ signatures, which several texts below quote, are [LQ/std]'s.
 
 2.1. **Character set.** Every byte a template contributes is printable ASCII (0x20–0x7E) or LF ([90 §8.1] L5). Values
 interpolated from the caller's input or the store (identifiers, string literals, titles, excerpts of the query text) keep their
-UTF-8 bytes; C0 controls and DEL inside them are rendered as `\u{XX}` with lower-case hex and no leading zeros, TAB inside an
-excerpt as one space. No template contains a harness-specific tool name ([90 §8.1] L6): tools are named "the `query` tool",
+UTF-8 bytes; C0 controls and DEL inside them are rendered as `\u{h}`, h the code point in lower-case hex without leading zeros
+(`\u{1b}`), the one spelling of [F19 §2.5] and [LQ/envelope §5.16] (pass 1, A1-48); TAB inside an excerpt as one space. No template contains a harness-specific tool name ([90 §8.1] L6): tools are named "the `query` tool",
 "the `write` tool".
 
 2.2. **Placeholders.** Templates below write placeholders as `<name>`. Their renderings:
@@ -46,6 +46,8 @@ excerpt as one space. No template contains a harness-specific tool name ([90 §8
 | `<rev>` | the sequence number in decimal |
 | `<revspec>` | the revision as the caller wrote it ([LQ/lexical §7]) |
 | `<ref>` | a ref name |
+| `<lease>` | `L-` followed by the lease id in decimal ([F19 §2.4]) |
+| `<holder>` | the holder's actor name as recorded (the `actor` symbol's text, [F11 §6] `holder`), as `dev#2` |
 | `<kind>`, `<field>`, `<edge>`, `<fn>`, `<var>`, `<param>` | the name, in the spelling of the schema ([F08]) for schema names and of the query text otherwise, inside back-quotes |
 | `<value>` | a value in the rendering of [LQ/envelope §5.2], inside back-quotes |
 | `<n>`, `<m>` | a decimal integer, no grouping separator |
@@ -109,7 +111,10 @@ error[E101 unknown_field]: kind `task` has no field `stauts`
 ```
 
 3.3. **Unlocated form.** Every other error is line 1 above, then its detail lines (two spaces, then the detail text), then the
-help line as `  = help: ` + help when the code has one. Example (E401, [50 §2.9] Q18, in this chapter's form):
+help line as `  = help: ` + help when the code has one. Each detail line is at most 120 bytes after interpolation: a longer one
+is cut by §2.3's rule to that length (pass 1, A1-32). A detail line that §5 writes as a fixed closing line — `nothing was
+written`, and `nothing was changed` — is the text's **closing line**: it is always last among the detail lines and fitting
+never drops it (§3.4). Example (E401, [50 §2.9] Q18, in this chapter's form):
 
 ```
 error[E401 expect_mismatch]: statement 1 matched 0 bindings, expected 1
@@ -123,17 +128,22 @@ alternatives … nearest first"), `V = 64`, at most 10 detail lines. While the r
 list is applied and the text re-rendered; the list ends in a form that always fits:
 
 1. drop the last help alternative, down to one (the `(CALL schema(...))` tail stays);
-2. drop the last detail line, down to three, and add a detail line `... <n> more` naming how many were dropped;
+2. drop the last detail line other than the closing line, down to two such lines (for E401: two target lines), and add a
+   detail line `... <n> more` naming how many were dropped, placed before the closing line;
 3. `W` = 30, then `W` = 10;
 4. `V` = 24;
 5. drop the help line;
 6. `W` = 0 (lines 3–5 of §3.2 disappear; line 2 stays);
-7. cut the message by §2.3's rule to the length that fits.
+7. drop every remaining detail line other than the closing line, counting them in the `... <n> more` line;
+8. cut the message by §2.3's rule to the length that fits.
 
-Bound check for step 7: line 1 is at most 6 + 4 + 1 + 26 (the longest name, `step_variable_out_of_scope`) + 3 + message; line 2
-at most 10 + 4 + 40 + 1 + 10 + 1 + 10 + 1 = 77 bytes; three detail lines at most 3 × (2 + 120 + 1) and the `...` line 16 bytes.
-The messages and detail templates of §5 are each at most 120 bytes of fixed text plus at most three values (72 bytes at `V` =
-24), so the message step is reached only by pathological input, and step 7 always terminates within the bound.
+Bound check (pass 1, A1-32, redone). Before step 7 the fixed-size lines are: line 1's prefix, at most 6 + 4 + 1 + 26 (the
+longest name, `step_variable_out_of_scope`) + 3 = 40 bytes before the message; line 2, at most 10 + 4 + 40 + 1 + 10 + 1 + 10 +
+1 = 77 bytes; at most two detail lines of 2 + 120 + 1 = 123 bytes each; the `... <n> more` line, at most 2 + 14 + 1 = 17 bytes;
+the closing line, at most 2 + 19 + 1 = 22 bytes. After step 7 only line 1, line 2, the `...` line and the closing line remain:
+40 + 77 + 17 + 22 = 156 bytes plus the message and its LF, so step 8 leaves the message at least 443 bytes and always ends
+within 600 bytes. Detail lines interpolate several values (E401's fields, rev, commit, actor, ref and message), so a
+detail line can reach its 120-byte cut on ordinary input; the fitting no longer assumes 120 bytes of fixed text.
 
 3.5. **Several errors in one pass.** Each is fitted on its own. They share nothing; a second error that repeats the first's code
 and span is not printed.
@@ -167,8 +177,10 @@ and then the code-specific keys of §5.7 (additive; absent when the code defines
 and the bound moves to `expect` (open point 4).
 
 4.2. **Warnings and notices, text.** A warning or notice renders as one line `Wnn: ` or `Nnn: ` followed by its message, then
-zero or more continuation lines indented by five spaces (the width of `Wnn: `), each ended by LF. They are placed in the footer
-block of [LQ/envelope §6] (warnings in ascending code order, then notices in ascending code order), except under `--ids`, where
+zero or more continuation lines indented by five spaces (the width of `Wnn: `), each ended by LF. A configuration diagnostic of
+[CFG §6.2] renders `CFGnn: ` and its message, with continuation lines indented seven spaces (the width of `CFGnn: `; pass 1,
+A1-62). They are placed in the footer block of [LQ/envelope §6] in this order: `W` warnings in ascending code order, then `N`
+notices in ascending code order, then the `CFG` diagnostics in ascending code order ([F19 §10.6]), except under `--ids`, where
 they go to stderr before the `--ids` footer. A code that fires several times in one result prints once, with the counts summed
 where its text carries a count, and with the first occurrence's values otherwise. Each is at most 600 bytes, fitted by steps 2,
 4 and 7 of §3.4.
@@ -351,10 +363,10 @@ E114's bound is [LQ/lexical §8]'s (0 … 2^32 − 1).
 | E301 | `unknown revision <revspec>`; `<revspec> matches <n> commits` | the candidates, one per line: `<c8> rev <rev> <ref>` (at most 5) | `write more hex digits` for the prefix form |
 | E302 | `<prop> uses <what>, which exists only at a branch tip; the view is <revspec> (as-of)` — `<what>` is `leases and markers`, `the file tree` or `git ancestry`; with no resolvable tree: `<prop> needs a resolved tree` | none | inline for `ready`: `use <v>.unblocked (structural, valid at any version)`; for no tree: `pass --tree DIR (the query tool: tree)` |
 | E303 | `as-of <revspec> needs <N> ops replayed; the cap is <N>` | none | `moirai tag <name> <revspec> --pin, then query the tag` |
-| E304 | `<n> views requested; the budget is refs=<n>` | none | `--budget refs=<n> (at most 8)` |
+| E304 | `<n> views requested; the budget is refs=<n>` | none | `--budget refs=<n> (at most <ceiling>)`, `<ceiling>` being the caller's role cap `query.caps.<role>.refs` ([CFG §10.5]; 8 for an agent role, 80 for the orchestrator and the owner; pass 1, A1-53) |
 | E305 | `<revspec> is read-only: <why>` — `<why>` is `a commit`, `a tag`, `an import ref`, `a past view`, `field <field> is masked on plan branches` or `a staging ref accepts only RESOLVE` | none | `write on a branch tip: TX ON <ref> { ... }` |
 | E306 | `cursor <cursor> belongs to another query or is damaged` | none | `run the query again without --cursor` |
-| E501 | `budget: work <N> exhausted after <id>` | none | `add an anchor, a LIMIT, or --budget work=<N>` |
+| E501 | `budget: work <N> exhausted after <id>`; for a write whose phase-1 working set exceeds `wmem` ([F17 §4.4] W2, [CFG §10.5]): `budget: wmem <N> B exceeded by statement <i>`; for an agent write whose changeset exceeds the inline bound ([F17 §4.4] W1, W4): `budget: the changeset needs <N> B; an agent write holds at most <N> B (store.commit.inline-max-bytes)` | for `wmem` and the inline bound: `nothing was written` | `add an anchor, a LIMIT, or --budget work=<N>`; for `wmem`: `--budget wmem=<N> (at most <ceiling>), or split the block` (pass 1, P1-11); for the inline bound: `split the block into smaller TX blocks; a wmem raise does not help` (pass 1, round 1, P1-11) |
 | E502 | `budget: mem <N> B exhausted` | none | `add an anchor or a LIMIT, or --budget mem=<N>` |
 | E503 | `deadline of <n> ms reached` | none | `add an anchor or a LIMIT` |
 | E504 | `cancelled` | none | none |
@@ -377,9 +389,9 @@ runtime predicate such as `t.ready` or `t.claimed` in a target is checked agains
 | E402 | `<ref> moved: IF TIP <c8>, the tip is <c8> (rev <rev>)`; `IF TARGETS <digest>: the targets now digest to <digest>` | `nothing was written` | `run the block with DRY again and apply its digest` |
 | E403 | `statement <i>: ASSERT is false` | the assertion's `ELSE` text as `"<text>"` when present; `nothing was written` | none |
 | E404 | `statement <i>: <id> <from> -> <to> refused: <why>` — `<why>` is `<n> children are open`, `verdict <id> <outcome> gates it`, `the removed text is not in <id>.body`, `done -> open needs REOPEN` or the machine's rule name | the open children or gating verdicts (at most 10); `nothing was written` | for `done -> open`: `write REOPEN <id> REASON '<reason>'`; else none |
-| E405 | `statement <i>: <rule> would be violated` — `<rule>` is `acyclic precedence (I5')`, `forest depth 12 (I4)`, `live endpoints (I2)`, `one active superseder (I6)`, `canonical duplicate target (I7)`, `named-query cycle (QueryCycle)` | the cycle or the offending edge, one line | none |
+| E405 | `statement <i>: <rule> would be violated` — `<rule>` is `acyclic precedence (I5')`, `forest depth 12 (I4)`, `live endpoints (I2)`, `one active superseder (I6)`, `canonical duplicate target (I7)`, `named-query cycle (QueryCycle)`, `at most one <edge> (cardinality)` (`runs_in`, `answers`), `named queries bind (QueryInvalid)`, `schema conformance (I11)` ([F19 §12.4], its open point 16) | the cycle or the offending edge, one line | none |
 | E406 | `statement <i>: role <role> may not <action>` | `nothing was written` | `<the rule>` from [AR §7.3] |
-| E406 (unleased, frozen) | `this write needs a lease` | none | `an orchestrator presents its session lease with --lease (mint it once per session: moirai claim --role orchestrator --session)` |
+| E406 (unleased, frozen) | `this write needs a lease` | none | `an orchestrator presents its session lease with --lease (mint it once per session: moirai claim --role orchestrator --session)`. The design writes the text as one line; this row renders it split at its semicolon into message and help, with no other change ([F19 §11.3]; pass 1, A1-51) |
 | E406 (MCP, CLI-only statements) | `<stmt> runs only through moirai tx, for the orchestrator and the owner` — `<stmt>` is `node DELETE`, `RESOLVE`, `DEFINE QUERY` or `DROP QUERY` | none | none |
 | E406 (safelist) | `role <role> may run only named queries (query.safelist.<role> = named-only)` | none | `moirai q --list lists them` |
 | E407 (missing) | `this write needs lease <lease>` | none | `pass --lease <lease>` |
@@ -387,15 +399,20 @@ runtime predicate such as `t.ready` or `t.claimed` in a target is checked agains
 | E407 (branch) | `--branch <ref> differs from lease <lease>'s branch <ref>` | none | `drop --branch; the lease fixes the branch` |
 | E407 (declared agent, [90 §4.1]) | `declared agent <agent> differs from lease <lease>'s holder <holder>` | none | `drop --agent, or pass your own lease` |
 | E407 (bound lease, [90 §4.1]) | `<lease> is bound to <identity>; pass your own lease` | none | none |
-| E408 | `key <key> was used for a different payload` or `key <key> was used on <ref>` | `original: rev <rev> <c8> on <ref>` | `use a new key for a new write` |
-| E409 | `statement <i>: DELETE <id> refused: restricted references` | the references (at most 10): `<id> -[:<edge>]-> <id>`; `nothing was written` | `add POLICY CASCADE or POLICY REPARENT, or REPLACED BY <id>` |
+| E408 | `key <key> was used for a different payload` or `key <key> was used on <ref>`; for a default key ([AR §6.4]): `this write's default key was used for a different payload` or `this write's default key was used on <ref>` | `original: rev <rev> <c8> on <ref>` when the entry records a commit; `original: recorded without a commit` otherwise ([API §7.4]; pass 1, A1-52) | `use a new key for a new write`; for a default key: `pass an explicit key, or --no-dedupe` |
+| E409 | `statement <i>: DELETE <id> refused: restricted references`; for a root node in the deleted set ([F08 §11.3], [RULES/delete-policy-matrix] DP-010): `statement <i>: DELETE <id> refused: <id> is a root node`, naming the root node of the deleted set with the smallest `#N`; for a live lease without `RELEASE` (I32′, [RULES/delete-policy-matrix] DP-005, [API §9.1]): `statement <i>: DELETE <id> refused: leased by <holder> on <ref> (<lease>)`, naming the first live task lease on a node of the deleted set in `LEASES` order ([F11 §6]: `#N`, then lease id), with `<ref>` its branch, and preceded by that node's `<id> ` when it is not the target (`DELETE #40 refused: #41 leased by dev#2 on lane/y (L-19)`); for an invalid replacement ([RULES/delete-policy-matrix] DP-007): `statement <i>: DELETE <id> refused: replacement <id> <why>`, `<why>` being `is not live`, `is in the deleted set` or `does not fit <id> -[:<edge>]-> <id>` (the first re-pointed edge, drawn as re-pointed, whose end does not accept the replacement's kind) | for restricted references, the references (at most 10): `<id> -[:<edge>]-> <id>`; for a lease, every other live task lease on the deleted set in the same order (at most 10): `<id> leased by <holder> on <ref> (<lease>)`; for a replacement that does not fit, every other such edge (at most 10): `<id> -[:<edge>]-> <id>`; edges are listed, and the first one chosen, in (source `#N`, edge name bytewise, destination `#N`) order; then, in every case, `nothing was written` | `add POLICY CASCADE or POLICY REPARENT, or REPLACED BY <id>`; for a root node: none; for a lease: `add RELEASE to release the lease; a triage note goes to the tombstone (moirai rm --release)`; for a replacement: `name a live replacement outside the deleted set that every re-pointed edge accepts` |
 | E410 | `statement <i>: UNLESS EXISTS matched <n> nodes; create-or-bind needs at most 1` | the matches (at most 10) | `narrow the UNLESS EXISTS pattern` |
 | E411 | `free-form TX is refused for a model with the unknown profile` | `use the named mutation <name> (the write tool: name and params)` when one matches the block's statements, else `no named mutation matches; ask the orchestrator`; with `query.safelist.model.unknown = dry-targets`: `or run the block with DRY and apply it with IF TARGETS` | none |
 
 E411 is the one new code of [90 §10.1] (the gap of PLAN §3.3, row "unknown-model write error code number"): E4 because it is a
 write refusal decided before execution, exit 6 because it is a policy refusal like E406 ([AR §7.1]: 6 covers role policy).
 The two exit-5 texts of [90 §10.1] are the E407 rows "declared agent" and "bound lease"; the E406 unleased text of [AR §7.3] and
-[90 §4.3] is frozen verbatim (open point 2).
+[90 §4.3] is frozen, rendered as a message and a help line split at its semicolon (open point 2; [F19 §11.3]).
+
+E409 has four cases (pass 1, round 3, closure NC-8). Of the root node, the lease, the restricted references and the
+replacement, the one whose precondition comes first in [RULES/delete-policy-matrix §4] is printed: the root node (DP-010)
+before the lease (DP-005), the references (DP-006) and the replacement (DP-007). The lease case prints [AR §5d.3]'s text (`leased by dev#2 on lane/y (L-19)`) after
+the statement prefix, and its help names the one fix I32′ allows, `RELEASE` (`tx.rm`'s `--release`, [LQ/std §7.2]).
 
 5.6. **Warnings and notices.** `<v>` is the query's variable name; texts with a count sum it over the result (§4.2).
 
@@ -430,9 +447,10 @@ The two exit-5 texts of [90 §10.1] are the E407 rows "declared agent" and "boun
 |---|---|
 | E401 | `"statement":<int>`, `"expect":<string>` (the bound as written, e.g. `"1"`, `"2..5"`, `">= 3"`), `"matched":<int>`, `"current":[<node object>...]` (with `"changed_by":{"commit":<commit>,"actor":<string>,"ref":<string>,"message":<string>}` inside each), `"written":false` |
 | E402 | `"statement":null`, `"tip":<commit>`, `"expected_tip":<commit or null>`, `"targets":<32 hex or null>`, `"written":false` |
-| E403, E404, E405, E406, E409, E410 | `"statement":<int>`, `"written":false` |
+| E403, E404, E405, E406, E409 (other cases), E410 | `"statement":<int>`, `"written":false` |
+| E409, lease case | `"statement":<int>`, `"leases":[{"node":"#N","id":<string>,"holder":<string>,"branch":<string>}...]` (the leases the text names, in its order; `id`, `holder` and `branch` as the `lease` object of [LQ/envelope §7.4]), `"written":false` (pass 1, round 3, closure NC-8) |
 | E407 | `"lease":<string>`, `"holder":<string or null>`, `"written":false` |
-| E408 | `"key":<string>`, `"original":{"rev":<int>,"commit":<commit>,"ref":<string>}` |
+| E408 | `"key":<string or null>` (`null` for a default key), `"original":{"rev":<int>,"commit":<commit>,"ref":<string>}` or `null` when the entry records no commit ([API §7.4]; pass 1, A1-52) |
 | E411 | `"mutation":<string or null>`, `"written":false` |
 | E201, E202, E303, E304, E501–E505 | `"budget":{<key>:<int>...}` as [LQ/envelope §7.5] |
 | E301 | `"candidates":[<commit>...]` |
@@ -570,3 +588,22 @@ at WP-72; a WP-73 remedy that changes one is a specification edit, not a hole fi
 14. **The A1 re-review's S-05 (absent link states)**, as [50] now settles it: `link_state(n)` is `none` for a node without `AT`
     edges and `a.state` is `unresolved` for an unresolved file ([LQ/std §2.8]), and W10 makes a `<>`/`NOT IN` over the node form
     hedged rather than silent. W10's name and text are this chapter's; its trigger and number are [50 §5.2]'s.
+15. **Pass 1 changes** (A1-32, A1-48, A1-51, A1-52, A1-53, A1-62, P1-11). The fitting of §3.4 never drops the closing line
+    (`nothing was written`), cuts every detail line to 120 bytes, keeps at most two other detail lines (two E401 target
+    lines) before dropping them all in a new step 7, and its bound is recomputed for interpolated detail lines. Controls
+    escape as `\u{h}` (§2.1). E406's unleased text is the design's one line rendered as message and help. E408 takes a
+    default key (`key` null, its own wording and help) and an entry without a commit (`original` null). E304's help renders
+    the caller's `refs` ceiling. `CFGnn` diagnostics indent continuations by seven spaces and follow the `W` and `N` codes in
+    the footer. E501 covers a write whose working set exceeds `wmem` and names the `--budget wmem=` raise.
+16. **Pass 1, round 1** (P1-11, P1-21; [F19] open point 16). E501 gains its third case, an agent write whose changeset
+    exceeds `store.commit.inline-max-bytes` ([F17 §4.4] W1, W4): the text names the split, since a `wmem` raise cannot
+    help. E405 gains the rule texts `at most one <edge> (cardinality)`, `named queries bind (QueryInvalid)` and `schema
+    conformance (I11)`, and E409 the root-node case of [F08 §11.3]; [F19 §10.5] and §12.4 cite them.
+17. **Pass 1, round 3** (closure NC-8, A1-39's residue). [API §9.1] and [RULES/delete-policy-matrix] DP-005 give the
+    live-lease refusal of I32′ the code E409, which had no text for it; §5.5 adds the lease case (message after
+    [AR §5d.3]'s `leased by dev#2 on lane/y (L-19)`, the other leases as detail lines, the help naming `RELEASE`) and
+    §5.7 its `leases` key. DP-007's invalid replacement, also mapped to E409, gets its case in the same row, and the order
+    of the reference and edge lists is fixed. The root-node refusal ([F08 §11.3]) had no row among
+    [RULES/delete-policy-matrix §4]'s preconditions; DP-010 (R-MODEL, round 3) now checks it after the options and
+    before the lease, so the root-node case is printed first and names the root node of the deleted set with the
+    smallest `#N`.

@@ -2,7 +2,7 @@
 
 | | |
 |---|---|
-| Title | The storage protocol of format v1: the durability class of every protocol point; protocol decisions (a)–(m); the three-phase write; leaderless group commit through the flush byte with the invariants I-G1–I-G6 and the thirteen group-commit bugs they exclude; the publish; the chain rule; readers; the two-slot `HEAD` barrier; recovery, adoption by re-writing and boot-change recovery; log-extent preparation, rotation, retirement and epochs; maintenance, deletion and the orphan sweep; the namespace points (the Windows `file mv` rule included); clocks; the error policy; the mapping policy and the environment guard. Every rule is numbered P-1…P-95 and carries the seeded bug that violates it |
+| Title | The storage protocol of format v1: the durability class of every protocol point; protocol decisions (a)–(m); the three-phase write; leaderless group commit through the flush byte with the invariants I-G1–I-G6 and the thirteen group-commit bugs they exclude; the publish; the chain rule; readers; the two-slot `HEAD` barrier; recovery, adoption by re-writing and boot-change recovery; log-extent preparation, spare extents, extent heads, rotation, retirement and epochs; maintenance with its long-holding yield, deletion and the orphan sweep; the namespace points (the Windows `file mv` rule included); clocks; the error policy; the mapping policy and the environment guard. Every rule is numbered P-1…P-100 and carries the seeded bug that violates it |
 | Chapter | [F16], `docs/spec/format/16-protocol.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-16b, the protocol part of WP-16 ([PLAN §3.2] item 1), author role R-SPEC-P |
@@ -19,7 +19,7 @@ owned elsewhere, and this chapter cites them.
 
 | Topic | Owner |
 |---|---|
-| Every rule of this chapter (P-1…P-95), the durability class of every protocol point (§3), the seeded-bug catalogue (§17) | this chapter |
+| Every rule of this chapter (P-1…P-100), the durability class of every protocol point (§3), the seeded-bug catalogue (§17) | this chapter |
 | The fault model the rules are proved against; the durability classes and their per-OS calls; the namespace operations | [F15], [OS/fs] |
 | `LOCK`, the lock-byte offsets, `WriterDiag`, `SlotRec`, `Anchor` | [F03] |
 | The `HEAD` slot, its validity, slot selection, the publish as bytes, the initial slot values | [F04] |
@@ -51,6 +51,9 @@ owned elsewhere, and this chapter cites them.
 | **durable publish** | two publishes under one holding of the writer byte, then `durable+meta` on `HEAD` outside it (P-13) |
 | **barrier** | the durable publish that precedes a deletion, retirement or recycling (decision (c), P-62) |
 | **preparation** | making a log extent's file exist at full length, zero-filled and durable before any group lands in it (P-8) |
+| **spare** | the next extent, prepared ahead by maintenance under a temporary name and renamed into place (P-96) |
+| **extent head** | the `ExtentHead` group that begins every extent; the epoch-start group is the first of an epoch (P-97, [F05 §4.5]) |
+| **long job**, **yield checkpoint** | a maintenance job longer than one delta checkpoint, and the release-free delta checkpoint it runs between its steps to keep the tail bounded (P-98) |
 | **E**, **n(L)** | `HEAD.init.log_extent_bytes` and the extent number of lsn L ([F05 §2.3]) |
 
 ### 1.3 How the rules are written
@@ -77,9 +80,10 @@ sequences of this chapter are exactly these:
 |---|---|---|
 | append (phase 2a) | wait writer → release writer | P-27–P-39 |
 | group commit (phase 2b) | wait flush → wait writer → release writer → flush → wait writer → publish → release writer → release flush | P-40–P-47 |
-| rotation | wait flush → prepare → wait writer → append → release writer → phase 2b continues with the flush byte held | P-72 |
+| rotation | wait flush → make the extent ready (re-issue the flushes of a spare, or prepare it) → wait writer → append the pad, the extent head and the group → release writer → phase 2b continues with the flush byte held | P-72, P-97 |
+| spare extent | try maintenance → prepare `tmp/extent.<nonce>` → rename onto `log.<n+1>` → `durable-name` → release maintenance; no writer or flush byte | P-96 |
 | boot-change recovery | wait flush → wait writer → re-write → release writer → flush → wait writer → durable publish's two writes → release writer → `HEAD` flush → release flush | P-66 |
-| maintenance | try maintenance → its records by phases 2a/2b → barrier: wait writer → two publishes → release writer → `HEAD` flush → deletions → release maintenance | P-62, P-76 |
+| maintenance | try maintenance → its records by phases 2a/2b (a long job: yield checkpoints between its steps) → barrier: wait writer → two publishes → release writer → `HEAD` flush → deletions → release maintenance | P-62, P-76, P-98 |
 | `restore` | try maintenance → wait writer → durable publish of `retired` → release both → swap | P-85 |
 | `file mv`, `file rm` | try slot → `FsIntent` by phases 2a/2b → rename or unlink → commit by phases 2a/2b → release slot | P-16–P-18 |
 | session server | try slot (next slot on `Busy`) → held until exit | [F03 §8.7] |
@@ -108,10 +112,10 @@ record R is appended. Every rename step is followed by `durable-name` on **every
 | P | Protocol point | Steps and classes | Before | Source |
 |---|---|---|---|---|
 | P-5 | record class tag | a record's `RecHdr.flags` bit 0 is set at append by its kind's class ([F05 §6.1]): 0 for every durable kind; for the configurable sub-kinds, the writer's `durability.lazy-kinds` at that moment | — | [80] X-F5, [AR §6.5] |
-| P-6 | durable group (a group with a record whose bit 0 is 0: the kinds of class `durable` — `Commit`, `RefUpdate`, `RefTable`, `ClientHead`, `Lease`, `Marker`, `Idem`, `GitMap`, `Pin`, `Checkpoint`, `Backup`, `FsIntent`, `FsIntentDone`, `FsIntentAborted`, the reservation of P-84 — and a configurable kind written durable, [F05 §4.7]) | `write_at` by the appender (`lazy`); then, by the flush holder after its re-write (P-42), `durable` on **every** extent file that holds a byte of the flushed range `(durable_lsn, E]` | its acknowledgement (I-G1) | [80 §2.3.2] row 1, [80 §2.4.3] |
+| P-6 | durable group (a group with a record whose bit 0 is 0: the kinds of class `durable` — `Commit`, `RefUpdate`, `RefTable`, `ClientHead`, `Lease`, `Marker`, `Idem`, `GitMap`, `Pin`, `Checkpoint`, `Backup`, `FsIntent`, `FsIntentDone`, `FsIntentAborted`, `Reserve` (P-84), `ExtentHead` (P-97) — and a configurable kind written durable, [F05 §4.7]) | `write_at` by the appender (`lazy`); then, by the flush holder after its re-write (P-42), `durable` on **every** extent file that holds a byte of the flushed range `(durable_lsn, E]` | its acknowledgement (I-G1) | [80 §2.3.2] row 1, [80 §2.4.3] |
 | P-7 | lazy group | `write_at` only; published by P-38 or by a covering publish; durable at the next covering flush. A lazy publish never changes `durable_lsn` | — | [80 §2.3.1] `lazy` row, [F05 §6.2] |
-| P-8 | log-extent preparation (rotation, epoch start, `init`) | `create_extent` if the file is absent, or re-preparation in place if it is shorter than E (§11.1); then, in every case, `durable+meta` on the extent and `durable-name` on the store directory; under the flush byte (P-72), or by `init`, `restore` and `repair` in a store no other process can open yet | the first group appended into the extent | [80 §2.3.2] row 2, [80 §2.3.3], [F05 §2.4] |
-| P-9 | rotation pad | one lazy `Noop` group of length r at the old extent's tail, written by the rotating appender immediately before its own group ([F05 §4.4] G-3) | — | [80 §2.4.3] |
+| P-8 | log-extent preparation (rotation, spare, epoch start, `init`) | at rotation, under the flush byte (P-72): nothing written for a full-length spare, `create_extent` if the file is absent, or re-preparation in place (`recycle_extent`) if it is shorter than E; then, in every case, `durable+meta` on the extent and `durable-name` on the store directory. Ahead of rotation, under the maintenance byte only (P-96): `create_extent` of `tmp/extent.<nonce>` → `durable+meta` → `rename_noreplace` onto `log.<n+1>` → `durable-name` on `tmp/` and on the store directory. By `init`, `restore` and `repair` in a store no other process can open yet: as at rotation | the first group appended into the extent (its extent head, P-97) | [80 §2.3.2] row 2, [80 §2.3.3], [F05 §2.4] |
+| P-9 | rotation pad | one lazy `Noop` group of length r at the old extent's tail, written by the rotating appender immediately before the next extent's head (P-97) and its own group ([F05 §4.4] G-3) | — | [80 §2.4.3] |
 | P-10 | sealed file written by a maintenance holder (`seg.base`, `seg.d`, `seg.b`, `hist`, `blobs` of a checkpoint, `dict`, `gitmap`) | `create_new` under its final number (P-78) → `write_at`… → `durable+meta` → `seal` → `durable-name` on the store directory | the `Checkpoint` (or promotion) group that names it | [80 §2.3.2] row 3, [F02 §5.2] rule 2 |
 | P-11 | a bulk commit's `cs.<n>` and its `blobs.<n>` | `cs`: `create_new(tmp/cs.<nonce>)` → `write_at`… → `durable+meta` → `rename_noreplace` onto `cs.<n>` → `seal` → `durable-name` on `tmp/` **and** on the store directory; `blobs`: as P-10 | the `Commit` group that names them | [80 §2.3.2] row 3, [AR §4.3], [F06 §9] BK-3, [F15] OP-5 |
 | P-12 | `HEAD` publish | one `write_at` of the 4,096-byte slot that does not hold the newest valid state ([F04 §9.1] step 4); never flushed on the commit path (1PC+C) | — | [80 §2.3.2] row 4 |
@@ -125,10 +129,11 @@ record R is appended. Every rename step is followed by `durable-name` on **every
 | P-20 | store `config` rewrite | `create_new(tmp/config.<nonce>)` → `write_at` → `durable+meta` → `rename_replace` onto `config` → `durable-name` on the store directory **and** on `tmp/`; then the `config_gen` bump, an ordinary publish (P-48), not flushed | the verb's success report (the bump excepted, [CFG §7.4] step 8) | [80 §2.3.2] row 10, [CFG §7.4], [F15] OP-5 |
 | P-21 | `restore` | the restored store complete in its directory — every file `durable+meta`, every name `durable-name`, `HEAD` last and flushed — then `swap_dirs` ([OS/fs §4.9]: the intent `durable+meta` and `durable-name`; every rename followed by `durable-name` on its parents) | the swap; the verb's success report | [80 §2.3.2] row 11, [AR §4.10] |
 | P-22 | `backup` | every copied file `durable+meta` → `durable-name` on the backup directory → the backup's `HEAD` last, `durable+meta`, `durable-name` → the durable `Backup` group | the verb's success report | [80 §2.3.2] row 12, [72 M9] |
-| P-23 | image export | pack and idx `durable+meta` → `rename_noreplace` into `objects/pack/` → `durable-name`; `packed-refs.lock` (or `<ref>.lock`) `durable+meta` → `rename_replace` → `durable-name` | the `GitMap` group | [80 §2.3.2] row 13, [AR §5b.6] step 5, [72 M9] |
+| P-23 | image export, pack path | pack and idx `durable+meta` → `rename_noreplace` into `objects/pack/` → `durable-name`; `packed-refs.lock` (or `<ref>.lock`) `durable+meta` → `rename_replace` → `durable-name` | the `GitMap` group | [80 §2.3.2] row 13, [AR §5b.6] step 5, [72 M9] |
+| P-100 | image export, loose-object path (a run of at most `store.image.loose-pack-threshold` objects, [F17 §9.1]) | per object: its temporary file `durable+meta` → `rename_noreplace` into `objects/<xx>/` (`AlreadyExists` is success: a loose object's name is its content id) → `durable-name` on `objects/<xx>/` and, when the run created that directory, on `objects/`; all before the ref's `.lock` step, which then runs as in P-23 | the ref update and the `GitMap` group | [80 §2.3.2] row 13, [AR §5b.6] step 5, [F14 §13] (pass 1, P1-18) |
 | P-24 | `init` | §13.7: every initial entry durable and named before `HEAD`, which is created last through `tmp/head.<nonce>` | discovery of the store ([F02 §5.5]) | [F02 §2.4], [F02 §5.5] |
-| — | `LOCK` records | `lazy` only, never flushed; `LockHdr` made durable by P-24 or P-85 (the owner's rule, [F03 §12]) | — | [80] X-F1 |
-| — | pointer file of `init --link` | create-new, a durable write and `durable-name` on its directory (the owner's rule, [F02 §3.3]) | — | [F02] open point 1 |
+| — | `LOCK` records | `lazy` only, never flushed; `LockHdr` made durable by P-24 or P-85 (the owner's rule, [F03 §12]). No P-rule: a record is interpreted only with a lock byte its writer holds, so no crash state of a record can mislead ([F03 §12]'s argument; pass 1, S1-41); the rules that read records have their seeded bugs in §17.4 | — | [80] X-F1 |
+| P-99 | pointer file of `init --link` | create-new, one write, `durable+meta` on the file, `durable-name` on its directory, then the success report ([F02 §3.3] rule 6; pass 1, S1-41) | the verb's success report | [F02] open point 1, [80 §2.3.1] |
 
 ## 4. The protocol decisions (a)–(m)
 
@@ -145,10 +150,10 @@ the review may add decisions, and each added decision becomes a P-rule with its 
 | (e) | Lease TTLs, the HLC and the GC grace are specified against a clock that the fault model's steps cannot break | P-36, P-89 |
 | (f) | `ERROR_DISK_FULL` on any write aborts the command without acknowledging it and leaves only files the orphan sweep removes | P-90, P-91 |
 | (g) | The first process after a boot change recovers and flushes `HEAD` once before any read | P-15, P-60, P-66, P-67 |
-| (h) | Every rename or delete a durable record depends on is followed by a directory barrier; `file mv` is a no-replace rename followed by `durable-name` on both parents on every OS; on Windows also `MOVEFILE_WRITE_THROUGH` until the post-release calibration (measurement 17) shows it unnecessary | P-11, P-17, P-18, P-19, P-20, P-82, P-83 |
+| (h) | Every rename or delete a durable record depends on is followed by a directory barrier; `file mv` is a no-replace rename followed by `durable-name` on both parents on every OS; on Windows also `MOVEFILE_WRITE_THROUGH` until the post-release calibration (measurement 17) shows it unnecessary | P-11, P-17, P-18, P-19, P-20, P-82, P-83, P-96, P-99, P-100 |
 | (i) | Every write is three-phase: computed before the lock, re-validated by key and committed under it | P-25, P-34, P-51 |
 | (j) | The lock contract and order of [80 §2.2] | P-1, P-2, P-3 |
-| (k) | Leaderless group commit through the flush byte with chained group validity, scan and re-write of the pending range under the writer byte, read-modify-write publishes and acknowledgement by identity; I-G1–I-G6 | P-27–P-50, P-53–P-56 |
+| (k) | Leaderless group commit through the flush byte with chained group validity, scan and re-write of the pending range under the writer byte, read-modify-write publishes and acknowledgement by identity; I-G1–I-G6 | P-27–P-50, P-53–P-56, P-97 |
 | (l) | The `HEAD` barrier flushes outside the writer byte, only after maintenance's own `Checkpoint` is published | P-13, P-62 |
 | (m) | The mapping policy and the crash-gated environment guard ([80 §2.5–§2.6]) | P-93, P-94 |
 
@@ -163,7 +168,7 @@ Every write verb runs in three phases ([AR §4.5], decision (i)); every other wr
 the published `committed_lsn` into its overlay, which sets its L0 ([AR §4.5] step 1; the boot check of P-60 first); runs
 the idempotency pre-check
 at L0, whose hit returns the stored result at once and whose miss is re-evaluated by P-32; resolves the branch, binding
-and provenance; computes the candidate, its markers from the net ops, `affected`, the canonical form with a provisional
+and provenance; computes the candidate, its marker changes from the hold changes its net ops make ([F13 §4.2] MC-1), `affected`, the canonical form with a provisional
 `hlc` and the `changeset_digest` ([AR §4.5] steps 2–4); charges `wmem` and applies [F17 §4.4] W1–W4 to the phase-1
 encoding; and performs every file-system read and wait of a settle ([AR §4.5] step 4, [72 M11]). Nothing computed in
 phase 1 is appended without P-34.
@@ -195,7 +200,8 @@ there, to the end E_v of the valid log by the chain rule (§7). The scan does no
 groups beyond it (pending groups, and groups whose publish an OS crash lost) are part of the valid log. At the first
 invalid group, at boundary p: if p ≥ S.`durable_lsn`, p is the end of the log; if p < S.`durable_lsn`, the store is
 corrupt and the process exits 7 `store_corrupt` naming `moirai repair`, and nothing below `durable_lsn` is ever
-overwritten ([F05 §5.3], decision (b)).
+overwritten ([F05 §5.3], decision (b)). A failed read is not an invalid group: at any position it stops the appender by
+P-92, which then appends nothing.
 
 **P-30 (pending groups go only to a scratch layer).** Groups up to the published `committed_lsn` are applied to the
 process's overlay. Groups beyond it are replayed into a scratch layer that is discarded when the writer byte is released.
@@ -205,8 +211,10 @@ No process's read overlay ever holds a group beyond the published `committed_lsn
 counter and what the whole scanned log implies, pending groups included, exactly as recovery derives it ([F05 §10.2]):
 `seq` (from `commit_seq`), `#N` (from `next_id`, with `UIDX` reuse of a known derived uid, I1), `aN` (from
 `next_anchor`), a claim's fencing token and lease id (`fence + 1`, [F05 §9.4]), a new ref id (`next_ref_id`), symbol ids
-([F05 §8.1] SD-1, SD-4) and sealed-file numbers (P-78). A value that would exceed its space is refused with exit 7
-`id_space_exhausted` and nothing is appended ([F04 §5.7]).
+([F05 §8.1] SD-1, SD-4), store-local schema ids ([F08 §8.3]) and sealed-file numbers (P-78). The ranges of every
+`Reserve` record in the scanned log count as allocated ([F05 §9.27]), and an extent head's counters are a lower bound
+([F05 §9.28]). A value that would exceed its space is refused with exit 7 `id_space_exhausted` and nothing is appended
+([F04 §5.7]).
 
 **P-32 (idempotency is evaluated after the scan).** The idempotency key is evaluated only after P-29, against the scanned
 log with its pending groups ([AR §4.5] step 6, F-B7). Only an `Idem` record, or a local commit's key pair ([F06]), can be
@@ -216,13 +224,17 @@ a hit; a commit parked by P-70 and an imported commit never satisfy a lookup (I2
 only after that group passes the identity check: the process runs phase 2b (P-40–P-47) with that group's end and chain
 value as E_g, and returns the stored result, `replayed` = true, only on success ([80 §2.4.3] phase 2a step 4).
 
-**P-34 (re-validation by key).** If the scan found no group beyond L0 — no newly published and no pending group — the
-candidate stands. `committed_lsn` = L0 is not enough, because pending groups lie beyond it ([81 M7]). Otherwise the
-appender replays `(L0, E_v]` and re-validates: the candidate is re-parented in O(1) only if no node, edge, marker or lease
-it read or wrote changed, and no commit in the window touched a kind, field or edge kind that a `TX` `MATCH` reads,
-runtime predicates (`ready`, `claimed`, `settled_elsewhere`, `deleted_elsewhere`) included ([AR §4.5] step 7, S-06);
-else it is recomputed under the lock within `tx.max-work-in-lock`, or the writer byte is released and phase 1 re-run at
-most twice before exit 4 with the current values.
+**P-34 (re-validation by key; a bulk commit by node).** If the scan found no group beyond L0 — no newly published and no
+pending group — the candidate stands. `committed_lsn` = L0 is not enough, because pending groups lie beyond it ([81 M7]).
+Otherwise the appender replays `(L0, E_v]` and re-validates: the candidate is re-parented in O(1) only if no node, edge,
+marker or lease it read or wrote changed, and no commit in the window touched a kind, field or edge kind that a `TX`
+`MATCH` reads, runtime predicates (`ready`, `claimed`, `settled_elsewhere`, `deleted_elsewhere`) included ([AR §4.5]
+step 7, S-06); else it is recomputed under the lock within `tx.max-work-in-lock`, or the writer byte is released and
+phase 1 re-run at most twice before exit 4 with the current values. An inline commit is re-validated **by key**: its
+`prev` values are re-serialised under the writer byte ([F06 §7.3]). A **bulk** commit is re-validated **by node**: every
+node that owns a row of its `cs.<n>` counts as read and written as a whole, so any commit in the window that touched any
+key of such a node forces a phase-1 re-run, which re-streams the file; the sealed `prev` of each row ([F09 §16.4],
+[F06 §9] BK-5) therefore still names that node's newest earlier op (pass 1, S1-20).
 
 **P-35 (final checks on the final encoding).** After the ids of P-31 are filled in, and before the append: a commit whose
 `seq` would exceed 2^32 − 1 is refused (exit 7 `id_space_exhausted`); [F17 §4.4] W1 is re-checked on the final
@@ -231,15 +243,38 @@ phase 1 on the bulk path (bulk-class verbs; this counts as one of P-34's re-runs
 and W3 is re-checked — a group that no extent can hold is refused with exit 7 `commit_too_large` ([F06 §4.6]). In every
 refusal nothing is appended.
 
-**P-36 (the HLC is assigned at append).** Every append-time HLC of the group — a local commit's `hlc`, which is also its
-`append_hlc` ([F06 §4.4.4]), an imported commit's `append_hlc`, and every field [F05 §9] describes as "HLC at append" —
-is assigned here, in group order, by [OS/clock §7]'s rule:
-`hlc_next = max((max(0, wall_ms) as u64) << 16, h_last + 1)`, where `h_last` is the greatest append-time HLC in the
-scanned log, pending groups included, and in the records of the group already built. Append-time HLCs are therefore
-strictly increasing in log order, and `append_hlc` in `seq` order (I43′, strictly). A commit's `commit_id` is computed
-from its final `hlc` here, in O(1) over the unchanged `changeset_digest` ([F07]).
+**P-36 (the HLC is assigned at append, one sequence over the semantic records).** Every append-time HLC of the group is
+assigned here, in group order, by [OS/clock §7]'s rule `hlc_next(wall_ms, h) = max((max(0, wall_ms) as u64) << 16,
+h + 1)`, over two maxima that the appender derives from its scan exactly as the `HEAD` fold does ([F05 §10.2],
+[F04 §5.15]):
 
-**P-37 (the append).** The appender writes the group in one `write_at` at E_v, the end of the valid log it scanned —
+- `h_seq`, the greatest value of the store's **HLC sequence**: the HLCs of the **semantic durable records** — `Commit`
+  (`append_hlc`), `RefUpdate`, `ClientHead`, `Lease`, `Marker` (one value per record, carried by each entry), `Idem`,
+  `Backup`, `FsIntent`, `FsIntentDone`, `FsIntentAborted`;
+- `h_commit`, the greatest `hlc` of any commit the store holds, local or imported.
+
+Each is the maximum of the newest slot's field (`hlc_seq`, `hlc_commit`), of the records of the groups the scan found
+beyond that slot's `committed_lsn` (pending groups included) and of the records of the group already built; no scan
+below `committed_lsn` is needed. Then:
+
+1. A semantic durable record takes `hlc_next(wall_ms, h_seq)` and raises `h_seq` to it. A local commit takes
+   `hlc_next(wall_ms, max(h_seq, h_commit))` as its `hlc`, which is also its `append_hlc` ([F06 §4.4.4]), so it lies
+   above every commit the store holds; an imported commit keeps its own `hlc` and takes only its `append_hlc` from the
+   sequence.
+2. Every other record with an HLC field — `Checkpoint.append_hlc`, `Reserve.hlc`, `Lazy`, `SessionMark`, the HLC values
+   of the lazy runtime rows — carries `hlc_next(wall_ms, h_seq)` and raises nothing. So class-I maintenance, a lazy
+   record, or the loss of a lazy record in a crash never changes a later commit's `hlc`, hence no commit id
+   ([F17 §1.5] SP-1).
+
+This is [API §6.2] CK-4, the rule of record (pass 1, S1-13, P1-5, A1-17). The semantic records' HLCs are strictly
+increasing in log order, and `append_hlc` strictly in `seq` order (I43′), which [F05 §9.9]'s unsigned `dhlc` needs. A
+commit's `commit_id` is computed from its final `hlc` here, in O(1) over the unchanged `changeset_digest` ([F07]). The
+maxima never restart: an epoch re-roll carries them in its epoch-start extent head (P-75, P-97).
+
+**P-37 (the append).** Filling the ids of P-31 into an inline commit re-serialises its `prev` deltas, `#N` placeholders,
+record checksum and chain under the writer byte, which is O(`cs_bytes`), up to P05 ([F06] open point 16); measurement 2
+sweeps inline sizes up to P05 and reports the writer hold, and [F06] names the fallback if the hold gate fails (pass 1,
+P1-26). The appender writes the group in one `write_at` at E_v, the end of the valid log it scanned —
 never at the published `committed_lsn` and never elsewhere — with every record's `lsn` equal to its position and the
 trailer seeded with the chain value at E_v ([F05 §4.3]). It remembers E_g and the chain value at E_g. A group that does not
 fit the rest of the extent goes through P-72.
@@ -273,7 +308,8 @@ P-46.
 the last complete valid group, and re-writes **every byte** of `(durable_lsn, E]` from its scan buffer before it flushes.
 It never flushes a range it did not re-write in the same holding of the flush byte, and never relies on an earlier
 successful flush of the range: a flush after a failed one proves nothing ([F15] FM-3.4, FM-3.5; decision (a)). If its own
-group is not inside `(durable_lsn, E]` with its own chain value at E_g, it releases both bytes and goes to P-47.
+group is not inside `(durable_lsn, E]` with its own chain value at E_g, it releases both bytes and goes to P-47. A failed
+read of the range stops it by P-92: it re-writes and flushes nothing.
 
 **P-43 (the scan and the re-write are under the writer byte).** P-42's scan and re-write happen while the flush holder
 holds the writer byte, so that appenders and the flush holder share one view of the pending range ([80 §2.4.3]).
@@ -314,7 +350,8 @@ valid log ends below it (a lazy tail lost after a crash or a failed flush), and 
 **P-50 (the fold).** A publish folds the `HEAD` effects of every group between S.`committed_lsn` and the new
 `committed_lsn`, in log order, by [F05 §10.2]: counters take the maximum; the table pointers advance to the newest
 covered record of their kind; a covered `Checkpoint` sets the segment set, `checkpoint_lsn`, `active_log`, `flags` bit 1
-and `next_file_no`; a covered `GitMap` advances `image_cursor`; `seq_ring` gains the covered commits. Fields kept in
+and `next_file_no`; a covered `GitMap` advances `image_cursor`; `seq_ring` gains the covered commits; `hlc_seq` and
+`hlc_commit` take the maximum over the covered semantic records and commits (P-36). Fields kept in
 `HEAD` ([F04 §6]) are copied unless the publish is the one that changes them. No field decreases except by P-49, so no
 publish can republish an older segment set.
 
@@ -329,7 +366,7 @@ process spawns the detached `moirai gc --rollup --if-needed` child after releasi
 ### 5.6 Group composition
 
 **P-52 (effects adopted together are in one group).** A writer puts every record that must be adopted with another into
-the same group, as [F05 §4.7] lists: a commit with the `Marker` records its net ops imply, its `Lease`, `Idem`, `RefUpdate`
+the same group, as [F05 §4.7] lists: a commit with the `Marker` records of the marker changes it causes, its `Lease`, `Idem`, `RefUpdate`
 and `RefTable` records and, for `file mv` and `file rm`, its `FsIntentDone`; a `RefUpdate` with the `RefTable` entries of
 the refs it moves and with the fork's `Pin` (P-81); a sync-first merge's two commits; a `Checkpoint` with the `Pin`
 records its promotions move. An `FsIntent` is alone in its group (P-16). Recovery adopts a group all or nothing
@@ -423,8 +460,9 @@ from `min(durable_lsn, checkpoint_lsn)` of the selected slot, which equals `chec
 **P-65 (adoption applies every record kind).** A group beyond the published `committed_lsn` whose writer died is adopted
 only by a flush holder's re-write, flush and publish (P-42–P-45) and then applied by every process's replay in log order,
 record by record, by kind ([F05 §10]): commits with their implied ref moves (P-69), `RefUpdate`, `RefTable`, `Lease`,
-`ClientHead`, `Pin`, `GitMap`, `Checkpoint`, `Idem`, `Backup`, `FsIntent*` and the runtime kinds. The `MARKERS` fold is
-recomputed from the commits' net ops and must agree with the `Marker` records ([F05 §10.3], [72 M1]). No record kind is
+`ClientHead`, `Pin`, `GitMap`, `Checkpoint`, `Idem`, `Backup`, `FsIntent*` and the runtime kinds. The `MARKERS` fold
+applies the `Marker` records, which carry every marker change including holder-set changes, and derives nothing from net
+ops ([F05 §9.5], [F05 §10.3]; [72 M1] fix 2 keeps them in the commit's group). No record kind is
 skipped.
 
 **P-66 (boot-change recovery).** A process that P-28 or P-60 sends here, and that is not in Unknown-boot mode:
@@ -432,7 +470,7 @@ skipped.
 2. reads `HEAD`; if the newest valid slot's `boot_id` now equals its boot identity, another process recovered: it releases
    both bytes and continues;
 3. scans from P-64's start to E_v by the chain rule and re-writes every byte of every complete group in
-   `(durable_lsn, E_v]`;
+   `(durable_lsn, E_v]` (a failed read stops it by P-92);
 4. releases the writer byte and flushes (`durable`) every extent holding a byte of that range (an error: P-44);
 5. acquires the writer byte and makes the two writes of a durable publish (P-13), the first setting `boot_id` to its boot
    identity, `durable_lsn` = max(the slot's value, E_v) and `committed_lsn` by P-49;
@@ -459,42 +497,72 @@ the `Commit` implies the move `ref_old → commit_id`, CAS-checked against the r
 **P-70 (a failed ref CAS parks the commit).** A commit whose CAS fails at replay is not applied to its ref. Every replay
 treats it as parked on `orphans/<R>` (I27′): it is on no live branch view and never satisfies an idempotency lookup
 (P-32). The first appender of a durable group whose scan meets an unparked failing commit appends, before its own group
-and under the same holding, a durable ref group that creates `orphans/<R>` if needed and moves it to the commit
-(`RefUpdate` reason 5 `park`, [F12 §8.2]).
+and under the same holding, a durable ref group that moves `orphans/<R>` to the commit, creating it on its first use:
+one `RefUpdate` with reason 5 `park` (`old` = the previous orphans tip, or zero when the record creates the ref; `new` =
+the parked commit) and its `RefTable` entry ([F05 §9.2], §9.10, [F12 §8.2]; pass 1, P1-3, S1-11, A1-11).
 
 **P-71 (intent recovery).** For every open `FsIntent` whose intent anchor is Dead by [OS/proc §6.2], the next writer
 (in its phase 3, under the maintenance byte taken by try) or `doctor` examines the paths and decides by [40 §3.4]'s
 recovery table; a roll-forward first runs P-19's re-barrier, then appends the recovery commit with `FsIntentDone`
 (`recovered`); an abort appends `FsIntentAborted` with its reason (1–5, [F05 §9.17]). Before appending, under the writer
-byte, it re-checks that the intent is still open. An intent whose anchor is Alive or Unknown is left alone.
+byte, it re-checks that the intent is still open. An intent whose anchor is Alive or Unknown is left alone. A re-barrier
+whose `sync_dir` fails with `Unsupported` or `AccessDenied` — a project volume that cannot flush a directory, which the
+plan step normally refuses first ([API §12.4] step 1) — appends nothing, leaves the intent open, and `doctor` names it
+with the `no_dir_flush` text ([F19 §10.2]); recovery never fails the process that runs it for that reason, since it runs
+in phase 3 after that process's own write. Any other `sync_dir` failure is P-91's `fail_stop` (pass 1, P1-16).
 
 ## 11. Log extents
 
 ### 11.1 Preparation and rotation
 
-**P-72 (rotation).** The first group of an extent m is appended only by a process that holds the flush byte and has
-prepared log.<m> (P-8) during that holding:
-1. An appender whose group would be the first group of an extent m — because E_v is the first byte of extent m, or
-   because its group does not fit the rest of the extent holding E_v ([F05 §4.4] G-3) and m = n(E_v) + 1 — releases the
-   writer byte and acquires the flush byte (`acquire_within(lock.flush-wait-ms)`; on timeout exit 7 `store_locked` with
-   nothing appended).
-2. It prepares log.<m>: if the file is absent, `create_extent` ([OS/fs §4.5]); if it exists shorter than E, it rewrites it
-   in place to length E and zero content by the extent method of [OS/fs §4.5] (`recycle_extent` for `ZeroFill` and
-   `WriteZeroes`; for `Sparse` a size change to E and a hole punch); if it exists longer than E, it exits 7
-   `store_corrupt`. Then, in every case, `durable+meta` on log.<m> and `durable-name` on the store directory. A `Sparse`
-   preparation first applies the free-space check of [OS/fs §4.5] (exit 7 `disk_full` on failure).
-3. It acquires the writer byte and restarts phase 2a at P-28. If its group would still be the first group of extent m, it
-   appends the pad of P-9 when G-3 requires one and then its own group at the first byte of m; otherwise it appends by
-   P-37 (and if its group would now be the first group of another extent, it releases both bytes and starts again at
-   step 1).
+**P-72 (rotation).** The first group of an extent m — its extent head (P-97) — is appended only by a process that holds
+the flush byte and has made log.<m> ready (P-8) during that holding:
+1. An appender whose group would begin in extent m at or after its first byte with no group of m in the valid log —
+   because E_v is the first byte of extent m, or because its group does not fit the rest of the extent holding E_v
+   ([F05 §4.4] G-3) and m = n(E_v) + 1 — releases the writer byte and acquires the flush byte
+   (`acquire_within(lock.flush-wait-ms)`; on timeout exit 7 `store_locked` with nothing appended).
+2. It makes log.<m> ready: if the file exists with length E (a spare of P-96, or a preparation that a dead process
+   completed), it writes nothing to it; if the file is absent, `create_extent` ([OS/fs §4.5]); if it exists shorter than
+   E, `recycle_extent` rewrites it in place to length E and zero content, for every extent method ([OS/fs §4.5]); if it
+   exists longer than E, it exits 7 `store_corrupt`. A `Sparse` preparation first applies the free-space check of
+   [OS/fs §4.5] (exit 7 `disk_full` on failure). Then, in every case, `durable+meta` on log.<m> and `durable-name` on the
+   store directory — re-issued on a spare too, because the durability of a size or a name that another process set is not
+   known ([F15] FM-2.1; on a clean spare the two calls return in well under a millisecond, pass 1, P1-7).
+3. It acquires the writer byte and restarts phase 2a at P-28. If its group would still begin extent m, it appends the pad
+   of P-9 when G-3 requires one, then the extent head of m at its first byte (P-97), then its own group; otherwise it
+   appends by P-37 (and if its group would now begin another extent, it releases both bytes and starts again at step 1).
 4. It continues with phase 2b holding the flush byte (P-41's wait is skipped).
 
 A process that holds only the writer byte appends into extent m only when its scanned valid log already holds a group in
-extent m.
+extent m. The expensive part of a preparation — writing E zero bytes — happens under the flush byte only when no spare
+exists (P-96 prepares one ahead), so a rotation normally adds two sub-millisecond flushes to the flush holder's hold
+([AR §8.3] SPEED rows "writer hold" and "last acknowledgement"; measurement 2's workload includes rotations, [F17] Holes
+`F17-lock-flush`).
 
 A file of extent m that is shorter than E and lies beyond the end of the valid log is the leftover of an interrupted
-preparation (a death, a crash, or `DiskFull` during `create_extent`, [F15] FM-5.4): it never held a group, because P-8
-completes before any append, and it is never read as log.
+preparation (a death, a crash, or `DiskFull` during `create_extent`, [F15] FM-5.4); a full-length one is a spare or a
+completed preparation. Neither ever held a group, because P-8 completes before any append, neither is read as log (a scan
+that reaches it meets zeros, an invalid record), and the length rule of [F05 §2.2] does not apply to them.
+
+**P-96 (a spare extent is prepared ahead, off the commit path).** A maintenance holder (P-76; in background mode, holding
+neither the writer nor the flush byte) that finds the end of the valid log in extent n at or beyond offset E / 2 of it,
+and no file `log.<n+1>`, prepares the spare: `create_extent` of `tmp/extent.<nonce>` ([F02 §5.3], [OS/fs §4.5]),
+`durable+meta` on it, `rename_noreplace` onto `log.<n+1>`, and `durable-name` on `tmp/` and on the store directory.
+`AlreadyExists` at the rename means a rotation made the extent ready first; the holder then deletes its temporary. After
+the rename it never writes to `log.<n+1>` again, so a rotator that finds the name finds a complete file that no preparer
+still writes, and it only re-issues the two flushes before the extent head enters it (P-72 step 2). Preparing under a
+temporary name is what makes this safe without the flush byte: a preparer paused for any time (FM-6) can never write
+zeros over a group, because it writes only to a name no appender uses. The trigger point E / 2 is a protocol constant
+([F17 §13.2]; pass 1, P1-7, closing open point 3).
+
+**P-97 (every extent begins with its extent head).** The first group of every extent is one durable `ExtentHead` record
+([F05 §4.5], §9.28): the chain value at its own lsn, `epoch_lsn`, `init`, `project_oid_algo`, the `quiet` and `readonly`
+flags of the newest slot the writer read, the counters P-31 derives before it, and `hlc_seq` and `hlc_commit` as P-36
+derives them before it. The rotating appender writes it (P-72 step 3); `init` (P-88), `restore` and `repair` (P-75) write
+it as the epoch-start group. Retirement keeps it in `hist` ([F10 §4.1]). It is what a `repair` without a valid `HEAD` slot
+starts from (P-85): the head of the lowest surviving extent of the epoch authenticates itself by its record checksum, its
+position and its trailer recomputed with the `chain_in` it carries, and every later group follows by the chain rule
+(pass 1, P1-8).
 
 ### 11.2 Retirement, reuse and epochs
 
@@ -506,22 +574,42 @@ history is written by P-10 before the `Checkpoint`. The extent's file is deleted
 **P-74 (nothing is reused).** An lsn, an extent number and a sealed-file number are used once in a store's life. The file
 of a retired or deleted extent is never renamed, zero-filled or otherwise reused in the store; in format v1
 `recycle_extent` serves only P-72 step 2's re-preparation of an extent that never held a group, and no live store reuses
-an extent file (G25's "zero-fill recycled extents" is met by building every new epoch in a new extent, P-75).
+an extent file (G25's "zero-fill recycled extents" is met by building every new epoch in a new extent, P-75). A spare
+(P-96) is not a reuse: it is a new file under a number no group has used.
 
 **P-75 (epoch re-roll).** `restore` and `repair --rebuild-from-log` install a new epoch only in a store they build
 completely before any process can open it (P-85): every extent below the new first extent m is retired; m is greater
-than every extent number the store used; the new epoch is drawn from the OS's cryptographically secure source, non-zero
-and different from the old; log.<m> is prepared (P-8) and holds the epoch-start group at `epoch_lsn` = (m − 1)·E; and both
-`HEAD` slots carry the new epoch and are durable before the store becomes discoverable ([F05 §2.6], [F04 §5.3],
-[F04 §9.5]).
+than every extent number the store used; the new epoch is drawn from the OS's cryptographically secure source
+(`Entropy::fill_random`, [OS/README §4.6]), non-zero and different from the old; log.<m> is prepared (P-8) and holds the
+epoch-start group — the extent head of m (P-97) — at `epoch_lsn` = (m − 1)·E; and both `HEAD` slots carry the new epoch
+and are durable before the store becomes discoverable ([F05 §2.6], [F04 §5.3], [F04 §9.5]). The epoch-start head
+carries `hlc_seq` and `hlc_commit` of at least the store it replaces (for `restore`, the maximum of the backup's values
+and those of the live store's newest slot), so the HLC sequence never restarts and a machine whose clock is behind never
+assigns a new commit an `hlc` below a restored one ([API §6.2] CK-6; pass 1, P1-8, P1-44).
 
 ## 12. Maintenance, deletion and the orphan sweep
 
 **P-76 (one maintenance holder).** Every delta checkpoint, runtime-only fold, tiered fold, promotion, retirement, rollup,
-GC, orphan sweep, intent recovery (P-71) and backup (P-87) runs under the maintenance byte, taken by `try_acquire` only:
-`Busy` makes an automatic trigger skip its work and an explicit verb exit 7. Its durable records go through phases 2a and
-2b. A new segment set becomes visible only with the publish that covers its `Checkpoint`; readers keep the old set until
-then ([AR §4.5] step 12, [80 §2.4.3] "Maintenance").
+GC, orphan sweep, spare-extent preparation (P-96), intent recovery (P-71) and backup (P-87) runs under the maintenance
+byte, taken by `try_acquire` only: `Busy` makes an automatic trigger skip its work and an explicit verb exit 7
+`maintenance_busy` ([F19 §10.2]; pass 1, P1-31). Its durable records go through phases 2a and 2b. A new segment set
+becomes visible only with the publish that covers its `Checkpoint`; readers keep the old set until then ([AR §4.5]
+step 12, [80 §2.4.3] "Maintenance").
+
+**P-98 (a long holding keeps the tail bounded).** A **long job** — a rollup, a GC rewrite of `hist`, `blobs` or `gitmap`
+files, a `backup` copy — divides its work into **steps** of at most one output file written and
+sealed, or one file copied. At every step boundary it evaluates C1 of [F17 §5.2] over the current tail with m = 1 (and
+the quiet cap of [F17 §5.3] while quiet mode is on), and when C1 holds it runs one **yield checkpoint** under its own
+holding before its next step: a delta checkpoint over the segment set of the newest slot that folds the tail up to the
+published `committed_lsn`, by phases 2a and 2b, and does nothing else — no promotion, retirement, rollup or GC, and no
+tiered fold except of the yield deltas of the same holding, which it folds into its own new delta and releases. It
+therefore never releases a file the job reads or copies (the job's inputs are the set of the slot it started from, which
+no yield delta belongs to), and the job's yield deltas occupy at most one `HEAD.segments` entry ([F17] C-4) and one
+`gitmap` page per pair ([F10 §7.1]) at any time.
+A rollup whose input set gained yield deltas re-folds their window over its new base in the `Checkpoint` that publishes
+the rollup, replaying the window from the log, so no delta built over the old base survives it (the old base's `TOPO`
+positions do not carry over, [F09 §5.4]). While a long job runs, the tail therefore exceeds C1's bound by at most the
+tail that writers append during one of its steps ([F17 §5.2]; pass 1, P1-9, P1-43).
 
 **P-77 (when a file may be deleted).** A store file is deleted only when all of these hold:
 1. a covered `Checkpoint` released it ([F05 §9.9] `released`, or a retirement entry for an extent), or claimed its number
@@ -551,10 +639,13 @@ only numbers it claimed by the second form.
 of [F02 §6.3]; a foreign entry is never opened, renamed or deleted ([F02 §5.6]).
 - A numbered file that no slot, record or pin names (P-77 conditions 2 and 3, pending groups included) is claimed by the
   sweeper's next `Checkpoint` (P-78), then deleted by P-14 and P-77 once that `Checkpoint` passed its identity check.
+- A log extent beyond the end of the valid log — a spare (P-96) or an interrupted preparation (P-72) — is never swept:
+  the next rotation makes it ready and appends into it.
 - An entry of `tmp/` is deleted when its last-modification time is more than `gc.delete-grace` before the sweeper's wall
   clock. Deleting a live process's temporary is safe: that process's next rename of it fails, and it aborts without an
-  acknowledgement.
-- `tmp/head.<nonce>`, `tmp/probe*` and an interrupted `init`'s directory are `init`'s and `doctor`'s ([F02 §2.4],
+  acknowledgement (a spare preparer included, P-96). This covers `probe.<nonce>` files a dead probe left and the fixed
+  `settle.stamp`, which the next settle recreates ([F02 §5.3]; pass 1, P1-32, S1-38).
+- An interrupted `init`'s directory, which has no `HEAD` and so no store, is `init`'s and `doctor`'s ([F02 §2.4],
   [OS/env §5]).
 
 **P-80 (what a checkpoint folds).** A delta checkpoint or runtime-only fold folds only groups up to a group boundary u at
@@ -564,8 +655,8 @@ without carrying it ([F06 §8] BD-6); and a promotion writes its `seg.b<ref_id>.
 
 **P-81 (pins are written with what they protect).** A fork's `Pin` is in the fork's `RefUpdate` group; the pins a
 promotion moves are in its `Checkpoint` group; the pin of a merge into `main` (holder 3) is written in the group of the
-first `Checkpoint` whose set folds that merge commit ([F12 §8.1]); a tag's `--pin` is in the tag's `RefUpdate` group.
-GC's reachability ([F17 §11.2]) and P-77 condition 3 count every pin of the scanned log.
+first `Checkpoint` whose set folds that merge commit ([F12 §8.1], [F05 §4.7] checkpoint group); a tag's `--pin` is in
+the tag's `RefUpdate` group. GC's reachability ([F17 §11.2]) and P-77 condition 3 count every pin of the scanned log.
 
 ## 13. Namespace points
 
@@ -588,16 +679,19 @@ file and then deletes the original ([40 §3.4] step 1, A1P-01, FS-4).
 ### 13.2 Bulk commits
 
 **P-84 (a bulk commit reserves its ids before it streams).** A bulk producer ([F17 §4.4] W1):
-1. appends, by phases 2a and 2b, a durable **reservation group** that allocates by P-31 the `#N`s, `aN`s, new symbols and
-   schema ids its file will use, and the file numbers of its `cs.<n>` and `blobs.<n>` (P-78), and waits for its
-   acknowledgement;
+1. appends, by phases 2a and 2b, a durable **reservation group** — one `Reserve` record, kind 27 ([F05 §9.27]) — that
+   allocates by P-31 the `#N`s, `aN`s, new symbols (its `SymDefs` block) and schema ids its file will use, and the file
+   numbers of its `cs.<n>` and `blobs.<n>`, which the record claims (P-78); and waits for its acknowledgement;
 2. streams `tmp/cs.<nonce>` with those final ids and makes it durable and named by P-11 (its bodies go to `blobs.<n>` by
    P-10);
-3. appends the bulk `Commit` group by phases 2a and 2b; the re-validation of P-34 treats the reserved uids and symbols as
-   read keys.
+3. appends the bulk `Commit` group by phases 2a and 2b, after checking under the writer byte that no `Checkpoint` of the
+   scanned log released its reservation's files (else it starts again at step 1 with a new reservation); the
+   re-validation of P-34 treats the reserved uids and symbols as read keys and the changeset's nodes by node.
 
-Ids of a reservation whose commit never lands are skipped, never reused ([F09] OP-09-17, [F11 §9.1]). The reservation's
-record kind is requested of [F05] (open point 5).
+Ids of a reservation whose commit never lands are skipped, never reused ([F09 §16.4] "Ids", [F11 §9.1]). Its files stay
+named by the `Reserve` record until `gc` releases them, in its `Checkpoint`'s `released` list, once the reservation's
+`hlc` is older than `gc.cruft-delay` and no `Commit` names the `cs.<n>` ([F17 §11.2]); P-77 then deletes them (pass 1,
+P1-3, S1-11, A1-12, closing open point 5).
 
 ### 13.3 `restore`, `repair` and discovery during a swap
 
@@ -606,7 +700,8 @@ record kind is requested of [F05] (open point 5).
    ([OS/env §5]); copies of the backup's files; a fresh `LOCK` (P-88 step 3); recovery of the copied log up to the
    backup's `committed_lsn`; the fold of every valid record into a new segment set with every extent retired; a new epoch
    by P-75; and `HEAD` last, both slots flushed, `readonly` clear, `boot_id` the restorer's.
-2. On the live store a it takes the maintenance byte (try; `Busy` → exit 7) and the writer byte, makes `retired` durable
+2. On the live store a it takes the maintenance byte (try; `Busy` → exit 7 `maintenance_busy`) and the writer byte,
+   reads the newest slot's `hlc_seq` and `hlc_commit` for the new epoch-start head (P-75), makes `retired` durable
    by P-13 (so every later holder of the writer byte stops, P-28), releases both bytes and closes every handle it holds
    into a (a Windows directory rename fails while a handle inside is open, [OS/fs §4.9.2]).
 3. It runs `swap_dirs(a, b)` with the bounded share retry. On success the old store, now at b, keeps `retired`.
@@ -615,9 +710,22 @@ record kind is requested of [F05] (open point 5).
    `doctor`.
 
 `repair --rebuild-from-log` builds its rebuilt store beside the store and puts it in place by steps 2–4. Plain `repair` of
-a store with no valid `HEAD` slot (P-61) holds the maintenance and flush bytes throughout, rebuilds the slot state from the
-log's epoch-start group and a scan by P-64 ([F04 §8.1], [F05 §4.5]), writes both slots under the writer byte and flushes
-`HEAD` after releasing it, as a durable publish (P-13) whose source state comes from the log instead of a slot.
+a store with no valid `HEAD` slot (P-61) holds the maintenance and flush bytes throughout (`Busy` on the maintenance byte:
+exit 7 `maintenance_busy`) and rebuilds the slot state from the extent heads (P-97; [F04 §8.1], [F05 §4.5], §9.28):
+1. it reads the extent head of every existing `log.<n>` file; the head with the greatest n that validates by itself
+   (checksum, position, trailer with its `chain_in`) gives the epoch (its `RecHdr.epoch`) and `epoch_lsn`;
+2. it scans by the chain rule from the head of the lowest-numbered extent of that epoch from which every later extent
+   file exists, to the end of the valid log (a failed read: exit 7 by P-92);
+3. it takes `epoch_lsn`, `init`, `project_oid_algo`, the `quiet` and `readonly` flags and the counters from the newest
+   head it scanned, and folds every group after that head into them ([F05 §10.2]): the segment set and
+   `checkpoint_lsn` come from the newest `Checkpoint` with a set change, which lies in the scanned range (EX-4, EX-5);
+   `durable_lsn` = `committed_lsn` = the end of the valid log after the flush of step 4; `boot_id` is the repairer's;
+   `config_gen` is 0; a table pointer with no record of its kind in the scanned range is 0, which a reader treats like
+   one below `checkpoint_lsn` ([F04 §5.10]);
+4. it flushes every extent it scanned, writes both slots under the writer byte and flushes `HEAD` after releasing it, as
+   a durable publish (P-13) whose source state comes from the log instead of a slot.
+
+Without the extent heads, a store whose first extent had been retired could not be repaired this way (pass 1, P1-8).
 
 **P-86 (discovery during a swap never recovers the swap).** A discovering process that finds no store directory at `a`
 while the swap intent `<a>.swap` exists ([F02 §3.2]) probes again after 10 ms, 20 ms and 40 ms on its monotonic clock;
@@ -627,11 +735,16 @@ if the intent is still there and `a` is still not a store, it exits 7 `swap_in_p
 ### 13.4 `backup`
 
 **P-87 (`backup`).** `backup DIR`:
-1. takes the maintenance byte (try), so that no file is deleted or replaced during the copy;
+1. takes the maintenance byte (try; `Busy` → exit 7 `maintenance_busy`), so that no file is deleted or replaced during
+   the copy; the copy is a long job whose steps are one file each, and the yield checkpoints of P-98 keep the tail
+   bounded meanwhile without releasing a file it copies (pass 1, P1-43);
 2. reads the newest valid slot S and copies by reads and writes only, never by clone or reflink: `HEAD`'s state S, `LOCK`,
    `config`, every log extent from `active_log` to the extent holding S.`committed_lsn`, and every sealed file S's view
    names (its segment set, its `FILES` registry, pinned sets, and the `cs` files named by records below
-   S.`committed_lsn`);
+   S.`committed_lsn`). A reservation's `cs.<n>` and `blobs.<n>` ([F05 §9.27]) are copied only when its bulk `Commit`
+   lies below S.`committed_lsn`; otherwise they belong to no commit of state S and are left out, whether the reservation
+   is still in the log or its `FILES` row carries the `reserved` flag, which names no content ([F09 §14.4]; pass 1,
+   round 2);
 3. makes every copied file durable and the directory's names durable by P-22, and writes the backup's `HEAD` last: both
    slots S with `slot_seq` s and s + 1 and `flags.readonly` set, so a backup opened in place serves reads and refuses
    writes;
@@ -645,7 +758,15 @@ BLAKE3-256(content_i)` and `name_i` is the store-relative name with `/` separato
 
 ### 13.5 Image export
 
-The export steps and their order are P-23's; the frontier walk and the `GitMap` records are [F14]'s and [F05 §9.7]'s.
+The export steps and their order are P-23's for packs and P-100's for loose objects; the frontier walk and the `GitMap`
+records are [F14]'s and [F05 §9.7]'s.
+
+**P-100 (loose objects are durable and named before any ref names them).** An export run that writes loose objects
+([F17 §9.1]) writes each object to a temporary file in the destination's `objects/` tree, makes it `durable+meta`,
+renames it by `rename_noreplace` to `objects/<xx>/<rest>` — an existing name is success, because a loose object's name
+is its content id — and runs `durable-name` on `objects/<xx>/` and, when the run created that directory, on `objects/`,
+all before the ref's `.lock` step of P-23 and before the `GitMap` group. A crash can then leave an unreferenced object,
+which git ignores, but never a ref that names an object whose name was lost (pass 1, P1-18).
 
 ### 13.6 The store `config`
 
@@ -663,7 +784,9 @@ because a lost bump needs an OS crash, after which every process reads `config` 
    on the store directory.
 4. `config`: `tmp/config.<nonce>` with the initial text ([CFG §7.6]), `durable+meta`, `rename_noreplace` onto `config`,
    `durable-name` on `tmp/` and on the store directory.
-5. log.1: prepared by P-8; then the epoch-start group ([F05 §4.5]) is written at lsn 0 and, right after it, one durable
+5. log.1: prepared by P-8; then the epoch-start group, the extent head of log.1 with the counters of an empty store
+   (`commit_seq` and `fence` 0; `next_id`, `next_anchor`, `next_file_no` 1; `next_ref_id` 0; both HLC maxima 0; [F05 §4.5],
+   P-97), is written at lsn 0 and, right after it, one durable
    group that creates `main`: `RefUpdate` reason 1 with `ref_id` 0, `old` and `new` zero, then `RefTable` with `main`'s
    entry (kind `work`, empty tip, [F11]), with the symbol definitions they need and, when the store lies inside a git
    repository, the `ClientHead` binding of `main` to the main worktree ([40 §5.3], [F05 §9.3]); then `durable` on log.1.
@@ -674,6 +797,12 @@ because a lost bump needs an OS crash, after which every process reads `config` 
 `init` writes no segment: `n_segments` = 0, and the first checkpoint writes the first base or delta. `init` takes no lock
 byte: until step 6 no process can discover the store ([F02 §3.2]).
 
+**P-99 (the pointer file of `init --link` is durable before success).** `init --link` creates `./.moirai` with
+create-new semantics, writes its bytes in one write, runs `durable+meta` on it and `durable-name` on its directory, and
+only then reports success ([F02 §3.3] rule 6, [80 §2.3.1]). A crash before the `durable-name` may lose the file, which the
+user sees as a missing link and repeats; it can never leave a reported success without a durable pointer (pass 1,
+S1-41).
+
 ## 14. Clocks (decision (e))
 
 **P-89 (each rule uses one clock).** The clock of every time-dependent rule is [OS/clock §6]'s, with this chapter's
@@ -683,8 +812,8 @@ reading for the deletion grace:
 |---|---|---|
 | lease deadlines, `session-ttl`, half-TTL renewal | the stamp `{wall, boot_hash, mono}` evaluated by [OS/clock §4.3]: the boot clock on the same boot; the wall clock only in Unknown-boot mode | the boot clock includes suspend and ignores wall steps ([F15] FM-7.3, OP-14) |
 | boot change | the boot identity, never a clock | invariant under steps, suspend and hibernation (X-F2) |
-| append-time HLCs (P-36) | [OS/clock §7]'s rule over the scanned log | a backward step advances the counter, never decreases the HLC |
-| retention windows ([F17 §11]) and the deletion grace (P-77 condition 4) | elapsed = `hlc_ms(now)` − `hlc_ms(t0)`, `now` = max(`wall_ms` << 16, the greatest append-time HLC of the scanned log), `t0` the opening record's `append_hlc` ([F17 §1.6]) | a backward step pauses a window; a forward step shortens it, which is acceptable because no window is a safety condition (the deletion grace included: P-77) |
+| append-time HLCs (P-36) | [OS/clock §7]'s rule over the maxima `hlc_seq` and `hlc_commit` of the newest slot and the scanned log | a backward step advances the counter, never decreases the HLC |
+| retention windows ([F17 §11]) and the deletion grace (P-77 condition 4) | elapsed = `hlc_ms(now)` − `hlc_ms(t0)`, `now` = max(`wall_ms` << 16, `hlc_seq`, `hlc_commit`) as P-36 derives the two maxima, `t0` the opening record's `append_hlc` or `hlc` ([F17 §1.6], [API §6.2] CK-6) | a backward step pauses a window; a forward step shortens it, which is acceptable because no window is a safety condition (the deletion grace included: P-77). The maxima never restart across an epoch re-roll (P-75), so a window never opens early after `restore` or `repair` on a machine whose clock is behind (pass 1, P1-44) |
 | lock waits, share-violation retries, the swap-discovery probes (P-86), settle slices | the waiting process's monotonic clock, in process | a wait needs no cross-process comparison |
 
 ## 15. Errors
@@ -699,10 +828,22 @@ group, adopted or lost by §5.3 like a dead writer's group), a numbered file tha
 `sync_group` — `Io`, `DiskFull`, `Unsupported` or another — goes to `fail_stop` ([OS/fs §4.4.5]): exit 7
 `durability_failure`, no acknowledgement, no retry on the same handle. A class that the location cannot provide is never
 replaced by a weaker call; the environment guard refuses such a location (P-94) ([80 §2.3.1] "No downgrade", [F15 §4.3]).
-The one exception is `probe_store`, where a durability failure is a refusal of the location ([OS/env §5]).
+Two calls made before any state they protect exists are exceptions: `probe_store`, where a durability failure is a
+refusal of the location ([OS/env §5]); and the plan step of `file mv`, `file rm` and `file revert`, whose `sync_dir` on
+the project parents runs before the `FsIntent` group and turns `Unsupported` or `AccessDenied` into the refusal
+`no_dir_flush` with nothing changed ([API §12.4] step 1, [OS/project §6.2]; pass 1, P1-16). Intent recovery's re-barrier
+on such a volume is P-71's case.
 
-**P-92 (read errors are judged by position).** A failed read ([F15] FM-12) of the log at or above `durable_lsn` ends the
-valid log at the group that contains it; below `durable_lsn` it is corruption (exit 7 `store_corrupt`, `moirai repair`).
+**P-92 (read errors are judged by position and by reader or writer).** A failed read ([F15] FM-12) of the log below
+`durable_lsn` is corruption (exit 7 `store_corrupt`, `moirai repair`). At or above `durable_lsn`:
+- a **reader** (P-57, P-58) ends its visible log at the group that contains it;
+- a **writer's scan** — an appender's (P-29), a flush holder's (P-42), boot-change recovery's (P-66), a `repair`'s
+  (P-85) — appends, re-writes and flushes nothing, releases its bytes and exits 7 `store_io_fault` naming the extent and
+  offset ([F19 §10.2]). `durable_lsn` is only a lower bound of the durable end after an OS crash ([72 B1]), so the
+  unreadable bytes may be acknowledged groups, and treating them as the end of the log would let the next append overwrite
+  them (X5: refuse rather than lose; [F05 §5.3]; pass 1, S1-25, closing open point 13). A transient error clears on the
+  next try; a persistent one keeps the store read-only in effect until `repair`.
+
 A failed read of a `HEAD` slot makes that slot absent for P-61. A failed read of a sealed file's header, or a mapping
 fault, is P-59's or P-93's case. A failed identity read is a mismatch (P-46).
 
@@ -781,7 +922,7 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
 | P-20 | `config` rewrite barrier | only the store directory is synced after the replace-rename; the acknowledged change is lost at a crash | — | ns | M1 |
 | P-21 | `restore` completes before the swap | the swap runs before the restored store's `HEAD` is durable | — | avail | M1 |
 | P-22 | `backup` durable before its record | the `Backup` record is acknowledged before the copied files are durable | — | ns | M1 |
-| P-23 | export order | the `GitMap` group is appended before the pack's `durable+meta` and the rename's `durable-name` | — | ns | M5 |
+| P-23 | export order, pack path | the `GitMap` group is appended before the pack's `durable+meta` and the rename's `durable-name` | — | ns | M5 |
 | P-24 | `init` creates `HEAD` last | `HEAD` is renamed into place before log.1 is durable | — | avail | toy |
 | P-25 | phase 1 lock-free | phase-1 work (the candidate's computation, or a simulated file-system wait) runs while the writer byte is held | — | trace | toy |
 | P-26 | settles never sleep on hook and server paths | a server settle waits 50 ms for quiescence inside a request | — | trace | M6 |
@@ -792,9 +933,9 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
 | P-31 | allocators from the scanned log | `#N` is allocated from `HEAD.next_id` alone, ignoring a pending group | — | model (I1) | toy |
 | P-32 | idempotency after the scan | the key is evaluated before the scan | T4 | model (duplicate commit) | toy |
 | P-33 | pending hit waits for identity | an idempotent replay of a pending group is acknowledged before its durability | G6 | ack | toy |
-| P-34 | re-validation by key | "the candidate stands" when `committed_lsn` = L0 although pending groups exist; two exclusive claims succeed | — | model | toy |
+| P-34 | re-validation by key; a bulk commit by node | "the candidate stands" when `committed_lsn` = L0 although pending groups exist; two exclusive claims succeed | — | model | toy |
 | P-35 | final encoding checks | W3 is not re-checked; a group longer than E is appended and acknowledged | — | ack | toy |
-| P-36 | HLC at append | `hlc` is taken from the wall clock alone; `append_hlc` decreases after a backward step | — | model (I43′) | toy |
+| P-36 | one HLC sequence over the semantic records | a `Checkpoint` advances the sequence: a class-I checkpoint appended between two commits in one millisecond raises the next commit's `hlc`, so its commit id differs from the model's (pass 1, P1-5) | — | model (commit id; I43′) | toy |
 | P-37 | append at E_v, chained | the trailer is seeded with the chain value at `committed_lsn` instead of at E_v | — | ack; chain | toy |
 | P-38 | lazy publish only without pending durable | a lazy publish moves `committed_lsn` past a pending durable group | G2 | fresh | toy |
 | P-39 | lazy behind durable runs phase 2b | a lazy group behind a dead writer's pending durable group is left unpublished | G13 | fresh | toy |
@@ -828,7 +969,7 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
 | P-67 | Unknown-boot mode | an Unknown-boot publisher writes a `boot_id` other than its slot's | — | trace (ig6) | toy |
 | P-68 | a slot names a missing file | recovery continues on a partial segment set | — | model; avail | M1 |
 | P-69 | ref move implied by the commit | the ref move is written as a separate record in a later group | T2 | model | toy |
-| P-70 | parking | a commit whose ref CAS failed moves its ref anyway | — | model (I27′) | toy |
+| P-70 | parking | a commit whose ref CAS failed moves its ref anyway, where the rule appends a `RefUpdate` reason 5 `park` of `orphans/<R>` ([F05 §9.2]) | — | model (I27′) | toy |
 | P-71 | intent recovery | recovery treats an `Unknown` anchor as Dead and rolls a live move back | — | ns; model | toy |
 | P-72 | rotation under the flush byte | an appender that holds only the writer byte appends the first group into an extent that another process is preparing | — | ack | toy |
 | P-73 | retirement bounds | extent n is retired while `checkpoint_lsn` ≤ n·E | — | avail | toy |
@@ -842,7 +983,7 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
 | P-81 | pins with what they protect | a fork's `Pin` is written in a later group than its `RefUpdate`; after a crash GC deletes the fork base | — | avail | toy |
 | P-82 | every rename point | a Windows rename passes `MOVEFILE_WRITE_THROUGH` and skips the directory flush | — | ns | toy |
 | P-83 | no cross-volume `file mv` | a cross-volume move copies, then deletes the source | — | ns | toy |
-| P-84 | bulk reservation | a bulk file is streamed with ids allocated in phase 1 from `HEAD` | — | model (I1) | M1 |
+| P-84 | bulk reservation | a bulk file is streamed with ids allocated in phase 1 from `HEAD`, with no `Reserve` record (kind 27, [F05 §9.27]) before it | — | model (I1) | M1 |
 | P-85 | `restore` sequence | a failed swap leaves `retired` set on the live store | — | avail | M1 |
 | P-86 | discovery never recovers a swap | discovery runs `swap_recover` on a running swap | — | avail | M1 |
 | P-87 | `backup` sequence | `backup` copies without the maintenance byte; a file deleted mid-copy leaves an acknowledged incomplete backup | — | avail (restore of the backup) | M1 |
@@ -850,12 +991,36 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
 | P-89 | clocks | a lease deadline is evaluated on the wall clock on a known boot; a ±1 h step expires a live lease | — | model (lease assertion) | toy |
 | P-90 | disk full aborts | the command is acknowledged after `ERROR_DISK_FULL` | DF | ack | toy |
 | P-91 | non-lazy errors stop | an `Unsupported` from a flush is treated as success (a downgrade) | — | ack | toy |
-| P-92 | read errors by position | a read error below `durable_lsn` ends the log | — | ack | toy |
+| P-92 | read errors by position and by reader or writer | an appender's scan treats a read error above `durable_lsn` as the end of the log and appends over an acknowledged group that an OS crash left above a stale `durable_lsn` (pass 1, S1-25) | — | ack | toy |
 | P-93 | mapping policy | a sealed file is mapped without the `total_len` check; zeros after an external truncation are read as data | — | model | M1 |
 | P-94 | environment guard | a location whose probe failed the no-replace rename is admitted | — | ns | M1 |
 | P-95 | leader adds no durability path | the leader acknowledges a forwarded write before its identity check | — | ack | M1 (only if built) |
+| P-96 | spare extent | a rotation appends into a spare without re-issuing `durable+meta` and `durable-name`; a crash loses the spare's size or name under an acknowledged group (pass 1, P1-7) | — | ack; ns | toy |
+| P-97 | extent heads | a rotation begins a new extent without its extent head; after one retirement a `repair` without a valid slot cannot validate the active log (pass 1, P1-8) | — | avail | M1 |
+| P-98 | long holdings yield | a rollup holds the maintenance byte for its whole run without yield checkpoints while writers append; every process's overlay passes P09 by more than one step's tail (pass 1, P1-9) | — | trace (overlay allocator count against the bound) | M1 |
+| P-99 | `init --link` pointer file | success is reported before `durable-name` on the pointer file's directory; a crash then loses an acknowledged link (pass 1, S1-41) | — | ns | M1 |
+| P-100 | export, loose-object path | the ref is updated before a loose object's name is durable; a crash leaves the ref naming a missing object (pass 1, P1-18) | — | ns | M5 |
 
 Every source bug of §17.1 appears in exactly one row, except G12, whose two halves are P-50's and P-62's bugs.
+
+### 17.4 Seeded bugs of protocol rules owned by other chapters
+
+Some protocol rules that the lock and liveness layers rely on are stated outside this chapter, and so is the rule of
+[F02 §3.6] for a store left `retired` after `restore` (P-85, P-86). Each gets one seeded bug here, so that E4 reaches
+them and GT18 (lease liveness) has bugs to catch (pass 1, A1-27; L-9 pass 1, round 3). The rule text stays with its
+owner.
+
+| Id | Rule | Primary seeded bug | Detected by | Vehicle |
+|---|---|---|---|---|
+| L-1 | [F03 §8.4] SR-2: the slot record is written before the holder serves anything | a server anchors a lease to its slot before writing its `SlotRec`; a checker in between reads no live record, finds no match and reclaims the live holder's lease | model (lease liveness) | GT18 |
+| L-2 | [F03 §8.4] SR-5: zero the record, then release the byte | the holder releases the slot byte first and zeroes the record after; a process that took the slot in between loses its fresh record, and its leases look dead | model (lease liveness) | GT18 |
+| L-3 | [F03 §8.6]: the re-read after a `Held` probe, with the same `nonce` and session hash | a checker trusts its first read of the slot table without the re-read; a slot freed and taken by another session between the read and the probe keeps a dead holder's lease alive | model (lease liveness) | GT18 |
+| L-4 | [F03 §10.3] step 2: an anchor stores the matched record's primary hash | a CLI that matched through the alias hash stores the alias; after the server's next `/clear` the anchor matches nothing and the live lease is reclaimed | model (lease liveness) | GT18 |
+| L-5 | [OS/proc §6.2]: `Unknown` never ends a lease or recovers an intent | a probe that answers `Unknown` (a sandbox denial) is read as Dead; a live holder's lease is reclaimed, or its `file mv` intent rolled back | model; ns | GT18; M6 (`FsIntent` crash enumeration) |
+| L-6 | [OS/lock §5.4] I-L4 with I-L2: a kernel grant goes to exactly one in-process waiter | a grant obtained by one kernel wait is handed to two waiting clients of one process; both append at one lsn | ack | toy (the in-process two-client case) |
+| L-7 | [OS/lock §5.4] I-L6: a grant that races the deadline is returned or released | a grant that arrives after the waiter's deadline is neither returned nor released; the byte stays held by a client that returned `Busy`, and every later writer times out | avail | toy |
+| L-8 | [F03 §3.1] rule 2: quiet mode is on while any quiet byte is `Held` or `Unknown` | the maintenance decider probes only the first quiet byte; a checkpoint runs while another requester holds a later quiet byte (pass 1, P1-10) | trace (a checkpoint during quiet mode) | toy |
+| L-9 | [F02 §3.6]: a store that discovery yields again with `HEAD.retired` set and no swap intent is probed with P-86's delays, then refused with exit 7 `store_retired` ([F19 §10.2]) | a process that finds `retired` set re-runs discovery without a bound; after a `restore` that ended without clearing the flag, every command on the store loops instead of exiting 7 (pass 1, round 3; open point 10) | avail | M1 |
 
 ## Coverage
 
@@ -884,7 +1049,7 @@ Every source bug of §17.1 appears in exactly one row, except G12, whose two hal
 
 None. No value in this chapter is decided by an M0 measurement. Values that the rules use and that measurements decide are
 holes of their owners: `HOLE(F17-lock-writer)` and `HOLE(F17-lock-flush)` (P-27, P-41, P-72), the checkpoint and
-promotion thresholds of [F17] (P-51), `HOLE(F15-lock-release)` (the release delays the gates inject), `HOLE(share-retry-ms)`
+promotion thresholds of [F17] (P-51), `HOLE(F15-lock-release)` (the release delays the gates inject), `HOLE(OS-share-retry-ms)`
 of [OS/fs §6.3] (P-85), and `HOLE(OS-win-boot-source)` of [OS/proc] (P-60). Measurement 17 is deferred and decides no value
 here (P-82). Whether the optional leader is built (measurements 1 and 2) changes no rule (P-95).
 
@@ -892,11 +1057,14 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
 
 1. **One seeded bug per rule, and E4.** [PLAN §3.2] WP-40 asks for "one bug per protocol decision of `16-protocol.md`",
    and [PLAN §7] E4 for "the bug list equals `16-protocol.md`'s protocol-decision list". This chapter numbers every rule
-   (95) and gives each one primary bug. It reads E4 as: every P-rule has its bug, carried by the toy log where the rule's
-   mechanism is in WP-40's scope (77 rules) and otherwise by the named gate of the milestone that builds the mechanism
-   (18 rules: P-11 and P-84 bulk commits, P-20 `config`, P-21, P-28, P-75, P-85 and P-86 `restore` and epoch re-rolls,
-   P-22 and P-87 `backup`, P-23 export, P-68 and P-80 segment content, P-78 file-number claims of writer-created files,
-   P-93 mapping, P-94 the guard, P-95 the leader, P-26 server settles). If the review wants all 95 in the toy log at M0,
+   (100) and gives each one primary bug. It reads E4 as: every P-rule has its bug, carried by the toy log where the rule's
+   mechanism is in WP-40's scope (78 rules) and otherwise by the named gate of the milestone that builds the mechanism
+   (22 rules: P-11 and P-84 bulk commits, P-20 `config`, P-21, P-28, P-75, P-85 and P-86 `restore` and epoch re-rolls,
+   P-22 and P-87 `backup`, P-23 and P-100 export, P-68 and P-80 segment content, P-78 file-number claims of writer-created
+   files, P-93 mapping, P-94 the guard, P-95 the leader, P-26 server settles, P-97 extent heads (read by `repair`), P-98
+   long holdings, P-99 the pointer file). §17.4 adds nine bugs for rules of [F03], [OS/proc] and [OS/lock] that the lock
+   and liveness layers rely on and for [F02 §3.6]'s retired store (three in the toy log, five in GT18, L-9 at M1 with
+   P-85 and P-86). If the review wants all 100 in the toy log at M0,
    WP-40 must model those mechanisms minimally, and WP-40's estimate (2–3 u) grows.
 2. **[60 §3.1] item 4 lists fourteen bugs**, not thirteen as [PLAN §3.2] WP-40 says: the A1 re-review added T14 (the
    intent roll-forward without the re-barrier). §17 carries all fourteen.
@@ -909,7 +1077,13 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
    other flush holders by the zero-fill once. The alternative, a spare extent prepared ahead by maintenance under the flush
    byte, costs the same wait at another moment; M1's writer-hold and last-acknowledgement gates decide whether it is
    needed. The flush-byte timeout before an append is exit 7 `store_locked`; [F19] should widen that code's text to name
-   the flush byte.
+   the flush byte. **Pass 1 (P1-7): resolved differently.** A spare needs no flush byte when it is prepared under a
+   temporary name and renamed into place (P-96): a paused preparer then writes only to a name no appender uses, and a
+   rotator that finds the full-length name only re-issues the two flushes (P-72 step 2). The zero-fill leaves the commit
+   path except when no spare exists (the first rotation, or maintenance never ran), where P-72 step 2 still prepares under
+   the flush byte. Measurement 2's workload includes rotations ([F17] Holes `F17-lock-flush`), and M1's writer-hold and
+   last-acknowledgement gates are measured with them (for WP-81a, [60 §5.2] item 2). [F19 §10.2] `store_locked` names the
+   flush byte (P1-31).
 4. **The extent length rule and leftovers of an interrupted preparation.** [F05 §2.2] and [F17 §2.2] IP-6 make an extent
    of another length exit 7. A crash, a death or `DiskFull` during `create_extent` can leave the next extent shorter than
    E (FM-5.4), which P-72 re-prepares. Proposal for [F05] and [F17] (WP-11, WP-16c): the length rule applies to extents at
@@ -917,27 +1091,30 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
    read as log. Similarly [F05 §2.4]'s "reads as zero" holds for every prepared extent; after a crash during a
    preparation the bytes of a full-length file may not be zero (FM-2.2), which is harmless because the position, epoch,
    checksum and chain checks reject them (P-53–P-55). [OS/fs §4.5] should state that re-preparation sets the length to E
-   for every method.
+   for every method. **Pass 1 (S1-24, A1-24): adopted** in [F05 §2.2], [F17 §2.2] IP-6 and [OS/fs §4.5].
 5. **The reservation record of a bulk commit** (P-84; [F09] OP-09-17). The ids and file numbers a bulk file uses must be
    allocated under the writer byte before the file is streamed. This chapter makes that a durable reservation group.
    No record kind of [F05 §7] carries it: [F05] (WP-11) is asked for kind 27 `Reserve` (durable), carrying the file
    numbers of the `cs` and `blobs` files, the `#N` and `aN` ranges, and a `SymDefs` block for the symbols. Its `HEAD`
    effect is the fold of those counters. A durable class costs one extra log flush per bulk commit, which is rare; a lazy
    reservation would be safe too (a lost reservation takes its commit with it by the chain), but would let a failed flush
-   in another process make the reservation vanish while the file streams.
+   in another process make the reservation vanish while the file streams. **Pass 1 (P1-3, S1-11, A1-12): closed** by
+   [F05 §9.27], which also carries the schema ids and an `hlc` from which `gc` releases the files of a reservation whose
+   commit never landed (P-84).
 6. **File-number claims** (P-78) make [F04 §5.13] rule 3 precise. "Advance the counter past an orphan" alone races with
    a live creator between its create and its record; the check under the writer byte closes the race. [F04] (WP-11) should
-   cite P-78.
+   cite P-78. **Done:** [F04 §5.13] cites it.
 7. **The orphan sweep of `tmp/`** (P-79). No design document says when a temporary is an orphan ([F02] open point 5).
    This chapter uses its age against `gc.delete-grace` and shows that deleting a live temporary is safe (its owner's
    rename fails and it aborts without an acknowledgement). [F17 §11.4] says the grace "does not apply to orphan-sweep
    candidates that no record ever named"; that sentence concerns numbered files, which P-79 deletes by claim without a
-   grace, and [F17] should say so.
+   grace, and [F17] should say so. **Done (pass 1, round 2):** [F17 §11.4] "Other deletion paths" states both cases.
 8. **The clock of the deletion grace** (P-89; a conflict between spec files). [F17 §11.4] and OP-17-10 measure the grace
    on the HLC from the releasing `Checkpoint`'s `append_hlc`; [OS/clock §6] lists the grace under §4.5's stamp form.
    `Checkpoint` records carry an HLC, not a stamp ([F05 §9.9]), and the grace is not a safety condition (P-77: the barrier
    and the delete-pending and inode rules protect readers). This chapter follows [F17]; [OS/clock §6]'s row should cite the
-   HLC rule, or [F05] would have to add a stamp to `Checkpoint`.
+   HLC rule, or [F05] would have to add a stamp to `Checkpoint`. **Pass 1 (P1-34, S1-43): closed**; [OS/clock §4.5] and §6
+   now measure the grace on the HLC.
 9. **`MOVEFILE_WRITE_THROUGH` on every Windows rename** (P-82). [PLAN §6.1] #3 and [60 §2.5] (h) name `file mv`;
    [80 §2.3.1]'s `durable-name` row, [F15] OP-2 and [OS/fs] open point 5 read "every rename". This chapter keeps every
    rename, which satisfies all of them; it does not narrow the rule.
@@ -946,7 +1123,10 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
     durable first, which stops every later writer (P-28), then closes its own handles and swaps. While another process
     (for example a running MCP server) holds a file of the store open, the swap fails after the bounded retry, `restore`
     clears `retired` and exits 7; the owner stops the sessions and retries. A store found `retired` at its own discovery
-    path with no swap intent is cleared only by `doctor`; [F19] needs its text.
+    path with no swap intent is cleared only by `doctor`. **Pass 1, round 3: done.** [F02 §3.6] states what a process
+    does then (it repeats the probe with P-86's delays, because a running `restore` sets `retired` before it creates its
+    intent, and then exits 7 `store_retired` without using the store), [F19 §10.2] `store_retired` is its text, and
+    §17.4 L-9 seeds the bug of a process that loops instead. The rule stays [F02 §3.6]'s; P-86 lends it only its delays.
 11. **The discovery probes during a swap** (P-86): 10, 20 and 40 ms. No design document gives a value, and no measurement
     decides it; a two-rename swap takes a few renames and directory flushes, and a longer swap is reported, not waited for.
 12. **A reader that cannot run boot-change recovery** (P-60). A read-only principal after a reboot cannot write the store.
@@ -957,20 +1137,27 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
     persistent read error ([F15] FM-12) in `(durable_lsn, true end]` ends the log there (P-92), and the next append would
     overwrite acknowledged groups. This follows [80 §2.3.5] (12) and needs a media failure after a crash; it is recorded as
     a residual beside [AR §10] risk 17. A stricter rule — any read error in the log is exit 7 until `repair` — would remove
-    it at the cost of availability on a transient error.
+    it at the cost of availability on a transient error. **Pass 1 (S1-25): the stricter rule is taken for writers only**
+    (P-92): a reader still ends its view, and a writer refuses with `store_io_fault` rather than overwrite what may be
+    acknowledged (X5). The residual is gone; the cost is that a persistent read error above `durable_lsn` blocks writes
+    until `repair`.
 14. **`init`'s initial groups** (P-88; [F04] open point 11, [F11] open points 9 and 35, [F09 §16.1]). `init` writes the
     epoch-start group and one group creating `main` (ref id 0, and the binding inside a repository), and no segment. So
-    `next_ref_id` = 1 and `refs_lsn` ≠ 0 after `init`, and [F04 §10]'s table needs the corresponding values.
+    `next_ref_id` = 1 and `refs_lsn` ≠ 0 after `init`, and [F04 §10]'s table needs the corresponding values. **Pass 1
+    (A1-25, S1-45): done** in [F04 §10].
 15. **The merge pin** (P-81): the pin of a merge into `main` is written with the first checkpoint that folds the merge,
     as [F12 §8.1] proposes; [F05 §4.7]'s checkpoint group lists "the `Pin` records its promotions move" and should add these.
+    **Pass 1 (S1-11): done** in [F05 §4.7].
 16. **The `park` move** (P-70) adopts [F12] open point 14's `RefUpdate` reason 5, written by the first appender that meets
-    the failing commit; [F05 §9.2] (WP-11) adds the reason.
+    the failing commit; [F05 §9.2] (WP-11) adds the reason. **Pass 1 (P1-3, A1-11): done** in [F05 §9.2] and §9.10.
 17. **The backup manifest and layout** (P-87; [F05 §9.13], [F02] open point 18). The manifest is defined here. A backup
     is a complete store image whose `HEAD` is written last with `flags.readonly` set, so it is never used for writes in
     place; [F04 §5.2] describes `readonly` as set by an administrative verb, and this is a second setter. `restore` writes a
     fresh `HEAD` and clears it.
 18. **Strict HLC** (P-36; [F13] OP-13-10). [OS/clock §7]'s rule makes append-time HLCs strictly increasing in log order;
-    I43′'s check at EP-W9 may be strict.
+    I43′'s check at EP-W9 may be strict. **Pass 1 (S1-13, P1-5, A1-17):** strictness now holds for the semantic durable
+    records (the HLC sequence of [API §6.2] CK-4), and so for `append_hlc` in `seq` order; `Checkpoint`, `Reserve`, lazy
+    and runtime records carry a value without advancing the sequence, so class-I maintenance never changes a commit id.
 19. **W1 and W3 on the final encoding** (P-35; [F06] open point 16): re-checked under the writer byte; an inline commit
     that grows past the bound re-runs phase 1 on the bulk path.
 20. **Two-parent `durable-name` for renames out of `tmp/`** (P-11, P-20, P-88; [F15] OP-5). The store `config` rewrite,
@@ -988,3 +1175,20 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
     predicates over the simulator's event trace, as [F13] OP-13-02 proposes for I-G4 and I-G6; S4 still holds, since the
     seeded-bug author is not the enumerator's author.
 25. **Settles on hook and server paths** (P-26) record A1P-06's rule here; [40 §4.2] and [F20]'s disposition 29 cite it.
+26. **Extent heads** (P-97; pass 1, P1-8). The review asked for a durable anchor at every epoch start and at the start of
+    every extent. [F05 §9.28] makes it one record kind, `ExtentHead`, whose first instance is the epoch-start group
+    (replacing the former 40-byte `Noop`). Beyond the chain value and the `HEAD`-only fields the review listed, it carries
+    the log-derived counters as of its append, so that a slot-less `repair` (P-85) starts from exact counters instead of
+    re-deriving them from retired history. `retired` and `config_gen` are left out: a repaired store is not retired, and
+    `config_gen` is compared for inequality only. `hist` keeps the heads ([F10 §4.1] keeps every record but the pad).
+27. **Long holdings** (P-98; pass 1, P1-9, P1-43). Of the review's two variants — work outside the maintenance byte on a
+    pinned set, or keep the byte and yield — this chapter takes the second: it needs no new pin holder for a rollup's
+    inputs or a backup's copy set, and a yield checkpoint that releases nothing cannot invalidate what the job reads. The
+    cost is one extra `HEAD.segments` entry (C-4 of [F17 §3] now leaves P14 ≤ 5) and a rollup that re-folds the yield
+    deltas' window over its new base. The bound is stated in [F17 §5.2] and measured by measurement 10.
+28. **The quiet bytes** ([F03 §3.1]; pass 1, P1-10). A requester of process-lifetime quiet mode holds one quiet byte of
+    its own for its whole run, and every maintenance decider probes all of them; the old rule "a `Busy` answer means quiet
+    is already on" failed when the `Busy` came from a Windows probe or when the first holder exited early. §17.4 L-8 seeds
+    the decider that probes one byte only.
+29. **Read errors in a writer's scan** (P-92; pass 1, S1-25). See open point 13. [F19 §10.2]'s `store_io_fault` row lists
+    this trigger beside the mapping fault; its frozen line names the file and offset.

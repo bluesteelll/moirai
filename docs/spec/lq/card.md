@@ -145,8 +145,18 @@ A-M5): WP-58's first real calls measure it before the baseline runs.
 
 7.3. **If the measurement misses the gate**, the card shrinks before the grammar does ([50 §7.1]), in this order, stopping at the
 first step that fits (bytes saved, Cypher spelling): (1) drop example 4 (98 B); (2) drop example 6 (84 B); (3) drop the sentence
-`` `CALL schema(kind: 'task')` lists fields. `` (42 B); (4) drop example 2 (67 B). Steps 1, 2 and 4 together are the 4-example
-card of §6.2. A further cut is a WP-73 remedy that re-runs the baseline ([50 §7.4] item 6).
+`` `CALL schema(kind: 'task')` lists fields. `` (42 B); (4) drop example 2 (67 B); (5) drop the sentence
+`` Reverse names: `BLOCKED_BY`, `PARENT_OF`, `SUPERSEDED_BY`. `` with its leading space (59 B); (6) drop
+`` `CALL history(#12)`, `blame(#12)`, `diff(main...lane/x)`, `log(main..lane/x)`. `` with its trailing space and the line end
+inside it (79 B), which joins lines 22 and 23 and keeps the `USE` forms and the tip sentence; (7) drop the sentence `` Check the `reads:` line under the header. `` with its leading space
+(42 B); (8) drop the `Kinds:` line (96 B). Steps 1, 2 and 4 together are the 4-example card of §6.2. A step removes exactly the
+bytes it names (a whole line with its LF, or a sentence with the one space named); it re-wraps nothing, and the examples that
+remain keep their numbers' order, renumbered from 1.
+
+Steps 1–4 save 291 B (9.3 %), steps 1–8 567 B (18.2 %). At the upper estimate of §7.2 (1,160 tokens) and a constant bytes-per-token
+ratio, 13.8 % reaches the gate, which step 6 attains (429 B), and step 8 leaves ≈ 950 tokens; so `HOLE(LQ-card-shrink)` always has
+a candidate inside the estimate's range (pass 1, P1-42). A card still over the gate after step 8 is a WP-73 remedy that re-runs
+the baseline ([50 §7.4] item 6).
 
 ## Coverage
 
@@ -160,7 +170,7 @@ card of §6.2. A further cut is a WP-73 remedy that re-runs the baseline ([50 §
 
 | Id | What | Decided by | Candidates | Constraint the value must meet |
 |---|---|---|---|---|
-| HOLE(LQ-card-shrink) | how many shrink steps of §7.3 the card takes (0 when the body passes as written) | the card's token count: WP-58's with/without usage delta (Claude) and `moirai-tokcount` (o200k), gated in WP-72 | 0, 1, 2, 3 or 4 steps (the body is ≈ 870–1,160 tokens, est.) | max(Claude, o200k) ≤ 1,000 tokens and bytes ≤ 3,500 after the steps; beyond step 4 the fix is a WP-73 remedy |
+| HOLE(LQ-card-shrink) | how many shrink steps of §7.3 the card takes (0 when the body passes as written) | the card's token count: WP-58's with/without usage delta (Claude) and `moirai-tokcount` (o200k), gated in WP-72 | 0 to 8 steps (the body is ≈ 870–1,160 tokens, est.; step 6 covers the upper estimate) | max(Claude, o200k) ≤ 1,000 tokens and bytes ≤ 3,500 after the steps; beyond step 8 the fix is a WP-73 remedy |
 | HOLE(LQ-card-examples) | how many examples the frozen card keeps | LQ-Bench 0/4/7 ablation, WP-72 ([50 §7.4] item 7) | 7 (§3), 4 (§6.2), 0 (§6.2) | the chosen card meets every GT13 gate; the model runs every example kept |
 
 Lines 10 and 27 of the body also depend on `HOLE(LQ-display-spelling)` of [LQ/gql-spelling]: §3 is the Cypher candidate
@@ -176,3 +186,6 @@ Lines 10 and 27 of the body also depend on `HOLE(LQ-display-spelling)` of [LQ/gq
    names first); the card stays one text for every OS, so its bytes are the same everywhere.
 4. **The body is ASCII**, so the byte limit and the o200k count are independent of the owner's Cyrillic text; the Cyrillic
    token ratios of [90 §9.1] do not apply to the card.
+5. **Shrink steps 5–8** (§7.3; pass 1, P1-42). Steps 1–4 saved 9 % and left ≈ 1,050 tokens at the upper estimate. The four new
+   steps cut prose the schema, the reading echo and the history verbs also carry, least needed first, so that the hole's range
+   always contains a card that meets the gate; the two example-bearing steps (2 and 4) still precede them.

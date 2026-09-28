@@ -150,6 +150,7 @@ hashed or exported. It is used by the `LOCK` identity check ([OS/lock §9]) and 
 |---|---|---|---|---|
 | 0 | 8 | u64 | `volume` | Windows: `FILE_ID_INFO.VolumeSerialNumber`. Linux and macOS: `st_dev` zero-extended to 64 bits |
 | 8 | 16 | [u8; 16] | `file` | Windows: `FILE_ID_INFO.FileId` (the `FILE_ID_128` bytes as the OS returns them). Linux and macOS: `st_ino` as u64 little-endian in bytes 8–15, bytes 16–23 zero |
+| total | 24 | | | |
 
 ### 2.7 Other types
 
@@ -404,7 +405,7 @@ pub struct DurabilityFailure { pub class: DurabilityClass, pub call: &'static st
 | Store `config` rewrite | `create_new(tmp/…)` → `write_at` → `sync(DataAndMeta)` → `rename_replace` onto `config` → `sync_dir(store root)` (and of `tmp/`) |
 | `restore` swap | `swap_dirs` (§4.9), under the writer and maintenance bytes |
 | `backup` | per copied file `create_new` → `write_at`… → `sync(DataAndMeta)`; then `sync_dir` of the backup directory; then the durable `Backup` record. Copies are by read and write only: never reflink, `clonefile` or `CopyFileW` block cloning ([80 §2.3.2]) |
-| Image export | pack and idx `sync(DataAndMeta)` → `rename_noreplace` into `objects/pack/` → `sync_dir`; `packed-refs.lock` `sync(DataAndMeta)` → `rename_replace` onto `packed-refs` → `sync_dir` (loose `<ref>.lock` → `<ref>` likewise); only then the `gitmap` commit |
+| Image export | pack and idx `sync(DataAndMeta)` → `rename_noreplace` into `objects/pack/` → `sync_dir`; a loose object `sync(DataAndMeta)` → `rename_noreplace` into `objects/<xx>/` (an existing name is success) → `sync_dir` of `objects/<xx>/` and, when created, of `objects/` ([F16] P-100); `packed-refs.lock` `sync(DataAndMeta)` → `rename_replace` onto `packed-refs` → `sync_dir` (loose `<ref>.lock` → `<ref>` likewise); only then the `gitmap` commit |
 
 ### 4.5 `create_extent`, `recycle_extent`
 
@@ -420,12 +421,20 @@ which the environment guard reports in `StoreVolume.extent_method` ([OS/env §2]
 
 - Neither call makes anything durable. The caller follows [F16]: `sync(DataAndMeta)` on the extent and `sync_dir` of the
   store root (or one `sync_group` on macOS) before the first commit in the extent is acknowledged.
+- **Re-preparation sets the length for every method.** `recycle_extent(file, len, vol)` on a file shorter than `len` first
+  extends it to `len` — `ZeroFill` and `WriteZeroes` by writing (or `fallocate`-ing) over `[0, len)`, which extends the
+  file; `Sparse` by `ftruncate(fd, len)` (Windows: `SetFileInformationByHandle(FileEndOfFileInfo)`) before the hole
+  punch, which keeps the size — so after it returns the file is exactly `len` bytes and reads as zero, whatever the method
+  ([F16] P-72 step 2; pass 1, S1-24).
+- **The spare extent** of [F16] P-96 is made by `create_extent` under a `tmp/extent.<nonce>` name ([F02 §5.3]), then
+  `sync(DataAndMeta)`, `rename_noreplace` onto `log.<n+1>` and `sync_dir` of `tmp/` and the store root. The calls are the
+  ones of this section; only the name differs.
 - Plain `fallocate` without `WRITE_ZEROES` and `FALLOC_FL_ZERO_RANGE` are never used: they leave unwritten extents that
   cost about 5× in data-sync overwrite rate ([80 §2.3.3], [X17 §3.6]).
 - On copy-on-write file systems any later write and any flush may still fail with disk-full (fault-model item (5)).
-- `recycle_extent` exists for G25: an extent reused under a new epoch is zero-filled before reuse ([AR §4.10];
-  [60 §2.5] decision (c) puts a `HEAD` barrier before every recycling). It is called only on an extent that no
-  published `HEAD` slot still needs ([F16]).
+- `recycle_extent` was introduced for G25 (an extent reused under a new epoch is zero-filled before reuse, [AR §4.10]).
+  [F16] P-74 reuses no file that held a group, so in format v1 it serves only the re-preparation in place of a
+  `log.<m>` that an interrupted preparation left shorter than `len` and that never held a group ([F16] P-72 step 2).
 
 ### 4.6 `seal`
 
@@ -540,6 +549,7 @@ File `<a>.swap` in `a_parent`. Fixed header of 64 bytes, then three UTF-8 paths,
 | 64 + `a_len` + `b_len` | `t_len` | UTF-8 | `t_path` | absolute path of `T`, same form |
 | P = 64 + `a_len` + `b_len` + `t_len` | (8 − P mod 8) mod 8 | zero bytes | `pad` | pads to a multiple of 8 |
 | P + pad | 8 | u64 | `xxh3` | XXH3-64 with seed 0 over bytes `[0, P + pad)` |
+| total | P + pad + 8 | | | |
 
 Total length = P + pad + 8. A reader accepts the file only if the length, the magic, `version = 1`, the reserved fields and
 the checksum all match; otherwise `swap_recover` fails with `Io` ("swap intent unreadable") and changes nothing. The
@@ -548,7 +558,9 @@ recovery refuses rather than guesses (open point 7).
 
 #### 4.9.4 `swap_recover`
 
-`swap_recover(a_parent, a, retry)` is run by `doctor` (and by store discovery when it finds `<a>.swap`). It reads `I`
+`swap_recover(a_parent, a, retry)` is run only by `doctor` and by `restore` itself when its own swap failed ([F16] P-85
+step 4). Store discovery never runs it: a lock-free reader cannot tell a crashed swap from a running one, so discovery
+only probes and retries as [F16] P-86 and [F02 §3.2] state (pass 1, P1-13, S1-26, A1-18). It reads `I`
 (none → `NoIntent`), then the identities of the three paths (`NotFound` = absent) and acts by this table; every rename is
 followed by `sync_dir` of the parents involved, and removing `I` by `sync_dir(a_parent)`:
 
@@ -673,11 +685,15 @@ pub enum VfsErrorKind {
     DiskFull, InsufficientSpace, ReadOnlyVolume,
     Unsupported, CrossDevice, Busy, InvalidName,
     UnexpectedEof, Io, Other,
+    // Reported by `ProjectFs` only ([OS/project §2.3]); never by `StoreFs`.
+    CloudOnly, IsSymlink, IsDirectory, OutsideRoot, Stale,
 }
 ```
 
 `VfsErrorKind` is also the `kind` of `DurabilityFailure`. `#[non_exhaustive]` keeps the port free to report the same
-kinds from new codes; it never lets a port add a behaviour.
+kinds from new codes; it never lets a port add a behaviour. The last five kinds are `ProjectFs`'s ([OS/project §2.3];
+pass 1, A1-33): `StoreFs` never returns them, because store files are never cloud placeholders, links or directories
+where a file is expected (a link in the store is `Other`, §5.2), and store roots have no root-id check.
 
 ### 6.2 Mapping of OS codes to kinds
 
@@ -686,19 +702,24 @@ kinds from new codes; it never lets a port add a behaviour.
 | `NotFound` | 2 `ERROR_FILE_NOT_FOUND`, 3 `ERROR_PATH_NOT_FOUND` | `ENOENT`, `ENOTDIR` | per operation; exit 7 for a file `HEAD` names |
 | `AlreadyExists` | 80 `ERROR_FILE_EXISTS`, 183 `ERROR_ALREADY_EXISTS` | `EEXIST` | per operation |
 | `NotEmpty` | 145 `ERROR_DIR_NOT_EMPTY` | `ENOTEMPTY` | per operation |
-| `AccessDenied` | 5 `ERROR_ACCESS_DENIED` (also the Win32 form of a delete-pending name, a mapped file's delete, and a read-only file's write or delete) | `EACCES`, `EPERM` | writers under a sandbox: exit 7 with the per-harness texts of [90 §5.3]; retried per §6.3 on the Windows rename and delete paths |
+| `AccessDenied` | 5 `ERROR_ACCESS_DENIED` (also the Win32 form of a delete-pending name, a mapped file's delete, and a read-only file's write or delete) | `EACCES`, `EPERM` | writers under a sandbox: exit 7 with the per-harness texts of [90 §5.3]; retried per §6.3 on the Windows rename and delete paths; from `ProjectFs::sync_dir` in a file verb's plan step: exit 7 `no_dir_flush`, nothing changed, and in intent recovery's re-barrier the intent stays open for `doctor` ([OS/project §6.2], [F16] P-71; pass 1, P1-16) |
 | `SharingViolation` | 32 `ERROR_SHARING_VIOLATION`, 33 `ERROR_LOCK_VIOLATION` (a foreign whole-range lock over real bytes) | — (Unix has no share modes) | retried per §6.3; then exit 7 "file busy" |
 | `DeletePending` | `STATUS_DELETE_PENDING` from `NtCreateFile`; 303 `ERROR_DELETE_PENDING` | — | §6.4 |
 | `DiskFull` | 112 `ERROR_DISK_FULL`, 39 `ERROR_HANDLE_DISK_FULL`, 1295 `ERROR_DISK_QUOTA_EXCEEDED` | `ENOSPC`, `EDQUOT` | the command aborts without an acknowledgement (decision (f)); from a sync: `fail_stop` |
 | `InsufficientSpace` | — (the sparse-extent early warning, §4.5; `OsCode(0)`) | same | exit 7 |
 | `ReadOnlyVolume` | 19 `ERROR_WRITE_PROTECT` | `EROFS` | exit 7 |
-| `Unsupported` | 50 `ERROR_NOT_SUPPORTED`, 1 `ERROR_INVALID_FUNCTION`; `STATUS_NOT_SUPPORTED`, `STATUS_INVALID_DEVICE_REQUEST`, `STATUS_INVALID_PARAMETER` from `NtFlushBuffersFileEx` | `ENOTSUP`/`EOPNOTSUPP`; `EINVAL` from a call whose flag the file system lacks (`renameat2`, `fallocate`) | store refused, exit 7 ([80 §2.3.1] no downgrade) |
+| `Unsupported` | 50 `ERROR_NOT_SUPPORTED`, 1 `ERROR_INVALID_FUNCTION`; `STATUS_NOT_SUPPORTED`, `STATUS_INVALID_DEVICE_REQUEST`, `STATUS_INVALID_PARAMETER` from `NtFlushBuffersFileEx` | `ENOTSUP`/`EOPNOTSUPP`; `EINVAL` from a call whose flag the file system lacks (`renameat2`, `fallocate`) | store refused, exit 7 ([80 §2.3.1] no downgrade); from `ProjectFs::sync_dir` in a file verb's plan step: exit 7 `no_dir_flush`, nothing changed, and in intent recovery's re-barrier the intent stays open for `doctor` ([OS/project §6.2], [F16] P-71; pass 1, P1-16) |
 | `CrossDevice` | 17 `ERROR_NOT_SAME_DEVICE` | `EXDEV` | exit 7 |
 | `Busy` | 170 `ERROR_BUSY` | `EBUSY` | exit 7 "file busy" |
 | `InvalidName` | 123 `ERROR_INVALID_NAME`, 206 `ERROR_FILENAME_EXCED_RANGE`; the use-time checks of §2.1 | `ENAMETOOLONG`, `EILSEQ`; the use-time checks of §2.1 | exit 2 for user input, 1 for a name moirai built |
 | `UnexpectedEof` | short read in `read_exact_at` | same | per protocol ([F16]) |
-| `Io` | 23 `ERROR_CRC`, 1117 `ERROR_IO_DEVICE`, 483 `ERROR_DEVICE_HARDWARE_ERROR`, and any unlisted code on a read or write | `EIO`, `EUCLEAN`, `EBADMSG`, and any unlisted code on a read or write | fault-model item (12): corruption below `durable_lsn`, end of log above it ([F16]) |
+| `Io` | 23 `ERROR_CRC`, 1117 `ERROR_IO_DEVICE`, 483 `ERROR_DEVICE_HARDWARE_ERROR`, and any unlisted code on a read or write | `EIO`, `EUCLEAN`, `EBADMSG`, and any unlisted code on a read or write | fault-model item (12), judged by position and by caller ([F16] P-92): below `durable_lsn`, corruption (exit 7 `store_corrupt`); at or above it, a reader's view ends there, and a writer's scan (appender, flush holder, boot recovery, `repair`) appends nothing and exits 7 `store_io_fault` |
 | `Other` | any other code | any other code, including `ELOOP` and a `RESOLVE_BENEATH` `EXDEV` on an open (a symbolic link in the store, §5.2) | exit 1 or 7 per operation |
+| `CloudOnly` | `ProjectFs` only: decided from the entry's attributes before any open (`RECALL_ON_DATA_ACCESS`, `RECALL_ON_OPEN`, `OFFLINE`); an `ERROR_CLOUD_FILE_*` code (362–400) if one still occurs | macOS `SF_DATALESS`, or the error a read returns while materialisation is off | the answer is `unverified (cloud-only)`; never hydrated ([OS/project §5.10]) |
+| `IsSymlink` | `ProjectFs` only: a content read of an entry whose reparse tag is `IO_REPARSE_TAG_SYMLINK` | `ELOOP` from `O_NOFOLLOW` on a content read | the caller uses `read_link` ([OS/project §5.6]) |
+| `IsDirectory` | `ProjectFs` only: 267 `ERROR_DIRECTORY`, or the attributes, on a content read or an unlink | `EISDIR` | per operation |
+| `OutsideRoot` | `ProjectFs` only: an opened object's final path is not under the root (the containment check of [OS/project §5.5]) | `EXDEV` from `RESOLVE_BENEATH`, `ELOOP` from `O_NOFOLLOW_ANY` on a project open | the object is never read; the resolver treats it as not a candidate ([40 §2.4]) |
+| `Stale` | `ProjectFs` only: the directory at a root's path no longer has the root's recorded id ([OS/project §2.2]) | the same check | the caller re-canonicalises the root ([OS/path §4]) |
 
 `EINTR` never surfaces: every call is retried inside the implementation. `EAGAIN` from a regular-file read or write is
 treated as `EINTR`.
@@ -722,7 +743,7 @@ Rules:
   ([80 §2.2.3]); a caller that holds the writer or flush byte passes `ShareRetry::None`. The simulator's assertion hooks
   flag a bounded retry issued by a simulated process that holds either byte.
 - GC deletes pass `None` and retry at the next GC ([AR §4.1]); image-export and `config` renames pass
-  `Bounded { total_ms: HOLE(share-retry-ms) }`; `ProjectFs` renames pass `--retry-ms` (default 1 s, [40 §3.4]).
+  `Bounded { total_ms: HOLE(OS-share-retry-ms) }`; `ProjectFs` renames pass `--retry-ms` (default 1 s, [40 §3.4]).
 
 ### 6.4 Delete-pending
 
@@ -735,8 +756,9 @@ exists until the last handle closes, it cannot be opened (`DeletePending`), and 
 - **Readers.** A reader that fails to open a file named by a `HEAD` it read earlier with `DeletePending`, `AccessDenied`
   or `NotFound` re-reads `HEAD` and retries once; if the newest `HEAD` still names the file, the failure is exit 7 naming
   the file ([AR §4.1]; [F16]).
-- **GC** deletes only files that `HEAD` has not named for 60 s and no pin references ([AR §4.1]); a delete that leaves
-  the file pending, or fails, is harmless and repeated at the next GC.
+- **GC** deletes only files that `HEAD` no longer names, after `gc.delete-grace` ([F17 §11.4], production 60 s) and the
+  other conditions of [F16] P-77, and that no pin references ([AR §4.1]); a delete that leaves the file pending, or
+  fails, is harmless and repeated at the next GC (pass 1, A1-47).
 - On Linux and macOS `unlink` is immediate, and open or mapped inodes stay valid; there is no delete-pending state.
 
 ---
@@ -774,11 +796,34 @@ exists until the last handle closes, it cannot be opened (`DeletePending`), and 
 
 ---
 
+## Coverage
+
+The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
+
+| Item | Part covered here | Section |
+|---|---|---|
+| `60-AR-Log-extents` (log extents read as zero beyond the tail, created per [80 §2.3.3]) | `create_extent` per file system (`ZeroFill` on NTFS); the extent size is [F17]'s | §4.5 |
+| `60-I2-FM(2)` (fault-model item (2)) | namespace durability on the OS side (`sync_dir`) | §4.4.3 |
+| `60-I2-FM(3)` (item (3): a failed flush) | fail-stop | §4.4.5 |
+| `60-I2-FM(5)` (item (5): disk-full) | writes and disk-full; the error kinds | §4.3, §6.2 |
+| `60-I2-FM(8)` (item (8)) | sharing violations and the bounded retry; delete-pending. The lock-release lag is [OS/lock §7.3]'s | §6.3, §6.4 |
+| `60-I2-FM(10)` (item (10)) | sealing: read-only on disk; the mapping rules are [OS/map]'s | §4.6 |
+| `60-I2-FM(12)` (item (12): read errors) | read errors reported as `Io` | §6.2 |
+| `60-I2-PD(a)` (protocol decision (a)) | the OS-side error policy | §4.4.5 |
+| `60-I2-PD(c)` (decision (c)) | the `HEAD` barrier outside the writer byte | §4.4.6 |
+| `60-I2-PD(f)` (decision (f): disk-full) | disk-full on write | §4.3 |
+| `60-I2-PD(l)` (decision (l)) | the barrier flush | §4.4.6 |
+| `60-AU-Vfs-classes` (audit row "`Vfs`/`ProjectFs`": the classes) | the classes as OS calls; the per-OS call mapping | §4.4, Appendix A |
+| `60-AU-Vfs-renames` (the same row: renames) | `rename_noreplace`, `rename_replace`; `swap_dirs` and the swap intent | §4.8, §4.9 |
+| `60-PA-(h)` (the paragraph after the audit rows, (h)) | the rename forms, `MOVEFILE_WRITE_THROUGH` on Windows; the protocol points are [F16]'s | §4.8 |
+| `60-AU-CrossPlatform` (the "Cross-platform" summary row) | X-F5, whose parts are the next row | — |
+| `X-F5` ([80] X-F5) | the classes, no downgrade, the error policy, the `HEAD` barrier; renames; `swap_dirs`; the per-OS calls. The durability tags of records are [F05]'s, the fault-model items [F15]'s | §4.4, §4.8, §4.9, Appendix A |
+
 ## Holes
 
 | Id | What | Decided by | Candidates | Constraint the value must meet |
 |---|---|---|---|---|
-| `share-retry-ms` | `total_ms` of `ShareRetry::Bounded` for image-export renames, `packed-refs`/loose-ref replace-renames and the store `config` rename (§6.3) | measurement 8 (loose-object create + rename under Defender, n = 1,000; WP-54) and measurement 15 (rename of one file and of a 1,000-file directory under Defender; WP-55), filled by WP-81a | 1,000 ms (the `--retry-ms` default [40 §3.4] gives `file mv`) | ≥ the measured p99 time Defender or the indexer keeps a freshly written file open without `FILE_SHARE_DELETE`, loaded; never spent while the caller holds the writer or flush byte; small enough that `image export` stays inside its own budget ([AR §8.3]) |
+| `OS-share-retry-ms` | `total_ms` of `ShareRetry::Bounded` for image-export renames, `packed-refs`/loose-ref replace-renames and the store `config` rename (§6.3) | measurement 8 (loose-object create + rename under Defender, n = 1,000; WP-54) and measurement 15 (rename of one file and of a 1,000-file directory under Defender; WP-55), filled by WP-81a | 1,000 ms (the `--retry-ms` default [40 §3.4] gives `file mv`) | ≥ the measured p99 time Defender or the indexer keeps a freshly written file open without `FILE_SHARE_DELETE`, loaded; never spent while the caller holds the writer or flush byte; small enough that `image export` stays inside its own budget ([AR §8.3]) |
 
 Referenced, owned elsewhere: `store.log-extent-bytes` (init-fixed, [F17]; the extent `len` of §4.5).
 
