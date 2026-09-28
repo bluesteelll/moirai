@@ -8,12 +8,35 @@ license.workspace = true
 repository.workspace = true
 publish = false
 autobins = false
+autotests = false
 description = "Offline o200k token counts and the headless Claude Code invocation with its usage parse (tool)."
 
 [lib]
 path = "src/lib.rs"
 
+# The owner's entry point: offline o200k counts, and one headless Claude Code call printed as a JSON record (V9).
+[[bin]]
+name = "tokcount"
+path = "src/bin/tokcount.rs"
+
+# Test double for the tier-`pr` tests: replays a hand-written stream-json fixture the way `claude -p` prints one, and
+# records how it was invoked. Never a real call. A one-line wrapper of the library's `fake::main`, which crates that
+# build on the invocation (WP-71b) wrap in a binary of their own.
+[[bin]]
+name = "fake-claude"
+path = "src/bin/fake-claude.rs"
+
+[[test]]
+name = "invoke"
+path = "tests/invoke.rs"
+
 [dependencies]
+tiktoken-rs.workspace = true
+serde_json.workspace = true
+
+# Property suites of the unit tests (PLAN §2.4: dev only).
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true
