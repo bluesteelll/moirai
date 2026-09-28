@@ -6,7 +6,7 @@
 | Chapter | [API], `docs/spec/store-api.md`; examples in `docs/spec/store-api/examples/*.json` |
 | Status | draft, pass 1 pending |
 | Work package | WP-25 (R-SPEC-F), [PLAN §3.2] item 2 |
-| Sources | [60 §3.1] item 2 and item 9; [60 §4.1]–[60 §4.4] (the model's role, scope, what is out of scope, how engine and model are compared); [60 §3.13] GT2, GT18; [60 §2.5] rows "Store parameters", "Derived-state semantics", "Harness-agnostic interface and pure Rust"; [AR §2.13] (T13: the `Store` API is an M0 deliverable); [AR §2.16] (T16: versioned versus runtime state); [AR §3.1]–[AR §3.6]; [AR §4.5] steps 2–11 (the three-phase write, idempotency order, markers from net ops, the printed result); [AR §4.6] "Not hashed" and "Net changeset = state diff"; [AR §5a.1]–[AR §5a.9]; [AR §5d.1]–[AR §5d.3]; [AR §6.2]–[AR §6.6]; [AR §7.1] (verbs, flags, conventions, exit codes), [AR §7.2] (MCP tools, branch resolution), [AR §7.3], [AR §7.6]; [AR §8.3] row "GT2 differential, runtime tables included"; [50 §3.1], [50 §3.8]–[50 §3.10], [50 §4.2], [50 §4.4]; [90 §4.1]–[90 §4.4], [90 §7.1]–[90 §7.2], [90 §10.1]; [40 §3.2]–[40 §3.7], [40 §8.3.2] (subset consistency); [80 §2.7.1], [80 §2.7.2]; [PLAN §3.2] WP-25 and WP-90, [PLAN §6.2] R4; the delegations of the written chapters: [F05 §8.7] and §9.6 (`Idem.result`), [F06 §4.4.7] (the payload of a verb without a `TX` block), [F06 §5.5] (`pathmove.hlc` under the injected clock), [F08 §5.4.4] (order-key generation), [F11 §8] and its open point 4, [F17 §1.5] SP-1, SP-2 and OP-17-17, [F19 §1.2], §8.2 and its open point 30, [CFG §7.6] and its open point 11, [OS/clock §1], [RULES/status-machines] open point 16 (rows CO-002, CO-003), [RULES/role-write-policy] WS-004, [RULES/pack-classes] `HOLE(pack-digest-param)` |
+| Sources | [60 §3.1] item 2 and item 9; [60 §4.1]–[60 §4.4] (the model's role, scope, what is out of scope, how engine and model are compared); [60 §3.13] GT2, GT18; [60 §2.5] rows "Store parameters", "Derived-state semantics", "Harness-agnostic interface and pure Rust"; [AR §2.13] (T13: the `Store` API is an M0 deliverable); [AR §2.16] (T16: versioned versus runtime state); [AR §3.1]–[AR §3.6]; [AR §4.5] steps 2–11 (the three-phase write, idempotency order, markers from net ops, the printed result); [AR §4.6] "Not hashed" and "Net changeset = state diff"; [AR §5a.1]–[AR §5a.9]; [AR §5d.1]–[AR §5d.3]; [AR §6.2]–[AR §6.6]; [AR §7.1] (verbs, flags, conventions, exit codes), [AR §7.2] (MCP tools, branch resolution), [AR §7.3], [AR §7.6]; [AR §8.3] row "GT2 differential, runtime tables included"; [50 §3.1], [50 §3.8]–[50 §3.10], [50 §4.2], [50 §4.4]; [90 §4.1]–[90 §4.4], [90 §7.1]–[90 §7.2], [90 §10.1]; [40 §3.2]–[40 §3.7], [40 §8.3.2] (subset consistency); [80 §2.7.1], [80 §2.7.2]; [PLAN §3.2] WP-25 and WP-90, [PLAN §6.2] R4; the delegations of the written chapters: [F05 §8.7] and §9.6 (`Idem.result`), [F06 §4.4.7] (the payload of a verb without a `TX` block), [F06 §5.5] (`pathmove.hlc` under the injected clock), [F08 §5.4.4] (order-key generation), [F11 §8] and its open point 4, [F17 §1.5] SP-1, SP-2 and OP-17-17, [F19 §1.2], §8.2 and its open point 30, [CFG §7.6] and its open point 11, [OS/clock §1], [RULES/status-machines] open point 16 (rows CO-002, CO-003), [RULES/role-write-policy] WS-004, [RULES/pack-classes] `HOLE(pack-digest-param)`; the rules this chapter follows from chapters written after its first draft: [F12 §2.4]–§2.6 (ref-name rules and completion), §3.2 and §3.8 (commit literals and forms), §6.6 (key texts), §9 (staging); [F07 §6.3] (canonical values, defaults absent); [LQ/std §4.15] (the `diff` order) and §7.3 (procedure yields); [LQ/errors §5.7] (code-specific keys); [RULES/role-write-policy] WR-005; [RULES/delete-policy-matrix] DP-003; [OS/clock §7] |
 | Depends on | [F01], [F02], [F05], [F06], [F08]; cites [F03], [F04], [F07], [F11], [F12], [F13], [F14], [F16], [F17], [F18], [F19], [F20], [CFG], [OS/clock], [OS/proc], [OS/path], [LQ/envelope], [LQ/errors], [LQ/std], [LQ/canonical-ast], [LQ/json-ir], [RULES/state-definition], [RULES/status-machines], [RULES/role-write-policy], [RULES/delete-policy-matrix], [RULES/merge-table], [RULES/link-merge-rules], [RULES/pack-classes] |
 
 ## 1. Scope
@@ -93,7 +93,7 @@ The logical `Store` API is the interface of [60 §3.1] item 2. It has four parts
 |---|---|---|---|
 | E environment | `EnvClock`, `EnvSlots`, `EnvTree`, `EnvGit`, `EnvCrash` | §6 | harness: M1 (clock, slots, crash), M6 (trees, git) |
 | S store | `Init`, `ConfigSet`, `ConfigUnset`, `Quiet`, `Maintain`, `Gc`, `Backup`, `Restore`, `Repair`, `Verify` | §8 | M1 |
-| G graph | `Tx`, `Mutation`, `Apply`, `Migrate` | §9 | M2 (`Tx` in its `lq` and `ir` forms: M7) |
+| G graph | `Tx`, `Mutation`, `Apply`, `Schema`, `Migrate` | §9 | M2 (`Tx` in its `lq` and `ir` forms: M7) |
 | C coordination | `Claim`, `Heartbeat`, `Release`, `Reclaim`, `Complete`, `RunOpen`, `RunClose` | §10 | M2; the minting policy M8, `session-ttl` renewal M10 ([90 §10.2]) |
 | V version control | `BranchCreate`, `BranchDelete`, `Checkout`, `WorktreeBind`, `WorktreeUnbind`, `LaneOpen`, `LaneClose`, `Tag`, `Merge`, `MergeContinue`, `MergeAbort`, `Sync`, `Revert`, `CherryPick`, `Undo`, `OpRestore` | §11 | M1 (refs, pins, `RefUpdate`), M3 |
 | F file links | `FileAdd`, `LinkFile`, `UnlinkFile`, `FileMv`, `FileRm`, `FileRelink`, `FileRevert`, `LinksFix`, `LinksSync`, `Check` | §12 | M2 (the data of `FileAdd`, `LinkFile`, `UnlinkFile`), M4 (`Check`), M6 |
@@ -169,7 +169,7 @@ One JSON object per command:
 |---|---|---|
 | **T** (an LQ write) | `Tx`, `Mutation`, `Claim`, `Heartbeat`, `Release`, `Reclaim`, `Complete`, and the file named mutations `LinkFile`, `UnlinkFile`, `FileRelink`, `LinksFix`, `LinksSync` | [LQ/envelope §7.1] with §7.7, as §3.3 reads them, then `yields` |
 | **R** (an LQ read) | `Query` | [LQ/envelope §7.1] |
-| **W** (every other write) | groups S and V; `Apply`, `Migrate`, `RunOpen`, `RunClose`, `FileAdd`, `FileMv`, `FileRm`, `FileRevert`, `Check`, `ImageExport`, `ImageImport` | §3.4 |
+| **W** (every other write) | groups S and V; `Apply`, `Schema`, `Migrate`, `RunOpen`, `RunClose`, `FileAdd`, `FileMv`, `FileRm`, `FileRevert`, `Check`, `ImageExport`, `ImageImport` | §3.4 |
 | **X** (a snapshot or an environment change) | `State`, `Runtime`, `History`; group E | §3.5 |
 
 Every family's refusal is the error envelope of [F19 §8.6]. A `staged` outcome keeps the success keys and appends `errors`
@@ -190,12 +190,12 @@ The keys and their order are [LQ/envelope §7.1] and §7.7:
 | `rev_new` | the seq of the created commit; null when none; on a replay, the original commit's seq |
 | `key` | the explicit idempotency key (`ctx.key`), else null |
 | `lease` | the presented lease (§4.2), else null |
-| `statements` | [LQ/envelope §7.7]; for a named mutation, the statements of its expansion; empty on a replay |
+| `statements` | [LQ/envelope §7.7]; for a named mutation, the statements of its expansion; for a data-level block, those of its LQ equivalent (§9.3); `targets` lists the nodes the statement matched, created or changed, ascending; empty on a replay and for a file named mutation, which is no `TX` block ([LQ/std §7.4]) |
 | `affected` | `{"ready":[…],"other":[…]}`: `ready` lists the newly ready ids (§5.8); `other` the rest of the commit's `affected` set ([F13 §6.3]); both ascending by `#N` |
 | `markers` | every marker the command emitted, in the order of §10.8 |
 | `cols`, `data` | the columns and rows of the created commit's `diff` (§5.7); empty with no commit |
 | `budget` | [LQ/envelope §7.5]; its values are excluded from the comparison (§16.3) |
-| `yields` (appended after `budget`) | array: one object per procedure call of the block, in statement order: `{"index":<statement index>,"proc":"tx.<name>","rows":[{…}…]}`, each row with the procedure's yield columns ([LQ/std §7.3]) in the encodings of §5 |
+| `yields` (appended after `budget`) | array, always present, empty when the block calls no procedure: one object per procedure call of the block, in statement order: `{"index":<statement index>,"proc":"tx.<name>","rows":[{…}…]}`; each row holds the procedure's yield columns of [LQ/std §7.3] first, in that table's order, then the further members the command's section lists (§10, §12), in the encodings of §5 (open point 36). A file named mutation (§12), which is no `TX` statement, has one entry with `index` 0 |
 
 ### 3.4 Family W
 
@@ -262,10 +262,10 @@ reference model encodes these rows as data ([60 §3.13] GT2 row, M8); the ids ar
 | Row | Field group | Order (first source that has it) |
 |---|---|---|
 | CX-1 | **Rights** (the presented lease) | `ctx.lease` → `ctx.env.MOIRAI_LEASE` under the binding rule CX-9 → none |
-| CX-2 | **Branch** | `ctx.branch` → the presented lease's branch → the binding (longest bound prefix, [F11 §5]) of `ctx.meta.sandboxCwd`, else of `ctx.stamp.cwd` → `ctx.env.MOIRAI_BRANCH` → the `branch=` field of `ctx.marker` → the client head of `ctx.client`, else of `ctx.env.MOIRAI_CLIENT` → the binding of `ctx.cwd` → the binding of the git top-level that contains `ctx.cwd` (the git-worktree hint, §6.5) → for `door` = `mcp`, the session's client head `session:<harness>:<id>` → the `default-branch` key ([CFG]) |
+| CX-2 | **Branch** | `ctx.branch` → the presented lease's branch, for a task lease or a run-scoped role lease (the session role lease carries no branch, [RULES/role-write-policy] WR-005, open point 40) → the binding (longest bound prefix, [F11 §5]) of `ctx.meta.sandboxCwd`, else of `ctx.stamp.cwd` → `ctx.env.MOIRAI_BRANCH` → the `branch=` field of `ctx.marker` → the client head of `ctx.client`, else of `ctx.env.MOIRAI_CLIENT` → the binding of `ctx.cwd` → the binding of the git top-level that contains `ctx.cwd` (the git-worktree hint, §6.5) → for `door` = `mcp`, the session's client head `session:<harness>:<id>` → the `default-branch` key ([CFG]) |
 | CX-3 | **Actor** and `actor_src` | the presented lease's holder (`lease`) → `codex:` + `ctx.meta.threadId` (`meta`) → `claude:` + `ctx.stamp.agent_id` (`stamp`) → `ctx.agent` as written (`declared`) → `ctx.env.MOIRAI_AGENT` as written, else `codex:` + `CODEX_THREAD_ID`, else `session:claude:` + `CLAUDE_CODE_SESSION_ID` (`env`) → `client:` + `ctx.client_info` (`client`) → the resolved session identity prefixed `session:`, else the empty string (`none`) ([F06 §3.5]) |
 | CX-4 | **Session** (the liveness identity) | `codex:` + `ctx.meta.threadId` → `ctx.stamp.session_id` with the prefix of the detected harness (CX-7) → `codex:` + `CODEX_THREAD_ID` → `claude:` + `CLAUDE_CODE_SESSION_ID` → none; never a `MOIRAI_*` variable |
-| CX-5 | **Tree** | `ctx.tree` → `ctx.meta.sandboxCwd` → `ctx.stamp.cwd` → the `worktree_path` of the lane whose `moirai_branch` is the presented lease's branch → `ctx.cwd` |
+| CX-5 | **Tree** | `ctx.tree` → `ctx.meta.sandboxCwd` → `ctx.stamp.cwd` → the `worktree_path` of the lane whose `moirai_branch` is the presented lease's branch (a task lease or a run-scoped role lease) → `ctx.cwd` |
 | CX-6 | **Model** | the `model` of the run the presented lease is scoped to, else of the run `ctx.env.MOIRAI_RUN` names → the `model=` field of `ctx.marker` → `ctx.model`, else `ctx.env.MOIRAI_MODEL` → `ctx.hook_model` → `lq.model-profile.default.<client>` ([90 §8.2], [CFG]) |
 | CX-7 | **Client** (profile) | `ctx.client`, else `ctx.env.MOIRAI_CLIENT` → `ctx.client_info` (`codex-mcp-client` → `codex`; a Claude Code name → `claude`; anything else → `generic`) → detection from `ctx.env`: the variables of exactly one harness (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID` or `AI_AGENT` = `claude-code_*` → `claude`; `CODEX_THREAD_ID` → `codex`; `GEMINI_CLI`, `CURSOR_AGENT`, `AGENT` → their label with the `generic` profile); variables of more than one harness → `generic` and **no session identity** (CX-4 yields none) and the warning `two_harnesses` ([F19 §10.4]) → `generic` |
 | CX-8 | **Effective role** | the presented lease's role; a `ctx.hook_label` that differs narrows it to the intersection of the two rows of [RULES/role-write-policy], with the warning `hook_label_narrowed`; no lease → `general-purpose` ([90 §4.3]) |
@@ -285,7 +285,7 @@ Checked before anything else of the command, in this order; each refuses with no
 |---|---|---|
 | 1 | `ctx.lease` or the environment lease names no live lease ([RULES/state-definition] `lease-live`, `lease-ends`) | E407 `lease`, exit 5 ("lease lost") |
 | 2 | CX-9: an environment lease bound to another thread | E407, [F19 §11.2] text 2 |
-| 3 | `ctx.branch` differs from the presented lease's branch, and the command has no `move_lease` argument set to that branch ([AR §5a.4]) | E407, exit 5 |
+| 3 | the presented lease is a task lease or a run-scoped role lease, `ctx.branch` differs from its branch, and the command has no `move_lease` argument set to that branch ([AR §5a.4], WR-005; the session role lease writes on any branch) | E407, exit 5 |
 | 4 | outside `Claim`, `ctx.agent` differs from the presented lease's holder ([90 §4.1] Actor row) | E407, [F19 §11.2] text 1 |
 | 5 | a tree-derived write (group F, except `FileAdd` and `LinkFile` in an eligible tree) with `ctx.tree` outside the presented lease's lane tree | `tree_mismatch`, exit 5 |
 | 6 | the resolved branch is a detached client head and the command writes, without `branch_new` ([AR §5a.4]) | E305 `read_only_view`, exit 6 |
@@ -315,7 +315,7 @@ A move with `move_lease` succeeds with the warning the verb prints ([AR §5a.4])
 |---|---|
 | node (`#N`) | string `"#N"`, N decimal without leading zeros |
 | uid | string `"#u:"` followed by 32 lower-case hexadecimal digits ([50 §4.4]) |
-| commit id | string `"c"` followed by 64 lower-case hexadecimal digits; in arguments also `"c"` and at least 4 hexadecimal digits of a unique prefix, resolved by [F12]'s revision rule (a prefix that names no or several commits is E301, exit 3) (open point 1) |
+| commit id | string `"c"` followed by 64 lower-case hexadecimal digits ([F12 §3.8]); in arguments also a commit literal of 7 to 64 digits, resolved by [F12 §3.2] and §3.4 (a prefix that names no commit, or several, is E301, exit 3, with the candidates in the error's `candidates` key, [LQ/errors §5.7]) (open point 1) |
 | revision in an argument | a ref name or a revspec of [F12] |
 | sequence number | integer |
 | `hlc`, `append_hlc` | string of the decimal digits of the `u64` ([F19 §8.3]: values that can exceed 2^53 are strings) |
@@ -356,21 +356,24 @@ ISO 8601 string, which [50 §3.2]'s coercion converts; results give the integer.
 
 ### 5.3 Keys
 
-The text form of a key is [F12]'s. This chapter uses, and proposes for [F12] (open point 8):
+The text form of a conflict or violation key is [F12 §6.6]'s `skey`, in arguments and in results; results write its output
+form (the `#`, stored names, `-` for a violation without a key). For reference (open point 8):
 
-| Key class ([F06 §6.1]) | Text |
+| Key class ([F06 §6.1]) | Text ([F12 §6.6]) |
 |---|---|
-| existence | `#N.exists` |
+| existence | `#N.existence` |
 | status (with its resolution) | `#N.status` |
 | field, counter | `#N.<field>` |
 | observation | `#N.observation` |
 | body | `#N.body` |
 | hierarchy | `#N.parent` |
-| edge | `edge:#S:<stored edge kind>:#D`, and `:<32 hex>` of the discriminator for an `at` edge |
-| schema item | `schema:kind:<kind>`, `schema:field:<kind or *>.<field>`, `schema:value:<kind or *>.<field>.<value>`, `schema:edge:<edge kind>` |
-| named query | `query:<name>` ([F19] open point 17) |
+| edge | `edge:#S:<stored edge kind>:#D`, and `:a<n>` (the anchor handle) for an `at` edge |
+| schema item | `schema:kind:<kind>`, `schema:field:<kind or *>.<field>`, `schema:enum:<kind or *>.<field>.<value>`, `schema:edge:<edge kind>` |
+| named query | `query:<name>` |
 
-In `state(ref)` the node part of a key is the uid.
+**Snapshot form.** `state(ref)` (§15) holds no store-local number, so its keys replace every `#N` by the node's uid
+(`#u:<32 hex>`) and an anchor handle by the anchor's uid as 32 hexadecimal digits: `#u:….body`,
+`edge:#u:…:at:#u:…:<32 hex>`. This form is this chapter's and is never input.
 
 ### 5.4 Edges and anchors
 
@@ -420,23 +423,29 @@ The **canonical JSON** (CJ) of a value is its JSON text written by these rules, 
 The `data` of a family-T result holds the rows of the created commit's net changeset against its first parent ([AR §4.6]
 "Net changeset = state diff"; for `sync`, the full state diff), in the shape of the `diff` relation of [LQ/std §2.9]: columns
 `change`, `node`, `kind`, `aspect`, `name`, `before`, `after`, `side`, `last_commit`, `actor`. For a commit's own rows `side` is
-null, `last_commit` is the commit and `actor` its actor. This chapter fixes the aspects and values (open point 4):
+null, `last_commit` is the commit and `actor` its actor; for the would-be rows of a `DRY` both are null. `before` and `after`
+are the key's canonical values ([F07 §6.3]): an absent key is null, and so is a value equal to its field's default (`priority`
+`P2`, the initial status with resolution `none`), so the first move away from a default is a `+` row. This chapter fixes the
+aspects and values (open point 4):
 
 | Key class | `aspect` | `name` | `before`, `after` |
 |---|---|---|---|
-| existence | `exists` | the kind | `"live"`, `"deleted"` or null |
+| existence | `existence` | the kind | `"live"`, `"deleted"` or null |
 | status | `status` | `status` | `{"status":<name>,"resolution":<name>}` or null |
 | field | `field` | the field | §5.2, or null |
 | counter | `counter` | the field | the totals |
 | observation | `observation` | `observation` | `{"path":…,"oid":…,"bytes":…,"observed_git":…,"observed_blob":…,"relink":…}`, absent members null |
 | body | `body` | `body` | the 32-hex body hash, or null |
 | hierarchy | `parent` | `parent` | `{"parent":"#N" or null,"order":<text or null>}` |
-| edge | `edge` | the LQ name of the stored kind | `{"dst":"#N","disc":<32 hex or null>,"props":{…}}` or null; `props` holds `flagged`, `pinned` and the anchor record (§5.4) as present |
+| edge | `edge` | the LQ name of the stored kind | `{"dst":"#N","disc":<32 hex or null>,"props":{…}}` or null; `props` holds `flagged`, `pinned` and `anchor` as present; `anchor` is an object whose first member is `"handle":"a<n>"`, followed by the anchor record of §5.4 with its texts |
 | schema item | `schema` | the key text (§5.3) | the item as an object of [F08 §8.5]'s members by name, or null |
 
 - A key that holds a conflict value shows `{"conflict":<class>,"base":…,"ours":…,"theirs":…}` in `before` or `after`.
 - `change` is `+` when `before` is null, `-` when `after` is null, `~` otherwise. `node` is null for schema rows.
-- Rows are ordered by (`node`, the aspect's row in this table, `name`, the edge's `dst`, the discriminator); schema rows first.
+- Rows are in the order of the `diff` query ([LQ/std §4.15]: `ORDER BY node, aspect, name`) — `node` by `#N`, schema rows
+  (`node` null) last because absent sorts last ([50 §3.5]), `aspect` and `name` bytewise — and, among edge rows that agree on
+  all three, by the edge's `dst` and then its discriminator (absent first). The aspect words are the key parts of
+  [F12 §6.6] where one exists.
 
 ### 5.8 Newly ready
 
@@ -487,14 +496,24 @@ model use this section. Environment commands take no `ctx`, are never keyed and 
   `boot_hash` = 0 ([OS/proc §5] U4).
 - **CK-3 (now).** The stamp `now` is [OS/clock §3.2]'s over (`wall_ms`, `boot`, `boot_ns`). Deadlines, their evaluation and
   the half-TTL renewal are [OS/clock §4.2]–§4.4's over it.
-- **CK-4 (HLC).** Each commit the command appends takes `hlc` = `hlc_next(wall_ms, h)` of [OS/clock §7], where h is the greatest
-  `hlc` of every commit the store holds before it (the command's earlier commits included); `append_hlc` likewise over the
-  greatest `append_hlc`. A foreign or imported commit keeps its own `hlc` ([F06 §4.4.4]); its `append_hlc` follows CK-4.
+- **CK-4 (one store HLC).** The HLC values a command's records carry are drawn from one sequence, in the order the command
+  appends the records ([F16]; a group's records in [F05 §4.7]'s order): each record takes `hlc_next(wall_ms, h)` of
+  [OS/clock §7], where h is the greatest value the sequence has produced before it (0 in a new store) and, for a local
+  commit, also the greatest `hlc` of any commit the store holds (an imported commit's `hlc` can lie ahead). The records that
+  take a value are the **semantic durable records** a command of this API writes: `Commit` (a local commit's `hlc`, which is
+  also its `append_hlc`, [F06 §4.4.4]; an imported commit keeps its own `hlc` and takes only its `append_hlc`),
+  `RefUpdate`, `ClientHead`, `Lease`, `Marker` (one value per record, carried by each entry), `Idem`, `Backup`, `FsIntent`,
+  `FsIntentDone` and `FsIntentAborted` ([F05 §9]). A record of another kind that has an HLC field — `Checkpoint`, `Lazy`,
+  `SessionMark`, the lazy runtime rows — carries `hlc_next(wall_ms, h)` for the current h but does not advance the sequence,
+  and no result, snapshot or digest of this chapter shows its value. So class-I maintenance changes no HLC and no commit id
+  ([F17 §1.5] SP-1), and a lazy record lost in a crash changes none either. This departs from [F16] P-36, which advances
+  one HLC over every "HLC at append" field of [F05 §9] (open point 39).
 - **CK-5 (`pathmove.hlc`).** A `path_moves` entry that a command adds carries the `hlc` of the first commit the command
   appends. This is the value "the writer's HLC when the candidate was computed" of [F06 §5.5] under a clock that is constant
   within the command; a re-parent never changes it.
-- **CK-6 (windows).** A retention window measures `now_ms − (t >> 16)`, with t the opening record's `append_hlc` and
-  `now_ms` = max(`wall_ms`, h >> 16), h the greatest `hlc` the store holds ([OS/clock §6], [F17 §1.6]).
+- **CK-6 (windows).** A retention window measures `now_ms − (t >> 16)`, with t the HLC value of the record that opens it
+  (a commit's `append_hlc`, a record's `hlc`) and `now_ms` = max(`wall_ms`, h >> 16), h the greatest value of CK-4's sequence
+  and of any commit's `hlc` ([OS/clock §6], [F17 §1.6]).
 - **CK-7 (wall now).** `defer_until ≤ now()` and the other wall-clock tests of `ready` use `floor(wall_ms / 1000)` seconds
   ([RULES/state-definition] PD-016).
 
@@ -645,8 +664,8 @@ sequential stream). Entries older than `idempotency.retention` (P28), or, for a 
 | 1 | none | the command executes |
 | 2 | equal payload, same branch (`ref_id`) | `replayed` (§7.5), exit 0 |
 | 3 | equal payload, another branch, the entry records a commit, and the caller's branch has absorbed it (`absorbed_caller[ref_id] ≥ ref_seq`, [F11 §8]), the entry's ref being live or deleted | `replayed`, exit 0 (N13e) |
-| 4 | a different payload | E408 `idempotency_mismatch`, exit 9; the original result is carried in the error's `detail` |
-| 5 | equal payload, another branch, otherwise | E408, exit 9 |
+| 4 | a different payload | E408 `idempotency_mismatch`, exit 9, with [LQ/errors §5.7]'s keys: `key` (the explicit key, or null for a default key) and `original` = `{"rev":<the original commit's seq>,"commit":<its id>,"ref":<its ref>}`, or null when the entry records no commit |
+| 5 | equal payload, another branch, otherwise | E408, exit 9, with the same keys |
 
 - The branch of a command is the branch it writes: the resolved branch (CX-2) for most commands; the destination for `Merge`,
   `MergeContinue` and `Sync`; the batch branch for `Apply` (§9.4).
@@ -688,8 +707,9 @@ commit); no commit; `next_id` = 1, `next_anchor` = 1, `fence` = 0, `commit_seq` 
 `Init` in one stream: `usage`, exit 2.
 
 **Result.** `branch` = `"main"`, `rev` = 0; `data` = `{"store_id":<32 hex>,"main_ref_id":0,"schema_version":1,"init":{<init-fixed
-key>:<int>…},"config":{<key>:<value>…}}`: `init` holds the three init-fixed values ([F17 §2.1]); `config` the store keys the
-command set.
+key>:<int>…},"config":{<key>:<value>…}}`: `init` holds the three init-fixed values ([F17 §2.1]) in bytes or counts, always
+all three (from `params` or the production values); `config` the store keys the command set, each value a string in its
+canonical form ([CFG §4.1]); both objects have their members in bytewise order of the keys (§5.6 rule 2).
 
 ### 8.2 `ConfigSet`, `ConfigUnset`
 
@@ -705,7 +725,9 @@ model takes the effective values of class-V keys as its configuration snapshot (
 
 **Refusals.** `config_key`, `config_value` (exit 2); an init-fixed key (exit 2, [F17 §2.2] IP-4).
 
-**Result.** `data` = `{"key":…,"scope":…,"value":<new effective value or null>,"previous":<previous effective value or null>}`.
+**Result.** `data` = `{"key":…,"scope":…,"value":<new effective value>,"previous":<previous effective value>}`, both strings
+in the key's canonical form ([CFG §4.1]); after `ConfigUnset` `value` is the value that applies without the entry (the
+default, or the other scope's).
 
 ### 8.3 `Quiet`
 
@@ -785,7 +807,7 @@ writes nothing. A block whose net changeset is empty and that emits no runtime r
 | a derived, runtime or tree-derived property; an artifact observation field, identity field or status; `CREATE (:artifact …)`; a created `AT` edge; an edge property | E115, naming the verb that writes it | 2 |
 | a value outside its field's shape (record list, range, NaN, one-line text) | `bad_value` | 2 |
 | a node id never allocated, a uid this store does not know | E111 | 2 |
-| a literal target that is not live on the view (a tombstone, a node of another branch) | E401, printing the tombstone line or notice N01, N06 ([50 §3.6]) (open point 5) | 4 |
+| a literal target that is not live on the view (a tombstone, a node of another branch) | `not_found` with `what` = `node` and `value` = the id, the tombstone line (N01's text) or N06's text as its `detail` ([AR §5d.3] L3, [RULES/delete-policy-matrix] DP-003, [50 §3.6]) (open point 5) | 3 |
 | a guard: `EXPECT`, `if_rev`, `if_status`, `if_holder`; `IF TIP`; `IF TARGETS` | E401; E402 | 4 |
 | a stale fencing token | E407 | 5 |
 | the role write policy ([RULES/role-write-policy]) | E406 | 6 |
@@ -860,7 +882,8 @@ resolved branch (CX-2) ([AR §6.4] D6; N13e: a run bound to a closed lane resolv
 1. For each `results` entry in order: its `lease` must be a lease of the run (`LEASES.run` = the run's `#N`) on the batch branch;
    every other self-reported identity field is ignored ([90 §7.2]). `outcome` `done`, `failed` or `abandoned` becomes
    `CALL tx.complete(<task>, outcome: …, summary: …, evidence: …, lease: '<lease>')`, with the entry's lease presented for that
-   call only (open point 16); `none` becomes `CALL tx.release('<lease>')` when the lease is live.
+   call only (open point 16); `none` becomes `CALL tx.release('<lease>')` when the lease is live and not run-scoped (a live
+   run-scoped lease is released by step 4; open point 42). `task`, `recorded` and `about` are the integers of [90 §7.2], read as `#N`.
 2. Each carried finding and note becomes a `create` of a `finding` (`title`, `severity`, `failure_scenario`, `ABOUT` edges to
    `about`) or a `note` (`note_kind` = `kind`, `title`, `body` = `text`), deduplicated within the batch by the key
    `run:<run>/task:<n>/<kind>:<hex(BLAKE3-128(lp(title) ‖ lp(failure_scenario or text)))>` ([90 §7.2]); the first wins.
@@ -875,7 +898,10 @@ write ([AR §6.4] D6). Any refusal of §9.1 for any statement refuses the whole 
 
 **Result.** Family W; `branch` = the batch branch; `data` = `{"run":…,"entries":[{"task":<"#N" or null>,"lease":…,"outcome":…,
 "completed":<bool>}…],"created":["#N"…],"released":["L-n"…],"recorded":["#N"…],"markers":[…],"affected":["#N"…]}`:
-`recorded` repeats the entries' `recorded` ids that exist on the batch branch; `markers` is §10.8's; `affected` is the commit's.
+`completed` is true for an entry that step 1 turned into a `tx.complete`; `created` lists the nodes step 2 and `stmts`
+created, ascending; `released` every lease the batch ended — by a completion (into `settled`), by step 1's release or by step 4
+— ascending by lease id; `recorded` repeats the entries' `recorded` ids that exist on the batch branch; `markers` is §10.8's;
+`affected` is the commit's.
 
 ### 9.5 Positions and the `order` field
 
@@ -931,7 +957,7 @@ Weakening schema changes ([AR §2.12], [F08 §8.1]): adding a project kind, a fi
 
 | Argument | Type | Default | Meaning |
 |---|---|---|---|
-| `items` | array of item objects | required | each `{"class":"kind"\|"field"\|"value"\|"edge", …}` with the members of [F08 §8.5] by name, without the store-local members (`kind_id`, `edge_id`, `value`), which the store allocates ([F08 §8.3]) |
+| `items` | array of item objects | required | each `{"item":"kind"\|"field"\|"enum"\|"edge", …}` (the item classes 1–4 of [F08 §8.5]; `enum` is an enumeration value, the word of [F12 §6.6]'s `schema:enum:` key; the member is `item` because a field record has its own member `class`, the merge class; open point 43) followed by the members of [F08 §8.5] by name: symbols as their strings, enumeration bytes by name (`type` and `elem` by the type names of [F08 §5.1], `elem` null when 0), flag bytes as arrays of the names of their set bits, without a `has_*` bit (the presence of the member it announces says it), `KindSet`s and `covers` as §15.3 writes them; without the store-allocated members (`kind_id`, `edge_id`, an enumeration value's `value`, a field's `decl`, [F08 §8.3], §8.5.2) |
 | `message` | string | `""` | the commit message |
 
 **Effect.** One commit with one `Schema` op of mode `weaken` per item ([F06 §7.6]); the store-local ids are allocated by
@@ -983,7 +1009,9 @@ The commands `Claim`, `Heartbeat`, `Release`, `Reclaim` and `Complete` are the p
 | `run` | text | none | the run the lease is scoped to (`--run`) |
 | `session` | bool | false | the orchestrator's session role lease (`--role orchestrator --session`) |
 
-Exactly one of `ids`, `next` = true, and `role` with `run` or `session` is given.
+A `Claim` is a **task claim** — exactly one of `ids` and `next` = true, with `role` the role of the task leases and `run`
+making them run-scoped to that run — or a **role-lease mint** — neither `ids` nor `next`, with `role` and exactly one of
+`run` and `session`. Any other combination is `usage`, exit 2 (open point 41).
 
 **Task claims.**
 - Each task must be live on the claimer's branch (CX-2) and `ready` there with the claimer as the caller
@@ -998,7 +1026,8 @@ Exactly one of `ids`, `next` = true, and `role` with `run` or `session` is given
 
 **Role leases.** `role` + `run`: a run-scoped role lease ([RULES/role-write-policy] WM-004). `role` = `orchestrator` +
 `session`: the session role lease, bound to the minting thread where the harness names one (`LEASES.bound`), with the TTL
-`lease.orchestrator-ttl` where no slot anchors it, refused for a known subagent or a dispatched worker (WM-005).
+`lease.orchestrator-ttl` (its deadline decides liveness only where no slot anchors it or the slot table is unreadable,
+[RULES/state-definition] LL-003 to LL-008), refused for a known subagent or a dispatched worker (WM-005).
 
 **Each new lease** ([F05 §9.4] event 1, [F11 §6]):
 
@@ -1011,7 +1040,7 @@ Exactly one of `ids`, `next` = true, and `role` with `run` or `session` is given
 | `anchor` | SL-1 (§6.3), for the caller's session |
 | `expires`, `ttl_ms` | `after(now, ttl)` ([OS/clock §4.2]) and the TTL; `Stamp::NEVER` and 0 when run-scoped |
 | `run` | the `#N` of the run named by `run` (§10.6); 0 = none |
-| `branch` | the claimer's branch |
+| `branch` | the claimer's branch; for the session role lease it is recorded ([F05 §9.4] field 13 is always present) but fixes nothing (WR-005, §4.2 CX-2, §4.3 row 3) |
 | `bound` | the session role lease: the minting thread's hash; else zero until CX-9 binds it |
 | `root_session` | BLAKE3-128 of `codex:` + `ctx.meta.sessionId` for a Codex holder; else zero |
 | `files_owned` | the task's `files_owned` globs ([70 S5]) |
@@ -1025,8 +1054,10 @@ it ([F05 §4.7]).
 **Refusals.** A task that is not live or not ready: E404, exit 6, naming the failing clause (live, `unblocked`, leased by
 `<holder>`, done or deleted on `<branch>`, deferred until) (open point 12); the minting and claiming rows: E406, exit 6.
 
-**Yields** (one row per lease, in allocation order): `{"lease":"L-n","token":<int>,"task":<"#N" or null>,"branch":…,"role":…,
-"holder":…,"anchor":"session"|"session-ttl"|"none","expires":<deadline>,"run":<name or null>}`.
+**Yields** (one row per lease, in allocation order; a lease the claim returned again counts in `ids` order):
+`{"lease":"L-n","token":<int>,"branch":…,"expires":<deadline>,"task":<"#N" or null>,"role":…,"holder":…,
+"anchor":"session"|"session-ttl"|"none","run":<name or null>,"reused":<bool>}` — [LQ/std §7.3]'s `lease`, `token`, `branch`,
+`expires`, then this chapter's members; `reused` is true for a returned existing lease (the item field of §17.1).
 
 ### 10.2 `Heartbeat` (`tx.heartbeat`)
 
@@ -1043,8 +1074,9 @@ An ended lease or a stale token: E407, exit 5. **Yields:** `{"lease":…}`.
 
 ### 10.4 `Reclaim` (`tx.reclaim`)
 
-Arguments `older_than` (duration) or `run` (text), exactly one. It releases every task lease whose `claimed_hlc` is older than
-`older_than` (CK-6), whatever its liveness, or every lease scoped to the run; one `Lease` record each, event 2, reason 3.
+Arguments `older_than` (duration) or `run` (text), at most one; with neither, `older_than` is `lease.reclaim-older-than`
+([CFG]; open point 37). It releases every task lease whose `claimed_hlc` is older than `older_than` (CK-6), whatever its
+liveness, or every lease scoped to the run; one `Lease` record each, event 2, reason 3.
 Rights: [RULES/role-write-policy] WM-008. **Yields:** one row per released lease, `{"lease":…,"task":<"#N" or null>}`, by lease
 id.
 
@@ -1077,8 +1109,9 @@ id.
 **Refusals.** An unfinished child (TG-001) or a gating `fail_*` verdict (GD-002): E404, exit 6, naming the child or the verdict;
 no presented lease, another task's lease, a stale token: E407, exit 5; a malformed `pack_digest`: `usage`, exit 2 (NR-001).
 
-**Yields:** `{"task":"#N","status":"done","outcome":…,"lease":…,"ready":["#N"…],"settle_commit":<commit or null>,
-"changed_since_pack":<array or null>}`; `ready` is the newly ready ids (§5.8); `changed_since_pack` holds
+**Yields:** `{"task":"#N","status":"done","ready":["#N"…],"outcome":…,"lease":…,"settle_commit":<commit or null>,
+"changed_since_pack":<array or null>}` ([LQ/std §7.3]'s `task`, `status`, `ready`, then this chapter's members); `ready` is
+the newly ready ids (§5.8); `changed_since_pack` holds
 `{"id":"#N","change":"added"|"removed"|"changed","set":"K1"|"K1M"|"K2"|"K3"}` rows in NR-007's order, or null without a digest.
 `commit` and `rev_new` of the result are the completing commit's. `ready` and `changed_since_pack` are not replayed: a
 replay gives `[]` and null (§7.5).
@@ -1118,19 +1151,26 @@ commits of this group is `merge` for `Merge`, `MergeContinue` and `Sync`, and ot
 [AR §7.1] spells it, its words joined by one space (`lane open`, `lane close`, `revert`, `cherry-pick`); none has a `stmt_hash`
 ([F06 §3.4]).
 
+Unless a section says otherwise, the result's `branch` is the ref the command creates, moves, deletes, binds, checks out or
+lands its commit on — `ref` of `WorktreeBind` and `Undo`, the checked-out ref of `Checkout` (null for a detached commit),
+`into` of the merge family, `onto` of `Revert` and `CherryPick`, `main` for `LaneOpen` and `LaneClose` — and `rev` is that
+ref's tip seq before the command, or, for a ref the command creates, its fork commit's seq. `OpRestore`, which moves several
+refs, has `branch` and `rev` null.
+
 ### 11.1 `BranchCreate`
 
 | Argument | Type | Default | Meaning |
 |---|---|---|---|
-| `name` | ref name | required | the new ref (`lane/<n>`, `plan/<n>`, or another work-ref name [F12] allows) |
+| `name` | ref name | required | the new branch: `lane/<u>` or `plan/<u>` as written, any other name completed by [F12 §2.5] IN-3 (`lane/<name>`, or `plan/<name>` with `kind` = `plan`), after NFC normalisation (IN-1) |
 | `from` | revision | the resolved branch | a ref (its tip) or a commit |
-| `kind` | `work` or `plan` | from the name: `plan` for `plan/…`, else `work` | must agree with the name ([AR §5a.1]) |
+| `kind` | `work` or `plan` | from the name: `plan` for `plan/…`, else `work` | must agree with the name ([AR §5a.1], IN-3) |
 
 **Effect** ([AR §5a.3] "Fork", [AR §5d.1], [F11 §3]): a `RefUpdate` record (reason 1, create) with the new ref's absorbed
 vector — the source ref's vector with `absorbed_new[source ref]` = the fork commit's `ref_seq` — and the `RefTable` entry, in one
 ref group ([F05 §4.7]). The new ref's tip is the fork commit; its `ref_seq_next` starts at 1; its `ref_id` is `next_ref_id`. The
-pin is engine-internal. No commit. **Refusals.** A name that breaks [F12]'s rule: `bad_value`, exit 2; a name a live ref holds:
-`name_taken`, exit 6 (open point 20); a `from` that names nothing, or a ref without a commit: E301, exit 3. **Result.** `branch`
+pin is engine-internal. No commit. **Refusals.** The rules RN-1 to RN-8 of [F12 §2.4], checked in that order, each exit 2 with
+[F12]'s codes (its open point 16): RN-1 to RN-6 `bad_ref_name`, RN-7 (a live ref holds the name) `ref_exists`, RN-8
+`ref_prefix`; a `from` that names nothing, or a ref without a commit: E301, exit 3 (open point 20). **Result.** `branch`
 = the new ref, `rev` = the fork commit's seq; `data` = `{"ref":…,"ref_id":<int>,"kind":…,"fork":<commit>}`.
 
 ### 11.2 `BranchDelete`
@@ -1139,8 +1179,9 @@ Arguments `name` (required) and `force` (bool, `-D`). **Effect** ([AR §5a.9], [
 LE-008): a `RefUpdate` (reason 2) with the `RefTable` entry marked deleted; every live lease on the branch released (`Lease`
 event 2, reason 5); the ref's pins released (engine-internal); with `force`, the markers the branch still held unabsorbed are
 re-attributed to a live ref that contains their commit or cleared (`Marker` records, cause 4); each with a triage line.
-**Refusals.** Without `force`, a branch whose tip `main` has not absorbed: `not_merged`, exit 6 (open point 20); `main` or a
-staging ref (use `MergeAbort`): `usage`, exit 2; an unknown ref: `not_found`, exit 3. **Result.**
+**Refusals.** Without `force`, a branch whose tip `main` has not absorbed: `not_merged`, exit 6 (open point 20); `main`, a
+staging ref (use `MergeAbort`), an `import/*` or an `orphans/*` ref ([F12 §2.6]): `usage`, exit 2; a name no live ref holds:
+E301, exit 3. **Result.**
 `data` = `{"ref":…,"ref_id":<int>,"dropped":{"commits":<int>,"completions":<int>,"deletions":<int>},"released":["L-n"…],
 "markers":[…],"triage":[<text>…]}`: `dropped` counts the commits reachable from the branch and from no other live ref, and the
 completions and deletions among them ([AR §5a.9]).
@@ -1183,8 +1224,10 @@ status — `merged` when `main` has absorbed the lane's tip, `abandoned` otherwi
 
 Arguments `name` (the part after `tags/`, required), `commit` (default the resolved branch's tip), `message`, `pin` (bool).
 **Effect** ([AR §5a.9]): a `RefUpdate` (reason 1) creating `tags/<name>` of kind `tag` at the commit, its `RefTable` entry with
-the message, and with `pin` the pin (engine-internal) and the entry's `pinned` flag. **Refusals.** `name_taken`, exit 6;
-`bad_value`, exit 2. **Result.** `data` = `{"ref":"tags/<name>","commit":…,"pinned":<bool>}`.
+the message, and with `pin` the pin (engine-internal) and the entry's `pinned` flag. `name` is completed by [F12 §2.5] IN-3
+(`tags/` is prefixed unless present). **Refusals.** RN-1 to RN-8 as `BranchCreate` (`bad_ref_name`, `ref_exists`, `ref_prefix`,
+exit 2); a `commit` that names nothing: E301, exit 3. **Result.** `branch` = the new tag, `rev` = its commit's seq; `data` =
+`{"ref":"tags/<name>","commit":…,"pinned":<bool>}`.
 
 ### 11.7 `Merge`
 
@@ -1253,7 +1296,10 @@ application with base = its first parent (cherry-pick), through the validators; 
 `origin` is the commit ([F06 §3.1]). A `NotFound` stages on `merge/<onto>/from/<commit>` ([F12] spells the ref); a `DATA`
 mismatch lands a `FieldEdit` conflict value. **Refusals.** Reverting a `sync` commit, a merge without `mainline` 1, a commit with
 a dependent set ([AR §5a.5]): `revert_refused`, exit 6, listing the dependents (open point 20); `mainline` other than 1:
-`usage`. **Result.** `data` = `{"origin":<commit>,"onto":…,"outcome":"landed"|"staged","conflicts":[…],"violations":[…],
+`usage`. History commands never touch a tree ([40 §3.6]): reverting or cherry-picking a commit whose group carried an
+`FsIntentDone` changes the graph only, and the result carries the warning `graph_only_revert`, which names `FileRevert`
+(open point 38). **Result.**
+`branch` = `onto`; `data` = `{"origin":<commit>,"onto":…,"outcome":"landed"|"staged","conflicts":[…],"violations":[…],
 "staging_ref":…,"markers":[…],"affected":[…]}`.
 
 ### 11.11 `Undo`, `OpRestore`
@@ -1287,6 +1333,8 @@ a ref created after `seq` is deleted, a ref deleted after `seq` and still within
 - **Runtime rows** (`FILEOBS`, `PENDING`, `TREES` epochs, `FSINTENT`) are written as [F05 §9.15]–§9.26 state; they are never in
   `state(ref)` (I-F4), and of them only `FSINTENT` is in the runtime snapshot (§15.7).
 - **Comparison** of tree-derived answers is subset consistency (§16.5).
+- **Results.** `branch` is the caller's resolved branch (CX-2), on which the command's commits land, and `rev` its tip seq
+  before the command. Path values in results are §5.2's `"<root name>:<path text>"`.
 
 ### 12.2 `FileAdd`
 
@@ -1310,7 +1358,11 @@ one commit removing that anchor, or every anchor into the file at the path, and 
 ### 12.4 `FileMv`, `FileRm`, `FileRevert`: the intent protocol
 
 `FileMv` takes `srcs` (array), `dst`, `git` (bool) and `retry_ms`; `FileRm` takes `paths`, `reason`, `replaced_by` (a path or
-node), `trash`, `recursive` and `yes`; `FileRevert` takes `commit`. The protocol is [40 §3.4]–§3.6 at the logical level:
+node), `trash`, `recursive` and `yes`; `FileRevert` takes `commit`, a commit whose group carried an `FsIntentDone` (else
+`not_found`, `what` = `intent`, exit 3). `FileRevert` runs the inverse file-system operations of that intent through the same
+protocol ([40 §3.6]): each moved item back from its destination to its source, each item a `trash` removal moved into the trash
+back to its path; an item removed without `trash` has no bytes to restore and ends as `missing` (open point 38). The protocol is
+[40 §3.4]–§3.6 at the logical level:
 
 1. **Plan.** The tree must be the writer tree of the caller's branch (`not_writer_tree`, exit 5); sources exist; the destination
    does not; one volume (`cross_volume`, exit 7); an alias source is accepted only when the tree is fresh for the node (open point
@@ -1359,7 +1411,7 @@ commit. **Result.** `data` = `{"node":"#N","commit":<git id or null>,"tip":<git 
 ## 13. Image commands (group I; M5)
 
 The engine implements them at M5 ([AR §5b.6]); the model supplies `state(ref)`, the canonical changesets and the commit ids
-([60 §4.2] row "Image"). Family W, bulk class for `ImageImport`.
+([60 §4.2] row "Image"). Family W with `branch` and `rev` null (both act on a set of refs), bulk class for `ImageImport`.
 
 | Command | Arguments | Effect | Result `data` |
 |---|---|---|---|
@@ -1384,7 +1436,8 @@ all). **Result.** Family X; `branch`, `rev` the view's; `data` = the snapshot of
 
 ### 14.3 `Runtime`
 
-No arguments. **Result.** Family X; `data` = the runtime snapshot of §15.7.
+No arguments. **Result.** Family X with `branch` and `rev` null (the runtime state is store-wide); `data` = the runtime
+snapshot of §15.7.
 
 ### 14.4 `History`
 
@@ -1429,8 +1482,8 @@ A part not requested by `State.parts` is null; `digests` are computed over the p
 `{"schema_version":1,"schema":[<item>…],"nodes":[<node>…],"schema_conflicts":[<conflict>…]}`
 
 - **`schema`**: every schema item on V ([F08 §8.1]; the core schema is implied by `schema_version`), sorted by class (`kind`,
-  `field`, `value`, `edge`, `query`) and then by key text (§5.3). An item object is `{"class":…,"key":<key text>, …}` followed
-  by the members of [F08 §8.5] by name in that table's order, with: symbol ids as their strings; `KindSet`s as
+  `field`, `enum`, `edge`, `query`: [F08 §8.5]'s class order) and then by key text (§5.3). An item object is `{"item":…,"key":<key text>, …}` followed
+  by the members of [F08 §8.5] by name in that table's order, written as §9.8 writes them, with: symbol ids as their strings; `KindSet`s as
   `{"any":<bool>,"kinds":[<kind name>…]}`; `covers` as value names; the store-local members (`kind_id`, `edge_id`, an enumeration
   value's `value`, `ast_hash`) omitted; `retired` as a bool.
 - **`nodes`**: every node that exists on V, live or tombstone, sorted by uid. A node object, members in this order:
@@ -1439,7 +1492,7 @@ A part not requested by `State.parts` is null; `digests` are computed over the p
 |---|---|
 | `uid` | `"#u:…"` |
 | `kind` | the kind name ([F08 §9.1], or a project kind's name) |
-| `exists` | `"live"` or `"deleted"` |
+| `existence` | `"live"` or `"deleted"` |
 | `tombstone` | only when deleted: `{"reason":<text>,"replaced_by":<uid or null>}` ([F08 §3.5]) |
 | `status`, `resolution` | names |
 | `priority` | integer 0–4 |
@@ -1451,11 +1504,12 @@ A part not requested by `State.parts` is null; `digests` are computed over the p
 | `fields` | object: every present field whose storage is `field` or `cold` ([F08 §8.4.2]), `order` excepted, name → value in §5.2's state form; members in bytewise order of the names |
 | `body` | the 32-hex BLAKE3-128 of the body bytes, or null |
 | `edges` | the node's out-edges on V, retained out-edges of a tombstone included (I39′): `{"kind":<stored name>,"dst":<uid>,"disc":<32 hex or null>,"props":{…}}` with `props` holding `flagged`, `pinned` and `anchor` (the anchor record of §5.4 **without** its texts) as present; sorted by (`kind`, `dst`, `disc`) |
-| `conflicts` | the node's keys that hold a conflict value: `{"key":<key text without the node part: exists, status, <field>, observation, body, parent, edge:<kind>:<dst uid>[:<disc>]>,"class":<name>,"base":…,"ours":…,"theirs":…}`, sorted by `key`; the key's own member (`status`, a field, `body`, `parent`, an edge) holds the value the node's row holds while the conflict stands, which is [F12]'s (open point 31) |
+| `conflicts` | the node's keys that hold a conflict value: `{"key":<the snapshot key text of §5.3 without the node part: existence, status, <field>, observation, body, parent, edge:<kind>:<dst uid>[:<32 hex anchor uid>]>,"class":<name>,"base":…,"ours":…,"theirs":…}`, sorted by `key`; the key's own member (`status`, a field, `body`, `parent`, an edge) holds the value the node's row holds while the conflict stands, which is [F12]'s (open point 31) |
 
 - A tombstone keeps the members [F08 §3.5] keeps: `kind`, the header enumerations, `title`, retained edges; `fields` is `{}`,
   `body` null, `parent` null, `order` null.
-- **`schema_conflicts`**: schema keys that hold a conflict value, as `conflicts` entries keyed by the key text of §5.3.
+- **`schema_conflicts`**: schema keys that hold a conflict value, as `conflicts` entries keyed by the key text of §5.3
+  (`schema:…` or `query:…`), sorted by key.
 
 ### 15.4 `local`
 
@@ -1563,7 +1617,7 @@ A member this chapter does not define is a comparison failure, except the additi
 | families R and T | `reads` | rendering: the reading echo is the reference renderer's (WP-71a) |
 | families R and T | the entries of `warnings` and `notices` whose code [LQ/errors §5.1] marks `product` or `renderer` | the model raises only codes marked `model` |
 | family T | `statements[].text` | the display printer's rendering ([LQ/gql-spelling §5]) |
-| family W | `warnings` other than `hook_label_narrowed`, `two_harnesses`, `not_a_tree` | environment diagnostics of `doctor` |
+| family W | `warnings` other than `hook_label_narrowed`, `two_harnesses`, `not_a_tree`, `graph_only_revert` (§11.10) | environment diagnostics of `doctor` |
 | every error | `message`, `help`, `detail`, `suggest`, `span`, `expected` | texts ([60 §4.3]: CLI text rendering is outside the model) |
 | error keys | `store_locked.*`, `fs_busy.retries`, `fs_busy.waited_ms`, `fs_busy.os`, `disk_full.os`, `internal.*`, `refused_location.*`, `sealed_size.*`, `store_corrupt.*` | engine and OS faults |
 | `Maintain` | `data.ran` | class I |
@@ -1703,6 +1757,7 @@ every verb takes map to `ctx` (§4.1): `--branch`, `--lease`, `--agent`, `--clie
 | `add`, `set`, `link A --<kind> B`, `unlink A --<kind> B`, `move`, `reopen`, `doc patch`, `supersede`, `retract`, `answer`, `rm`, `resolve`, `rule`, `note`, `decision`, `finding`, `verdict`, `measurement` | `Mutation` with `tx.add`, `tx.set`, `tx.link`, `tx.unlink`, `tx.move`, `tx.reopen`, `tx.doc_patch`, `tx.supersede`, `tx.retract`, `tx.answer`, `tx.rm`, `tx.resolve`, `tx.remember` |
 | `apply` | `Apply` (one command per run; several runs make the CLI's exit 8, [F19 §7.2] rule 4) |
 | `migrate` | `Migrate` |
+| `schema add` (the verb's name is M8's; proposal, open point 18) | `Schema` |
 | `claim`, `heartbeat`, `release`, `reclaim`, `complete` | `Claim`, `Heartbeat`, `Release`, `Reclaim`, `Complete` |
 | `run open`, `run close` | `RunOpen`, `RunClose` |
 | `branch`, `branch -d`/`-D`, `checkout`, `worktree bind`/`unbind`, `lane open`, `lane close`/`freeze`, `tag`, `merge`, `merge --continue`/`--abort`, `sync`, `cherry-pick`, `revert`, `undo`, `op restore` | `BranchCreate`, `BranchDelete`, `Checkout`, `WorktreeBind`, `WorktreeUnbind`, `LaneOpen`, `LaneClose`, `Tag`, `Merge`, `MergeContinue`, `MergeAbort`, `Sync`, `CherryPick`, `Revert`, `Undo`, `OpRestore` |
@@ -1725,29 +1780,55 @@ no compared state and are outside the API at M0 (open point 25).
 
 ## 19. Examples
 
-`docs/spec/store-api/examples/*.json` hold informative examples. Each file is one JSON object:
+`docs/spec/store-api/examples/*.json` hold informative examples ([F01 §2.1]). Each file is one JSON object
 `{"example":<name>,"spec":<the sections it illustrates>,"setup":<the state the first step starts from, in words>,
-"illustrative":[<what is a placeholder>],"steps":[{"command":<envelope>,"result":<envelope>}…]}`, pretty-printed; the results are shown with insignificant whitespace, and their canonical form is §5.6.
-Commit ids, uids, store ids and digests in them are placeholders built from the sequence number or `#N` so that they read
-easily; they are not computed. Fixtures are written from the rules of this chapter, never from the examples ([F01 §2.1]).
+"illustrative":[<what is a placeholder>],"steps":[{"command":<envelope>,"result":<envelope>}…]}`, pretty-printed; the
+results are shown with insignificant whitespace, and their canonical form is §5.6. A file's steps continue the stream its
+`setup` names, with that stream's command numbers `n`; most start from the stream of `02-tx-create.json` through `n` = 4
+(open point 44).
 
-| File | Shows |
+**Computed values.** Every value that the rules of this chapter and the environment of §6 determine from the stream is
+written as those rules give it: `n`, seqs, `#N`, lease ids and tokens, ref ids, order keys (§17.2), timestamps, `wall_ms`,
+`boot_ns`, deadlines, the store HLC values of CK-4, key orders, keys, members and result families.
+
+**Placeholders.** Values that a hash would give are placeholders chosen to read easily; they are not computed, and each file
+lists its placeholders under `illustrative`:
+
+| Value | Placeholder |
 |---|---|
-| `01-init-and-clock.json` | `EnvClock`, `Init` with the test profile, `ConfigSet` |
-| `02-tx-create.json` | a data-level `Tx` creating a task under a parent with a blocker; family T |
-| `03-set-guard.json` | `Mutation` `tx.set` with `if_rev`: a guard conflict (E401, exit 4), then success |
-| `04-claim-complete.json` | `EnvSlots`, `Claim` with a `session` anchor, `Complete` with markers and yields |
-| `05-idempotency.json` | a replay, a payload mismatch (E408, exit 9) and a replay across a merged branch |
-| `06-rm-policy.json` | `tx.rm` as a dry run, a restricted delete (E409), then a delete with `replaced_by` |
-| `07-lane-merge.json` | `LaneOpen`, a lane commit, and a sync-first `Merge` that lands |
-| `08-merge-staged.json` | a staged merge with `DanglingEdge`, `tx.resolve` on the staging ref, `MergeContinue` |
-| `09-undo.json` | `Undo` with `expect` and the recomputed markers |
-| `10-caller-context.json` | the resolution of `ctx`: lease-first branch, the environment-lease binding refusal (E407) |
-| `11-state-snapshot.json` | `State` with its three parts and digests |
-| `12-runtime-snapshot.json` | `Runtime` |
-| `13-file-mv.json` | `EnvTree`, `EnvGit`, `LinkFile`, and `FileMv` of a directory at M0 visibility |
-| `14-apply-batch.json` | `RunOpen`, run-scoped `Claim`, and `Apply` of two `result.v1` entries |
-| `15-lease-clock.json` | lease expiry across `EnvClock` advances, a reboot, and `Heartbeat` |
+| the commit of seq s | `c`, then s as 8 lower-case hexadecimal digits, then 56 zeros, so its text form `c<8 hex>` shows the seq (`c00000003` for seq 3) |
+| the uid of `#N` | `#u:` and N as 32 hexadecimal digits |
+| the uid of anchor `aN` | `ac` and N as 30 hexadecimal digits |
+| the store id | `5a` sixteen times |
+| the `boot_hash` of boot k | `b` and k as 15 hexadecimal digits |
+| every other digest, hash, git object id and `oid` | a two-digit pattern repeated to the value's length (`cd…cd`), `sha1:` before a git id |
+| intent ids, budget values, error, warning, violation and triage texts, statement texts | as the file says |
+
+Fixtures are written from the rules of this chapter, never from the examples. Where an example and a rule disagree, the rule
+holds and the example is a finding.
+
+| File | Shows | Families and groups |
+|---|---|---|
+| `01-init-and-clock.json` | `EnvClock`, `Init` with the test profile's values, `ConfigSet` (a success and a `config_value` refusal), `ConfigUnset` | X, W; E, S |
+| `02-tx-create.json` | the base stream: `EnvSlots`, `Init`, the orchestrator's session role lease, a data-level `Tx` creating a parent, two ordered children and a `blocks` edge; an `E105` refusal | X, W, T; E, S, C, G |
+| `03-set-guard.json` | `Mutation` `tx.set` with `if_rev`: a guard conflict (E401, exit 4), then success | T; G |
+| `04-claim-complete.json` | `EnvSlots` with an alias, `Claim` with `start` and a `session` anchor through MCP with a Claude stamp, `EnvClock`, `Complete` with its marker, newly ready id and yields | X, T; E, C |
+| `05-idempotency.json` | a replay, a payload mismatch (E408, exit 9), and a replay across a merged branch (§7.4 row 3) | T, W; G, V |
+| `06-rm-policy.json` | `tx.rm` with `DRY`, a restricted delete (E409), then the delete with `replaced_by` and its `deleted` marker | T; G |
+| `07-lane-merge.json` | `EnvTree`, `EnvGit`, `LaneOpen`, a lane claim and completion, a sync-first `Merge` that lands, `LaneClose` | X, W, T; E, V, C, G |
+| `08-merge-staged.json` | a `Sync` staged by a `DanglingEdge` (exit 6), `tx.resolve` on the staging ref, `MergeContinue` | W, T; V, G |
+| `09-undo.json` | `Undo` with `expect`, the recomputed `cleared` marker, and a stale `expect` (E402) | W; V |
+| `10-caller-context.json` | lease-first branch resolution over `MOIRAI_BRANCH`, the environment-lease binding (CX-9) and its refusal, and an explicit branch that differs from a task lease (E407) | W, T; V, C, G |
+| `11-state-snapshot.json` | `State` with its three parts and digests | X; O |
+| `12-runtime-snapshot.json` | `Runtime` after a claim with `start`, with the CK-4 HLC values | X; O |
+| `13-file-mv.json` | `EnvTree`, `EnvGit`, `WorktreeBind`, `LinkFile` with its root and file nodes, `FileMv` of a directory, a raw move and the `LinksSync` settle that re-binds it | X, W, T; E, V, F |
+| `14-apply-batch.json` | `RunOpen`, a run-scoped task claim, a run-scoped role lease, `Apply` of two `result.v1` entries, `RunClose` | W, T; C, G |
+| `15-lease-clock.json` | a TTL lease, its renewal by `Heartbeat`, its expiry across `EnvClock` advances, and a reboot | X, T; E, C |
+| `16-image.json` | `Quiet`, `ImageExport` refused in quiet mode and forced, `ImageImport` | W; S, I |
+| `17-query.json` | `Query` of a named query (node shape, a live cursor), of LQ text (table shape), and an `E101` refusal | R; O |
+| `18-maintenance.json` | `Maintain`, `Gc`, `Backup` (a success and a `placement_refused` refusal), `Verify`, `Repair` | W; S |
+| `19-schema-migrate.json` | `Schema` adding a field, a write of it, and `Migrate` narrowing its range with a data statement | W, T; G |
+| `20-vcs-refs.json` | `BranchCreate` with namespace completion and a `bad_ref_name` refusal, `Checkout`, `Tag`, `Revert`, `CherryPick`, `BranchDelete` refused (`not_merged`) and forced | W; V |
 
 ## Coverage
 
@@ -1793,9 +1874,10 @@ is a naming decision, not a measurement; it is decided here (open point 29).
 ## Open points for the review
 
 1. **The JSON form of commit ids (conflict between spec files).** The A1 dispositions record A-m7 as "fixed (varied)": JSON
-   carries `c` + 64 lower-case hex. [LQ/envelope §7.3] follows that; [F19 §8.3] and its open point 24 write "64 hexadecimal
-   digits without the `c` prefix", the finding's original proposal. This chapter follows the dispositions (§5.1). [F19 §8.3] should
-   be corrected by WP-18's owner.
+   carries `c` + 64 lower-case hex. [LQ/envelope §7.3], [LQ/errors §5.7] and [F12 §3.8] follow that; [F19 §8.3] and its open
+   point 24 write "64 hexadecimal digits without the `c` prefix", the finding's original proposal. This chapter follows the
+   dispositions (§5.1). [F19 §8.3] should be corrected by WP-18's owner. Commit literals in arguments are [F12 §3.2]'s (7 to 64
+   digits), not the 4-digit minimum an earlier draft of §5.1 had.
 2. **What this chapter closes.** [PLAN §3.3] assigns WP-25 no gap. The delegations of the written chapters are closed here: the
    `Idem.result` bytes ([F05 §8.7], §9.6) in §17.1; the payload of a verb that compiles to no `TX` block ([F06 §4.4.7]) in §7.3;
    `pathmove.hlc` under the injected clock ([F06 §5.5]) in CK-5; the order-key generation ([F08 §5.4.4]) in §17.2; the displayed
@@ -1810,17 +1892,24 @@ is a naming decision, not a measurement; it is decided here (open point 29).
 4. **Diff rows** (§5.7). [LQ/std §2.9] gives the `diff` relation's columns without the aspect vocabulary or the value forms;
    §5.7 fixes them because family-T results carry them and GT2 compares them. Proposal for WP-19: [LQ/envelope §5.8] and
    [LQ/std] adopt §5.7's table.
-5. **A write to a node that is not live on the view** (§9.1) is read as E401 (exit 4) with the tombstone line or notice N01/N06,
-   the outcome of a `MATCH` that matches nothing; [AR §7.1] names exit 3 for "not found" reads. [LQ/errors] confirms or assigns
-   another row.
+5. **A write to a node that is not live on the view** (§9.1) exits 3: [AR §5d.3] L3 ("any write that assumed #40 (`set 40`,
+   `link --blocks 40`, …) fails with exit 3/4") and [RULES/delete-policy-matrix] DP-003 ("the target must be live in the view;
+   the tombstone is printed otherwise", exit 3) fix the exit code, and a guard on a live node (`--if-rev`) keeps exit 4. No
+   error code carries it yet: [F19 §10.2]'s `not_found` excludes LQ node ids and [LQ/errors] has no exit-3 write code. This
+   chapter uses `not_found` with `what` = `node` and N01's or N06's text as the detail; WP-18 extends `not_found`'s `<what>`
+   list, or WP-19 assigns an LQ code at exit 3, and this chapter then cites it. An earlier draft read the case as E401 (exit 4),
+   which contradicts both sources.
 6. **The session's checkout in branch resolution** (§4.2 CX-2). [AR §5a.4] and [AR §7.2] say that unresolved MCP reads use the
    session's checkout; [90 §4.1]'s Branch row does not list it. It is placed before the `default-branch` key and used by
    `ctx.door` = `mcp` only.
 7. **The `git` provenance group** (§4.4). [F06 §4.4.6] holds `worktree` as a symbol but no chapter states its value. A canonical
    absolute path would put a machine-local datum into the hashed canonical form (item 5), against the spirit of I-F4; §4.4 uses
    the tree's display label of [F19 §4.3]. [F06]/[F07] confirm.
-8. **Key texts** (§5.3) are proposed for [F12], which owns the conflict-key form and was not written when this chapter closed.
-   The forms extend the examples of [AR §7.1] (`#91.body`, `edge:#203:blocks:#40`) to every key class of [F06 §6.1].
+8. **Key texts** (§5.3) follow [F12 §6.6], now written: `#N.existence` (an earlier draft of this chapter proposed `#N.exists`),
+   `schema:enum:` (it proposed `schema:value:`), `query:<name>`, and the anchor handle `aN` as an `at` edge's discriminator. The
+   snapshot form, with uids in place of `#N` and `aN`, is this chapter's, because `state(ref)` holds no store-local number;
+   [F12] may adopt it if another chapter needs store-independent key texts. The diff aspects (§5.7) and the schema item class
+   words (`enum`, §9.8, §15.3) use the same words.
 9. **Injected entropy** (§6.4, §17.3, §17.4). A reproducible stream needs reproducible random uids and store ids. The derivations
    use the command number and the creation ordinal, so a phase-1 re-run derives the same values; production draws the OS random
    source ([F08 §2.2], [F02 §4]) and is unaffected. The model and the engine must both implement this test-only rule.
@@ -1855,10 +1944,12 @@ is a naming decision, not a measurement; it is decided here (open point 29).
     `moirai schema add`), and its payload is `payload(c)`.
 19. **The bulk class** (§9.10) adds `Revert` and `CherryPick` to [AR §4.3]'s list (import, `migrate`, `rm --cascade`, a directory
     `file mv`, long merges): both are orchestrator verbs whose changesets can be as large as a merge's.
-20. **Refusal codes this chapter needs and [F19] lacks**: `name_taken` (exit 6: a ref, tag or run name in use), `not_merged` (exit
+20. **Refusal codes this chapter needs and [F19] lacks**: `name_taken` (exit 6: a run name in use, §10.7), `not_merged` (exit
     6: `branch -d` of an unmerged branch, [AR §5a.9]), `revert_refused` (exit 6: a `sync` commit, a merge without `--mainline 1`,
-    a dependent set, [AR §5a.5]), `not_fresh` (exit 6: a `file mv` of an alias source the tree is not fresh for, [40 §3.4]). WP-18
-    adds them to [F19 §10.2] and §7.3, or maps each onto an existing code.
+    a dependent set, [AR §5a.5]), `not_fresh` (exit 6: a `file mv` of an alias source the tree is not fresh for, [40 §3.4]), and
+    `not_found`'s `what` = `node` (point 5). Ref and tag names use [F12]'s proposed codes instead (its open point 16:
+    `bad_ref_name`, `ref_exists`, `ref_prefix`, all exit 2; an earlier draft of this chapter used `bad_value` and `name_taken`,
+    exit 6, for them). WP-18 adds them to [F19 §10.2] and §7.3, or maps each onto an existing code.
 21. **`rev`, `created`, `updated`** (§15.4) are defined over the first-parent chain, which gives "after a merge, the merge
     commit's seq" ([AR §3.1]) and, for a `sync`, the sync commit's seq for the nodes `main`'s window changed. WP-13 and M2 confirm
     that the engine's by-reference expansion of sync windows sets the same values.
@@ -1891,3 +1982,51 @@ is a naming decision, not a measurement; it is decided here (open point 29).
     it in the row, or the snapshot shows the status only.
 35. **Runtime-snapshot scope** (§15.7). The R4 evidence tables are excluded from the runtime digest because their answers are
     compared by subset consistency (§16.5); `intents` are included because `FsIntent` outcomes are durable facts ([AR §6.5]).
+36. **Procedure yields** (§3.3, §10). [LQ/std §7.3] gives `tx.claim` the yields `lease, token, branch, expires` and
+    `tx.complete` `task, status, ready`; the API's rows carry those columns first, in that order, and then members GT2 needs
+    (`task`, `role`, `holder`, `anchor`, `run`, `reused`; `outcome`, `lease`, `settle_commit`, `changed_since_pack`). A `YIELD`
+    in LQ text can name only [LQ/std]'s columns; WP-19 adds the others to [LQ/std §7.3] or states that the API's members are
+    additive. Also for WP-19: [LQ/std §7.3]'s `tx.claim` default `$ttl = '15m'` is the production value of the key
+    `lease.ttl-default`, which a store may change ([CFG]); the key governs (§10.1).
+37. **`reclaim` without arguments** (§10.4). [CFG]'s `lease.reclaim-older-than` (default 30 min) is the bound of a `reclaim`
+    given neither `--older-than` nor `--run`; an earlier draft of §10.4 required exactly one of them.
+38. **`file revert` and plain history verbs over file-moving commits** (§11.10, §12.4). [40 §3.6] says `file revert` runs "the
+    inverse filesystem operations" of a commit that carried `FsIntentDone`, and that a plain `revert` of such a commit warns.
+    This chapter adds: an item removed without `--trash` cannot be restored and ends `missing`; the warning's name is
+    `graph_only_revert` (text proposed for [F19 §10.4]: `warning[graph_only_revert]: <c8> moved files on disk; moirai file
+    revert <c8> moves them back`), compared by GT2 because it depends only on the stream (§16.3).
+39. **One store HLC over semantic records — conflict with [F16] P-36** (§6.2 CK-4). [F16] P-36 assigns every append-time HLC
+    of a group — a local commit's `hlc`, an imported commit's `append_hlc` and every [F05 §9] field described as "HLC at
+    append", `Checkpoint.append_hlc` and `Lazy.hlc` included — from `h_last`, "the greatest append-time HLC in the scanned
+    log", so all of them are strictly increasing in log order ([OS/clock §7] states the same rule). Under that rule a class-I
+    `Maintain` (a `Checkpoint` record) between two commits in one millisecond, or anywhere while the
+    clock runs behind the HLC after a backward wall step (fault-model item 7), raises the counter of the next commit's `hlc`,
+    which is hashed (canonical item 3): the commit id then depends on engine-internal maintenance timing, against
+    [F17 §1.5] SP-1, and a lazy record lost in a crash makes the engine's later commit ids differ from the model's
+    (the model cannot predict either). CK-4 therefore advances one sequence over the semantic durable records only; the other
+    records carry a value without advancing it, which gives up P-36's strict order across record kinds but keeps I43′
+    (`append_hlc` strictly increasing in `seq` order). Resolution requested from WP-16: P-36's `h_last` becomes the greatest
+    HLC of the semantic durable records of CK-4 (the scanner knows each record's kind), or [F16] states another rule under
+    which SP-1 and crash determinism hold, and this chapter then cites it. A rejected alternative: advance the injected wall
+    clock by 1 ms before every store command, which makes counters restart per command but fails after a backward step.
+    An earlier draft of CK-4 drew commits and non-commit records from separate maxima, which left the `hlc` of `Lease`,
+    `Marker`, `Idem` and `RefUpdate` records, and so the runtime digest, unspecified.
+40. **The session role lease has no branch** (§4.2 CX-2, §4.3 row 3, §10.1). [RULES/role-write-policy] WR-005 (citing
+    [AR §7.3], "everything on any branch") says the orchestrator's session role lease "carries no branch, so its holder writes
+    on any branch". [90 §4.1]'s Branch row lists "the presented lease's branch" without distinguishing lease kinds. This
+    chapter follows WR-005: CX-2 skips a session role lease, and the explicit-branch refusal applies to task and run-scoped
+    leases only; the `Lease` record still stores the minting branch because [F05 §9.4] field 13 is always present.
+41. **`Claim` shapes** (§10.1). A task claim may name a `role` and a `run` (the dispatcher's bulk claim of [90 §7.1] step 2),
+    which an earlier draft's "exactly one of `ids`, `next`, and `role` with `run` or `session`" excluded. The rule now separates
+    task claims from role-lease mints by `ids`/`next`.
+42. **`Apply` and run-scoped leases** (§9.4). Step 1 released the lease of a `none` entry and step 4 released every live
+    run-scoped lease of the batch, so a run-scoped `none` entry would have been released twice with two reasons. Step 1 now
+    releases only a TTL lease; a run-scoped one is released by step 4 (reason 6 `apply`).
+43. **Schema item objects** (§9.8, §15.3). A field record of [F08 §8.5.2] has its own member `class` (the merge class), so the
+    item class is carried as `item` (`kind`, `field`, `enum`, `edge`, `query`).
+44. **The examples** (§19) were extended beyond the draft's list with `16-image.json` (group I), `17-query.json` (family R),
+    `18-maintenance.json`, `19-schema-migrate.json` and `20-vcs-refs.json`, so that every command group and result family has at
+    least one request and result. Every example value that the rules determine is computed; the rest are the placeholders §19
+    lists. Values whose rules other chapters still leave open — the R4 observation values of `13-file-mv.json`, the `affected`
+    sets of staged commits, the texts of errors whose templates [F19] has not frozen (`bad_ref_name`, `not_merged`) — are
+    marked illustrative in their files.

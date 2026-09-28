@@ -1,0 +1,480 @@
+{
+  "example": "tx-create",
+  "spec": "§3.3, §4.2, §5.7, §5.8, §6.3, §9.1, §9.2, §9.3, §9.5, §10.1, §17.2, [LQ/envelope §7.7], [LQ/errors §4.1]",
+  "setup": "an empty stream (initial clock of §6.2)",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "store_id",
+    "boot_hash",
+    "statement texts (display printer)",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 1,
+        "cmd": "EnvSlots",
+        "ctx": {},
+        "args": {
+          "hold": [
+            "claude:s1"
+          ]
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "data": {
+          "held": [
+            "claude:s1"
+          ],
+          "unheld": [],
+          "readable": true
+        },
+        "next": null,
+        "dropped": null
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 2,
+        "cmd": "Init",
+        "ctx": {},
+        "args": {
+          "seed": 42,
+          "params": [
+            "store.log-extent-bytes=64KiB",
+            "store.hist-frame-commits=4",
+            "store.hist-frame-bytes=4KiB"
+          ]
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 0,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "store_id": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+          "main_ref_id": 0,
+          "schema_version": 1,
+          "init": {
+            "store.hist-frame-bytes": 4096,
+            "store.hist-frame-commits": 4,
+            "store.log-extent-bytes": 65536
+          },
+          "config": {}
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 3,
+        "cmd": "Claim",
+        "ctx": {
+          "agent": "orch",
+          "env": {
+            "CLAUDECODE": "1",
+            "CLAUDE_CODE_SESSION_ID": "s1"
+          }
+        },
+        "args": {
+          "role": "orchestrator",
+          "session": true
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 0,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "lease": null,
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "CALL tx.claim(role: $role, session: $session)",
+            "matched": null,
+            "targets": []
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": []
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 10,
+          "work_limit": 200000,
+          "rows": 0,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": [
+          {
+            "index": 1,
+            "proc": "tx.claim",
+            "rows": [
+              {
+                "lease": "L-1",
+                "token": 1,
+                "branch": "main",
+                "expires": {
+                  "wall": "2026-09-22T02:13:20.000Z",
+                  "boot": "b000000000000001",
+                  "boot_ns": "43201000000000"
+                },
+                "task": null,
+                "role": "orchestrator",
+                "holder": "orch",
+                "anchor": "session",
+                "run": null,
+                "reused": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 4,
+        "cmd": "Tx",
+        "ctx": {
+          "lease": "L-1",
+          "key": "plan-api"
+        },
+        "args": {
+          "stmts": [
+            {
+              "op": "create",
+              "as": "api",
+              "kind": "task",
+              "fields": {
+                "title": "Ship the Store API",
+                "priority": "P1"
+              }
+            },
+            {
+              "op": "create",
+              "as": "ch",
+              "kind": "task",
+              "fields": {
+                "title": "Write the chapter"
+              },
+              "under": "$api",
+              "position": "last"
+            },
+            {
+              "op": "create",
+              "as": "ex",
+              "kind": "task",
+              "fields": {
+                "title": "Write the examples"
+              },
+              "under": "$api",
+              "position": "last",
+              "edges_in": [
+                {
+                  "kind": "blocks",
+                  "src": "$ch"
+                }
+              ]
+            }
+          ],
+          "message": "plan the Store API work"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 0,
+        "commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+        "rev_new": 1,
+        "key": "plan-api",
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "CREATE (api:task {title: $p1, priority: $p2})",
+            "matched": null,
+            "targets": [
+              "#1"
+            ]
+          },
+          {
+            "index": 2,
+            "text": "CREATE (ch:task {title: $p3}) UNDER api LAST",
+            "matched": null,
+            "targets": [
+              "#2"
+            ]
+          },
+          {
+            "index": 3,
+            "text": "CREATE (ex:task {title: $p4}) UNDER api LAST",
+            "matched": null,
+            "targets": [
+              "#3"
+            ]
+          },
+          {
+            "index": 4,
+            "text": "CREATE (ch)-[:BLOCKS]->(ex)",
+            "matched": null,
+            "targets": [
+              "#2",
+              "#3"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [
+            "#2"
+          ],
+          "other": [
+            "#1",
+            "#3"
+          ]
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "+",
+            "node": "#1",
+            "kind": "task",
+            "aspect": "existence",
+            "name": "task",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#1",
+            "kind": "task",
+            "aspect": "field",
+            "name": "priority",
+            "before": null,
+            "after": 1,
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#1",
+            "kind": "task",
+            "aspect": "field",
+            "name": "title",
+            "before": null,
+            "after": "Ship the Store API",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "edge",
+            "name": "BLOCKS",
+            "before": null,
+            "after": {
+              "dst": "#3",
+              "disc": null,
+              "props": {}
+            },
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "existence",
+            "name": "task",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "field",
+            "name": "title",
+            "before": null,
+            "after": "Write the chapter",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "parent",
+            "name": "parent",
+            "before": null,
+            "after": {
+              "parent": "#1",
+              "order": "V"
+            },
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#3",
+            "kind": "task",
+            "aspect": "existence",
+            "name": "task",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#3",
+            "kind": "task",
+            "aspect": "field",
+            "name": "title",
+            "before": null,
+            "after": "Write the examples",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#3",
+            "kind": "task",
+            "aspect": "parent",
+            "name": "parent",
+            "before": null,
+            "after": {
+              "parent": "#1",
+              "order": "k"
+            },
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 60,
+          "work_limit": 200000,
+          "rows": 10,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 5,
+        "cmd": "Tx",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "stmts": [
+            {
+              "op": "create",
+              "kind": "epic",
+              "fields": {
+                "title": "Release"
+              }
+            }
+          ]
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "errors": [
+          {
+            "code": "E105",
+            "name": "unknown_kind",
+            "severity": "error",
+            "span": null,
+            "message": "unknown kind epic",
+            "suggest": [],
+            "expected": [],
+            "help": "kinds: task doc note rule decision question finding verdict measurement artifact run lane area",
+            "detail": []
+          }
+        ],
+        "exit": 2
+      }
+    }
+  ]
+}

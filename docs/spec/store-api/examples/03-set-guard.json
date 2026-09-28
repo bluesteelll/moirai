@@ -1,0 +1,163 @@
+{
+  "example": "set-guard",
+  "spec": "§3.3, §5.7, §9.1, §9.7, [LQ/std §7.2] tx.set, [LQ/errors §5.7] E401",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "statement texts (display printer)",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 5,
+        "cmd": "Mutation",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "tx.set",
+          "params": {
+            "id": "#2",
+            "fields": [
+              "title=Write the Store API chapter"
+            ],
+            "if_rev": 0
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "errors": [
+          {
+            "code": "E401",
+            "name": "expect_mismatch",
+            "severity": "error",
+            "span": null,
+            "message": "statement 1 matched 0 bindings, expected 1",
+            "suggest": [],
+            "expected": [],
+            "help": "re-read with moirai q show ids=#2",
+            "detail": [
+              "#2 now: rev=1 (changed at c00000001 by orch on main: \"plan the Store API work\")",
+              "nothing was written"
+            ],
+            "statement": 1,
+            "expect": "1",
+            "matched": 0,
+            "current": [
+              {
+                "id": "#2",
+                "kind": "task",
+                "status": "open",
+                "priority": 2,
+                "title": "Write the chapter",
+                "parent": "#1",
+                "rev": 1,
+                "changed_by": {
+                  "commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+                  "actor": "orch",
+                  "ref": "main",
+                  "message": "plan the Store API work"
+                }
+              }
+            ],
+            "written": false
+          }
+        ],
+        "exit": 4
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 6,
+        "cmd": "Mutation",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "tx.set",
+          "params": {
+            "id": "#2",
+            "fields": [
+              "title=Write the Store API chapter"
+            ],
+            "if_rev": 1
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+        "rev_new": 2,
+        "key": null,
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "MATCH (n {id: #2}) WHERE n.rev = $if_rev EXPECT 1 SET n.title = $title",
+            "matched": 1,
+            "targets": [
+              "#2"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": []
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "~",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "field",
+            "name": "title",
+            "before": "Write the chapter",
+            "after": "Write the Store API chapter",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 15,
+          "work_limit": 200000,
+          "rows": 1,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    }
+  ]
+}

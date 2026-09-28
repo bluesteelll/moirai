@@ -1,0 +1,290 @@
+{
+  "example": "vcs-refs",
+  "spec": "§5.1 (commit literals), §11 (branch and rev), §11.1 to §11.3, §11.6, §11.10, §11.2, [F12 §2.4], [F12 §2.5], [F12 §3.2]",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1; then 03-set-guard.json n = 5 and n = 6 (c00000002 retitled #2 'Write the Store API chapter')",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 7,
+        "cmd": "BranchCreate",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "exp"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/exp",
+        "rev": 2,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "ref": "lane/exp",
+          "ref_id": 1,
+          "kind": "work",
+          "fork": "c0000000200000000000000000000000000000000000000000000000000000000"
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 8,
+        "cmd": "BranchCreate",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "lane/Exp2"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 2,
+        "errors": [
+          {
+            "code": "bad_ref_name",
+            "name": "bad_ref_name",
+            "severity": "error",
+            "span": null,
+            "message": "lane/Exp2 is not a valid ref name: use lower-case a-z, 0-9, _ and - in segments joined by . and /",
+            "suggest": [],
+            "expected": [],
+            "help": null,
+            "detail": []
+          }
+        ],
+        "exit": 2
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 9,
+        "cmd": "Checkout",
+        "ctx": {
+          "lease": "L-1",
+          "client": "orch-cli"
+        },
+        "args": {
+          "target": "lane/exp"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/exp",
+        "rev": 2,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "key_kind": "client",
+          "key": "orch-cli",
+          "ref": "lane/exp",
+          "commit": null,
+          "designation_cleared": false
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 10,
+        "cmd": "Tag",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "v0.1",
+          "commit": "c00000002",
+          "message": "examples baseline"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "tags/v0.1",
+        "rev": 2,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "ref": "tags/v0.1",
+          "commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+          "pinned": false
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 11,
+        "cmd": "Revert",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "commit": "c00000002"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 2,
+        "commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+        "rev_new": 3,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "origin": "c0000000200000000000000000000000000000000000000000000000000000000",
+          "onto": "main",
+          "outcome": "landed",
+          "conflicts": [],
+          "violations": [],
+          "staging_ref": null,
+          "markers": [],
+          "affected": []
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 12,
+        "cmd": "CherryPick",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "commit": "c00000003",
+          "onto": "lane/exp"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/exp",
+        "rev": 2,
+        "commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+        "rev_new": 4,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "origin": "c0000000300000000000000000000000000000000000000000000000000000000",
+          "onto": "lane/exp",
+          "outcome": "landed",
+          "conflicts": [],
+          "violations": [],
+          "staging_ref": null,
+          "markers": [],
+          "affected": []
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 13,
+        "cmd": "BranchDelete",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "lane/exp"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 3,
+        "errors": [
+          {
+            "code": "not_merged",
+            "name": "not_merged",
+            "severity": "error",
+            "span": null,
+            "message": "lane/exp has 1 commit that main has not absorbed",
+            "suggest": [],
+            "expected": [],
+            "help": "merge it, or delete it with -D",
+            "detail": []
+          }
+        ],
+        "exit": 6
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 14,
+        "cmd": "BranchDelete",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "lane/exp",
+          "force": true
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/exp",
+        "rev": 4,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "ref": "lane/exp",
+          "ref_id": 1,
+          "dropped": {
+            "commits": 1,
+            "completions": 0,
+            "deletions": 0
+          },
+          "released": [],
+          "markers": [],
+          "triage": [
+            "lane/exp deleted with 1 unmerged commit (c00000004)"
+          ]
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    }
+  ]
+}

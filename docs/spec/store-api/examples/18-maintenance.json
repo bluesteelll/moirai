@@ -1,0 +1,186 @@
+{
+  "example": "maintenance",
+  "spec": "§8.4 to §8.6, §16.3 (Maintain), [F17 §1.5] SP-1, [F19 §10.3] placement_refused",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 5,
+        "cmd": "Maintain",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "op": "checkpoint"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "op": "checkpoint",
+          "ran": true
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 6,
+        "cmd": "Gc",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {}
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "reachable": 1,
+          "dropped": 0
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 7,
+        "cmd": "Backup",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "dir": "C:/backups/moirai-1"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "dir": "C:/backups/moirai-1",
+          "commit_seq": 1
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 8,
+        "cmd": "Backup",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "dir": "C:/backups/moirai-1"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "errors": [
+          {
+            "code": "placement_refused",
+            "name": "placement_refused",
+            "severity": "error",
+            "span": null,
+            "message": "C:/backups/moirai-1 already exists",
+            "suggest": [],
+            "expected": [],
+            "help": "pass --force",
+            "detail": [],
+            "case": "exists"
+          }
+        ],
+        "exit": 6
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 9,
+        "cmd": "Verify",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {}
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "findings": []
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 10,
+        "cmd": "Repair",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {}
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {},
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    }
+  ]
+}

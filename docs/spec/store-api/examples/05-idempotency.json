@@ -1,0 +1,625 @@
+{
+  "example": "idempotency",
+  "spec": "§7.1 to §7.5, §11.1, §11.7, [F06 §4.4.7], [LQ/errors §5.7] E408, [AR §6.4] N13e",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "the body hash",
+    "statement texts (display printer)",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 5,
+        "cmd": "Tx",
+        "ctx": {
+          "lease": "L-1",
+          "key": "plan-api"
+        },
+        "args": {
+          "stmts": [
+            {
+              "op": "create",
+              "as": "api",
+              "kind": "task",
+              "fields": {
+                "title": "Ship the Store API",
+                "priority": "P1"
+              }
+            },
+            {
+              "op": "create",
+              "as": "ch",
+              "kind": "task",
+              "fields": {
+                "title": "Write the chapter"
+              },
+              "under": "$api",
+              "position": "last"
+            },
+            {
+              "op": "create",
+              "as": "ex",
+              "kind": "task",
+              "fields": {
+                "title": "Write the examples"
+              },
+              "under": "$api",
+              "position": "last",
+              "edges_in": [
+                {
+                  "kind": "blocks",
+                  "src": "$ch"
+                }
+              ]
+            }
+          ],
+          "message": "plan the Store API work"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+        "rev_new": 1,
+        "key": "plan-api",
+        "lease": "L-1",
+        "replayed": true,
+        "dry": false,
+        "targets": null,
+        "statements": [],
+        "affected": {
+          "ready": [],
+          "other": [
+            "#1",
+            "#2",
+            "#3"
+          ]
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "+",
+            "node": "#1",
+            "kind": "task",
+            "aspect": "existence",
+            "name": "task",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#1",
+            "kind": "task",
+            "aspect": "field",
+            "name": "priority",
+            "before": null,
+            "after": 1,
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#1",
+            "kind": "task",
+            "aspect": "field",
+            "name": "title",
+            "before": null,
+            "after": "Ship the Store API",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "edge",
+            "name": "BLOCKS",
+            "before": null,
+            "after": {
+              "dst": "#3",
+              "disc": null,
+              "props": {}
+            },
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "existence",
+            "name": "task",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "field",
+            "name": "title",
+            "before": null,
+            "after": "Write the chapter",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "parent",
+            "name": "parent",
+            "before": null,
+            "after": {
+              "parent": "#1",
+              "order": "V"
+            },
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#3",
+            "kind": "task",
+            "aspect": "existence",
+            "name": "task",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#3",
+            "kind": "task",
+            "aspect": "field",
+            "name": "title",
+            "before": null,
+            "after": "Write the examples",
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#3",
+            "kind": "task",
+            "aspect": "parent",
+            "name": "parent",
+            "before": null,
+            "after": {
+              "parent": "#1",
+              "order": "k"
+            },
+            "side": null,
+            "last_commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 60,
+          "work_limit": 200000,
+          "rows": 10,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 6,
+        "cmd": "Tx",
+        "ctx": {
+          "lease": "L-1",
+          "key": "plan-api"
+        },
+        "args": {
+          "stmts": [
+            {
+              "op": "create",
+              "as": "api",
+              "kind": "task",
+              "fields": {
+                "title": "Ship the API",
+                "priority": "P1"
+              }
+            },
+            {
+              "op": "create",
+              "as": "ch",
+              "kind": "task",
+              "fields": {
+                "title": "Write the chapter"
+              },
+              "under": "$api",
+              "position": "last"
+            },
+            {
+              "op": "create",
+              "as": "ex",
+              "kind": "task",
+              "fields": {
+                "title": "Write the examples"
+              },
+              "under": "$api",
+              "position": "last",
+              "edges_in": [
+                {
+                  "kind": "blocks",
+                  "src": "$ch"
+                }
+              ]
+            }
+          ],
+          "message": "plan the Store API work"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "errors": [
+          {
+            "code": "E408",
+            "name": "idempotency_mismatch",
+            "severity": "error",
+            "span": null,
+            "message": "key plan-api was used for a different payload",
+            "suggest": [],
+            "expected": [],
+            "help": "use a new key for a new write",
+            "detail": [
+              "original: rev 1 c00000001 on main"
+            ],
+            "key": "plan-api",
+            "original": {
+              "rev": 1,
+              "commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+              "ref": "main"
+            }
+          }
+        ],
+        "exit": 9
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 7,
+        "cmd": "BranchCreate",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "lane/x"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/x",
+        "rev": 1,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "ref": "lane/x",
+          "ref_id": 1,
+          "kind": "work",
+          "fork": "c0000000100000000000000000000000000000000000000000000000000000000"
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 8,
+        "cmd": "Mutation",
+        "ctx": {
+          "branch": "lane/x",
+          "agent": "dev1",
+          "key": "note-1"
+        },
+        "args": {
+          "name": "tx.remember",
+          "params": {
+            "kind": "note",
+            "title": "Examples use placeholder ids",
+            "text": "Commit ids and uids in the examples are placeholders."
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/x",
+        "rev": 1,
+        "commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+        "rev_new": 2,
+        "key": "note-1",
+        "lease": null,
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "CREATE (n:note {title: $title})",
+            "matched": null,
+            "targets": [
+              "#4"
+            ]
+          },
+          {
+            "index": 2,
+            "text": "SET n.body = $text",
+            "matched": null,
+            "targets": [
+              "#4"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": [
+            "#4"
+          ]
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "note",
+            "aspect": "body",
+            "name": "body",
+            "before": null,
+            "after": "b0d1b0d1b0d1b0d1b0d1b0d1b0d1b0d1",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "dev1"
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "note",
+            "aspect": "existence",
+            "name": "note",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "dev1"
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "note",
+            "aspect": "field",
+            "name": "title",
+            "before": null,
+            "after": "Examples use placeholder ids",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "dev1"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 25,
+          "work_limit": 200000,
+          "rows": 3,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 9,
+        "cmd": "Merge",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "src": "lane/x",
+          "into": "main"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+        "rev_new": 3,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "src": "lane/x",
+          "into": "main",
+          "outcome": "landed",
+          "sync": null,
+          "lca": [
+            "c0000000100000000000000000000000000000000000000000000000000000000"
+          ],
+          "virtual_base": false,
+          "conflicts": [],
+          "violations": [],
+          "staging_ref": null,
+          "absorbed": {
+            "lane/x": 1
+          },
+          "markers": [],
+          "affected": [
+            "#4"
+          ]
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 10,
+        "cmd": "Mutation",
+        "ctx": {
+          "branch": "main",
+          "agent": "dev1",
+          "key": "note-1"
+        },
+        "args": {
+          "name": "tx.remember",
+          "params": {
+            "kind": "note",
+            "title": "Examples use placeholder ids",
+            "text": "Commit ids and uids in the examples are placeholders."
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 3,
+        "commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+        "rev_new": 2,
+        "key": "note-1",
+        "lease": null,
+        "replayed": true,
+        "dry": false,
+        "targets": null,
+        "statements": [],
+        "affected": {
+          "ready": [],
+          "other": [
+            "#4"
+          ]
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "note",
+            "aspect": "body",
+            "name": "body",
+            "before": null,
+            "after": "b0d1b0d1b0d1b0d1b0d1b0d1b0d1b0d1",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "dev1"
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "note",
+            "aspect": "existence",
+            "name": "note",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "dev1"
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "note",
+            "aspect": "field",
+            "name": "title",
+            "before": null,
+            "after": "Examples use placeholder ids",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "dev1"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 25,
+          "work_limit": 200000,
+          "rows": 3,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    }
+  ]
+}

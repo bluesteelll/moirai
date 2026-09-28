@@ -1,0 +1,183 @@
+{
+  "example": "init-and-clock",
+  "spec": "§3.1, §3.4, §3.5, §6.2, §8.1, §8.2, [F19 §8.6], [CFG §4.1]",
+  "setup": "an empty stream: wall_ms = 1,790,000,000,000 (2026-09-21T14:13:20.000Z), boot 1, boot_ns 1,000,000,000",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "store_id",
+    "boot_hash",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 1,
+        "cmd": "EnvClock",
+        "ctx": {},
+        "args": {
+          "advance_ms": 60000
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "data": {
+          "wall": "2026-09-21T14:14:20.000Z",
+          "wall_ms": 1790000060000,
+          "boot": "known",
+          "boot_no": 1,
+          "boot_hash": "b000000000000001",
+          "boot_ns": "61000000000"
+        },
+        "next": null,
+        "dropped": null
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 2,
+        "cmd": "Init",
+        "ctx": {},
+        "args": {
+          "seed": 42,
+          "params": [
+            "store.log-extent-bytes=64KiB",
+            "store.hist-frame-commits=4",
+            "store.hist-frame-bytes=4KiB",
+            "idempotency.retention=1h",
+            "idempotency.default-window=1m",
+            "gc.reflog-expire=2h",
+            "gc.cruft-delay=30m"
+          ]
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 0,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "store_id": "5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a5a",
+          "main_ref_id": 0,
+          "schema_version": 1,
+          "init": {
+            "store.hist-frame-bytes": 4096,
+            "store.hist-frame-commits": 4,
+            "store.log-extent-bytes": 65536
+          },
+          "config": {
+            "gc.cruft-delay": "30m",
+            "gc.reflog-expire": "2h",
+            "idempotency.default-window": "1m",
+            "idempotency.retention": "1h"
+          }
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 3,
+        "cmd": "ConfigSet",
+        "ctx": {},
+        "args": {
+          "key": "merge.strict",
+          "value": "on"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "key": "merge.strict",
+          "scope": "store",
+          "value": "true",
+          "previous": "false"
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 4,
+        "cmd": "ConfigSet",
+        "ctx": {},
+        "args": {
+          "key": "lease.ttl-default",
+          "value": "15"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "errors": [
+          {
+            "code": "config_value",
+            "name": "config_value",
+            "severity": "error",
+            "span": null,
+            "message": "lease.ttl-default takes duration[1m..30d]; got 15",
+            "suggest": [],
+            "expected": [],
+            "help": "lease.ttl-default: 1m to 30d",
+            "detail": [],
+            "key": "lease.ttl-default"
+          }
+        ],
+        "exit": 2
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 5,
+        "cmd": "ConfigUnset",
+        "ctx": {},
+        "args": {
+          "key": "merge.strict"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "key": "merge.strict",
+          "scope": "store",
+          "value": "false",
+          "previous": "true"
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    }
+  ]
+}

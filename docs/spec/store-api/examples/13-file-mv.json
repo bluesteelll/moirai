@@ -1,0 +1,530 @@
+{
+  "example": "file-mv",
+  "spec": "§6.5, §6.6, §6.2 CK-5, §11.4, §12.1 to §12.4, §12.6, [F08 §11], [F18 §3.5], [F18 §5.1], [40 §3.4]",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1; store HLC values are (1,790,000,000,000 << 16) + k (§6.2 CK-4): k = 0 to 3 were taken by n = 2 to 4, WorktreeBind takes 4 and 5, LinkFile 6, FileMv 7 (FsIntent), 8 (its commit) and 9 (FsIntentDone)",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "git object ids and oids",
+    "the anchor record's captured, window and span_hash values, its hint and its quote",
+    "the intent id (the FsIntent record's lsn, API §16.3)",
+    "the link state counts and evidence token of the settle",
+    "the observation composites and the other rows of the R4 commits"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 5,
+        "cmd": "EnvTree",
+        "ctx": {},
+        "args": {
+          "tree": "C:/work/moirai",
+          "volume": "C",
+          "ops": [
+            {
+              "op": "mkdir",
+              "path": "docs"
+            },
+            {
+              "op": "write",
+              "path": "docs/api.md",
+              "text": "# API\n\n## Commands\n\nTx, Mutation and Apply.\n"
+            },
+            {
+              "op": "write",
+              "path": "docs/notes.md",
+              "text": "notes\n"
+            }
+          ]
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "data": {
+          "tree": "C:/work/moirai",
+          "files": 2,
+          "dirs": 1
+        },
+        "next": null,
+        "dropped": null
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 6,
+        "cmd": "EnvGit",
+        "ctx": {},
+        "args": {
+          "repo": "moirai",
+          "algo": "sha1",
+          "commits": [
+            {
+              "id": "sha1:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+              "parents": [],
+              "committer_time": 1789999000,
+              "author_time": 1789999000,
+              "tree": {
+                "docs/api.md": "sha1:4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d",
+                "docs/notes.md": "sha1:5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e5e"
+              }
+            }
+          ],
+          "refs": {
+            "refs/heads/main": "sha1:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c"
+          },
+          "heads": {
+            "C:/work/moirai": {
+              "ref": "refs/heads/main"
+            }
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "data": {
+          "repo": "moirai",
+          "commits": 1
+        },
+        "next": null,
+        "dropped": null
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 7,
+        "cmd": "WorktreeBind",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "dir": "C:/work/moirai",
+          "ref": "main"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "dir": "C:/work/moirai",
+          "ref": "main",
+          "designated": true,
+          "expected_ref": "main",
+          "base": "sha1:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+          "replaced": []
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 8,
+        "cmd": "LinkFile",
+        "ctx": {
+          "lease": "L-1",
+          "tree": "C:/work/moirai"
+        },
+        "args": {
+          "node": "#2",
+          "specs": [
+            "docs/api.md#Commands"
+          ]
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+        "rev_new": 2,
+        "key": null,
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [],
+        "affected": {
+          "ready": [],
+          "other": [
+            "#4",
+            "#5"
+          ]
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "+",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "edge",
+            "name": "AT",
+            "before": null,
+            "after": {
+              "dst": "#5",
+              "disc": "ac000000000000000000000000000001",
+              "props": {
+                "anchor": {
+                  "handle": "a1",
+                  "uid": "ac000000000000000000000000000001",
+                  "kind": "heading",
+                  "mode": "live",
+                  "watch": "header",
+                  "resolver": 1,
+                  "captured": "cacacacacacacacacacacacacacacaca",
+                  "hint": [
+                    3,
+                    3
+                  ],
+                  "window": "5f5f5f5f5f5f5f5f",
+                  "span_hash": "a5a5a5a5a5a5a5a5",
+                  "blob": "sha1:4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d",
+                  "git": "sha1:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+                  "quote": "## Commands",
+                  "prefix": "",
+                  "suffix": ""
+                }
+              }
+            },
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "area",
+            "aspect": "existence",
+            "name": "area",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "area",
+            "aspect": "field",
+            "name": "root",
+            "before": null,
+            "after": "project",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "area",
+            "aspect": "field",
+            "name": "title",
+            "before": null,
+            "after": "root:project",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#5",
+            "kind": "artifact",
+            "aspect": "existence",
+            "name": "artifact",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#5",
+            "kind": "artifact",
+            "aspect": "field",
+            "name": "origin_path",
+            "before": null,
+            "after": "project:docs/api.md",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#5",
+            "kind": "artifact",
+            "aspect": "field",
+            "name": "root",
+            "before": null,
+            "after": "project",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#5",
+            "kind": "artifact",
+            "aspect": "observation",
+            "name": "observation",
+            "before": null,
+            "after": {
+              "path": "project:docs/api.md",
+              "oid": "sha1:4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d",
+              "bytes": 44,
+              "observed_git": "sha1:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+              "observed_blob": "sha1:4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d",
+              "relink": null
+            },
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 50,
+          "work_limit": 200000,
+          "rows": 8,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": [
+          {
+            "index": 0,
+            "proc": "tx.link_file",
+            "rows": [
+              {
+                "file": "#5",
+                "path": "project:docs/api.md",
+                "anchor": "a1",
+                "kind": "heading",
+                "created": true
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 9,
+        "cmd": "FileMv",
+        "ctx": {
+          "lease": "L-1",
+          "tree": "C:/work/moirai"
+        },
+        "args": {
+          "srcs": [
+            "docs"
+          ],
+          "dst": "handbook"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 2,
+        "commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+        "rev_new": 3,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "intent": "i-8192",
+          "items": [
+            {
+              "src": "project:docs",
+              "dst": "project:handbook",
+              "outcome": "done"
+            }
+          ],
+          "repointed": [
+            "#5"
+          ],
+          "path_move": {
+            "hlc": "117309440000000008",
+            "class": "explicit",
+            "from": "project:docs",
+            "to": "project:handbook",
+            "git": null
+          },
+          "globs": [],
+          "impact": null
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 10,
+        "cmd": "EnvTree",
+        "ctx": {},
+        "args": {
+          "tree": "C:/work/moirai",
+          "ops": [
+            {
+              "op": "mv",
+              "from": "handbook/api.md",
+              "to": "handbook/reference.md"
+            }
+          ]
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "data": {
+          "tree": "C:/work/moirai",
+          "files": 2,
+          "dirs": 1
+        },
+        "next": null,
+        "dropped": null
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 11,
+        "cmd": "LinksSync",
+        "ctx": {
+          "lease": "L-1",
+          "tree": "C:/work/moirai",
+          "key": "settle-1"
+        },
+        "args": {}
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 3,
+        "commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+        "rev_new": 4,
+        "key": "settle-1",
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [],
+        "affected": {
+          "ready": [],
+          "other": []
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "~",
+            "node": "#5",
+            "kind": "artifact",
+            "aspect": "observation",
+            "name": "observation",
+            "before": {
+              "path": "project:handbook/api.md",
+              "oid": "sha1:4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d",
+              "bytes": 44,
+              "observed_git": "sha1:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+              "observed_blob": null,
+              "relink": "explicit/intent"
+            },
+            "after": {
+              "path": "project:handbook/reference.md",
+              "oid": "sha1:4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d",
+              "bytes": 44,
+              "observed_git": "sha1:3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c3c",
+              "observed_blob": null,
+              "relink": "lazy/file-id"
+            },
+            "side": null,
+            "last_commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 15,
+          "work_limit": 200000,
+          "rows": 1,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": [
+          {
+            "index": 0,
+            "proc": "tx.links_sync",
+            "rows": [
+              {
+                "rebound": [
+                  {
+                    "file": "#5",
+                    "from": "project:handbook/api.md",
+                    "to": "project:handbook/reference.md",
+                    "evidence": "file-id"
+                  }
+                ],
+                "pending": 0,
+                "states": {
+                  "ok": 1
+                },
+                "commit": "c0000000400000000000000000000000000000000000000000000000000000000"
+              }
+            ]
+          }
+        ]
+      }
+    }
+  ]
+}

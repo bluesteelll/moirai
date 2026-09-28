@@ -1,0 +1,206 @@
+{
+  "example": "state-snapshot",
+  "spec": "§14.2, §15.1 to §15.6, [F13 §6.2], [F07 §6.3]",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "content and state digests"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 5,
+        "cmd": "State",
+        "ctx": {},
+        "args": {
+          "ref": "main"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "data": {
+          "state": 1,
+          "ref": "main",
+          "commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+          "content": {
+            "schema_version": 1,
+            "schema": [],
+            "nodes": [
+              {
+                "uid": "#u:00000000000000000000000000000001",
+                "kind": "task",
+                "existence": "live",
+                "status": "open",
+                "resolution": "none",
+                "priority": 1,
+                "criticality": "normal",
+                "confidence": "unset",
+                "authority": "agent",
+                "flags": [],
+                "title": "Ship the Store API",
+                "parent": null,
+                "order": null,
+                "fields": {},
+                "body": null,
+                "edges": [],
+                "conflicts": []
+              },
+              {
+                "uid": "#u:00000000000000000000000000000002",
+                "kind": "task",
+                "existence": "live",
+                "status": "open",
+                "resolution": "none",
+                "priority": 2,
+                "criticality": "normal",
+                "confidence": "unset",
+                "authority": "agent",
+                "flags": [],
+                "title": "Write the chapter",
+                "parent": "#u:00000000000000000000000000000001",
+                "order": "V",
+                "fields": {},
+                "body": null,
+                "edges": [
+                  {
+                    "kind": "blocks",
+                    "dst": "#u:00000000000000000000000000000003",
+                    "disc": null,
+                    "props": {}
+                  }
+                ],
+                "conflicts": []
+              },
+              {
+                "uid": "#u:00000000000000000000000000000003",
+                "kind": "task",
+                "existence": "live",
+                "status": "open",
+                "resolution": "none",
+                "priority": 2,
+                "criticality": "normal",
+                "confidence": "unset",
+                "authority": "agent",
+                "flags": [],
+                "title": "Write the examples",
+                "parent": "#u:00000000000000000000000000000001",
+                "order": "k",
+                "fields": {},
+                "body": null,
+                "edges": [],
+                "conflicts": []
+              }
+            ],
+            "schema_conflicts": []
+          },
+          "local": {
+            "nodes": [
+              {
+                "uid": "#u:00000000000000000000000000000001",
+                "id": "#1",
+                "created_by": "orch",
+                "created_role": "orchestrator",
+                "rev": 1,
+                "created": 1,
+                "updated": 1,
+                "anchors": []
+              },
+              {
+                "uid": "#u:00000000000000000000000000000002",
+                "id": "#2",
+                "created_by": "orch",
+                "created_role": "orchestrator",
+                "rev": 1,
+                "created": 1,
+                "updated": 1,
+                "anchors": []
+              },
+              {
+                "uid": "#u:00000000000000000000000000000003",
+                "id": "#3",
+                "created_by": "orch",
+                "created_role": "orchestrator",
+                "rev": 1,
+                "created": 1,
+                "updated": 1,
+                "anchors": []
+              }
+            ]
+          },
+          "derived": {
+            "nodes": [
+              {
+                "uid": "#u:00000000000000000000000000000001",
+                "done": false,
+                "unfinished": true,
+                "unblocked": false,
+                "blocked": false,
+                "open_blockers": 0,
+                "open_blockers_exo": 0,
+                "is_blocker": false,
+                "children_total": 2,
+                "children_done": 0,
+                "ready_to_close": false,
+                "container": true,
+                "suspect": false,
+                "answered": null,
+                "conflicted": false,
+                "has_dangling": false,
+                "depth": 0
+              },
+              {
+                "uid": "#u:00000000000000000000000000000002",
+                "done": false,
+                "unfinished": true,
+                "unblocked": true,
+                "blocked": false,
+                "open_blockers": 0,
+                "open_blockers_exo": 0,
+                "is_blocker": true,
+                "children_total": 0,
+                "children_done": 0,
+                "ready_to_close": false,
+                "container": false,
+                "suspect": false,
+                "answered": null,
+                "conflicted": false,
+                "has_dangling": false,
+                "depth": 1
+              },
+              {
+                "uid": "#u:00000000000000000000000000000003",
+                "done": false,
+                "unfinished": true,
+                "unblocked": false,
+                "blocked": true,
+                "open_blockers": 1,
+                "open_blockers_exo": 1,
+                "is_blocker": false,
+                "children_total": 0,
+                "children_done": 0,
+                "ready_to_close": false,
+                "container": false,
+                "suspect": false,
+                "answered": null,
+                "conflicted": false,
+                "has_dangling": false,
+                "depth": 1
+              }
+            ]
+          },
+          "digests": {
+            "content": "cdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcdcd",
+            "state": "5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d5d"
+          }
+        },
+        "next": null,
+        "dropped": null
+      }
+    }
+  ]
+}

@@ -1,0 +1,195 @@
+{
+  "example": "image",
+  "spec": "§8.3, §13, §16.3 (image rows), [F19 §10.2] quiet_mode, [AR §5b.6], [AR §6.6]",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "git object ids and cursor_seq (excluded from the comparison, API §16.3)",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 5,
+        "cmd": "Quiet",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "on": true
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "quiet": true
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 6,
+        "cmd": "ImageExport",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "dest": "C:/work/moirai-image",
+          "refs": [
+            "main"
+          ],
+          "granularity": "commit",
+          "object_format": "sha1",
+          "create": true
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "errors": [
+          {
+            "code": "quiet_mode",
+            "name": "quiet_mode",
+            "severity": "error",
+            "span": null,
+            "message": "image export is refused in quiet mode",
+            "suggest": [],
+            "expected": [],
+            "help": "pass --force, or run moirai quiet off",
+            "detail": []
+          }
+        ],
+        "exit": 6
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 7,
+        "cmd": "ImageExport",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "dest": "C:/work/moirai-image",
+          "refs": [
+            "main"
+          ],
+          "granularity": "commit",
+          "object_format": "sha1",
+          "create": true,
+          "force": true
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "dest": "C:/work/moirai-image",
+          "refs": [
+            {
+              "ref": "main",
+              "git_commits": 1,
+              "head": "sha1:6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f6f"
+            }
+          ],
+          "cursor_seq": 1
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 8,
+        "cmd": "Quiet",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "on": false
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "quiet": false
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 9,
+        "cmd": "ImageImport",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "from": "C:/work/moirai-image",
+          "refs": [
+            "main"
+          ]
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "refs": [
+            {
+              "ref": "main",
+              "imported": 0,
+              "native": 0,
+              "foreign": 0,
+              "outcome": "applied",
+              "staging_ref": null
+            }
+          ]
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    }
+  ]
+}
