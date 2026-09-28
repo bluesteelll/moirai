@@ -1,4 +1,5 @@
-# Product crate (docs/m0/PLAN.md §2.2). Allowed dependencies: none. Filled by WP-60 (R-FL1B).
+# Product crate (docs/m0/PLAN.md §2.2). Allowed dependencies: none; dev: proptest (WP-60's property tests; the §2.2
+# row does not list it yet, a plan finding of the WP-60 review). Filled by WP-60 (R-FL1B).
 [package]
 name = "moirai-diff"
 version.workspace = true
@@ -14,6 +15,10 @@ description = "Myers bit-parallel matcher and histogram line diff."
 path = "src/lib.rs"
 
 [dependencies]
+
+[dev-dependencies]
+# WP-60: property tests against the naive references written inside the tests (PLAN §3.2 item 6).
+proptest.workspace = true
 
 [lints]
 workspace = true
