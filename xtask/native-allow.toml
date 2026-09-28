@@ -1,28 +1,122 @@
 # Build-script and native-code allow-list: GT20 (b) rules 1 and 2 ([90 §11.2]; docs/m0/PLAN.md §2.4).
 #
-# Rule 1: every package with a `custom-build` target in any checked graph (`cargo metadata --filter-platform <t>` for
-# each of the four targets) must have an entry here: a reviewed reason and the asserted resolved feature set, so a
-# build script that runs a compiler through `std::process::Command` still needs a human review.
+# Rule 1: every package with a `custom-build` target in any graph (`cargo metadata --filter-platform <t>` for each of
+# the four targets, and the fuzz/ workspace) must have an entry here: a reviewed reason and the asserted resolved
+# feature set, so a build script that runs a compiler through `std::process::Command` still needs a human review.
 # Rule 2: no package outside this file declares a `links` key or has a build dependency on `cc`, `cmake`, `bindgen`,
 # `pkg-config`, `vcpkg`, `autotools`, `nasm-rs`, `cxx-build` or a `cc`-wrapping crate.
-# WP-01 seeds one entry for every build-script package of the resolved graph, each reviewed before WP-02 turns rule 1
-# on (PLAN §2.4).
+# `xtask gate` (steps gt20-b) enforces both, and reports a missing entry with the package's resolved features.
 #
 # Entry fields ([[package]]):
 #   name      = the package name
-#   versions  = the semver range the entry covers
+#   versions  = the semver requirement the entry covers; entries pin the reviewed version exactly (`=x.y.z`), so a
+#               dependency update brings its build script back for review
 #   graphs    = where it may appear: "checked", "host-only" (moirai-tsoracle only) or "fuzz" (fuzz/Cargo.lock only)
-#   features  = the asserted resolved feature set; the lint fails if the resolved features differ
+#   features  = the asserted resolved feature set; the lint fails if the resolved features differ on any target
 #   links     = the `links` value, if the package declares one
 #   script    = what the build script does, as reviewed
 #   reason    = why it is acceptable
 #
-# Nothing is listed yet: the resolved graph holds only workspace crates, and none has a build script. The entries
-# PLAN §2.4 and [90 §11.2] name arrive with the downloads of the day-1 bundle, among them: blake3 (its `cc` build
-# dependency is inert only with the `pure` feature, which the entry asserts), libc (the script probes rustc),
-# windows-targets import-library crates if they declare `links`, proc-macro2, quote, serde, serde_json, thiserror,
-# zerocopy, anyhow, getrandom, num-traits, rmcp (its script runs `git config core.hooksPath .githooks` when it finds
-# ../../.git; never vendored), and, host-only, tree-sitter, tree-sitter-language and tree-sitter-rust.
+# Reviewed 2026-09-28 (WP-02, R-HARN-I) against the resolved graph of that day. None of the checked-graph scripts
+# compiles, assembles or links C, C++ or assembly; the host-only tree-sitter scripts do, which is why their crates
+# stay out of every checked graph (PLAN §2.2, §6.2 R7).
 
 version = 1
-package = []
+
+[[package]]
+name = "anyhow"
+versions = "=1.0.104"
+graphs = ["checked"]
+features = ["default", "std"]
+script = "compiles a small Rust probe with $RUSTC (src/nightly.rs) to detect the error-generic-member-access API; emits cfgs"
+reason = "rustc probe only, no C; reached through tiktoken-rs in the tool crate moirai-tokcount, never a product crate (PLAN §2.4)"
+
+[[package]]
+name = "blake3"
+versions = "=1.8.7"
+graphs = ["checked"]
+features = ["pure", "std"]
+script = "on x86 targets asks cc whether the C compiler accepts the AVX-512 flag, then, because `pure` is set, selects the Rust SSE2/SSE4.1/AVX2 intrinsics and builds no C or assembly; on aarch64 `pure` turns NEON C off"
+reason = "with `pure` nothing native is compiled or linked ([90 §11.3], decision #44); under the gate's poisoned compiler the flag probe fails and the build proceeds on the Rust path; the `cc` build dependency is inert (rule 4 asserts `pure`)"
+
+[[package]]
+name = "getrandom"
+versions = "=0.3.4"
+graphs = ["checked"]
+features = ["std"]
+script = "runs `$RUSTC -vV` to read the compiler's minor version and emits backend cfgs"
+reason = "rustc probe only, no C; OS randomness for proptest's rand in test crates"
+
+[[package]]
+name = "libc"
+versions = "=0.2.189"
+graphs = ["checked"]
+features = []
+script = "runs `$RUSTC --version` and reads the target to emit cfgs (FreeBSD and musl versions, check-cfg lists)"
+reason = "rustc probe only, no C ([90 §11.3]: its build script only probes rustc); present on the Linux and macOS targets, through cpufeatures and getrandom"
+
+[[package]]
+name = "num-traits"
+versions = "=0.2.19"
+graphs = ["checked"]
+features = ["std"]
+script = "autocfg probes rustc for f64::total_cmp and emits has_total_cmp"
+reason = "rustc probe only, no C; through proptest in test crates"
+
+[[package]]
+name = "serde_core"
+versions = "=1.0.229"
+graphs = ["checked"]
+features = ["alloc", "result", "std"]
+script = "runs `$RUSTC --version` and emits no_* cfgs for older compilers"
+reason = "rustc probe only, no C; serde_json's core"
+
+[[package]]
+name = "serde_json"
+versions = "=1.0.151"
+graphs = ["checked"]
+features = ["default", "indexmap", "preserve_order", "std"]
+script = "reads CARGO_CFG_TARGET_POINTER_WIDTH and emits the fast_arithmetic cfg; runs nothing"
+reason = "no process, no C; test and tool I/O (PLAN §2.4); preserve_order is enabled by tree-sitter's build dependency and unified here"
+
+[[package]]
+name = "zerocopy"
+versions = "=0.8.59"
+graphs = ["checked"]
+features = ["simd"]
+script = "runs `$RUSTC --version` and emits toolchain-version cfgs from its Cargo.toml metadata"
+reason = "rustc probe only, no C; through ppv-lite86 (rand_chacha) in proptest"
+
+[[package]]
+name = "zmij"
+versions = "=1.0.23"
+graphs = ["checked"]
+features = []
+script = "runs `$RUSTC --version` and emits cfgs for older compilers and opt-level s"
+reason = "rustc probe only, no C; serde_json's float formatting"
+
+[[package]]
+name = "tree-sitter"
+versions = "=0.27.0"
+graphs = ["host-only"]
+features = ["default", "std"]
+links = "tree-sitter"
+script = "compiles the tree-sitter C runtime (lib/src/lib.c) with cc; bindgen only behind its non-default `bindgen` feature"
+reason = "host-only: the scanner oracle moirai-tsoracle (decision #9, PLAN §6.2 R7); never in a checked graph (rule 3), built only by the replay job, unpoisoned"
+
+[[package]]
+name = "tree-sitter-language"
+versions = "=0.1.8"
+graphs = ["host-only"]
+features = []
+links = "tree-sitter-language"
+script = "on wasm32-unknown targets only, emits header metadata for dependants; compiles nothing"
+reason = "host-only, through tree-sitter and tree-sitter-rust; declares `links` so grammar crates can find the headers"
+
+[[package]]
+name = "tree-sitter-rust"
+versions = "=0.24.2"
+graphs = ["host-only"]
+features = []
+script = "compiles the generated Rust grammar (src/parser.c, src/scanner.c) with cc"
+reason = "host-only: the grammar of moirai-tsoracle (decision #9, PLAN §6.2 R7); never in a checked graph (rule 3)"

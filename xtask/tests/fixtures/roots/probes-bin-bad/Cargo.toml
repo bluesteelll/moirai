@@ -1,0 +1,5 @@
+# Synthetic fixture crate (xtask/src/lint_roots.rs tests); never built.
+[package]
+name = "probes-bin-bad"
+version = "0.0.0"
+publish = false

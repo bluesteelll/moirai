@@ -1,0 +1,18 @@
+# GT20 (d), the type-aware layer (docs/m0/PLAN.md §2.1, §6.2 R18; xtask/src/lint_source.rs `clippy-config`).
+#
+# Clippy reads this file from the crate's manifest directory, and the gate's `clippy -D warnings` refuses every call
+# listed here: the method forms (`f.lock()`, `f.try_lock()`, `path.exists()`) that the syntactic scan cannot tell
+# from their namesakes. The gate checks that every product crate has this file with the complete list, and refuses
+# an `allow`/`expect` of `clippy::disallowed_methods` in product code. Owned by R-HARN-I (docs/m0/authors.md §3).
+#
+# moirai-os is the OS layer: it may do file-system I/O through Path, but never the store-file calls, which it
+# implements itself with the OS primitives ([OS/lock], [OS/fs]).
+
+disallowed-methods = [
+    { path = "std::fs::File::lock", reason = "a store-file call: moirai-os locks files with the OS primitives of [OS/lock], never std's (PLAN §2.1, GT20 (d))" },
+    { path = "std::fs::File::try_lock", reason = "a store-file call: moirai-os locks files with the OS primitives of [OS/lock], never std's (PLAN §2.1, GT20 (d))" },
+    { path = "std::fs::File::lock_shared", reason = "a store-file call: moirai-os locks files with the OS primitives of [OS/lock], never std's (PLAN §2.1, GT20 (d))" },
+    { path = "std::fs::File::try_lock_shared", reason = "a store-file call: moirai-os locks files with the OS primitives of [OS/lock], never std's (PLAN §2.1, GT20 (d))" },
+    { path = "std::fs::File::unlock", reason = "a store-file call: moirai-os locks files with the OS primitives of [OS/lock], never std's (PLAN §2.1, GT20 (d))" },
+    { path = "std::fs::rename", reason = "a store-file call: moirai-os renames with the OS primitives of [OS/fs], never std's (PLAN §2.1, GT20 (d))" },
+]

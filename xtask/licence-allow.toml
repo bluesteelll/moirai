@@ -8,8 +8,8 @@
 #   spdx      = the SPDX identifier or WITH expression
 #   lockfiles = the lockfiles in which the licence is allowed
 #   basis     = "named": AGENTS.md names it (MIT, Apache-2.0, BSD, ISC, Zlib);
-#               "similar": allowed as one of AGENTS.md's "similar" licences, shown to the owner for confirmation
-#               (day-1 bundle point 7, PLAN §8)
+#               "similar": allowed as one of AGENTS.md's "similar" licences (day-1 bundle point 7, PLAN §8); the
+#               owner accepted MIT-0, BSL-1.0, CC0-1.0, Unicode-3.0 and NCSA (fuzz/Cargo.lock only) on 2026-09-28
 #   note      = the known users, where PLAN §2.4 names them
 
 version = 1

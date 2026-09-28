@@ -1,15 +1,20 @@
 # Composition roots (docs/m0/PLAN.md §2.1; §6.2 R17, which generalises [90 §11.1]'s "the binary crate").
 #
-# Only a composition root may depend on `moirai-os`. Each root:
+# Only a composition root may depend on `moirai-os` ([OS/README §2.4]): the composition-root lint refuses any other
+# workspace member with a normal, build or dev dependency on it. Each root:
 # - is excluded from the GT20 (e) cross-target set and checked on Windows only, with `windows_check`;
 # - stays in the GT20 (b) lint for all four targets;
-# - is bound by the composition-root lint (WP-02): binaries only (`bin_paths`), a line cap, and `allowed_deps`.
+# - is bound by the composition-root lint (WP-02): binaries only (`bin_paths`), a line cap, and `allowed_deps`;
+# - if it is a product root (`product = true`), it may not enable `moirai-os`'s `test-host` feature, directly or
+#   through its own features, and may not install a `#[global_allocator]` ([OS/README §2.4]: `test_host` and
+#   `CountingAlloc` belong to the probe roots only).
 # No checked crate may depend on a root, dev-dependencies included (GT20 (b) rule 3).
 # A root with `present = false` is not a workspace member yet: the gate skips its check and lint, and a fixture
 # workspace under xtask/tests/fixtures/ self-tests both (PLAN §2.2).
 #
-# Fields: name, created (milestone), present, bin_paths (the only target files allowed), max_lines (per target
-# file), allowed_deps (workspace crates; no other dependency is allowed), windows_check (the gate's command).
+# Fields: name, created (milestone), present, product (a product root), bin_paths (the only target files allowed),
+# max_lines (per target file), allowed_deps (workspace crates; no other dependency is allowed), windows_check (the
+# gate's command).
 
 version = 1
 
@@ -17,6 +22,7 @@ version = 1
 name = "moirai"
 created = "M8"
 present = false
+product = true
 bin_paths = ["src/main.rs"]
 max_lines = 200
 allowed_deps = ["moirai-app", "moirai-os"]
@@ -26,6 +32,7 @@ windows_check = "cargo check -p moirai --locked --target x86_64-pc-windows-msvc"
 name = "moirai-probes-bin"
 created = "M0"
 present = true
+product = false
 bin_paths = ["src/bin/*.rs"]
 # PLAN §2.1 names a line cap for this root without a value; 200 per file follows [90 §11.1]'s cap for `moirai`.
 # Open point for WP-80a (docs/m0/authors.md §6).

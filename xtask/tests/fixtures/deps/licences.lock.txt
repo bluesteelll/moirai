@@ -1,0 +1,36 @@
+# Seeded violations (licence lint, PLAN WP-02 and §2.4). Synthetic; never resolved.
+version = 4
+
+[[package]]
+name = "app"
+version = "0.0.0"
+
+[[package]]
+name = "okcrate"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "gplcrate"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "filecrate"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "nolicence"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "fuzzonly"
+version = "1.0.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+
+[[package]]
+name = "ghost"
+version = "9.9.9"
+source = "registry+https://github.com/rust-lang/crates.io-index"

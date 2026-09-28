@@ -1,0 +1,172 @@
+# Author roles for `xtask worktree <role>` and `xtask gate --branch m0/<role>` (docs/m0/PLAN.md §3.1 "Mechanics";
+# docs/m0/authors.md). What a role may *write* is authors.md's path map, which `xtask authors` reads directly; this file
+# holds only what authors.md does not: each role's lane and the paths it must not *read* (PLAN §3.1 "Must not", S1-S6).
+#
+# `deny_read` patterns use authors.md §3's matching (`dir/**`, `*` within one component, `{a,b}`, and a module path
+# `src/<m>` standing for `src/<m>.rs` and `src/<m>/**`). `xtask worktree` turns each into Claude Code
+# `permissions.deny` rules for Read, Grep and Glob in the new worktree, the main checkout and every other worktree;
+# `xtask gate --branch` reduces a diagnostic on such a path to "crate X: n errors, file a review finding".
+#
+# Lanes: each lane has one shared CARGO_TARGET_DIR outside the repository, `<target root>/<dir>` (PLAN §2.1); the
+# target root is `git config moirai.target-root`, by default `<volume of the main worktree>/moirai-target`.
+#
+# The toylog bug module (`crates/moirai-toylog/src/{bug,bugs}`, a path docs/m0/authors.md §3 fixes for R-TOY) is
+# denied to R-HARN until WP-32 is accepted (PLAN §3.1); the entry is removed by the R-HARN-I change that records WP-32's
+# acceptance. `xtask gate` warns when a crate has modules beside its root but a `deny_read` module pattern matches none
+# of its files, so a bug module under another name cannot slip past the filter unnoticed.
+#
+# Fields ([[role]]): name (lower case; branch m0/<name>), title (PLAN §3.1's name), lane, deny_read, reason.
+
+version = 1
+
+[lanes]
+A = "laneA"
+B = "laneB"
+
+[[role]]
+name = "r-spec-f"
+title = "R-SPEC-F"
+lane = "A"
+deny_read = []
+reason = "PLAN §3.1: R-SPEC has no read restriction"
+
+[[role]]
+name = "r-spec-p"
+title = "R-SPEC-P"
+lane = "A"
+deny_read = []
+reason = "PLAN §3.1: R-SPEC has no read restriction"
+
+[[role]]
+name = "r-spec-r"
+title = "R-SPEC-R"
+lane = "A"
+deny_read = []
+reason = "PLAN §3.1: R-SPEC has no read restriction"
+
+[[role]]
+name = "r-fix"
+title = "R-FIX"
+lane = "A"
+deny_read = [
+    "crates/moirai-format-oracle/**",
+    "crates/moirai-model/**",
+    "crates/moirai-toylog/**",
+    "crates/moirai-vfs/**",
+    "crates/moirai-os/**",
+    "crates/moirai-files/**",
+    "crates/moirai-diff/**",
+]
+reason = "PLAN §3.1 and S1, S3: fixtures are written from the specification text only, without the oracle, the model, the toy log or any product crate"
+
+[[role]]
+name = "r-harn-i"
+title = "R-HARN-I"
+lane = "A"
+deny_read = ["crates/moirai-model/**", "crates/moirai-format-oracle/**", "crates/moirai-toylog/src/{bug,bugs}"]
+reason = "PLAN §3.1 and S2, S4: R-HARN never reads the model or the oracle, nor the toy log's bug module before WP-32 is accepted"
+
+[[role]]
+name = "r-harn-s"
+title = "R-HARN-S"
+lane = "A"
+deny_read = ["crates/moirai-model/**", "crates/moirai-format-oracle/**", "crates/moirai-toylog/src/{bug,bugs}"]
+reason = "PLAN §3.1 and S2, S4: the enumerator's author never reads the seeded bugs before WP-32 is accepted"
+
+[[role]]
+name = "r-harn-o"
+title = "R-HARN-O"
+lane = "A"
+deny_read = ["crates/moirai-model/**", "crates/moirai-format-oracle/**", "crates/moirai-toylog/src/{bug,bugs}"]
+reason = "PLAN §3.1 and S2: R-HARN never reads the model or the oracle"
+
+[[role]]
+name = "r-harn-m"
+title = "R-HARN-M"
+lane = "B"
+deny_read = ["crates/moirai-model/**", "crates/moirai-format-oracle/**", "crates/moirai-toylog/src/{bug,bugs}"]
+reason = "PLAN §3.1 and S2: R-HARN never reads the model or the oracle"
+
+[[role]]
+name = "r-toy"
+title = "R-TOY"
+lane = "A"
+deny_read = ["crates/moirai-model/**"]
+reason = "PLAN §3.1 and S2: R-TOY never reads the model"
+
+[[role]]
+name = "r-fl1a"
+title = "R-FL1A"
+lane = "A"
+deny_read = ["crates/moirai-model/**"]
+reason = "PLAN §3.1 and S2: FL-1's authors never read the model"
+
+[[role]]
+name = "r-fl1b"
+title = "R-FL1B"
+lane = "B"
+deny_read = ["crates/moirai-model/**"]
+reason = "PLAN §3.1 and S2: FL-1's authors never read the model"
+
+[[role]]
+name = "r-model"
+title = "R-MODEL"
+lane = "B"
+deny_read = [
+    "crates/moirai-vfs/**",
+    "crates/moirai-os/**",
+    "crates/moirai-files/**",
+    "crates/moirai-diff/**",
+    "crates/moirai-toylog/**",
+    "crates/moirai-vfs-sim/**",
+]
+reason = "PLAN §3.1 and S2: the model's author never reads a product crate (FL-1's anchor resolver included), the toy log or the simulator"
+
+[[role]]
+name = "r-ora"
+title = "R-ORA"
+lane = "B"
+deny_read = [
+    "crates/moirai-toylog/**",
+    "crates/moirai-model/**",
+    "crates/moirai-vfs/**",
+    "crates/moirai-os/**",
+    "crates/moirai-files/**",
+    "crates/moirai-diff/**",
+]
+reason = "PLAN §3.1 and S1: the oracle is independent of the toy log, the model and every product crate; the per-chapter fixture rule is procedural and stays in the brief"
+
+[[role]]
+name = "r-bench"
+title = "R-BENCH"
+lane = "B"
+deny_read = []
+reason = "PLAN §3.1: R-BENCH may read the model but never edits it (a write rule, enforced by xtask authors)"
+
+[[role]]
+name = "r-replay"
+title = "R-REPLAY"
+lane = "B"
+deny_read = []
+reason = "PLAN §3.1: R-REPLAY has no read restriction"
+
+[[role]]
+name = "r-rev-p"
+title = "R-REV-P"
+lane = "A"
+deny_read = []
+reason = "PLAN §3.1 and S5: a lens never reviews its own text, a procedural rule"
+
+[[role]]
+name = "r-rev-s"
+title = "R-REV-S"
+lane = "A"
+deny_read = []
+reason = "PLAN §3.1 and S5: a lens never reviews its own text, a procedural rule"
+
+[[role]]
+name = "r-rev-a"
+title = "R-REV-A"
+lane = "A"
+deny_read = []
+reason = "PLAN §3.1 and S5: a lens never reviews its own text, a procedural rule"

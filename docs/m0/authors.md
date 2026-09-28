@@ -133,9 +133,11 @@ to this file, reviewed like any other.
 | `fixtures/ucd/**` | R-FL1A | |
 | `crates/moirai-vfs/**`, `crates/moirai-vfs-sim/**` | R-HARN | sessions -S |
 | `crates/moirai-os/**` | R-HARN | session -O |
+| `crates/moirai-vfs/clippy.toml`, `crates/moirai-os/clippy.toml`, `crates/moirai-diff/clippy.toml`, `crates/moirai-files/clippy.toml` | R-HARN-I | the type-aware GT20 (d) layer (WP-02): each product crate's clippy `disallowed-methods`; the gate refuses a product crate without the file or with an incomplete list, so a new product crate's file is added here with the crate |
 | `crates/moirai-probes/**`, `crates/moirai-probes-bin/**` | R-HARN | sessions -I and -M |
 | `crates/moirai-harness-stub/**`, `crates/moirai-tokcount/**` | R-HARN | |
 | `crates/moirai-toylog/**` | R-TOY | R-HARN may not read its bug module before WP-32 is accepted |
+| `crates/moirai-toylog/src/{bug,bugs}` | R-TOY | the seeded-bug module (S4), at exactly this path: `xtask/roles.toml` denies it to R-HARN until WP-32 is accepted, and the gate warns when the crate has other modules but nothing here |
 | `crates/moirai-model/**` | R-MODEL | including the rule tables under `rules/` |
 | `crates/moirai-format-oracle/**` | R-ORA | |
 | `crates/moirai-lqbench/**` | R-BENCH | |
@@ -148,7 +150,7 @@ to this file, reviewed like any other.
 | `docs/spec/measurement-protocol.md` | R-HARN | WP-50, session -I |
 | `docs/spec/rules/**` | R-MODEL | |
 | `docs/spec/rules/SIGNED.md` | owner only | the owner-committed table digests (V3) |
-| `docs/spec/reviews/**` | R-REV-P, R-REV-S, R-REV-A | each lens writes only the files named with its lens |
+| `docs/spec/reviews/**` | R-REV-P, R-REV-S, R-REV-A | each lens writes only the files named with its lens: its letter as a `-`, `_` or `.`-separated token of the file name (`P-pass1.md`, `a1-p.md`) |
 | `docs/measurements/**` | R-HARN | aggregates only |
 | `docs/measurements/m0/lqbench/**` | R-BENCH | scores and aggregates of WP-71b and WP-72 (§6 item 6) |
 | `docs/measurements/m0/replay/**` | R-REPLAY | WP-76's counts and rates (§6 item 6) |
@@ -161,9 +163,11 @@ to this file, reviewed like any other.
 
 WP-01 creates every crate of PLAN §2.2: its `Cargo.toml` and its crate root (`src/lib.rs` holding only the crate doc
 comment; for the bins-only root `moirai-probes-bin`, `src/bin/empty.rs`, measurement 11's empty executable; for
-`xtask`, `src/main.rs`, which prints the planned subcommands and exits 2). `xtask authors` accepts these paths from
-WP-01's commit; from then on each belongs to the owner that §3 names. WP-01 also declares the workspace edges of
-PLAN §2.2's "Allowed dependencies" column; external dependencies are added by the WP that first needs them.
+`xtask`, `src/main.rs`, which prints the planned subcommands and exits 2). `xtask authors` accepts these paths only
+as additions, in a commit whose subject names `WP-01` itself (not a suffixed `WP-01b` read as WP-01), and only where
+no ancestor of the commit had the path; from then on each belongs to the owner that §3 names. WP-01 also declares
+the workspace edges of PLAN §2.2's "Allowed dependencies" column; external dependencies are added by the WP that
+first needs them.
 
 ## 5. Residual risks
 
@@ -180,10 +184,17 @@ PLAN §2.2's "Allowed dependencies" column; external dependencies are added by t
 5. `git config moirai.xtask` and `moirai.private-guard` are local settings that any process can change. The pre-commit
    guard protects against mistakes, not against a hostile session; the manifest and shingle checks are re-run by the
    gate before every merge into `master` (WP-02, WP-03 part 2).
-6. `xtask authors` checks paths against the role of the WP a subject names. A subject that names the wrong WP passes as
-   that WP's role; the gate worktree's review of each merge catches it.
+6. `xtask authors` checks paths against the role of the WP a subject names. In `xtask gate --branch m0/<role>` every
+   commit of the branch must name a WP whose §2 roles include the branch's role, and its paths are checked against
+   that role; a commit without a `WP-xx:` subject is refused there. Outside branch mode (the owner's own range) a
+   subject that names the wrong WP still passes as that WP's role, and a subject without `WP-` is an owner commit and
+   is skipped; the gate worktree's review of each merge catches both.
 7. Path-level checks cannot split a file: `NOTICE` (append-only) and the shared `moirai-files` manifest and crate root
    rely on a diff rule (§6 items 2 and 5).
+8. `pr.yml` runs its AI-marker and identity checks with the xtask built from the base commit, so a pull request cannot
+   loosen the rules that check it. A change to `pr.yml` itself, and the first pull request whose base has no
+   `xtask ci` yet (the job then builds the pull request's own xtask and says so in its log), still rely on the
+   ruleset's review of every pull request (PLAN §8, V10).
 
 ## 6. Open points for the review
 
@@ -212,3 +223,18 @@ PLAN §2.2's "Allowed dependencies" column; external dependencies are added by t
    table.
 9. **The `empty` binary.** Cargo needs at least one target in `moirai-probes-bin`, which holds binaries only. WP-01
    creates `empty` (measurement 11's empty executable, which is final as written: `fn main() {}`); WP-50 owns it.
+10. **How `xtask authors` reads this file (WP-02).** It parses §2's table (a `WP-53a–e` row covers `WP-53a` to
+    `WP-53e`) and §3's table directly, so this file stays the single record. A commit subject may name several WPs
+    (`WP-02, WP-03:` or `WP-02+03b:`); a suffixed id that §2 does not list (`WP-03b`, a WP's second part) is read as
+    its numbered row. A subject that starts with `WP-` but does not parse (`WP-02 fix: …`) is a finding. A path no §3
+    entry covers is refused. Two limits in §3's notes column are parsed and enforced: `only in WP-…` (the path may be
+    written only by a commit naming one of those WPs) and `named with its lens` (a review lens writes only files
+    carrying its letter). Two rules sit beside the tables: WP-01's commit may add the crate skeletons of §4, and
+    `Cargo.lock` and `fuzz/Cargo.lock` are accepted in any WP commit, because they change only as a side effect of
+    cargo and every gate command runs `--locked` (a lockfile that disagrees with the manifests cannot pass). `NOTICE`
+    changes must keep the old text as their prefix (item 5). A merge commit is checked on the files it changes
+    relative to every parent (its combined diff). The per-line rule of item 2 for the shared `moirai-files` manifest
+    and crate root is not automated: the gate worktree's review of each merge covers it.
+11. **What the tooling reads besides this file.** `xtask/roles.toml` gives each role its lane and the paths it must
+    not read (PLAN §3.1 "Must not", S1–S6), for `xtask worktree` and `xtask gate --branch`; `xtask/crates.toml` gives
+    each workspace member its PLAN §2.2 kind (product, test-only, tool, host-only), for the GT20 (d) and (a) scopes.

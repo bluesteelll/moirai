@@ -6,6 +6,11 @@
 # the repository it lives in, its configuration or its hooks, and it uses synthetic data only.
 #
 # Usage: sh .githooks/test-hooks.sh [parent directory for the scratch repository, default $TMPDIR or /tmp]
+# The last section runs the delegated checks through a prebuilt xtask (`xtask hook pre-commit`, `xtask private
+# index`; WP-03 part 2), and `xtask worktree` on a guarded clone without `moirai.xtask` (WP-01): the binary named by
+# $MOIRAI_XTASK, else $CARGO_TARGET_DIR/debug/xtask[.exe], else target/debug/xtask[.exe] beside this directory.
+# Without one, that section is reported as skipped. `xtask gate` runs this script in its `hooks` step with itself as
+# $MOIRAI_XTASK, so every gate and CI run tests the hooks.
 # Exit status: 0 when every case passes, 1 otherwise. The scratch directory is removed on success and kept on failure.
 # POSIX sh; runs under Git for Windows' sh, bash and dash.
 
@@ -295,8 +300,106 @@ expect_refused 'linked worktree, a private/ path' 'owner data under private/' \
     sh -c 'mkdir -p "$1/private" && printf x >"$1/private/a.txt" && git -C "$1" add -f private/a.txt &&
         git -C "$1" commit -q -m "WP-03: add private data"' sh "$wt"
 
+echo '== pre-commit: the delegated checks through the real xtask'
+skipped=0
+xt=${MOIRAI_XTASK:-}
+if [ -z "$xt" ]; then
+    for cand in "${CARGO_TARGET_DIR:-/nonexistent}/debug/xtask.exe" "${CARGO_TARGET_DIR:-/nonexistent}/debug/xtask" \
+        "$hooks/../target/debug/xtask.exe" "$hooks/../target/debug/xtask"; do
+        if [ -f "$cand" ]; then
+            xt=$cand
+            break
+        fi
+    done
+fi
+if [ -z "$xt" ] || [ ! -f "$xt" ]; then
+    skipped=10
+    echo 'skipped: no prebuilt xtask (set MOIRAI_XTASK, or build it with cargo build -p xtask)'
+else
+    # A private copy, so a concurrent rebuild cannot change the binary under the test.
+    case $xt in *.exe) xtcopy="$work/xtask.exe" ;; *) xtcopy="$work/xtask" ;; esac
+    cp "$xt" "$xtcopy" && chmod +x "$xtcopy"
+    git -C "$repo" config moirai.xtask "$xtcopy"
+    git -C "$repo" config moirai.private-guard true
+    mkdir -p "$private_main/notes"
+    printf 'the owner wrote this private sentence about the storage engine and its crash recovery rules\n' \
+        >"$private_main/notes/session.txt"
+    printf 'binary\000\001\002\003' >"$private_main/notes/blob.bin"
+    rm -f "$private_main/MANIFEST.b3"
+    if (cd "$repo" && "$xtcopy" private index --private-dir "$private_main" --no-public) >"$out" 2>&1; then
+        ok 'xtask private index writes MANIFEST.b3'
+    else
+        bad 'xtask private index writes MANIFEST.b3'
+    fi
+    printf 'Only public words are written in this file today.\n' >"$repo/docs/public-1.txt"
+    git -C "$repo" add docs/public-1.txt
+    expect_accepted 'real xtask: a clean change with a current manifest' try_commit 'WP-03: a clean change'
+    printf 'Intro.\nprivate sentence about the storage engine and its crash\n' >"$repo/docs/paste.md"
+    git -C "$repo" add docs/paste.md
+    expect_refused 'real xtask: one pasted line of a private file (partial copy)' 'a partial copy' \
+        try_commit 'WP-03: paste'
+    reset_index
+    # The user's diff settings cannot hide the pasted line's path (xtask reads the patch with fixed prefixes).
+    git -C "$repo" config diff.noprefix true
+    git -C "$repo" config diff.mnemonicPrefix true
+    git -C "$repo" add docs/paste.md
+    expect_refused 'real xtask: the pasted line under diff.noprefix and diff.mnemonicPrefix' 'a partial copy' \
+        try_commit 'WP-03: paste'
+    reset_index
+    git -C "$repo" config --unset diff.noprefix
+    git -C "$repo" config --unset diff.mnemonicPrefix
+    rm -f "$repo/docs/paste.md"
+    cp "$private_main/notes/blob.bin" "$repo/copied.bin"
+    git -C "$repo" add copied.bin
+    expect_refused 'real xtask: a copy of a private file' 'BLAKE3 is listed' try_commit 'WP-03: copy'
+    reset_index
+    rm -f "$repo/copied.bin"
+    mkdir -p "$repo/docs/measurements/m0"
+    printf 'median 3.1 ms\nraw data in C:\\Users\\someone\\x.json\n' >"$repo/docs/measurements/m0/11.md"
+    git -C "$repo" add docs/measurements/m0/11.md
+    expect_refused 'real xtask: a user path in a measurement report' 'an absolute user path' \
+        try_commit 'WP-52: measurement 11'
+    reset_index
+    rm -rf "$repo/docs/measurements"
+    printf 'added after indexing\n' >"$private_main/notes/new.txt"
+    printf 'More public words.\n' >"$repo/docs/public-2.txt"
+    git -C "$repo" add docs/public-2.txt
+    expect_refused 'real xtask: a stale manifest' 'is stale' try_commit 'WP-03: stale'
+    rm -f "$private_main/notes/new.txt"
+    expect_accepted 'real xtask: the manifest is current again' try_commit 'WP-03: current again'
+    printf 'private sentence about the storage engine and its crash\n' >"$wt/paste.md"
+    git -C "$wt" add paste.md
+    expect_refused 'real xtask: a pasted line in a linked worktree' 'a partial copy' \
+        git -C "$wt" commit -q -m 'WP-03: paste in a worktree'
+    git -C "$wt" reset -q
+    rm -f "$wt/paste.md"
+    # `xtask worktree` on the owner's day-1 setup: the guard on and the manifest written, but no moirai.xtask yet.
+    # It must install the xtask before its seeded commits (the pre-commit hook fails closed without it), see both
+    # refused, and hand the worktree over with moirai.xtask set.
+    git -C "$repo" config --unset moirai.xtask
+    mkdir -p "$repo/xtask"
+    cp "$hooks"/../xtask/*.toml "$repo/xtask/"
+    rm -f "$repo/xtask/Cargo.toml"
+    role_wt="$work/role-worktrees"
+    if (cd "$repo" && "$xtcopy" worktree r-harn-i --root "$role_wt" --target-root "$work/target") >"$out" 2>&1 &&
+        grep -F -q 'seeded AI-trailer and private-file commits: refused' "$out" &&
+        [ -n "$(git -C "$repo" config --get moirai.xtask)" ] &&
+        [ "$(git -C "$repo" rev-parse m0/r-harn-i)" = "$(git -C "$repo" rev-parse HEAD)" ]; then
+        ok 'real xtask: xtask worktree on a guarded clone without moirai.xtask'
+    else
+        bad 'real xtask: xtask worktree on a guarded clone without moirai.xtask'
+    fi
+    git -C "$repo" worktree remove --force "$role_wt/r-harn-i" >/dev/null 2>&1
+    git -C "$repo" branch -q -D m0/r-harn-i >/dev/null 2>&1
+    rm -rf "$repo/xtask"
+fi
+
 echo
-printf 'test-hooks: %d passed, %d failed\n' "$passed" "$failed"
+if [ "$skipped" -gt 0 ]; then
+    printf 'test-hooks: %d passed, %d failed, %d skipped\n' "$passed" "$failed" "$skipped"
+else
+    printf 'test-hooks: %d passed, %d failed\n' "$passed" "$failed"
+fi
 if [ "$failed" -eq 0 ]; then
     git -C "$repo" worktree remove --force "$wt" >/dev/null 2>&1
     rm -rf "$work"

@@ -1,0 +1,23 @@
+# Seeded violation (GT20 (b) base list, PLAN WP-02): a git library in Cargo.lock. Synthetic; never resolved.
+version = 4
+
+[[package]]
+name = "app"
+version = "0.0.0"
+dependencies = [
+ "gix-hash",
+ "libgit2-sys",
+]
+
+[[package]]
+name = "gix-hash"
+version = "0.19.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0000000000000000000000000000000000000000000000000000000000000000"
+
+[[package]]
+name = "libgit2-sys"
+version = "0.18.2+1.9.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0000000000000000000000000000000000000000000000000000000000000000"
+links = "git2"
