@@ -13,7 +13,14 @@ description = "tree-sitter-rust oracle for FL-1's Rust scope scanner, emitting s
 [lib]
 path = "src/lib.rs"
 
+[[bin]]
+name = "moirai-tsoracle"
+path = "src/main.rs"
+
 [dependencies]
+tree-sitter.workspace = true
+tree-sitter-rust.workspace = true
+serde_json.workspace = true
 
 [lints]
 workspace = true
