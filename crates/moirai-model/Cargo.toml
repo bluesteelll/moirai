@@ -14,9 +14,9 @@ description = "The reference model of the roadmap's section 4, with LQ-3 and the
 path = "src/lib.rs"
 
 [dependencies]
+blake3.workspace = true
 
 [dev-dependencies]
-blake3.workspace = true
 proptest.workspace = true
 
 [lints]
