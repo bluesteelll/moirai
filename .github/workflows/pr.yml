@@ -21,7 +21,9 @@
 #      (`ci commits`);
 #   3. the gate: fmt, clippy, the tier-pr tests, GT20 (b), (d), (a) and (e), the root checks, the licence lint,
 #      the AI-marker and authorship scans over the same range, the report scrub, the hooks' own tests, the .ps1 BOM
-#      rule and coverage (`gate --ci`).
+#      rule, coverage, the hex fixtures and the fuzz workspace (`gate --ci`). The gate's `fuzz` step runs clippy and
+#      the fuzz library's tests on the nightly pinned by fuzz/rust-toolchain.toml, which the job installs beside the
+#      stable toolchain (docs/m0/tools.md §4.7).
 #   Checks 1 and 2 run with the xtask built from the base commit (`BASE_SHA`), not from the commits under test, so a
 #   pull request that loosens the marker or identity rules is still checked by the rules it would replace. When the
 #   base has no `xtask ci` yet (the first pull request of the M0 tree), the job builds the pull request's own xtask and
@@ -92,6 +94,13 @@ jobs:
           rustup show active-toolchain
           cargo --version
           rustc --version
+
+      - name: The fuzz workspace's nightly from fuzz/rust-toolchain.toml
+        run: |
+          set -eu
+          cd fuzz
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
 
       - name: The checking xtask, built from the base commit
         env:
