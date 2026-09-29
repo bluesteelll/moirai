@@ -11,7 +11,7 @@ use crate::rng::Rng;
 
 /// One kind of adversary choice. The comment of each variant gives the arity and the meaning of the answer.
 #[repr(u16)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 pub enum Site {
     /// Which runnable task runs next (FM-6, FM-11). Arity: the number of runnable tasks; the answer indexes them in task
     /// order.
@@ -37,8 +37,8 @@ pub enum Site {
     FlushFault = 10,
     /// A `sync_dir`'s fault (FM-3.7, FM-5.1). 4: as `FlushFault`.
     SyncDirFault = 11,
-    /// A creation's fault (FM-5.4). 3: 0 none, 1 `DiskFull` with the name absent, 2 `DiskFull` leaving an empty file. A
-    /// directory creation is a namespace operation, which a failure leaves unchanged (FM-5.4, NS-4): for it 2 is 1.
+    /// A creation's fault (FM-5.4, NS-4, [F15 §5.2]). 3: 0 none, 1 `DiskFull` with the name absent, 2 `DiskFull` leaving
+    /// an empty file, or for a directory creation the new directory in place, empty.
     CreateFault = 12,
     /// A namespace operation's fault (FM-5.1, NS-4). 3: 0 none, 1 `DiskFull`, 2 `AccessDenied`.
     NsFault = 13,
@@ -58,8 +58,8 @@ pub enum Site {
     /// Whether an unlink of an open file lingers as delete-pending (FM-8.3). 2: 0 takes effect at once, 1 lingers until
     /// the last handle closes.
     DeletePending = 19,
-    /// The error of a create or rename onto a delete-pending name (FM-8.3, [OS/fs §6.4]). 3 for a create: 0
-    /// `AlreadyExists`, 1 `AccessDenied`, 2 `DeletePending`; 2 for a rename (the first two).
+    /// The error of a create or rename onto a delete-pending name (FM-8.3, [OS/fs §6.4]). 3: 0 `AlreadyExists`, 1
+    /// `AccessDenied`, 2 `DeletePending`.
     CreateOverPending = 20,
     /// Whether a kernel probe of a byte answers `Unknown` (§3.13, X-F4 item 6). 2: 0 the true answer, 1 `Unknown`.
     ProbeUnknown = 21,
@@ -143,7 +143,7 @@ pub trait Adversary: Send {
 
 /// How much of a write applied (FM-5.2 for a failed write; §2.5 for a write in flight at a death or crash): each byte
 /// of the range holds its old or its new value, in any combination.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum PartialWrite {
     /// No byte changed.
     Nothing,

@@ -2,10 +2,10 @@
 //! (WP-40) and every crash gate after them.
 //!
 //! Test-only crate, never linked into a product binary; checked by GT20 (e) on every target (PLAN §2.2). Filled by
-//! WP-31 (the simulator, this code) and WP-32 (the crash enumerator), both R-HARN-S; the enumerator's author is never the
-//! author of the seeded bugs (S4). Sources: [F15 §2–§6] (`docs/spec/format/15-fault-model.md`), [OS/README §2.3, §4.6,
-//! §5.4], [OS/lock §5.1, §7.3, §8, §9], [OS/proc §10.1], [OS/clock §5], [OS/map] (simulator row), [OS/fs §4.4, §4.9,
-//! §4.12, §4.13, §6.2–§6.4]; [60 §3.1] item 3, §3.13 GT1; [80 §2.4.4]; `docs/m0/PLAN.md` §2.2, §3.2 WP-31.
+//! WP-31 (the simulator) and WP-32 (the crash enumerator, module [`enumerate`]), both R-HARN-S; the enumerator's author
+//! is never the author of the seeded bugs (S4). Sources: [F15 §2–§6] (`docs/spec/format/15-fault-model.md`), [OS/README
+//! §2.3, §4.6, §5.4], [OS/lock §5.1, §7.3, §8, §9], [OS/proc §10.1], [OS/clock §5], [OS/map] (simulator row), [OS/fs
+//! §4.4, §4.9, §4.12, §4.13, §6.2–§6.4]; [60 §3.1] item 3, §3.13 GT1; [80 §2.4.4]; `docs/m0/PLAN.md` §2.2, §3.2 WP-31.
 //!
 //! # Shape
 //!
@@ -24,9 +24,9 @@
 //! |---|---|---|
 //! | FM-1 | `content` | keeps every dirty sector's baseline and versions (a write of unchanged bytes included: rewritten runs); a crash keeps any one per sector, at most one torn sector per file (sub-sectors mixed) |
 //! | FM-2 | `namespace`, `vfs` | `sync(Data)` below ds, `sync(DataAndMeta)` with the size (never moved back by an older flush); namespace operations pending until `sync_dir` of every parent; any subset lost at a crash, in any order |
-//! | FM-3 | `content`, `vfs` | a failed flush poisons every dirty sector (rewritten ones and those written during it included); reads, mapped reads too, draw each sub-sector from K afresh; poisoning survives successful flushes and crashes; only a re-write ends it |
+//! | FM-3 | `content`, `vfs` | a failed flush poisons every sector dirty at any instant of its interval (rewritten ones, those written during it, and those a concurrent successful flush cleaned during it included); reads, mapped reads too, draw each sub-sector from K afresh; poisoning survives successful flushes and crashes; only a re-write ends it |
 //! | FM-4 | `vfs` | reads and writes have intervals; an overlapping read shows each sub-sector's content from any moment of its interval |
-//! | FM-5 | `vfs` | `DiskFull` (and `Io`) at every write, flush, create, size change and namespace operation; a failed write applies any subset of its bytes; a failed file create may leave an empty file, a failed directory create leaves nothing |
+//! | FM-5 | `vfs` | `DiskFull` (and `Io`) at every write, flush, create, size change and namespace operation; a failed write applies any subset of its bytes; a failed create may leave an empty file or an empty directory |
 //! | FM-6 | `world` | pauses of any task at any scheduling point, inside calls too; system suspends |
 //! | FM-7 | `world`, `vfs` | wall-clock steps per process, monotonic and boot clocks per boot (a suspend may skip the monotonic clock), a boot identity per boot, Known or Unknown per process and per read |
 //! | FM-8 | `locks`, `vfs` | release delays per byte from classes (a), (b), (c), counted per world ([`RunReport::release_classes`]); sharing violations (errors 32 and 5) with a persistence, retried per [OS/fs §6.3] on Windows only; delete-pending unlinks |
@@ -43,15 +43,23 @@
 //!
 //! # Driving it (for the enumerator)
 //!
+//! Module [`enumerate`] is the crash enumerator (WP-32) built on what follows.
+//!
 //! Every call boundary is a numbered scheduling point ([`SimWorld::points`]; the trace's `Point` events), the crash
-//! points of [F15 §6.4]. [`SimWorld::capture_at`] takes a [`CrashImage`] at a point without disturbing the run,
-//! [`SimWorld::crash_at`] crashes the system there, and [`SimWorld::kill_at`] kills one process there — inside a flush
-//! too, with the outcome its [`DeathPlan`] names. An image's [`CrashSurface`] lists every file's size history and
-//! non-clean sectors with their candidate counts, every pending namespace operation with the parents that synced it, and
-//! every write in flight; [`CrashImage::materialize`] builds the post-crash world a [`CrashPlan`] picks, as often as the
-//! caller likes, and [`CrashImage::reseeded`] draws fresh random states. [`SimWorld::put_file`] and
-//! [`SimWorld::mkdir_all`] build the pre-existing environment without events. Protocol violations the simulator can see
-//! ([F15 §3.13], OP-20) are listed by [`SimWorld::violations`]; the grant table's programming errors panic in the task.
+//! points of [F15 §6.4]. [`SimWorld::record_points`] logs them ([`PointInfo`]), and with them every process that is
+//! inside a flush or a lock wait at each one ([`BusyAt`], [`SimWorld::take_busy_log`]); [`SimWorld::capture_calls`]
+//! captures a [`CrashImage`] at every point of the calls that change what a crash leaves ([`CallKind::changes_storage`]),
+//! and [`SimWorld::kill_proc_at`] kills a process named by its number — at its own point or at another process's.
+//! [`SimWorld::capture_at`] takes a [`CrashImage`] at a point without disturbing the run, [`SimWorld::crash_at`] crashes
+//! the system there, [`SimWorld::kill_at`] kills one process there — inside a flush too, with the outcome its
+//! [`DeathPlan`] names, each member of a `sync_group` separately ([`DeathPlan::flush_each`]) — and
+//! [`SimWorld::truncate_at`] lets an external actor truncate a file there (FM-10). An image's [`CrashSurface`] lists
+//! every file's size history and non-clean sectors with their candidate counts, every pending namespace operation with
+//! the parents that synced it, and every write in flight; [`CrashImage::materialize`] builds the post-crash world a
+//! [`CrashPlan`] picks, as often as the caller likes, and [`CrashImage::reseeded`] draws fresh random states.
+//! [`SimWorld::put_file`] and [`SimWorld::mkdir_all`] build the pre-existing environment without events. Protocol
+//! violations the simulator can see ([F15 §3.13], OP-20) are listed by [`SimWorld::violations`]; the grant table's
+//! programming errors panic in the task.
 //!
 //! # Cost
 //!
@@ -66,6 +74,7 @@
 mod adversary;
 mod content;
 mod crash;
+pub mod enumerate;
 mod locks;
 mod namespace;
 mod rng;
@@ -73,7 +82,6 @@ mod swap;
 mod trace;
 mod vfs;
 mod world;
-mod xxh3;
 
 use std::path::Path;
 use std::sync::{Arc, Condvar, Mutex, MutexGuard};
@@ -92,8 +100,8 @@ pub use rng::Rng;
 pub use trace::{EVENT_LEN, Event, EventKind, TraceMode};
 pub use vfs::{SimFile, SimMap, SimParentWatch, SimRoot, SimVfs, SimWake};
 pub use world::{
-    CallKind, DeathCause, DeathPlan, RunReport, SimConfig, SimUnwind, SpawnRequest, Task, TaskEnd,
-    Violation, ViolationKind, VolumeProfile, catch_death, error_code,
+    BusyAt, CallKind, DeathCause, DeathPlan, PointInfo, RunReport, SimConfig, SimUnwind,
+    SpawnRequest, Task, TaskEnd, Violation, ViolationKind, VolumeProfile, catch_death, error_code,
 };
 
 use moirai_vfs::{BootId, VfsErrorKind, WaitMode};
@@ -235,14 +243,18 @@ impl SimWorld {
         self.check(vfs);
         let slot = Arc::new(Mutex::new(None));
         let mut g = self.sh.lock();
-        let tid = g.sched.tasks.len() as u32;
-        g.sched.tasks.push(TaskRec {
-            proc: vfs.proc,
-            state: TState::Runnable,
-            block: world::Block::None,
-            wake_at: None,
-            abort: false,
-        });
+        let tid = g.sched.next_task;
+        g.sched.next_task += 1;
+        g.sched.tasks.insert(
+            tid,
+            TaskRec {
+                proc: vfs.proc,
+                state: TState::Runnable,
+                block: world::Block::None,
+                wake_at: None,
+                abort: false,
+            },
+        );
         let sh = Arc::clone(&self.sh);
         let v = vfs.clone();
         let s = Arc::clone(&slot);
@@ -271,7 +283,7 @@ impl SimWorld {
         let first = g.pick_next(None);
         g.sched.running = first;
         self.sh.cv.notify_all();
-        while g.sched.tasks.iter().any(|t| t.state != TState::Done) {
+        while !g.sched.tasks.is_empty() {
             g = self
                 .sh
                 .cv
@@ -347,9 +359,65 @@ impl SimWorld {
             .push(Trigger::Kill(point, vfs.proc, plan));
     }
 
+    /// Kills process number `proc` (as [`PointInfo::proc`] and the trace name it) at scheduling point `point`, like
+    /// [`SimWorld::kill_at`]: the crash enumerator names the process a point belongs to before the workload has made it.
+    pub fn kill_proc_at(&self, point: u64, proc: u32, plan: DeathPlan) {
+        self.sh
+            .lock()
+            .triggers
+            .push(Trigger::Kill(point, proc, plan));
+    }
+
+    /// An external actor truncates (or extends) file node `node` (as [`PointInfo::node`] and
+    /// [`SimWorld::node_at`] name it) to `len` at scheduling point `point`, before a capture or a death there sees the
+    /// world (FM-10.1; FM-10.2 for a sealed file): the crash enumerator truncates a sealed file while readers still run.
+    /// Nothing happens if the node is no longer a file then.
+    pub fn truncate_at(&self, point: u64, node: u64, len: u64) {
+        self.sh
+            .lock()
+            .triggers
+            .push(Trigger::Truncate(point, node, len));
+    }
+
     /// Captures a [`CrashImage`] at scheduling point `point`; the run continues.
     pub fn capture_at(&self, point: u64) {
         self.sh.lock().triggers.push(Trigger::Capture(point));
+    }
+
+    /// Captures a [`CrashImage`] at every scheduling point from `from_point` on whose call is one of `calls`, at most
+    /// `limit` times; each image names its point ([`CrashImage::origin`]). The run continues. The crash enumerator takes
+    /// its crash points this way ([F15 §6.4]: every write, flush, publish, create, rename and unlink).
+    pub fn capture_calls(&self, from_point: u64, calls: &[CallKind], limit: usize) {
+        if limit == 0 {
+            return;
+        }
+        let mask = calls.iter().fold(0u64, |m, &c| m | (1u64 << (c as u64)));
+        self.sh.lock().triggers.push(Trigger::CaptureCalls {
+            from: from_point,
+            mask,
+            left: limit,
+        });
+    }
+
+    /// Starts logging every scheduling point ([`SimWorld::take_point_log`]).
+    pub fn record_points(&self) {
+        self.sh.lock().point_log.get_or_insert_with(Vec::new);
+    }
+
+    /// The scheduling points logged since [`SimWorld::record_points`] (or the last take); logging continues.
+    pub fn take_point_log(&self) -> Vec<PointInfo> {
+        self.sh
+            .lock()
+            .point_log
+            .as_mut()
+            .map(core::mem::take)
+            .unwrap_or_default()
+    }
+
+    /// The processes busy in a flush or a lock wait at the points logged since [`SimWorld::record_points`] (or the last
+    /// take), in point order ([`BusyAt`]).
+    pub fn take_busy_log(&self) -> Vec<BusyAt> {
+        core::mem::take(&mut self.sh.lock().busy_log)
     }
 
     /// The images captured so far, with their points.
@@ -447,20 +515,7 @@ impl SimWorld {
     pub fn external_truncate(&self, path: &Path, len: u64) -> Result<(), VfsErrorKind> {
         let mut g = self.driver();
         let node = SimWorld::file_at(&g, path)?;
-        let cs = g.k.ns.file(node).content.cs();
-        let mut off = len;
-        while off < cs {
-            let n = (cs - off).min(ZEROS.len() as u64);
-            external_overlap(&mut g, node, off, &ZEROS[..n as usize]);
-            off += n;
-        }
-        let State { ch, k, .. } = &mut *g;
-        k.ns.edit(node, |c| {
-            c.set_len(len, &mut |site, aux, n| {
-                ch.pick(site, u32::MAX, node, aux, n)
-            });
-        });
-        g.ev(EventKind::External, None, u32::MAX, node, 0, len);
+        truncate_node(&mut g, node, len);
         Ok(())
     }
 
@@ -490,11 +545,10 @@ impl SimWorld {
         let node = SimWorld::file_at(&g, path)?;
         let mark = g.k.ns.file(node).content.flush_mark();
         let fault = g.pick(Site::FlushFault, u32::MAX, node, 1, 4);
-        let c = &mut g.k.ns.file_mut(node).content;
         if fault == 0 {
-            c.flush_ok(&mark, true);
+            g.flush_succeeded(node, &mark, true);
         } else {
-            c.flush_failed(&mark);
+            g.flush_did_fail(node, &mark);
         }
         g.ev(EventKind::External, None, u32::MAX, node, 2, fault);
         Ok(())
@@ -616,9 +670,42 @@ impl SimWorld {
         Ok(g.k.ns.file(node).content.to_vec())
     }
 
+    /// Every sealed file of the current namespace, by path, with its size (the targets of FM-10.2's external
+    /// truncation).
+    pub fn sealed_files(&self) -> Vec<(std::path::PathBuf, u64)> {
+        let g = self.sh.lock();
+        let mut out = Vec::new();
+        for (&n, node) in &g.k.ns.nodes {
+            if let Some(f) = node.file()
+                && f.sealed
+            {
+                let size = f.content.cs();
+                out.extend(
+                    g.k.ns
+                        .paths_of(n)
+                        .into_iter()
+                        .map(|p| (std::path::PathBuf::from(p), size)),
+                );
+            }
+        }
+        out
+    }
+
     /// Whether `path` names something in the current namespace.
     pub fn exists(&self, path: &Path) -> bool {
         self.sh.lock().k.ns.lookup_abs(path).is_ok()
+    }
+
+    /// The node the absolute `path` names in the current namespace (as [`PointInfo::node`] names it), if any.
+    pub fn node_at(&self, path: &Path) -> Option<u64> {
+        self.sh.lock().k.ns.lookup_abs(path).ok()
+    }
+
+    /// The current size cs(f) of the file at `path`, if it names a file.
+    pub fn file_len(&self, path: &Path) -> Option<u64> {
+        let g = self.sh.lock();
+        let node = SimWorld::file_at(&g, path).ok()?;
+        Some(g.k.ns.file(node).content.cs())
     }
 
     /// The events kept so far (none in [`TraceMode::DigestOnly`]).
@@ -646,14 +733,42 @@ impl SimWorld {
         self.sh.lock().k.points
     }
 
+    /// The file flushes that have failed so far, in any process or by an external actor, a death's failed outcome
+    /// included (FM-3.1). Crash images carry the count ([`CrashImage::failed_flushes`]).
+    pub fn failed_flushes(&self) -> u64 {
+        self.sh.lock().k.failed_flushes
+    }
+
+    /// The scheduling points passed and the failed file flushes, read together (the enumerator's ledger stamps), after
+    /// appending the harness note `(tag, b, c)` if given, under the same lock.
+    pub(crate) fn stamp(&self, note: Option<(u64, u64, u64)>) -> (u64, u64) {
+        let mut g = self.sh.lock();
+        if let Some((tag, b, c)) = note {
+            let task = current_task(&self.sh);
+            g.ev(EventKind::Note, task, u32::MAX, tag, b, c);
+        }
+        (g.k.points, g.k.failed_flushes)
+    }
+
     /// The protocol violations detected so far ([F15 §3.13]).
     pub fn violations(&self) -> Vec<Violation> {
         self.sh.lock().violations.clone()
     }
 
+    /// The protocol violations detected so far, removed from the world (a long run drains them as it goes, so they do not
+    /// accumulate).
+    pub fn take_violations(&self) -> Vec<Violation> {
+        core::mem::take(&mut self.sh.lock().violations)
+    }
+
     /// The lines `fail_stop` wrote ([F19 §10.2] `durability_failure`).
     pub fn stderr_lines(&self) -> Vec<String> {
         self.sh.lock().stderr.clone()
+    }
+
+    /// The lines `fail_stop` wrote, removed from the world (as [`SimWorld::take_violations`]).
+    pub fn take_stderr_lines(&self) -> Vec<String> {
+        core::mem::take(&mut self.sh.lock().stderr)
     }
 
     /// The current boot: its sequence number (1 for the first) and identity.
@@ -678,6 +793,33 @@ impl SimWorld {
             .lock()
             .ev(EventKind::Note, None, u32::MAX, tag, b, c);
     }
+}
+
+/// An external actor truncates (or extends) file node `node` to `len` (FM-10.1): the cut bytes show through reads in
+/// flight as zeros (FM-4.1), then the size changes. Nothing happens if `node` is not a file.
+pub(crate) fn truncate_node(g: &mut State, node: u64, len: u64) {
+    let Some(cs) =
+        g.k.ns
+            .nodes
+            .get(&node)
+            .and_then(|n| n.file())
+            .map(|f| f.content.cs())
+    else {
+        return;
+    };
+    let mut off = len;
+    while off < cs {
+        let n = (cs - off).min(ZEROS.len() as u64);
+        external_overlap(g, node, off, &ZEROS[..n as usize]);
+        off += n;
+    }
+    let State { ch, k, .. } = g;
+    k.ns.edit(node, |c| {
+        c.set_len(len, &mut |site, aux, n| {
+            ch.pick(site, u32::MAX, node, aux, n)
+        });
+    });
+    g.ev(EventKind::External, None, u32::MAX, node, 0, len);
 }
 
 /// An external write overlapping reads in flight may show through them (FM-4.1 applies to foreign writers).

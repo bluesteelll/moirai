@@ -152,6 +152,10 @@ pub struct DeathPlan {
     /// The outcome of an in-flight flush: 0 succeeded, 1 failed, 2 not performed (FM-11.2). For a `sync_dir` (or a
     /// directory member of `sync_group`) 0 makes its operations durable by FM-2.3 and 1 and 2 leave them pending.
     pub flush: Option<u8>,
+    /// The outcomes of the process's in-flight flushes one by one, in the order they started — the members of a
+    /// `sync_group` in progress, which resolve separately ([F15 §2.5]: "one member may have succeeded while another
+    /// failed or was not performed"). Coded as `flush`; a flush beyond the vector takes `flush`.
+    pub flush_each: Vec<u8>,
     /// The release-delay class of every byte it holds: 0 measured, 1 tail, 2 never (FM-8.1).
     pub release_class: Option<u8>,
     /// A fixed release delay in ns for classes 0 and 1, instead of a drawn one.
@@ -160,7 +164,7 @@ pub struct DeathPlan {
 
 /// The kinds of calls, as the trace names them.
 #[repr(u8)]
-#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Ord, PartialOrd, Hash)]
 #[allow(missing_docs)]
 pub enum CallKind {
     OpenRoot = 1,
@@ -203,6 +207,120 @@ pub enum CallKind {
     WaitParent,
     SpawnGc,
     Close,
+}
+
+impl CallKind {
+    /// Every call kind, in code order.
+    pub const ALL: [CallKind; 40] = [
+        CallKind::OpenRoot,
+        CallKind::CreateRoot,
+        CallKind::Open,
+        CallKind::CreateNew,
+        CallKind::CreateDir,
+        CallKind::RemoveDir,
+        CallKind::ListDir,
+        CallKind::Read,
+        CallKind::Write,
+        CallKind::Sync,
+        CallKind::SyncDir,
+        CallKind::SyncGroup,
+        CallKind::FailStop,
+        CallKind::CreateExtent,
+        CallKind::RecycleExtent,
+        CallKind::Seal,
+        CallKind::Unlink,
+        CallKind::RenameNoreplace,
+        CallKind::RenameReplace,
+        CallKind::SwapDirs,
+        CallKind::SwapRecover,
+        CallKind::FileSize,
+        CallKind::Identity,
+        CallKind::PathIdentity,
+        CallKind::FreeSpace,
+        CallKind::Advise,
+        CallKind::SetLen,
+        CallKind::LockClient,
+        CallKind::TryAcquire,
+        CallKind::AcquireWithin,
+        CallKind::Release,
+        CallKind::Probe,
+        CallKind::ForeignCheck,
+        CallKind::MapSealed,
+        CallKind::Classify,
+        CallKind::ProbeStore,
+        CallKind::BootIdentity,
+        CallKind::WaitParent,
+        CallKind::SpawnGc,
+        CallKind::Close,
+    ];
+
+    /// The call kind of a trace code ([`EventKind::Point`] `b`, [`EventKind::Return`] `a`).
+    pub fn from_code(code: u64) -> Option<CallKind> {
+        CallKind::ALL.into_iter().find(|&c| c as u64 == code)
+    }
+
+    /// Whether a call of this kind can change what a system crash may leave ([F15 §2.5]): a file's content or size, a
+    /// name, a seal. Between two such calls the crash surface does not change (reads, lock calls and clock readings leave
+    /// it as it is), so the crash points of [F15 §6.4] — "every write, flush, publish, create, rename and unlink" — are
+    /// the scheduling points of these calls. A handle close that completes a delete-pending unlink (FM-8.3) has no point
+    /// of its own; its effect shows at the next one.
+    pub fn changes_storage(self) -> bool {
+        matches!(
+            self,
+            CallKind::CreateRoot
+                | CallKind::CreateNew
+                | CallKind::CreateDir
+                | CallKind::RemoveDir
+                | CallKind::Write
+                | CallKind::Sync
+                | CallKind::SyncDir
+                | CallKind::SyncGroup
+                | CallKind::CreateExtent
+                | CallKind::RecycleExtent
+                | CallKind::Seal
+                | CallKind::Unlink
+                | CallKind::RenameNoreplace
+                | CallKind::RenameReplace
+                | CallKind::SwapDirs
+                | CallKind::SwapRecover
+                | CallKind::SetLen
+                | CallKind::Close
+        )
+    }
+}
+
+/// One scheduling point ([F15 §6.4] "Crash points"), as [`crate::SimWorld::record_points`] logs it and as a
+/// [`crate::CrashImage`] captured there names it.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct PointInfo {
+    /// The point number (the trace's `Point` event `a`).
+    pub point: u64,
+    /// The call it belongs to.
+    pub call: CallKind,
+    /// 0 at the call's start, 1 inside it (between its start and its return).
+    pub phase: u64,
+    /// The calling process (`u32::MAX`: none).
+    pub proc: u32,
+    /// The file or directory node the call concerns, or 0.
+    pub node: u64,
+}
+
+/// A process that is inside a flush or waits for a lock byte at a scheduling point, as [`crate::SimWorld::record_points`]
+/// logs it ([`crate::SimWorld::take_busy_log`]): the process a kill at that point — of its own or of another process —
+/// catches in the middle of its flush or its lock wait (FM-11.2; [F15 §6.4] "Process death").
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct BusyAt {
+    /// The scheduling point.
+    pub point: u64,
+    /// The busy process.
+    pub proc: u32,
+    /// Its flushes in flight, in the order they started (the members of a `sync_group` in progress, or one `sync` or
+    /// `sync_dir`): the order [`DeathPlan::flush_each`] resolves them in.
+    pub flushes: u32,
+    /// Bit i set: flush i of them is a directory flush, with two outcomes instead of three (bits beyond 63 unset).
+    pub dir_mask: u64,
+    /// One of its tasks is blocked in a lock wait.
+    pub lock_wait: bool,
 }
 
 /// A protocol violation the simulator detects and reports as a harness failure ([F15 §3.13], OP-20; [OS/fs §4.12, §6.3]).
@@ -307,7 +425,8 @@ pub fn error_code(kind: VfsErrorKind) -> u64 {
         VfsErrorKind::IsDirectory => 18,
         VfsErrorKind::OutsideRoot => 19,
         VfsErrorKind::Stale => 20,
-        _ => 21,
+        VfsErrorKind::FlushFailed => 21,
+        _ => 22,
     }
 }
 
@@ -471,6 +590,9 @@ pub(crate) struct Kernel {
     pub(crate) volumes: Vec<VolumeProfile>,
     pub(crate) wakes: BTreeMap<u64, bool>,
     pub(crate) next_wake: u64,
+    /// File flushes that failed so far, in any process or by an external actor, a death's failed outcome included
+    /// (FM-3.1): after one, lazy data no successful flush made durable may vanish (FM-3.6).
+    pub(crate) failed_flushes: u64,
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -553,7 +675,6 @@ pub(crate) enum TState {
     Runnable,
     Running,
     Blocked,
-    Done,
 }
 
 /// Why a task is blocked.
@@ -578,13 +699,27 @@ pub(crate) struct TaskRec {
     pub(crate) abort: bool,
 }
 
+/// The scheduler's state. A task's record lives from its spawn to its end: a finished task leaves the table, so a long
+/// run's table and each scheduling point's scan of it stay as small as the number of live tasks (RAM over long runs).
 #[derive(Debug, Default)]
 pub(crate) struct Sched {
-    pub(crate) tasks: Vec<TaskRec>,
+    /// The live tasks by number, in spawn order (the order `Site::Schedule` indexes).
+    pub(crate) tasks: BTreeMap<u32, TaskRec>,
+    /// The next task number; numbers are never reused within a world.
+    pub(crate) next_task: u32,
     pub(crate) running: Option<u32>,
     pub(crate) active: bool,
     pub(crate) deadlock: bool,
     pub(crate) threads: Vec<JoinHandle<()>>,
+}
+
+impl Sched {
+    /// The record of live task `t`.
+    pub(crate) fn task_mut(&mut self, t: u32) -> &mut TaskRec {
+        self.tasks
+            .get_mut(&t)
+            .expect("simulator: a task's record lives until it ends")
+    }
 }
 
 /// One grant table of one simulated process ([OS/lock §5.1]), with the `LOCK` handles it has opened ([OS/lock §9.2]).
@@ -593,7 +728,7 @@ pub(crate) struct TableRec {
     /// The store directory whose `LOCK` the table's handles open ([OS/lock §9.1] step 4 checks each against it).
     pub(crate) store: u64,
     /// The role handles opened so far, one bit per role byte (bit = the byte's offset minus `ROLE_BASE`).
-    pub(crate) roles_open: u8,
+    pub(crate) roles_open: u16,
     /// Whether the probe handle is open.
     pub(crate) probe_open: bool,
 }
@@ -601,8 +736,17 @@ pub(crate) struct TableRec {
 /// A crash trigger at a scheduling point.
 pub(crate) enum Trigger {
     Capture(u64),
+    /// Captures at every point from `from` on whose call kind is in `mask` (bit = the kind's code), at most `left`
+    /// more times.
+    CaptureCalls {
+        from: u64,
+        mask: u64,
+        left: usize,
+    },
     Crash(u64, crate::crash::CrashPlan),
     Kill(u64, u32, DeathPlan),
+    /// An external actor truncates file node `.1` to length `.2` at point `.0` (FM-10.1, FM-10.2).
+    Truncate(u64, u64, u64),
 }
 
 /// The whole mutable state of a world, under one mutex.
@@ -616,6 +760,10 @@ pub(crate) struct State {
     pub(crate) wait_mode: WaitMode,
     pub(crate) triggers: Vec<Trigger>,
     pub(crate) captures: Vec<(u64, crate::crash::CrashImage)>,
+    /// Every scheduling point passed while recording ([`crate::SimWorld::record_points`]).
+    pub(crate) point_log: Option<Vec<PointInfo>>,
+    /// While recording, the processes busy in a flush or a lock wait at each point.
+    pub(crate) busy_log: Vec<BusyAt>,
     pub(crate) violations: Vec<Violation>,
     pub(crate) stderr: Vec<String>,
     pub(crate) spawns: Vec<SpawnRequest>,
@@ -704,7 +852,7 @@ impl State {
         let tasks = self
             .sched
             .tasks
-            .iter()
+            .values()
             .filter(|t| t.state == TState::Blocked)
             .filter_map(|t| t.wake_at);
         tasks.chain(self.k.locks.next_release()).min()
@@ -717,7 +865,7 @@ impl State {
             self.ev(EventKind::LockZombieFree, None, u32::MAX, node, byte, 0);
             self.kernel_freed(node, byte);
         }
-        for t in &mut self.sched.tasks {
+        for t in self.sched.tasks.values_mut() {
             if t.state == TState::Blocked && t.wake_at.is_some_and(|w| w <= now) {
                 t.state = TState::Runnable;
             }
@@ -763,7 +911,7 @@ impl State {
 
     /// Marks every task blocked for `why` runnable.
     pub(crate) fn wake(&mut self, why: Block) {
-        for t in &mut self.sched.tasks {
+        for t in self.sched.tasks.values_mut() {
             if t.state == TState::Blocked && t.block == why {
                 t.state = TState::Runnable;
             }
@@ -772,7 +920,7 @@ impl State {
 
     /// Marks every task blocked in a parent watch runnable (they re-check).
     pub(crate) fn wake_parent_watchers(&mut self) {
-        for t in &mut self.sched.tasks {
+        for t in self.sched.tasks.values_mut() {
             if t.state == TState::Blocked && matches!(t.block, Block::Parent(_)) {
                 t.state = TState::Runnable;
             }
@@ -787,12 +935,11 @@ impl State {
                 .sched
                 .tasks
                 .iter()
-                .enumerate()
                 .filter(|(_, t)| t.state == TState::Runnable)
-                .map(|(i, _)| i as u32)
+                .map(|(&i, _)| i)
                 .collect();
             if !runnable.is_empty() {
-                let proc = me.map_or(u32::MAX, |t| self.sched.tasks[t as usize].proc);
+                let proc = me.map_or(u32::MAX, |t| self.sched.tasks[&t].proc);
                 let i = self.pick(
                     Site::Schedule,
                     proc,
@@ -802,7 +949,12 @@ impl State {
                 );
                 return Some(runnable[i as usize]);
             }
-            if !self.sched.tasks.iter().any(|t| t.state == TState::Blocked) {
+            if !self
+                .sched
+                .tasks
+                .values()
+                .any(|t| t.state == TState::Blocked)
+            {
                 return None;
             }
             match self.next_timer() {
@@ -814,7 +966,7 @@ impl State {
                 }
                 None => {
                     self.sched.deadlock = true;
-                    for t in &mut self.sched.tasks {
+                    for t in self.sched.tasks.values_mut() {
                         if t.state == TState::Blocked {
                             t.state = TState::Runnable;
                             t.abort = true;
@@ -844,10 +996,20 @@ impl State {
             ^ 0x656E_7472_6F70_7900
             ^ u64::from(idx).wrapping_mul(0x9E37_79B9_7F4A_7C15);
         let rand = Rng::new(splitmix(&mut sm));
+        // [OS/proc §3.2]: ns since boot on Linux, since the Unix epoch elsewhere (the boot's wall origin plus the boot
+        // clock since that origin).
+        let c = &self.k.clock;
+        let start_ns = if self.cfg.os == OsTag::Linux {
+            c.boot_ns
+        } else {
+            (c.wall_at_boot_ms.max(0) as u64)
+                .saturating_mul(1_000_000)
+                .saturating_add(c.boot_ns - c.boot_origin_ns)
+        };
         self.k.procs.push(ProcRec {
             name: name.to_owned(),
             pid,
-            start_ns: self.k.clock.boot_ns,
+            start_ns,
             boot_seq: self.k.clock.boot_seq,
             alive: true,
             parent,
@@ -905,6 +1067,8 @@ impl State {
             let rec = &mut self.k.procs[p as usize];
             rec.alive = false;
             rec.death = Some(cause);
+            // Scripted draws a dead process never took are dropped with their buffer.
+            rec.scripted = VecDeque::new();
         }
         // An in-flight write applies partially.
         let writes: Vec<InFlightWrite> = self
@@ -930,34 +1094,32 @@ impl State {
             self.ev(EventKind::InFlight, None, p, w.node, 0, pw.to_choice());
         }
         self.k.reads.retain(|r| r.proc != p);
-        // An in-flight flush resolves to succeeded, failed or not performed.
-        let flushes: Vec<InFlightFlush> = self
-            .k
-            .flushes
-            .iter()
-            .filter(|f| f.proc == p)
-            .cloned()
-            .collect();
-        self.k.flushes.retain(|f| f.proc != p);
-        for f in flushes {
+        // An in-flight flush resolves to succeeded, failed or not performed, in the order the flushes started. Each record
+        // leaves `k.flushes` only when it resolves: a success absorbs the sectors it cleaned into the marks of every other
+        // flush of the file still in `k.flushes` ([`State::flush_succeeded`]), and the dying process's own unresolved
+        // flushes (two tasks of one process, or the members of one `sync_group`) are among them. Those sectors were
+        // `dirty` at an instant of their intervals too, so a later failure among them poisons them (FM-3.1), whatever
+        // order the resolutions take.
+        let mut nth = 0usize;
+        while let Some(pos) = self.k.flushes.iter().position(|f| f.proc == p) {
+            let f = self.k.flushes.remove(pos);
+            let forced = plan.flush_each.get(nth).copied().or(plan.flush);
+            nth += 1;
             match f.what {
                 FlushWhat::File { mark, meta } => {
-                    let outcome = match plan.flush {
+                    let outcome = match forced {
                         Some(o) => u64::from(o.min(2)),
                         None => self.pick(Site::FlushAtDeath, p, f.node, 0, 3),
                     };
-                    if let Some(file) = self.k.ns.nodes.get_mut(&f.node).and_then(|n| n.file_mut())
-                    {
-                        match outcome {
-                            0 => file.content.flush_ok(&mark, meta),
-                            1 => file.content.flush_failed(&mark),
-                            _ => {}
-                        }
+                    match outcome {
+                        0 => self.flush_succeeded(f.node, &mark, meta),
+                        1 => self.flush_did_fail(f.node, &mark),
+                        _ => {}
                     }
                     self.ev(EventKind::InFlight, None, p, f.node, 1, outcome);
                 }
                 FlushWhat::Dir { limit } => {
-                    let outcome = match plan.flush {
+                    let outcome = match forced {
                         Some(o) => u64::from(o.min(1)),
                         None => self.pick(Site::SyncDirAtDeath, p, f.node, 0, 2),
                     };
@@ -1018,13 +1180,53 @@ impl State {
         }
         self.k.procs[p as usize].maps = 0;
         // Its tasks unwind when they next run.
-        for t in &mut self.sched.tasks {
+        for t in self.sched.tasks.values_mut() {
             if t.proc == p && t.state == TState::Blocked {
                 t.state = TState::Runnable;
             }
         }
         self.wake_parent_watchers();
         self.ev(EventKind::ProcEnd, None, p, cause as u64, n_held, 0);
+    }
+
+    /// A successful flush of file `node` that began at `mark` ([F15 §2.2] flush row, FM-2.1, FM-2.2). Every sector it made
+    /// clean joins the reach of every other flush of `node` still in flight: that sector was `dirty` at an instant of
+    /// their interval, so their failure poisons it too (FM-3.1).
+    pub(crate) fn flush_succeeded(&mut self, node: u64, mark: &FlushMark, meta: bool) {
+        let Some(file) = self.k.ns.nodes.get_mut(&node).and_then(|n| n.file_mut()) else {
+            return;
+        };
+        let cleaned = file.content.flush_ok(mark, meta);
+        if cleaned.is_empty() {
+            return;
+        }
+        for f in &mut self.k.flushes {
+            if f.node == node
+                && let FlushWhat::File { mark, .. } = &mut f.what
+            {
+                mark.absorb(&cleaned);
+            }
+        }
+    }
+
+    /// A failed flush of file `node` that began at `mark` (FM-3.1).
+    pub(crate) fn flush_did_fail(&mut self, node: u64, mark: &FlushMark) {
+        self.k.failed_flushes += 1;
+        if let Some(file) = self.k.ns.nodes.get_mut(&node).and_then(|n| n.file_mut()) {
+            file.content.flush_failed(mark);
+        }
+    }
+
+    /// Takes the in-flight record of flush `id` at its return: its mark holds every sector a concurrent successful flush
+    /// cleaned during its interval ([`State::flush_succeeded`]).
+    pub(crate) fn end_flush(&mut self, id: u64) -> InFlightFlush {
+        let pos = self
+            .k
+            .flushes
+            .iter()
+            .position(|f| f.id == id)
+            .expect("simulator: a flush's record lives until its return (a death or crash unwinds the caller first)");
+        self.k.flushes.remove(pos)
     }
 
     /// Applies an in-flight write partially (§2.5, FM-5.2).
@@ -1108,7 +1310,7 @@ impl<'a> Ctx<'a> {
             panic!("simulator: a thread that is not a task used the simulated Vfs while tasks run");
         }
         if let Some(t) = me {
-            let tp = g.sched.tasks[t as usize].proc;
+            let tp = g.sched.tasks[&t].proc;
             if tp != proc && proc != u32::MAX {
                 drop(g);
                 panic!("simulator: task {t} of process {tp} used the Vfs of process {proc}");
@@ -1168,14 +1370,37 @@ impl<'a> Ctx<'a> {
         st.k.points += 1;
         let n = st.k.points;
         st.ev(EventKind::Point, me, proc, n, call as u64, phase);
+        let info = PointInfo {
+            point: n,
+            call,
+            phase,
+            proc,
+            node,
+        };
+        if let Some(log) = &mut st.point_log {
+            log.push(info);
+            st.log_busy(n);
+        }
         // Crash triggers.
         let mut fire: Option<crate::crash::CrashPlan> = None;
         let mut capture = false;
         let mut kills: Vec<(u32, DeathPlan)> = Vec::new();
-        st.triggers.retain(|t| match t {
+        let mut truncations: Vec<(u64, u64)> = Vec::new();
+        st.triggers.retain_mut(|t| match t {
+            Trigger::Truncate(at, node, len) if *at == n => {
+                truncations.push((*node, *len));
+                false
+            }
             Trigger::Capture(at) if *at == n => {
                 capture = true;
                 false
+            }
+            Trigger::CaptureCalls { from, mask, left } => {
+                if n >= *from && *mask & (1u64 << (call as u64)) != 0 {
+                    capture = true;
+                    *left -= 1;
+                }
+                *left > 0
             }
             Trigger::Crash(at, plan) if *at == n => {
                 fire = Some(plan.clone());
@@ -1187,8 +1412,12 @@ impl<'a> Ctx<'a> {
             }
             _ => true,
         });
+        // The external actor acts at this instant, before a capture or a death at the same point sees the world.
+        for (node, len) in truncations {
+            crate::truncate_node(st, node, len);
+        }
         if capture {
-            let img = crate::crash::CrashImage::capture(st);
+            let img = crate::crash::CrashImage::capture(st).at(info);
             st.captures.push((n, img));
         }
         let mut self_killed = false;
@@ -1242,7 +1471,7 @@ impl<'a> Ctx<'a> {
         if !st.sched.active {
             return;
         }
-        st.sched.tasks[me as usize].state = TState::Runnable;
+        st.sched.task_mut(me).state = TState::Runnable;
         self.switch(me);
     }
 
@@ -1256,7 +1485,7 @@ impl<'a> Ctx<'a> {
         }
         match me {
             Some(t) if st.sched.active => {
-                let rec = &mut st.sched.tasks[t as usize];
+                let rec = st.sched.task_mut(t);
                 rec.state = TState::Blocked;
                 rec.block = why;
                 rec.wake_at = until;
@@ -1295,7 +1524,7 @@ impl<'a> Ctx<'a> {
         }
         let proc = self.proc;
         let st = self.st();
-        let rec = &mut st.sched.tasks[me as usize];
+        let rec = st.sched.task_mut(me);
         rec.state = TState::Running;
         rec.block = Block::None;
         rec.wake_at = None;
@@ -1310,6 +1539,40 @@ impl<'a> Ctx<'a> {
 }
 
 impl State {
+    /// Logs every process that has a flush in flight or a task blocked in a lock wait at point `n` ([`BusyAt`]).
+    pub(crate) fn log_busy(&mut self, n: u64) {
+        let mut busy: BTreeMap<u32, BusyAt> = BTreeMap::new();
+        for f in &self.k.flushes {
+            let b = busy.entry(f.proc).or_insert(BusyAt {
+                point: n,
+                proc: f.proc,
+                flushes: 0,
+                dir_mask: 0,
+                lock_wait: false,
+            });
+            if matches!(f.what, FlushWhat::Dir { .. }) && b.flushes < 64 {
+                b.dir_mask |= 1 << b.flushes;
+            }
+            b.flushes += 1;
+        }
+        for t in self.sched.tasks.values() {
+            if t.state == TState::Blocked
+                && matches!(t.block, Block::Table(..) | Block::KernelWait(_))
+            {
+                busy.entry(t.proc)
+                    .or_insert(BusyAt {
+                        point: n,
+                        proc: t.proc,
+                        flushes: 0,
+                        dir_mask: 0,
+                        lock_wait: false,
+                    })
+                    .lock_wait = true;
+            }
+        }
+        self.busy_log.extend(busy.into_values());
+    }
+
     /// `run_time_to` without a `Time` event (the per-point tick).
     pub(crate) fn run_time_to_quiet(&mut self, target: u64) {
         while let Some(t) = self.next_timer() {
@@ -1400,6 +1663,7 @@ pub(crate) fn new_state(cfg: SimConfig, adv: Box<dyn Adversary>) -> State {
             volumes,
             wakes: BTreeMap::new(),
             next_wake: 1,
+            failed_flushes: 0,
         },
         sched: Sched::default(),
         tables: BTreeMap::new(),
@@ -1407,6 +1671,8 @@ pub(crate) fn new_state(cfg: SimConfig, adv: Box<dyn Adversary>) -> State {
         wait_mode,
         triggers: Vec::new(),
         captures: Vec::new(),
+        point_log: None,
+        busy_log: Vec::new(),
         violations: Vec::new(),
         stderr: Vec::new(),
         spawns: Vec::new(),
@@ -1486,8 +1752,8 @@ pub(crate) fn task_main<R: Send + 'static>(
         while g.sched.running != Some(tid) {
             g = sh.cv.wait(g).unwrap_or_else(PoisonError::into_inner);
         }
-        let proc = g.sched.tasks[tid as usize].proc;
-        g.sched.tasks[tid as usize].state = TState::Running;
+        let proc = g.sched.tasks[&tid].proc;
+        g.sched.task_mut(tid).state = TState::Running;
         g.ev(EventKind::TaskStart, Some(tid), proc, u64::from(tid), 0, 0);
         let dead = !g.alive(proc);
         drop(g);
@@ -1525,8 +1791,8 @@ fn finish_task<R>(sh: &Shared, tid: u32, end: TaskEnd<R>, slot: &Mutex<Option<Ta
     };
     *slot.lock().unwrap_or_else(PoisonError::into_inner) = Some(end);
     let mut g = sh.lock();
-    let proc = g.sched.tasks[tid as usize].proc;
-    g.sched.tasks[tid as usize].state = TState::Done;
+    let proc = g.sched.tasks[&tid].proc;
+    g.sched.tasks.remove(&tid);
     g.ev(EventKind::TaskEnd, Some(tid), proc, u64::from(tid), code, 0);
     let next = g.pick_next(None);
     g.sched.running = next;

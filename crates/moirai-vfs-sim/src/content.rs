@@ -142,13 +142,16 @@ impl Runs {
         !self.pieces(lo, hi).is_empty()
     }
 
-    /// Removes the pieces inside `[lo, hi)` whose sequence number is at most `seq`.
-    fn clear_older(&mut self, lo: u64, hi: u64, seq: u64) {
+    /// Removes the pieces inside `[lo, hi)` whose sequence number is at most `seq`, and returns them.
+    fn clear_older(&mut self, lo: u64, hi: u64, seq: u64) -> Vec<(u64, u64)> {
+        let mut cleared = Vec::new();
         for (a, b, q) in self.pieces(lo, hi) {
             if q <= seq {
                 self.remove(a, b);
+                cleared.push((a, b));
             }
         }
+        cleared
     }
 
     /// Every run, `(start, end)`.
@@ -177,8 +180,35 @@ pub(crate) struct FlushMark {
     pub(crate) same: Vec<(u64, u64)>,
 }
 
+impl FlushMark {
+    /// Adds to this flush's reach the sectors a concurrent successful flush of the same file made clean while this one
+    /// was in flight: they were `dirty` at an instant of its interval (FM-3.1), so a failure of this flush poisons them
+    /// too, with K = {the content that flush made durable} ∪ {every version written since} ([F15 §3.3] FM-3.1, as spec
+    /// sync 2a reads it).
+    pub(crate) fn absorb(&mut self, c: &Cleaned) {
+        self.dirty.extend_from_slice(&c.secs);
+        self.same.extend_from_slice(&c.runs);
+    }
+}
+
+/// The sectors one successful flush made `clean` ([F15 §2.2] flush row): individual sectors and rewritten runs.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub(crate) struct Cleaned {
+    /// Sectors that were `dirty` or `dirty-over-poison` and are `clean` now.
+    pub(crate) secs: Vec<u64>,
+    /// Rewritten runs that are `clean` now, half-open sector ranges.
+    pub(crate) runs: Vec<(u64, u64)>,
+}
+
+impl Cleaned {
+    /// `true` when the flush cleaned nothing.
+    pub(crate) fn is_empty(&self) -> bool {
+        self.secs.is_empty() && self.runs.is_empty()
+    }
+}
+
 /// What bytes beyond the old durable size hold after a crash (FM-2.2, OP-4).
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum BeyondFill {
     /// The content the sector resolution produced.
     Resolved,
@@ -613,10 +643,12 @@ impl Content {
     /// at the version current when the flush began, or `dirty` with that version as its baseline if it was written after
     /// (an equal-byte write included); a sector poisoned at the start, or clean at the start, is unchanged (FM-3.4).
     /// `meta` also makes the size at the start durable and resets H(f) — unless a `sync(DataAndMeta)` that began later
-    /// has already set a newer durable size, which this one never moves back.
-    pub(crate) fn flush_ok(&mut self, mark: &FlushMark, meta: bool) {
+    /// has already set a newer durable size, which this one never moves back (G-2). Returns the sectors it made clean,
+    /// which join the reach of every other flush of the file still in flight ([`FlushMark::absorb`]).
+    pub(crate) fn flush_ok(&mut self, mark: &FlushMark, meta: bool) -> Cleaned {
         let limit = if meta { mark.cs } else { mark.ds };
         let lim = limit.div_ceil(SECTOR);
+        let mut cleaned = Cleaned::default();
         let covered: Vec<u64> = self
             .secs
             .range(..lim)
@@ -639,6 +671,8 @@ impl Content {
                 if touched > mark.seq {
                     // Re-written with its own bytes after the flush began: dirty, every candidate the cache content.
                     self.same.insert(s, s + 1, touched);
+                } else {
+                    cleaned.secs.push(s);
                 }
             } else {
                 let rest = versions.split_off(i + 1);
@@ -654,7 +688,7 @@ impl Content {
                 );
             }
         }
-        self.same.clear_older(0, lim, mark.seq);
+        cleaned.runs = self.same.clear_older(0, lim, mark.seq);
         if meta && mark.seq >= self.ds_seq {
             self.ds = mark.cs;
             self.ds_seq = mark.seq;
@@ -668,11 +702,14 @@ impl Content {
             self.sizes().contains(&self.len),
             "simulator: cs(f) is a member of H(f)"
         );
+        cleaned
     }
 
     /// A failed flush (FM-3.1): every sector `dirty` or `dirty-over-poison` at any instant between the flush's start and
     /// its return (the rewritten runs included) becomes `poisoned` with K = its baseline or candidate set together with
-    /// every version.
+    /// every version. The reach is the mark's sectors (those at the start, and those a concurrent successful flush
+    /// cleaned during the interval, [`FlushMark::absorb`]) and every sector not clean at the return; K is taken at the
+    /// return, so a sector a concurrent successful flush made clean gets that flush's durable content as its baseline.
     pub(crate) fn flush_failed(&mut self, mark: &FlushMark) {
         let mut reach: Vec<u64> = self.secs.keys().copied().collect();
         reach.extend(mark.dirty.iter().copied());
@@ -693,8 +730,8 @@ impl Content {
                     self.secs.insert(s, p);
                 }
                 None => {
-                    // Rewritten with its own bytes, or dirty at the start and cleaned since by a concurrent successful
-                    // flush: its cache content is the one candidate.
+                    // Rewritten with its own bytes, or dirty at an instant of the interval and cleaned since by a
+                    // concurrent successful flush: its cache content (the durable content) is the one candidate.
                     let k = vec![self.page(s)];
                     self.secs.insert(s, SecState::Poisoned { k });
                 }
@@ -1064,6 +1101,47 @@ mod tests {
         e.write(0, &[4u8; SEC], &mut no_pick());
         e.flush_ok(&m, true);
         assert!(e.has_unflushed());
+    }
+
+    /// FM-3.1 (spec sync 2a): a sector written after a flush began and made clean by a concurrent successful flush before
+    /// the first one failed was `dirty` at an instant of the failed flush's interval, so the failure poisons it, with K
+    /// = {the content the successful flush made durable}.
+    #[test]
+    fn a_failed_flush_poisons_what_a_concurrent_flush_cleaned_during_it() {
+        let mut c = Content::durable(&[0u8; 2 * SEC]);
+        let failing = c.flush_mark();
+        // Written after the failing flush began, then cleaned by a successful flush that began and returned meanwhile.
+        c.write(SECTOR, &[5; SEC], &mut no_pick());
+        c.write_zeros(0, SECTOR, &mut no_pick());
+        let ok = c.flush_mark();
+        let cleaned = c.flush_ok(&ok, true);
+        assert_eq!(cleaned.secs, vec![1]);
+        assert_eq!(cleaned.runs, vec![(0, 1)]);
+        assert!(!c.has_unflushed());
+        let mut failing = failing;
+        failing.absorb(&cleaned);
+        c.flush_failed(&failing);
+        let views: Vec<(u64, SectorKind, u64)> = c
+            .sector_views()
+            .iter()
+            .map(|v| (v.index, v.state, v.candidates))
+            .collect();
+        assert_eq!(
+            views,
+            vec![(0, SectorKind::Poisoned, 1), (1, SectorKind::Poisoned, 1)]
+        );
+        let SecState::Poisoned { k } = &c.secs[&1] else {
+            panic!()
+        };
+        assert_eq!(k[0][0], 5, "K holds what the successful flush made durable");
+        // Without the absorbed sectors the same failure would leave both clean (the gap spec sync 2a closed).
+        let mut d = Content::durable(&[0u8; SEC]);
+        let early = d.flush_mark();
+        d.write(0, &[5; SEC], &mut no_pick());
+        let m = d.flush_mark();
+        d.flush_ok(&m, true);
+        d.flush_failed(&early);
+        assert!(d.secs.is_empty());
     }
 
     /// Review regression: sectors a truncation cut off are forgotten once the durable size moves below them.

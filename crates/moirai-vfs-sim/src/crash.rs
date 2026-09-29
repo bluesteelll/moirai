@@ -18,10 +18,10 @@ use crate::content::{BeyondFill, CrashPick, SecState, SectorKind, SectorView};
 use crate::namespace::NsKind;
 use crate::rng::{Rng, splitmix};
 use crate::trace::{EventKind, Trace};
-use crate::world::{Chooser, DeathCause, Kernel, Sched, SimConfig, State, TState};
+use crate::world::{Chooser, DeathCause, Kernel, PointInfo, Sched, SimConfig, State, TState};
 
 /// How a plan resolves every choice it does not name.
-#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub enum Resolve {
     /// The world's adversary decides (seeded).
     #[default]
@@ -35,7 +35,7 @@ pub enum Resolve {
 }
 
 /// What one sector keeps.
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum SectorPick {
     /// The whole sector keeps candidate `i`: for a dirty sector 0 the baseline, i the version vᵢ; for a poisoned or
     /// dirty-over-poison sector every sub-sector takes candidate `i`.
@@ -46,7 +46,7 @@ pub enum SectorPick {
 }
 
 /// The choices for one file.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct FilePlan {
     /// The size after the crash; must be a member of H(f).
     pub size: Option<u64>,
@@ -57,7 +57,7 @@ pub struct FilePlan {
 }
 
 /// One post-crash state, as the caller chooses it.
-#[derive(Clone, Debug, Default, Eq, PartialEq)]
+#[derive(Clone, Debug, Default, Eq, PartialEq, Hash)]
 pub struct CrashPlan {
     /// The policy for everything not named below.
     pub resolve: Resolve,
@@ -266,6 +266,7 @@ pub struct CrashImage {
     cfg: SimConfig,
     next_table: u64,
     wait_mode: moirai_vfs::WaitMode,
+    origin: Option<PointInfo>,
 }
 
 impl core::fmt::Debug for CrashImage {
@@ -285,12 +286,38 @@ impl CrashImage {
             cfg: st.cfg.clone(),
             next_table: st.next_table,
             wait_mode: st.wait_mode,
+            origin: None,
+        }
+    }
+
+    /// The image with the scheduling point it was captured at.
+    pub(crate) fn at(self, info: PointInfo) -> CrashImage {
+        CrashImage {
+            origin: Some(info),
+            ..self
         }
     }
 
     /// The scheduling point at which the image was taken.
     pub fn point(&self) -> u64 {
         self.k.points
+    }
+
+    /// The scheduling point a capture trigger took the image at ([`crate::SimWorld::capture_at`],
+    /// [`crate::SimWorld::capture_calls`]); `None` for [`crate::SimWorld::crash_image`].
+    pub fn origin(&self) -> Option<PointInfo> {
+        self.origin
+    }
+
+    /// The file flushes that had failed when the image was taken ([`crate::SimWorld::failed_flushes`]).
+    pub fn failed_flushes(&self) -> u64 {
+        self.k.failed_flushes
+    }
+
+    /// The node the absolute `path` names in the image's current namespace, if any (the key of
+    /// [`CrashPlan::files`]).
+    pub fn node_at(&self, path: &std::path::Path) -> Option<u64> {
+        self.k.ns.lookup_abs(path).ok()
     }
 
     /// A copy whose generator is seeded with `seed`: its seeded crash choices (and the materialised world's later ones)
@@ -336,6 +363,8 @@ impl CrashImage {
             wait_mode: self.wait_mode,
             triggers: Vec::new(),
             captures: Vec::new(),
+            point_log: None,
+            busy_log: Vec::new(),
             violations: Vec::new(),
             stderr: Vec::new(),
             spawns: Vec::new(),
@@ -601,6 +630,7 @@ fn apply_crash(st: &mut State, plan: &CrashPlan) {
         if st.k.procs[i].alive {
             st.k.procs[i].alive = false;
             st.k.procs[i].death = Some(DeathCause::SystemCrash);
+            st.k.procs[i].scripted = std::collections::VecDeque::new();
             st.ev(
                 EventKind::ProcEnd,
                 None,
@@ -635,7 +665,7 @@ fn apply_crash(st: &mut State, plan: &CrashPlan) {
     st.tables.clear();
     // Step 4 (lock part): every byte is free.
     st.k.locks.clear();
-    for t in &mut st.sched.tasks {
+    for t in st.sched.tasks.values_mut() {
         if t.state == TState::Blocked {
             t.state = TState::Runnable;
         }
