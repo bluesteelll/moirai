@@ -1,13 +1,13 @@
 //! The error types shared by every seam: `OsCode`, `VfsError` with its `VfsErrorKind`, and `DurabilityFailure`
 //! ([OS/fs §4.4.5, §6.1], [OS/README §4.5]).
 //!
-//! The mapping of OS codes onto kinds is per OS and lives in `moirai-os` ([OS/fs §6.2]); the abstract classes of the
-//! fault model ([F15 §2.6]) map one to one onto these kinds (the model's `CrossVolume` is [`VfsErrorKind::CrossDevice`],
-//! [F15 §2.6] OP-18).
+//! The mapping of OS codes onto kinds is per OS and lives in `moirai-os` ([OS/fs §6.2]); every abstract class of the
+//! fault model ([F15 §2.6]) is the kind of the same name (OP-18, closed by spec sync 2a).
 //!
 //! Two renderings live here because the OS layer and the simulator must print them identically: the OS-error unit
 //! `os <code> <SYMBOL>` of [OS/shell §6] item 6 ([`OsCode::unit`]) and the one stderr line of `fail_stop`
-//! ([`DurabilityFailure::stderr_line`], [F19 §10.2] row `durability_failure`).
+//! ([`DurabilityFailure::stderr_line`], [F19 §10.2] row `durability_failure`), which a [`VfsErrorKind::FlushFailed`] error
+//! prints too ([`VfsError::durability_line`]).
 
 use core::fmt;
 
@@ -15,8 +15,9 @@ use crate::fs::DurabilityClass;
 use crate::proc::OsTag;
 
 /// The raw OS error of [OS/fs §6.1]: a Win32 error code (NTSTATUS values converted with `RtlNtStatusToDosError`, except
-/// that `STATUS_DELETE_PENDING` is mapped to [`VfsErrorKind::DeletePending`] before conversion) or an `errno`; 0 when there
-/// is none. Carried for diagnostics only.
+/// that `STATUS_DELETE_PENDING` is mapped to [`VfsErrorKind::DeletePending`] before conversion and carries 303
+/// `ERROR_DELETE_PENDING`, the code [OS/fs §6.2] lists for the kind) or an `errno`; 0 when there is none. Carried for
+/// diagnostics only.
 ///
 /// Output shows a code only as the ASCII OS-error unit `os <code> <SYMBOL>` of [OS/shell §6] item 6 ([`OsCode::unit`]),
 /// which the golden harness replaces as a whole with `<OSERR>` ([80 §4] T7); `FormatMessageW` and `strerror` texts are
@@ -32,8 +33,12 @@ impl OsCode {
     /// The symbolic name of the code on the OS `os` from moirai's own table ([OS/shell §6] item 6): the Windows `ERROR_*`
     /// name or the `errno` name; `None` for a code the table lacks, for 0 and for [`OsTag::Unspecified`]. The table holds
     /// every code the OS-layer specification names ([OS/fs §6.2], [OS/lock §7], [OS/map §2–§3], [OS/project §2.3],
-    /// [OS/proc §6.1], [OS/shell §6]); where two `errno` names share a value, it holds the one the Linux or Darwin
-    /// headers define first (`EAGAIN` for `EWOULDBLOCK`, `EOPNOTSUPP` for Linux's `ENOTSUP`).
+    /// [OS/proc §6.1], [OS/shell §6]); where two `errno` names share a value, it holds the one that OS's `errno.h`
+    /// defines first ([OS/shell §6] item 6): `EAGAIN`, never `EWOULDBLOCK`; on Linux `EOPNOTSUPP` for 95, which `ENOTSUP`
+    /// aliases; macOS, where the two differ (45 and 102), each under its own name.
+    ///
+    /// The `ERROR_CLOUD_FILE_*` family is held by name ([OS/project §2.3], [OS/fs §6.2]: members at 358, 404, 426, 434
+    /// and 475 and gaps inside 362–400), so [`OsCode::is_cloud_file_error`] matches it by name, never by a range.
     pub const fn symbol(self, os: OsTag) -> Option<&'static str> {
         match os {
             OsTag::Windows => windows_symbol(self.0),
@@ -48,6 +53,31 @@ impl OsCode {
     pub const fn unit(self, os: OsTag) -> OsErrorUnit {
         OsErrorUnit { code: self, os }
     }
+
+    /// `true` for a Win32 code of the `ERROR_CLOUD_FILE_*` family, matched by name ([OS/fs §6.2] row `CloudOnly`,
+    /// [OS/project §2.3]): the codes whose symbol in moirai's table starts with `ERROR_CLOUD_FILE_`. The family has gaps
+    /// (359–361, 367–373, 376, 384–385, 399–403 are other errors), so no range test is equivalent.
+    pub const fn is_cloud_file_error(self) -> bool {
+        match windows_symbol(self.0) {
+            Some(s) => starts_with(s.as_bytes(), b"ERROR_CLOUD_FILE_"),
+            None => false,
+        }
+    }
+}
+
+/// `s` starts with `prefix` (a `const` form of `<[u8]>::starts_with`).
+const fn starts_with(s: &[u8], prefix: &[u8]) -> bool {
+    if s.len() < prefix.len() {
+        return false;
+    }
+    let mut i = 0;
+    while i < prefix.len() {
+        if s[i] != prefix[i] {
+            return false;
+        }
+        i += 1;
+    }
+    true
 }
 
 impl fmt::Display for OsCode {
@@ -222,6 +252,22 @@ impl VfsError {
     pub const fn new(kind: VfsErrorKind, os: OsCode, call: &'static str) -> VfsError {
         VfsError { kind, os, call }
     }
+
+    /// For a [`VfsErrorKind::FlushFailed`] error, the one `durability_failure` line its caller prints before it exits 7
+    /// ([F19 §10.2]: "a `FlushFailed` is `durable-name`"; [OS/fs §4.1, §6.2]), formatted as
+    /// [`DurabilityFailure::stderr_line`] formats it, with `<oserr>` the OS-error unit for a code raised on `os`; `None`
+    /// for every other kind.
+    pub const fn durability_line(&self, os: OsTag) -> Option<DurabilityLine> {
+        match self.kind {
+            VfsErrorKind::FlushFailed => Some(DurabilityLine {
+                call: self.call,
+                class: DurabilityClass::DurableName,
+                code: self.os,
+                os,
+            }),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for VfsError {
@@ -274,6 +320,11 @@ pub enum VfsErrorKind {
     Io,
     /// Any other code (including `ELOOP` and a `RESOLVE_BENEATH` `EXDEV` on a store open, [OS/fs §5.2]).
     Other,
+    /// A durability-class flush embedded in `create_root`, `swap_dirs` or `swap_recover` failed ([OS/fs §4.1, §4.9,
+    /// §6.1]); the error carries that flush's `OsCode` and `call` ([`DurabilityFailure::embedded`]). The caller exits 7
+    /// with the `durability-failure` text ([`VfsError::durability_line`]), never retries, and issues no further write,
+    /// flush, create or namespace call ([F15 §3.13]). Never the `kind` of a [`DurabilityFailure`], which it only wraps.
+    FlushFailed,
     /// `ProjectFs`: the operation would hydrate a cloud-only entry ([OS/project §5.10]).
     CloudOnly,
     /// `ProjectFs`: a content read of a symbolic link; use `read_link` ([OS/project §5.5]).
@@ -311,6 +362,7 @@ impl VfsErrorKind {
             VfsErrorKind::IsDirectory => "is a directory",
             VfsErrorKind::OutsideRoot => "outside the root",
             VfsErrorKind::Stale => "stale root",
+            VfsErrorKind::FlushFailed => "flush failed",
         }
     }
 }
@@ -322,7 +374,9 @@ impl fmt::Display for VfsErrorKind {
 }
 
 /// An error returned by a non-lazy durability class ([OS/fs §4.4.5]). It must be passed to `StoreFs::fail_stop`; it has
-/// no other consumer (the one exception is the `init` probe, which turns it into a refusal, [OS/env §5] step 3).
+/// no other consumer, with two exceptions: the `init` probe turns it into a refusal ([OS/env §5] step 3), and a flush
+/// embedded in `create_root`, `swap_dirs` or `swap_recover` is returned as a `VfsError` of kind
+/// [`VfsErrorKind::FlushFailed`] ([`DurabilityFailure::embedded`], [OS/fs §4.1]).
 ///
 /// Any error from any class other than `lazy` aborts the process without an acknowledgement, and the flush is never
 /// retried on the same handle ([80 §2.3.1], [F15 §4.3]).
@@ -345,8 +399,19 @@ impl DurabilityFailure {
     /// or check moirai changes`, with `<class>` the class name of [`DurabilityClass::as_str`] and `<oserr>` the OS-error
     /// unit for a code raised on `os` (the running build's [`crate::ProcHost::os_tag`]). ASCII; formatting it allocates
     /// nothing.
-    pub const fn stderr_line(&self, os: OsTag) -> DurabilityLine<'_> {
-        DurabilityLine { failure: self, os }
+    pub const fn stderr_line(&self, os: OsTag) -> DurabilityLine {
+        DurabilityLine {
+            call: self.call,
+            class: self.class,
+            code: self.os,
+            os,
+        }
+    }
+
+    /// This failure as the error `create_root`, `swap_dirs` and `swap_recover` return for a flush embedded in them
+    /// ([OS/fs §4.1, §4.9]): kind [`VfsErrorKind::FlushFailed`] with the flush's `OsCode` and `call`.
+    pub const fn embedded(&self) -> VfsError {
+        VfsError::new(VfsErrorKind::FlushFailed, self.os, self.call)
     }
 }
 
@@ -365,21 +430,24 @@ impl fmt::Display for DurabilityFailure {
 
 impl std::error::Error for DurabilityFailure {}
 
-/// The `fail_stop` line of a [`DurabilityFailure`]; made by [`DurabilityFailure::stderr_line`].
-#[derive(Copy, Clone, Debug)]
-pub struct DurabilityLine<'a> {
-    failure: &'a DurabilityFailure,
+/// The `durability_failure` line ([F19 §10.2]) of a [`DurabilityFailure`] ([`DurabilityFailure::stderr_line`]) or of a
+/// [`VfsErrorKind::FlushFailed`] error ([`VfsError::durability_line`]). It copies what it prints, so it borrows nothing.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct DurabilityLine {
+    call: &'static str,
+    class: DurabilityClass,
+    code: OsCode,
     os: OsTag,
 }
 
-impl fmt::Display for DurabilityLine<'_> {
+impl fmt::Display for DurabilityLine {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         write!(
             f,
             "error[durability_failure]: {} ({}) failed: {}; outcome unknown: re-run with the same key or check moirai changes",
-            self.failure.call,
-            self.failure.class.as_str(),
-            self.failure.os.unit(self.os)
+            self.call,
+            self.class.as_str(),
+            self.code.unit(self.os)
         )
     }
 }
@@ -478,5 +546,63 @@ mod tests {
     fn vfs_errors_display() {
         let e = VfsError::new(VfsErrorKind::SharingViolation, OsCode(32), "MoveFileExW");
         assert_eq!(e.to_string(), "MoveFileExW: sharing violation (os 32)");
+        assert_eq!(e.durability_line(OsTag::Windows), None);
+    }
+
+    /// [OS/fs §4.1, §6.2], [F19 §10.2]: an embedded flush failure is a `FlushFailed` error carrying the flush's code and
+    /// call, and prints the `durability_failure` line with the class `durable-name` whatever class the flush had.
+    #[test]
+    fn an_embedded_flush_failure_is_flush_failed() {
+        let f = DurabilityFailure {
+            class: DurabilityClass::DurableMeta,
+            call: "FlushFileBuffers",
+            kind: VfsErrorKind::Io,
+            os: OsCode(1117),
+        };
+        let e = f.embedded();
+        assert_eq!(
+            e,
+            VfsError::new(VfsErrorKind::FlushFailed, OsCode(1117), "FlushFileBuffers")
+        );
+        assert_eq!(
+            e.durability_line(OsTag::Windows).unwrap().to_string(),
+            "error[durability_failure]: FlushFileBuffers (durable-name) failed: os 1117 ERROR_IO_DEVICE; outcome \
+             unknown: re-run with the same key or check moirai changes"
+        );
+        assert_eq!(VfsErrorKind::FlushFailed.as_str(), "flush failed");
+        // The line owns its parts: it outlives the failure it was made from.
+        let line = {
+            let g = DurabilityFailure {
+                class: DurabilityClass::Durable,
+                call: "fdatasync",
+                kind: VfsErrorKind::Io,
+                os: OsCode(5),
+            };
+            g.stderr_line(OsTag::Linux)
+        };
+        assert!(
+            line.to_string()
+                .contains("fdatasync (durable) failed: os 5 EIO;")
+        );
+    }
+
+    /// The `ERROR_CLOUD_FILE_*` family is matched by name ([OS/project §2.3]): exactly the 32 codes winerror.h names, with
+    /// the gaps inside 358–400 excluded.
+    #[test]
+    fn the_cloud_file_family_is_matched_by_name() {
+        let family: Vec<i32> = (0..2_000)
+            .filter(|&c| OsCode(c).is_cloud_file_error())
+            .collect();
+        let mut want: Vec<i32> = vec![358];
+        want.extend(362..=366);
+        want.extend([374, 375]);
+        want.extend(377..=383);
+        want.extend(386..=398);
+        want.extend([404, 426, 434, 475]);
+        assert_eq!(family, want);
+        for gap in [359, 360, 361, 367, 373, 376, 384, 385, 399, 400] {
+            assert!(!OsCode(gap).is_cloud_file_error(), "{gap}");
+        }
+        assert!(!OsCode(5).is_cloud_file_error());
     }
 }

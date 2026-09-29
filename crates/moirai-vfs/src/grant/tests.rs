@@ -19,7 +19,7 @@ use proptest::prelude::*;
 
 use super::*;
 use crate::error::{OsCode, VfsError, VfsErrorKind};
-use crate::lock::{LockByte, LockError, LockMode, SlotIndex};
+use crate::lock::{LockByte, LockError, LockMode, QuietIndex, SlotIndex};
 
 /// Proptest cases per property: the `pr` tier by default, more in the `nightly` and `exit` tiers (PLAN §2.1).
 fn config() -> ProptestConfig {
@@ -59,6 +59,56 @@ fn table(mode: WaitMode) -> GrantTable {
 
 fn slot(i: u16) -> LockByte {
     LockByte::Slot(SlotIndex::new(i).expect("slot index below 256"))
+}
+
+fn quiet(k: u8) -> LockByte {
+    LockByte::Quiet(QuietIndex::new(k).expect("quiet index below 9"))
+}
+
+/// [OS/lock §2] (pass 1, P1-10): the nine quiet bytes are distinct bytes of one table, each held, probed and released on
+/// its own, never waited for.
+#[test]
+fn the_nine_quiet_bytes_are_independent() {
+    let mut t = table(WaitMode::CallerDriven);
+    let a = t.register(LockMode::Acquire);
+    let b = t.register(LockMode::Acquire);
+    let mut grants = Vec::new();
+    for k in 0..9u8 {
+        let owner = if k % 2 == 0 { a } else { b };
+        grants.push((owner, take(&mut t, owner, quiet(k))));
+    }
+    for k in 0..9u8 {
+        assert_eq!(t.probe_step(quiet(k)), ProbeStep::Held);
+        assert_eq!(
+            t.begin_try(if k % 2 == 0 { b } else { a }, quiet(k)),
+            TryStep::Busy
+        );
+        assert!(panics(|| {
+            let mut u = table(WaitMode::CallerDriven);
+            let c = u.register(LockMode::Acquire);
+            u.begin_wait(c, quiet(k), 10, 0)
+        }));
+    }
+    assert!(t.holds_any_role());
+    for (owner, g) in grants {
+        let step = t.release(owner, g);
+        assert_eq!(t.kernel_state(step.byte), KernelState::Idle);
+    }
+    assert!(!t.holds_any_role());
+    // A client's unregister releases every quiet byte it holds.
+    let q8 = take(&mut t, a, quiet(8));
+    let q3 = take(&mut t, a, quiet(3));
+    let _unregistered = (q8, q3);
+    let steps = t.unregister(a);
+    let unlocked: Vec<LockByte> = steps
+        .iter()
+        .filter_map(|s| match *s {
+            Step::KernelUnlock { byte, .. } => Some(byte),
+            _ => None,
+        })
+        .collect();
+    assert_eq!(unlocked, vec![quiet(3), quiet(8)]);
+    assert!(!t.holds_any_role());
 }
 
 fn io_error() -> LockError {
@@ -102,7 +152,7 @@ proptest! {
     #[test]
     fn non_reentrant_on_every_byte_kind(slot_i in 0u16..256, mode_i in 0usize..2) {
         let mode = MODES[mode_i];
-        for b in [LockByte::Writer, LockByte::Leader, LockByte::Maintenance, LockByte::Quiet, LockByte::Flush, slot(slot_i)] {
+        for b in [LockByte::Writer, LockByte::Leader, LockByte::Maintenance, quiet(0), LockByte::Flush, slot(slot_i)] {
             let mut t = table(mode);
             let c = t.register(LockMode::Acquire);
             let g = take(&mut t, c, b);
@@ -219,7 +269,7 @@ fn lock_order_is_enforced_for_every_held_set() {
     let roles = [
         LockByte::Leader,
         LockByte::Maintenance,
-        LockByte::Quiet,
+        quiet(0),
         LockByte::Flush,
         LockByte::Writer,
     ];
@@ -228,7 +278,7 @@ fn lock_order_is_enforced_for_every_held_set() {
         LockByte::Flush,
         LockByte::Leader,
         LockByte::Maintenance,
-        LockByte::Quiet,
+        quiet(0),
         slot(9),
         slot(3),
     ];
@@ -282,12 +332,12 @@ fn lock_order_examples() {
         &[LockByte::Maintenance, LockByte::Flush],
         LockByte::Writer
     ));
-    assert!(ok(&[LockByte::Quiet], LockByte::Flush));
+    assert!(ok(&[quiet(0)], LockByte::Flush));
     assert!(!ok(&[LockByte::Writer], LockByte::Flush));
     assert!(!ok(&[LockByte::Writer], LockByte::Writer));
     assert!(!ok(&[], LockByte::Maintenance));
     assert!(!ok(&[], LockByte::Leader));
-    assert!(!ok(&[], LockByte::Quiet));
+    assert!(!ok(&[], quiet(0)));
     assert!(!ok(&[], slot(1)));
 }
 
@@ -470,7 +520,7 @@ fn probes_short_circuit_on_held_bytes() {
     let mut t = table(WaitMode::WaiterThread);
     let c = t.register(LockMode::Acquire);
     let p = t.register(LockMode::Probe);
-    for b in [LockByte::Writer, LockByte::Quiet, slot(77)] {
+    for b in [LockByte::Writer, quiet(0), slot(77)] {
         assert_eq!(t.probe_step(b), ProbeStep::KernelProbe);
         let g = take(&mut t, c, b);
         assert_eq!(t.probe_step(b), ProbeStep::Held);
@@ -480,7 +530,7 @@ fn probes_short_circuit_on_held_bytes() {
     assert!(!t.holds_any_role());
     let g = take(&mut t, c, slot(1));
     assert!(!t.holds_any_role(), "a slot is not a role byte");
-    let q = take(&mut t, c, LockByte::Quiet);
+    let q = take(&mut t, c, quiet(0));
     assert!(t.holds_any_role());
     let _ = (t.release(c, g), t.release(c, q));
 }
@@ -824,7 +874,7 @@ fn an_abandoned_waiter_thread_releases_its_grant_or_serves_a_newcomer() {
 fn check_table(t: &GrantTable) {
     let rec = |c: ClientId| t.clients.iter().find(|r| r.id == c);
     for (i, st) in t.roles.iter().enumerate() {
-        let b = ROLE_BYTES[i];
+        let b = role_byte(i);
         // I-L1: one holder, and a holder iff held in the kernel.
         assert_eq!(
             st.holder.is_some(),
@@ -1011,7 +1061,7 @@ fn all_bytes() -> [LockByte; 7] {
         LockByte::Writer,
         LockByte::Leader,
         LockByte::Maintenance,
-        LockByte::Quiet,
+        quiet(8),
         LockByte::Flush,
         slot(0),
         slot(200),

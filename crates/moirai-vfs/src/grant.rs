@@ -22,20 +22,18 @@
 //! | T7 | [`GrantTable::release`] | a holder releases: always a kernel unlock |
 //! | T8 | [`GrantTable::probe_step`] | a probe: `Held` without a kernel call if a client of this table holds the byte |
 //! | T9 | [`GrantTable::holds`], [`GrantTable::holds_any_role`] | queries |
+//! | T3n | [`GrantTable::take_notice`] | a client that waits in the table learns what another thread's transition decided for it (a hand-off of T4, the `StartWait` of T0, T2, T3b, T4, T5, T7 and `kernel_failed`, the `NewDriver` of T6, a kernel failure) |
+//! | T4f | [`GrantTable::kernel_failed`] | a kernel wait ended in an error rather than a grant or a cancellation |
 //!
-//! Two transitions complete the machine where [OS/lock §5.3] leaves a gap: [`GrantTable::take_notice`], through which a
-//! client that waits in the table learns what another thread's transition decided for it (a hand-off of T4, the
-//! `StartWait` of T2, T3b, T5 and T7, the `NewDriver` of T6, a kernel failure), and [`GrantTable::kernel_failed`], for a
-//! kernel wait that ends in an error rather than a grant or a cancellation.
+//! # The amendments [OS/lock §5.3] adopted (spec sync 2a)
 //!
-//! # Where the table completes or amends [OS/lock §5.3]
-//!
-//! Recorded as spec findings of WP-30, for WP-80a:
+//! WP-30 built the table with these completions of the first text of [OS/lock §5.3]; spec sync 2a adopted all of them in
+//! [OS/lock §4, §5.1–§5.6, §7.1, §7.2] (open point 12, closed), with the progress invariant I-L11:
 //!
 //! 1. [`GrantTable::register`] takes the client's [`LockMode`], so that an acquisition through a `Probe`-mode client
 //!    panics ([OS/lock §4]).
 //! 2. [`GrantTable::release`] consumes the [`Grant`] instead of naming a byte; a grant of another client or table panics.
-//! 3. `take_notice` and `kernel_failed` are added (above).
+//! 3. `take_notice` (T3n) and `kernel_failed` (T4f) are added (above).
 //! 4. T3's fast path gives the client its `seq` and queue place at T3, not at T3b: a client that queues while the try is
 //!    in flight then ranks behind it, as `seq` is the arrival counter (I-L4).
 //! 5. After T6 the byte stays `Idle` until the new driver collects its `NewDriver` notice, and only then becomes
@@ -43,7 +41,7 @@
 //!    issued.
 //! 6. T4's `ReleaseNow` carries a `then` step, so that the queue keeps moving when every queued deadline has passed.
 //! 7. A `CancelKernelWait` whose settle fails with an error other than 995 is reported through `kernel_failed`
-//!    ([OS/lock §7.1] leaves that case open).
+//!    ([OS/lock §7.1]).
 //! 8. T3 takes the current time: a wait whose deadline has already passed — always so for `acquire_within(b, 0)`, "a
 //!    try" in [OS/lock §4] — runs T1 after T3's preconditions ([`WaitStep::Try`]), so a busy byte ends the request as
 //!    `Busy` with no kernel wait and no waiter thread.
@@ -58,11 +56,11 @@
 //!     a timed-out driver does. T0 on a client whose kernel try is in flight returns `KernelUnlock` for the byte,
 //!     whose error is ignored because the try may not have been granted.
 //!
-//! Beyond [OS/lock §5.3] the table also exposes [`GrantTable::holder`], [`GrantTable::kernel_state`],
+//! The additive public items of [OS/lock §5.6]: [`GrantTable::holder`], [`GrantTable::kernel_state`],
 //! [`GrantTable::id`], [`GrantTable::mode`], [`GrantTable::is_empty`] and [`GrantTable::client_count`], the types
 //! [`KernelState`], [`Owner`], [`Driver`], [`KernelHandle`] and [`TableId`], and in `lock`, [`Grant::client`],
-//! [`Grant::table`], [`LockByte::from_offset`], [`SlotIndex::get`] and [`SlotIndex::record_offset`] (additive, for the
-//! drivers, the simulator's traces and the tests).
+//! [`Grant::table`], [`LockByte::from_offset`], [`SlotIndex::get`] and [`SlotIndex::record_offset`] (for the drivers,
+//! the simulator's traces and the tests; they decide nothing).
 //!
 //! # Driving the table
 //!
@@ -87,13 +85,15 @@
 //!
 //! I-L1 at most one holder, and `holder ≠ None ⇔ kernel = Held`; I-L2 single flight (one kernel acquisition per byte,
 //! none while held); I-L3 non-reentrancy; I-L4 oldest first; I-L5 order; I-L6 exactly one outcome per request; I-L7
-//! release unlocks; I-L8 probe short-circuit; I-L9 no leak on drop; I-L10 waitable set. Violations of I-L3, I-L5 and
-//! I-L10, an acquisition through a `Probe`-mode client, and a grant released through another client or table are
-//! programming errors: they panic, with a message that starts `grant table:`.
+//! release unlocks; I-L8 probe short-circuit; I-L9 no leak on drop; I-L10 waitable set; I-L11 progress. Violations of
+//! I-L3, I-L5 and I-L10, an acquisition through a `Probe`-mode client, and a grant released through another client or
+//! table are programming errors: they panic, with a message that starts `grant table:`.
 
 use core::fmt;
 
-use crate::lock::{Grant, LockByte, LockError, LockMode, SlotIndex};
+use crate::lock::{
+    Grant, LockByte, LockError, LockMode, N_QUIET, QuietIndex, ROLE_BASE, SlotIndex,
+};
 
 /// How kernel waits run on this OS ([OS/lock §5.2]).
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -429,23 +429,35 @@ enum Place {
     Slot(SlotIndex),
 }
 
-/// The role bytes in the order of `GrantTable::roles`.
-const ROLE_BYTES: [LockByte; 5] = [
-    LockByte::Writer,
-    LockByte::Leader,
-    LockByte::Maintenance,
-    LockByte::Quiet,
-    LockByte::Flush,
-];
+/// The number of role bytes: `Writer`, `Leader`, `Maintenance`, `Flush` and the nine quiet bytes ([OS/lock §2]).
+const N_ROLES: usize = 4 + N_QUIET as usize;
+
+/// The role byte at index `i` of `GrantTable::roles`: its offset − `ROLE_BASE` ([OS/lock §2]: `Writer` 0, `Leader` 1,
+/// `Maintenance` 2, `Quiet(0)` 3, `Flush` 4, `Quiet(k)` 4 + k).
+const fn role_byte(i: usize) -> LockByte {
+    match i {
+        0 => LockByte::Writer,
+        1 => LockByte::Leader,
+        2 => LockByte::Maintenance,
+        4 => LockByte::Flush,
+        3 => LockByte::Quiet(quiet_index(0)),
+        _ => LockByte::Quiet(quiet_index((i - 4) as u8)),
+    }
+}
+
+/// A quiet index known to be valid.
+const fn quiet_index(k: u8) -> QuietIndex {
+    match QuietIndex::new(k) {
+        Some(q) => q,
+        None => panic!("grant table: a quiet index outside 0..=8"),
+    }
+}
 
 const fn place(b: LockByte) -> Place {
     match b {
-        LockByte::Writer => Place::Role(0),
-        LockByte::Leader => Place::Role(1),
-        LockByte::Maintenance => Place::Role(2),
-        LockByte::Quiet => Place::Role(3),
-        LockByte::Flush => Place::Role(4),
         LockByte::Slot(s) => Place::Slot(s),
+        // Every role byte lies at `ROLE_BASE` + 0 … 12.
+        role => Place::Role((role.offset() - ROLE_BASE) as usize),
     }
 }
 
@@ -457,7 +469,8 @@ pub struct GrantTable {
     next_client: u64,
     next_seq: u64,
     clients: Vec<ClientRec>,
-    roles: [RoleState; 5],
+    /// Indexed by offset − `ROLE_BASE` ([`role_byte`]).
+    roles: [RoleState; N_ROLES],
     slots: Vec<SlotState>,
 }
 
@@ -475,7 +488,7 @@ impl GrantTable {
             next_client: 1,
             next_seq: 0,
             clients: Vec::new(),
-            roles: [idle.clone(), idle.clone(), idle.clone(), idle.clone(), idle],
+            roles: core::array::from_fn(|_| idle.clone()),
             slots: Vec::new(),
         }
     }
@@ -539,7 +552,8 @@ impl GrantTable {
         let pos = self.client_pos(c);
         self.clients.remove(pos);
         let mut steps = Vec::new();
-        for (i, &byte) in ROLE_BYTES.iter().enumerate() {
+        for i in 0..N_ROLES {
+            let byte = role_byte(i);
             let r = &mut self.roles[i];
             r.queue.retain(|w| w.client != c);
             if r.holder.is_some_and(|h| h.client == c) {
@@ -1058,7 +1072,7 @@ impl GrantTable {
         }
         q.notice = Notice::StartWait;
         Some(Step::StartWait {
-            byte: ROLE_BYTES[i],
+            byte: role_byte(i),
             client: first,
         })
     }
@@ -1101,7 +1115,8 @@ impl GrantTable {
 
     /// The first byte of rank `≥ rank` that `c` holds, if any.
     fn held_at_or_above(&self, c: ClientId, rank: u8) -> Option<LockByte> {
-        let role = ROLE_BYTES.iter().zip(&self.roles).find_map(|(&b, st)| {
+        let role = self.roles.iter().enumerate().find_map(|(i, st)| {
+            let b = role_byte(i);
             let mine = st.holder.is_some_and(|h| h.client == c);
             (mine && b.rank().is_some_and(|r| r >= rank)).then_some(b)
         });

@@ -18,8 +18,7 @@ use crate::proc::BootIdentity;
 pub trait Clock {
     /// Wall clock: milliseconds since the Unix epoch, UTC. May step backward or forward between two calls.
     fn wall_ms(&self) -> i64;
-    /// Monotonic clock in nanoseconds from an unspecified origin; never goes backward within a process (and, as
-    /// [OS/clock §2] adopts, within one boot).
+    /// Monotonic clock in nanoseconds from an unspecified origin; never goes backward within one boot ([OS/clock §2]).
     fn mono_ns(&self) -> u64;
     /// Boot clock in nanoseconds since boot: monotonic and including time spent in suspend ([80 §2.7.1]).
     fn boot_ns(&self) -> u64;
@@ -48,17 +47,15 @@ pub enum DeadlineState {
     BootChanged,
 }
 
-/// A duration in whole milliseconds, rounded up and saturating: a deadline is never earlier, and a grace never shorter,
-/// than the duration asks. [OS/clock §4.2, §4.4, §4.5] treat `ttl_ms` and `ttl_ns` (and `g_ms`, `g_ns`) as "the same
-/// duration in the two units" without saying how a duration that is not a whole number of milliseconds rounds; this
-/// crate reads it as `ttl_ms = ⌈ttl / 1 ms⌉` and `ttl_ns = ttl` in ns, both saturating at `u64::MAX` (a spec finding of
-/// WP-30, for WP-80a). The rounding is byte-visible in stored deadlines.
+/// A duration in whole milliseconds, rounded up and saturating ([OS/clock §4.2] "Rounding": `ttl_ms = ⌈ttl / 1 ms⌉`, so
+/// a deadline is never earlier than `ttl` after now and a grace never shorter than `ttl`; §4.4 and §4.5 convert the
+/// same way). The rounding is byte-visible in stored deadlines.
 fn ms_ceil(d: Duration) -> u64 {
     let ms = d.as_nanos().div_ceil(1_000_000);
     u64::try_from(ms).unwrap_or(u64::MAX)
 }
 
-/// A duration in nanoseconds, saturating.
+/// A duration in whole nanoseconds, saturating at `u64::MAX` ([OS/clock §4.2]: `ttl_ns`).
 fn ns_sat(d: Duration) -> u64 {
     u64::try_from(d.as_nanos()).unwrap_or(u64::MAX)
 }

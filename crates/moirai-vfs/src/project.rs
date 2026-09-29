@@ -16,12 +16,11 @@ use core::ops::{BitOr, ControlFlow};
 
 use crate::error::{DurabilityFailure, VfsError};
 use crate::fs::ShareRetry;
-use crate::path::{AbsPath, CanonicalRoot, EntryName, PathError, RelPath, RelPathBuf};
+use crate::path::{AbsPath, CanonicalRoot, EntryNameRef, PathError, RelPath, RelPathBuf};
 
 /// A place for one operation: a root and a path under it; the empty path is the root itself ([OS/project §2.1]).
 ///
-/// `path` is a `RelPath<'a>` view held by value where [OS/project §2.1] writes `&'a RelPath` (see the [`crate::path`]
-/// module documentation); `At` stays two references wide and `Copy`.
+/// `path` is a `RelPath<'a>` view held by value ([OS/path §2.1]); `At` is two references wide and `Copy` for every `R`.
 pub struct At<'a, R> {
     /// The root.
     pub root: &'a R,
@@ -95,10 +94,13 @@ pub trait ProjectFs: Send + Sync + 'static {
     /// The on-disk spelling of every component of `at` ([OS/project §5.3]).
     fn disk_spelling(&self, at: At<'_, Self::Root>) -> Result<RelPathBuf, VfsError>;
     /// Calls `visit` for every entry of `dir` except `.` and `..`, in the file system's order, until it returns `Break`
-    /// ([OS/project §5.2]). A `RECALL_ON_DATA_ACCESS` directory is `CloudOnly`, never enumerated.
+    /// ([OS/project §5.2]). Each entry is borrowed for one call of `visit` (a caller that keeps a name takes
+    /// `entry.name.to_owned()`), so a scan allocates nothing per entry. A `dir` that is a symbolic link is `IsSymlink`,
+    /// another non-cloud reparse point (a junction) `Other`, and a `RECALL_ON_DATA_ACCESS` directory `CloudOnly`: none
+    /// is ever enumerated.
     fn enumerate<F>(&self, dir: At<'_, Self::Root>, visit: F) -> Result<EnumEnd, VfsError>
     where
-        F: FnMut(&ProjEntry) -> ControlFlow<()>;
+        F: FnMut(&ProjEntry<'_>) -> ControlFlow<()>;
     /// Finds the object with identity `id` ([OS/project §5.4]); `recorded` is its last known attributes (a cloud-only
     /// record is `NotLocatable`, never opened).
     fn locate_id(
@@ -189,9 +191,10 @@ pub struct PfsCounters {
     pub dir_syncs: u64,
     /// `unlink`, `remove_dir` and the unlink step of `durable_unlink`.
     pub unlinks: u64,
-    /// `stat` calls.
+    /// `stat` calls that passed the Windows name check ([OS/project §2.3]): a call refused with `InvalidName` before any
+    /// OS call counts nothing.
     pub stats: u64,
-    /// `enumerate` calls.
+    /// `enumerate` calls that passed the Windows name check.
     pub dir_reads: u64,
     /// `locate_id` and `file_handle_digest` calls that reached the OS.
     pub id_lookups: u64,
@@ -635,7 +638,10 @@ pub enum RenameRule {
     LinkUnlinkFiles = 2,
 }
 
-/// The capability record of a volume ([OS/project §4.2]); converts to and from the 16-byte `TREES` snapshot.
+/// The capability record of a volume ([OS/project §4.2]); converts to and from the 16-byte `TREES` snapshot losslessly.
+///
+/// A value with `case_rule = Sensitive` and `case_insensitive_default = true` is **invalid** ([`VolumeCaps::is_valid`]):
+/// no implementation constructs one, and its snapshot is one [`VolumeCaps::from_snapshot`] rejects.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct VolumeCaps {
     /// 0–4, as [`OsFileId::kind`].
@@ -668,14 +674,26 @@ pub struct VolumeCaps {
     pub docids: bool,
     /// Effective, measured granularity ([OS/project §4.4]); 0 = not measured, use the nominal.
     pub mtime_granularity_ns: u64,
+    /// The file-system class may refuse or fake a directory flush ([OS/project §4.2, §4.3, §6.2]; pass 1, P1-16): set
+    /// from the class, never by a probe (a Windows network redirector, `\\wsl$` and other non-local volumes; Linux NFS,
+    /// CIFS, FUSE and 9p). It only lets `doctor` and `links` hints warn in advance; the plan step's own `sync_dir`
+    /// decides.
+    pub dir_flush_doubtful: bool,
 }
 
 impl VolumeCaps {
     /// The snapshot length.
     pub const SNAPSHOT_LEN: usize = 16;
 
-    /// The 16-byte snapshot of [OS/project §4.2] ([F11 §12.3]). A value with a reserved combination (an `id_kind` above 4,
-    /// `case_insensitive_default` under `Sensitive`) encodes to a snapshot that `from_snapshot` rejects.
+    /// `false` for the invalid combination of [OS/project §4.2] (`case_rule = Sensitive` with
+    /// `case_insensitive_default = true`) and for an `id_kind` above 4; no implementation constructs such a value.
+    pub const fn is_valid(&self) -> bool {
+        self.id_kind <= 4
+            && !(matches!(self.case_rule, CaseRule::Sensitive) && self.case_insensitive_default)
+    }
+
+    /// The 16-byte snapshot of [OS/project §4.2] ([F11 §12.3]). An invalid value ([`VolumeCaps::is_valid`]) encodes to a
+    /// snapshot that `from_snapshot` rejects.
     pub fn to_snapshot(&self) -> [u8; 16] {
         let mut flags = u32::from(self.case_insensitive_default)
             | u32::from(self.norm_insensitive_always) << 1
@@ -688,7 +706,8 @@ impl VolumeCaps {
             | (self.rename_noreplace as u32) << 9
             | u32::from(self.clone_indicators) << 11
             | u32::from(self.ids_persistent) << 12
-            | u32::from(self.docids) << 13;
+            | u32::from(self.docids) << 13
+            | u32::from(self.dir_flush_doubtful) << 14;
         let mut b = [0u8; 16];
         b[..4].copy_from_slice(&flags.to_le_bytes());
         b[4] = self.id_kind;
@@ -705,7 +724,7 @@ impl VolumeCaps {
         let mut f = [0u8; 4];
         f.copy_from_slice(&b[..4]);
         let flags = u32::from_le_bytes(f);
-        if flags >> 14 != 0 || (flags & 1 << 4 != 0 && flags & 1 << 3 == 0) {
+        if flags >> 15 != 0 || (flags & 1 << 4 != 0 && flags & 1 << 3 == 0) {
             return None;
         }
         let bit = |n: u32| flags & 1 << n != 0;
@@ -768,6 +787,7 @@ impl VolumeCaps {
             ids_persistent: bit(12),
             docids: bit(13),
             mtime_granularity_ns: u64::from_le_bytes(g),
+            dir_flush_doubtful: bit(14),
         })
     }
 }
@@ -840,11 +860,12 @@ pub struct StatRec {
     pub nlink: u32,
 }
 
-/// One entry of an enumeration ([OS/project §5.2]).
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub struct ProjEntry {
-    /// The name as the OS returned it ([OS/path §2.4]).
-    pub name: EntryName,
+/// One entry of an enumeration ([OS/project §5.2]), borrowed for one call of the visitor: its name lives in the
+/// enumeration's buffer, which the implementation reuses for every entry.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct ProjEntry<'a> {
+    /// The name as the OS returned it ([OS/path §2.4]), borrowed from the enumeration's buffer.
+    pub name: EntryNameRef<'a>,
     /// The entry's kind.
     pub kind: ProjKind,
     /// `Some` where the enumeration call returns the attributes (Windows, macOS).
@@ -943,6 +964,7 @@ mod tests {
             ids_persistent: true,
             docids: false,
             mtime_granularity_ns: 15_625_000,
+            dir_flush_doubtful: false,
         }
     }
 
@@ -955,6 +977,42 @@ mod tests {
         assert_eq!(b[4..8], [1, 1, 1, 1]);
         assert_eq!(b[8..], 15_625_000u64.to_le_bytes());
         assert_eq!(VolumeCaps::from_snapshot(&b), Some(caps()));
+        assert!(caps().is_valid());
+    }
+
+    /// [OS/project §4.2, §4.3]: `dir_flush_doubtful` is flag bit 14 (a network redirector's row); bits 15–31 stay
+    /// reserved.
+    #[test]
+    fn dir_flush_doubtful_is_bit_14() {
+        let net = VolumeCaps {
+            dir_flush_doubtful: true,
+            ..caps()
+        };
+        let b = net.to_snapshot();
+        assert_eq!(u32::from_le_bytes([b[0], b[1], b[2], b[3]]) >> 14, 1);
+        assert_eq!(VolumeCaps::from_snapshot(&b), Some(net));
+        let mut r = b;
+        r[1] |= 0x80; // bit 15, reserved
+        assert_eq!(VolumeCaps::from_snapshot(&r), None);
+    }
+
+    /// [OS/project §4.2]: `Sensitive` with `case_insensitive_default` is invalid, and so is an `id_kind` above 4; their
+    /// snapshots never decode.
+    #[test]
+    fn invalid_caps_are_never_decoded() {
+        for bad in [
+            VolumeCaps {
+                case_rule: CaseRule::Sensitive,
+                ..caps()
+            },
+            VolumeCaps {
+                id_kind: 5,
+                ..caps()
+            },
+        ] {
+            assert!(!bad.is_valid());
+            assert_eq!(VolumeCaps::from_snapshot(&bad.to_snapshot()), None);
+        }
     }
 
     #[test]
@@ -1103,10 +1161,10 @@ mod tests {
         );
     }
 
-    /// A snapshot whose flag word has the 14 defined bits random and, one time in ten, one reserved bit; whose bytes 4–7
+    /// A snapshot whose flag word has the 15 defined bits random and, one time in ten, one reserved bit; whose bytes 4–7
     /// are each drawn from the field's valid range plus one reserved value; and whose granularity is any u64.
     fn near_valid_snapshot() -> impl Strategy<Value = [u8; 16]> {
-        let reserved = prop_oneof![9 => Just(0u32), 1 => (14u32..32).prop_map(|n| 1u32 << n)];
+        let reserved = prop_oneof![9 => Just(0u32), 1 => (15u32..32).prop_map(|n| 1u32 << n)];
         (
             any::<u16>(),
             reserved,
@@ -1117,7 +1175,7 @@ mod tests {
             any::<u64>(),
         )
             .prop_map(|(defined, reserved, id_kind, btime, case, cloud, gran)| {
-                let flags = (u32::from(defined) & 0x3FFF) | reserved;
+                let flags = (u32::from(defined) & 0x7FFF) | reserved;
                 let mut b = [0u8; 16];
                 b[..4].copy_from_slice(&flags.to_le_bytes());
                 b[4] = id_kind;
@@ -1170,12 +1228,13 @@ mod tests {
                 any::<bool>(),
                 any::<bool>(),
                 any::<u64>(),
+                any::<bool>(),
             ),
         )
             .prop_map(
                 |(
                     (id_kind, loc, jr, bt, ctime, case, cid),
-                    (nia, nfc, cl, rn, clone, persist, docids, gran),
+                    (nia, nfc, cl, rn, clone, persist, docids, gran, doubtful),
                 )| {
                     let case_rule = [CaseRule::Sensitive, CaseRule::PerDirFlag, CaseRule::Volume]
                         [usize::from(case)];
@@ -1207,6 +1266,7 @@ mod tests {
                         ids_persistent: persist,
                         docids,
                         mtime_granularity_ns: gran,
+                        dir_flush_doubtful: doubtful,
                     }
                 },
             )
@@ -1230,7 +1290,7 @@ mod tests {
             f.copy_from_slice(&b[..4]);
             let flags = u32::from_le_bytes(f);
             let field = |shift: u32| (flags >> shift) & 3;
-            let valid = flags >> 14 == 0
+            let valid = flags >> 15 == 0
                 && !(flags & 1 << 4 != 0 && flags & 1 << 3 == 0)
                 && field(5) != 3
                 && field(7) != 3

@@ -11,7 +11,9 @@
 pub trait Entropy {
     /// Fills all of `buf` with bytes from the OS's cryptographically secure random source. Never returns an error and
     /// never fills less than `buf.len()` bytes: an impossible failure of the OS call panics, naming the call and the OS
-    /// code ([OS/README §4.6] "Failure rule"). Each value is drawn with one call of exactly its width; the caller, not
-    /// this call, draws again where the owning chapter says so.
+    /// code, and the product's panic hook prints the `internal` text and exits 1 ([OS/README §4.6] "Failure rule",
+    /// [F19 §7.2] item 8); there is no retry with another call and no weaker source. Each value is drawn with one call of
+    /// exactly its width; the caller, not this call, draws again where the owning chapter says so. Takes no lock, keeps
+    /// no process-global state and may be called under any held byte.
     fn fill_random(&self, buf: &mut [u8]);
 }

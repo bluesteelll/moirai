@@ -23,8 +23,9 @@
 //! | [`clock`] | `Clock`, `Stamp`, `DeadlineState`, `hlc_next` | [OS/README §4.4], [OS/clock] |
 //! | [`entropy`] | `Entropy`, the random source | [OS/README §4.6] |
 //! | [`meter`] | `Meter` and its reading types | [OS/README §4.3], [OS/mem] |
-//! | [`path`] | `RelPath`, `RelPathBuf`, `AbsPath`, `CanonicalRoot`, `EntryName`, `PathError` | [OS/path §2, §9, §11] |
+//! | [`path`] | `RelPath`, `RelPathBuf`, `AbsPath`, `CanonicalRoot`, `EntryName`, `EntryNameRef`, `PathError` | [OS/path §2, §9, §11] |
 //! | [`project`] | `ProjectFs`, `OsFileId`, `FsTime`, `FileAttrs`, `VolumeCaps` and the project-file types | [OS/project] |
+//! | [`swap`] | `SwapIntent`: the side names and the byte-exact codec of the swap intent file (with a crate-private XXH3-64) | [OS/fs §4.9.2, §4.9.3] |
 //!
 //! Sources: [80 §2.1–§2.3, §2.7, §2.11]; `docs/m0/PLAN.md` §2.2, §6.2 R2; `docs/spec/os/` (WP-17); [F15 §4, §5].
 
@@ -40,6 +41,8 @@ pub mod meter;
 pub mod path;
 pub mod proc;
 pub mod project;
+pub mod swap;
+mod xxh3;
 
 pub use clock::{Clock, DeadlineState, Stamp, hlc_next};
 pub use entropy::Entropy;
@@ -49,9 +52,9 @@ pub use env::{
 };
 pub use error::{DurabilityFailure, DurabilityLine, OsCode, OsErrorUnit, VfsError, VfsErrorKind};
 pub use fs::{
-    Access, DirEntry, DurabilityClass, EntryKind, FileIdentity, FreeSpace, GroupMember, OpenHint,
-    RootAccess, RootRole, ShareRetry, StoreFs, SwapOutcome, SwapRecovery, SyncKind, VfsCounters,
-    VfsTypes,
+    Access, DirEntry, DurabilityClass, EntryKind, FileIdentity, FreeSpace, GroupMember,
+    OS_SHARE_RETRY_MS, OpenHint, RootAccess, RootRole, ShareRetry, StoreFs, SwapOutcome,
+    SwapRecovery, SyncKind, VfsCounters, VfsTypes,
 };
 pub use grant::{
     CancelStep, ClientId, DeadlineStep, Driver, FailStep, GrantStep, GrantTable, KernelHandle,
@@ -59,12 +62,14 @@ pub use grant::{
     WaitMode, WaitStep,
 };
 pub use lock::{
-    Acquired, FOREIGN_CHECK_BYTE, Grant, LockByte, LockError, LockMode, Locks, N_SLOTS,
-    ProbeResult, ROLE_BASE, SLOT_BASE, SlotIndex,
+    Acquired, FOREIGN_CHECK_BYTE, Grant, LockByte, LockError, LockMode, Locks, N_QUIET, N_SLOTS,
+    ProbeResult, QuietIndex, ROLE_BASE, SLOT_BASE, SlotIndex,
 };
 pub use map::{Advice, MAP_REGISTRY_SLOTS, MapError, SealedMap, SealedMaps};
 pub use meter::{ChildPeak, ChildTicket, CpuTimes, HeapCounts, Meter, MeterError, PeakKind};
-pub use path::{AbsPath, CanonicalRoot, EntryName, PathError, RelPath, RelPathBuf, display_name};
+pub use path::{
+    AbsPath, CanonicalRoot, EntryName, EntryNameRef, PathError, RelPath, RelPathBuf, display_name,
+};
 pub use proc::{
     BootId, BootIdentity, Liveness, OsTag, ParentRec, ProcHost, ProcId, UnknownBoot, Wake,
     WatchEvent,
@@ -75,6 +80,7 @@ pub use project::{
     ProjectRead, ReadOpts, ReadSnapshot, RenameFailure, RenameRule, Renamed, Stat, StatMode,
     StatRec, VolumeCaps, VolumeKey,
 };
+pub use swap::SwapIntent;
 
 /// The store-side seam ([OS/README §4.1]): the union of the seven sub-traits over one set of handle types.
 ///

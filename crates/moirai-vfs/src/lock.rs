@@ -26,6 +26,30 @@ pub const SLOT_BASE: u64 = (1 << 62) + (1 << 16);
 pub const N_SLOTS: u16 = 256;
 /// Reserved; never locked by moirai; probed by `foreign_lock_check` ([OS/lock §11]).
 pub const FOREIGN_CHECK_BYTE: u64 = ROLE_BASE + 63;
+/// The number of quiet bytes ([OS/lock §2], pass 1, P1-10): one per requester of quiet mode, which the decider probes
+/// all of ([OS/lock §8] item 5, [F03 §3.1]).
+pub const N_QUIET: u8 = 9;
+
+/// A quiet-byte index, 0..=8 ([OS/lock §2]): `Quiet(0)` at `ROLE_BASE + 3` (the design's quiet-advisory byte, [AR §4.1])
+/// and `Quiet(k)`, 1 ≤ k ≤ 8, at `ROLE_BASE + 4 + k`.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct QuietIndex(u8);
+
+impl QuietIndex {
+    /// `Some` for `k < 9`.
+    pub const fn new(k: u8) -> Option<QuietIndex> {
+        if k < N_QUIET {
+            Some(QuietIndex(k))
+        } else {
+            None
+        }
+    }
+
+    /// The index.
+    pub const fn get(self) -> u8 {
+        self.0
+    }
+}
 
 /// A liveness-slot index, 0..=255 ([OS/lock §2, §10]).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
@@ -61,8 +85,9 @@ pub enum LockByte {
     Leader,
     /// Checkpoint, promotion, rollup, GC. Rank 2; try only.
     Maintenance,
-    /// The quiet-advisory byte ([AR §4.1]); probed or tried, never waited; no rank.
-    Quiet,
+    /// A quiet byte ([OS/lock §2], [AR §4.1], [F03 §3.1]): held by a requester of quiet mode for its run; probed or
+    /// tried, never waited; no rank.
+    Quiet(QuietIndex),
     /// The flush holder; boot-change recovery. Rank 3; waitable.
     Flush,
     /// A liveness slot. Rank 0; try only.
@@ -76,7 +101,13 @@ impl LockByte {
             LockByte::Writer => ROLE_BASE,
             LockByte::Leader => ROLE_BASE + 1,
             LockByte::Maintenance => ROLE_BASE + 2,
-            LockByte::Quiet => ROLE_BASE + 3,
+            LockByte::Quiet(q) => {
+                if q.0 == 0 {
+                    ROLE_BASE + 3
+                } else {
+                    ROLE_BASE + 4 + q.0 as u64
+                }
+            }
             LockByte::Flush => ROLE_BASE + 4,
             LockByte::Slot(i) => SLOT_BASE + i.0 as u64,
         }
@@ -90,7 +121,7 @@ impl LockByte {
             LockByte::Maintenance => Some(2),
             LockByte::Flush => Some(3),
             LockByte::Writer => Some(4),
-            LockByte::Quiet => None,
+            LockByte::Quiet(_) => None,
         }
     }
 
@@ -104,14 +135,17 @@ impl LockByte {
         matches!(self, LockByte::Writer | LockByte::Flush)
     }
 
-    /// The byte at `offset`, if it is one of the table's bytes (the reserved range 2^62 + 5 … 2^62 + 63 is none).
+    /// The byte at `offset`, if it is one of the table's bytes (the reserved range 2^62 + 13 … 2^62 + 63 is none).
     pub const fn from_offset(offset: u64) -> Option<LockByte> {
         match offset {
             o if o == ROLE_BASE => Some(LockByte::Writer),
             o if o == ROLE_BASE + 1 => Some(LockByte::Leader),
             o if o == ROLE_BASE + 2 => Some(LockByte::Maintenance),
-            o if o == ROLE_BASE + 3 => Some(LockByte::Quiet),
+            o if o == ROLE_BASE + 3 => Some(LockByte::Quiet(QuietIndex(0))),
             o if o == ROLE_BASE + 4 => Some(LockByte::Flush),
+            o if o >= ROLE_BASE + 5 && o <= ROLE_BASE + 12 => {
+                Some(LockByte::Quiet(QuietIndex((o - ROLE_BASE - 4) as u8)))
+            }
             o if o >= SLOT_BASE && o < SLOT_BASE + N_SLOTS as u64 => {
                 Some(LockByte::Slot(SlotIndex((o - SLOT_BASE) as u8)))
             }
@@ -274,15 +308,19 @@ impl std::error::Error for LockError {}
 mod tests {
     use super::*;
 
+    fn quiet(k: u8) -> LockByte {
+        LockByte::Quiet(QuietIndex::new(k).unwrap())
+    }
+
     fn all_bytes() -> impl Iterator<Item = LockByte> {
         [
             LockByte::Writer,
             LockByte::Leader,
             LockByte::Maintenance,
-            LockByte::Quiet,
             LockByte::Flush,
         ]
         .into_iter()
+        .chain((0..N_QUIET).map(quiet))
         .chain((0..N_SLOTS).map(|i| LockByte::Slot(SlotIndex::new(i).unwrap())))
     }
 
@@ -291,8 +329,18 @@ mod tests {
         assert_eq!(LockByte::Writer.offset(), 0x4000_0000_0000_0000);
         assert_eq!(LockByte::Leader.offset(), 0x4000_0000_0000_0001);
         assert_eq!(LockByte::Maintenance.offset(), 0x4000_0000_0000_0002);
-        assert_eq!(LockByte::Quiet.offset(), 0x4000_0000_0000_0003);
+        assert_eq!(quiet(0).offset(), 0x4000_0000_0000_0003);
         assert_eq!(LockByte::Flush.offset(), 0x4000_0000_0000_0004);
+        // The quiet bytes 1–8 of pass 1, P1-10: 2^62 + 5 … 2^62 + 12.
+        assert_eq!(quiet(1).offset(), 0x4000_0000_0000_0005);
+        assert_eq!(quiet(8).offset(), 0x4000_0000_0000_000C);
+        assert_eq!(QuietIndex::new(9), None);
+        assert_eq!(QuietIndex::new(4).unwrap().get(), 4);
+        let offsets: std::collections::BTreeSet<u64> = all_bytes().map(LockByte::offset).collect();
+        assert_eq!(
+            offsets.len(),
+            4 + usize::from(N_QUIET) + usize::from(N_SLOTS)
+        );
         assert_eq!(
             LockByte::Slot(SlotIndex::new(0).unwrap()).offset(),
             0x4000_0000_0001_0000
@@ -309,7 +357,7 @@ mod tests {
             // Every lock byte lies beyond the 36 KiB `LOCK` file (contract item 1).
             assert!(b.offset() > 36 * 1024);
         }
-        for reserved in ROLE_BASE + 5..=ROLE_BASE + 63 {
+        for reserved in ROLE_BASE + 13..=ROLE_BASE + 63 {
             assert_eq!(LockByte::from_offset(reserved), None);
         }
         assert_eq!(LockByte::from_offset(SLOT_BASE + 256), None);
@@ -317,7 +365,10 @@ mod tests {
 
     #[test]
     fn ranks_and_waitable_set() {
-        assert_eq!(LockByte::Quiet.rank(), None);
+        for k in 0..N_QUIET {
+            assert_eq!(quiet(k).rank(), None);
+            assert!(quiet(k).is_role() && !quiet(k).waitable());
+        }
         assert!(LockByte::Slot(SlotIndex::new(3).unwrap()).rank() < LockByte::Leader.rank());
         assert!(LockByte::Leader.rank() < LockByte::Maintenance.rank());
         assert!(LockByte::Maintenance.rank() < LockByte::Flush.rank());

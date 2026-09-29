@@ -1,19 +1,18 @@
 //! Path value types and their syntax checks ([OS/path §2, §9, §11]): the one `RelPath` type for store and project
-//! paths (P1, P4), `AbsPath` (P12), `CanonicalRoot` (P9), `EntryName` and the display of names.
+//! paths (P1, P4), `AbsPath` (P12), `CanonicalRoot` (P9), `EntryName` with its borrowed form `EntryNameRef`, and the
+//! display of names.
 //!
 //! Everything here is pure: conversions that need the OS (`canonical_root`, `canonical_abs`, `cli_path`) are
-//! `moirai-os::path` and are reached through [`crate::ProjectFs`]; the Unicode rules P3, P5 and P6 are `moirai-files`'s.
+//! `moirai-os::path` and are reached through [`crate::ProjectFs`]; the Unicode rules P3, P5 and P6 and
+//! `representable(os, segment)` are `moirai-files`'s ([OS/path §1, §8.1]).
 //!
-//! **Representation of `RelPath`** (a spec finding of WP-30, for WP-80a). [OS/path §11] writes `pub struct RelPath(str)`,
-//! an unsized newtype built from `&str` with `RelPath::new(s) -> Result<&RelPath, _>` and `parent() -> Option<&RelPath>`.
-//! Casting a `&str` to a reference to such a newtype needs `unsafe`, which this crate forbids ([OS/README §2.1], PLAN
-//! §2.1), and the crate has no dependency that could do it. `RelPath<'a>` is therefore a `Copy` view over a validated
-//! `&'a str`, two words wide, and every seam takes it **by value**: where [OS/fs §3], [OS/map §3] and [OS/project §2.1]
-//! write `rel: &RelPath`, `dir: Option<&RelPath>`, `name: &RelPath` or `At { path: &'a RelPath }`, the seams of this
-//! crate take `rel: RelPath<'_>`, `dir: Option<RelPath<'_>>`, `name: RelPath<'_>` and `At { path: RelPath<'a> }`. A
-//! caller holding a [`RelPathBuf`] passes `buf.as_rel_path()` (or `(&buf).into()`); a map keyed by `RelPathBuf` is
-//! queried with the borrowed text (`RelPathBuf: Borrow<str>`). The grammar, the byte-exact comparison and the absence
-//! of any normalisation are those of [OS/path §2.1].
+//! **The Rust form of `RelPath`** ([OS/path §2.1, §11], spec sync 2a). `RelPath<'a>` is a `Copy` view over a validated
+//! `&'a str`, two words wide, and every seam takes it **by value**: `rel: RelPath<'_>`, `dir: Option<RelPath<'_>>`,
+//! `name: RelPath<'_>`, `At { path: RelPath<'a> }`, `GroupMember::Dir { dir: Option<RelPath<'a>> }`. An unsized
+//! `RelPath(str)` passed as `&RelPath` could not be built from a `&str` without `unsafe`, which this crate forbids
+//! ([OS/README §2.1]). A caller holding a [`RelPathBuf`] passes `buf.as_rel_path()` (or `(&buf).into()`); a map keyed by
+//! `RelPathBuf` is queried with the borrowed text (`RelPathBuf: Borrow<str>`). The grammar, the byte-exact comparison
+//! and the absence of any normalisation are those of [OS/path §2.1].
 
 use core::borrow::Borrow;
 use core::fmt;
@@ -21,31 +20,42 @@ use core::fmt;
 use crate::proc::OsTag;
 use crate::project::OsFileId;
 
-/// Why a path value was refused ([OS/path §11]).
+/// Why a path value was refused ([OS/path §11]). Each variant has one meaning; the CLI reports it as its doc says
+/// ([F19 §10.2]).
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub enum PathError {
-    /// An empty segment: a leading or trailing `/`, or `//` inside the path; an empty segment passed to `join`.
+    /// An empty segment: a leading or trailing `/`, or a `//` inside a `RelPath` or inside an `AbsPath` after its prefix;
+    /// or an empty `seg` passed to [`RelPath::join`]. The empty `RelPath` itself is the root and valid. `bad_path`, P1.
     Empty,
-    /// A malformed absolute-path prefix: a lower-case or missing drive letter, a UNC path without server or share.
+    /// A malformed `AbsPath` prefix ([OS/path §2.2]): a drive letter that is not upper-case `A`–`Z` or is not followed by
+    /// `:/` (so `C:` and `C:x` are not `AbsPath` values), or a UNC path without a server or a share. Exit 2.
     BadSegment,
-    /// A segment that is exactly `.` or `..` (P1).
+    /// A segment that is exactly `.` or `..` (P1). `bad_path`, P1.
     DotSegment,
-    /// A `/` inside a single segment (for example the argument of [`RelPath::join`]).
+    /// A `/` inside a single segment (the argument of [`RelPath::join`]): a programming error of the caller.
     Separator,
-    /// A C0 control character in a segment (P4), or U+0000 in an absolute path.
+    /// A C0 control character in a `RelPath` segment (P4), or U+0000 in an `AbsPath`. `bad_path`, P4.
     Control,
-    /// A `\` in a segment of a `RelPath` (P4).
+    /// A `\` in a `RelPath` segment (P4). `bad_path`, P4.
     Backslash,
-    /// The bytes are not UTF-8 (P4).
+    /// Input that is not valid Unicode: bytes that are not UTF-8 (Unix), or UTF-16 with an unpaired surrogate (Windows)
+    /// (P4; [OS/path §7] step 1). `bad_path`, P4.
     NotUtf8,
-    /// A value that must be absolute is not (§2.2), or a CLI argument could not be made absolute.
+    /// A value that must be an `AbsPath` matches none of [OS/path §2.2]'s three forms; or a CLI argument could not be
+    /// made absolute at [OS/path §7] step 4 (the current directory has no canonical form, a leading `/` under a UNC
+    /// current directory, or a `//` argument without a server or a share). Exit 2.
     NotAbsolute,
-    /// A CLI argument names a path outside the tree ([OS/path §7] step 5).
+    /// A Windows CLI argument `X:rel`, or a bare `X:` ([OS/path §7] step 3). `bad_path`, rule `drive-relative`.
+    DriveRelative,
+    /// A Windows CLI argument in a device form `//./…` or `//?/…` ([OS/path §7] step 3). `bad_path`, rule `device`.
+    DevicePath,
+    /// A CLI argument whose normalised path is neither the tree root nor below it ([OS/path §7] step 5). Exit 2, or the
+    /// verb's own refusal.
     OutsideRoot,
 }
 
 impl PathError {
-    /// A stable lower-case description for diagnostics.
+    /// A stable lower-case description for diagnostics (not a frozen user text; [F19 §10.2] owns those).
     pub const fn as_str(self) -> &'static str {
         match self {
             PathError::Empty => "empty path segment",
@@ -56,6 +66,8 @@ impl PathError {
             PathError::Backslash => "backslash in a path segment",
             PathError::NotUtf8 => "path is not UTF-8",
             PathError::NotAbsolute => "path is not absolute",
+            PathError::DriveRelative => "drive-relative path",
+            PathError::DevicePath => "device path",
             PathError::OutsideRoot => "path is outside the tree",
         }
     }
@@ -410,11 +422,14 @@ impl EntryName {
     /// Classifies the bytes of one directory entry's name as an OS returned them (WTF-8 on Windows, raw bytes on Unix):
     /// `Utf8` iff they are valid UTF-8 and form a valid `RelPath` segment, else `Unrepresentable`.
     pub fn from_os_bytes(bytes: &[u8]) -> EntryName {
-        match core::str::from_utf8(bytes) {
-            Ok(s) if !bytes.contains(&b'/') && check_segment(bytes, 0, bytes.len()).is_ok() => {
-                EntryName::Utf8(Box::from(s))
-            }
-            _ => EntryName::Unrepresentable(Box::from(bytes)),
+        EntryNameRef::from_os_bytes(bytes).to_owned()
+    }
+
+    /// The borrowed form ([OS/path §2.4]): the same bytes and the same classification.
+    pub fn as_entry_ref(&self) -> EntryNameRef<'_> {
+        match self {
+            EntryName::Utf8(s) => EntryNameRef::Utf8(s),
+            EntryName::Unrepresentable(b) => EntryNameRef::Unrepresentable(b),
         }
     }
 
@@ -437,6 +452,78 @@ impl EntryName {
     /// The display form of [OS/path §9].
     pub fn display(&self) -> String {
         display_name(self.as_bytes())
+    }
+}
+
+/// A name as an OS returned it, borrowed ([OS/path §2.4]): the form an enumeration hands to its visitor, so that a tree
+/// scan allocates nothing per entry ([OS/project §5.2]). It lives only as long as the buffer it borrows from; a caller
+/// that keeps a name takes [`EntryNameRef::to_owned`]. The two forms carry the same bytes and the same classification.
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum EntryNameRef<'a> {
+    /// The name is valid Unicode and passes P4: usable as a `RelPath` segment.
+    Utf8(&'a str),
+    /// The name is not UTF-8 (Linux), has an unpaired surrogate (Windows), or contains `\` or a C0 control (P4): the OS
+    /// bytes (WTF-8 of the UTF-16 name on Windows, the raw bytes on Unix). Never a candidate, never stored.
+    Unrepresentable(&'a [u8]),
+}
+
+impl<'a> EntryNameRef<'a> {
+    /// Classifies the bytes of one directory entry's name as an OS returned them, as [`EntryName::from_os_bytes`] does,
+    /// without allocating.
+    pub fn from_os_bytes(bytes: &'a [u8]) -> EntryNameRef<'a> {
+        match core::str::from_utf8(bytes) {
+            Ok(s) if !bytes.contains(&b'/') && check_segment(bytes, 0, bytes.len()).is_ok() => {
+                EntryNameRef::Utf8(s)
+            }
+            _ => EntryNameRef::Unrepresentable(bytes),
+        }
+    }
+
+    /// The owned form ([OS/path §2.4]), with the signature the specification fixes: `to_owned(&self)`.
+    ///
+    /// The receiver is `&self` although the type is `Copy` (so clippy's `wrong_self_convention` is allowed here): an
+    /// inherent `&self` method is found before the blanket `ToOwned::to_owned` both for `name.to_owned()` and for
+    /// `(&name).to_owned()`, while a by-value receiver would let the second form resolve to `ToOwned` and return an
+    /// `EntryNameRef` instead of an `EntryName`.
+    #[allow(clippy::wrong_self_convention)]
+    pub fn to_owned(&self) -> EntryName {
+        match *self {
+            EntryNameRef::Utf8(s) => EntryName::Utf8(Box::from(s)),
+            EntryNameRef::Unrepresentable(b) => EntryName::Unrepresentable(Box::from(b)),
+        }
+    }
+
+    /// The name as a `RelPath` segment; `None` if it is unrepresentable.
+    pub const fn as_segment(&self) -> Option<&'a str> {
+        match *self {
+            EntryNameRef::Utf8(s) => Some(s),
+            EntryNameRef::Unrepresentable(_) => None,
+        }
+    }
+
+    /// The name's bytes (the UTF-8 text, or the OS bytes).
+    pub const fn as_bytes(&self) -> &'a [u8] {
+        match *self {
+            EntryNameRef::Utf8(s) => s.as_bytes(),
+            EntryNameRef::Unrepresentable(b) => b,
+        }
+    }
+
+    /// The display form of [OS/path §9].
+    pub fn display(&self) -> String {
+        display_name(self.as_bytes())
+    }
+}
+
+impl PartialEq<EntryName> for EntryNameRef<'_> {
+    fn eq(&self, other: &EntryName) -> bool {
+        *self == other.as_entry_ref()
+    }
+}
+
+impl PartialEq<EntryNameRef<'_>> for EntryName {
+    fn eq(&self, other: &EntryNameRef<'_>) -> bool {
+        self.as_entry_ref() == *other
     }
 }
 
@@ -583,6 +670,77 @@ mod tests {
         );
     }
 
+    /// [OS/path §2.4]: the borrowed form carries the same bytes and the same classification as the owned one.
+    #[test]
+    fn borrowed_entry_names_match_the_owned_ones() {
+        for bytes in [
+            &b"file.txt"[..],
+            b"a\\b",
+            b"\x01x",
+            b".",
+            b"..",
+            b"\xff",
+            b"a/b",
+            b"",
+            "日本".as_bytes(),
+            b"x\xed\xa0\x80",
+        ] {
+            let r = EntryNameRef::from_os_bytes(bytes);
+            let owned = EntryName::from_os_bytes(bytes);
+            assert_eq!(r.to_owned(), owned, "{bytes:?}");
+            assert_eq!(owned.as_entry_ref(), r);
+            assert!(r == owned && owned == r);
+            assert_eq!(r.as_bytes(), bytes);
+            assert_eq!(r.as_segment(), owned.as_segment());
+            assert_eq!(r.display(), owned.display());
+        }
+        assert_eq!(EntryNameRef::from_os_bytes(b"ok"), EntryNameRef::Utf8("ok"));
+        assert_eq!(
+            EntryNameRef::from_os_bytes(b"a\\b"),
+            EntryNameRef::Unrepresentable(b"a\\b")
+        );
+    }
+
+    /// [OS/path §2.4] `to_owned(&self)`: every call form reaches the inherent method and gives an `EntryName`, never the
+    /// blanket `ToOwned` of the `Copy` type (which would give back an `EntryNameRef`). The annotations make this a
+    /// compile-time check; `PartialEq<EntryName> for EntryNameRef` would hide it from a plain `assert_eq!`.
+    #[test]
+    #[allow(clippy::needless_borrow)]
+    fn to_owned_gives_the_owned_form_by_every_call_form() {
+        let r = EntryNameRef::from_os_bytes(b"x\xff");
+        let by_place: EntryName = r.to_owned();
+        let by_ref: EntryName = (&r).to_owned();
+        let rr = &r;
+        let by_binding: EntryName = rr.to_owned();
+        let by_path: EntryName = EntryNameRef::to_owned(&r);
+        for o in [by_place, by_ref, by_binding, by_path] {
+            assert_eq!(o, EntryName::Unrepresentable(Box::from(&b"x\xff"[..])));
+        }
+    }
+
+    /// [OS/path §11]: every variant has its own description; the drive-relative and device refusals of §7 step 3 are
+    /// variants of their own.
+    #[test]
+    fn path_errors_are_distinct() {
+        let all = [
+            PathError::Empty,
+            PathError::BadSegment,
+            PathError::DotSegment,
+            PathError::Separator,
+            PathError::Control,
+            PathError::Backslash,
+            PathError::NotUtf8,
+            PathError::NotAbsolute,
+            PathError::DriveRelative,
+            PathError::DevicePath,
+            PathError::OutsideRoot,
+        ];
+        let texts: std::collections::BTreeSet<&str> = all.iter().map(|e| e.as_str()).collect();
+        assert_eq!(texts.len(), all.len());
+        assert_eq!(PathError::DriveRelative.to_string(), "drive-relative path");
+        assert_eq!(PathError::DevicePath.to_string(), "device path");
+    }
+
     /// Byte strings that mix valid multi-byte UTF-8 with ill-formed bytes: lone continuation bytes, truncated sequences,
     /// surrogates in WTF-8 (`ED A0..BF xx`), overlong forms, and bytes that can never occur (`C0`, `C1`, `F5`–`FF`).
     fn ill_formed_mix() -> impl Strategy<Value = Vec<u8>> {
@@ -634,6 +792,16 @@ mod tests {
                 }
                 prop_assert_eq!(rebuilt.as_str(), text.as_str());
             }
+        }
+
+        /// The borrowed and the owned name agree on every byte string ([OS/path §2.4]).
+        #[test]
+        fn entry_name_forms_agree(bytes in ill_formed_mix()) {
+            let r = EntryNameRef::from_os_bytes(&bytes);
+            let owned = EntryName::from_os_bytes(&bytes);
+            prop_assert_eq!(r.as_bytes(), &bytes[..]);
+            prop_assert_eq!(owned.as_entry_ref(), r);
+            prop_assert_eq!(r.to_owned(), owned);
         }
 
         /// Valid UTF-8 displays unchanged; otherwise every valid run is kept as it is and every ill-formed byte appears

@@ -156,6 +156,13 @@ pub enum ShareRetry {
     },
 }
 
+/// HOLE(OS-share-retry-ms) ([OS/fs §6.3] and its hole table), in milliseconds: the `total_ms` of
+/// [`ShareRetry::Bounded`] for image-export renames, `packed-refs` and loose-ref replace-renames, the store `config`
+/// rename and the clean-up unlinks of the `init` probe ([OS/env §5] step 6). The draft value is 1,000 ms (the
+/// `--retry-ms` default that `file mv` gets, [40 §3.4]); WP-81a fills the hole from measurements 8 and 15, here and only
+/// here, since the OS layer and the simulator both read this constant.
+pub const OS_SHARE_RETRY_MS: u32 = 1_000;
+
 impl ShareRetry {
     /// The longest single sleep of the schedule ([OS/fs §6.3] step 2).
     pub const MAX_SLEEP_MS: u32 = 64;
@@ -334,7 +341,12 @@ pub trait StoreFs: VfsTypes {
 
     /// Creates the directory `dir` (its parent must exist), makes the creation durable (`durable-name` on the parent),
     /// and returns it as `open_root(dir, role, ReadWrite)` would. Role `Store` on Windows adds the owner ACE of
-    /// [90 §5.4]. An existing `dir` is `AlreadyExists`.
+    /// [90 §5.4]. An existing `dir` is `AlreadyExists`. If the embedded `durable-name` flush fails, the new, empty
+    /// directory is removed (the removal's own error ignored) and the error is [`VfsErrorKind::FlushFailed`] with the
+    /// flush's code and call ([OS/fs §4.1]): the caller exits 7 and issues no further write, flush, create or namespace
+    /// call. A failed directory creation may leave the empty directory in place ([F15 §5.2], NS-4).
+    ///
+    /// [`VfsErrorKind::FlushFailed`]: crate::VfsErrorKind::FlushFailed
     fn create_root(&self, dir: &std::path::Path, role: RootRole) -> Result<Self::Root, VfsError>;
 
     // Names ([OS/fs §4.2])
@@ -353,7 +365,8 @@ pub trait StoreFs: VfsTypes {
     /// is not durable until `sync_dir` of its parent (FM-2.3).
     fn create_new(&self, root: &Self::Root, rel: RelPath<'_>) -> Result<Self::File, VfsError>;
 
-    /// Creates one directory level (`AlreadyExists` if present); not durable until `sync_dir` of its parent.
+    /// Creates one directory level (`AlreadyExists` if present); not durable until `sync_dir` of its parent. A failed
+    /// creation may leave the new directory in place, empty ([F15 §5.2], NS-4).
     fn create_dir(&self, root: &Self::Root, rel: RelPath<'_>) -> Result<(), VfsError>;
 
     /// Removes an empty directory (`NotEmpty` otherwise).
@@ -439,8 +452,9 @@ pub trait StoreFs: VfsTypes {
         retry: ShareRetry,
     ) -> Result<(), VfsError>;
 
-    /// Renames a file between two roots on one volume; fails `AlreadyExists` if `to` exists. Makes nothing durable:
-    /// every rename point is followed by `sync_dir` of both parents ([F15 §5.1] NS-5).
+    /// Renames a file or a directory between two roots on one volume ([OS/fs §4.8], [F15 §5.4]); fails `AlreadyExists`
+    /// if `to` exists. A directory is never moved into its own subtree (the caller never asks for it). Makes nothing
+    /// durable: every rename point is followed by `sync_dir` of both parents ([F15 §5.1] NS-5).
     fn rename_noreplace(
         &self,
         from_root: &Self::Root,
@@ -450,7 +464,8 @@ pub trait StoreFs: VfsTypes {
         retry: ShareRetry,
     ) -> Result<(), VfsError>;
 
-    /// Renames a file, atomically replacing an existing `to`. Never targets a sealed file.
+    /// Renames a file (files only, [OS/fs §4.8], [F15 §5.5]), atomically replacing an existing `to`. Never targets a
+    /// sealed file.
     fn rename_replace(
         &self,
         from_root: &Self::Root,
@@ -460,7 +475,8 @@ pub trait StoreFs: VfsTypes {
         retry: ShareRetry,
     ) -> Result<(), VfsError>;
 
-    /// Exchanges two single-component directories on one volume ([OS/fs §4.9], [F15 §5.6]).
+    /// Exchanges two single-component directories on one volume ([OS/fs §4.9], [F15 §5.6]). A failed flush embedded in a
+    /// step is `FlushFailed` ([OS/fs §4.1]) and leaves the intent for `swap_recover`.
     fn swap_dirs(
         &self,
         a_parent: &Self::Root,
@@ -470,7 +486,8 @@ pub trait StoreFs: VfsTypes {
         retry: ShareRetry,
     ) -> Result<SwapOutcome, VfsError>;
 
-    /// Completes or rolls back an interrupted emulated swap from its intent file ([OS/fs §4.9.4]).
+    /// Completes or rolls back an interrupted emulated swap from its intent file ([OS/fs §4.9.4]); an unreadable intent
+    /// with `a` present and `<a>.swap-old` absent is removed (`NothingDone`). A failed embedded flush is `FlushFailed`.
     fn swap_recover(
         &self,
         a_parent: &Self::Root,
