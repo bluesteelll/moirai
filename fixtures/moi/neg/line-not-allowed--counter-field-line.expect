@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/line-not-allowed--counter-field-line.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note A counter written as a field line.
+%% refuse ImageParse line-not-allowed
+%% end

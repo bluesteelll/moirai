@@ -1,0 +1,29 @@
+# Test-only crate (docs/m0/PLAN.md §2.2). Allowed dependencies: moirai-vfs, xxhash-rust; dev: moirai-vfs-sim, proptest.
+# Filled by WP-40 and WP-40b (R-TOY).
+[package]
+name = "moirai-toylog"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "Toy log over Vfs with seeded-bug switches, for harness validation and measurements (test-only)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+moirai-vfs.workspace = true
+# XXH3-64 (record checksums, the chain trailer, `LOCK` records) and XXH3-128 (`HEAD` slots): [F01 §7.1], PLAN §2.4.
+xxhash-rust.workspace = true
+
+[dev-dependencies]
+# The crash enumerator and the in-memory Vfs (WP-31, WP-32) the seeded-bug tests run on (PLAN §2.2).
+moirai-vfs-sim.workspace = true
+# Property tests of the codecs and the scan (PLAN §2.2: dev `proptest`).
+proptest.workspace = true
+
+[lints]
+workspace = true

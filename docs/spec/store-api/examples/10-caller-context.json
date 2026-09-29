@@ -1,0 +1,336 @@
+{
+  "example": "caller-context",
+  "spec": "§4.1, §4.2 CX-1 to CX-3 and CX-9, §4.3 rows 2 and 3, §10.1, §10.6 LP-3, [90 §4.1], [RULES/role-write-policy] WR-002, WR-005, [LQ/errors §5.4] E407",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1; then 03-set-guard.json n = 5 and n = 6 (c00000002 retitled #2 'Write the Store API chapter')",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "statement texts (display printer)",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 7,
+        "cmd": "BranchCreate",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "lane/l3"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l3",
+        "rev": 2,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "ref": "lane/l3",
+          "ref_id": 1,
+          "kind": "work",
+          "fork": "c0000000200000000000000000000000000000000000000000000000000000000"
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 8,
+        "cmd": "Claim",
+        "ctx": {
+          "lease": "L-1",
+          "branch": "lane/l3"
+        },
+        "args": {
+          "ids": [
+            "#2"
+          ],
+          "agent": "codex:t1"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l3",
+        "rev": 2,
+        "commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+        "rev_new": null,
+        "key": null,
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "CALL tx.claim(ids: [#2], agent: $agent)",
+            "matched": null,
+            "targets": [
+              "#2"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": []
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 10,
+          "work_limit": 200000,
+          "rows": 0,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": [
+          {
+            "index": 1,
+            "proc": "tx.claim",
+            "rows": [
+              {
+                "lease": "L-2",
+                "token": 2,
+                "branch": "lane/l3",
+                "expires": {
+                  "wall": "2026-09-21T14:28:20.000Z",
+                  "boot": "b000000000000001",
+                  "boot_ns": "901000000000"
+                },
+                "task": "#2",
+                "role": "developer",
+                "holder": "codex:t1",
+                "anchor": "none",
+                "run": null,
+                "reused": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 9,
+        "cmd": "Mutation",
+        "ctx": {
+          "env": {
+            "MOIRAI_LEASE": "L-2",
+            "MOIRAI_BRANCH": "main",
+            "CODEX_THREAD_ID": "t1"
+          }
+        },
+        "args": {
+          "name": "tx.set",
+          "params": {
+            "id": "#2",
+            "fields": [
+              "title=Write the chapter on lane l3"
+            ]
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l3",
+        "rev": 2,
+        "commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+        "rev_new": 3,
+        "key": null,
+        "lease": "L-2",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "SET #2.title = $title",
+            "matched": null,
+            "targets": [
+              "#2"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": [
+            "#2"
+          ]
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "~",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "field",
+            "name": "title",
+            "before": "Write the Store API chapter",
+            "after": "Write the chapter on lane l3",
+            "side": null,
+            "last_commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+            "actor": "codex:t1"
+          },
+          {
+            "change": "+",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "status",
+            "name": "status",
+            "before": null,
+            "after": {
+              "status": "in_progress",
+              "resolution": "none"
+            },
+            "side": null,
+            "last_commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+            "actor": "codex:t1"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 20,
+          "work_limit": 200000,
+          "rows": 2,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 10,
+        "cmd": "Mutation",
+        "ctx": {
+          "env": {
+            "MOIRAI_LEASE": "L-2",
+            "CODEX_THREAD_ID": "t2"
+          }
+        },
+        "args": {
+          "name": "tx.set",
+          "params": {
+            "id": "#2",
+            "fields": [
+              "title=Write it again"
+            ]
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "errors": [
+          {
+            "code": "E407",
+            "name": "lease",
+            "severity": "error",
+            "span": null,
+            "message": "L-2 is bound to codex:t1; pass your own lease",
+            "suggest": [],
+            "expected": [],
+            "help": null,
+            "detail": [],
+            "lease": "L-2",
+            "holder": "codex:t1",
+            "written": false
+          }
+        ],
+        "exit": 5
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 11,
+        "cmd": "Mutation",
+        "ctx": {
+          "door": "mcp",
+          "lease": "L-2",
+          "branch": "main",
+          "meta": {
+            "threadId": "t1",
+            "sessionId": "root1"
+          }
+        },
+        "args": {
+          "name": "tx.set",
+          "params": {
+            "id": "#2",
+            "fields": [
+              "title=Write it again"
+            ]
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "errors": [
+          {
+            "code": "E407",
+            "name": "lease",
+            "severity": "error",
+            "span": null,
+            "message": "--branch main differs from lease L-2's branch lane/l3",
+            "suggest": [],
+            "expected": [],
+            "help": "drop --branch; the lease fixes the branch",
+            "detail": [],
+            "lease": "L-2",
+            "holder": "codex:t1",
+            "written": false
+          }
+        ],
+        "exit": 5
+      }
+    }
+  ]
+}

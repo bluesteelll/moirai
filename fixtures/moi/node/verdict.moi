@@ -1,0 +1,16 @@
+moirai-node 1
+uid: 8e000000000000000000000000000011
+kind: verdict
+title: Review of the lock protocol
+status: accepted
+created: ca1af04fe698251200f6875befc5ae1c1d5f66a6209b2139e8ac7282fb633c140 2026-09-21T14:13:20.000Z
+updated: c49cec305098233e76ba1f29667c8ac0fdda6b38d968e8e3c84aae7b8e1576239 2026-09-21T15:43:20.000Z
+field conditions: add the crash test
+field criteria: no whole-file lock
+field outcome: pass_with_conditions
+field raw_label: PASS (conditions)
+field return_to: developer
+field role: reviewer
+field round: 1
+edge gates -> 1a000000000000000000000000000011
+edge verifies -> 1a000000000000000000000000000011

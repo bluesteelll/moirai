@@ -1,0 +1,13 @@
+moirai-node 1
+uid: 1a000000000000000000000000000011
+kind: task
+title: Ledger forms
+status: open
+created: c557bc734c97206497f8f15414f558f57d8942c9eae8fc28c52459fee6a8ecab4 2026-09-21T14:13:20.000Z
+updated: c6fd893279a6704152a3a0ee08959c77f9f0ea530a3ec3571ebce9da07cd8543f 2026-09-21T15:43:20.000Z
+field risk: 4
+incr reopen_count +1 c3d192ab50f2037197acc509a7cfbc94433dca298d6d8808ae2946af5e99d715c
+incr reopen_count -1 cb68948d74fe74996a3fa698aafd243fbf6d646bba399def3a55ecfb2ef6c4b4c
+incr reopen_count +2 cf8776d662b77899c6be209943ccd7c3006d9b32434d80e27951c0989998cf43d
+incr retries -2 by-hand
+incr retries +5 c107b8dc8edb1efc03dfd12785ecfd70777a746177c1cc8313e55fc4c4ec8150b

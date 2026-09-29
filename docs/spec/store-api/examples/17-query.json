@@ -1,0 +1,139 @@
+{
+  "example": "query",
+  "spec": "§3.2 family R, §14.1, [LQ/envelope §7.1]–§7.5, [LQ/std §4.1], [LQ/errors §4.1], §5.3 E101",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 5,
+        "cmd": "Query",
+        "ctx": {
+          "agent": "dev1"
+        },
+        "args": {
+          "name": "ready"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+        "view": "tip",
+        "live": true,
+        "cols": [
+          "t"
+        ],
+        "data": [
+          {
+            "id": "#2",
+            "kind": "task",
+            "status": "open",
+            "priority": 2,
+            "title": "Write the chapter",
+            "parent": "#1",
+            "rev": 1
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 15,
+          "work_limit": 200000,
+          "rows": 1,
+          "bytes": 0,
+          "mem": 8192
+        }
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 6,
+        "cmd": "Query",
+        "ctx": {
+          "agent": "dev1"
+        },
+        "args": {
+          "lq": "MATCH (t:task) WHERE t.blocked RETURN t.id AS id, t.title AS title ORDER BY t.id"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+        "view": "tip",
+        "cols": [
+          "id",
+          "title"
+        ],
+        "data": [
+          {
+            "id": "#3",
+            "title": "Write the examples"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 15,
+          "work_limit": 200000,
+          "rows": 1,
+          "bytes": 0,
+          "mem": 8192
+        }
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 7,
+        "cmd": "Query",
+        "ctx": {
+          "agent": "dev1"
+        },
+        "args": {
+          "lq": "MATCH (t:task) WHERE t.titel = 'x' RETURN t"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "errors": [
+          {
+            "code": "E101",
+            "name": "unknown_field",
+            "severity": "error",
+            "span": {
+              "start": 23,
+              "end": 28,
+              "line": 1,
+              "col": 24
+            },
+            "message": "kind task has no field titel",
+            "suggest": [
+              "title"
+            ],
+            "expected": [],
+            "help": "task fields: title, abstract, status, resolution, priority, criticality, confidence, authority, parent, order, labels, pinned, archived, frozen, defer_until, due, reason, body, work_kind, phase_state, assignee, acceptance, files_owned, estimate, reopen_count, reopen_if, pre_registered (CALL schema(kind: 'task'))",
+            "detail": []
+          }
+        ],
+        "exit": 2
+      }
+    }
+  ]
+}

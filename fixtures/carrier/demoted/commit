@@ -1,0 +1,16 @@
+tree 5e86f8ceb2fa1f3a365f89a9b3fabf10cfc948d1
+parent 018e6a12ce584771b360c194bc69088493ee821e
+author moirai/dev#5 <developer@moirai.invalid> 1790004140 +0000
+committer moirai/dev#5 <developer@moirai.invalid> 1790004140 +0000
+
+deprioritise #3
+
+Moirai-Commit: cfba21dbac9bb8924a2c5988b67d19a2294626d6da5650c73bf8c0d5af4242dbc
+Moirai-Kind: ordinary
+Moirai-Ref: lane/demote
+Moirai-Hlc: 117309711319040000
+Moirai-Actor: dev#5
+Moirai-Role: developer
+Moirai-Session: claude:s5
+Moirai-Schema: 1
+Moirai-Ops: 1

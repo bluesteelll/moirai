@@ -1,0 +1,32 @@
+# fixtures/hex/fragments/binding/clienthead-payload.hex: the payload of a ClientHead record ([F05 §9.3]) that sets
+# that row: op 1 (set), then the HEADS row image. The extension is at payload offsets 106-145 (row offset + 1).
+# Decode as a ClientHead payload with git-branch symbol 7 = `u/l5np` defined.
+01                                          # op 1 (set)
+# HEADS row image ([F11 §5], [F11 §2.9])
+  f8 88 ae 7d 74 be 30 ca 7a 79 c5 28 8c 0d 33 f6  # key = BLAKE3-128(text)
+  01                                        # kind 1 (directory)
+  00                                        # flags: detached
+  01                                        # os
+  00                                        # _reserved
+  {u32 1}                                   # ref_id
+  00*16                                     # detached: zero
+  {u64 0}                                   # detached_lsn
+  # root_id: OsFileId kind 1 `ntfs128` (57 B, [F11 §12.1])
+    01                                      # kind
+    51 65 dd fb bf 25 a3 35 07 5f 18 90 1f 19 e0 17  # vol_key
+    84 58 b9 9b 0b d4 13 40 17 40 13 48 e1 13 7f 78  # id
+    a7 08 d8 20 d0 15 94 c2 8a c0 9e 75 b1 06 7a b9  # parent
+    {u32 0}                                 # aux
+    {u32 0}                                 # docid
+  # binding: BindingExt (40 B, [F18 §3.2])
+    01                                      # bflags: designated
+    01                                      # base_algo
+    {u16 0}                                 # _reserved
+    {u32 7}                                 # expected_ref: git-branch symbol 7 `u/l5np`
+    7c 1e 0a 4d 5b 3a 92 c1 e6 f4 0d 8a 7b 2c 9e 01  # base: digest_lo
+    33 44 55 66
+    00*12                                   # base: digest_hi (zero for sha1)
+  {u64 0x1a0c4512f500003}                   # hlc
+  {u32 0}                                   # text: HeapRef.off
+  {u32 17}                                  # text: HeapRef.len
+  "C:/w/store-a-l5np"                       # text slice

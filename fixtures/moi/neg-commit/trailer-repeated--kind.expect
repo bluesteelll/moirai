@@ -1,0 +1,11 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg-commit/trailer-repeated--kind.commit
+%% file commit
+%% context carrier destination A
+%% source [F14 §9.2]
+%% source [F07 §15]
+%% note A repeated trailer.
+%% note Its tree and parents are those of carrier case ordinary (destination A); its object id is 5b5aaf40857a391797ac78bfb7424ad5540ae9c9.
+%% refuse ImageParse trailer-repeated
+%% end

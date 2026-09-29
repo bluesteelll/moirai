@@ -1,0 +1,152 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case lane-y-1
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note lane/y: the lane tip case sync merges main into.
+%% destination A sha1 full
+%% class native
+%% git-commit 98b70e89d7b098f4b47a4b58d48d50c0a10497d3
+%% git-tree 8f9e0bb9534e3195af4dec678e22f456b157f402
+%% git-parent ccad424446fa053d2897aa44b21b74b9ebf6ad37 ordinary
+%% trailer-commit 97e3cd7aad4af5cbc712d072015283ec6c5530ce87d4815f79890a165a9e9af7
+%% touched-new 3
+%% touched-old 3
+%% p-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body "Timeout fires before the lock holder's flush completes."
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 7
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body "Timeout fires before the lock holder's flush completes."
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field priority enum P3
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field symptom text "fsync p99 above 40 ms"
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+1a000000000000000000000000000001 field estimate = int 7
+1a000000000000000000000000000002 field priority = enum P3
+3b000000000000000000000000000001 field symptom = text "fsync p99 above 40 ms"
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000001 field estimate
+011a0000000000000000000000000000010408000000657374696d61746500030700000000000000
+; entry 2: 1a000000000000000000000000000002 field priority
+011a00000000000000000000000000000204080000007072696f726974790006020000005033
+; entry 3: 3b000000000000000000000000000001 field symptom
+013b000000000000000000000000000001040700000073796d70746f6d0007150000006673796e63207039392061626f
+7665203430206d73
+; u64 entry count = 3
+0300000000000000
+%% entry-count 3
+%% changeset-digest bcbb0cac05cc681b8a6530417333070caebd3e0ada3cf2b25c5966c08004c814
+%% commit
+kind ordinary
+parent 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+hlc 01a0c46924200000
+actor "dev#4"
+role "developer"
+session "claude:s5"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "lane y: estimate, priority, symptom"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+; item 3: hlc
+0000202469c4a001
+; item 4: actor
+050000006465762334
+; item 4: role
+09000000646576656c6f706572
+; item 4: session
+09000000636c617564653a7335
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+230000006c616e6520793a20657374696d6174652c207072696f726974792c2073796d70746f6d
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+bcbb0cac05cc681b8a6530417333070caebd3e0ada3cf2b25c5966c08004c814
+%% commit-id 97e3cd7aad4af5cbc712d072015283ec6c5530ce87d4815f79890a165a9e9af7
+%% canonical commits.cases lane-y-1 commit-id
+%% end

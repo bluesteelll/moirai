@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/required-line-missing--title-live.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note A live task without its title: line.
+%% refuse ImageParse required-line-missing
+%% end

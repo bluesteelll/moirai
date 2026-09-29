@@ -1,0 +1,16 @@
+tree 95d5e04a6fff9e4f8e4ecb56a1f83e31894eb82c
+parent 15a8ce13bee4af280d0de5985643573e7fc0b05f
+author moirai/dev#2 <developer@moirai.invalid> 1790000780 +0000
+committer moirai/dev#2 <developer@moirai.invalid> 1790000780 +0000
+
+claim #2
+
+Moirai-Commit: c7d9dab189d18bd3308c25f1c6a53d166a40c6879768890340c765dd43a1b07e4
+Moirai-Kind: ordinary
+Moirai-Ref: lane/anchors
+Moirai-Hlc: 117309491118080000
+Moirai-Actor: dev#2
+Moirai-Role: developer
+Moirai-Session: codex:s7
+Moirai-Schema: 1
+Moirai-Ops: 1

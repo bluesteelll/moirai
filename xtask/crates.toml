@@ -1,0 +1,81 @@
+# The kind of every workspace member (docs/m0/PLAN.md §2.2 "Kind" column), for the scopes of the GT20 (d) and (a)
+# source scans (PLAN §2.1, §6.2 R18) and for the host-only and composition-root cross-checks of `xtask gate` (WP-02).
+#
+# Kinds:
+#   product    built to its final specification and linked into the product; the (d) store-file scan and, except for
+#              moirai-os, the std::fs scan apply, and the (a) spawn scan applies to its non-test code
+#   test-only  never linked into a product binary (test crates, oracles, probes, the probe composition root)
+#   tool       runs on the host only as a tool (xtask, moirai-tokcount)
+#   host-only  excluded from the cross-target check; must also be listed in xtask/host-only.toml, and only there
+#
+# Every workspace member must be listed exactly once: the gate refuses an unlisted member, a listed crate that is not a
+# member, and a `host-only` kind that disagrees with xtask/host-only.toml. A product crate can never be host-only,
+# exempted in osdeps-allow.toml, or a composition root.
+#
+# Fields ([[crate]]): name (package name), kind.
+
+version = 1
+
+[[crate]]
+name = "moirai-vfs"
+kind = "product"
+
+[[crate]]
+name = "moirai-os"
+kind = "product"
+
+[[crate]]
+name = "moirai-diff"
+kind = "product"
+
+[[crate]]
+name = "moirai-files"
+kind = "product"
+
+[[crate]]
+name = "moirai-vfs-sim"
+kind = "test-only"
+
+[[crate]]
+name = "moirai-toylog"
+kind = "test-only"
+
+[[crate]]
+name = "moirai-model"
+kind = "test-only"
+
+[[crate]]
+name = "moirai-format-oracle"
+kind = "test-only"
+
+[[crate]]
+name = "moirai-lqbench"
+kind = "test-only"
+
+[[crate]]
+name = "moirai-replay"
+kind = "test-only"
+
+[[crate]]
+name = "moirai-probes"
+kind = "test-only"
+
+[[crate]]
+name = "moirai-probes-bin"
+kind = "test-only"
+
+[[crate]]
+name = "moirai-harness-stub"
+kind = "test-only"
+
+[[crate]]
+name = "moirai-tokcount"
+kind = "tool"
+
+[[crate]]
+name = "moirai-tsoracle"
+kind = "host-only"
+
+[[crate]]
+name = "xtask"
+kind = "tool"

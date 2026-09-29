@@ -1,0 +1,16 @@
+tree 67a8e9e199070d18a4874bdab537e1462a6b59c0
+parent ccad424446fa053d2897aa44b21b74b9ebf6ad37
+author moirai/dev#3 <developer@moirai.invalid> 1790001200 +0000
+committer moirai/dev#3 <developer@moirai.invalid> 1790001200 +0000
+
+lane x: re-estimate, start #2, drop #3
+
+Moirai-Commit: c0c356fdc2d0fce910e166969e3ac2377a351916f9a038021179c43f7b0f2cabf
+Moirai-Kind: ordinary
+Moirai-Ref: lane/x
+Moirai-Hlc: 117309518643200000
+Moirai-Actor: dev#3
+Moirai-Role: developer
+Moirai-Session: claude:s3
+Moirai-Schema: 1
+Moirai-Ops: 7

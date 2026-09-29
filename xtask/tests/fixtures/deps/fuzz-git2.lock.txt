@@ -1,0 +1,15 @@
+# Seeded violation (GT20 (b) base list, PLAN WP-02): a git library in fuzz/Cargo.lock. Synthetic; never resolved.
+version = 4
+
+[[package]]
+name = "fuzz"
+version = "0.0.0"
+dependencies = [
+ "git2",
+]
+
+[[package]]
+name = "git2"
+version = "0.20.2"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0000000000000000000000000000000000000000000000000000000000000000"

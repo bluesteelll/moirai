@@ -1,0 +1,11 @@
+moirai-query 1
+name: joined_titles
+lq: 1
+params: "$sep: text = '\t', $n: int?"
+shape: table
+budget: light
+---
+DEFINE QUERY joined_titles($sep: text = '	', $n: int?) SHAPE table BUDGET light AS {
+  MATCH (t:task)
+  RETURN t.title + $sep + t.status LIMIT $n
+}

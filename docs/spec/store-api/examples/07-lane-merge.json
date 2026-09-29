@@ -1,0 +1,576 @@
+{
+  "example": "lane-merge",
+  "spec": "§6.5, §6.6, §10.1, §10.5, §11 (branch and rev), §11.5, §11.7 (sync first), [F12 §8.1], [F13 §4.2] MC-1, MC-3",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "git object ids",
+    "statement texts (display printer)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 5,
+        "cmd": "EnvTree",
+        "ctx": {},
+        "args": {
+          "tree": "C:/work/moirai-l1",
+          "volume": "C",
+          "ops": [
+            {
+              "op": "write",
+              "path": "README.md",
+              "text": "lane l1\n"
+            }
+          ]
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "data": {
+          "tree": "C:/work/moirai-l1",
+          "files": 1,
+          "dirs": 0
+        },
+        "next": null,
+        "dropped": null
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 6,
+        "cmd": "EnvGit",
+        "ctx": {},
+        "args": {
+          "repo": "moirai",
+          "algo": "sha1",
+          "commits": [
+            {
+              "id": "sha1:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+              "parents": [],
+              "committer_time": 1789990000,
+              "author_time": 1789990000,
+              "tree": {
+                "README.md": "sha1:2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b2b"
+              }
+            }
+          ],
+          "refs": {
+            "refs/heads/l1": "sha1:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a"
+          },
+          "heads": {
+            "C:/work/moirai-l1": {
+              "ref": "refs/heads/l1"
+            }
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "data": {
+          "repo": "moirai",
+          "commits": 1
+        },
+        "next": null,
+        "dropped": null
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 7,
+        "cmd": "LaneOpen",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "l1",
+          "worktree": "C:/work/moirai-l1",
+          "git_branch": "l1",
+          "base": "1a1a1a1"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+        "rev_new": 2,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "lane": "#4",
+          "ref": "lane/l1",
+          "ref_id": 1,
+          "fork": "c0000000100000000000000000000000000000000000000000000000000000000",
+          "binding": {
+            "dir": "C:/work/moirai-l1",
+            "ref": "lane/l1",
+            "designated": true,
+            "expected_ref": "l1",
+            "base": "sha1:1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a1a",
+            "replaced": []
+          }
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 8,
+        "cmd": "Claim",
+        "ctx": {
+          "branch": "lane/l1",
+          "agent": "dev1"
+        },
+        "args": {
+          "ids": [
+            "#2"
+          ],
+          "start": true
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l1",
+        "rev": 1,
+        "commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+        "rev_new": 3,
+        "key": null,
+        "lease": null,
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "CALL tx.claim(ids: [#2], start: $start)",
+            "matched": null,
+            "targets": [
+              "#2"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": [
+            "#2"
+          ]
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "+",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "status",
+            "name": "status",
+            "before": null,
+            "after": {
+              "status": "in_progress",
+              "resolution": "none"
+            },
+            "side": null,
+            "last_commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+            "actor": "dev1"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 15,
+          "work_limit": 200000,
+          "rows": 1,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": [
+          {
+            "index": 1,
+            "proc": "tx.claim",
+            "rows": [
+              {
+                "lease": "L-2",
+                "token": 2,
+                "branch": "lane/l1",
+                "expires": {
+                  "wall": "2026-09-21T14:28:20.000Z",
+                  "boot": "b000000000000001",
+                  "boot_ns": "901000000000"
+                },
+                "task": "#2",
+                "role": "developer",
+                "holder": "dev1",
+                "anchor": "none",
+                "run": null,
+                "reused": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 9,
+        "cmd": "Complete",
+        "ctx": {
+          "lease": "L-2"
+        },
+        "args": {
+          "id": "#2",
+          "outcome": "done",
+          "summary": "chapter written"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l1",
+        "rev": 3,
+        "commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+        "rev_new": 4,
+        "key": null,
+        "lease": "L-2",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "CALL tx.complete(#2, outcome: $outcome, summary: $summary)",
+            "matched": 1,
+            "targets": [
+              "#2"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [
+            "#3"
+          ],
+          "other": [
+            "#1",
+            "#2"
+          ]
+        },
+        "markers": [
+          {
+            "kind": "settled",
+            "id": "#2",
+            "ref": "lane/l1",
+            "commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+            "outcome": "done",
+            "cause": "ops"
+          }
+        ],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "~",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "status",
+            "name": "status",
+            "before": {
+              "status": "in_progress",
+              "resolution": "none"
+            },
+            "after": {
+              "status": "done",
+              "resolution": "completed"
+            },
+            "side": null,
+            "last_commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+            "actor": "dev1"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 15,
+          "work_limit": 200000,
+          "rows": 1,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": [
+          {
+            "index": 1,
+            "proc": "tx.complete",
+            "rows": [
+              {
+                "task": "#2",
+                "status": "done",
+                "ready": [
+                  "#3"
+                ],
+                "outcome": "done",
+                "lease": "L-2",
+                "settle_commit": null,
+                "changed_since_pack": null
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 10,
+        "cmd": "Tx",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "stmts": [
+            {
+              "op": "create",
+              "as": "rv",
+              "kind": "task",
+              "fields": {
+                "title": "Review the examples"
+              },
+              "under": "#1",
+              "position": "last"
+            }
+          ],
+          "message": "add the review task"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 2,
+        "commit": "c0000000500000000000000000000000000000000000000000000000000000000",
+        "rev_new": 5,
+        "key": null,
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "CREATE (rv:task {title: $p1}) UNDER #1 LAST",
+            "matched": null,
+            "targets": [
+              "#5"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [
+            "#5"
+          ],
+          "other": [
+            "#1"
+          ]
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "+",
+            "node": "#5",
+            "kind": "task",
+            "aspect": "existence",
+            "name": "task",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000500000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#5",
+            "kind": "task",
+            "aspect": "field",
+            "name": "title",
+            "before": null,
+            "after": "Review the examples",
+            "side": null,
+            "last_commit": "c0000000500000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#5",
+            "kind": "task",
+            "aspect": "parent",
+            "name": "parent",
+            "before": null,
+            "after": {
+              "parent": "#1",
+              "order": "s"
+            },
+            "side": null,
+            "last_commit": "c0000000500000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 25,
+          "work_limit": 200000,
+          "rows": 3,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 11,
+        "cmd": "Merge",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "src": "lane/l1",
+          "into": "main"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 5,
+        "commit": "c0000000700000000000000000000000000000000000000000000000000000000",
+        "rev_new": 7,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "src": "lane/l1",
+          "into": "main",
+          "outcome": "landed",
+          "sync": {
+            "commit": "c0000000600000000000000000000000000000000000000000000000000000000",
+            "outcome": "landed",
+            "conflicts": [],
+            "violations": []
+          },
+          "lca": [
+            "c0000000500000000000000000000000000000000000000000000000000000000"
+          ],
+          "virtual_base": false,
+          "conflicts": [],
+          "violations": [],
+          "staging_ref": null,
+          "absorbed": {
+            "lane/l1": 3
+          },
+          "markers": [
+            {
+              "kind": "settled",
+              "id": "#2",
+              "ref": "main",
+              "commit": "c0000000700000000000000000000000000000000000000000000000000000000",
+              "outcome": null,
+              "cause": "ops"
+            }
+          ],
+          "affected": [
+            "#1",
+            "#2",
+            "#3"
+          ]
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 12,
+        "cmd": "LaneClose",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "l1"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 7,
+        "commit": "c0000000800000000000000000000000000000000000000000000000000000000",
+        "rev_new": 8,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "lane": "#4",
+          "status": "merged",
+          "unbound": "C:/work/moirai-l1"
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    }
+  ]
+}

@@ -1,0 +1,29 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/rule.moi
+%% file node
+%% context core
+%% source [F14 §6.6]
+%% source [F08 §9.3] rule
+%% source [F08 §10.1]
+%% note Kind rule with authority owner and its owner_quote; the symmetric contradicts edge is written
+%% note here because this uid is the smaller endpoint.
+%% canonical self
+%% keys
+node 4e000000000000000000000000000011 rule
+  status active none
+  field applies_to set text 1 "path:crates/engine/src/lock.rs"
+  field authority enum owner
+  field enforcement enum must
+  field owner_quote text "Lock ranges, not files."
+  field priority enum P1
+  field rationale text "whole-file locks starve readers"
+  field since int 1789000000
+  field text text "Writers lock byte ranges of LOCK."
+  field title text "Never lock the whole LOCK file"
+  edge contradicts 4e000000000000000000000000000012
+  edge scoped_to 0a000000000000000000000000000001
+%% image
+created c21074018b70cc4a76c0d19bc3f33ef981cf1ac45ad5c862b1063b45099eb52b1 2026-09-21T14:13:20.000Z
+updated c5fc880ca2c1fb4256612bad8818459a91435e8c9cc4ac343697c428b78e6b167 2026-09-21T15:43:20.000Z
+%% end

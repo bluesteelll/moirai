@@ -1,0 +1,153 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case cherry-pick
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note Gate-0 row cherry-pick: Moirai-Origin names case lane-z-1.
+%% destination A sha1 full
+%% class native
+%% git-commit 0e0f4c74c8524e63dfae1a5542d686a29f7a848d
+%% git-tree 1fa5605575ebf34022a8599fb1c7bd81e3505989
+%% git-parent 0c47d3bc9383306f3d858beccb5359bd05fb73bc main-c3
+%% trailer-commit 352fde46a717001f4c4a321f22dadb5b24b02e6c782d66d285607873438bf503
+%% touched-new 2
+%% touched-old 1
+%% p-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 5
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field priority enum P3
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field symptom text "fsync p99 above 40 ms"
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 5
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field priority enum P3
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field symptom text "fsync p99 above 40 ms"
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field tradeoff text "One extra flush per rename."
+  field what text "One FlushFileBuffers per group."
+node 5d000000000000000000000000000002 decision
+  field title text "Write-through for the pointer file"
+  field what text "MOVEFILE_WRITE_THROUGH on every pointer rename."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+5d000000000000000000000000000001 field tradeoff = text "One extra flush per rename."
+5d000000000000000000000000000002 existence = live decision
+5d000000000000000000000000000002 field title = text "Write-through for the pointer file"
+5d000000000000000000000000000002 field what = text "MOVEFILE_WRITE_THROUGH on every pointer rename."
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 5d000000000000000000000000000001 field tradeoff
+015d000000000000000000000000000001040800000074726164656f666600071b0000004f6e6520657874726120666c
+757368207065722072656e616d652e
+; entry 2: 5d000000000000000000000000000002 existence
+015d000000000000000000000000000002010001080000006465636973696f6e00
+; entry 3: 5d000000000000000000000000000002 field title
+015d00000000000000000000000000000204050000007469746c6500072200000057726974652d7468726f7567682066
+6f722074686520706f696e7465722066696c65
+; entry 4: 5d000000000000000000000000000002 field what
+015d00000000000000000000000000000204040000007768617400072f0000004d4f564546494c455f57524954455f54
+48524f554748206f6e20657665727920706f696e7465722072656e616d652e
+; u64 entry count = 4
+0400000000000000
+%% entry-count 4
+%% changeset-digest 39708ecc6ef376bef8c2db5e0ca0a91172fe8bf948a53fccfec653d6372a1770
+%% commit
+kind cherry-pick
+parent e9e5a7d9c65899681f606c97a70cb27fed3c4a7583f328fceaada34ccc0053b9
+hlc 01a0c47e32c00000
+actor "dev#2"
+role "developer"
+session "codex:s7"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "pick the pointer-file decision"
+schema-version 1
+origin cc912a175b764273d102003f96b1b800c60aee1768a64583fdcf92de515a9d65
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+0b0000006368657272792d7069636b
+; item 2: n_parents
+01000000
+; item 2: parent 1
+e9e5a7d9c65899681f606c97a70cb27fed3c4a7583f328fceaada34ccc0053b9
+; item 3: hlc
+0000c0327ec4a001
+; item 4: actor
+050000006465762332
+; item 4: role
+09000000646576656c6f706572
+; item 4: session
+08000000636f6465783a7337
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+1e0000007069636b2074686520706f696e7465722d66696c65206465636973696f6e
+; item 7: schema_version
+01000000
+; item 8: origin
+20000000cc912a175b764273d102003f96b1b800c60aee1768a64583fdcf92de515a9d65
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+39708ecc6ef376bef8c2db5e0ca0a91172fe8bf948a53fccfec653d6372a1770
+%% commit-id 352fde46a717001f4c4a321f22dadb5b24b02e6c782d66d285607873438bf503
+%% canonical commits.cases cherry-pick commit-id
+%% end

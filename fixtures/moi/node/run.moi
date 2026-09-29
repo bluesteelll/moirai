@@ -1,0 +1,19 @@
+moirai-node 1
+uid: ab000000000000000000000000000011
+kind: run
+title: M0 nightly run
+status: green
+created: cf62276da4d5bcce8c7182da89f2b9a15d803b31c887013e98a787847ca2e11c5 2026-09-21T14:13:20.000Z
+updated: c3babe3a875740c85f07537f80fd426197e74aadede63e98b8a678902ccc8939f 2026-09-21T15:43:20.000Z
+field args_hash: 9f2c
+field bg_task_id: bg-3
+field ended: 1790003700
+field expected_artifacts: [" lead", "[x]", "\"q\"", "a, b", "tab\tin", plain, {brace}]
+field journal_path: abs://build01/share/journal.log
+field script_path: abs:D:/work/moirai/nightly.ps1
+field session_id: claude:s9
+field started: 1790000100
+field wf_id: wf-17
+edge consumed -> d706fcde60f0b6cbf56c23297162b652 pin=c0c4cd7158cf16a5964d30a3962fc2a017e3530e3bd8b627a67c4c6f6c57858c7
+edge produced -> 2d000000000000000000000000000011
+edge runs_in -> bc000000000000000000000000000011

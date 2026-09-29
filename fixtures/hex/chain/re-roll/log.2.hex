@@ -1,0 +1,122 @@
+# fixtures/hex/chain/re-roll/log.2.hex: store A after `restore` ([F05 §2.6], §4.5; [F16] P-75, P-85). `restore` folded
+# every valid record of the backup's log up to its committed_lsn into a new segment set and retired every extent,
+# then drew a new epoch. Its first group is the epoch-start group at lsn E = 65,536, the first byte of extent 2, a
+# number above every extent the store used: an ExtentHead with epoch_lsn = E, chain_in = XXH3-64(new epoch), the
+# store's init parameters, and the counters and HLC maxima of the restored store (so the HLC sequence does not
+# restart). Its trailer is seeded with XXH3-64(new epoch) because its lsn is epoch_lsn ([F05 §4.3]). The next
+# group, commit c18 on main, is seeded with that trailer. The restored segment set and log.1's hist file are not
+# part of this fixture (INDEX.md §3.6).
+
+# === group g1 at lsn 65536: the epoch-start group of the new epoch at epoch_lsn = E (first group of the epoch) (durable)
+g1:
+# --- record g1.r1: kind 28 `ExtentHead` at lsn 65536 (group_end)
+g1.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g1.r1..g1.r1.end}                    # len: header, payload and chain trailer
+  1c                                        # kind 28 ExtentHead
+  02                                        # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                   # _reserved
+  {u64 65536}                               # lsn = the record's own position
+  {u64 0x6a09e667f3bcc908}                  # epoch
+  {xxh3_64 g1.r1..g1.r1+24 g1.r1+32..g1.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g1.r1.p:
+    {u64 65536}                             # epoch_lsn
+    {xxh3_64 08c9bcf367e6096a}              # chain_in = XXH3-64(epoch) (the epoch seed)
+    # init: InitParams (32 B, [F04 §4.4])
+      {u64 65536}                           # log_extent_bytes
+      {u32 4}                               # hist_frame_commits
+      {u32 4096}                            # hist_frame_bytes
+      57 01 de 00 00 00 00 00 00 00 00 00 00 00 00 01  # store_id
+    01                                      # project_oid_algo
+    00                                      # hflags (bit 0 quiet, bit 1 readonly)
+    {u64 17}                                # commit_seq
+    {u32 17}                                # next_id
+    {u32 5}                                 # next_anchor
+    {u64 3}                                 # fence
+    {u32 13}                                # next_file_no
+    {u32 7}                                 # next_ref_id
+    {u64 0x1a0c45415800001}                 # hlc_seq
+    {u64 0x1a0c4533ea80000}                 # hlc_commit
+g1.r1.pl:
+g1.tr:
+{xxh3_64 g1..g1.tr seed={xxh3_64 08c9bcf367e6096a}}  # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the chain value at the group's first byte
+g1.end:
+g1.r1.end:
+
+# === group g2 at lsn 65674: commit c18 (seq 18) on main, parent c17 (lsn below epoch_lsn, in the restored segment set) (durable)
+g2:
+# --- record g2.r1: kind 1 `Commit` at lsn 65674 (group_end)
+g2.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g2.r1..g2.r1.end}                    # len: header, payload and chain trailer
+  01                                        # kind 1 Commit
+  02                                        # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                   # _reserved
+  {u64 65674}                               # lsn = the record's own position
+  {u64 0x6a09e667f3bcc908}                  # epoch
+  {xxh3_64 g2.r1..g2.r1+24 g2.r1+32..g2.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g2.r1.p:
+    # Commit payload ([F06 §4.3])
+    {u32 28675}                             # presence: ref_old, prev_on_ref, stmt_hash, msg, affected
+    57 7a 24 82 99 6b d8 d0 cf 7d c9 58 2e 2e 5d 05  # commit_id (synthetic)
+    dc 7f cc c1 7b 63 33 33 78 92 39 fa a7 ca b8 1d
+    01                                      # n_parents
+    a2 fc 77 06 63 d2 ea 2f 87 ef 20 f8 81 93 50 a1  # parents[0].id16
+    {uvar 14256}                            # parents[0].lsn
+    {uvar 13}                               # gen
+    {uvar 18}                               # seq
+    {uvar 1}                                # ref symbol `main`
+    {uvar 0}                                # ref_id
+    a2 fc 77 06 63 d2 ea 2f 87 ef 20 f8 81 93 50 a1  # ref_old (id16 of the tip this commit replaces)
+    {uvar 14256}                            # prev_on_ref (lsn)
+    {uvar 11}                               # ref_seq
+    00                                      # kind `ordinary`
+    00                                      # import `local`
+    {u64 0x1a0c454ffe00000}                 # hlc
+    {uvar 1}                                # actor `owner`
+    {uvar 0}                                # role ``
+    {uvar 0}                                # session ``
+    {uvar 1}                                # schema_version
+    02                                      # stmt_origin `tx`
+    05                                      # actor_src `env`
+    {uvar 0}                                # stmt_sym ``
+    82 cb 99 de 41 e2 d5 c3 a1 75 2c 65 1c 75 9e eb  # stmt_hash
+    {svar 0}                                # append_delta (append_hlc - hlc)
+    {uvar 7}                                # msg: length 7
+    "add #17"
+    {uvar 1}                                # affected_len
+    01                                      # affected_complete
+    {uvar 17}                               # first
+    cf 39 f3 e0 82 57 26 59 62 fb eb 7a 2e 13 59 46  # changeset_digest (synthetic)
+    52 f5 02 7c a5 90 df 16 0a 63 e1 3a de 2e d1 c4
+    {uvar 1}                                # n_ops
+    # op 1: Create
+      01                                    # op tag 1 Create
+      {uvar 46}                             # len of the body
+      {uvar 17}                             # id #17
+      {uvar 0}                              # prev: 0 (no earlier op of the owner on this ref)
+      ca 9b 90 83 7b bd 2d 8c 55 06 3e 1f 5d 98 ee a2  # uid
+      03                                    # kind
+      {uvar 1}                              # c_actor `owner`
+      {uvar 0}                              # c_role ``
+      # image: node image ([F06 §6.3]), 2 entries
+        {uvar 2}                            # n_entries
+        00                                  # ie 0 status
+        00                                  # status
+        00                                  # resolution
+        02                                  # ie 2 field
+        {uvar 2}                            # name 2 `title`
+        06                                  # title: type 6 text
+        {uvar 17}                           # title: text: length 17
+        "After the restore"
+    {uvar 0}                                # n_bodies
+g2.r1.pl:
+g2.tr:
+{xxh3_64 g2..g2.tr seed=g1.tr..g1.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g2.end:
+g2.r1.end:
+
+# The valid log ends here. Every later byte of the extent is zero.
+{pad_to 65536}                              # zero to the end of the extent

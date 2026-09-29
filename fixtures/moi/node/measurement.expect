@@ -1,0 +1,30 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/measurement.moi
+%% file node
+%% context core
+%% source [F14 §2.8]
+%% source [F08 §9.3] measurement
+%% note Kind measurement at its initial status: `status: current` is written and reads as absent; f64
+%% note values 28.6 and 40.0; a sha256 oid; a ref.
+%% canonical self
+%% keys
+node 9a000000000000000000000000000011 measurement
+  field baseline ref 9a000000000000000000000000000012
+  field command text "probes flush --n 100000"
+  field env_host text "laptop"
+  field env_load enum loaded
+  field env_profile text "L"
+  field env_scale text "1e5"
+  field measured_on oid sha256 bfe2cf05cfbecd8ed9c127a1e57927d122c30d0162aa86a785fcd973c7715aed
+  field metric text "flush_p99_ms"
+  field target f64 4044000000000000
+  field title text "Flush p99 at 1e5 nodes"
+  field unit text "ms"
+  field value f64 403c99999999999a
+  edge about 1a000000000000000000000000000011
+  edge confirms 7f000000000000000000000000000011
+%% image
+created c029309f6f4b802edb6a6d6d765ff295c7ebd71fad28da993a0f35d4ce1a6b3c6 2026-09-21T14:13:20.000Z
+updated cbd1c4598d0704f60bd91f62da5fd7e4b364944fad59fb12b9a32021366afe0fc 2026-09-21T15:43:20.000Z
+%% end

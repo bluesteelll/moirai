@@ -1,0 +1,723 @@
+# Canonical-form fixtures (WP-21, R-FIX). Format: fixtures/canonical/INDEX.md section 2.
+# Written from docs/spec/format/07-canonical-form.md and the chapters it cites; every value is synthetic.
+# Unit encodings of [F07 §7]-§9: one input in the state notation of INDEX.md section 3, the expected bytes.
+
+%% case cv-absent
+%% source [F07 §7.1]
+%% encoding cv
+%% input
+absent
+%% hex
+00
+%% length 1
+%% end
+
+%% case cv-false
+%% source [F07 §7.1]
+%% encoding cv
+%% input
+bool false
+%% hex
+01
+%% length 1
+%% end
+
+%% case cv-true
+%% source [F07 §7.1]
+%% encoding cv
+%% input
+bool true
+%% hex
+02
+%% length 1
+%% end
+
+%% case cv-int-negative
+%% source [F07 §7.1]
+%% source [F08 §5.6]
+%% encoding cv
+%% input
+int -3
+%% hex
+03fdffffffffffffff
+%% length 9
+%% end
+
+%% case cv-int-min
+%% source [F07 §7.1]
+%% encoding cv
+%% input
+int -9223372036854775808
+%% hex
+030000000000000080
+%% length 9
+%% end
+
+%% case cv-int-max
+%% source [F07 §7.1]
+%% encoding cv
+%% input
+int 9223372036854775807
+%% hex
+03ffffffffffffff7f
+%% length 9
+%% end
+
+%% case cv-f64
+%% source [F07 §7.1]
+%% source [F08 §5.6]
+%% note 1.5
+%% encoding cv
+%% input
+f64 3ff8000000000000
+%% hex
+05000000000000f83f
+%% length 9
+%% end
+
+%% case cv-f64-negative-zero
+%% source [F07 §7.1]
+%% note -0.0 enters as +0.0: the payload is eight zero bytes.
+%% encoding cv
+%% input
+f64 0000000000000000
+%% hex
+050000000000000000
+%% length 9
+%% end
+
+%% case cv-f64-negative
+%% source [F07 §7.1]
+%% note -2.0
+%% encoding cv
+%% input
+f64 c000000000000000
+%% hex
+0500000000000000c0
+%% length 9
+%% end
+
+%% case cv-enum
+%% source [F07 §7.1]
+%% source [F07 §2.2]
+%% encoding cv
+%% input
+enum P1
+%% hex
+06020000005031
+%% length 7
+%% end
+
+%% case cv-enum-underscore
+%% source [F07 §7.1]
+%% encoding cv
+%% input
+enum pass_with_conditions
+%% hex
+0614000000706173735f776974685f636f6e646974696f6e73
+%% length 25
+%% end
+
+%% case cv-text
+%% source [F07 §7.1]
+%% source [F08 §5.6]
+%% encoding cv
+%% input
+text "ok"
+%% hex
+07020000006f6b
+%% length 7
+%% end
+
+%% case cv-text-non-ascii
+%% source [F07 §7.1]
+%% note UTF-8 bytes, exact.
+%% encoding cv
+%% input
+text "caf\u00e9 \ud83d\udd12"
+%% hex
+070a000000636166c3a920f09f9492
+%% length 15
+%% end
+
+%% case cv-text-empty-is-absent
+%% source [F07 §7.1]
+%% note The empty text is absent (tag 0), never tag 7 with length 0.
+%% encoding cv
+%% input
+text ""
+%% hex
+00
+%% length 1
+%% end
+
+%% case cv-set-text
+%% source [F07 §7.1]
+%% source [F07 §2.4]
+%% source [F07 §16]
+%% note Elements in the bytewise order of their encodings: the little-endian length comes first, so l5, perf, storage.
+%% encoding cv
+%% input
+set text 3 "storage" "l5" "perf"
+%% hex
+090703000000020000006c3504000000706572660700000073746f72616765
+%% length 31
+%% end
+
+%% case cv-set-int-not-numeric
+%% source [F07 §7.1]
+%% source [F07 §2.4]
+%% note Bytewise order of the i64 payloads: 256 (00 01 ...), 1 (01 00 ...), -1 (ff ff ...).
+%% encoding cv
+%% input
+set int 3 1 256 -1
+%% hex
+09030300000000010000000000000100000000000000ffffffffffffffff
+%% length 30
+%% end
+
+%% case cv-set-empty-is-absent
+%% source [F07 §7.1]
+%% note The empty set is absent.
+%% encoding cv
+%% input
+set text 0
+%% hex
+00
+%% length 1
+%% end
+
+%% case cv-set-path
+%% source [F07 §7.1]
+%% source [F07 §2.4]
+%% note Payloads are lp(root) || lp(text); docs_site (length 9) sorts after project (length 7).
+%% encoding cv
+%% input
+set path 3 project "docs/b.md" project "a.md" docs_site "index.md"
+%% hex
+090c030000000700000070726f6a65637404000000612e6d640700000070726f6a65637409000000646f63732f622e6d
+6409000000646f63735f7369746508000000696e6465782e6d64
+%% length 74
+%% end
+
+%% case cv-ref
+%% source [F07 §7.1]
+%% source [F07 §2.3]
+%% note A node reference enters as the node's uid.
+%% encoding cv
+%% input
+ref 00112233445566778899aabbccddeeff
+%% hex
+0a00112233445566778899aabbccddeeff
+%% length 17
+%% end
+
+%% case cv-commit-ref
+%% source [F07 §7.1]
+%% encoding cv
+%% input
+commit 7595f40889e815e04097699fd204da2f7f4c45f8cc1b4cffa34b3448d8d6b340
+%% hex
+0b7595f40889e815e04097699fd204da2f7f4c45f8cc1b4cffa34b3448d8d6b340
+%% length 33
+%% end
+
+%% case cv-path
+%% source [F07 §7.1]
+%% source [F07 §16]
+%% source [F08 §5.6]
+%% encoding cv
+%% input
+path project "docs/a.md"
+%% hex
+0c0700000070726f6a65637409000000646f63732f612e6d64
+%% length 25
+%% end
+
+%% case cv-oid-sha1
+%% source [F07 §7.1]
+%% encoding cv
+%% input
+oid sha1 d94db1affb1bddd9491cd7666232dfce915c3110
+%% hex
+0d040000007368613114000000d94db1affb1bddd9491cd7666232dfce915c3110
+%% length 33
+%% end
+
+%% case cv-oid-sha256
+%% source [F07 §7.1]
+%% encoding cv
+%% input
+oid sha256 5e4b1c31c9941d072b8515b104d5ac43ab98eaf29b9e9971ced073e438f18a27
+%% hex
+0d06000000736861323536200000005e4b1c31c9941d072b8515b104d5ac43ab98eaf29b9e9971ced073e438f18a27
+%% length 47
+%% end
+
+%% case cv-pathmove-no-git
+%% source [F07 §7.1]
+%% source [F07 §16]
+%% note git empty: both parts lp("").
+%% encoding cv
+%% input
+pathmove 01a0c4506c000003 explicit project "docs/plan/" project "docs/archive/plan/" -
+%% hex
+0e0300006c50c4a001080000006578706c696369740700000070726f6a6563740a000000646f63732f706c616e2f0700
+000070726f6a65637412000000646f63732f617263686976652f706c616e2f0000000000000000
+%% length 87
+%% end
+
+%% case cv-pathmove-git
+%% source [F07 §7.1]
+%% encoding cv
+%% input
+pathmove 01a0c4506c000003 observed project "a/" project "b/" sha1:d94db1affb1bddd9491cd7666232dfce915c3110
+%% hex
+0e0300006c50c4a001080000006f627365727665640700000070726f6a65637402000000612f0700000070726f6a6563
+7402000000622f040000007368613114000000d94db1affb1bddd9491cd7666232dfce915c3110
+%% length 87
+%% end
+
+%% case cv-set-pathmove
+%% source [F07 §7.1]
+%% source [F07 §2.4]
+%% note Ordered by payload bytes: the hlc's low byte 03 before 04.
+%% encoding cv
+%% input
+set pathmove 2 01a0c4506c000004 committed project "x/" project "y/" - 01a0c4506c000003 explicit project "a/" project "b/" -
+%% hex
+090e020000000300006c50c4a001080000006578706c696369740700000070726f6a65637402000000612f0700000070
+726f6a65637402000000622f00000000000000000400006c50c4a00109000000636f6d6d69747465640700000070726f
+6a65637402000000782f0700000070726f6a65637402000000792f0000000000000000
+%% length 131
+%% end
+
+%% case existence-live
+%% source [F07 §7.2]
+%% note A plain live value: snap 0, no image.
+%% encoding existence
+%% input
+live task
+%% hex
+01040000007461736b00
+%% length 10
+%% end
+
+%% case existence-deleted
+%% source [F07 §7.2]
+%% encoding existence
+%% input
+deleted task "obsolete" 0f0e0d0c0b0a09080706050403020100
+%% hex
+02040000007461736b080000006f62736f6c657465100000000f0e0d0c0b0a09080706050403020100
+%% length 41
+%% end
+
+%% case existence-deleted-reverted-creation
+%% source [F07 §7.2]
+%% source [F06 §7.10]
+%% note The tombstone a reverted creation leaves: empty reason, no replacement.
+%% encoding existence
+%% input
+deleted task "" -
+%% hex
+02040000007461736b0000000000000000
+%% length 17
+%% end
+
+%% case existence-live-image
+%% source [F07 §7.2]
+%% source [F07 §7.4]
+%% note snap 1: a side of an existence conflict carries the node image, sorted by (class, name).
+%% encoding existence
+%% input
+live task
+  status in_progress none
+  field priority enum P0
+  field title text "A task"
+  counter reopen_count 2
+  body "Body text."
+%% hex
+01040000007461736b0105000000020b000000696e5f70726f6772657373040000006e6f6e6504080000007072696f72
+6974790602000000503004050000007469746c65070600000041207461736b060c00000072656f70656e5f636f756e74
+0402000000000000000867c07bb69aa540c3311146dff52886f2
+%% length 122
+%% end
+
+%% case status-present
+%% source [F07 §7.2]
+%% source [F07 §16]
+%% encoding status
+%% input
+in_progress none
+%% hex
+010b000000696e5f70726f6772657373040000006e6f6e65
+%% length 24
+%% end
+
+%% case status-absent
+%% source [F07 §7.2]
+%% encoding status
+%% input
+absent
+%% hex
+00
+%% length 1
+%% end
+
+%% case hierarchy-parent-order
+%% source [F07 §7.2]
+%% encoding hierarchy
+%% input
+00112233445566778899aabbccddeeff "V"
+%% hex
+011000000000112233445566778899aabbccddeeff0100000056
+%% length 26
+%% end
+
+%% case hierarchy-order-only
+%% source [F07 §7.2]
+%% encoding hierarchy
+%% input
+- "k"
+%% hex
+0100000000010000006b
+%% length 10
+%% end
+
+%% case hierarchy-parent-only
+%% source [F07 §7.2]
+%% encoding hierarchy
+%% input
+00112233445566778899aabbccddeeff -
+%% hex
+011000000000112233445566778899aabbccddeeff00000000
+%% length 25
+%% end
+
+%% case observation
+%% source [F07 §7.2]
+%% source [F18 §5.1]
+%% note Six cv values in the order path, oid, bytes, observed_git, observed_blob, relink; absent members are tag 0.
+%% encoding observation
+%% input
+path project "src/lib.rs" | oid sha1 d94db1affb1bddd9491cd7666232dfce915c3110 | int 1024 | absent | absent | text "git/r100"
+%% hex
+010c0700000070726f6a6563740a0000007372632f6c69622e72730d040000007368613114000000d94db1affb1bddd9
+491cd7666232dfce915c3110030004000000000000000007080000006769742f72313030
+%% length 84
+%% end
+
+%% case body
+%% source [F07 §7.2]
+%% source [F08 §7.2]
+%% note BLAKE3-128 of the body's bytes.
+%% encoding body
+%% input
+hash 0b4aacd23ad36253add004ffc7dc33cf
+%% hex
+010b4aacd23ad36253add004ffc7dc33cf
+%% length 17
+%% end
+
+%% case edge-plain
+%% source [F07 §8.1]
+%% encoding edge
+%% input
+present
+%% hex
+0100
+%% length 2
+%% end
+
+%% case edge-pinned
+%% source [F07 §8.1]
+%% encoding edge
+%% input
+present pin 7595f40889e815e04097699fd204da2f7f4c45f8cc1b4cffa34b3448d8d6b340
+%% hex
+01017595f40889e815e04097699fd204da2f7f4c45f8cc1b4cffa34b3448d8d6b340
+%% length 34
+%% end
+
+%% case edge-flagged
+%% source [F07 §8.1]
+%% encoding edge
+%% input
+present flagged
+%% hex
+0102
+%% length 2
+%% end
+
+%% case edge-absent
+%% source [F07 §8.1]
+%% encoding edge
+%% input
+absent
+%% hex
+00
+%% length 1
+%% end
+
+%% case delta-plus-one
+%% source [F07 §7.5]
+%% encoding delta
+%% input
++1
+%% hex
+000100000000000000
+%% length 9
+%% end
+
+%% case delta-minus-three
+%% source [F07 §7.5]
+%% note [F07 §16]'s example.
+%% encoding delta
+%% input
+-3
+%% hex
+010300000000000000
+%% length 9
+%% end
+
+%% case delta-largest
+%% source [F07 §7.5]
+%% note From a total of -2^63 to 2^63 - 1: the magnitude needs all 64 bits.
+%% encoding delta
+%% input
++18446744073709551615
+%% hex
+00ffffffffffffffff
+%% length 9
+%% end
+
+%% case cstate-field-edit
+%% source [F07 §7.3]
+%% encoding cstate
+%% input
+conflict field estimate FieldEdit
+  base int 3
+  ours int 5
+  theirs int 8
+%% hex
+01090000004669656c6445646974030300000000000000030500000000000000030800000000000000
+%% length 41
+%% end
+
+%% case cstate-status-fork
+%% source [F07 §7.3]
+%% source [F12 §6.2]
+%% note base is the initial status: absent.
+%% encoding cstate
+%% input
+conflict status StatusFork
+  base absent
+  ours done completed
+  theirs cancelled wontdo
+%% hex
+010a000000537461747573466f726b000104000000646f6e6509000000636f6d706c65746564010900000063616e6365
+6c6c656406000000776f6e74646f
+%% length 62
+%% end
+
+%% case cstate-text-hunk-body
+%% source [F07 §7.3]
+%% source [F12 §6.2]
+%% note The sides of a body conflict are BLAKE3-128 digests of the three texts.
+%% encoding cstate
+%% input
+conflict body TextHunk
+  base "one line"
+  ours "one line, ours"
+  theirs "one line, theirs"
+%% hex
+01080000005465787448756e6b01c2c53d32286714561c6c7a5f13ee36d50151d919ac0c582479a29a29b3398b70b601
+e89673980d3e50c30fdbcd6b1c0f308b
+%% length 64
+%% end
+
+%% case cstate-delete-vs-modify
+%% source [F07 §7.3]
+%% source [F12 §6.3]
+%% note An existence conflict carries prov by name; resurrect keeps the modifying side (ours).
+%% encoding cstate
+%% input
+conflict existence DeleteVsModify prov ours
+  base live note
+    field title text "A note"
+  ours live note
+    field title text "A note, edited"
+  theirs deleted note "stale" -
+%% hex
+010e00000044656c65746556734d6f6469667901040000006e6f7465010100000004050000007469746c650706000000
+41206e6f746501040000006e6f7465010100000004050000007469746c65070e00000041206e6f74652c206564697465
+6402040000006e6f7465050000007374616c6500000000040000006f757273
+%% length 127
+%% end
+
+%% case cstate-edge-pin-fork
+%% source [F07 §7.3]
+%% source [RULES/merge-table] MR-051
+%% note One side re-pinned, the other removed the edge.
+%% encoding cstate
+%% input
+conflict edge cites 0f0e0d0c0b0a09080706050403020100 FieldEdit
+  base present pin 7595f40889e815e04097699fd204da2f7f4c45f8cc1b4cffa34b3448d8d6b340
+  ours present pin 0000000000000000000000000000000000000000000000000000000000000001
+  theirs absent
+%% hex
+01090000004669656c644564697401017595f40889e815e04097699fd204da2f7f4c45f8cc1b4cffa34b3448d8d6b340
+0101000000000000000000000000000000000000000000000000000000000000000100
+%% length 83
+%% end
+
+%% case selector-file
+%% source [F07 §8.2]
+%% source [F08 §10.3]
+%% note A file anchor: no quote digests, no hint, window or span hash; watch defaults to header.
+%% encoding selector
+%% input
+anchor kind=file mode=pinned watch=header resolver=1 captured=05acfceb5d9ed8688ffe8860cd40d45c blob=sha1:d94db1affb1bddd9491cd7666232dfce915c3110
+%% hex
+0400000066696c650600000070696e6e6564060000006865616465720000000000000000000000000000000000000000
+00000000000000000000000000000000040000007368613114000000d94db1affb1bddd9491cd7666232dfce915c3110
+000000000000000005acfceb5d9ed8688ffe8860cd40d45c00000000000000000100
+%% length 130
+%% end
+
+%% case selector-file-planned
+%% source [F07 §8.2]
+%% source [F08 §10.3] order 23
+%% note A planned target had no content: blob and its algorithm are empty.
+%% encoding selector
+%% input
+anchor kind=file mode=live watch=header resolver=1 captured=05acfceb5d9ed8688ffe8860cd40d45c
+%% hex
+0400000066696c65040000006c6976650600000068656164657200000000000000000000000000000000000000000000
+00000000000000000000000000000000000000000000000000000000000005acfceb5d9ed8688ffe8860cd40d45c0000
+0000000000000100
+%% length 104
+%% end
+
+%% case selector-lines
+%% source [F07 §8.2]
+%% source [F20 §2.7.3]
+%% note window is the value W as one byte string; span_hash little-endian.
+%% encoding selector
+%% input
+anchor kind=lines mode=live watch=span resolver=1 captured=096d3b879f4d415b3aa578c0ba0accae hint=40-44 window=02000100111122223333 span_hash=0123456789abcdef blob=sha1:d94db1affb1bddd9491cd7666232dfce915c3110 git=sha1:54fd1711209fb1c0781092374132c66e79e2241b
+%% hex
+050000006c696e6573040000006c697665040000007370616e0000000000000000000000000000000000000000000000
+0008000000280000002c0000000a0000000200010011112222333308000000efcdab8967452301040000007368613114
+000000d94db1affb1bddd9491cd7666232dfce915c311004000000736861311400000054fd1711209fb1c07810923741
+32c66e79e2241b096d3b879f4d415b3aa578c0ba0accae00000000000000000100
+%% length 177
+%% end
+
+%% case selector-quote-full-options
+%% source [F07 §8.2]
+%% source [F08 §10.3.1]
+%% note Every optional field present: scope (the bytes of [F08 §10.3.1]: rust, mod storage, fn flush), occurrence,
+%% note pred and marker. Until [F20] Appendix A is complete no writer records a scope ([F08 §10.3.1]); the block
+%% note encodes one as an imported anchor keeps it.
+%% encoding selector
+%% input
+anchor kind=quote mode=live watch=span resolver=1 captured=7f9e762c84fba12c75f4111323d7f65e pred=00112233445566778899aabbccddeeff scope=0102010773746f72616765000305666c75736800 quote="fn flush" prefix="pub " suffix="(&mut self)" occurrence=2 hint=12-12 window=0000010044ee span_hash=0000000000000001 blob=sha256:5e4b1c31c9941d072b8515b104d5ac43ab98eaf29b9e9971ced073e438f18a27 marker="flush-fn"
+%% hex
+0500000071756f7465040000006c697665040000007370616e140000000102010773746f72616765000305666c757368
+0010000000f0a1fd7bee19764baf3bc81034d4037910000000476da303054e2988a303e487f3e2fde7100000002f9c18
+545a0d2fe5702fcfd78645374c00000000020000000200080000000c0000000c000000060000000000010044ee080000
+00010000000000000006000000736861323536200000005e4b1c31c9941d072b8515b104d5ac43ab98eaf29b9e9971ce
+d073e438f18a2700000000000000007f9e762c84fba12c75f4111323d7f65e1000000000112233445566778899aabbcc
+ddeeff08000000666c7573682d666e0100
+%% length 257
+%% end
+
+%% case selector-range-hash-only
+%% source [F07 §8.2]
+%% source [F07 §8.3]
+%% note A range anchor held as digests only; end_h present. captured is stated.
+%% encoding selector
+%% input
+anchor kind=range mode=live watch=span resolver=1 captured=fadf62b722ad3b7159a3a201879a5d1e quote_h=4088f6c0faec4ed810e9eca1978806cd prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=af1349b9f5f9a1a6a0404dea36dcc949 end_h=30763a615bc7d46d057bb8200394823b hint=6-8 window=00000000 span_hash=0000000000000007 blob=sha1:d94db1affb1bddd9491cd7666232dfce915c3110
+%% hex
+0500000072616e6765040000006c697665040000007370616e00000000100000004088f6c0faec4ed810e9eca1978806
+cd10000000af1349b9f5f9a1a6a0404dea36dcc94910000000af1349b9f5f9a1a6a0404dea36dcc9491000000030763a
+615bc7d46d057bb8200394823b0000000008000000060000000800000004000000000000000800000007000000000000
+00040000007368613114000000d94db1affb1bddd9491cd7666232dfce915c31100000000000000000fadf62b722ad3b
+7159a3a201879a5d1e00000000000000000100
+%% length 211
+%% end
+
+%% case schema-kind
+%% source [F07 §9.2]
+%% encoding schema-item
+%% input
+schema kind incident retired=false uid_derivation=random root_variant=none existence_policy=resurrect title_derived=false immutable_fields=false has_done=true done_derived=false
+%% hex
+01000600000072616e646f6d040000006e6f6e650900000072657375727265637400000100
+%% length 37
+%% end
+
+%% case schema-field-default-range
+%% source [F07 §9.3]
+%% encoding schema-item
+%% input
+schema field task risk type=int elem=- class=scalar storage=field decl=29 optional=false index=column coerce=none one_line=false ascii=false retired=false range=0..5 default int 1
+%% hex
+010003000000696e7400000000060000007363616c6172050000006669656c641d000006000000636f6c756d6e040000
+006e6f6e650000010301000000000000000100000000000000000500000000000000
+%% length 82
+%% end
+
+%% case schema-field-set
+%% source [F07 §9.3]
+%% note text and sym are distinct type names here: the storage form is part of the item.
+%% encoding schema-item
+%% input
+schema field * owners type=set elem=sym class=set storage=field decl=19 optional=true index=bitmap coerce=none one_line=true ascii=true retired=false
+%% hex
+0100030000007365740300000073796d03000000736574050000006669656c64130001060000006269746d6170040000
+006e6f6e6501010000
+%% length 57
+%% end
+
+%% case schema-enum
+%% source [F07 §9.4]
+%% note covers by name in the order of [F07 §2.4] (in_progress, length 11, after open, length 4).
+%% encoding schema-item
+%% input
+schema enum task status blocked_on_review retired=false sort_rank=6 side=false done=false covers=in_progress,open
+%% hex
+01000600000002000000040000006f70656e0b000000696e5f70726f6772657373
+%% length 33
+%% end
+
+%% case schema-edge
+%% source [F07 §9.5]
+%% source [F08 §8.5.4]
+%% encoding schema-item
+%% input
+schema edge reviews retired=false eclass=historical on_dst=tombstone on_src=retain acyclic=none card=many max_depth=0 uid_derivation=none props=none symmetric=false same_kind=false lq_name=REVIEWS src_kinds=verdict,finding dst_kinds=any reverse_names=REVIEWED_BY reading="{a} reviews {b}"
+%% hex
+01000a000000686973746f726963616c09000000746f6d6273746f6e650600000072657461696e040000006e6f6e6504
+0000006d616e7900040000006e6f6e65040000006e6f6e65000007000000524556494557530002000000070000006669
+6e64696e6707000000766572646963740100000000010000000b00000052455649455745445f42590f0000007b617d20
+72657669657773207b627d
+%% length 155
+%% end
+
+%% case schema-query
+%% source [F07 §9.6]
+%% note The text is the whole define_stmt in portable form ([F14 §7.2.2], [LQ/canonical-ast §8.1]).
+%% encoding schema-item
+%% input
+schema query stale_blockers lq=1 params="" shape="table" budget="light" text="DEFINE QUERY stale_blockers() SHAPE table BUDGET light AS {\n  MATCH (t:task)-[:BLOCKS]->(u:task)\n  WHERE t.status = 'open'\n  RETURN t, u\n}"
+%% hex
+01010000000000050000007461626c65050000006c696768748a000000444546494e45205155455259207374616c655f
+626c6f636b6572732829205348415045207461626c6520425544474554206c69676874204153207b0a20204d41544348
+2028743a7461736b292d5b3a424c4f434b535d2d3e28753a7461736b290a2020574845524520742e737461747573203d
+20276f70656e270a202052455455524e20742c20750a7d
+%% length 167
+%% end

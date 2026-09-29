@@ -1,0 +1,18 @@
+moirai-node 1
+uid: 3b000000000000000000000000000011
+kind: note
+title: Scratch finding
+status: retracted
+priority: P1
+created: c0d81e930d761b4b7e9cc2bb05eeee642c9ec9946c3ae222c6a7a8d8b244b6143 2026-09-21T14:13:20.000Z
+updated: c8fe82869dd1af6792a44aa291f2777b02e554c5f75150cf25a805d80cb8025b9 2026-09-21T15:43:20.000Z
+flags: [pinned]
+field note_kind: hazard
+label b label
+label scratch
+incr incidents +4 c00496c5e4f68c02f96c10079c145d0829a1ec5748d6f90505f86cbc24904befa
+conflict existence class=DeleteVsModify base="live note\nstatus: active\nfield note_kind: hazard\ntitle: Scratch finding" ours="live note\nstatus: retracted\nfield note_kind: hazard\nfield pinned: true\nfield priority: P1\ntitle: Scratch finding\nlabel b label\nlabel scratch\ntotal incidents 4\nbody \"Body line one.\\nBody \\\"two\\\".\\n\"" theirs="deleted note\nreason: created by mistake"
+---
+Body line one.
+Body "two".
+

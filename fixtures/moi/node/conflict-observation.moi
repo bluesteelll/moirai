@@ -1,0 +1,10 @@
+moirai-node 1
+uid: 3f9005c0f8753a1a34e0bde2bd1d4e68
+kind: artifact
+status: present
+created: c6133aa5a8b82a2b410951341953c69d19a81e9e70f88d5031f2647937bd4a908 2026-09-21T14:13:20.000Z
+updated: c6e57b52294ecf7e1854a5e0f8530ab824461a2e7e7a34521541c9e6ca3a1df9f 2026-09-21T15:43:20.000Z
+field artifact_kind: doc
+field origin_path: docs/locking/lock.md
+field root: project
+conflict observation class=PathClaim base= ours= theirs="field path: docs/locking/lock.md\nfield oid: sha1:8d9082ce23280ee2982895e1c85231ee5344613e\nfield bytes: 40\nfield observed_git: sha1:c7afb91bc27e70a8d9b8a453c06b0fef58b2e63d\nfield observed_blob: sha1:8d9082ce23280ee2982895e1c85231ee5344613e"

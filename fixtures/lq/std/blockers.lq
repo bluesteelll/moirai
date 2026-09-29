@@ -1,0 +1,5 @@
+DEFINE QUERY blockers($id: node, $transitive: bool = false) SHAPE blockers BUDGET light AS {
+  CALL blockers($id, transitive: $transitive) YIELD blocker, depth, via, reason, flagged, elsewhere
+  RETURN blocker, depth, via, reason, flagged, elsewhere
+  ORDER BY depth, blocker
+}

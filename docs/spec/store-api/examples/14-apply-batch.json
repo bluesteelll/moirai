@@ -1,0 +1,369 @@
+{
+  "example": "apply-batch",
+  "spec": "§9.4, §10.1 (run-scoped and role leases), §10.6 LP-5, §10.7, [90 §7.1], [90 §7.2], [AR §6.4] D6",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1; then 07-lane-merge.json n = 5 to 7: lane l1 opened (lane node #4 on main in c00000002, ref lane/l1 forked at c00000001)",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "the run's harness and model fields (API open point 15)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 8,
+        "cmd": "RunOpen",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "r1",
+          "lane": "l1",
+          "harness": "codex",
+          "model": "gpt-5.6-luna"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 2,
+        "commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+        "rev_new": 3,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "run": "#5",
+          "name": "r1"
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 9,
+        "cmd": "Claim",
+        "ctx": {
+          "lease": "L-1",
+          "branch": "lane/l1"
+        },
+        "args": {
+          "ids": [
+            "#2"
+          ],
+          "role": "developer",
+          "agent": "wf:r1/dev",
+          "ttl": "run",
+          "run": "r1"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l1",
+        "rev": 1,
+        "commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+        "rev_new": null,
+        "key": null,
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "CALL tx.claim(ids: [#2], role: $role, agent: $agent, ttl: $ttl, run: $run)",
+            "matched": null,
+            "targets": [
+              "#2"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": []
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 10,
+          "work_limit": 200000,
+          "rows": 0,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": [
+          {
+            "index": 1,
+            "proc": "tx.claim",
+            "rows": [
+              {
+                "lease": "L-2",
+                "token": 2,
+                "branch": "lane/l1",
+                "expires": "never",
+                "task": "#2",
+                "role": "developer",
+                "holder": "wf:r1/dev",
+                "anchor": "none",
+                "run": "r1",
+                "reused": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 10,
+        "cmd": "Claim",
+        "ctx": {
+          "lease": "L-1",
+          "branch": "lane/l1"
+        },
+        "args": {
+          "role": "architect",
+          "agent": "wf:r1/arch",
+          "ttl": "run",
+          "run": "r1"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l1",
+        "rev": 1,
+        "commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+        "rev_new": null,
+        "key": null,
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "CALL tx.claim(role: $role, agent: $agent, ttl: $ttl, run: $run)",
+            "matched": null,
+            "targets": []
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": []
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 10,
+          "work_limit": 200000,
+          "rows": 0,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": [
+          {
+            "index": 1,
+            "proc": "tx.claim",
+            "rows": [
+              {
+                "lease": "L-3",
+                "token": 3,
+                "branch": "lane/l1",
+                "expires": "never",
+                "task": null,
+                "role": "architect",
+                "holder": "wf:r1/arch",
+                "anchor": "none",
+                "run": "r1",
+                "reused": false
+              }
+            ]
+          }
+        ]
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 11,
+        "cmd": "Apply",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "run": "r1",
+          "results": [
+            {
+              "v": 1,
+              "task": 2,
+              "lease": "L-2",
+              "outcome": "done",
+              "summary": "chapter written",
+              "evidence": [
+                "commit:9f8e7d6"
+              ],
+              "recorded": [],
+              "findings": [
+                {
+                  "title": "Examples lack an image case",
+                  "severity": "important",
+                  "failure_scenario": "A reader of the chapter cannot see an ImageImport result",
+                  "about": [
+                    3
+                  ]
+                }
+              ],
+              "notes": [],
+              "next": null
+            },
+            {
+              "v": 1,
+              "task": null,
+              "lease": "L-3",
+              "outcome": "none",
+              "summary": "reviewed the plan",
+              "evidence": [],
+              "recorded": [],
+              "findings": [],
+              "notes": [
+                {
+                  "kind": "lesson",
+                  "title": "Placeholders read easily",
+                  "text": "Build placeholder ids from the seq."
+                }
+              ],
+              "next": null
+            }
+          ]
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l1",
+        "rev": 1,
+        "commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+        "rev_new": 4,
+        "key": "run:r1",
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "run": "r1",
+          "entries": [
+            {
+              "task": "#2",
+              "lease": "L-2",
+              "outcome": "done",
+              "completed": true
+            },
+            {
+              "task": null,
+              "lease": "L-3",
+              "outcome": "none",
+              "completed": false
+            }
+          ],
+          "created": [
+            "#6",
+            "#7"
+          ],
+          "released": [
+            "L-2",
+            "L-3"
+          ],
+          "recorded": [],
+          "markers": [
+            {
+              "kind": "settled",
+              "id": "#2",
+              "ref": "lane/l1",
+              "commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+              "outcome": "done",
+              "cause": "ops"
+            }
+          ],
+          "affected": [
+            "#1",
+            "#2",
+            "#3",
+            "#6",
+            "#7"
+          ]
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 12,
+        "cmd": "RunClose",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "r1",
+          "outcome": "green"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 3,
+        "commit": "c0000000500000000000000000000000000000000000000000000000000000000",
+        "rev_new": 5,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "run": "#5",
+          "status": "green",
+          "released": []
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    }
+  ]
+}

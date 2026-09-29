@@ -1,0 +1,13 @@
+# Seeded build case (GT20 (b) rules 1 and 2): a build dependency on `cc`. Copied to a scratch directory by xtask's
+# tests; never built in place.
+[package]
+name = "seeded-cc-build-dep"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[build-dependencies]
+cc = "1"
+
+[workspace]

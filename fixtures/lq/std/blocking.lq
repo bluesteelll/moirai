@@ -1,0 +1,6 @@
+DEFINE QUERY blocking($scope: node? = NULL) SHAPE node BUDGET light AS {
+  MATCH (t:task)
+  WHERE t.is_blocker AND NOT t.settled_elsewhere
+    AND ($scope IS NULL OR t IN subtree($scope))
+  RETURN t ORDER BY t.id
+}

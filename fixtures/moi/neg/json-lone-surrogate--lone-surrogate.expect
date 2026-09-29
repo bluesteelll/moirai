@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/json-lone-surrogate--lone-surrogate.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note A lone surrogate in a JSON string.
+%% refuse ImageParse json-lone-surrogate
+%% end

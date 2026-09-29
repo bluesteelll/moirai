@@ -1,0 +1,12 @@
+DEFINE QUERY pack_spec($target: node, $role: text, $round: int? = NULL) SHAPE node BUDGET medium AS {
+  MATCH (d:doc)
+  WHERE d = $target OR EXISTS { MATCH (t)-[:IMPLEMENTS|ABOUT]->(d) WHERE t = $target }
+  MATCH (s:doc) WHERE s IN subtree(d)
+  RETURN DISTINCT s AS node, $round IS NOT NULL AND coalesce(s.changed_in_round, 0) > $round AS changed
+  UNION
+  MATCH (d:doc)
+  WHERE d = $target OR EXISTS { MATCH (t)-[:IMPLEMENTS|ABOUT]->(d) WHERE t = $target }
+  MATCH (s:doc) WHERE s IN subtree(d) AND $round IS NOT NULL AND coalesce(s.changed_in_round, 0) > $round
+  MATCH (dep:doc)-[:DEPENDS_ON]->(s)
+  RETURN DISTINCT dep AS node, true AS changed
+}

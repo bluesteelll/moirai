@@ -1,0 +1,157 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case ordinary
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note Gate-0 row ordinary: one parent; Moirai-Git-Head and Moirai-Git-Base (item 5, sha1); a field (priority), a
+%% note status, a counter delta (the ledger line `incr reopen_count +1 c<this commit>`), a body and an edge with a
+%% note pin (`edge cites -> ... pin=c<root>`). Moirai-Idem carries the idempotency key (unhashed).
+%% destination A sha1 full
+%% class native
+%% git-commit ccad424446fa053d2897aa44b21b74b9ebf6ad37
+%% git-tree f000b182b8492e20df0c71be5463b9e5ec234a6c
+%% git-parent 018e6a12ce584771b360c194bc69088493ee821e root
+%% trailer-commit 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+%% touched-new 1
+%% touched-old 1
+%% p-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body "Timeout fires before the lock holder's flush completes."
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+1a000000000000000000000000000001 status = in_progress none
+1a000000000000000000000000000001 field priority = enum P0
+1a000000000000000000000000000001 counter reopen_count = +1
+1a000000000000000000000000000001 edge blocks 1a000000000000000000000000000002 - = present
+1a000000000000000000000000000001 edge cites 5d000000000000000000000000000001 - = present pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+1a000000000000000000000000000001 body = hash 6d1aec75c193e1f1e47212b4598b9887
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000001 status
+011a0000000000000000000000000000010200010b000000696e5f70726f6772657373040000006e6f6e65
+; entry 2: 1a000000000000000000000000000001 field priority
+011a00000000000000000000000000000104080000007072696f726974790006020000005030
+; entry 3: 1a000000000000000000000000000001 counter reopen_count
+011a000000000000000000000000000001060c00000072656f70656e5f636f756e74000100000000000000
+; entry 4: 1a000000000000000000000000000001 edge blocks 1a000000000000000000000000000002 -
+011a0000000000000000000000000000010706000000626c6f636b731a00000000000000000000000000000200000000
+000100
+; entry 5: 1a000000000000000000000000000001 edge cites 5d000000000000000000000000000001 -
+011a000000000000000000000000000001070500000063697465735d0000000000000000000000000000010000000000
+010164930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+; entry 6: 1a000000000000000000000000000001 body
+011a0000000000000000000000000000010800016d1aec75c193e1f1e47212b4598b9887
+; u64 entry count = 6
+0600000000000000
+%% entry-count 6
+%% changeset-digest 7595f40889e815e04097699fd204da2f7f4c45f8cc1b4cffa34b3448d8d6b340
+%% commit
+kind ordinary
+parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+hlc 01a0c45993c00000
+actor "dev#1"
+role "developer"
+session "claude:s1"
+git-head sha1 78f0dadcf063f3508dd61abc2c4c73505a7191dc
+git-branch "storage/lock-timeout"
+git-worktree "D:/work/storage"
+git-base sha1 1881233f765a934b643b556267d6b1a3822de612
+message "reopen #1 and restart it"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+; item 3: hlc
+0000c09359c4a001
+; item 4: actor
+050000006465762331
+; item 4: role
+09000000646576656c6f706572
+; item 4: session
+09000000636c617564653a7331
+; item 5: git_algo
+0400000073686131
+; item 5: git_head
+1400000078f0dadcf063f3508dd61abc2c4c73505a7191dc
+; item 5: git_branch
+1400000073746f726167652f6c6f636b2d74696d656f7574
+; item 5: git_worktree
+0f000000443a2f776f726b2f73746f72616765
+; item 5: git_base
+140000001881233f765a934b643b556267d6b1a3822de612
+; item 6: message
+1800000072656f70656e20233120616e642072657374617274206974
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+7595f40889e815e04097699fd204da2f7f4c45f8cc1b4cffa34b3448d8d6b340
+%% commit-id 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+%% canonical commits.cases ordinary commit-id
+%% end

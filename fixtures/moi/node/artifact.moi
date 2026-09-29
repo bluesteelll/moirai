@@ -1,0 +1,24 @@
+moirai-node 1
+uid: d706fcde60f0b6cbf56c23297162b652
+kind: artifact
+status: present
+priority: P3
+created: cbd3778b37d934093fa4a9ecf514f73eb3bd0de8fb28a2c29cd7a480fd9a96724 2026-09-21T14:13:20.000Z
+updated: cb310c8c34997710008d84a7a51735c85adc79aa36e4252a7879a77c9d9a66229 2026-09-21T15:43:20.000Z
+flags: [pinned]
+field aliases: ["crates/engine/src/lock, old.rs", crates/engine/src/lock.rs]
+field artifact_kind: source
+field bytes: 18231
+field excerpt: pub struct LockFile
+field observed_blob: sha1:fe828b3e4873cf96b70498a98c5dd300ff590832
+field observed_git: sha1:b25fb9e7327a901ca4ad2ce2bb6d4784f0ca2c14
+field oid: sha1:fe828b3e4873cf96b70498a98c5dd300ff590832
+field origin_path: crates/engine/src/lock.rs
+field path: crates/engine/src/sync/lock.rs
+field reason: moved by file mv
+field relink: lazy/file-id
+field replaced_by: d0000000000000000000000000000001
+field root: project
+edge addresses -> 7f000000000000000000000000000011
+edge derived_from -> 2d000000000000000000000000000011
+edge implements -> 5d000000000000000000000000000011 pin=ce53e65b9e751e6b6bd37f93e501ec97a4752d361d4e9848c235d462fe3adaad3

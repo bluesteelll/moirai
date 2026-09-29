@@ -1,0 +1,18 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/area.moi
+%% file node
+%% context core
+%% source [F08 §9.3] area
+%% note Kind area (not a root node: no root field): a side status, a parent and globs.
+%% canonical self
+%% keys
+node 0a000000000000000000000000000001 area
+  status archived none
+  parent 0a000000000000000000000000000002 "z"
+  field path_globs set text 2 "crates/engine/**" "docs/storage/*.md"
+  field title text "Storage engine"
+%% image
+created c294b11e229096c0a7b9a03341876a8215e207b45a641fc0aede87a8b3c048596 2026-09-21T14:13:20.000Z
+updated c4810108edf18555446f5f8902a22fb9f74b38478825c5939da309748ec65c85f 2026-09-21T15:43:20.000Z
+%% end

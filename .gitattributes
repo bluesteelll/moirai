@@ -1,0 +1,9 @@
+# Line endings (docs/m0/PLAN.md §2.5): LF in the repository and the working tree, except Windows shell scripts.
+* text=auto eol=lf
+*.cmd text eol=crlf
+*.bat text eol=crlf
+*.ps1 text eol=crlf
+
+# Byte-exact test inputs (CRLF, ^Z, BOMs) live only under fixtures/ or a testdata/ directory and are never converted.
+fixtures/** -text
+**/testdata/** -text

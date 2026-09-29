@@ -1,0 +1,373 @@
+# fixtures/lq/cases/card.cases: the seven examples of the moirai-ql card ([LQ/card §3], §4, §6) (WP-22, R-FIX).
+# Examples 1-6 parse as read_input and example 7 as write_input, in the Cypher display spelling (§3) and in the
+# GQL one (§4, example 2 differs); both spellings of example 2 give one S-AST ([LQ/card §4]).
+# The strict-GQL behaviour of the examples is in strict-gql.cases.
+# The card body's sizes were checked against [LQ/card §3], §4 and §6.2 (3,116 / 3,110 / 2,867 / 2,394 bytes; 36 lines).
+# Format: fixtures/lq/INDEX.md §2.
+
+%% case card-1
+%% source [LQ/card §3] example 1
+%% entry read
+%% input
+MATCH (t:task) WHERE t.ready AND t IN subtree(#88) RETURN t ORDER BY t.priority LIMIT 10
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME ready
+KW AND
+NAME t
+KW IN
+NAME subtree
+P (
+NODE 88
+P )
+KW RETURN
+NAME t
+KW ORDER
+KW BY
+NAME t
+P .
+NAME priority
+KW LIMIT
+INT 10
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "t" ["task"] [] _) [])]
+      (and (prop (ident "t") "ready") (in (ident "t") (fn "subtree" false [(arg _ (nid 88))]))))]
+    (return false false [(item (ident "t") _)] [] [(sort (prop (ident "t") "priority") asc)] (int 10))
+    _)]
+  []))
+%% end
+
+%% case card-2
+%% source [LQ/card §3] example 2 (Cypher display spelling)
+%% entry read
+%% note *1.. is the Cypher spelling of one or more hops: quant(1, unbounded).
+%% input
+MATCH (x:task)-[:BLOCKS*1..]->(#51) WHERE x.unfinished RETURN x
+%% tokens
+KW MATCH
+P (
+NAME x
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P *
+INT 1
+P ..
+P ]
+P ->
+P (
+NODE 51
+P )
+KW WHERE
+NAME x
+P .
+NAME unfinished
+KW RETURN
+NAME x
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "x" ["task"] [] _)
+             [(estep (epat _ right ["BLOCKS"] (quant 1 _) [] _) (npat _ [] [(kv "id" (nid 51))] _))])]
+      (prop (ident "x") "unfinished"))]
+    (return false false [(item (ident "x") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case card-2-gql
+%% source [LQ/card §4] line 27 (GQL display spelling)
+%% entry read
+%% input
+MATCH (x:task)-[:BLOCKS]->+(#51) WHERE x.unfinished RETURN x
+%% tokens
+KW MATCH
+P (
+NAME x
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P +
+P (
+NODE 51
+P )
+KW WHERE
+NAME x
+P .
+NAME unfinished
+KW RETURN
+NAME x
+EOF -
+%% sast-same-as card-2
+%% end
+
+%% case card-3
+%% source [LQ/card §3] example 3
+%% entry read
+%% input
+MATCH (f:finding) WHERE EXISTS { (f)-[:ABOUT]->(s) WHERE s IN subtree(#130) } RETURN f.round, count(*) AS raised, count(CASE WHEN f.status = 'refuted' THEN 1 END) AS refuted ORDER BY f.round
+%% tokens
+KW MATCH
+P (
+NAME f
+P :
+NAME finding
+P )
+KW WHERE
+KW EXISTS
+P {
+P (
+NAME f
+P )
+P -
+P [
+P :
+NAME ABOUT
+P ]
+P ->
+P (
+NAME s
+P )
+KW WHERE
+NAME s
+KW IN
+NAME subtree
+P (
+NODE 130
+P )
+P }
+KW RETURN
+NAME f
+P .
+NAME round
+P ,
+KW COUNT
+P (
+P *
+P )
+KW AS
+NAME raised
+P ,
+NAME count
+P (
+KW CASE
+KW WHEN
+NAME f
+P .
+NAME status
+P =
+STR "refuted"
+KW THEN
+INT 1
+KW END
+P )
+KW AS
+NAME refuted
+KW ORDER
+KW BY
+NAME f
+P .
+NAME round
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "f" ["finding"] [] _) [])]
+      (exists (subp [(path (npat "f" [] [] _) [(estep (epat _ right ["ABOUT"] _ [] _) (npat "s" [] [] _))])]
+                    (in (ident "s") (fn "subtree" false [(arg _ (nid 130))])))))]
+    (return false false
+     [(item (prop (ident "f") "round") _)
+      (item (countstar) "raised")
+      (item (fn "count" false [(arg _ (case _ [(when (cmp = (prop (ident "f") "status") (str "refuted")) (int 1))] _))]) "refuted")]
+     [] [(sort (prop (ident "f") "round") asc)] _)
+    _)]
+  []))
+%% end
+
+%% case card-4
+%% source [LQ/card §3] example 4
+%% entry read
+%% input
+MATCH (r:rule) WHERE r.criticality = 'critical' AND applies(r, 'crates/ecs/world.rs') RETURN r
+%% tokens
+KW MATCH
+P (
+NAME r
+P :
+NAME rule
+P )
+KW WHERE
+NAME r
+P .
+NAME criticality
+P =
+STR "critical"
+KW AND
+NAME applies
+P (
+NAME r
+P ,
+STR "crates/ecs/world.rs"
+P )
+KW RETURN
+NAME r
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "r" ["rule"] [] _) [])]
+      (and (cmp = (prop (ident "r") "criticality") (str "critical"))
+           (fn "applies" false [(arg _ (ident "r")) (arg _ (str "crates/ecs/world.rs"))])))]
+    (return false false [(item (ident "r") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case card-5
+%% source [LQ/card §3] example 5
+%% entry read
+%% input
+USE main~5 MATCH (t {id: #93}) RETURN t.status, t.unblocked
+%% tokens
+KW USE
+REF main
+SUF ~5
+KW MATCH
+P (
+NAME t
+P {
+NAME id
+P :
+NODE 93
+P }
+P )
+KW RETURN
+NAME t
+P .
+NAME status
+P ,
+NAME t
+P .
+NAME unblocked
+EOF -
+%% sast
+(read run
+ (query
+  [(part (rsuf (rref "main") tilde 5 _)
+    [(match false _ [(path (npat "t" [] [(kv "id" (nid 93))] _) [])] _)]
+    (return false false [(item (prop (ident "t") "status") _) (item (prop (ident "t") "unblocked") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case card-6
+%% source [LQ/card §3] example 6
+%% entry read
+%% input
+CALL diff(main...lane/l5np) YIELD change, node, aspect, side WHERE side = 'both'
+%% tokens
+KW CALL
+NAME diff
+P (
+REF main
+RANGE ...
+REF lane/l5np
+P )
+KW YIELD
+NAME change
+P ,
+NAME node
+P ,
+NAME aspect
+P ,
+NAME side
+KW WHERE
+NAME side
+P =
+STR "both"
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _
+    (scall "diff" [(arg _ (rrange (rref "main") three (rref "lane/l5np")))]
+     items [(yitem "change" _) (yitem "node" _) (yitem "aspect" _) (yitem "side" _)]
+     (cmp = (ident "side") (str "both")) [] _))]
+  []))
+%% end
+
+%% case card-7
+%% source [LQ/card §3] example 7
+%% entry write
+%% input
+TX ON lane/l5np LEASE 'L-18' { MATCH (t {id: #89}) WHERE t.status = 'in_progress' EXPECT 1 SET t.done = true }
+%% tokens
+KW TX
+KW ON
+REF lane/l5np
+KW LEASE
+STR "L-18"
+P {
+KW MATCH
+P (
+NAME t
+P {
+NAME id
+P :
+NODE 89
+P }
+P )
+KW WHERE
+NAME t
+P .
+NAME status
+P =
+STR "in_progress"
+KW EXPECT
+INT 1
+KW SET
+NAME t
+P .
+NAME done
+P =
+KW TRUE
+P }
+EOF -
+%% sast
+(tx (rref "lane/l5np") _ _ _ "L-18" _
+ [(smatch [(path (npat "t" [] [(kv "id" (nid 89))] _) [])]
+   (cmp = (prop (ident "t") "status") (str "in_progress"))
+   (expect exact 1 _ _)
+   [(mset [(assign (ident "t") "done" (bool true))])])]
+ false)
+%% end

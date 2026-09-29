@@ -1,0 +1,8 @@
+DEFINE QUERY pack_header($target: node) SHAPE table BUDGET light AS {
+  CALL refs() YIELD name, kind, tip, seq, ahead, behind, fork, staged
+  WHERE name = view_ref() OR (kind = 'merge' AND name CONTAINS view_ref())
+  RETURN 'ref' AS item, name AS key, ahead, behind, staged, NULL AS n
+  UNION ALL
+  CALL links(scope: $target) YIELD state
+  RETURN 'links' AS item, state AS key, NULL AS ahead, NULL AS behind, NULL AS staged, count(*) AS n
+}

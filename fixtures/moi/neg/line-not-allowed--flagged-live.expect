@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/line-not-allowed--flagged-live.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note flagged on a live node's edge.
+%% refuse ImageParse line-not-allowed
+%% end

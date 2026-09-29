@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/anchor-texts-partial--texts-partial.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note An anchor line with a quote but no prefix and suffix texts.
+%% refuse ImageParse anchor-texts-partial
+%% end

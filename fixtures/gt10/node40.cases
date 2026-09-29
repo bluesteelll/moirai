@@ -1,0 +1,334 @@
+# fixtures/gt10/node40.cases: the "node 40" table of [AR §5d.3] on one branch (WP-22 gt10/, R-FIX).
+# Format: fixtures/gt10/INDEX.md §2. Written from [RULES/delete-policy-matrix] §3-§11 and [API]; the worked rows
+# NC-001 to NC-008 and NX-001 to NX-041 are cited beside each fact they restate.
+#
+# The store (seed 40): the design's numbers are the labels; the store's own numbers follow from the stream.
+#   n9   #1  task "Storage campaign"                  parent of n40
+#   n12  #2  task "Byte-range lock protocol"          the dependent: n40 -blocks-> n12
+#   n40  #3  task "Reader registry"                   the node deleted
+#   n41  #4  task "Reader registry tests"             child of n40
+#   n52  #5  task "Reader table"                      the replacement
+#   n203 #6  task "Lock benchmarks"                   n203 -blocks-> n40
+#   n17  #7  note "Reader registry notes"             n17 -derived_from-> n40, pinned at c@4 (the design's cites, OP-15)
+#   n77  #8  note "Registry design review"            its body mentions #3 (n40)
+# Commits: c@4 (seq 1) and c@5 (seq 2) on main; c0 is c@5. lane/x and lane/y fork from main at c0.
+# Lease: L-1, the orchestrator's session role lease (token 1, holder orch).
+
+%% case c0
+%% from -
+%% core yes
+%% source [RULES/delete-policy-matrix] §11 n40-nodes, n40-edges; NC-001; NX-001 to NX-003
+%% source [AR §5d.3]; [AR §3.5]; [RULES/state-definition] PD-001 to PD-007, PD-018, PD-022
+%% note The starting state c0 of the node-40 table, checked before any delete.
+%% note #17 derives from #40 instead of citing it: cites ends only at knowledge ([F08 §9.6]), as the rule table's OP-15 says.
+%% note The pin c@4 is the commit that created #40, which is #40's current commit at c0, so #17 is not suspect.
+%% script
+1 EnvSlots hold=[claude:s1]
+2 Init seed=40 params=["query.safelist.model.unknown=off"]
+3 Claim @agent=orch @env.CLAUDECODE="1" @env.CLAUDE_CODE_SESSION_ID="s1" role=orchestrator session=true
+4 Tx @lease=L-1 message="Node 40: the tasks"
+  create as=n9 kind=task fields={title="Storage campaign"}
+  create as=n12 kind=task fields={title="Byte-range lock protocol"}
+  create as=n40 kind=task fields={title="Reader registry"} under=$n9
+  create as=n41 kind=task fields={title="Reader registry tests"} under=$n40
+  create as=n52 kind=task fields={title="Reader table"}
+  create as=n203 kind=task fields={title="Lock benchmarks"} edges_out=[{kind=blocks,dst=$n40}]
+  link src=$n40 kind=blocks dst=$n12
+  create as=n17 kind=note fields={title="Reader registry notes"}
+5 Tx @lease=L-1 message="Node 40: the knowledge"
+  link src=$n17 kind=derived_from dst=$n40 pinned=c@4
+  create as=n77 kind=note fields={title="Registry design review"} body="The design of the reader registry is in #3; its tests follow."
+6 BranchCreate @lease=L-1 name=lane/x from=main
+7 BranchCreate @lease=L-1 name=lane/y from=main
+%% result
+exit 0
+%% expect
+main $n12 open_blockers 1 NX-001
+main $n12 unblocked no NX-002
+main $n40 is_blocker yes NX-003
+main $n40 open_blockers 1 BT-001
+main $n40 container yes PD-022
+main $n41 unblocked no PD-007
+main $n9 container yes PD-022
+main $n9 children_total 1
+main $n17 edges [derived_from:$n40]
+main $n17 suspect no
+main $n77 edges [mentions:$n40]
+main tasks ready-set [$n52,$n203]
+main $n40 blocking-listed yes PD-018
+main $n203 blocking-listed yes PD-018
+main $n12 blocking-listed no
+lane/x tasks ready-set [$n52,$n203]
+lane/x $n40 excluded no
+lane/y $n40 excluded no
+* ref:lane/x absorbed.main 2 VR-004
+* ref:lane/y absorbed.main 2 VR-004
+* lease:L-1 live yes LL-005
+%% end
+
+%% case c1
+%% from c0
+%% core yes
+%% source NC-002; NX-004 to NX-006; EG-001; DP-006; [LQ/errors §5.5] E409 restricted references; [API §2.3] refused
+%% note Without --reparent or --cascade the delete is refused: #41 (#4) is a live child of #40 (#3). Nothing is written.
+%% script
+8 Mutation tx.rm @lease=L-1 id=$n40 replaced_by=$n52 reason="duplicate of the reader table"
+%% result
+exit 6
+error E409
+mentions #4
+commit none
+%% expect
+main $n40 deleted no NX-006
+main $n41 parent $n40
+main edge:$n40:blocks:$n12 exists yes
+* ref:main ref_seq_next 3
+%% end
+
+%% case c2
+%% from c0
+%% core yes
+%% source NC-003; NX-007 to NX-021; EG-003, EG-004, EG-006, EG-007, EG-035, EG-059; DS-005, DS-008; TB-007, TB-008, TB-011
+%% source [AR §7.1] rm 40 --reason "dup of #52" --replaced-by 52; [AR §5d.3] row 1 "as above"
+%% note The design's example: #41 moves up to #9, #203's blocker edge and #40's own blocker edge are re-pointed to #52,
+%% note #17 becomes suspect, #77's mention stays and renders the tombstone. #41 becomes ready: its ancestor #40 no
+%% note longer carries #203's exogenous blocker. The lanes forked at c0 hold #40 live, but the deleted marker keeps it
+%% note out of their dispatch and blocking lists.
+%% script
+8 Mutation tx.rm @lease=L-1 @key=orch:rm-40 id=$n40 replaced_by=$n52 policy=reparent reason="duplicate of the reader table"
+%% result
+exit 0
+ready [$n41]
+marker deleted $n40 main
+%% expect
+main $n40 deleted yes NX-007
+main $n40 replaced_by $n52 NX-008
+main $n40 reason "duplicate of the reader table" TB-007
+main $n40 hold deleted NX-021
+main $n40 edges [] TB-011
+main edge:$n40:blocks:$n12 exists no NX-009
+main edge:$n52:blocks:$n12 exists yes NX-010
+main edge:$n203:blocks:$n40 exists no NX-011
+main edge:$n203:blocks:$n52 exists yes NX-012
+main $n41 parent $n9 NX-013
+main $n9 children_total 1 EF-004
+main $n12 open_blockers 1 NX-014
+main $n12 unblocked no NX-015
+main $n52 open_blockers 1 NX-016
+main $n52 is_blocker yes EF-006
+main $n41 unblocked yes EF-003
+main $n41 ready yes
+main $n17 suspect yes NX-017
+main edge:$n17:derived_from:$n40 exists yes NX-018
+main $n77 suspect no NX-019
+main edge:$n77:mentions:$n40 exists yes NX-020
+main tasks ready-set [$n41,$n203]
+* marker:deleted:$n40:main holders [main] ME-001
+* marker:deleted:$n40:main active_on [lane/x,lane/y] MF-006
+lane/x $n40 deleted no XB-001
+lane/x $n40 excluded yes PD-012
+lane/x $n40 deleted_elsewhere yes PD-013
+lane/x $n40 is_blocker yes
+lane/x $n40 blocking-listed no PD-018
+lane/y $n40 excluded yes PD-012
+%% end
+
+%% case c2k
+%% from c2
+%% source [API §7.4] row 2; [API §7.5]; [AR §6.4]
+%% note The same command with the same explicit key replays: nothing is appended, the original commit is returned.
+%% script
+9 Mutation tx.rm @lease=L-1 @key=orch:rm-40 id=$n40 replaced_by=$n52 policy=reparent reason="duplicate of the reader table"
+%% result
+exit 0
+replayed yes
+%% expect
+main $n40 deleted yes
+* ref:main ref_seq_next 4
+%% end
+
+%% case c2d
+%% from c0
+%% source DS-011; [AR §7.1] rm --dry-run; [API §9.7] (rm without --yes runs with DRY); [API §2.3] dry
+%% note The dry run checks everything and writes nothing.
+%% script
+8 Mutation tx.rm @lease=L-1 @dry=true id=$n40 replaced_by=$n52 policy=reparent reason="duplicate of the reader table"
+%% result
+exit 0
+dry yes
+commit none
+markers none
+%% expect
+main $n40 deleted no
+main edge:$n40:blocks:$n12 exists yes
+main $n41 parent $n40
+* ref:main ref_seq_next 3
+%% end
+
+%% case c3
+%% from c0
+%% core yes
+%% source NC-004; NX-022 to NX-028; EG-003, EG-005, EG-008; FL-001, FL-003; TB-009; [AR §2.5] X4
+%% note No replacement: #40 was an open blocker of #12, so its edge stays, flagged, as a retained out-edge of the
+%% note tombstone, and #12 stays out of ready until someone resolves it. #203's edge into #40 is dropped.
+%% script
+8 Mutation tx.rm @lease=L-1 id=$n40 policy=reparent reason="obsolete"
+%% result
+exit 0
+ready [$n41]
+marker deleted $n40 main
+%% expect
+main $n40 deleted yes
+main $n40 replaced_by -
+main $n40 reason "obsolete"
+main $n40 edges [blocks:$n12:flagged] TB-009
+main edge:$n40:blocks:$n12 exists yes EG-008
+main edge:$n40:blocks:$n12 flagged yes NX-022
+main $n12 has_dangling yes NX-023
+main $n12 open_blockers 1 NX-024
+main $n12 unblocked no NX-025
+main $n12 ready no
+main edge:$n203:blocks:$n40 exists no NX-026
+main $n203 is_blocker no NX-027
+main $n41 parent $n9 NX-028
+main $n17 suspect yes EG-035
+main tasks ready-set [$n41,$n52,$n203]
+lane/y $n40 excluded yes PD-012
+%% end
+
+%% case c3r
+%% from c3
+%% core yes
+%% requires lq
+%% finding F-1
+%% source NC-005; NX-029 to NX-032; FL-006; FL-003; [LQ/std §2.14] (edges with a DELETED endpoint); [LQ/grammar-v1.ebnf] §6
+%% note Removing the flagged edge releases #12 (FL-006). The only spelling that reaches an edge whose source is a
+%% note tombstone is LQ's DELETED pseudo-label (finding F-1). In the text, #3 is n40 and #2 is n12.
+%% script
+9 Tx @lease=L-1 message="Drop the flagged blocker of #2" lq=|
+    TX { MATCH (d:DELETED {id: #3})-[e:BLOCKS]->(#2) EXPECT 1 DELETE e }
+%% result
+exit 0
+ready [$n12]
+%% expect
+main edge:$n40:blocks:$n12 exists no NX-029
+main $n12 open_blockers 0 NX-030
+main $n12 has_dangling no NX-031
+main $n12 unblocked yes NX-032
+main $n12 ready yes
+main $n40 edges []
+%% end
+
+%% case c3p
+%% from c3
+%% core yes
+%% finding F-1
+%% source NC-006; NX-033 to NX-036; FL-005; [AR §7.1] resolve KEY --take repoint:ID; [API §9.2] resolve
+%% note resolve with repoint replaces the flagged edge #40 -> #12 by #52 -> #12 without the flag; #52 is open, so #12
+%% note stays blocked, now by a live task.
+%% script
+9 Tx @lease=L-1 message="Re-point the flagged blocker of #2 to #5"
+  resolve key=edge:$n40:blocks:$n12 repoint=$n52
+%% result
+exit 0
+ready []
+%% expect
+main edge:$n52:blocks:$n12 exists yes NX-033
+main edge:$n52:blocks:$n12 flagged no FL-005
+main edge:$n40:blocks:$n12 exists no NX-034
+main $n12 open_blockers 1 NX-035
+main $n12 has_dangling no NX-036
+main $n52 is_blocker yes
+main $n40 edges []
+%% end
+
+%% case c3n
+%% from c0
+%% core yes
+%% finding F-6
+%% policy main edges.blocks.on-src-deleted=drop-notify
+%% source NC-007; NX-037, NX-038; EG-005, EG-010; EA-003; EF-009; [AR §13] edges.blocks.on-src-deleted; [AR §2.5] revisit trigger
+%% note Under drop-notify the deleted blocker's edge is removed and #12 is released and named in affected.
+%% script
+8 Mutation tx.rm @lease=L-1 id=$n40 policy=reparent reason="obsolete"
+%% result
+exit 0
+ready [$n12,$n41]
+affected-includes $n12
+marker deleted $n40 main
+%% expect
+main edge:$n40:blocks:$n12 exists no NX-037
+main $n12 open_blockers 0 EF-009
+main $n12 unblocked yes NX-038
+main $n12 has_dangling no
+main $n40 edges []
+main edge:$n203:blocks:$n40 exists no EG-005
+%% end
+
+%% case c4
+%% from c0
+%% core yes
+%% finding G-1
+%% source NC-008; NX-039 to NX-041; EG-002, EG-004, EG-006, EG-007; DS-002, DS-003; EF-002, EF-004
+%% note --cascade deletes #41 with #40; the edge #41 -> #40 lies inside the deleted set (DS-003). #9 loses its only
+%% note child and becomes a ready leaf. The descendant's reason and replacement are not asserted (gap G-1).
+%% script
+8 Mutation tx.rm @lease=L-1 id=$n40 replaced_by=$n52 policy=cascade reason="duplicate of the reader table"
+%% result
+exit 0
+ready [$n9]
+marker deleted $n40 main
+marker deleted $n41 main
+%% expect
+main $n40 deleted yes NX-040
+main $n41 deleted yes NX-039
+main $n41 hold deleted
+main edge:$n52:blocks:$n12 exists yes NX-041
+main edge:$n203:blocks:$n52 exists yes EG-006
+main $n9 children_total 0 EF-004
+main $n9 container no
+main $n9 unblocked yes
+main $n12 open_blockers 1
+main $n17 suspect yes
+main tasks ready-set [$n9,$n203]
+%% end
+
+%% case l3-set
+%% from c3
+%% source [AR §5d.3] L3; [API §9.1] (a literal target that is not live); [RULES/delete-policy-matrix] DP-003; [F19 §10.2] not_found
+%% note A write that assumed #40 fails with exit 3 and names the tombstone.
+%% script
+9 Mutation tx.set @lease=L-1 id=$n40 fields=["priority=1"]
+%% result
+exit 3
+error not_found
+commit none
+%% end
+
+%% case l3-link
+%% from c3
+%% source [AR §5d.3] L3 "link --blocks 40"; [API §9.1]; [F19 §10.2] not_found
+%% script
+9 Mutation tx.link @lease=L-1 a=$n52 kind=blocks b=$n40
+%% result
+exit 3
+error not_found
+commit none
+%% expect
+main $n52 edges []
+%% end
+
+%% case l3-rev
+%% from c3
+%% finding F-3
+%% source [F06 §2.3] (an edge key is owned by its source); [API §15.4] rev; [LQ/std §7.2] tx.set with if_rev
+%% note #12's rev is still 1 (the seq of c@4): the delete changed keys that #40 and #203 own, none that #12 owns. So a
+%% note write guarded by #12's rev from before the delete passes, contrary to [AR §5d.3] L3 (finding F-3).
+%% script
+9 Mutation tx.set @lease=L-1 id=$n12 fields=["priority=1"] if_rev=1
+%% result
+exit 0
+%% expect
+main $n12 priority 1
+main $n12 has_dangling yes
+%% end

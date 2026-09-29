@@ -1,0 +1,7 @@
+DEFINE QUERY changes($since: rev, $about: list<node>? = NULL, $for_agent: text? = NULL, $all: bool = false) SHAPE changes BUDGET light AS {
+  CALL changes(since: $since) YIELD seq, ref, commit, node, op, aspect, name, actor, affected
+  WHERE ($all OR ref = view_ref())
+    AND ($about IS NULL OR node IN $about)
+    AND ($for_agent IS NULL OR relevant_to(node, $for_agent))
+  RETURN seq, ref, node, op, aspect, name, actor ORDER BY seq
+}

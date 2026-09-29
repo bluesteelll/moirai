@@ -1,0 +1,1705 @@
+# fixtures/lq/cases/lexical.cases: the lexer of [LQ/lexical] (WP-22, R-FIX): source decoding, whitespace and
+# comments, every token kind with its limits and value, keyword and plain-name positions, revision mode, and every
+# E001/E002/E003 detection case of [LQ/lexical §1], §2, §5 and §7.
+# Accepted inputs assert the classified token stream ([LQ/lexical §11]); refused ones the first error.
+# Positions: 'spec' when [LQ/lexical] fixes the position; 'conv' when it does not, in which case the fixture uses
+# the start of the token or revision the rule refuses (INDEX.md §4 G-7).
+# Format: fixtures/lq/INDEX.md §2.
+
+%% case lx-bom
+%% source [LQ/lexical §2.1] rule 1
+%% entry read
+%% note One leading byte-order mark is removed; offsets count from after it.
+%% input-hex
+; EF BB BF, then RETURN 1
+ef bb bf 52 45 54 55 52 4e 20 31
+%% tokens
+KW RETURN
+INT 1
+EOF -
+%% end
+
+%% case lx-crlf-and-comments
+%% source [LQ/lexical §2.2], §3
+%% entry read
+%% input-hex
+; CR LF line ends, a line comment and a block comment spanning a line end
+4d 41 54 43 48 20 28 74 29 20 2f 2f 20 6c 69 6e
+65 20 63 6f 6d 6d 65 6e 74 0d 0a 52 45 54 55 52
+4e 20 2f 2a 20 62 6c 6f 63 6b 0d 0a 63 6f 6d 6d
+65 6e 74 20 2a 2f 20 74
+%% tokens
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-comments-do-not-nest
+%% source [LQ/lexical §3]
+%% entry read
+%% note A block comment ends at the first */.
+%% input
+RETURN 1 /* a /* b */ + 2
+%% tokens
+KW RETURN
+INT 1
+P +
+INT 2
+EOF -
+%% sast
+(read run (query [(part _ [] (return false false [(item (arith + (int 1) (int 2)) _)] [] [] _) _)] []))
+%% end
+
+%% case lx-comment-markers-in-text
+%% source [LQ/lexical §3]
+%% entry read
+%% note // and /* inside a string or a back-quoted identifier are content.
+%% input
+RETURN '// no comment', `/* name */`
+%% tokens
+KW RETURN
+STR "// no comment"
+P ,
+QNAME "/* name */"
+EOF -
+%% end
+
+%% case lx-tab-in-string
+%% source [LQ/lexical §5.2]
+%% entry read
+%% note HT is allowed inside strings.
+%% input-hex
+; a raw HT inside a string
+52 45 54 55 52 4e 20 27 61 09 62 27
+%% tokens
+KW RETURN
+STR "a\tb"
+EOF -
+%% end
+
+%% case lx-non-ascii-in-string-and-name
+%% source [LQ/lexical §5.2]
+%% entry read
+%% input
+RETURN 'Привет' AS `имя`
+%% tokens
+KW RETURN
+STR "Привет"
+KW AS
+QNAME "имя"
+EOF -
+%% end
+
+%% case lx-integer-max
+%% source [LQ/lexical §5.6]
+%% entry read
+%% note Leading zeros are ignored.
+%% input
+RETURN 9223372036854775807, 007
+%% tokens
+KW RETURN
+INT 9223372036854775807
+P ,
+INT 7
+EOF -
+%% end
+
+%% case lx-float-forms
+%% source [LQ/lexical §5.6]
+%% entry read
+%% note 1e-400 rounds to zero, which is accepted (0.0); the token keeps its text.
+%% input
+RETURN 1.0, 0.5e10, 3E2, 1e-400
+%% tokens
+KW RETURN
+FLOAT 1.0
+P ,
+FLOAT 0.5e10
+P ,
+FLOAT 3E2
+P ,
+FLOAT 1e-400
+EOF -
+%% end
+
+%% case lx-duration-units
+%% source [LQ/lexical §5.6]
+%% entry read
+%% note m is minutes; 15250284452w = 9223372036569600000 ms is inside the range.
+%% input
+RETURN 1s, 2m, 3h, 4d, 5w, 15250284452w
+%% tokens
+KW RETURN
+DUR 1s
+P ,
+DUR 2m
+P ,
+DUR 3h
+P ,
+DUR 4d
+P ,
+DUR 5w
+P ,
+DUR 15250284452w
+EOF -
+%% end
+
+%% case lx-dot-after-integer
+%% source [LQ/lexical §5.6]
+%% entry read
+%% note 1. followed by a non-digit is the integer 1 and '.': here a property access on a literal, which parses.
+%% input
+RETURN 1.x
+%% tokens
+KW RETURN
+INT 1
+P .
+NAME x
+EOF -
+%% sast
+(read run (query [(part _ [] (return false false [(item (prop (int 1) "x") _)] [] [] _) _)] []))
+%% end
+
+%% case lx-node-literals
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+MATCH (t) WHERE t IN [#1, #007, #4294967295] RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P )
+KW WHERE
+NAME t
+KW IN
+P [
+NODE 1
+P ,
+NODE 7
+P ,
+NODE 4294967295
+P ]
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-node-literal-dot-field
+%% source [LQ/lexical §5.8]
+%% entry write
+%% note #133.body is the node literal, '.' and the word body.
+%% input
+TX { PATCH #133.body REMOVE $old ADD $new }
+%% tokens
+KW TX
+P {
+KW PATCH
+NODE 133
+P .
+NAME body
+KW REMOVE
+PARAM old
+KW ADD
+PARAM new
+P }
+EOF -
+%% end
+
+%% case lx-uid-literal
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+MATCH (t {id: #u:018f3c2e7a117b3c9d5e4c2f1a0b9e77}) RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P {
+NAME id
+P :
+UID 018f3c2e7a117b3c9d5e4c2f1a0b9e77
+P }
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-escapes
+%% source [LQ/lexical §5.7]
+%% entry read
+%% note Every escape of the table; \u{h} takes 1 to 6 hex digits of either case; U+0000 is a scalar value.
+%% input
+RETURN '\\ \' \" \n \r \t \u{1f600}\u{1F600}\u{0}'
+%% tokens
+KW RETURN
+STR "\\ ' \" \n \r \t 😀😀\u0000"
+EOF -
+%% end
+
+%% case lx-adjacent-strings
+%% source [LQ/lexical §5.7], [LQ/grammar-v1.ebnf §P.17]
+%% entry read
+%% note Two adjacent strings are two tokens; after a complete read_input the second is E001.
+%% input
+RETURN 'a' 'b'
+%% error E001 1:12 spec
+%% end
+
+%% case lx-comparison-operators
+%% source [LQ/lexical §5.9]
+%% entry read
+%% input
+MATCH (a) WHERE a.x <> 1 AND a.y <= 2 AND a.z >= 3 AND a.w != 4 RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+KW WHERE
+NAME a
+P .
+NAME x
+P <>
+INT 1
+KW AND
+NAME a
+P .
+NAME y
+P <=
+INT 2
+KW AND
+NAME a
+P .
+NAME z
+P >=
+INT 3
+KW AND
+NAME a
+P .
+NAME w
+P !=
+INT 4
+KW RETURN
+NAME a
+EOF -
+%% end
+
+%% case lx-arrows
+%% source [LQ/lexical §5.9]
+%% entry read
+%% note -> is always one token; <- only before [ or -; --> is - ->; <-- is <- -.
+%% input
+MATCH (a)<-[:T]-(b)-[:U]->(c)<--(d)-->(e) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P <-
+P [
+P :
+NAME T
+P ]
+P -
+P (
+NAME b
+P )
+P -
+P [
+P :
+NAME U
+P ]
+P ->
+P (
+NAME c
+P )
+P <-
+P -
+P (
+NAME d
+P )
+P -
+P ->
+P (
+NAME e
+P )
+KW RETURN
+NAME a
+EOF -
+%% end
+
+%% case lx-lt-space-minus
+%% source [LQ/lexical §5.9]
+%% entry read
+%% note <- followed by a space is < and -: the comparison 1 < -2.
+%% input
+RETURN 1 <- 2
+%% tokens
+KW RETURN
+INT 1
+P <
+P -
+INT 2
+EOF -
+%% sast
+(read run (query [(part _ [] (return false false [(item (cmp < (int 1) (neg (int 2))) _)] [] [] _) _)] []))
+%% end
+
+%% case lx-keyword-case
+%% source [LQ/lexical §6.5]
+%% entry read
+%% input
+MaTcH (t) ReTuRn t
+%% tokens
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-contextual-keywords-as-names
+%% source [LQ/lexical §6.2]
+%% entry read
+%% note Contextual keywords are names outside their keyword positions.
+%% input
+MATCH (key:task), (value), (on) RETURN key, value, on
+%% tokens
+KW MATCH
+P (
+NAME key
+P :
+NAME task
+P )
+P ,
+P (
+NAME value
+P )
+P ,
+P (
+NAME on
+P )
+KW RETURN
+NAME key
+P ,
+NAME value
+P ,
+NAME on
+EOF -
+%% end
+
+%% case lx-plain-name-positions
+%% source [LQ/lexical §6.3]
+%% entry read
+%% note After '.' and as a map key, any word, reserved or not, is a name.
+%% input
+MATCH (t) WHERE t.order = 1 AND t.limit = 2 RETURN {limit: 5, match: 1} AS m
+%% tokens
+KW MATCH
+P (
+NAME t
+P )
+KW WHERE
+NAME t
+P .
+NAME order
+P =
+INT 1
+KW AND
+NAME t
+P .
+NAME limit
+P =
+INT 2
+KW RETURN
+P {
+NAME limit
+P :
+INT 5
+P ,
+NAME match
+P :
+INT 1
+P }
+KW AS
+NAME m
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _ [(path (npat "t" [] [] _) [])]
+      (and (cmp = (prop (ident "t") "order") (int 1)) (cmp = (prop (ident "t") "limit") (int 2))))]
+    (return false false [(item (map [(kv "limit" (int 5)) (kv "match" (int 1))]) "m")] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case lx-refused-words-as-names
+%% source [LQ/lexical §6.4]
+%% entry read
+%% note Refused words trigger only at the positions of [LQ/grammar-v1.ebnf §R]; elsewhere they are names.
+%% input
+MATCH (merge:task), (skip) RETURN merge, skip AS offset
+%% tokens
+KW MATCH
+P (
+NAME merge
+P :
+NAME task
+P )
+P ,
+P (
+NAME skip
+P )
+KW RETURN
+NAME merge
+P ,
+NAME skip
+KW AS
+NAME offset
+EOF -
+%% end
+
+%% case lx-named-argument-reserved-word
+%% source [LQ/lexical §6.3]
+%% entry read
+%% note A named-argument name is a plain-name position, so the reserved word LIMIT is a name there.
+%% input
+CALL search('x', limit: 5) YIELD node
+%% tokens
+KW CALL
+NAME search
+P (
+STR "x"
+P ,
+NAME limit
+P :
+INT 5
+P )
+KW YIELD
+NAME node
+EOF -
+%% end
+
+%% case lx-rev-head
+%% source [LQ/lexical §7.2]
+%% entry read
+%% input
+USE HEAD MATCH (t) RETURN t
+%% tokens
+KW USE
+HEAD HEAD
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-head-lower-is-ref
+%% source [LQ/lexical §7.2]
+%% entry read
+%% note head is a ref_word: a ref name.
+%% input
+USE head MATCH (t) RETURN t
+%% tokens
+KW USE
+REF head
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-ref-shapes
+%% source [LQ/lexical §7.2]
+%% entry read
+%% input
+USE tags/v1.2-rc_1 MATCH (t) RETURN t
+%% tokens
+KW USE
+REF tags/v1.2-rc_1
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-commit-64
+%% source [LQ/lexical §7.2] rule 1
+%% entry read
+%% input
+USE c0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef MATCH (t) RETURN t
+%% tokens
+KW USE
+COMMIT 0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-commit-65-is-ref
+%% source [LQ/lexical §7.2]
+%% entry read
+%% note 65 hex digits: a ref name ([LQ/lexical] L-8).
+%% input
+USE c0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0 MATCH (t) RETURN t
+%% tokens
+KW USE
+REF c0123456789abcdef0123456789abcdef0123456789abcdef0123456789abcdef0
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-seq-max
+%% source [LQ/lexical §7.2] rule 2
+%% entry read
+%% input
+USE s18446744073709551615 MATCH (t) RETURN t
+%% tokens
+KW USE
+SEQ 18446744073709551615
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-seq-leading-zero
+%% source [LQ/lexical §7.2]
+%% entry read
+%% note Leading zeros are ignored ([LQ/lexical] L-4).
+%% input
+USE s007 MATCH (t) RETURN t
+%% tokens
+KW USE
+SEQ 7
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-datetime-forms
+%% source [LQ/lexical §7.5]
+%% entry read
+%% note A missing time is 00:00:00; the printed form is YYYY-MM-DDTHH:MM:SSZ.
+%% input
+CALL log(main@2026-09-25..main@2026-09-25T10:00:05Z) YIELD commit
+%% tokens
+KW CALL
+NAME log
+P (
+REF main
+SUF @2026-09-25T00:00:00Z
+RANGE ..
+REF main
+SUF @2026-09-25T10:00:05Z
+P )
+KW YIELD
+NAME commit
+EOF -
+%% end
+
+%% case lx-rev-leap-day
+%% source [LQ/lexical §7.5]
+%% entry read
+%% input
+USE main@2024-02-29 MATCH (t) RETURN t
+%% tokens
+KW USE
+REF main
+SUF @2024-02-29T00:00:00Z
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-year-zero
+%% source [LQ/lexical §7.5]
+%% entry read
+%% note Year 0000 is a leap year in the proleptic Gregorian calendar.
+%% input
+USE main@0000-02-29T23:59:59 MATCH (t) RETURN t
+%% tokens
+KW USE
+REF main
+SUF @0000-02-29T23:59:59Z
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-suffix-max
+%% source [LQ/lexical §7.3]
+%% entry read
+%% input
+USE main~4294967295 MATCH (t) RETURN t
+%% tokens
+KW USE
+REF main
+SUF ~4294967295
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-suffix-zero
+%% source [LQ/lexical §7.3]
+%% entry read
+%% input
+USE main~0^0@0 MATCH (t) RETURN t
+%% tokens
+KW USE
+REF main
+SUF ~0
+SUF ^0
+SUF @0
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-changes-named
+%% source [LQ/lexical §4.2]
+%% entry read
+%% note since and ref of changes are revision positions.
+%% input
+CALL changes(since: s4400, ref: lane/x) YIELD seq
+%% tokens
+KW CALL
+NAME changes
+P (
+NAME since
+P :
+SEQ 4400
+P ,
+NAME ref
+P :
+REF lane/x
+P )
+KW YIELD
+NAME seq
+EOF -
+%% end
+
+%% case lx-rev-history-in
+%% source [LQ/lexical §4.2]
+%% entry read
+%% note in of history is a revision position; the name in is a plain name.
+%% input
+CALL history(#12, in: main..lane/x) YIELD seq
+%% tokens
+KW CALL
+NAME history
+P (
+NODE 12
+P ,
+NAME in
+P :
+REF main
+RANGE ..
+REF lane/x
+P )
+KW YIELD
+NAME seq
+EOF -
+%% end
+
+%% case lx-rev-violations-positional
+%% source [LQ/lexical §4.2]
+%% entry read
+%% input
+CALL violations(merge/main/from/lane/l10) YIELD key
+%% tokens
+KW CALL
+NAME violations
+P (
+REF merge/main/from/lane/l10
+P )
+KW YIELD
+NAME key
+EOF -
+%% end
+
+%% case lx-rev-violations-named
+%% source [LQ/lexical §4.2]
+%% entry read
+%% input
+CALL violations(ref: merge/main/from/lane/l10) YIELD key
+%% tokens
+KW CALL
+NAME violations
+P (
+NAME ref
+P :
+REF merge/main/from/lane/l10
+P )
+KW YIELD
+NAME key
+EOF -
+%% end
+
+%% case lx-rev-log-named-range
+%% source [LQ/lexical §4.2]
+%% entry read
+%% input
+CALL log(range: main..lane/x, actor: 'dev#1') YIELD commit
+%% tokens
+KW CALL
+NAME log
+P (
+NAME range
+P :
+REF main
+RANGE ..
+REF lane/x
+P ,
+NAME actor
+P :
+STR "dev#1"
+P )
+KW YIELD
+NAME commit
+EOF -
+%% end
+
+%% case lx-rev-relation-case
+%% source [LQ/lexical §4.2]
+%% entry read
+%% note The relation name is matched ASCII-case-insensitively; the token keeps the written word.
+%% input
+CALL LOG(main..lane/x) YIELD commit
+%% tokens
+KW CALL
+NAME LOG
+P (
+REF main
+RANGE ..
+REF lane/x
+P )
+KW YIELD
+NAME commit
+EOF -
+%% end
+
+%% case lx-rev-param-arg
+%% source [LQ/lexical §4.2]
+%% entry read
+%% note A $ at a revision argument is a parameter.
+%% input
+CALL log($r) YIELD commit
+%% tokens
+KW CALL
+NAME log
+P (
+PARAM r
+P )
+KW YIELD
+NAME commit
+EOF -
+%% end
+
+%% case lx-rev-double-quoted-arg
+%% source [LQ/lexical §4.2]
+%% entry read
+%% input
+CALL diff("main...lane/x") YIELD change
+%% tokens
+KW CALL
+NAME diff
+P (
+STR "main...lane/x"
+P )
+KW YIELD
+NAME change
+EOF -
+%% end
+
+%% case lx-rev-std-not-revision
+%% source [LQ/lexical §4.2]
+%% entry read
+%% note std.log is not a revision position: main is a word the binder coerces.
+%% input
+CALL std.log(main) YIELD commit
+%% tokens
+KW CALL
+NAME std
+P .
+NAME log
+P (
+NAME main
+P )
+KW YIELD
+NAME commit
+EOF -
+%% end
+
+%% case lx-rev-range-whitespace
+%% source [LQ/lexical §7.4]
+%% entry read
+%% note Whitespace around the range operator is a leniency (L-5).
+%% input
+CALL log(main .. lane/x) YIELD commit
+%% tokens
+KW CALL
+NAME log
+P (
+REF main
+RANGE ..
+REF lane/x
+P )
+KW YIELD
+NAME commit
+EOF -
+%% end
+
+%% case lx-rev-list-comments
+%% source [LQ/lexical §7.4]
+%% entry read
+%% note Whitespace and comments are allowed around list elements and commas.
+%% input
+CALL across(refs: [ main /* a */ , lane/x ], ids: [#1]) YIELD node
+%% tokens
+KW CALL
+NAME across
+P (
+NAME refs
+P :
+P [
+REF main
+P ,
+REF lane/x
+P ]
+P ,
+NAME ids
+P :
+P [
+NODE 1
+P ]
+P )
+KW YIELD
+NAME node
+EOF -
+%% end
+
+%% case lx-rev-comment-before
+%% source [LQ/lexical §3]
+%% entry read
+%% note Comments may stand before a revision.
+%% input
+USE /* v */ main MATCH (t) RETURN t
+%% tokens
+KW USE
+REF main
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case lx-rev-tx-options
+%% source [LQ/lexical §4.2]
+%% entry write
+%% input
+TX ON lane/x IF TIP HEAD~1 { SET #1.a = 1 }
+%% tokens
+KW TX
+KW ON
+REF lane/x
+KW IF
+KW TIP
+HEAD HEAD
+SUF ~1
+P {
+KW SET
+NODE 1
+P .
+NAME a
+P =
+INT 1
+P }
+EOF -
+%% end
+
+%% case lx-question-mark-param-decl
+%% source [LQ/lexical §5.9]
+%% entry define
+%% note ? is valid only after a param_decl type.
+%% input
+DEFINE QUERY q($a: int?) AS { RETURN $a }
+%% tokens
+KW DEFINE
+KW QUERY
+NAME q
+P (
+PARAM a
+P :
+NAME int
+P ?
+P )
+KW AS
+P {
+KW RETURN
+PARAM a
+P }
+EOF -
+%% end
+
+%% case lx-e001-ampersand
+%% source [LQ/lexical §5.2]
+%% entry read
+%% input
+MATCH (t) WHERE t.a = 1 & t.b = 2 RETURN t
+%% error E001 1:25 spec
+%% end
+
+%% case lx-e001-backslash
+%% source [LQ/lexical §5.2]
+%% entry read
+%% input
+RETURN 1 \ 2
+%% error E001 1:10 spec
+%% end
+
+%% case lx-e001-caret
+%% source [LQ/lexical §5.2]
+%% entry read
+%% note ^ ~ @ are revision-mode characters.
+%% input
+RETURN 2 ^ 3
+%% error E001 1:10 spec
+%% end
+
+%% case lx-e001-tilde
+%% source [LQ/lexical §5.2]
+%% entry read
+%% input
+RETURN ~1
+%% error E001 1:8 spec
+%% end
+
+%% case lx-e001-at
+%% source [LQ/lexical §5.2]
+%% entry read
+%% input
+RETURN @x
+%% error E001 1:8 spec
+%% end
+
+%% case lx-e001-bang
+%% source [LQ/lexical §5.2]
+%% entry read
+%% note ! only in !=
+%% input
+RETURN ! TRUE
+%% error E001 1:8 spec
+%% end
+
+%% case lx-e001-non-ascii
+%% source [LQ/lexical §5.2], §5.3
+%% entry read
+%% note The column counts scalar values.
+%% input
+MATCH (t) RETURN tä
+%% error E001 1:19 spec
+%% end
+
+%% case lx-e001-nbsp
+%% source [LQ/lexical §3]
+%% entry read
+%% note U+00A0 is not whitespace.
+%% input
+RETURN 1
+%% error E001 1:7 spec
+%% end
+
+%% case lx-e001-second-bom
+%% source [LQ/lexical §2.1] rule 1
+%% entry read
+%% note Only one mark is removed; the second is U+FEFF at 1:1.
+%% input-hex
+; two byte-order marks
+ef bb bf ef bb bf 52 45 54 55 52 4e 20 31
+%% error E001 1:1 spec
+%% end
+
+%% case lx-e001-vt
+%% source [LQ/lexical §5.2]
+%% entry read
+%% input-hex
+; RETURN 1 then VT
+52 45 54 55 52 4e 20 31 0b
+%% error E001 1:9 spec
+%% end
+
+%% case lx-e001-del
+%% source [LQ/lexical §5.2]
+%% entry read
+%% input-hex
+; RETURN 1 then DEL
+52 45 54 55 52 4e 20 31 7f
+%% error E001 1:9 spec
+%% end
+
+%% case lx-e001-dollar-digit
+%% source [LQ/lexical §5.5]
+%% entry read
+%% input
+RETURN $1
+%% error E001 1:8 conv
+%% end
+
+%% case lx-e001-dollar-space
+%% source [LQ/lexical §5.5]
+%% entry read
+%% input
+RETURN $ x
+%% error E001 1:8 conv
+%% end
+
+%% case lx-e001-empty-backquote
+%% source [LQ/lexical §5.4]
+%% entry read
+%% input
+RETURN ``x
+%% error E001 1:8 conv
+%% end
+
+%% case lx-e001-revision-expected
+%% source [LQ/lexical §7.2]
+%% entry read
+%% input
+USE , MATCH (t) RETURN t
+%% error E001 1:5 spec
+%% end
+
+%% case lx-e001-quote-after-use
+%% source [LQ/lexical §4.2]
+%% entry read
+%% input
+USE 'main' MATCH (t) RETURN t
+%% error E001 1:5 spec
+%% end
+
+%% case lx-e001-quote-after-on
+%% source [LQ/lexical §4.2]
+%% entry write
+%% input
+TX ON 'main' { SET #1.a = 1 }
+%% error E001 1:7 spec
+%% end
+
+%% case lx-e001-quote-after-if-tip
+%% source [LQ/lexical §4.2]
+%% entry write
+%% input
+TX IF TIP "c9b2e6c1" { SET #1.a = 1 }
+%% error E001 1:11 spec
+%% end
+
+%% case lx-e001-param-suffix
+%% source [LQ/lexical §7.2]
+%% entry read
+%% input
+USE $r~1 MATCH (t) RETURN t
+%% error E001 1:7 conv
+%% end
+
+%% case lx-e001-bare-at
+%% source [LQ/lexical §7.3]
+%% entry read
+%% input
+USE main@ MATCH (t) RETURN t
+%% error E001 1:9 conv
+%% end
+
+%% case lx-e001-at-letter
+%% source [LQ/lexical §7.3]
+%% entry read
+%% input
+USE main@x MATCH (t) RETURN t
+%% error E001 1:9 conv
+%% end
+
+%% case lx-e001-four-dots
+%% source [LQ/lexical §7.4]
+%% entry read
+%% input
+CALL log(main....lane/x) YIELD commit
+%% error E001 1:14 conv
+%% end
+
+%% case lx-e001-empty-list
+%% source [LQ/lexical §7.4]
+%% entry read
+%% input
+CALL across(refs: [], ids: [#1]) YIELD node
+%% error E001 1:20 conv
+%% end
+
+%% case lx-e001-range-in-list
+%% source [LQ/lexical §7.4]
+%% entry read
+%% input
+CALL across(refs: [main..lane/x], ids: [#1]) YIELD node
+%% error E001 1:24 conv
+%% end
+
+%% case lx-e001-comment-in-revision
+%% source [LQ/lexical §7.6]
+%% entry read
+%% note A comment ends the revision; ~ is then a normal-mode character.
+%% input
+USE main /* x */ ~2 MATCH (t) RETURN t
+%% error E001 1:18 spec
+%% end
+
+%% case lx-e001-bare-at-argument
+%% source [LQ/lexical §7.2]
+%% entry read
+%% input
+CALL log(@) YIELD commit
+%% error E001 1:10 spec
+%% end
+
+%% case lx-e002-string-eof
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input
+RETURN 'abc
+%% error E002 1:8 spec
+%% end
+
+%% case lx-e002-string-lf
+%% source [LQ/lexical §5.7]
+%% entry read
+%% note Strings are single-line (L-1).
+%% input
+RETURN 'ab
+cd'
+%% error E002 1:8 spec
+%% end
+
+%% case lx-e002-string-cr
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input-hex
+; a raw CR inside a string
+52 45 54 55 52 4e 20 27 61 62 0d 63 64 27
+%% error E002 1:8 spec
+%% end
+
+%% case lx-e002-double-quoted
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input
+RETURN "abc
+%% error E002 1:8 spec
+%% end
+
+%% case lx-e002-escaped-quote-at-end
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input
+RETURN 'abc\'
+%% error E002 1:8 spec
+%% end
+
+%% case lx-e002-backquote-eof
+%% source [LQ/lexical §5.4]
+%% entry read
+%% input
+RETURN `abc
+%% error E002 1:8 spec
+%% end
+
+%% case lx-e002-backquote-lf
+%% source [LQ/lexical §5.4]
+%% entry read
+%% input
+RETURN `ab
+c`
+%% error E002 1:8 spec
+%% end
+
+%% case lx-e002-block-comment
+%% source [LQ/lexical §3]
+%% entry read
+%% input
+RETURN 1 /* note
+%% error E002 1:10 spec
+%% end
+
+%% case lx-e003-utf8-ff
+%% source [LQ/lexical §2.1] rule 2
+%% entry read
+%% input-hex
+; byte FF inside a string
+52 45 54 55 52 4e 20 27 61 ff 27
+%% error E003 1:10 spec
+%% end
+
+%% case lx-e003-utf8-overlong
+%% source [LQ/lexical §2.1] rule 2
+%% entry read
+%% input-hex
+; overlong C0 80
+52 45 54 55 52 4e 20 27 c0 80 27
+%% error E003 1:9 spec
+%% end
+
+%% case lx-e003-utf8-surrogate
+%% source [LQ/lexical §2.1] rule 2
+%% entry read
+%% input-hex
+; encoded U+D800
+52 45 54 55 52 4e 20 27 ed a0 80 27
+%% error E003 1:9 spec
+%% end
+
+%% case lx-e003-utf8-above-max
+%% source [LQ/lexical §2.1] rule 2
+%% entry read
+%% input-hex
+; above U+10FFFF
+52 45 54 55 52 4e 20 27 f4 90 80 80 27
+%% error E003 1:9 spec
+%% end
+
+%% case lx-e003-utf8-truncated
+%% source [LQ/lexical §2.1] rule 2
+%% entry read
+%% input-hex
+; a truncated sequence at the end
+52 45 54 55 52 4e 20 27 e2 82
+%% error E003 1:9 spec
+%% end
+
+%% case lx-e003-utf8-line-2
+%% source [LQ/lexical §2.3]
+%% entry read
+%% note line and col are computed over the well-formed prefix.
+%% input-hex
+; the first ill-formed byte on line 2
+52 45 54 55 52 4e 20 31 2c 0a 20 20 27 c3 a9 ff
+27
+%% error E003 2:5 spec
+%% end
+
+%% case lx-e003-runs-into-word
+%% source [LQ/lexical §5.6]
+%% entry read
+%% input
+RETURN 12abc
+%% error E003 1:8 spec
+%% end
+
+%% case lx-e003-3days
+%% source [LQ/lexical §5.6]
+%% entry read
+%% input
+RETURN 3days
+%% error E003 1:8 spec
+%% end
+
+%% case lx-e003-upper-unit
+%% source [LQ/lexical §5.6]
+%% entry read
+%% input
+RETURN 15M
+%% error E003 1:8 spec
+%% end
+
+%% case lx-e003-float-runs-into
+%% source [LQ/lexical §5.6]
+%% entry read
+%% input
+RETURN 1.5x
+%% error E003 1:8 spec
+%% end
+
+%% case lx-e003-hex-number
+%% source [LQ/lexical §5.6]
+%% entry read
+%% input
+RETURN 0x10
+%% error E003 1:8 spec
+%% end
+
+%% case lx-e003-exponent-no-digits
+%% source [LQ/lexical §5.6]
+%% entry read
+%% input
+RETURN 2e
+%% error E003 1:8 spec
+%% end
+
+%% case lx-e003-exponent-sign-no-digits
+%% source [LQ/lexical §5.6]
+%% entry read
+%% input
+RETURN 1e+
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-integer-overflow
+%% source [LQ/lexical §5.6], §8
+%% entry read
+%% input
+RETURN 9223372036854775808
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-float-infinite
+%% source [LQ/lexical §5.6]
+%% entry read
+%% input
+RETURN 1e309
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-duration-overflow
+%% source [LQ/lexical §5.6]
+%% entry read
+%% input
+RETURN 15250284453w
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-node-zero
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+MATCH (t {id: #0}) RETURN t
+%% error E003 1:15 conv
+%% end
+
+%% case lx-e003-node-overflow
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+RETURN #4294967296
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-hash-alone
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+RETURN # 1
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-hash-letter
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+RETURN #x
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-hash-u
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+RETURN #u
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-uid-short
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+RETURN #u:018f3c2e7a117b3c9d5e4c2f1a0b9e7
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-uid-upper
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+RETURN #u:018F3C2E7A117B3C9D5E4C2F1A0B9E77
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-uid-long
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+RETURN #u:018f3c2e7a117b3c9d5e4c2f1a0b9e770
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-node-runs-into
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+RETURN #40abc
+%% error E003 1:8 conv
+%% end
+
+%% case lx-e003-escape-x
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input
+RETURN '\x41'
+%% error E003 1:9 spec
+%% end
+
+%% case lx-e003-escape-json-u
+%% source [LQ/lexical §5.7]
+%% entry read
+%% note JSON's \uXXXX is not an LQ escape; write \u{0041}.
+%% input
+RETURN '\u0041'
+%% error E003 1:9 spec
+%% end
+
+%% case lx-e003-escape-zero
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input
+RETURN 'a\0'
+%% error E003 1:10 spec
+%% end
+
+%% case lx-e003-escape-b
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input
+RETURN '\b'
+%% error E003 1:9 spec
+%% end
+
+%% case lx-e003-escape-slash
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input
+RETURN '\/'
+%% error E003 1:9 spec
+%% end
+
+%% case lx-e003-escape-seven-digits
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input
+RETURN '\u{1234567}'
+%% error E003 1:9 spec
+%% end
+
+%% case lx-e003-escape-empty
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input
+RETURN '\u{}'
+%% error E003 1:9 spec
+%% end
+
+%% case lx-e003-escape-surrogate
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input
+RETURN '\u{d800}'
+%% error E003 1:9 conv
+%% end
+
+%% case lx-e003-escape-too-big
+%% source [LQ/lexical §5.7]
+%% entry read
+%% input
+RETURN '\u{110000}'
+%% error E003 1:9 conv
+%% end
+
+%% case lx-e003-control-in-string
+%% source [LQ/lexical §5.2]
+%% entry read
+%% input-hex
+; U+0001 inside a string
+52 45 54 55 52 4e 20 27 61 01 62 27
+%% error E003 1:10 spec
+%% end
+
+%% case lx-e003-del-in-string
+%% source [LQ/lexical §5.2]
+%% entry read
+%% input-hex
+; DEL inside a string
+52 45 54 55 52 4e 20 27 61 7f 27
+%% error E003 1:10 spec
+%% end
+
+%% case lx-e003-control-in-backquote
+%% source [LQ/lexical §5.2]
+%% entry read
+%% input-hex
+; ESC inside a back-quoted name
+52 45 54 55 52 4e 20 60 61 1b 60
+%% error E003 1:10 spec
+%% end
+
+%% case lx-e003-rev-upper
+%% source [LQ/lexical §7.2]
+%% entry read
+%% input
+USE Main MATCH (t) RETURN t
+%% error E003 1:5 conv
+%% end
+
+%% case lx-e003-rev-heads
+%% source [LQ/lexical §7.2]
+%% entry read
+%% note HEAD followed by a letter is not HEAD; an upper-case letter in a revision is E003.
+%% input
+USE HEADS MATCH (t) RETURN t
+%% error E003 1:5 conv
+%% end
+
+%% case lx-e003-rev-runs-into
+%% source [LQ/lexical §7.6]
+%% entry read
+%% input
+USE main~5x MATCH (t) RETURN t
+%% error E003 1:5 conv
+%% end
+
+%% case lx-e003-commit-runs-into
+%% source [LQ/lexical §7.6]
+%% entry read
+%% input
+USE c9b2e6c1Z MATCH (t) RETURN t
+%% error E003 1:5 conv
+%% end
+
+%% case lx-e003-seq-overflow
+%% source [LQ/lexical §7.2] rule 2
+%% entry read
+%% input
+USE s18446744073709551616 MATCH (t) RETURN t
+%% error E003 1:5 conv
+%% end
+
+%% case lx-e003-suffix-overflow
+%% source [LQ/lexical §7.3]
+%% entry read
+%% input
+USE main~4294967296 MATCH (t) RETURN t
+%% error E003 1:9 conv
+%% end
+
+%% case lx-e003-reflog-overflow
+%% source [LQ/lexical §7.3]
+%% entry read
+%% input
+USE main@{4294967296} MATCH (t) RETURN t
+%% error E003 1:9 conv
+%% end
+
+%% case lx-e003-date-feb-29
+%% source [LQ/lexical §7.5]
+%% entry read
+%% input
+USE main@2026-02-29 MATCH (t) RETURN t
+%% error E003 1:9 conv
+%% end
+
+%% case lx-e003-month-13
+%% source [LQ/lexical §7.5]
+%% entry read
+%% input
+USE main@2026-13-01 MATCH (t) RETURN t
+%% error E003 1:9 conv
+%% end
+
+%% case lx-e003-day-zero
+%% source [LQ/lexical §7.5]
+%% entry read
+%% input
+USE main@2026-09-00 MATCH (t) RETURN t
+%% error E003 1:9 conv
+%% end
+
+%% case lx-e003-hour-24
+%% source [LQ/lexical §7.5]
+%% entry read
+%% input
+USE main@2026-09-25T24:00 MATCH (t) RETURN t
+%% error E003 1:9 conv
+%% end
+
+%% case lx-e003-minute-60
+%% source [LQ/lexical §7.5]
+%% entry read
+%% input
+USE main@2026-09-25T10:60 MATCH (t) RETURN t
+%% error E003 1:9 conv
+%% end
+
+%% case lx-e003-second-60
+%% source [LQ/lexical §7.5]
+%% entry read
+%% input
+USE main@2026-09-25T10:00:60Z MATCH (t) RETURN t
+%% error E003 1:9 conv
+%% end
+
+%% case lx-datetime-offset-ends-revision
+%% source [LQ/lexical §7.5]
+%% entry read
+%% note An offset is not part of a datetime: the revision ends before +, which the parser refuses.
+%% input
+USE main@2026-09-25T10:00+02:00 MATCH (t) RETURN t
+%% error E001 1:26 spec
+%% end

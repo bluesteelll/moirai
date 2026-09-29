@@ -1,0 +1,90 @@
+# fixtures/hex/fragments/runtime/os-ids.hex: the X-F8 runtime structures in the forms store A (a Windows NTFS
+# volume) does not hold. Decode: five OsFileId (57 B each, [F11 §12.1]), then five VolumeCaps (16 B each,
+# [F11 §12.3]), then five FsTime (9 B each, [F11 §12.2]). Volume keys are BLAKE3-128 of synthetic labels; the
+# Linux id's hgen is the first 8 bytes of BLAKE3-256 over u32le(handle_type) and a synthetic 8-byte f_handle.
+
+# OsFileId
+# kind 0: none (no identity: every field zero): OsFileId kind 0 `none` (57 B, [F11 §12.1])
+  00*57                                     # kind 0: every field zero
+# kind 1 ntfs128: FILE_ID_128 of the file and of its parent directory: OsFileId kind 1 `ntfs128` (57 B, [F11 §12.1])
+  01                                        # kind
+  d7 1a 59 a6 57 70 5e da 85 62 03 67 9e 9a f2 06  # vol_key
+  39 fd 23 b3 5a 0f 04 12 de 26 91 bd 3d 90 3c ad  # id
+  da 8f f3 25 49 fd d6 1f de ad 78 79 f2 73 c8 5b  # parent
+  {u32 0}                                   # aux
+  {u32 0}                                   # docid
+# kind 2 refs128: parent unknown (zero): OsFileId kind 2 `refs128` (57 B, [F11 §12.1])
+  02                                        # kind
+  3f 22 76 df 0f 35 75 57 dc 7c 64 98 0d de 66 60  # vol_key
+  0b d7 49 56 79 85 82 08 f8 6c 59 52 e7 6b 39 fa  # id
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # parent
+  {u32 0}                                   # aux
+  {u32 0}                                   # docid
+# kind 3 linux_ino: id = u64le(ino 1234567) || hgen cc14c0fded56631d, parent in the same encoding: OsFileId kind 3 `linux_ino` (57 B, [F11 §12.1])
+  03                                        # kind
+  bb a0 71 e6 d5 94 73 74 40 3e 0f b7 04 a8 ec ab  # vol_key
+  87 d6 12 00 00 00 00 00 cc 14 c0 fd ed 56 63 1d  # id
+  02 00 00 00 00 00 00 00 68 04 64 81 ca b9 2a 3d  # parent
+  {u32 0}                                   # aux
+  {u32 0}                                   # docid
+# kind 4 darwin_fileid: u64le(fileid) || 8 zero bytes; docid 77 (owner decision #21 (d)): OsFileId kind 4 `darwin_fileid` (57 B, [F11 §12.1])
+  04                                        # kind
+  be b5 4c 01 e6 d7 5b f5 f4 a0 6c 2a b4 0c bb c4  # vol_key
+  3f b4 96 00 00 00 00 00 00 00 00 00 00 00 00 00  # id
+  16 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # parent
+  {u32 0}                                   # aux
+  {u32 77}                                  # docid
+
+# VolumeCaps
+# a ReFS-like volume: case-insensitive by default, ctime_on_rename known and set, id_locate by-id, journal usn, rename_noreplace native, ids_persistent; id_kind 2, btime tunneled-not-copied: VolumeCaps (16 B, [F11 §12.3])
+  {u32 4793}                                # flags
+  02                                        # id_kind
+  01                                        # btime
+  01                                        # case_rule
+  00                                        # cloud
+  {u64 100}                                 # mtime_granularity_ns
+# a case-sensitive Linux volume: id_locate frontier, rename_noreplace native, ids_persistent; id_kind 3, btime unforgeable, case_rule 0 sensitive, 1 ns granularity: VolumeCaps (16 B, [F11 §12.3])
+  {u32 4672}                                # flags
+  03                                        # id_kind
+  02                                        # btime
+  00                                        # case_rule
+  00                                        # cloud
+  {u64 1}                                   # mtime_granularity_ns
+# an APFS-like volume: case- and normalisation-insensitive, journal fsevents, clone indicators, docids; id_kind 4, btime copied-by-clones, case_rule volume, cloud dataless: VolumeCaps (16 B, [F11 §12.3])
+  {u32 15143}                               # flags
+  04                                        # id_kind
+  03                                        # btime
+  02                                        # case_rule
+  02                                        # cloud
+  {u64 1}                                   # mtime_granularity_ns
+# a network volume: dir_flush_doubtful (bit 14, set by file-system class), rename_noreplace by link-unlink, no ids; btime absent, cloud recall attributes, granularity not measured: VolumeCaps (16 B, [F11 §12.3])
+  {u32 17409}                               # flags
+  00                                        # id_kind
+  00                                        # btime
+  02                                        # case_rule
+  01                                        # cloud
+  {u64 0}                                   # mtime_granularity_ns
+# all zero: a case-sensitive volume with no capability reported: VolumeCaps (16 B, [F11 §12.3])
+  {u32 0}                                   # flags
+  00                                        # id_kind
+  00                                        # btime
+  00                                        # case_rule
+  00                                        # cloud
+  {u64 0}                                   # mtime_granularity_ns
+
+# FsTime
+# 1 ns granularity (exponent 0): FsTime (9 B, [F11 §12.2])
+  {i64 0x18d75b842b4ecd15}                  # ns
+  00                                        # gran (decimal exponent; 0xff absent)
+# 100 ns granularity (exponent 2): FsTime (9 B, [F11 §12.2])
+  {i64 0x18d75b842b4eccbc}                  # ns
+  02                                        # gran (decimal exponent; 0xff absent)
+# 1 s granularity (exponent 9): FsTime (9 B, [F11 §12.2])
+  {i64 0x18d75b8423f30000}                  # ns
+  09                                        # gran (decimal exponent; 0xff absent)
+# a timestamp before 1970 (negative ns): FsTime (9 B, [F11 §12.2])
+  {i64 -86400000000000}                     # ns
+  09                                        # gran (decimal exponent; 0xff absent)
+# absent: granularity 0xff: FsTime (9 B, [F11 §12.2])
+  {i64 0}                                   # ns
+  ff                                        # gran (decimal exponent; 0xff absent)

@@ -1,0 +1,73 @@
+# moirai Cargo workspace (docs/m0/PLAN.md §2).
+#
+# Every member is `publish = false` and inherits `[workspace.lints]` with `[lints] workspace = true`, except
+# `moirai-os`, which carries its own table (the only crate allowed `unsafe` code, PLAN §2.1).
+#
+# External (crates.io) dependencies are adopted in `[workspace.dependencies]` below, after WP-02's lints accept them
+# (PLAN §2.4); a member refers to one with `<name>.workspace = true`. None is adopted yet: downloads wait on the
+# day-1 bundle (PLAN §8), and each work package adds its own.
+#
+# Gate scopes (PLAN §2.1): `xtask/host-only.toml` lists the host-only crates and `xtask/roots.toml` the composition
+# roots; both stay members here and are excluded from the GT20 (e) cross-target check by one `--exclude` each.
+# `fuzz/` is a separate workspace with its own lockfile (WP-06).
+
+[workspace]
+resolver = "3"
+members = [
+    "crates/moirai-vfs",
+    "crates/moirai-os",
+    "crates/moirai-diff",
+    "crates/moirai-files",
+    "crates/moirai-vfs-sim",
+    "crates/moirai-toylog",
+    "crates/moirai-model",
+    "crates/moirai-format-oracle",
+    "crates/moirai-lqbench",
+    "crates/moirai-replay",
+    "crates/moirai-probes",
+    "crates/moirai-probes-bin",
+    "crates/moirai-harness-stub",
+    "crates/moirai-tokcount",
+    "crates/moirai-tsoracle",
+    "xtask",
+]
+exclude = ["fuzz"]
+
+[workspace.package]
+version = "0.0.0"
+edition = "2024"
+rust-version = "1.98"
+license = "Apache-2.0"
+repository = "https://github.com/bluesteelll/moirai"
+
+[workspace.dependencies]
+# Workspace crates. The allowed edges are PLAN §2.2's "Allowed dependencies" column.
+moirai-vfs = { path = "crates/moirai-vfs" }
+moirai-os = { path = "crates/moirai-os" }
+moirai-diff = { path = "crates/moirai-diff" }
+moirai-files = { path = "crates/moirai-files" }
+moirai-vfs-sim = { path = "crates/moirai-vfs-sim" }
+moirai-toylog = { path = "crates/moirai-toylog" }
+moirai-model = { path = "crates/moirai-model" }
+moirai-probes = { path = "crates/moirai-probes" }
+moirai-harness-stub = { path = "crates/moirai-harness-stub" }
+moirai-tokcount = { path = "crates/moirai-tokcount" }
+# External crates (PLAN §2.4; downloads approved by the owner on 2026-09-28). A member adds features it needs on top of
+# these with `<name> = { workspace = true, features = [...] }`. WP-02's lints (pure Rust, licences, build scripts) gate
+# every entry; a crate that fails them leaves this table.
+blake3 = { version = "1.8.7", default-features = false, features = ["std", "pure"] }
+xxhash-rust = { version = "0.8.18", features = ["xxh3"] }
+sha1 = { version = "0.11.0", default-features = false }
+sha2 = { version = "0.11.0", default-features = false }
+windows-sys = { version = "0.61.2" }
+serde_json = { version = "1.0.151" }
+proptest = { version = "1.11.0", default-features = false, features = ["std"] }
+tiktoken-rs = { version = "0.12.1" }
+tree-sitter = { version = "0.27.0" }
+tree-sitter-rust = { version = "0.24.2" }
+
+[workspace.lints.rust]
+# PLAN §2.1: no crate but `moirai-os` may contain `unsafe` code. `forbid` cannot be lowered by an attribute.
+unsafe_code = "forbid"
+
+# Clippy runs with its default lint set; the gate runs `clippy --workspace --all-targets -D warnings` (WP-02).

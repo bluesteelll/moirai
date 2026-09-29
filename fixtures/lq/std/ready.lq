@@ -1,0 +1,7 @@
+DEFINE QUERY ready($scope: node? = NULL, $role: text? = NULL, $limit: int = 20) SHAPE node BUDGET light AS {
+  MATCH (t:task)
+  WHERE t.ready
+    AND ($scope IS NULL OR t IN subtree($scope))
+    AND ($role IS NULL OR fits_role(t, $role))
+  RETURN t ORDER BY t.priority, t.id LIMIT $limit
+}

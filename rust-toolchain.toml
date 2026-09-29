@@ -1,0 +1,8 @@
+# Toolchain pin (docs/m0/PLAN.md §2.1): Rust 1.98.1 on the MSVC host (x86_64-pc-windows-msvc, rustup's default host
+# on Windows; a toolchain file cannot name a host), with rustfmt, clippy and the three GT20 (e) cross targets
+# ([90 §11.1]). Cross targets are type-checked only: nothing links or runs a Linux or macOS binary (owner decision #32).
+[toolchain]
+channel = "1.98.1"
+profile = "minimal"
+components = ["rustfmt", "clippy"]
+targets = ["x86_64-unknown-linux-musl", "aarch64-unknown-linux-musl", "aarch64-apple-darwin"]

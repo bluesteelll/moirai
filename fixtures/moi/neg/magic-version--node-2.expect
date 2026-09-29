@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/magic-version--node-2.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note The node-file format version is 2.
+%% refuse ImageParse magic-version
+%% end

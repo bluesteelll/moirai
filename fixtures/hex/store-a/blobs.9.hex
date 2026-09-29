@@ -1,0 +1,68 @@
+# fixtures/hex/store-a/blobs.9.hex: the blobs file of the runtime-only fold (seg.d8): no body was sealed, so it
+# holds only the fingerprint blob ([F10 §5.3] class 2, R-9, always codec 0) of the FPrint record of docs/storage/
+# lock.md's content; FPRINT's row names this file and the blob's hash ([F10 §5.5]).
+
+# SegHdr (120 B, [F09 §2.1])
+seghdr:
+  "MSEG"                                    # magic
+  {u16 1}                                   # format
+  06                                        # seg_kind 6 `blobs`
+  00                                        # tok_ver
+  {u32 1}                                   # n_rows
+  {u16 2}                                   # n_sections
+  {u16 0}                                   # _reserved
+  {u32 9}                                   # file_no
+  {u32 0}                                   # ref_id
+  {u32 0}                                   # dict_no
+  {u32 0}                                   # _reserved
+  {u64 0}                                   # base_seq
+  {u64 0}                                   # from_lsn
+  {u64 0}                                   # upto_lsn
+  {u64 0}                                   # rt_upto_lsn
+  {len 0..end u64}                          # total_len
+  {blake3_256 data..end}                    # seg_digest: BLAKE3-256 over [data_off, total_len)
+  {xxh3_64 table..data}                     # table_xxh3 over the section table
+  {xxh3_64 0..112}                          # hdr_xxh3 over [0, 112)
+# section table (2 entries of 32 B, [F09 §2.2])
+table:
+  # SecEnt BLOBIDX (0x0310)
+  {u16 784}                                 # tag
+  {u16 0}                                   # flags
+  {u32 1}                                   # count
+  {len 0..s_0310 u64}                       # off (absolute)
+  {len s_0310..s_0310.e u64}                # len
+  {xxh3_64 s_0310..s_0310.e}                # xxh3
+  # SecEnt BLOBDATA (0x0311)
+  {u16 785}                                 # tag
+  {u16 0}                                   # flags
+  {u32 1}                                   # count
+  {len 0..s_0311 u64}                       # off (absolute)
+  {len s_0311..s_0311.e u64}                # len
+  {xxh3_64 s_0311..s_0311.e}                # xxh3
+data:
+
+# === section BLOBIDX (0x0310)
+s_0310:
+  {u32 1}                                   # n
+  {u32 36}                                  # row_w
+  # row 0
+    {blake3_128 fprint_lockmd.d..fprint_lockmd.e}  # hash: BLAKE3-128 of the raw bytes
+    02                                      # class 2 (fingerprint)
+    00 00 00                                # _reserved
+    {len 0..fprint_lockmd u64}              # off: absolute offset of the BlobEnc payload
+    {len fprint_lockmd..fprint_lockmd.e}    # len: the payload, codec byte included
+    {u32 32}                                # raw_len
+s_0310.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BLOBDATA (0x0311)
+s_0311:
+  # BlobEnc `fprint_lockmd` ([F10 §3.2])
+fprint_lockmd:
+  00                                        # codec 0 `none`
+fprint_lockmd.d:
+  01 00 03 00 05 00 00 00 a1 00 00 00 96 00 00 00  # raw bytes
+  03 00 00 00 3d 2c 1b 0a 81 70 6f 5e c5 b4 a3 92
+fprint_lockmd.e:
+s_0311.e:
+end:

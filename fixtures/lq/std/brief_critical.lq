@@ -1,0 +1,4 @@
+DEFINE QUERY brief_critical() SHAPE node BUDGET light AS {
+  MATCH (k:rule|note) WHERE k.status = 'active' AND k.criticality = 'critical'
+  RETURN k ORDER BY k.authority, k.id
+}

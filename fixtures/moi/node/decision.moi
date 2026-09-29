@@ -1,0 +1,20 @@
+moirai-node 1
+uid: 5d000000000000000000000000000011
+kind: decision
+title: Group commit with one flush
+status: accepted
+criticality: low
+created: c58afcb6b44300ef4fe4e29ed6a86a9d8c4ec24da6cd03f51eb5d242656812f2f 2026-09-21T14:13:20.000Z
+updated: c09d0347ff80a867e6ed18b00d9abdc0cabb84c1ef2be04fd598bfbdaba0bc76a 2026-09-21T15:43:20.000Z
+field alternatives: <<
+  flush per commit	too slow	#u:9a000000000000000000000000000011		
+  no flush	loses data			
+>>
+field context: the flush dominates commit latency
+field owner_quote: One flush per group is fine.
+field revive_condition: a faster device
+field tradeoff: a group waits up to 2 ms
+field what: One FlushFileBuffers per group.
+field why: measured 5x fewer flushes
+edge relates -> f0000000000000000000000000000001
+edge supersedes -> 5d000000000000000000000000000012

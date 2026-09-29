@@ -1,0 +1,643 @@
+# fixtures/gt10/walkthrough.cases: [AR §7.6] "one BoykoEngine-style campaign under full branching" as one stream
+# (WP-22 gt10/, R-FIX). Format: fixtures/gt10/INDEX.md §2.
+# Written from [AR §7.6] with [AR §5a.7], §5d, §6.2, §6.4, §7.3; [API] (LaneOpen, RunOpen, Claim, Apply, Merge, Sync,
+# LaneClose, BranchDelete, RunClose, ImageExport, ImageImport); [RULES/state-definition], [RULES/status-machines],
+# [RULES/role-write-policy] (every write below is allowed to the role that makes it), [RULES/merge-table].
+#
+# Where the design text cannot be run as written, the script follows it as closely as it can and finding F-9 of
+# fixtures/gt10/INDEX.md §6 records the difference: step 1's brief is checked at the point it describes (after step
+# 7); step 2's question is ql5, not #9 (which is the open owner question q9); the owner answers ql5 before step 5, so
+# that #93 can become ready in step 7; the TextHunk of step 8 lands in a sync of its own; the lane node is moved to
+# merge_pending before lane close (finding F-7); the lane is synced right after RunOpen (finding F-8).
+#
+# Labels carry the design's numbers; the store's numbers (seed 76):
+#   t7 #1 (campaign task), q9 #2 (open owner question), t51 #3 (done), t61 #4 (deleted on main), s91 #5 (doc section),
+#   r1 #6, r2 #7, r3 #8 (critical rules), t62 #9 (on lane/l10 only), t88 #10, t89 #11, t90 #12, t91 #13, t92 #14,
+#   t93 #15, ql5 #16 (question "L5 scope"), lane94 #17 (lane node), run7 #18 (run r7), d130 #19 (plan),
+#   s131 #20 ... s136 #25 (sections), dec137 #26, dec138 #27, dec139 #28 (decisions), f160 #29 ... f163 #32
+#   (critic findings), v164 #33 (critic verdict), fref #34 (refutation), r212 #35 (rule), al5 #36 (answer note),
+#   fdev #37 (developer finding), mnarrow #38 (measurement), v180 #39 (review verdict), nnight #40 (w9 only).
+# Leases: L-1 orchestrator (session); L-2 architect, L-3 architecture-critic, L-4 refuter (run-scoped role leases
+#   of r7); L-5 t89 for wf:r7/dev#1, L-6 t90 for wf:r7/dev#2 (run-scoped task leases); L-7 tester, L-8 code-reviewer.
+# Commits on main (ref_seq): n4 1, n5 2, n9 3, n11-n17 4-10, n19 11, n20 12, n37 13, n38 14, n51 15, n55 16,
+#   n56 17, n57 18, n58 19, n60 20. On lane/l5np: n21 1, n25 2, n26-n32 3-9, n34 10, n35 11, n36 12, n39 13,
+#   n43 14, n45 15, n47 16, n48 17, n52 18, n53 19, n54 20, and the sync of n57 21.
+
+%% case w-setup
+%% from -
+%% core yes
+%% source [AR §7.6] step 1 ("merge/lane/l10/from/main staged with one DanglingEdge", "open owner question #9", "4 critical rules"); [AR §5a.7] steps 0 and 8; VA-004
+%% note The campaign before step 2: the parent task t7, the open owner question q9, a finished task, three critical
+%% note rules, a section s91, and two lanes. lane/l10 added t62, which blocks t61; main then deleted t61, so the sync
+%% note step of "merge lane/l10 --into main" meets a DanglingEdge and the merge stays staged for the whole campaign.
+%% script
+1 EnvSlots hold=[claude:s1]
+2 Init seed=76 params=["query.safelist.model.unknown=off"]
+3 Claim @agent=orch @env.CLAUDECODE="1" @env.CLAUDE_CODE_SESSION_ID="s1" role=orchestrator session=true
+4 Tx @lease=L-1 message="The campaign so far"
+  create as=t7 kind=task fields={title="Collision pipeline campaign"}
+  create as=q9 kind=question fields={title="Is continuous collision detection in scope this quarter?",q_kind=scope,asked_of=owner}
+  create as=t51 kind=task fields={title="Contact manifold cache"}
+  create as=t61 kind=task fields={title="Legacy broadphase grid"}
+  create as=s91 kind=doc fields={title="Contact pipeline overview",doc_kind=section} body="Contacts flow from the broadphase to the narrowphase in cell order."
+  create as=r1 kind=rule fields={title="Never commit generated shaders",criticality=critical,text="Generated shaders are build outputs; never commit them."}
+  create as=r2 kind=rule fields={title="Benchmarks run on the quiet profile",criticality=critical,text="A benchmark number counts only from the quiet profile."}
+  create as=r3 kind=rule fields={title="No allocation in the narrowphase inner loop",criticality=critical,text="The narrowphase inner loop allocates nothing."}
+5 Tx @lease=L-1 message="Close the finished work"
+  set target=$t51 fields={status=done}
+  set target=$r1 fields={status=active}
+  set target=$r2 fields={status=active}
+  set target=$r3 fields={status=active}
+6 BranchCreate @lease=L-1 name=lane/l10 from=main
+7 BranchCreate @lease=L-1 name=lane/l11 from=main
+8 Mutation tx.add @lease=L-1 @branch=lane/l10 kind=task title="Broadphase benchmark" blocks=[$t61] => t62
+9 Mutation tx.rm @lease=L-1 id=$t61 reason="replaced by the sweep-and-prune broadphase"
+10 Merge @lease=L-1 src=lane/l10 into=main
+%% result
+exit 6
+outcome staged
+staging-ref merge/lane/l10/from/main
+sync.outcome staged
+sync.violation edge:$t62:blocks:$t61 DanglingEdge
+%% expect
+main $t61 deleted yes
+main $q9 status open
+main $r1 criticality critical
+main $r1 status active
+main tasks ready-set [$t7]
+lane/l10 $t61 excluded yes PD-012
+lane/l11 $t61 excluded yes PD-012
+* ref:merge/lane/l10/from/main exists yes
+* ref:merge/lane/l10/from/main violations [DanglingEdge:edge:$t62:blocks:$t61]
+* marker:deleted:$t61:main holders [main]
+%% end
+
+%% case w2
+%% from w-setup
+%% core yes
+%% source [AR §7.6] step 2 "add task … --parent 7 → #88; subtasks #89..#93 with --blocked-by; add question 'L5 scope' --blocks 93 … One commit each"; [LQ/std §7.2] tx.add
+%% note Dependencies: t91 after t89 and t90, t92 after t91, t93 after t89 and after the L5 scope question ql5.
+%% script
+11 Mutation tx.add @lease=L-1 kind=task title="Narrowphase batching (L5)" parent=$t7 => t88
+12 Mutation tx.add @lease=L-1 kind=task title="Batch contact pairs" parent=$t88 => t89
+13 Mutation tx.add @lease=L-1 kind=task title="SIMD narrowphase kernel" parent=$t88 => t90
+14 Mutation tx.add @lease=L-1 kind=task title="Integrate batches into the solver" parent=$t88 blocked_by=[$t89,$t90] => t91
+15 Mutation tx.add @lease=L-1 kind=task title="Benchmark the narrowphase" parent=$t88 blocked_by=[$t91] => t92
+16 Mutation tx.add @lease=L-1 kind=task title="Document batching" parent=$t88 blocked_by=[$t89] => t93
+17 Mutation tx.add @lease=L-1 kind=question title="L5 scope" fields=["q_kind=scope"] blocks=[$t93] body="Does L5 include the SIMD kernel, or batching only?" => ql5
+%% result
+exit 0
+%% expect
+main $t88 parent $t7
+main $t89 parent $t88
+main $t93 parent $t88
+main edge:$t89:blocks:$t91 exists yes
+main edge:$t90:blocks:$t91 exists yes
+main edge:$t91:blocks:$t92 exists yes
+main edge:$t89:blocks:$t93 exists yes
+main edge:$ql5:blocks:$t93 exists yes
+main $t93 open_blockers 2 BT-002
+main $t91 open_blockers 2
+main $t92 open_blockers 1
+main $t7 container yes
+main $t88 container yes
+main $ql5 field.q_kind scope
+main $ql5 body "Does L5 include the SIMD kernel, or batching only?"
+main tasks ready-set [$t89,$t90]
+* ref:main ref_seq_next 11
+%% end
+
+%% case w3
+%% from w2
+%% core yes
+%% finding F-8
+%% source [AR §7.6] step 3; [API §11.5] LaneOpen; [API §10.7] RunOpen; [API §11.9] Sync; [API §10.1] role leases; [RULES/role-write-policy] WM-004, WR-005; [RULES/state-definition] LL-001
+%% note lane open creates lane/l5np, binds its worktree and creates the lane node on main. The run r7 is opened on
+%% note main (its runs_in edge needs the lane node) and the lane is synced so that it holds the lane node and the run,
+%% note which the run-scoped leases resolve on the lane (finding F-8). The orchestrator then mints the architect's,
+%% note critic's and refuter's run-scoped role leases, fixed to lane/l5np.
+%% script
+18 EnvTree tree=/w/lanes/l5np
+19 LaneOpen @lease=L-1 name=l5np worktree=/w/lanes/l5np => lane94
+20 RunOpen @lease=L-1 name=r7 lane=l5np => run7
+21 Sync @lease=L-1 lane=lane/l5np
+22 Claim @lease=L-1 @branch=lane/l5np role=architect run=r7 agent=wf:r7/architect
+23 Claim @lease=L-1 @branch=lane/l5np role=architecture-critic run=r7 agent=wf:r7/critic
+24 Claim @lease=L-1 @branch=lane/l5np role=refuter run=r7 agent=wf:r7/refuter
+%% result
+exit 0
+lease L-4 task=- holder=wf:r7/refuter branch=lane/l5np run=r7
+%% expect
+* ref:lane/l5np exists yes
+* ref:lane/l5np kind work
+main $lane94 status active
+main $lane94 field.moirai_branch lane/l5np
+main $run7 status running
+main edge:$run7:runs_in:$lane94 exists yes
+lane/l5np $lane94 exists yes
+lane/l5np $run7 exists yes
+* ref:lane/l5np absorbed.main 12
+* ref:main ref_seq_next 13
+* lease:L-2 holder wf:r7/architect
+* lease:L-2 branch lane/l5np
+* lease:L-2 run_scoped yes
+* lease:L-2 live yes LL-001
+* lease:L-3 holder wf:r7/critic
+%% end
+
+%% case w4a
+%% from w3
+%% core yes
+%% requires lq
+%% bind d130 #19
+%% bind s131 #20
+%% bind s132 #21
+%% bind s133 #22
+%% bind s134 #23
+%% bind s135 #24
+%% bind s136 #25
+%% bind dec137 #26
+%% bind dec138 #27
+%% bind dec139 #28
+%% source [AR §7.6] step 4 "one TX block creating doc plan #130, six sections with depends_on edges and three decisions … (idempotency key run:r7/architect/rev1) lands on lane/l5np"; [RULES/role-write-policy] WC-003, WC-004, WE-004, WF-003, WV-043
+%% note The architect writes through MCP with its lease, so the block lands on the lease's branch. The plan exists on
+%% note the lane, where the critic looks, and not on main (D2 fixed).
+%% script
+25 Tx @door=mcp @lease=L-2 @key=run:r7/architect/rev1 message="L5 design, revision 1" lq=|
+    TX {
+      CREATE (p:doc {title: 'Narrowphase batching plan', doc_kind: 'plan'});
+      CREATE (a:doc {title: 'Pair generation', doc_kind: 'section'}) UNDER p;
+      SET a.body = 'Pairs come from the broadphase in cell order.';
+      CREATE (b:doc {title: 'Batch layout', doc_kind: 'section'})-[:DEPENDS_ON]->(a) UNDER p;
+      SET b.body = 'Pairs are packed into batches of 64 by shape type.';
+      CREATE (c:doc {title: 'Waking bodies', doc_kind: 'section'})-[:DEPENDS_ON]->(a) UNDER p;
+      SET c.body = 'Sleeping bodies are skipped until the next step.';
+      CREATE (d:doc {title: 'Kernel interface', doc_kind: 'section'})-[:DEPENDS_ON]->(b) UNDER p;
+      SET d.body = 'The kernel takes a batch and writes contacts in place.';
+      CREATE (e:doc {title: 'Solver hand-off', doc_kind: 'section'})-[:DEPENDS_ON]->(d) UNDER p;
+      SET e.body = 'The solver reads contacts batch by batch.';
+      CREATE (f:doc {title: 'Benchmarks', doc_kind: 'section'})-[:DEPENDS_ON]->(c) UNDER p;
+      CREATE (f)-[:DEPENDS_ON]->(e);
+      SET f.body = 'narrowphase_ms on the quiet profile at 20k pairs.';
+      CREATE (x:decision {title: 'Batches of 64 pairs', what: 'Pack contact pairs into batches of 64.', why: 'A batch of 64 fills the kernel lanes.'});
+      CREATE (y:decision {title: 'Sort pairs once', what: 'Only the broadphase sorts pairs.', why: 'A second sort costs time on every step.'});
+      CREATE (z:decision {title: 'Contacts written in place', what: 'The kernel writes contacts into the solver buffer.', why: 'No copy between kernel and solver.'})
+    }
+%% result
+exit 0
+replayed no
+%% expect
+lane/l5np $d130 exists yes
+lane/l5np $d130 field.doc_kind plan
+main $d130 exists no
+lane/l5np $s131 parent $d130
+lane/l5np $s136 parent $d130
+lane/l5np $s132 edges [depends_on:$s131]
+lane/l5np $s136 edges [depends_on:$s133,depends_on:$s135]
+lane/l5np $s133 body "Sleeping bodies are skipped until the next step."
+lane/l5np $dec137 exists yes
+lane/l5np $dec139 exists yes
+%% end
+
+%% case w4b
+%% from w4a
+%% core yes
+%% requires lq
+%% bind v164 #33
+%% source [AR §7.6] step 4 "findings #160..#163 and verdict #164 fail_fixable --gates #89 (with derived_from edges to its findings) are lane commits. Refuters write refutes edges and status moves"; "round 1: raised 4, confirmed 2, refuted 2 (50 %); confirmed blockers: 1 → continue"
+%% source [RULES/role-write-policy] WC-011, WC-012, WC-015, WE-007, WE-008, WE-011, WS-009, WS-010; [RULES/state-definition] BT-005, BT-006; [AR §3.3] X5
+%% note The critic raises four findings about the plan and a failing verdict that gates t89; the refuter refutes two
+%% note findings (one refutation finding with two refutes edges) and confirms two. One confirmed finding is a blocker,
+%% note so the loop continues. The gate constrains t89's completion only: t89 stays ready (X5).
+%% script
+26 Mutation tx.remember @door=mcp @lease=L-3 kind=finding title="Batches skip bodies woken mid-step" text="A body woken during the step is in no batch." fields=["failure_scenario=A sleeping body woken mid-step is missing from every batch, so its contacts are skipped for one step.","severity=blocker","f_kind=correctness"] about=[$d130] => f160
+27 Mutation tx.remember @door=mcp @lease=L-3 kind=finding title="Batch size is fixed at build time" text="64 cannot be tuned per scene." fields=["failure_scenario=Scenes with few pairs pay for half-empty batches.","severity=optional","f_kind=perf"] about=[$d130] => f161
+28 Mutation tx.remember @door=mcp @lease=L-3 kind=finding title="Batches break the kernel interface" text="The kernel takes one pair." fields=["failure_scenario=A batch cannot reach the kernel without a new entry point.","severity=important","f_kind=correctness"] about=[$d130] => f162
+29 Mutation tx.remember @door=mcp @lease=L-3 kind=finding title="Batching reorders contacts" text="Contacts come out in batch order." fields=["failure_scenario=The solver's warm start matches contacts by position and picks the wrong ones.","severity=important","f_kind=correctness"] about=[$d130] => f163
+30 Tx @door=mcp @lease=L-3 message="Architecture review, round 1" lq=|
+    TX {
+      CREATE (v:verdict {title: 'Architecture review, round 1', role: 'architecture-critic', round: 1, outcome: 'fail_fixable', return_to: 'architect'})-[:GATES]->(#11);
+      CREATE (v)-[:DERIVED_FROM]->(#29);
+      CREATE (v)-[:DERIVED_FROM]->(#30);
+      CREATE (v)-[:DERIVED_FROM]->(#31);
+      CREATE (v)-[:DERIVED_FROM]->(#32)
+    }
+31 Tx @lease=L-4 message="Round 1 refutation"
+  create as=fref kind=finding fields={title="Two findings misread the plan",failure_scenario="None: the kernel section plans a batch entry point, and warm starts key contacts by pair id.",severity=optional} edges_out=[{kind=refutes,dst=$f162},{kind=refutes,dst=$f163}]
+32 Tx @lease=L-4 message="Round 1 outcomes"
+  set target=$f160 fields={status=confirmed}
+  set target=$f161 fields={status=confirmed}
+  set target=$f162 fields={status=refuted}
+  set target=$f163 fields={status=refuted}
+%% result
+exit 0
+%% expect
+lane/l5np $f160 status confirmed
+lane/l5np $f160 field.severity blocker
+lane/l5np $f160 edges [about:$d130]
+lane/l5np $f161 status confirmed
+lane/l5np $f162 status refuted
+lane/l5np $f163 status refuted
+lane/l5np $fref edges [refutes:$f162,refutes:$f163]
+lane/l5np $v164 status open
+lane/l5np $v164 field.outcome fail_fixable
+lane/l5np $v164 edges [derived_from:$f160,derived_from:$f161,derived_from:$f162,derived_from:$f163,gates:$t89]
+lane/l5np $d130 review-loop 1
+lane/l5np $t89 gated yes BT-005
+lane/l5np $t89 unblocked yes BT-006
+lane/l5np $t89 ready yes
+main $v164 exists no
+main $f160 exists no
+main $t89 gated no
+%% end
+
+%% case w4c
+%% from w4b
+%% core yes
+%% source [AR §7.6] step 4 "doc patch 133 --remove old.txt --add new.txt (engine refuses if the removed text is not a substring)"; [LQ/errors §5.5] E404; [F19 §7] (the exit is open point 7 of [F19])
+%% script
+33 Mutation tx.doc_patch @door=mcp @lease=L-2 section=$s133 old="Sleeping bodies are batched at once." new="Bodies woken during the step join the next batch."
+%% result
+exit 6
+error E404
+commit none
+%% expect
+lane/l5np $s133 body "Sleeping bodies are skipped until the next step."
+%% end
+
+%% case w4d
+%% from w4c
+%% core yes
+%% source [AR §7.6] step 4 "round 2 after doc patch … confirmed blockers: 0 → DESIGN APPROVED; #164 accepted, #89 completable"; [RULES/status-machines] TR-044, TR-045; [RULES/state-definition] BT-008, PD-024
+%% note The architect patches the section; the orchestrator marks the blocker finding fixed and accepts the verdict,
+%% note which stops gating t89.
+%% script
+34 Mutation tx.doc_patch @door=mcp @lease=L-2 section=$s133 old="Sleeping bodies are skipped until the next step." new="Bodies woken during the step join the next batch."
+35 Mutation tx.set @lease=L-1 @branch=lane/l5np id=$f160 status=fixed
+36 Mutation tx.set @lease=L-1 @branch=lane/l5np id=$v164 status=accepted
+%% result
+exit 0
+%% expect
+lane/l5np $s133 body "Bodies woken during the step join the next batch."
+lane/l5np $f160 status fixed
+lane/l5np $d130 review-loop 0
+lane/l5np $v164 status accepted
+lane/l5np $t89 gated no BT-008
+%% end
+
+%% case w5a
+%% from w4d
+%% core yes
+%% source [AR §7.6] step 5 "The orchestrator writes rule #212 --critical on main. The tester's next pack on the lane shows #212 ~main (not merged)"; [API §9.7] tx.answer (its expansion, written as a TX); [RULES/status-machines] TR-035, GD-003, GD-004
+%% note The rule lands on main only. The owner's answer to the L5 scope question, relayed by the orchestrator, is
+%% note written on main too (an addition to the design, finding F-9).
+%% script
+37 Mutation tx.remember @lease=L-1 kind=rule title="Every narrowphase change ships with a benchmark" text="A narrowphase change lands with a narrowphase_ms measurement on the quiet profile." fields=["criticality=critical"] => r212
+38 Tx @lease=L-1 message="The owner answered the L5 scope question"
+  create as=al5 kind=note fields={title="Answer: L5 scope"} body="Both batching and the SIMD kernel are in scope for L5." edges_out=[{kind=answers,dst=$ql5}]
+  set target=$ql5 fields={answer="Both batching and the SIMD kernel are in scope.",status=answered}
+%% result
+exit 0
+%% expect
+main $r212 exists yes
+main $r212 criticality critical
+main $r212 status proposed
+lane/l5np $r212 exists no
+main $ql5 status answered
+main $ql5 answered yes PD-026
+lane/l5np $ql5 status open
+main $t93 open_blockers 1
+%% end
+
+%% case w5b
+%% from w5a
+%% core yes
+%% finding F-14
+%% source [AR §7.6] step 5 "sync … clean → auto-applied as a sync commit on the lane with sync_base = c4472 and zero resolution ops"; [API §11.9]; [RULES/merge-table] MR-013, DM-002
+%% note The sync is the orchestrator's (the hook's clean auto-sync is outside the Store API at M0). Its args repeat
+%% note command 21's, hence @no_dedupe (finding F-14).
+%% script
+39 Sync @lease=L-1 @no_dedupe=true lane=lane/l5np
+%% result
+exit 0
+outcome landed
+conflicts none
+violations none
+%% expect
+lane/l5np $r212 exists yes
+lane/l5np $ql5 answered yes
+lane/l5np $t93 open_blockers 1
+lane/l5np tasks ready-set [$t89,$t90]
+* ref:lane/l5np absorbed.main 14 VR-003
+* c@39 kind sync
+%% end
+
+%% case w6a
+%% from w5b
+%% core yes
+%% source [AR §7.6] step 6 "moirai ready --branch lane/l5np --ids → #89 #90"; [LQ/std §4.1] std.ready (order priority, id); [API §14.1]
+%% script
+40 Query @lease=L-1 @branch=lane/l5np name=std.ready ids=true
+%% result
+exit 0
+ids [$t89,$t90]
+%% end
+
+%% case w6b
+%% from w6a
+%% core yes
+%% source [AR §7.6] step 6 "claim 89 90 --agent wf:r7/dev#{1,2} --ttl run --branch lane/l5np (store-wide leases carrying the branch, released by apply)"; [API §10.1]; [RULES/role-write-policy] WM-002; [RULES/state-definition] LF-001, LF-002, LL-001
+%% note Two claims, one per worker. The leases are store-wide: t89 and t90 leave ready for everyone else, on main too.
+%% script
+41 Claim @lease=L-1 @branch=lane/l5np ids=[$t89] agent=wf:r7/dev#1 ttl=run run=r7 role=developer
+42 Claim @lease=L-1 @branch=lane/l5np ids=[$t90] agent=wf:r7/dev#2 ttl=run run=r7 role=developer
+%% result
+exit 0
+lease L-6 task=$t90 holder=wf:r7/dev#2 branch=lane/l5np run=r7
+%% expect
+* lease:L-5 task $t89
+* lease:L-5 holder wf:r7/dev#1
+* lease:L-5 branch lane/l5np
+* lease:L-5 run_scoped yes
+* lease:L-5 live yes
+lane/l5np tasks ready-set [] LF-001
+lane/l5np $t89 ready@wf:r7/dev#1 yes PD-017
+main tasks ready-set [] LF-002
+%% end
+
+%% case w7a
+%% from w6b
+%% core yes
+%% source [AR §7.6] step 7 "finding --stdin --about 89 … for a deviation"; "measurement --metric narrowphase_ms --value 3.9 --target 4.5 --measured-on 9ab1… --env host=ryzen9,profile=release,load=quiet"; "Reviewer verdict #180 with return_to=none"
+%% source [RULES/role-write-policy] WC-018, WC-020, WC-014, WE-003, WM-004
+%% finding F-10
+%% note dev#1 records a deviation finding under its task lease; the tester and the reviewer get run-scoped role leases
+%% note and write their measurement and verdict on the lane. The finding carries no confidence (finding F-10). check 89
+%% note needs a git history and is not run here.
+%% script
+43 Mutation tx.remember @lease=L-5 kind=finding title="Pairs are sorted twice" text="The batcher sorts pairs that the broadphase already emits in cell order." fields=["failure_scenario=A second sort costs time on every step and would hide a broadphase ordering bug.","f_kind=plan","severity=optional"] about=[$t89] => fdev
+44 Claim @lease=L-1 @branch=lane/l5np role=tester run=r7 agent=wf:r7/tester
+45 Mutation tx.remember @lease=L-7 kind=measurement title="narrowphase_ms after batching" text="Median of 5 runs at 20k contact pairs." fields=["metric=narrowphase_ms","value=3.9","unit=ms","target=4.5","measured_on=sha1:9ab1c2d3e4f5061728394a5b6c7d8e9f00112233","env_host=ryzen9","env_profile=release","env_load=quiet"] about=[$t89] => mnarrow
+46 Claim @lease=L-1 @branch=lane/l5np role=code-reviewer run=r7 agent=wf:r7/reviewer
+47 Tx @lease=L-8 message="Code review of the batching change"
+  create as=v180 kind=verdict fields={title="Code review: contact pair batching",role=code-reviewer,round=1,outcome=pass,return_to=none} edges_out=[{kind=about,dst=$t89}]
+%% result
+exit 0
+%% expect
+lane/l5np $fdev edges [about:$t89]
+lane/l5np $fdev field.f_kind plan
+lane/l5np $mnarrow field.metric narrowphase_ms
+lane/l5np $mnarrow field.env_load quiet
+lane/l5np $v180 field.outcome pass
+lane/l5np $v180 field.return_to none
+lane/l5np $t89 status open
+main $fdev exists no
+* lease:L-7 live yes
+* lease:L-8 live yes
+%% end
+
+%% case w7b
+%% from w7a
+%% core yes
+%% source [AR §7.6] step 7 "apply --from-journal r7 … completes #89 with evidence commit:abc123: done on the lane (the SetStatus{→ done} op … writes the settled marker), lease released, #93 becomes ready on the lane; on main, #89 is listed as done on lane/l5np (unmerged) and is never re-dispatched"
+%% source [API §9.4] Apply; [API §10.5] Complete; [RULES/status-machines] CO-001; [RULES/state-definition] HV-001, OR-003, ME-001, LE-002, PD-014, PD-018; [90 §7.2] result.v1
+%% note The batch branch is the run's lane (r7 -> lane94 -> lane/l5np); the entry's lease is a lease of r7 on that
+%% note branch; outcome done becomes tx.complete with the lease presented.
+%% script
+48 Apply @lease=L-1 run=r7 results=[{v=1,task=$t89,lease=L-5,outcome=done,summary="Contact pairs are batched by cell.",evidence=["commit:abc123"],recorded=[$fdev],findings=[],notes=[],next=null}]
+%% result
+exit 0
+completed $t89
+released [L-5]
+recorded [$fdev]
+marker settled $t89 lane/l5np
+%% expect
+lane/l5np $t89 status done
+lane/l5np $t89 resolution completed CO-001
+lane/l5np $t89 hold done HV-001
+lane/l5np $t93 ready yes
+lane/l5np tasks ready-set [$t93]
+* lease:L-5 ended yes LE-002
+main $t89 status open
+main $t89 settled_elsewhere yes PD-014
+main $t89 excluded yes PD-012
+main $t89 is_blocker yes
+main $t89 blocking-listed no PD-018
+main tasks ready-set []
+* marker:settled:$t89:lane/l5np holders [lane/l5np] ME-001
+* marker:settled:$t89:lane/l5np active yes
+%% end
+
+%% case w7c
+%% from w7b
+%% core yes
+%% source [AR §7.6] step 7 "never re-dispatched (N2/D1 fixed)"; [RULES/state-definition] PD-017; [API §10.1] refusals ("done or deleted on <branch>")
+%% script
+49 Claim @agent=dev#3 @branch=main ids=[$t89]
+%% result
+exit 6
+error E404
+mentions lane/l5np
+%% end
+
+%% case w7d
+%% from w7c
+%% core yes
+%% source [AR §7.6] step 7 "A resume that re-runs dev#1 hits the idempotency key and changes nothing"; [API §9.4] (Apply is keyed run:<run>); [API §7.4] row 2
+%% source [AR §7.6] step 1 (the brief at this point: 3 live lanes with ahead/behind, the staged merge of lane/l10, "#89 done on lane/l5np, unmerged", the open owner question #9, 4 critical rules)
+%% note The re-run apply replays. The state facts are step 1's brief lines at the point step 1 describes: lane/l5np
+%% note is 17 commits ahead of main and 0 behind; main has not absorbed it.
+%% script
+50 Apply @lease=L-1 run=r7 results=[{v=1,task=$t89,lease=L-5,outcome=done,summary="Contact pairs are batched by cell.",evidence=["commit:abc123"],recorded=[$fdev],findings=[],notes=[],next=null}]
+%% result
+exit 0
+replayed yes
+%% expect
+main $q9 status open
+main $q9 field.asked_of owner
+main $r1 criticality critical
+main $r2 criticality critical
+main $r3 criticality critical
+main $r212 criticality critical
+* ref:lane/l5np exists yes
+* ref:lane/l10 exists yes
+* ref:lane/l11 exists yes
+* ref:merge/lane/l10/from/main exists yes
+* ref:merge/lane/l10/from/main violations [DanglingEdge:edge:$t62:blocks:$t61]
+main $t89 settled_elsewhere yes
+* ref:lane/l5np ref_seq_next 18
+* ref:lane/l5np absorbed.main 14
+* ref:main ref_seq_next 15
+* ref:main absorbed.lane/l5np 0
+%% end
+
+%% case w8a
+%% from w7d
+%% core yes
+%% finding F-9
+%% finding F-14
+%% source [AR §7.6] step 8 "One TextHunk on section #91 (both lanes edited it) landed as a conflict value on lane/l5np during the sync"; [RULES/merge-table] MR-038, LS-003; [F12 §6.2]
+%% note main and the lane rewrite the same line of section s91; the next sync lands a TextHunk conflict value on the
+%% note lane, where s91 is conflicted. The sync's args repeat command 21's, hence @no_dedupe (finding F-14).
+%% script
+51 Tx @lease=L-1 message="Overview: batches"
+  set target=$s91 body="Contacts flow from the broadphase to the narrowphase in batches of 64 pairs."
+52 Tx @lease=L-1 @branch=lane/l5np message="Overview: SIMD kernel"
+  set target=$s91 body="Contacts flow from the broadphase to the SIMD narrowphase kernel in cell order."
+53 Sync @lease=L-1 @no_dedupe=true lane=lane/l5np
+%% result
+exit 0
+outcome landed
+conflict $s91.body TextHunk
+%% expect
+lane/l5np $s91 conflicted yes
+lane/l5np $s91 conflict.body TextHunk
+main $s91 body "Contacts flow from the broadphase to the narrowphase in batches of 64 pairs."
+* ref:lane/l5np absorbed.main 15
+%% end
+
+%% case w8b
+%% from w8a
+%% core yes
+%% source [AR §7.6] step 8 "resolve '#91.body' --take theirs had already cleared it before the merge"; [F12 §6.5]; [API §9.2] resolve
+%% note In a sync main is theirs, so the lane takes main's text.
+%% script
+54 Tx @lease=L-1 @branch=lane/l5np message="Take main's overview"
+  resolve key=$s91.body take=theirs
+%% result
+exit 0
+%% expect
+lane/l5np $s91 conflicted no
+lane/l5np $s91 body "Contacts flow from the broadphase to the narrowphase in batches of 64 pairs."
+%% end
+
+%% case w8c
+%% from w8b
+%% core yes
+%% finding F-7
+%% source [AR §7.6] step 8 "moirai merge lane/l5np --into main (sync-first: main moved by 2 commits since step 5 → sync with 0 conflicts → merge commit on main …, #89's settled marker absorbed by main)"; [RULES/merge-table] PR-001, RE-003, RE-005; [RULES/state-definition] OR-005, ME-002
+%% note The two main commits are the merge queue's moves of the lane node (ready_to_merge, merge_pending), which lane
+%% note close needs (finding F-7). The sync-first merge lands; main now holds t89 done with the lane's apply commit as
+%% note its origin, so it no longer excludes t89, and t93 becomes ready on main. t90 is still leased by dev#2.
+%% script
+55 Mutation tx.set @lease=L-1 id=$lane94 status=ready_to_merge
+56 Mutation tx.set @lease=L-1 id=$lane94 status=merge_pending
+57 Merge @lease=L-1 src=lane/l5np into=main
+%% result
+exit 0
+outcome landed
+sync.outcome landed
+sync.conflicts none
+conflicts none
+violations none
+markers none
+%% expect
+main $d130 exists yes
+main $s133 body "Bodies woken during the step join the next batch."
+main $f160 status fixed
+main $v164 status accepted
+main $v180 exists yes
+main $fdev exists yes
+main $mnarrow exists yes
+main $r212 exists yes
+main $s91 body "Contacts flow from the broadphase to the narrowphase in batches of 64 pairs."
+main $t89 status done
+main $t89 resolution completed
+main $t89 hold done
+main $t89 settled_elsewhere no
+main $t89 excluded no
+main $t93 ready yes
+main $t90 ready no
+main $lane94 status merge_pending
+* marker:settled:$t89:lane/l5np holders [lane/l5np,main] ME-002
+* ref:main absorbed.lane/l5np 21 RE-005
+%% end
+
+%% case w8d
+%% from w8c
+%% core yes
+%% finding F-7
+%% source [AR §7.6] step 8 "lane close l5np"; [API §11.5] LaneClose; [RULES/status-machines] TR-061
+%% script
+58 LaneClose @lease=L-1 name=l5np mode=close
+%% result
+exit 0
+status merged
+%% expect
+main $lane94 status merged
+%% end
+
+%% case w8e
+%% from w8d
+%% core yes
+%% source [AR §7.6] step 8 "branch -d lane/l5np releases the pin"; [AR §5a.9] "live leases on that branch are released with a triage note"; [API §11.2]; [RULES/state-definition] LE-008, ME-005
+%% note The lane was merged, so -d is enough. dev#2's lease on t90 is released with the branch; the role leases stay
+%% note (they hold no node of the branch) until the run closes. main keeps t89's settled marker active at its origin.
+%% script
+59 BranchDelete @lease=L-1 name=lane/l5np
+%% result
+exit 0
+released [L-6]
+dropped commits=0 completions=0 deletions=0
+markers none
+%% expect
+* ref:lane/l5np exists no
+* ref:lane/l5np deleted yes
+* lease:L-6 ended yes LE-008
+* lease:L-2 ended no LE-008
+main $t90 ready yes
+* marker:settled:$t89:lane/l5np holders [main] ME-005
+* marker:settled:$t89:lane/l5np active yes
+%% end
+
+%% case w8f
+%% from w8e
+%% core yes
+%% source [API §10.7] RunClose; [RULES/state-definition] LE-004; [AR §3.4] I14; [RULES/status-machines] TR-055
+%% note The run closes green (it expects no artifacts) and every lease scoped to it ends.
+%% script
+60 RunClose @lease=L-1 name=r7 outcome=green
+%% result
+exit 0
+status green
+released [L-2,L-3,L-4,L-7,L-8]
+%% expect
+main $run7 status green
+* lease:L-2 ended yes LE-004
+* lease:L-8 ended yes
+%% end
+
+%% case w9
+%% from w8f
+%% core yes
+%% requires image
+%% source [AR §7.6] step 9 "A colleague's hand edit on the image comes back through image import as a foreign commit … on import/main and through a typed merge, because main gained local commits overnight"; [AR §5b.6] steps 3 and 4; [API §13]
+%% script
+61 ImageExport @lease=L-1 dest=/img/campaign.git refs=["main"] granularity=commit object_format=sha1 create=true
+- ImageEdit repo=/img/campaign.git ref=refs/heads/main node=$q9 set-title="Is continuous collision detection in scope this quarter, or next?" author="Colleague Example <colleague@example.test>"
+62 Mutation tx.remember @lease=L-1 kind=note title="Overnight benchmark notes" text="Nightly narrowphase runs stayed under 4 ms." => nnight
+63 ImageImport @lease=L-1 from=/img/campaign.git refs=["main"]
+%% result
+exit 0
+imported ref=main native=0 foreign=1 outcome=applied
+%% expect
+main $q9 title "Is continuous collision detection in scope this quarter, or next?"
+main $nnight exists yes
+%% end
+
+%% case w10
+%% from w8f
+%% core yes
+%% source [AR §7.6] step 10 "brief regenerates from main; the old lane is gone from the list; reflog lane/l5np still shows its life"
+%% note The next session's facts: the lane is gone, its node records the merge, and the remaining work is ready.
+%% script
+%% expect
+* ref:lane/l5np deleted yes
+* ref:lane/l10 exists yes
+* ref:lane/l11 exists yes
+* ref:merge/lane/l10/from/main exists yes
+main $lane94 status merged
+main $run7 status green
+main $d130 exists yes
+main tasks ready-set [$t90,$t93]
+%% end

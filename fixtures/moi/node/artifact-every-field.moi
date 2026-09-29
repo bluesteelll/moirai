@@ -1,0 +1,20 @@
+moirai-node 1
+uid: c7828ca11b193c46fd13acfa05c87ce7
+kind: artifact
+status: present
+created: c804ba5322096f54ae5c3c8bbe298c3a1b493d3fa8fe9a595a0908429bcf64d48 2026-09-21T14:13:20.000Z
+updated: cdffeabef21eae61e9664c97b555b8d55bbf17471652f34e8ac20dd330cb42005 2026-09-21T15:43:20.000Z
+field aliases: [docs/old/lock.md]
+field artifact_kind: doc
+field bytes: 57
+field excerpt: Lock notes
+field observed_blob: sha1:2ef3987df221883d5085bdcab7a89abc51d22476
+field observed_git: sha1:065fafaade4c00c5cccfe7b202f513dfa964b148
+field oid: sha1:2ef3987df221883d5085bdcab7a89abc51d22476
+field origin_path: docs/storage/lock.md
+field origin_pred: ff62a2c718c52faafc108cf0e945642e
+field path: docs/storage/lock.md
+field reason: re-registered
+field relink: confirmed/edited+moved/0.81
+field replaced_by: ff62a2c718c52faafc108cf0e945642e
+field root: project

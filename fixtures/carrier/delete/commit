@@ -1,0 +1,16 @@
+tree e5e085687a3098599e03e8b3f241a5869e4cb0b6
+parent ccad424446fa053d2897aa44b21b74b9ebf6ad37
+author moirai/dev#1 <developer@moirai.invalid> 1790001680 +0000
+committer moirai/dev#1 <developer@moirai.invalid> 1790001680 +0000
+
+rm #1 --reason 'superseded by the new lock design'
+
+Moirai-Commit: caaa574fb5321518fcef0414a190f74af15544a49e4738f50c481a5f4d758c765
+Moirai-Kind: ordinary
+Moirai-Ref: lane/d
+Moirai-Hlc: 117309550100480000
+Moirai-Actor: dev#1
+Moirai-Role: developer
+Moirai-Session: claude:s1
+Moirai-Schema: 1
+Moirai-Ops: 9

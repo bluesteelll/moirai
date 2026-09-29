@@ -1,0 +1,14 @@
+moirai-node 1
+uid: 672af70da09c660c2887060b8618cfd9
+kind: artifact
+status: present
+created: c271bccbc4ad764b231382b2d36bbe448ebf02dedc623d72fa95361ee120e7a2f 2026-09-21T15:13:20.000Z
+updated: c271bccbc4ad764b231382b2d36bbe448ebf02dedc623d72fa95361ee120e7a2f 2026-09-21T15:13:20.000Z
+field artifact_kind: doc
+field bytes: 72
+field observed_blob: sha1:3c7f6ee22f7a670bc36cd11e0618674cebf1b900
+field observed_git: sha1:07749270e4852cbea89a09460cae7049ab75e153
+field oid: sha1:3c7f6ee22f7a670bc36cd11e0618674cebf1b900
+field origin_path: docs/legacy/notes.txt
+field path: docs/legacy/notes.txt
+field root: project

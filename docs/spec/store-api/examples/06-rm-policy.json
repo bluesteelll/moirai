@@ -1,0 +1,338 @@
+{
+  "example": "rm-policy",
+  "spec": "§3.3 (DRY), §5.7, §9.1, §9.7 tx.rm, §10.8, [RULES/delete-policy-matrix] DP-006, EA-001, DS-011, [LQ/errors §5.7] E409",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1; then 03-set-guard.json n = 5 and n = 6 (c00000002), then n = 7, a Tx that created #4 'Rewrite the chapter' under #1 with position last (order s) as c00000003",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "the target-set digest",
+    "statement texts (display printer)",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 8,
+        "cmd": "Mutation",
+        "ctx": {
+          "lease": "L-1",
+          "dry": true
+        },
+        "args": {
+          "name": "tx.rm",
+          "params": {
+            "id": "#2",
+            "replaced_by": "#4",
+            "reason": "superseded by #4"
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 3,
+        "commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+        "rev_new": null,
+        "key": null,
+        "lease": "L-1",
+        "replayed": false,
+        "dry": true,
+        "targets": "7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a7a",
+        "statements": [
+          {
+            "index": 1,
+            "text": "DELETE #2 REPLACED BY #4 REASON $reason",
+            "matched": null,
+            "targets": [
+              "#2"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": [
+            "#1",
+            "#2",
+            "#4"
+          ]
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "-",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "edge",
+            "name": "BLOCKS",
+            "before": {
+              "dst": "#3",
+              "disc": null,
+              "props": {}
+            },
+            "after": null,
+            "side": null,
+            "last_commit": null,
+            "actor": null
+          },
+          {
+            "change": "~",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "existence",
+            "name": "task",
+            "before": "live",
+            "after": "deleted",
+            "side": null,
+            "last_commit": null,
+            "actor": null
+          },
+          {
+            "change": "-",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "parent",
+            "name": "parent",
+            "before": {
+              "parent": "#1",
+              "order": "V"
+            },
+            "after": null,
+            "side": null,
+            "last_commit": null,
+            "actor": null
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "task",
+            "aspect": "edge",
+            "name": "BLOCKS",
+            "before": null,
+            "after": {
+              "dst": "#3",
+              "disc": null,
+              "props": {}
+            },
+            "side": null,
+            "last_commit": null,
+            "actor": null
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 30,
+          "work_limit": 200000,
+          "rows": 4,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 9,
+        "cmd": "Mutation",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "tx.rm",
+          "params": {
+            "id": "#1",
+            "reason": "replanned"
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 3,
+        "errors": [
+          {
+            "code": "E409",
+            "name": "restricted_delete",
+            "severity": "error",
+            "span": null,
+            "message": "statement 1: DELETE #1 refused: restricted references",
+            "suggest": [],
+            "expected": [],
+            "help": "add POLICY CASCADE or POLICY REPARENT, or REPLACED BY <id>",
+            "detail": [
+              "#2 -[:CHILD_OF]-> #1",
+              "#3 -[:CHILD_OF]-> #1",
+              "#4 -[:CHILD_OF]-> #1",
+              "nothing was written"
+            ],
+            "statement": 1,
+            "written": false
+          }
+        ],
+        "exit": 6
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 10,
+        "cmd": "Mutation",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "tx.rm",
+          "params": {
+            "id": "#2",
+            "replaced_by": "#4",
+            "reason": "superseded by #4"
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 3,
+        "commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+        "rev_new": 4,
+        "key": null,
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "DELETE #2 REPLACED BY #4 REASON $reason",
+            "matched": null,
+            "targets": [
+              "#2"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": [
+            "#1",
+            "#2",
+            "#4"
+          ]
+        },
+        "markers": [
+          {
+            "kind": "deleted",
+            "id": "#2",
+            "ref": "main",
+            "commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+            "outcome": null,
+            "cause": "ops"
+          }
+        ],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "-",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "edge",
+            "name": "BLOCKS",
+            "before": {
+              "dst": "#3",
+              "disc": null,
+              "props": {}
+            },
+            "after": null,
+            "side": null,
+            "last_commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "~",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "existence",
+            "name": "task",
+            "before": "live",
+            "after": "deleted",
+            "side": null,
+            "last_commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "-",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "parent",
+            "name": "parent",
+            "before": {
+              "parent": "#1",
+              "order": "V"
+            },
+            "after": null,
+            "side": null,
+            "last_commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "task",
+            "aspect": "edge",
+            "name": "BLOCKS",
+            "before": null,
+            "after": {
+              "dst": "#3",
+              "disc": null,
+              "props": {}
+            },
+            "side": null,
+            "last_commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 30,
+          "work_limit": 200000,
+          "rows": 4,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    }
+  ]
+}

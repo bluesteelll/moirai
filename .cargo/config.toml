@@ -1,0 +1,12 @@
+# Cargo configuration shared by every checkout and worktree (docs/m0/PLAN.md §2.1, WP-01).
+
+[alias]
+# `cargo xtask <subcommand>` runs the repository's tool crate. `--locked`: the gate worktree is the only place
+# Cargo.lock changes (PLAN §3.1).
+xtask = "run --locked --package xtask --"
+
+# Not set here, on purpose:
+# - `build.target-dir`: each lane has one shared CARGO_TARGET_DIR outside the repository, set in the environment of
+#   the lane's worktrees by `cargo xtask worktree` (PLAN §2.1).
+# - `build.jobs`: the lane build cap is decided by measurement 21 (WP-57), and `cargo xtask worktree` and
+#   `cargo xtask nightly` (WP-05) apply it as CARGO_BUILD_JOBS in the lane's environment (PLAN §2.1, §4).

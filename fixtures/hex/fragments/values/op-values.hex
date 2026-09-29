@@ -1,0 +1,103 @@
+# fixtures/hex/fragments/values/op-values.hex: [F08 §5.6], one value of every type in the stored form of an op value
+# ([F06 §5.1]): the type byte, then the value bytes of [F08 §5.2]. Decode as a sequence of typed values to the end of
+# the file. Store-local numbers as [F08 §5.6] assumes them: root `project` = root symbol 1; the text `ok` = text
+# symbol 7; the field's enumeration numbers `high` as 2; #40 with uid U; commit id C; SHA-1 digest D. U, C, C2, D256:
+# BLAKE3 of fixed labels, D a fixed SHA-1 digest (all in fixtures/hex/INDEX.md §2). After the table's
+# fifteen values come five sets of the element types the stores do not use (enum, text, ref, commitref, oid),
+# elements strictly ascending by [F08 §5.5].
+
+# absent
+00                                          # type byte 0x00
+
+# bool false
+01                                          # type byte 0x01
+
+# bool true
+81                                          # type byte 0x81 (vbit set)
+
+# int -3
+02                                          # type byte 0x02
+05                                          # value bytes
+
+# counter 300
+03                                          # type byte 0x03
+d8 04                                       # value bytes
+
+# f64 1.5
+04                                          # type byte 0x04
+00 00 00 00 00 00 f8 3f                     # value bytes
+
+# enum `high` (value 2)
+05                                          # type byte 0x05
+02                                          # value bytes
+
+# text `ok`
+06                                          # type byte 0x06
+02 6f 6b                                    # value bytes
+
+# sym `ok` (text symbol 7)
+07                                          # type byte 0x07
+07                                          # value bytes
+
+# set {1, 5} of int
+08                                          # type byte 0x08
+02 02 02 0a                                 # value bytes
+
+# ref #40 (uid U)
+09                                          # type byte 0x09
+28 00 00 00                                 # value bytes
+
+# commitref C
+0a                                          # type byte 0x0a
+9b 0b e9 5d f3 7b 6f 6c e6 d2 08 ab 5b db 59 64  # value bytes
+c7 23 37 96 eb f6 00 91 40 b3 46 87 4d 7f d9 8b
+
+# path project:docs/a.md (root symbol 1)
+0b                                          # type byte 0x0b
+01 00 09 64 6f 63 73 2f 61 2e 6d 64         # value bytes
+
+# oid sha1 D
+0c                                          # type byte 0x0c
+01 d9 4d b1 af fb 1b dd d9 49 1c d7 66 62 32 df  # value bytes
+ce 91 5c 31 10
+
+# pathmove explicit project:a/ -> project:b/, no git
+0d                                          # type byte 0x0d
+03 00 00 6c 50 c4 a0 01 01 01 00 02 61 2f 01 00  # value bytes
+02 62 2f 00
+
+# set {2, 3} of enum
+08                                          # type byte 0x08 set
+05                                          # elem: the element type byte
+02                                          # n = 2
+02 03                                       # elements
+
+# set {`a`, `b`} of text
+08                                          # type byte 0x08 set
+06                                          # elem: the element type byte
+02                                          # n = 2
+01 61 01 62                                 # elements
+
+# set {#40, #41} of ref
+08                                          # type byte 0x08 set
+09                                          # elem: the element type byte
+02                                          # n = 2
+28 00 00 00 29 00 00 00                     # elements
+
+# set of two commitrefs, bytewise
+08                                          # type byte 0x08 set
+0a                                          # elem: the element type byte
+02                                          # n = 2
+37 5c 61 ac 06 e3 8d 63 ea 83 d4 5a 15 a0 c1 07  # elements
+2e 99 62 2a 49 94 1d 57 29 88 e6 3e 35 50 8f a9
+9b 0b e9 5d f3 7b 6f 6c e6 d2 08 ab 5b db 59 64
+c7 23 37 96 eb f6 00 91 40 b3 46 87 4d 7f d9 8b
+
+# set {sha1 D, sha256 D256} of oid
+08                                          # type byte 0x08 set
+0c                                          # elem: the element type byte
+02                                          # n = 2
+01 d9 4d b1 af fb 1b dd d9 49 1c d7 66 62 32 df  # elements
+ce 91 5c 31 10 02 b1 de 0d cd f5 62 49 70 c4 a3
+08 9a 90 31 c7 5d 27 f2 b1 06 9c 5b cf 19 6b 66
+cc 71 8b da dd af

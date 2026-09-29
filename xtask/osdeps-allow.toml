@@ -1,0 +1,42 @@
+# GT20 (d) and (a) exemptions (docs/m0/PLAN.md §2.1, §6.2 R8 and R18; [80 §5.5] (a)). Enforced from M0.
+#
+# Scopes of the scans (PLAN §2.1):
+# - GT20 (d), OS surface: `cfg(target_os)`, `cfg(windows)`, `cfg(unix)` (and `target_family`, `target_env`,
+#   `target_vendor`), `std::os::*` and direct dependencies on an OS-binding crate are forbidden in every crate except
+#   `moirai-os`, tests included. The OS-binding crates are `windows-sys` and `libc` ([80 §5.5]) and their kin
+#   `windows`, `windows-core`, `windows-targets`, `windows-link`, `winapi`, `nix` and `rustix` (OSDEPS in
+#   xtask/src/config.rs).
+# - GT20 (d), store-file calls: `File::lock` and `std::fs::rename` are forbidden in product crates only.
+# - GT20 (a), process spawn: forbidden in the non-test code of product crates (provisioned at M0, mandatory from M1).
+#
+# `[[crate]]` entries exempt a test-only or tool workspace crate from a scan it would otherwise fail. A product crate
+# can never be listed, and `moirai-os` needs no entry.
+#   name    = the package name
+#   scans   = any of "cfg-os", "std-os", "direct-osdep" (the GT20 (d) OS-surface checks)
+#   reason  = why the crate needs the exemption
+#
+# `[[transitive]]` entries allow a third-party path to an OS-binding crate ([80 §5.5] (a): a reviewed allow-list; a
+# dependency update must extend it by review, and an unlisted path fails the lint). An edge between two OS-binding
+# crates (`windows-sys -> windows-link`) is inside the binding family and needs no entry.
+#   crate    = the third-party package that depends on the OS-binding crate
+#   versions = the semver range the entry covers
+#   osdep    = the OS-binding crate's name
+#   reason   = why the path is acceptable
+#
+# Reviewed 2026-09-28 (WP-02, R-HARN-I) against the resolved graph of that day. No workspace crate needs a `[[crate]]`
+# exemption yet. `versions` pins the reviewed release exactly, so an update brings the path back for review.
+
+version = 1
+crate = []
+
+[[transitive]]
+crate = "cpufeatures"
+versions = "=0.3.1"
+osdep = "libc"
+reason = "runtime CPU-feature detection for sha1, sha2 and blake3 on aarch64 Linux (getauxval) and macOS (sysctlbyname): read-only queries through the libc bindings, no C compiled"
+
+[[transitive]]
+crate = "getrandom"
+versions = "=0.3.4"
+osdep = "libc"
+reason = "OS randomness (getrandom(2), getentropy) for proptest's rand in test crates on Linux and macOS: bindings only, no C compiled"

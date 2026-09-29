@@ -1,0 +1,13 @@
+# Seeded build case (GT20 (e) poisoning, [90 §11.1]): C source compiled by a build script. Copied to a scratch
+# directory by xtask's tests; never built in place.
+[package]
+name = "seeded-c-source"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[build-dependencies]
+cc = "1"
+
+[workspace]

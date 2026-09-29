@@ -1,0 +1,23 @@
+# Test-only library (docs/m0/PLAN.md §2.2). Allowed dependencies: moirai-vfs, moirai-toylog, moirai-harness-stub, moirai-tokcount; blake3, xxhash-rust, serde_json and the §2.4 measurement candidates. Never moirai-os. Filled by R-HARN (WP-50 to WP-57).
+[package]
+name = "moirai-probes"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "Measurement-protocol framework, layout micro-benchmarks and probe bodies, generic over Vfs and Meter (test-only)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+moirai-vfs.workspace = true
+moirai-toylog.workspace = true
+moirai-harness-stub.workspace = true
+moirai-tokcount.workspace = true
+
+[lints]
+workspace = true

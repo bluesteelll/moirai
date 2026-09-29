@@ -1,0 +1,26 @@
+# Host-only crate (docs/m0/PLAN.md §2.2; xtask/host-only.toml). Allowed dependencies: tree-sitter, tree-sitter-rust, serde_json. No crate depends on it. Filled by WP-74 (R-REPLAY).
+[package]
+name = "moirai-tsoracle"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "tree-sitter-rust oracle for FL-1's Rust scope scanner, emitting scope items as JSON (host-only)."
+
+[lib]
+path = "src/lib.rs"
+
+[[bin]]
+name = "moirai-tsoracle"
+path = "src/main.rs"
+
+[dependencies]
+tree-sitter.workspace = true
+tree-sitter-rust.workspace = true
+serde_json.workspace = true
+
+[lints]
+workspace = true

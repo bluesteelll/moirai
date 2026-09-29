@@ -1,0 +1,19 @@
+tree 0bcf754e71c29834eb0aec6975224c08253ba7d1
+parent 15a8ce13bee4af280d0de5985643573e7fc0b05f
+author moirai/dev#2 <developer@moirai.invalid> 1790003600 +0000
+committer moirai/dev#2 <developer@moirai.invalid> 1790003600 +0000
+
+link #1 to lock.rs, lock.md and notes.txt; repin #2
+
+Moirai-Commit: c271bccbc4ad764b231382b2d36bbe448ebf02dedc623d72fa95361ee120e7a2f
+Moirai-Kind: ordinary
+Moirai-Ref: lane/anchors
+Moirai-Hlc: 117309675929600000
+Moirai-Actor: dev#2
+Moirai-Role: developer
+Moirai-Session: codex:s7
+Moirai-Git-Head: sha1:07749270e4852cbea89a09460cae7049ab75e153
+Moirai-Git-Branch: storage/lock-doc
+Moirai-Worktree: D:/work/storage
+Moirai-Schema: 1
+Moirai-Ops: 29

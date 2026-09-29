@@ -1,0 +1,53 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/conflicts.moi
+%% file node
+%% context core
+%% source [F14 §6.8]
+%% source [F07 §6.5]
+%% note Conflicts on a live task: a scalar FieldEdit with an absent side (theirs removed the estimate), a
+%% note StatusFork with resolutions, a body TextHunk (bodies with LF and `"`: no `---` section), a
+%% note parent conflict (`-,a2`: no parent), an edge conflict (ours removed the pinned edge, theirs
+%% note re-pinned it), an edge.at conflict (anchor sides as JSON strings of the line's properties), a
+%% note header conflict (field.priority: no `priority:` line) and a set conflict (field.labels: no `label`
+%% note line; a set side is the JSON string of its `[...]` form). Lines are sorted bytewise by key.
+%% canonical self
+%% keys
+node 1a000000000000000000000000000011 task
+  field title text "Conflicted task"
+  conflict body TextHunk
+    base "Pairs are batched per frame.\n"
+    ours "Pairs are \"batched\" per archetype.\nSee #12.\n"
+    theirs "Pairs are batched per grid cell.\n"
+  conflict edge at ff62a2c718c52faafc108cf0e945642e e2a8f4372b79ab3762509cc526f7868c FieldEdit
+    base present anchor kind=quote mode=live watch=span resolver=1 captured=55a0f8225a49064207dfab2882e736d5 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder" hint=3-3 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9 marker="lock-writer"
+    ours present anchor kind=quote mode=live watch=span resolver=1 captured=55a0f8225a49064207dfab2882e736d5 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder" hint=5-5 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9 marker="lock-writer"
+    theirs present anchor kind=quote mode=live watch=span resolver=1 captured=55a0f8225a49064207dfab2882e736d5 quote="The writer byte is taken with LockFileEx on open." prefix="" suffix="\nA holder" hint=4-4 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9 marker="lock-writer"
+  conflict edge cites 5d000000000000000000000000000011 FieldEdit
+    base present pin e53e65b9e751e6b6bd37f93e501ec97a4752d361d4e9848c235d462fe3adaad3
+    ours absent
+    theirs present pin 0c4cd7158cf16a5964d30a3962fc2a017e3530e3bd8b627a67c4c6f6c57858c7
+  conflict field estimate FieldEdit
+    base int 3
+    ours int 5
+    theirs absent
+  conflict field labels FieldEdit
+    base set text 1 "storage"
+    ours absent
+    theirs set text 2 "hot path" "storage"
+  conflict field priority FieldEdit
+    base absent
+    ours enum P0
+    theirs enum P3
+  conflict hierarchy FieldEdit
+    base 0a000000000000000000000000000001 "a0V"
+    ours 0a000000000000000000000000000002 "a1"
+    theirs - "a2"
+  conflict status StatusFork
+    base in_progress none
+    ours done completed
+    theirs cancelled obsolete
+%% image
+created ce57a81526c7161d935e81e38d9047bcd4acf9740e701ca5f31b8611ef0d81340 2026-09-21T14:13:20.000Z
+updated cf8afdd127b3a1cd0854172115ef77ea9f952d3baa516f5c45acc771a2ef9b772 2026-09-21T15:43:20.000Z
+%% end

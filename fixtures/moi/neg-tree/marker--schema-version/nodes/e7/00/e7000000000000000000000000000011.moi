@@ -1,0 +1,34 @@
+moirai-node 1
+uid: e7000000000000000000000000000011
+kind: experiment
+title: Leader in or out
+status: running
+priority: P5
+criticality: high
+confidence: speculative
+authority: research
+order: c
+created: cb9650436de7a279d77d21e098a04bf10c2bb9c0131f356dd9659569ba8bfa5ab 2026-09-21T14:13:20.000Z
+updated: ce68f7bb97aeb5a25c8464e606027cb0650668d72eff7c46a108af209e192006c 2026-09-21T15:43:20.000Z
+flags: [archived]
+field baseline_commit: cbbdd38deb0657f52bbce391eb92d7814a4695d27dc72900a8ef57e8faafb2c3a
+field codename: night owl
+field gated: true
+field hypothesis: <<
+  the leader saves one flush
+  per group of 16
+>>
+field log_path: project:logs/run-7.txt
+field outcome: confirmed
+field seeds: [11, 3, 42]
+field trials: 7
+label m0
+label measurement 14
+incr retries +2 c3f6f0d9c5e2bafbbb16a957a16656ab4f10e2f4bfc582c57f2cdc3b5faa16e36
+incr retries +1 hand-edit-7
+edge cites -> 5d000000000000000000000000000011
+edge pairs_with -> e7000000000000000000000000000012
+edge reviews -> 1a000000000000000000000000000011
+---
+Run with 16 processes.
+

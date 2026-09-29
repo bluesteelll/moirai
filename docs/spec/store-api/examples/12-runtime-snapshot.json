@@ -1,0 +1,181 @@
+{
+  "example": "runtime-snapshot",
+  "spec": "§6.2 CK-4, §14.3, §15.7, [F11 §3], [F11 §6], [F11 §8], [F11 §9], [RULES/state-definition] lease-live",
+  "setup": "the stream of 04-claim-complete.json through n = 8 (the n numbers of 02, 03 and 04 in turn): Init (n = 2), the L-1 claim (n = 3), commits c00000001 (n = 4, key plan-api), c00000002 (n = 6, default key) and c00000003 (n = 8, claim of #2 with start, default key, lease L-2); the wall clock never moved, so the store HLC values are (1,790,000,000,000 << 16) + k for the k-th record that takes one (§6.2 CK-4): the RefUpdate of main (k = 0), L-1's Lease (1) and Idem (2) records, c00000001 (3), c00000002 (4), c00000003 (5) and L-2's Lease record (6)",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "idempotency key and payload hashes",
+    "the session hash of the anchors",
+    "the runtime digest"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 9,
+        "cmd": "Runtime",
+        "ctx": {},
+        "args": {}
+      },
+      "result": {
+        "v": 1,
+        "branch": null,
+        "rev": null,
+        "data": {
+          "counters": {
+            "commit_seq": 3,
+            "next_id": 4,
+            "next_anchor": 1,
+            "fence": 2,
+            "next_ref_id": 1
+          },
+          "refs": [
+            {
+              "ref_id": 0,
+              "name": "main",
+              "kind": "work",
+              "deleted": false,
+              "tip": "c0000000300000000000000000000000000000000000000000000000000000000",
+              "tip_seq": 3,
+              "ref_seq_next": 4,
+              "fork": null,
+              "absorbed": {},
+              "message": null,
+              "pinned": false
+            }
+          ],
+          "moves": [
+            {
+              "ref": "main",
+              "reason": "create",
+              "old": null,
+              "new": null,
+              "actor": "",
+              "hlc": "117309440000000000"
+            }
+          ],
+          "leases": [
+            {
+              "lease": "L-1",
+              "task": null,
+              "kind": "role",
+              "role": "orchestrator",
+              "holder": "orch",
+              "branch": "main",
+              "run": null,
+              "token": 1,
+              "run_scoped": false,
+              "session_role": true,
+              "ttl_ms": 43200000,
+              "expires": {
+                "wall": "2026-09-22T02:13:20.000Z",
+                "boot": "b000000000000001",
+                "boot_ns": "43201000000000"
+              },
+              "claimed_hlc": "117309440000000001",
+              "anchor": {
+                "kind": "session",
+                "session": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1"
+              },
+              "bound": null,
+              "root_session": null,
+              "files_owned": [],
+              "live": "alive"
+            },
+            {
+              "lease": "L-2",
+              "task": "#2",
+              "kind": "task",
+              "role": "developer",
+              "holder": "claude:ag7",
+              "branch": "main",
+              "run": null,
+              "token": 2,
+              "run_scoped": false,
+              "session_role": false,
+              "ttl_ms": 900000,
+              "expires": {
+                "wall": "2026-09-21T14:28:20.000Z",
+                "boot": "b000000000000001",
+                "boot_ns": "901000000000"
+              },
+              "claimed_hlc": "117309440000000006",
+              "anchor": {
+                "kind": "session",
+                "session": "e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1"
+              },
+              "bound": null,
+              "root_session": null,
+              "files_owned": [],
+              "live": "alive"
+            }
+          ],
+          "markers": [],
+          "exclusions": [],
+          "idem": [
+            {
+              "key": "1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d1d",
+              "payload": "1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e1e",
+              "branch": "main",
+              "commit": "c0000000100000000000000000000000000000000000000000000000000000000",
+              "default_key": false,
+              "append_hlc": "117309440000000003"
+            },
+            {
+              "key": "2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d2d",
+              "payload": "2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e2e",
+              "branch": "main",
+              "commit": null,
+              "default_key": true,
+              "append_hlc": "117309440000000002"
+            },
+            {
+              "key": "3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d3d",
+              "payload": "3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e3e",
+              "branch": "main",
+              "commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+              "default_key": true,
+              "append_hlc": "117309440000000004"
+            },
+            {
+              "key": "4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d4d",
+              "payload": "4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e4e",
+              "branch": "main",
+              "commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+              "default_key": true,
+              "append_hlc": "117309440000000005"
+            }
+          ],
+          "heads": [],
+          "alloc": [
+            {
+              "id": "#1",
+              "uid": "#u:00000000000000000000000000000001",
+              "ref": "main",
+              "create_seq": 1
+            },
+            {
+              "id": "#2",
+              "uid": "#u:00000000000000000000000000000002",
+              "ref": "main",
+              "create_seq": 1
+            },
+            {
+              "id": "#3",
+              "uid": "#u:00000000000000000000000000000003",
+              "ref": "main",
+              "create_seq": 1
+            }
+          ],
+          "intents": [],
+          "quiet": false,
+          "digest": "7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d"
+        },
+        "next": null,
+        "dropped": null
+      }
+    }
+  ]
+}

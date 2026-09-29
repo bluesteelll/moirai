@@ -1,0 +1,11 @@
+DEFINE QUERY loop($plan: node, $round: int? = NULL) SHAPE loop BUDGET light AS {
+  MATCH (f:finding)
+  WHERE EXISTS { (f)-[:ABOUT]->(s) WHERE s IN subtree($plan) }
+    AND ($round IS NULL OR f.round = $round)
+  RETURN f.round AS round,
+         count(*) AS raised,
+         count(CASE WHEN f.status = 'confirmed' THEN 1 END) AS confirmed,
+         count(CASE WHEN f.status = 'refuted' THEN 1 END) AS refuted,
+         count(CASE WHEN f.status = 'confirmed' AND f.severity IN ['blocker', 'important'] THEN 1 END) AS blocking
+  ORDER BY round
+}

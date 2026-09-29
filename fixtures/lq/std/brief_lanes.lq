@@ -1,0 +1,10 @@
+DEFINE QUERY brief_lanes() SHAPE node BUDGET light AS {
+  MATCH (l:lane) WHERE l.status IN ['active', 'ready_to_merge', 'merge_pending', 'measuring', 'frozen']
+  RETURN l AS node, 'lane' AS why
+  UNION
+  MATCH (r:run) WHERE r.status = 'running'
+  RETURN r AS node, 'run' AS why
+  UNION
+  MATCH (a:lane)-[:MERGE_AFTER]->(b:lane) WHERE a.status = 'merge_pending'
+  RETURN a AS node, 'merge queue' AS why
+}

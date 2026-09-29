@@ -1,0 +1,31 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/artifact-every-field.moi
+%% file node
+%% context core
+%% source [F14 §6.11]
+%% source [F08 §11.2]
+%% source [F14 §9.3]
+%% note Row R4: a file node with every field, origin_pred included; its uid is uid_file(project,
+%% note docs/storage/lock.md, origin_pred), which the importer recomputes (§9.3).
+%% canonical self
+%% keys
+node c7828ca11b193c46fd13acfa05c87ce7 artifact
+  field aliases set path 1 project "docs/old/lock.md"
+  field artifact_kind enum doc
+  field bytes int 57
+  field excerpt text "Lock notes"
+  field observed_blob oid sha1 2ef3987df221883d5085bdcab7a89abc51d22476
+  field observed_git oid sha1 065fafaade4c00c5cccfe7b202f513dfa964b148
+  field oid oid sha1 2ef3987df221883d5085bdcab7a89abc51d22476
+  field origin_path path project "docs/storage/lock.md"
+  field origin_pred ref ff62a2c718c52faafc108cf0e945642e
+  field path path project "docs/storage/lock.md"
+  field reason text "re-registered"
+  field relink text "confirmed/edited+moved/0.81"
+  field replaced_by ref ff62a2c718c52faafc108cf0e945642e
+  field root text "project"
+%% image
+created c804ba5322096f54ae5c3c8bbe298c3a1b493d3fa8fe9a595a0908429bcf64d48 2026-09-21T14:13:20.000Z
+updated cdffeabef21eae61e9664c97b555b8d55bbf17471652f34e8ac20dd330cb42005 2026-09-21T15:43:20.000Z
+%% end

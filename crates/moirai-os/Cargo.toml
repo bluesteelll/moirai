@@ -1,0 +1,75 @@
+# Product crate, the only OS crate (docs/m0/PLAN.md §2.2). Allowed dependencies: moirai-vfs; windows-sys (cfg windows);
+# blake3. Only a composition root (xtask/roots.toml) may depend on it. Filled by WP-33 (R-HARN-O).
+[package]
+name = "moirai-os"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "The OS layer: Windows modules at M0 (fs, lock, map, env, proc, mem, project, path, Meter); Unix configured out."
+
+[lib]
+path = "src/lib.rs"
+
+[features]
+# `os::test_host` ([OS/proc §13], [OS/clock §9]): kill, suspend, resume and the wall-clock offset. Test and probe builds
+# only; the composition-root lint refuses it in the product root `moirai` ([OS/README §2.4]).
+test-host = []
+
+[dependencies]
+moirai-vfs.workspace = true
+
+# Only the Windows modules exist at M0 (PLAN §6.2 R1); the Unix modules are configured out, so the cross targets build
+# the crate empty and pull in neither FFI crate nor hash ([OS/README §2.2]).
+[target.'cfg(windows)'.dependencies]
+# `BootId` and `vol_key` hashing ([OS/proc §4.2], [OS/project §4.1]); `pure` is set in [workspace.dependencies].
+blake3.workspace = true
+# The minimal Win32/WDK feature set of [OS/README] Appendix A and [OS/mapping-appendix §2.8], confirmed against 0.61.2:
+# removing any one of these breaks the build (`Win32_Security` comes with `Win32_Security_Authorization`).
+windows-sys = { workspace = true, features = [
+    "Wdk_Foundation",
+    "Wdk_Storage_FileSystem",
+    "Wdk_System_SystemServices",
+    "Win32_Devices_DeviceAndDriverInstallation",
+    "Win32_Devices_Properties",
+    "Win32_Globalization",
+    "Win32_Security_Authorization",
+    "Win32_Security_Cryptography",
+    "Win32_Storage_CloudFilters",
+    "Win32_Storage_FileSystem",
+    "Win32_System_Console",
+    "Win32_System_Diagnostics_Debug",
+    "Win32_System_Diagnostics_ToolHelp",
+    "Win32_System_IO",
+    "Win32_System_Ioctl",
+    "Win32_System_Kernel",
+    "Win32_System_Memory",
+    "Win32_System_Performance",
+    "Win32_System_ProcessStatus",
+    "Win32_System_Registry",
+    "Win32_System_RestartManager",
+    "Win32_System_SystemInformation",
+    "Win32_System_SystemServices",
+    "Win32_System_Threading",
+    "Win32_System_WindowsProgramming",
+] }
+
+[dev-dependencies]
+# Property tests of the byte codecs and the pure path rules.
+proptest.workspace = true
+
+# moirai-os is the only crate allowed `unsafe` code (PLAN §2.1), so it cannot inherit [workspace.lints]
+# (`unsafe_code = "forbid"`). It keeps every workspace lint and differs only in the unsafe-code rules below; WP-02's
+# gate checks that no other member overrides the workspace table.
+[lints.rust]
+# Each module that needs FFI, mapping, the vectored exception handler or `CountingAlloc` opts in with
+# `#[allow(unsafe_code)]`; everything else stays free of `unsafe`.
+unsafe_code = "deny"
+unsafe_op_in_unsafe_fn = "deny"
+
+[lints.clippy]
+# Every unsafe block carries a `// SAFETY:` comment (PLAN §2.1).
+undocumented_unsafe_blocks = "deny"

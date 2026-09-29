@@ -1,0 +1,4 @@
+DEFINE QUERY brief_questions() SHAPE node BUDGET light AS {
+  MATCH (q:question) WHERE q.status = 'open' AND q.asked_of = 'owner'
+  RETURN q ORDER BY q.criticality, q.id
+}

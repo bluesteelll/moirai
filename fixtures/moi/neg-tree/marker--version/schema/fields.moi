@@ -1,0 +1,20 @@
+moirai-schema 1
+value * priority P5 rank=5
+field experiment baseline_commit type=commitref class=scalar storage=field decl=23 optional=true index=none coerce=revision-integer
+field experiment codename type=sym class=scalar storage=field decl=28 optional=false index=none coerce=none flags=ascii,one_line default="unnamed run"
+field experiment gated type=bool class=scalar storage=field decl=27 optional=false index=none coerce=none default=false
+field experiment hypothesis type=text class=text storage=field decl=20 optional=true index=none coerce=none
+field experiment log_path type=path class=scalar storage=field decl=22 optional=true index=none coerce=none flags=one_line
+field experiment outcome type=enum class=scalar storage=field decl=25 optional=true index=bitmap coerce=none
+value experiment outcome confirmed rank=0
+value experiment outcome refuted rank=1
+field experiment retries type=counter class=counter storage=field decl=26 optional=true index=none coerce=none
+field experiment seeds type=set elem=int class=set storage=field decl=24 optional=true index=bitmap coerce=none
+value experiment status abandoned rank=3 flags=done,side
+value experiment status concluded rank=2 flags=done covers=running
+value experiment status planned rank=0
+value experiment status running rank=1 covers=planned
+field experiment trials type=int class=scalar storage=field decl=21 optional=false index=column coerce=none default=1 min=1 max=1000
+field task legacy_owner type=sym class=scalar storage=field decl=31 optional=true index=none coerce=none flags=one_line retired
+field task retries type=counter class=counter storage=field decl=30 optional=true index=none coerce=none
+field task risk type=int class=scalar storage=field decl=29 optional=false index=column coerce=none default=2 min=0 max=5

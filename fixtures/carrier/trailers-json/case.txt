@@ -1,0 +1,139 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case trailers-json
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note Row trailers (+): Moirai-Actor and Moirai-Worktree need JSON strings (a leading `[`; an HT); the
+%% note assignee field value needs one too. N1 gains a ledger line of +2.
+%% destination A sha1 full
+%% class native
+%% git-commit 0315d4f332006f732f5b8ba1d25b38457c8ac1a9
+%% git-tree 6502a23ba8c4d487efa712efe19c13626ef9e772
+%% git-parent 018e6a12ce584771b360c194bc69088493ee821e root
+%% trailer-commit 6afe1bcfe3813d5d4e7c705e6c5f68a4bc49d58da857745fc0cd66dbd0fbf3c4
+%% touched-new 2
+%% touched-old 2
+%% p-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field assignee text "[bot] ci"
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  counter incidents 2
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+1a000000000000000000000000000003 field assignee = text "[bot] ci"
+3b000000000000000000000000000001 counter incidents = +2
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000003 field assignee
+011a000000000000000000000000000003040800000061737369676e65650007080000005b626f745d206369
+; entry 2: 3b000000000000000000000000000001 counter incidents
+013b0000000000000000000000000000010609000000696e636964656e7473000200000000000000
+; u64 entry count = 2
+0200000000000000
+%% entry-count 2
+%% changeset-digest e72a1b6d54702e360a70b0746f932a65a57fd8d701df49ffc67ffafe047e0163
+%% commit
+kind ordinary
+parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+hlc 01a0c48ead800000
+actor "[bot] ci"
+role "ci"
+session "gh:run 17"
+git-head sha1 765e5af16586a005e26f9b47fd02e2527c37c9bc
+git-branch "bots/nightly"
+git-worktree "/home/ci/work\tlane"
+git-base -
+message "nightly: assign #3 to the bot; count two incidents"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+; item 3: hlc
+000080ad8ec4a001
+; item 4: actor
+080000005b626f745d206369
+; item 4: role
+020000006369
+; item 4: session
+0900000067683a72756e203137
+; item 5: git_algo
+0400000073686131
+; item 5: git_head
+14000000765e5af16586a005e26f9b47fd02e2527c37c9bc
+; item 5: git_branch
+0c000000626f74732f6e696768746c79
+; item 5: git_worktree
+120000002f686f6d652f63692f776f726b096c616e65
+; item 5: git_base
+00000000
+; item 6: message
+320000006e696768746c793a2061737369676e20233320746f2074686520626f743b20636f756e742074776f20696e63
+6964656e7473
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+e72a1b6d54702e360a70b0746f932a65a57fd8d701df49ffc67ffafe047e0163
+%% commit-id 6afe1bcfe3813d5d4e7c705e6c5f68a4bc49d58da857745fc0cd66dbd0fbf3c4
+%% end

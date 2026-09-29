@@ -1,0 +1,11 @@
+# Seeded build case (GT20 (d), the type-aware layer; docs/m0/PLAN.md §2.1): the method forms of the `File` lock calls
+# and a `Path` I/O method. xtask's tests copy it to a scratch directory three times, with a product crate's
+# `clippy.toml`, with moirai-os's, and with none, and run clippy there; never built in place.
+[package]
+name = "seeded-clippy-methods"
+version = "0.0.0"
+edition = "2024"
+publish = false
+license = "Apache-2.0"
+
+[workspace]

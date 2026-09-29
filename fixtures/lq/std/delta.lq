@@ -1,0 +1,5 @@
+DEFINE QUERY delta($since: rev, $agent: text) SHAPE changes BUDGET light AS {
+  CALL changes(since: $since) YIELD seq, ref, node, op, aspect, name, actor
+  WHERE relevant_to(node, $agent) AND actor <> $agent
+  RETURN seq, ref, node, op, aspect, name, actor ORDER BY seq LIMIT 12
+}

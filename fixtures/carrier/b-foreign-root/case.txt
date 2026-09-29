@@ -1,0 +1,110 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case b-foreign-root
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% source [F14 §10.6]
+%% source [F14 §13.2]
+%% note Row re-exports (+): case foreign-root written natively by the second store:
+%% note Moirai-Foreign-Git carries item 9 (the sha1 id in destination F); Moirai-Actor its derived
+%% note actor; the message part is the stored imported message.
+%% destination B sha256 full
+%% class native
+%% git-commit a81698189be5d8ea2c76c96780e7da652214611b12fcb21d9938e55adda9bc90
+%% git-tree a9157c20e1a31618ac50ce4c6696fa6051931e84202eeaa9502b367194fd6afe
+%% trailer-commit a4cc0fd93e11420275f62d67547b2ff5a5ef869a52c59cbb6a569351eb386b2f
+%% touched-new 3
+%% touched-old 0
+%% p-state
+%% q-state
+node 2c000000000000000000000000000001 task
+  field priority enum P1
+  field title text "Port the importer"
+node 3d000000000000000000000000000001 note
+  field title text "Tracker export format"
+  body "Columns: id, title, state."
+%% entries
+2c000000000000000000000000000001 existence = live task
+2c000000000000000000000000000001 field priority = enum P1
+2c000000000000000000000000000001 field title = text "Port the importer"
+3d000000000000000000000000000001 existence = live note
+3d000000000000000000000000000001 field title = text "Tracker export format"
+3d000000000000000000000000000001 body = hash 1ee74db152a279ea3916cecb56b7b51e
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 2c000000000000000000000000000001 existence
+012c000000000000000000000000000001010001040000007461736b00
+; entry 2: 2c000000000000000000000000000001 field priority
+012c00000000000000000000000000000104080000007072696f726974790006020000005031
+; entry 3: 2c000000000000000000000000000001 field title
+012c00000000000000000000000000000104050000007469746c65000711000000506f72742074686520696d706f7274
+6572
+; entry 4: 3d000000000000000000000000000001 existence
+013d000000000000000000000000000001010001040000006e6f746500
+; entry 5: 3d000000000000000000000000000001 field title
+013d00000000000000000000000000000104050000007469746c65000715000000547261636b6572206578706f727420
+666f726d6174
+; entry 6: 3d000000000000000000000000000001 body
+013d0000000000000000000000000000010800011ee74db152a279ea3916cecb56b7b51e
+; u64 entry count = 6
+0600000000000000
+%% entry-count 6
+%% changeset-digest 456e1480a95711af868ba9ea2348812eb78692d06c4deb0e9573e5b3ef9d3a0f
+%% commit
+kind ordinary
+hlc 01a088b5a2000000
+actor "git:alice@example.com"
+role ""
+session ""
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "Import backlog from the old tracker\n\nSee the tracker export of 2026-09."
+schema-version 1
+origin -
+foreign sha1 33881ca4c0710e4ef0c39fa06904c0cc6494ca6a
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+00000000
+; item 3: hlc
+000000a2b588a001
+; item 4: actor
+150000006769743a616c696365406578616d706c652e636f6d
+; item 4: role
+00000000
+; item 4: session
+00000000
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+47000000496d706f7274206261636b6c6f672066726f6d20746865206f6c6420747261636b65720a0a53656520746865
+20747261636b6572206578706f7274206f6620323032362d30392e
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+0400000073686131
+; item 9: foreign_oid
+1400000033881ca4c0710e4ef0c39fa06904c0cc6494ca6a
+; item 10: changeset_digest
+456e1480a95711af868ba9ea2348812eb78692d06c4deb0e9573e5b3ef9d3a0f
+%% commit-id a4cc0fd93e11420275f62d67547b2ff5a5ef869a52c59cbb6a569351eb386b2f
+%% end

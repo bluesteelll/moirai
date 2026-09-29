@@ -1,0 +1,2653 @@
+# fixtures/lq/cases/design-blocks.cases: the 44 LQ code blocks of [50] (WP-22, R-FIX): the example of [50 §0.2],
+# the 35 query and TX blocks of [50 §2.9] (Q1-Q29; Q17 is a JSON string, not a code block) and the 8 DEFINE
+# statements of [50 §4.1] (7) and [50 §4.3] (1), each parsed on its own as [50 §11] (assemble2.py) did.
+# Every block parses with its entry symbol; the token stream is asserted ([LQ/lexical §11]). Where [LQ/json-ir §7]
+# gives the tree of a block, the S-AST and the JSON IR output form are asserted too.
+# The blocks are the design's text: the [LQ/std] versions of the DEFINEs differ ([LQ/std §4]) and are in std.cases.
+# Format: fixtures/lq/INDEX.md §2.
+
+%% case s0.2-tx
+%% source [50 §0.2]
+%% entry write
+%% input
+TX ON lane/l5np LEASE 'L-18' {
+  MATCH (t:task {id: #89}) WHERE t.status = 'in_progress' EXPECT 1
+  SET t.done = true
+}
+%% tokens
+KW TX
+KW ON
+REF lane/l5np
+KW LEASE
+STR "L-18"
+P {
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P {
+NAME id
+P :
+NODE 89
+P }
+P )
+KW WHERE
+NAME t
+P .
+NAME status
+P =
+STR "in_progress"
+KW EXPECT
+INT 1
+KW SET
+NAME t
+P .
+NAME done
+P =
+KW TRUE
+P }
+EOF -
+%% end
+
+%% case q1
+%% source [50 §2.9] Q1
+%% entry read
+%% input
+MATCH (t {id: #51}) RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P {
+NAME id
+P :
+NODE 51
+P }
+P )
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case q2
+%% source [50 §2.9] Q2
+%% entry read
+%% input
+MATCH (t:task)
+WHERE t.unfinished AND t.priority <= 1 AND 'l5' IN t.labels
+RETURN t
+ORDER BY t.priority, t.updated DESC
+LIMIT 20
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME unfinished
+KW AND
+NAME t
+P .
+NAME priority
+P <=
+INT 1
+KW AND
+STR "l5"
+KW IN
+NAME t
+P .
+NAME labels
+KW RETURN
+NAME t
+KW ORDER
+KW BY
+NAME t
+P .
+NAME priority
+P ,
+NAME t
+P .
+NAME updated
+KW DESC
+KW LIMIT
+INT 20
+EOF -
+%% end
+
+%% case q3
+%% source [50 §2.9] Q3
+%% entry read
+%% input
+MATCH (s:task)-[:CHILD_OF]->{1,2}(#88)
+RETURN s.id, s.status, s.children_done, s.children_total
+ORDER BY s.id
+%% tokens
+KW MATCH
+P (
+NAME s
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME CHILD_OF
+P ]
+P ->
+P {
+INT 1
+P ,
+INT 2
+P }
+P (
+NODE 88
+P )
+KW RETURN
+NAME s
+P .
+NAME id
+P ,
+NAME s
+P .
+NAME status
+P ,
+NAME s
+P .
+NAME children_done
+P ,
+NAME s
+P .
+NAME children_total
+KW ORDER
+KW BY
+NAME s
+P .
+NAME id
+EOF -
+%% end
+
+%% case q4-blocks
+%% source [50 §2.9] Q4, first block
+%% entry read
+%% input
+MATCH (b)-[:BLOCKS]->(#51) RETURN b
+%% tokens
+KW MATCH
+P (
+NAME b
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P (
+NODE 51
+P )
+KW RETURN
+NAME b
+EOF -
+%% end
+
+%% case q4-blocked-by
+%% source [50 §2.9] Q4, second block
+%% entry read
+%% input
+MATCH (#51)-[:BLOCKED_BY]->(b) RETURN b
+%% tokens
+KW MATCH
+P (
+NODE 51
+P )
+P -
+P [
+P :
+NAME BLOCKED_BY
+P ]
+P ->
+P (
+NAME b
+P )
+KW RETURN
+NAME b
+EOF -
+%% end
+
+%% case q4-blockers
+%% source [50 §2.9] Q4, third block
+%% entry read
+%% input
+CALL blockers(#51, transitive: true) YIELD blocker, depth, via, reason
+RETURN blocker, depth, via, reason
+%% tokens
+KW CALL
+NAME blockers
+P (
+NODE 51
+P ,
+NAME transitive
+P :
+KW TRUE
+P )
+KW YIELD
+NAME blocker
+P ,
+NAME depth
+P ,
+NAME via
+P ,
+NAME reason
+KW RETURN
+NAME blocker
+P ,
+NAME depth
+P ,
+NAME via
+P ,
+NAME reason
+EOF -
+%% end
+
+%% case q5
+%% source [50 §2.9] Q5
+%% entry read
+%% input
+MATCH (x:task)((a:task)-[:BLOCKS]->(b) WHERE a.unfinished){1,5}(#93)
+RETURN x
+%% tokens
+KW MATCH
+P (
+NAME x
+P :
+NAME task
+P )
+P (
+P (
+NAME a
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P (
+NAME b
+P )
+KW WHERE
+NAME a
+P .
+NAME unfinished
+P )
+P {
+INT 1
+P ,
+INT 5
+P }
+P (
+NODE 93
+P )
+KW RETURN
+NAME x
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "x" ["task"] [] _)
+             [(gstep (group (path (npat "a" ["task"] [] _)
+                                  [(estep (epat _ right ["BLOCKS"] _ [] _) (npat "b" [] [] _))])
+                            (prop (ident "a") "unfinished")
+                            (quant 1 5))
+                     (npat _ [] [(kv "id" (nid 93))] _))])]
+      _)]
+    (return false false [(item (ident "x") _)] [] [] _)
+    _)]
+  []))
+%% json-ir
+{"t":"read","query":{"t":"query","parts":[{"t":"part","clauses":[{"t":"match","patterns":[{"t":"path","start":{"t":"npat","var":"x","labels":["task"]},"steps":[{"t":"gstep","group":{"t":"group","path":{"t":"path","start":{"t":"npat","var":"a","labels":["task"]},"steps":[{"t":"estep","edge":{"t":"epat","dir":"right","types":["BLOCKS"]},"node":{"t":"npat","var":"b"}}]},"where":{"t":"prop","e":{"t":"ident","name":"a"},"name":"unfinished"},"quant":{"t":"quant","min":1,"max":5}},"node":{"t":"npat","props":[{"t":"kv","key":"id","value":{"t":"nid","n":93}}]}}]}]}],"return":{"t":"return","items":[{"t":"item","expr":{"t":"ident","name":"x"}}]}}]}}
+%% end
+
+%% case q5b
+%% source [50 §2.9] Q5b
+%% entry read
+%% input
+MATCH (x:task)-[:BLOCKS]->{2,}(#93)
+RETURN x
+%% tokens
+KW MATCH
+P (
+NAME x
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P {
+INT 2
+P ,
+P }
+P (
+NODE 93
+P )
+KW RETURN
+NAME x
+EOF -
+%% end
+
+%% case q6
+%% source [50 §2.9] Q6
+%% entry read
+%% input
+MATCH (f:finding)
+WHERE EXISTS { (f)-[:ABOUT]->(s) WHERE s IN subtree(#130) }
+RETURN f.round AS round,
+       count(*) AS raised,
+       count(CASE WHEN f.status = 'confirmed' THEN 1 END) AS confirmed,
+       count(CASE WHEN f.status = 'refuted' THEN 1 END) AS refuted,
+       count(CASE WHEN f.status = 'confirmed' AND f.severity IN ['blocker', 'important'] THEN 1 END) AS blocking
+ORDER BY round
+%% tokens
+KW MATCH
+P (
+NAME f
+P :
+NAME finding
+P )
+KW WHERE
+KW EXISTS
+P {
+P (
+NAME f
+P )
+P -
+P [
+P :
+NAME ABOUT
+P ]
+P ->
+P (
+NAME s
+P )
+KW WHERE
+NAME s
+KW IN
+NAME subtree
+P (
+NODE 130
+P )
+P }
+KW RETURN
+NAME f
+P .
+NAME round
+KW AS
+NAME round
+P ,
+KW COUNT
+P (
+P *
+P )
+KW AS
+NAME raised
+P ,
+NAME count
+P (
+KW CASE
+KW WHEN
+NAME f
+P .
+NAME status
+P =
+STR "confirmed"
+KW THEN
+INT 1
+KW END
+P )
+KW AS
+NAME confirmed
+P ,
+NAME count
+P (
+KW CASE
+KW WHEN
+NAME f
+P .
+NAME status
+P =
+STR "refuted"
+KW THEN
+INT 1
+KW END
+P )
+KW AS
+NAME refuted
+P ,
+NAME count
+P (
+KW CASE
+KW WHEN
+NAME f
+P .
+NAME status
+P =
+STR "confirmed"
+KW AND
+NAME f
+P .
+NAME severity
+KW IN
+P [
+STR "blocker"
+P ,
+STR "important"
+P ]
+KW THEN
+INT 1
+KW END
+P )
+KW AS
+NAME blocking
+KW ORDER
+KW BY
+NAME round
+EOF -
+%% end
+
+%% case q7
+%% source [50 §2.9] Q7
+%% entry read
+%% input
+USE lane/l5np
+MATCH (f:finding)
+WHERE f.created_role IN ['architecture-critic', 'code-reviewer']
+  AND EXISTS { (f)-[:ABOUT]->(s) WHERE s IN subtree(#130) }
+WITH f.created_role AS critic, count(*) AS raised,
+     count(CASE WHEN f.status = 'refuted' THEN 1 END) AS refuted
+RETURN critic, raised, refuted, round(100.0 * refuted / raised, 1) AS pct
+ORDER BY critic
+%% tokens
+KW USE
+REF lane/l5np
+KW MATCH
+P (
+NAME f
+P :
+NAME finding
+P )
+KW WHERE
+NAME f
+P .
+NAME created_role
+KW IN
+P [
+STR "architecture-critic"
+P ,
+STR "code-reviewer"
+P ]
+KW AND
+KW EXISTS
+P {
+P (
+NAME f
+P )
+P -
+P [
+P :
+NAME ABOUT
+P ]
+P ->
+P (
+NAME s
+P )
+KW WHERE
+NAME s
+KW IN
+NAME subtree
+P (
+NODE 130
+P )
+P }
+KW WITH
+NAME f
+P .
+NAME created_role
+KW AS
+NAME critic
+P ,
+KW COUNT
+P (
+P *
+P )
+KW AS
+NAME raised
+P ,
+NAME count
+P (
+KW CASE
+KW WHEN
+NAME f
+P .
+NAME status
+P =
+STR "refuted"
+KW THEN
+INT 1
+KW END
+P )
+KW AS
+NAME refuted
+KW RETURN
+NAME critic
+P ,
+NAME raised
+P ,
+NAME refuted
+P ,
+NAME round
+P (
+FLOAT 100.0
+P *
+NAME refuted
+P /
+NAME raised
+P ,
+INT 1
+P )
+KW AS
+NAME pct
+KW ORDER
+KW BY
+NAME critic
+EOF -
+%% end
+
+%% case q8
+%% source [50 §2.9] Q8
+%% entry read
+%% input
+CALL search('lease reclaim fencing', kinds: ['note', 'rule', 'decision'])
+YIELD node, score
+WHERE node.status IN ['active', 'accepted']
+RETURN node, score
+ORDER BY score DESC
+LIMIT 5
+%% tokens
+KW CALL
+NAME search
+P (
+STR "lease reclaim fencing"
+P ,
+NAME kinds
+P :
+P [
+STR "note"
+P ,
+STR "rule"
+P ,
+STR "decision"
+P ]
+P )
+KW YIELD
+NAME node
+P ,
+NAME score
+KW WHERE
+NAME node
+P .
+NAME status
+KW IN
+P [
+STR "active"
+P ,
+STR "accepted"
+P ]
+KW RETURN
+NAME node
+P ,
+NAME score
+KW ORDER
+KW BY
+NAME score
+KW DESC
+KW LIMIT
+INT 5
+EOF -
+%% end
+
+%% case q9-anchors
+%% source [50 §2.9] Q9, first block
+%% entry read
+%% input
+MATCH (k)-[a:AT]->(f:artifact)
+WHERE k:note|rule|finding AND glob_match(f.path, 'crates/ecs/**')
+RETURN k, f.path AS path, a.kind AS anchor, a.scope AS scope, link_state(a) AS link
+ORDER BY path, k
+%% tokens
+KW MATCH
+P (
+NAME k
+P )
+P -
+P [
+NAME a
+P :
+NAME AT
+P ]
+P ->
+P (
+NAME f
+P :
+NAME artifact
+P )
+KW WHERE
+NAME k
+P :
+NAME note
+P |
+NAME rule
+P |
+NAME finding
+KW AND
+NAME glob_match
+P (
+NAME f
+P .
+NAME path
+P ,
+STR "crates/ecs/**"
+P )
+KW RETURN
+NAME k
+P ,
+NAME f
+P .
+NAME path
+KW AS
+NAME path
+P ,
+NAME a
+P .
+NAME kind
+KW AS
+NAME anchor
+P ,
+NAME a
+P .
+NAME scope
+KW AS
+NAME scope
+P ,
+NAME link_state
+P (
+NAME a
+P )
+KW AS
+NAME link
+KW ORDER
+KW BY
+NAME path
+P ,
+NAME k
+EOF -
+%% end
+
+%% case q9-links-broken
+%% source [50 §2.9] Q9, second block
+%% entry read
+%% input
+MATCH (n)-[a:AT]->(f) WHERE n IN subtree(#88) AND link_state(a) <> 'ok' RETURN f, a, link_state(a)
+%% tokens
+KW MATCH
+P (
+NAME n
+P )
+P -
+P [
+NAME a
+P :
+NAME AT
+P ]
+P ->
+P (
+NAME f
+P )
+KW WHERE
+NAME n
+KW IN
+NAME subtree
+P (
+NODE 88
+P )
+KW AND
+NAME link_state
+P (
+NAME a
+P )
+P <>
+STR "ok"
+KW RETURN
+NAME f
+P ,
+NAME a
+P ,
+NAME link_state
+P (
+NAME a
+P )
+EOF -
+%% end
+
+%% case q10
+%% source [50 §2.9] Q10
+%% entry read
+%% input
+MATCH (r:rule)
+WHERE r.status = 'active' AND r.criticality = 'critical'
+  AND applies(r, 'crates/ecs/world.rs')
+RETURN r
+%% tokens
+KW MATCH
+P (
+NAME r
+P :
+NAME rule
+P )
+KW WHERE
+NAME r
+P .
+NAME status
+P =
+STR "active"
+KW AND
+NAME r
+P .
+NAME criticality
+P =
+STR "critical"
+KW AND
+NAME applies
+P (
+NAME r
+P ,
+STR "crates/ecs/world.rs"
+P )
+KW RETURN
+NAME r
+EOF -
+%% end
+
+%% case q11
+%% source [50 §2.9] Q11
+%% entry read
+%% input
+USE s4400
+MATCH (t:task)-[:CHILD_OF]->+(#88)
+WHERE t.status IN ['open', 'in_progress']
+RETURN t.id, t.status, t.unblocked
+%% tokens
+KW USE
+SEQ 4400
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME CHILD_OF
+P ]
+P ->
+P +
+P (
+NODE 88
+P )
+KW WHERE
+NAME t
+P .
+NAME status
+KW IN
+P [
+STR "open"
+P ,
+STR "in_progress"
+P ]
+KW RETURN
+NAME t
+P .
+NAME id
+P ,
+NAME t
+P .
+NAME status
+P ,
+NAME t
+P .
+NAME unblocked
+EOF -
+%% end
+
+%% case q12
+%% source [50 §2.9] Q12
+%% entry read
+%% input
+CALL across(refs: [main, lane/l5np], ids: [#89, #93, #212])
+YIELD node, name, ref, value, diverged
+WHERE diverged
+RETURN node, name, ref, value
+%% tokens
+KW CALL
+NAME across
+P (
+NAME refs
+P :
+P [
+REF main
+P ,
+REF lane/l5np
+P ]
+P ,
+NAME ids
+P :
+P [
+NODE 89
+P ,
+NODE 93
+P ,
+NODE 212
+P ]
+P )
+KW YIELD
+NAME node
+P ,
+NAME name
+P ,
+NAME ref
+P ,
+NAME value
+P ,
+NAME diverged
+KW WHERE
+NAME diverged
+KW RETURN
+NAME node
+P ,
+NAME name
+P ,
+NAME ref
+P ,
+NAME value
+EOF -
+%% end
+
+%% case q13
+%% source [50 §2.9] Q13
+%% entry read
+%% input
+CALL diff(main...lane/l10)
+YIELD change, node, aspect, name, before, after, side
+WHERE side = 'both' OR aspect = 'exists'
+%% tokens
+KW CALL
+NAME diff
+P (
+REF main
+RANGE ...
+REF lane/l10
+P )
+KW YIELD
+NAME change
+P ,
+NAME node
+P ,
+NAME aspect
+P ,
+NAME name
+P ,
+NAME before
+P ,
+NAME after
+P ,
+NAME side
+KW WHERE
+NAME side
+P =
+STR "both"
+KW OR
+NAME aspect
+P =
+STR "exists"
+EOF -
+%% end
+
+%% case q14-history
+%% source [50 §2.9] Q14, first block
+%% entry read
+%% input
+CALL history(#12, field: 'status')
+%% tokens
+KW CALL
+NAME history
+P (
+NODE 12
+P ,
+NAME field
+P :
+STR "status"
+P )
+EOF -
+%% end
+
+%% case q14-blame
+%% source [50 §2.9] Q14, second block
+%% entry read
+%% input
+CALL blame(#12)
+%% tokens
+KW CALL
+NAME blame
+P (
+NODE 12
+P )
+EOF -
+%% end
+
+%% case q15
+%% source [50 §2.9] Q15
+%% entry read
+%% input
+MATCH (t:task) WHERE t.unblocked RETURN t
+EXCEPT
+USE main~5 MATCH (t:task) WHERE t.unblocked RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME unblocked
+KW RETURN
+NAME t
+KW EXCEPT
+KW USE
+REF main
+SUF ~5
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME unblocked
+KW RETURN
+NAME t
+EOF -
+%% end
+
+%% case q16-conflicts
+%% source [50 §2.9] Q16, first block
+%% entry read
+%% input
+USE lane/l5np
+CALL conflicts() YIELD key, node, class, base, ours, theirs
+%% tokens
+KW USE
+REF lane/l5np
+KW CALL
+NAME conflicts
+P (
+P )
+KW YIELD
+NAME key
+P ,
+NAME node
+P ,
+NAME class
+P ,
+NAME base
+P ,
+NAME ours
+P ,
+NAME theirs
+EOF -
+%% end
+
+%% case q16-violations
+%% source [50 §2.9] Q16, second block
+%% entry read
+%% note violations() has no argument, so no revision position is entered ([LQ/lexical §4.2]).
+%% input
+USE merge/lane/l10/from/main
+CALL violations() YIELD key, class, detail, suggested
+%% tokens
+KW USE
+REF merge/lane/l10/from/main
+KW CALL
+NAME violations
+P (
+P )
+KW YIELD
+NAME key
+P ,
+NAME class
+P ,
+NAME detail
+P ,
+NAME suggested
+EOF -
+%% end
+
+%% case q18
+%% source [50 §2.9] Q18
+%% entry write
+%% input
+TX ON lane/l5np KEY 'wf:r7/dev1/complete-89' LEASE 'L-18' {
+  MATCH (t:task {id: #89}) WHERE t.status = 'in_progress' AND t.rev = 4466 EXPECT 1
+  SET t.done = true
+}
+%% tokens
+KW TX
+KW ON
+REF lane/l5np
+KW KEY
+STR "wf:r7/dev1/complete-89"
+KW LEASE
+STR "L-18"
+P {
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P {
+NAME id
+P :
+NODE 89
+P }
+P )
+KW WHERE
+NAME t
+P .
+NAME status
+P =
+STR "in_progress"
+KW AND
+NAME t
+P .
+NAME rev
+P =
+INT 4466
+KW EXPECT
+INT 1
+KW SET
+NAME t
+P .
+NAME done
+P =
+KW TRUE
+P }
+EOF -
+%% sast
+(tx (rref "lane/l5np") _ _ "wf:r7/dev1/complete-89" "L-18" _
+ [(smatch [(path (npat "t" ["task"] [(kv "id" (nid 89))] _) [])]
+   (and (cmp = (prop (ident "t") "status") (str "in_progress"))
+        (cmp = (prop (ident "t") "rev") (int 4466)))
+   (expect exact 1 _ _)
+   [(mset [(assign (ident "t") "done" (bool true))])])]
+ false)
+%% json-ir
+{"t":"tx","on":{"t":"rref","name":"lane/l5np"},"key":"wf:r7/dev1/complete-89","lease":"L-18","stmts":[{"t":"smatch","patterns":[{"t":"path","start":{"t":"npat","var":"t","labels":["task"],"props":[{"t":"kv","key":"id","value":{"t":"nid","n":89}}]}}],"where":{"t":"and","l":{"t":"cmp","op":"=","l":{"t":"prop","e":{"t":"ident","name":"t"},"name":"status"},"r":"in_progress"},"r":{"t":"cmp","op":"=","l":{"t":"prop","e":{"t":"ident","name":"t"},"name":"rev"},"r":4466}},"expect":{"t":"expect","kind":"exact","a":1},"muts":[{"t":"mset","assigns":[{"t":"assign","target":{"t":"ident","name":"t"},"prop":"done","value":true}]}]}]}
+%% end
+
+%% case q19
+%% source [50 §2.9] Q19
+%% entry write
+%% note IF TIP c9b2e6c1: a commit literal of 8 hex digits, printed without the c.
+%% input
+TX ON lane/l5np KEY 'wf:r7/orch/reprio' IF TIP c9b2e6c1 {
+  MATCH (t:task)-[:CHILD_OF]->+(#88) WHERE t.status = 'open' AND 'l5' IN t.labels EXPECT 3
+  SET t.priority = 1;
+  ASSERT COUNT { MATCH (x:task)-[:CHILD_OF]->+(#88) WHERE x.priority = 0 } = 0
+    ELSE 'P0 work under #88 must be triaged first'
+} DRY
+%% tokens
+KW TX
+KW ON
+REF lane/l5np
+KW KEY
+STR "wf:r7/orch/reprio"
+KW IF
+KW TIP
+COMMIT 9b2e6c1
+P {
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME CHILD_OF
+P ]
+P ->
+P +
+P (
+NODE 88
+P )
+KW WHERE
+NAME t
+P .
+NAME status
+P =
+STR "open"
+KW AND
+STR "l5"
+KW IN
+NAME t
+P .
+NAME labels
+KW EXPECT
+INT 3
+KW SET
+NAME t
+P .
+NAME priority
+P =
+INT 1
+P ;
+KW ASSERT
+KW COUNT
+P {
+KW MATCH
+P (
+NAME x
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME CHILD_OF
+P ]
+P ->
+P +
+P (
+NODE 88
+P )
+KW WHERE
+NAME x
+P .
+NAME priority
+P =
+INT 0
+P }
+P =
+INT 0
+KW ELSE
+STR "P0 work under #88 must be triaged first"
+P }
+KW DRY
+EOF -
+%% end
+
+%% case q20
+%% source [50 §2.9] Q20
+%% entry write
+%% input
+TX ON lane/l5np KEY 'ch:3f9a07c1' {
+  CREATE (f:finding {title: $title, local_id: 'C3', round: 2, severity: 'important',
+                     f_kind: 'perf', failure_scenario: $scenario})-[:ABOUT]->(#130)
+    UNLESS EXISTS { MATCH (f:finding)-[:ABOUT]->(#130) WHERE f.local_id = 'C3' AND f.round = 2 };
+  CREATE (f)-[:DERIVED_FROM]->(#133)
+}
+%% tokens
+KW TX
+KW ON
+REF lane/l5np
+KW KEY
+STR "ch:3f9a07c1"
+P {
+KW CREATE
+P (
+NAME f
+P :
+NAME finding
+P {
+NAME title
+P :
+PARAM title
+P ,
+NAME local_id
+P :
+STR "C3"
+P ,
+NAME round
+P :
+INT 2
+P ,
+NAME severity
+P :
+STR "important"
+P ,
+NAME f_kind
+P :
+STR "perf"
+P ,
+NAME failure_scenario
+P :
+PARAM scenario
+P }
+P )
+P -
+P [
+P :
+NAME ABOUT
+P ]
+P ->
+P (
+NODE 130
+P )
+KW UNLESS
+KW EXISTS
+P {
+KW MATCH
+P (
+NAME f
+P :
+NAME finding
+P )
+P -
+P [
+P :
+NAME ABOUT
+P ]
+P ->
+P (
+NODE 130
+P )
+KW WHERE
+NAME f
+P .
+NAME local_id
+P =
+STR "C3"
+KW AND
+NAME f
+P .
+NAME round
+P =
+INT 2
+P }
+P ;
+KW CREATE
+P (
+NAME f
+P )
+P -
+P [
+P :
+NAME DERIVED_FROM
+P ]
+P ->
+P (
+NODE 133
+P )
+P }
+EOF -
+%% end
+
+%% case q21
+%% source [50 §2.9] Q21
+%% entry write
+%% input
+TX KEY 'orch:define-stale-blockers' MESSAGE 'project query: stale in-progress blockers' {
+  DEFINE QUERY stale_blockers($scope: node = #9, $days: int = 3) SHAPE node AS {
+    MATCH (b:task)-[:BLOCKS]->(t:task)
+    WHERE t IN subtree($scope)
+      AND b.status = 'in_progress' AND b.updated_at < now() - $days * 1d
+    RETURN DISTINCT b ORDER BY b.updated_at
+  }
+}
+%% tokens
+KW TX
+KW KEY
+STR "orch:define-stale-blockers"
+KW MESSAGE
+STR "project query: stale in-progress blockers"
+P {
+KW DEFINE
+KW QUERY
+NAME stale_blockers
+P (
+PARAM scope
+P :
+NAME node
+P =
+NODE 9
+P ,
+PARAM days
+P :
+NAME int
+P =
+INT 3
+P )
+KW SHAPE
+NAME node
+KW AS
+P {
+KW MATCH
+P (
+NAME b
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+KW IN
+NAME subtree
+P (
+PARAM scope
+P )
+KW AND
+NAME b
+P .
+NAME status
+P =
+STR "in_progress"
+KW AND
+NAME b
+P .
+NAME updated_at
+P <
+NAME now
+P (
+P )
+P -
+PARAM days
+P *
+DUR 1d
+KW RETURN
+KW DISTINCT
+NAME b
+KW ORDER
+KW BY
+NAME b
+P .
+NAME updated_at
+P }
+P }
+EOF -
+%% sast
+(tx _ _ _ "orch:define-stale-blockers" _ "project query: stale in-progress blockers"
+ [(define "stale_blockers"
+   [(pdecl "scope" (ptype "node" _) false (nid 9)) (pdecl "days" (ptype "int" _) false (int 3))]
+   "node" _
+   (query
+    [(part _
+      [(match false _
+        [(path (npat "b" ["task"] [] _) [(estep (epat _ right ["BLOCKS"] _ [] _) (npat "t" ["task"] [] _))])]
+        (and (and (in (ident "t") (fn "subtree" false [(arg _ (param "scope"))]))
+                  (cmp = (prop (ident "b") "status") (str "in_progress")))
+             (cmp < (prop (ident "b") "updated_at")
+                  (arith - (fn "now" false []) (arith * (param "days") (dur "1d"))))))]
+      (return true false [(item (ident "b") _)] [] [(sort (prop (ident "b") "updated_at") asc)] _)
+      _)]
+    []))]
+ false)
+%% end
+
+%% case q22
+%% source [50 §2.9] Q22
+%% entry read
+%% input
+CALL schema(kind: 'finding')
+%% tokens
+KW CALL
+NAME schema
+P (
+NAME kind
+P :
+STR "finding"
+P )
+EOF -
+%% end
+
+%% case q23
+%% source [50 §2.9] Q23
+%% entry read
+%% input
+EXPLAIN
+MATCH (f:finding {status: 'open'})-[:ABOUT]->(t:task)-[:CHILD_OF]->+(#88)
+RETURN t, count(f) AS open_findings
+ORDER BY open_findings DESC
+LIMIT 10
+%% tokens
+KW EXPLAIN
+KW MATCH
+P (
+NAME f
+P :
+NAME finding
+P {
+NAME status
+P :
+STR "open"
+P }
+P )
+P -
+P [
+P :
+NAME ABOUT
+P ]
+P ->
+P (
+NAME t
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME CHILD_OF
+P ]
+P ->
+P +
+P (
+NODE 88
+P )
+KW RETURN
+NAME t
+P ,
+NAME count
+P (
+NAME f
+P )
+KW AS
+NAME open_findings
+KW ORDER
+KW BY
+NAME open_findings
+KW DESC
+KW LIMIT
+INT 10
+EOF -
+%% end
+
+%% case q24
+%% source [50 §2.9] Q24
+%% entry write
+%% input
+TX ON lane/l10 KEY 'orch:rm-40' {
+  DELETE #40 REPLACED BY #52 REASON 'dup of #52'
+}
+%% tokens
+KW TX
+KW ON
+REF lane/l10
+KW KEY
+STR "orch:rm-40"
+P {
+KW DELETE
+NODE 40
+KW REPLACED
+KW BY
+NODE 52
+KW REASON
+STR "dup of #52"
+P }
+EOF -
+%% end
+
+%% case q25
+%% source [50 §2.9] Q25
+%% entry write
+%% input
+TX ON merge/lane/l10/from/main {
+  RESOLVE 'edge:#203:blocks:#40' TAKE REPOINT #52
+}
+%% tokens
+KW TX
+KW ON
+REF merge/lane/l10/from/main
+P {
+KW RESOLVE
+STR "edge:#203:blocks:#40"
+KW TAKE
+KW REPOINT
+NODE 52
+P }
+EOF -
+%% end
+
+%% case q26
+%% source [50 §2.9] Q26
+%% entry read
+%% input
+CALL blockers(#93, transitive: true) YIELD blocker, depth, via, reason
+WHERE blocker.status = 'in_progress'
+RETURN blocker, depth, via
+%% tokens
+KW CALL
+NAME blockers
+P (
+NODE 93
+P ,
+NAME transitive
+P :
+KW TRUE
+P )
+KW YIELD
+NAME blocker
+P ,
+NAME depth
+P ,
+NAME via
+P ,
+NAME reason
+KW WHERE
+NAME blocker
+P .
+NAME status
+P =
+STR "in_progress"
+KW RETURN
+NAME blocker
+P ,
+NAME depth
+P ,
+NAME via
+EOF -
+%% end
+
+%% case q27
+%% source [50 §2.9] Q27
+%% entry read
+%% input
+MATCH (t:task) WHERE t IN subtree(#88)
+OPTIONAL MATCH (t)<-[:GATES]-(v:verdict) WHERE v.outcome IN ['fail_fixable', 'fail_fundamental']
+RETURN t, collect(v) AS gating
+ORDER BY t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+KW IN
+NAME subtree
+P (
+NODE 88
+P )
+KW OPTIONAL
+KW MATCH
+P (
+NAME t
+P )
+P <-
+P [
+P :
+NAME GATES
+P ]
+P -
+P (
+NAME v
+P :
+NAME verdict
+P )
+KW WHERE
+NAME v
+P .
+NAME outcome
+KW IN
+P [
+STR "fail_fixable"
+P ,
+STR "fail_fundamental"
+P ]
+KW RETURN
+NAME t
+P ,
+NAME collect
+P (
+NAME v
+P )
+KW AS
+NAME gating
+KW ORDER
+KW BY
+NAME t
+EOF -
+%% end
+
+%% case q28
+%% source [50 §2.9] Q28
+%% entry read
+%% input
+MATCH (f {id: #165}) RETURN f
+%% tokens
+KW MATCH
+P (
+NAME f
+P {
+NAME id
+P :
+NODE 165
+P }
+P )
+KW RETURN
+NAME f
+EOF -
+%% end
+
+%% case q29-anonymous
+%% source [50 §2.9] Q29, first block
+%% entry read
+%% input
+MATCH (t:task)<-[:BLOCKS]-()
+WHERE t IN subtree(#88)
+RETURN t.id, count(*) AS blockers
+ORDER BY blockers DESC, t.id
+LIMIT 3
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+P <-
+P [
+P :
+NAME BLOCKS
+P ]
+P -
+P (
+P )
+KW WHERE
+NAME t
+KW IN
+NAME subtree
+P (
+NODE 88
+P )
+KW RETURN
+NAME t
+P .
+NAME id
+P ,
+KW COUNT
+P (
+P *
+P )
+KW AS
+NAME blockers
+KW ORDER
+KW BY
+NAME blockers
+KW DESC
+P ,
+NAME t
+P .
+NAME id
+KW LIMIT
+INT 3
+EOF -
+%% end
+
+%% case q29-quantified
+%% source [50 §2.9] Q29, second block
+%% entry read
+%% input
+MATCH (x:task)-[:BLOCKS]->+(#93) RETURN count(*) AS upstream
+%% tokens
+KW MATCH
+P (
+NAME x
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P +
+P (
+NODE 93
+P )
+KW RETURN
+KW COUNT
+P (
+P *
+P )
+KW AS
+NAME upstream
+EOF -
+%% end
+
+%% case s4.1-ready
+%% source [50 §4.1], definition `ready`
+%% entry define
+%% input
+DEFINE QUERY ready($scope: node? = NULL, $role: text? = NULL, $limit: int = 20) SHAPE node AS {
+  MATCH (t:task)
+  WHERE t.ready
+    AND ($scope IS NULL OR t IN subtree($scope))
+    AND ($role IS NULL OR fits_role(t, $role))
+  RETURN t ORDER BY t.priority, t.topo, t.id LIMIT $limit
+}
+%% tokens
+KW DEFINE
+KW QUERY
+NAME ready
+P (
+PARAM scope
+P :
+NAME node
+P ?
+P =
+KW NULL
+P ,
+PARAM role
+P :
+NAME text
+P ?
+P =
+KW NULL
+P ,
+PARAM limit
+P :
+NAME int
+P =
+INT 20
+P )
+KW SHAPE
+NAME node
+KW AS
+P {
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME ready
+KW AND
+P (
+PARAM scope
+KW IS
+KW NULL
+KW OR
+NAME t
+KW IN
+NAME subtree
+P (
+PARAM scope
+P )
+P )
+KW AND
+P (
+PARAM role
+KW IS
+KW NULL
+KW OR
+NAME fits_role
+P (
+NAME t
+P ,
+PARAM role
+P )
+P )
+KW RETURN
+NAME t
+KW ORDER
+KW BY
+NAME t
+P .
+NAME priority
+P ,
+NAME t
+P .
+NAME topo
+P ,
+NAME t
+P .
+NAME id
+KW LIMIT
+PARAM limit
+P }
+EOF -
+%% end
+
+%% case s4.1-blocking
+%% source [50 §4.1], definition `blocking`
+%% entry define
+%% input
+DEFINE QUERY blocking($scope: node? = NULL) SHAPE node AS {
+  MATCH (t:task)
+  WHERE t.is_blocker AND NOT t.settled_elsewhere
+    AND ($scope IS NULL OR t IN subtree($scope))
+  RETURN t ORDER BY t.id
+}
+%% tokens
+KW DEFINE
+KW QUERY
+NAME blocking
+P (
+PARAM scope
+P :
+NAME node
+P ?
+P =
+KW NULL
+P )
+KW SHAPE
+NAME node
+KW AS
+P {
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME is_blocker
+KW AND
+KW NOT
+NAME t
+P .
+NAME settled_elsewhere
+KW AND
+P (
+PARAM scope
+KW IS
+KW NULL
+KW OR
+NAME t
+KW IN
+NAME subtree
+P (
+PARAM scope
+P )
+P )
+KW RETURN
+NAME t
+KW ORDER
+KW BY
+NAME t
+P .
+NAME id
+P }
+EOF -
+%% end
+
+%% case s4.1-find
+%% source [50 §4.1], definition `find`
+%% entry define
+%% input
+DEFINE QUERY find($kind: text? = NULL, $status: text? = NULL, $prio: range<int>? = NULL,
+                  $label: text? = NULL, $area: node? = NULL, $text: text? = NULL,
+                  $suspect: bool? = NULL, $conflicted: bool? = NULL, $limit: int = 50) SHAPE node AS {
+  MATCH (n)
+  WHERE ($kind IS NULL OR n.kind = $kind)
+    AND ($status IS NULL OR n.status = $status)
+    AND ($prio IS NULL OR n.priority IN $prio)
+    AND ($label IS NULL OR $label IN n.labels)
+    AND ($area IS NULL OR EXISTS { (n)-[:SCOPED_TO]->(a) WHERE a IN subtree($area) })
+    AND ($text IS NULL OR text_match(n, $text))
+    AND ($suspect IS NULL OR n.suspect = $suspect)
+    AND ($conflicted IS NULL OR n.conflicted = $conflicted)
+  RETURN n ORDER BY n.id LIMIT $limit
+}
+%% tokens
+KW DEFINE
+KW QUERY
+NAME find
+P (
+PARAM kind
+P :
+NAME text
+P ?
+P =
+KW NULL
+P ,
+PARAM status
+P :
+NAME text
+P ?
+P =
+KW NULL
+P ,
+PARAM prio
+P :
+NAME range
+P <
+NAME int
+P >
+P ?
+P =
+KW NULL
+P ,
+PARAM label
+P :
+NAME text
+P ?
+P =
+KW NULL
+P ,
+PARAM area
+P :
+NAME node
+P ?
+P =
+KW NULL
+P ,
+PARAM text
+P :
+NAME text
+P ?
+P =
+KW NULL
+P ,
+PARAM suspect
+P :
+NAME bool
+P ?
+P =
+KW NULL
+P ,
+PARAM conflicted
+P :
+NAME bool
+P ?
+P =
+KW NULL
+P ,
+PARAM limit
+P :
+NAME int
+P =
+INT 50
+P )
+KW SHAPE
+NAME node
+KW AS
+P {
+KW MATCH
+P (
+NAME n
+P )
+KW WHERE
+P (
+PARAM kind
+KW IS
+KW NULL
+KW OR
+NAME n
+P .
+NAME kind
+P =
+PARAM kind
+P )
+KW AND
+P (
+PARAM status
+KW IS
+KW NULL
+KW OR
+NAME n
+P .
+NAME status
+P =
+PARAM status
+P )
+KW AND
+P (
+PARAM prio
+KW IS
+KW NULL
+KW OR
+NAME n
+P .
+NAME priority
+KW IN
+PARAM prio
+P )
+KW AND
+P (
+PARAM label
+KW IS
+KW NULL
+KW OR
+PARAM label
+KW IN
+NAME n
+P .
+NAME labels
+P )
+KW AND
+P (
+PARAM area
+KW IS
+KW NULL
+KW OR
+KW EXISTS
+P {
+P (
+NAME n
+P )
+P -
+P [
+P :
+NAME SCOPED_TO
+P ]
+P ->
+P (
+NAME a
+P )
+KW WHERE
+NAME a
+KW IN
+NAME subtree
+P (
+PARAM area
+P )
+P }
+P )
+KW AND
+P (
+PARAM text
+KW IS
+KW NULL
+KW OR
+NAME text_match
+P (
+NAME n
+P ,
+PARAM text
+P )
+P )
+KW AND
+P (
+PARAM suspect
+KW IS
+KW NULL
+KW OR
+NAME n
+P .
+NAME suspect
+P =
+PARAM suspect
+P )
+KW AND
+P (
+PARAM conflicted
+KW IS
+KW NULL
+KW OR
+NAME n
+P .
+NAME conflicted
+P =
+PARAM conflicted
+P )
+KW RETURN
+NAME n
+KW ORDER
+KW BY
+NAME n
+P .
+NAME id
+KW LIMIT
+PARAM limit
+P }
+EOF -
+%% end
+
+%% case s4.1-notes
+%% source [50 §4.1], definition `notes`
+%% entry define
+%% input
+DEFINE QUERY notes($path: text, $role: text? = NULL) SHAPE node AS {
+  MATCH (k:note|rule|decision)
+  WHERE k.status IN ['active', 'accepted']
+    AND (applies(k, $path)
+         OR EXISTS { (k)-[:SCOPED_TO]->(a:area) WHERE applies(a, $path) }
+         OR EXISTS { (k)-[:AT]->(f:artifact) WHERE f = file($path) })
+    AND ($role IS NULL OR applies_role(k, $role))
+  RETURN k ORDER BY k.criticality, k.authority, k.id
+}
+%% tokens
+KW DEFINE
+KW QUERY
+NAME notes
+P (
+PARAM path
+P :
+NAME text
+P ,
+PARAM role
+P :
+NAME text
+P ?
+P =
+KW NULL
+P )
+KW SHAPE
+NAME node
+KW AS
+P {
+KW MATCH
+P (
+NAME k
+P :
+NAME note
+P |
+NAME rule
+P |
+NAME decision
+P )
+KW WHERE
+NAME k
+P .
+NAME status
+KW IN
+P [
+STR "active"
+P ,
+STR "accepted"
+P ]
+KW AND
+P (
+NAME applies
+P (
+NAME k
+P ,
+PARAM path
+P )
+KW OR
+KW EXISTS
+P {
+P (
+NAME k
+P )
+P -
+P [
+P :
+NAME SCOPED_TO
+P ]
+P ->
+P (
+NAME a
+P :
+NAME area
+P )
+KW WHERE
+NAME applies
+P (
+NAME a
+P ,
+PARAM path
+P )
+P }
+KW OR
+KW EXISTS
+P {
+P (
+NAME k
+P )
+P -
+P [
+P :
+NAME AT
+P ]
+P ->
+P (
+NAME f
+P :
+NAME artifact
+P )
+KW WHERE
+NAME f
+P =
+NAME file
+P (
+PARAM path
+P )
+P }
+P )
+KW AND
+P (
+PARAM role
+KW IS
+KW NULL
+KW OR
+NAME applies_role
+P (
+NAME k
+P ,
+PARAM role
+P )
+P )
+KW RETURN
+NAME k
+KW ORDER
+KW BY
+NAME k
+P .
+NAME criticality
+P ,
+NAME k
+P .
+NAME authority
+P ,
+NAME k
+P .
+NAME id
+P }
+EOF -
+%% end
+
+%% case s4.1-refuted-share
+%% source [50 §4.1], definition `refuted_share`
+%% entry define
+%% input
+DEFINE QUERY refuted_share($role: text, $round: int? = NULL) SHAPE table AS {
+  MATCH (f:finding) WHERE f.created_role = $role AND ($round IS NULL OR f.round = $round)
+  WITH f.round AS round, count(*) AS raised, count(CASE WHEN f.status = 'refuted' THEN 1 END) AS refuted
+  RETURN round, raised, refuted, round(100.0 * refuted / raised, 1) AS pct ORDER BY round
+}
+%% tokens
+KW DEFINE
+KW QUERY
+NAME refuted_share
+P (
+PARAM role
+P :
+NAME text
+P ,
+PARAM round
+P :
+NAME int
+P ?
+P =
+KW NULL
+P )
+KW SHAPE
+NAME table
+KW AS
+P {
+KW MATCH
+P (
+NAME f
+P :
+NAME finding
+P )
+KW WHERE
+NAME f
+P .
+NAME created_role
+P =
+PARAM role
+KW AND
+P (
+PARAM round
+KW IS
+KW NULL
+KW OR
+NAME f
+P .
+NAME round
+P =
+PARAM round
+P )
+KW WITH
+NAME f
+P .
+NAME round
+KW AS
+NAME round
+P ,
+KW COUNT
+P (
+P *
+P )
+KW AS
+NAME raised
+P ,
+NAME count
+P (
+KW CASE
+KW WHEN
+NAME f
+P .
+NAME status
+P =
+STR "refuted"
+KW THEN
+INT 1
+KW END
+P )
+KW AS
+NAME refuted
+KW RETURN
+NAME round
+P ,
+NAME raised
+P ,
+NAME refuted
+P ,
+NAME round
+P (
+FLOAT 100.0
+P *
+NAME refuted
+P /
+NAME raised
+P ,
+INT 1
+P )
+KW AS
+NAME pct
+KW ORDER
+KW BY
+NAME round
+P }
+EOF -
+%% end
+
+%% case s4.1-delta
+%% source [50 §4.1], definition `delta`
+%% entry define
+%% input
+DEFINE QUERY delta($since: rev, $agent: text) SHAPE changes AS {
+  CALL changes(since: $since) YIELD seq, ref, node, op, aspect, name, actor
+  WHERE relevant_to(node, $agent) AND actor <> $agent
+  RETURN seq, ref, node, op, aspect, name, actor ORDER BY seq LIMIT 12
+}
+%% tokens
+KW DEFINE
+KW QUERY
+NAME delta
+P (
+PARAM since
+P :
+NAME rev
+P ,
+PARAM agent
+P :
+NAME text
+P )
+KW SHAPE
+NAME changes
+KW AS
+P {
+KW CALL
+NAME changes
+P (
+NAME since
+P :
+PARAM since
+P )
+KW YIELD
+NAME seq
+P ,
+NAME ref
+P ,
+NAME node
+P ,
+NAME op
+P ,
+NAME aspect
+P ,
+NAME name
+P ,
+NAME actor
+KW WHERE
+NAME relevant_to
+P (
+NAME node
+P ,
+PARAM agent
+P )
+KW AND
+NAME actor
+P <>
+PARAM agent
+KW RETURN
+NAME seq
+P ,
+NAME ref
+P ,
+NAME node
+P ,
+NAME op
+P ,
+NAME aspect
+P ,
+NAME name
+P ,
+NAME actor
+KW ORDER
+KW BY
+NAME seq
+KW LIMIT
+INT 12
+P }
+EOF -
+%% end
+
+%% case s4.1-links-broken
+%% source [50 §4.1], definition `links_broken`
+%% entry define
+%% input
+DEFINE QUERY links_broken($scope: node? = NULL) SHAPE links AS {
+  MATCH (n)-[a:AT]->(f)
+  WHERE ($scope IS NULL OR n IN subtree($scope)) AND link_state(a) <> 'ok'
+  RETURN f, a, link_state(a)
+}
+%% tokens
+KW DEFINE
+KW QUERY
+NAME links_broken
+P (
+PARAM scope
+P :
+NAME node
+P ?
+P =
+KW NULL
+P )
+KW SHAPE
+NAME links
+KW AS
+P {
+KW MATCH
+P (
+NAME n
+P )
+P -
+P [
+NAME a
+P :
+NAME AT
+P ]
+P ->
+P (
+NAME f
+P )
+KW WHERE
+P (
+PARAM scope
+KW IS
+KW NULL
+KW OR
+NAME n
+KW IN
+NAME subtree
+P (
+PARAM scope
+P )
+P )
+KW AND
+NAME link_state
+P (
+NAME a
+P )
+P <>
+STR "ok"
+KW RETURN
+NAME f
+P ,
+NAME a
+P ,
+NAME link_state
+P (
+NAME a
+P )
+P }
+EOF -
+%% end
+
+%% case s4.3-pack-rules-unmerged
+%% source [50 §4.3]
+%% entry define
+%% note HEAD...main is HEAD, a three-dot range and main. [LQ/lexical §7.2]'s HEAD row, read literally, refuses HEAD
+%% note followed by '.', which would make this block (and [LQ/std §5.4]) E003; the fixture asserts the parse [50 §11]
+%% note and [LQ/std §1.1] state. Spec finding F-1 (INDEX.md §4).
+%% input
+DEFINE QUERY pack_rules_unmerged($role: text) SHAPE node AS {
+  USE main
+  CALL diff(HEAD...main) YIELD node, side
+  WHERE side IN ['theirs', 'both']
+  MATCH (r:rule)
+  WHERE r = node AND r.status = 'active' AND r.criticality = 'critical' AND applies_role(r, $role)
+  RETURN DISTINCT r ORDER BY r.criticality, r.authority, r.id
+}
+%% tokens
+KW DEFINE
+KW QUERY
+NAME pack_rules_unmerged
+P (
+PARAM role
+P :
+NAME text
+P )
+KW SHAPE
+NAME node
+KW AS
+P {
+KW USE
+REF main
+KW CALL
+NAME diff
+P (
+HEAD HEAD
+RANGE ...
+REF main
+P )
+KW YIELD
+NAME node
+P ,
+NAME side
+KW WHERE
+NAME side
+KW IN
+P [
+STR "theirs"
+P ,
+STR "both"
+P ]
+KW MATCH
+P (
+NAME r
+P :
+NAME rule
+P )
+KW WHERE
+NAME r
+P =
+NAME node
+KW AND
+NAME r
+P .
+NAME status
+P =
+STR "active"
+KW AND
+NAME r
+P .
+NAME criticality
+P =
+STR "critical"
+KW AND
+NAME applies_role
+P (
+NAME r
+P ,
+PARAM role
+P )
+KW RETURN
+KW DISTINCT
+NAME r
+KW ORDER
+KW BY
+NAME r
+P .
+NAME criticality
+P ,
+NAME r
+P .
+NAME authority
+P ,
+NAME r
+P .
+NAME id
+P }
+EOF -
+%% end

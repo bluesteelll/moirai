@@ -6,3 +6,14 @@ It is licensed under the Apache License, Version 2.0 (see LICENSE).
 
 Under section 4(d) of the License, every redistribution of this work or of a derivative work must keep this NOTICE
 file, or its attribution notices, as described there.
+
+Third-party notices
+===================
+
+Unicode Character Database (Unicode 17.0.0)
+  Files:     fixtures/ucd/17.0.0/UnicodeData.txt, fixtures/ucd/17.0.0/CaseFolding.txt and
+             fixtures/ucd/17.0.0/NormalizationTest.txt, unmodified from https://www.unicode.org/Public/17.0.0/ucd/,
+             and the tables generated from them in crates/moirai-files/src/fold/tables.rs
+  Copyright: Copyright © 1991-2026 Unicode, Inc.
+  Licence:   Unicode License v3 (SPDX-License-Identifier: Unicode-3.0). Its copyright and permission notice is in
+             LICENSES/Unicode-3.0.txt.

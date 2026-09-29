@@ -1,0 +1,36 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/artifact.moi
+%% file node
+%% context core
+%% source [F14 §6.11]
+%% source [F14 §5.2]
+%% source [F18 §5.1]
+%% source [F08 §9.3] artifact
+%% note Kind artifact, a file node with every field but origin_pred (its derivation had no predecessor):
+%% note no title line; implied-root paths; an alias that needs JSON inside the set (a comma).
+%% canonical self
+%% keys
+node d706fcde60f0b6cbf56c23297162b652 artifact
+  field aliases set path 2 project "crates/engine/src/lock.rs" project "crates/engine/src/lock, old.rs"
+  field artifact_kind enum source
+  field bytes int 18231
+  field excerpt text "pub struct LockFile"
+  field observed_blob oid sha1 fe828b3e4873cf96b70498a98c5dd300ff590832
+  field observed_git oid sha1 b25fb9e7327a901ca4ad2ce2bb6d4784f0ca2c14
+  field oid oid sha1 fe828b3e4873cf96b70498a98c5dd300ff590832
+  field origin_path path project "crates/engine/src/lock.rs"
+  field path path project "crates/engine/src/sync/lock.rs"
+  field pinned bool true
+  field priority enum P3
+  field reason text "moved by file mv"
+  field relink text "lazy/file-id"
+  field replaced_by ref d0000000000000000000000000000001
+  field root text "project"
+  edge addresses 7f000000000000000000000000000011
+  edge derived_from 2d000000000000000000000000000011
+  edge implements 5d000000000000000000000000000011 pin e53e65b9e751e6b6bd37f93e501ec97a4752d361d4e9848c235d462fe3adaad3
+%% image
+created cbd3778b37d934093fa4a9ecf514f73eb3bd0de8fb28a2c29cd7a480fd9a96724 2026-09-21T14:13:20.000Z
+updated cb310c8c34997710008d84a7a51735c85adc79aa36e4252a7879a77c9d9a66229 2026-09-21T15:43:20.000Z
+%% end

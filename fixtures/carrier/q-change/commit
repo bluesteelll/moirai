@@ -1,0 +1,16 @@
+tree 29efd41160e0b7a9ee76aadcc6ad452a57a3d5d7
+parent 507868c1ad2fc92931a5fc49f62e38d2e8fb168b
+author moirai/orch <orchestrator@moirai.invalid> 1790003900 +0000
+committer moirai/orch <orchestrator@moirai.invalid> 1790003900 +0000
+
+raise the open_tasks limit; drop stale_notes
+
+Moirai-Commit: cb615381affeff30141749be1064127f00c3a9e5362622a55032b6fbf1049358f
+Moirai-Kind: ordinary
+Moirai-Ref: lane/queries
+Moirai-Hlc: 117309695590400000
+Moirai-Actor: orch
+Moirai-Role: orchestrator
+Moirai-Session: claude:s0
+Moirai-Schema: 1
+Moirai-Ops: 2

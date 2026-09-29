@@ -1,0 +1,312 @@
+# fixtures/gt10/markers.cases: the deleted marker keeps a deleted task undispatched on every branch until the branch
+# absorbs the delete (WP-22 gt10/, R-FIX). Format: fixtures/gt10/INDEX.md §2.
+# Written from [RULES/state-definition] (I26′ as a function of states, the marker cache, absorbed vectors),
+# [RULES/delete-policy-matrix] XB rows, [AR §5d.1] and [AR §5d.3].
+#
+# The store (seed 26):
+#   t1  #1  task "Write the lock-file parser"     a leaf, ready everywhere at c0
+#   t5  #2  task "Freeze the lock format"         t5 -blocks-> t6
+#   t6  #3  task "Implement the lock reader"
+#   t7  #4  task "Fuzz the lock-file parser"      created on main in m13 only
+# c0 is c@4 (seq 1, main ref_seq 1). lane/a, lane/b, lane/c (work) and plan/p (plan) fork from main at c0.
+# The deleting commit of m1 is c@9 (lane/a ref_seq 1).
+
+%% case m0
+%% from -
+%% source [RULES/state-definition] VK-001, VK-002; [API §11.1] BranchCreate
+%% script
+1 EnvSlots hold=[claude:s1]
+2 Init seed=26 params=["query.safelist.model.unknown=off"]
+3 Claim @agent=orch @env.CLAUDECODE="1" @env.CLAUDE_CODE_SESSION_ID="s1" role=orchestrator session=true
+4 Tx @lease=L-1 message="Lock-file tasks"
+  create as=t1 kind=task fields={title="Write the lock-file parser"}
+  create as=t5 kind=task fields={title="Freeze the lock format"}
+  create as=t6 kind=task fields={title="Implement the lock reader"} edges_in=[{kind=blocks,src=$t5}]
+5 BranchCreate @lease=L-1 name=lane/a from=main
+6 BranchCreate @lease=L-1 name=lane/b from=main
+7 BranchCreate @lease=L-1 name=lane/c from=main
+8 BranchCreate @lease=L-1 name=plan/p from=main kind=plan
+%% result
+exit 0
+%% expect
+main tasks ready-set [$t1,$t5]
+lane/b tasks ready-set [$t1,$t5]
+plan/p tasks ready-set [$t1,$t5]
+main $t5 blocking-listed yes
+main $t6 open_blockers 1
+* ref:plan/p kind plan
+%% end
+
+%% case m1
+%% from m0
+%% source XB-001; HV-003; OR-003; ME-001; PD-012, PD-013, PD-015, PD-018; AB-001, AB-004; VK-002; EG-008; [AR §5d.3] row 1; [AR §5d.1] deleted
+%% note lane/a deletes t1 and the blocker t5. Every other live ref still holds both live, but none may dispatch t1
+%% note or list t5 as a live blocker until it absorbs c@9: main, lane/b, lane/c and the what-if plan/p alike. t6 stays
+%% note blocked everywhere: on lane/a by the flagged edge, elsewhere by the live t5 (a delete elsewhere unblocks nothing).
+%% script
+9 Tx @lease=L-1 @branch=lane/a message="Drop two tasks"
+  delete target=$t1 reason="folded into the reader rewrite"
+  delete target=$t5 reason="the format is frozen by the spec"
+%% result
+exit 0
+ready []
+marker deleted $t1 lane/a
+marker deleted $t5 lane/a
+%% expect
+lane/a $t1 deleted yes
+lane/a $t1 hold deleted HV-003
+lane/a edge:$t5:blocks:$t6 flagged yes EG-008
+lane/a $t6 has_dangling yes
+lane/a $t6 ready no
+main $t1 deleted no XB-001
+main $t1 unblocked yes
+main $t1 excluded yes PD-012
+main $t1 deleted_elsewhere yes PD-013
+main $t1 settled_elsewhere no PD-014
+main $t1 ready no PD-015
+main $t5 is_blocker yes
+main $t5 excluded yes
+main $t5 blocking-listed no PD-018
+main $t6 open_blockers 1
+main $t6 ready no
+main tasks ready-set []
+lane/b $t1 excluded yes
+lane/b $t1 ready no
+lane/c $t1 excluded yes
+plan/p $t1 excluded yes VK-002
+plan/p tasks ready-set []
+* marker:deleted:$t1:lane/a holders [lane/a] ME-001
+* marker:deleted:$t1:lane/a active yes
+* marker:deleted:$t1:lane/a active_on [lane/b,lane/c,main,plan/p]
+* marker:deleted:$t5:lane/a holders [lane/a]
+%% end
+
+%% case m1c
+%% from m1
+%% source PD-017; LF-003; [AR §6.2] claim requires ready on the claimer's branch; [API §10.1] refusals
+%% note A claim of t1 on lane/b is refused: the clause "deleted on lane/a" fails.
+%% script
+10 Claim @agent=dev#1 @branch=lane/b ids=[$t1]
+%% result
+exit 6
+error E404
+mentions lane/a
+%% expect
+lane/b $t1 ready@dev#1 no
+%% end
+
+%% case m2
+%% from m1
+%% source XB-002; MR-044; RE-003, RE-005; OR-005; ME-002; VR-003; FL-010; DC-009
+%% note main absorbs the delete by merging lane/a (main has not moved, so no sync). main now holds both deletions
+%% note with lane/a's commit as their origin; the flagged edge lands on main with its flag. The other refs still exclude.
+%% script
+10 Merge @lease=L-1 src=lane/a into=main
+%% result
+exit 0
+outcome landed
+markers none
+%% expect
+main $t1 deleted yes
+main $t1 excluded no
+main $t6 has_dangling yes FL-010
+main $t6 open_blockers 1
+lane/b $t1 excluded yes
+lane/c $t1 excluded yes
+plan/p $t1 excluded yes
+* marker:deleted:$t1:lane/a holders [lane/a,main] ME-002
+* marker:deleted:$t1:lane/a active_on [lane/b,lane/c,plan/p]
+* ref:main absorbed.lane/a 1 VR-003
+%% end
+
+%% case m3
+%% from m2
+%% source DC-010; VR-003 ("a marker absorbed by main reaches every lane at its next sync, transitively"); ME-002
+%% script
+11 Sync @lease=L-1 lane=lane/b
+%% result
+exit 0
+outcome landed
+markers none
+%% expect
+lane/b $t1 deleted yes
+lane/b $t1 excluded no
+lane/c $t1 excluded yes
+* marker:deleted:$t1:lane/a holders [lane/a,lane/b,main]
+* ref:lane/b absorbed.lane/a 1 VR-003
+* ref:lane/b absorbed.main 2
+%% end
+
+%% case m4
+%% from m2
+%% source DC-016; ME-007; VR-004
+%% note A lane forked from main after the merge holds the deletion from its first moment.
+%% script
+11 BranchCreate @lease=L-1 name=lane/d from=main
+%% result
+exit 0
+%% expect
+lane/d $t1 deleted yes
+lane/d $t1 excluded no
+* marker:deleted:$t1:lane/a holders [lane/a,lane/d,main] ME-007
+* ref:lane/d absorbed.lane/a 1 VR-004
+%% end
+
+%% case m5
+%% from m3
+%% source DC-010; VK-002 (a plan ref never holds, but is excluded while it has not absorbed)
+%% note Once every work ref holds the deletion, only the plan ref, which never synced, still excludes t1.
+%% script
+12 Sync @lease=L-1 lane=lane/c
+%% result
+exit 0
+outcome landed
+%% expect
+lane/c $t1 deleted yes
+lane/c $t1 excluded no
+plan/p $t1 excluded yes
+* marker:deleted:$t1:lane/a holders [lane/a,lane/b,lane/c,main]
+* marker:deleted:$t1:lane/a active_on [plan/p]
+%% end
+
+%% case m6
+%% from m1
+%% source XB-008; ME-005; DC-017; [AR §5a.9] -D; [API §11.2]
+%% note lane/a is deleted unmerged: no live work ref holds either deletion, so both markers are cleared and t1 is
+%% note dispatchable again everywhere; t5 is a live blocker again on main.
+%% script
+10 BranchDelete @lease=L-1 name=lane/a force=true
+%% result
+exit 0
+marker cleared $t1 lane/a branch-delete
+marker cleared $t5 lane/a branch-delete
+dropped commits=1 completions=0 deletions=2
+%% expect
+main $t1 excluded no
+main $t1 ready yes
+lane/b $t1 ready yes
+plan/p $t1 excluded no
+main $t5 blocking-listed yes
+main tasks ready-set [$t1,$t5]
+%% end
+
+%% case m7
+%% from m1
+%% source DC-014; ME-006; VR-005; [AR §5a.5] undo "recomputes the markers of R over the moved range"; [API §11.11]
+%% script
+10 Undo @lease=L-1 ref=lane/a
+%% result
+exit 0
+marker cleared $t1 lane/a undo
+marker cleared $t5 lane/a undo
+%% expect
+lane/a $t1 deleted no
+lane/a $t6 has_dangling no
+main $t1 excluded no
+main tasks ready-set [$t1,$t5]
+%% end
+
+%% case m8
+%% from m1
+%% source DC-008; ME-004; UD-001, UD-002, UD-006; FL-009; DM-004
+%% note Reverting the delete on lane/a writes Undelete: lane/a's deleted holds end, the markers are cleared, and the
+%% note flag of t5's edge is cleared.
+%% script
+10 Revert @lease=L-1 commit=c@9 onto=lane/a
+%% result
+exit 0
+outcome landed
+marker cleared $t1 lane/a
+marker cleared $t5 lane/a
+%% expect
+lane/a $t1 deleted no
+lane/a $t5 deleted no
+lane/a edge:$t5:blocks:$t6 flagged no FL-009
+lane/a $t6 has_dangling no
+main $t1 excluded no
+%% end
+
+%% case m9
+%% from m1
+%% source XB-008; ME-005, ME-007; [RULES/state-definition] SN-006 to SN-008 (scenario S3)
+%% note lane/e forks from lane/a after the delete, then lane/a is deleted: lane/e keeps the marker active at its origin.
+%% script
+10 BranchCreate @lease=L-1 name=lane/e from=lane/a
+11 BranchDelete @lease=L-1 name=lane/a force=true
+%% result
+exit 0
+markers none
+dropped commits=0 completions=0 deletions=0
+%% expect
+lane/e $t1 deleted yes
+main $t1 excluded yes
+lane/b $t1 excluded yes
+* marker:deleted:$t1:lane/a holders [lane/e]
+%% end
+
+%% case m10
+%% from m0
+%% source VK-002; ME-008; [AR §3.4] I26′ "some live ref X ≠ R of kind work"; [AR §3.4] I33′ (existence is writable on plan/*)
+%% note A what-if delete on plan/p excludes nothing: plan refs never hold.
+%% script
+9 Tx @lease=L-1 @branch=plan/p message="What if the parser folds into the reader"
+  delete target=$t1 reason="what-if: fold the parser into the reader"
+%% result
+exit 0
+markers none
+%% expect
+plan/p $t1 deleted yes
+main $t1 excluded no
+lane/a $t1 excluded no
+main $t1 ready yes
+%% end
+
+%% case m10f
+%% from m10
+%% source ME-007, ME-003; [RULES/state-definition] SN-041 to SN-043 (scenario S14); SX-025
+%% note A lane forked from plan/p holds the deletion, whose origin is on the plan ref: the marker is written now, and
+%% note main excludes t1.
+%% script
+10 BranchCreate @lease=L-1 name=lane/f from=plan/p
+%% result
+exit 0
+%% expect
+lane/f $t1 deleted yes
+main $t1 excluded yes
+* marker:deleted:$t1:plan/p holders [lane/f] ME-003
+%% end
+
+%% case m13
+%% from m1
+%% source VK-003; ME-008; RE-004; VA-004; [AR §5a.7] step 7 "a staging ref emits none"
+%% note main adds t7 (#4) blocking t1; the merge of lane/a stages on the DanglingEdge its sync meets. The staging commit
+%% note writes no marker and holds nothing: main still excludes t1 because of lane/a alone.
+%% script
+10 Mutation tx.add @lease=L-1 kind=task title="Fuzz the lock-file parser" blocks=[$t1] => t7
+11 Merge @lease=L-1 src=lane/a into=main
+%% result
+exit 6
+outcome staged
+staging-ref merge/lane/a/from/main
+sync.outcome staged
+sync.violation edge:$t7:blocks:$t1 DanglingEdge
+markers none
+%% expect
+main $t1 deleted no
+main $t1 excluded yes
+* ref:merge/lane/a/from/main exists yes
+* marker:deleted:$t1:lane/a holders [lane/a] VK-003
+%% end
+
+%% case m13a
+%% from m13
+%% source ME-009; PR-015; [API §11.8] MergeAbort
+%% script
+12 MergeAbort @lease=L-1 src=main into=lane/a
+%% result
+exit 0
+%% expect
+* ref:merge/lane/a/from/main exists no
+main $t1 excluded yes
+* marker:deleted:$t1:lane/a holders [lane/a]
+%% end

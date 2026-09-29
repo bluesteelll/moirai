@@ -1,0 +1,4 @@
+DEFINE QUERY tree($id: node, $depth: int = 3) SHAPE tree BUDGET medium AS {
+  CALL subtree($id, depth: $depth) YIELD node, depth, parent, position
+  RETURN node, depth, parent, position ORDER BY position
+}

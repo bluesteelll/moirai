@@ -1,0 +1,93 @@
+# fixtures/hex/store-a/blobs.2.hex: the blobs file ([F10 §5]) the first checkpoint sealed with seg.d1: the three
+# bodies its window's commits carried (#1's body at c1 and after c2's SetBody, #7's body), class 1, codec 0
+# `none` (the payload is the raw bytes, [F10 §3.2]), in BLOBIDX order (by hash). seg.d1's BLOBTAB names them.
+
+# SegHdr (120 B, [F09 §2.1])
+seghdr:
+  "MSEG"                                    # magic
+  {u16 1}                                   # format
+  06                                        # seg_kind 6 `blobs`
+  00                                        # tok_ver
+  {u32 3}                                   # n_rows
+  {u16 2}                                   # n_sections
+  {u16 0}                                   # _reserved
+  {u32 2}                                   # file_no
+  {u32 0}                                   # ref_id
+  {u32 0}                                   # dict_no
+  {u32 0}                                   # _reserved
+  {u64 0}                                   # base_seq
+  {u64 0}                                   # from_lsn
+  {u64 0}                                   # upto_lsn
+  {u64 0}                                   # rt_upto_lsn
+  {len 0..end u64}                          # total_len
+  {blake3_256 data..end}                    # seg_digest: BLAKE3-256 over [data_off, total_len)
+  {xxh3_64 table..data}                     # table_xxh3 over the section table
+  {xxh3_64 0..112}                          # hdr_xxh3 over [0, 112)
+# section table (2 entries of 32 B, [F09 §2.2])
+table:
+  # SecEnt BLOBIDX (0x0310)
+  {u16 784}                                 # tag
+  {u16 0}                                   # flags
+  {u32 3}                                   # count
+  {len 0..s_0310 u64}                       # off (absolute)
+  {len s_0310..s_0310.e u64}                # len
+  {xxh3_64 s_0310..s_0310.e}                # xxh3
+  # SecEnt BLOBDATA (0x0311)
+  {u16 785}                                 # tag
+  {u16 0}                                   # flags
+  {u32 3}                                   # count
+  {len 0..s_0311 u64}                       # off (absolute)
+  {len s_0311..s_0311.e u64}                # len
+  {xxh3_64 s_0311..s_0311.e}                # xxh3
+data:
+
+# === section BLOBIDX (0x0310)
+s_0310:
+  {u32 3}                                   # n
+  {u32 36}                                  # row_w
+  # row 0
+    {blake3_128 body_n7.d..body_n7.e}       # hash: BLAKE3-128 of the raw bytes
+    01                                      # class 1 (body)
+    00 00 00                                # _reserved
+    {len 0..body_n7 u64}                    # off: absolute offset of the BlobEnc payload
+    {len body_n7..body_n7.e}                # len: the payload, codec byte included
+    {u32 50}                                # raw_len
+  # row 1
+    {blake3_128 body_t1.d..body_t1.e}       # hash: BLAKE3-128 of the raw bytes
+    01                                      # class 1 (body)
+    00 00 00                                # _reserved
+    {len 0..body_t1 u64}                    # off: absolute offset of the BlobEnc payload
+    {len body_t1..body_t1.e}                # len: the payload, codec byte included
+    {u32 73}                                # raw_len
+  # row 2
+    {blake3_128 body_t1b.d..body_t1b.e}     # hash: BLAKE3-128 of the raw bytes
+    01                                      # class 1 (body)
+    00 00 00                                # _reserved
+    {len 0..body_t1b u64}                   # off: absolute offset of the BlobEnc payload
+    {len body_t1b..body_t1b.e}              # len: the payload, codec byte included
+    {u32 67}                                # raw_len
+s_0310.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BLOBDATA (0x0311)
+s_0311:
+  # BlobEnc `body_n7` ([F10 §3.2])
+body_n7:
+  00                                        # codec 0 `none`
+body_n7.d:
+  "Real-time scanning adds 40 ms to FlushFileBuffers."  # raw bytes
+body_n7.e:
+  # BlobEnc `body_t1` ([F10 §3.2])
+body_t1:
+  00                                        # codec 0 `none`
+body_t1.d:
+  "Timeout is 2 s; the lease keeps the byte.\nSee #7 for the scanner hazard.\n"  # raw bytes
+body_t1.e:
+  # BlobEnc `body_t1b` ([F10 §3.2])
+body_t1b:
+  00                                        # codec 0 `none`
+body_t1b.d:
+  "Timeout is 2 s; retries every 5 ms.\nSee #7 for the scanner hazard.\n"  # raw bytes
+body_t1b.e:
+s_0311.e:
+end:

@@ -1,0 +1,15 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/tomb-artifact.moi
+%% file node
+%% context core
+%% source [F14 §6.10]
+%% source [F08 §3.5]
+%% note An artifact tombstone: its title line is its last path text.
+%% canonical self
+%% keys
+node 672af70da09c660c2887060b8618cfd9 artifact deleted "file rm" -
+  field title text "docs/legacy/notes.txt"
+%% image
+deleted cca0742e204c38d87b614d9554df1280a62989855fde848184af9ae63085205f5 2026-09-21T16:13:20.000Z
+%% end

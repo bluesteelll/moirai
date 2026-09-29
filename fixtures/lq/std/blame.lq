@@ -1,0 +1,5 @@
+DEFINE QUERY blame($id: node, $field: text? = NULL) SHAPE table BUDGET light AS {
+  CALL blame($id) YIELD aspect, name, value, seq, commit, actor, at
+  WHERE $field IS NULL OR name = $field
+  RETURN aspect, name, value, seq AS rev, commit, actor ORDER BY aspect, name
+}

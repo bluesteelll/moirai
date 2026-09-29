@@ -1,0 +1,5 @@
+DEFINE QUERY log($range: rev? = NULL, $actor: text? = NULL, $touching: node? = NULL) SHAPE history BUDGET light AS {
+  CALL log($range, actor: $actor, touching: $touching)
+  YIELD commit, seq, ref, kind, actor, role, at, message, ops
+  RETURN seq, commit, ref, actor, role, at, kind, message, ops ORDER BY seq DESC
+}

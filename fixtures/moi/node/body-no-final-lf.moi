@@ -1,0 +1,9 @@
+moirai-node 1
+uid: 3b000000000000000000000000000011
+kind: note
+title: body-no-final-lf
+status: active
+created: c7f2b3e3c84b95741726394913f676033d4e7c44197a1e8fd73125880cdba82d6 2026-09-21T14:13:20.000Z
+updated: ce68260812d69d38ba713ef7142cbaada5604332f63c8117650d4beb1dbd0b817 2026-09-21T15:43:20.000Z
+---
+One line, no final LF.

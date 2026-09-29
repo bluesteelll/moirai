@@ -1,0 +1,609 @@
+# fixtures/lq/cases/cast.cases: the canonical AST of [LQ/canonical-ast §5]-§8 (WP-22, R-FIX): C-AST goldens in the
+# text form of §4.3 with their binding context (§9), the binary encoding of §6 and the query hash of §7.
+# The encoding of s44-quoted is the 174 bytes of [LQ/canonical-ast §6.5], reproduced byte for byte; the other
+# encodings are derived from the same tables. Hashes: '%% hash blake3_256 0..<n> first 16 = <hex>' is H of §7.1,
+# the first 16 bytes of BLAKE3-256 over the encoding (what a {blake3_256 0..<n>} directive of xtask hex gives).
+# Cases with '%% cast-same-as' must produce the identical C-AST, hence the identical encoding and hash.
+# Context lines: 'schema core' (the core schema of [F08]); 'node <N> <uid>'; 'commit <seq> <64 hex>';
+# 'param <name> <type> <value>'.
+# Format: fixtures/lq/INDEX.md §2.
+
+%% case s44-quoted
+%% source [LQ/canonical-ast §4.4] first text
+%% source §6.5
+%% source §7.1
+%% entry read
+%% context schema core
+%% note The C-AST, the 174 bytes and H of [LQ/canonical-ast §4.4] and §6.5; H[0..4] gives the EXPLAIN id q:073f2b4d.
+%% input
+MATCH (t:task) WHERE t.status = 'open' AND t.priority <= 1 RETURN t ORDER BY t.priority LIMIT 5
+%% cast
+(QUERY
+ (PART _
+  (CLAUSES
+   [(MATCH false
+     [(PATH (NODEP 0 ["task"] [] _) [])]
+     (AND (CMP = (PROP (VAR 0) "status") (ENUM "open"))
+          (CMP <= (PROP (VAR 0) "priority") (INT 1))))]
+   (RETURN false false [(RITEM (VAR 0) _)] [(SORT (PROP (VAR 0) "priority") false)] (INT 5))))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
+01 31 33 01 3a 3b 00 00 00 00 06 00 00 00 73 74 61 74 75 73 58 04 00 00 00 6f 70 65 6e 33 04 3a
+3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74 79 52 01 00 00 00 00 00 00 00 14 00 00 01 00 00
+00 16 3b 00 00 00 00 00 01 00 00 00 18 3a 3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74 79 00
+01 52 05 00 00 00 00 00 00 00 00 00 00 00
+%% hash blake3_256 0..174 first 16 = 073f2b4d1d0af442d00ad286347b22fb
+%% explain-id q:073f2b4d
+%% cursor-query-hash 0x42f40a1d4d2b3f07
+%% end
+
+%% case s44-bare-words
+%% source [LQ/canonical-ast §4.4] second text
+%% entry read
+%% context schema core
+%% note Keyword case, variable names, label case, a bare enum word and 'P1' against priority all canonicalise away.
+%% input
+match (x:Task) where x.status = open and x.priority <= 'P1' return x order by x.priority asc limit 5
+%% cast-same-as s44-quoted
+%% end
+
+%% case s44-formatting
+%% source [50 §5.3], [LQ/canonical-ast §1.2]
+%% entry read
+%% context schema core
+%% note Comments, line breaks and the explicit ASC do not change the C-AST.
+%% input
+MATCH (t:task) // open, P0 and P1
+WHERE t.status = 'open'
+  AND t.priority <= 1 /* stored order */
+RETURN t ORDER BY t.priority ASC LIMIT 5
+%% cast-same-as s44-quoted
+%% end
+
+%% case s44-explain-trail
+%% source [LQ/canonical-ast §5.2]
+%% entry read
+%% context schema core
+%% note read.mode and match.mode are removed: the EXPLAIN id is the hash of the query itself (q:073f2b4d).
+%% input
+EXPLAIN MATCH TRAIL (t:task) WHERE t.status = 'open' AND t.priority <= 1 RETURN t ORDER BY t.priority LIMIT 5
+%% cast-same-as s44-quoted
+%% end
+
+%% case s44-parameters
+%% source [LQ/canonical-ast §5.5] Parameters
+%% entry read
+%% context schema core
+%% context param s text open
+%% context param p int 1
+%% context param n int 5
+%% note Parameter values are substituted with their use-site types: a text value at an enum field is ENUM.
+%% input
+MATCH (t:task) WHERE t.status = $s AND t.priority <= $p RETURN t ORDER BY t.priority LIMIT $n
+%% cast-same-as s44-quoted
+%% end
+
+%% case reverse-alias
+%% source [LQ/canonical-ast §5.4]
+%% source [50 §3.2]
+%% entry read
+%% context schema core
+%% context node 51 018f3c2e7a117b3c9d5e4c2f1a0b9e51
+%% note A reverse alias gets the stored kind with the effective direction left; the pattern order is kept.
+%% input
+MATCH (#51)-[:BLOCKED_BY]->(b) RETURN b
+%% cast
+(QUERY
+ (PART _
+  (CLAUSES
+   [(MATCH false
+     [(PATH (NODEP _ [] [["id" (NODE "018f3c2e7a117b3c9d5e4c2f1a0b9e51")]] _)
+            [(ESTEP (EDGEP _ typed [["BLOCKS" left]] _ [] _) (NODEP 0 [] [] _))])]
+     _)]
+   (RETURN false false [(RITEM (VAR 0) _)] [] _)))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+01 00 00 00 20 21 00 00 00 00 00 01 00 00 00 02 00 00 00 69 64 57 01 8f 3c 2e 7a 11 7b 3c 9d 5e
+4c 2f 1a 0b 9e 51 00 01 00 00 00 22 24 00 00 01 00 00 00 06 00 00 00 42 4c 4f 43 4b 53 02 00 00
+00 00 00 00 21 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00 16 3b 00 00 00
+00 00 00 00 00 00 00 00 00 00 00
+%% hash blake3_256 0..139 first 16 = 96802eff210c49167ba10e7909c42326
+%% end
+
+%% case reverse-alias-stored
+%% source [LQ/canonical-ast §5.4]
+%% entry read
+%% context schema core
+%% context node 51 018f3c2e7a117b3c9d5e4c2f1a0b9e51
+%% input
+MATCH (#51)<-[:BLOCKS]-(b) RETURN b
+%% cast-same-as reverse-alias
+%% end
+
+%% case id-map-node
+%% source [LQ/canonical-ast §3.1] item 7
+%% entry read
+%% context schema core
+%% context node 51 018f3c2e7a117b3c9d5e4c2f1a0b9e51
+%% input
+MATCH ({id: #51})<-[:BLOCKS]-(b) RETURN b
+%% cast-same-as reverse-alias
+%% end
+
+%% case symmetric-kind
+%% source [LQ/canonical-ast §5.4]
+%% source C-7
+%% entry read
+%% context schema core
+%% note A symmetric kind gets both whatever arrow is written.
+%% input
+MATCH (a:rule)-[:CONTRADICTS]->(b) RETURN a
+%% cast
+(QUERY
+ (PART _
+  (CLAUSES
+   [(MATCH false
+     [(PATH (NODEP 0 ["rule"] [] _) [(ESTEP (EDGEP _ typed [["CONTRADICTS" both]] _ [] _) (NODEP 1 [] [] _))])]
+     _)]
+   (RETURN false false [(RITEM (VAR 0) _)] [] _)))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 72 75 6c 65 00 00 00 00 00 01 00 00 00
+22 24 00 00 01 00 00 00 0b 00 00 00 43 4f 4e 54 52 41 44 49 43 54 53 03 00 00 00 00 00 00 21 01
+01 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00 16 3b 00 00 00 00 00 00 00 00 00
+00 00 00 00 00
+%% hash blake3_256 0..133 first 16 = 4a519281184ecb82c39601a960b6d87e
+%% end
+
+%% case symmetric-kind-left
+%% source [LQ/canonical-ast §5.4]
+%% entry read
+%% context schema core
+%% input
+MATCH (a:rule)<-[:CONTRADICTS]-(b) RETURN a
+%% cast-same-as symmetric-kind
+%% end
+
+%% case quantifier-cypher
+%% source [LQ/canonical-ast §3.1] item 4
+%% entry read
+%% context schema core
+%% input
+MATCH (x:task)-[:BLOCKS*1..3]->(y) RETURN x
+%% cast
+(QUERY
+ (PART _
+  (CLAUSES
+   [(MATCH false
+     [(PATH (NODEP 0 ["task"] [] _) [(ESTEP (EDGEP _ typed [["BLOCKS" right]] (QUANT 1 3) [] _) (NODEP 1 [] [] _))])]
+     _)]
+   (RETURN false false [(RITEM (VAR 0) _)] [] _)))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 01 00 00 00
+22 24 00 00 01 00 00 00 06 00 00 00 42 4c 4f 43 4b 53 01 01 26 01 00 00 00 01 03 00 00 00 00 00
+00 00 00 21 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00 16 3b 00 00 00 00
+00 00 00 00 00 00 00 00 00 00
+%% hash blake3_256 0..138 first 16 = 95f60b5655c7e3dd9fa294b0a9a98762
+%% end
+
+%% case quantifier-gql
+%% source [LQ/canonical-ast §3.1] item 4
+%% entry read
+%% context schema core
+%% input
+MATCH (x:task)-[:BLOCKS]->{1,3}(y) RETURN x
+%% cast-same-as quantifier-cypher
+%% end
+
+%% case alternation-keeps-both
+%% source [LQ/canonical-ast §5.4]
+%% entry read
+%% context schema core
+%% note [:BLOCKS|BLOCKED_BY] keeps both readings in written order.
+%% input
+MATCH (a)-[:BLOCKS|BLOCKED_BY]->(b) RETURN a
+%% cast
+(QUERY
+ (PART _
+  (CLAUSES
+   [(MATCH false
+     [(PATH (NODEP 0 [] [] _) [(ESTEP (EDGEP _ typed [["BLOCKS" right] ["BLOCKS" left]] _ [] _) (NODEP 1 [] [] _))])]
+     _)]
+   (RETURN false false [(RITEM (VAR 0) _)] [] _)))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+01 00 00 00 20 21 01 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 22 24 00 00 02 00 00 00
+06 00 00 00 42 4c 4f 43 4b 53 01 06 00 00 00 42 4c 4f 43 4b 53 02 00 00 00 00 00 00 21 01 01 00
+00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00 16 3b 00 00 00 00 00 00 00 00 00 00 00
+00 00 00
+%% hash blake3_256 0..131 first 16 = a16684f5c16acc86548428a4c3e33841
+%% end
+
+%% case exists-property
+%% source [LQ/canonical-ast §3.1] item 6
+%% entry read
+%% context schema core
+%% input
+MATCH (t:task) WHERE exists(t.assignee) RETURN t
+%% cast
+(QUERY
+ (PART _
+  (CLAUSES
+   [(MATCH false [(PATH (NODEP 0 ["task"] [] _) [])] (ISNULL true (PROP (VAR 0) "assignee")))]
+   (RETURN false false [(RITEM (VAR 0) _)] [] _)))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
+01 34 01 3a 3b 00 00 00 00 08 00 00 00 61 73 73 69 67 6e 65 65 14 00 00 01 00 00 00 16 3b 00 00
+00 00 00 00 00 00 00 00 00 00 00 00
+%% hash blake3_256 0..108 first 16 = 99960ebd67c99795e212b76d6e0f4621
+%% end
+
+%% case is-not-null
+%% source [LQ/canonical-ast §3.1] item 3
+%% entry read
+%% context schema core
+%% input
+MATCH (t:task) WHERE t.assignee IS NOT NULL RETURN t
+%% cast-same-as exists-property
+%% end
+
+%% case n1-subquery-clause
+%% source [LQ/canonical-ast §5.8] N1
+%% entry read
+%% context schema core
+%% note A clause-form subquery whose only clause is a MATCH becomes the pattern form; the inner (a) joins binding 0.
+%% input
+MATCH (a:task) WHERE EXISTS { MATCH (a)-->(b) } RETURN a
+%% cast
+(QUERY
+ (PART _
+  (CLAUSES
+   [(MATCH false
+     [(PATH (NODEP 0 ["task"] [] _) [])]
+     (EXISTS (SUBP [(PATH (NODEP 0 [] [] _) [(ESTEP (EDGEP _ right [] _ [] _) (NODEP 1 [] [] _))])] _)))]
+   (RETURN false false [(RITEM (VAR 0) _)] [] _)))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
+01 3e 41 01 00 00 00 20 21 01 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 22 24 00 01 00
+00 00 00 00 00 00 00 00 00 21 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00
+16 3b 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+%% hash blake3_256 0..144 first 16 = 360ffe2e768ee378c934b88b702058c4
+%% end
+
+%% case n1-subquery-pattern
+%% source [LQ/canonical-ast §5.8] N1
+%% entry read
+%% context schema core
+%% input
+MATCH (a:task) WHERE EXISTS { (a)-->(b) } RETURN a
+%% cast-same-as n1-subquery-clause
+%% end
+
+%% case n1-pattern-predicate
+%% source [LQ/canonical-ast §3.1] item 5
+%% entry read
+%% context schema core
+%% input
+MATCH (a:task) WHERE (a)-->(b) RETURN a
+%% cast-same-as n1-subquery-clause
+%% end
+
+%% case variables-renumbered
+%% source [LQ/canonical-ast §5.7] example
+%% entry read
+%% context schema core
+%% note a 0, b 1, x 2, c 3, by first appearance in the encoding's field order.
+%% input
+MATCH (a)-[:BLOCKS]->(b) WITH b AS x MATCH (x)<-[:CHILD_OF]-(c) RETURN c
+%% cast
+(QUERY
+ (PART _
+  (CLAUSES
+   [(MATCH false [(PATH (NODEP 0 [] [] _) [(ESTEP (EDGEP _ typed [["BLOCKS" right]] _ [] _) (NODEP 1 [] [] _))])] _)
+    (WITH false false [(WITEM (VAR 1) 2)] _ [] _)
+    (MATCH false [(PATH (NODEP 2 [] [] _) [(ESTEP (EDGEP _ typed [["CHILD_OF" left]] _ [] _) (NODEP 3 [] [] _))])] _)]
+   (RETURN false false [(RITEM (VAR 3) _)] [] _)))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 03 00 00 00 10 00
+01 00 00 00 20 21 01 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 22 24 00 00 01 00 00 00
+06 00 00 00 42 4c 4f 43 4b 53 01 00 00 00 00 00 00 21 01 01 00 00 00 00 00 00 00 00 00 00 00 00
+00 13 00 00 01 00 00 00 15 3b 01 00 00 00 02 00 00 00 00 00 00 00 00 00 10 00 01 00 00 00 20 21
+01 02 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 22 24 00 00 01 00 00 00 08 00 00 00 43 48
+49 4c 44 5f 4f 46 02 00 00 00 00 00 00 21 01 03 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00
+01 00 00 00 16 3b 03 00 00 00 00 00 00 00 00 00 00 00 00 00
+%% hash blake3_256 0..212 first 16 = 440f0cda29099ff69b49a3b44c707a1a
+%% end
+
+%% case variables-renamed
+%% source [LQ/canonical-ast §5.7]
+%% entry read
+%% context schema core
+%% input
+MATCH (p)-[:BLOCKS]->(q) WITH q AS r MATCH (r)<-[:CHILD_OF]-(s) RETURN s
+%% cast-same-as variables-renumbered
+%% end
+
+%% case named-arguments
+%% source [LQ/canonical-ast §5.8] N2
+%% source [LQ/std §2.9] blockers
+%% entry read
+%% context schema core
+%% context node 51 018f3c2e7a117b3c9d5e4c2f1a0b9e51
+%% note Arguments of a relation are named by its parameters and listed in their declaration order.
+%% input
+CALL blockers(#51, transitive: true) YIELD blocker
+%% cast
+(QUERY
+ (PART _
+  (SCALL "blockers" [(ARG "n" (NODE "018f3c2e7a117b3c9d5e4c2f1a0b9e51")) (ARG "transitive" (BOOL true))] items [(YIELD "blocker" 0)] _ [] _))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 04 08 00 00 00 62 6c
+6f 63 6b 65 72 73 02 00 00 00 19 01 01 00 00 00 6e 57 01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b
+9e 51 19 01 0a 00 00 00 74 72 61 6e 73 69 74 69 76 65 51 01 02 01 00 00 00 17 07 00 00 00 62 6c
+6f 63 6b 65 72 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+%% hash blake3_256 0..115 first 16 = 64e081a4206ea2b092fa0ca72874ff6c
+%% end
+
+%% case named-arguments-reordered
+%% source [LQ/canonical-ast §5.8] N2
+%% entry read
+%% context schema core
+%% context node 51 018f3c2e7a117b3c9d5e4c2f1a0b9e51
+%% input
+CALL blockers(transitive: true, n: #51) YIELD blocker
+%% cast-same-as named-arguments
+%% end
+
+%% case tx-options-dropped
+%% source [LQ/canonical-ast §5.2]
+%% source C-2
+%% entry write
+%% context schema core
+%% context node 89 018f3c2e7a117b3c9d5e4c2f1a0b9e89
+%% note ON, KEY, LEASE and DRY are bound outside the payload.
+%% input
+TX ON lane/l5np KEY 'k1' LEASE 'L-18' { SET #89.done = true } DRY
+%% cast
+(TX _ _ _ [(SMUTS [(MSET [[(NODE "018f3c2e7a117b3c9d5e4c2f1a0b9e89") "done" (BOOL true)]])])])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 70 00 00 00 01 00 00 00 72 01
+00 00 00 80 01 00 00 00 57 01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b 9e 89 04 00 00 00 64 6f 6e
+65 51 01
+%% hash blake3_256 0..67 first 16 = 932c98565f86fa6f2e0cc23b78533c68
+%% end
+
+%% case tx-bare
+%% source [LQ/canonical-ast §5.2]
+%% entry write
+%% context schema core
+%% context node 89 018f3c2e7a117b3c9d5e4c2f1a0b9e89
+%% input
+TX { SET #89.done = true }
+%% cast-same-as tx-options-dropped
+%% end
+
+%% case tx-options-kept
+%% source [LQ/canonical-ast §5.2]
+%% source C-2
+%% entry write
+%% context schema core
+%% context node 89 018f3c2e7a117b3c9d5e4c2f1a0b9e89
+%% note IF TIP and MESSAGE stay in the payload; a ref stays symbolic.
+%% input
+TX IF TIP main MESSAGE 'm' { SET #89.done = true }
+%% cast
+(TX (RREF "main") _ "m" [(SMUTS [(MSET [[(NODE "018f3c2e7a117b3c9d5e4c2f1a0b9e89") "done" (BOOL true)]])])])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 70 01 61 04 00 00 00 6d 61 69
+6e 00 01 01 00 00 00 6d 01 00 00 00 72 01 00 00 00 80 01 00 00 00 57 01 8f 3c 2e 7a 11 7b 3c 9d
+5e 4c 2f 1a 0b 9e 89 04 00 00 00 64 6f 6e 65 51 01
+%% hash blake3_256 0..81 first 16 = 1ba214247ccea73bc2a9ef7e10001ba6
+%% end
+
+%% case revision-seq
+%% source [LQ/canonical-ast §5.6]
+%% entry read
+%% context schema core
+%% context commit 4466 41d7e0b055bb78a370f2eb047e4a54dcc0342ddb0e84b9b0a67f3aff873480ef
+%% note A sequence number resolves to the full commit id.
+%% input
+USE s4466 MATCH (t:task) RETURN t
+%% cast
+(QUERY
+ (PART (RCOMMIT "41d7e0b055bb78a370f2eb047e4a54dcc0342ddb0e84b9b0a67f3aff873480ef")
+  (CLAUSES [(MATCH false [(PATH (NODEP 0 ["task"] [] _) [])] _)] (RETURN false false [(RITEM (VAR 0) _)] [] _)))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 01 62 41 d7 e0 b0 55 bb
+78 a3 70 f2 eb 04 7e 4a 54 dc c0 34 2d db 0e 84 b9 b0 a6 7f 3a ff 87 34 80 ef 03 01 00 00 00 10
+00 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00
+00 00 14 00 00 01 00 00 00 16 3b 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+%% hash blake3_256 0..121 first 16 = 2b6703d74e2a0e12e56b4e893be4785f
+%% end
+
+%% case revision-prefix
+%% source [LQ/canonical-ast §5.6]
+%% entry read
+%% context schema core
+%% context commit 4466 41d7e0b055bb78a370f2eb047e4a54dcc0342ddb0e84b9b0a67f3aff873480ef
+%% note A unique commit prefix resolves to the same full id.
+%% input
+USE c41d7e0b MATCH (t:task) RETURN t
+%% cast-same-as revision-seq
+%% end
+
+%% case revision-symbolic
+%% source [LQ/canonical-ast §5.6]
+%% source C-13
+%% entry read
+%% context schema core
+%% note Refs and suffixes stay symbolic.
+%% input
+USE main~2 MATCH (t:task) RETURN t
+%% cast
+(QUERY
+ (PART (RSUF (RREF "main") tilde 2)
+  (CLAUSES [(MATCH false [(PATH (NODEP 0 ["task"] [] _) [])] _)] (RETURN false false [(RITEM (VAR 0) _)] [] _)))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 01 63 61 04 00 00 00 6d
+61 69 6e 01 02 00 00 00 00 00 00 00 03 01 00 00 00 10 00 01 00 00 00 20 21 01 00 00 00 00 01 00
+00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00 16 3b 00 00 00
+00 00 00 00 00 00 00 00 00 00 00
+%% hash blake3_256 0..107 first 16 = 3672a25515e071a339c4b5db789f0e86
+%% end
+
+%% case define-portable
+%% source [LQ/canonical-ast §8.1]
+%% source §5.5
+%% source [50 §2.9] Q21
+%% entry define
+%% context schema core
+%% context node 9 018f3c2e7a117b3c9d5e4c2f1a0b9e09
+%% note Inside a DEFINE body a parameter is PARAM(i); defaults are constants. The stored portable text removes CR,
+%% note trailing whitespace and replaces #9 by its uid ([LQ/canonical-ast §8.1] steps 2-4); comments would be kept.
+%% input-hex
+; CR LF line ends, trailing SP and HT on three lines
+44 45 46 49 4e 45 20 51 55 45 52 59 20 73 74 61
+6c 65 5f 62 6c 6f 63 6b 65 72 73 28 24 73 63 6f
+70 65 3a 20 6e 6f 64 65 20 3d 20 23 39 2c 20 24
+64 61 79 73 3a 20 69 6e 74 20 3d 20 33 29 20 53
+48 41 50 45 20 6e 6f 64 65 20 41 53 20 7b 20 20
+0d 0a 20 20 4d 41 54 43 48 20 28 62 3a 74 61 73
+6b 29 2d 5b 3a 42 4c 4f 43 4b 53 5d 2d 3e 28 74
+3a 74 61 73 6b 29 0d 0a 20 20 57 48 45 52 45 20
+74 20 49 4e 20 73 75 62 74 72 65 65 28 24 73 63
+6f 70 65 29 09 0d 0a 20 20 20 20 41 4e 44 20 62
+2e 73 74 61 74 75 73 20 3d 20 27 69 6e 5f 70 72
+6f 67 72 65 73 73 27 20 41 4e 44 20 62 2e 75 70
+64 61 74 65 64 5f 61 74 20 3c 20 6e 6f 77 28 29
+20 2d 20 24 64 61 79 73 20 2a 20 31 64 0d 0a 20
+20 52 45 54 55 52 4e 20 44 49 53 54 49 4e 43 54
+20 62 20 4f 52 44 45 52 20 42 59 20 62 2e 75 70
+64 61 74 65 64 5f 61 74 0d 0a 7d 20 20
+%% cast
+(DEFINE "stale_blockers"
+ [(PDECL "scope" (TYPE "node" _) false (NODE "018f3c2e7a117b3c9d5e4c2f1a0b9e09")) (PDECL "days" (TYPE "int" _) false (INT 3))]
+ "node" _
+ (QUERY
+  (PART _
+   (CLAUSES
+    [(MATCH false
+      [(PATH (NODEP 0 ["task"] [] _) [(ESTEP (EDGEP _ typed [["BLOCKS" right]] _ [] _) (NODEP 1 ["task"] [] _))])]
+      (AND (AND (IN (VAR 1) (FUNC "subtree" false [(ARG _ (PARAM 0))]))
+                (CMP = (PROP (VAR 0) "status") (ENUM "in_progress")))
+           (CMP < (PROP (VAR 0) "updated_at") (ARITH - (FUNC "now" false []) (ARITH * (PARAM 1) (DURATION 86400000))))))]
+    (RETURN true false [(RITEM (VAR 0) _)] [(SORT (PROP (VAR 0) "updated_at") false)] _)))
+  []))
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 90 0e 00 00 00 73 74 61 6c 65
+5f 62 6c 6f 63 6b 65 72 73 02 00 00 00 91 05 00 00 00 73 63 6f 70 65 92 04 00 00 00 6e 6f 64 65
+00 00 01 57 01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b 9e 09 91 04 00 00 00 64 61 79 73 92 03 00
+00 00 69 6e 74 00 00 01 52 03 00 00 00 00 00 00 00 01 04 00 00 00 6e 6f 64 65 00 01 02 00 03 01
+00 00 00 10 00 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00
+00 01 00 00 00 22 24 00 00 01 00 00 00 06 00 00 00 42 4c 4f 43 4b 53 01 00 00 00 00 00 00 21 01
+01 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 01 31 31 35 3b 01 00 00 00 42 07
+00 00 00 73 75 62 74 72 65 65 00 01 00 00 00 19 00 3c 00 00 00 00 33 01 3a 3b 00 00 00 00 06 00
+00 00 73 74 61 74 75 73 58 0b 00 00 00 69 6e 5f 70 72 6f 67 72 65 73 73 33 03 3a 3b 00 00 00 00
+0a 00 00 00 75 70 64 61 74 65 64 5f 61 74 38 02 42 03 00 00 00 6e 6f 77 00 00 00 00 00 38 03 3c
+01 00 00 00 55 00 5c 26 05 00 00 00 00 14 01 00 01 00 00 00 16 3b 00 00 00 00 00 01 00 00 00 18
+3a 3b 00 00 00 00 0a 00 00 00 75 70 64 61 74 65 64 5f 61 74 00 00 00 00 00 00
+%% hash blake3_256 0..378 first 16 = 56024d5df84ca25093452efb78b825ea
+%% portable
+DEFINE QUERY stale_blockers($scope: node = #u:018f3c2e7a117b3c9d5e4c2f1a0b9e09, $days: int = 3) SHAPE node AS {
+  MATCH (b:task)-[:BLOCKS]->(t:task)
+  WHERE t IN subtree($scope)
+    AND b.status = 'in_progress' AND b.updated_at < now() - $days * 1d
+  RETURN DISTINCT b ORDER BY b.updated_at
+}
+%% end
+
+%% case define-coerced-constants
+%% source [LQ/canonical-ast §8.1] step 4
+%% source C-4
+%% entry define
+%% context schema core
+%% context node 40 018f3c2e7a117b3c9d5e4c2f1a0b9e40
+%% context commit 4466 41d7e0b055bb78a370f2eb047e4a54dcc0342ddb0e84b9b0a67f3aff873480ef
+%% note Literals the binder coerces to a node or a revision are store-local and are rewritten too.
+%% input
+DEFINE QUERY q40() AS { MATCH (t {id: 40}) WHERE t.rev = 4466 RETURN t }
+%% cast
+(DEFINE "q40" [] _ _
+ (QUERY
+  (PART _
+   (CLAUSES
+    [(MATCH false [(PATH (NODEP 0 [] [["id" (NODE "018f3c2e7a117b3c9d5e4c2f1a0b9e40")]] _) [])] (CMP = (PROP (VAR 0) "rev") (RCOMMIT "41d7e0b055bb78a370f2eb047e4a54dcc0342ddb0e84b9b0a67f3aff873480ef")))]
+    (RETURN false false [(RITEM (VAR 0) _)] [] _)))
+  []))
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 90 03 00 00 00 71 34 30 00 00
+00 00 00 00 01 02 00 03 01 00 00 00 10 00 01 00 00 00 20 21 01 00 00 00 00 00 00 00 00 01 00 00
+00 02 00 00 00 69 64 57 01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b 9e 40 00 00 00 00 00 01 33 01
+3a 3b 00 00 00 00 03 00 00 00 72 65 76 62 41 d7 e0 b0 55 bb 78 a3 70 f2 eb 04 7e 4a 54 dc c0 34
+2d db 0e 84 b9 b0 a6 7f 3a ff 87 34 80 ef 14 00 00 01 00 00 00 16 3b 00 00 00 00 00 00 00 00 00
+00 00 00 00 00
+%% hash blake3_256 0..165 first 16 = 7f4237fd1abceb7443e3883c0f67d7eb
+%% portable
+DEFINE QUERY q40() AS { MATCH (t {id: #u:018f3c2e7a117b3c9d5e4c2f1a0b9e40}) WHERE t.rev = 'c41d7e0b055bb78a370f2eb047e4a54dcc0342ddb0e84b9b0a67f3aff873480ef' RETURN t }
+%% end
+
+%% case cursor-query
+%% source [LQ/canonical-ast §7.2] cursor query hash
+%% source [LQ/envelope §8.1]
+%% entry read
+%% context schema core
+%% note The query of envelope.cases cursor-bytes: H[0..8] read as a little-endian u64 is the cursor's query_hash.
+%% input
+MATCH (t:task) WHERE t.status = 'open' RETURN t ORDER BY t.priority
+%% cast
+(QUERY
+ (PART _
+  (CLAUSES
+   [(MATCH false [(PATH (NODEP 0 ["task"] [] _) [])] (CMP = (PROP (VAR 0) "status") (ENUM "open")))]
+   (RETURN false false [(RITEM (VAR 0) _)] [(SORT (PROP (VAR 0) "priority") false)] _)))
+ [])
+%% encoding
+10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
+01 33 01 3a 3b 00 00 00 00 06 00 00 00 73 74 61 74 75 73 58 04 00 00 00 6f 70 65 6e 14 00 00 01
+00 00 00 16 3b 00 00 00 00 00 01 00 00 00 18 3a 3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74
+79 00 00 00 00 00 00
+%% hash blake3_256 0..135 first 16 = bdc668698aa3eae102b548db83f0b24e
+%% cursor-query-hash 0xe1eaa38a6968c6bd
+%% end
+
+%% case define-reflog-e117
+%% source [LQ/canonical-ast §8.1] step 5
+%% source [LQ/errors §5.3] E117
+%% entry define
+%% context schema core
+%% note A reflog revision in a definition has no portable form.
+%% input
+DEFINE QUERY q() AS { USE main@3 MATCH (t) RETURN t }
+%% error E117 *
+%% end
+
+%% case define-anchor-handle-e117
+%% source [LQ/canonical-ast §8.1] step 5
+%% source [LQ/errors §5.3] E117
+%% entry define
+%% context schema core
+%% note An anchor handle compared in a definition is store-local.
+%% input
+DEFINE QUERY q() AS { MATCH (n)-[a:AT]->(f) WHERE a.anchor = 'a17' RETURN n }
+%% error E117 *
+%% end

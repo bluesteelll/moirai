@@ -1,0 +1,99 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case foreign-child
+%% source [F14 §10.9]
+%% source [F14 §12.1]
+%% source [F07 §12.3]
+%% source [F06 §4.4.4]
+%% source [F07 §5.3]
+%% note Row foreign: one parent; its message holds the byte FF (item 6: U+FFFD).
+%% destination F sha1 full
+%% class foreign
+%% git-commit c4056d98d06b816e62206682d773e8e4ea459126
+%% git-tree e49b9cffc18a81320755881803de73a6a58b7e1a
+%% git-parent 33881ca4c0710e4ef0c39fa06904c0cc6494ca6a foreign-root
+%% touched-new 1
+%% touched-old 1
+%% p-state
+node 2c000000000000000000000000000001 task
+  field priority enum P1
+  field title text "Port the importer"
+node 3d000000000000000000000000000001 note
+  field title text "Tracker export format"
+  body "Columns: id, title, state."
+%% q-state
+node 2c000000000000000000000000000001 task
+  status done completed
+  field priority enum P1
+  field title text "Port the importer"
+node 3d000000000000000000000000000001 note
+  field title text "Tracker export format"
+  body "Columns: id, title, state."
+%% entries
+2c000000000000000000000000000001 status = done completed
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 2c000000000000000000000000000001 status
+012c00000000000000000000000000000102000104000000646f6e6509000000636f6d706c65746564
+; u64 entry count = 1
+0100000000000000
+%% entry-count 1
+%% changeset-digest ac1028320c88471fe4efa014265ccc35192d0126f1a818c1db28ff7b2e8ac945
+%% commit
+kind ordinary
+parent a4cc0fd93e11420275f62d67547b2ff5a5ef869a52c59cbb6a569351eb386b2f
+hlc 01a088bec9c00000
+actor "git:bob@example.com"
+role ""
+session ""
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "Close \ufffd the importer task"
+schema-version 1
+origin -
+foreign sha1 c4056d98d06b816e62206682d773e8e4ea459126
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+a4cc0fd93e11420275f62d67547b2ff5a5ef869a52c59cbb6a569351eb386b2f
+; item 3: hlc
+0000c0c9be88a001
+; item 4: actor
+130000006769743a626f62406578616d706c652e636f6d
+; item 4: role
+00000000
+; item 4: session
+00000000
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+1b000000436c6f736520efbfbd2074686520696d706f72746572207461736b
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+0400000073686131
+; item 9: foreign_oid
+14000000c4056d98d06b816e62206682d773e8e4ea459126
+; item 10: changeset_digest
+ac1028320c88471fe4efa014265ccc35192d0126f1a818c1db28ff7b2e8ac945
+%% commit-id e143819ccd708e8318946181783f5cd10899389cdfff24bfccc2fbf14f426f1b
+%% canonical foreign.cases foreign-child changeset-digest
+%% end

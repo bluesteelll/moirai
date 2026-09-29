@@ -1,0 +1,16 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/body-one-lf.moi
+%% file node
+%% context core
+%% source [F14 §6.9]
+%% note Bodies: a body with one final LF: the file ends in two LF.
+%% canonical self
+%% keys
+node 3b000000000000000000000000000011 note
+  field title text "body-one-lf"
+  body "One line with its LF.\n"
+%% image
+created c233b9e80c43dac1022a4bb5dfd01cec930c55ac6c79468ec9316d7de8036db9b 2026-09-21T14:13:20.000Z
+updated cc97b4f211a55341a5a8be0d3a76df516107bfc743bce89894ee8013b17520719 2026-09-21T15:43:20.000Z
+%% end

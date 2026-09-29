@@ -1,0 +1,7 @@
+DEFINE QUERY stale($scope: node? = NULL) SHAPE node BUDGET medium AS {
+  MATCH (n:measurement|note)
+  WHERE (n.measured_on IS NOT NULL OR n.observed_git_sha IS NOT NULL)
+    AND staleness(n) <> 'fresh'
+    AND ($scope IS NULL OR EXISTS { (n)-[:ABOUT|SCOPED_TO]->(x) WHERE x IN subtree($scope) })
+  RETURN n ORDER BY n.id
+}

@@ -1,0 +1,160 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case anchor-texts-added
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note An ordinary commit after the anchors; its tree reuses T2's anchor lines unchanged.
+%% destination A sha1 full
+%% class native
+%% git-commit 4721ac6ceea80fb5b0c7f4ec7582dfe4abc563c4
+%% git-tree 95d5e04a6fff9e4f8e4ecb56a1f83e31894eb82c
+%% git-parent 15a8ce13bee4af280d0de5985643573e7fc0b05f anchor-full
+%% trailer-commit 7d9dab189d18bd3308c25f1c6a53d166a40c6879768890340c765dd43a1b07e4
+%% touched-new 1
+%% touched-old 1
+%% p-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+  at ff62a2c718c52faafc108cf0e945642e 451c99960d7d0705e2e58204dc597f09 kind=range mode=live watch=span resolver=1 captured=ae12469f9fd646a920aead70874596ad quote="## Timeouts" prefix="A holder that dies leaves the byte to the OS.\n" suffix="" end="Waiters retry every 5 ms for at most 2 s." hint=6-8 window=020000003d915a1e span_hash=0f4e2a17b3c85d69 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae marker="lock-timeouts"
+  at ff62a2c718c52faafc108cf0e945642e 9751bba14934b070bf965455e00cd17f kind=quote mode=live watch=span resolver=1 captured=5df7478441e0b5801d114d7a39c098b6 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder that dies" hint=3-3 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae git=sha1:83bcc6a114fc80225d02ce95eec80e3769b5f074
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
+  field root text "project"
+  field title text "root:project"
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+node ff62a2c718c52faafc108cf0e945642e artifact
+  field artifact_kind enum doc
+  field bytes int 161
+  field observed_git oid sha1 83bcc6a114fc80225d02ce95eec80e3769b5f074
+  field oid oid sha1 a936e37c01d643cb4e9df77e93ec3d4f89fd77ae
+  field origin_path path project "docs/storage/lock.md"
+  field path path project "docs/storage/lock.md"
+  field root text "project"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+  at ff62a2c718c52faafc108cf0e945642e 451c99960d7d0705e2e58204dc597f09 kind=range mode=live watch=span resolver=1 captured=ae12469f9fd646a920aead70874596ad quote="## Timeouts" prefix="A holder that dies leaves the byte to the OS.\n" suffix="" end="Waiters retry every 5 ms for at most 2 s." hint=6-8 window=020000003d915a1e span_hash=0f4e2a17b3c85d69 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae marker="lock-timeouts"
+  at ff62a2c718c52faafc108cf0e945642e 9751bba14934b070bf965455e00cd17f kind=quote mode=live watch=span resolver=1 captured=5df7478441e0b5801d114d7a39c098b6 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder that dies" hint=3-3 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae git=sha1:83bcc6a114fc80225d02ce95eec80e3769b5f074
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
+  field root text "project"
+  field title text "root:project"
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+node ff62a2c718c52faafc108cf0e945642e artifact
+  field artifact_kind enum doc
+  field bytes int 161
+  field observed_git oid sha1 83bcc6a114fc80225d02ce95eec80e3769b5f074
+  field oid oid sha1 a936e37c01d643cb4e9df77e93ec3d4f89fd77ae
+  field origin_path path project "docs/storage/lock.md"
+  field path path project "docs/storage/lock.md"
+  field root text "project"
+%% entries
+1a000000000000000000000000000002 status = in_progress none
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000002 status
+011a0000000000000000000000000000020200010b000000696e5f70726f6772657373040000006e6f6e65
+; u64 entry count = 1
+0100000000000000
+%% entry-count 1
+%% changeset-digest 5a291d2db9d471b1ef32cb31e53f178dffc5879a9a191838cab281979f1266e7
+%% commit
+kind ordinary
+parent c2645145d5e8c99c807a3e7c1c5447981dd0627ab94bb8be799ef231e29064e6
+hlc 01a0c45c52e00000
+actor "dev#2"
+role "developer"
+session "codex:s7"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "claim #2"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+c2645145d5e8c99c807a3e7c1c5447981dd0627ab94bb8be799ef231e29064e6
+; item 3: hlc
+0000e0525cc4a001
+; item 4: actor
+050000006465762332
+; item 4: role
+09000000646576656c6f706572
+; item 4: session
+08000000636f6465783a7337
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+08000000636c61696d202332
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+5a291d2db9d471b1ef32cb31e53f178dffc5879a9a191838cab281979f1266e7
+%% commit-id 7d9dab189d18bd3308c25f1c6a53d166a40c6879768890340c765dd43a1b07e4
+%% canonical anchors.cases anchor-texts-added commit-id
+%% end

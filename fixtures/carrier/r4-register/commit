@@ -1,0 +1,19 @@
+tree 1baa9f02aaec35e8b595900f9d95e7f565851b01
+parent 15a8ce13bee4af280d0de5985643573e7fc0b05f
+author moirai/dev#2 <developer@moirai.invalid> 1790003660 +0000
+committer moirai/dev#2 <developer@moirai.invalid> 1790003660 +0000
+
+file mv docs/storage/ docs/locking/; file add docs/storage/lock.md
+
+Moirai-Commit: c3452dc704892b196e865750e7be425be3cb0a3cf59caf80ac0342f141284e957
+Moirai-Kind: ordinary
+Moirai-Ref: lane/r4a
+Moirai-Hlc: 117309679861760000
+Moirai-Actor: dev#2
+Moirai-Role: developer
+Moirai-Session: codex:s7
+Moirai-Git-Head: sha1:cafe11e0dfd91a0b34786ad5767ab6627e288de6
+Moirai-Git-Branch: storage/lock-doc
+Moirai-Worktree: D:/work/storage
+Moirai-Schema: 1
+Moirai-Ops: 16

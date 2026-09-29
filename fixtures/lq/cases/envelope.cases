@@ -1,0 +1,320 @@
+# fixtures/lq/cases/envelope.cases: result-envelope goldens of [LQ/envelope] and [F19] (WP-22, R-FIX).
+# A result case states one result (the note and the '%% nodes' block, one node object of [LQ/envelope §7.4] per
+# line, give the store facts its rows need) and asserts both renderings: '%% text' (the text result, each line
+# ended by LF) and '%% json' (the --json v1 envelope, one line). The values inside 'budget' are inputs, not derived:
+# a harness checks the budget object's keys and their order, not its values (INDEX.md §4 G-12).
+# Header, footer and TX cases assert text lines only. Commit ids are synthetic: c + the SHA-256 of a label.
+# Goldens are authored from the specification text, never copied from [50 §2.9]'s examples (review S-24); where
+# they differ from an example, the note says why.
+# Format: fixtures/lq/INDEX.md §2.
+
+%% case result-node-one-row
+%% source [LQ/envelope §3]
+%% source §5.3
+%% source §7
+%% source [50 §2.9] Q1
+%% note MATCH (t {id: #51}) RETURN t on main at rev 4480 (a tip view): one node row.
+%% text
+branch: main | rev 4480 | 1 row
+#51 task open P1 "Wire lease reclaim" parent:#9 blockers:#12,#17 inherited:#7 BLOCKED
+%% json
+{"v":1,"branch":"main","rev":4480,"commit":"c161fc8c0e2d79fe630105e76e1f59447d391954b319fa268aafb8e5179043623","view":"tip","cols":["t"],"data":[{"id":"#51","kind":"task","status":"open","priority":1,"title":"Wire lease reclaim","parent":"#9","blockers":["#12","#17"],"inherited_blockers":["#7"],"blocked":true,"rev":4466}],"next":null,"dropped":null,"notices":[],"warnings":[],"budget":{"work":11,"work_limit":2000000,"rows":1,"bytes":117,"mem":1536}}
+%% end
+
+%% case result-node-rows
+%% source [LQ/envelope §5.3]
+%% source §5.17
+%% source §7.4
+%% source [50 §2.9] Q2
+%% note Q2 on lane/l5np at rev 4471, rows in the query's order. #89's lease is a runtime decoration: printed as
+%% note lease:<holder>(<lease>) and carried under the runtime key; the header has no live flag, since no clause reads runtime state.
+%% note The kind keys follow §5.3's order (parent, blockers, inherited, labels, lease, children); Q2's example prints labels before blockers.
+%% text
+branch: lane/l5np | rev 4471 | 4 rows
+#89 task in_progress P1 "Narrowphase SoA layout" parent:#88 labels:l5 lease:dev#1(L-18)
+#95 task open P1 "Contact cache eviction" parent:#88 labels:l5 children:0/1
+#90 task open P1 "Broadphase pair cache" parent:#88 labels:l5
+#93 task open P1 "Bench harness" parent:#88 blockers:#90 labels:l5 BLOCKED
+%% json
+{"v":1,"branch":"lane/l5np","rev":4471,"commit":"c4460cf1c7f5d4a03d9886eef03e3642409a2f81a096d461022b721c8ba92333c","view":"tip","cols":["t"],"data":[{"id":"#89","kind":"task","status":"in_progress","priority":1,"title":"Narrowphase SoA layout","parent":"#88","labels":["l5"],"rev":4470,"runtime":{"lease":{"id":"L-18","holder":"dev#1","branch":"lane/l5np","expires":"2026-09-25T13:00:00.000Z"}}},{"id":"#95","kind":"task","status":"open","priority":1,"title":"Contact cache eviction","parent":"#88","labels":["l5"],"children_done":0,"children_total":1,"rev":4460},{"id":"#90","kind":"task","status":"open","priority":1,"title":"Broadphase pair cache","parent":"#88","labels":["l5"],"rev":4458},{"id":"#93","kind":"task","status":"open","priority":1,"title":"Bench harness","parent":"#88","blockers":["#90"],"labels":["l5"],"blocked":true,"rev":4459}],"next":null,"dropped":null,"notices":[],"warnings":[],"budget":{"work":40,"work_limit":2000000,"rows":4,"bytes":402,"mem":4096}}
+%% end
+
+%% case result-node-kinds
+%% source [LQ/envelope §5.3] items 4, 5 and 7
+%% source §7.4
+%% note MATCH (k) WHERE k IN [#162, #412] RETURN k ORDER BY k.id on main: a finding and a rule with their kind tokens and keys.
+%% text
+branch: main | rev 4480 | 2 rows
+#162 finding confirmed important perf r2 C2 "Pair cache rebuilt every frame" about:#133
+#412 rule active critical owner "Never hold a World borrow across a system boundary" applies_to:crates/ecs/**
+%% json
+{"v":1,"branch":"main","rev":4480,"commit":"c161fc8c0e2d79fe630105e76e1f59447d391954b319fa268aafb8e5179043623","view":"tip","cols":["k"],"data":[{"id":"#162","kind":"finding","status":"confirmed","title":"Pair cache rebuilt every frame","severity":"important","f_kind":"perf","round":2,"local_id":"C2","about":["#133"],"rev":4470},{"id":"#412","kind":"rule","status":"active","criticality":"critical","authority":"owner","title":"Never hold a World borrow across a system boundary","applies_to":["crates/ecs/**"],"rev":4402}],"next":null,"dropped":null,"notices":[],"warnings":[],"budget":{"work":9,"work_limit":2000000,"rows":2,"bytes":190,"mem":1536}}
+%% end
+
+%% case result-node-with-extras
+%% source [LQ/envelope §5.1]
+%% source §5.2 f64
+%% source §5.4
+%% source §3.2 search
+%% source [50 §2.9] Q8
+%% note Q8 on main: CALL search(...) YIELD node, score ... RETURN node, score: a first column holding a node, then an extra.
+%% note score is an f64 rounded to 3 decimals by the relation. In JSON the rows are keyed by column and a node is "#N"
+%% note ([LQ/envelope §7.3], §7.4); the nodes block gives the facts the node lines print (INDEX.md §4 G-11).
+%% text
+branch: main | rev 4480 | 3 rows | search: 3 terms | titles+abstracts | index
+#301 decision accepted "Fencing tokens on every lease mutation" score=7.412
+#288 note active "Lease reclaim runs under the maintenance byte" score=6.905
+#305 rule active high "Reclaim only expired leases whose process is gone" applies_to:crates/lease/** score=5.118
+%% json
+{"v":1,"branch":"main","rev":4480,"commit":"c161fc8c0e2d79fe630105e76e1f59447d391954b319fa268aafb8e5179043623","view":"tip","cols":["node","score"],"data":[{"node":"#301","score":7.412},{"node":"#288","score":6.905},{"node":"#305","score":5.118}],"next":null,"dropped":null,"notices":[],"warnings":[],"budget":{"work":3100,"work_limit":2000000,"rows":3,"bytes":262,"mem":8192}}
+%% end
+
+%% case result-table
+%% source [LQ/envelope §5.5]
+%% source §5.2
+%% source §7.3
+%% source [50 §2.9] Q7
+%% note Q7 with USE lane/l5np, a tip view: the use key is present and the header has no view flag.
+%% note Columns are padded to their widest cell (name line included) and separated by two spaces; the last is not padded.
+%% text
+branch: lane/l5np | rev 4471 | 2 rows
+critic               raised  refuted  pct
+architecture-critic  7       2        28.6
+code-reviewer        3       0        0.0
+%% json
+{"v":1,"branch":"lane/l5np","rev":4471,"commit":"c4460cf1c7f5d4a03d9886eef03e3642409a2f81a096d461022b721c8ba92333c","view":"tip","use":"lane/l5np","cols":["critic","raised","refuted","pct"],"data":[{"critic":"architecture-critic","raised":7,"refuted":2,"pct":28.6},{"critic":"code-reviewer","raised":3,"refuted":0,"pct":0.0}],"next":null,"dropped":null,"notices":[],"warnings":[],"budget":{"work":64,"work_limit":2000000,"rows":2,"bytes":118,"mem":2048}}
+%% end
+
+%% case result-table-echo-cypher
+%% source [LQ/envelope §4]
+%% source §5.5
+%% source [LQ/gql-spelling §4.2]
+%% source [50 §2.9] Q3
+%% display cypher
+%% note Q3 on main: an anchored hop on a same-kind edge echoes under every profile; the quantifier in the Cypher display spelling.
+%% text
+branch: main | rev 4480 | 6 rows
+reads: s CHILD_OF*1..2 #88 | s is a child of #88 (through 1 to 2 steps)
+s.id  s.status     s.children_done  s.children_total
+#89   in_progress  0                0
+#90   open         0                0
+#92   done         0                0
+#93   open         0                0
+#95   open         0                1
+#97   open         0                0
+%% json
+{"v":1,"branch":"main","rev":4480,"commit":"c161fc8c0e2d79fe630105e76e1f59447d391954b319fa268aafb8e5179043623","view":"tip","reads":["s CHILD_OF*1..2 #88 | s is a child of #88 (through 1 to 2 steps)"],"cols":["s.id","s.status","s.children_done","s.children_total"],"data":[{"s.id":"#89","s.status":"in_progress","s.children_done":0,"s.children_total":0},{"s.id":"#90","s.status":"open","s.children_done":0,"s.children_total":0},{"s.id":"#92","s.status":"done","s.children_done":0,"s.children_total":0},{"s.id":"#93","s.status":"open","s.children_done":0,"s.children_total":0},{"s.id":"#95","s.status":"open","s.children_done":0,"s.children_total":1},{"s.id":"#97","s.status":"open","s.children_done":0,"s.children_total":0}],"next":null,"dropped":null,"notices":[],"warnings":[],"budget":{"work":52,"work_limit":2000000,"rows":6,"bytes":344,"mem":2048}}
+%% end
+
+%% case result-table-echo-gql
+%% source [LQ/envelope §4]
+%% source [LQ/gql-spelling §4.2]
+%% display gql
+%% note The same result in the GQL display spelling (HOLE(LQ-display-spelling)).
+%% text
+branch: main | rev 4480 | 6 rows
+reads: s CHILD_OF{1,2} #88 | s is a child of #88 (through 1 to 2 steps)
+s.id  s.status     s.children_done  s.children_total
+#89   in_progress  0                0
+#90   open         0                0
+#92   done         0                0
+#93   open         0                0
+#95   open         0                1
+#97   open         0                0
+%% json
+{"v":1,"branch":"main","rev":4480,"commit":"c161fc8c0e2d79fe630105e76e1f59447d391954b319fa268aafb8e5179043623","view":"tip","reads":["s CHILD_OF{1,2} #88 | s is a child of #88 (through 1 to 2 steps)"],"cols":["s.id","s.status","s.children_done","s.children_total"],"data":[{"s.id":"#89","s.status":"in_progress","s.children_done":0,"s.children_total":0},{"s.id":"#90","s.status":"open","s.children_done":0,"s.children_total":0},{"s.id":"#92","s.status":"done","s.children_done":0,"s.children_total":0},{"s.id":"#93","s.status":"open","s.children_done":0,"s.children_total":0},{"s.id":"#95","s.status":"open","s.children_done":0,"s.children_total":1},{"s.id":"#97","s.status":"open","s.children_done":0,"s.children_total":0}],"next":null,"dropped":null,"notices":[],"warnings":[],"budget":{"work":52,"work_limit":2000000,"rows":6,"bytes":344,"mem":2048}}
+%% end
+
+%% case result-values-numbers
+%% source [LQ/envelope §5.2] f64, duration, absent
+%% source §7.3
+%% source [F19 §8.3]
+%% note A table of an int n, an f64 f and a duration d (ms): 5400000, 1500, 604800000, 3000, 86400000 and absent.
+%% note f64 text is ECMAScript's shortest form with .0 appended when it has neither . nor e; a duration prints the
+%% note largest exact unit, else <n>ms.
+%% text
+branch: main | rev 4480 | 6 rows
+n  f      d
+1  28.6   90m
+2  0.0    1500ms
+3  100.0  1w
+4  0.001  3s
+5  1e+21  1d
+6  1e-7   -
+%% json
+{"v":1,"branch":"main","rev":4480,"commit":"c161fc8c0e2d79fe630105e76e1f59447d391954b319fa268aafb8e5179043623","view":"tip","cols":["n","f","d"],"data":[{"n":1,"f":28.6,"d":5400000},{"n":2,"f":0.0,"d":1500},{"n":3,"f":100.0,"d":604800000},{"n":4,"f":0.001,"d":3000},{"n":5,"f":1e+21,"d":86400000},{"n":6,"f":1e-7,"d":null}],"next":null,"dropped":null,"notices":[],"warnings":[],"budget":{"work":12,"work_limit":2000000,"rows":6,"bytes":120,"mem":1024}}
+%% end
+
+%% case result-values-misc
+%% source [LQ/envelope §5.2]
+%% source §7.3
+%% source [F19 §2.5] rule 3
+%% note Columns: id (node), ok (bool), at (timestamp), c (commit), st (enum), p (priority, an integer in tables),
+%% note path and words (text: bare when every byte is in the bare set and 1-64 bytes, else quoted), tags (list of text).
+%% note Row 1: #89, true, 2026-09-25T12:03:00Z, commit 4460cf1c7f5d..., in_progress, 1, crates/ecs/**, two words, [a, b].
+%% note Row 2: #90, false, absent, absent, open, 2, docs/x.md, the empty text, the empty list.
+%% text
+branch: main | rev 4480 | 2 rows
+id   ok     at                 c          st           p  path           words        tags
+#89  true   2026-09-25T12:03Z  c4460cf1c  in_progress  1  crates/ecs/**  "two words"  [a,b]
+#90  false  -                  -          open         2  docs/x.md      ""           []
+%% json
+{"v":1,"branch":"main","rev":4480,"commit":"c161fc8c0e2d79fe630105e76e1f59447d391954b319fa268aafb8e5179043623","view":"tip","cols":["id","ok","at","c","st","p","path","words","tags"],"data":[{"id":"#89","ok":true,"at":"2026-09-25T12:03:00.000Z","c":"c4460cf1c7f5d4a03d9886eef03e3642409a2f81a096d461022b721c8ba92333c","st":"in_progress","p":1,"path":"crates/ecs/**","words":"two words","tags":["a","b"]},{"id":"#90","ok":false,"at":null,"c":null,"st":"open","p":2,"path":"docs/x.md","words":"","tags":[]}],"next":null,"dropped":null,"notices":[],"warnings":[],"budget":{"work":15,"work_limit":2000000,"rows":2,"bytes":260,"mem":1024}}
+%% end
+
+%% case result-untrusted-text
+%% source [LQ/envelope §5.16]
+%% source [F19 §2.5] rules 1 and 2
+%% source [F19 §8.3]
+%% note Four notes whose titles need the quoted form: quotes and a backslash; LF, TAB and ESC; 70 Cyrillic letters
+%% note (140 bytes, cut at the last scalar boundary at or before byte 117, then ... inside the quotes); 116 a, LF and
+%% note 10 b (the cut would split the \n escape, so it falls before it). JSON strings are never cut.
+%% text
+branch: lane/l5np | rev 4471 | 4 rows
+#501 note active "Say \"hi\" \\ now"
+#502 note active "line1\nline2\ttab\u{1b}end"
+#503 note active "ЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ..."
+#504 note active "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa..."
+%% json
+{"v":1,"branch":"lane/l5np","rev":4471,"commit":"c4460cf1c7f5d4a03d9886eef03e3642409a2f81a096d461022b721c8ba92333c","view":"tip","cols":["n"],"data":[{"id":"#501","kind":"note","status":"active","title":"Say \"hi\" \\ now","rev":4471},{"id":"#502","kind":"note","status":"active","title":"line1\nline2\ttab\u001bend","rev":4471},{"id":"#503","kind":"note","status":"active","title":"ЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖЖ","rev":4471},{"id":"#504","kind":"note","status":"active","title":"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa\nbbbbbbbbbb","rev":4471}],"next":null,"dropped":null,"notices":[],"warnings":[],"budget":{"work":20,"work_limit":2000000,"rows":4,"bytes":500,"mem":2048}}
+%% end
+
+%% case header-lines
+%% source [LQ/envelope §3.1]
+%% source §3.2
+%% source §9.1-§9.3
+%% source [F19 §4.2]
+%% source [F19 §4.3]
+%% note One header line per result, each checked against the part limits of [F19 §4.2]. In order:
+%% note an empty tip result; a past view with the recompute extra ([50 §2.9] Q11); a live result with a
+%% note files part (tree lanes/l5np on git branch u/l5np at 7c1e0a4); the same with 3 dirty rows written 12 minutes ago;
+%% note no tree bound; across two refs; a diff with its LCA; a composite query ([50 §2.9] Q15); a search; a catalog
+%% note result; behind main; page 2 of a pinned cursor after the tip moved; a cut page with dropped rows; a committed
+%% note write; a replayed write; a dry run with IF TIP. The cursor is the cursor-bytes golden's text.
+%% text
+branch: main | rev 4480 | 0 rows
+branch: main | rev 4400 | as-of (USE s4400) | 4 rows | derived recomputed for 3 nodes (80 ops reverse-applied)
+branch: lane/l5np | rev 4471 | live | 3 rows | files @ lanes/l5np (u/l5np 7c1e0a4)
+branch: lane/l5np | rev 4473 | live | 6 rows | files @ lanes/l5np (u/l5np 7c1e0a4, dirty 3 12m ago)
+branch: main | rev 4480 | live | 0 rows | files: no tree bound
+branch: main | rev 4480 | across main c161fc8c0, lane/l5np c4460cf1c | 4 rows
+branch: main | rev 4480 | diff main...lane/l10 (LCA rev 4456 c8a32d774) | 2 rows
+branch: main | rev 4480 EXCEPT main~5 = rev 4474 (as-of) | 2 rows
+branch: main | rev 4480 | 3 rows | search: 3 terms | titles+abstracts | index
+branch: main | rev 4480 | 14 rows | schema v3
+branch: lane/l5np | rev 4471 | 4 rows | behind main 9
+branch: main | rev 4480 | 50 rows | more: cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8 | view moved +3 commits since page 1
+branch: main | rev 4480 | 50 rows | dropped 50 | more: cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8
+branch: lane/l5np | rev 4471 -> 4472 | committed c1d972ce5 | key wf:r7/dev1/complete-89 | lease L-18
+branch: lane/l5np | rev 4473 | replayed
+branch: lane/l5np | rev 4471 | tx (dry) | IF TIP ok | would commit 3 changes
+%% end
+
+%% case header-staged
+%% source [LQ/envelope §3.2] viewflag
+%% source [F19 §4.2]
+%% source [50 §2.9] Q16
+%% note A staging ref's header. Its base part is 71 bytes, above [F19 §4.2]'s 60: every staging ref name
+%% note merge/<dst>/from/<src> with the staged flag passes the limit (spec finding F-9); the line is the rendering
+%% note the rules give, and a limit check must not reject this case until F-9 is decided.
+%% text
+branch: merge/lane/l10/from/main | rev 4481 | staged (read-only) | 1 row
+%% end
+
+%% case footer-lines
+%% source [LQ/envelope §6]
+%% source §5.12
+%% source [F19 §6.3]
+%% note Footer lines, one per situation: a dropped line; a budget-use line (work more than half used); the
+%% note continuation of a free-form text with a known remaining count; of the named query ready invoked by argv
+%% note (canonical argument order); of the query tool; a budget cut of a resumable plan; an fs cut; the loop verdict
+%% note lines of std.loop (round 2 with 0 and with 1 confirmed blockers).
+%% text
+dropped: node keys on 50 rows (use --json or --limit 20)
+budget: work 1,203,441/2,000,000
+12 more | cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8 | run the same query with --cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8
+more | cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8 | moirai q ready scope=88 --cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8
+more | cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8 | call query again with cursor=k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8
+budget: work 2,000,000 exhausted after #812 | continue: run the same query with --cursor k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8 | exit 10
+fs: 400 units used; 7 links unverified | --budget fs=800 | exit 10
+confirmed blockers in round 2: 0 -> DESIGN APPROVED
+confirmed blockers in round 2: 1 -> continue
+%% end
+
+%% case tx-committed
+%% source [LQ/envelope §9.1]
+%% source [50 §2.9] Q18
+%% note Q18 committed on lane/l5np: rev 4471 -> 4472, key and lease echoed; the MATCH statement matched #89 and its
+%% note SET completed the task, releasing lease L-18 into a settled marker; #93 became ready.
+%% text
+branch: lane/l5np | rev 4471 -> 4472 | committed c1d972ce5 | key wf:r7/dev1/complete-89 | lease L-18
+1 MATCH ... EXPECT 1: matched 1 (#89)
+  SET #89.done = true: status in_progress->done (resolution completed); lease L-18 released into settled
+affected: newly ready #93 | markers: settled #89 (lane/l5np)
+%% end
+
+%% case tx-replayed
+%% source [LQ/envelope §9.2]
+%% source [50 §2.9] Q20
+%% note Q20 re-run with the same key and bound payload: the original commit at rev 4473 is reported, exit 0.
+%% text
+branch: lane/l5np | rev 4473 | replayed
+replayed: rev 4473 c4db59edf (key ch:3f9a07c1)
+%% end
+
+%% case tx-dry-closing-lines
+%% source [LQ/envelope §9.3]
+%% source §9.4
+%% note The closing lines of a DRY result with IF TIP on lane/l5np at rev 4471 (the block names the tip commit by a prefix):
+%% note the invariants line, the target-set digest of the target-set-digest golden, and the apply instruction.
+%% text
+affected: none | invariants ok
+targets: df505c0603f14d46b66a88d2f767999e
+to apply: send the same TX without DRY, with IF TARGETS 'df505c0603f14d46b66a88d2f767999e'; IF TIP c4460cf1c refuses it if lane/l5np moved in between
+%% end
+
+%% case cursor-bytes
+%% source [LQ/envelope §8]
+%% source [LQ/canonical-ast §7.2] cursor query hash
+%% note A pinned cursor after page 1 of MATCH (t:task) WHERE t.status = 'open' RETURN t ORDER BY t.priority on main
+%% note (view commit c161fc8c0e2d79fe6...). Its query hash is H = bdc668698aa3eae102b548db83f0b24e, from the C-AST
+%% note (QUERY (PART _ (CLAUSES [(MATCH false [(PATH (NODEP 0 ["task"] [] _) [])] (CMP = (PROP (VAR 0) "status") (ENUM "open")))]
+%% note (RETURN false false [(RITEM (VAR 0) _)] [(SORT (PROP (VAR 0) "priority") false)] _))) [])).
+%% note CursorHead: version 1, flags 0 (pinned), page_rows 50, pages 1, query_hash H[0..8] as u64 LE (0xe1eaa38a6968c6bd),
+%% note now_ms 1790337780000 (2026-09-25T12:03:00Z), work_left 1999000, n_parts 1, n_keys 2; part_commit the view commit's
+%% note id16; keys: priority 1 (tag 3, i64), then the binding identity #93 (tag 6, u32); check XXH3-64 of bytes 0..66.
+%% note The text form is k and the Crockford base-32 of the 74 bytes.
+%% hash xxh3_64 0..66 = 0xf5575c2de0d8871d
+%% text
+k0403400100001fe6d1mrn8zaw4g8jwprm00g004rg0f00000000020g000b1zj60wbbszshg21f7drfnjh3g6080000000000035t00000erfp705ne5fx8
+%% hex
+; CursorHead (36 bytes)
+01 00 3200 01000000
+bd c6 68 69 8a a3 ea e1 ; query_hash
+20 89 72 d8 a0 01 00 00 ; now_ms
+98 80 1e 00 00 00 00 00 ; work_left
+01 02 0000 ; n_parts n_keys _reserved
+; part_commit (16 bytes)
+16 1f c8 c0 e2 d7 9f e6 30 10 5e 76 e1 f5 94 47
+; keys
+03 01 00 00 00 00 00 00 00
+06 5d 00 00 00
+; check = {xxh3_64 0..66} as u64 LE
+1d 87 d8 e0 2d 5c 57 f5
+%% end
+
+%% case target-set-digest
+%% source [LQ/envelope §9.4]
+%% source [LQ/canonical-ast] C-11
+%% note The DRY of Q19: statement 1 (MATCH ... EXPECT 3 SET t.priority = 1) binds t to #90, #93 and #95, whose uids
+%% note are 018f3c2e7a117b3c9d5e4c2f1a0b9e90, ...9e93 and ...9e95; its mutations use t only, so each binding is one
+%% note uid; the bindings are sorted bytewise. The digest is BLAKE3-128 over the bytes below.
+%% hash blake3_256 0..82 first 16 = df505c0603f14d46b66a88d2f767999e
+%% hex
+14000000 6d 6f 69 72 61 69 2d 6c 71 2d 74 61 72 67 65 74 73 2d 76 31 ; lp("moirai-lq-targets-v1")
+0100 ; lq
+01000000 03000000 ; statement 1, 3 bindings
+01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b 9e 90 ; #90
+01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b 9e 93 ; #93
+01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b 9e 95 ; #95
+%% end

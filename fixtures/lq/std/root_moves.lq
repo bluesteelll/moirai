@@ -1,0 +1,4 @@
+DEFINE QUERY root_moves($root: text = 'project') SHAPE table BUDGET light AS {
+  CALL root_moves($root) YIELD hlc, class, from, to, git
+  RETURN hlc, class, from, to, git ORDER BY hlc, from, to
+}

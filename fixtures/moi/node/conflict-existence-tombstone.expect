@@ -1,0 +1,30 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/conflict-existence-tombstone.moi
+%% file node
+%% context core
+%% source [F14 §6.8.1]
+%% source [F14 §6.10]
+%% source [RULES/merge-table] open point 5 (d)
+%% note DeleteVsModify on a task (delete-wins): a tombstone file carrying the conflict line; the live side
+%% note carries status, fields, labels, a counter total and a body.
+%% canonical self
+%% keys
+node 1a000000000000000000000000000013 task deleted "obsolete" -
+  field title text "Measure the flush p99"
+  edge blocks 1a000000000000000000000000000012 flagged
+  conflict existence DeleteVsModify prov theirs
+    base live task
+      field title text "Measure the flush p99"
+      field work_kind enum measure
+    ours live task
+      status in_progress none
+      field labels set text 1 "perf"
+      field title text "Measure the flush p99"
+      field work_kind enum measure
+      counter reopen_count 1
+      body "Measure with the scanner on."
+    theirs deleted task "obsolete" -
+%% image
+deleted cbf36ebd4642ba363780cb5b1263a4625348a84f64cb16bfacfceb6ecdcd42fef 2026-09-21T16:13:20.000Z
+%% end

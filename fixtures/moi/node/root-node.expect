@@ -1,0 +1,22 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/root-node.moi
+%% file node
+%% context core
+%% source [F14 §6.11]
+%% source [F14 §5.2]
+%% source [F14 §5.4]
+%% source [F08 §11.3]
+%% note Row R4 and blocks: the root node of project; a path_moves block of three entries sorted by (hlc,
+%% note from, to, class, git): two with one hlc, one with an empty git and one whose to holds a comma
+%% note (JSON arrays need no other escape).
+%% canonical self
+%% keys
+node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
+  field path_moves set pathmove 3 01a0c45fae400000 observed project "crates/old/" project "crates/new, v2/" sha256:cd3ff2079e038724037e44f3fc3af41b634de4a0ed456c11fb2e65471569d389 01a0c4506c000003 explicit project "docs/plan/" project "docs/archive/plan/" sha1:d6b4c7833e87a2807b7b7b41a4ba5bf4db7929a7 01a0c4506c000003 committed project "docs/a/" project "docs/b/" -
+  field root text "project"
+  field title text "root:project"
+%% image
+created c92681ff98b1b28a55cc072400663888aecef7e6c470ddc3463c6a5bfe4a12b44 2026-09-21T14:13:20.000Z
+updated c32e1a9b7e1238140fc5e6788b2835285f00633d0cbb4d5f0dad5ea24c078da20 2026-09-21T15:43:20.000Z
+%% end

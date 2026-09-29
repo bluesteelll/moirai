@@ -1,0 +1,10 @@
+moirai-node 1
+uid: dba5cf7715202bc4fc8feb1405c7774b
+kind: artifact
+status: planned
+created: c9a7ccad64f3881d34ad43ccdd6f1a3a67ebf31142b27b1b798dfaf5c6e9e2e22 2026-09-21T14:13:20.000Z
+updated: c1a091ab78cd95461f1f507a49e104c8c4acacfa6735aa1028a401c4c056e84e3 2026-09-21T15:43:20.000Z
+field artifact_kind: source
+field origin_path: Cargo.toml
+field path: Cargo.toml
+field root: project

@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/not-utf8--title-byte-ff.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note A byte FF in the title line: the file is not UTF-8.
+%% refuse ImageParse not-utf8
+%% end

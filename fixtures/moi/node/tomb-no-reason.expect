@@ -1,0 +1,14 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/tomb-no-reason.moi
+%% file node
+%% context core
+%% source [F14 §6.10]
+%% note A tombstone without reason and replacement: `deleted(note, "", none)`.
+%% canonical self
+%% keys
+node 3b000000000000000000000000000011 note deleted "" -
+  field title text "Scratch"
+%% image
+deleted cddfb7ca6faa58f2803ea1e873fd9028fd679e2ec077a172ca58e747064599c58 2026-09-21T16:13:20.000Z
+%% end

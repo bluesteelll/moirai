@@ -1,0 +1,31 @@
+# Product crate (docs/m0/PLAN.md §2.2). Allowed dependencies: moirai-diff; sha1, sha2, blake3, xxhash-rust; dev: proptest
+# (WP-62's property tests; the §2.2 row does not list it yet, a plan finding of the WP-62 review). Filled by R-FL1A and
+# R-FL1B.
+[package]
+name = "moirai-files"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "FL-1: path rules, fold_v1, oid, uid derivations, anchors, scope scanners, ignore matchers, similarity."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+moirai-diff.workspace = true
+# R-FL1A (WP-62): `oid` (SHA-1, SHA-256), uid derivations (BLAKE3-128), line and raw-content hashes (XXH3-64).
+sha1.workspace = true
+sha2.workspace = true
+blake3.workspace = true
+xxhash-rust.workspace = true
+
+[dev-dependencies]
+# R-FL1A (WP-62): property tests of the streaming reader against whole-buffer definitions.
+proptest.workspace = true
+
+[lints]
+workspace = true

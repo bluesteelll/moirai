@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/base64url--padding.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note A base64url value with padding.
+%% refuse ImageParse base64url
+%% end

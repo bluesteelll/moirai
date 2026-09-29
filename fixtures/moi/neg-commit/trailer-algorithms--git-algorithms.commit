@@ -1,0 +1,21 @@
+tree f000b182b8492e20df0c71be5463b9e5ec234a6c
+parent 018e6a12ce584771b360c194bc69088493ee821e
+author moirai/dev#1 <developer@moirai.invalid> 1790000600 +0000
+committer moirai/dev#1 <developer@moirai.invalid> 1790000600 +0000
+
+reopen #1 and restart it
+
+Moirai-Commit: c163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+Moirai-Kind: ordinary
+Moirai-Ref: main
+Moirai-Hlc: 117309479321600000
+Moirai-Actor: dev#1
+Moirai-Role: developer
+Moirai-Session: claude:s1
+Moirai-Git-Head: sha1:78f0dadcf063f3508dd61abc2c4c73505a7191dc
+Moirai-Git-Branch: storage/lock-timeout
+Moirai-Worktree: D:/work/storage
+Moirai-Git-Base: sha256:0000000000000000000000001881233f765a934b643b556267d6b1a3822de612
+Moirai-Schema: 1
+Moirai-Ops: 6
+Moirai-Idem: fb440fbdb1496ab41353651e5e01c529

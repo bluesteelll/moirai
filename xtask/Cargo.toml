@@ -1,0 +1,31 @@
+# Tool crate (docs/m0/PLAN.md §2.2), run as `cargo xtask` (.cargo/config.toml). Checked by GT20 (e) on every target.
+# Allowed dependencies: serde_json, blake3, xxhash-rust, sha2. Written by R-HARN; the `ucd` subcommand by R-FL1A
+# (docs/m0/authors.md).
+[package]
+name = "xtask"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+autolib = false
+description = "The repository's tool runner: gate, lints, hooks, fixtures, worktrees, private index, nightly."
+
+[[bin]]
+name = "xtask"
+path = "src/main.rs"
+
+[dependencies]
+blake3.workspace = true
+serde_json.workspace = true
+xxhash-rust.workspace = true
+
+[dev-dependencies]
+# Property tests of `xtask hex` (the code rules of every M0 work package); PLAN §2.2's row lists run-time
+# dependencies only.
+proptest.workspace = true
+
+[lints]
+workspace = true

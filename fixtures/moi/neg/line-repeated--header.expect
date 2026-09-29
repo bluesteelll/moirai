@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/line-repeated--header.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note Two lines of one header key.
+%% refuse ImageParse line-repeated
+%% end

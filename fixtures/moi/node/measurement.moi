@@ -1,0 +1,20 @@
+moirai-node 1
+uid: 9a000000000000000000000000000011
+kind: measurement
+title: Flush p99 at 1e5 nodes
+status: current
+created: c029309f6f4b802edb6a6d6d765ff295c7ebd71fad28da993a0f35d4ce1a6b3c6 2026-09-21T14:13:20.000Z
+updated: cbd1c4598d0704f60bd91f62da5fd7e4b364944fad59fb12b9a32021366afe0fc 2026-09-21T15:43:20.000Z
+field baseline: 9a000000000000000000000000000012
+field command: probes flush --n 100000
+field env_host: laptop
+field env_load: loaded
+field env_profile: L
+field env_scale: 1e5
+field measured_on: sha256:bfe2cf05cfbecd8ed9c127a1e57927d122c30d0162aa86a785fcd973c7715aed
+field metric: flush_p99_ms
+field target: 40.0
+field unit: ms
+field value: 28.6
+edge about -> 1a000000000000000000000000000011
+edge confirms -> 7f000000000000000000000000000011

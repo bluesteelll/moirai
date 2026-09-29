@@ -1,0 +1,27 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/decision.moi
+%% file node
+%% context core
+%% source [F08 §5.4.5]
+%% source [F08 §9.3] decision
+%% note Kind decision: alternatives is a record list of two records (a block); a relates edge to a larger uid.
+%% canonical self
+%% keys
+node 5d000000000000000000000000000011 decision
+  status accepted none
+  field alternatives text "flush per commit\ttoo slow\t#u:9a000000000000000000000000000011\t\t\nno flush\tloses data\t\t\t"
+  field context text "the flush dominates commit latency"
+  field criticality enum low
+  field owner_quote text "One flush per group is fine."
+  field revive_condition text "a faster device"
+  field title text "Group commit with one flush"
+  field tradeoff text "a group waits up to 2 ms"
+  field what text "One FlushFileBuffers per group."
+  field why text "measured 5x fewer flushes"
+  edge relates f0000000000000000000000000000001
+  edge supersedes 5d000000000000000000000000000012
+%% image
+created c58afcb6b44300ef4fe4e29ed6a86a9d8c4ec24da6cd03f51eb5d242656812f2f 2026-09-21T14:13:20.000Z
+updated c09d0347ff80a867e6ed18b00d9abdc0cabb84c1ef2be04fd598bfbdaba0bc76a 2026-09-21T15:43:20.000Z
+%% end

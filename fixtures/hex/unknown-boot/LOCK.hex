@@ -1,0 +1,42 @@
+# fixtures/hex/unknown-boot/LOCK.hex: the LOCK of store U, used by a process in Unknown-boot mode ([OS/proc §5]).
+# Its slot record's ProcId has boot_known = 0 and boot_hash = 0 (rule U4); the header is as `init` wrote it.
+# LockHdr (64 B at offset 0, [F03 §4.1])
+hdr:
+  "MLCK"                                    # magic
+  {u16 1}                                   # format
+  {u16 0}                                   # flags (no bit defined in format v1)
+  {u16 256}                                 # n_slots
+  {u16 128}                                 # slot_rec_size
+  {u64 0x4000000000000000}                  # role_base = 2^62
+  {u64 0x4000000000010000}                  # slot_base = 2^62 + 2^16
+  {u64 0x1a0c4506c000000}                   # created_hlc
+  00*20                                     # _reserved
+  {xxh3_64 hdr..hdr+56}                     # xxh3: XXH3-64 seed 0 over [0, 56)
+{pad_to 8832}                               # slot records before slot 37: zero (free)
+# SlotRec[37] at offset 8832: Codex server in Unknown-boot mode: ProcId boot_known 0, boot_hash 0 ([F03 §8.1])
+slot37:
+  01                                        # ver
+  01                                        # kind 1 (session)
+  01                                        # os
+  09                                        # flags: parent_known=1, parent_start_known=0, harness=2
+  {u16 37}                                  # slot (= its position)
+  {u16 0}                                   # _reserved
+  {u64 0xbadb0070000001}                    # nonce
+  25 f9 a1 86 b1 b2 f2 0c f9 ee 87 e9 aa 42 e8 a0  # session_hash
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # alias_hash
+  # proc (boot unknown): ProcId (32 B, [F03 §5.1])
+    01                                      # os
+    01                                      # flags (start_known=1, start_boot_relative=0, boot_known=0, pidns_known=0)
+    {u16 0}                                 # _reserved
+    {u32 7700}                              # pid
+    {u64 0x18d75b854df8f200}                # start (ns)
+    {u64 0}                                 # boot_hash
+    {u64 0}                                 # pidns
+  # parent: ParentRec (16 B, [F03 §5.2])
+  {u32 7600}                                # parent.pid
+  {u32 0}                                   # parent._reserved
+  {u64 0}                                   # parent.start
+  {u64 0x1a0c45083700000}                   # acquired_hlc
+  00*16                                     # _reserved2
+  {xxh3_64 slot37..slot37+120}              # xxh3 over [0, 120)
+{pad_to 36864}                              # remaining slot records: zero (free)

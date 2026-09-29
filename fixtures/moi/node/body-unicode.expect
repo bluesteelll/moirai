@@ -1,0 +1,16 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/body-unicode.moi
+%% file node
+%% context core
+%% source [F14 §6.9]
+%% note Bodies: non-ASCII and C1 bytes kept.
+%% canonical self
+%% keys
+node 3b000000000000000000000000000011 note
+  field title text "body-unicode"
+  body "caf\u00e9 \u2713\n\u0085 NEL kept\n"
+%% image
+created c5551e7b7783fe1a6dc0061eea4aa4fcd91b4fb9541d0c623a5162a0b08fe7a36 2026-09-21T14:13:20.000Z
+updated c6176c04133ca34487d5ce21a4a245b11833d4a6e3baddd423abb96c12ac3239e 2026-09-21T15:43:20.000Z
+%% end

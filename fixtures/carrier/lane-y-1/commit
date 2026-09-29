@@ -1,0 +1,16 @@
+tree 8f9e0bb9534e3195af4dec678e22f456b157f402
+parent ccad424446fa053d2897aa44b21b74b9ebf6ad37
+author moirai/dev#4 <developer@moirai.invalid> 1790001620 +0000
+committer moirai/dev#4 <developer@moirai.invalid> 1790001620 +0000
+
+lane y: estimate, priority, symptom
+
+Moirai-Commit: c97e3cd7aad4af5cbc712d072015283ec6c5530ce87d4815f79890a165a9e9af7
+Moirai-Kind: ordinary
+Moirai-Ref: lane/y
+Moirai-Hlc: 117309546168320000
+Moirai-Actor: dev#4
+Moirai-Role: developer
+Moirai-Session: claude:s5
+Moirai-Schema: 1
+Moirai-Ops: 3

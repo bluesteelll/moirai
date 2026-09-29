@@ -1,0 +1,99 @@
+{
+  "example": "undo",
+  "spec": "§11.11, §10.8, [F13 §4.2] MC-5, [F12 §3.5], [LQ/errors §5.7] E402",
+  "setup": "the stream of 04-claim-complete.json through n = 10: main's tip is c00000004 (seq 4), the completion of #2, which emitted the marker settled (#2, main, c00000004)",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 11,
+        "cmd": "Undo",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "ref": "main",
+          "expect": "c00000004"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 4,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "ref": "main",
+          "old": "c0000000400000000000000000000000000000000000000000000000000000000",
+          "new": "c0000000300000000000000000000000000000000000000000000000000000000",
+          "moved_back": 1,
+          "markers": [
+            {
+              "kind": "cleared",
+              "id": "#2",
+              "ref": "main",
+              "commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+              "outcome": null,
+              "cause": "undo"
+            }
+          ],
+          "triage": [
+            "#2 is no longer done on main (undo of c00000004): settled marker cleared"
+          ]
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 12,
+        "cmd": "Undo",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "ref": "main",
+          "expect": "c00000004"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 3,
+        "errors": [
+          {
+            "code": "E402",
+            "name": "tip_moved",
+            "severity": "error",
+            "span": null,
+            "message": "main moved: IF TIP c00000004, the tip is c00000003 (rev 3)",
+            "suggest": [],
+            "expected": [],
+            "help": "run the block with DRY again and apply its digest",
+            "detail": [
+              "nothing was written"
+            ],
+            "statement": null,
+            "tip": "c0000000300000000000000000000000000000000000000000000000000000000",
+            "expected_tip": "c0000000400000000000000000000000000000000000000000000000000000000",
+            "targets": null,
+            "written": false
+          }
+        ],
+        "exit": 4
+      }
+    }
+  ]
+}

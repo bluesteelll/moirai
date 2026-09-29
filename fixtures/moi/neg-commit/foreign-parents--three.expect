@@ -1,0 +1,11 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg-commit/foreign-parents--three.commit
+%% file commit
+%% context carrier destination A
+%% source [F14 §9.2]
+%% source [F07 §15]
+%% note A foreign commit (the hand edit) with three parents.
+%% note Its tree and parents are those of carrier case ordinary (destination A); its object id is 4cb47587a9ab66d26bb6f60955affcda095c680e.
+%% refuse ImageParse foreign-parents
+%% end

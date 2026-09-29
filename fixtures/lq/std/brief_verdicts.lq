@@ -1,0 +1,4 @@
+DEFINE QUERY brief_verdicts($since: rev) SHAPE node BUDGET light AS {
+  MATCH (v:verdict) WHERE v.created > $since
+  RETURN v ORDER BY v.created, v.id
+}

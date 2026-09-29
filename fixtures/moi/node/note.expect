@@ -1,0 +1,34 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/note.moi
+%% file node
+%% context core
+%% source [F14 §6.2]
+%% source [F14 §6.4]
+%% source [F08 §5.4.6]
+%% source [F08 §9.3] note
+%% note Kind note: a side status (superseded), the tagged applies_to set, an sha1 oid, a counter.
+%% canonical self
+%% keys
+node 3b000000000000000000000000000011 note
+  status superseded none
+  field applies_to set text 3 "lane:l5np" "role:tester" "path:crates/phys/**"
+  field authority enum measured
+  field confidence enum inferred
+  field defence text "exclude the store directory"
+  field mechanism text "the scanner opens every new file\nand holds it during FlushFileBuffers"
+  field note_kind enum lesson
+  field observed_git_sha oid sha1 281f7d239824126201c24e5e63b76fcafa16784d
+  field review_after int 1800000000
+  field symptom text "fsync p99 above 40 ms"
+  field title text "Flush stalls under real-time scanning"
+  counter incidents 3
+  edge answers 6c000000000000000000000000000011
+  edge cites 4e000000000000000000000000000011
+  edge scoped_to 0a000000000000000000000000000001
+%% image
+created cd97eb197e8b3eb1422c414b72299a4c85091bf10014fe79d0b7bb66e21bfc2b2 2026-09-21T14:13:20.000Z
+updated cf727fd737bc3bb0d3782edc1cc9f45725f635ca2b26acbf7831625e227cde710 2026-09-21T15:43:20.000Z
+ledger incidents +1 c28b0134429cd3822457e682773c8dfaefe09f301af9f3d42e25ce761368081cc
+ledger incidents +2 cc7db5b93909f4b6c2930e9f0c6a06cd1c77e4bf0fd7c6a7916095a573f3979c8
+%% end

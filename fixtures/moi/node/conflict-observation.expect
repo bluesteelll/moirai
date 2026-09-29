@@ -1,0 +1,23 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/conflict-observation.moi
+%% file node
+%% context core
+%% source [F14 §6.8]
+%% source [RULES/link-merge-rules] PC-002
+%% note An observation PathClaim on a file node created by the merge: base and ours absent (empty sides),
+%% note theirs the composite; the six member field lines are omitted.
+%% canonical self
+%% keys
+node 3f9005c0f8753a1a34e0bde2bd1d4e68 artifact
+  field artifact_kind enum doc
+  field origin_path path project "docs/locking/lock.md"
+  field root text "project"
+  conflict observation PathClaim
+    base absent
+    ours absent
+    theirs path project "docs/locking/lock.md" | oid sha1 8d9082ce23280ee2982895e1c85231ee5344613e | int 40 | oid sha1 c7afb91bc27e70a8d9b8a453c06b0fef58b2e63d | oid sha1 8d9082ce23280ee2982895e1c85231ee5344613e | absent
+%% image
+created c6133aa5a8b82a2b410951341953c69d19a81e9e70f88d5031f2647937bd4a908 2026-09-21T14:13:20.000Z
+updated c6e57b52294ecf7e1854a5e0f8530ab824461a2e7e7a34521541c9e6ca3a1df9f 2026-09-21T15:43:20.000Z
+%% end

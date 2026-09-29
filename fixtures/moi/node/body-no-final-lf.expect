@@ -1,0 +1,16 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/body-no-final-lf.moi
+%% file node
+%% context core
+%% source [F14 §6.9]
+%% note Bodies: a body without a final LF: the file ends in its LF.
+%% canonical self
+%% keys
+node 3b000000000000000000000000000011 note
+  field title text "body-no-final-lf"
+  body "One line, no final LF."
+%% image
+created c7f2b3e3c84b95741726394913f676033d4e7c44197a1e8fd73125880cdba82d6 2026-09-21T14:13:20.000Z
+updated ce68260812d69d38ba713ef7142cbaada5604332f63c8117650d4beb1dbd0b817 2026-09-21T15:43:20.000Z
+%% end

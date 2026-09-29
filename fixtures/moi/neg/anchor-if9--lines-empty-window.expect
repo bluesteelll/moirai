@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/anchor-if9--lines-empty-window.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note A lines anchor whose window holds no hash (I-F9).
+%% refuse ImageParse anchor-if9
+%% end

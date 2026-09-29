@@ -1,0 +1,10 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg-tree/layout--h1-uppercase/
+%% file tree
+%% context destination object format sha1
+%% source [F14 §9.2]
+%% source [F14 §3.4]
+%% note A fan-out directory in upper case (the only directory of its name, so the tree checks out on a case-insensitive volume).
+%% refuse ImageParse layout
+%% end

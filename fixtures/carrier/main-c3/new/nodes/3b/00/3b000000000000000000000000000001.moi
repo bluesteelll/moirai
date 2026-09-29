@@ -1,0 +1,11 @@
+moirai-node 1
+uid: 3b000000000000000000000000000001
+kind: note
+title: Flush stalls under real-time scanning
+status: active
+created: c64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541 2026-09-21T14:13:20.000Z
+updated: ce9e5a7d9c65899681f606c97a70cb27fed3c4a7583f328fceaada34ccc0053b9 2026-09-21T14:53:20.000Z
+field note_kind: hazard
+field symptom: fsync p99 above 40 ms
+---
+Real-time scanning adds 40 ms to FlushFileBuffers.

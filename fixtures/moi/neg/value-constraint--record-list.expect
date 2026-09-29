@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/value-constraint--record-list.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note A record list whose record has 3 members, not 4.
+%% refuse ImageParse value-constraint
+%% end

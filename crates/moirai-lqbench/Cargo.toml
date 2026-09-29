@@ -1,0 +1,22 @@
+# Test-only crate (docs/m0/PLAN.md §2.2). Allowed dependencies: moirai-model, moirai-harness-stub, moirai-tokcount; serde_json. Filled by WP-70 to WP-72 (R-BENCH).
+[package]
+name = "moirai-lqbench"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+repository.workspace = true
+publish = false
+autobins = false
+description = "LQ-Bench: generator, corpus, scorer, renderer, CLI and MCP shims, headless runner (test-only)."
+
+[lib]
+path = "src/lib.rs"
+
+[dependencies]
+moirai-model.workspace = true
+moirai-harness-stub.workspace = true
+moirai-tokcount.workspace = true
+
+[lints]
+workspace = true

@@ -1,0 +1,6 @@
+DEFINE QUERY pack_rules($role: text, $phase: text? = NULL) SHAPE node BUDGET light AS {
+  MATCH (r:rule)
+  WHERE r.status = 'active'
+    AND (applies_role(r, $role) OR ($phase IS NOT NULL AND applies_phase(r, $phase)))
+  RETURN r ORDER BY r.criticality, r.authority, r.id
+}

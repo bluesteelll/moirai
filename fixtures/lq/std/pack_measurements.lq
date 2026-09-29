@@ -1,0 +1,6 @@
+DEFINE QUERY pack_measurements($lane: node) SHAPE node BUDGET light AS {
+  MATCH (m:measurement)
+  WHERE m.status = 'current'
+    AND NOT EXISTS { MATCH (r:run)-[:PRODUCED]->(m), (r)-[:RUNS_IN]->(l:lane) WHERE l <> $lane }
+  RETURN m, staleness(m) AS staleness ORDER BY m.id
+}

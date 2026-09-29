@@ -1,0 +1,562 @@
+{
+  "example": "merge-staged",
+  "spec": "§2.3 (staged), §11.7, §11.8, §11.9, [F12 §6.6], [F12 §7.9], [F12 §9.2]–§9.4, [F19 §10.2] staged, [F19 §12.2]",
+  "setup": "the stream of 02-tx-create.json through n = 4: a store with seed 42 and the test profile's init-fixed values; the orchestrator's session role lease L-1 (token 1, holder orch, anchor session, slot of claude:s1 held); commit c00000001 (seq 1) on main created #1 'Ship the Store API' (P1), its children #2 'Write the chapter' (order V) and #3 'Write the examples' (order k), and #2 -[:BLOCKS]-> #3, with the explicit key plan-api; the wall clock is still its initial value 2026-09-21T14:13:20.000Z on boot 1",
+  "illustrative": [
+    "commit ids: 'c', the seq as 8 hex digits, then 56 zeros (API §19)",
+    "uids: '#u:' and #N as 32 hex digits; anchor uids: 'ac' and N as 30 hex digits",
+    "budget values",
+    "violation description and suggested texts",
+    "the affected sets of the staged and landing commits",
+    "statement texts (display printer)",
+    "error, warning and triage texts (excluded from the comparison, API §16.3)"
+  ],
+  "steps": [
+    {
+      "command": {
+        "api": 1,
+        "n": 5,
+        "cmd": "BranchCreate",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "lane/l2"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l2",
+        "rev": 1,
+        "commit": null,
+        "rev_new": null,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "ref": "lane/l2",
+          "ref_id": 1,
+          "kind": "work",
+          "fork": "c0000000100000000000000000000000000000000000000000000000000000000"
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 6,
+        "cmd": "Tx",
+        "ctx": {
+          "lease": "L-1",
+          "branch": "lane/l2"
+        },
+        "args": {
+          "stmts": [
+            {
+              "op": "create",
+              "as": "t",
+              "kind": "task",
+              "fields": {
+                "title": "Test the examples"
+              },
+              "under": "#1",
+              "position": "last",
+              "edges_out": [
+                {
+                  "kind": "blocks",
+                  "dst": "#3"
+                }
+              ]
+            }
+          ],
+          "message": "add the test task"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l2",
+        "rev": 1,
+        "commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+        "rev_new": 2,
+        "key": null,
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "CREATE (t:task {title: $p1}) UNDER #1 LAST",
+            "matched": null,
+            "targets": [
+              "#4"
+            ]
+          },
+          {
+            "index": 2,
+            "text": "CREATE (t)-[:BLOCKS]->(#3)",
+            "matched": null,
+            "targets": [
+              "#3",
+              "#4"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [
+            "#4"
+          ],
+          "other": [
+            "#1",
+            "#3"
+          ]
+        },
+        "markers": [],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "task",
+            "aspect": "edge",
+            "name": "BLOCKS",
+            "before": null,
+            "after": {
+              "dst": "#3",
+              "disc": null,
+              "props": {}
+            },
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "task",
+            "aspect": "existence",
+            "name": "task",
+            "before": null,
+            "after": "live",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "task",
+            "aspect": "field",
+            "name": "title",
+            "before": null,
+            "after": "Test the examples",
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "+",
+            "node": "#4",
+            "kind": "task",
+            "aspect": "parent",
+            "name": "parent",
+            "before": null,
+            "after": {
+              "parent": "#1",
+              "order": "s"
+            },
+            "side": null,
+            "last_commit": "c0000000200000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 30,
+          "work_limit": 200000,
+          "rows": 4,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 7,
+        "cmd": "Mutation",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "name": "tx.rm",
+          "params": {
+            "id": "#3",
+            "reason": "folded into #2"
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "main",
+        "rev": 1,
+        "commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+        "rev_new": 3,
+        "key": null,
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "DELETE #3 REASON $reason",
+            "matched": null,
+            "targets": [
+              "#3"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": [
+            "#1",
+            "#2",
+            "#3"
+          ]
+        },
+        "markers": [
+          {
+            "kind": "deleted",
+            "id": "#3",
+            "ref": "main",
+            "commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+            "outcome": null,
+            "cause": "ops"
+          }
+        ],
+        "view": "tip",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "-",
+            "node": "#2",
+            "kind": "task",
+            "aspect": "edge",
+            "name": "BLOCKS",
+            "before": {
+              "dst": "#3",
+              "disc": null,
+              "props": {}
+            },
+            "after": null,
+            "side": null,
+            "last_commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "~",
+            "node": "#3",
+            "kind": "task",
+            "aspect": "existence",
+            "name": "task",
+            "before": "live",
+            "after": "deleted",
+            "side": null,
+            "last_commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          },
+          {
+            "change": "-",
+            "node": "#3",
+            "kind": "task",
+            "aspect": "parent",
+            "name": "parent",
+            "before": {
+              "parent": "#1",
+              "order": "k"
+            },
+            "after": null,
+            "side": null,
+            "last_commit": "c0000000300000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 25,
+          "work_limit": 200000,
+          "rows": 3,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 8,
+        "cmd": "Sync",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "lane": "lane/l2"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l2",
+        "rev": 2,
+        "commit": "c0000000400000000000000000000000000000000000000000000000000000000",
+        "rev_new": 4,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "src": "main",
+          "into": "lane/l2",
+          "outcome": "staged",
+          "sync": null,
+          "lca": [
+            "c0000000100000000000000000000000000000000000000000000000000000000"
+          ],
+          "virtual_base": false,
+          "conflicts": [],
+          "violations": [
+            {
+              "key": "edge:#4:blocks:#3",
+              "class": "DanglingEdge",
+              "code": 66,
+              "description": "#4 -[:BLOCKS]-> #3: #3 is deleted on main",
+              "suggested": "moirai resolve 'edge:#4:blocks:#3' --take theirs"
+            }
+          ],
+          "staging_ref": "merge/lane/l2/from/main",
+          "absorbed": {
+            "lane/l2": 1,
+            "main": 2
+          },
+          "markers": [],
+          "affected": [
+            "#1",
+            "#2",
+            "#3"
+          ]
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": [],
+        "errors": [
+          {
+            "code": "staged",
+            "name": "staged",
+            "severity": "error",
+            "span": null,
+            "message": "sync of lane/l2 staged on merge/lane/l2/from/main: 1 violations, 0 conflicts; lane/l2 did not move",
+            "suggest": [],
+            "expected": [],
+            "help": "moirai conflicts merge/lane/l2/from/main lists each one with its fix",
+            "detail": [
+              "edge:#4:blocks:#3 DanglingEdge #4 -[:BLOCKS]-> #3: #3 is deleted on main"
+            ],
+            "staging_ref": "merge/lane/l2/from/main",
+            "violations": [
+              {
+                "key": "edge:#4:blocks:#3",
+                "class": "DanglingEdge",
+                "code": 66,
+                "description": "#4 -[:BLOCKS]-> #3: #3 is deleted on main",
+                "suggested": "moirai resolve 'edge:#4:blocks:#3' --take theirs"
+              }
+            ],
+            "conflicts": 0
+          }
+        ],
+        "exit": 6
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 9,
+        "cmd": "Mutation",
+        "ctx": {
+          "lease": "L-1",
+          "branch": "merge/lane/l2/from/main"
+        },
+        "args": {
+          "name": "tx.resolve",
+          "params": {
+            "key": "edge:#4:blocks:#3",
+            "take": "theirs"
+          }
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "merge/lane/l2/from/main",
+        "rev": 4,
+        "commit": "c0000000500000000000000000000000000000000000000000000000000000000",
+        "rev_new": 5,
+        "key": null,
+        "lease": "L-1",
+        "replayed": false,
+        "dry": false,
+        "targets": null,
+        "statements": [
+          {
+            "index": 1,
+            "text": "RESOLVE 'edge:#4:blocks:#3' TAKE THEIRS",
+            "matched": null,
+            "targets": [
+              "#4"
+            ]
+          }
+        ],
+        "affected": {
+          "ready": [],
+          "other": [
+            "#4"
+          ]
+        },
+        "markers": [],
+        "view": "staged",
+        "cols": [
+          "change",
+          "node",
+          "kind",
+          "aspect",
+          "name",
+          "before",
+          "after",
+          "side",
+          "last_commit",
+          "actor"
+        ],
+        "data": [
+          {
+            "change": "-",
+            "node": "#4",
+            "kind": "task",
+            "aspect": "edge",
+            "name": "BLOCKS",
+            "before": {
+              "dst": "#3",
+              "disc": null,
+              "props": {}
+            },
+            "after": null,
+            "side": null,
+            "last_commit": "c0000000500000000000000000000000000000000000000000000000000000000",
+            "actor": "orch"
+          }
+        ],
+        "next": null,
+        "dropped": null,
+        "notices": [],
+        "warnings": [],
+        "budget": {
+          "work": 15,
+          "work_limit": 200000,
+          "rows": 1,
+          "bytes": 0,
+          "mem": 8192
+        },
+        "yields": []
+      }
+    },
+    {
+      "command": {
+        "api": 1,
+        "n": 10,
+        "cmd": "MergeContinue",
+        "ctx": {
+          "lease": "L-1"
+        },
+        "args": {
+          "src": "main",
+          "into": "lane/l2"
+        }
+      },
+      "result": {
+        "v": 1,
+        "branch": "lane/l2",
+        "rev": 2,
+        "commit": "c0000000600000000000000000000000000000000000000000000000000000000",
+        "rev_new": 6,
+        "key": null,
+        "replayed": false,
+        "dry": false,
+        "data": {
+          "src": "main",
+          "into": "lane/l2",
+          "outcome": "landed",
+          "sync": null,
+          "lca": [
+            "c0000000100000000000000000000000000000000000000000000000000000000"
+          ],
+          "virtual_base": false,
+          "conflicts": [],
+          "violations": [],
+          "staging_ref": null,
+          "absorbed": {
+            "main": 2
+          },
+          "markers": [
+            {
+              "kind": "deleted",
+              "id": "#3",
+              "ref": "lane/l2",
+              "commit": "c0000000600000000000000000000000000000000000000000000000000000000",
+              "outcome": null,
+              "cause": "ops"
+            }
+          ],
+          "affected": [
+            "#1",
+            "#2",
+            "#3"
+          ]
+        },
+        "next": null,
+        "dropped": null,
+        "warnings": []
+      }
+    }
+  ]
+}

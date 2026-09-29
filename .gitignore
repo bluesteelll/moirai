@@ -1,12 +1,24 @@
-# Rust build output
+# Rust build output. Lane target directories live outside the repository (docs/m0/PLAN.md §2.1).
 /target/
 **/*.rs.bk
 
 # Owner-derived data: corpora, real session prompts, recorded briefs, load fixtures. Never commit (public repository).
 /private/
 
+# Tool output (PLAN §2.5)
+mutants.out*/
+fuzz/corpus/
+fuzz/artifacts/
+fuzz/target/
+*.etl
+graphify-out/
+
+# Claude Code: only the committed settings.json is tracked (A2); settings.local.json and all other local state stay
+# untracked (PLAN §2.5).
+/.claude/*
+!/.claude/settings.json
+
 # Local tool and editor state
-.claude/settings.local.json
 .vscode/
 .idea/
 *.swp

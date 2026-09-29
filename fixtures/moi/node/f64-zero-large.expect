@@ -1,0 +1,17 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/f64-zero-large.moi
+%% file node
+%% context core
+%% source [F14 §2.8]
+%% note Values: f64 0.0 and 1e+21 written by Number::toString with .0 appended.
+%% canonical self
+%% keys
+node 9a000000000000000000000000000011 measurement
+  field target f64 444b1ae4d6e2ef50
+  field title text "f64 f64-zero-large"
+  field value f64 0000000000000000
+%% image
+created ce1e6b8d3fceaf8efa18184f0fd719f868b847a42529437507304f05817c0d507 2026-09-21T14:13:20.000Z
+updated cd8c410016e653e062b93589f7d4ec6447bed89b15ee4716240cf568889f765da 2026-09-21T15:43:20.000Z
+%% end

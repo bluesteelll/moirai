@@ -1,0 +1,16 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/body-three-lf.moi
+%% file node
+%% context core
+%% source [F14 §6.9]
+%% note Bodies: three final LFs survive.
+%% canonical self
+%% keys
+node 3b000000000000000000000000000011 note
+  field title text "body-three-lf"
+  body "Three final LFs.\n\n\n"
+%% image
+created c176a8cd24164f20962eb83d653b4cb32a8d5ba199fe09bdf6f8040190c732b37 2026-09-21T14:13:20.000Z
+updated ccc55986806819d540ec8fdbeff54b42639ab770a1e5e8d951b7fcaa7711fce16 2026-09-21T15:43:20.000Z
+%% end

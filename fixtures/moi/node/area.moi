@@ -1,0 +1,10 @@
+moirai-node 1
+uid: 0a000000000000000000000000000001
+kind: area
+title: Storage engine
+status: archived
+parent: 0a000000000000000000000000000002
+order: z
+created: c294b11e229096c0a7b9a03341876a8215e207b45a641fc0aede87a8b3c048596 2026-09-21T14:13:20.000Z
+updated: c4810108edf18555446f5f8902a22fb9f74b38478825c5939da309748ec65c85f 2026-09-21T15:43:20.000Z
+field path_globs: [crates/engine/**, docs/storage/*.md]

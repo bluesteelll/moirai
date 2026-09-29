@@ -1,0 +1,5 @@
+DEFINE QUERY refuted_share($role: text, $round: int? = NULL) SHAPE table BUDGET light AS {
+  MATCH (f:finding) WHERE f.created_role = $role AND ($round IS NULL OR f.round = $round)
+  WITH f.round AS round, count(*) AS raised, count(CASE WHEN f.status = 'refuted' THEN 1 END) AS refuted
+  RETURN round, raised, refuted, round(100.0 * refuted / raised, 1) AS pct ORDER BY round
+}

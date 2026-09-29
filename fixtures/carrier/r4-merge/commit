@@ -1,0 +1,17 @@
+tree ae83563142d5ab21a912361ee5b5b7902fafe360
+parent 02a13fe126e7ffae79893a741ce051a9310177b8
+parent aa7fdfe1ce9e28730078b019ee6d6acb7eb8270f
+author moirai/orch <orchestrator@moirai.invalid> 1790003780 +0000
+committer moirai/orch <orchestrator@moirai.invalid> 1790003780 +0000
+
+merge lane/r4b into lane/r4a
+
+Moirai-Commit: c685b7617a108ceeae8f2eebc96308a00a88610a8b2dba7287a7d4eb2c2fcf30a
+Moirai-Kind: merge
+Moirai-Ref: lane/r4a
+Moirai-Hlc: 117309687726080000
+Moirai-Actor: orch
+Moirai-Role: orchestrator
+Moirai-Session: claude:s0
+Moirai-Schema: 1
+Moirai-Ops: 12

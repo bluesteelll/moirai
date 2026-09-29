@@ -1,0 +1,8 @@
+# Seeds for failure cases proptest has generated in the past. It is
+# automatically read and these particular cases re-run before any
+# novel cases are generated.
+#
+# It is recommended to check this file in to source control so that
+# everyone who runs the test benefits from these saved cases.
+cc 7d79954e983ad2c32f63a2c0447efb6aa071d0cba6189570a85ba9203298fcae # shrinks to pre = [Move(3, Some(1))], commits = [[Move(3, Some(4)), Move(1, Some(3))], [Move(3, None)]], other = []
+cc c7903ad5805baa2299246511b24bb32c4a210b9c98a5892ef85316697f1a4af7 # shrinks to base_forest = [None, Some(5), None, None, None], forests = [[None, Some(3), None, None, Some(2)], [None, Some(4), None, None, Some(2)]], other = []

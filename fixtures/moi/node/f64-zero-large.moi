@@ -1,0 +1,9 @@
+moirai-node 1
+uid: 9a000000000000000000000000000011
+kind: measurement
+title: f64 f64-zero-large
+status: current
+created: ce1e6b8d3fceaf8efa18184f0fd719f868b847a42529437507304f05817c0d507 2026-09-21T14:13:20.000Z
+updated: cd8c410016e653e062b93589f7d4ec6447bed89b15ee4716240cf568889f765da 2026-09-21T15:43:20.000Z
+field target: 1e+21
+field value: 0.0

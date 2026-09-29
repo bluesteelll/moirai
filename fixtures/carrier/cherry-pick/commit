@@ -1,0 +1,17 @@
+tree 1fa5605575ebf34022a8599fb1c7bd81e3505989
+parent 0c47d3bc9383306f3d858beccb5359bd05fb73bc
+author moirai/dev#2 <developer@moirai.invalid> 1790003000 +0000
+committer moirai/dev#2 <developer@moirai.invalid> 1790003000 +0000
+
+pick the pointer-file decision
+
+Moirai-Commit: c352fde46a717001f4c4a321f22dadb5b24b02e6c782d66d285607873438bf503
+Moirai-Kind: cherry-pick
+Moirai-Ref: main
+Moirai-Hlc: 117309636608000000
+Moirai-Actor: dev#2
+Moirai-Role: developer
+Moirai-Session: codex:s7
+Moirai-Origin: ccc912a175b764273d102003f96b1b800c60aee1768a64583fdcf92de515a9d65
+Moirai-Schema: 1
+Moirai-Ops: 4

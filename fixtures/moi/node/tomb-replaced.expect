@@ -1,0 +1,14 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/tomb-replaced.moi
+%% file node
+%% context core
+%% source [F14 §6.10]
+%% note A tombstone with a reason and replaced_by (both carry the existence value).
+%% canonical self
+%% keys
+node 5d000000000000000000000000000011 decision deleted "superseded by the range design" 5d000000000000000000000000000012
+  field title text "Whole-file lock"
+%% image
+deleted c9a44902f934263e070d3cf3d054e6a1d87a85e91974050ac457ad1574d9fc79b 2026-09-21T16:13:20.000Z
+%% end

@@ -1,0 +1,159 @@
+# fixtures/hex/fragments/schema/items.hex: schema item records ([F08 §8.5]) of every class, in item key order
+# ([F08 §8.5] "Item key order": class, then the key's names bytewise), as a view's SCHEMA section ([F09 §8.3]) or a
+# Schema op's `new` ([F06 §7.6]) carries them; decode as item records to the end of the file. The stores hold only
+# a kind (class 1), an enumeration value (class 3) and a named query (class 5) (fixtures/hex/store-a); this file adds
+# field items (class 2: a default with a range, `optional`, `index`, `coerce`, the `one_line` and `ascii` flags),
+# enumeration values with a lattice (`covers`) and the `side` and `done` flags, an edge kind (class 4: `KindSet`s
+# with a core bit and an ext bit for project kind 64, reverse names, a reading), and a retired item (iflags bit 0).
+# Symbol ids of class `name` are this fragment's own, dense in first-use order (each is named where it is used);
+# store-local ids: project kind `incident` = 64, edge kind `escalates_to` = 64.
+
+# class 1 (kind)
+01                                          # item.class 1
+00                                          # item.iflags
+{uvar 1}                                    # item.name `incident`
+40                                          # item.kind_id (store-local)
+01                                          # item.uid_derivation
+00                                          # item.root_variant
+02                                          # item.existence_policy
+04                                          # item.kflags
+
+# class 2 (field) (impact: int in [0, 10], default 3, a column)
+02                                          # item.class 2
+00                                          # item.iflags
+{uvar 1}                                    # item.kind `incident`
+{uvar 2}                                    # item.name `impact`
+02                                          # item.type
+00                                          # item.elem
+01                                          # item.class (merge)
+04                                          # item.storage
+{u16 31}                                    # item.decl
+00                                          # item.optional
+01                                          # item.index
+00                                          # item.coerce
+03                                          # item.cflags
+02                                          # item.default: type 2 int
+{svar 3}                                    # item.default: int 3
+{svar 0}                                    # item.range_min
+{svar 10}                                   # item.range_max
+
+# class 2 (field) (retired, optional, one_line, ascii)
+02                                          # item.class 2
+01                                          # item.iflags
+{uvar 1}                                    # item.kind `incident`
+{uvar 3}                                    # item.name `pager`
+06                                          # item.type
+00                                          # item.elem
+01                                          # item.class (merge)
+04                                          # item.storage
+{u16 33}                                    # item.decl
+01                                          # item.optional
+00                                          # item.index
+00                                          # item.coerce
+0c                                          # item.cflags
+
+# class 2 (field) (coerce `timestamp`)
+02                                          # item.class 2
+00                                          # item.iflags
+{uvar 1}                                    # item.kind `incident`
+{uvar 4}                                    # item.name `seen_at`
+02                                          # item.type
+00                                          # item.elem
+01                                          # item.class (merge)
+04                                          # item.storage
+{u16 32}                                    # item.decl
+01                                          # item.optional
+00                                          # item.index
+03                                          # item.coerce
+00                                          # item.cflags
+
+# class 2 (field) (a set of sym, class `set`, index `bitmap`)
+02                                          # item.class 2
+00                                          # item.iflags
+{uvar 1}                                    # item.kind `incident`
+{uvar 5}                                    # item.name `tags`
+08                                          # item.type
+07                                          # item.elem
+06                                          # item.class (merge)
+04                                          # item.storage
+{u16 34}                                    # item.decl
+01                                          # item.optional
+02                                          # item.index
+00                                          # item.coerce
+00                                          # item.cflags
+
+# class 3 (enumeration value)
+03                                          # item.class 3
+00                                          # item.iflags
+{uvar 1}                                    # item.kind `incident`
+{uvar 6}                                    # item.field `status`
+{uvar 7}                                    # item.name `open`
+{uvar 0}                                    # item.value (store-local)
+{u16 0}                                     # item.sort_rank
+00                                          # item.eflags
+00                                          # item.n_covers
+
+# class 3 (enumeration value)
+03                                          # item.class 3
+00                                          # item.iflags
+{uvar 1}                                    # item.kind `incident`
+{uvar 6}                                    # item.field `status`
+{uvar 8}                                    # item.name `resolved`
+{uvar 1}                                    # item.value (store-local)
+{u16 2}                                     # item.sort_rank
+02                                          # item.eflags
+01                                          # item.n_covers
+{uvar 0}                                    # item.covers
+
+# class 3 (enumeration value)
+03                                          # item.class 3
+00                                          # item.iflags
+{uvar 1}                                    # item.kind `incident`
+{uvar 6}                                    # item.field `status`
+{uvar 9}                                    # item.name `wontfix`
+{uvar 2}                                    # item.value (store-local)
+{u16 1}                                     # item.sort_rank
+01                                          # item.eflags
+00                                          # item.n_covers
+
+# class 4 (edge kind)
+04                                          # item.class 4
+00                                          # item.iflags
+{uvar 10}                                   # item.name `escalates_to`
+40                                          # item.edge_id (store-local)
+02                                          # item.eclass
+08                                          # item.on_dst
+06                                          # item.on_src
+03                                          # item.acyclic
+01                                          # item.card
+00                                          # item.max_depth
+00                                          # item.uid_derivation
+00                                          # item.props
+00                                          # item.eflags
+{uvar 11}                                   # item.lq_name `ESCALATES_TO`
+00                                          # item.src_kinds.ks_flags
+{u64 128}                                   # item.src_kinds.core
+01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # item.src_kinds.ext
+00 00 00 00 00 00 00 00
+01                                          # item.dst_kinds.ks_flags
+{u64 0}                                     # item.dst_kinds.core
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # item.dst_kinds.ext
+00 00 00 00 00 00 00 00
+01                                          # item.n_reverse
+{uvar 12}                                   # item.reverse_name `escalated_from`
+{uvar 20}                                   # item.reading: length 20
+"{a} escalates to {b}"
+
+# class 5 (named query)
+05                                          # item.class 5
+00                                          # item.iflags
+{uvar 13}                                   # item.name `open_incidents`
+{u16 1}                                     # item.lq_version
+{uvar 0}                                    # item.params: length 0
+{uvar 5}                                    # item.shape: length 5
+"table"
+{uvar 5}                                    # item.budget: length 5
+"light"
+{uvar 119}                                  # item.text: length 119
+"DEFINE QUERY open_incidents() SHAPE table BUDGET light AS {\n  MATCH (i:incident)\n  WHERE i.status = 'open'\n  RETURN i\n}"
+00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # item.ast_hash (derived, unhashed; zero until computed)

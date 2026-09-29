@@ -1,0 +1,12 @@
+moirai-query 1
+name: stale_notes
+lq: 1
+shape: table
+budget: medium
+---
+DEFINE QUERY stale_notes() SHAPE table AS {
+  // no BUDGET: medium
+  MATCH (n:note)
+  WHERE n.status = 'active'
+  RETURN n
+}

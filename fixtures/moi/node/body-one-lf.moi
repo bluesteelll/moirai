@@ -1,0 +1,10 @@
+moirai-node 1
+uid: 3b000000000000000000000000000011
+kind: note
+title: body-one-lf
+status: active
+created: c233b9e80c43dac1022a4bb5dfd01cec930c55ac6c79468ec9316d7de8036db9b 2026-09-21T14:13:20.000Z
+updated: cc97b4f211a55341a5a8be0d3a76df516107bfc743bce89894ee8013b17520719 2026-09-21T15:43:20.000Z
+---
+One line with its LF.
+

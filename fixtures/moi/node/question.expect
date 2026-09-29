@@ -1,0 +1,20 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/question.moi
+%% file node
+%% context core
+%% source [F08 §9.3] question
+%% note Kind question: options is a three-record list of one member each (a block).
+%% canonical self
+%% keys
+node 6c000000000000000000000000000011 question
+  status answered none
+  field answer text "measure first"
+  field asked_of enum owner
+  field options text "keep it\nremove it\nmeasure first"
+  field q_kind enum scope
+  field title text "Keep the leader?"
+%% image
+created ca738bfc1ff909d2a5f8b63f5bd88a31ff4738c64f74baa486ae63139ff9f0298 2026-09-21T14:13:20.000Z
+updated cc22796b6c2fb81bad127f4fac51912e414a3b45deb8d15d1a60838ad483375ea 2026-09-21T15:43:20.000Z
+%% end

@@ -1,0 +1,65 @@
+# fixtures/hex/fragments/values/field-block.hex: two field blocks ([F08 §6.1]) back to back. Decode as field blocks
+# to the end of the file; a decoder needs no schema ([F08 §6.1]: every encoding is self-delimiting).
+# Block 1: one entry per type a field block admits (every type but `absent`), the values of [F08 §5.6], under
+# field symbols 1-14 of class `name` (store-local numbers of this fragment, no schema is implied; bool false and
+# true are two fields). Block 2: the informative block of [F08 §6.2] (`labels` = 5, `estimate` = 21,
+# `pre_registered` = 30), 12 bytes: 03 05 08 07 02 07 0C 15 02 06 1E 81.
+
+# block 1
+{uvar 14}                                   # n
+{uvar 1}                                    # field_sym 1: bool false
+  01                                        # type
+{uvar 2}                                    # field_sym 2: bool true
+  81                                        # type
+{uvar 3}                                    # field_sym 3: int -3
+  02                                        # type
+  05                                        # value
+{uvar 4}                                    # field_sym 4: counter 300
+  03                                        # type
+  d8 04                                     # value
+{uvar 5}                                    # field_sym 5: f64 1.5
+  04                                        # type
+  00 00 00 00 00 00 f8 3f                   # value
+{uvar 6}                                    # field_sym 6: enum `high` (value 2)
+  05                                        # type
+  02                                        # value
+{uvar 7}                                    # field_sym 7: text `ok`
+  06                                        # type
+  02 6f 6b                                  # value
+{uvar 8}                                    # field_sym 8: sym `ok` (text symbol 7)
+  07                                        # type
+  07                                        # value
+{uvar 9}                                    # field_sym 9: set {1, 5} of int
+  08                                        # type
+  02 02 02 0a                               # value
+{uvar 10}                                   # field_sym 10: ref #40 (uid U)
+  09                                        # type
+  28 00 00 00                               # value
+{uvar 11}                                   # field_sym 11: commitref C
+  0a                                        # type
+  9b 0b e9 5d f3 7b 6f 6c e6 d2 08 ab 5b db 59 64  # value
+  c7 23 37 96 eb f6 00 91 40 b3 46 87 4d 7f d9 8b
+{uvar 12}                                   # field_sym 12: path project:docs/a.md (root symbol 1)
+  0b                                        # type
+  01 00 09 64 6f 63 73 2f 61 2e 6d 64       # value
+{uvar 13}                                   # field_sym 13: oid sha1 D
+  0c                                        # type
+  01 d9 4d b1 af fb 1b dd d9 49 1c d7 66 62 32 df  # value
+  ce 91 5c 31 10
+{uvar 14}                                   # field_sym 14: pathmove explicit project:a/ -> project:b/, no git
+  0d                                        # type
+  03 00 00 6c 50 c4 a0 01 01 01 00 02 61 2f 01 00  # value
+  02 62 2f 00
+
+# block 2 ([F08 §6.2], informative example)
+{uvar 3}                                    # n
+{uvar 5}                                    # field_sym 5 `labels`
+08                                          # type set
+07                                          # elem sym
+02                                          # n = 2
+07 0c                                       # text symbols 7 and 12
+{uvar 21}                                   # field_sym 21 `estimate`
+02                                          # type int
+{svar 3}                                    # 3 (zigzag 6)
+{uvar 30}                                   # field_sym 30 `pre_registered`
+81                                          # type bool, vbit 1: true

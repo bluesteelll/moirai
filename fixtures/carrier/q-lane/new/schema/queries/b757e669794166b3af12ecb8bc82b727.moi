@@ -1,0 +1,11 @@
+moirai-query 1
+name: stale_notes
+lq: 1
+shape: table
+budget: heavy
+---
+DEFINE QUERY stale_notes() SHAPE table BUDGET heavy AS {
+  MATCH (n:note)
+  WHERE n.status = 'active' AND n.review_after < now()
+  RETURN n
+}

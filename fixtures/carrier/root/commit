@@ -1,0 +1,15 @@
+tree 34b5c80e0239f4e0be4c34fdf7b187717a3be48c
+author moirai/orch <orchestrator@moirai.invalid> 1790000000 +0000
+committer moirai/orch <orchestrator@moirai.invalid> 1790000000 +0000
+
+plan the storage work
+
+Moirai-Commit: c64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+Moirai-Kind: ordinary
+Moirai-Ref: main
+Moirai-Hlc: 117309440000000000
+Moirai-Actor: orch
+Moirai-Role: orchestrator
+Moirai-Session: claude:s0
+Moirai-Schema: 1
+Moirai-Ops: 23

@@ -1,0 +1,27 @@
+# GT20 (d), the type-aware layer (docs/m0/PLAN.md §2.1, §6.2 R18; xtask/src/lint_source.rs `clippy-config`).
+#
+# Clippy reads this file from the crate's manifest directory, and the gate's `clippy -D warnings` refuses every call
+# listed here: the method forms (`f.lock()`, `f.try_lock()`, `path.exists()`) that the syntactic scan cannot tell
+# from their namesakes. The gate checks that every product crate has this file with the complete list, and refuses
+# an `allow`/`expect` of `clippy::disallowed_methods` in product code. Owned by R-HARN-I (docs/m0/authors.md §3).
+#
+# moirai-vfs is a product crate other than moirai-os: the store-file calls and the Path methods that do file-system I/O.
+
+disallowed-methods = [
+    { path = "std::fs::File::lock", reason = "a store-file call: file locks go through moirai-os and the Vfs seam (PLAN §2.1, GT20 (d))" },
+    { path = "std::fs::File::try_lock", reason = "a store-file call: file locks go through moirai-os and the Vfs seam (PLAN §2.1, GT20 (d))" },
+    { path = "std::fs::File::lock_shared", reason = "a store-file call: file locks go through moirai-os and the Vfs seam (PLAN §2.1, GT20 (d))" },
+    { path = "std::fs::File::try_lock_shared", reason = "a store-file call: file locks go through moirai-os and the Vfs seam (PLAN §2.1, GT20 (d))" },
+    { path = "std::fs::File::unlock", reason = "a store-file call: file locks go through moirai-os and the Vfs seam (PLAN §2.1, GT20 (d))" },
+    { path = "std::fs::rename", reason = "a store-file call: renames go through the Vfs seam with its durability rules (PLAN §2.1, GT20 (d))" },
+    { path = "std::path::Path::exists", reason = "file-system I/O outside moirai-os goes through the Vfs seam (PLAN §6.2 R18, A1P-10)" },
+    { path = "std::path::Path::try_exists", reason = "file-system I/O outside moirai-os goes through the Vfs seam (PLAN §6.2 R18, A1P-10)" },
+    { path = "std::path::Path::is_file", reason = "file-system I/O outside moirai-os goes through the Vfs seam (PLAN §6.2 R18, A1P-10)" },
+    { path = "std::path::Path::is_dir", reason = "file-system I/O outside moirai-os goes through the Vfs seam (PLAN §6.2 R18, A1P-10)" },
+    { path = "std::path::Path::is_symlink", reason = "file-system I/O outside moirai-os goes through the Vfs seam (PLAN §6.2 R18, A1P-10)" },
+    { path = "std::path::Path::metadata", reason = "file-system I/O outside moirai-os goes through the Vfs seam (PLAN §6.2 R18, A1P-10)" },
+    { path = "std::path::Path::symlink_metadata", reason = "file-system I/O outside moirai-os goes through the Vfs seam (PLAN §6.2 R18, A1P-10)" },
+    { path = "std::path::Path::read_dir", reason = "file-system I/O outside moirai-os goes through the Vfs seam (PLAN §6.2 R18, A1P-10)" },
+    { path = "std::path::Path::read_link", reason = "file-system I/O outside moirai-os goes through the Vfs seam (PLAN §6.2 R18, A1P-10)" },
+    { path = "std::path::Path::canonicalize", reason = "file-system I/O outside moirai-os goes through the Vfs seam (PLAN §6.2 R18, A1P-10)" },
+]

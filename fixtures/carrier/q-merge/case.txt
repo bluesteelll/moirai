@@ -1,0 +1,178 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case q-merge
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note Row R5 (+): `conflict definition class=FieldEdit` on open_tasks and `class=DeleteVsModify` (ours
+%% note absent) on stale_notes; each side is the JSON string of a whole query-def file.
+%% destination A sha1 full
+%% class native
+%% git-commit 8129e2aba031f60f26594e97bf639bfd09c15722
+%% git-tree d12e3efa0785b2c6b84294aa7b9d9c0fce9f8514
+%% git-parent 15f59b62732a4382f3e8fc2dd913428b847e0dae q-change
+%% git-parent afdd99ae16262834645df99eef8513f9afb557ae q-lane
+%% trailer-commit cb4f7657f01cd0248a5a57cead7158181215904cbb1afda640835560e8c15060
+%% touched-new 2
+%% touched-old 1
+%% p-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+schema query open_tasks lq=1 params="$scope: node = #u:a0000000000000000000000000000001, $limit: int = 50" shape="table" budget="light" text="DEFINE QUERY open_tasks($scope: node = #u:a0000000000000000000000000000001, $limit: int = 50) SHAPE table BUDGET light AS {\n  MATCH (t:task)\n  WHERE t.status = 'open' AND t IN subtree($scope)\n  RETURN t ORDER BY t.priority LIMIT $limit\n}"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+schema query open_tasks conflict FieldEdit
+  base lq=1 params="$scope: node = #u:a0000000000000000000000000000001, $limit: int = 20" shape="table" budget="light" text="DEFINE QUERY open_tasks($scope: node = #u:a0000000000000000000000000000001, $limit: int = 20) SHAPE table BUDGET light AS {\n  MATCH (t:task)\n  WHERE t.status = 'open' AND t IN subtree($scope)\n  RETURN t ORDER BY t.priority LIMIT $limit\n}"
+  ours lq=1 params="$scope: node = #u:a0000000000000000000000000000001, $limit: int = 50" shape="table" budget="light" text="DEFINE QUERY open_tasks($scope: node = #u:a0000000000000000000000000000001, $limit: int = 50) SHAPE table BUDGET light AS {\n  MATCH (t:task)\n  WHERE t.status = 'open' AND t IN subtree($scope)\n  RETURN t ORDER BY t.priority LIMIT $limit\n}"
+  theirs lq=1 params="$scope: node = #u:a0000000000000000000000000000001, $limit: int = 20" shape="table" budget="light" text="DEFINE QUERY open_tasks($scope: node = #u:a0000000000000000000000000000001, $limit: int = 20) SHAPE table BUDGET light AS {\n  // only urgent work\n  MATCH (t:task)\n  WHERE t.status = 'open' AND t.priority <= 'P1' AND t IN subtree($scope)\n  RETURN t ORDER BY t.priority LIMIT $limit\n}"
+schema query stale_notes conflict DeleteVsModify
+  base lq=1 params="" shape="table" budget="medium" text="DEFINE QUERY stale_notes() SHAPE table AS {\n  MATCH (n:note)\n  WHERE n.status = 'active'\n  RETURN n\n}"
+  ours absent
+  theirs lq=1 params="" shape="table" budget="heavy" text="DEFINE QUERY stale_notes() SHAPE table BUDGET heavy AS {\n  MATCH (n:note)\n  WHERE n.status = 'active' AND n.review_after < now()\n  RETURN n\n}"
+%% entries
+schema query open_tasks = conflict FieldEdit base (present) ours (present) theirs (present)
+schema query stale_notes = conflict DeleteVsModify base (present) ours (absent) theirs (present)
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: schema query open_tasks
+02050a0000006f70656e5f7461736b7301090000004669656c6445646974010100440000002473636f70653a206e6f64
+65203d2023753a61303030303030303030303030303030303030303030303030303030303030312c20246c696d69743a
+20696e74203d203230050000007461626c65050000006c69676874ed000000444546494e45205155455259206f70656e
+5f7461736b73282473636f70653a206e6f6465203d2023753a6130303030303030303030303030303030303030303030
+3030303030303030312c20246c696d69743a20696e74203d20323029205348415045207461626c652042554447455420
+6c69676874204153207b0a20204d415443482028743a7461736b290a2020574845524520742e737461747573203d2027
+6f70656e2720414e44207420494e2073756274726565282473636f7065290a202052455455524e2074204f5244455220
+425920742e7072696f72697479204c494d495420246c696d69740a7d010100440000002473636f70653a206e6f646520
+3d2023753a61303030303030303030303030303030303030303030303030303030303030312c20246c696d69743a2069
+6e74203d203530050000007461626c65050000006c69676874ed000000444546494e45205155455259206f70656e5f74
+61736b73282473636f70653a206e6f6465203d2023753a61303030303030303030303030303030303030303030303030
+303030303030312c20246c696d69743a20696e74203d20353029205348415045207461626c6520425544474554206c69
+676874204153207b0a20204d415443482028743a7461736b290a2020574845524520742e737461747573203d20276f70
+656e2720414e44207420494e2073756274726565282473636f7065290a202052455455524e2074204f52444552204259
+20742e7072696f72697479204c494d495420246c696d69740a7d010100440000002473636f70653a206e6f6465203d20
+23753a61303030303030303030303030303030303030303030303030303030303030312c20246c696d69743a20696e74
+203d203230050000007461626c65050000006c696768741a010000444546494e45205155455259206f70656e5f746173
+6b73282473636f70653a206e6f6465203d2023753a613030303030303030303030303030303030303030303030303030
+30303030312c20246c696d69743a20696e74203d20323029205348415045207461626c6520425544474554206c696768
+74204153207b0a20202f2f206f6e6c7920757267656e7420776f726b0a20204d415443482028743a7461736b290a2020
+574845524520742e737461747573203d20276f70656e2720414e4420742e7072696f72697479203c3d20275031272041
+4e44207420494e2073756274726565282473636f7065290a202052455455524e2074204f5244455220425920742e7072
+696f72697479204c494d495420246c696d69740a7d
+; entry 2: schema query stale_notes
+02050b0000007374616c655f6e6f746573010e00000044656c65746556734d6f64696679010100000000000500000074
+61626c65060000006d656469756d65000000444546494e45205155455259207374616c655f6e6f746573282920534841
+5045207461626c65204153207b0a20204d4154434820286e3a6e6f7465290a20205748455245206e2e73746174757320
+3d2027616374697665270a202052455455524e206e0a7d0001010000000000050000007461626c650500000068656176
+798d000000444546494e45205155455259207374616c655f6e6f7465732829205348415045207461626c652042554447
+4554206865617679204153207b0a20204d4154434820286e3a6e6f7465290a20205748455245206e2e73746174757320
+3d20276163746976652720414e44206e2e7265766965775f6166746572203c206e6f7728290a202052455455524e206e
+0a7d
+; u64 entry count = 2
+0200000000000000
+%% entry-count 2
+%% changeset-digest dcdc13c5b9c7aeaff06312cf2abed3b9556db1cc6bfa025f58f098770ddea1c8
+%% commit
+kind merge
+parent b615381affeff30141749be1064127f00c3a9e5362622a55032b6fbf1049358f
+parent 3781463b0232de8d64c96888b4348922dc972b4d7e29b844bc6ab3abe36fa89d
+hlc 01a0c48dc3200000
+actor "orch"
+role "orchestrator"
+session "claude:s0"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "merge lane/q2 into lane/queries"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+050000006d65726765
+; item 2: n_parents
+02000000
+; item 2: parent 1
+b615381affeff30141749be1064127f00c3a9e5362622a55032b6fbf1049358f
+; item 2: parent 2
+3781463b0232de8d64c96888b4348922dc972b4d7e29b844bc6ab3abe36fa89d
+; item 3: hlc
+000020c38dc4a001
+; item 4: actor
+040000006f726368
+; item 4: role
+0c0000006f7263686573747261746f72
+; item 4: session
+09000000636c617564653a7330
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+1f0000006d65726765206c616e652f713220696e746f206c616e652f71756572696573
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+dcdc13c5b9c7aeaff06312cf2abed3b9556db1cc6bfa025f58f098770ddea1c8
+%% commit-id cb4f7657f01cd0248a5a57cead7158181215904cbb1afda640835560e8c15060
+%% end

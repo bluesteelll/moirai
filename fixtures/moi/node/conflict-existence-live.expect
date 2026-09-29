@@ -1,0 +1,41 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/conflict-existence-live.moi
+%% file node
+%% context core
+%% source [F14 §6.8.1]
+%% source [F07 §7.4]
+%% source [F12 §6.3]
+%% note DeleteVsModify on a note (existence policy resurrect): the file is live, so the provisional side is
+%% note ours. The ours snapshot carries a status, header, flag and field keys sorted by field name (title
+%% note among them), labels, a counter total and a body; the base snapshot writes the initial status.
+%% canonical self
+%% keys
+node 3b000000000000000000000000000011 note
+  status retracted none
+  field labels set text 2 "b label" "scratch"
+  field note_kind enum hazard
+  field pinned bool true
+  field priority enum P1
+  field title text "Scratch finding"
+  counter incidents 4
+  body "Body line one.\nBody \"two\".\n"
+  conflict existence DeleteVsModify prov ours
+    base live note
+      field note_kind enum hazard
+      field title text "Scratch finding"
+    ours live note
+      status retracted none
+      field labels set text 2 "b label" "scratch"
+      field note_kind enum hazard
+      field pinned bool true
+      field priority enum P1
+      field title text "Scratch finding"
+      counter incidents 4
+      body "Body line one.\nBody \"two\".\n"
+    theirs deleted note "created by mistake" -
+%% image
+created c0d81e930d761b4b7e9cc2bb05eeee642c9ec9946c3ae222c6a7a8d8b244b6143 2026-09-21T14:13:20.000Z
+updated c8fe82869dd1af6792a44aa291f2777b02e554c5f75150cf25a805d80cb8025b9 2026-09-21T15:43:20.000Z
+ledger incidents +4 c00496c5e4f68c02f96c10079c145d0829a1ec5748d6f90505f86cbc24904befa
+%% end

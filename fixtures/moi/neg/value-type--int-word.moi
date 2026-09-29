@@ -1,0 +1,44 @@
+moirai-node 1
+uid: 1a000000000000000000000000000011
+kind: task
+title: Byte-range lock protocol
+status: done
+resolution: completed
+priority: P1
+criticality: high
+confidence: verified
+authority: orchestrator
+parent: 0a000000000000000000000000000001
+order: a0V
+created: c29880eccd3b6a31fe9ebc9b09d3d469d20a8bdf157774b5eab4398a4b78604c5 2026-09-21T14:13:20.000Z
+updated: cc831a59bafafe89fe240be5d740214a11e5d26b5aa817adb2f20eeea2c85206c 2026-09-21T15:43:20.000Z
+flags: [archived, frozen, pinned]
+field abstract: Lock byte ranges of LOCK, not the file
+field acceptance: <<
+  writer and flush bytes locked per range
+  a dead holder's range freed by the OS
+>>
+field assignee: dev#1
+field defer_until: 1790000000
+field due: 1791000000
+field estimate: three
+field files_owned: ["docs/lock-[a-c]?.md", src/lock.rs, src/vfs/**/*.rs]
+field phase_state: committed
+field pre_registered: true
+field reason: closed after review
+field reopen_if: a second writer is seen
+field work_kind: impl
+label l5np
+label lock protocol
+label storage
+incr reopen_count +1 c9ba66d0ec207a38c14759a57f23fa28e4d81e5e33748f494ea6ade04c04243dc
+incr reopen_count +1 cdef0c39b0aed44ab95fd3be7214b7e151362bcb7a972559fe0133ba80a3b7147
+edge blocks -> 1a000000000000000000000000000012
+edge cites -> 5d000000000000000000000000000011 pin=ce53e65b9e751e6b6bd37f93e501ec97a4752d361d4e9848c235d462fe3adaad3
+edge discovered_from -> 1a000000000000000000000000000013
+edge implements -> 5d000000000000000000000000000011
+edge mentions -> 1a000000000000000000000000000052
+---
+Writers lock byte ranges of LOCK, never the whole file.
+See #52 for the reader registry.
+

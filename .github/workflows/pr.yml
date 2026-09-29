@@ -1,0 +1,191 @@
+# Pull-request and master-push checks (docs/m0/PLAN.md WP-04, §2.1, §2.5; [60 §3.1] item 7; AGENTS.md "Git" and
+# "Data").
+#
+# Two jobs:
+# - "pr": the ruleset on master requires it (PLAN §8, day-1 bundle point 4, V10).
+# - "replay": `moirai-tsoracle` and `moirai-replay`, built unpoisoned (tree-sitter's C) and never by the gate
+#   (PLAN §2.1, WP-74: FL-1's differential tests run here). It records the MSVC `cl.exe` version in its log.
+#
+# - Runs on pull_request (opened, edited, synchronize, reopened) and on push to master. Never pull_request_target:
+#   the jobs run with the pull request's own, read-only view of the repository.
+# - permissions: contents: read, for the whole workflow. No repository secret is used; `gh api` reads commit
+#   metadata with the job's automatic read-only token.
+# - The pull request's title and body are read by xtask from $GITHUB_EVENT_PATH; no step interpolates them into a
+#   command (`${{ }}` expressions below expand only repository names and commit ids).
+# - Checks of the "pr" job:
+#   1. the AI-marker rules of .githooks/commit-msg over the title and body (`hook pr-body`);
+#   2. every commit of the range (pull request: base..head; push: before..after, refused loudly when `before` is
+#      missing or is not an ancestor of `after`): the AI-marker rules over its message and addresses, no path under
+#      private/, no file over 1 MiB outside fixtures/ (merges through the files they change against every parent),
+#      its GitHub-resolved author login equal to the repository owner and its committer the owner or web-flow
+#      (`ci commits`);
+#   3. the gate: fmt, clippy, the tier-pr tests, GT20 (b), (d), (a) and (e), the root checks, the licence lint,
+#      the AI-marker and authorship scans over the same range, the report scrub, the hooks' own tests, the .ps1 BOM
+#      rule, coverage, the hex fixtures and the fuzz workspace (`gate --ci`). The gate's `fuzz` step runs clippy and
+#      the fuzz library's tests on the nightly pinned by fuzz/rust-toolchain.toml, which the job installs beside the
+#      stable toolchain (docs/m0/tools.md §4.7).
+#   Checks 1 and 2 run with the xtask built from the base commit (`BASE_SHA`), not from the commits under test, so a
+#   pull request that loosens the marker or identity rules is still checked by the rules it would replace. When the
+#   base has no `xtask ci` yet (the first pull request of the M0 tree), the job builds the pull request's own xtask and
+#   says so with a warning. A change to this file itself relies on the ruleset's review (docs/m0/authors.md §5 item 8).
+# - Never a timing, RAM, floor, crash or kill gate: hosted runners are noisy (PLAN WP-04).
+# - Hosted Windows only: Linux and macOS are type-checked by GT20 (e) inside the gate, never built or run
+#   (owner decision #32).
+# - No third-party action: the checkout is plain git over HTTPS, and the toolchain comes from rust-toolchain.toml
+#   through the runner's rustup.
+
+name: pr
+
+on:
+  pull_request:
+    types: [opened, edited, synchronize, reopened]
+  push:
+    branches: [master]
+
+permissions:
+  contents: read
+
+# A newer run of the same pull request re-checks the whole base..head range, so it replaces an older one. A push
+# run is never cancelled: each push checks only its own before..after range.
+concurrency:
+  group: pr-${{ github.event.pull_request.number || github.sha }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  pr:
+    name: pr
+    runs-on: windows-latest
+    timeout-minutes: 120
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: "0"
+      MOIRAI_TEST_TIER: pr
+    steps:
+      - name: Check out the commits under test
+        env:
+          REPO: ${{ github.repository }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+          HEAD_SHA: ${{ github.event.pull_request.head.sha || github.event.after }}
+        run: |
+          set -eu
+          git config --global core.autocrlf false
+          git config --global init.defaultBranch master
+          git init -q .
+          git remote add origin "https://github.com/${REPO}.git"
+          # Full history of the commits under test: the range checks walk base..head.
+          git fetch -q --no-tags origin "+refs/heads/master:refs/remotes/origin/master" "${GITHUB_SHA}"
+          for sha in "${BASE_SHA}" "${HEAD_SHA}"; do
+            case "${sha}" in
+              ''|0000000000000000000000000000000000000000) ;;
+              *) git cat-file -e "${sha}^{commit}" 2>/dev/null || git fetch -q --no-tags origin "${sha}" ;;
+            esac
+          done
+          git checkout -q --detach "${GITHUB_SHA}"
+          git branch -f master origin/master
+          git log -1 --format='checked out %H (%s)'
+
+      - name: Toolchain from rust-toolchain.toml
+        run: |
+          set -eu
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
+          cargo --version
+          rustc --version
+
+      - name: The fuzz workspace's nightly from fuzz/rust-toolchain.toml
+        run: |
+          set -eu
+          cd fuzz
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
+
+      - name: The checking xtask, built from the base commit
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || github.event.before }}
+        run: |
+          set -eu
+          parent=$(cd .. && pwd)
+          checker=
+          case "${BASE_SHA}" in
+            ''|0000000000000000000000000000000000000000) ;;
+            *)
+              if git cat-file -e "${BASE_SHA}:xtask/src/ci.rs" 2>/dev/null; then
+                git worktree add -q --detach "${parent}/moirai-base" "${BASE_SHA}"
+                (cd "${parent}/moirai-base" && CARGO_TARGET_DIR="${parent}/moirai-base-target" cargo build -q --locked -p xtask)
+                checker="${parent}/moirai-base-target/debug/xtask.exe"
+                echo "checking xtask built from the base commit ${BASE_SHA}"
+              fi
+              ;;
+          esac
+          if [ -z "${checker}" ]; then
+            echo "::warning::the base commit has no xtask ci: the title, body and commit checks run with this pull request's own xtask (docs/m0/authors.md §5 item 8)"
+            CARGO_TARGET_DIR="${parent}/moirai-head-target" cargo build -q --locked -p xtask
+            checker="${parent}/moirai-head-target/debug/xtask.exe"
+          fi
+          test -x "${checker}"
+          echo "CHECKER=${checker}" >> "${GITHUB_ENV}"
+
+      - name: AI markers in the pull request's title and body
+        if: github.event_name == 'pull_request'
+        run: '"${CHECKER}" hook pr-body --event "${GITHUB_EVENT_PATH}"'
+
+      - name: Every commit - AI markers, private/, 1 MiB, author and committer
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: '"${CHECKER}" ci commits --event "${GITHUB_EVENT_PATH}"'
+
+      - name: Gate
+        run: cargo xtask gate --ci
+
+  replay:
+    name: replay
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: "0"
+      MOIRAI_TEST_TIER: pr
+    steps:
+      - name: Check out the commit under test
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          git config --global core.autocrlf false
+          git config --global init.defaultBranch master
+          git init -q .
+          git remote add origin "https://github.com/${REPO}.git"
+          git fetch -q --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout -q --detach "${GITHUB_SHA}"
+          git log -1 --format='checked out %H (%s)'
+
+      - name: Toolchain from rust-toolchain.toml
+        run: |
+          set -eu
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
+          cargo --version
+          rustc --version
+
+      - name: The MSVC cl.exe version (PLAN §2.1)
+        run: |
+          set -eu
+          vswhere="/c/Program Files (x86)/Microsoft Visual Studio/Installer/vswhere.exe"
+          vs=$("${vswhere}" -latest -products '*' -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath | tr -d '\r')
+          vs=$(cygpath -u "${vs}")
+          toolset=$(tr -d '\r\n ' < "${vs}/VC/Auxiliary/Build/Microsoft.VCToolsVersion.default.txt")
+          echo "MSVC toolset ${toolset}"
+          { "${vs}/VC/Tools/MSVC/${toolset}/bin/Hostx64/x64/cl.exe" 2>&1 || true; } | head -n 1
+
+      - name: tsoracle and replay - build, clippy and tests, unpoisoned
+        run: |
+          set -eu
+          cargo build --locked -p moirai-tsoracle -p moirai-replay --all-targets
+          cargo clippy --locked -p moirai-tsoracle -p moirai-replay --all-targets -- -D warnings
+          cargo test --locked -p moirai-tsoracle -p moirai-replay --no-fail-fast

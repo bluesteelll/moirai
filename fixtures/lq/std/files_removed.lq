@@ -1,0 +1,6 @@
+DEFINE QUERY files_removed($scope: node? = NULL) SHAPE links BUDGET medium AS {
+  MATCH (f:artifact)
+  WHERE f.status = 'removed'
+    AND ($scope IS NULL OR EXISTS { (n)-[:AT]->(f) WHERE n IN subtree($scope) })
+  RETURN f ORDER BY f.id
+}

@@ -1,0 +1,148 @@
+#!/bin/sh
+# pre-commit: keep owner-derived data and oversized files out of this public repository (WP-03; docs/m0/PLAN.md
+# §2.5 and §3.2 item 7; AGENTS.md "Data"; [60 §3.1] item 7; [AR §11] #37).
+#
+# Checks made here, over the staged entries (added, copied, modified or type-changed):
+#   1. a path under private/ at the repository root is refused (case-insensitively, since Windows file systems fold
+#      case); owner data lives only in the main worktree's gitignored /private/;
+#   2. a staged file larger than 1 MiB (1,048,576 bytes) is refused unless it lies under fixtures/ at the root.
+# Checks delegated to the prebuilt xtask (`xtask hook pre-commit`, implemented in WP-03 part 2 together with
+# `xtask private index`, which writes /private/MANIFEST.b3):
+#   3. a stale manifest (its tree digest differs from /private/);
+#   4. a staged file whose BLAKE3 the manifest lists;
+#   5. a staged added line that contains an 8-word shingle the manifest lists;
+#   6. in docs/measurements/** and reports: absolute user paths, user and host names, volume serials, machine GUIDs,
+#      BootIds and process command lines.
+#
+# Where /private/ is: the main worktree's root, found through `git rev-parse --path-format=absolute
+# --git-common-dir`, so a linked worktree with no /private/ of its own is checked against the main one.
+#
+# The xtask to delegate to: the absolute path in `git config moirai.xtask` (the gate worktree's prebuilt binary; set
+# up by `cargo xtask worktree` in WP-01 part 2). It is called as
+#   <xtask> hook pre-commit --guard true|false [--private-dir <main worktree>/private]
+# from the worktree's top level, with git's hook environment (GIT_INDEX_FILE and the rest), and refuses by a non-zero
+# exit status.
+#
+# Failing closed: when `git config moirai.private-guard` is true, the hook refuses the commit if /private/MANIFEST.b3
+# is missing, if the main worktree cannot be located, or if the manifest exists but no executable xtask is configured
+# (the checks could not run). Set the guard only after `cargo xtask private index` has written the manifest: before
+# that, every commit is refused, by design. Without the guard, a missing manifest or xtask only prints a notice.
+#
+# Owner setup, once per clone (PLAN §2.5):
+#   git config core.hooksPath <absolute path of the main worktree>/.githooks
+#   git config moirai.private-guard true
+# POSIX sh; runs under Git for Windows' sh, bash and dash. Tests: sh .githooks/test-hooks.sh
+
+set -u
+LC_ALL=C
+export LC_ALL
+
+max_bytes=1048576
+fail=0
+refuse() { printf 'pre-commit: refused: %s\n' "$*" >&2; fail=1; }
+note() { printf 'pre-commit: notice: %s\n' "$*" >&2; }
+
+# --- The staged entries, one per line: "<new mode> <object id> <path>" (paths C-quoted by git when needed).
+if git rev-parse --verify -q HEAD >/dev/null 2>&1; then
+    base=HEAD
+else
+    base=$(git hash-object -t tree --stdin </dev/null) || { refuse 'cannot compute the empty tree'; exit 1; }
+fi
+raw=$(git -c core.quotePath=false diff --cached --raw --no-renames --no-abbrev --diff-filter=ACMT "$base" --) ||
+    { refuse 'cannot list the staged changes'; exit 1; }
+entries=$(printf '%s\n' "$raw" | awk -F '\t' 'NF >= 2 { split($1, m, " "); print m[2] " " m[4] " " substr($0, length($1) + 2) }')
+
+# --- 1. private/** at the repository root.
+private_paths=$(printf '%s\n' "$entries" | awk '
+    NF >= 3 {
+        p = substr($0, length($1) + length($2) + 3)
+        q = p
+        if (substr(q, 1, 1) == "\"") q = substr(q, 2)
+        if (tolower(q) ~ /^private\//) print p
+    }')
+if [ -n "$private_paths" ]; then
+    printf '%s\n' "$private_paths" | while IFS= read -r p; do
+        printf 'pre-commit: refused: owner data under private/ is never committed: %s\n' "$p" >&2
+    done
+    fail=1
+fi
+
+# --- 2. Files over 1 MiB outside fixtures/.
+big=$(printf '%s\n' "$entries" |
+    awk 'NF >= 3 && $1 != "160000" { print $2 " " substr($0, length($1) + length($2) + 3) }' |
+    git cat-file --batch-check='%(objectsize) %(rest)' |
+    awk -v max="$max_bytes" '
+        $1 ~ /^[0-9]+$/ && $1 + 0 > max + 0 {
+            p = substr($0, length($1) + 2)
+            q = p
+            if (substr(q, 1, 1) == "\"") q = substr(q, 2)
+            if (q !~ /^fixtures\//) print $1 " bytes: " p
+        }')
+if [ -n "$big" ]; then
+    printf '%s\n' "$big" | while IFS= read -r b; do
+        printf 'pre-commit: refused: over 1 MiB outside fixtures/: %s\n' "$b" >&2
+    done
+    fail=1
+fi
+
+# --- The guard and the main worktree's /private/.
+guard=false
+guard_raw=$(git config --get moirai.private-guard 2>/dev/null) || guard_raw=
+if [ -n "$guard_raw" ]; then
+    guard=$(git config --type=bool --get moirai.private-guard 2>/dev/null) || {
+        refuse "git config moirai.private-guard is not a boolean ('$guard_raw'): failing closed"
+        guard=true
+    }
+fi
+
+common=$(git rev-parse --path-format=absolute --git-common-dir 2>/dev/null) || common=
+private_dir=
+if [ -n "$common" ] && [ "$(basename "$common")" = .git ]; then
+    private_dir="$(dirname "$common")/private"
+fi
+
+xtask=$(git config --get moirai.xtask 2>/dev/null) || xtask=
+
+if [ -z "$private_dir" ]; then
+    if [ "$guard" = true ]; then
+        refuse "moirai.private-guard is true but the main worktree's /private/ cannot be located (git common dir: '${common:-unknown}'): failing closed"
+    fi
+else
+    manifest="$private_dir/MANIFEST.b3"
+    if [ ! -f "$manifest" ]; then
+        if [ "$guard" = true ]; then
+            refuse "moirai.private-guard is true and $manifest is missing: failing closed (write it with 'cargo xtask private index')"
+        elif [ -d "$private_dir" ]; then
+            note "$private_dir has no MANIFEST.b3 and moirai.private-guard is not true: the manifest checks are off"
+        fi
+    elif [ -z "$xtask" ]; then
+        if [ "$guard" = true ]; then
+            refuse "no prebuilt xtask is configured (git config moirai.xtask): the manifest and shingle checks cannot run; failing closed"
+        else
+            note "no prebuilt xtask is configured (git config moirai.xtask): the manifest and shingle checks were skipped"
+        fi
+    fi
+fi
+
+# --- 3-6. Delegated checks.
+if [ -n "$xtask" ]; then
+    if [ -f "$xtask" ] && [ -x "$xtask" ]; then
+        if [ -n "$private_dir" ]; then
+            "$xtask" hook pre-commit --guard "$guard" --private-dir "$private_dir" ||
+                refuse "'$xtask hook pre-commit' refused the commit (exit $?)"
+        else
+            "$xtask" hook pre-commit --guard "$guard" ||
+                refuse "'$xtask hook pre-commit' refused the commit (exit $?)"
+        fi
+    elif [ "$guard" = true ]; then
+        refuse "git config moirai.xtask names '$xtask', which is not an executable file: failing closed"
+    else
+        note "git config moirai.xtask names '$xtask', which is not an executable file: the delegated checks were skipped"
+    fi
+fi
+
+if [ "$fail" -ne 0 ]; then
+    printf '%s\n' 'pre-commit: the commit was not made (the rules are in .githooks/pre-commit).' >&2
+    exit 1
+fi
+exit 0

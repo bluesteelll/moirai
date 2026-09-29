@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/unknown-name--conflict-class-data.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note The conflict class DATA, which no store holds ([F12 §6.1]).
+%% refuse ImageParse unknown-name
+%% end

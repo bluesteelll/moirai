@@ -1,0 +1,16 @@
+tree 1274bbe397028d4cd4808dfc7b1d700050bbf6de70438c8140f19d1bf62053aa
+author moirai/image:checkpoint <@moirai.invalid> 1789964000 +0000
+committer moirai/image:checkpoint <@moirai.invalid> 1789964000 +0000
+
+checkpoint plan/storage
+
+Moirai-Commit: cd8741d715ca09d1b983ab7a60e69a7312ec02896169ef20a860f704a2117435b
+Moirai-Kind: checkpoint
+Moirai-Head: c32f142528424161310e374cd5affc067ccf980a3bce9cf4e72568fb78eca26f1
+Moirai-Ref: plan/storage
+Moirai-Folded: 5 commits from c25ad3d0aedc00d66d5ca7d255bbf7d379b8d453076a4770024cc973b8184d4a5 to c32f142528424161310e374cd5affc067ccf980a3bce9cf4e72568fb78eca26f1
+Moirai-Hlc: 117307080704000000
+Moirai-Actor: image:checkpoint
+Moirai-Foreign-Git: sha1:8d1469a55ab7be4254809feecc13b299e45a14b0
+Moirai-Schema: 1
+Moirai-Ops: 24

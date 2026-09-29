@@ -1,0 +1,5 @@
+DEFINE QUERY links_broken($scope: node? = NULL) SHAPE links BUDGET medium AS {
+  MATCH (n)-[a:AT]->(f)
+  WHERE ($scope IS NULL OR n IN subtree($scope)) AND link_state(a) <> 'ok'
+  RETURN f, a, link_state(a)
+}

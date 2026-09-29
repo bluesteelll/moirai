@@ -1,0 +1,8 @@
+moirai-node 1
+uid: 5d000000000000000000000000000002
+kind: decision
+title: Write-through for the pointer file
+status: proposed
+created: c352fde46a717001f4c4a321f22dadb5b24b02e6c782d66d285607873438bf503 2026-09-21T15:03:20.000Z
+updated: c352fde46a717001f4c4a321f22dadb5b24b02e6c782d66d285607873438bf503 2026-09-21T15:03:20.000Z
+field what: MOVEFILE_WRITE_THROUGH on every pointer rename.

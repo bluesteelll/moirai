@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/relink-grammar--lazy-magic.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note A relink value outside R-17's grammar.
+%% refuse ImageParse relink-grammar
+%% end

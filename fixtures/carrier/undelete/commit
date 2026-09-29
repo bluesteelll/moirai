@@ -1,0 +1,17 @@
+tree e636f08679a635ffc18b54991b7137ad719b35d0
+parent ebc21e781da7ad13c34b547f676dc352c59e0858
+author moirai/dev#1 <developer@moirai.invalid> 1790001740 +0000
+committer moirai/dev#1 <developer@moirai.invalid> 1790001740 +0000
+
+revert the deletion of #1
+
+Moirai-Commit: c7ee5079d1979589cac7d2f63bf55f785b0f9afa679233b42815613617bc7635b
+Moirai-Kind: revert
+Moirai-Ref: lane/d
+Moirai-Hlc: 117309554032640000
+Moirai-Actor: dev#1
+Moirai-Role: developer
+Moirai-Session: claude:s1
+Moirai-Origin: caaa574fb5321518fcef0414a190f74af15544a49e4738f50c481a5f4d758c765
+Moirai-Schema: 1
+Moirai-Ops: 9
