@@ -1,0 +1,537 @@
+# fixtures/hex/chain/lazy-tail/log.1.hex: store D ([F05 §5.3], [60 §2.5] decision (b) as restated, [72 B1]).
+# Commit c1's group is durable and ends at durable_lsn D. Then lazy group L1 (valid) and lazy group L2, which a
+# non-durable publish covered (committed_lsn = the end of L2) but no flush made durable. An OS crash lost L2's
+# last 512-byte sector, which reads as zero: L2's last record and its chain trailer fail, so the group is
+# invalid at a boundary in [durable_lsn, committed_lsn). That boundary is the end of the valid log and the end of
+# a reader's visible log: a lost lazy tail, never an error. HEAD.hex: durable_lsn = D, committed_lsn = L2's end.
+
+# === group g1 at lsn 0: the epoch-start group (first group) (durable)
+g1:
+# --- record g1.r1: kind 28 `ExtentHead` at lsn 0 (group_end)
+g1.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g1.r1..g1.r1.end}                    # len: header, payload and chain trailer
+  1c                                        # kind 28 ExtentHead
+  02                                        # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                   # _reserved
+  {u64 0}                                   # lsn = the record's own position
+  {u64 0x5555666677778888}                  # epoch
+  {xxh3_64 g1.r1..g1.r1+24 g1.r1+32..g1.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g1.r1.p:
+    {u64 0}                                 # epoch_lsn
+    {xxh3_64 8888777766665555}              # chain_in = XXH3-64(epoch) (the epoch seed)
+    # init: InitParams (32 B, [F04 §4.4])
+      {u64 65536}                           # log_extent_bytes
+      {u32 4}                               # hist_frame_commits
+      {u32 4096}                            # hist_frame_bytes
+      57 01 de 00 00 00 00 00 00 00 00 00 00 00 00 04  # store_id
+    01                                      # project_oid_algo
+    00                                      # hflags (bit 0 quiet, bit 1 readonly)
+    {u64 0}                                 # commit_seq
+    {u32 1}                                 # next_id
+    {u32 1}                                 # next_anchor
+    {u64 0}                                 # fence
+    {u32 1}                                 # next_file_no
+    {u32 0}                                 # next_ref_id
+    {u64 0}                                 # hlc_seq
+    {u64 0}                                 # hlc_commit
+g1.r1.pl:
+g1.tr:
+{xxh3_64 g1..g1.tr seed={xxh3_64 8888777766665555}}  # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the chain value at the group's first byte
+g1.end:
+g1.r1.end:
+
+# === group g2 at lsn 138: init: create main (a chained group, seeded with the trailer before it) (durable)
+g2:
+# --- record g2.r1: kind 2 `RefUpdate` at lsn 138
+g2.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g2.r1..g2.r1.end}                    # len: header and payload
+  02                                        # kind 2 RefUpdate
+  04                                        # flags: lazy=0, group_end=0, symdefs=1
+  {u16 0}                                   # _reserved
+  {u64 138}                                 # lsn = the record's own position
+  {u64 0x5555666677778888}                  # epoch
+  {xxh3_64 g2.r1..g2.r1+24 g2.r1+32..g2.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g2.r1.p:
+    # SymDefs block ([F05 §8.1]): 1 definition(s)
+      {uvar 1}                              # n_defs
+      01                                    # class 1 `actor`
+      {uvar 1}                              # id
+      {uvar 5}                              # text: length 5
+      "owner"
+    01                                      # reason 1 (create)
+    {uvar 0}                                # ref_id
+    {uvar 1}                                # actor `owner`
+    {u64 0x1a0c4506fe80000}                 # hlc
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # old (cid32; zero = none)
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # new (cid32; zero = none)
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    {uvar 0}                                # n_absorbed
+g2.r1.pl:
+g2.r1.end:
+# --- record g2.r2: kind 10 `RefTable` at lsn 255 (group_end)
+g2.r2:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g2.r2..g2.r2.end}                    # len: header, payload and chain trailer
+  0a                                        # kind 10 RefTable
+  06                                        # flags: lazy=0, group_end=1, symdefs=1
+  {u16 0}                                   # _reserved
+  {u64 255}                                 # lsn = the record's own position
+  {u64 0x5555666677778888}                  # epoch
+  {xxh3_64 g2.r2..g2.r2+24 g2.r2+32..g2.r2.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g2.r2.p:
+    # SymDefs block ([F05 §8.1]): 1 definition(s)
+      {uvar 1}                              # n_defs
+      04                                    # class 4 `ref`
+      {uvar 1}                              # id
+      {uvar 4}                              # text: length 4
+      "main"
+    {uvar 1}                                # n
+    # RefEntry 1
+      01                                    # op 1 (upsert)
+      {uvar 0}                              # ref_id
+      {uvar 1}                              # name `main`
+      01                                    # rkind
+      00                                    # eflags: deleted=0, has_message=0, pinned=0
+      00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # tip (cid32)
+      00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+      {uvar 0}                              # tip_lsn
+      {uvar 0}                              # base_pin
+      00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # fork_commit (cid32)
+      00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+      {uvar 0}                              # fork_seq
+      {uvar 0}                              # ops_since_fork
+      {uvar 0}                              # overlay_ops
+      {uvar 0}                              # overlay_bytes
+      {uvar 1}                              # ref_seq_next
+      {uvar 0}                              # promoted_seg
+      {uvar 0}                              # gen
+      {uvar 0}                              # n_absorbed
+      {uvar 0}                              # fork_lsn
+      {uvar 0}                              # fork_ref_id
+      {uvar 0}                              # trunk_mark_ops
+      {uvar 0}                              # trunk_mark_bytes
+g2.r2.pl:
+g2.tr:
+{xxh3_64 g2..g2.tr seed=g1.tr..g1.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g2.end:
+g2.r2.end:
+
+# === group g3 at lsn 387: commit c1 (seq 1): durable (durable)
+g3:
+# --- record g3.r1: kind 1 `Commit` at lsn 387 (group_end)
+g3.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g3.r1..g3.r1.end}                    # len: header, payload and chain trailer
+  01                                        # kind 1 Commit
+  06                                        # flags: lazy=0, group_end=1, symdefs=1
+  {u16 0}                                   # _reserved
+  {u64 387}                                 # lsn = the record's own position
+  {u64 0x5555666677778888}                  # epoch
+  {xxh3_64 g3.r1..g3.r1+24 g3.r1+32..g3.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g3.r1.p:
+    # SymDefs block ([F05 §8.1]): 1 definition(s)
+      {uvar 1}                              # n_defs
+      0a                                    # class 10 `name`
+      {uvar 1}                              # id
+      {uvar 5}                              # text: length 5
+      "title"
+    # Commit payload ([F06 §4.3])
+    {u32 28672}                             # presence: stmt_hash, msg, affected
+    43 9a 0f cf 74 ce 0a 1e cf 4b ab 1c c1 7a 24 6a  # commit_id (synthetic)
+    fb 44 36 20 15 95 58 e6 81 85 b7 0a a4 72 51 99
+    00                                      # n_parents
+    {uvar 1}                                # gen
+    {uvar 1}                                # seq
+    {uvar 1}                                # ref symbol `main`
+    {uvar 0}                                # ref_id
+    {uvar 1}                                # ref_seq
+    00                                      # kind `ordinary`
+    00                                      # import `local`
+    {u64 0x1a0c45093100000}                 # hlc
+    {uvar 1}                                # actor `owner`
+    {uvar 0}                                # role ``
+    {uvar 0}                                # session ``
+    {uvar 1}                                # schema_version
+    02                                      # stmt_origin `tx`
+    05                                      # actor_src `env`
+    {uvar 0}                                # stmt_sym ``
+    d7 e0 8b a1 d0 43 01 a4 e2 71 cf b7 d0 59 03 ed  # stmt_hash
+    {svar 0}                                # append_delta (append_hlc - hlc)
+    {uvar 6}                                # msg: length 6
+    "add #1"
+    {uvar 1}                                # affected_len
+    01                                      # affected_complete
+    {uvar 1}                                # first
+    46 75 cc ff 70 a9 3c 4c bd b0 20 98 42 57 60 4b  # changeset_digest (synthetic)
+    45 ae 61 e9 24 14 cd 1c a5 3b 16 5a 85 c2 d8 82
+    {uvar 1}                                # n_ops
+    # op 1: Create
+      01                                    # op tag 1 Create
+      {uvar 39}                             # len of the body
+      {uvar 1}                              # id #1
+      {uvar 0}                              # prev: 0 (no earlier op of the owner on this ref)
+      73 46 4c 90 2a e2 68 6c e7 78 51 ae dd 8f a5 44  # uid
+      03                                    # kind
+      {uvar 1}                              # c_actor `owner`
+      {uvar 0}                              # c_role ``
+      # image: node image ([F06 §6.3]), 2 entries
+        {uvar 2}                            # n_entries
+        00                                  # ie 0 status
+        00                                  # status
+        00                                  # resolution
+        02                                  # ie 2 field
+        {uvar 1}                            # name 1 `title`
+        06                                  # title: type 6 text
+        {uvar 10}                           # title: text: length 10
+        "First note"
+    {uvar 0}                                # n_bodies
+g3.r1.pl:
+g3.tr:
+{xxh3_64 g3..g3.tr seed=g2.tr..g2.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g3.end:
+g3.r1.end:
+
+# === group g4 at lsn 597: lazy group L1: the session's change-feed cursor (valid) (lazy)
+g4:
+# --- record g4.r1: kind 11 `Lazy` at lsn 597 (group_end)
+g4.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g4.r1..g4.r1.end}                    # len: header, payload and chain trailer
+  0b                                        # kind 11 Lazy
+  03                                        # flags: lazy=1, group_end=1, symdefs=0
+  {u16 0}                                   # _reserved
+  {u64 597}                                 # lsn = the record's own position
+  {u64 0x5555666677778888}                  # epoch
+  {xxh3_64 g4.r1..g4.r1+24 g4.r1+32..g4.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g4.r1.p:
+    02                                      # sub 2 (cursor)
+    0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # agent_hash
+    01                                      # feed 1
+    {uvar 1}                                # cursor_seq
+    {u64 0x1a0c4509ae00000}                 # hlc
+g4.r1.pl:
+g4.tr:
+{xxh3_64 g4..g4.tr seed=g3.tr..g3.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g4.end:
+g4.r1.end:
+
+# === group g5 at lsn 680: lazy group L2: the change-feed cursors of twelve agents of the session (lazy)
+# L2 is written below as literal bytes: its first sectors as the process wrote them, and zero bytes where the
+# crash lost its last sector ([F15] fault model: an unflushed sector may read as zero after an OS crash).
+# The group as its writer formed it, as a listing (every `|` line is a comment, not input):
+# | g5:
+# | # --- record g5.r1: kind 11 `Lazy` at lsn 680
+# | g5.r1:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r1..g5.r1.end}                    # len: header and payload
+# |   0b                                        # kind 11 Lazy
+# |   01                                        # flags: lazy=1, group_end=0, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 680}                                 # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r1..g5.r1+24 g5.r1+32..g5.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r1.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     0f ef a5 99 df ea 90 9a 70 0b 6c 1f 53 23 fc 1d  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec80001}                 # hlc
+# | g5.r1.pl:
+# | g5.r1.end:
+# | # --- record g5.r2: kind 11 `Lazy` at lsn 755
+# | g5.r2:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r2..g5.r2.end}                    # len: header and payload
+# |   0b                                        # kind 11 Lazy
+# |   01                                        # flags: lazy=1, group_end=0, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 755}                                 # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r2..g5.r2+24 g5.r2+32..g5.r2.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r2.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     a8 e4 06 a9 e3 e9 e5 82 ba b3 35 dd f6 b1 02 0d  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec80002}                 # hlc
+# | g5.r2.pl:
+# | g5.r2.end:
+# | # --- record g5.r3: kind 11 `Lazy` at lsn 830
+# | g5.r3:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r3..g5.r3.end}                    # len: header and payload
+# |   0b                                        # kind 11 Lazy
+# |   01                                        # flags: lazy=1, group_end=0, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 830}                                 # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r3..g5.r3+24 g5.r3+32..g5.r3.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r3.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     a9 e0 10 df a5 6f 64 8c 21 65 e3 d0 b6 2e 58 4f  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec80003}                 # hlc
+# | g5.r3.pl:
+# | g5.r3.end:
+# | # --- record g5.r4: kind 11 `Lazy` at lsn 905
+# | g5.r4:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r4..g5.r4.end}                    # len: header and payload
+# |   0b                                        # kind 11 Lazy
+# |   01                                        # flags: lazy=1, group_end=0, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 905}                                 # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r4..g5.r4+24 g5.r4+32..g5.r4.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r4.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     63 72 9c 15 a7 2b 7e 34 af fa 3a 42 a5 84 96 2a  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec80004}                 # hlc
+# | g5.r4.pl:
+# | g5.r4.end:
+# | # --- record g5.r5: kind 11 `Lazy` at lsn 980
+# | g5.r5:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r5..g5.r5.end}                    # len: header and payload
+# |   0b                                        # kind 11 Lazy
+# |   01                                        # flags: lazy=1, group_end=0, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 980}                                 # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r5..g5.r5+24 g5.r5+32..g5.r5.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r5.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     3b 72 3f 33 7d 74 87 bc 91 82 00 00 0b 5e 0b d9  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec80005}                 # hlc
+# | g5.r5.pl:
+# | g5.r5.end:
+# | # --- record g5.r6: kind 11 `Lazy` at lsn 1055
+# | g5.r6:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r6..g5.r6.end}                    # len: header and payload
+# |   0b                                        # kind 11 Lazy
+# |   01                                        # flags: lazy=1, group_end=0, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 1055}                                # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r6..g5.r6+24 g5.r6+32..g5.r6.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r6.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     26 cb 44 67 18 c1 ff fb 1a 49 a4 b7 73 6b 40 b6  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec80006}                 # hlc
+# | g5.r6.pl:
+# | g5.r6.end:
+# | # --- record g5.r7: kind 11 `Lazy` at lsn 1130
+# | g5.r7:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r7..g5.r7.end}                    # len: header and payload
+# |   0b                                        # kind 11 Lazy
+# |   01                                        # flags: lazy=1, group_end=0, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 1130}                                # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r7..g5.r7+24 g5.r7+32..g5.r7.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r7.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     71 c2 e3 70 5f f7 c0 65 7f 16 ea 36 ce 00 c1 2d  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec80007}                 # hlc
+# | g5.r7.pl:
+# | g5.r7.end:
+# | # --- record g5.r8: kind 11 `Lazy` at lsn 1205
+# | g5.r8:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r8..g5.r8.end}                    # len: header and payload
+# |   0b                                        # kind 11 Lazy
+# |   01                                        # flags: lazy=1, group_end=0, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 1205}                                # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r8..g5.r8+24 g5.r8+32..g5.r8.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r8.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     e5 a3 06 2f 4f 94 39 bc e6 c9 8b f2 0c cf 7a 4c  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec80008}                 # hlc
+# | g5.r8.pl:
+# | g5.r8.end:
+# | # --- record g5.r9: kind 11 `Lazy` at lsn 1280
+# | g5.r9:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r9..g5.r9.end}                    # len: header and payload
+# |   0b                                        # kind 11 Lazy
+# |   01                                        # flags: lazy=1, group_end=0, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 1280}                                # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r9..g5.r9+24 g5.r9+32..g5.r9.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r9.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     df f5 57 3e b8 b6 f1 04 ad f4 61 05 b1 16 4c 2c  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec80009}                 # hlc
+# | g5.r9.pl:
+# | g5.r9.end:
+# | # --- record g5.r10: kind 11 `Lazy` at lsn 1355
+# | g5.r10:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r10..g5.r10.end}                  # len: header and payload
+# |   0b                                        # kind 11 Lazy
+# |   01                                        # flags: lazy=1, group_end=0, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 1355}                                # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r10..g5.r10+24 g5.r10+32..g5.r10.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r10.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     42 6c 44 4a da e8 3d 1a 71 81 59 17 9b 92 7d 21  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec8000a}                 # hlc
+# | g5.r10.pl:
+# | g5.r10.end:
+# | # --- record g5.r11: kind 11 `Lazy` at lsn 1430
+# | g5.r11:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r11..g5.r11.end}                  # len: header and payload
+# |   0b                                        # kind 11 Lazy
+# |   01                                        # flags: lazy=1, group_end=0, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 1430}                                # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r11..g5.r11+24 g5.r11+32..g5.r11.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r11.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     85 6c 4c 37 2a 3b b8 41 64 ab 6a 1e d8 3c 9f 77  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec8000b}                 # hlc
+# | g5.r11.pl:
+# | g5.r11.end:
+# | # --- record g5.r12: kind 11 `Lazy` at lsn 1505 (group_end)
+# | g5.r12:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g5.r12..g5.r12.end}                  # len: header, payload and chain trailer
+# |   0b                                        # kind 11 Lazy
+# |   03                                        # flags: lazy=1, group_end=1, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 1505}                                # lsn = the record's own position
+# |   {u64 0x5555666677778888}                  # epoch
+# |   {xxh3_64 g5.r12..g5.r12+24 g5.r12+32..g5.r12.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g5.r12.p:
+# |     02                                      # sub 2 (cursor)
+# |     0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb  # session_hash
+# |     2d ac 54 39 aa f0 a5 36 95 cb 90 25 6c a2 c9 39  # agent_hash
+# |     01                                      # feed 1
+# |     {uvar 1}                                # cursor_seq
+# |     {u64 0x1a0c4509ec8000c}                 # hlc
+# | g5.r12.pl:
+# | g5.tr:
+# | {xxh3_64 g5..g5.tr seed=g4.tr..g4.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+# | g5.end:
+# | g5.r12.end:
+# The bytes of the file at [680, 1588):
+g5:
+4b 00 00 00 0b 01 00 00 a8 02 00 00 00 00 00 00  # L2 as written, up to the lost sector
+88 88 77 77 66 66 55 55 fd d7 d1 df 97 a2 08 35
+02 0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34
+cb 0f ef a5 99 df ea 90 9a 70 0b 6c 1f 53 23 fc
+1d 01 01 01 00 c8 9e 50 c4 a0 01 4b 00 00 00 0b
+01 00 00 f3 02 00 00 00 00 00 00 88 88 77 77 66
+66 55 55 f9 e2 3e d4 91 73 05 86 02 0e a9 66 54
+7a f7 32 a0 21 bc 43 f4 42 77 34 cb a8 e4 06 a9
+e3 e9 e5 82 ba b3 35 dd f6 b1 02 0d 01 01 02 00
+c8 9e 50 c4 a0 01 4b 00 00 00 0b 01 00 00 3e 03
+00 00 00 00 00 00 88 88 77 77 66 66 55 55 e7 f6
+83 49 a6 af b7 f7 02 0e a9 66 54 7a f7 32 a0 21
+bc 43 f4 42 77 34 cb a9 e0 10 df a5 6f 64 8c 21
+65 e3 d0 b6 2e 58 4f 01 01 03 00 c8 9e 50 c4 a0
+01 4b 00 00 00 0b 01 00 00 89 03 00 00 00 00 00
+00 88 88 77 77 66 66 55 55 73 e7 ef ed bd c6 33
+ba 02 0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77
+34 cb 63 72 9c 15 a7 2b 7e 34 af fa 3a 42 a5 84
+96 2a 01 01 04 00 c8 9e 50 c4 a0 01 4b 00 00 00
+0b 01 00 00 d4 03 00 00 00 00 00 00 88 88 77 77
+66 66 55 55 37 3f 8f 64 0d aa a6 bf 02 0e a9 66
+54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb 3b 72 3f
+33 7d 74 87 bc 91 82 00 00 0b 5e 0b d9 01 01 05
+00 c8 9e 50 c4 a0 01 4b 00 00 00 0b 01 00 00 1f
+04 00 00 00 00 00 00 88 88 77 77 66 66 55 55 d4
+a4 d7 10 43 e0 1a 35 02 0e a9 66 54 7a f7 32 a0
+21 bc 43 f4 42 77 34 cb 26 cb 44 67 18 c1 ff fb
+1a 49 a4 b7 73 6b 40 b6 01 01 06 00 c8 9e 50 c4
+a0 01 4b 00 00 00 0b 01 00 00 6a 04 00 00 00 00
+00 00 88 88 77 77 66 66 55 55 fe 0e 6b f6 47 92
+ef b4 02 0e a9 66 54 7a f7 32 a0 21 bc 43 f4 42
+77 34 cb 71 c2 e3 70 5f f7 c0 65 7f 16 ea 36 ce
+00 c1 2d 01 01 07 00 c8 9e 50 c4 a0 01 4b 00 00
+00 0b 01 00 00 b5 04 00 00 00 00 00 00 88 88 77
+77 66 66 55 55 fc 6b 49 db b2 9b 4d 12 02 0e a9
+66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb e5 a3
+06 2f 4f 94 39 bc e6 c9 8b f2 0c cf 7a 4c 01 01
+08 00 c8 9e 50 c4 a0 01 4b 00 00 00 0b 01 00 00
+00 05 00 00 00 00 00 00 88 88 77 77 66 66 55 55
+59 d1 4f 61 27 c3 b2 ce 02 0e a9 66 54 7a f7 32
+a0 21 bc 43 f4 42 77 34 cb df f5 57 3e b8 b6 f1
+04 ad f4 61 05 b1 16 4c 2c 01 01 09 00 c8 9e 50
+c4 a0 01 4b 00 00 00 0b 01 00 00 4b 05 00 00 00
+00 00 00 88 88 77 77 66 66 55 55 3d 98 4e a9 c4
+54 73 06 02 0e a9 66 54 7a f7 32 a0 21 bc 43 f4
+42 77 34 cb 42 6c 44 4a da e8 3d 1a 71 81 59 17
+9b 92 7d 21 01 01 0a 00 c8 9e 50 c4 a0 01 4b 00
+00 00 0b 01 00 00 96 05 00 00 00 00 00 00 88 88
+77 77 66 66 55 55 a1 2d 94 3f 6f 27 b3 a6 02 0e
+a9 66 54 7a f7 32 a0 21 bc 43 f4 42 77 34 cb 85
+6c 4c 37 2a 3b b8 41 64 ab 6a 1e d8 3c 9f 77 01
+01 0b 00 c8 9e 50 c4 a0 01 53 00 00 00 0b 03 00
+00 e1 05 00 00 00 00 00 00 88 88 77 77 66 66 55
+55 24 ed 06 ee 24 f3 3c
+00*44                                       # the lost sector [1536, 2048) reads as zero: L2's bytes [1536, 1588) are gone
+g5.tr:
+00 00 00 00 00 00 00 00                     # the lost sector [1536, 2048) reads as zero: L2's bytes [1536, 1588) are gone (continued); the chain trailer's 8 bytes start here
+g5.end:
+
+# The valid log ends at L2's first byte. Every later byte of the extent is zero.
+{pad_to 65536}                              # zero to the end of the extent

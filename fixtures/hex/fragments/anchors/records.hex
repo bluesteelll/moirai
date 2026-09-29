@@ -1,0 +1,170 @@
+# fixtures/hex/fragments/anchors/records.hex: anchor records ([F08 §10.3]) of the forms the stores do not hold, back to
+# back; decode as anchor records to the end of the file. The stores' anchors (quote, range with a marker, file,
+# lines, a repinned quote) are in fixtures/hex/store-a. Here: kind 2 `heading` with a Markdown scope and kind 3
+# `symbol` with a Rust scope, as an import keeps them ([F08 §10.3.1]: no writer captures either under the interim
+# scanner rule, an imported anchor keeps its bytes); a hash-only `quote` and a hash-only `range` (text_unavailable,
+# with quote_h, prefix_h, suffix_h and end_h, [40 §5.7]); an anchor with a predecessor term and an occurrence index;
+# and a `file` anchor of a planned target (blob algo `none`). captured values are synthetic (an imported anchor's
+# captured is trusted, [F08 §11.5]); each uid is the anchor derivation of [F08 §11.4] over the synthetic source uid
+# BLAKE3-128("moirai-fixture:anchors/src"), captured and pred. Window values follow [F20 §2.7.3].
+
+# heading with a Markdown scope (a numbered heading: qual holds the stripped numbering)
+# anchor record ([F08 §10.3]): kind `heading`
+  {u16 2}                                   # aflags: has_pred=0, has_scope=1, has_occurrence=0, has_git=0, has_marker=0, text_unavailable=0
+  d0 61 76 61 a4 0c 77 63 1e b9 3c 0c 5e 26 6e df  # uid (the edge's discriminator)
+  02                                        # kind 2 heading
+  01                                        # mode `live`
+  01                                        # watch `header`
+  {u16 1}                                   # resolver version
+  1d 98 ee cf 3f c4 22 c3 5f 8c 77 fd f1 ce 15 9f  # captured
+  {u32 12}                                  # hint_first
+  {u32 12}                                  # hint_last
+  {uvar 26}                                 # scope: length 26 ([F08 §10.3.1])
+    02                                      # lang 2 `markdown`
+    02                                      # n = 2 segments, outermost first
+    01                                      # ScopeSeg.skind
+    {uvar 7}                                # name: length 7
+    "Storage"
+    {uvar 0}                                # qual: length 0
+    02                                      # ScopeSeg.skind
+    {uvar 8}                                # name: length 8
+    "Timeouts"
+    {uvar 3}                                # qual: length 3
+    "3.2"
+  {uvar 15}                                 # quote: length 15
+  "## 3.2 Timeouts"
+  {uvar 0}                                  # prefix: length 0
+  {uvar 26}                                 # suffix: length 26
+  "\nWaiters retry every 5 ms."
+  {uvar 10}                                 # window value W ([F20 §2.7.3]): length 10
+  02 00 01 00 2b 1a 4d 3c 6f 5e
+  {u64 0x243f6a8885a308d3}                  # span_hash
+  01                                        # blob.algo
+  a9 36 e3 7c 01 d6 43 cb 4e 9d f7 7e 93 ec 3d 4f  # blob: digest
+  89 fd 77 ae
+
+# symbol with a Rust scope: an `impl` with its trait in qual, then the `fn`
+# anchor record ([F08 §10.3]): kind `symbol`
+  {u16 10}                                  # aflags: has_pred=0, has_scope=1, has_occurrence=0, has_git=1, has_marker=0, text_unavailable=0
+  0d 7c 97 4f 36 3a 09 11 55 29 16 ab fd 60 ba 56  # uid (the edge's discriminator)
+  03                                        # kind 3 symbol
+  02                                        # mode `pinned`
+  01                                        # watch `header`
+  {u16 1}                                   # resolver version
+  fa e4 28 7b 91 d5 6d 21 5f 34 0c 84 e9 ce 48 1a  # captured
+  {u32 40}                                  # hint_first
+  {u32 52}                                  # hint_last
+  {uvar 33}                                 # scope: length 33 ([F08 §10.3.1])
+    01                                      # lang 1 `rust`
+    03                                      # n = 3 segments, outermost first
+    01                                      # ScopeSeg.skind
+    {uvar 4}                                # name: length 4
+    "lock"
+    {uvar 0}                                # qual: length 0
+    02                                      # ScopeSeg.skind
+    {uvar 7}                                # name: length 7
+    "Wrap<T>"
+    {uvar 7}                                # qual: length 7
+    "From<T>"
+    03                                      # ScopeSeg.skind
+    {uvar 4}                                # name: length 4
+    "from"
+    {uvar 0}                                # qual: length 0
+  {uvar 23}                                 # quote: length 23
+  "fn from(t: T) -> Self {"
+  {uvar 30}                                 # prefix: length 30
+  "impl<T> From<T> for Wrap<T> {\n"
+  {uvar 0}                                  # suffix: length 0
+  {uvar 10}                                 # window value W ([F20 §2.7.3]): length 10
+  01 00 02 00 01 00 02 00 03 00
+  {u64 0x13198a2e03707344}                  # span_hash
+  01                                        # blob.algo
+  d9 4d b1 af fb 1b dd d9 49 1c d7 66 62 32 df ce  # blob: digest
+  91 5c 31 10
+  01                                        # git.algo
+  83 bc c6 a1 14 fc 80 22 5d 02 ce 95 ee c8 0e 37  # git: digest
+  69 b5 f0 74
+
+# hash-only quote (text_unavailable): digests instead of the quote, prefix and suffix
+# anchor record ([F08 §10.3]): kind `quote`, text-unavailable
+  {u16 32}                                  # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=0, has_marker=0, text_unavailable=1
+  f5 85 1f 67 7a 83 ac 6e b7 54 bf df 29 bf b5 ac  # uid (the edge's discriminator)
+  04                                        # kind 4 quote
+  01                                        # mode `live`
+  02                                        # watch `span`
+  {u16 1}                                   # resolver version
+  0c 0e 66 01 f8 00 a8 15 e2 50 0e 5e f6 e2 bd 8c  # captured
+  {u32 3}                                   # hint_first
+  {u32 3}                                   # hint_last
+  f0 bc 69 77 27 cf 4e d9 90 d5 60 ad 41 fa 05 17  # quote_h
+  af 13 49 b9 f5 f9 a1 a6 a0 40 4d ea 36 dc c9 49  # prefix_h
+  17 13 96 4b 91 23 10 fa a3 01 59 ef df 5d 68 81  # suffix_h
+  {uvar 8}                                  # window value W ([F20 §2.7.3]): length 8
+  00 00 02 00 1e 5a d2 c7
+  {u64 0x6b1f3e0d2c9a8475}                  # span_hash
+  01                                        # blob.algo
+  a9 36 e3 7c 01 d6 43 cb 4e 9d f7 7e 93 ec 3d 4f  # blob: digest
+  89 fd 77 ae
+
+# hash-only range (text_unavailable): end_h too ([40] R-10, review S-04)
+# anchor record ([F08 §10.3]): kind `range`, text-unavailable
+  {u16 32}                                  # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=0, has_marker=0, text_unavailable=1
+  0d 4f 49 dc 57 41 f8 0e 58 4e 39 53 86 4a bb a8  # uid (the edge's discriminator)
+  05                                        # kind 5 range
+  01                                        # mode `live`
+  02                                        # watch `span`
+  {u16 1}                                   # resolver version
+  59 94 eb b9 5a 45 31 a5 f3 ad 23 ff 92 17 79 4f  # captured
+  {u32 6}                                   # hint_first
+  {u32 8}                                   # hint_last
+  40 88 f6 c0 fa ec 4e d8 10 e9 ec a1 97 88 06 cd  # quote_h
+  67 56 ad e5 80 11 60 e5 77 e2 af 77 7a 3c 26 fa  # prefix_h
+  af 13 49 b9 f5 f9 a1 a6 a0 40 4d ea 36 dc c9 49  # suffix_h
+  e0 4a 80 42 d5 7f 78 e0 ce 8e f0 b3 77 ac 59 67  # end_h
+  {uvar 8}                                  # window value W ([F20 §2.7.3]): length 8
+  02 00 00 00 91 3d 1e 5a
+  {u64 0xf4e2a17b3c85d69}                   # span_hash
+  01                                        # blob.algo
+  a9 36 e3 7c 01 d6 43 cb 4e 9d f7 7e 93 ec 3d 4f  # blob: digest
+  89 fd 77 ae
+
+# quote with a predecessor term (has_pred) and an occurrence index (has_occurrence)
+# anchor record ([F08 §10.3]): kind `quote`
+  {u16 5}                                   # aflags: has_pred=1, has_scope=0, has_occurrence=1, has_git=0, has_marker=0, text_unavailable=0
+  d6 4d 9f 57 fe 51 17 c9 12 44 88 d4 e1 db 43 43  # uid (the edge's discriminator)
+  04                                        # kind 4 quote
+  01                                        # mode `live`
+  02                                        # watch `span`
+  {u16 1}                                   # resolver version
+  59 1c f9 b1 30 69 74 9e 3a 18 48 fc 1a 19 27 d3  # captured
+  1f ca 41 36 eb 0a 6b 93 9c 1e 20 ea f0 a2 89 89  # pred
+  {u32 20}                                  # hint_first
+  {u32 20}                                  # hint_last
+  {uvar 5}                                  # quote: length 5
+  "retry"
+  {uvar 8}                                  # prefix: length 8
+  "Waiters "
+  {uvar 11}                                 # suffix: length 11
+  " every 5 ms"
+  {u16 2}                                   # occurrence
+  {uvar 68}                                 # window value W ([F20 §2.7.3]): length 68
+  10 00 10 00 01 01 01 01 01 01 01 01 01 01 01 01
+  01 01 01 01 01 01 01 01 01 01 01 01 01 01 01 01
+  01 01 01 01 02 02 02 02 02 02 02 02 02 02 02 02
+  02 02 02 02 02 02 02 02 02 02 02 02 02 02 02 02
+  02 02 02 02
+  {u64 0x123456789abcdef}                   # span_hash
+  02                                        # blob.algo
+  5e 4b 1c 31 c9 94 1d 07 2b 85 15 b1 04 d5 ac 43  # blob: digest
+  ab 98 ea f2 9b 9e 99 71 ce d0 73 e4 38 f1 8a 27
+
+# file anchor of a planned target (`link --planned`): blob algo `none`, the single byte 00
+# anchor record ([F08 §10.3]): kind `file`
+  {u16 0}                                   # aflags: has_pred=0, has_scope=0, has_occurrence=0, has_git=0, has_marker=0, text_unavailable=0
+  04 ed 8a a7 31 3e 78 f2 20 56 00 dc 54 e9 f6 52  # uid (the edge's discriminator)
+  01                                        # kind 1 file
+  01                                        # mode `live`
+  01                                        # watch `header`
+  {u16 1}                                   # resolver version
+  77 3b 60 8b 77 cc a1 68 4e f0 0a 5a 34 40 fc 3f  # captured
+  00                                        # blob (none: a planned target).algo

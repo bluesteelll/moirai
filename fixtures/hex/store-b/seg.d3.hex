@@ -1,0 +1,1461 @@
+# fixtures/hex/store-b/seg.d3.hex: store B's delta segment, the only layer of its main set: rows #1-#7 (#2
+# lives only on the deleted lane/x, so its row is absent: kind 0, all zero), the live run-scoped lease, ALLOC
+# with the holes of the reservation's ids #8-#9, SCHEMAIDS with the reserved kind id 64, and FILES with
+# cs.1 marked `reserved` (its bulk commit never lands). The five derived-optional caches are absent.
+
+# SegHdr (120 B, [F09 §2.1])
+seghdr:
+  "MSEG"                                    # magic
+  {u16 1}                                   # format
+  04                                        # seg_kind 4 `seg-delta`
+  00                                        # tok_ver
+  {u32 7}                                   # n_rows
+  {u16 52}                                  # n_sections
+  {u16 0}                                   # _reserved
+  {u32 3}                                   # file_no
+  {u32 0}                                   # ref_id
+  {u32 0}                                   # dict_no
+  {u32 0}                                   # _reserved
+  {u64 7}                                   # base_seq
+  {u64 0}                                   # from_lsn
+  {u64 126270}                              # upto_lsn
+  {u64 126270}                              # rt_upto_lsn
+  {len 0..end u64}                          # total_len
+  {blake3_256 data..end}                    # seg_digest: BLAKE3-256 over [data_off, total_len)
+  {xxh3_64 table..data}                     # table_xxh3 over the section table
+  {xxh3_64 0..112}                          # hdr_xxh3 over [0, 112)
+# section table (52 entries of 32 B, [F09 §2.2])
+table:
+  # SecEnt IDS (0x0001)
+  {u16 1}                                   # tag
+  {u16 0}                                   # flags
+  {u32 7}                                   # count
+  {len 0..s_0001 u64}                       # off (absolute)
+  {len s_0001..s_0001.e u64}                # len
+  {xxh3_64 s_0001..s_0001.e}                # xxh3
+  # SecEnt NODE (0x0002)
+  {u16 2}                                   # tag
+  {u16 0}                                   # flags
+  {u32 7}                                   # count
+  {len 0..s_0002 u64}                       # off (absolute)
+  {len s_0002..s_0002.e u64}                # len
+  {xxh3_64 s_0002..s_0002.e}                # xxh3
+  # SecEnt CREATOR (0x0003)
+  {u16 3}                                   # tag
+  {u16 0}                                   # flags
+  {u32 7}                                   # count
+  {len 0..s_0003 u64}                       # off (absolute)
+  {len s_0003..s_0003.e u64}                # len
+  {xxh3_64 s_0003..s_0003.e}                # xxh3
+  # SecEnt TOPO (0x0004)
+  {u16 4}                                   # tag
+  {u16 0}                                   # flags
+  {u32 7}                                   # count
+  {len 0..s_0004 u64}                       # off (absolute)
+  {len s_0004..s_0004.e u64}                # len
+  {xxh3_64 s_0004..s_0004.e}                # xxh3
+  # SecEnt DEFER (0x0005)
+  {u16 5}                                   # tag
+  {u16 0}                                   # flags
+  {u32 7}                                   # count
+  {len 0..s_0005 u64}                       # off (absolute)
+  {len s_0005..s_0005.e u64}                # len
+  {xxh3_64 s_0005..s_0005.e}                # xxh3
+  # SecEnt DUE (0x0006)
+  {u16 6}                                   # tag
+  {u16 0}                                   # flags
+  {u32 7}                                   # count
+  {len 0..s_0006 u64}                       # off (absolute)
+  {len s_0006..s_0006.e u64}                # len
+  {xxh3_64 s_0006..s_0006.e}                # xxh3
+  # SecEnt UID (0x0007)
+  {u16 7}                                   # tag
+  {u16 0}                                   # flags
+  {u32 6}                                   # count
+  {len 0..s_0007 u64}                       # off (absolute)
+  {len s_0007..s_0007.e u64}                # len
+  {xxh3_64 s_0007..s_0007.e}                # xxh3
+  # SecEnt TITLE_BLOB (0x0010)
+  {u16 16}                                  # tag
+  {u16 0}                                   # flags
+  {u32 6}                                   # count
+  {len 0..s_0010 u64}                       # off (absolute)
+  {len s_0010..s_0010.e u64}                # len
+  {xxh3_64 s_0010..s_0010.e}                # xxh3
+  # SecEnt FIELDS_BLOB (0x0011)
+  {u16 17}                                  # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0011 u64}                       # off (absolute)
+  {len s_0011..s_0011.e u64}                # len
+  {xxh3_64 s_0011..s_0011.e}                # xxh3
+  # SecEnt BLOBTAB (0x0012)
+  {u16 18}                                  # tag
+  {u16 0}                                   # flags
+  {u32 2}                                   # count
+  {len 0..s_0012 u64}                       # off (absolute)
+  {len s_0012..s_0012.e u64}                # len
+  {xxh3_64 s_0012..s_0012.e}                # xxh3
+  # SecEnt OUT_OFF (0x0020)
+  {u16 32}                                  # tag
+  {u16 0}                                   # flags
+  {u32 8}                                   # count
+  {len 0..s_0020 u64}                       # off (absolute)
+  {len s_0020..s_0020.e u64}                # len
+  {xxh3_64 s_0020..s_0020.e}                # xxh3
+  # SecEnt OUT_DST (0x0021)
+  {u16 33}                                  # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0021 u64}                       # off (absolute)
+  {len s_0021..s_0021.e u64}                # len
+  {xxh3_64 s_0021..s_0021.e}                # xxh3
+  # SecEnt OUT_KIND (0x0022)
+  {u16 34}                                  # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0022 u64}                       # off (absolute)
+  {len s_0022..s_0022.e u64}                # len
+  {xxh3_64 s_0022..s_0022.e}                # xxh3
+  # SecEnt IN_OFF (0x0023)
+  {u16 35}                                  # tag
+  {u16 0}                                   # flags
+  {u32 8}                                   # count
+  {len 0..s_0023 u64}                       # off (absolute)
+  {len s_0023..s_0023.e u64}                # len
+  {xxh3_64 s_0023..s_0023.e}                # xxh3
+  # SecEnt IN_SRC (0x0024)
+  {u16 36}                                  # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0024 u64}                       # off (absolute)
+  {len s_0024..s_0024.e u64}                # len
+  {xxh3_64 s_0024..s_0024.e}                # xxh3
+  # SecEnt IN_KIND (0x0025)
+  {u16 37}                                  # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0025 u64}                       # off (absolute)
+  {len s_0025..s_0025.e u64}                # len
+  {xxh3_64 s_0025..s_0025.e}                # xxh3
+  # SecEnt EDGE_PROPS (0x0026)
+  {u16 38}                                  # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0026 u64}                       # off (absolute)
+  {len s_0026..s_0026.e u64}                # len
+  {xxh3_64 s_0026..s_0026.e}                # xxh3
+  # SecEnt TOMB (0x0030)
+  {u16 48}                                  # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0030 u64}                       # off (absolute)
+  {len s_0030..s_0030.e u64}                # len
+  {xxh3_64 s_0030..s_0030.e}                # xxh3
+  # SecEnt CONFLICTS (0x0031)
+  {u16 49}                                  # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0031 u64}                       # off (absolute)
+  {len s_0031..s_0031.e u64}                # len
+  {xxh3_64 s_0031..s_0031.e}                # xxh3
+  # SecEnt BMDIR (0x0040)
+  {u16 64}                                  # tag
+  {u16 0}                                   # flags
+  {u32 6}                                   # count
+  {len 0..s_0040 u64}                       # off (absolute)
+  {len s_0040..s_0040.e u64}                # len
+  {xxh3_64 s_0040..s_0040.e}                # xxh3
+  # SecEnt PATHIDX (0x0080)
+  {u16 128}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0080 u64}                       # off (absolute)
+  {len s_0080..s_0080.e u64}                # len
+  {xxh3_64 s_0080..s_0080.e}                # xxh3
+  # SecEnt ALIASIDX (0x0081)
+  {u16 129}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0081 u64}                       # off (absolute)
+  {len s_0081..s_0081.e u64}                # len
+  {xxh3_64 s_0081..s_0081.e}                # xxh3
+  # SecEnt ANCHORS (0x0082)
+  {u16 130}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0082 u64}                       # off (absolute)
+  {len s_0082..s_0082.e u64}                # len
+  {xxh3_64 s_0082..s_0082.e}                # xxh3
+  # SecEnt ANCHOR_UID (0x0083)
+  {u16 131}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0083 u64}                       # off (absolute)
+  {len s_0083..s_0083.e u64}                # len
+  {xxh3_64 s_0083..s_0083.e}                # xxh3
+  # SecEnt GLOBIDX (0x0084)
+  {u16 132}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0084 u64}                       # off (absolute)
+  {len s_0084..s_0084.e u64}                # len
+  {xxh3_64 s_0084..s_0084.e}                # xxh3
+  # SecEnt SYMTAB (0x0100)
+  {u16 256}                                 # tag
+  {u16 0}                                   # flags
+  {u32 8}                                   # count
+  {len 0..s_0100 u64}                       # off (absolute)
+  {len s_0100..s_0100.e u64}                # len
+  {xxh3_64 s_0100..s_0100.e}                # xxh3
+  # SecEnt SCHEMAIDS (0x0101)
+  {u16 257}                                 # tag
+  {u16 0}                                   # flags
+  {u32 1}                                   # count
+  {len 0..s_0101 u64}                       # off (absolute)
+  {len s_0101..s_0101.e u64}                # len
+  {xxh3_64 s_0101..s_0101.e}                # xxh3
+  # SecEnt FILES (0x0102)
+  {u16 258}                                 # tag
+  {u16 0}                                   # flags
+  {u32 1}                                   # count
+  {len 0..s_0102 u64}                       # off (absolute)
+  {len s_0102..s_0102.e u64}                # len
+  {xxh3_64 s_0102..s_0102.e}                # xxh3
+  # SecEnt REFS (0x0201)
+  {u16 513}                                 # tag
+  {u16 0}                                   # flags
+  {u32 2}                                   # count
+  {len 0..s_0201 u64}                       # off (absolute)
+  {len s_0201..s_0201.e u64}                # len
+  {xxh3_64 s_0201..s_0201.e}                # xxh3
+  # SecEnt PINS (0x0202)
+  {u16 514}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0202 u64}                       # off (absolute)
+  {len s_0202..s_0202.e u64}                # len
+  {xxh3_64 s_0202..s_0202.e}                # xxh3
+  # SecEnt HEADS (0x0203)
+  {u16 515}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0203 u64}                       # off (absolute)
+  {len s_0203..s_0203.e u64}                # len
+  {xxh3_64 s_0203..s_0203.e}                # xxh3
+  # SecEnt LEASES (0x0204)
+  {u16 516}                                 # tag
+  {u16 0}                                   # flags
+  {u32 1}                                   # count
+  {len 0..s_0204 u64}                       # off (absolute)
+  {len s_0204..s_0204.e u64}                # len
+  {xxh3_64 s_0204..s_0204.e}                # xxh3
+  # SecEnt MARKERS (0x0205)
+  {u16 517}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0205 u64}                       # off (absolute)
+  {len s_0205..s_0205.e u64}                # len
+  {xxh3_64 s_0205..s_0205.e}                # xxh3
+  # SecEnt MARKERS_OLD (0x0206)
+  {u16 518}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0206 u64}                       # off (absolute)
+  {len s_0206..s_0206.e u64}                # len
+  {xxh3_64 s_0206..s_0206.e}                # xxh3
+  # SecEnt IDEM (0x0207)
+  {u16 519}                                 # tag
+  {u16 0}                                   # flags
+  {u32 16}                                  # count
+  {len 0..s_0207 u64}                       # off (absolute)
+  {len s_0207..s_0207.e u64}                # len
+  {xxh3_64 s_0207..s_0207.e}                # xxh3
+  # SecEnt ALLOC (0x0208)
+  {u16 520}                                 # tag
+  {u16 0}                                   # flags
+  {u32 9}                                   # count
+  {len 0..s_0208 u64}                       # off (absolute)
+  {len s_0208..s_0208.e u64}                # len
+  {xxh3_64 s_0208..s_0208.e}                # xxh3
+  # SecEnt UIDX (0x0209)
+  {u16 521}                                 # tag
+  {u16 0}                                   # flags
+  {u32 7}                                   # count
+  {len 0..s_0209 u64}                       # off (absolute)
+  {len s_0209..s_0209.e u64}                # len
+  {xxh3_64 s_0209..s_0209.e}                # xxh3
+  # SecEnt CURSORS (0x020a)
+  {u16 522}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_020a u64}                       # off (absolute)
+  {len s_020a..s_020a.e u64}                # len
+  {xxh3_64 s_020a..s_020a.e}                # xxh3
+  # SecEnt SESSMARKS (0x020b)
+  {u16 523}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_020b u64}                       # off (absolute)
+  {len s_020b..s_020b.e u64}                # len
+  {xxh3_64 s_020b..s_020b.e}                # xxh3
+  # SecEnt BACKUPS (0x020c)
+  {u16 524}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_020c u64}                       # off (absolute)
+  {len s_020c..s_020c.e u64}                # len
+  {xxh3_64 s_020c..s_020c.e}                # xxh3
+  # SecEnt TREES (0x0210)
+  {u16 528}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0210 u64}                       # off (absolute)
+  {len s_0210..s_0210.e u64}                # len
+  {xxh3_64 s_0210..s_0210.e}                # xxh3
+  # SecEnt FILEOBS (0x0211)
+  {u16 529}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0211 u64}                       # off (absolute)
+  {len s_0211..s_0211.e u64}                # len
+  {xxh3_64 s_0211..s_0211.e}                # xxh3
+  # SecEnt PENDING (0x0212)
+  {u16 530}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0212 u64}                       # off (absolute)
+  {len s_0212..s_0212.e u64}                # len
+  {xxh3_64 s_0212..s_0212.e}                # xxh3
+  # SecEnt FSINTENT (0x0213)
+  {u16 531}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0213 u64}                       # off (absolute)
+  {len s_0213..s_0213.e u64}                # len
+  {xxh3_64 s_0213..s_0213.e}                # xxh3
+  # SecEnt JOURNALCUR (0x0215)
+  {u16 533}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0215 u64}                       # off (absolute)
+  {len s_0215..s_0215.e u64}                # len
+  {xxh3_64 s_0215..s_0215.e}                # xxh3
+  # SecEnt PREFIXEV (0x0217)
+  {u16 535}                                 # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_0217 u64}                       # off (absolute)
+  {len s_0217..s_0217.e u64}                # len
+  {xxh3_64 s_0217..s_0217.e}                # xxh3
+  # SecEnt BM.0 (0x8000)
+  {u16 32768}                               # tag
+  {u16 0}                                   # flags
+  {u32 1}                                   # count
+  {len 0..s_8000 u64}                       # off (absolute)
+  {len s_8000..s_8000.e u64}                # len
+  {xxh3_64 s_8000..s_8000.e}                # xxh3
+  # SecEnt BM.1 (0x8001)
+  {u16 32769}                               # tag
+  {u16 0}                                   # flags
+  {u32 4}                                   # count
+  {len 0..s_8001 u64}                       # off (absolute)
+  {len s_8001..s_8001.e u64}                # len
+  {xxh3_64 s_8001..s_8001.e}                # xxh3
+  # SecEnt BM.2 (0x8002)
+  {u16 32770}                               # tag
+  {u16 0}                                   # flags
+  {u32 1}                                   # count
+  {len 0..s_8002 u64}                       # off (absolute)
+  {len s_8002..s_8002.e u64}                # len
+  {xxh3_64 s_8002..s_8002.e}                # xxh3
+  # SecEnt BM.3 (0x8003)
+  {u16 32771}                               # tag
+  {u16 0}                                   # flags
+  {u32 1}                                   # count
+  {len 0..s_8003 u64}                       # off (absolute)
+  {len s_8003..s_8003.e u64}                # len
+  {xxh3_64 s_8003..s_8003.e}                # xxh3
+  # SecEnt BM.4 (0x8004)
+  {u16 32772}                               # tag
+  {u16 0}                                   # flags
+  {u32 4}                                   # count
+  {len 0..s_8004 u64}                       # off (absolute)
+  {len s_8004..s_8004.e u64}                # len
+  {xxh3_64 s_8004..s_8004.e}                # xxh3
+  # SecEnt BM.5 (0x8005)
+  {u16 32773}                               # tag
+  {u16 0}                                   # flags
+  {u32 1}                                   # count
+  {len 0..s_8005 u64}                       # off (absolute)
+  {len s_8005..s_8005.e u64}                # len
+  {xxh3_64 s_8005..s_8005.e}                # xxh3
+data:
+
+# === section IDS (0x0001)
+s_0001:
+  {u32 1}                                   # IDS[0]
+  {u32 2}                                   # IDS[1]
+  {u32 3}                                   # IDS[2]
+  {u32 4}                                   # IDS[3]
+  {u32 5}                                   # IDS[4]
+  {u32 6}                                   # IDS[5]
+  {u32 7}                                   # IDS[6]
+s_0001.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section NODE (0x0002)
+s_0002:
+  # row 0: #1
+    03                                      # kind
+    00                                      # status
+    00                                      # resolution
+    02                                      # priority
+    02                                      # criticality
+    00                                      # confidence
+    04                                      # authority
+    {u16 0}                                 # flags
+    {u64 1}                                 # rev_seq
+    {u32 0}                                 # parent
+    {u32 1}                                 # created_tx
+    {u32 1}                                 # updated_tx
+    {u64 387}                               # last_op_lsn
+    {u16 0}                                 # open_blockers
+    {u16 0}                                 # open_blockers_exo
+    {u16 0}                                 # children_total
+    {u16 0}                                 # children_done
+    {u32 0}                                 # title_off
+    {u32 0xffffffff}                        # fields_off
+    {u32 0}                                 # body_ref (1-based BLOBTAB index)
+    00 00 00                                # _reserved
+  # row 1: #2 (absent: all zero)
+    00*60                                   # NodeHdr: kind 0, all 60 bytes zero
+  # row 2: #3
+    01                                      # kind
+    00                                      # status
+    00                                      # resolution
+    02                                      # priority
+    02                                      # criticality
+    00                                      # confidence
+    04                                      # authority
+    {u16 0}                                 # flags
+    {u64 3}                                 # rev_seq
+    {u32 0}                                 # parent
+    {u32 3}                                 # created_tx
+    {u32 3}                                 # updated_tx
+    {u64 1346}                              # last_op_lsn
+    {u16 0}                                 # open_blockers
+    {u16 0}                                 # open_blockers_exo
+    {u16 0}                                 # children_total
+    {u16 0}                                 # children_done
+    {u32 9}                                 # title_off
+    {u32 0xffffffff}                        # fields_off
+    {u32 0}                                 # body_ref (1-based BLOBTAB index)
+    00 00 00                                # _reserved
+  # row 3: #4
+    03                                      # kind
+    00                                      # status
+    00                                      # resolution
+    02                                      # priority
+    02                                      # criticality
+    00                                      # confidence
+    04                                      # authority
+    {u16 0}                                 # flags
+    {u64 4}                                 # rev_seq
+    {u32 0}                                 # parent
+    {u32 4}                                 # created_tx
+    {u32 4}                                 # updated_tx
+    {u64 1587}                              # last_op_lsn
+    {u16 0}                                 # open_blockers
+    {u16 0}                                 # open_blockers_exo
+    {u16 0}                                 # children_total
+    {u16 0}                                 # children_done
+    {u32 20}                                # title_off
+    {u32 0xffffffff}                        # fields_off
+    {u32 0}                                 # body_ref (1-based BLOBTAB index)
+    00 00 00                                # _reserved
+  # row 4: #5
+    0b                                      # kind
+    00                                      # status
+    00                                      # resolution
+    02                                      # priority
+    02                                      # criticality
+    00                                      # confidence
+    04                                      # authority
+    {u16 0}                                 # flags
+    {u64 5}                                 # rev_seq
+    {u32 0}                                 # parent
+    {u32 5}                                 # created_tx
+    {u32 5}                                 # updated_tx
+    {u64 1824}                              # last_op_lsn
+    {u16 0}                                 # open_blockers
+    {u16 0}                                 # open_blockers_exo
+    {u16 0}                                 # children_total
+    {u16 0}                                 # children_done
+    {u32 27}                                # title_off
+    {u32 0xffffffff}                        # fields_off
+    {u32 0}                                 # body_ref (1-based BLOBTAB index)
+    00 00 00                                # _reserved
+  # row 5: #6
+    03                                      # kind
+    00                                      # status
+    00                                      # resolution
+    02                                      # priority
+    02                                      # criticality
+    00                                      # confidence
+    04                                      # authority
+    {u16 0}                                 # flags
+    {u64 6}                                 # rev_seq
+    {u32 0}                                 # parent
+    {u32 6}                                 # created_tx
+    {u32 6}                                 # updated_tx
+    {u64 2065}                              # last_op_lsn
+    {u16 0}                                 # open_blockers
+    {u16 0}                                 # open_blockers_exo
+    {u16 0}                                 # children_total
+    {u16 0}                                 # children_done
+    {u32 38}                                # title_off
+    {u32 0xffffffff}                        # fields_off
+    {u32 2}                                 # body_ref (1-based BLOBTAB index)
+    00 00 00                                # _reserved
+  # row 6: #7
+    03                                      # kind
+    00                                      # status
+    00                                      # resolution
+    02                                      # priority
+    02                                      # criticality
+    00                                      # confidence
+    04                                      # authority
+    {u16 0}                                 # flags
+    {u64 7}                                 # rev_seq
+    {u32 0}                                 # parent
+    {u32 7}                                 # created_tx
+    {u32 7}                                 # updated_tx
+    {u64 65674}                             # last_op_lsn
+    {u16 0}                                 # open_blockers
+    {u16 0}                                 # open_blockers_exo
+    {u16 0}                                 # children_total
+    {u16 0}                                 # children_done
+    {u32 67}                                # title_off
+    {u32 0xffffffff}                        # fields_off
+    {u32 1}                                 # body_ref (1-based BLOBTAB index)
+    00 00 00                                # _reserved
+s_0002.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section CREATOR (0x0003)
+s_0003:
+  {u32 1}                                   # #1 CREATOR.actor `owner`
+  {u16 1}                                   # #1 CREATOR.role `orchestrator`
+  {u32 0}                                   # #2 CREATOR.actor ``
+  {u16 0}                                   # #2 CREATOR.role ``
+  {u32 1}                                   # #3 CREATOR.actor `owner`
+  {u16 1}                                   # #3 CREATOR.role `orchestrator`
+  {u32 1}                                   # #4 CREATOR.actor `owner`
+  {u16 1}                                   # #4 CREATOR.role `orchestrator`
+  {u32 1}                                   # #5 CREATOR.actor `owner`
+  {u16 1}                                   # #5 CREATOR.role `orchestrator`
+  {u32 1}                                   # #6 CREATOR.actor `owner`
+  {u16 1}                                   # #6 CREATOR.role `orchestrator`
+  {u32 1}                                   # #7 CREATOR.actor `owner`
+  {u16 1}                                   # #7 CREATOR.role `orchestrator`
+s_0003.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section TOPO (0x0004)
+s_0004:
+  {u32 1}                                   # TOPO[0]
+  {u32 0}                                   # TOPO[1]
+  {u32 3}                                   # TOPO[2]
+  {u32 4}                                   # TOPO[3]
+  {u32 5}                                   # TOPO[4]
+  {u32 6}                                   # TOPO[5]
+  {u32 7}                                   # TOPO[6]
+s_0004.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section DEFER (0x0005)
+s_0005:
+  {u32 0}                                   # DEFER[0]
+  {u32 0}                                   # DEFER[1]
+  {u32 0}                                   # DEFER[2]
+  {u32 0}                                   # DEFER[3]
+  {u32 0}                                   # DEFER[4]
+  {u32 0}                                   # DEFER[5]
+  {u32 0}                                   # DEFER[6]
+s_0005.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section DUE (0x0006)
+s_0006:
+  {u32 0}                                   # DUE[0]
+  {u32 0}                                   # DUE[1]
+  {u32 0}                                   # DUE[2]
+  {u32 0}                                   # DUE[3]
+  {u32 0}                                   # DUE[4]
+  {u32 0}                                   # DUE[5]
+  {u32 0}                                   # DUE[6]
+s_0006.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section UID (0x0007)
+s_0007:
+  {u32 6}                                   # n
+  {u32 20}                                  # row_w
+  # row 0
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
+    {u32 1}                                 # id
+  # row 1
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03  # uid
+    {u32 3}                                 # id
+  # row 2
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04  # uid
+    {u32 4}                                 # id
+  # row 3
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 05  # uid
+    {u32 5}                                 # id
+  # row 4
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06  # uid
+    {u32 6}                                 # id
+  # row 5
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 07  # uid
+    {u32 7}                                 # id
+s_0007.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section TITLE_BLOB (0x0010)
+s_0010:
+  {uvar 8}                                  # #1 title: length 8
+  "Note one"
+  {uvar 10}                                 # #3 title: length 10
+  "Task three"
+  {uvar 6}                                  # #4 title: length 6
+  "Note 4"
+  {uvar 10}                                 # #5 title: length 10
+  "Soak run 5"
+  {uvar 28}                                 # #6 title: length 28
+  "Note six (a 5,000-byte body)"
+  {uvar 31}                                 # #7 title: length 31
+  "Note seven (a 60,000-byte body)"
+s_0010.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FIELDS_BLOB (0x0011)
+s_0011:
+s_0011.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BLOBTAB (0x0012)
+s_0012:
+  {u32 2}                                   # n
+  {u32 36}                                  # row_w
+  # row 0
+    20 1e f7 65 a9 a5 53 91 8e 41 d1 d8 04 35 41 83  # hash
+    {u32 4}                                 # file (blobs.<n>)
+    {u64 264}                               # off (absolute, in that file)
+    {u32 60001}                             # len (codec byte included)
+    {u32 60000}                             # raw_len
+  # row 1
+    98 ff 1e 7e 30 83 2b ee d3 1a b4 c8 aa 2f 38 af  # hash
+    {u32 4}                                 # file (blobs.<n>)
+    {u64 60265}                             # off (absolute, in that file)
+    {u32 5001}                              # len (codec byte included)
+    {u32 5000}                              # raw_len
+s_0012.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section OUT_OFF (0x0020)
+s_0020:
+  {u32 0}                                   # OUT_OFF[0]
+  {u32 0}                                   # OUT_OFF[1]
+  {u32 0}                                   # OUT_OFF[2]
+  {u32 0}                                   # OUT_OFF[3]
+  {u32 0}                                   # OUT_OFF[4]
+  {u32 0}                                   # OUT_OFF[5]
+  {u32 0}                                   # OUT_OFF[6]
+  {u32 0}                                   # OUT_OFF[7]
+s_0020.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section OUT_DST (0x0021)
+s_0021:
+s_0021.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section OUT_KIND (0x0022)
+s_0022:
+s_0022.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section IN_OFF (0x0023)
+s_0023:
+  {u32 0}                                   # IN_OFF[0]
+  {u32 0}                                   # IN_OFF[1]
+  {u32 0}                                   # IN_OFF[2]
+  {u32 0}                                   # IN_OFF[3]
+  {u32 0}                                   # IN_OFF[4]
+  {u32 0}                                   # IN_OFF[5]
+  {u32 0}                                   # IN_OFF[6]
+  {u32 0}                                   # IN_OFF[7]
+s_0023.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section IN_SRC (0x0024)
+s_0024:
+s_0024.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section IN_KIND (0x0025)
+s_0025:
+s_0025.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section EDGE_PROPS (0x0026)
+s_0026:
+  {u32 0}                                   # n
+  {u32 40}                                  # row_w
+s_0026.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section TOMB (0x0030)
+s_0030:
+  {u32 0}                                   # n
+  {u32 16}                                  # row_w
+s_0030.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section CONFLICTS (0x0031)
+s_0031:
+  # CONFLICTS: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 56}                                  # row_size
+  02                                        # form 2 (layer)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0031.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BMDIR (0x0040)
+s_0040:
+  {u32 6}                                   # n
+  {u32 4}                                   # row_w
+  # row 0
+    01                                      # family
+    01                                      # kind
+    00                                      # status
+    00                                      # pred
+  # row 1
+    01                                      # family
+    03                                      # kind
+    00                                      # status
+    00                                      # pred
+  # row 2
+    01                                      # family
+    0b                                      # kind
+    00                                      # status
+    00                                      # pred
+  # row 3
+    02                                      # family
+    01                                      # kind
+    00                                      # status
+    00                                      # pred
+  # row 4
+    02                                      # family
+    03                                      # kind
+    00                                      # status
+    00                                      # pred
+  # row 5
+    02                                      # family
+    0b                                      # kind
+    00                                      # status
+    00                                      # pred
+s_0040.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section PATHIDX (0x0080)
+s_0080:
+  {u32 0}                                   # n
+  {u32 0}                                   # _reserved
+  {u32 0}                                   # off[0]
+s_0080.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section ALIASIDX (0x0081)
+s_0081:
+  {u32 0}                                   # n
+  {u32 0}                                   # _reserved
+  {u32 0}                                   # off[0]
+s_0081.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section ANCHORS (0x0082)
+s_0082:
+  {u32 0}                                   # n
+  {u32 0}                                   # _reserved
+  {u32 0}                                   # off[0]
+s_0082.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section ANCHOR_UID (0x0083)
+s_0083:
+  {u32 0}                                   # n
+  {u32 28}                                  # row_w
+s_0083.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section GLOBIDX (0x0084)
+s_0084:
+  # GLOBIDX: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 20}                                  # row_size
+  02                                        # form 2 (layer)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0084.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section SYMTAB (0x0100)
+s_0100:
+  {u16 5}                                   # n_classes
+  {u16 0}                                   # _reserved
+  {u32 62}                                  # pool_len
+  # class entry 1
+  01                                        # class
+  00 00 00                                  # _reserved
+  {u32 1}                                   # first_id
+  {u32 1}                                   # n
+  {u32 108}                                 # by_id_off
+  {u32 112}                                 # by_str_off
+  # class entry 2
+  02                                        # class
+  00 00 00                                  # _reserved
+  {u32 1}                                   # first_id
+  {u32 2}                                   # n
+  {u32 116}                                 # by_id_off
+  {u32 124}                                 # by_str_off
+  # class entry 4
+  04                                        # class
+  00 00 00                                  # _reserved
+  {u32 1}                                   # first_id
+  {u32 2}                                   # n
+  {u32 132}                                 # by_id_off
+  {u32 140}                                 # by_str_off
+  # class entry 8
+  08                                        # class
+  00 00 00                                  # _reserved
+  {u32 1}                                   # first_id
+  {u32 1}                                   # n
+  {u32 148}                                 # by_id_off
+  {u32 152}                                 # by_str_off
+  # class entry 10
+  0a                                        # class
+  00 00 00                                  # _reserved
+  {u32 1}                                   # first_id
+  {u32 2}                                   # n
+  {u32 156}                                 # by_id_off
+  {u32 164}                                 # by_str_off
+  # class 1: by_id (pool offsets), then by_str (ids by string)
+  {u32 0}                                   # by_id: id 1
+  {u32 1}                                   # by_str: 'owner'
+  # class 2: by_id (pool offsets), then by_str (ids by string)
+  {u32 6}                                   # by_id: id 1
+  {u32 19}                                  # by_id: id 2
+  {u32 2}                                   # by_str: 'developer'
+  {u32 1}                                   # by_str: 'orchestrator'
+  # class 4: by_id (pool offsets), then by_str (ids by string)
+  {u32 29}                                  # by_id: id 1
+  {u32 34}                                  # by_id: id 2
+  {u32 2}                                   # by_str: 'lane/x'
+  {u32 1}                                   # by_str: 'main'
+  # class 8: by_id (pool offsets), then by_str (ids by string)
+  {u32 41}                                  # by_id: id 1
+  {u32 1}                                   # by_str: 'project'
+  # class 10: by_id (pool offsets), then by_str (ids by string)
+  {u32 49}                                  # by_id: id 1
+  {u32 55}                                  # by_id: id 2
+  {u32 2}                                   # by_str: 'sensor'
+  {u32 1}                                   # by_str: 'title'
+  # pool: one vstr per symbol in (class, id) order
+  {uvar 5}                                  # class 1 id 1: length 5
+  "owner"
+  {uvar 12}                                 # class 2 id 1: length 12
+  "orchestrator"
+  {uvar 9}                                  # class 2 id 2: length 9
+  "developer"
+  {uvar 4}                                  # class 4 id 1: length 4
+  "main"
+  {uvar 6}                                  # class 4 id 2: length 6
+  "lane/x"
+  {uvar 7}                                  # class 8 id 1: length 7
+  "project"
+  {uvar 5}                                  # class 10 id 1: length 5
+  "title"
+  {uvar 6}                                  # class 10 id 2: length 6
+  "sensor"
+s_0100.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section SCHEMAIDS (0x0101)
+s_0101:
+  # SCHEMAIDS: RtHdr body, 1 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 1}                                   # n_rows
+  {u16 16}                                  # row_size
+  02                                        # form 2 (layer)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+  # row 0
+    01                                      # space
+    00                                      # kind
+    {u16 64}                                # id
+    {u32 2}                                 # name `sensor`
+    {u32 0}                                 # value ``
+    00                                      # flags
+    00 00 00                                # _reserved
+s_0101.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FILES (0x0102)
+s_0102:
+  # FILES: RtHdr body, 1 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 1}                                   # n_rows
+  {u16 56}                                  # row_size
+  01                                        # form 1 (snapshot)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+  # row 0
+    09                                      # file.family
+    {u32 0}                                 # file.ref_id
+    {u32 1}                                 # file.file_no
+    00                                      # dest
+    00                                      # algo
+    01                                      # flags (bit 0 reserved)
+    {u32 0}                                 # _reserved
+    {u64 0}                                 # from_lsn
+    {u64 0}                                 # upto_lsn
+    {u64 0}                                 # total_len
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # digest16
+s_0102.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section REFS (0x0201)
+s_0201:
+  # REFS: RtHdr body, 2 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 2}                                   # n_rows
+  {u16 164}                                 # row_size
+  01                                        # form 1 (snapshot)
+  00                                        # _reserved
+  {u32 2}                                   # aux
+  {u32 8}                                   # index_len
+  {u64 106}                                 # heap_len
+  # row 0
+    {u32 0}                                 # ref_id
+    01                                      # kind
+    00                                      # flags
+    00 00                                   # _reserved
+    a7 0e 9a fc 7c fa 5e 76 af 4c 28 0d bf 81 a8 77  # tip (id16)
+    {u64 65674}                             # tip_lsn
+    {u32 6}                                 # gen
+    {u32 7}                                 # ref_seq_next
+    {u64 0}                                 # base_pin
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # fork_commit (id16)
+    {u64 0}                                 # fork_lsn
+    {u64 0}                                 # fork_seq
+    {u32 0}                                 # fork_ref_id
+    {u32 0}                                 # ops_since_fork
+    {u32 0}                                 # overlay_ops
+    {u32 0}                                 # overlay_bytes
+    {u32 0}                                 # promoted_seg
+    {u64 6}                                 # ops_total
+    {u64 66000}                             # bytes_total
+    {u64 0}                                 # trunk_mark_ops
+    {u64 0}                                 # trunk_mark_bytes
+    {u32 0}                                 # name: HeapRef.off
+    {u32 4}                                 # name: HeapRef.len
+    {u32 4}                                 # absorbed: HeapRef.off
+    {u32 8}                                 # absorbed: HeapRef.len
+    {u32 12}                                # moves: HeapRef.off
+    {u32 48}                                # moves: HeapRef.len
+    {u32 60}                                # message: HeapRef.off
+    {u32 0}                                 # message: HeapRef.len
+  # row 1
+    {u32 1}                                 # ref_id
+    01                                      # kind
+    01                                      # flags
+    00 00                                   # _reserved
+    e5 2b 07 7d bb 2b f0 15 d4 4c 71 00 b5 08 23 29  # tip (id16)
+    {u64 862}                               # tip_lsn
+    {u32 2}                                 # gen
+    {u32 2}                                 # ref_seq_next
+    {u64 0}                                 # base_pin
+    eb 1f ff 12 71 a7 f8 b8 38 8b bc e1 0b 83 ff b8  # fork_commit (id16)
+    {u64 387}                               # fork_lsn
+    {u64 1}                                 # fork_seq
+    {u32 0}                                 # fork_ref_id
+    {u32 1}                                 # ops_since_fork
+    {u32 0}                                 # overlay_ops
+    {u32 0}                                 # overlay_bytes
+    {u32 0}                                 # promoted_seg
+    {u64 1}                                 # ops_total
+    {u64 90}                                # bytes_total
+    {u64 0}                                 # trunk_mark_ops
+    {u64 0}                                 # trunk_mark_bytes
+    {u32 60}                                # name: HeapRef.off
+    {u32 6}                                 # name: HeapRef.len
+    {u32 66}                                # absorbed: HeapRef.off
+    {u32 16}                                # absorbed: HeapRef.len
+    {u32 82}                                # moves: HeapRef.off
+    {u32 24}                                # moves: HeapRef.len
+    {u32 106}                               # message: HeapRef.off
+    {u32 0}                                 # message: HeapRef.len
+  # index region
+  {u32 1}                                   # row position
+  {u32 0}                                   # row position
+  # heap (106 B): the slices in row order, then field order
+  "main"                                    # name
+  {u32 0}                                   # AbsorbedEntry.ref_id
+  {u32 6}                                   # AbsorbedEntry.ref_seq
+  {u64 65674}                               # moves: lsn
+  {u64 2065}                                # moves: lsn
+  {u64 1824}                                # moves: lsn
+  {u64 1587}                                # moves: lsn
+  {u64 1346}                                # moves: lsn
+  {u64 387}                                 # moves: lsn
+  "lane/x"                                  # name
+  {u32 0}                                   # AbsorbedEntry.ref_id
+  {u32 1}                                   # AbsorbedEntry.ref_seq
+  {u32 1}                                   # AbsorbedEntry.ref_id
+  {u32 1}                                   # AbsorbedEntry.ref_seq
+  {u64 1111}                                # moves: lsn
+  {u64 862}                                 # moves: lsn
+  {u64 614}                                 # moves: lsn
+s_0201.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section PINS (0x0202)
+s_0202:
+  # PINS: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 21}                                  # row_size
+  01                                        # form 1 (snapshot)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0202.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section HEADS (0x0203)
+s_0203:
+  # HEADS: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 161}                                 # row_size
+  01                                        # form 1 (snapshot)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0203.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section LEASES (0x0204)
+s_0204:
+  # LEASES: RtHdr body, 1 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 1}                                   # n_rows
+  {u16 180}                                 # row_size
+  01                                        # form 1 (snapshot)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 7}                                   # heap_len
+  # row 0
+    {u32 3}                                 # n
+    {u64 1}                                 # lease_id
+    01                                      # kind
+    01                                      # flags
+    {u16 2}                                 # role `developer`
+    {u32 1}                                 # holder `owner`
+    {u32 0}                                 # branch
+    {u32 5}                                 # run
+    {u64 1}                                 # token
+    {u64 0x1a0c460e6c00000}                 # claimed_hlc
+    {u64 0}                                 # ttl_ms
+    # expires: Stamp::NEVER ([OS/clock §4.1])
+      {u64 0xffffffffffffffff}              # wall (ms)
+      {u64 0}                               # boot_hash
+      {u64 0xffffffffffffffff}              # mono (boot ns)
+    # anchor: Anchor kind 0 `none` (32 B, [F03 §10])
+      00*32                                 # kind 0: 32 zero bytes ([F03 §10.3] step 5)
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # bound
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # root_session
+    # proc: ProcId (32 B, [F03 §5.1])
+      02                                    # os
+      0f                                    # flags (start_known=1, start_boot_relative=1, boot_known=1, pidns_known=1)
+      {u16 0}                               # _reserved
+      {u32 3300}                            # pid
+      {u64 0x11ed8ec200}                    # start (ns)
+      {u64 0x886e092df8727a9b}              # boot_hash
+      {u64 0xeffffffc}                      # pidns
+    {u32 0}                                 # files_owned: HeapRef.off
+    {u32 7}                                 # files_owned: HeapRef.len
+  # heap (7 B): the slices in row order, then field order
+  {uvar 6}                                  # glob: length 6
+  "src/**"
+s_0204.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section MARKERS (0x0205)
+s_0205:
+  # MARKERS: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 72}                                  # row_size
+  01                                        # form 1 (snapshot)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0205.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section MARKERS_OLD (0x0206)
+s_0206:
+  # MARKERS: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 72}                                  # row_size
+  02                                        # form 2 (layer)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0206.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section IDEM (0x0207)
+s_0207:
+  # IDEM: RtHdr body, 16 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 16}                                  # n_rows
+  {u16 72}                                  # row_size
+  02                                        # form 2 (layer)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+  # row 0
+    00*72                                   # empty slot: all zero
+  # row 1
+    00*72                                   # empty slot: all zero
+  # row 2
+    00*72                                   # empty slot: all zero
+  # row 3
+    00*72                                   # empty slot: all zero
+  # row 4
+    00*72                                   # empty slot: all zero
+  # row 5
+    00*72                                   # empty slot: all zero
+  # row 6
+    00*72                                   # empty slot: all zero
+  # row 7
+    00*72                                   # empty slot: all zero
+  # row 8
+    00*72                                   # empty slot: all zero
+  # row 9
+    00*72                                   # empty slot: all zero
+  # row 10
+    00*72                                   # empty slot: all zero
+  # row 11
+    00*72                                   # empty slot: all zero
+  # row 12
+    00*72                                   # empty slot: all zero
+  # row 13
+    00*72                                   # empty slot: all zero
+  # row 14
+    00*72                                   # empty slot: all zero
+  # row 15
+    00*72                                   # empty slot: all zero
+s_0207.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section ALLOC (0x0208)
+s_0208:
+  # ALLOC: RtHdr body, 9 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 9}                                   # n_rows
+  {u16 24}                                  # row_size
+  02                                        # form 2 (layer)
+  00                                        # _reserved
+  {u32 1}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+  # row 0
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
+    {u32 0}                                 # ref_id
+    {u32 1}                                 # create_seq
+  # row 1
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 02  # uid
+    {u32 1}                                 # ref_id
+    {u32 2}                                 # create_seq
+  # row 2
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03  # uid
+    {u32 0}                                 # ref_id
+    {u32 3}                                 # create_seq
+  # row 3
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04  # uid
+    {u32 0}                                 # ref_id
+    {u32 4}                                 # create_seq
+  # row 4
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 05  # uid
+    {u32 0}                                 # ref_id
+    {u32 5}                                 # create_seq
+  # row 5
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06  # uid
+    {u32 0}                                 # ref_id
+    {u32 6}                                 # create_seq
+  # row 6
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 07  # uid
+    {u32 0}                                 # ref_id
+    {u32 7}                                 # create_seq
+  # row 7
+    00*24                                   # a hole (create_seq 0)
+  # row 8
+    00*24                                   # a hole (create_seq 0)
+s_0208.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section UIDX (0x0209)
+s_0209:
+  # UIDX: RtHdr body, 7 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 7}                                   # n_rows
+  {u16 20}                                  # row_size
+  02                                        # form 2 (layer)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+  # row 0
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
+    {u32 1}                                 # n
+  # row 1
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 02  # uid
+    {u32 2}                                 # n
+  # row 2
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03  # uid
+    {u32 3}                                 # n
+  # row 3
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 04  # uid
+    {u32 4}                                 # n
+  # row 4
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 05  # uid
+    {u32 5}                                 # n
+  # row 5
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 06  # uid
+    {u32 6}                                 # n
+  # row 6
+    b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 07  # uid
+    {u32 7}                                 # n
+s_0209.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section CURSORS (0x020a)
+s_020a:
+  # CURSORS: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 56}                                  # row_size
+  02                                        # form 2 (layer)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_020a.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section SESSMARKS (0x020b)
+s_020b:
+  # SESSMARKS: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 56}                                  # row_size
+  02                                        # form 2 (layer)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_020b.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BACKUPS (0x020c)
+s_020c:
+  # BACKUPS: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 56}                                  # row_size
+  01                                        # form 1 (snapshot)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_020c.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section TREES (0x0210)
+s_0210:
+  # TREES: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 201}                                 # row_size
+  01                                        # form 1 (snapshot)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0210.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FILEOBS (0x0211)
+s_0211:
+  # FILEOBS: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 187}                                 # row_size
+  02                                        # form 2 (layer)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0211.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section PENDING (0x0212)
+s_0212:
+  # PENDING: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 123}                                 # row_size
+  02                                        # form 2 (layer)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0212.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FSINTENT (0x0213)
+s_0213:
+  # FSINTENT: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 132}                                 # row_size
+  01                                        # form 1 (snapshot)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0213.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section JOURNALCUR (0x0215)
+s_0215:
+  # JOURNALCUR: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 41}                                  # row_size
+  01                                        # form 1 (snapshot)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0215.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section PREFIXEV (0x0217)
+s_0217:
+  # PREFIXEV: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                   # n_rows
+  {u16 52}                                  # row_size
+  01                                        # form 1 (snapshot)
+  00                                        # _reserved
+  {u32 0}                                   # aux
+  {u32 0}                                   # index_len
+  {u64 0}                                   # heap_len
+s_0217.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BM.0 (0x8000)
+s_8000:
+  # BMDIR entry (1, 1, 0, 0)
+  {u32 1}                                   # ± list: n_plus
+  {u32 0}                                   # ± list: n_minus
+  {u32 3}                                   # plus
+s_8000.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BM.1 (0x8001)
+s_8001:
+  # BMDIR entry (1, 3, 0, 0)
+  {u32 4}                                   # ± list: n_plus
+  {u32 0}                                   # ± list: n_minus
+  {u32 1}                                   # plus
+  {u32 4}                                   # plus
+  {u32 6}                                   # plus
+  {u32 7}                                   # plus
+s_8001.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BM.2 (0x8002)
+s_8002:
+  # BMDIR entry (1, 11, 0, 0)
+  {u32 1}                                   # ± list: n_plus
+  {u32 0}                                   # ± list: n_minus
+  {u32 5}                                   # plus
+s_8002.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BM.3 (0x8003)
+s_8003:
+  # BMDIR entry (2, 1, 0, 0)
+  {u32 1}                                   # ± list: n_plus
+  {u32 0}                                   # ± list: n_minus
+  {u32 3}                                   # plus
+s_8003.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BM.4 (0x8004)
+s_8004:
+  # BMDIR entry (2, 3, 0, 0)
+  {u32 4}                                   # ± list: n_plus
+  {u32 0}                                   # ± list: n_minus
+  {u32 1}                                   # plus
+  {u32 4}                                   # plus
+  {u32 6}                                   # plus
+  {u32 7}                                   # plus
+s_8004.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BM.5 (0x8005)
+s_8005:
+  # BMDIR entry (2, 11, 0, 0)
+  {u32 1}                                   # ± list: n_plus
+  {u32 0}                                   # ± list: n_minus
+  {u32 5}                                   # plus
+s_8005.e:
+end:

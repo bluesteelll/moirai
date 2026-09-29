@@ -1,0 +1,16 @@
+# fixtures/hex/lock/init.hex: the LOCK file as `init` creates it ([F03 §2.3], [F16] P-88 step 3).
+# LockHdr at 0 and zero bytes everywhere else: every WriterDiag, LeaderRec and SlotRec is all zero and fails its
+# checksum, so it reads as absent. 36,864 bytes ([F03 §2.1]). Store A (fixtures/hex/INDEX.md §2).
+# LockHdr (64 B at offset 0, [F03 §4.1])
+hdr:
+  "MLCK"                                    # magic
+  {u16 1}                                   # format
+  {u16 0}                                   # flags (no bit defined in format v1)
+  {u16 256}                                 # n_slots
+  {u16 128}                                 # slot_rec_size
+  {u64 0x4000000000000000}                  # role_base = 2^62
+  {u64 0x4000000000010000}                  # slot_base = 2^62 + 2^16
+  {u64 0x1a0c4506c000000}                   # created_hlc
+  00*20                                     # _reserved
+  {xxh3_64 hdr..hdr+56}                     # xxh3: XXH3-64 seed 0 over [0, 56)
+{pad_to 36864}                              # the rest of the file: zero ([F03 §2.3])

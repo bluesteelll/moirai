@@ -1,0 +1,23 @@
+# fixtures/hex/codec/dict.1.hex: a dict file ([F10 §6]) in the candidate form `raw content` of HOLE(F10-dict-form)
+# (option (1) of [90 §11.3] with a dictionary, the expected outcome): DictHdr, then plain bytes that lz4-dict
+# payloads use as preceding history ([F10 §3.3] candidate 2; at most 65,536 bytes). 319 bytes of phrases
+# the bodies of fixtures/hex/codec/blobs.2.hex share. The codec directory is one synthetic store's sealed files;
+# no HEAD or log names them (fixtures/hex/INDEX.md §4).
+
+# DictHdr (32 B, [F10 §6.1])
+hdr:
+  "MDIC"                                    # magic
+  {len 0..end u64}                          # total_len: the file's exact length
+  {blake3_128 32..end}                      # digest: BLAKE3-128 over [32, total_len), the dictionary bytes
+  00 00 00 00                               # _reserved
+content:
+# dictionary bytes (319 B)
+  "Timeout is 2 s; the lease keeps the byte.\n"
+  "See #7 for the scanner hazard.\n"
+  "Real-time scanning adds 40 ms to FlushFileBuffers.\n"
+  "Waiters retry every 5 ms for at most 2 s.\n"
+  "The writer byte is taken with LockFileEx.\n"
+  "A holder that dies leaves the byte to the OS.\n"
+  "- [ ] rerun the soak with 16 writers\n"
+  "- [x] measure the flush p99\n"
+end:

@@ -1,0 +1,377 @@
+# fixtures/hex/fragments/ops/variants.hex: op frames ([F06 §7.1]: tag, body length, body) of variants that store A's
+# commits do not carry, back to back; decode as op frames to the end of the file. Every `prev` is taken as if the
+# ops were in a Commit record at lsn 30000 (each comment gives the earlier lsn). Store A carries every op tag, a
+# TextHunk and a DeleteVsModify conflict, a DanglingEdge and an ImageParse violation, the choices `value` and
+# `ours`, and a DEFINE QUERY (fixtures/hex/store-a/log.1.hex). Here: the value-conflict classes FieldEdit,
+# StatusFork, OwnerFieldEdited and PathClaim, conflicts on the status, observation, body, edge and schema key
+# classes ([F06 §6.1], §6.2), the violation classes QueryInvalid and QueryCycle ([F19 §12.2]) with and without a
+# key, the Resolve choices `theirs`, `base` and `repoint` ([F06 §7.7]), and the Schema op for a changed and a
+# dropped named query ([F06 §7.6]). Node numbers, statuses ([F08 §9.5]: task 0 open, 1 in_progress, 2 done, side
+# 3 deferred) and edge ids ([F08 §9.6]) are store-local; symbol ids of each class are dense in first-use order,
+# named where used. U: the uid of fixtures/hex/fragments/values; D, D256, C: the digests of INDEX.md §2.
+
+# Conflict FieldEdit (1) on a field key
+# op 1: Conflict
+  0d                                        # op tag 13 Conflict
+  {uvar 15}                                 # len of the body
+  04                                        # key: ckey class 4 field
+  {uvar 1}                                  # key: node #1
+  {uvar 1}                                  # key: name `estimate`
+  {uvar 1000}                               # prev: 1000 (lsn 30000 - 29000)
+  00                                        # old: cs 0 plain
+  02                                        # old: type 2 int
+  {svar 3}                                  # old: int 3
+  01                                        # class
+  02                                        # base: type 2 int
+  {svar 3}                                  # base: int 3
+  02                                        # ours: type 2 int
+  {svar 5}                                  # ours: int 5
+  02                                        # theirs: type 2 int
+  {svar 8}                                  # theirs: int 8
+
+# Conflict StatusFork (2) on a status key: done against deferred (a side state)
+# op 2: Conflict
+  0d                                        # op tag 13 Conflict
+  {uvar 18}                                 # len of the body
+  02                                        # key: ckey class 2 status
+  {uvar 1}                                  # key: node #1
+  {uvar 1000}                               # prev: 1000 (lsn 30000 - 29000)
+  00                                        # old: cs 0 plain
+  01                                        # old: st 1 present
+  01                                        # old: status
+  00                                        # old: resolution
+  02                                        # class
+  01                                        # base: st 1 present
+  01                                        # base: status
+  00                                        # base: resolution
+  01                                        # ours: st 1 present
+  02                                        # ours: status
+  00                                        # ours: resolution
+  01                                        # theirs: st 1 present
+  03                                        # theirs: status
+  00                                        # theirs: resolution
+
+# Conflict TextHunk (3) on a body key
+# op 3: Conflict
+  0d                                        # op tag 13 Conflict
+  {uvar 74}                                 # len of the body
+  08                                        # key: ckey class 8 body
+  {uvar 2}                                  # key: node #2
+  {uvar 2000}                               # prev: 2000 (lsn 30000 - 28000)
+  00                                        # old: cs 0 plain
+  01                                        # old: bf 1 present
+  22 22 45 1b d7 41 aa 1e d6 40 bb bf 92 38 d9 b2  # old: body hash
+  03                                        # class
+  01                                        # base: bf 1 present
+  22 22 45 1b d7 41 aa 1e d6 40 bb bf 92 38 d9 b2  # base: body hash
+  01                                        # ours: bf 1 present
+  c4 2a 41 1e e7 75 8c bb f3 22 77 aa 39 eb 68 05  # ours: body hash
+  01                                        # theirs: bf 1 present
+  e5 18 ac 5c 97 d1 76 79 63 fc c9 ce aa 44 6f 52  # theirs: body hash
+
+# Conflict OwnerFieldEdited (6) on a field key
+# op 4: Conflict
+  0d                                        # op tag 13 Conflict
+  {uvar 72}                                 # len of the body
+  04                                        # key: ckey class 4 field
+  {uvar 3}                                  # key: node #3
+  {uvar 2}                                  # key: name `owner_quote`
+  {uvar 3000}                               # prev: 3000 (lsn 30000 - 27000)
+  00                                        # old: cs 0 plain
+  06                                        # old: type 6 text
+  {uvar 9}                                  # old: text: length 9
+  "as agreed"
+  06                                        # class
+  06                                        # base: type 6 text
+  {uvar 9}                                  # base: text: length 9
+  "as agreed"
+  06                                        # ours: type 6 text
+  {uvar 19}                                 # ours: text: length 19
+  "as agreed on Monday"
+  06                                        # theirs: type 6 text
+  {uvar 20}                                 # theirs: text: length 20
+  "as agreed on Tuesday"
+
+# Conflict PathClaim (7) on an observation key (the six observation values per side)
+# op 5: Conflict
+  0d                                        # op tag 13 Conflict
+  {uvar 149}                                # len of the body
+  05                                        # key: ckey class 5 observation
+  {uvar 5}                                  # key: node #5
+  {uvar 4000}                               # prev: 4000 (lsn 30000 - 26000)
+  00                                        # old: cs 0 plain
+  0b                                        # old.path: type 11 path
+  {u16 1}                                   # old.path: path root symbol `project`
+  {uvar 9}                                  # old.path: path text: length 9
+  "docs/a.md"
+  0c                                        # old.oid: type 12 oid
+  01                                        # old.oid.algo
+  d9 4d b1 af fb 1b dd d9 49 1c d7 66 62 32 df ce  # old.oid: digest
+  91 5c 31 10
+  02                                        # old.bytes: type 2 int
+  {svar 120}                                # old.bytes: int 120
+  00                                        # old.observed_git: type 0 absent
+  00                                        # old.observed_blob: type 0 absent
+  07                                        # old.relink: type 7 sym
+  {uvar 1}                                  # old.relink: sym id of text 'explicit/intent'
+  07                                        # class
+  00                                        # base.path: type 0 absent
+  00                                        # base.oid: type 0 absent
+  00                                        # base.bytes: type 0 absent
+  00                                        # base.observed_git: type 0 absent
+  00                                        # base.observed_blob: type 0 absent
+  00                                        # base.relink: type 0 absent
+  0b                                        # ours.path: type 11 path
+  {u16 1}                                   # ours.path: path root symbol `project`
+  {uvar 9}                                  # ours.path: path text: length 9
+  "docs/a.md"
+  0c                                        # ours.oid: type 12 oid
+  01                                        # ours.oid.algo
+  d9 4d b1 af fb 1b dd d9 49 1c d7 66 62 32 df ce  # ours.oid: digest
+  91 5c 31 10
+  02                                        # ours.bytes: type 2 int
+  {svar 120}                                # ours.bytes: int 120
+  00                                        # ours.observed_git: type 0 absent
+  00                                        # ours.observed_blob: type 0 absent
+  07                                        # ours.relink: type 7 sym
+  {uvar 1}                                  # ours.relink: sym id of text 'explicit/intent'
+  0b                                        # theirs.path: type 11 path
+  {u16 1}                                   # theirs.path: path root symbol `project`
+  {uvar 9}                                  # theirs.path: path text: length 9
+  "docs/a.md"
+  0c                                        # theirs.oid: type 12 oid
+  02                                        # theirs.oid.algo
+  b1 de 0d cd f5 62 49 70 c4 a3 08 9a 90 31 c7 5d  # theirs.oid: digest
+  27 f2 b1 06 9c 5b cf 19 6b 66 cc 71 8b da dd af
+  02                                        # theirs.bytes: type 2 int
+  {svar 96}                                 # theirs.bytes: int 96
+  00                                        # theirs.observed_git: type 0 absent
+  00                                        # theirs.observed_blob: type 0 absent
+  00                                        # theirs.relink: type 0 absent
+
+# Conflict FieldEdit (1) on an edge key: a `pinned_commit` property changed on both sides
+# op 6: Conflict
+  0d                                        # op tag 13 Conflict
+  {uvar 145}                                # len of the body
+  07                                        # key: ckey class 7 edge
+  {uvar 7}                                  # key: src #7
+  0c                                        # key: ekind 12
+  {uvar 8}                                  # key: dst #8
+  00                                        # key: dflag
+  {uvar 5000}                               # prev: 5000 (lsn 30000 - 25000)
+  00                                        # old: cs 0 plain
+  01                                        # old: ef 1 present
+  01                                        # old.pflags: has_pin=1, flagged=0, anchor=0
+  9b 0b e9 5d f3 7b 6f 6c e6 d2 08 ab 5b db 59 64  # old.pinned_commit (32 B)
+  c7 23 37 96 eb f6 00 91 40 b3 46 87 4d 7f d9 8b
+  01                                        # class
+  01                                        # base: ef 1 present
+  01                                        # base.pflags: has_pin=1, flagged=0, anchor=0
+  9b 0b e9 5d f3 7b 6f 6c e6 d2 08 ab 5b db 59 64  # base.pinned_commit (32 B)
+  c7 23 37 96 eb f6 00 91 40 b3 46 87 4d 7f d9 8b
+  01                                        # ours: ef 1 present
+  01                                        # ours.pflags: has_pin=1, flagged=0, anchor=0
+  13 37 0d b0 17 f6 e5 3c c7 a4 c5 d1 f0 e6 3a 32  # ours.pinned_commit (32 B)
+  be ae 94 6e 73 b6 f1 9e e5 6f e4 80 24 c5 62 6c
+  01                                        # theirs: ef 1 present
+  01                                        # theirs.pflags: has_pin=1, flagged=0, anchor=0
+  b8 c3 6f 2e d4 2d a5 02 3a 56 a9 d6 b0 38 6e 78  # theirs.pinned_commit (32 B)
+  74 7a 00 83 2b 78 71 46 3b e7 a3 e8 8d bb 2d c9
+
+# Conflict DeleteVsModify (4) on a schema key: a named query dropped on one side and changed on the other
+# op 7: Conflict
+  0d                                        # op tag 13 Conflict
+  {uvar 563}                                # len of the body
+  09                                        # key: ckey class 9 schema
+  05                                        # key: item_class 5
+  {uvar 14}                                 # key: item_key: length 14
+  "stale_blockers"
+  00                                        # old: cs 0 plain
+  01                                        # old: sf 1 present
+  {uvar 174}                                # old: item length
+  05                                        # item.class 5
+  00                                        # item.iflags
+  {uvar 3}                                  # item.name `stale_blockers`
+  {u16 1}                                   # item.lq_version
+  {uvar 0}                                  # item.params: length 0
+  {uvar 5}                                  # item.shape: length 5
+  "table"
+  {uvar 5}                                  # item.budget: length 5
+  "light"
+  {uvar 138}                                # item.text: length 138
+  "DEFINE QUERY stale_blockers() SHAPE table BUDGET light AS {\n  MATCH (t:task)-[:BLOCKS]->(u:task)\n  WHERE t.status = 'open'\n  RETURN t, u\n}"
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # item.ast_hash (derived, unhashed; zero until computed)
+  04                                        # class
+  01                                        # base: sf 1 present
+  {uvar 174}                                # base: item length
+  05                                        # item.class 5
+  00                                        # item.iflags
+  {uvar 3}                                  # item.name `stale_blockers`
+  {u16 1}                                   # item.lq_version
+  {uvar 0}                                  # item.params: length 0
+  {uvar 5}                                  # item.shape: length 5
+  "table"
+  {uvar 5}                                  # item.budget: length 5
+  "light"
+  {uvar 138}                                # item.text: length 138
+  "DEFINE QUERY stale_blockers() SHAPE table BUDGET light AS {\n  MATCH (t:task)-[:BLOCKS]->(u:task)\n  WHERE t.status = 'open'\n  RETURN t, u\n}"
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # item.ast_hash (derived, unhashed; zero until computed)
+  00                                        # ours: sf 0 absent
+  01                                        # theirs: sf 1 present
+  {uvar 186}                                # theirs: item length
+  05                                        # item.class 5
+  00                                        # item.iflags
+  {uvar 3}                                  # item.name `stale_blockers`
+  {u16 1}                                   # item.lq_version
+  {uvar 0}                                  # item.params: length 0
+  {uvar 5}                                  # item.shape: length 5
+  "table"
+  {uvar 5}                                  # item.budget: length 5
+  "light"
+  {uvar 150}                                # item.text: length 150
+  "DEFINE QUERY stale_blockers() SHAPE table BUDGET light AS {\n  MATCH (t:task)-[:BLOCKS]->(u:task)\n  WHERE t.status = 'open'\n  RETURN t, u, t.priority\n}"
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # item.ast_hash (derived, unhashed; zero until computed)
+
+# Violation QueryInvalid (70) with a schema key
+# op 8: Violation
+  0e                                        # op tag 14 Violation
+  {uvar 120}                                # len of the body
+  46                                        # class
+  01                                        # vflags
+  09                                        # key: ckey class 9 schema
+  05                                        # key: item_class 5
+  {uvar 14}                                 # key: item_key: length 14
+  "stale_blockers"
+  {uvar 74}                                 # description: length 74
+  "query stale_blockers: E301 unknown field `priority` of kind `task` at 4:22"
+  {uvar 25}                                 # suggested: length 25
+  "DROP QUERY stale_blockers"
+
+# Violation QueryCycle (71) without a key (vflags 0)
+# op 9: Violation
+  0e                                        # op tag 14 Violation
+  {uvar 45}                                 # len of the body
+  47                                        # class
+  00                                        # vflags
+  {uvar 41}                                 # description: length 41
+  "named queries a -> b -> a call each other"
+  {uvar 0}                                  # suggested: length 0
+
+# Resolve choice 1 `theirs` of the FieldEdit above
+# op 10: Resolve
+  0f                                        # op tag 15 Resolve
+  {uvar 16}                                 # len of the body
+  04                                        # key: ckey class 4 field
+  {uvar 1}                                  # key: node #1
+  {uvar 1}                                  # key: name `estimate`
+  {uvar 500}                                # prev: 500 (lsn 30000 - 29500)
+  01                                        # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint)
+  01                                        # old: cs 1 conflict
+  01                                        # old: class 1
+  02                                        # old.base: type 2 int
+  {svar 3}                                  # old.base: int 3
+  02                                        # old.ours: type 2 int
+  {svar 5}                                  # old.ours: int 5
+  02                                        # old.theirs: type 2 int
+  {svar 8}                                  # old.theirs: int 8
+  02                                        # new: type 2 int
+  {svar 8}                                  # new: int 8
+
+# Resolve choice 2 `base` of the StatusFork above
+# op 11: Resolve
+  0f                                        # op tag 15 Resolve
+  {uvar 19}                                 # len of the body
+  02                                        # key: ckey class 2 status
+  {uvar 1}                                  # key: node #1
+  {uvar 500}                                # prev: 500 (lsn 30000 - 29500)
+  02                                        # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint)
+  01                                        # old: cs 1 conflict
+  02                                        # old: class 2
+  01                                        # old.base: st 1 present
+  01                                        # old.base: status
+  00                                        # old.base: resolution
+  01                                        # old.ours: st 1 present
+  02                                        # old.ours: status
+  00                                        # old.ours: resolution
+  01                                        # old.theirs: st 1 present
+  03                                        # old.theirs: status
+  00                                        # old.theirs: resolution
+  01                                        # new: st 1 present
+  01                                        # new: status
+  00                                        # new: resolution
+
+# Resolve choice 4 `repoint` of a dangling edge: its key becomes absent (target #9)
+# op 12: Resolve
+  0f                                        # op tag 15 Resolve
+  {uvar 13}                                 # len of the body
+  07                                        # key: ckey class 7 edge
+  {uvar 1}                                  # key: src #1
+  02                                        # key: ekind 2
+  {uvar 2}                                  # key: dst #2
+  00                                        # key: dflag
+  {uvar 500}                                # prev: 500 (lsn 30000 - 29500)
+  04                                        # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint)
+  {uvar 9}                                  # target
+  00                                        # old: cs 0 plain
+  01                                        # old: ef 1 present
+  00                                        # old.pflags: has_pin=0, flagged=0, anchor=0
+  00                                        # new: ef 0 absent
+
+# Schema: a changed named query (mode 0 `weaken`, sflags old and new)
+# op 13: Schema
+  0c                                        # op tag 12 Schema
+  {uvar 382}                                # len of the body
+  00                                        # mode (0 weaken, 1 strengthen)
+  05                                        # item_class
+  {uvar 14}                                 # item_key: length 14
+  "stale_blockers"
+  03                                        # sflags
+  {uvar 174}                                # old: item length
+  05                                        # old.class 5
+  00                                        # old.iflags
+  {uvar 3}                                  # old.name `stale_blockers`
+  {u16 1}                                   # old.lq_version
+  {uvar 0}                                  # old.params: length 0
+  {uvar 5}                                  # old.shape: length 5
+  "table"
+  {uvar 5}                                  # old.budget: length 5
+  "light"
+  {uvar 138}                                # old.text: length 138
+  "DEFINE QUERY stale_blockers() SHAPE table BUDGET light AS {\n  MATCH (t:task)-[:BLOCKS]->(u:task)\n  WHERE t.status = 'open'\n  RETURN t, u\n}"
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # old.ast_hash (derived, unhashed; zero until computed)
+  {uvar 186}                                # new: item length
+  05                                        # new.class 5
+  00                                        # new.iflags
+  {uvar 3}                                  # new.name `stale_blockers`
+  {u16 1}                                   # new.lq_version
+  {uvar 0}                                  # new.params: length 0
+  {uvar 5}                                  # new.shape: length 5
+  "table"
+  {uvar 5}                                  # new.budget: length 5
+  "light"
+  {uvar 150}                                # new.text: length 150
+  "DEFINE QUERY stale_blockers() SHAPE table BUDGET light AS {\n  MATCH (t:task)-[:BLOCKS]->(u:task)\n  WHERE t.status = 'open'\n  RETURN t, u, t.priority\n}"
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # new.ast_hash (derived, unhashed; zero until computed)
+
+# Schema: DROP QUERY (mode 0, sflags old only)
+# op 14: Schema
+  0c                                        # op tag 12 Schema
+  {uvar 206}                                # len of the body
+  00                                        # mode (0 weaken, 1 strengthen)
+  05                                        # item_class
+  {uvar 14}                                 # item_key: length 14
+  "stale_blockers"
+  01                                        # sflags
+  {uvar 186}                                # old: item length
+  05                                        # old.class 5
+  00                                        # old.iflags
+  {uvar 3}                                  # old.name `stale_blockers`
+  {u16 1}                                   # old.lq_version
+  {uvar 0}                                  # old.params: length 0
+  {uvar 5}                                  # old.shape: length 5
+  "table"
+  {uvar 5}                                  # old.budget: length 5
+  "light"
+  {uvar 150}                                # old.text: length 150
+  "DEFINE QUERY stale_blockers() SHAPE table BUDGET light AS {\n  MATCH (t:task)-[:BLOCKS]->(u:task)\n  WHERE t.status = 'open'\n  RETURN t, u, t.priority\n}"
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # old.ast_hash (derived, unhashed; zero until computed)

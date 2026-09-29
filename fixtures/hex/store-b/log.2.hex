@@ -1,0 +1,322 @@
+# fixtures/hex/store-b/log.2.hex: extent 2 of store B's log (lsns 65,536-131,071). It opens with its extent head
+# ([F05 §4.5]): epoch_lsn 0 and chain_in = the trailer of log.1's pad; the head's own trailer is seeded with it, and
+# every later group with the trailer before it. Then commit b7 (the group that did not fit log.1), a lease, a
+# reservation whose bulk commit never lands, the checkpoint that retires extent 1 into hist.2 (EX-4, EX-5), and a gc
+# checkpoint that replaces hist.2 by its rewrite hist.5.
+
+# === group g1 at lsn 65536: the extent head of log.2 (durable)
+g1:
+# --- record g1.r1: kind 28 `ExtentHead` at lsn 65536 (group_end)
+g1.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g1.r1..g1.r1.end}                    # len: header, payload and chain trailer
+  1c                                        # kind 28 ExtentHead
+  02                                        # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                   # _reserved
+  {u64 65536}                               # lsn = the record's own position
+  {u64 0x2718281828459045}                  # epoch
+  {xxh3_64 g1.r1..g1.r1+24 g1.r1+32..g1.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g1.r1.p:
+    {u64 0}                                 # epoch_lsn
+    28 09 51 6a d2 e2 21 90                 # chain_in: the trailer that ends the previous extent
+    # init: InitParams (32 B, [F04 §4.4])
+      {u64 65536}                           # log_extent_bytes
+      {u32 4}                               # hist_frame_commits
+      {u32 4096}                            # hist_frame_bytes
+      57 01 de 00 00 00 00 00 00 00 00 00 00 00 00 02  # store_id
+    02                                      # project_oid_algo
+    00                                      # hflags (bit 0 quiet, bit 1 readonly)
+    {u64 6}                                 # commit_seq
+    {u32 7}                                 # next_id
+    {u32 1}                                 # next_anchor
+    {u64 0}                                 # fence
+    {u32 1}                                 # next_file_no
+    {u32 2}                                 # next_ref_id
+    {u64 0x1a0c46098a00000}                 # hlc_seq
+    {u64 0x1a0c46098a00000}                 # hlc_commit
+g1.r1.pl:
+g1.tr:
+{xxh3_64 g1..g1.tr seed=0x9021e2d26a510928} # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the chain value at the group's first byte
+g1.end:
+g1.r1.end:
+
+# === group g2 at lsn 65674: commit b7 (seq 7): the group that did not fit log.1 (durable)
+g2:
+# --- record g2.r1: kind 1 `Commit` at lsn 65674 (group_end)
+g2.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g2.r1..g2.r1.end}                    # len: header, payload and chain trailer
+  01                                        # kind 1 Commit
+  02                                        # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                   # _reserved
+  {u64 65674}                               # lsn = the record's own position
+  {u64 0x2718281828459045}                  # epoch
+  {xxh3_64 g2.r1..g2.r1+24 g2.r1+32..g2.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g2.r1.p:
+    # Commit payload ([F06 §4.3])
+    {u32 28675}                             # presence: ref_old, prev_on_ref, stmt_hash, msg, affected
+    a7 0e 9a fc 7c fa 5e 76 af 4c 28 0d bf 81 a8 77  # commit_id (synthetic)
+    f2 1b cd ab 89 45 b0 4d ed a9 63 56 e5 d1 a4 22
+    01                                      # n_parents
+    55 e9 8d 0f 02 a5 a8 16 83 75 3c ab ad 87 64 9e  # parents[0].id16
+    {uvar 2065}                             # parents[0].lsn
+    {uvar 6}                                # gen
+    {uvar 7}                                # seq
+    {uvar 1}                                # ref symbol `main`
+    {uvar 0}                                # ref_id
+    55 e9 8d 0f 02 a5 a8 16 83 75 3c ab ad 87 64 9e  # ref_old (id16 of the tip this commit replaces)
+    {uvar 2065}                             # prev_on_ref (lsn)
+    {uvar 6}                                # ref_seq
+    00                                      # kind `ordinary`
+    00                                      # import `local`
+    {u64 0x1a0c460bfb00000}                 # hlc
+    {uvar 1}                                # actor `owner`
+    {uvar 1}                                # role `orchestrator`
+    {uvar 0}                                # session ``
+    {uvar 1}                                # schema_version
+    02                                      # stmt_origin `tx`
+    05                                      # actor_src `env`
+    {uvar 0}                                # stmt_sym ``
+    61 e4 d4 3b 97 a8 44 1b 20 c9 58 16 6d dd 88 9f  # stmt_hash
+    {svar 0}                                # append_delta (append_hlc - hlc)
+    {uvar 10}                               # msg: length 10
+    "add note 7"
+    {uvar 1}                                # affected_len
+    01                                      # affected_complete
+    {uvar 7}                                # first
+    3c e2 1a f2 7a 25 67 d1 30 44 f7 d5 53 aa ed ac  # changeset_digest (synthetic)
+    5c c2 68 07 b2 72 5f 3e 84 7e 2a 53 de cf 35 16
+    {uvar 1}                                # n_ops
+    # op 1: Create
+      01                                    # op tag 1 Create
+      {uvar 77}                             # len of the body
+      {uvar 7}                              # id #7
+      {uvar 0}                              # prev: 0 (no earlier op of the owner on this ref)
+      b0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 07  # uid
+      03                                    # kind
+      {uvar 1}                              # c_actor `owner`
+      {uvar 1}                              # c_role `orchestrator`
+      # image: node image ([F06 §6.3]), 3 entries
+        {uvar 3}                            # n_entries
+        00                                  # ie 0 status
+        00                                  # status
+        00                                  # resolution
+        01                                  # ie 1 body
+        20 1e f7 65 a9 a5 53 91 8e 41 d1 d8 04 35 41 83  # body hash (BLAKE3-128)
+        02                                  # ie 2 field
+        {uvar 1}                            # name 1 `title`
+        06                                  # title: type 6 text
+        {uvar 31}                           # title: text: length 31
+        "Note seven (a 60,000-byte body)"
+    {uvar 1}                                # n_bodies
+    # body entry ([F06 §8])
+      {blake3_128 b7body.d..b7body.e}       # hash: BLAKE3-128 of the raw stored bytes
+      00                                    # codec 0 `none`
+      {uvar 60000}                          # raw_len
+      {uvar 60000}                          # data length
+b7body.d:
+      7a*60000                              # data (raw bytes, codec none) (60000 x 'z')
+b7body.e:
+g2.r1.pl:
+g2.tr:
+{xxh3_64 g2..g2.tr seed=g1.tr..g1.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g2.end:
+g2.r1.end:
+
+# === group g3 at lsn 125976: lease group: a run-scoped claim (expires Stamp::NEVER, run #5, anchor none, a Linux ProcId) (durable)
+g3:
+# --- record g3.r1: kind 4 `Lease` at lsn 125976 (group_end)
+g3.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g3.r1..g3.r1.end}                    # len: header, payload and chain trailer
+  04                                        # kind 4 Lease
+  06                                        # flags: lazy=0, group_end=1, symdefs=1
+  {u16 0}                                   # _reserved
+  {u64 125976}                              # lsn = the record's own position
+  {u64 0x2718281828459045}                  # epoch
+  {xxh3_64 g3.r1..g3.r1+24 g3.r1+32..g3.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g3.r1.p:
+    # SymDefs block ([F05 §8.1]): 2 definition(s)
+      {uvar 2}                              # n_defs
+      02                                    # class 2 `role`
+      {uvar 2}                              # id
+      {uvar 9}                              # text: length 9
+      "developer"
+      08                                    # class 8 `root`
+      {uvar 1}                              # id
+      {uvar 7}                              # text: length 7
+      "project"
+    01                                      # event 1 (claim)
+    {uvar 1}                                # lease_id
+    {u64 1}                                 # token
+    {u64 0x1a0c460e6c00000}                 # hlc
+    {uvar 3}                                # node
+    01                                      # lkind (1 task, 2 role)
+    {uvar 2}                                # role `developer`
+    {uvar 1}                                # holder `owner`
+    # anchor: Anchor kind 0 `none` (32 B, [F03 §10])
+      00*32                                 # kind 0: 32 zero bytes ([F03 §10.3] step 5)
+    # expires: Stamp::NEVER ([OS/clock §4.1])
+      {u64 0xffffffffffffffff}              # wall (ms)
+      {u64 0}                               # boot_hash
+      {u64 0xffffffffffffffff}              # mono (boot ns)
+    {uvar 0}                                # ttl_ms
+    {uvar 5}                                # run
+    {uvar 0}                                # branch
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # bound
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # root_session
+    {uvar 1}                                # files_owned: n
+    {u16 1}                                 # files_owned: root `project`
+    {uvar 6}                                # files_owned: pattern: length 6
+    "src/**"
+    # proc: ProcId (32 B, [F03 §5.1])
+      02                                    # os
+      0f                                    # flags (start_known=1, start_boot_relative=1, boot_known=1, pidns_known=1)
+      {u16 0}                               # _reserved
+      {u32 3300}                            # pid
+      {u64 0x11ed8ec200}                    # start (ns)
+      {u64 0x886e092df8727a9b}              # boot_hash
+      {u64 0xeffffffc}                      # pidns
+    00                                      # lflags (bit 0 session_role)
+g3.r1.pl:
+g3.tr:
+{xxh3_64 g3..g3.tr seed=g2.tr..g2.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g3.end:
+g3.r1.end:
+
+# === group g4 at lsn 126195: reservation group: Reserve (cs.1, #8-#9, kind id 64 `sensor`); its commit never lands (durable)
+g4:
+# --- record g4.r1: kind 27 `Reserve` at lsn 126195 (group_end)
+g4.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g4.r1..g4.r1.end}                    # len: header, payload and chain trailer
+  1b                                        # kind 27 Reserve
+  06                                        # flags: lazy=0, group_end=1, symdefs=1
+  {u16 0}                                   # _reserved
+  {u64 126195}                              # lsn = the record's own position
+  {u64 0x2718281828459045}                  # epoch
+  {xxh3_64 g4.r1..g4.r1+24 g4.r1+32..g4.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g4.r1.p:
+    # SymDefs block ([F05 §8.1]): 1 definition(s)
+      {uvar 1}                              # n_defs
+      0a                                    # class 10 `name`
+      {uvar 2}                              # id
+      {uvar 6}                              # text: length 6
+      "sensor"
+    {uvar 0}                                # ref_id
+    {u64 0x1a0c460fa480000}                 # hlc
+    {uvar 1}                                # cs_file
+    {uvar 0}                                # blobs_file
+    {uvar 8}                                # first_id
+    {uvar 2}                                # n_ids
+    {uvar 0}                                # first_anchor
+    {uvar 0}                                # n_anchors
+    {uvar 1}                                # n_schema
+    01                                      # SchemaRes.class
+    {uvar 6}                                # SchemaRes.key: length 6
+    "sensor"
+    {uvar 64}                               # SchemaRes.id
+g4.r1.pl:
+g4.tr:
+{xxh3_64 g4..g4.tr seed=g3.tr..g3.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g4.end:
+g4.r1.end:
+
+# === group g5 at lsn 126270: checkpoint group: delta seg.d3, blobs.4 added, and the retirement of extent 1 into hist.2 (bit 4); checkpoint_lsn becomes 126270 > 1 x E (EX-5) (durable)
+g5:
+# --- record g5.r1: kind 9 `Checkpoint` at lsn 126270 (group_end)
+g5.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g5.r1..g5.r1.end}                    # len: header, payload and chain trailer
+  09                                        # kind 9 Checkpoint
+  02                                        # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                   # _reserved
+  {u64 126270}                              # lsn = the record's own position
+  {u64 0x2718281828459045}                  # epoch
+  {xxh3_64 g5.r1..g5.r1+24 g5.r1+32..g5.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g5.r1.p:
+    {u16 51}                                # ckflags
+    {u64 0x1a0c4610dd00000}                 # append_hlc
+    {uvar 5}                                # next_file_no
+    {uvar 126270}                           # upto_lsn
+    {uvar 2}                                # active_log
+    01                                      # n_segments
+    {u32 3}                                 # segments[0].file_no
+    02                                      # segments[0].kind (delta)
+    {u64 126270}                            # segments[0].upto_lsn
+    a3 c3 5d 4f e9 73 ab 0d 49 be c4 50 35 ec 18 40  # segments[0].blake3_16
+    {uvar 0}                                # window_start
+    {uvar 2}                                # n_refs
+    {uvar 0}                                # RefList.ref_id
+    {uvar 6}                                # RefList.n
+    {uvar 387}                              # dlsn (lsn 387)
+    {uvar 117309506191360000}               # dhlc (append_hlc 0x1a0c45fd5500000)
+    {uvar 959}                              # dlsn (lsn 1346)
+    {uvar 1310720000}                       # dhlc (append_hlc 0x1a0c46023700000)
+    {uvar 241}                              # dlsn (lsn 1587)
+    {uvar 655360000}                        # dhlc (append_hlc 0x1a0c4604a800000)
+    {uvar 237}                              # dlsn (lsn 1824)
+    {uvar 655360000}                        # dhlc (append_hlc 0x1a0c46071900000)
+    {uvar 241}                              # dlsn (lsn 2065)
+    {uvar 655360000}                        # dhlc (append_hlc 0x1a0c46098a00000)
+    {uvar 63609}                            # dlsn (lsn 65674)
+    {uvar 655360000}                        # dhlc (append_hlc 0x1a0c460bfb00000)
+    {uvar 1}                                # RefList.ref_id
+    {uvar 1}                                # RefList.n
+    {uvar 862}                              # dlsn (lsn 862)
+    {uvar 117309506846720000}               # dhlc (append_hlc 0x1a0c45ffc600000)
+    {uvar 1}                                # n_retirements
+    {uvar 1}                                # Retirement.extent
+    {uvar 2}                                # Retirement.hist_file
+    {uvar 9050}                             # Retirement.total_len
+    e5 12 b1 2b 2c eb f4 32 1f 81 0b 0d 08 d4 8c 32  # Retirement.digest
+    {uvar 1}                                # n_added
+    06                                      # added.family 6 blobs
+    {uvar 4}                                # added.file_no
+    {uvar 65266}                            # added.total_len
+    7c 24 c2 6b 8c 8f 2a 86 ea 79 a6 17 52 5c 9d b3  # added.digest
+g5.r1.pl:
+g5.tr:
+{xxh3_64 g5..g5.tr seed=g4.tr..g4.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g5.end:
+g5.r1.end:
+
+# === group g6 at lsn 126462: checkpoint group: gc rewrote hist.2 as hist.5 (b2 pruned to its header): files_added and files_released only (durable)
+g6:
+# --- record g6.r1: kind 9 `Checkpoint` at lsn 126462 (group_end)
+g6.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g6.r1..g6.r1.end}                    # len: header, payload and chain trailer
+  09                                        # kind 9 Checkpoint
+  02                                        # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                   # _reserved
+  {u64 126462}                              # lsn = the record's own position
+  {u64 0x2718281828459045}                  # epoch
+  {xxh3_64 g6.r1..g6.r1+24 g6.r1+32..g6.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g6.r1.p:
+    {u16 96}                                # ckflags
+    {u64 0x1a0c46121580000}                 # append_hlc
+    {uvar 6}                                # next_file_no
+    {uvar 1}                                # n_added
+    02                                      # added.family 2 hist
+    {uvar 5}                                # added.file_no
+    {uvar 8999}                             # added.total_len
+    f4 fc a4 5e fb 91 ba e3 c8 74 5a bd b0 69 d4 a7  # added.digest
+    {uvar 1}                                # n_released
+    02                                      # released.family 2 hist
+    {uvar 2}                                # released.file_no
+g6.r1.pl:
+g6.tr:
+{xxh3_64 g6..g6.tr seed=g5.tr..g5.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g6.end:
+g6.r1.end:
+end:
+
+# The valid log ends here; the rest of the extent is zero.
+{pad_to 65536}                              # zero to the end of the extent

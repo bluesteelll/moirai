@@ -1,0 +1,98 @@
+# fixtures/hex/codec/blobs.7.hex: a blobs file ([F10 §5]) sealed under candidate 4 `zstd-dict` of
+# HOLE(F10-blob-codec) with dict_no = 6 (fixtures/hex/codec/dict.6.hex): two bodies, each one zstd frame whose
+# Dictionary_ID is 6 (libzstd 1.5.7, level 19; opaque at M0), and a short body that stays codec 0.
+
+# SegHdr (120 B, [F09 §2.1])
+seghdr:
+  "MSEG"                                    # magic
+  {u16 1}                                   # format
+  06                                        # seg_kind 6 `blobs`
+  00                                        # tok_ver
+  {u32 3}                                   # n_rows
+  {u16 2}                                   # n_sections
+  {u16 0}                                   # _reserved
+  {u32 7}                                   # file_no
+  {u32 0}                                   # ref_id
+  {u32 6}                                   # dict_no
+  {u32 0}                                   # _reserved
+  {u64 0}                                   # base_seq
+  {u64 0}                                   # from_lsn
+  {u64 0}                                   # upto_lsn
+  {u64 0}                                   # rt_upto_lsn
+  {len 0..end u64}                          # total_len
+  {blake3_256 data..end}                    # seg_digest: BLAKE3-256 over [data_off, total_len)
+  {xxh3_64 table..data}                     # table_xxh3 over the section table
+  {xxh3_64 0..112}                          # hdr_xxh3 over [0, 112)
+# section table (2 entries of 32 B, [F09 §2.2])
+table:
+  # SecEnt BLOBIDX (0x0310)
+  {u16 784}                                 # tag
+  {u16 0}                                   # flags
+  {u32 3}                                   # count
+  {len 0..s_0310 u64}                       # off (absolute)
+  {len s_0310..s_0310.e u64}                # len
+  {xxh3_64 s_0310..s_0310.e}                # xxh3
+  # SecEnt BLOBDATA (0x0311)
+  {u16 785}                                 # tag
+  {u16 0}                                   # flags
+  {u32 3}                                   # count
+  {len 0..s_0311 u64}                       # off (absolute)
+  {len s_0311..s_0311.e u64}                # len
+  {xxh3_64 s_0311..s_0311.e}                # xxh3
+data:
+
+# === section BLOBIDX (0x0310)
+s_0310:
+  {u32 3}                                   # n
+  {u32 36}                                  # row_w
+  # row 0
+    {blake3_128 2d205b205d20636865636b20746861742074686520776169746572206b656570732074686520636865636b706f696e74207768696c652074686520636f6d6d69 74207761697473202837206d73290a2d205b785d20746865206c65617365207761732072656e657765642074776963650a}  # hash: BLAKE3-128 of the raw bytes, given as literal operands
+    01                                      # class 1 (body)
+    00 00 00                                # _reserved
+    {len 0..body_b u64}                     # off: absolute offset of the BlobEnc payload
+    {len body_b..body_b.e}                  # len: the payload, codec byte included
+    {u32 113}                               # raw_len
+  # row 1
+    {blake3_128 2d205b205d20636865636b20746861742074686520666c757368206b6565707320746865207363616e6e6572207768696c6520746865207363616e6e65722077 61697473202833206d73290a2d205b205d20636865636b207468617420746865207363616e6e6572206b6565707320746865207365676d656e74207768696c65 20746865207265636f726420776169747320283434206d73290a2d205b205d20636865636b2074686174207468652074696d656f7574206b6565707320746865 20616e63686f72207768696c652074686520657874656e7420776169747320283435206d73290a2d205b205d20636865636b207468617420746865206c656173 65206b656570732074686520666c757368207768696c65207468652074696d656f757420776169747320283233206d73290a}  # hash: BLAKE3-128 of the raw bytes, given as literal operands
+    01                                      # class 1 (body)
+    00 00 00                                # _reserved
+    {len 0..body_a u64}                     # off: absolute offset of the BlobEnc payload
+    {len body_a..body_a.e}                  # len: the payload, codec byte included
+    {u32 306}                               # raw_len
+  # row 2
+    {blake3_128 body_ok.d..body_ok.e}       # hash: BLAKE3-128 of the raw bytes
+    01                                      # class 1 (body)
+    00 00 00                                # _reserved
+    {len 0..body_ok u64}                    # off: absolute offset of the BlobEnc payload
+    {len body_ok..body_ok.e}                # len: the payload, codec byte included
+    {u32 2}                                 # raw_len
+s_0310.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BLOBDATA (0x0311)
+s_0311:
+  # BlobEnc `body_b` ([F10 §3.2]): 113 raw bytes
+body_b:
+  04                                        # codec 4 `zstd-dict`
+body_b.d:
+  # data: 40 bytes in the zstd-dict format of [F10 §3.3]; opaque at M0
+  28 b5 2f fd 21 06 71 f5 00 00 98 2d 78 5d 73 20
+  72 65 6e 65 77 65 64 20 74 77 69 63 65 0a 02 f0
+  04 ea e1 00 03 34 7a 67
+body_b.e:
+  # BlobEnc `body_a` ([F10 §3.2]): 306 raw bytes
+body_a:
+  04                                        # codec 4 `zstd-dict`
+body_a.d:
+  # data: 29 bytes in the zstd-dict format of [F10 §3.3]; opaque at M0
+  28 b5 2f fd 61 06 32 00 95 00 00 10 2d 2d 03 f0
+  8d 2e 42 25 80 f8 53 08 43 40 ff 55 06
+body_a.e:
+  # BlobEnc `body_ok` ([F10 §3.2]): 2 raw bytes (the zstd-dict output is not shorter than the raw bytes: codec 0, [F10 §3.4])
+body_ok:
+  00                                        # codec 0 `none`
+body_ok.d:
+  "ok"                                      # raw bytes
+body_ok.e:
+s_0311.e:
+end:

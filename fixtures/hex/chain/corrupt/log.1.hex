@@ -1,0 +1,373 @@
+# fixtures/hex/chain/corrupt/log.1.hex: store E ([F05 §5.3]). Commits c1, c2 and c3, each in its own durable
+# group, all below durable_lsn. One bit of c2's message was flipped after the write (a media error the fault
+# model allows, [F15]): c2's record checksum fails at a boundary below durable_lsn, so the store is corrupt:
+# exit 7 naming log.1 and `moirai repair` ([F19]); the process never truncates below durable_lsn. c3's group
+# after it is valid behind c2's original bytes, which shows that validity is checked group by group from the
+# scan's start and a later valid group does not repair an earlier one.
+
+# === group g1 at lsn 0: the epoch-start group (first group) (durable)
+g1:
+# --- record g1.r1: kind 28 `ExtentHead` at lsn 0 (group_end)
+g1.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g1.r1..g1.r1.end}                    # len: header, payload and chain trailer
+  1c                                        # kind 28 ExtentHead
+  02                                        # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                   # _reserved
+  {u64 0}                                   # lsn = the record's own position
+  {u64 0x9999aaaabbbbcccc}                  # epoch
+  {xxh3_64 g1.r1..g1.r1+24 g1.r1+32..g1.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g1.r1.p:
+    {u64 0}                                 # epoch_lsn
+    {xxh3_64 ccccbbbbaaaa9999}              # chain_in = XXH3-64(epoch) (the epoch seed)
+    # init: InitParams (32 B, [F04 §4.4])
+      {u64 65536}                           # log_extent_bytes
+      {u32 4}                               # hist_frame_commits
+      {u32 4096}                            # hist_frame_bytes
+      57 01 de 00 00 00 00 00 00 00 00 00 00 00 00 05  # store_id
+    01                                      # project_oid_algo
+    00                                      # hflags (bit 0 quiet, bit 1 readonly)
+    {u64 0}                                 # commit_seq
+    {u32 1}                                 # next_id
+    {u32 1}                                 # next_anchor
+    {u64 0}                                 # fence
+    {u32 1}                                 # next_file_no
+    {u32 0}                                 # next_ref_id
+    {u64 0}                                 # hlc_seq
+    {u64 0}                                 # hlc_commit
+g1.r1.pl:
+g1.tr:
+{xxh3_64 g1..g1.tr seed={xxh3_64 ccccbbbbaaaa9999}}  # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the chain value at the group's first byte
+g1.end:
+g1.r1.end:
+
+# === group g2 at lsn 138: init: create main (a chained group, seeded with the trailer before it) (durable)
+g2:
+# --- record g2.r1: kind 2 `RefUpdate` at lsn 138
+g2.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g2.r1..g2.r1.end}                    # len: header and payload
+  02                                        # kind 2 RefUpdate
+  04                                        # flags: lazy=0, group_end=0, symdefs=1
+  {u16 0}                                   # _reserved
+  {u64 138}                                 # lsn = the record's own position
+  {u64 0x9999aaaabbbbcccc}                  # epoch
+  {xxh3_64 g2.r1..g2.r1+24 g2.r1+32..g2.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g2.r1.p:
+    # SymDefs block ([F05 §8.1]): 1 definition(s)
+      {uvar 1}                              # n_defs
+      01                                    # class 1 `actor`
+      {uvar 1}                              # id
+      {uvar 5}                              # text: length 5
+      "owner"
+    01                                      # reason 1 (create)
+    {uvar 0}                                # ref_id
+    {uvar 1}                                # actor `owner`
+    {u64 0x1a0c4506fe80000}                 # hlc
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # old (cid32; zero = none)
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # new (cid32; zero = none)
+    00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+    {uvar 0}                                # n_absorbed
+g2.r1.pl:
+g2.r1.end:
+# --- record g2.r2: kind 10 `RefTable` at lsn 255 (group_end)
+g2.r2:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g2.r2..g2.r2.end}                    # len: header, payload and chain trailer
+  0a                                        # kind 10 RefTable
+  06                                        # flags: lazy=0, group_end=1, symdefs=1
+  {u16 0}                                   # _reserved
+  {u64 255}                                 # lsn = the record's own position
+  {u64 0x9999aaaabbbbcccc}                  # epoch
+  {xxh3_64 g2.r2..g2.r2+24 g2.r2+32..g2.r2.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g2.r2.p:
+    # SymDefs block ([F05 §8.1]): 1 definition(s)
+      {uvar 1}                              # n_defs
+      04                                    # class 4 `ref`
+      {uvar 1}                              # id
+      {uvar 4}                              # text: length 4
+      "main"
+    {uvar 1}                                # n
+    # RefEntry 1
+      01                                    # op 1 (upsert)
+      {uvar 0}                              # ref_id
+      {uvar 1}                              # name `main`
+      01                                    # rkind
+      00                                    # eflags: deleted=0, has_message=0, pinned=0
+      00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # tip (cid32)
+      00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+      {uvar 0}                              # tip_lsn
+      {uvar 0}                              # base_pin
+      00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # fork_commit (cid32)
+      00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+      {uvar 0}                              # fork_seq
+      {uvar 0}                              # ops_since_fork
+      {uvar 0}                              # overlay_ops
+      {uvar 0}                              # overlay_bytes
+      {uvar 1}                              # ref_seq_next
+      {uvar 0}                              # promoted_seg
+      {uvar 0}                              # gen
+      {uvar 0}                              # n_absorbed
+      {uvar 0}                              # fork_lsn
+      {uvar 0}                              # fork_ref_id
+      {uvar 0}                              # trunk_mark_ops
+      {uvar 0}                              # trunk_mark_bytes
+g2.r2.pl:
+g2.tr:
+{xxh3_64 g2..g2.tr seed=g1.tr..g1.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g2.end:
+g2.r2.end:
+
+# === group g3 at lsn 387: commit c1 (seq 1) (durable)
+g3:
+# --- record g3.r1: kind 1 `Commit` at lsn 387 (group_end)
+g3.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g3.r1..g3.r1.end}                    # len: header, payload and chain trailer
+  01                                        # kind 1 Commit
+  06                                        # flags: lazy=0, group_end=1, symdefs=1
+  {u16 0}                                   # _reserved
+  {u64 387}                                 # lsn = the record's own position
+  {u64 0x9999aaaabbbbcccc}                  # epoch
+  {xxh3_64 g3.r1..g3.r1+24 g3.r1+32..g3.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g3.r1.p:
+    # SymDefs block ([F05 §8.1]): 1 definition(s)
+      {uvar 1}                              # n_defs
+      0a                                    # class 10 `name`
+      {uvar 1}                              # id
+      {uvar 5}                              # text: length 5
+      "title"
+    # Commit payload ([F06 §4.3])
+    {u32 28672}                             # presence: stmt_hash, msg, affected
+    35 6a 1e a0 d8 43 98 55 31 56 01 41 78 54 bf 06  # commit_id (synthetic)
+    b6 1f 19 aa be 7f ad f5 c1 9e 09 d7 c4 48 32 d4
+    00                                      # n_parents
+    {uvar 1}                                # gen
+    {uvar 1}                                # seq
+    {uvar 1}                                # ref symbol `main`
+    {uvar 0}                                # ref_id
+    {uvar 1}                                # ref_seq
+    00                                      # kind `ordinary`
+    00                                      # import `local`
+    {u64 0x1a0c45093100000}                 # hlc
+    {uvar 1}                                # actor `owner`
+    {uvar 0}                                # role ``
+    {uvar 0}                                # session ``
+    {uvar 1}                                # schema_version
+    02                                      # stmt_origin `tx`
+    05                                      # actor_src `env`
+    {uvar 0}                                # stmt_sym ``
+    81 29 d1 1b d6 0a d0 f0 7a b3 74 52 76 f4 ac e1  # stmt_hash
+    {svar 0}                                # append_delta (append_hlc - hlc)
+    {uvar 6}                                # msg: length 6
+    "add #1"
+    {uvar 1}                                # affected_len
+    01                                      # affected_complete
+    {uvar 1}                                # first
+    0a 19 36 65 35 bd 7c 86 bb 45 e9 31 06 b6 d3 f9  # changeset_digest (synthetic)
+    7f d0 4f e9 a1 20 16 88 18 27 88 85 8e c1 22 7f
+    {uvar 1}                                # n_ops
+    # op 1: Create
+      01                                    # op tag 1 Create
+      {uvar 39}                             # len of the body
+      {uvar 1}                              # id #1
+      {uvar 0}                              # prev: 0 (no earlier op of the owner on this ref)
+      ed 95 bd b9 f2 b3 3d 4e d9 64 57 e3 ed b0 78 25  # uid
+      03                                    # kind
+      {uvar 1}                              # c_actor `owner`
+      {uvar 0}                              # c_role ``
+      # image: node image ([F06 §6.3]), 2 entries
+        {uvar 2}                            # n_entries
+        00                                  # ie 0 status
+        00                                  # status
+        00                                  # resolution
+        02                                  # ie 2 field
+        {uvar 1}                            # name 1 `title`
+        06                                  # title: type 6 text
+        {uvar 10}                           # title: text: length 10
+        "First note"
+    {uvar 0}                                # n_bodies
+g3.r1.pl:
+g3.tr:
+{xxh3_64 g3..g3.tr seed=g2.tr..g2.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g3.end:
+g3.r1.end:
+
+# === group g4 at lsn 597: commit c2 (seq 2) (durable)
+# c2's group is written below as literal bytes with one bit flipped in the message text `add #2`.
+# The group as its writer formed it, as a listing (every `|` line is a comment, not input):
+# | g4:
+# | # --- record g4.r1: kind 1 `Commit` at lsn 597 (group_end)
+# | g4.r1:
+# |   # RecHdr (32 B, [F05 §3.1])
+# |   {len g4.r1..g4.r1.end}                    # len: header, payload and chain trailer
+# |   01                                        # kind 1 Commit
+# |   02                                        # flags: lazy=0, group_end=1, symdefs=0
+# |   {u16 0}                                   # _reserved
+# |   {u64 597}                                 # lsn = the record's own position
+# |   {u64 0x9999aaaabbbbcccc}                  # epoch
+# |   {xxh3_64 g4.r1..g4.r1+24 g4.r1+32..g4.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+# |   # payload
+# | g4.r1.p:
+# |     # Commit payload ([F06 §4.3])
+# |     {u32 28675}                             # presence: ref_old, prev_on_ref, stmt_hash, msg, affected
+# |     78 9e e4 52 c7 79 fb 39 9b b0 7c c5 a3 97 e7 0b  # commit_id (synthetic)
+# |     a5 de 13 b4 ba c1 d8 6a 87 b5 01 46 57 5a 50 bc
+# |     01                                      # n_parents
+# |     35 6a 1e a0 d8 43 98 55 31 56 01 41 78 54 bf 06  # parents[0].id16
+# |     {uvar 387}                              # parents[0].lsn
+# |     {uvar 2}                                # gen
+# |     {uvar 2}                                # seq
+# |     {uvar 1}                                # ref symbol `main`
+# |     {uvar 0}                                # ref_id
+# |     35 6a 1e a0 d8 43 98 55 31 56 01 41 78 54 bf 06  # ref_old (id16 of the tip this commit replaces)
+# |     {uvar 387}                              # prev_on_ref (lsn)
+# |     {uvar 2}                                # ref_seq
+# |     00                                      # kind `ordinary`
+# |     00                                      # import `local`
+# |     {u64 0x1a0c450ba200000}                 # hlc
+# |     {uvar 1}                                # actor `owner`
+# |     {uvar 0}                                # role ``
+# |     {uvar 0}                                # session ``
+# |     {uvar 1}                                # schema_version
+# |     02                                      # stmt_origin `tx`
+# |     05                                      # actor_src `env`
+# |     {uvar 0}                                # stmt_sym ``
+# |     d4 f3 65 f8 0f 8f 29 12 2e fe 11 45 1c 70 7b f9  # stmt_hash
+# |     {svar 0}                                # append_delta (append_hlc - hlc)
+# |     {uvar 6}                                # msg: length 6
+# |     "add #2"
+# |     {uvar 1}                                # affected_len
+# |     01                                      # affected_complete
+# |     {uvar 2}                                # first
+# |     ee 57 69 10 27 9a 24 55 b4 8b c1 14 8e 06 d3 fe  # changeset_digest (synthetic)
+# |     0c a0 a3 b9 6b 55 63 20 74 b7 fb e1 0b 4b e5 2e
+# |     {uvar 1}                                # n_ops
+# |     # op 1: Create
+# |       01                                    # op tag 1 Create
+# |       {uvar 40}                             # len of the body
+# |       {uvar 2}                              # id #2
+# |       {uvar 0}                              # prev: 0 (no earlier op of the owner on this ref)
+# |       c7 0c 3c d0 78 0d 86 48 69 b1 9d fe db 32 d1 e7  # uid
+# |       03                                    # kind
+# |       {uvar 1}                              # c_actor `owner`
+# |       {uvar 0}                              # c_role ``
+# |       # image: node image ([F06 §6.3]), 2 entries
+# |         {uvar 2}                            # n_entries
+# |         00                                  # ie 0 status
+# |         00                                  # status
+# |         00                                  # resolution
+# |         02                                  # ie 2 field
+# |         {uvar 1}                            # name 1 `title`
+# |         06                                  # title: type 6 text
+# |         {uvar 11}                           # title: text: length 11
+# |         "Second note"
+# |     {uvar 0}                                # n_bodies
+# | g4.r1.pl:
+# | g4.tr:
+# | {xxh3_64 g4..g4.tr seed=g3.tr..g3.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+# | g4.end:
+# | g4.r1.end:
+# The bytes of the file at [597, 835):
+g4:
+ee 00 00 00 01 02 00 00 55 02 00 00 00 00 00 00  # c2's group as written
+cc cc bb bb aa aa 99 99 2b 43 91 0a 9d 71 04 bd
+03 70 00 00 78 9e e4 52 c7 79 fb 39 9b b0 7c c5
+a3 97 e7 0b a5 de 13 b4 ba c1 d8 6a 87 b5 01 46
+57 5a 50 bc 01 35 6a 1e a0 d8 43 98 55 31 56 01
+41 78 54 bf 06 83 03 02 02 01 00 35 6a 1e a0 d8
+43 98 55 31 56 01 41 78 54 bf 06 83 03 02 00 00
+00 00 20 ba 50 c4 a0 01 01 00 00 01 02 05 00 d4
+f3 65 f8 0f 8f 29 12 2e fe 11 45 1c 70 7b f9 00
+06 61 64 64 20 23
+33                                          # the flipped byte at lsn 747: written 0x32 ('2'), reads 0x33 ('3')
+01 01 02 ee 57 69 10 27 9a 24 55 b4 8b c1 14 8e  # c2's group as written
+06 d3 fe 0c a0 a3 b9 6b 55 63 20 74 b7 fb e1 0b
+4b e5 2e 01 01 28 02 00 c7 0c 3c d0 78 0d 86 48
+69 b1 9d fe db 32 d1 e7 03 01 00 02 00 00 00 02
+01 06 0b 53 65 63 6f 6e 64 20 6e 6f 74 65 00
+g4.tr:
+d1 18 99 2e 71 28 cb 32                     # c2's group as written (continued); the chain trailer's 8 bytes start here
+g4.end:
+
+# === group g5 at lsn 835: commit c3 (seq 3) (durable)
+g5:
+# --- record g5.r1: kind 1 `Commit` at lsn 835 (group_end)
+g5.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g5.r1..g5.r1.end}                    # len: header, payload and chain trailer
+  01                                        # kind 1 Commit
+  02                                        # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                   # _reserved
+  {u64 835}                                 # lsn = the record's own position
+  {u64 0x9999aaaabbbbcccc}                  # epoch
+  {xxh3_64 g5.r1..g5.r1+24 g5.r1+32..g5.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g5.r1.p:
+    # Commit payload ([F06 §4.3])
+    {u32 28675}                             # presence: ref_old, prev_on_ref, stmt_hash, msg, affected
+    3b ce f6 79 1f 2c e7 3a 49 58 99 f4 20 9b 3b 70  # commit_id (synthetic)
+    3c 6c 6b f0 32 bf 71 5b c0 02 4b 0d b9 95 a9 f4
+    01                                      # n_parents
+    78 9e e4 52 c7 79 fb 39 9b b0 7c c5 a3 97 e7 0b  # parents[0].id16
+    {uvar 597}                              # parents[0].lsn
+    {uvar 3}                                # gen
+    {uvar 3}                                # seq
+    {uvar 1}                                # ref symbol `main`
+    {uvar 0}                                # ref_id
+    78 9e e4 52 c7 79 fb 39 9b b0 7c c5 a3 97 e7 0b  # ref_old (id16 of the tip this commit replaces)
+    {uvar 597}                              # prev_on_ref (lsn)
+    {uvar 3}                                # ref_seq
+    00                                      # kind `ordinary`
+    00                                      # import `local`
+    {u64 0x1a0c450e1300000}                 # hlc
+    {uvar 1}                                # actor `owner`
+    {uvar 0}                                # role ``
+    {uvar 0}                                # session ``
+    {uvar 1}                                # schema_version
+    02                                      # stmt_origin `tx`
+    05                                      # actor_src `env`
+    {uvar 0}                                # stmt_sym ``
+    8c 2d 39 36 3e 10 73 38 6b 22 38 69 79 f8 b1 85  # stmt_hash
+    {svar 0}                                # append_delta (append_hlc - hlc)
+    {uvar 6}                                # msg: length 6
+    "add #3"
+    {uvar 1}                                # affected_len
+    01                                      # affected_complete
+    {uvar 3}                                # first
+    1c f7 6b c2 6b 47 0d 18 64 49 07 df a7 bc 1d 09  # changeset_digest (synthetic)
+    ae ca ad da 03 e3 c2 04 d6 dd d0 d3 62 69 7d 4e
+    {uvar 1}                                # n_ops
+    # op 1: Create
+      01                                    # op tag 1 Create
+      {uvar 39}                             # len of the body
+      {uvar 3}                              # id #3
+      {uvar 0}                              # prev: 0 (no earlier op of the owner on this ref)
+      dd d2 71 cc d7 fc 20 5e 31 ac d3 15 ae 1b be c6  # uid
+      03                                    # kind
+      {uvar 1}                              # c_actor `owner`
+      {uvar 0}                              # c_role ``
+      # image: node image ([F06 §6.3]), 2 entries
+        {uvar 2}                            # n_entries
+        00                                  # ie 0 status
+        00                                  # status
+        00                                  # resolution
+        02                                  # ie 2 field
+        {uvar 1}                            # name 1 `title`
+        06                                  # title: type 6 text
+        {uvar 10}                           # title: text: length 10
+        "Third note"
+    {uvar 0}                                # n_bodies
+g5.r1.pl:
+g5.tr:
+{xxh3_64 g5..g5.tr seed=g4.tr..g4.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g5.end:
+g5.r1.end:
+
+# The log ends here. Every later byte of the extent is zero.
+{pad_to 65536}                              # zero to the end of the extent

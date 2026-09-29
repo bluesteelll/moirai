@@ -1,0 +1,115 @@
+# fixtures/hex/codec/blobs.2.hex: a blobs file ([F10 §5]) sealed under HOLE(F10-blob-codec)'s expected candidate
+# 2 `lz4-dict` with dict_no = 1 (fixtures/hex/codec/dict.1.hex): two bodies whose payloads are LZ4 blocks with the
+# dictionary as preceding history (the first body's matches reach into the dictionary), one short body whose LZ4
+# output is not shorter than its raw bytes (codec 0, [F10 §3.4]), and a fingerprint blob (class 2, always codec 0,
+# [F10 §5.3]). A compressed payload's hash is a literal-operand directive over its raw bytes, so the raw bytes are
+# in the file as data the assembler checks. LZ4 payloads are opaque at M0 ([PLAN §6.2] R3).
+
+# SegHdr (120 B, [F09 §2.1])
+seghdr:
+  "MSEG"                                    # magic
+  {u16 1}                                   # format
+  06                                        # seg_kind 6 `blobs`
+  00                                        # tok_ver
+  {u32 4}                                   # n_rows
+  {u16 2}                                   # n_sections
+  {u16 0}                                   # _reserved
+  {u32 2}                                   # file_no
+  {u32 0}                                   # ref_id
+  {u32 1}                                   # dict_no
+  {u32 0}                                   # _reserved
+  {u64 0}                                   # base_seq
+  {u64 0}                                   # from_lsn
+  {u64 0}                                   # upto_lsn
+  {u64 0}                                   # rt_upto_lsn
+  {len 0..end u64}                          # total_len
+  {blake3_256 data..end}                    # seg_digest: BLAKE3-256 over [data_off, total_len)
+  {xxh3_64 table..data}                     # table_xxh3 over the section table
+  {xxh3_64 0..112}                          # hdr_xxh3 over [0, 112)
+# section table (2 entries of 32 B, [F09 §2.2])
+table:
+  # SecEnt BLOBIDX (0x0310)
+  {u16 784}                                 # tag
+  {u16 0}                                   # flags
+  {u32 4}                                   # count
+  {len 0..s_0310 u64}                       # off (absolute)
+  {len s_0310..s_0310.e u64}                # len
+  {xxh3_64 s_0310..s_0310.e}                # xxh3
+  # SecEnt BLOBDATA (0x0311)
+  {u16 785}                                 # tag
+  {u16 0}                                   # flags
+  {u32 4}                                   # count
+  {len 0..s_0311 u64}                       # off (absolute)
+  {len s_0311..s_0311.e u64}                # len
+  {xxh3_64 s_0311..s_0311.e}                # xxh3
+data:
+
+# === section BLOBIDX (0x0310)
+s_0310:
+  {u32 4}                                   # n
+  {u32 36}                                  # row_w
+  # row 0
+    {blake3_128 536f616b20706c616e20666f7220746865206c6f636b2074696d656f75743a0a2d205b205d20726572756e2074686520736f616b207769746820313620777269 746572730a2d205b205d20726572756e2074686520736f616b207769746820333220777269746572730a2d205b205d20726572756e2074686520736f616b2077 69746820363420777269746572730a2d205b785d206d6561737572652074686520666c757368207039390a576169746572732072657472792065766572792035 206d7320666f72206174206d6f7374203220732e0a}  # hash: BLAKE3-128 of the raw bytes, given as literal operands
+    01                                      # class 1 (body)
+    00 00 00                                # _reserved
+    {len 0..body_checklist u64}             # off: absolute offset of the BlobEnc payload
+    {len body_checklist..body_checklist.e}  # len: the payload, codec byte included
+    {u32 213}                               # raw_len
+  # row 1
+    {blake3_128 fprint.d..fprint.e}         # hash: BLAKE3-128 of the raw bytes
+    02                                      # class 2 (fingerprint)
+    00 00 00                                # _reserved
+    {len 0..fprint u64}                     # off: absolute offset of the BlobEnc payload
+    {len fprint..fprint.e}                  # len: the payload, codec byte included
+    {u32 32}                                # raw_len
+  # row 2
+    {blake3_128 54696d656f7574206973203220733b20746865206c65617365206b656570732074686520627974652e0a53656520233720666f7220746865207363616e6e6572 2068617a6172642e0a5468652077726974657220627974652069732074616b656e2077697468204c6f636b46696c6545782e0a}  # hash: BLAKE3-128 of the raw bytes, given as literal operands
+    01                                      # class 1 (body)
+    00 00 00                                # _reserved
+    {len 0..body_lease u64}                 # off: absolute offset of the BlobEnc payload
+    {len body_lease..body_lease.e}          # len: the payload, codec byte included
+    {u32 115}                               # raw_len
+  # row 3
+    {blake3_128 body_ok.d..body_ok.e}       # hash: BLAKE3-128 of the raw bytes
+    01                                      # class 1 (body)
+    00 00 00                                # _reserved
+    {len 0..body_ok u64}                    # off: absolute offset of the BlobEnc payload
+    {len body_ok..body_ok.e}                # len: the payload, codec byte included
+    {u32 2}                                 # raw_len
+s_0310.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BLOBDATA (0x0311)
+s_0311:
+  # BlobEnc `body_checklist` ([F10 §3.2]): 213 raw bytes
+body_checklist:
+  02                                        # codec 2 `lz4-dict`
+body_checklist.d:
+  # data: 62 bytes in the lz4-dict format of [F10 §3.3]; opaque at M0
+  10 53 31 00 41 70 6c 61 6e b4 00 00 1c 00 50 6c
+  6f 63 6b 20 08 01 40 6f 75 74 3a 3c 00 0f 61 00
+  12 0f 25 00 04 2f 33 32 25 00 10 28 36 34 25 00
+  0f ab 00 06 0f 6e 01 12 50 32 20 73 2e 0a
+body_checklist.e:
+  # BlobEnc `fprint` ([F10 §3.2]): 32 raw bytes
+fprint:
+  00                                        # codec 0 `none`
+fprint.d:
+  01 00 03 00 05 00 00 00 a1 00 00 00 96 00 00 00  # raw bytes
+  03 00 00 00 3d 2c 1b 0a 81 70 6f 5e c5 b4 a3 92
+fprint.e:
+  # BlobEnc `body_lease` ([F10 §3.2]): 115 raw bytes
+body_lease:
+  02                                        # codec 2 `lz4-dict`
+body_lease.d:
+  # data: 14 bytes in the lz4-dict format of [F10 §3.3]; opaque at M0
+  0f 3f 01 36 0f e2 00 12 50 65 45 78 2e 0a
+body_lease.e:
+  # BlobEnc `body_ok` ([F10 §3.2]): 2 raw bytes (the lz4-dict output is not shorter than the raw bytes: codec 0, [F10 §3.4])
+body_ok:
+  00                                        # codec 0 `none`
+body_ok.d:
+  "ok"                                      # raw bytes
+body_ok.e:
+s_0311.e:
+end:

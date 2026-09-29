@@ -1,0 +1,173 @@
+# fixtures/hex/decode-only/journal-cursor/HEAD.hex: store J's HEAD: durable_lsn at the end of main's group,
+# committed_lsn at the end of the lazy group.
+
+# HeadSlot `slotA`: slot_seq 3 ([F04 §3])
+slotA:
+  "MOIR"                                    # magic
+  {u16 1}                                   # format
+  {u16 0}                                   # flags: quiet=0, fts_tier2=0, readonly=0, retired=0
+  {u64 3}                                   # slot_seq
+  {u64 0x2468ace013579bdf}                  # epoch
+  {u64 489}                                 # committed_lsn
+  {u64 387}                                 # durable_lsn
+  93 1c fe 48 ec 5a d8 55 33 32 51 cd e5 6f 62 c2  # boot_id
+  {u32 0}                                   # config_gen
+  {u64 0}                                   # checkpoint_lsn
+  {u64 0}                                   # commit_seq
+  {u32 1}                                   # next_id
+  {u32 1}                                   # next_anchor
+  {u64 0}                                   # fence
+  {u32 1}                                   # active_log
+  00                                        # n_segments
+  00 00 00                                  # _pad0
+  # segments: [8]SegRef (29 B each)
+  00*29                                     # segments[0]: empty
+  00*29                                     # segments[1]: empty
+  00*29                                     # segments[2]: empty
+  00*29                                     # segments[3]: empty
+  00*29                                     # segments[4]: empty
+  00*29                                     # segments[5]: empty
+  00*29                                     # segments[6]: empty
+  00*29                                     # segments[7]: empty
+  {u64 255}                                 # refs_lsn
+  {u64 0}                                   # pins_lsn
+  {u64 0}                                   # heads_lsn
+  {u64 0}                                   # markers_lsn
+  # image_cursor: [4]ImageCursor (10 B each)
+  00*10                                     # image_cursor[0]: empty
+  00*10                                     # image_cursor[1]: empty
+  00*10                                     # image_cursor[2]: empty
+  00*10                                     # image_cursor[3]: empty
+  # seq_ring: [32]SeqRingEntry (16 B each), entry k holds the commit with seq mod 32 = k
+  00*16                                     # seq_ring[0]: empty
+  00*16                                     # seq_ring[1]: empty
+  00*16                                     # seq_ring[2]: empty
+  00*16                                     # seq_ring[3]: empty
+  00*16                                     # seq_ring[4]: empty
+  00*16                                     # seq_ring[5]: empty
+  00*16                                     # seq_ring[6]: empty
+  00*16                                     # seq_ring[7]: empty
+  00*16                                     # seq_ring[8]: empty
+  00*16                                     # seq_ring[9]: empty
+  00*16                                     # seq_ring[10]: empty
+  00*16                                     # seq_ring[11]: empty
+  00*16                                     # seq_ring[12]: empty
+  00*16                                     # seq_ring[13]: empty
+  00*16                                     # seq_ring[14]: empty
+  00*16                                     # seq_ring[15]: empty
+  00*16                                     # seq_ring[16]: empty
+  00*16                                     # seq_ring[17]: empty
+  00*16                                     # seq_ring[18]: empty
+  00*16                                     # seq_ring[19]: empty
+  00*16                                     # seq_ring[20]: empty
+  00*16                                     # seq_ring[21]: empty
+  00*16                                     # seq_ring[22]: empty
+  00*16                                     # seq_ring[23]: empty
+  00*16                                     # seq_ring[24]: empty
+  00*16                                     # seq_ring[25]: empty
+  00*16                                     # seq_ring[26]: empty
+  00*16                                     # seq_ring[27]: empty
+  00*16                                     # seq_ring[28]: empty
+  00*16                                     # seq_ring[29]: empty
+  00*16                                     # seq_ring[30]: empty
+  00*16                                     # seq_ring[31]: empty
+  00*108                                    # _reserved0
+  # init: InitParams (32 B, [F04 §4.4])
+    {u64 65536}                             # log_extent_bytes
+    {u32 4}                                 # hist_frame_commits
+    {u32 4096}                              # hist_frame_bytes
+    57 01 de 00 00 00 00 00 00 00 00 00 00 00 00 07  # store_id
+  {u64 0}                                   # epoch_lsn
+  {u32 1}                                   # next_file_no
+  {u32 1}                                   # next_ref_id
+  01                                        # project_oid_algo
+  00 00 00 00 00 00 00                      # _pad1
+  {u64 0x1a0c4506fe80000}                   # hlc_seq
+  {u64 0}                                   # hlc_commit
+  00*2984                                   # _reserved1
+  {xxh3_128 slotA..slotA+4080}              # xxh3_128 over [0, 4080) (low64, high64)
+# HeadSlot `slotB`: slot_seq 4: the second write of the durable publish ([F04 §3])
+slotB:
+  "MOIR"                                    # magic
+  {u16 1}                                   # format
+  {u16 0}                                   # flags: quiet=0, fts_tier2=0, readonly=0, retired=0
+  {u64 4}                                   # slot_seq
+  {u64 0x2468ace013579bdf}                  # epoch
+  {u64 489}                                 # committed_lsn
+  {u64 387}                                 # durable_lsn
+  93 1c fe 48 ec 5a d8 55 33 32 51 cd e5 6f 62 c2  # boot_id
+  {u32 0}                                   # config_gen
+  {u64 0}                                   # checkpoint_lsn
+  {u64 0}                                   # commit_seq
+  {u32 1}                                   # next_id
+  {u32 1}                                   # next_anchor
+  {u64 0}                                   # fence
+  {u32 1}                                   # active_log
+  00                                        # n_segments
+  00 00 00                                  # _pad0
+  # segments: [8]SegRef (29 B each)
+  00*29                                     # segments[0]: empty
+  00*29                                     # segments[1]: empty
+  00*29                                     # segments[2]: empty
+  00*29                                     # segments[3]: empty
+  00*29                                     # segments[4]: empty
+  00*29                                     # segments[5]: empty
+  00*29                                     # segments[6]: empty
+  00*29                                     # segments[7]: empty
+  {u64 255}                                 # refs_lsn
+  {u64 0}                                   # pins_lsn
+  {u64 0}                                   # heads_lsn
+  {u64 0}                                   # markers_lsn
+  # image_cursor: [4]ImageCursor (10 B each)
+  00*10                                     # image_cursor[0]: empty
+  00*10                                     # image_cursor[1]: empty
+  00*10                                     # image_cursor[2]: empty
+  00*10                                     # image_cursor[3]: empty
+  # seq_ring: [32]SeqRingEntry (16 B each), entry k holds the commit with seq mod 32 = k
+  00*16                                     # seq_ring[0]: empty
+  00*16                                     # seq_ring[1]: empty
+  00*16                                     # seq_ring[2]: empty
+  00*16                                     # seq_ring[3]: empty
+  00*16                                     # seq_ring[4]: empty
+  00*16                                     # seq_ring[5]: empty
+  00*16                                     # seq_ring[6]: empty
+  00*16                                     # seq_ring[7]: empty
+  00*16                                     # seq_ring[8]: empty
+  00*16                                     # seq_ring[9]: empty
+  00*16                                     # seq_ring[10]: empty
+  00*16                                     # seq_ring[11]: empty
+  00*16                                     # seq_ring[12]: empty
+  00*16                                     # seq_ring[13]: empty
+  00*16                                     # seq_ring[14]: empty
+  00*16                                     # seq_ring[15]: empty
+  00*16                                     # seq_ring[16]: empty
+  00*16                                     # seq_ring[17]: empty
+  00*16                                     # seq_ring[18]: empty
+  00*16                                     # seq_ring[19]: empty
+  00*16                                     # seq_ring[20]: empty
+  00*16                                     # seq_ring[21]: empty
+  00*16                                     # seq_ring[22]: empty
+  00*16                                     # seq_ring[23]: empty
+  00*16                                     # seq_ring[24]: empty
+  00*16                                     # seq_ring[25]: empty
+  00*16                                     # seq_ring[26]: empty
+  00*16                                     # seq_ring[27]: empty
+  00*16                                     # seq_ring[28]: empty
+  00*16                                     # seq_ring[29]: empty
+  00*16                                     # seq_ring[30]: empty
+  00*16                                     # seq_ring[31]: empty
+  00*108                                    # _reserved0
+  # init: InitParams (32 B, [F04 §4.4])
+    {u64 65536}                             # log_extent_bytes
+    {u32 4}                                 # hist_frame_commits
+    {u32 4096}                              # hist_frame_bytes
+    57 01 de 00 00 00 00 00 00 00 00 00 00 00 00 07  # store_id
+  {u64 0}                                   # epoch_lsn
+  {u32 1}                                   # next_file_no
+  {u32 1}                                   # next_ref_id
+  01                                        # project_oid_algo
+  00 00 00 00 00 00 00                      # _pad1
+  {u64 0x1a0c4506fe80000}                   # hlc_seq
+  {u64 0}                                   # hlc_commit
+  00*2984                                   # _reserved1
+  {xxh3_128 slotB..slotB+4080}              # xxh3_128 over [0, 4080) (low64, high64)

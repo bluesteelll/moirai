@@ -1,0 +1,221 @@
+# fixtures/hex/head/fatal/equal-seq.hex: both slots valid with equal slot_seq 42 but different bytes: exit 7
+# ([F04 §8.1] row 3).
+
+# HeadSlot `slotA`: slot_seq 42 ([F04 §3])
+slotA:
+  "MOIR"                                    # magic
+  {u16 1}                                   # format
+  {u16 2}                                   # flags: quiet=0, fts_tier2=1, readonly=0, retired=0
+  {u64 42}                                  # slot_seq
+  {u64 0x3141592653589793}                  # epoch
+  {u64 20173}                               # committed_lsn
+  {u64 20173}                               # durable_lsn
+  93 1c fe 48 ec 5a d8 55 33 32 51 cd e5 6f 62 c2  # boot_id
+  {u32 0}                                   # config_gen
+  {u64 16660}                               # checkpoint_lsn
+  {u64 17}                                  # commit_seq
+  {u32 17}                                  # next_id
+  {u32 5}                                   # next_anchor
+  {u64 3}                                   # fence
+  {u32 1}                                   # active_log
+  01                                        # n_segments
+  00 00 00                                  # _pad0
+  # segments: [8]SegRef (29 B each)
+  {u32 10}                                  # segments[0].file_no
+  01                                        # segments[0].kind (base)
+  {u64 16660}                               # segments[0].upto_lsn
+  4c b0 13 6d 60 0a 80 26 6e 5a 39 51 29 e3 61 91  # segments[0].blake3_16
+  00*29                                     # segments[1]: empty
+  00*29                                     # segments[2]: empty
+  00*29                                     # segments[3]: empty
+  00*29                                     # segments[4]: empty
+  00*29                                     # segments[5]: empty
+  00*29                                     # segments[6]: empty
+  00*29                                     # segments[7]: empty
+  {u64 15979}                               # refs_lsn
+  {u64 19726}                               # pins_lsn
+  {u64 16022}                               # heads_lsn
+  {u64 8861}                                # markers_lsn
+  # image_cursor: [4]ImageCursor (10 B each)
+  01                                        # image_cursor[0].dest
+  01                                        # image_cursor[0].algo
+  {u64 7}                                   # image_cursor[0].seq
+  02                                        # image_cursor[1].dest
+  02                                        # image_cursor[1].algo
+  {u64 3}                                   # image_cursor[1].seq
+  00*10                                     # image_cursor[2]: empty
+  00*10                                     # image_cursor[3]: empty
+  # seq_ring: [32]SeqRingEntry (16 B each), entry k holds the commit with seq mod 32 = k
+  00*16                                     # seq_ring[0]: empty
+  {u64 1}                                   # seq_ring[1].seq
+  {u64 601}                                 # seq_ring[1].lsn
+  {u64 2}                                   # seq_ring[2].seq
+  {u64 4244}                                # seq_ring[2].lsn
+  {u64 3}                                   # seq_ring[3].seq
+  {u64 5745}                                # seq_ring[3].lsn
+  {u64 4}                                   # seq_ring[4].seq
+  {u64 6630}                                # seq_ring[4].lsn
+  {u64 5}                                   # seq_ring[5].seq
+  {u64 7248}                                # seq_ring[5].lsn
+  {u64 6}                                   # seq_ring[6].seq
+  {u64 7551}                                # seq_ring[6].lsn
+  {u64 7}                                   # seq_ring[7].seq
+  {u64 8077}                                # seq_ring[7].lsn
+  {u64 8}                                   # seq_ring[8].seq
+  {u64 8312}                                # seq_ring[8].lsn
+  {u64 9}                                   # seq_ring[9].seq
+  {u64 8544}                                # seq_ring[9].lsn
+  {u64 10}                                  # seq_ring[10].seq
+  {u64 8962}                                # seq_ring[10].lsn
+  {u64 11}                                  # seq_ring[11].seq
+  {u64 9555}                                # seq_ring[11].lsn
+  {u64 12}                                  # seq_ring[12].seq
+  {u64 10098}                               # seq_ring[12].lsn
+  {u64 13}                                  # seq_ring[13].seq
+  {u64 12288}                               # seq_ring[13].lsn
+  {u64 14}                                  # seq_ring[14].seq
+  {u64 13298}                               # seq_ring[14].lsn
+  {u64 15}                                  # seq_ring[15].seq
+  {u64 13654}                               # seq_ring[15].lsn
+  {u64 16}                                  # seq_ring[16].seq
+  {u64 13882}                               # seq_ring[16].lsn
+  {u64 17}                                  # seq_ring[17].seq
+  {u64 14256}                               # seq_ring[17].lsn
+  00*16                                     # seq_ring[18]: empty
+  00*16                                     # seq_ring[19]: empty
+  00*16                                     # seq_ring[20]: empty
+  00*16                                     # seq_ring[21]: empty
+  00*16                                     # seq_ring[22]: empty
+  00*16                                     # seq_ring[23]: empty
+  00*16                                     # seq_ring[24]: empty
+  00*16                                     # seq_ring[25]: empty
+  00*16                                     # seq_ring[26]: empty
+  00*16                                     # seq_ring[27]: empty
+  00*16                                     # seq_ring[28]: empty
+  00*16                                     # seq_ring[29]: empty
+  00*16                                     # seq_ring[30]: empty
+  00*16                                     # seq_ring[31]: empty
+  00*108                                    # _reserved0
+  # init: InitParams (32 B, [F04 §4.4])
+    {u64 65536}                             # log_extent_bytes
+    {u32 4}                                 # hist_frame_commits
+    {u32 4096}                              # hist_frame_bytes
+    57 01 de 00 00 00 00 00 00 00 00 00 00 00 00 01  # store_id
+  {u64 0}                                   # epoch_lsn
+  {u32 11}                                  # next_file_no
+  {u32 7}                                   # next_ref_id
+  01                                        # project_oid_algo
+  00 00 00 00 00 00 00                      # _pad1
+  {u64 0x1a0c45415800001}                   # hlc_seq
+  {u64 0x1a0c4533ea80000}                   # hlc_commit
+  00*2984                                   # _reserved1
+  {xxh3_128 slotA..slotA+4080}              # xxh3_128 over [0, 4080) (low64, high64)
+# HeadSlot `slotB`: slot_seq 42, quiet ([F04 §3])
+slotB:
+  "MOIR"                                    # magic
+  {u16 1}                                   # format
+  {u16 3}                                   # flags: quiet=1, fts_tier2=1, readonly=0, retired=0
+  {u64 42}                                  # slot_seq
+  {u64 0x3141592653589793}                  # epoch
+  {u64 20173}                               # committed_lsn
+  {u64 20173}                               # durable_lsn
+  93 1c fe 48 ec 5a d8 55 33 32 51 cd e5 6f 62 c2  # boot_id
+  {u32 0}                                   # config_gen
+  {u64 16660}                               # checkpoint_lsn
+  {u64 17}                                  # commit_seq
+  {u32 17}                                  # next_id
+  {u32 5}                                   # next_anchor
+  {u64 3}                                   # fence
+  {u32 1}                                   # active_log
+  01                                        # n_segments
+  00 00 00                                  # _pad0
+  # segments: [8]SegRef (29 B each)
+  {u32 10}                                  # segments[0].file_no
+  01                                        # segments[0].kind (base)
+  {u64 16660}                               # segments[0].upto_lsn
+  4c b0 13 6d 60 0a 80 26 6e 5a 39 51 29 e3 61 91  # segments[0].blake3_16
+  00*29                                     # segments[1]: empty
+  00*29                                     # segments[2]: empty
+  00*29                                     # segments[3]: empty
+  00*29                                     # segments[4]: empty
+  00*29                                     # segments[5]: empty
+  00*29                                     # segments[6]: empty
+  00*29                                     # segments[7]: empty
+  {u64 15979}                               # refs_lsn
+  {u64 19726}                               # pins_lsn
+  {u64 16022}                               # heads_lsn
+  {u64 8861}                                # markers_lsn
+  # image_cursor: [4]ImageCursor (10 B each)
+  01                                        # image_cursor[0].dest
+  01                                        # image_cursor[0].algo
+  {u64 7}                                   # image_cursor[0].seq
+  02                                        # image_cursor[1].dest
+  02                                        # image_cursor[1].algo
+  {u64 3}                                   # image_cursor[1].seq
+  00*10                                     # image_cursor[2]: empty
+  00*10                                     # image_cursor[3]: empty
+  # seq_ring: [32]SeqRingEntry (16 B each), entry k holds the commit with seq mod 32 = k
+  00*16                                     # seq_ring[0]: empty
+  {u64 1}                                   # seq_ring[1].seq
+  {u64 601}                                 # seq_ring[1].lsn
+  {u64 2}                                   # seq_ring[2].seq
+  {u64 4244}                                # seq_ring[2].lsn
+  {u64 3}                                   # seq_ring[3].seq
+  {u64 5745}                                # seq_ring[3].lsn
+  {u64 4}                                   # seq_ring[4].seq
+  {u64 6630}                                # seq_ring[4].lsn
+  {u64 5}                                   # seq_ring[5].seq
+  {u64 7248}                                # seq_ring[5].lsn
+  {u64 6}                                   # seq_ring[6].seq
+  {u64 7551}                                # seq_ring[6].lsn
+  {u64 7}                                   # seq_ring[7].seq
+  {u64 8077}                                # seq_ring[7].lsn
+  {u64 8}                                   # seq_ring[8].seq
+  {u64 8312}                                # seq_ring[8].lsn
+  {u64 9}                                   # seq_ring[9].seq
+  {u64 8544}                                # seq_ring[9].lsn
+  {u64 10}                                  # seq_ring[10].seq
+  {u64 8962}                                # seq_ring[10].lsn
+  {u64 11}                                  # seq_ring[11].seq
+  {u64 9555}                                # seq_ring[11].lsn
+  {u64 12}                                  # seq_ring[12].seq
+  {u64 10098}                               # seq_ring[12].lsn
+  {u64 13}                                  # seq_ring[13].seq
+  {u64 12288}                               # seq_ring[13].lsn
+  {u64 14}                                  # seq_ring[14].seq
+  {u64 13298}                               # seq_ring[14].lsn
+  {u64 15}                                  # seq_ring[15].seq
+  {u64 13654}                               # seq_ring[15].lsn
+  {u64 16}                                  # seq_ring[16].seq
+  {u64 13882}                               # seq_ring[16].lsn
+  {u64 17}                                  # seq_ring[17].seq
+  {u64 14256}                               # seq_ring[17].lsn
+  00*16                                     # seq_ring[18]: empty
+  00*16                                     # seq_ring[19]: empty
+  00*16                                     # seq_ring[20]: empty
+  00*16                                     # seq_ring[21]: empty
+  00*16                                     # seq_ring[22]: empty
+  00*16                                     # seq_ring[23]: empty
+  00*16                                     # seq_ring[24]: empty
+  00*16                                     # seq_ring[25]: empty
+  00*16                                     # seq_ring[26]: empty
+  00*16                                     # seq_ring[27]: empty
+  00*16                                     # seq_ring[28]: empty
+  00*16                                     # seq_ring[29]: empty
+  00*16                                     # seq_ring[30]: empty
+  00*16                                     # seq_ring[31]: empty
+  00*108                                    # _reserved0
+  # init: InitParams (32 B, [F04 §4.4])
+    {u64 65536}                             # log_extent_bytes
+    {u32 4}                                 # hist_frame_commits
+    {u32 4096}                              # hist_frame_bytes
+    57 01 de 00 00 00 00 00 00 00 00 00 00 00 00 01  # store_id
+  {u64 0}                                   # epoch_lsn
+  {u32 11}                                  # next_file_no
+  {u32 7}                                   # next_ref_id
+  01                                        # project_oid_algo
+  00 00 00 00 00 00 00                      # _pad1
+  {u64 0x1a0c45415800001}                   # hlc_seq
+  {u64 0x1a0c4533ea80000}                   # hlc_commit
+  00*2984                                   # _reserved1
+  {xxh3_128 slotB..slotB+4080}              # xxh3_128 over [0, 4080) (low64, high64)

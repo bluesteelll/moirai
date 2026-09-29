@@ -1,0 +1,68 @@
+# fixtures/hex/fragments/values/cv.hex: the canonical `cv` of [F07 §7.1] of each value of [F08 §5.6], in the order of
+# op-values.hex (the absent value first). Canonical tags are [F07]'s own and never stored. Decode as a sequence of
+# cv values to the end of the file. The enum is rendered by name (`high`), the sym by its text, the ref by uid U,
+# the path root by name, the oid algorithm by name ([F07 §7.1]).
+
+# absent
+00                                          # canonical tag 0
+
+# bool false
+01                                          # canonical tag 1
+
+# bool true
+02                                          # canonical tag 2
+
+# int -3
+03                                          # canonical tag 3
+fd ff ff ff ff ff ff ff                     # payload
+
+# counter 300
+04                                          # canonical tag 4
+2c 01 00 00 00 00 00 00                     # payload
+
+# f64 1.5
+05                                          # canonical tag 5
+00 00 00 00 00 00 f8 3f                     # payload
+
+# enum `high` (value 2)
+06                                          # canonical tag 6
+04 00 00 00 68 69 67 68                     # payload
+
+# text `ok`
+07                                          # canonical tag 7
+02 00 00 00 6f 6b                           # payload
+
+# sym `ok` (text symbol 7)
+07                                          # canonical tag 7
+02 00 00 00 6f 6b                           # payload
+
+# set {1, 5} of int
+09                                          # canonical tag 9
+03 02 00 00 00 01 00 00 00 00 00 00 00 05 00 00  # payload
+00 00 00 00 00
+
+# ref #40 (uid U)
+0a                                          # canonical tag 10
+9d 80 6f 40 e2 68 63 c8 a0 f8 a9 a7 61 d7 5c 13  # payload
+
+# commitref C
+0b                                          # canonical tag 11
+9b 0b e9 5d f3 7b 6f 6c e6 d2 08 ab 5b db 59 64  # payload
+c7 23 37 96 eb f6 00 91 40 b3 46 87 4d 7f d9 8b
+
+# path project:docs/a.md (root symbol 1)
+0c                                          # canonical tag 12
+07 00 00 00 70 72 6f 6a 65 63 74 09 00 00 00 64  # payload
+6f 63 73 2f 61 2e 6d 64
+
+# oid sha1 D
+0d                                          # canonical tag 13
+04 00 00 00 73 68 61 31 14 00 00 00 d9 4d b1 af  # payload
+fb 1b dd d9 49 1c d7 66 62 32 df ce 91 5c 31 10
+
+# pathmove explicit project:a/ -> project:b/, no git
+0e                                          # canonical tag 14
+03 00 00 6c 50 c4 a0 01 08 00 00 00 65 78 70 6c  # payload
+69 63 69 74 07 00 00 00 70 72 6f 6a 65 63 74 02
+00 00 00 61 2f 07 00 00 00 70 72 6f 6a 65 63 74
+02 00 00 00 62 2f 00 00 00 00 00 00 00 00

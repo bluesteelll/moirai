@@ -1,0 +1,11 @@
+# fixtures/hex/fragments/binding/binding-ext.hex: [F18 §3.2]'s example BindingExt (40 B): a designated binding of
+# lane/l5np expecting the git branch `u/l5np` (git-branch symbol 7 in the store of the example) at the SHA-1 base
+# 7c1e0a4d... ([F18 §3.2] rule 1: the short form). Begins 01 01 00 00 07 00 00 00 7c 1e 0a 4d; offsets 28-39 zero.
+# binding: BindingExt (40 B, [F18 §3.2])
+  01                                        # bflags: designated
+  01                                        # base_algo
+  {u16 0}                                   # _reserved
+  {u32 7}                                   # expected_ref: git-branch symbol 7 `u/l5np`
+  7c 1e 0a 4d 5b 3a 92 c1 e6 f4 0d 8a 7b 2c 9e 01  # base: digest_lo
+  33 44 55 66
+  00*12                                     # base: digest_hi (zero for sha1)
