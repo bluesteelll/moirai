@@ -37,11 +37,12 @@ Every rule file ends with the sections "Coverage", "Holes" and "Open points for 
 | `pack-classes.md` | pack and brief candidate classes: membership, levels, order, byte budgets, the stale-pack notice ([AR §7.4], [50 §4.3]) | WP-90 | this draft |
 | `state-definition.md` | the I26′ state definition with its marker-cache rules, `ready` and `unblocked`, absorbed vectors and leases ([AR §3.4], [72 M4]) | WP-90 | this draft |
 | `role-write-policy.md` | the role write policy: roles × verbs, kinds, fields and edges → allowed or refused ([AR §7.3]) | WP-90 | this draft |
-| `policy-keys.md` | every operational-policy key and policy-data row → model function ([AR §13], [60 §3.14]) | WP-90 | planned |
+| `policy-keys.md` | every operational-policy key and policy-data row → model function, with the values each is tested at ([AR §13], [60 §3.14], [CFG §9.4], §9.5, §10) | WP-90b | this draft |
 | `SIGNED.md` | the owner's BLAKE3 digests of the files above | owner | written by the owner (§6) |
 
 Tables of a planned file are added to the registry (§7) when the file is written; the registry below lists every
-table of the files written so far, plus `SIGNED.md`'s (RG-031 to RG-111 were added in review pass 1, S1-47).
+table of the files written so far, plus `SIGNED.md`'s (RG-031 to RG-111 were added in review pass 1, S1-47, and
+RG-112 to RG-115 with `policy-keys.md` in WP-90b).
 
 ## 2. Byte-level rules for a rule file
 
@@ -68,7 +69,8 @@ table of the files written so far, plus `SIGNED.md`'s (RG-031 to RG-111 were add
 
 ## 4. Table grammar
 
-A table is three or more consecutive lines, each starting with `| ` and ending with ` |`:
+A table is three or more consecutive lines. The header row and every data row start with `| ` and end with ` |`; the
+separator row starts and ends with `|` and is written without spaces (`|---|---|`):
 
 1. **Header row.** Its cells are the column names, in the exact order the registry lists (§7). A missing, extra or
    reordered column is a parse error.
@@ -281,6 +283,10 @@ Table kinds:
 | RG-109 | `n40-cases` | delete-policy-matrix.md | decision | NC | row:id, case:token, ref:token, after:token, action:token, basis:enum, source:cite, note:text | fixture data |
 | RG-110 | `n40-properties` | delete-policy-matrix.md | vocabulary | NP | row:id, property:token, definition:text | - |
 | RG-111 | `n40-expect` | delete-policy-matrix.md | decision | NX | row:id, case:token, ref:token, subject:token, property:token, value:token, basis:enum, source:cite, note:text | fixture data |
+| RG-112 | `key-checkers` | policy-keys.md | vocabulary | KC | row:id, checker:token, vis:tokens, basis:enum, source:cite, definition:text | §3 |
+| RG-113 | `key-functions` | policy-keys.md | vocabulary | KF | row:id, function:token, wp:token, basis:enum, source:cite, definition:text | §4 |
+| RG-114 | `policy-keys` | policy-keys.md | decision | KY | row:id, key:token, instance:token, vis:enum(V/I/Rs/B/O/X), function:token, values:tokens, checker:tokens, basis:enum, source:cite, note:text | §5; one row per key pattern of [CFG §10] |
+| RG-115 | `policy-rows` | policy-keys.md | decision | PV | row:id, row_name:token, instance:token, function:token, values:tokens, basis:enum, source:cite, note:text | §6; one row per policy-data row of [CFG §10.13] |
 
 A column written `basis:enum` or `disposition:enum` without a set uses the shared enum of §5.
 
@@ -325,7 +331,9 @@ None. The contract contains no value that an M0 measurement decides.
    path, because two copies could diverge and the signed bytes must be the parsed bytes. Proposed: PLAN.md's wording is
    corrected to "the model includes `docs/spec/rules/*.md`".
 2. **Unsigned tables before the freeze.** Unsigned files fail only in tier `exit` (§6), so pass-1 work is not blocked
-   while the owner signs table by table (V3, weeks 3–4). The review confirms that this matches E1's intent.
+   while the owner signs table by table (V3, weeks 3–4). The review confirms that this matches E1's intent. The owner
+   accepted the rows review pass 1 changed on 2026-09-28 (owner question OQ-M-1, option (a)); their signatures in
+   `SIGNED.md` follow under V3.
 3. **`gap` rows fail every tier.** A row with basis `gap` makes any case that reaches it fail. This forces each gap to
    be closed by the review before E5; until then, randomized suites that hit a gap report it as a specification
    finding rather than a model bug. The review confirms this is the wanted pressure.
@@ -333,7 +341,8 @@ None. The contract contains no value that an M0 measurement decides.
    addition changes this README and needs its re-signature. The five files written in wave 1 proposed their rows in
    their own open points; review pass 1 (S1-47) found §1.1 stale and the rows unregistered, and they are now RG-031 to
    RG-111, with the columns and prefixes each file proposed (checked against every table's header row and against every
-   other prefix: no two tables share one). Only `policy-keys.md` remains planned.
+   other prefix: no two tables share one). `policy-keys.md` was written in WP-90b and registered as RG-112 to RG-115;
+   no rule file remains planned.
 5. **Protecting `SIGNED.md` mechanically.** Proposed for WP-01/WP-02 (`docs/m0/authors.md` path precedence): make
    `docs/spec/rules/SIGNED.md` an owner-only path that no WP's role may write, so `xtask authors` refuses any `WP-xx:`
    commit touching it; the owner's signing commits carry no `WP-` subject. Until then the rule is procedural.

@@ -163,6 +163,10 @@ every MCP read — append nothing to the log. `check` is a write verb, and so is
 - The LQ built-ins `link_state()`, `f.state`, `a.state` and `links()` are part of whatever read evaluates them.
 - A read may use `GITFACTS`, `FILEOBS` and `ANCHORRES` rows and keeps the facts it computes in process memory for the
   command only ([40 §2.6]); the MCP server's resolution LRU is process memory ([40 §4.8]).
+- The one lazy `feed` 2 pack cursor of C8 ([F05 §9.11]; [AR §7.4]) is not part of the read. It is appended after
+  delivery by the layer that delivers a pack, the `SubagentStart` hook or the MCP server ([AR §5d.1]), as owner question
+  OQ-F-3 decided on 2026-09-28 (option (b)). The `pack` verb and every MCP read verb still append nothing, and I-F5's
+  counting test counts the verb, not the delivery.
 
 ### 2.6 I-F6 — when an automatic re-bind is written
 
@@ -620,7 +624,8 @@ repository`, `no tree`, `git`, `size` — plus three this chapter adds: `unreada
 read, [80 §2.11.4] rule 9, [F20 §4.8]), `unmapped root` (a named root with no `roots.<name>` mapping on this machine,
 [40 §2.4], [F02 §7.3]) and `oid algorithm differs` (a `file` anchor with `span` watch whose `blob` has another algorithm than
 the current content, [F20 §6.5]). [F20]'s internal reason `unstable` renders `budget` ([F20 §1.5]). The additions are
-frozen-string additions for the owner's sign-off (open point 12).
+frozen-string additions for the owner's sign-off, which is owner question OQ-F-4 (`reviews/owner-questions.md`; open
+point 12); they stand as written until it is answered.
 
 **Intent-recovery strings.** `doctor` and `brief` render the outcome of an `FsIntent` recovery ([40 §3.4]) with these texts,
 which are not link details:
@@ -964,7 +969,9 @@ are fixed here, and the thresholds they mention are [F20]'s holes.
     `unmapped root` ([40 §2.4] and [F02 §7.3] name this rendering, which [40 §2.9]'s closed set lacks) and `oid algorithm
     differs` ([F20 §6.5]). Each is a frozen-string addition, like `none` and `unresolved` at the A1 re-review, and needs the
     owner's sign-off. Alternative if the owner declines: `unmapped root` renders `no tree`, and the other two render `budget`,
-    which [F20] open point 22 shows to be misleading.
+    which [F20] open point 22 shows to be misleading. **Spec sync 2a:** the three additions were not among the owner
+    questions decided on 2026-09-28, so they are raised as owner question OQ-F-4 (`reviews/owner-questions.md`); this
+    point stays open until it is answered.
 13. **Anchor state `unverified` and a total `unresolved`** (§4.3, §4.4). [AR §5e.3] and [F20 §6.5] produce `unverified (size)`
     for anchors; [40 §2.9]'s anchor table and [50 §2.6]'s `a.state` list lack it. This chapter adds anchor code 6 and extends
     `unresolved` to `replaced` content and `pinned` anchors, where the cascade also does not run, so that `a.state` is total.

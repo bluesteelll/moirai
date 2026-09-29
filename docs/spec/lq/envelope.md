@@ -113,6 +113,10 @@ under the same budgets. A budget cut prints `<n>+ rows` and exits 10.
 - under the `compatible` and `unknown` profiles: every edge pattern and every quantified group of every `MATCH` and
   `OPTIONAL MATCH` clause, anchored or not, in reads and in `TX` results.
 
+An edge pattern with no type (`-->`, `<--`, `--`, `-[e]->`, `-[*1..3]->`) prints no line under any profile, and neither does a
+quantified group that holds one: it names no kind, so it has no reading to confirm, and its direction is the arrow as written
+(spec sync 2a; open point 11).
+
 An edge pattern is *anchored* when one of its endpoint node patterns is a node literal, or carries an `id` or `uid` property whose
 value is a literal or a parameter. A kind is *same-kind* when its declared source and destination kind sets intersect
 ([50 §2.5] item 2; F1). Symmetric kinds (`CONTRADICTS`, `RELATES`) never echo under `gated`. Patterns inside `EXISTS {}` and
@@ -127,16 +131,24 @@ the display is followed by ` (written `, the written pattern in the same display
 - `<a>`, `<b>`: an anchored endpoint prints as its id (`#88`; a `#u:` literal as the local `#N` when the store knows it); a named
   endpoint as its variable name; an anonymous one as `()`, or `(:<label>)` when it has a label; a bound parameter as its bound
   id;
-- `<T>`: the LQ name of the stored kind; an alternation prints its names joined by `|` (`BLOCKS|GATES`);
+- `<T>`: the LQ name of the stored kind; an alternation prints its names joined by `|` (`BLOCKS|GATES`), in the written order
+  that the C-AST keeps ([LQ/canonical-ast §5.4]);
 - `<q>`: the quantifier in the display spelling (`HOLE(LQ-display-spelling)`, [LQ/gql-spelling §4]): `{1,2}`, `+`, `{2,}` under
-  GQL, `*1..2`, `*1..`, `*2..` under Cypher; empty for a single hop;
+  GQL, `*1..2`, `*1..`, `*2..` under Cypher; empty for a single hop and for `{1,1}`, both on a single edge and on a quantified
+  group of several edges (the display printer's `*1`/`{1}` is not used here);
 - an undirected pattern (`-[:T]-`) prints `<a> <T><q> <b> (either direction)`;
+- **an alternation that mixes directions** (its entries have different effective directions, [LQ/canonical-ast §5.4], as
+  `-[:BLOCKS|PARENT_OF]->`) prints one part per effective direction, in the order `right`, `left`, `both`, joined by ` or `:
+  the `right` entries as `<a> <T…><q> <b>`, the `left` entries with the endpoints swapped as `<b> <T…><q> <a>`, the `both`
+  entries as `<a> <T…><q> <b> (either direction)`; each part joins its names with `|` in written order
+  (`reads: a BLOCKS b or b CHILD_OF a (written a BLOCKS|PARENT_OF b) | a must finish before b starts, or b is a child of a`);
 - a quantified group of one edge prints as that edge between the group's outer endpoints ([50 §2.9] Q5:
   `x BLOCKS{1,5} #93`); a group of several edges prints `<a> (<T1> <T2> ...)<q> <b>`.
 
-4.4. **Reading.** The kind's `reading` template (F1, [F08]) with `{a}` and `{b}` replaced by the displayed endpoints; for an
-alternation, the readings joined by `, or `; for an undirected pattern, `<reading(a, b)>, or <reading(b, a)>`; for a group of
-several edges, `<a> reaches <b> through <T1> then <T2>`. Then the quantifier suffix, after one space:
+4.4. **Reading.** The kind's `reading` template (F1, [F08]) with `{a}` and `{b}` replaced by the displayed endpoints;
+for an alternation, the readings joined by `, or `, in the order the display prints the names (§4.3); for an undirected
+pattern, `<reading(a, b)>, or <reading(b, a)>`; for a group of several edges, `<a> reaches <b> through <T1> then <T2>`.
+Then the quantifier suffix, after one space:
 
 | Quantifier (canonical) | Suffix |
 |---|---|
@@ -467,8 +479,11 @@ when the commit produced markers ([50 §3.10] item 7): Q18 becomes `affected: ne
 and Q24 `affected: #12 #17 #77 | markers: deleted #40 (lane/l10)`. Then, on a staging ref, `next: moirai merge --continue <src>
 --into <dst>` ([50 §2.9] Q25).
 
-9.2. **Replayed.** `branch: <ref> | rev <tip> | replayed`, then `replayed: rev <seq> <c8> (key <key>)`, exit 0 ([50 §2.9] Q20,
-[AR §6.4]).
+9.2. **Replayed.** `branch: <ref> | rev <tip> | replayed`, then `replayed: rev <seq> <c8> (key <key>)`, exit 0 ([AR §6.4];
+[50 §2.9] Q20's re-run sentence and [50 §3.10] item 8). Q20's block itself does not bind as written: its second statement
+makes a `finding` the source of `DERIVED_FROM`, whose sources are {note, doc, verdict, artifact} ([F08 §9.6]), so a
+golden built on Q20 writes that statement as `CREATE (f)-[:CITES]->(#133)` (`cites`: any → knowledge); [50 §2.9] Q20 is
+corrected so at WP-81a (spec sync 2a).
 
 9.3. **`DRY`.** Header: `branch: <ref> | rev <tip> | tx (dry)[ | IF TIP ok][ | IF TARGETS ok] | would commit <n> changes`
 ([50 §2.9] Q19 without its `nothing written`, which a dry run implies; `tx (dry)` counts in the base part and the rest in the
@@ -574,7 +589,15 @@ target-set digest and every text of this chapter are decided here, with no measu
 9. **The comparison form** (§11) is offered to WP-70; if WP-70's scorer defines another, §11 follows it.
 10. **Pass 1 changes** (A1-30, A1-31, A1-48). The `DRY` header drops `nothing written` and counts `tx (dry)` in the base part,
     and composite parts drop their `<c8>` (§3.2, §3.3, §9.3), as [F19] open point 1 proposed, so every golden header meets the
-    60 B extras limit. `--ids` pages cite [F19 §6.2] (§6.5): a cut page holds at most 8,000 B by default, which the owner
-    confirms at WP-81a against [AR §7.1]'s 24,000 B. Link lines print `verify <handle>` with the line's own handle (§5.13);
+    60 B extras limit. `--ids` pages cite [F19 §6.2] (§6.5): a cut page holds at most min(`output.ids-max-bytes`,
+    `output.nonzero-exit-max-bytes`) = 8,000 B by default and exits 10, as the owner decided on 2026-09-28 (OQ-F-1 (a);
+    WP-81a edits [AR §7.1]'s 24,000 B). Link lines print `verify <handle>` with the line's own handle (§5.13);
     control characters escape as `\u{h}` without leading zeros (§5.16); the cursor layout is an offset table for its fixed
     head plus a sequence table (§8.1).
+11. **Spec sync 2a** (WP-93a review and author). The reading echo: `<q>` is empty for `{1,1}` on a single edge and on a
+    quantified group of several edges (§4.3); an edge pattern with no type prints no echo under any profile, nor does a
+    group that holds one (§4.1), because it names no kind whose reading could be confirmed, and a generic reading would cost
+    a line per pattern without telling the agent anything its arrow does not; an alternation that mixes directions prints
+    one part per effective direction, `right` then `left` (endpoints swapped) then `both`, and its readings follow that
+    order (§4.3, §4.4). §9.2 cites the replay rule's sources ([AR §6.4], [50 §3.10] item 8) and records that [50 §2.9] Q20's
+    `DERIVED_FROM` from a finding does not bind ([F08 §9.6]); the example becomes `CITES` at WP-81a.

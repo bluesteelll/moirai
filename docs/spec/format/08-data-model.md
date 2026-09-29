@@ -849,7 +849,8 @@ Every kind has these rows, in this declaration order. "req." = required; "def." 
 | 18 | `body` | body | text (doc sections: section-text) | body | optional | — | — | §7.2 |
 
 `uid`, `kind`, `CREATOR`, `topo`, `rev_seq`, `created_tx`, `updated_tx`, `last_op_lsn` and the derived columns and flags
-are not field items: LQ exposes them as built-in properties ([50 §2.5]).
+are not field items: LQ exposes them as built-in properties ([50 §2.5]), whose kinds, types and classes are
+[LQ/std §2.11]'s.
 
 ### 9.3 Kind fields
 
@@ -1121,6 +1122,12 @@ The 25 core edge kinds of [AR §3.3] with [50 §2.5]'s F1 values. "any" is `Kind
 `uid_derivation` is `anchor-key` for `at` and `none` for the others. Ids 26–63 are reserved for core edge kinds of later
 schema versions; 0 and 255 are invalid.
 
+**Tombstone endpoints** (spec sync 2a). An edge whose endpoint is a tombstone exists only where the delete policy
+retains it ([RULES/delete-policy-matrix] EG rows): every historical kind (ids 10–25) and every project edge kind (always
+`tombstone`/`retain`, §8.5.4) may have a tombstone destination or source, `blocks` and `gates` may have a tombstone
+source (their `flagged` edges, §10.2), and no other structural kind has a tombstone endpoint. LQ's pseudo-label
+`DELETED` follows this ([LQ/std §2.14]).
+
 The `on_dst` and `on_src` values name each core kind's default action on a delete. [RULES/delete-policy-matrix]
 `edge-policy` refines them per delete option (`--replaced-by`, `--cascade`, `--reparent`, `--reassign`), per value of the
 policy data `edges.<kind>.on-src-deleted` and per condition on the other endpoint, and is authoritative for the action
@@ -1274,7 +1281,7 @@ enter `captured` (§11.4):
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `lang` | `u8` | always | 1 `rust`, 2 `markdown`, 3 `toml` |
-| 2 | `n` | `u8` | always | number of segments, 1–64, outermost first |
+| 2 | `n` | `u8` | always | number of segments, 1–64, outermost first. A scanner reports items at any depth; a capture whose item lies deeper than 64 segments records the name path of its nearest ancestor that has at most 64 segments and names one item, else no scope ([F20] Appendix A.6) |
 | 3 | `segments` | `n` × `ScopeSeg` | always | |
 
 `ScopeSeg`:
@@ -1282,21 +1289,27 @@ enter `captured` (§11.4):
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `skind` | `u8` | always | Rust: 1 `mod`, 2 `impl`, 3 `fn`, 4 `struct`, 5 `enum`, 6 `trait`, 7 `const`, 8 `static`, 9 `macro_rules`. Markdown: the heading level 1–6. TOML: 1 `table`, 2 `array_table`, 3 `key` |
-| 2 | `name` | `vstr` | always | the item's name as the scanner reports it (Rust: the type of an `impl`; Markdown: the heading text without its numbering; TOML: the table path or key); non-empty, one line |
-| 3 | `qual` | `vstr` | always | Rust `impl Trait for T`: `Trait`; Markdown: the stripped numbering (`3.2`, `§3`); empty otherwise |
+| 2 | `name` | `vstr` | always | the item's name as the scanner reports it, spelled exactly as [F20] Appendix A states (Rust: A.2, A.4; the `name` of an `impl` is the canonical spelling of its self type, paths and generic arguments kept: `impl<T> From<T> for Wrap<T>` → `Wrap<T>`; Markdown: the heading text without its numbering; TOML: the table path or key); non-empty, one line |
+| 3 | `qual` | `vstr` | always | Rust trait impl: the canonical spelling of the trait path with its generic arguments, preceded by `!` for a negative impl (`impl From<T> for W` → `From<T>`; `impl !Send for W` → `!Send`; [F20] Appendix A.4); Markdown: the stripped numbering (`3.2`, `§3`); empty otherwise |
 
-What the scanners report — item boundaries, names, numbering, TOML paths — is the scanner grammar of resolver version 1.
-Pass 1 (P1-20, S1-4, A1-14) requires it as a normative appendix of [F20] with a fixture per construct, before the freeze
-and before WP-63 is accepted; this section fixes only the bytes. **Until that appendix exists, no writer records a
-scope**: `has_scope` is clear on every anchor a store captures, capture's uniqueness ladder skips its scope rung
-([F20 §6.1] step 8.2), and `captured` takes `lp("")` for scope (§11.1). The scanners also decide the header line, and
-so the quote, hint and header span hash, of a `symbol` or `heading` anchor, which enter `captured` and the hashed
-selector block ([F07 §8.2]); so, under the same interim rule, no writer captures an anchor of kind 2 `heading` or 3
-`symbol`: the `path#H` and `path::A/B` authoring forms are refused (exit 2, [F19 §10.2] `anchor_spec`), as
-[F20 §6.1]'s interim scanner rule states. An imported anchor that carries a scope, or is of kind 2 or 3, keeps its
-bytes as stored (its `captured` is trusted, §11.5). If the appendix is not written by the freeze, the owner decides
-between keeping this interim rule in format v1 and removing the scanner-derived bytes from the hashed inputs (a change of
-[PLAN] FB-4; `reviews/owner-questions.md` OQ-R-2).
+`name` and `qual` are text values under §5.3 and never contain U+0000, CR or LF: the canonical spelling of [F20] Appendix
+A.2 writes a line break inside a literal as `\n` (LF or CR LF) or `\r` (a lone CR), a NUL as `\0`, and each maximal
+ill-formed subpart of invalid UTF-8 as U+FFFD, and it drops comments and line breaks between tokens.
+
+What the scanners report — item boundaries, names, numbering, TOML paths — is the scanner grammar of resolver version 1,
+[F20] Appendix A (its Rust part so far). Pass 1 (P1-20, S1-4, A1-14) requires it as a complete normative appendix of
+[F20] with a fixture per construct, before the freeze and before WP-63 is accepted; this section fixes only the bytes.
+**Until that appendix is complete, no writer records a scope**: `has_scope` is clear on every anchor a store captures,
+capture's uniqueness ladder skips its scope rung ([F20 §6.1] step 8.2), and `captured` takes `lp("")` for scope (§11.1).
+The scanners also decide the header line, and so the quote, hint and header span hash, of a `symbol` or `heading`
+anchor, which enter `captured` and the hashed selector block ([F07 §8.2]); so, under the same interim rule, no writer
+captures an anchor of kind 2 `heading` or 3 `symbol`: the `path#H` and `path::A/B` authoring forms are refused (exit 2,
+[F19 §10.2] `anchor_spec`), as [F20 §6.1]'s interim scanner rule states. An imported anchor that carries a scope, or is
+of kind 2 or 3, keeps its bytes as stored (its `captured` is trusted, §11.5). **Decided 2026-09-28** (owner question
+OQ-R-2, option (a) with (b) as the fallback; `reviews/owner-questions.md`): the appendix is required before the freeze
+(R-SPEC-R with WP-63). If it misses the freeze, format v1 keeps this interim rule: no scope is recorded and the `symbol`
+and `heading` forms stay refused until a format change. The scanner-derived bytes stay in `captured` and the selector
+block either way ([PLAN] FB-4 is unchanged); removing them (option (c)) is withdrawn.
 
 ### 10.4 `mentions`
 
@@ -1349,8 +1362,9 @@ destination — is:
 3. u = `uid_file(r, p, q)`.
 4. **Dead uids are never re-created.** While u is the uid of any node of V — live at another path, `removed`, or a
    tombstone — set q = u and u = `uid_file(r, p, q)`. The loop reads V alone, so every store derives the same u for the
-   same file, path and view ([40 §2.3]). It ends when u names no node of V; a loop that ran more times than V has
-   artifact nodes is refused as an internal error (exit 1; only a BLAKE3 collision can cause it).
+   same file, path and view ([40 §2.3]). It ends when u names no node of V; a loop that ran more times than the number
+   of nodes of V that u could name, tombstones included, is refused as an internal error (exit 1; only a BLAKE3
+   collision can cause it).
 5. The node is created with uid u, `root` = r, `origin_path` = p, `origin_pred` = q (absent when empty), `path` = p,
    and the `#N` that `UIDX` gives u (§2.1).
 
@@ -1402,7 +1416,8 @@ A capture of anchor A on the edge (s, `at`, f) of a view V is:
    ([40 §2.7]; open point 36).
 2. u = `uid_anchor(s, captured, empty)`.
 3. While u is the uid of an anchor on (s, f) in V, set p = u and u = `uid_anchor(s, captured, p)`; the bound of §11.2
-   step 4 applies with V's anchors on (s, f).
+   step 4 applies, counting the anchors on (s, f) in V: a loop that ran more times than that count is refused as an
+   internal error (exit 1).
 4. The anchor is created with uid u, `captured`, and `pred` = p when step 3 ran.
 
 `captured` and `pred` are stored and never change, so a repin keeps the uid and the derivation stays verifiable after a
@@ -1507,7 +1522,10 @@ lengths ([F20 §7]); whether `DOCLEN` exists ([F09]).
 11. **Time fields and `coerce = timestamp`.** Domain times (`defer_until`, `due`, `since`, `review_after`, `started`,
     `ended`) are Unix seconds; the cold columns are u32 ([AR §3.1]), so they end in 2106. [50] F2 lists three `coerce`
     values; the fourth, `timestamp`, lets the binder apply [50 §3.2]'s ISO 8601 coercion to these fields. It extends a
-    [50] reservation additively; WP-19 confirms.
+    [50] reservation additively; WP-19 confirms. **Spec sync 2a:** [LQ/std §2.13] states who scales: the binder types
+    such a field as an LQ `timestamp` (milliseconds) and the evaluator multiplies the stored seconds by 1,000 on a read and
+    stores ⌊milliseconds / 1,000⌋ on a write (outside 1 … 2^32 − 1 seconds: E405, schema conformance); the stored bytes
+    stay seconds, and no C-AST or hash sees the scale.
 12. **One stored form per value** (§6.2): empty values and defaults are absent; `bool` carries its value in the type
     byte's bit 7, which is how "bool carries no value bytes" ([AR §3.1]) still distinguishes true from false.
     **Pass 1 (P1-1, S1-1, A1-1): closed.** §5.1 is the one registry for every stored structure; [F06]'s tag table is
@@ -1593,7 +1611,13 @@ lengths ([F20 §7]); whether `DOCLEN` exists ([F09]).
     **Pass 1 (P1-20, S1-4, A1-14):** the scanner grammar becomes a normative [F20] appendix before the freeze; until it
     exists no scope is recorded (§10.3.1), so an engine and the model cannot derive different uids from an unspecified
     scanner. **Round 1** (closure open point 2): the interim rule also refuses the `symbol` and `heading` forms, whose
-    header line, quote, hint and span hash a scanner decides ([F20 §6.1]); the owner question is OQ-R-2.
+    header line, quote, hint and span hash a scanner decides ([F20 §6.1]). **Decided 2026-09-28** (OQ-R-2 (a), (b) as
+    the fallback): the appendix is required before the freeze (R-SPEC-R with WP-63); if it misses the freeze, format v1
+    keeps the interim rule (no scope, no `symbol`/`heading` forms until a format change); option (c), removing the
+    scanner-derived bytes from the hashed inputs, is withdrawn. **Spec sync 2a** (WP-74 review): `name` and `qual` cite
+    [F20] Appendix A.2/A.4 (an `impl`'s canonical type spelling; `qual` keeps a negative impl's `!` and the trait's
+    generic arguments; no U+0000, CR or LF), and `n` states what a capture records for an item deeper than 64 segments
+    (Appendix A.6).
 40. **`text-unavailable` anchors** store the four digests in place of the texts (§10.3), so a hash-only import keeps every
     canonical input.
 41. **Tombstone-reference `#N`s** (§2.1): an unknown uid referenced by an import gets a `#N` with no node; [F11] states

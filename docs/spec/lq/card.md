@@ -137,11 +137,19 @@ closure, `applies()`, ranges). The 0-example card drops line 25 (`Examples:`) an
 
 7.1. **Bytes** are counted by CI on the body as in §3 (no API access needed).
 
-7.2. **Tokens** ([90 §8.3], the owner review of 2026-09-27): the Claude count is the difference between Claude Code's reported
-input tokens for one headless call with the body appended and the same call without it (WP-58's invocation, Opus 5.5 pinned);
-the o200k count comes from `moirai-tokcount` offline. The gate takes the larger. At [90 §9.1]'s ratios (≈ 3.6 bytes per token for
-English prose, ≈ 2.69 for code) the body is ≈ 870–1,160 tokens (est.), so the gate is not safe on bytes alone (the A1 review's
-A-M5): WP-58's first real calls measure it before the baseline runs.
+7.2. **Tokens** ([90 §8.3], the owner review of 2026-09-27): the Claude count is the difference in total input tokens
+between one headless call with the body appended and the same call without it (WP-58's invocation, Opus 5.5 pinned).
+Total input tokens are the sum of the uncached, cache-read and cache-write input tokens of the pinned model's usage
+entry in Claude Code's result, so prompt caching cannot move tokens out of the count. Both calls are one-turn calls
+(`num_turns` = 1), because each further request of a turn re-reads the appended text and would count it again. The two
+calls must agree on the Claude Code version, the tool list, and the MCP servers' names and status; a pair that differs
+in any of these is discarded and re-run. The invocation removes every other Claude Code tool (`--tools ""`; the A1
+review's A-M5) rather than denying it, and reads the usage from `--output-format stream-json --verbose`; the Claude Code
+version is pinned for the run and recorded with the count ([90 §8.3], which WP-81a aligns). Claude Code puts a separator
+of about one token before appended text, so the difference over-counts the body by about one token, which is the safe
+side of the gate. The o200k count comes from `moirai-tokcount` offline. The gate takes the larger. At [90 §9.1]'s ratios
+(≈ 3.6 bytes per token for English prose, ≈ 2.69 for code) the body is ≈ 870–1,160 tokens (est.), so the gate is not
+safe on bytes alone (the A1 review's A-M5): WP-58's first real calls measure it before the baseline runs.
 
 7.3. **If the measurement misses the gate**, the card shrinks before the grammar does ([50 §7.1]), in this order, stopping at the
 first step that fits (bytes saved, Cypher spelling): (1) drop example 4 (98 B); (2) drop example 6 (84 B); (3) drop the sentence
@@ -189,3 +197,8 @@ Lines 10 and 27 of the body also depend on `HOLE(LQ-display-spelling)` of [LQ/gq
 5. **Shrink steps 5–8** (§7.3; pass 1, P1-42). Steps 1–4 saved 9 % and left ≈ 1,050 tokens at the upper estimate. The four new
    steps cut prose the schema, the reading echo and the history verbs also carry, least needed first, so that the hole's range
    always contains a card that meets the gate; the two example-bearing steps (2 and 4) still precede them.
+6. **The Claude count** (§7.2; spec sync 2a, WP-58 review and author). The count is the difference in total input tokens
+   (uncached + cache-read + cache-write) of the pinned model's usage entry, over two one-turn calls that agree on the Claude
+   Code version, the tool list and the MCP servers' names and status. The separator of about one token that Claude Code
+   puts before appended text stays in the difference: it over-counts, which is the safe side of the gate. [90 §8.3] states
+   the same method at WP-81a.

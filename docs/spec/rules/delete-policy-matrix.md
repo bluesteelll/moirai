@@ -312,7 +312,7 @@ rows have their defaults (`flag`) unless a case says otherwise. No lease exists 
 | NN-004 | #41 | task | open | #40 | A child of #40, so #40 is a container. |
 | NN-005 | #52 | task | open | - | The replacement. |
 | NN-006 | #203 | task | open | - | Blocks #40. |
-| NN-007 | #17 | note | active | - | Cites #40, pinned at `c0`. |
+| NN-007 | #17 | note | active | - | Derived from #40, pinned at `c0` (the design's `cites`, [OP-15]). |
 | NN-008 | #77 | note | active | - | Mentions #40 in its body. |
 
 <!-- table: n40-edges -->
@@ -322,7 +322,7 @@ rows have their defaults (`flag`) unless a case says otherwise. No lease exists 
 | NG-002 | #203 | blocks | #40 | - | - |
 | NG-003 | #41 | parent | #40 | - | - |
 | NG-004 | #40 | parent | #9 | - | - |
-| NG-005 | #17 | cites | #40 | pinned_commit=c0 | - |
+| NG-005 | #17 | derived_from | #40 | pinned_commit=c0 | The design's `#17 cites #40`; `cites` ends only at knowledge ([F08 §9.6]) and #40 is a task, so the row uses `derived_from`, whose delete policy is the same (EG-035; [OP-15]). |
 | NG-006 | #77 | mentions | #40 | - | - |
 
 **Cases.** `ref` is where the action runs; `after` is the state it starts from (`c0`, or the state a named case left;
@@ -403,8 +403,8 @@ lease `L-19` on #40 held by `dev#2` on `lane/y`). Actions are written `verb:arg:
 | NX-014 | C2 | main | #12 | open_blockers | 1 | design | [RULES/delete-policy-matrix EF-007] | #52 is open. |
 | NX-015 | C2 | main | #12 | unblocked | no | design | [RULES/delete-policy-matrix EF-007] | - |
 | NX-016 | C2 | main | #52 | open_blockers | 1 | proposed | [RULES/delete-policy-matrix EF-006] | #203 is open. |
-| NX-017 | C2 | main | #17 | suspect | yes | design | [RULES/delete-policy-matrix EG-037]; [AR §7.1] "`#17 cites #40 (pinned c4410) -> suspect`" | - |
-| NX-018 | C2 | main | edge:#17:cites:#40 | exists | yes | design | [RULES/delete-policy-matrix EG-037] | A tombstone reference. |
+| NX-017 | C2 | main | #17 | suspect | yes | design | [RULES/delete-policy-matrix EG-035]; [AR §7.1] "`#17 cites #40 (pinned c4410) -> suspect`"; [OP-15] | - |
+| NX-018 | C2 | main | edge:#17:derived_from:#40 | exists | yes | design | [RULES/delete-policy-matrix EG-035]; [OP-15] | A tombstone reference. |
 | NX-019 | C2 | main | #77 | suspect | no | design | [RULES/delete-policy-matrix EG-059]; [AR §7.1] "`#77 mentions #40 (text mention)`" | - |
 | NX-020 | C2 | main | edge:#77:mentions:#40 | exists | yes | design | [RULES/delete-policy-matrix EG-059] | - |
 | NX-021 | C2 | main | #40 | hold | deleted | design | [RULES/delete-policy-matrix DS-008] | - |
@@ -535,7 +535,7 @@ value changes only whether `affected` is complete (DS-010).
     predicate; beyond the budget `affected` omits the `suspect`-only changes with `affected_complete = 0`, the bitset
     stays complete, and the hint `SuspectBudget` ([F19 §12.3]) replaces the violation record. The first draft's "readers
     recompute `suspect`" and "transitive closure" contradicted that text and were replaced in pass 1 round 2. The
-    owner's sign-off of the reading is OQ-P-1.
+    owner signed the reading on 2026-09-28 (OQ-P-1, option (a)); WP-81a edits [AR §2.5].
 11. **Resolving a flagged edge without a replacement** (FL-006, NC-005). [AR §7.1] shows `resolve 'edge:#40:blocks:#12'`
     and the option `repoint:ID`, but no spelling for "drop the flagged edge". Proposed: the drop outcome exists and is
     also reached by `unlink`/`DELETE e`; WP-18 and WP-19 fix the `resolve` spelling.
@@ -573,3 +573,9 @@ value changes only whether `affected` is complete (DS-010).
     right after DP-003; it is taken one row later because under `--cascade` the deleted set is the target's subtree,
     which exists only once DP-004 has accepted the options. The node named is the root node of the deleted set with the
     smallest `#N`, as E409's lease case names the first lease in `#N` order.
+15. **`#17 cites #40` does not fit the schema** (NN-007, NG-005, NX-017, NX-018; WP-90a). [AR §7.1]'s `rm` example and
+    [AR §5d.3] have a note cite the task #40, but `cites` ends only at knowledge nodes (doc, note, rule, decision;
+    [F08 §9.6], [50 §2.5]), so the starting state `c0` could not be written (the model's binder refuses it with E106,
+    and I11 would). The fixture uses `derived_from` instead: a note may derive from any node, it takes a
+    `pinned_commit`, and its dst-deleted row EG-035 (`tombstone-ref`, `src-suspect`) is `cites`' EG-037 in every column,
+    so every expected value is unchanged. The review confirms, or widens `cites` to end at any node ([F08 §9.6]).

@@ -800,17 +800,19 @@ the per-call raise, §10.5), as if the headroom were large (open point 15).
 ### 10.5 Queries and `TX`
 
 **Budget keys** ([50 §5.10]). `query.budget.default.<b>` is the budget a query gets without a per-call raise;
-`query.caps.<role>.<b>` is the ceiling up to which a caller whose presented lease has role `<role>` ([90 §4.1] rights row) may
-raise it with `--budget` or the MCP `budget` parameter; an unleased caller has the role `general-purpose`. A requested value
-above the ceiling is handled as [LQ/errors] states (open point 13). The effective `mem` is min(value, headroom), never below
-256 KiB (§10.4). **`wmem`** (pass 1, P1-11) is the write working set of phase 1 ([AR §4.5] step 4, [F17 §4.4] W2): a budget
-like the others, requested by `query.budget.default.wmem` or a per-call `--budget wmem=<v>` up to `query.caps.<role>.wmem`,
-and effective as max(256 KiB, min(requested, headroom)). It replaces the former `tx.wmem-max` (§6.4), which could never
-bind under W2's old `min(1 MiB, headroom)`. A raise of `wmem` never admits a larger changeset: an agent `TX` is bounded by
-`store.commit.inline-max-bytes` of changeset whatever its `wmem` ([F17 §4.4] W1, W4; at the production value ≈ 4,400–5,500
-ops, below the default `tx.max-ops`, owner question OQ-P-2). Within that bound, a `TX` whose phase-1 working set exceeds the
-default 1 MiB needs `--budget wmem=<v>` up to 4 MiB; E501 names the raise for `wmem` and the split for the inline bound
-([LQ/errors §5.4]; pass 1, round 1). `<b>` and the defaults:
+`query.caps.<role>.<b>` is the ceiling up to which a caller whose presented lease has role `<role>` ([90 §4.1] rights
+row) may raise it with `--budget` or the MCP `budget` parameter; an unleased caller has the role `general-purpose`. A
+requested value above the ceiling is handled as [LQ/errors] states (open point 13). The effective `mem` is min(value,
+headroom), never below 256 KiB (§10.4). **`wmem`** (pass 1, P1-11) is the write working set of phase 1 ([AR §4.5]
+step 4, [F17 §4.4] W2): a budget like the others, requested by `query.budget.default.wmem` or a per-call
+`--budget wmem=<v>` up to `query.caps.<role>.wmem`, and effective as max(256 KiB, min(requested, headroom)). It replaces
+the former `tx.wmem-max` (§6.4), which could never bind under W2's old `min(1 MiB, headroom)`. A raise of `wmem` never
+admits a larger changeset: an agent `TX` is bounded by `store.commit.inline-max-bytes` of changeset whatever its `wmem`
+([F17 §4.4] W1, W4; at the production value ≈ 4,400–5,500 ops, below the default `tx.max-ops`). **Decided 2026-09-28**
+(owner question OQ-P-2, option (a)): both values stay (P05 1 MiB, `tx.max-ops` 10,000), P05 bounds an agent `TX`, and
+E501 names the split. Within that bound, a `TX` whose phase-1 working set exceeds the default 1 MiB needs
+`--budget wmem=<v>` up to 4 MiB; E501 names the raise for `wmem` and the split for the inline bound ([LQ/errors §5.4];
+pass 1, round 1). `<b>` and the defaults:
 
 | `<b>` | type | `query.budget.default.<b>` | agent maximum ([50 §5.10]) = `query.caps.<role>.<b>` default for every role but `orchestrator` and `owner` | `query.caps.orchestrator.<b>`, `query.caps.owner.<b>` default (10 × the agent maximum, [AR §13]) |
 |---|---|---|---|---|
@@ -1183,12 +1185,15 @@ This chapter's own holes. The store-parameter holes (`F17-ckpt-ops`, `F17-ckpt-b
     envelope should list it, after the keys they already name.
 32. **Canonical spellings of design defaults.** The registry prints defaults in canonical form (§4.1), so the design's "24 h"
     is `1d`, "60 s" is `1m`, "64m" is `64MiB`, and the MCP RSS gate is `15625KiB`. The values are unchanged.
-33. **Pass 1 changes** (P1-11, P1-12, P1-39, S1-39, A1-50, A1-55). `wmem` becomes a budget (`query.budget.default.wmem` =
-    1 MiB, `query.caps.<role>.wmem` = 4 MiB for agents), effective as max(256 KiB, min(requested, headroom)); `tx.wmem-max`
-    is retired (§6.4), and [F17 §4.4] W2, W4, §12 TP-3 and its tables restate these keys (round 1). A default-cap `TX` does
-    not fit the inline bound whatever its `wmem` ([F17 §4.4] W4, OQ-P-2); E501 names the split for that and the raise for
-    `wmem`. `init` refuses a set of values that fails C-1–C-4 (exit 2, §7.6), and a
-    tunable's fallback is min(default, the largest admissible value under the recorded `init` values) (§5.3, RG-2).
-    `input.max-bytes` (16 MiB) bounds stdin and `-f` input before any budget. Root names start with a letter, as [F08 §5.4.1]
-    requires. `[RULES/delete-policy]` is corrected to `delete-policy-matrix`; `[RULES/policy-keys]` stays cited as a planned
-    file. The configuration duration grammar and LQ's differ on purpose, and both chapters say so (§4.1, [LQ/lexical §5.6]).
+33. **Pass 1 changes** (P1-11, P1-12, P1-39, S1-39, A1-50, A1-55). `wmem` becomes a budget (`query.budget.default.wmem`
+    = 1 MiB, `query.caps.<role>.wmem` = 4 MiB for agents), effective as max(256 KiB, min(requested, headroom));
+    `tx.wmem-max` is retired (§6.4), and [F17 §4.4] W2, W4, §12 TP-3 and its tables restate these keys (round 1). A
+    default-cap `TX` does not fit the inline bound whatever its `wmem` ([F17 §4.4] W4); E501 names the split for that
+    and the raise for `wmem`. **Decided 2026-09-28** (owner question OQ-P-2, option (a)):
+    `store.commit.inline-max-bytes` (P05, 1 MiB) and the default `tx.max-ops` (10,000) both stay; P05 bounds an agent
+    `TX` and E501 names the split. `init` refuses a set of values that fails C-1–C-4 (exit 2, §7.6), and a tunable's
+    fallback is min(default, the largest admissible value under the recorded `init` values) (§5.3, RG-2).
+    `input.max-bytes` (16 MiB) bounds stdin and `-f` input before any budget. Root names start with a letter, as
+    [F08 §5.4.1] requires. `[RULES/delete-policy]` is corrected to `delete-policy-matrix`; `[RULES/policy-keys]` stays
+    cited as a planned file. The configuration duration grammar and LQ's differ on purpose, and both chapters say so
+    (§4.1, [LQ/lexical §5.6]).

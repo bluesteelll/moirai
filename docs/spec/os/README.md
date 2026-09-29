@@ -82,14 +82,14 @@ This section closes the PLAN §3.3 gap "Placement of `ProjectFs`, `Meter` and th
 | `Meter` | trait | §4.3; sources in [OS/mem] |
 | `GrantTable` — the in-process lock-ownership state machine | struct, pure (no I/O, no clock, no thread) | [OS/lock §5] |
 | `LockByte`, `SlotIndex`, `Acquired`, `Grant`, `ProbeResult`, `LockError`, `LockMode` | types | [OS/lock §2, §4] |
-| `RelPath`, `RelPathBuf`, `AbsPath`, `CanonicalRoot`, `EntryName`, `PathError` | types | [OS/path §2, §11] (one `RelPath` type for store and project paths; [OS/fs §2.1] adds only use-time checks) |
+| `RelPath`, `RelPathBuf`, `AbsPath`, `CanonicalRoot`, `EntryName`, `EntryNameRef`, `PathError` | types | [OS/path §2, §11] (one `RelPath` type for store and project paths; [OS/fs §2.1] adds only use-time checks) |
 | `RootAccess`, `RootRole`, `Access`, `OpenHint`, `SyncKind`, `DurabilityClass`, `GroupMember`, `FileIdentity`, `FreeSpace`, `DirEntry`, `EntryKind`, `VfsCounters`, `ShareRetry`, `SwapOutcome`, `SwapRecovery`, `VfsError`, `VfsErrorKind`, `OsCode`, `DurabilityFailure` | types | [OS/fs §2, §4.9, §6] |
 | `SealedMap`, `Advice`, `MapError` | types | [OS/map §3] |
 | `ClassifyDepth`, `Classification`, `StoreVolume`, `FsKind`, `ExtentMethod`, `FsName`, `Refusal`, `CloudKind`, `OsVersion`, `ProbeReport`, `ProbeOutcome`, `EnvWarning` | types | [OS/env §2] |
 | `Meter`'s `ChildPeak`, `PeakKind`, `HeapCounts`, `CpuTimes`, `ChildTicket`, `MeterError` | types | §4.3 |
 | `Stamp`, `DeadlineState` and the HLC helper | types | [OS/clock §3, §4, §10] |
 | `OsTag`, `ProcId`, `BootId`, `BootIdentity`, `Liveness`, `ParentRec`, `WatchEvent` | types | [OS/proc §10]; byte layouts that go on disk in [F03] |
-| `OsFileId`, `VolumeCaps` | types | layouts in [F11]; semantics in [OS/project] |
+| `OsFileId`, `FileIdKind`, `VolumeKey`, `VolumeCaps` | types | layouts in [F11]; semantics and Rust forms in [OS/project §3.1, §4] |
 
 **Why the grant table is here and not in `moirai-os`.** [80 §2.1] places "the in-process lock table" in a
 target-independent part of `moirai-os`. It moves to `moirai-vfs` (PLAN §6.2 R2, confirmed by `a1-P.md` R2) because the
@@ -108,7 +108,8 @@ implementations drive. The move is recorded as a refinement of [80 §2.1] (open 
 - Its allowed dependencies are `moirai-vfs`, `windows-sys` (`cfg(windows)`), `libc` (`cfg(unix)`, from the port) and
   `blake3` (PLAN §2.2). `blake3` serves `BootId`/`vol_key` hashing (part 2).
 - It implements `Vfs`, `ProjectFs` and `Meter` for the build target. At M0 only the Windows modules exist (PLAN §6.2 R1):
-  `fs` (with `free_space`), `lock`, `map`, `env`, `proc`, `mem`, `project`, `path`, the `Meter` implementation and
+  `fs` (with `free_space`), `lock`, `map`, `env`, `proc`, `mem`, `project`, `path`, `spawn` (because `ProcHost`, a
+  supertrait of `Vfs`, carries `spawn_gc_child` and `enter_background`, §4.1), the `Meter` implementation and
   `test_host` behind the `test-host` cargo feature. The Unix modules are configured out and export nothing on the
   cross targets; there is no stub and no interim code ([90 §11.1]).
 - Module tree (normative for placement, [80 §2.1]): `src/lib.rs` re-exports one implementation type per seam;
@@ -141,13 +142,15 @@ implementations drive. The move is recorded as a refinement of [80 §2.1] (open 
 
 | Check | Rule | Source |
 |---|---|---|
-| GT20 (d), source part | `cfg(target_os)`, `cfg(windows)`, `cfg(unix)`, `std::os::*` only in `moirai-os`, tests included | PLAN §2.1 |
-| GT20 (d), dependency part | `windows-sys` and `libc` as direct dependencies only in `moirai-os` | [80 §5.5] (a) |
+| GT20 (d), source part | `cfg(target_os)`, `cfg(target_family)`, `cfg(target_env)`, `cfg(target_vendor)`, `cfg(windows)`, `cfg(unix)`, `std::os::*` only in `moirai-os`, tests included | PLAN §2.1 |
+| GT20 (d), dependency part | the OS-binding crates `windows-sys`, `windows`, `windows-core`, `windows-targets`, `windows-link`, `winapi`, `libc`, `nix` and `rustix` as direct dependencies only in `moirai-os`; a third-party path to one of them is allowed only through a listed exemption, and an edge between two crates of that family (`windows-sys` → `windows-link`, `nix` → `libc`) needs none | [80 §5.5] (a) |
 | GT20 (d), product crates | `File::lock`, `std::fs::rename`, and direct `std::fs` file access (`File::open`, `File::create`, `OpenOptions`, `read_dir`, `metadata`, `remove_file`, `remove_dir`, `create_dir*`, `copy`, `hard_link`) forbidden in every product crate other than `moirai-os` | [80 §2.1] boundary rules; `a1-P.md` A1P-10 |
 | GT20 (e) | `moirai-vfs` and `moirai-os` type-check for `x86_64-unknown-linux-musl`, `aarch64-unknown-linux-musl`, `aarch64-apple-darwin` and `x86_64-pc-windows-msvc` | [90 §11.1] |
 | `#![forbid(unsafe_code)]` | in `moirai-vfs` and every crate except `moirai-os` | PLAN §2.1 |
+| Composition-root lint, dependency direction | only a root listed in `xtask/roots.toml` depends on `moirai-os` (normal, build or dev dependency); every other crate reaches the OS layer through `moirai-vfs` (§2.4) | [80 §5.5] (b); PLAN §2.1, §6.2 R17 |
+| Composition-root lint, product root | the product root `moirai` never enables `moirai-os`'s `test-host` feature and never installs a `#[global_allocator]`; `CountingAlloc` is installed by probe roots only (§2.4) | `a1-P.md` R1 condition 2; [OS/mem §6] |
 
-The last-but-two row narrows [80 §2.1]'s "never used anywhere" for `File::lock` and `std::fs::rename` to product crates:
+The row "GT20 (d), product crates" narrows [80 §2.1]'s "never used anywhere" for `File::lock` and `std::fs::rename` to product crates:
 test and tool crates may use them on their own scratch files, never on a store file or a project file (A1P-10; open
 point 2).
 
@@ -169,7 +172,7 @@ specified at M0.
 | `os::mem` | `private_now`, `private_peak`, `available_physical`, `peak_of_child`, the running-child readings of §4.3, `CountingAlloc` | `Meter` | [OS/mem] | 2 | yes |
 | `os::path` | OS path ↔ stored path; `canonical_root`; reserved and unrepresentable names | `ProjectFs` | [OS/path] | 2 | yes |
 | `os::project` | the `ProjectFs` surface of §4.2 | `ProjectFs` | [OS/project] | 2 | yes (the complete trait, PLAN §6.2 R1) |
-| `os::spawn` | the detached `moirai gc` child; priorities; no inheritable handles | — | [OS/proc §11] | 2 | no |
+| `os::spawn` | `spawn_gc_child`, `enter_background`: the detached `moirai gc` child; priorities; no inheritable handles | `Vfs` (`ProcHost`) | [OS/proc §11] | 2 | yes (`ProcHost` is complete at M0, §4.1; the module is GT20 (a)'s one allowed spawn site) |
 | `os::term` | console vs pipe; UTF-8 output; broken pipe | — | [OS/shell §10] | 2 | no |
 | `os::test_host` (feature `test-host`) | `kill`, `suspend`, `resume`, `small_volume`, clock offset ([OS/clock §9]) | — | [OS/proc §13] | 2 | yes |
 
@@ -331,7 +334,7 @@ steps all three clocks (fault-model item (7)), so the signature is fixed here:
 pub trait Clock {
     /// Wall clock: milliseconds since the Unix epoch, UTC. May step backward or forward between two calls.
     fn wall_ms(&self) -> i64;
-    /// Monotonic clock in nanoseconds from an unspecified origin; never goes backward within a process.
+    /// Monotonic clock in nanoseconds from an unspecified origin; never goes backward within one boot ([OS/clock §2]).
     fn mono_ns(&self) -> u64;
     /// Boot clock in nanoseconds since boot: monotonic and including time spent in suspend ([80 §2.7.1]).
     fn boot_ns(&self) -> u64;
@@ -478,7 +481,7 @@ test process keep their independent ownership ([OS/lock §5.1]).
 |---|---|---|---|
 | Source directory in `moirai-os` | `src/windows/` | `src/unix/` + `src/linux/` | `src/unix/` + `src/macos/` |
 | FFI crate | `windows-sys` (`cfg(windows)`; a `windows-link` release, no import-library build script, PLAN §2.4) | `libc` (`cfg(unix)`), checked against musl | `libc` (`cfg(unix)`); constants absent from `libc` (for example `F_OFD_SETLKW` if missing) declared locally in `src/macos/` |
-| `windows-sys` feature families used by part 1 | `Win32_Foundation`, `Win32_Storage_FileSystem`, `Win32_System_IO`, `Win32_System_Threading`, `Win32_System_Memory`, `Win32_System_Diagnostics_Debug` (vectored handler), `Win32_Security`, `Win32_Security_Authorization` (the store directory's owner ACE), `Win32_Storage_CloudFilters` (sync-root detection), `Win32_System_SystemInformation`, `Wdk_Storage_FileSystem` (`NtFlushBuffersFileEx`, `NtCreateFile`), `Wdk_System_SystemServices` (`RtlGetVersion`) | — | — |
+| `windows-sys` feature families used by part 1 | `Win32_Foundation`, `Win32_Storage_FileSystem`, `Win32_System_IO`, `Win32_System_Ioctl` (`IOCTL_STORAGE_GET_DEVICE_NUMBER`, [OS/env §8]), `Win32_System_Threading`, `Win32_System_Memory`, `Win32_System_Console` (`GetStdHandle` for the fail-stop line, [OS/fs §4.4.5]), `Win32_System_Diagnostics_Debug` (vectored handler), `Win32_Security`, `Win32_Security_Authorization` (the store directory's owner ACE), `Win32_Storage_CloudFilters` (sync-root detection), `Win32_System_SystemInformation`, `Win32_Devices_DeviceAndDriverInstallation` and `Win32_Devices_Properties` (cfgmgr32: the disk's device key for `FlushingDisabled`, [OS/env §8]), `Wdk_Foundation` (`OBJECT_ATTRIBUTES` for `NtCreateFile`), `Wdk_Storage_FileSystem` (`NtFlushBuffersFileEx`, `NtCreateFile`), `Wdk_System_SystemServices` (`RtlGetVersion`); confirmed by WP-33 against the pinned release | — | — |
 | Minimum OS the implementation targets ([80 §2.13]) | Windows 11 x64; refusal floor in [OS/env §6] | kernel ≥ 5.10, 64-bit, static musl | macOS 14, arm64; linked with `MACOSX_DEPLOYMENT_TARGET=14.0` |
 | Test-host feature | `test-host` (kill, suspend, resume, clock offset) | same name | same name |
 
@@ -520,3 +523,4 @@ release-delay distribution, referenced from [CFG] and [F15]), [OS/env] (none), [
 | 11 | [OS/path] open point 1: one `RelPath` type for store and project paths, or two | one type, with [OS/path §2.1]'s grammar (store names are a subset); [OS/fs §2.1] keeps only use-time checks for store operations (for example Windows refuses a component NTFS cannot hold) | WP-17b, WP-30 |
 | 12 | Pass-1 finding S1-27 and [F08] open point 41: [F02 §4, §5.3], [F03 §7.1, §8.1], [F04 §5.3], [F08 §2.2] and [CFG §7.5] draw from "the OS's cryptographically secure random source", and no design document names a call or a seam | a seventh sub-trait `Entropy` of `Vfs` with one infallible method `fill_random` (§4.6), implemented in `os::proc`, per-OS calls `BCryptGenRandom` (system-preferred RNG), `getrandom` and `getentropy`; an impossible failure panics (exit 1), never a weaker source; the simulator draws per simulated process from the seed. WP-30 adds the trait to `moirai-vfs` and to the `Vfs` bound; [F15 §6.3] A-7 records the no-repeat assumption | WP-30, WP-31, WP-33 |
 | 13 | Pass-1 finding S1-47: the `os/` files had no Coverage section ([F01 §2.3]; `COVERAGE.md` open point 1) | every `os/` file now ends with Coverage, Holes and Open points; each Coverage section lists the `COVERAGE.md` rows that cite the file, by the part and sections cited. This file's rows were added to `COVERAGE.md` rows `60-AU-Vfs-classes` and `60-AU-Vfs-sims` | R-SPEC-F (`COVERAGE.md`) |
+| 14 | Spec sync 2a (WP-02, WP-04, WP-30 review, WP-33): the §2.5 table lacked the composition-root rules of §2.4, GT20 (d) named too few `cfg` keys and OS-binding crates, §3 said `os::spawn` is not built at M0 although `ProcHost` (complete at M0) carries it, and Appendix A lacked families WP-33 needs | §2.5 gains the dependency-direction and product-root rows, which the composition-root lint already enforces, and the wider GT20 (d) scope (the source scan adds `cfg(target_env)` and `cfg(target_vendor)` to what it checks today); §3 builds `os::spawn` on Windows at M0 ([OS/proc] open point 13); Appendix A adds the families; [80 §5.5] follows at WP-81a and PLAN §2.1 by a plan issue | WP-81a, PLAN §2.1 |

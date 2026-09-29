@@ -839,12 +839,12 @@ Bit 0 of the header follows `durability.lazy-kinds` for `heartbeat` or `cursor` 
 A heartbeat updates the lease's deadline in `LEASES`. A cursor replaces the row of its key (session, agent, `feed`,
 `task`) in [F11 §13.1] `CURSORS`, `task` taken as 0 for `feed` 1; the row's fields take the record's. A `feed` 2 record
 is the cursor of a pack of T for agent A, and cursor(A, T) of [RULES/pack-classes] PT-028 is the `cursor_seq` of the row
-(session, A, 2, `#N` of T) of the session the pack runs in ([F11 §13.1]; pass 1, closure NC-10; open point 14). Which
-actor appends a `feed` 2 record (the `pack` verb or the layer that delivers the pack) is owner question OQ-F-3's call
-(`reviews/owner-questions.md`); until it is answered no M0 command appends one ([API] open point 48,
-[RULES/pack-classes] PX-011), so cursor(A, T) is absent and C8 is empty, and `pack` stays a read verb that appends
-nothing (I-F5, [F18 §2.5]; pass 1, closure NC-11). A `feed` 1 record carries no `task`, so its bytes are those of the
-record before pass 1.
+(session, A, 2, `#N` of T) of the session the pack runs in ([F11 §13.1]; pass 1, closure NC-10; open point 14). The
+layer that delivers the pack appends the `feed` 2 record after delivery: the `SubagentStart` hook or the MCP server, as
+[AR §5d.1] stores the per-session cursors (OQ-F-3 decided 2026-09-28, option (b)). The `pack` verb never appends one; it
+stays a read that appends nothing (I-F5, [F18 §2.5]; pass 1, closure NC-11). No M0 command is a delivering layer
+([API] open point 48, [RULES/pack-classes] PX-011), so at M0 cursor(A, T) is absent and C8 is empty. A `feed` 1 record
+carries no `task`, so its bytes are those of the record before pass 1.
 
 ### 9.12 `Noop` (12) — lazy
 
@@ -1264,11 +1264,10 @@ None. No value in this chapter is decided by an M0 measurement. The extent size 
     [RULES/pack-classes] PT-028 reads, is `Lazy` `sub` 2 with `feed` 2 and the `#N` of the pack's target T (PT-001) in
     the new field `task` (§9.11), folded into [F11 §13.1]'s row of the same key. T is named by its `#N`, as a lease's
     task is (§9.4), because the row has room for 4 bytes and not for a 16-byte uid; a `#N` is never reused ([F11 §9]),
-    so a re-keyed node starts with no cursor. **Closure NC-11:** which actor appends the record is owner question
-    OQ-F-3's call (`reviews/owner-questions.md`): the `pack` verb, which I-F5 ([F18 §2.5]) lists among the reads that
-    append nothing, or the layer that delivers the pack. Until it is answered no M0 command appends one ([API] open
-    point 48, PX-011), so cursor(A, T) is absent and C8 is empty. OQ-F-3's options (a) and (b) keep the record's bytes
-    and fold; (c) would withdraw `feed` 2 before the freeze.
+    so a re-keyed node starts with no cursor. **Closure NC-11, decided 2026-09-28 (OQ-F-3 (b)):** the layer that
+    delivers the pack (the `SubagentStart` hook or the MCP server, [AR §5d.1]) appends the record; the `pack` verb, which
+    I-F5 ([F18 §2.5]) lists among the reads that append nothing, never does. No M0 command is a delivering layer ([API]
+    open point 48, PX-011), so at M0 cursor(A, T) is absent and C8 is empty. The record's bytes and fold are unchanged.
 15. **`ALLOC` has no record kind** (§9.1). Its tail entries are derived from `Create` ops and the commit header
     ([AR §4.5] step 8); [50] F17's "tail records" are read as the `Commit` records.
 16. **Payload corruption is fatal everywhere** (§5.4). A checksummed record with a malformed payload is a defective

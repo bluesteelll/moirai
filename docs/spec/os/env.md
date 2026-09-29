@@ -181,9 +181,11 @@ The store root is already open ([OS/fs §4.1]); every step works on its handle.
 
 ### 4.1 Windows (built from M0)
 
-1. `GetVolumeInformationByHandleW(root)` → the file-system name and the volume flags. `FILE_READ_ONLY_VOLUME` sets
+1. The root's final path, which `open_root` already obtained with `GetFinalPathNameByHandleW(root, VOLUME_NAME_DOS)`
+   ([OS/fs §4.1]); a path beginning `\\?\UNC\` → `Unc`. This check runs first because it needs no OS call, so a UNC or
+   network root whose volume query would fail is still `Refused(Unc)`, not an error.
+2. `GetVolumeInformationByHandleW(root)` → the file-system name and the volume flags. `FILE_READ_ONLY_VOLUME` sets
    `read_only`.
-2. `GetFinalPathNameByHandleW(root, VOLUME_NAME_DOS)`; a result beginning `\\?\UNC\` → `Unc`.
 3. `GetVolumePathNameW(final path)` → the volume root; `GetDriveTypeW(volume root)`: `DRIVE_REMOTE` → `Network`;
    `DRIVE_RAMDISK` → `Volatile`; `DRIVE_REMOVABLE` sets `removable`.
 4. `GetFileInformationByHandleEx(root, FileAttributeTagInfo)`: `FILE_ATTRIBUTE_RECALL_ON_OPEN` (`0x0004_0000`),
@@ -221,8 +223,9 @@ macOS an `F_FULLFSYNC` that must not return `ENOTSUP`"). For `restore` it runs o
 built in.
 
 1. `classify(Full)` — §4 plus the full-depth checks:
-   - Windows: `CfGetSyncRootInfoByPath(final path, CF_SYNC_ROOT_INFO_BASIC, …)` succeeds (the path lies under a
-     registered Cloud Files sync root: OneDrive or any other provider) → `Cloud(WindowsCloudFiles)`; the attribute test of
+   - Windows: `CfGetSyncRootInfoByPath(final path, CF_SYNC_ROOT_INFO_BASIC, …)`, given the plain path `X:\…` rather
+     than the `\\?\` form, succeeds (the path lies under a registered Cloud Files sync root: OneDrive or any other
+     provider) → `Cloud(WindowsCloudFiles)`; the attribute test of
      §4.1 step 4 on every ancestor directory up to the volume root; the canonical path under a folder named by the
      environment variables `OneDrive`, `OneDriveConsumer` or `OneDriveCommercial` → `Cloud(WindowsCloudFiles)` [I;
      verified by measurement 22's OneDrive row].
@@ -233,7 +236,9 @@ built in.
 2. `check_os_version()`.
 The probe's files are `tmp/probe.<nonce>` names of [F02 §5.3] and §6.3: three nonces a, b and c, each a `u64` drawn from
 `Entropy::fill_random` ([OS/README §4.6]) and written in decimal, drawn again while a name exists (pass 1, A1-40, P1-32,
-S1-38).
+S1-38). For a and c the draw is repeated while `create_new` fails with `AlreadyExists` (a ≠ c). For b, which is never
+created, "drawn again while a name exists" is done at step 5: when the rename a → b fails with `AlreadyExists` because
+`tmp/probe.b` exists, b is drawn again (b ≠ a, c) and the rename repeated.
 
 3. **Durable-write probe:** `create_new(tmp/probe.a)`; `write_at` 4,096 bytes; `sync(Data)`; `sync(DataAndMeta)`;
    `sync_dir(tmp)`; `sync_dir(store)`. A `DurabilityFailure` here is **not** passed to `fail_stop` — no commit is at
@@ -244,7 +249,12 @@ S1-38).
 5. **Rename probe:** `create_new(tmp/probe.c)`; `rename_noreplace(tmp/probe.a → tmp/probe.b)` must succeed and
    `rename_noreplace(tmp/probe.b → tmp/probe.c)` must fail with `AlreadyExists`; `Unsupported`, or a replace instead of
    the failure, → `NoNoReplaceRename { os }`.
-6. **Clean-up:** `unlink` every probe file; `sync_dir(tmp)`.
+6. **Clean-up:** `unlink` every probe file (`ShareRetry::Bounded { total_ms: HOLE(OS-share-retry-ms) }`); `sync_dir(tmp)`.
+   A clean-up failure never turns `Admitted` into an error or a refusal: steps 3–5 have already proved the location. A
+   probe file whose unlink still fails after the bound (Defender or the indexer holding it, the W3 case of
+   [OS/fs §6.3]) stays behind, and the orphan sweep removes `probe.<nonce>` later ([F02 §5.3], [F16] P-79); a failed
+   `sync_dir(tmp)` here only leaves the unlinks pending, which a crash may undo with the same result. Neither is passed
+   to `fail_stop`, and `doctor` reports nothing for it.
 7. Return `Admitted(ProbeReport { volume, os })`; any refusal of steps 1–5 returns `Refused(refusal)` after step 6.
 
 On any refusal, `init` removes the probe files and the directories it created (`remove_dir`) and exits 7 with the
@@ -292,7 +302,7 @@ None of these can be detected reliably, so none refuses ([80 §2.6], [X17 §3.7]
 
 | Warning | Windows | Linux (port) | macOS (port) |
 |---|---|---|---|
-| `FlushingDisabled` | the disk's "turn off Windows write-cache buffer flushing" setting (`CacheIsPowerProtected` / `UserWriteCacheSetting` under the disk's `Device Parameters\Disk` registry key) [X17 §3.7] | — | — |
+| `FlushingDisabled` | the disk's "turn off Windows write-cache buffer flushing" setting: `CacheIsPowerProtected` ≠ 0 under the disk's `Device Parameters\Disk` registry key [X17 §3.7]. (`UserWriteCacheSetting` is the write-cache on/off toggle, not this setting, and is not read.) The disk's key is found through cfgmgr32: the volume's disk number (`IOCTL_STORAGE_GET_DEVICE_NUMBER`), the disk interface with that number (`CM_Get_Device_Interface_ListW` for `GUID_DEVINTERFACE_DISK`), its instance id (`CM_Get_Device_Interface_PropertyW`, `DEVPKEY_Device_InstanceId`), then `CM_Locate_DevNodeW` and `CM_Open_DevNode_Key(CM_REGISTRY_HARDWARE)`; any failure gives no warning | — | — |
 | `NoBarrier` | — | ext4 mounted `barrier=0` or `nobarrier` (`mountinfo` super options) | — |
 | `WriteCacheForcedWriteThrough` | — | `/sys/block/<dev>/queue/write_cache` reads `write through` on a device that has a volatile cache | — |
 | `RemovableDrive` | `DRIVE_REMOVABLE` (§4.1 step 3) | `/sys/block/<dev>/removable` = 1 | external volume; detection chosen by the port probe [I] |
@@ -344,6 +354,8 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 |---|---|---|---|---|
 | — | none in this file (the allow-lists and refusals are frozen by X-F6; measurement 22 verifies them on Windows without choosing a value) | — | — | — |
 
+Referenced, owned elsewhere: HOLE(OS-share-retry-ms) ([OS/fs §6.3]), the retry bound of the probe's clean-up unlinks (§5 step 6).
+
 ## Open points for the review
 
 | # | Point | Resolution in this file | For |
@@ -357,3 +369,4 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 | 7 | [OS/fs §4.4.5] makes every durability failure a `fail_stop` | inside `probe_store` a failure is a refusal instead, since no commit is at stake; nowhere else | R-REV-P |
 | 8 | macOS detection of iCloud-managed `~/Desktop`/`~/Documents` and of external volumes | left to the port-phase probe, as [80 §2.6] says ([I]) | port phase |
 | 9 | `FsName` for Linux carries the magic in hex, not a name | the refusal text prints the magic and, where `mountinfo` was read, the type name | WP-18 (F19 texts) |
+| 10 | Spec sync 2a (WP-33): the UNC check needed no OS call but ran second; the probe's clean-up failures and the redraw of `b` were unstated; `UserWriteCacheSetting` is not the flushing setting | **closed:** §4.1 runs the UNC check first on the final path `open_root` kept; §5 step 6's clean-up failures never turn `Admitted` into an error or refusal (the orphan sweep removes `probe.<nonce>`), its unlinks retry within HOLE(OS-share-retry-ms), and `b` is redrawn when the a → b rename meets `AlreadyExists`; §8 reads `CacheIsPowerProtected` only, through cfgmgr32 | WP-33 |

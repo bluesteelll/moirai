@@ -7,7 +7,7 @@
 | Status | draft, pass 1 pending |
 | Work package | WP-14b (R-SPEC-R), [PLAN §3.2] item 1; reconciled with WP-10 ([F01]) |
 | Sources | [40 §2.11] R-14 (authoritative), with R-13, R-16, R-17, R-18 for the boundaries; [40 §2.2] (the closed `relink` vocabulary: `git-pair` and the other scored evidence tokens); [40 §2.3] (exact-byte identity, hard-link note); [40 §2.4] (fold, twins, "spelling differs on disk", reparse points, hard links); [40 §2.5] (`is_text`, `norm`, `oid`, "Why this function", "Streaming, bounded memory", `FPRINT`); [40 §2.6] (the stat quadruple, `FILEOBS` fields `verified_at`, `last_oid`, state, proposals); [40 §2.7] (anchor fields, authoring forms, BOM and U+FFFD, capture steps 1–5); [40 §2.9] (the states the rules produce); [40 §3.2] (`planned` binding); [40 §4.1] P2, P4, P6–P10; [40 §4.2] ("Quiescence", CAS, quiet mode); [40 §4.3] (steps 0–6, the copy rule, "Clock domains", the never-candidate patterns); [40 §4.4] (classification, thresholds, `replaced`, path reuse, automatic `path_moves`); [40 §4.5] (anchor cascade steps 1–8, watch semantics); [40 §4.6] (atomic saves, cloud-synced roots); [40 §4.8] (read-path limits); [40 §5.2] (gate rows G1–G4); [40 §5.7] (`window` in the image, `text-unavailable`); [40 §5.8] (ignore rules without git); [40 §8.3.2] P1, P3, P11 and the paragraph below the table; [40 §8.3.4] (replay targets); [80 §2.10] P3, P5, P6, P8, P9; [80 §2.11.1] (capabilities), [80 §2.11.2] (identity of `OsFileId`), [80 §2.11.3] (frontier, racy threshold), [80 §2.11.4] (E1–E8 per OS, rules 1–9), [80 §3.1] X-F7, X-F8; [AR §5e.3] (line-hash cap, `unverified (size)`), [AR §13] (`files.max-read-bytes`, `files.max-line-hashes`, `files.ignore`, `files.read.*`, "Never a key"), [AR §14] (per-OS creation-time row); [60 §2.5] (R4 row R-14; audit row "Resolver constants (R-14)"), [60 §3.1] ("Decisions fixed at M0 exit"); reviews `docs/spec/reviews/a1-S.md` S-12, S-13, S-16, S-17, S-18 and `a1-P.md` A1P-04, A1P-05, A1P-06, A1P-10 (dispositions in the open points); informative: [10 §3.3, §5.5, §5.8, §5.8b, §7, §8.1–§8.2], [11 §2.4, §2.7, §4.2–§4.3] |
-| Depends on | [F01] (notation, hash set, `algo` registry, time values, order); [F07] (the anchor selector block of canonical item 10, R-10); [F08] (the anchor record, uid derivations, value type `oid`); [F09] (`PATHIDX`); [F10] (the fingerprint blob class, R-9); [F11] (`FILEOBS`, `TREES`, `DIRMAP`, `PENDING`, `FSINTENT`, `ANCHORRES`, `GITFACTS`, `OsFileId`, `VolumeCaps`); [F14] (`.moi` anchor lines, R-11); [F18] (state, detail and header strings, R-16; `relink`, R-17); [F19] (exit codes and refusals); [OS/project], [OS/path] (the per-OS calls behind `ProjectFs`); [CFG] (the `files.*` keys) |
+| Depends on | [F01] (notation, hash set, `algo` registry, time values, order); [F07] (the anchor selector block of canonical item 10, R-10); [F08] (the anchor record, uid derivations, value type `oid`); [F09] (`PATHIDX`); [F10] (the fingerprint blob class, R-9); [F11] (`FILEOBS`, `TREES`, `DIRMAP`, `PENDING`, `FSINTENT`, `ANCHORRES`, `GITFACTS`, `OsFileId`, `VolumeCaps`); [F14] (`.moi` anchor lines, R-11); [F18] (state, detail and header strings, R-16; `relink`, R-17); [F19] (exit codes and refusals); [OS/project], [OS/path] (the per-OS calls behind `ProjectFs`); [CFG] (the `files.*` keys); [F21] (the scope scanners, their items and scopes) |
 
 ## 1. Scope and conventions
 
@@ -27,7 +27,9 @@ that is not an input is fixed here and together forms **resolver version 1**:
 - the file cascade's constants and per-OS rules: time comparisons, stat tuples, identity, the checks at a present path,
   E1 and E3d–E8, similarity, classification, automatic `path_moves` entries, the 50 ms quiescence, the E6 window bounds,
   the E3d identity rule and the path-reuse check (§5);
-- the anchor capture and anchor cascade constants (§6).
+- the anchor capture and anchor cascade constants (§6);
+- the scope scanners, through [F21], which specifies them as part of resolver version 1; this chapter keeps the header
+  text (§2.8) and the interim scanner rule (§6.1), and Appendix A maps its former sections to [F21]'s.
 
 [40 §4.3–§4.5] stays normative for the order of the cascade steps; this chapter restates a step only as far as its
 constants need context. It owns no storage layout except the byte contents of two values that are pure functions of
@@ -70,7 +72,8 @@ No value of this chapter is a configuration key, an environment variable or a fl
   the anchor field `resolver` at capture ([40 §2.7], [F08]), in `FILEOBS.resolver_version` and the `ANCHORRES` key
   ([40 §2.6], [F11]), in the fingerprint value (§2.6.4), and in every rendered link result ([F18]). The meaning of the
   `.moi` anchor line's `v=` field is [F14]'s.
-- **Bump rule.** Any change to a function, constant, pattern or per-OS rule of this chapter is a new resolver version.
+- **Bump rule.** Any change to a function, constant, pattern or per-OS rule of this chapter or of [F21] is a new
+  resolver version.
   Filling a named hole before the `format-v1` tag is not a change: version 1 is what this chapter says at the tag.
   Building a reserved evidence source (E2, [40 §4.7]) is a new version.
 - **Captured values are permanent.** An anchor's captured selectors (quote, prefix, suffix, end, window, hint,
@@ -123,8 +126,8 @@ them as "resolver v1 constants". This chapter reconciles the two (open point 1):
   ([40 §4.3] step 5). An anchor whose file content is Unavailable is `unverified` with that reason. The reasons render as
   [F18 §4.6]'s `unverified` details: `budget` 53, `cloud-only` 54, `commit not in this repository` 55, `no tree` 56,
   `git` 57, `size` 58 and `unreadable` 59; `unstable` renders `budget` (pass 1, A1-45; [F18] adds 59 to [40 §2.9]'s
-  closed set, with 60 `unmapped root` and 61 `oid algorithm differs`, for the owner's sign-off, [F18] open point 12;
-  open point 22).
+  closed set, with 60 `unmapped root` and 61 `oid algorithm differs`, for the owner's sign-off, [F18] open point 12,
+  owner question OQ-F-4; open point 22).
 
 ## 2. Content functions
 
@@ -243,10 +246,14 @@ oid_H(b) = H("blob " ‖ dec(len(norm(b))) ‖ 00 ‖ norm(b))
 - **Buffers never change a result.** The product reads through one fixed 128 KiB buffer per thread ([40 §2.5]); a CR
   at the end of a buffer is classified with the next buffer's first byte, and the final-`1A` adjustment uses the last
   byte of the content. Results equal the whole-buffer definitions for every buffer size.
-- **Line-hash array.** For a text content, pass 1 records `XXH3-64(nl(l))` (§2.5) for each line l, up to
-  `files.max-line-hashes` lines ([CFG]). The window steps (§6.2, §6.3) and `lines` anchors (§6.5) use this array; when
-  the content has more lines than the key allows, those steps are `Unavailable(size)` ([AR §5e.3]). `oid`, fingerprints,
-  similarity and winnowing never depend on the key.
+- **Line-hash array.** For a text content, pass 1 records, for each line l of `atext(b)` (§2.5), whether l is trivial
+  (§2.5) and, for a non-trivial l, its window hash `wh(l)` (§2.7.1), up to `files.max-line-hashes` lines ([CFG]). It
+  records nothing else: no reader needs more, and the window steps need the trivial bit, which a hash of the line cannot
+  give. The lines are those of `atext(b)`, not of `norm(b)`: when the content starts with `EF BB BF`, line 1 of
+  `norm(b)` holds those bytes and line 1 of `atext(b)` does not, so pass 1 skips one leading BOM before it splits lines.
+  The window steps (§6.2, §6.3) and `lines` anchors (§6.5) use this array; when the content has more lines than the key
+  allows, those steps are `Unavailable(size)` ([AR §5e.3]). `oid`, fingerprints, similarity and winnowing never depend
+  on the key.
 
 ### 2.5 Anchor text, lines and trivial lines
 
@@ -365,10 +372,28 @@ invalid. [F07] (R-10) carries W as the `window` selector and [F14] (R-11) writes
 
 - `span_hash` for `watch = span` is `XXH3-64(ST(h1, h2))` over the anchor's hint lines [h1, h2] ([40 §2.7]: "xxh3-64 of
   the normalised span"). Trivial lines inside the span are included.
-- **Header text.** For a line l: `header(l, symbol)` is `nl` of the bytes of l before its first `{` (`7B`) or `;`
-  (`3B`), or of all of l if it has neither; `header(l, heading)` is `nl(l)`. The header line of an item is the first
-  line the scope scanner reports for it ([40 §2.7.1]).
-- `span_hash` for `watch = header` is `XXH3-64(header(l, kind))` over the full header of the item's header line.
+- **Header text.** For a line l of an anchor text t, with N = N(t): `header(l, heading)` is `nl(l)`. `header(l, symbol)`
+  is a part of N that starts at `start(l)` and may run over several lines. It is found by reading N from `start(l)`
+  onward with the Rust tokenisation of [F21 §3.1] rules 1–4 (comments separate tokens and are not tokens; a literal is one
+  token, so a `{`, `;` or bracket inside a comment or a literal counts for nothing) and keeping a bracket depth d, which
+  starts at 0: `(` and `[` add 1, and `)` and `]` subtract 1 when d > 0 (`<`, `>`, `{` and `}` never count). The header
+  ends at the first of:
+  1. a `{` (`7B`) or `;` (`3B`) token met at d = 0: the header ends before it;
+  2. a `0A` of N that ends a line j ≥ l outside every comment and literal, with d = 0 there, once the header holds a
+     token at depth 0 other than the words `pub`, `const`, `async`, `unsafe`, `safe`, `extern` and `default`, a string
+     literal, `(` and `)` (the **header qualifier words**, §7): the header ends before that `0A`;
+  3. the end of N.
+
+  Trailing `WS` bytes of the result are removed. So a header continues over the following lines while a `(` or `[` is
+  open, and past a line that holds only a visibility and qualifiers; it stops at the end of any other line. In the
+  examples ⏎ is a line break of the source and ␊ the byte `0A` of the result: `pub(crate)⏎fn f() {` gives
+  `pub(crate)␊fn f()`; `pub const K: [u8; 4] = [0; 4];` gives `pub const K: [u8; 4] = [0; 4]`;
+  `fn f(a: [u8; 4]) -> u32 {` gives `fn f(a: [u8; 4]) -> u32`, so a changed return type changes the header; the rustfmt
+  form `pub fn f(⏎    a: u8,⏎) -> u32 {` gives `pub fn f(␊a: u8,␊) -> u32`; a TOML line `[package]` or `name = "x"`
+  gives the line itself. `header(l, kind)` is a function of t and l alone, so the resolver computes it at the hint line
+  without a scanner (open point 40). The **header line** of an item is its `start`, the first line the scope scanner
+  reports for it ([F21 §2.1]; [40 §2.7.1]).
+- `span_hash` for `watch = header` is `XXH3-64(header(l, kind))` over the whole header of the item's header line l.
 - A `file` anchor has no span hash; [F08] states its absent encoding. A `file` anchor with `watch = span` compares
   contents instead (§6.5).
 
@@ -1104,13 +1129,14 @@ content is refused: [F19 §10.2] `anchor_spec`, case `binary`, exit 2). Let t = 
      line is `nl`-trimmed, leading and trailing lines that are then empty are dropped, and the rest is joined by `0A`.
      The result must be non-empty and must occur in N (else `anchor_spec`, case `empty` or `not-found`); the lines it
      covers are [s, e], and the kind is chosen by step 2 with this text as the span text.
-4. **Quote span.** The lines [qs, qe] the quote covers: [s, e] for `quote` and `range`; the header line for `symbol` and
-   `heading`.
+4. **Quote span.** The lines [qs, qe] the quote covers: [s, e] for `quote` and `range`; for `symbol` and `heading`,
+   [l, l + m] with l the header line and m the number of `0A` bytes in `exact` (a `symbol` header may run over several
+   lines, §2.8; a `heading` quote is one line).
 5. **Context.** `prefix = cuts(N[0 .. o), CTX)` and `suffix = cutp(N[o′ ..), CTX)`, where o is the offset of the quote
    (for `range`, of the start quote) and o′ the offset after the quote (for `range`, after the end quote), with `CTX` =
    `CONTEXT` = HOLE(F20-context) (draft 32). Context may cross lines and contains `0A` bytes.
 6. **Window** W around the quote span (§2.7), with `WIN` = HOLE(F20-window-lines) (draft 16).
-7. **Hint**: `quote`, `range`: [s, e]; `symbol`, `heading`: the item's line span as the scanner reports it; `lines`:
+7. **Hint**: `quote`, `range`: [s, e]; `symbol`, `heading`: the item's range [`start`, `end`] ([F21 §2.1]); `lines`:
    [L, M]. 1-based and inclusive.
 8. **Uniqueness ladder** ([40 §2.7] step 4: "the resolver runs on the captured file itself"). The anchor is unique when
    the exact step of §6.2, run on the captured content with the anchor's selectors (window included) and no occurrence,
@@ -1120,8 +1146,9 @@ content is refused: [F19 §10.2] `anchor_spec`, case `binary`, exit 2). Let t = 
       below holds;
    3. then `occurrence` is recorded: the 1-based index of the captured hit among the exact hits of the search region, in
       offset order.
-   Once the scanner appendix exists, the scope of a `path:L-M`, `symbol` or `heading` form is recorded whenever a scanner
-   finds one ([40 §2.7] authoring table), so rung 2 applies only to quote-file forms; until then no form records one.
+   Once the interim rule below is lifted (open point 30), the scope of a `path:L-M` form (a `lines` anchor included), a
+   `symbol` form or a `heading` form is recorded whenever [F21 §2.4] finds one ([40 §2.7] authoring table), so rung 2
+   applies only to quote-file forms; until then no form records one.
    `lines` anchors have no quote and skip the ladder.
 9. **`span_hash`** (§2.8), `blob` = `oid(b)` (§2.3), `git`, `captured` and `pred` ([F08]; `captured` covers the widened
    prefix and suffix and, for `lines`, the window, [40 §2.7] as revised for review S-03) and `resolver` = 1.
@@ -1129,8 +1156,7 @@ content is refused: [F19 §10.2] `anchor_spec`, case `binary`, exit 2). Let t = 
 **The interim scanner rule** (pass 1, A1-14, S1-4, P1-20; [F08 §10.3.1]). The scope scanners of [40 §2.7.1] decide the
 `scope` bytes and, for the `symbol` and `heading` forms, the item's header line, hence its quote, its hint and its header
 span hash; every one of these enters `captured` or the hashed selector block ([F08 §11.4], [F07 §8.2]). Until the scanner
-grammar exists as a normative appendix of this chapter (open point 30), engine and model must not depend on a scanner
-for a hashed byte, so:
+chapter [F21] has passed review (open point 30), engine and model must not depend on a scanner for a hashed byte, so:
 
 - no capture records a scope: `has_scope` is clear, `captured` takes `lp("")` for it, and step 8 skips rung 2
   ([F08 §10.3.1]);
@@ -1140,8 +1166,13 @@ for a hashed byte, so:
 - an imported anchor that carries a scope, or is of kind `symbol` or `heading`, keeps its bytes ([F08 §10.3.1]); it
   resolves without scanner steps: the scope-only step of §6.5 does not run, and its header quote is matched as a quote.
 
-If the appendix is not written by the freeze, the owner chooses between keeping this rule in format v1 and removing the
-scanner-derived bytes from the hashed inputs (a change of [PLAN] FB-4); `reviews/owner-questions.md` records the question.
+**Decided 2026-09-28** (owner question OQ-R-2, option (a) with (b) as the fallback; `reviews/owner-questions.md`): the
+interim rule holds for M0, and the scanner appendix is required before the freeze and before WP-63 is accepted (R-SPEC-R
+with WP-63). If it misses the freeze, format v1 keeps this interim rule: no scope is recorded and the `symbol` and
+`heading` forms stay refused until a format change. The scanner-derived bytes stay in `captured` and the selector block
+either way ([PLAN] FB-4 is unchanged). **Spec sync 2a** (the OQ-R-2 follow-up): [F21] now specifies the Rust, Markdown
+and TOML scanners completely. This issue does not lift the interim rule; review pass 2 decides it, and it is lifted when
+review accepts [F21] ([F21] open point 1, open point 30).
 
 ### 6.2 Resolve: hint and exact quote ([40 §4.5] steps 1–3)
 
@@ -1151,7 +1182,7 @@ The cascade runs on the current content b′, with t′ = `atext(b′)` and N′
    `watch = header`, `XXH3-64(header(l_h1, kind)) = span_hash` → `fresh` (a changed body keeps the anchor `fresh`,
    [40 §4.5]).
 2. **Marker** (opt-in prose only): as [40 §4.5] step 2; no constant.
-3. **Search region.** If the anchor has a scope and the scanner resolves it uniquely in t′, the scope's byte range in
+3. **Search region.** If the anchor has a scope that resolves uniquely in t′ ([F21 §2.5]), the scope's byte range in
    N′ first; if the quote has no hit there, the whole of N′.
 4. **Hits.** Every offset h with `N′[h .. h + len(exact)) = exact` (overlapping hits included). For `range`: every start
    hit h is paired with the first end hit h_e ≥ h + len(exact) whose last line is at most `line(h) + RANGE_SPREAD ×
@@ -1186,7 +1217,7 @@ The cascade runs on the current content b′, with t′ = `atext(b′)` and N′
   Distances are Levenshtein distances over bytes with unit costs.
 - **Regions**, in order: R1 = `[max(0, a − SPAN), min(len(N′), z + SPAN))` where [a, z) is the byte range in N′ of the
   hint lines that exist and `SPAN` = HOLE(F20-fuzzy-span) (draft 16,384 bytes; "±16 KB", open point 21), skipped when
-  no hint line exists; R2 = the scope's range when the scope resolves uniquely; R3 = all of N′.
+  no hint line exists; R2 = the scope's range when the scope resolves uniquely ([F21 §2.5]); R3 = all of N′.
 - **Candidates in a region R.** For each end offset e in R, `d(e)` = the least distance between `exact` and a substring
   `N′[s .. e)` with s ≥ R's start. E = {e : d(e) ≤ k}. Repeat: take the element of E least by (d(e), e); record it;
   remove from E every e′ with |e′ − e| < `len(exact)`. For each recorded e, s is the largest start with distance d(e).
@@ -1201,8 +1232,9 @@ The cascade runs on the current content b′, with t′ = `atext(b′)` and N′
   accepted, as `edited`, when it is the only one or its score exceeds the second's by at least `FUZZY_MARGIN` =
   HOLE(F20-fuzzy-margin) (draft 2/100); otherwise the anchor is `ambiguous`.
 - **Same-kind headers.** For a `symbol` or `heading` anchor whose scope did not resolve uniquely, only candidates that lie
-  inside the header text of an item header of the same kind (a Rust item of the same keyword; a Markdown heading of the
-  same level) count, and the margin is `HEADER_MARGIN` = HOLE(F20-header-margin) (draft 1/10) ([40 §4.5], [41 m8]).
+  inside the header text of an item header of the same kind ([F21 §2.6]: a Rust item of the same keyword, a TOML item of
+  the same kind, a Markdown heading of the same level) count, and the margin is `HEADER_MARGIN` =
+  HOLE(F20-header-margin) (draft 1/10) ([40 §4.5], [41 m8]).
   Finding item headers needs a scanner, so while §6.1's interim scanner rule holds this restriction does not apply: an
   imported `symbol` or `heading` anchor's header quote is matched as a quote, with every candidate and `FUZZY_MARGIN`.
 - **`range` anchors.** The start quote is matched as above; for each start candidate the end quote is searched exactly,
@@ -1213,8 +1245,8 @@ The cascade runs on the current content b′, with t′ = `atext(b′)` and N′
 
 ### 6.5 Scope only, `lines` anchors, watch, cross-file ([40 §4.5] steps 5–8)
 
-- **Scope only.** A `symbol` or `heading` anchor whose scope resolves uniquely while steps 3–4 found nothing →
-  `edited` (coarse). The step needs a scanner and does not run while §6.1's interim scanner rule holds.
+- **Scope only.** A `symbol` or `heading` anchor whose scope resolves uniquely ([F21 §2.5]) while steps 3–4 found
+  nothing → `edited` (coarse). The step needs a scanner and does not run while §6.1's interim scanner rule holds.
 - **`lines` anchors.** L = h2 − h1 + 1. For every line j with j + L − 1 ≤ the number of lines of t′, the window around
   [j, j + L − 1] is scored against the stored window (§6.3). The best j by (score descending, j ascending) is accepted when
   its score is at least `LINES_MIN` = HOLE(F20-lines-min) (draft 1/2) and exceeds the second best by at least
@@ -1264,6 +1296,8 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
 | `WINNOW_W` | HOLE(F20-winnow-w), draft 4 | k-grams | 2.9 | [10 §5.8b] |
 | `EXACT_LIMIT` | 65,536 | fingerprint lines or values per side | 2.10.5 | this chapter |
 | trivial-line bytes | `WS` ∪ `{ } ( ) [ ] ; ,` | — | 2.5 | [40 §2.7] |
+| header qualifier words | `pub`, `const`, `async`, `unsafe`, `safe`, `extern`, `default`, a string literal, `(`, `)` | — | 2.8 | this chapter (open point 40) |
+| scanner constants and rules | [F21 §7] (Rust, Markdown and TOML) | — | [F21] | [40 §2.7.1]; open point 30 |
 | never-candidate list | the 21 patterns and 2 contextual rules of §4.7 | — | 4.7 | [40 §4.3]; [80 §2.11.4] rule 5 |
 | `LIST_MAX` | 3 | candidates or proposals | 4.1 | [40 §2.6, §4.4] |
 | `SKEW` | HOLE(F20-clock-skew) | ns | 5.1 | review S-17 |
@@ -1306,12 +1340,31 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
 | `HEADER_MARGIN` | HOLE(F20-header-margin), draft 1/10 | score | 6.4 | [40 §4.5] |
 | `LINES_MIN` | HOLE(F20-lines-min), draft 1/2 | window score | 6.5 | this chapter |
 
+## Appendix A. Scope scanner grammar (moved to [F21])
+
+Spec sync 2a moved this appendix to its own chapter, [F21] (`21-scope-scanners.md`), which completes it with the total
+Rust algorithm, the Markdown part and the TOML part (owner question OQ-R-2). Nothing of the former text remains
+normative here; citations of its sections resolve through this map:
+
+| Former section | Now |
+|---|---|
+| A.1 Parts, status and input | [F21 §1.3, §1.4] |
+| A.2 Rust tokenisation and the canonical spelling | [F21 §3.1, §3.2] |
+| A.3 Rust items (oracle rules 1 and 2) | [F21 §3.5, §3.9] |
+| A.4 Names and qualifiers (oracle rules 3 and 4) | [F21 §3.5, §3.7] |
+| A.5 Lines, parents and order (oracle rules 5–7) | [F21 §3.8] |
+| A.6 Name paths and the scope a capture records | [F21 §2.2–§2.5], with the correction of [F21] open point 3 |
+| A.7 The `symbol` authoring form | [F21 §6.1, §6.2, §6.5] |
+| A.8 Conformance, the oracle, and input outside the contract | [F21 §3.9] and the total algorithm of [F21 §3.3–§3.8] |
+| A.9 Constructs, one fixture each | [F21 §8.1] constructs 1–14 (construct 10 with two more rows) and 15–27; [F21 §8.2, §8.3] for Markdown and TOML |
+
 ## Coverage
 
 | Item | Part covered here | Section |
 |---|---|---|
 | [40] R-14 | complete: thresholds (§4.4, §4.5), `is_text`, `fold_v1`, the window-hash function, the never-candidate list, the 50 ms quiescence, the E6 window bounds with the 2,000-commit bound, the E3d identity rule and the path-reuse check, and the per-OS rules of [80 §2.11.4] (copy rule with `TunneledNotCopied`, no clone indicator and a unique creation time; twins, "spelling differs on disk" and the normalization rule; reads with ids; sorted candidates; the never-candidate additions and trash locations; `EXDEV`; Unix busy states; whole-id identity; denials as `Unknown`; the frontier's racy threshold) | §1–§7 |
 | [60 §2.5] R4 reservations, row R-14 | complete, as [40] R-14 | §1–§7 |
+| [40 §2.7.1] scope scanners (open point 30; OQ-R-2) | here only the interim scanner rule, the header text and the cascade steps that use a scope; the scanners themselves (Rust, Markdown, TOML), name paths, scopes and the authoring forms are [F21]'s, and Appendix A maps the former sections | §2.8, §6.1, §6.2, §6.4, §6.5, Appendix A |
 | [60 §2.5] audit row "Resolver constants (R-14)" | complete: E3d exact only on a file-id, size + mtime or `oid` match; a present path with a changed file id → `ambiguous (path reused)`; the E6 bound as a constant; `fold_v1` at Unicode 17.0.0; the twin rule; the unique-creation-time copy rule; whole-`OsFileId` identity with the Linux `hgen`; denials as `Unknown` | §5.7, §5.4.2, §5.11.2, §3.1, §3.5, §5.9, §5.3, §4.8 |
 | [80] X-F7 | P6 only: `fold_v1 = NFD(full_casefold(NFD(x)))` at Unicode 17.0.0. P1–P5 and P7–P12 are [OS/path]'s and [F08]'s | §3.1–§3.3 |
 | [80] X-F8 | the R-14 half: rules 1–9 of [80 §2.11.4] and the frontier's racy threshold from a file-system timestamp. The tagged layouts (`OsFileId`, timestamps, `JOURNALCUR`, `DIRMAP`, the `TREES` additions, the `FSINTENT` holder) are [F11]'s | §3.5, §3.6, §4.1, §4.6–§4.8, §5.2, §5.3, §5.9, §5.12.1, §5.19, §5.20 |
@@ -1418,7 +1471,7 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
     chapter maps its reason `unstable` (§2.4: a read whose passes disagreed twice; [40 §2.5] says only "unverified") to
     `budget`. Its reason `unreadable` — a denial on the stat of p or on a content read ([80 §2.11.4] rule 9, §4.8) — is
     [F18 §4.6]'s detail 59, which [F18] adds to the closed set with 60 and 61 for the owner's sign-off ([F18] open point
-    12). The place details (codes 38–42) and the E3d detail "directory moved, file replaced" (21) are in [F18 §4.6].
+    12; owner question OQ-F-4, raised in spec sync 2a, not among the questions decided on 2026-09-28). The place details (codes 38–42) and the E3d detail "directory moved, file replaced" (21) are in [F18 §4.6].
 23. **`LINES_MIN`** (§6.5) is a constant [40] does not name; it closes a silent-wrong path for `lines` anchors, whose span
     is trivial text by definition. It is a hole with draft 1/2.
 24. **Disposition of review S-12** (§6.6): [40 §8.3.2] now states the order; §6.6 restates it for this chapter's
@@ -1451,6 +1504,26 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
     scope is recorded (as [F08 §10.3.1] states), and the `symbol` and `heading` forms, whose header line, quote, hint and
     span hash a scanner would decide, are refused (the closure check's open point 2). The appendix is not written in pass 1:
     it is a grammar of three languages with fixtures, beyond a review round; its owner is R-SPEC-R with WP-63.
+    **Decided 2026-09-28** (OQ-R-2 (a), with (b) as the fallback): the interim rule holds for M0; the appendix is required
+    before the freeze and before WP-63 is accepted; if it misses the freeze, format v1 keeps the interim rule (no scope,
+    no `symbol` or `heading` form until a format change). Removing the scanner-derived bytes from the hashed inputs is no
+    longer an option. **Spec sync 2a:** Appendix A now holds the Rust part. It adopts the WP-74 oracle's rules 1–8 and
+    decides: `qual` keeps a negative impl's `!` and the trait's generic arguments (A.4); the header of an item whose
+    visibility stands on its own line continues past that line (§2.8, A.5); an item nested deeper than 64 segments is
+    reported, and a capture records the name path of its nearest ancestor with at most 64 segments that names one item
+    (A.6); a repeated name path (`cfg` twins) is never recorded as a scope, and a differential compares multisets (A.6);
+    the `Type[Trait]/method` form matches by exact or bare names (the last `::` segment without generics), and a
+    bracketless last segment never names an `impl` (A.7). Still open: the Rust scanner's output outside its contract
+    (A.8, a total token-level algorithm), the Markdown and TOML parts, and the [F19 §10.2] `anchor_spec` texts for a
+    `symbol` form that matches several items or one deeper than 64 segments (R-SPEC-F). The interim rule holds until
+    they exist. **Spec sync 2a, the OQ-R-2 follow-up:** the appendix is now the chapter [F21], complete: the total Rust
+    algorithm (byte-level tokens, bracket groups closed or stray, token trees, item start positions, header scans, `impl`
+    splits, a depth limit of 1,024 groups), the fence-aware ATX and setext Markdown line scanner (numbering stripped into
+    `qual` and not compared when a scope resolves), the TOML table and key scanner (multi-line values tracked), recordable
+    name paths (at most 64 segments and 4,096 bytes), the `heading` form, the outcomes of both forms, and golden examples
+    for each construct. Appendix A of this chapter now only maps its former sections to [F21]'s. [F21] corrects A.6's
+    scope-item wording (its open point 3), which contradicted A.9 construct 12. **Open for pass 2:** whether the interim
+    rule is lifted; it is lifted when review accepts [F21] ([F21] open point 1), and until then §6.1 stands as written.
 31. **Span anchors on binary content** (§6.1, §6.5) are refused at capture and resolve `orphaned`; [40] does not say.
     The refusal is [F19 §10.2] `anchor_spec`, case `binary` (exit 2), which §6.1 cites with the other capture cases
     (pass 1, round 3). Closed.
@@ -1490,3 +1563,14 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
     inside `ProjectFs` ([OS/path], [OS/project §2.3], [OS/fs §2.1]) is R-SPEC-P's; this chapter does not rely on it.
 39. **Golden vectors for `gs`** (§5.11.4; pass 1, A1-34) were computed by an implementation of the §5.11.4 definition and
     agree with git 2.54.0 on them and on 60 random edited pairs of up to 65,000 bytes; WP-74 turns them into fixtures.
+40. **The header cut** (§2.8; spec sync 2a, WP-74 review). [40 §2.7] step 3 cuts a symbol's header at the first `{` or
+    `;` of its first line. That cut `pub const K: [u8; 4] = …;` inside the array type (`pub const K: [u8`), and after
+    `fn f(a: [u8; 4]) -> u32 {` it left the return type outside the header, so a header-watched anchor stayed `fresh`
+    when only the return type changed. §2.8 now cuts at the first `{` or `;` at bracket depth 0 outside comments and
+    literals, continues over the next lines while a `(` or `[` is open or while the header holds only qualifier words,
+    and otherwise stops at the end of the line. A rustfmt signature over several lines is one header, and a TOML line
+    stays one line. The header is still a function of the text and the line alone, so the resolver needs no scanner at
+    the hint. `<` and `>` do not count, because `->`, `=>` and comparisons would unbalance them. The header quote and the
+    quote span may now cover several lines (§6.1 steps 3 and 4). WP-81a aligns [40 §2.7] step 3. The line-hash array of
+    §2.4 was corrected in the same sync: it holds `wh(l)` and the trivial bit per line of `atext(b)`, which is what the
+    window steps read.

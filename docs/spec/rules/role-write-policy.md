@@ -64,7 +64,7 @@ Every table follows [RULES/README]. In addition:
 | WT-006 | created-in-tx | scope | derived | [50 §3.10] items 2, 6; [50 §4.2] `remember` | n is created by an earlier statement of the same `TX` block, or by the same named mutation or `remember` call. |
 | WT-007 | any | scope | design | [AR §7.3] | Every node. |
 | WT-008 | lease-run | scope | proposed | [AR §7.4] step 5; [90 §4.3] run-scoped leases; [OP-21] | n is the `run` node the presented lease names (a run-scoped role lease, or a task lease claimed with `--run`). |
-| WT-009 | W | set | proposed | [50 §3.10] item 6; [50 §6.5] "any writable field"; [OP-17] | The writable fields of a kind: `title`, `abstract`, `body` (`SET x.body`, `PATCH`), `parent` and `order` (`MOVE`), `priority`, `criticality`, `confidence`, `labels`, and every kind field whose schema class is writable. Not in W: `status` and `resolution` (`role-status`), `authority` (`role-values`), and every field E115 refuses (derived, runtime, tree-derived, observation and identity fields, edge properties). |
+| WT-009 | W | set | proposed | [50 §3.10] item 6; [50 §6.5] "any writable field"; [OP-17]; [OP-28] | The writable fields of a kind: `title`, `abstract`, `body` (`SET x.body`, `PATCH`), `parent` and `order` (`MOVE`), `priority`, `criticality`, `confidence`, `labels`, the flags `pinned`, `archived` and `frozen`, `defer_until`, `due` and `reason`, and every kind field whose schema class is writable. Not in W: `status` and `resolution` (`role-status`), `authority` (`role-values`), and every field E115 refuses (derived, runtime, tree-derived, observation and identity fields, edge properties). |
 | WT-010 | may-write(n) | pred | proposed | [AR §7.3] R4 rows "every role that may write the referring node"; [50 §6.3]; [OP-10] | R is orchestrator or owner; or a `role-fields` or `role-status` row matches (R, kind(n), n); or n is own-role and a `role-create` row lets R create kind(n). |
 | WT-011 | bulk | pred | design | [50 §3.10] item 3 | A `MATCH` target whose `EXPECT` allows more than 10 bindings or has no upper bound. |
 | WT-012 | owner-attested | pred | proposed | [AR §7.3] owner row "(main session, `--by owner`)", orchestrator "`authority = owner` only with `--owner-quote`"; [AR §13] `policy.role.<role>.authority-owner`, `hooks.stamp.ask-for`; [OP-1] | The call presents an orchestrator session role lease and carries the owner attestation: `--by owner`, or `--authority owner` with `--owner-quote-file` on the CLI; through MCP, `authority=owner` with an owner quote, which the stamp's `ask` permission puts before the human by default. |
@@ -335,14 +335,14 @@ with `authority = owner` needs `owner_quote` (for rules, [AR §3.2]); a `verdict
 <!-- table: role-refusals -->
 | row | situation | code | name | exit | text_owner | basis | source | note |
 |---|---|---|---|---|---|---|---|---|
-| WZ-001 | role-policy | E406 | role_policy | 6 | F19 | design | [50 §5.2] E406; [AR §7.3]; [90 §4.3] | Names the statement (1-based), the table and the (role, op, kind, field) no row allowed ([OP-23]). For an unleased caller it adds the fix line of [AR §7.3]: "this write needs a lease; an orchestrator presents its session lease with --lease (mint it once per session: moirai claim --role orchestrator --session)" (152 B). That is the design's one-line text; [F19 §11.3] and [LQ/errors §5.5] render the same words split at the semicolon, as the message `this write needs a lease` and a `= help:` line with the rest, a deliberate rendering and no change of wording (review pass 1, A1-51). |
+| WZ-001 | role-policy | E406 | role_policy | 6 | F19 | design | [50 §5.2] E406; [AR §7.3]; [90 §4.3] | Names the statement (1-based), the table and the (role, op, kind, field) no row allowed ([OP-23]), rendered as E406's help `no <table> row lets <role> <op> <kind>`, followed by `.<field>` when the op sets a field, `<table>` being the WR-009 table whose check refused ([LQ/errors §5.5]). For an unleased caller it adds the fix line of [AR §7.3]: "this write needs a lease; an orchestrator presents its session lease with --lease (mint it once per session: moirai claim --role orchestrator --session)" (152 B). That is the design's one-line text; [F19 §11.3] and [LQ/errors §5.5] render the same words split at the semicolon, as the message `this write needs a lease` and a `= help:` line with the rest, a deliberate rendering and no change of wording (review pass 1, A1-51). |
 | WZ-002 | cli-only-over-mcp | E406 | role_policy | 6 | F19 | design | [50 §6.3]; [AR §7.2] | WX-013 to WX-016. |
 | WZ-003 | lease-invalid | E407 | lease | 5 | F19 | design | [50 §5.2] E407 "missing, stale token, branch mismatch"; [AR §6.2] | WR-003, WR-005. |
 | WZ-004 | declared-agent-mismatch | E407 | lease | 5 | F19 | design | [90 §4.1] Actor row; [90 §10.1] "two exit-5 texts"; [F19 §11.2]; [LQ/errors §5.5] | WR-004. The "declared agent" row of E407. |
 | WZ-005 | env-lease-bound | E407 | lease | 5 | F19 | design | [90 §4.1] binding rule; [90 §10.1]; [F19 §11.2]; [LQ/errors §5.5] | WR-002. The design's text: "`L-18 is bound to codex:T1; pass your own lease`". The "bound lease" row of E407. |
 | WZ-006 | write-in-read-surface | E006 | read_only | 2 | F19 | design | [50 §5.2] E006 | WX-017. |
 | WZ-007 | not-writable | E115 | not_writable | 2 | F19 | design | [50 §5.2] E115; [50 §3.10] | Fields outside W (WT-009) that no verb may set. |
-| WZ-008 | read-only-view | E305 | read_only_view | 6 | F19 | design | [50 §5.2] E305; [50 §3.9] item 6 | A `TX ON` a commit, tag, masked `plan/*` field or staging ref. |
+| WZ-008 | read-only-view | E305 | read_only_view | 6 | F19 | design | [50 §5.2] E305; [50 §3.9] item 6 | A `TX ON` a commit, tag, past view or `orphans/*` ref, a masked `plan/*` field, or a plain write on a staging or `import/*` ref (both accept only `RESOLVE`); the reasons are [LQ/errors §5.4]'s E305 texts. |
 | WZ-009 | not-writer-tree | not_writer_tree | not_writer_tree | 5 | F19 | design | [40 §5.3]; [AR §7.1] exit 5 "a file verb outside the writer tree"; [F19 §10.2] `not_writer_tree` | WV-030 to WV-032. The code and its text are [F19 §10.2]'s, which owns the store and file-verb codes (review pass 1 round 2, A1-39); the first draft named [F18], which defines no code. |
 | WZ-010 | unknown-model-write | E411 | unknown_model_write | 6 | F19 | design | [90 §8.1] L2 "a new error code naming the matching named mutation"; [90 §10.1]; [F19 §11.1]; [LQ/errors §5.5] | WR-012, WQ-004. |
 | WZ-011 | safelist | E406 | role_policy | 6 | F19 | proposed | [50 §4.4] safelist; [OP-18] | WQ-003. |
@@ -478,7 +478,9 @@ of E407 `lease`, exit 5, for WZ-004 and WZ-005 ([F19 §11.2]).
 22. **Bulk targets.** [AR §13] says "orchestrator only", [50 §6.5] gives bulk to "orchestrator, owner". The owner row
     contains the orchestrator's, so WX-005 lists both.
 23. **E406's text.** An allowlist has no row to cite for a refusal. Proposed: E406 names the statement, the table and
-    the (role, op, kind, field) tuple no row allowed; [F19] freezes the spelling.
+    the (role, op, kind, field) tuple no row allowed; [F19] freezes the spelling. [LQ/errors §5.5] spells it (spec
+    sync 2a): the message `statement <i>: role <role> may not <action>` and the help
+    `no <table> row lets <role> <op> <kind>[.<field>]` (WZ-001).
 24. **The architect changes no status.** "Fields of own docs, decisions and questions" is read without `status`, which
     [50 §6.5] treats apart from fields; accepting a decision or making a plan `current` stays with the orchestrator and
     owner.
@@ -509,3 +511,8 @@ of E407 `lease`, exit 5, for WZ-004 and WZ-005 ([F19 §11.2]).
     (§2), not first-match tables; README §8 needs one sentence for them.
 27. **Allowlist readings of silent verbs.** `reclaim`, `run open|close`, `links import` and `reopen` appear in no role's
     row, so only the orchestrator and owner may run them (WM-008, WV-023, WV-028, WV-041, WX-006, WX-011).
+28. **The common fields in W** (WT-009; WP-90a). The first draft listed `title`, `abstract`, `priority`, `criticality`,
+    `confidence` and `labels` as the common fields of W and left out the rest of [F08 §9.2]'s common rows, so no row
+    let even the orchestrator set `defer_until` (the clause of `ready`, PD-016), `due`, the source-truth flags `pinned`,
+    `archived` and `frozen`, or the `reason` that `retract` writes ([API §9.7]). Proposed: W holds every common field
+    other than `status`, `resolution` and `authority`, which have their own tables; the review confirms.

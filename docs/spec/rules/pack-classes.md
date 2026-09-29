@@ -117,14 +117,19 @@ Every table follows [RULES/README]. In addition:
 | PB-005 | architecture-critic | pack.budget.architecture-critic | 24000 | M9 | design | [AR §7.4]; [AR §13] | As PB-001. |
 | PB-006 | other | pack.budget.<role> | 16000 | M9 | design | [AR §13] "16,000 (developer, tester, code-reviewer and roles not listed)" | Every role without its own row, `general-purpose` included. |
 
+In `pack-ceilings`, `default_bytes` is the ceiling under the default configuration and `max_bytes` the largest ceiling
+any valid configuration gives: the upper bound of the row's `key` ([CFG §10.8]), for `mcp` capped by that of the
+profile's `mcp.result-max-bytes.<client>` (36,000 for `codex`, [CFG §10.8]); a row without a key has a fixed bound, and
+`none` means no ceiling. The model checks both columns against the registry.
+
 <!-- table: pack-ceilings -->
 | row | surface | client | key | default_bytes | max_bytes | basis | source | note |
 |---|---|---|---|---|---|---|---|---|
 | PE-001 | cli | * | pack.cli.max-bytes | 24000 | 28000 | design | [AR §13] `pack.cli.max-bytes`; [73 F1]; [90 §6.1] | Store scope; a user file may lower it. A value above 28,000 is refused by `config set` (exit 2). |
 | PE-002 | file | * | - | none | none | design | [AR §7.1] `pack ... -o FILE`; [AR §13] "(larger needs `-o FILE`)" | With `-o FILE` the pack is written to the file and E = N. |
-| PE-003 | mcp | claude | pack.mcp.max-bytes | 25000 | 25000 | design | [AR §13] `pack.mcp.max-bytes`; [90 §6.4] `claude` | Capped by `mcp.result-max-bytes` (25,000). |
+| PE-003 | mcp | claude | pack.mcp.max-bytes | 25000 | 48000 | design | [AR §13] `pack.mcp.max-bytes`; [90 §6.4] `claude`; [CFG §10.8] | Capped by `mcp.result-max-bytes.claude` (by default `mcp.result-max-bytes`, 25,000). Both keys allow up to 48,000 ([CFG §10.8]); the first draft's `max_bytes` of 25,000 was the default, not the bound (review of WP-90b). |
 | PE-004 | mcp | codex | pack.mcp.max-bytes | HOLE(CFG-codex-mcp-result) | 36000 | design | [90 §6.4] `codex`; [90 §10.8] `mcp.result-max-bytes.codex`; [CFG §10.8]; [F19 §3.2] | 25,000 capped by the profile's MCP result ceiling `mcp.result-max-bytes.codex`, whose default is HOLE(CFG-codex-mcp-result), owned by [CFG] (16,000 B, the design value, until measurement 7 decides it); the key allows up to 36,000 for a classic-mode model (review pass 1, A1-57). |
-| PE-005 | mcp | generic | pack.mcp.max-bytes | 25000 | 25000 | design | [90 §6.4] `generic` | Capped by `mcp.result-max-bytes` (25,000). |
+| PE-005 | mcp | generic | pack.mcp.max-bytes | 25000 | 48000 | design | [90 §6.4] `generic`; [CFG §10.8] | As PE-003 under `mcp.result-max-bytes.generic`. |
 | PE-006 | hook | claude | - | 10000 | 10000 | design | [90 §6.1] hook-injected context; [90 §6.4] `claude`; [AR §7.5]; [F19 §3.2] | Every hook output, whatever its own budget key says. Review pass 1 (A1-57) split the first draft's one row for every client into PE-006 to PE-008 by [90 §6.4]'s profile table. |
 | PE-007 | hook | codex | - | 10000 | 10000 | design | [90 §6.1] hook-injected context; [90 §6.4] `codex`; [AR §7.5]; [F19 §3.2] | As PE-006: Codex's `additionalContextLimit` of 2,500 approximate tokens is 10,000 B per handler ([90 §6.1]). |
 | PE-008 | hook | generic | - | 8000 | 8000 | design | [90 §6.4] `generic`; [AR §7.5]; [F19 §3.2] | As PE-006, at the `generic` profile's hook context of 8,000 B. |
@@ -300,7 +305,7 @@ phase takes a class's candidates in class order whatever their floor ([AR §7.4]
 | PX-008 | 8 | drop | design | [AR §7.4] step 4; [01 §7] L1 via [AR] | Every entry not taken is dropped; the footer lists the dropped ids per class, and PY-004 holds. Nothing is truncated silently. |
 | PX-009 | 9 | degrade-bookkeeping | proposed | [AR §7.4] step 3 | An entry taken below its assigned level is not dropped and is not counted as dropped; `--more` (PX-012) re-renders it at its assigned level. |
 | PX-010 | 10 | emit | design | [AR §7.4] step 4 "deterministic order (prompt-cache friendly)" | Emit C1, then C2 to C8 in rank order; inside a class, the entries in class order (not fill order), each at the level it was taken; then the legend and the footer. |
-| PX-011 | 11 | cursor | proposed | [AR §7.4] C8; [AR §6.5] lazy kinds "read cursors"; [F05 §9.11]; [F11 §13.1]; [OP-8] | After emitting, one lazy pack-cursor record (A, T, rev) is appended: a `Lazy` record of `sub` 2, `feed` 2, `task` = T's `#N` and `cursor_seq` = rev (PT-032), in the session the pack runs in. It is runtime state, never versioned, so the pack stays a pure read of versioned state. Whether the `pack` verb or the layer that delivers the pack appends it is the owner's call ([OP-8]); until then no M0 command appends it, so C8 is empty in the engine and the model alike. |
+| PX-011 | 11 | cursor | proposed | [AR §7.4] C8; [AR §6.5] lazy kinds "read cursors"; [AR §5d.1] per-session cursors; [F05 §9.11]; [F11 §13.1]; [OP-8] | After the pack is delivered, one lazy pack-cursor record (A, T, rev) is appended: a `Lazy` record of `sub` 2, `feed` 2, `task` = T's `#N` and `cursor_seq` = rev (PT-032), in the session the pack runs in. It is runtime state, never versioned. The layer that delivers the pack appends it, the `SubagentStart` hook or the MCP server, as [AR §5d.1] keeps the per-session cursors; the `pack` verb never does and stays a read that appends nothing ([40] I-F5, [API §14.1]). Decided by the owner on 2026-09-28 ([OP-8]). No M0 command is a delivering layer, so C8 is empty in the engine and the model alike. |
 | PX-012 | 12 | more | proposed | [AR §7.4] step 4 "`more: moirai pack 51 --more`"; [OP-9] | `--more` recomputes steps 1-4 at the current view and emits C1 and, in PO-008 order, the entries the base pack drops or degrades, at their assigned levels, within E. If that page must drop again, its footer names `--budget` and `-o FILE`; there is no third page. |
 | PX-013 | 13 | record-run | design | [AR §7.4] step 5 | With `--record-run` only: one commit of `consumed` edges with `pinned_commit` from the run to every entry rendered at L1 or L2; who may do so is [RULES/role-write-policy] WV-040. Without it the pack writes nothing versioned. |
 
@@ -496,11 +501,12 @@ parameter `pack_digest`, the additive `result.v1` field `pack_digest` (a `string
    keys the row by (session, agent, feed, task); PT-028 and PX-011 cite both. R-MODEL's round-2 request named T's uid;
    the `#N` is taken instead (store-wide, never reused, [F11 §9]; a re-keyed T gets a new `#N` and starts with no
    cursor), which changes no rule. The key includes the session, so cursor(A, T), like mark(A) (PT-027, [F11 §13.2]),
-   is read in the session the pack runs in; a dropped row leaves C8 empty. **Who appends** is open with the owner
-   (OQ-F-3): [40] I-F5 lists `pack` among the read verbs that append nothing, while PX-011 has the pack append the
-   cursor; the recommended answer is the layer that delivers the pack (hook or MCP server), which would change PX-011's
-   actor, not its record. Until the owner answers, no M0 command appends a pack cursor ([API] open point 48), so C8 is
-   empty on both sides of GT2 and PX-011 appends nothing in the model.
+   is read in the session the pack runs in; a dropped row leaves C8 empty. **Who appends** was owner question OQ-F-3:
+   [40] I-F5 lists `pack` among the read verbs that append nothing, while PX-011 had the pack append the cursor.
+   **Decided** 2026-09-28 (OQ-F-3, option (b)): the layer that delivers the pack (the `SubagentStart` hook or the MCP
+   server, as [AR §5d.1] keeps the per-session cursors) appends it after delivery, and the `pack` verb appends nothing;
+   PX-011 names that actor, and its record is unchanged. No M0 command is a delivering layer ([API] open points 25 and
+   48), so C8 is empty on both sides of GT2 and the model appends no pack cursor. WP-81a edits [AR §7.4] C8.
 9. **`--more`.** The design prints the continuation but not what the next page holds. Proposed (PX-012, PK-006): a
    stateless complement page, recomputed at the current view; no third page.
 10. **Brief classes.** (a) [AR §7.4] names five brief queries but eleven kinds of content; BR rows map them (checkpoint,

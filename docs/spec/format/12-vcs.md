@@ -155,7 +155,12 @@ refusal of the operation (a second merge of one staged pair, I41′, §9.1).
 ### 2.5 Ref-name input
 
 - **IN-1 (NFC).** Every ref-name argument and `ref`-typed configuration value is NFC-normalised before any rule is checked
-  ([80] X-F9). Any byte outside ASCII that remains then fails RN-1; an error text quotes the normalised form.
+  ([80] X-F9). Any byte outside ASCII that remains then fails RN-1. NFC turns non-ASCII input only into non-ASCII or into
+  ASCII that RN-1 refuses: the only non-ASCII characters whose normalisation is ASCII are the canonical singletons
+  U+212A → `K`, U+037E → `;` and U+1FEF → `` ` `` (checked against the UCD 17.0.0 `UnicodeData.txt` of `fixtures/ucd/`),
+  and a composition always yields a non-ASCII character. So IN-1 needs no composition table at M0: an implementation
+  refuses any non-ASCII byte under RN-1 and its error text ([F19 §10.2] `bad_ref_name`) quotes the input as given
+  (completed by IN-3, never normalised), which accepts and refuses exactly what NFC followed by RN-1 does.
 - **IN-2 (no folding).** Upper case is never folded: `lane/L5np` fails RN-1 (hint: ref names are lower case).
 - **IN-3 (namespace completion).** Only the creating verbs complete a name:
   - `branch NAME [--kind work|plan]` and `checkout --branch-new NAME`: a NAME that begins with `lane/` or `plan/` is taken
@@ -441,8 +446,9 @@ theirs flat(t)}, where class is the `conflict` cell of the first row of k's merg
 whose case holds for (b, flat(o), flat(t)), or, when no such row holds, the class of the conflicted side (dst's when both
 are conflicted). On an existence key the provisional side follows the last bullet above. The conflicted side's own
 conflict value stays readable as the `Conflict` op's `old` (§6.4). No merge input therefore leaves the model in
-`SpecGap`: [RULES/merge-table] MR-005 states this rule with RS-015 (pass 1, round 1), and the owner re-signs the table
-(V3, `reviews/owner-questions.md` OQ-M-1).
+`SpecGap`: [RULES/merge-table] MR-005 states this rule with RS-015 (pass 1, round 1). **Decided 2026-09-28** (owner
+question OQ-M-1, option (a); `reviews/owner-questions.md`): the owner accepted the changed rows (MR-005 and RS-015
+among them); the re-signature in `rules/SIGNED.md` follows under V3.
 
 ### 5.5 Termination, cycles and criss-cross
 
@@ -760,9 +766,11 @@ key or store parameter. Two maximal regions never share a start, so the choice i
 **Complexity** (pass 1, P1-29). With n the number of lines, the region search is O(64 · n) per call and the recursion
 depth is at most n, so HD is O(64 · n²) in the worst case (a text of repeated rare lines); prefix and suffix stripping make
 the usual edit O(n). Texts and bodies are at most 65,536 bytes ([F08 §5.3]), so n ≤ 65,536. WP-60 (`moirai-diff`)
-measures HD and diff3 on worst-case inputs at that bound and on the usual edits, and records both against the merge's
-share of the commit-path budget ([AR §8.3] SPEED); the constant 64 does not change with the result, which only decides
-whether the implementation needs a faster equivalent of the same function.
+measured HD and diff3 at that bound: on repeated-rare-line inputs a direct implementation took 1–12 s per HD and up to
+23.9 s per diff3, so WP-60 built a faster equivalent of the same function, which takes about 16–22 ms per HD and about
+32 ms per diff3 on those inputs, about 40 µs per HD and 78 µs per diff3 on the usual edits, with at most 1.6 MB of scratch
+memory. The constant 64 stays and no work cap is needed; how an adversarial text key counts against the merge gate of
+[AR §1] row 12 is open point 29.
 
 **diff3(Ob, Ao, Bt)** takes the base, ours and theirs texts. Let O = lines(Ob), A = lines(Ao), B = lines(Bt), MA = HD(O, A),
 MB = HD(O, B), and ma(i), mb(i) the partner of O's line i in MA, MB when it has one. From (p, q, r) = (0, 0, 0), repeat:
@@ -1032,7 +1040,8 @@ rule 3 (open points 11 and 13), not measured values.
    a conflict value {class from the key's value rows on (b, flat(o), flat(t)), else the conflicted side's class; base b;
    ours flat(o); theirs flat(t)} — so no merge input leaves the model in `SpecGap`. **Pass 1 (P1-21): adopted** as the
    normative rule of §5.4's last paragraph. **Done** (round 1): [RULES/merge-table] MR-005 (`conflict-plain-base`) with
-   RS-015 states it; the owner re-signs (OQ-M-1).
+   RS-015 states it. **Decided 2026-09-28** (OQ-M-1 (a)): the owner accepted the changed rows; the re-signature in
+   `rules/SIGNED.md` follows under V3.
 4. **The provisional value and the `prov` byte** (§6.3). Readers, indexes, derived predicates and I26′'s `term()` need a
    plain value of a conflicted key, which no chapter defined. For every key but existence it is derived from the sides
    (`ours`, else `theirs` when `ours` is `absent`), which also covers [RULES/merge-table] RS-011 ("the modified definition
@@ -1071,7 +1080,10 @@ rule 3 (open points 11 and 13), not measured values.
     matches nothing (git falls back to Myers; that would need a second specified algorithm). WP-60's `moirai-diff`
     implements HD exactly, and its other uses (the replay's "full histogram-diff mapping") may use it as is. The diff3
     chunk walk and resolution are the classic ones (Khanna, Kunal and Pierce's formalisation). The empty-result and length
-    rules are this chapter's.
+    rules are this chapter's. **Spec sync 2a** (WP-60 review): taking the least j among the rarity-1 regions (the
+    order (rarity, −len, j, i)) can split a box far off its diagonal, for example at a unique line that moved from one
+    end of the text to the other. That gives more conflicting chunks than git's histogram diff would, but never a wrong
+    merge: HD still returns a valid common subsequence, and diff3 resolves only chunks where one side equals the base.
 12. **Directional rules** (§7.7, review S-15). GT6's "merge commutation" and [40 §8.3.2] P8 are equality up to the listed
     directional rows and side exchange; the alternative the review offered (a state order for the same-path composite)
     would change [40 §5.5]'s "take dst's composite" and is not adopted.
@@ -1079,7 +1091,10 @@ rule 3 (open points 11 and 13), not measured values.
     several segments (`tags/release/1.0`), so RN-8 (the prefix rule git's loose refs need) is required. (c) RN-6's 128
     bytes keeps a loose ref's path within Windows' 260-character limit for an image repository at an ordinary depth; it is
     a chapter decision. (d) A merge's src is a ref; merging an arbitrary commit is refused, because the absorbed vector and
-    the staging name need a ref (cherry-pick applies one commit).
+    the staging name need a ref (cherry-pick applies one commit). (e) **Spec sync 2a** (WP-61 review): IN-1's NFC step
+    cannot change which names RN-1 accepts (checked against the UCD singletons), so M0 refuses non-ASCII directly and an
+    error quotes the input rather than its normalised form; a later format that admits non-ASCII ref names needs NFC's
+    decomposition and composition tables.
 14. **`RefUpdate` reason 5 `park`** (§8.2) for [F05 §9.2] and [F16]: the park of `orphans/<ref>` is a non-commit
     move ([AR §5a.2]) that no reason 1–4 describes. **Pass 1 (P1-3, S1-11, A1-11):** [F05 §9.2] defines reason 5; §8.2
     cites it. **Closed** (round 1): [F05 §9.2] has reason 5 (`old` zero when it creates `orphans/<R>`), [F05 §9.10] the
@@ -1110,6 +1125,7 @@ rule 3 (open points 11 and 13), not measured values.
 21. **Import refs accept `RESOLVE`** (§3.7, §9.6). [50 §3.9] item 6 lists `import/*` as read-only, while [AR §5b.6] step 4
     finishes a staged import with `resolve` and `merge --continue` "like a local merge". Import staging is [AR]'s (not an
     [50] reservation), so [AR] is followed; [LQ/errors] E305's `an import ref` case then applies to plain writes only.
+    **Spec sync 2a:** E305 now reads `an import ref accepts only RESOLVE`, and [50 §3.9] item 6 is corrected at WP-81a.
 22. **Views of tags and other non-branch refs** (§3.7) are commit views, so runtime relations are E302 there ([50 §3.9]
     item 4: runtime relations exist "only at a branch tip"). A range's base with several LCAs is the virtual base, and
     [LQ/errors] N05 needs a form that names no single LCA commit (for example `their merge base (<k> LCAs)`).
@@ -1135,3 +1151,10 @@ rule 3 (open points 11 and 13), not measured values.
     introducing commit (images stay value keys only); §7.3 cites [F07 §7.3] as the one equality rule; §6.2 uses the
     renumbered `ckey` classes; §5.5a charges virtual-base work to the merge's budgets and §7.5 states HD's complexity for
     WP-60 to measure.
+29. **An adversarial text key against the merge gate** (§7.5; spec sync 2a, WP-60 review). WP-60's faster HD takes about
+    32 ms for one diff3 of repeated rare lines at the 65,536-byte bound, against the ≤ 50 ms for the merge of a 2k-op lane
+    at 1e5 of [AR §1] row 12 (GT11). One such key thus takes most of a merge's budget, and two exceed it. To decide
+    before GT11's merge row is written (M1): whether GT11 measures workloads only (the 2k-op lane of ordinary edits, where
+    a text key costs about 78 µs) and an adversarial text is outside the gate, or whether a merge needs a per-merge text
+    budget, which would have to be a format-fixed rule (a merged text enters commit ids, so a budget that changes the
+    result could never be a configuration key; one that only reports cannot change the result).

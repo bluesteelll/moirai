@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Title | Questions that need the owner's call, raised by the author roles while closing review pass 1 |
-| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. |
+| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Open:** OQ-F-4, raised in spec sync 2a after that decision. |
 | Scope | only questions that change an approved design decision or need the owner's call; runtime policy goes to config keys ([AGENTS.md]) and is not listed |
 
 Each entry names the raising role, the findings, the options and the role's recommendation. Roles append entries; ids
@@ -210,3 +210,22 @@ carry the role letter (R = R-SPEC-R, P = R-SPEC-P, F = R-SPEC-F, M = R-MODEL).
   stated alternative).
 - **Recommendation.** (a): it is the one that makes "retest is not re-review" bite, since the review verdict must come
   from someone other than the fixer; [F13] OP-13-09 then cites GD-005.
+
+## OQ-F-4 — Three additions to the closed `unverified` set (open; [F18] open point 12)
+
+- **Raised by** R-SPEC-F, spec sync 2a. These additions date from WP-14 and pass 1, but no earlier entry asked for them,
+  so the decisions of 2026-09-28 do not cover them. **Where** [F18 §4.6] codes 59–61, [F18] open point 12; [F20 §1.5],
+  [F20] open point 22; [40 §2.9] (the closed `unverified` set); [80 §2.11.4] rule 9; [40 §2.4], [F02 §7.3].
+- **Question.** [40 §2.9] closes the `unverified` reasons at `budget`, `cloud-only`, `commit not in this repository`,
+  `no tree`, `git` and `size`, and every reason is a frozen string. [F18 §4.6] adds three:
+  (1) `unreadable` (code 59): a denial on the stat of the path or on a content read ([80 §2.11.4] rule 9, [F20 §4.8]);
+  (2) `unmapped root` (code 60): a named root with no `roots.<name>` mapping on this machine, the rendering [40 §2.4] and
+  [F02 §7.3] already name but the closed set lacks;
+  (3) `oid algorithm differs` (code 61): a `file` anchor with `span` watch whose captured `blob` has another algorithm than
+  the current content ([F20 §6.5]).
+  Each is a frozen-string addition to the set [40 §2.9] closes, as `none` and `unresolved` were at the A1 re-review.
+- **Options.** (a) Sign the three additions; WP-81a adds them to [40 §2.9]. (b) Decline: `unmapped root` renders
+  `no tree`, and `unreadable` and `oid algorithm differs` render `budget`, which [F20] open point 22 shows to be
+  misleading (a retry with a larger budget changes nothing). (c) Name the addition to revisit.
+- **Recommendation.** (a): each names a cause the agent can act on (fix a permission, map the root, re-capture the
+  anchor), and the codes and strings already stand in [F18 §4.6] and [F20 §1.5], so (a) changes no spec chapter.

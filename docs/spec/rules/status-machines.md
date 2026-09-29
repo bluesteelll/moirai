@@ -69,10 +69,13 @@ the last column is free prose, and every other cell holds one token (or a `, `-s
 
 ## 4. Statuses
 
-`initial = yes` marks a status a `Create` may start in. `done` gives what the virtual field reads: `yes` or `no` for
-that status, `derived` for a kind whose `done` is a derived predicate independent of the status, and `absent` for a
-kind that has no `done`. `lattice` names the [RULES/merge-table] row of the same kind and status; the model checks at
-load that it exists and matches.
+`initial = yes` marks a status a `Create` may start in. The kind's **default** status — the one a `Create` without a
+status starts in, which the canonical form holds as absent ([F07 §6.3]) — is [F08 §9.1]'s "initial status (default)"
+column; it is the only `initial = yes` status of every kind but `artifact`, whose default is `present` (`planned` only
+through `link --planned`). The model checks that each default is an `initial = yes` status. `done` gives what the
+virtual field reads: `yes` or `no` for that status, `derived` for a kind whose `done` is a derived predicate independent
+of the status, and `absent` for a kind that has no `done`. `lattice` names the [RULES/merge-table] row of the same kind
+and status; the model checks at load that it exists and matches.
 
 <!-- table: statuses -->
 | row | kind | status | initial | done | lattice | basis | source | note |
@@ -115,8 +118,8 @@ load that it exists and matches.
 | ST-036 | measurement | `current` | yes | absent | SL-036 | design | [AR §3.2] | `stale` is derived, never a status. |
 | ST-037 | measurement | `moved_declared` | no | absent | SL-037 | design | [AR §3.2] | - |
 | ST-038 | measurement | `retracted` | no | absent | SL-038 | design | [AR §3.2] | - |
-| ST-039 | artifact | `planned` | yes | absent | SL-039 | design | [40 §2.2]; [40 §3.2] | Created by `link --planned`. |
-| ST-040 | artifact | `present` | yes | absent | SL-040 | design | [40 §2.2]; [40 §3.2]; [40 §3.3] | Created by capture (`link --at`, `file add`) of a file that exists. Link states such as `missing` are tree-derived and never stored. |
+| ST-039 | artifact | `planned` | yes | absent | SL-039 | design | [40 §2.2]; [40 §3.2]; [F08 §9.1] | Created by `link --planned`; not the default status. |
+| ST-040 | artifact | `present` | yes | absent | SL-040 | design | [40 §2.2]; [40 §3.2]; [40 §3.3]; [F08 §9.1] | The default status ([F08 §9.1]). Created by capture (`link --at`, `file add`) of a file that exists. Link states such as `missing` are tree-derived and never stored. |
 | ST-041 | artifact | `removed` | no | absent | SL-041 | design | [40 §2.2]; [40 §3.5] | "deleted on purpose". |
 | ST-042 | run | `running` | yes | absent | SL-042 | design | [AR §3.2] | - |
 | ST-043 | run | `green` | no | absent | SL-043 | design | [AR §3.2] | - |
@@ -360,7 +363,7 @@ node's `at` in-edges); `store`.
 | GR-002 | role-policy | status-write | E406 | 6 | design | [AR §7.3]; [50 §6.5]; [RULES/role-write-policy WR-009] | Whether the caller's effective role may make the transition is decided by [RULES/role-write-policy] (`door-roles` names the rows). A role row is usable only through a door that `transitions` lists for the transition. |
 | GR-005 | target-live | status-write | not_found | 3 | design | [AR §7.1] exit 3; [F19 §10.2] `not_found`; [API §9.1] | A status write on a deleted or absent node is "not found": [F19 §10.2] `not_found` with `what` = `node`, and the tombstone is printed ([RULES/delete-policy-matrix] DP-003). |
 | GR-006 | create-status | create | E404 | 6 | proposed | [50 §3.10] item 6; [OP-17] | A `Create` takes an initial status. A `Create` that names another status is checked as a path of `transitions` rows from an initial status to it, every step with its guards and a role grant; `CREATE (x:artifact …)` stays E115 ([50 §3.10]). |
-| GR-007 | per-statement | tx | - | - | design | [50 §3.10] items 2, 5; [AR §4.3] coalescing | Statements are checked in order on the candidate; a guard sees the effects of earlier statements. The stored op is the net `SetStatus` per node, so `TX { REOPEN t; SET t.done = true }` on a done task stores nothing. |
+| GR-007 | per-statement | tx | - | - | design | [50 §3.10] items 2, 5; [AR §4.3] coalescing | Statements are checked in order on the candidate; a guard sees the effects of earlier statements. The stored op is the net `SetStatus` per node, so `TX { REOPEN t; SET t.done = true }` on a done task stores no status op; its net changeset holds only GR-011's `reopen_count` increment. |
 | GR-008 | non-door | merge-history-import | - | - | design | [AR §5a.5]; [AR §5a.7]; [AR §5b.6]; [AR §3.4] I8 | Merge, `sync`, revert, cherry-pick, `undo`, `op restore` and import are not checked against `transitions` or the role write policy's status rows; I8 is checked on the resulting state: the status is one of the kind's `statuses` or a conflict value. |
 | GR-009 | done-true | set-status | E115 | 2 | design | [AR §3.1]; [50 §3.8]; [50 §5.2] E115 | `SET x.done = true` is the transition to `done` (task), `answered` (question) or `accepted` (verdict); on a kind whose `done` is `absent` it is E115. |
 | GR-010 | done-false | set-status | E404 | 6 | design | [AR §3.6]; [50 §3.10] item 6 | `SET x.done = false` is refused, naming `REOPEN`. |
@@ -436,7 +439,9 @@ None. No transition, guard or grant depends on a value an M0 measurement decides
     design is silent.
 11. **I13's "different actor" and "review verdict"** (GD-005). Read as: the verdict of the `verifies` edge has role
     `code-reviewer` or `architecture-critic`, and the `addresses` edge was created by an actor other than that
-    verdict's creator. The alternative, "different from the finding's author", is also plausible.
+    verdict's creator. **Decided** 2026-09-28 (owner question OQ-M-2, option (a)): this reading, not the actor of the
+    commit that moves the finding to `fixed` ([F13] OP-13-09, now closed citing GD-005) and not "different from the
+    finding's author".
 12. **I14's "read back"** (GD-006). Read as: the artifact's `oid` was observed after the run started. How the engine
     records that observation is [40]'s runtime; the model checks it against the simulated tree.
 13. **Role rights live in one table** (`door-roles`, GR-002). [RULES/role-write-policy] was written beside this file and

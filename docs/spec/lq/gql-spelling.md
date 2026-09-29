@@ -49,8 +49,9 @@ admits zero hops"), and `{,n}` has lower bound 0 ([50 §2.3]).
 
 The same holds for `<-[...]-` and `-[...]-`. Quantified groups `((a)-[:T]->(b) WHERE p)q` take only the GQL quantifiers `+`, `*`
 and `{…}` in grammar v1 (`group_pat`, [50 §2.3]), in every mode. One edge takes one quantifier: `-[:T*2]->{1,3}` is E114
-([LQ/errors §5.2]). How `{1,1}` is encoded is [LQ/canonical-ast]'s (its open point C-19 keeps it a quantifier); the display
-printer prints it as a plain hop, and the reading echo adds no suffix for it ([LQ/envelope §4.4]).
+([LQ/errors §5.2]). How `{1,1}` is encoded is [LQ/canonical-ast]'s (its open point C-19 keeps it a quantifier, `QUANT(1,1)`);
+the display printer prints it as any `{m,m}` (`*1` or `{1}`, §4.2), so the printed text re-parses to the same tree, and the
+reading echo adds no suffix for it ([LQ/envelope §4.4]).
 
 2.2. **Pattern predicates and property tests.**
 
@@ -160,7 +161,7 @@ unaffected: the display printer is separate from the canonical encoder ([50 §5.
 | `{1,}` | `*1..` | `+` |
 | `{0,}` | `*0..` | `*` |
 | `{m,}` | `*m..` | `{m,}` |
-| `{m,m}`, m ≥ 2 | `*m` | `{m}` |
+| `{m,m}`, m ≥ 1 | `*m` | `{m}` |
 | `{m,n}` | `*m..n` | `{m,n}` |
 
 In a pattern, the Cypher candidate prints the quantifier inside the brackets (`-[:BLOCKS*2..]->`) and the GQL candidate after
@@ -245,3 +246,7 @@ grouping, and for functions the canonical names of [LQ/canonical-ast §5.3] Tabl
    arm's card uses GQL quantifiers whatever the display spelling is.
 9. **Hole id.** [F01 §2.5] makes hole ids `<part>-<name>`; this chapter's hole is `HOLE(LQ-display-spelling)`, and
    [LQ/canonical-ast]'s mention now uses the same id (review pass 1 S1-40).
+10. **`{1,1}` in print** (spec sync 2a, WP-93a review). §2.1 no longer says the display printer prints `{1,1}` as a plain hop:
+    [LQ/canonical-ast] C-19 keeps `QUANT(1,1)`, and the printer property (a printed text re-parses to the same S-AST,
+    [LQ/canonical-ast §3.4]) needs `*1` or `{1}`, so §4.2's `{m,m}` row starts at m = 1. Only the reading echo adds no suffix
+    for `{1,1}` ([LQ/envelope §4.3], §4.4).

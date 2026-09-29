@@ -33,8 +33,7 @@ A1P-10).
 
 ```rust
 /// A place for one operation: a root and a path under it (the empty path is the root itself).
-#[derive(Copy, Clone)]
-pub struct At<'a, R> { pub root: &'a R, pub path: &'a RelPath }
+pub struct At<'a, R> { pub root: &'a R, pub path: RelPath<'a> }   // Copy for every R; RelPath<'a> by value ([OS/path §2.1])
 
 pub trait ProjectFs: Send + Sync + 'static {
     /// An opened directory used as the base of relative operations: a tree root, a named root, `<store>/tmp`
@@ -58,7 +57,7 @@ pub trait ProjectFs: Send + Sync + 'static {
     fn stat(&self, at: At<'_, Self::Root>, mode: StatMode) -> Result<Stat, VfsError>;             // §5.1
     fn disk_spelling(&self, at: At<'_, Self::Root>) -> Result<RelPathBuf, VfsError>;              // §5.3
     fn enumerate<F>(&self, dir: At<'_, Self::Root>, visit: F) -> Result<EnumEnd, VfsError>
-        where F: FnMut(&ProjEntry) -> core::ops::ControlFlow<()>;                                   // §5.2
+        where F: FnMut(&ProjEntry<'_>) -> core::ops::ControlFlow<()>;                               // §5.2
     fn locate_id(&self, root: &Self::Root, id: &OsFileId, recorded: FileAttrs)
         -> Result<Located, VfsError>;                                                              // §5.4
     fn file_handle_digest(&self, at: At<'_, Self::Root>) -> Result<Option<[u8; 8]>, VfsError>;  // §5.4
@@ -159,7 +158,7 @@ rows in [OS/fs §6.2] (pass 1, A1-33; open point 6):
 
 | Kind (added) | Meaning | Windows | Linux, macOS |
 |---|---|---|---|
-| `CloudOnly` | the operation would hydrate a cloud-only entry (§5.10) | decided from the entry's attributes before any open; an `ERROR_CLOUD_FILE_*` code (362–400) if one still occurs | macOS `SF_DATALESS`, or the error a read returns while materialisation is off |
+| `CloudOnly` | the operation would hydrate a cloud-only entry (§5.10) | decided from the entry's attributes before any open; a code of the `ERROR_CLOUD_FILE_*` family if one still occurs (matched by name: winerror.h has members at 358, 404, 426, 434 and 475 and gaps inside 362–400, [OS/fs §6.2]) | macOS `SF_DATALESS`, or the error a read returns while materialisation is off |
 | `IsSymlink` | a content read of a symbolic link (use `read_link`) | reparse tag `IO_REPARSE_TAG_SYMLINK` | `ELOOP` from `O_NOFOLLOW` |
 | `IsDirectory` | a content read or unlink of a directory | 267 `ERROR_DIRECTORY`, or the attributes | `EISDIR` |
 | `OutsideRoot` | an opened object's final path is not under the root (§5.5) | the final-path check | `EXDEV` from `RESOLVE_BENEATH`, `ELOOP` from `O_NOFOLLOW_ANY` |
@@ -178,8 +177,8 @@ pub struct PfsCounters {
     pub renames: u64,       // rename_noreplace and the rename step of durable_rename
     pub dir_syncs: u64,     // sync_dir calls, including those inside durable_* (the "directory flushes" of a verb)
     pub unlinks: u64,       // unlink, remove_dir and the unlink step of durable_unlink
-    pub stats: u64,         // stat calls
-    pub dir_reads: u64,     // enumerate calls
+    pub stats: u64,         // stat calls that passed the Windows name check (§2.3)
+    pub dir_reads: u64,     // enumerate calls that passed the Windows name check (§2.3)
     pub id_lookups: u64,    // locate_id and file_handle_digest calls that reached the OS
     pub content_opens: u64, // read_for_hash opens
     pub bytes_read: u64,    // bytes returned by Reader::read
@@ -187,7 +186,9 @@ pub struct PfsCounters {
 ```
 
 A verb's flush accounting reads the store's log data flushes from [OS/fs]'s counters and `dir_syncs` from these, so the
-`file mv` gate reads "2 log flushes and 2 directory flushes" ([AR §8.3], A1P-07).
+`file mv` gate reads "2 log flushes and 2 directory flushes" ([AR §8.3], A1P-07). As `id_lookups` counts only calls that
+reached the OS, `stats` and `dir_reads` count only calls that passed the Windows name check: a call refused with
+`InvalidName` before any OS call counts nothing.
 
 ## 3. File identity, timestamps and attributes
 
@@ -214,6 +215,40 @@ A verb's flush accounting reads the store's log data flushes from [OS/fs]'s coun
 - `nFileIndex` (the 64-bit Windows index) is never used: on ReFS it can be −1 ([40 §2.6]).
 - A value whose kind is reserved, or whose kind is 0 with any non-zero byte, or whose `aux` is non-zero, is
   uninterpretable and treated as absent ([80] X1).
+
+**The Rust type** (in `moirai-vfs`):
+
+```rust
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum FileIdKind { None = 0, Ntfs128 = 1, Refs128 = 2, LinuxIno = 3, DarwinFileId = 4 }  // `from_u8`: None for 5–255
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct VolumeKey(pub [u8; 16]);
+
+#[derive(Copy, Clone, Debug)]          // `PartialEq`, `Eq` and `Hash` below
+pub struct OsFileId {
+    pub kind: FileIdKind,
+    pub vol_key: VolumeKey,
+    pub id: [u8; 16],
+    pub parent: [u8; 16],
+    pub docid: u32,                    // no `aux` field: it is reserved and always zero
+}
+impl OsFileId {
+    pub const LEN: usize = 57;
+    pub const NONE: OsFileId;          // kind `none`, every field zero
+    pub const fn is_none(&self) -> bool;
+    pub const fn canonical(self) -> OsFileId;             // NONE for every value of kind `none`, else itself
+    pub fn same_object(&self, other: &OsFileId) -> bool;  // §3.2
+    pub fn to_bytes(&self) -> [u8; 57];                   // the canonical form
+    pub fn from_bytes(b: &[u8; 57]) -> Option<OsFileId>;  // None when uninterpretable (above)
+}
+```
+
+- The fields are public; there is no `aux` field. A non-zero `aux` makes `from_bytes` answer `None` (uninterpretable).
+- `to_bytes` encodes the canonical form: `aux` is written as zero, and a value of kind `none` as 57 zero bytes whatever
+  its other fields hold, so `from_bytes(&v.to_bytes()) == Some(v)` for every `v`.
+- `==` and `Hash` compare the canonical form (every field of it), so every value of kind `none` equals `OsFileId::NONE`.
+  Object identity is only ever `same_object` (§3.2), which ignores `parent` and `docid`; `==` is not identity.
 
 ### 3.2 The identity rule (frozen, X-F8)
 
@@ -340,6 +375,10 @@ The snapshot stored in `TREES` ([80 §2.11.2], [F11]):
 A snapshot with a reserved bit or value set is uninterpretable, and its `TREES` row behaves like a first settle ([80] X1).
 `VolumeCaps` converts to and from the snapshot losslessly.
 
+A `VolumeCaps` with `case_rule = Sensitive` and `case_insensitive_default = true` is **invalid**: no implementation
+constructs one, and a snapshot that carries it (`case_rule` 0 with bit 0 of `flags` set) is uninterpretable, as the
+`case_rule` row states.
+
 `DirEquivalence { case_insensitive: bool, norm_insensitive: bool }` is the equivalence one directory observes (§4.5).
 
 ### 4.3 Capability values per file system
@@ -425,8 +464,9 @@ the next settle; on Linux and macOS a read sees the id ([40 §2.6], [80 §2.11.4
 ### 5.2 `enumerate`
 
 ```rust
-pub struct ProjEntry {
-    pub name: EntryName,             // [OS/path §2.4]
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct ProjEntry<'a> {
+    pub name: EntryNameRef<'a>,      // [OS/path §2.4]; borrowed from the enumeration's buffer
     pub kind: ProjKind,
     pub stat: Option<StatRec>,       // Some where the enumeration call returns the attributes (Windows, macOS)
     pub ino_hint: Option<u64>,       // Linux d_ino, for the frontier; None elsewhere
@@ -434,6 +474,15 @@ pub struct ProjEntry {
 pub enum EnumEnd { Complete, Stopped }
 ```
 
+- **An entry is borrowed.** `ProjEntry<'a>` and its `EntryNameRef<'a>` live only for one call of `visit`; a caller that
+  keeps a name takes `entry.name.to_owned()` (an [OS/path §2.4] `EntryName`). A tree scan therefore allocates nothing per
+  entry: the implementation converts each name into one buffer reused for the whole enumeration.
+- **The directory itself is never a link.** `enumerate` first reads the attributes of `dir` without opening it; if `dir` is
+  a symbolic link it fails with `IsSymlink`, and if it is another non-cloud reparse point (a junction, a WSL link) with
+  `Other`, so a walk never lists a link's target outside the tree ([40 §2.4]). Only then does it open the directory,
+  without `FILE_FLAG_OPEN_REPARSE_POINT`; a cloud directory placeholder counts as a directory (and one marked
+  `RECALL_ON_DATA_ACCESS` is refused below). Linux and macOS get the same refusal from the relative open's
+  `RESOLVE_NO_SYMLINKS` and `O_NOFOLLOW_ANY` (`ELOOP` → `IsSymlink`).
 - Entries `.` and `..` are never reported. Order is the file system's; **every consumer sorts candidates by exact name
   bytes before any tie-break** ([80 §2.11.4] rule 4).
 - `visit` returning `Break` stops the enumeration (`EnumEnd::Stopped`); the handle is closed before `enumerate` returns.
@@ -518,8 +567,11 @@ source and opens nothing itself, A1P-10):
      IOPOL_MATERIALIZE_DATALESS_FILES_OFF` are set once per process at the first `read_for_hash`; `fstat` re-checks
      `SF_DATALESS` on the descriptor.
 3. **Containment.** Windows: `GetFinalPathNameByHandleW` of the handle, rewritten as [OS/path §4.1], must lie under the
-   root's text; otherwise the handle is closed and the result is `OutsideRoot` (a junction or directory symlink on the
-   path, [40 §2.4]). Linux and macOS get this from `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS` and `O_NOFOLLOW_ANY`.
+   root's text: the root's text followed by `/` must be an **exact byte prefix** of the final path, never compared
+   ignoring case (under per-directory case sensitivity a junction to a sibling whose name differs from the root's only in
+   case would otherwise pass). Otherwise the handle is closed and the result is `OutsideRoot` (a junction or directory
+   symlink on the path, [40 §2.4]). Linux and macOS get this from `RESOLVE_BENEATH | RESOLVE_NO_SYMLINKS` and
+   `O_NOFOLLOW_ANY`.
    **Placeholder re-check through the handle** (pass 1, P1-38): before the first read, Windows reads
    `GetFileInformationByHandleEx(FileAttributeTagInfo)` on the open handle; if the entry became cloud-only between step 1
    and the open (a file replaced by a placeholder) and `!opts.allow_hydrate`, the handle is closed unread and the result is
@@ -530,10 +582,12 @@ source and opens nothing itself, A1P-10):
    `FileStandardInfo` and `FileBasicInfo`; Unix `fstat`), and `identity` reads the object's `OsFileId` through it.
 5. Dropping the `Reader` closes the handle.
 
-**The two-pass rule** (A1P-05): FL-1's reader takes `snapshot()` before pass 1, runs both passes on one `Reader`
-(`rewind` between them), and takes `snapshot()` again after pass 2; if the size or the last-write time changed, or pass 2
-hashed a different normalised length than pass 1 counted, it retries once and then reports `unverified`. A replace-by-rename
-writer cannot affect an open handle; an in-place writer is caught by the snapshots.
+**The two-pass rule** (A1P-05; the rule itself is [F20 §2.4]'s): FL-1's reader takes `snapshot()` before pass 1, runs
+both passes on one `Reader` (`rewind` between them), and takes `snapshot()` again after pass 2. The content is stable
+only if all of these agree: the two snapshot sizes; the raw lengths n1 and n2 of the two passes; the two last-write
+times; the raw-content hashes `r1 = r2`; and the N1 normalised bytes pass 1 counted with the bytes pass 2 emitted.
+Otherwise it retries once from the start and then reports `Unavailable(unstable)`. A replace-by-rename writer cannot
+affect an open handle; an in-place writer is caught by the snapshots and the hashes.
 
 ### 5.6 `read_link` (P8)
 
@@ -649,7 +703,7 @@ recovery would fail the same way.
 | Operation | Sequence | Result on failure |
 |---|---|---|
 | `durable_rename(from, to, retry)` | `rename_noreplace`, then `sync_dir` of `from`'s parent and of `to`'s parent (once if they are one directory). macOS: `fsync` of both directory descriptors, then **one** `F_FULLFSYNC` on the second (`sync_group`, [80 §2.3.1]). `LinkedThenUnlinked`: the same two flushes | `NotDone(e)` if the rename failed (nothing changed); `NotDurable(f)` if it succeeded and a flush failed |
-| `unlink(at, retry)` | Windows: as [OS/fs §4.7] — if `FILE_ATTRIBUTE_READONLY` is set, clear it (`SetFileAttributesW`), then `DeleteFileW`; if the delete then fails, set the attribute back, so a failed `file rm` leaves the user's file unchanged (open point 9). Unix `unlinkat(root_fd, rel, 0)`, which ignores the file's mode, so both OSes delete a read-only file | `VfsError` |
+| `unlink(at, retry)` | Windows: as [OS/fs §4.7] — if `FILE_ATTRIBUTE_READONLY` is set, clear it (`SetFileAttributesW`), then `DeleteFileW`; if the delete then fails, set the attribute back, so a failed `file rm` leaves the user's file unchanged (open point 9). Unix `unlinkat(root_fd, rel, 0)`, which ignores the file's mode, so both OSes delete a read-only file. **A directory link** (a junction or a directory symbolic link: a directory entry that is a non-cloud reparse point) is removed as a link, never its target: Windows `RemoveDirectoryW` (`DeleteFileW` refuses directory links); Unix `unlinkat(root_fd, rel, 0)` without `AT_REMOVEDIR`, since a symlink is not a directory there. A real directory is `IsDirectory`; a cloud directory placeholder counts as a directory | `VfsError` |
 | `remove_dir(at, retry)` | Windows `RemoveDirectoryW`; Unix `unlinkat(…, AT_REMOVEDIR)`; the directory must be empty (`NotEmpty` otherwise) | `VfsError` |
 | `durable_unlink(at, retry)` | `unlink` (or, for an empty directory, `remove_dir`), then `sync_dir` of the parent | `NotDone` / `NotDurable` as for `durable_rename` |
 
@@ -832,3 +886,4 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 | 22 | Pass 1, P1-15: project paths reach NTFS through `\\?\`, which skips Win32 name normalisation, so `:` (alternate streams), reserved characters, device names and trailing dots or spaces were not refused | the Windows name check of §2.3 on every segment before any OS call, `InvalidName`, never relaxed by `--allow-nonportable`; [F20 §4.9] applies `representable_here` before any cascade call and [F18 §4.6] detail 44 renders it | WP-30, WP-63 |
 | 23 | Pass 1, P1-16: a project volume without directory flush failed `file mv` after the rename and blocked intent recovery | the plan step's `sync_dir` and its `no_dir_flush` refusal (§6.2, [API §12.4] step 1, [F19 §10.2]); recovery leaves the intent open with a `doctor` text ([F16] P-71); `VolumeCaps` bit 14 `dir_flush_doubtful` by file-system class (§4.2); FL-2 profiles for both paths (§9) | WP-30, WP-66 |
 | 24 | Pass 1, P1-38: `read_for_hash` checked cloud attributes by path and then opened the file | the attributes are re-read through the handle before the first read (§5.5 step 3, [OS/mapping-appendix §2.1]) | WP-30 |
+| 25 | Spec sync 2a (WP-30, WP-33, WP-62): points met while building `ProjectFs` | **closed:** §2.3 and [OS/fs §6.2] match the `ERROR_CLOUD_FILE_*` family by name; §2.4 counts `stats` and `dir_reads` only for calls that passed the Windows name check; §3.1 gives the Rust `OsFileId` (public fields, `kind: FileIdKind`, no `aux` field, canonical `to_bytes`, `==`/`Hash` on the canonical form, identity only through `same_object`); §4.2 makes `Sensitive` with `case_insensitive_default = true` invalid; §5.2 refuses `enumerate` on a directory link (`IsSymlink`, else `Other`) and makes `ProjEntry<'a>` borrow its name (`EntryNameRef<'a>`, [OS/path §2.4]), before FL-2 builds on it; §5.5 compares containment as an exact byte prefix and states the two-pass rule as [F20 §2.4]; §6.3 removes a directory link as a link (Windows `RemoveDirectoryW`, Unix `unlinkat` without `AT_REMOVEDIR`) and counts a cloud directory placeholder as a directory | FL-2, WP-33 |

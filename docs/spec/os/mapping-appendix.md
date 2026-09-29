@@ -44,13 +44,13 @@
 | `stat(at, Read)` | `GetFileAttributesExW(\\?\p, GetFileExInfoStandard)`; if `FILE_ATTRIBUTE_REPARSE_POINT`: `FindFirstFileExW(\\?\p, FindExInfoBasic, …)` for the reparse tag (`dwReserved0`), `FindClose` | [OS/project §5.1] |
 | `stat(at, WithId)` | `CreateFileW(\\?\p, FILE_READ_ATTRIBUTES, share R\|W\|D, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS \| FILE_FLAG_OPEN_REPARSE_POINT)` → `GetFileInformationByHandleEx` (`FileBasicInfo`, `FileStandardInfo`, `FileIdInfo`, `FileAttributeTagInfo`) → `CloseHandle`; the parent's id: the same open of the parent + `FileIdInfo`. Never on an entry last seen cloud-only | [OS/project §5.1, §5.10] |
 | `disk_spelling(at)` | `CreateFileW(\\?\p, FILE_READ_ATTRIBUTES, …, FILE_FLAG_BACKUP_SEMANTICS \| FILE_FLAG_OPEN_REPARSE_POINT)` → `GetFinalPathNameByHandleW(FILE_NAME_NORMALIZED \| VOLUME_NAME_DOS)` → `CloseHandle` | [OS/project §5.3] |
-| `enumerate(dir, visit)` | `CreateFileW(\\?\dir, FILE_LIST_DIRECTORY \| FILE_READ_ATTRIBUTES, …, FILE_FLAG_BACKUP_SEMANTICS)` → `GetFileInformationByHandleEx(FileIdInfo)` → `GetFileInformationByHandleEx(FileIdExtdDirectoryRestartInfo)`, then `FileIdExtdDirectoryInfo` until `ERROR_NO_MORE_FILES` (64 KiB, 8-byte aligned) → `CloseHandle`. Never on a `RECALL_ON_DATA_ACCESS` directory | [OS/project §5.2] |
+| `enumerate(dir, visit)` | `CreateFileW(\\?\dir, FILE_LIST_DIRECTORY \| FILE_READ_ATTRIBUTES, …, FILE_FLAG_BACKUP_SEMANTICS)` → `GetFileInformationByHandleEx(FileIdInfo)` → `GetFileInformationByHandleEx(FileIdExtdDirectoryRestartInfo)`, then `FileIdExtdDirectoryInfo` until `ERROR_NO_MORE_FILES` (64 KiB, 8-byte aligned) → `CloseHandle`. Where the file system does not support `FileIdExtdDirectoryInfo`, the plain classes `FileFullDirectoryRestartInfo` / `FileFullDirectoryInfo` instead, with no ids (every entry's `OsFileId` kind none). Never on a `RECALL_ON_DATA_ACCESS` directory | [OS/project §5.2] |
 | `locate_id(root, id, recorded)` | `CreateFileW(root, FILE_READ_ATTRIBUTES, …)` (volume hint) → `OpenFileById(hint, {sizeof, ExtendedFileIdType, FILE_ID_128}, FILE_READ_ATTRIBUTES, share R\|W\|D, NULL, FILE_FLAG_BACKUP_SEMANTICS \| FILE_FLAG_OPEN_REPARSE_POINT)` → `GetFinalPathNameByHandleW(FILE_NAME_NORMALIZED \| VOLUME_NAME_DOS)` → `CloseHandle` ×2 | [OS/project §5.4] |
 | `file_handle_digest(at)` | none: `Ok(None)` | [OS/project §5.4] |
 | `read_for_hash(at, opts)` | `GetFileAttributesExW` (placeholder gate) → `CreateFileW(\\?\p, GENERIC_READ, share R\|W\|D, OPEN_EXISTING, FILE_FLAG_SEQUENTIAL_SCAN \| FILE_FLAG_OPEN_REPARSE_POINT)` → `GetFinalPathNameByHandleW` (containment) → `GetFileInformationByHandleEx(FileAttributeTagInfo)` (the placeholder gate re-checked through the handle before the first `ReadFile`; pass 1, P1-38) | [OS/project §5.5] |
 | `Reader::read` / `rewind` / `snapshot` / `identity` / drop | `ReadFile` / `SetFilePointerEx(0, FILE_BEGIN)` / `GetFileInformationByHandleEx(FileStandardInfo, FileBasicInfo)` / `GetFileInformationByHandleEx(FileIdInfo)` / `CloseHandle` | [OS/project §5.5] |
 | `read_link(at, out)` | `CreateFileW(\\?\p, FILE_READ_ATTRIBUTES, …, FILE_FLAG_OPEN_REPARSE_POINT \| FILE_FLAG_BACKUP_SEMANTICS)` → `DeviceIoControl(FSCTL_GET_REPARSE_POINT)` (`IO_REPARSE_TAG_SYMLINK` only; `PrintName`, `\` → `/`) → `CloseHandle` | [OS/project §5.6] |
-| `busy_holders(at)` | `RmStartSession` → `RmRegisterResources` (one file) → `RmGetList` → `RmEndSession`; a directory → `Unsupported` | [OS/project §5.8] |
+| `busy_holders(at)` | `RmStartSession` → `RmRegisterResources` (one file, as its plain path `X:\…`, not the `\\?\` form) → `RmGetList` → `RmEndSession`; a directory → `Unsupported` | [OS/project §5.8] |
 | `touch_stamp(at)` | `CreateFileW(\\?\p, GENERIC_WRITE, share R\|W\|D, OPEN_ALWAYS)` → `WriteFile` (one byte `00` at offset 0) → `CloseHandle` → `GetFileAttributesExW` | [OS/project §5.9] |
 | `rename_noreplace(from, to, retry)` | `MoveFileExW(\\?\from, \\?\to, MOVEFILE_WRITE_THROUGH)`; errors 5/32 retried per `ShareRetry` (`Sleep` steps of [OS/fs §6.3]) | [OS/project §6.1], [OS/fs §4.8] |
 | `sync_dir(dir)` | `CreateFileW(\\?\dir, GENERIC_READ \| GENERIC_WRITE, share R\|W\|D, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS)` → `FlushFileBuffers` → `CloseHandle` | [OS/project §6.2], [OS/fs §4.4.3] |
@@ -59,6 +59,19 @@
 | `remove_dir(at, retry)` | `RemoveDirectoryW(\\?\p)` (retried per `ShareRetry`) | [OS/project §6.3] |
 | `durable_unlink(at, retry)` | `unlink` or `remove_dir` → `sync_dir(parent)` | [OS/project §6.3] |
 | `counters()` | none (relaxed atomics) | [OS/project §2.4] |
+
+**WP-33's choices where the chapters were silent** (spec sync 2a; each is now stated where it belongs):
+
+- `enumerate` falls back to the plain directory class, without ids, where `FileIdExtdDirectoryInfo` is unsupported
+  (row above; [OS/project §5.2]).
+- Restart Manager (`busy_holders`) and the cloud-sync-root query (`CfGetSyncRootInfoByPath`, [OS/env §5] step 1) take
+  the plain path (`X:\…`), not the `\\?\` form, which neither accepts.
+- A content read (`read_for_hash`) of a junction or any other non-regular entry that is neither a directory nor a
+  symlink fails with the kind `Other` ([OS/project §5.5]).
+- `sync_dir` on a store root opened `Read` is a durability failure with the kind `AccessDenied` (code 5) and no OS call
+  ([OS/fs §4.4.3]).
+- A lock table opens its role and probe handles relative to the store root of the client that created the table (its
+  first client) ([OS/lock §9.2]).
 
 ### 2.2 `Clock`
 
@@ -75,13 +88,13 @@
 | `os_tag()` | none: 1 | [OS/proc §2] |
 | `self_id()` | `GetCurrentProcessId`; `GetProcessTimes(GetCurrentProcess())` creation `FILETIME` → ns since the epoch; `boot_identity()` → `boot_hash` | [OS/proc §3] |
 | `parent()` | `CreateToolhelp32Snapshot(TH32CS_SNAPPROCESS)` → `Process32FirstW`/`Process32NextW` (own entry's `th32ParentProcessID`) → `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, parent)` → `GetProcessTimes` → `CloseHandle` ×2 | [OS/proc §3.3] |
-| `boot_identity()` | the `BootId` member of `KUSER_SHARED_DATA` at `0x7FFE0000`; if 0: `RegGetValueW(HKLM, …\Memory Management\PrefetchParameters, "BootId", RRF_RT_REG_DWORD)`; `RegGetValueW(HKLM, SOFTWARE\Microsoft\Cryptography, "MachineGuid", RRF_RT_REG_SZ \| RRF_SUBKEY_WOW6464KEY)`; BLAKE3-128 per [OS/proc §4.2]; cached | [OS/proc §4] |
+| `boot_identity()` | the `u32` `KUSER_SHARED_DATA.BootId` at offset `0x2C4` of the mapping at `0x7FFE0000`; if 0: `RegGetValueW(HKLM, …\Memory Management\PrefetchParameters, "BootId", RRF_RT_REG_DWORD)`; `RegGetValueW(HKLM, SOFTWARE\Microsoft\Cryptography, "MachineGuid", RRF_RT_REG_SZ \| RRF_SUBKEY_WOW6464KEY)`; BLAKE3-128 per [OS/proc §4.2]; cached | [OS/proc §4] |
 | `alive(p)` | `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION \| SYNCHRONIZE, p.pid)` → `WaitForSingleObject(h, 0)` → `GetProcessTimes` → `CloseHandle` | [OS/proc §6.1] |
 | `watch_parent()` | the snapshot walk of `parent()` → `OpenProcess(SYNCHRONIZE \| PROCESS_QUERY_LIMITED_INFORMATION, ppid)` → `GetProcessTimes` (reuse guard) | [OS/proc §7] |
 | `new_wake()` / `Wake::signal` | `CreateEventW(NULL, FALSE, FALSE, NULL)` / `SetEvent` | [OS/proc §7] |
 | `wait_parent_or_wake(w, wake)` | `WaitForMultipleObjects(2, {parent, event}, FALSE, INFINITE)` | [OS/proc §7] |
 | `parent_image()` | the parent's `PROCESSENTRY32W.szExeFile` from the snapshot | [OS/proc §8] |
-| `spawn_gc_child(exe, args, cwd)` (not built at M0) | `CreateProcessW(exe, cmdline, NULL, NULL, FALSE, BELOW_NORMAL_PRIORITY_CLASS \| DETACHED_PROCESS \| CREATE_NEW_PROCESS_GROUP \| CREATE_BREAKAWAY_FROM_JOB, NULL, cwd, …)`; on `ERROR_ACCESS_DENIED` the same without `CREATE_BREAKAWAY_FROM_JOB`; `CloseHandle` ×2 | [OS/proc §11] |
+| `spawn_gc_child(exe, args, cwd)` | `CreateProcessW(exe, cmdline, NULL, NULL, FALSE, BELOW_NORMAL_PRIORITY_CLASS \| DETACHED_PROCESS \| CREATE_NEW_PROCESS_GROUP \| CREATE_BREAKAWAY_FROM_JOB, NULL, cwd, …)`; on `ERROR_ACCESS_DENIED` the same without `CREATE_BREAKAWAY_FROM_JOB`; `CloseHandle` ×2 | [OS/proc §11] |
 | `enter_background()` | `SetPriorityClass(GetCurrentProcess(), PROCESS_MODE_BACKGROUND_BEGIN)`; `SetProcessInformation(GetCurrentProcess(), ProcessMemoryPriority, {MEMORY_PRIORITY_LOW})` | [OS/proc §11] |
 
 ### 2.4 `Meter` (`os::mem`; `os::proc::peak_of_child`)
@@ -133,10 +146,12 @@ priorities, `SetProcessInformation`), `Win32_System_ProcessStatus` (`GetProcessM
 `Win32_System_SystemInformation` (`GlobalMemoryStatusEx`, `GetSystemTimePreciseAsFileTime`),
 `Win32_System_WindowsProgramming` (`QueryInterruptTimePrecise`), `Win32_System_Performance` (`QueryPerformanceCounter`),
 `Win32_System_Diagnostics_ToolHelp` (snapshots), `Win32_System_Registry` (`RegGetValueW`), `Win32_System_RestartManager`
-(`Rm*`), `Wdk_System_SystemServices` (`KUSER_SHARED_DATA`), `Win32_Security_Cryptography` (`BCryptGenRandom`, §2.9);
-for the leader only `Win32_System_Pipes`, `Win32_Security`, `Win32_Security_Authorization`; for `test-host` only
-`Win32_Storage_Vhd`. WP-33 confirms the family of each item against the pinned `windows-sys` release (README Appendix A
-lists part 1's).
+(`Rm*`), `Wdk_System_SystemServices` (`KUSER_SHARED_DATA`) with `Win32_System_Kernel` and
+`Win32_System_Diagnostics_Debug` (the binding declares `KUSER_SHARED_DATA` only under both), `Win32_Globalization`
+(`CompareStringOrdinal`: `locate_id` classifies a final path under `<drive>:/$Recycle.Bin/` ignoring case, [OS/project §5.4]), `Win32_Security_Cryptography` (`BCryptGenRandom`,
+§2.9); for the leader only `Win32_System_Pipes`, `Win32_Security`, `Win32_Security_Authorization`; for `test-host` only
+`Win32_Storage_Vhd`. WP-33 confirmed the families of the M0 build against the pinned `windows-sys` 0.61.2 (README
+Appendix A lists part 1's; open point 2).
 
 ### 2.9 `Entropy` (`os::proc`)
 
@@ -359,6 +374,6 @@ HOLE(OS-win-boot-clock) ([OS/clock]), HOLE(OS-pfs-gran-probe-k) and HOLE(OS-pfs-
 | # | Point | Resolution in this file | For |
 |---|---|---|---|
 | 1 | PLAN WP-17 asks for "the mapping appendix for Windows, Linux and macOS", while part 1 wrote an Appendix A in each of its files | this file maps the part-2 surfaces per OS and indexes part 1's appendices (§5), so every method of `Vfs`, `ProjectFs` and `Meter` has exactly one per-OS row owner | WP-17a |
-| 2 | The `windows-sys` feature families of §2.8 are named from memory of the crate's layout [I] | WP-33 confirms each against the pinned release; a different family name changes no call | WP-33 |
+| 2 | The `windows-sys` feature families of §2.8 are named from memory of the crate's layout [I] | **closed (spec sync 2a, WP-33):** WP-33 confirmed each against the pinned release and added `Win32_Globalization` and `Win32_System_Kernel` here, and `Win32_Devices_DeviceAndDriverInstallation`, `Win32_Devices_Properties`, `Win32_System_Console`, `Win32_System_Ioctl` and `Wdk_Foundation` to README Appendix A; a different family name changes no call | — |
 | 3 | `NtSuspendProcess`/`NtResumeProcess` are undocumented | allowed only in `os::test_host` (test builds), as GT4's suspend variant needs ([AR §8.2]); never reachable from the product root ([OS/README §2.4]) | R-REV-P |
 | 4 | Pass-1 finding S1-27: no OS-layer call for the random source | rows §2.9, §3.6 and §4.6 for `Entropy::fill_random`, abbreviating [OS/README §4.6] (normative); `Win32_Security_Cryptography` added to §2.8 | WP-30, WP-33 |

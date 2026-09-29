@@ -232,14 +232,15 @@ Punctuation is lexed by longest match:
 | `=~` | `=~` | lexed only so that the parser can refuse it with E004 ([LQ/grammar-v1.ebnf §R]) |
 | `(` `)` `[` `]` `{` `}` `,` `;` `.` `:` `\|` `+` `-` `*` `/` `=` `<` `>` `?` `%` | themselves | `?` is valid only after a `param_decl` type; `%` only so that the parser can refuse it with E004 |
 
-`--` is two `-` tokens; `-->` is `-` `->`; `<--` is `<-` `-`; `<-->` is `<-` `-` `->`, which the grammar refuses
-([LQ/grammar-v1.ebnf §R]).
+`--` is two `-` tokens; `-->` is `-` `->`; `<--` is `<-` `-`; `<-->` is `<-` `->` by longest match (after `<-` the
+bytes `->` are one token), not `<-` `-` `->`; the grammar still refuses it (no `edge_pat` alternative continues `<-`
+with `->`; [LQ/grammar-v1.ebnf §R]).
 
 ## 6. Keywords
 
 ### 6.1 Reserved words
 
-These 43 words are keywords everywhere except in the plain-name positions of §6.3; as a variable they must be
+These 44 words are keywords everywhere except in the plain-name positions of §6.3; as a variable they must be
 back-quoted ([50 §2.2] rule 3):
 
 `MATCH OPTIONAL WHERE WITH RETURN CALL YIELD UNWIND USE UNION EXCEPT INTERSECT ORDER BY LIMIT GROUP AND OR NOT IN IS
@@ -270,7 +271,7 @@ In these positions any word, reserved or not, is a name:
 | a named-argument name (a word followed by `:` at the start of an argument) | `history(#12, in: main..lane/x)` |
 | a label or type name after `:` or `\|` | `(n:task)`, `-[:BLOCKS\|GATES]->` |
 | a yield field name (the name before an optional `AS`) | `YIELD key, node` |
-| the first segment of `proc_name` and `qname` | `CALL std.ready()`; `CALL tx.complete(…)` is then refused in a read (E006) |
+| the first segment of `proc_name` and `qname`, and the `tx` of `tx_name` | `CALL std.ready()`; `CALL tx.complete(…)` is then refused in a read (E006) and accepted in a `TX` block; either way `tx` is a name here, matched ASCII-case-insensitively (L-3), and a token stream records it as `NAME` (§11) |
 | the word after `SHAPE`, `BUDGET`, and the words of a `param_decl` `type` | `SHAPE node`, `$ids: list<node>` |
 
 A variable, a `YIELD … AS` alias, an `AS` alias, an `UNWIND … AS` name, a list-predicate variable, a `CREATE` variable
@@ -306,7 +307,7 @@ an optional range operator with a second revspec, or a list (§7.4).
 | First bytes | Base | Rule |
 |---|---|---|
 | `$` + word | parameter | `revspec = param`: a parameter takes no suffix (`$r~1` is E001) |
-| `HEAD` | `HEAD` | the four bytes `48 45 41 44`, not followed by a letter, digit, `_`, `-`, `.` or `/` (case-sensitive; Open point O-3 of [LQ/grammar-v1.ebnf]) |
+| `HEAD` | `HEAD` | the four bytes `48 45 41 44`, not followed by a letter, digit, `_`, `-` or `/`, nor by a `.` that would continue a ref word (a `.` whose next byte starts a `ref_word`, as in the ref-name rule below); a `.` that starts `..` or `...` ends the base, so `HEAD..main` and `HEAD...lane/x` are ranges (case-sensitive; Open point O-3 of [LQ/grammar-v1.ebnf]) |
 | a lower-case letter, digit or `_` | a `ref_name`, then classified | below |
 | an upper-case letter (other than `HEAD`) | — | E003 (hint: ref names are lower case; `HEAD` is upper case) |
 | `[` (argument positions only) | a list | §7.4 |
@@ -448,11 +449,13 @@ A stored named-query text (the `QUERIES` text blob and the body of `schema/queri
    anchor handle ([LQ/canonical-ast §8.2]).
 
 The exporter asserts both and the importer checks both, staging `ImageParse` if one fails ([50 §4.4]; the `.moi` rules
-are [F14]'s). Condition 2 is decided by re-binding, never by a character pattern ([50 §4.4] as amended after the A1
-re-review, S-02): a back-quoted name or a string containing `#1` is portable, and `{id: 40}` is not. A byte scan for
-`#` followed by a digit outside strings, comments and back-quoted names (with §3, §5.4 and §5.7 recognising them) is
-implied by condition 2 and may serve as a fast pre-check, but never decides alone. The definition-time rewrite that
-makes a text portable is [LQ/canonical-ast §8.1].
+are [F14]'s). A full commit id (`c` and 64 hex digits) is portable and binds as itself even in a store that does not
+hold the commit ([LQ/canonical-ast §5.6]); only a query that opens that view fails, with E301 at view resolution (spec
+sync 2a). Condition 2 is decided by re-binding, never by a character pattern ([50 §4.4] as amended after the A1
+re-review, S-02): a back-quoted name or a string containing `#1` is portable, and `{id: 40}` is not. A byte scan for `#`
+followed by a digit outside strings, comments and back-quoted names (with §3, §5.4 and §5.7 recognising them) is implied
+by condition 2 and may serve as a fast pre-check, but never decides alone. The definition-time rewrite that makes a text
+portable is [LQ/canonical-ast §8.1].
 
 ## 11. Token-stream fixture format
 
@@ -487,8 +490,10 @@ kind  = "KW" / "NAME" / "QNAME" / "PARAM" / "INT" / "FLOAT" / "DUR" / "STR" / "N
 | `EOF` | the end | `-` |
 
 A generic function call is `NAME` (`count(x)`); the keyword forms are `KW` (`count( * )`, `COUNT {`, `exists(` with a
-path, `size(` with a path, `all(x IN …)`). A failing input is not a token-stream fixture: its fixture asserts the
-first error's code, `line` and `col` ([LQ/grammar-v1.ebnf §P.14]).
+path, `size(` with a path, `all(x IN …)`). A word in a plain-name position (§6.3) is `NAME`, printed as written, even
+when it is a reserved word: `CALL tx.claim(ids: [#15])` in a `TX` block records `KW CALL`, `NAME tx`, `P .`,
+`NAME claim`, and `std.ready` records `NAME std`, `P .`, `NAME ready` (Open point L-14). A failing input is not a
+token-stream fixture: its fixture asserts the first error's code, `line` and `col` ([LQ/grammar-v1.ebnf §P.14]).
 
 ### 11.1 JSON strings in fixtures
 
@@ -611,3 +616,5 @@ surface after WP-72 ([LQ/grammar-v1.ebnf] O-11).
 | L-11 | Revision 2 of [50 §4.4] stated the exporter's assertion as a `#`-digit scan; the A1 review's S-02 (major) showed that store-local constants need not be spelled with `#` or `s` (`{id: 40}`, `t.rev = 4466`, `a.anchor = 'a17'`), and amended [50 §4.4] now validates "by re-binding … never by a character pattern". | §10.2 follows the amended text: the stored normal form plus the re-binding condition; the byte scan is only an implied pre-check. The importer binds every imported definition anyway (F18 `QueryInvalid`), so the check costs one bind per definition. The definition-time rewrite that removes such constants is [LQ/canonical-ast §8.1]. |
 | L-12 | A leading U+FEFF in an MCP string. | Removed like the stdin mark (§2.1 rule 3), so the three transports behave identically. |
 | L-13 | The design's probe parser (`lqcheck2.py`, [50 §11]) lexes `<-` only before `[` or `-`, treats `..`/`...` by longest match, and refuses `%` and `=~` at operator positions. | This chapter follows it in each case; where it differs from the probe (strings on one line, named-argument case, `changes(ref:)`), the difference is listed above. |
+| L-14 | How `CALL tx.x` is recorded in token streams (spec sync 2a, WP-93a). §6.3 makes the first segment of `proc_name` and `qname` a plain name, while an implementation recorded `KW TX` for the `tx` of a `TX` block's call. | `NAME`, printed as written: `tx` of `tx_name` is a plain-name position like the first segment of `proc_name` and `qname` ([LQ/grammar-v1.ebnf §P.3]), so every word in such a position is `NAME` (§11), and WP-22's fixtures carry `NAME tx`. The prefix is matched ASCII-case-insensitively (L-3). |
+| L-15 | Spec sync 2a corrections (WP-93a review; WP-22's findings F-1, F-2). | `<-->` lexes as `<-` `->` (§5.9); §6.1 lists 44 reserved words, as [50 §2.2] rule 3 does; `HEAD` is refused as a base only before a `.` that continues a ref word, so `HEAD..main` and `HEAD...main` are ranges (§7.2); a full commit id binds as itself in the portable-text check (§10.2). |

@@ -703,7 +703,7 @@ Messages are line 1 after `error[<name>]: `; "detail" lists the detail lines; "h
 | `no_slot` | 7 | `file mv` or `file rm` with no liveness slot ([F03 §8.4] SR-4, §8.7) | `no liveness slot of <store> is free` | `nothing was changed` | `retry when fewer moirai processes run; moirai doctor agents lists slot use` |
 | `outcome_pending` | 7 | the flush byte's bounded wait timed out after the append ([AR §4.5] step 10.2, [OS/lock §4]) | `the commit is appended but not yet durable after <t> ms (lock.flush-wait-ms); outcome pending` | `key: <key>` | `re-run the same command with the same key: it completes the commit, or replays it once durable` |
 | `outcome_unknown` | 7 | a group lost before its flush twice ([AR §4.5] step 10.5, [50 §5.9] step 5) | `outcome unknown: re-run with the same key or check moirai changes` ([AR §6.4]) | `key: <key>` | — |
-| `durability_failure` | 7 | `fail_stop` ([OS/fs §4.4.5]), stderr, one line | the whole line: `error[durability_failure]: <call> (<class>) failed: <oserr>; outcome unknown: re-run with the same key or check moirai changes` | — | — |
+| `durability_failure` | 7 | `fail_stop` ([OS/fs §4.4.5]), stderr, one line; a `FlushFailed` from `create_root`, `swap_dirs` or `swap_recover` ([OS/fs §6.2]) | the whole line: `error[durability_failure]: <call> (<class>) failed: <oserr>; outcome unknown: re-run with the same key or check moirai changes` — `<call>` the failing OS call's name (`DurabilityFailure.call`); `<class>` the durability class's name as [80 §2.3.1] and [F15 §4.1] spell it: `durable`, `durable+meta`, `durable-name` or `sync_group` (the `DurabilityClass` variants `Durable`, `DurableMeta`, `DurableName`, `SyncGroup`; a `FlushFailed` is `durable-name`; `lazy` never fails this way) | — | — |
 | `store_io_fault` | 7 | the mapping-fault handler ([OS/map §8], [80 §2.5] rule 6); a writer's scan that fails to read the log at or above `durable_lsn` ([F16] P-92; pass 1, S1-25); stderr, one line | the whole line, frozen by [80 §2.5] rule 6 without an `error[` prefix: `store I/O fault in <file> at <offset>: run moirai doctor --fsck` | — | — |
 | `sealed_size` | 7 | a sealed file whose size differs from its `total_len` after one re-read of `HEAD` ([80 §2.5] rule 4, [F10 §2.4], [OS/map §4]) | `<file> is <n> bytes but its header says <m>` | — | `run moirai doctor --fsck` |
 | `store_corrupt` | 7 | `LOCK` of another size or with a bad header ([F03 §2.1], §4.2); `HEAD` of another size or a fatal slot ([F04 §2], §7); a segment that fails an open check ([F09 §17.2]); an invalid group below `durable_lsn` ([F05 §5.3], decision (b)); a valid log record whose payload is malformed, wherever it lies ([F05 §5.4], [F06 §2.4]; pass 1, closure NC-6) | `<file> is damaged: <what>` — `<what>`: `its size is <n> bytes, not <m>`, `its header fails its check`, `a slot passes its checksum but not its validity rules`, `its <section> fails its check`, `an invalid group at lsn <L> lies below the durable end of the log`, `the record at lsn <L> has a malformed payload` | — | an invalid group of the log: `run moirai repair`; a malformed payload and every other file: `run moirai doctor --fsck` |
@@ -1135,9 +1135,10 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is `HO
    prevent ([90 §2.1]). §6.2 resolves: a result that fits `output.ids-max-bytes` prints whole with exit 0; a cut prints at
    most min(`output.ids-max-bytes`, `output.nonzero-exit-max-bytes`) with exit 10; `output.ids-max-bytes` = 0 disables
    both limits for scripts. Measurement 7 re-checks the Bash tool's caps. **Pass 1 (A1-31):** [LQ/envelope §6.5] now cites
-   §6.2. The owner confirms at WP-81a that a cut `--ids` page holds min(24,000, 8,000) = 8,000 B by default, against
-   [AR §7.1]'s "pages at `output.ids-max-bytes` (24,000 B)"; a whole result still prints up to 24,000 B with exit 0.
-   Round 1: the question is OQ-F-1 of `reviews/owner-questions.md`.
+   §6.2. **Decided 2026-09-28** (owner question OQ-F-1, option (a); `reviews/owner-questions.md`): a cut `--ids` page
+   holds min(`output.ids-max-bytes`, `output.nonzero-exit-max-bytes`) = 8,000 B by default and exits 10; a whole result
+   still prints up to 24,000 B with exit 0. WP-81a still edits [AR §7.1]'s "pages at `output.ids-max-bytes`
+   (24,000 B)" to match.
 7. **`doc patch` exit (conflict).** [AR §7.1] gives exit 4 for a removed text that is not a substring; [50 §5.2] and
    [LQ/errors] put it under E404, exit 6. The error table is not a reservation of [F01 §2.4] rule 2's list, so [AR] would
    win; a code has one exit code, so following [AR] needs a new LQ code (proposal: `E412 patch_mismatch`, exit 4, the
@@ -1164,7 +1165,9 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is `HO
     Resolution: one `u8` space (§12.1), [F12] owning codes 1–63 (value conflicts) and this chapter 64–191. [F12] cites §12.1;
     R-MODEL updates [RULES/merge-table] §9's sentence and fills VA-005, VA-007, VA-008 and VA-013 with §12.2's classes; the
     owner re-signs that table (V3). **Done** (pass 1, round 1, P1-21): §9's sentence gives §12.1's one code space, and
-    VA-005, VA-007, VA-008 and VA-013 carry codes 67, 68 and 72 (OQ-M-1 for the re-signature).
+    VA-005, VA-007, VA-008 and VA-013 carry codes 67, 68 and 72. **Decided 2026-09-28** (owner question OQ-M-1, option
+    (a)): the owner accepted the changed rows, the VA-005, VA-007, VA-008 and VA-013 codes among them; the re-signature in
+    `rules/SIGNED.md` follows under V3.
 15. **Three new structural classes** (§12.2, closing [F13] OP-13-06 as proposed there): `DepthExceeded` (67),
     `Cardinality` (68, `duplicate_of`, `runs_in`, `answers`) and `PlanMask` (72). [AR §5a.8] names none; classes are frozen
     format, so pass 1 confirms them.

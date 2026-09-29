@@ -25,11 +25,11 @@
 ## 2. The three clocks
 
 ```rust
-// [OS/README §4.4], unchanged:
+// [OS/README §4.4] (its `mono_ns` comment reads "within one boot", open point 7):
 pub trait Clock {
     /// Wall clock: milliseconds since the Unix epoch, UTC. May step backward or forward between two calls.
     fn wall_ms(&self) -> i64;
-    /// Monotonic clock in nanoseconds from an unspecified origin; never goes backward within a process.
+    /// Monotonic clock in nanoseconds from an unspecified origin; never goes backward within one boot.
     fn mono_ns(&self) -> u64;
     /// Boot clock in nanoseconds since boot: monotonic and including time spent in suspend ([80 §2.7.1]).
     fn boot_ns(&self) -> u64;
@@ -103,7 +103,9 @@ after(now, ttl) = Stamp {
 ```
 
 `ttl_ms` and `ttl_ns` are the same duration in the two units (`ttl` is a duration key of [CFG], e.g. `lease.ttl-default`
-15 min).
+15 min). **Rounding:** `ttl_ms = ⌈ttl / 1 ms⌉`, rounded up, so a deadline is never earlier than `ttl` after now and a grace
+is never shorter than `ttl`; `ttl_ns` is `ttl` in whole nanoseconds. Both saturate at `u64::MAX`. §4.4 and §4.5 use the
+same conversions.
 
 ### 4.3 Evaluation (frozen with X-F2)
 
@@ -132,7 +134,8 @@ due_for_renewal(d, ttl, now) =
   else                                                 { d.wall.saturating_sub(now.wall)       < ttl_ms / 2 }
 ```
 
-The renewal writes `after(now, ttl)` (one lazy runtime record, [AR §6.2]). A `session-ttl` anchor's deadline is renewed
+`ttl_ms` and `ttl_ns` are §4.2's (rounded up, saturating), and `/ 2` is integer division. The renewal writes
+`after(now, ttl)` (one lazy runtime record, [AR §6.2]). A `session-ttl` anchor's deadline is renewed
 by the same rule when the thread's own server serves a call ([90 §4.4]).
 
 ### 4.5 Elapsed intervals across processes (grace)
@@ -145,7 +148,8 @@ by the same rule when the thread's own server serves a call ([90 §4.4]).
 | 2 | both known and different | `true`: every process of the earlier boot is gone |
 | 3 | otherwise | `now.wall − start.wall ≥ g_ms` (saturating: a backward step yields 0, never a negative interval) |
 
-This rule serves a cross-process grace that is measured from a stamp. The GC deletion grace (`gc.delete-grace`) is **not**
+`g_ms = ⌈g / 1 ms⌉` and `g_ns` are converted as §4.2 converts `ttl` (rounded up, saturating), so the grace is never
+shorter than `g`. This rule serves a cross-process grace that is measured from a stamp. The GC deletion grace (`gc.delete-grace`) is **not**
 such a grace: it opens at the releasing `Checkpoint`'s `append_hlc`, which is an HLC and not a stamp, and is measured on
 the HLC by [F17 §11.4] and [F16] P-89 (pass 1, P1-34, S1-43). No rule of format v1 uses this function today; it stays
 for a later grace that must survive a wall step. Its only wall-clock case (row 3, Unknown-boot mode) can end a grace
@@ -313,5 +317,6 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 | 4 | If measurement 22 finds no Windows clock that includes sleep, [80 §2.7.1]'s "a suspended laptop's lease expires by elapsed time" cannot hold on Windows | a clock that excludes sleep is still immune to wall steps and errs towards later expiry (safe); the review decides whether that is acceptable or Windows deadlines fall back to Unknown-boot rules | R-REV-P |
 | 5 | The HLC rule (§7) is stated here as the clock rule because [AR §4.3] gives only the field shape | [F06] and [F16] adopt it or state an equivalent rule that keeps `hlc` and `append_hlc` monotonic under wall steps. **Pass 1 (S1-13, P1-5, A1-17):** the earlier text took `hlc_last` over every append-time HLC of the log, so a `Checkpoint` or lazy record raised the next commit's hashed `hlc`; §7 now follows [API §6.2] CK-4 and [F16] P-36 (one sequence over the semantic durable records, kept as `HEAD.hlc_seq` and `hlc_commit`) | WP-12, WP-16 |
 | 6 | Where the clocks are specified | resolved: [OS/README §1.3, §3] list this file | — |
-| 7 | [F15] FM-7.2 makes the monotonic clock comparable across the processes of one boot; [OS/README §4.4]'s doc comment says only "never goes backward within a process" | the stronger reading is adopted (§2): the implementation reads the system-wide counter and subtracts no per-process origin, which every source of §2.1 allows; README §4.4's comment may say "within one boot" | WP-17a |
+| 7 | [F15] FM-7.2 makes the monotonic clock comparable across the processes of one boot; [OS/README §4.4]'s doc comment says only "never goes backward within a process" | the stronger reading is adopted (§2): the implementation reads the system-wide counter and subtracts no per-process origin, which every source of §2.1 allows. **Closed (spec sync 2a):** README §4.4's comment and §2's copy say "within one boot" | — |
 | 8 | [F01] open point 15 proposes the prefix `OS-` for hole ids in `docs/spec/os/` | adopted: HOLE(OS-win-boot-clock) | WP-10 |
+| 9 | §4.2 did not say how a duration is converted to `ttl_ms` and `ttl_ns` (WP-30 review) | **closed (spec sync 2a):** `ttl_ms = ⌈ttl / 1 ms⌉`, so a deadline is never earlier and a grace never shorter; both values saturate at `u64::MAX`; §4.4 and §4.5 use the same conversions | — |

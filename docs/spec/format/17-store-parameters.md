@@ -282,8 +282,9 @@ The write-size switch has four rules:
   `wmem` above P05 would otherwise admit a changeset that only a bulk commit could hold (OP-17-11). An agent `TX` is
   therefore bounded by P05 of changeset whatever its `wmem`: at the production P05 of 1 MiB and ≈ 190–240 B per op
   ([50 §5.12]) that is ≈ 4,400–5,500 ops, below the default `tx.max-ops` of 10,000. Within that bound a `TX` whose working
-  set exceeds the default 1 MiB needs a `wmem` raise, which E501 names ([CFG §10.5]). Whether a default-cap `TX` should
-  fit (a larger P05 or a smaller `tx.max-ops` default) is an owner question (OP-17-25).
+  set exceeds the default 1 MiB needs a `wmem` raise, which E501 names ([CFG §10.5]). The owner decided on 2026-09-28
+  (OQ-P-2 (a), OP-17-25) that both values stay: P05 stays 1 MiB and `tx.max-ops` stays 10,000, P05 bounds an agent `TX`,
+  and E501 names the split.
 
 **Visibility.** I for bulk-class verbs: a bulk commit and an inline commit give the same commit id, state and result. Rs for
 agent verbs, because the refusal depends on the stored encoding, which the model does not produce (SP-2).
@@ -503,7 +504,7 @@ model scale.
 - **Consequence.** A past-view query whose window contains `c` recomputes derived state in full for the queried subgraph
   instead of trusting the stored cone ([50 §5.8]).
 
-This reading resolves the "violation record beyond it" of [AR §2.5] and [20 §7] T5 (OP-17-15). Review pass 1 confirmed it from the correctness side (lens S decision D-4); the owner's sign-off is owner question OQ-P-1, and [AR §2.5] is edited at WP-81a.
+This reading resolves the "violation record beyond it" of [AR §2.5] and [20 §7] T5 (OP-17-15). Review pass 1 confirmed it from the correctness side (lens S decision D-4), and the owner signed it on 2026-09-28 (OQ-P-1 (a)); [AR §2.5] is edited at WP-81a.
 
 **Decision point.** Phase 1 of every write ([AR §4.5] step 4).
 
@@ -793,7 +794,7 @@ body-placement hole (measurement 6).
 - **OP-17-14 (the Kahn fallback everywhere).** The fallback applies to every candidate that adds precedence edges, not only to
   merges ([AR §5a.7] names it for merges). A bulk import or a large `TX` benefits the same way. The violation witness must be
   canonical ([F13 §5] V03), or the fallback would be visible.
-- **OP-17-15 (the `suspect` budget: major, needs a decision).** [AR §2.5] says "a violation record is written" beyond the
+- **OP-17-15 (the `suspect` budget). Closed: decided 2026-09-28 (OQ-P-1 (a)).** [AR §2.5] says "a violation record is written" beyond the
   budget. `Violation` ops exist only on staging refs ([AR §4.6]), and I9 forbids leaving the bitset stale. [50 §5.8] reads
   the budget as the reason why `affected` can be incomplete. §8.2 adopts that reading:
   - the bitset is always complete;
@@ -806,9 +807,9 @@ body-placement hole (measurement 6).
 
   The budget counts `|S(c)|`, which the model can compute, rather than engine edge visits. The review decides. The owner signs
   the rule table that carries it. **Pass 1 (A1-26, lens S decision D-4):** the review confirms the reading (the bitset
-  complete for I9, `affected` incomplete with `affected_complete = 0` for I42′, the hint `SuspectBudget` of [F19 §12.3]);
-  it stays open only for the owner's sign-off, listed as OQ-P-1 in `reviews/owner-questions.md`, and [AR §2.5]'s
-  "a violation record is written" is edited at WP-81a.
+  complete for I9, `affected` incomplete with `affected_complete = 0` for I42′, the hint `SuspectBudget` of [F19 §12.3]).
+  **Decided 2026-09-28 (OQ-P-1 (a)):** the owner signed the reading; [AR §2.5]'s "a violation record is written" is
+  edited at WP-81a.
 - **OP-17-16 (default keys in `IDEM`).** The default-key window (P29) needs each `IDEM` row to record whether its key was a
   default key. [F11] (WP-13) owns the row layout and should reserve the bit.
 - **OP-17-17 (GC semantics in the model).** [60 §4.3] puts GC out of the model's scope. Reflog and cruft expiry are still
@@ -831,13 +832,14 @@ body-placement hole (measurement 6).
   If [F04] lays the three fields out individually instead, [F04] wins, and §2.1 becomes informative. **Pass 1 (A1-13,
   S1-12, P1-4, A1-15, S1-28):** [F04 §4.4]'s layout, with `store_id` at bytes 16–31, is the one layout, and §2.1 restates
   it; the `project` root's algorithm is the init-fixed byte `project_oid_algo` at slot offset 1072 ([F04 §5.16]).
-- **OP-17-25 (a default-cap agent `TX` does not fit the inline bound; owner question OQ-P-2).** [AR §8.3] budgets "a
+- **OP-17-25 (a default-cap agent `TX` does not fit the inline bound). Closed: decided 2026-09-28 (OQ-P-2 (a)).**
+  [AR §8.3] budgets "a
   default-cap `TX` ≤ 4 MB" of write memory, and [CFG §10.5] lets an agent raise `wmem` to 4 MiB, but W1 and W4 refuse any
   agent changeset above P05 = 1 MiB (design-fixed, [AR §4.3]), which holds ≈ 4,400–5,500 ops, while `tx.max-ops`
-  defaults to 10,000 ([50 §5.10]). So the op cap never binds at production values: E501 refuses first. Options for the
-  owner: (a) keep both values and document that a `TX` is bounded by P05 (E501 names the split); (b) lower the default
-  `tx.max-ops` to what P05 holds (≈ 4,000); (c) raise P05 within C-1 (≤ P01 / 8 = 8 MiB). Recommendation: (a) now, with
-  (b) if the owner wants the op cap to be the visible bound. No text of this chapter changes under (a).
+  defaults to 10,000 ([50 §5.10]). So the op cap never binds at production values: E501 refuses first. The owner chose
+  (a): both values stay (P05 = 1 MiB, `tx.max-ops` = 10,000), P05 bounds an agent `TX`, and E501 names the split (§4.4
+  W4). The rejected options were (b) a default `tx.max-ops` lowered to what P05 holds (≈ 4,000) and (c) a P05 raised
+  within C-1 (≤ P01 / 8 = 8 MiB).
 - **OP-17-26 (long maintenance holdings; pass 1, P1-9, P1-43).** The review offered two variants: long jobs work outside
   the maintenance byte on a pinned set and take it only to publish, or they keep the byte and yield. This chapter and
   [F16] P-98 take the second: a job keeps the byte for its whole run (so a rollup's inputs, a GC's rewrite and a backup's

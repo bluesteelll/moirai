@@ -1154,10 +1154,10 @@ taking the record field of the same name (`session` from `session_hash`, `agent`
 cursor(A, T) of [RULES/pack-classes] PT-028 is the `cursor_seq` of the row (session, A, 2, `#N` of T) of the session
 the pack runs in, and absent when that row is absent, so C8 is empty (PM-025). `#N` names T store-wide and is never
 reused (§9); a re-keyed task has a new `#N` and so starts with no cursor. The record's bytes and fold are [F05 §9.11]'s.
-Which actor appends it (the `pack` verb or the layer that delivers the pack) is owner question OQ-F-3's call
-(`reviews/owner-questions.md`); until it is answered no M0 command appends one ([API] open point 48,
-[RULES/pack-classes] PX-011), so cursor(A, T) is absent and C8 is empty, and `pack` stays a read that appends nothing
-(I-F5, §1.2).
+The layer that delivers the pack (the `SubagentStart` hook or the MCP server, [AR §5d.1]) appends it, never the `pack`
+verb (owner question OQ-F-3, decided 2026-09-28, option (b); `reviews/owner-questions.md`); no M0 command is such a layer
+([API] open point 48, [RULES/pack-classes] PX-011), so cursor(A, T) is absent and C8 is empty at M0, and `pack` stays a
+read that appends nothing (I-F5, §1.2).
 
 **Retention.** A row is dropped by the first fold after `idempotency.retention` ([F17 §11.1]) has passed since its
 `hlc`, as a `HEADS` session row is (§5.2); a dropped pack cursor leaves C8 empty, as a missing one does.
@@ -1405,6 +1405,6 @@ record ([F20]). Every byte of this chapter is fixed by the design or decided her
     PT-028 reads (closure NC-10, the residue of A1-23): `feed` 2 and the task's `#N` in the former reserved bytes 36–39,
     so the row stays 56 B and the key becomes (session, agent, feed, task) (§13.1, §1.3). The task is held as its `#N`,
     as `SESSMARKS` holds its rules and [F05 §9.4] a lease's task, not as its 16-byte uid, which would not fit the row.
-    The record field is [F05 §9.11]'s. Which actor appends the record is owner question OQ-F-3's call (closure NC-11);
-    until it is answered no M0 command appends one ([API] open point 48, PX-011), so no `feed` 2 row exists and C8 is
-    empty. OQ-F-3's options (a) and (b) change no byte of the row; (c) would withdraw `feed` 2.
+    The record field is [F05 §9.11]'s. **Decided 2026-09-28** (OQ-F-3 (b); closure NC-11): the layer that delivers the
+    pack appends the record; no M0 command is such a layer ([API] open point 48, PX-011), so no `feed` 2 row exists and
+    C8 is empty at M0. The decision changes no byte of the row (spec sync 2a, consistency).

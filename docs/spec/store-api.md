@@ -1456,6 +1456,9 @@ Every read verb ([AR §7.7.2], [LQ/std §3]). Arguments: `name` and `params` (a 
 (`--at`); `limit`; `cursor`; `mode` (`run`, `check`, `explain`, `profile`); `budget` (object); `ids` (bool). **Semantics**: [50 §3]
 and [LQ/std]; the view is `use`, else the resolved branch (CX-2, [50 §3.9]); tree-derived built-ins use CX-5's tree. **Result.**
 Family R ([LQ/envelope §7]); refusals are LQ codes ([LQ/errors]); a budget cut is exit 10 with the rows before it.
+**Appends.** A `Query` appends nothing, `pack` included ([40] I-F5). The C8 pack cursor ([AR §7.4]; [F05 §9.11] `feed` 2)
+is appended by the layer that delivers the pack, the `SubagentStart` hook or the MCP server ([AR §5d.1]), never by the
+verb (OQ-F-3, decided 2026-09-28 (b); open point 48).
 
 ### 14.2 `State`
 
@@ -1952,8 +1955,9 @@ point 29).
     exists (a ready task has no open blocker, is no container and has no ancestor with an open exogenous blocker), so any
     topological order is valid and `topo` only breaks ties arbitrarily between implementations. `Claim.next` therefore picks by
     (`priority`, `#N`), and the comparison treats `topo` ties as sets. Proposal for WP-19: replace `t.topo` in `std.ready`'s order
-    by `t.id`. **Pass 1 (A1-38): adopted** in [LQ/std §4.1]; §16.6 keeps the set rule for other `topo` orders. The change of
-    [50 §4.1]'s text awaits the owner (OQ-F-2 of `reviews/owner-questions.md`).
+    by `t.id`. **Pass 1 (A1-38): adopted** in [LQ/std §4.1]; §16.6 keeps the set rule for other `topo` orders.
+    **Decided 2026-09-28** (owner question OQ-F-2, option (a); `reviews/owner-questions.md`): `std.ready` orders by
+    `priority, id`; [50 §4.1]'s text is edited at WP-81a.
 12. **`claim` of a task that is not ready** is E404 (exit 6) with the failing clause (§10.1). [LQ/errors] adds the case text.
 13. **`complete --outcome failed|abandoned`** ([RULES/status-machines] CO-002, CO-003; [RULES/role-write-policy] WS-004).
     Confirmed: every outcome writes status `done` ([AR §6.2]: "writes `done` on the lease's branch"; [50 §4.2]), so a failed task
@@ -1994,7 +1998,8 @@ point 29).
 24. **`undo --expect`'s default** is "the tip the client last read" ([AR §5a.5], N13f). The API keeps no per-client read memory:
     the front end passes that tip as `expect`, and an absent `expect` checks nothing.
 25. **Lazy records written by hooks alone** (`SessionMark`, cursors, evidence rows) change no compared state and have no command at
-    M0. M6 and M9 add them if a gate needs them in GT2 streams.
+    M0. M6 and M9 add them if a gate needs them in GT2 streams. The pack cursor of C8 is one of them: only the layer
+    that delivers a pack appends it (OQ-F-3 (b), open point 48), and no M0 command is such a layer.
 26. **`sync --refork`** ([AR §5a.3], optional, unexported lanes only) changes a lane's fork point; its logical effect on commit ids
     and the image is not stated in the design. It is left to M3's specification.
 27. **`file revert`'s `stmt_sym`** is `revert`; [F06 §3.4] lists the file-verb words `mv`, `rm`, `add` and should add it.
@@ -2082,7 +2087,8 @@ point 29).
     same rule, over `HEAD.hlc_seq` and `HEAD.hlc_commit` ([F04 §5.15]), and lists `Reserve` among the records that carry a
     value without advancing the sequence; open point 39 is closed. Open point 34 is closed by [F11 §7]'s `outcome` byte.
     CK-6 names the extent head that carries h across a re-roll (R-SPEC-P's edit, kept), and §11.4 describes the binding
-    by `BindingExt.designated` (R-SPEC-R's edit, kept). The change of [50 §4.1]'s order (open point 11) awaits OQ-F-2.
+    by `BindingExt.designated` (R-SPEC-R's edit, kept). The change of [50 §4.1]'s order (open point 11) was decided on
+    2026-09-28 (OQ-F-2 (a): `priority, id`); [50 §4.1] is edited at WP-81a.
 47. **Pass 1, round 2** (closure NC-2, NC-5; P1-3, S1-11, A1-12 residue; S1-17, A1-16 residue). Example
     `13-file-mv.json` captures a `quote` anchor with the spec `docs/api.md:3`, since the `path#H` form it used is refused
     while [F20 §6.1]'s interim scanner rule holds, and its `path_move` writes `from` and `to` as directory prefixes ending
@@ -2096,8 +2102,9 @@ point 29).
     reservation moves (`next_id`, `next_anchor`) and those it leaves where the not-applied state leaves them
     (`commit_seq`, `fence`, `next_ref_id`). §15.7's `park` is the move [F16] P-70 has the first appender whose scan meets a
     failed ref CAS write, the wording of [F11 §3.2]. **The C8 pack cursor:** [F05 §9.11]'s `feed` 2 record is the
-    cursor, folded into [F11 §13.1]'s row; which actor appends it (the `pack` verb or the layer that delivers the pack)
-    is OQ-F-3's call, and §14.1 (after [40] I-F5) makes every `Query`, `pack` included, append nothing.
-    [RULES/pack-classes] PX-011 (round 3), [F05 §9.11] and [F11 §13.1] (closure NC-11) state the same interim: until
-    OQ-F-3 is answered, `Query` appends nothing on either side and no M0 command appends a pack cursor (open point 25),
-    so C8 is empty in the engine and in the model alike and GT2 compares it as such.
+    cursor, folded into [F11 §13.1]'s row. **Decided 2026-09-28** (owner question OQ-F-3, option (b);
+    `reviews/owner-questions.md`): the layer that delivers the pack, the `SubagentStart` hook or the MCP server
+    ([AR §5d.1]), appends the `feed` 2 cursor after delivery; the `pack` verb and every `Query` append nothing (§14.1,
+    after [40] I-F5). No M0 command is a delivering layer (open point 25), so C8 is empty in the engine and in the model
+    at M0 and GT2 compares it that way. [F05 §9.11] records the same decision; [RULES/pack-classes] PX-011 names the
+    delivering layer instead of the verb (R-MODEL), and WP-81a edits [AR §7.4] C8.

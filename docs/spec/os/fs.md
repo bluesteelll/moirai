@@ -38,7 +38,8 @@ the implementer.
 [OS/path §2.1] and [OS/path §11] (`RelPath`, `RelPathBuf`, `PathError`): valid UTF-8 compared as exact bytes; segments
 separated by `/`; no leading or trailing `/`, no empty, `.` or `..` segment; no `\` and no C0 control character (P1,
 P4); the empty value denotes the root itself. Store names are a subset: decimal numbers and fixed ASCII words ([F02],
-X-F10). Where this file writes `Option<&RelPath>` for a directory, `None` and the empty `RelPath` both name the root.
+X-F10). `RelPath<'_>` is a `Copy` view passed by value ([OS/path §2.1]). Where this file writes `Option<RelPath<'_>>` for a
+directory, `None` and the empty `RelPath` both name the root.
 
 The type sets no length limit. **Use-time checks** of `os::fs` (the operation fails with `InvalidName`, nothing is
 created):
@@ -118,7 +119,7 @@ pub enum SyncKind {
 pub enum GroupMember<'a, R, F> {
     File { file: &'a F, kind: SyncKind },
     /// `dir: None` names the root directory itself.
-    Dir { root: &'a R, dir: Option<&'a RelPath> },
+    Dir { root: &'a R, dir: Option<RelPath<'a>> },
 }
 ```
 
@@ -209,11 +210,11 @@ pub trait StoreFs: VfsTypes {
     fn create_root(&self, dir: &std::path::Path, role: RootRole) -> Result<Self::Root, VfsError>;
 
     // Names (§4.2)
-    fn open(&self, root: &Self::Root, rel: &RelPath, access: Access, hint: OpenHint) -> Result<Self::File, VfsError>;
-    fn create_new(&self, root: &Self::Root, rel: &RelPath) -> Result<Self::File, VfsError>;
-    fn create_dir(&self, root: &Self::Root, rel: &RelPath) -> Result<(), VfsError>;
-    fn remove_dir(&self, root: &Self::Root, rel: &RelPath) -> Result<(), VfsError>;
-    fn list_dir(&self, root: &Self::Root, dir: Option<&RelPath>) -> Result<Vec<DirEntry>, VfsError>;
+    fn open(&self, root: &Self::Root, rel: RelPath<'_>, access: Access, hint: OpenHint) -> Result<Self::File, VfsError>;
+    fn create_new(&self, root: &Self::Root, rel: RelPath<'_>) -> Result<Self::File, VfsError>;
+    fn create_dir(&self, root: &Self::Root, rel: RelPath<'_>) -> Result<(), VfsError>;
+    fn remove_dir(&self, root: &Self::Root, rel: RelPath<'_>) -> Result<(), VfsError>;
+    fn list_dir(&self, root: &Self::Root, dir: Option<RelPath<'_>>) -> Result<Vec<DirEntry>, VfsError>;
 
     // Positional I/O (§4.3)
     fn read_at(&self, file: &Self::File, offset: u64, buf: &mut [u8]) -> Result<usize, VfsError>;
@@ -222,30 +223,30 @@ pub trait StoreFs: VfsTypes {
 
     // Durability classes (§4.4)
     fn sync(&self, file: &Self::File, kind: SyncKind) -> Result<(), DurabilityFailure>;
-    fn sync_dir(&self, root: &Self::Root, dir: Option<&RelPath>) -> Result<(), DurabilityFailure>;
+    fn sync_dir(&self, root: &Self::Root, dir: Option<RelPath<'_>>) -> Result<(), DurabilityFailure>;
     fn sync_group(&self, members: &[GroupMember<'_, Self::Root, Self::File>]) -> Result<(), DurabilityFailure>;
     fn fail_stop(&self, failure: DurabilityFailure) -> !;
 
     // Extents and sealing (§4.5, §4.6)
-    fn create_extent(&self, root: &Self::Root, rel: &RelPath, len: u64, vol: &StoreVolume) -> Result<Self::File, VfsError>;
+    fn create_extent(&self, root: &Self::Root, rel: RelPath<'_>, len: u64, vol: &StoreVolume) -> Result<Self::File, VfsError>;
     fn recycle_extent(&self, file: &Self::File, len: u64, vol: &StoreVolume) -> Result<(), VfsError>;
     fn seal(&self, file: &Self::File) -> Result<(), VfsError>;
 
     // Namespace changes (§4.7–§4.9)
-    fn unlink(&self, root: &Self::Root, rel: &RelPath, retry: ShareRetry) -> Result<(), VfsError>;
-    fn rename_noreplace(&self, from_root: &Self::Root, from: &RelPath, to_root: &Self::Root, to: &RelPath,
+    fn unlink(&self, root: &Self::Root, rel: RelPath<'_>, retry: ShareRetry) -> Result<(), VfsError>;
+    fn rename_noreplace(&self, from_root: &Self::Root, from: RelPath<'_>, to_root: &Self::Root, to: RelPath<'_>,
                         retry: ShareRetry) -> Result<(), VfsError>;
-    fn rename_replace(&self, from_root: &Self::Root, from: &RelPath, to_root: &Self::Root, to: &RelPath,
+    fn rename_replace(&self, from_root: &Self::Root, from: RelPath<'_>, to_root: &Self::Root, to: RelPath<'_>,
                       retry: ShareRetry) -> Result<(), VfsError>;
-    fn swap_dirs(&self, a_parent: &Self::Root, a: &RelPath, b_parent: &Self::Root, b: &RelPath,
+    fn swap_dirs(&self, a_parent: &Self::Root, a: RelPath<'_>, b_parent: &Self::Root, b: RelPath<'_>,
                  retry: ShareRetry) -> Result<SwapOutcome, VfsError>;
-    fn swap_recover(&self, a_parent: &Self::Root, a: &RelPath, retry: ShareRetry) -> Result<SwapRecovery, VfsError>;
+    fn swap_recover(&self, a_parent: &Self::Root, a: RelPath<'_>, retry: ShareRetry) -> Result<SwapRecovery, VfsError>;
 
     // Queries (§4.10–§4.13)
     fn file_size(&self, file: &Self::File) -> Result<u64, VfsError>;
     fn identity(&self, file: &Self::File) -> Result<FileIdentity, VfsError>;
     fn root_identity(&self, root: &Self::Root) -> Result<FileIdentity, VfsError>;
-    fn path_identity(&self, root: &Self::Root, rel: &RelPath) -> Result<FileIdentity, VfsError>;
+    fn path_identity(&self, root: &Self::Root, rel: RelPath<'_>) -> Result<FileIdentity, VfsError>;
     fn free_space(&self, root: &Self::Root) -> Result<FreeSpace, VfsError>;
     fn advise_dontneed(&self, file: &Self::File, offset: u64, len: u64);
     fn counters(&self) -> VfsCounters;
@@ -275,6 +276,13 @@ Renames against [80 §2.1]'s list: `open_store_file` became `open` and `create_n
   inherit), so files that a sandbox principal creates under it stay writable and deletable by the owner's unsandboxed
   processes ([90 §5.4], [80 §2.12] `srt-win` row). Unix creates the directory with mode `0o777` minus the umask; no ACL
   is added. An existing `dir` is `AlreadyExists`.
+- **A failed embedded flush.** If the `durable-name` flush of the parent fails, `create_root` removes the new, empty
+  directory (the removal's own error is ignored) and returns `VfsError` with the kind **`FlushFailed`**, carrying the
+  flush's `OsCode` and `call` (§6.1). It never returns a `DurabilityFailure`: no commit is at stake yet, the directory
+  is removed so that a later run does not meet `AlreadyExists`, and the caller (`init`, `restore`) exits 7 with the
+  `durability-failure` text of [F19] and issues no further write, flush, create or namespace call. It never retries.
+  The same rule covers the flushes embedded in `swap_dirs` and `swap_recover` (§4.9), which remove nothing: their
+  intent stays for `swap_recover`. An ACE failure on the path above also removes the new directory, with its own kind.
 
 ### 4.2 `open`, `create_new`, `create_dir`, `remove_dir`, `list_dir`
 
@@ -351,6 +359,8 @@ namespace operations may be lost, in any order** (fault-model item (2) as amende
 | `FlushFileBuffers` on a handle to the directory opened with `FILE_FLAG_BACKUP_SEMANTICS` **and** `GENERIC_WRITE` (a read-only directory handle fails with error 5 [M, X17 §3.4]) | `fsync` on `open(dir, O_RDONLY \| O_DIRECTORY \| O_CLOEXEC)` (on ext4 this forces a full journal commit, [X17 §3.4]) | `fsync(dirfd)`, then the device barrier `fcntl(dirfd, F_FULLFSYNC)` |
 
 - A root opened `ReadWrite` may cache its directory-flush handle; subdirectory handles may be cached per root.
+- `sync_dir` on a root opened `Read` is a durability failure with the kind `AccessDenied` (Windows code 5, `call`
+  `FlushFileBuffers`), issued without an OS call.
 - On Windows every rename additionally carries `MOVEFILE_WRITE_THROUGH` (§4.8) until the post-release rig calibration
   shows it unnecessary (PLAN §6.1 #3); that flag never replaces `sync_dir`, which every rename point requires
   ([80 §2.3.1]).
@@ -415,7 +425,7 @@ which the environment guard reports in `StoreVolume.extent_method` ([OS/env §2]
 
 | `ExtentMethod` | File systems | `create_extent(root, rel, len, vol)` | `recycle_extent(file, len, vol)` |
 |---|---|---|---|
-| `ZeroFill` | NTFS (gated); ext4 and XFS on kernels without `FALLOC_FL_WRITE_ZEROES` | `create_new`, then write zeros over `[0, len)` in order from one reused zero buffer of at most 1 MiB | write zeros over `[0, len)` |
+| `ZeroFill` | NTFS (gated); ext4 and XFS on kernels without `FALLOC_FL_WRITE_ZEROES` | `create_new`, then write zeros over `[0, len)` in order from one reused zero buffer of at most 1 MiB | write zeros over `[0, len)`, then set the length to `len` if the file is longer (Windows `SetFileInformationByHandle(FileEndOfFileInfo)`, Unix `ftruncate`) |
 | `WriteZeroes` | ext4 on Linux ≥ 6.17, XFS on Linux ≥ 7.3 (port) | `create_new`, then `fallocate(fd, FALLOC_FL_WRITE_ZEROES, 0, len)`; `EOPNOTSUPP` or `EINVAL` → the `ZeroFill` steps (same guarantee, a method fallback, not a weakening) | the same call over `[0, len)`, same fallback |
 | `Sparse` | btrfs, APFS (port) | first `free_space(root).available ≥ 2 × len`, else `InsufficientSpace` (the caller refuses the rotation with exit 7, [80 §2.3.3]); then `create_new` and `ftruncate(fd, len)`. btrfs: `FS_NOCOW_FL` on the empty file only if the port's measurement shows it pays; APFS: `F_PREALLOCATE` is not used | btrfs `fallocate(fd, FALLOC_FL_PUNCH_HOLE \| FALLOC_FL_KEEP_SIZE, 0, len)`; APFS `fcntl(fd, F_PUNCHHOLE, {0, 0, len})`; both need a block-aligned range, which holds when `len` is a multiple of 64 KiB (open point 12) |
 
@@ -468,9 +478,10 @@ error instead of crashing readers ([80 §2.5]). macOS `UF_IMMUTABLE` and Linux `
 
 ### 4.8 `rename_noreplace`, `rename_replace`
 
-Both rename a **file** (a directory only through `swap_dirs`) between two roots on one volume. Neither makes anything
-durable: **every rename point is followed by `sync_dir` of both parents** ([80 §2.3.2], X-F5), or one `sync_group` on
-macOS.
+`rename_noreplace` renames a file or a directory between two roots on one volume; a directory is never moved into its
+own subtree (the caller never asks for it). `rename_replace` renames files only. Both follow [F15 §5.4] and §5.5, and
+§4.9.2 uses the directory form. Neither makes anything durable: **every rename point is followed by `sync_dir` of both
+parents** ([80 §2.3.2], X-F5), or one `sync_group` on macOS.
 
 | | `rename_noreplace` (fails `AlreadyExists` if `to` exists) | `rename_replace` (atomically replaces an existing `to`) |
 |---|---|---|
@@ -518,7 +529,10 @@ Let `A` = `a_parent/a`, `B` = `b_parent/b`, `T` = `a_parent/<a>.swap-old`, and t
 
 1. If `I` or `T` exists: fail `AlreadyExists` (the caller prints "run `moirai doctor`" and exits 7).
 2. Read `a_id = path_identity(A)` and `b_id = path_identity(B)`.
-3. Write `I` (§4.9.3) with `create_new`, `write_at`, `sync(DataAndMeta)`; then `sync_dir(a_parent)`.
+3. Write `I` (§4.9.3) with `create_new`, `write_at`, `sync(DataAndMeta)`; then `sync_dir(a_parent)`. The create stays
+   pending until that `sync_dir`, so a crash inside this step can keep the name `<a>.swap` with lost or partial bytes;
+   §4.9.4's row "`I` unreadable" handles it. Step 4 starts only after this step's flushes succeeded, so every later
+   state has a readable `I`.
 4. `rename_noreplace`-equivalent directory rename `A → T`; `sync_dir(a_parent)`.
 5. Directory rename `B → A`; `sync_dir(b_parent)`, and `sync_dir(a_parent)` if it is another directory.
 6. Directory rename `T → B`; `sync_dir(a_parent)`, and `sync_dir(b_parent)` if it is another directory.
@@ -526,8 +540,10 @@ Let `A` = `a_parent/a`, `B` = `b_parent/b`, `T` = `a_parent/<a>.swap-old`, and t
 
 Directory renames use the no-replace calls of §4.8 (on Windows `MoveFileExW` with `MOVEFILE_WRITE_THROUGH` and without
 `REPLACE_EXISTING`, which fails on directories anyway). On Windows a directory rename fails with error 5 or 32 while any
-file inside it is open by any process, or a process has its working directory inside ([13 §1.4]); `retry` applies, and a
-failure after the bound leaves the intent for `swap_recover` (open point 6).
+file inside it is open by any process, even with full sharing, or a process has its working directory inside
+([13 §1.4]; WP-33); a handle on the directory itself does not block it. `retry` applies, and a failure after the bound
+leaves the intent for `swap_recover` (open point 6). A failed flush embedded in a step is returned as `FlushFailed`
+(§4.1) and leaves the intent for `swap_recover`.
 
 #### 4.9.3 The swap intent file (on-disk, little-endian)
 
@@ -552,7 +568,9 @@ File `<a>.swap` in `a_parent`. Fixed header of 64 bytes, then three UTF-8 paths,
 | total | P + pad + 8 | | | |
 
 Total length = P + pad + 8. A reader accepts the file only if the length, the magic, `version = 1`, the reserved fields and
-the checksum all match; otherwise `swap_recover` fails with `Io` ("swap intent unreadable") and changes nothing. The
+the checksum all match. Otherwise the intent is **unreadable**: `swap_recover` acts by §4.9.4's row "`I` unreadable", and
+outside that row fails with `Io` ("swap intent unreadable") and changes nothing. A read that returns an error is not
+this case: `swap_recover` then fails with the read's error and changes nothing. The
 intent is machine-local: `FileIdentity` on Linux and macOS carries `st_dev`, which may differ after a reboot, in which case
 recovery refuses rather than guesses (open point 7).
 
@@ -566,11 +584,12 @@ followed by `sync_dir` of the parents involved, and removing `I` by `sync_dir(a_
 
 | `A` | `B` | `T` | State | Action | Result |
 |---|---|---|---|---|---|
+| present | present | absent | `I` unreadable (§4.9.3): its write in step 3 never completed (a crash, or a failed flush), so nothing was renamed, since step 4 starts only after `I` is durable | remove `I` | `NothingDone` |
 | `a_id` | `b_id` | absent | nothing renamed | remove `I` | `NothingDone` |
 | absent | `b_id` | `a_id` | after step 4 | rename `T → A`; remove `I` | `RolledBack` |
 | `b_id` | absent | `a_id` | after step 5 | rename `T → B`; remove `I` | `Completed` |
 | `b_id` | `a_id` | absent | after step 6 | remove `I` | `Completed` |
-| anything else | | | unknown | change nothing; fail `Io` ("swap state unrecognised"), exit 7 with the three paths | — |
+| anything else, or `I` unreadable with `A` or `B` absent or `T` present | | | unknown | change nothing; fail `Io` ("swap state unrecognised", or "swap intent unreadable"), exit 7 with the three paths | — |
 
 After `Completed` the caller runs the remaining `restore` steps (the old store, now at `B`, gets `HEAD.retired`, [AR §4.10],
 [F16]); after `RolledBack` the restore did not happen and `B` holds the restored copy intact.
@@ -670,7 +689,9 @@ sealed files are `0o444`, so doing so takes deliberate action ([80 §2.3.5]).
 
 ```rust
 /// The raw OS error: a Win32 error code (NTSTATUS values are converted with `RtlNtStatusToDosError`, except that
-/// `STATUS_DELETE_PENDING` is mapped to the kind `DeletePending` before conversion) or an `errno`. 0 when there is none.
+/// `STATUS_DELETE_PENDING` is mapped to the kind `DeletePending` before conversion and carries 303
+/// `ERROR_DELETE_PENDING`, the code §6.2 lists for the kind; `RtlNtStatusToDosError` would give 5) or an `errno`.
+/// 0 when there is none.
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
 pub struct OsCode(pub i32);
 
@@ -685,12 +706,14 @@ pub enum VfsErrorKind {
     DiskFull, InsufficientSpace, ReadOnlyVolume,
     Unsupported, CrossDevice, Busy, InvalidName,
     UnexpectedEof, Io, Other,
+    // A durability-class flush embedded in `create_root`, `swap_dirs` or `swap_recover` failed (§4.1, §4.9).
+    FlushFailed,
     // Reported by `ProjectFs` only ([OS/project §2.3]); never by `StoreFs`.
     CloudOnly, IsSymlink, IsDirectory, OutsideRoot, Stale,
 }
 ```
 
-`VfsErrorKind` is also the `kind` of `DurabilityFailure`. `#[non_exhaustive]` keeps the port free to report the same
+`VfsErrorKind` is also the `kind` of `DurabilityFailure` (never `FlushFailed`, which only wraps one, §4.1). `#[non_exhaustive]` keeps the port free to report the same
 kinds from new codes; it never lets a port add a behaviour. The last five kinds are `ProjectFs`'s ([OS/project §2.3];
 pass 1, A1-33): `StoreFs` never returns them, because store files are never cloud placeholders, links or directories
 where a file is expected (a link in the store is `Other`, §5.2), and store roots have no root-id check.
@@ -715,7 +738,8 @@ where a file is expected (a link in the store is `Other`, §5.2), and store root
 | `UnexpectedEof` | short read in `read_exact_at` | same | per protocol ([F16]) |
 | `Io` | 23 `ERROR_CRC`, 1117 `ERROR_IO_DEVICE`, 483 `ERROR_DEVICE_HARDWARE_ERROR`, and any unlisted code on a read or write | `EIO`, `EUCLEAN`, `EBADMSG`, and any unlisted code on a read or write | fault-model item (12), judged by position and by caller ([F16] P-92): below `durable_lsn`, corruption (exit 7 `store_corrupt`); at or above it, a reader's view ends there, and a writer's scan (appender, flush holder, boot recovery, `repair`) appends nothing and exits 7 `store_io_fault` |
 | `Other` | any other code | any other code, including `ELOOP` and a `RESOLVE_BENEATH` `EXDEV` on an open (a symbolic link in the store, §5.2) | exit 1 or 7 per operation |
-| `CloudOnly` | `ProjectFs` only: decided from the entry's attributes before any open (`RECALL_ON_DATA_ACCESS`, `RECALL_ON_OPEN`, `OFFLINE`); an `ERROR_CLOUD_FILE_*` code (362–400) if one still occurs | macOS `SF_DATALESS`, or the error a read returns while materialisation is off | the answer is `unverified (cloud-only)`; never hydrated ([OS/project §5.10]) |
+| `FlushFailed` | the `OsCode` of the failed flush embedded in `create_root`, `swap_dirs` or `swap_recover` (§4.1) | same | exit 7 with the `durability-failure` text of [F19]; no retry, and no further write, flush, create or namespace call by the process |
+| `CloudOnly` | `ProjectFs` only: decided from the entry's attributes before any open (`RECALL_ON_DATA_ACCESS`, `RECALL_ON_OPEN`, `OFFLINE`); a code of the `ERROR_CLOUD_FILE_*` family if one still occurs (winerror.h has members at 358, 404, 426, 434 and 475 and gaps inside 362–400, so the family is matched by name, not by a range) | macOS `SF_DATALESS`, or the error a read returns while materialisation is off | the answer is `unverified (cloud-only)`; never hydrated ([OS/project §5.10]) |
 | `IsSymlink` | `ProjectFs` only: a content read of an entry whose reparse tag is `IO_REPARSE_TAG_SYMLINK` | `ELOOP` from `O_NOFOLLOW` on a content read | the caller uses `read_link` ([OS/project §5.6]) |
 | `IsDirectory` | `ProjectFs` only: 267 `ERROR_DIRECTORY`, or the attributes, on a content read or an unlink | `EISDIR` | per operation |
 | `OutsideRoot` | `ProjectFs` only: an opened object's final path is not under the root (the containment check of [OS/project §5.5]) | `EXDEV` from `RESOLVE_BENEATH`, `ELOOP` from `O_NOFOLLOW_ANY` on a project open | the object is never read; the resolver treats it as not a candidate ([40 §2.4]) |
@@ -749,8 +773,13 @@ Rules:
 
 A Windows file deleted while another handle holds it open with `FILE_SHARE_DELETE` stays **delete-pending**: its name
 exists until the last handle closes, it cannot be opened (`DeletePending`), and a new file of that name cannot be created
-(`AccessDenied` or `DeletePending`). moirai tolerates it by design:
+(`AlreadyExists`, `AccessDenied` or `DeletePending`; [F15] FM-8.3). moirai tolerates it by design:
 
+- **Which deletes leave a name pending** (WP-33). On Windows 11 NTFS, `DeleteFileW` uses POSIX delete semantics: the
+  name disappears at once, even while other handles are open, and nothing stays delete-pending. Only a classic
+  `FileDispositionInfo` delete, which moirai never issues but other tools may, leaves the file pending. The rules
+  below keep the lingering form, which [F15] FM-8.3 models, because an older build, another file system or another
+  tool can still produce it.
 - **Names are never reused.** Sealed files, extents and temporary files are created under monotonic numbers ([AR §4.1],
   [80 §2.5] rule 3), so a delete-pending name never blocks a creation.
 - **Readers.** A reader that fails to open a file named by a `HEAD` it read earlier with `DeletePending`, `AccessDenied`
@@ -823,7 +852,7 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 
 | Id | What | Decided by | Candidates | Constraint the value must meet |
 |---|---|---|---|---|
-| `OS-share-retry-ms` | `total_ms` of `ShareRetry::Bounded` for image-export renames, `packed-refs`/loose-ref replace-renames and the store `config` rename (§6.3) | measurement 8 (loose-object create + rename under Defender, n = 1,000; WP-54) and measurement 15 (rename of one file and of a 1,000-file directory under Defender; WP-55), filled by WP-81a | 1,000 ms (the `--retry-ms` default [40 §3.4] gives `file mv`) | ≥ the measured p99 time Defender or the indexer keeps a freshly written file open without `FILE_SHARE_DELETE`, loaded; never spent while the caller holds the writer or flush byte; small enough that `image export` stays inside its own budget ([AR §8.3]) |
+| `OS-share-retry-ms` | `total_ms` of `ShareRetry::Bounded` for image-export renames, `packed-refs`/loose-ref replace-renames, the store `config` rename (§6.3) and the clean-up unlinks of the `init` probe ([OS/env §5] step 6) | measurement 8 (loose-object create + rename under Defender, n = 1,000; WP-54) and measurement 15 (rename of one file and of a 1,000-file directory under Defender; WP-55), filled by WP-81a | 1,000 ms (the `--retry-ms` default [40 §3.4] gives `file mv`) | ≥ the measured p99 time Defender or the indexer keeps a freshly written file open without `FILE_SHARE_DELETE`, loaded; never spent while the caller holds the writer or flush byte; small enough that `image export` stays inside its own budget ([AR §8.3]) |
 
 Referenced, owned elsewhere: `store.log-extent-bytes` (init-fixed, [F17]; the extent `len` of §4.5).
 
@@ -836,12 +865,13 @@ Referenced, owned elsewhere: `store.log-extent-bytes` (init-fixed, [F17]; the ex
 | 3 | The swap intent is a new on-disk file (`<a>.swap` in the parent of the swapped directory) whose bytes no design document fixes | frozen here (§4.9.3) because `swap_dirs` is an `os::fs` operation; [F02]'s file list must name `<a>.swap` and `<a>.swap-old` | WP-10 (F02), R-REV-P |
 | 4 | `NtFlushBuffersFileEx(DATA_SYNC_ONLY)` refused by a volume | refuse the store; no fallback to `FlushFileBuffers` even though it is stronger, so one location always takes one path and the `init` probe tests the call that runs | R-REV-P |
 | 5 | `MOVEFILE_WRITE_THROUGH`: PLAN §6.1 #3 names `file mv`; [80 §2.3.1]'s `durable-name` row reads as every Windows rename | applied to every Windows rename (store, export, swap and `ProjectFs`); [F16] (WP-16) owns the rule and may narrow it only to `file mv` if it records why | WP-16 |
-| 6 | On Windows a directory cannot be renamed while any file inside it is open ([13 §1.4]); `restore` swaps the store directory while it holds the writer and maintenance bytes through handles to `LOCK` inside it | [F16] must order the swap so that the restoring process's own `LOCK` handles live outside the swapped directory during the renames, or accept that a Windows `restore` swap fails (exit 7, intent left for `swap_recover`) while any MCP server holds the store open; WP-33 tests whether `FILE_SHARE_DELETE` handles permit the rename [I] | WP-16, WP-33 |
+| 6 | On Windows a directory cannot be renamed while any file inside it is open ([13 §1.4]); `restore` swaps the store directory while it holds the writer and maintenance bytes through handles to `LOCK` inside it | [F16] must order the swap so that the restoring process's own `LOCK` handles live outside the swapped directory during the renames, or accept that a Windows `restore` swap fails (exit 7, intent left for `swap_recover`) while any MCP server holds the store open. **WP-33's answer (spec sync 2a):** a directory can be renamed while a handle on the directory itself is open, but not while any file inside it is open, even with full sharing (error 5); [F16] P-85 already closes its handles before the swap | — |
 | 7 | `FileIdentity` on Unix uses `st_dev`, which can change across a reboot | `swap_recover` then refuses (state unrecognised) rather than guesses; Linux and macOS use the atomic exchange on every allowed file system, so the intent path is rare there | R-REV-P |
-| 8 | Whether a Windows delete of a file that another process maps fails (error 5) or becomes delete-pending | either outcome is tolerated (GC retries next run); M1's AV-interference case and measurement 22's clear-then-delete row record which | WP-33, WP-52 |
+| 8 | Whether a Windows delete of a file that another process maps fails (error 5) or becomes delete-pending | either outcome is tolerated (GC retries next run). **WP-33's answer (spec sync 2a):** the GC delete (clear read-only, then `DeleteFileW`) of a mapped sealed file succeeds, and the mapping stays readable; measurement 22's clear-then-delete row still records it under load | WP-52 |
 | 9 | The retry schedule of §6.3 (1 ms doubling to 64 ms) is not given by any design document | fixed here as an implementation contract (no format effect); only its total is a hole | R-REV-P |
 | 10 | `create_root` makes the store directory durable (`durable-name` on the parent) although [80 §2.3.2] has no `init` row | added so that a power loss after `init` cannot leave acknowledged commits in a directory whose name was lost; [F16] may list it as a protocol point | WP-16 |
 | 11 | `remove_dir` and the `init`-refusal cleanup | `init` removes the directories it created when the guard refuses ([OS/env §5]) | R-REV-P |
 | 12 | Hole punching (`recycle_extent` on btrfs and APFS) needs a block-aligned length | [F17] keeps `store.log-extent-bytes` a multiple of 64 KiB in production and in the test profile (64 MiB and 64 KiB today, [60 §2.5]) | WP-16 (F17) |
 | 14 | One `RelPath` type for store and project paths ([OS/path] open point 1) | the type and its grammar are [OS/path §2.1]'s; this file adds only use-time checks (§2.1) and resolves every Unix store open beneath the root without following links (§5.2), as [OS/path §6] does for project paths | WP-17b, WP-30 |
 | 13 | The sealed-file order of §4.4.6 puts a temporary-name rename before `seal` | [80 §2.3.2] orders write, `durable+meta`, `seal`, `durable-name` and allows a rename followed by `durable-name`; renaming before `seal` keeps every rename on a writable file, and the file is not yet "sealed" in [80 §2.5]'s sense until a durable record names it | WP-16 |
+| 15 | Spec sync 2a (WP-31, WP-33): a `durable-name` flush embedded in `create_root` or `swap_dirs` returned `VfsError` and could never reach `fail_stop`; a crash inside §4.9.2 step 3 could leave an unreadable `<a>.swap` that `swap_recover` refused forever; §4.8 allowed files only although §4.9.2 renames directories | **closed:** option (a): an embedded flush failure removes `create_root`'s new directory and returns the new kind `FlushFailed` (exit 7, no retry, no further writes; §4.1, §6.1, §6.2), and `swap_dirs`/`swap_recover` return it with their intent kept; §4.9.4 removes an unreadable intent when `A` and `B` are present and `T` is absent (`NothingDone`), which is sound because step 4 starts only after `I` is durable; §4.8 lets `rename_noreplace` move a directory, never into its own subtree, and keeps `rename_replace` for files ([F15 §5.4]) | — |

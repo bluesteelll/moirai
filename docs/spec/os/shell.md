@@ -147,7 +147,10 @@ parent image is diagnostics-grade, so a wrong guess costs one misplaced warning,
    decimal value of the `OsCode` (an `i32`, [OS/fs §6.1]; Win32 codes and `errno` values are non-negative), `<SYMBOL>` its symbolic name from moirai's own table
    (Windows `ERROR_*` names, for example `ERROR_SHARING_VIOLATION`; Unix `errno` names, for example `EBUSY`), or `?` for a
    code the table lacks. `FormatMessageW` and `strerror` texts are never printed: they are localised and not ASCII
-   (open point 2).
+   (open point 2). Where two `errno` names share one value on an OS, the table prints one fixed name: the one that OS's
+   `errno.h` defines first, not the alias defined in terms of it. So `EAGAIN`, never `EWOULDBLOCK`, and on Linux
+   `EOPNOTSUPP` for 95, which `ENOTSUP` aliases there; macOS, where the two differ (45 and 102), prints each under its
+   own name.
 
 ## 7. Hooks and MCP entries (T8)
 
@@ -226,3 +229,4 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 | 4 | [80 §4.2] T9 writes the zsh hint with `→`; [90 §10.1] makes every rendered string ASCII | `->` (§8) | WP-18 |
 | 5 | The teaching alphabet of §3 is stricter than T1–T4 require (for example it has no `!` or `#` inside a token) | stricter is compatible: it only restricts emitters; acceptance (§4) is unchanged | R-REV-A |
 | 6 | Console stdin (a human typing into cmd) is not covered by [80 §4] | §5.2 step 2 fixes it (UTF-16 read, Ctrl+Z ends input), matching Rust's stdio | R-REV-P |
+| 7 | §6 item 6 did not say which symbol is printed when two `errno` names share a value (WP-30) | **closed (spec sync 2a):** the name the OS's `errno.h` defines first: `EAGAIN` (not `EWOULDBLOCK`), Linux `EOPNOTSUPP` for 95 | — |

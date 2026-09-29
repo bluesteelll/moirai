@@ -423,7 +423,13 @@ the use site; the C-AST records the resulting constant:
 | a node, or the property `id` (`{id: 40}`, `n.id = 40`) | `int` N, `nid`, `uid` | `NODE` (uid) |
 | anything else | the literal | the uncoerced constant above |
 
-A bound variable always wins over coercion ([50 §3.2]); an unbound `ident` that nothing coerces is a bind error.
+A bound variable always wins over coercion ([50 §3.2]); an unbound `ident` that nothing coerces is a bind error (E108,
+[LQ/errors §5.3]).
+
+**Enum values** (spec sync 2a). A string or bare word coerced to an enum names the value whose declared name ([F08 §8.5.3])
+equals it byte for byte; failing that, the one value whose name equals it ASCII-case-insensitively; no such value, or
+several, is E102 (E108 for a bare word). The C-AST's `ENUM` always carries the declared name, so `'Open'` and `open`
+hash alike when the field declares `open`.
 
 **Parameters.** In a read query, a `TX` and a call, every `param` is replaced by the constant of its bound value, typed
 by its use site ([50 §3.2]; [50 §5.3] "parameter values substituted with their types"):
@@ -431,7 +437,8 @@ by its use site ([50 §3.2]; [50 §5.3] "parameter values substituted with their
 | Parameter type | C-AST |
 |---|---|
 | `node` | `NODE` |
-| `list<node>`, `list<int>`, `list<text>`, `list<rev>` ([LQ/std §2.2]) | `LIST` of the element constants |
+| `list<node>`, `list<int>`, `list<text>` ([LQ/std §2.2]) | `LIST` of the element constants |
+| `list<rev>` ([LQ/std §2.2]) | `RLIST` of the elements' revision nodes (§5.6), as the same list written in place in revision mode gives |
 | `int` | `INT` |
 | `float` | `FLOAT`; the value −0.0 is encoded as +0.0, and a NaN is refused (E110), as [F01] open point 8 proposes for values that enter a canonical form |
 | `range<int>` | `RANGEINT` (`..1` → lo absent, hi 1; `2..` → lo 2, hi absent) |
@@ -452,7 +459,7 @@ position of its declaration in `params`; declaration defaults are constants.
 |---|---|
 | `rhead` | `RHEAD` |
 | `rref(name)` | `RREF(name)` |
-| `rcommit(hex)` | `RCOMMIT` with the full 32-byte id of the unique commit whose id starts with the hex digits (E301 if none or several) |
+| `rcommit(hex)` | `RCOMMIT` with the full 32-byte id of the unique commit whose id starts with the hex digits (E301 if none or several); a literal of all 64 hex digits is `RCOMMIT` with that id whether or not the store holds the commit (spec sync 2a; E301 is raised only when a view of it is resolved) |
 | `rseq(n)` | `RCOMMIT` with the id of the commit whose store sequence number is n (E301 if none) |
 | `rsuf(base, tilde \| caret, n)` | `RSUF(base′, 1 \| 2, n)` |
 | `rsuf(base, at, n)` | `RSUF(base′, 3, n)` — store-local, E117 inside a definition |
@@ -462,7 +469,10 @@ position of its declaration in `params`; declaration defaults are constants.
 | a `rev` parameter's value, a coerced `str`, `ident` or `int` | the value read with the revision grammar of [LQ/lexical §7] (an `int` n reads as `s<n>`), then this table |
 
 Sequence numbers and commit prefixes are resolved because they are store-local (a prefix may be ambiguous in another
-store, [50 §4.4]); refs, `HEAD` and suffixes stay symbolic, because resolving them is the view's job at run time
+store, [50 §4.4]); a full commit id is already store-independent, so it binds as itself even in a store that lacks the
+commit, and a query that reads that view fails with E301 when the view is resolved ([LQ/errors §5.4]: E301 is raised by
+view resolution). An imported portable definition that names such a commit therefore binds (no `QueryInvalid`,
+[F19 §12.5.3]). Refs, `HEAD` and suffixes stay symbolic, because resolving them is the view's job at run time
 (Open point C-13). `--at REV` and the MCP `use` parameter supply a `use` for every part that has none, before
 canonicalisation ([50 §3.9] item 1).
 
@@ -481,10 +491,10 @@ scope rules below — the binder's name resolution, stated here because renaming
 | V2 | In the patterns of `MATCH`, `OPTIONAL MATCH` and a `TX` `MATCH`, a named node or edge variable that is not visible creates a binding; one that is visible refers to it (a join). The clause's patterns and its `WHERE` see its new bindings; later clauses see them too. |
 | V3 | In a quantified group every named variable of the group's path is a new binding local to the group (its path and its `WHERE`); the group's `WHERE` may also refer to bindings visible before the clause ([50 §3.7] rule 3; outside the group they are E116). |
 | V4 | `WITH`: its items are evaluated in the scope before it. Afterwards the visible bindings are its items — an aliased item is a new binding named by the alias; an unaliased item that is a bare variable re-exports that same binding (same index); an unaliased item that is not a bare variable is a bind error, as in Cypher (Open point C-21) — plus, with `*`, every binding visible before. The `WITH`'s `WHERE` and `ORDER BY` resolve a name first among its items, then, if it has no `DISTINCT` and no aggregate, among the bindings visible before it. |
-| V5 | `RETURN`: items and `GROUP BY` are evaluated in the scope before it. Its `ORDER BY` resolves a name first to an aliased item of the same `RETURN` — encoded `ITEMREF(i)`, i the 0-based item index — then among the bindings visible before it. |
+| V5 | `RETURN`: items and `GROUP BY` are evaluated in the scope before it. Its `ORDER BY` resolves a name first to an aliased item of the same `RETURN` — encoded `ITEMREF(i)`, i the 0-based item index — then among the bindings visible before it. This holds wherever the name stands in the sort key, inside an `EXISTS {}` or `COUNT {}` subquery of the key included (V8), unless a binding made inside the key with that name (a list-predicate variable, a subquery's new binding) shadows it (spec sync 2a). |
 | V6 | `CALL … YIELD` (clause and standalone) and `CALL tx.… YIELD`: each yield item is a new binding named by its alias or else its field name; a standalone call's `WHERE` and `ORDER BY` see them. |
 | V7 | `UNWIND … AS x`: a new binding. |
-| V8 | A subquery (`EXISTS {}`, `COUNT {}`, `UNLESS EXISTS {}`, a pattern predicate) sees every binding visible where it stands; its new bindings are local to it. In the `UNLESS EXISTS` subquery of a `create_stmt`, a binding whose name equals the created variable's name gets the created variable's index: create-or-bind links the two by name ([50 §3.10] table, `CREATE` row). |
+| V8 | A subquery (`EXISTS {}`, `COUNT {}`, `UNLESS EXISTS {}`, a pattern predicate) sees every binding visible where it stands — in a sort key, the aliased items V4 and V5 resolve there too, so `RETURN n AS m ORDER BY COUNT { (m)-->() }` joins on the returned node rather than binding a fresh `m`; its new bindings are local to it. In the `UNLESS EXISTS` subquery of a `create_stmt`, a binding whose name equals the created variable's name gets the created variable's index: create-or-bind links the two by name ([50 §3.10] table, `CREATE` row). |
 | V9 | A list predicate `all(x IN l WHERE p)`: `x` is a new binding local to `p`. |
 | V10 | A `TX` block is one scope: its statements run in order ([50 §3.10] item 2); the pattern variables of a `MATCH … EXPECT`, the variable of a `CREATE` and the yields of a `CALL tx.…` are visible to the rest of that statement and to every later statement. |
 | V11 | A name that resolves to no binding is a coerced bare word (§5.5) or a bind error; it gets no index. |
@@ -518,6 +528,25 @@ the same query with every variable renamed has the same indexes.
 A `DEFINE` inside a `TX` is also a statement of that `TX`'s C-AST. By R2–R5, the same write reaches the same hash
 through the CLI verb, `moirai tx` and MCP `write`, which is what makes one idempotency key work across the three doors
 ([AR §6.4]: "every write verb, `apply` batch and MCP `write` compiles to one LQ `TX` block").
+
+### 5.10 Kind sets and duration arithmetic (corrections to [50 §3.2] and §3.3)
+
+Two binder rules of [50 §3] are restated here, because their text in [50] is self-contradictory or incomplete; [50 §3.2],
+[50 §3.3] and the examples Q20 and Q21 of [50 §2.9] are corrected at WP-81a (spec sync 2a).
+
+- **Kind sets** ([50 §3.2] "Kinds of a variable"). A node variable's kind set is the kinds its label admits (every kind
+  when it has no label), intersected with the endpoint kinds of every edge type it touches ([F08 §9.6] F1 `src_kinds`,
+  `dst_kinds`, after §5.4's direction); an empty set is E106, an unknown label E105. **Properties never narrow the set.** A
+  property read on the variable must exist on at least one kind of the set (E101 otherwise); on the other kinds it reads as
+  absent, and it counts as optional for W01 ([50 §3.3]). So `MATCH (n) WHERE n.severity <> 'minor'` keeps every node without
+  `severity` (absent `<>` a value is true), exactly as it keeps a finding whose `severity` is absent, and a property tested
+  under `OR` or `NOT` never silently removes a kind. [50 §3.2]'s clause "intersected with the kinds that have every property
+  it is compared on" is withdrawn.
+- **Durations in arithmetic** ([50 §3.3] "Arithmetic"). Besides [50 §3.3]'s rows (timestamp − timestamp is a duration;
+  timestamp ± duration is a timestamp), duration + timestamp is a timestamp, duration ± duration is a duration, and
+  int × duration and duration × int are durations (milliseconds times the integer); overflow of the i64 milliseconds is E103
+  at run time, never wraparound. Every other operator on a duration (`/`, a float operand) is E103. [50 §2.9] Q21's
+  `now() - $days * 1d` therefore types as timestamp − duration.
 
 ## 6. Binary encoding
 
@@ -785,21 +814,54 @@ check: the definition, bound against the schema of the ref that carries it, must
 a `#u:` literal, no revision-typed constant whose base is a sequence number or a commit prefix, no reflog revision and
 no anchor handle — exactly the constants step 4 and step 5 of §8.1 remove or refuse. Displays (`--show-query`,
 `CALL queries()`, errors) render `#u:…` back as the local `#N` when the store knows the uid, and as `#u:…` otherwise;
-binding a definition whose uid the store does not know is E111 ([50 §4.4]).
+binding a definition whose uid the store does not know is E111 ([50 §4.4]). A full commit id (`c<64 hex>`) the store does
+not hold is not a bind error: it binds as itself (§5.6), and only running a query that opens that view fails, with E301.
 
-## 9. Fixture binding context
+## 9. Fixture files and binding context
 
-A C-AST fixture (WP-22) states the context its C-AST was bound in, one item per line, before the expected tree:
+WP-22's `fixtures/lq/` holds the fixtures of the query surface in one layout, which every runner (LQ-3's WP-93a/b, LQ-Bench's
+WP-71a/b, and later LQ-1/LQ-2) reads (spec sync 2a; `fixtures/lq/INDEX.md` §2 lists every directive and must agree with
+this section):
+
+- **Files and suffixes.** `std/<name>.lq`: the `lq-define` blocks of [LQ/std], byte for byte, parsed with entry `define`;
+  `std/catalog.txt`: the catalog rows of [LQ/std §9]; `cases/<topic>.cases`: every other fixture. There are no separate
+  `.tok`, `.sast` or `.cast` files: a token stream, an S-AST, a C-AST with its encoding and hash, and an error are
+  directives of one case.
+- **Cases.** A `.cases` file is UTF-8 with LF line ends; each case is `%% case <id>` … `%% end`, `<id>` matching
+  `[a-z0-9][a-z0-9.-]*` and unique in its file; every line outside a case is a comment. Inside, a **line directive** is
+  `%% <name> <value>` on one line (a directive without a value, `accept`, stands alone); a **block directive** is `%% <name>`
+  alone on its line, and its block is every following line up to the next line that starts with `%% `.
+- **Entry form and mode.** `%% entry read` parses with start symbol `read_input`, `%% entry write` with `write_input`,
+  `%% entry define` with `define_stmt` ([LQ/grammar-v1.ebnf §P.1]); for a JSON IR document the value is its root tag
+  ([LQ/json-ir]). `%% mode strict-gql` selects the strict-GQL spelling mode ([LQ/grammar-v1.ebnf §G]); without it the case
+  runs in the default mode.
+- **Input.** `%% input` (block): the text, each line followed by LF except the last, holding no CR and no line starting with
+  `%% `; `%% input-hex` (block): the exact bytes; `%% input-file <path>`: a whole file, relative to `fixtures/lq/`.
+- **Expected results.** `%% tokens` (block): the token stream of [LQ/lexical §11]; `%% sast` and `%% cast` (blocks): the
+  S-expression forms of §4.2 and §4.3; `%% encoding` (block): the C-AST's encoding of §6 in hex; `%% error <code>
+  <line>:<col> <basis>` (or `<code> *` when only the code is asserted; `<basis>` is `spec` or `conv`); the other directives
+  are `fixtures/lq/INDEX.md` §2's.
+- **Hex blocks** (`input-hex`, `encoding`, `hex`): pairs of lower-case hex digits; whitespace between pairs is ignored, and
+  `;` starts a comment that runs to the end of the line.
+- **Hash lines.** `%% hash <algorithm> <a>..<b> [first <n>] = <hex>`: the named hash over bytes a (inclusive) to b
+  (exclusive) of the case's `encoding` (or `hex`) block, truncated to its first n bytes, in lower-case hex; `<algorithm>`
+  is `blake3_256` (BLAKE3 in its default mode, §7.1) or `xxh3_64` (seed 0, written `0x` and 16 hex digits as a number).
+  `blake3_256 0..<len> first 16` over a whole encoding is the query hash H (§7.1), the value `xtask hex`'s
+  `{blake3_256 a..b}` directive gives before truncation.
+
+**Binding context.** A C-AST case states the context it was bound in with repeatable `%% context` lines, before the
+expected tree, one item each:
 
 ```
 schema core                                       the core schema of [F08], with its F1 and F2 rows
 node 88 018f3c2e7a117b3c9d5e4c2f1a0b9e88          a #N and its uid
 commit 4466 <64 lower-case hex>                   a store sequence number and its commit id
 param scope node 88                               a bound parameter: name, type, value in k=v text
+branch main                                       the caller's resolved branch (for error envelopes)
+rev 4480                                          its tip sequence number
 ```
 
-A fixture that asserts the hash carries the encoding in hex and the hash as `{blake3_256 …}` of it, first 16 bytes
-(§7.1).
+A case that asserts the hash carries the encoding in hex and the hash line above (§7.1).
 
 ## Coverage
 
@@ -843,6 +905,7 @@ does not touch this chapter (§1.3).
 | C-16 | A `CREATE (x:kind …)` with `UNLESS EXISTS` names its bind candidate by variable name ([50 §3.10] `CREATE` row). | V8 gives the subquery's same-name binding the created variable's index, so renaming both keeps the link. |
 | C-17 | **The A1 review's S-10**: the canonical AST is the bound AST, binding reads F1 aliases and field types from schema data that can differ per branch, so the F3 hash of one text can differ by branch and a merge decision could depend on which schema binds. | As amended [50 §4.4] now states (S-10 fixed in `docs/spec/reviews/a1-dispositions.md`): the merge compares hashes computed against one schema, the merge result's (§7.2, "F3 hash in a merge"), and with equal hashes dst's text lands. The stored hash stays a cache for the common case of equal schemas. S-10's alternative — a frozen alias table per grammar version — was not taken, because project edge kinds bring their own F1 aliases and field types, which no frozen table can list. |
 | C-18 | **The A1 review's S-02** (major): the portable form missed store-local constants spelled without `#` or `s`. | Fixed in amended [50 §4.4] (`docs/spec/reviews/a1-dispositions.md`, FS-2); this chapter carries the bytes: the rewrite works on the bound AST by type (§8.1 step 4: node-typed and revision-typed constants, whatever their spelling, parameter defaults included, `'c<64 hex>'` outside revision positions); anchor handles in a definition are E117 (step 5); the importer and exporter check by re-binding, never by a character pattern (§8.2, [LQ/lexical §10.2]). |
-| C-19 | **Conflict with [LQ/gql-spelling §2.1]**, which says "`{1,1}` canonicalises to a plain hop". | Not adopted: the C-AST keeps `QUANT(1, 1)`. A quantified part binds endpoint pairs and a fixed hop binds one row per edge ([50 §3.4] items 1 and 4), N08 fires only on the former, and an edge variable is allowed only on the latter; with `[:A\|B]{1,1}` or parallel edges of two kinds the two count differently. The spelling chapter should drop that sentence. |
+| C-19 | **Conflict with [LQ/gql-spelling §2.1]**, which says "`{1,1}` canonicalises to a plain hop". | Not adopted: the C-AST keeps `QUANT(1, 1)`. A quantified part binds endpoint pairs and a fixed hop binds one row per edge ([50 §3.4] items 1 and 4), N08 fires only on the former, and an edge variable is allowed only on the latter; with `[:A\|B]{1,1}` or parallel edges of two kinds the two count differently. The spelling chapter should drop that sentence. **Spec sync 2a:** dropped; the printer prints `{1,1}` as `*1` or `{1}` ([LQ/gql-spelling §4.2]). |
 | C-20 | [F01]'s layout conventions. | §6.1 is an offset table with a `total` row; §6.3 and §6.4 merge the per-structure sequence and enumeration tables into one table each, a departure stated in place as [F01 §2.4] rule 5 requires. The encoding uses `lp()` for strings because it is a hash input that is never stored ([F01 §6.3]); its framing is argued unambiguous in §6.1 as [F01 §7.3] asks. |
 | C-21 | An unaliased `WITH` item that is not a bare variable (`WITH t.x WHERE …`) has no name to bind; Cypher refuses it ("expression in WITH must be aliased"), and [50] is silent. | A bind error, so the C-AST never meets it (V4). [LQ/errors] has no row for it yet; proposed: E001 with the rewrite `WITH <expr> AS <name>`. |
+| C-22 | **Spec sync 2a** (WP-93a review and author). | A bound `list<rev>` parameter is `RLIST`, as the same list written in place (§5.5), so a bound parameter and an equal literal keep one C-AST. A commit literal of all 64 hex digits binds as itself whether or not the store holds the commit; E301 comes only from view resolution (§5.6, §8.2, [LQ/lexical §10.2]), so an imported definition that carries one binds. Enum values match exactly, else by a unique ASCII-case-insensitive match (§5.5). An `ORDER BY` alias is visible inside `EXISTS {}` and `COUNT {}` subqueries of its sort key (V5, V8), which avoids binding a fresh variable silently. §5.10 restates [50 §3.2]'s kind sets (properties never narrow them) and adds duration arithmetic to [50 §3.3]. §9 fixes the file layout of `fixtures/lq/` (suffixes, cases, entry form, strict mode, context lines, hex and hash directives), taken from WP-22's layout. |

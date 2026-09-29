@@ -112,9 +112,13 @@ design's quiet-advisory byte) and quiet 1 … quiet 8 = `ROLE_BASE` + 5 … `ROL
    `store_locked` naming the quiet bytes. A `Busy` answer proves nothing by itself: on Windows it may come from a
    maintenance decider's probe, which holds the byte for a moment ([OS/lock §8]), and another requester may end before
    this one does. Holding its own byte makes the requester's quiet mode last exactly as long as its run.
-5. Which verbs take a quiet byte is the CLI's and [CFG]'s (proposal: `moirai quiet hold -- <command>`, and the M0
-   measurement drivers of [PLAN §3.2] item 5, whose numbers decide `HOLE(F17-ckpt-ops)` and `HOLE(F17-tail-overlay)` and
-   must be taken without maintenance noise).
+5. **The holder is in-process.** A quiet byte is a role byte, and no process spawns a child while it holds a role byte
+   ([OS/lock §3] item 7, [OS/proc §11]; `Locks::holds_any_role()` counts the quiet bytes). A quiet byte is therefore
+   held by the process whose work must run without maintenance noise, never by a wrapper that runs another command. At
+   M0 that is the measurement driver of [PLAN §3.2] item 5, whose numbers decide `HOLE(F17-ckpt-ops)` and
+   `HOLE(F17-tail-overlay)`: it takes its quiet byte itself through `lock_client` by rule 4 and holds it for its run.
+   Which product verbs take one later is the CLI's and [CFG]'s. (The alternative, exempting the quiet bytes from
+   [OS/lock §3] item 7 and from `holds_any_role`, was not taken; open point 9.)
 
 ## 4. `LockHdr`
 
@@ -562,13 +566,17 @@ source of `boot_hash`. Measurement 22 checks `LOCK` v1's bytes on NTFS ([60 §5.
 9. **The quiet-advisory byte's meaning** (§3.1). The design reserves the byte ([AR §4.1], [80 §2.2.3] "as in [AR §4.1]")
    but never says what holding it does. Proposed: holding it puts the store in quiet mode for the holder's lifetime; a
    probe answering `Unknown` counts as quiet. [F16] and [F17 §5.3] should cite §3.1, and [CFG] or the CLI should name the
-   verb that holds it (proposal `moirai quiet hold -- <command>`), used by the M0 measurement drivers. **Pass 1 (P1-10):**
+   verbs that hold it. **Pass 1 (P1-10):**
    the first draft's rule 4 ("a requester that gets `Busy` knows quiet mode is already in effect") was unsound — the
    `Busy` could come from a Windows probe, and the first holder could exit while the second requester still measured.
    Eight more quiet bytes, taken from the reserved range `ROLE_BASE` + 5 … + 12, let each requester hold one of its own;
    the decider probes all nine. X-F1's five role offsets are unchanged; the reserved range shrinks to + 13 … + 63.
    [F17 §5.3] cites §3.1, and [F16] §17.4 L-8 seeds the decider that probes one byte only. Code follow-up for WP-30:
-   [OS/lock §2]'s `LockByte::Quiet` takes an index 0–8.
+   [OS/lock §2]'s `LockByte::Quiet` takes an index 0–8. **Spec sync 2a (WP-30 review):** the first draft's proposed
+   `moirai quiet hold -- <command>` is dropped: it would spawn the command while holding a role byte, which [OS/lock §3]
+   item 7 and [OS/proc §11] forbid (moirai-vfs's `holds_any_role` counts `Quiet`). §3.1 rule 5 names an in-process
+   holder instead: the M0 measurement driver holds its quiet byte itself. Exempting `Quiet` explicitly from item 7 and
+   from `holds_any_role` stays the alternative if a wrapper verb is ever needed.
 10. **One owner for `ProcId`'s bytes** (§5.1). [OS/proc §3.1] says it "repeats" the layout, and [PLAN §3.2] WP-11 lists
     `ProcId` in this chapter. Proposal: this chapter owns the bytes and [OS/proc] owns the per-OS values, as §5.1 states;
     both tables are identical today. If the review prefers [OS/proc] as owner, §5.1 becomes informative.

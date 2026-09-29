@@ -153,6 +153,85 @@ Cypher signatures. Function names and relation names are separate namespaces, so
 
 So `t IN subtree(#88)`, as the card and `std.ready` write it, is the whole subtree of #88.
 
+2.11. **Built-in node properties** (spec sync 2a; [50 §2.5]'s groups with their kinds, types and classes fixed). The binder
+types a property read by this table; "every kind" includes project kinds. The class is what E115 names when a `SET` targets
+the property ([LQ/errors §5.3]; `identity` renders `an identity field`), and runtime and tree-derived properties are E302 away
+from a branch tip ([50 §3.8]). A property on a kind the table does not list reads as absent there ([LQ/canonical-ast §5.10]);
+one that no kind of the variable's kind set has is E101.
+
+| Property | Kinds | Type | Class | Absent |
+|---|---|---|---|---|
+| `id` | every kind | node | identity | never |
+| `uid` | every kind | text: 32 lower-case hex digits | identity | never |
+| `kind` | every kind | text: the kind's declared name ([F08 §8.2]); `labels(n)` is `[n.kind]` | identity | never |
+| `created` | every kind | rev: the creating commit (`created_tx`, [F08 §3.1]) | identity | never |
+| `created_at` | every kind | timestamp: when this store recorded the creating commit ([50] F14) | identity | never |
+| `created_by`, `created_role` | every kind | text: the `CREATOR` actor and role ([F08 §4]) | identity | `created_role` when the creating commit had no role |
+| `updated` | every kind | rev: `updated_tx` | derived | never |
+| `rev` | every kind | rev: `rev_seq`, the `--if-rev` target | derived | never |
+| `updated_at`, `updated_by` | every kind | timestamp; text | derived | never |
+| `done`, `unfinished` | the kinds with `has_done` ([F08 §8.5.1]): task, question, verdict | bool; `unfinished` = `NOT done` | derived | on every other kind |
+| `container`, `ready_to_close`, `is_blocker`, `suspect`, `conflicted`, `has_dangling` | every kind | bool (false where the definition's kind clause fails, [AR §3.5]) | derived | never |
+| `unblocked`, `blocked` | every kind | bool (false on every kind but task, [AR §3.5]) | derived | never |
+| `children_total`, `children_done`, `open_blockers` | every kind (header columns, [F08 §3.1]) | int (0 where nothing counts) | derived | never |
+| `answered` | question | bool | derived | on every other kind |
+| `depth` | every kind | int: the number of `parent` links up to a root (0 at a root) | derived | never |
+| `topo` | every kind | int ([F08 §3.4]) | derived | never |
+| `ready`, `claimed` | every kind | bool (false on every kind but task) | runtime | never |
+| `lease` | every kind | map: `holder` text, `token` int, `expires` timestamp, `run` text, `branch` text | runtime | without a live lease |
+| `settled_elsewhere`, `deleted_elsewhere` | every kind | bool | runtime | never |
+| `state` (`f.state`) | artifact | text: [F18 §4]'s link state | tree-derived | never at a tip with a resolved tree |
+
+A node bound through the pseudo-label `DELETED` ([50 §3.6]) has `id`, `uid`, `kind` (at deletion) and `title` (text), and
+the tombstone properties `deleted_by` (text), `deleted_at` (timestamp), `deleted_reason` (text; absent without one) and
+`replaced_by` (node; absent without one), all of class tombstone. Kind fields keep their [F08 §9] types, with the
+`coerce = timestamp` rule of §2.13.
+
+2.12. **Types of the yielded columns** (spec sync 2a). The relations of §2.9 yield these types; `any` is a column whose type
+varies by row (the value of the key the row describes), which the binder does not type-check and the evaluator treats as the
+value it holds. A named query's columns are those of its `RETURN`, typed by binding its definition.
+
+| Relation | Columns and types |
+|---|---|
+| `blockers` | `blocker` node, `depth` int, `via` node (absent for a direct blocker), `reason` text (`direct`, `inherited`), `flagged` bool, `elsewhere` bool |
+| `subtree` | `node` node, `depth` int, `parent` node (absent at the root), `position` int |
+| `neighbors` | `node` node, `edge` text (the edge kind's LQ name), `dir` text, `depth` int |
+| `search` | `node` node, `score` float, `field` text, `snippet` text |
+| `history` | `seq` int, `commit` rev, `ref` text, `actor` text, `role` text, `at` timestamp, `op` text, `aspect` text, `name` text, `before` any, `after` any, `message` text, `via` text |
+| `blame` | `aspect` text, `name` text, `value` any, `seq` int, `commit` rev, `actor` text, `at` timestamp |
+| `log` | `commit` rev, `seq` int, `ref` text, `kind` text, `actor` text, `role` text, `at` timestamp, `message` text, `ops` int |
+| `diff` | `change` text, `node` node, `kind` text, `aspect` text, `name` text, `before` any, `after` any, `side` text, `last_commit` rev, `actor` text |
+| `changes` | `seq` int, `ref` text, `commit` rev, `node` node, `op` text, `aspect` text, `name` text, `actor` text, `affected` any |
+| `conflicts` | `key` text, `node` node (absent for a schema key), `class` text, `base` any, `ours` any, `theirs` any, `commit` rev, `hint` text |
+| `violations` | `key` text, `class` text, `detail` text, `suggested` text |
+| `across` | `node` node, `aspect` text, `name` text, `ref` text, `value` any, `diverged` bool |
+| `refs` | `name` text, `kind` text, `tip` rev, `seq` int, `ahead` int, `behind` int, `fork` rev (absent without a fork), `staged` bool |
+| `leases`, `markers` | each field of the [F11] row: a `#N` as node, a commit as rev, a time as timestamp, a symbol id as its text, a list of symbols as `list<text>`, every other number as int |
+| `links` | `node` node, `anchor` text, `file` node, `path` text, `kind` text, `scope` text, `state` text, `evidence` text, `next` text |
+| `root_moves` | `hlc` int, `class` text, `from` text, `to` text, `git` text |
+| `schema` | `kind` text, `field` text, `type` text, `optional` bool, `index` text |
+| `schema_edges` | `name` text, `stored` text, `src_kinds` list<text>, `dst_kinds` list<text>, `symmetric` bool, `reverse_names` list<text>, `reading` text, `class` text, `acyclic` text |
+| `queries` | `name` text, `signature` text, `shape` text, `budget` text, `lq` int, `text` text |
+
+A `seq` column is an int, not a revision: compare it with integers, or pass it to a revision position as `s<seq>`.
+
+2.13. **Fields with `coerce = timestamp`** ([F08 §8.4.4]; spec sync 2a). These fields (`defer_until`, `due` and the kind fields
+[F08 §9.3] marks so) store Unix seconds, while an LQ `timestamp` is milliseconds ([LQ/canonical-ast §5.5]). The binder types
+such a field as `timestamp`, and the evaluator scales it: a read yields the stored seconds × 1,000; a write (`SET`, a `CREATE`
+property map, a named mutation's argument) stores ⌊milliseconds / 1,000⌋, and a value outside 1 … 2^32 − 1 seconds is E405
+`schema conformance (I11)`. A literal compared with such a field is coerced to a `TIMESTAMP` in milliseconds, so the scale
+never enters a C-AST or a hash, and renderings print the field as a timestamp ([LQ/envelope]).
+
+2.14. **Edges with a `DELETED` endpoint** ([50 §3.6]; spec sync 2a). An edge to or from a tombstone exists only where
+the delete policy retains it ([RULES/delete-policy-matrix] EG rows, [F08 §9.6]): as its destination, every historical
+kind (ids 10–25: `supersedes`, `derived_from`, `cites`, `implements`, `refutes`, `confirms`, `verifies`, `addresses`,
+`about`, `discovered_from`, `produced`, `consumed`, `contradicts`, `mentions`, `relates`, `at`) and every project edge
+kind (always `tombstone`/`retain`, [F08 §8.5.4]); as its source, the same kinds and the structural `blocks` and `gates`,
+whose edges a delete without replacement flags (EG-008, EG-014). The other structural kinds (`parent`, `merge_after`,
+`runs_in`, `answers`, `scoped_to`, `duplicate_of`, `depends_on`) never have a tombstone endpoint, so for them the
+pseudo-label `DELETED` is not among the endpoint kinds of [LQ/canonical-ast §5.10]'s kind sets, and a pattern that puts
+it on such an end is E106.
+
 ## 3. The read catalog
 
 | Name | Signature | Shape | Order | Class | Cursor | Verb alias ([AR §7.1]) |
@@ -194,8 +273,8 @@ parameter (open point 3).
 4.1. **`ready`** ([50 §4.1], verbatim but for `BUDGET` and the order). The planner anchors it on `subtree($scope)` when a scope is
 given and on the maintained `unblocked` bitset otherwise ([50 §4.1]). The order is `priority, id`: [50 §4.1]'s `priority, topo, id`
 is not total, because no precedence path joins two ready tasks and `topo` among them is whatever valid order Pearce–Kelly kept
-([F08 §3.4]), so the model and the engine would print different first pages (pass 1, A1-38; [API] open point 11). [50 §4.1] is
-corrected at WP-81a.
+([F08 §3.4]), so the model and the engine would print different first pages (pass 1, A1-38; [API] open point 11). The owner
+decided this order on 2026-09-28 (OQ-F-2 (a)); [50 §4.1] is corrected at WP-81a.
 
 ```lq-define
 DEFINE QUERY ready($scope: node? = NULL, $role: text? = NULL, $limit: int = 20) SHAPE node BUDGET light AS {
@@ -884,3 +963,10 @@ None. The library's text is frozen at WP-72; it holds no measured value. The bud
     classes derive from `query.budget.default.work` (§2.4); `std.ready` orders by `priority, id` (§4.1; [50 §4.1] is corrected
     at WP-81a); §2.10 gives the scalar built-ins' signatures, with `subtree(n [, depth])` unbounded by default; §1's paragraphs
     are in order.
+18. **Spec sync 2a** (WP-93a review and author). §2.11 fixes the kinds, types and classes of the built-in node properties:
+    the header-backed derived properties exist on every kind and are never absent ([50 §2.5]: header columns are never
+    absent), while `done`, `unfinished`, `answered` and `state` exist only on the kinds that define them; `lease` is absent
+    without a live lease. §2.12 types every yielded column (`seq` is int, commits are rev, a key's value is `any`). §2.13 has
+    the evaluator scale `coerce = timestamp` fields between Unix seconds and LQ milliseconds, so no C-AST or hash sees the
+    scale ([F08] open point 11). §2.14 lists the edge kinds that admit a `DELETED` endpoint, from the delete-policy rows.
+    OQ-F-2 was decided on 2026-09-28: `std.ready` orders by `priority, id` (§4.1).

@@ -137,7 +137,7 @@ invariants are checked at every crash state of GT1 and GT3.
 | I10 | Every mutation belongs to exactly one commit, and that commit carries provenance: actor, role, session, git head, branch and worktree, the branch ref, the idempotency-key hash and the message | EP-W9 (C: ops exist only inside a `Commit` record, one group per commit); EP-FMT (C) | `inv::i10_mutation_in_one_commit` | GT2 (M1); GT1 (M1: groups adopted all or nothing) |
 | I11 | Fields conform to the schema version of their commit. Symbols are never garbage-collected, and enum integers are never reused | EP-W4 (P: schema per op); EP-WD V09 (P: `SchemaConflict`); EP-IM (P); EP-GC (C: `SYMTAB` entries are never dropped) | `inv::i11_schema_conformance` | GT2 (M2); GT6 (M3) |
 | I12 | Every branch head satisfies I1–I11 at all times. A merge, import, revert or cherry-pick with a structural violation never advances a ref: it is staged on `merge/<dst>/from/<src>` or `import/<ref>` | EP-W4 (P: a write is refused); EP-WD and EP-MS (P: staged); EP-DV (V) | `inv::i12_heads_valid`, which applies the I1–I11 functions to every head | GT6 I12 fuzz (M2); GT2 (M3) |
-| I13 | A `finding` with `f_kind ∈ {perf, complexity}` reaches `fixed` only with an `addresses` edge from a different actor **and** a `verifies` edge from a review verdict | EP-W4 (P: the guard on `→ fixed`) | `inv::i13_perf_fix_needs_review` | GT2 (M2) |
+| I13 | A `finding` with `f_kind ∈ {perf, complexity}` reaches `fixed` only with an `addresses` edge from a different actor **and** a `verifies` edge from a review verdict; the actor of the `addresses` edge differs from the creator of that verdict ([RULES/status-machines] GD-005) | EP-W4 (P: the guard on `→ fixed`) | `inv::i13_perf_fix_needs_review` | GT2 (M2) |
 | I14 | A `run` closes `green` only when every `expected_artifacts` symbol has a `produced` artifact whose `oid` was read back | EP-W4 (P: the guard on `→ green`; "read back" means an `oid` computed from the file's bytes by the reader of [40 §2.5], compared with the artifact's stored `oid`) | `inv::i14_run_green_needs_artifacts` | GT2 (M2; M6 with real file reads) |
 
 ### 3.4 Runtime coordination
@@ -444,12 +444,11 @@ are specified in [F17], where the production values that measurements decide are
   - `newly_ready` is a separate, unstored result field.
 
   An exact definition is needed because the write result is compared by GT2. [AR §6.3] should be edited at WP-81a.
-- **OP-13-09 (I13 "different actor").** The rule does not say whom the actor of the `addresses` edge must differ from. The
-  proposed reading is: different from the actor of the commit that moves the finding to `fixed`, which the first draft asked
-  R-MODEL's status-machine table to carry for the owner's signature. **Pass 1, round 2:** [RULES/status-machines] GD-005 reads it
-  differently (the actor of the `addresses` edge differs from the creator of the reviewing verdict), and the two readings
-  accept different histories; the choice is the owner's (owner question OQ-M-2), and this point then cites the chosen
-  row. The I13 row states no reading of its own.
+- **OP-13-09 (I13 "different actor"). Closed: decided 2026-09-28 (OQ-M-2 (a)).** The rule did not say whom the actor of
+  the `addresses` edge must differ from. The first draft proposed the actor of the commit that moves the finding to
+  `fixed`; [RULES/status-machines] GD-005 reads it as the creator of the reviewing verdict. The owner chose GD-005's
+  reading: the actor of the `addresses` edge differs from the creator of the verdict whose `verifies` edge the guard
+  reads, so the reviewer did not review their own fix. The I13 row cites GD-005.
 - **OP-13-10 (I43′ strictness).** The invariant is stated as non-decreasing, which is what "monotonic" guarantees. Whether
   [F16]'s HLC rule makes `append_hlc` strictly increasing per commit is [F16]'s decision (WP-16b), and a strict rule would
   tighten the check at EP-W9. Review pass 1 (S1-13, P1-5): [F16] P-36 draws every commit's `append_hlc` from one

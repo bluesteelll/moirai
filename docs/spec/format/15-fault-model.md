@@ -155,14 +155,18 @@ never reuses an identity. Identity reuse on project trees is a matter for the `P
 
 ### 2.5 The two kinds of failure
 
-**Process death.** This covers `TerminateProcess`, a kill, an abort, a panic and the exit 7 of a mapping fault. When a
-process dies:
+**Process death.** This covers `TerminateProcess`, a kill, an abort, a panic, the exit 7 of a mapping fault and a
+normal exit: a process that ends normally releases its lock bytes by FM-8.1's law too, since the OS, not the process,
+drops them. When a process dies:
 - every client of the process stops, and no further event of theirs occurs;
 - a **write** in progress is partially applied: each byte of its range holds its old or its new value, in any
   combination;
 - a **namespace operation** in progress either took effect or did not (it is atomic);
 - a **flush** in progress resolves by the death, to exactly one outcome: it succeeded (FM-2), it failed (FM-3; no live
-  client receives the error), or it was not performed (its sectors stay as they were);
+  client receives the error), or it was not performed (its sectors stay as they were). A `sync_group` in progress
+  resolves **each member separately**: one member may have succeeded while another failed or was not performed, and a
+  directory member's operations become durable (FM-2.3) or stay pending on their own. FM-2.6's all-members rule governs a
+  `sync_group` that returns to a live caller;
 - every lock byte a client of the process held stays held for a delay, then is released (FM-8.1). An acquisition in
   progress either was not granted, or was granted and is then released with the process's other bytes;
 - the process's mappings disappear;
@@ -177,15 +181,17 @@ process dies:
 3. For every directory, the adversary chooses a subset of the pending operations to survive. The new namespace is the
    durable namespace with the survivors replayed in issue order. A survivor whose precondition fails at its replay point
    is lost as well: a create over an existing name, a rename or unlink of an absent name, a no-replace rename onto an
-   existing name. Files that end up with no name are gone.
+   existing name. "Absent" is read by node identity: a rename or unlink is also lost when its source name exists at the
+   replay point but no longer names the node (file or directory) the operation acted on. Files that end up with no name
+   are gone.
 4. The lock state is empty: every byte is free. The new boot has a new boot identity. The monotonic and boot clocks
    restart. Every sharing violation and every delete-pending state has ended.
 5. Injected persistent read errors (FM-12.2) persist.
 
 ### 2.6 Error classes
 
-The model reports failures through the abstract classes below. [OS/fs] names the enum and maps each OS error onto it
-(OP-18).
+The model reports failures through the abstract classes below. [OS/fs §6.1] names the enum, `VfsErrorKind`, and maps
+each OS error onto it ([OS/fs §6.2]); every class below is the `VfsErrorKind` of the same name (OP-18).
 
 | Class | Raised by | Source |
 |---|---|---|
@@ -195,7 +201,7 @@ The model reports failures through the abstract classes below. [OS/fs] names the
 | `DeletePending` | open of a name whose unlink is pending (FM-8.3) | [60 §2.5] (8); [AR §4.1] |
 | `AlreadyExists` | exclusive create or a no-replace rename onto an existing name | [80 §2.3.2] |
 | `NotFound` | an operation on an absent name | — |
-| `CrossVolume` | a rename or swap across volumes (`EXDEV`, `ERROR_NOT_SAME_DEVICE`) | [80 §2.11.4] rule 6 |
+| `CrossDevice` | a rename or swap across volumes (`EXDEV`, `ERROR_NOT_SAME_DEVICE`) | [80 §2.11.4] rule 6 |
 | `Unsupported` | a class or rename form that the location cannot provide (`ENOTSUP`, a volume without `VOL_CAP_INT_RENAME_EXCL`) | [80 §2.3.1]; [80 §2.3.2] |
 | `AccessDenied` | a write to a sealed (read-only) file; a denied operation | [80 §2.5] rule 2 |
 
@@ -298,6 +304,11 @@ This is the widest reading that `docs/m0/PLAN.md` §3.3 assigns to WP-16. It is 
     error: `Io`, `DiskFull`, `Unsupported` or another.
   - The candidate set K of a poisoned sector is its baseline, every version written since, and every content produced
     during the call.
+  - K is taken from the sector's state when the failed flush returns: its baseline, or its durable content if it is
+    `clean` by then, together with every version written since. A sector that was `dirty` when the failed flush began,
+    and that a concurrent **successful** flush of f made `clean` before the failed one returned, therefore gets
+    K = {the content that successful flush made durable} ∪ {every version written after it began}. It is still in the
+    reach, but FM-2.1's guarantee for the successful flush stands: no member of K is older than what it made durable.
 - **FM-3.2 Reads.** Every read of a poisoned sector returns, for each sub-sector independently, the bytes of any member
   of K. The choice is made again at every read, by every client, so two consecutive reads by one client may differ.
   This covers:
@@ -465,11 +476,12 @@ simulated boot, suspend events, and per-process Known or Unknown boot identity.
 ### 3.8 FM-8 — Lock release after death; sharing violations; delete-pending files
 
 **Rules.**
-- **FM-8.1 Release delay.** When a process dies, each lock byte its clients held stays held for a delay d, then is
-  released. d is unbounded on every OS: a crash reporter or a debugger keeps a crashing process and its handles alive
+- **FM-8.1 Release delay.** When a process dies (a normal exit included, §2.5), each lock byte its clients held stays
+  held for a delay d, then is released. d is unbounded on every OS: a crash reporter or a debugger keeps a crashing process and its handles alive
   ([80 §2.2.2], [80 §2.3.5] (8), [81 m5]). The adversary draws d per byte from:
   - (a) the measured distribution for that byte kind — writer, flush or slot — HOLE(F15-lock-release), which is
-    measurement 12;
+    measurement 12. The other role bytes (maintenance, leader and the quiet bytes, [F03 §3]) are held through the same
+    kind of role handle as the writer byte and take the writer's distribution;
   - (b) delays above every configured lock wait bound (`lock.writer-wait-ms`, `lock.flush-wait-ms`) and below the
     scenario horizon: the heavy tail beyond the 2 s bound;
   - (c) never within the scenario.
@@ -477,14 +489,17 @@ simulated boot, suspend events, and per-process Known or Unknown boot identity.
   During the delay, `probe` answers `Held` and acquisitions answer `Busy` or time out. A live holder's byte is released
   only by its own release call. After a system crash every byte is free.
 - **FM-8.2 Sharing violations.** Any open, unlink or rename of a store or project file may fail with
-  `SharingViolation` (Windows errors 5 and 32), because an external actor holds a handle without the share mode needed.
-  The failure may repeat for any number of consecutive attempts, up to the whole scenario.
+  `SharingViolation` (Windows error 32, or 33 for a foreign range lock) or `AccessDenied` (Windows error 5), because an
+  external actor holds a handle without the share mode needed ([OS/fs §6.2]). Both are retried under
+  `ShareRetry::Bounded` on Windows only ([OS/fs §6.3]). The failure may repeat for any number of consecutive attempts,
+  up to the whole scenario.
   - Unix has no sharing violations ([80 §2.11.4] rule 7), but the model is the union of the three OSes.
   - The design sources are [60 §2.5] (8), [AR §4.10] and [80 §2.12].
 - **FM-8.3 Delete-pending.** After an unlink of a name whose file is still open by any process, a moirai mapping
   included, the name may stay occupied until the last handle closes. While it does:
   - an open of the name fails with `DeletePending`;
-  - a create of, or a rename onto, the name fails with `AlreadyExists` or `AccessDenied`;
+  - a create of, or a rename onto, the name fails with `AlreadyExists`, `AccessDenied` or `DeletePending`, as
+    [OS/fs §6.4] states;
   - directory enumeration may still list the name.
 
   The unlink takes effect in the namespace when the last handle closes, and only a `sync_dir` that starts after that
@@ -492,7 +507,9 @@ simulated boot, suspend events, and per-process Known or Unknown boot identity.
 
 **In-memory `Vfs`.**
 - Per-byte release delays drawn from classes (a)–(c). Every nightly run must contain at least one death whose delay
-  exceeds every configured wait bound, and at least one byte that is never released within its scenario.
+  exceeds every configured wait bound, and at least one byte that is never released within its scenario. Seeded draws
+  only make this likely, so the nightly harness guarantees it: its death plan forces at least one class (b) and one
+  class (c) release, and the run checks from its report that each class occurred, failing otherwise.
 - Sharing-violation injection on open, unlink and rename, with a seeded persistence.
 - The delete-pending model of FM-8.3.
 - Measurement 12's CDF is loaded as simulator data after WP-81a fills the hole (WP-31: "lock-release delay from
@@ -524,7 +541,9 @@ simulated boot, suspend events, and per-process Known or Unknown boot identity.
 
 **In-memory `Vfs`.** `map_sealed` returns a view. Every read through the view checks for an external truncation below
 its offset and for an injected media fault. On either, the process dies, with FM-8.1's release delays; the zeros of
-FM-9.2 are the alternative outcome.
+FM-9.2 are the alternative outcome. `SealedMap::bytes()` ([OS/map §3]) hands out the whole mapped range and has no
+per-offset read hook, so the in-memory `Vfs` may draw the adversary's media fault **once per mapping**, at `map_sealed`,
+besides a fault a test injects on the file; either way the death happens at the first read of the view.
 
 **Crash gates.**
 - A gate may assume FM-9.3.
@@ -610,7 +629,7 @@ simulator must exercise them.
 | Behaviour | Source |
 |---|---|
 | `probe(byte)` may answer `Unknown` (a sandbox denial, another principal), never `Free` for a held byte | [80 §2.2.1] item 6 (X-F4) |
-| Grants across processes come in any order. A waiter may time out (`Busy`) although the byte was free for a moment (a spurious timeout). Inside one process, a released byte is handed to the oldest in-process waiter | [80 §2.2.1] items 2, 10 |
+| Grants across processes come in any order. A waiter may time out (`Busy`) although the byte was free for a moment (a spurious timeout). Inside one process, a release always unlocks in the kernel, and the oldest in-process waiter is then started and competes for a fresh kernel grant like any other process, so it may lose the byte; only a grant that a kernel wait obtains is handed to the oldest unexpired in-process waiter ([OS/lock §5.3] T4, T7, I-L4, I-L7) | [80 §2.2.1] items 2, 10 |
 | `acquire_within` returns `Granted` or `Busy`, never both. A grant that races the deadline is either returned or released | [80 §2.2.1] item 5 |
 | Any non-lazy call may fail with `Unsupported`. For a file flush that is a failed flush (FM-3). For `sync_dir`, its operations stay pending (FM-3.7). Either way the product refuses the store with exit 7 | [80 §2.3.1] error policy |
 | Files have identities (`identity(file)`), and `LOCK` may be replaced (FM-10.3) | [80 §2.2.1] item 9 |
@@ -620,7 +639,9 @@ failure, not as storage behaviour:
 - a re-entrant acquisition ([80 §2.2.1] item 3);
 - a wait that breaks the lock order ([80 §2.2.3]);
 - any write, flush, create or namespace call by a process after it received an error from a non-lazy class — the
-  product aborts, and never retries a flush on the same handle ([80 §2.3.1]).
+  product aborts, and never retries a flush on the same handle ([80 §2.3.1]). A flush embedded in `create_root`,
+  `swap_dirs` or `swap_recover` is reported as the kind `FlushFailed` ([OS/fs §4.1]); the operation's own clean-up
+  inside that call (removing the new directory) is allowed, and the rule applies once the call has returned.
 
 ---
 
@@ -691,10 +712,11 @@ The design sources are [80 §2.3.1], [AR §2.8] and [AR §4.10].
 - **NS-1** Every namespace operation is atomic for observers before a crash and is one operation for FM-2.3. The
   emulated `swap_dirs` (§5.6) and the `ProjectFs` Linux `link` + `unlink` fallback (§5.7) are the exceptions: each is a
   sequence of operations.
-- **NS-2** A rename or exchange works within one volume. Across volumes it fails with `CrossVolume` and changes nothing.
+- **NS-2** A rename or exchange works within one volume. Across volumes it fails with `CrossDevice` and changes nothing.
 - **NS-3** A rename preserves the file's identity (§2.2) and its content images.
 - **NS-4** Every namespace operation may fail with `DiskFull` (FM-5), `SharingViolation` (FM-8.2) or `AccessDenied`.
-  A failed operation leaves the namespace unchanged, except that a failed create may leave an empty file (FM-5.4).
+  A failed operation leaves the namespace unchanged, except that a failed create may leave an empty file (FM-5.4) and a
+  failed directory create may leave an empty directory (§5.2).
 - **NS-5** No operation of this section makes itself durable. Durability comes only from `sync_dir` of every parent
   (FM-2.3, FM-2.4). A protocol point that needs a durable name issues `durable-name` on every parent the operation
   touched ([80 §3.1] X-F5).
@@ -705,7 +727,8 @@ The design sources are [80 §2.3.1], [AR §2.8] and [AR §4.10].
   is created only this way, by `init` or `restore`: `O_CREAT | O_EXCL`, or `CREATE_NEW` ([80 §2.2.1] item 9). Which
   other protocol points use exclusive create is [F16]'s and [OS/fs]'s.
 - **Directory create** is a namespace operation on the parent. Operations inside a new directory become durable only
-  once its creation is durable (FM-2.3 (ii)).
+  once its creation is durable (FM-2.3 (ii)). A failed directory create may leave the new directory in place, empty
+  (NS-4), as a failed exclusive create may leave an empty file; a caller that retries meets `AlreadyExists`.
 - **`create_extent(path, size)`** is a composite: an exclusive create, then a size change to `size`, then zero content
   over [0, `size`). The per-file-system method ([80 §2.3.3]) does not change the model:
   - NTFS: write zeros, then `FlushFileBuffers`;
@@ -735,7 +758,8 @@ The design sources are [80 §2.3.1], [AR §2.8] and [AR §4.10].
   - Of two concurrent no-replace renames onto one `dst`, at most one succeeds.
 - **Crash semantics.** It is one operation with parents `parent(src)` and `parent(dst)`. It is durable by FM-2.3 and
   FM-2.4. Before that, it may be lost as a whole.
-- **Directories.** A directory may be the source. Renaming it moves its subtree.
+- **Directories.** A directory may be the source. Renaming it moves its subtree. A directory is never moved into its
+  own subtree; the caller never asks for it. `rename_replace` (§5.5) is for files only ([OS/fs §4.8]).
 - **Unsupported locations.**
   - Store files: every file system the guard admits is expected to support the no-replace form ([80 §2.11.1],
     [80 §2.13]). If one returns `Unsupported`, the store is refused (exit 7). There is no fallback for store files.
@@ -998,6 +1022,7 @@ No other value in this chapter depends on a measurement:
 | OP-15 | Poisoning across system crashes | It persists (FM-3.3), following the literal "forever" | Reads of an unacknowledged tail during recovery after a reboot may vary between reads. The re-write rule handles the log. `HEAD` is covered by OP-1 |
 | OP-16 | Cross-references to the OS chapters | [OS/fs], [OS/lock], [OS/map], [OS/proc], [OS/env] and [OS/project] are assumed as WP-17's file names | These are provisional until WP-17 lands. The review fixes the citations |
 | OP-17 | Boot identity readability per call | The adversary fixes Known or Unknown per process at its start, and may also make any single read Unknown (FM-7.4) | Harmless if [OS/proc] caches the value per process. It keeps the product correct if it does not |
-| OP-18 | The error classes of §2.6 | Proposed as the abstract classes. [OS/fs] owns the enum | WP-17 and WP-30 adopt these names or map them one to one |
+| OP-18 | The error classes of §2.6 | **Closed (spec sync 2a):** each class is the [OS/fs §6.1] `VfsErrorKind` of the same name; the one differing name, `CrossVolume`, is renamed `CrossDevice` | — |
 | OP-19 | The single-volume precondition of `sync_group` | All members on one volume (FM-2.6) | Implied by [80 §2.3.1]'s macOS row. Harmless on Windows and Linux |
 | OP-20 | Protocol-violation detection in the in-memory `Vfs` (§3.13) | Proposed as a WP-31 obligation, beyond [60]'s text | It turns the error policy of [80 §2.3.1] and the lock-order rule into harness checks. The review confirms it, or moves it to the toy-log assertions (WP-40) |
+| OP-21 | Spec sync 2a: points WP-31 and WP-33 met while building the in-memory `Vfs` and the Windows layer | **Closed:** §2.5 (a normal exit releases lock bytes by FM-8.1; a death inside `sync_group` resolves each member separately; a system crash's "absent name" is read by node identity); FM-3.1 (K for a sector a concurrent successful flush made clean); FM-8.1 (class (a) for the other role bytes is the writer's distribution; the nightly harness forces classes (b) and (c) by a death plan and checks them); FM-8.2 and FM-8.3 (the kinds of [OS/fs §6.2]–§6.4); FM-9 (a media fault drawn once per mapping); §3.13 (release, then a fresh grant, as [OS/lock] T7 and I-L7); NS-4 and §5.2 (a failed directory create may leave an empty directory); §5.4 (no move into its own subtree; `rename_replace` for files only, as [OS/fs §4.8]) | — |

@@ -165,7 +165,7 @@ tx_stmt         = "MATCH" pattern_list [ where ] "EXPECT" expect mutation { muta
                 | "CALL" tx_name '(' [ args ] ')' [ "YIELD" yield_items ]
                 | "ASSERT" expr [ "ELSE" string ]
                 | resolve_stmt | define_stmt | "DROP" "QUERY" qname ;
-tx_name         = "tx" '.' ident ;                                 (* named mutations *)
+tx_name         = "tx" '.' ident ;   (* named mutations; "tx" is a plain name (P3): NAME in [LQ/lexical §11] *)
 expect          = int [ '..' int ] | '<=' int | '>=' int | param ;
 mutation        = "SET" target '.' ident '=' expr { ',' target '.' ident '=' expr }
                 | "REMOVE" target '.' ident { ',' target '.' ident }
@@ -263,7 +263,8 @@ datetime        = yyyy '-' mm '-' dd [ 'T' hh ':' mm [ ':' ss ] ] [ 'Z' ] ;
        primary is a path_pred. Otherwise the parser restores its position and parses '(' expr ')'
        (fixtures paren-arith, undirected-minus: (a.priority) - 1, a.priority - -1). If both
        fail, the error reported is the one of the alternative that consumed more tokens; on a
-       tie, the path alternative's error.
+       tie, the path alternative's error, except that a P13 nesting error at the tied byte wins
+       over any other error there ([LQ/errors §3.1]).
    P6  '{' right after an edge_pat or after the ')' of a parenthesised path is a quantifier. A
        '(' right after a node_pat inside a path starts a group_pat, which must end with a
        quantifier (E001 otherwise: "a parenthesised path group needs a quantifier"). Elsewhere
@@ -297,8 +298,9 @@ datetime        = yyyy '-' mm '-' dd [ 'T' hh ':' mm [ ':' ss ] ] [ 'Z' ] ;
        (node creation is a statement of its own).
    P12 TX options. Each tx_option appears at most once (E001 on a repeat), in any order. The
        statements are separated by ';'; one ';' may precede '}'. TX { } is E009 (reported by the
-       parser, not as E001). A MATCH statement without EXPECT is E007. CALL inside TX must name a
-       tx.* mutation (E109 otherwise, "inside TX, CALL names a named mutation").
+       parser, not as E001), at the block's closing '}'. A MATCH statement without EXPECT is
+       E007. CALL inside TX must name a tx.* mutation (E109 otherwise, "inside TX, CALL names a
+       named mutation").
    P13 Nesting. The nesting depth of expressions and patterns is at most 64 [50 §5.2]. The depth
        increases by one on entry to each of: not_expr's NOT, '(' expr ')', a func_call argument
        list, list_lit, map_lit, prop_map, case_expr, the braces of EXISTS, COUNT and UNLESS

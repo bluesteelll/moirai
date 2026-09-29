@@ -184,10 +184,11 @@ deadline in Unknown-boot mode).
 | LE-005 | reclaim-run | ended | design | [AR §6.2] `reclaim --run <id>` | - |
 | LE-006 | reclaim-older-than | ended | design | [AR §6.2] `reclaim --older-than` | - |
 | LE-007 | rm-release | ended | design | [AR §3.4] I32′; [RULES/delete-policy-matrix DS-007] | With a triage note on the tombstone. |
-| LE-008 | branch-deleted | ended | design | [AR §5a.9] "live leases on that branch are released with a triage note"; [AR §5d.1] | - |
-| LE-009 | dead-at-read | ended | design | [AR §6.2] "released at the first read with a triage line" | A lease whose anchor is Dead (LL-002, LL-006, LL-011) is ended by the first read that evaluates it. A lease that is not live only because its deadline passed stays until reclaimed or renewed (LE-011). |
+| LE-008 | branch-deleted | ended | design | [AR §5a.9] "live leases on that branch are released with a triage note"; [AR §5d.1]; [API §10.1] `branch` | Every task lease on the branch that has not ended, whatever its liveness: an expired one could otherwise be renewed on a deleted branch (LE-011). One `Lease` record each after the ref group's `Marker` record ([F05 §4.7]), each an `end` entry of the change feed. Role leases stay: they hold no node of the branch; the session role lease's branch "fixes nothing" ([API §10.1]) and a run role lease ends with its run (LE-003 to LE-005). Review of WP-90b; open point 18. |
+| LE-009 | dead-anchor | not-live | proposed | [AR §6.2] "released at the first read with a triage line"; [API §14] "Observations append nothing"; [F05 §9.4] reason 4 | A lease whose anchor is Dead (LL-002, LL-006, LL-011) is not live. A read appends nothing (I-F5), so no read ends it: until an event of this table ends it, every evaluation judges it again, and it lives again when its anchor does (a resumed session that holds its slot again). The next claim of its task ends it (LE-012), so a revived anchor never gives the task a second live lease. The design's first-read release stays as the read's triage line and the runtime snapshot's `live` = `dead` ([API §15.7]). A lease that is not live only because its deadline passed stays until reclaimed, renewed (LE-011) or superseded (LE-012). Review of WP-90b; open point 18. |
 | LE-010 | subagent-stop | ended | design | [AR §6.2]; [AR §7.5] `SubagentStop` | Only where the hook runs; it "releases or flags". |
-| LE-011 | renew | not-ended | design | [AR §3.4] I17′ "the same holder may renew an expired, unreclaimed lease"; [90 §4.4] | A write presenting a TTL lease, or `heartbeat`, moves its deadline when more than half the TTL has elapsed; the token is unchanged. |
+| LE-011 | renew | not-ended | design | [AR §3.4] I17′ "the same holder may renew an expired, unreclaimed lease"; [90 §4.4] | A write presenting a TTL lease, or `heartbeat`, moves its deadline when more than half the TTL has elapsed; the token is unchanged. Once another claim of the task superseded an expired lease (LE-012), it has ended and its renewal is E407 ([API §10.2]). |
+| LE-012 | claim-supersedes | ended | proposed | [AR §6.2]; [AR §5d.1] "a store-wide lease prevents it while the lease lives"; [AR §3.4] I17′ "expired, unreclaimed"; [F05 §9.4] reason 4; [API §10.2] | A task claim that grants a new lease on `#N` first ends, in its group, every task lease on `#N` that has not ended and is not live (`lease-live`), with reason 4 ([F05 §9.4]: its anchor Dead, its deadline passed or its boot changed). So the holder of an expired lease can no longer renew it once another holder claimed the task, a Dead anchor that lives again never gives the task a second live lease, and `#N` never has two task leases that have not ended. Review of WP-90b; open point 18. |
 
 <!-- table: lease-effects -->
 | row | consumer | rule | basis | source | note |
@@ -219,7 +220,7 @@ definition and marker-cache rules.
 | MF-006 | holders | proposed | [AR §5a.9] "re-attributes … to a live ref that contains the marker's commit"; [72 M4] fix 2; [OP-3] | The set of live refs that hold `#N` with this origin (`view-kinds` `holds_count = yes`). The marker is **active** while it is non-empty. Stored as a list of `ref_id`s in the row ([F11 §7]) and in every record that changes it ([F05 §9.5]). |
 | MF-007 | nonlinear | proposed | [72 M4]; [OP-4] | Set once, never cleared (ME-011, ME-013); selects the exact DAG test (AB-002). A flag bit of the row ([F11 §7]). |
 | MF-008 | hlc, seq | design | [AR §4.4] | Bookkeeping: when the record was written. |
-| MF-009 | holder-actor, outcome | design | [AR §5d.1] `settled` `{…, holder, outcome, …}`; [API §10.5]; [F05 §9.5] fields 9, 11; [F11 §7] `actor`, `outcome` | For `settled` records written by `complete`: the lease holder and the outcome, for triage lines only. Exactly one entry carries them: the `settled` entry (ME-001) that the commit of a `complete` writes for the task it settles, with the holder of the task lease that `complete` presented and released and its `--outcome` (1 `done`, 2 `failed`, 3 `abandoned`; CO-001 to CO-003). Every other entry carries 0 for both: the other doors of ME-001, `cancelled` holds, and every re-emit (ME-003, ME-006, ME-007), even of a marker a `complete` once wrote, so a re-emit resets the row's `actor` and `outcome` to 0. Entries that keep the marker (`holders`, `flag-nonlinear`, a revival by ME-013) carry neither field and leave the row's values unchanged (review pass 1 round 3). |
+| MF-009 | holder-actor, outcome | design | [AR §5d.1] `settled` `{…, holder, outcome, …}`; [API §10.5]; [F05 §9.5] fields 9, 11; [F11 §7] `actor`, `outcome` | For `settled` records written by `complete`: the lease holder and the outcome, for triage lines only. Exactly one entry carries them: the `settled` entry (ME-001) that the commit of a `complete` writes for the task it settles, with the holder of the task lease that `complete` presented and released and its `--outcome` (1 `done`, 2 `failed`, 3 `abandoned`; CO-001 to CO-003). Every other entry carries 0 for both: the other doors of ME-001, `cancelled` holds, and every re-emit (ME-003, ME-006, ME-007), even of a marker a `complete` once wrote, so a re-emit resets the row's `actor` and `outcome` to 0. Entries that keep the marker (`holders`, `flag-nonlinear`, and ME-013's revival of an active row) carry neither field and leave the row's values unchanged (review pass 1 round 3); ME-013's revival of a `cleared` row is a re-emit and carries 0 for both (review of WP-90b). |
 
 Each row of `marker-events` fires for every node whose hold changes at a live ref. "(v0, o0)" is the ref's hold before
 the event and "(v1, o1)" after it. `record` names the `Marker` entries appended to the log ([F05 §9.5]), in the same
@@ -227,8 +228,9 @@ flushed group as the commit or `RefUpdate` that caused them ([AR §4.3]): `settl
 marker with its complete holder set; `holders` replaces the holder set of an existing marker; `cleared` ends a marker
 whose holder set emptied; `flag-nonlinear` sets MF-007. Every change of a marker's holder set or flag is recorded, so
 replay applies the records in log order and never derives a holder change; the model maintains the cache by these rules
-itself and GT2 compares the two ([60 §4.4] item 5). `none` means that no marker changes (ME-008 to ME-010);
-`move-cold` is the checkpoint fold's own change and writes no record (ME-012).
+itself and GT2 compares the two ([60 §4.4] item 5). `none` means that the event changes no holder set and writes no
+`settled`, `deleted`, `holders` or `cleared` entry (ME-008 to ME-010); a commit of ME-008 or ME-010 still flags the
+markers ME-011 names. `move-cold` is the checkpoint fold's own change and writes no record (ME-012).
 
 <!-- table: marker-events -->
 | row | event | condition | record | basis | source | note |
@@ -240,12 +242,12 @@ itself and GT2 compares the two ([60 §4.4] item 5). `none` means that no marker
 | ME-005 | ref-deleted | work-ref | holders-or-cleared | design | [AR §5a.9] `-D` "clears only the markers no live ref still holds"; [72 M4] fix 2 | The ref leaves every holder set (`holders`); each marker left with no holder is cleared instead, with a triage line. A marker that keeps a holder stays active at its origin position: the design's "re-attribution" ([OP-3]). Applies to `-d` as well. |
 | ME-006 | ref-moved | work-ref | per-hold-change | design | [AR §5a.5] `undo`, `op restore` "recomputes the markers … in both directions"; [72 M4] fix 2 | For every node whose hold differs between the old and the new tip: ME-004 for the old hold, ME-002 or ME-003 for the new one, each with its record; one triage line per `settled`, `deleted` or `cleared` record. |
 | ME-007 | ref-created | work-ref | holders-or-re-emit | derived | [AR §5a.3] fork; [72 M4] scenario 3 | A fork Y at commit f joins the holders of every closed hold at f: `holders` for an active marker (ME-002), a re-emitted marker for an inactive one (ME-003). |
-| ME-008 | commit-lands | non-work-ref | none | design | [72 M4] fix 2 "Staging refs produce no markers"; [AR §3.4] I26′; [AR §2.17] X13 | Commits on `merge/*`, `import/*` and `plan/*` refs. |
+| ME-008 | commit-lands | non-work-ref | none | design | [72 M4] fix 2 "Staging refs produce no markers"; [AR §3.4] I26′; [AR §2.17] X13 | Commits on `merge/*`, `import/*`, `plan/*` and `orphans/*` refs: no ref of these kinds holds (`view-kinds`), so no holder set changes. ME-011 still applies to them: a `plan/*` ref can originate a `deleted` hold, since I33′ masks its status keys and not its existence, and a lane forked from it holds that origin (ME-007) — review of WP-90b. |
 | ME-009 | ref-deleted | non-work-ref | none | design | [AR §5a.7] step 8 `merge --abort`; [RULES/merge-table RE-004] | - |
 | ME-010 | commit-lands | hold-unchanged | none | design | [72 M4] fix 2 "on a done task emits nothing"; [AR §4.3] | Markers follow net state, never statements. |
-| ME-011 | commit-lands | origin-ref-diverged | flag-nonlinear | proposed | [OP-4] | A commit d lands on ref Y while some Y-landed commit o that is the origin of a marker in `MARKERS` is not in anc*(d), because `undo` or `op restore` moved Y off o. o's marker becomes nonlinear for good. A marker in `MARKERS_OLD` is not flagged here: ME-013 flags every marker it revives. |
+| ME-011 | commit-lands | origin-ref-diverged | flag-nonlinear | proposed | [OP-4] | A commit d lands on ref Y while some Y-landed commit o that is the origin of a marker in `MARKERS` is not in anc*(d), because `undo` or `op restore` moved Y off o. o's marker becomes nonlinear for good. Y may be of any kind, `plan/*` included (ME-008 does not exempt it): AB-001 reads the vector entry of the origin's ref whatever its kind (S14). A marker in `MARKERS_OLD` is not flagged here: ME-013 flags every marker it revives. |
 | ME-012 | checkpoint-fold | inert | move-cold | design | [AR §4.4] "`MARKERS_OLD` … globally inert … move there"; [70 S4] | A cleared marker, or one that every live ref (of every kind) has absorbed (`absorption`), moves to `MARKERS_OLD` with an empty holder set; its holder set is no longer maintained. The fold decides this from the rows and the absorbed vectors alone, so it writes no record. |
-| ME-013 | ref-moved-or-created | revive | holders-and-nonlinear | proposed | [AR §4.4]; [OP-10] | After `undo`, `op restore` or a fork from a commit other than a tip, a `MARKERS_OLD` row whose origin some live ref no longer contains, and which some live work ref still holds, returns to `MARKERS` with its holders recomputed (`holders`) and flagged nonlinear (`flag-nonlinear`): a revival follows exactly such a ref move, and AB-002 is exact, so the flag can cost a walk but never an answer. |
+| ME-013 | ref-moved-or-created | revive | holders-or-re-emit-then-nonlinear | proposed | [AR §4.4]; [OP-10] | After `undo` or `op restore` moves a ref of any kind, or a fork creates one, a `MARKERS_OLD` row whose origin that ref's tip does not contain, and which some live work ref holds, returns to `MARKERS` with its holder set recomputed from the live work refs that hold its origin, then `flag-nonlinear`. An active row (moved there as absorbed, ME-012) returns by `holders`; a `cleared` row returns by ME-003's re-emit (`settled-or-deleted` with the recomputed holders), which makes it active again. A `MARKERS_OLD` row that a live work ref comes to hold through ME-002, ME-003 or ME-007 returns the same way, whatever the event. A revival follows exactly such an event, and AB-002 is exact, so the flag can cost a walk but never an answer (review of WP-90b: a revived `cleared` row kept kind 3 and never excluded). |
 
 A reader on view R tests a marker for `#N` like this; `absorbed_R` is the vector of `vector-rules`.
 
@@ -301,7 +303,7 @@ GT18's "ten doors" and ref moves ([AR §8.2], [60 §3.13]) with the marker event
 | DC-011 | image-import | ME-001, ME-002, ME-003 | design | [AR §8.2]; [AR §5b.6] steps 2, 4 "the imported ops write their markers" | Fast-forward appends originate (ME-001); an import merge propagates (ME-002, ME-003). |
 | DC-012 | reopen | ME-004 | design | [AR §8.2] "`reopen`" | - |
 | DC-013 | undelete | ME-004, ME-001 | design | [AR §8.2] "`Undelete`" | ME-001 when the restored status is `done` or `cancelled` ([OP-6]). |
-| DC-014 | undo | ME-006, ME-011 | design | [AR §8.2] "`undo` of a reopen or an undelete" | ME-011 fires at the next commit on the ref. |
+| DC-014 | undo | ME-006, ME-011, ME-013 | design | [AR §8.2] "`undo` of a reopen or an undelete" | ME-011 fires at the next commit on the ref, whatever its kind (S14). |
 | DC-015 | op-restore | ME-006, ME-011, ME-013 | design | [AR §8.2] "`op restore` in both directions" | - |
 | DC-016 | fork | ME-007, ME-013 | design | [AR §8.2] "forks with `branch -D` or `undo` on the parent" | - |
 | DC-017 | branch-delete | ME-005 | design | [AR §8.2]; [AR §5a.9] | `-d` and `-D`. |
@@ -363,6 +365,12 @@ give the same answer.
 | SN-038 | S13 | 1 | lane/a | complete:89 | design | [AR §2.17] X13 | - |
 | SN-039 | S13 | 2 | plan/p | branch:plan/p:from=lane/a:kind=plan | design | [AR §5a.1] | - |
 | SN-040 | S13 | 3 | lane/a | branch-D:lane/a | design | [AR §3.4] I26′ "of kind `work`" | Only a plan branch still holds c1. |
+| SN-041 | S14 | 1 | plan/p | branch:plan/p:from=main:kind=plan | proposed | [OP-4]; [AR §5a.1] | A what-if branch (review of WP-90b). |
+| SN-042 | S14 | 2 | plan/p | rm:89 | proposed | [OP-4]; [AR §3.4] I33′ | Existence is writable on `plan/*`: origin c1 on `plan/p`, and no marker (ME-008). |
+| SN-043 | S14 | 3 | lane/b | branch:lane/b:from=plan/p | proposed | [OP-4]; [AR §5a.3] | `lane/b` holds (deleted, c1): the marker is written with origin ref `plan/p` (ME-007, ME-003). |
+| SN-044 | S14 | 4 | plan/p | undo | proposed | [OP-4]; [AR §5a.5] | c1 leaves `plan/p`'s chain; no holder set changes. |
+| SN-045 | S14 | 5 | plan/p | set:90:priority=1 | proposed | [OP-4] | A new `plan/p` commit c2 with a higher `ref_seq` that does not descend from c1: ME-011 flags c1's marker although `plan/p` is not a work ref. |
+| SN-046 | S14 | 6 | lane/c | branch:lane/c:from=plan/p | proposed | [OP-4] | A lane forked after the divergence copies `plan/p`'s vector (VR-004). |
 
 <!-- table: scenario-expect -->
 | row | scenario | step | check_ref | excluded | basis | source | note |
@@ -391,6 +399,9 @@ give the same answer.
 | SX-022 | S11 | 3 | main | yes | proposed | [OP-6] | `settled_elsewhere` again, from the `Undelete`. |
 | SX-023 | S12 | 5 | main | yes | proposed | [OP-4] | Only the exact test (AB-002) sees it. |
 | SX-024 | S13 | 3 | main | no | design | [AR §3.4] I26′ "of kind `work`"; [AR §2.17] X13 | - |
+| SX-025 | S14 | 3 | main | yes | proposed | [AR §3.4] I26′; [OP-4] | `lane/b` holds c1, which `main` lacks. |
+| SX-026 | S14 | 5 | plan/p | yes | proposed | [OP-4] | `absorbed_plan/p[plan/p]` ≥ `ref_seq(c1)`, yet c1 is not in `plan/p`'s history: only the exact test (AB-002) sees it. |
+| SX-027 | S14 | 6 | lane/c | yes | proposed | [OP-4] | As SX-026, through the copied vector. |
 
 ## Coverage
 
@@ -400,13 +411,13 @@ commit's `absorbed` vector, `ref_seq`).
 
 | Checklist row | Covered by | Fixture | Model function |
 |---|---|---|---|
-| [60 §2.5] "Derived-state semantics": the bitset holds only the structural predicate `unblocked`; `ready` adds leases, markers and `defer_until` at read time, at a tip only | PD-001 to PD-016, `validity` | WP-94 suite `state`; GT18 I26′ oracle | `model::derived::unblocked`, `model::runtime::ready` |
-| [60 §2.5] "Segments": `MARKERS`/`MARKERS_OLD` with the marker key `(#N, ref_id, commit)` (its semantics) | `marker-fields`, `marker-events`, `absorption` | GT18 (model, M0; engine, M3) | `model::markers::apply_event`, `model::markers::excluded` |
-| [60 §2.5] "Segments": `LEASES` with the holder anchor and the deadline form `{wall, boot_hash, mono}` (its semantics) | `lease-live`, `lease-ends`, `lease-effects` | GT18 lease liveness | `model::lease::is_live` |
-| [80 §3] X-F2: liveness rules, Unknown never ends a lease, the boot-clock deadline, Unknown-boot mode (semantic part) | LL-001 to LL-013, LE-009, LF-006 | GT18 lease liveness; GT4 lease variants (M1) | `model::lease::is_live` |
-| [90 §10.1] `LEASES` `kind`, `anchor` (`session-ttl`), `bound` (effect on `ready`) | LL-009 to LL-013, LF-001 | GT18 | `model::lease::is_live` |
-| [50 §8.1] F15: `affected` names every node whose derived predicate changed, `unblocked` included | PD-001 to PD-008 with [RULES/status-machines GR-015] | WP-94 | `model::derived::affected` |
-| [AR §3.4] I17′, I26′, I32′, I36′ | LE-011, LF-003, PD-012, LF-005, LF-007 | GT18 | `model::i26::excluded` |
+| [60 §2.5] "Derived-state semantics": the bitset holds only the structural predicate `unblocked`; `ready` adds leases, markers and `defer_until` at read time, at a tip only | PD-001 to PD-016, `validity` | WP-94 suite `state`; GT18 I26′ oracle | `derived::unblocked`, `coord::ready` |
+| [60 §2.5] "Segments": `MARKERS`/`MARKERS_OLD` with the marker key `(#N, ref_id, commit)` (its semantics) | `marker-fields`, `marker-events`, `absorption` | GT18 (model, M0; engine, M3) | `markers::Markers::commit_lands`, `::fork`, `::ref_deleted`, `::ref_moved`, `::excluded`; `markers::agrees_with_definition` (MC-7) |
+| [60 §2.5] "Segments": `LEASES` with the holder anchor and the deadline form `{wall, boot_hash, mono}` (its semantics) | `lease-live`, `lease-ends`, `lease-effects` | GT18 lease liveness | `lease::is_live` |
+| [80 §3] X-F2: liveness rules, Unknown never ends a lease, the boot-clock deadline, Unknown-boot mode (semantic part) | LL-001 to LL-013, LE-009, LF-006 | GT18 lease liveness; GT4 lease variants (M1) | `lease::is_live` |
+| [90 §10.1] `LEASES` `kind`, `anchor` (`session-ttl`), `bound` (effect on `ready`) | LL-009 to LL-013, LF-001 | GT18 | `lease::is_live` |
+| [50 §8.1] F15: `affected` names every node whose derived predicate changed, `unblocked` included | PD-001 to PD-008 with [RULES/status-machines GR-015] | WP-94 | `derived::affected_with_budget` |
+| [AR §3.4] I17′, I26′, I32′, I36′ | LE-011, LE-012, LF-003, PD-012, LF-005, LF-007 | GT18 | `coord::Oracle::i26p_excluded`, `tx::Cand::end_superseded` |
 
 No R-row concerns this file.
 
@@ -447,6 +458,11 @@ None. The TTLs are configuration keys (`lease.ttl-default`, `lease.reclaim-older
    o in its history, so the O(1) test (CM1) answers wrongly for an origin still held elsewhere. Proposed: flag such
    markers and test them by a DAG walk. The cost falls only on explicit, rare verbs. A marker in `MARKERS_OLD` is not
    tracked by ME-011; ME-013 flags every marker it revives, which is safe because AB-002 is the definition itself.
+   The review of WP-90b found that ME-011 must run on refs of every kind: `plan/*` can originate a `deleted` hold that
+   a lane forked from it holds, and `undo` on the plan ref followed by a new commit there gave a wrong AB-001 answer on
+   the plan ref and on any lane forked from it afterwards (S14). ME-008 now exempts only the holder-set rows. [F13 §4.2]
+   MC-1 says commits on other ref kinds "change nothing (ME-008)"; it should say that such a commit still flags
+   markers nonlinear (ME-011, `mkind` 5).
 5. **Every exit from S ends a hold** (ME-004, S10). [AR §4.5] step 4 clears only on `SetStatus{done|cancelled → open}`
    and `Undelete`; a revert of a completion (`done → in_progress`) would leave a stale marker.
 6. **`Undelete` of a closed node** (DC-013, S11). The design writes only `cleared` for an `Undelete`. When the restored
@@ -506,3 +522,31 @@ None. The TTLs are configuration keys (`lease.ttl-default`, `lease.reclaim-older
 
 16. **Model cost.** PD-012 evaluated literally is O(live refs × history) per candidate. At the model's scale (≤ 10⁴
     commands, [60 §4.4] item 8) that is acceptable; ancestor sets are memoised per commit.
+17. **`MARKERS_OLD` and class-I timing** (ME-012, ME-013, WP-90b). ME-012 moves a marker to `MARKERS_OLD` at a
+    checkpoint fold, a class-I event whose timing the engine chooses, and stops maintaining its holder set; ME-004,
+    ME-005 and ME-007 then write, or do not write, `Marker` entries for it depending on whether a fold ran first, and
+    ME-011 flags only rows still in `MARKERS`. A `Marker` record draws a value of the store's HLC sequence
+    ([API §6.2] CK-4), so the fold's timing would reach later commits' `hlc` and ids, and the runtime snapshot's
+    `holders`, `cause`, `hlc` and `nonlinear` would differ with it — against [F17 §1.5] SP-1 and [API §2.5] DT-2. The
+    model runs no fold in a stream and keeps every row in `MARKERS`; its suites run the fold (`fold_inert`) between
+    every command of the scenarios and of GT18's histories and require the same answers, and without a fold they
+    require every command's listed entries to be the ones the definition's holder sets imply (the property
+    `the_marker_cache_equals_the_definition`). That fold test found that ME-013 revived a `cleared` row without making
+    it active, and that a row every live ref had absorbed must also return when `undo` or a fork leaves its origin;
+    both are now ME-013's text (review of WP-90b). Proposed for the review: a `MARKERS_OLD` row keeps receiving the
+    entries ME-004 to ME-007 and ME-011 would write for it (its holder set stays maintained, only its storage layer
+    changes), so the records are the same whenever a fold ran; or `Marker` records draw no HLC value.
+18. **Dead and expired leases, and what ends them** (LE-008, LE-009, LE-011, LE-012; review of WP-90b). [AR §6.2]
+    releases a Dead lease "at the first read with a triage line", but a read appends nothing (I-F5, [API §14]), and a
+    verdict a read keeps only in memory would be lost with the process, so the engine could not match a model that
+    keeps it. Two defects followed from leaving such leases unended: another holder could claim a task whose TTL lease
+    had expired, and the old holder could then renew it by `heartbeat` ([API §10.2] "that no one reclaimed"), leaving
+    two live leases; and a Dead session lease lived again when its session held its slot again, beside a lease another
+    holder had taken meanwhile. Proposed: LE-012 — the claim that grants a new lease on `#N` ends every lease on `#N`
+    that is not live, in its own group, with [F05 §9.4]'s reason 4, whose text already covers a Dead anchor, a passed
+    deadline and a changed boot. A lease nothing ended is judged again at each evaluation (LE-009), which can revive
+    it only while it is the task's one lease. LE-008 releases every task lease on a deleted branch that has not ended,
+    not only the live ones, and leaves role leases alone. For R-SPEC-F: [API §10.1] (the claim's `Lease` records and
+    the end of superseded leases), [API §10.2] (renewal after a supersession is E407), [API §11.2] ("every live lease"
+    becomes "every task lease that has not ended") and [F05 §9.4] reason 4 ("released at a read" becomes "released by
+    the next claim of its task").

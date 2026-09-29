@@ -45,7 +45,7 @@ pub trait SealedMaps: VfsTypes {
     /// Checks `file_size(file) == expected_len`, maps the whole file read-only, and registers the mapping under `name`
     /// (the store-relative file name, used only in the fault message of §8). `expected_len` is the `total_len` the
     /// caller read from the file's header (§4).
-    fn map_sealed(&self, file: &Self::File, expected_len: u64, name: &RelPath) -> Result<Self::Map, MapError>;
+    fn map_sealed(&self, file: &Self::File, expected_len: u64, name: RelPath<'_>) -> Result<Self::Map, MapError>;
 
     /// A hint only; errors are ignored and semantics never change (§9).
     fn advise(&self, map: &Self::Map, offset: u64, len: u64, advice: Advice);
@@ -170,6 +170,11 @@ Once per process, at the first `map_sealed`, before the first mapping is returne
 | Windows | Linux, macOS |
 |---|---|
 | `AddVectoredExceptionHandler(1, handler)` (first in the vectored chain) | `sigaction(SIGBUS, {handler, SA_SIGINFO \| SA_ONSTACK}, &previous)`; `previous` is kept for chaining (it is Rust std's stack-overflow handler or the default [I]) |
+
+If the installation fails (`AddVectoredExceptionHandler` returns NULL, or `sigaction` fails), `map_sealed` returns
+`MapError::Io`, whose `VfsError` carries the OS code (Win32 8 `ERROR_NOT_ENOUGH_MEMORY` on Windows, the only way that
+call fails; the `errno` on Unix) and the failed call's name, and creates no mapping. The handler is then not installed, and the next `map_sealed` tries the
+installation again. No mapping is ever returned without the handler in place.
 
 ### 8.2 Behaviour
 

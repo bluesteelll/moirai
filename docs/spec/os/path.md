@@ -18,8 +18,8 @@ This file is normative for X-F7 (P1–P10 and P12) and for the path-shaped name 
 | Part | Where it lives | Why |
 |---|---|---|
 | path value types and their syntax checks (`RelPath`, `AbsPath`, `CanonicalRoot`, `EntryName`) | `moirai-vfs` | every `ProjectFs` method takes them; they need no OS call |
-| P3 (NFC for some untracked names), P5 (portability), P6 (`fold_v1`) | `moirai-files` (FL-1, target-independent) | they need Unicode tables ([PLAN §6.2] R6) |
-| conversion between OS paths and stored paths, `canonical_root`, `canonical_abs`, the CLI boundary, the user-config location | `moirai-os::path` (Windows built from M0) | they call the OS |
+| P3 (NFC for some untracked names), P5 (portability), P6 (`fold_v1`), and `representable(os, segment)` (§8.1) for every OS | `moirai-files` (FL-1, target-independent) | they need Unicode tables ([PLAN §6.2] R6); `representable` shares P5's device list and must be callable, and testable for all three OSes, from target-independent code |
+| conversion between OS paths and stored paths, `canonical_root`, `canonical_abs`, the CLI boundary, the user-config location, and `representable_here(segment)` (§8.1), the build OS's use-time check | `moirai-os::path` (Windows built from M0) | they call the OS, or guard every OS call ([OS/project §2.3]) |
 
 `fold_v1` itself is defined in [F20] (R-14); this file only states where it is used.
 
@@ -47,6 +47,13 @@ seg-char  = any Unicode scalar value other than U+0000–U+001F, U+002F "/" and 
 This is the **one** `RelPath` type for store and project paths ([OS/README §2.1], [OS/fs §2.1]). Store names are a subset
 (decimal numbers and fixed ASCII words, X-F10); [OS/fs §2.1] adds only use-time checks for store operations (`InvalidName`
 for a segment Windows would store literally, such as one ending in `.`).
+
+**The Rust form** (§11). `RelPath<'a>` is a `Copy` view over a validated `&'a str`, two words wide, and every seam takes it
+**by value**: `rel: RelPath<'_>`, `dir: Option<RelPath<'_>>`, `name: RelPath<'_>`. An unsized `RelPath(str)` passed as
+`&RelPath` cannot be built from a `&str` without `unsafe`, which `moirai-vfs` forbids ([OS/README §2.1]); the view keeps
+the grammar, the byte-exact comparison and the absence of normalisation. The owned form is `RelPathBuf`; a caller holding
+one passes `buf.as_rel_path()`, and a map keyed by `RelPathBuf` is queried with the borrowed text
+(`RelPathBuf: Borrow<str>`).
 
 ### 2.2 `AbsPath` — a machine-local absolute path (P12)
 
@@ -87,6 +94,17 @@ pub enum EntryName {
 
 An `Unrepresentable` name is never a candidate, is never stored, and renders with the escapes of §9. A path already in git
 that contains such a component renders `unrepresentable path` ([F18], R-16).
+
+The borrowed form, for enumerations that allocate nothing per entry ([OS/project §5.2]):
+
+```rust
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum EntryNameRef<'a> { Utf8(&'a str), Unrepresentable(&'a [u8]) }
+impl EntryNameRef<'_> { pub fn to_owned(&self) -> EntryName; }
+impl EntryName { pub fn as_entry_ref(&self) -> EntryNameRef<'_>; }
+```
+
+The two forms carry the same bytes and the same classification.
 
 ## 3. The rules P1–P12 (frozen, X-F7 and X-F9)
 
@@ -209,11 +227,11 @@ only possible reading, and the value is only ever existence-checked.
    exit 2).
 2. **Separators.** Windows: every `\` becomes `/`. Unix: a `\` stays a name character, so step 5 refuses it (P4).
 3. **Absolute or relative.** Windows: `X:/…` and `//…` are absolute; a leading single `/` means the root of the current
-   directory's drive; a drive-relative `X:rel` (a drive letter and `:` not followed by `/`) and the device forms `//./…`
-   and `//?/…` (from `\\.\…` and `\\?\…` after step 2) are refused with exit 2 `bad_path` (`rule` `drive-relative`
-   or `device`, [F19 §10.2]), because their meaning depends on a per-drive current directory or bypasses Win32 name
-   handling (pass 1, P1-37); anything else is relative. Unix: a leading
-   `/` is absolute.
+   directory's drive; a drive-relative `X:rel` (a drive letter and `:` not followed by `/`; a bare `X:` is drive-relative
+   too) and the device forms `//./…` and `//?/…` (from `\\.\…` and `\\?\…` after step 2) are refused with exit 2
+   `bad_path` (`rule` `drive-relative` or `device`, [F19 §10.2]; `PathError::DriveRelative` or `PathError::DevicePath`,
+   §11), because their meaning depends on a per-drive current directory or bypasses Win32 name handling (pass 1, P1-37);
+   anything else is relative. Unix: a leading `/` is absolute.
 4. **Join and normalise.** A relative argument is joined to the canonical current directory (§4 applied to `cwd`); the
    result is normalised lexically as in §5 step 2.
 5. **Strip the root.** The tree's canonical text followed by `/` must be a byte prefix of the result (the tree root itself
@@ -227,10 +245,17 @@ on-disk spelling is the link layer's job.
 
 ### 8.1 Representable on this OS
 
-`representable_here(segment) → bool` decides whether this OS can hold a name, which is what renders `missing (not
-representable on this OS)` for a tracked path ([80 §2.10] P5, [F18] R-16). On Windows every `ProjectFs` method applies it
-to every segment of every path before any OS call and returns `InvalidName` for a failing one ([OS/project §2.3]), and
-[F20 §4.9] applies it before any cascade step; `--allow-nonportable` never relaxes it (pass 1, P1-15):
+`representable(os, segment) → bool` decides whether the OS `os` can hold a name, which is what renders `missing (not
+representable on this OS)` for a tracked path ([80 §2.10] P5, [F18] R-16). It is a pure `moirai-files` function beside
+P5 that uses P5's device list (§8.2), so target-independent code (FL-1's resolver, [F20 §4.9]) calls it with the OS tag
+of the process ([OS/proc §2]) and its Linux and macOS rows are tested on Windows. `moirai-os::path::representable_here
+(segment)` is `representable(<the build OS>, segment)` restated in `moirai-os`, which may not depend on `moirai-files`
+([OS/README §2.2]). On Windows every `ProjectFs` method applies it to every segment of every path before any OS call
+and returns `InvalidName` for a failing one ([OS/project §2.3]), and [F20 §4.9] applies `representable` before any
+cascade step; `--allow-nonportable` never relaxes either (pass 1, P1-15). The two copies are one rule: each crate's tests
+check the same cases, namely every device name of §8.2 bare, with an extension and with trailing spaces before the
+extension, in two ASCII cases; a name ending in `.` and one ending in ` `; each reserved character; and a name of 255 and
+one of 256 UTF-16 code units, one of them built from a supplementary-plane character (two units each).
 
 | OS | A segment is representable iff |
 |---|---|
@@ -242,15 +267,18 @@ to every segment of every path before any OS call and returns `InvalidName` for 
 
 ### 8.2 Portable (P5)
 
-`portable_issues(segment, siblings) → set of issues` reports each of:
+`portable_issues(segment, siblings) → set of issues` reports each of the issues below. `siblings` are the names the
+segment's directory holds **after** the operation, other than the segment itself (it is never its own sibling). A move's
+source name is therefore not a sibling when source and destination share the directory: the case-only rename
+`file mv a.md A.md` has no `fold-sibling` issue, because `a.md` no longer exists once `A.md` does.
 
 | Issue | Condition |
 |---|---|
 | `device-name` | the segment's stem — the part before its first `.`, with trailing ASCII spaces removed — equals, ignoring ASCII case, one of `CON`, `PRN`, `AUX`, `NUL`, `CONIN$`, `CONOUT$`, `COM0`–`COM9`, `LPT0`–`LPT9`, or `COM` or `LPT` followed by one of the superscript digits `¹`, `²`, `³` (U+00B9, U+00B2, U+00B3), which Windows also reserves (pass 1, A1-60) |
 | `trailing-dot-or-space` | the segment ends in `.` (U+002E) or ` ` (U+0020) |
-| `reserved-char` | the segment contains any of `<`, `>`, `:`, `"`, `\|`, `?`, `*` |
+| `reserved-char` | the segment contains any of `<`, `>`, `:`, `"`, `\|`, `?`, `*`; the message cites the first such character of the segment |
 | `too-long` | the segment is longer than 255 UTF-8 bytes |
-| `fold-sibling` | some sibling name in the same directory differs from the segment but is equal to it under `fold_v1` ([F20]) |
+| `fold-sibling` | some sibling differs from the segment but is equal to it under `fold_v1` ([F20]); the message cites the smallest such sibling in byte order ([F01 §6.6] path order) |
 
 `file mv` refuses to create a name with any issue under `files.portable-names = refuse` (the default) unless
 `--allow-nonportable` is given; `link`, `file add` and `file mv` under `warn` print one warning per issue ([AR §13]).
@@ -280,25 +308,62 @@ process (open point 6).
 In `moirai-vfs` (pure):
 
 ```rust
-pub struct RelPath(str);            // unsized; §2.1; the one type for store and project paths
-pub struct RelPathBuf(Box<str>);
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct RelPath<'a>(&'a str);    // a Copy view over validated text, passed by value; §2.1; one type for store and project paths
+#[derive(Clone, Debug, Eq, PartialEq, Hash, Ord, PartialOrd)]
+pub struct RelPathBuf(Box<str>);    // owned; its Eq, Ord and Hash are those of its text
 pub struct AbsPath(Box<str>);       // §2.2
 pub struct CanonicalRoot { pub text: AbsPath, pub root_id: OsFileId, pub os: OsTag }   // §2.3
 pub enum EntryName { Utf8(Box<str>), Unrepresentable(Box<[u8]>) }                        // §2.4
+pub enum EntryNameRef<'a> { Utf8(&'a str), Unrepresentable(&'a [u8]) }                   // §2.4, borrowed
 
-impl RelPath {
-    pub fn new(s: &str) -> Result<&RelPath, PathError>;      // §2.1 grammar
-    pub fn segments(&self) -> impl Iterator<Item = &str>;
-    pub fn parent(&self) -> Option<&RelPath>;                 // None for the root
-    pub fn file_name(&self) -> Option<&str>;
+impl<'a> RelPath<'a> {
+    pub const ROOT: RelPath<'static>;                                  // the empty path
+    pub const fn new(s: &'a str) -> Result<RelPath<'a>, PathError>;   // §2.1 grammar
+    pub const fn as_str(&self) -> &'a str;
+    pub fn segments(&self) -> impl Iterator<Item = &'a str>;
+    pub fn parent(&self) -> Option<RelPath<'a>>;                       // None for the root
+    pub fn file_name(&self) -> Option<&'a str>;
     pub fn join(&self, seg: &str) -> Result<RelPathBuf, PathError>;
+    pub fn to_buf(&self) -> RelPathBuf;
 }
+impl RelPathBuf {
+    pub fn new(s: &str) -> Result<RelPathBuf, PathError>;             // §2.1 grammar
+    pub fn as_rel_path(&self) -> RelPath<'_>;
+    pub fn as_str(&self) -> &str;
+}
+// RelPathBuf: Borrow<str> + AsRef<str> + PartialEq<RelPath<'_>>;  RelPath<'_>: AsRef<str> + PartialEq<RelPathBuf>;
+// From<RelPath<'_>> for RelPathBuf;  From<&'a RelPathBuf> for RelPath<'a>.
 impl AbsPath { pub fn new(s: &str) -> Result<AbsPath, PathError>; }                   // §2.2 grammar
 pub fn display_name(bytes: &[u8]) -> String;                                          // §9
 
-#[derive(Copy, Clone, Debug, Eq, PartialEq)]
-pub enum PathError { Empty, BadSegment, DotSegment, Separator, Control, Backslash, NotUtf8, NotAbsolute, OutsideRoot }
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum PathError {
+    Empty, BadSegment, DotSegment, Separator, Control, Backslash, NotUtf8, NotAbsolute, DriveRelative, DevicePath,
+    OutsideRoot,
+}
 ```
+
+`Borrow<str>` is sound because `RelPathBuf`'s `Eq`, `Ord` and `Hash` are those of its text. Every seam takes the view by
+value: [OS/fs §3] `rel: RelPath<'_>` and `dir: Option<RelPath<'_>>`, [OS/fs §2.4]
+`GroupMember::Dir { dir: Option<RelPath<'a>> }`, [OS/map §3] `name: RelPath<'_>`, and [OS/project §2.1]
+`At<'a, R> { root: &'a R, path: RelPath<'a> }`.
+
+**`PathError`.** Each variant has one meaning; the last column is how the CLI reports it ([F19 §10.2]):
+
+| Variant | Meaning | Reported as |
+|---|---|---|
+| `Empty` | an empty segment: a leading or trailing `/`, or a `//` inside a `RelPath` or inside an `AbsPath` after its prefix; or an empty `seg` passed to `join`. The empty `RelPath` itself is the root and valid | `bad_path`, P1 |
+| `BadSegment` | a malformed `AbsPath` prefix (§2.2): a drive letter that is not upper-case `A`–`Z` or is not followed by `:/` (so `C:` and `C:x` are not `AbsPath` values), or a UNC path without a server or a share | exit 2 (§5 step 3) |
+| `DotSegment` | a segment that is exactly `.` or `..` (P1) | `bad_path`, P1 |
+| `Separator` | a `/` inside a single segment (the argument of `join`) | a programming error of the caller |
+| `Control` | a C0 control character in a `RelPath` segment (P4), or U+0000 in an `AbsPath` | `bad_path`, P4 |
+| `Backslash` | a `\` in a `RelPath` segment (P4) | `bad_path`, P4 |
+| `NotUtf8` | input that is not valid Unicode: bytes that are not UTF-8 (Unix), or UTF-16 with an unpaired surrogate (Windows) (P4; §7 step 1) | `bad_path`, P4 |
+| `NotAbsolute` | a value that must be an `AbsPath` matches none of §2.2's three forms; or a CLI argument could not be made absolute at §7 step 4 (the current directory has no canonical form, a leading `/` under a UNC current directory, or a `//` argument without a server or a share) | exit 2 (§5 step 3, §7) |
+| `DriveRelative` | a Windows CLI argument `X:rel`, or a bare `X:` (§7 step 3) | `bad_path`, rule `drive-relative` |
+| `DevicePath` | a Windows CLI argument in a device form `//./…` or `//?/…` (§7 step 3) | `bad_path`, rule `device` |
+| `OutsideRoot` | a CLI argument whose normalised path is neither the tree root nor below it (§7 step 5) | exit 2, or the verb's own refusal |
 
 In `moirai-os::path` (Windows built; reached by generic code through `ProjectFs`, [OS/project §2.1]):
 
@@ -306,11 +371,12 @@ In `moirai-os::path` (Windows built; reached by generic code through `ProjectFs`
 pub fn canonical_root(dir: &std::path::Path) -> Result<CanonicalRoot, VfsError>;       // §4
 pub fn canonical_abs(p: &std::path::Path) -> Result<AbsPath, VfsError>;                // §5
 pub fn cli_path(arg: &std::ffi::OsStr, cwd: &std::path::Path, tree: &CanonicalRoot) -> Result<RelPathBuf, PathError>; // §7
-pub fn representable_here(segment: &str) -> bool;                                      // §8.1
+pub fn representable_here(segment: &str) -> bool;                                      // §8.1: representable(<build OS>, segment)
 pub fn user_config_path() -> Option<AbsPath>;                                          // §10
 ```
 
-`portable_issues` and `fold_v1` are `moirai-files` functions ([F20]).
+`portable_issues`, `representable(os: OsTag, segment: &str) -> bool` (§8.1) and `fold_v1` are `moirai-files` functions
+([F20]).
 
 ## Coverage
 
@@ -343,3 +409,7 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 | 6 | X-F11 on Windows names `%APPDATA%`; the documented alternative `SHGetKnownFolderPath` loads `shell32.dll` | the environment variable, with `None` and a `doctor` warning when it is unset (§10) | R-REV-P |
 | 7 | `\\?\` opens follow reparse points on intermediate components, while [40 §2.4] says resolution never follows a link out of the root | walks never descend into links; `locate_id` and `read_for_hash` check containment ([OS/project §5.5]); Linux and macOS use `RESOLVE_NO_SYMLINKS` and `O_NOFOLLOW_ANY` | R-REV-P |
 | 8 | [OS/README §1.3] assigns X-F9 to this file | P11 (a) and (b) are stated here as rules with their byte precision; the image file name belongs to [F14] and the ref-name validator to [F12], which cite §3 | WP-12, WP-15 |
+| 9 | `RelPath(str)` cannot be built from a `&str` without `unsafe`, which `moirai-vfs` forbids (WP-30 review) | **closed (spec sync 2a):** `RelPath<'a>(&'a str)` is a `Copy` view passed by value in every seam; `RelPathBuf: Borrow<str> + AsRef<str> + PartialEq<RelPath<'_>>` (§2.1, §11); [OS/fs §3], [OS/map §3] and [OS/project §2.1] follow | — |
+| 10 | `PathError`'s variants had no stated meaning, and the drive-relative and device refusals of §7 step 3 had no variant of their own (WP-30, WP-33) | **closed (spec sync 2a):** §11's table gives every variant one meaning; `DriveRelative` (a bare `X:` included) and `DevicePath` are added | — |
+| 11 | §8.2 did not say whether a move's source counts as a sibling, nor which sibling or character a message cites (WP-61 review) | **closed (spec sync 2a):** siblings are the directory's names after the operation; `fold-sibling` cites the smallest sibling in byte order, `reserved-char` the first reserved character | — |
+| 12 | `representable_here` existed only in `moirai-os`, with its own copy of the device list: the Linux and macOS rows could not be tested on Windows and target-independent code could not call it (WP-61 review) | **closed (spec sync 2a):** a pure `representable(os, segment)` lives in `moirai-files` beside P5; `representable_here` is its build-OS restatement in `moirai-os`, and both crates test §8.1's common cases. [F18 §4.6] detail 44 and [F20] may cite `representable` at their next edit | R-SPEC-F, R-SPEC-R |

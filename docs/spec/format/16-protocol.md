@@ -707,7 +707,8 @@ P1-3, S1-11, A1-12, closing open point 5).
 3. It runs `swap_dirs(a, b)` with the bounded share retry. On success the old store, now at b, keeps `retired`.
 4. If the swap fails before its first rename, it runs `swap_recover` ([OS/fs §4.9.4]), clears `retired` on the store at a
    by P-13 under the maintenance and writer bytes, and exits 7 (`fs_busy`). If it fails later, the intent stays for
-   `doctor`.
+   `doctor`. A failure of kind `FlushFailed` (a flush embedded in the swap failed, [OS/fs §4.1]) exits 7 at once in
+   either case: `restore` issues no further call, and the intent and `retired` stay for `doctor`.
 
 `repair --rebuild-from-log` builds its rebuilt store beside the store and puts it in place by steps 2–4. Plain `repair` of
 a store with no valid `HEAD` slot (P-61) holds the maintenance and flush bytes throughout (`Busy` on the maintenance byte:

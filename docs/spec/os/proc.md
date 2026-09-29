@@ -124,7 +124,7 @@ kernel), and two OSes never produce equal values.
 
 | OS | `N` | Operands | Absent, denied or malformed → |
 |---|---|---|---|
-| Windows | `win-bootid-machineguid` | `S1` = `u32le(B)`, where `B` is the per-boot counter: the `BootId` member of `KUSER_SHARED_DATA` (WDK `ntddk.h`), read from the fixed user-mode mapping at `0x7FFE0000` at the member's declared offset; if it reads 0, the `REG_DWORD` value `BootId` of `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters`. `S2` = `G`, the `REG_SZ` value `MachineGuid` of `HKLM\SOFTWARE\Microsoft\Cryptography` (64-bit view), converted from UTF-16 to UTF-8 bytes exactly as stored, without its terminating NUL and without case change | Unknown-boot mode; also when `B` is 0 from both sources, `G` is empty or not valid UTF-16, or HOLE(OS-win-boot-source) selects "none" |
+| Windows | `win-bootid-machineguid` | `S1` = `u32le(B)`, where `B` is the per-boot counter: the `u32` member `BootId` of `KUSER_SHARED_DATA` (WDK `ntddk.h`), read at offset `0x2C4` of the fixed user-mode mapping at `0x7FFE0000` (address `0x7FFE02C4`; the implementation checks the binding's offset against `0x2C4` at compile time); if it reads 0, the `REG_DWORD` value `BootId` of `HKLM\SYSTEM\CurrentControlSet\Control\Session Manager\Memory Management\PrefetchParameters`. `S2` = `G`, the `REG_SZ` value `MachineGuid` of `HKLM\SOFTWARE\Microsoft\Cryptography` (64-bit view), converted from UTF-16 to UTF-8 bytes exactly as stored, without its terminating NUL and without case change | Unknown-boot mode; also when `B` is 0 from both sources, `G` is empty or not valid UTF-16, or HOLE(OS-win-boot-source) selects "none" |
 | Linux | `linux-proc-boot_id` | `S1` = the bytes of `/proc/sys/kernel/random/boot_id` with the single trailing LF removed; they must be exactly 36 ASCII bytes of the form 8-4-4-4-12 lower-case hex digits and `-` | Unknown-boot mode |
 | macOS | `darwin-kern-bootsessionuuid` | `S1` = the bytes of `sysctlbyname("kern.bootsessionuuid")` without the terminating NUL; they must be exactly 36 ASCII bytes of the form 8-4-4-4-12 hex digits (either case, kept as returned) and `-` | Unknown-boot mode (the sysctl is undocumented, X9; its absence or a Seatbelt denial only selects the mode) |
 
@@ -411,7 +411,9 @@ simulator uses the real procedure of §6.2 over the simulated `LOCK`. `spawn_gc_
 [80 §2.12] and [AR §4.9]: a CLI that finds a rollup due spawns `moirai gc --rollup` as a detached, low-priority child and
 exits; the child runs the rollup and exits. It is the **only** process a product crate spawns ([60 §3.5] M4 gate: "no
 other process spawn except the detached `moirai gc` child"); the GT20 (a) spawn lint names `moirai-os`'s `spawn`
-module as its one allowed site. Not built at M0 ([OS/README §3]).
+module (`src/<os>/spawn.rs` or `src/<os>/spawn/**`) as its one allowed site. The module is built on Windows at M0
+([OS/README §3]): `spawn_gc_child` and `enter_background` are `ProcHost` methods, `ProcHost` is a supertrait of `Vfs`
+that is complete at M0 ([OS/README §4.1]), so `OsVfs` implements both (open point 13).
 
 **Contract of `spawn_gc_child(exe, args, cwd)`.**
 1. **No role byte held.** It asserts `Locks::holds_any_role() == false` ([OS/README §5.2], [80 §2.2.1] item 7); a
@@ -522,8 +524,9 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]). The random source t
 | 5 | `ProcId.start` units: [80 §2.7.1] names the Windows and macOS sources but no unit | nanoseconds on every OS, since the Unix epoch on Windows and macOS and since boot on Linux, the latter flagged by `start_boot_relative` (§3.2); [80 §3.2]'s "FILETIME is converted in `os::proc`" is followed | WP-11 |
 | 6 | Child peaks on Unix need work before the spawn (Linux) or before the reap (macOS) | [OS/README §4.3] adopted `prepare_child`/`bind_child`; Windows needs neither; the Linux leaf cgroup and the macOS non-reaping read are port-phase items (§9) | port phase |
 | 7 | [90 §4.4] and [80 §2.7.2] give slot selection as `hash(x) mod 256` without defining `hash` or the probe order | §6.4 fixes both; [OS/lock §10] cites it; [F03] may restate it | WP-11 |
-| 8 | The Windows `KUSER_SHARED_DATA.BootId` offset is taken from the WDK declaration, not hard-coded in this spec | §4.2; measurement 22 confirms the value behaves; WP-33 takes the offset from the `windows-sys`/WDK binding | WP-33 |
+| 8 | The Windows `KUSER_SHARED_DATA.BootId` offset is taken from the WDK declaration, not hard-coded in this spec | **closed (spec sync 2a, WP-33):** §4.2 pins offset `0x2C4` of the mapping at `0x7FFE0000`; WP-33 takes the offset from the `windows-sys` binding and asserts it equals `0x2C4`; measurement 22 confirms the value behaves | — |
 | 9 | [OS/README §1.3, §3] list `os::spawn`, `os::ipc` and `os::test_host` as part 2 "not yet named", and WP-17b's brief names no file for them | specified here (§11–§13); README §1.3 and §3 point to this file | WP-17a |
 | 10 | Whether the `gc` child survives a harness that runs commands inside a Windows job object with kill-on-close is not stated in [80] | request `CREATE_BREAKAWAY_FROM_JOB`, fall back without it; a child killed with the job only cuts a rollup short, which is safe (maintenance is crash-safe, [F16]); measurement 7's hook probes and M8 record whether Claude Code and Codex jobs allow breakaway | WP-56, M8 |
 | 11 | [F01] open point 15 proposes the prefix `OS-` for hole ids in `docs/spec/os/` | adopted: HOLE(OS-win-boot-source) | WP-10 |
 | 12 | `os::ipc`'s name parts `<u>` and `<s>` are not defined byte-exactly in [80 §2.8] | §12 fixes them with `lp()`-framed BLAKE3-128; they are published in `LeaderRec`, so clients read rather than recompute them | WP-11 |
+| 13 | §11 said `os::spawn` is "not built at M0", while `ProcHost`, a `Vfs` supertrait complete at M0, carries `spawn_gc_child` and `enter_background`, so `OsVfs` must implement them for WP-33 (WP-30 review, WP-04 author) | **closed (spec sync 2a):** `os::spawn` is built on Windows at M0 ([OS/README §3] row "yes"); `moirai-os`'s `spawn` module is GT20 (a)'s one allowed spawn site; PLAN §2.1 follows | PLAN §2.1 |
