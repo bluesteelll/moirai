@@ -285,7 +285,7 @@ fn check_graph(
     sorted.sort();
     for id in sorted {
         let Some(p) = md.package(id) else { continue };
-        let entry = cfg.native.find(&p.name, &p.version);
+        let entry = cfg.native.find(&p.name, &p.version, graph);
         let lint = "gt20-b";
         let d = |msg: String| Diag::krate(lint, &p.name, msg);
         // Rule 1.

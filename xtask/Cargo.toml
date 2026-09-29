@@ -22,5 +22,10 @@ blake3.workspace = true
 serde_json.workspace = true
 xxhash-rust.workspace = true
 
+[dev-dependencies]
+# Property tests of `xtask hex` (the code rules of every M0 work package); PLAN §2.2's row lists run-time
+# dependencies only.
+proptest.workspace = true
+
 [lints]
 workspace = true

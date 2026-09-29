@@ -19,7 +19,10 @@
 #
 # Reviewed 2026-09-28 (WP-02, R-HARN-I) against the resolved graph of that day. None of the checked-graph scripts
 # compiles, assembles or links C, C++ or assembly; the host-only tree-sitter scripts do, which is why their crates
-# stay out of every checked graph (PLAN §2.2, §6.2 R7).
+# stay out of every checked graph (PLAN §2.2, §6.2 R7). The fuzz-graph entries were reviewed on 2026-09-28 (WP-02b)
+# against fuzz/Cargo.lock's first resolution: libfuzzer-sys and moirai-fuzz compile C++ and C, which the fuzz
+# workspace may (PLAN §2.2: host-only, never a checked graph). A package whose resolved features differ between graphs
+# has one entry per graph (libc).
 
 version = 1
 
@@ -34,7 +37,7 @@ reason = "rustc probe only, no C; reached through tiktoken-rs in the tool crate 
 [[package]]
 name = "blake3"
 versions = "=1.8.7"
-graphs = ["checked"]
+graphs = ["checked", "fuzz"]
 features = ["pure", "std"]
 script = "on x86 targets asks cc whether the C compiler accepts the AVX-512 flag, then, because `pure` is set, selects the Rust SSE2/SSE4.1/AVX2 intrinsics and builds no C or assembly; on aarch64 `pure` turns NEON C off"
 reason = "with `pure` nothing native is compiled or linked ([90 §11.3], decision #44); under the gate's poisoned compiler the flag probe fails and the build proceeds on the Rust path; the `cc` build dependency is inert (rule 4 asserts `pure`)"
@@ -120,3 +123,37 @@ graphs = ["host-only"]
 features = []
 script = "compiles the generated Rust grammar (src/parser.c, src/scanner.c) with cc"
 reason = "host-only: the grammar of moirai-tsoracle (decision #9, PLAN §6.2 R7); never in a checked graph (rule 3)"
+
+# --- The fuzz workspace (fuzz/Cargo.lock; docs/m0/tools.md §4) ---
+
+[[package]]
+name = "libc"
+versions = "=0.2.189"
+graphs = ["fuzz"]
+features = ["default", "std"]
+script = "runs `$RUSTC --version` and reads the target to emit cfgs (FreeBSD and musl versions, check-cfg lists)"
+reason = "rustc probe only, no C; in the fuzz graph through cc's `parallel` feature (jobserver), with its default features"
+
+[[package]]
+name = "getrandom"
+versions = "=0.4.3"
+graphs = ["fuzz"]
+features = ["std"]
+script = "reads CARGO_CFG_SANITIZE and emits the getrandom_msan cfg under MemorySanitizer; runs nothing"
+reason = "no process, no C; through jobserver (cc's `parallel` feature) in the fuzz workspace only"
+
+[[package]]
+name = "libfuzzer-sys"
+versions = "=0.4.13"
+graphs = ["fuzz"]
+features = ["default", "link_libfuzzer"]
+script = "compiles libFuzzer's C++ sources (libfuzzer/*.cpp, C++17) with cc and links them as a static library; honours CUSTOM_LIBFUZZER_PATH instead when set"
+reason = "the libFuzzer runtime of GT5 (PLAN §2.2, §2.4): host-only, fuzz workspace only, never in a checked graph; pinned exactly (tools.md §4.1)"
+
+[[package]]
+name = "moirai-fuzz"
+versions = "=0.0.0"
+graphs = ["fuzz"]
+features = []
+script = "on x86_64-pc-windows-msvc without a sanitizer, compiles src/sancov_sections.c (the SanitizerCoverage section bounds) with cc and passes its object to every binary target's linker; nothing on other targets"
+reason = "fallback A of tools.md §4.4: a sanitizer-off fuzz target does not link on MSVC without the bounds; the fuzz package itself, host-only"

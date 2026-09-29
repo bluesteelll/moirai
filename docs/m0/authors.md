@@ -31,6 +31,7 @@
 |---|---|---|---|---|---|
 | WP-01 | 7 | A | R-HARN-I | root `Cargo.toml`, `rust-toolchain.toml`, `.cargo/`, `.gitattributes`, `.gitignore`, `xtask/`, `docs/m0/`; the crate skeletons (§4) | `xtask worktree` |
 | WP-02 | 7 | A | R-HARN-I | `xtask/` | gate, lints, `authors`, `coverage`, `host-only --list` |
+| WP-02b | 7 | A | R-HARN-I | `xtask/`, `fuzz/` (`build.rs`, `src/`, the shared manifest), `docs/m0/` | the WP-02 review re-checked; `xtask hex` (§6 item 3); fallback A of tools.md §4.4 |
 | WP-03 | 7 | A | R-HARN-I | `.githooks/`, `xtask/`, `.claude/settings.json`, `docs/m0/` | `xtask hook`, `xtask private index`, the Codex attribution record |
 | WP-04 | 7 | A | R-HARN-I | `.github/` | `pr.yml` |
 | WP-05 | 7 | A | R-HARN-I | `xtask/` | `xtask nightly` |
@@ -207,6 +208,12 @@ first needs them.
    diff by one role touches only that role's `mod` lines and dependencies.
 3. **`xtask hex`.** PLAN §3.2 specifies it in WP-20 (R-FIX), while PLAN §3.1 gives `xtask` (except `ucd`) to R-HARN.
    The ledger keeps it with R-HARN-I, to WP-20's specification; it is generic and knows no structure, so S1 holds.
+   WP-02b builds it (`xtask/src/hex.rs`), and the gate's `hex` step runs `xtask hex --check` over `fixtures/hex/`.
+   **The committed `.bin` is the fixture's interface.** WP-95's oracle has no workspace dependency, so it cannot link
+   the assembler, and the M1 codec also reads bytes; both read `fixtures/hex/**.bin`. `--check` therefore requires a
+   `.bin` beside every `.hex` and compares it byte for byte with the re-assembled text; an `!expect` line is an extra
+   pin, never a substitute. R-FIX writes each `.bin` with `cargo xtask hex <file.hex>` and commits it with its
+   `.hex`.
 4. **`moirai-harness-stub`.** No WP names its construction. The ledger gives it to WP-56 (R-HARN-I), its first user
    (measurement 7, the Codex probes, measurement 19); WP-71b builds LQ-Bench's server on its loop.
 5. **`NOTICE`.** R-FL1A appends the third-party section (PLAN §2.4); the owner's text above it never changes.
@@ -238,3 +245,15 @@ first needs them.
 11. **What the tooling reads besides this file.** `xtask/roles.toml` gives each role its lane and the paths it must
     not read (PLAN §3.1 "Must not", S1–S6), for `xtask worktree` and `xtask gate --branch`; `xtask/crates.toml` gives
     each workspace member its PLAN §2.2 kind (product, test-only, tool, host-only), for the GT20 (d) and (a) scopes.
+12. **PLAN amendments that WP-02b's manifests need** (a plan issue for the owner: PLAN.md changes only through one, and
+    no M0 role edits it). The manifests and tools.md already record each change; PLAN still says otherwise:
+    - **§2.2, `fuzz/`'s allowed dependencies** (`libfuzzer-sys`, `moirai-files`): the fuzz package also depends on
+      `sha1` (the `crash-<sha1>` and `oom-<sha1>` artifact names, tools.md §4.4; the requirement and features of the
+      root's entry, so the package `moirai-files` already brings in) and has the build dependency `cc` (the
+      SanitizerCoverage section shim; already in the fuzz graph through libfuzzer-sys, pinned `=1.5.1`).
+    - **§2.5, the tree of `fuzz/`** (`fuzz_targets/`, `rust-toolchain.toml`, `Cargo.lock`): it also holds `build.rs`
+      and `src/` (`lib.rs`, `artifact.rs`, `sancov_sections.c`), the library target of fallback A (tools.md §4.4), which
+      also lets the manifest resolve before the first target.
+    - **§2.4, `proptest`** ("dev only, test crates"): the tool crate `xtask` takes it as a dev-dependency for the
+      property tests of `xtask hex` (varints, hex round trips, directives over random ranges), a test-only use that
+      never reaches a built tool.

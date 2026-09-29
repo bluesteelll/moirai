@@ -15,9 +15,12 @@
 #   doc = false
 #   bench = false
 #
-# Cargo refuses a package without a target, so this manifest resolves only once the first target exists; that WP's
-# gate run creates `fuzz/Cargo.lock`, which WP-02's lints scan (tools.md §4.1). Linking on x86_64-pc-windows-msvc with
-# the sanitizer off needs the owner's choice of fallback before WP-65 (tools.md §4.4).
+# Every target calls `moirai_fuzz::record(data)` first (src/lib.rs); the gate's `fuzz` step refuses one that does not.
+# The library is fallback A of tools.md §4.4 for libFuzzer on x86_64-pc-windows-msvc with the sanitizer off: build.rs
+# links the SanitizerCoverage section bounds of src/sancov_sections.c into every target, and `record` installs the
+# hooks that write a panicking input as libFuzzer's `crash-<sha1>` artifact and an input whose allocation fails as
+# `oom-<sha1>`. The library target also lets this manifest resolve before the first fuzz target exists;
+# `fuzz/Cargo.lock` is written by the gate worktree and scanned by WP-02's lints (tools.md §4.1).
 
 [package]
 name = "moirai-fuzz"
@@ -25,6 +28,7 @@ version = "0.0.0"
 edition = "2024"
 license = "Apache-2.0"
 publish = false
+build = "build.rs"
 
 [package.metadata]
 cargo-fuzz = true
@@ -32,11 +36,22 @@ cargo-fuzz = true
 [workspace]
 members = ["."]
 
+[lib]
+path = "src/lib.rs"
+
 [dependencies]
 # Licence "(MIT OR Apache-2.0) AND NCSA": NCSA is allowed in fuzz/Cargo.lock only (PLAN §2.4).
 # Exact pin (tools.md §4.1).
 libfuzzer-sys = "=0.4.13"
 moirai-files = { path = "../crates/moirai-files" }
+# The panic-artifact hook names a crashing input `crash-<sha1>`, as libFuzzer does (src/artifact.rs); the same
+# requirement and features as the root workspace's entry, so it is the package moirai-files already brings in.
+sha1 = { version = "0.11.0", default-features = false }
+
+[build-dependencies]
+# Compiles src/sancov_sections.c on MSVC (build.rs). The version libfuzzer-sys's own build dependency resolves to,
+# pinned exactly like libfuzzer-sys (tools.md §4.1, §4.4).
+cc = "=1.5.1"
 
 [lints.rust]
 # PLAN §2.1: no crate but moirai-os contains unsafe code. libfuzzer-sys's `fuzz_target!` compiles under it

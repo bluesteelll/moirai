@@ -1,7 +1,8 @@
 # M0 tools: pinned versions, installs and spikes
 
-- **Status:** WP-06 (R-HARN-I), recorded 2026-09-28 on the owner's Windows laptop. It is reviewed like any other
-  `docs/m0/` file.
+- **Status:** WP-06 (R-HARN-I), recorded 2026-09-28 on the owner's Windows laptop; §4 updated by WP-02b (fallback A
+  of §4.4 implemented and verified; its review's findings applied: the allocation-error hook, and the gate's checks
+  of `fuzz/` in §4.7). It is reviewed like any other `docs/m0/` file.
 - **Sources:** [PLAN.md](PLAN.md) §2.1 (target directories, the `cl.exe` record), §2.2 (`fuzz/`), §2.4 (external
   programs), §3.2 WP-06, §6.2 R7; [60 §3.13] GT5 and GT16, [60 §5.1] (spawn floors); [90 §11.1–§11.3];
   [a1-dispositions](../spec/reviews/a1-dispositions.md) R7 (the tsoracle grammar pin).
@@ -17,6 +18,7 @@
 | Rust nightly (`fuzz/` only) | `nightly-2026-09-27` (1.101.0-nightly 75a75c3e0) | rustup, `fuzz/rust-toolchain.toml` | `%USERPROFILE%\.rustup\toolchains\nightly-2026-09-27-x86_64-pc-windows-msvc` | 2.2 |
 | cargo-fuzz | 0.13.2 | `cargo install --locked` | `%USERPROFILE%\.cargo\bin\cargo-fuzz.exe` | 3, 4 |
 | libfuzzer-sys | 0.4.13 | `fuzz/Cargo.toml` (`=0.4.13`) | the fuzz lockfile | 4.1 |
+| cc (fuzz build dependency) | 1.5.1 | `fuzz/Cargo.toml` (`=1.5.1`) | the fuzz lockfile | 4.1, 4.4 |
 | cargo-mutants | 27.1.0 | `cargo install --locked` | `%USERPROFILE%\.cargo\bin\cargo-mutants.exe` | 3, 5 |
 | hyperfine | 1.20.0 | `cargo install --locked` | `%USERPROFILE%\.cargo\bin\hyperfine.exe` | 3, 7 |
 | `zstd` CLI | v1.5.7 (win64) | official GitHub release zip | `D:\moirai-tools\zstd\zstd-v1.5.7-win64\zstd.exe` | 6 |
@@ -46,7 +48,11 @@
 - **Result:** rustc 1.101.0-nightly (commit `75a75c3e0a67d3fa3d03982775f5bb0356e7b510`, 2026-09-26), LLVM 23.1.1;
   cargo 1.101.0-nightly (3d7cf6e93 2026-09-25); clippy 0.1.100 (75a75c3e0a 2026-09-26); rustfmt 1.11.0-nightly
   (75a75c3e0a 2026-09-26).
-- **Pinned by** `fuzz/rust-toolchain.toml`. Nothing else uses it.
+- **Pinned by** `fuzz/rust-toolchain.toml`. Nothing else uses it. The gate's `fuzz` step reads the channel from that
+  file (§4.7).
+- **Nightly feature.** `fuzz/src/lib.rs` uses `alloc_error_hook` (tracking issue rust-lang/rust#51245) for the
+  allocation-error hook of §4.4. A move of the pin re-checks that the feature still exists: the library's tests
+  compile and pass on the new date.
 - **The rule applies at install time.** `dist/2026-09-28/` appeared later: at 07:37 UTC on 2026-09-28 its manifest
   (SHA-256 `e50323e4e94848283c27cd5391cd6fa99115bf261eddbafaa40a8cfe69759ebd`) listed all five for
   `x86_64-pc-windows-msvc`, with rustc 1.101.0-nightly (d080e7dff 2026-09-27). The pin was not moved: every spike of
@@ -79,13 +85,27 @@ cache `D:\moirai-target\tools` (≈ 730 MB) can be deleted.
 ### 4.1 The `fuzz/` workspace
 
 - **Files.** `fuzz/Cargo.toml`: the package `moirai-fuzz` with cargo-fuzz's `[package.metadata] cargo-fuzz = true`, its
-  own `[workspace]` (the root excludes `fuzz`), `libfuzzer-sys = "=0.4.13"`, `moirai-files` by path, and
+  own `[workspace]` (the root excludes `fuzz`), `libfuzzer-sys = "=0.4.13"`, `moirai-files` by path, `sha1` (the
+  root's requirement, the package `moirai-files` already brings in), the build dependency `cc = "=1.5.1"`, and
   `unsafe_code = "forbid"`. `fuzz/rust-toolchain.toml`: the nightly of §2.2. `fuzz/.gitignore`: `target/`, `corpus/`,
-  `artifacts/`, `coverage/`. There are no targets: FL-1's work packages add them (WP-65, WP-67).
-- **No lockfile yet.** Cargo refuses a package without a target ("no targets specified in the manifest"), so the
-  manifest resolves only once the first `[[bin]]` entry exists, and WP-06 creates no `fuzz/Cargo.lock`. The work
-  package that adds the first target creates it in its gate run (authors.md §3: the gate worktree owns both
-  lockfiles). Until then WP-02's lockfile lint has to accept that the file is absent.
+  `artifacts/`, `coverage/`. Fallback A of §4.4 (WP-02b): `fuzz/build.rs`, `fuzz/src/sancov_sections.c`, and the
+  library `fuzz/src/lib.rs` with the panic and allocation-error hooks in `fuzz/src/artifact.rs`. There are no targets
+  yet: FL-1's work packages add them (WP-65, WP-67), and each calls `moirai_fuzz::record(data)` first (§4.5), which
+  the gate enforces (§4.7).
+- **The lockfile.** Cargo refuses a package without any target ("no targets specified in the manifest"); the library
+  target lets the manifest resolve before the first fuzz target exists, so `fuzz/Cargo.lock` exists from WP-02b on
+  (25 packages: `moirai-files`'s graph, `libfuzzer-sys`, `arbitrary`, `sha1`, `cc` with `find-msvc-tools` and
+  `shlex`, and, through `cc`'s `parallel` feature, `jobserver`, `getrandom` 0.4.3, `libc` and `r-efi`). The gate
+  worktree writes it (the `lock` step of `xtask gate --branch` creates it when it is missing; authors.md §3), and every
+  other gate run fails closed without it, since the fuzz graph would go unscanned; outside `--branch`, the `lock`
+  step names a missing or stale `fuzz/Cargo.lock` itself. Every package name the two lockfiles share resolves to the
+  same version, except where the graphs need different major versions: `getrandom` (0.3.4 in `Cargo.lock`, through
+  proptest's `rand_core`; 0.4.3 in `fuzz/Cargo.lock`, through `cc`'s `jobserver`) and its dependency `r-efi` (5.3.0
+  and 6.0.0). The fuzz graph's build scripts have `graphs = ["fuzz"]` entries in
+  `xtask/native-allow.toml`: `libfuzzer-sys` and `moirai-fuzz` (C++ and C, allowed there only), `getrandom` 0.4.3,
+  and a second `libc` entry, whose features differ from the checked graph's (`default` and `std` against none);
+  `blake3`'s entry lists both graphs. The loader refuses two entries that cover one version of one graph, so no
+  reviewed entry is dead text.
 - **Skeleton check.** A scratch copy of `fuzz/` with one throwaway target resolved (25 packages, `moirai-files`'s graph
   included), and `cargo check` passed on the pinned nightly under `unsafe_code = "forbid"`: libfuzzer-sys's
   `fuzz_target!` expands to no code that the lint refuses. The nightly's cargo also runs its manifest lint
@@ -101,9 +121,13 @@ cache `D:\moirai-target\tools` (≈ 730 MB) can be deleted.
 
 - **Run from `fuzz/`**, for example `cd fuzz` and then `cargo fuzz run -s none <target> -- -rss_limit_mb=256
   -max_total_time=<s>`. There `fuzz/rust-toolchain.toml` applies and cargo-fuzz finds the project. From the
-  repository root rustup resolves the root's 1.98.1 pin, and a sanitizer-off build then compiles on stable without
-  any error (observed), so the nightly pin would be bypassed silently. From elsewhere, use
-  `cargo +nightly-2026-09-27 fuzz …`.
+  repository root rustup resolves the root's 1.98.1 pin. Before WP-02b's review a sanitizer-off build then
+  compiled on stable without any error (observed), bypassing the nightly pin silently; the library's
+  `#![feature(alloc_error_hook)]` now makes such a build fail with E0554, "`#![feature]` may not be used on the
+  stable release channel" (observed with `cargo +1.98.1 check --lib` in `fuzz/`). From elsewhere, use `cargo +nightly-2026-09-27 fuzz …`. A process that rustup started carries
+  `RUSTUP_TOOLCHAIN`, which outranks the toolchain file (observed: a program run with `cargo +1.98.1 run` sees
+  `1.98.1-x86_64-pc-windows-msvc`), so a cargo that `cargo xtask` spawns in `fuzz/` would build on stable; the gate's
+  `fuzz` step therefore sets it to the pinned channel (§4.7).
 - **`-s none` on every command.** cargo-fuzz's default sanitizer is `address`.
 - **Build mode.** Without `-O`, cargo-fuzz builds at `opt-level=3` with `-Cdebug-assertions` (overflow checks
   included); `-O` drops the debug assertions. Both add `--cfg fuzzing`, `-Cpasses=sancov-module`, sancov level 4 with
@@ -148,37 +172,59 @@ with `-O` and fallback A ran 60 s and exited 0 (42,748,477 executions, 700,794 e
 manifest" (§4.1). The cargo-mutants spike gave 14 mutants, 10 caught and 4 missed, in 4 s. The later nightly is
 covered in §2.2.
 
-### 4.4 libFuzzer on MSVC with the sanitizer off: two failures and the fallback (owner decision before WP-65)
+### 4.4 libFuzzer on MSVC with the sanitizer off: two failures and the fallback (A, decided and implemented)
 
 1. **Link failure.** Out of the box, `cargo fuzz build -s none` fails on `x86_64-pc-windows-msvc` with LNK2019 and
    LNK1120: `__start___sancov_cntrs`, `__stop___sancov_cntrs`, `__start___sancov_pcs` and `__stop___sancov_pcs` are
    unresolved. On COFF, LLVM's SanitizerCoverage expects a runtime to define these section bounds (ELF linkers
    synthesise them). With MSVC only the ASan runtime thunk defines them (`clang_rt.asan_dynamic_runtime_thunk-x86_64.lib`,
    member `sanitizer_coverage_win_sections.cpp.obj`), and libfuzzer-sys compiles libFuzzer's own sources only.
-2. **A panic leaves no artifact.** libfuzzer-sys turns a panic into `std::process::abort()`, which on Windows is
-   `__fastfail` (exit `0xC0000409`). No in-process handler runs, so libFuzzer never writes `crash-*`, with or without
-   ASan. The crash is still detected (non-zero exit, the panic message on stderr), but the input is lost and
-   `cargo fuzz tmin` has nothing to minimise. Findings that libFuzzer makes itself still write artifacts (the OOM
-   case above).
+2. **A panic or an allocation failure leaves no artifact.** libfuzzer-sys turns a panic into
+   `std::process::abort()`, which on Windows is `__fastfail` (exit `0xC0000409`). No in-process handler runs, so
+   libFuzzer never writes `crash-*`, with or without ASan. The crash is still detected (non-zero exit, the panic
+   message on stderr), but the input is lost and `cargo fuzz tmin` has nothing to minimise. An allocation that fails
+   (a parser that sizes an allocation from the input) goes through `handle_alloc_error`, which calls no panic hook
+   and aborts the same way; libFuzzer's `-malloc_limit_mb` cannot catch it first, because it needs the sanitizer's
+   malloc hooks, which a sanitizer-off build lacks. Findings that libFuzzer makes itself still write artifacts (the
+   `-rss_limit_mb` OOM case above).
 
-**Fallback A (recommended; verified).** Two additions to `fuzz/`, neither with unsafe Rust:
-- **A section shim.** A C file of about 30 lines defines the eight bounds the way compiler-rt's
+**Fallback A (chosen by the design team; implemented in WP-02b and verified, §4.6).** Two additions to `fuzz/`,
+neither with unsafe Rust:
+- **A section shim**, `fuzz/src/sancov_sections.c`. It defines the eight bounds the way compiler-rt's
   `sanitizer_coverage_win_sections` does: 8-byte start objects in `.SCOV$CA`, `.SCOV$GA`, `.SCOV$BA` and `.SCOVP$A`,
   1-byte stop objects in the matching `$Z` sections, and `/MERGE` of `.SCOV` into `.data` and `.SCOVP` into `.rdata`.
   LLVM adds 8 to each start symbol on COFF, so the start objects are skipped. `fuzz/build.rs` compiles it with `cc`,
-  which is already in the fuzz graph through libfuzzer-sys, only when `target_env` is `msvc`, and links it into every
-  target with `cargo::rustc-link-arg-bins`. A plain `rustc-link-lib` reaches only the targets that use the package's
-  library.
-- **A panic-artifact hook.** A safe-Rust module in the package's library. Each target first calls `record(data)`,
-  which copies the input into one reused thread-local buffer (one copy per execution, no allocation after warm-up).
-  An `init:` block of `fuzz_target!` installs a panic hook in front of libfuzzer-sys's hook. It writes the buffer to
-  the `-exact_artifact_path=` argument, or to `crash-<hash>` under `-artifact_prefix=`, and then lets the old hook print
-  and abort.
+  which is already in the fuzz graph through libfuzzer-sys, when `target_env` is `msvc` and no sanitizer is set
+  (`CARGO_CFG_SANITIZE`: under `-s address` the ASan runtime defines the same symbols), and passes the object to the
+  linker of every linked target with `cargo::rustc-link-arg`. The spike's `rustc-link-arg-bins` is refused by cargo
+  while the package has no binary target (before FL-1's first target), and a plain `rustc-link-lib` reaches only the
+  targets that use the package's library. In the library's unit tests, which carry no SanitizerCoverage, the object
+  defines eight unused symbols.
+- **Artifact hooks**, `fuzz/src/artifact.rs`, re-exported by the library. Each target first calls
+  `moirai_fuzz::record(data)`, which copies the input into one reused buffer (a process-wide `Mutex<Vec<u8>>`: one copy
+  per execution, no allocation once it has grown to the largest input). The first call installs two hooks, so no
+  `init:` block is needed:
+  - a panic hook in front of libfuzzer-sys's. It writes the buffer where libFuzzer would have written the crash: the
+    `-exact_artifact_path=` argument, else `<-artifact_prefix=>crash-<SHA-1 of the input>`, libFuzzer's own name, the
+    last occurrence of each flag winning. It prints libFuzzer's line `artifact_prefix='…'; Test unit written to …` and
+    then lets libfuzzer-sys's hook print the panic and abort. It never panics itself (a panic inside a panic hook
+    aborts before the message is printed);
+  - an allocation-error hook (`std::alloc::set_alloc_error_hook`, the nightly feature of §2.2). It writes the buffer
+    the same way as `oom-<SHA-1>`, libFuzzer's name for an out-of-memory input, prints the same line, and then calls
+    the hook it replaced, which prints "memory allocation of N bytes failed"; the standard library aborts after it.
 
-Its cost is C code in a host-only workspace that already compiles libFuzzer's C++, one copy per execution, and a
-library target in `fuzz/`. The library target also lets the manifest resolve before the first fuzz target exists. If
-the owner chooses A, R-HARN-I adds the three files (`fuzz/build.rs`, the C file, `fuzz/src/`) before WP-65 starts,
-and FL-1's targets call `record` and install the hook.
+Its cost is C code in a host-only workspace that already compiles libFuzzer's C++, one copy and one uncontended lock
+per execution, a nightly feature, and a library target in `fuzz/`, which also lets the manifest resolve before the
+first fuzz target exists (§4.1).
+
+**What fallback A does not cover** (recorded, not verified):
+- a process truly out of memory, where the hook's own small allocations (the file name) fail too: a reentrancy
+  guard returns at once, and the process aborts without an artifact. The allocations the hook exists for, one large
+  request sized from the input, leave the heap usable. Growth that `-rss_limit_mb` sees is libFuzzer's own finding
+  and writes `oom-*` itself (§4.3);
+- aborts that bypass both hooks: `std::process::abort` called directly, and a stack overflow, which Rust's own
+  handler reports and ends. libFuzzer's Windows exception handler may still write `crash-*` for the latter; no run
+  checked it.
 
 **Fallback B: `-s address` (not recommended).** MSVC's ASan runtime supplies the bounds, so the build links
 (verified). It needs `clang_rt.asan_dynamic-x86_64.dll` from the MSVC bin directory on `PATH` at run time. It leaves
@@ -191,10 +237,67 @@ Windows.
 
 ### 4.5 Notes for WP-05 and WP-65
 
+- **Every target starts with `moirai_fuzz::record(data);`** (the example in `fuzz/src/lib.rs`), the closure's own input.
+  A target that skips it still finds panics, but leaves no artifact to reproduce or minimise. The gate's `fuzz` step
+  refuses such a target (§4.7).
+- **Artifacts** are `crash-<sha1>` for a panic and `oom-<sha1>` for a failed allocation (and for libFuzzer's own
+  `-rss_limit_mb` finding); both reproduce and minimise the same way.
+- **Reproduce and minimise** as cargo-fuzz prints after a crash: `cargo fuzz run -O --sanitizer=none <target>
+  <artifact>` and `cargo fuzz tmin -O --sanitizer=none <target> <artifact>`; `tmin`'s child processes get
+  `-exact_artifact_path=`, which the hook honours (§4.6).
 - **`-rss_limit_mb` is not a hard cap.** A thread checks it about once a second: the OOM spike reached 540 MB under a
   256 MB limit before libFuzzer stopped it. The nightly RAM guard has to budget for the overshoot, or run each fuzz
   process in a job object with a hard memory limit.
 - **CPU and RAM.** One libFuzzer process uses one core. `-fork` and `-jobs` multiply the processes, and so the RAM.
+
+### 4.6 Fallback A in the repository: verification (WP-02b, 2026-09-28)
+
+The repository's `fuzz/` package (manifest, `build.rs`, `src/`, lockfile) was copied to a scratch directory outside
+the repository, beside a scratch root package, and two scratch targets were added to the copy's manifest: `clean`,
+which calls `moirai_files::text::is_text`, `text::norm` and, on UTF-8 input, `fold::fold_v1`, and `planted`, whose
+`MOI!` record trusts its length byte. Both call `record` first; `moirai-files` came by path from the repository. The
+runs used the nightly of §2.2, `CARGO_TARGET_DIR=D:\moirai-target\fuzz` and `CARGO_BUILD_JOBS=4`, while other lanes
+were building.
+
+| Run | Arguments | Result |
+|---|---|---|
+| build | `cargo fuzz build -s none -O` | both targets link (17.5 s, libFuzzer's C++ included) |
+| control: no shim | the same, with `build.rs` returning early | LNK2019 for `__start___sancov_cntrs` and the other bounds, then LNK1120: failure 1 again |
+| control: `-s address` | `cargo fuzz build -s address -O planted` | links: `build.rs` leaves the shim out under a sanitizer, so nothing collides with the ASan runtime's bounds |
+| `clean`, 60 s | `-s none -O -- -rss_limit_mb=256 -max_total_time=60` | exit 0 after 61 s; 2,697,040 executions, 44,213 exec/s; cov 337, ft 1,651; 930 inline 8-bit counters and 930 PC-table entries; peak RSS 31 MB |
+| `planted`, 60 s limit | the same | the bug found in < 1 s, within the first 1,000 executions; exit `0xC0000409`; the 5-byte input `MOI!&` written by the hook to `artifacts/planted/crash-99e106a21b8bfaece8e5b50fdfc8347b4b985531`, the SHA-1 of its bytes; cargo-fuzz printed the failing input, its `Debug` form and the reproduce and `tmin` commands |
+| reproduce | `cargo fuzz run -O --sanitizer=none planted <artifact>` | the same panic (a slice range out of bounds at the planted line) |
+| minimise | `cargo fuzz tmin -O --sanitizer=none planted <a 33-byte crashing input> -r 2000` | exit 0; minimised to 11, 10, 6 and then 5 bytes through `-exact_artifact_path=` files; 5 bytes is this bug's minimum |
+
+The library's own tests pass (`cargo test --lib` in `fuzz/`: libFuzzer's flag rules and SHA-1 names; the panic hook
+writing the recorded input under a prefix and to an exact path before it chains to the previous hook; and, in a child
+process of the test binary, a request for 2^62 bytes that aborts after the allocation-error hook has written
+`oom-<sha1>` and the previous hook has printed its line), and `cargo clippy --all-targets -- -D warnings` is clean on
+the pinned nightly. The nightly's `cargo::unused_dependencies` warnings (`libfuzzer-sys` and `moirai-files`, §4.1)
+stay until the first target uses them; they are cargo's manifest warnings, which `-D warnings` does not turn into
+errors.
+
+### 4.7 The gate's checks of `fuzz/` (WP-02b review)
+
+`fuzz/` is its own workspace, so the root's `fmt`, `clippy` and `test` steps never see it. The gate covers it in two
+places, and CI runs both on every pull request:
+- **`fmt`** also runs `cargo fmt --manifest-path fuzz/Cargo.toml -- --check`. Formatting compiles nothing, so the
+  root's stable rustfmt does it, from the repository root.
+- **`fuzz`**, a step of its own:
+  - always, the target lint: in every file of `fuzz/fuzz_targets/` and every binary target of the fuzz manifest, the
+    body of each `fuzz_target!` closure starts with `moirai_fuzz::record(<input>)`, and a target file has at least one
+    `fuzz_target!` (`xtask/src/lint_fuzz.rs`, with its seeded violations as unit tests);
+  - then `cargo clippy --all-targets --locked --keep-going -- -D warnings` and `cargo test --lib --locked` in `fuzz/`,
+    on the channel read from `fuzz/rust-toolchain.toml` (through `RUSTUP_TOOLCHAIN`, §4.2) and without the poisoned
+    compiler variables, since libFuzzer's C++ and the section shim are C. Outside CI they run when the range or the
+    working tree touches `fuzz/` or a path crate of the fuzz graph (`crates/moirai-files` and its path
+    dependencies), because a change there can break a target's build; with `--ci`, always.
+
+The choice of a gate step over WP-05's nightly job: the checks are cheap once the target directory is warm (about
+1 s for both commands on the laptop when nothing changed; the first build compiles libFuzzer's C++ and
+`moirai-files` on the nightly), and a merge that breaks the hooks or a target's build is refused before it lands.
+`pr.yml` installs the fuzz nightly beside the stable toolchain (`rustup toolchain install` in `fuzz/`), so its
+`gate --ci` runs the step too.
 
 ## 5. Mutation testing: cargo-mutants (GT16)
 
@@ -315,7 +418,8 @@ a change to this section. `[workspace.dependencies]` states `version = "0.24.2"`
 **Open points for the review:**
 1. **VMMap.** PLAN §2.4 and WP-06's row list VMMap. WP-06 did not install it: its brief moves the install to the
    measurement 11 session.
-2. **libFuzzer on MSVC.** The fallback of §4.4 goes to the owner before WP-65 (PLAN §3.2, WP-06 acceptance).
+2. **libFuzzer on MSVC.** Closed: the design team chose fallback A of §4.4, and WP-02b implemented and verified it
+   (§4.6) before WP-65.
 3. **tree-sitter-rust requirement.** To make the grammar pin explicit in the manifest as well, the root
    `[workspace.dependencies]` entry could read `=0.24.2`. That is a root `Cargo.toml` change, outside WP-06.
 4. **cargo-mutants' directory.** PLAN §2.1 gives cargo-mutants "its own capped directory". §5 shows that directory has
@@ -324,6 +428,8 @@ a change to this section. `[workspace.dependencies]` states `version = "0.24.2"`
    disk guard counts only the D: directories.
 6. **`-rss_limit_mb` overshoot** (§4.5, WP-05).
 7. **The Claude Code path** for WP-58 (§9).
+8. **PLAN amendments for `fuzz/` and `xtask`.** WP-02b's manifests diverge from PLAN §2.2, §2.4 and §2.5, which only an
+   owner-reviewed plan issue changes: authors.md §6 item 12 lists the three amendments.
 
 ## 13. Gate timing (WP-02 acceptance: the incremental gate takes ≤ 90 s)
 

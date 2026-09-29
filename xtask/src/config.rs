@@ -207,6 +207,29 @@ impl NativeAllow {
             let features = str_list(e, "features", &what)?;
             req_str(e, "script", &what)?;
             req_str(e, "reason", &what)?;
+            // One entry per (name, version, graph): a second one would never be consulted by [`NativeAllow::find`],
+            // so its reviewed script and reason would be dead text.
+            if let Some((j, prev)) =
+                out.iter()
+                    .enumerate()
+                    .find(|(_, p): &(usize, &NativeEntry)| {
+                        p.name == name
+                            && p.graphs.iter().any(|g| graphs.contains(g))
+                            && p.versions.intersects(&versions)
+                    })
+            {
+                return Err(format!(
+                    "{what}: overlaps package entry {} ('{}' {}, graphs {}): both cover a version of the same graph; give each graph and version one entry",
+                    j + 1,
+                    prev.name,
+                    prev.versions_raw,
+                    prev.graphs
+                        .iter()
+                        .map(|g| g.label())
+                        .collect::<Vec<_>>()
+                        .join(", ")
+                ));
+            }
             out.push(NativeEntry {
                 name,
                 versions_raw,
@@ -219,12 +242,18 @@ impl NativeAllow {
         Ok(NativeAllow { entries: out })
     }
 
-    /// The entry covering `name` at `version`, if any.
-    pub fn find(&self, name: &str, version: &str) -> Option<&NativeEntry> {
+    /// The entry covering `name` at `version` in `graph`, if any; the loader refuses two entries that cover one
+    /// version of one graph, so there is at most one. A package whose resolved features differ between graphs (libc
+    /// in the checked and the fuzz graphs) has one entry per graph; an entry that covers the version but not the
+    /// graph is returned when no other does, so the lint reports the graph it lacks.
+    pub fn find(&self, name: &str, version: &str, graph: Graph) -> Option<&NativeEntry> {
         let v = crate::semver::Version::parse(version)?;
-        self.entries
+        let mut covering = self
+            .entries
             .iter()
-            .find(|e| e.name == name && e.versions.matches(&v))
+            .filter(|e| e.name == name && e.versions.matches(&v));
+        let first = covering.clone().next();
+        covering.find(|e| e.graphs.contains(&graph)).or(first)
     }
 }
 
@@ -563,6 +592,59 @@ mod tests {
         assert_eq!(c.kinds.kind("moirai-os"), Some(Kind::Product));
         assert!(c.licences.allowed_in("fuzz/Cargo.lock").contains(&"NCSA"));
         assert!(!c.licences.allowed_in("Cargo.lock").contains(&"NCSA"));
+    }
+
+    #[test]
+    fn native_entries_per_graph() {
+        let entry = |graph: &str, features: &str| {
+            format!(
+                "[[package]]\nname = \"libc\"\nversions = \"=0.2.1\"\ngraphs = [\"{graph}\"]\nfeatures = [{features}]\nscript = \"s\"\nreason = \"r\"\n"
+            )
+        };
+        let text = format!(
+            "version = 1\n{}{}",
+            entry("checked", ""),
+            entry("fuzz", "\"std\"")
+        );
+        let n = NativeAllow::from_table(&toml::parse(&text).unwrap()).unwrap();
+        let features = |g| n.find("libc", "0.2.1", g).unwrap().features.clone();
+        assert!(features(Graph::Checked).is_empty());
+        assert_eq!(features(Graph::Fuzz), vec!["std".to_string()]);
+        // No entry lists the graph: the first covering entry, so the lint names the graph it lacks.
+        assert_eq!(
+            n.find("libc", "0.2.1", Graph::HostOnly).unwrap().graphs,
+            vec![Graph::Checked]
+        );
+        assert!(n.find("libc", "0.2.2", Graph::Checked).is_none());
+    }
+
+    #[test]
+    fn refuses_entries_that_cover_the_same_version_and_graph() {
+        let entry = |versions: &str, graphs: &str| {
+            format!(
+                "[[package]]\nname = \"libc\"\nversions = \"{versions}\"\ngraphs = [{graphs}]\nfeatures = []\nscript = \"s\"\nreason = \"r\"\n"
+            )
+        };
+        let load = |a: String, b: String| {
+            NativeAllow::from_table(&toml::parse(&format!("version = 1\n{a}{b}")).unwrap())
+        };
+        // The same pin in a shared graph, and a range that contains the other entry's pin.
+        for (a, b) in [
+            (
+                entry("=0.2.1", "\"checked\", \"fuzz\""),
+                entry("=0.2.1", "\"fuzz\""),
+            ),
+            (entry("=0.2.1", "\"fuzz\""), entry("0.2", "\"fuzz\"")),
+        ] {
+            let e = load(a, b).unwrap_err();
+            assert!(
+                e.contains("package entry 2") && e.contains("overlaps package entry 1"),
+                "{e}"
+            );
+        }
+        // Disjoint graphs, or disjoint versions of one graph, are separate entries.
+        load(entry("=0.2.1", "\"checked\""), entry("=0.2.1", "\"fuzz\"")).unwrap();
+        load(entry("=0.2.1", "\"fuzz\""), entry("=0.2.2", "\"fuzz\"")).unwrap();
     }
 
     #[test]

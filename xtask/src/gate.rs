@@ -5,8 +5,8 @@
 //!
 //! | Step | What |
 //! |---|---|
-//! | `lock` | `Cargo.lock` is current; with `--branch`, cargo resolves the branch's manifests first (the gate worktree is the only place the lockfile changes, PLAN §3.1) |
-//! | `fmt` | `cargo fmt --all -- --check` (every member: formatting compiles nothing) |
+//! | `lock` | `Cargo.lock` and `fuzz/Cargo.lock` resolve their manifests under `--locked` (a stale or missing fuzz lockfile is named); with `--branch`, cargo resolves the branch's manifests first and writes both lockfiles (the gate worktree is the only place the lockfiles change, PLAN §3.1) |
+//! | `fmt` | `cargo fmt --all -- --check` (every member), and `cargo fmt --manifest-path fuzz/Cargo.toml -- --check` (formatting compiles nothing, so the root's stable toolchain does it) |
 //! | `clippy` | `cargo clippy --workspace --all-targets --locked` with one `--exclude` per host-only crate and present root, `-D warnings`; with each product crate's `clippy.toml`, the type-aware GT20 (d) layer |
 //! | `test` | `cargo test --workspace --locked --no-fail-fast` with the same exclusions, `MOIRAI_TEST_TIER=pr` |
 //! | `gt20-e` | `cargo check --workspace --all-targets --locked` with the exclusions, for the four targets except the host's, which the `clippy` step has already type-checked with the same exclusions |
@@ -22,6 +22,8 @@
 //! | `hooks` | `.githooks/test-hooks.sh` with this xtask as `MOIRAI_XTASK`: the first layer of the hooks (`commit-msg` in awk, `pre-commit` in sh) on the same cases as their Rust side, and `xtask worktree` end to end; always with `--ci`, elsewhere when the range or the working tree touches `.githooks/` or `xtask/` |
 //! | `ps1-bom` | every non-ASCII `.ps1` file starts with a UTF-8 BOM (PLAN §2.5) |
 //! | `coverage` | `xtask coverage`; with `--strict-coverage`, every blank cell is a finding (WP-80 pass 2, WP-81b) |
+//! | `hex` | `xtask hex --check`: every `fixtures/hex/**.hex` re-assembled and compared with the `.bin` it must have beside it and with its `!expect` lines (WP-20; docs/m0/authors.md §6 item 3) |
+//! | `fuzz` | the `fuzz/` workspace (docs/m0/tools.md §4): every target's `fuzz_target!` body starts with `moirai_fuzz::record(<input>)` ([`lint_fuzz`]); then, on the nightly of `fuzz/rust-toolchain.toml` and unpoisoned (libFuzzer's C++ and the section shim are C), `cargo clippy --all-targets -- -D warnings` and `cargo test --lib` in `fuzz/`: always with `--ci`, elsewhere when the range or the working tree touches `fuzz/` or a path crate of its graph (`moirai-files` and its path dependencies) |
 //!
 //! Every cargo command runs under the poisoned C toolchain environment ([90 §11.1]) and `--locked`. The build steps
 //! run with `--keep-going` (`--no-fail-fast` for tests), so one crate's errors never hide another crate's findings.
@@ -39,6 +41,7 @@ use crate::coverage;
 use crate::diag::Diag;
 use crate::git;
 use crate::lint_deps::{self, DepInputs};
+use crate::lint_fuzz;
 use crate::lint_roots;
 use crate::lint_source::{self, CrateSource};
 use crate::markers;
@@ -54,9 +57,12 @@ use std::time::Instant;
 pub const STEPS: &[(&str, &str)] = &[
     (
         "lock",
-        "Cargo.lock is current (--locked); with --branch, resolved for the branch's manifests",
+        "Cargo.lock and fuzz/Cargo.lock are current (--locked); with --branch, resolved for the branch's manifests",
     ),
-    ("fmt", "cargo fmt --all -- --check"),
+    (
+        "fmt",
+        "cargo fmt --all -- --check; cargo fmt --manifest-path fuzz/Cargo.toml -- --check",
+    ),
     (
         "clippy",
         "cargo clippy --workspace --all-targets --locked (exclusions) -- -D warnings",
@@ -104,6 +110,14 @@ pub const STEPS: &[(&str, &str)] = &[
     (
         "coverage",
         "docs/spec/COVERAGE.md fixtures and model spec tags; --strict-coverage: no blank cell",
+    ),
+    (
+        "hex",
+        "fixtures/hex/**.hex re-assembled against their required .bin and !expect lines (xtask hex --check)",
+    ),
+    (
+        "fuzz",
+        "fuzz targets record their input first; clippy -D warnings and the library tests on the pinned nightly (when fuzz/ or its path crates change; always with --ci)",
     ),
 ];
 
@@ -212,6 +226,8 @@ pub fn reduce(diags: Vec<Diag>, f: &dyn Filter) -> (Vec<Diag>, BTreeMap<String, 
 
 struct Ctx {
     lock: Result<String, String>,
+    /// The fuzz workspace's lockfile and, when it is current, its resolved graph.
+    fuzz: FuzzLock<Metadata>,
     deps: std::cell::OnceCell<Result<DepData, String>>,
     repo: PathBuf,
     repo_str: String,
@@ -300,8 +316,20 @@ fn metadata(repo: &Path, extra: &[&str]) -> Result<Metadata, String> {
     Metadata::from_json(&String::from_utf8_lossy(&out.stdout))
 }
 
-/// Resolves the workspace without `--locked` (and the fuzz workspace, once it has a lockfile), so the gate
-/// worktree records the lockfile the branch's manifests need.
+/// What resolving a lockfile's manifests did to it.
+fn lock_change(lock: &str, existed: bool, before: &[u8], after: &[u8]) -> String {
+    if !existed {
+        format!("{lock} created for the branch's manifests: commit it with the merge")
+    } else if before == after {
+        format!("{lock} is current")
+    } else {
+        format!("{lock} updated for the branch's manifests: commit it with the merge")
+    }
+}
+
+/// Resolves the workspace and the fuzz workspace without `--locked`, so the gate worktree records the lockfiles the
+/// branch's manifests need; `fuzz/Cargo.lock` is created when it is missing (the fuzz package's library target lets
+/// its manifest resolve before the first fuzz target exists, docs/m0/tools.md §4.1).
 fn update_lock(repo: &Path) -> Result<String, String> {
     let mut notes = Vec::new();
     for (lock, manifest) in [
@@ -309,9 +337,10 @@ fn update_lock(repo: &Path) -> Result<String, String> {
         ("fuzz/Cargo.lock", Some("fuzz/Cargo.toml")),
     ] {
         let path = repo.join(lock);
-        if manifest.is_some() && !path.is_file() {
+        if manifest.is_some_and(|m| !repo.join(m).is_file()) {
             continue;
         }
+        let existed = path.is_file();
         let before = std::fs::read(&path).unwrap_or_default();
         let mut cmd = Command::new("cargo");
         cmd.current_dir(repo)
@@ -331,13 +360,79 @@ fn update_lock(repo: &Path) -> Result<String, String> {
             ));
         }
         let after = std::fs::read(&path).unwrap_or_default();
-        notes.push(if before == after {
-            format!("{lock} is current")
-        } else {
-            format!("{lock} updated for the branch's manifests: commit it with the merge")
-        });
+        notes.push(lock_change(lock, existed, &before, &after));
     }
     Ok(notes.join("; "))
+}
+
+/// The fuzz workspace's lockfile as the gate sees it (docs/m0/tools.md §4.1).
+#[derive(Debug)]
+enum FuzzLock<T> {
+    /// Neither `fuzz/Cargo.toml` nor `fuzz/Cargo.lock` exists: nothing to scan.
+    Absent,
+    /// The lockfile resolves the manifest under `--locked`: the resolved graph.
+    Current(T),
+    /// A finding: why the fuzz graph cannot be scanned.
+    Refused(String),
+}
+
+/// Decides [`FuzzLock`] from whether the manifest and the lockfile exist and, when both do, from `resolve`
+/// (`cargo metadata --locked` over the manifest), which is called only then. The fuzz package's library target makes
+/// its manifest resolve, so a missing lockfile would leave its graph unscanned: the gate fails closed.
+fn fuzz_lock<T>(
+    manifest: bool,
+    lockfile: bool,
+    resolve: impl FnOnce() -> Result<T, String>,
+) -> FuzzLock<T> {
+    match (manifest, lockfile) {
+        (false, false) => FuzzLock::Absent,
+        (false, true) => FuzzLock::Refused(
+            "fuzz/Cargo.lock exists without fuzz/Cargo.toml: remove the stray lockfile".into(),
+        ),
+        (true, false) => FuzzLock::Refused(
+            "fuzz/Cargo.lock is missing: the fuzz workspace resolves, so its lockfile is kept and scanned; the gate worktree's `cargo xtask gate --branch` run writes it".into(),
+        ),
+        (true, true) => match resolve() {
+            Ok(v) => FuzzLock::Current(v),
+            Err(e) => FuzzLock::Refused(format!(
+                "fuzz/Cargo.lock is stale: it does not resolve fuzz/Cargo.toml under --locked ({e}); the gate worktree's `cargo xtask gate --branch` run updates it"
+            )),
+        },
+    }
+}
+
+/// The `lock` step: with `--branch`, the notes of [`update_lock`] (`updated`); then whether `Cargo.lock` (`root`) and
+/// `fuzz/Cargo.lock` resolve their manifests under `--locked`. Every problem is named; any one fails the step.
+fn lock_report<T, M>(
+    updated: Option<Result<String, String>>,
+    root: &Result<T, String>,
+    fuzz: &FuzzLock<M>,
+) -> Result<String, String> {
+    let branch = updated.is_some();
+    let (mut notes, mut errs) = (Vec::new(), Vec::new());
+    match updated {
+        Some(Ok(n)) => notes.push(n),
+        Some(Err(e)) => errs.push(e),
+        None => {}
+    }
+    match root {
+        Ok(_) if !branch => notes.push("Cargo.lock is current".to_string()),
+        Ok(_) => {}
+        Err(e) => errs.push(format!(
+            "Cargo.lock does not resolve the manifests under --locked ({e}); the gate worktree's `cargo xtask gate --branch` run updates it"
+        )),
+    }
+    match fuzz {
+        FuzzLock::Absent => notes.push("no fuzz workspace".to_string()),
+        FuzzLock::Current(_) if !branch => notes.push("fuzz/Cargo.lock is current".to_string()),
+        FuzzLock::Current(_) => {}
+        FuzzLock::Refused(e) => errs.push(e.clone()),
+    }
+    if errs.is_empty() {
+        Ok(notes.join("; "))
+    } else {
+        Err(errs.join("; "))
+    }
 }
 
 /// The range to scan in CI, from the event payload.
@@ -425,14 +520,17 @@ pub fn run(repo: &Path, o: &Opts) -> Result<bool, String> {
     {
         range = ci_range(Path::new(&ev))?;
     }
-    // The gate worktree is the only place Cargo.lock changes (PLAN §3.1): with --branch, cargo resolves the
-    // branch's manifests first; everywhere else the lockfile must already be current.
-    let lock = if o.branch.is_some() {
-        update_lock(repo)
-    } else {
-        metadata(repo, &[]).map(|_| "Cargo.lock is current".to_string())
-    };
-    let full = metadata(repo, &[]).ok();
+    // The gate worktree is the only place the lockfiles change (PLAN §3.1): with --branch, cargo resolves the
+    // branch's manifests first; everywhere else they must already be current.
+    let updated = o.branch.is_some().then(|| update_lock(repo));
+    let root = metadata(repo, &[]);
+    let fuzz = fuzz_lock(
+        repo.join("fuzz/Cargo.toml").is_file(),
+        repo.join("fuzz/Cargo.lock").is_file(),
+        || metadata(repo, &["--manifest-path", "fuzz/Cargo.toml"]),
+    );
+    let lock = lock_report(updated, &root, &fuzz);
+    let full = root.ok();
     let mut crate_dirs = BTreeMap::new();
     if let Some(md) = &full {
         for p in md.members() {
@@ -463,6 +561,7 @@ pub fn run(repo: &Path, o: &Opts) -> Result<bool, String> {
         .map(|r| r.title.clone());
     let ctx = Ctx {
         lock,
+        fuzz,
         deps: std::cell::OnceCell::new(),
         repo: repo.to_path_buf(),
         repo_str,
@@ -572,7 +671,19 @@ fn cargo_step(ctx: &Ctx, args: Vec<String>, json: bool, extra_env: &[(&str, &str
     for (k, v) in extra_env {
         env.push((k.to_string(), v.to_string()));
     }
-    match cargo::run(&ctx.repo, &args, &env, json, ctx.filter.as_ref(), &names) {
+    outcome(cargo::run(
+        &ctx.repo,
+        &args,
+        &env,
+        json,
+        ctx.filter.as_ref(),
+        &names,
+    ))
+}
+
+/// A cargo run's outcome as a step result: a failed run without a counted error still counts one finding.
+fn outcome(r: Result<cargo::Outcome, String>) -> StepResult {
+    match r {
         Err(e) => StepResult::err(e),
         Ok(out) => StepResult {
             ok: out.success,
@@ -600,12 +711,33 @@ fn step(ctx: &Ctx, name: &str) -> StepResult {
             },
             Err(e) => StepResult::err(e.clone()),
         },
-        "fmt" => cargo_step(
-            ctx,
-            s(&["fmt", "--all", "--", "--check", "--color", "never"]),
-            false,
-            &[],
-        ),
+        "fmt" => {
+            let mut r = cargo_step(
+                ctx,
+                s(&["fmt", "--all", "--", "--check", "--color", "never"]),
+                false,
+                &[],
+            );
+            // The fuzz workspace is not a member; formatting it compiles nothing, so the root's stable rustfmt does
+            // it from here (docs/m0/tools.md §4.1).
+            if ctx.repo.join("fuzz/Cargo.toml").is_file() {
+                r.add(cargo_step(
+                    ctx,
+                    s(&[
+                        "fmt",
+                        "--manifest-path",
+                        "fuzz/Cargo.toml",
+                        "--",
+                        "--check",
+                        "--color",
+                        "never",
+                    ]),
+                    false,
+                    &[],
+                ));
+            }
+            r
+        }
         "clippy" => {
             let mut a = s(&[
                 "clippy",
@@ -783,7 +915,7 @@ fn step(ctx: &Ctx, name: &str) -> StepResult {
             }
             Err(e) => StepResult::err(e),
         },
-        "hooks" => match hooks_needed(ctx) {
+        "hooks" => match touched(ctx, &[".githooks", "xtask"]) {
             Ok(true) => hooks_step(&ctx.repo),
             Ok(false) => StepResult {
                 note: Some("neither the range nor the working tree touches .githooks/ or xtask/: the hooks and the xtask they call are those already tested (CI runs the step always)".into()),
@@ -815,6 +947,8 @@ fn step(ctx: &Ctx, name: &str) -> StepResult {
             }
             Err(e) => StepResult::err(e),
         },
+        "hex" => hex_step(&ctx.repo, f),
+        "fuzz" => fuzz_step(ctx),
         other => StepResult::err(format!("unknown step {other}")),
     }
 }
@@ -906,40 +1040,169 @@ fn find_sh(repo: &Path) -> Option<(PathBuf, Option<std::ffi::OsString>)> {
     Some((sh, Some(path)))
 }
 
-/// Whether the `hooks` step has anything to test: always in CI; elsewhere when a commit of the range or the working
-/// tree touches `.githooks/` or `xtask/` (the hooks, or the xtask they delegate to). The script takes ≈ 45 s on the
-/// laptop, half of the incremental gate's budget (docs/m0/tools.md §13).
-fn hooks_needed(ctx: &Ctx) -> Result<bool, String> {
+/// Whether a step that tests only what changed has anything to test: always in CI; elsewhere when a commit of the
+/// range or the working tree touches one of `paths`. The `hooks` step asks about `.githooks/` and `xtask/` (the
+/// hooks, or the xtask they delegate to; its script takes about 45 s on the laptop, half of the incremental gate's
+/// budget, docs/m0/tools.md §13); the `fuzz` step about the fuzz workspace and its path crates.
+fn touched<S: AsRef<str>>(ctx: &Ctx, paths: &[S]) -> Result<bool, String> {
     if ctx.ci {
         return Ok(true);
     }
-    let log = git::run(
-        &ctx.repo,
-        &[
-            "log",
-            "--format=",
-            "--name-only",
-            &ctx.range,
-            "--",
-            ".githooks",
-            "xtask",
-        ],
-    )?;
-    if !log.trim().is_empty() {
+    let mut args = vec!["log", "--format=", "--name-only", ctx.range.as_str(), "--"];
+    args.extend(paths.iter().map(AsRef::as_ref));
+    if !git::run(&ctx.repo, &args)?.trim().is_empty() {
         return Ok(true);
     }
-    let status = git::run(
-        &ctx.repo,
-        &[
-            "status",
-            "--porcelain",
-            "--untracked-files=all",
-            "--",
-            ".githooks",
-            "xtask",
-        ],
-    )?;
-    Ok(!status.trim().is_empty())
+    let mut args = vec!["status", "--porcelain", "--untracked-files=all", "--"];
+    args.extend(paths.iter().map(AsRef::as_ref));
+    Ok(!git::run(&ctx.repo, &args)?.trim().is_empty())
+}
+
+/// `hex`: [`crate::hex::check`] over `fixtures/hex`, its findings reduced by the read filter.
+fn hex_step(repo: &Path, f: &dyn Filter) -> StepResult {
+    match crate::hex::check(repo, &[]) {
+        Ok(r) => {
+            let mut res = StepResult::from_diags(r.diags, f);
+            res.note = Some(
+                r.notice
+                    .unwrap_or_else(|| format!("{} .hex files re-assembled", r.files)),
+            );
+            res
+        }
+        Err(e) => StepResult::err(e),
+    }
+}
+
+/// The repository-relative directories whose change can change what the fuzz workspace builds: `fuzz/` and every
+/// path package of its resolved graph (`moirai-files` and its path dependencies).
+fn fuzz_dirs(names: &cargo::Names<'_>, md: Option<&Metadata>) -> Vec<String> {
+    let mut dirs = vec!["fuzz".to_string()];
+    for p in md.map(|m| m.packages.as_slice()).unwrap_or_default() {
+        let d = names.rel(&p.dir());
+        // Only paths inside the repository: git takes no other pathspec.
+        let inside = !d.is_empty() && !d.starts_with('/') && !d.contains(':');
+        if p.source.is_none()
+            && inside
+            && d != "fuzz"
+            && !d.starts_with("fuzz/")
+            && !dirs.contains(&d)
+        {
+            dirs.push(d);
+        }
+    }
+    dirs
+}
+
+/// `fuzz` (docs/m0/tools.md §4.4-§4.6): the target lint ([`lint_fuzz`]) over the files of `fuzz/fuzz_targets/` and
+/// every binary target the fuzz manifest declares; then, when [`touched`] says the fuzz graph may have changed,
+/// clippy and the library's tests in `fuzz/` on its pinned nightly, unpoisoned.
+fn fuzz_step(ctx: &Ctx) -> StepResult {
+    if !ctx.repo.join("fuzz/Cargo.toml").is_file() {
+        return StepResult {
+            note: Some("fuzz/ does not exist yet (WP-06): nothing to check".into()),
+            ..StepResult::pass()
+        };
+    }
+    let md = match &ctx.fuzz {
+        FuzzLock::Current(m) => Some(m),
+        _ => None,
+    };
+    let ids_fn = |id: &str| md.and_then(|m| m.package(id)).map(|p| p.name.clone());
+    let names = cargo::Names {
+        ids: &ids_fn,
+        repo: &ctx.repo_str,
+    };
+    let mut paths: Vec<String> = match git::files(&ctx.repo) {
+        Ok(files) => files
+            .into_iter()
+            .filter(|p| lint_fuzz::is_target_file(p))
+            .collect(),
+        Err(e) => return StepResult::err(e),
+    };
+    for p in md.iter().flat_map(|m| m.members()) {
+        for t in p
+            .targets
+            .iter()
+            .filter(|t| t.kind.iter().any(|k| k == "bin"))
+        {
+            let rel = names.rel(&t.src_path);
+            if !paths.contains(&rel) {
+                paths.push(rel);
+            }
+        }
+    }
+    paths.sort();
+    let mut diags = Vec::new();
+    for p in &paths {
+        match std::fs::read_to_string(ctx.repo.join(p)) {
+            Ok(text) => diags.extend(lint_fuzz::check_target(p, &text)),
+            Err(e) => diags.push(Diag::path("fuzz", p, format!("cannot be read: {e}"))),
+        }
+    }
+    let mut r = StepResult::from_diags(diags, ctx.filter.as_ref());
+    let dirs = fuzz_dirs(&names, md);
+    match touched(ctx, &dirs) {
+        Err(e) => r.add(StepResult::err(e)),
+        Ok(false) => {
+            r.note = Some(format!(
+                "{} target files checked; neither the range nor the working tree touches {}: clippy and the library tests on the nightly are skipped (CI runs them always)",
+                paths.len(),
+                dirs.join(", ")
+            ));
+        }
+        Ok(true) => {
+            let channel = match std::fs::read_to_string(ctx.repo.join("fuzz/rust-toolchain.toml"))
+                .map_err(|e| format!("fuzz/rust-toolchain.toml: {e}"))
+                .and_then(|t| lint_fuzz::toolchain_channel(&t))
+            {
+                Ok(c) => c,
+                Err(e) => {
+                    r.add(StepResult::err(e));
+                    return r;
+                }
+            };
+            // No poisoned compiler: libFuzzer's C++ and the section shim are built with MSVC (tools.md §4.4). The
+            // variable pins the nightly over the stable toolchain this xtask runs under, whose rustup proxy exports
+            // its own RUSTUP_TOOLCHAIN, which outranks fuzz/rust-toolchain.toml (tools.md §4.2).
+            let env = vec![
+                ("RUSTUP_TOOLCHAIN".to_string(), channel.clone()),
+                ("MOIRAI_TEST_TIER".to_string(), "pr".to_string()),
+            ];
+            let dir = ctx.repo.join("fuzz");
+            for args in [
+                s(&[
+                    "clippy",
+                    "--all-targets",
+                    "--locked",
+                    "--keep-going",
+                    "--",
+                    "-D",
+                    "warnings",
+                ]),
+                s(&["test", "--lib", "--locked", "--no-fail-fast"]),
+            ] {
+                r.add(outcome(cargo::run(
+                    &dir,
+                    &args,
+                    &env,
+                    true,
+                    ctx.filter.as_ref(),
+                    &names,
+                )));
+            }
+            r.note = Some(if r.ok {
+                format!(
+                    "{} target files checked; clippy and the library tests passed on {channel} in fuzz/",
+                    paths.len()
+                )
+            } else {
+                format!(
+                    "clippy and the library tests ran on {channel} in fuzz/; if the toolchain is missing, install it there with `rustup toolchain install` (docs/m0/tools.md §2.2)"
+                )
+            });
+        }
+    }
+    r
 }
 
 /// `hooks`: `.githooks/test-hooks.sh` with this xtask as `MOIRAI_XTASK`, so the hooks' first layer (the awk and sh
@@ -1020,23 +1283,17 @@ fn dep_inputs(ctx: &Ctx) -> Result<DepData, String> {
             metadata(&ctx.repo, &["--filter-platform", t])?,
         ));
     }
-    // The fuzz workspace (WP-06) is scanned once its lockfile exists: cargo cannot resolve it before its first
-    // target, and `--locked` never creates a lockfile.
-    let (mut fuzz, mut fuzz_error, mut fuzz_note) = (None, None, None);
-    if ctx.repo.join("fuzz/Cargo.lock").is_file() {
-        match metadata(&ctx.repo, &["--manifest-path", "fuzz/Cargo.toml"]) {
-            Ok(m) => fuzz = Some(m),
-            Err(e) => {
-                fuzz_error = Some(format!(
-                    "fuzz/Cargo.lock exists but the fuzz workspace does not resolve: {e}"
-                ))
-            }
-        }
-    } else if ctx.repo.join("fuzz/Cargo.toml").is_file() {
-        fuzz_note = Some("fuzz/Cargo.lock does not exist yet (the fuzz workspace has no target): nothing to scan there".into());
-    } else {
-        fuzz_note = Some("fuzz/ does not exist yet (WP-06): nothing to scan there".into());
-    }
+    // The fuzz workspace (WP-06) is scanned through its lockfile, which `--locked` never creates: the `--branch` run's
+    // `lock` step writes it ([`fuzz_lock`]).
+    let (fuzz, fuzz_error, fuzz_note) = match &ctx.fuzz {
+        FuzzLock::Absent => (
+            None,
+            None,
+            Some("fuzz/ does not exist yet (WP-06): nothing to scan there".to_string()),
+        ),
+        FuzzLock::Current(m) => (Some(m.clone()), None, None),
+        FuzzLock::Refused(e) => (None, Some(e.clone()), None),
+    };
     let mut lockfiles = Vec::new();
     for l in crate::config::LOCKFILES {
         let p = ctx.repo.join(l);
@@ -1376,5 +1633,128 @@ mod tests {
         .unwrap();
         assert!(ci_range(&p).is_err());
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    /// The seeded cases of the fuzz lockfile: every combination of manifest, lockfile and `--locked` resolution.
+    #[test]
+    fn the_fuzz_lockfile_fails_closed() {
+        let never = || -> Result<(), String> { panic!("resolved without both files") };
+        assert!(matches!(fuzz_lock(false, false, never), FuzzLock::Absent));
+        let stray = fuzz_lock(false, true, never);
+        assert!(matches!(&stray, FuzzLock::Refused(e) if e.contains("without fuzz/Cargo.toml")));
+        let missing = fuzz_lock(true, false, never);
+        assert!(
+            matches!(&missing, FuzzLock::Refused(e) if e.contains("fuzz/Cargo.lock is missing")),
+            "{missing:?}"
+        );
+        assert!(matches!(
+            fuzz_lock(true, true, || Ok::<_, String>(7)),
+            FuzzLock::Current(7)
+        ));
+        let stale = fuzz_lock(true, true, || {
+            Err::<(), _>(
+                "cargo metadata --manifest-path fuzz/Cargo.toml failed (exit code: 101)".into(),
+            )
+        });
+        assert!(
+            matches!(&stale, FuzzLock::Refused(e) if e.contains("fuzz/Cargo.lock is stale") && e.contains("exit code: 101")),
+            "{stale:?}"
+        );
+        // Outside --branch the lock step names each lockfile, and a stale or missing fuzz lockfile fails it.
+        let ok: Result<(), String> = Ok(());
+        assert_eq!(
+            lock_report(None, &ok, &FuzzLock::Current(())),
+            Ok("Cargo.lock is current; fuzz/Cargo.lock is current".into())
+        );
+        assert_eq!(
+            lock_report(None, &ok, &FuzzLock::<()>::Absent),
+            Ok("Cargo.lock is current; no fuzz workspace".into())
+        );
+        for fuzz in [stale, missing] {
+            let e = lock_report(None, &ok, &fuzz).unwrap_err();
+            assert!(e.starts_with("fuzz/Cargo.lock is"), "{e}");
+        }
+        let e = lock_report(
+            None,
+            &Err::<(), _>("failed".into()),
+            &FuzzLock::<()>::Refused("fuzz/Cargo.lock is stale".into()),
+        )
+        .unwrap_err();
+        assert!(
+            e.contains("Cargo.lock does not resolve") && e.contains("fuzz/Cargo.lock is stale")
+        );
+        // With --branch, the resolution's own notes, and any lockfile that still does not resolve.
+        let notes = "Cargo.lock is current; fuzz/Cargo.lock created for the branch's manifests: commit it with the merge";
+        assert_eq!(
+            lock_report(Some(Ok(notes.into())), &ok, &FuzzLock::Current(())),
+            Ok(notes.into())
+        );
+        assert!(
+            lock_report(
+                Some(Ok(notes.into())),
+                &ok,
+                &FuzzLock::<()>::Refused("x".into())
+            )
+            .is_err()
+        );
+        assert!(
+            lock_report(
+                Some(Err("cannot resolve".into())),
+                &ok,
+                &FuzzLock::Current(())
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn lockfile_changes_are_named() {
+        assert!(lock_change("fuzz/Cargo.lock", false, b"", b"x").contains("created"));
+        assert_eq!(
+            lock_change("Cargo.lock", true, b"x", b"x"),
+            "Cargo.lock is current"
+        );
+        assert!(lock_change("Cargo.lock", true, b"x", b"y").contains("updated"));
+    }
+
+    #[test]
+    fn the_hex_step_checks_fixtures() {
+        let t = crate::testdir::TestDir::new("gate-hex");
+        let r = hex_step(t.path(), &NoFilter);
+        assert!(
+            r.ok && r
+                .note
+                .as_deref()
+                .is_some_and(|n| n.contains("does not exist"))
+        );
+        t.write("fixtures/hex/a.hex", "01 02\n");
+        let r = hex_step(t.path(), &NoFilter);
+        assert!(!r.ok && r.findings == 1);
+        t.write("fixtures/hex/a.bin", [1u8, 2]);
+        let r = hex_step(t.path(), &NoFilter);
+        assert!(r.ok && r.findings == 0, "{:?}", r.note);
+        assert_eq!(r.note.as_deref(), Some("1 .hex files re-assembled"));
+    }
+
+    #[test]
+    fn the_fuzz_graph_directories() {
+        let ids = |_: &str| None;
+        let names = cargo::Names {
+            ids: &ids,
+            repo: "D:/m",
+        };
+        let md = Metadata::from_json(
+            r#"{"packages":[
+                {"id":"f","name":"moirai-fuzz","version":"0.0.0","source":null,"manifest_path":"D:\\m\\fuzz\\Cargo.toml","targets":[],"dependencies":[],"features":{}},
+                {"id":"a","name":"moirai-files","version":"0.0.0","source":null,"manifest_path":"D:\\m\\crates\\moirai-files\\Cargo.toml","targets":[],"dependencies":[],"features":{}},
+                {"id":"b","name":"sha1","version":"0.11.0","source":"registry+https://github.com/rust-lang/crates.io-index","manifest_path":"C:\\reg\\sha1\\Cargo.toml","targets":[],"dependencies":[],"features":{}}
+            ],"workspace_members":["f"],"workspace_root":"D:\\m\\fuzz","resolve":{"nodes":[]}}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            fuzz_dirs(&names, Some(&md)),
+            vec!["fuzz".to_string(), "crates/moirai-files".to_string()]
+        );
+        assert_eq!(fuzz_dirs(&names, None), vec!["fuzz".to_string()]);
     }
 }

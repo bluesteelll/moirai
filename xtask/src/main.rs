@@ -14,9 +14,10 @@
 //! | `worktree <role> [--as <role>] [--base <rev>] [--root <dir>] [--target-root <dir>]` | WP-01 | a role's worktree ([`worktree`]) |
 //! | `ci commits [--event <path>]` | WP-04 | the pull-request and push checks over every commit ([`ci`]) |
 //! | `ucd [--check]` | WP-61 | generate the `fold_v1` tables from `fixtures/ucd/17.0.0/` ([`ucd`]); `--check` compares |
+//! | `hex <file.hex>... [-o <out>] \| --digest <file.hex>... \| --check [<path>...]` | WP-20 | the generic fixture assembler ([`hex`], [`hex::USAGE`]) |
 //!
-//! `hex` (WP-20's generic fixture assembler), `loadrec` (WP-51) and `nightly` (WP-05) arrive with their work
-//! packages; until then the binary names them and exits with status 2.
+//! `loadrec` (WP-51) and `nightly` (WP-05) arrive with their work packages; until then the binary names them and
+//! exits with status 2.
 
 mod authors;
 mod cargo;
@@ -26,8 +27,10 @@ mod coverage;
 mod diag;
 mod gate;
 mod git;
+mod hex;
 mod hook;
 mod lint_deps;
+mod lint_fuzz;
 mod lint_roots;
 mod lint_source;
 mod markers;
@@ -43,17 +46,14 @@ mod worktree;
 
 #[cfg(test)]
 mod scratch_tests;
+#[cfg(test)]
+mod testdir;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 /// Subcommands that arrive with later work packages.
 const LATER: &[(&str, &str, &str)] = &[
-    (
-        "hex",
-        "WP-20",
-        "assemble hex fixtures: hex, labels, {xxh3_64}, {blake3_256} and {len} directives",
-    ),
     (
         "loadrec",
         "WP-51",
@@ -77,7 +77,9 @@ const USAGE: &str = "usage: cargo xtask <subcommand>
   private index [--private-dir <dir>] [--public-ref <rev> | --no-public]
   worktree <role> [--as <role>] [--base <rev>] [--root <dir>] [--target-root <dir>]
   ci commits [--event <path>]
-  ucd [--check]";
+  ucd [--check]
+  hex <file.hex>... [-o <out.bin>] | --digest <file.hex>... | --check [<file or directory>...]
+      (cargo xtask hex --help: the .hex format and the --check rules)";
 
 /// A minimal option reader: `--name value` pairs and flags.
 struct Args {
@@ -399,6 +401,7 @@ fn run(argv: Vec<String>) -> Result<ExitCode, String> {
                 ExitCode::FAILURE
             })
         }
+        "hex" => hex_cmd(a),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(ExitCode::SUCCESS)
@@ -412,6 +415,17 @@ fn run(argv: Vec<String>) -> Result<ExitCode, String> {
             Ok(ExitCode::from(2))
         }
     }
+}
+
+/// `cargo xtask hex` ([`hex::cli`], [`hex::USAGE`]).
+fn hex_cmd(a: Args) -> Result<ExitCode, String> {
+    let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
+    let ok = hex::cli(&a.rest, &cwd, &repo_root, &mut std::io::stdout().lock())?;
+    Ok(if ok {
+        ExitCode::SUCCESS
+    } else {
+        ExitCode::FAILURE
+    })
 }
 
 fn main() -> ExitCode {

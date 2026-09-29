@@ -119,6 +119,28 @@ impl VersionReq {
         Ok(VersionReq { comparators })
     }
 
+    /// Whether some version satisfies both requirements. Each comparator admits one interval of versions, so the
+    /// release versions both admit form an interval whose least element is the largest of the comparators' least
+    /// release versions (or 0.0.0): testing those candidates decides the question for releases. A pre-release is
+    /// found only when a comparator names it.
+    pub fn intersects(&self, other: &VersionReq) -> bool {
+        let mut candidates = vec![Version {
+            major: 0,
+            minor: 0,
+            patch: 0,
+            pre: Vec::new(),
+        }];
+        for c in self.comparators.iter().chain(&other.comparators) {
+            candidates.extend(c.least_releases());
+            if !c.pre.is_empty() {
+                candidates.push(c.lower());
+            }
+        }
+        candidates
+            .iter()
+            .any(|v| self.matches(v) && other.matches(v))
+    }
+
     pub fn matches(&self, v: &Version) -> bool {
         if !self.comparators.iter().all(|c| c.matches(v)) {
             return false;
@@ -209,6 +231,24 @@ impl Comparator {
             patch: self.patch.unwrap_or(0),
             pre: self.pre.clone(),
         }
+    }
+
+    /// Release versions among which is the least release this comparator admits (when it has a lower bound): its
+    /// own version, and the next patch, minor and major after it (for `>`).
+    fn least_releases(&self) -> [Version; 4] {
+        let (ma, mi, pa) = (self.major, self.minor.unwrap_or(0), self.patch.unwrap_or(0));
+        let v = |major, minor, patch| Version {
+            major,
+            minor,
+            patch,
+            pre: Vec::new(),
+        };
+        [
+            v(ma, mi, pa),
+            v(ma, mi, pa.saturating_add(1)),
+            v(ma, mi.saturating_add(1), 0),
+            v(ma.saturating_add(1), 0, 0),
+        ]
     }
 
     fn matches(&self, v: &Version) -> bool {
@@ -310,6 +350,29 @@ mod tests {
         assert!(m("<=1.2", "1.2.7"));
         assert!(!m(">1.2", "1.2.7"));
         assert!(m(">1.2", "1.3.0"));
+    }
+
+    #[test]
+    fn intersections() {
+        let x = |a: &str, b: &str| {
+            let (a, b) = (VersionReq::parse(a).unwrap(), VersionReq::parse(b).unwrap());
+            let r = a.intersects(&b);
+            assert_eq!(r, b.intersects(&a), "symmetric");
+            r
+        };
+        assert!(x("=0.2.189", "=0.2.189"));
+        assert!(!x("=0.2.189", "=0.2.190"));
+        assert!(x("=0.2.189", "0.2"));
+        assert!(!x("=0.3.4", "0.4"));
+        assert!(x(">1.2.3", "<1.2.5"));
+        assert!(!x(">1.2.3", "<=1.2.3"));
+        assert!(x(">1.2", "~1.3"));
+        assert!(!x(">1.2", "~1.2"));
+        assert!(x(">1", "2.0.0"));
+        assert!(!x(">=1.5, <2", "^2"));
+        assert!(x("*", "=9.9.9"));
+        assert!(!x("^0.0.3", "^0.0.4"));
+        assert!(x(">=1.1.0-alpha.1", "=1.1.0-alpha.2"));
     }
 
     #[test]
