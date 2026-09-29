@@ -1,0 +1,8 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture side/refs/heads.moi
+%% file refs
+%% source [F14 §8]
+%% note refs/heads.moi of a checkpoint of main.
+%% canonical self
+%% end

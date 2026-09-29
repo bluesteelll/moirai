@@ -1,0 +1,14 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture schema/edges.moi
+%% file schema
+%% source [F14 §7.1]
+%% source [F07 §9]
+%% source [F08 §8.5]
+%% note The edges table: readings hold SP, so they are JSON strings, one holding `"`; kind
+%% note sets `*` and names; flags symmetric and same_kind; reverse names.
+%% canonical self
+%% items
+schema edge pairs_with retired=false eclass=historical on_dst=tombstone on_src=retain acyclic=none card=many max_depth=0 uid_derivation=none props=none symmetric=true same_kind=true lq_name=PAIRS_WITH src_kinds=experiment dst_kinds=experiment reverse_names=- reading="{a} and {b} are paired \"runs\""
+schema edge reviews retired=false eclass=historical on_dst=tombstone on_src=retain acyclic=none card=many max_depth=0 uid_derivation=none props=none symmetric=false same_kind=false lq_name=REVIEWS src_kinds=experiment,verdict dst_kinds=any reverse_names=REVIEWED_BY reading="{a} reviews {b}"
+%% end

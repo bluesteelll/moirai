@@ -1,0 +1,12 @@
+moirai-query 1
+name: open_tasks
+lq: 1
+params: $scope: node = #u:0a000000000000000000000000000001, $limit: int = 20
+shape: table
+budget: light
+---
+DEFINE QUERY open_tasks($scope: node = #u:0a000000000000000000000000000001, $limit: int = 20) SHAPE table BUDGET light AS {
+  MATCH (t:task)
+  WHERE t.status = 'open' AND t <> #40 AND t IN subtree($scope)
+  RETURN t ORDER BY t.priority LIMIT $limit
+}

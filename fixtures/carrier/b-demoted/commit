@@ -1,0 +1,25 @@
+tree 8087d136129f0c05a3bcdac9fc374d049a343d598a6b996589e6f30d318e4a5f
+parent 82d9e21b98c374a2fa175372be7d02aa70424e0a47993e676a5a38b0646a508c
+author moirai/git:developer@moirai.invalid <@moirai.invalid> 1790004140 +0000
+committer moirai/git:developer@moirai.invalid <@moirai.invalid> 1790004140 +0000
+
+deprioritise #3
+
+Moirai-Commit: cfba21dbac9bb8924a2c5988b67d19a2294626d6da5650c73bf8c0d5af4242dbc
+Moirai-Kind: ordinary
+Moirai-Ref: lane/demote
+Moirai-Hlc: 117309711319040000
+Moirai-Actor: dev#5
+Moirai-Role: developer
+Moirai-Session: claude:s5
+Moirai-Schema: 1
+Moirai-Ops: 1
+
+Moirai-Commit: c18464969ee21c7aa35f43fe95e374e0a4cf98a641842db3862baa0bc34a5c9d8
+Moirai-Kind: ordinary
+Moirai-Ref: lane/demote
+Moirai-Hlc: 117309711319040000
+Moirai-Actor: git:developer@moirai.invalid
+Moirai-Foreign-Git: sha1:d1049329a21f4c63eb0a48f2aa85fb94ed1ee3e3
+Moirai-Schema: 1
+Moirai-Ops: 2

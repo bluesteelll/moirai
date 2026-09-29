@@ -1,0 +1,10 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg-tree/marker--object-format/
+%% file tree
+%% context destination object format sha1
+%% source [F14 §9.2]
+%% source [F14 §4]
+%% note A sha256 marker in a sha1 destination.
+%% refuse ImageParse marker
+%% end

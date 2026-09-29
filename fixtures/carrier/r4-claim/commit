@@ -1,0 +1,19 @@
+tree 0f85d3ed9f3cd6d99ea52c07c1372c100f8b32b3
+parent 15a8ce13bee4af280d0de5985643573e7fc0b05f
+author moirai/dev#6 <developer@moirai.invalid> 1790003720 +0000
+committer moirai/dev#6 <developer@moirai.invalid> 1790003720 +0000
+
+file add docs/locking/lock.md
+
+Moirai-Commit: c0b47a91dcf030bd56e2ee19ccb9d882a9574a3570966be852de34dd7796c3371
+Moirai-Kind: ordinary
+Moirai-Ref: lane/r4b
+Moirai-Hlc: 117309683793920000
+Moirai-Actor: dev#6
+Moirai-Role: developer
+Moirai-Session: claude:s8
+Moirai-Git-Head: sha1:40e2e0d749a06d32a406134ed325a4616d989d09
+Moirai-Git-Branch: docs/locking
+Moirai-Worktree: D:/work/docs
+Moirai-Schema: 1
+Moirai-Ops: 9

@@ -1,0 +1,16 @@
+tree 158637c1c66b09d94ff9832c9b2b932c377d6419
+parent d1049329a21f4c63eb0a48f2aa85fb94ed1ee3e3
+author moirai/dev#5 <developer@moirai.invalid> 1790004200 +0000
+committer moirai/dev#5 <developer@moirai.invalid> 1790004200 +0000
+
+re-estimate #2
+
+Moirai-Commit: cc79ab57d62c0ac72987e753512d459bb1b0949f46d769039263d423e3b0ac5ae
+Moirai-Kind: ordinary
+Moirai-Ref: lane/demote
+Moirai-Hlc: 117309715251200000
+Moirai-Actor: dev#5
+Moirai-Role: developer
+Moirai-Session: claude:s5
+Moirai-Schema: 1
+Moirai-Ops: 1

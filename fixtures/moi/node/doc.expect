@@ -1,0 +1,35 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/doc.moi
+%% file node
+%% context core
+%% source [F14 §6.2]
+%% source [F14 §6.4]
+%% source [F08 §5.4.5]
+%% source [F08 §9.3] doc
+%% note Kind doc: a one-record list holding HT is a JSON string (targets); a several-record list is a block
+%% note whose lines keep their HT bytes (readiness, whose first record ends in an empty member).
+%% canonical self
+%% keys
+node 2d000000000000000000000000000011 doc
+  status current none
+  parent 0a000000000000000000000000000001 "b"
+  field authority enum research
+  field changed_in_round int 2
+  field confidence enum observed
+  field criticality enum critical
+  field doc_kind enum section
+  field heading text "3. Storage"
+  field pinned bool true
+  field priority enum P0
+  field readiness text "design\tdone\t\nmeasurement\tpending\twaiting for the laptop window"
+  field revision int 4
+  field targets text "flush p99\t40.0\tms\t<="
+  field title text "Storage plan, section 3"
+  body "## 3. Storage\n\nOne flush per group.\n"
+  edge depends_on 2d000000000000000000000000000012
+  edge derived_from 3b000000000000000000000000000011 pin 0c4cd7158cf16a5964d30a3962fc2a017e3530e3bd8b627a67c4c6f6c57858c7
+%% image
+created c2ab80ebfac4f671d1a553f587a2dab024ce4d38fafb07c4b3785bc601e77087c 2026-09-21T14:13:20.000Z
+updated c11b960af1b29aa8fed619be527c922be39958c9132e841baf44b8ab5366c6345 2026-09-21T15:43:20.000Z
+%% end

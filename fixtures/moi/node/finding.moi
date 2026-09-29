@@ -1,0 +1,18 @@
+moirai-node 1
+uid: 7f000000000000000000000000000011
+kind: finding
+title: Reader starves behind the flush
+status: fixed
+resolution: completed
+confidence: confirmed
+created: cdaff116f8417417723455dde40f3c3041f297b51a48c8de73f4846a3edb8f98a 2026-09-21T14:13:20.000Z
+updated: cd2f024e105bf63edd7f078b2fcdd63a2f7bad1c490aba5d047fa4ef75c635fcb 2026-09-21T15:43:20.000Z
+field evidence: trace 17, frames 3-9
+field f_kind: perf
+field failure_scenario: a reader waits 40 ms while a writer flushes
+field local_id: C1
+field round: 2
+field severity: blocker
+field what_needed: range locks
+edge about -> 1a000000000000000000000000000011
+edge refutes -> 5d000000000000000000000000000011

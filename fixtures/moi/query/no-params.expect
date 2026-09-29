@@ -1,0 +1,11 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture query/no-params.moi
+%% file query
+%% source [F14 §7.2]
+%% note A query without parameters (no `params:` line) and without BUDGET (`budget: medium`).
+%% note In a tree the file is schema/queries/b757e669794166b3af12ecb8bc82b727.moi.
+%% canonical self
+%% query
+schema query stale_notes lq=1 params="" shape="table" budget="medium" text="DEFINE QUERY stale_notes() SHAPE table AS {\n  // no BUDGET: medium\n  MATCH (n:note)\n  WHERE n.status = 'active'\n  RETURN n\n}"
+%% end

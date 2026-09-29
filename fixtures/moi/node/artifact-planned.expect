@@ -1,0 +1,20 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/artifact-planned.moi
+%% file node
+%% context core
+%% source [F14 §6.11]
+%% source [F08 §9.5]
+%% note Row R4: a planned file node: no oid, bytes or observation yet.
+%% canonical self
+%% keys
+node dba5cf7715202bc4fc8feb1405c7774b artifact
+  status planned none
+  field artifact_kind enum source
+  field origin_path path project "Cargo.toml"
+  field path path project "Cargo.toml"
+  field root text "project"
+%% image
+created c9a7ccad64f3881d34ad43ccdd6f1a3a67ebf31142b27b1b798dfaf5c6e9e2e22 2026-09-21T14:13:20.000Z
+updated c1a091ab78cd95461f1f507a49e104c8c4acacfa6735aa1028a401c4c056e84e3 2026-09-21T15:43:20.000Z
+%% end

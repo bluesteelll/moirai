@@ -1,0 +1,16 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/body-trailing-spaces.moi
+%% file node
+%% context core
+%% source [F14 §6.9]
+%% note Bodies: trailing double SP kept.
+%% canonical self
+%% keys
+node 3b000000000000000000000000000011 note
+  field title text "body-trailing-spaces"
+  body "trailing  \nspaces  \n"
+%% image
+created ce7c7685da542ccc4490944b9cffd81b94547cc65941ad10e7f6e9247ac032999 2026-09-21T14:13:20.000Z
+updated cb218b040b11485e7beb8d780f3a5682a70d8ad16a9d1498d14d6603ccb496c0d 2026-09-21T15:43:20.000Z
+%% end

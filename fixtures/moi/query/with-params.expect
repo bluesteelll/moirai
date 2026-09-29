@@ -1,0 +1,11 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture query/with-params.moi
+%% file query
+%% source [F14 §7.2]
+%% note A query with parameters: `params:` is the rendered param_decl list.
+%% note In a tree the file is schema/queries/aaf0ac7ae38f4f1049e0d9501979b8f7.moi.
+%% canonical self
+%% query
+schema query open_tasks lq=1 params="$scope: node = #u:0a000000000000000000000000000001, $limit: int = 20" shape="table" budget="light" text="DEFINE QUERY open_tasks($scope: node = #u:0a000000000000000000000000000001, $limit: int = 20) SHAPE table BUDGET light AS {\n  MATCH (t:task)\n  WHERE t.status = 'open' AND t IN subtree($scope)\n  RETURN t ORDER BY t.priority LIMIT $limit\n}"
+%% end

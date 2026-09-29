@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/unknown-header-key--owner.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note An unknown header key.
+%% refuse ImageParse unknown-header-key
+%% end

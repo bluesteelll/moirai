@@ -1,0 +1,156 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case revert
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note Gate-0 row revert: Moirai-Origin (item 8) names case ordinary; no git provenance (item 5 empty: the
+%% note commit without git provenance of row trailers). The ledger of T1 gains `incr reopen_count -1 c<this>`.
+%% destination A sha1 full
+%% class native
+%% git-commit a057d1efe7ff28246a32120f1c3319937cda2ca1
+%% git-tree 0978a9364831c1cba19604e7b87c20210981b7f4
+%% git-parent ccad424446fa053d2897aa44b21b74b9ebf6ad37 ordinary
+%% trailer-commit c425a75cab057fa2c912f9bf61a44d5c87c3df544ebc9d5537ac7283bc6490a4
+%% touched-new 1
+%% touched-old 1
+%% p-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body "Timeout fires before the lock holder's flush completes."
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+1a000000000000000000000000000001 status = absent
+1a000000000000000000000000000001 field priority = enum P1
+1a000000000000000000000000000001 counter reopen_count = -1
+1a000000000000000000000000000001 edge blocks 1a000000000000000000000000000002 - = absent
+1a000000000000000000000000000001 edge cites 5d000000000000000000000000000001 - = absent
+1a000000000000000000000000000001 body = absent
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000001 status
+011a000000000000000000000000000001020000
+; entry 2: 1a000000000000000000000000000001 field priority
+011a00000000000000000000000000000104080000007072696f726974790006020000005031
+; entry 3: 1a000000000000000000000000000001 counter reopen_count
+011a000000000000000000000000000001060c00000072656f70656e5f636f756e74010100000000000000
+; entry 4: 1a000000000000000000000000000001 edge blocks 1a000000000000000000000000000002 -
+011a0000000000000000000000000000010706000000626c6f636b731a00000000000000000000000000000200000000
+0000
+; entry 5: 1a000000000000000000000000000001 edge cites 5d000000000000000000000000000001 -
+011a000000000000000000000000000001070500000063697465735d0000000000000000000000000000010000000000
+00
+; entry 6: 1a000000000000000000000000000001 body
+011a000000000000000000000000000001080000
+; u64 entry count = 6
+0600000000000000
+%% entry-count 6
+%% changeset-digest ed59c722eef0907bc2f6d093a6d0e8e6b24d6144fb82bc2b64922c3f5afcc06d
+%% commit
+kind revert
+parent 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+hlc 01a0c46be3400000
+actor "dev#1"
+role "developer"
+session "claude:s1"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "revert the restart of #1"
+schema-version 1
+origin 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+06000000726576657274
+; item 2: n_parents
+01000000
+; item 2: parent 1
+163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+; item 3: hlc
+000040e36bc4a001
+; item 4: actor
+050000006465762331
+; item 4: role
+09000000646576656c6f706572
+; item 4: session
+09000000636c617564653a7331
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+18000000726576657274207468652072657374617274206f66202331
+; item 7: schema_version
+01000000
+; item 8: origin
+20000000163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+ed59c722eef0907bc2f6d093a6d0e8e6b24d6144fb82bc2b64922c3f5afcc06d
+%% commit-id c425a75cab057fa2c912f9bf61a44d5c87c3df544ebc9d5537ac7283bc6490a4
+%% canonical commits.cases revert commit-id
+%% end

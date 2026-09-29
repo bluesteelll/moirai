@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/line-repeated--field.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note Two field lines of one field.
+%% refuse ImageParse line-repeated
+%% end

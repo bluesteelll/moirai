@@ -1,0 +1,10 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/no-production--schema-row.moi
+%% file schema
+%% source [F14 §9.2]
+%% source [F14 §7.1]
+%% note An unknown row word.
+%% note The file is schema/fields.moi in its tree.
+%% refuse ImageParse no-production
+%% end

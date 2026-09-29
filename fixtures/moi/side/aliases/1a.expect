@@ -1,0 +1,8 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture side/aliases/1a.moi
+%% file aliases
+%% source [F14 §14]
+%% note aliases/1a.moi: rows of uids that begin with byte 1a, by uid.
+%% canonical self
+%% end

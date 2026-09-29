@@ -1,0 +1,9 @@
+moirai-node 1
+uid: 9a000000000000000000000000000011
+kind: measurement
+title: f64 f64-small-negative
+status: current
+created: c28156f2f4654cd00044c5b4df61c46579e8fa82f81ace950f73b54e5986a76dc 2026-09-21T14:13:20.000Z
+updated: c03539d5880a37b1ca053cfa40ccc6f47c0051d1bff46248ae7fe2a006fdfaa69 2026-09-21T15:43:20.000Z
+field target: -3.0
+field value: 1.5e-7

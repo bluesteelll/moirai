@@ -1,0 +1,140 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case b-demoted-child
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% source [F14 §10.6]
+%% source [F14 §13.2]
+%% note Row re-exports (+): the child of the demoted commit. Its git parent's Moirai-Commit (the
+%% note foreign id) differs from its stated id, so `Moirai-Parent: 1 c<stated>` carries item 2
+%% note ([F14 §10.4], open point 15).
+%% destination B sha256 full
+%% class native
+%% git-commit 2b8c42eba07e349666132fff07f414d28565a7e836ea5559adbd885f19aef34f
+%% git-tree 10ceaf6359a4d5ca0ee34980f4dc7d664a064c8abc4ce7592ccd006b8b2a2c88
+%% git-parent c3fe090f78a677e171791198c5b1c40ed3d76c2aff3e3a2035995a4a4f551b34 b-demoted
+%% trailer-commit c79ab57d62c0ac72987e753512d459bb1b0949f46d769039263d423e3b0ac5ae
+%% touched-new 1
+%% touched-old 1
+%% p-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field estimate int 2
+  field priority enum P4
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 6
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field estimate int 2
+  field priority enum P4
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+1a000000000000000000000000000002 field estimate = int 6
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000002 field estimate
+011a0000000000000000000000000000020408000000657374696d61746500030600000000000000
+; u64 entry count = 1
+0100000000000000
+%% entry-count 1
+%% changeset-digest e0a60ecc773a9ca64b3860d774e68b7843e17a271e5e431f8e13908406f4480d
+%% commit
+kind ordinary
+parent fba21dbac9bb8924a2c5988b67d19a2294626d6da5650c73bf8c0d5af4242dbc
+hlc 01a0c49082400000
+actor "dev#5"
+role "developer"
+session "claude:s5"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "re-estimate #2"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+fba21dbac9bb8924a2c5988b67d19a2294626d6da5650c73bf8c0d5af4242dbc
+; item 3: hlc
+0000408290c4a001
+; item 4: actor
+050000006465762335
+; item 4: role
+09000000646576656c6f706572
+; item 4: session
+09000000636c617564653a7335
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+0e00000072652d657374696d617465202332
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+e0a60ecc773a9ca64b3860d774e68b7843e17a271e5e431f8e13908406f4480d
+%% commit-id c79ab57d62c0ac72987e753512d459bb1b0949f46d769039263d423e3b0ac5ae
+%% end

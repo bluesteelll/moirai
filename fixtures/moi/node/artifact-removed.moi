@@ -1,0 +1,13 @@
+moirai-node 1
+uid: 672af70da09c660c2887060b8618cfd9
+kind: artifact
+status: removed
+created: c176cae2a90da93893cf62e8d618ce5a809701328e02ff13d49143ead6f79bcdf 2026-09-21T14:13:20.000Z
+updated: cab44f1148ba0fe6e9e62e07a2112f3e4dd3e00080712d916ad37e3f181d9b6d6 2026-09-21T15:43:20.000Z
+field artifact_kind: doc
+field bytes: 74
+field oid: sha1:83348d283c1ba0b3b4d55fdc04c39a165b933125
+field origin_path: docs/legacy/notes.txt
+field path: docs/legacy/notes.txt
+field reason: deleted from the tree
+field root: project

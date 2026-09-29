@@ -1,0 +1,3 @@
+moirai-query 1
+name: stale_notes
+conflict definition class=DeleteVsModify base="moirai-query 1\nname: stale_notes\nlq: 1\nshape: table\nbudget: medium\n---\nDEFINE QUERY stale_notes() SHAPE table AS {\n  // no BUDGET: medium\n  MATCH (n:note)\n  WHERE n.status = 'active'\n  RETURN n\n}\n" ours= theirs="moirai-query 1\nname: stale_notes\nlq: 1\nshape: table\nbudget: heavy\n---\nDEFINE QUERY stale_notes() SHAPE table BUDGET heavy AS {\n  MATCH (n:note)\n  WHERE n.status = 'active'\n  RETURN n\n}\n"

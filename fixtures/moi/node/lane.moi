@@ -1,0 +1,14 @@
+moirai-node 1
+uid: bc000000000000000000000000000011
+kind: lane
+title: Lane l5np
+status: ready_to_merge
+created: c13c9930bbf3fea35841d3ed96d3e50cf66ea691371ccd7ed6ee623f9dca85e54 2026-09-21T14:13:20.000Z
+updated: c65bd83fc65023e92a5b52dc3e80ec65766dc3b3b3348defc012af66d6d273e01 2026-09-21T15:43:20.000Z
+field base_sha: sha1:6f356bb645aa131c1e341bd8d97c35a8d3697d12
+field git_branch: lane-l5np
+field moirai_branch: lane/l5np
+field target_dir: abs:C:/t/target-l5np
+field tip_sha: sha256:9a343e4c14da097606ec68376b7b66e84e86e8f3b1283f576bc9e91718cb8f6f
+field worktree_path: abs:/home/dev/work/l5np
+edge merge_after -> bc000000000000000000000000000012

@@ -1,0 +1,3 @@
+moirai-schema 1
+edge pairs_with class=historical on-dst=tombstone on-src=retain acyclic=none card=many max-depth=0 derivation=none props=none flags=same_kind,symmetric lq=PAIRS_WITH src=experiment dst=experiment reading="{a} and {b} are paired \"runs\""
+edge reviews class=historical on-dst=tombstone on-src=retain acyclic=none card=many max-depth=0 derivation=none props=none lq=REVIEWS src=experiment,verdict dst=* reverse=REVIEWED_BY reading="{a} reviews {b}"

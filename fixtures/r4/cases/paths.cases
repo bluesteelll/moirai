@@ -1,0 +1,1780 @@
+# R4 fixtures (WP-21, R-FIX). Format: fixtures/r4/INDEX.md section 2.
+# Written from docs/spec/format/08-data-model.md §11, 20-r4-resolver-constants.md §3, docs/spec/os/path.md and
+# 12-vcs.md §2; every value is synthetic.
+# The path rules P1-P12 ([OS/path §3]) as pure functions over data: value types, P3, P5, representability,
+# P7, P8, P9's lookup and keys, P11 (a) and (b), P12 and the CLI boundary. P6 is fold.cases.
+
+%% case relpath-01
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% rule P1
+%% function relpath
+%% arg hex 646f63732f612e6d64
+%% arg text "docs/a.md"
+%% expect ok
+%% end
+
+%% case relpath-02
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% note The empty RelPath is the root itself; it is never a stored file path ([F08 §5.4.1]).
+%% rule P1
+%% function relpath
+%% arg text ""
+%% expect ok
+%% end
+
+%% case relpath-03
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% rule P1
+%% function relpath
+%% arg hex 61
+%% arg text "a"
+%% expect ok
+%% end
+
+%% case relpath-04
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% note Any scalar value other than C0, / and \ is a segment character.
+%% rule P1
+%% function relpath
+%% arg hex 646f63732f636166c3a92ff09f94922e6d64
+%% arg text "docs/caf\u00e9/\ud83d\udd12.md"
+%% expect ok
+%% end
+
+%% case relpath-05
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% rule P1
+%% function relpath
+%% arg hex 6120622f6320642e6d64
+%% arg text "a b/c d.md"
+%% expect ok
+%% end
+
+%% case relpath-06
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% note Only exactly . and .. are refused.
+%% rule P1
+%% function relpath
+%% arg hex 2e2e2e
+%% arg text "..."
+%% expect ok
+%% end
+
+%% case relpath-07
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% rule P1
+%% function relpath
+%% arg hex 2e68696464656e2f2e78
+%% arg text ".hidden/.x"
+%% expect ok
+%% end
+
+%% case relpath-08
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% note U+007F is not a C0 control.
+%% rule P1
+%% function relpath
+%% arg hex 617f62
+%% arg text "a\u007fb"
+%% expect ok
+%% end
+
+%% case relpath-09
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% note A leading / is an empty first segment.
+%% rule P1
+%% function relpath
+%% arg hex 2f61
+%% arg text "/a"
+%% expect error Empty
+%% end
+
+%% case relpath-10
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% note A trailing / is an empty last segment.
+%% rule P1
+%% function relpath
+%% arg hex 612f
+%% arg text "a/"
+%% expect error Empty
+%% end
+
+%% case relpath-11
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% rule P1
+%% function relpath
+%% arg hex 612f2f62
+%% arg text "a//b"
+%% expect error Empty
+%% end
+
+%% case relpath-12
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% rule P1
+%% function relpath
+%% arg hex 2e2f61
+%% arg text "./a"
+%% expect error DotSegment
+%% end
+
+%% case relpath-13
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% rule P1
+%% function relpath
+%% arg hex 612f2e2e2f62
+%% arg text "a/../b"
+%% expect error DotSegment
+%% end
+
+%% case relpath-14
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% note P4.
+%% rule P4
+%% function relpath
+%% arg hex 615c62
+%% arg text "a\\b"
+%% expect error Backslash
+%% end
+
+%% case relpath-15
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% note P4: HT is a C0 control.
+%% rule P4
+%% function relpath
+%% arg hex 610962
+%% arg text "a\tb"
+%% expect error Control
+%% end
+
+%% case relpath-16
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% note P4.
+%% rule P4
+%% function relpath
+%% arg hex 610062
+%% arg text "a\u0000b"
+%% expect error Control
+%% end
+
+%% case relpath-17
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% rule P4
+%% function relpath
+%% arg hex 611f62
+%% arg text "a\u001fb"
+%% expect error Control
+%% end
+
+%% case relpath-18
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% note P4: not UTF-8.
+%% rule P4
+%% function relpath
+%% arg hex 612fff
+%% expect error NotUtf8
+%% end
+
+%% case relpath-19
+%% source [OS/path §2.1]
+%% source [OS/path §3] P1, P4
+%% source [OS/path §11] PathError
+%% note An encoded surrogate is not UTF-8 (a Windows unpaired surrogate arrives this way as WTF-8).
+%% rule P4
+%% function relpath
+%% arg hex 61eda080
+%% expect error NotUtf8
+%% end
+
+%% case abspath-01
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% note A drive root.
+%% rule P12
+%% function abspath
+%% arg text "C:/"
+%% expect ok
+%% end
+
+%% case abspath-02
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "C:/work/tools/run.ps1"
+%% expect ok
+%% end
+
+%% case abspath-03
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "Z:/a b/c"
+%% expect ok
+%% end
+
+%% case abspath-04
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "//server/share"
+%% expect ok
+%% end
+
+%% case abspath-05
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "//server/share/dir/f.txt"
+%% expect ok
+%% end
+
+%% case abspath-06
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% note The Unix root.
+%% rule P12
+%% function abspath
+%% arg text "/"
+%% expect ok
+%% end
+
+%% case abspath-07
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "/home/dev/repo"
+%% expect ok
+%% end
+
+%% case abspath-08
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% note abs-char excludes only U+0000 and /.
+%% rule P12
+%% function abspath
+%% arg text "/tmp/a\\b"
+%% expect ok
+%% end
+
+%% case abspath-09
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% note P12: the drive letter is upper-case.
+%% rule P12
+%% function abspath
+%% arg text "c:/work"
+%% expect error BadSegment
+%% end
+
+%% case abspath-10
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "C:"
+%% expect error BadSegment
+%% end
+
+%% case abspath-11
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "C:x"
+%% expect error BadSegment
+%% end
+
+%% case abspath-12
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% note A UNC path needs a server and a share.
+%% rule P12
+%% function abspath
+%% arg text "//server"
+%% expect error BadSegment
+%% end
+
+%% case abspath-13
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "//server/"
+%% expect error BadSegment
+%% end
+
+%% case abspath-14
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "C:/a//b"
+%% expect error Empty
+%% end
+
+%% case abspath-15
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% note No trailing /.
+%% rule P12
+%% function abspath
+%% arg text "C:/a/"
+%% expect error Empty
+%% end
+
+%% case abspath-16
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "C:/a/../b"
+%% expect error DotSegment
+%% end
+
+%% case abspath-17
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "/home/./dev"
+%% expect error DotSegment
+%% end
+
+%% case abspath-18
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% rule P12
+%% function abspath
+%% arg text "relative/path"
+%% expect error NotAbsolute
+%% end
+
+%% case abspath-19
+%% source [OS/path §2.2]
+%% source [OS/path §3] P12
+%% source [OS/path §11] PathError
+%% note U+0000 in an AbsPath.
+%% rule P12
+%% function abspath
+%% arg text "C:/a\u0000b"
+%% expect error Control
+%% end
+
+%% case lexical-01
+%% source [OS/path §5] step 2
+%% source [OS/path §3] P12
+%% note Separators \ and /; .. removes the previous segment; the drive letter is upper-cased.
+%% note Only inputs whose meaning needs no OS call: Windows arguments are absolute (a relative one goes through GetFullPathNameW, [OS/path §5]).
+%% rule P12
+%% function canonical_abs_lexical
+%% arg os windows
+%% arg text "c:\\Work\\a\\..\\b\\.\\c"
+%% expect "C:/Work/b/c"
+%% end
+
+%% case lexical-02
+%% source [OS/path §5] step 2
+%% source [OS/path §3] P12
+%% note .. never removes the drive.
+%% note Only inputs whose meaning needs no OS call: Windows arguments are absolute (a relative one goes through GetFullPathNameW, [OS/path §5]).
+%% rule P12
+%% function canonical_abs_lexical
+%% arg os windows
+%% arg text "C:/a/../../x"
+%% expect "C:/x"
+%% end
+
+%% case lexical-03
+%% source [OS/path §5] step 2
+%% source [OS/path §3] P12
+%% note .. never removes the //server/share prefix.
+%% note Only inputs whose meaning needs no OS call: Windows arguments are absolute (a relative one goes through GetFullPathNameW, [OS/path §5]).
+%% rule P12
+%% function canonical_abs_lexical
+%% arg os windows
+%% arg text "\\\\srv\\share\\x\\..\\..\\y"
+%% expect "//srv/share/y"
+%% end
+
+%% case lexical-04
+%% source [OS/path §5] step 2
+%% source [OS/path §3] P12
+%% note Empty segments are dropped.
+%% note Only inputs whose meaning needs no OS call: Windows arguments are absolute (a relative one goes through GetFullPathNameW, [OS/path §5]).
+%% rule P12
+%% function canonical_abs_lexical
+%% arg os windows
+%% arg text "D:/logs//run.txt"
+%% expect "D:/logs/run.txt"
+%% end
+
+%% case lexical-05
+%% source [OS/path §5] step 2
+%% source [OS/path §3] P12
+%% note A relative argument is joined to the canonical current directory.
+%% note Only inputs whose meaning needs no OS call: Windows arguments are absolute (a relative one goes through GetFullPathNameW, [OS/path §5]).
+%% rule P12
+%% function canonical_abs_lexical
+%% arg os unix
+%% arg cwd "/home/dev/repo"
+%% arg text "../x//y/."
+%% expect "/home/dev/x/y"
+%% end
+
+%% case lexical-06
+%% source [OS/path §5] step 2
+%% source [OS/path §3] P12
+%% note .. never removes the leading /.
+%% note Only inputs whose meaning needs no OS call: Windows arguments are absolute (a relative one goes through GetFullPathNameW, [OS/path §5]).
+%% rule P12
+%% function canonical_abs_lexical
+%% arg os unix
+%% arg cwd "/home/dev"
+%% arg text "/../../etc/./hosts"
+%% expect "/etc/hosts"
+%% end
+
+%% case lexical-07
+%% source [OS/path §5] step 2
+%% source [OS/path §3] P12
+%% note On Unix \ is a name character.
+%% note Only inputs whose meaning needs no OS call: Windows arguments are absolute (a relative one goes through GetFullPathNameW, [OS/path §5]).
+%% rule P12
+%% function canonical_abs_lexical
+%% arg os unix
+%% arg cwd "/home/dev"
+%% arg text "a\\b"
+%% expect "/home/dev/a\\b"
+%% end
+
+%% case cli-01
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "C:/work/repo"
+%% arg cwd "C:/work/repo/src"
+%% arg text "lib.rs"
+%% expect "src/lib.rs"
+%% end
+
+%% case cli-02
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% note \ becomes /.
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "C:/work/repo"
+%% arg cwd "C:/work/repo/src"
+%% arg text "..\\docs\\a.md"
+%% expect "docs/a.md"
+%% end
+
+%% case cli-03
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% note An absolute argument; its drive letter is upper-cased by the lexical normalisation.
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "C:/work/repo"
+%% arg cwd "C:/work/repo/src"
+%% arg text "c:\\work\\repo\\README.md"
+%% expect "README.md"
+%% end
+
+%% case cli-04
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% note A leading single / is the root of the current directory's drive.
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "C:/work/repo"
+%% arg cwd "C:/work/repo/src"
+%% arg text "/work/repo/Cargo.toml"
+%% expect "Cargo.toml"
+%% end
+
+%% case cli-05
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% note The tree root gives the empty RelPath.
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "C:/work/repo"
+%% arg cwd "C:/work/repo"
+%% arg text "."
+%% expect ""
+%% end
+
+%% case cli-06
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "C:/work/repo"
+%% arg cwd "C:/work/repo/src"
+%% arg text "C:/work/other/x.rs"
+%% expect error OutsideRoot
+%% end
+
+%% case cli-07
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% note The tree prefix is compared as bytes; the argument's spelling is kept, and mapping it to the on-disk spelling is the link layer's job.
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "C:/work/repo"
+%% arg cwd "C:/work/repo/src"
+%% arg text "C:/Work/repo/x.rs"
+%% expect error OutsideRoot
+%% end
+
+%% case cli-08
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "C:/work/repo"
+%% arg cwd "C:/work/repo/src"
+%% arg text "D:rel\\x.rs"
+%% expect error DriveRelative
+%% end
+
+%% case cli-09
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% note A bare X: is drive-relative.
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "C:/work/repo"
+%% arg cwd "C:/work/repo/src"
+%% arg text "C:"
+%% expect error DriveRelative
+%% end
+
+%% case cli-10
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "C:/work/repo"
+%% arg cwd "C:/work/repo/src"
+%% arg text "\\\\.\\C:\\work\\repo\\a"
+%% expect error DevicePath
+%% end
+
+%% case cli-11
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "C:/work/repo"
+%% arg cwd "C:/work/repo/src"
+%% arg text "\\\\?\\C:\\work\\repo\\a"
+%% expect error DevicePath
+%% end
+
+%% case cli-12
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% note A leading / under a UNC current directory has no drive.
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "//srv/share/repo"
+%% arg cwd "//srv/share/repo/src"
+%% arg text "/x"
+%% expect error NotAbsolute
+%% end
+
+%% case cli-13
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% rule CLI
+%% function cli_path
+%% arg os windows
+%% arg tree "//srv/share/repo"
+%% arg cwd "//srv/share/repo/src"
+%% arg text "..\\a.md"
+%% expect "a.md"
+%% end
+
+%% case cli-14
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% rule CLI
+%% function cli_path
+%% arg os unix
+%% arg tree "/home/dev/repo"
+%% arg cwd "/home/dev/repo/src"
+%% arg text "../README.md"
+%% expect "README.md"
+%% end
+
+%% case cli-15
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% note On Unix \ stays a name character and P4 refuses it.
+%% rule CLI
+%% function cli_path
+%% arg os unix
+%% arg tree "/home/dev/repo"
+%% arg cwd "/home/dev/repo/src"
+%% arg text "a\\b.rs"
+%% expect error Backslash
+%% end
+
+%% case cli-16
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% rule CLI
+%% function cli_path
+%% arg os unix
+%% arg tree "/home/dev/repo"
+%% arg cwd "/home/dev/repo/src"
+%% arg text "/etc/hosts"
+%% expect error OutsideRoot
+%% end
+
+%% case cli-17
+%% source [OS/path §7]
+%% source [OS/path §3] P4, P12
+%% rule CLI
+%% function cli_path
+%% arg os unix
+%% arg tree "/home/dev/repo"
+%% arg cwd "/home/dev/repo"
+%% arg text "./src/./lib.rs"
+%% expect "src/lib.rs"
+%% end
+
+%% case p3-01
+%% source [OS/path §3] P3
+%% note APFS, core.precomposeUnicode = true: NFC.
+%% rule P3
+%% function stored_untracked_name
+%% arg text "cafe\u0301.md"
+%% arg norm_insensitive_always true
+%% arg git true
+%% arg precompose_unicode true
+%% expect "caf\u00e9.md"
+%% expect-cps U+0063 U+0061 U+0066 U+00E9 U+002E U+006D U+0064
+%% end
+
+%% case p3-02
+%% source [OS/path §3] P3
+%% note APFS, precomposeUnicode false: the enumerated spelling.
+%% rule P3
+%% function stored_untracked_name
+%% arg text "cafe\u0301.md"
+%% arg norm_insensitive_always true
+%% arg git true
+%% arg precompose_unicode false
+%% expect "cafe\u0301.md"
+%% expect-cps U+0063 U+0061 U+0066 U+0065 U+0301 U+002E U+006D U+0064
+%% end
+
+%% case p3-03
+%% source [OS/path §3] P3
+%% note APFS without git: always NFC.
+%% rule P3
+%% function stored_untracked_name
+%% arg text "cafe\u0301.md"
+%% arg norm_insensitive_always true
+%% arg git false
+%% arg precompose_unicode false
+%% expect "caf\u00e9.md"
+%% expect-cps U+0063 U+0061 U+0066 U+00E9 U+002E U+006D U+0064
+%% end
+
+%% case p3-04
+%% source [OS/path §3] P3
+%% note Windows and Linux: never normalised.
+%% rule P3
+%% function stored_untracked_name
+%% arg text "cafe\u0301.md"
+%% arg norm_insensitive_always false
+%% arg git true
+%% arg precompose_unicode true
+%% expect "cafe\u0301.md"
+%% expect-cps U+0063 U+0061 U+0066 U+0065 U+0301 U+002E U+006D U+0064
+%% end
+
+%% case p3-05
+%% source [OS/path §3] P3
+%% note A Linux casefold directory (norm_follows_case) does not trigger P3.
+%% rule P3
+%% function stored_untracked_name
+%% arg text "cafe\u0301.md"
+%% arg norm_insensitive_always false
+%% arg git false
+%% arg precompose_unicode false
+%% expect "cafe\u0301.md"
+%% expect-cps U+0063 U+0061 U+0066 U+0065 U+0301 U+002E U+006D U+0064
+%% end
+
+%% case p3-06
+%% source [OS/path §3] P3
+%% note NFC maps the canonical singleton U+212B to U+00C5.
+%% rule P3
+%% function stored_untracked_name
+%% arg text "\u212b.md"
+%% arg norm_insensitive_always true
+%% arg git false
+%% arg precompose_unicode false
+%% expect "\u00c5.md"
+%% expect-cps U+00C5 U+002E U+006D U+0064
+%% end
+
+%% case p7-01
+%% source [OS/path §3] P7, P2
+%% source [F08 §11.2]
+%% note Tracked: git's HEAD-tree spelling, whatever a case-insensitive volume enumerates.
+%% rule P7
+%% function origin_path
+%% arg tracked true
+%% arg git_spelling "Docs/Plan.md"
+%% arg enumerated "docs/plan.md"
+%% arg norm_insensitive_always false
+%% expect "Docs/Plan.md"
+%% end
+
+%% case p7-02
+%% source [OS/path §3] P7, P2
+%% source [F08 §11.2]
+%% note Untracked on NTFS: the enumerated spelling (P3 does not apply).
+%% rule P7
+%% function origin_path
+%% arg tracked false
+%% arg enumerated "docs/plan.md"
+%% arg norm_insensitive_always false
+%% expect "docs/plan.md"
+%% end
+
+%% case p7-03
+%% source [OS/path §3] P7, P2
+%% source [F08 §11.2]
+%% note Untracked on NTFS: no normalisation; never case-folded.
+%% rule P7
+%% function origin_path
+%% arg tracked false
+%% arg enumerated "docs/cafe\u0301.md"
+%% arg norm_insensitive_always false
+%% expect "docs/cafe\u0301.md"
+%% end
+
+%% case p5-01
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% rule P5
+%% function portable_issues
+%% arg segment "plan.md"
+%% expect none
+%% end
+
+%% case p5-02
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% rule P5
+%% function portable_issues
+%% arg segment "CON"
+%% expect device-name
+%% end
+
+%% case p5-03
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note The stem is the part before the first .
+%% rule P5
+%% function portable_issues
+%% arg segment "con.txt"
+%% expect device-name
+%% end
+
+%% case p5-04
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note Trailing ASCII spaces of the stem are removed.
+%% rule P5
+%% function portable_issues
+%% arg segment "Nul  .md"
+%% expect device-name
+%% end
+
+%% case p5-05
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% rule P5
+%% function portable_issues
+%% arg segment "com1.tar.gz"
+%% expect device-name
+%% end
+
+%% case p5-06
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% rule P5
+%% function portable_issues
+%% arg segment "CONOUT$.log"
+%% expect device-name
+%% end
+
+%% case p5-07
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note COM and LPT with a superscript digit are reserved too.
+%% rule P5
+%% function portable_issues
+%% arg segment "LPT\u00b2"
+%% expect device-name
+%% end
+
+%% case p5-08
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note Not a device name.
+%% rule P5
+%% function portable_issues
+%% arg segment "console.md"
+%% expect none
+%% end
+
+%% case p5-09
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note COM0-COM9 only.
+%% rule P5
+%% function portable_issues
+%% arg segment "com10"
+%% expect none
+%% end
+
+%% case p5-10
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% rule P5
+%% function portable_issues
+%% arg segment "notes."
+%% expect trailing-dot-or-space
+%% end
+
+%% case p5-11
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% rule P5
+%% function portable_issues
+%% arg segment "notes "
+%% expect trailing-dot-or-space
+%% end
+
+%% case p5-12
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note Every issue is reported.
+%% rule P5
+%% function portable_issues
+%% arg segment "CON."
+%% expect device-name , trailing-dot-or-space
+%% end
+
+%% case p5-13
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note The first reserved character of the segment is cited.
+%% rule P5
+%% function portable_issues
+%% arg segment "a:b<c.md"
+%% expect reserved-char ":"
+%% end
+
+%% case p5-14
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% rule P5
+%% function portable_issues
+%% arg segment "what?.md"
+%% expect reserved-char "?"
+%% end
+
+%% case p5-15
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note 255 bytes.
+%% rule P5
+%% function portable_issues
+%% arg segment "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+%% expect none
+%% end
+
+%% case p5-16
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% rule P5
+%% function portable_issues
+%% arg segment "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+%% expect too-long
+%% end
+
+%% case p5-17
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note 256 UTF-8 bytes (128 x U+00E9).
+%% rule P5
+%% function portable_issues
+%% arg segment "\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9"
+%% expect too-long
+%% end
+
+%% case p5-18
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note The smallest equal-under-fold sibling in byte order is cited.
+%% rule P5
+%% function portable_issues
+%% arg segment "Plan.md"
+%% arg sibling "plan.md"
+%% arg sibling "PLAN.md"
+%% arg sibling "other.md"
+%% expect fold-sibling "PLAN.md"
+%% end
+
+%% case p5-19
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% rule P5
+%% function portable_issues
+%% arg segment "A.md"
+%% arg sibling "a.md"
+%% expect fold-sibling "a.md"
+%% end
+
+%% case p5-20
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note fold_v1 is a superset relation: ß = ss.
+%% rule P5
+%% function portable_issues
+%% arg segment "stra\u00dfe.md"
+%% arg sibling "STRASSE.md"
+%% expect fold-sibling "STRASSE.md"
+%% end
+
+%% case p5-21
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note An NFC sibling of an NFD name.
+%% rule P5
+%% function portable_issues
+%% arg segment "cafe\u0301.md"
+%% arg sibling "caf\u00e9.md"
+%% expect fold-sibling "caf\u00e9.md"
+%% end
+
+%% case p5-22
+%% source [OS/path §8.2]
+%% source [OS/path §3] P5
+%% note A case-only rename (a.md -> A.md): the source is no longer a sibling.
+%% rule P5
+%% function portable_issues
+%% arg segment "A.md"
+%% expect none
+%% end
+
+%% case representable-windows
+%% source [OS/path §8.1]
+%% source [OS/path §8.2]
+%% note The cases [OS/path §8.1] asks of both copies of the rule: every device name bare, with an extension and with trailing spaces before it, in two ASCII cases; a trailing . and space; each reserved character; 255 and 256 UTF-16 code units, the second pair built from U+1D11E (two units each).
+%% rule P5
+%% function representable
+%% arg os windows
+%% rows
+"CON" false
+"con" false
+"CON.txt" false
+"con.txt" false
+"CON  .txt" false
+"con  .txt" false
+"PRN" false
+"prn" false
+"PRN.txt" false
+"prn.txt" false
+"PRN  .txt" false
+"prn  .txt" false
+"AUX" false
+"aux" false
+"AUX.txt" false
+"aux.txt" false
+"AUX  .txt" false
+"aux  .txt" false
+"NUL" false
+"nul" false
+"NUL.txt" false
+"nul.txt" false
+"NUL  .txt" false
+"nul  .txt" false
+"CONIN$" false
+"conin$" false
+"CONIN$.txt" false
+"conin$.txt" false
+"CONIN$  .txt" false
+"conin$  .txt" false
+"CONOUT$" false
+"conout$" false
+"CONOUT$.txt" false
+"conout$.txt" false
+"CONOUT$  .txt" false
+"conout$  .txt" false
+"COM0" false
+"com0" false
+"COM0.txt" false
+"com0.txt" false
+"COM0  .txt" false
+"com0  .txt" false
+"COM1" false
+"com1" false
+"COM1.txt" false
+"com1.txt" false
+"COM1  .txt" false
+"com1  .txt" false
+"COM2" false
+"com2" false
+"COM2.txt" false
+"com2.txt" false
+"COM2  .txt" false
+"com2  .txt" false
+"COM3" false
+"com3" false
+"COM3.txt" false
+"com3.txt" false
+"COM3  .txt" false
+"com3  .txt" false
+"COM4" false
+"com4" false
+"COM4.txt" false
+"com4.txt" false
+"COM4  .txt" false
+"com4  .txt" false
+"COM5" false
+"com5" false
+"COM5.txt" false
+"com5.txt" false
+"COM5  .txt" false
+"com5  .txt" false
+"COM6" false
+"com6" false
+"COM6.txt" false
+"com6.txt" false
+"COM6  .txt" false
+"com6  .txt" false
+"COM7" false
+"com7" false
+"COM7.txt" false
+"com7.txt" false
+"COM7  .txt" false
+"com7  .txt" false
+"COM8" false
+"com8" false
+"COM8.txt" false
+"com8.txt" false
+"COM8  .txt" false
+"com8  .txt" false
+"COM9" false
+"com9" false
+"COM9.txt" false
+"com9.txt" false
+"COM9  .txt" false
+"com9  .txt" false
+"LPT0" false
+"lpt0" false
+"LPT0.txt" false
+"lpt0.txt" false
+"LPT0  .txt" false
+"lpt0  .txt" false
+"LPT1" false
+"lpt1" false
+"LPT1.txt" false
+"lpt1.txt" false
+"LPT1  .txt" false
+"lpt1  .txt" false
+"LPT2" false
+"lpt2" false
+"LPT2.txt" false
+"lpt2.txt" false
+"LPT2  .txt" false
+"lpt2  .txt" false
+"LPT3" false
+"lpt3" false
+"LPT3.txt" false
+"lpt3.txt" false
+"LPT3  .txt" false
+"lpt3  .txt" false
+"LPT4" false
+"lpt4" false
+"LPT4.txt" false
+"lpt4.txt" false
+"LPT4  .txt" false
+"lpt4  .txt" false
+"LPT5" false
+"lpt5" false
+"LPT5.txt" false
+"lpt5.txt" false
+"LPT5  .txt" false
+"lpt5  .txt" false
+"LPT6" false
+"lpt6" false
+"LPT6.txt" false
+"lpt6.txt" false
+"LPT6  .txt" false
+"lpt6  .txt" false
+"LPT7" false
+"lpt7" false
+"LPT7.txt" false
+"lpt7.txt" false
+"LPT7  .txt" false
+"lpt7  .txt" false
+"LPT8" false
+"lpt8" false
+"LPT8.txt" false
+"lpt8.txt" false
+"LPT8  .txt" false
+"lpt8  .txt" false
+"LPT9" false
+"lpt9" false
+"LPT9.txt" false
+"lpt9.txt" false
+"LPT9  .txt" false
+"lpt9  .txt" false
+"COM\u00b9" false
+"com\u00b9" false
+"COM\u00b9.txt" false
+"com\u00b9.txt" false
+"COM\u00b9  .txt" false
+"com\u00b9  .txt" false
+"COM\u00b2" false
+"com\u00b2" false
+"COM\u00b2.txt" false
+"com\u00b2.txt" false
+"COM\u00b2  .txt" false
+"com\u00b2  .txt" false
+"COM\u00b3" false
+"com\u00b3" false
+"COM\u00b3.txt" false
+"com\u00b3.txt" false
+"COM\u00b3  .txt" false
+"com\u00b3  .txt" false
+"LPT\u00b9" false
+"lpt\u00b9" false
+"LPT\u00b9.txt" false
+"lpt\u00b9.txt" false
+"LPT\u00b9  .txt" false
+"lpt\u00b9  .txt" false
+"LPT\u00b2" false
+"lpt\u00b2" false
+"LPT\u00b2.txt" false
+"lpt\u00b2.txt" false
+"LPT\u00b2  .txt" false
+"lpt\u00b2  .txt" false
+"LPT\u00b3" false
+"lpt\u00b3" false
+"LPT\u00b3.txt" false
+"lpt\u00b3.txt" false
+"LPT\u00b3  .txt" false
+"lpt\u00b3  .txt" false
+"notes." false
+"notes " false
+"a<b" false
+"a>b" false
+"a:b" false
+"a\"b" false
+"a|b" false
+"a?b" false
+"a*b" false
+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" true
+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" false
+"\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1ea" true
+"\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e" false
+"console" true
+"com10.txt" true
+%% end
+
+%% case representable-linux
+%% source [OS/path §8.1]
+%% note Linux: at most 255 bytes.
+%% rule P5
+%% function representable
+%% arg os linux
+%% rows
+"CON" true
+"a:b" true
+"notes." true
+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" true
+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" false
+"\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9a" true
+"\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9\u00e9" false
+%% end
+
+%% case representable-macos
+%% source [OS/path §8.1]
+%% note macOS: at most 255 UTF-8 bytes (U+1D11E is four).
+%% rule P5
+%% function representable
+%% arg os macos
+%% rows
+"CON" true
+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" true
+"aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa" false
+"\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1eabc" true
+"\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e\ud834\udd1e" false
+%% end
+
+%% case p8-01
+%% source [OS/path §3] P8
+%% source [F20 §2.3] symbolic links
+%% note The oid of a symbolic link is taken over its target text, without norm.
+%% rule P8
+%% function symlink_oid
+%% arg target "../shared/config.toml"
+%% arg algo sha1
+%% expect afa2d92fd7ecdc895634706240a4191a9b261aff
+%% end
+
+%% case p8-02
+%% source [OS/path §3] P8
+%% source [F20 §2.3] symbolic links
+%% note The oid of a symbolic link is taken over its target text, without norm.
+%% rule P8
+%% function symlink_oid
+%% arg target "../shared/config.toml"
+%% arg algo sha256
+%% expect 814ce52e66ea4b41624b1d5eb62d71c35ead02c7e0c35bfbb5d2fd7d3758a4a3
+%% end
+
+%% case p8-03
+%% source [OS/path §3] P8
+%% source [F20 §2.3] symbolic links
+%% note The oid of a symbolic link is taken over its target text, without norm.
+%% rule P8
+%% function symlink_oid
+%% arg target "dir with space/f"
+%% arg algo sha1
+%% expect 8f2d8f3417524ee5183a1efeb8990609fc8bc5f6
+%% end
+
+%% case p9-key-01
+%% source [OS/path §4.5]
+%% rule P9
+%% function trees_key
+%% note TREES key, HEADS directory-binding key: blake3_16 of the canonical text bytes.
+%% arg text "C:/work/storage"
+%% expect 67dbe02c270f1300ce038b02563b5a24
+%% end
+
+%% case p9-key-02
+%% source [OS/path §4.5]
+%% rule P9
+%% function trees_key
+%% note TREES key, HEADS directory-binding key: blake3_16 of the canonical text bytes.
+%% arg text "//srv/share/repo"
+%% expect 175c5f449dc579895e19953a3a4a36b6
+%% end
+
+%% case p9-key-03
+%% source [OS/path §4.5]
+%% rule P9
+%% function trees_key
+%% note TREES key, HEADS directory-binding key: blake3_16 of the canonical text bytes.
+%% arg text "/home/dev/repo"
+%% expect c45cfe515ee920da4c90d0091c4d9f69
+%% end
+
+%% case p9-lookup-01
+%% source [OS/path §4.4]
+%% source [OS/path §3] P9
+%% note The root id matches: that row is the tree, whatever its spelling.
+%% note Root ids are opaque tokens; 0 is kind 0 (no trusted id). Equal tokens are the same object.
+%% rule P9
+%% function lookup_tree
+%% view
+row r1 text="C:/work/storage" root_id=ntfs:1:aa os=windows
+row r2 text="C:/work/other" root_id=ntfs:1:bb os=windows
+%% arg text "C:/Work/Storage"
+%% arg root_id ntfs:1:aa
+%% arg os windows
+%% expect r1
+%% end
+
+%% case p9-lookup-02
+%% source [OS/path §4.4]
+%% source [OS/path §3] P9
+%% note No trusted id (kind 0): the row whose key equals the canonical text's key.
+%% note Root ids are opaque tokens; 0 is kind 0 (no trusted id). Equal tokens are the same object.
+%% rule P9
+%% function lookup_tree
+%% view
+row r1 text="C:/work/storage" root_id=ntfs:1:aa os=windows
+%% arg text "C:/work/storage"
+%% arg root_id 0
+%% arg os windows
+%% expect r1
+%% end
+
+%% case p9-lookup-03
+%% source [OS/path §4.4]
+%% source [OS/path §3] P9
+%% note A row written under another OS tag has an uninterpretable id and is found by spelling only.
+%% note Root ids are opaque tokens; 0 is kind 0 (no trusted id). Equal tokens are the same object.
+%% rule P9
+%% function lookup_tree
+%% view
+row r1 text="/home/dev/repo" root_id=ext4:5:77 os=linux
+%% arg text "/home/dev/repo"
+%% arg root_id apfs:9:77
+%% arg os macos
+%% expect r1
+%% end
+
+%% case p9-lookup-04
+%% source [OS/path §4.4]
+%% source [OS/path §3] P9
+%% note Neither the id nor the key matches: a new tree.
+%% note Root ids are opaque tokens; 0 is kind 0 (no trusted id). Equal tokens are the same object.
+%% rule P9
+%% function lookup_tree
+%% view
+row r1 text="C:/work/storage" root_id=ntfs:1:aa os=windows
+%% arg text "C:/work/storage2"
+%% arg root_id ntfs:1:cc
+%% arg os windows
+%% expect new
+%% end
+
+%% case p9-lookup-05
+%% source [OS/path §4.4]
+%% source [OS/path §3] P9
+%% note Id first: the id names r2 although the spelling is r1's.
+%% note Root ids are opaque tokens; 0 is kind 0 (no trusted id). Equal tokens are the same object.
+%% rule P9
+%% function lookup_tree
+%% view
+row r1 text="C:/work/storage" root_id=ntfs:1:aa os=windows
+row r2 text="D:/mirror/storage" root_id=ntfs:2:dd os=windows
+%% arg text "C:/work/storage"
+%% arg root_id ntfs:2:dd
+%% arg os windows
+%% expect r2
+%% end
+
+%% case p11a-01
+%% source [OS/path §3] P11 (a)
+%% source [F01 §6.4]
+%% note q = the first 32 hex digits of BLAKE3-256 over the name's UTF-8 bytes as stored on the name line (a back-quoted name without its back-quotes).
+%% rule P11
+%% function query_file_name
+%% arg name "stale_blockers"
+%% expect "schema/queries/4cbb822a6367a5c9a71626f7f4ed7045.moi"
+%% end
+
+%% case p11a-02
+%% source [OS/path §3] P11 (a)
+%% source [F01 §6.4]
+%% note q = the first 32 hex digits of BLAKE3-256 over the name's UTF-8 bytes as stored on the name line (a back-quoted name without its back-quotes).
+%% rule P11
+%% function query_file_name
+%% arg name "ready_now"
+%% expect "schema/queries/43920605aea0b0badb8e4bb7452f0553.moi"
+%% end
+
+%% case p11a-03
+%% source [OS/path §3] P11 (a)
+%% source [F01 §6.4]
+%% note q = the first 32 hex digits of BLAKE3-256 over the name's UTF-8 bytes as stored on the name line (a back-quoted name without its back-quotes).
+%% rule P11
+%% function query_file_name
+%% arg name "Foo bar"
+%% expect "schema/queries/0aaa4001b1a1370fb0e81ed2def0f1d7.moi"
+%% end
+
+%% case p11b-01
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% note [F12 §2.4]'s accepted list.
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/l5np"
+%% expect ok
+%% end
+
+%% case p11b-02
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/team_2/phys-ecs"
+%% expect ok
+%% end
+
+%% case p11b-03
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "plan/q3.v2"
+%% expect ok
+%% end
+
+%% case p11b-04
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb tag
+%% arg name "tags/v1.2"
+%% expect ok
+%% end
+
+%% case p11b-05
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb tag
+%% arg name "tags/release/1.0"
+%% expect ok
+%% end
+
+%% case p11b-06
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% note [F12 §2.4]'s refused list: upper case (IN-2, never folded).
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/L5np"
+%% expect refused RN-1
+%% end
+
+%% case p11b-07
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% note A complete name without a namespace (IN-3's completion is not applied here).
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "feature-x"
+%% expect refused RN-1
+%% end
+
+%% case p11b-08
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/merge"
+%% expect refused RN-2
+%% end
+
+%% case p11b-09
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/x/from/y"
+%% expect refused RN-2
+%% end
+
+%% case p11b-10
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% note c followed by 7 hex digits.
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/cafebabe"
+%% expect refused RN-3
+%% end
+
+%% case p11b-11
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb tag
+%% arg name "tags/s4400"
+%% expect refused RN-3
+%% end
+
+%% case p11b-12
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/nul.txt"
+%% expect refused RN-4
+%% end
+
+%% case p11b-13
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb tag
+%% arg name "tags/v1.lock"
+%% expect refused RN-5
+%% end
+
+%% case p11b-14
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/a..b"
+%% expect refused RN-1
+%% end
+
+%% case p11b-15
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/.x"
+%% expect refused RN-1
+%% end
+
+%% case p11b-16
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% note c followed by 6 hex digits is a name.
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/c123456"
+%% expect ok
+%% end
+
+%% case p11b-17
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/s"
+%% expect ok
+%% end
+
+%% case p11b-18
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/console"
+%% expect ok
+%% end
+
+%% case p11b-19
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/com10"
+%% expect ok
+%% end
+
+%% case p11b-20
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% note IN-1: NFC maps U+212A KELVIN SIGN to K, which RN-1 refuses.
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/\u212a"
+%% expect refused RN-1
+%% end
+
+%% case p11b-21
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% note Non-ASCII after NFC.
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/caf\u00e9"
+%% expect refused RN-1
+%% end
+
+%% case p11b-22
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% note 128 bytes.
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+%% expect ok
+%% end
+
+%% case p11b-23
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% note 129 bytes.
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa"
+%% expect refused RN-6
+%% end
+
+%% case p11b-24
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% note fold equality is byte equality for ref names ([F12 §2.1]).
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/x"
+%% arg live "main"
+%% arg live "lane/x"
+%% expect refused RN-7
+%% end
+
+%% case p11b-25
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/a/b"
+%% arg live "main"
+%% arg live "lane/a"
+%% expect refused RN-8
+%% end
+
+%% case p11b-26
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/a"
+%% arg live "main"
+%% arg live "lane/a/b"
+%% expect refused RN-8
+%% end
+
+%% case p11b-27
+%% source [F12 §2.4]
+%% source [F12 §2.5]
+%% source [OS/path §3] P11 (b)
+%% note A prefix ends at a segment boundary.
+%% rule P11
+%% function ref_name_check
+%% arg verb branch
+%% arg name "lane/ab"
+%% arg live "main"
+%% arg live "lane/a"
+%% expect ok
+%% end

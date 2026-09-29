@@ -1,0 +1,14 @@
+moirai-node 1
+uid: 1a000000000000000000000000000011
+kind: task
+title: Conflicted task
+created: ce57a81526c7161d935e81e38d9047bcd4acf9740e701ca5f31b8611ef0d81340 2026-09-21T14:13:20.000Z
+updated: cf8afdd127b3a1cd0854172115ef77ea9f952d3baa516f5c45acc771a2ef9b772 2026-09-21T15:43:20.000Z
+conflict body class=TextHunk base="Pairs are batched per frame.\n" ours="Pairs are \"batched\" per archetype.\nSee #12.\n" theirs="Pairs are batched per grid cell.\n"
+conflict edge.at.ff62a2c718c52faafc108cf0e945642e.e2a8f4372b79ab3762509cc526f7868c class=FieldEdit base="kind=quote mode=live watch=span quote_h=f0bc697727cf4ed990d560ad41fa0517 prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=82f448f5c2b1401a2393409774e4b52d quote=\"The writer byte is taken with LockFileEx.\" prefix=\"\" suffix=\"\\nA holder\" hint=3-3 window=AQACAFoex9ILRA span=xxh3:6b1f3e0d2c9a8475 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9 captured=55a0f8225a49064207dfab2882e736d5 marker=lock-writer v=1" ours="kind=quote mode=live watch=span quote_h=f0bc697727cf4ed990d560ad41fa0517 prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=82f448f5c2b1401a2393409774e4b52d quote=\"The writer byte is taken with LockFileEx.\" prefix=\"\" suffix=\"\\nA holder\" hint=5-5 window=AQACAFoex9ILRA span=xxh3:6b1f3e0d2c9a8475 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9 captured=55a0f8225a49064207dfab2882e736d5 marker=lock-writer v=1" theirs="kind=quote mode=live watch=span quote_h=9a4ad55e194bd2698a5fbd5371cf797e prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=82f448f5c2b1401a2393409774e4b52d quote=\"The writer byte is taken with LockFileEx on open.\" prefix=\"\" suffix=\"\\nA holder\" hint=4-4 window=AQACAFoex9ILRA span=xxh3:6b1f3e0d2c9a8475 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9 captured=55a0f8225a49064207dfab2882e736d5 marker=lock-writer v=1"
+conflict edge.cites.5d000000000000000000000000000011 class=FieldEdit base=pin=ce53e65b9e751e6b6bd37f93e501ec97a4752d361d4e9848c235d462fe3adaad3 ours= theirs=pin=c0c4cd7158cf16a5964d30a3962fc2a017e3530e3bd8b627a67c4c6f6c57858c7
+conflict field.estimate class=FieldEdit base=3 ours=5 theirs=
+conflict field.labels class=FieldEdit base="[storage]" ours= theirs="[hot path, storage]"
+conflict field.priority class=FieldEdit base= ours=P0 theirs=P3
+conflict parent class=FieldEdit base=0a000000000000000000000000000001,a0V ours=0a000000000000000000000000000002,a1 theirs=-,a2
+conflict status class=DATA base=in_progress ours=done/completed theirs=cancelled/obsolete

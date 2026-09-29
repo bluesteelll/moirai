@@ -1,0 +1,10 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg-tree/uid-file-name--uid-mismatch/
+%% file tree
+%% context destination object format sha1
+%% source [F14 §9.2]
+%% source [F14 §3.4]
+%% note A node file whose uid: line differs from its file name.
+%% refuse ImageParse uid-file-name
+%% end

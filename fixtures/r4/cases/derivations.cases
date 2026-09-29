@@ -1,0 +1,554 @@
+# R4 fixtures (WP-21, R-FIX). Format: fixtures/r4/INDEX.md section 2.
+# Written from docs/spec/format/08-data-model.md §11, 20-r4-resolver-constants.md §3, docs/spec/os/path.md and
+# 12-vcs.md §2; every value is synthetic.
+# The derived identities of [F08 §11]: BLAKE3-128 over lp()-framed arguments.
+
+%% case file-no-pred
+%% source [F08 §11.2]
+%% source [F08 §11.1]
+%% note [F08 §11.2]'s informative example: the 46 hashed bytes, and the uid they give.
+%% function uid_file
+%% arg root "project"
+%% arg path "docs/a.md"
+%% arg pred -
+%% input-hex
+; lp("moirai-file-v1")
+0e0000006d6f697261692d66696c652d7631
+; lp(r)
+0700000070726f6a656374
+; lp(p)
+09000000646f63732f612e6d64
+; lp(q = empty)
+00000000
+%% input-length 46
+%% output d8253f84275a6c5b2fe5dbdb2bc28532
+%% end
+
+%% case file-with-pred
+%% source [F08 §11.2]
+%% source [F08 §11.1]
+%% note The predecessor enters as its 16 bytes.
+%% function uid_file
+%% arg root "project"
+%% arg path "docs/a.md"
+%% arg pred d8253f84275a6c5b2fe5dbdb2bc28532
+%% input-hex
+; lp("moirai-file-v1")
+0e0000006d6f697261692d66696c652d7631
+; lp(r)
+0700000070726f6a656374
+; lp(p)
+09000000646f63732f612e6d64
+; lp(q)
+10000000d8253f84275a6c5b2fe5dbdb2bc28532
+%% input-length 62
+%% output 1911e72f0dc27f230f6e8a66a125dca9
+%% end
+
+%% case file-named-root
+%% source [F08 §11.2]
+%% source [F08 §11.1]
+%% source [F08 §5.4.1]
+%% note A named root enters by its name; the path without its root.
+%% function uid_file
+%% arg root "docs_site"
+%% arg path "index.md"
+%% arg pred -
+%% input-hex
+; lp("moirai-file-v1")
+0e0000006d6f697261692d66696c652d7631
+; lp(r)
+09000000646f63735f73697465
+; lp(p)
+08000000696e6465782e6d64
+; lp(q = empty)
+00000000
+%% input-length 47
+%% output ea9f2b0014900cee9af57b78e2ee6f7a
+%% end
+
+%% case file-abs-root
+%% source [F08 §11.2]
+%% source [F08 §11.1]
+%% source [OS/path §2.2]
+%% note Root abs: a machine-local path, so the uid is machine-specific by construction.
+%% function uid_file
+%% arg root "abs"
+%% arg path "C:/work/tools/run.ps1"
+%% arg pred -
+%% input-hex
+; lp("moirai-file-v1")
+0e0000006d6f697261692d66696c652d7631
+; lp(r)
+03000000616273
+; lp(p)
+15000000433a2f776f726b2f746f6f6c732f72756e2e707331
+; lp(q = empty)
+00000000
+%% input-length 54
+%% output 5d502cb8eb1f73c29927aa84d5505c51
+%% end
+
+%% case file-nfc-spelling
+%% source [F08 §11.2]
+%% source [F08 §11.1]
+%% source [OS/path §3] P7
+%% note origin_path spelled NFC (U+00E9).
+%% function uid_file
+%% arg root "project"
+%% arg path "docs/caf\u00e9.md"
+%% arg pred -
+%% input-hex
+; lp("moirai-file-v1")
+0e0000006d6f697261692d66696c652d7631
+; lp(r)
+0700000070726f6a656374
+; lp(p)
+0d000000646f63732f636166c3a92e6d64
+; lp(q = empty)
+00000000
+%% input-length 50
+%% output e123b5b353d4c7f76c340a579fc5f228
+%% end
+
+%% case file-nfd-spelling
+%% source [F08 §11.2]
+%% source [F08 §11.1]
+%% source [OS/path §3] P7
+%% source [F20 §3.3]
+%% note The same name spelled NFD (e U+0301): uids derive from exact bytes, never folded, so the uid differs.
+%% function uid_file
+%% arg root "project"
+%% arg path "docs/cafe\u0301.md"
+%% arg pred -
+%% input-hex
+; lp("moirai-file-v1")
+0e0000006d6f697261692d66696c652d7631
+; lp(r)
+0700000070726f6a656374
+; lp(p)
+0e000000646f63732f63616665cc812e6d64
+; lp(q = empty)
+00000000
+%% input-length 51
+%% output a9c1f34314157114fb4325fb866ac814
+%% end
+
+%% case file-case-spelling
+%% source [F08 §11.2]
+%% source [F08 §11.1]
+%% source [F20 §3.3]
+%% note Upper case: another uid than docs/a.md; fold_v1 is never used for identity.
+%% function uid_file
+%% arg root "project"
+%% arg path "Docs/A.md"
+%% arg pred -
+%% input-hex
+; lp("moirai-file-v1")
+0e0000006d6f697261692d66696c652d7631
+; lp(r)
+0700000070726f6a656374
+; lp(p)
+09000000446f63732f412e6d64
+; lp(q = empty)
+00000000
+%% input-length 46
+%% output a394e8a0c20c145d8da75b5fc3422cdd
+%% end
+
+%% case root-project
+%% source [F08 §11.3]
+%% function uid_root
+%% arg root "project"
+%% input-hex
+; lp("moirai-root-v1")
+0e0000006d6f697261692d726f6f742d7631
+; lp(r)
+0700000070726f6a656374
+%% input-length 29
+%% output 5bd0e29e6afc4a73557e4cbdf7d34c33
+%% end
+
+%% case root-named
+%% source [F08 §11.3]
+%% function uid_root
+%% arg root "docs_site"
+%% input-hex
+; lp("moirai-root-v1")
+0e0000006d6f697261692d726f6f742d7631
+; lp(r)
+09000000646f63735f73697465
+%% input-length 31
+%% output 778e84db3932345b5aae655f27329ac3
+%% end
+
+%% case root-abs
+%% source [F08 §11.3]
+%% note Computable, though a root node for abs has no path_moves ([F08 §11.3]).
+%% function uid_root
+%% arg root "abs"
+%% input-hex
+; lp("moirai-root-v1")
+0e0000006d6f697261692d726f6f742d7631
+; lp(r)
+03000000616273
+%% input-length 25
+%% output 3e48e091a00c24f6896dec2081e064b4
+%% end
+
+%% case captured-file
+%% source [F08 §11.4]
+%% source [F08 §11.1]
+%% note A file anchor: every selector argument is empty; only the file uid and the kind enter.
+%% function captured
+%% arg file_uid d7e09f2c74ffa63419395ac4e264198b
+%% arg kind file
+%% arg scope -
+%% arg quote -
+%% arg prefix -
+%% arg suffix -
+%% arg end -
+%% arg occurrence -
+%% arg window -
+%% input-hex
+; lp(file uid)
+10000000d7e09f2c74ffa63419395ac4e264198b
+; lp(kind)
+0400000066696c65
+; lp(scope)
+00000000
+; lp(quote.exact)
+00000000
+; lp(prefix.exact)
+00000000
+; lp(suffix.exact)
+00000000
+; lp(end.exact)
+00000000
+; lp(occurrence)
+00000000
+; lp(window)
+00000000
+%% input-length 56
+%% output 05acfceb5d9ed8688ffe8860cd40d45c
+%% end
+
+%% case captured-quote
+%% source [F08 §11.4]
+%% source [F08 §11.1]
+%% function captured
+%% arg file_uid d7e09f2c74ffa63419395ac4e264198b
+%% arg kind quote
+%% arg scope -
+%% arg quote "fn flush(&mut self)"
+%% arg prefix "pub "
+%% arg suffix " -> io::Result<()> {"
+%% arg end -
+%% arg occurrence -
+%% arg window -
+%% input-hex
+; lp(file uid)
+10000000d7e09f2c74ffa63419395ac4e264198b
+; lp(kind)
+0500000071756f7465
+; lp(scope)
+00000000
+; lp(quote.exact)
+13000000666e20666c75736828266d75742073656c6629
+; lp(prefix.exact)
+0400000070756220
+; lp(suffix.exact)
+14000000202d3e20696f3a3a526573756c743c28293e207b
+; lp(end.exact)
+00000000
+; lp(occurrence)
+00000000
+; lp(window)
+00000000
+%% input-length 100
+%% output 979e81a4e37ef2958b4112dc780b7430
+%% end
+
+%% case captured-quote-empty-context
+%% source [F08 §11.4]
+%% source [F08 §11.1]
+%% note Empty prefix and suffix enter as lp(""), like absent ones.
+%% function captured
+%% arg file_uid d7e09f2c74ffa63419395ac4e264198b
+%% arg kind quote
+%% arg scope -
+%% arg quote "fn flush(&mut self)"
+%% arg prefix ""
+%% arg suffix ""
+%% arg end -
+%% arg occurrence -
+%% arg window -
+%% input-hex
+; lp(file uid)
+10000000d7e09f2c74ffa63419395ac4e264198b
+; lp(kind)
+0500000071756f7465
+; lp(scope)
+00000000
+; lp(quote.exact)
+13000000666e20666c75736828266d75742073656c6629
+; lp(prefix.exact)
+00000000
+; lp(suffix.exact)
+00000000
+; lp(end.exact)
+00000000
+; lp(occurrence)
+00000000
+; lp(window)
+00000000
+%% input-length 76
+%% output f1d5506fc48c27cc1447b3344350e2f2
+%% end
+
+%% case captured-quote-occurrence
+%% source [F08 §11.4]
+%% source [F08 §11.1]
+%% note occurrence enters as its u16, two bytes little-endian, inside lp().
+%% function captured
+%% arg file_uid d7e09f2c74ffa63419395ac4e264198b
+%% arg kind quote
+%% arg scope -
+%% arg quote "retry()"
+%% arg prefix ""
+%% arg suffix ""
+%% arg end -
+%% arg occurrence 3
+%% arg window -
+%% input-hex
+; lp(file uid)
+10000000d7e09f2c74ffa63419395ac4e264198b
+; lp(kind)
+0500000071756f7465
+; lp(scope)
+00000000
+; lp(quote.exact)
+0700000072657472792829
+; lp(prefix.exact)
+00000000
+; lp(suffix.exact)
+00000000
+; lp(end.exact)
+00000000
+; lp(occurrence)
+020000000300
+; lp(window)
+00000000
+%% input-length 66
+%% output 0652a973233495ad7ca6ad6a9eba94ec
+%% end
+
+%% case captured-range
+%% source [F08 §11.4]
+%% source [F08 §11.1]
+%% note end.exact enters for range.
+%% function captured
+%% arg file_uid d7e09f2c74ffa63419395ac4e264198b
+%% arg kind range
+%% arg scope -
+%% arg quote "## Timeouts"
+%% arg prefix "\n"
+%% arg suffix "\n"
+%% arg end "Waiters retry every 5 ms for at most 2 s."
+%% arg occurrence -
+%% arg window -
+%% input-hex
+; lp(file uid)
+10000000d7e09f2c74ffa63419395ac4e264198b
+; lp(kind)
+0500000072616e6765
+; lp(scope)
+00000000
+; lp(quote.exact)
+0b00000023232054696d656f757473
+; lp(prefix.exact)
+010000000a
+; lp(suffix.exact)
+010000000a
+; lp(end.exact)
+29000000576169746572732072657472792065766572792035206d7320666f72206174206d6f7374203220732e
+; lp(occurrence)
+00000000
+; lp(window)
+00000000
+%% input-length 111
+%% output 09fa75856cf6e72d1265b95e884cf601
+%% end
+
+%% case captured-lines
+%% source [F08 §11.4]
+%% source [F08 §11.1]
+%% note A lines anchor: the window value W enters; there is no quote.
+%% function captured
+%% arg file_uid d7e09f2c74ffa63419395ac4e264198b
+%% arg kind lines
+%% arg scope -
+%% arg quote -
+%% arg prefix -
+%% arg suffix -
+%% arg end -
+%% arg occurrence -
+%% arg window 02000100111122223333
+%% input-hex
+; lp(file uid)
+10000000d7e09f2c74ffa63419395ac4e264198b
+; lp(kind)
+050000006c696e6573
+; lp(scope)
+00000000
+; lp(quote.exact)
+00000000
+; lp(prefix.exact)
+00000000
+; lp(suffix.exact)
+00000000
+; lp(end.exact)
+00000000
+; lp(occurrence)
+00000000
+; lp(window)
+0a00000002000100111122223333
+%% input-length 67
+%% output 096d3b879f4d415b3aa578c0ba0accae
+%% end
+
+%% case captured-quote-window-ignored
+%% source [F08 §11.4]
+%% source [F08 §11.1]
+%% note A non-lines anchor's window does not enter captured (argument 9 is empty).
+%% function captured
+%% arg file_uid d7e09f2c74ffa63419395ac4e264198b
+%% arg kind quote
+%% arg scope -
+%% arg quote "retry()"
+%% arg prefix ""
+%% arg suffix ""
+%% arg end -
+%% arg occurrence -
+%% arg window 0000010044ee
+%% input-hex
+; lp(file uid)
+10000000d7e09f2c74ffa63419395ac4e264198b
+; lp(kind)
+0500000071756f7465
+; lp(scope)
+00000000
+; lp(quote.exact)
+0700000072657472792829
+; lp(prefix.exact)
+00000000
+; lp(suffix.exact)
+00000000
+; lp(end.exact)
+00000000
+; lp(occurrence)
+00000000
+; lp(window)
+00000000
+%% input-length 64
+%% output ee27aee797af537b2678673aa255a916
+%% end
+
+%% case captured-scope
+%% source [F08 §11.4]
+%% source [F08 §11.1]
+%% source [F08 §10.3.1]
+%% note The scope value's bytes: rust, 2 segments, mod storage, fn flush. The function is defined over these
+%% note bytes; until [F20] Appendix A is complete no writer records a scope, and captured takes lp("")
+%% note ([F08 §10.3.1]). An imported anchor keeps its scope and its captured as stored.
+%% function captured
+%% arg file_uid d7e09f2c74ffa63419395ac4e264198b
+%% arg kind quote
+%% arg scope 0102010773746f72616765000305666c75736800
+%% arg quote "fn flush(&mut self)"
+%% arg prefix "pub "
+%% arg suffix " -> io::Result<()> {"
+%% arg end -
+%% arg occurrence -
+%% arg window -
+%% input-hex
+; lp(file uid)
+10000000d7e09f2c74ffa63419395ac4e264198b
+; lp(kind)
+0500000071756f7465
+; lp(scope)
+140000000102010773746f72616765000305666c75736800
+; lp(quote.exact)
+13000000666e20666c75736828266d75742073656c6629
+; lp(prefix.exact)
+0400000070756220
+; lp(suffix.exact)
+14000000202d3e20696f3a3a526573756c743c28293e207b
+; lp(end.exact)
+00000000
+; lp(occurrence)
+00000000
+; lp(window)
+00000000
+%% input-length 120
+%% output 87ce4cc7b339fc80f8bcddc12a38918b
+%% end
+
+%% case anchor-no-pred
+%% source [F08 §11.4]
+%% function uid_anchor
+%% arg src 1a000000000000000000000000000002
+%% arg captured 979e81a4e37ef2958b4112dc780b7430
+%% arg pred -
+%% input-hex
+; lp("moirai-anchor-v1")
+100000006d6f697261692d616e63686f722d7631
+; lp(s)
+100000001a000000000000000000000000000002
+; lp(c)
+10000000979e81a4e37ef2958b4112dc780b7430
+; lp(p = empty)
+00000000
+%% input-length 64
+%% output 1fb4da2d86414ad798032f7ad3dc759e
+%% end
+
+%% case anchor-with-pred
+%% source [F08 §11.4]
+%% note The predecessor term is the colliding uid ([F08 §11.4] step 3).
+%% function uid_anchor
+%% arg src 1a000000000000000000000000000002
+%% arg captured 979e81a4e37ef2958b4112dc780b7430
+%% arg pred 1fb4da2d86414ad798032f7ad3dc759e
+%% input-hex
+; lp("moirai-anchor-v1")
+100000006d6f697261692d616e63686f722d7631
+; lp(s)
+100000001a000000000000000000000000000002
+; lp(c)
+10000000979e81a4e37ef2958b4112dc780b7430
+; lp(p)
+100000001fb4da2d86414ad798032f7ad3dc759e
+%% input-length 80
+%% output 8ef3d186c4c5c3711fb6e4cf38c78310
+%% end
+
+%% case anchor-other-source
+%% source [F08 §11.4]
+%% note Another referrer with identical captured inputs derives another uid.
+%% function uid_anchor
+%% arg src 1a000000000000000000000000000001
+%% arg captured 979e81a4e37ef2958b4112dc780b7430
+%% arg pred -
+%% input-hex
+; lp("moirai-anchor-v1")
+100000006d6f697261692d616e63686f722d7631
+; lp(s)
+100000001a000000000000000000000000000001
+; lp(c)
+10000000979e81a4e37ef2958b4112dc780b7430
+; lp(p = empty)
+00000000
+%% input-length 64
+%% output c30c90ea3284d0b5990e85c7915e4794
+%% end

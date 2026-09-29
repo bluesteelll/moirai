@@ -1,0 +1,152 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case lane-x-2
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note lane/x: X1 deleted.
+%% destination A sha1 full
+%% class native
+%% git-commit d994bce74c28d2bff49538b0c612cc4cdb455233
+%% git-tree 1063d41dd939c6ac4f4aef04e06b7501e97ddc39
+%% git-parent fc3c52d305bce567850a5fc38da3fddb114115a3 lane-x-1
+%% trailer-commit 1604505e547e1e81647982690f5f2d70f4ffec74451eef7502ee2d6441164759
+%% touched-new 1
+%% touched-old 1
+%% p-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 8
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body "Timeout fires before the lock holder's flush completes."
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task deleted "obsolete" -
+  field title text "Measure the flush p99"
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 3b000000000000000000000000000002 note
+  field labels set text 1 "scratch"
+  field title text "Scratch finding"
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 8
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body "Timeout fires before the lock holder's flush completes."
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task deleted "obsolete" -
+  field title text "Measure the flush p99"
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 3b000000000000000000000000000002 note deleted "created by mistake" -
+  field title text "Scratch finding"
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+3b000000000000000000000000000002 existence = deleted note "created by mistake" -
+3b000000000000000000000000000002 field labels = absent
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 3b000000000000000000000000000002 existence
+013b000000000000000000000000000002010002040000006e6f74651200000063726561746564206279206d69737461
+6b6500000000
+; entry 2: 3b000000000000000000000000000002 field labels
+013b00000000000000000000000000000204060000006c6162656c730000
+; u64 entry count = 2
+0200000000000000
+%% entry-count 2
+%% changeset-digest 6d416da4b11f637e027dd3a4ad1ff0f34ebf34fdbf4afece4d13cf0ccd2358b7
+%% commit
+kind ordinary
+parent 0c356fdc2d0fce910e166969e3ac2377a351916f9a038021179c43f7b0f2cabf
+hlc 01a0c47077200000
+actor "dev#3"
+role "developer"
+session "claude:s3"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "lane x: remove the scratch note"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+0c356fdc2d0fce910e166969e3ac2377a351916f9a038021179c43f7b0f2cabf
+; item 3: hlc
+0000207770c4a001
+; item 4: actor
+050000006465762333
+; item 4: role
+09000000646576656c6f706572
+; item 4: session
+09000000636c617564653a7333
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+1f0000006c616e6520783a2072656d6f7665207468652073637261746368206e6f7465
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+6d416da4b11f637e027dd3a4ad1ff0f34ebf34fdbf4afece4d13cf0ccd2358b7
+%% commit-id 1604505e547e1e81647982690f5f2d70f4ffec74451eef7502ee2d6441164759
+%% canonical commits.cases lane-x-2 commit-id
+%% end

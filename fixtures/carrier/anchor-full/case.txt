@@ -1,0 +1,199 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case anchor-full
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note Row anchors, full mode: T2's `anchor` lines for a `range` anchor and a `quote` anchor with an empty
+%% note prefix carry the digests and the texts. Same commit id as case anchor-full-hash-only.
+%% destination A sha1 full
+%% class native
+%% git-commit 15a8ce13bee4af280d0de5985643573e7fc0b05f
+%% git-tree deee6b641a4660a86827ef78e2b6b37b6061048d
+%% git-parent 018e6a12ce584771b360c194bc69088493ee821e root
+%% trailer-commit c2645145d5e8c99c807a3e7c1c5447981dd0627ab94bb8be799ef231e29064e6
+%% touched-new 3
+%% touched-old 1
+%% p-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+  at ff62a2c718c52faafc108cf0e945642e 451c99960d7d0705e2e58204dc597f09 kind=range mode=live watch=span resolver=1 captured=ae12469f9fd646a920aead70874596ad quote="## Timeouts" prefix="A holder that dies leaves the byte to the OS.\n" suffix="" end="Waiters retry every 5 ms for at most 2 s." hint=6-8 window=020000003d915a1e span_hash=0f4e2a17b3c85d69 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae marker="lock-timeouts"
+  at ff62a2c718c52faafc108cf0e945642e 9751bba14934b070bf965455e00cd17f kind=quote mode=live watch=span resolver=1 captured=5df7478441e0b5801d114d7a39c098b6 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder that dies" hint=3-3 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae git=sha1:83bcc6a114fc80225d02ce95eec80e3769b5f074
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
+  field root text "project"
+  field title text "root:project"
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+node ff62a2c718c52faafc108cf0e945642e artifact
+  field artifact_kind enum doc
+  field bytes int 161
+  field observed_git oid sha1 83bcc6a114fc80225d02ce95eec80e3769b5f074
+  field oid oid sha1 a936e37c01d643cb4e9df77e93ec3d4f89fd77ae
+  field origin_path path project "docs/storage/lock.md"
+  field path path project "docs/storage/lock.md"
+  field root text "project"
+%% entries
+1a000000000000000000000000000002 edge at ff62a2c718c52faafc108cf0e945642e 451c99960d7d0705e2e58204dc597f09 = present anchor kind=range mode=live watch=span resolver=1 captured=ae12469f9fd646a920aead70874596ad quote="## Timeouts" prefix="A holder that dies leaves the byte to the OS.\n" suffix="" end="Waiters retry every 5 ms for at most 2 s." hint=6-8 window=020000003d915a1e span_hash=0f4e2a17b3c85d69 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae marker="lock-timeouts"
+1a000000000000000000000000000002 edge at ff62a2c718c52faafc108cf0e945642e 9751bba14934b070bf965455e00cd17f = present anchor kind=quote mode=live watch=span resolver=1 captured=5df7478441e0b5801d114d7a39c098b6 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder that dies" hint=3-3 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae git=sha1:83bcc6a114fc80225d02ce95eec80e3769b5f074
+5bd0e29e6afc4a73557e4cbdf7d34c33 existence = live area
+5bd0e29e6afc4a73557e4cbdf7d34c33 field root = text "project"
+5bd0e29e6afc4a73557e4cbdf7d34c33 field title = text "root:project"
+ff62a2c718c52faafc108cf0e945642e existence = live artifact
+ff62a2c718c52faafc108cf0e945642e field artifact_kind = enum doc
+ff62a2c718c52faafc108cf0e945642e field bytes = int 161
+ff62a2c718c52faafc108cf0e945642e field observed_git = oid sha1 83bcc6a114fc80225d02ce95eec80e3769b5f074
+ff62a2c718c52faafc108cf0e945642e field oid = oid sha1 a936e37c01d643cb4e9df77e93ec3d4f89fd77ae
+ff62a2c718c52faafc108cf0e945642e field origin_path = path project "docs/storage/lock.md"
+ff62a2c718c52faafc108cf0e945642e field path = path project "docs/storage/lock.md"
+ff62a2c718c52faafc108cf0e945642e field root = text "project"
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000002 edge at ff62a2c718c52faafc108cf0e945642e 451c99960d7d0705e2e58204dc597f09
+011a00000000000000000000000000000207020000006174ff62a2c718c52faafc108cf0e945642e10000000451c9996
+0d7d0705e2e58204dc597f090001040500000072616e6765040000006c697665040000007370616e0000000010000000
+4088f6c0faec4ed810e9eca1978806cd100000006756ade5801160e577e2af777a3c26fa10000000af1349b9f5f9a1a6
+a0404dea36dcc94910000000e04a8042d57f78e0ce8ef0b377ac59670000000008000000060000000800000008000000
+020000003d915a1e08000000695dc8b3172a4e0f040000007368613114000000a936e37c01d643cb4e9df77e93ec3d4f
+89fd77ae0000000000000000ae12469f9fd646a920aead70874596ad000000000d0000006c6f636b2d74696d656f7574
+730100
+; entry 2: 1a000000000000000000000000000002 edge at ff62a2c718c52faafc108cf0e945642e 9751bba14934b070bf965455e00cd17f
+011a00000000000000000000000000000207020000006174ff62a2c718c52faafc108cf0e945642e100000009751bba1
+4934b070bf965455e00cd17f0001040500000071756f7465040000006c697665040000007370616e0000000010000000
+f0bc697727cf4ed990d560ad41fa051710000000af1349b9f5f9a1a6a0404dea36dcc949100000001713964b912310fa
+a30159efdf5d688100000000000000000800000003000000030000000a000000010002005a1ec7d20b44080000007584
+9a2c0d3e1f6b040000007368613114000000a936e37c01d643cb4e9df77e93ec3d4f89fd77ae04000000736861311400
+000083bcc6a114fc80225d02ce95eec80e3769b5f0745df7478441e0b5801d114d7a39c098b600000000000000000100
+; entry 3: 5bd0e29e6afc4a73557e4cbdf7d34c33 existence
+015bd0e29e6afc4a73557e4cbdf7d34c33010001040000006172656100
+; entry 4: 5bd0e29e6afc4a73557e4cbdf7d34c33 field root
+015bd0e29e6afc4a73557e4cbdf7d34c330404000000726f6f7400070700000070726f6a656374
+; entry 5: 5bd0e29e6afc4a73557e4cbdf7d34c33 field title
+015bd0e29e6afc4a73557e4cbdf7d34c3304050000007469746c6500070c000000726f6f743a70726f6a656374
+; entry 6: ff62a2c718c52faafc108cf0e945642e existence
+01ff62a2c718c52faafc108cf0e945642e01000108000000617274696661637400
+; entry 7: ff62a2c718c52faafc108cf0e945642e field artifact_kind
+01ff62a2c718c52faafc108cf0e945642e040d00000061727469666163745f6b696e64000603000000646f63
+; entry 8: ff62a2c718c52faafc108cf0e945642e field bytes
+01ff62a2c718c52faafc108cf0e945642e040500000062797465730003a100000000000000
+; entry 9: ff62a2c718c52faafc108cf0e945642e field observed_git
+01ff62a2c718c52faafc108cf0e945642e040c0000006f627365727665645f676974000d040000007368613114000000
+83bcc6a114fc80225d02ce95eec80e3769b5f074
+; entry 10: ff62a2c718c52faafc108cf0e945642e field oid
+01ff62a2c718c52faafc108cf0e945642e04030000006f6964000d040000007368613114000000a936e37c01d643cb4e
+9df77e93ec3d4f89fd77ae
+; entry 11: ff62a2c718c52faafc108cf0e945642e field origin_path
+01ff62a2c718c52faafc108cf0e945642e040b0000006f726967696e5f70617468000c0700000070726f6a6563741400
+0000646f63732f73746f726167652f6c6f636b2e6d64
+; entry 12: ff62a2c718c52faafc108cf0e945642e field path
+01ff62a2c718c52faafc108cf0e945642e040400000070617468000c0700000070726f6a65637414000000646f63732f
+73746f726167652f6c6f636b2e6d64
+; entry 13: ff62a2c718c52faafc108cf0e945642e field root
+01ff62a2c718c52faafc108cf0e945642e0404000000726f6f7400070700000070726f6a656374
+; u64 entry count = 13
+0d00000000000000
+%% entry-count 13
+%% changeset-digest 4947c12d13f218c3a94809be9eeb2c4b687427917a3b6a1b1d3f12a7d9a10676
+%% commit
+kind ordinary
+parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+hlc 01a0c45b68800000
+actor "dev#2"
+role "developer"
+session "codex:s7"
+git-head sha1 83bcc6a114fc80225d02ce95eec80e3769b5f074
+git-branch "storage/lock-doc"
+git-worktree "D:/work/storage"
+git-base -
+message "link #2 docs/storage/lock.md"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+; item 3: hlc
+000080685bc4a001
+; item 4: actor
+050000006465762332
+; item 4: role
+09000000646576656c6f706572
+; item 4: session
+08000000636f6465783a7337
+; item 5: git_algo
+0400000073686131
+; item 5: git_head
+1400000083bcc6a114fc80225d02ce95eec80e3769b5f074
+; item 5: git_branch
+1000000073746f726167652f6c6f636b2d646f63
+; item 5: git_worktree
+0f000000443a2f776f726b2f73746f72616765
+; item 5: git_base
+00000000
+; item 6: message
+1c0000006c696e6b20233220646f63732f73746f726167652f6c6f636b2e6d64
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+4947c12d13f218c3a94809be9eeb2c4b687427917a3b6a1b1d3f12a7d9a10676
+%% commit-id c2645145d5e8c99c807a3e7c1c5447981dd0627ab94bb8be799ef231e29064e6
+%% canonical anchors.cases anchor-full commit-id
+%% same-id anchor-full-hash-only
+%% end

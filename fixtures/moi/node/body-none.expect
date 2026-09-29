@@ -1,0 +1,15 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/body-none.moi
+%% file node
+%% context core
+%% source [F14 §6.9]
+%% note Bodies: no body: no `---` line.
+%% canonical self
+%% keys
+node 3b000000000000000000000000000011 note
+  field title text "body-none"
+%% image
+created cc1ded33d639566a5f7d7d966ad3e3b91674098344d5be7402006a55a4a0defaf 2026-09-21T14:13:20.000Z
+updated cf34260401f8ff9a9c9254dda7a0643e6b5c449bab2706b74d16bf8b6e1913bbb 2026-09-21T15:43:20.000Z
+%% end

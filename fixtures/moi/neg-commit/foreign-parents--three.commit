@@ -1,0 +1,8 @@
+tree 5b675940a1fa69b48f8362119c147846974343a7
+parent ccad424446fa053d2897aa44b21b74b9ebf6ad37
+parent 018e6a12ce584771b360c194bc69088493ee821e
+parent a057d1efe7ff28246a32120f1c3319937cda2ca1
+author Alice Example <alice@example.com> 1790004200 +0000
+committer Alice Example <alice@example.com> 1790004200 +0000
+
+Hand edit: drop #1, start #2, count two incidents

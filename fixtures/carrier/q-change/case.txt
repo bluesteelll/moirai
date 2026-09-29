@@ -1,0 +1,145 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case q-change
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note Row R5 (+): open_tasks changed; stale_notes dropped (its query file leaves the tree).
+%% destination A sha1 full
+%% class native
+%% git-commit 15f59b62732a4382f3e8fc2dd913428b847e0dae
+%% git-tree 29efd41160e0b7a9ee76aadcc6ad452a57a3d5d7
+%% git-parent 507868c1ad2fc92931a5fc49f62e38d2e8fb168b q-define
+%% trailer-commit b615381affeff30141749be1064127f00c3a9e5362622a55032b6fbf1049358f
+%% touched-new 1
+%% touched-old 2
+%% p-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+schema query open_tasks lq=1 params="$scope: node = #u:a0000000000000000000000000000001, $limit: int = 20" shape="table" budget="light" text="DEFINE QUERY open_tasks($scope: node = #u:a0000000000000000000000000000001, $limit: int = 20) SHAPE table BUDGET light AS {\n  MATCH (t:task)\n  WHERE t.status = 'open' AND t IN subtree($scope)\n  RETURN t ORDER BY t.priority LIMIT $limit\n}"
+schema query stale_notes lq=1 params="" shape="table" budget="medium" text="DEFINE QUERY stale_notes() SHAPE table AS {\n  MATCH (n:note)\n  WHERE n.status = 'active'\n  RETURN n\n}"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+schema query open_tasks lq=1 params="$scope: node = #u:a0000000000000000000000000000001, $limit: int = 50" shape="table" budget="light" text="DEFINE QUERY open_tasks($scope: node = #u:a0000000000000000000000000000001, $limit: int = 50) SHAPE table BUDGET light AS {\n  MATCH (t:task)\n  WHERE t.status = 'open' AND t IN subtree($scope)\n  RETURN t ORDER BY t.priority LIMIT $limit\n}"
+%% entries
+schema query open_tasks = present
+schema query stale_notes = absent
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: schema query open_tasks
+02050a0000006f70656e5f7461736b7300010100440000002473636f70653a206e6f6465203d2023753a613030303030
+30303030303030303030303030303030303030303030303030312c20246c696d69743a20696e74203d20353005000000
+7461626c65050000006c69676874ed000000444546494e45205155455259206f70656e5f7461736b73282473636f7065
+3a206e6f6465203d2023753a61303030303030303030303030303030303030303030303030303030303030312c20246c
+696d69743a20696e74203d20353029205348415045207461626c6520425544474554206c69676874204153207b0a2020
+4d415443482028743a7461736b290a2020574845524520742e737461747573203d20276f70656e2720414e4420742049
+4e2073756274726565282473636f7065290a202052455455524e2074204f5244455220425920742e7072696f72697479
+204c494d495420246c696d69740a7d
+; entry 2: schema query stale_notes
+02050b0000007374616c655f6e6f7465730000
+; u64 entry count = 2
+0200000000000000
+%% entry-count 2
+%% changeset-digest 730e1ffde5907ae67f05901c5a7fc926b92dc3d6902de231785436d95959264b
+%% commit
+kind ordinary
+parent 7f6ec3a3e5ecf0a647b1466f6aad0dae358b34c905e96daa52e028310e436c5b
+hlc 01a0c48bee600000
+actor "orch"
+role "orchestrator"
+session "claude:s0"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "raise the open_tasks limit; drop stale_notes"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+7f6ec3a3e5ecf0a647b1466f6aad0dae358b34c905e96daa52e028310e436c5b
+; item 3: hlc
+000060ee8bc4a001
+; item 4: actor
+040000006f726368
+; item 4: role
+0c0000006f7263686573747261746f72
+; item 4: session
+09000000636c617564653a7330
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+2c000000726169736520746865206f70656e5f7461736b73206c696d69743b2064726f70207374616c655f6e6f746573
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+730e1ffde5907ae67f05901c5a7fc926b92dc3d6902de231785436d95959264b
+%% commit-id b615381affeff30141749be1064127f00c3a9e5362622a55032b6fbf1049358f
+%% end

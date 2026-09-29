@@ -1,0 +1,11 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg-commit/trailer-malformed--hlc.commit
+%% file commit
+%% context carrier destination A
+%% source [F14 §9.2]
+%% source [F07 §15]
+%% note A malformed value of a known trailer (Moirai-Hlc).
+%% note Its tree and parents are those of carrier case ordinary (destination A); its object id is c503cd1ac20a5c31997d366387dcc33196af3008.
+%% refuse ImageParse trailer-malformed
+%% end

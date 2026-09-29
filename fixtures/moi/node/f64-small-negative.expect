@@ -1,0 +1,17 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/f64-small-negative.moi
+%% file node
+%% context core
+%% source [F14 §2.8]
+%% note Values: f64 1.5e-7 and -3.0 written by Number::toString with .0 appended.
+%% canonical self
+%% keys
+node 9a000000000000000000000000000011 measurement
+  field target f64 c008000000000000
+  field title text "f64 f64-small-negative"
+  field value f64 3e8421f5f40d8376
+%% image
+created c28156f2f4654cd00044c5b4df61c46579e8fa82f81ace950f73b54e5986a76dc 2026-09-21T14:13:20.000Z
+updated c03539d5880a37b1ca053cfa40ccc6f47c0051d1bff46248ae7fe2a006fdfaa69 2026-09-21T15:43:20.000Z
+%% end

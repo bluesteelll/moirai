@@ -1,0 +1,12 @@
+moirai-node 1
+uid: 3b000000000000000000000000000011
+kind: note
+title: body-inner-dashes
+status: active
+created: c1850f5196fe47791a8664ec9aebbba3369a6b78bfd5caed70ea4f4204758ff93 2026-09-21T14:13:20.000Z
+updated: c205d25e7ef7de867a189ea9fcdb059af6349cfa2de97f8260ee70865b983fc64 2026-09-21T15:43:20.000Z
+---
+above
+---
+below
+

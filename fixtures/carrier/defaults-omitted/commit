@@ -1,0 +1,16 @@
+tree 5b4e0467f6fe914713c44898bf501060f53bd366
+parent 018e6a12ce584771b360c194bc69088493ee821e
+author moirai/tester#1 <tester@moirai.invalid> 1790000840 +0000
+committer moirai/tester#1 <tester@moirai.invalid> 1790000840 +0000
+
+record the flush p99
+
+Moirai-Commit: c6087a9137cdacdabce3356976e2618f589d1fb0f275a111035b25df69aeebed1
+Moirai-Kind: ordinary
+Moirai-Ref: lane/defaults
+Moirai-Hlc: 117309495050240000
+Moirai-Actor: tester#1
+Moirai-Role: tester
+Moirai-Session: claude:s6
+Moirai-Schema: 1
+Moirai-Ops: 4

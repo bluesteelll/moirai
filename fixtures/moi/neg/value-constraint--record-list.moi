@@ -1,0 +1,30 @@
+moirai-node 1
+uid: 2d000000000000000000000000000011
+kind: doc
+title: Storage plan, section 3
+status: current
+priority: P0
+criticality: critical
+confidence: observed
+authority: research
+parent: 0a000000000000000000000000000001
+order: b
+created: c2ab80ebfac4f671d1a553f587a2dab024ce4d38fafb07c4b3785bc601e77087c 2026-09-21T14:13:20.000Z
+updated: c11b960af1b29aa8fed619be527c922be39958c9132e841baf44b8ab5366c6345 2026-09-21T15:43:20.000Z
+flags: [pinned]
+field changed_in_round: 2
+field doc_kind: section
+field heading: 3. Storage
+field readiness: <<
+  design	done	
+  measurement	pending	waiting for the laptop window
+>>
+field revision: 4
+field targets: "flush p99\t40.0\tms"
+edge depends_on -> 2d000000000000000000000000000012
+edge derived_from -> 3b000000000000000000000000000011 pin=c0c4cd7158cf16a5964d30a3962fc2a017e3530e3bd8b627a67c4c6f6c57858c7
+---
+## 3. Storage
+
+One flush per group.
+

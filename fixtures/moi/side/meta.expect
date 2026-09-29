@@ -1,0 +1,8 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture side/meta.moi
+%% file meta
+%% source [F14 §14]
+%% note meta.moi of the side ref: store id, format, mode, cursor, ref rows sorted.
+%% canonical self
+%% end

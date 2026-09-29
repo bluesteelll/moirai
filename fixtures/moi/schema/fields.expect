@@ -1,0 +1,32 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture schema/fields.moi
+%% file schema
+%% source [F14 §7.1]
+%% source [F07 §9]
+%% source [F08 §8.5]
+%% note The fields table: field rows with a default and a range (min, max), a sym default
+%% note that needs JSON (an SP), flags, a retired row; value rows with covers and flags, and
+%% note a value of the core enumeration priority under kind `*` (sorted first).
+%% canonical self
+%% items
+schema field experiment baseline_commit type=commitref elem=- class=scalar storage=field decl=23 optional=true index=none coerce=revision-integer one_line=false ascii=false retired=false
+schema field experiment codename type=sym elem=- class=scalar storage=field decl=28 optional=false index=none coerce=none one_line=true ascii=true retired=false default text "unnamed run"
+schema field experiment gated type=bool elem=- class=scalar storage=field decl=27 optional=false index=none coerce=none one_line=false ascii=false retired=false default bool false
+schema field experiment hypothesis type=text elem=- class=text storage=field decl=20 optional=true index=none coerce=none one_line=false ascii=false retired=false
+schema field experiment log_path type=path elem=- class=scalar storage=field decl=22 optional=true index=none coerce=none one_line=true ascii=false retired=false
+schema field experiment outcome type=enum elem=- class=scalar storage=field decl=25 optional=true index=bitmap coerce=none one_line=false ascii=false retired=false
+schema field experiment retries type=counter elem=- class=counter storage=field decl=26 optional=true index=none coerce=none one_line=false ascii=false retired=false
+schema field experiment seeds type=set elem=int class=set storage=field decl=24 optional=true index=bitmap coerce=none one_line=false ascii=false retired=false
+schema field experiment trials type=int elem=- class=scalar storage=field decl=21 optional=false index=column coerce=none one_line=false ascii=false retired=false range=1..1000 default int 1
+schema field task legacy_owner type=sym elem=- class=scalar storage=field decl=31 optional=true index=none coerce=none one_line=true ascii=false retired=true
+schema field task retries type=counter elem=- class=counter storage=field decl=30 optional=true index=none coerce=none one_line=false ascii=false retired=false
+schema field task risk type=int elem=- class=scalar storage=field decl=29 optional=false index=column coerce=none one_line=false ascii=false retired=false range=0..5 default int 2
+schema enum * priority P5 retired=false sort_rank=5 side=false done=false covers=-
+schema enum experiment outcome confirmed retired=false sort_rank=0 side=false done=false covers=-
+schema enum experiment outcome refuted retired=false sort_rank=1 side=false done=false covers=-
+schema enum experiment status abandoned retired=false sort_rank=3 side=true done=true covers=-
+schema enum experiment status concluded retired=false sort_rank=2 side=false done=true covers=running
+schema enum experiment status planned retired=false sort_rank=0 side=false done=false covers=-
+schema enum experiment status running retired=false sort_rank=1 side=false done=false covers=planned
+%% end

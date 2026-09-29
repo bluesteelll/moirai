@@ -1,0 +1,13 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture schema/kinds.moi
+%% file schema
+%% source [F14 §7.1]
+%% source [F07 §9]
+%% source [F08 §8.5]
+%% note The kinds table: a project kind with flags and a retired kind (it stays in the file).
+%% canonical self
+%% items
+schema kind experiment retired=false uid_derivation=random root_variant=none existence_policy=resurrect title_derived=false immutable_fields=false has_done=true done_derived=false
+schema kind probe retired=true uid_derivation=random root_variant=none existence_policy=delete-wins title_derived=false immutable_fields=true has_done=false done_derived=false
+%% end

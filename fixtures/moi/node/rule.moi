@@ -1,0 +1,17 @@
+moirai-node 1
+uid: 4e000000000000000000000000000011
+kind: rule
+title: Never lock the whole LOCK file
+status: active
+priority: P1
+authority: owner
+created: c21074018b70cc4a76c0d19bc3f33ef981cf1ac45ad5c862b1063b45099eb52b1 2026-09-21T14:13:20.000Z
+updated: c5fc880ca2c1fb4256612bad8818459a91435e8c9cc4ac343697c428b78e6b167 2026-09-21T15:43:20.000Z
+field applies_to: [path:crates/engine/src/lock.rs]
+field enforcement: must
+field owner_quote: Lock ranges, not files.
+field rationale: whole-file locks starve readers
+field since: 1789000000
+field text: Writers lock byte ranges of LOCK.
+edge contradicts -> 4e000000000000000000000000000012
+edge scoped_to -> 0a000000000000000000000000000001

@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/value-type--int-leading-zero.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note An int with a leading zero (`dec` has none).
+%% refuse ImageParse value-type
+%% end

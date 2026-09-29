@@ -1,0 +1,177 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case hand-edit
+%% source [F14 §10.9]
+%% source [F14 §12.1]
+%% source [F07 §12.3]
+%% source [F06 §4.4.4]
+%% source [F07 §5.3]
+%% source [F14 §9.1]
+%% source [F14 §11.2]
+%% source [F14 §6.5]
+%% note Row foreign: a one-parent commit written by hand on top of case ordinary, with no trailer. It removes T1's
+%% note node file (the importer writes T1's tombstone: reason `image:file-removed`, the title kept, the `blocks` edge
+%% note kept flagged by its `repoint-or-flag` policy, the pinned `cites` edge kept by `retain`), rewrites T2's file
+%% note with CR LF line ends and a new status, and reorders N1's lines around a new ledger line whose token is not a
+%% note commit id (`incr incidents +2 hand-edit-1`): the importer sums it (+2) and the store's own ledger line would
+%% note carry this commit's id. The removed file and the reordered file are in old/ and new/.
+%% destination A sha1 full
+%% class foreign
+%% git-commit da84804e65e3d2e3eb02920d5884c46733449135
+%% git-tree 5b675940a1fa69b48f8362119c147846974343a7
+%% git-parent ccad424446fa053d2897aa44b21b74b9ebf6ad37 ordinary
+%% touched-new 2
+%% touched-old 3
+%% p-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body "Timeout fires before the lock holder's flush completes."
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task deleted "image:file-removed" -
+  field title text "Fix the lock timeout"
+  edge blocks 1a000000000000000000000000000002 flagged
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  counter incidents 2
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+1a000000000000000000000000000001 existence = deleted task "image:file-removed" -
+1a000000000000000000000000000001 status = absent
+1a000000000000000000000000000001 hierarchy = absent
+1a000000000000000000000000000001 field estimate = absent
+1a000000000000000000000000000001 field labels = absent
+1a000000000000000000000000000001 field priority = absent
+1a000000000000000000000000000001 counter reopen_count = -1
+1a000000000000000000000000000001 edge blocks 1a000000000000000000000000000002 - = present flagged
+1a000000000000000000000000000001 body = absent
+1a000000000000000000000000000002 status = in_progress none
+3b000000000000000000000000000001 counter incidents = +2
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000001 existence
+011a000000000000000000000000000001010002040000007461736b12000000696d6167653a66696c652d72656d6f76
+656400000000
+; entry 2: 1a000000000000000000000000000001 status
+011a000000000000000000000000000001020000
+; entry 3: 1a000000000000000000000000000001 hierarchy
+011a000000000000000000000000000001030000
+; entry 4: 1a000000000000000000000000000001 field estimate
+011a0000000000000000000000000000010408000000657374696d6174650000
+; entry 5: 1a000000000000000000000000000001 field labels
+011a00000000000000000000000000000104060000006c6162656c730000
+; entry 6: 1a000000000000000000000000000001 field priority
+011a00000000000000000000000000000104080000007072696f726974790000
+; entry 7: 1a000000000000000000000000000001 counter reopen_count
+011a000000000000000000000000000001060c00000072656f70656e5f636f756e74010100000000000000
+; entry 8: 1a000000000000000000000000000001 edge blocks 1a000000000000000000000000000002 -
+011a0000000000000000000000000000010706000000626c6f636b731a00000000000000000000000000000200000000
+000102
+; entry 9: 1a000000000000000000000000000001 body
+011a000000000000000000000000000001080000
+; entry 10: 1a000000000000000000000000000002 status
+011a0000000000000000000000000000020200010b000000696e5f70726f6772657373040000006e6f6e65
+; entry 11: 3b000000000000000000000000000001 counter incidents
+013b0000000000000000000000000000010609000000696e636964656e7473000200000000000000
+; u64 entry count = 11
+0b00000000000000
+%% entry-count 11
+%% changeset-digest 648f6fcee194fd466370d86a91bbf9f0e2202005d99607e2024b627cc309a77a
+%% commit
+kind ordinary
+parent 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+hlc 01a0c49082400000
+actor "git:alice@example.com"
+role ""
+session ""
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "Hand edit: drop #1, start #2, count two incidents"
+schema-version 1
+origin -
+foreign sha1 da84804e65e3d2e3eb02920d5884c46733449135
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+; item 3: hlc
+0000408290c4a001
+; item 4: actor
+150000006769743a616c696365406578616d706c652e636f6d
+; item 4: role
+00000000
+; item 4: session
+00000000
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+3100000048616e6420656469743a2064726f702023312c2073746172742023322c20636f756e742074776f20696e6369
+64656e7473
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+0400000073686131
+; item 9: foreign_oid
+14000000da84804e65e3d2e3eb02920d5884c46733449135
+; item 10: changeset_digest
+648f6fcee194fd466370d86a91bbf9f0e2202005d99607e2024b627cc309a77a
+%% commit-id e6749af45b53a46cf0a57f825d09be1af3c66cc257e0a4dd442909bb96523653
+%% end

@@ -1,0 +1,88 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture tree/project-schema/
+%% file tree
+%% context destination object format sha1
+%% source [F14 §3]
+%% source [F14 §6.5]
+%% source [F14 §7]
+%% source [F08 §8.5]
+%% note A whole tree with project schema items: a node of the project kind experiment with every header line
+%% note it can carry (priority P5 is a project value of the core enumeration), project fields of types text (a
+%% note block), int with a range, path with an explicit project root, commitref, set of int (written sorted as
+%% note text: [11, 3, 42]), enum, bool and sym, a counter; a project edge kind and a symmetric one; project
+%% note fields on the core kind task (risk, retries); ledgers of two counters with several lines, a negative
+%% note delta and tokens that are not commit ids; two named-query files named by their hashes.
+%% canonical self
+%% keys
+node 1a000000000000000000000000000011 task
+  field risk int 4
+  field title text "Ledger forms"
+  counter reopen_count 2
+  counter retries 3
+node e7000000000000000000000000000011 experiment
+  status running none
+  parent - "c"
+  field archived bool true
+  field authority enum research
+  field baseline_commit commit bbdd38deb0657f52bbce391eb92d7814a4695d27dc72900a8ef57e8faafb2c3a
+  field codename text "night owl"
+  field confidence enum speculative
+  field criticality enum high
+  field gated bool true
+  field hypothesis text "the leader saves one flush\nper group of 16"
+  field labels set text 2 "m0" "measurement 14"
+  field log_path path project "logs/run-7.txt"
+  field outcome enum confirmed
+  field priority enum P5
+  field seeds set int 3 3 11 42
+  field title text "Leader in or out"
+  field trials int 7
+  counter retries 3
+  body "Run with 16 processes.\n"
+  edge cites 5d000000000000000000000000000011
+  edge pairs_with e7000000000000000000000000000012
+  edge reviews 1a000000000000000000000000000011
+node e7000000000000000000000000000012 experiment
+  status concluded none
+  field title text "Leader, second run"
+schema kind experiment retired=false uid_derivation=random root_variant=none existence_policy=resurrect title_derived=false immutable_fields=false has_done=true done_derived=false
+schema kind probe retired=true uid_derivation=random root_variant=none existence_policy=delete-wins title_derived=false immutable_fields=true has_done=false done_derived=false
+schema field experiment baseline_commit type=commitref elem=- class=scalar storage=field decl=23 optional=true index=none coerce=revision-integer one_line=false ascii=false retired=false
+schema field experiment codename type=sym elem=- class=scalar storage=field decl=28 optional=false index=none coerce=none one_line=true ascii=true retired=false default text "unnamed run"
+schema field experiment gated type=bool elem=- class=scalar storage=field decl=27 optional=false index=none coerce=none one_line=false ascii=false retired=false default bool false
+schema field experiment hypothesis type=text elem=- class=text storage=field decl=20 optional=true index=none coerce=none one_line=false ascii=false retired=false
+schema field experiment log_path type=path elem=- class=scalar storage=field decl=22 optional=true index=none coerce=none one_line=true ascii=false retired=false
+schema field experiment outcome type=enum elem=- class=scalar storage=field decl=25 optional=true index=bitmap coerce=none one_line=false ascii=false retired=false
+schema field experiment retries type=counter elem=- class=counter storage=field decl=26 optional=true index=none coerce=none one_line=false ascii=false retired=false
+schema field experiment seeds type=set elem=int class=set storage=field decl=24 optional=true index=bitmap coerce=none one_line=false ascii=false retired=false
+schema field experiment trials type=int elem=- class=scalar storage=field decl=21 optional=false index=column coerce=none one_line=false ascii=false retired=false range=1..1000 default int 1
+schema field task legacy_owner type=sym elem=- class=scalar storage=field decl=31 optional=true index=none coerce=none one_line=true ascii=false retired=true
+schema field task retries type=counter elem=- class=counter storage=field decl=30 optional=true index=none coerce=none one_line=false ascii=false retired=false
+schema field task risk type=int elem=- class=scalar storage=field decl=29 optional=false index=column coerce=none one_line=false ascii=false retired=false range=0..5 default int 2
+schema enum * priority P5 retired=false sort_rank=5 side=false done=false covers=-
+schema enum experiment outcome confirmed retired=false sort_rank=0 side=false done=false covers=-
+schema enum experiment outcome refuted retired=false sort_rank=1 side=false done=false covers=-
+schema enum experiment status abandoned retired=false sort_rank=3 side=true done=true covers=-
+schema enum experiment status concluded retired=false sort_rank=2 side=false done=true covers=running
+schema enum experiment status planned retired=false sort_rank=0 side=false done=false covers=-
+schema enum experiment status running retired=false sort_rank=1 side=false done=false covers=planned
+schema edge pairs_with retired=false eclass=historical on_dst=tombstone on_src=retain acyclic=none card=many max_depth=0 uid_derivation=none props=none symmetric=true same_kind=true lq_name=PAIRS_WITH src_kinds=experiment dst_kinds=experiment reverse_names=- reading="{a} and {b} are paired \"runs\""
+schema edge reviews retired=false eclass=historical on_dst=tombstone on_src=retain acyclic=none card=many max_depth=0 uid_derivation=none props=none symmetric=false same_kind=false lq_name=REVIEWS src_kinds=experiment,verdict dst_kinds=any reverse_names=REVIEWED_BY reading="{a} reviews {b}"
+schema query joined_titles lq=1 params="$sep: text = '\t', $n: int?" shape="table" budget="light" text="DEFINE QUERY joined_titles($sep: text = '\t', $n: int?) SHAPE table BUDGET light AS {\n  MATCH (t:task)\n  RETURN t.title + $sep + t.status LIMIT $n\n}"
+schema query open_tasks lq=1 params="$scope: node = #u:0a000000000000000000000000000001, $limit: int = 20" shape="table" budget="light" text="DEFINE QUERY open_tasks($scope: node = #u:0a000000000000000000000000000001, $limit: int = 20) SHAPE table BUDGET light AS {\n  MATCH (t:task)\n  WHERE t.status = 'open' AND t IN subtree($scope)\n  RETURN t ORDER BY t.priority LIMIT $limit\n}"
+%% image
+1a000000000000000000000000000011 created c557bc734c97206497f8f15414f558f57d8942c9eae8fc28c52459fee6a8ecab4 2026-09-21T14:13:20.000Z
+1a000000000000000000000000000011 updated c6fd893279a6704152a3a0ee08959c77f9f0ea530a3ec3571ebce9da07cd8543f 2026-09-21T15:43:20.000Z
+1a000000000000000000000000000011 ledger reopen_count +1 c3d192ab50f2037197acc509a7cfbc94433dca298d6d8808ae2946af5e99d715c
+1a000000000000000000000000000011 ledger reopen_count -1 cb68948d74fe74996a3fa698aafd243fbf6d646bba399def3a55ecfb2ef6c4b4c
+1a000000000000000000000000000011 ledger reopen_count +2 cf8776d662b77899c6be209943ccd7c3006d9b32434d80e27951c0989998cf43d
+1a000000000000000000000000000011 ledger retries -2 by-hand
+1a000000000000000000000000000011 ledger retries +5 c107b8dc8edb1efc03dfd12785ecfd70777a746177c1cc8313e55fc4c4ec8150b
+e7000000000000000000000000000011 created cb9650436de7a279d77d21e098a04bf10c2bb9c0131f356dd9659569ba8bfa5ab 2026-09-21T14:13:20.000Z
+e7000000000000000000000000000011 updated ce68f7bb97aeb5a25c8464e606027cb0650668d72eff7c46a108af209e192006c 2026-09-21T15:43:20.000Z
+e7000000000000000000000000000011 ledger retries +2 c3f6f0d9c5e2bafbbb16a957a16656ab4f10e2f4bfc582c57f2cdc3b5faa16e36
+e7000000000000000000000000000011 ledger retries +1 hand-edit-7
+e7000000000000000000000000000012 created cfc72a402aecfe4b2661b6d2c739906cf2d8cd96bc93281c89fe5964d0a1d5e92 2026-09-21T14:13:20.000Z
+e7000000000000000000000000000012 updated c5622b73f7b659f6c94c19e545dd8a42b1a44cfc9413428b181b00b921c6fd11a 2026-09-21T15:43:20.000Z
+%% end

@@ -1,0 +1,16 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/body-nul.moi
+%% file node
+%% context core
+%% source [F14 §6.9]
+%% note Bodies: a body may hold U+0000 (it is the only place).
+%% canonical self
+%% keys
+node 3b000000000000000000000000000011 note
+  field title text "body-nul"
+  body "a\u0000b\n"
+%% image
+created c82577834e20a035b2fba1a5db3d9d89650e50f420c1f3d5922472b4a3e2ad419 2026-09-21T14:13:20.000Z
+updated cd910116084a884f534e44ebc5fecebd41d5c42381b90f0aa1e3282136caf4ccd 2026-09-21T15:43:20.000Z
+%% end

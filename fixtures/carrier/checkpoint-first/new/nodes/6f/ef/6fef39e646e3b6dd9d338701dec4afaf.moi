@@ -1,0 +1,20 @@
+moirai-node 1
+uid: 6fef39e646e3b6dd9d338701dec4afaf
+kind: artifact
+status: removed
+order: V
+created: c760fbc40c443bc68c7eed45a357c53069855c86e9153b05093d60549bd0ee82b 2026-09-20T23:13:20.000Z
+updated: c6c6cc79b449aa7a90e69846163d0381b20138596997702b2700e5dd1849b4859 2026-09-21T02:33:20.000Z
+field artifact_kind: doc
+field excerpt: Storage plan, section 3
+field origin_path: docs/plans/storage.md
+field reason: removed in the tree
+field root: project
+label plan
+incr hits +2 c6c39e37da717e754f5746cf30c9b7ad4f263e9463f236772290157481f7a2ff9
+incr hits +1 cdb6599ce9691122c37bf6806d23ca8bb40096e5e93803e66e9b86e7719743002
+edge derived_from -> e1000000000000000000000000000001 pin=c163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+edge relates -> e1000000000000000000000000000001
+conflict observation class=FieldEdit base="field path: docs/plans/storage.md\nfield oid: sha1:a050e26bb167719ca59bd8529a6235f5409d8203\nfield bytes: 52\nfield observed_git: sha1:2e11433a48c8de61efb9a14117e41c7f33bfee1e\nfield observed_blob: sha1:a050e26bb167719ca59bd8529a6235f5409d8203" ours="field path: docs/archive/plans/storage.md\nfield oid: sha1:a050e26bb167719ca59bd8529a6235f5409d8203\nfield bytes: 52\nfield observed_git: sha1:b1e43ababc3315b634950b80ef5beb4d73c766be\nfield observed_blob: sha1:a050e26bb167719ca59bd8529a6235f5409d8203\nfield relink: explicit/intent" theirs="field path: docs/plans/storage-v2.md\nfield oid: sha1:173dbdd3d7fcd9c788dff74aabec16879c0a4b5c\nfield bytes: 78\nfield observed_git: sha1:f1c88ef39a6e552d1ffb69e872b2f5494303d75a\nfield observed_blob: sha1:173dbdd3d7fcd9c788dff74aabec16879c0a4b5c\nfield relink: confirmed/edited+moved/0.81"
+---
+Superseded by the v2 plan.

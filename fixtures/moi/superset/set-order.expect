@@ -1,0 +1,28 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture superset/set-order.moi
+%% file node
+%% context core
+%% source [F14 §9.1]
+%% note A set in another order with a bare-able element as a JSON string ([F14 §5.3]: the importer re-sorts).
+%% canonical node/run.moi
+%% keys
+node ab000000000000000000000000000011 run
+  status green none
+  field args_hash text "9f2c"
+  field bg_task_id text "bg-3"
+  field ended int 1790003700
+  field expected_artifacts set text 7 "\"q\"" "[x]" "a, b" " lead" "plain" "tab\tin" "{brace}"
+  field journal_path path abs "//build01/share/journal.log"
+  field script_path path abs "D:/work/moirai/nightly.ps1"
+  field session_id text "claude:s9"
+  field started int 1790000100
+  field title text "M0 nightly run"
+  field wf_id text "wf-17"
+  edge consumed d706fcde60f0b6cbf56c23297162b652 pin 0c4cd7158cf16a5964d30a3962fc2a017e3530e3bd8b627a67c4c6f6c57858c7
+  edge produced 2d000000000000000000000000000011
+  edge runs_in bc000000000000000000000000000011
+%% image
+created cf62276da4d5bcce8c7182da89f2b9a15d803b31c887013e98a787847ca2e11c5 2026-09-21T14:13:20.000Z
+updated c3babe3a875740c85f07537f80fd426197e74aadede63e98b8a678902ccc8939f 2026-09-21T15:43:20.000Z
+%% end

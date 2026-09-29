@@ -1,0 +1,164 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case delete
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note Row tombstones: T1's tombstone keeps `edge blocks -> T2 flagged` and the historical `edge cites -> D1
+%% note pin=c<root>`. The counter's ledger gains `incr reopen_count -1 c<this>` (not written in the tombstone).
+%% destination A sha1 full
+%% class native
+%% git-commit ebc21e781da7ad13c34b547f676dc352c59e0858
+%% git-tree e5e085687a3098599e03e8b3f241a5869e4cb0b6
+%% git-parent ccad424446fa053d2897aa44b21b74b9ebf6ad37 ordinary
+%% trailer-commit aaa574fb5321518fcef0414a190f74af15544a49e4738f50c481a5f4d758c765
+%% touched-new 1
+%% touched-old 1
+%% p-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body "Timeout fires before the lock holder's flush completes."
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task deleted "superseded by the new lock design" -
+  field title text "Fix the lock timeout"
+  edge blocks 1a000000000000000000000000000002 flagged
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+1a000000000000000000000000000001 existence = deleted task "superseded by the new lock design" -
+1a000000000000000000000000000001 status = absent
+1a000000000000000000000000000001 hierarchy = absent
+1a000000000000000000000000000001 field estimate = absent
+1a000000000000000000000000000001 field labels = absent
+1a000000000000000000000000000001 field priority = absent
+1a000000000000000000000000000001 counter reopen_count = -1
+1a000000000000000000000000000001 edge blocks 1a000000000000000000000000000002 - = present flagged
+1a000000000000000000000000000001 body = absent
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000001 existence
+011a000000000000000000000000000001010002040000007461736b2100000073757065727365646564206279207468
+65206e6577206c6f636b2064657369676e00000000
+; entry 2: 1a000000000000000000000000000001 status
+011a000000000000000000000000000001020000
+; entry 3: 1a000000000000000000000000000001 hierarchy
+011a000000000000000000000000000001030000
+; entry 4: 1a000000000000000000000000000001 field estimate
+011a0000000000000000000000000000010408000000657374696d6174650000
+; entry 5: 1a000000000000000000000000000001 field labels
+011a00000000000000000000000000000104060000006c6162656c730000
+; entry 6: 1a000000000000000000000000000001 field priority
+011a00000000000000000000000000000104080000007072696f726974790000
+; entry 7: 1a000000000000000000000000000001 counter reopen_count
+011a000000000000000000000000000001060c00000072656f70656e5f636f756e74010100000000000000
+; entry 8: 1a000000000000000000000000000001 edge blocks 1a000000000000000000000000000002 -
+011a0000000000000000000000000000010706000000626c6f636b731a00000000000000000000000000000200000000
+000102
+; entry 9: 1a000000000000000000000000000001 body
+011a000000000000000000000000000001080000
+; u64 entry count = 9
+0900000000000000
+%% entry-count 9
+%% changeset-digest ff7c09a5859f291c272bc06c729cef20dba382c2c975fed68d44e5f1feba2e5c
+%% commit
+kind ordinary
+parent 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+hlc 01a0c46a0e800000
+actor "dev#1"
+role "developer"
+session "claude:s1"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "rm #1 --reason 'superseded by the new lock design'"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+; item 3: hlc
+0000800e6ac4a001
+; item 4: actor
+050000006465762331
+; item 4: role
+09000000646576656c6f706572
+; item 4: session
+09000000636c617564653a7331
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+32000000726d202331202d2d726561736f6e20277375706572736564656420627920746865206e6577206c6f636b2064
+657369676e27
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+ff7c09a5859f291c272bc06c729cef20dba382c2c975fed68d44e5f1feba2e5c
+%% commit-id aaa574fb5321518fcef0414a190f74af15544a49e4738f50c481a5f4d758c765
+%% canonical tombstones.cases delete commit-id
+%% end

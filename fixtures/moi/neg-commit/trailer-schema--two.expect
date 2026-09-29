@@ -1,0 +1,11 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg-commit/trailer-schema--two.commit
+%% file commit
+%% context carrier destination A
+%% source [F14 §9.2]
+%% source [F07 §15]
+%% note Moirai-Schema other than 1.
+%% note Its tree and parents are those of carrier case ordinary (destination A); its object id is c0f1d85743d7b1cb69d1d4b40c0749e8a35d436a.
+%% refuse ImageParse trailer-schema
+%% end

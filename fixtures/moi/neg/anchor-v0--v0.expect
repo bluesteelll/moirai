@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/anchor-v0--v0.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note An anchor line with v=0.
+%% refuse ImageParse anchor-v0
+%% end

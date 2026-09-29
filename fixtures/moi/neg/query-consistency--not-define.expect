@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/query-consistency--not-define.moi
+%% file query
+%% source [F14 §9.2]
+%% source [F14 §7.2.2]
+%% note A text that is not a define_stmt.
+%% refuse ImageParse query-consistency
+%% end

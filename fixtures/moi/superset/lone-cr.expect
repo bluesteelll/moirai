@@ -1,0 +1,46 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture superset/lone-cr.moi
+%% file node
+%% context core
+%% source [F14 §9.1]
+%% note Item 2: lone CR line ends.
+%% canonical node/task.moi
+%% keys
+node 1a000000000000000000000000000011 task
+  status done completed
+  parent 0a000000000000000000000000000001 "a0V"
+  field abstract text "Lock byte ranges of LOCK, not the file"
+  field acceptance text "writer and flush bytes locked per range\na dead holder's range freed by the OS"
+  field archived bool true
+  field assignee text "dev#1"
+  field authority enum orchestrator
+  field confidence enum verified
+  field criticality enum high
+  field defer_until int 1790000000
+  field due int 1791000000
+  field estimate int 3
+  field files_owned set text 3 "src/lock.rs" "src/vfs/**/*.rs" "docs/lock-[a-c]?.md"
+  field frozen bool true
+  field labels set text 3 "l5np" "storage" "lock protocol"
+  field phase_state enum committed
+  field pinned bool true
+  field pre_registered bool true
+  field priority enum P1
+  field reason text "closed after review"
+  field reopen_if text "a second writer is seen"
+  field title text "Byte-range lock protocol"
+  field work_kind enum impl
+  counter reopen_count 2
+  body "Writers lock byte ranges of LOCK, never the whole file.\nSee #52 for the reader registry.\n"
+  edge blocks 1a000000000000000000000000000012
+  edge cites 5d000000000000000000000000000011 pin e53e65b9e751e6b6bd37f93e501ec97a4752d361d4e9848c235d462fe3adaad3
+  edge discovered_from 1a000000000000000000000000000013
+  edge implements 5d000000000000000000000000000011
+  edge mentions 1a000000000000000000000000000052
+%% image
+created c29880eccd3b6a31fe9ebc9b09d3d469d20a8bdf157774b5eab4398a4b78604c5 2026-09-21T14:13:20.000Z
+updated cc831a59bafafe89fe240be5d740214a11e5d26b5aa817adb2f20eeea2c85206c 2026-09-21T15:43:20.000Z
+ledger reopen_count +1 c9ba66d0ec207a38c14759a57f23fa28e4d81e5e33748f494ea6ade04c04243dc
+ledger reopen_count +1 cdef0c39b0aed44ab95fd3be7214b7e151362bcb7a972559fe0133ba80a3b7147
+%% end

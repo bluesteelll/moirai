@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/merge-markers--markers.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note Leftover merge markers.
+%% refuse ImageParse merge-markers
+%% end

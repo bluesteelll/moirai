@@ -1,0 +1,15 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture query/conflict-absent-side.moi
+%% file query
+%% source [F14 §7.2.4]
+%% source [F07 §6.5]
+%% note A conflicted definition (DeleteVsModify): ours dropped the query, an empty side;
+%% note each other side is the JSON string of a whole query-def file.
+%% canonical self
+%% query
+schema query stale_notes conflict DeleteVsModify
+  base lq=1 params="" shape="table" budget="medium" text="DEFINE QUERY stale_notes() SHAPE table AS {\n  // no BUDGET: medium\n  MATCH (n:note)\n  WHERE n.status = 'active'\n  RETURN n\n}"
+  ours absent
+  theirs lq=1 params="" shape="table" budget="heavy" text="DEFINE QUERY stale_notes() SHAPE table BUDGET heavy AS {\n  MATCH (n:note)\n  WHERE n.status = 'active'\n  RETURN n\n}"
+%% end

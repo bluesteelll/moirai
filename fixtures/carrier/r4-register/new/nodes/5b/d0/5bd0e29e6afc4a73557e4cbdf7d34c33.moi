@@ -1,0 +1,11 @@
+moirai-node 1
+uid: 5bd0e29e6afc4a73557e4cbdf7d34c33
+kind: area
+title: root:project
+status: active
+created: cc2645145d5e8c99c807a3e7c1c5447981dd0627ab94bb8be799ef231e29064e6 2026-09-21T14:25:20.000Z
+updated: c3452dc704892b196e865750e7be425be3cb0a3cf59caf80ac0342f141284e957 2026-09-21T15:14:20.000Z
+field path_moves: <<
+  ["00117309679861760000","explicit","docs/storage/","docs/locking/","sha1:cafe11e0dfd91a0b34786ad5767ab6627e288de6"]
+>>
+field root: project

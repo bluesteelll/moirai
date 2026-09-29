@@ -1,0 +1,15 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture tree/sha256/
+%% file tree
+%% context destination object format sha256
+%% source [F14 §4]
+%% note A tree of a SHA-256 destination: its marker names sha256; node files do not change.
+%% canonical self
+%% keys
+node 3b000000000000000000000000000011 note
+  field title text "A sha256 tree"
+%% image
+3b000000000000000000000000000011 created c68cdb54d8b1c2417bc675e77df50e02b99f8b740a9602390ef05f5f2fbf15f17 2026-09-21T14:13:20.000Z
+3b000000000000000000000000000011 updated c4b504d279a477f1e2bfc8606795a5e228c1aef8d7c0e498aa2ab6fcd946ff2c2 2026-09-21T15:43:20.000Z
+%% end

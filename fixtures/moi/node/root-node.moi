@@ -1,0 +1,13 @@
+moirai-node 1
+uid: 5bd0e29e6afc4a73557e4cbdf7d34c33
+kind: area
+title: root:project
+status: active
+created: c92681ff98b1b28a55cc072400663888aecef7e6c470ddc3463c6a5bfe4a12b44 2026-09-21T14:13:20.000Z
+updated: c32e1a9b7e1238140fc5e6788b2835285f00633d0cbb4d5f0dad5ea24c078da20 2026-09-21T15:43:20.000Z
+field path_moves: <<
+  ["00117309440000000003","committed","docs/a/","docs/b/",""]
+  ["00117309440000000003","explicit","docs/plan/","docs/archive/plan/","sha1:d6b4c7833e87a2807b7b7b41a4ba5bf4db7929a7"]
+  ["00117309505536000000","observed","crates/old/","crates/new, v2/","sha256:cd3ff2079e038724037e44f3fc3af41b634de4a0ed456c11fb2e65471569d389"]
+>>
+field root: project

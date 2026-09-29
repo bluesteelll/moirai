@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/nul-outside-body--field-line.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note U+0000 in a field line (outside a body and a block).
+%% refuse ImageParse nul-outside-body
+%% end

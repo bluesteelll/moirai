@@ -1,0 +1,582 @@
+# Canonical-form fixtures (WP-21, R-FIX). Format: fixtures/canonical/INDEX.md section 2.
+# Written from docs/spec/format/07-canonical-form.md and the chapters it cites; every value is synthetic.
+# Gate-0 row normalisation: message normalisation N at write time and N_imp at import ([F07 §5]), and a
+# default written explicitly giving the same id as the value left out ([F07 §6.3]).
+
+%% case defaults-explicit
+%% source [F07 §14.4] row normalisation
+%% source [F07 §5.1]
+%% source [F07 §6.3]
+%% source [F07 §7.1]
+%% source [F08 §6.2]
+%% source [F08 §7.2]
+%% note The measurement node writes its initial status with resolution none, the default priority, criticality,
+%% note confidence and authority, the three flags false, an empty abstract, an empty label set, an empty body and
+%% note value -0.0 (f64 8000000000000000). Every one of them is absent in the canonical state except value, which
+%% note enters as +0.0. The caller's message has trailing spaces, CR LF line ends and trailing newlines; N removes
+%% note them (block message-input-hex). Same entries and id as case defaults-omitted.
+%% p-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "storage" "l5" "perf"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "storage" "l5" "perf"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node 7e000000000000000000000000000001 measurement
+  status current none
+  field abstract text ""
+  field archived bool false
+  field authority enum agent
+  field confidence enum unset
+  field criticality enum normal
+  field frozen bool false
+  field labels set text 0
+  field pinned bool false
+  field priority enum P2
+  field title text "Flush p99 at 1e5"
+  field unit text "ms"
+  field value f64 0000000000000000
+  body ""
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+7e000000000000000000000000000001 existence = live measurement
+7e000000000000000000000000000001 field title = text "Flush p99 at 1e5"
+7e000000000000000000000000000001 field unit = text "ms"
+7e000000000000000000000000000001 field value = f64 0000000000000000
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 7e000000000000000000000000000001 existence
+017e0000000000000000000000000000010100010b0000006d6561737572656d656e7400
+; entry 2: 7e000000000000000000000000000001 field title
+017e00000000000000000000000000000104050000007469746c65000710000000466c75736820703939206174203165
+35
+; entry 3: 7e000000000000000000000000000001 field unit
+017e0000000000000000000000000000010404000000756e69740007020000006d73
+; entry 4: 7e000000000000000000000000000001 field value
+017e000000000000000000000000000001040500000076616c756500050000000000000000
+; u64 entry count = 4
+0400000000000000
+%% entry-count 4
+%% changeset-digest cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
+%% message-input-hex
+7265636f72642074686520666c7573682070393920200d0a0d0a090d0a
+%% commit
+kind ordinary
+parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+hlc 01a0c45d3d400000
+actor "tester#1"
+role "tester"
+session "claude:s6"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "record the flush p99"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+; item 3: hlc
+0000403d5dc4a001
+; item 4: actor
+080000007465737465722331
+; item 4: role
+06000000746573746572
+; item 4: session
+09000000636c617564653a7336
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+140000007265636f72642074686520666c75736820703939
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
+%% commit-id 6087a9137cdacdabce3356976e2618f589d1fb0f275a111035b25df69aeebed1
+%% end
+
+%% case defaults-omitted
+%% source [F07 §14.4] row normalisation
+%% source [F07 §6.3]
+%% note The same commit with the defaults left out, value +0.0 and the message already normalised.
+%% p-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "storage" "l5" "perf"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "storage" "l5" "perf"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node 7e000000000000000000000000000001 measurement
+  field title text "Flush p99 at 1e5"
+  field unit text "ms"
+  field value f64 0000000000000000
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+7e000000000000000000000000000001 existence = live measurement
+7e000000000000000000000000000001 field title = text "Flush p99 at 1e5"
+7e000000000000000000000000000001 field unit = text "ms"
+7e000000000000000000000000000001 field value = f64 0000000000000000
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 7e000000000000000000000000000001 existence
+017e0000000000000000000000000000010100010b0000006d6561737572656d656e7400
+; entry 2: 7e000000000000000000000000000001 field title
+017e00000000000000000000000000000104050000007469746c65000710000000466c75736820703939206174203165
+35
+; entry 3: 7e000000000000000000000000000001 field unit
+017e0000000000000000000000000000010404000000756e69740007020000006d73
+; entry 4: 7e000000000000000000000000000001 field value
+017e000000000000000000000000000001040500000076616c756500050000000000000000
+; u64 entry count = 4
+0400000000000000
+%% entry-count 4
+%% changeset-digest cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
+%% message-input-hex
+7265636f72642074686520666c75736820703939
+%% commit
+kind ordinary
+parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+hlc 01a0c45d3d400000
+actor "tester#1"
+role "tester"
+session "claude:s6"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "record the flush p99"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+; item 3: hlc
+0000403d5dc4a001
+; item 4: actor
+080000007465737465722331
+; item 4: role
+06000000746573746572
+; item 4: session
+09000000636c617564653a7336
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+140000007265636f72642074686520666c75736820703939
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+cb724497403ab2e057f961c5f7d280c08750aaf407ab06734a5dd72722f8ddd8
+%% commit-id 6087a9137cdacdabce3356976e2618f589d1fb0f275a111035b25df69aeebed1
+%% end
+
+%% case n-crlf-trailing
+%% source [F07 §5.4] row 1
+%% function N
+%% input-hex
+666978206c6f636b0d0a0d0a7365652023313220200d0a0d0a0d0a
+%% input-text "fix lock\r\n\r\nsee #12  \r\n\r\n\r\n"
+%% output-hex
+666978206c6f636b0a0a73656520233132
+%% output-text "fix lock\n\nsee #12"
+%% output-length 17
+%% end
+
+%% case n-lone-cr
+%% source [F07 §5.4] row 2
+%% function N
+%% input-hex
+610d62090a
+%% input-text "a\rb\t\n"
+%% output-hex
+610a62
+%% output-text "a\nb"
+%% output-length 3
+%% end
+
+%% case n-leading-empty-lines
+%% source [F07 §5.4] row 3
+%% function N
+%% input-hex
+0a0a7375626a656374
+%% input-text "\n\nsubject"
+%% output-hex
+0a0a7375626a656374
+%% output-text "\n\nsubject"
+%% output-length 9
+%% end
+
+%% case n-whitespace-only
+%% source [F07 §5.4] row 4
+%% note The result is empty: the msg group is absent and item 6 is lp("").
+%% function N
+%% input-hex
+20090a
+%% input-text " \t\n"
+%% output-hex
+; (0 bytes)
+%% output-text ""
+%% output-length 0
+%% end
+
+%% case n-trailer-refused
+%% source [F07 §5.4] row 5
+%% function N
+%% input-hex
+646f6e650a0a4d6f697261692d5265663a206d61696e
+%% input-text "done\n\nMoirai-Ref: main"
+%% refused message-trailer
+%% end
+
+%% case n-trailer-not-first-line
+%% source [F07 §5.4] row 6
+%% function N
+%% input-hex
+646f6e650a0a6e6f74650a4d6f697261692d5265663a206d61696e
+%% input-text "done\n\nnote\nMoirai-Ref: main"
+%% output-hex
+646f6e650a0a6e6f74650a4d6f697261692d5265663a206d61696e
+%% output-text "done\n\nnote\nMoirai-Ref: main"
+%% output-length 27
+%% end
+
+%% case n-cr-cr-lf
+%% source [F07 §5.1] step 2
+%% note The CR LF pair becomes LF first; the remaining CR then becomes LF.
+%% function N
+%% input-hex
+610d0d0a62
+%% input-text "a\r\r\nb"
+%% output-hex
+610a0a62
+%% output-text "a\n\nb"
+%% output-length 4
+%% end
+
+%% case n-trailing-ws-set
+%% source [F07 §5.1] step 3
+%% note HT, VT, FF and SP are removed from every line end.
+%% function N
+%% input-hex
+61200b0c090a6209
+%% input-text "a \u000b\f\t\nb\t"
+%% output-hex
+610a62
+%% output-text "a\nb"
+%% output-length 3
+%% end
+
+%% case n-nbsp-kept
+%% source [F07 §5.1] step 3
+%% note No non-ASCII space is removed: U+00A0 and U+3000 stay.
+%% function N
+%% input-hex
+61c2a0e380800a
+%% input-text "a\u00a0\u3000\n"
+%% output-hex
+61c2a0e38080
+%% output-text "a\u00a0\u3000"
+%% output-length 6
+%% end
+
+%% case n-internal-empty-lines-kept
+%% source [F07 §5.1] step 4
+%% function N
+%% input-hex
+610a0a0a0a620a0a
+%% input-text "a\n\n\n\nb\n\n"
+%% output-hex
+610a0a0a0a62
+%% output-text "a\n\n\n\nb"
+%% output-length 6
+%% end
+
+%% case n-trailer-lower-case
+%% source [F07 §5.2]
+%% note The Moirai- test is case-sensitive.
+%% function N
+%% input-hex
+646f6e650a0a6d6f697261692d7265663a206d61696e
+%% input-text "done\n\nmoirai-ref: main"
+%% output-hex
+646f6e650a0a6d6f697261692d7265663a206d61696e
+%% output-text "done\n\nmoirai-ref: main"
+%% output-length 22
+%% end
+
+%% case n-trailer-whole-message
+%% source [F07 §5.2]
+%% note A message without an empty line is its own last paragraph.
+%% function N
+%% input-hex
+4d6f697261692d5265663a206d61696e0a
+%% input-text "Moirai-Ref: main\n"
+%% refused message-trailer
+%% end
+
+%% case n-trailer-after-normalisation
+%% source [F07 §5.2]
+%% note The test applies to N(m): trailing empty and blank lines are gone, so Moirai-X: y begins the last paragraph.
+%% function N
+%% input-hex
+646f6e650d0a0d0a4d6f697261692d583a20790d0a0d0a20200d0a
+%% input-text "done\r\n\r\nMoirai-X: y\r\n\r\n  \r\n"
+%% refused message-trailer
+%% end
+
+%% case n-trailer-earlier-paragraph
+%% source [F07 §5.2]
+%% note Only the last paragraph counts.
+%% function N
+%% input-hex
+4d6f697261692d583a20790a0a646f6e65
+%% input-text "Moirai-X: y\n\ndone"
+%% output-hex
+4d6f697261692d583a20790a0a646f6e65
+%% output-text "Moirai-X: y\n\ndone"
+%% output-length 17
+%% end
+
+%% case n-invalid-utf8
+%% source [F07 §5.2] rule 1
+%% function N
+%% input-hex
+62616420ff2062797465
+%% refused message-utf8
+%% end
+
+%% case n-surrogate-refused
+%% source [F07 §5.2] rule 1, [F01 §6.1]
+%% note An encoded surrogate is not UTF-8.
+%% function N
+%% input-hex
+61eda080
+%% refused message-utf8
+%% end
+
+%% case n-nul
+%% source [F07 §5.2] rule 1
+%% note U+0000 breaks step 1.
+%% function N
+%% input-hex
+610062
+%% input-text "a\u0000b"
+%% refused message-utf8
+%% end
+
+%% case n-length-limit
+%% source [F07 §5.2] rule 2
+%% note N(m) is 65,535 bytes: accepted.
+%% function N
+%% input-hex
+61 * 65535
+20200a0a
+%% output-hex
+61 * 65535
+%% output-length 65535
+%% end
+
+%% case n-too-long
+%% source [F07 §5.2] rule 2
+%% function N
+%% input-hex
+61 * 65536
+%% refused message-length
+%% end
+
+%% case imp-ill-formed
+%% source [F07 §5.3] step 1
+%% function N_imp
+%% input-hex
+436c6f736520ff2074686520696d706f72746572207461736b0a
+%% output-hex
+436c6f736520efbfbd2074686520696d706f72746572207461736b
+%% output-text "Close \ufffd the importer task"
+%% output-length 27
+%% end
+
+%% case imp-maximal-subparts
+%% source [F07 §5.3] step 1
+%% note F0 80 80 is three maximal subparts (F0 cannot start 80), E2 82 one (a truncated sequence), ED A0 80 three.
+%% function N_imp
+%% input-hex
+61f0808062e2827aeda0800a
+%% output-hex
+61efbfbdefbfbdefbfbd62efbfbd7aefbfbdefbfbdefbfbd
+%% output-text "a\ufffd\ufffd\ufffdb\ufffdz\ufffd\ufffd\ufffd"
+%% output-length 24
+%% end
+
+%% case imp-nul
+%% source [F07 §5.3] step 1
+%% note U+0000 becomes U+FFFD.
+%% function N_imp
+%% input-hex
+610062
+%% input-text "a\u0000b"
+%% output-hex
+61efbfbd62
+%% output-text "a\ufffdb"
+%% output-length 5
+%% end
+
+%% case imp-trailer-kept
+%% source [F07 §5.3]
+%% note N_imp never refuses; the Moirai- rule does not apply.
+%% function N_imp
+%% input-hex
+646f6e650a0a4d6f697261692d5265663a206d61696e0a
+%% input-text "done\n\nMoirai-Ref: main\n"
+%% output-hex
+646f6e650a0a4d6f697261692d5265663a206d61696e
+%% output-text "done\n\nMoirai-Ref: main"
+%% output-length 22
+%% end
+
+%% case imp-cut-at-scalar-boundary
+%% source [F07 §5.3] step 3
+%% note 65,536 bytes: the cut at 65,535 would split U+00E9, so it falls back to 65,534.
+%% function N_imp
+%% input-hex
+61 * 65534
+c3a9
+%% output-hex
+61 * 65534
+%% output-length 65534
+%% end
+
+%% case imp-cut-then-trim
+%% source [F07 §5.3] step 3
+%% note The cut leaves three trailing spaces, which the repeated step 3 removes.
+%% function N_imp
+%% input-hex
+61 * 65531
+202020e282ac7461696c
+%% output-hex
+61 * 65531
+%% output-length 65531
+%% end

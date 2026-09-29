@@ -1,0 +1,9 @@
+moirai-node 1
+uid: 5d000000000000000000000000000001
+kind: decision
+title: Group commit with one flush
+status: accepted
+created: c64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541 2026-09-21T14:13:20.000Z
+updated: c352fde46a717001f4c4a321f22dadb5b24b02e6c782d66d285607873438bf503 2026-09-21T15:03:20.000Z
+field tradeoff: One extra flush per rename.
+field what: One FlushFileBuffers per group.

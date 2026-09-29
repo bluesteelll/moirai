@@ -1,0 +1,16 @@
+tree 4b96e97aa7bec3c326e1f53df06e163611e35264
+parent ccad424446fa053d2897aa44b21b74b9ebf6ad37
+author moirai/arch#1 <architect@moirai.invalid> 1790001500 +0000
+committer moirai/arch#1 <architect@moirai.invalid> 1790001500 +0000
+
+decide the pointer-file write mode
+
+Moirai-Commit: ccc912a175b764273d102003f96b1b800c60aee1768a64583fdcf92de515a9d65
+Moirai-Kind: ordinary
+Moirai-Ref: lane/z
+Moirai-Hlc: 117309538304000000
+Moirai-Actor: arch#1
+Moirai-Role: architect
+Moirai-Session: claude:s4
+Moirai-Schema: 1
+Moirai-Ops: 4

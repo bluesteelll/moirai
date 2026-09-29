@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/number-range--ledger-sum.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note Two ledger lines whose sum leaves the i64 range.
+%% refuse ImageParse number-range
+%% end

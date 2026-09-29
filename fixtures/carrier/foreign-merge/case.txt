@@ -1,0 +1,119 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case foreign-merge
+%% source [F14 §10.9]
+%% source [F14 §12.1]
+%% source [F07 §12.3]
+%% source [F06 §4.4.4]
+%% source [F07 §5.3]
+%% note Row foreign: two parents; item 10 comes from the typed merge of the parents' imported
+%% note states over their merge base (foreign-root), not from the tree ([F14 §11.2]).
+%% destination F sha1 full
+%% class foreign
+%% git-commit 55b86a12e9d77a7a5a020e3e55f1ed0355db1f2a
+%% git-tree a3f60ee1868952005c84f08af0b586fb71ec28a9
+%% git-parent c4056d98d06b816e62206682d773e8e4ea459126 foreign-child
+%% git-parent ce17b70b88152a43dc78b8084cbeec3d8a50ea79 foreign-clock-behind
+%% touched-new 1
+%% touched-old 1
+%% p-state
+node 2c000000000000000000000000000001 task
+  status done completed
+  field priority enum P1
+  field title text "Port the importer"
+node 3d000000000000000000000000000001 note
+  field title text "Tracker export format"
+  body "Columns: id, title, state."
+%% base-state
+node 2c000000000000000000000000000001 task
+  field priority enum P1
+  field title text "Port the importer"
+node 3d000000000000000000000000000001 note
+  field title text "Tracker export format"
+  body "Columns: id, title, state."
+%% theirs-state
+node 2c000000000000000000000000000001 task
+  field priority enum P1
+  field title text "Port the importer"
+node 3d000000000000000000000000000001 note
+  field title text "Tracker export format"
+  body "Columns: id, title, state, owner."
+%% q-state
+node 2c000000000000000000000000000001 task
+  status done completed
+  field priority enum P1
+  field title text "Port the importer"
+node 3d000000000000000000000000000001 note
+  field title text "Tracker export format"
+  body "Columns: id, title, state, owner."
+%% entries
+3d000000000000000000000000000001 body = hash 4d42bbdffd76ce78b2ee4727e1226514
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 3d000000000000000000000000000001 body
+013d0000000000000000000000000000010800014d42bbdffd76ce78b2ee4727e1226514
+; u64 entry count = 1
+0100000000000000
+%% entry-count 1
+%% changeset-digest 551133192a82213abf0bfaaefd960ed98ef5eba8a4ab9fe686fe14deb0f51251
+%% commit
+kind merge
+parent e143819ccd708e8318946181783f5cd10899389cdfff24bfccc2fbf14f426f1b
+parent 1d64fd51baf38e887f225559b060174417518d5f6e66fe5967985c8ca0ea5c9a
+hlc 01a088c7f1800000
+actor "git:bob@example.com"
+role ""
+session ""
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "Merge branch 'notes'"
+schema-version 1
+origin -
+foreign sha1 55b86a12e9d77a7a5a020e3e55f1ed0355db1f2a
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+050000006d65726765
+; item 2: n_parents
+02000000
+; item 2: parent 1
+e143819ccd708e8318946181783f5cd10899389cdfff24bfccc2fbf14f426f1b
+; item 2: parent 2
+1d64fd51baf38e887f225559b060174417518d5f6e66fe5967985c8ca0ea5c9a
+; item 3: hlc
+000080f1c788a001
+; item 4: actor
+130000006769743a626f62406578616d706c652e636f6d
+; item 4: role
+00000000
+; item 4: session
+00000000
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+140000004d65726765206272616e636820276e6f74657327
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+0400000073686131
+; item 9: foreign_oid
+1400000055b86a12e9d77a7a5a020e3e55f1ed0355db1f2a
+; item 10: changeset_digest
+551133192a82213abf0bfaaefd960ed98ef5eba8a4ab9fe686fe14deb0f51251
+%% commit-id ba2d655b8c6e7cf350537b37a64631c340f13103c2163fdd480531a0c516da3a
+%% canonical foreign.cases foreign-merge changeset-digest
+%% end

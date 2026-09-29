@@ -1,0 +1,9 @@
+moirai-node 1
+uid: e1000000000000000000000000000001
+kind: task
+title: Split the storage plan
+status: in_progress
+created: ce5b310a048b57412f197cb138dfc857d554e747011f4e6efd2a4867f318ebddb 2026-09-20T23:13:20.000Z
+updated: c01d0513c4550896ddeca7c924083e2f6bafea3b878d2747e1d453dcf1e256bc1 2026-09-21T02:33:20.000Z
+anchor 49604013f649ea32e331162811e2f06f -> 6fef39e646e3b6dd9d338701dec4afaf kind=quote mode=live watch=span quote_h=7b4355eb657ca6f51bd1ede35c8817e5 prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=186e9d1a391065fd537d9240e32b926d quote="## 3. Storage and flushes" prefix="" suffix="\n\nOne flush per group." hint=3-3 window=AQABAEHDngc span=xxh3:7c02d95ae13b4f86 blob=sha1:a050e26bb167719ca59bd8529a6235f5409d8203 git=sha1:b1e43ababc3315b634950b80ef5beb4d73c766be captured=8d98adbed974dc6c64d1e23a4302b066 v=1
+anchor dc62676aff00419ae884fc8bfb587002 -> 6fef39e646e3b6dd9d338701dec4afaf kind=quote mode=live watch=span quote_h=d8a46e35875493e24e6b052f3a9a1e41 prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=186e9d1a391065fd537d9240e32b926d quote="## 3. Storage" prefix="" suffix="\n\nOne flush per group." occurrence=1 hint=3-3 window=AQABAEHDngc span=xxh3:2d8e61b04c7f9a13 blob=sha1:a050e26bb167719ca59bd8529a6235f5409d8203 captured=8d98adbed974dc6c64d1e23a4302b066 pred=49604013f649ea32e331162811e2f06f marker=plan-s3 v=1

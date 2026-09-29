@@ -1,0 +1,17 @@
+tree 0978a9364831c1cba19604e7b87c20210981b7f4
+parent ccad424446fa053d2897aa44b21b74b9ebf6ad37
+author moirai/dev#1 <developer@moirai.invalid> 1790001800 +0000
+committer moirai/dev#1 <developer@moirai.invalid> 1790001800 +0000
+
+revert the restart of #1
+
+Moirai-Commit: cc425a75cab057fa2c912f9bf61a44d5c87c3df544ebc9d5537ac7283bc6490a4
+Moirai-Kind: revert
+Moirai-Ref: main
+Moirai-Hlc: 117309557964800000
+Moirai-Actor: dev#1
+Moirai-Role: developer
+Moirai-Session: claude:s1
+Moirai-Origin: c163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+Moirai-Schema: 1
+Moirai-Ops: 6

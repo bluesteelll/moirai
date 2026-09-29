@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/scope-text--scope-unescaped.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note A scope text whose name holds an unescaped `/` (it splits the segment).
+%% refuse ImageParse scope-text
+%% end

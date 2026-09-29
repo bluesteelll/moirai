@@ -1,0 +1,16 @@
+tree a9157c20e1a31618ac50ce4c6696fa6051931e84202eeaa9502b367194fd6afe
+author moirai/git:alice@example.com <@moirai.invalid> 1789000000 +0000
+committer moirai/git:alice@example.com <@moirai.invalid> 1789000000 +0000
+
+Import backlog from the old tracker
+
+See the tracker export of 2026-09.
+
+Moirai-Commit: ca4cc0fd93e11420275f62d67547b2ff5a5ef869a52c59cbb6a569351eb386b2f
+Moirai-Kind: ordinary
+Moirai-Ref: lane/tracker
+Moirai-Hlc: 117243904000000000
+Moirai-Actor: git:alice@example.com
+Moirai-Foreign-Git: sha1:33881ca4c0710e4ef0c39fa06904c0cc6494ca6a
+Moirai-Schema: 1
+Moirai-Ops: 6

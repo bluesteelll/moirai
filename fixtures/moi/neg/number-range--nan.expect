@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/number-range--nan.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note An f64 NaN.
+%% refuse ImageParse number-range
+%% end

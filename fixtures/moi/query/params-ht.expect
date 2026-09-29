@@ -1,0 +1,11 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture query/params-ht.moi
+%% file query
+%% source [F14 §7.2]
+%% note A string default holding a raw HT: the `params:` line value is a JSON string.
+%% note In a tree the file is schema/queries/04c45da74a420dcb68cb78bc43001158.moi.
+%% canonical self
+%% query
+schema query joined_titles lq=1 params="$sep: text = '\t', $n: int?" shape="table" budget="light" text="DEFINE QUERY joined_titles($sep: text = '\t', $n: int?) SHAPE table BUDGET light AS {\n  MATCH (t:task)\n  RETURN t.title + $sep + t.status LIMIT $n\n}"
+%% end

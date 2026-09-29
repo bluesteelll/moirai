@@ -1,0 +1,22 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/blocks.moi
+%% file node
+%% context core
+%% source [F14 §5.4]
+%% note Blocks: a two-line text; a text ending in LF (last line two SP only); an empty inner line; an inner
+%% note line `>>` (written `  >>`, never the end); trailing SP and HT inside a block kept; leading LFs.
+%% canonical self
+%% keys
+node 5d000000000000000000000000000011 decision
+  field context text "first line\nsecond line"
+  field owner_quote text "\n\nleading LFs"
+  field revive_condition text "trailing  \nnext\t"
+  field title text "Block forms"
+  field tradeoff text "a\n>>\nb"
+  field what text "ends in LF\n"
+  field why text "inner\n\nempty line"
+%% image
+created c5ceb3e512fbd6730cc513a1527caa14999f36f6f1cc9b73b2a68e2ca1e063b4a 2026-09-21T14:13:20.000Z
+updated c3711f363f2f48611c51cd2917f724ddeee172ae7ff7c22dec21c1ba4de36992f 2026-09-21T15:43:20.000Z
+%% end

@@ -1,0 +1,9 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/path-rules--backslash.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% note A path with `\`.
+%% refuse ImageParse path-rules
+%% end

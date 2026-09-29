@@ -1,0 +1,11 @@
+moirai-node 1
+uid: 3b000000000000000000000000000011
+kind: note
+title: "\u007Bbraced title"
+status: active
+created: caaf884f527226a06edf53e933947a8200ef051b7e6254ff87af200dd3b4b2477 2026-09-21T14:13:20.000Z
+updated: c5dfcf5e8afb3bb0b0b5d2d3d5a8fe26d4e4808d56c5a19e0e95c98acaf8f659b 2026-09-21T15:43:20.000Z
+field abstract: "an\u0020SP inside"
+field defence: "\u005Bleading bracket"
+field mechanism: "\u0022leading quote"
+field symptom: " leading SP"

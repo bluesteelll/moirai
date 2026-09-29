@@ -1,0 +1,11 @@
+moirai-node 1
+kind: note
+incr incidents +2 hand-edit-1
+field note_kind: hazard
+uid: 3b000000000000000000000000000001
+status: active
+title: Flush stalls under real-time scanning
+updated: c64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541 2026-09-21T14:13:20.000Z
+created: c64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541 2026-09-21T14:13:20.000Z
+---
+Real-time scanning adds 40 ms to FlushFileBuffers.

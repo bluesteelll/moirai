@@ -1,0 +1,175 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case sync
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% note Gate-0 row sync: git parents (lane tip, sync_base); Moirai-Sync-Base repeats the second parent's id. Item 10
+%% note is the full diff against the lane tip's tree (8 entries), not the stored residue (1 key).
+%% destination A sha1 full
+%% class native
+%% git-commit 24ed7ce9cae5d86f7f5035a00d2ea5794fcae895
+%% git-tree 92454f643a032c77a81ebeb3f16048576a8a49e8
+%% git-parent 98b70e89d7b098f4b47a4b58d48d50c0a10497d3 lane-y-1
+%% git-parent 0c47d3bc9383306f3d858beccb5359bd05fb73bc main-c3
+%% trailer-commit 9fbedf9a38e445900a379fd7bbba349d2814dcf52a218aeb853f58aa3d222c00
+%% touched-new 2
+%% touched-old 2
+%% p-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 7
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body "Timeout fires before the lock holder's flush completes."
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field priority enum P3
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field symptom text "fsync p99 above 40 ms"
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+  conflict field estimate FieldEdit
+    base int 3
+    ours int 7
+    theirs int 5
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field priority enum P3
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field priority enum P3
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field symptom text "fsync p99 above 40 ms"
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+1a000000000000000000000000000001 status = absent
+1a000000000000000000000000000001 field estimate = conflict FieldEdit base (int 3) ours (int 7) theirs (int 5)
+1a000000000000000000000000000001 field priority = enum P1
+1a000000000000000000000000000001 counter reopen_count = -1
+1a000000000000000000000000000001 edge blocks 1a000000000000000000000000000002 - = absent
+1a000000000000000000000000000001 edge cites 5d000000000000000000000000000001 - = absent
+1a000000000000000000000000000001 body = absent
+1a000000000000000000000000000003 field priority = enum P3
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000001 status
+011a000000000000000000000000000001020000
+; entry 2: 1a000000000000000000000000000001 field estimate
+011a0000000000000000000000000000010408000000657374696d61746501090000004669656c644564697403030000
+0000000000030700000000000000030500000000000000
+; entry 3: 1a000000000000000000000000000001 field priority
+011a00000000000000000000000000000104080000007072696f726974790006020000005031
+; entry 4: 1a000000000000000000000000000001 counter reopen_count
+011a000000000000000000000000000001060c00000072656f70656e5f636f756e74010100000000000000
+; entry 5: 1a000000000000000000000000000001 edge blocks 1a000000000000000000000000000002 -
+011a0000000000000000000000000000010706000000626c6f636b731a00000000000000000000000000000200000000
+0000
+; entry 6: 1a000000000000000000000000000001 edge cites 5d000000000000000000000000000001 -
+011a000000000000000000000000000001070500000063697465735d0000000000000000000000000000010000000000
+00
+; entry 7: 1a000000000000000000000000000001 body
+011a000000000000000000000000000001080000
+; entry 8: 1a000000000000000000000000000003 field priority
+011a00000000000000000000000000000304080000007072696f726974790006020000005033
+; u64 entry count = 8
+0800000000000000
+%% entry-count 8
+%% changeset-digest b35785e14151002ef561b24677bcd736d9f7cffef4cb3137dd6224f0ad752393
+%% commit
+kind sync
+parent 97e3cd7aad4af5cbc712d072015283ec6c5530ce87d4815f79890a165a9e9af7
+parent e9e5a7d9c65899681f606c97a70cb27fed3c4a7583f328fceaada34ccc0053b9
+hlc 01a0c4799ee00000
+actor "dev#4"
+role "developer"
+session "claude:s5"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "sync main into lane/y"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+0400000073796e63
+; item 2: n_parents
+02000000
+; item 2: parent 1
+97e3cd7aad4af5cbc712d072015283ec6c5530ce87d4815f79890a165a9e9af7
+; item 2: parent 2
+e9e5a7d9c65899681f606c97a70cb27fed3c4a7583f328fceaada34ccc0053b9
+; item 3: hlc
+0000e09e79c4a001
+; item 4: actor
+050000006465762334
+; item 4: role
+09000000646576656c6f706572
+; item 4: session
+09000000636c617564653a7335
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+1500000073796e63206d61696e20696e746f206c616e652f79
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+b35785e14151002ef561b24677bcd736d9f7cffef4cb3137dd6224f0ad752393
+%% commit-id 9fbedf9a38e445900a379fd7bbba349d2814dcf52a218aeb853f58aa3d222c00
+%% canonical commits.cases sync commit-id
+%% end

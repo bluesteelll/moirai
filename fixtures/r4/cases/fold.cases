@@ -1,0 +1,407 @@
+# R4 fixtures (WP-21, R-FIX). Format: fixtures/r4/INDEX.md section 2.
+# Written from docs/spec/format/08-data-model.md §11, 20-r4-resolver-constants.md §3, docs/spec/os/path.md and
+# 12-vcs.md §2; every value is synthetic.
+# fold_v1(x) = NFD(CF(NFD(x))) at Unicode 17.0.0 ([F20 §3.1]); ceq(a, b) = NFD(a) = NFD(b) ([F20 §3.4]).
+# Computed from fixtures/ucd/17.0.0/UnicodeData.txt and CaseFolding.txt by a scratch implementation of §3.1
+# that reproduces the NFD column of every NormalizationTest.txt line.
+
+%% case ascii-case
+%% source [F20 §3.1]
+%% source [F20 §3.1] examples table
+%% function fold_v1
+%% input-text "Plan.md"
+%% input-cps U+0050 U+006C U+0061 U+006E U+002E U+006D U+0064
+%% input-utf8 506c616e2e6d64
+%% output-cps U+0070 U+006C U+0061 U+006E U+002E U+006D U+0064
+%% output-utf8 706c616e2e6d64
+%% end
+
+%% case sharp-s
+%% source [F20 §3.1]
+%% source [F20 §3.1] examples table
+%% note F folding: U+00DF -> ss.
+%% function fold_v1
+%% input-text "\u00df"
+%% input-cps U+00DF
+%% input-utf8 c39f
+%% output-cps U+0073 U+0073
+%% output-utf8 7373
+%% end
+
+%% case capital-sharp-s
+%% source [F20 §3.1]
+%% source [F20 §3.1] examples table
+%% function fold_v1
+%% input-text "\u1e9e"
+%% input-cps U+1E9E
+%% input-utf8 e1ba9e
+%% output-cps U+0073 U+0073
+%% output-utf8 7373
+%% end
+
+%% case strasse
+%% source [F20 §3.1]
+%% function fold_v1
+%% input-text "Stra\u00dfe.md"
+%% input-cps U+0053 U+0074 U+0072 U+0061 U+00DF U+0065 U+002E U+006D U+0064
+%% input-utf8 53747261c39f652e6d64
+%% output-cps U+0073 U+0074 U+0072 U+0061 U+0073 U+0073 U+0065 U+002E U+006D U+0064
+%% output-utf8 737472617373652e6d64
+%% end
+
+%% case dotted-capital-i
+%% source [F20 §3.1]
+%% source [F20 §3.1] examples table
+%% note NFD gives U+0049 U+0307; C folds U+0049; T lines are ignored.
+%% function fold_v1
+%% input-text "\u0130"
+%% input-cps U+0130
+%% input-utf8 c4b0
+%% output-cps U+0069 U+0307
+%% output-utf8 69cc87
+%% end
+
+%% case dotless-small-i
+%% source [F20 §3.1]
+%% note U+0131 has no C or F line: unchanged.
+%% function fold_v1
+%% input-text "\u0131"
+%% input-cps U+0131
+%% input-utf8 c4b1
+%% output-cps U+0131
+%% output-utf8 c4b1
+%% end
+
+%% case capital-i
+%% source [F20 §3.1]
+%% note C folding to i; the Turkic T line (to U+0131) is ignored.
+%% function fold_v1
+%% input-text "I"
+%% input-cps U+0049
+%% input-utf8 49
+%% output-cps U+0069
+%% output-utf8 69
+%% end
+
+%% case cafe-nfc
+%% source [F20 §3.1]
+%% source [F20 §3.1] examples table
+%% note NFC and NFD spellings fold alike.
+%% function fold_v1
+%% input-text "caf\u00e9"
+%% input-cps U+0063 U+0061 U+0066 U+00E9
+%% input-utf8 636166c3a9
+%% output-cps U+0063 U+0061 U+0066 U+0065 U+0301
+%% output-utf8 63616665cc81
+%% end
+
+%% case cafe-nfd
+%% source [F20 §3.1]
+%% source [F20 §3.1] examples table
+%% function fold_v1
+%% input-text "cafe\u0301"
+%% input-cps U+0063 U+0061 U+0066 U+0065 U+0301
+%% input-utf8 63616665cc81
+%% output-cps U+0063 U+0061 U+0066 U+0065 U+0301
+%% output-utf8 63616665cc81
+%% end
+
+%% case angstrom-sign
+%% source [F20 §3.1]
+%% source [F20 §3.1] examples table
+%% note Canonical singleton to U+00C5, decomposed to A U+030A, then C folding.
+%% function fold_v1
+%% input-text "\u212b"
+%% input-cps U+212B
+%% input-utf8 e284ab
+%% output-cps U+0061 U+030A
+%% output-utf8 61cc8a
+%% end
+
+%% case ohm-sign
+%% source [F20 §3.1]
+%% source [F20 §3.1] examples table
+%% function fold_v1
+%% input-text "\u2126"
+%% input-cps U+2126
+%% input-utf8 e284a6
+%% output-cps U+03C9
+%% output-utf8 cf89
+%% end
+
+%% case kelvin-sign
+%% source [F20 §3.1]
+%% note Canonical singleton to K, then C folding.
+%% function fold_v1
+%% input-text "\u212a"
+%% input-cps U+212A
+%% input-utf8 e284aa
+%% output-cps U+006B
+%% output-utf8 6b
+%% end
+
+%% case ffi-ligature
+%% source [F20 §3.1]
+%% source [F20 §3.1] examples table
+%% note F folding.
+%% function fold_v1
+%% input-text "\ufb03"
+%% input-cps U+FB03
+%% input-utf8 efac83
+%% output-cps U+0066 U+0066 U+0069
+%% output-utf8 666669
+%% end
+
+%% case long-s-t-ligature
+%% source [F20 §3.1]
+%% note F folding to st.
+%% function fold_v1
+%% input-text "\ufb05"
+%% input-cps U+FB05
+%% input-utf8 efac85
+%% output-cps U+0073 U+0074
+%% output-utf8 7374
+%% end
+
+%% case titlecase-dz
+%% source [F20 §3.1]
+%% source [F20 §3.1] examples table
+%% note C folding; its compatibility decomposition is not applied.
+%% function fold_v1
+%% input-text "\u01c5"
+%% input-cps U+01C5
+%% input-utf8 c785
+%% output-cps U+01C6
+%% output-utf8 c786
+%% end
+
+%% case titlecase-lj
+%% source [F20 §3.1]
+%% function fold_v1
+%% input-text "\u01c8"
+%% input-cps U+01C8
+%% input-utf8 c788
+%% output-cps U+01C9
+%% output-utf8 c789
+%% end
+
+%% case hangul
+%% source [F20 §3.1]
+%% source [F20 §3.1] examples table
+%% note Arithmetic Hangul decomposition.
+%% function fold_v1
+%% input-text "\ud55c"
+%% input-cps U+D55C
+%% input-utf8 ed959c
+%% output-cps U+1112 U+1161 U+11AB
+%% output-utf8 e18492e185a1e186ab
+%% end
+
+%% case hangul-lv
+%% source [F20 §3.1]
+%% note An LV syllable: no trailing consonant.
+%% function fold_v1
+%% input-text "\uac00"
+%% input-cps U+AC00
+%% input-utf8 eab080
+%% output-cps U+1100 U+1161
+%% output-utf8 e18480e185a1
+%% end
+
+%% case greek-sigmas
+%% source [F20 §3.1]
+%% note Capital sigma folds to U+03C3; U+038A decomposes to U+0399 U+0301 first.
+%% function fold_v1
+%% input-text "\u03a3\u038a\u03a3\u03a5\u03a6\u039f\u03a3"
+%% input-cps U+03A3 U+038A U+03A3 U+03A5 U+03A6 U+039F U+03A3
+%% input-utf8 cea3ce8acea3cea5cea6ce9fcea3
+%% output-cps U+03C3 U+03B9 U+0301 U+03C3 U+03C5 U+03C6 U+03BF U+03C3
+%% output-utf8 cf83ceb9cc81cf83cf85cf86cebfcf83
+%% end
+
+%% case final-sigma
+%% source [F20 §3.1]
+%% note U+03C2 folds to U+03C3 (C).
+%% function fold_v1
+%% input-text "\u03bf\u03c2"
+%% input-cps U+03BF U+03C2
+%% input-utf8 cebfcf82
+%% output-cps U+03BF U+03C3
+%% output-utf8 cebfcf83
+%% end
+
+%% case ypogegrammeni
+%% source [F20 §3.1]
+%% note U+1FB3 decomposes to U+03B1 U+0345; U+0345 (class 240) folds to U+03B9 (class 0).
+%% function fold_v1
+%% input-text "\u1fb3"
+%% input-cps U+1FB3
+%% input-utf8 e1beb3
+%% output-cps U+03B1 U+03B9
+%% output-utf8 ceb1ceb9
+%% end
+
+%% case canonical-order
+%% source [F20 §3.1]
+%% note U+0323 (class 220) sorts before U+0301 (class 230).
+%% function fold_v1
+%% input-text "a\u0301\u0323"
+%% input-cps U+0061 U+0301 U+0323
+%% input-utf8 61cc81cca3
+%% output-cps U+0061 U+0323 U+0301
+%% output-utf8 61cca3cc81
+%% end
+
+%% case iota-dialytika-tonos
+%% source [F20 §3.1]
+%% note NFD: U+03B9 U+0308 U+0301; nothing to fold.
+%% function fold_v1
+%% input-text "\u0390"
+%% input-cps U+0390
+%% input-utf8 ce90
+%% output-cps U+03B9 U+0308 U+0301
+%% output-utf8 ceb9cc88cc81
+%% end
+
+%% case long-s-dot
+%% source [F20 §3.1]
+%% note NFD: U+017F U+0307; U+017F folds to s (C).
+%% function fold_v1
+%% input-text "\u1e9b"
+%% input-cps U+1E9B
+%% input-utf8 e1ba9b
+%% output-cps U+0073 U+0307
+%% output-utf8 73cc87
+%% end
+
+%% case j-caron
+%% source [F20 §3.1]
+%% note NFD first gives j U+030C, which folding leaves as it is.
+%% function fold_v1
+%% input-text "\u01f0"
+%% input-cps U+01F0
+%% input-utf8 c7b0
+%% output-cps U+006A U+030C
+%% output-utf8 6acc8c
+%% end
+
+%% case n-apostrophe
+%% source [F20 §3.1]
+%% note F folding: U+02BC U+006E.
+%% function fold_v1
+%% input-text "\u0149"
+%% input-cps U+0149
+%% input-utf8 c589
+%% output-cps U+02BC U+006E
+%% output-utf8 cabc6e
+%% end
+
+%% case fullwidth-a
+%% source [F20 §3.1]
+%% note C folding to U+FF41; the compatibility mapping to A is not applied.
+%% function fold_v1
+%% input-text "\uff21"
+%% input-cps U+FF21
+%% input-utf8 efbca1
+%% output-cps U+FF41
+%% output-utf8 efbd81
+%% end
+
+%% case cherokee-small
+%% source [F20 §3.1]
+%% note Cherokee small letters fold to the capitals (C).
+%% function fold_v1
+%% input-text "\uab70"
+%% input-cps U+AB70
+%% input-utf8 eaadb0
+%% output-cps U+13A0
+%% output-utf8 e18ea0
+%% end
+
+%% case deseret
+%% source [F20 §3.1]
+%% note A supplementary-plane letter: U+10400 -> U+10428.
+%% function fold_v1
+%% input-text "\ud801\udc00"
+%% input-cps U+10400
+%% input-utf8 f0909080
+%% output-cps U+10428
+%% output-utf8 f09090a8
+%% end
+
+%% case unassigned
+%% source [F20 §3.1]
+%% note U+0378 is unassigned: it maps to itself.
+%% function fold_v1
+%% input-text "a\u0378b"
+%% input-cps U+0061 U+0378 U+0062
+%% input-utf8 61cdb862
+%% output-cps U+0061 U+0378 U+0062
+%% output-utf8 61cdb862
+%% end
+
+%% case private-use
+%% source [F20 §3.1]
+%% function fold_v1
+%% input-text "\ue000"
+%% input-cps U+E000
+%% input-utf8 ee8080
+%% output-cps U+E000
+%% output-utf8 ee8080
+%% end
+
+%% case path
+%% source [F20 §3.1]
+%% source [F20 §3.3]
+%% note A whole path folds; / is unchanged.
+%% function fold_v1
+%% input-text "Docs/Caf\u00e9/\u1e9e.MD"
+%% input-cps U+0044 U+006F U+0063 U+0073 U+002F U+0043 U+0061 U+0066 U+00E9 U+002F U+1E9E U+002E U+004D U+0044
+%% input-utf8 446f63732f436166c3a92fe1ba9e2e4d44
+%% output-cps U+0064 U+006F U+0063 U+0073 U+002F U+0063 U+0061 U+0066 U+0065 U+0301 U+002F U+0073 U+0073 U+002E U+006D U+0064
+%% output-utf8 646f63732f63616665cc812f73732e6d64
+%% end
+
+%% case ceq-nfc-nfd
+%% source [F20 §3.4]
+%% function ceq
+%% input-text "caf\u00e9.md"
+%% input2-text "cafe\u0301.md"
+%% output true
+%% end
+
+%% case ceq-angstrom
+%% source [F20 §3.4]
+%% note Both decompose to A U+030A.
+%% function ceq
+%% input-text "\u212b"
+%% input2-text "\u00c5"
+%% output true
+%% end
+
+%% case ceq-case
+%% source [F20 §3.4]
+%% note No folding in ceq.
+%% function ceq
+%% input-text "a.md"
+%% input2-text "A.md"
+%% output false
+%% end
+
+%% case ceq-compat
+%% source [F20 §3.4]
+%% note Compatibility mappings are never applied.
+%% function ceq
+%% input-text "\ufb03"
+%% input2-text "ffi"
+%% output false
+%% end
+
+%% case ceq-order
+%% source [F20 §3.4]
+%% note Canonical ordering makes the two sequences equal.
+%% function ceq
+%% input-text "a\u0323\u0301"
+%% input2-text "a\u0301\u0323"
+%% output true
+%% end

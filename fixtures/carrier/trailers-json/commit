@@ -1,0 +1,20 @@
+tree 6502a23ba8c4d487efa712efe19c13626ef9e772
+parent 018e6a12ce584771b360c194bc69088493ee821e
+author moirai/[bot] ci <ci@moirai.invalid> 1790004080 +0000
+committer moirai/[bot] ci <ci@moirai.invalid> 1790004080 +0000
+
+nightly: assign #3 to the bot; count two incidents
+
+Moirai-Commit: c6afe1bcfe3813d5d4e7c705e6c5f68a4bc49d58da857745fc0cd66dbd0fbf3c4
+Moirai-Kind: ordinary
+Moirai-Ref: lane/bots
+Moirai-Hlc: 117309707386880000
+Moirai-Actor: "[bot] ci"
+Moirai-Role: ci
+Moirai-Session: gh:run 17
+Moirai-Git-Head: sha1:765e5af16586a005e26f9b47fd02e2527c37c9bc
+Moirai-Git-Branch: bots/nightly
+Moirai-Worktree: "/home/ci/work\tlane"
+Moirai-Schema: 1
+Moirai-Ops: 2
+Moirai-Idem: ebeeb8a0b77c4868733e7c9a756e30ff

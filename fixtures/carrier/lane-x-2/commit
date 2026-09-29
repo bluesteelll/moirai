@@ -1,0 +1,16 @@
+tree 1063d41dd939c6ac4f4aef04e06b7501e97ddc39
+parent fc3c52d305bce567850a5fc38da3fddb114115a3
+author moirai/dev#3 <developer@moirai.invalid> 1790002100 +0000
+committer moirai/dev#3 <developer@moirai.invalid> 1790002100 +0000
+
+lane x: remove the scratch note
+
+Moirai-Commit: c1604505e547e1e81647982690f5f2d70f4ffec74451eef7502ee2d6441164759
+Moirai-Kind: ordinary
+Moirai-Ref: lane/x
+Moirai-Hlc: 117309577625600000
+Moirai-Actor: dev#3
+Moirai-Role: developer
+Moirai-Session: claude:s3
+Moirai-Schema: 1
+Moirai-Ops: 2

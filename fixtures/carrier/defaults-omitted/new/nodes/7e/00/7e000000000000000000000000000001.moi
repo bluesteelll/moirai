@@ -1,0 +1,9 @@
+moirai-node 1
+uid: 7e000000000000000000000000000001
+kind: measurement
+title: Flush p99 at 1e5
+status: current
+created: c6087a9137cdacdabce3356976e2618f589d1fb0f275a111035b25df69aeebed1 2026-09-21T14:27:20.000Z
+updated: c6087a9137cdacdabce3356976e2618f589d1fb0f275a111035b25df69aeebed1 2026-09-21T14:27:20.000Z
+field unit: ms
+field value: 0.0

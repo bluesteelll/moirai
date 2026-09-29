@@ -1,0 +1,20 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/tomb-edges-anchors.moi
+%% file node
+%% context core
+%% source [F14 §6.10]
+%% source [F07 §6.4]
+%% note A tombstone with a flagged blocks edge, historical cites (pinned) and mentions edges, and a
+%% note retained anchor line.
+%% canonical self
+%% keys
+node 1a000000000000000000000000000011 task deleted "dup of the lock protocol task" -
+  field title text "Reader registry"
+  edge blocks 1a000000000000000000000000000012 flagged
+  edge cites 5d000000000000000000000000000011 pin e53e65b9e751e6b6bd37f93e501ec97a4752d361d4e9848c235d462fe3adaad3
+  edge mentions 1a000000000000000000000000000052
+  at ff62a2c718c52faafc108cf0e945642e e2a8f4372b79ab3762509cc526f7868c kind=quote mode=live watch=span resolver=1 captured=55a0f8225a49064207dfab2882e736d5 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder" hint=3-3 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9 marker="lock-writer"
+%% image
+deleted cf2bd96625e4c39a0e300e6507377bd69180612a4f70cc09510dc95f452afe561 2026-09-21T16:13:20.000Z
+%% end

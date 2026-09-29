@@ -1,0 +1,8 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture side/ops.moi
+%% file ops
+%% source [F14 §14]
+%% note ops.moi: ref events and client-head events (a session key that needs JSON) in log order.
+%% canonical self
+%% end

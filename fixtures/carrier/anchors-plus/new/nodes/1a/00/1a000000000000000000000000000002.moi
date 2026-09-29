@@ -1,0 +1,13 @@
+moirai-node 1
+uid: 1a000000000000000000000000000002
+kind: task
+title: Write the recovery test
+status: open
+parent: a0000000000000000000000000000001
+order: k
+created: c64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541 2026-09-21T14:13:20.000Z
+updated: c271bccbc4ad764b231382b2d36bbe448ebf02dedc623d72fa95361ee120e7a2f 2026-09-21T15:13:20.000Z
+field estimate: 5
+anchor 451c99960d7d0705e2e58204dc597f09 -> ff62a2c718c52faafc108cf0e945642e kind=range mode=live watch=span quote_h=4088f6c0faec4ed810e9eca1978806cd prefix_h=6756ade5801160e577e2af777a3c26fa suffix_h=af1349b9f5f9a1a6a0404dea36dcc949 end_h=e04a8042d57f78e0ce8ef0b377ac5967 quote="## Timeouts" prefix="A holder that dies leaves the byte to the OS.\n" suffix="" end="Waiters retry every 5 ms for at most 2 s." hint=6-8 window=AgAAAD2RWh4 span=xxh3:0f4e2a17b3c85d69 blob=sha1:a936e37c01d643cb4e9df77e93ec3d4f89fd77ae captured=ae12469f9fd646a920aead70874596ad marker=lock-timeouts v=1
+anchor 4d232f81d2e8ccb3dd225925cb47fed9 -> ff62a2c718c52faafc108cf0e945642e kind=quote mode=live watch=span quote_h=f0bc697727cf4ed990d560ad41fa0517 prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=1713964b912310faa30159efdf5d6881 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder that dies" hint=13-13 window=AQABAI4Cx9I span=xxh3:6b1f3e0d2c9a8475 blob=sha1:fb553d60ac29e10a6c3a38c349be441cd67bf27b git=sha1:07749270e4852cbea89a09460cae7049ab75e153 captured=5df7478441e0b5801d114d7a39c098b6 pred=9751bba14934b070bf965455e00cd17f marker=lock-writer v=1
+anchor 9751bba14934b070bf965455e00cd17f -> ff62a2c718c52faafc108cf0e945642e kind=quote mode=live watch=span quote_h=fb9d02e63e54c515fb92949cfd09d606 prefix_h=af1349b9f5f9a1a6a0404dea36dcc949 suffix_h=1713964b912310faa30159efdf5d6881 quote="The writer byte is taken with LockFileEx on every open." prefix="" suffix="\nA holder that dies" hint=3-3 window=AQACAFoex9ILRA span=xxh3:1d7c55e09a3b2f61 blob=sha1:fb553d60ac29e10a6c3a38c349be441cd67bf27b git=sha1:07749270e4852cbea89a09460cae7049ab75e153 captured=5df7478441e0b5801d114d7a39c098b6 v=1

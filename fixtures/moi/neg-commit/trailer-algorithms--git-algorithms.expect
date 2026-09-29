@@ -1,0 +1,11 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg-commit/trailer-algorithms--git-algorithms.commit
+%% file commit
+%% context carrier destination A
+%% source [F14 §9.2]
+%% source [F07 §15]
+%% note Moirai-Git-Head sha1 and Moirai-Git-Base sha256.
+%% note Its tree and parents are those of carrier case ordinary (destination A); its object id is 4adfc071784748a76639e269c95e30cc54f4ead0.
+%% refuse ImageParse trailer-algorithms
+%% end

@@ -1,0 +1,16 @@
+tree 5756c93382a456cc3d796b023dd60280bb7ef502
+parent 507868c1ad2fc92931a5fc49f62e38d2e8fb168b
+author moirai/dev#7 <developer@moirai.invalid> 1790003960 +0000
+committer moirai/dev#7 <developer@moirai.invalid> 1790003960 +0000
+
+narrow open_tasks; review stale notes
+
+Moirai-Commit: c3781463b0232de8d64c96888b4348922dc972b4d7e29b844bc6ab3abe36fa89d
+Moirai-Kind: ordinary
+Moirai-Ref: lane/q2
+Moirai-Hlc: 117309699522560000
+Moirai-Actor: dev#7
+Moirai-Role: developer
+Moirai-Session: claude:s9
+Moirai-Schema: 1
+Moirai-Ops: 2

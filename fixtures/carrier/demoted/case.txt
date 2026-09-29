@@ -1,0 +1,166 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case demoted
+%% source [F14 §10.1]
+%% source [F14 §10.3]
+%% source [F14 §10.5]
+%% source [F14 §12.1]
+%% source [F14 §12.2]
+%% source [F07 §12.5]
+%% source [F14 §10.9]
+%% note Row re-exports (+), part 1: the export of a commit P (Moirai-Commit below) whose tree was amended by hand
+%% note (T3 gains `field estimate: 2`) and whose message was kept. The rebuilt native id differs from the trailer, so
+%% note the commit is demoted: it becomes a foreign commit with [F07 §12.3]'s id over the whole git message, trailers
+%% note included (block commit, c and commit-id). Block native-commit is the failed native reconstruction.
+%% destination A sha1 full
+%% class demoted
+%% git-commit d1049329a21f4c63eb0a48f2aa85fb94ed1ee3e3
+%% git-tree 5e86f8ceb2fa1f3a365f89a9b3fabf10cfc948d1
+%% git-parent 018e6a12ce584771b360c194bc69088493ee821e root
+%% trailer-commit fba21dbac9bb8924a2c5988b67d19a2294626d6da5650c73bf8c0d5af4242dbc
+%% touched-new 1
+%% touched-old 1
+%% p-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P1
+  field title text "Fix the lock timeout"
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field estimate int 2
+  field priority enum P4
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% native-entries
+1a000000000000000000000000000003 field estimate = int 2
+1a000000000000000000000000000003 field priority = enum P4
+%% native-commit
+kind ordinary
+parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+hlc 01a0c48f97e00000
+actor "dev#5"
+role "developer"
+session "claude:s5"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "deprioritise #3"
+schema-version 1
+origin -
+foreign -
+%% native-commit-id 8de5b29779bd63dfb7a8cab72c08d4d986ee3982067324014ae814a4f93ad8ae
+%% entries
+1a000000000000000000000000000003 field estimate = int 2
+1a000000000000000000000000000003 field priority = enum P4
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000003 field estimate
+011a0000000000000000000000000000030408000000657374696d61746500030200000000000000
+; entry 2: 1a000000000000000000000000000003 field priority
+011a00000000000000000000000000000304080000007072696f726974790006020000005034
+; u64 entry count = 2
+0200000000000000
+%% entry-count 2
+%% changeset-digest d3362a0f7e119b36fd5ec4207ff1b49ac4069f008779cef74f44fdfbb0f5dfb6
+%% commit
+kind ordinary
+parent 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+hlc 01a0c48f97e00000
+actor "git:developer@moirai.invalid"
+role ""
+session ""
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "deprioritise #3\n\nMoirai-Commit: cfba21dbac9bb8924a2c5988b67d19a2294626d6da5650c73bf8c0d5af4242dbc\nMoirai-Kind: ordinary\nMoirai-Ref: lane/demote\nMoirai-Hlc: 117309711319040000\nMoirai-Actor: dev#5\nMoirai-Role: developer\nMoirai-Session: claude:s5\nMoirai-Schema: 1\nMoirai-Ops: 1"
+schema-version 1
+origin -
+foreign sha1 d1049329a21f4c63eb0a48f2aa85fb94ed1ee3e3
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+; item 3: hlc
+0000e0978fc4a001
+; item 4: actor
+1c0000006769743a646576656c6f706572406d6f697261692e696e76616c6964
+; item 4: role
+00000000
+; item 4: session
+00000000
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+1201000064657072696f7269746973652023330a0a4d6f697261692d436f6d6d69743a20636662613231646261633962
+623839323461326335393838623637643139613232393436323664366461353635306337336266386330643561663432
+34326462630a4d6f697261692d4b696e643a206f7264696e6172790a4d6f697261692d5265663a206c616e652f64656d
+6f74650a4d6f697261692d486c633a203131373330393731313331393034303030300a4d6f697261692d4163746f723a
+2064657623350a4d6f697261692d526f6c653a20646576656c6f7065720a4d6f697261692d53657373696f6e3a20636c
+617564653a73350a4d6f697261692d536368656d613a20310a4d6f697261692d4f70733a2031
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+0400000073686131
+; item 9: foreign_oid
+14000000d1049329a21f4c63eb0a48f2aa85fb94ed1ee3e3
+; item 10: changeset_digest
+d3362a0f7e119b36fd5ec4207ff1b49ac4069f008779cef74f44fdfbb0f5dfb6
+%% commit-id 18464969ee21c7aa35f43fe95e374e0a4cf98a641842db3862baa0bc34a5c9d8
+%% end

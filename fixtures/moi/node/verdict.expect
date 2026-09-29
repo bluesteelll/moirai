@@ -1,0 +1,25 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/verdict.moi
+%% file node
+%% context core
+%% source [F08 §9.3] verdict
+%% note Kind verdict (fields immutable after Create): outcome, return_to, gates and verifies edges.
+%% canonical self
+%% keys
+node 8e000000000000000000000000000011 verdict
+  status accepted none
+  field conditions text "add the crash test"
+  field criteria text "no whole-file lock"
+  field outcome enum pass_with_conditions
+  field raw_label text "PASS (conditions)"
+  field return_to enum developer
+  field role text "reviewer"
+  field round int 1
+  field title text "Review of the lock protocol"
+  edge gates 1a000000000000000000000000000011
+  edge verifies 1a000000000000000000000000000011
+%% image
+created ca1af04fe698251200f6875befc5ae1c1d5f66a6209b2139e8ac7282fb633c140 2026-09-21T14:13:20.000Z
+updated c49cec305098233e76ba1f29667c8ac0fdda6b38d968e8e3c84aae7b8e1576239 2026-09-21T15:43:20.000Z
+%% end

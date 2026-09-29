@@ -1,0 +1,31 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/anchors-full.moi
+%% file node
+%% context core
+%% source [F14 §6.7]
+%% source [F14 §5.6]
+%% source [F14 §5.7]
+%% source [F08 §10.3]
+%% source [F08 §11.4]
+%% note Anchors in full mode: every kind (file, heading, symbol with a Rust and with a TOML scope, quote,
+%% note range in pinned mode, lines with a one-line hint and watch header); scopes of the three languages,
+%% note a Markdown name escaping `/`, `[`, `]` and `%`, a qualifier; occurrence, marker, pred; an empty
+%% note prefix and suffix (`""`); a Latin-1 quote written as `%` and base64url.
+%% canonical self
+%% keys
+node 1a000000000000000000000000000011 task
+  field title text "Anchor forms"
+  at 672af70da09c660c2887060b8618cfd9 7bdf8677672500b633ff4b03a6583f04 kind=quote mode=live watch=span resolver=1 captured=a47ab2960949b2de0b1917c2d400d280 quote=%Q2Fm6SBsb2NraW5n prefix="Legacy notes\n\n" suffix=": the old tracker" hint=3-3 window=010001007c2011d3 span_hash=0c5e8a31f7b2d946 blob=sha1:83348d283c1ba0b3b4d55fdc04c39a165b933125
+  at d706fcde60f0b6cbf56c23297162b652 00cb0866843e2c80a0a73ab57a4f263f kind=file mode=live watch=header resolver=1 captured=bcf306557fb04ecf570128703b7ac5fe blob=sha1:31f1dd226a71238855f4ba9cb50e4cf48b75fcf0 git=sha1:d64ec5777fc9141a64a5dec2fc0726993f37edf3
+  at d706fcde60f0b6cbf56c23297162b652 5e084fd2a70f74e02ffa775103e44562 kind=symbol mode=live watch=header resolver=1 captured=0010414edb77da2c7123ee4c57e289a0 scope=010202084c6f636b46696c650444726f70030464726f7000 quote="fn drop(&mut self)" prefix="impl Drop for LockFile {\n" suffix=" {\n" occurrence=1 hint=40-44 window=0100010012345678 span_hash=0123456789abcdef blob=sha1:31f1dd226a71238855f4ba9cb50e4cf48b75fcf0
+  at dba5cf7715202bc4fc8feb1405c7774b eac59baaf03d911bb68690397fb54f60 kind=symbol mode=live watch=header resolver=1 captured=fb43098ceec3e7a62b6caa34dd417ebc scope=0302010c646570656e64656e63696573000306626c616b653300 quote="blake3 = { version = \"1.8\", default-features = false }" prefix="[dependencies]\n" suffix="\n" hint=9-9 window=0100000077aa span_hash=5555666677778888 blob=sha1:1b290eb385892bfd4870c08a785598e98c8691b7
+  at dba5cf7715202bc4fc8feb1405c7774b f57559679a27f9b696fbb512ca22fc60 kind=lines mode=live watch=header resolver=1 captured=6acfb91728052b24b3f7ee2497c9423c hint=7-7 window=01000100a4c10e9f span_hash=3e9d07c1a2b4f658 blob=sha1:1b290eb385892bfd4870c08a785598e98c8691b7
+  at ff62a2c718c52faafc108cf0e945642e 42b5d61ddd1fff29bb8ca4e98886469b kind=quote mode=live watch=span resolver=1 captured=55a0f8225a49064207dfab2882e736d5 pred=e2a8f4372b79ab3762509cc526f7868c quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder" hint=9-9 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9
+  at ff62a2c718c52faafc108cf0e945642e 5e6a3e0a049c1662dc373c21aad3f8d1 kind=range mode=pinned watch=span resolver=1 captured=63f454a5ac92343233676a15ca49f47c quote="## Timeouts" prefix="leaves the byte to the OS.\n" suffix="" end="Waiters retry every 5 ms for at most 2 s." hint=6-8 window=020000003d915a1e span_hash=0f4e2a17b3c85d69 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9
+  at ff62a2c718c52faafc108cf0e945642e 5eabb78b272dea135c8ea0b5cd39ac8a kind=heading mode=live watch=header resolver=1 captured=9521ee1d222ce016c3ac980744497f92 scope=0202010d4c6f636b2070726f746f636f6c00021c54696d656f757473202f2072657472696573205b76325d203130302503332e32 quote="## 3.2 Timeouts / retries [v2] 100%" prefix="" suffix="\n\nWaiters retry" hint=12-12 window=0000010009f1 span_hash=1111222233334444 blob=sha256:3158f0428274a62597ef220c9173a3758b7b1b69a8a59299396988fe9f3c2d6c
+  at ff62a2c718c52faafc108cf0e945642e e2a8f4372b79ab3762509cc526f7868c kind=quote mode=live watch=span resolver=1 captured=55a0f8225a49064207dfab2882e736d5 quote="The writer byte is taken with LockFileEx." prefix="" suffix="\nA holder" hint=3-3 window=010002005a1ec7d20b44 span_hash=6b1f3e0d2c9a8475 blob=sha1:eb2e5be104cfdd8905fe5073d13e47a4b87e58c9 marker="lock-writer"
+%% image
+created ce3dcdf5cce0f9f8b18e253e9345e7c05ba28c4f1ac878593ee0b3b0411361916 2026-09-21T14:13:20.000Z
+updated cda38521e3fe3c3c442823f6b96e1c85f69c9ffbe565975803273fbfd9cd917fd 2026-09-21T15:43:20.000Z
+%% end

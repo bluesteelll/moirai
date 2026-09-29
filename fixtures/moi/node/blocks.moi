@@ -1,0 +1,34 @@
+moirai-node 1
+uid: 5d000000000000000000000000000011
+kind: decision
+title: Block forms
+status: proposed
+created: c5ceb3e512fbd6730cc513a1527caa14999f36f6f1cc9b73b2a68e2ca1e063b4a 2026-09-21T14:13:20.000Z
+updated: c3711f363f2f48611c51cd2917f724ddeee172ae7ff7c22dec21c1ba4de36992f 2026-09-21T15:43:20.000Z
+field context: <<
+  first line
+  second line
+>>
+field owner_quote: <<
+  
+  
+  leading LFs
+>>
+field revive_condition: <<
+  trailing  
+  next	
+>>
+field tradeoff: <<
+  a
+  >>
+  b
+>>
+field what: <<
+  ends in LF
+  
+>>
+field why: <<
+  inner
+  
+  empty line
+>>

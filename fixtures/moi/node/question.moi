@@ -1,0 +1,15 @@
+moirai-node 1
+uid: 6c000000000000000000000000000011
+kind: question
+title: Keep the leader?
+status: answered
+created: ca738bfc1ff909d2a5f8b63f5bd88a31ff4738c64f74baa486ae63139ff9f0298 2026-09-21T14:13:20.000Z
+updated: cc22796b6c2fb81bad127f4fac51912e414a3b45deb8d15d1a60838ad483375ea 2026-09-21T15:43:20.000Z
+field answer: measure first
+field asked_of: owner
+field options: <<
+  keep it
+  remove it
+  measure first
+>>
+field q_kind: scope

@@ -1,0 +1,22 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture superset/missing-final-lf.moi
+%% file node
+%% context core
+%% source [F14 §9.1]
+%% note Item 4: a file without its final LF.
+%% canonical node/edges.moi
+%% keys
+node 1a000000000000000000000000000001 task
+  field title text "Edge forms"
+  edge blocks 1a000000000000000000000000000012
+  edge cites 4e000000000000000000000000000011
+  edge cites 5d000000000000000000000000000011 pin e53e65b9e751e6b6bd37f93e501ec97a4752d361d4e9848c235d462fe3adaad3
+  edge implements 2d000000000000000000000000000011 pin 0c4cd7158cf16a5964d30a3962fc2a017e3530e3bd8b627a67c4c6f6c57858c7
+  edge mentions 1a000000000000000000000000000012
+  edge mentions 1a000000000000000000000000000013
+  edge relates f0000000000000000000000000000002
+%% image
+created c9afd3239d3012030a6737959be730de64eabfe0de17f958b985f2d8e10ea4ead 2026-09-21T14:13:20.000Z
+updated cb0363655364f9eaec9b9ed8928b8ba9aa8fd9043194081707c4b9bed7d15ac1b 2026-09-21T15:43:20.000Z
+%% end

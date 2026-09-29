@@ -1,0 +1,11 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg-commit/trailer-sync-base--differs.commit
+%% file commit
+%% context carrier destination A
+%% source [F14 §9.2]
+%% source [F07 §15]
+%% note Moirai-Sync-Base names the first parent, not the second.
+%% note Its tree and parents are those of carrier case sync (destination A); its object id is 9855524ba5ad875f2506de24b2d039d28a58aa27.
+%% refuse ImageParse trailer-sync-base
+%% end

@@ -1,0 +1,8 @@
+moirai-node 1
+uid: 5d000000000000000000000000000011
+kind: decision
+title: Whole-file lock
+deleted: c9a44902f934263e070d3cf3d054e6a1d87a85e91974050ac457ad1574d9fc79b 2026-09-21T16:13:20.000Z
+field what: kept
+field reason: superseded by the range design
+field replaced_by: 5d000000000000000000000000000012
