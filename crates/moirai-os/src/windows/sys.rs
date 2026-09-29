@@ -83,8 +83,9 @@ pub(crate) fn kind_of(code: u32, domain: Domain) -> VfsErrorKind {
         123 | 206 => VfsErrorKind::InvalidName,
         23 | 483 | 1117 => VfsErrorKind::Io,
         267 if project => VfsErrorKind::IsDirectory,
-        // The `ERROR_CLOUD_FILE_*` family, 358–400 plus the scattered later codes ([OS/project §2.3]).
-        358..=400 | 404 | 426 | 434 | 475 if project => VfsErrorKind::CloudOnly,
+        // The `ERROR_CLOUD_FILE_*` family, matched by name ([OS/project §2.3], [OS/fs §6.2]): its members lie at 358,
+        // 362–398 with gaps, 404, 426, 434 and 475, so no range is equivalent.
+        c if project && OsCode(c as i32).is_cloud_file_error() => VfsErrorKind::CloudOnly,
         _ => match domain {
             Domain::StoreData | Domain::ProjectData => VfsErrorKind::Io,
             Domain::Store | Domain::Project => VfsErrorKind::Other,
@@ -540,6 +541,48 @@ mod tests {
         assert_eq!(kind_of(267, Domain::Project), K::IsDirectory);
         assert_eq!(kind_of(391, Domain::Project), K::CloudOnly);
         assert_eq!(kind_of(391, Domain::Store), K::Other);
+        // The family by name: every `ERROR_CLOUD_FILE_*` constant of the pinned binding, and none of the codes in its
+        // gaps (359–361 and 367–373 are file-system virtualization and other errors, 399–400 others).
+        use windows_sys::Win32::Foundation as F;
+        for code in [
+            F::ERROR_CLOUD_FILE_SYNC_ROOT_METADATA_CORRUPT,
+            F::ERROR_CLOUD_FILE_PROVIDER_NOT_RUNNING,
+            F::ERROR_CLOUD_FILE_METADATA_CORRUPT,
+            F::ERROR_CLOUD_FILE_METADATA_TOO_LARGE,
+            F::ERROR_CLOUD_FILE_PROPERTY_BLOB_TOO_LARGE,
+            F::ERROR_CLOUD_FILE_PROPERTY_BLOB_CHECKSUM_MISMATCH,
+            F::ERROR_CLOUD_FILE_TOO_MANY_PROPERTY_BLOBS,
+            F::ERROR_CLOUD_FILE_PROPERTY_VERSION_NOT_SUPPORTED,
+            F::ERROR_CLOUD_FILE_NOT_IN_SYNC,
+            F::ERROR_CLOUD_FILE_ALREADY_CONNECTED,
+            F::ERROR_CLOUD_FILE_NOT_SUPPORTED,
+            F::ERROR_CLOUD_FILE_INVALID_REQUEST,
+            F::ERROR_CLOUD_FILE_READ_ONLY_VOLUME,
+            F::ERROR_CLOUD_FILE_CONNECTED_PROVIDER_ONLY,
+            F::ERROR_CLOUD_FILE_VALIDATION_FAILED,
+            F::ERROR_CLOUD_FILE_AUTHENTICATION_FAILED,
+            F::ERROR_CLOUD_FILE_INSUFFICIENT_RESOURCES,
+            F::ERROR_CLOUD_FILE_NETWORK_UNAVAILABLE,
+            F::ERROR_CLOUD_FILE_UNSUCCESSFUL,
+            F::ERROR_CLOUD_FILE_NOT_UNDER_SYNC_ROOT,
+            F::ERROR_CLOUD_FILE_IN_USE,
+            F::ERROR_CLOUD_FILE_PINNED,
+            F::ERROR_CLOUD_FILE_REQUEST_ABORTED,
+            F::ERROR_CLOUD_FILE_PROPERTY_CORRUPT,
+            F::ERROR_CLOUD_FILE_ACCESS_DENIED,
+            F::ERROR_CLOUD_FILE_INCOMPATIBLE_HARDLINKS,
+            F::ERROR_CLOUD_FILE_PROPERTY_LOCK_CONFLICT,
+            F::ERROR_CLOUD_FILE_REQUEST_CANCELED,
+            F::ERROR_CLOUD_FILE_PROVIDER_TERMINATED,
+            F::ERROR_CLOUD_FILE_REQUEST_TIMEOUT,
+            F::ERROR_CLOUD_FILE_DEHYDRATION_DISALLOWED,
+            F::ERROR_CLOUD_FILE_US_MESSAGE_TIMEOUT,
+        ] {
+            assert_eq!(kind_of(code, Domain::Project), K::CloudOnly, "code {code}");
+        }
+        for gap in [359, 360, 361, 367, 370, 373, 376, 384, 385, 399, 400] {
+            assert_eq!(kind_of(gap, Domain::Project), K::Other, "code {gap}");
+        }
         assert_eq!(kind_of(1920, Domain::Project), K::AccessDenied);
         assert_eq!(kind_of(9999, Domain::ProjectData), K::Io);
     }
@@ -622,7 +665,7 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(proptest::test_runner::Config { failure_persistence: None, ..Default::default() })]
+        #![proptest_config(crate::windows::testing::proptest_config())]
 
         /// WTF-8 of valid UTF-16 is its UTF-8; of any sequence, it is valid UTF-8 exactly when the input has no unpaired
         /// surrogate, and every unit produces at least one byte.

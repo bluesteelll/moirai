@@ -20,8 +20,8 @@ use std::sync::OnceLock;
 
 use moirai_vfs::{
     Classification, ClassifyDepth, CloudKind, Entropy, EnvGuard, EnvWarning, ExtentMethod, FsKind,
-    FsName, OsCode, OsVersion, ProbeOutcome, ProbeReport, Refusal, RelPath, ShareRetry, StoreFs,
-    StoreVolume, SyncKind, VfsError, VfsErrorKind,
+    FsName, OS_SHARE_RETRY_MS, OsCode, OsVersion, ProbeOutcome, ProbeReport, Refusal, RelPath,
+    ShareRetry, StoreFs, StoreVolume, SyncKind, VfsError, VfsErrorKind,
 };
 use windows_sys::Wdk::System::SystemServices::RtlGetVersion;
 use windows_sys::Win32::Devices::DeviceAndDriverInstallation::{
@@ -147,7 +147,7 @@ fn entry_attrs(path_z: &[u16]) -> Option<(u32, u32)> {
     Some((data.dwFileAttributes, data.dwReserved0))
 }
 
-/// `true` for a `\\?\UNC\` path (no NUL), compared ignoring ASCII case ([OS/env §4.1] step 2).
+/// `true` for a `\\?\UNC\` path (no NUL), compared ignoring ASCII case ([OS/env §4.1] step 1).
 pub(crate) fn is_unc(path: &[u16]) -> bool {
     let unc = "\\\\?\\UNC\\".encode_utf16();
     path.len() >= 8
@@ -371,9 +371,11 @@ fn flushing_disabled(volume_root: &[u16]) -> Option<bool> {
 /// The store's `tmp/` directory ([F02 §5.3]).
 const TMP: RelPath<'static> = RelPath::literal("tmp");
 
-/// The clean-up's share-retry bound: HOLE(OS-share-retry-ms), draft 1,000 ms ([OS/fs §6.3]). Defender or the indexer
-/// may hold a freshly written probe file for a moment (fault-model W3).
-const CLEANUP_RETRY: ShareRetry = ShareRetry::Bounded { total_ms: 1_000 };
+/// The clean-up's share-retry bound: HOLE(OS-share-retry-ms) ([`moirai_vfs::OS_SHARE_RETRY_MS`], [OS/fs §6.3]).
+/// Defender or the indexer may hold a freshly written probe file for a moment (fault-model W3).
+const CLEANUP_RETRY: ShareRetry = ShareRetry::Bounded {
+    total_ms: OS_SHARE_RETRY_MS,
+};
 
 /// A probe file's name `tmp/probe.<nonce>` ([OS/env §5]; [F02 §5.3, §6.3] `tmp-entry`: the word `probe` and the nonce
 /// in decimal).
@@ -485,13 +487,13 @@ fn probe_calls(
 impl EnvGuard for OsVfs {
     fn classify(&self, store: &OsRoot, depth: ClassifyDepth) -> Result<Classification, VfsError> {
         let h = store.raw();
-        // [OS/env §4.1] step 2 first: a final path in UNC form (captured at `open_root`) needs no OS call, and a UNC or
-        // network root whose volume query fails is still `Refused(Unc)`, not an error.
+        // [OS/env §4.1] step 1: a final path in UNC form (captured at `open_root`) needs no OS call, so it runs first,
+        // and a UNC or network root whose volume query fails is still `Refused(Unc)`, not an error.
         let path = store.path();
         if is_unc(path) {
             return Ok(Classification::Refused(Refusal::Unc));
         }
-        // 1. The file-system name and the volume flags.
+        // 2. The file-system name and the volume flags.
         let (name, flags) = volume_name_and_flags(h)?;
         let fs_name = FsName::lossy(name.as_bytes());
         let read_only = flags & FILE_READ_ONLY_VOLUME != 0;
@@ -546,24 +548,19 @@ impl EnvGuard for OsVfs {
         // [F02 §6.3]'s grammar, which the orphan sweep removes ([F02 §5.3]).
         let mut made: Vec<String> = Vec::with_capacity(3);
         let r = probe_calls(self, store, &mut made);
-        // 6. Clean-up, whatever the outcome: unlink this probe's own files (a renamed one is absent, which is fine).
-        // A clean-up failure never turns an admitted location into an error: the orphan sweep removes the file.
+        // 6. Clean-up, whatever the outcome: unlink this probe's own files (a renamed one is absent, which is fine), then
+        // `sync_dir(tmp)`. A clean-up failure never turns `Admitted` into an error or a refusal ([OS/env §5] step 6,
+        // spec sync 2a): steps 3–5 have already proved the location; a file whose unlink still fails after the bound
+        // (Defender or the indexer holding it) stays for the orphan sweep, and a failed `sync_dir(tmp)` only leaves the
+        // unlinks pending, which a crash may undo with the same result. Neither goes to `fail_stop`.
         for name in &made {
             let _ = self.unlink(store, rel(name), CLEANUP_RETRY);
         }
-        let synced = self.sync_dir(store, Some(TMP));
-        match r? {
-            Some(refusal) => Ok(ProbeOutcome::Refused(refusal)),
-            None => {
-                if let Err(df) = synced {
-                    return Ok(ProbeOutcome::Refused(Refusal::NoDurableFlush {
-                        call: df.call,
-                        os: df.os,
-                    }));
-                }
-                Ok(ProbeOutcome::Admitted(ProbeReport { volume, os }))
-            }
-        }
+        let _ = self.sync_dir(store, Some(TMP));
+        Ok(match r? {
+            Some(refusal) => ProbeOutcome::Refused(refusal),
+            None => ProbeOutcome::Admitted(ProbeReport { volume, os }),
+        })
     }
 
     fn check_os_version(&self) -> Result<OsVersion, Refusal> {
@@ -630,7 +627,7 @@ mod tests {
         let p = |v: Vec<u16>| String::from_utf16(&v[..v.len() - 1]).unwrap();
         assert_eq!(p(plain_z(&w("\\\\?\\D:\\x"))), "D:\\x");
         assert_eq!(p(plain_z(&w("\\\\?\\UNC\\s\\h"))), "\\\\s\\h");
-        // The UNC test of [OS/env §4.1] step 2, which `classify` runs before any OS call.
+        // The UNC test of [OS/env §4.1] step 1, which `classify` runs before any OS call.
         assert!(is_unc(&w("\\\\?\\UNC\\wsl$\\Ubuntu\\home")));
         assert!(is_unc(&w("\\\\?\\unc\\srv\\share")));
         assert!(!is_unc(&w("\\\\?\\D:\\UNC\\x")));

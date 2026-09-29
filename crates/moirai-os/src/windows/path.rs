@@ -168,11 +168,12 @@ pub fn canonical_abs(p: &Path) -> Result<AbsPath, VfsError> {
 
 /// A CLI path argument as a path under `tree` ([OS/path §7]): the argument's UTF-16 must be valid; `\` becomes `/`;
 /// `X:/…` and `//…` are absolute, a single leading `/` is the root of the current directory's drive; a drive-relative
-/// `X:rel` (a drive letter and `:` not followed by `/`, `X:` alone included) and the device forms `//./…` and `//?/…`
-/// (from `\\.\…` and `\\?\…`) are refused with [`PathError::NotAbsolute`] (exit 2; step 3, pass 1, P1-37), because their
-/// meaning depends on a per-drive current directory or bypasses Win32 name handling; anything else is joined to the
-/// canonical current directory; the result is normalised lexically; the tree's canonical text followed by `/` must be
-/// its byte prefix (the tree root itself gives the empty path), and the rest must be a valid `RelPath`.
+/// `X:rel` (a drive letter and `:` not followed by `/`, a bare `X:` included) is refused with
+/// [`PathError::DriveRelative`] and the device forms `//./…` and `//?/…` (from `\\.\…` and `\\?\…`) with
+/// [`PathError::DevicePath`] (exit 2 `bad_path`, rules `drive-relative` and `device`; step 3, pass 1, P1-37), because
+/// their meaning depends on a per-drive current directory or bypasses Win32 name handling; anything else is joined to
+/// the canonical current directory; the result is normalised lexically; the tree's canonical text followed by `/` must
+/// be its byte prefix (the tree root itself gives the empty path), and the rest must be a valid `RelPath`.
 pub fn cli_path(arg: &OsStr, cwd: &Path, tree: &CanonicalRoot) -> Result<RelPathBuf, PathError> {
     let units: Vec<u16> = arg.encode_wide().collect();
     let s = String::from_utf16(&units)
@@ -181,8 +182,11 @@ pub fn cli_path(arg: &OsStr, cwd: &Path, tree: &CanonicalRoot) -> Result<RelPath
     let b = s.as_bytes();
     let drive = b.len() >= 2 && b[0].is_ascii_alphabetic() && b[1] == b':';
     let drive_abs = drive && b.get(2) == Some(&b'/');
-    if (drive && !drive_abs) || s.starts_with("//./") || s.starts_with("//?/") {
-        return Err(PathError::NotAbsolute);
+    if drive && !drive_abs {
+        return Err(PathError::DriveRelative);
+    }
+    if s.starts_with("//./") || s.starts_with("//?/") {
+        return Err(PathError::DevicePath);
     }
     let joined = if drive_abs || s.starts_with("//") {
         s
@@ -361,6 +365,35 @@ mod tests {
         );
     }
 
+    /// The common cases [OS/path §8.1] requires both copies of the rule (this one and `moirai-files`' `representable`) to
+    /// test: every device name of §8.2 bare, with an extension and with trailing spaces before the extension, in two ASCII
+    /// cases; a name ending in `.` and one ending in ` `; each reserved character; a name of 255 and one of 256 UTF-16
+    /// code units, one of them built from a supplementary-plane character (two units each).
+    #[test]
+    fn representability_common_cases() {
+        for dev in DEVICE_NAMES {
+            for d in [dev.to_ascii_uppercase(), dev.to_ascii_lowercase()] {
+                for form in [d.clone(), format!("{d}.txt"), format!("{d}  .txt")] {
+                    assert!(!representable_here(&form), "{form:?}");
+                }
+            }
+        }
+        assert!(!representable_here("name."));
+        assert!(!representable_here("name "));
+        for c in ['<', '>', ':', '"', '|', '?', '*'] {
+            assert!(!representable_here(&format!("a{c}b")), "{c:?}");
+        }
+        let sup = "\u{1F600}";
+        assert_eq!(sup.encode_utf16().count(), 2);
+        assert!(
+            representable_here(&format!("{}a", sup.repeat(127))),
+            "255 units"
+        );
+        assert!(!representable_here(&sup.repeat(128)), "256 units");
+        assert!(representable_here(&"a".repeat(255)));
+        assert!(!representable_here(&"a".repeat(256)));
+    }
+
     #[test]
     fn cli_paths_against_a_tree() {
         let tree = CanonicalRoot {
@@ -375,19 +408,24 @@ mod tests {
         assert_eq!(p("D:/repo").unwrap().as_str(), "");
         assert_eq!(p("D:/repository/x"), Err(PathError::OutsideRoot));
         assert_eq!(p("E:/x"), Err(PathError::OutsideRoot));
-        // Step 3 (pass 1, P1-37): drive-relative and device forms are refused before any join, whatever the cwd.
+        // Step 3 (pass 1, P1-37): drive-relative and device forms are refused before any join, whatever the cwd, each
+        // with its own variant ([OS/path §11]).
+        for bad in ["C:foo", "d:repo\\x", "D:", "z:"] {
+            assert_eq!(p(bad), Err(PathError::DriveRelative), "{bad:?}");
+        }
         for bad in [
-            "C:foo",
-            "d:repo\\x",
-            "D:",
             "\\\\?\\D:\\repo\\x",
             "\\\\.\\C:\\x",
             "//?/D:/repo/x",
             "//./C:/x",
             "\\\\?\\UNC\\srv\\share\\x",
         ] {
-            assert_eq!(p(bad), Err(PathError::NotAbsolute), "{bad:?}");
+            assert_eq!(p(bad), Err(PathError::DevicePath), "{bad:?}");
         }
+        // Not valid UTF-16: an unpaired surrogate.
+        use std::os::windows::ffi::OsStringExt;
+        let lone = std::ffi::OsString::from_wide(&[0x61, 0xD800]);
+        assert_eq!(cli_path(&lone, cwd, &tree), Err(PathError::NotUtf8));
     }
 
     #[test]
@@ -399,14 +437,14 @@ mod tests {
         let p = |a: &str| cli_path(OsStr::new(a), cwd, &tree);
         assert_eq!(p("a/b").unwrap().as_str(), "a/b");
         let drive = &tree.text.as_str()[..1];
-        assert_eq!(p(&format!("{drive}:foo")), Err(PathError::NotAbsolute));
-        assert_eq!(p("C:foo"), Err(PathError::NotAbsolute));
+        assert_eq!(p(&format!("{drive}:foo")), Err(PathError::DriveRelative));
+        assert_eq!(p("C:foo"), Err(PathError::DriveRelative));
         let dev = format!("\\\\?\\{}\\x", tree.text.as_str().replace('/', "\\"));
-        assert_eq!(p(&dev), Err(PathError::NotAbsolute));
+        assert_eq!(p(&dev), Err(PathError::DevicePath));
     }
 
     proptest! {
-        #![proptest_config(proptest::test_runner::Config { failure_persistence: None, ..Default::default() })]
+        #![proptest_config(crate::windows::testing::proptest_config())]
 
         /// Normalisation is idempotent, always yields a valid `AbsPath`, and never climbs above its prefix.
         #[test]

@@ -10,7 +10,8 @@
 //!   FLUSH_FLAGS_FILE_DATA_SYNC_ONLY)`, `durable+meta` = `FlushFileBuffers`, `durable-name` = `FlushFileBuffers` on a
 //!   directory handle with write access, `sync_group` = each member by its class. A class the volume refuses is
 //!   `Unsupported` and never falls back to another call (open point 4). Any failure is a [`DurabilityFailure`] for
-//!   [`StoreFs::fail_stop`]: one stderr line, then `TerminateProcess(self, 7)` ([OS/fs §4.4.5]).
+//!   [`StoreFs::fail_stop`]: one stderr line, then `TerminateProcess(self, 7)` ([OS/fs §4.4.5]); a flush embedded in
+//!   `create_root`, `swap_dirs` or `swap_recover` is returned instead as `VfsError` of kind `FlushFailed` ([OS/fs §4.1]).
 //! - **Renames** carry `MOVEFILE_WRITE_THROUGH` and never replace unless asked ([OS/fs §4.8]); errors 5, 32 and 33 are
 //!   retried per [`ShareRetry`] ([OS/fs §6.3]).
 //! - **Counters** are process-wide relaxed atomics, one increment per operation ([OS/fs §4.13]).
@@ -697,27 +698,33 @@ impl StoreFs for OsVfs {
             return Err(last(Domain::Store, "CreateDirectoryW"));
         }
         bump(&COUNTERS.creates, 1);
+        // The clean-up removal of the new, empty directory: one `RemoveDirectoryW`, counted in `unlinks` when it
+        // succeeds as `remove_dir` counts it ([OS/fs §4.13]: every operation counts each OS call it issues; the
+        // simulator's clean-up counts the same). Its own error is ignored.
+        let remove_new = || {
+            // SAFETY: `path_z` is NUL-terminated and outlives the call.
+            if unsafe { RemoveDirectoryW(path_z.as_ptr()) } != 0 {
+                bump(&COUNTERS.unlinks, 1);
+            }
+        };
         if role == RootRole::Store
             && let Err(e) = grant_owner_ace(&path_z)
         {
             // The directory is ours and empty: remove it, so a retry does not meet `AlreadyExists`.
-            // SAFETY: `path_z` is NUL-terminated and outlives the call.
-            unsafe { RemoveDirectoryW(path_z.as_ptr()) };
+            remove_new();
             return Err(e);
         }
         // `durable-name` on the parent: the new directory survives a power loss before the first acknowledgement.
         //
-        // A failure of that flush is a durability-class failure ([OS/fs §4.4.5] rule 1), but `create_root` returns
-        // `VfsError`, not `DurabilityFailure`, and no commit is at stake yet (the caller is `init` or `restore`, which
-        // exit 7 on any error here). Until the specification decides (a spec finding of WP-33), the failure keeps its
-        // kind, code and call as a `VfsError`, and — as on the ACE path — the new, empty directory is removed first, so
-        // the error never leaves behind a directory whose name is not durable and a retry never meets `AlreadyExists`.
+        // A failure of that flush ([OS/fs §4.1], spec sync 2a) removes the new, empty directory (the removal's own error
+        // ignored), so a later run does not meet `AlreadyExists`, and is `FlushFailed` with the flush's code and call:
+        // the caller (`init`, `restore`) exits 7 with the `durability-failure` text and issues no further write, flush,
+        // create or namespace call. No commit is at stake yet, so it is not a `DurabilityFailure` for `fail_stop`.
         if let Some(parent) = parent_z(&path)
             && let Err(f) = flush_dir_path(&parent)
         {
-            // SAFETY: `path_z` is NUL-terminated and outlives the call.
-            unsafe { RemoveDirectoryW(path_z.as_ptr()) };
-            return Err(VfsError::new(f.kind, f.os, f.call));
+            remove_new();
+            return Err(f.embedded());
         }
         self.open_root(dir, role, RootAccess::ReadWrite)
     }
@@ -900,6 +907,8 @@ impl StoreFs for OsVfs {
     }
 
     fn sync_dir(&self, root: &OsRoot, dir: Option<RelPath<'_>>) -> Result<(), DurabilityFailure> {
+        // A root opened `Read` cannot flush a directory: a durability failure `AccessDenied` (code 5, `call`
+        // `FlushFileBuffers`), issued without an OS call ([OS/fs §4.4.3]).
         if root.inner.access == RootAccess::Read {
             return Err(name_failure("FlushFileBuffers", 5));
         }

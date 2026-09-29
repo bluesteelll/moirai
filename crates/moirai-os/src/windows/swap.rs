@@ -1,120 +1,25 @@
 //! `swap_dirs` and `swap_recover` on Windows ([OS/fs §4.9]; [F15 §5.6]).
 //!
 //! Windows has no exchange primitive, so `swap_dirs` always takes the emulated form of [OS/fs §4.9.2]: it writes the
-//! intent file `<a>.swap` in `a_parent` (the bytes of §4.9.3, XXH3-64 checksum), then renames `A → T`, `B → A`,
+//! intent file `<a>.swap` in `a_parent` (the bytes of §4.9.3, encoded and checked by [`SwapIntent`], the codec the
+//! simulator shares), then renames `A → T`, `B → A`,
 //! `T → B` with `MoveFileExW(…, MOVEFILE_WRITE_THROUGH)` (never replacing) and removes the intent, with a `durable-name`
 //! after every step. `swap_recover` reads the intent and completes or rolls back by the table of §4.9.4. The paths in
 //! the intent are the machine-local absolute form of [80 §2.10] P12 (`X:/…`, `//server/share/…`).
 //!
-//! Failures of the embedded durability steps are returned as `VfsError` (the signatures of [OS/fs §4.9]); the caller
-//! exits 7 through its error path.
+//! A failed flush embedded in a step is returned as `VfsError` of kind `FlushFailed` with the flush's code and call
+//! ([OS/fs §4.1, §4.9], spec sync 2a) and leaves the intent for `swap_recover`; the caller exits 7 with the
+//! `durability-failure` text and issues no further write, flush, create or namespace call.
 
 use moirai_vfs::{
     Access, DurabilityFailure, FileIdentity, OpenHint, OsCode, RelPath, RootAccess, ShareRetry,
-    StoreFs, SwapOutcome, SwapRecovery, SyncKind, VfsError, VfsErrorKind,
+    StoreFs, SwapIntent, SwapOutcome, SwapRecovery, SyncKind, VfsError, VfsErrorKind,
 };
 use windows_sys::Win32::Storage::FileSystem::FILE_FLAG_BACKUP_SEMANTICS;
 
 use super::fs::{COUNTERS, OsRoot, OsVfs, bump, flush_dir_path, move_file, parent_z};
 use super::path::{rewrite_final, verbatim_of_abs};
 use super::sys::{self, Domain, error, id_info, open_attrs, raw};
-use super::xxh3::xxh3_64;
-
-/// The intent's magic ([OS/fs §4.9.3]).
-const MAGIC: [u8; 4] = *b"MSWP";
-/// The fixed header length.
-const HEADER: usize = 64;
-/// The longest path an intent holds.
-const MAX_PATH: usize = 4096;
-/// The longest intent file.
-const MAX_INTENT: u64 = (HEADER + 3 * MAX_PATH + 7 + 8) as u64;
-
-/// The content of a swap intent ([OS/fs §4.9.3]).
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct Intent {
-    pub(crate) a_id: FileIdentity,
-    pub(crate) b_id: FileIdentity,
-    pub(crate) a_path: String,
-    pub(crate) b_path: String,
-    pub(crate) t_path: String,
-}
-
-fn u16_at(b: &[u8], at: usize) -> usize {
-    usize::from(u16::from_le_bytes([b[at], b[at + 1]]))
-}
-
-fn id_from(b: &[u8]) -> FileIdentity {
-    let mut w = [0u8; 24];
-    w.copy_from_slice(&b[..24]);
-    FileIdentity::from_bytes(&w)
-}
-
-impl Intent {
-    /// The file's bytes ([OS/fs §4.9.3]): the 64-byte header, the three paths, zero padding to a multiple of 8, and the
-    /// XXH3-64 (seed 0) of all of that. The paths are 1–4096 bytes each (checked by the caller).
-    pub(crate) fn encode(&self) -> Vec<u8> {
-        let paths = [&self.a_path, &self.b_path, &self.t_path];
-        let p = HEADER + paths.iter().map(|s| s.len()).sum::<usize>();
-        let pad = (8 - p % 8) % 8;
-        let mut b = Vec::with_capacity(p + pad + 8);
-        b.extend_from_slice(&MAGIC);
-        b.extend_from_slice(&1u16.to_le_bytes());
-        b.extend_from_slice(&0u16.to_le_bytes());
-        b.extend_from_slice(&self.a_id.to_bytes());
-        b.extend_from_slice(&self.b_id.to_bytes());
-        for s in paths {
-            b.extend_from_slice(&(s.len() as u16).to_le_bytes());
-        }
-        b.extend_from_slice(&0u16.to_le_bytes());
-        for s in paths {
-            b.extend_from_slice(s.as_bytes());
-        }
-        b.resize(p + pad, 0);
-        let sum = xxh3_64(&b);
-        b.extend_from_slice(&sum.to_le_bytes());
-        b
-    }
-
-    /// The intent in `b`, if the length, the magic, `version = 1`, the reserved fields, the padding, the UTF-8 paths and
-    /// the checksum all check; `None` otherwise ("swap intent unreadable").
-    pub(crate) fn decode(b: &[u8]) -> Option<Intent> {
-        if b.len() < HEADER + 8 || b[..4] != MAGIC || u16_at(b, 4) != 1 || u16_at(b, 6) != 0 {
-            return None;
-        }
-        let lens = [u16_at(b, 56), u16_at(b, 58), u16_at(b, 60)];
-        if u16_at(b, 62) != 0 || lens.iter().any(|&l| l == 0 || l > MAX_PATH) {
-            return None;
-        }
-        let p = HEADER + lens.iter().sum::<usize>();
-        let pad = (8 - p % 8) % 8;
-        if b.len() != p + pad + 8 || b[p..p + pad].iter().any(|&x| x != 0) {
-            return None;
-        }
-        let mut sum = [0u8; 8];
-        sum.copy_from_slice(&b[p + pad..]);
-        if xxh3_64(&b[..p + pad]) != u64::from_le_bytes(sum) {
-            return None;
-        }
-        let mut at = HEADER;
-        let mut path = |l: usize| {
-            let s = core::str::from_utf8(&b[at..at + l]).ok().map(str::to_owned);
-            at += l;
-            s
-        };
-        Some(Intent {
-            a_id: id_from(&b[8..32]),
-            b_id: id_from(&b[32..56]),
-            a_path: path(lens[0])?,
-            b_path: path(lens[1])?,
-            t_path: path(lens[2])?,
-        })
-    }
-}
-
-/// The names the emulated form uses in `a_parent`: the intent `<a>.swap` and the temporary `<a>.swap-old`.
-fn side_names(a: &str) -> (String, String) {
-    (format!("{a}.swap"), format!("{a}.swap-old"))
-}
 
 fn invalid(call: &'static str) -> VfsError {
     VfsError::new(VfsErrorKind::InvalidName, OsCode::NONE, call)
@@ -124,9 +29,9 @@ fn rel(s: &str) -> Result<RelPath<'_>, VfsError> {
     RelPath::new(s).map_err(|_| invalid("swap_dirs"))
 }
 
-/// An embedded durability failure as the call's error ([OS/fs §4.9]).
+/// An embedded durability failure as the call's error: `FlushFailed` with the flush's code and call ([OS/fs §4.1]).
 fn embedded(r: Result<(), DurabilityFailure>) -> Result<(), VfsError> {
-    r.map_err(|f| VfsError::new(f.kind, f.os, f.call))
+    r.map_err(|f| f.embedded())
 }
 
 /// The P12 text of a root's directory.
@@ -196,7 +101,7 @@ pub(crate) fn swap_dirs(
         ));
     }
     // Step 1: an intent or a temporary name left by an earlier swap is `doctor`'s.
-    let (i_name, t_name) = side_names(a.as_str());
+    let (i_name, t_name) = SwapIntent::side_names(a.as_str());
     let (i, t) = (rel(&i_name)?, rel(&t_name)?);
     for n in [i, t] {
         match v.path_identity(a_parent, n) {
@@ -217,9 +122,9 @@ pub(crate) fn swap_dirs(
         join(&bp, b.as_str()),
         join(&ap, &t_name),
     );
-    if [&a_path, &b_path, &t_path]
+    if ![&a_path, &b_path, &t_path]
         .iter()
-        .any(|p| p.len() > MAX_PATH)
+        .all(|p| SwapIntent::path_fits(p))
     {
         return Err(invalid("swap_dirs"));
     }
@@ -235,14 +140,15 @@ pub(crate) fn swap_dirs(
     }
     let same = v.root_identity(a_parent)? == v.root_identity(b_parent)?;
     // Step 3: the intent, durable with its name.
-    let bytes = Intent {
+    let bytes = SwapIntent {
         a_id,
         b_id,
         a_path,
         b_path,
         t_path,
     }
-    .encode();
+    .encode()
+    .ok_or_else(|| invalid("swap_dirs"))?;
     let f = v.create_new(a_parent, i)?;
     v.write_at(&f, 0, &bytes)?;
     embedded(v.sync(&f, SyncKind::DataAndMeta))?;
@@ -288,29 +194,28 @@ fn identity_at(verb: &[u16]) -> Result<Option<FileIdentity>, VfsError> {
     }
 }
 
-/// A rename recorded in the intent, then `durable-name` of both parents (once if they are one directory).
+/// Whether `rel` names an object under `root` (`NotFound` = absent; any other error is the call's).
+fn present(v: &OsVfs, root: &OsRoot, rel: RelPath<'_>) -> Result<bool, VfsError> {
+    match v.path_identity(root, rel) {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind == VfsErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
+/// A rename recorded in the intent, then `durable-name` of both parents, once if they are one directory
+/// ([OS/fs §4.9.4]). The two parents come from the intent's paths, which `swap_dirs` built from final paths in on-disk
+/// spelling, so one directory has one spelling and the comparison is byte-exact: no case folding, which in a tree with
+/// per-directory case sensitivity would take two directories for one and skip a flush (FM-2.3).
 fn recover_rename(from: &[u16], to: &[u16], retry: ShareRetry) -> Result<(), VfsError> {
     rename_dir(&sys::with_nul(from), &sys::with_nul(to), retry)?;
     let pf = parent_z(from).ok_or_else(|| unrecognised("swap state unrecognised"))?;
     let pt = parent_z(to).ok_or_else(|| unrecognised("swap state unrecognised"))?;
     embedded(flush_dir_path(&pf))?;
-    if !eq_ascii_ci(&pf, &pt) {
+    if pf != pt {
         embedded(flush_dir_path(&pt))?;
     }
     Ok(())
-}
-
-/// ASCII-case-insensitive equality of two UTF-16 paths (the intent's paths are canonical; only the drive letter's case
-/// can differ from a path built here).
-fn eq_ascii_ci(a: &[u16], b: &[u16]) -> bool {
-    let fold = |u: u16| {
-        if (0x61..=0x7A).contains(&u) {
-            u - 0x20
-        } else {
-            u
-        }
-    };
-    a.len() == b.len() && a.iter().zip(b).all(|(&x, &y)| fold(x) == fold(y))
 }
 
 /// `swap_recover` ([OS/fs §4.9.4]).
@@ -323,21 +228,37 @@ pub(crate) fn swap_recover(
     if a.segments().count() != 1 {
         return Err(invalid("swap_recover"));
     }
-    let (i_name, _) = side_names(a.as_str());
+    let (i_name, t_name) = SwapIntent::side_names(a.as_str());
     let i = rel(&i_name)?;
     let f = match v.open(a_parent, i, Access::Read, OpenHint::Normal) {
         Ok(f) => f,
         Err(e) if e.kind == VfsErrorKind::NotFound => return Ok(SwapRecovery::NoIntent),
         Err(e) => return Err(e),
     };
+    // A read that returns an error is not an unreadable intent: the recovery fails with it and changes nothing
+    // ([OS/fs §4.9.3]).
     let n = v.file_size(&f)?;
-    if n > MAX_INTENT {
-        return Err(unrecognised("swap intent unreadable"));
-    }
-    let mut buf = vec![0u8; n as usize];
-    v.read_exact_at(&f, 0, &mut buf)?;
+    let intent = if n > SwapIntent::MAX_LEN {
+        None
+    } else {
+        let mut buf = vec![0u8; n as usize];
+        v.read_exact_at(&f, 0, &mut buf)?;
+        SwapIntent::decode(&buf)
+    };
     drop(f);
-    let intent = Intent::decode(&buf).ok_or_else(|| unrecognised("swap intent unreadable"))?;
+    let Some(intent) = intent else {
+        // [OS/fs §4.9.4] row "`I` unreadable": its write in step 3 never completed (a crash, or a failed flush), so
+        // nothing was renamed, since step 4 starts only after `I` is durable. With `A` present and `T` absent the intent
+        // is removed. `B` is named only inside the intent, so its presence cannot be read here; the soundness argument
+        // needs only that step 4 never started, which `A` present and `T` absent confirm.
+        let t = rel(&t_name)?;
+        if present(v, a_parent, a)? && !present(v, a_parent, t)? {
+            v.unlink(a_parent, i, retry)?;
+            embedded(v.sync_dir(a_parent, None))?;
+            return Ok(SwapRecovery::NothingDone);
+        }
+        return Err(unrecognised("swap intent unreadable"));
+    };
     let verb = |p: &str| verbatim_of_abs(p).ok_or_else(|| unrecognised("swap state unrecognised"));
     let (va, vb, vt) = (
         verb(&intent.a_path)?,
@@ -366,60 +287,9 @@ pub(crate) fn swap_recover(
 
 #[cfg(test)]
 mod tests {
+    // The intent's codec is `moirai_vfs::SwapIntent`, tested there (golden bytes, damage, properties); these tests run
+    // the swap and its recovery on real NTFS directories.
     use super::*;
-    use proptest::prelude::*;
-
-    fn id(n: u8) -> FileIdentity {
-        FileIdentity {
-            volume: 0x1234_5678_9ABC_DEF0,
-            file: [n; 16],
-        }
-    }
-
-    #[test]
-    fn the_intent_round_trips_and_rejects_every_damage() {
-        let i = Intent {
-            a_id: id(1),
-            b_id: id(2),
-            a_path: "D:/repo/.git/moirai".into(),
-            b_path: "D:/repo/.git/restore.1".into(),
-            t_path: "D:/repo/.git/moirai.swap-old".into(),
-        };
-        let b = i.encode();
-        assert_eq!(&b[..4], b"MSWP");
-        assert_eq!(b.len() % 8, 0);
-        assert_eq!(u16_at(&b, 56), i.a_path.len());
-        assert_eq!(&b[8..16], &0x1234_5678_9ABC_DEF0u64.to_le_bytes());
-        assert_eq!(Intent::decode(&b), Some(i));
-        for at in [0, 4, 6, 8, 40, 56, 62, 64, b.len() - 9, b.len() - 1] {
-            let mut d = b.clone();
-            d[at] ^= 1;
-            assert_eq!(Intent::decode(&d), None, "byte {at}");
-        }
-        assert_eq!(Intent::decode(&b[..b.len() - 1]), None);
-        assert_eq!(Intent::decode(&[]), None);
-        assert!(MAX_INTENT >= b.len() as u64);
-    }
-
-    proptest! {
-        #![proptest_config(proptest::test_runner::Config { failure_persistence: None, ..Default::default() })]
-
-        #[test]
-        fn intents_round_trip(a in "[A-Z]:/[a-z0-9./ ]{0,60}", b in "[A-Z]:/[a-z0-9]{0,60}", t in "//[a-z]{1,8}/[a-z]{1,8}",
-                              va in any::<u64>(), fa in any::<[u8; 16]>(), vb in any::<u64>(), fb in any::<[u8; 16]>()) {
-            let i = Intent {
-                a_id: FileIdentity { volume: va, file: fa },
-                b_id: FileIdentity { volume: vb, file: fb },
-                a_path: a, b_path: b, t_path: t,
-            };
-            let bytes = i.encode();
-            prop_assert_eq!(bytes.len() % 8, 0);
-            prop_assert_eq!(Intent::decode(&bytes), Some(i));
-        }
-    }
-
-    // ---- On real NTFS directories ----
-
     use crate::windows::testing::TempDir;
     use moirai_vfs::{RootAccess, RootRole};
 
@@ -452,14 +322,15 @@ mod tests {
     fn write_intent(t: &TempDir, p: &OsRoot) {
         let v = OsVfs;
         let base = root_text(p).unwrap();
-        let bytes = Intent {
+        let bytes = SwapIntent {
             a_id: v.path_identity(p, A).unwrap(),
             b_id: v.path_identity(p, B).unwrap(),
             a_path: join(&base, "a"),
             b_path: join(&base, "b"),
             t_path: join(&base, "a.swap-old"),
         }
-        .encode();
+        .encode()
+        .unwrap();
         std::fs::write(t.path().join("a.swap"), bytes).unwrap();
     }
 
@@ -544,14 +415,15 @@ mod tests {
         ];
         for (state, want, ma, mb) in cases {
             let (t, pa, pb) = scene2("recover2");
-            let bytes = Intent {
+            let bytes = SwapIntent {
                 a_id: v.path_identity(&pa, A).unwrap(),
                 b_id: v.path_identity(&pb, B).unwrap(),
                 a_path: join(&root_text(&pa).unwrap(), "a"),
                 b_path: join(&root_text(&pb).unwrap(), "b"),
                 t_path: join(&root_text(&pa).unwrap(), "a.swap-old"),
             }
-            .encode();
+            .encode()
+            .unwrap();
             std::fs::write(t.path().join("pa/a.swap"), bytes).unwrap();
             if state >= 1 {
                 mv2(&pa, A, &pa, T);
@@ -640,6 +512,48 @@ mod tests {
             assert!(!t.path().join("a.swap").exists(), "the intent is removed");
             assert!(!t.path().join("a.swap-old").exists());
         }
+    }
+
+    /// [OS/fs §4.9.3, §4.9.4] (spec sync 2a): an unreadable intent (a crash inside step 3 kept its name without its
+    /// bytes) with `a` present and `a.swap-old` absent is removed (`NothingDone`); with `a.swap-old` present, or `a`
+    /// absent, nothing changes and the recovery fails `Io` ("swap intent unreadable").
+    #[test]
+    fn an_unreadable_intent_before_any_rename_is_removed() {
+        let v = OsVfs;
+        for damage in [0usize, 1] {
+            let (t, p) = scene("unreadable");
+            write_intent(&t, &p);
+            let path = t.path().join("a.swap");
+            let mut bytes = std::fs::read(&path).unwrap();
+            if damage == 0 {
+                bytes.truncate(10); // a torn write
+            } else {
+                bytes[70] ^= 1; // a checksum mismatch
+            }
+            std::fs::write(&path, &bytes).unwrap();
+            std::fs::create_dir(t.path().join("a.swap-old")).unwrap();
+            let e = v.swap_recover(&p, A, ShareRetry::None).unwrap_err();
+            assert_eq!(
+                (e.kind, e.call),
+                (VfsErrorKind::Io, "swap intent unreadable")
+            );
+            assert!(path.exists(), "nothing changes");
+            std::fs::remove_dir(t.path().join("a.swap-old")).unwrap();
+            assert_eq!(
+                v.swap_recover(&p, A, ShareRetry::None).unwrap(),
+                SwapRecovery::NothingDone
+            );
+            assert!(!path.exists(), "the intent is removed");
+            assert_eq!(which(&t, "a").as_deref(), Some("A"));
+            assert_eq!(which(&t, "b").as_deref(), Some("B"));
+        }
+        // An empty intent file (the create survived, no byte did) is unreadable too.
+        let (t, p) = scene("unreadable-empty");
+        std::fs::write(t.path().join("a.swap"), b"").unwrap();
+        assert_eq!(
+            v.swap_recover(&p, A, ShareRetry::None).unwrap(),
+            SwapRecovery::NothingDone
+        );
     }
 
     #[test]

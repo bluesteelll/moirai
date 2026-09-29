@@ -31,7 +31,7 @@ use std::sync::{Mutex, PoisonError};
 
 use moirai_vfs::{
     AbsPath, At, BtimeTrust, CanonicalRoot, CaseRule, CloudRule, DirEquivalence, DurabilityClass,
-    DurabilityFailure, EntryName, EnumEnd, FileAttrs, FileIdKind, FsTime, Holder, IdLocate,
+    DurabilityFailure, EntryNameRef, EnumEnd, FileAttrs, FileIdKind, FsTime, Holder, IdLocate,
     JournalKind, Located, OsCode, OsFileId, OsTag, PathError, PfsCounters, ProjEntry, ProjKind,
     ProjectFs, ProjectRead, ReadOpts, ReadSnapshot, RelPath, RelPathBuf, RenameFailure, RenameRule,
     Renamed, ShareRetry, Stat, StatMode, StatRec, VfsError, VfsErrorKind, VolumeCaps, VolumeKey,
@@ -128,8 +128,8 @@ fn family_of(name: &str, remote: bool) -> FsFamily {
 }
 
 /// The capability record of a family ([OS/project §4.3]); `journal` is the USN journal's availability, which counts
-/// only on NTFS and ReFS. The "any other or a network redirector" row also carries `dir_flush_doubtful` (pass 1,
-/// P1-16), which the seam's `VolumeCaps` cannot hold yet (a WP-30 follow-up).
+/// only on NTFS and ReFS. The "any other or a network redirector" row carries `dir_flush_doubtful` (pass 1, P1-16): set
+/// from the class, never by a probe.
 fn caps_for(fs: FsFamily, journal: JournalKind) -> VolumeCaps {
     let ntfs_like = matches!(fs, FsFamily::Ntfs | FsFamily::Refs);
     VolumeCaps {
@@ -174,6 +174,7 @@ fn caps_for(fs: FsFamily, journal: JournalKind) -> VolumeCaps {
         ids_persistent: ntfs_like,
         docids: false,
         mtime_granularity_ns: 0,
+        dir_flush_doubtful: fs == FsFamily::Other,
     }
 }
 
@@ -535,20 +536,16 @@ fn parent_path(at: At<'_, OsProjectRoot>, call: &'static str) -> Result<Vec<u16>
         .ok_or_else(|| VfsError::new(VfsErrorKind::InvalidName, OsCode::NONE, call))
 }
 
-/// `durable-name` of the parents of two paths, once if they are one directory.
+/// `durable-name` of the parents `a` and `b` of a rename, once if they are one directory ([OS/project §6.3]).
+///
+/// "One directory" is decided on the exact spelling: both paths are the root's final path joined with checked
+/// `RelPath` segments, so two equal paths are one directory. Paths that differ only in case are flushed twice. In a tree
+/// with per-directory case sensitivity (`CaseRule::PerDirFlag`) they can be two directories, and skipping the second
+/// flush would leave the rename's new entry pending (FM-2.3); where they are one directory, the second flush is a
+/// harmless repeat.
 fn sync_parents(a: &[u16], b: &[u16]) -> Result<(), DurabilityFailure> {
     sync_dir_path(a)?;
-    let same = a.len() == b.len() && {
-        let fold = |u: u16| {
-            if (0x61..=0x7A).contains(&u) {
-                u - 0x20
-            } else {
-                u
-            }
-        };
-        a.iter().zip(b).all(|(&x, &y)| fold(x) == fold(y))
-    };
-    if !same {
+    if a != b {
         sync_dir_path(b)?;
     }
     Ok(())
@@ -661,7 +658,7 @@ impl OsProjectFs {
         visit: &mut F,
     ) -> Result<EnumEnd, Option<VfsError>>
     where
-        F: FnMut(&ProjEntry) -> ControlFlow<()>,
+        F: FnMut(&ProjEntry<'_>) -> ControlFlow<()>,
     {
         let fs = dir.root.fs;
         let (mg, bg, has_ctime) = grans(fs);
@@ -711,7 +708,8 @@ impl OsProjectFs {
         let mut buf = DirBuf::new(64 * 1024);
         let mut class = restart;
         let mut stopped = false;
-        // One name buffer reused across records: an entry allocates only its `EntryName`.
+        // One name buffer reused across records, which each entry borrows ([OS/project §5.2]): a scan allocates nothing
+        // per entry.
         let mut name = Vec::with_capacity(64);
         loop {
             match buf.fill(h, class) {
@@ -752,7 +750,7 @@ impl OsProjectFs {
                     }
                 });
                 let entry = ProjEntry {
-                    name: EntryName::from_os_bytes(&name),
+                    name: EntryNameRef::from_os_bytes(&name),
                     kind: k,
                     stat: Some(StatRec {
                         kind: k,
@@ -988,7 +986,7 @@ impl ProjectFs for OsProjectFs {
 
     fn enumerate<F>(&self, dir: At<'_, OsProjectRoot>, mut visit: F) -> Result<EnumEnd, VfsError>
     where
-        F: FnMut(&ProjEntry) -> ControlFlow<()>,
+        F: FnMut(&ProjEntry<'_>) -> ControlFlow<()>,
     {
         let p = path_of(dir, "CreateFileW")?;
         bump(&COUNTERS.dir_reads, 1);
@@ -1702,6 +1700,20 @@ mod tests {
         assert_eq!(net.cloud, CloudRule::None);
         assert_eq!(net.rename_noreplace, RenameRule::Native);
         assert!(!net.ids_persistent);
+        assert!(
+            net.dir_flush_doubtful,
+            "the row's other flag ([OS/project §4.3])"
+        );
+        assert!(net.is_valid());
+        for fs in [
+            FsFamily::Ntfs,
+            FsFamily::Refs,
+            FsFamily::Fat32,
+            FsFamily::ExFat,
+        ] {
+            let c = caps_for(fs, JournalKind::None);
+            assert!(!c.dir_flush_doubtful && c.is_valid(), "{fs:?}");
+        }
         let local = caps_for(family_of("NTFS", false), JournalKind::Usn);
         assert_eq!(local.id_kind, FileIdKind::Ntfs128 as u8);
         assert_eq!(

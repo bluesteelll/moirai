@@ -123,3 +123,18 @@ pub fn wait_for_file(p: &Path, ms: u64) -> bool {
     }
     p.exists()
 }
+
+/// Turns on per-directory case sensitivity for the empty directory `dir` with
+/// `fsutil file setCaseSensitiveInfo <dir> enable` (the flag `FILE_CS_FLAG_CASE_SENSITIVE_DIR` that `VolumeCaps` reports
+/// as `CaseRule::PerDirFlag`, [OS/project §4.2]). `false` when the host cannot: no `fsutil`, a volume without the flag,
+/// or a Windows that allows it only with the Windows Subsystem for Linux installed. The caller then skips its case with
+/// an `OBSERVED:` line.
+pub fn set_case_sensitive(dir: &Path) -> bool {
+    Command::new("fsutil")
+        .args(["file", "setCaseSensitiveInfo"])
+        // `fsutil` wants backslashes; the scratch base may be spelled with `/` (`CARGO_TARGET_DIR`).
+        .arg(dir.to_string_lossy().replace('/', "\\"))
+        .arg("enable")
+        .output()
+        .is_ok_and(|o| o.status.success())
+}

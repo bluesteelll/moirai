@@ -13,8 +13,8 @@ use std::time::{Duration, Instant};
 use common::{KillOnDrop, TempDir};
 use moirai_os::{OsRoot, OsVfs};
 use moirai_vfs::{
-    Acquired, LockByte, LockError, LockMode, Locks, ProbeResult, RelPath, RootAccess, RootRole,
-    ShareRetry, SlotIndex, StoreFs,
+    Acquired, LockByte, LockError, LockMode, Locks, N_QUIET, ProbeResult, QuietIndex, RelPath,
+    RootAccess, RootRole, ShareRetry, SlotIndex, StoreFs,
 };
 use windows_sys::Win32::System::IO::{OVERLAPPED, OVERLAPPED_0, OVERLAPPED_0_0};
 
@@ -474,12 +474,14 @@ fn fail_immediately_completes_at_once_on_ntfs() {
     drop(ev_owned);
 }
 
+fn quiet(k: u8) -> LockByte {
+    LockByte::Quiet(QuietIndex::new(k).unwrap())
+}
+
 #[test]
-fn two_quiet_class_bytes_tried_at_once_never_share_a_request_block() {
-    // Each role byte has its own role handle, event and request block ([OS/lock §2], pass 1, P1-10): two try-only bytes
-    // tried concurrently from two threads never arm one `OVERLAPPED`. Until WP-30 adds `QuietIndex`, the seam has one
-    // quiet byte, so the second thread uses the other try-only role byte, `Maintenance`; with `Quiet(1)` and `Quiet(2)`
-    // the test keeps its shape.
+fn two_quiet_bytes_tried_at_once_never_share_a_request_block() {
+    // Each role byte has its own role handle, event and request block ([OS/lock §2], pass 1, P1-10): two quiet bytes
+    // tried concurrently from two threads never arm one `OVERLAPPED`.
     let t = TempDir::new("quietpair");
     let r = store(t.path());
     let run = |byte: LockByte| {
@@ -494,13 +496,64 @@ fn two_quiet_class_bytes_tried_at_once_never_share_a_request_block() {
             }
         })
     };
-    let (a, b) = (run(LockByte::Quiet), run(LockByte::Maintenance));
+    let (a, b) = (run(quiet(1)), run(quiet(2)));
     a.join().unwrap();
     b.join().unwrap();
     let v = OsVfs;
     let p = v.lock_client(&r, LockMode::Probe).unwrap();
-    assert_eq!(v.probe(&p, LockByte::Quiet), ProbeResult::Free);
-    assert_eq!(v.probe(&p, LockByte::Maintenance), ProbeResult::Free);
+    for k in 0..N_QUIET {
+        assert_eq!(v.probe(&p, quiet(k)), ProbeResult::Free, "Quiet({k})");
+    }
+}
+
+/// [OS/lock §2]: the nine quiet bytes are nine kernel bytes of `LOCK` (2^62 + 3, 2^62 + 5 … + 12): one holder per byte,
+/// seen by a probe of another process's table as `Held`, and each on its own.
+#[test]
+fn the_nine_quiet_bytes_are_distinct_kernel_bytes() {
+    let t = TempDir::new("quietnine");
+    let r = store(t.path());
+    let v = OsVfs;
+    let mut c = v.lock_client(&r, LockMode::Acquire).unwrap();
+    let grants: Vec<_> = (0..N_QUIET)
+        .map(|k| granted(v.try_acquire(&mut c, quiet(k)).unwrap()))
+        .collect();
+    assert!(v.holds_any_role());
+    // The raw kernel bytes: each quiet offset is held against a handle of its own.
+    use std::os::windows::io::AsRawHandle;
+    use windows_sys::Win32::Storage::FileSystem::{
+        LOCKFILE_EXCLUSIVE_LOCK, LOCKFILE_FAIL_IMMEDIATELY, LockFileEx,
+    };
+    let f = std::fs::OpenOptions::new()
+        .read(true)
+        .write(true)
+        .open(t.path().join("LOCK"))
+        .unwrap();
+    for k in 0..N_QUIET {
+        let byte = quiet(k).offset();
+        let mut ov = overlapped_at(byte, core::ptr::null_mut());
+        // SAFETY: `f` is an open synchronous file; `ov` is a live local; a fail-immediately try of one byte completes
+        // before it returns.
+        let ok = unsafe {
+            LockFileEx(
+                f.as_raw_handle(),
+                LOCKFILE_EXCLUSIVE_LOCK | LOCKFILE_FAIL_IMMEDIATELY,
+                0,
+                1,
+                0,
+                &mut ov,
+            )
+        };
+        assert_eq!(ok, 0, "Quiet({k}) at {byte:#x} is held in the kernel");
+    }
+    for g in grants {
+        v.release(&mut c, g);
+    }
+    // `holds_any_role` is process-wide and other tests of this binary hold role bytes concurrently, so the release is
+    // checked per byte: a probe client of this table sees every quiet byte free again.
+    let p = v.lock_client(&r, LockMode::Probe).unwrap();
+    for k in 0..N_QUIET {
+        assert_eq!(v.probe(&p, quiet(k)), ProbeResult::Free, "Quiet({k})");
+    }
 }
 
 #[test]

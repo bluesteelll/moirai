@@ -120,7 +120,20 @@ impl Clock for OsVfs {
 // ---------------------------------------------------------------------------------------------------------------------
 // Entropy ([OS/README §4.6])
 
+/// The failure rule of [OS/README §4.6]: a failed `BCryptGenRandom` panics with a message naming the call and the OS code
+/// (the product's panic hook then prints the `internal` text and exits 1, [F19 §7.2] item 8). No retry with another
+/// call and no weaker source; the panic is a process death, which every protocol point tolerates ([F15 §6.4]).
+fn rng_status(status: windows_sys::Win32::Foundation::NTSTATUS) {
+    assert!(
+        sys::nt_success(status),
+        "BCryptGenRandom failed: {}",
+        OsCode(sys::nt_code(status) as i32).unit(OsTag::Windows)
+    );
+}
+
 impl Entropy for OsVfs {
+    /// `BCryptGenRandom(NULL, buf, n, BCRYPT_USE_SYSTEM_PREFERRED_RNG)`, in chunks of at most `u32::MAX` bytes
+    /// ([OS/README §4.6] "Per-OS calls").
     fn fill_random(&self, buf: &mut [u8]) {
         for chunk in buf.chunks_mut(u32::MAX as usize) {
             // SAFETY: `chunk` is writable for `chunk.len()` bytes (≤ u32::MAX); the null algorithm handle is allowed with
@@ -133,12 +146,7 @@ impl Entropy for OsVfs {
                     BCRYPT_USE_SYSTEM_PREFERRED_RNG,
                 )
             };
-            // The failure rule: no retry with another call and no weaker source; the panic is a process death.
-            assert!(
-                sys::nt_success(status),
-                "BCryptGenRandom failed: {}",
-                OsCode(sys::nt_code(status) as i32).unit(OsTag::Windows)
-            );
+            rng_status(status);
         }
     }
 }
@@ -659,6 +667,19 @@ mod tests {
         assert_ne!(a, b);
         assert_ne!(a, [0u8; 64]);
         OsVfs.fill_random(&mut []);
+        // The draw widths of [OS/README §4.6]'s table: 8 and 16 bytes, one call each.
+        let (mut n8, mut n16) = ([0u8; 8], [0u8; 16]);
+        OsVfs.fill_random(&mut n8);
+        OsVfs.fill_random(&mut n16);
+        assert!(n8 != [0; 8] || n16 != [0; 16]);
+        rng_status(0);
+    }
+
+    /// The failure rule ([OS/README §4.6]): a failed call panics, naming the call and the OS code.
+    #[test]
+    #[should_panic(expected = "BCryptGenRandom failed: os 87 ERROR_INVALID_PARAMETER")]
+    fn a_failed_draw_panics_with_the_call_and_the_code() {
+        rng_status(windows_sys::Win32::Foundation::STATUS_INVALID_PARAMETER);
     }
 
     #[test]

@@ -223,7 +223,7 @@ mod tests {
     }
 
     proptest! {
-        #![proptest_config(proptest::test_runner::Config { failure_persistence: None, ..Default::default() })]
+        #![proptest_config(crate::windows::testing::proptest_config())]
 
         /// Quoting then parsing by the runtime's rules gives the arguments back.
         #[test]

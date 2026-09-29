@@ -12,7 +12,7 @@ use common::TempDir;
 use moirai_os::{OsRoot, OsVfs};
 use moirai_vfs::{
     Access, DirEntry, EntryKind, EntryName, ExtentMethod, FsKind, GroupMember, OpenHint, RelPath,
-    RootAccess, RootRole, ShareRetry, StoreFs, StoreVolume, SyncKind, VfsErrorKind,
+    RootAccess, RootRole, ShareRetry, StoreFs, StoreVolume, SwapIntent, SyncKind, VfsErrorKind,
 };
 
 fn rel(s: &str) -> RelPath<'_> {
@@ -759,11 +759,98 @@ fn counters_count_each_call_once() {
     assert_eq!(line, "COUNTS 1 3 6 1 2 5 2 1");
 }
 
+/// [OS/fs §4.9.4]: a recovery rename between two parents that differ only in case, in a directory with per-directory
+/// case sensitivity, flushes both parents (they are two directories; FM-2.3), then `a_parent` for the intent's removal.
+/// In a child, so the process-wide counters move only by the recovery.
+#[test]
+fn swap_recovery_flushes_parents_that_differ_only_in_case() {
+    let t = TempDir::new("swapcase");
+    if !common::set_case_sensitive(t.path()) {
+        println!(
+            "OBSERVED: per-directory case sensitivity cannot be set here (fsutil); the case is skipped"
+        );
+        return;
+    }
+    for (p, d, m) in [("P", "a", "A"), ("p", "b", "B")] {
+        std::fs::create_dir_all(t.join(p).join(d)).unwrap();
+        std::fs::write(t.join(p).join(d).join("which"), m).unwrap();
+    }
+    let out = common::child_command("child", "swap-case")
+        .env("MOIRAI_OS_TEST_DIR", t.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8(out.stdout).unwrap();
+    let line = text
+        .lines()
+        .find_map(|l| l.find("SWAPCASE").map(|i| &l[i..]))
+        .unwrap_or_else(|| panic!("no SWAPCASE line in {text:?}"));
+    // result sync_dir renames: the completing rename `T → B` from `P` to `p`, a flush of each, one of `P` for the intent.
+    assert_eq!(line, "SWAPCASE Completed 3 1");
+    let which = |p: &str| std::fs::read_to_string(t.join(p).join("which")).unwrap();
+    assert_eq!(
+        (which("P/a"), which("p/b")),
+        ("B".to_owned(), "A".to_owned())
+    );
+    assert!(std::fs::symlink_metadata(t.join("P/a.swap")).is_err());
+}
+
+/// The machine-local P12 form of an existing directory ([OS/fs §4.9.3]): its final path with `\\?\` removed and `/`
+/// separators.
+fn p12(dir: &std::path::Path) -> String {
+    let fin = std::fs::canonicalize(dir).unwrap();
+    let s = fin.to_string_lossy();
+    match s.strip_prefix(r"\\?\UNC\") {
+        Some(unc) => format!("//{}", unc.replace('\\', "/")),
+        None => s.trim_start_matches(r"\\?\").replace('\\', "/"),
+    }
+}
+
 #[test]
 fn child() {
     let Some(mode) = common::child_mode() else {
         return;
     };
+    if mode == "swap-case" {
+        let v = OsVfs;
+        let dir = std::path::PathBuf::from(std::env::var_os("MOIRAI_OS_TEST_DIR").unwrap());
+        let open = |p: &str| {
+            v.open_root(&dir.join(p), RootRole::Other, RootAccess::ReadWrite)
+                .unwrap()
+        };
+        let (pa, pb) = (open("P"), open("p"));
+        let bytes = SwapIntent {
+            a_id: v.path_identity(&pa, rel("a")).unwrap(),
+            b_id: v.path_identity(&pb, rel("b")).unwrap(),
+            a_path: format!("{}/a", p12(&dir.join("P"))),
+            b_path: format!("{}/b", p12(&dir.join("p"))),
+            t_path: format!("{}/a.swap-old", p12(&dir.join("P"))),
+        }
+        .encode()
+        .unwrap();
+        let f = v.create_new(&pa, rel("a.swap")).unwrap();
+        v.write_at(&f, 0, &bytes).unwrap();
+        drop(f);
+        // The state after step 5 ([OS/fs §4.9.2]): `A → T`, then `B → A`.
+        v.rename_noreplace(&pa, rel("a"), &pa, rel("a.swap-old"), ShareRetry::None)
+            .unwrap();
+        v.rename_noreplace(&pb, rel("b"), &pa, rel("a"), ShareRetry::None)
+            .unwrap();
+        let c0 = v.counters();
+        let r = v.swap_recover(&pa, rel("a"), ShareRetry::None).unwrap();
+        let c = v.counters();
+        println!(
+            "SWAPCASE {r:?} {} {}",
+            c.sync_dir - c0.sync_dir,
+            c.renames - c0.renames
+        );
+        std::process::exit(0);
+    }
     if mode == "counters" {
         let v = OsVfs;
         let dir = std::env::var_os("MOIRAI_OS_TEST_DIR").unwrap();

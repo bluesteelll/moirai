@@ -6,8 +6,7 @@
 //! |---|---|---|
 //! | `sys` | handles, wide strings, final paths, the OS-code → kind mapping, NT opens, positional I/O | [OS/fs §5.1, §6.2], [OS/path §4.1, §6] |
 //! | `fs` | `StoreFs` for [`OsVfs`], the process-wide counters | [OS/fs] |
-//! | `swap` | the swap intent and `swap_dirs`/`swap_recover` | [OS/fs §4.9] |
-//! | `xxh3` | XXH3-64 (the swap intent's checksum) | [OS/fs §4.9.3] |
+//! | `swap` | `swap_dirs`/`swap_recover` (the intent's bytes through `moirai_vfs::SwapIntent`) | [OS/fs §4.9] |
 //! | `lock` | `Locks`: the lock registry and the caller-driven grant-table driver | [OS/lock] |
 //! | `map` | `SealedMaps`: mappings, the registry and the vectored `EXCEPTION_IN_PAGE_ERROR` handler | [OS/map] |
 //! | `env` | `EnvGuard`: classification, the full probe, the OS version, `doctor` warnings | [OS/env] |
@@ -33,7 +32,6 @@ mod swap;
 mod sys;
 #[cfg(feature = "test-host")]
 pub mod test_host;
-mod xxh3;
 
 pub use fs::{OsFile, OsRoot, OsVfs};
 pub use lock::OsLockClient;
@@ -85,6 +83,22 @@ pub(crate) mod testing {
     impl Drop for TempDir {
         fn drop(&mut self) {
             let _ = std::fs::remove_dir_all(&self.0);
+        }
+    }
+
+    /// The proptest configuration of every property of the crate: 256 cases in the `pr` tier (the default), 4,096 in the
+    /// `nightly` tier and 65,536 in the `exit` tier named by `MOIRAI_TEST_TIER` (PLAN §2.1 test tiers, as `moirai-vfs`
+    /// scales its own); no failure persistence (the seed is printed).
+    pub(crate) fn proptest_config() -> proptest::test_runner::Config {
+        let cases = match std::env::var("MOIRAI_TEST_TIER").as_deref() {
+            Ok("nightly") => 4_096,
+            Ok("exit") => 65_536,
+            _ => 256,
+        };
+        proptest::test_runner::Config {
+            cases,
+            failure_persistence: None,
+            ..proptest::test_runner::Config::default()
         }
     }
 }

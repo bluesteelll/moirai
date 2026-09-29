@@ -16,9 +16,10 @@ use std::path::Path;
 use common::TempDir;
 use moirai_os::{OsProjectFs, OsProjectRoot};
 use moirai_vfs::{
-    At, BtimeTrust, CanonicalRoot, CaseRule, CloudRule, EntryName, EnumEnd, FileAttrs, FileIdKind,
-    IdLocate, Located, OsFileId, PathError, ProjKind, ProjectFs, ProjectRead, ReadOpts, RelPath,
-    RenameRule, Renamed, ShareRetry, Stat, StatMode, StatRec, VfsErrorKind, VolumeCaps, VolumeKey,
+    At, BtimeTrust, CanonicalRoot, CaseRule, CloudRule, EntryName, EntryNameRef, EnumEnd,
+    FileAttrs, FileIdKind, IdLocate, Located, OsFileId, PathError, ProjKind, ProjectFs,
+    ProjectRead, ReadOpts, RelPath, RenameRule, Renamed, ShareRetry, Stat, StatMode, StatRec,
+    VfsErrorKind, VolumeCaps, VolumeKey,
 };
 
 fn open(p: &OsProjectFs, dir: &Path) -> (CanonicalRoot, OsProjectRoot) {
@@ -239,17 +240,23 @@ fn stat_and_enumeration_agree() {
     );
     let dir = present(p.stat(at(&r, "sub"), StatMode::WithId).unwrap());
     assert_eq!(dir.kind, ProjKind::Dir);
+    // Each entry is borrowed for one call of the visitor ([OS/project §5.2]); a caller that keeps a name takes
+    // `to_owned()`.
     let mut seen: Vec<(String, StatRec)> = Vec::new();
+    let mut kept: Vec<EntryName> = Vec::new();
     let end = p
         .enumerate(at(&r, ""), |e| {
-            let EntryName::Utf8(n) = &e.name else {
+            let EntryNameRef::Utf8(n) = e.name else {
                 panic!("unrepresentable")
             };
             assert_eq!(e.stat.unwrap().kind, e.kind);
             seen.push((n.to_string(), e.stat.unwrap()));
+            kept.push(e.name.to_owned());
             ControlFlow::Continue(())
         })
         .unwrap();
+    kept.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+    assert_eq!(kept[0], EntryName::Utf8("a.txt".into()));
     assert_eq!(end, EnumEnd::Complete);
     seen.sort_by(|a, b| a.0.cmp(&b.0));
     let names: Vec<&str> = seen.iter().map(|(n, _)| n.as_str()).collect();
@@ -432,6 +439,7 @@ fn the_reader_streams_two_passes_on_one_handle() {
 fn symbolic_links_where_the_os_allows_them() {
     use windows_sys::Win32::Storage::FileSystem::{
         CreateSymbolicLinkW, SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE,
+        SYMBOLIC_LINK_FLAG_DIRECTORY,
     };
     let t = TempDir::new("symlink");
     std::fs::create_dir(t.join("sub")).unwrap();
@@ -471,6 +479,79 @@ fn symbolic_links_where_the_os_allows_them() {
         .map(|_| ())
         .unwrap_err();
     assert_eq!(e.kind, VfsErrorKind::IsSymlink);
+
+    // A directory symbolic link: `enumerate` refuses it as `IsSymlink` without a visit instead of listing its target
+    // ([OS/project §5.2]), and `unlink` removes the link with `RemoveDirectoryW`, never the target ([OS/project §6.3]).
+    let dlink: Vec<u16> = t.join("dl").as_os_str().encode_wide().chain([0]).collect();
+    let dtarget: Vec<u16> = "sub".encode_utf16().chain([0]).collect();
+    // SAFETY: both strings are NUL-terminated.
+    let ok = unsafe {
+        CreateSymbolicLinkW(
+            dlink.as_ptr(),
+            dtarget.as_ptr(),
+            SYMBOLIC_LINK_FLAG_DIRECTORY | SYMBOLIC_LINK_FLAG_ALLOW_UNPRIVILEGED_CREATE,
+        )
+    };
+    assert!(ok, "a directory link where a file link could be made");
+    assert_eq!(
+        present(p.stat(at(&r, "dl"), StatMode::Read).unwrap()).kind,
+        ProjKind::Symlink
+    );
+    let mut n = 0;
+    let e = p
+        .enumerate(at(&r, "dl"), |_| {
+            n += 1;
+            ControlFlow::Continue(())
+        })
+        .unwrap_err();
+    assert_eq!((e.kind, n), (VfsErrorKind::IsSymlink, 0));
+    p.unlink(at(&r, "dl"), ShareRetry::None).unwrap();
+    assert!(
+        std::fs::symlink_metadata(t.join("dl")).is_err(),
+        "the link is gone"
+    );
+    assert_eq!(
+        std::fs::read(t.join("sub/b.bin")).unwrap(),
+        b"b",
+        "the target and its content stay"
+    );
+}
+
+/// [OS/project §6.3]: "once if they are one directory" means one directory object. In a directory with per-directory
+/// case sensitivity (`CaseRule::PerDirFlag`), `Src` and `src` are two directories, and `durable_rename(Src/a.rs →
+/// src/a.rs)` flushes both parents; skipping the second would leave the new entry pending (FM-2.3). In a child, so the
+/// process-wide counters move only by this rename.
+#[test]
+fn durable_rename_flushes_parents_that_differ_only_in_case() {
+    let t = TempDir::new("pfscase");
+    if !common::set_case_sensitive(t.path()) {
+        println!(
+            "OBSERVED: per-directory case sensitivity cannot be set here (fsutil); the case is skipped"
+        );
+        return;
+    }
+    std::fs::create_dir(t.join("Src")).unwrap();
+    std::fs::create_dir(t.join("src")).unwrap();
+    std::fs::write(t.join("Src/a.rs"), b"a").unwrap();
+    let out = common::child_command("child", "case-rename")
+        .env("MOIRAI_OS_TEST_DIR", t.path())
+        .output()
+        .unwrap();
+    assert_eq!(
+        out.status.code(),
+        Some(0),
+        "{}",
+        String::from_utf8_lossy(&out.stderr)
+    );
+    let text = String::from_utf8(out.stdout).unwrap();
+    let line = text
+        .lines()
+        .find_map(|l| l.find("CASE").map(|i| &l[i..]))
+        .unwrap_or_else(|| panic!("no CASE line in {text:?}"));
+    // renames dir_syncs: one rename, a flush of `Src` and a flush of `src`.
+    assert_eq!(line, "CASE 1 2");
+    assert_eq!(std::fs::read(t.join("src/a.rs")).unwrap(), b"a");
+    assert!(std::fs::symlink_metadata(t.join("Src/a.rs")).is_err());
 }
 
 #[test]
@@ -883,6 +964,20 @@ fn child() {
     }
     if mode == "names" {
         child_names(&dir());
+        std::process::exit(0);
+    }
+    if mode == "case-rename" {
+        let p = OsProjectFs::new();
+        let (_, r) = open(&p, &dir());
+        let c0 = p.counters();
+        p.durable_rename(at(&r, "Src/a.rs"), at(&r, "src/a.rs"), ShareRetry::None)
+            .unwrap();
+        let c = p.counters();
+        println!(
+            "CASE {} {}",
+            c.renames - c0.renames,
+            c.dir_syncs - c0.dir_syncs
+        );
         std::process::exit(0);
     }
     if mode == "write-side" {
