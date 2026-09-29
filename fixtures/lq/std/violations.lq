@@ -1,0 +1,5 @@
+DEFINE QUERY violations($ref: rev) SHAPE violation BUDGET light AS {
+  USE $ref
+  CALL violations() YIELD key, class, detail, suggested
+  RETURN key, class, detail, suggested ORDER BY key
+}

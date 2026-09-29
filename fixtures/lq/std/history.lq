@@ -1,0 +1,6 @@
+DEFINE QUERY history($id: node, $field: text? = NULL, $range: rev? = NULL) SHAPE history BUDGET light AS {
+  CALL history($id, field: $field, in: $range)
+  YIELD seq, commit, ref, actor, role, at, op, aspect, name, before, after, message, via
+  RETURN seq, commit, ref, actor, role, at, op, aspect, name, before, after, message, via
+  ORDER BY seq DESC
+}

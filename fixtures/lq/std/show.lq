@@ -1,0 +1,3 @@
+DEFINE QUERY show($ids: list<node>, $full: bool = false) SHAPE detail BUDGET light AS {
+  MATCH (n) WHERE n IN $ids RETURN n ORDER BY n.id
+}

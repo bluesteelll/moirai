@@ -1,0 +1,552 @@
+# fixtures/gt10/node40-branches.cases: the "node 40" table of [AR §5d.3] across branches (WP-22 gt10/, R-FIX).
+# Format: fixtures/gt10/INDEX.md §2. Every case continues the store c0 of node40.cases (labels and numbers there):
+#   n9 #1, n12 #2, n40 #3, n41 #4, n52 #5, n203 #6, n17 #7, n77 #8 on main, lane/x and lane/y (forked at c0 = c@5).
+# Nodes created here: n205 #9 (c8a), n80 #9 (c14a). Leases: L-1 (orchestrator), L-2 (dev#2, c9p).
+# Worked rows restated: NC-009 to NC-021, NX-042 to NX-084 of [RULES/delete-policy-matrix] §11.
+
+%% case c5
+%% from node40.cases:c0
+%% core yes
+%% source NC-009; NX-042 to NX-048; XB-001; [AR §5d.3] row 1 "unaffected (git-like isolation)"; [RULES/state-definition] PD-012, PD-013, PD-018, ME-001
+%% note #40 is deleted on lane/x as in c2. main and lane/y still hold it live and still reference it, but the deleted
+%% note marker keeps it out of their dispatch and blocking lists; on main #12 is still blocked by the live #40.
+%% script
+8 Mutation tx.rm @lease=L-1 @branch=lane/x id=$n40 replaced_by=$n52 policy=reparent reason="duplicate of the reader table"
+%% result
+exit 0
+ready [$n41]
+marker deleted $n40 lane/x
+%% expect
+lane/x $n40 deleted yes NX-042
+lane/x $n40 hold deleted
+lane/x edge:$n52:blocks:$n12 exists yes
+lane/x $n41 parent $n9
+main $n40 deleted no NX-043
+main $n40 deleted_elsewhere yes NX-044
+main $n40 excluded yes NX-045
+main $n40 is_blocker yes
+main $n40 blocking-listed no NX-046
+main $n203 blocking-listed yes
+main $n12 open_blockers 1 NX-047
+main edge:$n40:blocks:$n12 exists yes
+lane/y $n40 excluded yes NX-048
+* marker:deleted:$n40:lane/x holders [lane/x] ME-001
+* marker:deleted:$n40:lane/x active_on [lane/y,main] MF-006
+%% end
+
+%% case c6
+%% from c5
+%% core yes
+%% source NC-010; NX-049 to NX-054; XB-002; MR-044; RE-003, RE-005; [RULES/state-definition] OR-005, ME-002
+%% note main only read #40, so the delete wins and main's referrers get the same treatment. main has not moved since
+%% note c0, so no sync is needed. main now holds the deletion with lane/x's commit as its origin: no new marker.
+%% script
+9 Merge @lease=L-1 src=lane/x into=main
+%% result
+exit 0
+outcome landed
+lca [c@5]
+virtual-base no
+conflicts none
+violations none
+markers none
+%% expect
+main $n40 deleted yes NX-049
+main $n40 replaced_by $n52
+main $n40 hold deleted
+main edge:$n52:blocks:$n12 exists yes NX-050
+main edge:$n203:blocks:$n52 exists yes
+main $n41 parent $n9 NX-051
+main $n17 suspect yes NX-052
+main $n40 deleted_elsewhere no NX-053
+lane/y $n40 excluded yes NX-054
+* marker:deleted:$n40:lane/x holders [lane/x,main] ME-002
+* marker:deleted:$n40:lane/x active_on [lane/y]
+* ref:main absorbed.lane/x 1 RE-005
+%% end
+
+%% case c7a
+%% from c5
+%% core yes
+%% source NC-011; [AR §5d.3] row 1 "main modified #40"
+%% script
+9 Mutation tx.set @lease=L-1 id=$n40 fields=["priority=0"]
+%% result
+exit 0
+%% expect
+main $n40 priority 0
+main $n40 excluded yes
+%% end
+
+%% case c7b
+%% from c7a
+%% core yes
+%% finding F-4
+%% source NC-012; NX-055 to NX-058; XB-003; MR-042; EP-001; RS-008; PR-001, PR-003; [AR §5a.7] step 0; [F12 §6.3] provisional value
+%% note main moved, so the merge first syncs main into lane/x. There #40 is deleted on lane/x's side and modified on
+%% note main's: a DeleteVsModify conflict value lands on lane/x with the task's delete-wins provisional state (the
+%% note deleting side, ours). The merge into main is then refused while lane/x holds an unresolved conflict. Which of the
+%% note two is written when the command is refused is finding F-4; main is untouched either way.
+%% script
+10 Merge @lease=L-1 src=lane/x into=main
+%% result
+exit 6
+error conflicted_src
+%% expect
+main $n40 deleted no NX-058
+main $n40 priority 0
+main $n40 excluded yes
+lane/x $n40 conflict.existence DeleteVsModify NX-055
+lane/x $n40 deleted yes NX-056
+lane/x $n40 hold deleted
+%% end
+
+%% case c8a
+%% from c5
+%% core yes
+%% source NC-013; [AR §5d.3] row 1 "main added a structural edge to #40"; [LQ/std §7.2] tx.add
+%% note n205 (#9) is a new task on main that blocks #40.
+%% script
+9 Mutation tx.add @lease=L-1 kind=task title="Reader cache warm-up" blocks=[$n40] => n205
+%% result
+exit 0
+%% expect
+main edge:$n205:blocks:$n40 exists yes
+main $n40 open_blockers 2
+lane/x $n205 exists no
+%% end
+
+%% case c8b
+%% from c8a
+%% core yes
+%% finding G-2
+%% source NC-014; NX-059 to NX-063; XB-004; VA-004; LS-001; PR-001; [AR §5a.7] steps 0 and 8; [AR §5d.3] row 1 "the whole merge stages"
+%% note The sync of step 0 brings #205 and its blocks edge into lane/x, where #40 is deleted: a live, unflagged
+%% note structural edge to a tombstone, a DanglingEdge violation. The sync stages on merge/lane/x/from/main, so the
+%% note whole merge stages; main and lane/x are untouched. The suggested resolution is repoint:#5 (NX-060).
+%% script
+10 Merge @lease=L-1 src=lane/x into=main
+%% result
+exit 6
+outcome staged
+staging-ref merge/lane/x/from/main
+sync.outcome staged
+sync.violation edge:$n205:blocks:$n40 DanglingEdge
+%% expect
+main edge:$n205:blocks:$n40 exists yes NX-062
+main $n40 deleted no NX-063
+lane/x $n205 exists no
+lane/x $n40 deleted yes
+* ref:merge/lane/x/from/main exists yes NX-059
+* ref:merge/lane/x/from/main kind merge
+* ref:merge/lane/x/from/main violations [DanglingEdge:edge:$n205:blocks:$n40] NX-060
+* marker:deleted:$n40:lane/x holders [lane/x] VK-003
+%% end
+
+%% case c8c
+%% from c8b
+%% source [AR §5d.3] row 1 "with the suggested resolve … --take repoint:#52"; [F12 §6.5] choice 4 repoint; [F12 §9.3]; [API §4.3] row 7
+%% note On the staging ref, the violating edge is re-pointed to #52; lane/x itself is still untouched.
+%% script
+11 Tx @lease=L-1 @branch=merge/lane/x/from/main message="Re-point the new blocker to #5"
+  resolve key=edge:$n205:blocks:$n40 repoint=$n52
+%% result
+exit 0
+%% expect
+merge/lane/x/from/main edge:$n205:blocks:$n52 exists yes
+merge/lane/x/from/main edge:$n205:blocks:$n40 exists no
+lane/x $n205 exists no
+%% end
+
+%% case c8d
+%% from c8c
+%% source [AR §5a.7] step 8 merge --continue; [F12 §9.4]; [API §11.8]
+%% note Continuing the staged sync lands it on lane/x and deletes the staging ref.
+%% script
+12 MergeContinue @lease=L-1 src=main into=lane/x
+%% result
+exit 0
+outcome landed
+violations none
+%% expect
+lane/x $n205 exists yes
+lane/x edge:$n205:blocks:$n52 exists yes
+lane/x edge:$n205:blocks:$n40 exists no
+lane/x $n40 deleted yes
+* ref:merge/lane/x/from/main exists no
+%% end
+
+%% case c8e
+%% from c8d
+%% finding F-14
+%% source [AR §5a.7] step 0 (after a sync, LCA(src, main) = tip(main)); XB-002; RE-003
+%% note The merge is run again (its args repeat command 10's, hence @no_dedupe, finding F-14). lane/x now contains
+%% note main's tip, so no sync is needed and the merge lands.
+%% script
+13 Merge @lease=L-1 @no_dedupe=true src=lane/x into=main
+%% result
+exit 0
+outcome landed
+conflicts none
+violations none
+markers none
+%% expect
+main $n40 deleted yes
+main edge:$n205:blocks:$n52 exists yes
+main edge:$n205:blocks:$n40 exists no
+main $n52 open_blockers 2
+main $n12 open_blockers 1
+main $n40 hold deleted
+* marker:deleted:$n40:lane/x holders [lane/x,main]
+%% end
+
+%% case c9p
+%% from node40.cases:c0
+%% core yes
+%% finding F-2
+%% source [AR §5d.3] row 3; [RULES/delete-policy-matrix] NC-015 (c0/lease-L-19); [RULES/state-definition] PD-017; [RULES/role-write-policy] WM-001; [API §10.1]
+%% note At c0 #40 is a container with an open blocker, so no claim can lease it (finding F-2). On lane/y the orchestrator
+%% note first moves #41 under #9 and drops #203's blocker edge; those keys belong to #41 and #203, so #40 itself is not
+%% note modified. Then dev#2 self-claims #40 on lane/y: lease L-2 (the design's L-19), anchor none, TTL 15 min.
+%% script
+8 Tx @lease=L-1 @branch=lane/y message="Detach #4 and drop the blocker of #3 on lane/y"
+  move target=$n41 under=$n9
+  unlink src=$n203 kind=blocks dst=$n40
+9 Claim @agent=dev#2 @branch=lane/y ids=[$n40]
+%% result
+exit 0
+lease L-2 task=$n40 holder=dev#2 branch=lane/y run=-
+%% expect
+lane/y $n40 container no
+lane/y $n40 open_blockers 0
+lane/y $n40 unblocked yes
+lane/y $n40 ready@dev#2 yes
+* lease:L-2 live yes
+* lease:L-2 holder dev#2
+* lease:L-2 branch lane/y
+main $n40 container yes
+%% end
+
+%% case c9
+%% from c9p
+%% core yes
+%% source NC-015; NX-064 to NX-066; DP-005; XB-010; LF-005; [AR §3.4] I32′; [LQ/errors §5.5] E409 lease case; [API §9.1]
+%% note The delete on lane/x is refused: a live lease covers #40 on another branch. The text names the lease, its
+%% note holder and its branch.
+%% script
+10 Mutation tx.rm @lease=L-1 @branch=lane/x id=$n40 replaced_by=$n52 policy=reparent reason="duplicate of the reader table"
+%% result
+exit 6
+error E409
+mentions L-2
+mentions dev#2
+mentions lane/y
+commit none
+%% expect
+lane/x $n40 deleted no NX-066
+* lease:L-2 live yes
+%% end
+
+%% case c9r
+%% from c9p
+%% core yes
+%% source NC-016; NX-067, NX-068; DO-006; DS-007; LE-007; [AR §5d.3] row 3 "--release releases the lease with a triage note … and proceeds"
+%% script
+10 Mutation tx.rm @lease=L-1 @branch=lane/x id=$n40 replaced_by=$n52 policy=reparent release=true reason="duplicate of the reader table"
+%% result
+exit 0
+ready [$n41]
+marker deleted $n40 lane/x
+%% expect
+lane/x $n40 deleted yes NX-067
+* lease:L-2 live no NX-068
+* lease:L-2 ended yes LE-007
+lane/y $n40 excluded yes
+lane/y $n40 ready@dev#2 no
+%% end
+
+%% case c10d
+%% from c5
+%% source [AR §5a.9] "branch -d: refused if not merged into main unless -D"; [API §11.2] not_merged
+%% script
+9 BranchDelete @lease=L-1 name=lane/x
+%% result
+exit 6
+error not_merged
+%% expect
+* ref:lane/x exists yes
+main $n40 excluded yes
+%% end
+
+%% case c10
+%% from c5
+%% core yes
+%% source NC-017; NX-069, NX-070; XB-008; ME-005; [AR §5a.9] -D; [AR §5d.3] row 4; [API §11.2]
+%% note lane/x is deleted unmerged: no live ref holds the deletion any more, so its marker is cleared and #40 is
+%% note dispatchable and listed as a blocker again on main and lane/y.
+%% script
+9 BranchDelete @lease=L-1 name=lane/x force=true
+%% result
+exit 0
+marker cleared $n40 lane/x branch-delete
+dropped commits=1 completions=0 deletions=1
+released []
+%% expect
+* ref:lane/x exists no
+* ref:lane/x deleted yes
+main $n40 excluded no NX-069
+lane/y $n40 excluded no NX-070
+main $n40 blocking-listed yes
+* marker:deleted:$n40:lane/x active no AB-003
+%% end
+
+%% case c10f-a
+%% from c5
+%% core yes
+%% source NC-018; ME-007; VR-004; [AR §5d.3] row 4 "a live branch forked from it after the deleting commit still carries it"
+%% script
+9 BranchCreate @lease=L-1 name=lane/z from=lane/x
+%% result
+exit 0
+%% expect
+lane/z $n40 deleted yes
+* marker:deleted:$n40:lane/x holders [lane/x,lane/z] ME-007
+* ref:lane/z absorbed.lane/x 1 VR-004
+%% end
+
+%% case c10f-b
+%% from c10f-a
+%% core yes
+%% source NC-019; NX-071, NX-072; XB-008; ME-005; [72 M4] scenario 3; [AR §5a.9] -D "re-attributes"
+%% note lane/z still holds the deletion, so the marker stays active at its origin and #40 stays excluded elsewhere.
+%% script
+10 BranchDelete @lease=L-1 name=lane/x force=true
+%% result
+exit 0
+markers none
+dropped commits=0 completions=0 deletions=0
+%% expect
+main $n40 excluded yes NX-071
+lane/y $n40 excluded yes
+lane/z $n40 deleted yes NX-072
+* marker:deleted:$n40:lane/x holders [lane/z]
+* marker:deleted:$n40:lane/x active yes
+%% end
+
+%% case c11
+%% from node40.cases:c2
+%% core yes
+%% source NC-020; NX-073 to NX-081; UD-001, UD-003, UD-004, UD-006; DM-004; ME-004; [AR §5d.3] row 6; [AR §5a.5] revert
+%% note Reverting the deleting commit writes Undelete with the before-image: #40 is live again, the re-pointed edges
+%% note are restored because their targets are live, #41 is its child again, #17 is no longer suspect, and main's
+%% note deleted hold ends, so the marker is cleared and the lanes stop excluding #40. #52 loses #203's blocker edge.
+%% script
+9 Revert @lease=L-1 commit=c@8
+%% result
+exit 0
+outcome landed
+conflicts none
+violations none
+marker cleared $n40 main
+%% expect
+main $n40 deleted no NX-073
+main $n40 status open NX-074
+main $n40 parent $n9
+main edge:$n40:blocks:$n12 exists yes NX-075
+main edge:$n52:blocks:$n12 exists no NX-076
+main edge:$n203:blocks:$n40 exists yes NX-077
+main edge:$n203:blocks:$n52 exists no NX-078
+main $n41 parent $n40 NX-079
+main $n17 suspect no NX-080
+main $n40 hold none NX-081
+main $n52 unblocked yes
+lane/x $n40 excluded no
+lane/y $n40 excluded no
+* c@9 kind revert
+%% end
+
+%% case c12
+%% from node40.cases:c0
+%% core yes
+%% requires image
+%% source NC-021; NX-082 to NX-084; XB-009; FL-008; [AR §5d.3] row 5; [AR §5b.6] steps 2 and 4; [F14 §11.2] (live -> absent, foreign only)
+%% note A person removes #40's node file from the image and commits. The import writes a foreign
+%% note Delete{image:file-removed}: #40's blocker edge stays flagged (no replacement), and #41's parent and #203's
+%% note blocker edge are left dangling, so the import stages on import/main and main stays where it was.
+%% script
+8 ImageExport @lease=L-1 dest=/img/node40.git refs=["main"] granularity=commit object_format=sha1 create=true
+- ImageEdit repo=/img/node40.git ref=refs/heads/main node=$n40 remove-file author="Pat Example <pat@example.test>"
+9 ImageImport @lease=L-1 from=/img/node40.git refs=["main"]
+%% result
+exit 6
+imported ref=main native=0 foreign=1 outcome=staged
+%% expect
+main $n40 deleted no NX-084
+* ref:import/main exists yes NX-082
+* ref:import/main violations [DanglingEdge:$n41.parent,DanglingEdge:edge:$n203:blocks:$n40] NX-083
+import/main $n40 deleted yes
+import/main edge:$n40:blocks:$n12 flagged yes FL-008
+%% end
+
+%% case c13
+%% from node40.cases:c0
+%% source [AR §5d.3] row 2 "rm 40 on main; lanes reference it"
+%% note #40 is deleted on main without a replacement (as in c3). The lanes are unaffected until they sync, but the
+%% note marker keeps #40 out of their dispatch.
+%% script
+8 Mutation tx.rm @lease=L-1 id=$n40 policy=reparent reason="obsolete"
+%% result
+exit 0
+marker deleted $n40 main
+%% expect
+main edge:$n40:blocks:$n12 flagged yes
+lane/y $n40 deleted no
+lane/y $n40 excluded yes
+lane/y $n12 open_blockers 1
+lane/y $n12 has_dangling no
+%% end
+
+%% case c13s
+%% from c13
+%% source [AR §5d.3] row 2 "sync applies the same rules with the lane as dst; a flagged blocker keeps #12 out of ready until resolve"; FL-010; MR-044; VA-004
+%% note The sync brings the delete and the flagged edge into lane/y; a flagged edge merges as an edge key with its
+%% note flag and is exempt from DanglingEdge, so the sync lands and #12 stays out of ready on the lane.
+%% script
+9 Sync @lease=L-1 lane=lane/y
+%% result
+exit 0
+outcome landed
+conflicts none
+violations none
+markers none
+%% expect
+lane/y $n40 deleted yes
+lane/y edge:$n40:blocks:$n12 flagged yes FL-010
+lane/y $n12 has_dangling yes
+lane/y $n12 unblocked no
+lane/y $n41 parent $n9
+lane/y $n40 excluded no
+* marker:deleted:$n40:main holders [lane/y,main] ME-002
+* ref:lane/y absorbed.main 3
+%% end
+
+%% case c13r
+%% from c13s
+%% finding F-1
+%% source FL-005; [AR §5d.3] row 2 "until resolve"
+%% script
+10 Tx @lease=L-1 @branch=lane/y message="Re-point the flagged blocker on lane/y to #5"
+  resolve key=edge:$n40:blocks:$n12 repoint=$n52
+%% result
+exit 0
+%% expect
+lane/y $n12 has_dangling no
+lane/y edge:$n52:blocks:$n12 exists yes
+lane/y $n12 open_blockers 1
+main $n12 has_dangling yes
+%% end
+
+%% case c14a
+%% from c5
+%% source XB-005; [AR §5d.3] row 1 "historical edges become tombstone refs, their sources suspect"
+%% note main adds a note n80 (#9) derived from #40 after lane/x deleted it.
+%% script
+9 Mutation tx.remember @lease=L-1 kind=note title="Reader registry benchmark notes" text="Benchmarks of the registry before its removal." => n80
+10 Mutation tx.link @lease=L-1 a=$n80 kind=derived_from b=$n40
+%% result
+exit 0
+%% expect
+main edge:$n80:derived_from:$n40 exists yes
+main $n80 suspect no
+%% end
+
+%% case c14b
+%% from c14a
+%% source XB-005; MR-048, MR-049; EG-035; [AR §3.4] I3
+%% note A historical edge to the deleted node lands as a tombstone reference (no violation) and its source is suspect.
+%% script
+11 Merge @lease=L-1 src=lane/x into=main
+%% result
+exit 0
+outcome landed
+sync.outcome landed
+conflicts none
+violations none
+%% expect
+main $n40 deleted yes
+main edge:$n80:derived_from:$n40 exists yes XB-005
+main $n80 suspect yes XB-005
+lane/x $n80 exists yes
+lane/x $n80 suspect yes
+%% end
+
+%% case c15a
+%% from c5
+%% source XB-006
+%% note main deletes #40 exactly as lane/x did. The command repeats command 8's on another branch, so it carries
+%% note @no_dedupe: under its default key, which equals command 8's, [API §7.4] row 5 would refuse it with E408.
+%% script
+9 Mutation tx.rm @lease=L-1 @no_dedupe=true id=$n40 replaced_by=$n52 policy=reparent reason="duplicate of the reader table"
+%% result
+exit 0
+marker deleted $n40 main
+%% expect
+main $n40 deleted yes
+%% end
+
+%% case c15b
+%% from c15a
+%% source XB-006; MR-041; MR-047; RS-007; [RULES/state-definition] OR-004
+%% note Both sides deleted #40 with the same reason, replacement and policy effects: every key is equal on both sides,
+%% note so the sync and the merge are clean. Each side keeps its own deletion as the origin of its hold.
+%% script
+10 Merge @lease=L-1 src=lane/x into=main
+%% result
+exit 0
+outcome landed
+sync.outcome landed
+conflicts none
+violations none
+markers none
+%% expect
+main $n40 deleted yes
+main $n40 reason "duplicate of the reader table"
+main $n40 excluded no
+lane/x $n40 excluded no
+lane/y $n40 excluded yes
+* marker:deleted:$n40:lane/x holders [lane/x]
+* marker:deleted:$n40:main holders [main]
+%% end
+
+%% case c16a
+%% from c5
+%% source XB-006
+%% note main deletes #40 differently: no replacement, so #40's blocker edge is flagged on main.
+%% script
+9 Mutation tx.rm @lease=L-1 id=$n40 policy=reparent reason="obsolete"
+%% result
+exit 0
+%% expect
+main edge:$n40:blocks:$n12 flagged yes
+%% end
+
+%% case c16b
+%% from c16a
+%% finding F-13
+%% finding F-4
+%% source XB-006; MR-046 (both deleted, dst's reason and replacement); MR-051 (removed on one side, props changed on the other); PR-003
+%% note In the sync (dst lane/x) the existence key takes lane/x's delete (MR-046). The edge #40 -> #12 is absent on
+%% note lane/x (re-pointed) and flagged on main: a FieldEdit conflict value (MR-051, finding F-13). The sync lands with it
+%% note and the merge into main is refused (finding F-4).
+%% script
+10 Merge @lease=L-1 src=lane/x into=main
+%% result
+exit 6
+error conflicted_src
+%% expect
+lane/x $n40 conflict.edge:blocks:$n12 FieldEdit
+lane/x $n40 reason "duplicate of the reader table"
+lane/x $n40 replaced_by $n52
+main $n40 reason "obsolete"
+main edge:$n40:blocks:$n12 flagged yes
+%% end

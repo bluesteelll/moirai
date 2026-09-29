@@ -1,0 +1,1327 @@
+# fixtures/gt10/policies.cases: every edge policy of the delete-policy matrix, its preconditions, flagged edges,
+# tombstones and Undelete (WP-22 gt10/, R-FIX). Format: fixtures/gt10/INDEX.md §2.
+# Written from [RULES/delete-policy-matrix] (DO, CD, EA, EF, DP, EG, DS, FL, TB, UD rows), [RULES/state-definition]
+# BT and PD rows, [RULES/status-machines] GD-002 and TR-039, [F08 §9.6] (endpoint kinds) and [API §9].
+#
+# The store "zoo" (seed 64): one small graph per edge kind, all on main; every case deletes one node of it.
+#   parent        p_root #1, p_par #2 (under p_root), p_kid #3 (under p_par)
+#   blocks        b_a #4 -blocks-> b_x #5 -blocks-> b_b #6; b_y #7 (a replacement); b_d #8 (done) -blocks-> b_e #9;
+#                 b_q #10 (an open question) -blocks-> b_f #11
+#   gates         g_v #13 (verdict, fail_fixable) -gates-> g_t #12; g_t2 #14 (task), g_v2 #15 (verdict, pass);
+#                 g_vp #17 (verdict, pass) -gates-> g_tp #16
+#   merge_after   ma_a #18 -merge_after-> ma_b #19 (lanes)
+#   runs_in       ri_run #21 -runs_in-> ri_lane #20
+#   answers       an_n #23 (note) -answers-> an_q #22 (question, answered)
+#   scoped_to     sc_n #26 -scoped_to-> sc_sub #25 (area under sc_top #24); sc_n2 #28 -scoped_to-> sc_lone #27
+#   duplicate_of  du_d #30 -duplicate_of-> du_c #29; du_y #31 (canonical replacement)
+#   depends_on    dp_s2 #33 -depends_on-> dp_s1 #32 (doc sections)
+#   supersedes    su_new #35 -supersedes-> su_old #34 (notes; su_old superseded)
+#   derived_from  df_src #37 (note) -> df_dst #36 (task)        cites      ci_src #39 (task) -> ci_dst #38 (note)
+#   implements    im_src #41 (task) -> im_dst #40 (decision)   refutes    rf_src #43 -> rf_dst #42 (findings)
+#   confirms      cf_src #45 -> cf_dst #44 (findings)          verifies   ve_src #47 (measurement) -> ve_dst #46 (task)
+#   addresses     ad_src #49 (task) -> ad_dst #48 (finding)    about      ab_src #51 (finding) -> ab_dst #50 (task)
+#   discovered_from dc_src #53 -> dc_dst #52 (tasks)           produced   pr_src #55 (run) -> pr_dst #54 (note)
+#   consumed      co_src #57 (run) -> co_dst #56 (note)        contradicts ct_b #59 <-> ct_a #58 (rules, symmetric)
+#   mentions      me_src #63 (note, its body names #60) -> me_dst #60 (task)
+#   relates       re_b #62 <-> re_a #61 (tasks, symmetric)
+# Every case below continues the zoo at command 12; nodes a case creates take #64 onward.
+# The "at" rows use their own store (seed 65): at_src #1 (note), at_root #2 (the root node), at_file #3 (file node).
+
+%% case zoo
+%% from -
+%% source [RULES/delete-policy-matrix] §5 edge-policy; [F08 §9.6]; [API §9.2]
+%% script
+1 EnvSlots hold=[claude:s1]
+2 Init seed=64 params=["query.safelist.model.unknown=off"]
+3 Claim @agent=orch @env.CLAUDECODE="1" @env.CLAUDE_CODE_SESSION_ID="s1" role=orchestrator session=true
+4 Tx @lease=L-1 message="Zoo: parent"
+  create as=p_root kind=task fields={title="Parent: root task"}
+  create as=p_par kind=task fields={title="Parent: middle task"} under=$p_root
+  create as=p_kid kind=task fields={title="Parent: leaf task"} under=$p_par
+5 Tx @lease=L-1 message="Zoo: blocks"
+  create as=b_a kind=task fields={title="Blocks: A"}
+  create as=b_x kind=task fields={title="Blocks: X"} edges_in=[{kind=blocks,src=$b_a}]
+  create as=b_b kind=task fields={title="Blocks: B"} edges_in=[{kind=blocks,src=$b_x}]
+  create as=b_y kind=task fields={title="Blocks: replacement Y"}
+  create as=b_d kind=task fields={title="Blocks: finished blocker D"}
+  create as=b_e kind=task fields={title="Blocks: E"} edges_in=[{kind=blocks,src=$b_d}]
+  set target=$b_d fields={status=done}
+  create as=b_q kind=question fields={title="Blocks: open question Q"}
+  create as=b_f kind=task fields={title="Blocks: F"} edges_in=[{kind=blocks,src=$b_q}]
+6 Tx @lease=L-1 message="Zoo: gates"
+  create as=g_t kind=task fields={title="Gates: gated task T"}
+  create as=g_v kind=verdict fields={title="Gates: failing verdict V",role=architecture-critic,outcome=fail_fixable} edges_out=[{kind=gates,dst=$g_t}]
+  create as=g_t2 kind=task fields={title="Gates: replacement task T2"}
+  create as=g_v2 kind=verdict fields={title="Gates: replacement verdict V2",role=architecture-critic,outcome=pass}
+  create as=g_tp kind=task fields={title="Gates: task TP"}
+  create as=g_vp kind=verdict fields={title="Gates: passing verdict VP",role=architecture-critic,outcome=pass} edges_out=[{kind=gates,dst=$g_tp}]
+7 Tx @lease=L-1 message="Zoo: merge_after, runs_in, answers"
+  create as=ma_a kind=lane fields={title="lane-a"}
+  create as=ma_b kind=lane fields={title="lane-b"} edges_in=[{kind=merge_after,src=$ma_a}]
+  create as=ri_lane kind=lane fields={title="lane-r"}
+  create as=ri_run kind=run fields={title="run-r"} edges_out=[{kind=runs_in,dst=$ri_lane}]
+  create as=an_q kind=question fields={title="Answers: question Q"}
+  create as=an_n kind=note fields={title="Answers: the answer"} edges_out=[{kind=answers,dst=$an_q}]
+  set target=$an_q fields={answer="Yes.",status=answered}
+8 Tx @lease=L-1 message="Zoo: scoped_to, duplicate_of, depends_on"
+  create as=sc_top kind=area fields={title="Area: top"}
+  create as=sc_sub kind=area fields={title="Area: sub"} under=$sc_top
+  create as=sc_n kind=note fields={title="Scoped note"} edges_out=[{kind=scoped_to,dst=$sc_sub}]
+  create as=sc_lone kind=area fields={title="Area: lone"}
+  create as=sc_n2 kind=note fields={title="Scoped note 2"} edges_out=[{kind=scoped_to,dst=$sc_lone}]
+  create as=du_c kind=task fields={title="Duplicate: canonical C"}
+  create as=du_d kind=task fields={title="Duplicate: D"} edges_out=[{kind=duplicate_of,dst=$du_c}]
+  create as=du_y kind=task fields={title="Duplicate: replacement Y"}
+  create as=dp_s1 kind=doc fields={title="Section S1",doc_kind=section}
+  create as=dp_s2 kind=doc fields={title="Section S2",doc_kind=section} edges_out=[{kind=depends_on,dst=$dp_s1}]
+9 Tx @lease=L-1 message="Zoo: historical kinds, part 1"
+  create as=su_old kind=note fields={title="Supersedes: old note"}
+  create as=su_new kind=note fields={title="Supersedes: new note"}
+  link src=$su_new kind=supersedes dst=$su_old
+  create as=df_dst kind=task fields={title="Derived-from target"}
+  create as=df_src kind=note fields={title="Derived-from source"} edges_out=[{kind=derived_from,dst=$df_dst}]
+  create as=ci_dst kind=note fields={title="Cites target"}
+  create as=ci_src kind=task fields={title="Cites source"} edges_out=[{kind=cites,dst=$ci_dst}]
+  create as=im_dst kind=decision fields={title="Implements target"}
+  create as=im_src kind=task fields={title="Implements source"} edges_out=[{kind=implements,dst=$im_dst}]
+  create as=rf_dst kind=finding fields={title="Refutes target",failure_scenario="A reader sees a torn slot."}
+  create as=rf_src kind=finding fields={title="Refutes source",failure_scenario="None: the slot is written atomically."} edges_out=[{kind=refutes,dst=$rf_dst}]
+  create as=cf_dst kind=finding fields={title="Confirms target",failure_scenario="A writer waits forever."}
+  create as=cf_src kind=finding fields={title="Confirms source",failure_scenario="Reproduced with two writers."} edges_out=[{kind=confirms,dst=$cf_dst}]
+10 Tx @lease=L-1 message="Zoo: historical kinds, part 2"
+  create as=ve_dst kind=task fields={title="Verifies target"}
+  create as=ve_src kind=measurement fields={title="Verifies source",metric=lock_wait_ms,value=1.5} edges_out=[{kind=verifies,dst=$ve_dst}]
+  create as=ad_dst kind=finding fields={title="Addresses target",failure_scenario="The lock leaks on a crash."}
+  create as=ad_src kind=task fields={title="Addresses source"} edges_out=[{kind=addresses,dst=$ad_dst}]
+  create as=ab_dst kind=task fields={title="About target"}
+  create as=ab_src kind=finding fields={title="About source",failure_scenario="The task misses a case."} edges_out=[{kind=about,dst=$ab_dst}]
+  create as=dc_dst kind=task fields={title="Discovered-from target"}
+  create as=dc_src kind=task fields={title="Discovered-from source"} edges_out=[{kind=discovered_from,dst=$dc_dst}]
+  create as=pr_dst kind=note fields={title="Produced target"}
+  create as=pr_src kind=run fields={title="run-produced"} edges_out=[{kind=produced,dst=$pr_dst}]
+  create as=co_dst kind=note fields={title="Consumed target"}
+  create as=co_src kind=run fields={title="run-consumed"} edges_out=[{kind=consumed,dst=$co_dst}]
+  create as=ct_a kind=rule fields={title="Contradicts: rule A"}
+  create as=ct_b kind=rule fields={title="Contradicts: rule B"} edges_out=[{kind=contradicts,dst=$ct_a}]
+  create as=me_dst kind=task fields={title="Mentions target"}
+  create as=re_a kind=task fields={title="Relates: A"}
+  create as=re_b kind=task fields={title="Relates: B"} edges_out=[{kind=relates,dst=$re_a}]
+11 Tx @lease=L-1 message="Zoo: mentions"
+  create as=me_src kind=note fields={title="Mentions source"} body="The mentions target is #60."
+%% result
+exit 0
+%% expect
+main $p_root container yes
+main $p_kid ready yes
+main $b_b open_blockers 1
+main $b_a is_blocker yes
+main $b_d status done
+main $b_e open_blockers 0 BT-003
+main $b_f open_blockers 1 BT-002
+main $g_t gated yes BT-005
+main $g_t unblocked yes BT-006
+main $g_tp gated no BT-008
+main $an_q answered yes PD-026
+main $an_q status answered
+main $su_old status superseded
+main $sc_sub parent $sc_top
+main $me_src edges [mentions:$me_dst]
+main $df_src suspect no
+%% end
+
+# ---- parent ---------------------------------------------------------------------------------------------------
+
+%% case eg-001
+%% from zoo
+%% source EG-001; DP-006; EA-001; [LQ/errors §5.5] E409
+%% script
+12 Mutation tx.rm @lease=L-1 id=$p_par reason="gone"
+%% result
+exit 6
+error E409
+mentions #3
+commit none
+%% expect
+main $p_par deleted no
+%% end
+
+%% case eg-002
+%% from zoo
+%% source EG-002, EG-004; DS-002, DS-003; EF-002, EF-004
+%% script
+12 Mutation tx.rm @lease=L-1 id=$p_par policy=cascade reason="gone"
+%% result
+exit 0
+ready [$p_root]
+marker deleted $p_par main
+marker deleted $p_kid main
+%% expect
+main $p_par deleted yes
+main $p_kid deleted yes EF-002
+main $p_root children_total 0 EF-004
+main $p_root container no
+main $p_root unblocked yes
+%% end
+
+%% case eg-003
+%% from zoo
+%% source EG-003, EG-004; EA-009; EF-003, EF-004
+%% script
+12 Mutation tx.rm @lease=L-1 id=$p_par policy=reparent reason="gone"
+%% result
+exit 0
+ready []
+marker deleted $p_par main
+%% expect
+main $p_kid parent $p_root EF-003
+main $p_root children_total 1
+main $p_root container yes
+main $p_kid ready yes
+%% end
+
+%% case eg-004
+%% from zoo
+%% source EG-004; EF-004 (rollups updated)
+%% script
+12 Mutation tx.rm @lease=L-1 id=$p_kid reason="gone"
+%% result
+exit 0
+ready [$p_par]
+marker deleted $p_kid main
+%% expect
+main $p_par children_total 0 EF-004
+main $p_par container no
+main $p_par unblocked yes
+main $p_kid edges []
+%% end
+
+# ---- blocks ---------------------------------------------------------------------------------------------------
+
+%% case eg-005-008
+%% from zoo
+%% source EG-005 (in-edge, dropped); EG-008 (out-edge, source unfinished, flagged); EF-005, EF-008; FL-001, FL-003; TB-009; CD-002
+%% script
+12 Mutation tx.rm @lease=L-1 id=$b_x reason="gone"
+%% result
+exit 0
+ready []
+marker deleted $b_x main
+%% expect
+main edge:$b_a:blocks:$b_x exists no EG-005
+main $b_a is_blocker no EF-005
+main edge:$b_x:blocks:$b_b flagged yes EG-008
+main $b_b has_dangling yes FL-003
+main $b_b open_blockers 1 FL-001
+main $b_b unblocked no
+main $b_x edges [blocks:$b_b:flagged] TB-009
+%% end
+
+%% case eg-006-007
+%% from zoo
+%% source EG-006 (in-edge re-pointed to Y); EG-007 (out-edge re-pointed from Y); EF-006, EF-007; DP-007
+%% script
+12 Mutation tx.rm @lease=L-1 id=$b_x replaced_by=$b_y reason="gone"
+%% result
+exit 0
+ready []
+marker deleted $b_x main
+%% expect
+main edge:$b_a:blocks:$b_y exists yes EG-006
+main edge:$b_y:blocks:$b_b exists yes EG-007
+main edge:$b_y:blocks:$b_b flagged no
+main $b_y open_blockers 1 EF-006
+main $b_b open_blockers 1 EF-007
+main $b_b has_dangling no
+main $b_y is_blocker yes
+main $b_x edges []
+main $b_x replaced_by $b_y
+%% end
+
+%% case eg-009
+%% from zoo
+%% source EG-009; CD-003; [RULES/delete-policy-matrix] OP-1
+%% note D was done: its deletion unblocks nothing, so its edge is dropped, not flagged.
+%% script
+12 Mutation tx.rm @lease=L-1 id=$b_d reason="gone"
+%% result
+exit 0
+ready []
+marker deleted $b_d main
+%% expect
+main edge:$b_d:blocks:$b_e exists no EG-009
+main $b_e has_dangling no
+main $b_e open_blockers 0
+main $b_e ready yes
+main $b_d edges []
+%% end
+
+%% case eg-010
+%% from zoo
+%% finding F-6
+%% policy main edges.blocks.on-src-deleted=drop-notify
+%% source EG-005, EG-010; EA-003; EF-009
+%% script
+12 Mutation tx.rm @lease=L-1 id=$b_x reason="gone"
+%% result
+exit 0
+ready [$b_b]
+affected-includes $b_b
+marker deleted $b_x main
+%% expect
+main edge:$b_x:blocks:$b_b exists no EG-010
+main $b_b open_blockers 0 EF-009
+main $b_b unblocked yes
+main $b_b has_dangling no
+main $b_x edges []
+%% end
+
+%% case eg-008-question
+%% from zoo
+%% source EG-008; CD-002 ("a question whose answered predicate is false"); BT-004; HV-003
+%% script
+12 Mutation tx.rm @lease=L-1 id=$b_q reason="gone"
+%% result
+exit 0
+ready []
+marker deleted $b_q main
+%% expect
+main edge:$b_q:blocks:$b_f flagged yes EG-008
+main $b_f has_dangling yes
+main $b_f open_blockers 1 BT-004
+main $b_q edges [blocks:$b_f:flagged]
+%% end
+
+# ---- gates ----------------------------------------------------------------------------------------------------
+
+%% case eg-011
+%% from zoo
+%% source EG-011
+%% script
+12 Mutation tx.rm @lease=L-1 id=$g_t reason="gone"
+%% result
+exit 0
+marker deleted $g_t main
+%% expect
+main edge:$g_v:gates:$g_t exists no EG-011
+main $g_v edges []
+%% end
+
+%% case eg-012
+%% from zoo
+%% source EG-012; EF-011; [RULES/delete-policy-matrix] OP-2
+%% script
+12 Mutation tx.rm @lease=L-1 id=$g_t replaced_by=$g_t2 reason="gone"
+%% result
+exit 0
+marker deleted $g_t main
+%% expect
+main edge:$g_v:gates:$g_t2 exists yes EG-012
+main $g_t2 gated yes EF-011
+main $g_v edges [gates:$g_t2]
+%% end
+
+%% case eg-013
+%% from zoo
+%% source EG-013; EF-011; DP-007 ("Y must be a verdict"); BT-008
+%% note The gate now runs from V2, which passes, so T is no longer gated.
+%% script
+12 Mutation tx.rm @lease=L-1 id=$g_v replaced_by=$g_v2 reason="gone"
+%% result
+exit 0
+ready []
+marker deleted $g_v main
+%% expect
+main edge:$g_v2:gates:$g_t exists yes EG-013
+main edge:$g_v2:gates:$g_t flagged no
+main $g_t gated no BT-008
+main $g_t has_dangling no
+main $g_v edges []
+%% end
+
+%% case eg-014
+%% from zoo
+%% source EG-014; CD-004; EF-012; FL-002, FL-003; BT-007; BT-006; [AR §3.3] X5
+%% note A deleted failing verdict never silently ungates: its edge is flagged and T's completion stays refused; T's
+%% note readiness is unaffected (gates never constrain ready or claim).
+%% script
+12 Mutation tx.rm @lease=L-1 id=$g_v reason="gone"
+%% result
+exit 0
+ready []
+marker deleted $g_v main
+%% expect
+main edge:$g_v:gates:$g_t flagged yes EG-014
+main $g_t gated yes BT-007
+main $g_t has_dangling yes FL-003
+main $g_t unblocked yes BT-006
+main $g_t ready yes FL-002
+main $g_v edges [gates:$g_t:flagged]
+%% end
+
+%% case eg-014-complete
+%% from eg-014
+%% source FL-002; GD-002; TG-002; EF-012; [LQ/errors §5.5] E404
+%% script
+13 Mutation tx.set @lease=L-1 id=$g_t done=true
+%% result
+exit 6
+error E404
+mentions #13
+commit none
+%% expect
+main $g_t status open
+%% end
+
+%% case eg-015
+%% from zoo
+%% source EG-015; CD-005; [RULES/delete-policy-matrix] OP-1
+%% script
+12 Mutation tx.rm @lease=L-1 id=$g_vp reason="gone"
+%% result
+exit 0
+marker deleted $g_vp main
+%% expect
+main edge:$g_vp:gates:$g_tp exists no EG-015
+main $g_tp has_dangling no
+main $g_tp gated no
+main $g_vp edges []
+%% end
+
+%% case eg-016
+%% from zoo
+%% finding F-6
+%% policy main edges.gates.on-src-deleted=drop-notify
+%% source EG-016; EA-003; EF-013
+%% script
+12 Mutation tx.rm @lease=L-1 id=$g_v reason="gone"
+%% result
+exit 0
+affected-includes $g_t
+marker deleted $g_v main
+%% expect
+main edge:$g_v:gates:$g_t exists no EG-016
+main $g_t gated no EF-013
+main $g_t has_dangling no
+%% end
+
+# ---- merge_after, runs_in, answers ----------------------------------------------------------------------------
+
+%% case eg-017
+%% from zoo
+%% source EG-017; EA-003; EF-010
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ma_b reason="gone"
+%% result
+exit 0
+affected-includes $ma_a
+marker deleted $ma_b main
+%% expect
+main edge:$ma_a:merge_after:$ma_b exists no EG-017
+%% end
+
+%% case eg-018
+%% from zoo
+%% source EG-018
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ma_a reason="gone"
+%% result
+exit 0
+marker deleted $ma_a main
+%% expect
+main edge:$ma_a:merge_after:$ma_b exists no EG-018
+main $ma_a edges []
+%% end
+
+%% case eg-019
+%% from zoo
+%% source EG-019; DP-006
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ri_lane reason="gone"
+%% result
+exit 6
+error E409
+mentions #21
+commit none
+%% expect
+main $ri_lane deleted no
+%% end
+
+%% case eg-020
+%% from zoo
+%% source EG-020
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ri_run reason="gone"
+%% result
+exit 0
+marker deleted $ri_run main
+%% expect
+main edge:$ri_run:runs_in:$ri_lane exists no EG-020
+main $ri_run edges []
+%% end
+
+%% case eg-021
+%% from zoo
+%% source EG-021; DP-006
+%% script
+12 Mutation tx.rm @lease=L-1 id=$an_q reason="gone"
+%% result
+exit 6
+error E409
+mentions #23
+commit none
+%% expect
+main $an_q deleted no
+%% end
+
+%% case eg-022
+%% from zoo
+%% source EG-022; CD-006; EF-014; TR-039 (door delete-policy); DS-006; PD-026
+%% note The last answer is deleted: the question's answered predicate turns false and its status moves back to open.
+%% script
+12 Mutation tx.rm @lease=L-1 id=$an_n reason="gone"
+%% result
+exit 0
+affected-includes $an_q
+marker deleted $an_n main
+%% expect
+main edge:$an_n:answers:$an_q exists no EG-022
+main $an_q answered no PD-026
+main $an_q status open TR-039
+main $an_n edges []
+%% end
+
+# ---- scoped_to, duplicate_of, depends_on ----------------------------------------------------------------------
+
+%% case eg-024
+%% from zoo
+%% source EG-024; DP-006
+%% script
+12 Mutation tx.rm @lease=L-1 id=$sc_sub reason="gone"
+%% result
+exit 6
+error E409
+mentions #26
+commit none
+%% end
+
+%% case eg-025
+%% from zoo
+%% finding F-5
+%% source EG-025; DO-005; CD-008; EF-015; [AR §3.3] scoped_to "--reassign to the parent area"
+%% note The spelling policy=reassign is this file's; no text of the specification has one yet (finding F-5).
+%% script
+12 Mutation tx.rm @lease=L-1 id=$sc_sub policy=reassign reason="gone"
+%% result
+exit 0
+marker deleted $sc_sub main
+%% expect
+main edge:$sc_n:scoped_to:$sc_top exists yes EG-025
+main edge:$sc_n:scoped_to:$sc_sub exists no
+main $sc_top children_total 0 EG-004
+%% end
+
+%% case eg-026
+%% from zoo
+%% finding F-5
+%% source EG-026; CD-009; [RULES/delete-policy-matrix] OP-6
+%% script
+12 Mutation tx.rm @lease=L-1 id=$sc_lone policy=reassign reason="gone"
+%% result
+exit 6
+error E409
+commit none
+%% end
+
+%% case eg-027
+%% from zoo
+%% source EG-027
+%% script
+12 Mutation tx.rm @lease=L-1 id=$sc_n reason="gone"
+%% result
+exit 0
+marker deleted $sc_n main
+%% expect
+main edge:$sc_n:scoped_to:$sc_sub exists no EG-027
+main $sc_n edges []
+%% end
+
+%% case eg-028
+%% from zoo
+%% source EG-028; DP-006
+%% script
+12 Mutation tx.rm @lease=L-1 id=$du_c reason="gone"
+%% result
+exit 6
+error E409
+mentions #30
+commit none
+%% end
+
+%% case eg-029
+%% from zoo
+%% source EG-029; EF-016; DP-009; [RULES/delete-policy-matrix] OP-4
+%% script
+12 Mutation tx.rm @lease=L-1 id=$du_c replaced_by=$du_y reason="gone"
+%% result
+exit 0
+marker deleted $du_c main
+%% expect
+main edge:$du_d:duplicate_of:$du_y exists yes EG-029
+main edge:$du_d:duplicate_of:$du_c exists no
+%% end
+
+%% case eg-030
+%% from zoo
+%% source EG-030
+%% script
+12 Mutation tx.rm @lease=L-1 id=$du_d reason="gone"
+%% result
+exit 0
+marker deleted $du_d main
+%% expect
+main edge:$du_d:duplicate_of:$du_c exists no EG-030
+main $du_d edges []
+%% end
+
+%% case eg-031
+%% from zoo
+%% source EG-031; EF-017; [RULES/delete-policy-matrix] OP-5
+%% note The edge is dropped and the dependent section is named in affected; no lasting suspect is derived.
+%% script
+12 Mutation tx.rm @lease=L-1 id=$dp_s1 reason="gone"
+%% result
+exit 0
+affected-includes $dp_s2
+marker deleted $dp_s1 main
+%% expect
+main edge:$dp_s2:depends_on:$dp_s1 exists no EG-031
+main $dp_s2 suspect no EF-017
+%% end
+
+%% case eg-032
+%% from zoo
+%% source EG-032
+%% script
+12 Mutation tx.rm @lease=L-1 id=$dp_s2 reason="gone"
+%% result
+exit 0
+marker deleted $dp_s2 main
+%% expect
+main edge:$dp_s2:depends_on:$dp_s1 exists no EG-032
+main $dp_s2 edges []
+%% end
+
+# ---- historical kinds: the edge stays; a deleted target makes derived_from, cites and implements sources suspect ----
+
+%% case eg-033
+%% from zoo
+%% source EG-033; EA-006; [AR §3.4] I3
+%% script
+12 Mutation tx.rm @lease=L-1 id=$su_old reason="gone"
+%% result
+exit 0
+marker deleted $su_old main
+%% expect
+main edge:$su_new:supersedes:$su_old exists yes EG-033
+main $su_new status active
+%% end
+
+%% case eg-034
+%% from zoo
+%% source EG-034; EA-007; TB-010
+%% script
+12 Mutation tx.rm @lease=L-1 id=$su_new reason="gone"
+%% result
+exit 0
+marker deleted $su_new main
+%% expect
+main edge:$su_new:supersedes:$su_old exists yes EG-034
+main $su_new edges [supersedes:$su_old] TB-010
+main $su_old status superseded
+%% end
+
+%% case eg-035
+%% from zoo
+%% source EG-035; EF-018
+%% script
+12 Mutation tx.rm @lease=L-1 id=$df_dst reason="gone"
+%% result
+exit 0
+affected-includes $df_src
+marker deleted $df_dst main
+%% expect
+main edge:$df_src:derived_from:$df_dst exists yes EG-035
+main $df_src suspect yes EF-018
+%% end
+
+%% case eg-036
+%% from zoo
+%% source EG-036; TB-010
+%% script
+12 Mutation tx.rm @lease=L-1 id=$df_src reason="gone"
+%% result
+exit 0
+marker deleted $df_src main
+%% expect
+main edge:$df_src:derived_from:$df_dst exists yes EG-036
+main $df_src edges [derived_from:$df_dst] TB-010
+%% end
+
+%% case eg-037
+%% from zoo
+%% source EG-037; EF-018
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ci_dst reason="gone"
+%% result
+exit 0
+marker deleted $ci_dst main
+%% expect
+main edge:$ci_src:cites:$ci_dst exists yes EG-037
+main $ci_src suspect yes EF-018
+%% end
+
+%% case eg-038
+%% from zoo
+%% source EG-038; TB-010
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ci_src reason="gone"
+%% result
+exit 0
+marker deleted $ci_src main
+%% expect
+main edge:$ci_src:cites:$ci_dst exists yes EG-038
+main $ci_src edges [cites:$ci_dst]
+%% end
+
+%% case eg-039
+%% from zoo
+%% source EG-039; EF-018; [AR §3.5] suspect; [RULES/delete-policy-matrix] OP-7
+%% script
+12 Mutation tx.rm @lease=L-1 id=$im_dst reason="gone"
+%% result
+exit 0
+marker deleted $im_dst main
+%% expect
+main edge:$im_src:implements:$im_dst exists yes EG-039
+main $im_src suspect yes EF-018
+%% end
+
+%% case eg-040
+%% from zoo
+%% source EG-040; TB-010
+%% script
+12 Mutation tx.rm @lease=L-1 id=$im_src reason="gone"
+%% result
+exit 0
+marker deleted $im_src main
+%% expect
+main edge:$im_src:implements:$im_dst exists yes EG-040
+main $im_src edges [implements:$im_dst]
+%% end
+
+%% case eg-041
+%% from zoo
+%% source EG-041
+%% script
+12 Mutation tx.rm @lease=L-1 id=$rf_dst reason="gone"
+%% result
+exit 0
+marker deleted $rf_dst main
+%% expect
+main edge:$rf_src:refutes:$rf_dst exists yes EG-041
+main $rf_src suspect no
+%% end
+
+%% case eg-042
+%% from zoo
+%% source EG-042
+%% script
+12 Mutation tx.rm @lease=L-1 id=$rf_src reason="gone"
+%% result
+exit 0
+marker deleted $rf_src main
+%% expect
+main edge:$rf_src:refutes:$rf_dst exists yes EG-042
+main $rf_src edges [refutes:$rf_dst]
+%% end
+
+%% case eg-043
+%% from zoo
+%% source EG-043
+%% script
+12 Mutation tx.rm @lease=L-1 id=$cf_dst reason="gone"
+%% result
+exit 0
+marker deleted $cf_dst main
+%% expect
+main edge:$cf_src:confirms:$cf_dst exists yes EG-043
+main $cf_src suspect no
+%% end
+
+%% case eg-044
+%% from zoo
+%% source EG-044
+%% script
+12 Mutation tx.rm @lease=L-1 id=$cf_src reason="gone"
+%% result
+exit 0
+marker deleted $cf_src main
+%% expect
+main edge:$cf_src:confirms:$cf_dst exists yes EG-044
+main $cf_src edges [confirms:$cf_dst]
+%% end
+
+%% case eg-045
+%% from zoo
+%% source EG-045
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ve_dst reason="gone"
+%% result
+exit 0
+marker deleted $ve_dst main
+%% expect
+main edge:$ve_src:verifies:$ve_dst exists yes EG-045
+main $ve_src suspect no
+%% end
+
+%% case eg-046
+%% from zoo
+%% source EG-046
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ve_src reason="gone"
+%% result
+exit 0
+marker deleted $ve_src main
+%% expect
+main edge:$ve_src:verifies:$ve_dst exists yes EG-046
+main $ve_src edges [verifies:$ve_dst]
+%% end
+
+%% case eg-047
+%% from zoo
+%% source EG-047
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ad_dst reason="gone"
+%% result
+exit 0
+marker deleted $ad_dst main
+%% expect
+main edge:$ad_src:addresses:$ad_dst exists yes EG-047
+main $ad_src suspect no
+%% end
+
+%% case eg-048
+%% from zoo
+%% source EG-048
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ad_src reason="gone"
+%% result
+exit 0
+marker deleted $ad_src main
+%% expect
+main edge:$ad_src:addresses:$ad_dst exists yes EG-048
+main $ad_src edges [addresses:$ad_dst]
+%% end
+
+%% case eg-049
+%% from zoo
+%% source EG-049
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ab_dst reason="gone"
+%% result
+exit 0
+marker deleted $ab_dst main
+%% expect
+main edge:$ab_src:about:$ab_dst exists yes EG-049
+main $ab_src suspect no
+%% end
+
+%% case eg-050
+%% from zoo
+%% source EG-050
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ab_src reason="gone"
+%% result
+exit 0
+marker deleted $ab_src main
+%% expect
+main edge:$ab_src:about:$ab_dst exists yes EG-050
+main $ab_src edges [about:$ab_dst]
+%% end
+
+%% case eg-051
+%% from zoo
+%% source EG-051
+%% script
+12 Mutation tx.rm @lease=L-1 id=$dc_dst reason="gone"
+%% result
+exit 0
+marker deleted $dc_dst main
+%% expect
+main edge:$dc_src:discovered_from:$dc_dst exists yes EG-051
+main $dc_src suspect no
+%% end
+
+%% case eg-052
+%% from zoo
+%% source EG-052
+%% script
+12 Mutation tx.rm @lease=L-1 id=$dc_src reason="gone"
+%% result
+exit 0
+marker deleted $dc_src main
+%% expect
+main edge:$dc_src:discovered_from:$dc_dst exists yes EG-052
+main $dc_src edges [discovered_from:$dc_dst]
+%% end
+
+%% case eg-053
+%% from zoo
+%% source EG-053
+%% script
+12 Mutation tx.rm @lease=L-1 id=$pr_dst reason="gone"
+%% result
+exit 0
+marker deleted $pr_dst main
+%% expect
+main edge:$pr_src:produced:$pr_dst exists yes EG-053
+main $pr_src suspect no
+%% end
+
+%% case eg-054
+%% from zoo
+%% source EG-054
+%% script
+12 Mutation tx.rm @lease=L-1 id=$pr_src reason="gone"
+%% result
+exit 0
+marker deleted $pr_src main
+%% expect
+main edge:$pr_src:produced:$pr_dst exists yes EG-054
+main $pr_src edges [produced:$pr_dst]
+%% end
+
+%% case eg-055
+%% from zoo
+%% source EG-055
+%% script
+12 Mutation tx.rm @lease=L-1 id=$co_dst reason="gone"
+%% result
+exit 0
+marker deleted $co_dst main
+%% expect
+main edge:$co_src:consumed:$co_dst exists yes EG-055
+main $co_src suspect no
+%% end
+
+%% case eg-056
+%% from zoo
+%% source EG-056
+%% script
+12 Mutation tx.rm @lease=L-1 id=$co_src reason="gone"
+%% result
+exit 0
+marker deleted $co_src main
+%% expect
+main edge:$co_src:consumed:$co_dst exists yes EG-056
+main $co_src edges [consumed:$co_dst]
+%% end
+
+%% case eg-057-a
+%% from zoo
+%% source EG-057, EG-058; [F08 §10.1] (a symmetric pair is stored from its smaller uid)
+%% note Which of EG-057 and EG-058 applies depends on which rule's uid is smaller; eg-057-a and eg-057-b together
+%% note exercise both, and the pair stays either way.
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ct_a reason="gone"
+%% result
+exit 0
+marker deleted $ct_a main
+%% expect
+main edge:$ct_b:contradicts:$ct_a exists yes
+%% end
+
+%% case eg-057-b
+%% from zoo
+%% source EG-057, EG-058; [F08 §10.1]
+%% script
+12 Mutation tx.rm @lease=L-1 id=$ct_b reason="gone"
+%% result
+exit 0
+marker deleted $ct_b main
+%% expect
+main edge:$ct_b:contradicts:$ct_a exists yes
+%% end
+
+%% case eg-059
+%% from zoo
+%% source EG-059; EF-019; TB-015
+%% note The mention stays as a tombstone reference and renders the tombstone; mentions do not make a source suspect.
+%% script
+12 Mutation tx.rm @lease=L-1 id=$me_dst reason="gone"
+%% result
+exit 0
+marker deleted $me_dst main
+%% expect
+main edge:$me_src:mentions:$me_dst exists yes EG-059
+main $me_src suspect no
+%% end
+
+%% case eg-060
+%% from zoo
+%% source EG-060; TB-010
+%% script
+12 Mutation tx.rm @lease=L-1 id=$me_src reason="gone"
+%% result
+exit 0
+marker deleted $me_src main
+%% expect
+main edge:$me_src:mentions:$me_dst exists yes EG-060
+main $me_src edges [mentions:$me_dst]
+%% end
+
+%% case eg-061-a
+%% from zoo
+%% source EG-061, EG-062; [F08 §10.1]
+%% script
+12 Mutation tx.rm @lease=L-1 id=$re_a reason="gone"
+%% result
+exit 0
+marker deleted $re_a main
+%% expect
+main edge:$re_b:relates:$re_a exists yes
+%% end
+
+%% case eg-061-b
+%% from zoo
+%% source EG-061, EG-062; [F08 §10.1]
+%% script
+12 Mutation tx.rm @lease=L-1 id=$re_b reason="gone"
+%% result
+exit 0
+marker deleted $re_b main
+%% expect
+main edge:$re_b:relates:$re_a exists yes
+%% end
+
+# ---- at (R4): its own store ----------------------------------------------------------------------------------
+
+%% case at0
+%% from -
+%% requires files
+%% bind at_root #2
+%% source [API §6.5] EnvTree; [API §8.1] Init tree; [API §12.3] LinkFile; [F08 §11.3] (the root node is created with its first file node); [F19 §10.2] ("link the whole file: moirai link <id> --at <path>")
+%% script
+1 EnvSlots hold=[claude:s1]
+2 EnvTree tree=/w/zoo ops=[{op=write,path="notes/design.md",text="The registry holds readers.\n"}]
+3 Init seed=65 tree=/w/zoo params=["query.safelist.model.unknown=off"]
+4 Claim @agent=orch @env.CLAUDECODE="1" @env.CLAUDE_CODE_SESSION_ID="s1" role=orchestrator session=true
+5 Tx @lease=L-1 message="The design review note"
+  create as=at_src kind=note fields={title="Design review"}
+6 LinkFile @lease=L-1 @tree=/w/zoo node=$at_src specs=["notes/design.md"] => at_file
+%% result
+exit 0
+%% expect
+main edge:$at_src:at:$at_file exists yes
+main $at_file status present
+main $at_src suspect no
+%% end
+
+%% case eg-063
+%% from at0
+%% requires files
+%% source EG-063; EF-018; [40 §2.8]
+%% script
+7 Mutation tx.rm @lease=L-1 id=$at_file reason="gone"
+%% result
+exit 0
+marker deleted $at_file main
+%% expect
+main edge:$at_src:at:$at_file exists yes EG-063
+main $at_src suspect yes EF-018
+%% end
+
+%% case eg-064
+%% from at0
+%% requires files
+%% source EG-064; EF-020; TB-010; [AR §3.4] I39′
+%% script
+7 Mutation tx.rm @lease=L-1 id=$at_src reason="gone"
+%% result
+exit 0
+marker deleted $at_src main
+%% expect
+main edge:$at_src:at:$at_file exists yes EG-064
+main $at_src edges [at:$at_file] EF-020
+%% end
+
+%% case dp-010
+%% from at0
+%% requires files
+%% source DP-010; [F08 §11.3]; [LQ/errors §5.5] E409 root-node case
+%% script
+7 Mutation tx.rm @lease=L-1 id=$at_root reason="gone"
+%% result
+exit 6
+error E409
+mentions #2
+commit none
+%% end
+
+# ---- preconditions ----------------------------------------------------------------------------------------------
+
+%% case dp-001-mcp
+%% from zoo
+%% source DP-001; [RULES/role-write-policy] WX-013 (node DELETE through MCP refused for every role), WO-001; [AR §7.2] write
+%% script
+12 Mutation tx.rm @door=mcp @lease=L-1 id=$b_y reason="gone"
+%% result
+exit 6
+error E406
+commit none
+%% end
+
+%% case dp-001-unleased
+%% from zoo
+%% source DP-001; [RULES/role-write-policy] WV-016, WO-013 (general-purpose)
+%% script
+12 Mutation tx.rm @agent=dev#1 id=$b_y reason="gone"
+%% result
+exit 6
+error E406
+commit none
+%% end
+
+%% case dp-002
+%% from zoo
+%% source DP-002; [API §4.3] row 7 (a tag); [API §11.6] Tag
+%% script
+12 Tag @lease=L-1 name=v1
+13 Mutation tx.rm @lease=L-1 @branch=tags/v1 id=$b_y reason="gone"
+%% result
+exit 6
+error E305
+commit none
+%% end
+
+%% case dp-003
+%% from zoo
+%% source DP-003; [API §9.1]; [F19 §10.2] not_found
+%% note The second delete differs in its reason, so its default idempotency key differs and it runs (finding F-14).
+%% script
+12 Mutation tx.rm @lease=L-1 id=$b_y reason="first"
+13 Mutation tx.rm @lease=L-1 id=$b_y reason="second"
+%% result
+exit 3
+error not_found
+commit none
+%% end
+
+%% case dp-007-dead
+%% from zoo
+%% source DP-007 (the replacement is not live); [LQ/errors §5.5] E409 replacement case
+%% script
+12 Mutation tx.rm @lease=L-1 id=$b_y reason="first"
+13 Mutation tx.rm @lease=L-1 id=$b_x replaced_by=$b_y reason="second"
+%% result
+exit 6
+error E409
+mentions #7
+commit none
+%% expect
+main $b_x deleted no
+%% end
+
+%% case dp-007-deleted-set
+%% from zoo
+%% source DP-007 (the replacement lies in the deleted set); DS-002
+%% script
+12 Mutation tx.rm @lease=L-1 id=$p_par replaced_by=$p_kid policy=cascade reason="gone"
+%% result
+exit 6
+error E409
+commit none
+%% end
+
+%% case dp-007-fit
+%% from zoo
+%% source DP-007 (the replacement does not fit a re-pointed end: blocks ends only at tasks); [F08 §9.6]; [RULES/delete-policy-matrix] OP-3
+%% script
+12 Mutation tx.rm @lease=L-1 id=$b_x replaced_by=$sc_n reason="gone"
+%% result
+exit 6
+error E409
+commit none
+%% end
+
+%% case dp-008
+%% from zoo
+%% source DP-008; [AR §3.4] I5′; [LQ/errors §5.5] E405
+%% note Y already blocks A; re-pointing A -> X to A -> Y closes the cycle A -> Y -> A.
+%% script
+12 Mutation tx.link @lease=L-1 a=$b_y kind=blocks b=$b_a
+13 Mutation tx.rm @lease=L-1 id=$b_x replaced_by=$b_y reason="gone"
+%% result
+exit 6
+error E405
+commit none
+%% expect
+main $b_x deleted no
+%% end
+
+%% case dp-009
+%% from zoo
+%% source DP-009; [AR §3.4] I7; EG-029
+%% note du_z is #64. Once du_y duplicates du_z, du_y is not canonical, so D cannot be re-pointed to it.
+%% script
+12 Tx @lease=L-1 message="Make Y a duplicate"
+  create as=du_z kind=task fields={title="Duplicate: Z"}
+  link src=$du_y kind=duplicate_of dst=$du_z
+13 Mutation tx.rm @lease=L-1 id=$du_c replaced_by=$du_y reason="gone"
+%% result
+exit 6
+error E405
+commit none
+%% end
+
+# ---- steps, flagged edges, tombstones, Undelete ------------------------------------------------------------------
+
+%% case ds-003
+%% from zoo
+%% source DS-003; EG-002; TB-010; [RULES/delete-policy-matrix] OP-8
+%% note ds_x #64 with children ds_k1 #65 and ds_k2 #66; ds_k1 blocks ds_k2 and ds_k2 was discovered from ds_k1. Both
+%% note edges lie inside the deleted set: the structural one is dropped (not flagged), the historical one is retained.
+%% script
+12 Tx @lease=L-1 message="A subtree with internal edges"
+  create as=ds_x kind=task fields={title="Subtree root"}
+  create as=ds_k1 kind=task fields={title="Subtree child 1"} under=$ds_x
+  create as=ds_k2 kind=task fields={title="Subtree child 2"} under=$ds_x edges_in=[{kind=blocks,src=$ds_k1}] edges_out=[{kind=discovered_from,dst=$ds_k1}]
+13 Mutation tx.rm @lease=L-1 id=$ds_x policy=cascade reason="gone"
+%% result
+exit 0
+marker deleted $ds_x main
+marker deleted $ds_k1 main
+marker deleted $ds_k2 main
+%% expect
+main $ds_k1 deleted yes
+main $ds_k1 edges [] DS-003
+main $ds_k2 edges [discovered_from:$ds_k1] DS-003
+%% end
+
+%% case ds-010
+%% from zoo
+%% finding G-6
+%% source DS-010; [F17 §8.2]; [F13 §6.3]; [F19 §12.3] SuspectBudget; [AR §3.4] I42′; [CFG §10] store.suspect-budget
+%% note df2 #64 and df3 #65 also derive from df_dst. With a budget of 1, three suspect changes exceed it: affected
+%% note omits them and the commit is marked incomplete, but every suspect bit is still set.
+%% script
+12 ConfigSet @lease=L-1 key=store.suspect-budget value="1"
+13 Tx @lease=L-1 message="Two more derivations"
+  create as=df2 kind=note fields={title="Derived-from source 2"} edges_out=[{kind=derived_from,dst=$df_dst}]
+  create as=df3 kind=note fields={title="Derived-from source 3"} edges_out=[{kind=derived_from,dst=$df_dst}]
+14 Mutation tx.rm @lease=L-1 id=$df_dst reason="gone"
+%% result
+exit 0
+hint SuspectBudget
+%% expect
+main $df_src suspect yes
+main $df2 suspect yes
+main $df3 suspect yes
+* c@14 affected_complete no DS-010
+%% end
+
+%% case ds-011
+%% from zoo
+%% source DS-011
+%% script
+12 Mutation tx.rm @lease=L-1 @dry=true id=$b_x reason="gone"
+%% result
+exit 0
+dry yes
+commit none
+markers none
+%% expect
+main $b_x deleted no
+main edge:$b_a:blocks:$b_x exists yes
+%% end
+
+%% case fl-001
+%% from zoo
+%% source FL-001; BT-004; PD-007
+%% note fl_p #64 with a child fl_k #65; fl_x #66 blocks fl_p. After fl_x's delete the flagged edge still counts in
+%% note fl_p's exogenous blockers, so fl_k, under fl_p, stays blocked.
+%% script
+12 Tx @lease=L-1 message="A blocked container"
+  create as=fl_p kind=task fields={title="Flag: container"}
+  create as=fl_k kind=task fields={title="Flag: child"} under=$fl_p
+  create as=fl_x kind=task fields={title="Flag: blocker"} edges_out=[{kind=blocks,dst=$fl_p}]
+13 Mutation tx.rm @lease=L-1 id=$fl_x reason="gone"
+%% result
+exit 0
+ready []
+marker deleted $fl_x main
+%% expect
+main edge:$fl_x:blocks:$fl_p flagged yes
+main $fl_p has_dangling yes
+main $fl_k unblocked no FL-001
+main $fl_k ready no
+%% end
+
+%% case fl-009
+%% from eg-005-008
+%% source FL-009; UD-001, UD-002, UD-004, UD-006; DM-004; ME-004
+%% script
+13 Revert @lease=L-1 commit=c@12
+%% result
+exit 0
+outcome landed
+marker cleared $b_x main
+%% expect
+main $b_x deleted no
+main edge:$b_x:blocks:$b_b flagged no FL-009
+main $b_b has_dangling no
+main edge:$b_a:blocks:$b_x exists yes UD-004
+main $b_a is_blocker yes
+%% end
+
+%% case tb-contents
+%% from zoo
+%% finding F-15
+%% source TB-001 to TB-013; [AR §5b.2] rule 8; [F08 §3.5]
+%% note The tombstone keeps its row, kind, title, reason and replacement and drops its fields, body and parent. Its
+%% note header enumerations are not asserted: [F08 §3.5] and [API §15.3] keep them, TB-012 does not (finding F-15).
+%% script
+12 Tx @lease=L-1 message="Give Y an estimate and a body"
+  set target=$b_y fields={estimate=3} body="Notes on the replacement."
+13 Mutation tx.rm @lease=L-1 id=$b_y reason="gone for good"
+%% result
+exit 0
+marker deleted $b_y main
+%% expect
+main $b_y deleted yes TB-001
+main $b_y title "Blocks: replacement Y" TB-004
+main $b_y reason "gone for good" TB-007
+main $b_y replaced_by - TB-008
+main $b_y field.estimate absent TB-012
+main $b_y body - TB-013
+main $b_y parent -
+main $b_y edges [] TB-011
+%% end
+
+%% case ud-notfound
+%% from zoo
+%% source UD-003 ("else NotFound staged"); DM-004, DM-012; CM-016; [AR §5a.5] revert; [AR §3.4] I34′
+%% note X is replaced by Y, then B is deleted; reverting the first delete would restore X -> B to a deleted node, so the
+%% note revert stages with NotFound and main is untouched.
+%% script
+12 Mutation tx.rm @lease=L-1 id=$b_x replaced_by=$b_y reason="first"
+13 Mutation tx.rm @lease=L-1 id=$b_b reason="second"
+14 Revert @lease=L-1 commit=c@12
+%% result
+exit 6
+outcome staged
+violation edge:$b_x:blocks:$b_b NotFound
+%% expect
+main $b_x deleted yes
+main $b_b deleted yes
+%% end

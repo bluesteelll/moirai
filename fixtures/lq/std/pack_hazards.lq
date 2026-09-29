@@ -1,0 +1,13 @@
+DEFINE QUERY pack_hazards($target: node) SHAPE node BUDGET medium AS {
+  MATCH (t:task) WHERE t = $target
+  UNWIND t.files_owned AS g
+  MATCH (k:note|rule)
+  WHERE k.status = 'active' AND coalesce(size(k.applies_to), 0) > 0 AND applies(k, g)
+  RETURN DISTINCT k AS node
+  UNION
+  MATCH (t:task) WHERE t = $target
+  UNWIND t.files_owned AS g
+  MATCH (k:note|rule)-[:AT]->(f:artifact)
+  WHERE k.status = 'active' AND glob_match(f.path, g)
+  RETURN DISTINCT k AS node
+}

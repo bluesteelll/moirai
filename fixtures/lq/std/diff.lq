@@ -1,0 +1,7 @@
+DEFINE QUERY diff($range: rev, $scope: node? = NULL, $aspect: text? = NULL, $side: text? = NULL) SHAPE diff BUDGET medium AS {
+  CALL diff($range, scope: $scope)
+  YIELD change, node, kind, aspect, name, before, after, side, last_commit, actor
+  WHERE ($aspect IS NULL OR aspect = $aspect) AND ($side IS NULL OR side = $side)
+  RETURN change, node, kind, aspect, name, before, after, side, last_commit, actor
+  ORDER BY node, aspect, name
+}

@@ -1,0 +1,1056 @@
+# fixtures/lq/cases/strict-gql.cases: the strict-GQL spelling mode ([LQ/grammar-v1.ebnf §G], [LQ/gql-spelling §3])
+# (WP-22, R-FIX). Every case runs with '%% mode strict-gql'. Each refused Cypher spelling of §G.2 is E004 in this
+# mode; every GQL spelling and every construct of §G.3 stays accepted, with the same S-AST as in the default mode
+# ([LQ/grammar-v1.ebnf §G.1]). The same inputs parse in the default mode (conformance.cases, parser.cases).
+# Positions of the E004 refusals are 'conv': the first token of the refused spelling (INDEX.md §4 G-7).
+# Format: fixtures/lq/INDEX.md §2.
+
+%% case sg-quant-range
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a)-[:BLOCKS*1..3]->(b) RETURN a
+%% error E004 1:19 conv
+%% end
+
+%% case sg-quant-star
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a)-[:BLOCKS*]->(b) RETURN a
+%% error E004 1:19 conv
+%% end
+
+%% case sg-quant-exact
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a)-[:BLOCKS*2]->(b) RETURN a
+%% error E004 1:19 conv
+%% end
+
+%% case sg-quant-upper
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a)-[:BLOCKS*..3]->(b) RETURN a
+%% error E004 1:19 conv
+%% end
+
+%% case sg-quant-lower
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a)-[:BLOCKS*2..]->(b) RETURN a
+%% error E004 1:19 conv
+%% end
+
+%% case sg-card-2-cypher
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/card §4]
+%% entry read
+%% mode strict-gql
+%% note The card's Cypher example 2 is refused in the strict arm; its GQL line (§4) is accepted (sg-card-2-gql).
+%% input
+MATCH (x:task)-[:BLOCKS*1..]->(#51) WHERE x.unfinished RETURN x
+%% error E004 1:24 conv
+%% end
+
+%% case sg-bang-equals
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a:task) WHERE a.priority != 1 RETURN a
+%% error E004 1:33 conv
+%% end
+
+%% case sg-pattern-predicate
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.2]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a:task) WHERE (a)-[:BLOCKS]->() RETURN a
+%% error E004 1:22 conv
+%% end
+
+%% case sg-not-pattern-predicate
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.2]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (t:task) WHERE NOT (t)<-[:BLOCKS]-() RETURN t
+%% error E004 1:26 conv
+%% end
+
+%% case sg-exists-path
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.2]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a:task) WHERE exists((a)-->()) RETURN a
+%% error E004 1:22 conv
+%% end
+
+%% case sg-size-path
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.2]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (t:task) RETURN size((t)<--()) AS n
+%% error E004 1:23 conv
+%% end
+
+%% case sg-exists-property
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.2]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (t:task) WHERE exists(t.assignee) RETURN t
+%% error E004 1:22 conv
+%% end
+
+%% case sg-create-node
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry write
+%% mode strict-gql
+%% input
+TX { CREATE (n:task {title: 'x'}) }
+%% error E004 1:6 conv
+%% end
+
+%% case sg-create-edge
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry write
+%% mode strict-gql
+%% input
+TX { CREATE (#12)-[:BLOCKS]->(#51) }
+%% error E004 1:6 conv
+%% end
+
+%% case sg-tolower
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry read
+%% mode strict-gql
+%% input
+RETURN toLower('A') AS x
+%% error E004 1:8 conv
+%% end
+
+%% case sg-toupper-case
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry read
+%% mode strict-gql
+%% note Function spellings are matched ASCII-case-insensitively ([LQ/grammar-v1.ebnf §G.2]).
+%% input
+RETURN TOUPPER('a') AS x
+%% error E004 1:8 conv
+%% end
+
+%% case sg-collect
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (t:task) RETURN collect(t) AS ts
+%% error E004 1:23 conv
+%% end
+
+%% case sg-size-list
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry read
+%% mode strict-gql
+%% input
+RETURN size([1, 2]) AS n
+%% error E004 1:8 conv
+%% end
+
+%% case sg-gql-range
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a)-[:BLOCKS]->{1,3}(b) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P {
+INT 1
+P ,
+INT 3
+P }
+P (
+NAME b
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "a" [] [] _) [(estep (epat _ right ["BLOCKS"] (quant 1 3) [] _) (npat "b" [] [] _))])]
+      _)]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-gql-plus
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a)-[:BLOCKS]->+(b) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P +
+P (
+NAME b
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "a" [] [] _) [(estep (epat _ right ["BLOCKS"] (quant 1 _) [] _) (npat "b" [] [] _))])]
+      _)]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-gql-star
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% mode strict-gql
+%% note GQL's * is zero or more; Cypher's -[:T*]-> is one or more ([LQ/canonical-ast §3.1] item 4).
+%% input
+MATCH (a)-[:BLOCKS]->*(b) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P *
+P (
+NAME b
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "a" [] [] _) [(estep (epat _ right ["BLOCKS"] (quant 0 _) [] _) (npat "b" [] [] _))])]
+      _)]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-gql-exact
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a)-[:BLOCKS]->{2}(b) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P {
+INT 2
+P }
+P (
+NAME b
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "a" [] [] _) [(estep (epat _ right ["BLOCKS"] (quant 2 2) [] _) (npat "b" [] [] _))])]
+      _)]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-gql-upper
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% mode strict-gql
+%% note {,n} has lower bound 0, unlike Cypher's *..n (lower bound 1).
+%% input
+MATCH (a)-[:BLOCKS]->{,3}(b) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P {
+P ,
+INT 3
+P }
+P (
+NAME b
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "a" [] [] _) [(estep (epat _ right ["BLOCKS"] (quant 0 3) [] _) (npat "b" [] [] _))])]
+      _)]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-gql-lower
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a)-[:BLOCKS]->{2,}(b) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P {
+INT 2
+P ,
+P }
+P (
+NAME b
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "a" [] [] _) [(estep (epat _ right ["BLOCKS"] (quant 2 _) [] _) (npat "b" [] [] _))])]
+      _)]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-card-2-gql
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/card §4]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (x:task)-[:BLOCKS]->+(#51) WHERE x.unfinished RETURN x
+%% tokens
+KW MATCH
+P (
+NAME x
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P +
+P (
+NODE 51
+P )
+KW WHERE
+NAME x
+P .
+NAME unfinished
+KW RETURN
+NAME x
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "x" ["task"] [] _)
+             [(estep (epat _ right ["BLOCKS"] (quant 1 _) [] _) (npat _ [] [(kv "id" (nid 51))] _))])]
+      (prop (ident "x") "unfinished"))]
+    (return false false [(item (ident "x") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-not-equals
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a:task) WHERE a.priority <> 1 RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P :
+NAME task
+P )
+KW WHERE
+NAME a
+P .
+NAME priority
+P <>
+INT 1
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _ [(path (npat "a" ["task"] [] _) [])] (cmp <> (prop (ident "a") "priority") (int 1)))]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-exists-braces
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.2]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (t:task) WHERE NOT EXISTS { (t)<-[:BLOCKS]-() } RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+KW NOT
+KW EXISTS
+P {
+P (
+NAME t
+P )
+P <-
+P [
+P :
+NAME BLOCKS
+P ]
+P -
+P (
+P )
+P }
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "t" ["task"] [] _) [])]
+      (not (exists (subp [(path (npat "t" [] [] _) [(estep (epat _ left ["BLOCKS"] _ [] _) (npat _ [] [] _))])] _))))]
+    (return false false [(item (ident "t") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-count-braces
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.2], §2.3
+%% entry read
+%% mode strict-gql
+%% note <-[]- is the GQL form of an any-kind reverse edge in grammar v1 ([LQ/gql-spelling §2.3]).
+%% input
+MATCH (t:task) RETURN COUNT { (t)<-[]-() } AS n
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW RETURN
+KW COUNT
+P {
+P (
+NAME t
+P )
+P <-
+P [
+P ]
+P -
+P (
+P )
+P }
+KW AS
+NAME n
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _ [(path (npat "t" ["task"] [] _) [])] _)]
+    (return false false
+     [(item (countsub (subp [(path (npat "t" [] [] _) [(estep (epat _ left [] _ [] _) (npat _ [] [] _))])] _)) "n")]
+     [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-is-not-null
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.2]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (t:task) WHERE t.assignee IS NOT NULL RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME assignee
+KW IS
+KW NOT
+KW NULL
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _ [(path (npat "t" ["task"] [] _) [])] (isnull true (prop (ident "t") "assignee")))]
+    (return false false [(item (ident "t") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-insert-node
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry write
+%% mode strict-gql
+%% note INSERT gives the same S-AST as CREATE ([LQ/canonical-ast §3.1] item 10).
+%% input
+TX { INSERT (n:task {title: 'x'}) }
+%% tokens
+KW TX
+P {
+KW INSERT
+P (
+NAME n
+P :
+NAME task
+P {
+NAME title
+P :
+STR "x"
+P }
+P )
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _ [(screate "n" "task" [(kv "title" (str "x"))] [] _ _)] false)
+%% end
+
+%% case sg-insert-edge
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry write
+%% mode strict-gql
+%% input
+TX { INSERT (#12)-[:BLOCKS]->(#51) }
+%% tokens
+KW TX
+P {
+KW INSERT
+P (
+NODE 12
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P (
+NODE 51
+P )
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _ [(smuts [(medge (nid 12) right "BLOCKS" [] (nid 51))])] false)
+%% end
+
+%% case sg-gql-functions
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry read
+%% mode strict-gql
+%% note The S-AST keeps function names as written; the binder maps them to one canonical name ([LQ/canonical-ast §5.3]).
+%% input
+MATCH (t:task) RETURN lower(t.title) AS l, upper(t.title) AS u, collect_list(t) AS ts, cardinality(t.labels) AS n
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW RETURN
+NAME lower
+P (
+NAME t
+P .
+NAME title
+P )
+KW AS
+NAME l
+P ,
+NAME upper
+P (
+NAME t
+P .
+NAME title
+P )
+KW AS
+NAME u
+P ,
+NAME collect_list
+P (
+NAME t
+P )
+KW AS
+NAME ts
+P ,
+NAME cardinality
+P (
+NAME t
+P .
+NAME labels
+P )
+KW AS
+NAME n
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _ [(path (npat "t" ["task"] [] _) [])] _)]
+    (return false false
+     [(item (fn "lower" false [(arg _ (prop (ident "t") "title"))]) "l")
+      (item (fn "upper" false [(arg _ (prop (ident "t") "title"))]) "u")
+      (item (fn "collect_list" false [(arg _ (ident "t"))]) "ts")
+      (item (fn "cardinality" false [(arg _ (prop (ident "t") "labels"))]) "n")]
+     [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-cypher-abbreviations
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/grammar-v1.ebnf §G.3]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (a)-->(b), (c)<--(d), (e)--(f) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P -
+P ->
+P (
+NAME b
+P )
+P ,
+P (
+NAME c
+P )
+P <-
+P -
+P (
+NAME d
+P )
+P ,
+P (
+NAME e
+P )
+P -
+P -
+P (
+NAME f
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "a" [] [] _) [(estep (epat _ right [] _ [] _) (npat "b" [] [] _))])
+       (path (npat "c" [] [] _) [(estep (epat _ left [] _ [] _) (npat "d" [] [] _))])
+       (path (npat "e" [] [] _) [(estep (epat _ both [] _ [] _) (npat "f" [] [] _))])]
+      _)]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-shared-clauses
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/grammar-v1.ebnf §G.3]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (t:task) OPTIONAL MATCH (t)<-[:GATES]-(v:verdict) WITH t, v UNWIND t.labels AS l RETURN l, CASE WHEN v IS NULL THEN 0 ELSE 1 END AS g, labels(t) AS k, id(t) AS i, length(t.title) AS n
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW OPTIONAL
+KW MATCH
+P (
+NAME t
+P )
+P <-
+P [
+P :
+NAME GATES
+P ]
+P -
+P (
+NAME v
+P :
+NAME verdict
+P )
+KW WITH
+NAME t
+P ,
+NAME v
+KW UNWIND
+NAME t
+P .
+NAME labels
+KW AS
+NAME l
+KW RETURN
+NAME l
+P ,
+KW CASE
+KW WHEN
+NAME v
+KW IS
+KW NULL
+KW THEN
+INT 0
+KW ELSE
+INT 1
+KW END
+KW AS
+NAME g
+P ,
+NAME labels
+P (
+NAME t
+P )
+KW AS
+NAME k
+P ,
+NAME id
+P (
+NAME t
+P )
+KW AS
+NAME i
+P ,
+NAME length
+P (
+NAME t
+P .
+NAME title
+P )
+KW AS
+NAME n
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _ [(path (npat "t" ["task"] [] _) [])] _)
+     (match true _ [(path (npat "t" [] [] _) [(estep (epat _ left ["GATES"] _ [] _) (npat "v" ["verdict"] [] _))])] _)
+     (with false false [(item (ident "t") _) (item (ident "v") _)] _ [] _)
+     (unwind (prop (ident "t") "labels") "l")]
+    (return false false
+     [(item (ident "l") _)
+      (item (case _ [(when (isnull false (ident "v")) (int 0))] (int 1)) "g")
+      (item (fn "labels" false [(arg _ (ident "t"))]) "k")
+      (item (fn "id" false [(arg _ (ident "t"))]) "i")
+      (item (fn "length" false [(arg _ (prop (ident "t") "title"))]) "n")]
+     [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-match-modes
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.4]
+%% entry read
+%% mode strict-gql
+%% note The binder raises W02 for TRAIL; the DIFFERENT forms are silent ([LQ/gql-spelling §2.4]).
+%% input
+MATCH DIFFERENT RELATIONSHIPS (a)-->(b) MATCH TRAIL (c)-->(d) RETURN a
+%% tokens
+KW MATCH
+KW DIFFERENT
+KW RELATIONSHIPS
+P (
+NAME a
+P )
+P -
+P ->
+P (
+NAME b
+P )
+KW MATCH
+KW TRAIL
+P (
+NAME c
+P )
+P -
+P ->
+P (
+NAME d
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false different [(path (npat "a" [] [] _) [(estep (epat _ right [] _ [] _) (npat "b" [] [] _))])] _)
+     (match false trail [(path (npat "c" [] [] _) [(estep (epat _ right [] _ [] _) (npat "d" [] [] _))])] _)]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-group-by
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/gql-spelling §2.5]
+%% entry read
+%% mode strict-gql
+%% input
+MATCH (t:task) RETURN ALL t.status AS s, count(*) AS n GROUP BY t.status
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW RETURN
+KW ALL
+NAME t
+P .
+NAME status
+KW AS
+NAME s
+P ,
+KW COUNT
+P (
+P *
+P )
+KW AS
+NAME n
+KW GROUP
+KW BY
+NAME t
+P .
+NAME status
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _ [(path (npat "t" ["task"] [] _) [])] _)]
+    (return false false [(item (prop (ident "t") "status") "s") (item (countstar) "n")] [(prop (ident "t") "status")] [] _)
+    _)]
+  []))
+%% end
+
+%% case sg-card-5-past
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/card §3] example 5
+%% entry read
+%% mode strict-gql
+%% note Card examples 1 and 3-7 carry no Cypher-only spelling and are accepted in the strict mode (card.cases has their S-ASTs).
+%% input
+USE main~5 MATCH (t {id: #93}) RETURN t.status, t.unblocked
+%% tokens
+KW USE
+REF main
+SUF ~5
+KW MATCH
+P (
+NAME t
+P {
+NAME id
+P :
+NODE 93
+P }
+P )
+KW RETURN
+NAME t
+P .
+NAME status
+P ,
+NAME t
+P .
+NAME unblocked
+EOF -
+%% end
+
+%% case sg-card-7-write
+%% source [LQ/grammar-v1.ebnf §G.2]
+%% source [LQ/card §3] example 7
+%% entry write
+%% mode strict-gql
+%% input
+TX ON lane/l5np LEASE 'L-18' { MATCH (t {id: #89}) WHERE t.status = 'in_progress' EXPECT 1 SET t.done = true }
+%% tokens
+KW TX
+KW ON
+REF lane/l5np
+KW LEASE
+STR "L-18"
+P {
+KW MATCH
+P (
+NAME t
+P {
+NAME id
+P :
+NODE 89
+P }
+P )
+KW WHERE
+NAME t
+P .
+NAME status
+P =
+STR "in_progress"
+KW EXPECT
+INT 1
+KW SET
+NAME t
+P .
+NAME done
+P =
+KW TRUE
+P }
+EOF -
+%% end

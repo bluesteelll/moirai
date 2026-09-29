@@ -1,0 +1,12 @@
+DEFINE QUERY pack_findings($target: node, $role: text, $round: int? = NULL) SHAPE node BUDGET light AS {
+  MATCH (f:finding)
+  WHERE EXISTS { MATCH (f)-[:ABOUT]->(x) WHERE x IN subtree($target) }
+    AND CASE $role
+          WHEN 'developer' THEN f.status = 'confirmed'
+          WHEN 'architecture-critic' THEN f.created_role = $role
+                                          AND ($round IS NULL OR coalesce(f.round, 0) <= $round)
+          WHEN 'code-reviewer' THEN f.created_role = $role OR f.status = 'open'
+          ELSE f.status IN ['open', 'confirmed']
+        END
+  RETURN f ORDER BY f.severity, f.id
+}

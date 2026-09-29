@@ -1,0 +1,16 @@
+DEFINE QUERY find($kind: text? = NULL, $status: text? = NULL, $prio: range<int>? = NULL,
+                  $label: text? = NULL, $area: node? = NULL, $text: text? = NULL,
+                  $done: bool? = NULL, $suspect: bool? = NULL, $conflicted: bool? = NULL,
+                  $limit: int = 50) SHAPE node BUDGET medium AS {
+  MATCH (n)
+  WHERE ($kind IS NULL OR n.kind = $kind)
+    AND ($status IS NULL OR n.status = $status)
+    AND ($prio IS NULL OR n.priority IN $prio)
+    AND ($label IS NULL OR $label IN n.labels)
+    AND ($area IS NULL OR EXISTS { (n)-[:SCOPED_TO]->(a) WHERE a IN subtree($area) })
+    AND ($text IS NULL OR text_match(n, $text))
+    AND ($done IS NULL OR n.done = $done)
+    AND ($suspect IS NULL OR n.suspect = $suspect)
+    AND ($conflicted IS NULL OR n.conflicted = $conflicted)
+  RETURN n ORDER BY n.id LIMIT $limit
+}

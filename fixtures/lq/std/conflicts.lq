@@ -1,0 +1,5 @@
+DEFINE QUERY conflicts($scope: node? = NULL) SHAPE conflict BUDGET light AS {
+  CALL conflicts() YIELD key, node, class, base, ours, theirs, commit, hint
+  WHERE $scope IS NULL OR node IN subtree($scope)
+  RETURN key, node, class, base, ours, theirs, commit, hint ORDER BY node, key
+}

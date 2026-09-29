@@ -1,0 +1,4 @@
+DEFINE QUERY across($refs: list<rev>, $ids: list<node>) SHAPE across BUDGET medium AS {
+  CALL across(refs: $refs, ids: $ids) YIELD node, aspect, name, ref, value, diverged
+  RETURN node, aspect, name, ref, value, diverged ORDER BY node, name, ref
+}

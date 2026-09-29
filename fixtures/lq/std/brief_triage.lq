@@ -1,0 +1,3 @@
+DEFINE QUERY brief_triage() SHAPE node BUDGET light AS {
+  MATCH (t:task) WHERE t.settled_elsewhere OR t.deleted_elsewhere OR t.has_dangling RETURN t
+}

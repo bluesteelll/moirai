@@ -1,0 +1,1488 @@
+# fixtures/lq/cases/conformance.cases: the 47 conformance fixtures of [50 §0.4] and [50 §11], re-authored from the
+# specification text (WP-22, R-FIX). The probe's own fixtures are unpublished ([LQ/grammar-v1.ebnf] O-14); the
+# names [50] and [LQ/lexical] cite (var-s1, prop-s2, var-hexlike, range-2dot, range-3dot, paren-arith,
+# undirected-minus, pattern-predicate, exists-fn-pattern, size-fn-pattern, use-in-exists) are kept.
+# Each accepted case asserts the classified token stream ([LQ/lexical §11]) and the S-AST ([LQ/canonical-ast §4]);
+# each refused case asserts the first error's code and position ([LQ/grammar-v1.ebnf §P.14]).
+# Format: fixtures/lq/INDEX.md §2.
+
+%% case var-s1
+%% source [50 §2.2] rule 4
+%% source [LQ/lexical §4.1]
+%% source [50 §2.9] mistake 7
+%% entry read
+%% input
+MATCH (s1:doc) WHERE s1 IN subtree(#130) RETURN s1
+%% tokens
+KW MATCH
+P (
+NAME s1
+P :
+NAME doc
+P )
+KW WHERE
+NAME s1
+KW IN
+NAME subtree
+P (
+NODE 130
+P )
+KW RETURN
+NAME s1
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "s1" ["doc"] [] _) [])]
+      (in (ident "s1") (fn "subtree" false [(arg _ (nid 130))])))]
+    (return false false [(item (ident "s1") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case prop-s2
+%% source [50 §2.2] rules 4 and 6
+%% source [LQ/lexical §4.1]
+%% entry read
+%% input
+MATCH (t:doc) WHERE t.s2 = 4466 RETURN t.s2
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME doc
+P )
+KW WHERE
+NAME t
+P .
+NAME s2
+P =
+INT 4466
+KW RETURN
+NAME t
+P .
+NAME s2
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "t" ["doc"] [] _) [])]
+      (cmp = (prop (ident "t") "s2") (int 4466)))]
+    (return false false [(item (prop (ident "t") "s2") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case var-hexlike
+%% source [50 §2.2] rules 4 and 6
+%% source [LQ/lexical §4.1]
+%% entry read
+%% note Outside revision positions c9b2e6c1 is a word; -- is two - tokens and --> is - ->.
+%% input
+MATCH (cafebabe)-->(c9b2e6c1) RETURN cafebabe, c9b2e6c1
+%% tokens
+KW MATCH
+P (
+NAME cafebabe
+P )
+P -
+P ->
+P (
+NAME c9b2e6c1
+P )
+KW RETURN
+NAME cafebabe
+P ,
+NAME c9b2e6c1
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "cafebabe" [] [] _)
+             [(estep (epat _ right [] _ [] _) (npat "c9b2e6c1" [] [] _))])]
+      _)]
+    (return false false [(item (ident "cafebabe") _) (item (ident "c9b2e6c1") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case backquoted-names
+%% source [LQ/lexical §5.4]
+%% source [LQ/lexical §6.1]
+%% entry read
+%% note A back-quoted identifier is never a keyword; a doubled back-quote stands for one.
+%% input
+MATCH (`match`:task) WHERE `match`.`limit` = 1 RETURN `match` AS `a``b`
+%% tokens
+KW MATCH
+P (
+QNAME "match"
+P :
+NAME task
+P )
+KW WHERE
+QNAME "match"
+P .
+QNAME "limit"
+P =
+INT 1
+KW RETURN
+QNAME "match"
+KW AS
+QNAME "a`b"
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "match" ["task"] [] _) [])]
+      (cmp = (prop (ident "match") "limit") (int 1)))]
+    (return false false [(item (ident "match") "a`b")] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case keyword-case
+%% source [LQ/lexical §6.5]
+%% source [LQ/lexical §9]
+%% source [LQ/canonical-ast §3.1] item 9
+%% entry read
+%% note Keywords print upper case in the token stream; names keep their case; the bare word open is an ident the binder coerces.
+%% input
+match (t:Task) where t.status = open return t order by t.priority desc limit 5
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME Task
+P )
+KW WHERE
+NAME t
+P .
+NAME status
+P =
+NAME open
+KW RETURN
+NAME t
+KW ORDER
+KW BY
+NAME t
+P .
+NAME priority
+KW DESC
+KW LIMIT
+INT 5
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "t" ["Task"] [] _) [])]
+      (cmp = (prop (ident "t") "status") (ident "open")))]
+    (return false false [(item (ident "t") _)] [] [(sort (prop (ident "t") "priority") desc)] (int 5))
+    _)]
+  []))
+%% end
+
+%% case node-literal-pattern
+%% source [LQ/canonical-ast §3.1] item 7
+%% source [50 §2.5] reverse aliases
+%% entry read
+%% note The S-AST keeps the reverse alias as written; the binder canonicalises it (cast.cases).
+%% input
+MATCH (#51)-[:BLOCKED_BY]->(b) RETURN b
+%% tokens
+KW MATCH
+P (
+NODE 51
+P )
+P -
+P [
+P :
+NAME BLOCKED_BY
+P ]
+P ->
+P (
+NAME b
+P )
+KW RETURN
+NAME b
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat _ [] [(kv "id" (nid 51))] _)
+             [(estep (epat _ right ["BLOCKED_BY"] _ [] _) (npat "b" [] [] _))])]
+      _)]
+    (return false false [(item (ident "b") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case id-map-pattern
+%% source [LQ/canonical-ast §3.1] item 7
+%% entry read
+%% note (#51) and ({id: #51}) are one S-AST.
+%% input
+MATCH ({id: #51})-[:BLOCKED_BY]->(b) RETURN b
+%% tokens
+KW MATCH
+P (
+P {
+NAME id
+P :
+NODE 51
+P }
+P )
+P -
+P [
+P :
+NAME BLOCKED_BY
+P ]
+P ->
+P (
+NAME b
+P )
+KW RETURN
+NAME b
+EOF -
+%% sast-same-as node-literal-pattern
+%% end
+
+%% case uid-literal
+%% source [50 §2.2] rule 5
+%% source [LQ/lexical §5.8]
+%% entry read
+%% input
+MATCH (#u:018f3c2e7a117b3c9d5e4c2f1a0b9e77)<-[:CHILD_OF]-(c:task) RETURN c
+%% tokens
+KW MATCH
+P (
+UID 018f3c2e7a117b3c9d5e4c2f1a0b9e77
+P )
+P <-
+P [
+P :
+NAME CHILD_OF
+P ]
+P -
+P (
+NAME c
+P :
+NAME task
+P )
+KW RETURN
+NAME c
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat _ [] [(kv "id" (uid "018f3c2e7a117b3c9d5e4c2f1a0b9e77"))] _)
+             [(estep (epat _ left ["CHILD_OF"] _ [] _) (npat "c" ["task"] [] _))])]
+      _)]
+    (return false false [(item (ident "c") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case parameters
+%% source [50 §2.2] rule 7
+%% source [LQ/lexical §5.5]
+%% entry read
+%% input
+MATCH (t:task) WHERE t IN $ids AND t.priority <= $p RETURN t LIMIT $limit
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+KW IN
+PARAM ids
+KW AND
+NAME t
+P .
+NAME priority
+P <=
+PARAM p
+KW RETURN
+NAME t
+KW LIMIT
+PARAM limit
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "t" ["task"] [] _) [])]
+      (and (in (ident "t") (param "ids")) (cmp <= (prop (ident "t") "priority") (param "p"))))]
+    (return false false [(item (ident "t") _)] [] [] (param "limit"))
+    _)]
+  []))
+%% end
+
+%% case numbers
+%% source [LQ/lexical §5.6]
+%% source [LQ/canonical-ast §3.1] item 13
+%% entry read
+%% note Leading zeros are ignored in integers; floats and durations keep their source text.
+%% input
+RETURN 010, 1.5, 2e3, 1.5E-3, 3d, 15m, 2w, 0s
+%% tokens
+KW RETURN
+INT 10
+P ,
+FLOAT 1.5
+P ,
+FLOAT 2e3
+P ,
+FLOAT 1.5E-3
+P ,
+DUR 3d
+P ,
+DUR 15m
+P ,
+DUR 2w
+P ,
+DUR 0s
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ []
+    (return false false
+     [(item (int 10) _) (item (float "1.5") _) (item (float "2e3") _) (item (float "1.5E-3") _)
+      (item (dur "3d") _) (item (dur "15m") _) (item (dur "2w") _) (item (dur "0s") _)]
+     [] [] _)
+    _)]
+  []))
+%% end
+
+%% case strings
+%% source [LQ/lexical §5.7]
+%% source [LQ/lexical §11.1]
+%% entry read
+%% note STR values are the decoded text as fixture JSON strings: non-ASCII as raw UTF-8.
+%% input
+RETURN 'it\'s', "say \"hi\"", 'tab\there', '\u{41}\u{1F600}', 'a\\b', "it's"
+%% tokens
+KW RETURN
+STR "it's"
+P ,
+STR "say \"hi\""
+P ,
+STR "tab\there"
+P ,
+STR "A😀"
+P ,
+STR "a\\b"
+P ,
+STR "it's"
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ []
+    (return false false
+     [(item (str "it's") _) (item (str "say \"hi\"") _) (item (str "tab\there") _)
+      (item (str "A😀") _) (item (str "a\\b") _) (item (str "it's") _)]
+     [] [] _)
+    _)]
+  []))
+%% end
+
+%% case lt-minus
+%% source [LQ/lexical §5.9]
+%% source [LQ/grammar-v1.ebnf §P.4]
+%% entry read
+%% note <- is one token only before [ or -; here it is < followed by -.
+%% input
+MATCH (a:task) WHERE a.priority<-1 RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P :
+NAME task
+P )
+KW WHERE
+NAME a
+P .
+NAME priority
+P <
+P -
+INT 1
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "a" ["task"] [] _) [])]
+      (cmp < (prop (ident "a") "priority") (neg (int 1))))]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case undirected-edge
+%% source [50 §2.2] rule 2
+%% source [LQ/lexical §3]
+%% source [LQ/lexical §5.9]
+%% entry read
+%% note -- is not a comment: it is the undirected any-kind edge.
+%% input
+MATCH (a:task)--(b) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P :
+NAME task
+P )
+P -
+P -
+P (
+NAME b
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "a" ["task"] [] _) [(estep (epat _ both [] _ [] _) (npat "b" [] [] _))])]
+      _)]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case arrow-abbreviations
+%% source [LQ/lexical §5.9]
+%% source [LQ/gql-spelling §2.3]
+%% entry read
+%% input
+MATCH (a)-->(b)<--(c) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P -
+P ->
+P (
+NAME b
+P )
+P <-
+P -
+P (
+NAME c
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "a" [] [] _)
+             [(estep (epat _ right [] _ [] _) (npat "b" [] [] _))
+              (estep (epat _ left [] _ [] _) (npat "c" [] [] _))])]
+      _)]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case paren-arith
+%% source [50 §2.3] parser notes
+%% source [LQ/grammar-v1.ebnf §P.5]
+%% entry read
+%% note (a.priority) is no node pattern, so no path is attempted: a parenthesised expression minus 1.
+%% input
+MATCH (a:task) RETURN (a.priority) - 1 AS p
+%% tokens
+KW MATCH
+P (
+NAME a
+P :
+NAME task
+P )
+KW RETURN
+P (
+NAME a
+P .
+NAME priority
+P )
+P -
+INT 1
+KW AS
+NAME p
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _ [(path (npat "a" ["task"] [] _) [])] _)]
+    (return false false [(item (arith - (prop (ident "a") "priority") (int 1)) "p")] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case undirected-minus
+%% source [50 §2.3] parser notes
+%% source [LQ/grammar-v1.ebnf §P.5]
+%% entry read
+%% note - - after an expression is binary minus and unary minus, not an undirected edge.
+%% input
+MATCH (a:task) RETURN a.priority - -1 AS p
+%% tokens
+KW MATCH
+P (
+NAME a
+P :
+NAME task
+P )
+KW RETURN
+NAME a
+P .
+NAME priority
+P -
+P -
+INT 1
+KW AS
+NAME p
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _ [(path (npat "a" ["task"] [] _) [])] _)]
+    (return false false [(item (arith - (prop (ident "a") "priority") (neg (int 1))) "p")] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case range-2dot
+%% source [LQ/lexical §11.2]
+%% source [50 §2.2] rule 6
+%% source [50 §2.9] mistake 10
+%% entry read
+%% note Two revisions and a range operator; .. is never part of a ref name.
+%% input
+CALL log(main..lane/l5np) YIELD commit, actor, message
+%% tokens
+KW CALL
+NAME log
+P (
+REF main
+RANGE ..
+REF lane/l5np
+P )
+KW YIELD
+NAME commit
+P ,
+NAME actor
+P ,
+NAME message
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _
+    (scall "log" [(arg _ (rrange (rref "main") two (rref "lane/l5np")))]
+     items [(yitem "commit" _) (yitem "actor" _) (yitem "message" _)] _ [] _))]
+  []))
+%% end
+
+%% case range-3dot
+%% source [50 §2.9] Q13
+%% source [LQ/json-ir §7] Q13
+%% entry read
+%% input
+CALL diff(main...lane/l10) YIELD change, node, side WHERE side = 'both'
+%% tokens
+KW CALL
+NAME diff
+P (
+REF main
+RANGE ...
+REF lane/l10
+P )
+KW YIELD
+NAME change
+P ,
+NAME node
+P ,
+NAME side
+KW WHERE
+NAME side
+P =
+STR "both"
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _
+    (scall "diff" [(arg _ (rrange (rref "main") three (rref "lane/l10")))]
+     items [(yitem "change" _) (yitem "node" _) (yitem "side" _)]
+     (cmp = (ident "side") (str "both")) [] _))]
+  []))
+%% json-ir
+{"t":"read","query":{"t":"query","parts":[{"t":"part","call":{"t":"scall","proc":"diff","args":[{"t":"arg","value":{"t":"rrange","from":{"t":"rref","name":"main"},"op":"three","to":{"t":"rref","name":"lane/l10"}}}],"yield":"items","items":[{"t":"yitem","name":"change"},{"t":"yitem","name":"node"},{"t":"yitem","name":"side"}],"where":{"t":"cmp","op":"=","l":{"t":"ident","name":"side"},"r":"both"}}}]}}
+%% end
+
+%% case range-dotted-ref
+%% source [50 §2.2] rule 6
+%% source [LQ/lexical §7.2]
+%% entry read
+%% note A . continues a ref segment only before a ref_word, so tags/v1.2..main is a ref, .., a ref.
+%% input
+CALL log(tags/v1.2..main) YIELD commit
+%% tokens
+KW CALL
+NAME log
+P (
+REF tags/v1.2
+RANGE ..
+REF main
+P )
+KW YIELD
+NAME commit
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _
+    (scall "log" [(arg _ (rrange (rref "tags/v1.2") two (rref "main")))]
+     items [(yitem "commit" _)] _ [] _))]
+  []))
+%% end
+
+%% case range-seq
+%% source [50 §2.2] rule 6
+%% source [LQ/lexical §7.2] rule 2
+%% entry read
+%% input
+CALL log(s4400..s4480) YIELD commit, seq
+%% tokens
+KW CALL
+NAME log
+P (
+SEQ 4400
+RANGE ..
+SEQ 4480
+P )
+KW YIELD
+NAME commit
+P ,
+NAME seq
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _
+    (scall "log" [(arg _ (rrange (rseq 4400) two (rseq 4480)))]
+     items [(yitem "commit" _) (yitem "seq" _)] _ [] _))]
+  []))
+%% end
+
+%% case use-suffixes
+%% source [LQ/lexical §7.3]
+%% source [LQ/canonical-ast §3.1] item 12
+%% source [LQ/grammar-v1.ebnf] O-2
+%% entry read
+%% note An omitted count is 1; REF@{n} is REF@n; suffixes nest left to right.
+%% input
+USE main~^2@{3} MATCH (t) RETURN t
+%% tokens
+KW USE
+REF main
+SUF ~1
+SUF ^2
+SUF @3
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part (rsuf (rsuf (rsuf (rref "main") tilde 1 _) caret 2 _) at 3 _)
+    [(match false _ [(path (npat "t" [] [] _) [])] _)]
+    (return false false [(item (ident "t") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case use-datetime
+%% source [LQ/lexical §11.2]
+%% source [LQ/lexical §7.5]
+%% entry read
+%% input
+USE main@2026-09-25T10:00Z MATCH (s1:doc) WHERE s1 IN subtree(#130) RETURN s1
+%% tokens
+KW USE
+REF main
+SUF @2026-09-25T10:00:00Z
+KW MATCH
+P (
+NAME s1
+P :
+NAME doc
+P )
+KW WHERE
+NAME s1
+KW IN
+NAME subtree
+P (
+NODE 130
+P )
+KW RETURN
+NAME s1
+EOF -
+%% sast
+(read run
+ (query
+  [(part (rsuf (rref "main") attime _ "2026-09-25T10:00:00Z")
+    [(match false _
+      [(path (npat "s1" ["doc"] [] _) [])]
+      (in (ident "s1") (fn "subtree" false [(arg _ (nid 130))])))]
+    (return false false [(item (ident "s1") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case commit-literal
+%% source [LQ/lexical §7.2] rule 1
+%% entry read
+%% note In a revision position c followed by 7 to 64 lower-case hex digits is a commit literal.
+%% input
+USE c9b2e6c1 MATCH (t:task) RETURN t
+%% tokens
+KW USE
+COMMIT 9b2e6c1
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part (rcommit "9b2e6c1")
+    [(match false _ [(path (npat "t" ["task"] [] _) [])] _)]
+    (return false false [(item (ident "t") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case short-hex-is-ref
+%% source [LQ/lexical §7.2]
+%% source [LQ/lexical] L-8
+%% entry read
+%% note Six hex digits are not a commit literal: a ref name, which the binder reports as E301 if no such ref exists.
+%% input
+USE c123456 MATCH (t:task) RETURN t
+%% tokens
+KW USE
+REF c123456
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part (rref "c123456")
+    [(match false _ [(path (npat "t" ["task"] [] _) [])] _)]
+    (return false false [(item (ident "t") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case head-suffix
+%% source [LQ/lexical §7.2]
+%% source [LQ/grammar-v1.ebnf] O-3
+%% entry read
+%% input
+CALL log(HEAD~3) YIELD commit
+%% tokens
+KW CALL
+NAME log
+P (
+HEAD HEAD
+SUF ~3
+P )
+KW YIELD
+NAME commit
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _
+    (scall "log" [(arg _ (rsuf (rhead) tilde 3 _))] items [(yitem "commit" _)] _ [] _))]
+  []))
+%% end
+
+%% case rev-list
+%% source [50 §2.9] Q12
+%% source [LQ/lexical §7.4]
+%% source [LQ/std §2.8] item 1
+%% entry read
+%% note refs is a revision position (a revision list); ids is an ordinary list. A CALL followed by RETURN is a call clause.
+%% input
+CALL across(refs: [main, lane/l5np], ids: [#89, #93]) YIELD node, name, ref, value, diverged WHERE diverged RETURN node, name, ref, value
+%% tokens
+KW CALL
+NAME across
+P (
+NAME refs
+P :
+P [
+REF main
+P ,
+REF lane/l5np
+P ]
+P ,
+NAME ids
+P :
+P [
+NODE 89
+P ,
+NODE 93
+P ]
+P )
+KW YIELD
+NAME node
+P ,
+NAME name
+P ,
+NAME ref
+P ,
+NAME value
+P ,
+NAME diverged
+KW WHERE
+NAME diverged
+KW RETURN
+NAME node
+P ,
+NAME name
+P ,
+NAME ref
+P ,
+NAME value
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(call "across"
+      [(arg "refs" (rlist [(rref "main") (rref "lane/l5np")]))
+       (arg "ids" (list [(nid 89) (nid 93)]))]
+      [(yitem "node" _) (yitem "name" _) (yitem "ref" _) (yitem "value" _) (yitem "diverged" _)]
+      (ident "diverged"))]
+    (return false false
+     [(item (ident "node") _) (item (ident "name") _) (item (ident "ref") _) (item (ident "value") _)]
+     [] [] _)
+    _)]
+  []))
+%% end
+
+%% case rev-quoted-arg
+%% source [LQ/lexical §4.2]
+%% source [LQ/grammar-v1.ebnf §P.2]
+%% entry read
+%% note A quote at a revision argument position means an ordinary expression, a string the binder coerces.
+%% input
+CALL diff('main...lane/l10') YIELD change
+%% tokens
+KW CALL
+NAME diff
+P (
+STR "main...lane/l10"
+P )
+KW YIELD
+NAME change
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _
+    (scall "diff" [(arg _ (str "main...lane/l10"))] items [(yitem "change" _)] _ [] _))]
+  []))
+%% end
+
+%% case tx-options
+%% source [LQ/grammar-v1.ebnf §P.12]
+%% source [LQ/canonical-ast §3.1] item 14
+%% entry write
+%% note TX options in any order go into fixed fields.
+%% input
+TX IF TIP c9b2e6c1 MESSAGE 'reprio' ON lane/l5np KEY 'k1' { SET #89.priority = 1 } DRY
+%% tokens
+KW TX
+KW IF
+KW TIP
+COMMIT 9b2e6c1
+KW MESSAGE
+STR "reprio"
+KW ON
+REF lane/l5np
+KW KEY
+STR "k1"
+P {
+KW SET
+NODE 89
+P .
+NAME priority
+P =
+INT 1
+P }
+KW DRY
+EOF -
+%% sast
+(tx (rref "lane/l5np") (rcommit "9b2e6c1") _ "k1" _ "reprio"
+ [(smuts [(mset [(assign (nid 89) "priority" (int 1))])])]
+ true)
+%% json-ir
+{"t":"tx","on":{"t":"rref","name":"lane/l5np"},"if_tip":{"t":"rcommit","hex":"9b2e6c1"},"key":"k1","message":"reprio","stmts":[{"t":"smuts","muts":[{"t":"mset","assigns":[{"t":"assign","target":{"t":"nid","n":89},"prop":"priority","value":1}]}]}],"dry":true}
+%% end
+
+%% case pattern-predicate
+%% source [50 §0.4]
+%% source [50 §2.9] mistake 1
+%% source [LQ/canonical-ast §3.1] item 5
+%% entry read
+%% note NOT (t)<-[:BLOCKS]-() is NOT EXISTS { (t)<-[:BLOCKS]-() }.
+%% input
+MATCH (t:task) WHERE t.status = 'open' AND NOT (t)<-[:BLOCKS]-() RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME status
+P =
+STR "open"
+KW AND
+KW NOT
+P (
+NAME t
+P )
+P <-
+P [
+P :
+NAME BLOCKS
+P ]
+P -
+P (
+P )
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "t" ["task"] [] _) [])]
+      (and (cmp = (prop (ident "t") "status") (str "open"))
+           (not (exists (subp [(path (npat "t" [] [] _)
+                                     [(estep (epat _ left ["BLOCKS"] _ [] _) (npat _ [] [] _))])]
+                              _)))))]
+    (return false false [(item (ident "t") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case exists-fn-pattern
+%% source [50 §2.8]
+%% source [LQ/grammar-v1.ebnf §P.9]
+%% source [LQ/canonical-ast §3.1] item 5
+%% entry read
+%% input
+MATCH (a:task) WHERE exists((a)-[:BLOCKS]->()) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P :
+NAME task
+P )
+KW WHERE
+KW EXISTS
+P (
+P (
+NAME a
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P (
+P )
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "a" ["task"] [] _) [])]
+      (exists (subp [(path (npat "a" [] [] _) [(estep (epat _ right ["BLOCKS"] _ [] _) (npat _ [] [] _))])] _)))]
+    (return false false [(item (ident "a") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case exists-braces
+%% source [LQ/grammar-v1.ebnf §P.8]
+%% source [LQ/canonical-ast §3.1] item 5
+%% entry read
+%% note The pattern form of EXISTS {}; exists(path) gives the same S-AST.
+%% input
+MATCH (a:task) WHERE EXISTS { (a)-[:BLOCKS]->() } RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P :
+NAME task
+P )
+KW WHERE
+KW EXISTS
+P {
+P (
+NAME a
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P (
+P )
+P }
+KW RETURN
+NAME a
+EOF -
+%% sast-same-as exists-fn-pattern
+%% end
+
+%% case size-fn-pattern
+%% source [50 §2.8]
+%% source [LQ/grammar-v1.ebnf §P.9]
+%% source [LQ/canonical-ast §3.1] item 5
+%% entry read
+%% input
+MATCH (t:task) RETURN t, size((t)<-[:BLOCKS]-()) AS n
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW RETURN
+NAME t
+P ,
+KW SIZE
+P (
+P (
+NAME t
+P )
+P <-
+P [
+P :
+NAME BLOCKS
+P ]
+P -
+P (
+P )
+P )
+KW AS
+NAME n
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _ [(path (npat "t" ["task"] [] _) [])] _)]
+    (return false false
+     [(item (ident "t") _)
+      (item (countsub (subp [(path (npat "t" [] [] _) [(estep (epat _ left ["BLOCKS"] _ [] _) (npat _ [] [] _))])] _)) "n")]
+     [] [] _)
+    _)]
+  []))
+%% end
+
+%% case exists-fn-property
+%% source [50 §2.8]
+%% source [LQ/grammar-v1.ebnf §P.9]
+%% source [LQ/canonical-ast §3.1] item 6
+%% entry read
+%% note exists(e) with one positional argument that is not a path is e IS NOT NULL.
+%% input
+MATCH (t:task) WHERE exists(t.assignee) RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+KW EXISTS
+P (
+NAME t
+P .
+NAME assignee
+P )
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "t" ["task"] [] _) [])]
+      (isnull true (prop (ident "t") "assignee")))]
+    (return false false [(item (ident "t") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case quant-cypher
+%% source [LQ/canonical-ast §3.1] item 4
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% input
+MATCH (x:task)-[:BLOCKS*1..3]->(y) RETURN x
+%% tokens
+KW MATCH
+P (
+NAME x
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P *
+INT 1
+P ..
+INT 3
+P ]
+P ->
+P (
+NAME y
+P )
+KW RETURN
+NAME x
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "x" ["task"] [] _) [(estep (epat _ right ["BLOCKS"] (quant 1 3) [] _) (npat "y" [] [] _))])]
+      _)]
+    (return false false [(item (ident "x") _)] [] [] _)
+    _)]
+  []))
+%% end
+
+%% case quant-gql
+%% source [LQ/canonical-ast §3.1] item 4
+%% source [LQ/gql-spelling §2.1]
+%% entry read
+%% note The Cypher and GQL spellings of one quantifier give one S-AST.
+%% input
+MATCH (x:task)-[:BLOCKS]->{1,3}(y) RETURN x
+%% tokens
+KW MATCH
+P (
+NAME x
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P {
+INT 1
+P ,
+INT 3
+P }
+P (
+NAME y
+P )
+KW RETURN
+NAME x
+EOF -
+%% sast-same-as quant-cypher
+%% end
+
+%% case quant-group
+%% source [50 §2.9] Q5
+%% source [LQ/json-ir §7] Q5
+%% source [LQ/grammar-v1.ebnf §P.6]
+%% entry read
+%% input
+MATCH (x:task)((a:task)-[:BLOCKS]->(b) WHERE a.unfinished){1,5}(#93) RETURN x
+%% tokens
+KW MATCH
+P (
+NAME x
+P :
+NAME task
+P )
+P (
+P (
+NAME a
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P (
+NAME b
+P )
+KW WHERE
+NAME a
+P .
+NAME unfinished
+P )
+P {
+INT 1
+P ,
+INT 5
+P }
+P (
+NODE 93
+P )
+KW RETURN
+NAME x
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "x" ["task"] [] _)
+             [(gstep (group (path (npat "a" ["task"] [] _)
+                                  [(estep (epat _ right ["BLOCKS"] _ [] _) (npat "b" [] [] _))])
+                            (prop (ident "a") "unfinished")
+                            (quant 1 5))
+                     (npat _ [] [(kv "id" (nid 93))] _))])]
+      _)]
+    (return false false [(item (ident "x") _)] [] [] _)
+    _)]
+  []))
+%% json-ir
+{"t":"read","query":{"t":"query","parts":[{"t":"part","clauses":[{"t":"match","patterns":[{"t":"path","start":{"t":"npat","var":"x","labels":["task"]},"steps":[{"t":"gstep","group":{"t":"group","path":{"t":"path","start":{"t":"npat","var":"a","labels":["task"]},"steps":[{"t":"estep","edge":{"t":"epat","dir":"right","types":["BLOCKS"]},"node":{"t":"npat","var":"b"}}]},"where":{"t":"prop","e":{"t":"ident","name":"a"},"name":"unfinished"},"quant":{"t":"quant","min":1,"max":5}},"node":{"t":"npat","props":[{"t":"kv","key":"id","value":{"t":"nid","n":93}}]}}]}]}],"return":{"t":"return","items":[{"t":"item","expr":{"t":"ident","name":"x"}}]}}]}}
+%% end
+
+%% case composite-use
+%% source [50 §2.9] Q15
+%% source [50 §3.9] item 2
+%% entry read
+%% input
+MATCH (t:task) WHERE t.unblocked RETURN t EXCEPT USE main~5 MATCH (t:task) WHERE t.unblocked RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME unblocked
+KW RETURN
+NAME t
+KW EXCEPT
+KW USE
+REF main
+SUF ~5
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME unblocked
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _ [(path (npat "t" ["task"] [] _) [])] (prop (ident "t") "unblocked"))]
+    (return false false [(item (ident "t") _)] [] [] _)
+    _)
+   (part (rsuf (rref "main") tilde 5 _)
+    [(match false _ [(path (npat "t" ["task"] [] _) [])] (prop (ident "t") "unblocked"))]
+    (return false false [(item (ident "t") _)] [] [] _)
+    _)]
+  [except]))
+%% end
+
+%% case null-comparison
+%% source [50 §2.9] mistake 8
+%% source [LQ/grammar-v1.ebnf §P.18]
+%% source [LQ/errors §5.3] E118
+%% entry read
+%% note E118's position is not fixed by the specification (INDEX.md §4 G-7); conv: the comparison operator.
+%% input
+MATCH (t:task) WHERE t.assignee = null RETURN t
+%% error E118 1:33 conv
+%% end
+
+%% case multi-label
+%% source [50 §2.5]
+%% source [LQ/grammar-v1.ebnf §R] :a:b
+%% entry read
+%% note Detected at the second ':' after a label_expr.
+%% input
+MATCH (n:note:rule) RETURN n
+%% error E004 1:14 spec
+%% end
+
+%% case use-in-exists
+%% source [50 §3.9] item 3
+%% source [LQ/grammar-v1.ebnf §P.8]
+%% entry read
+%% input
+MATCH (t:task) WHERE EXISTS { USE main MATCH (t)-[:BLOCKS]->() } RETURN t
+%% error E308 1:31 spec
+%% end
+
+%% case path-variable
+%% source [50 §2.8]
+%% source [LQ/grammar-v1.ebnf §R] p = <pattern>
+%% entry read
+%% note Detected at the pattern start: a non-reserved word followed by '='.
+%% input
+MATCH p = (a)-[:BLOCKS]->(b) RETURN p
+%% error E113 1:7 spec
+%% end
+
+%% case one-statement
+%% source [50 §2.2] rule 10
+%% source [LQ/grammar-v1.ebnf §P.17]
+%% entry read
+%% input
+MATCH (t) RETURN t;
+%% error E005 1:19 spec
+%% end
+
+%% case write-in-read
+%% source [50 §2.8]
+%% source [LQ/grammar-v1.ebnf §R] SET in read_input
+%% entry read
+%% input
+MATCH (t {id: #12}) SET t.priority = 1
+%% error E006 1:21 spec
+%% end
+
+%% case expect-required
+%% source [50 §3.10] item 3
+%% source [LQ/grammar-v1.ebnf §P.12]
+%% entry write
+%% note conv: the token where EXPECT was expected (INDEX.md §4 G-7).
+%% input
+TX { MATCH (t {id: #89}) SET t.done = true }
+%% error E007 1:26 conv
+%% end
+
+%% case empty-tx
+%% source [50 §3.10] item 1
+%% source [LQ/grammar-v1.ebnf §P.12]
+%% entry write
+%% note conv: the '}' where a statement was expected (INDEX.md §4 G-7).
+%% input
+TX { }
+%% error E009 1:6 conv
+%% end
+
+%% case where-after-return
+%% source [50 §2.7]
+%% source [LQ/grammar-v1.ebnf §P.17]
+%% entry read
+%% input
+MATCH (t:task) RETURN t WHERE t.priority = 1
+%% error E001 1:25 spec
+%% end
+
+%% case bad-quantifier
+%% source [LQ/gql-spelling §2.1]
+%% source [LQ/grammar-v1.ebnf §R] two quantifiers
+%% entry read
+%% note conv: the second quantifier (INDEX.md §4 G-7).
+%% input
+MATCH (a)-[:BLOCKS*2]->{1,3}(b) RETURN a
+%% error E114 1:24 conv
+%% end

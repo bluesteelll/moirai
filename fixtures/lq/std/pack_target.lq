@@ -1,0 +1,16 @@
+DEFINE QUERY pack_target($target: node) SHAPE node BUDGET medium AS {
+  MATCH (t) WHERE t = $target
+  RETURN t AS node, 'target' AS why
+  UNION
+  MATCH (a) WHERE a IN ancestors($target)
+  RETURN a AS node, 'ancestor' AS why
+  UNION
+  MATCH (q:question)-[:BLOCKS]->(t) WHERE t = $target AND q.unfinished
+  RETURN q AS node, 'question' AS why
+  UNION
+  MATCH (k)-[:ABOUT]->(x) WHERE x IN subtree($target) AND k.authority = 'owner'
+  RETURN k AS node, 'ruling' AS why
+  UNION
+  MATCH (t)-[:AT]->(f:artifact) WHERE t = $target
+  RETURN f AS node, 'link' AS why
+}

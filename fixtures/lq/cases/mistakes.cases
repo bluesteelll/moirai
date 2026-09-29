@@ -1,0 +1,426 @@
+# fixtures/lq/cases/mistakes.cases: the ten mistakes of [50 §2.9] with the frozen outcomes of [LQ/errors §7]
+# (WP-22, R-FIX). Each case writes the table's fragment as a whole query and asserts: the parse (S-AST where the
+# parse is the point), the outcome (runs, or the first error's code), the warnings the binder raises, and the
+# reading-echo lines ([LQ/envelope §4]) under the gated profile ([90 §8.2]; mistakes 4 and 5 are anchored hops on
+# same-kind edges and echo under every profile).
+# Context for binding: the core schema ([F08]) and a store in which the named nodes exist (#51, #88, #93 tasks;
+# #130 a doc) on branch main with lane/l5np. The gt10/ walk-through store has nodes of these kinds under other
+# numbers (fixtures/gt10/walkthrough.cases), so a harness that runs these outcomes creates the four ids itself.
+# Store-dependent notices (N07 when a result is empty) are stated as notes, not asserted.
+# Format: fixtures/lq/INDEX.md §2.
+
+%% case mistake-1
+%% source [50 §2.9] mistake 1
+%% source [LQ/errors §7] row 1
+%% source [50 §3.2] W07
+%% entry read
+%% profile gated
+%% context schema core
+%% context branch main
+%% note Intent: open tasks with no blockers. Parses as NOT EXISTS {...}; the hand-derived readiness draws W07.
+%% input
+MATCH (t:task) WHERE t.status = 'open' AND NOT (t)<-[:BLOCKS]-() RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME status
+P =
+STR "open"
+KW AND
+KW NOT
+P (
+NAME t
+P )
+P <-
+P [
+P :
+NAME BLOCKS
+P ]
+P -
+P (
+P )
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "t" ["task"] [] _) [])]
+      (and (cmp = (prop (ident "t") "status") (str "open"))
+           (not (exists (subp [(path (npat "t" [] [] _)
+                                     [(estep (epat _ left ["BLOCKS"] _ [] _) (npat _ [] [] _))])]
+                              _)))))]
+    (return false false [(item (ident "t") _)] [] [] _)
+    _)]
+  []))
+%% warnings W07
+%% outcome runs
+%% reads
+%% end
+
+%% case mistake-2
+%% source [50 §2.9] mistake 2
+%% source [LQ/errors §7] row 2
+%% source [50 §3.2] W07
+%% entry read
+%% profile gated
+%% context schema core
+%% context branch main
+%% note Intent: ready tasks, hand-written. Runs; W07.
+%% input
+MATCH (t:task) WHERE t.status = 'open' AND NOT EXISTS { MATCH (b)-[:BLOCKS]->(t) WHERE b.status <> 'done' } RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME status
+P =
+STR "open"
+KW AND
+KW NOT
+KW EXISTS
+P {
+KW MATCH
+P (
+NAME b
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P (
+NAME t
+P )
+KW WHERE
+NAME b
+P .
+NAME status
+P <>
+STR "done"
+P }
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "t" ["task"] [] _) [])]
+      (and (cmp = (prop (ident "t") "status") (str "open"))
+           (not (exists (subq [(match false _ [(path (npat "b" [] [] _) [(estep (epat _ right ["BLOCKS"] _ [] _) (npat "t" [] [] _))])]
+                                      (cmp <> (prop (ident "b") "status") (str "done")))]
+                              _)))))]
+    (return false false [(item (ident "t") _)] [] [] _)
+    _)]
+  []))
+%% warnings W07
+%% outcome runs
+%% reads
+%% end
+
+%% case mistake-3
+%% source [50 §2.9] mistake 3
+%% source [LQ/errors §7] row 3
+%% source [50 §3.4] item 1
+%% source [50 §2.9] Q29
+%% entry read
+%% profile gated
+%% context schema core
+%% context branch main
+%% note Intent: blockers per task. Bag counting: one binding per matched BLOCKS edge, as in Cypher. No diagnostic.
+%% input
+MATCH (t:task)<-[:BLOCKS]-() RETURN t.id, count(*) AS blockers
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+P <-
+P [
+P :
+NAME BLOCKS
+P ]
+P -
+P (
+P )
+KW RETURN
+NAME t
+P .
+NAME id
+P ,
+KW COUNT
+P (
+P *
+P )
+KW AS
+NAME blockers
+EOF -
+%% warnings none
+%% notices none
+%% outcome runs
+%% reads
+%% end
+
+%% case mistake-4
+%% source [50 §2.9] mistake 4
+%% source [LQ/errors §7] row 4
+%% source [LQ/envelope §4]
+%% entry read
+%% profile gated
+%% context schema core
+%% context branch main
+%% note Intent: what #51 waits on. The echo states the stored reading, the opposite of the intent.
+%% note When the result is empty and BLOCKS edges point into #51, the result carries N07 (errors-text.cases n07-reverse-edges).
+%% input
+MATCH (#51)-[:BLOCKS]->(b) RETURN b
+%% tokens
+KW MATCH
+P (
+NODE 51
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P (
+NAME b
+P )
+KW RETURN
+NAME b
+EOF -
+%% warnings none
+%% outcome runs
+%% reads
+reads: #51 BLOCKS b | #51 must finish before b starts
+%% end
+
+%% case mistake-5
+%% source [50 §2.9] mistake 5
+%% source [LQ/errors §7] row 5
+%% source [LQ/envelope §4.3]
+%% entry read
+%% profile gated
+%% context schema core
+%% context branch main
+%% note Intent: children of #88. An anchored endpoint prints as its id, even when it has a variable.
+%% input
+MATCH (p {id: #88})-[:CHILD_OF]->(c:task) RETURN c
+%% tokens
+KW MATCH
+P (
+NAME p
+P {
+NAME id
+P :
+NODE 88
+P }
+P )
+P -
+P [
+P :
+NAME CHILD_OF
+P ]
+P ->
+P (
+NAME c
+P :
+NAME task
+P )
+KW RETURN
+NAME c
+EOF -
+%% warnings none
+%% outcome runs
+%% reads
+reads: #88 CHILD_OF c | #88 is a child of c
+%% end
+
+%% case mistake-6
+%% source [50 §2.9] mistake 6
+%% source [LQ/errors §7] row 6
+%% source [LQ/errors §5.3] E106 DEPENDS_ON row
+%% entry read
+%% profile gated
+%% context schema core
+%% context branch main
+%% note Intent: what #93 depends on. E106 with the DEPENDS_ON row: message 'DEPENDS_ON links doc sections (doc -> doc);
+%% note ... are tasks', inline 'between tasks write (d)-[:BLOCKS]->(t) (d finishes before t) or (t)-[:BLOCKED_BY]->(d)'.
+%% note The span of a binder error is not fixed by the specification (INDEX.md §4 G-7), so no position is asserted.
+%% input
+MATCH (t:task)-[:DEPENDS_ON]->(d:task) WHERE t = #93 RETURN d
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+P -
+P [
+P :
+NAME DEPENDS_ON
+P ]
+P ->
+P (
+NAME d
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P =
+NODE 93
+KW RETURN
+NAME d
+EOF -
+%% error E106 *
+%% outcome error
+%% end
+
+%% case mistake-7
+%% source [50 §2.9] mistake 7
+%% source [LQ/errors §7] row 7
+%% entry read
+%% profile gated
+%% context schema core
+%% context branch main
+%% note Intent: section dependencies. s1 is an identifier. No diagnostic; the hop is not anchored, so no echo under gated.
+%% input
+MATCH (s1:doc)-[:DEPENDS_ON]->(s2:doc) RETURN s1, s2
+%% tokens
+KW MATCH
+P (
+NAME s1
+P :
+NAME doc
+P )
+P -
+P [
+P :
+NAME DEPENDS_ON
+P ]
+P ->
+P (
+NAME s2
+P :
+NAME doc
+P )
+KW RETURN
+NAME s1
+P ,
+NAME s2
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+    [(match false _
+      [(path (npat "s1" ["doc"] [] _) [(estep (epat _ right ["DEPENDS_ON"] _ [] _) (npat "s2" ["doc"] [] _))])]
+      _)]
+    (return false false [(item (ident "s1") _) (item (ident "s2") _)] [] [] _)
+    _)]
+  []))
+%% warnings none
+%% notices none
+%% outcome runs
+%% reads
+%% end
+
+%% case mistake-8
+%% source [50 §2.9] mistake 8
+%% source [LQ/errors §7] row 8
+%% source [LQ/grammar-v1.ebnf §P.18]
+%% entry read
+%% profile gated
+%% context schema core
+%% context branch main
+%% note Intent: unassigned tasks. E118 with the inline 'write t.assignee IS NULL' (errors-text.cases e118-eq-null).
+%% input
+MATCH (t:task) WHERE t.assignee = null RETURN t
+%% error E118 1:33 conv
+%% outcome error
+%% end
+
+%% case mistake-9
+%% source [50 §2.9] mistake 9
+%% source [LQ/errors §7] row 9
+%% source [LQ/errors §5.3] E102 labels() row
+%% entry read
+%% profile gated
+%% context schema core
+%% context branch main
+%% note Intent: tasks labelled l5. E102 with the labels() row (the value is not a kind; the rewrite names t.labels).
+%% note No position is asserted (INDEX.md §4 G-7); the rendering of <value> in the inline is gap G-9.
+%% input
+MATCH (t:task) WHERE 'l5' IN labels(t) RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+STR "l5"
+KW IN
+NAME labels
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% error E102 *
+%% outcome error
+%% end
+
+%% case mistake-10
+%% source [50 §2.9] mistake 10
+%% source [LQ/errors §7] row 10
+%% entry read
+%% profile gated
+%% context schema core
+%% context branch main
+%% note Intent: lane commits not on main. Two revisions and a range; a standalone call without YIELD.
+%% input
+CALL log(main..lane/l5np)
+%% tokens
+KW CALL
+NAME log
+P (
+REF main
+RANGE ..
+REF lane/l5np
+P )
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _ (scall "log" [(arg _ (rrange (rref "main") two (rref "lane/l5np")))] none [] _ [] _))]
+  []))
+%% warnings none
+%% notices none
+%% outcome runs
+%% end

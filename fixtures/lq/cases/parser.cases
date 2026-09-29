@@ -1,0 +1,2940 @@
+# fixtures/lq/cases/parser.cases: the parser of [LQ/grammar-v1.ebnf] (WP-22, R-FIX): the decisions of Annex P
+# (accepted inputs with their S-AST, [LQ/canonical-ast §3]) and every refused form of Annex R with its code.
+# Positions: 'spec' when the grammar's detection point fixes the token (the found token of a generic E001, the token
+# a rule names); 'conv' otherwise: the first token of the refused form (INDEX.md §4 G-7).
+# Format: fixtures/lq/INDEX.md §2.
+
+%% case pp-paren-var-minus
+%% source [LQ/grammar-v1.ebnf §P.5]
+%% entry read
+%% note (a) is a node pattern, but - followed by 1 is no edge operator, so no path is attempted.
+%% input
+MATCH (a:task) RETURN (a) - 1 AS x
+%% tokens
+KW MATCH
+P (
+NAME a
+P :
+NAME task
+P )
+KW RETURN
+P (
+NAME a
+P )
+P -
+INT 1
+KW AS
+NAME x
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "a" ["task"] [] _) [])] _)]
+   (return false false [(item (arith - (ident "a") (int 1)) "x")] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-path-pred-undirected
+%% source [LQ/grammar-v1.ebnf §P.5]
+%% entry read
+%% note (a) followed by - - is a path: a pattern predicate.
+%% input
+MATCH (a:task), (b:task) RETURN (a)--(b) AS linked
+%% tokens
+KW MATCH
+P (
+NAME a
+P :
+NAME task
+P )
+P ,
+P (
+NAME b
+P :
+NAME task
+P )
+KW RETURN
+P (
+NAME a
+P )
+P -
+P -
+P (
+NAME b
+P )
+KW AS
+NAME linked
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "a" ["task"] [] _) []) (path (npat "b" ["task"] [] _) [])] _)]
+   (return false false
+    [(item (exists (subp [(path (npat "a" [] [] _) [(estep (epat _ both [] _ [] _) (npat "b" [] [] _))])] _)) "linked")]
+    [] [] _) _)]
+  []))
+%% end
+
+%% case pp-path-pred-group
+%% source [LQ/grammar-v1.ebnf §P.5], §P.6
+%% entry read
+%% note A '(' after the first node pattern also starts a path: a quantified group inside a pattern predicate.
+%% input
+MATCH (a:task), (b:task) WHERE (a)((x)-[:BLOCKS]->(y)){1,3}(b) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P :
+NAME task
+P )
+P ,
+P (
+NAME b
+P :
+NAME task
+P )
+KW WHERE
+P (
+NAME a
+P )
+P (
+P (
+NAME x
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P ]
+P ->
+P (
+NAME y
+P )
+P )
+P {
+INT 1
+P ,
+INT 3
+P }
+P (
+NAME b
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "a" ["task"] [] _) []) (path (npat "b" ["task"] [] _) [])]
+     (exists (subp [(path (npat "a" [] [] _)
+                          [(gstep (group (path (npat "x" [] [] _) [(estep (epat _ right ["BLOCKS"] _ [] _) (npat "y" [] [] _))]) _ (quant 1 3))
+                                  (npat "b" [] [] _))])] _)))]
+   (return false false [(item (ident "a") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-label-test-argument
+%% source [LQ/grammar-v1.ebnf §P.10]
+%% entry read
+%% note A label test in an argument list needs parentheses.
+%% input
+MATCH (k) RETURN coalesce((k:note), false) AS n
+%% tokens
+KW MATCH
+P (
+NAME k
+P )
+KW RETURN
+NAME coalesce
+P (
+P (
+NAME k
+P :
+NAME note
+P )
+P ,
+KW FALSE
+P )
+KW AS
+NAME n
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "k" [] [] _) [])] _)]
+   (return false false
+    [(item (fn "coalesce" false [(arg _ (labeltest (ident "k") ["note"])) (arg _ (bool false))]) "n")] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-named-argument-case
+%% source [LQ/grammar-v1.ebnf §P.10], O-10
+%% entry read
+%% note Named-argument names are case-sensitive and kept as written; the binder refuses the unknown name (E109).
+%% input
+CALL blockers(#51, Transitive: true) YIELD blocker
+%% tokens
+KW CALL
+NAME blockers
+P (
+NODE 51
+P ,
+NAME Transitive
+P :
+KW TRUE
+P )
+KW YIELD
+NAME blocker
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _ (scall "blockers" [(arg _ (nid 51)) (arg "Transitive" (bool true))] items [(yitem "blocker" _)] _ [] _))]
+  []))
+%% end
+
+%% case pp-standalone-yield-star
+%% source [LQ/grammar-v1.ebnf §P.7]
+%% entry read
+%% input
+CALL blockers(#51) YIELD *
+%% tokens
+KW CALL
+NAME blockers
+P (
+NODE 51
+P )
+KW YIELD
+P *
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _ (scall "blockers" [(arg _ (nid 51))] star [] _ [] _))]
+  []))
+%% end
+
+%% case pp-standalone-no-yield
+%% source [LQ/grammar-v1.ebnf §P.7]
+%% entry read
+%% input
+CALL schema()
+%% tokens
+KW CALL
+NAME schema
+P (
+P )
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _ (scall "schema" [] none [] _ [] _))]
+  []))
+%% end
+
+%% case pp-standalone-order-limit
+%% source [LQ/grammar-v1.ebnf §P.7]
+%% entry read
+%% input
+CALL blockers(#51, transitive: true) YIELD blocker, depth WHERE depth > 1 ORDER BY depth DESC, blocker LIMIT 5
+%% tokens
+KW CALL
+NAME blockers
+P (
+NODE 51
+P ,
+NAME transitive
+P :
+KW TRUE
+P )
+KW YIELD
+NAME blocker
+P ,
+NAME depth
+KW WHERE
+NAME depth
+P >
+INT 1
+KW ORDER
+KW BY
+NAME depth
+KW DESC
+P ,
+NAME blocker
+KW LIMIT
+INT 5
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [] _ (scall "blockers" [(arg _ (nid 51)) (arg "transitive" (bool true))] items
+   [(yitem "blocker" _) (yitem "depth" _)] (cmp > (ident "depth") (int 1))
+   [(sort (ident "depth") desc) (sort (ident "blocker") asc)] (int 5)))]
+  []))
+%% end
+
+%% case pp-call-clause-then-match
+%% source [LQ/grammar-v1.ebnf §P.7]
+%% entry read
+%% input
+CALL blockers(#51) YIELD blocker AS b MATCH (b)-[:CHILD_OF]->(p) RETURN b, p
+%% tokens
+KW CALL
+NAME blockers
+P (
+NODE 51
+P )
+KW YIELD
+NAME blocker
+KW AS
+NAME b
+KW MATCH
+P (
+NAME b
+P )
+P -
+P [
+P :
+NAME CHILD_OF
+P ]
+P ->
+P (
+NAME p
+P )
+KW RETURN
+NAME b
+P ,
+NAME p
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+   [(call "blockers" [(arg _ (nid 51))] [(yitem "blocker" "b")] _)
+    (match false _ [(path (npat "b" [] [] _) [(estep (epat _ right ["CHILD_OF"] _ [] _) (npat "p" [] [] _))])] _)]
+   (return false false [(item (ident "b") _) (item (ident "p") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-call-after-clause
+%% source [LQ/grammar-v1.ebnf §P.7]
+%% entry read
+%% input
+MATCH (t:task) CALL blockers(t) YIELD blocker WHERE blocker.status = 'open' RETURN t, blocker
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW CALL
+NAME blockers
+P (
+NAME t
+P )
+KW YIELD
+NAME blocker
+KW WHERE
+NAME blocker
+P .
+NAME status
+P =
+STR "open"
+KW RETURN
+NAME t
+P ,
+NAME blocker
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+   [(match false _ [(path (npat "t" ["task"] [] _) [])] _)
+    (call "blockers" [(arg _ (ident "t"))] [(yitem "blocker" _)] (cmp = (prop (ident "blocker") "status") (str "open")))]
+   (return false false [(item (ident "t") _) (item (ident "blocker") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-count-forms
+%% source [LQ/grammar-v1.ebnf §P.9]
+%% entry read
+%% note count( * ) and COUNT { are keyword forms; count(x) is a generic call (NAME).
+%% input
+MATCH (f:finding) RETURN count(*) AS a, count(f) AS b, count(DISTINCT f.round) AS c, COUNT { (f)-[:ABOUT]->() } AS d
+%% tokens
+KW MATCH
+P (
+NAME f
+P :
+NAME finding
+P )
+KW RETURN
+KW COUNT
+P (
+P *
+P )
+KW AS
+NAME a
+P ,
+NAME count
+P (
+NAME f
+P )
+KW AS
+NAME b
+P ,
+NAME count
+P (
+KW DISTINCT
+NAME f
+P .
+NAME round
+P )
+KW AS
+NAME c
+P ,
+KW COUNT
+P {
+P (
+NAME f
+P )
+P -
+P [
+P :
+NAME ABOUT
+P ]
+P ->
+P (
+P )
+P }
+KW AS
+NAME d
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "f" ["finding"] [] _) [])] _)]
+   (return false false
+    [(item (countstar) "a")
+     (item (fn "count" false [(arg _ (ident "f"))]) "b")
+     (item (fn "count" true [(arg _ (prop (ident "f") "round"))]) "c")
+     (item (countsub (subp [(path (npat "f" [] [] _) [(estep (epat _ right ["ABOUT"] _ [] _) (npat _ [] [] _))])] _)) "d")]
+    [] [] _) _)]
+  []))
+%% end
+
+%% case pp-list-predicates
+%% source [LQ/grammar-v1.ebnf §P.9]
+%% entry read
+%% input
+MATCH (t:task) WHERE all(l IN t.labels WHERE l STARTS WITH 'l') AND any(x IN [1, 2] WHERE x > 1) AND none(g IN t.files_owned WHERE g ENDS WITH '.md') RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+KW ALL
+P (
+NAME l
+KW IN
+NAME t
+P .
+NAME labels
+KW WHERE
+NAME l
+KW STARTS
+KW WITH
+STR "l"
+P )
+KW AND
+KW ANY
+P (
+NAME x
+KW IN
+P [
+INT 1
+P ,
+INT 2
+P ]
+KW WHERE
+NAME x
+P >
+INT 1
+P )
+KW AND
+KW NONE
+P (
+NAME g
+KW IN
+NAME t
+P .
+NAME files_owned
+KW WHERE
+NAME g
+KW ENDS
+KW WITH
+STR ".md"
+P )
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+   [(match false _ [(path (npat "t" ["task"] [] _) [])]
+     (and (and (listpred all "l" (prop (ident "t") "labels") (strpred starts (ident "l") (str "l")))
+               (listpred any "x" (list [(int 1) (int 2)]) (cmp > (ident "x") (int 1))))
+          (listpred none "g" (prop (ident "t") "files_owned") (strpred ends (ident "g") (str ".md")))))]
+   (return false false [(item (ident "t") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-case-subject
+%% source [LQ/grammar-v1.ebnf] case_expr
+%% entry read
+%% input
+MATCH (t:task) RETURN CASE t.status WHEN 'open' THEN 1 WHEN 'done' THEN 2 ELSE 0 END AS s
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW RETURN
+KW CASE
+NAME t
+P .
+NAME status
+KW WHEN
+STR "open"
+KW THEN
+INT 1
+KW WHEN
+STR "done"
+KW THEN
+INT 2
+KW ELSE
+INT 0
+KW END
+KW AS
+NAME s
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "t" ["task"] [] _) [])] _)]
+   (return false false
+    [(item (case (prop (ident "t") "status") [(when (str "open") (int 1)) (when (str "done") (int 2))] (int 0)) "s")]
+    [] [] _) _)]
+  []))
+%% end
+
+%% case pp-with-forms
+%% source [LQ/grammar-v1.ebnf §P.16]
+%% entry read
+%% input
+MATCH (t:task) WITH DISTINCT *, t.status AS s WHERE s <> 'done' ORDER BY s LIMIT 10 RETURN s
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WITH
+KW DISTINCT
+P *
+P ,
+NAME t
+P .
+NAME status
+KW AS
+NAME s
+KW WHERE
+NAME s
+P <>
+STR "done"
+KW ORDER
+KW BY
+NAME s
+KW LIMIT
+INT 10
+KW RETURN
+NAME s
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+   [(match false _ [(path (npat "t" ["task"] [] _) [])] _)
+    (with true true [(item (prop (ident "t") "status") "s")] (cmp <> (ident "s") (str "done")) [(sort (ident "s") asc)] (int 10))]
+   (return false false [(item (ident "s") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-return-distinct-star
+%% source [LQ/canonical-ast §3.1] item 9
+%% entry read
+%% input
+MATCH (t:task) RETURN DISTINCT * ORDER BY t.id ASCENDING LIMIT $n
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW RETURN
+KW DISTINCT
+P *
+KW ORDER
+KW BY
+NAME t
+P .
+NAME id
+KW ASCENDING
+KW LIMIT
+PARAM n
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "t" ["task"] [] _) [])] _)]
+   (return true true [] [] [(sort (prop (ident "t") "id") asc)] (param "n")) _)]
+  []))
+%% end
+
+%% case pp-sort-directions
+%% source [LQ/canonical-ast §3.1] item 9
+%% entry read
+%% input
+MATCH (t:task) RETURN t ORDER BY t.a DESCENDING, t.b ASC, t.c DESC, t.d
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW RETURN
+NAME t
+KW ORDER
+KW BY
+NAME t
+P .
+NAME a
+KW DESCENDING
+P ,
+NAME t
+P .
+NAME b
+KW ASC
+P ,
+NAME t
+P .
+NAME c
+KW DESC
+P ,
+NAME t
+P .
+NAME d
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "t" ["task"] [] _) [])] _)]
+   (return false false [(item (ident "t") _)] []
+    [(sort (prop (ident "t") "a") desc) (sort (prop (ident "t") "b") asc) (sort (prop (ident "t") "c") desc) (sort (prop (ident "t") "d") asc)] _) _)]
+  []))
+%% end
+
+%% case pp-set-operations
+%% source [LQ/grammar-v1.ebnf] set_op
+%% entry read
+%% note Parts combine left to right; ops has one entry fewer than parts.
+%% input
+MATCH (a:task) RETURN a UNION ALL MATCH (b:doc) RETURN b INTERSECT MATCH (c) RETURN c UNION MATCH (d) RETURN d
+%% tokens
+KW MATCH
+P (
+NAME a
+P :
+NAME task
+P )
+KW RETURN
+NAME a
+KW UNION
+KW ALL
+KW MATCH
+P (
+NAME b
+P :
+NAME doc
+P )
+KW RETURN
+NAME b
+KW INTERSECT
+KW MATCH
+P (
+NAME c
+P )
+KW RETURN
+NAME c
+KW UNION
+KW MATCH
+P (
+NAME d
+P )
+KW RETURN
+NAME d
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "a" ["task"] [] _) [])] _)] (return false false [(item (ident "a") _)] [] [] _) _)
+   (part _ [(match false _ [(path (npat "b" ["doc"] [] _) [])] _)] (return false false [(item (ident "b") _)] [] [] _) _)
+   (part _ [(match false _ [(path (npat "c" [] [] _) [])] _)] (return false false [(item (ident "c") _)] [] [] _) _)
+   (part _ [(match false _ [(path (npat "d" [] [] _) [])] _)] (return false false [(item (ident "d") _)] [] [] _) _)]
+  [union_all intersect union]))
+%% end
+
+%% case pp-optional-match
+%% source [LQ/canonical-ast §3.2] match
+%% entry read
+%% input
+MATCH (t:task) OPTIONAL MATCH (t)<-[:GATES]-(v:verdict) WHERE v.outcome = 'fail_fixable' RETURN t, v
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW OPTIONAL
+KW MATCH
+P (
+NAME t
+P )
+P <-
+P [
+P :
+NAME GATES
+P ]
+P -
+P (
+NAME v
+P :
+NAME verdict
+P )
+KW WHERE
+NAME v
+P .
+NAME outcome
+P =
+STR "fail_fixable"
+KW RETURN
+NAME t
+P ,
+NAME v
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+   [(match false _ [(path (npat "t" ["task"] [] _) [])] _)
+    (match true _ [(path (npat "t" [] [] _) [(estep (epat _ left ["GATES"] _ [] _) (npat "v" ["verdict"] [] _))])]
+     (cmp = (prop (ident "v") "outcome") (str "fail_fixable")))]
+   (return false false [(item (ident "t") _) (item (ident "v") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-unwind
+%% source [LQ/grammar-v1.ebnf] unwind_clause
+%% entry read
+%% input
+UNWIND [1, 2, 3] AS x RETURN x
+%% tokens
+KW UNWIND
+P [
+INT 1
+P ,
+INT 2
+P ,
+INT 3
+P ]
+KW AS
+NAME x
+KW RETURN
+NAME x
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(unwind (list [(int 1) (int 2) (int 3)]) "x")] (return false false [(item (ident "x") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-map-list-literals
+%% source [LQ/canonical-ast §3.1] item 8
+%% entry read
+%% input
+RETURN {a: 1, b: [2, 3], c: {}} AS m, [] AS l
+%% tokens
+KW RETURN
+P {
+NAME a
+P :
+INT 1
+P ,
+NAME b
+P :
+P [
+INT 2
+P ,
+INT 3
+P ]
+P ,
+NAME c
+P :
+P {
+P }
+P }
+KW AS
+NAME m
+P ,
+P [
+P ]
+KW AS
+NAME l
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ []
+   (return false false
+    [(item (map [(kv "a" (int 1)) (kv "b" (list [(int 2) (int 3)])) (kv "c" (map []))]) "m")
+     (item (list []) "l")] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-empty-prop-map
+%% source [LQ/canonical-ast §3.1] item 8
+%% entry read
+%% input
+MATCH (t:task {}) RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P {
+P }
+P )
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "t" ["task"] [] _) [])] _)] (return false false [(item (ident "t") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-pattern-where-and-props
+%% source [LQ/grammar-v1.ebnf] node_pat, edge_body
+%% entry read
+%% input
+MATCH (t:task WHERE t.priority = 0)-[e:BLOCKS|GATES {flagged: true} WHERE e.flagged]->(u) RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+KW WHERE
+NAME t
+P .
+NAME priority
+P =
+INT 0
+P )
+P -
+P [
+NAME e
+P :
+NAME BLOCKS
+P |
+NAME GATES
+P {
+NAME flagged
+P :
+KW TRUE
+P }
+KW WHERE
+NAME e
+P .
+NAME flagged
+P ]
+P ->
+P (
+NAME u
+P )
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+   [(match false _
+     [(path (npat "t" ["task"] [] (cmp = (prop (ident "t") "priority") (int 0)))
+            [(estep (epat "e" right ["BLOCKS" "GATES"] _ [(kv "flagged" (bool true))] (prop (ident "e") "flagged"))
+                    (npat "u" [] [] _))])] _)]
+   (return false false [(item (ident "t") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-label-alternation
+%% source [LQ/grammar-v1.ebnf] label_expr
+%% entry read
+%% input
+MATCH (k:note|rule|decision) RETURN k
+%% tokens
+KW MATCH
+P (
+NAME k
+P :
+NAME note
+P |
+NAME rule
+P |
+NAME decision
+P )
+KW RETURN
+NAME k
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "k" ["note" "rule" "decision"] [] _) [])] _)] (return false false [(item (ident "k") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-predicates
+%% source [LQ/canonical-ast §3.1] items 2 and 3
+%% entry read
+%% note x NOT IN y gives not(in(x, y)); IS NOT NULL gives isnull with neg = true; AND is left-associative.
+%% input
+MATCH (t:task) WHERE t.title STARTS WITH 'A' AND t.title ENDS WITH 'z' AND t.title CONTAINS 'm' AND t.assignee IS NULL AND t.parent IS NOT NULL AND t.status NOT IN ['done'] AND t:task|doc RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME title
+KW STARTS
+KW WITH
+STR "A"
+KW AND
+NAME t
+P .
+NAME title
+KW ENDS
+KW WITH
+STR "z"
+KW AND
+NAME t
+P .
+NAME title
+KW CONTAINS
+STR "m"
+KW AND
+NAME t
+P .
+NAME assignee
+KW IS
+KW NULL
+KW AND
+NAME t
+P .
+NAME parent
+KW IS
+KW NOT
+KW NULL
+KW AND
+NAME t
+P .
+NAME status
+KW NOT
+KW IN
+P [
+STR "done"
+P ]
+KW AND
+NAME t
+P :
+NAME task
+P |
+NAME doc
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+   [(match false _ [(path (npat "t" ["task"] [] _) [])]
+     (and (and (and (and (and (and (strpred starts (prop (ident "t") "title") (str "A"))
+                                   (strpred ends (prop (ident "t") "title") (str "z")))
+                              (strpred contains (prop (ident "t") "title") (str "m")))
+                         (isnull false (prop (ident "t") "assignee")))
+                    (isnull true (prop (ident "t") "parent")))
+               (not (in (prop (ident "t") "status") (list [(str "done")]))))
+          (labeltest (ident "t") ["task" "doc"])))]
+   (return false false [(item (ident "t") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-arithmetic-precedence
+%% source [LQ/grammar-v1.ebnf §4]
+%% entry read
+%% input
+RETURN 1 + 2 * 3 - -4 / 2 AS x
+%% tokens
+KW RETURN
+INT 1
+P +
+INT 2
+P *
+INT 3
+P -
+P -
+INT 4
+P /
+INT 2
+KW AS
+NAME x
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ []
+   (return false false
+    [(item (arith - (arith + (int 1) (arith * (int 2) (int 3))) (arith / (neg (int 4)) (int 2))) "x")] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-boolean-precedence
+%% source [LQ/grammar-v1.ebnf §4]
+%% entry read
+%% input
+MATCH (t) WHERE NOT t.a = 1 OR t.b AND NOT NOT t.c RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P )
+KW WHERE
+KW NOT
+NAME t
+P .
+NAME a
+P =
+INT 1
+KW OR
+NAME t
+P .
+NAME b
+KW AND
+KW NOT
+KW NOT
+NAME t
+P .
+NAME c
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+   [(match false _ [(path (npat "t" [] [] _) [])]
+     (or (not (cmp = (prop (ident "t") "a") (int 1)))
+         (and (prop (ident "t") "b") (not (not (prop (ident "t") "c"))))))]
+   (return false false [(item (ident "t") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-ordered-null-parses
+%% source [LQ/grammar-v1.ebnf §P.18], O-7
+%% entry read
+%% note Ordered comparisons with NULL are left to the binder; only =, <> and != are E118 at parse time.
+%% input
+MATCH (t) WHERE t.a < NULL RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P )
+KW WHERE
+NAME t
+P .
+NAME a
+P <
+KW NULL
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "t" [] [] _) [])] (cmp < (prop (ident "t") "a") (null)))]
+   (return false false [(item (ident "t") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-explain
+%% source [LQ/canonical-ast §3.2] read
+%% entry read
+%% input
+EXPLAIN MATCH (t) RETURN t
+%% tokens
+KW EXPLAIN
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read explain (query [(part _ [(match false _ [(path (npat "t" [] [] _) [])] _)] (return false false [(item (ident "t") _)] [] [] _) _)] []))
+%% end
+
+%% case pp-profile
+%% source [LQ/canonical-ast §3.2] read
+%% entry read
+%% input
+PROFILE MATCH (t) RETURN t
+%% tokens
+KW PROFILE
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read profile (query [(part _ [(match false _ [(path (npat "t" [] [] _) [])] _)] (return false false [(item (ident "t") _)] [] [] _) _)] []))
+%% end
+
+%% case pp-match-mode-walk
+%% source [LQ/grammar-v1.ebnf] match_mode
+%% entry read
+%% note The binder raises W02 for WALK.
+%% input
+MATCH WALK (a)-[:RELATES]-+(b) RETURN b
+%% tokens
+KW MATCH
+KW WALK
+P (
+NAME a
+P )
+P -
+P [
+P :
+NAME RELATES
+P ]
+P -
+P +
+P (
+NAME b
+P )
+KW RETURN
+NAME b
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false walk [(path (npat "a" [] [] _) [(estep (epat _ both ["RELATES"] (quant 1 _) [] _) (npat "b" [] [] _))])] _)]
+   (return false false [(item (ident "b") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-match-mode-different-edges
+%% source [LQ/canonical-ast §3.1] item 11
+%% entry read
+%% input
+MATCH DIFFERENT EDGES (a)-->(b) RETURN a
+%% tokens
+KW MATCH
+KW DIFFERENT
+KW EDGES
+P (
+NAME a
+P )
+P -
+P ->
+P (
+NAME b
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false different [(path (npat "a" [] [] _) [(estep (epat _ right [] _ [] _) (npat "b" [] [] _))])] _)]
+   (return false false [(item (ident "a") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-edge-quantifier-forms
+%% source [LQ/canonical-ast §3.1] item 4
+%% entry read
+%% input
+MATCH (a)-[:T]->{,2}(b), (c)-[:T*..2]->(d), (e)-[:T*2..]->(f), (g)-[:T*3]->(h), (i)-[:T*0..]->(j) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P -
+P [
+P :
+NAME T
+P ]
+P ->
+P {
+P ,
+INT 2
+P }
+P (
+NAME b
+P )
+P ,
+P (
+NAME c
+P )
+P -
+P [
+P :
+NAME T
+P *
+P ..
+INT 2
+P ]
+P ->
+P (
+NAME d
+P )
+P ,
+P (
+NAME e
+P )
+P -
+P [
+P :
+NAME T
+P *
+INT 2
+P ..
+P ]
+P ->
+P (
+NAME f
+P )
+P ,
+P (
+NAME g
+P )
+P -
+P [
+P :
+NAME T
+P *
+INT 3
+P ]
+P ->
+P (
+NAME h
+P )
+P ,
+P (
+NAME i
+P )
+P -
+P [
+P :
+NAME T
+P *
+INT 0
+P ..
+P ]
+P ->
+P (
+NAME j
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+   [(match false _
+     [(path (npat "a" [] [] _) [(estep (epat _ right ["T"] (quant 0 2) [] _) (npat "b" [] [] _))])
+      (path (npat "c" [] [] _) [(estep (epat _ right ["T"] (quant 1 2) [] _) (npat "d" [] [] _))])
+      (path (npat "e" [] [] _) [(estep (epat _ right ["T"] (quant 2 _) [] _) (npat "f" [] [] _))])
+      (path (npat "g" [] [] _) [(estep (epat _ right ["T"] (quant 3 3) [] _) (npat "h" [] [] _))])
+      (path (npat "i" [] [] _) [(estep (epat _ right ["T"] (quant 0 _) [] _) (npat "j" [] [] _))])] _)]
+   (return false false [(item (ident "a") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-group-quantifier-forms
+%% source [LQ/grammar-v1.ebnf] group_pat, quantifier
+%% entry read
+%% input
+MATCH (a)((x)-[:T]->(y))+(b), (c)((p)-[:T]->(q))*(d), (e)((r)-[:T]->(s)){2}(f) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P (
+P (
+NAME x
+P )
+P -
+P [
+P :
+NAME T
+P ]
+P ->
+P (
+NAME y
+P )
+P )
+P +
+P (
+NAME b
+P )
+P ,
+P (
+NAME c
+P )
+P (
+P (
+NAME p
+P )
+P -
+P [
+P :
+NAME T
+P ]
+P ->
+P (
+NAME q
+P )
+P )
+P *
+P (
+NAME d
+P )
+P ,
+P (
+NAME e
+P )
+P (
+P (
+NAME r
+P )
+P -
+P [
+P :
+NAME T
+P ]
+P ->
+P (
+NAME s
+P )
+P )
+P {
+INT 2
+P }
+P (
+NAME f
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+   [(match false _
+     [(path (npat "a" [] [] _) [(gstep (group (path (npat "x" [] [] _) [(estep (epat _ right ["T"] _ [] _) (npat "y" [] [] _))]) _ (quant 1 _)) (npat "b" [] [] _))])
+      (path (npat "c" [] [] _) [(gstep (group (path (npat "p" [] [] _) [(estep (epat _ right ["T"] _ [] _) (npat "q" [] [] _))]) _ (quant 0 _)) (npat "d" [] [] _))])
+      (path (npat "e" [] [] _) [(gstep (group (path (npat "r" [] [] _) [(estep (epat _ right ["T"] _ [] _) (npat "s" [] [] _))]) _ (quant 2 2)) (npat "f" [] [] _))])] _)]
+   (return false false [(item (ident "a") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-undirected-quantified
+%% source [LQ/grammar-v1.ebnf §P.6]
+%% entry read
+%% input
+MATCH (a)-[:T]-{1,2}(b) RETURN a
+%% tokens
+KW MATCH
+P (
+NAME a
+P )
+P -
+P [
+P :
+NAME T
+P ]
+P -
+P {
+INT 1
+P ,
+INT 2
+P }
+P (
+NAME b
+P )
+KW RETURN
+NAME a
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "a" [] [] _) [(estep (epat _ both ["T"] (quant 1 2) [] _) (npat "b" [] [] _))])] _)]
+   (return false false [(item (ident "a") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-subquery-clause-form
+%% source [LQ/grammar-v1.ebnf §P.8]
+%% entry read
+%% input
+MATCH (t) WHERE EXISTS { MATCH (t)-->(u) WHERE u.x = 1 RETURN u } RETURN t
+%% tokens
+KW MATCH
+P (
+NAME t
+P )
+KW WHERE
+KW EXISTS
+P {
+KW MATCH
+P (
+NAME t
+P )
+P -
+P ->
+P (
+NAME u
+P )
+KW WHERE
+NAME u
+P .
+NAME x
+P =
+INT 1
+KW RETURN
+NAME u
+P }
+KW RETURN
+NAME t
+EOF -
+%% sast
+(read run
+ (query
+  [(part _
+   [(match false _ [(path (npat "t" [] [] _) [])]
+     (exists (subq [(match false _ [(path (npat "t" [] [] _) [(estep (epat _ right [] _ [] _) (npat "u" [] [] _))])] (cmp = (prop (ident "u") "x") (int 1)))]
+                   (return false false [(item (ident "u") _)] [] [] _))))]
+   (return false false [(item (ident "t") _)] [] [] _) _)]
+  []))
+%% end
+
+%% case pp-count-subquery-clause-form
+%% source [LQ/grammar-v1.ebnf §P.8]
+%% entry read
+%% note The S-AST keeps the clause form; the C-AST normalises a one-MATCH subquery to the pattern form (N1).
+%% input
+MATCH (t) RETURN COUNT { MATCH (t)-->(u) } AS n
+%% tokens
+KW MATCH
+P (
+NAME t
+P )
+KW RETURN
+KW COUNT
+P {
+KW MATCH
+P (
+NAME t
+P )
+P -
+P ->
+P (
+NAME u
+P )
+P }
+KW AS
+NAME n
+EOF -
+%% sast
+(read run
+ (query
+  [(part _ [(match false _ [(path (npat "t" [] [] _) [])] _)]
+   (return false false
+    [(item (countsub (subq [(match false _ [(path (npat "t" [] [] _) [(estep (epat _ right [] _ [] _) (npat "u" [] [] _))])] _)] _)) "n")]
+    [] [] _) _)]
+  []))
+%% end
+
+%% case pp-nesting-64
+%% source [LQ/grammar-v1.ebnf §P.13]
+%% entry read
+%% note 64 nested parenthesised expressions are accepted; parentheses leave no node.
+%% input
+RETURN ((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+%% sast
+(read run
+ (query
+  [(part _ [] (return false false [(item (int 1) _)] [] [] _) _)]
+  []))
+%% accept
+%% end
+
+%% case pp-not-64
+%% source [LQ/grammar-v1.ebnf §P.13]
+%% entry read
+%% input
+RETURN NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT TRUE
+%% sast
+(read run
+ (query
+  [(part _ [] (return false false [(item (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (not (bool true))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))) _)] [] [] _) _)]
+  []))
+%% accept
+%% end
+
+%% case pp-tx-match-expect-range
+%% source [LQ/grammar-v1.ebnf §6]
+%% entry write
+%% input
+TX { MATCH (t:task) WHERE t.status = 'open' EXPECT 2..5 SET t.priority = 1, t.labels = ['a'] REMOVE t.assignee }
+%% tokens
+KW TX
+P {
+KW MATCH
+P (
+NAME t
+P :
+NAME task
+P )
+KW WHERE
+NAME t
+P .
+NAME status
+P =
+STR "open"
+KW EXPECT
+INT 2
+P ..
+INT 5
+KW SET
+NAME t
+P .
+NAME priority
+P =
+INT 1
+P ,
+NAME t
+P .
+NAME labels
+P =
+P [
+STR "a"
+P ]
+KW REMOVE
+NAME t
+P .
+NAME assignee
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _
+ [(smatch [(path (npat "t" ["task"] [] _) [])] (cmp = (prop (ident "t") "status") (str "open")) (expect range 2 5 _)
+   [(mset [(assign (ident "t") "priority" (int 1)) (assign (ident "t") "labels" (list [(str "a")]))])
+    (mremove [(tprop (ident "t") "assignee")])])]
+ false)
+%% end
+
+%% case pp-tx-expect-forms
+%% source [LQ/grammar-v1.ebnf §P.12] expect
+%% entry write
+%% note One ';' may precede '}'.
+%% input
+TX { MATCH (a {id: #1}) EXPECT <= 1 SET a.x = 1; MATCH (b {id: #2}) EXPECT >= 1 SET b.x = 1; MATCH (c {id: #3}) EXPECT $n SET c.x = 1; }
+%% tokens
+KW TX
+P {
+KW MATCH
+P (
+NAME a
+P {
+NAME id
+P :
+NODE 1
+P }
+P )
+KW EXPECT
+P <=
+INT 1
+KW SET
+NAME a
+P .
+NAME x
+P =
+INT 1
+P ;
+KW MATCH
+P (
+NAME b
+P {
+NAME id
+P :
+NODE 2
+P }
+P )
+KW EXPECT
+P >=
+INT 1
+KW SET
+NAME b
+P .
+NAME x
+P =
+INT 1
+P ;
+KW MATCH
+P (
+NAME c
+P {
+NAME id
+P :
+NODE 3
+P }
+P )
+KW EXPECT
+PARAM n
+KW SET
+NAME c
+P .
+NAME x
+P =
+INT 1
+P ;
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _
+ [(smatch [(path (npat "a" [] [(kv "id" (nid 1))] _) [])] _ (expect le 1 _ _) [(mset [(assign (ident "a") "x" (int 1))])])
+  (smatch [(path (npat "b" [] [(kv "id" (nid 2))] _) [])] _ (expect ge 1 _ _) [(mset [(assign (ident "b") "x" (int 1))])])
+  (smatch [(path (npat "c" [] [(kv "id" (nid 3))] _) [])] _ (expect param _ _ "n") [(mset [(assign (ident "c") "x" (int 1))])])]
+ false)
+%% end
+
+%% case pp-tx-create-chain
+%% source [LQ/grammar-v1.ebnf §P.11] create_stmt
+%% entry write
+%% input
+TX { CREATE (n:note {title: $title})-[:ABOUT]->(#1)<-[:CITES]-(#2) UNDER #3 UNLESS EXISTS { MATCH (n:note) WHERE n.title = $title } }
+%% tokens
+KW TX
+P {
+KW CREATE
+P (
+NAME n
+P :
+NAME note
+P {
+NAME title
+P :
+PARAM title
+P }
+P )
+P -
+P [
+P :
+NAME ABOUT
+P ]
+P ->
+P (
+NODE 1
+P )
+P <-
+P [
+P :
+NAME CITES
+P ]
+P -
+P (
+NODE 2
+P )
+KW UNDER
+NODE 3
+KW UNLESS
+KW EXISTS
+P {
+KW MATCH
+P (
+NAME n
+P :
+NAME note
+P )
+KW WHERE
+NAME n
+P .
+NAME title
+P =
+PARAM title
+P }
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _
+ [(screate "n" "note" [(kv "title" (param "title"))]
+   [(cedge right "ABOUT" [] (nid 1)) (cedge left "CITES" [] (nid 2))]
+   (nid 3)
+   (subq [(match false _ [(path (npat "n" ["note"] [] _) [])] (cmp = (prop (ident "n") "title") (param "title")))] _))]
+ false)
+%% end
+
+%% case pp-tx-edge-mutations
+%% source [LQ/grammar-v1.ebnf §P.11]
+%% entry write
+%% input
+TX { CREATE (#4)-[:BLOCKS {x: 1}]->(#5); INSERT (#6)<-[:CITES]-(#7) }
+%% tokens
+KW TX
+P {
+KW CREATE
+P (
+NODE 4
+P )
+P -
+P [
+P :
+NAME BLOCKS
+P {
+NAME x
+P :
+INT 1
+P }
+P ]
+P ->
+P (
+NODE 5
+P )
+P ;
+KW INSERT
+P (
+NODE 6
+P )
+P <-
+P [
+P :
+NAME CITES
+P ]
+P -
+P (
+NODE 7
+P )
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _
+ [(smuts [(medge (nid 4) right "BLOCKS" [(kv "x" (int 1))] (nid 5))])
+  (smuts [(medge (nid 6) left "CITES" [] (nid 7))])]
+ false)
+%% end
+
+%% case pp-tx-delete-options
+%% source [LQ/grammar-v1.ebnf] delete_opt
+%% entry write
+%% input
+TX { DELETE #6, #7 POLICY CASCADE REASON 'r'; DELETE #8 REPLACED BY #9 RELEASE; DELETE #10 POLICY RESTRICT; DELETE #11 POLICY REPARENT }
+%% tokens
+KW TX
+P {
+KW DELETE
+NODE 6
+P ,
+NODE 7
+KW POLICY
+KW CASCADE
+KW REASON
+STR "r"
+P ;
+KW DELETE
+NODE 8
+KW REPLACED
+KW BY
+NODE 9
+KW RELEASE
+P ;
+KW DELETE
+NODE 10
+KW POLICY
+KW RESTRICT
+P ;
+KW DELETE
+NODE 11
+KW POLICY
+KW REPARENT
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _
+ [(smuts [(mdelete [(nid 6) (nid 7)] [(dpolicy cascade) (dreason (str "r"))])])
+  (smuts [(mdelete [(nid 8)] [(dreplaced (nid 9)) (drelease)])])
+  (smuts [(mdelete [(nid 10)] [(dpolicy restrict)])])
+  (smuts [(mdelete [(nid 11)] [(dpolicy reparent)])])]
+ false)
+%% end
+
+%% case pp-tx-move-forms
+%% source [LQ/grammar-v1.ebnf] mutation MOVE
+%% entry write
+%% input
+TX { MOVE #8 UNDER #9 BEFORE #10; MOVE #11 UNDER #9 AFTER #10; MOVE #12 UNDER #9 FIRST; MOVE #13 UNDER #9 LAST; MOVE #14 UNDER #9 }
+%% tokens
+KW TX
+P {
+KW MOVE
+NODE 8
+KW UNDER
+NODE 9
+KW BEFORE
+NODE 10
+P ;
+KW MOVE
+NODE 11
+KW UNDER
+NODE 9
+KW AFTER
+NODE 10
+P ;
+KW MOVE
+NODE 12
+KW UNDER
+NODE 9
+KW FIRST
+P ;
+KW MOVE
+NODE 13
+KW UNDER
+NODE 9
+KW LAST
+P ;
+KW MOVE
+NODE 14
+KW UNDER
+NODE 9
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _
+ [(smuts [(mmove (nid 8) (nid 9) before (nid 10))])
+  (smuts [(mmove (nid 11) (nid 9) after (nid 10))])
+  (smuts [(mmove (nid 12) (nid 9) first _)])
+  (smuts [(mmove (nid 13) (nid 9) last _)])
+  (smuts [(mmove (nid 14) (nid 9) _ _)])]
+ false)
+%% end
+
+%% case pp-tx-reopen-patch
+%% source [LQ/grammar-v1.ebnf] mutation
+%% entry write
+%% input
+TX { REOPEN #12 REASON $why; PATCH #13.body REMOVE 'a' ADD 'b' }
+%% tokens
+KW TX
+P {
+KW REOPEN
+NODE 12
+KW REASON
+PARAM why
+P ;
+KW PATCH
+NODE 13
+P .
+NAME body
+KW REMOVE
+STR "a"
+KW ADD
+STR "b"
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _
+ [(smuts [(mreopen (nid 12) (param "why"))])
+  (smuts [(mpatch (nid 13) "body" (str "a") (str "b"))])]
+ false)
+%% end
+
+%% case pp-tx-resolve-forms
+%% source [LQ/grammar-v1.ebnf] resolve_stmt
+%% entry write
+%% input
+TX ON merge/main/from/lane/x { RESOLVE '#14.body' TAKE VALUE 'x'; RESOLVE 'edge:#1:blocks:#2' TAKE REPOINT #3; RESOLVE '#15.status' TAKE OURS; RESOLVE '#16.status' TAKE BASE }
+%% tokens
+KW TX
+KW ON
+REF merge/main/from/lane/x
+P {
+KW RESOLVE
+STR "#14.body"
+KW TAKE
+KW VALUE
+STR "x"
+P ;
+KW RESOLVE
+STR "edge:#1:blocks:#2"
+KW TAKE
+KW REPOINT
+NODE 3
+P ;
+KW RESOLVE
+STR "#15.status"
+KW TAKE
+KW OURS
+P ;
+KW RESOLVE
+STR "#16.status"
+KW TAKE
+KW BASE
+P }
+EOF -
+%% sast
+(tx (rref "merge/main/from/lane/x") _ _ _ _ _
+ [(sresolve "#14.body" _ _ value (str "x") _)
+  (sresolve "edge:#1:blocks:#2" _ _ repoint _ (nid 3))
+  (sresolve "#15.status" _ _ ours _ _)
+  (sresolve "#16.status" _ _ base _ _)]
+ false)
+%% end
+
+%% case pp-tx-assert-call-drop
+%% source [LQ/grammar-v1.ebnf] tx_stmt
+%% entry write
+%% input
+TX { ASSERT COUNT { MATCH (x:task) } > 0 ELSE 'no tasks'; CALL tx.claim(ids: [#15]) YIELD lease; DROP QUERY stale_blockers }
+%% tokens
+KW TX
+P {
+KW ASSERT
+KW COUNT
+P {
+KW MATCH
+P (
+NAME x
+P :
+NAME task
+P )
+P }
+P >
+INT 0
+KW ELSE
+STR "no tasks"
+P ;
+KW CALL
+NAME tx
+P .
+NAME claim
+P (
+NAME ids
+P :
+P [
+NODE 15
+P ]
+P )
+KW YIELD
+NAME lease
+P ;
+KW DROP
+KW QUERY
+NAME stale_blockers
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _
+ [(sassert (cmp > (countsub (subq [(match false _ [(path (npat "x" ["task"] [] _) [])] _)] _)) (int 0)) "no tasks")
+  (stxcall "claim" [(arg "ids" (list [(nid 15)]))] [(yitem "lease" _)])
+  (sdrop "stale_blockers")]
+ false)
+%% end
+
+%% case pp-tx-define
+%% source [LQ/grammar-v1.ebnf] define_stmt, param_decl
+%% entry write
+%% note The qname is joined with '.'; a written = NULL gives the null node.
+%% input
+TX { DEFINE QUERY q.sub($a: node = #5, $b: list<int>?, $c: range<int>? = NULL) SHAPE table BUDGET heavy AS { RETURN $a } }
+%% tokens
+KW TX
+P {
+KW DEFINE
+KW QUERY
+NAME q
+P .
+NAME sub
+P (
+PARAM a
+P :
+NAME node
+P =
+NODE 5
+P ,
+PARAM b
+P :
+NAME list
+P <
+NAME int
+P >
+P ?
+P ,
+PARAM c
+P :
+NAME range
+P <
+NAME int
+P >
+P ?
+P =
+KW NULL
+P )
+KW SHAPE
+NAME table
+KW BUDGET
+NAME heavy
+KW AS
+P {
+KW RETURN
+PARAM a
+P }
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _
+ [(define "q.sub"
+   [(pdecl "a" (ptype "node" _) false (nid 5))
+    (pdecl "b" (ptype "list" "int") true _)
+    (pdecl "c" (ptype "range" "int") true (null))]
+   "table" "heavy"
+   (query [(part _ [] (return false false [(item (param "a") _)] [] [] _) _)] []))]
+ false)
+%% end
+
+%% case pp-tx-if-targets-dry
+%% source [LQ/grammar-v1.ebnf] tx_option
+%% entry write
+%% input
+TX IF TARGETS '0123456789abcdef0123456789abcdef' { SET #1.x = 1 } DRY
+%% tokens
+KW TX
+KW IF
+KW TARGETS
+STR "0123456789abcdef0123456789abcdef"
+P {
+KW SET
+NODE 1
+P .
+NAME x
+P =
+INT 1
+P }
+KW DRY
+EOF -
+%% sast
+(tx _ _ "0123456789abcdef0123456789abcdef" _ _ _ [(smuts [(mset [(assign (nid 1) "x" (int 1))])])] true)
+%% end
+
+%% case pp-tx-set-multi
+%% source [LQ/grammar-v1.ebnf] mutation SET
+%% entry write
+%% input
+TX { SET #1.x = 1, #2.y = 'b' }
+%% tokens
+KW TX
+P {
+KW SET
+NODE 1
+P .
+NAME x
+P =
+INT 1
+P ,
+NODE 2
+P .
+NAME y
+P =
+STR "b"
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _ [(smuts [(mset [(assign (nid 1) "x" (int 1)) (assign (nid 2) "y" (str "b"))])])] false)
+%% end
+
+%% case pp-tx-counter-increment
+%% source [LQ/grammar-v1.ebnf] postfix_expr
+%% entry write
+%% input
+TX { SET #1.reopen_count = #1.reopen_count + 1 }
+%% tokens
+KW TX
+P {
+KW SET
+NODE 1
+P .
+NAME reopen_count
+P =
+NODE 1
+P .
+NAME reopen_count
+P +
+INT 1
+P }
+EOF -
+%% sast
+(tx _ _ _ _ _ _ [(smuts [(mset [(assign (nid 1) "reopen_count" (arith + (prop (nid 1) "reopen_count") (int 1)))])])] false)
+%% end
+
+%% case pp-define-entry
+%% source [LQ/grammar-v1.ebnf §P.1]
+%% entry define
+%% input
+DEFINE QUERY my.q($id: node, $days: int = 3, $tags: list<text>?) SHAPE node BUDGET light AS { MATCH (t) WHERE t = $id RETURN t }
+%% tokens
+KW DEFINE
+KW QUERY
+NAME my
+P .
+NAME q
+P (
+PARAM id
+P :
+NAME node
+P ,
+PARAM days
+P :
+NAME int
+P =
+INT 3
+P ,
+PARAM tags
+P :
+NAME list
+P <
+NAME text
+P >
+P ?
+P )
+KW SHAPE
+NAME node
+KW BUDGET
+NAME light
+KW AS
+P {
+KW MATCH
+P (
+NAME t
+P )
+KW WHERE
+NAME t
+P =
+PARAM id
+KW RETURN
+NAME t
+P }
+EOF -
+%% sast
+(define "my.q"
+ [(pdecl "id" (ptype "node" _) false _) (pdecl "days" (ptype "int" _) false (int 3)) (pdecl "tags" (ptype "list" "text") true _)]
+ "node" "light"
+ (query [(part _ [(match false _ [(path (npat "t" [] [] _) [])] (cmp = (ident "t") (param "id")))] (return false false [(item (ident "t") _)] [] [] _) _)] []))
+%% end
+
+%% case pe-merge
+%% source [LQ/grammar-v1.ebnf §R] MERGE
+%% entry read
+%% input
+MERGE (t:task {title: 'x'}) RETURN t
+%% error E004 1:1 conv
+%% end
+
+%% case pe-detach-delete-read
+%% source [LQ/grammar-v1.ebnf §R] DETACH DELETE
+%% entry read
+%% input
+MATCH (t) DETACH DELETE t
+%% error E004 1:11 conv
+%% end
+
+%% case pe-detach-delete-tx
+%% source [LQ/grammar-v1.ebnf §R] DETACH DELETE
+%% entry write
+%% input
+TX { MATCH (t {id: #40}) EXPECT 1 DETACH DELETE t }
+%% error E004 1:35 conv
+%% end
+
+%% case pe-nodetach-delete
+%% source [LQ/grammar-v1.ebnf §R] NODETACH DELETE
+%% entry write
+%% input
+TX { NODETACH DELETE #40 }
+%% error E004 1:6 conv
+%% end
+
+%% case pe-shortestpath
+%% source [LQ/grammar-v1.ebnf §R] shortestPath(
+%% entry read
+%% input
+MATCH (a:task), (b:task) RETURN shortestPath((a)-[:BLOCKS*]->(b)) AS p
+%% error E004 1:33 conv
+%% end
+
+%% case pe-allshortestpaths-case
+%% source [LQ/grammar-v1.ebnf §R], [LQ/lexical §6.4]
+%% entry read
+%% note Refused function names are matched ASCII-case-insensitively.
+%% input
+MATCH (a), (b) RETURN ALLSHORTESTPATHS((a)-->(b)) AS p
+%% error E004 1:23 conv
+%% end
+
+%% case pe-nodes-function
+%% source [LQ/grammar-v1.ebnf §R] nodes(
+%% entry read
+%% input
+MATCH (a) RETURN nodes(a) AS n
+%% error E004 1:18 conv
+%% end
+
+%% case pe-relationships-function
+%% source [LQ/grammar-v1.ebnf §R] relationships(
+%% entry read
+%% input
+MATCH (a) RETURN relationships(a) AS r
+%% error E004 1:18 conv
+%% end
+
+%% case pe-shortest-selector
+%% source [LQ/grammar-v1.ebnf §R] SHORTEST
+%% entry read
+%% input
+MATCH SHORTEST 1 (a)-[:BLOCKS]->+(b) RETURN b
+%% error E004 1:7 conv
+%% end
+
+%% case pe-any-shortest-selector
+%% source [LQ/grammar-v1.ebnf §R] ANY SHORTEST
+%% entry read
+%% input
+MATCH ANY SHORTEST (a)-[:BLOCKS]->+(b) RETURN b
+%% error E004 1:7 conv
+%% end
+
+%% case pe-all-shortest-selector
+%% source [LQ/grammar-v1.ebnf §R] ALL SHORTEST
+%% entry read
+%% input
+MATCH ALL SHORTEST (a)-[:BLOCKS]->+(b) RETURN b
+%% error E004 1:7 conv
+%% end
+
+%% case pe-any-path-selector
+%% source [LQ/grammar-v1.ebnf §R] ANY/ALL PATH(S)
+%% entry read
+%% input
+MATCH ANY (a)-[:BLOCKS]->+(b) RETURN b
+%% error E004 1:7 conv
+%% end
+
+%% case pe-repeatable-elements
+%% source [LQ/grammar-v1.ebnf §R] REPEATABLE ELEMENTS
+%% entry read
+%% input
+MATCH REPEATABLE ELEMENTS (a)-->(b) RETURN a
+%% error E004 1:7 conv
+%% end
+
+%% case pe-skip-end
+%% source [LQ/grammar-v1.ebnf §P.17]
+%% entry read
+%% input
+MATCH (t) RETURN t SKIP 5
+%% error E004 1:20 spec
+%% end
+
+%% case pe-offset-order-limit
+%% source [LQ/grammar-v1.ebnf §R] SKIP, OFFSET
+%% entry read
+%% input
+MATCH (t) RETURN t ORDER BY t.id OFFSET 5 LIMIT 5
+%% error E004 1:34 spec
+%% end
+
+%% case pe-skip-with
+%% source [LQ/grammar-v1.ebnf §R] SKIP, OFFSET
+%% entry read
+%% input
+MATCH (t) WITH t SKIP 1 RETURN t
+%% error E004 1:18 spec
+%% end
+
+%% case pe-skip-standalone-call
+%% source [LQ/grammar-v1.ebnf §R] SKIP, OFFSET
+%% entry read
+%% input
+CALL blockers(#51) YIELD blocker SKIP 1
+%% error E004 1:34 spec
+%% end
+
+%% case pe-call-subquery
+%% source [LQ/grammar-v1.ebnf §R] CALL {
+%% entry read
+%% input
+CALL { MATCH (t) RETURN t } RETURN 1
+%% error E004 1:1 conv
+%% end
+
+%% case pe-next
+%% source [LQ/grammar-v1.ebnf §R] NEXT
+%% entry read
+%% input
+MATCH (t) NEXT MATCH (u) RETURN u
+%% error E004 1:11 spec
+%% end
+
+%% case pe-foreach
+%% source [LQ/grammar-v1.ebnf §R] FOREACH
+%% entry read
+%% input
+MATCH (t) FOREACH (x IN [1] | SET t.a = x) RETURN t
+%% error E004 1:11 spec
+%% end
+
+%% case pe-for
+%% source [LQ/grammar-v1.ebnf §R] FOR
+%% entry read
+%% input
+FOR x IN [1, 2] RETURN x
+%% error E004 1:1 spec
+%% end
+
+%% case pe-let
+%% source [LQ/grammar-v1.ebnf §R] LET
+%% entry read
+%% input
+MATCH (t) LET x = 1 RETURN x
+%% error E004 1:11 spec
+%% end
+
+%% case pe-filter
+%% source [LQ/grammar-v1.ebnf §R] FILTER
+%% entry read
+%% input
+MATCH (t) FILTER t.a = 1 RETURN t
+%% error E004 1:11 spec
+%% end
+
+%% case pe-list-comprehension
+%% source [LQ/grammar-v1.ebnf §R] [x IN list ...]
+%% entry read
+%% input
+RETURN [x IN [1, 2] WHERE x > 1 | x] AS l
+%% error E004 1:8 conv
+%% end
+
+%% case pe-list-in-without-where
+%% source [LQ/grammar-v1.ebnf §R] [x IN list ...]
+%% entry read
+%% note '[' word IN is refused as a comprehension even without WHERE or '|' (spec finding F-4).
+%% input
+RETURN [x IN [1, 2]] AS l
+%% error E004 1:8 conv
+%% end
+
+%% case pe-list-pipe
+%% source [LQ/grammar-v1.ebnf §R] [ ... | ... ]
+%% entry read
+%% input
+RETURN [1 | 2] AS l
+%% error E004 1:11 conv
+%% end
+
+%% case pe-index
+%% source [LQ/grammar-v1.ebnf §R] x[i]
+%% entry read
+%% input
+MATCH (t) RETURN t.labels[0] AS l
+%% error E004 1:26 conv
+%% end
+
+%% case pe-slice
+%% source [LQ/grammar-v1.ebnf §R] x[a..b]
+%% entry read
+%% input
+MATCH (t) RETURN t.labels[0..2] AS l
+%% error E004 1:26 conv
+%% end
+
+%% case pe-single
+%% source [LQ/grammar-v1.ebnf §R] single(
+%% entry read
+%% input
+RETURN single(x IN [1] WHERE x = 1) AS s
+%% error E004 1:8 conv
+%% end
+
+%% case pe-xor
+%% source [LQ/grammar-v1.ebnf §R] XOR
+%% entry read
+%% input
+MATCH (t) WHERE t.a XOR t.b RETURN t
+%% error E004 1:21 spec
+%% end
+
+%% case pe-percent
+%% source [LQ/grammar-v1.ebnf §R] %
+%% entry read
+%% input
+RETURN 5 % 2 AS r
+%% error E004 1:10 spec
+%% end
+
+%% case pe-method-call
+%% source [LQ/grammar-v1.ebnf §R] x.f(
+%% entry read
+%% input
+MATCH (r:rule) WHERE r.applies('crates/**') RETURN r
+%% error E004 1:31 conv
+%% end
+
+%% case pe-regex-match
+%% source [LQ/grammar-v1.ebnf §R] =~
+%% entry read
+%% input
+MATCH (t) WHERE t.title =~ 'x.*' RETURN t
+%% error E004 1:25 spec
+%% end
+
+%% case pe-timestamp
+%% source [LQ/grammar-v1.ebnf §R] timestamp(
+%% entry read
+%% input
+RETURN timestamp() AS t
+%% error E004 1:8 conv
+%% end
+
+%% case pe-is-labeled
+%% source [LQ/grammar-v1.ebnf §R] IS LABELED, O-13
+%% entry read
+%% input
+MATCH (x) WHERE x IS LABELED task RETURN x
+%% error E004 1:22 conv
+%% end
+
+%% case pe-cast
+%% source [LQ/grammar-v1.ebnf §R] CAST, O-13
+%% entry read
+%% input
+RETURN CAST(1 AS STRING) AS s
+%% error E004 1:8 conv
+%% end
+
+%% case pe-apoc
+%% source [LQ/grammar-v1.ebnf §R] apoc.*
+%% entry read
+%% input
+CALL apoc.help('x') YIELD name RETURN name
+%% error E004 1:6 conv
+%% end
+
+%% case pe-db-case
+%% source [LQ/grammar-v1.ebnf §R] db.*
+%% entry read
+%% input
+CALL DB.labels() YIELD label RETURN label
+%% error E004 1:6 conv
+%% end
+
+%% case pe-load-csv
+%% source [LQ/grammar-v1.ebnf §R] LOAD CSV
+%% entry read
+%% input
+LOAD CSV FROM 'f.csv' AS row RETURN row
+%% error E004 1:1 conv
+%% end
+
+%% case pe-show
+%% source [LQ/grammar-v1.ebnf §R] SHOW
+%% entry read
+%% input
+SHOW INDEXES
+%% error E004 1:1 conv
+%% end
+
+%% case pe-create-index-read
+%% source [LQ/grammar-v1.ebnf §R] CREATE INDEX, O-6
+%% entry read
+%% note CREATE INDEX is E004, not E006.
+%% input
+CREATE INDEX FOR (n:task) ON (n.title)
+%% error E004 1:1 conv
+%% end
+
+%% case pe-drop-constraint-tx
+%% source [LQ/grammar-v1.ebnf §R] DROP CONSTRAINT
+%% entry write
+%% input
+TX { DROP CONSTRAINT c }
+%% error E004 1:6 conv
+%% end
+
+%% case pe-two-arrowheads
+%% source [LQ/grammar-v1.ebnf §R] <-[...]->
+%% entry read
+%% input
+MATCH (a)<-[:BLOCKS]->(b) RETURN a
+%% error E004 1:10 conv
+%% end
+
+%% case pe-two-arrowheads-abbreviated
+%% source [LQ/lexical §5.9], [LQ/grammar-v1.ebnf §R]
+%% entry read
+%% input
+MATCH (a)<-->(b) RETURN a
+%% error E004 1:10 conv
+%% end
+
+%% case pe-read-remove
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+MATCH (t {id: #1}) REMOVE t.assignee
+%% error E006 1:20 spec
+%% end
+
+%% case pe-read-delete
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+MATCH (t {id: #1}) DELETE t
+%% error E006 1:20 spec
+%% end
+
+%% case pe-read-create
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+CREATE (t:task {title: 'x'})
+%% error E006 1:1 spec
+%% end
+
+%% case pe-read-insert
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+INSERT (t:task {title: 'x'})
+%% error E006 1:1 spec
+%% end
+
+%% case pe-read-move
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+MOVE #93 UNDER #90
+%% error E006 1:1 spec
+%% end
+
+%% case pe-read-reopen
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+MATCH (t {id: #12}) REOPEN t REASON 'x'
+%% error E006 1:21 spec
+%% end
+
+%% case pe-read-patch
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+PATCH #133.body REMOVE 'a' ADD 'b'
+%% error E006 1:1 spec
+%% end
+
+%% case pe-read-resolve
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+RESOLVE '#91.body' TAKE OURS
+%% error E006 1:1 spec
+%% end
+
+%% case pe-read-define
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+DEFINE QUERY q() AS { RETURN 1 }
+%% error E006 1:1 spec
+%% end
+
+%% case pe-read-drop-query
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+DROP QUERY q
+%% error E006 1:1 spec
+%% end
+
+%% case pe-read-assert
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+ASSERT 1 = 1
+%% error E006 1:1 spec
+%% end
+
+%% case pe-read-tx
+%% source [LQ/grammar-v1.ebnf §R] E006
+%% entry read
+%% input
+TX { SET #1.a = 1 }
+%% error E006 1:1 spec
+%% end
+
+%% case pe-read-call-tx
+%% source [LQ/grammar-v1.ebnf §R] CALL tx.*
+%% entry read
+%% input
+CALL tx.complete(#89, outcome: 'done', summary: 's') YIELD ready
+%% error E006 1:6 conv
+%% end
+
+%% case pe-read-call-tx-case
+%% source [LQ/lexical §9], [LQ/grammar-v1.ebnf §R] CALL tx.*
+%% entry read
+%% note The tx prefix is matched ASCII-case-insensitively.
+%% input
+CALL TX.complete(#89) YIELD ready
+%% error E006 1:6 conv
+%% end
+
+%% case pe-use-after-clause
+%% source [LQ/grammar-v1.ebnf §P.19]
+%% entry read
+%% input
+MATCH (t) USE main RETURN t
+%% error E001 1:11 spec
+%% end
+
+%% case pe-cypher-with-order
+%% source [LQ/grammar-v1.ebnf §P.16]
+%% entry read
+%% input
+MATCH (t) WITH t ORDER BY t.id LIMIT 5 WHERE t.a = 1 RETURN t
+%% error E001 1:40 spec
+%% end
+
+%% case pe-where-after-return-order
+%% source [LQ/grammar-v1.ebnf §P.17]
+%% entry read
+%% input
+MATCH (t) RETURN t ORDER BY t.id WHERE t.a = 1
+%% error E001 1:34 spec
+%% end
+
+%% case pe-colon-parameter
+%% source [LQ/grammar-v1.ebnf §R] :name
+%% entry read
+%% input
+MATCH (t) WHERE t.id = :id RETURN t
+%% error E001 1:24 spec
+%% end
+
+%% case pe-group-without-quantifier
+%% source [LQ/grammar-v1.ebnf §P.6]
+%% entry read
+%% input
+MATCH (x)((a)-[:T]->(b))(y) RETURN x
+%% error E001 1:25 conv
+%% end
+
+%% case pe-empty-subquery
+%% source [LQ/grammar-v1.ebnf §P.8]
+%% entry read
+%% input
+MATCH (t) WHERE EXISTS { } RETURN t
+%% error E001 1:26 spec
+%% end
+
+%% case pe-call-no-yield-before-clause
+%% source [LQ/grammar-v1.ebnf §P.7]
+%% entry read
+%% input
+CALL blockers(#51) MATCH (t) RETURN t
+%% error E001 1:20 conv
+%% end
+
+%% case pe-call-yield-star-before-return
+%% source [LQ/grammar-v1.ebnf §P.7]
+%% entry read
+%% input
+CALL blockers(#51) YIELD * RETURN blocker
+%% error E001 1:28 conv
+%% end
+
+%% case pe-call-after-clause-no-yield
+%% source [LQ/grammar-v1.ebnf §P.7]
+%% entry read
+%% input
+MATCH (t) CALL blockers(t) RETURN t
+%% error E001 1:28 conv
+%% end
+
+%% case pe-tx-repeated-option
+%% source [LQ/grammar-v1.ebnf §P.12]
+%% entry write
+%% input
+TX ON main ON lane/x { SET #1.a = 1 }
+%% error E001 1:12 conv
+%% end
+
+%% case pe-tx-input-not-tx
+%% source [LQ/grammar-v1.ebnf §P.1]
+%% entry write
+%% input
+MATCH (t) RETURN t
+%% error E001 1:1 spec
+%% end
+
+%% case pe-tx-explain
+%% source [LQ/grammar-v1.ebnf §P.1]
+%% entry write
+%% input
+EXPLAIN TX { SET #1.a = 1 }
+%% error E001 1:1 spec
+%% end
+
+%% case pe-tx-create-in-match
+%% source [LQ/grammar-v1.ebnf §P.11]
+%% entry write
+%% input
+TX { MATCH (t {id: #1}) EXPECT 1 SET t.a = 1 CREATE (n:task {title: 'x'}) }
+%% error E001 1:46 conv
+%% end
+
+%% case pe-tx-delete-repeated-option
+%% source [LQ/canonical-ast §5.8] N3
+%% entry write
+%% input
+TX { DELETE #1 POLICY CASCADE POLICY RESTRICT }
+%% error E001 1:31 conv
+%% end
+
+%% case pe-nesting-65
+%% source [LQ/grammar-v1.ebnf §P.13]
+%% entry read
+%% note The 65th nested entry is E001.
+%% input
+RETURN (((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((((1)))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))))
+%% error E001 1:72 spec
+%% end
+
+%% case pe-not-65
+%% source [LQ/grammar-v1.ebnf §P.13]
+%% entry read
+%% input
+RETURN NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT NOT TRUE
+%% error E001 1:264 spec
+%% end
+
+%% case pe-all-without-in
+%% source [LQ/grammar-v1.ebnf §P.9]
+%% entry read
+%% note all( is always the list predicate.
+%% input
+RETURN all(x) AS a
+%% error E001 1:13 spec
+%% end
+
+%% case pe-reserved-word-as-variable
+%% source [LQ/lexical §6.1]
+%% entry read
+%% input
+MATCH (match) RETURN 1
+%% error E001 1:8 spec
+%% end
+
+%% case pe-brace-not-quantifier
+%% source [LQ/grammar-v1.ebnf §P.6]
+%% entry read
+%% input
+MATCH (a)-[:T]->{x}(b) RETURN a
+%% error E001 1:17 conv
+%% end
+
+%% case pe-second-statement
+%% source [LQ/grammar-v1.ebnf §P.17]
+%% entry read
+%% input
+MATCH (t) RETURN t MATCH (u) RETURN u
+%% error E005 1:20 spec
+%% end
+
+%% case pe-tx-trailing-semicolon
+%% source [LQ/grammar-v1.ebnf §P.17]
+%% entry write
+%% input
+TX { SET #1.a = 1 };
+%% error E005 1:20 spec
+%% end
+
+%% case pe-tx-token-after-dry
+%% source [LQ/grammar-v1.ebnf §P.17]
+%% entry write
+%% input
+TX { SET #1.a = 1 } DRY RETURN 1
+%% error E005 1:25 spec
+%% end
+
+%% case pe-tx-call-non-tx
+%% source [LQ/grammar-v1.ebnf §P.12]
+%% entry write
+%% note P12 raises E109 for a CALL of a non-tx name inside TX; [LQ/errors §5.1] lists E109 as the binder's (spec finding F-8).
+%% input
+TX { CALL blockers(#51) }
+%% error E109 1:11 conv
+%% end
+
+%% case pe-path-variable-no-space
+%% source [LQ/grammar-v1.ebnf §R] p = <pattern>
+%% entry read
+%% input
+MATCH p=(a)-->(b) RETURN p
+%% error E113 1:7 spec
+%% end
+
+%% case pe-quantifier-m-gt-n
+%% source [LQ/grammar-v1.ebnf §R] E114
+%% entry read
+%% input
+MATCH (a)-[:T]->{3,1}(b) RETURN a
+%% error E114 1:17 conv
+%% end
+
+%% case pe-quantifier-bound
+%% source [LQ/grammar-v1.ebnf §R] E114, [LQ/lexical §8]
+%% entry read
+%% input
+MATCH (a)-[:T]->{1,4294967296}(b) RETURN a
+%% error E114 1:17 conv
+%% end
+
+%% case pe-quantifier-cypher-m-gt-n
+%% source [LQ/grammar-v1.ebnf §R] E114
+%% entry read
+%% input
+MATCH (a)-[:T*3..1]->(b) RETURN a
+%% error E114 1:14 conv
+%% end
+
+%% case pe-brace-integers-not-quantifier
+%% source [LQ/grammar-v1.ebnf §P.6]
+%% entry read
+%% note A '{' after an edge that is not a well-formed quantifier is E114 when it holds integers.
+%% input
+MATCH (a)-[:T]->{1 2}(b) RETURN a
+%% error E114 1:17 conv
+%% end
+
+%% case pe-null-neq
+%% source [LQ/grammar-v1.ebnf §P.18]
+%% entry read
+%% input
+MATCH (t) WHERE t.a <> NULL RETURN t
+%% error E118 1:21 conv
+%% end
+
+%% case pe-null-bang-neq
+%% source [LQ/grammar-v1.ebnf §P.18]
+%% entry read
+%% input
+MATCH (t) WHERE t.a != null RETURN t
+%% error E118 1:21 conv
+%% end
+
+%% case pe-null-left
+%% source [LQ/grammar-v1.ebnf §P.18]
+%% entry read
+%% input
+MATCH (t) WHERE NULL = t.a RETURN t
+%% error E118 1:22 conv
+%% end
+
+%% case pe-null-in-node-map
+%% source [LQ/grammar-v1.ebnf §P.18]
+%% entry read
+%% input
+MATCH (t:task {assignee: null}) RETURN t
+%% error E118 1:16 conv
+%% end
+
+%% case pe-null-in-edge-map
+%% source [LQ/grammar-v1.ebnf §P.18]
+%% entry read
+%% input
+MATCH (a)-[e:BLOCKS {flagged: NULL}]->(b) RETURN a
+%% error E118 1:22 conv
+%% end
+
+%% case pe-use-in-count
+%% source [LQ/grammar-v1.ebnf §P.8]
+%% entry read
+%% input
+MATCH (t) RETURN COUNT { USE main MATCH (t)-->() } AS n
+%% error E308 1:26 spec
+%% end
+
+%% case pe-use-in-unless-exists
+%% source [LQ/grammar-v1.ebnf §P.8]
+%% entry write
+%% input
+TX { CREATE (n:task {title: 'x'}) UNLESS EXISTS { USE main MATCH (n:task) } }
+%% error E308 1:51 spec
+%% end

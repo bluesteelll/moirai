@@ -1,0 +1,561 @@
+# fixtures/lq/cases/errors-text.cases: error, warning and notice goldens of [LQ/errors] (WP-22, R-FIX).
+# Part 1: located errors ([LQ/errors §3.2]) for inputs that need no store: the exact text (each line ended by LF)
+# and, for codes other than E001, the JSON error envelope ([LQ/errors §4.1]). The transport names the source
+# (<argv>, <stdin>, <query>, or a file's base name). Spans marked 'conv' in a note follow INDEX.md §4 G-7.
+# JSON goldens assume the caller's branch and tip are resolved before the text is parsed (INDEX.md §4 G-2):
+# '%% context branch main' and '%% context rev 4480' give them.
+# Part 2: unlocated error texts and warning and notice texts for a stated situation (the notes give the values
+# the templates of [LQ/errors §5] are filled with). A renderer test builds the situation and compares the text.
+# Only templates whose every placeholder has a fixed rendering are goldened here; the others are gaps G-8 and G-9.
+# Format: fixtures/lq/INDEX.md §2.
+
+%% case e005-argv
+%% source [LQ/errors §3.2], §5.2 E005
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% input
+MATCH (t) RETURN t;
+%% error E005 1:19 spec
+%% text
+error[E005 one_statement]: one statement per call; a second statement starts here
+ --> <argv>:1:19
+  |
+1 | MATCH (t) RETURN t;
+  |                   ^
+  = help: send each statement in its own call, or put writes in one TX { ... } block
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E005","name":"one_statement","severity":"error","span":{"start":18,"end":19,"line":1,"col":19},"message":"one statement per call; a second statement starts here","suggest":[],"expected":[],"help":"send each statement in its own call, or put writes in one TX { ... } block","detail":[]}],"exit":2}
+%% end
+
+%% case e005-stdin
+%% source [LQ/errors §3.2], §5.2 E005
+%% entry read
+%% transport stdin
+%% context branch main
+%% context rev 4480
+%% note moirai q - reads the text from stdin: the source is <stdin>.
+%% input
+MATCH (t) RETURN t;
+%% error E005 1:19 spec
+%% text
+error[E005 one_statement]: one statement per call; a second statement starts here
+ --> <stdin>:1:19
+  |
+1 | MATCH (t) RETURN t;
+  |                   ^
+  = help: send each statement in its own call, or put writes in one TX { ... } block
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E005","name":"one_statement","severity":"error","span":{"start":18,"end":19,"line":1,"col":19},"message":"one statement per call; a second statement starts here","suggest":[],"expected":[],"help":"send each statement in its own call, or put writes in one TX { ... } block","detail":[]}],"exit":2}
+%% end
+
+%% case e005-mcp-query
+%% source [LQ/errors §3.2], §5.2 E005
+%% entry read
+%% transport query
+%% context branch main
+%% context rev 4480
+%% note An MCP q string: the source is <query>; the text is content[0] with isError true ([LQ/errors §3.1]).
+%% input
+MATCH (t) RETURN t;
+%% error E005 1:19 spec
+%% text
+error[E005 one_statement]: one statement per call; a second statement starts here
+ --> <query>:1:19
+  |
+1 | MATCH (t) RETURN t;
+  |                   ^
+  = help: send each statement in its own call, or put writes in one TX { ... } block
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E005","name":"one_statement","severity":"error","span":{"start":18,"end":19,"line":1,"col":19},"message":"one statement per call; a second statement starts here","suggest":[],"expected":[],"help":"send each statement in its own call, or put writes in one TX { ... } block","detail":[]}],"exit":2}
+%% end
+
+%% case e005-file-line-10
+%% source [LQ/errors §3.2], §5.2 E005
+%% entry read
+%% transport file q.lq
+%% context branch main
+%% context rev 4480
+%% note moirai q -f q.lq; a two-digit line number widens the gutter (w = 2).
+%% input
+MATCH (t:task)
+WHERE t.status = 'open'
+  AND t.priority <= 1
+  AND 'l5' IN t.labels
+  AND t.unblocked
+  AND t.estimate IS NULL
+  AND NOT t.suspect
+  AND NOT t.conflicted
+  AND t.work_kind = 'code'
+RETURN t;
+%% error E005 10:9 spec
+%% text
+error[E005 one_statement]: one statement per call; a second statement starts here
+  --> q.lq:10:9
+   |
+10 | RETURN t;
+   |         ^
+   = help: send each statement in its own call, or put writes in one TX { ... } block
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E005","name":"one_statement","severity":"error","span":{"start":205,"end":206,"line":10,"col":9},"message":"one statement per call; a second statement starts here","suggest":[],"expected":[],"help":"send each statement in its own call, or put writes in one TX { ... } block","detail":[]}],"exit":2}
+%% end
+
+%% case e005-excerpt-cut
+%% source [LQ/errors §3.2], §5.2 E005
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note The excerpt keeps 60 scalars on each side of the span and marks both cuts with ...; the leading ... counts in the pad.
+%% input
+RETURN 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; RETURN 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb'
+%% error E005 1:80 spec
+%% text
+error[E005 one_statement]: one statement per call; a second statement starts here
+ --> <argv>:1:80
+  |
+1 | ...aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa'; RETURN 'bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb...
+  |                                                                ^
+  = help: send each statement in its own call, or put writes in one TX { ... } block
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E005","name":"one_statement","severity":"error","span":{"start":79,"end":80,"line":1,"col":80},"message":"one statement per call; a second statement starts here","suggest":[],"expected":[],"help":"send each statement in its own call, or put writes in one TX { ... } block","detail":[]}],"exit":2}
+%% end
+
+%% case e006-set
+%% source [LQ/errors §3.2], §5.2 E006
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note conv: the span is the keyword.
+%% input
+MATCH (t {id: #12}) SET t.priority = 1
+%% error E006 1:21 spec
+%% text
+error[E006 read_only]: SET writes; q and the query tool only read
+ --> <argv>:1:21
+  |
+1 | MATCH (t {id: #12}) SET t.priority = 1
+  |                     ^^^
+  = help: send writes with moirai tx or the write tool
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E006","name":"read_only","severity":"error","span":{"start":20,"end":23,"line":1,"col":21},"message":"SET writes; q and the query tool only read","suggest":[],"expected":[],"help":"send writes with moirai tx or the write tool","detail":[]}],"exit":2}
+%% end
+
+%% case e308-use
+%% source [LQ/errors §3.2], §5.2 E308
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note conv: the span is the keyword.
+%% input
+MATCH (t:task) WHERE EXISTS { USE main MATCH (t)-[:BLOCKS]->() } RETURN t
+%% error E308 1:31 spec
+%% text
+error[E308 use_in_subquery]: USE inside EXISTS {} or COUNT {} is not allowed
+ --> <argv>:1:31
+  |
+1 | MATCH (t:task) WHERE EXISTS { USE main MATCH (t)-[:BLOCKS]->() } RETURN t
+  |                               ^^^
+  = help: compare versions with diff(), across() or a composite query
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E308","name":"use_in_subquery","severity":"error","span":{"start":30,"end":33,"line":1,"col":31},"message":"USE inside EXISTS {} or COUNT {} is not allowed","suggest":[],"expected":[],"help":"compare versions with diff(), across() or a composite query","detail":[]}],"exit":2}
+%% end
+
+%% case e002-string
+%% source [LQ/errors §3.2], §5.2 E002
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note The span is the opening delimiter ([LQ/errors §5.2] E002).
+%% input
+RETURN 'abc
+%% error E002 1:8 spec
+%% text
+error[E002 unterminated]: unterminated string
+ --> <argv>:1:8
+  |
+1 | RETURN 'abc
+  |        ^
+  = help: close it with ' on the same line; write a line break as \n
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E002","name":"unterminated","severity":"error","span":{"start":7,"end":8,"line":1,"col":8},"message":"unterminated string","suggest":[],"expected":[],"help":"close it with ' on the same line; write a line break as \\n","detail":[]}],"exit":2}
+%% end
+
+%% case e002-block-comment
+%% source [LQ/errors §3.2], §5.2 E002
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note E002's help exists for strings only.
+%% input
+RETURN 1 /* note
+%% error E002 1:10 spec
+%% text
+error[E002 unterminated]: unterminated block comment
+ --> <argv>:1:10
+  |
+1 | RETURN 1 /* note
+  |          ^^
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E002","name":"unterminated","severity":"error","span":{"start":9,"end":11,"line":1,"col":10},"message":"unterminated block comment","suggest":[],"expected":[],"help":null,"detail":[]}],"exit":2}
+%% end
+
+%% case e002-back-quoted-name
+%% source [LQ/errors §3.2], §5.2 E002
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% input
+MATCH (`my var) RETURN 1
+%% error E002 1:8 spec
+%% text
+error[E002 unterminated]: unterminated back-quoted name
+ --> <argv>:1:8
+  |
+1 | MATCH (`my var) RETURN 1
+  |        ^
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E002","name":"unterminated","severity":"error","span":{"start":7,"end":8,"line":1,"col":8},"message":"unterminated back-quoted name","suggest":[],"expected":[],"help":null,"detail":[]}],"exit":2}
+%% end
+
+%% case e003-node-zero
+%% source [LQ/errors §3.2], §5.2 E003
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note conv: the span is the token. The help is the fixed text of [LQ/errors §5.2]; its angle brackets are literal.
+%% input
+MATCH (t {id: #0}) RETURN t
+%% error E003 1:15 conv
+%% text
+error[E003 bad_literal]: #0 is out of range (1 to 4294967295)
+ --> <argv>:1:15
+  |
+1 | MATCH (t {id: #0}) RETURN t
+  |               ^^
+  = help: write #<digits> or #u:<32 lower-case hex>
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E003","name":"bad_literal","severity":"error","span":{"start":14,"end":16,"line":1,"col":15},"message":"#0 is out of range (1 to 4294967295)","suggest":[],"expected":[],"help":"write #<digits> or #u:<32 lower-case hex>","detail":[]}],"exit":2}
+%% end
+
+%% case e118-eq-null
+%% source [LQ/errors §3.2], §5.2 E118
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note conv: the span is the comparison operator.
+%% input
+MATCH (t:task) WHERE t.assignee = null RETURN t
+%% error E118 1:33 conv
+%% text
+error[E118 null_comparison]: a comparison with NULL is never true
+ --> <argv>:1:33
+  |
+1 | MATCH (t:task) WHERE t.assignee = null RETURN t
+  |                                 ^ write t.assignee IS NULL
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E118","name":"null_comparison","severity":"error","span":{"start":32,"end":33,"line":1,"col":33},"message":"a comparison with NULL is never true","suggest":[],"expected":[],"help":null,"detail":[]}],"exit":2}
+%% end
+
+%% case e113-path-variable
+%% source [LQ/errors §3.2], §5.2 E113
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note The inline names the pattern's anchor id; the span is the path variable.
+%% input
+MATCH p = (a)-[:BLOCKS]->(#51) RETURN p
+%% error E113 1:7 spec
+%% text
+error[E113 path_variable]: path variables are not in LQ v1
+ --> <argv>:1:7
+  |
+1 | MATCH p = (a)-[:BLOCKS]->(#51) RETURN p
+  |       ^ write CALL blockers(#51, transitive: true) YIELD blocker, depth, via
+  = help: sets of endpoints need no path variable
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E113","name":"path_variable","severity":"error","span":{"start":6,"end":7,"line":1,"col":7},"message":"path variables are not in LQ v1","suggest":[],"expected":[],"help":"sets of endpoints need no path variable","detail":[]}],"exit":2}
+%% end
+
+%% case e114-m-greater-than-n
+%% source [LQ/errors §3.2], §5.2 E114
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note conv: the span is the quantifier.
+%% input
+MATCH (a)-[:BLOCKS]->{3,1}(b) RETURN a
+%% error E114 1:22 conv
+%% text
+error[E114 bad_quantifier]: quantifier {3,1} has m > n
+ --> <argv>:1:22
+  |
+1 | MATCH (a)-[:BLOCKS]->{3,1}(b) RETURN a
+  |                      ^^^^^
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E114","name":"bad_quantifier","severity":"error","span":{"start":21,"end":26,"line":1,"col":22},"message":"quantifier {3,1} has m > n","suggest":[],"expected":[],"help":null,"detail":[]}],"exit":2}
+%% end
+
+%% case e001-where-after-return
+%% source [LQ/errors §3.2], §5.2 E001
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note conv: the span is the keyword. The rewrite prints the query's own items and predicate (display printer).
+%% note No JSON: the expected list of a special-case E001 is not fixed (INDEX.md §4 G-10).
+%% input
+MATCH (t:task) RETURN t WHERE t.priority = 1
+%% error E001 1:25 spec
+%% text
+error[E001 syntax]: WHERE after RETURN filters nothing
+ --> <argv>:1:25
+  |
+1 | MATCH (t:task) RETURN t WHERE t.priority = 1
+  |                         ^^^^^ write WITH t WHERE t.priority = 1 RETURN t
+  = help: filter rows or groups with WITH ... WHERE before RETURN
+%% end
+
+%% case e001-dollar
+%% source [LQ/errors §3.2], §5.2 E001
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note conv: the span is the $.
+%% input
+RETURN $1
+%% error E001 1:8 conv
+%% text
+error[E001 syntax]: $ must be followed by a parameter name
+ --> <argv>:1:8
+  |
+1 | RETURN $1
+  |        ^
+  = help: parameter names start with a letter or _
+%% end
+
+%% case e001-quoted-revision
+%% source [LQ/errors §3.2], §5.2 E001
+%% entry read
+%% transport argv
+%% context branch main
+%% context rev 4480
+%% note conv: the span is the string token.
+%% input
+USE 'main' MATCH (t) RETURN t
+%% error E001 1:5 spec
+%% text
+error[E001 syntax]: a revision here is written unquoted
+ --> <argv>:1:5
+  |
+1 | USE 'main' MATCH (t) RETURN t
+  |     ^^^^^^ write main
+%% end
+
+%% case e401-example
+%% source [LQ/errors §3.3] example
+%% source [LQ/errors §5.5] E401
+%% note Statement 1 of a TX matched 0 bindings against EXPECT 1; literal target #89 now has status done, rev 4470,
+%% note changed at commit c3e9a1f0083f... (c8 c3e9a1f00) by dev#2 on lane/l5np with message complete L-17.
+%% note The help line follows §3.3's example, which back-quotes the command; §5.5's row does not (spec finding F-5).
+%% text
+error[E401 expect_mismatch]: statement 1 matched 0 bindings, expected 1
+  #89 now: status=done rev=4470 (changed at c3e9a1f00 by dev#2 on lane/l5np: "complete L-17")
+  nothing was written
+  = help: re-read with `moirai q show ids=89`
+%% end
+
+%% case e406-unleased
+%% source [LQ/errors §5.5] E406 (unleased, frozen)
+%% source [F19 §11.3]
+%% source [90 §4.3]
+%% note A write that needs a lease and presents none. The frozen one-line text, split at its semicolon.
+%% note No detail line: the row says none, while §5.5's preamble puts 'nothing was written' in every E4xx text (spec finding F-6).
+%% text
+error[E406 role_policy]: this write needs a lease
+  = help: an orchestrator presents its session lease with --lease (mint it once per session: moirai claim --role orchestrator --session)
+%% end
+
+%% case e407-declared-agent
+%% source [LQ/errors §5.5] E407 (declared agent)
+%% source [90 §4.1]
+%% source [F19 §11.2]
+%% note The caller declares agent dev#1 and presents lease L-18, whose holder is dev#2 (one of the two exit-5 texts of [90 §10.1]).
+%% note <agent> renders like <holder> (spec gap G-8); no detail line (F-6).
+%% text
+error[E407 lease]: declared agent dev#1 differs from lease L-18's holder dev#2
+  = help: drop --agent, or pass your own lease
+%% end
+
+%% case e411-no-match
+%% source [LQ/errors §5.5] E411
+%% source [90 §10.1]
+%% note A free-form TX from a model with the unknown profile; no named mutation matches; the dry-targets setting is off.
+%% text
+error[E411 unknown_model_write]: free-form TX is refused for a model with the unknown profile
+  no named mutation matches; ask the orchestrator
+%% end
+
+%% case w03
+%% source [LQ/errors §5.6] W03
+%% note A result row is cancelled; the query's variable is t.
+%% text
+W03: t.done includes cancelled; write t.status = 'done' for completed only
+%% json
+{"code":"W03","name":"done_includes_cancelled","message":"t.done includes cancelled; write t.status = 'done' for completed only","detail":[]}
+%% end
+
+%% case w06
+%% source [LQ/errors §5.6] W06
+%% note Page 2 of a live result.
+%% text
+W06: live result: rows may have entered or left since page 1
+%% json
+{"code":"W06","name":"live_page","message":"live result: rows may have entered or left since page 1","detail":[]}
+%% end
+
+%% case w07
+%% source [LQ/errors §5.6] W07
+%% source [50 §3.2]
+%% note Hand-derived readiness over the variable t (mistakes.cases mistake-1).
+%% text
+W07: hand-derived readiness misses inherited and flagged blockers, markers, leases, defer_until and containers; use t.unblocked (structural) or t.ready (dispatchable now)
+%% json
+{"code":"W07","name":"hand_derived_readiness","message":"hand-derived readiness misses inherited and flagged blockers, markers, leases, defer_until and containers; use t.unblocked (structural) or t.ready (dispatchable now)","detail":[]}
+%% end
+
+%% case w04
+%% source [LQ/errors §5.6] W04
+%% note A filter on body scanned 120 bodies.
+%% text
+W04: filtering on body scans 120 bodies (charged to the work budget)
+%% json
+{"code":"W04","name":"body_scan","message":"filtering on body scans 120 bodies (charged to the work budget)","detail":[],"count":120}
+%% end
+
+%% case w05
+%% source [LQ/errors §5.6] W05
+%% note Derived state recomputed for 3 nodes at the view s4400 ([50 §2.9] Q11).
+%% text
+W05: derived state recomputed for 3 nodes at s4400
+%% json
+{"code":"W05","name":"derived_recomputed","message":"derived state recomputed for 3 nodes at s4400","detail":[],"count":3}
+%% end
+
+%% case w09
+%% source [LQ/errors §5.6] W09
+%% source [LQ/lexical §10.1]
+%% note P? holds and the parent process is PowerShell.
+%% text
+W09: this text came through a PowerShell pipe and contains '?' where other characters were expected; pass it with -f FILE or through the query tool
+%% json
+{"code":"W09","name":"stdin_question_marks","message":"this text came through a PowerShell pipe and contains '?' where other characters were expected; pass it with -f FILE or through the query tool","detail":[]}
+%% end
+
+%% case w10
+%% source [LQ/errors §5.6] W10
+%% source [50 §2.6]
+%% note 4 rows passed <> over link_state(t) of a task variable t.
+%% text
+W10: 4 rows passed <> because link_state(t) is 'none' (no AT edge); to keep linked nodes only, add EXISTS { (t)-[:AT]->() }
+%% json
+{"code":"W10","name":"link_state_none_admitted","message":"4 rows passed <> because link_state(t) is 'none' (no AT edge); to keep linked nodes only, add EXISTS { (t)-[:AT]->() }","detail":[],"count":4}
+%% end
+
+%% case n03
+%% source [LQ/errors §5.6] N03
+%% note A composite query of 2 parts read 2 views ([50 §2.9] Q15).
+%% text
+N03: 2 parts read 2 views; each row comes from the view of the part that produced it
+%% json
+{"code":"N03","name":"composite_views","message":"2 parts read 2 views; each row comes from the view of the part that produced it","detail":[]}
+%% end
+
+%% case n05
+%% source [LQ/errors §5.6] N05
+%% note diff(main..lane/l10) where main is not an ancestor of lane/l10; LCA rev 4456, commit c4456a0e1 (first 8 hex digits 4456a0e1).
+%% text
+N05: main is not an ancestor of lane/l10; the diff starts at their LCA rev 4456 c4456a0e1
+%% json
+{"code":"N05","name":"diff_base_lca","message":"main is not an ancestor of lane/l10; the diff starts at their LCA rev 4456 c4456a0e1","detail":[]}
+%% end
+
+%% case n06
+%% source [LQ/errors §5.6] N06
+%% source [50 §2.9] Q28
+%% note #165 was created on lane/l5np at rev 4473, commit c7a0d31e... (c8 c7a0d31e5), and is not merged into the view main.
+%% note The across refs list the view's ref, then the creating ref, as [50 §2.9] Q28 does.
+%% text
+N06: #165 is not in this view: created on lane/l5np at rev 4473 (c7a0d31e5), not merged into main
+     USE lane/l5np, or CALL across(refs: [main, lane/l5np], ids: [#165])
+%% json
+{"code":"N06","name":"id_on_other_branch","message":"#165 is not in this view: created on lane/l5np at rev 4473 (c7a0d31e5), not merged into main","detail":["USE lane/l5np, or CALL across(refs: [main, lane/l5np], ids: [#165])"]}
+%% end
+
+%% case n08
+%% source [LQ/errors §5.6] N08
+%% source [50 §2.9] Q29
+%% note count(*) over MATCH (x:task)-[:BLOCKS]->+(#93).
+%% text
+N08: count(*) over a quantified pattern counts (x, #93) endpoint pairs, not paths
+%% json
+{"code":"N08","name":"endpoint_pair_count","message":"count(*) over a quantified pattern counts (x, #93) endpoint pairs, not paths","detail":[]}
+%% end
+
+%% case n09
+%% source [LQ/errors §5.6] N09
+%% note 2 duplicate rows on the page.
+%% text
+N09: 2 duplicate rows on this page; RETURN DISTINCT removes them
+%% json
+{"code":"N09","name":"duplicate_rows","message":"2 duplicate rows on this page; RETURN DISTINCT removes them","detail":[],"count":2}
+%% end
+
+%% case n10
+%% source [LQ/errors §5.6] N10
+%% note Division by zero in 3 rows.
+%% text
+N10: division by zero gave absent in 3 rows
+%% json
+{"code":"N10","name":"division_by_zero","message":"division by zero gave absent in 3 rows","detail":[],"count":3}
+%% end
+
+%% case n11
+%% source [LQ/errors §5.6] N11
+%% note file('docs/old.md') resolved through an alias of #812, whose path is docs/new.md.
+%% text
+N11: 'docs/old.md' is an old path of #812; it is now 'docs/new.md'
+%% json
+{"code":"N11","name":"file_alias","message":"'docs/old.md' is an old path of #812; it is now 'docs/new.md'","detail":[]}
+%% end
+
+%% case n12
+%% source [LQ/errors §5.6] N12
+%% note show ids=999 in a store whose next id is below 999.
+%% text
+N12: #999 was never allocated in this store
+%% json
+{"code":"N12","name":"never_allocated_id","message":"#999 was never allocated in this store","detail":[]}
+%% end
+
+%% case footer-order
+%% source [LQ/errors §4.2]
+%% source [LQ/envelope §6.1]
+%% note The footer block of a result with W07 raised twice, N09 and W03: warnings in ascending code order, then notices;
+%% note a code that fires twice prints once.
+%% text
+W03: t.done includes cancelled; write t.status = 'done' for completed only
+W07: hand-derived readiness misses inherited and flagged blockers, markers, leases, defer_until and containers; use t.unblocked (structural) or t.ready (dispatchable now)
+N09: 2 duplicate rows on this page; RETURN DISTINCT removes them
+%% end

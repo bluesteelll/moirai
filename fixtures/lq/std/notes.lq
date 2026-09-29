@@ -1,0 +1,9 @@
+DEFINE QUERY notes($path: text, $role: text? = NULL) SHAPE node BUDGET light AS {
+  MATCH (k:note|rule|decision)
+  WHERE k.status IN ['active', 'accepted']
+    AND (applies(k, $path)
+         OR EXISTS { (k)-[:SCOPED_TO]->(a:area) WHERE applies(a, $path) }
+         OR EXISTS { (k)-[:AT]->(f:artifact) WHERE f = file($path) })
+    AND ($role IS NULL OR applies_role(k, $role))
+  RETURN k ORDER BY k.criticality, k.authority, k.id
+}

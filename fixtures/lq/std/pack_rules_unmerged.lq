@@ -1,0 +1,8 @@
+DEFINE QUERY pack_rules_unmerged($role: text) SHAPE node BUDGET light AS {
+  USE main
+  CALL diff(HEAD...main) YIELD node, side
+  WHERE side IN ['theirs', 'both']
+  MATCH (r:rule)
+  WHERE r = node AND r.status = 'active' AND r.criticality = 'critical' AND applies_role(r, $role)
+  RETURN DISTINCT r ORDER BY r.criticality, r.authority, r.id
+}

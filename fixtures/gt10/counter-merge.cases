@@ -1,0 +1,175 @@
+# fixtures/gt10/counter-merge.cases: the merge of counters, natively and through a git-side merge of the image
+# (WP-22 gt10/, R-FIX). Format: fixtures/gt10/INDEX.md §2.
+# Written from [RULES/merge-table] MR-026 (counter: sum of both deltas over the base, never a conflict), RS-004, VB-001,
+# VB-004, DM-010, DM-015; [AR §5a.7] step 4 row "counter"; [AR §3.4] I30′; [AR §5b.6] step 3; [F14 §6.5], §11.2;
+# [RULES/status-machines] GR-011 (reopen adds 1 to reopen_count).
+#
+# The store (seed 100):
+#   k1  #1  note "Flaky lock test" (note_kind hazard), counter incidents = 1 at c0
+#   kt  #2  task "Stabilise the lock test", done at c0 (reopen_count 0)
+# c0 is c@5 (main ref_seq 2). lane/a, lane/b and lane/x fork from main at c0.
+
+%% case k0
+%% from -
+%% source [API §9.2] set with incr; [F08 §9.3] note.incidents, task.reopen_count
+%% script
+1 EnvSlots hold=[claude:s1]
+2 Init seed=100 params=["query.safelist.model.unknown=off"]
+3 Claim @agent=orch @env.CLAUDECODE="1" @env.CLAUDE_CODE_SESSION_ID="s1" role=orchestrator session=true
+4 Tx @lease=L-1 message="The flaky test"
+  create as=k1 kind=note fields={title="Flaky lock test",note_kind=hazard}
+  create as=kt kind=task fields={title="Stabilise the lock test"}
+5 Tx @lease=L-1 message="First incident; the test was stabilised once"
+  set target=$k1 incr={incidents=1}
+  set target=$kt fields={status=done}
+6 BranchCreate @lease=L-1 name=lane/a from=main
+7 BranchCreate @lease=L-1 name=lane/b from=main
+8 BranchCreate @lease=L-1 name=lane/x from=main
+%% result
+exit 0
+%% expect
+main $k1 counter.incidents 1
+main $kt status done
+main $kt counter.reopen_count 0
+lane/a $k1 counter.incidents 1
+%% end
+
+%% case k1a
+%% from k0
+%% source MR-026; PR-001 (sync-first); [AR §5a.7] step 4 "sum of both deltas over base"
+%% note Increments on lane/a (+1), lane/b (+2) and main (+1). Merging lane/a first syncs main into it:
+%% note 2 + 2 - 1 = 3, then the merge into main takes 3. Command 11 repeats command 9's statements on another branch,
+%% note so it carries @no_dedupe: its default key can equal command 9's, which [API §7.4] row 5 refuses with E408 (gap G-5).
+%% script
+9 Tx @lease=L-1 @branch=lane/a message="Incident on lane/a"
+  set target=$k1 incr={incidents=1}
+10 Tx @lease=L-1 @branch=lane/b message="Two incidents on lane/b"
+  set target=$k1 incr={incidents=2}
+11 Tx @lease=L-1 @no_dedupe=true message="Incident on main"
+  set target=$k1 incr={incidents=1}
+12 Merge @lease=L-1 src=lane/a into=main
+%% result
+exit 0
+outcome landed
+sync.outcome landed
+conflicts none
+%% expect
+main $k1 counter.incidents 3 MR-026
+lane/a $k1 counter.incidents 3 MR-026
+lane/b $k1 counter.incidents 3
+%% end
+
+%% case k1b
+%% from k1a
+%% source MR-026; X11 (counters never conflict)
+%% note lane/b syncs main (3 + 3 - 1 = 5) and the merge lands 5: every increment of every branch, once.
+%% script
+13 Merge @lease=L-1 src=lane/b into=main
+%% result
+exit 0
+outcome landed
+sync.outcome landed
+conflicts none
+%% expect
+main $k1 counter.incidents 5 MR-026
+lane/b $k1 counter.incidents 5
+lane/a $k1 counter.incidents 3
+%% end
+
+%% case k2a
+%% from k0
+%% source GR-011; TR-015; MR-022, MR-026; [AR §5d.2] "reopen is an explicit op"
+%% note Both lanes reopen the done task. lane/a merges into main (main has not moved, so no sync).
+%% script
+9 Mutation tx.reopen @lease=L-1 @branch=lane/a id=$kt reason="failed again on the quiet profile"
+10 Mutation tx.reopen @lease=L-1 @branch=lane/b id=$kt reason="failed on the loaded profile"
+11 Merge @lease=L-1 src=lane/a into=main
+%% result
+exit 0
+outcome landed
+conflicts none
+%% expect
+main $kt status open
+main $kt counter.reopen_count 1
+lane/b $kt counter.reopen_count 1
+%% end
+
+%% case k2
+%% from k2a
+%% source MR-021 (both sides reopened: the same status), MR-026 (1 + 1 - 0 = 2)
+%% script
+12 Merge @lease=L-1 src=lane/b into=main
+%% result
+exit 0
+outcome landed
+sync.outcome landed
+conflicts none
+%% expect
+main $kt status open
+main $kt counter.reopen_count 2 MR-026
+lane/b $kt counter.reopen_count 2
+%% end
+
+%% case k3a
+%% from k0
+%% source [AR §5a.3] cross-lane merges; [API §11.7] (a merge into a ref other than main makes one merge commit)
+%% note lane/x increments once (2); lane/a and lane/b both merge lane/x (2 each), then lane/a adds 1 (3) and lane/b
+%% note adds 10 (12). Command 12 repeats command 9's statements on another branch, hence @no_dedupe (gap G-5).
+%% script
+9 Tx @lease=L-1 @branch=lane/x message="Incident on lane/x"
+  set target=$k1 incr={incidents=1}
+10 Merge @lease=L-1 src=lane/x into=lane/a
+11 Merge @lease=L-1 src=lane/x into=lane/b
+12 Tx @lease=L-1 @branch=lane/a @no_dedupe=true message="Incident on lane/a"
+  set target=$k1 incr={incidents=1}
+13 Tx @lease=L-1 @branch=lane/b message="Ten incidents on lane/b"
+  set target=$k1 incr={incidents=10}
+%% result
+exit 0
+%% expect
+lane/x $k1 counter.incidents 2
+lane/a $k1 counter.incidents 3
+lane/b $k1 counter.incidents 12
+main $k1 counter.incidents 1
+%% end
+
+%% case k3
+%% from k3a
+%% finding F-12
+%% source MR-026; VB-001, VB-004 (one LCA: the commit both sides merged); [AR §5a.7] step 1
+%% note The LCA of lane/b and lane/a is lane/x's commit c@9 (incidents 2), so lane/b takes 12 + 3 - 2 = 13: lane/x's
+%% note increment counts once although both sides merged it. (The union of the two sides' first-parent ledger lines
+%% note would count it twice, 14: finding F-12.)
+%% script
+14 Merge @lease=L-1 src=lane/a into=lane/b
+%% result
+exit 0
+outcome landed
+lca [c@9]
+virtual-base no
+conflicts none
+%% expect
+lane/b $k1 counter.incidents 13 MR-026
+lane/a $k1 counter.incidents 3
+%% end
+
+%% case k4
+%% from k3a
+%% requires image
+%% finding F-12
+%% source DM-010, DM-015; HT-003; [AR §3.4] I30′; [AR §5b.6] step 3 "counters come from the ledger union, never from a text merge"; [F14 §11.2] "counters come from the typed merge"; [F14 §6.5]
+%% note Both lanes are exported. A person merges lane/a into lane/b on the git side with the ours strategy, so the
+%% note foreign merge commit's tree is lane/b's: k1's node file sums to 12, dropping lane/a's increment. The import
+%% note computes the two-parent foreign commit as a typed merge of the parents' imported states (LCA c@9): 13, the
+%% note same as the native merge k3, and never the text's 12.
+%% script
+14 ImageExport @lease=L-1 dest=/img/counters.git refs=["lane/a","lane/b"] granularity=commit object_format=sha1 create=true
+- ImageMergeOurs repo=/img/counters.git ref=refs/heads/lane/b other=refs/heads/lane/a author="Pat Example <pat@example.test>"
+15 ImageImport @lease=L-1 from=/img/counters.git refs=["lane/b"]
+%% result
+exit 0
+imported ref=lane/b native=0 foreign=1 outcome=applied
+%% expect
+lane/b $k1 counter.incidents 13 DM-015
+lane/a $k1 counter.incidents 3
+%% end
