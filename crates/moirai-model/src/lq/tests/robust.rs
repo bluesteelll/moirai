@@ -178,6 +178,67 @@ fn the_nesting_bound_of_a_text() {
     assert_eq!(nesting_bound(&deep), 40);
 }
 
+/// Binds `src` against a schema with project named queries, from a thread with the stack of a Windows main thread.
+fn bind_with_queries(queries: &[(&str, String)], src: &str) -> Result<u32, Vec<Code>> {
+    let mut schema = crate::lq::schema::Schema::core();
+    for (name, text) in queries {
+        schema.add_query(name, text);
+    }
+    let src = src.to_string();
+    std::thread::Builder::new()
+        .stack_size(1 << 20)
+        .spawn(move || {
+            let ids = fixture::ids();
+            let (caller, params) = (Caller::default(), Params::new());
+            let ctx = crate::lq::ctx::BindCtx {
+                schema: &schema,
+                ids: &ids,
+                params: &params,
+                caller: &caller,
+            };
+            let bound = crate::lq::bind::bind_nesting_bound(&ctx, &src);
+            let p = parse_read(&src, ParseOptions::default()).unwrap();
+            crate::lq::bind::bind_read(&ctx, &src, &p.tree)
+                .map(|_| bound)
+                .map_err(|e| e.iter().map(|d| d.code).collect())
+        })
+        .unwrap()
+        .join()
+        .unwrap()
+}
+
+/// A bind parses and binds each project named query it calls nested inside itself, so the estimate that decides where
+/// a bind runs adds the nesting of every definition the text reaches, and of no other; a chain of deep definitions
+/// binds from a thread with the stack of a Windows main thread, and a shallow bind stays on the caller's thread.
+#[test]
+fn the_nesting_bound_of_a_bind() {
+    let qa = "DEFINE QUERY qa() AS { CALL qb() YIELD t RETURN t }".to_string();
+    let qb = "DEFINE QUERY qb() AS { MATCH (t:task) RETURN t }".to_string();
+    let qc = "DEFINE QUERY qc() AS { MATCH (t:task) WHERE ((((t.done)))) RETURN t }".to_string();
+    let queries = [("qa", qa.clone()), ("qb", qb.clone()), ("qc", qc.clone())];
+    let src = "CALL qa() YIELD t RETURN t";
+    assert_eq!(
+        bind_with_queries(&queries, src),
+        Ok(nesting_bound(src) + nesting_bound(&qa) + nesting_bound(&qb))
+    );
+    assert!(nesting_bound(src) + nesting_bound(&qa) + nesting_bound(&qb) <= INLINE_NESTING);
+    // A chain whose definitions nest 60 levels each: the bind moves to the front end's own stack.
+    let deep = |name: &str, callee: &str| {
+        format!(
+            "DEFINE QUERY {name}() AS {{ {callee}MATCH (t:task) WHERE {}t.done{} RETURN t }}",
+            "(".repeat(60),
+            ")".repeat(60)
+        )
+    };
+    let chain = [
+        ("d1", deep("d1", "CALL d2() YIELD t AS u ")),
+        ("d2", deep("d2", "CALL d3() YIELD t AS u ")),
+        ("d3", deep("d3", "")),
+    ];
+    let bound = bind_with_queries(&chain, "CALL d1() YIELD t RETURN t").unwrap();
+    assert!(bound > INLINE_NESTING, "{bound}");
+}
+
 /// The deepest texts the parser admits (64 levels of each kind of entry, [LQ/grammar-v1.ebnf §P.13]) and texts at the
 /// in-place limit parse and bind from a thread with the stack of a Windows main thread (1 MiB): a deep text moves to
 /// the front end's own thread.

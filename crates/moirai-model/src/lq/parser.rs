@@ -1252,12 +1252,10 @@ impl<'a> Parser<'a> {
                 );
             }
         }
+        // Every segment of a `proc_name` or `tx_name` is a plain-name position, the `tx` of `tx.complete` included
+        // ([LQ/grammar-v1.ebnf §P.3], [LQ/lexical §6.3]): the token stream prints it `NAME`.
         let is_tx = first.kind == TokKind::Word && first_text.eq_ignore_ascii_case("tx");
-        if is_tx && in_tx {
-            self.bump_kw()?;
-        } else {
-            self.bump()?;
-        }
+        self.bump()?;
         let mut text = first_text;
         while self.is_punct(0, Punct::Dot)? {
             self.bump()?;
@@ -1570,8 +1568,18 @@ impl<'a> Parser<'a> {
     fn pattern_start(&mut self) -> P<()> {
         let t = self.la(0)?;
         if t.kind == TokKind::Word && !is_reserved(self.text(&t)) && self.is_punct(1, Punct::Eq)? {
+            let path = self.peek_parse(|p| {
+                p.consume()?;
+                p.consume()?;
+                p.path()
+            });
+            let id = path
+                .and_then(|p| self.anchor_id(&p))
+                .unwrap_or_else(|| "#N".into());
             let d = Diag::new(Code::E113, t.span(), "path variables are not in LQ v1")
-                .inline("write CALL blockers(#N, transitive: true) YIELD blocker, depth, via")
+                .inline(format!(
+                    "write CALL blockers({id}, transitive: true) YIELD blocker, depth, via"
+                ))
                 .help("sets of endpoints need no path variable");
             return self.fail_d(d);
         }
@@ -1579,6 +1587,21 @@ impl<'a> Parser<'a> {
             self.refused_function(&t)?;
         }
         Ok(())
+    }
+
+    /// The anchor id of a path for E113's rewrite ([LQ/errors §5.2]: "with the pattern's anchor id, else `#N`"): the
+    /// first of its endpoint node patterns, from its start, that names a node by a literal (`(#N)`, `(#u:…)`, `{id: #N}`,
+    /// `{id: #u:…}`), as written.
+    fn anchor_id(&self, path: &Path) -> Option<String> {
+        std::iter::once(&path.start)
+            .chain(path.steps.iter().map(|s| match s {
+                Step::Edge(_, n) | Step::Group(_, n) => n,
+            }))
+            .flat_map(|n| n.props.iter())
+            .find(|kv| {
+                kv.key.text == "id" && matches!(kv.value.kind, ExprKind::Nid(_) | ExprKind::Uid(_))
+            })
+            .map(|kv| self.source_of(kv.value.span))
     }
 
     fn pattern_list(&mut self) -> P<Vec<Path>> {
@@ -1775,7 +1798,7 @@ impl<'a> Parser<'a> {
                 );
             }
             if self.is_punct(0, Punct::LBracket)? {
-                body = self.edge_body()?;
+                body = self.edge_body(true)?;
                 if self.is_punct(0, Punct::Arrow)? {
                     let at = self.la(0)?.span();
                     return self.e004(
@@ -1800,7 +1823,7 @@ impl<'a> Parser<'a> {
         } else {
             self.expect_punct(Punct::Minus)?;
             if self.is_punct(0, Punct::LBracket)? {
-                body = self.edge_body()?;
+                body = self.edge_body(false)?;
                 if self.is_punct(0, Punct::Arrow)? {
                     self.bump()?;
                     dir = Dir::Right;
@@ -1844,7 +1867,8 @@ impl<'a> Parser<'a> {
         })
     }
 
-    fn edge_body(&mut self) -> P<EdgeBody> {
+    /// `'[' edge_body ']'` up to and including `]`; `left` is true after `<-`.
+    fn edge_body(&mut self, left: bool) -> P<EdgeBody> {
         self.bump()?; // '['
         let mut b = EdgeBody::default();
         if self.is_var(0)? {
@@ -1877,11 +1901,13 @@ impl<'a> Parser<'a> {
                     hi = Some((n, t.span()));
                 }
             }
-            for (n, sp) in lo.iter().chain(hi.iter()) {
+            // Every E114 is located at the quantifier's first token, here its `*` (see [`Self::brace_quant`]).
+            let qspan = span(s, self.last_end);
+            for (n, _) in lo.iter().chain(hi.iter()) {
                 if *n > u32::MAX as i64 {
                     let d = Diag::new(
                         Code::E114,
-                        *sp,
+                        qspan,
                         format!("quantifier bound {n} is above 4294967295"),
                     );
                     return self.fail_d(d);
@@ -1895,7 +1921,6 @@ impl<'a> Parser<'a> {
                 (Some((m, _)), true, None) => (m as u32, None),
                 (None, true, None) => (1, None),
             };
-            let qspan = span(s, self.last_end);
             if let Some(mx) = max
                 && min > mx
             {
@@ -1909,11 +1934,8 @@ impl<'a> Parser<'a> {
             let quant = Quant { min, max };
             if self.strict {
                 let form = self.src[s..self.last_end].to_string();
-                return self.strict_refuse(
-                    qspan,
-                    &form,
-                    &format!("-[...]->{}", printer::gql_quant(quant)),
-                );
+                let gql = self.gql_edge(left, &b, quant);
+                return self.strict_refuse(qspan, &form, &gql);
             }
             b.quant = Some(quant);
         }
@@ -1923,6 +1945,47 @@ impl<'a> Parser<'a> {
         b.where_ = self.opt_where()?;
         self.expect_punct(Punct::RBracket)?;
         Ok(b)
+    }
+
+    /// The replacement the strict-GQL mode prints for a Cypher quantifier inside an edge's brackets
+    /// ([LQ/grammar-v1.ebnf §G.2], [LQ/gql-spelling §3.3]): the whole edge with the quantifier after it
+    /// (`<-[:BLOCKS*2..3]-` gives `<-[:BLOCKS]-{2,3}`). The rest of the edge is read ahead without consuming it; when it
+    /// does not parse, the edge is printed from what precedes the quantifier.
+    #[cold]
+    #[inline(never)]
+    fn gql_edge(&mut self, left: bool, b: &EdgeBody, quant: Quant) -> String {
+        let (var, types) = (b.var.clone(), b.types.clone());
+        let rest = self.peek_parse(|p| {
+            let props = if p.is_punct(0, Punct::LBrace)? {
+                p.prop_map(true, var.as_ref())?
+            } else {
+                Vec::new()
+            };
+            let where_ = p.opt_where()?;
+            p.expect_punct(Punct::RBracket)?;
+            let dir = if left {
+                p.expect_punct(Punct::Minus)?;
+                Dir::Left
+            } else if p.is_punct(0, Punct::Arrow)? {
+                Dir::Right
+            } else {
+                p.expect_punct(Punct::Minus)?;
+                Dir::Both
+            };
+            Ok((props, where_, dir))
+        });
+        let (props, where_, dir) =
+            rest.unwrap_or((Vec::new(), None, if left { Dir::Left } else { Dir::Right }));
+        let e = EPat {
+            var,
+            dir,
+            types,
+            quant: Some(quant),
+            props,
+            where_,
+            span: Span::default(),
+        };
+        printer::edge_text(&e, printer::Spelling::Gql)
     }
 
     /// A GQL quantifier after an edge or group: `+`, `*`, `{m,n}`, `{m,}`, `{m}`, `{,n}` (P6).
@@ -1998,14 +2061,27 @@ impl<'a> Parser<'a> {
                     );
                     return self.fail_d(d);
                 }
-                match quant_err {
-                    Some(d) => self.fail_d(d),
-                    None => self.unexpected(&["+", "*", "{"]),
-                }
+                // P6: the `{` that starts no well-formed quantifier is the E001, with the generic text: the forms a
+                // quantifier takes were expected, the `{` was found.
+                const FORMS: [&str; 4] = ["{m,n}", "{m,}", "{m}", "{,n}"];
+                let mut d = Diag::new(
+                    Code::E001,
+                    t.span(),
+                    format!(
+                        "expected {}, found `{{`",
+                        FORMS.map(|f| format!("`{f}`")).join(", ")
+                    ),
+                );
+                d.expected = FORMS.iter().map(|f| f.to_string()).collect();
+                self.fail_d(d)
             }
         }
     }
 
+    /// `{m,n}`, `{m,}`, `{m}` or `{,n}` ([LQ/grammar-v1.ebnf §P.6]). Its E114 cases (a bound above 4294967295,
+    /// [LQ/lexical §8]; m > n) are located at the `{`: every E114 is located at the first token of the quantifier the
+    /// rule refuses, as Annex R's detection point `edge_pat, quantifier` names it, whether the refusal is its form,
+    /// its bounds or its being a second quantifier.
     fn brace_quant(&mut self) -> P<Quant> {
         let open = self.expect_punct(Punct::LBrace)?;
         let bound = |p: &mut Self| -> P<u32> {
@@ -2014,7 +2090,7 @@ impl<'a> Parser<'a> {
                 TokKind::Int(n) if n > u32::MAX as i64 => {
                     let d = Diag::new(
                         Code::E114,
-                        t.span(),
+                        span(open.start, t.end),
                         format!("quantifier bound {n} is above 4294967295"),
                     );
                     p.fail_d(d)
@@ -2160,15 +2236,17 @@ impl<'a> Parser<'a> {
         if matches!(op, CmpOp::Eq | CmpOp::Ne)
             && (l.kind == ExprKind::Null || r.kind == ExprKind::Null)
         {
-            return Err(self.null_comparison(op, &l, &r));
+            return Err(self.null_comparison(op, t.span(), &l, &r));
         }
         let sp = l.span.to(r.span);
         Ok(Expr::new(ExprKind::Cmp(op, Box::new(l), Box::new(r)), sp))
     }
 
+    /// E118 ([LQ/grammar-v1.ebnf §P.18]) at the comparison operator, as [50 §2.9]'s example places it (`1:33` of
+    /// `MATCH (t:task) WHERE t.assignee = null RETURN t`).
     #[cold]
     #[inline(never)]
-    fn null_comparison(&mut self, op: CmpOp, l: &Expr, r: &Expr) -> Fail {
+    fn null_comparison(&mut self, op: CmpOp, at: Span, l: &Expr, r: &Expr) -> Fail {
         let other = if l.kind == ExprKind::Null { r } else { l };
         let x = printer::expr_text(other);
         let inline = if op == CmpOp::Eq {
@@ -2176,12 +2254,7 @@ impl<'a> Parser<'a> {
         } else {
             format!("write {x} IS NOT NULL")
         };
-        let d = Diag::new(
-            Code::E118,
-            l.span.to(r.span),
-            "a comparison with NULL is never true",
-        )
-        .inline(inline);
+        let d = Diag::new(Code::E118, at, "a comparison with NULL is never true").inline(inline);
         self.fail_now(d)
     }
 
@@ -2191,7 +2264,7 @@ impl<'a> Parser<'a> {
         if w.eq_ignore_ascii_case("IS") {
             self.bump_kw()?;
             if self.is_kw(0, "LABELED")? {
-                return Err(self.labeled_refusal(&l, t));
+                return Err(self.labeled_refusal(&l));
             }
             let neg = if self.is_kw(0, "NOT")? {
                 self.bump_kw()?;
@@ -2237,9 +2310,11 @@ impl<'a> Parser<'a> {
         })
     }
 
+    /// `x IS LABELED k` (Annex R: detected at `pred_expr: IS followed by LABELED`), E004 at the `LABELED` that makes
+    /// the `IS` a label test.
     #[cold]
     #[inline(never)]
-    fn labeled_refusal(&mut self, l: &Expr, is: &Token) -> Fail {
+    fn labeled_refusal(&mut self, l: &Expr) -> Fail {
         let lt = match self.la(0) {
             Ok(t) => t,
             Err(f) => return f,
@@ -2253,7 +2328,7 @@ impl<'a> Parser<'a> {
             self.source_of(l.span),
             k.map(|n| n.text).unwrap_or("<k>".into())
         );
-        self.refusal(is.span().to(lt.span()), "x IS LABELED k", &inline)
+        self.refusal(lt.span(), "x IS LABELED k", &inline)
     }
 
     #[cold]
@@ -2302,11 +2377,28 @@ impl<'a> Parser<'a> {
         )
     }
 
+    /// `x.f(args)` (Annex R: detected at the `(` after postfix `.` ident), E004 at that `(`. The rewrite is
+    /// mechanical ([LQ/errors §6]): `write <f>(<x>, <args>)` with the arguments as written, read ahead without consuming
+    /// them; with no arguments `write <f>(<x>)`, and `<args>` when they do not parse.
     #[cold]
     #[inline(never)]
     fn method_refusal(&mut self, name: &Name, e: &Expr) -> Fail {
-        let inline = format!("write {}({}, ...)", name.text, self.source_of(e.span));
-        self.refusal(name.span, "x.f(args)", &inline)
+        let open = match self.la(0) {
+            Ok(t) => t,
+            Err(f) => return f,
+        };
+        let args = self.peek_parse(|p| {
+            let from = p.bump()?.end;
+            p.args(None)?;
+            Ok(p.src[from..p.last_end - 1].trim().to_string())
+        });
+        let x = self.source_of(e.span);
+        let inline = match args {
+            Some(a) if a.is_empty() => format!("write {}({x})", name.text),
+            Some(a) => format!("write {}({x}, {a})", name.text),
+            None => format!("write {}({x}, <args>)", name.text),
+        };
+        self.refusal(open.span(), "x.f(args)", &inline)
     }
 
     /// Records a diagnostic (the first of the pass wins) and returns the failure marker.
@@ -2564,7 +2656,15 @@ impl<'a> Parser<'a> {
         {
             return Ok(e);
         }
-        let name = self.plain_name()?;
+        // `EXISTS` is reserved ([LQ/lexical §6.1]), so it is no `ident`: `exists( e )` is its keyword form
+        // ([LQ/grammar-v1.ebnf §P.9]) and the token stream prints it `KW` ([LQ/lexical §11]).
+        let name = if is_reserved(w) {
+            let name = Name::new(w, t.span());
+            self.bump_kw()?;
+            name
+        } else {
+            self.plain_name()?
+        };
         self.generic_call(name, true)
     }
 
@@ -2687,23 +2787,16 @@ impl<'a> Parser<'a> {
         let args = self.args(None)?;
         self.leave();
         let sp = span(name.span.start as usize, self.last_end);
-        if word {
-            return self.call_spellings(name, distinct, args, sp);
-        }
-        Ok(Expr::new(
-            ExprKind::Fn {
-                name,
-                distinct,
-                args,
-            },
-            sp,
-        ))
+        self.call_spellings(name, word, distinct, args, sp)
     }
 
-    /// The strict-mode function spellings and the `exists(e)` normalisation of an unquoted function name.
+    /// The strict-mode function spellings ([LQ/grammar-v1.ebnf §G.2]: matched ASCII-case-insensitively, a back-quoted
+    /// name included, since it names the same function) and, for an unquoted `exists`, the normalisation of
+    /// `exists(e)` ([LQ/canonical-ast §3.1] item 6).
     fn call_spellings(
         &mut self,
         name: Name,
+        word: bool,
         distinct: bool,
         mut args: Vec<Arg>,
         sp: Span,
@@ -2721,7 +2814,8 @@ impl<'a> Parser<'a> {
                 return Err(self.strict_refusal(name.span, &format!("{}(", name.text), g));
             }
         }
-        if lw == "exists"
+        if word
+            && lw == "exists"
             && !distinct
             && args.len() == 1
             && args[0].name.is_none()

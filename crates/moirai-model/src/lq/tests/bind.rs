@@ -461,6 +461,37 @@ fn e102_unknown_value_and_labels() {
         Code::E102
     );
     read("MATCH (t) WHERE 'task' IN labels(t) RETURN t");
+    // The did-you-mean candidates are measured against the value, not its quoted rendering.
+    let e = fixture::read_with(
+        "MATCH (t:task) WHERE t.status = 'opne' RETURN t",
+        &Params::new(),
+        &Caller::default(),
+    )
+    .unwrap_err();
+    assert_eq!(e[0].message, "`'opne'` is not a value of `status` (task)");
+    assert_eq!(e[0].inline.as_deref(), Some("did you mean `open`?"));
+}
+
+/// A priority is an integer 0–4 ([50 §2.5]): it negates, and a literal negated beside one takes its type
+/// ([LQ/grammar-v1.ebnf §P.5] names the fixture `undirected-minus`, `a.priority - -1`).
+#[test]
+fn a_negated_priority_is_an_integer() {
+    read("MATCH (a:task) WHERE a.priority - -1 > 0 RETURN a");
+    read("MATCH (a:task) WHERE a.priority = -1 OR -a.priority < 0 RETURN a");
+    assert_eq!(read_err("MATCH (a:task) RETURN -a.title").0, Code::E103);
+}
+
+/// A pattern whose labels contradict its literal id's kind binds nothing, which is no error ([50 §3.6]): its
+/// properties are not checked against an empty kind set.
+#[test]
+fn a_contradictory_node_pattern_binds_nothing_without_an_error() {
+    // #212 is a rule in the fixture, #51 a live task.
+    read("MATCH (x:task {id: #212}) RETURN x.title");
+    read("MATCH (x:DELETED {id: #51}) RETURN x.deleted_reason");
+    assert_eq!(
+        read_err("MATCH (x:task {id: #51}) RETURN x.stauts").0,
+        Code::E101
+    );
 }
 
 #[test]
@@ -1186,25 +1217,71 @@ fn reading_echo_of_envelope_4() {
         reads_as("MATCH (x:task)-[:BLOCKS]->+(#93) RETURN x", &compat),
         vec!["x BLOCKS*1.. #93 | x must finish before #93 starts (through 1 or more steps)"]
     );
+    // A group's line stands for the edges inside it ([LQ/envelope §4.3], [50 §2.9] Q5); a pattern inside an existence
+    // test in the group's WHERE echoes like a top-level one (§4.1).
     assert_eq!(
         reads_as("MATCH (x)((a)-[:BLOCKS]->(b)){2}(#93) RETURN x", &gql),
-        vec![
-            "a BLOCKS b | a must finish before b starts",
-            "x BLOCKS{2} #93 | x must finish before #93 starts (through exactly 2 steps)"
-        ]
+        vec!["x BLOCKS{2} #93 | x must finish before #93 starts (through exactly 2 steps)"]
+    );
+    assert_eq!(
+        reads_as(
+            "MATCH (x:task)((a)-[:BLOCKS]->(b) WHERE a.unfinished){1,5}(#93) RETURN x",
+            &compat
+        ),
+        vec!["x BLOCKS*1..5 #93 | x must finish before #93 starts (through 1 to 5 steps)"]
     );
     assert_eq!(
         reads_as(
             "MATCH (x)((a)-[:BLOCKS]->(b)-[:CHILD_OF]->(c)){1,2}(y) RETURN x",
             &gql
-        )[2],
-        "x (BLOCKS CHILD_OF){1,2} y | x reaches y through BLOCKS then CHILD_OF (through 1 to 2 steps)"
+        ),
+        vec![
+            "x (BLOCKS CHILD_OF){1,2} y | x reaches y through BLOCKS then CHILD_OF (through 1 to 2 steps)"
+        ]
+    );
+    assert_eq!(
+        reads_as(
+            "MATCH (x)((a)-[:BLOCKS]->(b) WHERE EXISTS { (b)-[:CHILD_OF]->(c) }){1,2}(y) RETURN x",
+            &gql
+        ),
+        vec![
+            "b CHILD_OF c | b is a child of c",
+            "x BLOCKS{1,2} y | x must finish before y starts (through 1 to 2 steps)"
+        ]
     );
     assert_eq!(
         reads_as("MATCH (a)-[:BLOCKS]-(#51) RETURN a", &compat),
         vec![
             "a BLOCKS #51 (either direction) | a must finish before #51 starts, or #51 must finish before a starts"
         ]
+    );
+    // Gated: an anchored quantified group of one same-kind edge echoes as that edge ([50 §2.9] Q5); an unanchored
+    // one, and a group of several edges, do not.
+    let gated_gql = Caller {
+        profile: Profile::Gated,
+        display: Spelling::Gql,
+        ..Caller::default()
+    };
+    assert_eq!(
+        reads_as(
+            "MATCH (x:task)((a:task)-[:BLOCKS]->(b) WHERE a.unfinished){1,5}(#93) RETURN x",
+            &gated_gql
+        ),
+        vec!["x BLOCKS{1,5} #93 | x must finish before #93 starts (through 1 to 5 steps)"]
+    );
+    assert!(
+        reads_as(
+            "MATCH (x:task)((a:task)-[:BLOCKS]->(b)){1,5}(y) RETURN x",
+            &gated_gql
+        )
+        .is_empty()
+    );
+    assert!(
+        reads_as(
+            "MATCH (x)((a)-[:BLOCKS]->(b)-[:CHILD_OF]->(c)){1,2}(#93) RETURN x",
+            &gated_gql
+        )
+        .is_empty()
     );
     // Each distinct line once; patterns inside EXISTS echo too.
     assert_eq!(reads_as("MATCH (t:task) WHERE EXISTS { (t)<-[:BLOCKS]-(b) } AND EXISTS { (t)<-[:BLOCKS]-(b) } RETURN t", &compat).len(), 1);

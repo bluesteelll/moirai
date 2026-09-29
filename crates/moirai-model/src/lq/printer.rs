@@ -139,6 +139,11 @@ pub fn path_text(p: &Path) -> String {
     Printer::new(Spelling::default()).path(p)
 }
 
+/// The text of one edge pattern in a display spelling.
+pub fn edge_text(e: &EPat, spelling: Spelling) -> String {
+    Printer::new(spelling).epat(e)
+}
+
 /// The text of a projection list (`*, a AS b, ...`).
 pub fn proj_items_text(star: bool, items: &[Item]) -> String {
     Printer::new(Spelling::default()).proj(star, items)

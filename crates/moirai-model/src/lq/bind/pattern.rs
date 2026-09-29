@@ -678,8 +678,17 @@ impl Binder<'_> {
     }
 
     /// A quantified group (V3): its variables are local to its path and `WHERE`; outside they are E116.
+    ///
+    /// The group's echo line stands for the edges inside it ([LQ/envelope §4.3]: a group of one edge prints as that edge
+    /// between the group's outer endpoints, a group of several edges as `<a> (<T1> <T2> ...)<q> <b>`), so they print no
+    /// line of their own ([50 §2.9] Q5 echoes the group alone). Under `gated` a group of several edges prints no line
+    /// (see [`Self::echo_group`]) and its edges echo by the `gated` rule.
     fn group(&mut self, g: &Group, left: &NPat, right: &NPat) -> CGroup {
         let mark = self.scope.len();
+        let one_edge = matches!(g.path.steps.as_slice(), [Step::Edge(..)]);
+        let own_line = self.ctx.caller.profile != Profile::Gated || one_edge;
+        let outer = self.mute_echo;
+        self.mute_echo = outer || own_line;
         let path = self
             .paths(std::slice::from_ref(&g.path), false)
             .pop()
@@ -709,7 +718,10 @@ impl Binder<'_> {
                 self.steps.push(n);
             }
         }
-        self.echo_group(g, left, right);
+        self.mute_echo = outer;
+        if !outer {
+            self.echo_group(g, left, right);
+        }
         CGroup {
             path,
             where_,
@@ -782,6 +794,9 @@ impl Binder<'_> {
     }
 
     fn echo_edge(&mut self, e: &EPat, ln: &NPat, rn: &NPat) {
+        if self.mute_echo {
+            return;
+        }
         let Some(types) = self.silent_types(&e.types) else {
             return;
         };
@@ -890,21 +905,30 @@ impl Binder<'_> {
         format!("{line} | {reading}{}", Self::quant_suffix(quant))
     }
 
+    /// A quantified group's line ([LQ/envelope §4.1], §4.3). A group of one edge prints as that edge between the
+    /// group's outer endpoints, and under `gated` it echoes as that edge would: when an outer endpoint is anchored and
+    /// its kind is same-kind, or when it is written with a reverse alias ([50 §2.9] Q5 echoes
+    /// `(x:task)((a:task)-[:BLOCKS]->(b) WHERE a.unfinished){1,5}(#93)`). A group of several edges is no hop, so
+    /// `gated` leaves it to its edges.
     fn echo_group(&mut self, g: &Group, ln: &NPat, rn: &NPat) {
-        if self.ctx.caller.profile == Profile::Gated {
-            return;
-        }
-        let a = self.node_display(ln);
-        let b = self.node_display(rn);
+        let gated = self.ctx.caller.profile == Profile::Gated;
         if let [Step::Edge(e, _)] = g.path.steps.as_slice() {
             if let Some(types) = self.silent_types(&e.types)
                 && !types.is_empty()
+                && (!gated || self.echoes(&types, Self::anchored(ln) || Self::anchored(rn)))
             {
+                let a = self.node_display(ln);
+                let b = self.node_display(rn);
                 let line = self.echo_line(&types, e.dir, &e.types, Some(g.quant), &a, &b);
                 self.push_read(line);
             }
             return;
         }
+        if gated {
+            return;
+        }
+        let a = self.node_display(ln);
+        let b = self.node_display(rn);
         let mut names = Vec::new();
         let mut stack: Vec<&Path> = vec![&g.path];
         while let Some(p) = stack.pop() {

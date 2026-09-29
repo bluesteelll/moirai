@@ -901,6 +901,9 @@ pub const MUTATIONS: [Mutation; 21] = [
             p("summary", PT::Text),
             o("evidence", PT::ListText),
             o("digest", PT::Text),
+            // `$lease: text? = NULL`: the lease `apply`'s expansion presents for this call only ([API §9.4] step 1;
+            // [API] open point 16, not yet in [LQ/std §7.3]'s signature).
+            o("lease", PT::Text),
         ],
         yields: &[
             ("task", PT::Node),

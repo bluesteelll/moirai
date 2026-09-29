@@ -1,9 +1,38 @@
 //! The conformance fixtures of `fixtures/lq/` (WP-22, [50 §8.3]): the token, AST and error cases that WP-93a's
 //! acceptance names, and the standard-library sources of `fixtures/lq/std/` ([LQ/std §1]).
 //!
-//! No chapter fixes the files' layout yet (see the WP-93a spec findings); the runner reads this one, which carries
-//! exactly the formats the chapters define:
+//! No chapter fixes the files' layout; WP-22 names `fixtures/lq/INDEX.md` §2 as its owner, and until that section
+//! exists this runner reads the layout WP-22's files show. It reads two layouts, each carrying exactly the formats the
+//! chapters define:
 //!
+//! - **Case files** `*.cases` anywhere under `fixtures/lq/` except `std/`, the layout WP-22 writes. Lines before the
+//!   first case that start with `#` are comments. A case runs from `%% case <name>` to `%% end`.
+//!   - One-line directives: `%% source …` and `%% note …`, not read; `%% entry read|write|define`; `%% mode
+//!     strict-gql`; `%% input-file <path under fixtures/lq>`; `%% sast-same-as <case>` and `%% cast-same-as <case>`,
+//!     the S-AST, or the C-AST encoding, of another case of any file; `%% accept`, the text parses; `%% error <code>
+//!     <line>:<col> [spec|conv]`, `<code> *` for a position no chapter fixes, or `<code>` alone for an unlocated error
+//!     (a decoding error, a parse error, else the first bind error); for the binder, `%% profile
+//!     gated|compatible|unknown`, `%% display cypher|gql` (the echo's quantifier spelling), `%% context <line>`
+//!     (`branch <ref>`; `rev <n>`, the tip the JSON error envelope names, not read; or a binding-context line of §9
+//!     below), `%% outcome runs|error`, `%% warnings <codes>|none` and `%% notices <codes>|none` (the codes the binder
+//!     decides); for the C-AST, `%% hash blake3_256 0..<n> first 16 = <32 hex>` (`H` of [LQ/canonical-ast §7.1] over
+//!     the whole encoding), `%% explain-id q:<8 hex>` and `%% cursor-query-hash 0x<16 hex>` (§7.2).
+//!   - Blocks run to the next directive, trailing empty lines dropped: `%% input`, the text, lines joined by LF;
+//!     `%% input-hex`, its bytes in lower-case hex (text from `;` to the end of a line is a comment); `%% tokens`, the
+//!     token stream of [LQ/lexical §11], compared byte for byte; `%% sast`, the S-expression of [LQ/canonical-ast
+//!     §4.2], compared by §4.1; `%% reads`, the reading-echo lines of [LQ/envelope §4.2], in order; `%% cast`, the
+//!     C-AST's S-expression of §4.3 in the case's context; `%% encoding`, its bytes (§6) in hex; `%% portable`, the
+//!     stored text of the definition (§8.1).
+//!   - Renderings are read and not checked, since the model has no rendering and no JSON code (PLAN §2.2): `%% text`
+//!     and `%% json` (the text and JSON forms of a result or an error: the reference renderer's, WP-71a, and the
+//!     product's), `%% json-ir` (the JSON IR output form), `%% hex` (the bytes of an envelope structure such as a
+//!     cursor) and `%% transport` (the source name of an error text). A case without an input states only renderings
+//!     (`%% hash` included, over its `%% hex`) and is not run. The cases of `json-ir.cases` have JSON IR documents as
+//!     their input, and their errors may be located by a JSON Pointer (`<code> ptr <pointer> spec|conv`): that file's
+//!     layout is read and its cases are not run.
+//!   - A case binds in a store where every node its text names by `#N` exists, kinds unknown ("a store in which the
+//!     named nodes exist"), besides the nodes its context names. Any other directive, a directive given twice, or text
+//!     outside a block, fails the check: the layout has moved on.
 //! - A case is a file `<base>.lq` anywhere under `fixtures/lq/` except `std/`: the LQ text, decoded by
 //!   [LQ/lexical §2.1]. `<base>`'s last dot-separated segments choose the entry ([LQ/grammar-v1.ebnf §P.1]): `tx` for
 //!   `write_input`, `def` for `define_stmt`, `read_input` otherwise; `strict` adds the strict-GQL spelling mode
@@ -17,16 +46,18 @@
 //!   A `.err` case binds in the context of `<base>.ctx` (the same lines) when that file exists.
 //!
 //! The directory is WP-22's first output (PLAN §3.3: `lq/`, then WP-21's `canonical/` and `r4/`, WP-20's `hex/`, then
-//! `gt10/`). Until it exists the check has nothing to read; once any later directory exists, a missing `fixtures/lq`
-//! fails the check, and so does a `fixtures/lq` without a case.
+//! `gt10/`). Until it holds a case the check has nothing to read; once any later directory exists, a missing
+//! `fixtures/lq` fails the check, and so does a `fixtures/lq` without a case. A `fixtures/lq` that holds files outside
+//! `std/` but no case fails it too: its layout is not the one this runner reads.
 
 use crate::lq::cast::{Root, encode, sexpr as cast_sexpr};
-use crate::lq::ctx::{BindCtx, Caller, MapIds, Params, Value};
+use crate::lq::ctx::{BindCtx, Caller, Identities, MapIds, Params, Value};
 use crate::lq::diag::{Diag, line_col};
 use crate::lq::lexer::decode;
 use crate::lq::parser::{ParseOptions, parse_define, parse_read, parse_write, token_stream_text};
 use crate::lq::schema::Schema;
 use crate::lq::{bind, sexpr};
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 /// `fixtures/` of the repository.
@@ -148,6 +179,15 @@ fn first_error(src: &str, e: &[Diag]) -> String {
     }
 }
 
+/// Whether a first error as [`first_error`] writes it matches a fixture's: equal, or the same code when the fixture
+/// writes `<code> *` (a position no chapter fixes).
+fn error_matches(got: &str, want: &str) -> bool {
+    match want.strip_suffix(" *") {
+        Some(code) => got.split_whitespace().next() == Some(code),
+        None => got == want,
+    }
+}
+
 /// The entry and mode a case's base name selects.
 fn entry_of(base: &str) -> (Entry, ParseOptions) {
     let mut entry = Entry::Read;
@@ -220,10 +260,50 @@ struct Expect {
 /// Checks one case: its text, the entry its base name selects, and its expectations.
 fn check(base: &str, bytes: &[u8], x: &Expect) -> Result<(), String> {
     let (entry, opts) = entry_of(base);
-    let src = decode(bytes).map_err(|d| format!("{} (decoding)", d.code))?;
+    check_as(entry, opts, bytes, x)
+}
+
+/// Decodes a case's bytes ([LQ/lexical §2.1]). A refusal is the first error as [`first_error`] writes it: E003 at the
+/// first byte that is not well-formed, its line and column counted over the well-formed prefix of the text after the
+/// byte-order mark ([LQ/lexical §2.3]), which is the whole text before the offset.
+fn decode_case(bytes: &[u8]) -> Result<&str, String> {
+    decode(bytes).map_err(|d| {
+        let body = bytes.strip_prefix(&[0xEF, 0xBB, 0xBF]).unwrap_or(bytes);
+        let at = d.span.map_or(0, |s| s.start);
+        let prefix = body.get(..at as usize).unwrap_or(body);
+        match std::str::from_utf8(prefix) {
+            Ok(prefix) => {
+                let (l, c) = line_col(prefix, at);
+                format!("{} {l} {c}", d.code)
+            }
+            Err(_) => d.code.to_string(),
+        }
+    })
+}
+
+/// Checks one case's text with an entry and mode against its expectations.
+fn check_as(entry: Entry, opts: ParseOptions, bytes: &[u8], x: &Expect) -> Result<(), String> {
     if x.tokens.is_none() && x.sast.is_none() && x.err.is_none() && x.cast.is_none() {
         return Err("no expectation file".into());
     }
+    let src = match decode_case(bytes) {
+        Ok(s) => s,
+        Err(got) => {
+            return match &x.err {
+                Some(want) if x.tokens.is_none() && x.sast.is_none() && x.cast.is_none() => {
+                    if error_matches(&got, want.trim()) {
+                        Ok(())
+                    } else {
+                        Err(format!(
+                            "first error {got}, the fixture expects {}",
+                            want.trim()
+                        ))
+                    }
+                }
+                _ => Err(format!("does not decode: {got}")),
+            };
+        }
+    };
     let parsed = parse(src, entry, opts);
     if let Some(want) = &x.err {
         let want = want.trim();
@@ -238,7 +318,7 @@ fn check(base: &str, bytes: &[u8], x: &Expect) -> Result<(), String> {
                 }
             }
         };
-        if got != want {
+        if !error_matches(&got, want) {
             return Err(format!("first error {got}, the fixture expects {want}"));
         }
     }
@@ -327,18 +407,601 @@ fn read_opt(p: &Path) -> Result<Option<String>, String> {
     }
 }
 
-/// Runs every case under `lq` (not `lq/std/`): how many there are, or the failures, each `path: why`.
-fn run_cases(lq: &Path) -> Result<usize, Vec<String>> {
+/// One case of a `.cases` file: its name, the line of its `%% case`, and its directives.
+#[derive(Default)]
+struct Block {
+    name: String,
+    line: usize,
+    entry: Option<String>,
+    strict: bool,
+    profile: Option<String>,
+    display: Option<String>,
+    context: Vec<String>,
+    input: Option<String>,
+    input_file: Option<String>,
+    input_hex: Option<String>,
+    tokens: Option<String>,
+    sast: Option<String>,
+    same_as: Option<String>,
+    accept: bool,
+    error: Option<String>,
+    outcome: Option<String>,
+    warnings: Option<String>,
+    notices: Option<String>,
+    reads: Option<String>,
+    cast: Option<String>,
+    cast_same_as: Option<String>,
+    encoding: Option<String>,
+    hash: Option<String>,
+    explain_id: Option<String>,
+    cursor_hash: Option<String>,
+    portable: Option<String>,
+    /// A rendering no model code produces was stated: `%% text`, `%% json`, `%% json-ir`, `%% hex` or `%% transport`.
+    renders: bool,
+}
+
+impl Block {
+    /// Whether the case has a text for the front end.
+    fn has_input(&self) -> bool {
+        self.input.is_some() || self.input_file.is_some() || self.input_hex.is_some()
+    }
+
+    /// Whether the case states its C-AST or a value derived from its encoding ([LQ/canonical-ast §4.3], §6, §7, §8).
+    fn casts(&self) -> bool {
+        self.cast.is_some()
+            || self.cast_same_as.is_some()
+            || self.encoding.is_some()
+            || self.hash.is_some()
+            || self.explain_id.is_some()
+            || self.cursor_hash.is_some()
+            || self.portable.is_some()
+    }
+
+    /// Whether the case binds: it states what the binder decides or what it builds.
+    fn binds(&self) -> bool {
+        self.outcome.is_some()
+            || self.warnings.is_some()
+            || self.notices.is_some()
+            || self.reads.is_some()
+            || self.casts()
+    }
+}
+
+/// What binding a case decided: its warnings and notices by code, its reading-echo lines, its C-AST (the S-expression
+/// of [LQ/canonical-ast §4.3] and the encoding of §6) and the portable texts of the definitions it bound (§8.1).
+struct Decided {
+    warnings: Vec<String>,
+    notices: Vec<String>,
+    reads: Vec<String>,
+    cast: String,
+    encoding: Vec<u8>,
+    portable: Vec<String>,
+}
+
+impl Decided {
+    fn of<T>(x: &bind::Bound<T>, root: Root<'_>) -> Decided {
+        let codes = |w: char| {
+            x.lints
+                .iter()
+                .map(|l| l.code.as_str().to_string())
+                .filter(|c| c.starts_with(w))
+                .collect()
+        };
+        Decided {
+            warnings: codes('W'),
+            notices: codes('N'),
+            reads: x.reads.clone(),
+            cast: cast_sexpr(root),
+            encoding: encode(root),
+            portable: x.portable.iter().map(|(_, t)| t.clone()).collect(),
+        }
+    }
+}
+
+/// Binds a case's tree in its context ([`Block::context`]: `schema core`, `branch <ref>`, `rev <n>` and the lines of
+/// [LQ/canonical-ast §9]) as a caller of its profile and display spelling, in a store where every node its text names by
+/// `#N` exists (the case files state their store as "a store in which the named nodes exist"; kinds unknown). `rev <n>`
+/// is the caller's tip for the JSON error envelope, a rendering, and binding does not read it.
+fn bind_case(
+    src: &str,
+    tree: &Tree,
+    b: &Block,
+    tokens: &str,
+) -> Result<Result<Decided, Vec<Diag>>, String> {
+    let mut caller = Caller::default();
+    let mut lines = Vec::new();
+    for c in &b.context {
+        match c.split_whitespace().collect::<Vec<_>>().as_slice() {
+            ["branch", r] => caller.branch = (*r).to_string(),
+            ["rev", n] if n.parse::<u64>().is_ok() => {}
+            _ => lines.push(c.as_str()),
+        }
+    }
+    let mut cx = Context::parse(&lines)?;
+    for n in tokens.lines().filter_map(|l| l.strip_prefix("NODE ")) {
+        let n: u32 = n.parse().map_err(|_| format!("token NODE {n}"))?;
+        if cx.ids.uid(n).is_none() {
+            let mut u = [0u8; 16];
+            u[..4].copy_from_slice(&n.to_be_bytes());
+            u[15] = 0x4e;
+            cx.ids.node(n, u, None);
+        }
+    }
+    caller.profile = match b.profile.as_deref() {
+        None | Some("compatible") => crate::lq::ctx::Profile::Compatible,
+        Some("gated") => crate::lq::ctx::Profile::Gated,
+        Some("unknown") => crate::lq::ctx::Profile::Unknown,
+        Some(p) => return Err(format!("profile {p:?}")),
+    };
+    caller.display = match b.display.as_deref() {
+        None | Some("cypher") => crate::lq::printer::Spelling::Cypher,
+        Some("gql") => crate::lq::printer::Spelling::Gql,
+        Some(d) => return Err(format!("display {d:?}")),
+    };
+    let ctx = BindCtx {
+        schema: &cx.schema,
+        ids: &cx.ids,
+        params: &cx.params,
+        caller: &caller,
+    };
+    Ok(match tree {
+        Tree::Read(r) => {
+            bind::bind_read(&ctx, src, r).map(|x| Decided::of(&x, Root::Query(&x.ast)))
+        }
+        Tree::Write(w) => bind::bind_write(&ctx, src, w).map(|x| Decided::of(&x, Root::Tx(&x.ast))),
+        Tree::Define(d) => {
+            bind::bind_define(&ctx, src, d).map(|x| Decided::of(&x, Root::Define(&x.ast)))
+        }
+    })
+}
+
+/// A `%% warnings` or `%% notices` line as a list of codes (`none` is the empty list).
+fn code_list(s: &str) -> Vec<String> {
+    s.split([' ', ','])
+        .filter(|w| !w.is_empty() && *w != "none")
+        .map(str::to_string)
+        .collect()
+}
+
+/// The bytes of a hex block (`%% input-hex`, `%% encoding`): lower-case hex digits in groups of whole bytes, separated
+/// by white space; text from `;` to the end of a line is a comment.
+fn hex_block(text: &str) -> Result<Vec<u8>, String> {
+    let digits: Vec<&str> = text
+        .lines()
+        .map(|l| l.split_once(';').map_or(l, |(h, _)| h))
+        .collect();
+    unhex_vec(&digits.join(" "))
+}
+
+/// Checks `%% hash blake3_256 0..<n> first 16 = <32 hex>`: `H` of [LQ/canonical-ast §7.1] over the whole encoding.
+fn check_hash(spec: &str, encoding: &[u8]) -> Result<(), String> {
+    let w: Vec<&str> = spec.split_whitespace().collect();
+    let ["blake3_256", range, "first", "16", "=", want] = w.as_slice() else {
+        return Err(format!("hash {spec:?}"));
+    };
+    let n: usize = range
+        .strip_prefix("0..")
+        .and_then(|n| n.parse().ok())
+        .ok_or_else(|| format!("hash range {range:?}"))?;
+    if n != encoding.len() {
+        return Err(format!(
+            "the hash covers 0..{n}, the encoding has {} bytes",
+            encoding.len()
+        ));
+    }
+    let got = hex(&blake3::hash(encoding).as_bytes()[..16]);
+    if got != *want {
+        return Err(format!("H {got}, the fixture has {want}"));
+    }
+    Ok(())
+}
+
+/// The cases of a `.cases` file (see the module documentation), or what in it this runner cannot read.
+fn read_blocks(text: &str) -> Result<Vec<Block>, String> {
+    let mut out = Vec::new();
+    let mut cur: Option<Block> = None;
+    // The directive whose lines are being collected, and the lines.
+    let mut body: Option<(&str, Vec<&str>)> = None;
+    let close = |cur: &mut Option<Block>, body: &mut Option<(&str, Vec<&str>)>| {
+        let (Some(b), Some((k, mut lines))) = (cur.as_mut(), body.take()) else {
+            return;
+        };
+        while lines.last().is_some_and(|l| l.trim().is_empty()) {
+            lines.pop();
+        }
+        let joined = lines.join("\n");
+        match k {
+            "input" => b.input = Some(joined),
+            "input-hex" => b.input_hex = Some(joined),
+            "tokens" => b.tokens = Some(joined + "\n"),
+            "sast" => b.sast = Some(joined),
+            "reads" => b.reads = Some(joined),
+            "cast" => b.cast = Some(joined),
+            "encoding" => b.encoding = Some(joined),
+            "portable" => b.portable = Some(joined),
+            // The text and JSON renderings of a result or an error, the JSON IR output form and the bytes of an
+            // envelope structure: the reference renderer's (WP-71a), the JSON IR converter's and the product's. The
+            // model has no rendering and no JSON code (PLAN §2.2).
+            _ => b.renders = true,
+        }
+    };
+    for (i, line) in text.lines().enumerate() {
+        let Some(d) = line.strip_prefix("%% ") else {
+            match &mut body {
+                Some((_, lines)) => lines.push(line),
+                None if line.trim().is_empty() || (cur.is_none() && line.starts_with('#')) => {}
+                None => return Err(format!("line {}: text outside a case's blocks", i + 1)),
+            }
+            continue;
+        };
+        close(&mut cur, &mut body);
+        let (k, rest) = d.split_once(' ').unwrap_or((d, ""));
+        let rest = rest.trim();
+        if k == "case" {
+            if cur.is_some() {
+                return Err(format!("line {}: a case without %% end", i + 1));
+            }
+            cur = Some(Block {
+                name: rest.to_string(),
+                line: i + 1,
+                ..Block::default()
+            });
+            continue;
+        }
+        let Some(b) = cur.as_mut() else {
+            return Err(format!("line {}: %% {k} outside a case", i + 1));
+        };
+        let one = |v: &Option<String>| match v {
+            Some(_) => Err(format!("line {}: a second %% {k}", i + 1)),
+            None => Ok(Some(rest.to_string())),
+        };
+        match k {
+            "source" | "note" => {}
+            "entry" => b.entry = one(&b.entry)?,
+            "input-file" => b.input_file = one(&b.input_file)?,
+            "sast-same-as" => b.same_as = one(&b.same_as)?,
+            "cast-same-as" => b.cast_same_as = one(&b.cast_same_as)?,
+            "error" => b.error = one(&b.error)?,
+            "accept" if rest.is_empty() => b.accept = true,
+            "mode" if rest == "strict-gql" => b.strict = true,
+            "profile" => b.profile = one(&b.profile)?,
+            "display" if matches!(rest, "cypher" | "gql") => b.display = one(&b.display)?,
+            "context" => b.context.push(rest.to_string()),
+            "outcome" if matches!(rest, "runs" | "error") => b.outcome = one(&b.outcome)?,
+            "warnings" => b.warnings = one(&b.warnings)?,
+            "notices" => b.notices = one(&b.notices)?,
+            "hash" => b.hash = one(&b.hash)?,
+            "explain-id" => b.explain_id = one(&b.explain_id)?,
+            "cursor-query-hash" => b.cursor_hash = one(&b.cursor_hash)?,
+            // The source name of an error's text rendering: `argv`, `stdin`, `query` or `file <name>`.
+            "transport" => b.renders = true,
+            "input" | "input-hex" | "tokens" | "sast" | "reads" | "cast" | "encoding"
+            | "portable" | "json-ir" | "text" | "json" | "hex" => body = Some((k, Vec::new())),
+            "end" => out.extend(cur.take()),
+            _ => return Err(format!("line {}: unknown directive %% {k}", i + 1)),
+        }
+    }
+    close(&mut cur, &mut body);
+    match cur {
+        Some(b) => Err(format!("case {} has no %% end", b.name)),
+        None => Ok(out),
+    }
+}
+
+/// What checking one case left for the checks across cases: its S-AST when its text parsed, and its C-AST encoding
+/// when it bound.
+#[derive(Default)]
+struct Ran {
+    sast: Option<String>,
+    encoding: Option<Vec<u8>>,
+}
+
+/// The first error a case expects: `<code> <line>:<col> [spec|conv]` as [`first_error`] writes it, `<code> *` for an
+/// error whose position no chapter fixes, or `<code>` for an unlocated one.
+fn expected_error(e: &str) -> Result<String, String> {
+    let w: Vec<&str> = e.split_whitespace().collect();
+    let at = match w.get(1).map(|p| p.split_once(':')) {
+        None => String::new(),
+        Some(None) if w[1] == "*" => " *".to_string(),
+        Some(Some((l, c))) if l.parse::<u32>().is_ok() && c.parse::<u32>().is_ok() => {
+            format!(" {l} {c}")
+        }
+        Some(_) => return Err(format!("error {e:?}")),
+    };
+    if w.len() > 3 || w.get(2).is_some_and(|c| !["spec", "conv"].contains(c)) {
+        return Err(format!("error {e:?}"));
+    }
+    Ok(format!("{}{at}", w.first().copied().unwrap_or("")))
+}
+
+/// Checks one case with an input against its expectations. `lq` is `fixtures/lq`, against which `%% input-file`
+/// resolves.
+fn run_block(lq: &Path, b: &Block) -> Result<Ran, String> {
+    let mut words = b.entry.as_deref().unwrap_or("").split_whitespace();
+    let entry = match words.next() {
+        Some("read") => Entry::Read,
+        Some("write") => Entry::Write,
+        Some("define") => Entry::Define,
+        other => return Err(format!("entry {other:?}")),
+    };
+    let mut opts = ParseOptions {
+        strict_gql: b.strict,
+    };
+    for w in words {
+        match w {
+            "strict" | "strict-gql" => opts.strict_gql = true,
+            _ => return Err(format!("entry word {w:?}")),
+        }
+    }
+    let bytes = match (&b.input, &b.input_file, &b.input_hex) {
+        (Some(t), None, None) => t.clone().into_bytes(),
+        (None, Some(f), None) => std::fs::read(lq.join(f)).map_err(|e| format!("{f}: {e}"))?,
+        (None, None, Some(h)) => hex_block(h)?,
+        _ => return Err("one of %% input, %% input-file and %% input-hex".into()),
+    };
+    let err = b.error.as_deref().map(expected_error).transpose()?;
+    if b.outcome.as_deref() == Some("error") && err.is_none() {
+        return Err("%% outcome error without %% error".into());
+    }
+    if err.is_some() && (b.accept || b.outcome.as_deref() == Some("runs") || b.casts()) {
+        return Err("%% error with an expectation of success".into());
+    }
+    if b.tokens.is_none()
+        && b.sast.is_none()
+        && err.is_none()
+        && !b.accept
+        && !b.binds()
+        && b.same_as.is_none()
+    {
+        return Err("no expectation".into());
+    }
+    // An expected error stops the case: compare it.
+    let stop = |got: String, what: &str| match &err {
+        Some(want) if error_matches(&got, want) => Ok(Ran::default()),
+        Some(want) => Err(format!("first error {got}, the fixture expects {want}")),
+        None => Err(format!("{what}: {got}")),
+    };
+    let src = match decode_case(&bytes) {
+        Ok(s) => s,
+        Err(got) => return stop(got, "does not decode"),
+    };
+    let (tree, tokens) = match parse(src, entry, opts) {
+        Ok(t) => t,
+        Err(e) => return stop(first_error(src, &e), "does not parse"),
+    };
+    if let Some(want) = &b.tokens
+        && tokens != *want
+    {
+        return Err(format!("token stream:\n{tokens}the fixture has:\n{want}"));
+    }
+    let s = sast(&tree);
+    if let Some(want) = &b.sast
+        && !sexpr::same(&s, want)
+    {
+        return Err(format!("S-AST {s}, the fixture has {}", want.trim()));
+    }
+    let mut ran = Ran {
+        sast: Some(s),
+        encoding: None,
+    };
+    if err.is_none() && !b.binds() {
+        return Ok(ran);
+    }
+    let d = match bind_case(src, &tree, b, &tokens)? {
+        Err(e) => {
+            let got = first_error(src, &e);
+            stop(got, "does not bind")?;
+            return Ok(ran);
+        }
+        Ok(d) => d,
+    };
+    if let Some(want) = &err {
+        return Err(format!("parses and binds; the fixture expects {want}"));
+    }
+    if let Some(w) = &b.warnings
+        && d.warnings != code_list(w)
+    {
+        return Err(format!("warnings {:?}, the fixture has {w}", d.warnings));
+    }
+    if let Some(n) = &b.notices
+        && d.notices != code_list(n)
+    {
+        return Err(format!("notices {:?}, the fixture has {n}", d.notices));
+    }
+    if let Some(r) = &b.reads {
+        let want: Vec<&str> = r.lines().filter(|l| !l.trim().is_empty()).collect();
+        let got: Vec<String> = d.reads.iter().map(|l| format!("reads: {l}")).collect();
+        if got != want {
+            return Err(format!("reads {got:?}, the fixture has {want:?}"));
+        }
+    }
+    if let Some(want) = &b.cast
+        && !sexpr::same(&d.cast, want)
+    {
+        return Err(format!("C-AST {}, the fixture has {}", d.cast, want.trim()));
+    }
+    if let Some(want) = &b.encoding
+        && d.encoding != hex_block(want)?
+    {
+        return Err(format!(
+            "encoding {}, the fixture has {want}",
+            hex(&d.encoding)
+        ));
+    }
+    let h = blake3::hash(&d.encoding);
+    let h = h.as_bytes();
+    if let Some(spec) = &b.hash {
+        check_hash(spec, &d.encoding)?;
+    }
+    if let Some(want) = &b.explain_id {
+        let got = format!("q:{}", hex(&h[..4]));
+        if got != *want {
+            return Err(format!("EXPLAIN id {got}, the fixture has {want}"));
+        }
+    }
+    if let Some(want) = &b.cursor_hash {
+        let mut q = [0u8; 8];
+        q.copy_from_slice(&h[..8]);
+        let got = format!("0x{:016x}", u64::from_le_bytes(q));
+        if got != *want {
+            return Err(format!("cursor query hash {got}, the fixture has {want}"));
+        }
+    }
+    if let Some(want) = &b.portable
+        && d.portable.as_slice() != std::slice::from_ref(want)
+    {
+        return Err(format!(
+            "portable texts {:?}, the fixture has {want:?}",
+            d.portable
+        ));
+    }
+    ran.encoding = Some(d.encoding);
+    Ok(ran)
+}
+
+/// How many cases a run checked, and how many it read without running: cases that state only a rendering (no input),
+/// and the cases of the JSON IR's file.
+#[derive(Clone, Copy, Debug, Default, PartialEq, Eq)]
+struct Tally {
+    checked: usize,
+    renderings: usize,
+    json_ir: usize,
+}
+
+/// What the checks across cases need: each case's S-AST and C-AST encoding by name, and each `%% sast-same-as` and
+/// `%% cast-same-as` as (file, case, other case).
+#[derive(Default)]
+struct Across {
+    sasts: BTreeMap<String, String>,
+    encodings: BTreeMap<String, Vec<u8>>,
+    same_sast: Vec<(String, String, String)>,
+    same_cast: Vec<(String, String, String)>,
+}
+
+/// The file of the JSON IR's cases ([LQ/json-ir]): its inputs are IR documents, which the model has no code for (PLAN
+/// §2.2; the reader is the converter's). Its layout is read and its cases are not run.
+const JSON_IR_FILE: &str = "json-ir.cases";
+
+/// Checks the cases of one `.cases` file into `tally`; failures go to `failures`, and what the checks across cases need
+/// to `across`. `lq` is `fixtures/lq`.
+fn run_block_file(
+    lq: &Path,
+    p: &Path,
+    tally: &mut Tally,
+    failures: &mut Vec<String>,
+    across: &mut Across,
+) {
+    let text = match std::fs::read(p).map_err(|e| e.to_string()).and_then(|b| {
+        decode(&b)
+            .map(str::to_string)
+            .map_err(|d| format!("{} (decoding)", d.code))
+    }) {
+        Ok(t) => t,
+        Err(e) => {
+            failures.push(format!("{}: {e}", p.display()));
+            return;
+        }
+    };
+    let blocks = match read_blocks(&text) {
+        Ok(b) => b,
+        Err(e) => {
+            failures.push(format!("{}: {e}", p.display()));
+            return;
+        }
+    };
+    if p.file_name().is_some_and(|n| n == JSON_IR_FILE) {
+        tally.json_ir += blocks.len();
+        return;
+    }
+    for b in &blocks {
+        let at = format!("{}: case {} (line {})", p.display(), b.name, b.line);
+        if !b.has_input() {
+            // A rendering golden: a result, an error text or envelope bytes for a stated situation.
+            let only_renders = b.renders
+                && b.entry.is_none()
+                && b.tokens.is_none()
+                && b.sast.is_none()
+                && b.same_as.is_none()
+                && b.error.is_none()
+                && !b.accept
+                && b.outcome.is_none()
+                && b.warnings.is_none()
+                && b.notices.is_none()
+                && b.reads.is_none()
+                && b.cast.is_none()
+                && b.cast_same_as.is_none()
+                && b.encoding.is_none()
+                && b.explain_id.is_none()
+                && b.cursor_hash.is_none()
+                && b.portable.is_none();
+            if only_renders {
+                tally.renderings += 1;
+            } else {
+                failures.push(format!("{at}: no %% input, %% input-file or %% input-hex"));
+            }
+            continue;
+        }
+        tally.checked += 1;
+        match run_block(lq, b) {
+            Ok(ran) => {
+                if let Some(s) = ran.sast {
+                    across.sasts.insert(b.name.clone(), s);
+                }
+                if let Some(e) = ran.encoding {
+                    across.encodings.insert(b.name.clone(), e);
+                }
+            }
+            Err(e) => failures.push(format!("{at}: {e}")),
+        }
+        let file = p.display().to_string();
+        if let Some(other) = &b.same_as {
+            across
+                .same_sast
+                .push((file.clone(), b.name.clone(), other.clone()));
+        }
+        if let Some(other) = &b.cast_same_as {
+            across.same_cast.push((file, b.name.clone(), other.clone()));
+        }
+    }
+}
+
+/// Runs every case under `lq` (not `lq/std/`): the tally, or the failures, each `path: why`.
+fn run_cases(lq: &Path) -> Result<Tally, Vec<String>> {
     let mut all = Vec::new();
     files(lq, &mut all).map_err(|e| vec![format!("{}: {e}", lq.display())])?;
     let std_dir = lq.join("std");
-    let mut cases = 0;
+    let mut tally = Tally::default();
     let mut failures = Vec::new();
+    let mut across = Across::default();
+    for p in all
+        .iter()
+        .filter(|p| p.extension().is_some_and(|x| x == "cases") && !p.starts_with(&std_dir))
+    {
+        run_block_file(lq, p, &mut tally, &mut failures, &mut across);
+    }
+    for (file, name, other) in &across.same_sast {
+        match (across.sasts.get(name), across.sasts.get(other)) {
+            (Some(x), Some(y)) if sexpr::same(x, y) => {}
+            (x, y) => failures.push(format!(
+                "{file}: case {name}: S-AST {x:?}, the S-AST of case {other} is {y:?}"
+            )),
+        }
+    }
+    for (file, name, other) in &across.same_cast {
+        match (across.encodings.get(name), across.encodings.get(other)) {
+            (Some(x), Some(y)) if x == y => {}
+            (x, y) => failures.push(format!(
+                "{file}: case {name}: C-AST encoding {:?}, the encoding of case {other} is {:?}",
+                x.map(|x| hex(x)),
+                y.map(|y| hex(y))
+            )),
+        }
+    }
     for p in all
         .iter()
         .filter(|p| p.extension().is_some_and(|x| x == "lq") && !p.starts_with(&std_dir))
     {
-        cases += 1;
+        tally.checked += 1;
         let base = p.with_extension("");
         let base_name = base
             .file_name()
@@ -365,7 +1028,7 @@ fn run_cases(lq: &Path) -> Result<usize, Vec<String>> {
         }
     }
     if failures.is_empty() {
-        Ok(cases)
+        Ok(tally)
     } else {
         Err(failures)
     }
@@ -388,7 +1051,31 @@ fn the_conformance_fixtures_of_fixtures_lq() {
         return;
     }
     match run_cases(&lq) {
-        Ok(cases) => assert!(cases > 0, "fixtures/lq holds no case"),
+        Ok(t) if t.checked == 0 => {
+            // Only `std/` so far is WP-22 at work. A file outside it that no case claims is a layout this runner does
+            // not read, and a later directory means the cases should be there.
+            let mut all = Vec::new();
+            files(&lq, &mut all).unwrap_or_else(|e| panic!("{}: {e}", lq.display()));
+            let std_dir = lq.join("std");
+            let unread: Vec<String> = all
+                .iter()
+                .filter(|p| !p.starts_with(&std_dir))
+                .map(|p| p.display().to_string())
+                .collect();
+            let later: Vec<&str> = LATER
+                .iter()
+                .copied()
+                .filter(|d| root.join(d).is_dir())
+                .collect();
+            assert!(
+                unread.is_empty() && later.is_empty(),
+                "fixtures/lq holds no case (files outside std/: {unread:?}; later directories: {later:?})"
+            );
+        }
+        Ok(t) => println!(
+            "{} cases checked; {} renderings and {} JSON IR cases read, not run",
+            t.checked, t.renderings, t.json_ir
+        ),
         Err(failures) => panic!(
             "{} conformance cases fail:\n{}",
             failures.len(),
@@ -418,12 +1105,141 @@ fn the_runner_walks_a_fixture_tree() {
         write("errors/empty.tx.lq", "TX { }");
         write("errors/empty.tx.err", "E009 1 6\n");
         write("std/ignored.lq", "not a case");
-        assert_eq!(run_cases(&dir), Ok(3));
+        assert_eq!(run_cases(&dir).map(|t| t.checked), Ok(3));
         write("errors/wrong.lq", "RETURN 1 AS x");
         write("errors/wrong.err", "E001 1 1\n");
         let failures = run_cases(&dir).unwrap_err();
         assert_eq!(failures.len(), 1);
         assert!(failures[0].contains("wrong.lq"), "{failures:?}");
+    });
+    let _ = std::fs::remove_dir_all(&dir);
+    if let Err(panic) = result {
+        std::panic::resume_unwind(panic);
+    }
+}
+
+/// The runner over case files: every directive it reads, a failing case reported with its name, and a directive it
+/// does not know failing the file.
+#[test]
+fn the_runner_reads_case_files() {
+    let dir = std::env::temp_dir().join(format!("moirai-model-lq-cases-{}", std::process::id()));
+    let result = std::panic::catch_unwind(|| {
+        let write = |rel: &str, text: &str| {
+            let p = dir.join(rel);
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        };
+        write("std/one.lq", "DEFINE QUERY one() AS { RETURN 1 AS x }\n");
+        write(
+            "cases/a.cases",
+            "# a comment before the first case\n\n\
+             %% case tokens\n%% source [LQ/lexical §11]\n%% entry read\n%% input\nRETURN 1 AS x\n\
+             %% tokens\nKW RETURN\nINT 1\nKW AS\nNAME x\nEOF -\n\n%% end\n\n\
+             %% case literal\n%% entry read\n%% input\nMATCH (#51) RETURN 1 AS x\n\
+             %% sast\n(read run (query [(part _ [(match false _ [(path (npat _ [] [(kv \"id\" (nid 51))] _) [])] _)]\n \
+             (return false false [(item (int 1) \"x\")] [] [] _) _)] []))\n%% end\n\
+             %% case map\n%% entry read\n%% note one S-AST\n%% input\nMATCH ({id: #51}) RETURN 1 AS x\n\
+             %% sast-same-as literal\n%% end\n\
+             %% case strict\n%% entry read\n%% mode strict-gql\n%% input\nRETURN 1 != 2 AS x\n\
+             %% error E004 1:10 spec\n%% end\n\
+             %% case file\n%% entry define\n%% input-file std/one.lq\n%% tokens\nKW DEFINE\nKW QUERY\n\
+             NAME one\nP (\nP )\nKW AS\nP {\nKW RETURN\nINT 1\nKW AS\nNAME x\nP }\nEOF -\n%% end\n\
+             %% case echo\n%% entry read\n%% profile gated\n%% context schema core\n%% context branch main\n\
+             %% input\nMATCH (#51)-[:BLOCKED_BY]->(b) RETURN b\n%% warnings none\n%% notices none\n\
+             %% outcome runs\n%% reads\n\
+             reads: b BLOCKS #51 (written #51 BLOCKED_BY b) | b must finish before #51 starts\n%% end\n\
+             %% case bind-error\n%% entry read\n%% input\nMATCH (a:task)-[:DEPENDS_ON]->(b:task) RETURN a\n\
+             %% outcome error\n%% error E106 *\n%% end\n\
+             %% case json\n%% entry read\n%% input\nRETURN 1 AS x\n%% json-ir\n{\"t\":\"read\"}\n\
+             %% tokens\nKW RETURN\nINT 1\nKW AS\nNAME x\nEOF -\n%% end\n",
+        );
+        assert_eq!(run_cases(&dir).map(|t| t.checked), Ok(8));
+        // Input bytes in hex, decoding errors located over the well-formed prefix, success, C-AST values, renderings
+        // and the JSON IR's file.
+        let enc = "10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
+01 31 33 01 3a 3b 00 00 00 00 06 00 00 00 73 74 61 74 75 73 58 04 00 00 00 6f 70 65 6e 33 04 3a
+3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74 79 52 01 00 00 00 00 00 00 00 14 00 00 01 00 00
+00 16 3b 00 00 00 00 00 01 00 00 00 18 3a 3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74 79 00
+01 52 05 00 00 00 00 00 00 00 00 00 00 00";
+        write(
+            "cases/c.cases",
+            &format!(
+                "%% case bom\n%% entry read\n%% input-hex\n; EF BB BF, then RETURN 1\nef bb bf 52 45 54 55 52 4e \
+                 20 31 ; RETURN 1\n%% tokens\nKW RETURN\nINT 1\nEOF -\n%% end\n\
+                 %% case bad-byte\n%% entry read\n%% input-hex\n52 45 54 55 52 4e 20 27 61 ff 27\n\
+                 %% error E003 1:10 spec\n%% end\n\
+                 %% case bad-byte-line-2\n%% entry read\n%% input-hex\nef bb bf 52 45 54 55 52 4e 0a 27 d0 b6 ff 27\n\
+                 %% error E003 2:3 spec\n%% end\n\
+                 %% case accepted\n%% entry read\n%% input\nRETURN ((1)) AS x\n%% accept\n%% end\n\
+                 %% case s44\n%% entry read\n%% context schema core\n%% input\n\
+                 MATCH (t:task) WHERE t.status = 'open' AND t.priority <= 1 RETURN t ORDER BY t.priority LIMIT 5\n\
+                 %% cast\n(QUERY (PART _ (CLAUSES [(MATCH false [(PATH (NODEP 0 [\"task\"] [] _) [])]\n \
+                 (AND (CMP = (PROP (VAR 0) \"status\") (ENUM \"open\")) (CMP <= (PROP (VAR 0) \"priority\") (INT 1))))]\n \
+                 (RETURN false false [(RITEM (VAR 0) _)] [(SORT (PROP (VAR 0) \"priority\") false)] (INT 5)))) [])\n\
+                 %% encoding\n{enc}\n%% hash blake3_256 0..174 first 16 = 073f2b4d1d0af442d00ad286347b22fb\n\
+                 %% explain-id q:073f2b4d\n%% cursor-query-hash 0x42f40a1d4d2b3f07\n%% end\n\
+                 %% case s44-lower\n%% entry read\n%% context schema core\n%% input\n\
+                 match (x:Task) where x.status = open and x.priority <= 'P1' return x order by x.priority limit 5\n\
+                 %% cast-same-as s44\n%% end\n\
+                 %% case portable\n%% entry define\n%% context schema core\n\
+                 %% context node 51 018f3c2e7a117b3c9d5e4c2f1a0b9e51\n%% input\n\
+                 DEFINE QUERY q() AS {{ MATCH (t {{id: #51}}) RETURN t }}  \n\
+                 %% portable\nDEFINE QUERY q() AS {{ MATCH (t {{id: #u:018f3c2e7a117b3c9d5e4c2f1a0b9e51}}) RETURN t }}\n\
+                 %% end\n\
+                 %% case error-text\n%% entry read\n%% transport argv\n%% context branch main\n%% context rev 4480\n\
+                 %% input\nMATCH (t) RETURN t;\n%% error E005 1:19 spec\n%% text\nerror[E005 one_statement]: …\n\
+                 %% json\n{{\"v\":1}}\n%% end\n\
+                 %% case rendering\n%% note a result for a stated situation\n%% text\nbranch: main | rev 4480 | 0 rows\n\
+                 %% json\n{{\"v\":1}}\n%% end\n\
+                 %% case digest\n%% hash blake3_256 0..1 first 16 = 00000000000000000000000000000000\n%% hex\n\
+                 00 ; one byte\n%% end\n"
+            ),
+        );
+        write(
+            "cases/json-ir.cases",
+            "%% case ir\n%% entry read\n%% input\n{\"t\": \"read\"}\n%% error E001 ptr /query spec\n%% end\n",
+        );
+        assert_eq!(
+            run_cases(&dir),
+            Ok(Tally {
+                checked: 16,
+                renderings: 2,
+                json_ir: 1
+            })
+        );
+        // A wrong C-AST value fails its case; so does a case with no input and no rendering.
+        write(
+            "cases/d.cases",
+            "%% case wrong-id\n%% entry read\n%% context schema core\n%% input\n\
+             MATCH (t:task) WHERE t.status = 'open' AND t.priority <= 1 RETURN t ORDER BY t.priority LIMIT 5\n\
+             %% explain-id q:00000000\n%% end\n\
+             %% case no-input\n%% tokens\nEOF -\n%% end\n",
+        );
+        let failures = run_cases(&dir).unwrap_err();
+        assert_eq!(failures.len(), 2, "{failures:?}");
+        assert!(
+            failures[0].contains("EXPLAIN id q:073f2b4d"),
+            "{failures:?}"
+        );
+        assert!(failures[1].contains("case no-input"), "{failures:?}");
+        let _ = std::fs::remove_file(dir.join("cases/d.cases"));
+        write(
+            "cases/b.cases",
+            "%% case wrong\n%% entry read\n%% input\nRETURN 1 AS x\n%% error E001 1:1 spec\n%% end\n",
+        );
+        let failures = run_cases(&dir).unwrap_err();
+        assert_eq!(failures.len(), 1);
+        assert!(failures[0].contains("case wrong"), "{failures:?}");
+        write(
+            "cases/b.cases",
+            "%% case new\n%% entry read\n%% future thing\n%% input\nRETURN 1 AS x\n%% end\n",
+        );
+        let failures = run_cases(&dir).unwrap_err();
+        assert!(
+            failures[0].contains("unknown directive %% future"),
+            "{failures:?}"
+        );
     });
     let _ = std::fs::remove_dir_all(&dir);
     if let Err(panic) = result {
@@ -612,7 +1428,7 @@ fn error_cases_and_contexts() {
     err(
         "null-cmp",
         "MATCH (a) WHERE a.x = NULL RETURN a",
-        "E118 1 17",
+        "E118 1 21",
         None,
     )
     .unwrap();

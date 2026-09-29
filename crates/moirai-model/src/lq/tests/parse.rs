@@ -795,6 +795,21 @@ fn token_stream_classifies_keyword_forms() {
     assert!(s.contains("QNAME \"x\""), "{s}");
     assert!(s.contains("KW ALL\nP (\nNAME v\nKW IN"), "{s}");
     assert!(s.contains("KW EXISTS\nP (\nP (\nNAME n"), "{s}");
+    // `EXISTS` is reserved, so `exists( e )` is a keyword form too; `size( e )` is a generic call.
+    let s = stream("MATCH (t) RETURN exists(t.a), size(t.l)");
+    assert!(s.contains("KW EXISTS\nP (\nNAME t\nP .\nNAME a"), "{s}");
+    assert!(s.contains("NAME size\nP (\nNAME t"), "{s}");
+    // The `tx` of a `tx_name` is a plain name ([LQ/grammar-v1.ebnf §P.3]: every `tx_name` segment).
+    let p = parse_write(
+        "TX { CALL tx.complete(#89, outcome: 'done', summary: 's') }",
+        ParseOptions::default(),
+    )
+    .unwrap();
+    assert!(
+        token_stream_text(&p.tokens).contains("KW CALL\nNAME tx\nP .\nNAME complete\nP ("),
+        "{}",
+        token_stream_text(&p.tokens)
+    );
     let s = stream("CALL diff(HEAD~2...main)");
     assert!(s.contains("HEAD HEAD\nSUF ~2\nRANGE ...\nREF main"), "{s}");
     let s = stream("CALL across(refs: [main, lane/x], ids: [#1])");

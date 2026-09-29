@@ -50,16 +50,16 @@ fn annex_r_refused_forms() {
         ("MATCH (a) WHERE a:note:rule RETURN a", (E004, 1, 23)),
         (
             "MATCH (r:rule) WHERE r.applies('x') RETURN r",
-            (E004, 1, 24),
+            (E004, 1, 31),
         ),
-        ("MATCH (a) WHERE a.x = NULL RETURN a", (E118, 1, 17)),
-        ("MATCH (a) WHERE NULL <> a.x RETURN a", (E118, 1, 17)),
-        ("MATCH (a) WHERE a.x != null RETURN a", (E118, 1, 17)),
+        ("MATCH (a) WHERE a.x = NULL RETURN a", (E118, 1, 21)),
+        ("MATCH (a) WHERE NULL <> a.x RETURN a", (E118, 1, 22)),
+        ("MATCH (a) WHERE a.x != null RETURN a", (E118, 1, 21)),
         ("MATCH (a {x: null}) RETURN a", (E118, 1, 11)),
         ("MATCH (a)-[e {x: NULL}]->(b) RETURN a", (E118, 1, 15)),
         ("MATCH (a) WHERE a.t =~ 'x.*' RETURN a", (E004, 1, 21)),
         ("MATCH (a) RETURN timestamp()", (E004, 1, 18)),
-        ("MATCH (a) WHERE a IS LABELED task RETURN a", (E004, 1, 19)),
+        ("MATCH (a) WHERE a IS LABELED task RETURN a", (E004, 1, 22)),
         ("MATCH (a) RETURN CAST(a.x AS INTEGER)", (E004, 1, 18)),
         ("CALL apoc.coll.sum([1])", (E004, 1, 6)),
         ("CALL DB.labels()", (E004, 1, 6)),
@@ -102,9 +102,14 @@ fn annex_r_refused_forms() {
         ("MATCH (a)-[:T*2]->{1,3}(b) RETURN b", (E114, 1, 19)),
         ("MATCH (a)-[:T]->{3,1}(b) RETURN b", (E114, 1, 17)),
         ("MATCH (a)-[:T*3..1]->(b) RETURN b", (E114, 1, 14)),
-        ("MATCH (a)-[:T]->{4294967296}(b) RETURN b", (E114, 1, 18)),
+        ("MATCH (a)-[:T]->{4294967296}(b) RETURN b", (E114, 1, 17)),
+        ("MATCH (a)-[:T]->{1,4294967296}(b) RETURN b", (E114, 1, 17)),
+        ("MATCH (a)-[:T*4294967296]->(b) RETURN b", (E114, 1, 14)),
+        ("MATCH (a)-[:T*1..4294967296]->(b) RETURN b", (E114, 1, 14)),
         ("MATCH (a)-[:T]->{1..3}(b) RETURN b", (E114, 1, 17)),
-        ("MATCH (a)-[:T]->{p: 1}(b) RETURN b", (E001, 1, 18)),
+        ("MATCH (a)-[:T]->{p: 1}(b) RETURN b", (E001, 1, 17)),
+        ("MATCH (a)-[:T]->{x}(b) RETURN b", (E001, 1, 17)),
+        ("MATCH (a)((b)-[:T]->(c)){x}(d) RETURN d", (E001, 1, 25)),
         ("MATCH (a) WHERE a.x = :name RETURN a", (E001, 1, 23)),
         ("USE main@ MATCH (a) RETURN a", (E001, 1, 9)),
     ];
@@ -178,7 +183,7 @@ fn query_decisions() {
         ("USE main /* c */ ~2 MATCH (a) RETURN a", (E001, 1, 18)),
         ("USE $r~1 MATCH (a) RETURN a", (E001, 1, 7)),
         ("CALL diff(a....b)", (E001, 1, 12)),
-        ("CALL across(refs: [])", (E001, 1, 19)),
+        ("CALL across(refs: [])", (E001, 1, 20)),
         ("CALL across(refs: [a..b])", (E001, 1, 21)),
         // Lexical codes reach the caller unchanged.
         ("MATCH (a) WHERE a.t = 'x RETURN a", (E002, 1, 23)),
@@ -241,12 +246,104 @@ fn strict_gql_mode_refuses_cypher_spellings() {
         )
         .is_ok()
     );
+    // A back-quoted function name is the same function, so its Cypher spelling is refused too.
+    assert_eq!(first_err("RETURN `toLower`('A')", true), (E004, 1, 8));
+    assert!(parse_read("RETURN `toLower`('A')", ParseOptions::default()).is_ok());
     // A text accepted in both modes parses to the same S-AST ([LQ/grammar-v1.ebnf §G.1]).
     let src = "MATCH (a)-[:T]->+(b) WHERE a.x <> 1 RETURN lower(b.t)";
     assert_eq!(
         sx(src),
         crate::lq::sexpr::read(&parse_read(src, strict).unwrap().tree)
     );
+}
+
+/// [LQ/grammar-v1.ebnf §G.2], [LQ/gql-spelling §3.3]: the replacement a strict-mode refusal of a Cypher quantifier
+/// prints is the whole edge in the GQL spelling, in its own direction, with its variable, types, map and `WHERE`.
+#[test]
+fn strict_gql_quantifier_replacements_are_the_whole_edge() {
+    let strict = ParseOptions { strict_gql: true };
+    for (src, form, inline) in [
+        (
+            "MATCH (a)-[:T*1..3]->(b) RETURN b",
+            "`*1..3` is Cypher spelling; this surface takes the GQL spelling",
+            "write -[:T]->{1,3}",
+        ),
+        (
+            "MATCH (a)<-[:BLOCKS*2..]-(b) RETURN b",
+            "`*2..` is Cypher spelling; this surface takes the GQL spelling",
+            "write <-[:BLOCKS]-{2,}",
+        ),
+        (
+            "MATCH (a)-[:BLOCKS*]-(b) RETURN b",
+            "`*` is Cypher spelling; this surface takes the GQL spelling",
+            "write -[:BLOCKS]-+",
+        ),
+        (
+            "MATCH (a)-[e:A|B*2 {x: 1} WHERE e.f]->(b) RETURN b",
+            "`*2` is Cypher spelling; this surface takes the GQL spelling",
+            "write -[e:A|B {x: 1} WHERE e.f]->{2}",
+        ),
+        (
+            "MATCH (a)-[:T*..4]->(b) RETURN b",
+            "`*..4` is Cypher spelling; this surface takes the GQL spelling",
+            "write -[:T]->{1,4}",
+        ),
+        // The rest of the edge does not parse: the edge is printed from what precedes the quantifier.
+        (
+            "MATCH (a)-[:T*0.. WHERE]->(b) RETURN b",
+            "`*0..` is Cypher spelling; this surface takes the GQL spelling",
+            "write -[:T]->*",
+        ),
+    ] {
+        let e = parse_read(src, strict).unwrap_err();
+        assert_eq!(
+            (e[0].code, e[0].message.as_str(), e[0].inline.as_deref()),
+            (E004, form, Some(inline)),
+            "{src}"
+        );
+    }
+}
+
+/// The mechanical rewrites [LQ/errors §6] and §5.2 ask for: a method call prints its arguments as written (none, one or
+/// several), and a path variable's rewrite names the pattern's anchor id, else `#N`.
+#[test]
+fn rewrites_of_method_calls_and_path_variables() {
+    for (src, code, inline) in [
+        (
+            "MATCH (r:rule) WHERE r.applies('crates/**') RETURN r",
+            E004,
+            "write applies(r, 'crates/**')",
+        ),
+        ("MATCH (t) RETURN t.f() AS x", E004, "write f(t)"),
+        (
+            "MATCH (t) RETURN t.a.f(1,  t.b /* c */) AS x",
+            E004,
+            "write f(t.a, 1,  t.b /* c */)",
+        ),
+        ("MATCH (t) RETURN t.f(1, ) AS x", E004, "write f(t, <args>)"),
+        (
+            "MATCH p = (a)-[:BLOCKS*]->(#93) RETURN p",
+            E113,
+            "write CALL blockers(#93, transitive: true) YIELD blocker, depth, via",
+        ),
+        (
+            "MATCH p = (a {id: #u:018f3c2e7a117b3c9d5e4c2f1a0b9e51})-->(b) RETURN p",
+            E113,
+            "write CALL blockers(#u:018f3c2e7a117b3c9d5e4c2f1a0b9e51, transitive: true) YIELD blocker, depth, via",
+        ),
+        (
+            "MATCH p = (a)-->(b) RETURN p",
+            E113,
+            "write CALL blockers(#N, transitive: true) YIELD blocker, depth, via",
+        ),
+    ] {
+        let e = parse_read(src, ParseOptions::default()).unwrap_err();
+        assert_eq!(
+            (e[0].code, e[0].inline.as_deref()),
+            (code, Some(inline)),
+            "{src}"
+        );
+    }
 }
 
 fn nested(n: usize, open: &str, close: &str, core: &str) -> String {

@@ -289,6 +289,13 @@ impl Binder<'_> {
                 self.arith_done(*op, span, (fc, ft), (rc, rt))
             }
             ExprKind::Neg(_) => {
+                // A priority is an integer 0–4 ([50 §2.5] header row, F2 `coerce` = priority), so it negates like one;
+                // a literal operand takes that type from its use site (`a.priority - -1`, [LQ/grammar-v1.ebnf §P.5]
+                // fixture `undirected-minus`).
+                let ft = match ft {
+                    Ty::Enum(e) if e.priority => Ty::Int,
+                    t => t,
+                };
                 if !matches!(ft, Ty::Int | Ty::Float | Ty::Dur | Ty::Any) {
                     self.err(Diag::new(
                         Code::E103,
@@ -953,6 +960,10 @@ impl Binder<'_> {
                 }
                 (ty, info)
             }
+            // No kind is left when a pattern's labels contradict its literal id's kind (`(x:task {id: #212})` with a
+            // rule #212, or `(x:DELETED {id: #51})` with a live #51): the pattern binds nothing, which is no error, as a
+            // literal id naming a deleted node is none ([50 §3.6]); nothing is known of its properties.
+            None if ks.is_empty() => (Ty::Any, NONE_INFO),
             None => {
                 let s = self.ctx.schema;
                 let live: Vec<usize> = ks.live().iter().filter(|&k| k < s.kinds.len()).collect();

@@ -20,7 +20,7 @@ use crate::lq::cast::*;
 use crate::lq::catalog::Ty;
 use crate::lq::ctx::{BindCtx, Surface};
 use crate::lq::diag::{Code, Diag, Span, q};
-use crate::lq::parser::{for_text, on_front_end_stack};
+use crate::lq::parser::{INLINE_NESTING, nesting_bound, on_front_end_stack};
 use crate::lq::printer;
 use crate::lq::schema::KindSet;
 use call::NamedMemo;
@@ -191,6 +191,9 @@ struct Binder<'a> {
     agg: AggPos,
     saw_agg: bool,
     quant_part: Option<(String, String)>,
+    /// Inside a quantified group whose own echo line stands for its edges ([LQ/envelope §4.3]): edge patterns and
+    /// nested groups print no line of their own.
+    mute_echo: bool,
     n08_done: bool,
     readiness_used: bool,
     hand_derived: Option<String>,
@@ -226,6 +229,7 @@ impl<'a> Binder<'a> {
             agg: AggPos::Other,
             saw_agg: false,
             quant_part: None,
+            mute_echo: false,
             n08_done: false,
             readiness_used: false,
             hand_derived: None,
@@ -797,6 +801,8 @@ impl<'a> Binder<'a> {
         let saved_agg = self.agg;
         let saved_saw = self.saw_agg;
         let saved_quant = self.quant_part.clone();
+        // Its patterns echo like top-level ones ([LQ/envelope §4.1]), also inside a quantified group's `WHERE`.
+        let saved_mute = std::mem::replace(&mut self.mute_echo, false);
         // An existence test narrows nothing outside it: the kinds it infers for outer variables are its own.
         let kinds = self.kinds_snapshot();
         let r = match s {
@@ -814,6 +820,7 @@ impl<'a> Binder<'a> {
                     self.agg = saved_agg;
                     self.saw_agg = saved_saw;
                     self.quant_part = saved_quant;
+                    self.mute_echo = saved_mute;
                     self.restore_kinds(kinds);
                     return CSub::Patterns(p, w);
                 }
@@ -832,6 +839,7 @@ impl<'a> Binder<'a> {
         self.agg = saved_agg;
         self.saw_agg = saved_saw;
         self.quant_part = saved_quant;
+        self.mute_echo = saved_mute;
         self.restore_kinds(kinds);
         r
     }
@@ -925,15 +933,44 @@ fn first_aggregate(e: &Expr) -> Option<String> {
     None
 }
 
-/// Runs a bind of `src` (see [`crate::lq::parser::FRONT_END_STACK`]): in place when the text nests little, else on the
-/// front end's stack — always there when the schema has project named queries, whose definitions a bind may parse and
-/// bind in turn, nested inside it.
+/// Runs a bind of `src` (see [`crate::lq::parser::FRONT_END_STACK`]): in place when [`bind_nesting_bound`] is at most
+/// [`INLINE_NESTING`], else on the front end's own stack.
 fn run_bind<T: Send>(ctx: &BindCtx<'_>, src: &str, f: impl FnOnce() -> T + Send) -> T {
-    if ctx.schema.queries.is_empty() {
-        for_text(src, f)
+    if bind_nesting_bound(ctx, src) <= INLINE_NESTING {
+        f()
     } else {
         on_front_end_stack(f)
     }
+}
+
+/// An upper bound of the nesting a bind of `src` stacks up: the text's own ([`nesting_bound`]) plus that of every
+/// project named query it may reach. A bind parses and binds a callee's definition nested inside the call site
+/// ([`Binder::project_query`]), and a definition appears at most once on a call chain (a second entry is a cycle), so
+/// the sum over the reachable definitions bounds every chain. The parser takes more stack per level than the binder, so
+/// the peak of a chain stays within what a parse of that many levels takes. A definition is reachable when its name
+/// occurs in `src` or in a reachable definition's text (a superset of the calls; a back-quoted name that holds a
+/// back-quote is counted always).
+pub(crate) fn bind_nesting_bound(ctx: &BindCtx<'_>, src: &str) -> u32 {
+    let queries = &ctx.schema.queries;
+    let mut total = nesting_bound(src);
+    if queries.is_empty() {
+        return total;
+    }
+    let mut seen = vec![false; queries.len()];
+    let mut texts = vec![src];
+    while let Some(t) = texts.pop() {
+        for (i, q) in queries.iter().enumerate() {
+            if !seen[i] && (q.name.contains('`') || t.contains(q.name.as_str())) {
+                seen[i] = true;
+                total = total.saturating_add(nesting_bound(&q.text));
+                if total > INLINE_NESTING {
+                    return total;
+                }
+                texts.push(&q.text);
+            }
+        }
+    }
+    total
 }
 
 /// Binds `read_input` (R1: `moirai q`, MCP `query` with `q`). `src` is the text the read was parsed from; for a tree

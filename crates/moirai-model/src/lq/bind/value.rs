@@ -161,10 +161,11 @@ impl Binder<'_> {
         self.ctx.schema.kinds_text(e.kinds)
     }
 
-    /// E102 or E108 for a value that is not one of the enumeration's.
-    fn not_a_value(&mut self, e: &EnumTy, shown: &str, span: Span, bare: bool) {
+    /// E102 or E108 for a value that is not one of the enumeration's: `shown` is the value as the text prints it (a
+    /// string in quotes), `raw` the value itself, which the did-you-mean candidates are measured against.
+    fn not_a_value(&mut self, e: &EnumTy, shown: &str, raw: &str, span: Span, bare: bool) {
         let values = self.enum_values(e);
-        let s = near(shown, values.iter().map(String::as_str));
+        let s = near(raw, values.iter().map(String::as_str));
         let mut d = if bare {
             Diag::new(
                 Code::E108,
@@ -250,7 +251,8 @@ impl Binder<'_> {
             Some(Ty::Enum(e)) if e.priority => match self.priority_of(e, &n.to_string()) {
                 Some(p) => (CExpr::Int(p), Ty::Enum(e.clone())),
                 None => {
-                    self.not_a_value(e, &n.to_string(), span, false);
+                    let n = n.to_string();
+                    self.not_a_value(e, &n, &n, span, false);
                     (CExpr::Null, Ty::Any)
                 }
             },
@@ -287,7 +289,7 @@ impl Binder<'_> {
                 } else if let Some(v) = self.enum_lookup(e, s) {
                     return (CExpr::Enum(v), Ty::Enum(e.clone()));
                 }
-                self.not_a_value(e, &printer::string_lit(s), span, false);
+                self.not_a_value(e, &printer::string_lit(s), s, span, false);
                 (CExpr::Null, Ty::Any)
             }
             Some(Ty::Rev) => match self.rev_text(s, span, true) {
@@ -344,7 +346,7 @@ impl Binder<'_> {
                 } else if let Some(v) = self.enum_lookup(e, w) {
                     return (CExpr::Enum(v), Ty::Enum(e.clone()));
                 }
-                self.not_a_value(e, w, span, true);
+                self.not_a_value(e, w, w, span, true);
                 (CExpr::Null, Ty::Any)
             }
             Some(Ty::Rev) => match self.rev_text(w, span, false) {

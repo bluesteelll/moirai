@@ -1,8 +1,11 @@
 //! Proptest strategies for S-ASTs that the parser can build ([LQ/canonical-ast §3.4]: the printer property quantifies
 //! over parse results). The generators respect the forms the parser normalises away or refuses: node patterns never
-//! carry a `NULL` property value (E118), a subquery is never empty, a standalone call's `WHERE` needs a `YIELD`, ref
-//! names never have the shape of a commit or sequence literal, and the six revision relations are left to the
-//! dedicated tests (their argument positions are read in revision mode).
+//! carry a `NULL` property value (E118), a subquery is never empty, a standalone call's `WHERE` needs a `YIELD`, and ref
+//! names never have the shape of a commit or sequence literal. They reach the names the printer must back-quote to
+//! round-trip: reserved and contextual words, the refused function names (`nodes`, `single`, `timestamp`, `cast`,
+//! `shortestPath`, ...), procedure names whose first segment is a refused prefix (`apoc`, `gds`, `db`, `dbms`, `tx`), and
+//! the six revision relations with revisions, ranges, lists and quoted strings at their revision positions
+//! ([LQ/lexical §4.2]).
 
 use crate::lq::ast::*;
 use crate::lq::diag::Span;
@@ -214,6 +217,19 @@ fn edge_path(inner: BoxedStrategy<Expr>) -> BoxedStrategy<Path> {
         .boxed()
 }
 
+/// Function names: any name, and the refused names and keyword forms the printer back-quotes ([LQ/grammar-v1.ebnf
+/// §P.9], §R).
+fn fn_name() -> impl Strategy<Value = String> {
+    prop_oneof![
+        6 => any_name(),
+        1 => prop::sample::select(vec![
+            "nodes", "relationships", "single", "timestamp", "cast", "shortestPath", "allShortestPaths", "NODES",
+            "Timestamp", "CAST", "exists", "size", "all", "any", "none",
+        ])
+        .prop_map(str::to_string),
+    ]
+}
+
 fn args(inner: BoxedStrategy<Expr>) -> impl Strategy<Value = Vec<Arg>> {
     prop::collection::vec(
         (prop::option::of(any_name()), inner).prop_map(|(n, v)| Arg {
@@ -320,7 +336,7 @@ pub fn expr() -> BoxedStrategy<Expr> {
                 ),
                 (
                     2,
-                    (any_name(), any::<bool>(), args(inner.clone()))
+                    (fn_name(), any::<bool>(), args(inner.clone()))
                         .prop_map(|(n, d, a)| {
                             e(ExprKind::Fn {
                                 name: name(n),
@@ -433,17 +449,115 @@ fn sub(inner: BoxedStrategy<Expr>) -> BoxedStrategy<Sub> {
     .boxed()
 }
 
+/// The six revision relations ([LQ/lexical §4.2]): name, whether positional argument 0 is a revision position, and the
+/// named revision arguments (as the parser's table has them).
+const REV_RELATIONS: [(&str, bool, &[&str]); 6] = [
+    ("diff", true, &["range"]),
+    ("log", true, &["range"]),
+    ("changes", false, &["since", "ref"]),
+    ("history", false, &["in"]),
+    ("across", false, &["refs"]),
+    ("violations", true, &["ref"]),
+];
+
+/// A procedure name other than a revision relation's (those take [`rev_call`]'s arguments): dotted names, and names
+/// whose first segment is a refused prefix, in any case.
 fn proc_name() -> impl Strategy<Value = String> {
-    prop::collection::vec(seg_name(), 1..3)
-        .prop_map(|v| v.join("."))
-        .prop_filter(
-            "the revision relations read their arguments in revision mode",
-            |n| {
-                !["diff", "log", "changes", "history", "across", "violations"]
-                    .iter()
-                    .any(|r| r.eq_ignore_ascii_case(n))
-            },
-        )
+    let prefixed = (
+        prop::sample::select(vec!["apoc", "APOC", "gds", "db", "Db", "dbms", "tx", "TX"]),
+        prop::collection::vec(seg_name(), 0..2),
+    )
+        .prop_map(|(first, rest)| {
+            std::iter::once(first.to_string())
+                .chain(rest)
+                .collect::<Vec<_>>()
+                .join(".")
+        });
+    prop_oneof![
+        4 => prop::collection::vec(seg_name(), 1..3).prop_map(|v| v.join(".")),
+        1 => prefixed,
+    ]
+    .prop_filter(
+        "the revision relations read their arguments in revision mode",
+        |n| {
+            !REV_RELATIONS
+                .iter()
+                .any(|(r, ..)| r.eq_ignore_ascii_case(n))
+        },
+    )
+}
+
+/// A value at a revision position: a revspec, a range, a list, or a quoted string, which ends revision mode.
+fn rev_val() -> BoxedStrategy<ArgVal> {
+    prop_oneof![
+        3 => rev().prop_map(ArgVal::Rev),
+        2 => (rev(), prop::sample::select(vec![RangeOp::Two, RangeOp::Three]), rev())
+            .prop_map(|(from, op, to)| ArgVal::Range { from, op, to, span: sp() }),
+        1 => prop::collection::vec(rev(), 1..3).prop_map(|v| ArgVal::List(v, sp())),
+        1 => text().prop_map(|t| ArgVal::Expr(e(ExprKind::Str(t)))),
+    ]
+    .boxed()
+}
+
+/// A call of a revision relation, in either case: its revision positions hold [`rev_val`]s; an ordinary named argument
+/// and a further positional one hold expressions.
+fn rev_call(inner: BoxedStrategy<Expr>) -> BoxedStrategy<(String, Vec<Arg>)> {
+    (
+        prop::sample::select(REV_RELATIONS.to_vec()),
+        any::<bool>(),
+        rev_val(),
+        prop::collection::vec(prop::option::of(rev_val()), 2),
+        prop::option::of((
+            prop::sample::select(vec!["kind", "limit", "x"]),
+            inner.clone(),
+        )),
+        prop::option::of(inner),
+    )
+        .prop_map(|((rel, pos0, named), upper, first, revs, ordinary, last)| {
+            let mut args = Vec::new();
+            if pos0 {
+                args.push(Arg {
+                    name: None,
+                    value: first,
+                });
+            }
+            for (n, v) in named.iter().zip(revs) {
+                if let Some(v) = v {
+                    args.push(Arg {
+                        name: Some(name((*n).to_string())),
+                        value: v,
+                    });
+                }
+            }
+            if let Some((n, v)) = ordinary {
+                args.push(Arg {
+                    name: Some(name(n.to_string())),
+                    value: ArgVal::Expr(v),
+                });
+            }
+            if let Some(v) = last {
+                args.push(Arg {
+                    name: None,
+                    value: ArgVal::Expr(v),
+                });
+            }
+            let rel = if upper {
+                rel.to_ascii_uppercase()
+            } else {
+                rel.to_string()
+            };
+            (rel, args)
+        })
+        .boxed()
+}
+
+/// The callee and arguments of a `CALL`.
+fn call_head(inner: BoxedStrategy<Expr>) -> BoxedStrategy<(String, Vec<Arg>)> {
+    prop_oneof![
+        4 => (proc_name(), args(inner.clone())),
+        1 => rev_call(inner),
+    ]
+    .boxed()
 }
 
 fn yitems() -> impl Strategy<Value = Vec<YItem>> {
@@ -497,8 +611,8 @@ fn clause(inner: BoxedStrategy<Expr>) -> BoxedStrategy<Clause> {
                 where_,
                 span: sp()
             })),
-        1 => (proc_name(), args(inner.clone()), yitems(), prop::option::of(inner.clone()))
-            .prop_map(|(p, a, y, w)| Clause::Call(Call { proc: name(p), args: a, yield_: y, where_: w, span: sp() })),
+        1 => (call_head(inner.clone()), yitems(), prop::option::of(inner.clone()))
+            .prop_map(|((p, a), y, w)| Clause::Call(Call { proc: name(p), args: a, yield_: y, where_: w, span: sp() })),
         1 => (inner.clone(), any_name()).prop_map(|(x, a)| Clause::Unwind(Unwind { expr: x, as_: name(a), span: sp() })),
         1 => (any::<bool>(), any::<bool>(), items(inner.clone()), prop::option::of(inner.clone()), sorts(inner.clone()), limit())
             .prop_filter("WITH has items", |(_, star, it, ..)| *star || !it.is_empty())
@@ -592,8 +706,7 @@ pub fn rev() -> BoxedStrategy<Rev> {
 
 fn part(inner: BoxedStrategy<Expr>) -> BoxedStrategy<Part> {
     let scall = (
-        proc_name(),
-        args(inner.clone()),
+        call_head(inner.clone()),
         prop_oneof![
             Just(YieldMode::None),
             Just(YieldMode::Star),
@@ -603,7 +716,7 @@ fn part(inner: BoxedStrategy<Expr>) -> BoxedStrategy<Part> {
         sorts(inner.clone()),
         limit(),
     )
-        .prop_map(|(p, a, y, w, order, limit)| {
+        .prop_map(|((p, a), y, w, order, limit)| {
             let where_ = if y == YieldMode::None { None } else { w };
             PartBody::Call(SCall {
                 proc: name(p),

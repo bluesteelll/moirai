@@ -863,7 +863,8 @@ impl<'a> Lexer<'a> {
         });
         let mut j = self.skip_trivia(i + 1)?;
         if self.at(j) == b']' {
-            return Err(empty(i, j + 1));
+            // At the `]` found where a revision was expected, as the generic E001 locates the found token.
+            return Err(empty(j, j + 1));
         }
         let mut elems = Vec::new();
         loop {
@@ -1042,7 +1043,7 @@ impl<'a> Lexer<'a> {
             match self.at(j) {
                 b'~' | b'^' if j < self.b.len() => {
                     let tilde = self.at(j) == b'~';
-                    let (n, e) = self.suffix_count(j + 1)?;
+                    let (n, e) = self.suffix_count(s, j + 1)?;
                     let n = n.unwrap_or(1);
                     out.push(TokOut {
                         kind: "SUF",
@@ -1066,7 +1067,7 @@ impl<'a> Lexer<'a> {
                 b'@' if j < self.b.len() => {
                     let k = j + 1;
                     if self.at(k) == b'{' && self.at(k + 1).is_ascii_digit() {
-                        let (n, e) = self.suffix_count(k + 1)?;
+                        let (n, e) = self.suffix_count(s, k + 1)?;
                         if self.at(e) != b'}' {
                             return Err(Diag::new(
                                 Code::E001,
@@ -1086,7 +1087,13 @@ impl<'a> Lexer<'a> {
                             kind: RevKind::Suf(Box::new(rev), Suffix::At(n)),
                         };
                     } else if self.is_date_at(k) {
-                        let (text, e) = self.datetime(k)?;
+                        let (text, e) = self.datetime(k).map_err(|mut d| {
+                            // The suffix the rule refuses starts at its `@`.
+                            if let Some(sp) = &mut d.span {
+                                sp.start = s as u32;
+                            }
+                            d
+                        })?;
                         out.push(TokOut {
                             kind: "SUF",
                             value: format!("@{text}").into(),
@@ -1097,7 +1104,7 @@ impl<'a> Lexer<'a> {
                             kind: RevKind::Suf(Box::new(rev), Suffix::AtTime(text)),
                         };
                     } else if self.at(k).is_ascii_digit() {
-                        let (n, e) = self.suffix_count(k)?;
+                        let (n, e) = self.suffix_count(s, k)?;
                         let n = n.unwrap_or(1);
                         out.push(TokOut {
                             kind: "SUF",
@@ -1163,7 +1170,11 @@ impl<'a> Lexer<'a> {
             || (c == b'.' && is_ref_word_start(self.at(j + 1)))
     }
 
-    fn suffix_count(&self, i: usize) -> Result<(Option<u32>, usize), Diag> {
+    /// The count of a suffix that starts at `s` (its `~`, `^` or `@`), read from `i` ([LQ/lexical §7.3]): `None` when
+    /// there are no digits. A count above 4294967295 is E003 over the suffix, located at its first byte: a revision E003
+    /// is located at the start of the part the rule refuses (a literal, the malformed revision, or here the suffix; a
+    /// datetime out of range likewise at its `@`), which no chapter fixes yet.
+    fn suffix_count(&self, s: usize, i: usize) -> Result<(Option<u32>, usize), Diag> {
         let mut j = i;
         while self.at(j).is_ascii_digit() {
             j += 1;
@@ -1175,7 +1186,7 @@ impl<'a> Lexer<'a> {
             Some(n) if n <= u32::MAX as u64 => Ok((Some(n as u32), j)),
             _ => Err(Diag::new(
                 Code::E003,
-                Self::span(i, j),
+                Self::span(s, j),
                 "a suffix count is out of range",
             )),
         }
@@ -1563,11 +1574,18 @@ mod tests {
         assert_eq!(rev_err("main@", false), (Code::E001, 4));
         assert_eq!(rev_err("$r~1", false), (Code::E001, 2));
         assert_eq!(rev_err("a....b", true), (Code::E001, 1));
-        assert_eq!(rev_err("[]", true), (Code::E001, 0));
+        // An empty list at its `]`, the token found where a revision was expected.
+        assert_eq!(rev_err("[]", true), (Code::E001, 1));
+        assert_eq!(rev_err("[ /* x */ ]", true), (Code::E001, 10));
         assert_eq!(rev_err("[a..b]", true).0, Code::E001);
-        assert_eq!(rev_err("main@2026-02-30", false).0, Code::E003);
-        assert_eq!(rev_err("main@2026-09-25T24:00", false).0, Code::E003);
-        assert_eq!(rev_err("main~4294967296", false).0, Code::E003);
+        // A suffix the rule refuses, at its `~`, `^` or `@`.
+        assert_eq!(rev_err("main@2026-02-30", false), (Code::E003, 4));
+        assert_eq!(rev_err("main@2026-09-25T24:00", false), (Code::E003, 4));
+        assert_eq!(rev_err("main~1@2026-13-01", false), (Code::E003, 6));
+        assert_eq!(rev_err("main~4294967296", false), (Code::E003, 4));
+        assert_eq!(rev_err("main^4294967296", false), (Code::E003, 4));
+        assert_eq!(rev_err("main@4294967296", false), (Code::E003, 4));
+        assert_eq!(rev_err("main@{4294967296}", false), (Code::E003, 4));
         assert_eq!(rev_err("s18446744073709551616", false).0, Code::E003);
         assert_eq!(rev_err("+", false).0, Code::E001);
     }

@@ -111,6 +111,64 @@ fn definitions_round_trip() {
     );
 }
 
+/// [LQ/grammar-v1.ebnf §G.1]: every text the strict-GQL spelling mode accepts parses to the same S-AST, with the same
+/// token stream, as in the default mode. The texts are printed in the GQL display spelling; those that keep a Cypher
+/// spelling are refused by the mode and prove nothing, so the property also asserts that a fair share is accepted.
+#[test]
+fn strict_gql_texts_parse_as_in_the_default_mode() {
+    use std::sync::atomic::{AtomicU32, Ordering};
+    let strict = ParseOptions { strict_gql: true };
+    let accepted = [AtomicU32::new(0), AtomicU32::new(0), AtomicU32::new(0)];
+    run(
+        || (strat::read(), strat::tx(), strat::define()),
+        |(r, t, d)| {
+            let text = print_read(&r, Spelling::Gql);
+            if let Ok(s) = parse_read(&text, strict) {
+                accepted[0].fetch_add(1, Ordering::Relaxed);
+                let p = parse_read(&text, ParseOptions::default());
+                prop_assert!(
+                    p.as_ref()
+                        .is_ok_and(|p| p.tree == s.tree && p.tokens == s.tokens),
+                    "text:\n{}\nstrict: {}",
+                    text,
+                    sexpr::read(&s.tree)
+                );
+            }
+            let text = print_tx(&t, Spelling::Gql);
+            if let Ok(s) = parse_write(&text, strict) {
+                accepted[1].fetch_add(1, Ordering::Relaxed);
+                let p = parse_write(&text, ParseOptions::default());
+                prop_assert!(
+                    p.as_ref()
+                        .is_ok_and(|p| p.tree == s.tree && p.tokens == s.tokens),
+                    "text:\n{}\nstrict: {}",
+                    text,
+                    sexpr::tx(&s.tree)
+                );
+            }
+            let text = print_define(&d, Spelling::Gql);
+            if let Ok(s) = parse_define(&text, strict) {
+                accepted[2].fetch_add(1, Ordering::Relaxed);
+                let p = parse_define(&text, ParseOptions::default());
+                prop_assert!(
+                    p.as_ref()
+                        .is_ok_and(|p| p.tree == s.tree && p.tokens == s.tokens),
+                    "text:\n{}\nstrict: {}",
+                    text,
+                    sexpr::define(&s.tree)
+                );
+            }
+            Ok(())
+        },
+    );
+    let accepted = accepted.map(|a| a.into_inner());
+    println!("strict-GQL texts accepted of {CASES} (reads, TX blocks, definitions): {accepted:?}");
+    assert!(
+        accepted.iter().all(|&n| n >= CASES / 20),
+        "strict-GQL texts accepted of {CASES} (reads, TX blocks, definitions): {accepted:?}"
+    );
+}
+
 /// The layout of [LQ/gql-spelling §5.2] on a standard-library text.
 #[test]
 fn layout_of_a_definition() {
