@@ -22,7 +22,7 @@ use crate::adversary::{PartialWrite, Site};
 use crate::content::ZEROS;
 use crate::locks::{self, SimClient};
 use crate::namespace::{Kind, NsOp};
-use crate::trace::{EventKind, fnv1a};
+use crate::trace::{EventKind, le_padded};
 use crate::world::{
     Block, CallKind, Ctx, DeathCause, DeathPlan, FlushWhat, InFlightFlush, InFlightRead,
     InFlightWrite, Shared, SpawnRequest, State, ViolationKind, WriteBytes, error_code, os_code,
@@ -234,8 +234,18 @@ pub struct SimWake {
 impl Wake for SimWake {
     fn signal(&self) {
         let mut g = self.sh.lock();
-        g.k.wakes.insert(self.id, true);
+        if let Some(set) = g.k.wakes.get_mut(&self.id) {
+            *set = true;
+        }
         g.wake(Block::Parent(self.id));
+    }
+}
+
+impl Drop for SimWake {
+    /// The wake object goes with its value, so a long run keeps only the live ones.
+    fn drop(&mut self) {
+        let mut g = self.sh.lock();
+        g.k.wakes.remove(&self.id);
     }
 }
 
@@ -757,23 +767,23 @@ impl SimVfs {
             id,
             proc,
             node,
-            what: FlushWhat::File {
-                mark: mark.clone(),
-                meta,
-            },
+            what: FlushWhat::File { mark, meta },
         });
         st.ev(EventKind::FlushStart, None, proc, node, u64::from(meta), id);
         ctx.point(CallKind::Sync, node, 1);
         let st = ctx.st();
-        st.k.flushes.retain(|f| f.id != id);
+        // The mark at the return: its start state plus what concurrent flushes cleaned meanwhile (FM-3.1).
+        let FlushWhat::File { mark, .. } = st.end_flush(id).what else {
+            unreachable!("simulator: a file flush's record is a file flush")
+        };
         let fault = st.pick(Site::FlushFault, proc, node, u64::from(meta), 4);
         let op = if meta { Op::SyncMeta } else { Op::SyncData };
         let r = if fault == 0 {
-            st.k.ns.file_mut(node).content.flush_ok(&mark, meta);
+            st.flush_succeeded(node, &mark, meta);
             st.ev(EventKind::FlushEnd, None, proc, node, u64::from(meta), 0);
             Ok(())
         } else {
-            st.k.ns.file_mut(node).content.flush_failed(&mark);
+            st.flush_did_fail(node, &mark);
             st.ev(EventKind::FlushEnd, None, proc, node, u64::from(meta), 1);
             Err(fail_durability(
                 st,
@@ -828,11 +838,51 @@ impl SimVfs {
         ctx.ret_code(CallKind::SyncDir, node, code);
         r
     }
+}
 
-    /// The `durable-name` step inside `create_root` ([OS/fs §4.1]), within that call's context.
-    fn embedded_sync_dir(ctx: &mut Ctx<'_>, dir: u64) -> Result<(), VfsError> {
-        ctx.sync_dir_node(dir, true)
-            .map_err(|f| VfsError::new(f.kind, f.os, f.call))
+/// A directory create of `name` in `dir`, pending until `sync_dir(dir)` (FM-2.3); returns the new node.
+fn mkdir_op(st: &mut State, proc: u32, dir: u64, name: String) -> u64 {
+    let vol = st.k.ns.node(dir).vol;
+    let node = st.k.ns.new_node(
+        Kind::Dir {
+            creation_durable: false,
+        },
+        vol,
+    );
+    let id = st.k.ns.push(NsOp::Create { dir, name, node });
+    st.ev(EventKind::NsOp, None, proc, id, 0, node);
+    node
+}
+
+/// `create_root`'s clean-up after its embedded flush failed ([OS/fs §4.1]): removes the new directory while it is still
+/// named `name` in `parent` and empty. The removal may fail like any namespace operation (FM-8.2, NS-4); its error is
+/// ignored, and the removal is as pending as the create it undoes.
+fn remove_new_dir(ctx: &mut Ctx<'_>, parent: u64, name: &str, node: u64) {
+    let proc = ctx.proc;
+    let st = ctx.st();
+    if st.k.ns.child(parent, name) != Some(node) || st.k.ns.cur.has_children(node) {
+        return;
+    }
+    if attempt(ctx, &[node], ShareRetry::None, Op::Rmdir).is_err() {
+        return;
+    }
+    let st = ctx.st();
+    let id = st.k.ns.push(NsOp::Remove {
+        dir: parent,
+        name: name.to_owned(),
+        node,
+    });
+    st.ev(EventKind::NsOp, None, proc, id, 1, node);
+    st.k.procs[proc as usize].counters.unlinks += 1;
+}
+
+/// [F15 §3.13] and [OS/fs §4.1] (spec sync 2a): once `create_root`, `swap_dirs` or `swap_recover` has returned
+/// `FlushFailed`, every further write, flush, create or namespace call of the process is a protocol violation; the
+/// call's own clean-up inside it was not.
+pub(crate) fn embedded_flush_ends<T>(ctx: &mut Ctx<'_>, r: &Result<T, VfsError>) {
+    if matches!(r, Err(e) if e.kind == VfsErrorKind::FlushFailed) {
+        let proc = ctx.proc;
+        ctx.st().k.procs[proc as usize].failed_nonlazy = true;
     }
 }
 
@@ -893,11 +943,14 @@ fn rename_in(
         }
         let dn = st.k.ns.node(d);
         if dn.delete_pending.is_some() {
-            // FM-8.3: a rename onto a delete-pending name fails with `AlreadyExists` or `AccessDenied`.
-            return Err(match st.pick(Site::CreateOverPending, proc, d, 1, 2) {
-                0 => err(st, VfsErrorKind::AlreadyExists, Op::Rename),
-                _ => err(st, VfsErrorKind::AccessDenied, Op::Rename),
-            });
+            // FM-8.3, [OS/fs §6.4]: a rename onto a delete-pending name fails with `AlreadyExists`, `AccessDenied` or
+            // `DeletePending`.
+            let kind = match st.pick(Site::CreateOverPending, proc, d, 1, 3) {
+                0 => VfsErrorKind::AlreadyExists,
+                1 => VfsErrorKind::AccessDenied,
+                _ => VfsErrorKind::DeletePending,
+            };
+            return Err(err(st, kind, Op::Rename));
         }
         if !replace {
             return Err(err(st, VfsErrorKind::AlreadyExists, Op::Rename));
@@ -1036,30 +1089,29 @@ impl StoreFs for SimVfs {
             }
             note_nonlazy_call(st, proc, parent);
             st.k.procs[proc as usize].counters.creates += 1;
-            // A failed directory creation leaves the namespace unchanged (FM-5.4, NS-4).
-            if st.pick(Site::CreateFault, proc, parent, 0, 3) != 0 {
+            // A failed directory creation leaves the namespace unchanged, or (fault 2) the new directory in place, empty
+            // ([F15 §5.2], NS-4, spec sync 2a).
+            let fault = st.pick(Site::CreateFault, proc, parent, 0, 3);
+            if fault != 0 {
+                if fault == 2 {
+                    mkdir_op(st, proc, parent, name);
+                }
                 return Err(err(st, VfsErrorKind::DiskFull, Op::Mkdir));
             }
-            let vol = st.k.ns.node(parent).vol;
-            let node = st.k.ns.new_node(
-                Kind::Dir {
-                    creation_durable: false,
-                },
-                vol,
-            );
-            let id = st.k.ns.push(NsOp::Create {
-                dir: parent,
-                name,
-                node,
-            });
-            st.ev(EventKind::NsOp, None, proc, id, 0, node);
-            SimVfs::embedded_sync_dir(&mut ctx, parent)?;
+            let node = mkdir_op(st, proc, parent, name.clone());
+            if let Err(f) = ctx.sync_dir_node(parent, true) {
+                // [OS/fs §4.1]: a failed embedded `durable-name` removes the new, empty directory (the removal's own
+                // error ignored) and is `FlushFailed` with the flush's code and call.
+                remove_new_dir(&mut ctx, parent, &name, node);
+                return Err(f.embedded());
+            }
             Ok(SimRoot {
                 node,
                 role,
                 access: RootAccess::ReadWrite,
             })
         })();
+        embedded_flush_ends(&mut ctx, &r);
         ret(
             &mut ctx,
             CallKind::CreateRoot,
@@ -1201,23 +1253,16 @@ impl StoreFs for SimVfs {
                 return Err(err(st, VfsErrorKind::AlreadyExists, Op::Mkdir));
             }
             st.k.procs[proc as usize].counters.creates += 1;
-            // A failed directory creation leaves the namespace unchanged (FM-5.4, NS-4): fault 2 is fault 1.
-            if st.pick(Site::CreateFault, proc, dir, 0, 3) != 0 {
+            // A failed directory creation leaves the namespace unchanged, or (fault 2) the new directory in place, empty
+            // ([F15 §5.2], NS-4, spec sync 2a): a caller that retries meets `AlreadyExists`.
+            let fault = st.pick(Site::CreateFault, proc, dir, 0, 3);
+            if fault != 0 {
+                if fault == 2 {
+                    mkdir_op(st, proc, dir, name.to_owned());
+                }
                 return Err(err(st, VfsErrorKind::DiskFull, Op::Mkdir));
             }
-            let vol = st.k.ns.node(dir).vol;
-            let node = st.k.ns.new_node(
-                Kind::Dir {
-                    creation_durable: false,
-                },
-                vol,
-            );
-            let id = st.k.ns.push(NsOp::Create {
-                dir,
-                name: name.to_owned(),
-                node,
-            });
-            st.ev(EventKind::NsOp, None, proc, id, 0, node);
+            mkdir_op(st, proc, dir, name.to_owned());
             Ok(())
         })();
         ret(&mut ctx, CallKind::CreateDir, root.node, &r);
@@ -1813,11 +1858,10 @@ fn sync_group_in(
         for f in &flushes {
             match &f.what {
                 FlushWhat::File { mark, meta } => {
-                    let c = &mut st.k.ns.file_mut(f.node).content;
                     if fault == 0 {
-                        c.flush_ok(mark, *meta);
+                        st.flush_succeeded(f.node, mark, *meta);
                     } else {
-                        c.flush_failed(mark);
+                        st.flush_did_fail(f.node, mark);
                     }
                     st.ev(
                         EventKind::FlushEnd,
@@ -1975,6 +2019,137 @@ impl SealedMaps for SimVfs {
 // ---------------------------------------------------------------------------------------------------------------------
 // EnvGuard
 
+/// The store's `tmp/` directory ([F02 §5.3]), where the `init` probe works.
+const PROBE_TMP: RelPath<'static> = RelPath::literal("tmp");
+
+/// The bound of the probe's clean-up unlinks: HOLE(OS-share-retry-ms) ([`moirai_vfs::OS_SHARE_RETRY_MS`], [OS/fs §6.3],
+/// [OS/env §5] step 6); retried on Windows only, as every `Bounded` call ([`attempt`]).
+const PROBE_CLEANUP_RETRY: ShareRetry = ShareRetry::Bounded {
+    total_ms: moirai_vfs::OS_SHARE_RETRY_MS,
+};
+
+/// A probe file's name `tmp/probe.<nonce>` ([OS/env §5]; [F02 §6.3] `tmp-entry`: the word `probe` and the nonce in
+/// decimal).
+fn probe_name(nonce: u64) -> String {
+    format!("tmp/probe.{nonce}")
+}
+
+/// The `RelPath` of a probe name.
+fn probe_rel(name: &str) -> RelPath<'_> {
+    RelPath::new(name).expect("simulator: `tmp/probe.<u64>` is a valid RelPath")
+}
+
+impl SimVfs {
+    /// One nonce: a `u64` drawn with one `fill_random` call of exactly its width ([OS/README §4.6]).
+    fn probe_draw(&self) -> u64 {
+        let mut b = [0u8; 8];
+        self.fill_random(&mut b);
+        u64::from_le_bytes(b)
+    }
+
+    /// `create_new` of a fresh `tmp/probe.<nonce>`, the nonce drawn again while the create fails with `AlreadyExists`
+    /// and never equal to one of `taken` ([OS/env §5]); records the name in `made` for the clean-up.
+    fn probe_create(
+        &self,
+        store: &SimRoot,
+        taken: &[u64],
+        made: &mut Vec<String>,
+    ) -> Result<(u64, SimFile), VfsError> {
+        loop {
+            let n = self.probe_draw();
+            if taken.contains(&n) {
+                continue;
+            }
+            let name = probe_name(n);
+            match self.create_new(store, probe_rel(&name)) {
+                Ok(f) => {
+                    made.push(name);
+                    return Ok((n, f));
+                }
+                Err(e) if e.kind == VfsErrorKind::AlreadyExists => {}
+                Err(e) => return Err(e),
+            }
+        }
+    }
+
+    /// Steps 3–5 of [OS/env §5] with the nonce names a, b and c; `Ok(Some(refusal))` for a refused call. The probe is
+    /// the one consumer of a durability failure that is not `fail_stop` (step 3): its flushes run embedded, so the
+    /// clean-up that follows a refusal is no protocol violation.
+    fn probe_calls(
+        &self,
+        store: &SimRoot,
+        made: &mut Vec<String>,
+    ) -> Result<Option<Refusal>, VfsError> {
+        // 3. The durable-write probe on `tmp/probe.a`.
+        let (a, f) = self.probe_create(store, &[], made)?;
+        let page: Vec<u8> = (0..4096u32).map(|i| (i % 251) as u8).collect();
+        self.write_at(&f, 0, &page)?;
+        for step in 0..4 {
+            let r = match step {
+                0 => self.sync_op(&f, SyncKind::Data, true),
+                1 => self.sync_op(&f, SyncKind::DataAndMeta, true),
+                2 => self.sync_dir_op(store, Some(PROBE_TMP), true),
+                _ => self.sync_dir_op(store, None, true),
+            };
+            if let Err(df) = r {
+                return Ok(Some(Refusal::NoDurableFlush {
+                    call: df.call,
+                    os: df.os,
+                }));
+            }
+        }
+        // 4. The lock probe at 2^62 on `tmp/probe.a`; the simulated kernel always has byte-range locks.
+        {
+            let mut g = self.sh.lock();
+            locks::probe_file_lock(&mut g, self.proc, f.node);
+        }
+        drop(f);
+        // 5. The rename probe: `create_new(tmp/probe.c)`; `tmp/probe.a → tmp/probe.b` must succeed, b drawn again (b ≠ a,
+        //    c) while the rename meets `AlreadyExists`; `tmp/probe.b → tmp/probe.c` must fail with `AlreadyExists`.
+        let (c, fc) = self.probe_create(store, &[a], made)?;
+        drop(fc);
+        let (name_a, name_c) = (probe_name(a), probe_name(c));
+        let name_b = loop {
+            let b = self.probe_draw();
+            if b == a || b == c {
+                continue;
+            }
+            let name_b = probe_name(b);
+            match self.rename_noreplace(
+                store,
+                probe_rel(&name_a),
+                store,
+                probe_rel(&name_b),
+                ShareRetry::None,
+            ) {
+                Ok(()) => {
+                    made.push(name_b.clone());
+                    break name_b;
+                }
+                Err(e) if e.kind == VfsErrorKind::AlreadyExists => {}
+                Err(e) if e.kind == VfsErrorKind::Unsupported => {
+                    return Ok(Some(Refusal::NoNoReplaceRename { os: e.os }));
+                }
+                Err(e) => return Err(e),
+            }
+        };
+        match self.rename_noreplace(
+            store,
+            probe_rel(&name_b),
+            store,
+            probe_rel(&name_c),
+            ShareRetry::None,
+        ) {
+            Ok(()) => Ok(Some(Refusal::NoNoReplaceRename { os: OsCode::NONE })),
+            Err(e) if e.kind == VfsErrorKind::AlreadyExists => Ok(None),
+            Err(e) if e.kind == VfsErrorKind::Unsupported => {
+                Ok(Some(Refusal::NoNoReplaceRename { os: e.os }))
+            }
+            Err(e) => Err(e),
+        }
+    }
+}
+
 impl EnvGuard for SimVfs {
     fn classify(&self, store: &SimRoot, _depth: ClassifyDepth) -> Result<Classification, VfsError> {
         let mut ctx = self.enter(CallKind::Classify, store.node);
@@ -2007,63 +2182,21 @@ impl EnvGuard for SimVfs {
             Ok(v) => v,
             Err(r) => return Ok(ProbeOutcome::Refused(r)),
         };
-        let tmp = RelPath::literal("tmp");
-        let p0 = RelPath::literal("tmp/probe");
-        let p1 = RelPath::literal("tmp/probe.1");
-        let p2 = RelPath::literal("tmp/probe.2");
-        let flush = |f: DurabilityFailure| Refusal::NoDurableFlush {
-            call: f.call,
-            os: f.os,
-        };
-        let mut refusal: Option<Refusal> = None;
-        // Step 3: the durable-write probe. The probe is the one consumer of a durability failure that is not
-        // `fail_stop` ([OS/env §5] step 3): its failures are embedded, and its clean-up calls are not violations.
-        let f = self.create_new(store, p0)?;
-        self.write_at(&f, 0, &[0u8; 4096])?;
-        for step in 0..4 {
-            if refusal.is_some() {
-                break;
-            }
-            let r = match step {
-                0 => self.sync_op(&f, SyncKind::Data, true),
-                1 => self.sync_op(&f, SyncKind::DataAndMeta, true),
-                2 => self.sync_dir_op(store, Some(tmp), true),
-                _ => self.sync_dir_op(store, None, true),
-            };
-            if let Err(e) = r {
-                refusal = Some(flush(e));
-            }
+        // `tmp/` must exist: its absence is not about the location.
+        self.path_identity(store, PROBE_TMP)?;
+        // Every name the probe creates is recorded, so the clean-up removes exactly the probe's own files and never a
+        // concurrent prober's; leftovers of an earlier probe are `probe.<nonce>` names the orphan sweep removes.
+        let mut made: Vec<String> = Vec::with_capacity(3);
+        let r = self.probe_calls(store, &mut made);
+        // Step 6: the clean-up, whatever the outcome. A clean-up failure never turns `Admitted` into an error or a
+        // refusal ([OS/env §5] step 6, spec sync 2a): a file whose unlink still fails after the bound stays for the
+        // orphan sweep, and a failed `sync_dir(tmp)` only leaves the unlinks pending. Neither goes to `fail_stop`.
+        for name in &made {
+            let _ = self.unlink(store, probe_rel(name), PROBE_CLEANUP_RETRY);
         }
-        // Step 4: the lock probe on the probe file.
-        {
-            let mut g = self.sh.lock();
-            locks::probe_file_lock(&mut g, self.proc, f.node);
-        }
-        drop(f);
-        // Step 5: the rename probe.
-        if refusal.is_none() {
-            let g2 = self.create_new(store, p2)?;
-            drop(g2);
-            match self.rename_noreplace(store, p0, store, p1, ShareRetry::None) {
-                Ok(()) => match self.rename_noreplace(store, p1, store, p2, ShareRetry::None) {
-                    Err(e) if e.kind == VfsErrorKind::AlreadyExists => {}
-                    Err(e) => refusal = Some(Refusal::NoNoReplaceRename { os: e.os }),
-                    Ok(()) => refusal = Some(Refusal::NoNoReplaceRename { os: OsCode::NONE }),
-                },
-                Err(e) => refusal = Some(Refusal::NoNoReplaceRename { os: e.os }),
-            }
-        }
-        // Step 6: clean-up.
-        for p in [p0, p1, p2] {
-            match self.unlink(store, p, ShareRetry::None) {
-                Ok(()) => {}
-                Err(e) if e.kind == VfsErrorKind::NotFound => {}
-                Err(e) => return Err(e),
-            }
-        }
-        let _ = self.sync_dir_op(store, Some(tmp), true);
-        Ok(match refusal {
-            Some(r) => ProbeOutcome::Refused(r),
+        let _ = self.sync_dir_op(store, Some(PROBE_TMP), true);
+        Ok(match r? {
+            Some(refusal) => ProbeOutcome::Refused(refusal),
             None => ProbeOutcome::Admitted(ProbeReport { volume, os }),
         })
     }
@@ -2133,8 +2266,9 @@ impl Clock for SimVfs {
 impl Entropy for SimVfs {
     /// The next bytes of this simulated process's stream ([OS/README §4.6] "Simulator form"): bytes a test scripted
     /// first ([`crate::SimWorld::script_random`]), then the process's own generator, derived from the seed and the
-    /// process index, which no other process shares. Every draw is a `Random` trace event with its length and digest.
-    /// Not a scheduling point: the call takes no lock and does no I/O.
+    /// process index, which no other process shares. Every drawn value appears in the trace: a `Random` event with the
+    /// length, the scripted count and the first 16 bytes, then `RandomMore` events for the rest of a longer draw. Not a
+    /// scheduling point: the call takes no lock and does no I/O.
     fn fill_random(&self, buf: &mut [u8]) {
         let mut ctx = Ctx::quiet(&self.sh, self.proc);
         let (me, proc) = (ctx.me, self.proc);
@@ -2149,15 +2283,19 @@ impl Entropy for SimVfs {
             scripted += 1;
         }
         rec.rand.fill(&mut buf[scripted..]);
-        let digest = fnv1a(buf);
+        let head = &buf[..buf.len().min(16)];
         st.ev(
             EventKind::Random,
             me,
             proc,
-            buf.len() as u64,
-            digest,
-            scripted as u64,
+            (buf.len() as u64 & 0xFFFF_FFFF) | (scripted as u64) << 32,
+            le_padded(head),
+            le_padded(head.get(8..).unwrap_or(&[])),
         );
+        for more in buf.get(16..).unwrap_or(&[]).chunks(24) {
+            let part = |i: usize| le_padded(more.get(i..).unwrap_or(&[]));
+            st.ev(EventKind::RandomMore, me, proc, part(0), part(8), part(16));
+        }
     }
 }
 
@@ -2169,12 +2307,17 @@ impl ProcHost for SimVfs {
         self.sh.lock().cfg.os
     }
 
+    /// [OS/proc §3.2] per the simulated OS: `start` in ns since boot with `start_boot_relative` on Linux, since the Unix
+    /// epoch elsewhere; no PID namespace.
     fn self_id(&self) -> ProcId {
         let mut ctx = Ctx::quiet(&self.sh, self.proc);
         let st = ctx.st();
         let rec = &st.k.procs[self.proc as usize];
         let known = rec.boot_known;
-        let mut flags = ProcId::START_KNOWN | ProcId::START_BOOT_RELATIVE;
+        let mut flags = ProcId::START_KNOWN;
+        if st.cfg.os == OsTag::Linux {
+            flags |= ProcId::START_BOOT_RELATIVE;
+        }
         if known {
             flags |= ProcId::BOOT_KNOWN;
         }
@@ -2221,25 +2364,43 @@ impl ProcHost for SimVfs {
         BootIdentity::Known(st.k.clock.boot_id)
     }
 
+    /// The rows of [OS/proc §6.1] in order, over the simulated process table: the checker's own `ProcId` is
+    /// [`ProcHost::self_id`]'s, and the lookup finds the processes of the current boot (a pid is never reused in a
+    /// simulated world, so row 7 answers only a forged start).
     fn alive(&self, p: &ProcId) -> moirai_vfs::Liveness {
         use moirai_vfs::Liveness;
         let mut ctx = Ctx::quiet(&self.sh, self.proc);
         let st = ctx.st();
-        if p.os != st.cfg.os as u8 || p.flags & ProcId::START_KNOWN == 0 {
+        // Row 1: uninterpretable ([OS/proc §3.1]: reserved flag bits, `os` not 1–3), or another OS.
+        if !(1..=3).contains(&p.os) || p.flags & 0xF0 != 0 || p.os != st.cfg.os as u8 {
             return Liveness::Unknown;
         }
-        if p.flags & ProcId::BOOT_KNOWN != 0 && p.boot_hash != st.k.clock.boot_id.hash() {
-            return Liveness::Dead;
+        // Row 2: both boots known and different.
+        let me = &st.k.procs[self.proc as usize];
+        if p.flags & ProcId::BOOT_KNOWN != 0
+            && me.boot_known
+            && p.boot_hash != st.k.clock.boot_id.hash()
+        {
+            return Liveness::Unknown;
         }
+        // Row 3 needs both PID namespaces known; a simulated process has none. Row 4 (a denied lookup) does not occur.
         let boot_seq = st.k.clock.boot_seq;
         match st
             .k
             .procs
             .iter()
-            .find(|r| r.pid == p.pid && r.start_ns == p.start && r.boot_seq == boot_seq)
+            .find(|r| r.pid == p.pid && r.boot_seq == boot_seq)
         {
-            Some(r) if r.alive => Liveness::Alive,
-            _ => Liveness::Dead,
+            // Row 5: no such process in this boot.
+            None => Liveness::Dead,
+            // Row 6: it has exited.
+            Some(r) if !r.alive => Liveness::Dead,
+            // Row 7: another start (the checker's start is always known).
+            Some(r) if p.flags & ProcId::START_KNOWN != 0 && r.start_ns != p.start => {
+                Liveness::Dead
+            }
+            // Row 8.
+            Some(_) => Liveness::Alive,
         }
     }
 

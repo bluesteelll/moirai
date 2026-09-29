@@ -228,3 +228,83 @@ fn a_delete_pending_lock_refuses_new_clients() {
         LockError::NoLockFile
     );
 }
+
+/// [OS/lock §2] (pass 1, P1-10) and FM-8.1 as spec sync 2a reads it: the nine quiet bytes are nine kernel bytes, each
+/// through a role handle of its own; a process that ends normally releases its bytes by FM-8.1's law too; and every role
+/// byte but `Flush` draws the writer's distribution (byte kind 0), `Flush` kind 1, a slot kind 2.
+#[test]
+fn quiet_bytes_and_a_normal_exit_follow_the_release_law() {
+    use std::sync::{Arc, Mutex};
+
+    use moirai_vfs::{N_QUIET, QuietIndex, SlotIndex};
+    use moirai_vfs_sim::{Adversary, Choice, DeathCause, Rng, SeededAdversary};
+
+    /// The seeded adversary, except that every dead byte draws class (b) with a 10 s delay, and the byte kind of every
+    /// release-class choice is recorded.
+    struct Recorder {
+        inner: SeededAdversary,
+        kinds: Arc<Mutex<Vec<u64>>>,
+    }
+    impl Adversary for Recorder {
+        fn choose(&mut self, c: &Choice, rng: &mut Rng) -> u64 {
+            match c.site {
+                Site::ReleaseClass => {
+                    self.kinds.lock().unwrap().push(c.aux);
+                    1
+                }
+                Site::ReleaseDelay => 10_000_000_000,
+                _ => self.inner.choose(c, rng),
+            }
+        }
+    }
+    let mut cfg = SimConfig::new(21);
+    cfg.wait_mode = Some(WaitMode::CallerDriven);
+    let kinds = Arc::new(Mutex::new(Vec::new()));
+    let adv = Recorder {
+        inner: SeededAdversary::new(cfg.rates, cfg.release_law.clone()),
+        kinds: Arc::clone(&kinds),
+    };
+    let w = SimWorld::with_adversary(cfg, Box::new(adv));
+    w.mkdir_all(Path::new(STORE));
+    let (d, r) = proc(&w, "init");
+    durable_file(&d, &r, "LOCK", &[0u8; 36 * 1024]);
+    let quiet = |k: u8| LockByte::Quiet(QuietIndex::new(k).unwrap());
+    let bytes: Vec<LockByte> = [
+        LockByte::Writer,
+        LockByte::Leader,
+        LockByte::Maintenance,
+        LockByte::Flush,
+    ]
+    .into_iter()
+    .chain((0..N_QUIET).map(quiet))
+    .chain([LockByte::Slot(SlotIndex::new(5).unwrap())])
+    .collect();
+    let (v, rv) = proc(&w, "requester");
+    let mut c = v.lock_client(&rv, LockMode::Acquire).unwrap();
+    for &b in &bytes {
+        assert!(
+            matches!(v.try_acquire(&mut c, b).unwrap(), Acquired::Granted(_)),
+            "{b:?}"
+        );
+    }
+    let (u, ru) = proc(&w, "observer");
+    let p = u.lock_client(&ru, LockMode::Probe).unwrap();
+    for &b in &bytes {
+        assert_eq!(u.probe(&p, b), ProbeResult::Held, "{b:?}");
+    }
+    w.exit(&v);
+    assert_eq!(w.death(&v), Some(DeathCause::Exit));
+    for &b in &bytes {
+        assert_eq!(u.probe(&p, b), ProbeResult::Held, "{b:?} lags the exit");
+    }
+    // In byte-offset order: Writer, Leader, Maintenance, Quiet(0), Flush, Quiet(1)–Quiet(8), then the slot.
+    assert_eq!(
+        *kinds.lock().unwrap(),
+        vec![0, 0, 0, 0, 1, 0, 0, 0, 0, 0, 0, 0, 0, 2]
+    );
+    w.advance(11_000_000_000);
+    for &b in &bytes {
+        assert_eq!(u.probe(&p, b), ProbeResult::Free, "{b:?}");
+    }
+    drop(c);
+}

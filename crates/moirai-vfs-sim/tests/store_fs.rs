@@ -116,6 +116,13 @@ fn the_init_probe_admits_the_volume_and_refuses_a_failing_flush() {
         ProbeOutcome::Admitted(report) => assert_eq!(report.volume.fs, FsKind::Ntfs),
         ProbeOutcome::Refused(x) => panic!("{x:?}"),
     }
+    // [OS/env §5]: the probe's files are `tmp/probe.<nonce>`, each nonce one 8-byte draw of the process's stream.
+    let draws = w
+        .trace()
+        .iter()
+        .filter(|e| e.kind == EventKind::Random && e.proc == v.process())
+        .count();
+    assert_eq!(draws, 3, "a, c and b");
     w.queue_choice_for(&v, Site::FlushFault, 3);
     match v.probe_store(&r).unwrap() {
         ProbeOutcome::Refused(Refusal::NoDurableFlush { call, .. }) => {
@@ -154,6 +161,49 @@ fn the_init_probe_admits_the_volume_and_refuses_a_failing_flush() {
         .rename_noreplace(&root, rel("x"), &net, rel("x"), ShareRetry::None)
         .unwrap_err();
     assert_eq!(e.kind, VfsErrorKind::CrossDevice);
+}
+
+/// [OS/env §5] (spec sync 2a): a and c are drawn again while their create meets an existing name, b while the rename
+/// a → b meets one; a clean-up failure (an unlink still blocked after its bound, a failed `sync_dir(tmp)`) never turns
+/// `Admitted` into an error or a refusal, and its leftover is a `probe.<nonce>` name for the orphan sweep.
+#[test]
+fn the_init_probe_redraws_taken_names_and_ignores_clean_up_failures() {
+    let w = world(45);
+    let (v, r) = proc(&w, "init");
+    v.create_dir(&r, rel("tmp")).unwrap();
+    // Leftovers of earlier probes.
+    drop(v.create_new(&r, rel("tmp/probe.1")).unwrap());
+    drop(v.create_new(&r, rel("tmp/probe.2")).unwrap());
+    v.sync_dir(&r, Some(rel("tmp"))).unwrap();
+    v.sync_dir(&r, None).unwrap();
+    // a: 1 is taken, then 10; c: 2 is taken, then 11; b: 1 is taken, then 12.
+    let mut script = Vec::new();
+    for n in [1u64, 10, 2, 11, 1, 12] {
+        script.extend_from_slice(&n.to_le_bytes());
+    }
+    w.script_random(&v, &script);
+    // Step 3's two directory flushes succeed; step 6's fails.
+    for fault in [0, 0, 1] {
+        w.queue_choice_for(&v, Site::SyncDirFault, fault);
+    }
+    // The sharing checks: the rename a → b passes; the clean-up unlink of c is held for the whole scenario.
+    w.queue_choice_for(&v, Site::Sharing, 0);
+    w.queue_choice_for(&v, Site::Sharing, u64::MAX);
+    match v.probe_store(&r).unwrap() {
+        ProbeOutcome::Admitted(_) => {}
+        ProbeOutcome::Refused(x) => panic!("{x:?}"),
+    }
+    let tmp = Path::new(STORE).join("tmp");
+    for (name, present) in [
+        ("probe.1", true),
+        ("probe.2", true),
+        ("probe.10", false),
+        ("probe.11", true),
+        ("probe.12", false),
+    ] {
+        assert_eq!(w.exists(&tmp.join(name)), present, "{name}");
+    }
+    assert!(w.violations().is_empty());
 }
 
 #[test]
@@ -257,33 +307,102 @@ fn durable_unlinks_and_replacements_return_their_space() {
     assert_eq!(w.peek(&Path::new(STORE).join("config")).unwrap()[0], 2);
 }
 
-/// Review regression: a failed directory creation leaves nothing (FM-5.4, NS-4); a file parent is `NotFound`.
+/// NS-4 and [F15 §5.2] as spec sync 2a widens them: a failed directory creation leaves the namespace unchanged or the new
+/// directory in place, empty and pending (a retry meets `AlreadyExists`); a file parent is `NotFound`.
 #[test]
-fn a_failed_directory_create_leaves_the_namespace_unchanged() {
+fn a_failed_directory_create_leaves_nothing_or_an_empty_directory() {
     let w = world(37);
     let (v, r) = proc(&w, "p");
-    for fault in [1, 2] {
-        w.queue_choice_for(&v, Site::CreateFault, fault);
-        assert_eq!(
-            v.create_dir(&r, rel("d")).unwrap_err().kind,
-            VfsErrorKind::DiskFull
-        );
-        assert!(!w.exists(&Path::new(STORE).join("d")));
-        w.queue_choice_for(&v, Site::CreateFault, fault);
-        let e = v.create_root(&Path::new(STORE).join("root"), RootRole::Other);
-        assert_eq!(e.unwrap_err().kind, VfsErrorKind::DiskFull);
-        assert!(!w.exists(&Path::new(STORE).join("root")));
-    }
+    let d = Path::new(STORE).join("d");
+    let root = Path::new(STORE).join("root");
+    w.queue_choice_for(&v, Site::CreateFault, 1);
+    assert_eq!(
+        v.create_dir(&r, rel("d")).unwrap_err().kind,
+        VfsErrorKind::DiskFull
+    );
+    assert!(!w.exists(&d));
+    w.queue_choice_for(&v, Site::CreateFault, 1);
+    let e = v.create_root(&root, RootRole::Other);
+    assert_eq!(e.unwrap_err().kind, VfsErrorKind::DiskFull);
+    assert!(!w.exists(&root));
     assert!(w.surface().ops.is_empty());
+    // Fault 2: the directory stays, empty, its creation pending until its parent is synced.
+    w.queue_choice_for(&v, Site::CreateFault, 2);
+    assert_eq!(
+        v.create_dir(&r, rel("d")).unwrap_err().kind,
+        VfsErrorKind::DiskFull
+    );
+    assert!(w.exists(&d));
+    assert!(v.list_dir(&r, Some(rel("d"))).unwrap().is_empty());
+    assert_eq!(
+        v.create_dir(&r, rel("d")).unwrap_err().kind,
+        VfsErrorKind::AlreadyExists
+    );
+    w.queue_choice_for(&v, Site::CreateFault, 2);
+    let e = v.create_root(&root, RootRole::Other);
+    assert_eq!(e.unwrap_err().kind, VfsErrorKind::DiskFull);
+    assert!(w.exists(&root));
+    let ops: Vec<String> = w
+        .surface()
+        .ops
+        .into_iter()
+        .map(|o| o.names[0].clone())
+        .collect();
+    assert_eq!(ops, vec!["/sim/store/d", "/sim/store/root"]);
+    let lost = w.crash_image().materialize(&CrashPlan::baseline()).unwrap();
+    assert!(!lost.exists(&d) && !lost.exists(&root));
     durable_file(&v, &r, "file", b"x");
     let e = v
         .create_root(&Path::new(STORE).join("file").join("sub"), RootRole::Other)
         .unwrap_err();
     assert_eq!(e.kind, VfsErrorKind::NotFound);
-    let root = v
-        .create_root(&Path::new(STORE).join("root"), RootRole::Store)
+    let made = v
+        .create_root(&Path::new(STORE).join("root2"), RootRole::Store)
         .unwrap();
-    assert_eq!(root.role(), RootRole::Store);
+    assert_eq!(made.role(), RootRole::Store);
+    assert!(w.violations().is_empty());
+}
+
+/// [OS/fs §4.1] (spec sync 2a): a failed `durable-name` flush embedded in `create_root` removes the new, empty directory
+/// and is `FlushFailed` with the flush's code and call; once returned, any further write, flush, create or namespace
+/// call of the process is a violation ([F15 §3.13]).
+#[test]
+fn a_failed_flush_in_create_root_removes_the_directory_and_is_flush_failed() {
+    let w = world(44);
+    let (v, _r) = proc(&w, "init");
+    let dir = Path::new(STORE).join("new");
+    w.queue_choice_for(&v, Site::SyncDirFault, 1);
+    let e = v.create_root(&dir, RootRole::Store).unwrap_err();
+    assert_eq!(
+        (e.kind, e.os, e.call),
+        (VfsErrorKind::FlushFailed, OsCode(1117), "FlushFileBuffers")
+    );
+    assert!(!w.exists(&dir), "the new directory is removed");
+    assert!(
+        w.violations().is_empty(),
+        "the call's own clean-up is no violation"
+    );
+    assert_eq!(
+        e.durability_line(OsTag::Windows).unwrap().to_string(),
+        "error[durability_failure]: FlushFileBuffers (durable-name) failed: os 1117 ERROR_IO_DEVICE; outcome \
+         unknown: re-run with the same key or check moirai changes"
+    );
+    // The rule of [F15 §3.13] applies from the return on (the create and its embedded flush are each flagged).
+    let _ = v.create_root(&Path::new(STORE).join("again"), RootRole::Store);
+    let after = w.violations();
+    assert!(!after.is_empty());
+    assert!(
+        after
+            .iter()
+            .all(|x| x.kind == ViolationKind::CallAfterDurabilityFailure)
+    );
+    // The removal itself may fail (a sharing violation): its error is ignored and the empty directory stays.
+    let (u, _) = proc(&w, "init2");
+    w.queue_choice_for(&u, Site::SyncDirFault, 1);
+    w.queue_choice_for(&u, Site::Sharing, 1);
+    let e = u.create_root(&dir, RootRole::Store).unwrap_err();
+    assert_eq!(e.kind, VfsErrorKind::FlushFailed);
+    assert!(w.exists(&dir));
 }
 
 /// Review regression: every call's start (a `Point` of phase 0) is paired with its `Return`, on every path, errors and
@@ -486,8 +605,8 @@ fn renames_removals_and_opens_follow_the_sharing_and_delete_pending_rules() {
     assert!(v.remove_dir(&r, rel("dir")).is_err());
     assert!(w.exists(&Path::new(STORE).join("dir")));
     v.remove_dir(&r, rel("dir")).unwrap();
-    // A create over a delete-pending name fails with any of the three answers ([OS/fs §6.4]); a rename onto it with
-    // `AlreadyExists` or `AccessDenied` (FM-8.3).
+    // A create of, or a rename onto, a delete-pending name fails with any of the three answers (FM-8.3 as spec sync 2a
+    // aligns it with [OS/fs §6.4]).
     let holder = v
         .open(&r, rel("dst"), Access::Read, OpenHint::Normal)
         .unwrap();
@@ -500,14 +619,14 @@ fn renames_removals_and_opens_follow_the_sharing_and_delete_pending_rules() {
     ] {
         w.queue_choice_for(&v, Site::CreateOverPending, answer);
         assert_eq!(v.create_new(&r, rel("dst")).unwrap_err().kind, kind);
+        w.queue_choice_for(&v, Site::CreateOverPending, answer);
+        assert_eq!(
+            v.rename_noreplace(&r, rel("src"), &r, rel("dst"), ShareRetry::None)
+                .unwrap_err()
+                .kind,
+            kind
+        );
     }
-    w.queue_choice_for(&v, Site::CreateOverPending, 1);
-    assert_eq!(
-        v.rename_noreplace(&r, rel("src"), &r, rel("dst"), ShareRetry::None)
-            .unwrap_err()
-            .kind,
-        VfsErrorKind::AccessDenied
-    );
     drop(holder);
     // Opening a directory as a file: Windows reports error 5 ([OS/fs §6.2]); Unix `EISDIR`, an unlisted code.
     v.create_dir(&r, rel("dir2")).unwrap();

@@ -86,12 +86,17 @@ pub enum EventKind {
     /// A mapped read (`SealedMap::bytes`). `a` node, `b` mapped length, `c` 0 bytes, 1 zeros beyond a truncated end,
     /// 2 a media fault (the reader dies), 3 the reader died on the truncation.
     MapRead = 29,
-    /// A `fill_random` draw ([OS/README §4.6] "Simulator form"). `a` the length, `b` the FNV-1a digest of the bytes, `c`
-    /// the number of those bytes a test scripted.
+    /// A `fill_random` draw ([OS/README §4.6] "Simulator form": every drawn value appears in the trace). `a` the length
+    /// in its low 32 bits and the number of those bytes a test scripted in its high 32 bits; `b` and `c` the drawn bytes
+    /// 0–7 and 8–15 read little-endian, zero-padded (every value [OS/README §4.6]'s table names is 8 or 16 bytes). A
+    /// longer draw continues in [`EventKind::RandomMore`] events.
     Random = 30,
     /// A `LOCK` handle a grant table opened named another file than the client's data handle ([OS/lock §9.1] step 4).
     /// `a` the data handle's node, `b` the node the path `LOCK` names now.
     LockIdentity = 31,
+    /// The next 24 bytes of a `fill_random` draw longer than 16 bytes, after its [`EventKind::Random`] event: `a`, `b`
+    /// and `c` the bytes read little-endian, zero-padded.
+    RandomMore = 32,
 }
 
 /// One trace record: a kind, the task and process it concerns (`u32::MAX`: none, for example the driver thread or an
@@ -132,14 +137,12 @@ impl Event {
 const FNV_OFFSET: u64 = 0xCBF2_9CE4_8422_2325;
 const FNV_PRIME: u64 = 0x0000_0100_0000_01B3;
 
-/// The FNV-1a digest of `bytes` (the `b` value of a [`EventKind::Random`] event).
-pub(crate) fn fnv1a(bytes: &[u8]) -> u64 {
-    let mut h = FNV_OFFSET;
-    for &b in bytes {
-        h ^= u64::from(b);
-        h = h.wrapping_mul(FNV_PRIME);
-    }
-    h
+/// Up to 8 bytes read little-endian, zero-padded (the values of [`EventKind::Random`] and [`EventKind::RandomMore`]).
+pub(crate) fn le_padded(bytes: &[u8]) -> u64 {
+    let mut w = [0u8; 8];
+    let n = bytes.len().min(8);
+    w[..n].copy_from_slice(&bytes[..n]);
+    u64::from_le_bytes(w)
 }
 
 /// Events per frozen chunk.
@@ -259,6 +262,7 @@ mod tests {
         assert_eq!(img.events().len(), CHUNK * 2 + 5);
         assert_eq!(img.events()[CHUNK].a, CHUNK as u64);
         assert_eq!(img.bytes().len(), (CHUNK * 2 + 5) * EVENT_LEN);
-        assert_eq!(fnv1a(&[]), FNV_OFFSET);
+        assert_eq!(le_padded(&[1, 2]), 0x0201);
+        assert_eq!(le_padded(&[0xFF; 9]), u64::MAX);
     }
 }

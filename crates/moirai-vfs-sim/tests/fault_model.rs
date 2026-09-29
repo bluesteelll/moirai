@@ -9,9 +9,9 @@ use std::path::Path;
 use common::*;
 use moirai_vfs::{
     Access, Acquired, BootIdentity, Clock, DurabilityClass, EnvGuard, ExtentMethod, GroupMember,
-    Liveness, LockByte, LockMode, Locks, OpenHint, ProbeResult, ProcHost, RootAccess, RootRole,
-    SealedMap, SealedMaps, ShareRetry, SlotIndex, StoreFs, StoreVolume, SyncKind, VfsErrorKind,
-    WaitMode,
+    Liveness, LockByte, LockMode, Locks, OpenHint, OsTag, ProbeResult, ProcHost, ProcId,
+    RootAccess, RootRole, SealedMap, SealedMaps, ShareRetry, SlotIndex, StoreFs, StoreVolume,
+    SyncKind, VfsErrorKind, WaitMode,
 };
 use moirai_vfs_sim::{
     CrashPlan, DeathCause, DeathPlan, EventKind, FaultRates, FilePlan, NsKind, PartialWrite,
@@ -427,14 +427,69 @@ fn fm07_wall_steps_monotonic_and_boot_clocks_and_the_boot_identity() {
     let u = w.process_with("u", None, Some(false));
     assert!(matches!(u.boot_identity(), BootIdentity::Unknown(_)));
     assert_eq!(u.self_id().boot_hash, 0);
-    // A crash starts a new boot: a new identity, and the old processes are dead to it (FM-7.4, G-10).
+    // A crash starts a new boot: a new identity (FM-7.4, G-10). [OS/proc §6.1]: a process of another known boot is
+    // `Unknown` to a checker whose boot is known (row 2); a checker in Unknown-boot mode looks it up and finds no such
+    // process in its boot (row 5).
     let old = v.self_id();
     w.crash(&CrashPlan::seeded()).unwrap();
     assert_eq!(w.boot().0, 2);
     let (v2, _) = proc(&w, "p2");
     assert_ne!(v2.boot_identity(), BootIdentity::Known(id1));
-    assert_eq!(v2.alive(&old), Liveness::Dead);
+    assert_eq!(v2.alive(&old), Liveness::Unknown);
+    let blind = w.process_with("blind", None, Some(false));
+    assert_eq!(blind.alive(&old), Liveness::Dead);
+    assert_eq!(blind.alive(&v2.self_id()), Liveness::Alive);
     assert_eq!(catch_death(|| v.mono_ns()), Err(SimUnwind::Died));
+}
+
+/// [OS/proc §3.1, §3.2, §6.1] in the simulator: the flags follow the simulated OS, and `alive` answers the rows in order.
+#[test]
+fn liveness_follows_the_rows_of_the_process_table() {
+    for os in [OsTag::Windows, OsTag::Linux, OsTag::MacOs] {
+        let mut cfg = SimConfig::new(70);
+        cfg.os = os;
+        let w = SimWorld::new(cfg);
+        let a = w.process_with("a", None, Some(true));
+        let b = w.process_with("b", None, Some(true));
+        let id = b.self_id();
+        assert_eq!(
+            id.flags & ProcId::START_BOOT_RELATIVE != 0,
+            os == OsTag::Linux,
+            "{os:?}"
+        );
+        assert!(ProcId::from_bytes(&id.to_bytes()).is_some());
+        assert_eq!(a.alive(&id), Liveness::Alive);
+        // Row 1: another OS, or reserved flag bits.
+        let other = if os == OsTag::Windows { 2 } else { 1 };
+        assert_eq!(a.alive(&ProcId { os: other, ..id }), Liveness::Unknown);
+        assert_eq!(
+            a.alive(&ProcId {
+                flags: id.flags | 0x40,
+                ..id
+            }),
+            Liveness::Unknown
+        );
+        // Row 2: both boots known and different.
+        assert_eq!(
+            a.alive(&ProcId {
+                boot_hash: id.boot_hash ^ 2,
+                ..id
+            }),
+            Liveness::Unknown
+        );
+        // Row 5: no such process; row 7: another start.
+        assert_eq!(a.alive(&ProcId { pid: 7, ..id }), Liveness::Dead);
+        assert_eq!(
+            a.alive(&ProcId {
+                start: id.start ^ 1,
+                ..id
+            }),
+            Liveness::Dead
+        );
+        // Row 6: exited.
+        w.exit(&b);
+        assert_eq!(a.alive(&id), Liveness::Dead);
+    }
 }
 
 #[test]
@@ -974,6 +1029,65 @@ fn fm03_a_failed_flush_poisons_what_another_client_wrote_while_it_ran() {
     );
 }
 
+/// FM-3.1 (spec sync 2a): a sector that another process writes and makes durable with its own successful flush while a
+/// failing flush is in flight was `dirty` at an instant of that interval: the failure poisons it, with K = {the content the
+/// successful flush made durable}, so it is no longer bound by the one-torn-sector rule.
+#[test]
+fn fm03_a_failed_flush_poisons_what_a_concurrent_flush_cleaned_while_it_ran() {
+    let w = world(19);
+    w.put_file(&path("f"), &[0u8; 8192]).unwrap();
+    let a = w.process_with("a", None, Some(true));
+    let b = w.process_with("b", None, Some(true));
+    let a_proc = a.process();
+    pause_inside_first_flush(&w, &a, 1_000_000_000_000);
+    w.queue_choice_for(&a, Site::FlushFault, 1);
+    let ta = w.spawn(&a, |v| {
+        let root = store_root(&v);
+        let f = v
+            .open(&root, rel("f"), Access::ReadWrite, OpenHint::Normal)
+            .unwrap();
+        v.write_at(&f, 0, &[1; 4096]).unwrap();
+        if let Err(e) = v.sync(&f, SyncKind::Data) {
+            v.fail_stop(e);
+        }
+    });
+    let wb = w.clone();
+    let tb = w.spawn(&b, move |v| {
+        let root = store_root(&v);
+        let f = v
+            .open(&root, rel("f"), Access::ReadWrite, OpenHint::Normal)
+            .unwrap();
+        wait_for_flush_of(&wb, &v, a_proc);
+        v.write_at(&f, 4096, &[2; 4096]).unwrap();
+        v.sync(&f, SyncKind::Data).unwrap();
+        f.node()
+    });
+    assert!(!w.run().deadlock);
+    assert!(matches!(
+        ta.end().unwrap(),
+        TaskEnd::Unwound(SimUnwind::Died)
+    ));
+    let node = tb.end().unwrap().unwrap();
+    let s = w.surface();
+    let views: Vec<(u64, SectorKind, u64)> = s
+        .file(node)
+        .unwrap()
+        .sectors
+        .iter()
+        .map(|sv| (sv.index, sv.state, sv.candidates))
+        .collect();
+    // Both sectors were clean when the failure returned: b's successful flush covered a's write to sector 0 (written
+    // before b's flush began) and its own write to sector 1. K is taken at the return (FM-3.1): each holds the one
+    // content b's flush made durable, which FM-2.1's guarantee for that flush keeps.
+    assert_eq!(
+        views,
+        vec![(0, SectorKind::Poisoned, 1), (1, SectorKind::Poisoned, 1)]
+    );
+    let after = w.crash_image().materialize(&CrashPlan::seeded()).unwrap();
+    let c = content_of(&after, "f").unwrap();
+    assert!(c[..4096].iter().all(|&x| x == 1) && c[4096..].iter().all(|&x| x == 2));
+}
+
 /// FM-5.1: every step of `create_extent` — the exclusive create, each zero write, the sparse size change — and a plain
 /// size change may fail with `DiskFull` (or `Io`, FM-5.5), a failed write or growth having applied any part (FM-5.2).
 #[test]
@@ -1190,6 +1304,92 @@ fn s3_13_an_unsupported_flush_is_a_failed_flush() {
     );
     assert!(w.surface().ops.iter().any(|o| o.kind == NsKind::Create));
     assert_eq!(fail(&v, e), SimUnwind::Died);
+}
+
+/// FM-11.2 with FM-3.1 (review regression): two tasks of one process are inside flushes of one file when the process
+/// dies. The flush that started first resolves as succeeded and the other as failed. Every sector the success cleaned was
+/// `dirty` at an instant of the failure's interval, so the failure poisons it too, whatever order the two resolve in: the
+/// death path resolves the process's flushes one by one, each staying in flight (and absorbing what an earlier success
+/// cleaned) until its own turn.
+#[test]
+fn fm11_two_flushes_of_one_dying_process_resolve_one_by_one() {
+    let w = world(25);
+    w.put_file(&path("f"), &[0u8; 8192]).unwrap();
+    let node = {
+        let (d, r) = proc(&w, "init");
+        open_rw(&d, &r, "f").node()
+    };
+    let a = w.process_with("a", None, Some(true));
+    let killer = w.process_with("killer", None, Some(true));
+    let a_proc = a.process();
+    // Each task opens the root, opens the file, writes one sector and flushes: its sixth point is inside the flush,
+    // where it pauses long enough for the killer to act.
+    let flusher = |sector: u64, byte: u8| {
+        move |v: SimVfs| {
+            let root = store_root(&v);
+            let f = v
+                .open(&root, rel("f"), Access::ReadWrite, OpenHint::Normal)
+                .unwrap();
+            v.write_at(&f, sector * 4096, &[byte; 4096]).unwrap();
+            let _ = v.sync(&f, SyncKind::Data);
+        }
+    };
+    let t1 = w.spawn(&a, flusher(0, 1));
+    let t2 = w.spawn(&a, flusher(1, 2));
+    for t in [t1.id(), t2.id()] {
+        for _ in 0..5 {
+            w.queue_choice_on(Some(&a), Site::Pause, u64::from(t), 0);
+        }
+        w.queue_choice_on(Some(&a), Site::Pause, u64::from(t), 1_000_000_000_000);
+    }
+    // The first flush to resolve succeeds, the second fails.
+    w.queue_choice_for(&a, Site::FlushAtDeath, 0);
+    w.queue_choice_for(&a, Site::FlushAtDeath, 1);
+    let (wk, ak) = (w.clone(), a.clone());
+    let tk = w.spawn(&killer, move |v| {
+        let root = store_root(&v);
+        let started = |w: &SimWorld| {
+            w.trace()
+                .iter()
+                .filter(|e| e.kind == EventKind::FlushStart && e.proc == a_proc)
+                .count()
+        };
+        while started(&wk) < 2 {
+            let _ = v.list_dir(&root, None);
+        }
+        wk.kill(&ak, DeathPlan::default());
+    });
+    assert!(!w.run().deadlock);
+    for t in [t1, t2] {
+        assert!(matches!(
+            t.end().unwrap(),
+            TaskEnd::Unwound(SimUnwind::Died)
+        ));
+    }
+    assert!(matches!(tk.end().unwrap(), TaskEnd::Returned(())));
+    let outcomes: Vec<u64> = w
+        .trace()
+        .iter()
+        .filter(|e| e.kind == EventKind::InFlight && e.proc == a_proc && e.b == 1)
+        .map(|e| e.c)
+        .collect();
+    assert_eq!(
+        outcomes,
+        vec![0, 1],
+        "both flushes were in flight at the death"
+    );
+    let s = w.surface();
+    let states: Vec<(u64, SectorKind)> = s
+        .file(node)
+        .unwrap()
+        .sectors
+        .iter()
+        .map(|sv| (sv.index, sv.state))
+        .collect();
+    assert_eq!(
+        states,
+        vec![(0, SectorKind::Poisoned), (1, SectorKind::Poisoned)]
+    );
 }
 
 /// FM-11.2 with FM-2.6: a death inside `sync_group` resolves every member by the plan's outcome — succeeded (files clean,

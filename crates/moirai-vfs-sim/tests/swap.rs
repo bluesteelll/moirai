@@ -8,10 +8,12 @@ use std::path::Path;
 
 use common::*;
 use moirai_vfs::{
-    OsTag, RootAccess, RootRole, ShareRetry, StoreFs, SwapOutcome, SwapRecovery, VfsErrorKind,
+    OsCode, OsTag, RootAccess, RootRole, ShareRetry, StoreFs, SwapIntent, SwapOutcome,
+    SwapRecovery, VfsErrorKind,
 };
 use moirai_vfs_sim::{
     CrashImage, CrashPlan, EventKind, NsKind, SimConfig, SimRoot, SimVfs, SimWorld, Site,
+    ViolationKind,
 };
 
 const A: &str = "/sim/a";
@@ -125,19 +127,12 @@ fn a_crash_at_every_step_leaves_a_prefix_that_recovery_completes_or_rolls_back()
             let parent = v
                 .open_root(Path::new("/sim"), RootRole::Other, RootAccess::ReadWrite)
                 .unwrap();
-            let done = swapped(&w);
-            let r = match v.swap_recover(&parent, rel("a"), ShareRetry::None) {
-                Ok(r) => r,
-                // A crash between the intent's create and its flush may keep the name without its bytes (the
-                // create survives, the data does not): [OS/fs §4.9.3] refuses such an intent, before any rename.
-                Err(e) if e.call == "swap intent unreadable" => {
-                    assert_eq!(done, Some(false), "point {point}");
-                    assert!(w.exists(Path::new("/sim/a.swap")));
-                    results.insert("Unreadable/false".to_owned());
-                    continue;
-                }
-                Err(e) => panic!("point {point}: {e:?}"),
-            };
+            // A crash between the intent's create and its flush may keep the name without its bytes (the create
+            // survives, the data does not): [OS/fs §4.9.4]'s row "`I` unreadable" removes such an intent, since no
+            // rename happened before it was durable (`NothingDone`).
+            let r = v
+                .swap_recover(&parent, rel("a"), ShareRetry::None)
+                .unwrap_or_else(|e| panic!("point {point}: {e:?}"));
             let done = swapped(&w).unwrap_or_else(|| panic!("point {point}: a mixed state"));
             match r {
                 SwapRecovery::NoIntent | SwapRecovery::NothingDone | SwapRecovery::RolledBack => {
@@ -236,9 +231,42 @@ fn a_failed_step_leaves_the_intent_for_recovery() {
     assert!(w.exists(Path::new("/sim/a.swap")));
 }
 
+/// [OS/fs §4.9.3]: the intent the simulator leaves is the file of the codec the OS layer writes too
+/// (`moirai_vfs::SwapIntent`): it decodes to the identities and the simulator's absolute paths of `A`, `B` and `T`, and
+/// re-encodes to the same bytes.
 #[test]
-fn an_intent_whose_bytes_a_crash_lost_is_unreadable() {
-    // The intent's name survives a crash that loses its unflushed content: recovery refuses ([OS/fs §4.9.3]).
+fn the_intent_left_behind_is_the_shared_codec_s_file() {
+    let (w, v, parent) = setup(SimConfig::new(65));
+    let a_id = v.path_identity(&parent, rel("a")).unwrap();
+    let b_id = v.path_identity(&parent, rel("b")).unwrap();
+    // Step 4 succeeds and step 5 fails: the intent stays.
+    w.queue_choice_for(&v, Site::NsFault, 0);
+    w.queue_choice_for(&v, Site::NsFault, 1);
+    assert_eq!(swap(&v, &parent).unwrap_err().kind, VfsErrorKind::DiskFull);
+    let bytes = w.peek(Path::new("/sim/a.swap")).unwrap();
+    let intent = SwapIntent::decode(&bytes).expect("a readable intent");
+    assert_eq!(
+        intent,
+        SwapIntent {
+            a_id,
+            b_id,
+            a_path: "/sim/a".into(),
+            b_path: "/sim/b".into(),
+            t_path: "/sim/a.swap-old".into(),
+        }
+    );
+    assert_eq!(intent.encode().as_deref(), Some(&bytes[..]));
+    assert_eq!(
+        SwapIntent::side_names("a"),
+        ("a.swap".to_owned(), "a.swap-old".to_owned())
+    );
+}
+
+#[test]
+fn an_intent_whose_bytes_a_crash_lost_is_removed() {
+    // The intent's name survives a crash that loses its unflushed content: the intent is unreadable ([OS/fs §4.9.3]), and
+    // with `a` present and `a.swap-old` absent recovery removes it (`NothingDone`, [OS/fs §4.9.4], spec sync 2a); with
+    // `a.swap-old` present the state is unknown and nothing changes.
     let caps = images(65);
     let mut seen = false;
     for (_, img) in &caps {
@@ -258,8 +286,10 @@ fn an_intent_whose_bytes_a_crash_lost_is_unreadable() {
             continue;
         }
         let plan = CrashPlan::baseline().with_survivors([create.id]);
+        // With a stray `a.swap-old` beside it, an unreadable intent is an unknown state: nothing changes.
         let w = img.materialize(&plan).unwrap();
         assert!(w.exists(Path::new("/sim/a.swap")));
+        w.mkdir_all(Path::new("/sim/a.swap-old"));
         let v = w.process_with("doctor", None, Some(true));
         let parent = v
             .open_root(Path::new("/sim"), RootRole::Other, RootAccess::ReadWrite)
@@ -271,11 +301,59 @@ fn an_intent_whose_bytes_a_crash_lost_is_unreadable() {
             (e.kind, e.call),
             (VfsErrorKind::Io, "swap intent unreadable")
         );
+        assert!(w.exists(Path::new("/sim/a.swap")));
+        // Without it, the intent is removed and nothing was renamed.
+        let w = img.materialize(&plan).unwrap();
+        let v = w.process_with("doctor", None, Some(true));
+        let parent = v
+            .open_root(Path::new("/sim"), RootRole::Other, RootAccess::ReadWrite)
+            .unwrap();
+        assert_eq!(
+            v.swap_recover(&parent, rel("a"), ShareRetry::None).unwrap(),
+            SwapRecovery::NothingDone
+        );
+        assert!(!w.exists(Path::new("/sim/a.swap")));
         assert_eq!(swapped(&w), Some(false));
+        // The removal is made durable.
+        let after = w.crash_image().materialize(&CrashPlan::baseline()).unwrap();
+        assert!(!after.exists(Path::new("/sim/a.swap")));
         seen = true;
         break;
     }
     assert!(seen);
+}
+
+/// [OS/fs §4.1, §4.9] (spec sync 2a): a failed flush embedded in a step of `swap_dirs` is `FlushFailed` with the flush's
+/// code and call, and leaves the intent for `swap_recover`; once returned, further calls of the process are violations.
+#[test]
+fn a_failed_embedded_flush_is_flush_failed_and_keeps_the_intent() {
+    let (w, v, parent) = setup(SimConfig::new(68));
+    // Step 3's `sync(DataAndMeta)` of the intent succeeds, its `sync_dir` succeeds, step 4's `sync_dir` fails.
+    w.queue_choice_for(&v, Site::SyncDirFault, 0);
+    w.queue_choice_for(&v, Site::SyncDirFault, 2);
+    let e = swap(&v, &parent).unwrap_err();
+    assert_eq!(
+        (e.kind, e.os, e.call),
+        (VfsErrorKind::FlushFailed, OsCode(112), "FlushFileBuffers")
+    );
+    assert!(w.exists(Path::new("/sim/a.swap")));
+    assert!(w.violations().is_empty());
+    let f = v.create_new(&parent, rel("later"));
+    drop(f);
+    assert_eq!(
+        w.violations().iter().map(|x| x.kind).collect::<Vec<_>>(),
+        vec![ViolationKind::CallAfterDurabilityFailure]
+    );
+    // A new process recovers: step 4 happened (`a` is at `a.swap-old`), so it rolls back.
+    let d = w.process_with("doctor", None, Some(true));
+    let p2 = d
+        .open_root(Path::new("/sim"), RootRole::Other, RootAccess::ReadWrite)
+        .unwrap();
+    assert_eq!(
+        d.swap_recover(&p2, rel("a"), ShareRetry::None).unwrap(),
+        SwapRecovery::RolledBack
+    );
+    assert_eq!(swapped(&w), Some(false));
 }
 
 #[test]
@@ -298,12 +376,20 @@ fn linux_and_macos_exchange_natively_where_the_volume_can() {
     cfg.os = OsTag::Linux;
     let (w, v, parent) = setup(cfg);
     w.queue_choice(Site::SyncDirFault, 1);
-    assert_eq!(swap(&v, &parent).unwrap_err().kind, VfsErrorKind::Io);
+    assert_eq!(
+        swap(&v, &parent).unwrap_err().kind,
+        VfsErrorKind::FlushFailed
+    );
     assert_eq!(swapped(&w), Some(true));
     let after = w.crash_image().materialize(&CrashPlan::baseline()).unwrap();
     assert_eq!(swapped(&after), Some(false));
-    // The failure was reported as the swap's error, not a durability failure: later calls are no violations.
+    // The failure is the swap's `FlushFailed` ([OS/fs §4.1]): the call's own steps were no violation, but every later
+    // write, flush, create or namespace call of the process is ([F15 §3.13]).
+    assert!(w.violations().is_empty());
     let f = v.create_new(&parent, rel("later")).unwrap();
     drop(f);
-    assert!(w.violations().is_empty());
+    assert_eq!(
+        w.violations().iter().map(|x| x.kind).collect::<Vec<_>>(),
+        vec![ViolationKind::CallAfterDurabilityFailure]
+    );
 }

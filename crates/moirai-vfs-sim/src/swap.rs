@@ -3,139 +3,32 @@
 //! The native form (Linux `RENAME_EXCHANGE`, macOS `RENAME_SWAP`, [OS/fs §4.9.1]) is one namespace operation, then
 //! `sync_dir` of both parents. Windows always uses the emulated form, and so does a Linux or macOS world whose volume the
 //! adversary declares without the exchange ([`crate::Site::SwapExchange`]). The emulated form (§4.9.2) writes the intent
-//! file `<a>.swap` (§4.9.3, exact bytes, XXH3-64 checksum), then renames `A → T`, `B → A`, `T → B` and unlinks the
-//! intent, with a `durable-name` after every step. Every step is a real call of the simulated `Vfs`, with its own
+//! file `<a>.swap` (§4.9.3, exact bytes through [`SwapIntent`], the codec the OS layer shares), then renames `A → T`,
+//! `B → A`, `T → B` and unlinks the intent, with a `durable-name` after every step. Every step is a real call of the
+//! simulated `Vfs`, with its own
 //! scheduling points and trace events, so a crash or a death lands between any two steps and inside any of them; the
 //! crash states are then the prefixes of the steps (at most the last unsynced step lost, [F15 §5.6]). `swap_recover`
 //! reads the intent and acts by the table of §4.9.4.
 //!
 //! The paths in the intent are the simulator's machine-local absolute form of the three names
 //! ([`crate::namespace::Ns::abs_path`]): `/`-separated from the world root, a leading drive component upper-cased.
-//! Failures of the `durable-name` steps are returned as `VfsError` ([OS/fs §4.9]'s signatures): the caller exits 7
-//! through its error path, not `fail_stop`, so later calls of the process are not protocol violations.
+//! A failed flush embedded in a step is returned as `VfsError` of kind `FlushFailed` with the flush's code and call
+//! ([OS/fs §4.1, §4.9], spec sync 2a) and leaves the intent for `swap_recover`; once the call has returned it, every
+//! further write, flush, create or namespace call of the process is a protocol violation ([F15 §3.13]).
 
 use moirai_vfs::{
     Access, FileIdentity, OpenHint, OsCode, OsTag, RelPath, RootAccess, RootRole, ShareRetry,
-    StoreFs, SwapOutcome, SwapRecovery, SyncKind, VfsError, VfsErrorKind,
+    StoreFs, SwapIntent, SwapOutcome, SwapRecovery, SyncKind, VfsError, VfsErrorKind,
 };
 
 use crate::adversary::Site;
 use crate::namespace::NsOp;
 use crate::trace::EventKind;
 use crate::vfs::{
-    Op, SimRoot, SimVfs, err, flag_bounded_retry, note_nonlazy_call, writable_volume,
+    Op, SimRoot, SimVfs, embedded_flush_ends, err, flag_bounded_retry, note_nonlazy_call,
+    writable_volume,
 };
 use crate::world::{CallKind, Ctx, error_code};
-use crate::xxh3::xxh3_64;
-
-/// The intent's magic ([OS/fs §4.9.3]).
-const MAGIC: [u8; 4] = *b"MSWP";
-/// The header length.
-const HEADER: usize = 64;
-/// The longest path an intent holds.
-const MAX_PATH: usize = 4096;
-
-/// The content of a swap intent ([OS/fs §4.9.3]).
-#[derive(Clone, Debug, Eq, PartialEq)]
-pub(crate) struct Intent {
-    pub(crate) a_id: FileIdentity,
-    pub(crate) b_id: FileIdentity,
-    pub(crate) a_path: String,
-    pub(crate) b_path: String,
-    pub(crate) t_path: String,
-}
-
-fn id_bytes(id: &FileIdentity) -> [u8; 24] {
-    let mut b = [0u8; 24];
-    b[..8].copy_from_slice(&id.volume.to_le_bytes());
-    b[8..].copy_from_slice(&id.file);
-    b
-}
-
-fn id_from(b: &[u8]) -> FileIdentity {
-    let mut v = [0u8; 8];
-    v.copy_from_slice(&b[..8]);
-    let mut file = [0u8; 16];
-    file.copy_from_slice(&b[8..24]);
-    FileIdentity {
-        volume: u64::from_le_bytes(v),
-        file,
-    }
-}
-
-fn u16_at(b: &[u8], at: usize) -> usize {
-    usize::from(u16::from_le_bytes([b[at], b[at + 1]]))
-}
-
-impl Intent {
-    /// The file's bytes: the 64-byte header, the three paths, zero padding to a multiple of 8, and the XXH3-64 of all
-    /// that. The paths are 1–4096 bytes each (checked by the caller).
-    pub(crate) fn encode(&self) -> Vec<u8> {
-        let paths = [&self.a_path, &self.b_path, &self.t_path];
-        let p = HEADER + paths.iter().map(|s| s.len()).sum::<usize>();
-        let pad = (8 - p % 8) % 8;
-        let mut b = Vec::with_capacity(p + pad + 8);
-        b.extend_from_slice(&MAGIC);
-        b.extend_from_slice(&1u16.to_le_bytes());
-        b.extend_from_slice(&0u16.to_le_bytes());
-        b.extend_from_slice(&id_bytes(&self.a_id));
-        b.extend_from_slice(&id_bytes(&self.b_id));
-        for s in paths {
-            b.extend_from_slice(&(s.len() as u16).to_le_bytes());
-        }
-        b.extend_from_slice(&0u16.to_le_bytes());
-        for s in paths {
-            b.extend_from_slice(s.as_bytes());
-        }
-        b.resize(p + pad, 0);
-        let sum = xxh3_64(&b);
-        b.extend_from_slice(&sum.to_le_bytes());
-        b
-    }
-
-    /// The intent in `b`, if the length, the magic, `version = 1`, the reserved fields, the padding, UTF-8 paths and the
-    /// checksum all check.
-    pub(crate) fn decode(b: &[u8]) -> Option<Intent> {
-        if b.len() < HEADER + 8 || b[..4] != MAGIC || u16_at(b, 4) != 1 || u16_at(b, 6) != 0 {
-            return None;
-        }
-        let lens = [u16_at(b, 56), u16_at(b, 58), u16_at(b, 60)];
-        if u16_at(b, 62) != 0 || lens.iter().any(|&l| l == 0 || l > MAX_PATH) {
-            return None;
-        }
-        let p = HEADER + lens.iter().sum::<usize>();
-        let pad = (8 - p % 8) % 8;
-        if b.len() != p + pad + 8 || b[p..p + pad].iter().any(|&x| x != 0) {
-            return None;
-        }
-        let mut sum = [0u8; 8];
-        sum.copy_from_slice(&b[p + pad..]);
-        if xxh3_64(&b[..p + pad]) != u64::from_le_bytes(sum) {
-            return None;
-        }
-        let mut at = HEADER;
-        let mut path = |l: usize| {
-            let s = core::str::from_utf8(&b[at..at + l]).ok().map(str::to_owned);
-            at += l;
-            s
-        };
-        Some(Intent {
-            a_id: id_from(&b[8..32]),
-            b_id: id_from(&b[32..56]),
-            a_path: path(lens[0])?,
-            b_path: path(lens[1])?,
-            t_path: path(lens[2])?,
-        })
-    }
-}
-
-/// The longest intent file.
-const MAX_INTENT: u64 = (HEADER + 3 * MAX_PATH + 7 + 8) as u64;
-
-/// The names the emulated form uses in `a_parent`: the intent `<a>.swap` and the temporary `<a>.swap-old`.
-fn side_names(a: &str) -> (String, String) {
-    (format!("{a}.swap"), format!("{a}.swap-old"))
-}
 
 fn rel(s: &str) -> Result<RelPath<'_>, VfsError> {
     RelPath::new(s).map_err(|_| VfsError::new(VfsErrorKind::InvalidName, OsCode::NONE, "swap_dirs"))
@@ -176,6 +69,7 @@ pub(crate) fn swap_dirs(
             r
         }
     };
+    embedded_flush_ends(&mut ctx, &r);
     let code = r.as_ref().map_or_else(|e| error_code(e.kind), |_| 0);
     ctx.ret_code(CallKind::SwapDirs, a_parent.node, code);
     r
@@ -228,7 +122,7 @@ fn start(
         return Ok(Form::Native);
     }
     // §4.9.2 step 1: an intent or a temporary name left by an earlier swap is `doctor`'s.
-    let (i_name, t_name) = side_names(a.as_str());
+    let (i_name, t_name) = SwapIntent::side_names(a.as_str());
     if rel(&i_name).is_err() || rel(&t_name).is_err() {
         return Err(err(st, VfsErrorKind::InvalidName, Op::Rename));
     }
@@ -257,16 +151,17 @@ fn start(
     );
     if [&paths.0, &paths.1, &paths.2]
         .iter()
-        .any(|p| p.len() > MAX_PATH)
+        .any(|p| !SwapIntent::path_fits(p))
     {
         return Err(err(st, VfsErrorKind::InvalidName, Op::Rename));
     }
     Ok(Form::Emulated(paths.0, paths.1, paths.2))
 }
 
-/// Maps an embedded `durable-name` or `durable+meta` failure to the call's error.
+/// Maps an embedded `durable-name` or `durable+meta` failure to the call's error: `FlushFailed` with the flush's code
+/// and call ([OS/fs §4.1]).
 fn embedded(r: Result<(), moirai_vfs::DurabilityFailure>) -> Result<(), VfsError> {
-    r.map_err(|f| VfsError::new(f.kind, f.os, f.call))
+    r.map_err(|f| f.embedded())
 }
 
 /// `durable-name` on `a` and, if it is another directory, on `b`.
@@ -288,21 +183,22 @@ fn emulate(
     retry: ShareRetry,
     [a_path, b_path, t_path]: [String; 3],
 ) -> Result<SwapOutcome, VfsError> {
-    let (i_name, t_name) = side_names(a.as_str());
+    let (i_name, t_name) = SwapIntent::side_names(a.as_str());
     let i = rel(&i_name)?;
     let t = rel(&t_name)?;
     // 2. The identities.
     let a_id = v.path_identity(a_parent, a)?;
     let b_id = v.path_identity(b_parent, b)?;
     // 3. The intent, durable with its name.
-    let bytes = Intent {
+    let bytes = SwapIntent {
         a_id,
         b_id,
         a_path,
         b_path,
         t_path,
     }
-    .encode();
+    .encode()
+    .ok_or_else(|| VfsError::new(VfsErrorKind::InvalidName, OsCode::NONE, "swap_dirs"))?;
     let f = v.create_new(a_parent, i)?;
     v.write_at(&f, 0, &bytes)?;
     embedded(v.sync_op(&f, SyncKind::DataAndMeta, true))?;
@@ -350,6 +246,7 @@ pub(crate) fn swap_recover(
             r
         }
     };
+    embedded_flush_ends(&mut ctx, &r);
     let code = r.as_ref().map_or_else(|e| error_code(e.kind), |_| 0);
     ctx.ret_code(CallKind::SwapRecover, a_parent.node, code);
     r
@@ -359,6 +256,15 @@ fn unrecognised(what: &'static str) -> VfsError {
     VfsError::new(VfsErrorKind::Io, OsCode::NONE, what)
 }
 
+/// Whether `rel` names an object in `root` (`NotFound` = absent; any other error is the call's).
+fn present(v: &SimVfs, root: &SimRoot, rel: RelPath<'_>) -> Result<bool, VfsError> {
+    match v.path_identity(root, rel) {
+        Ok(_) => Ok(true),
+        Err(e) if e.kind == VfsErrorKind::NotFound => Ok(false),
+        Err(e) => Err(e),
+    }
+}
+
 /// The recovery itself: every read, rename and unlink a real call.
 fn recover(
     v: &SimVfs,
@@ -366,21 +272,37 @@ fn recover(
     a: RelPath<'_>,
     retry: ShareRetry,
 ) -> Result<SwapRecovery, VfsError> {
-    let (i_name, _) = side_names(a.as_str());
+    let (i_name, t_name) = SwapIntent::side_names(a.as_str());
     let i = rel(&i_name)?;
     let f = match v.open(a_parent, i, Access::Read, OpenHint::Normal) {
         Ok(f) => f,
         Err(e) if e.kind == VfsErrorKind::NotFound => return Ok(SwapRecovery::NoIntent),
         Err(e) => return Err(e),
     };
+    // A read that returns an error is not an unreadable intent: the recovery fails with it and changes nothing
+    // ([OS/fs §4.9.3]).
     let n = v.file_size(&f)?;
-    if n > MAX_INTENT {
-        return Err(unrecognised("swap intent unreadable"));
-    }
-    let mut buf = vec![0u8; n as usize];
-    v.read_exact_at(&f, 0, &mut buf)?;
+    let intent = if n > SwapIntent::MAX_LEN {
+        None
+    } else {
+        let mut buf = vec![0u8; n as usize];
+        v.read_exact_at(&f, 0, &mut buf)?;
+        SwapIntent::decode(&buf)
+    };
     drop(f);
-    let intent = Intent::decode(&buf).ok_or_else(|| unrecognised("swap intent unreadable"))?;
+    let Some(intent) = intent else {
+        // [OS/fs §4.9.4] row "`I` unreadable": its write in step 3 never completed (a crash, or a failed flush), so
+        // nothing was renamed, since step 4 starts only after `I` is durable. With `A` present and `T` absent the intent
+        // is removed. `B` is named only inside the intent, so its presence cannot be read here; the soundness argument
+        // needs only that step 4 never started, which `A` present and `T` absent confirm.
+        let t = rel(&t_name)?;
+        if present(v, a_parent, a)? && !present(v, a_parent, t)? {
+            v.unlink_op(a_parent, i, retry, false)?;
+            embedded(v.sync_dir_op(a_parent, None, true))?;
+            return Ok(SwapRecovery::NothingDone);
+        }
+        return Err(unrecognised("swap intent unreadable"));
+    };
     // The three names, as the intent records them.
     let locate = |path: &str| -> Option<(SimRoot, String)> {
         let g = v.sh.lock();
@@ -435,41 +357,4 @@ fn recover(
     v.unlink_op(a_parent, i, retry, false)?;
     embedded(v.sync_dir_op(a_parent, None, true))?;
     Ok(result)
-}
-
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    fn id(n: u8) -> FileIdentity {
-        FileIdentity {
-            volume: 0x5349_4D00_0000_0000,
-            file: [n; 16],
-        }
-    }
-
-    #[test]
-    fn the_intent_round_trips_and_rejects_every_damage() {
-        let i = Intent {
-            a_id: id(1),
-            b_id: id(2),
-            a_path: "C:/sim/store".into(),
-            b_path: "C:/sim/restored".into(),
-            t_path: "C:/sim/store.swap-old".into(),
-        };
-        let b = i.encode();
-        assert_eq!(&b[..4], b"MSWP");
-        assert_eq!(b.len() % 8, 0);
-        assert_eq!(u16_at(&b, 56), 12);
-        let p = HEADER + 12 + 15 + 21;
-        assert_eq!(b.len(), p + (8 - p % 8) % 8 + 8);
-        assert_eq!(Intent::decode(&b), Some(i));
-        for at in [0, 4, 6, 8, 40, 56, 62, 64, b.len() - 9, b.len() - 1] {
-            let mut d = b.clone();
-            d[at] ^= 1;
-            assert_eq!(Intent::decode(&d), None, "byte {at}");
-        }
-        assert_eq!(Intent::decode(&b[..b.len() - 1]), None);
-        assert_eq!(Intent::decode(&[]), None);
-    }
 }

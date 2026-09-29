@@ -61,13 +61,51 @@ fn draws_are_traced_and_scripted_values_come_first() {
     assert_eq!(a, [0u8; 8]);
     assert_eq!(b, seen);
     assert_ne!(c, [9u8; 12]);
-    let ev: Vec<(u64, u64)> = w
+    // Every drawn value appears in the trace ([OS/README §4.6] "Simulator form"): the length, the scripted count and the
+    // bytes themselves.
+    let ev: Vec<(u64, u64, u64, u64)> = w
         .trace()
         .iter()
         .filter(|e| e.kind == EventKind::Random && e.proc == v.process())
-        .map(|e| (e.a, e.c))
+        .map(|e| (e.a & 0xFFFF_FFFF, e.a >> 32, e.b, e.c))
         .collect();
-    assert_eq!(ev, vec![(8, 0), (8, 8), (8, 8), (12, 0)]);
+    let le = |x: &[u8]| {
+        let mut w = [0u8; 8];
+        w[..x.len()].copy_from_slice(x);
+        u64::from_le_bytes(w)
+    };
+    assert_eq!(
+        ev,
+        vec![
+            (8, 0, le(&seen), 0),
+            (8, 8, 0, 0),
+            (8, 8, le(&seen), 0),
+            (12, 0, le(&c[..8]), le(&c[8..])),
+        ]
+    );
+    // A draw longer than 16 bytes continues in `RandomMore` events, 24 bytes each.
+    let mut long = [0u8; 50];
+    v.fill_random(&mut long);
+    let trace = w.trace();
+    let tail: Vec<_> = trace
+        .iter()
+        .rev()
+        .take_while(|e| e.kind == EventKind::RandomMore)
+        .collect();
+    assert_eq!(tail.len(), 2);
+    let last = trace.iter().rfind(|e| e.kind == EventKind::Random).unwrap();
+    assert_eq!(
+        (last.a, last.b, last.c),
+        (50, le(&long[..8]), le(&long[8..16]))
+    );
+    assert_eq!(
+        (tail[1].a, tail[1].b, tail[1].c),
+        (le(&long[16..24]), le(&long[24..32]), le(&long[32..40]))
+    );
+    assert_eq!(
+        (tail[0].a, tail[0].b, tail[0].c),
+        (le(&long[40..48]), le(&long[48..]), 0)
+    );
     // The digest-only trace proves the same draws.
     let mut cfg = SimConfig::new(92);
     cfg.trace = TraceMode::DigestOnly;

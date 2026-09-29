@@ -177,8 +177,9 @@ fn open_lock_handle(st: &mut State, proc: u32, node: u64, h: LockHandle) -> Resu
     Ok(())
 }
 
-fn role_bit(offset: u64) -> u8 {
-    1 << (offset - moirai_vfs::ROLE_BASE).min(7)
+/// One bit per role byte: its offset − `ROLE_BASE`, 0 … 12 ([OS/lock §2]).
+fn role_bit(offset: u64) -> u16 {
+    1 << (offset - moirai_vfs::ROLE_BASE)
 }
 
 /// The handle a kernel try of `byte` uses.
