@@ -8,12 +8,26 @@ license.workspace = true
 repository.workspace = true
 publish = false
 autobins = false
+autotests = false
 description = "Independent decoder and test-only re-encoder of every frozen structure, and the ABNF check (test-only)."
 
 [lib]
 path = "src/lib.rs"
 
+# The fixture walks (PLAN WP-95 acceptance, E3): every fixtures/hex file decodes and re-encodes with the conclusion its
+# comment states; every fixtures/moi fixture parses or is refused as its .expect says; every fixtures/carrier case's
+# objects, trees and trailers re-derive its canonical items. Known mismatches are ignored tests of their own.
+[[test]]
+name = "fixtures"
+path = "tests/fixtures.rs"
+
 [dependencies]
+blake3.workspace = true
+xxhash-rust.workspace = true
+
+# Property suites of the unit tests (PLAN §2.4: dev only).
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true
