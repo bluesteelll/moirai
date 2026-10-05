@@ -1720,7 +1720,7 @@ g8.r3.p:
     {uvar 1}                                # lease_id
     {u64 1}                                 # token
     {u64 0x1a0c45108400002}                 # hlc
-    02                                      # reason
+    02                                      # reason 2 `complete` ([F05 §9.4] field 18)
 g8.r3.pl:
 g8.tr:
 {xxh3_64 g8..g8.tr seed=g7.tr..g7.end}      # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
@@ -3000,7 +3000,7 @@ g19.r1.p:
       {uvar 1}                              # key: node #1
       {uvar 9}                              # key: name `acceptance`
       {uvar 543}                            # prev: 543 (lsn 10098 - 9555)
-      03                                    # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint)
+      03                                    # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint, 5 drop)
       01                                    # old: cs 1 conflict
       03                                    # old: class 3
       06                                    # old.base: type 6 text
@@ -3021,7 +3021,7 @@ g19.r1.p:
       01                                    # key: ckey class 1 existence
       {uvar 11}                             # key: node #11
       {uvar 543}                            # prev: 543 (lsn 10098 - 9555)
-      00                                    # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint)
+      00                                    # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint, 5 drop)
       01                                    # old: cs 1 conflict
       04                                    # old: class 4
       01                                    # old.base: ex 1 live
@@ -3263,7 +3263,7 @@ g22.r1.p:
     {u32 1}                                 # segments[0].file_no
     02                                      # segments[0].kind (delta)
     {u64 11264}                             # segments[0].upto_lsn
-    88 85 46 c1 d5 4e 25 b4 af 2a d6 6c 8a 25 0f 49  # segments[0].blake3_16
+    40 41 7a 32 74 04 6f 2f 5b 56 9a bd 4a 69 1c 01  # segments[0].blake3_16
     {uvar 0}                                # window_start
     {uvar 3}                                # n_refs
     {uvar 0}                                # RefList.ref_id
@@ -3471,8 +3471,8 @@ g24.r1.p:
     {uvar 1}                                # n_promotions
     {uvar 1}                                # Promotion.ref_id
     {uvar 5}                                # Promotion.seg_file
-    {uvar 2316}                             # Promotion.total_len
-    83 11 69 cb 20 24 f5 98 00 50 56 dc 13 47 71 de  # Promotion.digest
+    {uvar 2812}                             # Promotion.total_len
+    9f bf dd 27 9a 7b d5 9b c4 31 86 a5 d2 24 76 3a  # Promotion.digest
     {uvar 11264}                            # Promotion.base_pin
     {uvar 8962}                             # Promotion.tip_lsn
     {uvar 4}                                # Promotion.tip_ref_seq
@@ -4732,7 +4732,7 @@ g43.tr:
 g43.end:
 g43.r1.end:
 
-# === group g44 at lsn 16394: lease group: release L-2 as dead (event 2, reason 4) (durable)
+# === group g44 at lsn 16394: lease group: release L-2 (event 2, reason 1 `release`; a role lease never ends with reason 4, [F05 §9.4]) (durable)
 g44:
 # --- record g44.r1: kind 4 `Lease` at lsn 16394 (group_end)
 g44.r1:
@@ -4750,7 +4750,7 @@ g44.r1.p:
     {uvar 2}                                # lease_id
     {u64 2}                                 # token
     {u64 0x1a0c45415800000}                 # hlc
-    04                                      # reason
+    01                                      # reason 1 `release` ([F05 §9.4] field 18)
 g44.r1.pl:
 g44.tr:
 {xxh3_64 g44..g44.tr seed=g43.tr..g43.end}  # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
@@ -4837,11 +4837,11 @@ g46.r1.p:
     {u32 1}                                 # segments[0].file_no
     02                                      # segments[0].kind (delta)
     {u64 11264}                             # segments[0].upto_lsn
-    88 85 46 c1 d5 4e 25 b4 af 2a d6 6c 8a 25 0f 49  # segments[0].blake3_16
+    40 41 7a 32 74 04 6f 2f 5b 56 9a bd 4a 69 1c 01  # segments[0].blake3_16
     {u32 7}                                 # segments[1].file_no
     02                                      # segments[1].kind (delta)
     {u64 16660}                             # segments[1].upto_lsn
-    58 8f b8 90 c7 a3 dc aa e9 f6 ac 66 e2 a2 04 2f  # segments[1].blake3_16
+    82 e8 fc 69 aa a4 74 9b 27 77 50 88 5e d4 84 26  # segments[1].blake3_16
     {uvar 11264}                            # window_start
     {uvar 2}                                # n_refs
     {uvar 0}                                # RefList.ref_id
@@ -5497,15 +5497,15 @@ g49.r1.p:
     {u32 1}                                 # segments[0].file_no
     02                                      # segments[0].kind (delta)
     {u64 11264}                             # segments[0].upto_lsn
-    88 85 46 c1 d5 4e 25 b4 af 2a d6 6c 8a 25 0f 49  # segments[0].blake3_16
+    40 41 7a 32 74 04 6f 2f 5b 56 9a bd 4a 69 1c 01  # segments[0].blake3_16
     {u32 7}                                 # segments[1].file_no
     02                                      # segments[1].kind (delta)
     {u64 16660}                             # segments[1].upto_lsn
-    58 8f b8 90 c7 a3 dc aa e9 f6 ac 66 e2 a2 04 2f  # segments[1].blake3_16
+    82 e8 fc 69 aa a4 74 9b 27 77 50 88 5e d4 84 26  # segments[1].blake3_16
     {u32 8}                                 # segments[2].file_no
     02                                      # segments[2].kind (delta)
     {u64 16660}                             # segments[2].upto_lsn
-    aa 52 79 7d 7c 51 0d 15 41 63 26 f0 31 5f 75 5b  # segments[2].blake3_16
+    4f 50 df ed 31 8e 29 49 e5 55 e6 46 4b 23 54 0f  # segments[2].blake3_16
     {uvar 19475}                            # rt_upto_lsn
     {uvar 1}                                # n_added
     06                                      # added.family 6 blobs
@@ -5541,7 +5541,7 @@ g50.r1.p:
     {u32 10}                                # segments[0].file_no
     01                                      # segments[0].kind (base)
     {u64 16660}                             # segments[0].upto_lsn
-    4c b0 13 6d 60 0a 80 26 6e 5a 39 51 29 e3 61 91  # segments[0].blake3_16
+    ef 1d f0 02 6e 3e 90 a0 c8 0c 2c bc 98 24 d4 7d  # segments[0].blake3_16
     {uvar 3}                                # n_released
     04                                      # released.family 4 seg-delta
     {uvar 1}                                # released.file_no

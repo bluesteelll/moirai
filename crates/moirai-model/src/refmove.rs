@@ -46,17 +46,19 @@ impl Store {
             &mut self.hlc,
             self.env.wall_ms,
         );
+        // [LQ/std §2.15]: the moved ref, its new tip (absent for a deletion), the record's actor.
         self.feed.event(
             self.commit_seq,
             name,
-            None,
+            new,
             None,
             reason.name(),
             "ref",
             name.to_string(),
             actor,
+            None,
         );
-        self.feed_markers(&entries, actor);
+        self.feed_markers(&entries, None);
         self.listed(&entries)
     }
 }

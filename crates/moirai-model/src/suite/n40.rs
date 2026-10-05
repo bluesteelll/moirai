@@ -5,7 +5,6 @@
 use super::*;
 use crate::coord::{self, Oracle};
 use crate::derived::{self, Index};
-use crate::lease::{AnchorKind, Lease, LeaseKind};
 use crate::rules::rules;
 use crate::state::EdgeKey;
 use std::collections::BTreeMap;
@@ -26,11 +25,21 @@ impl N40 {
     }
 }
 
-/// `c0`, optionally with `edges.blocks.on-src-deleted = drop-notify`.
+/// `c0`, optionally with `edges.blocks.on-src-deleted = drop-notify` on `main` (a `policy` item written by `Schema`,
+/// [F08 §8.5.6]; the lanes forked later carry it).
 fn c0(drop_notify: bool) -> N40 {
     let mut s = S::base();
     if drop_notify {
-        s.st.cfg.edge_policies.blocks = "drop-notify".into();
+        s.ok(
+            Cmd::Schema {
+                items: vec![crate::schema::Item::Policy(crate::schema::PolicyItem {
+                    name: "edges.blocks.on-src-deleted".into(),
+                    value: Some("drop-notify".into()),
+                })],
+                message: String::new(),
+            },
+            orch(),
+        );
     }
     let r = rules();
     let mut stmts = Vec::new();
@@ -103,37 +112,46 @@ fn start(after: &str) -> Option<N40> {
         "c0" => Some(c0(false)),
         "c0/drop-notify" => Some(c0(true)),
         "c0/lease-L-19" => {
+            // [RULES/delete-policy-matrix] §11 "Cases": `lane/y` moved #41 under #9 and removed `#203 -blocks-> #40`
+            // (#40 unmodified), then `dev#2` claimed #40 on `lane/y`, which gave the live lease `L-19`; at `c0` itself
+            // #40 is a container with an open blocker, so no claim leases it (PD-005, PD-006, PD-017).
             let mut x = c0(false);
-            // The fixture's lease on #40, held by dev#2 on lane/y (a runtime row of the starting state).
-            x.s.st.fence += 1;
-            let id = x.s.st.fence;
-            let now = x.s.st.env.now();
-            x.s.st.leases.insert(
-                id,
-                Lease {
-                    id,
-                    token: id,
-                    task: Some(x.id("#40")),
-                    kind: LeaseKind::Task,
-                    role: "developer".into(),
-                    holder: "dev#2".into(),
-                    branch: "lane/y".into(),
-                    anchor: AnchorKind::None,
-                    session: None,
-                    anchor_boot_hash: now.boot_hash,
-                    expires: crate::clock::after(now, 900_000),
-                    ttl_ms: 900_000,
-                    run: None,
-                    run_scoped: false,
-                    session_role: false,
-                    claimed_hlc: 0,
-                    bound: None,
-                    root_session: None,
-                    files_owned: vec![],
-                    ended: None,
-                },
+            let (n41, n9, n203, n40) = (x.id("#41"), x.id("#9"), x.id("#203"), x.id("#40"));
+            x.s.ok(
+                tx(vec![
+                    Stmt::Move {
+                        target: Target::Id(n41),
+                        under: Some(Target::Id(n9)),
+                        position: None,
+                    },
+                    Stmt::Unlink {
+                        src: Target::Id(n203),
+                        kind: "blocks".into(),
+                        dst: Target::Id(n40),
+                    },
+                ]),
+                orch_on("lane/y"),
             );
-            x.lease19 = Some(id);
+            let r = x.s.ok(
+                Cmd::Claim {
+                    ids: vec![Target::Id(n40)],
+                    next: false,
+                    scope: None,
+                    role: None,
+                    agent: Some("dev#2".into()),
+                    ttl: None,
+                    start: false,
+                    run: None,
+                    session: false,
+                },
+                orch_on("lane/y"),
+            );
+            let lease = r.yields[0].rows[0]
+                .iter()
+                .find(|(k, _)| k == "lease")
+                .map(|(_, v)| v.clone())
+                .expect("the claim's lease");
+            x.lease19 = crate::tx::parse_lease(&lease);
             Some(x)
         }
         case => {
@@ -188,7 +206,7 @@ fn run_action(x: &mut N40, r: &str, action: &str) -> Option<Reply> {
             // resolve:edge:#A:kind:#B:drop | repoint=<id>
             let key = format!("edge:{}:{}:{}", x.id(parts[2]), parts[3], x.id(parts[4]));
             let take = match parts[5] {
-                "drop" => crate::tx::Take::Ours,
+                "drop" => crate::tx::Take::Drop,
                 p => crate::tx::Take::Repoint(Target::Id(
                     x.id(&format!("#{}", p.strip_prefix("repoint=")?)),
                 )),

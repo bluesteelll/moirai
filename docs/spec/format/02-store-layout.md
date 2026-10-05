@@ -114,7 +114,11 @@ wins. Discovery writes nothing, and a miss never creates a store ([AR §2.14]).
 ### 3.2 What a store directory is; how a `.moirai` entry is classified
 
 - A **store directory** is a directory that contains an entry named `HEAD` that is a regular file. `init` creates `HEAD`
-  last (§5.5), so a directory with `HEAD` is complete.
+  last (§5.5), so a directory with `HEAD` is complete. `HEAD`'s name is durable only once `init`'s rename of
+  `tmp/head.<nonce>` has been followed by `durable-name` on both parents, so a discovering process can open a store whose
+  `HEAD` a crash would still lose; before it first acknowledges a durable effect through the store, every process runs
+  `durable-name` on `tmp/` and on the store directory, once per opening, holding no role byte ([F16] P-88, "The window
+  after step 6's rename"; spec sync 2b).
 - Discovery examines `.moirai` and every probe path by the OS's ordinary lookup, which follows symbolic links.
 
 | The entry is | Result |

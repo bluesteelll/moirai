@@ -154,7 +154,7 @@ Checked in this order before anything is written; the first failure refuses the 
 | EG-020 | `runs_in` | src-deleted | * | - | - | drop | none | design | [AR §3.3] `runs_in` | - |
 | EG-021 | `answers` | dst-deleted | * | - | - | refuse | none | design | [AR §3.3] `answers` "restrict" | - |
 | EG-022 | `answers` | src-deleted | * | - | last-answer | drop | question-reopened | design | [AR §3.3] `answers` "question reopens" | - |
-| EG-023 | `answers` | src-deleted | * | - | other-answer | drop | none | derived | [AR §3.3] `answers` | Another answer remains (possible only after a merge; "≤ 1 active"). |
+| EG-023 | `answers` | src-deleted | * | - | other-answer | drop | none | derived | [AR §3.3] `answers`; [F08 §8.4.6] `max-1-active-per-dst` | Another live answer remains. "≤ 1 active" bounds only in-edges whose source is **active**, live with a status that is not a side state ([F08 §8.4.6] card 2), so a question can hold one active answer beside the answers of superseded, retracted, archived or rejected sources; deleting one of two answers leaves the question `answered` (spec sync 2b). |
 | EG-024 | `scoped_to` | dst-deleted | none | - | - | refuse | none | design | [AR §3.3] `scoped_to` "restrict" | - |
 | EG-025 | `scoped_to` | dst-deleted | reassign | - | has-parent-area | repoint | scope-moved | design | [AR §3.3] `scoped_to` "`--reassign` to the parent area" | - |
 | EG-026 | `scoped_to` | dst-deleted | reassign | - | no-parent-area | refuse | none | proposed | [AR §3.3]; [OP-6] | There is no parent area to reassign to. |
@@ -206,7 +206,7 @@ Checked in this order before anything is written; the first failure refuses the 
 | DS-002 | 2 | deleted-set | design | [AR §3.3] `parent`; [AR §5d.3] | The target, plus every descendant under `--cascade`. |
 | DS-003 | 3 | internal-edges | proposed | [AR §3.4] I39′; [OP-8] | An edge with both ends in the deleted set: a historical edge is retained as its source's tombstone out-edge; a structural edge is dropped (no live dependent remains to protect). |
 | DS-004 | 4 | edge-policy | design | [AR §5d.3] "the writer walks #40's reverse list (O(degree))"; [AR §3.3] | Every other edge of every node in the deleted set takes its `edge-policy` row. |
-| DS-005 | 5 | delete-ops | design | [AR §4.3] `Delete{id, reason, replaced_by, before-image}` | One `Delete` per deleted node, with its before-image, the reason and `replaced_by`. |
+| DS-005 | 5 | delete-ops | design | [AR §4.3] `Delete{id, reason, replaced_by, before-image}` | One `Delete` per deleted node, with its before-image, the reason and `replaced_by`. Under `--cascade` every node of the deleted set takes the delete's one `reason` and `replaced_by`, descendants included: DS-004 already re-points the deleted descendants' `blocks` and `gates` edges to the replacement under the `replaced-by` option (EG-006, EG-007, EG-012, EG-013), so the replacement stands for the whole deleted set, and one statement carries one reason ([API §9.2] `delete`; spec sync 2b). |
 | DS-006 | 6 | policy-ops | design | [AR §2.5]; [AR §5d.3] | The ops the actions imply, in the same commit: `RemoveEdge` and `AddEdge` for `drop` and `repoint`, `Move` for `move-up`, the `flagged` property for `flag` (its op form is [F06]'s), `SetStatus` for `question-reopened`. |
 | DS-007 | 7 | release | design | [AR §3.4] I32′; [AR §5d.3] row 3 | Under `--release`, every live lease on the deleted set is released, with a triage note attached to the tombstone. |
 | DS-008 | 8 | hold | design | [AR §4.5] step 4; [RULES/state-definition OR-003] | The commit is the origin of the `deleted` hold of every deleted node on its branch; the marker cache writes `deleted` records ([RULES/state-definition ME-001]). |
@@ -224,7 +224,7 @@ Checked in this order before anything is written; the first failure refuses the 
 | FL-003 | has-dangling | design | [AR §3.5]; [AR §3.4] I39′ | `has_dangling(n)` holds when n has at least one flagged in-edge. |
 | FL-004 | only-exception | design | [AR §3.4] I2; [AR §5d.3] "Engine-level guarantee" | At every branch head a flagged `blocks` or `gates` edge is the only structural edge with a dead endpoint. |
 | FL-005 | resolve-repoint | design | [AR §7.1] `resolve KEY --take repoint:ID`; [AR §5d.3] | `resolve 'edge:#A:blocks:#B' --take repoint:Y` replaces the flagged edge by `Y → B` without the flag; I5′ is checked. |
-| FL-006 | resolve-drop | proposed | [AR §7.1] `resolve`; [AR §13] `drop-notify`; [OP-11] | Resolving the flagged edge without a replacement removes it, and B loses one open blocker. `unlink` or `DELETE e` of the flagged edge has the same effect. |
+| FL-006 | resolve-drop | proposed | [AR §7.1] `resolve`; [AR §13] `drop-notify`; [F12 §6.5]; [OP-11] | Resolving the flagged edge with `drop` removes it, and B loses one open blocker: `RESOLVE '<k>' DROP`, `resolve <k> --take drop`, API `resolve` with `drop: true` ([F12 §6.5], [F06 §7.7] `choice` 5). `unlink` and `DELETE e` do not reach it: [API §9.1] keeps `not_found` for an edge whose endpoint is a tombstone (spec sync 2b). |
 | FL-007 | who | design | [50 §6.5] "`RESOLVE` … orchestrator/owner only"; [AR §7.3] | Resolving or removing a flagged edge is the orchestrator's or the owner's. |
 | FL-008 | image | design | [AR §5b.2] rule 8; [AR §3.4] I39′ | The tombstone file keeps `edge blocks -> <uid> flagged` or `edge gates -> <uid> flagged`; the importer re-creates the edge and sets `has_dangling` on its target. |
 | FL-009 | undelete | derived | [AR §5a.5]; [AR §5d.3] `revert` row | `Undelete` of the dead source clears the flag: the edge is an ordinary edge again. |
@@ -250,7 +250,7 @@ op; the tombstone keeps only the rows marked `yes`.
 | TB-009 | flagged-out-edges | yes | design | [AR §3.4] I39′; [AR §5b.2] rule 8 | - |
 | TB-010 | historical-out-edges | yes | design | [AR §3.4] I39′; [AR §5b.2] rule 8 | `at` edges with their anchors included. |
 | TB-011 | other-structural-out-edges | no | design | [AR §3.3]; [AR §3.4] I2 | Dropped or re-pointed by the matrix. |
-| TB-012 | fields | no | design | [AR §5b.2] rule 8 "Nothing else — no other fields, no body" | The status and every kind field included. |
+| TB-012 | fields | no | design | [AR §5b.2] rule 8 "Nothing else — no other fields, no body"; [F08 §3.5]; [F07 §6.4]; [API §15.3] | Every kind field. The status, the resolution and the header enumerations are not carried either: [F08 §3.5] keeps them in the tombstone's node row for rendering only, the canonical form ([F07 §6.4]) and the tombstone file hold none of them, and `content` shows the kind's initial status and resolution and the enumerations' defaults ([API §15.3]), so a tombstone's `content` survives an image round trip (spec sync 2b). |
 | TB-013 | body | no | design | [AR §5b.2] rule 8 | - |
 | TB-014 | lifetime | yes | design | [AR §5b.1] "Tombstones are files and stay forever"; [AR §5b.6] `TombstoneRemoved` | A tombstone is never removed by the store; an image that loses one reports `TombstoneRemoved` on import. |
 | TB-015 | rendering | yes | design | [AR §3.3] `mentions`; [50 §3.6] N01; [90 §8.1] L5 | Every reference renders `#40 (deleted c812 by dev#2: "dup of #52" -> #52)`, in ASCII. |
@@ -288,7 +288,7 @@ names the rule rows that realise the case.
 | XB-003 | merge-modified | MR-042, EP-001, RS-008 | design | [AR §5d.3] row 1 "`main` modified #40 → `DeleteVsModify` conflict value" | The provisional state follows the kind's existence policy (tasks: delete-wins). |
 | XB-004 | merge-new-structural-edge | VA-004 | design | [AR §5d.3] row 1 "`main` added a structural edge to #40 → `DanglingEdge`" | Staged; the suggested resolution is the edge's `edge-policy` action or `repoint:<replaced_by>`. |
 | XB-005 | merge-new-historical-edge | MR-048, MR-049, EG-035 | design | [AR §5d.3] row 1 "historical edges become tombstone refs, their sources `suspect`" | The new edge lands as a tombstone reference; its source is `suspect` where its `edge-policy` row says so. |
-| XB-006 | both-deleted | MR-041, MR-046 | design | [RULES/merge-table] | - |
+| XB-006 | both-deleted | MR-041, MR-046, MR-051 | design | [RULES/merge-table]; [F12 §6.5]; [AR §2.5] X4 | Both sides deleted the node: with equal reason, replacement and policy effects every key is equal and the merge is clean (MR-041); with a different reason or replacement the node takes dst's (MR-046). When the two deletes treated a `blocks` or `gates` out-edge differently (one re-pointed or dropped it, the other flagged it), the tombstone's edge key holds a `FieldEdit` (MR-051): the two disagree about what keeps the dependent blocked, so neither effect is taken silently (X4). A merge into `main` whose step-0 sync lands it is refused (PR-003) until the key is resolved on the lane ([F12 §6.5]: `--take`, `repoint` or `drop`); GT10 case `c16b` (spec sync 2b). |
 | XB-007 | derived-uid-recreated | LM-007, RK-003, RK-010 | design | [40 §5.5]; [40 §2.10] I-F14 | A file node created on one side while the other removed or deleted that uid is re-keyed, never resurrected. |
 | XB-008 | branch-deleted-unmerged | ME-005, SN-008 | design | [AR §5a.9]; [AR §5d.3] row 4 | `branch -D` keeps the hold active while a live ref still holds the deletion, and clears it otherwise, with a triage line. |
 | XB-009 | image-file-removed | VA-004 | design | [AR §5d.3] row 5; [AR §5b.6] step 2 | Import writes a foreign `Delete{image:file-removed}` on the imported ref; a structural edge left dangling stages the import on `import/<ref>`. |
@@ -326,8 +326,10 @@ rows have their defaults (`flag`) unless a case says otherwise. No lease exists 
 | NG-006 | #77 | mentions | #40 | - | - |
 
 **Cases.** `ref` is where the action runs; `after` is the state it starts from (`c0`, or the state a named case left;
-`c0/drop-notify` is `c0` with `edges.blocks.on-src-deleted = drop-notify` on `main`; `c0/lease-L-19` is `c0` with a live
-lease `L-19` on #40 held by `dev#2` on `lane/y`). Actions are written `verb:arg:arg`: `rm:<id>` with options
+`c0/drop-notify` is `c0` with `edges.blocks.on-src-deleted = drop-notify` on `main`; `c0/lease-L-19` is `c0` after
+`lane/y` moved #41 under #9 and removed `#203 -blocks-> #40` (keys of #41 and #203; #40 unmodified), and `dev#2` claimed
+#40 on `lane/y`, which gave the live lease `L-19`: at `c0` itself #40 is a container with an open blocker, so no claim
+can lease it (PD-005, PD-006, PD-017; spec sync 2b). Actions are written `verb:arg:arg`: `rm:<id>` with options
 `replaced-by=<id>`, `reparent`, `cascade`, `release`; `resolve:<key>:drop` or `resolve:<key>:repoint=<id>`;
 `merge:<src>` into the case's ref; `set:<id>:<field>=<value>`; `add:<id>:blocks=<id>` (a new task that blocks);
 `branch:<name>:from=<ref>`; `branch-D:<name>`; `revert:<case>` (the commit that case wrote); `import:file-removed=<id>`
@@ -350,7 +352,7 @@ lease `L-19` on #40 held by `dev#2` on `lane/y`). Actions are written `verb:arg:
 | NC-012 | C7b | main | C7a | merge:lane/x | design | [AR §5d.3] row 1 "`main` modified #40 → `DeleteVsModify`"; [AR §5a.7] step 0 | The sync of step 0 (`main` into `lane/x`) lands the conflict on `lane/x`; the merge into `main` is refused ([RULES/merge-table PR-003]). |
 | NC-013 | C8a | main | C5 | add:205:blocks=40 | design | [AR §5d.3] row 1; [AR §7.1] merge example | `main` adds a structural edge to #40. |
 | NC-014 | C8b | main | C8a | merge:lane/x | design | [AR §5d.3] row 1 "`DanglingEdge` violation, raised by the sync of step 0 … so the whole merge stages"; [AR §7.1] | - |
-| NC-015 | C9 | lane/x | c0/lease-L-19 | rm:40:replaced-by=52:reparent | design | [AR §5d.3] row 3 | Refused under the lease. |
+| NC-015 | C9 | lane/x | c0/lease-L-19 | rm:40:replaced-by=52:reparent | design | [AR §5d.3] row 3 | Refused under the lease. `c0/lease-L-19` is `c0` after `lane/y` moved #41 under #9 and removed `#203 -blocks-> #40` (keys of #41 and #203; #40 unmodified), and `dev#2` claimed #40 on `lane/y`; `lane/x` still holds `c0` (spec sync 2b). |
 | NC-016 | C9r | lane/x | c0/lease-L-19 | rm:40:replaced-by=52:reparent:release | design | [AR §5d.3] row 3 "`--release` releases the lease with a triage note … and proceeds" | - |
 | NC-017 | C10 | lane/x | C5 | branch-D:lane/x | design | [AR §5d.3] row 4; [AR §5a.9] | No live ref holds the deletion afterwards. |
 | NC-018 | C10f-a | lane/z | C5 | branch:lane/z:from=lane/x | design | [AR §5d.3] row 4 "a live branch forked from it after the deleting commit still carries it" | - |
@@ -479,11 +481,15 @@ These tables specify semantics, not bytes. The byte layouts are [F06]'s (`Delete
 (`TOMB`), [F14]'s (tombstone `.moi` lines), and [F19 §10.5]'s and [LQ/errors §5.5]'s (E305, E405, E406, and E409 with
 its root-node, lease, restricted-reference and replacement cases).
 
+Model functions are named as `COVERAGE.md` names them (`xtask coverage` resolves them so): the module of the source
+file in `crates/moirai-model/src/`, then the function (spec sync 2b).
+
 | Checklist row | Covered by | Fixture | Model function |
 |---|---|---|---|
-| [60 §2.5] "Schema as data": edges (class, **policy**, acyclicity, cardinality), the policy part | `edge-policy`, the vocabularies, DP-008, DP-009 | WP-94 suite `delete-policy`; GT10 node-40 (WP-22) | `model::delete::edge_policy` |
-| [AR §3.4] I2, I3, I32′, I39′ | FL-004, EA-006, DP-005, TB-009, TB-010 | WP-94; GT10 node-40 | `model::delete::apply` || GT10 node-40 table on one branch and across branches ([60 §3.13]) | `n40-nodes`, `n40-edges`, `n40-cases`, `n40-expect` | WP-22 `fixtures/gt10/` (owner-verified core set) | `model::delete::apply`, `model::i26::excluded` |
-| [40 §2.11] R-12: I-F14 (only `Undelete` and `links fix --restore` bring a dead derived uid back), delete part | UD-007, XB-007 | WP-94 | `model::delete::undelete` |
+| [60 §2.5] "Schema as data": edges (class, **policy**, acyclicity, cardinality), the policy part | `edge-policy`, the vocabularies, DP-008, DP-009 | WP-94 suite `delete-policy`; GT10 node-40 (WP-22) | `delete::edge_policy`, `delete::plan` |
+| [AR §3.4] I2, I3, I32′, I39′ | FL-004, EA-006, DP-005, TB-009, TB-010 | WP-94; GT10 node-40 | `delete::plan`, `delete::apply`, `lease::i32p_rm_refused_under_lease` |
+| GT10 node-40 table on one branch and across branches ([60 §3.13]) | `n40-nodes`, `n40-edges`, `n40-cases`, `n40-expect` | WP-22 `fixtures/gt10/` (owner-verified core set) | `delete::apply`, `coord::i26p_excluded` |
+| [40 §2.11] R-12: I-F14 (only `Undelete` and `links fix --restore` bring a dead derived uid back), delete part | UD-007, XB-007 | WP-94 | `history::pick_cmd` |
 
 No F-row, X-F row or [90 §10.1] item concerns delete policies.
 
@@ -537,8 +543,11 @@ value changes only whether `affected` is complete (DS-010).
     recompute `suspect`" and "transitive closure" contradicted that text and were replaced in pass 1 round 2. The
     owner signed the reading on 2026-09-28 (OQ-P-1, option (a)); WP-81a edits [AR §2.5].
 11. **Resolving a flagged edge without a replacement** (FL-006, NC-005). [AR §7.1] shows `resolve 'edge:#40:blocks:#12'`
-    and the option `repoint:ID`, but no spelling for "drop the flagged edge". Proposed: the drop outcome exists and is
-    also reached by `unlink`/`DELETE e`; WP-18 and WP-19 fix the `resolve` spelling.
+    and the option `repoint:ID`, but no spelling for "drop the flagged edge". Proposed: the drop outcome exists.
+    **Spelled in spec sync 2b** (GT10 finding F-1): [F12 §6.5] makes a flagged edge on a work or plan branch a
+    resolvable key, `repoint` replacing it and `drop` removing it (`RESOLVE '<k>' DROP`, `--take drop`, `drop: true`;
+    [F06 §7.7] `choice` 5). `unlink` and `DELETE e` do not reach it, because [API §9.1] keeps `not_found` for an edge
+    with a tombstone endpoint, so FL-006 no longer names them.
 12. **File name and registry.** This file is named as its commissioning task names it, `delete-policy-matrix.md`.
     [RULES/README] §1.1 and the specification index now list it under that name, and its tables are registered in
     [RULES/README] §7 (RG-096 to RG-111, review pass 1 S1-47) with the columns below:

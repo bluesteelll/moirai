@@ -1,0 +1,14 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture query/no-shape.moi
+%% file query
+%% source [F14 §7.2]
+%% source [LQ/std §2.3]
+%% source [LQ/std §2.4]
+%% note A query without SHAPE and without BUDGET: the stored words are `table` and `medium`, so the file writes
+%% note `shape: table` and `budget: medium` ([F14 §7.2.2]; spec sync 2b, S2B-R-18).
+%% note In a tree the file is schema/queries/645a05c3fa347db86d1616f01e3b25d0.moi.
+%% canonical self
+%% query
+schema query open_notes lq=1 params="" shape="table" budget="medium" text="DEFINE QUERY open_notes() AS {\n  // no SHAPE: table; no BUDGET: medium\n  MATCH (n:note)\n  WHERE n.status = 'active'\n  RETURN n\n}"
+%% end

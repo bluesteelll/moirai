@@ -64,10 +64,12 @@ impl Dag {
             .collect()
     }
 
-    /// The Kleppmann steps of one side since the base (RS-007 as the WP-91 review's spec finding S1b states it;
-    /// [F12 §7.4]; VM-7): one per commit of `side` \ `base` whose net changeset against its first parent (the full
-    /// state diff for a `sync`) has a hierarchy entry, each entry with its value in that commit's state, ascending by
-    /// the commit's (hlc, id).
+    /// The Kleppmann steps of one side since the base (RS-007; [F12 §7.4] row "Kleppmann steps"; [F12 §5.3] VM-7): one
+    /// per commit of A(side) \ A(B) whose canonical net changeset against its first parent has a hierarchy entry — for a
+    /// `sync`, which stores the full state diff against its first parent ([AR §4.6]), that diff — each entry with its
+    /// value in that commit's state, ascending by the commit's (hlc, id). A two-parent commit is a step for the entries of
+    /// that first-parent changeset only (open point 35 of [RULES/merge-table] is recorded, not adopted, spec sync 2b
+    /// S2B-M-2).
     pub fn move_steps(&self, side: &BTreeSet<u64>, base: &BTreeSet<u64>) -> Vec<Step> {
         let mut v: Vec<Step> = side
             .difference(base)

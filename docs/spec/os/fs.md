@@ -498,6 +498,11 @@ parents** ([80 §2.3.2], X-F5), or one `sync_group` on macOS.
   [80 §2.11.1] is a `ProjectFs` behaviour for project files, whose "both names, one inode" crash state `FsIntent`
   recovery handles ([40 §3.4]).
 - `rename_replace` never targets a sealed (read-only) file; on Windows that would fail with error 5.
+- **A directory source of `rename_replace` is a caller defect.** No protocol point asks for it ([F15 §5.5] lists the
+  uses, all files). An implementation need not check the source's kind: `moirai-os` issues the call unchanged, so the OS
+  may rename the directory or fail. The simulator refuses it with `AccessDenied` and changes nothing, so a defective
+  caller fails a gate. Where an implementation does refuse, the kind is `AccessDenied`. No caller may rely on either
+  outcome.
 - Errors 5 and 32 are retried per `retry` (§6.3). `EXDEV` or error 17 is `CrossDevice`.
 - Windows renames take path strings; the protocol issues store renames only under the writer or maintenance byte and
   after the `retired` check, which excludes a concurrent `restore` swap (§2.2; [F16]).
@@ -537,6 +542,12 @@ Let `A` = `a_parent/a`, `B` = `b_parent/b`, `T` = `a_parent/<a>.swap-old`, and t
 5. Directory rename `B → A`; `sync_dir(b_parent)`, and `sync_dir(a_parent)` if it is another directory.
 6. Directory rename `T → B`; `sync_dir(a_parent)`, and `sync_dir(b_parent)` if it is another directory.
 7. `unlink(I)`; `sync_dir(a_parent)`. Result `TwoRenames`.
+
+Whether `b_parent` is "another directory" than `a_parent` (steps 5 and 6, and the renames of §4.9.4) is decided by the
+exact bytes of the two paths or by the two directories' identities (`root_identity`, §4.10), never by a case-folded
+comparison: under per-directory case sensitivity two spellings that differ only in case are two directories, and
+flushing only one would leave the other rename pending ([F15] FM-2.3). Flushing one directory twice under two spellings
+is harmless.
 
 Directory renames use the no-replace calls of §4.8 (on Windows `MoveFileExW` with `MOVEFILE_WRITE_THROUGH` and without
 `REPLACE_EXISTING`, which fails on directories anyway). On Windows a directory rename fails with error 5 or 32 while any
@@ -580,16 +591,23 @@ recovery refuses rather than guesses (open point 7).
 step 4). Store discovery never runs it: a lock-free reader cannot tell a crashed swap from a running one, so discovery
 only probes and retries as [F16] P-86 and [F02 §3.2] state (pass 1, P1-13, S1-26, A1-18). It reads `I`
 (none → `NoIntent`), then the identities of the three paths (`NotFound` = absent) and acts by this table; every rename is
-followed by `sync_dir` of the parents involved, and removing `I` by `sync_dir(a_parent)`:
+followed by `sync_dir` of the parents involved (one directory or two, decided as in §4.9.2), and removing `I` by
+`sync_dir(a_parent)`:
 
 | `A` | `B` | `T` | State | Action | Result |
 |---|---|---|---|---|---|
-| present | present | absent | `I` unreadable (§4.9.3): its write in step 3 never completed (a crash, or a failed flush), so nothing was renamed, since step 4 starts only after `I` is durable | remove `I` | `NothingDone` |
+| present | (not checked) | absent | `I` unreadable (§4.9.3): its write in step 3 never completed (a crash, or a failed flush), so nothing was renamed, since step 4 starts only after `I` is durable. `B` is named only inside the unreadable intent, so it cannot be checked | remove `I` | `NothingDone` |
 | `a_id` | `b_id` | absent | nothing renamed | remove `I` | `NothingDone` |
 | absent | `b_id` | `a_id` | after step 4 | rename `T → A`; remove `I` | `RolledBack` |
 | `b_id` | absent | `a_id` | after step 5 | rename `T → B`; remove `I` | `Completed` |
 | `b_id` | `a_id` | absent | after step 6 | remove `I` | `Completed` |
-| anything else, or `I` unreadable with `A` or `B` absent or `T` present | | | unknown | change nothing; fail `Io` ("swap state unrecognised", or "swap intent unreadable"), exit 7 with the three paths | — |
+| anything else, or `I` unreadable with `A` absent or `T` present | | | unknown | change nothing; fail `Io` ("swap state unrecognised", or "swap intent unreadable"), exit 7 with the three paths | — |
+
+**Accepted limit (FM-10).** The row "`I` unreadable" cannot tell a pre-rename state from an intent that an external
+actor corrupted after step 6 (`A` and `B` present, `T` absent): such an intent is removed with result `NothingDone`
+instead of `Completed`, although the directories are already exchanged (`A` holds what `B` held, and the old store at
+`B` has no `HEAD.retired` yet). Both implementations behave so; an external rewrite of a store-adjacent file is covered
+for detection only ([F15] FM-10, crash gates), and here nothing detects it.
 
 After `Completed` the caller runs the remaining `restore` steps (the old store, now at `B`, gets `HEAD.retired`, [AR §4.10],
 [F16]); after `RolledBack` the restore did not happen and `B` holds the restored copy intact.
@@ -874,4 +892,4 @@ Referenced, owned elsewhere: `store.log-extent-bytes` (init-fixed, [F17]; the ex
 | 12 | Hole punching (`recycle_extent` on btrfs and APFS) needs a block-aligned length | [F17] keeps `store.log-extent-bytes` a multiple of 64 KiB in production and in the test profile (64 MiB and 64 KiB today, [60 §2.5]) | WP-16 (F17) |
 | 14 | One `RelPath` type for store and project paths ([OS/path] open point 1) | the type and its grammar are [OS/path §2.1]'s; this file adds only use-time checks (§2.1) and resolves every Unix store open beneath the root without following links (§5.2), as [OS/path §6] does for project paths | WP-17b, WP-30 |
 | 13 | The sealed-file order of §4.4.6 puts a temporary-name rename before `seal` | [80 §2.3.2] orders write, `durable+meta`, `seal`, `durable-name` and allows a rename followed by `durable-name`; renaming before `seal` keeps every rename on a writable file, and the file is not yet "sealed" in [80 §2.5]'s sense until a durable record names it | WP-16 |
-| 15 | Spec sync 2a (WP-31, WP-33): a `durable-name` flush embedded in `create_root` or `swap_dirs` returned `VfsError` and could never reach `fail_stop`; a crash inside §4.9.2 step 3 could leave an unreadable `<a>.swap` that `swap_recover` refused forever; §4.8 allowed files only although §4.9.2 renames directories | **closed:** option (a): an embedded flush failure removes `create_root`'s new directory and returns the new kind `FlushFailed` (exit 7, no retry, no further writes; §4.1, §6.1, §6.2), and `swap_dirs`/`swap_recover` return it with their intent kept; §4.9.4 removes an unreadable intent when `A` and `B` are present and `T` is absent (`NothingDone`), which is sound because step 4 starts only after `I` is durable; §4.8 lets `rename_noreplace` move a directory, never into its own subtree, and keeps `rename_replace` for files ([F15 §5.4]) | — |
+| 15 | Spec sync 2a (WP-31, WP-33): a `durable-name` flush embedded in `create_root` or `swap_dirs` returned `VfsError` and could never reach `fail_stop`; a crash inside §4.9.2 step 3 could leave an unreadable `<a>.swap` that `swap_recover` refused forever; §4.8 allowed files only although §4.9.2 renames directories | **closed:** option (a): an embedded flush failure removes `create_root`'s new directory and returns the new kind `FlushFailed` (exit 7, no retry, no further writes; §4.1, §6.1, §6.2), and `swap_dirs`/`swap_recover` return it with their intent kept; §4.9.4 removes an unreadable intent when `A` is present and `T` is absent (`NothingDone`; spec sync 2b: `B` is named only inside the unreadable intent and is not checked), which is sound because step 4 starts only after `I` is durable; an intent an external actor corrupted after step 6 is then reported as `NothingDone` instead of `Completed`, an accepted limit under FM-10 (§4.9.4); §4.8 lets `rename_noreplace` move a directory, never into its own subtree, and keeps `rename_replace` for files ([F15 §5.4]) | — |

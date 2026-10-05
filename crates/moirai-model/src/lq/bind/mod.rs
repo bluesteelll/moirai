@@ -96,13 +96,15 @@ pub enum LintKind {
 
 impl Lint {
     /// The first line of the text without its `Wnn: ` prefix ([LQ/errors §5.6]); `n` is the executor's count where
-    /// the text carries one (W01, W10).
+    /// the text carries one (W01, W10). A name in prose is back-quoted ([LQ/errors §2.2]); a name inside embedded LQ
+    /// text renders as LQ source ([LQ/errors §2.2a], spec sync 2b S2B-F-42).
     pub fn message(&self, n: Option<u64>) -> String {
         let n = n.map_or_else(|| "<n>".to_string(), |n| n.to_string());
         match &self.kind {
             LintKind::W01 { field, expr } => {
                 format!(
-                    "{n} rows excluded because {field} is absent; use coalesce({expr}, 0) or {expr} IS NULL"
+                    "{n} rows excluded because {} is absent; use coalesce({expr}, 0) or {expr} IS NULL",
+                    q(field)
                 )
             }
             LintKind::W02 { mode } => {
@@ -110,12 +112,18 @@ impl Lint {
                     "{mode} changes nothing: fixed parts bind distinct edges and quantified parts bind endpoint pairs"
                 )
             }
-            LintKind::W07 { var } => format!(
-                "hand-derived readiness misses inherited and flagged blockers, markers, leases, defer_until and containers; use {var}.unblocked (structural) or {var}.ready (dispatchable now)"
-            ),
-            LintKind::W10 { var, op } => format!(
-                "{n} rows passed {op} because link_state({var}) is 'none' (no AT edge); to keep linked nodes only, add EXISTS {{ ({var})-[:AT]->() }}"
-            ),
+            LintKind::W07 { var } => {
+                let var = printer::var(var);
+                format!(
+                    "hand-derived readiness misses inherited and flagged blockers, markers, leases, defer_until and containers; use {var}.unblocked (structural) or {var}.ready (dispatchable now)"
+                )
+            }
+            LintKind::W10 { var, op } => {
+                let var = printer::var(var);
+                format!(
+                    "{n} rows passed {op} because link_state({var}) is 'none' (no AT edge); to keep linked nodes only, add EXISTS {{ ({var})-[:AT]->() }}"
+                )
+            }
             LintKind::N08 { agg, x, y } => format!(
                 "{agg} over a quantified pattern counts ({x}, {y}) endpoint pairs, not paths"
             ),
@@ -431,7 +439,26 @@ impl<'a> Binder<'a> {
         let (first, columns) = self.part(&qy.parts[0]);
         let mut rest = Vec::new();
         for (op, part) in qy.ops.iter().zip(&qy.parts[1..]) {
-            let (p, _) = self.part(part);
+            let (p, cols) = self.part(part);
+            // V12 ([LQ/canonical-ast §5.7]; [LQ/errors §5.2]; spec sync 2b): the parts return equal column counts,
+            // matched by position; the query takes the first part's names.
+            if cols.len() != columns.len() {
+                let written = match op {
+                    SetOp::Union => "UNION",
+                    SetOp::UnionAll => "UNION ALL",
+                    SetOp::Except => "EXCEPT",
+                    SetOp::Intersect => "INTERSECT",
+                };
+                self.err(Diag::new(
+                    Code::E001,
+                    part.span,
+                    format!(
+                        "{written} parts return {} and {} columns",
+                        columns.len(),
+                        cols.len()
+                    ),
+                ));
+            }
             let code = match op {
                 SetOp::Union => 1,
                 SetOp::UnionAll => 2,

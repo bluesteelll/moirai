@@ -7,7 +7,7 @@
 | Acceptance | E3: WP-95's format oracle decodes every `.bin` here and re-encodes it byte-identically, compressed payloads opaque ([PLAN §6.2] R3); WP-20b replaces the files that depend on a filled hole (§4) |
 | Separation | S1 ([PLAN §3.1]): written from the specification text only. The author read no line of `moirai-format-oracle`, `moirai-model`, `moirai-toylog` or any product crate. The only project code run was `cargo xtask hex`, the generic assembler (R-HARN's; it knows no structure). Throw-away scripts that implement only what the chapters say wrote the `.hex` text and a byte model of each file; their BLAKE3 was checked against the canonical fixtures' derivations and their XXH3 against the assembler's directives on random inputs, and every assembled `.bin` was compared with the model byte for byte, hash outputs included. Candidate-codec payloads were decoded back with `lz4_flex` 0.14.0 and `ruzstd` 0.9.0, the pure-Rust decoders of [90 §11.2] (§3.10) |
 | Sources | [F01]–[F11], [F17], [F18 §3], [F19 §12], [F20 §2.6–§2.8], [OS/clock §3], [OS/proc §4–§5] (normative for every byte here); [60 §2.5] and `docs/spec/COVERAGE.md` for §5; `docs/spec/HOLES.md` for §4 |
-| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28) and the spec sync of wave 2b (`docs/spec/reviews/spec-sync-2a.md`). A specification change that moves a byte updates the files it touches (commit subject `WP-20:`, `WP-20b:` or `WP-73:`) |
+| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28) and spec sync 2a (`docs/spec/reviews/spec-sync-2a.md`); updated for spec sync 2b (`docs/spec/reviews/spec-sync-2b.md`): store A's promoted-field sections and `IDEM` results (S2B-R-1, S2B-R-6), g44 (S2B-P-24), §2's commit ids (S2B-F-14), the frames appended to `fragments/ops/variants.hex` (a `Resolve` with `choice` 5 `drop`, `Schema` ops of the item classes 1–4 and 6; S2B-F-10, S2B-F-13, S2B-F-21), the class-6 item appended to `fragments/schema/items.hex` (S2B-F-21), and §3.9, §5.1 and §6 with them (bit 18 `stage` stays uncovered, S2B-F-1). A specification change that moves a byte updates the files it touches (commit subject `WP-20:`, `WP-20b:` or `WP-73:`) |
 
 The consumers are the format oracle (WP-95, WP-95b) and, from M1, the product codec, whose author is neither R-FIX nor
 R-ORA (S1). Every value is synthetic: no owner data, no real paths, users, hosts, machine ids or boot ids.
@@ -53,7 +53,7 @@ R-ORA (S1). Every value is synthetic: no owner data, no real paths, users, hosts
 | Name | Value | Where |
 |---|---|---|
 | Wall time | `MS0` = 1,790,000,000,000 ms (2026-09-21T14:13:20Z, the `unix_ms` of [F01 §5.7]'s example); `hlc` values are `(ms << 16) \| counter` with ms = `MS0` + a few seconds per event | every `hlc`, `append_hlc`, `Stamp.wall` |
-| Commit ids | `BLAKE3-256("moirai-fixture-commit:" ‖ label)`, label `A/c1` … `A/c18`, `B/b1` … `B/b7`, `C/c1`, `D/c1`, `E/c1` … `E/c3`, `U/c1`; not the canonical form of any commit (the canonical commit-id fixtures are `canonical/`) | commit records, parents, `ref_old`, `REFS.tip`, markers, `HCIDX`, `gitmap` |
+| Commit ids | `BLAKE3-256("moirai-fixture-commit:" ‖ label)`, label `A/c1` … `A/c18`, `B/b1` … `B/b7`, `C/c1`, `D/c1`, `E/c1` … `E/c3`, `U/c1`; not the canonical form of any commit (the canonical commit-id fixtures are `canonical/`). Commit-id and changeset-digest correctness are C-rules ([F06 §4.3] orders 2 and 38, [F07 §12] intro; spec sync 2b S2B-F-14): a decoder never recomputes them, so records with these synthetic ids are valid | commit records, parents, `ref_old`, `REFS.tip`, markers, `HCIDX`, `gitmap` |
 | Changeset digests | `BLAKE3-256("moirai-fixture-commit:" ‖ label ‖ "/changeset")`: synthetic, like the ids | `changeset_digest` |
 | Other 16-byte ids | `BLAKE3-128("moirai-fixture:" ‖ label)`: `values/U` (the uid U of [F08 §5.6]), `anchors/src`, `vol-C`, idempotency keys, statement hashes | fragments, runtime rows |
 | Other 32-byte ids | `values/C`, `values/C2`, `values/D256` (C, C2 and D256 of [F08 §5.6]) as commit ids above | fragments |
@@ -72,7 +72,7 @@ R-ORA (S1). Every value is synthetic: no owner data, no real paths, users, hosts
 A Windows store with a SHA-1 project root (`project_oid_algo` 1), E = 65,536. `log.1.hex` is its first extent: 52
 groups from the epoch-start group at lsn 0 to the end of the valid log at label `end`, then zeros to the end of the
 extent ([F05 §2.4]). It holds every record kind but 12 `Noop` (store B) and 21 `JournalCursor` (store J), every commit
-kind and import provenance, every presence bit but `pruned` (store B), every `stmt_origin` and `actor_src` value, and
+kind and import provenance, every presence bit but `pruned` (store B) and `stage` (§6), every `stmt_origin` and `actor_src` value, and
 every op tag.
 
 | Group | lsn | Class | Content |
@@ -120,7 +120,7 @@ every op tag.
 | g41 | 16022 | durable | `ClientHead` op 2 removes the lane binding |
 | g42 | 16088 | durable | role lease L-2 (lkind 2, `session_role`, anchor `session-ttl`) |
 | g43 | 16277 | durable | `Lease` event 4: renew L-2 |
-| g44 | 16394 | durable | `Lease` event 2: L-2 released as dead (reason 4) |
+| g44 | 16394 | durable | `Lease` event 2: L-2 released (reason 1 `release`): a role lease never ends with reason 4, which only the next claim of a task writes ([F05 §9.4] field 18; spec sync 2b S2B-P-24) |
 | g45 | 16453 | durable | claim #11 on lane/l5np (L-3, anchor `session-ttl`); it stays live |
 | g46 | 16660 | durable | the delta checkpoint seg.d7 over [ck1, ck2), per-ref lists of main and import/1; `next_id − 1` = 16 reaches `store.fts.tier2-nodes` (16), so the record carries `fts_tier2` and seg.d7 is the first tier-2 segment ([F17 §6.4]) |
 | g47 | 16823 | lazy | a settle's `TreeReg` records (register, full-tree and lane-owned epochs, dirty row, forget) |
@@ -134,12 +134,12 @@ Sealed files:
 
 | File | Kind | Holds |
 |---|---|---|
-| `seg.d1.hex` | `seg-delta` | the first delta, written at g22: rows #1–#12 (no base below: every row touched, every set a plus list), `SCHEMA` (the named query), `FPROMO`/`FCOL`/`FIDX`, `BM` ± lists, `SYMTAB`, and every store-level section as of its bound |
-| `seg.b1.5.hex` | `seg-branch` | lane/l5np promoted over the pinned set {seg.d1}: rows #1, #6, #11, #12, ± lists against the pin, `TOUCH` = `IDS`, no store-level section |
+| `seg.d1.hex` | `seg-delta` | the first delta, written at g22: rows #1–#12 (no base below: every row touched, every set a plus list), `SCHEMA` (the named query), `FPROMO`/`FCOL`/`FIDX`, `BM` ± lists, `SYMTAB`, and every store-level section as of its bound. Every `FPROMO` row implies its `FCOL`, so `FCOL.assignee` (0x4002) is present with every absent bit set; there is no `FIDX.assignee`, since an upper segment carries an `FIDX` only for a changed value set ([F09 §10.1]). The two used `IDEM` entries without `result_inline` hold `result` (0, 0), outside the heap order ([F11 §2.3], §8). Both as spec sync 2b states them (S2B-R-1, S2B-R-6) |
+| `seg.b1.5.hex` | `seg-branch` | lane/l5np promoted over the pinned set {seg.d1}: rows #1, #6, #11, #12, ± lists against the pin, `TOUCH` = `IDS`, no store-level section. `FCOL` slots 1–9, every one its `FPROMO` rows imply (slot 0 `labels` is a set with a bitmap index); slots 2–8 (`assignee`, `metric`, `local_id`, `severity`, `f_kind`, `round`, `outcome`) have every absent bit set, since no touched row holds those fields at c10 (#6 is deleted there); `FIDX.metric` is the one changed value set (#6 leaves it) ([F09 §10.1]–§10.3; spec sync 2b S2B-R-6) |
 | `cs.6.hex` | `cs` | c14's changeset: rows #13 and #14 as created (append-time values fixed), a conflict value, the project kind in `SCHEMA`, `PREV`, a `Violation` op in `VIOLATIONS`, `CKIMG` |
 | `seg.d7.hex` | `seg-delta` | [ck1, ck2): rows #5, #7, #16; the five derived-optional caches absent; full-text tier 2 for its touched rows (§4) |
 | `seg.d8.hex` | `seg-delta` | the runtime-only fold: empty graph window, runtime-window sections up to `rt_upto_lsn`, all five derived-optional caches present; tier-2 sections present and empty, `FTSSTAT` repeating the view's statistics; an `IDEM` table with no entry, which still has capacity 16: 16 empty slots, `n_rows` = `SecEnt.count` = 16, `aux` 0 ([F11 §2.1], §8) |
-| `seg.base.10.hex` | `seg-base` | the rollup: main at ck2, rows #1–#16 (#13–#15 absent), frozen bitsets, `STATS`, `SCHEMA`, `SYMTAB`, every store-level table, full-text tier 2 over the whole view: 48 terms in three front-coded blocks, postings in title, abstract and body |
+| `seg.base.10.hex` | `seg-base` | the rollup: main at ck2, rows #1–#16 (#13–#15 absent), frozen bitsets, `STATS`, `SCHEMA`, `SYMTAB`, every store-level table, full-text tier 2 over the whole view: 48 terms in three front-coded blocks, postings in title, abstract and body. Exactly the `FCOL` and `FIDX` set its `FPROMO` rows imply: `FCOL.assignee` (0x4002) with every absent bit set and `FIDX.assignee` (0x5002) as its 16-byte header with `n_values` 0, since no row holds `assignee` ([F09 §10.1]–§10.3). The two used `IDEM` entries without `result_inline` hold `result` (0, 0) ([F11 §2.3], §8). Both as spec sync 2b states them (S2B-R-1, S2B-R-6) |
 | `blobs.2.hex` | `blobs` | the three bodies g22 sealed (class 1, codec 0) |
 | `blobs.9.hex` | `blobs` | the fingerprint blob (class 2, codec 0) of the runtime-only fold, named by `FPRINT` |
 | `gitmap.3.hex`, `gitmap.4.hex` | `gitmap` | the pages of destination 1 (SHA-1, 36-byte entries) and destination 2 (SHA-256, 48-byte entries) |
@@ -240,8 +240,8 @@ Structures that no store file holds in every form. Each is decoded as a sequence
 | `values/field-block.hex` | a field block with one entry of every type, and [F08 §6.2]'s example block |
 | `values/cv.hex` | the canonical `cv` of each value ([F07 §7.1]) |
 | `anchors/records.hex` | anchor records the stores do not hold: `heading` and `symbol` with Markdown and Rust scopes ([F08 §10.3.1], as an import keeps them), hash-only `quote` and `range` (`end_h`), `pred` with `occurrence`, a planned `file` anchor (blob `none`) |
-| `schema/items.hex` | schema item records of every class ([F08 §8.5]): field items with default, range, index, coerce and flags; enumeration values with a lattice; an edge kind with core and extension `KindSet` bits; a retired item |
-| `ops/variants.hex` | op frames the stores do not carry: the value-conflict classes FieldEdit, StatusFork, OwnerFieldEdited, PathClaim; conflicts on status, body, observation, edge and schema keys; `Violation` QueryInvalid and QueryCycle; `Resolve` theirs, base and repoint; a changed and a dropped named query |
+| `schema/items.hex` | schema item records of classes 1–6 ([F08 §8.5]), in item key order: field items with default, range, index, coerce and flags; enumeration values with a lattice; an edge kind with core and extension `KindSet` bits; a retired item; a `policy` row ([F08 §8.5.6]: `iflags` 0, `name` and `value` as `vstr`) |
+| `ops/variants.hex` | op frames the stores do not carry: the value-conflict classes FieldEdit, StatusFork, OwnerFieldEdited, PathClaim; conflicts on status, body, observation, edge and schema keys; `Violation` QueryInvalid and QueryCycle; `Resolve` theirs, base, repoint and drop (a flagged `blocks` out-edge of a tombstone on a work branch, [F12 §6.5]); a changed and a dropped named query; `Schema` ops of the item classes 1–4 and 6 with their stored keys ([F08 §8.5]: the names joined by one `00` byte, `*` = `2A`): a kind, a field strengthened (mode 1), an enumeration value of `priority` (kind `*`) and one of a project kind's `status`, an edge kind, a `policy` row removed back to its default and another written for the first time |
 | `runtime/os-ids.hex` | `OsFileId` of every kind (the Linux id with its handle digest, a macOS `docid`), `VolumeCaps` of other volume classes (`dir_flush_doubtful` included), `FsTime` granularities and the absent form |
 | `binding/binding-ext.hex`, `binding/heads-row.hex`, `binding/clienthead-payload.hex` | [F18 §3.2]'s example `BindingExt` alone, inside a `HEADS` row image, and inside a `ClientHead` payload |
 
@@ -298,7 +298,7 @@ item instead; "outside `hex/`" names the fixture family that holds it.
 | 60-AR-Log-RecHdr | every record of every `log.*.hex` and every record inside `hex/store-b/hist.*.hex` |
 | 60-AR-Log-chain | every `log.*.hex`; groups never spanning extents: `hex/store-b/log.1.hex` (pad) and `log.2.hex` (`ExtentHead.chain_in`) |
 | 60-AR-Log-kinds | `hex/store-a/log.1.hex` (kinds 1–11, 13–20, 22–28), `hex/store-b/log.1.hex` (12 `Noop`), `hex/decode-only/journal-cursor/log.1.hex` (21); `Marker` settled, deleted, cleared, holders, nonlinear; `Checkpoint` with per-ref lists (g22, g46) and a promotion (g24) |
-| 60-AR-CommitBody | `hex/store-a/log.1.hex` (every presence bit but `pruned`: `ref_old`, `prev_on_ref`, `sync_base`, `absorbed` (c6, c8), `foreign_git`, `verified`, every `import`); `hex/store-b/hist.5.hex` (`pruned`) |
+| 60-AR-CommitBody | `hex/store-a/log.1.hex` (every presence bit but `pruned` and `stage` (§6): `ref_old`, `prev_on_ref`, `sync_base`, `absorbed` (c6, c8), `foreign_git`, `verified`, every `import`); `hex/store-b/hist.5.hex` (`pruned`) |
 | 60-AR-Ops | `hex/store-a/log.1.hex` (every op tag, with before-images and `prev`); `hex/fragments/ops/variants.hex` |
 | 60-AR-Values | `hex/fragments/values/op-values.hex`, `field-block.hex`, `cv.hex`; stored values throughout store A's ops, field blocks and promoted columns |
 | 60-AR-Canonical | outside `hex/`: `canonical/`, `carrier/` (WP-21). The commit ids and digests in `hex/` are synthetic (§2) |
@@ -306,7 +306,7 @@ item instead; "outside `hex/`" names the fixture family that holds it.
 | 60-AR-Seg-runtime | `REFS`, `PINS`, `HEADS`, `MARKERS` in `hex/store-a/seg.d1.hex`, `seg.d7.hex`, `seg.d8.hex`, `seg.base.10.hex`, `hex/store-b/seg.d3.hex`; the `RefTable`, `Pin`, `ClientHead` and `Marker` records of `hex/store-a/log.1.hex` that fold into them; `hex/fragments/binding/heads-row.hex` |
 | 60-AR-Seg-branch | `hex/store-a/seg.b1.5.hex` (`TOUCH`) |
 | 60-AR-Seg-sealed | `hex/store-b/hist.2.hex`, `hist.5.hex`, `hex/codec/hist.*.hex` (frames, split frames, `HCIDX`); `hex/store-a/blobs.*.hex`, `hex/store-b/blobs.4.hex`, `hex/codec/blobs.*.hex`, `hex/codec/dict.*.hex`; `hex/store-a/gitmap.3.hex`, `gitmap.4.hex` |
-| 60-AR-Schema | `SCHEMA` in `hex/store-a/seg.d1.hex`, `seg.base.10.hex`, `cs.6.hex`; the `Schema` op of c1; `hex/fragments/schema/items.hex` (every item class) |
+| 60-AR-Schema | `SCHEMA` in `hex/store-a/seg.d1.hex`, `seg.base.10.hex`, `cs.6.hex`; the `Schema` op of c1; `hex/fragments/schema/items.hex` (item classes 1–6); the `Schema` ops of `hex/fragments/ops/variants.hex` (modes 0 and 1, item classes 1–6, stored keys) |
 | 60-AR-Image | outside `hex/`: `moi/`, `carrier/` (WP-21) |
 | 60-AR-Layout-dir | not a byte structure: the file names of every store directory here follow [F02 §5]–§6; directory contents are checked by the engine's and the simulator's tests |
 | 60-AR-Layout-config | not a byte structure of this family: the `config` text is checked by `moirai-config`'s tests (M1) and [CFG]'s examples |
@@ -398,7 +398,7 @@ item instead; "outside `hex/`" names the fixture family that holds it.
 | F1, F2 | `hex/fragments/schema/items.hex` (edge kind: `lq_name`, `src_kinds`, `dst_kinds`, `reverse_names`, `reading`; field: `optional`, `default`, `index`, `coerce`, `sort_rank`) |
 | F3 | the `QUERIES` item in `SCHEMA` and c1's `Schema` op (store A); `hex/fragments/ops/variants.hex` (changed and dropped query) |
 | F4 | `CREATOR` in every segment |
-| F5 | `FPROMO`, `FCOL.*`, `FIDX.*` in `hex/store-a/seg.d1.hex`, `seg.b1.5.hex`, `seg.base.10.hex` |
+| F5 | `FPROMO`, `FCOL.*`, `FIDX.*` in `hex/store-a/seg.d1.hex`, `seg.b1.5.hex`, `seg.base.10.hex`, with all-absent `FCOL`s and a base `FIDX` with `n_values` 0 ([F09 §10.1] presence rule); no `FPROMO` in `seg.d7.hex`, `seg.d8.hex`, `cs.6.hex` and `hex/store-b/seg.d3.hex`, whose rows hold no promoted value |
 | F6 | frozen bitsets (chunk `card`, `SecEnt.count` totals) in `hex/store-a/seg.base.10.hex`, `TOUCH` in `seg.b1.5.hex` |
 | F7 | `STATS` in `hex/store-a/seg.base.10.hex` |
 | F8 | `FrameHdr` in `hex/store-b/hist.*.hex`, `hex/codec/hist.*.hex` |
@@ -436,16 +436,16 @@ item instead; "outside `hex/`" names the fixture family that holds it.
 | Structure | Values in `hex/` | Not covered, and why |
 |---|---|---|
 | Record kinds ([F05 §7]) | 1–28 | — |
-| Commit kinds, import provenance, presence bits ([F06 §3], §4.2) | kinds 0–5, provenance 0–3, bits 0–17 | — |
+| Commit kinds, import provenance, presence bits ([F06 §3], §4.2) | kinds 0–5, provenance 0–3, bits 0–17 | bit 18 `stage` and its order-45 group ([F06 §4.4.16]; spec sync 2b S2B-F-1): the format oracle decodes the group now, but no fixture can hold it yet. Store A's staged c11 had no `--base`, policy override or `strict`, so its group is absent, and no fragment kind holds a lone commit record; a new fixture file needs its own row in the format oracle's fixture table first, so none is added in this update |
 | `stmt_origin`, `actor_src` ([F06 §3.4], §3.5) | 0–6 each | — |
 | Op tags ([F06 §7.2]) | 1–16 | — |
 | Value-conflict classes ([F12 §6.1]) | 1, 2, 3, 4, 6, 7 | 5 `SupersedeFork`: which key holds it is open in [F12] ([RULES/merge-table] open point 9) |
-| `Resolve` choices | 0–4 | — |
-| `Schema` op | mode 0 with a new, a changed and a dropped query item | mode 1 `strengthen` and items of classes 1–4: the stored `item_key` of those classes has no byte encoding in [F08] (Spec finding) |
+| `Resolve` choices ([F06 §7.7]) | 0–5: 0 and 3 in store A; 1, 2, 4 and 5 `drop` (a flagged `blocks` out-edge of a tombstone, [F12 §6.5]; spec sync 2b S2B-F-10) in `fragments/ops/variants.hex` | — |
+| `Schema` op ([F06 §7.6]) | modes 0 and 1, item classes 1–6: a new query in store A (c1); in `fragments/ops/variants.hex` a changed and a dropped query, a kind, a field strengthened (mode 1), two enumeration values (one with the `*` component), an edge kind, a `policy` row removed and one written, each `item_key` in [F08 §8.5]'s stored key form (spec sync 2b S2B-F-13, S2B-F-21) | — |
 | Violation classes ([F19 §12.2]) | 66, 70, 71, 75 | the other structural classes differ only in their code |
 | Value types ([F08 §5]) | 0–13, sets of every element type | — |
 | Anchor records ([F08 §10.3]) | kinds 1–6, every `aflags` bit, scopes for `rust` and `markdown` | scope `lang` 3 `toml`: bytes identical in form |
-| Schema items ([F08 §8.5]) | classes 1–5, retired | — |
+| Schema items ([F08 §8.5]) | classes 1–6 (6 `policy`, [F08 §8.5.6]; spec sync 2b S2B-F-21), retired | — |
 | Section tags ([F09 §3.1]) | every tag and both ranges (`FCOL`, `FIDX`, `BM`) | — |
 | `SegHdr.seg_kind` | 2, 3, 4, 5, 6, 9 | — |
 | Sealed headers | `SegHdr`, `GitmapHdr` (`sha1`, `sha256`), `DictHdr` (raw and formatted content) | — |
@@ -457,4 +457,4 @@ item instead; "outside `hex/`" names the fixture family that holds it.
 | `HEAD` | every field; flags 0–3 and a reserved bit; nine two-slot states; torn slots; five fatal cases | `SegRef` kind 3 (`dict`): hole-dependent (§4) |
 | Log chain | first group, chained group, `Noop` pad, `ExtentHead` (epoch start, extent start, re-roll), wrong position, lost lazy tail, corruption | — |
 | `Checkpoint` bits ([F05 §9.9]) | 0–9 | — |
-| `RefUpdate` reasons, `ClientHead` ops and row kinds, `Lease` events, `Marker` kinds, `Pin` ops and holders | every value | `Lease` release reasons other than 2 and 4, marker causes other than a commit and a fork: values of one byte, no other layout |
+| `RefUpdate` reasons, `ClientHead` ops and row kinds, `Lease` events, `Marker` kinds, `Pin` ops and holders | every value | `Lease` release reasons other than 1 and 2, marker causes other than a commit and a fork: values of one byte, no other layout |

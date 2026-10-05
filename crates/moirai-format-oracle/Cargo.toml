@@ -16,7 +16,8 @@ path = "src/lib.rs"
 
 # The fixture walks (PLAN WP-95 acceptance, E3): every fixtures/hex file decodes and re-encodes with the conclusion its
 # comment states; every fixtures/moi fixture parses or is refused as its .expect says; every fixtures/carrier case's
-# objects, trees and trailers re-derive its canonical items. Known mismatches are ignored tests of their own.
+# objects, trees and trailers re-derive its canonical items; every fixtures/canonical case's ids are recomputed. A walk
+# runs its known mismatches as expected failures (one that passes fails the walk); no test is ignored.
 [[test]]
 name = "fixtures"
 path = "tests/fixtures.rs"

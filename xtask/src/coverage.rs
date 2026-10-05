@@ -308,16 +308,25 @@ pub fn run(repo: &Path, strict: bool) -> Result<Report, String> {
     Ok(check(&text, &exists, &model, strict))
 }
 
+/// Whether some path matches `pat`, whose components may each hold `*` (e.g. `hex/chain/*/HEAD.hex`).
 fn glob_exists(repo: &Path, pat: &str) -> bool {
-    let (dir, file) = match pat.rfind('/') {
-        Some(i) => (&pat[..i], &pat[i + 1..]),
-        None => ("", pat),
+    let comps: Vec<&str> = pat.split('/').filter(|c| !c.is_empty()).collect();
+    glob_walk(repo, &comps)
+}
+
+fn glob_walk(dir: &Path, comps: &[&str]) -> bool {
+    let Some((first, rest)) = comps.split_first() else {
+        return dir.exists();
     };
-    let pattern = crate::paths::Pattern::new(file);
-    std::fs::read_dir(repo.join(dir))
+    if !first.contains('*') {
+        return glob_walk(&dir.join(first), rest);
+    }
+    let pattern = crate::paths::Pattern::new(first);
+    std::fs::read_dir(dir)
         .map(|rd| {
-            rd.filter_map(Result::ok)
-                .any(|e| pattern.matches(&e.file_name().to_string_lossy()))
+            rd.filter_map(Result::ok).any(|e| {
+                pattern.matches(&e.file_name().to_string_lossy()) && glob_walk(&e.path(), rest)
+            })
         })
         .unwrap_or(false)
 }
@@ -375,6 +384,19 @@ mod tests {
                 .any(|m| m.contains("item F14: no model function"))
         );
         assert!(blank.iter().any(|m| m.contains("item G1: no fixture")));
+    }
+
+    #[test]
+    fn globs_in_any_component() {
+        let t = crate::testdir::TestDir::new("coverage-glob");
+        t.write("fixtures/hex/chain/lazy-tail/HEAD.hex", "");
+        t.write("fixtures/hex/chain/corrupt/log.1.hex", "");
+        let root = t.path();
+        assert!(glob_exists(root, "fixtures/hex/chain/*/HEAD.hex"));
+        assert!(glob_exists(root, "fixtures/hex/chain/lazy-*/*.hex"));
+        assert!(glob_exists(root, "fixtures/hex/chain/corrupt/*.hex"));
+        assert!(!glob_exists(root, "fixtures/hex/chain/*/log.2.hex"));
+        assert!(!glob_exists(root, "fixtures/hex/head/*/HEAD.hex"));
     }
 
     #[test]

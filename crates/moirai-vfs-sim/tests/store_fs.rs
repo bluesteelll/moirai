@@ -13,7 +13,8 @@ use moirai_vfs::{
     StoreVolume, SyncKind, VfsErrorKind, Wake, WatchEvent,
 };
 use moirai_vfs_sim::{
-    CrashPlan, EventKind, NsKind, SimConfig, SimWorld, Site, ViolationKind, VolumeProfile,
+    CallKind, CrashPlan, EventKind, NOTE_COMPOSITE, NOTE_COMPOSITE_END, NsKind, SimConfig,
+    SimWorld, Site, ViolationKind, VolumeProfile,
 };
 
 #[test]
@@ -56,6 +57,89 @@ fn extents_are_zero_and_their_names_need_the_directory_flush() {
     v.write_at(&g, 0, &[5u8; 100]).unwrap();
     v.recycle_extent(&g, 1 << 20, &sparse).unwrap();
     assert!(read_all(&v, &g)[..100].iter().all(|&b| b == 0));
+}
+
+/// [F15 §5.2], [OS/fs §4.5] (WP-40 closure): a composite's steps are calls of their own — the exclusive create, each
+/// zero write, a size change — bracketed by the world's notes, which name the composite and, at its end, the file it
+/// prepared; the notes add no scheduling point. `recycle_extent` leaves the file exactly `len` bytes long and zero for
+/// every method: `ZeroFill` writes the zeros and then cuts a longer file, `Sparse` sets the length first.
+#[test]
+fn extent_composites_are_bracketed_steps_and_recycling_sets_the_length() {
+    let w = world(32);
+    let (v, r) = proc(&w, "p");
+    let vol = match v.classify(&r, ClassifyDepth::Open).unwrap() {
+        Classification::Local(vol) => vol,
+        Classification::Refused(x) => panic!("{x:?}"),
+    };
+    let from = w.trace().len();
+    let points = w.points();
+    let f = v.create_extent(&r, rel("log.1"), 3 << 20, &vol).unwrap();
+    let t = w.trace()[from..].to_vec();
+    let kinds: Vec<(EventKind, u64, u64, u64)> = t
+        .iter()
+        .filter(|e| {
+            matches!(e.kind, EventKind::Return)
+                || (e.kind == EventKind::Note
+                    && (e.a == NOTE_COMPOSITE || e.a == NOTE_COMPOSITE_END))
+        })
+        .map(|e| (e.kind, e.a, e.b, e.c))
+        .collect();
+    let write = (EventKind::Return, CallKind::Write as u64, f.node(), 0);
+    assert_eq!(
+        kinds,
+        [
+            (
+                EventKind::Note,
+                NOTE_COMPOSITE,
+                CallKind::CreateExtent as u64,
+                0
+            ),
+            (EventKind::Return, CallKind::CreateNew as u64, f.node(), 0),
+            write,
+            write,
+            write,
+            (
+                EventKind::Note,
+                NOTE_COMPOSITE_END,
+                CallKind::CreateExtent as u64,
+                f.node()
+            ),
+        ]
+    );
+    // Each step has its own start point and, for a write, its inner point; the notes none.
+    assert_eq!(w.points() - points, 1 + 3 * 2);
+    // A failed step still ends the composite, naming the file the exclusive create made.
+    w.queue_choice_for(&v, Site::WriteFault, 1);
+    w.queue_choice_for(
+        &v,
+        Site::PartialWrite,
+        moirai_vfs_sim::PartialWrite::Nothing.to_choice(),
+    );
+    let from = w.trace().len();
+    assert!(v.create_extent(&r, rel("log.2"), 4096, &vol).is_err());
+    let node = w.node_at(&Path::new(STORE).join("log.2")).unwrap();
+    assert!(
+        w.trace()[from..]
+            .iter()
+            .any(|e| e.kind == EventKind::Note && e.a == NOTE_COMPOSITE_END && e.c == node)
+    );
+    // Recycling a longer file: zeros over [0, len), then the size change.
+    v.write_at(&f, (3 << 20) + 100, &[7u8; 50]).unwrap();
+    v.recycle_extent(&f, 1 << 20, &vol).unwrap();
+    assert_eq!(v.file_size(&f).unwrap(), 1 << 20);
+    assert!(read_all(&v, &f).iter().all(|&b| b == 0));
+    // A shorter file grows to `len`, by either method.
+    let sparse = StoreVolume {
+        extent_method: ExtentMethod::Sparse,
+        ..vol
+    };
+    for (name, method) in [("short.1", vol), ("short.2", sparse)] {
+        let g = v.create_new(&r, rel(name)).unwrap();
+        v.write_at(&g, 0, &[9u8; 700]).unwrap();
+        v.recycle_extent(&g, 64 * 1024, &method).unwrap();
+        assert_eq!(v.file_size(&g).unwrap(), 64 * 1024);
+        assert!(read_all(&v, &g).iter().all(|&b| b == 0));
+    }
 }
 
 #[test]

@@ -1,12 +1,13 @@
-# fixtures/hex/fragments/schema/items.hex: schema item records ([F08 §8.5]) of every class, in item key order
+# fixtures/hex/fragments/schema/items.hex: schema item records ([F08 §8.5]) of classes 1-6, in item key order
 # ([F08 §8.5] "Item key order": class, then the key's names bytewise), as a view's SCHEMA section ([F09 §8.3]) or a
 # Schema op's `new` ([F06 §7.6]) carries them; decode as item records to the end of the file. The stores hold only
 # a kind (class 1), an enumeration value (class 3) and a named query (class 5) (fixtures/hex/store-a); this file adds
 # field items (class 2: a default with a range, `optional`, `index`, `coerce`, the `one_line` and `ascii` flags),
 # enumeration values with a lattice (`covers`) and the `side` and `done` flags, an edge kind (class 4: `KindSet`s
-# with a core bit and an ext bit for project kind 64, reverse names, a reading), and a retired item (iflags bit 0).
-# Symbol ids of class `name` are this fragment's own, dense in first-use order (each is named where it is used);
-# store-local ids: project kind `incident` = 64, edge kind `escalates_to` = 64.
+# with a core bit and an ext bit for project kind 64, reverse names, a reading), a retired item (iflags bit 0), and
+# a policy row (class 6, [F08 §8.5.6]; spec sync 2b: iflags 0, `name` and `value` as vstr, no symbol), which sorts
+# last by its class. Symbol ids of class `name` are this fragment's own, dense in first-use order (each is named
+# where it is used); store-local ids: project kind `incident` = 64, edge kind `escalates_to` = 64.
 
 # class 1 (kind)
 01                                          # item.class 1
@@ -157,3 +158,11 @@
 {uvar 119}                                  # item.text: length 119
 "DEFINE QUERY open_incidents() SHAPE table BUDGET light AS {\n  MATCH (i:incident)\n  WHERE i.status = 'open'\n  RETURN i\n}"
 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # item.ast_hash (derived, unhashed; zero until computed)
+
+# class 6 (policy row) (a list value, as fixtures/moi/schema/policy.moi writes it)
+06                                          # item.class 6
+00                                          # item.iflags
+{uvar 28}                                   # item.name (vstr): length 28
+"policy.role.developer.fields"
+{uvar 17}                                   # item.value (vstr): length 17
+"files_owned,title"

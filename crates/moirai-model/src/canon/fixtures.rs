@@ -1187,8 +1187,17 @@ fn every_message_case_normalises() {
         let input = hex_bytes(c.block("input-hex"));
         match f {
             "N" => match (normalise_message_bytes(&input), c.line("refused")) {
+                // The fixture names [F07 §15]'s three proposed cases; [F19 §10.3] has one case, `message`, whose
+                // [F19 §10.2] text tells them apart (spec sync 2b S2B-F-16).
                 (Err(e), Some(case)) => {
-                    assert_eq!(e.get_str("case"), Some(case), "{}", c.id);
+                    assert_eq!(e.get_str("case"), Some("message"), "{}", c.id);
+                    let text = match case {
+                        "message-utf8" => crate::canon::MESSAGE_UTF8,
+                        "message-length" => crate::canon::MESSAGE_LENGTH,
+                        "message-trailer" => crate::canon::MESSAGE_TRAILER,
+                        other => panic!("{}: refused {other} is not a message case", c.id),
+                    };
+                    assert_eq!(e.detail, text, "{}", c.id);
                 }
                 (Ok(out), None) => {
                     assert_eq!(out.as_bytes(), hex_bytes(c.block("output-hex")), "{}", c.id);
@@ -1553,6 +1562,13 @@ fn stated_parents(m: &[u8]) -> BTreeMap<usize, [u8; 32]> {
         .collect()
 }
 
+/// The `Moirai-Ops` trailer of a git message ([F14 §10.4]), if it has one.
+fn moirai_ops(m: &[u8]) -> Option<String> {
+    String::from_utf8_lossy(m)
+        .lines()
+        .find_map(|l| l.strip_prefix("Moirai-Ops: ").map(str::to_string))
+}
+
 /// The `schema-version:` of the `.moirai-image` marker in a case's tree ([F14 §4]): the case's own new marker file,
 /// or, when its tree kept the marker unchanged, its first git parent's.
 fn marker_schema_version(name: &str, all: &BTreeMap<String, Carrier>) -> u32 {
@@ -1663,18 +1679,23 @@ fn check_carrier_case(name: &str, all: &BTreeMap<String, Carrier>) {
     }
     if class == "demoted" {
         // The native reconstruction over the same item 10 gives an id other than the trailer's, so the commit is
-        // demoted ([F07 §12.5]); its id is the foreign one.
+        // demoted ([F07 §12.5]); its id is the foreign one. A candidate whose `Moirai-Ops` is not its entry count is
+        // demoted without hashing ([F14 §10.9], §12.1), so its rebuilt id may equal the trailer's.
         let native = crate::value::hex(&commit_id(&header(c.block("native-commit")), &digest));
         assert_eq!(
             Some(native.as_str()),
             c.line("native-commit-id"),
             "{name}: native-commit-id"
         );
-        assert_ne!(
-            Some(native.as_str()),
-            c.line("trailer-commit"),
-            "{name}: demoted"
-        );
+        let ops = moirai_ops(&g.message);
+        let count = c.line("entry-count").expect("an entry count");
+        if ops.as_deref() == Some(count) {
+            assert_ne!(
+                Some(native.as_str()),
+                c.line("trailer-commit"),
+                "{name}: demoted"
+            );
+        }
     }
     if name == "foreign-merge" {
         check_merge_case(c, crate::merge::Op::Merge, false);
@@ -1705,14 +1726,15 @@ fn check_carrier_case(name: &str, all: &BTreeMap<String, Carrier>) {
     }
 }
 
-/// E3 on `fixtures/carrier/` (its INDEX's acceptance): every one of the 44 cases reproduces its item 10,
+/// E3 on `fixtures/carrier/` (its INDEX's acceptance): every one of the 45 cases reproduces its item 10,
 /// `changeset_digest`, C and `commit_id`; a native case verifies against its `Moirai-Commit`; a foreign, checkpoint or
 /// demoted case's items 1–9 follow from its git commit and its parents' cases; `foreign-merge`'s item 10 is the typed
-/// merge's; a demoted case's native reconstruction fails; twins share their ids and the cases `canonical` names agree.
+/// merge's; a demoted case's native reconstruction fails, or its `Moirai-Ops` is not its entry count ([F14 §12.1]);
+/// twins share their ids and the cases `canonical` names agree.
 #[test]
 fn every_carrier_case_reproduces_its_id() {
     let all = carrier_cases();
-    assert_eq!(all.len(), 44, "INDEX §5 lists 44 cases");
+    assert_eq!(all.len(), 45, "INDEX §5 lists 45 cases");
     for name in all.keys() {
         check_carrier_case(name, &all);
     }

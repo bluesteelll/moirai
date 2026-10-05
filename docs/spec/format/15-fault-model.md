@@ -249,7 +249,8 @@ The original wording of every item and each amendment are listed side by side in
 **Rules.**
 - **FM-2.1** A successful `sync(Data)` of f (the `durable` class, §4) makes durable every sector of f that lies below
   `ds(f)`, except a sector that was `poisoned` when the flush began (FM-3.4). Each such sector becomes durable at least
-  at the content it had when the flush began. `sync(Data)` changes neither `ds(f)` nor any name.
+  at the content it had when the flush began. `sync(Data)` changes neither `ds(f)` nor any name. `ds(f)` here is its
+  value when the flush returns: a `sync(DataAndMeta)` of f that succeeded before then has already raised it (FM-2.2).
 - **FM-2.2** A successful `sync(DataAndMeta)` of f (the `durable+meta` class) does what FM-2.1 does. It also sets
   `ds(f)` to `cs(f)` at the flush's start, together with the file's allocation, and resets H(f).
   - "Within its current size" is read as "below the durable size" (OP-4).
@@ -332,6 +333,14 @@ This is the widest reading that `docs/m0/PLAN.md` §3.3 assigns to WP-16. It is 
 - **FM-3.6 Lazy records.** Lazy records published beyond `durable_lsn` may vanish with the poisoned sectors
   ([80 §2.3.5] (3)). A failed flush in any process can therefore lose any `lazy` data that no successful flush has made
   durable ([80 §2.3.1] `lazy` row).
+  - **Fields kept only in `HEAD`.** The same holds for a field that only `HEAD` carries ([F04 §6]: a flag, `boot_id`)
+    when its durable publish ([F04 §9.2]) was not acknowledged because the `HEAD` flush failed: the slot sectors are
+    poisoned, so one read may see the new value and a later read the old one, and a crash may leave either.
+  - **Harness allowance.** A harness that cannot tell which file a lazy effect lives in may treat the effect as optional
+    once any flush in the store has failed after the operation began: it keys on the store's failed-flush count when
+    the operation began, not when it was acknowledged, since a failed flush counted between the publish and the
+    acknowledgement may still have followed the effect. This is sound and slightly weaker than FM-3.6, which makes
+    optional only the effects in a file whose flush failed.
 - **FM-3.7 Scope.** Poisoning is per file and shared by every process, because there is one page cache. It covers file
   content only.
   - A failed `sync(DataAndMeta)` leaves `ds(f)` and H(f) unchanged. A later successful `sync(DataAndMeta)` makes the
@@ -509,7 +518,9 @@ simulated boot, suspend events, and per-process Known or Unknown boot identity.
 - Per-byte release delays drawn from classes (a)–(c). Every nightly run must contain at least one death whose delay
   exceeds every configured wait bound, and at least one byte that is never released within its scenario. Seeded draws
   only make this likely, so the nightly harness guarantees it: its death plan forces at least one class (b) and one
-  class (c) release, and the run checks from its report that each class occurred, failing otherwise.
+  class (c) release, and the run checks from its report that each class occurred, failing otherwise. At M0 that duty is
+  GT1's nightly tier (the crash enumerator of WP-32, which fails a seed that lacks either class); from M1 GT3's
+  lock-release-delay injection carries the same obligation ([60 §3.13]).
 - Sharing-violation injection on open, unlink and rename, with a seeded persistence.
 - The delete-pending model of FM-8.3.
 - Measurement 12's CDF is loaded as simulator data after WP-81a fills the hole (WP-31: "lock-release delay from
@@ -518,6 +529,9 @@ simulated boot, suspend events, and per-process Known or Unknown boot identity.
 **Crash gates.**
 - A gate may assume that a byte is granted to at most one client at a time, and that a live holder's byte is released
   only by its release call.
+- A process whose bounded wait meets a byte that a dead process holds under class (b) or (c) may time out and refuse
+  (`store_locked`, exit 7, [F19]); a recovering writer blocked behind a class (b) delay may refuse exactly as behind
+  class (c). A gate accepts that refusal; it never counts it as a lost acknowledgement.
 - A gate must not assume any of the following:
   - release within any bound after a death, including the measured p99;
   - that `Held` means the holder is alive;
@@ -574,7 +588,9 @@ of any store file (optional, for detection tests), and of `LOCK` replacement.
 **Crash gates.**
 - Unless a scenario injects FM-10, a gate may assume that no store file is modified by anyone but moirai.
 - Under external truncation of a sealed file, the gate asserts that the affected readers exit 7, that no acknowledged
-  commit is lost, and that `doctor --fsck` names the file ([80 §2.5] rule 8).
+  commit is lost, and that `doctor --fsck` names the file ([80 §2.5] rule 8). The reader and `doctor` assertions apply
+  only while the file is shorter than its sealed length: a truncation that no flush made durable may be undone by a
+  crash (FM-2.2), and the file is then whole again.
 - Under an external rewrite of any other store file, the gate asserts detection only: an error, exit 7 or a `repair`
   diagnosis, never a silently wrong result. It does not assert durability.
 
@@ -643,6 +659,10 @@ failure, not as storage behaviour:
   `swap_dirs` or `swap_recover` is reported as the kind `FlushFailed` ([OS/fs §4.1]); the operation's own clean-up
   inside that call (removing the new directory) is allowed, and the rule applies once the call has returned.
 
+The number of reports is not part of the contract: a call that commits a violation in several of its sub-operations
+may give one report for each (the simulator reports `create_root`'s create and its embedded flush separately). A gate
+asserts that at least one report names the offending call.
+
 ---
 
 ## 4. Durability classes
@@ -651,7 +671,7 @@ failure, not as storage behaviour:
 
 | Class | `Vfs` call | Guarantee (identical on every OS) |
 |---|---|---|
-| `lazy` | `write_at` only | Visible to every client of every process once the write returns (FM-4.2). Survives the death of any process. Becomes durable with the next successful flush of the file that covers it, made by any client (§2.4). May be lost at a system crash (FM-1) or through a failed flush in any process (FM-3.6). |
+| `lazy` | `write_at` only | Visible to every client of every process once the write returns (FM-4.2). Survives the death of any process. Becomes durable with the next successful flush of the file that covers it, made by any client (§2.4). May be lost at a system crash (FM-1) or through a failed flush in any process (FM-3.6; a harness may apply this store-wide, FM-3.6 "Harness allowance"). |
 | `durable` | `sync(Data)` | FM-2.1: once the call returns success, every covered write below the durable size is on stable media, provided the drive honours FLUSH (§6.3 A-1). |
 | `durable+meta` | `sync(DataAndMeta)` | FM-2.2: `durable`, plus the file's size and allocation. |
 | `durable-name` | `sync_dir(dir)` | FM-2.3: each create, rename or unlink in `dir` whose effect instant came before the call started becomes durable once its other conditions hold. |
@@ -769,7 +789,8 @@ The design sources are [80 §2.3.1], [AR §2.8] and [AR §4.10].
 
 - **Pre-crash semantics.** In one step, `dst` names `src`'s file, and `src` no longer exists. If `dst` named a file
   before, an observer sees either the old file or the new one at `dst`, never an absent `dst`. The replaced file loses
-  its name; its content remains for handles already open. This operation is for files only.
+  its name; its content remains for handles already open. This operation is for files only: a directory source is a
+  caller defect, which the in-memory `Vfs` refuses with `AccessDenied` ([OS/fs §4.8]).
 - **Crash semantics.** It is one operation whose parents are `parent(src)` and `parent(dst)` (one parent when they are
   the same directory), durable by FM-2.3 and FM-2.4. Before that, it may be lost as a whole: `dst` keeps the old file
   and `src` keeps its name.
@@ -858,7 +879,7 @@ A gate may rely on §6.1, must not rely on anything in §6.2, and runs under the
 
 | # | Guarantee | Rules |
 |---|---|---|
-| G-1 | A successful `sync(Data)` makes durable every covered write below the durable size, except in sectors that were `poisoned` when it began | FM-2.1, FM-3.4 |
+| G-1 | A successful `sync(Data)` makes durable every covered write below the durable size (its value when the flush returns), except in sectors that were `poisoned` when it began | FM-2.1, FM-3.4 |
 | G-2 | A successful `sync(DataAndMeta)` also makes the size and allocation durable | FM-2.2 |
 | G-3 | A namespace operation becomes durable once every parent is synced after it, its parents exist durably, and its predecessors on the same names are durable | FM-2.3, FM-2.4 |
 | G-4 | A `clean` sector never changes, at a crash or on a read. FM-3 never changes a byte that no write has touched since its durable point | FM-1.3, FM-3 |
@@ -912,7 +933,7 @@ fixed by the design and are not holes.
 | Crash points | A system crash at every `Vfs` call boundary: every write, flush, publish, create, rename and unlink, including between the appends of one flushed group | all |
 | Sector subsets | Every subset (each `dirty` sector at its baseline or at its newest version) while a file has ≤ 12 dirty sectors (4,096 states). At least 10⁴ random states beyond, sampling intermediate versions (FM-1.1) and poisoned sub-sector mixes (FM-3.3). The fast PR tier is per-file prefixes plus one torn sector | FM-1, FM-3 |
 | Torn sector | One torn sector per file, with sub-sector mixes | FM-1.2 |
-| `HEAD` slots | Both slots exhaustively at every barrier point: {old, new, torn} × {old, new, torn}, where "old" ranges over every version since the slot's durable point. The 9 states of [60 §3.13] are the minimum (OP-3) | FM-1, FM-3 |
+| `HEAD` slots | Both slots exhaustively at every barrier point: {old, new, torn} × {old, new, torn}, where "old" ranges over every version since the slot's durable point. The states are the 9 of [60 §3.13], less (torn, torn) when both slots are dirty: both lie in one file, and FM-1.2 tears at most one dirty sector per file at a crash. (torn, torn) is reached when one slot is poisoned (FM-3.3); no valid slot is also reached when a publish write that failed or was cut (FM-5.2, §2.5) left its slot invalid and a crash tears the other ([F04 §8.2]). The exhaustive torn mixes combine the baseline and the newest version; mixes of intermediate versions come from the random tier (the sector-subsets row) (OP-3) | FM-1, FM-3 |
 | Cross-file | Bounded products across files | FM-1 |
 | Namespace | Every subset of the pending namespace operations lost, replayed by §2.5 step 3, exhaustively while there are ≤ 12, and at least 10⁴ random subsets beyond | FM-2 |
 | Disk-full | Injected at every write, flush, create and namespace operation | FM-5 |
@@ -920,6 +941,17 @@ fixed by the design and are not holes.
 | Process death | At every event, including inside a flush with each of its three outcomes | §2.5, FM-11 |
 | Reads | Read-error injection, transient and persistent. Mapping-fault deaths. External truncation of a sealed file | FM-12, FM-9, FM-10 |
 | Locks and time | Lock-release delays by FM-8.1. Pauses, wall-clock steps and suspends (GT3) | FM-6–FM-8 |
+
+**How the obligations are enumerated.**
+- **Per-file prefixes** (the fast PR tier) are taken in sector offset order: each prefix keeps the dirty sectors below
+  some offset at their newest version and the rest at their baseline.
+- **Eviction is a sequence.** The eviction of FM-3.2 is enumerated as reads that return the new bytes first and the old
+  ones after, since reads that always return old bytes, or random bytes, never reach the state that exposes a missing
+  re-write (decision (a), FM-3.5).
+- **Crash points are deduplicated.** A system crash is taken only at calls that can change storage (writes, flushes,
+  creates, namespace operations), because nothing a crash can leave changes between them. Each such crash state is
+  judged at its latest equivalent point, so against the most acknowledgements. The nightly tier still kills processes
+  at every event (the process-death row).
 
 **Determinism.** Every adversary choice comes from a seeded generator and is recorded in a replayable trace. The same
 seed and the same sequence of calls, with their clients and schedule, give a byte-identical trace (WP-31 acceptance).
@@ -1007,7 +1039,7 @@ No other value in this chapter depends on a measurement:
 |---|---|---|---|
 | OP-1 | **The widest reading of item (3)** (`docs/m0/PLAN.md` §3.3, gap assigned to WP-16) | FM-3.1–FM-3.8. The reach is every sector dirty during the failed call. Reads draw per sub-sector and per read. The one-torn-sector bound does not apply. Poisoning survives later successful flushes and system crashes, and only a re-write ends it | **For [F16]:** a failed `HEAD` flush (barrier or boot-change recovery) can leave **both** slots failing validation on some reads and after a crash. [80 §2.3.2]'s argument "at most one slot can be torn" covers FM-1 only. A slot the barrier did not re-write may also still be poisoned from an earlier failed flush. [F16] must say what a process does when no slot validates. Proposal: the barrier and boot-change recovery write **both** slots, a read-modify-write of the newest valid slot into each, before their `HEAD` flush, which ends any poisoning by FM-3.5; and a process that finds no valid slot exits 7 for `repair`, which recovers the epoch from the log's records and the chain seed XXH3-64(epoch). The log needs nothing new: decision (a)'s re-write under the writer byte, with the chain and the identity check, already covers FM-3 |
 | OP-2 | **`MOVEFILE_WRITE_THROUGH` without measurement 17** (`docs/m0/PLAN.md` §3.3, WP-16) | Every Windows rename issued through `Vfs` or `ProjectFs` passes the flag, alongside the mandatory `durable-name`. The model credits it with nothing | **Conflict recorded.** [60 §2.5] (h), [AR §4.10] and `docs/m0/PLAN.md` §6.1 #3 name `file mv` only. The approval checklist item V7 names `file mv` and the export renames. [80 §2.3.1] says "on the rename" in the `durable-name` row. Taking every rename satisfies all of them. Cost: measurement 8 (WP-54) should time the loose-object renames with the flag. [F16] may narrow the flag to the points the owner named without affecting this chapter's model |
-| OP-3 | "Reverting to their previous content" in item (1) | Any version the sector has had since its durable point (FM-1.1) | The exhaustive tier enumerates {baseline, newest}, and the random tier samples intermediate versions (§6.4). [60 §3.13]'s "9 `HEAD` states" is then a lower bound. The review confirms that the tiering is enough |
+| OP-3 | "Reverting to their previous content" in item (1) | Any version the sector has had since its durable point (FM-1.1) | The exhaustive tier enumerates {baseline, newest}, and the random tier samples intermediate versions (§6.4). [60 §3.13]'s "9 `HEAD` states" is then a lower bound, less (torn, torn) when both slots are dirty (FM-1.2; spec sync 2b, WP-32): 8 states, and 9 when a slot is poisoned. [60 §3.13] and PLAN WP-32 follow by OWNER O-3 and WP-81a. The review confirms that the tiering is enough |
 | OP-4 | "Within its current size" in item (2) | Below the durable size. After a crash, bytes beyond the old durable size may hold any value (FM-2.2) | Harmless to the protocol: log extents are pre-sized by `durable+meta`, and sealed files use `durable+meta`. [F16] must never rely on `sync(Data)` alone after extending a file |
 | OP-5 | Namespace durability with two parents and with dependencies | FM-2.3 (i)–(iii), FM-2.4 | **For [F16]:** [80 §2.3.2]'s store-`config` row writes the new text to `<store>/tmp/` and then `rename_replace` onto `config` with one `durable-name`. Under FM-2.4 both `tmp/` and the store directory must be synced, or the temporary file must live in the store directory. The same holds for a bulk commit's `cs.NNNN` if its temporary name is in `tmp/`. [AR §4.1] also says "segments under construction use a temp name", while [80 §2.3.2] says sealed files are created under their final number; [F16] should reconcile this |
 | OP-6 | Does item (3) apply to names and sizes? | No. Poisoning is per file content (FM-3.7). A failed `sync_dir` leaves its operations pending, and a later successful one makes them durable | If the review extends poisoning to namespace operations, the `FsIntent` recovery of [40 §3.4] must redo a rename it observed, not trust it, and the model gains a poisoned state for pending operations |
@@ -1026,3 +1058,4 @@ No other value in this chapter depends on a measurement:
 | OP-19 | The single-volume precondition of `sync_group` | All members on one volume (FM-2.6) | Implied by [80 §2.3.1]'s macOS row. Harmless on Windows and Linux |
 | OP-20 | Protocol-violation detection in the in-memory `Vfs` (§3.13) | Proposed as a WP-31 obligation, beyond [60]'s text | It turns the error policy of [80 §2.3.1] and the lock-order rule into harness checks. The review confirms it, or moves it to the toy-log assertions (WP-40) |
 | OP-21 | Spec sync 2a: points WP-31 and WP-33 met while building the in-memory `Vfs` and the Windows layer | **Closed:** §2.5 (a normal exit releases lock bytes by FM-8.1; a death inside `sync_group` resolves each member separately; a system crash's "absent name" is read by node identity); FM-3.1 (K for a sector a concurrent successful flush made clean); FM-8.1 (class (a) for the other role bytes is the writer's distribution; the nightly harness forces classes (b) and (c) by a death plan and checks them); FM-8.2 and FM-8.3 (the kinds of [OS/fs §6.2]–§6.4); FM-9 (a media fault drawn once per mapping); §3.13 (release, then a fresh grant, as [OS/lock] T7 and I-L7); NS-4 and §5.2 (a failed directory create may leave an empty directory); §5.4 (no move into its own subtree; `rename_replace` for files only, as [OS/fs §4.8]) | — |
+| OP-22 | Spec sync 2b: points WP-30b/31b/33b and WP-32 met while building the simulator and the enumerator | **Closed:** FM-2.1 takes `ds(f)` at the flush's return; §3.13 does not fix the number of violation reports per call; §6.4 gives the `HEAD` slot states as the 9 less (torn, torn) when both slots are dirty, names a failed or cut slot write followed by a crash as the second way to leave no valid slot ([F04 §8.2]), and states the prefix order, eviction as a sequence and the crash-point deduplication; FM-3.6 extends the vanish allowance to fields kept only in `HEAD` and allows the harness's store-wide keying; FM-8 names GT1's nightly tier for the forced release classes and lets a writer refuse behind a class (b) delay; FM-10's truncation assertions apply while the file is short; §5.5 makes a directory source of `rename_replace` a caller defect | — |

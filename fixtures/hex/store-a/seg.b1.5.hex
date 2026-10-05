@@ -1,6 +1,9 @@
 # fixtures/hex/store-a/seg.b1.5.hex: the promoted-branch segment of lane/l5np (ref id 1) ([F09 §16.3]): the
 # rows whose state at the lane's tip c10 differs from the pinned set P = {seg.d1} (#1, #6, #11, #12), ± lists
-# against P, and TOUCH = IDS. No store-level section.
+# against P, and TOUCH = IDS. No store-level section. Every FPROMO row implies its sections ([F09 §10.1], spec
+# sync 2b S2B-R-6): FCOL slots 1-9 (not 0: labels is a set with a bitmap index); slots 2-8 have every absent bit
+# set, since no touched row holds assignee, metric, local_id, severity, f_kind, round or outcome at c10 (#6 is
+# deleted there). FIDX.metric is the one changed value set (#6 leaves p99_flush_ms).
 
 # SegHdr (120 B, [F09 §2.1])
 seghdr:
@@ -9,7 +12,7 @@ seghdr:
   05                                        # seg_kind 5 `seg-branch`
   00                                        # tok_ver
   {u32 4}                                   # n_rows
-  {u16 31}                                  # n_sections
+  {u16 38}                                  # n_sections
   {u16 0}                                   # _reserved
   {u32 5}                                   # file_no
   {u32 1}                                   # ref_id
@@ -23,7 +26,7 @@ seghdr:
   {blake3_256 data..end}                    # seg_digest: BLAKE3-256 over [data_off, total_len)
   {xxh3_64 table..data}                     # table_xxh3 over the section table
   {xxh3_64 0..112}                          # hdr_xxh3 over [0, 112)
-# section table (31 entries of 32 B, [F09 §2.2])
+# section table (38 entries of 32 B, [F09 §2.2])
 table:
   # SecEnt IDS (0x0001)
   {u16 1}                                   # tag
@@ -221,6 +224,55 @@ table:
   {len 0..s_4001 u64}                       # off (absolute)
   {len s_4001..s_4001.e u64}                # len
   {xxh3_64 s_4001..s_4001.e}                # xxh3
+  # SecEnt FCOL.assignee (0x4002)
+  {u16 16386}                               # tag
+  {u16 0}                                   # flags
+  {u32 4}                                   # count
+  {len 0..s_4002 u64}                       # off (absolute)
+  {len s_4002..s_4002.e u64}                # len
+  {xxh3_64 s_4002..s_4002.e}                # xxh3
+  # SecEnt FCOL.metric (0x4003)
+  {u16 16387}                               # tag
+  {u16 0}                                   # flags
+  {u32 4}                                   # count
+  {len 0..s_4003 u64}                       # off (absolute)
+  {len s_4003..s_4003.e u64}                # len
+  {xxh3_64 s_4003..s_4003.e}                # xxh3
+  # SecEnt FCOL.local_id (0x4004)
+  {u16 16388}                               # tag
+  {u16 0}                                   # flags
+  {u32 4}                                   # count
+  {len 0..s_4004 u64}                       # off (absolute)
+  {len s_4004..s_4004.e u64}                # len
+  {xxh3_64 s_4004..s_4004.e}                # xxh3
+  # SecEnt FCOL.severity (0x4005)
+  {u16 16389}                               # tag
+  {u16 0}                                   # flags
+  {u32 4}                                   # count
+  {len 0..s_4005 u64}                       # off (absolute)
+  {len s_4005..s_4005.e u64}                # len
+  {xxh3_64 s_4005..s_4005.e}                # xxh3
+  # SecEnt FCOL.f_kind (0x4006)
+  {u16 16390}                               # tag
+  {u16 0}                                   # flags
+  {u32 4}                                   # count
+  {len 0..s_4006 u64}                       # off (absolute)
+  {len s_4006..s_4006.e u64}                # len
+  {xxh3_64 s_4006..s_4006.e}                # xxh3
+  # SecEnt FCOL.round (0x4007)
+  {u16 16391}                               # tag
+  {u16 0}                                   # flags
+  {u32 4}                                   # count
+  {len 0..s_4007 u64}                       # off (absolute)
+  {len s_4007..s_4007.e u64}                # len
+  {xxh3_64 s_4007..s_4007.e}                # xxh3
+  # SecEnt FCOL.outcome (0x4008)
+  {u16 16392}                               # tag
+  {u16 0}                                   # flags
+  {u32 4}                                   # count
+  {len 0..s_4008 u64}                       # off (absolute)
+  {len s_4008..s_4008.e u64}                # len
+  {xxh3_64 s_4008..s_4008.e}                # xxh3
   # SecEnt FCOL.phase_state (0x4009)
   {u16 16393}                               # tag
   {u16 0}                                   # flags
@@ -734,6 +786,132 @@ s_4001:
   04 00                                     # row 2 (#11)
   00 00                                     # row 3 (#12) absent
 s_4001.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FCOL.assignee (0x4002)
+s_4002:
+  {u32 8}                                   # field_sym `assignee`
+  {u32 4}                                   # n
+  {u32 0}                                   # n_vals
+  07                                        # vtype
+  00                                        # form
+  04                                        # elem_w
+  00                                        # _reserved
+  0f                                        # absent bitmap: no row holds the field ([F09 §10.1])
+  00 00 00 00 00 00 00                      # zero to a multiple of 8
+  00 00 00 00                               # row 0 (#1) absent
+  00 00 00 00                               # row 1 (#6) absent
+  00 00 00 00                               # row 2 (#11) absent
+  00 00 00 00                               # row 3 (#12) absent
+s_4002.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FCOL.metric (0x4003)
+s_4003:
+  {u32 20}                                  # field_sym `metric`
+  {u32 4}                                   # n
+  {u32 0}                                   # n_vals
+  07                                        # vtype
+  00                                        # form
+  04                                        # elem_w
+  00                                        # _reserved
+  0f                                        # absent bitmap: no row holds the field ([F09 §10.1])
+  00 00 00 00 00 00 00                      # zero to a multiple of 8
+  00 00 00 00                               # row 0 (#1) absent
+  00 00 00 00                               # row 1 (#6) absent
+  00 00 00 00                               # row 2 (#11) absent
+  00 00 00 00                               # row 3 (#12) absent
+s_4003.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FCOL.local_id (0x4004)
+s_4004:
+  {u32 25}                                  # field_sym `local_id`
+  {u32 4}                                   # n
+  {u32 0}                                   # n_vals
+  07                                        # vtype
+  00                                        # form
+  04                                        # elem_w
+  00                                        # _reserved
+  0f                                        # absent bitmap: no row holds the field ([F09 §10.1])
+  00 00 00 00 00 00 00                      # zero to a multiple of 8
+  00 00 00 00                               # row 0 (#1) absent
+  00 00 00 00                               # row 1 (#6) absent
+  00 00 00 00                               # row 2 (#11) absent
+  00 00 00 00                               # row 3 (#12) absent
+s_4004.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FCOL.severity (0x4005)
+s_4005:
+  {u32 26}                                  # field_sym `severity`
+  {u32 4}                                   # n
+  {u32 0}                                   # n_vals
+  05                                        # vtype
+  00                                        # form
+  02                                        # elem_w
+  00                                        # _reserved
+  0f                                        # absent bitmap: no row holds the field ([F09 §10.1])
+  00 00 00 00 00 00 00                      # zero to a multiple of 8
+  00 00                                     # row 0 (#1) absent
+  00 00                                     # row 1 (#6) absent
+  00 00                                     # row 2 (#11) absent
+  00 00                                     # row 3 (#12) absent
+s_4005.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FCOL.f_kind (0x4006)
+s_4006:
+  {u32 27}                                  # field_sym `f_kind`
+  {u32 4}                                   # n
+  {u32 0}                                   # n_vals
+  05                                        # vtype
+  00                                        # form
+  02                                        # elem_w
+  00                                        # _reserved
+  0f                                        # absent bitmap: no row holds the field ([F09 §10.1])
+  00 00 00 00 00 00 00                      # zero to a multiple of 8
+  00 00                                     # row 0 (#1) absent
+  00 00                                     # row 1 (#6) absent
+  00 00                                     # row 2 (#11) absent
+  00 00                                     # row 3 (#12) absent
+s_4006.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FCOL.round (0x4007)
+s_4007:
+  {u32 29}                                  # field_sym `round`
+  {u32 4}                                   # n
+  {u32 0}                                   # n_vals
+  02                                        # vtype
+  00                                        # form
+  08                                        # elem_w
+  00                                        # _reserved
+  0f                                        # absent bitmap: no row holds the field ([F09 §10.1])
+  00 00 00 00 00 00 00                      # zero to a multiple of 8
+  00 00 00 00 00 00 00 00                   # row 0 (#1) absent
+  00 00 00 00 00 00 00 00                   # row 1 (#6) absent
+  00 00 00 00 00 00 00 00                   # row 2 (#11) absent
+  00 00 00 00 00 00 00 00                   # row 3 (#12) absent
+s_4007.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FCOL.outcome (0x4008)
+s_4008:
+  {u32 31}                                  # field_sym `outcome`
+  {u32 4}                                   # n
+  {u32 0}                                   # n_vals
+  05                                        # vtype
+  00                                        # form
+  02                                        # elem_w
+  00                                        # _reserved
+  0f                                        # absent bitmap: no row holds the field ([F09 §10.1])
+  00 00 00 00 00 00 00                      # zero to a multiple of 8
+  00 00                                     # row 0 (#1) absent
+  00 00                                     # row 1 (#6) absent
+  00 00                                     # row 2 (#11) absent
+  00 00                                     # row 3 (#12) absent
+s_4008.e:
 {align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
 
 # === section FCOL.phase_state (0x4009)

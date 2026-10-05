@@ -15,7 +15,7 @@
 //!
 //! | Module | Contents | Specification |
 //! |---|---|---|
-//! | [`bugs`] | [`Bug`], [`Bugs`], the catalogue [`CATALOGUE`], the open E4 items [`OPEN`] | [F16 §17] |
+//! | [`bugs`] | [`Bug`], [`Bugs`], the catalogue [`CATALOGUE`] (the specification's cells verbatim) | [F16 §17] |
 //! | [`config`] | [`Config`], the test and production profiles, [`commit_size`] | [F17 §3, §12], [60 §5.2] item 2 |
 //! | [`codec`] | little-endian and LEB128 codecs, XXH3 | [F01 §5.2, §7.1] |
 //! | [`format`] | `RecHdr`, groups and the chain, record validity, payloads, the extent head | [F05 §3–§9] |
@@ -25,12 +25,12 @@
 //! | [`ops`] | [`Op`] and its records; decisions, allocation, the HLC | [F16 §5.1–§5.2, §5.6] |
 //! | [`write`] | phases 2a and 2b, phase 3 ([`Toy::maintain`]), the publish, the durable publish, flags and `config_gen` | [F16 §5, §9] |
 //! | [`recover`] | boot-change recovery, adoption, the recovering writer | [F16 §10] |
-//! | [`maint`] | checkpoints, the barrier, deletion, spares, quiet bytes, `repair` of a damaged segment | [F16 §11, §12], [F03 §3.1], [80 §2.5] rule 8 |
-//! | [`repair`] | `repair` of a store with no valid `HEAD` slot, from the extent heads | [F16] P-85, [F15] OP-1 |
+//! | [`maint`] | checkpoints, the barrier, deletion, spares, quiet bytes, `doctor --fsck`, plain `repair` (a damaged segment, and `HEAD` through [`repair`]), `doctor --verify`'s replay of the log | [F16 §11, §12], P-85, [F03 §3.1], [80 §2.5] rule 8, [F16 §17.2] |
+//! | [`repair`] | `repair` of a store with no valid or a fatal `HEAD` slot, from the extent heads | [F16] P-85, [F04 §7], [F15] OP-1 |
 //! | [`intent`] | `file mv`, `file rm`, intent slots and anchors, intent recovery | [F16 §13.1], [40 §3.4, §3.5] |
 //! | [`init`](mod@init) | [`init()`](fn@init) | [F16 §13.7] |
 //! | [`lock`] | the lock client and the in-process record of the lock-layer bugs | [OS/lock], [F16 §17.4] |
-//! | [`tap`] | protocol notes for the trace predicates | [F13 §1.4] |
+//! | [`tap`] | protocol notes for the enumerator's checks | [F13 §1.4], [F16 §17.2] |
 //! | [`verify`](mod@verify) | [`verify()`](fn@verify): the model checks over the raw facts | [F13 §3], [F16 §17.2] |
 
 #![forbid(unsafe_code)]
@@ -53,7 +53,7 @@ pub mod tap;
 pub mod verify;
 pub mod write;
 
-pub use bugs::{Bug, BugInfo, Bugs, CATALOGUE, N_BUGS, OPEN};
+pub use bugs::{Bug, BugInfo, Bugs, CATALOGUE, N_BUGS};
 pub use config::{Config, commit_size};
 pub use init::init;
 pub use intent::{DONE_TAG, FileOp, Live, file_name};
@@ -61,8 +61,8 @@ pub use lock::ProcLocks;
 pub use maint::Checkpointed;
 pub use ops::{ClaimOp, CommitOp, ForkOp, ORPHANS_BASE, Op, PROBE_REF, ReleaseOp, RuntimeOp};
 pub use state::{MAIN, State};
-pub use store::{Toy, ToyError, View};
-pub use tap::{NoTap, Note, PublishNote, Step, Tap};
+pub use store::{Replay, Toy, ToyError, View};
+pub use tap::{NoTap, Note, StoreFile, Tap};
 pub use verify::verify;
 pub use write::Done;
 

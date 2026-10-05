@@ -1,6 +1,7 @@
-//! Path rules of FL-1: P5 portability ([OS/path §8.2]) and the equivalences built on P6's `fold_v1` and on canonical
-//! equivalence ([F20 §3.3]–[F20 §3.6]): fold siblings, fold equivalents, twin-candidate groups, twin sets and the
-//! collision kind. Every function is pure: stat results and file identities are data the caller passes in.
+//! Path rules of FL-1: P5 portability ([OS/path §8.2]), representability on each supported OS ([OS/path §8.1]) and
+//! the equivalences built on P6's `fold_v1` and on canonical equivalence ([F20 §3.3]–[F20 §3.6]): fold siblings, fold
+//! equivalents, twin-candidate groups, twin sets and the collision kind. Every function is pure: stat results and file
+//! identities are data the caller passes in.
 //!
 //! Where the rules P1–P12 of [OS/path §3] ([80 §2.10], frozen by X-F7 and X-F9) live, per [OS/path §1]:
 //!
@@ -9,9 +10,10 @@
 //! | P1, P4 (stored-path grammar, refused names) | `moirai-vfs` (`RelPath`, `EntryName`) |
 //! | P2, P7 (git's spelling; `origin_path`) | the link layer (M6) over the git reader (M4) |
 //! | P3 (NFC of untracked names on normalization-insensitive volumes) | here, in the port phase: [OS/path §3] marks it "`moirai-files` (port)", and its function is git's precomposition ([OS/path] open point 2), tested against git on APFS |
-//! | P5 (portable names) | here: [`portable_issues`] |
+//! | P5 (portable names) | here: [`portable_issues`]; and [`representable`] for every OS ([OS/path §8.1]), which `moirai-os::path::representable_here` restates for the build OS |
 //! | P6 (`fold_v1`) | [`crate::fold`]; its uses ([F20 §3.3]) are here |
-//! | P8 (symlinks), P9 (canonical root), P10 (relative walks), P12 (`abs`) | `ProjectFs`, `moirai-os::path` |
+//! | P8 (symlinks) | `ProjectFs` reads the target text; its `oid` is [`crate::oid::blob_oid`] ([F20 §2.3]) |
+//! | P9 (canonical root), P10 (relative walks), P12 (`abs`) | `ProjectFs`, `moirai-os::path` |
 //! | P11 (a) query file names, (b) ref names, (c) store names | [F14 §7.2], [F12 §2], [F02 §6]; (b)'s device list is [`is_device_name`]. (b)'s `fold_v1` rule needs no fold call: a ref name is lower-case ASCII ([F12 §2]), so two ref names are equal under `fold_v1` exactly when their bytes are, and the refusal is a byte lookup of the live names |
 //!
 //! Orders are [F01 §6.6]'s path order (bytewise, a proper prefix first), which is `str`'s `Ord`; every list returned
@@ -24,6 +26,76 @@ pub const MAX_SEGMENT_BYTES: usize = 255;
 
 /// The characters Windows refuses in a name ([OS/path §8.2] `reserved-char`).
 pub const RESERVED_CHARS: [char; 7] = ['<', '>', ':', '"', '|', '?', '*'];
+
+/// The longest name each OS can hold, in its own unit ([OS/path §6] component limits, §8.1): UTF-16 code units on
+/// Windows (NTFS), bytes on Linux (`NAME_MAX`), UTF-8 bytes on macOS (APFS).
+pub const MAX_NAME_UNITS: usize = 255;
+
+/// An OS of [OS/path §8.1]'s table, named by its OS tag byte ([OS/proc §2], registry [F01 §3.2]).
+///
+/// [OS/path §11] types [`representable`]'s first argument as `moirai-vfs`'s `OsTag`. This crate may not depend on
+/// `moirai-vfs` (PLAN §2.2), so it names the three OSes itself with the same discriminants; a caller holding an
+/// `OsTag` converts with [`Os::from_tag`]. Tag 0 (`Unspecified`) and the reserved tags name no OS and have no row.
+#[repr(u8)]
+#[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
+pub enum Os {
+    /// Windows (tag 1).
+    Windows = 1,
+    /// Linux (tag 2).
+    Linux = 2,
+    /// macOS (tag 3).
+    MacOs = 3,
+}
+
+impl Os {
+    /// Every OS, in tag order.
+    pub const ALL: [Os; 3] = [Os::Windows, Os::Linux, Os::MacOs];
+
+    /// The OS of tag byte `tag`; `None` for 0 (`Unspecified`) and the reserved values 4–255.
+    pub const fn from_tag(tag: u8) -> Option<Os> {
+        match tag {
+            1 => Some(Os::Windows),
+            2 => Some(Os::Linux),
+            3 => Some(Os::MacOs),
+            _ => None,
+        }
+    }
+
+    /// The OS tag byte.
+    pub const fn tag(self) -> u8 {
+        self as u8
+    }
+}
+
+/// `representable(os, segment)` ([OS/path §8.1]): whether the OS `os` can hold a name. It decides `missing (not
+/// representable on this OS)` for a tracked path ([F18 §4.6] detail 44), and the resolver applies it, with the OS tag
+/// of the process, to every segment of every path before any OS call ([F20 §4.9]); `--allow-nonportable` never
+/// relaxes it.
+///
+/// | OS | A segment is representable iff |
+/// |---|---|
+/// | Windows | it is not a device name ([`is_device_name`], [OS/path §8.2]); does not end in `.` or ` `; contains none of [`RESERVED_CHARS`]; and is at most [`MAX_NAME_UNITS`] UTF-16 code units |
+/// | Linux | it is at most [`MAX_NAME_UNITS`] bytes |
+/// | macOS | it is at most [`MAX_NAME_UNITS`] UTF-8 bytes |
+///
+/// `/`, `\`, U+0000 and the C0 controls are excluded by P1 and P4 before this check, so the function does not test
+/// them. `moirai-os::path::representable_here(segment)` is `representable(<the build OS>, segment)` restated in
+/// `moirai-os`, which may not depend on this crate; the two are one rule ([OS/path §8.1]).
+///
+/// No allocation: a segment of at most 255 UTF-8 bytes has at most 255 UTF-16 code units, so only a longer one is
+/// counted.
+pub fn representable(os: Os, segment: &str) -> bool {
+    match os {
+        Os::Windows => {
+            device_name_stem(segment).is_none()
+                && !segment.ends_with(['.', ' '])
+                && !segment.contains(RESERVED_CHARS)
+                && (segment.len() <= MAX_NAME_UNITS
+                    || segment.encode_utf16().count() <= MAX_NAME_UNITS)
+        }
+        Os::Linux | Os::MacOs => segment.len() <= MAX_NAME_UNITS,
+    }
+}
 
 /// The stem of `segment` when it is a Windows device name ([OS/path §8.2] `device-name`, used by P11 (b) too): the
 /// part before the first `.`, trailing ASCII spaces removed, equal ignoring ASCII case to one of `CON`, `PRN`, `AUX`,
@@ -138,7 +210,7 @@ impl PortableIssues<'_, '_> {
 /// `siblings` are the names the segment's directory will hold **after** the operation, other than the segment itself
 /// (which may be among them; it is never its own sibling). A move's source name is therefore left out when source
 /// and destination share the directory: the case-only rename `file mv a.md A.md` has no `fold-sibling` issue,
-/// because `a.md` no longer exists once `A.md` does. [OS/path §8.2] does not say this yet (a spec finding of WP-61).
+/// because `a.md` no longer exists once `A.md` does.
 ///
 /// `fold_v1(segment)` is computed at most once, at the first sibling that differs from the segment bytewise; each
 /// sibling is compared with it as a stream, and an ASCII sibling without touching a table.
@@ -397,6 +469,76 @@ mod tests {
         assert_eq!(device_name_stem("lpt\u{B2}.txt"), Some("lpt\u{B2}"));
     }
 
+    /// The cases [OS/path §8.1] asks of both copies of the rule (this crate's and `moirai-os`'s): every device name of
+    /// §8.2 bare, with an extension and with trailing spaces before the extension, in two ASCII cases; a name ending in
+    /// `.` and one ending in ` `; each reserved character; a name of 255 and one of 256 UTF-16 code units, one pair
+    /// built from a supplementary-plane character (two units each). Linux and macOS count bytes only.
+    #[test]
+    fn representable_common_cases() {
+        let mut devices: Vec<String> = ["CON", "PRN", "AUX", "NUL", "CONIN$", "CONOUT$"]
+            .iter()
+            .map(|d| (*d).to_owned())
+            .collect();
+        for p in ["COM", "LPT"] {
+            devices.extend((0..10).map(|n| format!("{p}{n}")));
+            devices.extend(['\u{B9}', '\u{B2}', '\u{B3}'].map(|s| format!("{p}{s}")));
+        }
+        assert_eq!(devices.len(), 6 + 2 * 13);
+        for d in &devices {
+            for name in [d.clone(), format!("{d}.txt"), format!("{d}  .txt")] {
+                for spelled in [name.clone(), name.to_ascii_lowercase()] {
+                    assert!(!representable(Os::Windows, &spelled), "{spelled:?}");
+                    assert!(representable(Os::Linux, &spelled), "{spelled:?}");
+                    assert!(representable(Os::MacOs, &spelled), "{spelled:?}");
+                }
+            }
+        }
+        for n in ["notes.", "notes "] {
+            assert!(!representable(Os::Windows, n));
+            assert!(representable(Os::Linux, n) && representable(Os::MacOs, n));
+        }
+        for c in RESERVED_CHARS {
+            let n = format!("a{c}b");
+            assert!(!representable(Os::Windows, &n), "{n:?}");
+            assert!(representable(Os::Linux, &n) && representable(Os::MacOs, &n));
+        }
+        let a255 = "a".repeat(255);
+        let a256 = "a".repeat(256);
+        for os in Os::ALL {
+            assert!(representable(os, &a255));
+            assert!(!representable(os, &a256));
+        }
+        // U+1D11E: two UTF-16 units, four UTF-8 bytes.
+        let clef = '\u{1D11E}';
+        let units255 = format!("{}a", clef.to_string().repeat(127));
+        let units256 = clef.to_string().repeat(128);
+        assert_eq!(units255.encode_utf16().count(), 255);
+        assert_eq!(units256.encode_utf16().count(), 256);
+        assert!(representable(Os::Windows, &units255));
+        assert!(!representable(Os::Windows, &units256));
+        // 509 and 512 UTF-8 bytes: too long for Linux and macOS either way.
+        assert!(!representable(Os::Linux, &units255) && !representable(Os::MacOs, &units255));
+        // 128 × U+00E9: 128 UTF-16 units but 256 bytes.
+        let e256 = "\u{E9}".repeat(128);
+        assert!(representable(Os::Windows, &e256));
+        assert!(!representable(Os::Linux, &e256) && !representable(Os::MacOs, &e256));
+        for n in ["console", "com10.txt", "CON-1", "x.CON", "plan.md"] {
+            for os in Os::ALL {
+                assert!(representable(os, n), "{os:?} {n:?}");
+            }
+        }
+    }
+
+    #[test]
+    fn os_tags() {
+        for os in Os::ALL {
+            assert_eq!(Os::from_tag(os.tag()), Some(os));
+        }
+        assert_eq!(Os::ALL.map(Os::tag), [1, 2, 3], "[OS/proc §2]'s tag bytes");
+        assert_eq!(Os::from_tag(0), None, "Unspecified names no OS");
+        assert!((4..=255).all(|t| Os::from_tag(t).is_none()));
+    }
+
     #[test]
     fn each_issue_of_the_table() {
         let none: [&str; 0] = [];
@@ -644,6 +786,34 @@ mod tests {
             .prop_map(|v| v.into_iter().collect())
     }
 
+    /// Segments around every condition of [OS/path §8.1]: device stems, dots, spaces, reserved characters, and runs
+    /// of one-, two- and four-byte characters long enough to cross 255 units in each OS's measure.
+    fn os_segment() -> impl Strategy<Value = String> {
+        let piece = prop_oneof![
+            proptest::sample::select(vec![
+                "CON",
+                "com1",
+                "LPT\u{B3}",
+                "conout$",
+                "Nul",
+                ".",
+                " ",
+                ":",
+                "?",
+                "*",
+                "a",
+                "txt",
+                "\u{E9}",
+                "\u{1D11E}",
+            ])
+            .prop_map(str::to_owned),
+            (1usize..130).prop_map(|n| "b".repeat(n)),
+            (1usize..90).prop_map(|n| "\u{E9}".repeat(n)),
+            (1usize..70).prop_map(|n| "\u{1D11E}".repeat(n)),
+        ];
+        proptest::collection::vec(piece, 1..6).prop_map(|v| v.concat())
+    }
+
     proptest! {
         #![proptest_config(test_config(256))]
 
@@ -670,6 +840,28 @@ mod tests {
                 if !seen.contains(p) {
                     prop_assert!(fold_equivalents(p, refs.iter().copied()).is_empty());
                 }
+            }
+        }
+
+        /// [OS/path §8.1] against §8.2: Windows refuses exactly the device-name, trailing and reserved-character
+        /// issues and counts UTF-16 code units; Linux and macOS refuse exactly `too-long`. For an ASCII segment the
+        /// two units agree, so it is representable on Windows iff it has no issue (it has no sibling here).
+        #[test]
+        fn representable_agrees_with_portable_issues(seg in os_segment()) {
+            let none: [&str; 0] = [];
+            let issues = portable_issues(&seg, none);
+            let units = seg.encode_utf16().count();
+            prop_assert_eq!(
+                representable(Os::Windows, &seg),
+                issues.device_stem.is_none()
+                    && !issues.trailing_dot_or_space
+                    && issues.reserved_char.is_none()
+                    && units <= MAX_NAME_UNITS
+            );
+            prop_assert_eq!(representable(Os::Linux, &seg), !issues.too_long);
+            prop_assert_eq!(representable(Os::MacOs, &seg), !issues.too_long);
+            if seg.is_ascii() {
+                prop_assert_eq!(representable(Os::Windows, &seg), issues.is_empty());
             }
         }
 

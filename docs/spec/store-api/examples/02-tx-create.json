@@ -246,7 +246,7 @@
           },
           {
             "index": 2,
-            "text": "CREATE (ch:task {title: $p3}) UNDER api LAST",
+            "text": "CREATE (ch:task {title: $p3}) UNDER api",
             "matched": null,
             "targets": [
               "#2"
@@ -254,14 +254,30 @@
           },
           {
             "index": 3,
-            "text": "CREATE (ex:task {title: $p4}) UNDER api LAST",
+            "text": "MOVE ch UNDER api LAST",
+            "matched": null,
+            "targets": [
+              "#2"
+            ]
+          },
+          {
+            "index": 4,
+            "text": "CREATE (ex:task {title: $p4}) UNDER api",
             "matched": null,
             "targets": [
               "#3"
             ]
           },
           {
-            "index": 4,
+            "index": 5,
+            "text": "MOVE ex UNDER api LAST",
+            "matched": null,
+            "targets": [
+              "#3"
+            ]
+          },
+          {
+            "index": 6,
             "text": "CREATE (ch)-[:BLOCKS]->(ex)",
             "matched": null,
             "targets": [

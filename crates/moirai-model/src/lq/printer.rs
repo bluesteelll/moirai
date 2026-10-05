@@ -51,7 +51,7 @@ pub fn var(s: &str) -> String {
 
 /// A generic function name: back-quoted when unquoted it would be a keyword form or a refused name
 /// ([LQ/grammar-v1.ebnf §P.9], §R).
-fn fn_name(s: &str) -> String {
+pub fn fn_name(s: &str) -> String {
     const SPECIAL: [&str; 12] = [
         "all",
         "any",
@@ -74,18 +74,10 @@ fn fn_name(s: &str) -> String {
     }
 }
 
-/// A procedure name: segments split at `.`; a first segment that would be refused or read as `tx` is back-quoted.
+/// A procedure name: segments split at `.`, each plain where it can be. A back-quoted first segment is the same name
+/// ([LQ/lexical §9], spec sync 2b), so back-quoting `tx` or a refused prefix would not change how it reads.
 fn proc_name(s: &str) -> String {
-    let mut out = Vec::new();
-    for (i, seg) in s.split('.').enumerate() {
-        let l = seg.to_ascii_lowercase();
-        if i == 0 && ["apoc", "gds", "db", "dbms", "tx"].contains(&l.as_str()) {
-            out.push(backquote(seg));
-        } else {
-            out.push(plain(seg));
-        }
-    }
-    out.join(".")
+    s.split('.').map(plain).collect::<Vec<_>>().join(".")
 }
 
 /// A string literal in single quotes ([LQ/canonical-ast §3.4]).
@@ -1000,6 +992,7 @@ impl Printer {
                         DOpt::Policy(Policy::Restrict) => "POLICY RESTRICT".to_string(),
                         DOpt::Policy(Policy::Cascade) => "POLICY CASCADE".to_string(),
                         DOpt::Policy(Policy::Reparent) => "POLICY REPARENT".to_string(),
+                        DOpt::Policy(Policy::Reassign) => "POLICY REASSIGN".to_string(),
                         DOpt::Replaced(t) => format!("REPLACED BY {}", self.target(t)),
                         DOpt::Release => "RELEASE".to_string(),
                         DOpt::Reason(e) => format!("REASON {}", self.expr(e, 0)),
@@ -1113,13 +1106,14 @@ impl Printer {
                     }
                 };
                 let take = match &r.take {
-                    Take::Ours => "OURS".to_string(),
-                    Take::Theirs => "THEIRS".to_string(),
-                    Take::Base => "BASE".to_string(),
-                    Take::Value(e) => format!("VALUE {}", self.expr(e, 0)),
-                    Take::Repoint(t) => format!("REPOINT {}", self.target(t)),
+                    Take::Ours => "TAKE OURS".to_string(),
+                    Take::Theirs => "TAKE THEIRS".to_string(),
+                    Take::Base => "TAKE BASE".to_string(),
+                    Take::Value(e) => format!("TAKE VALUE {}", self.expr(e, 0)),
+                    Take::Repoint(t) => format!("TAKE REPOINT {}", self.target(t)),
+                    Take::Drop => "DROP".to_string(),
                 };
-                format!("RESOLVE {what} TAKE {take}")
+                format!("RESOLVE {what} {take}")
             }
             Stmt::Define(d) => format!(
                 "{} {{ {} }}",

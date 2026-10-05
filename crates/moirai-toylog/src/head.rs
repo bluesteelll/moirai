@@ -56,6 +56,9 @@ pub struct Slot {
     pub heads_lsn: u64,
     /// `markers_lsn`.
     pub markers_lsn: u64,
+    /// `image_cursor[4]` ([F04 §4.2], §5.11): the export cursors. A cache the toy never fills (it has no `GitMap`
+    /// records); a publish carries the base slot's entries unchanged, so the slot is written back byte for byte.
+    pub image_cursor: [ImageCursor; 4],
     /// `seq_ring`: (seq, lsn) per `seq mod 32`.
     pub seq_ring: [(u64, u64); 32],
     /// `init`.
@@ -64,6 +67,36 @@ pub struct Slot {
     pub epoch_lsn: u64,
     /// `project_oid_algo`.
     pub project_oid_algo: u8,
+}
+
+/// One `ImageCursor` entry ([F04 §4.2]): 10 bytes at `364 + 10·k`.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub struct ImageCursor {
+    /// `dest`: the destination number; 0 = empty entry.
+    pub dest: u8,
+    /// `algo`: 1 `sha1` or 2 `sha256`; 0 in an empty entry.
+    pub algo: u8,
+    /// `seq`: the greatest commit `seq` exported to (`dest`, `algo`).
+    pub seq: u64,
+}
+
+impl ImageCursor {
+    /// The empty entry: 10 zero bytes.
+    pub const EMPTY: ImageCursor = ImageCursor {
+        dest: 0,
+        algo: 0,
+        seq: 0,
+    };
+
+    /// The entry at `364 + 10·k` of a slot's bytes.
+    fn read(b: &[u8], k: usize) -> ImageCursor {
+        let at = 364 + 10 * k;
+        ImageCursor {
+            dest: b[at],
+            algo: b[at + 1],
+            seq: u64_le(b, at + 2),
+        }
+    }
 }
 
 /// How a slot reads ([F04 §7]).
@@ -106,6 +139,12 @@ impl Slot {
         b[340..348].copy_from_slice(&self.pins_lsn.to_le_bytes());
         b[348..356].copy_from_slice(&self.heads_lsn.to_le_bytes());
         b[356..364].copy_from_slice(&self.markers_lsn.to_le_bytes());
+        for (k, c) in self.image_cursor.iter().enumerate() {
+            let at = 364 + 10 * k;
+            b[at] = c.dest;
+            b[at + 1] = c.algo;
+            b[at + 2..at + 10].copy_from_slice(&c.seq.to_le_bytes());
+        }
         for (k, &(seq, lsn)) in self.seq_ring.iter().enumerate() {
             let at = 404 + 16 * k;
             b[at..at + 8].copy_from_slice(&seq.to_le_bytes());
@@ -142,7 +181,8 @@ impl Slot {
         }
         let flags = u16::from_le_bytes([b[6], b[7]]);
         let n = b[96] as usize;
-        // Check 4: reserved bytes.
+        let image_cursor: [ImageCursor; 4] = core::array::from_fn(|k| ImageCursor::read(b, k));
+        // Check 4: reserved bytes, and every empty `image_cursor` entry (`dest` 0) all zero.
         if flags & 0xFFF0 != 0
             || b[97..100].iter().any(|&x| x != 0)
             || b[916..1024].iter().any(|&x| x != 0)
@@ -150,7 +190,9 @@ impl Slot {
             || b[1096..4080].iter().any(|&x| x != 0)
             || n > 8
             || b[100 + 29 * n..332].iter().any(|&x| x != 0)
-            || b[364..404].iter().any(|&x| x != 0)
+            || image_cursor
+                .iter()
+                .any(|c| c.dest == 0 && *c != ImageCursor::EMPTY)
         {
             return SlotRead::Fatal("HEAD slot with a non-zero reserved byte");
         }
@@ -194,6 +236,7 @@ impl Slot {
             pins_lsn: u64_le(b, 340),
             heads_lsn: u64_le(b, 348),
             markers_lsn: u64_le(b, 356),
+            image_cursor,
             seq_ring,
             init: InitParams::from_bytes(&init),
             epoch_lsn: u64_le(b, 1056),
@@ -255,6 +298,18 @@ impl Slot {
         }
         if upto != self.checkpoint_lsn {
             return Some("HEAD slot whose checkpoint_lsn differs from its segments");
+        }
+        // Check 5: every non-empty image_cursor entry has dest ≥ 1 (non-empty means dest ≠ 0) and algo 1 or 2, and no
+        // two entries carry the same (dest, algo) ([F04 §4.2]).
+        for (k, x) in self.image_cursor.iter().enumerate() {
+            if x.dest != 0
+                && (!matches!(x.algo, 1 | 2)
+                    || self.image_cursor[..k]
+                        .iter()
+                        .any(|y| (y.dest, y.algo) == (x.dest, x.algo)))
+            {
+                return Some("HEAD slot with an invalid image_cursor entry");
+            }
         }
         // Check 4: an empty seq_ring entry (seq 0) is all zero; check 5: a non-empty entry k has seq mod 32 = k and seq
         // at most commit_seq.
@@ -352,6 +407,7 @@ pub(crate) mod tests {
             pins_lsn: 0,
             heads_lsn: 0,
             markers_lsn: 0,
+            image_cursor: [ImageCursor::EMPTY; 4],
             seq_ring: {
                 let mut r = [(0, 0); 32];
                 r[1] = (33, 200);
@@ -431,6 +487,43 @@ pub(crate) mod tests {
         let mut s = sample();
         s.seq_ring[2] = (34, 10);
         assert!(fatal(&s), "check 5: seq above commit_seq");
+    }
+
+    /// [F04 §4.2] and §7 checks 4–5: an empty `image_cursor` entry is 10 zero bytes; a non-empty one has `dest` ≥ 1,
+    /// `algo` 1 or 2 and no duplicate (`dest`, `algo`) pair, and it round-trips.
+    #[test]
+    fn image_cursor_entries_are_checked_by_their_rules() {
+        let cur = |dest, algo, seq| ImageCursor { dest, algo, seq };
+        let mut s = sample();
+        s.image_cursor = [
+            cur(1, 1, 30),
+            cur(1, 2, 31),
+            cur(2, 1, 5),
+            ImageCursor::EMPTY,
+        ];
+        assert_eq!(
+            Slot::read(&s.to_bytes()),
+            SlotRead::Valid(Box::new(s.clone()))
+        );
+        let mut bad = s.clone();
+        bad.image_cursor[3] = cur(0, 0, 9);
+        assert_eq!(
+            Slot::read(&bad.to_bytes()),
+            SlotRead::Fatal("HEAD slot with a non-zero reserved byte"),
+            "check 4: an empty entry with a seq"
+        );
+        bad.image_cursor[3] = cur(0, 1, 0);
+        assert!(fatal(&bad), "check 4: an empty entry with an algo");
+        bad.image_cursor[3] = cur(3, 3, 0);
+        assert_eq!(
+            Slot::read(&bad.to_bytes()),
+            SlotRead::Fatal("HEAD slot with an invalid image_cursor entry"),
+            "check 5: algo 3"
+        );
+        bad.image_cursor[3] = cur(3, 0, 0);
+        assert!(fatal(&bad), "check 5: algo 0 in a non-empty entry");
+        bad.image_cursor[3] = cur(1, 2, 40);
+        assert!(fatal(&bad), "check 5: a duplicate pair");
     }
 
     #[test]

@@ -7,9 +7,18 @@ use std::io::{self, Write};
 
 use crate::scan::Scan;
 
-/// The version of the record shape. It changes whenever a key, a value's meaning or an item rule changes. Format 2
-/// added the items' `ok` key (rule 8) and the `/ *`, `r #` and `\0` spellings of [`crate::canon`] step 3.
-pub const FORMAT: u32 = 2;
+/// The version of the source records' shape. It changes whenever a key of a source record, a value's meaning or an
+/// item rule changes. Format 2 added the items' `ok` key (rule 8) and the `/ *`, `r #` and `\0` spellings of
+/// [`crate::canon`] step 3; format 3 widened rule 8 to the errors that leave brackets unbalanced, which take every
+/// later item out of the claim. The `--version` record's keys are read by name, so adding one to it (as
+/// `manifest_dir` and `bin_manifest_dir` were) leaves the format as it is.
+pub const FORMAT: u32 = 3;
+
+/// The `CARGO_MANIFEST_DIR` the library was compiled with: the `moirai-tsoracle` crate directory of the work tree that
+/// compiled it (crate documentation, "Output": `manifest_dir`). Cargo does not track it: it fingerprints a workspace
+/// member by paths relative to the workspace root, so work trees that share a target directory share this library's
+/// compilation, and only this constant tells which tree it came from.
+pub const MANIFEST_DIR: &str = env!("CARGO_MANIFEST_DIR");
 
 /// The `tree-sitter` crate version this oracle is built and pinned with (`Cargo.lock`; `docs/m0/tools.md`).
 pub const TREE_SITTER: &str = "0.27.0";
@@ -46,13 +55,24 @@ pub fn write_record<W: Write>(w: &mut W, path: &str, scan: &Scan) -> io::Result<
 }
 
 /// Writes the `--version` record: `{"oracle":"moirai-tsoracle","format":…,"tree_sitter":…,"tree_sitter_rust":…,
-/// "language_abi":…}` and a line feed.
-pub fn write_version<W: Write>(w: &mut W, language_abi: usize) -> io::Result<()> {
-    writeln!(
+/// "language_abi":…,"manifest_dir":…,"bin_manifest_dir":…}` and a line feed (crate documentation, "Output").
+/// `manifest_dir` is [`MANIFEST_DIR`]; `bin_manifest_dir` is the `CARGO_MANIFEST_DIR` the binary's own compilation
+/// unit (`main.rs`) was compiled with, which the binary passes, because cargo may compile that unit in another work
+/// tree than the library it links.
+pub fn write_version<W: Write>(
+    w: &mut W,
+    language_abi: usize,
+    bin_manifest_dir: &str,
+) -> io::Result<()> {
+    write!(
         w,
         "{{\"oracle\":\"moirai-tsoracle\",\"format\":{FORMAT},\"tree_sitter\":\"{TREE_SITTER}\",\
-         \"tree_sitter_rust\":\"{TREE_SITTER_RUST}\",\"language_abi\":{language_abi}}}"
-    )
+         \"tree_sitter_rust\":\"{TREE_SITTER_RUST}\",\"language_abi\":{language_abi},\"manifest_dir\":"
+    )?;
+    write_str(w, MANIFEST_DIR)?;
+    w.write_all(b",\"bin_manifest_dir\":")?;
+    write_str(w, bin_manifest_dir)?;
+    w.write_all(b"}\n")
 }
 
 fn write_str<W: Write>(w: &mut W, s: &str) -> io::Result<()> {
@@ -122,14 +142,32 @@ mod tests {
 
     #[test]
     fn version_record_is_valid_json() {
+        let bin = r#"C:\work "tree"\crates\moirai-tsoracle"#;
         let mut out = Vec::new();
-        write_version(&mut out, 14).expect("writes to a Vec");
-        let v: serde_json::Value = serde_json::from_slice(&out).expect("valid JSON");
+        write_version(&mut out, 14, bin).expect("writes to a Vec");
+        let text = String::from_utf8(out).expect("UTF-8");
+        assert!(text.ends_with('\n') && !text[..text.len() - 1].contains('\n'));
+        let v: serde_json::Value = serde_json::from_str(&text).expect("valid JSON");
         assert_eq!(v["oracle"], "moirai-tsoracle");
-        assert_eq!(v["format"], 2);
+        assert_eq!(v["format"], 3);
         assert_eq!(v["tree_sitter"], super::TREE_SITTER);
         assert_eq!(v["tree_sitter_rust"], super::TREE_SITTER_RUST);
         assert_eq!(v["language_abi"], 14);
+        assert_eq!(v["manifest_dir"], env!("CARGO_MANIFEST_DIR"));
+        assert_eq!(v["manifest_dir"], super::MANIFEST_DIR);
+        assert_eq!(v["bin_manifest_dir"], bin);
+        let keys: Vec<&str> = v
+            .as_object()
+            .expect("an object")
+            .keys()
+            .map(String::as_str)
+            .collect();
+        assert_eq!(keys.len(), 7, "{keys:?}");
+        // The documented key order.
+        let at = |k: &str| text.find(&format!("\"{k}\":")).expect(k);
+        assert!(
+            at("language_abi") < at("manifest_dir") && at("manifest_dir") < at("bin_manifest_dir")
+        );
     }
 
     /// The pinned versions are the ones `Cargo.lock` resolves, so `--version` cannot drift from the build.

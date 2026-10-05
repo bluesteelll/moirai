@@ -382,7 +382,11 @@ The bytes after the header are the dictionary in the form HOLE(F10-dict-form) fi
 - **raw content** (option (1) of [90 §11.3] with a dictionary): plain bytes that `lz4_flex` blocks use as preceding history;
   at most 65,536 bytes ([AR §4.1] "≤ 64 KiB with LZ4");
 - **formatted zstd dictionary** (option (3)): a dictionary in the format of [RFC 8878] §5, beginning with its magic number,
-  whose `Dictionary_ID` equals D; 32–110 KiB ([AR §4.1]);
+  whose `Dictionary_ID` equals D; 32–110 KiB ([AR §4.1]). The upper bound is a validity rule (§9): at most 112,640 bytes,
+  which a reader's load budget relies on (§6.1, OP-10-15). The lower bound is the trainer's target size and informative:
+  a smaller trained dictionary is valid (spec sync 2b). *(Informative)* D ≥ 1, and a D of at most 32,767 (or of at least
+  2^31) lies in the ranges [RFC 8878] §5 reserves for dictionaries registered for public distribution; store
+  dictionaries are never distributed, which is the private use the RFC allows, so the reservation does not apply;
 - **absent**: no `dict` file exists ([F02 §5.1]), and no payload uses a dictionary codec.
 
 ### 6.3 Lifetime and naming
@@ -486,7 +490,7 @@ a process needs, `doctor --fsck` and `repair --rebuild-from-log` otherwise; a `b
 | file | open checks (before mapping or use) | full checks (`doctor --fsck`, the oracle, a merge reading it) |
 |---|---|---|
 | `hist`, `blobs` | V-1 to V-8 of [F09 §17.1]; exactly the sections of §4.3 or §5.2 | V-9, V-10; `HFRAMES` continuity, ascending disjoint frames, block tables summing to `FrameHdr`, `off` chaining, `n_records`/`n_commits` against the decoded records, `first_*`/`last_*` against them, `raw_xxh3`; `HCIDX` fan-out, order and completeness; `BLOBIDX` order and uniqueness, `off` chaining, every payload decodes (§3.2) and hashes to `hash` |
-| `dict` | magic; `total_len` against the file size; reserved bytes zero | `digest` (also checked at load, §6.1); the content is in the form HOLE(F10-dict-form) fixes |
+| `dict` | magic; `total_len` against the file size; reserved bytes zero | `digest` (also checked at load, §6.1); the content is in the form HOLE(F10-dict-form) fixes: raw content of at most 65,536 bytes, or a formatted dictionary of at most 112,640 bytes that begins with the [RFC 8878] §5 magic number and whose `Dictionary_ID` equals D (§6.2) |
 | `gitmap` | magic; `format` ([F01 §9.1]); `hdr_xxh3`; `algo` ∈ {1, 2}; `file_no` against the name; `total_len` = 1,072 + n × w and against the file size | `digest`; `fan` consistent with the entries; entries strictly ascending |
 | `cs` | as graph segments ([F09 §17.1]) | as graph segments |
 
@@ -585,3 +589,8 @@ A decode of a `hist` frame also checks `raw_xxh3` at run time; a mismatch is exi
   `ExtentHead` (kind 28, the first group of every extent, [F05 §4.5]; [F16] P-97), and §4.1 keeps it by the existing rule
   (every record but the rotation pad), as the first record of each retired extent; the chain value a dropped pad's
   trailer held is the next extent's `ExtentHead.chain_in`. No byte of this chapter changes.
+- **OP-10-20 (spec sync 2b, WP-20).** [AR §4.1]'s "32–110 KiB" for a formatted dictionary was stated neither as a rule nor
+  as informative. The upper bound is now a full check (§9), since the load budget of §6.1 and OP-10-15 relies on it; the
+  lower bound stays the trainer's target, because no reader depends on it and a rule would make a store whose corpus
+  trains a smaller dictionary invalid. An informative note records that a small D falls in [RFC 8878] §5's registered
+  range, which does not apply to dictionaries that are never distributed (§6.2).

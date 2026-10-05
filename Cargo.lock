@@ -264,6 +264,9 @@ version = "0.0.0"
 dependencies = [
  "blake3",
  "proptest",
+ "sha1",
+ "sha2",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -280,10 +283,14 @@ dependencies = [
 name = "moirai-probes"
 version = "0.0.0"
 dependencies = [
+ "blake3",
  "moirai-harness-stub",
  "moirai-tokcount",
  "moirai-toylog",
  "moirai-vfs",
+ "proptest",
+ "serde_json",
+ "xxhash-rust",
 ]
 
 [[package]]
@@ -301,7 +308,8 @@ name = "moirai-replay"
 version = "0.0.0"
 dependencies = [
  "moirai-files",
- "moirai-model",
+ "proptest",
+ "serde_json",
 ]
 
 [[package]]

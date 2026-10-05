@@ -56,19 +56,42 @@ pub fn effective(
 /// block of more statements, or whose net changeset has more ops, is refused with E501 naming the split. The model
 /// counts one op per changed key of the net changeset ([AR §4.6] "Net changeset = state diff").
 // spec: [CFG §10.5] tx.max-statements, tx.max-ops
+///
+/// The texts and keys are [LQ/errors §5.4] and §5.7's (spec sync 2b): `budget: the block has <n> statements; the cap is
+/// <N> (tx.max-statements)` with `budget` = `{"statements":<n>,"statements_limit":<N>}`, and `budget: the block writes
+/// more than <N> ops (tx.max-ops)` with `budget` = `{"ops":<n>,"ops_limit":<N>}`, `<n>` the count when the cap was
+/// passed (N + 1 for the ops, which are counted until the cap is passed); both close with `nothing was written`.
 pub fn check_caps(max_statements: u64, max_ops: u64, statements: u64, ops: u64) -> Res<()> {
+    use crate::err::Kv;
+    let int = |n: u64| Kv::Int(i64::try_from(n).unwrap_or(i64::MAX));
     if statements > max_statements {
         return Err(Refusal::lq(
             "E501",
             format!(
-                "the block has {statements} statements (tx.max-statements {max_statements}); split the block"
+                "budget: the block has {statements} statements; the cap is {max_statements} (tx.max-statements); nothing was written"
             ),
+        )
+        .key(
+            "budget",
+            Kv::Obj(vec![
+                ("statements".into(), int(statements)),
+                ("statements_limit".into(), int(max_statements)),
+            ]),
         ));
     }
     if ops > max_ops {
         return Err(Refusal::lq(
             "E501",
-            format!("the block writes {ops} ops (tx.max-ops {max_ops}); split the block"),
+            format!(
+                "budget: the block writes more than {max_ops} ops (tx.max-ops); nothing was written"
+            ),
+        )
+        .key(
+            "budget",
+            Kv::Obj(vec![
+                ("ops".into(), int(max_ops.saturating_add(1))),
+                ("ops_limit".into(), int(max_ops)),
+            ]),
         ));
     }
     Ok(())
@@ -77,6 +100,30 @@ pub fn check_caps(max_statements: u64, max_ops: u64, statements: u64, ops: u64) 
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// E501 of the caps carries `budget` ([LQ/errors §5.7], spec sync 2b).
+    #[test]
+    fn the_caps_name_their_budget() {
+        use crate::err::Kv;
+        assert!(check_caps(10, 10, 10, 10).is_ok());
+        let e = check_caps(10, 10, 12, 0).unwrap_err();
+        assert_eq!(e.code, "E501");
+        assert_eq!(
+            e.get("budget"),
+            Some(&Kv::Obj(vec![
+                ("statements".into(), Kv::Int(12)),
+                ("statements_limit".into(), Kv::Int(10)),
+            ]))
+        );
+        let e = check_caps(10, 10, 1, 40).unwrap_err();
+        assert_eq!(
+            e.get("budget"),
+            Some(&Kv::Obj(vec![
+                ("ops".into(), Kv::Int(11)),
+                ("ops_limit".into(), Kv::Int(10)),
+            ]))
+        );
+    }
 
     #[test]
     fn budgets_take_the_request_up_to_the_role_ceiling() {

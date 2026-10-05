@@ -1,4 +1,4 @@
-# fixtures/lq/cases/json-ir.cases: the JSON IR of [LQ/json-ir] (WP-22, R-FIX): IR documents as input (the '%% input'
+# fixtures/lq/cases/json-ir.cases: the JSON IR of [LQ/json-ir] (WP-22, R-FIX): IR documents as input (the '%% input-json'
 # block is the document; '%% entry' follows its root, [LQ/json-ir §2] item 1), the S-AST each denotes, the output
 # form of §8, and the refusals of §5. An IR error is located by the JSON Pointer of the offending value (§5.3):
 # '%% error <code> ptr <pointer> spec|conv'; its line and col follow from the pointer and the document text.
@@ -10,7 +10,7 @@
 %% source §8
 %% entry read
 %% note The output form prints the optional limit as an object: shorthands are used only outside optional fields (§8 rule 4).
-%% input
+%% input-json
 {"t": "read",
  "query": {"t": "query", "parts": [
   {"t": "part",
@@ -45,7 +45,7 @@
 %% source §8
 %% entry define
 %% note A pdecl default is an optional field, so the output form writes the int 3 as an object.
-%% input
+%% input-json
 {"t": "define", "name": "stale_blockers",
  "params": [{"t": "pdecl", "name": "scope", "type": {"t": "ptype", "name": "node"},
              "default": {"t": "uid", "hex": "018f3c2e7a117b3c9d5e4c2f1a0b9e09"}},
@@ -91,7 +91,7 @@
 %% source §2 item 2
 %% entry write
 %% note lq 1 on the root is accepted; the output form of this tree is design-blocks.cases q18's json-ir.
-%% input
+%% input-json
 {"lq": 1, "t": "tx",
  "on": {"t": "rref", "name": "lane/l5np"},
  "key": "wf:r7/dev1/complete-89",
@@ -122,7 +122,7 @@
 %% case ir-q5
 %% source [LQ/json-ir §7] Q5
 %% entry read
-%% input
+%% input-json
 {"t": "read",
  "query": {"t": "query", "parts": [
   {"t": "part",
@@ -145,7 +145,7 @@
 %% case ir-q13
 %% source [LQ/json-ir §7] Q13
 %% entry read
-%% input
+%% input-json
 {"t": "read",
  "query": {"t": "query", "parts": [
   {"t": "part",
@@ -163,7 +163,7 @@
 %% source J-4
 %% entry read
 %% note A string is str; an integer int (with '-', neg of it); a number with a fraction or exponent a float keeping its text; an array a list.
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":["x", -2, 1.50, 2e3, [1, true, null], {"t": "str", "v": "y"}]}]}}]}}
 %% sast
 (read run (query [(part _ []
@@ -176,7 +176,7 @@
 %% source [LQ/json-ir §3.4]
 %% entry read
 %% note In an optional field null means absent; the NULL literal there is written {"t": "null"}.
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":{"t": "case", "whens": [{"t": "when", "cond": true, "then": 1}], "else": {"t": "null"}}}]}}]}}
 %% sast
 (read run (query [(part _ [] (return false false [(item (case _ [(when (bool true) (int 1))] (null)) _)] [] [] _) _)] []))
@@ -185,7 +185,7 @@
 %% case ir-lq-2
 %% source [LQ/json-ir §2] item 2
 %% entry read
-%% input
+%% input-json
 {"lq":2,"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":1}]}}]}}
 %% error E001 ptr /lq spec
 %% end
@@ -193,7 +193,7 @@
 %% case ir-lq-inside
 %% source [LQ/json-ir §2] item 2
 %% entry read
-%% input
+%% input-json
 {"t":"read","query":{"lq":1,"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":1}]}}]}}
 %% error E001 ptr /query/lq spec
 %% end
@@ -201,7 +201,7 @@
 %% case ir-unknown-key
 %% source [LQ/json-ir §2] item 6
 %% entry read
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":1}]}}]},"foo":1}
 %% error E001 ptr /foo spec
 %% end
@@ -210,7 +210,7 @@
 %% source [LQ/json-ir §2] item 6
 %% entry read
 %% note The pointer of a repeated key is not fixed (INDEX.md §4 G-7).
-%% input
+%% input-json
 {"t":"read","t":"read","query":{"t":"query","parts":[]}}
 %% error E001 *
 %% end
@@ -218,7 +218,7 @@
 %% case ir-int-with-fraction
 %% source [LQ/json-ir §5.1] step 3
 %% entry read
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":{"t":"nid","n":1.0}}]}}]}}
 %% error E001 ptr /query/parts/0/return/items/0/expr/n spec
 %% end
@@ -227,7 +227,7 @@
 %% source [LQ/json-ir §5.1] step 3
 %% source [LQ/lexical §8]
 %% entry read
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":{"t":"float","v":"1e999"}}]}}]}}
 %% error E003 ptr /query/parts/0/return/items/0/expr/v spec
 %% end
@@ -236,7 +236,7 @@
 %% source [LQ/json-ir §5.1] step 3
 %% source [LQ/lexical §8]
 %% entry read
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":{"t":"dur","v":"15250284453w"}}]}}]}}
 %% error E003 ptr /query/parts/0/return/items/0/expr/v spec
 %% end
@@ -245,17 +245,18 @@
 %% source [LQ/json-ir §5.1] steps 2 and 3
 %% source §6 nid
 %% entry read
-%% note The schema's minimum 1 refuses it at step 2 (E001) before step 3's range check (E003) is reached (spec finding F-10).
-%% input
+%% note The schema states no numeric range of nid (spec sync 2b, S2B-F-44), so step 2 passes and step 3 refuses the range
+%% note with E003, as the text parser does (F-10 settled).
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":{"t":"nid","n":0}}]}}]}}
-%% error E001 ptr /query/parts/0/return/items/0/expr/n spec
+%% error E003 ptr /query/parts/0/return/items/0/expr/n spec
 %% end
 
 %% case ir-revision-outside-revision-position
 %% source [LQ/json-ir §3.5]
 %% source J-5
 %% entry read
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":{"t":"rref","name":"main"}}]}}]}}
 %% error E001 ptr /query/parts/0/return/items/0/expr spec
 %% end
@@ -263,7 +264,7 @@
 %% case ir-smatch-without-expect
 %% source [LQ/json-ir §5.2]
 %% entry write
-%% input
+%% input-json
 {"t":"tx","stmts":[{"t":"smatch","patterns":[{"t":"path","start":{"t":"npat","var":"t"}}],"muts":[{"t":"mset","assigns":[{"t":"assign","target":{"t":"ident","name":"t"},"prop":"x","value":1}]}]}]}
 %% error E007 ptr /stmts/0 conv
 %% end
@@ -271,7 +272,7 @@
 %% case ir-empty-tx
 %% source [LQ/json-ir §5.2]
 %% entry write
-%% input
+%% input-json
 {"t":"tx","stmts":[]}
 %% error E009 ptr /stmts conv
 %% end
@@ -279,7 +280,7 @@
 %% case ir-cmp-null
 %% source [LQ/json-ir §5.2]
 %% entry read
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":{"t":"cmp","op":"=","l":{"t":"ident","name":"x"},"r":null}}]}}]}}
 %% error E118 ptr /query/parts/0/return/items/0/expr conv
 %% end
@@ -287,7 +288,7 @@
 %% case ir-props-null
 %% source [LQ/json-ir §5.2]
 %% entry read
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","clauses":[{"t":"match","patterns":[{"t":"path","start":{"t":"npat","var":"t","props":[{"t":"kv","key":"assignee","value":null}]}}]}],"return":{"t":"return","items":[{"t":"item","expr":{"t":"ident","name":"t"}}]}}]}}
 %% error E118 ptr /query/parts/0/clauses/0/patterns/0/start/props/0 conv
 %% end
@@ -296,7 +297,7 @@
 %% source [LQ/json-ir §5.2]
 %% entry read
 %% note Function names are matched ASCII-case-insensitively.
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":{"t":"fn","name":"TIMESTAMP"}}]}}]}}
 %% error E004 ptr /query/parts/0/return/items/0/expr conv
 %% end
@@ -304,7 +305,7 @@
 %% case ir-tx-call-in-read
 %% source [LQ/json-ir §5.2]
 %% entry read
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","call":{"t":"scall","proc":"Tx.complete"}}]}}
 %% error E006 ptr /query/parts/0/call conv
 %% end
@@ -312,7 +313,7 @@
 %% case ir-apoc-procedure
 %% source [LQ/json-ir §5.2]
 %% entry read
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","call":{"t":"scall","proc":"apoc.help"}}]}}
 %% error E004 ptr /query/parts/0/call conv
 %% end
@@ -320,7 +321,7 @@
 %% case ir-quant-min-above-max
 %% source [LQ/json-ir §5.2]
 %% entry read
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","clauses":[{"t":"match","patterns":[{"t":"path","start":{"t":"npat","var":"a"},"steps":[{"t":"estep","edge":{"t":"epat","dir":"right","types":["T"],"quant":{"t":"quant","min":3,"max":1}},"node":{"t":"npat","var":"b"}}]}]}],"return":{"t":"return","items":[{"t":"item","expr":{"t":"ident","name":"a"}}]}}]}}
 %% error E114 ptr /query/parts/0/clauses/0/patterns/0/steps/0/edge/quant conv
 %% end
@@ -330,7 +331,7 @@
 %% source [LQ/grammar-v1.ebnf §P.13]
 %% entry read
 %% note The 257th nested level (the 250th nested array; the root object is level 1, the expr array level 8) is refused while parsing, at its opening byte.
-%% input
+%% input-json
 {"t":"read","query":{"t":"query","parts":[{"t":"part","return":{"t":"return","items":[{"t":"item","expr":[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[[1]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]]}]}}]}}
 %% error E001 1:355 spec
 %% end

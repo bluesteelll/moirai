@@ -1199,8 +1199,8 @@ s_0102:
     {u32 0}                                 # _reserved
     {u64 0}                                 # from_lsn
     {u64 9284}                              # upto_lsn
-    {u64 2316}                              # total_len
-    83 11 69 cb 20 24 f5 98 00 50 56 dc 13 47 71 de  # digest16
+    {u64 2812}                              # total_len
+    9f bf dd 27 9a 7b d5 9b c4 31 86 a5 d2 24 76 3a  # digest16
   # row 1
     06                                      # file.family
     {u32 0}                                 # file.ref_id

@@ -373,9 +373,14 @@ login, no settings change.
 ## 10. Windows built-ins, other programs and deferred tools
 
 - **Windows:** 11, `ver` 10.0.26200.9457.
-- **`typeperf`:** `C:\Windows\System32\typeperf.exe`, built in (WP-51).
-- **WPR:** `C:\Windows\System32\wpr.exe` is present. A counters-only `.wprp` is checked in only if WP-51 needs WPR;
-  none is now.
+- **`typeperf`:** `C:\Windows\System32\typeperf.exe`, built in. WP-51 uses it in `cargo xtask loadrec` (the load
+  fixture's 18 counters) and in `moirai-probes-bin loadgen` (four of them, to replay and validate), both by its full
+  path below `%SystemRoot%` (`docs/spec/measurement-protocol.md` §9.1, §9.3, §9.4). On this laptop it reads every
+  counter by its English name; under heavy load it sometimes cannot add the Process object's IO counters, which the
+  recorder then keeps as missing values (§9.1), and it can take tens of seconds to print its first sample.
+- **WPR:** `C:\Windows\System32\wpr.exe` is present and unused. WP-51 does not need it: every counter of the fixture
+  is a performance counter typeperf reads, so no counters-only `.wprp` is checked in and no ETL file is written
+  (`docs/spec/measurement-protocol.md` §9.1).
 - **git:** 2.54.0.windows.1 (Git for Windows).
 - **VMMap:** not installed. The measurement 11 session (WP-52) installs it and records its version here.
 - **Codex:** not found on `PATH`. PLAN §2.4 names Codex 0.157; installing it and confirming the version are V9 items

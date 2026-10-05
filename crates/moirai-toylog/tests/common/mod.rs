@@ -1,38 +1,41 @@
 //! The toy log as the crash enumerator's subject (WP-40, E4): scenarios of processes and operations, the ledger of every
-//! effect they attempt, acknowledge and observe, and the recovery a crash or a death is followed by.
+//! effect they attempt, acknowledge, observe and refuse, and the recovery a crash or a death is followed by.
 //!
 //! Every scenario runs the toy with the seeded bugs its subject names; with none it must pass every dimension of the
 //! enumerator (the toy follows [F16]), and with one bug on the enumerator must report a violation of that bug's class.
 //!
-//! The enumerator's own verdicts (the ledger's first read and recovered state, the simulator's protocol-violation
-//! checks) are R-HARN-S's. Every check the subject adds to them is in [`checks`], whose header states their authorship
-//! under PLAN §3.1 S4 and its open disposition (WP-40 review, finding 2); this file only runs the scenarios, feeds the
-//! ledger and calls those checks and the toy's own `doctor --verify`.
+//! The verdicts are the enumerator's (`moirai_vfs_sim::enumerate`, R-HARN-S; PLAN §3.1 S4, [F13 §1.4], [F16 §17.2]):
+//! ack, fresh, chain, avail, trace and ns. This file feeds them — the ledger's operations, observations with their
+//! group's position, the identity bytes of acknowledged groups, typed refusals with the store files they concern
+//! ([`refused_of`]), namespace expectations and setup faults; the slot decoder and the protocol notes of
+//! [`checks::SimTap`]; a recovery whose refusals are typed and whose
+//! diagnosis says which damaged files the recovered state references — and adds only what the S4 disposition leaves the
+//! subject ([`checks`]): `doctor --verify`, the read visibility of [`checks::ReadWatch`] and the kept-view check of
+//! [`checks::KeptWatch`]. The recovery answers a
+//! refusal that the operator's `repair` answers with `repair` and reports it ([`Recovered::answered`]), and the
+//! enumerator judges whether the run's faults explain it.
 #![allow(dead_code)]
 
-mod checks;
+pub mod checks;
 
 use std::collections::{BTreeMap, BTreeSet};
 use std::path::{Path, PathBuf};
 use std::sync::{Arc, Mutex, PoisonError};
 
+use moirai_toylog::head::{Slot, SlotRead};
+use moirai_toylog::store::sealed_name;
 use moirai_toylog::{
     Bugs, ClaimOp, CommitOp, Config, DONE_TAG, FileOp, ForkOp, MAIN, Op, PROBE_REF, ProcLocks,
     ReleaseOp, RuntimeOp, State, Toy, ToyError, file_name, init::image, verify,
 };
-use moirai_vfs::{ProcHost, RootAccess, RootRole, StoreFs};
+use moirai_vfs::{RootAccess, RootRole, StoreFs};
 use moirai_vfs_sim::enumerate::{
-    Class, EffectKey, EffectKind, EffectSet, EffectWrite, Ledger, Recovered, Subject,
+    BootMode, Class, Diagnosis, EffectKey, EffectKind, EffectSet, EffectWrite, Ledger, Protocol,
+    Recovered, Refusal, Refused, SlotDecode, SlotView, Subject,
 };
-use moirai_vfs_sim::{
-    CrashPlan, Event, FaultRates, SimConfig, SimVfs, SimWorld, TaskEnd, VolumeProfile,
-};
+use moirai_vfs_sim::{CrashPlan, FaultRates, SimConfig, SimVfs, SimWorld, TaskEnd, VolumeProfile};
 
-use checks::{
-    AckedGroup, Found, ReadWatch, SimTap, T_TASK, chain_breaks, head_may_be_damaged,
-    intent_namespace, ns_location, outcome_unknown, read_all, reader_refusal, trace_violations,
-    uncovered,
-};
+use checks::{Found, KeptWatch, ReadWatch, SimTap, TrashPending, ns_location, read_all};
 
 /// The store directory.
 pub const STORE: &str = "/sim/store";
@@ -264,7 +267,6 @@ pub struct Scenario {
     pub phases: Vec<Phase>,
     pub tracked_refs: Vec<u64>,
     pub rates: FaultRates,
-    pub trace: bool,
     /// The store is created by `init` in the workload's first process (P-24, P-88).
     pub init_in_workload: bool,
     /// Virtual time per scheduling point, in ns (the simulator's `tick_ns`).
@@ -275,12 +277,15 @@ pub struct Scenario {
     /// The boot mode of the recovery's first reader: Known (it runs boot-change recovery before it reads after a crash,
     /// [F16] P-60, P-66) or, when `false`, Unknown-boot mode (it reads by the validity rules alone, [OS/proc §5] U2, U5).
     pub reader_known: bool,
-    /// A setup-injected state: the newest `HEAD` slot of the prefilled store passes its checksum and fails validity (a
+    /// A setup-injected state: the newest `HEAD` slot of the prefilled store is rewritten, checksum included, by an
+    /// external actor ([F15] FM-10.1, which allows any bytes) with a slot that passes its checksum and fails validity (a
     /// writer defect, [F04 §7] check 5). Every process then exits 7 naming `HEAD` ([F16] P-61), which the harness accepts
-    /// as correct, and the operator's remedy is `repair`, which rebuilds both slots from the log ([F16] P-85).
+    /// as correct, and the operator's remedy is `repair`, which rebuilds both slots from the log ([F16] P-85, spec sync
+    /// 2b S2B-P-28, S2B-P-40).
     pub fatal_slot: bool,
-    /// A setup-injected extent file beside the prefilled store's own ([`Stray`]); with [`Scenario::fatal_slot`] every
-    /// recovery runs `repair`, whose rebuilt state must not take it in.
+    /// A setup-injected extent file beside the prefilled store's own ([`Stray`]), an external actor's write ([F15]
+    /// FM-10.1); with [`Scenario::fatal_slot`] every recovery answers the refusal with `repair` of `HEAD` (P-85 step 2),
+    /// whose rebuilt state must not take it in (spec sync 2b S2B-P-42, S2B-P-43).
     pub stray: Option<Stray>,
 }
 
@@ -296,7 +301,6 @@ impl Scenario {
             phases: Vec::new(),
             tracked_refs: vec![MAIN],
             rates: FaultRates::default(),
-            trace: true,
             init_in_workload: false,
             tick_ns: 1_000,
             prefill: Vec::new(),
@@ -307,11 +311,13 @@ impl Scenario {
     }
 }
 
-/// A prefilled store: its files and the ledger calls its operations made.
+/// A prefilled store: its files, the ledger calls its operations made, and what they acknowledged.
 #[derive(Clone, Debug, Default)]
 pub struct Prefilled {
     pub files: Vec<(PathBuf, Vec<u8>)>,
     pub entries: Vec<Entry>,
+    /// The acknowledged commit ops ([`Shared::commits`]).
+    pub commits: BTreeSet<u64>,
 }
 
 /// The toy with a scenario and its seeded bugs.
@@ -340,12 +346,11 @@ impl ToySubject {
     }
 }
 
-/// What the processes of one run share outside the store: the acknowledged groups (for the readers' freshness check and
-/// the doctor's chain check).
+/// What the processes of one run share outside the store: the acknowledged commits and lazy rows, for the readers'
+/// visibility check ([`ReadWatch`]). A workload over a prefilled store starts with the prefill's acknowledged commits:
+/// they were acknowledged before any reader of the workload began (I-G2).
 #[derive(Default)]
 pub struct Shared {
-    /// Acknowledged operations: their durable groups.
-    pub acked: Mutex<Vec<AckedGroup>>,
     /// Acknowledged commit ops.
     pub commits: Mutex<BTreeSet<u64>>,
     /// Acknowledged lazy runtime rows (key, value); every key is written once.
@@ -422,8 +427,8 @@ fn project_dirs() -> Vec<PathBuf> {
 // ---------------------------------------------------------------------------------------------------------------------
 // Running the acts
 
-/// Where the runner reports what it attempts, acknowledges and observes: the enumerator's ledger, or a record that a
-/// prefill replays into the ledger of every run it seeds ([`ToySubject::setup`]).
+/// Where the runner reports what it attempts, acknowledges, observes and refuses: the enumerator's ledger, or a record
+/// that a prefill replays into the ledger of every run it seeds ([`ToySubject::setup`]).
 #[derive(Clone)]
 pub enum Sink {
     Ledger(Ledger),
@@ -434,24 +439,48 @@ pub enum Sink {
 #[derive(Clone, Debug)]
 pub enum Entry {
     Begin(u64, Class, Vec<EffectWrite>),
+    /// [`Ledger::begin_kept_in_head`].
+    BeginKeptInHead(u64, Vec<EffectWrite>),
     Ack(u64),
     Observe(EffectKey, Option<u64>),
+    /// [`Ledger::observe_covered`]: the key, the value, the end of its group and the reader's slot's `durable_lsn`.
+    ObserveCovered(EffectKey, Option<u64>, u64, u64),
     Fail(String),
+    /// [`Ledger::refused`]: who refused, and why.
+    Refused(String, Refused),
+    /// [`Ledger::group_bytes`]: the operation, the file, the offset and the bytes.
+    GroupBytes(u64, PathBuf, u64, Vec<u8>),
 }
 
 impl Sink {
     fn push(&self, e: Entry) {
         match (self, e) {
             (Sink::Ledger(l), Entry::Begin(op, class, writes)) => l.begin(op, class, &writes),
+            (Sink::Ledger(l), Entry::BeginKeptInHead(op, writes)) => {
+                l.begin_kept_in_head(op, &writes);
+            }
             (Sink::Ledger(l), Entry::Ack(op)) => l.ack(op),
             (Sink::Ledger(l), Entry::Observe(k, v)) => l.observe(k, v),
+            (Sink::Ledger(l), Entry::ObserveCovered(k, v, end, durable)) => {
+                l.observe_covered(k, v, end, durable);
+            }
             (Sink::Ledger(l), Entry::Fail(m)) => l.fail(m),
+            (Sink::Ledger(l), Entry::Refused(who, r)) => l.refused(&who, r),
+            (Sink::Ledger(l), Entry::GroupBytes(op, path, offset, bytes)) => {
+                l.group_bytes(op, &path, offset, &bytes);
+            }
             (Sink::Record(r), e) => lock(r).push(e),
         }
     }
 
     pub fn begin(&self, op: u64, class: Class, writes: &[EffectWrite]) {
         self.push(Entry::Begin(op, class, writes.to_vec()));
+    }
+
+    /// A durable publish whose effects are fields kept only in `HEAD` ([F04 §6], [F15 §3.3] FM-3.6 "Fields kept only in
+    /// `HEAD`"; spec sync 2b S2B-P-14): acknowledged only after its `HEAD` flush returned.
+    pub fn begin_kept_in_head(&self, op: u64, writes: &[EffectWrite]) {
+        self.push(Entry::BeginKeptInHead(op, writes.to_vec()));
     }
 
     pub fn ack(&self, op: u64) {
@@ -462,9 +491,98 @@ impl Sink {
         self.push(Entry::Observe(key, value));
     }
 
+    /// A value read from the log tail, from a group ending at `group_end`, by a reader whose slot had `durable_lsn`
+    /// ([F16 §17.2] fresh: a reader never sees a durable group no flush has covered, [F16] P-49, P-57).
+    pub fn observe_covered(
+        &self,
+        key: EffectKey,
+        value: Option<u64>,
+        group_end: u64,
+        durable: u64,
+    ) {
+        self.push(Entry::ObserveCovered(key, value, group_end, durable));
+    }
+
     pub fn fail(&self, message: impl Into<String>) {
         self.push(Entry::Fail(message.into()));
     }
+
+    /// A refusal of the store by `who` ([F16 §17.2] avail: the enumerator judges it against the run's faults).
+    pub fn refused(&self, who: &str, r: Refused) {
+        self.push(Entry::Refused(who.to_owned(), r));
+    }
+
+    /// Part of operation `op`'s group identity ([F16 §17.2] chain, I-G3): `bytes` at `offset` of the file at `path`.
+    pub fn group_bytes(&self, op: u64, path: &Path, offset: u64, bytes: &[u8]) {
+        self.push(Entry::GroupBytes(
+            op,
+            path.to_owned(),
+            offset,
+            bytes.to_vec(),
+        ));
+    }
+
+    /// Where the file at `path` must be for each recovered value of register `key` ([F16 §17.2] ns, judged by node
+    /// identity). A prefill moves no project file — only the store's files are copied into the runs it seeds, so an
+    /// expectation recorded there would name a file the run does not have.
+    pub fn expect_names(&self, path: &Path, key: EffectKey, rules: &[(Option<u64>, &[PathBuf])]) {
+        match self {
+            Sink::Ledger(l) => l.expect_names(path, key, rules),
+            Sink::Record(_) => panic!(
+                "a prefill moves no project file: a namespace expectation of {} in a prefill",
+                path.display()
+            ),
+        }
+    }
+}
+
+/// The typed reason of a refusal of the store ([F19] exit 7 and its codes; [F16 §17.2] avail), or `None` for the
+/// command's own refusals (a conflict, `commit_too_large`, `cross_volume`, a retired store, a refused location), which
+/// are answers of the command, not of the store.
+fn refusal_of(e: &ToyError) -> Option<Refusal> {
+    Some(match e {
+        ToyError::StoreLocked | ToyError::OutcomePending | ToyError::Busy => Refusal::Busy,
+        ToyError::OutcomeUnknown => Refusal::OutcomeUnknown,
+        ToyError::Corrupt(_) | ToyError::ExtentMissing { .. } => Refusal::Corrupt,
+        ToyError::NoValidSlot => Refusal::NoValidSlot,
+        ToyError::FatalSlot(_) => Refusal::FatalSlot,
+        ToyError::Damaged { file, .. } => Refusal::Damaged(Path::new(STORE).join(file)),
+        ToyError::NotAStore => Refusal::NotAStore,
+        ToyError::IoFault(_) => Refusal::IoFault,
+        ToyError::DiskFull => Refusal::DiskFull,
+        ToyError::Io(_) => Refusal::Io,
+        ToyError::Lock(_) => Refusal::Lock,
+        ToyError::Refused(_) | ToyError::Retired | ToyError::Location(_) => return None,
+    })
+}
+
+/// `e` as the enumerator's typed refusal, with the toy's message. A `store_corrupt` refusal ([`Refusal::Corrupt`])
+/// concerns the store files the refusing process used since `tap`'s last clear ([`SimTap::used`]): the extents its
+/// scans read or found missing and the segment and `hist` files it loaded — the files the state it refused from rests
+/// on, not only the extent at the invalid lsn ([`Refused::concerning`]; [F15] FM-10 "Crash gates": an external act
+/// explains the refusal only through a file it concerns).
+///
+/// The slot file, which every operation reads, is left out. A setup fault explains every refusal that concerns its
+/// file (`moirai_vfs_sim::enumerate` module `refusal`), so the fixtures' damaged `HEAD` ([`Scenario::fatal_slot`],
+/// declared with [`Ledger::setup_fault`]) would explain every later `store_corrupt` refusal, even after the operator's
+/// `repair` rebuilt both slots — among them the refusals that show a `repair` which took a stray extent in ([F16
+/// §17.3] P-54, P-55: detected by avail). No act of the enumerator touches `HEAD` during a run (its FM-10 acts truncate
+/// sealed files), so no correct refusal loses its explanation by it.
+fn refused_of(e: &ToyError, tap: &SimTap) -> Option<Refused> {
+    let r = refusal_of(e)?;
+    let files = if r == Refusal::Corrupt {
+        let head = Path::new(STORE).join("HEAD");
+        let mut f = tap.used();
+        f.retain(|p| *p != head);
+        f
+    } else {
+        Vec::new()
+    };
+    Some(
+        files
+            .into_iter()
+            .fold(Refused::new(r, e.to_string()), Refused::concerning),
+    )
 }
 
 struct Runner<'a> {
@@ -472,50 +590,125 @@ struct Runner<'a> {
     l: &'a Sink,
     sub: &'a ToySubject,
     shared: &'a Shared,
+    /// Who runs the acts, for the refusals' reports: the process's name and the task's index.
+    who: String,
+    /// The task's `file rm --trash` operations whose intent is not acknowledged yet ([`SimTap`]).
+    trash: TrashPending,
     holder: u64,
+    /// The process is in Unknown-boot mode ([OS/proc §5]).
+    unknown_boot: bool,
     claimed: BTreeSet<u64>,
     quiet_byte: Option<u8>,
     /// A lazy effect is acknowledged to the ledger: not before a scripted reboot of the scenario, which may take it
     /// back (a lazy effect survives process deaths, not a system crash, [F15 §4.1]) where the enumerator does not see a
     /// crash of its own.
     lazy_ack: bool,
+    /// The kept-view watch of the act running now, when the handle kept a view from an earlier act ([`KeptWatch`]):
+    /// taken by [`Runner::after_ack`] once a writer's operation is acknowledged.
+    kept: Option<KeptWatch>,
+    /// The handle's tap: the store files the act running now has used, which its refusal concerns ([`refused_of`]).
+    tap: SimTap,
 }
 
 impl Runner<'_> {
+    /// The identity of operation `op`'s acknowledged durable group ([F16 §17.2] chain, I-G3; [F05 §4.2], [F16] P-53): its
+    /// trailer, and the 8 chain bytes before it unless it starts an extent. A replayed operation's group is the one
+    /// another process appended and reported.
     fn ack_group(&self, op: u64, d: &moirai_toylog::Done, durable: bool) {
-        if !d.replayed && durable && d.end > 0 {
-            lock(&self.shared.acked).push((op, d.start, d.end, d.chain_in, d.chain_out));
+        if d.replayed || !durable || d.end == 0 {
+            return;
+        }
+        let e = self.sub.sc.cfg.extent_bytes;
+        let at = |lsn: u64| {
+            (
+                Path::new(STORE).join(format!("log.{}", lsn / e + 1)),
+                lsn % e,
+            )
+        };
+        let (path, offset) = at(d.end - 8);
+        self.l
+            .group_bytes(op, &path, offset, &d.chain_out.to_le_bytes());
+        if !d.start.is_multiple_of(e) {
+            let (path, offset) = at(d.start - 8);
+            self.l
+                .group_bytes(op, &path, offset, &d.chain_in.to_le_bytes());
         }
     }
 
-    /// After an operation's acknowledgement: the I-G2 check of the process's own view (the view its phase 1 and 2a read)
-    /// against the newest slot, then phase 3 ([F16] P-51).
+    /// After an operation's acknowledgement: a view the process kept from an earlier act, which its phase 1 and 2a
+    /// refreshed, is checked against the replay of the valid log up to its bound ([`KeptWatch`], [F16] P-56); the
+    /// commits of the process's own view are observations against the newest slot's `durable_lsn`
+    /// ([`Runner::observe_view`]); then phase 3 ([F16] P-51).
     fn after_ack(&mut self, t: &mut Toy<SimVfs, SimTap>) {
-        if let Ok(s) = t.head_for_read()
-            && let Some(v) = t.view()
-        {
-            self.check_view(&v.state, &s);
+        let kept = self.kept.take();
+        if let Ok(s) = t.head_for_read() {
+            if let Some(k) = &kept {
+                self.judge_kept(
+                    t,
+                    k,
+                    s.epoch,
+                    "a writer's view kept from an earlier operation",
+                );
+            }
+            if let Some(v) = t.view() {
+                self.observe_view(&v.state, s.durable_lsn, None);
+            }
         }
         t.maintain();
     }
 
-    /// I-G2 over a view a read returned against the published slot ([`uncovered`]).
-    fn check_view(&self, st: &State, s: &moirai_toylog::head::Slot) {
-        for m in uncovered(self.w, st, s) {
-            self.l.fail(m);
+    /// [`KeptWatch::judge`] of the handle's view now against the replay of the valid log, in `epoch`, up to the view's
+    /// bound ([`Toy::replay_to`]). A replay that refuses judges nothing: its refusals are not the process's.
+    fn judge_kept(&self, t: &mut Toy<SimVfs, SimTap>, watch: &KeptWatch, epoch: u64, who: &str) {
+        let Some(l0) = t.view().map(|v| v.l0) else {
+            return;
+        };
+        let Ok(replay) = t.replay_to(l0, epoch) else {
+            return;
+        };
+        if let Some(v) = t.view() {
+            for m in watch.judge(self.w, v, &replay, who) {
+                self.l.fail(m);
+            }
         }
     }
 
-    /// An operation that ended with `e`: whether the task goes on, after the check of its exit ([`outcome_unknown`]).
+    /// The kept-view watch of an act that begins now, when the handle kept a view from an earlier act ([`KeptWatch`]).
+    fn kept_watch(&self, t: &Toy<SimVfs, SimTap>) -> Option<KeptWatch> {
+        t.view()
+            .map(|v| KeptWatch::begin(self.w, v, self.sub.sc.cfg.extent_bytes))
+    }
+
+    /// The values the view `st` shows, observed by a reader whose slot had `durable` as its `durable_lsn` ([F16 §17.2]
+    /// fresh, I-G2, F-A1): every commit with the position of its record — the group that holds it ends beyond that lsn,
+    /// and `durable_lsn` is a group boundary ([F05 §4]), so the group ends beyond `durable_lsn` exactly when the record's
+    /// lsn is at or above it — and, where `flags` gives the read slot's flags, every other value the view shows.
+    fn observe_view(&self, st: &State, durable: u64, flags: Option<u16>) {
+        let quiet = flags.is_some_and(|f| f & moirai_toylog::head::FLAG_QUIET != 0);
+        for (k, v) in effects(st, &self.sub.sc.tracked_refs, quiet) {
+            if k.kind == EffectKind::Commit
+                && let Some(c) = st.commits.get(&k.key)
+            {
+                self.l.observe_covered(k, Some(v), c.lsn + 1, durable);
+            } else if flags.is_some() {
+                self.l.observe(k, Some(v));
+            }
+        }
+    }
+
+    /// An operation that ended with `e`: whether the task goes on. A refusal of the store is reported ([`refusal_of`]);
+    /// the enumerator judges it against the run's faults ([F16 §17.2] avail).
     fn refused(&self, e: &ToyError) -> bool {
-        if let Some(m) = outcome_unknown(self.w, e) {
-            self.l.fail(m);
+        if let Some(r) = refused_of(e, &self.tap) {
+            self.l.refused(&self.who, r);
         }
         !stops(e)
     }
 
     fn exec(&mut self, t: &mut Toy<SimVfs, SimTap>, act: &Act) -> bool {
         let l = self.l;
+        self.tap.clear_used();
+        self.kept = self.kept_watch(t);
         let tracked = &self.sub.sc.tracked_refs;
         match act {
             Act::Commit {
@@ -747,9 +940,10 @@ impl Runner<'_> {
                 }
             }
             Act::Quiet { op, on } => {
-                l.begin(
+                // `HEAD.flags.quiet` is kept only in `HEAD` ([F04 §6]); `set_quiet` returns after the durable publish's
+                // `HEAD` flush ([F16] P-13, P-63), and only then is the change acknowledged.
+                l.begin_kept_in_head(
                     *op,
-                    Class::Durable,
                     &[(EffectKey::new(EffectKind::Other(FLAG), 0), on.then_some(1))],
                 );
                 match t.set_quiet(*on) {
@@ -757,11 +951,10 @@ impl Runner<'_> {
                     Err(e) => return self.refused(&e),
                 }
             }
-            Act::HoldQuiet => {
-                if let Ok(k) = t.hold_quiet() {
-                    self.quiet_byte = k;
-                }
-            }
+            Act::HoldQuiet => match t.hold_quiet() {
+                Ok(k) => self.quiet_byte = k,
+                Err(e) => return self.refused(&e),
+            },
             Act::ReleaseQuiet => {
                 if let Some(k) = self.quiet_byte.take() {
                     t.release_quiet(k);
@@ -803,11 +996,13 @@ impl Runner<'_> {
             Class::Durable,
             &[(EffectKey::new(EffectKind::Intent, key), Some(OPEN))],
         );
+        self.expect_names(&f);
         // The namespace change takes effect before the commit that closes the intent ([40 §3.4] steps 3–4, [F16] P-17,
-        // P-18), so a reader may see it beside the open intent until recovery rolls it forward (P-71): it is also an
-        // operation of its own, whose other register is the intent's `done` state — which the intent's own `open` may
-        // follow, so the change is never seen without its intent. The closing commit carries the change too: it is
-        // appended only after the change is durable (P-17–P-19), so a durable commit never shows without it.
+        // P-18), so a reader may see it beside the open intent until recovery rolls it forward (P-71): it is an operation
+        // of its own, the only writer of the file's location, whose other register is the intent's `done` state — which
+        // the intent's own `open` may follow. A state that shows the change therefore shows the intent too, open or done
+        // ([40 §3.4] step 2: the rename follows the intent's durability, P-16). The closing commit writes no location: a
+        // durable closing record whose rename a crash lost is the enumerator's ns check ([`Runner::expect_names`]).
         let ns = (EffectKey::new(EffectKind::Other(NS), f.file), to);
         l.begin(
             key | NS_BIT,
@@ -821,7 +1016,6 @@ impl Runner<'_> {
                 (EffectKey::new(EffectKind::Commit, done), Some(done)),
                 (EffectKey::new(EffectKind::Idempotency, done), Some(done)),
                 (EffectKey::new(EffectKind::Intent, key), Some(DONE)),
-                ns,
             ],
         );
         l.begin(
@@ -829,7 +1023,9 @@ impl Runner<'_> {
             Class::Durable,
             &[(EffectKey::new(EffectKind::Intent, key), Some(ABORTED))],
         );
-        match t.file_op(&f) {
+        let r = t.file_op(&f);
+        lock(&self.trash).remove(&key);
+        match r {
             Ok(_) => {
                 l.ack(key);
                 l.ack(key | NS_BIT);
@@ -842,18 +1038,67 @@ impl Runner<'_> {
         }
     }
 
-    /// One reader view ([F16 §8]): the read checks of [`ReadWatch`] and [`uncovered`] (a refusal: [`reader_refusal`]),
-    /// and every value it shows is observed.
+    /// Where the file of `f`, at its source now, must be for each recovered state of its intent ([F16 §17.2] ns, judged
+    /// by node identity; [40 §3.4]'s recovery table, [F16] P-16–P-18, P-71): with no `FsIntent`, at its source (the
+    /// namespace changes only after the intent's identity check, P-16); after an abort, back there (an abort rolls the
+    /// item back or finds it unmoved); with the intent open, at its source or its destination; done, at its destination.
+    /// An open `file rm` may have unlinked its file or not (no expectation), and a done one leaves it no name. The trash
+    /// entry of a `file rm --trash`, `trash/<intent>/0`, is named by the intent's id: its open and done expectations are
+    /// recorded when the intent is acknowledged ([`SimTap`]).
+    fn expect_names(&self, f: &FileOp) {
+        let dir = |i: u8| Path::new(PROJ[usize::from(i) - 1]).join(file_name(f.file));
+        let src = dir(f.src);
+        let key = EffectKey::new(EffectKind::Intent, f.key);
+        let at_src = [src.clone()];
+        match f.op {
+            1 => {
+                let dst = dir(f.dst);
+                let open = [src.clone(), dst.clone()];
+                let done = [dst];
+                self.l.expect_names(
+                    &src,
+                    key,
+                    &[
+                        (None, &at_src[..]),
+                        (Some(OPEN), &open[..]),
+                        (Some(DONE), &done[..]),
+                        (Some(ABORTED), &at_src[..]),
+                    ],
+                );
+            }
+            2 => self.l.expect_names(
+                &src,
+                key,
+                &[
+                    (None, &at_src[..]),
+                    (Some(DONE), &[]),
+                    (Some(ABORTED), &at_src[..]),
+                ],
+            ),
+            _ => {
+                self.l.expect_names(
+                    &src,
+                    key,
+                    &[(None, &at_src[..]), (Some(ABORTED), &at_src[..])],
+                );
+                lock(&self.trash).insert(f.key, src);
+            }
+        }
+    }
+
+    /// One reader view ([F16 §8]): the visibility check of [`ReadWatch`], and every value it shows is observed, each
+    /// commit with its position ([`Runner::observe_view`]); a refusal is reported. A view the process kept from an
+    /// earlier read or write is also checked, after its refresh, against the replay of the valid log up to its bound
+    /// ([`KeptWatch`], [F16] P-56).
     fn read_once(&mut self, t: &mut Toy<SimVfs, SimTap>) -> bool {
         let before: BTreeSet<u64> = lock(&self.shared.commits).clone();
         let lazy: BTreeMap<u64, u64> = lock(&self.shared.lazy).clone();
-        let watch = ReadWatch::begin(self.w, before, lazy);
+        let watch = ReadWatch::begin(self.w, before, lazy, self.unknown_boot);
+        let kept = self.kept_watch(t);
         let s = match t.refresh() {
             Ok(s) => s,
             Err(e) => {
-                if let Some(m) = reader_refusal(self.w, &e, self.sub.sc.fatal_slot) {
-                    self.l.fail(m);
-                }
+                self.refused(&e);
                 return false;
             }
         };
@@ -862,21 +1107,25 @@ impl Runner<'_> {
         };
         let st = v.state.clone();
         let whole = v.l0 >= s.committed_lsn;
-        self.check_view(&st, &s);
         for m in watch.judge(self.w, &st, whole) {
             self.l.fail(m);
         }
-        let quiet = s.flags & moirai_toylog::head::FLAG_QUIET != 0;
-        for (k, v) in effects(&st, &self.sub.sc.tracked_refs, quiet) {
-            self.l.observe(k, Some(v));
+        if let Some(k) = &kept {
+            self.judge_kept(
+                t,
+                k,
+                s.epoch,
+                "a reader's view kept from an earlier operation",
+            );
         }
+        self.observe_view(&st, s.durable_lsn, Some(s.flags));
         true
     }
 
-    /// `doctor --verify` inside the scenario: the toy's model checks over the facts and its `HEAD` check, the pinned
-    /// files, and the harness's chain check of every acknowledged group ([`chain_breaks`]).
+    /// `doctor --verify` inside the scenario: the toy's model checks over the facts it replays from the log
+    /// ([`Toy::doctor_state`]), its `HEAD` check and the pinned files.
     fn doctor(&mut self, t: &mut Toy<SimVfs, SimTap>) {
-        let Ok(st) = t.scratch() else { return };
+        let Some(st) = doctor_state(t) else { return };
         for f in verify(&st) {
             self.l.fail(format!("doctor --verify: {f}"));
         }
@@ -893,11 +1142,14 @@ impl Runner<'_> {
                     .fail(format!("doctor --verify: the pinned file {m} is missing"));
             }
         }
-        let acked = lock(&self.shared.acked).clone();
-        for m in chain_breaks(t.vfs(), self.sub.sc.cfg.extent_bytes, &acked) {
-            self.l.fail(m);
-        }
     }
+}
+
+/// The state `doctor --verify` checks: the facts replayed from the log and the `hist` files ([`Toy::doctor_state`]), or,
+/// where a `hist` file an external actor damaged ([F15] FM-10) keeps the log from being replayed from the epoch's start,
+/// the reader's view with its pending groups, which starts from the segment snapshot ([`Toy::scratch`]).
+fn doctor_state(t: &mut Toy<SimVfs, SimTap>) -> Option<State> {
+    t.doctor_state().or_else(|_| t.scratch()).ok()
 }
 
 /// The recovering writer ([`Toy::recover_writer`]): the boot check, the adoption of pending groups, intent recovery
@@ -920,7 +1172,7 @@ fn recover_writer(
 /// The fixture of [`Scenario::fatal_slot`]: `head` with its newest valid slot rewritten, checksum included, with
 /// `durable_lsn` above `committed_lsn` — a slot that passes its checksum and fails [F04 §7] check 5 (a writer defect).
 pub fn fatal_newest_slot(head: &[u8]) -> Vec<u8> {
-    use moirai_toylog::head::{SLOT_LEN, Slot, SlotRead};
+    use moirai_toylog::head::SLOT_LEN;
     let mut out = head.to_vec();
     let newest = (0..2)
         .filter_map(
@@ -961,11 +1213,20 @@ fn operator_retry<R>(
     }
 }
 
-/// Errors after which a task stops (the store refuses: corrupt, retired, a refused location, the lock layer).
+/// Errors after which a task stops (the store refuses: corrupt, not a store, retired, a refused location, the lock
+/// layer).
 fn stops(e: &ToyError) -> bool {
     matches!(
         e,
-        ToyError::Corrupt(_) | ToyError::Retired | ToyError::Location(_) | ToyError::Lock(_)
+        ToyError::Corrupt(_)
+            | ToyError::ExtentMissing { .. }
+            | ToyError::NoValidSlot
+            | ToyError::FatalSlot(_)
+            | ToyError::Damaged { .. }
+            | ToyError::NotAStore
+            | ToyError::Retired
+            | ToyError::Location(_)
+            | ToyError::Lock(_)
     )
 }
 
@@ -1035,7 +1296,13 @@ impl ToySubject {
         let sw = SimWorld::new(cfg);
         let record = Arc::new(Mutex::new(Vec::new()));
         self.place_image(&sw);
-        self.run_phases(&sw, &Sink::Record(Arc::clone(&record)), &self.sc.prefill);
+        let shared = Arc::new(Shared::default());
+        self.run_phases(
+            &sw,
+            &Sink::Record(Arc::clone(&record)),
+            &self.sc.prefill,
+            &shared,
+        );
         let v = sw.process_with("prefill-copy", None, Some(true));
         let mut out = Prefilled::default();
         let root = v
@@ -1053,12 +1320,12 @@ impl ToySubject {
             }
         }
         out.entries = lock(&record).clone();
+        out.commits = lock(&shared.commits).clone();
         out
     }
 
-    /// Runs `phases`: each phase's driver actions, then its processes to their end.
-    fn run_phases(&self, w: &SimWorld, l: &Sink, phases: &[Phase]) {
-        let shared = Arc::new(Shared::default());
+    /// Runs `phases`: each phase's driver actions, then its processes to their end, sharing `shared`.
+    fn run_phases(&self, w: &SimWorld, l: &Sink, phases: &[Phase], shared: &Arc<Shared>) {
         for (pi, phase) in phases.iter().enumerate() {
             for d in &phase.before {
                 match d {
@@ -1084,24 +1351,39 @@ impl ToySubject {
                         self.clone(),
                         l.clone(),
                         w.clone(),
-                        Arc::clone(&shared),
+                        Arc::clone(shared),
                         locks.clone(),
                     );
                     let acts = acts.clone();
                     let init_here = self.sc.init_in_workload && pi == 0 && qi == 0 && ti == 0;
+                    let unknown_boot = p.known == Some(false);
                     let lazy_ack = !phases[pi + 1..]
                         .iter()
                         .any(|p| p.before.iter().any(|d| matches!(d, DriverAct::Crash)));
+                    let who = format!("process {} task {ti}", p.name);
                     let body: Body = Box::new(move |v: SimVfs| {
-                        wd.note(T_TASK, u64::from(v.self_id().pid), ti as u64);
+                        let trash = TrashPending::default();
+                        let tap = SimTap::with_ledger(&wd, &v, &lg, &trash);
+                        // `init` and the open are reported like every operation's refusal ([F16 §17.2] avail: a store
+                        // that refuses to open).
+                        let judge = |what: &str, e: &ToyError| {
+                            if let Some(r) = refused_of(e, &tap) {
+                                lg.refused(&format!("{who} ({what})"), r);
+                            }
+                        };
                         if init_here
-                            && moirai_toylog::init(&v, Path::new(STORE), &sub.cfg()).is_err()
+                            && let Err(e) = moirai_toylog::init(&v, Path::new(STORE), &sub.cfg())
                         {
+                            judge("init", &e);
                             return;
                         }
-                        let tap = SimTap::new(&wd, &v);
-                        let Ok(mut t) = Toy::open(v, Path::new(STORE), sub.cfg(), tap, lk) else {
-                            return;
+                        let mut t = match Toy::open(v, Path::new(STORE), sub.cfg(), tap.clone(), lk)
+                        {
+                            Ok(t) => t,
+                            Err(e) => {
+                                judge("opening the store", &e);
+                                return;
+                            }
                         };
                         t.set_project_dirs(&project_dirs());
                         let mut r = Runner {
@@ -1109,10 +1391,15 @@ impl ToySubject {
                             l: &lg,
                             sub: &sub,
                             shared: &sh,
+                            who,
+                            trash,
                             holder,
+                            unknown_boot,
                             claimed: BTreeSet::new(),
                             quiet_byte: None,
                             lazy_ack,
+                            kept: None,
+                            tap,
                         };
                         for a in &acts {
                             if !r.exec(&mut t, a) {
@@ -1177,17 +1464,26 @@ impl Subject for ToySubject {
                 .clone()
         };
         w.mkdir_all(&Path::new(STORE).join("tmp"));
+        // The fixtures are FM-10 acts before the run ([F15] FM-10.1), each declared with the one file it concerns. The
+        // fatal `HEAD` is a damaged file the store needs: it explains only the refusals and diagnoses that concern
+        // `HEAD`, among them no valid slot and a fatal slot, which plain `repair` answers ([F16] P-61, P-85)
+        // ([`Ledger::setup_fault`]).
         for (path, bytes) in &pre.files {
             if self.sc.fatal_slot && path.ends_with("HEAD") {
                 w.put_file(path, &fatal_newest_slot(bytes))
                     .expect("the fixture's HEAD");
+                l.setup_fault(path);
             } else {
                 w.put_file(path, bytes).expect("a prefilled store file");
             }
         }
+        // The stray extent is a file the protocol must ignore: its epoch and position checks at a scan start keep it out
+        // of every state ([F16] P-54, P-55), so it explains no refusal, and a refusal or a referenced diagnosis that
+        // concerns it is a failure ([`Ledger::setup_ignored`]).
         if let Some(stray) = self.sc.stray {
             let (path, bytes) = self.stray_extent(stray, &pre, boot);
             w.put_file(&path, &bytes).expect("the fixture's extent");
+            l.setup_ignored(&path);
         }
         let sink = Sink::Ledger(l.clone());
         for e in pre.entries {
@@ -1196,10 +1492,130 @@ impl Subject for ToySubject {
     }
 
     fn workload(&self, w: &SimWorld, l: &Ledger) {
-        self.run_phases(w, &Sink::Ledger(l.clone()), &self.sc.phases);
+        let shared = Arc::new(Shared::default());
+        if !self.sc.prefill.is_empty()
+            && let Some(pre) = lock(&self.prefilled).get(&w.boot().1.0)
+        {
+            lock(&shared.commits).extend(pre.commits.iter().copied());
+        }
+        self.run_phases(w, &Sink::Ledger(l.clone()), &self.sc.phases, &shared);
     }
 
     fn recover(&self, w: &SimWorld) -> Recovered {
+        self.recover_with_boot(w).0
+    }
+
+    /// The recovery, with the boot mode of its first reader ([`Scenario::reader_known`]): an Unknown-boot reader runs no
+    /// boot-change recovery ([OS/proc §5] U2), so after a crash its first read is judged for consistency only ([F13 §3.8]
+    /// "I-G2's post-crash clause, read precisely", U5–U6; spec sync 2b S2B-P-18).
+    fn recover_with_boot(&self, w: &SimWorld) -> (Recovered, BootMode) {
+        let boot = if self.sc.reader_known {
+            BootMode::Known
+        } else {
+            BootMode::Unknown
+        };
+        (self.recover_store(w), boot)
+    }
+
+    fn slot_files(&self) -> Vec<PathBuf> {
+        vec![Path::new(STORE).join("HEAD")]
+    }
+
+    /// The toy follows moirai's store protocol ([F16]): its log extents are `log.<n>` in the store directory ([F02 §6]),
+    /// and its slots decode by [`decode_slot`]. The trace predicates over them are the enumerator's ([F13 §1.4]).
+    fn protocol(&self) -> Option<Protocol> {
+        Some(Protocol {
+            log_dir: PathBuf::from(STORE),
+            log_prefix: "log.".to_owned(),
+            decode_slot,
+        })
+    }
+}
+
+/// The toy's `HEAD` slot as the enumerator's trace predicates read it ([`Protocol::decode_slot`]; [F04 §3], §7): absent,
+/// fatal, or valid with the fields a publish compares. The monotone fields are every field [F04 §9.1] says no publish
+/// decreases — `checkpoint_lsn`, the counters, `active_log`, the table pointers and `config_gen` (I-G6).
+pub fn decode_slot(b: &[u8]) -> SlotDecode {
+    match Slot::read(b) {
+        SlotRead::Absent => SlotDecode::Absent,
+        SlotRead::Fatal(_) => SlotDecode::Fatal,
+        SlotRead::Valid(s) => {
+            let c = &s.counters;
+            SlotDecode::Valid(SlotView {
+                slot_seq: s.slot_seq,
+                committed_lsn: s.committed_lsn,
+                durable_lsn: s.durable_lsn,
+                boot_id: s.boot_id,
+                monotone: vec![
+                    ("checkpoint_lsn", s.checkpoint_lsn),
+                    ("commit_seq", c.commit_seq),
+                    ("next_id", u64::from(c.next_id)),
+                    ("next_anchor", u64::from(c.next_anchor)),
+                    ("fence", c.fence),
+                    ("next_file_no", u64::from(c.next_file_no)),
+                    ("next_ref_id", u64::from(c.next_ref_id)),
+                    ("hlc_seq", c.hlc_seq),
+                    ("hlc_commit", c.hlc_commit),
+                    ("active_log", u64::from(s.active_log)),
+                    ("refs_lsn", s.refs_lsn),
+                    ("pins_lsn", s.pins_lsn),
+                    ("heads_lsn", s.heads_lsn),
+                    ("markers_lsn", s.markers_lsn),
+                    ("config_gen", u64::from(s.config_gen)),
+                ],
+            })
+        }
+    }
+}
+
+/// Whether the operator's `repair` answers the refusal `e` ([F16] P-61, P-85: plain `repair` for no valid or a fatal
+/// slot; [80 §2.5] rule 8, [F16] P-68: `repair --rebuild-from-log` for a damaged sealed file).
+fn repair_answers(e: &ToyError) -> bool {
+    match e {
+        ToyError::NoValidSlot | ToyError::FatalSlot(_) => true,
+        ToyError::Damaged { file, .. } => {
+            file.starts_with("seg.base.") || file.starts_with("hist.")
+        }
+        _ => false,
+    }
+}
+
+/// The sealed files the state `st` references ([F15] G-13; `doctor --fsck`'s diagnosis): its segment set, the files its
+/// applied `Checkpoint` records name and have not released, the `hist` files of its retired extents, and the files of
+/// every live ref's pin ([F16] P-77).
+fn referenced_files(st: &State) -> BTreeSet<String> {
+    use moirai_toylog::format::family;
+    let mut out: BTreeSet<String> = st
+        .files
+        .iter()
+        .map(|&(fam, no)| sealed_name(fam, no).as_str().to_owned())
+        .collect();
+    out.extend(
+        st.segments
+            .iter()
+            .map(|s| sealed_name(family::SEG_BASE, s.file_no).as_str().to_owned()),
+    );
+    out.extend(
+        st.retired
+            .values()
+            .map(|&h| sealed_name(family::HIST, h).as_str().to_owned()),
+    );
+    for (r, p) in &st.pins {
+        if st.refs.get(r).is_some_and(|x| x.deleted) {
+            continue;
+        }
+        out.extend(
+            p.files
+                .iter()
+                .map(|&(fam, no)| sealed_name(fam, no).as_str().to_owned()),
+        );
+    }
+    out
+}
+
+impl ToySubject {
+    /// [`Subject::recover`]: the first read, then the recovering writer and the state it leaves.
+    fn recover_store(&self, w: &SimWorld) -> Recovered {
         let tracked = &self.sc.tracked_refs;
         let files: Vec<u64> = self.sc.files.iter().map(|&(f, _)| f).collect();
         let cfg = self.cfg();
@@ -1217,29 +1633,26 @@ impl Subject for ToySubject {
             ns(&v, &mut set);
             return Recovered::same(set);
         }
-        let damaged_head = head_may_be_damaged(w);
-        // The refusals the operator answers with `repair` ([F16] P-85): no valid slot where the fault model may have
-        // damaged both (see `head_may_be_damaged`), and the fixture's fatal slot ([F16] P-61: exit 7 naming `HEAD`).
-        let heal = |m: &str| {
-            (m.contains("no valid slot") && damaged_head)
-                || (self.sc.fatal_slot && m.starts_with("HEAD slot"))
-        };
+        // The refusals the recovery answered — with the operator's `repair`, or with the caller's re-run — in order: each
+        // is judged like any refusal ([`Recovered::answered`]).
+        let mut answered: Vec<ToyError> = Vec::new();
         // The first read: a reader's first read (with the boot-change recovery P-60 makes a Known-boot reader run first).
+        // A refusal of `HEAD` that the operator's `repair` answers (no valid or a fatal slot) is answered by `repair` of
+        // `HEAD` ([F16] P-61, P-85), then the read; every other refusal is the first read's result.
         let rv = w.process_with("recovery-reader", None, Some(self.sc.reader_known));
+        // The reader's refusal concerns every store file it used ([`refused_of`]).
+        let rtap = SimTap::new(w, &rv);
         let first_read = (|| -> Result<EffectSet, ToyError> {
-            let tap = SimTap::new(w, &rv);
             let mut t = Toy::open(
                 rv.clone(),
                 Path::new(STORE),
                 cfg.clone(),
-                tap,
+                rtap.clone(),
                 ProcLocks::new(),
             )?;
-            // A store with no valid HEAD slot exits 7 naming `moirai repair` ([F16] P-61): where a slot may be damaged
-            // (see `head_may_be_damaged`) that is the expected outcome, and the operator runs `repair`, then reads;
-            // otherwise it is a refusal. The fixture's fatal slot is answered the same way.
             let s = match operator_retry(w, |_| t.refresh()) {
-                Err(ToyError::Corrupt(m)) if heal(&m) => {
+                Err(e @ (ToyError::NoValidSlot | ToyError::FatalSlot(_))) => {
+                    answered.push(e);
                     operator_retry(w, |_| t.repair_head())?;
                     operator_retry(w, |_| t.refresh())?
                 }
@@ -1249,47 +1662,70 @@ impl Subject for ToySubject {
             let mut set = effects(&st, tracked, s.flags & moirai_toylog::head::FLAG_QUIET != 0);
             ns(&rv, &mut set);
             Ok(set)
-        })()
-        .map_err(|e| format!("{e}"));
-        // The recovering writer: repair of a damaged sealed file, adoption, intent recovery, a probe write.
+        })();
+        // The recovering writer: `doctor --fsck` (a diagnosis only), then the recovering writer. A refusal the operator's
+        // `repair` answers ([`repair_answers`]) is answered by it and the recovery runs again; a slot sector that a
+        // failed flush poisoned reads differently each time (FM-3.2), so a later read may meet the damage again: at most
+        // two repairs. `outcome_unknown` is answered by re-running the command ([F16] P-47: the caller retries), at most
+        // three times.
         let wv = w.process_with("recovery-writer", None, Some(true));
         let mut findings = Vec::new();
-        let mut diagnosed = Vec::new();
+        let mut damaged: Vec<String> = Vec::new();
+        let mut referenced: BTreeSet<String> = BTreeSet::new();
+        // The writer's refusal concerns the store files that the command that refused used ([`refused_of`]): each
+        // attempt, and each command after the last, starts a new set (`doctor --fsck`, which reads every sealed file,
+        // and a `repair` before an attempt are other commands).
+        let wtap = SimTap::new(w, &wv);
         let state = (|| -> Result<EffectSet, ToyError> {
-            let tap = SimTap::new(w, &wv);
             let mut t = Toy::open(
                 wv.clone(),
                 Path::new(STORE),
                 cfg.clone(),
-                tap,
+                wtap.clone(),
                 ProcLocks::new(),
             )?;
             t.set_project_dirs(&project_dirs());
-            let damaged = match operator_retry(w, |_| t.repair()) {
-                Err(ToyError::Corrupt(m)) if heal(&m) => {
-                    operator_retry(w, |_| t.repair_head())?;
-                    operator_retry(w, |_| t.repair())?
-                }
-                r => r?,
-            };
-            diagnosed.extend(damaged.iter().map(|n| Path::new(STORE).join(n)));
-            // A HEAD whose slots a failed flush poisoned reads differently each time (FM-3.2): a read that finds no
-            // valid slot sends the operator to `repair` (OP-1), then the recovery runs again.
+            damaged = t.fsck()?;
             let intents = !self.sc.files.is_empty();
-            match operator_retry(w, |k| recover_writer(&mut t, intents, k)) {
-                Err(ToyError::Corrupt(m)) if heal(&m) => {
-                    operator_retry(w, |_| t.repair_head())?;
-                    operator_retry(w, |k| recover_writer(&mut t, intents, 8 + k))?;
+            let (mut repairs, mut reruns, mut attempt) = (0, 0, 0u64);
+            let r = loop {
+                wtap.clear_used();
+                match operator_retry(w, |k| recover_writer(&mut t, intents, 8 * attempt + k)) {
+                    Err(ToyError::OutcomeUnknown) if reruns < 3 => {
+                        answered.push(ToyError::OutcomeUnknown);
+                        reruns += 1;
+                    }
+                    Err(e) if repairs < 2 && repair_answers(&e) => {
+                        let head = matches!(e, ToyError::NoValidSlot | ToyError::FatalSlot(_));
+                        answered.push(e);
+                        if head {
+                            operator_retry(w, |_| t.repair_head())?;
+                        } else {
+                            operator_retry(w, |_| t.repair())?;
+                        }
+                        repairs += 1;
+                    }
+                    r => break r,
                 }
-                r => r?,
+                attempt += 1;
+            };
+            // The diagnosis is judged against the files the recovered state references, or, where the recovery refused,
+            // the state of the writer's last view.
+            if let Some(v) = t.view() {
+                referenced = referenced_files(&v.state);
             }
+            r?;
+            wtap.clear_used();
             let s = t.refresh()?;
             let st = t.view().map(|v| v.state.clone()).unwrap_or_default();
-            findings.extend(
-                verify(&st)
-                    .into_iter()
-                    .map(|f| format!("doctor --verify: {f}")),
-            );
+            referenced = referenced_files(&st);
+            if let Some(facts) = doctor_state(&mut t) {
+                findings.extend(
+                    verify(&facts)
+                        .into_iter()
+                        .map(|f| format!("doctor --verify: {f}")),
+                );
+            }
             // As in the scenario's `doctor`: not after a failed flush (FM-3.2, FM-3.6).
             if w.failed_flushes() == 0
                 && let Some(p) = t.head_fold_problem()
@@ -1297,34 +1733,43 @@ impl Subject for ToySubject {
                 findings.push(format!("doctor --verify: {p}"));
             }
             if !st.pins.is_empty() {
+                wtap.clear_used();
                 for m in t.missing_pinned_files()? {
                     findings.push(format!("doctor --verify: the pinned file {m} is missing"));
                 }
             }
-            findings.extend(intent_namespace(&wv, &st));
             let mut set = effects(&st, tracked, s.flags & moirai_toylog::head::FLAG_QUIET != 0);
             ns(&wv, &mut set);
             Ok(set)
-        })()
-        .map_err(|e| format!("{e}"));
+        })();
+        // Every refusal is typed for the enumerator's avail verdict; a command's own refusal is no answer a recovery may
+        // give. The answered refusals (of `HEAD`, of a damaged sealed file, a lost outcome) are never `store_corrupt`, so
+        // they concern no file the process used.
+        let mut typed = |e: ToyError, tap: &SimTap| {
+            refused_of(&e, tap).unwrap_or_else(|| {
+                findings.push(format!(
+                    "recovery: the command refused with {e}, which is not a refusal of the store"
+                ));
+                Refused::new(Refusal::Corrupt, e.to_string())
+            })
+        };
+        let first_read = first_read.map_err(|e| typed(e, &rtap));
+        let state = state.map_err(|e| typed(e, &wtap));
+        let answered = answered.into_iter().map(|e| typed(e, &wtap)).collect();
+        let diagnosed = damaged
+            .into_iter()
+            .map(|n| Diagnosis {
+                path: Path::new(STORE).join(&n),
+                referenced: referenced.contains(&n),
+            })
+            .collect();
         Recovered {
             first_read,
             state,
+            answered,
             findings,
             diagnosed,
         }
-    }
-
-    fn slot_files(&self) -> Vec<PathBuf> {
-        vec![Path::new(STORE).join("HEAD")]
-    }
-
-    fn checks_trace(&self) -> bool {
-        self.sc.trace
-    }
-
-    fn check_trace(&self, events: &[Event]) -> Vec<String> {
-        trace_violations(events)
     }
 }
 
@@ -1571,8 +2016,8 @@ pub fn first_extent_retired() -> Vec<Phase> {
     ]
 }
 
-/// After a retirement and its deletion (prefilled): a writer's publishes beside a reader that starts from `HEAD`, whose
-/// other slot must never name the deleted extent (P-12).
+/// After a retirement and its deletion (prefilled): writers' publishes and a checkpoint beside a reader that starts
+/// from `HEAD`, whose other slot must never name the deleted extent (P-12).
 pub fn stale() -> Scenario {
     let mut sc = Scenario::new("stale");
     sc.cfg.active_extents = 1;
@@ -1580,6 +2025,7 @@ pub fn stale() -> Scenario {
     sc.phases = vec![
         phase(vec![
             ProcPlan::new("w", vec![commit(3, 1, 100)]),
+            ProcPlan::new("w2", vec![commit(4, 1, 100), Act::Checkpoint]),
             ProcPlan::new("r", vec![Act::Read { views: 1 }]),
         ]),
         doctor(),
@@ -1688,12 +2134,33 @@ pub fn fatal() -> Scenario {
         ProcPlan::new("w2", vec![commit(2, 1, 200)]),
         ProcPlan::new("r", vec![Act::Read { views: 1 }]),
     ])];
+    sc.phases.extend(after_repair(4));
     sc
 }
 
+/// The operator's answer to the exit 7 of a store without a valid or with a fatal `HEAD` slot: plain `repair`, which
+/// rebuilds both slots from the extent heads ([F16] P-61, P-85; spec sync 2b S2B-P-28), crashed and killed at every
+/// point like any workload, and then writers and a reader on the repaired store (process tag `p`), which serves again.
+/// It gives a scenario whose processes first refuse the store the crash points, publishes and lock holdings that the
+/// nightly tier's gates ask of every enumeration (GT1's state minimum, [F15 §3.8]'s release classes).
+fn after_repair(p: u64) -> Vec<Phase> {
+    vec![
+        phase(vec![ProcPlan::new("operator", vec![Act::Repair])]),
+        phase(vec![
+            ProcPlan::new("w3", vec![commit(p, 1, 200), commit(p, 2, 200)]),
+            ProcPlan::new("w4", vec![commit(p + 1, 1, 200)]),
+            ProcPlan::new("r2", vec![Act::Read { views: 1 }]),
+        ]),
+        doctor(),
+    ]
+}
+
 /// A store without a valid `HEAD` slot to repair from a log whose lowest extent number is taken by a stray file:
-/// [`first_extent_retired`]'s store, the fixture's fatal slot (so every recovery runs `repair`, [F16] P-85) and
-/// `stray`. The workload's processes refuse the store (P-61); the recovery must rebuild the prefilled state from log.2.
+/// [`first_extent_retired`]'s store, the fixture's fatal slot (so a recovery before the operator's repair answers the
+/// refusal with `repair` of `HEAD`, [F16] P-85) and `stray`. The workload's first processes refuse the store (P-61);
+/// the operator's `repair` ([`after_repair`]) and every recovery must rebuild the prefilled state from log.2, and a
+/// `repair` that takes the stray file in leaves a store every later process refuses ([F16 §17.3] P-54, P-55: detected
+/// by avail).
 fn stray_repair(name: &'static str, stray: Stray) -> Scenario {
     let mut sc = Scenario::new(name);
     sc.cfg.active_extents = 1;
@@ -1705,6 +2172,7 @@ fn stray_repair(name: &'static str, stray: Stray) -> Scenario {
         ProcPlan::new("w", vec![commit(3, 1, 100)]),
         ProcPlan::new("r", vec![Act::Read { views: 1 }]),
     ])];
+    sc.phases.extend(after_repair(4));
     sc
 }
 
@@ -1847,20 +2315,40 @@ pub fn trash() -> Scenario {
     sc
 }
 
-/// A `file mv` across volumes, which is refused before its intent (P-83).
+/// A `file mv` across volumes, which is refused before its intent (P-83), beside a writer's commits and a move within
+/// one volume, so that the enumeration has the crash points and lock holdings the nightly tier's gates ask of every
+/// scenario (GT1's state minimum, [F15 §3.8]'s release classes).
 pub fn xvol() -> Scenario {
     let mut sc = Scenario::new("xvol");
     sc.tracked_refs = Vec::new();
-    sc.files = vec![(4, 2)];
-    sc.phases = vec![phase(vec![ProcPlan::new(
-        "c",
-        vec![Act::Mv {
-            key: op(4, 1),
-            file: 4,
-            src: 2,
-            dst: 3,
-        }],
-    )])];
+    sc.files = vec![(4, 2), (5, 1)];
+    sc.phases = vec![
+        phase(vec![
+            ProcPlan::new(
+                "c",
+                vec![Act::Mv {
+                    key: op(4, 1),
+                    file: 4,
+                    src: 2,
+                    dst: 3,
+                }],
+            ),
+            ProcPlan::new(
+                "w",
+                vec![
+                    commit(5, 1, 200),
+                    Act::Mv {
+                        key: op(5, 2),
+                        file: 5,
+                        src: 1,
+                        dst: 2,
+                    },
+                    commit(5, 3, 200),
+                ],
+            ),
+        ]),
+        doctor(),
+    ];
     sc
 }
 
@@ -2015,6 +2503,34 @@ pub fn server() -> Scenario {
             ),
             ProcPlan::new("l", vec![rt(2, 1, 0xE2, 200), rt(2, 2, 0xE3, 200)]),
             ProcPlan::new("w", vec![commit(3, 1, 300)]),
+        ]),
+        doctor(),
+    ];
+    sc
+}
+
+/// A reader that keeps its view across its reads while a lazy tail it may have seen is lost to a failed flush ([F15]
+/// FM-3.6) and refilled by a writer, whose publish of the lowered `committed_lsn` ([F16] P-49) and refill may come
+/// between two of its reads: the next read re-checks the remembered bound (P-56).
+pub fn refill() -> Scenario {
+    let mut sc = Scenario::new("refill");
+    sc.phases = vec![
+        phase(vec![
+            ProcPlan::new(
+                "srv",
+                vec![
+                    rt(1, 1, 0xF1, 200),
+                    Act::Read { views: 2 },
+                    rt(1, 2, 0xF2, 200),
+                    Act::Read { views: 2 },
+                    rt(1, 3, 0xF3, 200),
+                    Act::Read { views: 2 },
+                    rt(1, 4, 0xF4, 200),
+                    Act::Read { views: 2 },
+                ],
+            ),
+            ProcPlan::new("w1", vec![commit(2, 1, 300), commit(2, 2, 300)]),
+            ProcPlan::new("w2", vec![commit(3, 1, 300), commit(3, 2, 300)]),
         ]),
         doctor(),
     ];
@@ -2352,6 +2868,7 @@ pub fn all() -> Vec<Scenario> {
         admin(),
         import(),
         server(),
+        refill(),
         timeouts(),
         retry(),
         intents_live(),

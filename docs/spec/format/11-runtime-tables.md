@@ -100,6 +100,8 @@ Every section of this chapter has the same body, which fills the section's `[off
 The body is `RtHdr`, then `n_rows` rows of `row_size` bytes (row i at offset `24 + i × row_size`), then the index
 region, then the heap, with no gap. The section entry's `len` must equal `24 + n_rows × row_size + index_len + heap_len`;
 otherwise the section is invalid. A section with no rows has `n_rows` = 0 and is still written where §2.4 requires it.
+An `IDEM` section is never row-less: its `n_rows` is the capacity C ≥ 16 of §8, and with no entry it holds C all-zero
+slots and `aux` = 0 (spec sync 2b).
 
 ### 2.2 Rows, keys and order
 
@@ -126,7 +128,10 @@ Variable-length fields live in the heap. A row refers to them by `HeapRef`:
   exactly that sequence.
 - **Canonical order.** The heap is the concatenation of every slice in row order and, within a row, in the order of its
   `HeapRef` fields, with no gap, no padding and no shared bytes. Each `off` is therefore the sum of the lengths of all
-  earlier slices, also when `len` is 0. So a section has exactly one encoding for its content (E3).
+  earlier slices, also when `len` is 0. The one exception is a `HeapRef` that its table defines as zero: `IDEM`'s unused
+  slots and the `result` of an entry without `result_inline` (§8) hold (0, 0) and take no place in this order; an inline
+  `IDEM` result, empty or not, sits at the running offset like every other slice (spec sync 2b). So a section has exactly
+  one encoding for its content (E3).
 - **Bounds.** A reader that follows a `HeapRef` checks `off + len ≤ heap_len`; a slice out of bounds makes the section
   invalid (§2.7).
 
@@ -387,9 +392,23 @@ promoted.
 
 ### 3.8 Retention
 
-A row with `deleted` is dropped by the first fold at which the newest lsn in `moves` belongs to a record older than
-`gc.reflog-expire` ([F17 §11.2]; the reflog keeps the tip for that window, [AR §5a.9]). Its entries in other refs'
-absorbed vectors are dropped with it.
+A row with `deleted` **expires** at a `gc` run, the decision point of [F17 §11.2] ([API §8.5]), when all of these hold
+at that run, after the run's checkpoint fold has moved the inert `MARKERS` rows and applied the run's `MARKERS_OLD`
+retention (§7 "Inertness", "Retention"):
+
+1. its reflog has expired: the record at `moves[0]` (the deleting `RefUpdate`) has an `hlc` ([F05 §9.2] order 4) older
+   than the run's reflog window (`gc.reflog-expire`, or the run's `reflog_expire`; the reflog keeps the tip for that
+   window, [AR §5a.9]);
+2. no row of `MARKERS` or `MARKERS_OLD` names its `ref_id` as the origin ref ([RULES/state-definition] VR-006);
+3. no `IDEM` entry bound to its `ref_id` is still inside its lookup window ([F17 §11.1], §8).
+
+That run's checkpoint writes `REFS` without the row and drops the ref's entries from the other refs' absorbed vectors
+(§3.4); no other fold drops the row of a deleted ref. After expiry no rule reads the row or those entries: the ref's
+reflog revisions stopped resolving at the run, and no marker test (AB-001) or idempotency branch rule (§8) names the
+ref. The three conditions are functions of the stream at the run: condition 2 is read after the run's own inertness
+move and retention, so which marker rows remain does not depend on which rows earlier folds moved. So the drop is a
+deterministic effect of the `gc` run, visible in [API §15.7] `refs` and `absorbed`, and independent of when folds run;
+`ref_id` values are never reused (§3.7) (spec sync 2b).
 
 ### 3.9 Where each field comes from
 
@@ -556,7 +575,7 @@ origin ref is the ref that commit landed on. `MARKERS` holds at most one row per
 | 24 | 1 | `u8` | `kind` | 1 `settled` (a `done` or `cancelled` hold), 2 `deleted` (a `deleted` hold), 3 `cleared` (the holder set emptied) (MF-002) |
 | 25 | 1 | `u8` | `status` | `settled`: 1 `done`, 2 `cancelled` (the hold's status, [F05 §9.5] field 10); 0 for the other kinds |
 | 26 | 1 | `u8` | `cause` | the event of the newest `Marker` entry that changed the row ([F05 §9.5] `cause`): 1 `ops` (a commit landing on a work ref), 2 `undo`, 3 `op-restore`, 4 `branch-delete` (`branch -d` or `-D`), 5 `fork` |
-| 27 | 1 | `u8` | `flags` | bit 0 `nonlinear` (MF-007): set by ME-011 or ME-013 and never cleared; it selects the exact test AB-002. Bits 1–7 reserved-zero |
+| 27 | 1 | `u8` | `flags` | bit 0 `nonlinear` (MF-007): set by ME-011, on a row in either section, and never cleared; ME-012's move and ME-013's return leave it as it is (spec sync 2b); it selects the exact test AB-002. Bits 1–7 reserved-zero |
 | 28 | 4 | `u32` | `ref_seq` | `ref_seq` of the origin commit on `ref_id` (MF-005): a linear marker is absorbed by a view R when `absorbed_R[ref_id] ≥ ref_seq` (AB-001) |
 | 32 | 4 | `u32` | `actor` | `settled`: the `actor` symbol of the lease holder of the completion, [F05 §9.5] field 9 `holder` (MF-009; the `holder` of [AR §5d.1] and [AR §2.16]); 0 when the entry has none, and 0 for the other kinds, whose entries carry no holder |
 | 36 | 1 | `u8` | `outcome` | `settled`: the `complete --outcome` of the entry that wrote it (MF-009; [F05 §9.5] field 11): 0 none, 1 `done`, 2 `failed`, 3 `abandoned`; 0 for the other kinds |
@@ -564,25 +583,32 @@ origin ref is the ref that commit landed on. `MARKERS` holds at most one row per
 | 40 | 8 | `u64` | `hlc` | `append_hlc` of the newest `settled`, `deleted` or `cleared` entry of this identity (MF-008) |
 | 48 | 8 | `u64` | `seq` | `seq` of `commit` (the change-feed position of the completion or deletion) |
 | 56 | 8 | `u64` | `emit_lsn` | lsn of the newest `Marker` record that changed this row |
-| 64 | 8 | `HeapRef` | `holders` | `list<u32>`: the `ref_id`s of the live work refs that hold `n` with this origin (MF-006), ascending and unique; empty in a `cleared` row and in every `MARKERS_OLD` row |
+| 64 | 8 | `HeapRef` | `holders` | `list<u32>`: the `ref_id`s of the live work refs that hold `n` with this origin (MF-006), ascending and unique; empty in a `cleared` row. A `MARKERS_OLD` row keeps the holder set it had when ME-012 moved it: an entry that changes it returns the row to `MARKERS` with the entry applied (ME-013; spec sync 2b) |
 | total | 72 | | | |
 
 Rules:
 - **Records.** Every change of a row is an entry of a `Marker` record ([F05 §9.5]), appended in the flushed group of the
-  commit or `RefUpdate` that caused it; the events that write them are ME-001 to ME-013 ([F13 §4.2] MC-1, MC-5). Replay
-  applies the entries in log order and derives no holder change itself: a `settled` or `deleted` entry writes the row, or
-  re-emits it, with the entry's holder set; a `holders` entry replaces the holder set; a `cleared` entry sets `kind` 3 and
-  empties the holder set; a `nonlinear` entry sets `flags` bit 0. An entry whose identity is found only in `MARKERS_OLD`
-  moves that identity back to `MARKERS` (ME-013).
+  commit or `RefUpdate` that caused it; the events that write them are ME-001 to ME-011, whichever section holds the row
+  ([F13 §4.2] MC-1, MC-5). Replay applies the entries in log order and derives no holder change itself: a `settled` or
+  `deleted` entry writes the row, or re-emits it, with the entry's holder set; a `holders` entry replaces the holder set;
+  a `cleared` entry sets `kind` 3 and empties the holder set; a `nonlinear` entry sets `flags` bit 0. An entry whose
+  identity is found only in `MARKERS_OLD` moves that identity back to `MARKERS` with the entry applied (ME-013). ME-012's
+  move and ME-013's other return (after `undo` or `op restore` moves a ref of any kind, or a fork creates one, an active
+  `MARKERS_OLD` row that some live ref has not absorbed goes back to `MARKERS`) are storage moves: each is derived from
+  the rows and the absorbed vectors, writes no record and changes no holder set or flag, so the records are the same
+  whether or not a fold ran ([RULES/state-definition] open point 17; spec sync 2b).
 - **Active.** A `settled` or `deleted` row is active while `holders` is non-empty (MF-006); a `cleared` row never is.
   A node is excluded on a view R while some active row of it is not absorbed by R: a linear row when
   `absorbed_R[ref_id] < ref_seq`, a `nonlinear` row when `commit` ∉ ancestors-or-self(tip(R)) (AB-001 to AB-004,
   [F13 §4.2] MC-4).
 - **Inertness** (ME-012, [F13 §4.2] MC-6). At each checkpoint fold, `cleared` rows and rows absorbed by every live ref of
-  every kind (deleted refs excluded) move from `MARKERS` to the `MARKERS_OLD` layer of the new segment, with `holders`
-  emptied. The fold decides this from the rows and the absorbed vectors alone and writes no record. `MARKERS` is a
-  snapshot; `MARKERS_OLD` is layered and append-only.
-- **Retention.** `gc` drops `MARKERS_OLD` rows whose `hlc` is older than `gc.reflog-expire` ([F17 §11.2]).
+  every kind (deleted refs excluded) move from `MARKERS` to the `MARKERS_OLD` layer of the new segment with their holder
+  sets and flags: only the storage layer changes (spec sync 2b). The fold decides this from the rows and the absorbed
+  vectors alone and writes no record. `MARKERS` is a snapshot; `MARKERS_OLD` is layered and append-only.
+- **Retention.** A `gc` run's checkpoint fold, after its inertness move, drops every `MARKERS_OLD` row whose `hlc` is
+  older than the run's reflog window (`gc.reflog-expire`, or the run's `reflog_expire`, [API §8.5]; [F17 §11.2]). The
+  inertness move comes first, so the rows the run drops do not depend on when earlier folds ran; the drop is visible
+  in [API §15.7] `markers` (spec sync 2b).
 
 ## 8. `IDEM`
 
@@ -600,7 +626,7 @@ of used slots.
 | 45 | 3 | `[3]u8` | `_reserved` | zero |
 | 48 | 8 | `u64` | `append_hlc` | `append_hlc` of the origin record; opens the retention windows ([F17 §11.1]) |
 | 56 | 8 | `u64` | `origin_lsn` | lsn of the record that recorded the entry: a `Commit` with `idem_key`/`idem_payload`, or an `Idem` record ([F05]) |
-| 64 | 8 | `HeapRef` | `result` | with `result_inline`: the bytes of the `Idem` record's result field ([F05], the result data of [API]); otherwise zero, and the result is derived from the commit at `origin_lsn` |
+| 64 | 8 | `HeapRef` | `result` | with `result_inline`: the bytes of the `Idem` record's result field ([F05], the result data of [API]), at the running heap offset of §2.3 even when empty; otherwise the zero `HeapRef` (0, 0), which takes no place in §2.3's order, and the result is derived from the commit at `origin_lsn` |
 | total | 72 | | | |
 
 - **Empty slot.** A slot with `used` = 0 is all zero bytes.
@@ -637,7 +663,8 @@ A dense array `#N → (uid, ref_id, create_seq)` over every `#N` the store has a
 
 - The base segment's section starts at `aux` = 1 (`#N` 0 names no node) and covers every id below the fold's `next_id`;
   a delta's section covers the contiguous range of ids allocated after the next-older segment, extended down to the lowest
-  reserved id whose hole it fills (below).
+  reserved id whose hole it fills (below). A delta layer that allocated no id and fills no hole has `n_rows` = 0 and
+  `aux` = 0 (spec sync 2b).
 - An id allocated by a group that was lost before it became durable is not allocated ([AR §4.5] step 10). If a later id
   was allocated, the lost id's row is all zero bytes (a hole); a row with `create_seq` = 0 is a hole.
 - **Reserved ids** (pass 1, P1-3). The `#N`s of a durable `Reserve` record ([F05 §9.27], [F16] P-84) are allocated by
@@ -889,7 +916,7 @@ Every other value is invalid.
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `code` | `u8` | always | a detail code of [F18 §4.6] |
-| 2 | `args` | per slot | always | the values of the slots of the code's text template, in template order: `<path>` as a [F08 §5.2] `path`; `<score>` as `score_num u64` then `score_den u64` (lowest terms, `score_den` ≥ 1); `<g7>` as an `oidv` git commit id ([F01 §7.5] variable-width form; the text prints 7 digits); `<n>` as a `u32`; the optional `, runner-up <score>` of code 15 as a `u8` 0 or 1, followed by the score when 1. `<c8>`, `<age>`, `<ev>`, `<text>` and `<quote>` are never stored: a reader takes them from the view, `missing_since`, `target_ev`, the tombstone and the anchor |
+| 2 | `args` | per slot | always | the values of the slots of the code's text template, in template order: `<path>` as a [F08 §5.2] `path`; `<score>` as `score_num u64` then `score_den u64` (lowest terms, `score_den` ≥ 1); `<g7>` as an `oidv` git commit id ([F01 §7.5] variable-width form; the text prints 7 digits); `<n>` as a `u32`; the optional `, runner-up <score>` of code 15 as a `u8` 0 or 1, followed by the score when 1. `<c8>`, `<age>`, `<ev>`, `<text>` and `<quote>` are never stored: a reader takes them from the view, `missing_since`, `target_ev`, the tombstone and the anchor. The anchor details 62 and 63 are never stored in a `Detail`: `ANCHORRES` records them in its `detail` byte and keeps code 62's optional score in `score_num`/`score_den` (§12.13; spec sync 2b) |
 
 A row records the parts of [F18 §4.7] rule 1 for its `state` that the cascade decided, in rule-1 order, and not the parts
 a reader derives when it renders the link: 1, 4–9, 36, 46 and 66–69. So a row has at most two: one principal part for
@@ -1265,8 +1292,8 @@ record ([F20]). Every byte of this chapter is fixed by the design or decided her
    (MF-006, a heap list that replaces the first draft's `orig_ref_id` and "re-attribution"), `flags` carries `nonlinear`
    (MF-007), `cause` says which event last changed the row, and `emit_lsn` names the newest record that did. Every field
    has its source in [F05 §9.5]. Cost: 72 B per row plus 4 B per holder in `MARKERS` (dozens of active rows, [AR §8.3]),
-   72 B per row in `MARKERS_OLD` against [AR §4.4]'s 40 B estimate; ≈ 2.2 MB a year in `MARKERS_OLD` at ≈ 30,000 markers
-   a year.
+   72 B per row plus 4 B per holder in `MARKERS_OLD` too (a cold row keeps its holder set, spec sync 2b) against
+   [AR §4.4]'s 40 B estimate; ≈ 2.3 MB a year in `MARKERS_OLD` at ≈ 30,000 markers a year of one holder each.
 2. **The marker key is not unique over time.** A marker can be cleared and later re-emitted (ME-003, ME-006), and an
    inert one can return from `MARKERS_OLD` (ME-013). The identity stays `(#N, ref_id, commit)` ([60 §2.5]); `MARKERS`
    keeps one row per identity (its newest state), and `MARKERS_OLD` rows sharing it are ordered by `emit_lsn`, which is
@@ -1408,3 +1435,16 @@ record ([F20]). Every byte of this chapter is fixed by the design or decided her
     The record field is [F05 §9.11]'s. **Decided 2026-09-28** (OQ-F-3 (b); closure NC-11): the layer that delivers the
     pack appends the record; no M0 command is such a layer ([API] open point 48, PX-011), so no `feed` 2 row exists and
     C8 is empty at M0. The decision changes no byte of the row (spec sync 2a, consistency).
+43. **Spec sync 2b** (WP-95 conformance, arbiter rulings A0/A1). An `IDEM` `result` without `result_inline` and an unused
+    slot hold the zero `HeapRef`, which §2.3's canonical order now names as its one exception; an inline result, empty or
+    not, keeps the running offset (§2.3, §8). An `IDEM` section always has C ≥ 16 slots (§2.1). A delta's `ALLOC` with no
+    id allocated has `aux` = 0 (§9.1). A deleted ref's `REFS` row expires only at a `gc` run and only once no marker and
+    no live idempotency entry names it (§3.8; [RULES/state-definition] VR-006). Codes 62 and 63 are never a `FILEOBS`
+    `Detail` (§12.5). After the independent check of the sync: the runtime snapshot lists deleted refs and the absorbed
+    vectors ([API §15.7]), so the expiry is not class I but a deterministic, visible effect of the `gc` run that the
+    model reproduces; the run's checkpoint fold moves the inert `MARKERS` rows before its `MARKERS_OLD` retention, and
+    §3.8's conditions are read after both, so neither drop depends on when earlier folds ran (§3.8, §7 "Retention");
+    §3.8 condition 1 reads the deleting `RefUpdate`'s `hlc` ([F05 §9.2] order 4), which has no `append_hlc` field.
+    With [RULES/state-definition] open point 17's decision (a): a `MARKERS_OLD` row keeps its holder set and flag, ME-011
+    flags a row in either section, and ME-012's move and ME-013's return are storage moves that write no record (§7
+    `flags`, `holders`, "Records", "Inertness").

@@ -183,6 +183,15 @@ impl Owner<'_> {
             },
         }
     }
+
+    /// The owner as LQ source, for a name inside embedded LQ text ([LQ/errors §2.2a], spec sync 2b S2B-F-42): a
+    /// variable back-quoted only when LQ requires it.
+    fn lq(&self) -> String {
+        match self {
+            Owner::Text(s) => printer::var(s),
+            Owner::Expr(e) => printer::expr_text(e),
+        }
+    }
 }
 
 impl Binder<'_> {
@@ -946,9 +955,9 @@ impl Binder<'_> {
                     }
                     match info.class {
                         PClass::Runtime => {
-                            let owner = owner.text();
-                            let prop = format!("{owner}.{name}");
-                            let hint = (name == "ready").then_some(owner.as_str());
+                            let prop = format!("{}.{name}", owner.text());
+                            let lq_owner = owner.lq();
+                            let hint = (name == "ready").then_some(lq_owner.as_str());
                             self.tip_only("leases and markers", &prop, span, false, hint);
                         }
                         PClass::Tree => {
@@ -987,7 +996,7 @@ impl Binder<'_> {
                     } else {
                         format!("kinds {} have no field {}", q(&kind), q(name))
                     };
-                    let owner = owner.text();
+                    let owner = owner.lq();
                     self.err(
                         Diag::new(Code::E101, span, msg)
                             .inline(format!("write {owner}.status = 'open', or {owner}.unfinished for any unfinished status")),

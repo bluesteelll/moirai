@@ -7,7 +7,7 @@ use moirai_vfs::{BootIdentity, Vfs};
 use crate::bugs::Bug;
 use crate::ops::Op;
 use crate::store::{ScanCtx, Stop, Toy, ToyError};
-use crate::tap::{Note, Tap};
+use crate::tap::Tap;
 use crate::write::{Change, Held, activity};
 
 impl<V: Vfs, T: Tap> Toy<V, T> {
@@ -39,8 +39,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
             } else {
                 s.checkpoint_lsn.min(s.durable_lsn)
             };
-            let chain = self.chain_at(&ctx, start)?;
-            self.step(Note::Rewrite, true);
+            let chain = self.chain_at(&ctx, start, s.durable_lsn)?;
             let sc = self.scan_opt(&ctx, start, chain, None, true)?;
             match sc.stop {
                 Stop::ReadError(p) => {
@@ -63,7 +62,6 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
                     self.write_log(&ctx, g.start, &g.raw)?;
                 }
             }
-            self.step(Note::Rewrite, false);
             if held.writer {
                 self.drop_writer();
                 held.writer = false;
@@ -100,8 +98,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
             held.writer = self.take_writer(activity::FLUSH_SCAN)?;
             let (s, _) = self.read_head()?;
             let ctx = ScanCtx::of(&s);
-            let chain = self.chain_at(&ctx, s.durable_lsn)?;
-            self.step(Note::Rewrite, true);
+            let chain = self.chain_at(&ctx, s.durable_lsn, s.durable_lsn)?;
             let sc = self.scan_opt(&ctx, s.durable_lsn, chain, None, true)?;
             match sc.stop {
                 Stop::ReadError(p) => return Err(ToyError::IoFault(p)),
@@ -114,7 +111,6 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
             }
             let e_end = sc.end;
             if e_end <= s.durable_lsn && s.committed_lsn == e_end {
-                self.step(Note::Rewrite, false);
                 return Ok(());
             }
             if !bugs.on(Bug::P42G3T5FlushWithoutRewrite) {
@@ -122,7 +118,6 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
                     self.write_log(&ctx, g.start, &g.raw)?;
                 }
             }
-            self.step(Note::Rewrite, false);
             if held.writer && !bugs.on(Bug::P02FlushUnderWriter) {
                 self.drop_writer();
                 held.writer = false;
@@ -131,12 +126,9 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
             if !held.writer {
                 held.writer = self.take_writer(activity::FLUSH_PUBLISH)?;
             }
+            // P-45: durable_lsn never decreases.
             let (s2, w2) = self.read_head()?;
-            let d = if bugs.on(Bug::P45G5SmallerDurable) {
-                e_end
-            } else {
-                s2.durable_lsn.max(e_end)
-            };
+            let d = s2.durable_lsn.max(e_end);
             self.publish(
                 &s2,
                 w2,
@@ -206,6 +198,38 @@ mod tests {
         // Both slots carry it (a durable publish, [F16] P-13).
         let other = t2.other_slot().unwrap_or_else(|| panic!("two valid slots"));
         assert_eq!(other.boot_id, s.boot_id);
+    }
+
+    /// [F16] P-60: a boot-change recovery that refuses leaves the handle unbooted. Here another process holds the flush
+    /// byte (as a dead process's byte does until its release, [F15] FM-8.1), so the recovery ends `store_locked`; the
+    /// next read on the same handle runs the boot check again and refuses again instead of replaying the slot of the
+    /// earlier boot, and once the byte is free the recovery runs and the read follows it.
+    #[test]
+    fn a_refused_boot_change_recovery_leaves_the_handle_unbooted() {
+        let c = Config::test_profile();
+        let (w, v, _) = sim_store(&c, 43);
+        let mut t = open(&v, &c);
+        t.run(&commit(1)).unwrap_or_else(|e| panic!("{e}"));
+        drop(t);
+        w.crash(&CrashPlan::baseline())
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        let holder = w.process_with("holder", None, Some(true));
+        let mut u = open(&holder, &c);
+        assert_eq!(u.take_flush(), Ok(true));
+        let v2 = w.process_with("after", None, Some(true));
+        let mut t2 = open(&v2, &c);
+        assert_eq!(t2.refresh().map(|s| s.slot_seq), Err(ToyError::StoreLocked));
+        assert_eq!(
+            t2.refresh().map(|s| s.slot_seq),
+            Err(ToyError::StoreLocked),
+            "the second read skipped the boot check"
+        );
+        assert!(t2.view().is_none());
+        u.drop_flush();
+        let s = t2.refresh().unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(s.boot_id, w.boot().1.0, "the slot carries the new boot");
+        let st = t2.read().unwrap_or_else(|e| panic!("{e}"));
+        assert!(st.commits.contains_key(&1));
     }
 
     #[test]

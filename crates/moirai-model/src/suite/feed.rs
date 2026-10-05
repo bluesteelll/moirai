@@ -22,8 +22,8 @@ fn world() -> S {
     s
 }
 
-/// The orchestrator claims `#n` for `holder`; the new lease.
-fn claim_for(s: &mut S, n: u32, holder: &str) -> String {
+/// The orchestrator claims `#n` for `holder` on branch `r`; the new lease.
+fn claim_for(s: &mut S, n: u32, holder: &str, r: &str) -> String {
     let c = s.run(
         Cmd::Claim {
             ids: vec![Target::Id(Nid(n))],
@@ -36,7 +36,7 @@ fn claim_for(s: &mut S, n: u32, holder: &str) -> String {
             run: None,
             session: false,
         },
-        claim_ctx("orch", "main"),
+        claim_ctx("orch", r),
     );
     assert_eq!(c.outcome, Outcome::Ok, "{:?}", c.error);
     c.yields[0].rows[0]
@@ -128,8 +128,8 @@ fn the_feed_records_each_changed_key() {
 #[test]
 fn relevance_is_claimed_blocked_on_authored_or_cited() {
     let mut s = world();
-    claim_for(&mut s, 1, "dev");
-    let wl = claim_for(&mut s, 3, "writer");
+    claim_for(&mut s, 1, "dev", "main");
+    let wl = claim_for(&mut s, 3, "writer", "main");
     // A blocker of dev's task, added after the claim.
     s.ok(tx(vec![link(2, "blocks", 1)]), orch());
     // The writer's note mentions #1 (a `mentions` edge from the `#1` sigil, WE-016).
@@ -224,62 +224,264 @@ fn relevance_is_claimed_blocked_on_authored_or_cited() {
     assert!(!about.is_empty() && about.iter().all(|c| c.node == Some(Nid(1))));
 }
 
+/// The entries that are not key changes, each against its row of [LQ/std §2.15]'s table (spec sync 2b, S2B-F-56;
+/// the WP-90b review's R24): (`op`, `aspect`, `name`, `node`, `ref`, `commit`, `actor`, `seq`) for a lease granted in a
+/// lease-only group and in a commit group, a lease ended by `complete` and by `release`, a lease ended by a branch
+/// deletion, `settled` and `deleted` marker entries, and ref moves (a create's commit is the new tip, a deletion has
+/// none), each entry that no commit carries at the seq of the newest commit before it.
 #[test]
-fn lease_and_marker_events_are_entries() {
+fn non_key_entries_follow_the_table() {
     let mut s = world();
+    let c1 = s.st.commit_seq;
+    // A lease-only group: the grant has no commit, at the seq of the newest commit.
+    let from = s.st.feed.rows.len();
+    let l2 = claim_for(&mut s, 1, "dev", "main");
+    assert_eq!(
+        entries(&s, from),
+        vec![entry(
+            "grant",
+            "lease",
+            &l2,
+            Some(1),
+            "main",
+            None,
+            "dev",
+            c1
+        )]
+    );
+    // `release` ends it (reason 1) in a lease-only group.
+    let from = s.st.feed.rows.len();
+    s.ok(
+        Cmd::Release { lease: l2.clone() },
+        Ctx {
+            lease: Some(l2.clone()),
+            no_dedupe: true,
+            ..Default::default()
+        },
+    );
+    assert_eq!(
+        entries(&s, from),
+        vec![entry("end", "lease", &l2, Some(1), "main", None, "dev", c1)]
+    );
+    // A claim with `start` writes a commit: the grant carries the group's commit; `complete` ends the lease and settles
+    // the task in its commit's group, the marker's actor the completion's holder (MF-009).
+    let from = s.st.feed.rows.len();
     let c = s.ok(
         Cmd::Claim {
-            ids: vec![Target::Id(Nid(3))],
+            ids: vec![Target::Id(Nid(2))],
             next: false,
             scope: None,
             role: None,
-            agent: None,
+            agent: Some("dev".into()),
             ttl: None,
-            start: false,
+            start: true,
             run: None,
             session: false,
         },
-        orch(),
+        claim_ctx("orch", "main"),
     );
-    let lease = c.yields[0].rows[0]
+    let c2 = c.commit.unwrap();
+    let l3 = c.yields[0].rows[0]
         .iter()
         .find(|(k, _)| k == "lease")
         .unwrap()
         .1
         .clone();
-    s.ok(
-        Cmd::Complete {
-            id: Target::Id(Nid(3)),
-            outcome: "done".into(),
-            summary: "ok".into(),
-            evidence: vec![],
-            move_lease: None,
-        },
-        Ctx {
-            lease: Some(lease.clone()),
-            ..Default::default()
-        },
-    );
-    let ops: Vec<(&str, &str)> =
-        s.st.feed
-            .rows
-            .iter()
-            .filter(|r| r.node == Some(Nid(3)) && (r.aspect == "lease" || r.aspect == "marker"))
-            .map(|r| (r.op.as_str(), r.aspect.as_str()))
-            .collect();
     assert_eq!(
-        ops,
-        [("grant", "lease"), ("end", "lease"), ("settled", "marker")]
+        entries(&s, from),
+        vec![entry(
+            "grant",
+            "lease",
+            &l3,
+            Some(2),
+            "main",
+            Some(c2),
+            "dev",
+            c2
+        )]
+    );
+    let from = s.st.feed.rows.len();
+    let c3 = s
+        .ok(
+            Cmd::Complete {
+                id: Target::Id(Nid(2)),
+                outcome: "done".into(),
+                summary: "ok".into(),
+                evidence: vec![],
+                move_lease: None,
+            },
+            Ctx {
+                lease: Some(l3.clone()),
+                no_dedupe: true,
+                ..Default::default()
+            },
+        )
+        .commit
+        .unwrap();
+    assert_eq!(
+        entries(&s, from),
+        vec![
+            entry("end", "lease", &l3, Some(2), "main", Some(c3), "dev", c3),
+            entry(
+                "settled",
+                "marker",
+                &format!("s{c3}"),
+                Some(2),
+                "main",
+                Some(c3),
+                "dev",
+                c3
+            ),
+        ],
+        "the Lease record, then the Marker record ([F05 §4.7])"
+    );
+    // A `deleted` marker's actor is its origin commit's.
+    let from = s.st.feed.rows.len();
+    let c4 = s
+        .ok(
+            tx(vec![Stmt::Delete {
+                target: Target::Id(Nid(3)),
+                policy: None,
+                replaced_by: None,
+                release: false,
+                reason: Some("gone".into()),
+            }]),
+            orch(),
+        )
+        .commit
+        .unwrap();
+    let actor = s.st.dag.commits[&c4].actor.clone();
+    assert_eq!(
+        entries(&s, from),
+        vec![entry(
+            "deleted",
+            "marker",
+            &format!("s{c4}"),
+            Some(3),
+            "main",
+            Some(c4),
+            &actor,
+            c4
+        )]
+    );
+    // Ref moves: a create names its new tip; a lease on the branch ends at its deletion, after the ref move, which names
+    // no commit.
+    let from = s.st.feed.rows.len();
+    s.ok(
+        Cmd::BranchCreate {
+            name: "x".into(),
+            from: None,
+            kind: None,
+        },
+        orch(),
+    );
+    let lx = claim_for(&mut s, 1, "dev", "lane/x");
+    s.ok(
+        Cmd::BranchDelete {
+            name: "lane/x".into(),
+            force: true,
+        },
+        orch(),
+    );
+    let rows = entries(&s, from);
+    assert_eq!(
+        rows[0],
+        entry(
+            "create",
+            "ref",
+            "lane/x",
+            None,
+            "lane/x",
+            Some(c4),
+            &actor,
+            c4
+        )
+    );
+    assert_eq!(
+        rows[1],
+        entry("grant", "lease", &lx, Some(1), "lane/x", None, "dev", c4)
+    );
+    assert_eq!(
+        (rows[2].op.as_str(), rows[2].ref_.as_str(), rows[2].commit),
+        ("delete", "lane/x", None)
+    );
+    assert_eq!(
+        rows.last().cloned(),
+        Some(entry(
+            "end",
+            "lease",
+            &lx,
+            Some(1),
+            "lane/x",
+            None,
+            "dev",
+            c4
+        )),
+        "the branch deletion ends the lease after its ref move"
     );
 }
 
-/// A lease event after a commit shares that commit's `seq` but belongs to a later command: `changes(since: s)` shows
-/// it, and hides the commit's own group.
+/// One entry's columns of [LQ/std §2.15].
+#[derive(Clone, Debug, PartialEq, Eq)]
+struct Entry {
+    op: String,
+    aspect: String,
+    name: String,
+    node: Option<u32>,
+    ref_: String,
+    commit: Option<u64>,
+    actor: String,
+    seq: u64,
+}
+
+#[allow(clippy::too_many_arguments)]
+fn entry(
+    op: &str,
+    aspect: &str,
+    name: &str,
+    node: Option<u32>,
+    r: &str,
+    commit: Option<u64>,
+    actor: &str,
+    seq: u64,
+) -> Entry {
+    Entry {
+        op: op.into(),
+        aspect: aspect.into(),
+        name: name.into(),
+        node,
+        ref_: r.into(),
+        commit,
+        actor: actor.into(),
+        seq,
+    }
+}
+
+/// The feed's non-key entries from row `from` on.
+fn entries(s: &S, from: usize) -> Vec<Entry> {
+    s.st.feed.rows[from..]
+        .iter()
+        .filter(|r| ["lease", "marker", "ref"].contains(&r.aspect.as_str()))
+        .map(|r| Entry {
+            op: r.op.clone(),
+            aspect: r.aspect.clone(),
+            name: r.name.clone(),
+            node: r.node.map(|n| n.0),
+            ref_: r.ref_.clone(),
+            commit: r.commit,
+            actor: r.actor.clone(),
+            seq: r.seq,
+        })
+        .collect()
+}
+
+/// [LQ/std §2.15] "The `since(s)` cut": a lease event after a commit shares that commit's `seq` but no commit carries
+/// it, so `changes(since: s)` shows it, and hides the commit's own group.
 #[test]
 fn entries_after_a_commit_are_after_it() {
     let mut s = world();
     let seq = s.st.commit_seq;
-    let lease = claim_for(&mut s, 1, "dev");
+    let lease = claim_for(&mut s, 1, "dev", "main");
     let rows: Vec<_> = s.st.feed.since(seq, None).collect();
     assert_eq!(rows.len(), 1, "{rows:?}");
     assert_eq!(

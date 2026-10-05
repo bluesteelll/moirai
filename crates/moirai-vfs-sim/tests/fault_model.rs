@@ -1442,3 +1442,92 @@ fn fm11_a_death_inside_sync_group_resolves_every_member() {
         assert_eq!(!s.ops.is_empty(), pending, "outcome {outcome}");
     }
 }
+
+/// S4 finding 3: the FM-3.2 query a checker uses before it judges two reads of one range. A failed flush poisons the
+/// sector (FM-3.1) and the query says so, by path and by node, exactly where reads vary; a successful flush (FM-3.4), a
+/// rename and a crash (FM-3.3) leave it so; a re-write of part of the sector ends it (FM-3.5); a sector a truncation
+/// left beyond the file's size is not read, so it does not count.
+#[test]
+fn fm03_poisoned_below_says_where_reads_of_a_prefix_may_differ() {
+    let w = world(31);
+    let (v, r) = proc(&w, "p1");
+    durable_file(&v, &r, "f", &[0x11; 2 * 4096]);
+    let f = open_rw(&v, &r, "f");
+    let node = f.node();
+    let p = path("f");
+    v.write_at(&f, 4096, &[0xAA; 4096]).unwrap();
+    assert!(
+        !w.poisoned_below(&p, u64::MAX),
+        "a dirty sector reads its cache content"
+    );
+    w.queue_choice_for(&v, Site::FlushFault, 1);
+    let failure = v.sync(&f, SyncKind::Data).unwrap_err();
+    assert_eq!(fail(&v, failure), SimUnwind::Died);
+    // Sector 0 was clean; sector 1 is poisoned.
+    assert!(!w.poisoned_below(&p, 0));
+    assert!(!w.poisoned_below(&p, 4096));
+    assert!(w.poisoned_below(&p, 4097));
+    assert!(w.poisoned_below(&p, u64::MAX));
+    assert!(!w.poisoned_below_node(node, 4096));
+    assert!(w.poisoned_below_node(node, 4097));
+    assert!(!w.poisoned_below(Path::new(STORE), u64::MAX), "a directory");
+    assert!(!w.poisoned_below(&path("none"), u64::MAX), "no file");
+    assert!(!w.poisoned_below_node(u64::MAX, u64::MAX), "no node");
+    // Exactly where reads vary: reads of sector 0 always agree, reads of sector 1 do not.
+    let (v2, r2) = proc(&w, "p2");
+    let f2 = open_rw(&v2, &r2, "f");
+    let reads = |v: &SimVfs, f: &moirai_vfs_sim::SimFile, off: u64| -> BTreeSet<Vec<u8>> {
+        (0..32)
+            .map(|_| {
+                let mut b = vec![0u8; 4096];
+                v.read_exact_at(f, off, &mut b).unwrap();
+                b
+            })
+            .collect()
+    };
+    assert_eq!(reads(&v2, &f2, 0).len(), 1);
+    assert!(reads(&v2, &f2, 4096).len() > 1);
+    // A successful flush by another process proves nothing (FM-3.4).
+    v2.sync(&f2, SyncKind::DataAndMeta).unwrap();
+    assert!(w.poisoned_below(&p, 4097));
+    // A rename moves the name, not the poison; the node query follows the file.
+    v2.rename_noreplace(&r2, rel("f"), &r2, rel("g"), ShareRetry::None)
+        .unwrap();
+    v2.sync_dir(&r2, None).unwrap();
+    assert!(!w.poisoned_below(&p, u64::MAX));
+    assert!(w.poisoned_below(&path("g"), 4097));
+    assert!(w.poisoned_below_node(node, 4097));
+    // A task may ask too.
+    let (wt, pt) = (w.clone(), path("g"));
+    let t = w.spawn(&v2, move |_| wt.poisoned_below(&pt, u64::MAX));
+    assert!(!w.run().deadlock);
+    assert!(t.end().unwrap().unwrap());
+
+    // The poison survives a crash (FM-3.3).
+    let after = w.crash_image().materialize(&CrashPlan::newest()).unwrap();
+    assert!(after.poisoned_below(&path("g"), 4097));
+    assert!(after.poisoned_below_node(node, 4097));
+    // A write of four bytes ends it: the sector is dirty-over-poison and reads its cache content (FM-3.5).
+    let (v3, r3) = proc(&after, "p3");
+    let f3 = open_rw(&v3, &r3, "g");
+    v3.write_at(&f3, 4096 + 600, b"diff").unwrap();
+    assert!(!after.poisoned_below(&path("g"), u64::MAX));
+    assert_eq!(
+        after.surface().file(node).unwrap().sectors[0].state,
+        SectorKind::DirtyOverPoison
+    );
+    assert_eq!(reads(&v3, &f3, 4096).len(), 1);
+    // A truncation below it, then a failed flush: the sector is poisoned beyond cs(f), where no read reaches it.
+    v3.set_len(&f3, 4096).unwrap();
+    after.queue_choice_for(&v3, Site::FlushFault, 1);
+    let failure = v3.sync(&f3, SyncKind::Data).unwrap_err();
+    assert_eq!(fail(&v3, failure), SimUnwind::Died);
+    let s = after.surface();
+    let fs = s.file(node).unwrap();
+    assert_eq!(
+        (fs.sectors[0].index, fs.sectors[0].state),
+        (1, SectorKind::Poisoned)
+    );
+    assert!(!after.poisoned_below(&path("g"), u64::MAX));
+    assert!(!after.poisoned_below_node(node, u64::MAX));
+}

@@ -57,9 +57,11 @@
 //! every file's size history and non-clean sectors with their candidate counts, every pending namespace operation with
 //! the parents that synced it, and every write in flight; [`CrashImage::materialize`] builds the post-crash world a
 //! [`CrashPlan`] picks, as often as the caller likes, and [`CrashImage::reseeded`] draws fresh random states.
-//! [`SimWorld::put_file`] and [`SimWorld::mkdir_all`] build the pre-existing environment without events. Protocol
-//! violations the simulator can see ([F15 §3.13], OP-20) are listed by [`SimWorld::violations`]; the grant table's
-//! programming errors panic in the task.
+//! [`SimWorld::put_file`] and [`SimWorld::mkdir_all`] build the pre-existing environment without events.
+//! [`SimWorld::poisoned_below`] (by path) and [`SimWorld::poisoned_below_node`] (by node) tell a checker whether reads of
+//! a file's prefix may differ from one read to the next because a sector there is poisoned (FM-3.2), so that it judges
+//! two reads of one range only where FM-3 lets them agree. Protocol violations the simulator can see ([F15 §3.13],
+//! OP-20) are listed by [`SimWorld::violations`]; the grant table's programming errors panic in the task.
 //!
 //! # Cost
 //!
@@ -97,11 +99,16 @@ pub use crash::{
 pub use locks::SimClient;
 pub use namespace::NsKind;
 pub use rng::Rng;
-pub use trace::{EVENT_LEN, Event, EventKind, TraceMode};
+pub use trace::{
+    CLASS_DISCOVERABLE, CLASS_LOG, CLASS_SLOT, EVENT_LEN, Event, EventKind, NOTE_CLASS,
+    NOTE_COMPOSITE, NOTE_COMPOSITE_END, NOTE_PATH, NOTE_PROBE, NOTE_SLOT_WRITE, TraceMode,
+    path_hash, path_hash_of,
+};
 pub use vfs::{SimFile, SimMap, SimParentWatch, SimRoot, SimVfs, SimWake};
 pub use world::{
     BusyAt, CallKind, DeathCause, DeathPlan, PointInfo, RunReport, SimConfig, SimUnwind,
-    SpawnRequest, Task, TaskEnd, Violation, ViolationKind, VolumeProfile, catch_death, error_code,
+    SpawnRequest, Task, TaskEnd, Violation, ViolationKind, VolumeProfile, Watch, catch_death,
+    error_code,
 };
 
 use moirai_vfs::{BootId, VfsErrorKind, WaitMode};
@@ -535,6 +542,8 @@ impl SimWorld {
                 ch.pick(site, u32::MAX, node, aux, n)
             });
         });
+        g.note_class(None, u32::MAX, node);
+        g.note_path(None, u32::MAX, node);
         g.ev(EventKind::External, None, u32::MAX, node, 1, offset);
         Ok(())
     }
@@ -550,6 +559,8 @@ impl SimWorld {
         } else {
             g.flush_did_fail(node, &mark);
         }
+        g.note_class(None, u32::MAX, node);
+        g.note_path(None, u32::MAX, node);
         g.ev(EventKind::External, None, u32::MAX, node, 2, fault);
         Ok(())
     }
@@ -607,6 +618,8 @@ impl SimWorld {
             NsKind::RenameReplace as u64,
             node,
         );
+        g.note_class(None, u32::MAX, node);
+        g.note_path(None, u32::MAX, node);
         g.ev(EventKind::External, None, u32::MAX, old, 3, node);
         g.k.ns.gc(old);
         Ok(())
@@ -619,6 +632,8 @@ impl SimWorld {
         let mut g = self.driver();
         let node = g.k.ns.lookup_abs(path)?;
         g.k.ns.node_mut(node).share_block = attempts.unwrap_or(u64::MAX);
+        g.note_class(None, u32::MAX, node);
+        g.note_path(None, u32::MAX, node);
         g.ev(
             EventKind::External,
             None,
@@ -648,6 +663,8 @@ impl SimWorld {
             len,
             if persistent { None } else { Some(1) },
         );
+        g.note_class(None, u32::MAX, node);
+        g.note_path(None, u32::MAX, node);
         g.ev(EventKind::External, None, u32::MAX, node, 5, offset);
         Ok(())
     }
@@ -657,6 +674,8 @@ impl SimWorld {
         let mut g = self.driver();
         let node = SimWorld::file_at(&g, path)?;
         g.k.ns.file_mut(node).map_fault = true;
+        g.note_class(None, u32::MAX, node);
+        g.note_path(None, u32::MAX, node);
         g.ev(EventKind::External, None, u32::MAX, node, 6, 0);
         Ok(())
     }
@@ -708,9 +727,80 @@ impl SimWorld {
         Some(g.k.ns.file(node).content.cs())
     }
 
+    /// Whether a read of the file at `path` that reaches below byte `len` may return different bytes each time: a
+    /// sector overlapping `[0, min(len, cs(f)))` is `poisoned` ([F15 §2.2]), so every read of it, mapped reads too,
+    /// draws each sub-sector from its candidate set K afresh (FM-3.2; [F15 §6.2] N-4). A failed flush makes a sector so
+    /// (FM-3.1); a successful flush (FM-3.4) and a crash (FM-3.3) leave it so; only a write to the sector ends it
+    /// (FM-3.5: `dirty-over-poison` reads its cache content until a later failed flush poisons it again). `false` when
+    /// `path` names no file. The answer is the state now: a flush in flight changes it if it fails, and a write in flight
+    /// when it applies. Callable from the driver and from tasks.
+    pub fn poisoned_below(&self, path: &Path, len: u64) -> bool {
+        let g = self.sh.lock();
+        SimWorld::file_at(&g, path).is_ok_and(|n| g.k.ns.file(n).content.reads_poisoned(len))
+    }
+
+    /// [`SimWorld::poisoned_below`] for the file node `node` (as [`SimFile::node`], [`SimWorld::node_at`] and
+    /// [`PointInfo::node`] name it), whether or not a name still reaches it: `false` when `node` is not a file.
+    pub fn poisoned_below_node(&self, node: u64, len: u64) -> bool {
+        let g = self.sh.lock();
+        g.k.ns
+            .nodes
+            .get(&node)
+            .and_then(|n| n.file())
+            .is_some_and(|f| f.content.reads_poisoned(len))
+    }
+
     /// The events kept so far (none in [`TraceMode::DigestOnly`]).
     pub fn trace(&self) -> Vec<Event> {
         self.sh.lock().ch.trace.events()
+    }
+
+    /// The kept events from the `from`-th on (0-based): the part of the trace after a prefix already read.
+    pub fn trace_from(&self, from: u64) -> Vec<Event> {
+        self.sh.lock().ch.trace.events_from(from)
+    }
+
+    /// The slot-write capture a [`NOTE_SLOT_WRITE`] note names.
+    pub(crate) fn slot_capture(&self, index: u64) -> Option<Arc<trace::SlotCapture>> {
+        self.sh
+            .lock()
+            .ch
+            .trace
+            .captures
+            .get(index as usize)
+            .cloned()
+    }
+
+    /// The absolute paths that name node `node` (as [`PointInfo::node`] and [`SimWorld::node_at`] name it) in the
+    /// current namespace: none for a node with no name (unlinked, or never named), else its one path, `/`-separated
+    /// from the root.
+    pub fn paths_of_node(&self, node: u64) -> Vec<std::path::PathBuf> {
+        self.sh
+            .lock()
+            .k
+            .ns
+            .paths_of(node)
+            .into_iter()
+            .map(std::path::PathBuf::from)
+            .collect()
+    }
+
+    /// `len` bytes of the cache image C(f) of the file at `path` from `offset` (fewer where the file ends first), if
+    /// `path` names a file. For assertions.
+    pub fn peek_range(&self, path: &Path, offset: u64, len: u64) -> Option<Vec<u8>> {
+        let g = self.sh.lock();
+        let node = SimWorld::file_at(&g, path).ok()?;
+        let c = &g.k.ns.file(node).content;
+        let mut buf = vec![0u8; len.min(c.cs().saturating_sub(offset)) as usize];
+        let n = c.read_plain(offset, &mut buf);
+        buf.truncate(n);
+        Some(buf)
+    }
+
+    /// Whether `path` names a sealed file ([OS/fs §4.6]).
+    pub fn is_sealed(&self, path: &Path) -> bool {
+        let g = self.sh.lock();
+        SimWorld::file_at(&g, path).is_ok_and(|n| g.k.ns.file(n).sealed)
     }
 
     /// The byte form of the kept events: equal for equal seeds and call sequences.
@@ -819,6 +909,8 @@ pub(crate) fn truncate_node(g: &mut State, node: u64, len: u64) {
             ch.pick(site, u32::MAX, node, aux, n)
         });
     });
+    g.note_class(None, u32::MAX, node);
+    g.note_path(None, u32::MAX, node);
     g.ev(EventKind::External, None, u32::MAX, node, 0, len);
 }
 

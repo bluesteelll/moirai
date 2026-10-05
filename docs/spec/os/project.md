@@ -161,7 +161,7 @@ rows in [OS/fs §6.2] (pass 1, A1-33; open point 6):
 | `CloudOnly` | the operation would hydrate a cloud-only entry (§5.10) | decided from the entry's attributes before any open; a code of the `ERROR_CLOUD_FILE_*` family if one still occurs (matched by name: winerror.h has members at 358, 404, 426, 434 and 475 and gaps inside 362–400, [OS/fs §6.2]) | macOS `SF_DATALESS`, or the error a read returns while materialisation is off |
 | `IsSymlink` | a content read of a symbolic link (use `read_link`) | reparse tag `IO_REPARSE_TAG_SYMLINK` | `ELOOP` from `O_NOFOLLOW` |
 | `IsDirectory` | a content read or unlink of a directory | 267 `ERROR_DIRECTORY`, or the attributes | `EISDIR` |
-| `OutsideRoot` | an opened object's final path is not under the root (§5.5) | the final-path check | `EXDEV` from `RESOLVE_BENEATH`, `ELOOP` from `O_NOFOLLOW_ANY` |
+| `OutsideRoot` | an opened object's final path is not under the root (§5.2, §5.5) | the final-path check | `EXDEV` from `RESOLVE_BENEATH`, `ELOOP` from `O_NOFOLLOW_ANY` |
 | `Stale` | the root's identity changed (§2.2) | the root-id check | the root-id check |
 
 **Denials are never absence** ([80 §2.11.4] rule 9, [81] m12): `AccessDenied` is never mapped to `Absent`, `Gone` or
@@ -483,6 +483,13 @@ pub enum EnumEnd { Complete, Stopped }
   without `FILE_FLAG_OPEN_REPARSE_POINT`; a cloud directory placeholder counts as a directory (and one marked
   `RECALL_ON_DATA_ACCESS` is refused below). Linux and macOS get the same refusal from the relative open's
   `RESOLVE_NO_SYMLINKS` and `O_NOFOLLOW_ANY` (`ELOOP` → `IsSymlink`).
+- **Containment after the open (Windows).** The attribute read and the open are two calls, so a directory that an
+  external actor replaces with a junction between them would be followed. Before the first listing call, `enumerate`
+  therefore checks the open handle as `read_for_hash` does (§5.5 step 3): `GetFinalPathNameByHandleW` of the handle,
+  rewritten as [OS/path §4.1], must equal the root's text (the root itself) or have the root's text followed by `/` as
+  an exact byte prefix, never compared ignoring case. Otherwise the handle is closed unread and the result is
+  `OutsideRoot`. The cost is one `GetFinalPathNameByHandleW` per directory. Linux and macOS need no check: the open
+  itself resolves beneath the root without following links.
 - Entries `.` and `..` are never reported. Order is the file system's; **every consumer sorts candidates by exact name
   bytes before any tie-break** ([80 §2.11.4] rule 4).
 - `visit` returning `Break` stops the enumeration (`EnumEnd::Stopped`); the handle is closed before `enumerate` returns.
@@ -702,7 +709,7 @@ recovery would fail the same way.
 
 | Operation | Sequence | Result on failure |
 |---|---|---|
-| `durable_rename(from, to, retry)` | `rename_noreplace`, then `sync_dir` of `from`'s parent and of `to`'s parent (once if they are one directory). macOS: `fsync` of both directory descriptors, then **one** `F_FULLFSYNC` on the second (`sync_group`, [80 §2.3.1]). `LinkedThenUnlinked`: the same two flushes | `NotDone(e)` if the rename failed (nothing changed); `NotDurable(f)` if it succeeded and a flush failed |
+| `durable_rename(from, to, retry)` | `rename_noreplace`, then `sync_dir` of `from`'s parent and of `to`'s parent (once if they are one directory: the two parent paths are byte-identical, or their `FileIdInfo` identities are equal; never a case-folded comparison, since under per-directory case sensitivity `Src` and `src` are two directories, FM-2.3). macOS: `fsync` of both directory descriptors, then **one** `F_FULLFSYNC` on the second (`sync_group`, [80 §2.3.1]). `LinkedThenUnlinked`: the same two flushes | `NotDone(e)` if the rename failed (nothing changed); `NotDurable(f)` if it succeeded and a flush failed |
 | `unlink(at, retry)` | Windows: as [OS/fs §4.7] — if `FILE_ATTRIBUTE_READONLY` is set, clear it (`SetFileAttributesW`), then `DeleteFileW`; if the delete then fails, set the attribute back, so a failed `file rm` leaves the user's file unchanged (open point 9). Unix `unlinkat(root_fd, rel, 0)`, which ignores the file's mode, so both OSes delete a read-only file. **A directory link** (a junction or a directory symbolic link: a directory entry that is a non-cloud reparse point) is removed as a link, never its target: Windows `RemoveDirectoryW` (`DeleteFileW` refuses directory links); Unix `unlinkat(root_fd, rel, 0)` without `AT_REMOVEDIR`, since a symlink is not a directory there. A real directory is `IsDirectory`; a cloud directory placeholder counts as a directory | `VfsError` |
 | `remove_dir(at, retry)` | Windows `RemoveDirectoryW`; Unix `unlinkat(…, AT_REMOVEDIR)`; the directory must be empty (`NotEmpty` otherwise) | `VfsError` |
 | `durable_unlink(at, retry)` | `unlink` (or, for an empty directory, `remove_dir`), then `sync_dir` of the parent | `NotDone` / `NotDurable` as for `durable_rename` |
@@ -887,3 +894,4 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 | 23 | Pass 1, P1-16: a project volume without directory flush failed `file mv` after the rename and blocked intent recovery | the plan step's `sync_dir` and its `no_dir_flush` refusal (§6.2, [API §12.4] step 1, [F19 §10.2]); recovery leaves the intent open with a `doctor` text ([F16] P-71); `VolumeCaps` bit 14 `dir_flush_doubtful` by file-system class (§4.2); FL-2 profiles for both paths (§9) | WP-30, WP-66 |
 | 24 | Pass 1, P1-38: `read_for_hash` checked cloud attributes by path and then opened the file | the attributes are re-read through the handle before the first read (§5.5 step 3, [OS/mapping-appendix §2.1]) | WP-30 |
 | 25 | Spec sync 2a (WP-30, WP-33, WP-62): points met while building `ProjectFs` | **closed:** §2.3 and [OS/fs §6.2] match the `ERROR_CLOUD_FILE_*` family by name; §2.4 counts `stats` and `dir_reads` only for calls that passed the Windows name check; §3.1 gives the Rust `OsFileId` (public fields, `kind: FileIdKind`, no `aux` field, canonical `to_bytes`, `==`/`Hash` on the canonical form, identity only through `same_object`); §4.2 makes `Sensitive` with `case_insensitive_default = true` invalid; §5.2 refuses `enumerate` on a directory link (`IsSymlink`, else `Other`) and makes `ProjEntry<'a>` borrow its name (`EntryNameRef<'a>`, [OS/path §2.4]), before FL-2 builds on it; §5.5 compares containment as an exact byte prefix and states the two-pass rule as [F20 §2.4]; §6.3 removes a directory link as a link (Windows `RemoveDirectoryW`, Unix `unlinkat` without `AT_REMOVEDIR`) and counts a cloud directory placeholder as a directory | FL-2, WP-33 |
+| 26 | Spec sync 2b (WP-30b/31b/33b review): `enumerate`'s attribute check and its open are two calls, so a directory swapped for a junction between them was followed out of the tree; "once if they are one directory" in §6.3 did not say how two parents are compared, and a case-folded comparison missed a flush under per-directory case sensitivity | **closed:** §5.2 checks the open handle's final path as §5.5 step 3 does (`OutsideRoot`), one `GetFinalPathNameByHandleW` per directory; §6.3 (and [OS/fs §4.9.2, §4.9.4]) decide "one directory" by exact spelling or by `FileIdInfo` identity, never case-folded | moirai-os |

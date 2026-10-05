@@ -9,11 +9,13 @@ use super::text::{Rule, is_lhex, parse_err};
 use super::{Checked, Parsed, Place, check_file};
 use crate::prim::{Algo, Result};
 
-/// The three schema table files in the order their rows extend the schema ([F14 §7.1]).
-const TABLES: [(&str, &[&str]); 3] = [
+/// The four schema table files in the order their rows extend the schema, with the rows each holds ([F14 §3.1], §7.1;
+/// `schema/policy.moi` since spec sync 2b).
+const TABLES: [(&str, &[&str]); 4] = [
     ("schema/kinds.moi", &["kind"]),
     ("schema/fields.moi", &["field", "value"]),
     ("schema/edges.moi", &["edge"]),
+    ("schema/policy.moi", &["policy"]),
 ];
 
 /// What a tree check found.
@@ -69,7 +71,7 @@ fn slot_of(path: &str) -> Result<Slot> {
             if ok { Ok(Slot::Node) } else { layout_err() }
         }
         "schema" => match parts.as_slice() {
-            [_, "kinds.moi" | "fields.moi" | "edges.moi"] => Ok(Slot::Table),
+            [_, "kinds.moi" | "fields.moi" | "edges.moi" | "policy.moi"] => Ok(Slot::Table),
             [_, "queries", q] if q.strip_suffix(".moi").is_some_and(|q| is_lhex(q, 32)) => {
                 Ok(Slot::Query)
             }
@@ -83,9 +85,9 @@ fn slot_of(path: &str) -> Result<Slot> {
     }
 }
 
-/// Checks one schema table file at `path` (`schema/kinds.moi`, `schema/fields.moi` or `schema/edges.moi`): a schema
-/// file ([F14 §7.1]) with at least one row (§3.1), each of its table's item class (§7.1: kinds, fields and enumeration
-/// values, edge kinds).
+/// Checks one schema table file at `path` (`schema/kinds.moi`, `schema/fields.moi`, `schema/edges.moi` or
+/// `schema/policy.moi`): a schema file ([F14 §7.1]) with at least one row (§3.1), each of its table's item class (§7.1:
+/// kinds, fields and enumeration values, edge kinds, policy rows).
 pub fn check_table_file(path: &str, bytes: &[u8], schema: &Schema) -> Result<Checked> {
     let Some((_, allowed)) = TABLES.iter().find(|t| t.0 == path) else {
         return parse_err(
@@ -263,8 +265,27 @@ mod tests {
             "moirai-refs 1\nref main kind=work\n",
         ));
         assert!(check_tree(&refs, Algo::Sha1).is_err());
-        let mut empty_table = good;
+        let mut empty_table = good.clone();
         empty_table.push(blob("schema/kinds.moi", "moirai-schema 1\n"));
         assert!(check_tree(&empty_table, Algo::Sha1).is_err());
+        // [F14 §3.1], §7.1 (spec sync 2b S2B-R-28): `schema/policy.moi` is a table file of policy rows only.
+        let mut policy = good.clone();
+        policy.push(blob(
+            "schema/policy.moi",
+            "moirai-schema 1\npolicy merge.policy.task delete-wins\n",
+        ));
+        assert!(check_tree(&policy, Algo::Sha1).unwrap().canonical());
+        let mut kind_in_policy = good.clone();
+        kind_in_policy.push(blob(
+            "schema/policy.moi",
+            "moirai-schema 1\nkind incident derivation=random root-variant=none existence=resurrect\n",
+        ));
+        assert!(check_tree(&kind_in_policy, Algo::Sha1).is_err());
+        let mut policy_in_kinds = good;
+        policy_in_kinds.push(blob(
+            "schema/kinds.moi",
+            "moirai-schema 1\npolicy merge.policy.task delete-wins\n",
+        ));
+        assert!(check_tree(&policy_in_kinds, Algo::Sha1).is_err());
     }
 }

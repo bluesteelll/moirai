@@ -605,8 +605,8 @@ fn check_context(obj: &CommitObj, cx: &CarrierCtx) -> Result<()> {
 }
 
 /// Items 1–10 of a native candidate from its trailers ([F07 §12.2], [F14 §12.1]), or `None` when its message part
-/// fails step 1 of N ([F07 §5.3]: the commit is demoted). The other steps of N apply; a refusal of §5.2 does not demote
-/// (the message part keeps N_imp of it; `fixtures/carrier/INDEX.md` C-1).
+/// fails step 1 of N ([F07 §5.3]: the commit is demoted). Steps 2–4 of N apply and none of §5.2's refusals: a message
+/// part whose last paragraph begins with `Moirai-` verifies as it stands (spec sync 2b S2B-F-15).
 fn native_items(obj: &CommitObj, t: &Trailers, cx: &CarrierCtx) -> Result<Option<Items>> {
     let parents: Vec<[u8; 32]> = cx
         .parents
@@ -645,10 +645,8 @@ fn native_items(obj: &CommitObj, t: &Trailers, cx: &CarrierCtx) -> Result<Option
         );
     }
     let (msg_part, _) = split_message(&obj.message);
-    let message = match crate::canon::normalise(&msg_part) {
-        Ok(m) => m,
-        Err(crate::canon::MessageRefusal::Encoding) => return Ok(None),
-        Err(_) => normalise_import(&msg_part),
+    let Some(message) = crate::canon::normalise_native(&msg_part) else {
+        return Ok(None);
     };
     let git_algo = t
         .git_head
@@ -998,6 +996,55 @@ mod tests {
         assert_eq!(items.kind, "ordinary");
         assert!(items.actor.starts_with("git:"));
         assert!(verify_native(&obj, &other).is_err());
+    }
+
+    /// [F07 §5.3] (spec sync 2b S2B-F-15): a native import applies steps 1–4 of N and none of §5.2's refusals, so a
+    /// message part whose last paragraph is an old `Moirai-` trailer paragraph (a re-exported demoted commit) verifies.
+    #[test]
+    fn native_message_keeps_an_old_trailer_paragraph() {
+        let part = "re-export\n\nMoirai-Ref: lane/old";
+        assert!(crate::canon::normalise(part.as_bytes()).is_err());
+        let items = Items {
+            kind: "ordinary".into(),
+            parents: vec![],
+            hlc: 117_336_598_351_118_336,
+            actor: "dev#1".into(),
+            role: "developer".into(),
+            session: String::new(),
+            git_algo: String::new(),
+            git_head: vec![],
+            git_branch: String::new(),
+            git_worktree: String::new(),
+            git_base: vec![],
+            message: part.into(),
+            schema_version: 1,
+            origin: None,
+            foreign: Oid::None,
+            changeset_digest: [9; 32],
+        };
+        let id = items.commit_id();
+        let msg = format!(
+            "{part}\n\nMoirai-Commit: c{}\nMoirai-Kind: ordinary\nMoirai-Hlc: 117336598351118336\nMoirai-Actor: dev#1\nMoirai-Role: developer\nMoirai-Schema: 1\nMoirai-Ops: 0\n",
+            hex(&id)
+        );
+        let who = "moirai/dev#1 <developer@moirai.invalid> 1790414403 +0000";
+        let obj_bytes = format!(
+            "tree {}\nauthor {who}\ncommitter {who}\n\n{msg}",
+            "ab".repeat(20)
+        );
+        let obj = parse_commit_object(obj_bytes.as_bytes(), Algo::Sha1).unwrap();
+        let cx = CarrierCtx {
+            parents: vec![],
+            marker_schema_version: 1,
+            algo: Algo::Sha1,
+            own_oid: Oid::None,
+            changeset_digest: [9; 32],
+            entry_count: 0,
+        };
+        let (v, got) = import_items(&obj, &cx).unwrap();
+        assert_eq!(v, Verdict::Native);
+        assert_eq!(got.message, part);
+        assert_eq!(verify_native(&obj, &cx).unwrap(), id);
     }
 
     /// [F14 §9.2], §10.9: a known trailer with a value that is not UTF-8 is `ImageParse`; a non-UTF-8 key is an unknown

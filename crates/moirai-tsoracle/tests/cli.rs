@@ -402,10 +402,20 @@ fn version_prints_the_pins() {
     let recs = records(&out);
     assert_eq!(recs.len(), 1);
     assert_eq!(recs[0]["oracle"], "moirai-tsoracle");
-    assert_eq!(recs[0]["format"], 2);
+    assert_eq!(recs[0]["format"], 3);
     assert_eq!(recs[0]["tree_sitter"], "0.27.0");
     assert_eq!(recs[0]["tree_sitter_rust"], "0.24.2");
     assert!(recs[0]["language_abi"].as_u64().expect("abi") >= 13);
+    // Both of the binary's units were compiled in this work tree, as this test was. A failure here means another
+    // work tree sharing the target directory compiled them: `cargo clean -p moirai-tsoracle` recompiles them here.
+    for key in ["manifest_dir", "bin_manifest_dir"] {
+        assert_eq!(
+            recs[0][key],
+            env!("CARGO_MANIFEST_DIR"),
+            "{key}: the binary under test was compiled in another work tree"
+        );
+    }
+    assert_eq!(recs[0].as_object().map(serde_json::Map::len), Some(7));
 }
 
 #[test]

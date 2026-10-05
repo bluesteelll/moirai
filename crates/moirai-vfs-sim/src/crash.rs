@@ -17,7 +17,7 @@ use crate::adversary::{PartialWrite, SeededAdversary, Site};
 use crate::content::{BeyondFill, CrashPick, SecState, SectorKind, SectorView};
 use crate::namespace::NsKind;
 use crate::rng::{Rng, splitmix};
-use crate::trace::{EventKind, Trace};
+use crate::trace::{CAPTURE_CRASHED, CLASS_SLOT, Event, EventKind, SlotCapture, Trace};
 use crate::world::{Chooser, DeathCause, Kernel, PointInfo, Sched, SimConfig, State, TState};
 
 /// How a plan resolves every choice it does not name.
@@ -282,7 +282,7 @@ impl CrashImage {
         CrashImage {
             k: st.k.clone(),
             rng: st.ch.rng.clone(),
-            trace: st.ch.trace.clone(),
+            trace: st.ch.trace.sealed(),
             cfg: st.cfg.clone(),
             next_table: st.next_table,
             wait_mode: st.wait_mode,
@@ -312,6 +312,22 @@ impl CrashImage {
     /// The file flushes that had failed when the image was taken ([`crate::SimWorld::failed_flushes`]).
     pub fn failed_flushes(&self) -> u64 {
         self.k.failed_flushes
+    }
+
+    /// Calls `f` with the events the image's trace kept from the `from`-th on — the prefix of every world materialised
+    /// from it — a slice at a time.
+    pub(crate) fn trace_slices_from(&self, from: u64, f: &mut dyn FnMut(&[Event])) {
+        self.trace.for_each_from(from, f);
+    }
+
+    /// The number of events of the image's trace (kept or not).
+    pub(crate) fn trace_count(&self) -> u64 {
+        self.trace.count()
+    }
+
+    /// The slot-write capture that a `NOTE_SLOT_WRITE` note of the image's trace names.
+    pub(crate) fn slot_capture(&self, index: u64) -> Option<std::sync::Arc<SlotCapture>> {
+        self.trace.captures.get(index as usize).cloned()
     }
 
     /// The node the absolute `path` names in the image's current namespace, if any (the key of
@@ -656,7 +672,21 @@ fn apply_crash(st: &mut State, plan: &CrashPlan) {
                 u64::MAX,
             )),
         };
+        let class = st.note_class(None, w.proc, w.node);
+        let before = (class & CLASS_SLOT != 0).then(|| st.slot_view(w.node));
         st.apply_partial(w.proc, &w, pw);
+        if let Some(before) = before {
+            let len = w.data.as_slice().len() as u64;
+            st.capture_slot_write(
+                w.task,
+                w.proc,
+                w.node,
+                w.offset,
+                len,
+                CAPTURE_CRASHED,
+                before,
+            );
+        }
         st.ev(EventKind::InFlight, None, w.proc, w.node, 0, pw.to_choice());
     }
     st.k.reads.clear();

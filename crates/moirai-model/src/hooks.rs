@@ -1,8 +1,9 @@
 //! Hooks as the model sees them ([AR §7.5]; [API §18] "Hooks that write"; [RULES/role-write-policy] `role-hooks`
 //! WH-001 to WH-008, WR-014; [CFG §10.6], §10.7): which hooks `hooks install` registers for a harness, and, for each
 //! hook event, exactly the writes its `role-hooks` row lists — as Store API commands through the door `hook` where the
-//! model runs them, as lazy records outside the API ([API] open point 25), or as the commands of the work package that
-//! builds them. A hook handler never executes write text a model supplied (WR-014): it composes its commands itself.
+//! model runs them (the link settle is `LinksSync`, [API §18]), as lazy records outside the API ([API] open point 25),
+//! or as the commands of the milestone that builds them (the checkpoint export, M5). A hook handler never executes write
+//! text a model supplied (WR-014): it composes its commands itself.
 
 use crate::api::{Cmd, Ctx, Door, StampCtx, Store};
 use crate::lease::LeaseKind;
@@ -14,10 +15,11 @@ use crate::registry::Conf;
 pub enum Write {
     /// A Store API command the model runs, with its context (door `hook`).
     Command(Box<Cmd>, Box<Ctx>),
-    /// A lazy record outside the API at M0 ([API] open point 25): `session-cursor`, `session-mark`, `runtime-evidence`.
+    /// A lazy record outside the API at M0 ([API] open point 25): `session-cursor`, `session-mark`, `runtime-evidence`
+    /// (the evidence hooks' `PENDING`, `FILEOBS` and `ANCHORRES` rows and the tree's dirty row), `binding-refresh` (the
+    /// displayed provenance of the tree's `TREES` row).
     Lazy(&'static str),
-    /// A command another work package builds: (what, package) — the link settle and the git hooks' binding refresh
-    /// (WP-92), the checkpoint export (M5).
+    /// A command a later milestone builds: (what, milestone) — the checkpoint export (M5).
     Later(&'static str, &'static str),
     /// A read the hook renders: `brief`, `role-pack`, `delta`.
     Read(&'static str),
@@ -72,10 +74,11 @@ pub enum Source {
 }
 
 /// `SessionStart` (WH-001; [AR §7.5]; [90 §4.3] mint (i), §7.5): in a main session the orchestrator's session role lease
-/// (`hooks.session-start.orchestrator-lease`), a dispatched worker none; the link settle (`hooks.session-start.settle`,
-/// WP-92); the checkpoint export when the last one is older than `image.export.max-age` (M5); the session cursor
-/// (lazy); and the read it renders: a worker's role pack (`hooks.session-start.worker-pack`), the delta on resume, the
-/// brief otherwise. `ctx` is the session's context (its environment and stamp).
+/// (`hooks.session-start.orchestrator-lease`), a dispatched worker none; the link settle (`hooks.session-start.settle`:
+/// `LinksSync` through the door `hook` in the session's tree, its budget `files.session-start-cap-ms`, [API §18]); the
+/// checkpoint export when the last one is older than `image.export.max-age` (M5); the session cursor (lazy); and the
+/// read it renders: a worker's role pack (`hooks.session-start.worker-pack`), the delta on resume, the brief otherwise.
+/// `ctx` is the session's context (its environment and stamp).
 // spec: [AR §7.5] SessionStart
 // rule: WH-001
 pub fn session_start(
@@ -107,7 +110,7 @@ pub fn session_start(
         ));
     }
     if conf.flag("hooks.session-start.settle") {
-        v.push(Write::Later("link-settle", "WP-92"));
+        v.push(link_settle(conf.number("files.session-start-cap-ms"), ctx));
     }
     if export_due {
         v.push(Write::Later("image-export-checkpoint", "M5"));
@@ -259,22 +262,41 @@ pub fn stamp(conf: &Conf, class: Option<&str>) -> &'static str {
     }
 }
 
-/// The file-evidence hooks (WH-007): runtime evidence rows (`PENDING`, `FILEOBS`, `ANCHORRES`, the tree's dirty row),
-/// never a versioned write — WP-92's.
-// rule: WH-007
-pub fn fs_evidence() -> Vec<Write> {
-    vec![
-        Write::Lazy("runtime-evidence"),
-        Write::Later("evidence-rows", "WP-92"),
-    ]
+/// The link settle a hook runs ([API §18]): `LinksSync` of the session's tree through the door `hook`, without a key (a
+/// settle must run again when the tree changed, [API §7.1]).
+fn link_settle(budget_ms: u64, ctx: &Ctx) -> Write {
+    Write::Command(
+        Box::new(Cmd::LinksSync {
+            scope: None,
+            budget_ms: Some(budget_ms),
+            since: None,
+            deep: false,
+            all: false,
+            force: false,
+        }),
+        Box::new(Ctx {
+            door: Door::Hook,
+            key: None,
+            ..ctx.clone()
+        }),
+    )
 }
 
-/// The git hooks (WH-008): a link settle and a binding refresh — WP-92's.
+/// The file-evidence hooks (WH-007): runtime evidence rows (`PENDING`, `FILEOBS`, `ANCHORRES`, the tree's dirty row) as
+/// lazy records, never a versioned write; outside the API at M0 ([API §18], open point 25).
+// rule: WH-007
+pub fn fs_evidence() -> Vec<Write> {
+    vec![Write::Lazy("runtime-evidence")]
+}
+
+/// The git hooks (WH-008): a link settle of the committed paths (`LinksSync` through the door `hook`) and the binding
+/// refresh, which refreshes the displayed provenance of the tree's `TREES` row (a lazy record) and never the binding's
+/// expected ref or base ([F18 §3.5] "Never changed by anything else").
 // rule: WH-008
-pub fn git_hooks() -> Vec<Write> {
+pub fn git_hooks(conf: &Conf, ctx: &Ctx) -> Vec<Write> {
     vec![
-        Write::Later("link-settle", "WP-92"),
-        Write::Later("binding-refresh", "WP-92"),
+        link_settle(conf.number("files.links-sync-ms"), ctx),
+        Write::Lazy("binding-refresh"),
     ]
 }
 

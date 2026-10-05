@@ -567,6 +567,9 @@ impl Schema {
                 ranged(f("started", Ty::Int), 0, I64MAX),
                 ranged(f("ended", Ty::Int), 0, I64MAX),
                 f("expected_artifacts", Ty::Set(Elem::Text)),
+                // [F08 §9.3] decls 29 and 30 (spec sync 2b): the run's harness and model family, both `sym`.
+                sym("harness"),
+                sym("model"),
             ],
         );
         kind(
@@ -689,7 +692,8 @@ pub fn ty_of_name(t: &str, elem: Option<&str>) -> Option<Ty> {
 mod tests {
     use super::*;
 
-    /// [F08 §9.1]: 13 core kinds, 25 edge kinds, the initial statuses of §9.1.
+    /// [F08 §9.1]: 13 core kinds, 25 edge kinds, the initial statuses of §9.1; §9.3: a run's `harness` and `model`
+    /// are one-line `sym` fields (spec sync 2b).
     #[test]
     fn core_schema_shape() {
         let s = Schema::core();
@@ -705,5 +709,9 @@ mod tests {
             s.field("task", "priority").unwrap().default.as_deref(),
             Some("P2")
         );
+        for name in ["harness", "model"] {
+            let f = s.field("run", name).unwrap();
+            assert_eq!((f.ty, f.one_line), (Ty::Text, true), "run.{name}");
+        }
     }
 }

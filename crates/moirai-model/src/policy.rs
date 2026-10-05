@@ -36,9 +36,9 @@ pub struct Presented {
     pub session_role: bool,
 }
 
-/// The policy data the role policy reads ([CFG §10.13]; [AR §13] "Policy data"): schema rows versioned per branch,
-/// which [F08] carries in no schema item class yet, so the model takes them as an input beside its configuration
-/// snapshot ([RULES/policy-keys]). A `role-*` row whose `key` names one of these has its role cell replaced by it.
+/// The policy data the role policy reads ([CFG §10.13]; [AR §13] "Policy data"): schema rows versioned per branch, the
+/// view's `policy` items ([F08 §8.5.6]), a row without an item taking its default ([`PolicyData::of`]). A `role-*` row
+/// whose `key` names one of these has its role cell replaced by it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct PolicyData {
     /// `policy.self-claim-roles`.
@@ -108,6 +108,171 @@ impl Default for PolicyData {
     }
 }
 
+/// The type of a policy-data row ([CFG §10.13], §4.1).
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+enum PolicyTy {
+    /// A role set or a field list: `words`, sorted bytewise and joined by `,`, the empty value the empty set.
+    Words,
+    /// `policy.hook-label`: `narrow` only.
+    Narrow,
+    /// `yes` or `no`.
+    YesNo,
+    /// `policy.role.<role>.tx`: `per-statement` or `none` (PV-005).
+    Tx,
+    /// `edges.<kind>.on-src-deleted`: `flag` or `drop-notify`.
+    Edge,
+    /// `merge.policy.<kind>`: an `auto-policy` value of [RULES/merge-table].
+    Auto,
+}
+
+/// The row a policy-data instance name belongs to ([CFG §10.13]; [F14 §7.1] `pname` in its canonical, lower-case form),
+/// with its parameter segment.
+fn policy_row(name: &str) -> Option<(PolicyTy, Option<&str>)> {
+    let segs: Vec<&str> = name.split('.').collect();
+    let word = |w: &str| crate::config::is_word(w) && w.bytes().all(|b| !b.is_ascii_uppercase());
+    Some(match segs.as_slice() {
+        ["policy", "self-claim-roles"] | ["policy", "mint", "role-lease"] => {
+            (PolicyTy::Words, None)
+        }
+        ["policy", "role", "developer", "fields"] => (PolicyTy::Words, None),
+        ["policy", "hook-label"] => (PolicyTy::Narrow, None),
+        [
+            "policy",
+            "role",
+            r,
+            "mcp-write" | "define-query" | "authority-owner",
+        ] if word(r) => (PolicyTy::YesNo, Some(*r)),
+        ["policy", "role", r, "tx"] if word(r) => (PolicyTy::Tx, Some(*r)),
+        ["edges", "blocks" | "gates", "on-src-deleted"] => (PolicyTy::Edge, None),
+        ["merge", "policy", k] if word(k) => (PolicyTy::Auto, Some(*k)),
+        _ => return None,
+    })
+}
+
+/// A policy row's value in [CFG §4.1]'s canonical form, or `None` when `name` is no row instance of [CFG §10.13] or the
+/// value does not parse as the row's type ([F08 §8.5.6]; [API §9.8] `bad_value`).
+// spec: [F08 §8.5.6]
+// spec: [CFG §10.13]
+pub fn canonical_policy(name: &str, value: &str) -> Option<String> {
+    let (ty, _) = policy_row(name)?;
+    let v = value.trim().to_ascii_lowercase();
+    match ty {
+        PolicyTy::Words => {
+            let mut w: Vec<&str> = v
+                .split(',')
+                .map(str::trim)
+                .filter(|x| !x.is_empty())
+                .collect();
+            if w.iter().any(|x| !crate::config::is_word(x)) {
+                return None;
+            }
+            let n = w.len();
+            w.sort_unstable();
+            w.dedup();
+            (w.len() == n).then(|| w.join(","))
+        }
+        PolicyTy::Narrow => (v == "narrow").then_some(v),
+        PolicyTy::YesNo => matches!(v.as_str(), "yes" | "no").then_some(v),
+        PolicyTy::Tx => matches!(v.as_str(), "per-statement" | "none").then_some(v),
+        PolicyTy::Edge => matches!(v.as_str(), "flag" | "drop-notify").then_some(v),
+        PolicyTy::Auto => rules()
+            .table("auto-policy")
+            .rows
+            .iter()
+            .any(|r| r.tok("value") == v)
+            .then_some(v),
+    }
+}
+
+/// A policy row's default in canonical form ([CFG §10.13]): the value a view without the row's item takes; `None`
+/// when `name` is no row instance.
+pub fn default_policy(name: &str) -> Option<String> {
+    let (ty, param) = policy_row(name)?;
+    let d = PolicyData::default();
+    let yes = |set: &[String]| {
+        if param.is_some_and(|r| set.iter().any(|x| x == r)) {
+            "yes"
+        } else {
+            "no"
+        }
+    };
+    let seg = name.rsplit('.').next().unwrap_or("");
+    Some(match ty {
+        PolicyTy::Words => match name {
+            "policy.self-claim-roles" => d.self_claim_roles.join(","),
+            "policy.mint.role-lease" => d.mint_role_lease.join(","),
+            _ => d.developer_fields.join(","),
+        },
+        PolicyTy::Narrow => "narrow".into(),
+        PolicyTy::YesNo => match seg {
+            "mcp-write" => yes(&d.mcp_write),
+            "define-query" => yes(&d.define_query),
+            _ => yes(&d.authority_owner),
+        }
+        .into(),
+        PolicyTy::Tx => "per-statement".into(),
+        PolicyTy::Edge => "flag".into(),
+        PolicyTy::Auto => "none".into(),
+    })
+}
+
+impl PolicyData {
+    /// The policy data of a view ([CFG §10.13]; [RULES/policy-keys] §2): the defaults, with each `policy` item of the
+    /// view's schema applied ([F08 §8.5.6]). `per-statement` is `policy.role.<role>.tx`'s default, so only `none`
+    /// changes the per-statement rows.
+    // spec: [F08 §8.5.6]
+    pub fn of(schema: &Schema) -> PolicyData {
+        let mut d = PolicyData::default();
+        let words = |v: &str| -> Vec<String> {
+            v.split(',')
+                .filter(|x| !x.is_empty())
+                .map(str::to_string)
+                .collect()
+        };
+        let toggle = |set: &mut Vec<String>, r: &str, yes: bool| {
+            if yes {
+                if !set.iter().any(|x| x == r) {
+                    set.push(r.to_string());
+                }
+            } else {
+                set.retain(|x| x != r);
+            }
+        };
+        for p in schema.policies() {
+            let segs: Vec<&str> = p.name.split('.').collect();
+            let yes = p.value.as_deref() == Some("yes");
+            let v = p.value.as_deref().unwrap_or("");
+            match segs.as_slice() {
+                ["policy", "self-claim-roles"] => d.self_claim_roles = words(v),
+                ["policy", "mint", "role-lease"] => d.mint_role_lease = words(v),
+                ["policy", "role", "developer", "fields"] => d.developer_fields = words(v),
+                ["policy", "role", r, "mcp-write"] => toggle(&mut d.mcp_write, r, yes),
+                ["policy", "role", r, "define-query"] => toggle(&mut d.define_query, r, yes),
+                ["policy", "role", r, "authority-owner"] => toggle(&mut d.authority_owner, r, yes),
+                ["policy", "role", r, "tx"] if v == "none" => {
+                    for roles in d.tx.values_mut() {
+                        roles.retain(|x| x != r);
+                    }
+                }
+                _ => {}
+            }
+        }
+        d
+    }
+}
+
+/// `merge.policy.<kind>` of a view by kind ([CFG §10.13]; [RULES/merge-table] AP rows), from its `policy` items; a
+/// kind without an item is `none` and is not listed.
+pub fn merge_policies(schema: &Schema) -> BTreeMap<String, String> {
+    schema
+        .policies()
+        .filter_map(|p| {
+            let kind = p.name.strip_prefix("merge.policy.")?;
+            Some((kind.to_string(), p.value.clone()?))
+        })
+        .collect()
+}
+
 /// The caller as the policy sees it: the effective role, the narrowing label, the surface, the presented lease and the
 /// owner attestation ([RULES/role-write-policy] WT-001 to WT-016).
 #[derive(Clone, Debug)]
@@ -125,10 +290,12 @@ pub struct Rights {
     /// WT-012: owner-attested.
     pub owner_attested: bool,
     /// WT-016: the actor recorded with the `agent/*` acceptance that a `links fix --confirm` turns into `confirmed/*`
-    /// (an input of the verb that writes `relink`, WP-92's); `None` when there is none.
+    /// (an input of the verb that writes `relink`, a command of group F, [API §12]); `None` when there is none.
     pub acceptor: Option<String>,
     /// The policy data.
     pub data: PolicyData,
+    /// `files.confirm-roles` ([CFG §10.6]): the role cell of the rows keyed by it (WV-038, WV-039).
+    pub confirm_roles: Vec<String>,
 }
 
 /// WR-006: the effective role of a call. No lease: `general-purpose`. A task lease: its role. A run-scoped role lease:
@@ -252,9 +419,11 @@ impl Rights {
             .lease
             .as_ref()
             .is_some_and(|l| Some(&l.holder) == self.actor.as_ref());
-        // `policy.role.<role>.mcp-write` replaces the row's role cell ([CFG §10.13]).
+        // `policy.role.<role>.mcp-write` and `files.confirm-roles` replace the row's role cell ([CFG §10.13],
+        // §10.6).
         let cell: Vec<String> = match r.tok("key") {
             "policy.role.<role>.mcp-write" => self.data.mcp_write.clone(),
+            "files.confirm-roles" => self.confirm_roles.clone(),
             _ => r.toks("roles").iter().map(|x| x.to_string()).collect(),
         };
         let cell: Vec<&str> = cell.iter().map(String::as_str).collect();
@@ -362,10 +531,13 @@ impl Rights {
                     x.strip_suffix("/*")
                         .map_or(*x == text, |p| text.starts_with(&format!("{p}/")))
                 });
-                // `policy.role.<role>.authority-owner` replaces the role cell of `authority = owner`.
+                // `policy.role.<role>.authority-owner` replaces the role cell of `authority = owner`, and
+                // `files.confirm-roles` the cell of `relink = confirmed/*` (WA-004 cites it; WV-038).
                 let cell: Vec<String> =
                     if field == "authority" && r.toks("value").contains(&"owner") {
                         self.data.authority_owner.clone()
+                    } else if field == "relink" && r.toks("value").contains(&"confirmed/*") {
+                        self.confirm_roles.clone()
                     } else {
                         r.toks("roles").iter().map(|x| x.to_string()).collect()
                     };
@@ -513,6 +685,33 @@ impl Rights {
         Ok(())
     }
 
+    /// WT-010 `may-write(n)`: R is the orchestrator or the owner; or a `role-fields` or `role-status` row matches
+    /// (R, kind(n), n); or n is own-role and a `role-create` row lets R create kind(n). It decides `link --at` and
+    /// `unlink --at` (WV-034, WV-035).
+    // spec: [RULES/role-write-policy] role-terms WT-010
+    pub fn may_write(&self, sc: &Scopes<'_>, n: Nid) -> bool {
+        let Some(x) = sc.st.nodes.get(&n) else {
+            return false;
+        };
+        self.each_role().into_iter().all(|role| {
+            matches!(role, "orchestrator" | "owner")
+                || rules().table("role-fields").rows.iter().any(|r| {
+                    (r.tok("role") == "*" || r.tok("role") == role)
+                        && (r.tok("kind") == "*" || r.tok("kind") == x.kind)
+                        && sc.holds(r.tok("scope"), n, role, self)
+                })
+                || rules().table("role-status").rows.iter().any(|r| {
+                    r.tok("role") == role
+                        && (r.tok("kind") == "*" || r.tok("kind") == x.kind)
+                        && sc.holds(r.tok("scope"), n, role, self)
+                })
+                || (x.creator.role == role
+                    && rules().table("role-create").rows.iter().any(|r| {
+                        r.tok("role") == role && (r.tok("kind") == "*" || r.tok("kind") == x.kind)
+                    }))
+        })
+    }
+
     /// `role-mint`: the row of a lease form admits the caller; its key widens or replaces the row's role cell
     /// (WM rows; WR-002 to WR-006 are the caller context's).
     // spec: [RULES/role-write-policy] role-mint
@@ -615,6 +814,7 @@ mod tests {
             owner_attested: false,
             acceptor: None,
             data: PolicyData::default(),
+            confirm_roles: vec!["orchestrator".into(), "owner".into()],
         }
     }
 

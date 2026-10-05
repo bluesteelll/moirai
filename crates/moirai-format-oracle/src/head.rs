@@ -1,4 +1,4 @@
-//! [F04] the `HEAD` file: two 4,096-byte `HeadSlot`s (§3) with `SegRef` (§4.1), `ImageCursor` (§4.2),
+//! \[F04\] the `HEAD` file: two 4,096-byte `HeadSlot`s (§3) with `SegRef` (§4.1), `ImageCursor` (§4.2),
 //! `SeqRingEntry` (§4.3) and `InitParams` (§4.4, [F17 §2.1]); slot classification (§7) and choice (§8).
 
 use crate::lock::check_format;

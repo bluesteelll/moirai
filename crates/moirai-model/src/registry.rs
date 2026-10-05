@@ -948,7 +948,7 @@ pub const DEFS: &[Def] = &[
         "client.profile",
         Ty::Enum(&["auto", "claude", "codex", "generic"]),
         Val("auto"),
-        O,
+        V,
     )
     .scope(UserQ)
     .env("MOIRAI_CLIENT"),

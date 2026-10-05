@@ -89,7 +89,7 @@
         "statements": [
           {
             "index": 1,
-            "text": "CREATE (t:task {title: $p1}) UNDER #1 LAST",
+            "text": "CREATE (t:task {title: $p1}) UNDER #1",
             "matched": null,
             "targets": [
               "#4"
@@ -97,6 +97,14 @@
           },
           {
             "index": 2,
+            "text": "MOVE t UNDER #1 LAST",
+            "matched": null,
+            "targets": [
+              "#4"
+            ]
+          },
+          {
+            "index": 3,
             "text": "CREATE (t)-[:BLOCKS]->(#3)",
             "matched": null,
             "targets": [

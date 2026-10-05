@@ -3,8 +3,9 @@
 //!
 //! The in-process ownership decision is the seam's grant table (`moirai_vfs::GrantTable`, inside every `Vfs`); the toy
 //! never re-implements it. [`ProcLocks`] is only the toy's own record of which of its handles in one process hold or
-//! obtained a byte, shared by the handles of that process. With every switch off the record is written and never
-//! read, and each acquisition is one seam call.
+//! obtained a byte, shared by the handles of that process. Each part of the record is kept only while the seeded bug
+//! that reads it is on (the holders for P-3, the waits and waited grants for L-6): with every switch off the record is
+//! neither written nor read, no acquisition takes its mutex, and each acquisition is one seam call.
 
 use std::collections::BTreeMap;
 use std::sync::{Arc, Mutex, PoisonError};
@@ -53,7 +54,6 @@ pub struct ToyLocks<V: Vfs> {
     reg: ProcLocks,
     id: u64,
     bugs: Bugs,
-    cid: u64,
 }
 
 impl<V: Vfs> ToyLocks<V> {
@@ -75,13 +75,7 @@ impl<V: Vfs> ToyLocks<V> {
             reg,
             id,
             bugs,
-            cid: 0,
         })
-    }
-
-    /// The raw id of this handle's client in the grant table, known from its first grant (0 before).
-    pub fn client_id(&self) -> u64 {
-        self.cid
     }
 
     /// The client's data handle on `LOCK` ([OS/lock §4]).
@@ -95,18 +89,20 @@ impl<V: Vfs> ToyLocks<V> {
     }
 
     fn record(&mut self, byte: LockByte, h: Held, waited: bool, now: u64) {
-        if let Held::Real(g) = &h {
-            self.cid = g.client().get();
-        }
         let (off, id) = (byte.offset(), self.id);
-        // Only L-6's seeded bug reads the waited grants: with it off nothing is recorded, so the record never grows.
+        // Only P-3's seeded bug reads the holders, and only L-6's the waited grants: with both off nothing is recorded.
+        let holder = self.bugs.on(Bug::P03KernelPathSecondClient);
         let keep = waited && self.bugs.on(Bug::L06GrantToTwoWaiters);
-        self.reg.with(|r| {
-            r.holders.insert(off, id);
-            if keep {
-                r.waited.push((off, id, now));
-            }
-        });
+        if holder || keep {
+            self.reg.with(|r| {
+                if holder {
+                    r.holders.insert(off, id);
+                }
+                if keep {
+                    r.waited.push((off, id, now));
+                }
+            });
+        }
         self.held.insert(off, h);
     }
 
@@ -134,13 +130,17 @@ impl<V: Vfs> ToyLocks<V> {
             .with(|r| r.waiting.iter().any(|&(o, h)| o == off && h != id))
     }
 
-    /// `acquire_within` with this handle marked as inside a kernel wait for `byte` while it runs.
+    /// `acquire_within`, with this handle marked as inside a kernel wait for `byte` while it runs when L-6's seeded bug,
+    /// the only reader of the mark, is on.
     fn kernel_wait(
         &mut self,
         vfs: &V,
         byte: LockByte,
         within_ms: u32,
     ) -> Result<Acquired, LockError> {
+        if !self.bugs.on(Bug::L06GrantToTwoWaiters) {
+            return vfs.acquire_within(&mut self.client, byte, within_ms);
+        }
         let (off, id) = (byte.offset(), self.id);
         self.reg.with(|r| r.waiting.push((off, id)));
         let r = vfs.acquire_within(&mut self.client, byte, within_ms);
@@ -233,12 +233,14 @@ impl<V: Vfs> ToyLocks<V> {
     pub fn release(&mut self, vfs: &V, byte: LockByte) {
         let off = byte.offset();
         if let Some(h) = self.held.remove(&off) {
-            let id = self.id;
-            self.reg.with(|r| {
-                if r.holders.get(&off) == Some(&id) {
-                    r.holders.remove(&off);
-                }
-            });
+            if self.bugs.on(Bug::P03KernelPathSecondClient) {
+                let id = self.id;
+                self.reg.with(|r| {
+                    if r.holders.get(&off) == Some(&id) {
+                        r.holders.remove(&off);
+                    }
+                });
+            }
             if let Held::Real(g) = h {
                 vfs.release(&mut self.client, g);
             }
@@ -322,7 +324,16 @@ mod tests {
 
     #[test]
     fn holdings_are_recorded_per_handle_and_released() {
-        let (v, _reg, mut a, b) = handles(Bugs::NONE);
+        // With every switch off the handle knows what it holds, and the process record stays empty.
+        let (v, reg, mut a, b) = handles(Bugs::NONE);
+        a.record(LockByte::Writer, Held::Phantom, false, 0);
+        assert!(a.holds(LockByte::Writer));
+        assert!(reg.with(|r| r.holders.is_empty()), "nothing recorded");
+        assert!(!b.sibling_holds(LockByte::Writer));
+        a.release(&v, LockByte::Writer);
+        assert!(!a.holds(LockByte::Writer));
+        // P-3's seeded bug reads the holders: they are recorded per handle and released.
+        let (v, _reg, mut a, b) = handles(Bugs::only(Bug::P03KernelPathSecondClient));
         assert!(!a.holds(LockByte::Writer));
         a.record(LockByte::Writer, Held::Phantom, false, 0);
         assert!(a.holds(LockByte::Writer));

@@ -508,6 +508,7 @@ fn mutation(m: &Mut) -> String {
                         Policy::Restrict => "restrict",
                         Policy::Cascade => "cascade",
                         Policy::Reparent => "reparent",
+                        Policy::Reassign => "reassign",
                     }
                 ),
                 DOpt::Replaced(t) => format!("(dreplaced {})", target(t)),
@@ -614,6 +615,7 @@ fn stmt(s: &Stmt) -> String {
                 Take::Base => ("base", "_".to_string(), "_".to_string()),
                 Take::Value(v) => ("value", expr(v), "_".to_string()),
                 Take::Repoint(t) => ("repoint", "_".to_string(), target(t)),
+                Take::Drop => ("drop", "_".to_string(), "_".to_string()),
             };
             format!("(sresolve {key} {q} {e} {take} {value} {tgt})")
         }

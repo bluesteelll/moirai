@@ -145,11 +145,11 @@ resolves each, so the model's R4 part (WP-92) and the replay rows can check the 
 <!-- table: link-resolution -->
 | row | conflict | resolved_by | condition | provenance | basis | source | note |
 |---|---|---|---|---|---|---|---|
-| LV-001 | FieldEdit-observation | settle-observation | fresh-for-every-side,exact-evidence | merge-observation/<evidence> | design | [40 §5.3] "Conflict values"; [40 §5.5] | A settle in a writer tree resolves only when the tree is fresh for every side's value and holds exact evidence for the chosen path; "the newest side" is rejected. |
+| LV-001 | FieldEdit-observation | settle-observation | fresh-for-every-side,exact-evidence | merge-observation/<evidence> | design | [40 §5.3] "Conflict values"; [40 §5.5]; [OP-11] | A settle in a writer tree resolves only when the tree is fresh for every side's value and holds exact evidence for the chosen path; "the newest side" is rejected. |
 | LV-002 | FieldEdit-observation | render | until-resolved | - | design | [40 §5.3] | The link renders `ambiguous (merge conflict: b.rs \| c.rs)`. |
 | LV-003 | FieldEdit-observation | links-fix | explicit | links-fix | design | [40 §5.5]; [40 §3.7] | - |
 | LV-004 | FieldEdit-anchor | settle-fresh-candidate | exactly-one-fresh | - | design | [40 §5.5] "both repinned differently" | The settle keeps the candidate that resolves `fresh` in the merged tree; if both or neither do, the conflict stays. |
-| LV-005 | PathClaim | settle-unify | exact-rename-in-fresh-writer-tree | git/r100 | design | [40 §5.5] "(root, exact path)"; [40 §2.3] "The residual case" | E6 in a fresh writer tree shows an exact rename from one node's path to the other's. |
+| LV-005 | PathClaim | settle-unify | exact-rename-in-fresh-writer-tree | git/r100 | design | [40 §5.5] "(root, exact path)"; [40 §2.3] "The residual case"; [OP-12] | E6 in a fresh writer tree shows an exact rename from one node's path to the other's. |
 | LV-006 | PathClaim | links-fix-same-as | explicit | links-fix | design | [40 §5.5] | - |
 | LV-007 | StatusFork-present-removed | links-fix-drop-or-restore | explicit | links-fix | design | [40 §5.5] | Never by path presence in the merged tree: the file there may be unrelated. |
 | LV-008 | composed-path | settle-verify | next-settle | - | design | [40 §5.5] | The alias is checked by E4 and E6; the link re-binds on exact evidence. |
@@ -261,3 +261,15 @@ resolver constants only through the settle itself, which [F20] specifies.
     other `ref`-typed value equal to U that S set, because leaving it on U is the same wrong answer. RK-006 now states
     that scope and RK-011 the sync residue; [40 §8.3.2] P13's non-anchor case is listed in RK-010. The rows changed
     after the first draft, so the owner re-signs this file (V3).
+11. **The evidence of a settle by observation** (LV-001; WP-92). [40 §5.3] requires exact evidence "for the chosen path",
+    and [F18 §5.1] admits only a `lazy`, `git` or `hook` token after `merge-observation/`. When one side's path is
+    present in the writer tree and the other side's path reaches it by exact evidence (the common case: git applied one
+    lane's rename), the model records the token of that exact evidence (`merge-observation/r100` for an E6 rename). It
+    resolves nothing when both sides' paths are present (two files), when the sides reach different paths, or when the
+    only exact evidence is an intent record (`explicit/…`, which the grammar does not admit after
+    `merge-observation/`). Proposed: [40 §5.3] states this choice.
+12. **Which node a `PathClaim` unification keeps** (LV-005; WP-92). [40 §2.3] "The residual case" says the settle
+    "performs the unification itself" when git shows an exact rename from A's path to B's, and `links fix A --same-as
+    B` makes A `removed{reason: same-as, replaced_by: B}`; the direction of the automatic unification is not stated.
+    The model keeps the node registered at the rename's destination (B, which holds the claimed path by registration)
+    and removes the node whose alias is the rename's source (A), the shape of `--same-as`. Proposed: [40 §2.3] states it.

@@ -480,6 +480,7 @@ pub mod test_host {
     pub fn suspend(pid: u32) -> std::io::Result<()>;
     pub fn resume(pid: u32) -> std::io::Result<()>;
     /// A small, separately mounted volume for disk-full tests; owner-run on Windows (elevation).
+    /// Not built at M0 (the table below).
     pub fn small_volume(bytes: u64) -> std::io::Result<SmallVolume>;
     /// Shifts this process's wall clock ([OS/clock §9]).
     pub fn set_wall_offset_ms(offset_ms: i64);
@@ -492,8 +493,13 @@ pub mod test_host {
 |---|---|---|---|
 | `kill` | `TerminateProcess(child, 1)` | `kill(pid, SIGKILL)` | same |
 | `suspend`, `resume` | `NtSuspendProcess`, `NtResumeProcess` (ntdll; test-only) | `kill(pid, SIGSTOP)`, `kill(pid, SIGCONT)` | same |
-| `small_volume` | `CreateVirtualDisk` + `AttachVirtualDisk` of a VHDX (needs elevation: owner-run only; profile L's nightly never calls it, [AR §8.2]) | a loop-mounted ext4, XFS or btrfs image | `hdiutil create` + `attach` of an APFS image |
+| `small_volume` | **not built at M0**; when built, `CreateVirtualDisk` + `AttachVirtualDisk` of a VHDX (needs elevation: owner-run only; profile L's nightly never calls it, [AR §8.2]) | a loop-mounted ext4, XFS or btrfs image | `hdiutil create` + `attach` of an APFS image |
 | wall offset | read once at process start from `MOIRAI_TEST_WALL_OFFSET_MS`; `set_wall_offset_ms` overrides it for the current process | same | same |
+
+At M0 the Windows build has `kill`, `suspend`, `resume` and the wall offset (PLAN WP-33). `small_volume` is not built:
+it needs elevation, no M0 gate calls it (disk-full is covered by GT1's and GT3's injection, [F15] FM-5, and by the
+owner-run RG7 drill, [60 §3.13]), and the owner-run VHDX of the optional measurement 18 (PLAN WP-57) is set up by hand.
+It is specified here so that a later milestone builds it to this signature (open point 14).
 
 ## Coverage
 
@@ -530,3 +536,4 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]). The random source t
 | 11 | [F01] open point 15 proposes the prefix `OS-` for hole ids in `docs/spec/os/` | adopted: HOLE(OS-win-boot-source) | WP-10 |
 | 12 | `os::ipc`'s name parts `<u>` and `<s>` are not defined byte-exactly in [80 §2.8] | §12 fixes them with `lp()`-framed BLAKE3-128; they are published in `LeaderRec`, so clients read rather than recompute them | WP-11 |
 | 13 | §11 said `os::spawn` is "not built at M0", while `ProcHost`, a `Vfs` supertrait complete at M0, carries `spawn_gc_child` and `enter_background`, so `OsVfs` must implement them for WP-33 (WP-30 review, WP-04 author) | **closed (spec sync 2a):** `os::spawn` is built on Windows at M0 ([OS/README §3] row "yes"); `moirai-os`'s `spawn` module is GT20 (a)'s one allowed spawn site; PLAN §2.1 follows | PLAN §2.1 |
+| 14 | §13 listed `small_volume` under "Windows (built at M0)", while PLAN WP-33 limits `test_host` to kill, suspend, resume and the clock offset (spec sync 2b) | **closed:** `small_volume` is not built at M0 (owner-run, tied to WP-57's optional VHDX measurement 18); [OS/README §3]'s row says so. Building it in an M0 WP instead is PLAN issue O-5 | PLAN (O-5) |

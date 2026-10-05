@@ -60,7 +60,8 @@ pub struct BranchInputs {
     pub client: Option<String>,
     /// `ctx.cwd`.
     pub cwd: Option<String>,
-    /// The git top-level containing `ctx.cwd`, when the tree has a simulated git history (WP-92's `EnvGit`).
+    /// The git top-level containing `ctx.cwd`: the root of the simulated tree that holds it, when a simulated git
+    /// history binds that tree ([API §6.5], §6.6).
     pub git_top: Option<String>,
     /// For an MCP call, `session:<harness>:<id>` of the resolved session.
     pub session_key: Option<String>,
@@ -75,7 +76,7 @@ pub struct BranchInputs {
 pub fn resolve_branch(heads: &Heads, i: &BranchInputs) -> Target {
     let bound = |p: &Option<String>| {
         p.as_deref()
-            .and_then(|p| heads.binding_of(p))
+            .and_then(|p| heads.binding_of(&crate::links::canon_abs(p)))
             .map(|h| h.target.clone())
     };
     for s in CX2 {

@@ -19,7 +19,7 @@ use crate::init::nonzero_u64;
 use crate::ops::{CommitOp, Op};
 use crate::state::{IntentState, MAIN};
 use crate::store::{Toy, ToyError, rel};
-use crate::tap::Tap;
+use crate::tap::{Note, Tap};
 
 /// The operation id of the commit that closes an intent ([F05 §9.16]): the intent's key with this bit.
 pub const DONE_TAG: u64 = 1 << 63;
@@ -319,6 +319,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
         } else {
             self.run(&Op::Intent(intent))?.result
         };
+        self.note(Note::IntentAcked { key: f.key, lsn });
         let trash = rel(&format!("trash/{lsn}"));
         let changed = match f.op {
             INTENT_MV => {
@@ -341,12 +342,21 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
                         self.abort_intent(lsn, 2)?;
                         return Err(ToyError::Refused("cross_volume"));
                     }
+                    Err(e)
+                        if matches!(
+                            e.kind,
+                            VfsErrorKind::DiskFull | VfsErrorKind::InsufficientSpace
+                        ) =>
+                    {
+                        // P-90: `DiskFull` aborts the command without an acknowledgement (its seeded bug goes on as if
+                        // the rename had succeeded); the intent stays open for intent recovery (P-71).
+                        self.io(Err::<(), _>(e))?;
+                    }
                     Err(e) => {
-                        self.io(Err::<(), _>(e.clone()))?;
-                        if e.kind != VfsErrorKind::DiskFull {
-                            self.abort_intent(lsn, 1)?;
-                            return Err(ToyError::Io(e));
-                        }
+                        // The rename failed and the source is still in place: the intent is closed at once
+                        // (`FsIntentAborted` reason 1, not renamed, [F05 §9.17]), then the error is the command's.
+                        self.abort_intent(lsn, 1)?;
+                        return Err(ToyError::Io(e));
                     }
                 }
                 // P-17: durable-name on both parents; its seeded bug syncs the destination only.
@@ -609,6 +619,43 @@ mod tests {
                 assert!((1..=5).contains(&r));
             }
         }
+    }
+
+    /// [40 §3.4], [F05 §9.17]: a rename that fails with an error other than `DiskFull` changes nothing ([F15] NS-4),
+    /// and the intent is closed at once with `FsIntentAborted` reason 1 (not renamed); the file stays where it was.
+    #[test]
+    fn a_failed_rename_aborts_its_intent_at_once() {
+        use crate::config::Config;
+        use crate::testing::{open, sim_store};
+        use moirai_vfs_sim::Site;
+        let c = Config::test_profile();
+        let (w, v, _) = sim_store(&c, 61);
+        let dirs = [PathBuf::from("/sim/proj/a"), PathBuf::from("/sim/proj/b")];
+        for d in &dirs {
+            w.mkdir_all(d);
+        }
+        w.put_file(&dirs[0].join(file_name(7)), b"seven")
+            .unwrap_or_else(|e| panic!("{e:?}"));
+        let mut t = open(&v, &c);
+        t.set_project_dirs(&dirs);
+        // The next namespace operation, the rename, fails with `AccessDenied`.
+        w.queue_choice(Site::NsFault, 2);
+        let r = t.file_op(&FileOp {
+            key: 1,
+            file: 7,
+            src: 1,
+            dst: 2,
+            op: INTENT_MV,
+        });
+        assert!(
+            matches!(&r, Err(ToyError::Io(e)) if e.kind == VfsErrorKind::AccessDenied),
+            "{r:?}"
+        );
+        let st = t.read().unwrap_or_else(|e| panic!("{e}"));
+        let states: Vec<IntentState> = st.intents.values().map(|i| i.state).collect();
+        assert_eq!(states, vec![IntentState::Aborted { reason: 1 }]);
+        assert!(w.exists(&dirs[0].join(file_name(7))));
+        assert!(!w.exists(&dirs[1].join(file_name(7))));
     }
 
     #[test]

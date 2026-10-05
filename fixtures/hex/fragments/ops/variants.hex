@@ -6,9 +6,17 @@
 # StatusFork, OwnerFieldEdited and PathClaim, conflicts on the status, observation, body, edge and schema key
 # classes ([F06 §6.1], §6.2), the violation classes QueryInvalid and QueryCycle ([F19 §12.2]) with and without a
 # key, the Resolve choices `theirs`, `base` and `repoint` ([F06 §7.7]), and the Schema op for a changed and a
-# dropped named query ([F06 §7.6]). Node numbers, statuses ([F08 §9.5]: task 0 open, 1 in_progress, 2 done, side
-# 3 deferred) and edge ids ([F08 §9.6]) are store-local; symbol ids of each class are dense in first-use order,
-# named where used. U: the uid of fixtures/hex/fragments/values; D, D256, C: the digests of INDEX.md §2.
+# dropped named query ([F06 §7.6]). Appended after spec sync 2b (ops 15-22): the Resolve choice 5 `drop` of a
+# flagged `blocks` out-edge of a tombstone on a work branch ([F06 §7.7]; [F12 §6.5] row 5 and "A flagged edge"),
+# and Schema ops of the item classes 1-4 and 6 ([F06 §7.6]) with their stored key form ([F08 §8.5] "Stored key
+# form": the component names joined by one 00 byte, `*` = 2A): a kind, a field strengthened (mode 1), an
+# enumeration value of the core header enumeration `priority` (kind `*`) and one of a project kind's `status`, an
+# edge kind, and a policy row ([F08 §8.5.6]) removed back to its default and another written for the first time;
+# these Schema ops are in [F06 §7.9]'s order (item_class, then item_key bytewise). Node numbers, statuses
+# ([F08 §9.5]: task 0 open, 1 in_progress, 2 done, side 3 deferred) and edge ids ([F08 §9.6]: 2 `blocks`) are
+# store-local; symbol ids of each class are dense in first-use order, named where used; store-local schema ids:
+# project kind `incident` = 64, edge kind `escalates_to` = 64, the `priority` value `P5` = 64 ([F08 §8.3]). U: the
+# uid of fixtures/hex/fragments/values; D, D256, C: the digests of INDEX.md §2.
 
 # Conflict FieldEdit (1) on a field key
 # op 1: Conflict
@@ -265,7 +273,7 @@
   {uvar 1}                                  # key: node #1
   {uvar 1}                                  # key: name `estimate`
   {uvar 500}                                # prev: 500 (lsn 30000 - 29500)
-  01                                        # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint)
+  01                                        # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint, 5 drop)
   01                                        # old: cs 1 conflict
   01                                        # old: class 1
   02                                        # old.base: type 2 int
@@ -284,7 +292,7 @@
   02                                        # key: ckey class 2 status
   {uvar 1}                                  # key: node #1
   {uvar 500}                                # prev: 500 (lsn 30000 - 29500)
-  02                                        # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint)
+  02                                        # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint, 5 drop)
   01                                        # old: cs 1 conflict
   02                                        # old: class 2
   01                                        # old.base: st 1 present
@@ -310,7 +318,7 @@
   {uvar 2}                                  # key: dst #2
   00                                        # key: dflag
   {uvar 500}                                # prev: 500 (lsn 30000 - 29500)
-  04                                        # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint)
+  04                                        # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint, 5 drop)
   {uvar 9}                                  # target
   00                                        # old: cs 0 plain
   01                                        # old: ef 1 present
@@ -375,3 +383,215 @@
   {uvar 150}                                # old.text: length 150
   "DEFINE QUERY stale_blockers() SHAPE table BUDGET light AS {\n  MATCH (t:task)-[:BLOCKS]->(u:task)\n  WHERE t.status = 'open'\n  RETURN t, u, t.priority\n}"
   00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # old.ast_hash (derived, unhashed; zero until computed)
+
+# Resolve choice 5 `drop` of a flagged edge: the `blocks` out-edge #10 -> #11 of the tombstone #10 on a work
+# branch ([F12 §6.5] row 5, "A flagged edge"; [F06 §7.7]): old is the plain value holding the edge with
+# `flagged` (pflags bit 1, [F08 §10.2]), no target, new absent; prev from #10's delete at lsn 29200
+# op 15: Resolve
+  0f                                        # op tag 15 Resolve
+  {uvar 12}                                 # len of the body
+  07                                        # key: ckey class 7 edge
+  {uvar 10}                                 # key: src #10
+  02                                        # key: ekind 2
+  {uvar 11}                                 # key: dst #11
+  00                                        # key: dflag
+  {uvar 800}                                # prev: 800 (lsn 30000 - 29200)
+  05                                        # choice (0 ours, 1 theirs, 2 base, 3 value, 4 repoint, 5 drop)
+  00                                        # old: cs 0 plain
+  01                                        # old: ef 1 present
+  02                                        # old.pflags: has_pin=0, flagged=1, anchor=0
+  00                                        # new: ef 0 absent
+
+# Schema: a project kind added (mode 0 `weaken`, class 1, sflags new only; item_key `incident`); its new
+# item carries the store-local kind_id 64 ([F08 §8.3])
+# op 16: Schema
+  0c                                        # op tag 12 Schema
+  {uvar 21}                                 # len of the body
+  00                                        # mode (0 weaken, 1 strengthen)
+  01                                        # item_class
+  {uvar 8}                                  # item_key: length 8
+  "incident"
+  02                                        # sflags
+  {uvar 8}                                  # new: item length
+  01                                        # new.class 1
+  00                                        # new.iflags
+  {uvar 4}                                  # new.name `incident`
+  40                                        # new.kind_id (store-local)
+  01                                        # new.uid_derivation
+  00                                        # new.root_variant
+  02                                        # new.existence_policy
+  04                                        # new.kflags
+
+# Schema: a field strengthened (mode 1 `strengthen`, class 2, sflags old and new; item_key `incident` 00
+# `impact`): its range [0, 10] narrows to [1, 5] ([F08 §8.1])
+# op 17: Schema
+  0c                                        # op tag 12 Schema
+  {uvar 57}                                 # len of the body
+  01                                        # mode (0 weaken, 1 strengthen)
+  02                                        # item_class
+  {uvar 15}                                 # item_key: length 15
+  "incident"                                # item_key: `incident`
+  00                                        # item_key: separator 00
+  "impact"                                  # item_key: `impact`
+  03                                        # sflags
+  {uvar 18}                                 # old: item length
+  02                                        # old.class 2
+  00                                        # old.iflags
+  {uvar 4}                                  # old.kind `incident`
+  {uvar 5}                                  # old.name `impact`
+  02                                        # old.type
+  00                                        # old.elem
+  01                                        # old.class (merge)
+  04                                        # old.storage
+  {u16 31}                                  # old.decl
+  00                                        # old.optional
+  01                                        # old.index
+  00                                        # old.coerce
+  03                                        # old.cflags
+  02                                        # old.default: type 2 int
+  {svar 3}                                  # old.default: int 3
+  {svar 0}                                  # old.range_min
+  {svar 10}                                 # old.range_max
+  {uvar 18}                                 # new: item length
+  02                                        # new.class 2
+  00                                        # new.iflags
+  {uvar 4}                                  # new.kind `incident`
+  {uvar 5}                                  # new.name `impact`
+  02                                        # new.type
+  00                                        # new.elem
+  01                                        # new.class (merge)
+  04                                        # new.storage
+  {u16 31}                                  # new.decl
+  00                                        # new.optional
+  01                                        # new.index
+  00                                        # new.coerce
+  03                                        # new.cflags
+  02                                        # new.default: type 2 int
+  {svar 3}                                  # new.default: int 3
+  {svar 1}                                  # new.range_min
+  {svar 5}                                  # new.range_max
+
+# Schema: a value of the core header enumeration `priority` added (mode 0, class 3, sflags new only; item_key
+# `*` 00 `priority` 00 `P5`, the `*` component as the byte 2A; store-local value 64, [F08 §8.3])
+# op 18: Schema
+  0c                                        # op tag 12 Schema
+  {uvar 28}                                 # len of the body
+  00                                        # mode (0 weaken, 1 strengthen)
+  03                                        # item_class
+  {uvar 13}                                 # item_key: length 13
+  2a                                        # item_key: `*` (2A)
+  00                                        # item_key: separator 00
+  "priority"                                # item_key: `priority`
+  00                                        # item_key: separator 00
+  "P5"                                      # item_key: `P5`
+  02                                        # sflags
+  {uvar 10}                                 # new: item length
+  03                                        # new.class 3
+  00                                        # new.iflags
+  {uvar 0}                                  # new.kind `*`
+  {uvar 6}                                  # new.field `priority`
+  {uvar 7}                                  # new.name `P5`
+  {uvar 64}                                 # new.value (store-local)
+  {u16 5}                                   # new.sort_rank
+  00                                        # new.eflags
+  00                                        # new.n_covers
+
+# Schema: a status value of the project kind `incident` added (mode 0, class 3, sflags new only; item_key
+# `incident` 00 `status` 00 `triaged`; it covers `open`)
+# op 19: Schema
+  0c                                        # op tag 12 Schema
+  {uvar 39}                                 # len of the body
+  00                                        # mode (0 weaken, 1 strengthen)
+  03                                        # item_class
+  {uvar 23}                                 # item_key: length 23
+  "incident"                                # item_key: `incident`
+  00                                        # item_key: separator 00
+  "status"                                  # item_key: `status`
+  00                                        # item_key: separator 00
+  "triaged"                                 # item_key: `triaged`
+  02                                        # sflags
+  {uvar 11}                                 # new: item length
+  03                                        # new.class 3
+  00                                        # new.iflags
+  {uvar 4}                                  # new.kind `incident`
+  {uvar 8}                                  # new.field `status`
+  {uvar 9}                                  # new.name `triaged`
+  {uvar 3}                                  # new.value (store-local)
+  {u16 3}                                   # new.sort_rank
+  00                                        # new.eflags
+  01                                        # new.n_covers
+  {uvar 0}                                  # new.covers
+
+# Schema: a project edge kind added (mode 0, class 4, sflags new only; item_key `escalates_to`); store-local
+# edge_id 64
+# op 20: Schema
+  0c                                        # op tag 12 Schema
+  {uvar 120}                                # len of the body
+  00                                        # mode (0 weaken, 1 strengthen)
+  04                                        # item_class
+  {uvar 12}                                 # item_key: length 12
+  "escalates_to"
+  02                                        # sflags
+  {uvar 103}                                # new: item length
+  04                                        # new.class 4
+  00                                        # new.iflags
+  {uvar 10}                                 # new.name `escalates_to`
+  40                                        # new.edge_id (store-local)
+  02                                        # new.eclass
+  08                                        # new.on_dst
+  06                                        # new.on_src
+  03                                        # new.acyclic
+  01                                        # new.card
+  00                                        # new.max_depth
+  00                                        # new.uid_derivation
+  00                                        # new.props
+  00                                        # new.eflags
+  {uvar 11}                                 # new.lq_name `ESCALATES_TO`
+  00                                        # new.src_kinds.ks_flags
+  {u64 128}                                 # new.src_kinds.core
+  01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # new.src_kinds.ext
+  00 00 00 00 00 00 00 00
+  01                                        # new.dst_kinds.ks_flags
+  {u64 0}                                   # new.dst_kinds.core
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # new.dst_kinds.ext
+  00 00 00 00 00 00 00 00
+  01                                        # new.n_reverse
+  {uvar 12}                                 # new.reverse_name `escalated_from`
+  {uvar 20}                                 # new.reading: length 20
+  "{a} escalates to {b}"
+
+# Schema: a policy row removed back to its default (mode 0, class 6, sflags old only; item_key the row name's
+# UTF-8, [F06 §7.6]); a view without the item takes the default ([F08 §8.5.6])
+# op 21: Schema
+  0c                                        # op tag 12 Schema
+  {uvar 82}                                 # len of the body
+  00                                        # mode (0 weaken, 1 strengthen)
+  06                                        # item_class
+  {uvar 28}                                 # item_key: length 28
+  "policy.role.developer.fields"
+  01                                        # sflags
+  {uvar 49}                                 # old: item length
+  06                                        # old.class 6
+  00                                        # old.iflags
+  {uvar 28}                                 # old.name (vstr): length 28
+  "policy.role.developer.fields"
+  {uvar 17}                                 # old.value (vstr): length 17
+  "files_owned,title"
+
+# Schema: a policy row written for the first time (mode 0, class 6, sflags new only): `yes`, where the
+# developer's default is `no` ([CFG §10.13])
+# op 22: Schema
+  0c                                        # op tag 12 Schema
+  {uvar 74}                                 # len of the body
+  00                                        # mode (0 weaken, 1 strengthen)
+  06                                        # item_class
+  {uvar 31}                                 # item_key: length 31
+  "policy.role.developer.mcp-write"
+  02                                        # sflags
+  {uvar 38}                                 # new: item length
+  06                                        # new.class 6
+  00                                        # new.iflags
+  {uvar 31}                                 # new.name (vstr): length 31
+  "policy.role.developer.mcp-write"
+  {uvar 3}                                  # new.value (vstr): length 3
+  "yes"

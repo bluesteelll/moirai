@@ -117,6 +117,7 @@ fn pt_name(t: PT) -> &'static str {
         PT::ListText => "list<text>",
         PT::ListRev => "list<rev>",
         PT::Any => "any",
+        PT::Ttl => "text",
     }
 }
 
@@ -361,7 +362,11 @@ impl Binder<'_> {
             }
             let (pname, pt, _) = &sig.params[idx];
             let want = pt.ty(self.all_kinds());
-            let value = self.arg_value(a, Some(&want));
+            let value = if *pt == PT::Ttl {
+                self.ttl_value(a)
+            } else {
+                self.arg_value(a, Some(&want))
+            };
             slots[idx] = Some(CArg {
                 name: Some(pname.clone()),
                 value,
@@ -383,6 +388,28 @@ impl Binder<'_> {
             }
         }
         slots.into_iter().flatten().collect()
+    }
+
+    /// `$ttl` ([LQ/std §7.3]): a `text`, a `duration` or an `int` of milliseconds; any other type is E103.
+    fn ttl_value(&mut self, a: &Arg) -> CExpr {
+        match &a.value {
+            ArgVal::Expr(e) => {
+                let (c, t) = self.expr_at(e, None, AggPos::Other);
+                if !matches!(t, Ty::Text | Ty::Dur | Ty::Int | Ty::Null | Ty::Any) {
+                    self.err(Diag::new(
+                        Code::E103,
+                        e.span,
+                        format!(
+                            "{} {}: the types do not match",
+                            q("text, duration or int"),
+                            q(&t.name())
+                        ),
+                    ));
+                }
+                c
+            }
+            other => self.rev_arg(other),
+        }
     }
 
     fn arg_value(&mut self, a: &Arg, want: Option<&Ty>) -> CExpr {

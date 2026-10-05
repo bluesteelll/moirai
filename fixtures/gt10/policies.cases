@@ -116,6 +116,7 @@ main $p_kid ready yes
 main $b_b open_blockers 1
 main $b_a is_blocker yes
 main $b_d status done
+main $b_d resolution completed GR-014
 main $b_e open_blockers 0 BT-003
 main $b_f open_blockers 1 BT-002
 main $g_t gated yes BT-005
@@ -488,6 +489,29 @@ main edge:$an_n:answers:$an_q exists no EG-022
 main $an_q answered no PD-026
 main $an_q status open TR-039
 main $an_n edges []
+%% end
+
+%% case eg-023
+%% from zoo
+%% source EG-023; CD-007; [F08 §8.4.6] card 2 `max-1-active-per-dst`; PD-026
+%% note A second answer comes from su_old (#34), a superseded note: "at most one active" counts only live sources in a
+%% note status that is not a side state, so the link beside an_n's active answer is allowed (spec sync 2b, S2B-M-8).
+%% note Deleting the active answer an_n (#23) leaves another live answer: its answers edge is dropped with no effect,
+%% note and the question stays answered.
+%% script
+12 Tx @lease=L-1 message="A second answer, from the superseded note"
+  link src=$su_old kind=answers dst=$an_q
+13 Mutation tx.rm @lease=L-1 id=$an_n reason="gone"
+%% result
+exit 0
+marker deleted $an_n main
+%% expect
+main edge:$an_n:answers:$an_q exists no EG-023
+main edge:$su_old:answers:$an_q exists yes
+main $an_q answered yes PD-026
+main $an_q status answered
+main $an_n edges []
+main $su_old status superseded
 %% end
 
 # ---- scoped_to, duplicate_of, depends_on ----------------------------------------------------------------------

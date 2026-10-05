@@ -140,6 +140,13 @@ impl Heap for Anchor {
             + self.blob.heap()
             + self.git.heap()
             + self.marker.heap()
+            + self.text.as_ref().map_or(0, |t| {
+                size_of::<crate::canon::AnchorText>()
+                    + t.quote.capacity()
+                    + t.prefix.capacity()
+                    + t.suffix.capacity()
+                    + t.end.capacity()
+            })
     }
 }
 
@@ -172,7 +179,9 @@ impl Heap for Aspect {
 impl Heap for ItemKey {
     fn heap(&self) -> usize {
         match self {
-            ItemKey::Kind(a) | ItemKey::Edge(a) | ItemKey::Query(a) => a.heap(),
+            ItemKey::Kind(a) | ItemKey::Edge(a) | ItemKey::Query(a) | ItemKey::Policy(a) => {
+                a.heap()
+            }
             ItemKey::Field(a, b) => a.heap() + b.heap(),
             ItemKey::Enum(a, b, c) => a.heap() + b.heap() + c.heap(),
         }
@@ -205,6 +214,7 @@ impl Heap for Item {
             Item::Query(q) => {
                 q.name.heap() + q.params.heap() + q.shape.heap() + q.budget.heap() + q.text.heap()
             }
+            Item::Policy(p) => p.name.heap() + p.value.heap(),
         }
     }
 }

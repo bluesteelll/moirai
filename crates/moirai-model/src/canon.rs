@@ -189,6 +189,23 @@ pub struct Anchor {
     pub marker: String,
     /// The resolver version at capture (1 in format v1).
     pub resolver: u16,
+    /// The texts whose digests the block carries, for the resolver and the results; `None` for an anchor held without
+    /// its text (`text-unavailable`, [F18 §4.6]). They never enter the selector block ([F07 §8.3]).
+    pub text: Option<Box<AnchorText>>,
+}
+
+/// The texts of an anchor record ([F08 §10.3]): `quote.exact`, `prefix.exact`, `suffix.exact` and `end.exact`, each empty
+/// where the kind has none.
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct AnchorText {
+    /// `quote.exact` (for `range`, the start quote).
+    pub quote: Vec<u8>,
+    /// `prefix.exact`.
+    pub prefix: Vec<u8>,
+    /// `suffix.exact`.
+    pub suffix: Vec<u8>,
+    /// `end.exact`.
+    pub end: Vec<u8>,
 }
 
 /// The selector block of an anchor, its 20 fields in order ([F07 §8.2]); an absent field is `lp("")`.
@@ -421,7 +438,7 @@ fn query_item(out: &mut Vec<u8>, q: &QueryItem) {
     lp(out, q.text.as_bytes());
 }
 
-/// A schema item's value: `sf` 1 and the item of §9.2–§9.6 ([F07 §9.1]).
+/// A schema item's value: `sf` 1 and the item of §9.2–§9.7 ([F07 §9.1]).
 // spec: [F07 §9]
 pub fn item_value(it: &Item, uid: &dyn Fn(Nid) -> Uid) -> Vec<u8> {
     let mut out = vec![1u8];
@@ -431,6 +448,8 @@ pub fn item_value(it: &Item, uid: &dyn Fn(Nid) -> Uid) -> Vec<u8> {
         Item::Enum(e) => enum_item(&mut out, e),
         Item::Edge(e) => edge_item(&mut out, e),
         Item::Query(q) => query_item(&mut out, q),
+        // [F07 §9.7]: the value in its canonical form; the name is the key.
+        Item::Policy(p) => lp(&mut out, p.value.as_deref().unwrap_or("").as_bytes()),
     }
     out
 }
@@ -443,6 +462,7 @@ pub fn schema_ckey(k: &ItemKey) -> CKey {
         ItemKey::Enum(k, f, v) => (3, vec![k.clone(), f.clone(), v.clone()]),
         ItemKey::Edge(e) => (4, vec![e.clone()]),
         ItemKey::Query(q) => (5, vec![q.clone()]),
+        ItemKey::Policy(p) => (6, vec![p.clone()]),
     };
     CKey::Schema { class, key }
 }
@@ -1038,25 +1058,26 @@ fn trim_lines(s: &str) -> String {
         .join("\n")
 }
 
-/// N(m) at write time with the refusals of [F07 §5.2] (`bad_value`, exit 2, with the cases `message-utf8`,
-/// `message-length` and `message-trailer` of [F07] open point 15): U+0000; a result above 65,535 bytes; a last
-/// paragraph whose first line begins with `Moirai-`. The empty result is the absent message. A `&str` is valid UTF-8;
-/// [`normalise_message_bytes`] takes raw bytes.
+/// [F19 §10.2] `bad_value`, the commit-message row: invalid UTF-8 or U+0000 ([F07 §5.2]).
+pub const MESSAGE_UTF8: &str = "the commit message is not valid UTF-8 or contains U+0000";
+/// [F19 §10.2] `bad_value`, the commit-message row: a result above 65,535 bytes ([F07 §5.2]).
+pub const MESSAGE_LENGTH: &str = "the commit message is longer than 65,535 bytes";
+/// [F19 §10.2] `bad_value`, the commit-message row: a last paragraph that begins with `Moirai-` ([F07 §5.2]).
+pub const MESSAGE_TRAILER: &str = "the commit message ends in a paragraph that begins with Moirai-";
+
+/// N(m) at write time with the refusals of [F07 §5.2] (`bad_value`, exit 2, case `message` of [F19 §10.3], with
+/// [F19 §10.2]'s texts; spec sync 2b S2B-F-16): U+0000; a result above 65,535 bytes; a last paragraph whose first line
+/// begins with `Moirai-`. The empty result is the absent message. A `&str` is valid UTF-8; [`normalise_message_bytes`]
+/// takes raw bytes.
 // spec: [F07 §5.1]
 // spec: [F07 §5.2]
 pub fn normalise_message(m: &str) -> Res<String> {
     if m.contains('\0') {
-        return Err(Refusal::bad_value(
-            "message-utf8",
-            "a commit message never contains U+0000",
-        ));
+        return Err(Refusal::bad_value("message", MESSAGE_UTF8));
     }
     let out = steps_2_to_4(m);
     if out.len() > 65_535 {
-        return Err(Refusal::bad_value(
-            "message-length",
-            format!("the message is {} bytes; at most 65535", out.len()),
-        ));
+        return Err(Refusal::bad_value("message", MESSAGE_LENGTH));
     }
     let lines: Vec<&str> = out.split('\n').collect();
     let start = lines
@@ -1064,18 +1085,15 @@ pub fn normalise_message(m: &str) -> Res<String> {
         .rposition(|l| l.is_empty())
         .map_or(0, |i| i + 1);
     if lines.get(start).is_some_and(|l| l.starts_with("Moirai-")) {
-        return Err(Refusal::bad_value(
-            "message-trailer",
-            "the last paragraph of a message never begins with Moirai-",
-        ));
+        return Err(Refusal::bad_value("message", MESSAGE_TRAILER));
     }
     Ok(out)
 }
 
-/// N of raw message bytes ([F07 §5.1] step 1): bytes that are not valid UTF-8 are refused with `message-utf8`.
+/// N of raw message bytes ([F07 §5.1] step 1): bytes that are not valid UTF-8 are refused (`bad_value`, case
+/// `message`).
 pub fn normalise_message_bytes(m: &[u8]) -> Res<String> {
-    let s = std::str::from_utf8(m)
-        .map_err(|_| Refusal::bad_value("message-utf8", "a commit message is valid UTF-8"))?;
+    let s = std::str::from_utf8(m).map_err(|_| Refusal::bad_value("message", MESSAGE_UTF8))?;
     normalise_message(s)
 }
 
@@ -1775,7 +1793,7 @@ mod tests {
                     prop_assert!(!last_paragraph_head(&n).starts_with("Moirai-"));
                 }
                 Err(e) => {
-                    prop_assert_eq!(e.get_str("case"), Some("message-trailer"));
+                    prop_assert_eq!(e.get_str("case"), Some("message"));
                     let imp = normalise_imported(m.as_bytes());
                     prop_assert!(last_paragraph_head(&imp).starts_with("Moirai-"), "{imp:?}");
                     prop_assert_eq!(normalise_imported(imp.as_bytes()), imp.clone());

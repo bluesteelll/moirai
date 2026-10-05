@@ -942,7 +942,10 @@ fn branches_follow_the_ref_name_rules() {
         },
         orch(),
     );
-    assert!(matches!(d.data, Data::BranchDelete(_, 1, (1, 0, 0), _)));
+    assert!(matches!(
+        d.data,
+        Data::BranchDelete(_, 1, Some((1, 0, 0)), _)
+    ));
 }
 
 #[test]

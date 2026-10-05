@@ -114,7 +114,7 @@ record R is appended. Every rename step is followed by `durable-name` on **every
 | P-5 | record class tag | a record's `RecHdr.flags` bit 0 is set at append by its kind's class ([F05 §6.1]): 0 for every durable kind; for the configurable sub-kinds, the writer's `durability.lazy-kinds` at that moment | — | [80] X-F5, [AR §6.5] |
 | P-6 | durable group (a group with a record whose bit 0 is 0: the kinds of class `durable` — `Commit`, `RefUpdate`, `RefTable`, `ClientHead`, `Lease`, `Marker`, `Idem`, `GitMap`, `Pin`, `Checkpoint`, `Backup`, `FsIntent`, `FsIntentDone`, `FsIntentAborted`, `Reserve` (P-84), `ExtentHead` (P-97) — and a configurable kind written durable, [F05 §4.7]) | `write_at` by the appender (`lazy`); then, by the flush holder after its re-write (P-42), `durable` on **every** extent file that holds a byte of the flushed range `(durable_lsn, E]` | its acknowledgement (I-G1) | [80 §2.3.2] row 1, [80 §2.4.3] |
 | P-7 | lazy group | `write_at` only; published by P-38 or by a covering publish; durable at the next covering flush. A lazy publish never changes `durable_lsn` | — | [80 §2.3.1] `lazy` row, [F05 §6.2] |
-| P-8 | log-extent preparation (rotation, spare, epoch start, `init`) | at rotation, under the flush byte (P-72): nothing written for a full-length spare, `create_extent` if the file is absent, or re-preparation in place (`recycle_extent`) if it is shorter than E; then, in every case, `durable+meta` on the extent and `durable-name` on the store directory. Ahead of rotation, under the maintenance byte only (P-96): `create_extent` of `tmp/extent.<nonce>` → `durable+meta` → `rename_noreplace` onto `log.<n+1>` → `durable-name` on `tmp/` and on the store directory. By `init`, `restore` and `repair` in a store no other process can open yet: as at rotation | the first group appended into the extent (its extent head, P-97) | [80 §2.3.2] row 2, [80 §2.3.3], [F05 §2.4] |
+| P-8 | log-extent preparation (rotation, spare, epoch start, `init`) | at rotation, under the flush byte (P-72): nothing written for a full-length spare, `create_extent` if the file is absent, or re-preparation in place (`recycle_extent`) if it is shorter than E; then, in every case, `durable+meta` on the extent and `durable-name` on the store directory, and also on `tmp/` when the file existed at full length (a spare's rename has `tmp/` as its other parent, [F15] FM-2.4). Ahead of rotation, under the maintenance byte only (P-96): `create_extent` of `tmp/extent.<nonce>` → `durable+meta` → `rename_noreplace` onto `log.<n+1>` → `durable-name` on `tmp/` and on the store directory. By `init`, `restore` and `repair` in a store no other process can open yet: as at rotation | the first group appended into the extent (its extent head, P-97) | [80 §2.3.2] row 2, [80 §2.3.3], [F05 §2.4] |
 | P-9 | rotation pad | one lazy `Noop` group of length r at the old extent's tail, written by the rotating appender immediately before the next extent's head (P-97) and its own group ([F05 §4.4] G-3) | — | [80 §2.4.3] |
 | P-10 | sealed file written by a maintenance holder (`seg.base`, `seg.d`, `seg.b`, `hist`, `blobs` of a checkpoint, `dict`, `gitmap`) | `create_new` under its final number (P-78) → `write_at`… → `durable+meta` → `seal` → `durable-name` on the store directory | the `Checkpoint` (or promotion) group that names it | [80 §2.3.2] row 3, [F02 §5.2] rule 2 |
 | P-11 | a bulk commit's `cs.<n>` and its `blobs.<n>` | `cs`: `create_new(tmp/cs.<nonce>)` → `write_at`… → `durable+meta` → `rename_noreplace` onto `cs.<n>` → `seal` → `durable-name` on `tmp/` **and** on the store directory; `blobs`: as P-10 | the `Commit` group that names them | [80 §2.3.2] row 3, [AR §4.3], [F06 §9] BK-3, [F15] OP-5 |
@@ -131,7 +131,7 @@ record R is appended. Every rename step is followed by `durable-name` on **every
 | P-22 | `backup` | every copied file `durable+meta` → `durable-name` on the backup directory → the backup's `HEAD` last, `durable+meta`, `durable-name` → the durable `Backup` group | the verb's success report | [80 §2.3.2] row 12, [72 M9] |
 | P-23 | image export, pack path | pack and idx `durable+meta` → `rename_noreplace` into `objects/pack/` → `durable-name`; `packed-refs.lock` (or `<ref>.lock`) `durable+meta` → `rename_replace` → `durable-name` | the `GitMap` group | [80 §2.3.2] row 13, [AR §5b.6] step 5, [72 M9] |
 | P-100 | image export, loose-object path (a run of at most `store.image.loose-pack-threshold` objects, [F17 §9.1]) | per object: its temporary file `durable+meta` → `rename_noreplace` into `objects/<xx>/` (`AlreadyExists` is success: a loose object's name is its content id) → `durable-name` on `objects/<xx>/` and, when the run created that directory, on `objects/`; all before the ref's `.lock` step, which then runs as in P-23 | the ref update and the `GitMap` group | [80 §2.3.2] row 13, [AR §5b.6] step 5, [F14 §13] (pass 1, P1-18) |
-| P-24 | `init` | §13.7: every initial entry durable and named before `HEAD`, which is created last through `tmp/head.<nonce>` | discovery of the store ([F02 §5.5]) | [F02 §2.4], [F02 §5.5] |
+| P-24 | `init` | §13.7: every initial entry durable and named before `HEAD`, which is created last through `tmp/head.<nonce>`; each process then runs `durable-name` on `tmp/` and on the store directory before its first acknowledgement (P-88) | discovery of the store ([F02 §5.5]); each process's first acknowledgement | [F02 §2.4], [F02 §5.5] |
 | — | `LOCK` records | `lazy` only, never flushed; `LockHdr` made durable by P-24 or P-85 (the owner's rule, [F03 §12]). No P-rule: a record is interpreted only with a lock byte its writer holds, so no crash state of a record can mislead ([F03 §12]'s argument; pass 1, S1-41); the rules that read records have their seeded bugs in §17.4 | — | [80] X-F1 |
 | P-99 | pointer file of `init --link` | create-new, one write, `durable+meta` on the file, `durable-name` on its directory, then the success report ([F02 §3.3] rule 6; pass 1, S1-41) | the verb's success report | [F02] open point 1, [80 §2.3.1] |
 
@@ -200,8 +200,13 @@ there, to the end E_v of the valid log by the chain rule (§7). The scan does no
 groups beyond it (pending groups, and groups whose publish an OS crash lost) are part of the valid log. At the first
 invalid group, at boundary p: if p ≥ S.`durable_lsn`, p is the end of the log; if p < S.`durable_lsn`, the store is
 corrupt and the process exits 7 `store_corrupt` naming `moirai repair`, and nothing below `durable_lsn` is ever
-overwritten ([F05 §5.3], decision (b)). A failed read is not an invalid group: at any position it stops the appender by
-P-92, which then appends nothing.
+overwritten ([F05 §5.3], decision (b)). A missing next extent is such an invalid group at its first byte, so below
+`durable_lsn` it is corruption too. A failed read is not an invalid group: at any position it stops the appender by
+P-92, which then appends nothing. If the valid log ends at a boundary p with S.`durable_lsn` ≤ p < S.`committed_lsn`
+(a lazy tail lost after a crash or a failed flush), the appender first publishes (P-48) `committed_lsn` = p (P-49),
+under the same holding, and restarts at P-28. Until that publish other appenders would treat a refill of the hole as
+already published, so their allocators and HLC maxima would miss it (I1, I43′) and a reader could see an uncovered
+durable group (I-G2).
 
 **P-30 (pending groups go only to a scratch layer).** Groups up to the published `committed_lsn` are applied to the
 process's overlay. Groups beyond it are replayed into a scratch layer that is discarded when the writer byte is released.
@@ -255,7 +260,8 @@ h + 1)`, over two maxima that the appender derives from its scan exactly as the 
 
 Each is the maximum of the newest slot's field (`hlc_seq`, `hlc_commit`), of the records of the groups the scan found
 beyond that slot's `committed_lsn` (pending groups included) and of the records of the group already built; no scan
-below `committed_lsn` is needed. Then:
+below `committed_lsn` is needed, because P-29 first lowers a `committed_lsn` that lies beyond the end of the valid log.
+Then:
 
 1. A semantic durable record takes `hlc_next(wall_ms, h_seq)` and raises `h_seq` to it. A local commit takes
    `hlc_next(wall_ms, max(h_seq, h_commit))` as its `hlc`, which is also its `append_hlc` ([F06 §4.4.4]), so it lies
@@ -281,7 +287,9 @@ fit the rest of the extent goes through P-72.
 
 **P-38 (a lazy group is published at once only when no durable group is pending).** After appending a lazy group, the
 appender publishes at once (P-48; `committed_lsn` = E_g) if and only if the scanned log beyond the published
-`committed_lsn` holds no durable group. Otherwise the group is published by the publish that covers it.
+`committed_lsn` holds no durable group. Otherwise the group is published by the publish that covers it. The group is
+covered only when that publish's `committed_lsn` ≥ E_g; otherwise it was lost (P-47): the publish's own scan can stop
+before E_g at a predecessor sector that a failed flush poisoned ([F15] FM-3.2).
 
 **P-39 (a lazy group behind a pending durable group runs phase 2b).** An appender whose lazy group was not published by
 P-38 runs phase 2b for it, so that a pending group whose writer died never strands it ([81 m4]). The one exception is a
@@ -340,26 +348,33 @@ the same idempotency key at most twice, then exits 7 `outcome_unknown` ([80 §2.
 holder's publish (P-45), either write of a durable publish (P-13), maintenance's no-op publish, a `config_gen` bump —
 is made under the writer byte: read both slots, select the newest valid slot S by P-61, build S′ from S, and write S′
 into the slot that does not hold S ([F04 §9.1]). `slot_seq` = S.`slot_seq` + 1. `boot_id` is copied from S except by
-P-66. No publisher writes a slot from a state it read before the current holding of the writer byte.
+P-66. No publisher writes a slot from a state it read before the current holding of the writer byte. A publisher that
+would write a slot failing [F04 §7] check 4 or 5 (for example `committed_lsn` < `durable_lsn`, when after a failed flush
+its own scan reads a shorter log than it flushed) writes nothing and exits 7 `store_corrupt`.
 
 **P-49 (`committed_lsn`).** A publish sets `committed_lsn` to the end of the valid log as the publisher scanned it at
 publish time, stopping before the first pending durable group that its flush does not cover (a publish without a flush
 covers none). Lazy groups appended during a flush are therefore published with it. `committed_lsn` decreases only when the
 valid log ends below it (a lazy tail lost after a crash or a failed flush), and then to that end ([80 §2.4.3], I-G6).
 
-**P-50 (the fold).** A publish folds the `HEAD` effects of every group between S.`committed_lsn` and the new
-`committed_lsn`, in log order, by [F05 §10.2]: counters take the maximum; the table pointers advance to the newest
-covered record of their kind; a covered `Checkpoint` sets the segment set, `checkpoint_lsn`, `active_log`, `flags` bit 1
-and `next_file_no`; a covered `GitMap` advances `image_cursor`; `seq_ring` gains the covered commits; `hlc_seq` and
-`hlc_commit` take the maximum over the covered semantic records and commits (P-36). Fields kept in
-`HEAD` ([F04 §6]) are copied unless the publish is the one that changes them. No field decreases except by P-49, so no
-publish can republish an older segment set.
+**P-50 (the fold).** A publish folds the `HEAD` effects of every group between S.`durable_lsn` and the new
+`committed_lsn`, in log order, by [F05 §10.2] (a group S already folded changes nothing: every field takes the maximum or
+advances). It starts at `durable_lsn`, not `committed_lsn`: after a crash `HEAD` can revert to a slot whose
+`committed_lsn` covers a lazy tail that was lost and refilled before the crash, and a fold from `committed_lsn` would
+miss the refill (repeated counters and HLCs, I1, I43′). The fold: counters take the maximum; the table pointers advance
+to the newest covered record of their kind; a covered `Checkpoint` sets the segment set, `checkpoint_lsn`, `active_log`,
+`flags` bit 1 and `next_file_no`; a covered `GitMap` advances `image_cursor`; `seq_ring` gains the covered commits;
+`hlc_seq` and `hlc_commit` take the maximum over the covered semantic records and commits (P-36). Fields kept in `HEAD`
+([F04 §6]) are copied unless the publish is the one that changes them. No field decreases except by P-49, so no publish
+can republish an older segment set.
 
 ### 5.5 Phase 3
 
 **P-51 (phase 3 runs after every byte is released).** After its acknowledgement the process prints its result; then, if
 quiet mode is off, it evaluates the maintenance triggers of [F17 §5] and, if one holds, runs maintenance under P-76 — never
-while it still holds the writer or flush byte. A rollup never runs in the MCP server or in a CLI or hook process: the
+while it still holds the writer or flush byte. A write made while the process holds the maintenance byte (its own
+`Checkpoint`, intent recovery's commits) runs no phase 3, since it would acquire a byte it already holds ([OS/lock]
+contract item 3). A rollup never runs in the MCP server or in a CLI or hook process: the
 process spawns the detached `moirai gc --rollup --if-needed` child after releasing every role byte ([AR §4.9],
 [80 §2.2.1] item 7).
 
@@ -385,7 +400,7 @@ exactly one invariant, and the rules named here exclude it.
 | I-G3 | The log is a chain: a group is valid only behind the exact predecessor it was validated against; after any crash or failed flush the valid log is a prefix of that chain, and nothing acknowledged depends on a lost group | G9 → P-53 | P-37, P-56, P-64 |
 | I-G4 | At most one log flush in flight per store; the flush holder scans and re-writes under the writer byte and never flushes or waits while holding it | G4 → P-1; G8 → P-43 | P-2, P-44 |
 | I-G5 | An appended group whose writer dies is adopted by the next flush holder or lost with everything after it, acknowledged only through an identity check; its key makes a retry exact | G3 → P-42; G13 → P-39 | P-33, P-47 |
-| I-G6 | Every publish is a read-modify-write of the newest valid slot under the writer byte that folds every newly covered group in log order; `durable_lsn`, the counters and the lsn pointers never decrease; `committed_lsn` decreases only after a lost lazy tail | G5 → P-45; G11 → P-48; G12 → P-50 (the set not published) and P-62 (the barrier before the publish) | P-49 |
+| I-G6 | Every publish is a read-modify-write of the newest valid slot under the writer byte that folds, in log order, every group above the slot's `durable_lsn` that it covers (P-50); `durable_lsn`, the counters and the lsn pointers never decrease; `committed_lsn` decreases only after a lost lazy tail | G5 → P-45; G11 → P-48; G12 → P-50 (the set not published) and P-62 (the barrier before the publish) | P-49 |
 
 ## 7. The chain rule
 
@@ -436,6 +451,10 @@ validity check is fatal (exit 7 `store_corrupt`), and the process never falls ba
 absent it uses the other (decision (d)); with both absent it reads again at most twice more and then exits 7
 `store_corrupt` ("`HEAD` has no valid slot"), for `moirai repair`. A failed `HEAD` flush can leave both slots failing
 validation ([F15] OP-1); P-13's second write ends that state at the next durable publish, and until then P-61 applies.
+So can a publish whose write failed (`DiskFull`, [F15] FM-5.2) or was cut by its writer's death ([F15 §2.5]), which
+leaves its slot any mix of bytes, followed by a crash that tears the other, dirty slot (FM-1.2) ([F04 §8.1]). A fatal
+slot's repair path is plain `moirai repair`, which treats it as absent and rebuilds both slots from the extent heads
+(P-85).
 
 **P-62 (the barrier comes after maintenance's own `Checkpoint` and before every deletion).** Before any file deletion,
 extent retirement or recycling, the deleting process runs a barrier (P-13), and it starts that barrier only after the
@@ -461,8 +480,9 @@ from `min(durable_lsn, checkpoint_lsn)` of the selected slot, which equals `chec
 only by a flush holder's re-write, flush and publish (P-42–P-45) and then applied by every process's replay in log order,
 record by record, by kind ([F05 §10]): commits with their implied ref moves (P-69), `RefUpdate`, `RefTable`, `Lease`,
 `ClientHead`, `Pin`, `GitMap`, `Checkpoint`, `Idem`, `Backup`, `FsIntent*` and the runtime kinds. The `MARKERS` fold
-applies the `Marker` records, which carry every marker change including holder-set changes, and derives nothing from net
-ops ([F05 §9.5], [F05 §10.3]; [72 M1] fix 2 keeps them in the commit's group). No record kind is
+applies the `Marker` records, which carry every change of a marker's holder set or flag (ME-001 to ME-011; the storage
+moves of ME-012 and ME-013 write none), and derives nothing from net ops ([F05 §9.5], [F05 §10.3]; [72 M1] fix 2 keeps
+them in the commit's group). No record kind is
 skipped.
 
 **P-66 (boot-change recovery).** A process that P-28 or P-60 sends here, and that is not in Unknown-boot mode:
@@ -527,7 +547,10 @@ the flush byte and has made log.<m> ready (P-8) during that holding:
    exists longer than E, it exits 7 `store_corrupt`. A `Sparse` preparation first applies the free-space check of
    [OS/fs §4.5] (exit 7 `disk_full` on failure). Then, in every case, `durable+meta` on log.<m> and `durable-name` on the
    store directory — re-issued on a spare too, because the durability of a size or a name that another process set is not
-   known ([F15] FM-2.1; on a clean spare the two calls return in well under a millisecond, pass 1, P1-7).
+   known ([F15] FM-2.1; on a clean spare the calls return in well under a millisecond, pass 1, P1-7). When log.<m>
+   existed at full length it also runs `durable-name` on `tmp/`: a spare's rename (P-96) has `tmp/` as its other parent
+   and is durable only once both parents are synced ([F15] FM-2.4), and a preparer that died between its rename and its
+   `tmp/` sync leaves that unknown.
 3. It acquires the writer byte and restarts phase 2a at P-28. If its group would still begin extent m, it appends the pad
    of P-9 when G-3 requires one, then the extent head of m at its first byte (P-97), then its own group; otherwise it
    appends by P-37 (and if its group would now begin another extent, it releases both bytes and starts again at step 1).
@@ -550,7 +573,7 @@ and no file `log.<n+1>`, prepares the spare: `create_extent` of `tmp/extent.<non
 `durable+meta` on it, `rename_noreplace` onto `log.<n+1>`, and `durable-name` on `tmp/` and on the store directory.
 `AlreadyExists` at the rename means a rotation made the extent ready first; the holder then deletes its temporary. After
 the rename it never writes to `log.<n+1>` again, so a rotator that finds the name finds a complete file that no preparer
-still writes, and it only re-issues the two flushes before the extent head enters it (P-72 step 2). Preparing under a
+still writes, and it only re-issues the flushes of P-72 step 2 before the extent head enters it. Preparing under a
 temporary name is what makes this safe without the flush byte: a preparer paused for any time (FM-6) can never write
 zeros over a group, because it writes only to a name no appender uses. The trigger point E / 2 is a protocol constant
 ([F17 §13.2]; pass 1, P1-7, closing open point 3).
@@ -711,14 +734,22 @@ P1-3, S1-11, A1-12, closing open point 5).
    either case: `restore` issues no further call, and the intent and `retired` stay for `doctor`.
 
 `repair --rebuild-from-log` builds its rebuilt store beside the store and puts it in place by steps 2–4. Plain `repair` of
-a store with no valid `HEAD` slot (P-61) holds the maintenance and flush bytes throughout (`Busy` on the maintenance byte:
+a store with no valid `HEAD` slot, or with a fatal slot (treated as absent, and the other slot is not trusted either;
+P-61), holds the maintenance and flush bytes throughout (`Busy` on the maintenance byte:
 exit 7 `maintenance_busy`) and rebuilds the slot state from the extent heads (P-97; [F04 §8.1], [F05 §4.5], §9.28):
 1. it reads the extent head of every existing `log.<n>` file; the head with the greatest n that validates by itself
    (checksum, position, trailer with its `chain_in`) gives the epoch (its `RecHdr.epoch`) and `epoch_lsn`;
 2. it scans by the chain rule from the head of the lowest-numbered extent of that epoch from which every later extent
-   file exists, to the end of the valid log (a failed read: exit 7 by P-92);
-3. it takes `epoch_lsn`, `init`, `project_oid_algo`, the `quiet` and `readonly` flags and the counters from the newest
-   head it scanned, and folds every group after that head into them ([F05 §10.2]): the segment set and
+   file exists, to the end of the valid log (a failed read: exit 7 by P-92). The head at the scan start, the head of a
+   lower extent, validates by itself and carries step 1's epoch: it is the one scan start whose chain value comes from a
+   record instead of `HEAD`, so its position check (P-54) and epoch check (P-55) keep a misplaced or foreign extent out
+   of the rebuilt state;
+3. it takes `epoch_lsn`, `init`, `project_oid_algo` and the counters from the newest head it scanned, and the `quiet` and
+   `readonly` flags from the head of step 1, and folds every group after the newest scanned head into them
+   ([F05 §10.2]). Step 1's head is at least as new as any scanned head; it differs only when a later extent's head
+   survives beyond the end of the valid log. Repair thus resets both flags to that head's values: a flag change made
+   after that head was written lives only in `HEAD` ([F04 §6]) and is lost, and the operator re-issues it. The rest of
+   the state: the segment set and
    `checkpoint_lsn` come from the newest `Checkpoint` with a set change, which lies in the scanned range (EX-4, EX-5);
    `durable_lsn` = `committed_lsn` = the end of the valid log after the flush of step 4; `boot_id` is the repairer's;
    `config_gen` is 0; a table pointer with no record of its kind in the scanned range is 0, which a reader treats like
@@ -797,6 +828,14 @@ because a lost bump needs an OS crash, after which every process reads `config` 
 
 `init` writes no segment: `n_segments` = 0, and the first checkpoint writes the first base or delta. `init` takes no lock
 byte: until step 6 no process can discover the store ([F02 §3.2]).
+
+**The window after step 6's rename.** Between the rename of `tmp/head.<nonce>` onto `HEAD` and the `durable-name` that
+follows, a discovering process can open the store and acknowledge writes that a crash then loses together with `HEAD`'s
+name; an `init` that died in that window leaves it open for good. The rename has two parents, so it is durable only once
+`tmp/` and the store directory are both synced ([F15] FM-2.4). Therefore every process, before it first acknowledges a
+durable effect through a store it opened (a durable group, P-46; a durable publish's success, P-13), runs `durable-name`
+on `tmp/` and on the store directory, once per opening of the store, holding no role byte. On clean directories the two
+calls return in well under a millisecond; measurements 1 and 2 include them.
 
 **P-99 (the pointer file of `init --link` is durable before success).** `init --link` creates `./.moirai` with
 create-new semantics, writes its bytes in one write, runs `durable+meta` on it and `durable-name` on its directory, and
@@ -888,14 +927,33 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
   uncovered durable group (`crash::ig2_read_freshness`); **chain** — `crash::ig3_chain_prefix`; **trace** — a predicate
   over the simulator's lock, flush and publish events (`crash::trace::ig4_flush_discipline`,
   `crash::trace::ig6_publish_monotone`, and the protocol-violation checks of [F15 §3.13]); **model** — the reference
-  model's comparison of state, markers, leases, ids or results; **ns** — the namespace check of the `Vfs` or `ProjectFs`
+  model's comparison of state, markers, leases, ids or results; on the toy vehicle, which has no reference model, the
+  toy's own `doctor --verify` (below); **ns** — the namespace check of the `Vfs` or `ProjectFs`
   simulator (a durable record whose file or name a crash lost); **avail** — a store that refuses to open or loops after
-  a state the protocol must accept.
+  a state the protocol must accept, or an operation that ends `outcome_unknown` in a run without a failed flush or read
+  (P-47).
 - **Vehicle**: **toy** — WP-40's toy log over the in-memory `Vfs` at M0 (group commit, two-slot `HEAD`, epoch, extents,
-  checkpoint, barrier and deletion, ref moves, idempotency, minimal markers and leases, recovery, and a namespace model
-  of intents over `Vfs` renames); a milestone gate — the mechanism is built there and its seeded bug is carried by that
-  gate ([60 §3.13], [60 §2.6] "How M1 certifies"): **M1** the storage driver's GT1/GT3, **M5** GT8, **M6** the
-  `FsIntent` crash enumeration of [40 §8.3.5] and GT17.
+  checkpoint, barrier and deletion, ref moves, idempotency, minimal markers and leases, recovery, plain `repair` from the
+  extent heads (P-85), and a namespace model of intents over `Vfs` renames); a milestone gate — the mechanism is built
+  there and its seeded bug is carried by that gate ([60 §3.13], [60 §2.6] "How M1 certifies"): **M1** the storage
+  driver's GT1/GT3, **M5** GT8, **M6** the
+  `FsIntent` crash enumeration of [40 §8.3.5] and GT17. **none (masked)** — no reachable state of the vehicle can show the
+  bug, because another rule named in the row dominates it; the row names how its detector is still tested.
+- **Where the detectors live for the toy vehicle.** PLAN §2.2 forbids `moirai-toylog` → `moirai-model`, and PLAN §3.1 S4
+  makes the seeded-bug author (R-TOY) someone other than the enumerator's author (R-HARN-S), so that the harness cannot
+  be tuned to its own bugs. At M0 the generic families are therefore checked in `moirai-vfs-sim`, the enumerator's
+  crate, as part of that harness: ack, fresh, chain and avail by the enumerator's verdicts (avail over the outcome the
+  subject reports and the faults the run injected); trace by generic predicates over the simulator's lock, flush and
+  namespace events and over the decoded `HEAD` slot writes ([F04 §3]; I-G4, I-G6); ns by the simulator's namespace
+  check, which judges any subject's durable records against the simulator's own namespace model, so one check serves the
+  toy at M0 and the storage driver from M1. The `model` family has no reference model on the toy, since the comparison
+  with `moirai-model` is what PLAN §2.2 keeps out of the toy harness: it is checked by the toy's own `doctor --verify`,
+  which re-derives from the log's records the invariants that the comparison would find broken in the rows below (state,
+  markers, leases, ids and results). That check and the other checks that need the toy's own state (read visibility
+  against its replayed view) are the toy's, written in the toy and reviewed by R-HARN-S as a WP-40 acceptance step. S4
+  names only the enumerator's author, so these checks do not break it; the review is what keeps them from being fitted
+  to the toy's bugs. From M1 the `crash` functions of `moirai-model` ([F13 §1.4]) and the comparison with that reference
+  model are the functions of record ([F13] OP-13-02; OWNER O-2 confirms the authorship).
 
 ### 17.3 Catalogue
 
@@ -909,13 +967,13 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
 | P-6 | durable flush covers every extent | a flushed range that spans a rotation flushes only the extent that holds E | — | ack | toy |
 | P-7 | lazy never advances `durable_lsn` | a lazy publish sets `durable_lsn` to its end | — | trace (ig6); avail (false corruption below `durable_lsn`) | toy |
 | P-8 | extent preparation | the first group is appended into a new extent before `durable+meta` on it | — | ack | toy |
-| P-9 | rotation pad | a group is written across an extent boundary | — | ack | toy |
+| P-9 | rotation pad | a group is written across an extent boundary | — | avail (the extent grows past E, which [F05 §2.2] makes corrupt, so every scan refuses and nothing is acknowledged) | toy |
 | P-10 | maintenance sealed files | a `Checkpoint` is appended before its segment's `durable+meta` | — | ack; avail | toy |
 | P-11 | bulk `cs` via `tmp/` | after the rename from `tmp/`, only the store directory is synced | — | ns | M1 |
-| P-12 | publish writes the other slot | a publish overwrites the slot that holds the newest valid state | — | ack (a torn publish leaves no valid slot) | toy |
-| P-13 | durable publish writes both slots | the barrier writes one slot and flushes | T9 | ack; avail | toy |
+| P-12 | publish writes the other slot | a publish overwrites the slot that holds the newest valid state | — | avail (after a torn publish the other slot names files a later checkpoint deleted; the log is intact, so nothing acknowledged is lost) | toy |
+| P-13 | durable publish writes both slots | a durable publish of a flag change writes one slot and flushes; a crash that tears the newer slot while the older reverts brings back the replaced flag (the barrier form is masked by P-62: the covering publish of the `Checkpoint` already wrote the new set) | T9 | ack | toy |
 | P-14 | deletion after the barrier | a released file is deleted before the barrier's `HEAD` flush | T6 | avail; ack | toy |
-| P-15 | boot recovery flushes the log first | boot-change recovery publishes before flushing the re-written range | — | fresh | toy |
+| P-15 | boot recovery flushes the log first | boot-change recovery publishes before flushing the re-written range | — | avail (a later process finds an invalid group below `durable_lsn` and refuses, P-58) | toy |
 | P-16 | intent before rename | the rename is issued before the `FsIntent` group's identity check | — | ns | toy |
 | P-17 | `file mv` barrier on both parents | the move's commit is appended after the rename without `sync_dir` of both parents | T12 | ns | toy |
 | P-18 | `file rm` barrier | the removal's commit is appended before `sync_dir` of the parent | — | ns | toy |
@@ -935,17 +993,17 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
 | P-32 | idempotency after the scan | the key is evaluated before the scan | T4 | model (duplicate commit) | toy |
 | P-33 | pending hit waits for identity | an idempotent replay of a pending group is acknowledged before its durability | G6 | ack | toy |
 | P-34 | re-validation by key; a bulk commit by node | "the candidate stands" when `committed_lsn` = L0 although pending groups exist; two exclusive claims succeed | — | model | toy |
-| P-35 | final encoding checks | W3 is not re-checked; a group longer than E is appended and acknowledged | — | ack | toy |
-| P-36 | one HLC sequence over the semantic records | a `Checkpoint` advances the sequence: a class-I checkpoint appended between two commits in one millisecond raises the next commit's `hlc`, so its commit id differs from the model's (pass 1, P1-5) | — | model (commit id; I43′) | toy |
-| P-37 | append at E_v, chained | the trailer is seeded with the chain value at `committed_lsn` instead of at E_v | — | ack; chain | toy |
+| P-35 | final encoding checks | W3 is not re-checked; a group longer than E is appended and acknowledged | — | avail (the extent grows past E and every scan refuses, [F05 §2.2]) | toy |
+| P-36 | one HLC sequence over the semantic records | a `Checkpoint` advances the sequence: a class-I checkpoint appended between two commits in one millisecond raises the next commit's `hlc`, so its commit id differs from the model's (pass 1, P1-5) | — | model (commit id, I43′) | toy |
+| P-37 | append at E_v, chained | the trailer is seeded with the chain value at `committed_lsn` instead of at E_v | — | avail (the chain rule rejects the group, so it is never acknowledged and the operation ends `outcome_unknown` without a failed flush) | toy |
 | P-38 | lazy publish only without pending durable | a lazy publish moves `committed_lsn` past a pending durable group | G2 | fresh | toy |
 | P-39 | lazy behind durable runs phase 2b | a lazy group behind a dead writer's pending durable group is left unpublished | G13 | fresh | toy |
-| P-40 | covered test | a durable group is treated as covered when `committed_lsn` ≥ E_g | G1 | ack | toy |
+| P-40 | covered test | a durable group is acknowledged after its append and identity check, without a covering flush (covered by the committed position of its own append); the form "covered when `committed_lsn` ≥ E_g" cannot occur, because the published `committed_lsn` never passes a pending durable group (P-38, P-49) | G1 | ack | toy |
 | P-41 | bounded flush wait | a flush-byte timeout is acknowledged as success | — | ack | toy |
-| P-42 | re-write before every flush | the flush holder flushes without re-writing a dead predecessor's range after a failed flush | G3, T5 | ack | toy |
-| P-43 | scan and re-write under the writer byte | the pending range is scanned and re-written outside the writer byte | G8 | chain; ack | toy |
+| P-42 | re-write before every flush | the flush holder flushes without re-writing a dead predecessor's range after a failed flush | G3, T5 | avail (the unrewritten sectors stay poisoned, so the holder's publish scans a shorter log than it flushed and refuses by P-48) | toy |
+| P-43 | scan and re-write under the writer byte | the pending range is scanned and re-written outside the writer byte | G8 | trace (ig4 states the rule itself; the chain or acknowledgement damage needs an append into the scanned range, which appenders never make) | toy |
 | P-44 | flush error policy | a failed flush is retried on the same handle and its success acknowledged | — | ack | toy |
-| P-45 | `durable_lsn` never decreases | a publish writes a smaller `durable_lsn` | G5 | trace (ig6) | toy |
+| P-45 | `durable_lsn` never decreases | a publish writes a smaller `durable_lsn` | G5 | trace (ig6): defence in depth, masked by the flush byte: every publish that raises `durable_lsn` holds it (P-41, P-45, P-66, P-85), and its E ends a scan that starts at the `durable_lsn` read under it, so max(`durable_lsn`, E) = E in every reachable state, also after a failed `HEAD` flush. The ig6 predicate is asserted at every publish and is itself unit-tested on a synthetic publish sequence that lowers `durable_lsn` | none (masked) |
 | P-46 | identity check | acknowledgement by position, without reading the trailer | G7 | ack | toy |
 | P-47 | lost group re-runs | a writer whose group vanished re-appends its old bytes at the old position | LG | chain; model | toy |
 | P-48 | read-modify-write publish | a publish from a stale `HEAD` snapshot | G11 | trace (ig6) | toy |
@@ -953,35 +1011,35 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
 | P-50 | the fold | a covered `Checkpoint` without its segment set published | G12 | trace (ig6); avail | toy |
 | P-51 | phase 3 after release | the delta checkpoint runs while the writer byte is still held | — | trace | toy |
 | P-52 | group composition | a commit and its `Marker` records are appended as two groups | T10 | model (markers) | toy |
-| P-53 | group validity | a group is accepted whose predecessor differs (no chain check) | G9 | chain; ack | toy |
-| P-54 | lsn = position | the position check is skipped; a same-epoch record left at another position is accepted | T13 | chain; model | toy |
-| P-55 | epoch | a record of another epoch is accepted | — | chain | toy |
+| P-53 | group validity | a group is accepted whose predecessor differs (no chain check) | G9 | model (only the stale tail of a lost group surviving a refill passes, which revives a value no acknowledged operation wrote, I14′; an acknowledged group never loses its predecessor) | toy |
+| P-54 | lsn = position | the position check is skipped; `repair` without a valid slot (P-85 step 2) takes a copy of another extent, put in place by setup as an external rewrite of the lowest extent's file ([F15] FM-10.1), as the lowest extent of the epoch and rebuilds the slots from it. Every other scan start is seeded from `HEAD`, where the chain rule (P-53) rejects a misplaced group first | T13 | avail (every later process refuses the rebuilt store, P-61 or P-58) | toy |
+| P-55 | epoch | a record of another epoch is accepted; `repair` without a valid slot (P-85 step 2) takes an extent of another epoch, put in place by setup as an external rewrite ([F15] FM-10.1), as the lowest extent of its epoch. Every other scan start is seeded from `HEAD`, where the chain rule rejects such a group first | — | avail (readers seed the chain at `epoch_lsn` with the slot's epoch and refuse the rebuilt store, P-58) | toy |
 | P-56 | replay-bound re-check | an overlay is kept after a lost tail was refilled | — | model | toy |
 | P-57 | readers stop at `committed_lsn` | a reader replays past `committed_lsn` | T3 | fresh | toy |
 | P-58 | invalid group by position | a reader treats an invalid group below `durable_lsn` as the end of its view | — | fresh; ack | toy |
-| P-59 | missing named file | a reader falls back to an older segment set when a named file is missing | — | model | toy |
+| P-59 | missing named file | a reader falls back to an older segment set when a named file is missing | — | model | M1 (P-68; masked in the toy: a fallback set whose file and log still exist replays to the same state, and after every barrier both slots name one set, P-13, P-62) |
 | P-60 | boot check before the first read | a reader serves a pre-crash view | T8 | fresh | toy |
-| P-61 | slot selection | a slot that passes its checksum but fails validity is skipped for the other slot | — | model | toy |
+| P-61 | slot selection | a slot that passes its checksum but fails validity is skipped for the other slot; only a defective writer produces such a slot, so setup injects one as an external rewrite of the slot with a checksummed slot that fails [F04 §7] check 5 ([F15] FM-10.1) | — | model | toy |
 | P-62 | barrier after the own `Checkpoint` | the barrier runs before the `Checkpoint` is published | G12 | avail; ack | toy |
 | P-63 | flags by durable publish | `quiet on` is reported before the `HEAD` flush | — | ack (acknowledged-effect list) | toy |
-| P-64 | recovery scan start | recovery scans from `committed_lsn` | T7 | ack | toy |
+| P-64 | recovery scan start | recovery scans from `committed_lsn` | T7 | avail (recovery publishes a `durable_lsn` over bytes the log does not hold, or refuses that fatal slot, and every later process refuses) | toy |
 | P-65 | every record kind applied | recovery skips a non-commit durable record | T11 | model; ack | toy |
-| P-66 | boot-change recovery | recovery publishes the new `boot_id` without re-writing `(durable_lsn, E_v]` | — | ack; fresh | toy |
+| P-66 | boot-change recovery | recovery publishes the new `boot_id` without re-writing `(durable_lsn, E_v]` | — | avail (the flushed range keeps poisoned sectors, so the recovery's publish scans another end than it flushed and refuses by P-48) | toy |
 | P-67 | Unknown-boot mode | an Unknown-boot publisher writes a `boot_id` other than its slot's | — | trace (ig6) | toy |
 | P-68 | a slot names a missing file | recovery continues on a partial segment set | — | model; avail | M1 |
 | P-69 | ref move implied by the commit | the ref move is written as a separate record in a later group | T2 | model | toy |
 | P-70 | parking | a commit whose ref CAS failed moves its ref anyway, where the rule appends a `RefUpdate` reason 5 `park` of `orphans/<R>` ([F05 §9.2]) | — | model (I27′) | toy |
 | P-71 | intent recovery | recovery treats an `Unknown` anchor as Dead and rolls a live move back | — | ns; model | toy |
-| P-72 | rotation under the flush byte | an appender that holds only the writer byte appends the first group into an extent that another process is preparing | — | ack | toy |
+| P-72 | rotation under the flush byte | an appender that holds only the writer byte appends the first group into an extent that another process is preparing | — | trace (the preparation's flushes and namespace calls run under the writer byte, which P-2's predicate reports) | toy |
 | P-73 | retirement bounds | extent n is retired while `checkpoint_lsn` ≤ n·E | — | avail | toy |
-| P-74 | nothing reused | a retired extent's file is zero-filled and reused under its old number while a reader still replays from it | T1 | fresh; model | toy |
+| P-74 | nothing reused | a retired extent's file is zero-filled and reused under its old number while a reader still replays from it | T1 | avail (the reader meets an invalid group below `durable_lsn` and refuses, P-58) | toy |
 | P-75 | epoch re-roll | the new epoch is installed without retiring every older extent | — | chain; avail | M1 |
 | P-76 | one maintenance holder | a checkpoint runs without the maintenance byte beside another; the later publish drops the earlier delta | — | model | toy |
 | P-77 | deletion conditions | a file still referenced by a pin is deleted | — | avail | toy |
 | P-78 | file-number claims | the sweeper deletes a live bulk writer's unnamed `cs.<n>` without claiming its number; the commit then names a deleted file | — | avail | M1 |
-| P-79 | orphan sweep | the sweeper deletes a file named only by a pending group | — | avail; ack | toy |
+| P-79 | orphan sweep | the sweeper deletes a file named only by a pending group | — | avail; ack | M1 (the pending namer that matters is a bulk writer's `cs.<n>`, P-11, P-78; the toy has no orphan sweep, and its Checkpoints and fork Pins are covered by P-34 and P-62) |
 | P-80 | what a checkpoint folds | a checkpoint drops a body that a later tail record references without carrying | — | model; avail | M1 |
-| P-81 | pins with what they protect | a fork's `Pin` is written in a later group than its `RefUpdate`; after a crash GC deletes the fork base | — | avail | toy |
+| P-81 | pins with what they protect | a fork's `Pin` is written in a later group than its `RefUpdate`; after a crash GC deletes the fork base | — | ack; model (the Pin is one of the fork's acknowledged effects, lost with the later group; the deletion needs a later checkpoint) | toy |
 | P-82 | every rename point | a Windows rename passes `MOVEFILE_WRITE_THROUGH` and skips the directory flush | — | ns | toy |
 | P-83 | no cross-volume `file mv` | a cross-volume move copies, then deletes the source | — | ns | toy |
 | P-84 | bulk reservation | a bulk file is streamed with ids allocated in phase 1 from `HEAD`, with no `Reserve` record (kind 27, [F05 §9.27]) before it | — | model (I1) | M1 |
@@ -997,7 +1055,7 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
 | P-94 | environment guard | a location whose probe failed the no-replace rename is admitted | — | ns | M1 |
 | P-95 | leader adds no durability path | the leader acknowledges a forwarded write before its identity check | — | ack | M1 (only if built) |
 | P-96 | spare extent | a rotation appends into a spare without re-issuing `durable+meta` and `durable-name`; a crash loses the spare's size or name under an acknowledged group (pass 1, P1-7) | — | ack; ns | toy |
-| P-97 | extent heads | a rotation begins a new extent without its extent head; after one retirement a `repair` without a valid slot cannot validate the active log (pass 1, P1-8) | — | avail | M1 |
+| P-97 | extent heads | a rotation begins a new extent without its extent head; after one retirement a `repair` without a valid slot (P-85 step 2) cannot validate the active log (pass 1, P1-8). The toy reaches it: it rotates, retires (P-73) and repairs from the extent heads, and [F05 §5.4] makes an extent whose first group is not its head corrupt at every scan | — | avail (every later scan that reaches the extent refuses the store, so the group after the missing head is never acknowledged, and a slot-less `repair` refuses too) | toy |
 | P-98 | long holdings yield | a rollup holds the maintenance byte for its whole run without yield checkpoints while writers append; every process's overlay passes P09 by more than one step's tail (pass 1, P1-9) | — | trace (overlay allocator count against the bound) | M1 |
 | P-99 | `init --link` pointer file | success is reported before `durable-name` on the pointer file's directory; a crash then loses an acknowledged link (pass 1, S1-41) | — | ns | M1 |
 | P-100 | export, loose-object path | the ref is updated before a loose object's name is durable; a crash leaves the ref naming a missing object (pass 1, P1-18) | — | ns | M5 |
@@ -1018,7 +1076,7 @@ owner.
 | L-3 | [F03 §8.6]: the re-read after a `Held` probe, with the same `nonce` and session hash | a checker trusts its first read of the slot table without the re-read; a slot freed and taken by another session between the read and the probe keeps a dead holder's lease alive | model (lease liveness) | GT18 |
 | L-4 | [F03 §10.3] step 2: an anchor stores the matched record's primary hash | a CLI that matched through the alias hash stores the alias; after the server's next `/clear` the anchor matches nothing and the live lease is reclaimed | model (lease liveness) | GT18 |
 | L-5 | [OS/proc §6.2]: `Unknown` never ends a lease or recovers an intent | a probe that answers `Unknown` (a sandbox denial) is read as Dead; a live holder's lease is reclaimed, or its `file mv` intent rolled back | model; ns | GT18; M6 (`FsIntent` crash enumeration) |
-| L-6 | [OS/lock §5.4] I-L4 with I-L2: a kernel grant goes to exactly one in-process waiter | a grant obtained by one kernel wait is handed to two waiting clients of one process; both append at one lsn | ack | toy (the in-process two-client case) |
+| L-6 | [OS/lock §5.4] I-L4 with I-L2: a kernel grant goes to exactly one in-process waiter | a grant obtained by one kernel wait is handed to two waiting clients of one process; both append at one lsn | trace (ig4: the second client scans and re-writes without a grant of the writer byte; the first client's identity check fails and it re-runs, P-46, P-47, so no acknowledged group is overwritten) | toy (the in-process two-client case) |
 | L-7 | [OS/lock §5.4] I-L6: a grant that races the deadline is returned or released | a grant that arrives after the waiter's deadline is neither returned nor released; the byte stays held by a client that returned `Busy`, and every later writer times out | avail | toy |
 | L-8 | [F03 §3.1] rule 2: quiet mode is on while any quiet byte is `Held` or `Unknown` | the maintenance decider probes only the first quiet byte; a checkpoint runs while another requester holds a later quiet byte (pass 1, P1-10) | trace (a checkpoint during quiet mode) | toy |
 | L-9 | [F02 §3.6]: a store that discovery yields again with `HEAD.retired` set and no swap intent is probed with P-86's delays, then refused with exit 7 `store_retired` ([F19 §10.2]) | a process that finds `retired` set re-runs discovery without a bound; after a `restore` that ended without clearing the flag, every command on the store loops instead of exiting 7 (pass 1, round 3; open point 10) | avail | M1 |
@@ -1059,13 +1117,15 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
 1. **One seeded bug per rule, and E4.** [PLAN §3.2] WP-40 asks for "one bug per protocol decision of `16-protocol.md`",
    and [PLAN §7] E4 for "the bug list equals `16-protocol.md`'s protocol-decision list". This chapter numbers every rule
    (100) and gives each one primary bug. It reads E4 as: every P-rule has its bug, carried by the toy log where the rule's
-   mechanism is in WP-40's scope (78 rules) and otherwise by the named gate of the milestone that builds the mechanism
-   (22 rules: P-11 and P-84 bulk commits, P-20 `config`, P-21, P-28, P-75, P-85 and P-86 `restore` and epoch re-rolls,
-   P-22 and P-87 `backup`, P-23 and P-100 export, P-68 and P-80 segment content, P-78 file-number claims of writer-created
-   files, P-93 mapping, P-94 the guard, P-95 the leader, P-26 server settles, P-97 extent heads (read by `repair`), P-98
-   long holdings, P-99 the pointer file). §17.4 adds nine bugs for rules of [F03], [OS/proc] and [OS/lock] that the lock
-   and liveness layers rely on and for [F02 §3.6]'s retired store (three in the toy log, five in GT18, L-9 at M1 with
-   P-85 and P-86). If the review wants all 100 in the toy log at M0,
+   mechanism is in WP-40's scope (76 rules, P-97 among them since the toy rotates, retires and repairs from the extent
+   heads), and otherwise by the named gate of the milestone that builds the mechanism (23 rules: P-59 and P-79,
+   re-vehicled in spec sync 2b; P-11 and P-84 bulk commits, P-20 `config`, P-21, P-28, P-75, P-85 and P-86 `restore` and
+   epoch re-rolls, P-22 and P-87 `backup`, P-23 and P-100 export, P-68 and P-80 segment content, P-78 file-number claims
+   of writer-created files, P-93 mapping, P-94 the guard, P-95 the leader, P-26 server settles, P-98 long holdings, P-99
+   the pointer file). P-45, which every reachable state masks, is carried by a unit test of its
+   detector (spec sync 2b; whether E4 accepts that is OWNER O-1). §17.4 adds nine bugs for rules of [F03], [OS/proc]
+   and [OS/lock] that the lock and liveness layers rely on and for [F02 §3.6]'s retired store (three in the toy log,
+   five in GT18, L-9 at M1 with P-85 and P-86). If the review wants all 100 in the toy log at M0,
    WP-40 must model those mechanisms minimally, and WP-40's estimate (2–3 u) grows.
 2. **[60 §3.1] item 4 lists fourteen bugs**, not thirteen as [PLAN §3.2] WP-40 says: the A1 re-review added T14 (the
    intent roll-forward without the re-barrier). §17 carries all fourteen.
@@ -1193,3 +1253,22 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
     the decider that probes one byte only.
 29. **Read errors in a writer's scan** (P-92; pass 1, S1-25). See open point 13. [F19 §10.2]'s `store_io_fault` row lists
     this trigger beside the mapping fault; its frozen line names the file and offset.
+30. **Spec sync 2b** (WP-40 and its reviews). The correct toy took steps the text did not state, and the enumeration
+    showed catalogue bugs that no reachable state can show. Adopted before WP-52, since they feed measurements 1 and 2:
+    P-29 publishes a lowered `committed_lsn` before appending over a lost lazy tail; P-50 folds from `durable_lsn`; P-8 and
+    P-72 re-issue `durable-name` on `tmp/` for a spare; P-88's window after the `HEAD` rename is closed by a per-opening
+    `durable-name` on `tmp/` and the store directory (the alternatives, the store directory alone and "the first writer",
+    were rejected: the rename has two parents, FM-2.4, and no process can know it is first). Also: P-38's covered test for
+    an immediate lazy publish, P-48's refusal to write a fatal slot, P-51's no phase 3 under the maintenance byte, P-61's
+    second way to lose both slots and a fatal slot's repair path, P-85's flags from step 1's head and its scan-start
+    checks. §17.3: P-40 and P-13 re-formed, P-54, P-55 and P-61 carried through setup-injected states, P-59 and P-79
+    re-vehicled to M1, P-97 re-vehicled to the toy (its retirement and slot-less `repair` reach the bug, and [F05 §5.4]
+    refuses an extent without its head at every scan), P-45 masked and carried by a unit test of ig6 (E4's acceptance of
+    that is OWNER O-1), and sixteen "Detected by" cells corrected to what reports the bug in the toy (the reasons are in
+    `moirai-toylog`'s `TOY_DETECTION`); §17.2 widens avail to an unexplained `outcome_unknown`, places the toy's generic
+    detectors in `moirai-vfs-sim` and its `model` family in its own `doctor --verify` (OWNER O-2). The independent check
+    of the sync aligned [F04 §9.1], [F05 §10.2] and the I-G6 cells with P-50's fold from `durable_lsn`; its second round
+    restated PLAN S4 as PLAN does (it names only the enumerator's author; the generic ns check sits with the simulator's
+    namespace model, and the toy's own checks are kept honest by R-HARN-S's review), named `doctor --verify` in the
+    `model` bullet for the toy, and said in P-65 that the `Marker` records carry the holder-set and flag changes of
+    ME-001 to ME-011, not the storage moves of ME-012 and ME-013.

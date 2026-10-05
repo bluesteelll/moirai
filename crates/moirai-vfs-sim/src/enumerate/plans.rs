@@ -23,7 +23,7 @@
 //!   with the bytes beyond the old durable size as resolved and as garbage (FM-2.2, OP-4: ext4 `data=writeback` stale
 //!   blocks; zeros too in `Full`).
 //! - **A slot file** (the `HEAD` slots, [F15 §6.4]: "{old, new, torn} × {old, new, torn}, where old ranges over every
-//!   version since the slot's durable point"): see [`slot_axis`].
+//!   version since the slot's durable point"): see [`slot_states`].
 //! - **The pending namespace operations** (FM-2.3: "any subset … in any order"): `Prefix` takes the issue-order prefixes,
 //!   each one lost alone and each one surviving alone; `Full` every subset while there are at most `exhaustive_max`.
 //! - **A write in flight** (§2.5): applied not at all, fully, only its first sector, all but its first sector; `Full`
@@ -612,9 +612,19 @@ const SLOT_SECTORS: usize = 4;
 /// barrier. When both slot sectors are `dirty`, (torn, torn) is not a crash state: FM-1.2 and G-5 let at most one dirty
 /// sector of a file tear at one crash, and both slots are sectors of the one file `HEAD`. The product therefore keeps at
 /// most one torn dirty sector per file and gives 8 states there; (torn, torn) is reached wherever a slot is `poisoned` or
-/// `dirty-over-poison` (after a failed `HEAD` flush: FM-3.3, N-12), which the product mixes without bound. This reading
-/// — "the 9 states, less (torn, torn) when both slots are dirty (FM-1.2)" — is raised with R-SPEC as a spec finding of
-/// WP-32 (the obligation text says 9 unconditionally).
+/// `dirty-over-poison` (after a failed `HEAD` flush: FM-3.3, N-12), which the product mixes without bound. These are the
+/// 9 states less (torn, torn) when both slots are dirty, as [F15 §6.4] states (spec sync 2b S2B-P-11; FM-1.2).
+///
+/// **The second way to leave no valid slot** ([F04 §8.1] "Both slots absent", [F04 §8.2]; [F15 §6.4]; spec sync 2b
+/// S2B-P-27). A slot write that failed with `DiskFull` (FM-5.2) or was cut by its writer's death ([F15 §2.5]) leaves its
+/// slot any mix of old and new bytes, which is a dirty version of the slot's sector: its "new" content is invalid. A
+/// crash that then tears the other, dirty slot (FM-1.2) leaves no valid slot with no flush failed: (new, torn) with an
+/// invalid "new", beside (torn, torn) with a poisoned slot. The product reaches it, since it takes every version of the
+/// written slot (the partial one included) against every torn mix of the other. The enumerator lays these states over
+/// the end of every run whose disk-full or death cut a write to a slot file, in every tier (the pivots and the slot
+/// states, where the other faults' runs take only the pivots), and the nightly tier also at the crash points after the
+/// fault (`Limits::fault_crash_points` after a disk-full; `Limits::kill_crash_points` and `Limits::kill_window` after a
+/// death whose bytes are released after a measured delay).
 fn slot_states(f: &FileSurface, mode: PlanMode) -> Vec<FilePlan> {
     let secs: Vec<&SectorView> = f.sectors.iter().take(SLOT_SECTORS).collect();
     // Per sector: its versions, and its torn mixes — every mix of the mode between the oldest and the newest version,

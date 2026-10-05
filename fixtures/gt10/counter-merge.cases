@@ -30,6 +30,7 @@ exit 0
 %% expect
 main $k1 counter.incidents 1
 main $kt status done
+main $kt resolution completed GR-014
 main $kt counter.reopen_count 0
 lane/a $k1 counter.incidents 1
 %% end

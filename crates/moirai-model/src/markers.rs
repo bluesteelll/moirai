@@ -197,9 +197,10 @@ impl Anc {
 pub struct Markers {
     /// `MARKERS`: one row per identity.
     pub hot: BTreeMap<MKey, Marker>,
-    /// `MARKERS_OLD`: rows ME-012 moved there. The model runs no checkpoint fold in a stream (ME-012 is class I,
-    /// [RULES/state-definition] open point 17); [`Markers::fold_inert`] is the fold, which the suites run between the
-    /// commands of the I26′ scenarios and of GT18's histories.
+    /// `MARKERS_OLD`: rows ME-012 moved there, each with the holder set ME-002 to ME-007 keep maintaining for it. The
+    /// model runs no checkpoint fold in a stream; [`Markers::fold_inert`] is the fold, which the suites run between the
+    /// commands of the I26′ scenarios and of GT18's histories and which changes no record ([RULES/state-definition]
+    /// ME-012, open point 17).
     pub old: BTreeMap<MKey, Marker>,
     /// Per commit, the nodes whose (hold, origin) differs from the first parent's.
     facts: BTreeMap<u64, BTreeMap<Nid, Fact>>,
@@ -296,9 +297,14 @@ impl Markers {
         self.groups.get(&g).map_or(&[], Vec::as_slice)
     }
 
+    /// Every `Marker` record written, by group.
+    pub fn records(&self) -> &BTreeMap<Group, Vec<Entry>> {
+        &self.groups
+    }
+
     /// Applies one entry to `MARKERS` as replay does ([F11 §7] "Records"): a settled or deleted entry writes or
     /// re-emits the row with its holder set; `holders` replaces the set; `cleared` sets kind 3 and empties it;
-    /// `nonlinear` sets the flag. An identity found only in `MARKERS_OLD` returns to `MARKERS` (ME-013).
+    /// `nonlinear` sets the flag. An identity found only in `MARKERS_OLD` returns to `MARKERS` with the entry (ME-013).
     fn apply(&mut self, e: &Entry) {
         if !self.hot.contains_key(&e.key)
             && let Some(m) = self.old.remove(&e.key)
@@ -390,50 +396,20 @@ impl Markers {
         }
     }
 
-    /// ME-013: the entries that return the `MARKERS_OLD` row of (`#N`, origin `o`) with hold `hold` to `MARKERS`: its
-    /// holder set recomputed from the live work refs that hold `(hold, o)` (`x`, when given, is the ref that joins by
-    /// the event, counted as a holder), then the `nonlinear` flag. A row moved there as absorbed (ME-012) is active and
-    /// returns by `holders`; a `cleared` row returns by ME-003's re-emit, which makes it `settled` or `deleted` again.
-    /// `None` when no live work ref holds it.
-    // rule: ME-013
-    fn revive(
-        &self,
-        dag: &Dag,
-        key: MKey,
-        hold: &'static str,
-        x: Option<u32>,
-        cause: Cause,
-    ) -> Option<[Entry; 2]> {
-        let m = self.old.get(&key)?;
-        let (n, _, o) = key;
-        let holders: Vec<u32> = dag
-            .live_refs()
-            .filter(|r| holds_count(r.kind))
-            .filter(|r| Some(r.id) == x || self.fact_at(dag, r.tip, n) == (hold, o))
-            .map(|r| r.id)
-            .collect();
-        if holders.is_empty() {
-            return None;
-        }
-        let first = if m.kind == MKind::Cleared {
-            Self::write_entry(key, m.ref_seq, hold, holders, cause)
-        } else {
-            Self::keep_entry(4, key, m.ref_seq, holders, cause)
-        };
-        Some([
-            first,
-            Self::keep_entry(5, key, m.ref_seq, Vec::new(), cause),
-        ])
+    /// The row of an identity, in `MARKERS` or in `MARKERS_OLD`: ME-012's move changes only its storage, so the rules
+    /// read and write it wherever it lies ([RULES/state-definition] ME-012).
+    fn row(&self, key: &MKey) -> Option<&Marker> {
+        self.hot.get(key).or_else(|| self.old.get(key))
     }
 
     /// A holder `x` joins the marker of (`#N`, origin): `holders` for an active marker (ME-002), else the marker is
-    /// written or re-emitted with holders {x} (ME-003) — and an identity in `MARKERS_OLD` is revived with its holders
-    /// recomputed and flagged nonlinear (ME-013).
-    // rule: ME-002, ME-003, ME-013
+    /// written or re-emitted with holders {x} (ME-003), in either section; a `MARKERS_OLD` row the entry names returns
+    /// with it (ME-013).
+    // rule: ME-002, ME-003
     fn join(&self, dag: &Dag, n: Nid, (hold, o): Fact, x: u32, cause: Cause, out: &mut Vec<Entry>) {
         let c = &dag.commits[&o];
         let key = (n, c.ref_id, o);
-        match self.hot.get(&key) {
+        match self.row(&key) {
             Some(m) if m.active() => {
                 let mut h = m.holders.clone();
                 h.insert(x);
@@ -447,35 +423,30 @@ impl Markers {
                     ));
                 }
             }
-            None if self.old.contains_key(&key) => {
-                let revived = self
-                    .revive(dag, key, hold, Some(x), cause)
-                    .expect("x holds the origin");
-                out.extend(revived);
-            }
             _ => out.push(Self::write_entry(key, c.ref_seq, hold, vec![x], cause)),
         }
     }
 
-    /// ME-013 after a ref move or a fork of ref `r`: every `MARKERS_OLD` row whose origin r's tip no longer contains,
-    /// and which some live work ref holds, returns to `MARKERS` (unless the event's own entries already revived it).
-    /// Only the moved or created ref can have lost an origin: every other live ref keeps its tip.
+    /// ME-013 after a ref move or a fork: a storage move that writes no record. Every `MARKERS_OLD` row that is active
+    /// and that some live ref has not absorbed returns to `MARKERS`, where readers probe, with the holder set and flag
+    /// ME-012 kept maintained: nothing is recomputed, re-emitted or flagged.
     // rule: ME-013
-    fn revive_lost(&self, dag: &Dag, r: &Ref, cause: Cause, out: &mut Vec<Entry>) {
+    fn return_unabsorbed(&mut self, dag: &Dag) {
         let mut anc = Anc::default();
-        let lost: Vec<MKey> = self
+        let back: Vec<MKey> = self
             .old
-            .keys()
-            .filter(|k| !out.iter().any(|e| e.key == **k))
-            .filter(|k| !anc.contains(dag, r.tip, k.2))
-            .copied()
+            .values()
+            .filter(|m| {
+                m.active()
+                    && dag
+                        .live_refs()
+                        .any(|r| !self.absorbed_in(dag, r, m, &mut anc))
+            })
+            .map(|m| m.key)
             .collect();
-        for key in lost {
-            let (hold, o) = self.fact_at(dag, Some(key.2), key.0);
-            debug_assert_eq!(o, key.2, "the fact at an origin names it");
-            if let Some(revived) = self.revive(dag, key, hold, None, cause) {
-                out.extend(revived);
-            }
+        for k in back {
+            let m = self.old.remove(&k).expect("an old row");
+            self.hot.insert(k, m);
         }
     }
 
@@ -484,7 +455,7 @@ impl Markers {
     fn leave(&self, dag: &Dag, n: Nid, o: u64, x: u32, cause: Cause, out: &mut Vec<Entry>) {
         let c = &dag.commits[&o];
         let key = (n, c.ref_id, o);
-        let Some(m) = self.hot.get(&key).filter(|m| m.active()) else {
+        let Some(m) = self.row(&key).filter(|m| m.active()) else {
             return;
         };
         let mut h = m.holders.clone();
@@ -648,11 +619,11 @@ impl Markers {
                 }
             }
         }
-        // ME-011: a commit landing on X that does not descend from the origin of an X-landed marker in MARKERS.
+        // ME-011: a commit landing on X that does not descend from the origin of an X-landed marker, in `MARKERS` or
+        // `MARKERS_OLD` (ME-012).
         let mut anc = Anc::default();
         let diverged: Vec<(MKey, u64)> = self
-            .hot
-            .values()
+            .rows()
             .filter(|m| m.key.1 == x.id && !m.nonlinear)
             .filter(|m| !dag.on_fp_chain(m.key.2, c) && !anc.contains(dag, Some(c), m.key.2))
             .map(|m| (m.key, m.ref_seq))
@@ -675,8 +646,8 @@ impl Markers {
     }
 
     /// A ref Y was created at its fork commit `at` = tip(Y) (ME-007, ME-013; VR-004): Y joins the holder set of every
-    /// closed hold at `at` when Y is a work ref, and, whatever Y's kind, a `MARKERS_OLD` row whose origin Y does not
-    /// contain returns to `MARKERS` when a live work ref holds it (a fork from a commit other than a tip).
+    /// closed hold at `at` when Y is a work ref, and, whatever Y's kind, an active `MARKERS_OLD` row Y has not absorbed
+    /// returns to `MARKERS` (a fork from a commit other than a tip), writing nothing.
     /// `st` is `state_at(at)`; `group` names the ref group.
     // rule: ME-007, ME-013, VR-004
     pub fn fork(
@@ -696,12 +667,13 @@ impl Markers {
                 self.join(dag, n, (h, o), y.id, Cause::Fork, &mut out);
             }
         }
-        self.revive_lost(dag, y, Cause::Fork, &mut out);
-        self.finish(group, out, hlc, wall_ms)
+        let out = self.finish(group, out, hlc, wall_ms);
+        self.return_unabsorbed(dag);
+        out
     }
 
-    /// A ref was deleted (ME-005, ME-009; VR-006): a work ref leaves every holder set, and a marker left with no holder
-    /// is cleared. Its vector entries stay.
+    /// A ref was deleted (ME-005, ME-009; VR-006): a work ref leaves every holder set, in either section, and a marker
+    /// left with no holder is cleared. Its vector entries stay.
     // rule: ME-005, ME-009, VR-006
     pub fn ref_deleted(
         &mut self,
@@ -716,8 +688,7 @@ impl Markers {
         }
         let mut out = Vec::new();
         let held: Vec<MKey> = self
-            .hot
-            .values()
+            .rows()
             .filter(|m| m.active() && m.holders.contains(&r.id))
             .map(|m| m.key)
             .collect();
@@ -729,8 +700,8 @@ impl Markers {
 
     /// A ref moved from `old` to `new` without a commit landing (`undo`, `op restore`; ME-006, ME-013; VR-005): on a
     /// work ref, for every node whose (hold, origin) differs between the two tips, ME-004 for the old hold and ME-002
-    /// or ME-003 for the new one; on a ref of any kind, ME-013 for the `MARKERS_OLD` rows whose origin the new tip no
-    /// longer contains. WP-91's history verbs call it.
+    /// or ME-003 for the new one; on a ref of any kind, ME-013's return of the active `MARKERS_OLD` rows some live ref
+    /// has not absorbed. WP-91's history verbs call it.
     // rule: ME-006, ME-013, VR-005
     #[allow(clippy::too_many_arguments)]
     pub fn ref_moved(
@@ -762,13 +733,15 @@ impl Markers {
                 }
             }
         }
-        self.revive_lost(dag, r, cause, &mut out);
-        self.finish(group, out, hlc, wall_ms)
+        let out = self.finish(group, out, hlc, wall_ms);
+        self.return_unabsorbed(dag);
+        out
     }
 
     /// ME-012: the checkpoint fold's move of inert rows to `MARKERS_OLD` — cleared rows and rows every live ref (of
-    /// every kind) has absorbed — with an empty holder set. The model runs no fold in a stream (class I, open point
-    /// 17); the suites run this between commands and require the same answers. It writes no record.
+    /// every kind) has absorbed — each with its holder set, which ME-002 to ME-007 go on maintaining there. It writes no
+    /// record, so the records and the runtime snapshot are the same whenever a fold ran (open point 17, decided (a));
+    /// the suites run it between commands and require the same records and answers.
     // rule: ME-012
     pub fn fold_inert(&mut self, dag: &Dag) {
         let mut anc = Anc::default();
@@ -784,8 +757,7 @@ impl Markers {
             .map(|m| m.key)
             .collect();
         for k in inert {
-            let mut m = self.hot.remove(&k).expect("a hot row");
-            m.holders.clear();
+            let m = self.hot.remove(&k).expect("a hot row");
             self.old.insert(k, m);
         }
     }

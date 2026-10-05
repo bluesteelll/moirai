@@ -4,11 +4,12 @@
 //! # Use
 //!
 //! The code under test implements [`Subject`]: a workload that runs on a [`SimWorld`] and reports every effect it
-//! attempts, acknowledges and observes through a [`Ledger`]; a recovery that reads the store after a crash (first as a
-//! reader, before any writer runs, then as the recovering writer); the paths of its slot files (`HEAD`); and, optionally,
-//! the trace predicates of [F13 §1.4]. [`enumerate`] then runs the workload again and again under [`EnumConfig`]'s tier
-//! and reports what it checked and every failure ([`Report`]). The toy log (WP-40) is the first subject; M1's engine is
-//! the next.
+//! attempts, acknowledges, observes and refuses through a [`Ledger`]; a recovery that reads the store after a crash
+//! (first as a reader, before any writer runs, then as the recovering writer); the paths of its slot files (`HEAD`);
+//! the store protocol it follows, if any ([`Protocol`]: its log extents and its pure slot decoder); and, optionally,
+//! trace predicates of its own. [`enumerate`] then runs the workload again and again under [`EnumConfig`]'s tier and
+//! reports what it checked and every failure ([`Report`]). The toy log (WP-40) is the first subject; M1's engine is the
+//! next.
 //!
 //! # Dimensions ([F15 §6.4]; PLAN WP-32)
 //!
@@ -17,7 +18,7 @@
 //! | Crash points at every write, flush, publish, create, rename and unlink, between the appends of one group included | a crash image at every scheduling point of a call that can change what a crash leaves ([`CallKind::changes_storage`]), both at its start and inside it, and after the workload's end | all |
 //! | Every subset of ≤ 12 unflushed sectors, ≥ 10⁴ random states beyond | [`PlanMode::Full`] per file (module `plans`): every subset of the dirty sectors at baseline or newest, intermediate versions, and random states that sample versions, torn sectors and poisoned sub-sector mixes — at the crash points of clean runs and after every failed flush ([`Limits::fault_plans`]) | FM-1, FM-3 |
 //! | One torn sector | per file, with sub-sector mixes | FM-1.2 |
-//! | Both `HEAD` slots, 9 states per barrier | the slot files' product of every version and torn mix (module `plans`, `slot_states`: 8 where both slots are dirty, FM-1.2), at every crash point | FM-1, FM-3 |
+//! | Both `HEAD` slots, 9 states per barrier | the slot files' product of every version and torn mix (module `plans`, `slot_states`: 8 where both slots are dirty, FM-1.2), at every crash point; and at the end of every run whose disk-full or death cut a slot write, in every tier, with crash points after it in the nightly tier — the second way to leave no valid slot ([F04 §8.1] "Both slots absent", S2B-P-27) | FM-1, FM-3, FM-5.2, §2.5 |
 //! | Bounded cross-file products | the product of the axes' corner states, sampled beyond `cross_budget` | FM-1 |
 //! | Namespace operations lost in any subset and order | the survivors replayed by the simulator in issue order: every subset while there are ≤ 12 pending operations, ≥ 10⁴ random subsets beyond ([`PlanMode::Full`]); issue-order prefixes, each one lost alone and each one surviving alone ([`PlanMode::Prefix`]) | FM-2 |
 //! | Disk-full at every write, flush and create (and namespace operation) | one run per occurrence of each fault site, the write's partial application chosen, then recovery after the deaths and after a crash | FM-5 |
@@ -30,14 +31,36 @@
 //!
 //! # Assertions
 //!
-//! After every crash state and after every run's process deaths, the subject's [`Subject::recover`] runs on the
-//! post-crash world, and module `verdict` checks it against the ledger entries recorded before the crash point:
-//! every acknowledged durable effect is present, and no value is a phantom (I-G1, [60 §4.4] item 4); every operation is
-//! all or nothing, so a commit never survives without its markers ([72 M1]); markers and leases are effects like any
-//! other ([`EffectKind`]); and the first read after the crash, before any writer runs, is fresh (I-G2), while every
-//! durable value a reader saw before the crash survives it (F-A1). The simulator's own protocol-violation reports
-//! ([F15 §3.13]), the subject's findings and the subject's trace predicates ([`Subject::check_trace`]: I-G4, I-G6 over
-//! the replayable event trace, [F13 §1.4]) are failures too.
+//! The generic families of [F16 §17.2] are this module's own verdicts at M0 ([F13 §1.4] "The toy vehicle": the seeded
+//! bugs' author does not write them, S4). After every crash state and after every run's process deaths, the subject's
+//! [`Subject::recover`] runs on the post-crash world, and the recovery and the world's whole trace are judged against
+//! the ledger entries recorded before the crash point:
+//! - **ack** (module `verdict`): every acknowledged durable effect is present, and no value is a phantom (I-G1,
+//!   [60 §4.4] item 4); every operation is all or nothing, so a commit never survives without its markers ([72 M1]);
+//!   markers and leases are effects like any other ([`EffectKind`]).
+//! - **fresh**: the first read after the crash, before any writer runs, is fresh (I-G2), while every durable value a
+//!   reader saw before the crash survives it (F-A1); a reader never sees a durable-class group beyond the `durable_lsn`
+//!   of the slot it read ([`Ledger::observe_covered`]). I-G2's post-crash clause is judged as [F13 §3.8] reads it
+//!   precisely: an Unknown-boot reader's first read for consistency only ([`Subject::recover_with_boot`]), and a field
+//!   kept only in `HEAD` whose durable publish was not acknowledged as a value that may vanish
+//!   ([`Ledger::begin_kept_in_head`], FM-3.6).
+//! - **chain** (I-G3): the identity bytes of every acknowledged durable group ([`Ledger::group_bytes`]) are still in
+//!   place in the recovered world, wherever a file still holds them.
+//! - **avail** (module `refusal`): every refusal — the first read's, the recovering writer's, one the recovery answered
+//!   with the operator's repair ([`Recovered::answered`]), and every workload operation's ([`Ledger::refused`]) — is a
+//!   [`Refusal`] that a fault the run injected explains — an FM-10 act, during the run or declared by the setup, only
+//!   through the file it touched ([`Refused::concerning`], [`Ledger::setup_fault`], [`Ledger::setup_ignored`]); the
+//!   recovering writer's final answer is never one that repair answers. A diagnosis ([`Recovered::diagnosed`]) that names a file the recovered state references needs an external
+//!   act or a read error on that file ([F15] G-13); after an external truncation of a sealed file it must name it
+//!   (FM-10.2).
+//! - **trace** (module `protocol`): for a subject that declares its [`Protocol`], I-G4 and I-G6 over the lock, flush and
+//!   namespace events and the decoded `HEAD` slot writes, and [F03 §3.1] rule 2 over the probe rounds ([F13 §1.4]);
+//!   the simulator's own protocol-violation reports ([F15 §3.13]); and the subject's own predicates
+//!   ([`Subject::check_trace`]).
+//! - **ns**: every file the ledger expects somewhere for the recovered value of a register ([`Ledger::expect_names`])
+//!   is there, by node identity.
+//!
+//! The subject's own findings (`doctor --verify`: the model family on the toy) are failures too.
 //!
 //! # Determinism
 //!
@@ -53,16 +76,33 @@
 //! kills of flush holders and lock waiters at other processes' points, crash points after a flush holder's death, failed
 //! outcomes under every poison policy); FM-8.1 (release classes (b) and (c) forced and checked); FM-10.2 (truncation
 //! while readers run, the repaired state judged, the diagnosis checked); FM-2.2 (the current size with garbage beyond the
-//! durable size).
+//! durable size). The changes of spec sync 2b: FM-5.2 and §2.5 with FM-1.2 (the slot states at the end of a run whose
+//! disk-full or death cut a slot write, and crash points after such a death in the nightly tier: S2B-P-27); FM-3.6 (an
+//! unacknowledged field kept only in `HEAD` may vanish: module `verdict`, S2B-P-14); [F13 §3.8] (an Unknown-boot
+//! reader's first read judged for consistency only: S2B-P-18). The changes of WP-40's S4 disposition, which move the
+//! generic checks out of the subject ([F13 §1.4], [F16 §17.2]), each named by the fault-model items it reads: the trace
+//! predicates over tasks, flush and lock bytes and decoded slot writes, with poisoning keyed on the slot file's own
+//! sectors (FM-3.2, FM-3.5, FM-11; module `protocol`); typed refusals judged against the run's faults, the no-valid-slot
+//! allowance over the slot files (OP-1, FM-3.3, FM-5.2, §2.5), a dead holder's bounded waits for the first read too
+//! (FM-8.1), `outcome_unknown` after a failed flush or read (FM-3, FM-12; module `refusal`); a diagnosis of a referenced
+//! file only with a cause (FM-10, FM-12; G-13); the chain over acknowledged groups' identity bytes (FM-3.4); fresh over
+//! observed positions; ns by node identity (FM-2). The changes of WP-40's closure check, after P-55 was missed:
+//! FM-10 (an act, during the run or declared by the setup, explains a refusal only through the file it touched; a setup
+//! fault explains no refusal that names no file; a file the setup declares the protocol must ignore explains none:
+//! module `refusal`, [`Ledger::setup_ignored`], [`Refused::concerning`]); and [F15 §5.2] with [F16] P-72 step 2 (the
+//! steps of `create_extent` and `recycle_extent` are bracketed by the world's notes, [`crate::NOTE_COMPOSITE`], so
+//! their zeros are judged by the preparation's rules, P-2 and P-72, and not as log writes: module `protocol`).
 
 mod adversary;
 mod ledger;
 mod plans;
+mod protocol;
+mod refusal;
 mod report;
 mod verdict;
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant};
 
 pub use adversary::PoisonPolicy;
@@ -70,6 +110,11 @@ pub use ledger::{
     Class, EffectKey, EffectKind, EffectSet, EffectWrite, Ledger, NOTE_ACK, NOTE_BEGIN,
 };
 pub use plans::{Dim, PlanLimits, PlanMode, crash_plans, for_each_plan};
+pub use protocol::{
+    MAINT_AUTOMATIC, MAINT_BELOW_CAP, NOTE_MAINT_DECISION, NOTE_PHASE, Protocol, SlotDecode,
+    SlotView,
+};
+pub use refusal::{Diagnosis, Refusal, Refused};
 pub use report::{CrashCase, Failure, Report, Variant};
 
 use crate::SimWorld;
@@ -78,35 +123,64 @@ use crate::content::SectorKind;
 use crate::crash::{CrashImage, CrashPlan};
 use crate::rng::{Rng, splitmix};
 use crate::trace::{Event, TraceMode};
-use crate::world::{BusyAt, CallKind, DeathPlan, PointInfo, SimConfig, SimUnwind};
+use crate::world::{BusyAt, CallKind, DeathPlan, PointInfo, SimConfig, SimUnwind, Watch};
 
 use adversary::{AdvStats, EnumAdversary, Injection, SharedStats, lock_stats};
 use ledger::OpTable;
+use protocol::TraceJudge;
+use refusal::{Allow, Facts, Setup};
 use verdict::Verdict;
+
+/// The setup's declarations of `t`, with the subject's slot files `slots` (module `refusal`).
+fn setup_of<'a>(slots: &'a [PathBuf], t: &'a OpTable) -> Setup<'a> {
+    Setup {
+        faults: &t.setup_faults,
+        ignored: &t.setup_ignored,
+        slots,
+    }
+}
+
+/// The boot mode of the reader that made a recovery's first read ([OS/proc §5]; [F16 §10] P-67).
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub enum BootMode {
+    /// The reader read its boot identity: after a crash its first read reflects every acknowledged record (I-G2).
+    #[default]
+    Known,
+    /// The reader's boot identity is `Unknown`: it never runs boot-change recovery (U2), so its first read reflects
+    /// every acknowledged record only after the next writer's flush (U5–U6, P-67; [F13 §3.8] "I-G2's post-crash clause,
+    /// read precisely", "Boot mode").
+    Unknown,
+}
 
 /// What a subject's recovery found.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Recovered {
     /// The store as a reader's first read after the crash returns it, before any writer runs — after the boot-change
     /// recovery that reader runs itself when the protocol says so ([F16 §8] P-60, [F16 §10] P-66): read freshness,
-    /// I-G2.
-    pub first_read: Result<EffectSet, String>,
-    /// The store after the writer's recovery — and after `repair`, where the recovery refused because a derived file
-    /// was damaged ([80 §2.5] rule 8: `repair --rebuild-from-log` restores an externally truncated sealed file).
-    pub state: Result<EffectSet, String>,
+    /// I-G2. A refusal is judged by module `refusal`.
+    pub first_read: Result<EffectSet, Refused>,
+    /// The store after the writer's recovery — and after the operator's repair, where the recovery refused with a
+    /// refusal repair answers ([`Recovered::answered`]: plain `repair` for no valid or a fatal slot, [F16] P-61, P-85;
+    /// `repair --rebuild-from-log` for a damaged sealed file, [80 §2.5] rule 8, [F16] P-68).
+    pub state: Result<EffectSet, Refused>,
+    /// The refusals the recovery answered with the operator's repair before its final answers, in order: each must be
+    /// a correct answer for the run's faults, like any refusal.
+    pub answered: Vec<Refused>,
     /// Violations the subject's own checks found (for example `doctor --verify`).
     pub findings: Vec<String>,
     /// The store files the subject's diagnosis names as damaged (`doctor --fsck`, or an exit-7 message): after an
-    /// external truncation of a sealed file it must name that file (FM-10.2, [80 §2.5] rule 8).
-    pub diagnosed: Vec<PathBuf>,
+    /// external truncation of a sealed file it must name that file (FM-10.2, [80 §2.5] rule 8); one the recovered state
+    /// references needs a fault the run injected on it ([F15] G-13).
+    pub diagnosed: Vec<Diagnosis>,
 }
 
 impl Recovered {
-    /// A recovery whose first read and recovered state are both `state`, with no finding and no diagnosis.
+    /// A recovery whose first read and recovered state are both `state`, with no refusal, no finding and no diagnosis.
     pub fn same(state: EffectSet) -> Recovered {
         Recovered {
             first_read: Ok(state.clone()),
             state: Ok(state),
+            answered: Vec::new(),
             findings: Vec::new(),
             diagnosed: Vec::new(),
         }
@@ -122,8 +196,9 @@ impl Recovered {
 /// randomness, no hash-map iteration order outside the simulator). It never queues adversary choices
 /// ([`SimWorld::queue_choice`]) — the enumerator's injections count the adversary's choices.
 pub trait Subject {
-    /// The world configuration for `seed`. The enumerator sets the trace mode (every event when the subject checks the
-    /// trace, else only the digest; the trace mode changes no choice) and changes nothing else.
+    /// The world configuration for `seed`. The enumerator sets the trace mode (every event: its verdicts read the
+    /// trace) and the watch (the slot files and the log extents its predicates follow, [`Watch`]), neither of which
+    /// changes a choice, and changes nothing else.
     fn config(&self, seed: u64) -> SimConfig {
         SimConfig::new(seed)
     }
@@ -133,39 +208,58 @@ pub trait Subject {
     fn setup(&self, world: &SimWorld, ledger: &Ledger);
 
     /// Runs the workload to its end, reporting every operation through `ledger` ([`Ledger::begin`], [`Ledger::ack`],
-    /// [`Ledger::observe`], [`Ledger::fail`]). Several processes, clients and tasks, idempotent retries after a failure,
-    /// and at least three concurrent writers make the group-commit dimensions reachable ([80 §2.4.4]).
+    /// [`Ledger::observe`], [`Ledger::refused`], [`Ledger::fail`], and the identity, coverage and namespace hooks).
+    /// Several processes, clients and tasks, idempotent retries after a failure, and at least three concurrent writers
+    /// make the group-commit dimensions reachable ([80 §2.4.4]).
     fn workload(&self, world: &SimWorld, ledger: &Ledger);
 
     /// Recovers the store in `world` — after a system crash (a fresh boot) or after the workload's process deaths — with
     /// new processes: first a reader's first read (with whatever that reader runs before it, [F16 §8] P-60), before any
-    /// writer runs, then a writer's recovery and the state it leaves, after `repair` where the recovery found a derived
-    /// file damaged. A refusal is `Err` (exit 7, `repair`). A writer that cannot take its role byte within its wait
-    /// bound because a dead process holds it beyond every bound or never releases it (FM-8.1 classes (b), (c)) refuses
-    /// (it gives up, exit busy); the store as readers see it then is the first read, which after process deaths alone
-    /// may lag behind the last publish (module `verdict`). The enumerator gives it a fault-free adversary (poisoned
-    /// sectors still read by the run's [`PoisonPolicy`]).
+    /// writer runs, then a writer's recovery and the state it leaves, after the operator's repair where the recovery
+    /// refused with a refusal repair answers. A refusal is `Err` with its typed reason (exit 7), judged against the
+    /// run's faults (module `refusal`). A process that cannot take a role byte within its wait bound because a dead
+    /// process holds it beyond every bound or never releases it (FM-8.1 classes (b), (c)) refuses with
+    /// [`Refusal::Busy`]; the store as readers see it then is the first read, which after process deaths alone may lag
+    /// behind the last publish (module `verdict`). The enumerator gives it a fault-free adversary (poisoned sectors
+    /// still read by the run's [`PoisonPolicy`]).
     fn recover(&self, world: &SimWorld) -> Recovered;
 
+    /// [`Subject::recover`], with the boot mode of the reader that made the first read ([OS/proc §5]). The enumerator
+    /// calls this method; the default calls `recover` and answers [`BootMode::Known`]. A subject whose first reader may
+    /// be in Unknown-boot mode overrides it (and its `recover` returns this method's [`Recovered`]): after a crash, such a
+    /// reader's first read is judged for consistency only, not completeness, since it reflects every acknowledged record
+    /// only after the next writer's flush ([F13 §3.8] "I-G2's post-crash clause, read precisely", U5–U6, [F16 §10]
+    /// P-67; module `verdict`).
+    fn recover_with_boot(&self, world: &SimWorld) -> (Recovered, BootMode) {
+        (self.recover(world), BootMode::Known)
+    }
+
     /// The absolute paths of the slot files: every non-clean sector of one is enumerated with every version and torn mix
-    /// (the two `HEAD` slots, [F15 §1.4]).
+    /// (the two `HEAD` slots, [F15 §1.4]: slot A is sector 0, slot B sector 1, [F04 §2]). The world watches them: every
+    /// write to one is captured, and failed flushes and cut writes of them are the no-valid-slot allowance (module
+    /// `refusal`).
     fn slot_files(&self) -> Vec<PathBuf> {
         Vec::new()
     }
 
-    /// Whether the subject checks the event trace ([`Subject::check_trace`]). The enumerator then keeps every event of
-    /// every run ([`TraceMode::Full`]); otherwise only the digest.
+    /// The store protocol the subject follows ([F16]), if it follows moirai's: the trace predicates of module `protocol`
+    /// (I-G4, I-G6 over the decoded slot writes, [F03 §3.1] rule 2) then judge every run. A subject that follows none
+    /// is judged by the other verdicts alone.
+    fn protocol(&self) -> Option<Protocol> {
+        None
+    }
+
+    /// Whether the subject checks the event trace itself ([`Subject::check_trace`]).
     fn checks_trace(&self) -> bool {
         false
     }
 
-    /// The trace predicates of [F13 §1.4] — `crash::trace::ig4_flush_discipline` (I-G4: one log flush in flight, the
-    /// pending range scanned and re-written under the writer byte, no flush and no lock wait under the writer byte) and
-    /// `crash::trace::ig6_publish_monotone` (I-G6) — over the simulator's replayable event trace: the flush, lock,
-    /// namespace and `Return` events, the harness notes of every `begin` and `ack` ([`NOTE_BEGIN`], [`NOTE_ACK`]) and
-    /// the subject's own notes ([`SimWorld::note`]). Called after every recovery, with the whole trace of the recovered
-    /// world: the workload up to the crash point (or to its end, after process deaths only), the crash, and the
-    /// recovery. Each returned string is a violation.
+    /// Trace predicates of the subject's own, beyond the enumerator's (module `protocol`), over the simulator's
+    /// replayable event trace: the flush, lock, namespace and `Return` events, the harness notes of every `begin` and
+    /// `ack` ([`NOTE_BEGIN`], [`NOTE_ACK`]), the world's notes ([`crate::NOTE_CLASS`], [`crate::NOTE_SLOT_WRITE`],
+    /// [`crate::NOTE_PROBE`]) and the subject's own ([`SimWorld::note`]). Called after every recovery, with the whole
+    /// trace of the recovered world: the workload up to the crash point (or to its end, after process deaths only), the
+    /// crash, and the recovery. Each returned string is a violation.
     fn check_trace(&self, events: &[Event]) -> Vec<String> {
         let _ = events;
         Vec::new()
@@ -291,7 +385,8 @@ pub struct Limits {
     pub fault_plans: PlanMode,
     /// The crash states after any other injected fault or death (no poisoned sector).
     pub other_plans: PlanMode,
-    /// Crash points after every disk-full injection too (else only at the end of the run).
+    /// Crash points after every disk-full injection too (else only at the end of the run, where a failed slot write adds
+    /// the slot states to the pivots, S2B-P-27).
     pub fault_crash_points: bool,
     /// Kill at every scheduling point (else only at the points of storage calls).
     pub kill_every_point: bool,
@@ -299,7 +394,8 @@ pub struct Limits {
     /// FM-11.2, a paused flush holder's failed outcome poisons the appends others made during its flush, FM-3.1).
     pub kill_holders: bool,
     /// Crash points after the death of a flush holder — before its flush, inside it, just after it — while the next
-    /// holder adopts its group ([80 §2.4.4]), for the deaths whose bytes are released after a measured delay.
+    /// holder adopts its group ([80 §2.4.4]), and after a death that cut a write to a slot file while the next publisher
+    /// writes over the cut slot (S2B-P-27), for the deaths whose bytes are released after a measured delay.
     pub kill_crash_points: bool,
     /// At most this many crash points after such a death (`None`: every one to the end of the run).
     pub kill_window: Option<usize>,
@@ -383,6 +479,16 @@ impl EnumConfig {
 
 /// Enumerates `subject` under `cfg` (see the module documentation).
 pub fn enumerate<S: Subject + ?Sized>(subject: &S, cfg: &EnumConfig) -> Report {
+    let slots = subject.slot_files();
+    let protocol = subject.protocol();
+    let watch = (!slots.is_empty() || protocol.is_some()).then(|| Watch {
+        slots: slots.clone(),
+        log_dir: protocol.as_ref().map(|p| p.log_dir.clone()),
+        log_prefix: protocol
+            .as_ref()
+            .map(|p| p.log_prefix.clone())
+            .unwrap_or_default(),
+    });
     let mut e = Engine {
         subject,
         cfg,
@@ -394,6 +500,9 @@ pub fn enumerate<S: Subject + ?Sized>(subject: &S, cfg: &EnumConfig) -> Report {
             .collect(),
         traces: subject.checks_trace(),
         seed_release: [0; 3],
+        slots,
+        protocol,
+        watch,
     };
     for &seed in &cfg.seeds {
         if e.stopped() {
@@ -424,22 +533,12 @@ pub fn enumerate<S: Subject + ?Sized>(subject: &S, cfg: &EnumConfig) -> Report {
 // ---------------------------------------------------------------------------------------------------------------------
 // The engine
 
-/// Which refusals are correct answers in a run.
-#[derive(Copy, Clone, Debug, Default)]
-struct Refusals {
-    /// The first read may refuse (exit 7).
-    first: bool,
-    /// The writer's recovery may refuse.
-    state: bool,
-}
-
 /// The run a check belongs to.
 #[derive(Clone, Debug)]
 struct Ctx {
     seed: u64,
     variant: Variant,
     poison: PoisonPolicy,
-    refusals: Refusals,
     /// A sealed file an external actor truncated, and its sealed size: while it is shorter, the recovery's diagnosis
     /// must name it (FM-10.2).
     truncated: Option<(PathBuf, u64)>,
@@ -451,7 +550,6 @@ impl Ctx {
             seed,
             variant,
             poison,
-            refusals: Refusals::default(),
             truncated: None,
         }
     }
@@ -594,10 +692,14 @@ struct Engine<'a, S: ?Sized> {
     report: Report,
     start: Instant,
     mutating: Vec<CallKind>,
-    /// The subject checks the trace: every run keeps its events.
+    /// The subject checks the trace itself ([`Subject::check_trace`]).
     traces: bool,
     /// The release classes the current seed's runs drew.
     seed_release: [u64; 3],
+    /// The subject's slot files, its protocol, and the watch every run's world gets.
+    slots: Vec<PathBuf>,
+    protocol: Option<Protocol>,
+    watch: Option<Watch>,
 }
 
 impl<S: Subject + ?Sized> Engine<'_, S> {
@@ -632,11 +734,8 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
 
     fn run(&mut self, spec: &RunSpec) -> RunOut {
         let mut cfg = self.subject.config(spec.seed);
-        cfg.trace = if self.traces {
-            TraceMode::Full
-        } else {
-            TraceMode::DigestOnly
-        };
+        cfg.trace = TraceMode::Full;
+        cfg.watch.clone_from(&self.watch);
         let stats = SharedStats::default();
         let adv = EnumAdversary::new(
             SeededAdversary::new(cfg.rates, cfg.release_law.clone()),
@@ -711,7 +810,15 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
         }
     }
 
+    /// A judge of a world's trace: the facts, and the trace predicates of the subject's protocol.
+    fn new_judge(&self) -> TraceJudge {
+        TraceJudge::new(self.protocol.as_ref(), !self.slots.is_empty())
+    }
+
     /// The subject's recovery on `world`, judged against `t`; `busy`: a dead process's byte is never released there.
+    /// `prefix` has judged the world's trace before event `from`; its violations are reported here only if
+    /// `report_prefix` (a crash state's prefix is a run that `end_checks` judged whole).
+    #[allow(clippy::too_many_arguments)] // the run, the world, the ledger prefix, the crash facts and the trace prefix.
     fn recover_and_judge(
         &mut self,
         ctx: &Ctx,
@@ -720,38 +827,34 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
         crash: bool,
         ff: u64,
         busy: bool,
+        prefix: TraceJudge,
+        from: u64,
+        report_prefix: bool,
     ) -> Vec<String> {
         self.report.recoveries += 1;
-        // FM-10.2: while the truncated file is shorter than sealed, the diagnosis must name it.
+        // FM-10.2: while the truncated file is shorter than sealed when the recovery starts, its diagnosis must name it.
         let damaged = ctx
             .truncated
             .as_ref()
             .filter(|(p, size)| world.file_len(p).is_some_and(|l| l < *size))
             .map(|(p, _)| p.clone());
-        let mut msgs = match guard(|| self.subject.recover(world)) {
-            Ended::Returned(rec) => {
-                let (first, state) = (ctx.refusals.first, ctx.refusals.state || busy);
-                if (first && rec.first_read.is_err()) || (state && rec.state.is_err()) {
-                    self.report.refusals += 1;
-                }
-                let mut m = Verdict::new(t, crash, ff)
-                    .allow_refusal(first, state)
-                    .check(&rec);
-                if let Some(p) = &damaged {
-                    self.report.diagnoses += 1;
-                    if !rec.diagnosed.iter().any(|d| d == p) {
-                        m.push(format!(
-                            "diagnosis: the sealed file {} is truncated, but the recovery's diagnosis does not name it \
-                             ([80 §2.5] rule 8, FM-10.2)",
-                            p.display()
-                        ));
-                    }
-                }
-                m
+        let ended = guard(|| self.subject.recover_with_boot(world));
+        let mut judge = prefix;
+        if !report_prefix {
+            judge.msgs.clear();
+        }
+        let judged = judge.publishes;
+        judge.feed(&world.trace_from(from), &|i| world.slot_capture(i));
+        self.report.publishes_judged += judge.publishes - judged;
+        let mut msgs = match ended {
+            Ended::Returned((rec, boot)) => {
+                let m = self.judge_recovered(world, t, (crash, ff, busy), &judge.facts, &rec, boot);
+                self.diagnosis_names(damaged.as_deref(), &rec, m)
             }
             Ended::Died => vec!["recovery: the recovering process died".to_owned()],
             Ended::Panicked(m) => vec![format!("recovery: panicked: {m}")],
         };
+        msgs.extend(judge.msgs.iter().map(|m| format!("trace: {m}")));
         if self.traces {
             let events = world.trace();
             match guard(|| self.subject.check_trace(&events)) {
@@ -762,6 +865,138 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
         }
         msgs.extend(violations(world));
         msgs
+    }
+
+    /// FM-10.2: a sealed file that was truncated when the recovery started (`damaged`) is named by its diagnosis.
+    fn diagnosis_names(
+        &mut self,
+        damaged: Option<&Path>,
+        rec: &Recovered,
+        mut m: Vec<String>,
+    ) -> Vec<String> {
+        if let Some(p) = damaged {
+            self.report.diagnoses += 1;
+            if !rec.diagnosed.iter().any(|d| d.path == p) {
+                m.push(format!(
+                    "diagnosis: the sealed file {} is truncated, but the recovery's diagnosis does not name it ([80 \
+                     §2.5] rule 8, FM-10.2)",
+                    p.display()
+                ));
+            }
+        }
+        m
+    }
+
+    /// The verdicts on one recovery (module documentation, "Assertions"): ack, fresh and avail through module
+    /// `verdict`; the diagnosis of referenced files; chain; ns.
+    fn judge_recovered(
+        &mut self,
+        world: &SimWorld,
+        t: &OpTable,
+        (crash, ff, busy): (bool, u64, bool),
+        facts: &Facts,
+        rec: &Recovered,
+        boot: BootMode,
+    ) -> Vec<String> {
+        if boot == BootMode::Unknown {
+            self.report.unknown_boot_reads += 1;
+        }
+        let sealed = |p: &Path| world.is_sealed(p);
+        let setup = setup_of(&self.slots, t);
+        let v = Verdict::new(t, crash, ff)
+            .first_read_boot(boot)
+            .faults(facts, busy, setup, &sealed);
+        self.report.refusals += v.allowed_refusals(rec);
+        let mut m = v.check(rec);
+        // A referenced file named as damaged needs a fault on it: without an FM-10 act no store file is modified by
+        // anyone but moirai ([F15] G-13), so a correct store named it only once it was durable ([F16] P-10). A file the
+        // protocol must ignore is referenced by no correct state.
+        for d in rec.diagnosed.iter().filter(|d| d.referenced) {
+            if setup.ignores(&d.path) {
+                m.push(format!(
+                    "diagnosis: the recovered state references {}, a file the setup declared the protocol must ignore \
+                     ([F16] P-54, P-55; [F15] FM-10)",
+                    d.path.display()
+                ));
+                continue;
+            }
+            let caused = facts.faulted(&d.path, world.node_at(&d.path)) || setup.damaged(&d.path);
+            if !caused {
+                m.push(format!(
+                    "diagnosis: the recovery names {}, which the recovered state references, as damaged, but no \
+                     external act, read error or setup fault touched it ([F15] G-13, [F16] P-10, P-78)",
+                    d.path.display()
+                ));
+            }
+        }
+        m.extend(self.chain(world, t, facts));
+        if let Ok(state) = &rec.state {
+            m.extend(names(world, t, state));
+        }
+        m
+    }
+
+    /// Chain (I-G3, [F16] P-53, P-74): every acknowledged durable group's identity bytes are where they were, in every
+    /// file that still exists at their path.
+    fn chain(&mut self, world: &SimWorld, t: &OpTable, facts: &Facts) -> Vec<String> {
+        let mut out = Vec::new();
+        let setup = setup_of(&self.slots, t);
+        for g in &t.bytes {
+            let op = &t.ops[g.op];
+            if op.acked.is_none() || op.class != Class::Durable || op.head {
+                continue;
+            }
+            let Some(node) = world.node_at(&g.path) else {
+                continue;
+            };
+            if facts.modified(&g.path, Some(node))
+                || setup.damaged(&g.path)
+                || setup.ignores(&g.path)
+            {
+                continue;
+            }
+            self.report.chain_checks += 1;
+            let got = world
+                .peek_range(&g.path, g.offset, g.bytes.len() as u64)
+                .unwrap_or_default();
+            if got != g.bytes {
+                out.push(format!(
+                    "chain (I-G3): operation {}'s acknowledged group bytes at {} offset {} ({} bytes) {} in the \
+                     recovered store ([F16] P-53, P-74)",
+                    op.id,
+                    g.path.display(),
+                    g.offset,
+                    g.bytes.len(),
+                    if got.len() < g.bytes.len() {
+                        "are cut short"
+                    } else {
+                        "changed"
+                    }
+                ));
+            }
+        }
+        out
+    }
+
+    /// Avail for the workload's own refusals ([`Ledger::refused`]), against the faults of the run.
+    fn workload_refusals(&mut self, t: &OpTable, facts: &Facts, ff: u64) -> Vec<String> {
+        let allow = Allow {
+            facts,
+            busy: false,
+            workload: true,
+            nothing_required: !Verdict::new(t, false, ff).any_required(),
+            setup: setup_of(&self.slots, t),
+        };
+        self.report.workload_refusals += t.refusals.len() as u64;
+        t.refusals
+            .iter()
+            .filter_map(|(who, r)| {
+                allow
+                    .check(r)
+                    .err()
+                    .map(|why| format!("avail: {who} refused with {r}: {why}"))
+            })
+            .collect()
     }
 
     fn recovery_adversary(&mut self, poison: PoisonPolicy) -> (EnumAdversary, SharedStats) {
@@ -775,12 +1010,29 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
         (adv, stats)
     }
 
-    /// One crash state: materialise, recover, judge.
-    fn judge(&mut self, ctx: &Ctx, img: &CrashImage, dim: Dim, plan: CrashPlan, t: &OpTable) {
+    /// One crash state: materialise, recover, judge; `prefix` has judged the image's trace.
+    fn judge(
+        &mut self,
+        ctx: &Ctx,
+        img: &CrashImage,
+        (dim, plan): (Dim, CrashPlan),
+        t: &OpTable,
+        prefix: &TraceJudge,
+    ) {
         *self.report.states.entry(dim).or_insert(0) += 1;
         let (adv, stats) = self.recovery_adversary(ctx.poison);
         let msgs = match img.materialize_with(&plan, Box::new(adv)) {
-            Ok(w) => self.recover_and_judge(ctx, &w, t, true, img.failed_flushes(), false),
+            Ok(w) => self.recover_and_judge(
+                ctx,
+                &w,
+                t,
+                true,
+                img.failed_flushes(),
+                false,
+                prefix.clone(),
+                img.trace_count(),
+                false,
+            ),
             Err(e) => vec![format!("enumerator: crash plan rejected: {e}")],
         };
         self.report.poisoned_reads += lock_stats(&stats).poisoned_reads;
@@ -798,15 +1050,30 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
         self.check_budget();
     }
 
-    /// Every crash state `mode` names at the crash point of `img`.
-    fn crash_states(&mut self, ctx: &Ctx, img: &CrashImage, t: &OpTable, mode: PlanMode) {
-        let surface = img.surface();
+    /// Every crash state `mode` names at the crash point of `img`; `slots_only`: the pivots and the slot files' states
+    /// alone (every other file, the pending namespace operations and the writes in flight at each pivot). `prefix` has
+    /// judged the image's trace, and every crash state continues from it.
+    fn crash_states(
+        &mut self,
+        ctx: &Ctx,
+        img: &CrashImage,
+        t: &OpTable,
+        mode: PlanMode,
+        slots_only: bool,
+        prefix: &TraceJudge,
+    ) {
+        let mut surface = img.surface();
         let slots: BTreeSet<u64> = self
             .subject
             .slot_files()
             .iter()
             .filter_map(|p| img.node_at(p))
             .collect();
+        if slots_only {
+            surface.files.retain(|f| slots.contains(&f.node));
+            surface.ops.clear();
+            surface.writes.clear();
+        }
         self.report.crash_points += 1;
         if let Some(at) = img.origin() {
             *self.report.crash_points_by_call.entry(at.call).or_insert(0) += 1;
@@ -838,7 +1105,7 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
                     *self.report.poison_mixed.entry(dim).or_insert(0) += 1;
                 }
                 *here.entry(dim).or_insert(0) += 1;
-                self.judge(ctx, img, dim, plan, t);
+                self.judge(ctx, img, (dim, plan), t, prefix);
                 !self.stopped()
             },
         );
@@ -850,22 +1117,54 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
         }
     }
 
+    /// The nodes of the subject's slot files in `world`.
+    fn slot_nodes(&self, world: &SimWorld) -> BTreeSet<u64> {
+        self.subject
+            .slot_files()
+            .iter()
+            .filter_map(|p| world.node_at(p))
+            .collect()
+    }
+
     /// The checks at the end of a run: its own problems, recovery after its process deaths alone, and recovery after a
-    /// system crash at its end.
-    fn end_checks(&mut self, ctx: &Ctx, run: &RunOut, mode: PlanMode) {
+    /// system crash at its end, in the states `mode` names. `cut_slot`: the run's disk-full or death cut a write to a slot
+    /// file, which leaves that slot any mix of bytes (FM-5.2, [F15 §2.5]); where `mode` takes only the pivots, the end
+    /// takes the slot files' states too, so that a crash tearing the other, dirty slot (FM-1.2) is judged: the second way
+    /// to leave no valid slot ([F04 §8.1] "Both slots absent", [F15 §6.4]; spec sync 2b S2B-P-27).
+    fn end_checks(&mut self, ctx: &Ctx, run: &RunOut, mode: PlanMode, cut_slot: bool) {
         let entries = run.ledger.entries();
         let t = OpTable::build(&entries, u64::MAX);
         let mut msgs = run.problems.clone();
         msgs.extend(t.problems.iter().cloned());
         self.report.death_checks += 1;
-        // A byte a dead process holds beyond every wait bound, or never releases, may keep the recovering writer out
-        // (FM-8.1 classes (b) and (c)): the writer waits out its bound and gives up, which is no wrong answer.
+        // A byte a dead process holds beyond every wait bound, or never releases, may keep the recovering processes out
+        // (FM-8.1 classes (b) and (c)): the first reader's boot-change recovery or repair, and the writer, wait out
+        // their bounds and give up, which is no wrong answer.
         let busy = run.release[1] > 0 || run.release[2] > 0;
-        msgs.extend(self.recover_and_judge(ctx, &run.world, &t, false, run.ff_end, busy));
+        // The run's trace, judged whole: its own violations, and the faults its workload's refusals are judged against.
+        let mut judge = self.new_judge();
+        let from = run.world.event_count();
+        judge.feed(&run.world.trace_from(0), &|i| run.world.slot_capture(i));
+        self.report.publishes_judged += judge.publishes;
+        // The run's end image has the same trace: its crash states continue from this judge.
+        let mut end_prefix = judge.clone();
+        end_prefix.msgs.clear();
+        msgs.extend(self.workload_refusals(&t, &judge.facts, run.ff_end));
+        msgs.extend(self.recover_and_judge(
+            ctx, &run.world, &t, false, run.ff_end, busy, judge, from, true,
+        ));
         if !msgs.is_empty() {
             self.fail(ctx, None, msgs);
         }
-        self.crash_states(ctx, &run.end, &t, mode);
+        if cut_slot {
+            self.report.slot_fault_runs += 1;
+        }
+        if cut_slot && mode == PlanMode::Pivots {
+            let slot_mode = self.cfg.limits.other_plans;
+            self.crash_states(ctx, &run.end, &t, slot_mode, true, &end_prefix);
+        } else {
+            self.crash_states(ctx, &run.end, &t, mode, false, &end_prefix);
+        }
         self.check_budget();
     }
 
@@ -883,6 +1182,10 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
         let limit = self.cfg.limits.images_per_batch.max(1);
         let mut left = window.unwrap_or(usize::MAX);
         let mut from = from;
+        // The images are captured in point order from replays of one run: one judge follows their traces, each
+        // event fed once.
+        let mut running = self.new_judge();
+        let mut fed = 0u64;
         while left > 0 {
             if self.stopped() {
                 return;
@@ -908,7 +1211,10 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
             let mut last = from;
             for img in &run.captures {
                 let t = OpTable::build(&entries, img.point());
-                self.crash_states(ctx, img, &t, mode);
+                img.trace_slices_from(fed, &mut |s| running.feed(s, &|i| img.slot_capture(i)));
+                fed = img.trace_count();
+                running.msgs.clear();
+                self.crash_states(ctx, img, &t, mode, false, &running);
                 last = img.point();
                 if self.stopped() {
                     return;
@@ -945,7 +1251,7 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
             sealed,
         };
         let digest = disc_run.digest;
-        self.end_checks(&ctx, &disc_run, self.cfg.limits.clean_plans);
+        self.end_checks(&ctx, &disc_run, self.cfg.limits.clean_plans, false);
         drop(disc_run);
         if dims.crash_points {
             self.crash_points(&ctx, &clean, 0, digest, self.cfg.limits.clean_plans, None);
@@ -1037,7 +1343,7 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
     }
 
     /// One death of process `victim` at point `at` by `plan`, under each poison policy if it fails a flush; with crash
-    /// points after a flush holder's death in the nightly tier.
+    /// points after a flush holder's death, and after a death that cut a write to a slot file, in the nightly tier.
     fn kill(&mut self, seed: u64, at: &PointInfo, victim: u32, plan: DeathPlan, holder: bool) {
         let l = &self.cfg.limits;
         let policies = if fails_a_flush(&plan) {
@@ -1046,7 +1352,13 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
             vec![PoisonPolicy::Seeded]
         };
         let (fault_plans, other_plans, window) = (l.fault_plans, l.other_plans, l.kill_window);
-        let after = l.kill_crash_points && holder && plan.release_class == Some(0);
+        let crash_points_after = l.kill_crash_points && plan.release_class == Some(0);
+        // A death inside the victim's own write applies any part of it (§2.5): a slot write cut this way leaves its slot
+        // any mix of bytes (S2B-P-27). One that applied nothing left the slot as it was.
+        let cuts_write = victim == at.proc
+            && at.call == CallKind::Write
+            && at.phase == 1
+            && plan.write.is_some_and(|w| w != PartialWrite::Nothing);
         for poison in policies {
             if self.stopped() {
                 return;
@@ -1087,7 +1399,9 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
                 PlanMode::Pivots
             };
             let (digest, poisoned) = (run.digest, run.ff_end > 0);
-            self.end_checks(&ctx, &run, mode);
+            let cut_slot = cuts_write && self.slot_nodes(&run.world).contains(&at.node);
+            let after = crash_points_after && (holder || cut_slot);
+            self.end_checks(&ctx, &run, mode, cut_slot);
             drop(run);
             if after {
                 self.report.kills_with_crash_points += 1;
@@ -1266,14 +1580,26 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
                         );
                         let (at, digest) = (run.stats.injected_at, run.digest);
                         // A disk-full flush is a failed flush: poisoned sectors (FM-3.1, FM-5.3). Where crash points follow
-                        // the injection, the run's end takes the same states; else only the pivots.
+                        // the injection, the run's end takes the same states; else only the pivots, and the slot states
+                        // when the failed write was a slot write, which leaves its slot any mix of bytes (FM-5.2,
+                        // S2B-P-27).
                         let later = self.cfg.limits.fault_crash_points;
                         let mode = if run.ff_end > 0 {
                             self.cfg.limits.fault_plans
                         } else {
                             self.cfg.limits.other_plans
                         };
-                        self.end_checks(&ctx, &run, if later { mode } else { PlanMode::Pivots });
+                        let cut_slot = site == Site::WriteFault
+                            && run
+                                .stats
+                                .injected_node
+                                .is_some_and(|n| self.slot_nodes(&run.world).contains(&n));
+                        self.end_checks(
+                            &ctx,
+                            &run,
+                            if later { mode } else { PlanMode::Pivots },
+                            cut_slot,
+                        );
                         drop(run);
                         if later && let Some(at) = at {
                             self.crash_points(&ctx, &spec, at + 1, digest, mode, None);
@@ -1307,7 +1633,7 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
                 let ctx = Ctx::new(seed, Variant::FlushError { nth, poison }, poison);
                 let (at, digest) = (run.stats.injected_at, run.digest);
                 let mode = self.cfg.limits.fault_plans;
-                self.end_checks(&ctx, &run, mode);
+                self.end_checks(&ctx, &run, mode, false);
                 drop(run);
                 if let Some(at) = at {
                     self.crash_points(&ctx, &spec, at + 1, digest, mode, None);
@@ -1317,9 +1643,10 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
     }
 
     /// Read errors and mapping faults at every occurrence, and every sealed file truncated after the workload and while
-    /// readers still run ([F15 §6.4] "Reads", FM-10.2). A refusal after a persistent read error is a correct answer;
-    /// after a truncation only the readers may refuse (exit 7): the writer's recovery, with `repair`, keeps every
-    /// acknowledged commit, and its diagnosis names the file ([80 §2.5] rule 8).
+    /// readers still run ([F15 §6.4] "Reads", FM-10.2). The run's faults decide which refusals are correct (module
+    /// `refusal`): after a persistent read error an I/O fault; after a truncation a damaged file, except as the
+    /// writer's final answer — its recovery, with `repair`, keeps every acknowledged commit — and its diagnosis names the
+    /// file ([80 §2.5] rule 8).
     fn read_faults(&mut self, seed: u64, disc: &Discovery) {
         for (site, values) in READ_FAULTS {
             let n = disc.counts.get(&site).copied().unwrap_or(0);
@@ -1339,17 +1666,12 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
                     };
                     *self.report.read_faults.entry(site).or_insert(0) += 1;
                     let run = self.run(&spec);
-                    let mut ctx = Ctx::new(
+                    let ctx = Ctx::new(
                         seed,
                         Variant::ReadFault { site, nth, value },
                         PoisonPolicy::Seeded,
                     );
-                    let persistent = site == Site::ReadFault && value == 2;
-                    ctx.refusals = Refusals {
-                        first: persistent,
-                        state: persistent,
-                    };
-                    self.end_checks(&ctx, &run, PlanMode::Pivots);
+                    self.end_checks(&ctx, &run, PlanMode::Pivots, false);
                 }
             }
         }
@@ -1397,16 +1719,57 @@ impl<S: Subject + ?Sized> Engine<'_, S> {
                         },
                         PoisonPolicy::Seeded,
                     );
-                    ctx.refusals = Refusals {
-                        first: true,
-                        state: false,
-                    };
                     ctx.truncated = Some((path.clone(), *size));
-                    self.end_checks(&ctx, &run, PlanMode::Pivots);
+                    self.end_checks(&ctx, &run, PlanMode::Pivots, false);
                 }
             }
         }
     }
+}
+
+/// Ns ([F16 §17.2]): every file the ledger expects somewhere for the recovered value of a register
+/// ([`Ledger::expect_names`]) is there, by node identity — a file of the same name that is another node does not count.
+fn names(world: &SimWorld, t: &OpTable, state: &EffectSet) -> Vec<String> {
+    let mut out = Vec::new();
+    for n in &t.names {
+        let value = state.get(&n.key).copied();
+        let (Some(node), Some((_, at))) = (n.node, n.rules.iter().find(|(v, _)| *v == value))
+        else {
+            continue;
+        };
+        let ok = if at.is_empty() {
+            world.paths_of_node(node).is_empty()
+        } else {
+            at.iter().any(|p| world.node_at(p) == Some(node))
+        };
+        if !ok {
+            let shown = value.map_or_else(|| "clear".to_owned(), |v| format!("{v:#x}"));
+            let now = world.paths_of_node(node);
+            out.push(format!(
+                "ns: the file that was {} is {}, but the recovered {:?} = {shown} expects it {} ([F16 §17.2] ns, [40 \
+                 §3.4])",
+                n.path.display(),
+                if now.is_empty() {
+                    "nowhere".to_owned()
+                } else {
+                    format!("at {}", now[0].display())
+                },
+                n.key,
+                if at.is_empty() {
+                    "gone".to_owned()
+                } else {
+                    format!(
+                        "at {}",
+                        at.iter()
+                            .map(|p| p.display().to_string())
+                            .collect::<Vec<_>>()
+                            .join(" or ")
+                    )
+                }
+            ));
+        }
+    }
+    out
 }
 
 /// The simulator's protocol-violation reports ([F15 §3.13]), drained.

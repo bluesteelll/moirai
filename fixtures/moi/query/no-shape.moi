@@ -1,0 +1,12 @@
+moirai-query 1
+name: open_notes
+lq: 1
+shape: table
+budget: medium
+---
+DEFINE QUERY open_notes() AS {
+  // no SHAPE: table; no BUDGET: medium
+  MATCH (n:note)
+  WHERE n.status = 'active'
+  RETURN n
+}

@@ -538,7 +538,8 @@ without `SCHEMA` carries none. Structural violations never land ([AR §5a.8]) an
 
 ### 8.3 `SCHEMA`
 
-Variable table of the view's schema ([AR §2.12] T12; [50] F1–F3): kinds, fields, edges and `QUERIES` items, each row one
+Variable table of the view's schema ([AR §2.12] T12; [50] F1–F3): kinds, fields, edges, `QUERIES` items and policy rows
+([F08 §8.5.6]), each row one
 schema item in [F08 §8]'s item encoding, sorted by [F08 §8.5]'s item key order (class, then the component name strings
 bytewise, `*` = `2A`; pass 1, A1-41). Fold "full (view)": the base carries the whole schema of
 its view; an upper segment carries `SCHEMA` iff a `Schema` op in its window changed the schema, and then carries the whole
@@ -582,7 +583,8 @@ canonical, so the section bytes are a function of the set (or of the two sets it
 
 ### 10.1 `FPROMO`
 
-Fixed table, `row_w` = 12, key `field_sym`, present iff the segment carries any `FCOL` or `FIDX`:
+Fixed table, `row_w` = 12, key `field_sym`, present as the presence rule below says, and then with the `FCOL` and `FIDX`
+sections its rows imply:
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
@@ -597,8 +599,15 @@ Fixed table, `row_w` = 12, key `field_sym`, present iff the segment carries any 
 - The rows are the fields with `index ≠ none` in the view's schema as of this layer. `slot` is the row's position in the
   table, so slots are dense and follow `field_sym` order (canonical).
 - **Which sections** ([F08 §8.4.3]): `index` = 1 gives an `FCOL.<slot>`; `index` = 2 gives an `FIDX.<slot>`, and also an
-  `FCOL.<slot>` unless the field's type is `set`. A base carries every section its rows imply; an upper segment carries
-  every `FCOL` its rows imply and an `FIDX` only when some value's set changed (§10.3).
+  `FCOL.<slot>` unless the field's type is `set`. Every `FPROMO` row implies its sections, also when no row of the segment
+  holds a value for the field (its `FCOL` then has every absent bit set). A base carries every `FCOL` and `FIDX` its
+  `FPROMO` rows imply (an `FIDX` with `n_values` = 0 included); an upper segment carries every `FCOL` its `FPROMO` rows
+  imply and an `FIDX` only when some value's set changed (§10.3) (spec sync 2b).
+- **Presence.** A segment carries `FPROMO`, and with it the sections above, exactly when at least one of its rows holds a
+  value for a field with `index ≠ none` in the view's schema as of this layer, or, in an upper segment, some value's set
+  changed (§10.3). Otherwise it carries none of them ([50] F5: "0 until used"), and its rows' promoted values are read
+  from their field blocks (last bullet). In schema version 1 the core schema promotes scalar fields ([F08 §9.3]), so a
+  present `FPROMO` always comes with `FCOL`s (spec sync 2b).
 - A promoted field has one value type in the whole view. Its element must have a fixed-width **promoted encoding**:
 
 | `vtype` ([F08 §5.1]) | `elem_w` | promoted encoding |
@@ -616,8 +625,8 @@ Fixed table, `row_w` = 12, key `field_sym`, present iff the segment carries any 
 - The default promotions of [50] F5 (`labels`, `assignee`, `work_kind`, `phase_state`, `severity`, `f_kind`, `round`,
   `local_id`, `outcome`, `metric`) are schema data ([F08]), not a list in this chapter.
 - Slots are per segment. A reader resolves a field to a slot in each layer separately; a layer whose schema does not
-  promote the field has no section for it and supplies no promoted value for its rows, which are then read from their field
-  blocks.
+  promote the field, or that carries no `FPROMO` (the presence rule), has no section for it and supplies no promoted value
+  for its rows, which are then read from their field blocks.
 
 ### 10.2 `FCOL.<slot>`
 
@@ -804,7 +813,7 @@ Both exist only if `HOLE(F09-doclen)` keeps them; otherwise neither tag is writt
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
-| 0 | 4 | `u32` | `docs` | non-deleted documents of the view, as of this layer, with a non-empty field |
+| 0 | 4 | `u32` | `docs` | the view's non-deleted documents, as of this layer, whose field has at least one token (§12.1); an absent field or one without a token does not count |
 | 4 | 4 | `u32` | `_reserved` | reserved-zero |
 | 8 | 8 | `u64` | `total_len` | Σ of the field's token count over the view's non-deleted documents, as of this layer |
 | total | 16 | | | |
@@ -1007,7 +1016,10 @@ The lazy runtime record kinds `K_RT` = {`FileObs`, `Pending`, `FPrint`, `Journal
 - A **runtime-only fold** ([AR §4.5] step 12, [F17 §5.4]) writes a delta whose `from_lsn = upto_lsn` = the `upto_lsn` of the
   layer below (an empty graph window: `IDS` empty, every row-scoped section empty, no ± list) and whose `rt_upto_lsn`
   advances. It carries every section a delta requires, the snapshot sections unchanged apart from the runtime-window ones
-  ([F11] open point 27: "every snapshot section … and no graph section" with content).
+  ([F11] open point 27: "every snapshot section … and no graph section" with content). A runtime-only fold is not a
+  tier-2 decision point ([F17 §6.4]); one that runs after `HEAD.flags` bit 1 is set writes `tok_ver` 1 and carries the
+  tier-2 sections like every other segment: `TERMS`, `POST` and `DOCLEN` empty, and `FTSSTAT`, if kept, equal to the
+  layer below's (spec sync 2b).
 - A regular delta checkpoint sets `rt_upto_lsn = upto_lsn`.
 - A reader applies a tail record of a `K_RT` kind only if its `lsn ≥` the newest layer's `rt_upto_lsn`, and any other tail
   record only if its `lsn ≥` that layer's `upto_lsn` ([F11 §2.4] "the bound is [F09]'s").
@@ -1141,9 +1153,13 @@ copied into a new segment. [F11 §2.7] adds the checks of the `RtHdr` bodies.
 | V-8 | the header fields against the reference that names the file: `HEAD`'s `SegRef` (`upto_lsn`, `blake3_16`, [F04 §4.1]), a `FILES` row (§14.4), a commit's `cs_ref` ([F06 §9]), a ref's `promoted_seg` ([F11 §3.1]) |
 | V-9 | each section's `xxh3`; `seg_digest` |
 | V-10 | each section's container rules (§4, [F11 §2]) and its own rules: sort orders, uniqueness, offset arrays, reserved bytes, canonical forms (bitset containers, pool order) |
-| V-11 | cross-section rules: column lengths equal `n_rows` or the `IDS` length; `IDS` covers every row-scoped and index entry; `NodeHdr` offsets fall inside their pools or are `NONE32`; `body_ref` within `BLOBTAB`; `EDGE_PROPS.edge` < e_out, its `pflags` admitted by the edge's kind ([F08 §10.2]) and `pinned_commit` zero without `has_pin`; `BMDIR` and `FPROMO` match the tags present |
-| V-12 | view-level rules over a whole stack: I-P3 of §7.1, `TOUCH` = `IDS`, main-set continuity (§2.3), ± list preconditions (§4.6) |
+| V-11 | cross-section rules: column lengths equal `n_rows` or the `IDS` length; `IDS` covers every row-scoped and index entry; `NodeHdr` offsets fall inside their pools or are `NONE32`; `body_ref` within `BLOBTAB`; `EDGE_PROPS.edge` < e_out, its `pflags` admitted by the edge's kind ([F08 §10.2]) and `pinned_commit` zero without `has_pin`; `BMDIR` names exactly the `BM.<i>` tags present (§9.2); the `FCOL` tags present are exactly those the `FPROMO` rows imply, and the `FIDX` tags present are among those the rows imply (in a base, exactly those) (§10.1) |
+| V-12 | view-level rules over a whole stack: I-P3 of §7.1, `TOUCH` = `IDS`, main-set continuity (§2.3), ± list preconditions (§4.6), `FPROMO` present exactly as §10.1's presence rule gives with the view's schema |
 | V-13 | derived content equals a recomputation (`doctor --verify`, I9) |
+
+A check that compares names resolves them through the segment set's symbols: an upper segment's `SYMTAB` holds only the
+symbols its window allocated (§14.2), so the §8.3 order of its `SCHEMA` rows, whose names may live in older layers, is
+checked against the whole set, as is §10.1's presence rule (spec sync 2b).
 
 ### 17.2 Consequences
 
@@ -1343,3 +1359,12 @@ The following decisions of other work packages condition this chapter without be
   `Reserve` record ([F05 §9.27]) named until its bulk `Commit` folds or `gc` releases them, which [F16] P-77 condition 2
   and P-84 need once the record leaves the tail (§14.4; P1-3); a promoted `commitref` set stores each `id16` once (§10.2);
   §16.4 cites [F05 §9.27] and [F16] P-84 for the ids of a changeset segment (OP-09-17 closed).
+- **OP-09-30 (spec sync 2b).** WP-95's conformance run and the arbiter rulings A0–A2 read §10.1's "every section its
+  rows imply" as the `FPROMO` rows: every row of `FPROMO` implies its `FCOL` (and in a base its `FIDX`), also when no row
+  of the segment holds the field. §10.1 now says so, adds a presence rule for `FPROMO` itself (present when a row holds a
+  promoted value or, in an upper segment, a value's set changed; [50] F5's "0 until used"), which the text left circular,
+  and V-11/V-12 check both. The alternative (sections only for fields the segment's rows hold) was not taken: the chapter
+  states every omission of an empty item explicitly (§9.2, §10.3, §16.2) and FCOL has none, the sentence before it gives
+  an index-2 scalar row "also an `FCOL`", and V-11 is checkable from `FPROMO` alone only under this reading. Also:
+  `FTSSTAT.docs` counts documents whose field has a token (§12.4); a runtime-only fold's delta after tier 2 is on carries
+  empty tier-2 sections (§15.1, [F17 §6.4]); name comparisons in full checks go through the set's symbols (§17.1).

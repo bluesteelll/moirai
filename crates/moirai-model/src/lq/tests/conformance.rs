@@ -18,7 +18,9 @@
 //!     decides); for the C-AST, `%% hash blake3_256 0..<n> first 16 = <32 hex>` (`H` of [LQ/canonical-ast §7.1] over
 //!     the whole encoding), `%% explain-id q:<8 hex>` and `%% cursor-query-hash 0x<16 hex>` (§7.2).
 //!   - Blocks run to the next directive, trailing empty lines dropped: `%% input`, the text, lines joined by LF;
-//!     `%% input-hex`, its bytes in lower-case hex (text from `;` to the end of a line is a comment); `%% tokens`, the
+//!     `%% input-json`, a JSON IR document in the same line form ([LQ/canonical-ast §9]: the directive, not the file
+//!     name or the entry value, tells it from LQ text); `%% input-hex`, its bytes in lower-case hex (text from `;` to
+//!     the end of a line is a comment); `%% tokens`, the
 //!     token stream of [LQ/lexical §11], compared byte for byte; `%% sast`, the S-expression of [LQ/canonical-ast
 //!     §4.2], compared by §4.1; `%% reads`, the reading-echo lines of [LQ/envelope §4.2], in order; `%% cast`, the
 //!     C-AST's S-expression of §4.3 in the case's context; `%% encoding`, its bytes (§6) in hex; `%% portable`, the
@@ -27,9 +29,11 @@
 //!     and `%% json` (the text and JSON forms of a result or an error: the reference renderer's, WP-71a, and the
 //!     product's), `%% json-ir` (the JSON IR output form), `%% hex` (the bytes of an envelope structure such as a
 //!     cursor) and `%% transport` (the source name of an error text). A case without an input states only renderings
-//!     (`%% hash` included, over its `%% hex`) and is not run. The cases of `json-ir.cases` have JSON IR documents as
-//!     their input, and their errors may be located by a JSON Pointer (`<code> ptr <pointer> spec|conv`): that file's
-//!     layout is read and its cases are not run.
+//!     (`%% hash` included, over its `%% hex`) and is not run. A case holds at most one of the byte blocks `%% encoding`
+//!     and `%% hex` ([LQ/canonical-ast §9] "Hash lines"). A case whose input is `%% input-json` is read and not run:
+//!     the model has no JSON code, the IR reader being the converter's. The cases of `json-ir.cases` take their IR
+//!     documents by `%% input-json`, and their errors may be located by a JSON Pointer (`<code> ptr <pointer>
+//!     spec|conv`): that file's layout is read and its cases are not run.
 //!   - A case binds in a store where every node its text names by `#N` exists, kinds unknown ("a store in which the
 //!     named nodes exist"), besides the nodes its context names. Any other directive, a directive given twice, or text
 //!     outside a block, fails the check: the layout has moved on.
@@ -420,6 +424,8 @@ struct Block {
     input: Option<String>,
     input_file: Option<String>,
     input_hex: Option<String>,
+    /// A JSON IR document ([LQ/json-ir]), which the model reads without running.
+    input_json: Option<String>,
     tokens: Option<String>,
     sast: Option<String>,
     same_as: Option<String>,
@@ -438,6 +444,8 @@ struct Block {
     portable: Option<String>,
     /// A rendering no model code produces was stated: `%% text`, `%% json`, `%% json-ir`, `%% hex` or `%% transport`.
     renders: bool,
+    /// The byte block `%% hex` was stated (at most one of it and `%% encoding`, [LQ/canonical-ast §9]).
+    hex: bool,
 }
 
 impl Block {
@@ -613,6 +621,7 @@ fn read_blocks(text: &str) -> Result<Vec<Block>, String> {
         match k {
             "input" => b.input = Some(joined),
             "input-hex" => b.input_hex = Some(joined),
+            "input-json" => b.input_json = Some(joined),
             "tokens" => b.tokens = Some(joined + "\n"),
             "sast" => b.sast = Some(joined),
             "reads" => b.reads = Some(joined),
@@ -622,6 +631,10 @@ fn read_blocks(text: &str) -> Result<Vec<Block>, String> {
             // The text and JSON renderings of a result or an error, the JSON IR output form and the bytes of an
             // envelope structure: the reference renderer's (WP-71a), the JSON IR converter's and the product's. The
             // model has no rendering and no JSON code (PLAN §2.2).
+            "hex" => {
+                b.hex = true;
+                b.renders = true;
+            }
             _ => b.renders = true,
         }
     };
@@ -675,9 +688,33 @@ fn read_blocks(text: &str) -> Result<Vec<Block>, String> {
             "cursor-query-hash" => b.cursor_hash = one(&b.cursor_hash)?,
             // The source name of an error's text rendering: `argv`, `stdin`, `query` or `file <name>`.
             "transport" => b.renders = true,
-            "input" | "input-hex" | "tokens" | "sast" | "reads" | "cast" | "encoding"
-            | "portable" | "json-ir" | "text" | "json" | "hex" => body = Some((k, Vec::new())),
-            "end" => out.extend(cur.take()),
+            "input" | "input-hex" | "input-json" | "tokens" | "sast" | "reads" | "cast"
+            | "encoding" | "portable" | "json-ir" | "text" | "json" | "hex" => {
+                let given = match k {
+                    "input" => b.input.is_some(),
+                    "input-hex" => b.input_hex.is_some(),
+                    "input-json" => b.input_json.is_some(),
+                    "encoding" => b.encoding.is_some(),
+                    "hex" => b.hex,
+                    _ => false,
+                };
+                if given {
+                    return Err(format!("line {}: a second %% {k}", i + 1));
+                }
+                body = Some((k, Vec::new()));
+            }
+            "end" => {
+                if let Some(b) = &cur
+                    && b.encoding.is_some()
+                    && b.hex
+                {
+                    return Err(format!(
+                        "case {}: both %% encoding and %% hex ([LQ/canonical-ast §9])",
+                        b.name
+                    ));
+                }
+                out.extend(cur.take());
+            }
             _ => return Err(format!("line {}: unknown directive %% {k}", i + 1)),
         }
     }
@@ -909,12 +946,22 @@ fn run_block_file(
             return;
         }
     };
-    if p.file_name().is_some_and(|n| n == JSON_IR_FILE) {
-        tally.json_ir += blocks.len();
-        return;
-    }
+    let ir_file = p.file_name().is_some_and(|n| n == JSON_IR_FILE);
     for b in &blocks {
         let at = format!("{}: case {} (line {})", p.display(), b.name, b.line);
+        if b.input_json.is_some() || ir_file {
+            // A JSON IR document: read, not run (the model has no JSON code, PLAN §2.2). The JSON IR's file takes its
+            // documents by `%% input-json`, and no case holds both an IR document and an LQ input ([LQ/canonical-ast
+            // §9]).
+            if b.has_input() {
+                failures.push(format!(
+                    "{at}: a JSON IR case takes its document by %% input-json alone"
+                ));
+            } else {
+                tally.json_ir += 1;
+            }
+            continue;
+        }
         if !b.has_input() {
             // A rendering golden: a result, an error text or envelope bytes for a stated situation.
             let only_renders = b.renders
@@ -1198,7 +1245,7 @@ fn the_runner_reads_case_files() {
         );
         write(
             "cases/json-ir.cases",
-            "%% case ir\n%% entry read\n%% input\n{\"t\": \"read\"}\n%% error E001 ptr /query spec\n%% end\n",
+            "%% case ir\n%% entry read\n%% input-json\n{\"t\": \"read\"}\n%% error E001 ptr /query spec\n%% end\n",
         );
         assert_eq!(
             run_cases(&dir),

@@ -128,6 +128,9 @@ pub enum PT {
     ListRev,
     /// Any value.
     Any,
+    /// `tx.claim`'s `$ttl`: a `text` (a duration's text or `run`), a `duration`, or an `int` of milliseconds
+    /// ([LQ/std §7.3], spec sync 2b).
+    Ttl,
 }
 
 impl PT {
@@ -140,7 +143,7 @@ impl PT {
             PT::Int => Ty::Int,
             PT::Float => Ty::Float,
             PT::Bool => Ty::Bool,
-            PT::Text => Ty::Text,
+            PT::Text | PT::Ttl => Ty::Text,
             PT::Rev => Ty::Rev,
             PT::Time => Ty::Time,
             PT::Dur => Ty::Dur,
@@ -920,7 +923,7 @@ pub const MUTATIONS: [Mutation; 21] = [
             o("scope", PT::Node),
             o("role", PT::Text),
             o("agent", PT::Text),
-            o("ttl", PT::Text),
+            o("ttl", PT::Ttl),
             o("start", PT::Bool),
             o("run", PT::Text),
             o("session", PT::Bool),

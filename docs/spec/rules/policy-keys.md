@@ -27,12 +27,9 @@ every key pattern has exactly one row, every row names a registered pattern, its
 at test time and requires the registry to equal it (every key once, its type, default and class; the policy-data names
 of [CFG §10.13]), so a transcription error cannot hide in both copies. Then every value of every row is tested (§2).
 
-The `function` cells name the model's functions as the model binds them, and this table is normative for those names.
-[CFG §10]'s `read by` column names six of them differently (`lease::deadline` for `lease::ttl_for`, `idem::lookup` for
-`idem::Table::lookup`, `tx::check_caps` for `budget::check_caps`, and `policy::model_profile`,
-`policy::read_safelist` and `policy::model_write_rule` for the `profile::` functions), and [CFG §10.13]'s `model`
-column names the policy-data functions by an earlier plan (`policy::may_self_claim`, `policy::role_rights`, …);
-aligning them is R-SPEC-F's (review of WP-90b).
+The `function` cells name the model's functions as the model binds them, and this table is normative for those names
+([CFG §9.4]): [CFG §10]'s `read by` cells and [CFG §10.13]'s `model` cells follow them, and where the two differ this
+table wins (spec sync 2b). The `files.*` functions are one module, `links` (WP-92).
 
 ## 2. How a row is tested
 
@@ -48,8 +45,9 @@ the companion value [CFG §5.3]'s fallback gives the other key, so every allowed
 - **any other function**: a targeted case shows the value's effect through that function, as the function's
   `key-functions` row states.
 
-Policy data are schema rows versioned per branch ([CFG §2.4]); [F08] gives them no schema item class yet, so the model
-takes them as an input beside its configuration snapshot (`PolicyData`, [OP-1]).
+Policy data are schema rows versioned per branch ([CFG §2.4]): schema items of class `policy` ([F08 §8.5.6]), which a
+`Schema` command writes ([API §9.8]). The model sets a `policy-rows` value with a `Schema` write on the branch the case
+runs on, and a view without the item takes the row's default ([OP-1], closed in spec sync 2b).
 
 Column notes:
 
@@ -122,7 +120,7 @@ Column notes:
 | KF-035 | `links::tree_gate` | WP-92 | design | [40 §5.3]; [CFG §10.1] | - |
 | KF-036 | `links::cloud_policy` | WP-92 | design | [40 §4.6]; [CFG §10.1] | - |
 | KF-037 | `links::content_available` | WP-92 | design | [F20]; [CFG §10.4] | - |
-| KF-038 | `anchors::window_available` | WP-92 | design | [F20]; [CFG §10.4] | - |
+| KF-038 | `links::window_available` | WP-92 | design | [F20]; [CFG §10.4] | - |
 | KF-039 | `links::auto_policy` | WP-92 | design | [40 §9.2]; [CFG §10.6] | - |
 | KF-040 | `links::scratchpad_policy` | WP-92 | design | [40 §9.2]; [CFG §10.6] | - |
 | KF-041 | `links::ignored` | WP-92 | design | [F20 §4.4]; [CFG §10.6] | - |
@@ -132,6 +130,7 @@ Column notes:
 | KF-045 | `image::export_set` | M5 | design | [AR §5b.8]; [CFG §10.10] | Group I is M5's ([API §2.2]); the model supplies states, changesets and commit ids at M0. |
 | KF-046 | `image::anchor_text_on_import` | M5 | design | [40 §5.7]; [CFG §10.10] | As above. |
 | KF-047 | `image::import_merge` | M5 | design | [AR §5b.6]; [CFG §10.10] | As above. |
+| KF-048 | `api::Store::resolve` | WP-90 | design | [API §4.2] CX-1 to CX-9; [CFG §10.9] | The caller context of [API §4.2]; CX-7 reads `client.profile` (spec sync 2b). |
 
 ## 5. Keys
 
@@ -178,7 +177,7 @@ Column notes:
 | KY-038 | `gc.trash-expire` | `gc.trash-expire` | I | `invariance` | 14d, 0d, 3650d, 30m | SP-1 | design | [CFG §10.2] | - |
 | KY-039 | `gc.fileobs-idle-expire` | `gc.fileobs-idle-expire` | I | `invariance` | 30d, 1h, 3650d | SP-1 | design | [CFG §10.2] | - |
 | KY-040 | `gc.delete-grace` | `gc.delete-grace` | I | `invariance` | 1m, 0d, 1h, 1s | SP-1 | design | [CFG §10.2] | - |
-| KY-041 | `durability.lazy-kinds` | `durability.lazy-kinds` | V | `crash::survives` | heartbeat,cursor,session-mark, (empty), heartbeat, cursor, session-mark | GT3 | design | [CFG §10.3]; [API §6.7] | The kinds whose records a crash may lose; a lazy heartbeat renewal may revert its deadline. No Store API command shows the effect: `EnvCrash` `between` is a process crash that keeps every lazy record, and no candidate of `in-next` loses one, so GT2 cannot observe the key and GT3 alone consumes `crash::survives`. Open for R-SPEC-F: an OS-crash form of [API §6.7] whose candidates include lost lazy records, or a class other than V in [CFG §10.3] (review of WP-90b). |
+| KY-041 | `durability.lazy-kinds` | `durability.lazy-kinds` | V | `crash::survives` | heartbeat,cursor,session-mark, (empty), heartbeat, cursor, session-mark | GT3 | design | [CFG §10.3]; [API §6.7] | The kinds whose records a crash may lose; a lazy heartbeat renewal may revert its deadline. No Store API command shows the effect: `EnvCrash` `between` is a process crash that keeps every lazy record, and no candidate of `in-next` loses one, so GT2 cannot observe the key and GT3 alone consumes `crash::survives`. [API §6.7] gets no OS-crash form (spec sync 2b): the key stays class V and GT3's crash harness alone checks it (review of WP-90b). |
 | KY-042 | `quiet.from-lane-measuring` | `quiet.from-lane-measuring` | V | `quiet::in_quiet_mode` | true, false | GT2 | design | [CFG §10.3] | A lane with status `measuring` implies quiet mode, which refuses `Gc` without `force`. |
 | KY-043 | `maintenance.rollup` | `maintenance.rollup` | I | `invariance` | auto, explicit | SP-1 | design | [CFG §10.3] | - |
 | KY-044 | `lease.ttl-default` | `lease.ttl-default` | V | `lease::ttl_for` | 15m, 1m, 30d | GT2 | design | [CFG §10.3] | A task claim without `ttl` takes this TTL; half of it is the renewal threshold. |
@@ -194,7 +193,7 @@ Column notes:
 | KY-054 | `mem.rss-gate.cli-per-view` | `mem.rss-gate.cli-per-view` | Rs | `invariance` | 1MiB, 0, 64MiB | SP-2 | design | [CFG §10.4] | - |
 | KY-055 | `mem.rss-gate.mcp` | `mem.rss-gate.mcp` | Rs | `invariance` | 15625KiB, 1MiB, 1GiB | SP-2 | design | [CFG §10.4] | - |
 | KY-056 | `files.max-read-bytes` | `files.max-read-bytes` | V | `links::content_available` | 16MiB, 128KiB, 4GiB | GT2 | design | [CFG §10.4] | A larger project file is `Unavailable(size)`. |
-| KY-057 | `files.max-line-hashes` | `files.max-line-hashes` | V | `anchors::window_available` | 65536, 1024, 16777216 | GT2 | design | [CFG §10.4] | Beyond it, window-only anchors are `unverified (size)`. |
+| KY-057 | `files.max-line-hashes` | `files.max-line-hashes` | V | `links::window_available` | 65536, 1024, 16777216 | GT2 | design | [CFG §10.4] | Beyond it, window-only anchors are `unverified (size)`. |
 | KY-058 | `files.deep.threads` | `files.deep.threads` | I | `invariance` | 8, 1, 64 | SP-1 | design | [CFG §10.4] | - |
 | KY-059 | `files.deep.content-readers` | `files.deep.content-readers` | I | `invariance` | 2, 1, 8 | SP-1 | design | [CFG §10.4] | - |
 | KY-060 | `query.budget.default.work` | `query.budget.default.work` | B | `budget::effective` | 2000000, 1, 10000000000 | GT9 | design | [CFG §10.5] | - |
@@ -279,7 +278,7 @@ Column notes:
 | KY-139 | `mcp.ids-page-bytes` | `mcp.ids-page-bytes` | O | `invariance` | 8000, 1000, 25000 | GT12 | design | [CFG §10.8] | - |
 | KY-140 | `output.ids-max-bytes` | `output.ids-max-bytes` | O | `invariance` | 24000, 0, 1000000000 | GT12 | design | [CFG §10.8] | - |
 | KY-141 | `export.memory-md` | `export.memory-md` | X | `invariance` | auto, full, pointer | GT12 | design | [CFG §10.8] | - |
-| KY-142 | `client.profile` | `client.profile` | O | `invariance` | auto, claude, codex, generic | GT12 | design | [CFG §10.9] | - |
+| KY-142 | `client.profile` | `client.profile` | V | `api::Store::resolve` | auto, claude, codex, generic | GT2 | design | [CFG §10.9]; [API §4.2] CX-7 | CX-7 reads the key after `--client` and `MOIRAI_CLIENT`, before `ctx.client_info` and the harness detection, when its value is not `auto`; the client selects the default model family (`lq.model-profile.default.<client>`) and so E411 (WR-012) (spec sync 2b; [OP-4]). |
 | KY-143 | `mcp.tools` | `mcp.tools` | X | `invariance` | all, read, core | GT12 | design | [CFG §10.9] | - |
 | KY-144 | `integrate.instructions-scope` | `integrate.instructions-scope` | X | `invariance` | project, user | GT12 | design | [CFG §10.9] | - |
 | KY-145 | `integrate.claude-md` | `integrate.claude-md` | X | `invariance` | import, copy | GT12 | design | [CFG §10.9] | - |
@@ -330,7 +329,7 @@ Column notes:
 | [CFG §9.5] the sweep plan's allowed-value sets, one at a time | complete for every key pattern and policy-data row; the pairs and the hook sweep are the checkers' (GT2, GT12) | §2, §5, §6 |
 | [CFG §10.13] policy data | complete | §6 |
 | [CFG §10.14] / [60 §3.14] the 25 former owner questions | every key or row they name has its row here, with its function or checker | §5, §6 |
-| [m0/PLAN §3.2] WP-90 `rules/policy-keys`; [m0/PLAN §7] E8 "every allowed value of each policy key" | complete for WP-90's functions; the rows of WP-91, WP-92 and M5 are tested by `invariance` until their packages bind them | §2 |
+| [m0/PLAN §3.2] WP-90 `rules/policy-keys`; [m0/PLAN §7] E8 "every allowed value of each policy key" | complete for the functions of WP-90, WP-91 and WP-92; the rows of M5 are tested by `invariance` until M5 binds them | §2 |
 
 No R-row, F-row or X-F row concerns this file.
 
@@ -345,14 +344,20 @@ first candidate where [CFG] names no design value: `gated` for `CFG-model-profil
    [F08 §8.5] has no item class for them and [API] no command that writes them. The model takes them as an input
    (`PolicyData`) beside the configuration snapshot, and each role-policy row whose `key` names one takes its role cell
    from it. Proposed for WP-14: a schema item class for policy-data rows, so a schema write changes them per branch.
+   **Closed in spec sync 2b** (GT10 finding F-6): [F08 §8.5.6] adds the schema item class `policy` `{name, value}`,
+   versioned per branch, written by `Schema` ([API §9.8]), one atomic merge value whose divergence is `SchemaConflict`
+   ([RULES/merge-table] MR-055). The model reads policy data from the view's policy items, not from an input (§2).
 2. **`policy.role.<role>.tx` has no value set.** [CFG §10.13] gives "the per-statement policy" as its value. This table
    sweeps two values: `per-statement` (the `role-statements` rows whose key it is) and `none` (the role may use none of
    those classes). [CFG §10.13]'s default also says "bulk targets for `orchestrator` only", while
-   [RULES/role-write-policy] WX-005 admits `orchestrator, owner`; the model follows WX-005.
+   [RULES/role-write-policy] WX-005 admits `orchestrator, owner`; the model follows WX-005. **Settled in spec sync 2b**:
+   [CFG §10.13] now gives the two values and WX-005's bulk roles.
 3. **Class-O and class-X keys with a model function.** The pack budgets, ceilings, quotas and notice mode, and the hook
    keys, change output or harness behaviour only ([CFG §9.4] O, X), but the model computes them as data from
    [RULES/pack-classes] and [RULES/role-write-policy] `role-hooks`, so each has a per-value test here beside its checker.
 4. **`client.profile` is class O but selects a write rule.** Its value is the client of CX-7, whose default family
    (`lq.model-profile.default.<client>`) decides the model profile and so E411 (class V). The model resolves CX-7 from
    `ctx.client` and `MOIRAI_CLIENT` only ([API §4.2]), which are the key's flag and variable ([CFG §10.12]), never from
-   the file value. The review decides whether the key is class V or CX-7 ignores the file.
+   the file value. The review decides whether the key is class V or CX-7 ignores the file. **Decided in spec sync 2b**:
+   CX-7 reads `client.profile` after `--client` and `MOIRAI_CLIENT` when it is not `auto`, and the key is class V with
+   the function `api::Store::resolve` ([CFG §10.9]; KY-142, KF-048).

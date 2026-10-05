@@ -148,7 +148,8 @@ pub struct Report {
     pub kills_mixed_group: u64,
     /// Kill runs of a process inside a flush or a lock wait at another process's point.
     pub kills_of_holders: u64,
-    /// Kill runs of a flush holder followed by crash points (the next holder adopting its group, [80 §2.4.4]).
+    /// Kill runs followed by crash points: of a flush holder (the next holder adopting its group, [80 §2.4.4]), and of a
+    /// process whose death cut a write to a slot file (the next publisher writing over the cut slot, S2B-P-27).
     pub kills_with_crash_points: u64,
     /// Crash points after those deaths.
     pub crash_points_after_kills: u64,
@@ -166,8 +167,20 @@ pub struct Report {
     pub truncations: u64,
     /// Recoveries after which a truncated sealed file had to be named by the diagnosis.
     pub diagnoses: u64,
-    /// Recoveries that refused where a refusal is a correct answer (FM-8.1, FM-10, FM-12).
+    /// Refusals of recoveries (first reads, writers, refusals answered by repair) that the runs' faults explain (module
+    /// `refusal`).
     pub refusals: u64,
+    /// Recoveries whose first read an Unknown-boot reader made (judged for consistency only, [F13 §3.8]).
+    pub unknown_boot_reads: u64,
+    /// Disk-full and death runs that cut a write to a slot file; the end of each takes the slot states in every tier
+    /// ([F04 §8.1] "Both slots absent", [F15 §6.4]).
+    pub slot_fault_runs: u64,
+    /// Successful whole-slot writes the trace predicates judged against the newest valid slot before them (I-G6).
+    pub publishes_judged: u64,
+    /// Acknowledged groups' identity bytes checked in recovered worlds (chain, I-G3).
+    pub chain_checks: u64,
+    /// Workload refusals judged against their runs' faults (avail).
+    pub workload_refusals: u64,
     /// Failed checks in all.
     pub failures_total: u64,
     /// The first failures, with what replays them.
@@ -207,6 +220,11 @@ impl Report {
             truncations: 0,
             diagnoses: 0,
             refusals: 0,
+            unknown_boot_reads: 0,
+            slot_fault_runs: 0,
+            publishes_judged: 0,
+            chain_checks: 0,
+            workload_refusals: 0,
             failures_total: 0,
             failures: Vec::new(),
             elapsed: Duration::ZERO,
@@ -302,6 +320,16 @@ impl core::fmt::Display for Report {
             self.truncations,
             self.diagnoses,
             self.refusals
+        )?;
+        writeln!(
+            f,
+            "  runs with a cut slot write {}; first reads by an Unknown-boot reader {}",
+            self.slot_fault_runs, self.unknown_boot_reads
+        )?;
+        writeln!(
+            f,
+            "  publishes judged {}; acknowledged-group identities checked {}; workload refusals judged {}",
+            self.publishes_judged, self.chain_checks, self.workload_refusals
         )?;
         write!(f, "  failures {}", self.failures_total)?;
         if let Some(why) = &self.incomplete {

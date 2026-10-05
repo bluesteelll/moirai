@@ -61,6 +61,8 @@ sync.outcome staged
 sync.violation edge:$t62:blocks:$t61 DanglingEdge
 %% expect
 main $t61 deleted yes
+main $t51 status done
+main $t51 resolution completed GR-014
 main $q9 status open
 main $r1 criticality critical
 main $r1 status active

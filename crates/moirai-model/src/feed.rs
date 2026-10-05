@@ -16,37 +16,39 @@ use crate::state::{Aspect, KState, Key, State};
 use crate::value::Nid;
 use std::collections::{BTreeMap, BTreeSet};
 
-/// One entry of the feed, one row of `changes` ([LQ/std §2.12]).
+/// One entry of the feed, one row of `changes` ([LQ/std §2.12], §2.15).
 ///
-/// [LQ/std §2.12] fixes the key-change rows only. For lease, marker and ref-move entries the columns `op`, `aspect`,
-/// `name`, `ref` and `seq`, the `since` cut and the order of ties within one `seq` are the model's reading below until
-/// R-SPEC-F's table fixes them (review of WP-90b, spec finding).
+/// The entries that are not key changes follow [LQ/std §2.15]'s table: a lease event (`grant`, `end` for every end reason
+/// of [F05 §9.4], `renew`, `move`) with `aspect` `lease`, `name` `L-<n>`, the task, the lease's branch (the new branch for
+/// `move`), the group's commit (absent for `renew` and outside a commit group) and the holder as `actor`; a marker entry
+/// (`settled`, `deleted`, `cleared`) with `aspect` `marker`, `name` `s<seq>` of its origin commit, the node, the origin
+/// ref and commit, and the entry's actor, else the origin commit's; a ref move no commit carries (`create`, `delete`,
+/// `undo`, `op-restore`, `park`) with `aspect` `ref`, the ref's name, the moved ref, the new tip (absent for a deletion)
+/// and the record's actor.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Change {
-    /// `seq`: the commit's seq; for an entry without a commit, the store's `commit_seq` when it was recorded.
+    /// `seq`: the commit's seq; for an entry no commit carries, the seq of the newest commit appended before it.
     pub seq: u64,
-    /// `ref`: the ref the entry belongs to (the commit's ref, the lease's branch, the marker's origin ref, the moved
-    /// ref).
+    /// `ref`: the ref of [LQ/std §2.15]'s table: the commit's ref, the lease's branch, the marker's origin ref, the moved
+    /// ref.
     pub ref_: String,
-    /// `commit`: the commit, when the entry has one.
+    /// `commit`: the commit column of [LQ/std §2.15]'s table, when the entry has one.
     pub commit: Option<u64>,
     /// `node`: the node, when the entry has one.
     pub node: Option<Nid>,
-    /// `op`: `+`, `-` or `~` for a key change ([API §5.7] `change`); `grant`, `end`, `renew`, `move` (`--move-lease`)
-    /// for a lease event; `settled`, `deleted`, `cleared` for a marker entry; `create`, `delete`, `undo`, `op-restore`
-    /// for a ref move.
+    /// `op`: `+`, `-` or `~` for a key change ([API §5.7] `change`), else [LQ/std §2.15]'s.
     pub op: String,
     /// `aspect`: the key's aspect word of [API §5.7], or `lease`, `marker`, `ref`.
     pub aspect: String,
     /// `name`: the key's name of [API §5.7]; the lease id, the marker's origin commit (`s<seq>`), or the ref name.
     pub name: String,
-    /// `actor`: the commit's actor, or the actor of the command that recorded the entry.
+    /// `actor`: the commit's actor, the lease's holder, the marker entry's actor, or the ref move's actor.
     pub actor: String,
     /// `affected`: the commit's `affected` ids ([F13 §6.3]); empty for other entries.
     pub affected: Vec<Nid>,
-    /// The stream position of the command that recorded the entry: entries without a commit share the `seq` of the
-    /// store's last commit, and this tells a later command's entries from that commit's own group.
-    pub cmd: u64,
+    /// The commit whose group carries the entry ([F05 §4.7]); `None` for an entry no commit carries (a ref group, a
+    /// lease-only group), which `since(s)` counts after commit `seq`.
+    pub group: Option<u64>,
 }
 
 /// The aspect word and name of a node key ([API §5.7]).
@@ -97,33 +99,27 @@ pub fn commit_rows(dag: &Dag, st: &State, c: u64) -> Vec<Change> {
                 name,
                 actor: x.actor.clone(),
                 affected: x.affected.clone(),
-                cmd: 0,
+                group: Some(c),
             })
         })
         .collect()
 }
 
-/// The store's feed: every entry in the order it was recorded.
+/// The store's feed: every entry in the order it was recorded, which is [LQ/std §2.15]'s order of ties.
 #[derive(Clone, Debug, Default)]
 pub struct Feed {
     /// The entries.
     pub rows: Vec<Change>,
-    /// The stream position of the running command, which the store sets before each command.
-    pub cmd: u64,
 }
 
 impl Feed {
     /// Records a new commit's rows.
     pub fn commit(&mut self, dag: &Dag, st: &State, c: u64) {
-        let cmd = self.cmd;
-        self.rows.extend(
-            commit_rows(dag, st, c)
-                .into_iter()
-                .map(|r| Change { cmd, ..r }),
-        );
+        self.rows.extend(commit_rows(dag, st, c));
     }
 
-    /// Records one entry without a key change (a lease event, a marker entry, a ref move).
+    /// Records one entry without a key change (a lease event, a marker entry, a ref move) with its columns of
+    /// [LQ/std §2.15] and the commit whose group carries it (`group`).
     #[allow(clippy::too_many_arguments)]
     pub fn event(
         &mut self,
@@ -135,6 +131,7 @@ impl Feed {
         aspect: &str,
         name: String,
         actor: &str,
+        group: Option<u64>,
     ) {
         self.rows.push(Change {
             seq,
@@ -146,27 +143,21 @@ impl Feed {
             name,
             actor: actor.to_string(),
             affected: Vec::new(),
-            cmd: self.cmd,
+            group,
         });
     }
 
-    /// `CALL changes(since: s, ref: r)` ([LQ/std §2.9]): the entries recorded after commit `since`'s group — every
-    /// entry with a greater `seq`, and the entries of later commands that share its `seq` (a claim or a ref move after
-    /// it) — on ref `r` when given; every entry for `since` = 0.
+    /// `CALL changes(since: s, ref: r)` ([LQ/std §2.9]; §2.15 "The `since(s)` cut"): the entries after commit s —
+    /// those whose seq is above s, and those of seq s that no commit carries (recorded after commit s's group) — on ref
+    /// `r` when given; every entry for `since` = 0.
+    // spec: [LQ/std §2.15]
     pub fn since<'a>(
         &'a self,
         since: u64,
         ref_: Option<&'a str>,
     ) -> impl Iterator<Item = &'a Change> + 'a {
-        let cut = self
-            .rows
-            .iter()
-            .filter(|c| c.seq == since && c.commit == Some(since))
-            .map(|c| c.cmd)
-            .min();
         self.rows.iter().filter(move |c| {
-            let after =
-                since == 0 || c.seq > since || (c.seq == since && cut.is_none_or(|k| c.cmd > k));
+            let after = since == 0 || c.seq > since || (c.seq == since && c.group.is_none());
             after && ref_.is_none_or(|r| c.ref_ == r)
         })
     }

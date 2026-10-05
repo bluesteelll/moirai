@@ -117,7 +117,7 @@ fn start(
             a_node: an,
             b_node: bn,
         });
-        st.ev(EventKind::NsOp, None, proc, id, 4, an);
+        st.ev(EventKind::NsOp, st.task_of(proc), proc, id, 4, an);
         st.k.procs[proc as usize].counters.renames += 1;
         return Ok(Form::Native);
     }

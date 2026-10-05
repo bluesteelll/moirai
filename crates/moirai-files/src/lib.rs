@@ -17,3 +17,6 @@ pub mod oid;
 pub mod r14;
 pub mod text;
 pub mod uid;
+
+// R-FL1B (WP-63).
+pub mod scan;

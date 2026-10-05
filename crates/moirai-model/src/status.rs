@@ -36,6 +36,8 @@ pub enum Door {
     DeletionInference,
     /// DR-012.
     DeletePolicy,
+    /// DR-013: `lane close` and `lane freeze` (API `LaneClose`), which pick the target themselves.
+    LaneClose,
 }
 
 impl Door {
@@ -54,6 +56,7 @@ impl Door {
             Door::LinksFix => "links-fix",
             Door::DeletionInference => "deletion-inference",
             Door::DeletePolicy => "delete-policy",
+            Door::LaneClose => "lane-close",
         }
     }
 }
@@ -106,6 +109,39 @@ pub fn transition(kind: &str, from: &str, to: &str, door: Door) -> Res<&'static 
             format!("{kind}: {from} -> {to} goes through {}", other.join(", "))
         },
     ))
+}
+
+/// Whether a kind is a project kind ([F08 §8.5.1]): one the core schema does not define.
+pub fn is_project_kind(kind: &str) -> bool {
+    !crate::schema::core().kinds.iter().any(|k| k.name == kind)
+}
+
+/// GR-018: a status write on a project kind ([F08 §8.5.1]) goes from any of the kind's statuses to any other through
+/// the door `set-status`, unguarded (the schema gives a project kind statuses, not transitions). The value must be one
+/// of the kind's non-retired statuses ([F08 §8.6] item 1, E102); any other door has no row (E404, as GR-001). The role
+/// policy (WS rows with kind `*`) and `branch-mask` apply as to a core kind; the caller checks them.
+// spec: [F08 §8.5.1]
+// rule: GR-018
+pub fn project_transition(
+    schema: &crate::schema::Schema,
+    kind: &str,
+    from: &str,
+    to: &str,
+    door: Door,
+) -> Res<()> {
+    if schema.value(kind, "status", to).is_none() {
+        return Err(Refusal::lq(
+            "E102",
+            format!("{to} is not a status of {kind}"),
+        ));
+    }
+    if door != Door::SetStatus {
+        return Err(Refusal::lq(
+            "E404",
+            format!("{kind}: {from} -> {to} goes through set-status"),
+        ));
+    }
+    Ok(())
 }
 
 /// The guards of a transition (`transition-guards`), in row order.

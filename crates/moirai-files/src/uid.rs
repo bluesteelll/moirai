@@ -53,8 +53,9 @@ pub enum UidError {
     ArgumentTooLong,
     /// The derivation gave the all-zero uid: refused as a collision ([F08 §2.2], [F19 §10.2] `uid_collision`).
     Zero,
-    /// A dead-uid loop ran more times than the view has artifact nodes (for an anchor, anchors on the edge): only a
-    /// BLAKE3 collision causes it; an internal error (exit 1, [F08 §11.2] step 4, §11.4 step 3).
+    /// A dead-uid loop ran more times than the number of nodes of the view it could name, tombstones included (for an
+    /// anchor, the anchors on the edge): only a BLAKE3 collision causes it; an internal error (exit 1, [F08 §11.2]
+    /// step 4, §11.4 step 3).
     LoopBound,
 }
 
@@ -157,25 +158,25 @@ pub struct FileKey {
 /// tombstone), q = u and u is derived again. The loop reads V alone, so every store derives the same uid for the same
 /// file, path and view.
 ///
-/// `artifact_nodes` is the number of artifact nodes V holds, the bound of [F08 §11.2] step 4: a loop that runs more
-/// times is refused. Tombstones keep their kind ([F08 §3.5]), so an artifact's tombstone counts; a caller that counts
-/// them makes the bound cover every node the loop can name without a BLAKE3 collision, because every round names a
-/// node no earlier round named and a name found here is a file-key derivation.
+/// `nameable_nodes` is the bound of [F08 §11.2] step 4: the number of nodes of V that u could name, tombstones
+/// included; a loop that would run more times is refused. Each round names a node of V that no earlier round named
+/// unless BLAKE3 collides, so without a collision the loop ends within the bound. A caller may pass any count that
+/// covers the nodes `names_node` can report, such as the number of nodes of V.
 ///
 /// # Errors
-/// [`UidError::LoopBound`] when the loop would run more than `artifact_nodes` times; the errors of [`uid_file`].
+/// [`UidError::LoopBound`] when the loop would run more than `nameable_nodes` times; the errors of [`uid_file`].
 pub fn derive_file_uid<'a>(
     root: &str,
     path: &str,
     candidates: impl IntoIterator<Item = &'a Uid>,
     mut names_node: impl FnMut(&Uid) -> bool,
-    artifact_nodes: u64,
+    nameable_nodes: u64,
 ) -> Result<FileKey, UidError> {
     let mut q = predecessor(candidates);
     let mut u = uid_file(root, path, q.as_ref())?;
     let mut rounds = 0u64;
     while names_node(&u) {
-        if rounds >= artifact_nodes {
+        if rounds >= nameable_nodes {
             return Err(UidError::LoopBound);
         }
         rounds += 1;
@@ -239,9 +240,29 @@ impl AnchorKind {
             AnchorKind::Lines => "lines",
         }
     }
+
+    /// Whether the kind carries a quote, a prefix and a suffix: `heading`, `symbol`, `quote` and `range` ([F08 §10.3]
+    /// orders 12–17, I-F9).
+    #[must_use]
+    pub const fn has_quote(self) -> bool {
+        matches!(
+            self,
+            AnchorKind::Heading | AnchorKind::Symbol | AnchorKind::Quote | AnchorKind::Range
+        )
+    }
+
+    /// Whether the kind carries an end quote: `range` only ([F08 §10.3] orders 18–19).
+    #[must_use]
+    pub const fn has_end(self) -> bool {
+        matches!(self, AnchorKind::Range)
+    }
 }
 
 /// The inputs of the capture digest `captured` ([F08 §11.1, §11.4]; [40 §2.7]).
+///
+/// The text fields and the window enter only for the kinds that carry them ([F08 §11.1]): [`captured`] reads `quote`,
+/// `prefix` and `suffix` for a kind with [`AnchorKind::has_quote`], `end` for `range` and `window` for `lines`, and
+/// enters every other one as empty, whatever it holds.
 #[derive(Clone, Copy, Debug)]
 pub struct Capture<'a> {
     /// The file node's uid at capture.
@@ -250,13 +271,14 @@ pub struct Capture<'a> {
     pub kind: AnchorKind,
     /// The scope value's bytes ([F08 §10.3.1]); empty when the anchor has none.
     pub scope: &'a [u8],
-    /// `quote.exact`: bytes of N ([F20 §6.1]); empty when the kind has none. For `range`, the start quote.
+    /// `quote.exact`: bytes of N ([F20 §6.1]); it enters for `heading`, `symbol`, `quote` and `range` (the start
+    /// quote).
     pub quote: &'a [u8],
-    /// `prefix.exact`, as widened by the uniqueness ladder; may be empty.
+    /// `prefix.exact`, as widened by the uniqueness ladder; may be empty. It enters as `quote` does.
     pub prefix: &'a [u8],
-    /// `suffix.exact`, as widened by the uniqueness ladder; may be empty.
+    /// `suffix.exact`, as widened by the uniqueness ladder; may be empty. It enters as `quote` does.
     pub suffix: &'a [u8],
-    /// `end.exact`, the end quote of a `range`; empty otherwise.
+    /// `end.exact`, the end quote; it enters for `range` only.
     pub end: &'a [u8],
     /// The 1-based occurrence index, when recorded ([F20 §6.1] step 8.3). [F08 §10.3] requires `occurrence` ≥ 1, so
     /// the type rules out a 0 that no valid anchor record can carry.
@@ -269,24 +291,29 @@ pub struct Capture<'a> {
 /// lp(suffix.exact) ‖ lp(end.exact) ‖ lp(occurrence) ‖ lp(window if kind = lines, else empty))` ([F08 §11.4],
 /// [40 §2.7], review S-03). The occurrence enters as its `u16` little-endian (2 bytes), or empty when absent.
 ///
+/// [F08 §11.1]: `quote.exact`, `prefix.exact`, `suffix.exact` and `end.exact` are "empty when the kind has none", and
+/// the window is empty for a kind other than `lines`; a field the kind does not carry enters as `lp("")` whatever
+/// [`Capture`] holds ([`AnchorKind::has_quote`], [`AnchorKind::has_end`]).
+///
 /// # Errors
 /// [`UidError::ArgumentTooLong`] for an argument of 4 GiB or more.
 pub fn captured(c: &Capture<'_>) -> Result<[u8; 16], UidError> {
+    /// `v` when the kind carries the field, else the empty argument.
+    fn pick(carried: bool, v: &[u8]) -> &[u8] {
+        if carried { v } else { &[] }
+    }
     let occ = c.occurrence.map(|o| o.get().to_le_bytes());
     let occ: &[u8] = occ.as_ref().map_or(&[], |b| &b[..]);
-    let window: &[u8] = if c.kind == AnchorKind::Lines {
-        c.window
-    } else {
-        &[]
-    };
+    let texts = c.kind.has_quote();
+    let window = pick(c.kind == AnchorKind::Lines, c.window);
     Ok(LpHasher::new()
         .lp(&c.file_uid.0)?
         .lp(c.kind.name().as_bytes())?
         .lp(c.scope)?
-        .lp(c.quote)?
-        .lp(c.prefix)?
-        .lp(c.suffix)?
-        .lp(c.end)?
+        .lp(pick(texts, c.quote))?
+        .lp(pick(texts, c.prefix))?
+        .lp(pick(texts, c.suffix))?
+        .lp(pick(c.kind.has_end(), c.end))?
         .lp(occ)?
         .lp(window)?
         .finish128())
@@ -488,6 +515,113 @@ mod tests {
             })
             .unwrap()
         );
+    }
+
+    /// [F08 §11.1]: a text field the kind does not carry, and a window of a kind other than `lines`, enter as empty.
+    #[test]
+    fn fields_enter_only_for_the_kinds_that_carry_them() {
+        let f = Uid([4; 16]);
+        let empty = |kind| Capture {
+            file_uid: &f,
+            kind,
+            scope: b"",
+            quote: b"",
+            prefix: b"",
+            suffix: b"",
+            end: b"",
+            occurrence: None,
+            window: b"",
+        };
+        let full = |kind| Capture {
+            quote: b"start",
+            prefix: b"pre",
+            suffix: b"suf",
+            end: b"stop",
+            window: b"\x01\x00\x01\x00\x11\x11",
+            ..empty(kind)
+        };
+        for k in [
+            AnchorKind::File,
+            AnchorKind::Heading,
+            AnchorKind::Symbol,
+            AnchorKind::Quote,
+            AnchorKind::Range,
+            AnchorKind::Lines,
+        ] {
+            let carried =
+                |field: Capture<'_>| captured(&field).unwrap() != captured(&empty(k)).unwrap();
+            let base = empty(k);
+            assert_eq!(
+                carried(Capture {
+                    quote: b"q",
+                    ..base
+                }),
+                k.has_quote(),
+                "{k:?} quote"
+            );
+            assert_eq!(
+                carried(Capture {
+                    prefix: b"p",
+                    ..base
+                }),
+                k.has_quote(),
+                "{k:?} prefix"
+            );
+            assert_eq!(
+                carried(Capture {
+                    suffix: b"s",
+                    ..base
+                }),
+                k.has_quote(),
+                "{k:?} suffix"
+            );
+            assert_eq!(
+                carried(Capture { end: b"e", ..base }),
+                k.has_end(),
+                "{k:?} end"
+            );
+            assert_eq!(
+                carried(Capture {
+                    window: b"\x01",
+                    ..base
+                }),
+                k == AnchorKind::Lines,
+                "{k:?} window"
+            );
+            // Always entered: the scope and the occurrence.
+            assert!(carried(Capture {
+                scope: b"\x01\x01\x01\x01a\x00",
+                ..base
+            }));
+            assert!(carried(Capture {
+                occurrence: NonZeroU16::new(1),
+                ..base
+            }));
+        }
+        // A field a kind does not carry is ignored whatever it holds.
+        assert_eq!(
+            captured(&full(AnchorKind::File)).unwrap(),
+            captured(&empty(AnchorKind::File)).unwrap()
+        );
+        assert_eq!(
+            captured(&full(AnchorKind::Quote)).unwrap(),
+            captured(&Capture {
+                end: b"",
+                window: b"",
+                ..full(AnchorKind::Quote)
+            })
+            .unwrap()
+        );
+        assert_eq!(
+            captured(&full(AnchorKind::Lines)).unwrap(),
+            captured(&Capture {
+                window: full(AnchorKind::Lines).window,
+                ..empty(AnchorKind::Lines)
+            })
+            .unwrap()
+        );
+        assert!(!AnchorKind::File.has_quote() && !AnchorKind::Lines.has_quote());
+        assert!(AnchorKind::Range.has_end() && !AnchorKind::Quote.has_end());
     }
 
     /// Pinned digests of store-permanent identities: a change to any derivation breaks these. The values were computed

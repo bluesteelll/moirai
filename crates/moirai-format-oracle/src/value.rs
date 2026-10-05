@@ -1,4 +1,4 @@
-//! [F08] data model bytes: the type byte and every stored value encoding (§5.1–§5.3, §5.5), the field block (§6),
+//! \[F08\] data model bytes: the type byte and every stored value encoding (§5.1–§5.3, §5.5), the field block (§6),
 //! `NodeHdr` (§3) and `Creator` (§4), the schema item records with `KindSet` (§8.4.8, §8.5), the edge property block
 //! (§10.2), the anchor record (§10.3) with its scope value (§10.3.1) and the window value of [F20 §2.7.3].
 
@@ -389,8 +389,10 @@ pub fn stored_cmp(a: &Value, b: &Value) -> core::cmp::Ordering {
         (Value::Oid(x), Value::Oid(y)) => {
             (x.algo_byte(), x.digest()).cmp(&(y.algo_byte(), y.digest()))
         }
+        // [F08 §5.5]: (hlc, root id, from, to, class, git); `to` has the root of `from` (§5.2).
         (Value::PathMove(x), Value::PathMove(y)) => (
             x.hlc,
+            x.from.root,
             x.from.text.as_bytes(),
             x.to.text.as_bytes(),
             x.class,
@@ -398,6 +400,7 @@ pub fn stored_cmp(a: &Value, b: &Value) -> core::cmp::Ordering {
         )
             .cmp(&(
                 y.hlc,
+                y.from.root,
                 y.from.text.as_bytes(),
                 y.to.text.as_bytes(),
                 y.class,
@@ -629,13 +632,13 @@ impl KindSet {
 /// A schema item record ([F08 §8.5]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Item {
-    /// Bit 0 `retired` (not for class 5).
+    /// Bit 0 `retired` (not for classes 5 and 6).
     pub iflags: u8,
     /// The class body.
     pub body: ItemBody,
 }
 
-/// The class bodies of [F08 §8.5.1]–§8.5.5.
+/// The class bodies of [F08 §8.5.1]–§8.5.6.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum ItemBody {
     /// Class 1.
@@ -718,6 +721,13 @@ pub enum ItemBody {
         /// Canonical-AST hash.
         ast_hash: [u8; 16],
     },
+    /// Class 6 ([F08 §8.5.6]): a policy-data row of [CFG §10.13].
+    Policy {
+        /// The row instance name. Whether it names a row of [CFG §10.13] is a C-rule ([F08 §8.5.6]).
+        name: String,
+        /// The row's value in [CFG §4.1]'s canonical form.
+        value: String,
+    },
 }
 
 /// The edge-kind item body ([F08 §8.5.4]).
@@ -787,10 +797,10 @@ impl Item {
         let class = r.u8()?;
         let f_at = r.offset();
         let iflags = r.u8()?;
-        if iflags & 0xFE != 0 || (class == 5 && iflags != 0) {
+        if iflags & 0xFE != 0 || (matches!(class, 5 | 6) && iflags != 0) {
             return err(
                 f_at,
-                "item iflags reserved bits set, or retired on a named query [F08 §8.5]",
+                "item iflags reserved bits set, or retired on a named query or policy row [F08 §8.5]",
             );
         }
         let body = match class {
@@ -962,9 +972,36 @@ impl Item {
                     ast_hash: r.b16()?,
                 }
             }
-            c => return err(at, format!("schema item class {c} outside 1-5 [F08 §8.5]")),
+            6 => ItemBody::Policy {
+                name: r.vstr()?.to_owned(),
+                value: r.vstr()?.to_owned(),
+            },
+            c => return err(at, format!("schema item class {c} outside 1-6 [F08 §8.5]")),
         };
         Ok(Item { iflags, body })
+    }
+
+    /// The item's stored key form ([F08 §8.5] "Stored key form"): its key's component names in key order, joined by
+    /// one `00` byte, with `*` (symbol 0 in a kind component) as `2A`; a named query's and a policy row's name bytes.
+    /// `name` resolves a symbol of class `name`; `None` when one of the item's names does not resolve. Within one class
+    /// the bytewise order of stored keys is the item key order.
+    pub fn stored_key<'a>(&'a self, name: impl Fn(u32) -> Option<&'a str>) -> Option<Vec<u8>> {
+        let kind = |k: u32| if k == 0 { Some("*") } else { name(k) };
+        let parts: Vec<&str> = match &self.body {
+            ItemBody::Kind { name: n, .. } | ItemBody::Query { name: n, .. } => vec![name(*n)?],
+            ItemBody::EdgeKind(e) => vec![name(e.name)?],
+            ItemBody::Field {
+                kind: k, name: n, ..
+            } => vec![kind(*k)?, name(*n)?],
+            ItemBody::EnumValue {
+                kind: k,
+                field,
+                name: n,
+                ..
+            } => vec![kind(*k)?, name(*field)?, name(*n)?],
+            ItemBody::Policy { name: n, .. } => vec![n.as_str()],
+        };
+        Some(parts.join("\0").into_bytes())
     }
 
     /// The item class.
@@ -975,6 +1012,7 @@ impl Item {
             ItemBody::EnumValue { .. } => 3,
             ItemBody::EdgeKind(_) => 4,
             ItemBody::Query { .. } => 5,
+            ItemBody::Policy { .. } => 6,
         }
     }
 
@@ -1089,6 +1127,10 @@ impl Item {
                 w.vstr(budget);
                 w.vstr(text);
                 w.bytes(ast_hash);
+            }
+            ItemBody::Policy { name, value } => {
+                w.vstr(name);
+                w.vstr(value);
             }
         }
     }
@@ -1656,6 +1698,39 @@ mod tests {
         assert!(Value::decode(&mut Reader::new(&[0]), false).is_err());
     }
 
+    /// [F08 §5.5]: a stored `pathmove` set is ordered by (`hlc`, `root` id, `from`, `to`, `class`, `git`), so two moves
+    /// that differ only in their root are distinct and ordered by the root.
+    #[test]
+    fn pathmove_set_order() {
+        let mv = |root: u16| {
+            Value::PathMove(Box::new(PathMove {
+                hlc: 5,
+                class: 1,
+                from: PathVal {
+                    root,
+                    text: "a/".into(),
+                },
+                to: PathVal {
+                    root,
+                    text: "b/".into(),
+                },
+                git: Oid::None,
+            }))
+        };
+        let bytes = |v: Vec<Value>| {
+            let mut w = Writer::new();
+            Value::Set(ty::PATHMOVE, v).encode(&mut w);
+            w.into_vec()
+        };
+        let good = bytes(vec![mv(1), mv(2)]);
+        assert_eq!(
+            Value::decode(&mut Reader::new(&good), false).unwrap(),
+            Value::Set(ty::PATHMOVE, vec![mv(1), mv(2)])
+        );
+        assert!(Value::decode(&mut Reader::new(&bytes(vec![mv(2), mv(1)])), false).is_err());
+        assert!(Value::decode(&mut Reader::new(&bytes(vec![mv(1), mv(1)])), false).is_err());
+    }
+
     /// [F08 §6.2] the informative 12-byte field block.
     #[test]
     fn field_block_example() {
@@ -1779,7 +1854,8 @@ mod tests {
         assert!(Window::decode(&b[..7], 0).is_err());
     }
 
-    /// [F08 §8.5] item records: a field item with default and range; a named query.
+    /// [F08 §8.5] item records: a field item with default and range; a named query; a policy row (§8.5.6), which,
+    /// like a named query, is never retired.
     #[test]
     fn item_round_trip() {
         let f = Item {
@@ -1812,13 +1888,29 @@ mod tests {
                 ast_hash: [0; 16],
             },
         };
-        for it in [f, q] {
+        let p = Item {
+            iflags: 0,
+            body: ItemBody::Policy {
+                name: "policy.role.developer.fields".into(),
+                value: "[title, labels]".into(),
+            },
+        };
+        for it in [f, q, p.clone()] {
             let mut w = Writer::new();
             it.encode(&mut w);
             let mut r = Reader::new(w.as_slice());
             assert_eq!(Item::decode(&mut r).unwrap(), it);
             assert!(r.is_empty());
         }
+        let mut w = Writer::new();
+        p.encode(&mut w);
+        let mut retired = w.as_slice().to_vec();
+        assert_eq!(retired[..2], [6, 0]);
+        retired[1] = 1;
+        assert!(Item::decode(&mut Reader::new(&retired)).is_err());
+        let mut class7 = w.as_slice().to_vec();
+        class7[0] = 7;
+        assert!(Item::decode(&mut Reader::new(&class7)).is_err());
     }
 }
 

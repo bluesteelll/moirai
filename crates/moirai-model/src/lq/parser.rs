@@ -229,7 +229,7 @@ pub fn is_reserved(word: &str) -> bool {
 }
 
 /// The contextual keywords ([LQ/lexical §6.2]).
-pub const CONTEXTUAL: [&str; 54] = [
+pub const CONTEXTUAL: [&str; 55] = [
     "EXPLAIN",
     "PROFILE",
     "ALL",
@@ -269,6 +269,7 @@ pub const CONTEXTUAL: [&str; 54] = [
     "RESTRICT",
     "CASCADE",
     "REPARENT",
+    "REASSIGN",
     "REPLACED",
     "RELEASE",
     "UNLESS",
@@ -1240,21 +1241,19 @@ impl<'a> Parser<'a> {
             TokKind::QIdent => self.lx.qident_value(&first),
             _ => return self.unexpected(&["name"]),
         };
-        if first.kind == TokKind::Word {
-            let lw = first_text.to_ascii_lowercase();
-            if ["apoc", "gds", "db", "dbms"].contains(&lw.as_str())
-                && self.is_punct(1, Punct::Dot)?
-            {
-                return self.e004(
-                    first.span(),
-                    &format!("{first_text}.*"),
-                    "use the built-in table functions; CALL schema() lists kinds, fields and edges",
-                );
-            }
+        // A back-quoted first segment is the same name ([LQ/lexical §9], spec sync 2b): `` `apoc`.x `` is E004 and
+        // `` `tx`.complete `` in a read E006, as their plain spellings are.
+        let lw = first_text.to_ascii_lowercase();
+        if ["apoc", "gds", "db", "dbms"].contains(&lw.as_str()) && self.is_punct(1, Punct::Dot)? {
+            return self.e004(
+                first.span(),
+                &format!("{first_text}.*"),
+                "use the built-in table functions; CALL schema() lists kinds, fields and edges",
+            );
         }
         // Every segment of a `proc_name` or `tx_name` is a plain-name position, the `tx` of `tx.complete` included
         // ([LQ/grammar-v1.ebnf §P.3], [LQ/lexical §6.3]): the token stream prints it `NAME`.
-        let is_tx = first.kind == TokKind::Word && first_text.eq_ignore_ascii_case("tx");
+        let is_tx = first_text.eq_ignore_ascii_case("tx");
         self.bump()?;
         let mut text = first_text;
         while self.is_punct(0, Punct::Dot)? {
@@ -1742,8 +1741,14 @@ impl<'a> Parser<'a> {
                 p.consume()?;
                 p.plain_name()
             });
-            let b = second.map(|n| n.text).unwrap_or_else(|| "<b>".into());
-            let inline = format!("write :{}|{} (a node has one kind)", labels[0].text, b);
+            // Names inside the replacement render as LQ source ([LQ/errors §2.2a], spec sync 2b S2B-F-42).
+            let b = second
+                .map(|n| printer::plain(&n.text))
+                .unwrap_or_else(|| "<b>".into());
+            let inline = format!(
+                "write :{}|{b} (a node has one kind)",
+                printer::plain(&labels[0].text)
+            );
             return self.e004(at, ":a:b", &inline);
         }
         Ok(labels)
@@ -1761,13 +1766,16 @@ impl<'a> Parser<'a> {
                 self.expect_punct(Punct::Colon)?;
                 let value = self.expr()?;
                 if pattern && value.kind == ExprKind::Null {
-                    let v = var.map_or("x", |v| v.text.as_str());
+                    let v = var.map_or_else(|| "x".to_string(), |v| printer::var(&v.text));
                     let d = Diag::new(
                         Code::E118,
                         key.span.to(value.span),
                         "a comparison with NULL is never true",
                     )
-                    .inline(format!("write WHERE {v}.{} IS NULL", key.text));
+                    .inline(format!(
+                        "write WHERE {v}.{} IS NULL",
+                        printer::plain(&key.text)
+                    ));
                     return self.fail_d(d);
                 }
                 entries.push(Kv { key, value });
@@ -2326,7 +2334,7 @@ impl<'a> Parser<'a> {
         let inline = format!(
             "write {}:{}",
             self.source_of(l.span),
-            k.map(|n| n.text).unwrap_or("<k>".into())
+            k.map(|n| printer::plain(&n.text)).unwrap_or("<k>".into())
         );
         self.refusal(lt.span(), "x IS LABELED k", &inline)
     }
@@ -2393,10 +2401,11 @@ impl<'a> Parser<'a> {
             Ok(p.src[from..p.last_end - 1].trim().to_string())
         });
         let x = self.source_of(e.span);
+        let f = printer::fn_name(&name.text);
         let inline = match args {
-            Some(a) if a.is_empty() => format!("write {}({x})", name.text),
-            Some(a) => format!("write {}({x}, {a})", name.text),
-            None => format!("write {}({x}, <args>)", name.text),
+            Some(a) if a.is_empty() => format!("write {f}({x})"),
+            Some(a) => format!("write {f}({x}, {a})"),
+            None => format!("write {f}({x}, <args>)"),
         };
         self.refusal(open.span(), "x.f(args)", &inline)
     }
@@ -2959,17 +2968,21 @@ impl<'a> Parser<'a> {
         let open = self.la(0)?;
         self.enter(open.span())?;
         self.bump()?;
-        if self.is_word(0)? && self.is_kw(1, "IN")? {
-            return self.e004(
-                open.span(),
-                "[x IN l WHERE p | e]",
-                "use any(), all(), none(), IN, COUNT { } or UNWIND",
-            );
-        }
+        // Annex R: `[` word `IN` is a comprehension only when `WHERE` or `|` follows at the list's top level before
+        // its `]` (E004 at the `[`); `[x IN l]` stays a list literal of one boolean (spec sync 2b). Checking after
+        // each element keeps the viable-prefix rule ([LQ/errors §3.1]): an error inside the element comes first.
+        let comprehension = self.is_word(0)? && self.is_kw(1, "IN")?;
         let mut elems = Vec::new();
         if !self.is_punct(0, Punct::RBracket)? {
             loop {
                 elems.push(self.expr()?);
+                if comprehension && (self.is_punct(0, Punct::Pipe)? || self.is_kw(0, "WHERE")?) {
+                    return self.e004(
+                        open.span(),
+                        "[x IN l WHERE p | e]",
+                        "use any(), all(), none(), IN, COUNT { } or UNWIND",
+                    );
+                }
                 if self.is_punct(0, Punct::Pipe)? {
                     let t = self.la(0)?;
                     return self.e004(
@@ -3359,6 +3372,14 @@ impl<'a> Parser<'a> {
                 if self.is_punct(0, Punct::DotDot)? {
                     self.bump()?;
                     let m = int(self)?;
+                    // N5 ([LQ/canonical-ast §5.8]; spec sync 2b): a bound with min > max never passes: E001.
+                    if n > m {
+                        return self.fail_d(Diag::new(
+                            Code::E001,
+                            span(t.start, self.last_end),
+                            format!("EXPECT {n}..{m} has m > n"),
+                        ));
+                    }
                     Ok(Expect::Range(n, m))
                 } else {
                     Ok(Expect::Exact(n))
@@ -3496,8 +3517,11 @@ impl<'a> Parser<'a> {
                                 Policy::Cascade
                             } else if self.is_kw(0, "REPARENT")? {
                                 Policy::Reparent
+                            } else if self.is_kw(0, "REASSIGN")? {
+                                Policy::Reassign
                             } else {
-                                return self.unexpected(&["RESTRICT", "CASCADE", "REPARENT"]);
+                                return self
+                                    .unexpected(&["RESTRICT", "CASCADE", "REPARENT", "REASSIGN"]);
                             };
                             self.bump_kw()?;
                             (DOpt::Policy(v), "POLICY")
@@ -3709,7 +3733,19 @@ impl<'a> Parser<'a> {
         } else {
             ResolveWhat::Key(self.string_value()?)
         };
-        self.expect_kw("TAKE")?;
+        // `DROP`: a flagged edge only ([F12 §6.5]); the other forms follow `TAKE`.
+        if self.is_kw(0, "DROP")? {
+            self.bump_kw()?;
+            return Ok(Resolve {
+                what,
+                take: Take::Drop,
+                span: span(start, self.last_end),
+            });
+        }
+        if !self.is_kw(0, "TAKE")? {
+            return self.unexpected(&["TAKE", "DROP"]);
+        }
+        self.bump_kw()?;
         let take = if self.is_kw(0, "OURS")? {
             self.bump_kw()?;
             Take::Ours

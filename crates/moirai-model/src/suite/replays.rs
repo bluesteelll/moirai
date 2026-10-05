@@ -99,10 +99,13 @@ fn branch_create_and_delete_replay_their_data() {
         force: true,
     };
     let d1 = s.ok(del(), orch());
-    assert!(matches!(d1.data, Data::BranchDelete(_, 1, (1, 0, 0), ref rel) if rel == &vec![2]));
+    assert!(
+        matches!(d1.data, Data::BranchDelete(_, 1, Some((1, 0, 0)), ref rel) if rel == &vec![2])
+    );
     let d2 = s.run(del(), orch());
     assert_eq!(d2.outcome, Outcome::Replayed, "not E301 on the deleted ref");
-    assert_eq!(d2.data, d1.data);
+    // `dropped` is not replayed ([API §11.2]): a replay gives null, the rest equals the original.
+    assert!(matches!(d2.data, Data::BranchDelete(_, 1, None, ref rel) if rel == &vec![2]));
 }
 
 #[test]
@@ -226,4 +229,64 @@ fn default_keys_name_the_attested_agent() {
         Ctx::default(),
     );
     assert_eq!(s.run(n(), sub("ag7")).outcome, Outcome::Ok);
+}
+
+/// [API §4.3] "The idempotency pre-check comes first" and §7.4 (spec sync 2b, S2B-F-63; the WP-90a review's R17): a
+/// keyed `Complete` interrupted by `EnvCrash in-next` whose applied candidate settled its lease is retried with the same
+/// key and the ended lease: the lookup runs before §4.3 row 1's E407 and replays the result. A different payload under
+/// that key is E408, and without an entry the ended lease is E407.
+#[test]
+fn a_retry_after_its_lease_ended_replays_before_the_lease_check() {
+    let mut s = S::base();
+    s.ok(tx(vec![task("a", "task a")]), orch());
+    let r = s.ok(
+        Cmd::Claim {
+            ids: vec![Target::Id(Nid(1))],
+            next: false,
+            scope: None,
+            role: None,
+            agent: Some("dev".into()),
+            ttl: None,
+            start: true,
+            run: None,
+            session: false,
+        },
+        orch(),
+    );
+    let lease = r.yields[0].rows[0]
+        .iter()
+        .find(|(k, _)| k == "lease")
+        .map(|(_, v)| v.clone())
+        .unwrap();
+    let ctx = Ctx {
+        lease: Some(lease.clone()),
+        key: Some("done-1".into()),
+        client: Some("claude".into()),
+        ..Default::default()
+    };
+    let complete = |summary: &str| Cmd::Complete {
+        id: Target::Id(Nid(1)),
+        outcome: "done".into(),
+        summary: summary.into(),
+        evidence: vec![],
+        move_lease: None,
+    };
+    s.ok(Cmd::EnvCrash { in_next: true }, Ctx::default());
+    let r = s.run(complete("ok"), ctx.clone());
+    assert_eq!(r.error.map(|e| e.code), Some("outcome_unknown".into()));
+    let n = s.st.commit_seq;
+    let again = s.run(complete("ok"), ctx.clone());
+    assert_eq!(again.outcome, Outcome::Replayed, "{:?}", again.error);
+    assert_eq!(s.st.commit_seq, n);
+    s.refused(complete("other"), ctx, "E408");
+    s.refused(
+        complete("ok"),
+        Ctx {
+            lease: Some(lease),
+            key: Some("fresh".into()),
+            client: Some("claude".into()),
+            ..Default::default()
+        },
+        "E407",
+    );
 }

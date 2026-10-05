@@ -10,6 +10,10 @@
 //!   parent's enumeration; a `RECALL_ON_OPEN` or `OFFLINE` entry is never opened, a `RECALL_ON_DATA_ACCESS` directory is
 //!   never enumerated, and content is read only with `allow_hydrate`.
 //! - **Denials are never absence** ([OS/project §5.11]): a permission failure is always `AccessDenied`.
+//! - **Containment after the open** ([OS/project §5.2, §5.5] step 3): `enumerate` and `read_for_hash` check the open
+//!   handle's `GetFinalPathNameByHandleW` against the root's text as an exact byte prefix, never ignoring case, and
+//!   return `OutsideRoot` with the handle closed unread on a mismatch, so a junction or directory symlink on the path,
+//!   or one swapped in after the attribute read, never leads out of the tree.
 //! - **The Windows name check** ([OS/project §2.3], pass 1, P1-15): every method tests every segment of its paths with
 //!   `representable_here` ([OS/path §8.1]) before any OS call and returns `InvalidName` (code 123) for a failing one; no
 //!   counter moves. `\\?\` paths bypass Win32 name normalisation, so `x::$DATA`, `a:b` or `y.` would otherwise reach a
@@ -1000,7 +1004,8 @@ impl ProjectFs for OsProjectFs {
         }
         // A link is never enumerated: a junction or directory symlink named by `dir` would list its target (the open
         // below follows it, as [OS/project §5.2] specifies), so it is refused as `read_for_hash` refuses it — `IsSymlink`
-        // for a symbolic link, `Other` for any other non-cloud reparse point — instead of listing outside the tree.
+        // for a symbolic link, `Other` for any other non-cloud reparse point — instead of listing outside the tree. A link
+        // on an intermediate segment, or one swapped in after this read, is caught by the containment check below.
         if a & FILE_ATTRIBUTE_REPARSE_POINT != 0 {
             match kind_of(a, reparse_tag(&p)) {
                 ProjKind::Dir | ProjKind::File => {}
@@ -1030,6 +1035,18 @@ impl ProjectFs for OsProjectFs {
             FILE_FLAG_BACKUP_SEMANTICS,
         )
         .map_err(|e| error(e, Domain::Project, "CreateFileW"))?;
+        // Containment after the open ([OS/project §5.2], the mapping appendix §2.1, open point 26): the attribute read
+        // and the open are two calls, so before the first listing call the handle's final path must equal the root's
+        // text or lie under it, compared exactly as `read_for_hash` step 3 does ([OS/project §5.5]). On a mismatch the
+        // handle is dropped (closed) unread and nothing is visited. One `GetFinalPathNameByHandleW` per directory.
+        let text = final_text(raw(&h))?;
+        if under_root(dir.root, &text).is_none() {
+            return Err(VfsError::new(
+                VfsErrorKind::OutsideRoot,
+                OsCode::NONE,
+                "enumerate",
+            ));
+        }
         let ext = id_kind(dir.root.fs) != FileIdKind::None;
         match self.enumerate_with(dir, raw(&h), ext, &mut visit) {
             Ok(end) => Ok(end),

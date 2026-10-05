@@ -21,7 +21,7 @@ use crate::bugs::{Bug, Bugs};
 use crate::codec::{Reader, Short, Writer};
 use crate::format::{
     COMMIT_IMPORTED, CheckpointRec, CommitRec, Counters, ExtentHeadRec, IdemRec, IntentAbortRec,
-    IntentDoneRec, IntentRec, LEASE_CLAIM, LEASE_RELEASE, LeaseRec, MarkerRec, PinRec,
+    IntentDoneRec, IntentRec, LEASE_CLAIM, LEASE_RELEASE, LeaseRec, MarkerEntry, MarkerRec, PinRec,
     REASON_CREATE, REASON_DELETE, REASON_MOVE, REASON_PARK, RecView, RefTableRec, RefUpdateRec,
     RuntimeRec, SegRef, SymDefs, family, kind,
 };
@@ -199,7 +199,7 @@ pub enum Fact {
         /// The record.
         rec: LeaseRec,
     },
-    /// Another record of the HLC sequence (`Marker`, `Idem`, `FsIntent*`): its HLC.
+    /// Another record of the HLC sequence (`Idem`, `FsIntent*`; a `Marker` entry is [`Fact::Marker`]): its HLC.
     Semantic {
         /// Its lsn.
         lsn: u64,
@@ -228,6 +228,22 @@ pub enum Fact {
         lsn: u64,
         /// The record.
         rec: PinRec,
+    },
+    /// One entry of a `Marker` record: its HLC is in the HLC sequence ([F16] P-36), and its origin commit names the group
+    /// it must share ([F05 §4.7], [F16] P-52).
+    Marker {
+        /// The record's lsn.
+        lsn: u64,
+        /// The entry.
+        entry: MarkerEntry,
+    },
+    /// The bounds of a group, recorded before the facts of its records when it has any ([F05 §4.1]): the composition
+    /// rules of [F05 §4.7] ([F16] P-52) relate the records that share a group.
+    Group {
+        /// Its first byte.
+        start: u64,
+        /// The byte after its end.
+        end: u64,
     },
 }
 
@@ -304,6 +320,55 @@ enum Dec {
     Runtime(RuntimeRec),
     ExtentHead(ExtentHeadRec),
     Noop,
+}
+
+/// The raw facts of one decoded record at `lsn`, appended to `out` in the record's order ([`crate::verify`]).
+fn facts_of(lsn: u64, d: &Dec, out: &mut Vec<Fact>) {
+    match d {
+        Dec::Commit(v) => out.push(Fact::Commit {
+            lsn,
+            rec: v.clone(),
+        }),
+        Dec::RefUpdate(v) => out.push(Fact::RefUpdate {
+            lsn,
+            rec: v.clone(),
+        }),
+        Dec::RefTable(v) => out.push(Fact::RefTable {
+            lsn,
+            rec: v.clone(),
+        }),
+        Dec::Lease(v) => out.push(Fact::Lease {
+            lsn,
+            rec: v.clone(),
+        }),
+        Dec::Marker(v) => out.extend(v.entries.iter().map(|e| Fact::Marker {
+            lsn,
+            entry: e.clone(),
+        })),
+        Dec::Idem(v) => {
+            out.push(Fact::Semantic {
+                lsn,
+                hlc: v.append_hlc,
+            });
+            out.push(Fact::Idem {
+                lsn,
+                key: v.key,
+                op: v.op,
+            });
+        }
+        Dec::Pin(v) => out.push(Fact::Pin {
+            lsn,
+            rec: v.clone(),
+        }),
+        Dec::Checkpoint(v) => out.push(Fact::Checkpoint {
+            lsn,
+            rec: v.clone(),
+        }),
+        Dec::Intent(v) => out.push(Fact::Semantic { lsn, hlc: v.hlc }),
+        Dec::IntentDone(v) => out.push(Fact::Semantic { lsn, hlc: v.hlc }),
+        Dec::IntentAbort(v) => out.push(Fact::Semantic { lsn, hlc: v.hlc }),
+        Dec::Runtime(_) | Dec::ExtentHead(_) | Dec::Noop => {}
+    }
 }
 
 /// Decodes one record: its symbol definitions and its payload by kind ([F05 §5.4]: `Short` is a malformed payload).
@@ -516,17 +581,28 @@ impl State {
         log(&mut undo, || Step::Counters(self.counters));
         log(&mut undo, || Step::Symbols(self.symbols.len()));
         log(&mut undo, || Step::Facts(self.facts.len()));
+        let mark = self.facts.len();
         for (lsn, defs, d) in decoded {
             self.symbols.extend(defs.into_iter().map(|(_, t)| t));
+            // The raw facts are recorded as the record was decoded, before it is dispatched by kind, so that no
+            // defect of a table's replay can drop a fact (WP-40 S4 review).
+            if self.keep_facts {
+                facts_of(lsn, &d, &mut self.facts);
+            }
             self.put(lsn, d, &mut undo);
         }
-        Ok(())
-    }
-
-    fn fact(&mut self, f: impl FnOnce() -> Fact) {
-        if self.keep_facts {
-            self.facts.push(f());
+        // The group's bounds go before its records' facts, and only for a group that has some (a lazy or an
+        // extent-head group adds none), so the facts grow with the semantic records alone.
+        if self.facts.len() > mark {
+            self.facts.insert(
+                mark,
+                Fact::Group {
+                    start: g.start,
+                    end: g.end,
+                },
+            );
         }
+        Ok(())
     }
 
     /// Changes the ref row `id` (creating it with defaults) through `f`.
@@ -602,7 +678,6 @@ impl State {
                     });
                     self.unparked.insert(v.op, v.ref_id);
                 }
-                self.fact(|| Fact::Commit { lsn, rec: v });
             }
             Dec::RefUpdate(v) => {
                 let c = &mut self.counters;
@@ -642,7 +717,6 @@ impl State {
                     }),
                     _ => {}
                 }
-                self.fact(|| Fact::RefUpdate { lsn, rec: v });
             }
             Dec::RefTable(v) => {
                 for e in &v.entries {
@@ -662,7 +736,6 @@ impl State {
                     });
                     self.names.insert(e.name, e.ref_id);
                 }
-                self.fact(|| Fact::RefTable { lsn, rec: v });
             }
             Dec::Lease(v) => {
                 let c = &mut self.counters;
@@ -710,7 +783,6 @@ impl State {
                     // LeaseRec::decode admits only the two events.
                     _ => {}
                 }
-                self.fact(|| Fact::Lease { lsn, rec: v });
             }
             Dec::Marker(v) => {
                 for e in &v.entries {
@@ -726,7 +798,6 @@ impl State {
                             seq: e.seq,
                         },
                     );
-                    self.fact(|| Fact::Semantic { lsn, hlc: e.hlc });
                 }
             }
             Dec::Idem(v) => {
@@ -741,15 +812,6 @@ impl State {
                         lsn,
                     },
                 );
-                self.fact(|| Fact::Semantic {
-                    lsn,
-                    hlc: v.append_hlc,
-                });
-                self.fact(|| Fact::Idem {
-                    lsn,
-                    key: v.key,
-                    op: v.op,
-                });
             }
             Dec::Pin(v) => {
                 log(undo, || {
@@ -766,7 +828,6 @@ impl State {
                 } else {
                     self.pins.remove(&v.ref_id);
                 }
-                self.fact(|| Fact::Pin { lsn, rec: v });
             }
             Dec::Checkpoint(v) => {
                 let c = &mut self.counters;
@@ -804,11 +865,9 @@ impl State {
                 }
                 log(undo, || Step::CheckpointHlc(self.last_checkpoint_hlc));
                 self.last_checkpoint_hlc = v.append_hlc;
-                self.fact(|| Fact::Checkpoint { lsn, rec: v });
             }
             Dec::Intent(v) => {
                 self.counters.hlc_seq = self.counters.hlc_seq.max(v.hlc);
-                self.fact(|| Fact::Semantic { lsn, hlc: v.hlc });
                 log(undo, || Step::Intent(lsn, self.intents.get(&lsn).cloned()));
                 self.intents.insert(
                     lsn,
@@ -820,7 +879,6 @@ impl State {
             }
             Dec::IntentDone(v) => {
                 self.counters.hlc_seq = self.counters.hlc_seq.max(v.hlc);
-                self.fact(|| Fact::Semantic { lsn, hlc: v.hlc });
                 if let Some(row) = self.intents.get(&v.intent_lsn) {
                     log(undo, || Step::Intent(v.intent_lsn, Some(row.clone())));
                 }
@@ -832,7 +890,6 @@ impl State {
             }
             Dec::IntentAbort(v) => {
                 self.counters.hlc_seq = self.counters.hlc_seq.max(v.hlc);
-                self.fact(|| Fact::Semantic { lsn, hlc: v.hlc });
                 if let Some(row) = self.intents.get(&v.intent_lsn) {
                     log(undo, || Step::Intent(v.intent_lsn, Some(row.clone())));
                 }
@@ -1139,7 +1196,7 @@ impl State {
 }
 
 /// The toy's segment snapshot magic.
-pub const SNAP_MAGIC: &[u8; 8] = b"TOYSEG02";
+pub const SNAP_MAGIC: &[u8; 8] = b"TOYSEG03";
 
 fn encode_fact(f: &Fact, w: &mut Writer) {
     match f {
@@ -1166,6 +1223,15 @@ fn encode_fact(f: &Fact, w: &mut Writer) {
         }
         Fact::RefTable { lsn, rec } => {
             w.u8(8).u64(*lsn).vbytes(&rec.encode());
+        }
+        Fact::Marker { lsn, entry } => {
+            let one = MarkerRec {
+                entries: vec![entry.clone()],
+            };
+            w.u8(9).u64(*lsn).vbytes(&one.encode());
+        }
+        Fact::Group { start, end } => {
+            w.u8(10).u64(*start).u64(*end);
         }
     }
 }
@@ -1203,6 +1269,15 @@ fn decode_fact(r: &mut Reader<'_>) -> Result<Fact, Short> {
         8 => Fact::RefTable {
             lsn,
             rec: RefTableRec::decode(r.vbytes()?)?,
+        },
+        9 => {
+            let entries = MarkerRec::decode(r.vbytes()?)?.entries;
+            let [entry] = <[MarkerEntry; 1]>::try_from(entries).map_err(|_| Short)?;
+            Fact::Marker { lsn, entry }
+        }
+        10 => Fact::Group {
+            start: lsn,
+            end: r.u64()?,
         },
         _ => return Err(Short),
     })
@@ -1494,14 +1569,76 @@ mod tests {
     fn facts_are_kept_only_when_asked() {
         let mut off = State::new();
         let mut on = State::new().keeping_facts(true);
+        let entry = MarkerEntry {
+            mkind: 1,
+            uid: 0x900,
+            ref_id: 0,
+            op: 11,
+            seq: 2,
+            hlc: 7,
+            status: 1,
+        };
+        let marker = MarkerRec {
+            entries: vec![entry.clone()],
+        };
+        let c = CommitRec {
+            op: 11,
+            seq: 2,
+            ref_old: 10,
+            ..CommitRec::default()
+        };
+        let completion = group(vec![
+            rec(kind::COMMIT, c.encode(), 500),
+            rec(kind::MARKER, marker.encode(), 560),
+        ]);
+        let lazy = Group {
+            recs: vec![RecView {
+                kind: kind::FILE_OBS,
+                lazy: true,
+                lsn: 700,
+                has_symdefs: false,
+                body: RuntimeRec {
+                    rows: vec![(1, 2, 0)],
+                }
+                .encode(),
+            }],
+            ..group(Vec::new())
+        };
         for s in [&mut off, &mut on] {
             s.apply(&main_group(), Bugs::NONE, false).unwrap();
             s.apply(&commit(10, 1, 0, vec![(1, 100)], 300), Bugs::NONE, false)
                 .unwrap();
+            s.apply(&completion, Bugs::NONE, false).unwrap();
+            s.apply(&lazy, Bugs::NONE, false).unwrap();
         }
         assert!(off.facts.is_empty());
-        assert_eq!(on.facts.len(), 2);
-        assert!(matches!(on.facts[1], Fact::Commit { lsn: 300, .. }));
+        // Every group with facts is announced by its bounds; a lazy group has none (P-52's composition check).
+        assert_eq!(on.facts.len(), 7, "{:?}", on.facts);
+        assert_eq!(
+            on.facts[0],
+            Fact::Group {
+                start: 138,
+                end: 238
+            }
+        );
+        assert!(matches!(on.facts[1], Fact::RefTable { lsn: 138, .. }));
+        assert_eq!(
+            on.facts[2],
+            Fact::Group {
+                start: 300,
+                end: 400
+            }
+        );
+        assert!(matches!(on.facts[3], Fact::Commit { lsn: 300, .. }));
+        assert_eq!(
+            on.facts[4],
+            Fact::Group {
+                start: 500,
+                end: 600
+            }
+        );
+        assert!(matches!(on.facts[5], Fact::Commit { lsn: 500, .. }));
+        assert_eq!(on.facts[6], Fact::Marker { lsn: 560, entry });
         // A snapshot carries the facts only when they are kept, and a reader keeps them only when asked.
         let (a, _) = State::from_snapshot(&on.snapshot(1), true).unwrap();
         assert_eq!(a.facts, on.facts);

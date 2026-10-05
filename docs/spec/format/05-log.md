@@ -238,7 +238,8 @@ with the chain value at p. Every other group is invalid.
 ### 4.7 Group composition
 
 A group's class is `durable` when at least one of its records has `lazy` = 0, and `lazy` otherwise (§6). Writers form
-groups by these rules; readers validate groups by §4.6 alone and do not check composition.
+groups by these rules; readers validate groups by §4.6 alone and do not check composition, except the two placement
+defects of §5.4 (a valid group that breaks G-4, and an extent's first group that is not one `ExtentHead`).
 
 | Group | Records, in order | Rule |
 |---|---|---|
@@ -318,6 +319,12 @@ payload, a non-zero reserved bit or byte, a value outside its enumeration, bytes
 symbol id (§8.1) — is **corrupt wherever it lies**: exit 7 naming the extent and `moirai doctor --fsck`. A torn or stale
 write cannot produce a matching checksum except with probability 2^-64, so such a record can only come from a defective
 writer, and hiding it would weaken the store silently (X5).
+
+The same holds for two placement defects of a valid group (§4.6), for the same reason (only a defective writer produces
+a checksummed, chained group like that): a group that leaves 1–39 bytes in its extent (G-4 broken), and a first group of
+an extent that is not one `ExtentHead` record (§4.5). Either is **corrupt wherever it lies**, above `durable_lsn`
+included: every scan, a reader's, a writer's and a `repair`'s, stops with exit 7 naming the extent and
+`moirai doctor --fsck`, and no writer appends over it.
 
 ### 5.5 What a scan yields
 
@@ -562,6 +569,11 @@ The `RefTable` record with the ref's new entry follows in the same group (§4.7,
 `orphans/<R>` is never merged or absorbed; its `RefTable` entry is a full entry (kind 6 `orphans`) when `old` is zero and
 otherwise sets `tip`, `tip_lsn` and `gen` (§9.10).
 
+**Where a `RefUpdate` lies among commit seqs** (`restore_seq`). A `RefUpdate` carries no `seq`; it lies after the newest
+commit appended before it. `op restore s` restores every ref to its value just after commit s was appended, so the ref
+moves made since commit s, an earlier `op restore` among them, are taken back. Addressing a position between two commits
+needs an op-log position, which format v1 does not carry ([API §11.11]).
+
 ### 9.3 `ClientHead` (3) — durable
 
 A client head or a directory binding ([AR §5a.4], [40] R-15). The record that sets a head carries the full new `HEADS`
@@ -602,7 +614,7 @@ A lease event ([AR §6.2], [90 §4.3], [90 §10.1]). Routine renewals are `Lazy`
 | 15 | `root_session` | `b16` | `event` = 1 | the hash of a Codex holder's root session, for grouping; zero otherwise |
 | 16 | `files_owned` | glob list (§8.6) | `event` = 1 | the leased task's `files_owned` globs, captured at the claim ([70 S5]) |
 | 17 | `proc` | `ProcId` | `event` = 1 | the claiming process, diagnostics only ([80] X-F2) |
-| 18 | `reason` | `u8` | `event` = 2 | 1 = `release`, 2 = `complete` (released into `settled`), 3 = `reclaim`, 4 = dead (its anchor Dead, its deadline passed or its boot changed; released at a read with a triage line), 5 = its branch deleted, 6 = `apply`, 7 = `run close`, 8 = `SubagentStop`, 9 = `rm --release` |
+| 18 | `reason` | `u8` | `event` = 2 | 1 = `release`, 2 = `complete` (released into `settled`), 3 = `reclaim`, 4 = dead (its anchor Dead, its deadline passed or its boot changed; ended by the next claim of its task, in that claim's group, [RULES/state-definition] LE-012: a read appends nothing, I-F5; so only a task lease ends with reason 4, and a role lease never does (C, as [F06 §2.4] defines it: it needs the lease's claim record, so it is not a §5.4 check)), 5 = its branch deleted, 6 = `apply`, 7 = `run close`, 8 is not assigned (the `SubagentStop` hook releases through `Release`, reason 1, [API §10.3]; a record with 8 is malformed, §5.4), 9 = `rm --release` |
 | 19 | `mask` | `u8` | `event` = 3 | bit 0 `files_owned`, bit 1 `branch` (`--move-lease`), bit 2 `bound` (the binding rule's first use), bit 3 `anchor`; at least one bit |
 | 20 | `set_files_owned` | glob list | `event` = 3, `mask` bit 0 | |
 | 21 | `set_branch` | `refid` | `event` = 3, `mask` bit 1 | |
@@ -618,11 +630,14 @@ live lease with that pair changes nothing (the writer's fencing check refused it
 
 ### 9.5 `Marker` (5) — durable
 
-Every change of the marker cache ([AR §4.5] step 4, [AR §5d.1], [72 M4]): the events of [RULES/state-definition]
-ME-001 to ME-013, which [F13 §4.2] cites. A marker's identity is (`#N`, origin ref, origin commit), and its state is a
-holder set and a `nonlinear` flag ([F11 §7]). Replay cannot recompute a holder set from net ops — a `sync` stores only its
-residue, and a fork or a ref move changes holds with no op at all — so every change is recorded here, and replay applies
-the entries in log order ([F11 §7] "Records"; review pass 1 S1-16).
+Every change of a marker's holder set or flag ([AR §4.5] step 4, [AR §5d.1], [72 M4]): the entries of
+[RULES/state-definition] ME-001 to ME-011, which [F13 §4.2] cites, whichever section holds the row. A marker's identity
+is (`#N`, origin ref, origin commit), and its state is a holder set and a `nonlinear` flag ([F11 §7]). Replay cannot
+recompute a holder set from net ops — a `sync` stores only its residue, and a fork or a ref move changes holds with no op
+at all — so every such change is recorded here, and replay applies the entries in log order ([F11 §7] "Records"; review
+pass 1 S1-16). ME-012's move of a row to `MARKERS_OLD` and ME-013's return of one to `MARKERS` are storage moves that
+change neither: each is derived from the rows and the absorbed vectors and writes no entry, so the records are the same
+whether or not a fold ran (spec sync 2b).
 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
@@ -1109,8 +1124,10 @@ Groups apply in log order, records in group order, rows and entries in record or
 
 ### 10.2 The `HEAD` fold
 
-A publish folds every newly covered group into the slot it writes ([F04 §9.1], [80 §2.4.3]). Recovery applies the same
-fold to the slot it selected, over the groups it scanned. Each record contributes:
+A publish folds every group between the selected slot's `durable_lsn` and the new `committed_lsn`, in log order, into the
+slot it writes ([F04 §9.1], [F16] P-50, [80 §2.4.3]); a group the selected slot already folded changes nothing, since every
+field below takes the maximum or ends at the newest covered record. Recovery applies the same fold to the slot it
+selected, over the groups it scanned. Each record contributes:
 
 | Kind | Effect on the slot |
 |---|---|
@@ -1294,5 +1311,13 @@ None. No value in this chapter is decided by an M0 measurement. The extent size 
     `durable_lsn` ends a reader's view but stops a writer: because `durable_lsn` is only a lower bound after an OS crash,
     treating the unreadable range as the end of the log would let the next append overwrite acknowledged groups (X5:
     refuse rather than lose). A persistent read error there makes the store refuse writes until `repair`.
-</content>
-</invoke>
+23. **Spec sync 2b** (WP-91, WP-95, WP-90b). A valid group that leaves 1–39 bytes in its extent, and an extent's first
+    group that is not one `ExtentHead`, are corrupt wherever they lie (§5.4), as the oracle's scan already reads them; the
+    alternative (§4.6 calls them invalid, so §5.3 classifies them by `durable_lsn`) was rejected, because above
+    `durable_lsn` it would let the next append overwrite a checksummed group that an OS crash may have left acknowledged
+    (X5). §9.2 states where a `RefUpdate` lies among commit seqs for `restore_seq`. §9.4 reason 4 is ended by the next
+    claim of the task (LE-012), not at a read, so only a task lease carries it (a C-rule: no decoder checks it);
+    reason 8 is not assigned, since the `SubagentStop` hook releases through `Release` (reason 1). §10.2 states the
+    fold's range as [F16] P-50 does: from the selected slot's `durable_lsn`, not from its `committed_lsn`. §9.5 names
+    ME-001 to ME-011 as the events that write `Marker` entries; ME-012's move and ME-013's return write none
+    ([RULES/state-definition] open point 17 (a)).

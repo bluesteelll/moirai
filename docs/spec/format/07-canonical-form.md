@@ -287,8 +287,11 @@ The `Moirai-` rule of §5.2 does not apply: an imported message may end in a par
 commit's message keeps its old trailer block, §12.5). [F14] therefore separates the trailer block by the **final**
 paragraph only ([AR §5b.4]).
 
-A **native** import (§12.2) applies N (not N_imp) to the message part [F14] extracts; if that part breaks step 1 of §5.1,
-the commit cannot verify and is demoted (§12.5).
+A **native** import (§12.2) applies N — steps 1–4 of §5.1 — (not N_imp) to the message part [F14] extracts; only step 1
+can fail, and a message part that breaks it cannot verify and is demoted (§12.5). None of §5.2's refusals applies there: a
+message part whose last paragraph begins with `Moirai-` verifies as it stands, since a demoted commit that is re-exported
+natively keeps its old trailer paragraph in its message (§12.5), and refusing it would leave that commit unverifiable for
+good (spec sync 2b).
 
 ### 5.4 Examples (informative)
 
@@ -593,8 +596,8 @@ and yields no entry.
 
 ## 9. Schema items
 
-Item 10 hashes the view's **schema items**: the project kinds, fields, enumeration values, edge kinds and named queries
-of [F08 §8.5]. The core schema of schema version 1 ([F08 §9]) is not in item 10; item 7 identifies it. Every part of an
+Item 10 hashes the view's **schema items**: the project kinds, fields, enumeration values, edge kinds, named queries
+and policy rows of [F08 §8.5]. The core schema of schema version 1 ([F08 §9]) is not in item 10; item 7 identifies it. Every part of an
 item that [F08 §8.5] marks store-local (`kind_id`, `edge_id`, an enumeration value's integer, the `covers` integers, the
 `ext` bits of a `KindSet`) and the derived `ast_hash` are replaced by names or left out, as below.
 
@@ -607,9 +610,11 @@ item that [F08 §8.5] marks store-local (`kind_id`, `edge_id`, an enumeration va
 | enumeration value | 3 | kind name or `*`; field name; value name |
 | edge kind | 4 | edge-kind name |
 | named query | 5 | query name |
+| policy row | 6 | policy row name ([F08 §8.5.6]; spec sync 2b) |
 
 A schema key's value is `cstate` (§7.3) over `sf` `u8` (0 absent, 1 present) followed, when present, by the item value
-of §9.2–§9.6. A dropped named query is absent ([F08 §8.1]); a retired item is present with `retired` set.
+of §9.2–§9.7. A dropped named query and a removed policy row are absent ([F08 §8.1]); a retired item is present with
+`retired` set.
 
 ### 9.2 Kind
 
@@ -699,6 +704,14 @@ of §9.2–§9.6. A dropped named query is absent ([F08 §8.1]); a retired item 
 These are [F08 §8.5.5]'s hashed fields 2–6 (the name is the key). The canonical-AST hash `ast_hash` is derived and not
 hashed ([50] F3). A definition is one atomic value ([50 §4.4]); its entry changes when any of the five fields changes.
 
+### 9.7 Policy row (spec sync 2b)
+
+| order | name | encoding | present when | meaning |
+|---|---|---|---|---|
+| 1 | `value` | `lp(text)` | always | [F08 §8.5.6] `value`, in its canonical form (the name is the key) |
+
+A row equal to its default is never an item ([F08 §8.5.6]), so the default has one canonical form, absence.
+
 ## 10. Item 10: the net changeset and `changeset_digest`
 
 ### 10.1 Entries
@@ -747,7 +760,7 @@ A **schema entry**:
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `section` | `u8` | always | 2 |
-| 2 | `item_class` | `u8` | always | 1 to 5 (§9.1) |
+| 2 | `item_class` | `u8` | always | 1 to 6 (§9.1) |
 | 3 | `key` | the key components of §9.1 | always | |
 | 4 | `value` | `cstate` over `sf` and the item value | always | Q(k) (§9.1) |
 
@@ -818,6 +831,7 @@ Every field of the stored record that §3 does not name, and every stored datum 
 | inside ops: every `#N`, `aN`, `prev`, symbol id, before-image, `Create.c_actor`/`c_role` (`CREATOR`), `Violation` ops | [F06 §7] |
 | anchor `quote`, `prefix`, `suffix` and `end` texts (their digests are hashed) and the `text-unavailable` state | [F08 §10.3] |
 | an import-checkpoint's image-only data (`ckimg`) and the header-only form's `pruned` bit | [F06 §4.4.14], [F06 §4.4.15] |
+| a staged commit's staging arguments (`stage`) | [F06 §4.4.16] |
 | bodies' bytes, codec and compressed form (the body key hashes BLAKE3-128 of the raw bytes) | [F06 §8], [F10] |
 | every runtime table: markers, leases, `ALLOC` and `UIDX` ([50] F17), `IDEM`, `REFS`, `PINS`, `HEADS`, R4's resolution and evidence tables (file ids, volume serials, stat caches, fingerprints, proposals, intents, `ANCHORRES`; I-F4) | [F05], [F11] |
 | derived state: every derived column and flag, `rev_seq`, virtual `done`, `ready`, the named query's `ast_hash` | [F08 §3.4], [F08 §8.5.5] |
@@ -830,7 +844,10 @@ resulting value, not the choice ([AR §5b.4] row 10; §13).
 
 Every commit's id is §3's C over its items. This section says where each item comes from, for each way a commit enters a
 store. The stored record ([F06]) holds the values, so recomputing an id from a stored record needs no other input
-(`doctor --verify`, the reference model, the format oracle).
+(`doctor --verify`, the reference model, and the format oracle over fixtures that carry real commit ids: `canonical/`,
+`carrier/`). Commit-id correctness is a C-rule ([F06 §4.3] order 2, [F06 §2.4]): a decoder never recomputes an id, so the
+hex fixtures' synthetic ids (`fixtures/hex/INDEX.md` §2) are valid records and the oracle's decoders accept them (spec
+sync 2b).
 
 ### 12.1 Local commits
 
@@ -1255,3 +1272,9 @@ depends on the fill. The codec holes of [F10] do not reach the canonical form, w
     entries exceed `wmem`, merges and syncs included; §7.3 adds `prov` to existence conflicts and is the one equality rule
     [F12 §7.3] cites; §6.1's codes are also [F06 §6.1]'s `ckey` classes; §8.1's `pflags` takes [F08 §10.2]'s bit order;
     §3.4 cites the corrected HLC rule; `DATA` is removed from §2.2.
+29. **Spec sync 2b.** (a) **Who recomputes commit ids** (§12): contested between dropping the oracle from the list,
+    making commit-id correctness a C-rule, and requiring real ids in every fixture. The C-rule adopted ([F06 §4.3] order
+    2), with the oracle recomputing ids over `canonical/` and `carrier/`, which carry real ones: a decoder cannot know a
+    record's symbols and states, the hex fixtures' synthetic ids then are valid records, and nothing that checks real
+    ids is lost. (b) A native import applies none of §5.2's refusals (§5.3), so a demoted commit re-exported natively
+    verifies. (c) §9.1 and §9.7: the policy row class 6. (d) §11: the staged commit's `stage` group is not hashed.

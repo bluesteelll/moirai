@@ -72,6 +72,8 @@ pub enum Take {
     Value(P),
     /// `repoint`.
     Repoint(Target),
+    /// `drop`: a flagged edge only ([F12 §6.5]; [F06 §7.7] `choice` 5).
+    Drop,
 }
 
 /// A data-level statement ([API §9.2]).
@@ -158,7 +160,7 @@ pub enum Stmt {
     Delete {
         /// `target`.
         target: Target,
-        /// `policy`: `restrict`, `cascade`, `reparent`.
+        /// `policy`: `restrict`, `cascade`, `reparent`, `reassign` (`POLICY REASSIGN`, DO-005; spec sync 2b).
         policy: Option<String>,
         /// `replaced_by`.
         replaced_by: Option<Target>,
@@ -435,13 +437,14 @@ pub fn equivalent(schema: &Schema, stmts: &[Stmt]) -> Equivalent {
             Stmt::Resolve { key, take } => {
                 let quoted = format!("'{}'", key.replace('\\', "\\\\").replace('\'', "\\'"));
                 let t = match take {
-                    Take::Ours => "OURS".to_string(),
-                    Take::Theirs => "THEIRS".to_string(),
-                    Take::Base => "BASE".to_string(),
-                    Take::Value(v) => format!("VALUE {}", param(&mut eq, v.clone())),
-                    Take::Repoint(y) => format!("REPOINT {}", tgt(y)),
+                    Take::Ours => "TAKE OURS".to_string(),
+                    Take::Theirs => "TAKE THEIRS".to_string(),
+                    Take::Base => "TAKE BASE".to_string(),
+                    Take::Value(v) => format!("TAKE VALUE {}", param(&mut eq, v.clone())),
+                    Take::Repoint(y) => format!("TAKE REPOINT {}", tgt(y)),
+                    Take::Drop => "DROP".to_string(),
                 };
-                eq.stmts.push((i1, format!("RESOLVE {quoted} TAKE {t}")));
+                eq.stmts.push((i1, format!("RESOLVE {quoted} {t}")));
             }
             Stmt::Call { proc, args } => {
                 let mut a = Vec::new();
@@ -552,15 +555,10 @@ pub struct KernelCfg {
     pub orchestrator_ttl_ms: u64,
     /// `store.suspect-budget`.
     pub suspect_budget: u32,
-    /// `edges.<kind>.on-src-deleted`.
-    pub edge_policies: EdgePolicies,
     /// `tx.max-statements`.
     pub max_statements: u64,
     /// `tx.max-ops`.
     pub max_ops: u64,
-    /// The policy data `merge.policy.<kind>` by kind ([CFG §10.13]; [RULES/merge-table] AP rows): `none`, `ours`,
-    /// `theirs`, `delete-wins` or `resurrect`; a kind not listed is `none`.
-    pub merge_policy: BTreeMap<String, String>,
 }
 
 impl Default for KernelCfg {
@@ -570,10 +568,8 @@ impl Default for KernelCfg {
             reclaim_older_than_ms: 30 * 60_000,
             orchestrator_ttl_ms: 12 * 3_600_000,
             suspect_budget: 10_000,
-            edge_policies: EdgePolicies::default(),
             max_statements: 1000,
             max_ops: 10_000,
-            merge_policy: BTreeMap::new(),
         }
     }
 }
@@ -671,6 +667,9 @@ pub struct Cand<'a> {
     pub created_at: BTreeMap<Nid, usize>,
     /// The keys the block's `Resolve` ops name ([F06 §7.7]), one whose value stayed as it was included.
     pub resolves: BTreeSet<Key>,
+    /// The keys of the companion ops [F12 §6.5] puts in a `Resolve`'s commit: a live restore's `Move`, `AddEdge` and
+    /// `SetEdgeProps`, a `repoint`'s `AddEdge`, a `SupersedeFork`'s `RemoveEdge` ([F12 §9.3]).
+    pub companions: BTreeSet<Key>,
 }
 
 fn e405(what: impl Into<String>) -> Refusal {
@@ -960,6 +959,27 @@ pub fn convert(
                         format!("{name} is not a value of {kind}.{field}"),
                     ));
                 }
+                // [F08 §9.2] row 7: a finding takes only `unset`, `confirmed` and `plausible`; every other kind every value
+                // but `confirmed` and `plausible` (`bad_value`; spec sync 2b).
+                if field == "confidence" {
+                    let finding_only = matches!(name.as_str(), "confirmed" | "plausible");
+                    let ok = if kind == "finding" {
+                        finding_only || name == "unset"
+                    } else {
+                        !finding_only
+                    };
+                    if !ok {
+                        return Err(bad(
+                            field,
+                            if kind == "finding" {
+                                "unset, confirmed or plausible on a finding"
+                            } else {
+                                "a value other than confirmed and plausible"
+                            },
+                            &name,
+                        ));
+                    }
+                }
                 Ok(Value::Enum(name))
             }
             Ty::Text | Ty::Sym => {
@@ -1173,6 +1193,7 @@ impl<'a> Cand<'a> {
             sub: 0,
             created_at: BTreeMap::new(),
             resolves: BTreeSet::new(),
+            companions: BTreeSet::new(),
         }
     }
 
@@ -1351,6 +1372,34 @@ impl<'a> Cand<'a> {
         }
     }
 
+    /// Whether the view before the block fails V05 ([F13 §5]): some node of it breaks I4.
+    fn view_breaks_i4(&self) -> bool {
+        self.base
+            .nodes
+            .keys()
+            .any(|m| forest_fault(&self.base, *m).is_some())
+    }
+
+    /// I4 for one node under VO-3 ([F13 §5]). On a staging ref a `RESOLVE` block is refused when it makes a node its
+    /// own ancestor — a node on a cycle that was not on one in the view before the block — and for a depth above 12
+    /// only when the view before passed V05, the check as a whole; `view_broke` answers that once per block. On any
+    /// other ref every fault refuses.
+    fn check_forest(&self, n: Nid, view_broke: &std::cell::OnceCell<bool>) -> Res<()> {
+        let staged = self.cx.view == RefKind::Merge;
+        match forest_fault(&self.st, n) {
+            None => Ok(()),
+            Some(Forest::Cycle) if staged && forest_fault(&self.base, n) == Some(Forest::Cycle) => {
+                Ok(())
+            }
+            Some(Forest::TooDeep)
+                if staged && *view_broke.get_or_init(|| self.view_breaks_i4()) =>
+            {
+                Ok(())
+            }
+            Some(_) => self.check_depth(n),
+        }
+    }
+
     /// The order key of a position among the ordered live children of `parent` ([API §9.5]).
     fn order_for(&self, parent: Nid, me: Nid, pos: &Position) -> Res<String> {
         let mut sibs: Vec<(String, Uid, Nid)> = self
@@ -1433,7 +1482,11 @@ impl<'a> Cand<'a> {
         if kind == "artifact" && door == Door::SetStatus {
             return Err(status::artifact_set());
         }
-        status::transition(&kind, &from, to, door)?;
+        if status::is_project_kind(&kind) {
+            status::project_transition(&self.st.schema, &kind, &from, to, door)?;
+        } else {
+            status::transition(&kind, &from, to, door)?;
+        }
         status::resolution_ok(&kind, &from, to, resolution)?;
         self.cx
             .rights
@@ -1701,6 +1754,11 @@ impl<'a> Cand<'a> {
                     "E102",
                     format!("{to} is not a status of {kind}"),
                 ));
+            }
+            // GR-018: a project kind reaches any of its statuses in one `set-status` step.
+            if status::is_project_kind(kind) {
+                let res = resolution.unwrap_or_else(|| "none".into());
+                return self.transit(n, &to, &res, Door::SetStatus);
             }
             // GR-006: a create in a non-initial status is a checked path of transitions.
             let path = status::create_path(kind, initial, &to)
@@ -2071,7 +2129,7 @@ impl<'a> Cand<'a> {
             replaced_by: y,
             cascade: policy == Some("cascade"),
             reparent: policy == Some("reparent"),
-            reassign: false,
+            reassign: policy == Some("reassign"),
             release,
             reason: reason.map(str::to_string),
         };
@@ -2117,7 +2175,8 @@ impl<'a> Cand<'a> {
             self.cx.view.token(),
             n,
             &opts,
-            &self.cx.cfg.edge_policies,
+            // The policy data `edges.<kind>.on-src-deleted` of the view ([CFG §10.13]).
+            &EdgePolicies::of(&self.st.schema),
             &lease_check,
         )?;
         if release {
@@ -2146,14 +2205,18 @@ impl<'a> Cand<'a> {
         Ok(())
     }
 
-    /// `resolve` ([API §9.2]; [F12 §6.5]): a flagged edge's key re-points or drops it (FL-005, FL-006); a conflict key
-    /// takes a side's value or a given value; on a staging ref, a key of G's staged violations takes a value too
-    /// ([`Cand::resolve_violation`]). Any other key that parses is `not_found` ([F12 §6.6]).
-    // rule: FL-007
+    /// `resolve` ([API §9.2]; [F12 §6.5]): on a work or plan branch a flagged edge's key re-points or drops it
+    /// (FL-005, FL-006); a conflict key takes a side's value or a given value; on a staging ref, a key of G's staged
+    /// violations takes a value too ([`Cand::resolve_violation`]). `drop` is usage on every key but a flagged edge. Any
+    /// other key that parses is `not_found` ([F12 §6.6]). It is the explicit door that settles a file node's
+    /// `DeleteVsModify`, which has no automatic policy ([RULES/link-merge-rules] LV-009).
+    // rule: FL-007, LV-009
     pub fn resolve_key(&mut self, key: &str, take: &Take) -> Res<()> {
         self.cx.rights.statement(self.stmt, "resolve")?;
         let parsed = self.parse_key(key);
-        if let Some(Key::Node(s, Aspect::Edge(ek))) = &parsed {
+        if let Some(Key::Node(s, Aspect::Edge(ek))) = &parsed
+            && matches!(self.cx.view, RefKind::Work | RefKind::Plan)
+        {
             let flagged = self
                 .st
                 .nodes
@@ -2163,6 +2226,11 @@ impl<'a> Cand<'a> {
             if flagged {
                 return self.resolve_flagged_key(*s, ek, take);
             }
+        }
+        if *take == Take::Drop {
+            return Err(Refusal::usage(format!(
+                "{key} is not a flagged edge: drop takes a flagged edge only"
+            )));
         }
         if let Some(Key::Node(n, a)) = &parsed
             && let Some(c) = self.st.nodes.get(n).and_then(|x| x.conflicts.get(a))
@@ -2234,11 +2302,20 @@ impl<'a> Cand<'a> {
         Some(Key::Node(n, a))
     }
 
-    /// FL-005, FL-006: a flagged edge re-points to the target or goes.
+    /// FL-005, FL-006 ([F12 §6.5] "A flagged edge"): `repoint` replaces a flagged edge by an edge of its kind from the
+    /// target to the same destination, without the flag (the write path checks I5′ on it); `drop` removes it. `ours`,
+    /// `theirs`, `base` and `value` are usage there.
+    // rule: FL-005, FL-006
     fn resolve_flagged_key(&mut self, s: Nid, ek: &EdgeKey, take: &Take) -> Res<()> {
         let repoint = match take {
             Take::Repoint(t) => Some(self.resolve(t)?),
-            _ => None,
+            Take::Drop => None,
+            _ => {
+                return Err(Refusal::usage(format!(
+                    "edge:{s}:{}:{} is a flagged edge: resolve it with repoint or drop",
+                    ek.kind, ek.dst
+                )));
+            }
         };
         if let Some(y) = repoint {
             self.cx
@@ -2247,6 +2324,10 @@ impl<'a> Cand<'a> {
         }
         delete::resolve_flagged(&mut self.st, s, ek, repoint)?;
         self.resolves.insert(Key::Node(s, Aspect::Edge(ek.clone())));
+        if let Some(y) = repoint {
+            self.companions
+                .insert(Key::Node(y, Aspect::Edge(ek.clone())));
+        }
         self.touch(ek.dst);
         if let Some(y) = repoint {
             self.touch(y);
@@ -2254,7 +2335,11 @@ impl<'a> Cand<'a> {
         self.check_depth(ek.dst)
     }
 
-    /// A conflict value takes its `ours`, `theirs` or `base` side, or a given value of a field or counter.
+    /// A conflict value takes its `ours`, `theirs` or `base` side, or a given value of a field or counter ([F12 §6.5]).
+    /// A `SupersedeFork` refuses `value` (usage); its `theirs` keeps the edge and removes, by `RemoveEdge`, every
+    /// other active `supersedes` edge to the target (I6). A `live` existence side restores the node's value keys from
+    /// its node image, and for `ours` and `theirs` its hierarchy key and out-edges from that side's state at the
+    /// conflict's introducing commit ([`Cand::restore_live`]).
     fn resolve_conflict(
         &mut self,
         key: &str,
@@ -2263,6 +2348,11 @@ impl<'a> Cand<'a> {
         c: &Conflict,
         take: &Take,
     ) -> Res<()> {
+        if c.class == "SupersedeFork" && matches!(take, Take::Value(_)) {
+            return Err(Refusal::usage(format!(
+                "{key} is a SupersedeFork: it takes ours, theirs or base, not a value"
+            )));
+        }
         let v = match take {
             Take::Ours => c.ours.clone(),
             Take::Theirs => c.theirs.clone(),
@@ -2274,12 +2364,189 @@ impl<'a> Cand<'a> {
                 let kind = self.st.nodes[&n].kind.clone();
                 convert(&self.st.schema, &kind, f, p, self.cx.uidx, self.next_id)?.map(KVal::Value)
             }
-            Take::Repoint(_) => return Err(Refusal::usage(format!("{key} is not a flagged edge"))),
+            Take::Repoint(_) | Take::Drop => {
+                return Err(Refusal::usage(format!("{key} is not a flagged edge")));
+            }
         };
         let k = Key::Node(n, a.clone());
+        let live = *a == Aspect::Existence && matches!(v, Some(KVal::Live(_)));
         self.set_key(&k, v);
         self.resolves.insert(k);
         self.touch(n);
+        if live {
+            let side = match take {
+                Take::Ours => 1,
+                Take::Theirs => 2,
+                _ => 0,
+            };
+            self.restore_live(n, c, side)?;
+        }
+        if c.class == "SupersedeFork"
+            && *take == Take::Theirs
+            && let Aspect::Edge(ek) = a
+        {
+            self.supersede_fork_theirs(n, ek);
+        }
+        Ok(())
+    }
+
+    /// [F12 §6.5] "A `live` existence side": the node's value keys from the side's node image (`snap` = 1), and for
+    /// `ours` (`side` 1) and `theirs` (2) its hierarchy key and out-edges from `state(first parent of M)` and
+    /// `state(second parent of M)`, M being the conflict's introducing commit, as companion `Move`, `AddEdge` and
+    /// `SetEdgeProps` ops. A parent that is not live on the view refuses as a `MOVE` under it does (`not_found`); a
+    /// structural edge to a deleted target is the deferred checks' (E405); I4 on the restored node follows VO-3
+    /// ([`Cand::check_forest`]).
+    fn restore_live(&mut self, n: Nid, c: &Conflict, side: usize) -> Res<()> {
+        let schema = self.st.schema.clone();
+        if let Some(img) = &c.images[side] {
+            let x = self.st.nodes.get_mut(&n).expect("the restored node");
+            let held: Vec<Aspect> = x
+                .aspects(x.kind == "artifact")
+                .into_iter()
+                .filter(|a| {
+                    matches!(
+                        a,
+                        Aspect::Status
+                            | Aspect::Field(_)
+                            | Aspect::Counter(_)
+                            | Aspect::Body
+                            | Aspect::Observation
+                    )
+                })
+                .collect();
+            for a in held {
+                if !img.contains_key(&a) {
+                    x.put_value(&schema, &a, None);
+                }
+            }
+            for (a, v) in img {
+                x.put_value(&schema, a, Some(v.clone()));
+            }
+        }
+        if side == 0 {
+            return Ok(());
+        }
+        let Some(m) = self.introducing(n, &Aspect::Existence, c) else {
+            return Ok(());
+        };
+        let Some(p) = self.cx.dag.commits[&m].parents.get(side - 1).copied() else {
+            return Ok(());
+        };
+        let from = self.cx.dag.state_at(Some(p), self.cx.alloc);
+        let Some(y) = from.nodes.get(&n) else {
+            return Ok(());
+        };
+        let (parent, order, out) = (y.parent, y.order.clone(), y.out.clone());
+        if let Some(q) = parent
+            && self.st.live(q).is_none()
+        {
+            return Err(Refusal::new(
+                "not_found",
+                3,
+                format!("node {q} is not live on {}", self.cx.branch),
+            )
+            .key("what", "node")
+            .key("value", q.to_string()));
+        }
+        let x = self.st.nodes.get_mut(&n).expect("the restored node");
+        if (x.parent, &x.order) != (parent, &order) {
+            x.parent = parent;
+            x.order = order;
+            self.companions.insert(Key::Node(n, Aspect::Hierarchy));
+        }
+        for (ek, props) in out {
+            if x.out.get(&ek) != Some(&props) {
+                x.out.insert(ek.clone(), props);
+                self.companions
+                    .insert(Key::Node(n, Aspect::Edge(ek.clone())));
+                self.notified.insert(ek.dst);
+            }
+        }
+        self.check_forest(n, &std::cell::OnceCell::new())
+    }
+
+    /// M of [F12 §6.5]: the commit on the view's first-parent chain whose `Conflict` op set the key's conflict value
+    /// (`CONFLICTS.commit`, [F11 §10]) — the oldest commit of the chain from the tip that still holds it.
+    fn introducing(&self, n: Nid, a: &Aspect, c: &Conflict) -> Option<u64> {
+        let dag = self.cx.dag;
+        let mut at = dag.live(&self.cx.branch).and_then(|r| r.tip)?;
+        let holds = |seq: Option<u64>| {
+            seq.is_some_and(|q| {
+                dag.state_at(Some(q), self.cx.alloc)
+                    .nodes
+                    .get(&n)
+                    .and_then(|x| x.conflicts.get(a))
+                    == Some(c)
+            })
+        };
+        if !holds(Some(at)) {
+            return None;
+        }
+        while let Some(p) = dag.commits[&at].parents.first().copied() {
+            if !holds(Some(p)) {
+                break;
+            }
+            at = p;
+        }
+        Some(at)
+    }
+
+    /// `SupersedeFork` resolved `theirs` ([F12 §6.5]): S's edge stays and every other active `supersedes` edge to the
+    /// target goes, by `RemoveEdge` in the same commit, so at most one remains (I6).
+    fn supersede_fork_theirs(&mut self, s: Nid, ek: &EdgeKey) {
+        let others: Vec<(Nid, EdgeKey)> = self
+            .st
+            .nodes
+            .iter()
+            .filter(|(m, x)| **m != s && x.live())
+            .flat_map(|(m, x)| {
+                x.out
+                    .keys()
+                    .filter(|k| k.kind == "supersedes" && k.dst == ek.dst)
+                    .map(|k| (*m, k.clone()))
+                    .collect::<Vec<_>>()
+            })
+            .filter(|(m, _)| {
+                self.st.live(*m).is_some_and(|x| {
+                    self.st
+                        .schema
+                        .value(&x.kind, "status", &x.status)
+                        .is_some_and(|e| !e.side)
+                })
+            })
+            .collect();
+        for (m, k) in others {
+            if let Some(x) = self.st.nodes.get_mut(&m) {
+                x.out.remove(&k);
+            }
+            self.companions.insert(Key::Node(m, Aspect::Edge(k)));
+            self.touch(m);
+        }
+        self.touch(ek.dst);
+    }
+
+    /// [F12 §9.3]: a commit on a staging ref after its staged commit holds only `Resolve` ops and the companion ops
+    /// §6.5 puts in the same commit — a live restore's `Move`, `AddEdge` and `SetEdgeProps` (with the value keys its
+    /// node image restores), a `repoint`'s `AddEdge`, a `SupersedeFork`'s `RemoveEdge`; any other key of the net
+    /// changeset is E305.
+    pub fn staging_ops(&self, cs: &crate::state::Changeset) -> Res<()> {
+        if self.cx.view != RefKind::Merge {
+            return Ok(());
+        }
+        let uid = |n: Nid| self.cx.alloc.uid(n);
+        for k in cs.keys() {
+            let restored = matches!(k, Key::Node(n, _)
+                if self.resolves.contains(&Key::Node(*n, Aspect::Existence)));
+            if !(self.resolves.contains(k) || self.companions.contains(k) || restored) {
+                return Err(Refusal::lq(
+                    "E305",
+                    format!(
+                        "{} is neither a Resolve nor its companion: a staging ref takes only those ([F12 §9.3])",
+                        crate::merge::key_text(k, &uid)
+                    ),
+                ));
+            }
+        }
         Ok(())
     }
 
@@ -2357,12 +2624,33 @@ impl<'a> Cand<'a> {
                 };
                 return self.repoint_violation(k, *src, ek, t);
             }
+            Take::Drop => {
+                return Err(Refusal::usage(format!("{text} is not a flagged edge")));
+            }
         };
-        if let Key::Node(n, _) = k
+        // A value goes only where the view can hold it: a node it has, and on a tombstone only the keys a tombstone
+        // holds — its existence, its title and its retained out-edges ([F07 §6.4]; the WP-91 closure's P3), as a
+        // plain `SET` on a node that is not live is `not_found`.
+        if let Key::Node(n, a) = k
             && v.is_some()
-            && !self.st.nodes.contains_key(n)
         {
-            return Err(self.not_on_view(*n));
+            match self.st.nodes.get(n) {
+                None => return Err(self.not_on_view(*n)),
+                Some(x)
+                    if !x.live()
+                        && !matches!(a, Aspect::Existence | Aspect::Edge(_))
+                        && *a != Aspect::Field("title".into()) =>
+                {
+                    return Err(Refusal::new(
+                        "not_found",
+                        3,
+                        format!("node {n} is not live on {}", self.cx.branch),
+                    )
+                    .key("what", "node")
+                    .key("value", n.to_string()));
+                }
+                Some(_) => {}
+            }
         }
         self.set_key(k, v);
         self.resolves.insert(k.clone());
@@ -2411,19 +2699,21 @@ impl<'a> Cand<'a> {
         if let Some(x) = self.st.nodes.get_mut(&src) {
             x.out.remove(ek);
         }
+        let added = EdgeKey {
+            kind: ek.kind.clone(),
+            dst: to,
+            disc: ek.disc,
+        };
         if let Some(x) = self.st.nodes.get_mut(&from) {
             x.out.insert(
-                EdgeKey {
-                    kind: ek.kind.clone(),
-                    dst: to,
-                    disc: ek.disc,
-                },
+                added.clone(),
                 EdgeProps {
                     flagged: false,
                     ..props
                 },
             );
         }
+        self.companions.insert(Key::Node(from, Aspect::Edge(added)));
         self.resolves.insert(k.clone());
         for n in [src, ek.dst, y] {
             self.touch(n);
@@ -2926,8 +3216,9 @@ impl<'a> Cand<'a> {
         } else {
             format!("{summary}\n\nevidence: {}", evidence.join(", "))
         });
-        // [API §10.5] yields: [LQ/std §7.3]'s `task`, `status`, `ready`, then `outcome`, `lease`, `settle_commit` (no
-        // designated tree carries links at M0 WP-90a: null) and `changed_since_pack` (null without `pack_digest`).
+        // [API §10.5] yields: [LQ/std §7.3]'s `task`, `status`, `ready`, then `outcome`, `lease`, `settle_commit` (the
+        // write path's link settle fills it, [`crate::links::sync`]; null without one) and `changed_since_pack` (null
+        // without `pack_digest`).
         // `ready` is filled by the write path once the commit exists; it is not replayed (a replay gives []).
         self.yields.push(Yield {
             index: self.stmt,
@@ -3259,8 +3550,8 @@ impl<'a> Cand<'a> {
 
     /// On a staging ref the view is the staged candidate, whose structural violations `merge --continue` re-checks
     /// ([F12 §6.5] "On a violation's key", §9.4 step 3): a `RESOLVE` block there is refused only for a violation of a
-    /// check the view before it passed, and always for a node made its own ancestor. On any other ref every
-    /// violation refuses (VO-3).
+    /// check the view before it passed, and always for a node it makes its own ancestor ([`Cand::check_forest`]). On
+    /// any other ref every violation refuses (VO-3).
     fn deferred_checks(&self) -> Res<()> {
         let staged = self.cx.view == RefKind::Merge;
         let had = |fails: &dyn Fn(&State) -> bool| staged && fails(&self.base);
@@ -3276,12 +3567,9 @@ impl<'a> Cand<'a> {
         {
             return Err(e405(format!("DanglingEdge: {w} (I2)")));
         }
+        let view_broke = std::cell::OnceCell::new();
         for n in self.st.nodes.keys() {
-            match forest_fault(&self.st, *n) {
-                None => {}
-                Some(Forest::TooDeep) if had(&|st| forest_fault(st, *n).is_some()) => {}
-                Some(_) => self.check_depth(*n)?,
-            }
+            self.check_forest(*n, &view_broke)?;
         }
         if let Err(w) = crate::inv::i6_supersedes(&self.st)
             && !had(&|st| crate::inv::i6_supersedes(st).is_err())
@@ -3305,6 +3593,11 @@ impl<'a> Cand<'a> {
     /// as its `mentions` out-edges the nodes its sigils name, itself excepted.
     // rule: WR-013
     pub fn refresh_mentions(&mut self) {
+        // A staging ref takes `Resolve` ops and their companions only ([F12 §9.3]); `merge --continue` lands the
+        // resolved text.
+        if self.cx.view == RefKind::Merge {
+            return;
+        }
         let next_id = self.next_id;
         let texts = |x: &Node| -> String {
             let mut t = String::new();

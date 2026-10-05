@@ -1,4 +1,4 @@
-//! [F07] the canonical items the oracle re-derives: the commit input C and `commit_id` (§3), the commit-kind names (§4),
+//! \[F07\] the canonical items the oracle re-derives: the commit input C and `commit_id` (§3), the commit-kind names (§4),
 //! message normalisation N and N_imp (§5), the typed value `cv` (§7.1) and the `changeset_digest` framing over item-10
 //! entries (§10.4). Item 10's entries from states are the reference model's (WP-91); the oracle takes them, or the
 //! stored digest, as given.
@@ -105,7 +105,7 @@ pub struct CvPath {
     pub text: String,
 }
 
-/// A canonical typed value `cv` ([F07 §7.1]): the canonical tag and its payload. The tags are [F07]'s own, never stored.
+/// A canonical typed value `cv` ([F07 §7.1]): the canonical tag and its payload. The tags are \[F07\]'s own, never stored.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub enum Cv {
     /// Tag 0.
@@ -374,13 +374,20 @@ pub enum MessageRefusal {
     TrailerLike,
 }
 
+/// Steps 1–4 of N ([F07 §5.1]) and none of §5.2's refusals: the form a native import applies to the message part
+/// \[F14\] extracts ([F07 §5.3] last paragraph, spec sync 2b). `None` when m breaks step 1, the one step that can fail
+/// (the commit then cannot verify and is demoted, §12.5).
+pub fn normalise_native(m: &[u8]) -> Option<String> {
+    let s = core::str::from_utf8(m).ok()?;
+    if s.contains('\0') {
+        return None;
+    }
+    Some(normalise_lines(s))
+}
+
 /// N(m) of [F07 §5.1] with the refusals of §5.2.
 pub fn normalise(m: &[u8]) -> Result<String, MessageRefusal> {
-    let s = core::str::from_utf8(m).map_err(|_| MessageRefusal::Encoding)?;
-    if s.contains('\0') {
-        return Err(MessageRefusal::Encoding);
-    }
-    let n = normalise_lines(s);
+    let n = normalise_native(m).ok_or(MessageRefusal::Encoding)?;
     if n.len() > 65_535 {
         return Err(MessageRefusal::TooLong);
     }
@@ -486,6 +493,16 @@ mod tests {
         );
         assert_eq!(normalise(b"a\0b"), Err(MessageRefusal::Encoding));
         assert_eq!(normalise_import(b"x\xFFy\0\r\n"), "x\u{FFFD}y\u{FFFD}");
+        // [F07 §5.3] native import: steps 1–4 only; the `Moirai-` and length refusals do not apply, step 1 does.
+        assert_eq!(
+            normalise_native(b"done\r\n\r\nMoirai-Ref: main \n").as_deref(),
+            Some("done\n\nMoirai-Ref: main")
+        );
+        let long = "x".repeat(70_000);
+        assert_eq!(normalise_native(long.as_bytes()), Some(long.clone()));
+        assert_eq!(normalise(long.as_bytes()), Err(MessageRefusal::TooLong));
+        assert_eq!(normalise_native(b"a\xFFb"), None);
+        assert_eq!(normalise_native(b"a\0b"), None);
     }
 
     fn cv(b: &[u8]) -> DResult<Cv> {

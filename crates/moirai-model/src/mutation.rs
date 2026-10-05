@@ -468,7 +468,17 @@ pub fn expand(
         }
         "rm" => {
             let id = need_node(short, params, "id")?;
+            // [LQ/std §7.2] `tx.rm`: `--cascade|--reparent|--reassign` (spec sync 2b S2B-F-57); `restrict` is the
+            // default and renders no `POLICY`.
             let policy = text(params, "policy").filter(|p| p != "restrict");
+            if let Some(p) = &policy
+                && !matches!(p.as_str(), "cascade" | "reparent" | "reassign")
+            {
+                return Err(Refusal::lq(
+                    "E110",
+                    format!("policy {p} is not restrict, cascade, reparent or reassign"),
+                ));
+            }
             let replaced_by = get(params, "replaced_by").and_then(node);
             let release = matches!(get(params, "release"), Some(P::Bool(true)));
             let reason = text(params, "reason");
@@ -504,6 +514,7 @@ pub fn expand(
                 "ours" => (Take::Ours, "OURS".to_string()),
                 "theirs" => (Take::Theirs, "THEIRS".to_string()),
                 "base" => (Take::Base, "BASE".to_string()),
+                "drop" => (Take::Drop, String::new()),
                 "value" => {
                     let v = get(params, "value")
                         .cloned()
@@ -518,7 +529,9 @@ pub fn expand(
                         .ok_or_else(|| {
                             Refusal::lq(
                                 "E110",
-                                format!("take {r} is not ours, theirs, base, value or repoint:ID"),
+                                format!(
+                                    "take {r} is not ours, theirs, base, value, drop or repoint:ID"
+                                ),
                             )
                         })?;
                     let w = format!("REPOINT {}", lit(&id));
@@ -526,7 +539,15 @@ pub fn expand(
                 }
             };
             let quoted = format!("'{}'", key.replace('\\', "\\\\").replace('\'', "\\'"));
-            lq.push((1, format!("RESOLVE {quoted} TAKE {word}")));
+            // `--take drop` renders `DROP` ([LQ/grammar-v1.ebnf] `resolve_stmt`; [LQ/std §7.2] `tx.resolve`).
+            lq.push((
+                1,
+                if take == Take::Drop {
+                    format!("RESOLVE {quoted} DROP")
+                } else {
+                    format!("RESOLVE {quoted} TAKE {word}")
+                },
+            ));
             stmts.push(Stmt::Resolve { key, take });
         }
         "retract" => {
@@ -672,5 +693,32 @@ mod tests {
         assert_eq!(answer_title("\n"), "answer");
         assert_eq!(answer_title(&"é".repeat(150)).len(), 200);
         assert_eq!(expand(&s, "tx.nope", &[], &kind).unwrap_err().code, "E109");
+    }
+
+    /// [LQ/std §7.2] `tx.rm` (spec sync 2b S2B-F-57): `--reassign` renders `POLICY REASSIGN`; `restrict` renders no
+    /// `POLICY`; any other policy word is E110.
+    #[test]
+    fn rm_takes_reassign() {
+        let s = Schema::default();
+        let kind = |_: &Target| Some("area".to_string());
+        let rm = |policy: &str| {
+            expand(
+                &s,
+                "tx.rm",
+                &[
+                    ("id".into(), P::Text("#7".into())),
+                    ("policy".into(), P::Text(policy.into())),
+                ],
+                &kind,
+            )
+        };
+        let e = rm("reassign").unwrap();
+        assert_eq!(e.text, "TX { DELETE #7 POLICY REASSIGN }");
+        assert!(matches!(
+            &e.stmts[..],
+            [Stmt::Delete { policy: Some(p), .. }] if p == "reassign"
+        ));
+        assert_eq!(rm("restrict").unwrap().text, "TX { DELETE #7 }");
+        assert_eq!(rm("sideways").unwrap_err().code, "E110");
     }
 }

@@ -1,4 +1,7 @@
-# Test-only crate (docs/m0/PLAN.md §2.2). Allowed dependencies: moirai-files, moirai-model; serde_json. Filled by WP-74 to WP-77 (R-REPLAY).
+# Test-only crate (docs/m0/PLAN.md §2.2). Allowed dependencies: moirai-files, moirai-model; serde_json; dev: proptest
+# (PLAN §2.4: property suites in test crates). Filled by WP-74 to WP-77 (R-REPLAY). moirai-model is added by the WP
+# that first calls it (WP-76's exact-evidence rows, WP-77's P11 differential): until then it would only lengthen every
+# replay build.
 [package]
 name = "moirai-replay"
 version.workspace = true
@@ -15,7 +18,12 @@ path = "src/lib.rs"
 
 [dependencies]
 moirai-files.workspace = true
-moirai-model.workspace = true
+# WP-74: the JSON Lines records of `moirai-tsoracle` (its crate documentation, "Output").
+serde_json.workspace = true
+
+[dev-dependencies]
+# WP-74: the generated inputs of the differentials.
+proptest.workspace = true
 
 [lints]
 workspace = true

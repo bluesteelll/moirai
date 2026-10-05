@@ -1,6 +1,10 @@
 # fixtures/hex/store-a/seg.d1.hex: store A's first delta segment ([F09 §16.2]), written by the checkpoint at
 # lsn 11264: main's state at upto_lsn 11264, with no base below it, so every present row #1-#12 is touched
 # and every set is a plus list. The store-level tables are as of upto_lsn; the runtime window holds no record.
+# Every FPROMO row implies its sections, so FCOL.assignee (0x4002) is present with every absent bit set; no row
+# holds assignee, so there is no FIDX.assignee (an upper segment carries an FIDX only for a changed value set,
+# [F09 §10.1]). The IDEM entries without result_inline hold result (0, 0), outside the heap order ([F11 §2.3],
+# §8). Both as spec sync 2b (S2B-R-1, S2B-R-6) states them.
 
 # SegHdr (120 B, [F09 §2.1])
 seghdr:
@@ -9,7 +13,7 @@ seghdr:
   04                                        # seg_kind 4 `seg-delta`
   00                                        # tok_ver
   {u32 12}                                  # n_rows
-  {u16 84}                                  # n_sections
+  {u16 85}                                  # n_sections
   {u16 0}                                   # _reserved
   {u32 1}                                   # file_no
   {u32 0}                                   # ref_id
@@ -23,7 +27,7 @@ seghdr:
   {blake3_256 data..end}                    # seg_digest: BLAKE3-256 over [data_off, total_len)
   {xxh3_64 table..data}                     # table_xxh3 over the section table
   {xxh3_64 0..112}                          # hdr_xxh3 over [0, 112)
-# section table (84 entries of 32 B, [F09 §2.2])
+# section table (85 entries of 32 B, [F09 §2.2])
 table:
   # SecEnt IDS (0x0001)
   {u16 1}                                   # tag
@@ -368,6 +372,13 @@ table:
   {len 0..s_4001 u64}                       # off (absolute)
   {len s_4001..s_4001.e u64}                # len
   {xxh3_64 s_4001..s_4001.e}                # xxh3
+  # SecEnt FCOL.assignee (0x4002)
+  {u16 16386}                               # tag
+  {u16 0}                                   # flags
+  {u32 12}                                  # count
+  {len 0..s_4002 u64}                       # off (absolute)
+  {len s_4002..s_4002.e u64}                # len
+  {xxh3_64 s_4002..s_4002.e}                # xxh3
   # SecEnt FCOL.metric (0x4003)
   {u16 16387}                               # tag
   {u16 0}                                   # flags
@@ -2595,7 +2606,7 @@ s_0207:
     00 00 00                                # _reserved
     {u64 0x1a0c45093100000}                 # append_hlc
     {u64 601}                               # origin_lsn
-    {u32 38}                                # result: HeapRef.off
+    {u32 0}                                 # result: HeapRef.off
     {u32 0}                                 # result: HeapRef.len
   # row 14
     6d fd a6 c3 b6 a4 9e 6a a9 37 60 f8 3a 53 d3 9d  # key
@@ -2607,7 +2618,7 @@ s_0207:
     00 00 00                                # _reserved
     {u64 0x1a0c450e1300000}                 # append_hlc
     {u64 4244}                              # origin_lsn
-    {u32 38}                                # result: HeapRef.off
+    {u32 0}                                 # result: HeapRef.off
     {u32 0}                                 # result: HeapRef.len
   # row 15
     00*72                                   # empty slot: all zero
@@ -2894,6 +2905,32 @@ s_4001:
   04 00                                     # row 10 (#11)
   00 00                                     # row 11 (#12) absent
 s_4001.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FCOL.assignee (0x4002)
+s_4002:
+  {u32 8}                                   # field_sym `assignee`
+  {u32 12}                                  # n
+  {u32 0}                                   # n_vals
+  07                                        # vtype
+  00                                        # form
+  04                                        # elem_w
+  00                                        # _reserved
+  ff 0f                                     # absent bitmap: no row holds the field ([F09 §10.1])
+  00 00 00 00 00 00                         # zero to a multiple of 8
+  00 00 00 00                               # row 0 (#1) absent
+  00 00 00 00                               # row 1 (#2) absent
+  00 00 00 00                               # row 2 (#3) absent
+  00 00 00 00                               # row 3 (#4) absent
+  00 00 00 00                               # row 4 (#5) absent
+  00 00 00 00                               # row 5 (#6) absent
+  00 00 00 00                               # row 6 (#7) absent
+  00 00 00 00                               # row 7 (#8) absent
+  00 00 00 00                               # row 8 (#9) absent
+  00 00 00 00                               # row 9 (#10) absent
+  00 00 00 00                               # row 10 (#11) absent
+  00 00 00 00                               # row 11 (#12) absent
+s_4002.e:
 {align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
 
 # === section FCOL.metric (0x4003)

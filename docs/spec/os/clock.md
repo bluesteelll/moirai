@@ -66,7 +66,7 @@ another boot, or one without a boot identity, can still judge by the wall clock.
 |---|---|---|---|---|
 | 0 | 8 | u64 | `wall` | wall clock in ms since the Unix epoch; a negative `wall_ms` is stored as 0 |
 | 8 | 8 | u64 | `boot_hash` | `boot_hash` of the writer's boot ([OS/proc §4.3]); 0 = the writer was in Unknown-boot mode |
-| 16 | 8 | u64 | `mono` | the boot clock in ns (named `mono` in [80] X-F2, "mono being the boot clock"); 0 when `boot_hash` = 0 |
+| 16 | 8 | u64 | `mono` | the boot clock in ns (named `mono` in [80] X-F2, "mono being the boot clock"); 0 when `boot_hash` = 0, except in `Stamp::NEVER` (§4.1), whose `mono` is u64::MAX |
 | total | 24 | | | |
 
 This is the lease deadline form `expires = {wall, boot_hash, mono}` of [80] X-F2 and [AR §6.2]; [F11] stores it in
@@ -119,8 +119,11 @@ same conversions.
 
 - Row 1 is why a suspended laptop's 15-minute lease expires by elapsed time and a wall-clock step changes no expiry
   ([80 §2.7.1]; GT4's ±1 h clock-step variant, [AR §8.2]).
-- Row 2 feeds the boot rule of [AR §6.2]: after a reboot every non-run-scoped lease is Dead and is released at the first
-  read with a triage line. The lease layer maps `BootChanged` to Dead for TTL leases; `Stamp::NEVER` never reaches row 2.
+- Row 2 feeds the boot rule of [AR §6.2]: after a reboot every non-run-scoped lease is Dead. A Dead lease is not live;
+  a read prints a triage line for it and appends nothing (I-F5), and the lease stays until an event of
+  [RULES/state-definition] `lease-ends` ends it: for a task lease, the next claim of its task, in that claim's group,
+  with `Lease` reason 4 ([F05 §9.4] field 18; LL-002, LE-009, LE-012). The lease layer maps `BootChanged` to Dead for
+  TTL leases; `Stamp::NEVER` never reaches row 2.
 - Row 3 is Unknown-boot mode's rule ([OS/proc §5] U3): "the lease's wall-clock deadline applies".
 
 ### 4.4 Renewal (half-TTL rule)
@@ -320,3 +323,4 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 | 7 | [F15] FM-7.2 makes the monotonic clock comparable across the processes of one boot; [OS/README §4.4]'s doc comment says only "never goes backward within a process" | the stronger reading is adopted (§2): the implementation reads the system-wide counter and subtracts no per-process origin, which every source of §2.1 allows. **Closed (spec sync 2a):** README §4.4's comment and §2's copy say "within one boot" | — |
 | 8 | [F01] open point 15 proposes the prefix `OS-` for hole ids in `docs/spec/os/` | adopted: HOLE(OS-win-boot-clock) | WP-10 |
 | 9 | §4.2 did not say how a duration is converted to `ttl_ms` and `ttl_ns` (WP-30 review) | **closed (spec sync 2a):** `ttl_ms = ⌈ttl / 1 ms⌉`, so a deadline is never earlier and a grace never shorter; both values saturate at `u64::MAX`; §4.4 and §4.5 use the same conversions | — |
+| 10 | §4.3 said a Dead lease "is released at the first read with a triage line", but a read appends nothing (I-F5) | **closed (spec sync 2b):** the bullet after §4.3's table follows [F05 §9.4] reason 4 and [RULES/state-definition] LE-009 and LE-012: the read only prints the triage line, and the next claim of the task ends a Dead task lease; the design text follows at WP-81a (W-5), and OQ-A-4 may widen what ends it | — |

@@ -134,6 +134,9 @@ pub struct Caller {
     pub named_only: bool,
     /// `query.safelist.model.unknown` = `dry-targets` ([RULES/role-write-policy] WQ-005).
     pub unknown_dry_targets: bool,
+    /// The session's own model profile, whose `query.safelist.model.<profile>` refuses a free-form `TX`: E411 names it
+    /// ([LQ/errors §5.5] E411; `unknown` by default).
+    pub write_profile: Profile,
     /// The `refs` budget: the most views one query may read ([50 §3.9] item 8, [50 §5.10]).
     pub refs: u32,
     /// The display spelling of quantifiers in the reading echo (`HOLE(LQ-display-spelling)`, [LQ/gql-spelling §4]).
@@ -152,6 +155,7 @@ impl Default for Caller {
             tree: true,
             named_only: false,
             unknown_dry_targets: false,
+            write_profile: Profile::Unknown,
             refs: 4,
             display: Spelling::default(),
         }

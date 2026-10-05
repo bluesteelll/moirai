@@ -598,6 +598,22 @@ fn observations_show_moves_parts_and_views() {
     assert_eq!(commits.len(), 1);
     assert_eq!(moves.len(), 1);
     assert_eq!(moves[0].0, "lane/a");
+    assert_eq!(
+        moves[0].2, 1,
+        "after_seq: the newest commit appended before it"
+    );
+    // A move before commit `since_seq` is not listed ([API §15.8]).
+    let r = s.ok(
+        Cmd::History {
+            ref_: None,
+            since_seq: 2,
+        },
+        Ctx::default(),
+    );
+    let Data::History(_, later) = r.data else {
+        panic!()
+    };
+    assert!(later.is_empty());
     assert_eq!(s.st.runtime().moves.len(), 1);
     let r = s.ok(
         Cmd::State {
@@ -623,6 +639,183 @@ fn observations_show_moves_parts_and_views() {
             op: "promote".into(),
             ref_: Some("lane/a".into()),
         },
+        orch(),
+    );
+}
+
+/// `POLICY REASSIGN` ([API §9.2]; [RULES/delete-policy-matrix] DO-005, EG-025, EG-026; spec sync 2b S2B-F-57): an
+/// area's inbound `scoped_to` edges move to its parent area; with no parent area the delete is refused like the plain
+/// restrict, and nothing is written.
+#[test]
+fn policy_reassign_moves_scoped_to_to_the_parent_area() {
+    let mut s = S::base();
+    let area = |name: &str, under: Option<&str>| Stmt::Create {
+        name: Some(name.into()),
+        kind: "area".into(),
+        fields: vec![("title".into(), P::Text(name.into()))],
+        body: None,
+        under: under.map(|u| Target::Var(u.into())),
+        position: under.map(|_| crate::tx::Position::Last),
+        edges_out: vec![],
+        edges_in: vec![],
+    };
+    s.ok(
+        tx(vec![
+            area("top", None),
+            area("sub", Some("top")),
+            node("n", "note", &[("title", P::Text("scoped".into()))]),
+        ]),
+        orch(),
+    );
+    s.ok(tx(vec![link(3, "scoped_to", 2)]), orch());
+    let del = |n: u32, policy: Option<&str>| {
+        tx(vec![Stmt::Delete {
+            target: Target::Id(Nid(n)),
+            policy: policy.map(str::to_string),
+            replaced_by: None,
+            release: false,
+            reason: None,
+        }])
+    };
+    // The plain restrict refuses: a `scoped_to` edge references the area.
+    s.refused(del(2, None), orch(), "E409");
+    s.ok(del(2, Some("reassign")), orch());
+    let tip = s.st.dag.live("main").and_then(|x| x.tip);
+    let st = s.st.dag.state_at(tip, &s.st.alloc);
+    let dsts: Vec<(String, Nid)> = st.nodes[&Nid(3)]
+        .out
+        .keys()
+        .map(|k| (k.kind.clone(), k.dst))
+        .collect();
+    assert_eq!(dsts, vec![("scoped_to".to_string(), Nid(1))]);
+    assert!(!st.nodes[&Nid(2)].live());
+    // EG-026: #1 has no parent area to reassign to.
+    let r = s.refused(del(1, Some("reassign")), orch(), "E409");
+    assert!(keys(&r).contains(&"written"), "{:?}", r.error);
+}
+
+/// [LQ/errors §5.5], §5.7 (spec sync 2b S2B-F-41): E406's verb-level cases refuse the call as a whole, so their
+/// `statement` is null; the statement case names the 1-based statement.
+#[test]
+fn verb_level_e406_names_no_statement() {
+    let mut s = S::base();
+    base_block(&mut s);
+    let del = || {
+        tx(vec![crate::tx::Stmt::Delete {
+            target: Target::Id(Nid(3)),
+            policy: None,
+            replaced_by: None,
+            release: false,
+            reason: None,
+        }])
+    };
+    // A node `DELETE` through MCP runs only through `moirai tx` (CLI-only statements).
+    let mcp = Ctx {
+        door: Door::Mcp,
+        ..orch()
+    };
+    let r = s.refused(del(), mcp, "E406");
+    let e = r.error.as_ref().unwrap();
+    assert_eq!(e.get("statement"), Some(&Kv::Null), "{e:?}");
+    assert_eq!(e.get("written"), Some(&Kv::Bool(false)));
+    // The statement case: a developer's node `DELETE` through the CLI.
+    let dev = Ctx {
+        agent: Some("dev".into()),
+        ..Default::default()
+    };
+    let r = s.refused(del(), dev, "E406");
+    let e = r.error.as_ref().unwrap();
+    assert_eq!(e.get("statement"), Some(&Kv::Int(1)), "{e:?}");
+}
+
+/// GR-018 ([RULES/status-machines]; [F08 §8.5.1]; spec sync 2b): a node of a project kind moves from any of its kind's
+/// statuses to any other through `set-status`, unguarded, and is created in any of them; a value outside the kind's
+/// statuses is E102.
+#[test]
+fn a_project_kind_reaches_any_status() {
+    use crate::schema::{EnumItem, Item, KindItem, UidDerivation};
+    let mut s = S::base();
+    let status = |name: &str, rank: u16| {
+        Item::Enum(EnumItem {
+            kind: Some("spike".into()),
+            field: "status".into(),
+            name: name.into(),
+            rank,
+            side: false,
+            done: false,
+            covers: vec![],
+            retired: false,
+        })
+    };
+    s.ok(
+        Cmd::Schema {
+            items: vec![
+                Item::Kind(KindItem {
+                    name: "spike".into(),
+                    id: 64,
+                    uid: UidDerivation::Random,
+                    root_variant: false,
+                    existence_policy: "delete-wins",
+                    title_derived: false,
+                    immutable_fields: false,
+                    has_done: false,
+                    done_derived: false,
+                    retired: false,
+                }),
+                status("idea", 0),
+                status("probing", 1),
+                status("shelved", 2),
+            ],
+            message: String::new(),
+        },
+        orch(),
+    );
+    s.ok(
+        tx(vec![node("a", "spike", &[("title", P::Text("a".into()))])]),
+        orch(),
+    );
+    let state_of_main = |s: &S| {
+        let tip = s.st.dag.live("main").and_then(|x| x.tip);
+        s.st.dag.state_at(tip, &s.st.alloc)
+    };
+    let status_of = |s: &S| state_of_main(s).nodes[&Nid(1)].status.clone();
+    // Any status to any other, in both directions, with no path between them (a repeated block is a new write, not a
+    // default-key replay).
+    let fresh = || Ctx {
+        no_dedupe: true,
+        ..orch()
+    };
+    for to in ["shelved", "idea", "probing", "shelved"] {
+        s.ok(tx(vec![set(1, &[("status", P::Text(to.into()))])]), fresh());
+        assert_eq!(status_of(&s), to);
+    }
+    // A value outside the kind's statuses: the block's LQ equivalent passes it as a parameter, so the binder's type
+    // check (E110, [LQ/errors §5.2]) refuses it before the status write would (E102).
+    s.refused(
+        tx(vec![set(1, &[("status", P::Text("done".into()))])]),
+        fresh(),
+        "E110",
+    );
+    assert!(
+        crate::status::project_transition(
+            &state_of_main(&s).schema,
+            "spike",
+            "shelved",
+            "done",
+            crate::status::Door::SetStatus
+        )
+        .is_err_and(|e| e.code == "E102")
+    );
+    // Created straight in a later status: one `set-status` step.
+    s.ok(
+        tx(vec![node(
+            "b",
+            "spike",
+            &[
+                ("title", P::Text("b".into())),
+                ("status", P::Text("shelved".into())),
+            ],
+        )]),
         orch(),
     );
 }

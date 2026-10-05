@@ -146,11 +146,11 @@ does ([90 §4.2]).
 
 The payload is the byte string P that [F05] assigns to the record (its `RecHdr.len` minus the header and any padding
 [F05] defines). It consists of the **header part** (§4.3, orders 1–39) followed by the **changeset part** (§4.3, orders
-40–44). The fields fill P exactly (V): a decoder that ends before the end of P, or needs a byte beyond it, finds the
+40–44) and, on a staged commit only, the **staging arguments** (order 45, §4.4.16). The fields fill P exactly (V): a decoder that ends before the end of P, or needs a byte beyond it, finds the
 record invalid (a V-rule break, with §2.4's consequence).
 
 The changeset part is the quantity `cs_bytes` of [F17 §4.4]: its byte length, from the first byte of `n_ops` to the end of
-P.
+order 44 (the end of P when bit `stage` is clear).
 
 ### 4.2 Presence bitmap
 
@@ -177,7 +177,8 @@ absent and takes no bytes.
 | 15 | `cs_ref` | the commit is a bulk commit (§9) |
 | 16 | `pruned` | the record is the header-only form of a commit that `gc` dropped (§4.4.15); only in a rewritten `hist` file (C); then `n_ops` = `n_bodies` = 0 and bits 15 and 17 are clear (V) |
 | 17 | `ckimg` | kind is `checkpoint`, the commit is inline, and its checkpoint tree holds at least one node file that differs from its parent checkpoint's tree: the image-only data of those node files follows (§4.4.14) (C); only with kind `checkpoint` and never with bit 15 (V). An inline checkpoint whose tree differs in no node file leaves the bit clear. A bulk checkpoint keeps the same data in its `cs.<n>` under the same condition (§9 BK-5, [F09 §16.4] `CKIMG`) |
-| 18–31 | — | reserved-zero ([F01 §10]) (V) |
+| 18 | `stage` | the commit is a staged `merge` or `sync` on a `merge/*` staging ref ([F12 §9.2], §9.4) and its command had a `--base`, a `--policy` or an effective `strict` of true (§4.4.16) (C); only with kind `merge` or `sync` and never with bit 16 (V); only on a ref of kind `merge` ([F05 §9.10] `rkind` 3) (C) |
+| 19–31 | — | reserved-zero ([F01 §10]) (V) |
 
 ### 4.3 Sequence
 
@@ -186,7 +187,7 @@ The "hashed" note names the canonical item ([AR §4.6]) a field feeds; every oth
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `presence` | `u32` | always | §4.2 |
-| 2 | `commit_id` | `b32` | always | BLAKE3-256 of the canonical form ([F07]) |
+| 2 | `commit_id` | `b32` | always | BLAKE3-256 of the canonical form ([F07]) (C: it relates the record to the symbols and states it names, so a decoder never recomputes it; `doctor --verify`, the model and the oracle over fixtures that carry real ids do; spec sync 2b) |
 | 3 | `n_parents` | `u8` | always | 0, 1 or 2 (§3.3, V) |
 | 4 | `parents` | `n_parents` × (`id16` `b16`, `lsn` `uvar64`) | always | the **actual** parents, first = dst or lane tip, second = src tip or `sync_base` ([AR §5b.4]): the first 16 bytes of each parent's `commit_id` and the lsn of its `Commit` record |
 | 5 | `stated_mask` | `u8` | bit `stated` | bit i set ⇔ parent i has a stated id below; bits ≥ `n_parents` reserved-zero; not 0 (V) |
@@ -222,13 +223,14 @@ The "hashed" note names the canonical item ([AR §4.6]) a field feeds; every oth
 | 35 | `append_delta` | `svar64` | always | `append_hlc − hlc` (§4.4.5) |
 | 36 | `msg` | `vstr`, length 1 to 65,535 | bit `msg` | the message, normalised at write time ([F07]; hashed: item 6) |
 | 37 | `affected` | §4.4.13 | bit `affected` | the change-feed set and its completeness flag ([50] F15, F16) |
-| 38 | `changeset_digest` | `b32` | always | BLAKE3-256 of canonical item 10 ([F07]) (item 10 enters `commit_id` through it) |
+| 38 | `changeset_digest` | `b32` | always | BLAKE3-256 of canonical item 10 ([F07]) (item 10 enters `commit_id` through it) (C, as order 2) |
 | 39 | `cs_ref` | (`file` `uvar32`, `len` `uvar64`, `b3` `b16`) | bit `cs_ref` | the sealed changeset file of a bulk commit (§9) |
 | 40 | `n_ops` | `uvar32` | always | number of ops; 0 when bit `cs_ref` or `pruned` is set (V) |
 | 41 | `ops` | `n_ops` × op (§7) | always | the stored changeset in net form (§7.8) and op order (§7.9) |
 | 42 | `n_bodies` | `uvar32` | always | number of carried bodies; 0 when bit `cs_ref` or `pruned` is set (V) |
 | 43 | `bodies` | `n_bodies` × body entry (§8) | always | the bodies this commit carries |
 | 44 | `ckimg` | §4.4.14 | bit `ckimg` | an import-checkpoint's image-only data (not hashed) |
+| 45 | `stage` | §4.4.16 | bit `stage` | the staged merge's own arguments, which `merge --continue` re-uses (not hashed) |
 
 ### 4.4 Field rules
 
@@ -310,10 +312,11 @@ repository gives `algo` set with neither digest.
 
 - `idem_key` = BLAKE3-128 of the key, framed for domain separation ([F01 §7.3]):
   - an explicit key k (its UTF-8 bytes): `BLAKE3-128( lp("moirai-idem-key-v1") ‖ lp(k) )`;
-  - a default key ([AR §6.4]): `BLAKE3-128( lp("moirai-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(H) )`, where s is the
-    namespaced session `<harness>:<id>` (empty when none), a is the attested thread or agent (`codex:<threadId>`,
-    `claude:<agent_id>`) where one exists and otherwise the resolved actor's string, and H is [LQ/canonical-ast §7.2]'s
-    16-byte hash of the `TX` root.
+  - a default key ([AR §6.4]): `BLAKE3-128( lp("moirai-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(b) ‖ lp(H) )`, where s is
+    the namespaced session `<harness>:<id>` (empty when none), a is the attested thread or agent (`codex:<threadId>`,
+    `claude:<agent_id>`) where one exists and otherwise the resolved actor's string, b is the name of the branch the
+    command writes ([API §7.2], §7.4; spec sync 2b), and H is [LQ/canonical-ast §7.2]'s 16-byte hash of the `TX` root
+    (or [API §7.3]'s payload).
 - `idem_payload` = H, the canonical bound AST hash of the payload ([LQ/canonical-ast §7.2]); for a verb that compiles to
   no `TX` block, the payload hash [API] defines for that verb.
 - Only `import = local` commits carry the group (§4.2), and only they satisfy idempotency lookups ([F16]); an imported
@@ -410,7 +413,7 @@ deriving them from its own history ([F14 §11.3]).
 in its rewritten `hist` file ([AR §4.9], [F10 §4.6]). The kept record is the **header-only form** of the dropped `Commit`
 payload:
 
-- presence bit `pruned` is set; bits `cs_ref` and `ckimg` are clear; `n_ops` = 0, `n_bodies` = 0, and nothing follows
+- presence bit `pruned` is set; bits `cs_ref`, `ckimg` and `stage` are clear; `n_ops` = 0, `n_bodies` = 0, and nothing follows
   `bodies` (V);
 - every other field is the dropped record's, byte for byte: `commit_id`, `changeset_digest`, the parents, `hlc`, the
   message, `affected` and the rest. So `commit_id` still verifies against [F07 §3.1], and a pruned commit stays
@@ -420,6 +423,24 @@ payload:
 A pruned commit has no changeset. `show` prints its header with the line `changes pruned by gc`; `revert`, `cherry-pick`,
 `diff` against it and `history --patch` of it are refused with `commit_pruned` (exit 3, [F19 §10.2]). Because only
 unreachable commits are pruned, no ref's history walk and no per-node `prev` chain of a live ref reaches one.
+
+#### 4.4.16 `stage`: a staged merge's arguments (spec sync 2b)
+
+A staged commit ([F12 §9.2]) records the arguments of the command that computed it, so that `merge --continue` recomputes
+the same operation ([F12 §9.4] step 1). The group is:
+
+| order | name | encoding | present when | meaning |
+|---|---|---|---|---|
+| 1 | `sgflags` | `u8` | always | bit 0 `strict` (the command's effective `strict`: `--strict`, else `merge.strict`, [CFG]); bits 1–2 the policy override (0 none, 1 `delete-wins`, 2 `resurrect`; 3 invalid, V); bit 3 `base` present; bits 4–7 reserved-zero; not 0 (V) |
+| 2 | `base` | `b32` | `sgflags` bit 3 | the full id of the `--base` commit ([F12 §4.3] rule 1) |
+
+A staged `merge` or `sync` without the group was computed with no `--base`, no policy override and `strict` false. A
+staged step-0 sync ([F12 §9.6]) records the arguments that applied to the sync: the merge's policy override and effective
+`strict`, which step 0 applies as the merge does, never the merge's `--base`, which step 0 does not apply (it merges over
+[F12 §4.3]'s base, [API §11.7]). A re-staged commit ([F12 §9.4] step 4) copies the group of the commit it replaces,
+byte for byte. A staged `revert` or `cherry-pick` never carries it: those commands take no `--base`, `--policy` or
+`--strict` ([API §11.10]). The group is store-local: staged commits are never exported ([AR §5b.4]) and the group is
+not hashed (§4.5).
 
 ### 4.5 Hashed and unhashed fields
 
@@ -439,7 +460,7 @@ unreachable commits are pruned, no ref's history walk and no per-node `prev` cha
 Every other field is **not hashed**, exactly [AR §4.6]'s list: `lsn` and `parents[].lsn`, `seq`, `gen`, `ref`, `ref_id`,
 `ref_old`, `prev_on_ref`, `ref_seq`, symbol numbers, `import`, `verified`, the idempotency pair, `absorbed`, `affected`
 and `affected_complete`, `stmt_origin`, `stmt_sym`, `stmt_hash`, `append_hlc`, `actor_src`, `ckpt`, `xtr`, `cs_ref`,
-`ckimg`, the `pruned` bit, and,
+`ckimg`, `stage`, the `pruned` bit, and,
 inside the changeset part, every `#N`, `aN`, `prev`, before-image, `Violation` op, `creator` of a `Create`, and anchor
 quote, prefix, suffix and `end` text (their digests are hashed, R-10).
 
@@ -448,7 +469,8 @@ quote, prefix, suffix and `end` text (their digests are hashed, R-10).
 - **Header part bound.** With every group present, the header part is at most
   `659 + 10·A + M + 5·F` bytes, where A is `n_absorbed`, M the message length and F `affected_len` (each varint at its
   bound's maximum length, [F01 §5.2]; groups that cannot co-occur are counted anyway). It is the largest non-changeset
-  part of a `Commit` record ([F17] OP-17-05). The changeset part is `cs_bytes`.
+  part of a `Commit` record ([F17] OP-17-05). The changeset part is `cs_bytes`. The staging arguments (order 45) add at
+  most 33 bytes.
 - *(Informative)* A typical local agent commit — one parent, git provenance with SHA-1, a key, a named mutation, 2–4
   affected ids, a 20-byte message and one small op — has a header part of ≈ 230–250 B; §11 shows one without git
   (194 B).
@@ -534,7 +556,7 @@ A `ckey` is a key in store-local form: a class byte and the key's components.
 | 6 | `counter` | `node`, `name` | `(uid, field)` of a counter field |
 | 7 | `edge` | `src` `uvar32`, `ekind` `u8`, `dst` `uvar32`, `dflag` `u8`, `disc` `b16` if `dflag` bit 0 | `(uid, kind, dst uid, disc)` |
 | 8 | `body` | `node` | `(uid, body)` |
-| 9 | `schema` | `item_class` `u8`, `item_key` `vbytes` | a schema item; `item_class` and the key encoding are [F08]'s |
+| 9 | `schema` | `item_class` `u8`, `item_key` `vbytes` | a schema item; `item_class` is [F08 §8.5]'s class (1–6) and `item_key` its stored key form ([F08 §8.5]: the component names joined by `00`) |
 
 0 and 10–255 are invalid (V). `ekind` is [F08]'s edge-kind code. `dflag` bit 0 marks a discriminator; bits 1–7 are
 reserved-zero (V). The discriminator is present exactly on `at` edges ([AR §3.3], [40] R-4; C), and is the anchor uid.
@@ -836,14 +858,15 @@ strengthen, and a project named query is a schema item of class `query` whose ke
 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
-| 1 | `mode` | `u8` | always | 0 `weaken` (applies at once, merges freely), 1 `strengthen` (needs `moirai migrate`, [AR §2.12]); 2–255 invalid (V) |
-| 2 | `item_class` | `u8` | always | kind, field, enum value, edge kind, `query`, … ([F08]) |
-| 3 | `item_key` | `vbytes` | always | the item's key in [F08]'s encoding; for `query`, the name's UTF-8 bytes |
+| 1 | `mode` | `u8` | always | 0 `weaken` (applies at once; merges freely, except a `policy` item, whose divergence is `SchemaConflict`, [F08 §8.5.6]), 1 `strengthen` (needs `moirai migrate`, [AR §2.12]); 2–255 invalid (V) |
+| 2 | `item_class` | `u8` | always | 1 kind, 2 field, 3 enum value, 4 edge kind, 5 `query`, 6 `policy` ([F08 §8.5]) |
+| 3 | `item_key` | `vbytes` | always | the item's stored key form ([F08 §8.5]: the component names joined by one `00` byte, `*` = `2A`); for `query` and `policy`, the name's UTF-8 bytes |
 | 4 | `sflags` | `u8` | always | bit 0 `old` present, bit 1 `new` present; bits 2–7 reserved-zero; not 0 (V) |
 | 5 | `old` | `vbytes` | `sflags` bit 0 | before-image: the item in [F08]'s encoding |
 | 6 | `new` | `vbytes` | `sflags` bit 1 | the new item; absent for `DROP QUERY` ([50 §3.10] item 6) |
 
-A `DEFINE QUERY` or `DROP QUERY` is mode 0 with `item_class` `query` (C). The `QUERIES` item's layout — grammar version,
+A `DEFINE QUERY` or `DROP QUERY` is mode 0 with `item_class` `query` (C); so is every `Schema` op of class `policy`
+([F08 §8.5.6]; C). The `QUERIES` item's layout — grammar version,
 parameter signature, shape, budget class, the portable text and the unhashed canonical-AST hash — is [F08]'s (F3).
 
 The store-local id of a kind, edge kind or enumeration value ([F08 §8.3]) is part of the item record ([F08 §8.5]: the
@@ -887,13 +910,15 @@ value. The canonical form records the resulting value, not the choice ([AR §5b.
 |---|---|---|---|---|
 | 1 | `key` | `ckey` | always | the resolved key |
 | 2 | `prev` | `uvar64` | the key has an owner | §7.3 |
-| 3 | `choice` | `u8` | always | 0 `ours`, 1 `theirs`, 2 `base`, 3 `value`, 4 `repoint`; 5–255 invalid (V) |
+| 3 | `choice` | `u8` | always | 0 `ours`, 1 `theirs`, 2 `base`, 3 `value`, 4 `repoint`, 5 `drop`; 6–255 invalid (V) |
 | 4 | `target` | `uvar32` | `choice` = 4 | the `#N` the edge is re-pointed to |
 | 5 | `old` | `cstate` | always | before-image |
 | 6 | `new` | `kval` | always | the resulting plain value of `key` |
 
-A `repoint` changes the violating edge's key to `absent` in `new`; the re-pointed edge is an `AddEdge` in the same commit
-(C). A write to a key that holds a conflict value is always a `Resolve` (`choice` 3 for a plain `SET`; C).
+A `repoint` changes the violating or flagged edge's key to `absent` in `new`; the re-pointed edge is an `AddEdge` in the
+same commit (C). `drop` applies only to a flagged edge on a work or plan branch, and its `new` is `absent` (C). On a
+violation's key that holds no conflict value, `ours`, `theirs` and `base` name the staged operation's sides ([F12 §6.5]).
+A write to a key that holds a conflict value is always a `Resolve` (`choice` 3 for a plain `SET`; C).
 
 ### 7.8 Net form
 
@@ -906,7 +931,11 @@ commit; for `sync` it is the residue ([AR §4.6] "Net changeset = state diff").
 - **NF-2 First before-image, last value** (C). When a key changed several times in the commit, `old` is its value in the
   base state and `new` its last value; two `Incr` on one counter sum ([AR §4.3]).
 - **NF-3 No no-op** (V where the op shows both values, C otherwise). An op whose new value equals its old value is not
-  stored; an `Incr` that sums to 0 is not stored; a key changed and changed back is not stored.
+  stored; an `Incr` that sums to 0 is not stored; a key changed and changed back is not stored. One exception: a
+  `Resolve` on a staging ref is stored even when `new` equals `old`'s plain value, because it records that the key's
+  staged violation was resolved ([F12 §9.4] step 2); without it a resolution that keeps the staged value (a `--take ours`
+  on a V01 skip) would be lost (spec sync 2b). Whether a ref is a staging ref is not in the record, so for `Resolve`
+  ops NF-3 is a C-rule.
 - **NF-4 Image folding** (V). A record with a `Create` or `Undelete` of node n holds no `SetField`, `SetStatus`, `Incr` or
   `SetBody` of n: those changes are in the image, which holds n's value keys at the end of the commit ([AR §4.3]: "a
   `Create` followed by `SetField` folds into the `Create`").
@@ -1029,7 +1058,7 @@ of the record.
 
 A decoder of a `Commit` payload (the product codec, the format oracle, `doctor --fsck`) checks every V-rule: §3.1–§3.3,
 §4.1, §4.2 (reserved bits, presence against kind and import), §4.3 (orders 3, 5, 26, 40, 42), §4.4.3, §4.4.5, §4.4.6,
-§4.4.9–§4.4.15, §5.1–§5.5 with [F08 §5]'s value rules, §6.1–§6.3, §7.1–§7.9 with [F08 §10.2]–§10.3's block and record
+§4.4.9–§4.4.16, §5.1–§5.5 with [F08 §5]'s value rules, §6.1–§6.3, §7.1–§7.9 with [F08 §10.2]–§10.3's block and record
 rules, §8 BD-1 and BD-2's length rule, §9 BK-1, and [F01]'s encoding rules (canonical varints, UTF-8, `bool8`). The
 C-rules are checked by `doctor --verify`, the model and the gates (§2.4).
 
@@ -1243,3 +1272,10 @@ changing any width or presence rule: [F10]'s codec-byte values (the `codec` byte
     proposes and DM-017 reads. §7.10 also states that a `Delete`'s inverse is an `Undelete` ([AR §5d.3],
     [RULES/delete-policy-matrix §9]); "`Create` ↔ `Delete` … and back" read as if a revert of a delete re-created the
     node.
+36. **Spec sync 2b.** Presence bit 18 and order 45, `stage` (§4.4.16): a staged `merge` or `sync` records its
+    command's `--base`, policy override and effective `strict`, which [F12 §9.4] step 1 re-uses (the contested row of
+    [F12] open point 30 (a)); absent means none, none and false, so the staged commit of `fixtures/hex/` store A stays
+    valid. NF-3 stores a `Resolve` on a staging ref even when `new` equals `old`. `Resolve.choice` 5 `drop` (a flagged
+    edge, [F12 §6.5]). `item_key` is [F08 §8.5]'s stored key form (names joined by `00`), and `item_class` 6 is a policy
+    row. `commit_id` and `changeset_digest` are tagged C (their correctness needs the symbols and states the record
+    names; [F07 §12]). The default idempotency key hashes the command's branch too ([API §7.2]).

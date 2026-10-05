@@ -1083,6 +1083,8 @@ pub enum Policy {
     Cascade,
     /// `REPARENT`.
     Reparent,
+    /// `REASSIGN` ([RULES/delete-policy-matrix] EG-025, EG-026; spec sync 2b).
+    Reassign,
 }
 
 /// `MOVE` positions.
@@ -1189,6 +1191,8 @@ pub enum Take {
     Value(Expr),
     /// `REPOINT t`.
     Repoint(Target),
+    /// `DROP`: a flagged edge only ([F12 §6.5]).
+    Drop,
 }
 
 /// `define_stmt`.

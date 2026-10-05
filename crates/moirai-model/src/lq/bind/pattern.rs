@@ -175,7 +175,10 @@ impl Binder<'_> {
         };
         if let Some(qn) = e.quant {
             self.b[id as usize].quant_edge = true;
-            let t = e.types.first().map_or("T".to_string(), |t| t.text.clone());
+            let t = e
+                .types
+                .first()
+                .map_or("T".to_string(), |t| printer::plain(&t.text));
             let m = qn.max.map_or(String::new(), |m| m.to_string());
             self.err(
                 Diag::new(

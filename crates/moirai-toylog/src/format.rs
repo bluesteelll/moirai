@@ -427,6 +427,24 @@ impl CommitRec {
         w.buf
     }
 
+    /// `cs_bytes` of an encoded commit payload ([F17 §4.4], [F06] "the changeset part"): its byte length from `n_ops`
+    /// to its end. In the toy that is the count of creates, the creates (the ops) and the filler with its length (the
+    /// body payloads); the header fields before them are not counted (OP-17-05). `Short` for a payload that does not
+    /// reach `n_ops`.
+    pub fn cs_bytes(b: &[u8]) -> Result<u64, Short> {
+        let mut r = Reader::new(b);
+        r.u64()?;
+        r.u64()?;
+        r.uvar(64)?;
+        r.uvar32()?;
+        r.u64()?;
+        r.u64()?;
+        r.u64()?;
+        r.u64()?;
+        r.u8()?;
+        Ok(r.rest() as u64)
+    }
+
     /// Decodes a payload.
     pub fn decode(b: &[u8]) -> Result<CommitRec, Short> {
         let mut r = Reader::new(b);
@@ -479,7 +497,8 @@ pub const REASON_CREATE: u8 = 1;
 pub const REASON_DELETE: u8 = 2;
 /// `RefUpdate.reason` 5: park ([F16] P-70).
 pub const REASON_PARK: u8 = 5;
-/// `RefUpdate.reason` 6 (toy): a commit's ref move written apart from it (only by P-69's seeded bug).
+/// `RefUpdate.reason` 6 (toy): a ref move written apart from a commit, only by the seeded bugs of [F16] P-69 (a commit's
+/// own move in a later group) and P-70 (a commit whose CAS failed moves its ref); no record form of [F05 §9.2].
 pub const REASON_MOVE: u8 = 6;
 
 impl RefUpdateRec {

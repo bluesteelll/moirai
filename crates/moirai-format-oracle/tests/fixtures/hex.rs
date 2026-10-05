@@ -2,9 +2,12 @@
 //! compressed payloads are opaque), and the conclusion each file's first comment states holds: the slot a `HEAD`
 //! selects or why none is ([F04 §8.1]); where and why a log's scan ends ([F05 §5.3]), what lies after that point, and
 //! that the `HEAD` is the fold of the log it covers ([F04 §6], [F05 §10.2]); that a sealed file's header matches its name
-//! ([F09 §17.1] V-3) and every reference in its store that names it (V-8); and that a fragment decodes to its end.
+//! ([F09 §17.1] V-3) and every reference in its store that names it (V-8); that every view a store's log and `HEAD`
+//! name passes the set-wide checks (V-12, names resolved through every `SYMTAB` of the set); and that a fragment decodes
+//! to its end, its schema items in item key order and every `Schema` op's `item_key` its items' stored key form, with
+//! the symbols its first comment names ([F08 §8.5], [F06 §7.6]).
 
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 
 use moirai_format_oracle::fixture::{self, FileName, Fragment, Kind, Sealed};
 use moirai_format_oracle::head::{Choice, HeadSlot, Refusal};
@@ -75,6 +78,11 @@ enum Expect {
 
 use End::*;
 use Expect::*;
+
+/// A fragment's symbols of class `name`, ids 1, 2, … in order.
+fn names(n: &[&str]) -> Vec<String> {
+    n.iter().map(|s| (*s).to_owned()).collect()
+}
 
 /// Every `.bin` of `fixtures/hex`, with its expectation from its first comment block and `fixtures/hex/INDEX.md` §3.
 fn table() -> Vec<(&'static str, Expect)> {
@@ -161,7 +169,24 @@ fn table() -> Vec<(&'static str, Expect)> {
         ),
         (
             "fragments/ops/variants.bin",
-            Fragment(Fragment::OpFrames { lsn: 30_000 }),
+            // The fragment's symbols of class `name`, ids 1, 2, … in first-use order (named where used).
+            Fragment(Fragment::OpFrames {
+                lsn: 30_000,
+                names: names(&[
+                    "estimate",
+                    "owner_quote",
+                    "stale_blockers",
+                    "incident",
+                    "impact",
+                    "priority",
+                    "P5",
+                    "status",
+                    "triaged",
+                    "escalates_to",
+                    "ESCALATES_TO",
+                    "escalated_from",
+                ]),
+            }),
         ),
         (
             "fragments/runtime/os-ids.bin",
@@ -169,7 +194,24 @@ fn table() -> Vec<(&'static str, Expect)> {
         ),
         (
             "fragments/schema/items.bin",
-            Fragment(Fragment::SchemaItems),
+            // The fragment's own symbols of class `name`, ids 1, 2, … in first-use order (named where used).
+            Fragment(Fragment::SchemaItems {
+                names: names(&[
+                    "incident",
+                    "impact",
+                    "pager",
+                    "seen_at",
+                    "tags",
+                    "status",
+                    "open",
+                    "resolved",
+                    "wontfix",
+                    "escalates_to",
+                    "ESCALATES_TO",
+                    "escalated_from",
+                    "open_incidents",
+                ]),
+            }),
         ),
         (
             "fragments/values/cv.bin",
@@ -243,13 +285,9 @@ fn table() -> Vec<(&'static str, Expect)> {
     t
 }
 
-/// Fixtures whose conclusion differs from the oracle's reading of the specification (reported as spec findings; each
-/// has an ignored test below).
-const KNOWN: &[&str] = &[
-    "store-a/seg.b1.5.bin",
-    "store-a/seg.base.10.bin",
-    "store-a/seg.d1.bin",
-];
+/// Fixtures whose conclusion differs from the oracle's reading of the specification, reported as spec findings until the
+/// ruling lands. The walk runs them as expected failures: one that passes, or names no fixture, fails the walk.
+const KNOWN: &[&str] = &[];
 
 /// The slot a store's `HEAD` selects ([F04 §8.1]), after its own decode and re-encode.
 fn head_of(path: &str) -> Result<HeadSlot, String> {
@@ -413,16 +451,7 @@ fn check(path: &str, expect: &Expect) -> Result<(), String> {
     Ok(())
 }
 
-fn check_named(path: &str) -> Result<(), String> {
-    let t = table();
-    let (_, e) = t
-        .iter()
-        .find(|x| x.0 == path)
-        .ok_or_else(|| format!("{path} is not in the table"))?;
-    check(path, e)
-}
-
-/// E3 over every hex fixture but the known mismatches.
+/// E3 over every hex fixture.
 #[test]
 fn hex_fixtures() {
     run_all(
@@ -518,7 +547,21 @@ fn segref_reference(holder: String, s: &moirai_format_oracle::head::SegRef) -> R
     r
 }
 
-/// The references a store's `HEAD` slot and scanned log hold ([F04 §4.1], [F05 §9.1] `cs_ref`, §9.9).
+/// A ref's `promoted_seg` ([F11 §3.1]) as a reference: it names `seg.b<ref_id>.<K>` by the ref's id and K, and states
+/// nothing more of the file.
+fn promoted_reference(holder: String, ref_id: u32, k: u32) -> Reference {
+    Reference::new(
+        holder,
+        FileName {
+            family: 5,
+            ref_id,
+            file_no: k,
+        },
+    )
+}
+
+/// The references a store's `HEAD` slot and scanned log hold ([F04 §4.1], [F05 §9.1] `cs_ref`, §9.9, §9.10
+/// `promoted_seg`).
 fn log_references(slot: &HeadSlot, scan: &Scan, head: &str) -> Vec<Reference> {
     let mut v: Vec<Reference> = slot.segments[..usize::from(slot.n_segments)]
         .iter()
@@ -540,6 +583,17 @@ fn log_references(slot: &HeadSlot, scan: &Scan, head: &str) -> Vec<Reference> {
                     r.total_len = Some(len);
                     r.digest16 = Some(d);
                     v.push(r);
+                }
+            }
+            Payload::RefTable(entries) => {
+                for e in entries {
+                    if let Some(u) = e.upsert.as_ref().filter(|u| u.promoted_seg != 0) {
+                        v.push(promoted_reference(
+                            format!("{at} (RefTable promoted_seg)"),
+                            e.ref_id,
+                            u.promoted_seg,
+                        ));
+                    }
                 }
             }
             Payload::Checkpoint(ck) => {
@@ -595,8 +649,9 @@ fn log_references(slot: &HeadSlot, scan: &Scan, head: &str) -> Vec<Reference> {
     v
 }
 
-/// The rows of a segment's `FILES` section ([F09 §14.4]) as references, read from the section alone.
-fn files_references(name: &str, b: &[u8]) -> Result<Vec<Reference>, String> {
+/// The rows of a segment's `FILES` section ([F09 §14.4]) and the `promoted_seg` of its `REFS` rows ([F11 §3.1]) as
+/// references, read from the sections alone.
+fn segment_references(name: &str, b: &[u8]) -> Result<Vec<Reference>, String> {
     if !b.starts_with(b"MSEG") {
         return Ok(Vec::new());
     }
@@ -606,17 +661,31 @@ fn files_references(name: &str, b: &[u8]) -> Result<Vec<Reference>, String> {
         4 => SegKind::Delta,
         _ => return Ok(Vec::new()),
     };
-    let Some((_, (bytes, at))) = c
-        .entries
-        .iter()
-        .zip(&c.sections)
-        .find(|(e, _)| e.tag == Table::Files.tag())
-    else {
-        return Ok(Vec::new());
+    let table = |t: Table| -> Result<Option<runtime::Section>, String> {
+        c.entries
+            .iter()
+            .zip(&c.sections)
+            .find(|(e, _)| e.tag == t.tag())
+            .map(|(_, (bytes, at))| {
+                runtime::decode_section(t, bytes, *at, seg)
+                    .map_err(|e| format!("{name} {t:?}: {e}"))
+            })
+            .transpose()
     };
-    let s = runtime::decode_section(Table::Files, bytes, *at, seg)
-        .map_err(|e| format!("{name} FILES: {e}"))?;
     let mut v = Vec::new();
+    for row in table(Table::Refs)?.iter().flat_map(|s| &s.rows) {
+        let k = row.u("promoted_seg") as u32;
+        if k != 0 {
+            v.push(promoted_reference(
+                format!("{name} REFS promoted_seg"),
+                row.u("ref_id") as u32,
+                k,
+            ));
+        }
+    }
+    let Some(s) = table(Table::Files)? else {
+        return Ok(v);
+    };
     for row in &s.rows {
         let FV::FileRef(family, ref_id, file_no) = *row.get("file") else {
             continue;
@@ -644,10 +713,12 @@ fn files_references(name: &str, b: &[u8]) -> Result<Vec<Reference>, String> {
     Ok(v)
 }
 
-/// [F09 §17.1] V-8 over one store: every reference its `HEAD`, its log and its segments' `FILES` sections hold to a
-/// sealed file of the store's fixtures states that file's `total_len`, digest and bounds; and every sealed file of the
-/// store is named by at least one reference ([F09 §14.4]: `HEAD`, the log and `FILES` name every live file; a released
-/// file was named by the log that made it live).
+/// [F09 §17.1] V-8 over one store: every reference its `HEAD`, its log and its segments' `FILES` and `REFS` sections
+/// hold to a sealed file of the store's fixtures states that file's `total_len`, digest and bounds (a ref's
+/// `promoted_seg`, in a `RefTable` record or a `REFS` row, names `seg.b<ref_id>.<K>` by the ref id and K that the
+/// file's header carries, V-3, and states nothing more); and every sealed file of the store is named by at least one
+/// reference ([F09 §14.4]: `HEAD`, the log and `FILES` name every live file; a released file was named by the log that
+/// made it live).
 fn check_store(dir: &str, head: &str, log: &str, more: &[&str]) -> Result<(), String> {
     let base = family("hex");
     let mut files: BTreeMap<FileName, (String, Sealed)> = BTreeMap::new();
@@ -660,12 +731,12 @@ fn check_store(dir: &str, head: &str, log: &str, more: &[&str]) -> Result<(), St
         }
         let b = read(&p);
         let sealed = fixture::sealed_identity(s, &b).map_err(|e| format!("{r}: {e}"))?;
-        refs.extend(files_references(&r, &b)?);
+        refs.extend(segment_references(&r, &b)?);
         files.insert(sealed.name, (r, sealed));
     }
     let (slot, lc, _) = scan_of(head, log, more)?;
     refs.extend(log_references(&slot, &lc.scan, head));
-    let mut named = std::collections::BTreeSet::new();
+    let mut named = BTreeSet::new();
     let mut failures = Vec::new();
     for r in &refs {
         let Some((path, f)) = files.get(&r.file) else {
@@ -735,6 +806,140 @@ fn hex_store_references() {
     assert!(failures.is_empty(), "{}", failures.join("\n"));
 }
 
+/// The base and delta files of a main set ([F04 §4.1]: base first, then the deltas oldest first; the dictionary is no
+/// layer).
+fn main_set(segs: &[moirai_format_oracle::head::SegRef]) -> Vec<FileName> {
+    segs.iter()
+        .filter(|s| matches!(s.kind, 1 | 2))
+        .map(segref_file)
+        .collect()
+}
+
+/// [F09 §17.1] V-12 and the set-wide name checks over one store, with the symbols of every `SYMTAB` of its segments
+/// ([F09 §17.1] last paragraph): every main set a `Checkpoint` record publishes ([F05 §9.9] bit 0) and the `HEAD`
+/// names ([F04 §4.1]); every promoted branch segment on top of the set its `Promotion.base_pin` names ([F05 §9.9]: 0 =
+/// the set the record publishes; [F09 §16.3]); and every changeset a bulk commit names ([F06 §9] `cs_ref`).
+fn check_views(dir: &str, head: &str, log: &str, more: &[&str]) -> Result<(), String> {
+    let base = family("hex");
+    let mut segs: BTreeMap<FileName, (String, segment::Segment)> = BTreeMap::new();
+    for p in walk(&base.join(dir)) {
+        let r = rel(&p, &base);
+        let Some(name) = FileName::parse(stem(&r))
+            .filter(|n| r.ends_with(".bin") && matches!(n.family, 3 | 4 | 5 | 9))
+        else {
+            continue;
+        };
+        let s = segment::decode_segment(&read(&p)).map_err(|e| format!("{r}: {e}"))?;
+        segs.insert(name, (r, s));
+    }
+    let syms = segment::SetSymbols::of(segs.values().map(|x| &x.1)).map_err(|e| e.to_string())?;
+    let (slot, lc, _) = scan_of(head, log, more)?;
+    let mut stacks: Vec<Vec<FileName>> =
+        vec![main_set(&slot.segments[..usize::from(slot.n_segments)])];
+    let mut published: BTreeMap<u64, Vec<FileName>> = BTreeMap::new();
+    let mut changesets = Vec::new();
+    for rec in lc.scan.groups.iter().flat_map(|g| &g.records) {
+        match &rec.payload {
+            Payload::Checkpoint(ck) => {
+                let own = ck.set.as_ref().map(|(_, _, s)| main_set(s));
+                if let Some(set) = &own {
+                    published.insert(rec.hdr.lsn, set.clone());
+                    stacks.push(set.clone());
+                }
+                for p in ck.promotions.iter().flatten() {
+                    let pin = if p.base_pin == 0 {
+                        own.as_ref()
+                    } else {
+                        published.get(&p.base_pin)
+                    };
+                    let mut st = pin
+                        .ok_or_else(|| {
+                            format!(
+                                "the Promotion at lsn {} pins a set no scanned Checkpoint publishes",
+                                rec.hdr.lsn
+                            )
+                        })?
+                        .clone();
+                    st.push(FileName {
+                        family: 5,
+                        ref_id: p.ref_id,
+                        file_no: p.seg_file,
+                    });
+                    stacks.push(st);
+                }
+            }
+            Payload::Commit(c) => {
+                if let Some((f, _, _)) = c.cs_ref {
+                    changesets.push(FileName {
+                        family: 9,
+                        ref_id: 0,
+                        file_no: f,
+                    });
+                }
+            }
+            _ => {}
+        }
+    }
+    stacks.sort();
+    stacks.dedup();
+    let get = |n: &FileName| {
+        segs.get(n)
+            .map(|(p, s)| (p.as_str(), s))
+            .ok_or_else(|| format!("{dir}/{} is named by the store but not a fixture", n.name()))
+    };
+    let mut failures = Vec::new();
+    let mut checked = BTreeSet::new();
+    for st in &stacks {
+        let layers = st.iter().map(get).collect::<Result<Vec<_>, _>>()?;
+        checked.extend(st.iter().copied());
+        if let Err(e) = segment::check_stack(&layers, &syms) {
+            failures.push(e.to_string());
+        }
+    }
+    for n in &changesets {
+        let (p, s) = get(n)?;
+        checked.insert(*n);
+        if let Err(e) = segment::check_changeset(p, s, &syms) {
+            failures.push(e.to_string());
+        }
+    }
+    for (n, (p, _)) in &segs {
+        if !checked.contains(n) {
+            failures.push(format!("{p}: in no set, promotion or cs_ref of the store"));
+        }
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("\n"))
+    }
+}
+
+/// [F09 §17.1] V-12 and the set-wide name order: stores A and B.
+#[test]
+fn hex_store_views() {
+    let mut failures = Vec::new();
+    for (dir, head, log, more) in [
+        (
+            "store-a",
+            "head/two-slot/new-new.bin",
+            "store-a/log.1.bin",
+            &[][..],
+        ),
+        (
+            "store-b",
+            "store-b/HEAD.bin",
+            "store-b/log.1.bin",
+            &["store-b/log.2.bin"][..],
+        ),
+    ] {
+        if let Err(e) = check_views(dir, head, log, more) {
+            failures.push(format!("{dir}:\n{e}"));
+        }
+    }
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
 /// [F04 §6], [F05 §10.2]: every valid slot of store A's `HEAD` fixtures (`init`, the two-slot states, the flag
 /// publishes, `absent-zero`) is the fold of store A's log up to that slot's `committed_lsn` (INDEX.md §3.3: `init.hex`
 /// holds the fold of g1–g2; the other states are store A at the end of `log.1`).
@@ -763,32 +968,4 @@ fn store_a_heads_are_folds_of_its_log() {
     }
     assert!(slots > 0, "no valid slot among the store A HEAD fixtures");
     assert!(failures.is_empty(), "{}", failures.join("\n"));
-}
-
-fn run_named(path: &str) {
-    if let Err(e) = check_named(path) {
-        panic!("{path}: {e}");
-    }
-}
-
-/// Only the FCOL sections of fields the touched rows hold; [F09 §10.1] reads as every FCOL its FPROMO rows imply.
-#[test]
-#[ignore = "mismatch: hex/store-a/seg.b1.5.bin, awaiting ruling"]
-fn mismatch_store_a_seg_b1_5() {
-    run_named("store-a/seg.b1.5.bin");
-}
-
-/// A non-inline `IDEM` result `HeapRef` at the running offset ([F11 §2.3]) where §8 says zero; no `FCOL`/`FIDX` for
-/// `assignee` ([F09 §10.1]).
-#[test]
-#[ignore = "mismatch: hex/store-a/seg.base.10.bin, awaiting ruling"]
-fn mismatch_store_a_seg_base_10() {
-    run_named("store-a/seg.base.10.bin");
-}
-
-/// As seg.base.10: the non-inline `IDEM` result `HeapRef`, and no `FCOL.assignee`.
-#[test]
-#[ignore = "mismatch: hex/store-a/seg.d1.bin, awaiting ruling"]
-fn mismatch_store_a_seg_d1() {
-    run_named("store-a/seg.d1.bin");
 }

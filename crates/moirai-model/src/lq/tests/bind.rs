@@ -401,6 +401,35 @@ fn project_named_queries_are_callable() {
 
 // ----- binder errors ------------------------------------------------------------------------------------------------
 
+/// Spec sync 2b: V12 ([LQ/canonical-ast §5.7]) — set-operation parts with different column counts are E001; N5 (§5.8)
+/// — `EXPECT` through `$p` with min > max is E001 at binding; `tx.claim`'s `$ttl` takes a text, a duration or an
+/// `int` of milliseconds ([LQ/std §7.3]).
+#[test]
+fn v12_n5_and_ttl_types() {
+    assert_eq!(
+        read_err("MATCH (t:task) RETURN t.title AS a UNION MATCH (t:task) RETURN t.title AS a, t.priority AS b").0,
+        Code::E001
+    );
+    read("MATCH (t:task) RETURN t.title AS a UNION MATCH (n:note) RETURN n.title AS b");
+    let p = Params::new().with("n", Value::Text("3..1".into()));
+    assert_eq!(
+        write_err_with(
+            "TX { MATCH (t:task) EXPECT $n SET t.priority = 1 }",
+            &p,
+            &Caller::default()
+        )
+        .0,
+        Code::E001
+    );
+    for ttl in ["'15m'", "15m", "900000"] {
+        write(&format!("TX {{ CALL tx.claim(ids: [#12], ttl: {ttl}) }}"));
+    }
+    assert_eq!(
+        write_err("TX { CALL tx.claim(ids: [#12], ttl: true) }").0,
+        Code::E103
+    );
+}
+
 #[test]
 fn e001_unaliased_with_item() {
     assert_eq!(
@@ -1080,7 +1109,7 @@ fn w01_absent_decided_comparisons() {
     let b = read("MATCH (t:task) WHERE t.estimate > 2 RETURN t");
     assert_eq!(
         b.lints[0].message(Some(12)),
-        "12 rows excluded because estimate is absent; use coalesce(t.estimate, 0) or t.estimate IS NULL"
+        "12 rows excluded because `estimate` is absent; use coalesce(t.estimate, 0) or t.estimate IS NULL"
     );
     assert!(lints("MATCH (t:task) WHERE t.priority <= 1 RETURN t").is_empty());
     assert!(lints("MATCH (t:task) WHERE t.estimate = 2 RETURN t").is_empty());
@@ -1558,12 +1587,16 @@ fn portable_form_of_quoted_ranges_and_lists() {
     }
 }
 
-/// [LQ/canonical-ast §5.6]: a commit literal no commit starts with is E301, a full 64-digit id included.
+/// [LQ/canonical-ast §5.6] `rcommit`: a commit prefix no commit starts with is E301, but a literal of all 64 hex digits
+/// binds as that id whether or not the store holds the commit (spec sync 2a; [LQ/lexical §10.2]); E301 waits for the
+/// resolution of its view.
 #[test]
-fn e301_full_commit_ids_the_store_does_not_know() {
+fn full_commit_ids_bind_as_themselves() {
     let unknown = "ab".repeat(32);
+    let c = cast_of(&format!("USE c{unknown} MATCH (t:task) RETURN t"));
+    assert!(c.contains(&format!("(RCOMMIT \"{unknown}\")")), "{c}");
     assert_eq!(
-        read_err(&format!("USE c{unknown} MATCH (t:task) RETURN t")),
+        read_err(&format!("USE c{} MATCH (t:task) RETURN t", &unknown[..63])),
         (Code::E301, 1, 5)
     );
     let known = hex_of(&super::fixture::commit(12));

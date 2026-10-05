@@ -1,7 +1,8 @@
 //! `ProjectFs` on real NTFS ([OS/project], [OS/path]; X-F7, X-F8): canonical roots through junctions, P12 paths, the
 //! CLI boundary, stale roots, volume capabilities, `stat` and enumeration with ids, on-disk spellings, `locate_id`, the
-//! streaming reader with its containment check, links, busy holders, stamps and the mtime granularity probe, the
-//! write side with its flush accounting, and cloud-placeholder attributes that block every automatic open.
+//! streaming reader and enumeration with their containment checks, links, busy holders, stamps and the mtime
+//! granularity probe, the write side with its flush accounting, and cloud-placeholder attributes that block every
+//! automatic open.
 
 #![cfg(windows)]
 #![allow(unsafe_code)]
@@ -17,7 +18,7 @@ use common::TempDir;
 use moirai_os::{OsProjectFs, OsProjectRoot};
 use moirai_vfs::{
     At, BtimeTrust, CanonicalRoot, CaseRule, CloudRule, EntryName, EntryNameRef, EnumEnd,
-    FileAttrs, FileIdKind, IdLocate, Located, OsFileId, PathError, ProjKind, ProjectFs,
+    FileAttrs, FileIdKind, IdLocate, Located, OsCode, OsFileId, PathError, ProjKind, ProjectFs,
     ProjectRead, ReadOpts, RelPath, RenameRule, Renamed, ShareRetry, Stat, StatMode, StatRec,
     VfsErrorKind, VolumeCaps, VolumeKey,
 };
@@ -771,6 +772,61 @@ fn junctions_are_removed_as_links_and_never_enumerated() {
         p.unlink(at(&r, "d"), ShareRetry::None).unwrap_err().kind,
         VfsErrorKind::IsDirectory
     );
+}
+
+#[test]
+fn enumeration_checks_the_open_directory_s_final_path() {
+    // [OS/project §5.2] "Containment after the open (Windows)": `tree/j` is a junction to a directory outside the tree,
+    // and `j/sub` is a plain directory reached through it, so the attribute read passes and only the final-path check
+    // of the opened handle keeps the walk inside the tree, deterministically and without a race.
+    let t = TempDir::new("pfsenumcontain");
+    std::fs::create_dir_all(t.join("tree/inner/deep")).unwrap();
+    std::fs::write(t.join("tree/inner/f"), b"f").unwrap();
+    std::fs::create_dir_all(t.join("outside/sub/nested")).unwrap();
+    std::fs::write(t.join("outside/sub/secret"), b"s").unwrap();
+    junction(&t.path().join("tree").join("j"), &t.path().join("outside"));
+    let p = OsProjectFs::new();
+    let (_, r) = open(&p, &t.join("tree"));
+    assert_eq!(
+        present(p.stat(at(&r, "j/sub"), StatMode::Read).unwrap()).kind,
+        ProjKind::Dir,
+        "the leaf itself is a plain directory"
+    );
+    let listed = |s: &str| {
+        let mut names = Vec::new();
+        p.enumerate(at(&r, s), |e| {
+            names.push(e.name.to_owned());
+            ControlFlow::Continue(())
+        })
+        .map(|end| {
+            assert_eq!(end, EnumEnd::Complete);
+            names.sort_by(|a, b| a.as_bytes().cmp(b.as_bytes()));
+            names
+        })
+    };
+    let e = listed("j/sub").unwrap_err();
+    assert_eq!(
+        (e.kind, e.os, e.call),
+        (VfsErrorKind::OutsideRoot, OsCode::NONE, "enumerate"),
+        "a directory reached through a junction is never listed"
+    );
+    let e = listed("j/sub/nested").unwrap_err();
+    assert_eq!(e.kind, VfsErrorKind::OutsideRoot);
+    // The handle was closed: the outside directory can be removed at once.
+    std::fs::remove_dir(t.join("outside/sub/nested")).unwrap();
+    // A normal subdirectory and the root itself (the final path equal to the root's text) still list.
+    let names = |v: Vec<EntryName>| -> Vec<Vec<u8>> {
+        v.into_iter().map(|n| n.as_bytes().to_vec()).collect()
+    };
+    assert_eq!(
+        names(listed("inner").unwrap()),
+        [b"deep".to_vec(), b"f".to_vec()]
+    );
+    assert_eq!(
+        names(listed("").unwrap()),
+        [b"inner".to_vec(), b"j".to_vec()]
+    );
+    assert!(listed("inner/deep").unwrap().is_empty());
 }
 
 /// The `cloud` child: an `OFFLINE` entry is refused by every automatic path without an open. The file is held open

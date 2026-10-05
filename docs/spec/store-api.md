@@ -113,11 +113,12 @@ Every write command ends in exactly one outcome:
 | `replayed` | nothing | 0 | the recorded result with `replayed` = true (§7.5) |
 | `dry` | nothing | 0 | the would-be result with `dry` = true |
 | `staged` | the commit on the staging ref `merge/<dst>/from/<src>` or `import/<ref>` ([AR §5a.7] step 8) | 6 | success keys, then `errors` with `staged` ([F19 §8.6]) |
-| `refused` | nothing; for `FileMv`, `FileRm` and `FileRevert` possibly the intent and its abort record (§12.4) | 1–9 | error envelope ([F19 §8.6]) |
+| `refused` | nothing; for `FileMv`, `FileRm` and `FileRevert` possibly the intent and its abort record (§12.4); for a `Merge` into `main` refused `conflicted_src` after its step-0 sync landed conflict values, that sync's group on `src` (§11.7) | 1–9 | error envelope ([F19 §8.6]) |
 | `partial` | the units that committed: the refs of an `ImageImport`, the items of a `FileMv` or `FileRm` of several items (§12.4) | 8 | per unit (`partial_batch`, [F19 §10.2]) |
 
 A refusal writes nothing that changes versioned or runtime state, except the intent records named above, whose net effect is
-none. An observation ends in `ok`, `refused` or, for `Query`, `cut` (exit 10, [F19 §7.1]).
+none, and the one exception of §11.7: a sync-first merge whose sync lands conflict values keeps that sync on `src`
+([AR §5d.3] case C7b, [RULES/delete-policy-matrix] XB-003) and is then refused. An observation ends in `ok`, `refused` or, for `Query`, `cut` (exit 10, [F19 §7.1]).
 
 ### 2.4 The logical store a command changes
 
@@ -197,6 +198,10 @@ The keys and their order are [LQ/envelope §7.1] and §7.7:
 | `budget` | [LQ/envelope §7.5]; its values are excluded from the comparison (§16.3) |
 | `yields` (appended after `budget`) | array, always present, empty when the block calls no procedure: one object per procedure call of the block, in statement order: `{"index":<statement index>,"proc":"tx.<name>","rows":[{…}…]}`; each row holds the procedure's yield columns of [LQ/std §7.3] first, in that table's order, then the further members the command's section lists (§10, §12), in the encodings of §5 (open point 36). A file named mutation (§12), which is no `TX` statement, has one entry with `index` 0 |
 
+Then `hints`, `errors` and `exit` as [F19 §8.2] rows 9–11, after `yields`, as in family W (§3.4): `hints` is present when
+non-empty, so a family-T result carries, for example, the `SuspectBudget` hint of a delete
+([RULES/delete-policy-matrix] DS-010) (spec sync 2b).
+
 ### 3.4 Family W
 
 | # | Key | Type | Present | Content |
@@ -252,7 +257,8 @@ view a snapshot was taken at, and are null for an environment command.
 | `if_tip` | commit | `--if-tip` / MCP `if_tip` / `IF TIP` |
 
 A path is the canonical absolute form of [80 §2.10] P12 with `/` separators ([OS/path §2.2]). In a stream, paths name the
-simulated trees of §6.5.
+simulated trees of §6.5, so both absolute forms are accepted whatever the host OS — a Windows form (`D:/work`, `D:\work`)
+and a Unix form (`/work`) — and results write the canonical form with `/` (spec sync 2b).
 
 ### 4.2 Resolution
 
@@ -266,8 +272,8 @@ reference model encodes these rows as data ([60 §3.13] GT2 row, M8); the ids ar
 | CX-3 | **Actor** and `actor_src` | the presented lease's holder (`lease`) → `codex:` + `ctx.meta.threadId` (`meta`) → `claude:` + `ctx.stamp.agent_id` (`stamp`) → `ctx.agent` as written (`declared`) → `ctx.env.MOIRAI_AGENT` as written, else `codex:` + `CODEX_THREAD_ID`, else `session:claude:` + `CLAUDE_CODE_SESSION_ID` (`env`) → `client:` + `ctx.client_info` (`client`) → the resolved session identity prefixed `session:`, else the empty string (`none`) ([F06 §3.5]) |
 | CX-4 | **Session** (the liveness identity) | `codex:` + `ctx.meta.threadId` → `ctx.stamp.session_id` with the prefix of the detected harness (CX-7) → `codex:` + `CODEX_THREAD_ID` → `claude:` + `CLAUDE_CODE_SESSION_ID` → none; never a `MOIRAI_*` variable |
 | CX-5 | **Tree** | `ctx.tree` → `ctx.meta.sandboxCwd` → `ctx.stamp.cwd` → the `worktree_path` of the lane whose `moirai_branch` is the presented lease's branch (a task lease or a run-scoped role lease) → `ctx.cwd` |
-| CX-6 | **Model** | the `model` of the run the presented lease is scoped to, else of the run `ctx.env.MOIRAI_RUN` names → the `model=` field of `ctx.marker` → `ctx.model`, else `ctx.env.MOIRAI_MODEL` → `ctx.hook_model` → `lq.model-profile.default.<client>` ([90 §8.2], [CFG]) |
-| CX-7 | **Client** (profile) | `ctx.client`, else `ctx.env.MOIRAI_CLIENT` → `ctx.client_info` (`codex-mcp-client` → `codex`; a Claude Code name → `claude`; anything else → `generic`) → detection from `ctx.env`: the variables of exactly one harness (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID` or `AI_AGENT` = `claude-code_*` → `claude`; `CODEX_THREAD_ID` → `codex`; `GEMINI_CLI`, `CURSOR_AGENT`, `AGENT` → their label with the `generic` profile); variables of more than one harness → `generic` and **no session identity** (CX-4 yields none) and the warning `two_harnesses` ([F19 §10.4]) → `generic` |
+| CX-6 | **Model** | the `model` field ([F08 §9.3] `run`, decl 30; spec sync 2b) of the run the presented lease is scoped to, else of the run `ctx.env.MOIRAI_RUN` names → the `model=` field of `ctx.marker` → `ctx.model`, else `ctx.env.MOIRAI_MODEL` → `ctx.hook_model` → `lq.model-profile.default.<client>` ([90 §8.2], [CFG]) |
+| CX-7 | **Client** (profile) | `ctx.client`, else `ctx.env.MOIRAI_CLIENT` → the `client.profile` key ([CFG §10.9]) when its effective value is not `auto` (spec sync 2b) → `ctx.client_info` (`codex-mcp-client` → `codex`; a Claude Code name → `claude`; anything else → `generic`) → detection from `ctx.env`: the variables of exactly one harness (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID` or `AI_AGENT` = `claude-code_*` → `claude`; `CODEX_THREAD_ID` → `codex`; `GEMINI_CLI`, `CURSOR_AGENT`, `AGENT` → their label with the `generic` profile); variables of more than one harness → `generic` and **no session identity** (CX-4 yields none) and the warning `two_harnesses` ([F19 §10.4]) → `generic` |
 | CX-8 | **Effective role** | the presented lease's role; a `ctx.hook_label` that differs narrows it to the intersection of the two rows of [RULES/role-write-policy], with the warning `hook_label_narrowed`; no lease → `general-purpose` ([90 §4.3]) |
 | CX-9 | **Binding rule** | an environment lease binds, at its first use, to the attested thread that uses it (`codex:` + `ctx.meta.threadId`, else `codex:` + `CODEX_THREAD_ID`): the `LEASES.bound` field is set by a `Lease` record of event 3 with mask bit 2 ([F05 §9.4]) in the command's group. A later use of the same lease through the environment from another attested thread is refused (E407, [F19 §11.2] text 2). An explicit `ctx.lease` is never refused on this ground ([90 §4.1]) |
 
@@ -278,6 +284,13 @@ Notes:
 - A `ctx.marker` that does not match the marker grammar ([AR §2.9]) contributes nothing.
 
 ### 4.3 Refusals of the resolution
+
+**The idempotency pre-check comes first** ([AR §4.5] step 2; spec sync 2b). A keyed command whose key — the explicit
+`ctx.key`, or the default key of §7.2 — has an entry within its window runs §7.4's lookup before these refusals: rows 2
+and 3 replay it and rows 4 and 5 refuse it with E408, whatever the rows below would say, so a retry converges (§6.7,
+I14′) even after its presented lease ended (a `Complete` whose applied candidate settled the lease). For this lookup the
+branch (CX-2) takes an ended lease's recorded branch. Only a command whose key has no such entry goes on to the rows
+below.
 
 Checked before anything else of the command, in this order; each refuses with nothing written:
 
@@ -292,8 +305,7 @@ Checked before anything else of the command, in this order; each refuses with no
 | 7 | the resolved branch is a ref the command may not write: a tag, an `import/*` ref, a commit or reflog revision; a staging ref for anything but `RESOLVE` ([50 §3.9] item 6); a `plan/*` ref for a masked field (I33′, [RULES/status-machines] BM-002) | E305, exit 6 |
 | 8 | quiet mode refuses the command ([AR §6.6]) | `quiet_mode`, exit 6 |
 
-A move with `move_lease` succeeds with the warning the verb prints ([AR §5a.4]) and a `Lease` record of event 3, mask bit 1
-([F05 §9.4]).
+A move with `move_lease` succeeds with the warning `lease_moved` ([F19 §10.4]; the warning the verb prints, [AR §5a.4]) and a `Lease` record of event 3, mask bit 1 ([F05 §9.4]) (spec sync 2b).
 
 ### 4.4 What the resolved caller sets in a commit
 
@@ -370,7 +382,7 @@ form (the `#`, stored names, `-` for a violation without a key). For reference (
 | body | `#N.body` |
 | hierarchy | `#N.parent` |
 | edge | `edge:#S:<stored edge kind>:#D`, and `:a<n>` (the anchor handle) for an `at` edge |
-| schema item | `schema:kind:<kind>`, `schema:field:<kind or *>.<field>`, `schema:enum:<kind or *>.<field>.<value>`, `schema:edge:<edge kind>` |
+| schema item | `schema:kind:<kind>`, `schema:field:<kind or *>.<field>`, `schema:enum:<kind or *>.<field>.<value>`, `schema:edge:<edge kind>`, `schema:policy:<row>` |
 | named query | `query:<name>` |
 
 **Snapshot form.** `state(ref)` (§15) holds no store-local number, so its keys replace every `#N` by the node's uid
@@ -618,7 +630,9 @@ tree gate of [40 §5.2].
 - **`between`.** Every simulated process ends: the slot table is emptied (their sessions' `session` and `session-ttl`
   anchors become Dead by SL-2), and the next store command first runs recovery ([F16]). Nothing logical changes: the model's
   state is unchanged, and the engine must equal it after recovery.
-- **`in-next`.** The next write command is interrupted at a point the engine's harness chooses. Its result is the error
+- **`in-next`.** The next write command — every command of groups S (`Init`, `ConfigSet`, `ConfigUnset`, `Quiet`,
+  `Maintain`, `Gc`, `Backup`, `Restore`, `Repair`; not `Verify`), G, C, V, F and I; never an observation or an
+  environment command (spec sync 2b) — is interrupted at a point the engine's harness chooses. Its result is the error
   envelope with `outcome_unknown` (exit 7, [F19 §10.2]). After recovery the store equals either the state with that command
   applied or the state without it ([60 §4.4] item 4). For a command of the bulk class (§9.10) the state without it has a
   second form: the command's durable reservation ([F05 §9.27], [F16] P-84) survived without its commit, so `next_id` and
@@ -629,6 +643,10 @@ tree gate of [40 §5.2].
   three for a bulk-class command) and adopts the one the engine's next `State` and `Runtime` snapshots show; an
   acknowledged commit is never missing, and a retry with the same key converges (I14′). A write that was not applied leaves
   no marker, lease or idempotency entry (I27′).
+- **No OS crash.** Both forms are process crashes: every appended record, lazy ones included, survives. An OS crash,
+  which may lose lazy records ([F15], [AR §6.5]), has no form here, so no stream observes `durability.lazy-kinds`; its
+  check is GT3's crash harness, whose candidates after an OS crash drop the lazy records `crash::survives` allows
+  ([CFG §10.3]; spec sync 2b).
 
 **Result** (family X): `data` = `{"at":<value>}`.
 
@@ -638,7 +656,12 @@ tree gate of [40 §5.2].
 
 - **Keyed**: every write command of groups G, C, V, F and I, with the exceptions below. A keyed command takes the explicit key
   `ctx.key`; without one it takes the default key of §7.2, unless `ctx.no_dedupe` is true ([AR §6.4]).
-- **Explicit key only** (no default key): `LinksSync`, a settle, which must run again when the tree changed (open point 10).
+- **Explicit key only** (no default key): `LinksSync`, a settle, which must run again when the tree changed (open point 10);
+  `Sync`, `Merge`, `MergeContinue` and `Undo`, whose effect depends on tips their arguments do not name, so that a default
+  key over the arguments would replay a stale result after `main` or the destination moved (spec sync 2b). A retry of
+  these without a key is safe by their own checks: a landed `Merge` or `Sync` is then `up-to-date`, a landed
+  `MergeContinue` finds no staging ref, and `Undo` is safe only when it carries `expect` (§11.11); without it a retry
+  undoes again.
 - **Never keyed**: groups E, S and O; `Heartbeat` and `Check`, which append only lazy records, which cannot carry the durable
   `Idem` record, and whose repetition is harmless. A `ctx.key` on them is ignored and nothing is recorded.
 
@@ -646,9 +669,16 @@ tree gate of [40 §5.2].
 
 `idem_key` is [F06 §4.4.7]'s:
 - an explicit key k: `BLAKE3-128( lp("moirai-idem-key-v1") ‖ lp(k) )`;
-- the default key: `BLAKE3-128( lp("moirai-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(P) )`, where s is the resolved session (CX-4,
-  namespaced; empty with none), a is the attested thread or agent (`codex:` + `ctx.meta.threadId`, else `claude:` +
-  `ctx.stamp.agent_id`) and otherwise the resolved actor (CX-3), and P is the payload of §7.3 (16 bytes).
+- the default key: `BLAKE3-128( lp("moirai-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(b) ‖ lp(P) )`, where s is the resolved
+  session (CX-4, namespaced; empty with none), a is the attested thread or agent (`codex:` + `ctx.meta.threadId`, else
+  `claude:` + `ctx.stamp.agent_id`) and otherwise the resolved actor (CX-3), b is the name of the command's branch (§7.4),
+  and P is the payload of §7.3 (16 bytes). With b in the key, one command on two branches within the default window has
+  two keys and runs twice, never E408 (spec sync 2b). The price: a default key matches only an entry made on a branch
+  of the same name, so §7.4's rows 3 and 5 reach it only when that name now names another ref (deleted and created
+  again within the window). A default-key retry whose branch changed in the meantime (the session's binding moved, or
+  its lane was merged and closed) executes as new where an explicit key would replay (N13e). A caller that must replay
+  across a branch change carries an explicit key, as a Workflow resume does and as `Apply` does by default
+  (`run:<run>`, §9.4; [AR §6.4]).
 
 ### 7.3 The payload
 
@@ -656,7 +686,9 @@ tree gate of [40 §5.2].
   ([LQ/canonical-ast §7.2], the entry forms R3–R5 of [LQ/canonical-ast §5.9]): `Tx` by its block (a data-level block by its
   LQ equivalent, §9.3); `Mutation` with `ctx.door` = `cli` by R5 (the verb's expansion); with `ctx.door` = `mcp` by R4
   (`TX { CALL tx.<name>(…) }`); `Claim`, `Release`, `Reclaim`, `Complete` and the file named mutations by the
-  same rule as `Mutation`. `ON`, `KEY`, `LEASE` and `DRY` are outside `H` ([LQ/canonical-ast §5.2]).
+  same rule as `Mutation`. `ON`, `KEY`, `LEASE` and `DRY` are outside `H` ([LQ/canonical-ast §5.2]); `IF TIP`,
+  `IF TARGETS` and `MESSAGE` are inside it ([LQ/canonical-ast] C-2), and the `message` argument of `Tx`, `Mutation` and
+  `Apply` is the block's `MESSAGE` (§9.3), so it enters `H` in every form (spec sync 2b).
 - **Every other keyed command** has the payload this chapter defines, which [F06 §4.4.7] cites for "a verb that compiles to no
   `TX` block":
 
@@ -665,13 +697,16 @@ tree gate of [40 §5.2].
   ```
 
   where `name` is the command name in ASCII and `args′` is the command's `args` with: every node id replaced by its uid
-  (`"#u:…"`); every commit prefix replaced by the full id; every argument the caller omitted still omitted (no default is
-  filled in, as [LQ/canonical-ast §5.8] N2 does); and the members in bytewise key order (CJ rule 2, §5.6).
+  (`"#u:…"`); every commit prefix replaced by the full id; every argument that is omitted, `null`, or equal to its
+  constant default (the value of its table's "Default" column) left out, so that writing a default and omitting it give
+  one payload (§3.1; spec sync 2b); an argument whose default is not a constant (a configuration key, the resolved
+  branch, a tip) kept whenever the caller gave it (no default is filled in, as [LQ/canonical-ast §5.8] N2 does); and
+  the members in bytewise key order (CJ rule 2, §5.6).
 
 ### 7.4 Lookup
 
 One lookup per keyed command, against the store after every earlier command ([AR §4.5] steps 2 and 6 collapse into one in a
-sequential stream). Entries older than `idempotency.retention` (P28), or, for a default key, `idempotency.default-window`
+sequential stream), before the refusals of §4.3 (§4.3). Entries older than `idempotency.retention` (P28), or, for a default key, `idempotency.default-window`
 (P29), are ignored ([F17 §11.1], CK-6). An orphaned commit never satisfies a lookup (I27′). The first matching row decides:
 
 | # | The entry for `idem_key` | Outcome |
@@ -684,6 +719,10 @@ sequential stream). Entries older than `idempotency.retention` (P28), or, for a 
 
 - The branch of a command is the branch it writes: the resolved branch (CX-2) for most commands; the destination for `Merge`,
   `MergeContinue` and `Sync`; the batch branch for `Apply` (§9.4).
+- **Rows 3 and 5 and default keys.** A default key hashes the branch's name (§7.2), so an entry it finds was made on a
+  branch of that name: rows 3 and 5 apply to explicit keys, and to a default key only when that name now names another
+  ref. A default-key command on a branch of another name has another key and executes as new (row 1), also where row 3
+  would have replayed it under an explicit key ([F13] I14′).
 - **What is recorded.** Only an outcome that appended records: `ok`, `staged`, and the `partial` units that committed. A
   refusal, a `DRY` and a replay record nothing, so a refused command can be retried with the same key ([50 §3.10] item 8).
 - **Where.** When the command appends a commit, the idempotency pair goes into the header of the commit that carries the
@@ -741,7 +780,10 @@ canonical form ([CFG §4.1]); both objects have their members in bytewise order 
 decision point, [F17 §1.4]). This is the route by which GT2 streams change hot keys between commands ([CFG] open point 11). The
 model takes the effective values of class-V keys as its configuration snapshot ([CFG §9.4]).
 
-**Refusals.** `config_key`, `config_value` (exit 2); an init-fixed key (exit 2, [F17 §2.2] IP-4).
+**Refusals.** [CFG §7.2]'s rules, exit 2: `config_key` for an unknown, retired or policy-data key or the wrong scope;
+`config_value` for an invalid value, an init-fixed key ([F17 §2.2] IP-4) and a value that makes a constraint fail. A
+`ConfigUnset` whose removal would make a constraint fail is refused as a set is. With `scope` `user`, a store-qualified
+key (`stores.<id>.<key>`, [CFG §2.3]) is accepted for a qualifiable user key and for a user-lower store key (spec sync 2b).
 
 **Result.** `data` = `{"key":…,"scope":…,"value":<new effective value>,"previous":<previous effective value>}`, both strings
 in the key's canonical form ([CFG §4.1]); after `ConfigUnset` `value` is the value that applies without the entry (the
@@ -770,11 +812,17 @@ The model executes nothing. Result `data` = `{"op":…,"ran":<bool>}`; `ran` is 
 | `cruft_delay` | duration | `gc.cruft-delay` (P31) | overrides P31 for this run |
 | `force` | bool | false | runs in quiet mode |
 
-**Effect.** [AR §4.9], [F17 §11]. Visible only through reachability ([F17] OP-17-17, confirmed here: `Gc` is a command of GT2
-streams): the commits outside `gc::reachable_after_gc(dag, refs, reflog, pins, now, reflog_expire, cruft_delay)` whose
+**Effect.** [AR §4.9], [F17 §11]. Visible through reachability ([F17] OP-17-17, confirmed here: `Gc` is a command of GT2
+streams) and through the two runtime drops below: the commits outside `gc::reachable_after_gc(dag, refs, reflog, pins, now, reflog_expire, cruft_delay)` whose
 `append_hlc` is older than the cruft delay (CK-6) stop resolving, so `Undo`, reflog revisions and as-of views cannot reach them
-(E301). It also drops `REFS` rows of expired deleted refs ([F11 §3.8]), `MARKERS_OLD` rows older than P30, expired `IDEM`
-entries, trash and `FILEOBS` rows (class I). **Refusal.** Quiet mode without `force`. **Result** `data` =
+(E301). After its inertness move it drops the `MARKERS_OLD` rows whose `hlc` is older than the run's reflog window
+([F11 §7] "Retention"), then the
+`REFS` rows of expired deleted refs with their entries in the other refs' absorbed vectors ([F11 §3.8]); both drops are
+visible in the runtime snapshot (§15.7 `markers`, `refs`, `absorbed`). A deleted ref's row expires only at a `gc` run and
+only under [F11 §3.8]'s three conditions (its deleting move older than the reflog window, no marker naming it as origin
+ref, [RULES/state-definition] VR-006, no idempotency entry bound to it in its window), read after the run's own inertness
+move and retention, so neither drop depends on fold timing (spec sync 2b). It also drops expired `IDEM` entries, trash
+and `FILEOBS` rows (class I: §15.7 lists only `IDEM` entries and intents within their windows, and no `FILEOBS` row). **Refusal.** Quiet mode without `force`. **Result** `data` =
 `{"reachable":<commits>,"dropped":<commits>}`: the counts of commits in the reachable set and of commits that stopped
 resolving.
 
@@ -834,10 +882,10 @@ writes nothing. A block whose net changeset is empty and that emits no runtime r
 | a second live holder of an (root, exact path) key (I-F1) | `path_claimed` | 6 |
 | a restricted delete; a live lease without `release` (I32′); a `replaced_by` that is not live, lies in the deleted set or does not fit a re-pointed edge ([RULES/delete-policy-matrix] DP-005 to DP-007; each case's text is [LQ/errors §5.5]'s) | E409 | 6 |
 | `UNLESS EXISTS` matching more than one node | E410 | 6 |
-| a free-form block under the `unknown` model profile ([90 §8.1] L2) | E411 | 6 |
+| a free-form block under the `unknown` model profile, by a caller with a session identity (CX-4) or with `ctx.door` = `mcp` ([90 §8.1] L2; [RULES/role-write-policy] WR-012 as scoped by spec sync 2b, so example 02's CLI block without a session is not refused) | E411 | 6 |
 | a read-only view (§4.3 row 7) | E305 | 6 |
 | an exhausted id space | `id_space_exhausted` | 7 |
-| `tx.max-statements`, `tx.max-ops` | E501 (a deterministic cap, compared, [F17 §1.5] SP-2) | 10 |
+| `tx.max-statements`, `tx.max-ops` | E501 (a deterministic cap, compared, [F17 §1.5] SP-2; its texts and `budget` object are [LQ/errors §5.4] and §5.7's, spec sync 2b) | 10 |
 | `wmem`, the inline bound for an agent verb ([F17 §4.4] W1, W2, W4) | E501 (resource class, §16.4) | 10 |
 
 **Result.** Family T (§3.3).
@@ -849,15 +897,15 @@ it produces ([F06 §7.2]):
 
 | `op` | Members | LQ equivalent | Ops |
 |---|---|---|---|
-| `create` | `as` (a variable name, referable as `"$<name>"` by later statements), `kind`, `fields` (object: field → value, `title` and header fields included), `body` (text), `under` (a target), `position` (§9.5), `edges_out` (array of `{"kind":…, "dst":<target>}`), `edges_in` (array of `{"kind":…, "src":<target>}`) | `CREATE (<v>:<kind> {<f>: …})[ UNDER <p> <position>]`, then `CREATE` of each edge, then `SET <v>.body = …` | `Create` (+ `AddEdge`, `Move`) |
+| `create` | `as` (a variable name, referable as `"$<name>"` by later statements), `kind`, `fields` (object: field → value, `title` and header fields included), `body` (text), `under` (a target), `position` (§9.5), `edges_out` (array of `{"kind":…, "dst":<target>}`), `edges_in` (array of `{"kind":…, "src":<target>}`) | `CREATE (<v>:<kind> {<f>: …})[ UNDER <p>]`, then, when `position` is given, `MOVE <v> UNDER <p> <position>` (grammar v1's `create_stmt` takes no position), then `CREATE` of each edge, then `SET <v>.body = …` | `Create` (+ `AddEdge`, `Move`) |
 | `set` | `target`; `fields` (object: field → value; `null` removes the field; `status`, `resolution` and `done` allowed); `incr` (object: counter field → non-zero delta); `body` (text, or `null` to remove); `guard` (object with `if_rev`, `if_status`, `if_holder`) | without `guard`: `SET <t>.<f> = …[, …]`, `REMOVE <t>.<f>`, `SET <t>.<c> = <t>.<c> + …`; with `guard`: `MATCH (n {id: <t>}) WHERE <guards> EXPECT 1 SET n.<f> = …` exactly as [LQ/std §7.2] `tx.set` | `SetField`, `SetStatus`, `Incr`, `SetBody` |
 | `patch` | `target`, `remove`, `add` (texts) | `PATCH <t>.body REMOVE … ADD …` | `SetBody` |
 | `link` | `src`, `kind`, `dst`, `pinned` (a commit, for kinds whose `props` is `pinned`) | `CREATE (<src>)-[:<T>[ {pinned: …}]]->(<dst>)` | `AddEdge`; for `supersedes` also the target's `SetStatus` (I6) |
 | `unlink` | `src`, `kind`, `dst` | `MATCH (<src>)-[e:<T>]->(<dst>) EXPECT 1 DELETE e` | `RemoveEdge` |
 | `move` | `target`, `under` (a target, or null to detach), `position` | `MOVE <t> UNDER <p> <position>`, or `SET <t>.parent = NULL` | `Move` |
-| `reopen` | `target`, `reason` | `REOPEN <t> REASON …` | `SetStatus` + `Incr` of `reopen_count` |
-| `delete` | `target`, `policy` (`restrict`, `cascade`, `reparent`; default `restrict`), `replaced_by`, `release` (bool), `reason` | `DELETE <t>[ POLICY …][ REPLACED BY …][ RELEASE][ REASON …]` | `Delete` + the policy ops of [RULES/delete-policy-matrix] |
-| `resolve` | `key` (§5.3), `take` (`ours`, `theirs`, `base`), or `value`, or `repoint` (a target) | `RESOLVE '<key>' TAKE …` | `Resolve` |
+| `reopen` | `target`, `reason` | `REOPEN <t> REASON …` | `SetStatus` + `Incr` of `reopen_count`; the reason is stored in no field: it lives in the statement (`statements`, `stmt_hash`, `H`), and the `reopen` verb (`tx.reopen`) makes it the commit message when `message` is empty ([F08] open point 16; spec sync 2b) |
+| `delete` | `target`, `policy` (`restrict`, `cascade`, `reparent`, `reassign`; default `restrict`), `replaced_by`, `release` (bool), `reason` | `DELETE <t>[ POLICY …][ REPLACED BY …][ RELEASE][ REASON …]` | `Delete` + the policy ops of [RULES/delete-policy-matrix] (`reassign`: EG-025, EG-026) |
+| `resolve` | `key` (§5.3), `take` (`ours`, `theirs`, `base`), or `value`, or `repoint` (a target), or `drop: true` (a flagged edge on a work or plan branch, [F12 §6.5]) | `RESOLVE '<key>' TAKE …`; with `drop`, `RESOLVE '<key>' DROP` | `Resolve` (with `repoint`, also the `AddEdge`) |
 | `call` | `proc` (`tx.claim`, `tx.complete`, `tx.heartbeat`, `tx.release`, `tx.reclaim`), `args` (object, the procedure's parameters by name) | `CALL tx.<proc>(<k>: …, …)` | as §10 |
 | `define_query` | `text` (a `DEFINE QUERY …` statement in LQ text) | the text | `Schema` (mode weaken, class `query`) |
 | `drop_query` | `name` | `DROP QUERY <name>` | `Schema` (mode weaken, class `query`) |
@@ -876,7 +924,11 @@ written with these rules:
 - every value is a parameter `$p<k>`, k = 1, 2, … in the order the values occur in the rendering, bound to the value; the
   parameter substitution of [LQ/canonical-ast §5.5] makes this the same C-AST as the same text with literals;
 - a target is its node literal (`#12`, `#u:…`) or the variable of its `create`;
-- `create`'s variable is its `as` name, or `v<i>` for the i-th unnamed `create`.
+- `create`'s variable is its `as` name, or `v<i>` for the i-th unnamed `create`;
+- a `create` with `under` and `position` renders two statements, `CREATE (…) UNDER <p>` and `MOVE <v> UNDER <p>
+  <position>` (§9.2), which both count in `statements` and in `H` (spec sync 2b);
+- a non-empty `message` is the block's `MESSAGE` option ([LQ/canonical-ast] C-2), bound like the statements' values,
+  so it enters `H` (§7.3).
 
 The equivalent defines `H` (§7.3, `stmt_hash`) and the texts of `statements` (§3.3). An implementation may build the
 equivalent's C-AST directly; the text is needed only for `statements`.
@@ -971,17 +1023,22 @@ A named mutation of [LQ/std §7] by name: the semantic core of the CLI write ver
 ### 9.8 `Schema`
 
 Weakening schema changes ([AR §2.12], [F08 §8.1]): adding a project kind, a field (also on a core kind), an enumeration value
-(also of a core enumeration) or an edge kind.
+(also of a core enumeration) or an edge kind; and setting, changing or removing a policy-data row ([F08 §8.5.6],
+[CFG §10.13]; spec sync 2b).
 
 | Argument | Type | Default | Meaning |
 |---|---|---|---|
-| `items` | array of item objects | required | each `{"item":"kind"\|"field"\|"enum"\|"edge", …}` (the item classes 1–4 of [F08 §8.5]; `enum` is an enumeration value, the word of [F12 §6.6]'s `schema:enum:` key; the member is `item` because a field record has its own member `class`, the merge class; open point 43) followed by the members of [F08 §8.5] by name: symbols as their strings, enumeration bytes by name (`type` and `elem` by the type names of [F08 §5.1], `elem` null when 0), flag bytes as arrays of the names of their set bits, without a `has_*` bit (the presence of the member it announces says it), `KindSet`s and `covers` as §15.3 writes them; without the store-allocated members (`kind_id`, `edge_id`, an enumeration value's `value`, a field's `decl`, [F08 §8.3], §8.5.2) |
+| `items` | array of item objects | required | each `{"item":"kind"\|"field"\|"enum"\|"edge"\|"policy", …}` (the item classes 1–4 and 6 of [F08 §8.5]; a `policy` item is `{"item":"policy","name":<row>,"value":<string or null>}`, `null` or the row's default removing the row; `enum` is an enumeration value, the word of [F12 §6.6]'s `schema:enum:` key; the member is `item` because a field record has its own member `class`, the merge class; open point 43) followed by the members of [F08 §8.5] by name: symbols as their strings, enumeration bytes by name (`type` and `elem` by the type names of [F08 §5.1], `elem` null when 0), flag bytes as arrays of the names of their set bits, without a `has_*` bit (the presence of the member it announces says it), `KindSet`s and `covers` as §15.3 writes them; without the store-allocated members (`kind_id`, `edge_id`, an enumeration value's `value`, a field's `decl`, [F08 §8.3], §8.5.2). The members the text leaves open (spec sync 2b): `has_done` is a `kflags` bit like the others and is listed in `kflags` (it announces no member); `n_covers` and `n_reverse` are not written, their arrays giving them; `iflags` is not written (a weakening item is never retired; `Migrate` writes `"retire":true`); `root_variant` is `"none"` or `"root-key"`; an edge item carries no `uid_derivation`, a project edge kind's being `none` ([F08 §8.5.4]) |
 | `message` | string | `""` | the commit message |
 
 **Effect.** One commit with one `Schema` op of mode `weaken` per item ([F06 §7.6]); the store-local ids are allocated by
-[F08 §8.3]. Named queries are defined through `Tx` (`define_query`, `drop_query`). **Refusals.** An item whose key the view
-already holds (a change, which needs `Migrate`), or that changes or shadows a core item: E405 with the rule `schema weakening`,
-exit 6; a name outside [F08 §8.2]'s grammar: `bad_value`, exit 2. **The commit.** `stmt_origin` `verb`, `stmt_sym` `schema`, no
+[F08 §8.3]. Named queries are defined through `Tx` (`define_query`, `drop_query`). **Refusals.** An item of classes 1–4 whose
+key the view already holds (a change, which needs `Migrate`), or that changes or shadows a core item: E405 with the rule
+`schema weakening`, exit 6; a name outside [F08 §8.2]'s grammar, a `policy` item that names no row of [CFG §10.13] or whose
+value does not parse as the row's type: `bad_value`, exit 2; an item whose target the view lacks (spec sync 2b) — a field or
+enumeration value of an unknown kind, an edge kind whose `src_kinds` or `dst_kinds` name an unknown kind: E105; an
+enumeration value of a field the kind does not have: E101; an enumeration value of a field that is not an enumeration, or
+a `default` that does not match the field's `type`: E103 — each exit 2, as §9.1's codes for the same names. **The commit.** `stmt_origin` `verb`, `stmt_sym` `schema`, no
 `stmt_hash`; the payload is §7.3's `payload(c)` (open point 18). **Result.** Family W; `data` =
 `{"items":[<key text>…]}`.
 
@@ -1039,6 +1096,10 @@ making them run-scoped to that run — or a **role-lease mint** — neither `ids
   `defer_until` ≤ now (CK-7). `gates` never constrain `claim` ([AR §3.3] X5).
 - A task the same holder already holds a live lease on returns that lease and allocates nothing ("claiming again as the same
   holder is idempotent", [AR §6.2]).
+- **Superseding** ([RULES/state-definition] LE-012; spec sync 2b). A task claim that grants a new lease on `#N` first ends, in
+  its own group, every task lease on `#N` that has not ended and is not live (its anchor Dead, its deadline passed or its boot
+  changed): one `Lease` record each, event 2, reason 4 ([F05 §9.4]), before the new lease's record. So `#N` never has two task
+  leases that have not ended, and a Dead lease whose anchor lives again never gives the task a second live lease.
 - `next` picks, among the ready tasks of the branch in `scope` that `fits_role(t, role)` ([LQ/std §4.1]), the one least by
   (`priority`, `#N`) (open point 11). No ready task: `ok`, no lease, `yields` rows empty, nothing recorded.
 - The role of a task lease is `role`, else `developer` for a self-claim ([90 §4.3]); who may claim which is
@@ -1083,14 +1144,16 @@ it ([F05 §4.7]).
 
 Argument `lease` (required). The lease must exist and not have ended; the caller need not present it. When the lease is
 TTL-bound and due for renewal ([OS/clock §4.4]), a `Lazy` heartbeat record ([F05 §9.11], cause 1) moves `expires` to
-`after(now, ttl)`; a lease whose deadline has passed and that no one reclaimed is renewed by its holder with a durable `Lease`
-record of event 4 (I17′). A run-scoped lease has no deadline: nothing is written. **Refusals.** An ended lease, or one whose
-anchor is Dead: E407, exit 5. **Yields:** `{"lease":…,"expires":<deadline>,"renewed":<bool>}`.
+`after(now, ttl)`; a lease whose deadline has passed and that has not ended (no one reclaimed it and no claim superseded it,
+§10.1) is renewed by its holder with a durable `Lease` record of event 4 (I17′). A run-scoped lease has no deadline: nothing
+is written. **Refusals.** An ended lease — a lease another claim of its task ended ([RULES/state-definition] LE-011, LE-012)
+included — or one whose anchor is Dead: E407, exit 5. **Yields:** `{"lease":…,"expires":<deadline>,"renewed":<bool>}`.
 
 ### 10.3 `Release` (`tx.release`)
 
-Argument `lease` (required), presented with its current token. One `Lease` record, event 2, reason 1 ([F05 §9.4]). **Refusals.**
-An ended lease or a stale token: E407, exit 5. **Yields:** `{"lease":…}`.
+Argument `lease` (required), presented with its current token. One `Lease` record, event 2, reason 1 ([F05 §9.4]). The
+`SubagentStop` hook releases through this command, so its release is reason 1 too; [F05 §9.4] assigns no record reason 8
+(spec sync 2b). **Refusals.** An ended lease or a stale token: E407, exit 5. **Yields:** `{"lease":…}`.
 
 ### 10.4 `Reclaim` (`tx.reclaim`)
 
@@ -1145,7 +1208,9 @@ replay gives `[]` and null (§7.5).
   `open → in_progress` in the same commit ([RULES/status-machines] DR-004).
 - **LP-4 (`files_owned`).** A `set` of `files_owned` under the lease re-captures it: a `Lease` record of event 3, mask bit 0.
 - **LP-5 (run names).** A run is named by the title of a live `run` node on the resolved branch; `run` arguments resolve by it
-  (`not_found`, `what` = `run`, exit 3, when none; open point 15).
+  (`not_found`, `what` = `run`, exit 3, when none; open point 15). `Claim` resolves `run` on the claimer's branch (CX-2);
+  `Apply` resolves it on `ctx.branch` when given, else on the resolved branch (CX-2), and only then takes its batch branch
+  from the run found (§9.4) (spec sync 2b).
 
 ### 10.7 `RunOpen`, `RunClose`
 
@@ -1184,7 +1249,7 @@ refs, has `branch` and `rev` null.
 
 | Argument | Type | Default | Meaning |
 |---|---|---|---|
-| `name` | ref name | required | the new branch: `lane/<u>` or `plan/<u>` as written, any other name completed by [F12 §2.5] IN-3 (`lane/<name>`, or `plan/<name>` with `kind` = `plan`), after NFC normalisation (IN-1) |
+| `name` | ref name | required | the new branch: `lane/<u>` or `plan/<u>` as written, any other name completed by [F12 §2.5] IN-3 (`lane/<name>`, or `plan/<name>` with `kind` = `plan`), after NFC normalisation (IN-1). Every rule and lookup uses the completed name: RN-1 to RN-8, the existing ref of RN-7 and RN-8, and the command's branch for idempotency (§7.4) (spec sync 2b) |
 | `from` | revision | the resolved branch | a ref (its tip) or a commit |
 | `kind` | `work` or `plan` | from the name: `plan` for `plan/…`, else `work` | must agree with the name ([AR §5a.1], IN-3) |
 
@@ -1199,8 +1264,9 @@ pin is engine-internal. No commit. **Refusals.** The rules RN-1 to RN-8 of [F12 
 ### 11.2 `BranchDelete`
 
 Arguments `name` (required) and `force` (bool, `-D`). **Effect** ([AR §5a.9], [F13 §4.2] MC-5, [RULES/state-definition]
-LE-008): a `RefUpdate` (reason 2) with the `RefTable` entry marked deleted; every live lease on the branch released (`Lease`
-event 2, reason 5); the ref's pins released (engine-internal); the branch leaves the holder set of every marker it held
+LE-008): a `RefUpdate` (reason 2) with the `RefTable` entry marked deleted; every task lease on the branch that has not ended,
+whatever its liveness, released (`Lease` event 2, reason 5), while role leases, the session role lease among them, stay
+(LE-008; spec sync 2b); the ref's pins released (engine-internal); the branch leaves the holder set of every marker it held
 ([RULES/state-definition] ME-005, for `-d` and `-D` alike): a marker another live work ref still holds stays active at its
 origin, and one left with no holder is cleared (`Marker` records, cause 4), each `cleared` with a triage line.
 **Refusals.** Without `force`, a branch whose tip `main` has not absorbed: `not_merged`, exit 6 (open point 20); `main`, a
@@ -1208,7 +1274,8 @@ staging ref (use `MergeAbort`), an `import/*` or an `orphans/*` ref ([F12 §2.6]
 E301, exit 3. **Result.**
 `data` = `{"ref":…,"ref_id":<int>,"dropped":{"commits":<int>,"completions":<int>,"deletions":<int>},"released":["L-n"…],
 "markers":[…],"triage":[<text>…]}`: `dropped` counts the commits reachable from the branch and from no other live ref, and the
-completions and deletions among them ([AR §5a.9]).
+completions and deletions among them ([AR §5a.9]). `dropped` is not replayed: a replay gives `null` (§7.5), since
+§17.1's items do not record it and the counts would have to be recomputed against the current refs (spec sync 2b).
 
 ### 11.3 `Checkout`
 
@@ -1232,15 +1299,17 @@ refused: the result carries the warning `not_a_tree` ([F19 §10.4]). **Result.**
 ### 11.5 `LaneOpen`, `LaneClose`
 
 `LaneOpen` takes `name` (required), `worktree` (absolute path, required), `git_branch` and `base` (a git commit prefix).
-**Effect** — one group ([AR §4.5] "Flush grouping", [AR §7.6] step 3): `BranchCreate(lane/<name>, from: main)`;
-`WorktreeBind(worktree, lane/<name>)` with the designation of [F18 §3.5] row `lane open`; and one commit on `main` creating the
-`lane` node: `title` = `name`, status `active`, `worktree_path` = the path value of `worktree` (root `abs`), `git_branch`,
+**Effect** — one group ([AR §4.5] "Flush grouping", [AR §7.6] step 3), in this order (spec sync 2b): first one commit on
+`main` creating the `lane` node (below); then `BranchCreate(lane/<name>, from: main)`, which forks `lane/<name>` from that
+commit (`data.fork`), so the lane holds its own lane node and `RunOpen` on the lane can add `runs_in`; then
+`WorktreeBind(worktree, lane/<name>)` with the designation of [F18 §3.5] row `lane open`. The lane node: `title` = `name`, status `active`, `worktree_path` = the path value of `worktree` (root `abs`), `git_branch`,
 `base_sha`, `moirai_branch` = `lane/<name>` ([F08 §9.3]). The idempotency pair is on that commit. **Refusals.** As
 `BranchCreate` and `WorktreeBind`; `worktree` not a tree: exit 2 ([F18 §3.5]). **Result.** `branch` = `main`; `data` =
 `{"lane":"#N","ref":"lane/<name>","ref_id":<int>,"fork":<commit>,"binding":<the WorktreeBind data>}`.
 
 `LaneClose` takes `name` and `mode` (`close` or `freeze`). **Effect** ([AR §5a.9]): one commit on `main` setting the lane node's
-status — `merged` when `main` has absorbed the lane's tip, `abandoned` otherwise, `frozen` for `freeze`
+status through the door `lane-close` ([RULES/status-machines], from every non-side lane state, `active` included, [AR §7.6]
+step 8; spec sync 2b) — `merged` when `main` has absorbed the lane's tip, `abandoned` otherwise, `frozen` for `freeze`
 ([RULES/status-machines] open point 8) — and the removal of the lane's directory binding, in one group. **Result.** `branch` =
 `main`; `data` = `{"lane":"#N","status":…,"unbound":<dir or null>}`.
 
@@ -1268,8 +1337,21 @@ exit 2); a `commit` that names nothing: E301, exit 3. **Result.** `branch` = the
 [RULES/link-merge-rules], the validators in I37′ order ([F13 §5]), markers from the net ops (MC-1) and the absorbed vector of
 step 7:
 - **Up to date.** `src`'s tip is an ancestor-or-self of `into`'s tip: nothing is appended; `outcome` = `up-to-date`.
-- **Sync first** (`into` = `main` and `main`'s tip is not an ancestor of `src`'s tip): step 0's `sync` commit on `src`, then the
-  merge commit on `main`, in one group; when the sync stages, the whole merge stages on `merge/<src>/from/main`.
+- **Sync first** (`into` = `main`, `src` a branch — `work` or `plan` — and `main`'s tip is not an ancestor of `src`'s
+  tip): step 0's `sync` commit on `src`, then the merge commit on `main`, in one group; when the sync stages, the whole
+  merge stages on `merge/<src>/from/main`. Step 0 runs with the merge's `policy` and `strict` over [F12 §4.3]'s base;
+  `base` applies to the merge only, and a staged step-0 sync records no base ([F06 §4.4.16]). A tag, `import/*` or
+  `orphans/*` `src` merges directly over [F12 §4.3]'s base; nothing is appended on it ([F12 §8.1]). When the sync
+  stages, no merge is computed: the top-level `conflicts`, `violations` and `markers` are empty, `lca` is empty,
+  `virtual_base` false, `staging_ref` names the sync's staging ref, and the staged conflicts and violations are reported
+  once, in `sync.conflicts` and `sync.violations` (spec sync 2b).
+- **Sync first with conflict values** (spec sync 2b; [AR §5d.3] case C7b, [RULES/delete-policy-matrix] XB-003, NX-055,
+  NX-057): when step 0's sync lands (no structural violation, `strict` false) but leaves conflict values on `src`, the
+  sync's group is appended on `src` alone and the merge is refused with `conflicted_src`, exit 6 (PR-003). The error
+  envelope has no `data` ([F19 §8.6]): the `conflicted_src` error carries `sync` =
+  `{"commit":…,"outcome":"landed","conflicts":[…],"violations":[]}` and `keys` ([F19 §10.3]). This is §2.3's one
+  refusal that appends. The sync commit carries no idempotency pair and nothing is recorded for the merge's key (§7.4);
+  a retry finds `src` conflicted and is refused by PR-003 before any sync.
 - **Otherwise** one merge commit with two parents (`into`'s tip, `src`'s tip), always a new commit (open point 22), landing on
   `into` or, with a structural violation (or a conflict under `strict`), on `merge/<into>/from/<src>`.
 - The merge commit carries the idempotency pair.
@@ -1334,11 +1416,21 @@ the markers recomputed for every node whose hold differs between the old and the
 ME-006): the ref leaves the holder set of a hold it no longer has (`cleared` when no holder remains) and joins, or re-emits,
 the marker of a hold it has again, each `settled`, `deleted` or `cleared` entry with a triage line. `expect`
 absent means no check (open point 24). **Refusals.** `expect` differs from the tip: E402, exit 4; fewer than n moves: E301, exit
-3. **Result.** `data` = `{"ref":…,"old":<commit>,"new":<commit or null>,"moved_back":<int>,"markers":[…],"triage":[<text>…]}`.
+3; `R@n` is the zero value (the move that created the ref, or `main` before its first commit) or names a commit `gc` pruned:
+E301, exit 3 ([F12 §3.5]; spec sync 2b). **Result.** `data` = `{"ref":…,"old":<commit>,"new":<commit or null>,"moved_back":<int>,"markers":[…],"triage":[<text>…]}`.
 
-`OpRestore` takes `seq` (required). **Effect** ([AR §5a.5]): every ref is restored to its value after the last ref move whose
-seq is at most `seq`: one `RefUpdate` (reason 4, `restore_seq`) per moved ref, the markers recomputed in both directions (MC-5);
-a ref created after `seq` is deleted, a ref deleted after `seq` and still within its reflog window is restored (open point 23).
+`OpRestore` takes `seq` (required). **Effect** ([AR §5a.5]): a ref move that no commit carries lies after the commit with the
+greatest seq appended before it ([F05 §9.2]); `op restore s` restores every ref to its value just after commit s was
+appended, replaying each ref's moves at or before s, so every move made since commit s — an earlier `op restore` among them
+— is taken back, and `op restore <newest seq>` takes back every later ref move (spec sync 2b). One `RefUpdate` (reason 4,
+`restore_seq`) per moved ref, the markers recomputed in both directions (MC-5); a ref created after `seq` is deleted, a ref
+deleted after `seq` and still within its reflog window is restored (open point 23). A ref it deletes releases its task
+leases as `branch -d` does ([RULES/state-definition] LE-008). **Refusals.** A target commit that `gc` pruned, or a `seq`
+older than a moved ref's oldest held move: E301, exit 3; nothing moves (spec sync 2b). The **held** moves are
+[F12 §3.5]'s, the moves whose records the store still holds: every move is held until a `Gc` run drops those older than
+that run's reflog window ([F17 §11.2], §8.5), and a move younger than the window is always held; [AR §5a.2]'s 32 cached
+moves are a cache and never bound them. The model and the engine apply the same rule, so the second refusal arises only
+after a `Gc`.
 **Result.** `data` = `{"seq":<int>,"moved":[{"ref":…,"old":<commit or null>,"new":<commit or null>}…],"markers":[…],
 "triage":[…]}`.
 
@@ -1513,7 +1605,7 @@ A part not requested by `State.parts` is null; `digests` are computed over the p
 `{"schema_version":1,"schema":[<item>…],"nodes":[<node>…],"schema_conflicts":[<conflict>…]}`
 
 - **`schema`**: every schema item on V ([F08 §8.1]; the core schema is implied by `schema_version`), sorted by class (`kind`,
-  `field`, `enum`, `edge`, `query`: [F08 §8.5]'s class order) and then by key text (§5.3). An item object is `{"item":…,"key":<key text>, …}` followed
+  `field`, `enum`, `edge`, `query`, `policy`: [F08 §8.5]'s class order) and then by key text (§5.3). An item object is `{"item":…,"key":<key text>, …}` followed
   by the members of [F08 §8.5] by name in that table's order, written as §9.8 writes them, with: symbol ids as their strings; `KindSet`s as
   `{"any":<bool>,"kinds":[<kind name>…]}`; `covers` as value names; the store-local members (`kind_id`, `edge_id`, an enumeration
   value's `value`, `ast_hash`) omitted; `retired` as a bool.
@@ -1537,8 +1629,10 @@ A part not requested by `State.parts` is null; `digests` are computed over the p
 | `edges` | the node's out-edges on V, retained out-edges of a tombstone included (I39′): `{"kind":<stored name>,"dst":<uid>,"disc":<32 hex or null>,"props":{…}}` with `props` holding `flagged`, `pinned` and `anchor` (the anchor record of §5.4 **without** its texts) as present; sorted by (`kind`, `dst`, `disc`) |
 | `conflicts` | the node's keys that hold a conflict value: `{"key":<the snapshot key text of §5.3 without the node part: existence, status, <field>, observation, body, parent, edge:<kind>:<dst uid>[:<32 hex anchor uid>]>,"class":<name>,"base":…,"ours":…,"theirs":…}`, sorted by `key`; the key's own member (`status`, a field, `body`, `parent`, an edge) holds the value the node's row holds while the conflict stands, which is [F12]'s (open point 31) |
 
-- A tombstone keeps the members [F08 §3.5] keeps: `kind`, the header enumerations, `title`, retained edges; `fields` is `{}`,
-  `body` null, `parent` null, `order` null.
+- A tombstone keeps `kind`, `title` and its retained edges ([F08 §3.5]); its `status` and `resolution` are the kind's
+  initial values and its header enumerations their defaults in `content`, since the canonical form and the tombstone file
+  carry none of them ([F07 §6.4], [RULES/delete-policy-matrix] TB-012) and `content` must survive an image round trip;
+  [F08 §3.5]'s row keeps them only for rendering (spec sync 2b). `fields` is `{}`, `body` null, `parent` null, `order` null.
 - **`schema_conflicts`**: schema keys that hold a conflict value, as `conflicts` entries keyed by the key text of §5.3
   (`schema:…` or `query:…`), sorted by key.
 
@@ -1591,11 +1685,11 @@ snapshot on a mismatch ([60 §4.4] item 2).
 | `counters` | `{"commit_seq":…,"next_id":…,"next_anchor":…,"fence":…,"next_ref_id":…}` ([F04]) |
 | `refs` | per ref, by `ref_id`: `{"ref_id":…,"name":…,"kind":…,"deleted":<bool>,"tip":<commit or null>,"tip_seq":<int or null>,"ref_seq_next":…,"fork":<commit or null>,"absorbed":{<ref name>:<ref_seq>…},"message":<text or null>,"pinned":<bool>}` ([F11 §3]) |
 | `moves` | the ref moves that no commit carries, by the order they happened: `{"ref":…,"reason":"create"\|"delete"\|"undo"\|"op-restore"\|"park","old":…,"new":…,"actor":…,"hlc":<string>}` ([F05 §9.2]; `park` is the move of `orphans/<R>` to a commit whose ref CAS failed, reason 5, which the first appender whose scan meets it writes, [F16] P-70, [F12 §8.2]) |
-| `leases` | every lease that has not ended, by (`#N`, lease id): `{"lease":"L-n","task":<"#N" or null>,"kind":"task"\|"role","role":…,"holder":…,"branch":…,"run":<name or null>,"token":…,"run_scoped":<bool>,"session_role":<bool>,"ttl_ms":…,"expires":<deadline>,"claimed_hlc":<string>,"anchor":{"kind":…,"session":<32 hex or null>},"bound":<32 hex or null>,"root_session":<32 hex or null>,"files_owned":[…],"live":"alive"\|"dead"\|"unknown"\|"deadline"}`; `live` is `lease-live` of [RULES/state-definition] at the current environment, `deadline` meaning not live only because its deadline passed ([RULES/state-definition] LE-009) |
+| `leases` | every lease that has not ended, by (`#N`, lease id): `{"lease":"L-n","task":<"#N" or null>,"kind":"task"\|"role","role":…,"holder":…,"branch":…,"run":<name or null>,"token":…,"run_scoped":<bool>,"session_role":<bool>,"ttl_ms":…,"expires":<deadline>,"claimed_hlc":<string>,"anchor":{"kind":…,"session":<32 hex or null>},"bound":<32 hex or null>,"root_session":<32 hex or null>,"files_owned":[…],"live":"alive"\|"dead"\|"unknown"\|"deadline"}`; `live` is `lease-live` of [RULES/state-definition] at the current environment, `deadline` meaning not live only because its deadline passed ([RULES/state-definition] LE-009). `dead` is no end: a Dead lease stays listed and is judged again at every evaluation until an event ends it (the next claim of its task, LE-012; a release, a reclaim, a branch deletion), and shows `alive` again when its anchor lives (LE-009; spec sync 2b) |
 | `markers` | every marker, by §5.5: `{"kind":…,"id":"#N","ref":<origin ref name>,"commit":<origin commit>,"outcome":<name or null>,"cause":"ops"\|"undo"\|"op-restore"\|"branch-delete"\|"fork","ref_seq":…,"actor":<name or null>,"seq":…,"hlc":<string>,"nonlinear":<bool>,"holders":[<ref>…],"active_on":[<ref>…]}` ([F11 §7]); `actor` is null where the row's `actor` is 0, that is on every entry but the `settled` one whose `complete` presented a lease ([F05 §9.5] field 9); `holders` are the live work refs that hold its origin, and `active_on` lists the live refs that have not absorbed it while it is active ([F13 §4.2] MC-4) |
 | `exclusions` | every pair of a live ref R and a task `#N` with `excluded(R, #N)` of [F13 §4.1], by (ref name, `#N`): `{"ref":…,"id":"#N","held_on":[<ref>…]}`; the engine computes it from the marker cache, the model from the definition (MC-7, GT18) |
 | `idem` | every entry within its retention window, by key: `{"key":<32 hex>,"payload":<32 hex>,"branch":…,"commit":<commit or null>,"default_key":<bool>,"append_hlc":<string>}` ([F11 §8]) |
-| `heads` | every client head and binding, by (kind, key text): `{"kind":"directory"\|"client"\|"session","key":<text>,"ref":<name or null>,"commit":<commit or null>,"binding":<bool>,"designated":<bool>,"expected_ref":<text or null>,"base":<git id or null>}` ([F11 §5], [F18 §3]) |
+| `heads` | every client head and binding, by (kind, key text): `{"kind":"directory"\|"client"\|"session","key":<text>,"ref":<name or null>,"commit":<commit or null>,"binding":<bool>,"designated":<bool>,"expected_ref":<text or null>,"base":<git id or null>}` ([F11 §5], [F18 §3]); a `session` row older than `idempotency.retention` (CK-6, [F11 §5] "Retention") is left out when the snapshot is read, whether or not a fold dropped it, so the snapshot does not depend on fold timing (spec sync 2b) |
 | `alloc` | every allocated `#N` that is bound to a uid: `{"id":"#N","uid":…,"ref":<name>,"create_seq":…}` ([F11 §9]); a skipped id (an `ALLOC` hole, [F11 §9.1]) is not listed, and `counters.next_id` counts it |
 | `intents` | every `FsIntent` of the last `gc.trash-expire` window: `{"intent":"i-n","op":…,"items":[…],"state":"open"\|"done"\|"aborted","outcomes":[…]}` ([F11 §12.7]) |
 | `quiet` | bool |
@@ -1607,7 +1701,11 @@ total counters, `ops_since_fork`, `promoted_seg`, `base_pin`, the move cache, `c
 
 ### 15.8 The history snapshot
 
-`data` of `History` = `{"commits":[<commit>…]}`, by seq; a commit object has the fields of [F06 §4.3] by name, values by §5:
+`data` of `History` = `{"commits":[<commit>…],"moves":[<move>…]}`. `moves` lists the ref moves that no commit carries
+(§15.7's `moves`), of the ref (every ref without `ref`), that lie after commit `since_seq` (§11.11), in the order they
+happened, each `{"ref":…,"reason":"create"|"delete"|"undo"|"op-restore"|"park","old":<commit or null>,"new":<commit or null>,
+"actor":…,"hlc":<string>,"after_seq":<int>}`, `after_seq` being the seq of the newest commit appended before it ([F05 §9.2];
+spec sync 2b). `commits` are by seq; a commit object has the fields of [F06 §4.3] by name, values by §5:
 `{"id","seq","ref","ref_seq","kind","import","parents":[<commit>…],"stated":[<commit or null>…],"gen","hlc","append_hlc",
 "actor","actor_src","role","session","git":<object or null>,"message","schema_version","origin","foreign_git","verified",
 "stmt_origin","stmt_sym","stmt_hash","idem":<bool>,"affected":["#N"…],"affected_complete":<bool>,"absorbed":<object or null>,
@@ -1808,7 +1906,8 @@ every verb takes map to `ctx` (§4.1): `--branch`, `--lease`, `--agent`, `--clie
 | `write` | `Tx` (`lq`) with `tx`; `Mutation` with `name` and `params` |
 
 Hooks that write: `SessionStart` (the settle: `LinksSync`; the orchestrator lease: `Claim` with `role` = `orchestrator` and
-`session`), `SubagentStop` (`Release`). The lazy records hooks append on their own (`SessionMark`, cursors, evidence rows) change
+`session`), `SubagentStop` (`Release`, reason 1, §10.3; and the needs-triage note of [RULES/role-write-policy] WH-004 and
+[AR §7.5], written as `Mutation` `tx.remember` with a `note`; spec sync 2b). The lazy records hooks append on their own (`SessionMark`, cursors, evidence rows) change
 no compared state and are outside the API at M0 (open point 25).
 
 ## 19. Examples
@@ -2108,3 +2207,24 @@ point 29).
     after [40] I-F5). No M0 command is a delivering layer (open point 25), so C8 is empty in the engine and in the model
     at M0 and GT2 compares it that way. [F05 §9.11] records the same decision; [RULES/pack-classes] PX-011 names the
     delivering layer instead of the verb (R-MODEL), and WP-81a edits [AR §7.4] C8.
+49. **Spec sync 2b** (WP-90a, WP-90b, WP-91 and WP-22 findings). (a) **A sync-first merge whose sync lands conflict
+    values** (§2.3, §11.7): the sync's group is kept on `src` and the merge refused `conflicted_src`, §2.3's one
+    appending refusal, because [AR §5d.3] case C7b and [RULES/delete-policy-matrix] XB-003 and NX-055 (design rows) land
+    the conflict on the lane through step 0; checking PR-003 before the sync would change a design row. (b) **Default
+    keys** (§7.1–§7.4): `Sync`, `Merge`, `MergeContinue` and `Undo` take an explicit key only, whose own state checks
+    make a keyless retry safe (for `Undo` only with `expect`); the default key hashes the command's branch, so one
+    command on two branches runs twice, and in exchange §7.4's rows 3 and 5 (N13e's replay among them) reach a default
+    key only when its branch name now names another ref, so a keyless retry across a branch change executes as new
+    (the independent check of the sync; a caller that needs N13e passes an explicit key, as Workflow resumes and `Apply`
+    do); the idempotency pre-check runs before §4.3's refusals, so a `Complete` retried
+    after its applied candidate replays; a constant-default argument is dropped from `payload(c)`;
+    `message` enters `H` as `MESSAGE`. (c) Leases: a claim ends
+    the task's non-live leases (LE-012), renewal of an ended lease is E407, `BranchDelete` ends every task lease that has
+    not ended and keeps role leases; `SubagentStop` releases with reason 1. (d) `LaneOpen` commits the lane node before
+    the fork; `LaneClose` uses the door `lane-close`; `OpRestore` places commit-less moves after the newest commit
+    before them, releases leases of refs it deletes and refuses pruned targets; `Undo` refuses a zero or pruned `R@n`.
+    (e) §9.2 and §9.3: `create` with a position renders a `MOVE`; `resolve` takes `drop`; `delete` takes `reassign`;
+    `reopen`'s reason lives in the statement. (f) §9.8: `policy` items, the members left open, the bad-target codes.
+    (g) E411 applies to a caller with a session identity or `door` = `mcp`, so example 02 holds ([RULES/role-write-policy]
+    WR-012, R-MODEL's RM-15). (h) CX-6 reads `run.model`; CX-7 reads `client.profile`. (i) Open point 15 is closed by
+    [F08 §9.3] (`harness`, `model`); open point 16 by [LQ/std §7.3] `tx.complete`'s `$lease`.

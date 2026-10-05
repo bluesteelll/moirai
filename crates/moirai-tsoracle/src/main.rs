@@ -83,7 +83,8 @@ fn run(args: Vec<OsString>) -> Result<(), Failure> {
         Some("--version") if args.len() == 1 => {
             let abi = moirai_tsoracle::scan::language_abi();
             let mut out = io::stdout().lock();
-            return write_version(&mut out, abi)
+            // This unit's own directory: cargo may have compiled it in another work tree than the library.
+            return write_version(&mut out, abi, env!("CARGO_MANIFEST_DIR"))
                 .and_then(|()| out.flush())
                 .map_err(|e| Failure::output(&e));
         }

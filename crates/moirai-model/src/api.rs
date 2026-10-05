@@ -9,8 +9,10 @@
 //! `RunOpen`, `RunClose`), the ref commands `BranchCreate`, `BranchDelete`, `Checkout`, `WorktreeBind` and
 //! `WorktreeUnbind` ([`crate::heads`]), and O (`State`, `Runtime`, `History`). Every commit and ref move feeds the
 //! marker cache ([`crate::markers`]) and the change feed ([`crate::feed`]). The merge family and history verbs are
-//! WP-91's (on [`crate::refmove`] and the marker events), the file-link group and `EnvTree`/`EnvGit` WP-92's, and `Tx`
-//! in its `lq`/`ir` forms and `Query` WP-93b's.
+//! WP-91's (on [`crate::refmove`] and the marker events); the file-link group F (`FileAdd`, `LinkFile`, `UnlinkFile`,
+//! `FileMv`, `FileRm`, `FileRevert`, `FileRelink`, `LinksFix`, `LinksSync`, `Check`) and the environment commands
+//! `EnvTree` and `EnvGit` ([API §12], §6.5, §6.6) are WP-92's, in [`crate::links`] over [`crate::r4`]; `Tx` in its
+//! `lq`/`ir` forms and `Query` are WP-93b's.
 //!
 //! Every keyed command looks its key up right after the resolution of its caller context ([API §4.3], §7.4; [AR §4.5]
 //! step 2), before any precondition of the command, so a retry of a command that succeeded replays its result.
@@ -159,6 +161,12 @@ pub struct Caller {
     pub thread: Option<String>,
     /// Warnings the resolution raised (`two_harnesses`, `hook_label_narrowed`).
     pub warnings: Vec<String>,
+    /// The first of §4.3 rows 1–4 the call breaks, which a keyed command raises only after its idempotency lookup
+    /// found no entry ([API §4.3] "The idempotency pre-check comes first"; [`Store::keyed`]); `None` when it breaks none.
+    pub pending: Option<Refusal>,
+    /// The presented lease when it has ended: the lookup binds the block's `H` with its role, as the original call
+    /// did, since `H` does not depend on who presents it ([LQ/canonical-ast §7.2]).
+    pub ended_lease: Option<u64>,
 }
 
 /// A command of the model's stream ([API §2.2]).
@@ -172,6 +180,30 @@ pub enum Cmd {
     EnvCrash {
         /// `at = "in-next"`.
         in_next: bool,
+    },
+    /// `EnvTree` ([API §6.5]).
+    EnvTree {
+        /// `tree`: the root.
+        tree: String,
+        /// `volume`, on first use.
+        volume: Option<String>,
+        /// `caps` by member name, on first use; the NTFS row when `None`.
+        caps: Option<crate::r4::tree::VolumeCaps>,
+        /// `ops`, in order (`text` is given as its UTF-8 bytes).
+        ops: Vec<crate::r4::tree::TreeOp>,
+    },
+    /// `EnvGit` ([API §6.6]).
+    EnvGit {
+        /// `repo`.
+        repo: String,
+        /// `algo`, on first use.
+        algo: Option<crate::value::Algo>,
+        /// `commits`.
+        commits: Vec<crate::links::EnvGitCommit>,
+        /// `refs`: `refs/heads/<name>` to a git id, or `None` to delete.
+        refs: Vec<(String, Option<String>)>,
+        /// `heads`: tree root to HEAD.
+        heads: Vec<(String, crate::links::EnvHead)>,
     },
     /// `Init` ([API §8.1]).
     Init {
@@ -349,6 +381,24 @@ pub enum Cmd {
         /// `dir`.
         dir: String,
     },
+    /// `LaneOpen` ([API §11.5]).
+    LaneOpen {
+        /// `name`: the lane's name, its ref `lane/<name>`.
+        name: String,
+        /// `worktree`: an absolute path, a tree ([F18 §3.5]).
+        worktree: String,
+        /// `git_branch`.
+        git_branch: Option<String>,
+        /// `base`: a git commit prefix.
+        base: Option<String>,
+    },
+    /// `LaneClose` ([API §11.5]).
+    LaneClose {
+        /// `name`.
+        name: String,
+        /// `mode`: `close` (the default) or `freeze`.
+        mode: Option<String>,
+    },
     /// `Merge` ([API §11.7]).
     Merge {
         /// `src`: the source ref.
@@ -427,6 +477,118 @@ pub enum Cmd {
         cruft_delay_ms: Option<u64>,
         /// `force`.
         force: bool,
+    },
+    /// `FileAdd` ([API §12.2]).
+    FileAdd {
+        /// `paths`.
+        paths: Vec<String>,
+        /// `kind`: a file kind of `artifact_kind`.
+        kind: Option<String>,
+        /// `root`.
+        root: Option<String>,
+    },
+    /// `LinkFile` ([API §12.3]; `tx.link_file`).
+    LinkFile {
+        /// `node`.
+        node: Target,
+        /// `specs`: anchor specs.
+        specs: Vec<String>,
+        /// `watch`: `header` or `span`.
+        watch: Option<String>,
+        /// `planned`.
+        planned: bool,
+        /// `quote`: a quoted text for the spec's path ([LQ/std §7.4] `$quote`).
+        quote: Option<String>,
+        /// `end`: the end text of a quoted range ([LQ/std §7.4] `$end`).
+        end: Option<String>,
+    },
+    /// `UnlinkFile` ([API §12.3]; `tx.unlink_file`).
+    UnlinkFile {
+        /// `node`.
+        node: Target,
+        /// `anchor`: `aN`.
+        anchor: Option<String>,
+        /// `path`.
+        path: Option<String>,
+    },
+    /// `FileMv` ([API §12.4]).
+    FileMv {
+        /// `srcs`.
+        srcs: Vec<String>,
+        /// `dst`.
+        dst: String,
+        /// `git`.
+        git: bool,
+        /// `retry_ms`.
+        retry_ms: Option<u64>,
+    },
+    /// `FileRm` ([API §12.4]).
+    FileRm {
+        /// `paths`.
+        paths: Vec<String>,
+        /// `reason`.
+        reason: Option<String>,
+        /// `replaced_by`: a path or a node.
+        replaced_by: Option<String>,
+        /// `trash`.
+        trash: bool,
+        /// `recursive`.
+        recursive: bool,
+        /// `yes`: without it the command is a dry run of the impact.
+        yes: bool,
+    },
+    /// `FileRevert` ([API §12.4]).
+    FileRevert {
+        /// `commit`: a revision whose group carried an `FsIntentDone`.
+        commit: String,
+    },
+    /// `FileRelink` ([API §12.5]; `tx.record_move`).
+    FileRelink {
+        /// `from`: a path or a node.
+        from: String,
+        /// `to`.
+        to: String,
+    },
+    /// `LinksFix` ([API §12.5]; `tx.links_fix`).
+    LinksFix {
+        /// `target`: a node or `aN`.
+        target: String,
+        /// `action`.
+        action: String,
+        /// `expect`.
+        expect: Option<String>,
+        /// `to`.
+        to: Option<String>,
+        /// `at`.
+        at: Option<String>,
+        /// `same_as`.
+        same_as: Option<Target>,
+        /// `reason`.
+        reason: Option<String>,
+        /// `replaced_by`.
+        replaced_by: Option<String>,
+        /// `from` (the `prefix` action's source directory).
+        from: Option<String>,
+    },
+    /// `LinksSync` ([API §12.6]; `tx.links_sync`).
+    LinksSync {
+        /// `scope`.
+        scope: Option<Target>,
+        /// `budget_ms`.
+        budget_ms: Option<u64>,
+        /// `since`.
+        since: Option<String>,
+        /// `deep`.
+        deep: bool,
+        /// `all`.
+        all: bool,
+        /// `force`.
+        force: bool,
+    },
+    /// `Check` ([API §12.7]).
+    Check {
+        /// `id`.
+        id: Target,
     },
     /// `State` ([API §14.2]).
     State {
@@ -529,6 +691,21 @@ pub struct MarkerOut {
     pub cause: markers::Cause,
 }
 
+/// The `data` of `LaneOpen` ([API §11.5]): `{"lane","ref","ref_id","fork","binding"}`.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct LaneOpenData {
+    /// `lane`: the lane node.
+    pub lane: Nid,
+    /// `ref`: `lane/<name>`.
+    pub ref_: String,
+    /// `ref_id`.
+    pub ref_id: u32,
+    /// `fork`: the lane node's commit, which the ref forks from.
+    pub fork: u64,
+    /// `binding`: the `WorktreeBind` data.
+    pub binding: BindData,
+}
+
 /// One row of the runtime snapshot's `markers` ([API §15.7]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct MarkerSnap {
@@ -542,8 +719,8 @@ pub struct MarkerSnap {
     pub active_on: Vec<String>,
 }
 
-/// The data of `Runtime` ([API §15.7]); heads are the client heads' and bindings' ([`crate::heads`]), intents R4's
-/// (WP-92).
+/// The data of `Runtime` ([API §15.7]); heads are the client heads' and bindings' ([`crate::heads`]), intents the
+/// `FSINTENT` rows of the intent protocol ([API §12.4]; [`crate::links::intent`]).
 #[derive(Clone, Debug, PartialEq)]
 pub struct RuntimeSnap {
     /// `commit_seq`, `next_id`, `next_anchor`, `fence`, `next_ref_id`.
@@ -566,6 +743,8 @@ pub struct RuntimeSnap {
     pub idem: Vec<([u8; 16], Entry)>,
     /// Every allocated `#N` bound to a uid: (id, uid, ref name, create seq).
     pub alloc: Vec<(Nid, Uid, String, u64)>,
+    /// `intents`: every intent of the last `gc.trash-expire` window, open ones always, in the order opened.
+    pub intents: Vec<crate::links::IntentRow>,
     /// The quiet flag.
     pub quiet: bool,
 }
@@ -581,6 +760,16 @@ pub enum Data {
     Slots(SlotsResult),
     /// `EnvCrash`.
     Crash(bool),
+    /// `EnvTree`.
+    Tree(crate::links::TreeData),
+    /// `EnvGit`: the repository and its commit count.
+    Git(String, usize),
+    /// `FileAdd`: each path with its file node and whether the command created it.
+    FileAdd(Vec<(crate::value::PathVal, Nid, bool)>),
+    /// `FileMv`, `FileRm`, `FileRevert`.
+    Intent(Box<crate::links::intent::IntentData>),
+    /// `Check`.
+    Check(Box<crate::links::verbs::CheckData>),
     /// `Init`: store id, the three init-fixed values, the configuration the command set (canonical forms).
     Init([u8; 16], BTreeMap<String, u64>, BTreeMap<String, String>),
     /// `ConfigSet`, `ConfigUnset`.
@@ -597,12 +786,17 @@ pub enum Data {
     RunClose(Nid, String, Vec<u64>),
     /// `BranchCreate`: ref, ref id, kind, fork.
     BranchCreate(String, u32, RefKind, Option<u64>),
-    /// `BranchDelete`: ref, ref id, (commits, completions, deletions), released leases.
-    BranchDelete(String, u32, (u64, u64, u64), Vec<u64>),
+    /// `BranchDelete`: ref, ref id, `dropped` (commits, completions, deletions; `None` on a replay, which does not
+    /// rebuild it, [API §11.2]), released leases.
+    BranchDelete(String, u32, Option<(u64, u64, u64)>, Vec<u64>),
     /// `Checkout`.
     Checkout(Box<CheckoutData>),
     /// `WorktreeBind`, `WorktreeUnbind`.
     Bind(Box<BindData>),
+    /// `LaneOpen` ([API §11.5]).
+    LaneOpen(Box<LaneOpenData>),
+    /// `LaneClose` ([API §11.5]): the lane node, its status, the unbound directory.
+    LaneClose(Nid, String, Option<String>),
     /// `Gc`: reachable commits, commits that stopped resolving.
     Gc(u64, u64),
     /// `Apply`.
@@ -612,7 +806,9 @@ pub enum Data {
     /// `Runtime`.
     Runtime(Box<RuntimeSnap>),
     /// `History`: the commits by seq, and the ref moves no commit carries, in the order they happened.
-    History(Vec<Commit>, Vec<(String, RefMove)>),
+    /// `History` ([API §15.8]): the commits after `since_seq`, then the ref moves no commit carries that lie after it,
+    /// each with its ref and `after_seq`.
+    History(Vec<Commit>, Vec<(String, RefMove, u64)>),
     /// `Merge`, `MergeContinue`, `Sync`, `Revert`, `CherryPick`.
     Merge(Box<crate::history::MergeData>),
     /// `MergeAbort`: the staging ref deleted.
@@ -659,6 +855,9 @@ pub struct Reply {
     pub markers: Vec<MarkerOut>,
     /// The command's data.
     pub data: Data,
+    /// `hints` ([F19 §8.2] row 9, §12.3): (class, text), present when non-empty; family T carries them after
+    /// `yields` ([API §3.3]).
+    pub hints: Vec<(String, String)>,
     /// The refusal of a `refused` outcome.
     pub error: Option<Refusal>,
 }
@@ -683,6 +882,7 @@ impl Reply {
             warnings: Vec::new(),
             markers: Vec::new(),
             data,
+            hints: Vec::new(),
             error: None,
         }
     }
@@ -747,8 +947,6 @@ pub struct Store {
     pub inited: Option<Inited>,
     /// The kernel's configuration.
     pub cfg: KernelCfg,
-    /// Policy data.
-    pub policy: PolicyData,
     /// The simulated configuration files and the `init`-recorded values ([CFG §2.1]; [API §8.2]).
     pub conf: Conf,
     /// Commits and refs.
@@ -775,6 +973,9 @@ pub struct Store {
     pub heads: Heads,
     /// The commits a `Gc` dropped: they stop resolving ([API §8.5]).
     pub pruned: BTreeSet<u64>,
+    /// The refs some of whose moves a `Gc` run no longer holds, with the newest move dropped ([F12 §3.5]; [API §11.11]
+    /// `OpRestore`'s second E301).
+    pub(crate) moves_dropped: BTreeMap<u32, crate::dag::RefMove>,
     /// `IDEM`.
     pub idem: idem::Table,
     /// The HLC sequence.
@@ -796,6 +997,9 @@ pub struct Store {
     pub(crate) vcs_results: BTreeMap<u64, crate::history::MergeData>,
     /// `moves_back` of every `undo` `RefUpdate`, by (ref id, the move's HLC) ([API §11.11]).
     pub(crate) moves_back: BTreeMap<(u32, u64), u32>,
+    /// R4's environment and runtime rows: the simulated trees and git histories, `FILEOBS`, `PENDING`, `TREES`,
+    /// `FPRINT`, `PREFIXEV`, `DIRMAP`, `FSINTENT` and the anchors' `aN` ([`crate::links`]).
+    pub files: crate::links::Files,
     /// Of every `op restore` `RefUpdate`, by (ref id, the move's HLC): its `restore_seq` ([F05 §9.2] field 10) and
     /// whether it deleted the ref, which a later `op restore` replays ([API §11.11]).
     pub(crate) restores: BTreeMap<(u32, u64), (u64, bool)>,
@@ -874,7 +1078,6 @@ impl Store {
             env: Env::default(),
             inited: None,
             cfg: KernelCfg::default(),
-            policy: PolicyData::default(),
             conf: Conf::default(),
             dag: Dag::default(),
             alloc: AllocTable::default(),
@@ -888,6 +1091,7 @@ impl Store {
             feed: Feed::default(),
             heads: Heads::default(),
             pruned: BTreeSet::new(),
+            moves_dropped: BTreeMap::new(),
             idem: idem::Table::default(),
             hlc: Hlc::default(),
             quiet: false,
@@ -899,18 +1103,20 @@ impl Store {
             vcs_results: BTreeMap::new(),
             moves_back: BTreeMap::new(),
             restores: BTreeMap::new(),
+            files: crate::links::Files::default(),
         }
     }
 
     /// Runs one command of the stream ([API §2.1]) and returns its result.
     pub fn run(&mut self, cmd: &Cmd, ctx: &Ctx) -> Reply {
         self.n += 1;
-        self.feed.cmd = self.n;
         let write = !matches!(
             cmd,
             Cmd::EnvClock(_)
                 | Cmd::EnvSlots(_)
                 | Cmd::EnvCrash { .. }
+                | Cmd::EnvTree { .. }
+                | Cmd::EnvGit { .. }
                 | Cmd::State { .. }
                 | Cmd::Runtime
                 | Cmd::History { .. }
@@ -923,8 +1129,9 @@ impl Store {
             let mut before = self.clone();
             before.without = None;
             before.reserved = None;
+            let bulk = bulk_class(cmd, ctx) || self.moves_a_directory(cmd, ctx);
             let _ = self.dispatch(cmd, ctx);
-            self.reserved = bulk_class(cmd, ctx).then(|| {
+            self.reserved = bulk.then(|| {
                 let mut r = before.clone();
                 r.next_id = self.next_id;
                 r.next_anchor = self.next_anchor;
@@ -982,6 +1189,19 @@ impl Store {
                 )))
             }
             Cmd::EnvSlots(a) => Ok(Reply::ok(Data::Slots(self.env.slots(a)))),
+            Cmd::EnvTree {
+                tree,
+                volume,
+                caps,
+                ops,
+            } => self.env_tree(tree, volume.as_deref(), *caps, ops),
+            Cmd::EnvGit {
+                repo,
+                algo,
+                commits,
+                refs,
+                heads,
+            } => self.env_git(repo, *algo, commits, refs, heads),
             Cmd::EnvCrash { in_next } => {
                 if *in_next {
                     self.crash_next = true;
@@ -1149,6 +1369,13 @@ impl Store {
                 self.worktree_bind(dir, ref_, *replace, ctx)
             }
             Cmd::WorktreeUnbind { dir } => self.worktree_unbind(dir, ctx),
+            Cmd::LaneOpen {
+                name,
+                worktree,
+                git_branch,
+                base,
+            } => self.lane_open(name, worktree, git_branch.as_deref(), base.as_deref(), ctx),
+            Cmd::LaneClose { name, mode } => self.lane_close(name, mode.as_deref(), ctx),
             Cmd::Merge {
                 src,
                 into,
@@ -1185,6 +1412,88 @@ impl Store {
                 self.undo_cmd(ref_.as_deref(), n.unwrap_or(1), expect.as_deref(), ctx)
             }
             Cmd::OpRestore { seq } => self.op_restore_cmd(*seq, ctx),
+            Cmd::FileAdd { paths, kind, root } => {
+                self.file_add(paths, kind.as_deref(), root.as_deref(), ctx)
+            }
+            Cmd::LinkFile {
+                node,
+                specs,
+                watch,
+                planned,
+                quote,
+                end,
+            } => self.link_file(
+                node,
+                specs,
+                watch.as_deref(),
+                *planned,
+                (quote.as_deref(), end.as_deref()),
+                ctx,
+            ),
+            Cmd::UnlinkFile { node, anchor, path } => {
+                self.unlink_file(node, anchor.as_deref(), path.as_deref(), ctx)
+            }
+            Cmd::FileMv {
+                srcs,
+                dst,
+                git,
+                retry_ms,
+            } => self.file_mv(srcs, dst, *git, *retry_ms, ctx),
+            Cmd::FileRm {
+                paths,
+                reason,
+                replaced_by,
+                trash,
+                recursive,
+                yes,
+            } => self.file_rm(
+                paths,
+                reason.as_deref(),
+                replaced_by.as_deref(),
+                (*trash, *recursive, *yes),
+                ctx,
+            ),
+            Cmd::FileRevert { commit } => self.file_revert(commit, ctx),
+            Cmd::FileRelink { from, to } => self.file_relink(from, to, ctx),
+            Cmd::LinksFix {
+                target,
+                action,
+                expect,
+                to,
+                at,
+                same_as,
+                reason,
+                replaced_by,
+                from,
+            } => self.links_fix(
+                &crate::links::fix::FixArgs {
+                    target: target.clone(),
+                    action: action.clone(),
+                    expect: expect.clone(),
+                    to: to.clone(),
+                    at: at.clone(),
+                    same_as: same_as.clone(),
+                    reason: reason.clone(),
+                    replaced_by: replaced_by.clone(),
+                    from: from.clone(),
+                },
+                ctx,
+            ),
+            Cmd::LinksSync {
+                scope,
+                budget_ms,
+                since,
+                deep,
+                all,
+                force,
+            } => self.links_sync(
+                scope.as_ref(),
+                *budget_ms,
+                since.as_deref(),
+                (*deep, *all, *force),
+                ctx,
+            ),
+            Cmd::Check { id } => self.check(id, ctx),
             Cmd::Gc {
                 reflog_expire_ms,
                 cruft_delay_ms,
@@ -1247,11 +1556,27 @@ impl Store {
                     .filter(|(s, _)| reach.contains(s) && !self.pruned.contains(s))
                     .map(|(_, c)| c.clone())
                     .collect();
+                // [API §15.8]: the moves that lie after commit `since_seq` ([F05 §9.2]), each with `after_seq`, the seq
+                // of the newest commit appended before it.
+                let after = |m: &RefMove| {
+                    self.dag
+                        .commits
+                        .values()
+                        .filter(|c| c.append_hlc < m.hlc)
+                        .map(|c| c.seq)
+                        .max()
+                        .unwrap_or(0)
+                };
                 let moves = self
                     .dag
                     .moves()
                     .into_iter()
                     .filter(|(n, _)| ref_.as_ref().is_none_or(|r| r == n))
+                    .map(|(n, m)| {
+                        let a = after(&m);
+                        (n, m, a)
+                    })
+                    .filter(|(_, _, a)| *a >= *since_seq)
                     .collect();
                 Ok(Reply::ok(Data::History(commits, moves)))
             }
@@ -1343,8 +1668,9 @@ impl Store {
 
     /// The caller context resolution of [API §4.2] (CX-1 to CX-9, CX-2 in its order of record through the heads and
     /// bindings, [`crate::context`]) with the refusals of §4.3 rows 1–4; row 6 (a detached head) is the write path's
-    /// (`writable`), row 8 (quiet mode) `Gc`'s. The git-worktree hint of CX-2 and row 5 (`tree_mismatch`) need
-    /// the simulated trees and git histories of WP-92.
+    /// (`writable`), row 8 (quiet mode) `Gc`'s, row 5 (`tree_mismatch`) the tree-derived writes' of group F
+    /// ([`Store::tree_mismatch`]). CX-2's git-worktree hint reads the simulated trees and git histories of `EnvTree`
+    /// and `EnvGit` ([API §6.5], §6.6).
     // spec: [API §4.2]
     // spec: [API §4.3]
     // rule: WR-002, WR-003, WR-004, WR-005
@@ -1355,9 +1681,29 @@ impl Store {
     /// [`Store::resolve`] for a command with `move_lease` ([API §4.3] row 3): an explicit branch that differs from the
     /// presented task lease's is allowed when `move_lease` names it, with the warning `lease_moved`.
     pub fn resolve_moving(&self, ctx: &Ctx, claim: bool, move_lease: Option<&str>) -> Res<Caller> {
+        let mut c = self.resolve_keyed(ctx, claim, move_lease)?;
+        match c.pending.take() {
+            Some(e) => Err(e),
+            None => Ok(c),
+        }
+    }
+
+    /// The caller of a keyed command: [`Store::resolve_moving`] with §4.3 rows 1–4 held in `pending`, so that the
+    /// idempotency lookup runs first ([API §4.3] "The idempotency pre-check comes first", §7.4); for that lookup the
+    /// branch (CX-2) takes an ended lease's recorded branch. [`Store::keyed`] raises `pending` when the lookup finds no
+    /// entry.
+    // spec: [API §4.3]
+    pub(crate) fn resolve_keyed(
+        &self,
+        ctx: &Ctx,
+        claim: bool,
+        move_lease: Option<&str>,
+    ) -> Res<Caller> {
+        let mut pending: Option<Refusal> = None;
         let mut warnings = Vec::new();
-        // CX-7: the client profile; the harness detection decides only without `ctx.client`, `MOIRAI_CLIENT` and
-        // `client_info`, and only then do two harnesses' variables give no session identity.
+        // CX-7: the client profile: `ctx.client`, then `MOIRAI_CLIENT`, then `client.profile` when it is not `auto`
+        // ([CFG §10.9], class V), then `client_info`; the harness detection decides only without all four, and only
+        // then do two harnesses' variables give no session identity.
         let claude_env = Self::env_var(ctx, "CLAUDECODE").is_some()
             || Self::env_var(ctx, "CLAUDE_CODE_SESSION_ID").is_some()
             || Self::env_var(ctx, "AI_AGENT").is_some_and(|v| v.starts_with("claude-code"));
@@ -1370,10 +1716,12 @@ impl Store {
             .filter(|x| **x)
             .count();
         let mut two = false;
+        let configured = self.conf.text("client.profile");
         let client: &'static str = match ctx
             .client
             .as_deref()
             .or(Self::env_var(ctx, "MOIRAI_CLIENT"))
+            .or(Some(configured.as_str()).filter(|p| !p.is_empty() && *p != "auto"))
         {
             Some("claude") => "claude",
             Some("codex") => "codex",
@@ -1420,41 +1768,57 @@ impl Store {
             (None, Some(l)) => (Some(l.to_string()), true),
             _ => (None, false),
         };
+        // §4.3 rows 1 and 2 are held for the lookup; a lease that has ended still names its branch for it.
+        let mut ended_branch: Option<String> = None;
+        let mut ended_lease: Option<u64> = None;
         let lease = match lease_text {
             None => None,
-            Some(t) => {
-                let id = tx::parse_lease(&t).ok_or_else(|| {
-                    Refusal::e407(Some(t.clone()), None, format!("{t} is not a lease"))
-                })?;
-                let row = self.leases.get(&id);
-                let l = row
-                    .filter(|l| lease::is_live(l, &self.env).is_live())
-                    .ok_or_else(|| {
-                        Refusal::e407(
-                            Some(t.clone()),
-                            row.map(|l| l.holder.clone()),
-                            format!("lease {t} is lost"),
-                        )
-                    })?;
-                // §4.3 row 2: an environment lease bound to another thread.
-                if env_lease
-                    && let (Some(b), Some(th)) = (l.bound, &thread)
-                    && b != blake3_128(&[th.as_bytes()])
-                {
-                    return Err(Refusal::e407(
+            Some(t) => match tx::parse_lease(&t) {
+                None => {
+                    pending = Some(Refusal::e407(
                         Some(t.clone()),
-                        Some(l.holder.clone()),
-                        format!("{t} is bound to another thread; pass your own lease"),
+                        None,
+                        format!("{t} is not a lease"),
                     ));
+                    None
                 }
-                Some(l.clone())
-            }
+                Some(id) => {
+                    let row = self.leases.get(&id);
+                    match row.filter(|l| lease::is_live(l, &self.env).is_live()) {
+                        None => {
+                            pending = Some(Refusal::e407(
+                                Some(t.clone()),
+                                row.map(|l| l.holder.clone()),
+                                format!("lease {t} is lost"),
+                            ));
+                            ended_branch =
+                                row.filter(|l| !l.session_role).map(|l| l.branch.clone());
+                            ended_lease = row.map(|l| l.id);
+                            None
+                        }
+                        // §4.3 row 2: an environment lease bound to another thread.
+                        Some(l)
+                            if env_lease
+                                && matches!((l.bound, &thread), (Some(b), Some(th)) if b != blake3_128(&[th.as_bytes()])) =>
+                        {
+                            pending = Some(Refusal::e407(
+                                Some(t.clone()),
+                                Some(l.holder.clone()),
+                                format!("{t} is bound to another thread; pass your own lease"),
+                            ));
+                            None
+                        }
+                        Some(l) => Some(l.clone()),
+                    }
+                }
+            },
         };
         // CX-2: the branch, in the order of record ([`crate::context::CX2`]).
         let lease_branch = lease
             .as_ref()
             .filter(|l| !l.session_role)
-            .map(|l| l.branch.clone());
+            .map(|l| l.branch.clone())
+            .or(ended_branch);
         let marker_branch = ctx.marker.as_deref().and_then(|m| {
             m.strip_prefix("moirai:")?
                 .split(' ')
@@ -1481,7 +1845,10 @@ impl Store {
                 .clone()
                 .or_else(|| Self::env_var(ctx, "MOIRAI_CLIENT").map(str::to_string)),
             cwd: ctx.cwd.clone(),
-            git_top: None,
+            git_top: ctx.cwd.as_deref().and_then(|c| {
+                let root = self.files.tree_of(&crate::links::canon_abs(c))?;
+                self.files.git.of_tree(&root).map(|_| root)
+            }),
             session_key: session
                 .as_ref()
                 .filter(|_| ctx.door == Door::Mcp)
@@ -1499,8 +1866,8 @@ impl Store {
         {
             if move_lease == Some(b.as_str()) {
                 warnings.push("lease_moved".to_string());
-            } else {
-                return Err(Refusal::e407(
+            } else if pending.is_none() {
+                pending = Some(Refusal::e407(
                     Some(format!("L-{}", l.id)),
                     Some(l.holder.clone()),
                     format!("--branch {b} differs from lease L-{}'s branch {lb}", l.id),
@@ -1531,10 +1898,11 @@ impl Store {
         };
         // §4.3 row 4: outside Claim, a declared agent that differs from the lease's holder.
         if !claim
+            && pending.is_none()
             && let (Some(l), Some(a)) = (&lease, &ctx.agent)
             && *a != l.holder
         {
-            return Err(Refusal::e407(
+            pending = Some(Refusal::e407(
                 Some(format!("L-{}", l.id)),
                 Some(l.holder.clone()),
                 format!(
@@ -1569,7 +1937,11 @@ impl Store {
             main.nodes
                 .values()
                 .find(|x| x.live() && x.kind == "lane" && x.text("moirai_branch") == Some(b))
-                .and_then(|x| x.text("worktree_path").map(str::to_string))
+                .and_then(|x| match x.fields.get("worktree_path") {
+                    // A `path` value under root `abs` ([F08 §9.3] `lane`).
+                    Some(crate::value::Value::Path(p)) => Some(p.text.clone()),
+                    _ => None,
+                })
         });
         let tree = context::resolve_tree(
             ctx.tree.as_deref(),
@@ -1617,6 +1989,8 @@ impl Store {
             label,
             thread,
             warnings,
+            pending,
+            ended_lease,
         })
     }
 
@@ -1644,7 +2018,14 @@ impl Store {
             actor: Some(c.actor.clone()).filter(|a| !a.is_empty()),
             owner_attested: false,
             acceptor: None,
-            data: self.policy.clone(),
+            // The policy data of the caller's view: its `policy` items over the defaults ([CFG §10.13]).
+            data: PolicyData::of(
+                &self
+                    .dag
+                    .state_at(self.dag.live(&c.branch).and_then(|r| r.tip), &self.alloc)
+                    .schema,
+            ),
+            confirm_roles: crate::links::confirm_rights(&self.conf),
         }
     }
 
@@ -1674,18 +2055,26 @@ impl Store {
         }
     }
 
-    fn windows(&self) -> Windows {
+    pub(crate) fn windows(&self) -> Windows {
         self.inited.as_ref().map(|i| i.windows).unwrap_or_default()
     }
 
+    /// The key of a command that takes an explicit key only ([API §7.1]: `LinksSync`, `Sync`, `Merge`, `MergeContinue`
+    /// and `Undo`, whose effect depends on tips their arguments do not name).
+    // spec: [API §7.1]
+    pub(crate) fn explicit_key(ctx: &Ctx) -> Option<([u8; 16], bool)> {
+        ctx.key.as_ref().map(|k| (idem::explicit_key(k), false))
+    }
+
     /// The idempotency key of a keyed command ([API §7.1], §7.2): the explicit key, else the default key unless
-    /// `no_dedupe`. The default key's `a` is `codex:` + `ctx.meta.threadId`, else `claude:` + `ctx.stamp.agent_id`,
-    /// else the resolved actor (CX-3).
+    /// `no_dedupe`. The default key hashes s (the session), a (`codex:` + `ctx.meta.threadId`, else `claude:` +
+    /// `ctx.stamp.agent_id`, else the resolved actor, CX-3), b (`branch`, the command's branch, §7.4) and the payload.
     // spec: [API §7.2]
     pub(crate) fn key_of(
         &self,
         ctx: &Ctx,
         c: &Caller,
+        branch: &str,
         payload: &[u8; 16],
     ) -> Option<([u8; 16], bool)> {
         if let Some(k) = &ctx.key {
@@ -1707,7 +2096,7 @@ impl Store {
             })
             .unwrap_or_else(|| c.actor.clone());
         Some((
-            idem::default_key(c.session.as_deref().unwrap_or(""), &a, payload),
+            idem::default_key(c.session.as_deref().unwrap_or(""), &a, branch, payload),
             true,
         ))
     }
@@ -1756,9 +2145,16 @@ impl Store {
         ctx: &Ctx,
         caller: &Caller,
     ) -> Res<Option<Reply>> {
-        let Some((k, _)) = key else { return Ok(None) };
-        match self.lookup(k, payload, branch) {
-            Lookup::Execute => Ok(None),
+        // [API §4.3]: the lookup first; §4.3 rows 1–4 only when it found no entry.
+        let lookup = match key {
+            Some((k, _)) => self.lookup(k, payload, branch),
+            None => Lookup::Execute,
+        };
+        match lookup {
+            Lookup::Execute => match &caller.pending {
+                Some(e) => Err(e.clone()),
+                None => Ok(None),
+            },
             Lookup::Replay(e) => Ok(Some(self.replay(&e, branch, ctx, caller))),
             Lookup::Mismatch(e) => Err(*e),
         }
@@ -1842,6 +2238,68 @@ impl Store {
                     r.data = Data::RunClose(run, status, ended(lease::EndReason::RunClose.code()));
                 }
             }
+            "LaneOpen" => {
+                // The lane node of the commit, the ref it names and the binding of its tree ([API §11.5]).
+                if let Some(c) = commit
+                    && let Some(lane) = created_of_kind(&c.changeset, "lane")
+                {
+                    let st = self.dag.state_at(Some(c.seq), &self.alloc);
+                    let x = &st.nodes[&lane];
+                    let full = x.text("moirai_branch").unwrap_or("").to_string();
+                    let dir = match x.fields.get("worktree_path") {
+                        Some(crate::value::Value::Path(p)) => p.text.clone(),
+                        _ => String::new(),
+                    };
+                    let ref_id = self
+                        .dag
+                        .refs
+                        .values()
+                        .filter(|r| r.name == full)
+                        .map(|r| r.id)
+                        .max()
+                        .unwrap_or(0);
+                    let row = self.heads.get(crate::heads::HeadKind::Directory, &dir);
+                    r.data = Data::LaneOpen(Box::new(LaneOpenData {
+                        lane,
+                        ref_: full.clone(),
+                        ref_id,
+                        fork: c.seq,
+                        binding: BindData {
+                            dir: dir.clone(),
+                            ref_: Some(full),
+                            designated: row.is_some_and(|h| h.designated),
+                            expected_ref: row.and_then(|h| h.expected_ref.clone()),
+                            base: row.and_then(|h| h.base.clone()),
+                            replaced: Vec::new(),
+                            removed: false,
+                        },
+                    }));
+                }
+            }
+            "LaneClose" => {
+                if let Some(c) = commit {
+                    let (lane, status) = c
+                        .changeset
+                        .iter()
+                        .find_map(|(k, (_, after))| match (k, after) {
+                            (
+                                Key::Node(n, crate::state::Aspect::Status),
+                                KState::Plain(Some(KVal::Status { status, .. })),
+                            ) => Some((*n, status.clone())),
+                            _ => None,
+                        })
+                        .unwrap_or((Nid(0), String::new()));
+                    let st = self.dag.state_at(Some(c.seq), &self.alloc);
+                    let dir =
+                        st.nodes
+                            .get(&lane)
+                            .and_then(|x| match x.fields.get("worktree_path") {
+                                Some(crate::value::Value::Path(p)) => Some(p.text.clone()),
+                                _ => None,
+                            });
+                    r.data = Data::LaneClose(lane, status, dir);
+                }
+            }
             "BranchCreate" => {
                 if let Some((ref_id, _, _, new)) = moved
                     && let Some(x) = self.dag.refs.get(&ref_id)
@@ -1856,10 +2314,12 @@ impl Store {
                     && let Some(x) = self.dag.refs.get(&ref_id)
                 {
                     r.rev = Some(old.unwrap_or(0));
+                    // `dropped` is not replayed: a replay gives null ([API §11.2]).
+                    let _ = old;
                     r.data = Data::BranchDelete(
                         x.name.clone(),
                         ref_id,
-                        self.dropped(ref_id, old),
+                        None,
                         ended(lease::EndReason::BranchDeleted.code()),
                     );
                 }
@@ -1880,6 +2340,45 @@ impl Store {
                     r.markers = d.markers.clone();
                     r.data = Data::Merge(Box::new(d));
                 }
+            }
+            "FileAdd" => {
+                // The data the original result listed, kept in its recorded rows ([API §7.5]).
+                r.data = Data::FileAdd(
+                    e.result
+                        .yields
+                        .iter()
+                        .flat_map(|y| &y.rows)
+                        .filter_map(|row| {
+                            let get =
+                                |k: &str| row.iter().find(|(n, _)| n == k).map(|(_, v)| v.as_str());
+                            let (root, text) = get("path")?.split_once(':')?;
+                            let id = get("id")?.strip_prefix('#')?.parse::<u32>().ok()?;
+                            Some((
+                                crate::value::PathVal {
+                                    root: root.to_string(),
+                                    text: text.to_string(),
+                                },
+                                Nid(id),
+                                get("created") == Some("true"),
+                            ))
+                        })
+                        .collect(),
+                );
+            }
+            "FileMv" | "FileRm" | "FileRevert" => {
+                // The intent the recorded result names, and the data its records hold.
+                let id = e
+                    .result
+                    .yields
+                    .iter()
+                    .flat_map(|y| &y.rows)
+                    .flat_map(|row| row.iter())
+                    .find(|(k, _)| k == "intent")
+                    .and_then(|(_, v)| v.strip_prefix("i-")?.parse::<u64>().ok());
+                if let Some(d) = id.and_then(|i| self.files.results.get(&i)) {
+                    r.data = d.clone();
+                }
+                r.yields.clear();
             }
             "MergeAbort" => {
                 if let Some((ref_id, ..)) = moved
@@ -1984,6 +2483,7 @@ impl Store {
             branch: c.branch.clone(),
             named_only: crate::profile::read_safelist(&self.conf, &rights.role),
             unknown_dry_targets: dry_targets,
+            write_profile: c.profile,
             ..LqCaller::default()
         }
     }
@@ -2028,13 +2528,40 @@ impl Store {
             After::MoveLease(b) => Some(b.as_str()),
             _ => None,
         };
-        let caller = self.resolve_moving(ctx, claim, moving)?;
+        // §4.3 rows 1–4 wait for the lookup ([API §4.3] "The idempotency pre-check comes first"): a family-W command
+        // that keyed its lookup already raises them itself.
+        let caller = self.resolve_keyed(ctx, claim, moving)?;
+        if matches!(keying, Keying::Given { .. })
+            && let Some(e) = &caller.pending
+        {
+            return Err(e.clone());
+        }
         let resolve_only = match exp {
             Some((n, _, _)) => n == "tx.resolve",
             None => !stmts.is_empty() && stmts.iter().all(|s| matches!(s, Stmt::Resolve { .. })),
         };
-        let view = self.writable(&caller.branch, resolve_only)?;
+        // Row 7, after the lookup too.
+        let view_ok = self.writable(&caller.branch, resolve_only);
         let mut rights = self.rights(&caller, ctx);
+        // The rights `H` is bound with for the lookup: an ended presented lease's role, as the original call had.
+        let bind_rights = match caller.ended_lease.and_then(|id| self.leases.get(&id)) {
+            Some(l) => {
+                let mut r = rights.clone();
+                r.role = policy::effective_role(
+                    Some(&Presented {
+                        id: l.id,
+                        task: l.task,
+                        run: l.run,
+                        role: l.role.clone(),
+                        holder: l.holder.clone(),
+                        session_role: l.session_role,
+                    }),
+                    false,
+                );
+                r
+            }
+            None => rights.clone(),
+        };
         // WT-012: `answer --by owner` presented with the orchestrator's session role lease is owner-attested.
         let attested = exp.is_some_and(|(n, _, ps)| {
             n == "tx.answer"
@@ -2098,21 +2625,38 @@ impl Store {
                     lqh::h_of_mutation(
                         name,
                         &p4,
+                        normalize_message(message)
+                            .ok()
+                            .as_deref()
+                            .filter(|m| !m.is_empty()),
                         &lq_schema,
                         &ids,
-                        &self.lq_caller(&caller, ctx, &rights, false),
+                        &self.lq_caller(&caller, ctx, &bind_rights, false),
                     )
-                    .map_err(|(e, _)| e.finish(Some(1)))?
+                    // The call is the block's one statement: a located refusal names it; an unlocated one refuses
+                    // the call as a whole (E406's MCP case) unless it names its statement itself ([LQ/errors §5.5]).
+                    .map_err(|(e, at)| e.finish(at.map(|_| 1)))?
                 } else {
                     let free_form =
                         proc.is_none() && exp.is_none() && matches!(after, After::Nothing);
+                    // A non-empty `message` is the block's `MESSAGE` option, inside `H` ([API §7.3], §9.3).
+                    let text = match normalize_message(message).ok().filter(|m| !m.is_empty()) {
+                        Some(m) => {
+                            let lit = crate::lq::printer::string_lit(&m);
+                            match eq.text.strip_prefix("TX {") {
+                                Some(rest) => format!("TX MESSAGE {lit} {{{rest}"),
+                                None => eq.text.clone(),
+                            }
+                        }
+                        None => eq.text.clone(),
+                    };
                     let bound = |free: bool| {
                         lqh::h_of_tx(
-                            &eq.text,
+                            &text,
                             &params,
                             &lq_schema,
                             &ids,
-                            &self.lq_caller(&caller, ctx, &rights, free),
+                            &self.lq_caller(&caller, ctx, &bind_rights, free),
                         )
                         .map_err(|(e, at)| {
                             let s = static_stmt(at);
@@ -2125,11 +2669,14 @@ impl Store {
                         // depend on the profile, so the lookup reads it from the bind without the write rule. Under
                         // `dry-targets` a `DRY` run is allowed (WQ-005): `ctx.dry` is the block's `DRY`, which the
                         // block's LQ equivalent does not carry.
+                        // WR-012's scope ([API §9.1] E411 row; spec sync 2b): a caller with a session identity (CX-4) or
+                        // `door` = `mcp`; a CLI block with neither is the owner's and is not refused.
                         Err(e) if e.code == "E411" => {
                             let dry_ok = ctx.dry
                                 && crate::profile::model_write_rule(&self.conf, caller.profile)
                                     == crate::profile::WriteRule::DryTargets;
-                            if !dry_ok {
+                            let scoped = caller.session.is_some() || ctx.door == Door::Mcp;
+                            if !dry_ok && scoped {
                                 e411 = Some(e);
                             }
                             bound(false)?
@@ -2138,7 +2685,7 @@ impl Store {
                     }
                 };
                 let key = if proc != Some("tx.heartbeat") {
-                    self.key_of(ctx, &caller, &h)
+                    self.key_of(ctx, &caller, &caller.branch, &h)
                 } else {
                     None
                 };
@@ -2150,6 +2697,7 @@ impl Store {
             }
             Keying::Given { key, cmd, .. } => (key, None, cmd.to_string()),
         };
+        let view = view_ok?;
         // WR-008: the verb's surface row ([RULES/role-write-policy] `role-verbs`), after the lookup ([AR §4.5]).
         let mcp = ctx.door == Door::Mcp;
         let verb = match (proc, exp.map(|e| e.0), &keying) {
@@ -2286,6 +2834,9 @@ impl Store {
         cand.deferred()?;
         cand.renew_by_use();
         let cs = diff(&base, &cand.st);
+        // [F12 §9.3]: on a staging ref, `Resolve` ops and their companions only.
+        cand.staging_ops(&cs)
+            .map_err(|e| e.finish(Some(cand.last_lq_stmt())))?;
         // `tx.max-ops` ([CFG §10.5]): one op per changed key of the net changeset.
         crate::budget::check_caps(
             self.cfg.max_statements,
@@ -2316,8 +2867,23 @@ impl Store {
         reply.statements = statements;
         reply.yields = yields;
         reply.warnings = caller.warnings.clone();
-        // The commit's message: the block's, or the one a `complete` writes ([API §10.5] step 3), by [F07 §5].
-        let msg = normalize_message(&cand_message.unwrap_or_else(|| message.to_string()))?;
+        // The commit's message: the block's, or the one a `complete` writes ([API §10.5] step 3), or, for the `reopen`
+        // verb with no message, its `REASON` ([API §9.2] `reopen`), by [F07 §5].
+        let reopen_reason = match exp {
+            Some(("tx.reopen", _, ps)) if message.is_empty() => ps
+                .iter()
+                .find(|(k, _)| k == "reason")
+                .and_then(|(_, v)| match v {
+                    P::Text(t) => Some(t.clone()),
+                    _ => None,
+                }),
+            _ => None,
+        };
+        let msg = normalize_message(
+            &cand_message
+                .or(reopen_reason)
+                .unwrap_or_else(|| message.to_string()),
+        )?;
         // DRY runs every check and writes nothing ([API §9.1]); a delete's dry run shows its impact as the diff.
         // rule: DS-011
         if ctx.dry {
@@ -2356,6 +2922,18 @@ impl Store {
             let child_rows = Rc::new(derived::recompute_all(&st_after, &|_| None));
             let (affected, complete) =
                 derived::affected_rows(&parent_rows, &child_rows, self.cfg.suspect_budget);
+            // DS-010: beyond the budget the command prints the hint `SuspectBudget` and keeps its exit code
+            // ([F19 §12.3] class 131).
+            if !complete {
+                reply.hints.push((
+                    "SuspectBudget".into(),
+                    format!(
+                        "suspect changed on {} nodes, above store.suspect-budget ({}); affected is incomplete and past views recompute derived state",
+                        derived::suspect_changes(&parent_rows, &child_rows),
+                        self.cfg.suspect_budget
+                    ),
+                ));
+            }
             let mut affected: BTreeSet<Nid> = affected.into_iter().collect();
             affected.extend(notified);
             let (stmt_origin, sym, stmt_hash) = match &keying {
@@ -2444,16 +3022,19 @@ impl Store {
                 LeaseEvent::Renew { id, .. } => (*id, "renew"),
             };
             if let Some(l) = self.leases.get(&id) {
-                let (branch, task) = (l.branch.clone(), l.task);
+                let (branch, task, holder) = (l.branch.clone(), l.task, l.holder.clone());
+                // [LQ/std §2.15]: the group's commit (none for a renewal), the holder as actor.
+                let commit = commit_seq.filter(|_| op != "renew");
                 self.feed.event(
                     self.commit_seq,
                     &branch,
-                    None,
+                    commit,
                     task,
                     op,
                     "lease",
                     format!("L-{id}"),
-                    &caller.actor,
+                    &holder,
+                    commit_seq,
                 );
             }
         }
@@ -2469,7 +3050,7 @@ impl Store {
                 self.env.wall_ms,
             );
             reply.markers = self.listed(&entries);
-            self.feed_markers(&entries, &caller.actor);
+            self.feed_markers(&entries, Some(s));
         }
         let payload = match &keying {
             Keying::Given { payload, .. } => *payload,
@@ -2524,6 +3105,8 @@ impl Store {
             }
         }
         reply.diff = cs;
+        // [API §10.5] step 4: the completed tasks' link settle, a separate commit of the same command.
+        self.complete_settle(&caller, &mut reply, ctx)?;
         Ok(reply)
     }
 
@@ -2547,7 +3130,7 @@ impl Store {
 
     /// Appends a local commit on the caller's branch ([F06 §4.3]; CK-4) and returns its seq.
     #[allow(clippy::too_many_arguments)]
-    fn append_commit(
+    pub(crate) fn append_commit(
         &mut self,
         caller: &Caller,
         st: Rc<State>,
@@ -2626,6 +3209,9 @@ impl Store {
         c.actor_src = caller.actor_src.to_string();
         c.role = lease_role;
         c.session = caller.session.clone().unwrap_or_default();
+        if c.git.is_none() {
+            c.git = self.git_group(caller);
+        }
         let parent = c.parents.first().copied();
         let before = self.dag.state_at(parent, &self.alloc);
         self.dag
@@ -2708,7 +3294,10 @@ impl Store {
         {
             return self.procedure_moving(name, params.to_vec(), move_lease, ctx);
         }
-        let caller = self.resolve_moving(ctx, false, move_lease)?;
+        if let Some(cmd) = file_mutation(name, params)? {
+            return self.dispatch(&cmd, ctx);
+        }
+        let caller = self.resolve_keyed(ctx, false, move_lease)?;
         let tip = self.dag.live(&caller.branch).and_then(|r| r.tip);
         let base = self.dag.state_at(tip, &self.alloc);
         let uidx = &self.alloc.uidx;
@@ -2734,12 +3323,14 @@ impl Store {
         )
     }
 
-    /// `Schema` ([API §9.8]): weakening items only. After the caller context and the lookup: the role row, then per
-    /// item [F08 §8.2]'s names and §8.5's rules ([`Schema::check_item`]), a key the view holds or a core key (E405
-    /// `schema weakening`); a project field takes the view's largest `decl` + 1 ([F08 §8.5.2]).
+    /// `Schema` ([API §9.8]): weakening items, and policy rows set, changed or removed. After the caller context and the
+    /// lookup: the role row, then per item [F08 §8.2]'s names and §8.5's rules ([`Schema::check_item`]), an item of
+    /// classes 1–4 whose key the view holds or that is a core key (E405 `schema weakening`); a project field takes the
+    /// view's largest `decl` + 1 ([F08 §8.5.2]). A policy item's value is written in its canonical form, and a `null`
+    /// value or the row's default removes the item ([F08 §8.5.6]: absence is the default's one form).
     // spec: [API §9.8]
     fn schema(&mut self, items: &[Item], message: &str, ctx: &Ctx) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
         self.writable(&caller.branch, false)?;
         let mut args = BTreeMap::new();
         let uid = |n: Nid| {
@@ -2756,7 +3347,7 @@ impl Store {
             args.insert("message".to_string(), Cj::Str(message.to_string()));
         }
         let payload = cmd_payload("Schema", args);
-        let key = self.key_of(ctx, &caller, &payload);
+        let key = self.key_of(ctx, &caller, &caller.branch, &payload);
         if let Some(r) = self.keyed(&key, &payload, &caller.branch, ctx, &caller)? {
             return Ok(r);
         }
@@ -2771,6 +3362,31 @@ impl Store {
         for (i, it) in items.iter().enumerate() {
             let at = Some(i + 1);
             let k = it.key();
+            if let Item::Policy(p) = it {
+                st.schema.check_item(it).map_err(|e| e.finish(at))?;
+                let default = policy::default_policy(&p.name).expect("a checked policy row");
+                let value = p
+                    .value
+                    .as_deref()
+                    .and_then(|v| policy::canonical_policy(&p.name, v))
+                    .filter(|v| *v != default);
+                match value {
+                    Some(v) => {
+                        st.schema.items.insert(
+                            k.clone(),
+                            Item::Policy(crate::schema::PolicyItem {
+                                name: p.name.clone(),
+                                value: Some(v),
+                            }),
+                        );
+                    }
+                    None => {
+                        st.schema.items.remove(&k);
+                    }
+                }
+                keys.push(k.text());
+                continue;
+            }
             if Schema::is_core(&k) || st.schema.items.contains_key(&k) {
                 return Err(Refusal::lq(
                     "E405",
@@ -2839,7 +3455,7 @@ impl Store {
             self.markers
                 .commit_lands(&self.dag, seq, tip, &[], &mut self.hlc, self.env.wall_ms);
         reply.markers = self.listed(&entries);
-        self.feed_markers(&entries, &caller.actor);
+        self.feed_markers(&entries, Some(seq));
         self.prune_rows();
         self.record_idem(
             key,
@@ -2891,11 +3507,15 @@ impl Store {
         );
     }
 
-    /// The payload of `RunOpen` or `RunClose` over its arguments as given ([API §7.3]).
+    /// The payload of `RunOpen` or `RunClose` over its arguments as given ([API §7.3]): an argument that is `null` is
+    /// left out, as an omitted one is.
     fn verb_payload(name: &str, args: &[(&str, P)]) -> [u8; 16] {
         cmd_payload(
             name,
-            args.iter().map(|(k, v)| (k.to_string(), p_cj(v))).collect(),
+            args.iter()
+                .filter(|(_, v)| *v != P::Null)
+                .map(|(k, v)| (k.to_string(), p_cj(v)))
+                .collect(),
         )
     }
 
@@ -2903,12 +3523,12 @@ impl Store {
     /// the lane of `lane`; keyed by `payload(c)` and looked up before `name_taken`.
     // spec: [API §10.7]
     fn run_open(&mut self, name: &str, fields: &[(String, P)], ctx: &Ctx) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
         self.writable(&caller.branch, false)?;
         let mut args: Vec<(&str, P)> = vec![("name", P::Text(name.to_string()))];
         args.extend(fields.iter().map(|(k, v)| (k.as_str(), v.clone())));
         let payload = Self::verb_payload("RunOpen", &args);
-        let key = self.key_of(ctx, &caller, &payload);
+        let key = self.key_of(ctx, &caller, &caller.branch, &payload);
         if let Some(r) = self.keyed(&key, &payload, &caller.branch, ctx, &caller)? {
             return Ok(r);
         }
@@ -2937,7 +3557,8 @@ impl Store {
         for (k, v) in fields {
             if k == "lane" {
                 lane = Some(v.clone());
-            } else if k != "harness" && k != "model" {
+            } else {
+                // `harness` and `model` are the run's fields (decl 29, 30; [F08 §9.3]), which CX-6 reads.
                 fs.push((k.clone(), v.clone()));
             }
         }
@@ -2991,7 +3612,7 @@ impl Store {
     // spec: [API §10.7]
     // rule: LE-004
     fn run_close(&mut self, name: &str, outcome: &str, ctx: &Ctx) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
         self.writable(&caller.branch, false)?;
         let payload = Self::verb_payload(
             "RunClose",
@@ -3000,7 +3621,7 @@ impl Store {
                 ("outcome", P::Text(outcome.to_string())),
             ],
         );
-        let key = self.key_of(ctx, &caller, &payload);
+        let key = self.key_of(ctx, &caller, &caller.branch, &payload);
         if let Some(r) = self.keyed(&key, &payload, &caller.branch, ctx, &caller)? {
             return Ok(r);
         }
@@ -3076,7 +3697,7 @@ impl Store {
         kind: Option<RefKind>,
         ctx: &Ctx,
     ) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
         let mut args = BTreeMap::new();
         args.insert("name".to_string(), Cj::Str(name.to_string()));
         if let Some(f) = from {
@@ -3086,11 +3707,11 @@ impl Store {
             args.insert("kind".to_string(), Cj::Str(k.token().to_string()));
         }
         let payload = cmd_payload("BranchCreate", args);
-        let key = self.key_of(ctx, &caller, &payload);
         // The branch of the command is the ref it creates.
         let lookup_name = dag::complete_name(name, false, kind)
             .map(|(n, _)| n)
             .unwrap_or_else(|_| name.to_string());
+        let key = self.key_of(ctx, &caller, &lookup_name, &payload);
         if let Some(r) = self.keyed(&key, &payload, &lookup_name, ctx, &caller)? {
             return Ok(r);
         }
@@ -3130,6 +3751,276 @@ impl Store {
             },
         );
         reply.data = Data::BranchCreate(full, id, k, Some(fork));
+        Ok(reply)
+    }
+
+    /// `LaneOpen` ([API §11.5]): one group, in order — a commit on `main` creating the `lane` node (`title` = `name`,
+    /// status `active`, `worktree_path` the path value of `worktree` under root `abs`, `git_branch`, `base_sha`,
+    /// `moirai_branch` = `lane/<name>`), which carries the idempotency pair; then `BranchCreate(lane/<name>, from:
+    /// main)`, which forks the lane from that commit, so the lane holds its own lane node; then `WorktreeBind(worktree,
+    /// lane/<name>)` with the designation of [F18 §3.5]. Refusals: `BranchCreate`'s and `WorktreeBind`'s, checked
+    /// before anything is written; a `worktree` that is not a tree is usage (exit 2); a `base` that names no commit of
+    /// the tree's repository is E301.
+    // spec: [API §11.5]
+    // rule: WV-004
+    fn lane_open(
+        &mut self,
+        name: &str,
+        worktree: &str,
+        git_branch: Option<&str>,
+        base: Option<&str>,
+        ctx: &Ctx,
+    ) -> Res<Reply> {
+        let caller = self.resolve_keyed(ctx, false, None)?;
+        let dir = crate::links::canon_abs(worktree);
+        let mut args = BTreeMap::new();
+        args.insert("name".to_string(), Cj::Str(name.to_string()));
+        args.insert("worktree".to_string(), Cj::Str(dir.clone()));
+        if let Some(g) = git_branch {
+            args.insert("git_branch".to_string(), Cj::Str(g.to_string()));
+        }
+        if let Some(b) = base {
+            args.insert("base".to_string(), Cj::Str(b.to_string()));
+        }
+        let payload = cmd_payload("LaneOpen", args);
+        let key = self.key_of(ctx, &caller, "main", &payload);
+        if let Some(r) = self.keyed(&key, &payload, "main", ctx, &caller)? {
+            return Ok(r);
+        }
+        self.rights(&caller, ctx)
+            .verb("lane")
+            .map_err(|e| e.finish(None))?;
+        let (full, _) = dag::check_new_name(name, false, Some(RefKind::Work))?;
+        dag::check_unique(&self.dag, &full)?;
+        if !self.files.fs.trees.contains_key(&dir) {
+            return Err(Refusal::usage_arg(
+                "worktree",
+                format!("{dir} is not a tree ([F18 §3.5])"),
+            ));
+        }
+        let base_sha = match base {
+            None => None,
+            Some(b) => {
+                let prefix = b.split_once(':').map_or(b, |(_, h)| h).to_ascii_lowercase();
+                let (repo, _) = self
+                    .files
+                    .git
+                    .of_tree(&dir)
+                    .ok_or_else(|| Refusal::lq("E301", format!("{dir} has no git history")))?;
+                let hits: Vec<&String> = repo
+                    .commits
+                    .keys()
+                    .filter(|id| {
+                        id.split_once(':')
+                            .map_or(id.as_str(), |(_, h)| h)
+                            .starts_with(&prefix)
+                    })
+                    .collect();
+                match hits.as_slice() {
+                    [id] => {
+                        let hex = id.split_once(':').map_or(id.as_str(), |(_, h)| h);
+                        Some(format!("{}:{hex}", repo.algo.name()))
+                    }
+                    [] => return Err(Refusal::lq("E301", format!("{b} names no commit"))),
+                    _ => {
+                        return Err(Refusal::usage_arg(
+                            "base",
+                            format!("{b} names several commits"),
+                        ));
+                    }
+                }
+            }
+        };
+        // `WorktreeBind`'s refusals first: the group writes nothing when the binding would be refused.
+        let quiet = Ctx {
+            key: None,
+            no_dedupe: true,
+            ..ctx.clone()
+        };
+        let main_ctx = Ctx {
+            branch: Some("main".into()),
+            ..ctx.clone()
+        };
+        let mut fields = vec![
+            ("title".to_string(), P::Text(name.to_string())),
+            ("worktree_path".into(), P::Text(format!("abs:{dir}"))),
+            ("moirai_branch".into(), P::Text(full.clone())),
+        ];
+        if let Some(g) = git_branch {
+            fields.push(("git_branch".into(), P::Text(g.to_string())));
+        }
+        if let Some(b) = base_sha {
+            fields.push(("base_sha".into(), P::Text(b)));
+        }
+        let stmts = vec![Stmt::Create {
+            name: Some("l".into()),
+            kind: "lane".into(),
+            fields,
+            body: None,
+            under: None,
+            position: None,
+            edges_out: Vec::new(),
+            edges_in: Vec::new(),
+        }];
+        if ctx.dry {
+            let mut reply = Reply::ok(Data::None);
+            reply.branch = Some("main".into());
+            reply.outcome = Outcome::Dry;
+            return Ok(reply);
+        }
+        let lane = Nid(self.next_id);
+        let mut reply = self.tx(
+            &stmts,
+            "",
+            &main_ctx,
+            None,
+            None,
+            Keying::Given {
+                key,
+                payload,
+                cmd: "LaneOpen",
+                sym: "lane open",
+            },
+            After::Nothing,
+        )?;
+        reply.statements.clear();
+        let (full, ref_id, _, fork, markers) =
+            self.create_ref(name, "main", Some(RefKind::Work), &caller.actor)?;
+        reply.markers.extend(markers);
+        let bind = self.worktree_bind(&dir, &full, false, &quiet)?;
+        let binding = match bind.data {
+            Data::Bind(b) => *b,
+            other => panic!("WorktreeBind answers with its binding, not {other:?}"),
+        };
+        reply.warnings.extend(bind.warnings);
+        reply.data = Data::LaneOpen(Box::new(LaneOpenData {
+            lane,
+            ref_: full,
+            ref_id,
+            fork,
+            binding,
+        }));
+        Ok(reply)
+    }
+
+    /// `LaneClose` ([API §11.5]): one commit on `main` setting the lane node's status through the door `lane-close`
+    /// ([RULES/status-machines] DR-013, TR-072 to TR-080) — `merged` when tip(`main`) contains the lane's tip, `abandoned`
+    /// otherwise, `frozen` for `freeze` — and the removal of the lane's directory binding, in one group. The
+    /// idempotency pair is on the commit.
+    // spec: [API §11.5]
+    // rule: DR-013, WV-004
+    fn lane_close(&mut self, name: &str, mode: Option<&str>, ctx: &Ctx) -> Res<Reply> {
+        let caller = self.resolve_keyed(ctx, false, None)?;
+        let mut args = BTreeMap::new();
+        args.insert("name".to_string(), Cj::Str(name.to_string()));
+        if let Some(m) = mode.filter(|m| *m != "close") {
+            args.insert("mode".to_string(), Cj::Str(m.to_string()));
+        }
+        let payload = cmd_payload("LaneClose", args);
+        let key = self.key_of(ctx, &caller, "main", &payload);
+        if let Some(r) = self.keyed(&key, &payload, "main", ctx, &caller)? {
+            return Ok(r);
+        }
+        self.rights(&caller, ctx)
+            .verb("lane")
+            .map_err(|e| e.finish(None))?;
+        let freeze = match mode.unwrap_or("close") {
+            "close" => false,
+            "freeze" => true,
+            m => {
+                return Err(Refusal::usage_arg(
+                    "mode",
+                    format!("lane close takes close or freeze, not {m}"),
+                ));
+            }
+        };
+        let full = dag::complete_name(name, false, Some(RefKind::Work))
+            .map(|(n, _)| n)
+            .unwrap_or_else(|_| format!("lane/{name}"));
+        let main_tip = self.dag.live("main").and_then(|r| r.tip);
+        let main_st = self.dag.state_at(main_tip, &self.alloc);
+        let (lane, dir) = main_st
+            .nodes
+            .iter()
+            .find(|(_, x)| x.live() && x.kind == "lane" && x.text("moirai_branch") == Some(&full))
+            .map(|(n, x)| {
+                let dir = match x.fields.get("worktree_path") {
+                    Some(crate::value::Value::Path(p)) => Some(p.text.clone()),
+                    _ => None,
+                };
+                (*n, dir)
+            })
+            .ok_or_else(|| Refusal::not_found("lane", name))?;
+        drop(main_st);
+        let lane_tip = self
+            .dag
+            .refs
+            .values()
+            .filter(|r| r.name == full)
+            .max_by_key(|r| r.id)
+            .and_then(|r| r.tip);
+        let status = if freeze {
+            "frozen"
+        } else if lane_tip.is_none_or(|t| self.dag.ancestors(main_tip).contains(&t)) {
+            "merged"
+        } else {
+            "abandoned"
+        };
+        let stmts = vec![Stmt::Set {
+            target: Target::Id(lane),
+            fields: vec![("status".into(), P::Text(status.to_string()))],
+            incr: Vec::new(),
+            body: None,
+            guard: None,
+        }];
+        let expansion = mutation::Expansion {
+            stmts: stmts.clone(),
+            text: format!("TX {{ SET {lane}.status = '{status}' }}"),
+            lq_stmts: vec![(1, format!("SET {lane}.status = '{status}'"))],
+            params: Vec::new(),
+            door: Some(crate::status::Door::LaneClose),
+        };
+        let main_ctx = Ctx {
+            branch: Some("main".into()),
+            ..ctx.clone()
+        };
+        if ctx.dry {
+            let mut reply = Reply::ok(Data::LaneClose(lane, status.to_string(), dir));
+            reply.branch = Some("main".into());
+            reply.outcome = Outcome::Dry;
+            return Ok(reply);
+        }
+        let mut reply = self.tx(
+            &stmts,
+            "",
+            &main_ctx,
+            None,
+            Some(("tx.lane-close", &expansion, &[])),
+            Keying::Given {
+                key,
+                payload,
+                cmd: "LaneClose",
+                sym: "lane close",
+            },
+            After::Nothing,
+        )?;
+        reply.statements.clear();
+        let unbound = match &dir {
+            Some(d)
+                if self
+                    .heads
+                    .get(crate::heads::HeadKind::Directory, d)
+                    .is_some() =>
+            {
+                self.heads
+                    .rows
+                    .remove(&(crate::heads::HeadKind::Directory, d.clone()));
+                self.hlc.record(self.env.wall_ms);
+                Some(d.clone())
+            }
+            _ => None,
+        };
+        reply.data = Data::LaneClose(lane, status.to_string(), unbound);
         Ok(reply)
     }
 
@@ -3199,17 +4090,19 @@ impl Store {
             self.env.wall_ms,
         );
         let markers = self.listed(&entries);
+        // [LQ/std §2.15]: a create's commit column is the new tip.
         self.feed.event(
             self.commit_seq,
             &full,
-            None,
+            Some(fork),
             None,
             "create",
             "ref",
             full.clone(),
             actor,
+            None,
         );
-        self.feed_markers(&entries, actor);
+        self.feed_markers(&entries, None);
         Ok((full, id, k, fork, markers))
     }
 
@@ -3249,7 +4142,7 @@ impl Store {
     /// run). One `Lease` record each, after the Marker record ([F05 §4.7] ref group), each an `end` entry of the feed.
     /// `BranchDelete` and the deletions of `OpRestore` call it. Returns the released lease ids.
     // rule: LE-008
-    pub(crate) fn release_branch_leases(&mut self, name: &str, actor: &str) -> Vec<u64> {
+    pub(crate) fn release_branch_leases(&mut self, name: &str) -> Vec<u64> {
         let released: Vec<u64> = self
             .leases
             .values()
@@ -3259,7 +4152,7 @@ impl Store {
         for id in &released {
             let l = self.leases.get_mut(id).expect("a lease");
             l.ended = Some(lease::EndReason::BranchDeleted);
-            let task = l.task;
+            let (task, holder) = (l.task, l.holder.clone());
             self.hlc.record(self.env.wall_ms);
             self.feed.event(
                 self.commit_seq,
@@ -3269,7 +4162,8 @@ impl Store {
                 "end",
                 "lease",
                 format!("L-{id}"),
-                actor,
+                &holder,
+                None,
             );
         }
         released
@@ -3280,14 +4174,14 @@ impl Store {
     // spec: [API §11.2]
     // rule: LE-008
     fn branch_delete(&mut self, name: &str, force: bool, ctx: &Ctx) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
         let mut args = BTreeMap::new();
         args.insert("name".to_string(), Cj::Str(name.to_string()));
         if force {
             args.insert("force".to_string(), Cj::Bool(true));
         }
         let payload = cmd_payload("BranchDelete", args);
-        let key = self.key_of(ctx, &caller, &payload);
+        let key = self.key_of(ctx, &caller, name, &payload);
         if let Some(r) = self.keyed(&key, &payload, name, ctx, &caller)? {
             return Ok(r);
         }
@@ -3342,9 +4236,10 @@ impl Store {
             "ref",
             name.to_string(),
             &caller.actor,
+            None,
         );
-        self.feed_markers(&entries, &caller.actor);
-        let released = self.release_branch_leases(name, &caller.actor);
+        self.feed_markers(&entries, None);
+        let released = self.release_branch_leases(name);
         let x = self.dag.live_mut(name).expect("live");
         x.deleted = true;
         x.moves.push(RefMove {
@@ -3377,7 +4272,7 @@ impl Store {
             },
         );
         self.prune_rows();
-        reply.data = Data::BranchDelete(name.to_string(), r.id, dropped, released);
+        reply.data = Data::BranchDelete(name.to_string(), r.id, Some(dropped), released);
         Ok(reply)
     }
 
@@ -3391,7 +4286,7 @@ impl Store {
                 Some(MarkerOut {
                     kind: e.listed()?,
                     id: e.key.0,
-                    ref_: self.dag.refs[&e.key.1].name.clone(),
+                    ref_: self.ref_name(e.key.1),
                     commit: e.key.2,
                     outcome: e.outcome.clone(),
                     cause: e.cause,
@@ -3402,11 +4297,30 @@ impl Store {
         v
     }
 
-    /// Records the listed entries of a `Marker` record in the change feed.
-    pub(crate) fn feed_markers(&mut self, entries: &[markers::Entry], actor: &str) {
+    /// The name of a ref by id; empty for a deleted ref whose row a `gc` run expired ([F11 §3.8]), which only a marker
+    /// that a later fork re-emits at an origin on that ref can still name.
+    pub(crate) fn ref_name(&self, id: u32) -> String {
+        self.dag
+            .refs
+            .get(&id)
+            .map(|r| r.name.clone())
+            .unwrap_or_default()
+    }
+
+    /// Records the listed entries of a `Marker` record in the change feed ([LQ/std §2.15]): the origin ref and commit,
+    /// the entry's actor (a completion's holder, MF-009), else the origin commit's. `group` is the commit whose group
+    /// carries the record, `None` for a ref group.
+    pub(crate) fn feed_markers(&mut self, entries: &[markers::Entry], group: Option<u64>) {
         for e in entries {
             if let Some(k) = e.listed() {
-                let origin = self.dag.refs[&e.key.1].name.clone();
+                let origin = self.ref_name(e.key.1);
+                let actor = e.holder.clone().unwrap_or_else(|| {
+                    self.dag
+                        .commits
+                        .get(&e.key.2)
+                        .map(|c| c.actor.clone())
+                        .unwrap_or_default()
+                });
                 self.feed.event(
                     self.commit_seq,
                     &origin,
@@ -3415,7 +4329,8 @@ impl Store {
                     k.name(),
                     "marker",
                     format!("s{}", e.key.2),
-                    actor,
+                    &actor,
+                    group,
                 );
             }
         }
@@ -3424,7 +4339,7 @@ impl Store {
     /// The runtime snapshot's `markers` ([API §15.7]): every row of `MARKERS` and `MARKERS_OLD`, by (`#N`, origin ref
     /// name, commit, kind), with its holders and the live refs it is active on (MC-4).
     pub fn marker_rows(&self) -> Vec<MarkerSnap> {
-        let name = |id: &u32| self.dag.refs[id].name.clone();
+        let name = |id: &u32| self.ref_name(*id);
         let mut anc = markers::Anc::default();
         let mut v: Vec<MarkerSnap> = self
             .markers
@@ -3470,11 +4385,22 @@ impl Store {
         let mut nodes: Vec<SnapNode> = st
             .nodes
             .iter()
-            .map(|(n, x)| SnapNode {
-                id: *n,
-                node: x.clone(),
-                local: local.get(n).copied().unwrap_or((0, 0, 0)),
-                derived: rows.get(n).cloned(),
+            .map(|(n, x)| {
+                let mut node = x.clone();
+                // [API §15.3]: a tombstone keeps its kind, title and retained edges; its status and resolution are the
+                // kind's initial values and its header enumerations their defaults (TB-012; spec sync 2b), since the
+                // canonical form carries none of them.
+                if !node.live() {
+                    node.fields.retain(|f, _| f == "title");
+                    node.status = st.schema.initial_status(&node.kind).unwrap_or_default();
+                    node.resolution = "none".into();
+                }
+                SnapNode {
+                    id: *n,
+                    node,
+                    local: local.get(n).copied().unwrap_or((0, 0, 0)),
+                    derived: rows.get(n).cloned(),
+                }
             })
             .collect();
         nodes.sort_by_key(|x| x.node.uid);
@@ -3564,6 +4490,7 @@ impl Store {
                 .iter()
                 .map(|(n, (u, _, r, s))| (*n, *u, r.clone(), *s))
                 .collect(),
+            intents: self.listed_intents(),
             quiet: self.quiet,
         }
     }
@@ -3615,9 +4542,9 @@ fn completions(
         .collect()
 }
 
-/// Whether a command is of the bulk class ([API §9.10]) among those the model runs: `Mutation` `tx.rm` with `policy`
-/// = `cascade` through the CLI. The merge family, `Migrate`, a directory `FileMv` and `ImageImport` join with their
-/// packages.
+/// Whether a command is of the bulk class ([API §9.10]) by its arguments alone: the merge family, and `Mutation`
+/// `tx.rm` with `policy` = `cascade` through the CLI; a `FileMv` of a directory is by the tree
+/// ([`Store::moves_a_directory`]); `Migrate` and `ImageImport` join with their packages.
 pub fn bulk_class(cmd: &Cmd, ctx: &Ctx) -> bool {
     match cmd {
         Cmd::Merge { .. }
@@ -3634,6 +4561,75 @@ pub fn bulk_class(cmd: &Cmd, ctx: &Ctx) -> bool {
         }
         _ => false,
     }
+}
+
+/// The command a file named mutation is ([API §9.7]: `tx.link_file`, `tx.unlink_file`, `tx.record_move`,
+/// `tx.links_fix`, `tx.links_sync` are §12's commands), with its parameters of [LQ/std §7.4]; `None` for any other name.
+fn file_mutation(name: &str, params: &[(String, P)]) -> Res<Option<Cmd>> {
+    let get = |k: &str| params.iter().find(|(n, _)| n == k).map(|(_, v)| v);
+    let text = |k: &str| -> Option<String> {
+        match get(k) {
+            Some(P::Text(s)) => Some(s.clone()),
+            _ => None,
+        }
+    };
+    let node = |k: &str| -> Res<Target> {
+        match get(k) {
+            Some(P::Text(s)) => tx::parse_node(s),
+            Some(P::Int(i)) if *i > 0 => Some(Target::Id(Nid(*i as u32))),
+            _ => None,
+        }
+        .ok_or_else(|| Refusal::usage_arg(k, format!("{name} needs {k}")))
+    };
+    let flag = |k: &str| matches!(get(k), Some(P::Bool(true)));
+    Ok(Some(match name {
+        "tx.link_file" => Cmd::LinkFile {
+            node: node("node")?,
+            specs: vec![
+                text("spec")
+                    .ok_or_else(|| Refusal::usage_arg("spec", "tx.link_file needs spec"))?,
+            ],
+            watch: text("watch"),
+            planned: flag("planned"),
+            quote: text("quote"),
+            end: text("end"),
+        },
+        "tx.unlink_file" => Cmd::UnlinkFile {
+            node: node("node")?,
+            anchor: text("anchor"),
+            path: text("path"),
+        },
+        "tx.record_move" => Cmd::FileRelink {
+            from: text("from")
+                .ok_or_else(|| Refusal::usage_arg("from", "tx.record_move needs from"))?,
+            to: text("to").ok_or_else(|| Refusal::usage_arg("to", "tx.record_move needs to"))?,
+        },
+        "tx.links_fix" => Cmd::LinksFix {
+            target: text("target")
+                .ok_or_else(|| Refusal::usage_arg("target", "tx.links_fix needs target"))?,
+            action: text("action")
+                .ok_or_else(|| Refusal::usage_arg("action", "tx.links_fix needs action"))?,
+            expect: text("expect"),
+            to: text("to"),
+            at: text("at"),
+            same_as: get("same_as").map(|_| node("same_as")).transpose()?,
+            reason: None,
+            replaced_by: None,
+            from: None,
+        },
+        "tx.links_sync" => Cmd::LinksSync {
+            scope: get("scope").map(|_| node("scope")).transpose()?,
+            budget_ms: match get("budget_ms") {
+                Some(P::Int(i)) if *i >= 0 => Some(*i as u64),
+                _ => None,
+            },
+            since: None,
+            deep: false,
+            all: false,
+            force: false,
+        },
+        _ => return Ok(None),
+    }))
 }
 
 fn target_text(t: &Target) -> String {

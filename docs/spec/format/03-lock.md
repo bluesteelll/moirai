@@ -240,10 +240,11 @@ body, path, key or other user datum reaches `LOCK` (open point 2).
 - **WD-3 (no clearing).** The holder does not clear the record at release. A record therefore names the most recent
   holder that wrote one.
 - **WD-4 (reading).** A process whose bounded wait for the writer byte timed out ([OS/lock §4]) reads `WriterDiag` once.
-  If the checksum matches and `_reserved` is zero, the exit-7 text names the holder from `proc`, `cmd`, `activity` and
-  `hlc`, and the liveness of `session_hash` by the session procedure of [OS/proc §6.2] (kind 1, with the record's
-  `session_hash` as the anchor id; a zero hash prints "no session"). Otherwise it prints "holder not recorded". The texts
-  are [F19]'s.
+  If the checksum matches, `_reserved` is zero, `activity` is 1–7 and `cmd` is a valid `fstr<400>` ([F01 §6.2]), the
+  exit-7 text names the holder from `proc`, `cmd`, `activity` and `hlc`, and the liveness of `session_hash` by the session
+  procedure of [OS/proc §6.2] (kind 1, with the record's `session_hash` as the anchor id; a zero hash prints "no
+  session"). Otherwise it prints "holder not recorded". A record whose checksum matches but that fails these field checks
+  is "holder not recorded" too, and never makes `LOCK` invalid. The texts are [F19]'s.
 - **WD-5 (staleness).** Between a grant and the holder's write, and after a holder died before writing, the record names
   an earlier holder. The diagnostic prints the record's `hlc`; nothing decides on it.
 
@@ -271,15 +272,18 @@ reserved in format v1 either way.
 
 - **LR-1.** Only the holder of the leader byte writes `LeaderRec`: after the grant, and before it accepts a connection
   ([80 §2.8]). It reads the previous record to compute `seq`.
-- **LR-2.** A client uses `LeaderRec` only if its checksum matches, its reserved bytes are zero, a probe of the leader byte
-  answers `Held`, a re-read after the probe gives the same `nonce`, and the connected peer echoes `nonce` ([80 §2.8]).
+- **LR-2.** A client uses `LeaderRec` only if its checksum matches, its reserved bytes are zero, `proto` is 1,
+  `endpoint_kind` is 1–2, `nonce` is not all zero, `endpoint` is a valid `fstr<200>` ([F01 §6.2]), a probe of the leader
+  byte answers `Held`, a re-read after the probe gives the same `nonce`, and the connected peer echoes `nonce`
+  ([80 §2.8]).
 - **LR-3.** All zero bytes (the initial content) mean "no leader record". While the leader is not built, the region stays
   zero.
 
 ### 7.3 Absence
 
-A `LeaderRec` whose checksum fails is absent. Absence sends every client to the direct path, which is complete
-([80 §2.8]).
+A `LeaderRec` whose checksum fails is absent. So is one whose checksum matches but whose reserved bytes, `proto`,
+`endpoint_kind`, `nonce` or `endpoint` fail LR-2's field checks: such a record never makes `LOCK` invalid. Absence sends
+every client to the direct path, which is complete ([80 §2.8]).
 
 ## 8. `SlotRec`
 
@@ -493,8 +497,8 @@ checksum covers its own field ([F01 §7.4]).
 | Structure | Field | Covers | A mismatch means |
 |---|---|---|---|
 | `LockHdr` | `xxh3` at 56 | `LockHdr` bytes `[0, 56)` | `LOCK` is damaged: exit 7 (LH-2) |
-| `WriterDiag` | `xxh3` at 504 | `WriterDiag` bytes `[0, 504)` | the holder is not recorded (WD-4) |
-| `LeaderRec` | `xxh3` at 504 | `LeaderRec` bytes `[0, 504)` | no leader record (§7.3) |
+| `WriterDiag` | `xxh3` at 504 | `WriterDiag` bytes `[0, 504)` | the holder is not recorded (WD-4); so is a matching record with a bad field |
+| `LeaderRec` | `xxh3` at 504 | `LeaderRec` bytes `[0, 504)` | no leader record (§7.3); so is a matching record with a bad field |
 | `SlotRec[i]` | `xxh3` at 120 | `SlotRec[i]` bytes `[0, 120)` | the record is absent (§8.5) |
 
 A concurrent write can make a read return a mix of old and new bytes (fault-model item (4), [F15]); the checksum turns
@@ -587,5 +591,6 @@ source of `boot_hash`. Measurement 22 checks `LOCK` v1's bytes on NTFS ([60 §5.
     ([OS/lock §3] item 9), so the repair path is [F16]'s. Proposal: `doctor --fsck --repair-lock` rewrites the 64 header
     bytes in place while holding the maintenance, flush and writer bytes; the lock bytes lie beyond EOF and are unaffected.
 13. **Probe `Unknown` for the session match of WD-4** prints "unknown"; no decision depends on `WriterDiag` (WD-5).
-</content>
-</invoke>
+14. **Checksum-valid records with bad fields** (spec sync 2b, WP-95 review). WD-4 and LR-2 now check the enumerations,
+    `fstr` fields and the nonce as well as the reserved bytes; a record that matches its checksum but fails them is "holder
+    not recorded" or absent, and never makes `LOCK` invalid.

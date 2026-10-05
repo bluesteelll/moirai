@@ -1,11 +1,11 @@
-//! [F03] the `LOCK` file: `LockHdr` (§4), `ProcId` and `ParentRec` (§5), `WriterDiag` (§6), `LeaderRec` (§7), the 256
+//! \[F03\] the `LOCK` file: `LockHdr` (§4), `ProcId` and `ParentRec` (§5), `WriterDiag` (§6), `LeaderRec` (§7), the 256
 //! `SlotRec`s (§8) and the 32-byte holder `Anchor` (§10), with the checksums of §11.
 //!
 //! The records other than `LockHdr` read as *absent* when their checksum fails (§6.3, §7.3, §8.5); the decoders here
 //! report that as [`Rec::Absent`] and decode a record only when its checksum matches, so that an all-zero record (the
 //! initial content, §2.3) decodes as absent and re-encodes as zeros. A `WriterDiag` or `LeaderRec` whose checksum
-//! matches but whose fields break the record's rules is [`Rec::Unusable`]: "holder not recorded" (§6.3 WD-4) or not
-//! used (§7.2 LR-2), while `LOCK` itself stays valid.
+//! matches but whose fields break the record's rules is [`Rec::Unusable`]: "holder not recorded" (§6.3 WD-4) or absent
+//! (§7.2 LR-2, §7.3), while `LOCK` itself stays valid.
 
 use crate::prim::{Error, Reader, Result, Writer, err, xxh3_64};
 
@@ -58,8 +58,8 @@ pub enum Rec<T> {
     /// The checksum failed; the raw bytes are kept for a byte-identical re-encode.
     Absent(Vec<u8>),
     /// The checksum matched but a field breaks the record's rules (non-zero reserved bytes, a value outside its
-    /// enumeration, an all-zero `nonce`, a malformed `fstr`): WD-4's "holder not recorded", LR-2's "not used". The raw
-    /// bytes are kept for re-encoding, with the first rule broken.
+    /// enumeration, an all-zero `nonce`, a malformed `fstr`): WD-4's "holder not recorded", LR-2's absence (§7.3). The
+    /// raw bytes are kept for re-encoding, with the first rule broken.
     Unusable(Vec<u8>, Error),
     /// The checksum matched and the record decoded.
     Present(T),
@@ -336,7 +336,8 @@ pub struct LeaderRec {
 
 impl LeaderRec {
     /// Decodes 512 bytes: a checksum mismatch is [`Rec::Absent`] (§7.3); a matching record that fails §7.2 LR-2's byte
-    /// checks (reserved bytes, `endpoint_kind`, `proto`, `nonce`, the `fstr`) is [`Rec::Unusable`] (not used).
+    /// checks (reserved bytes, `endpoint_kind`, `proto`, `nonce`, the `fstr`) is [`Rec::Unusable`], which §7.3 also
+    /// reads as absent: it never makes `LOCK` invalid.
     pub fn decode(r: &mut Reader<'_>) -> Result<Rec<Self>> {
         let raw = r.bytes(512)?;
         let base = r.offset() - 512;
@@ -865,6 +866,136 @@ mod tests {
             LeaderRec::decode(&mut Reader::new(w.as_slice())).unwrap(),
             Rec::Unusable(..)
         ));
+    }
+
+    /// `b` (a 512-byte record) with its checksum over bytes 0–503 recomputed.
+    fn resealed(mut b: Vec<u8>) -> Vec<u8> {
+        let s = xxh3_64(&b[..504]);
+        b[504..].copy_from_slice(&s.to_le_bytes());
+        b
+    }
+
+    /// The byte length of an encoded `ProcId`.
+    fn proc_len() -> usize {
+        let mut w = Writer::new();
+        ProcId::default().encode(&mut w);
+        w.len()
+    }
+
+    /// `rec` placed at `off` of an otherwise initial `LOCK`: the file decodes (the record never makes `LOCK` invalid)
+    /// and re-encodes byte for byte.
+    fn lock_with(off: usize, rec: &[u8]) -> LockFile {
+        let mut b = hdr_bytes();
+        b.resize(LOCK_LEN, 0);
+        b[off..off + 512].copy_from_slice(rec);
+        let f = LockFile::decode(&b).unwrap();
+        assert_eq!(f.encode(), b);
+        f
+    }
+
+    /// [F03 §6.3] WD-4, §7.3 (R50): a checksum-valid `WriterDiag` whose `activity` is outside 1–7 or whose `cmd` is no
+    /// valid `fstr<400>` (length above 398, invalid UTF-8, a non-zero fill byte) is "holder not recorded": unusable,
+    /// kept byte for byte, and `LOCK` stays valid.
+    #[test]
+    fn writer_diag_field_checks() {
+        let d = WriterDiag {
+            seq: 3,
+            proc: ProcId::default(),
+            session_hash: [0; 16],
+            cmd: "commit".into(),
+            hlc: 1 << 16,
+            activity: 7,
+        };
+        let mut w = Writer::new();
+        d.encode(&mut w);
+        let good = w.into_vec();
+        assert_eq!(
+            WriterDiag::decode(&mut Reader::new(&good)).unwrap(),
+            Rec::Present(d)
+        );
+        let cmd = 8 + proc_len() + 16;
+        let activity = cmd + 400 + 8;
+        let mut bad = Vec::new();
+        for a in [0u8, 8, 255] {
+            let mut b = good.clone();
+            b[activity] = a;
+            bad.push((format!("activity {a}"), b));
+        }
+        let mut long = good.clone();
+        long[cmd..cmd + 2].copy_from_slice(&399u16.to_le_bytes());
+        bad.push(("cmd length 399".into(), long));
+        let mut utf = good.clone();
+        utf[cmd + 2] = 0xFF;
+        bad.push(("cmd not UTF-8".into(), utf));
+        let mut fill = good.clone();
+        fill[cmd + 2 + 6] = b'x';
+        bad.push(("cmd fill".into(), fill));
+        for (what, b) in bad {
+            let b = resealed(b);
+            match WriterDiag::decode(&mut Reader::new(&b)).unwrap() {
+                Rec::Unusable(raw, _) => assert_eq!(raw, b, "{what}"),
+                other => panic!("{what}: {other:?}"),
+            }
+            let f = lock_with(WRITER_DIAG_OFF, &b);
+            assert!(matches!(f.writer_diag, Rec::Unusable(..)), "{what}");
+        }
+    }
+
+    /// [F03 §7.2] LR-2, §7.3 (R50): a checksum-valid `LeaderRec` whose `proto` is not 1, whose `endpoint_kind` is outside
+    /// 1–2, whose `nonce` is all zero or whose `endpoint` is no valid `fstr<200>` is absent: unusable, kept byte for
+    /// byte, and `LOCK` stays valid.
+    #[test]
+    fn leader_rec_field_checks() {
+        let d = LeaderRec {
+            seq: 1,
+            proc: ProcId::default(),
+            proto: 1,
+            endpoint_kind: 2,
+            endpoint: "/run/moirai/x.sock".into(),
+            nonce: [9; 16],
+        };
+        let mut w = Writer::new();
+        d.encode(&mut w);
+        let good = w.into_vec();
+        let f = lock_with(LEADER_OFF, &good);
+        assert_eq!(f.leader, Rec::Present(d));
+        let proto = 8 + proc_len();
+        let kind = proto + 2;
+        let endpoint = kind + 1 + 5;
+        let nonce = endpoint + 200;
+        let mut bad = Vec::new();
+        for p in [0u16, 2] {
+            let mut b = good.clone();
+            b[proto..proto + 2].copy_from_slice(&p.to_le_bytes());
+            bad.push((format!("proto {p}"), b));
+        }
+        for k in [0u8, 3] {
+            let mut b = good.clone();
+            b[kind] = k;
+            bad.push((format!("endpoint_kind {k}"), b));
+        }
+        let mut zero = good.clone();
+        zero[nonce..nonce + 16].fill(0);
+        bad.push(("nonce all zero".into(), zero));
+        let mut long = good.clone();
+        long[endpoint..endpoint + 2].copy_from_slice(&199u16.to_le_bytes());
+        bad.push(("endpoint length 199".into(), long));
+        let mut utf = good.clone();
+        utf[endpoint + 2] = 0xC3;
+        utf[endpoint + 3] = 0x28;
+        bad.push(("endpoint not UTF-8".into(), utf));
+        let mut fill = good.clone();
+        fill[nonce - 1] = 1;
+        bad.push(("endpoint fill".into(), fill));
+        for (what, b) in bad {
+            let b = resealed(b);
+            match LeaderRec::decode(&mut Reader::new(&b)).unwrap() {
+                Rec::Unusable(raw, _) => assert_eq!(raw, b, "{what}"),
+                other => panic!("{what}: {other:?}"),
+            }
+            let f = lock_with(LEADER_OFF, &b);
+            assert!(matches!(f.leader, Rec::Unusable(..)), "{what}");
+        }
     }
 
     /// [F03 §10.3] step 5: a kind-0 anchor is 32 zero bytes; §10.4 interpretability.
