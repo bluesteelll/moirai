@@ -14,12 +14,13 @@ use crate::bugs::{Bug, Bugs};
 use crate::codec::{hash64, hash128, u64_at};
 use crate::config::Config;
 use crate::format::{
-    ExtentHeadRec, InitParams, Invalid, RECHDR, TRAILER, kind, peek_header, validate_record,
+    ExtentHeadRec, InitParams, Invalid, MIN_GROUP, RECHDR, TRAILER, kind, peek_header,
+    validate_record,
 };
 use crate::head::{Choice, HEAD_LEN, Slot, choose};
 use crate::lock::{ProcLocks, ToyLocks};
 use crate::state::{Group, Malformed, State};
-use crate::tap::{NoTap, Note, Tap};
+use crate::tap::{NoTap, Note, StoreFile, Tap};
 
 /// Why an operation of the toy failed. Every variant is an exit 7 of [F19 §10.2] unless it says otherwise; a durability
 /// failure never returns (the process ends through `fail_stop`, [OS/fs §4.4.5]).
@@ -31,10 +32,39 @@ pub enum ToyError {
     OutcomePending,
     /// `outcome_unknown`: the group was lost twice (P-47), or `retired` was found after an append (P-28).
     OutcomeUnknown,
-    /// `store_corrupt`: an invalid group or failed read below `durable_lsn`, a malformed payload, a fatal slot, no valid
-    /// slot, an extent of the wrong length, a named file missing or damaged.
+    /// `store_corrupt`: an invalid group or failed read below `durable_lsn`, a malformed payload, a placement defect of a
+    /// valid group ([F05 §5.4]), an extent of the wrong length.
     Corrupt(String),
-    /// `store_io_fault`: a failed read in a writer's scan at or above `durable_lsn` (P-92).
+    /// `store_corrupt`: `log.<n>`, which a scan from the group boundary `at` needs, does not exist — the extent that holds
+    /// the 8 chain bytes before `at` ([F05 §4.3]), or an extent the scan enters at an offset other than its first byte
+    /// ([F05 §5.2] check 1). A reader or an appender whose remembered bound lies in an extent that a checkpoint has
+    /// retired since rebuilds its view from the newest segment set once ([F16] P-56, P-59); anywhere else it is the
+    /// store's corruption, exit 7.
+    ExtentMissing {
+        /// The extent.
+        n: u32,
+        /// The group boundary whose scan needed it.
+        at: u64,
+    },
+    /// `store_corrupt` naming `HEAD`: no slot passes its checksum, after three reads ([F04 §8.1], [F16] P-61); the
+    /// operator's remedy is `moirai repair`, which rebuilds both slots from the extent heads (P-85).
+    NoValidSlot,
+    /// `store_corrupt` naming `HEAD`: a slot passes its checksum but fails validity ([F04 §7] checks 3–5), or two valid
+    /// slots disagree ([F04 §8.1]); only a defective writer produces one ([F16] P-61). Plain `moirai repair` treats it as
+    /// absent and rebuilds both slots from the extent heads ([F04 §7], P-85).
+    FatalSlot(&'static str),
+    /// `store_corrupt` or `sealed_size`: a file the newest slot names is missing or fails its check ([F16] P-59, P-68);
+    /// `moirai repair --rebuild-from-log` rebuilds a damaged base segment ([80 §2.5] rule 8).
+    Damaged {
+        /// The file's name in the store directory.
+        file: String,
+        /// What is wrong with it.
+        what: &'static str,
+    },
+    /// `not_a_store`: the store directory has no `HEAD` (initialisation in progress, or damaged) ([F19 §10.2]).
+    NotAStore,
+    /// `store_io_fault`: a read the command cannot get past failed ([F16] P-92, [F15] FM-12): the lsn of the group in a
+    /// writer's scan at or above `durable_lsn`, or [`HEAD_UNREADABLE`] for `HEAD`, every read of which failed.
     IoFault(u64),
     /// `disk_full` (P-90).
     DiskFull,
@@ -60,6 +90,9 @@ impl core::fmt::Display for ToyError {
 }
 
 impl std::error::Error for ToyError {}
+
+/// The position [`ToyError::IoFault`] names for `HEAD`, every read of which failed: no lsn is that large.
+pub const HEAD_UNREADABLE: u64 = u64::MAX;
 
 impl From<Malformed> for ToyError {
     fn from(m: Malformed) -> ToyError {
@@ -192,6 +225,37 @@ pub struct ScanEnd {
     pub chain: u64,
     /// Why it stopped.
     pub stop: Stop,
+    /// With [`Stop::Limit`] below the limit: the end of the valid group at `end` that the limit cuts — its records pass
+    /// [F05 §5.2] and its chain trailer matches ([F05 §4.6]), and it starts below the limit and ends beyond it. `None`
+    /// otherwise. A bounded replay tells by it a bound that no group boundary of the valid log meets from a log that
+    /// ends below the bound ([`Toy::replay_to`], [F16] P-56).
+    pub over: Option<u64>,
+}
+
+/// What a reader that starts now replays up to a group boundary ([`Toy::replay_to`]): the model of the kept-view check
+/// ([F16] P-56, [80 §2.4.3] "Readers").
+#[derive(Clone, Debug)]
+pub enum Replay {
+    /// The replay reached the bound: the state of the newest slot's segment set and the valid log after it up to there.
+    Reached(Box<State>),
+    /// The valid log as read now has no group boundary at the bound: a valid group spans it, from `start`, below the
+    /// bound, to `end`, beyond it.
+    Spanned {
+        /// The group's first lsn.
+        start: u64,
+        /// The lsn after its last byte.
+        end: u64,
+    },
+    /// The valid log as read now ends below the bound: the scan from the newest set finds an invalid group at `end`
+    /// ([F05 §5.2], [F16] P-53).
+    Short {
+        /// The boundary of the invalid group, the end of the valid log.
+        end: u64,
+    },
+    /// No replay to the bound exists now, and none tells anything about it: the newest slot is of another epoch, its
+    /// segment set folds beyond the bound, or the scan stops below the bound at a failed read ([F15] FM-12) or at the
+    /// end of the extents (an extent that does not exist or is short, which an external truncation leaves, FM-10).
+    Unreached,
 }
 
 /// The bytes of one extent a scan has read so far.
@@ -303,7 +367,9 @@ impl<V: Vfs, T: Tap> Drop for Toy<V, T> {
 
 impl<V: Vfs, T: Tap> Toy<V, T> {
     /// Opens the store in `dir` ([OS/env §4]: the location is classified at every open; [F02 §3]). `proc` is the record
-    /// the handles of this process share ([`ProcLocks`]).
+    /// the handles of this process share ([`ProcLocks`]). A directory without `HEAD` is no store, `not_a_store` ([F02
+    /// §3.2], [F19 §10.2]): a missing directory, or one that holds an `init` in progress ([F16] P-88), whose `LOCK` may not
+    /// exist yet either.
     pub fn open(
         vfs: V,
         dir: &Path,
@@ -311,9 +377,11 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
         tap: T,
         proc: ProcLocks,
     ) -> Result<Self, ToyError> {
-        let root = vfs
-            .open_root(dir, RootRole::Store, RootAccess::ReadWrite)
-            .map_err(ToyError::Io)?;
+        let root = match vfs.open_root(dir, RootRole::Store, RootAccess::ReadWrite) {
+            Ok(r) => r,
+            Err(e) if e.kind == VfsErrorKind::NotFound => return Err(ToyError::NotAStore),
+            Err(e) => return Err(ToyError::Io(e)),
+        };
         let vol = match vfs
             .classify(&root, ClassifyDepth::Open)
             .map_err(ToyError::Io)?
@@ -321,8 +389,20 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
             Classification::Local(v) => v,
             Classification::Refused(r) => return Err(ToyError::Location(format!("{r:?}"))),
         };
-        let locks = ToyLocks::open(&vfs, &root, proc, cfg.bugs)
-            .map_err(|e| ToyError::Lock(e.to_string()))?;
+        let locks = match ToyLocks::open(&vfs, &root, proc, cfg.bugs) {
+            Ok(l) => l,
+            Err(e) => {
+                let no_head = matches!(
+                    vfs.open(&root, RelPath::literal("HEAD"), Access::Read, OpenHint::Normal),
+                    Err(h) if h.kind == VfsErrorKind::NotFound
+                );
+                return Err(if no_head {
+                    ToyError::NotAStore
+                } else {
+                    ToyError::Lock(e.to_string())
+                });
+            }
+        };
         let head = vfs
             .open(
                 &root,
@@ -332,7 +412,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
             )
             .map_err(|e| {
                 if e.kind == VfsErrorKind::NotFound {
-                    ToyError::Corrupt("no HEAD: not a store".to_owned())
+                    ToyError::NotAStore
                 } else {
                     ToyError::Io(e)
                 }
@@ -397,12 +477,9 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
         self.tap.note(n);
     }
 
-    /// A step note with this handle's lock client.
-    pub(crate) fn step(&self, n: fn(crate::tap::Step) -> Note, begin: bool) {
-        self.tap.note(n(crate::tap::Step {
-            begin,
-            client: self.locks.client_id(),
-        }));
+    /// The note of a step that begins (`true`) or ends.
+    pub(crate) fn step(&self, n: fn(bool) -> Note, begin: bool) {
+        self.tap.note(n(begin));
     }
 
     // ---- errors ----
@@ -450,15 +527,14 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
     }
 
     /// `durable-name` on `tmp/` and on the store directory once per handle, before the handle's first write can be
-    /// acknowledged.
+    /// acknowledged ([F16] P-88 "The window after step 6's rename", spec sync 2b S2B-P-34).
     ///
-    /// [F16] P-88 step 6 renames `tmp/head.<nonce>` onto `HEAD` and only then runs `durable-name` on both directories; a
+    /// P-88 step 6 renames `tmp/head.<nonce>` onto `HEAD` and only then runs `durable-name` on both directories; a
     /// process that discovers the store in between (an `init` that died there) could acknowledge commits whose store a
-    /// crash then loses with `HEAD`'s name (the rename is durable only once both parents are synced, FM-2.3). The toy
-    /// closes that window at the writer: its first acknowledgement follows a `durable-name` of its own on both. [F16]
-    /// states no such step; the toy's addition (two directory flushes per handle, on its first write) is proposed to the
-    /// specification as an amendment of P-88 or of the writer's first holding, and measurements 1 and 2 include it until
-    /// the specification decides.
+    /// crash then loses with `HEAD`'s name (the rename has two parents and is durable only once both are synced, [F15]
+    /// FM-2.4). So every process, before it first acknowledges a durable effect through a store it opened (a durable
+    /// group, P-46; a durable publish's success, P-13), runs `durable-name` on `tmp/` and on the store directory, once
+    /// per opening, holding no role byte; measurements 1 and 2 include the two flushes.
     pub(crate) fn ensure_named(&mut self) {
         if !self.named {
             self.sync_store_dir(Some(RelPath::literal("tmp")));
@@ -477,23 +553,38 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
     // ---- HEAD ----
 
     /// Reads both slots with one `read_at` and chooses one ([F04 §8.1], [F16] P-61, P-92): both absent, or a failed read,
-    /// is read again at most twice more.
+    /// is read again at most twice more. When every read failed, no slot was read at all: the refusal is the read's,
+    /// `store_io_fault` ([F15] FM-12.2: a persistent read error fails every read; [F16] P-92), not "no valid slot", which
+    /// `repair` answers and which needs slots that read as absent.
     pub(crate) fn read_head(&self) -> Result<(Slot, usize), ToyError> {
         let mut buf = [0u8; HEAD_LEN];
+        let mut failed = 0;
         for _ in 0..3 {
-            let ok = matches!(self.vfs.read_at(&self.head, 0, &mut buf), Ok(n) if n == HEAD_LEN);
-            if !ok {
-                continue;
+            match self.read_slots(&mut buf) {
+                Ok(n) if n == HEAD_LEN => {}
+                Ok(_) => continue,
+                Err(_) => {
+                    failed += 1;
+                    continue;
+                }
             }
             match choose(&buf, self.bugs().on(Bug::P61FatalSlotSkipped)) {
                 Choice::Newest(s, which) => return Ok((*s, which)),
-                Choice::Fatal(m) => return Err(ToyError::Corrupt(m.to_owned())),
+                Choice::Fatal(m) => return Err(ToyError::FatalSlot(m)),
                 Choice::NoneValid => {}
             }
         }
-        Err(ToyError::Corrupt(
-            "HEAD has no valid slot; run moirai repair".to_owned(),
-        ))
+        Err(if failed == 3 {
+            ToyError::IoFault(HEAD_UNREADABLE)
+        } else {
+            ToyError::NoValidSlot
+        })
+    }
+
+    /// One read of both slots of `HEAD` into `buf`, noted as a use of the slot file ([`Note::Uses`]).
+    pub(crate) fn read_slots(&self, buf: &mut [u8; HEAD_LEN]) -> Result<usize, VfsError> {
+        self.note(Note::Uses(StoreFile::Head));
+        self.vfs.read_at(&self.head, 0, buf)
     }
 
     // ---- extents ----
@@ -504,13 +595,26 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
         Ok(self.extent(n)?.is_some())
     }
 
+    /// [`Toy::open_extent`] for a read that may reject the extent and use nothing of it: `repair`'s look at an extent
+    /// head that validates only at its position and in its epoch ([F16] P-54, P-55, P-85). It is no use of the file
+    /// ([`Note::Uses`]); the scan of an extent whose head `repair` accepts uses it.
+    pub(crate) fn probe_extent(&mut self, n: u32) -> Result<bool, ToyError> {
+        Ok(self.extent_handle(n)?.is_some())
+    }
+
     /// The cached handle of `log.<n>`.
     pub(crate) fn ext(&self, n: u32) -> Option<&V::File> {
         self.extents.get(&n)
     }
 
-    /// The open handle of `log.<n>`, or `None` when the file does not exist.
+    /// The open handle of `log.<n>`, or `None` when the file does not exist. Every call is a use of the extent
+    /// ([`Note::Uses`]): its callers read it, or need it and find it missing.
     pub(crate) fn extent(&mut self, n: u32) -> Result<Option<&V::File>, ToyError> {
+        self.note(Note::Uses(StoreFile::log(n)));
+        self.extent_handle(n)
+    }
+
+    fn extent_handle(&mut self, n: u32) -> Result<Option<&V::File>, ToyError> {
         if !self.extents.contains_key(&n) {
             match self.vfs.open(
                 &self.root,
@@ -538,7 +642,19 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
     }
 
     /// The chain value at the group boundary `p` ([F05 §4.3]): `XXH3-64(epoch)` at `epoch_lsn`, else the 8 bytes before.
-    pub(crate) fn chain_at(&mut self, ctx: &ScanCtx, p: u64) -> Result<u64, ToyError> {
+    ///
+    /// `durable` is the `durable_lsn` of the slot the caller works from. A failed read of the 8 bytes is judged by their
+    /// position ([F16] P-92, [F05 §5.3]): with `p` ≤ `durable` they lie below `durable_lsn`, and the read is corruption
+    /// (`store_corrupt`); above it the result is `store_io_fault` naming `p`, which stops a writer's scan that starts
+    /// there. A reader asks for a chain value above `durable_lsn` only to re-check its remembered bound (P-56), where
+    /// any error drops the view, and then starts again from the newest set's bound, which never lies above
+    /// `durable_lsn` ([F04 §7] check 5): its visible log never ends in a refusal there.
+    pub(crate) fn chain_at(
+        &mut self,
+        ctx: &ScanCtx,
+        p: u64,
+        durable: u64,
+    ) -> Result<u64, ToyError> {
         if p == ctx.epoch_lsn {
             return Ok(hash64(&ctx.epoch.to_le_bytes()));
         }
@@ -551,17 +667,21 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
                 .ok_or_else(|| ToyError::Corrupt(format!("hist of log.{n} is short")));
         }
         if !self.open_extent(n)? {
-            return Err(ToyError::Corrupt(format!(
-                "log.{n} is missing below the replay bound {p}"
-            )));
+            return Err(ToyError::ExtentMissing { n, at: p });
         }
         let Some(f) = self.ext(n) else {
-            return Err(ToyError::Corrupt(format!("log.{n} is missing")));
+            return Err(ToyError::ExtentMissing { n, at: p });
         };
         let mut b = [0u8; 8];
-        self.vfs
-            .read_exact_at(f, off, &mut b)
-            .map_err(|_| ToyError::IoFault(p))?;
+        if self.vfs.read_exact_at(f, off, &mut b).is_err() {
+            return Err(if p <= durable {
+                ToyError::Corrupt(format!(
+                    "unreadable log at {q} below durable_lsn {durable}; run moirai repair"
+                ))
+            } else {
+                ToyError::IoFault(p)
+            });
+        }
         Ok(u64::from_le_bytes(b))
     }
 
@@ -641,6 +761,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
             end: from,
             chain,
             stop: Stop::Limit,
+            over: None,
         };
         let mut p = from;
         let mut chain = chain;
@@ -675,14 +796,10 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
                             out.stop = Stop::NoExtent(p);
                             break;
                         }
-                        return Err(ToyError::Corrupt(format!(
-                            "log.{n} is missing inside the log"
-                        )));
+                        return Err(ToyError::ExtentMissing { n, at: p });
                     }
                     let Some(f) = self.ext(n) else {
-                        return Err(ToyError::Corrupt(format!(
-                            "log.{n} is missing inside the log"
-                        )));
+                        return Err(ToyError::ExtentMissing { n, at: p });
                     };
                     let size = self.vfs.file_size(f).map_err(|_| ToyError::IoFault(p))?;
                     if size > e {
@@ -758,29 +875,47 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
                     }
                 }
             }
-            // A group that ends beyond the limit is not read (the limit is a publish's bound).
+            // A group that ends beyond the limit is not read (the limit is a publish's bound). Its chain trailer is
+            // checked all the same, so that the scan says whether a valid group spans the limit ([`ScanEnd::over`]).
             if limit.is_some_and(|l| q > l) {
                 out.stop = Stop::Limit;
+                out.over = win
+                    .as_ref()
+                    .and_then(|w| chain_trailer(w, ctx, (gstart, q), chain, bugs))
+                    .map(|_| q);
                 break;
             }
-            // The chain trailer ([F05 §4.6]); P-53's seeded bug accepts any trailer.
+            // The chain trailer ([F05 §4.6]).
             let Some(w) = win.as_ref() else {
                 out.stop = Stop::ReadError(gstart);
                 break;
             };
-            let a = (ctx.offset(gstart) - w.base) as usize;
-            let z = (ctx.offset(q - 1) + 1 - w.base) as usize;
-            let trailer = u64_at(&w.bytes, z - TRAILER).unwrap_or(0);
-            let computed = crate::codec::hash64_seeded(&w.bytes[a..z - TRAILER], chain);
-            if computed != trailer && !bugs.on(Bug::P53G9NoChainCheck) {
+            let Some(trailer) = chain_trailer(w, ctx, (gstart, q), chain, bugs) else {
                 out.stop = Stop::Invalid(Invalid::Chain, gstart);
                 break;
-            }
+            };
             let raw = if keep_raw {
+                let a = (ctx.offset(gstart) - w.base) as usize;
+                let z = (ctx.offset(q - 1) + 1 - w.base) as usize;
                 w.bytes[a..z].to_vec()
             } else {
                 Vec::new()
             };
+            // [F05 §5.4] (spec sync 2b S2B-P-22): two placement defects of a valid group are corrupt wherever they lie,
+            // above durable_lsn included, since only a defective writer produces a checksummed, chained group like that:
+            // a group that leaves 1–39 bytes in its extent (G-4 broken, §4.4), and a first group of an extent that is
+            // not one `ExtentHead` record (§4.5, [F16] P-97).
+            let left = (e - ctx.offset(q)) % e;
+            if (1..MIN_GROUP).contains(&left) {
+                return Err(ToyError::Corrupt(format!(
+                    "the valid group at {gstart} leaves {left} bytes in log.{n} (G-4); run moirai doctor --fsck"
+                )));
+            }
+            if off0 == 0 && (recs.len() != 1 || recs[0].kind != kind::EXTENT_HEAD) {
+                return Err(ToyError::Corrupt(format!(
+                    "the first group of log.{n} is not its extent head; run moirai doctor --fsck"
+                )));
+            }
             // An extent head is alone in its group, at an extent's first byte, with the chain value there and the
             // slot's epoch_lsn, init and algorithm ([F05 §9.28]); otherwise it is malformed (corrupt wherever it lies).
             for r in &recs {
@@ -890,18 +1025,26 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
     /// The newest valid slot, after the boot check that precedes a process's first read ([F16] P-60): a process whose
     /// boot identity is Known and differs from the slot's `boot_id` runs boot-change recovery first (P-66). P-60's seeded
     /// bug skips the check.
+    ///
+    /// The handle counts as booted only once the check has passed: the slot carries the process's boot identity (no
+    /// recovery needed, or boot-change recovery ended successfully, which leaves it in both slots), or the process is
+    /// in Unknown-boot mode (P-67). A recovery that refuses (`store_locked` while a dead process's flush byte is not yet
+    /// released, `outcome_pending`, `store_io_fault`) leaves the handle unbooted, so its next read runs the check again
+    /// instead of replaying a slot of the earlier boot.
     pub fn head_for_read(&mut self) -> Result<Slot, ToyError> {
         let (s, _) = self.read_head()?;
-        if !self.booted {
-            self.booted = true;
-            if let BootIdentity::Known(b) = self.boot
-                && b.0 != s.boot_id
-                && !self.bugs().on(Bug::P60T8NoBootCheck)
-            {
-                self.boot_recover()?;
-                return Ok(self.read_head()?.0);
-            }
+        if self.booted {
+            return Ok(s);
         }
+        if let BootIdentity::Known(b) = self.boot
+            && b.0 != s.boot_id
+            && !self.bugs().on(Bug::P60T8NoBootCheck)
+        {
+            self.boot_recover()?;
+            self.booted = true;
+            return Ok(self.read_head()?.0);
+        }
+        self.booted = true;
         Ok(s)
     }
 
@@ -911,8 +1054,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
     }
 
     /// Loads the segment set of `s` into a fresh state ([F16] P-59): a named file that is missing or damaged is re-read
-    /// with the newest slot once, and then refuses (exit 7). P-59's seeded bug falls back to the other slot's set (the
-    /// view is then replayed from that set's bound to the newest slot's `committed_lsn`).
+    /// with the newest slot once, and then refuses (exit 7); a reader never falls back to an older set.
     pub(crate) fn load_set(&mut self, s: &Slot) -> Result<(State, u64), ToyError> {
         match self.try_load(s) {
             Ok(v) => Ok(v),
@@ -921,22 +1063,16 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
                 if again.segments != s.segments {
                     return self.try_load(&again);
                 }
-                if self.bugs().on(Bug::P59FallbackToOlderSet)
-                    && let Some(older) = self.other_slot()
-                    && older.segments != s.segments
-                    && let Ok(v) = self.try_load(&older)
-                {
-                    return Ok(v);
-                }
                 Err(first)
             }
         }
     }
 
-    /// The slot that is not the newest, if valid.
+    /// The slot that is not the newest, if valid (the unit tests' check of a durable publish).
+    #[cfg(test)]
     pub(crate) fn other_slot(&self) -> Option<Slot> {
         let mut buf = [0u8; HEAD_LEN];
-        let ok = matches!(self.vfs.read_at(&self.head, 0, &mut buf), Ok(n) if n == HEAD_LEN);
+        let ok = matches!(self.read_slots(&mut buf), Ok(n) if n == HEAD_LEN);
         if !ok {
             return None;
         }
@@ -955,28 +1091,28 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
             return Ok((self.fresh_state(), s.epoch_lsn));
         };
         let name = seg_name(seg.file_no);
+        self.note(Note::Uses(StoreFile::Sealed {
+            family: crate::format::family::SEG_BASE,
+            no: seg.file_no,
+        }));
+        let damaged = |what| ToyError::Damaged {
+            file: name.as_str().to_owned(),
+            what,
+        };
         let b = self
             .read_file(name.as_rel_path())
-            .ok_or_else(|| ToyError::Corrupt(format!("seg.base.{} is missing", seg.file_no)))?;
+            .ok_or_else(|| damaged("it is missing or cannot be read"))?;
         let body = sealed_body(
             &b,
             crate::format::family::SEG_BASE,
             seg.file_no,
             Some(seg.digest),
         )
-        .ok_or_else(|| {
-            ToyError::Corrupt(format!(
-                "seg.base.{} does not match its record (sealed_size)",
-                seg.file_no
-            ))
-        })?;
+        .ok_or_else(|| damaged("it does not match its record (sealed_size)"))?;
         let (st, upto) = State::from_snapshot(body, self.cfg.facts)
-            .map_err(|_| ToyError::Corrupt(format!("seg.base.{} is malformed", seg.file_no)))?;
+            .map_err(|_| damaged("its snapshot is malformed"))?;
         if upto != seg.upto_lsn {
-            return Err(ToyError::Corrupt(format!(
-                "seg.base.{} folds another bound",
-                seg.file_no
-            )));
+            return Err(damaged("it folds another bound than its record"));
         }
         Ok((st, upto))
     }
@@ -996,7 +1132,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
         {
             let (l0, chain) = (v.l0, v.chain);
             let keep = s.committed_lsn >= l0 && l0 >= s.checkpoint_lsn.min(v.base) && {
-                let now = self.chain_at(&ctx, l0);
+                let now = self.chain_at(&ctx, l0, s.durable_lsn);
                 now.is_ok_and(|c| c == chain)
             };
             if !keep {
@@ -1007,7 +1143,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
             Some(v) => v,
             None => {
                 let (state, upto) = self.load_set(&s)?;
-                let chain = self.chain_at(&ctx, upto)?;
+                let chain = self.chain_at(&ctx, upto, s.durable_lsn)?;
                 View {
                     state,
                     l0: upto,
@@ -1028,11 +1164,9 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
         });
         let end = match r {
             Ok(end) => end,
-            Err(ToyError::Corrupt(m))
-                if m.contains("is missing below the replay bound")
-                    || m.contains("missing inside") =>
-            {
-                // A file the view needed was retired: rebuild from the newest set (P-59).
+            Err(ToyError::ExtentMissing { .. }) => {
+                // An extent the view needed was retired: rebuild from the newest set (P-59), once; a missing extent there
+                // is the store's corruption.
                 return self.refresh_from_set(&s, limit);
             }
             Err(e) => return Err(e),
@@ -1049,7 +1183,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
         let ctx = ScanCtx::of(s);
         let bugs = self.bugs();
         let (mut state, upto) = self.load_set(s)?;
-        let chain = self.chain_at(&ctx, upto)?;
+        let chain = self.chain_at(&ctx, upto, s.durable_lsn)?;
         let end = self.scan_each(&ctx, upto, chain, limit, false, &mut |g| {
             state.apply(&g, bugs, false).map_err(ToyError::from)
         })?;
@@ -1062,6 +1196,50 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
             base: upto,
         });
         Ok(s.clone())
+    }
+
+    /// What a reader that starts now replays up to the group boundary `bound` of epoch `epoch`, leaving this process's
+    /// view alone: the newest slot's segment set and the valid log after it up to `bound`, pending groups included (no
+    /// `committed_lsn` limit: the bound is a view's, which a scan from an earlier slot may have reached). The test
+    /// harness's kept-view check ([F16 §17.2] "model", [F16] P-56) compares a view a process kept with it: after the
+    /// re-check, a view equals the replay of the valid log from the selected slot's segment set up to the view's bound
+    /// ([80 §2.4.3] "Readers").
+    ///
+    /// [`Replay::Reached`] with that state; [`Replay::Spanned`] when the valid log as read now has no group boundary at
+    /// `bound` because a valid group spans it (the scan reads the group that the bound cuts, its chain trailer included,
+    /// [`ScanEnd::over`]); [`Replay::Short`] when the valid log ends below `bound` with an invalid group;
+    /// [`Replay::Unreached`] when no such replay exists now and nothing is known about the bound: the newest slot is of
+    /// another epoch, its set folds beyond `bound`, or the scan stops below `bound` at a failed read or at the end of the
+    /// extents.
+    pub fn replay_to(&mut self, bound: u64, epoch: u64) -> Result<Replay, ToyError> {
+        let s = self.head_for_read()?;
+        if s.epoch != epoch {
+            return Ok(Replay::Unreached);
+        }
+        let ctx = ScanCtx::of(&s);
+        let bugs = self.bugs();
+        let (mut state, upto) = self.load_set(&s)?;
+        if upto > bound {
+            return Ok(Replay::Unreached);
+        }
+        if upto == bound {
+            return Ok(Replay::Reached(Box::new(state)));
+        }
+        let chain = self.chain_at(&ctx, upto, s.durable_lsn)?;
+        let end = self.scan_each(&ctx, upto, chain, Some(bound), false, &mut |g| {
+            state.apply(&g, bugs, false).map_err(ToyError::from)
+        })?;
+        Ok(match (end.stop, end.over) {
+            _ if end.end == bound => Replay::Reached(Box::new(state)),
+            (Stop::Limit, Some(over)) => Replay::Spanned {
+                start: end.end,
+                end: over,
+            },
+            // Below the bound, a limit stop cut a group whose records are valid and whose trailer is not: that group
+            // is invalid ([F16] P-53), like the one an invalid stop names.
+            (Stop::Limit, None) | (Stop::Invalid(..), None) => Replay::Short { end: end.end },
+            _ => Replay::Unreached,
+        })
     }
 
     /// [F16] P-58, P-92 for readers: a stop below `durable_lsn` is corruption; P-58's seeded bug ends the view there.
@@ -1118,6 +1296,22 @@ fn validate_in(
     let bound = w.base + w.bytes.len() as u64;
     let room = e.min(bound) - w.base;
     validate_record(&w.bytes[..room as usize], rel, e - w.base, p, epoch, bugs)
+}
+
+/// The chain trailer of the group `[start, end)`, whose records window `w` holds, when it equals the hash of the group's
+/// bytes before it seeded with `chain` ([F05 §4.6]), else `None`. P-53's seeded bug accepts any trailer.
+fn chain_trailer(
+    w: &Window,
+    ctx: &ScanCtx,
+    (start, end): (u64, u64),
+    chain: u64,
+    bugs: Bugs,
+) -> Option<u64> {
+    let a = (ctx.offset(start) - w.base) as usize;
+    let z = (ctx.offset(end - 1) + 1 - w.base) as usize;
+    let trailer = u64_at(&w.bytes, z - TRAILER).unwrap_or(0);
+    let computed = crate::codec::hash64_seeded(&w.bytes[a..z - TRAILER], chain);
+    (computed == trailer || bugs.on(Bug::P53G9NoChainCheck)).then_some(trailer)
 }
 
 #[cfg(test)]
@@ -1278,7 +1472,7 @@ mod tests {
             let ctx = ctx_of(&t);
             let i = from.index(laid.len());
             let start = laid[i].0;
-            let chain = t.chain_at(&ctx, start).unwrap();
+            let chain = t.chain_at(&ctx, start, u64::MAX).unwrap();
             let j = i + to.index(laid.len() - i);
             let limit = limited.then(|| laid[j].0);
             let sc = t.scan(&ctx, start, chain, limit).unwrap();
@@ -1327,12 +1521,252 @@ mod tests {
             let ctx = ctx_of(&t);
             let i = from.index(k + 1);
             let start = laid[i].0;
-            let chain = t.chain_at(&ctx, start).unwrap();
+            let chain = t.chain_at(&ctx, start, u64::MAX).unwrap();
             let sc = t.scan(&ctx, start, chain, None).unwrap();
             prop_assert_eq!(&laid_of(&sc), &laid[i..k].to_vec());
             prop_assert_eq!(sc.end, ks);
             prop_assert!(matches!(sc.stop, Stop::Invalid(_, q) if q == ks), "{:?}", sc.stop);
         }
+
+        /// [`Toy::replay_to`] (the kept-view model, [F16] P-56) reaches exactly the group boundaries of the valid log,
+        /// pending groups included (the slot's `committed_lsn` is the image's end): a replay at every group's end; at any
+        /// byte inside a group, that group spanning the bound; beyond the valid log, its end (the invalid group there, or
+        /// the end of the extents); nothing in another epoch.
+        #[test]
+        fn a_replay_reaches_exactly_the_group_boundaries(
+            sizes in groups(0usize..3_000),
+            at in any::<prop::sample::Index>(),
+            inside in any::<prop::sample::Index>(),
+        ) {
+            let c = cfg();
+            let (w, v, img) = sim_store(&c, 13);
+            let (exts, laid) = layout(&img.log, &sizes);
+            place(&w, &exts);
+            let mut t = open(&v, &c);
+            let (gs, ge, _) = laid[at.index(laid.len())];
+            let last = laid.last().map_or(0, |x| x.1);
+            let got = t.replay_to(ge, EPOCH).unwrap();
+            prop_assert!(matches!(got, Replay::Reached(_)), "{:?}", got);
+            let got = t.replay_to(ge, EPOCH + 1).unwrap();
+            prop_assert!(matches!(got, Replay::Unreached), "{:?}", got);
+            // Every group is at least MIN_GROUP long, so the bound lies strictly inside it.
+            let mid = gs + 1 + inside.index((ge - gs - 1) as usize) as u64;
+            let got = t.replay_to(mid, EPOCH).unwrap();
+            prop_assert!(
+                matches!(got, Replay::Spanned { start, end } if start == gs && end == ge),
+                "{:?}",
+                got
+            );
+            let got = t.replay_to(last + 1, EPOCH).unwrap();
+            if last.is_multiple_of(E) {
+                prop_assert!(matches!(got, Replay::Unreached), "{:?}", got);
+            } else {
+                prop_assert!(matches!(got, Replay::Short { end } if end == last), "{:?}", got);
+            }
+        }
+    }
+
+    /// A limit inside a group ([`ScanEnd::over`], [`Replay::Spanned`]): the group counts as spanning the limit only when
+    /// it is valid, its chain trailer included ([F05 §4.6]); with a damaged trailer the valid log ends below the limit,
+    /// at that group ([`Replay::Short`]).
+    #[test]
+    fn a_group_spans_a_limit_only_when_its_trailer_is_valid() {
+        let c = cfg();
+        let (w, v, img) = sim_store(&c, 14);
+        let (mut exts, laid) = layout(&img.log, &[vec![100], vec![200, 300], vec![50]]);
+        let (gs, ge, _) = laid[3];
+        let mid = gs + (ge - gs) / 2;
+        place(&w, &exts);
+        let mut t = open(&v, &c);
+        let ctx = ctx_of(&t);
+        let chain = t.chain_at(&ctx, gs, u64::MAX).unwrap();
+        let end = t
+            .scan_each(&ctx, gs, chain, Some(mid), false, &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!(
+            (end.end, end.stop.clone(), end.over),
+            (gs, Stop::Limit, Some(ge))
+        );
+        let got = t.replay_to(mid, EPOCH).unwrap();
+        assert!(
+            matches!(got, Replay::Spanned { start, end } if (start, end) == (gs, ge)),
+            "{got:?}"
+        );
+        // At a group boundary the limit cuts nothing.
+        let end = t
+            .scan_each(&ctx, gs, chain, Some(ge), false, &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!((end.end, end.over), (ge, None));
+        // One bit of the group's trailer flipped.
+        exts[0][(ge - 1) as usize] ^= 1;
+        place(&w, &exts);
+        let end = t
+            .scan_each(&ctx, gs, chain, Some(mid), false, &mut |_| Ok(()))
+            .unwrap();
+        assert_eq!((end.end, end.over), (gs, None));
+        let got = t.replay_to(mid, EPOCH).unwrap();
+        assert!(matches!(got, Replay::Short { end } if end == gs), "{got:?}");
+        let got = t.replay_to(gs, EPOCH).unwrap();
+        assert!(matches!(got, Replay::Reached(_)), "{got:?}");
+    }
+
+    /// [`Toy::replay_to`] at a reader's view bound holds the view's commits and runtime rows; a set that folds beyond the
+    /// bound gives no replay, and at the set's own bound the replay is the set's state.
+    #[test]
+    fn a_replay_to_a_view_bound_equals_the_view() {
+        let c = Config::test_profile();
+        let (_w, v, _) = sim_store(&c, 21);
+        let mut t = open(&v, &c);
+        let rt = crate::ops::Op::Runtime(crate::ops::RuntimeOp {
+            op: 7,
+            rows: vec![(7, 70)],
+            pad: 0,
+            symbols: Vec::new(),
+            target_len: 0,
+        });
+        for o in [commit(1), rt, commit(2)] {
+            t.run(&o).unwrap_or_else(|e| panic!("{e}"));
+        }
+        let mut r = open(&v, &c);
+        r.refresh().unwrap_or_else(|e| panic!("{e}"));
+        let view = r.view().cloned().unwrap_or_else(|| panic!("a view"));
+        assert!(view.state.commits.contains_key(&2) && view.state.runtime.get(&7) == Some(&70));
+        let Replay::Reached(got) = r
+            .replay_to(view.l0, EPOCH)
+            .unwrap_or_else(|e| panic!("{e}"))
+        else {
+            panic!("a replay to the view's bound");
+        };
+        assert!(got.commits.keys().eq(view.state.commits.keys()));
+        assert_eq!(got.runtime, view.state.runtime);
+        let ck = t
+            .checkpoint()
+            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|| panic!("the checkpoint ran"));
+        let below = r.replay_to(ck.upto - 1, EPOCH);
+        assert!(matches!(below, Ok(Replay::Unreached)), "{below:?}");
+        let Replay::Reached(at) = r
+            .replay_to(ck.upto, EPOCH)
+            .unwrap_or_else(|e| panic!("{e}"))
+        else {
+            panic!("the set's state");
+        };
+        assert!(at.commits.contains_key(&1) && at.commits.contains_key(&2));
+    }
+
+    /// [F04 §8.1] with [F15] FM-12: a transient read error of `HEAD` is read again; a persistent one fails every read,
+    /// and the refusal is the read's (`store_io_fault`), not "no valid slot", which `repair` answers.
+    #[test]
+    fn an_unreadable_head_is_an_io_fault() {
+        let c = cfg();
+        let (w, v, _) = sim_store(&c, 12);
+        let t = open(&v, &c);
+        let head = w
+            .node_at(&Path::new(STORE).join("HEAD"))
+            .unwrap_or_else(|| panic!("HEAD"));
+        w.queue_choice_on(None, moirai_vfs_sim::Site::ReadFault, head, 1);
+        assert!(t.read_head().is_ok());
+        w.queue_choice_on(None, moirai_vfs_sim::Site::ReadFault, head, 2);
+        assert_eq!(
+            t.read_head().map(|_| ()),
+            Err(ToyError::IoFault(HEAD_UNREADABLE))
+        );
+    }
+
+    /// [F16] P-92, [F05 §5.3]: a failed read of the chain bytes before a group boundary is corruption when they lie below
+    /// the slot's `durable_lsn`, and `store_io_fault` naming the boundary above it; a missing extent is typed.
+    #[test]
+    fn a_failed_chain_read_is_judged_by_its_position() {
+        let c = cfg();
+        let (w, v, _) = sim_store(&c, 19);
+        let mut t = open(&v, &c);
+        let ctx = ctx_of(&t);
+        let log1 = w
+            .node_at(&Path::new(STORE).join("log.1"))
+            .unwrap_or_else(|| panic!("log.1"));
+        let p = HEAD_GROUP;
+        w.queue_choice_on(None, moirai_vfs_sim::Site::ReadFault, log1, 1);
+        assert!(matches!(
+            t.chain_at(&ctx, p, p),
+            Err(ToyError::Corrupt(m)) if m.contains("below durable_lsn")
+        ));
+        w.queue_choice_on(None, moirai_vfs_sim::Site::ReadFault, log1, 1);
+        assert_eq!(t.chain_at(&ctx, p, 0), Err(ToyError::IoFault(p)));
+        assert!(t.chain_at(&ctx, p, p).is_ok(), "the fault was transient");
+        assert_eq!(
+            t.chain_at(&ctx, c.extent_bytes + p, u64::MAX),
+            Err(ToyError::ExtentMissing {
+                n: 2,
+                at: c.extent_bytes + p
+            })
+        );
+    }
+
+    /// A tap that keeps the store files of [`Note::Uses`].
+    #[derive(Clone, Default)]
+    struct UsesTap(std::sync::Arc<std::sync::Mutex<std::collections::BTreeSet<StoreFile>>>);
+
+    impl Tap for UsesTap {
+        fn note(&self, n: Note) {
+            if let Note::Uses(f) = n {
+                self.0
+                    .lock()
+                    .unwrap_or_else(std::sync::PoisonError::into_inner)
+                    .insert(f);
+            }
+        }
+    }
+
+    impl UsesTap {
+        fn take(&self) -> Vec<StoreFile> {
+            let mut g = self
+                .0
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner);
+            std::mem::take(&mut *g).into_iter().collect()
+        }
+    }
+
+    /// [`Note::Uses`] ([F16 §17.2] avail: a `store_corrupt` refusal concerns the files the state it refuses from rests
+    /// on): a refresh that builds its view names the slot file, the segment file it loads and the extent it scans; a
+    /// scan that needs an extent and finds it missing names it too.
+    #[test]
+    fn an_operation_notes_the_store_files_it_uses() {
+        let c = Config::test_profile();
+        let (_w, v, _) = sim_store(&c, 23);
+        let mut t = open(&v, &c);
+        t.run(&commit(1)).unwrap_or_else(|e| panic!("{e}"));
+        let ck = t
+            .checkpoint()
+            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|| panic!("the checkpoint ran"));
+        t.run(&commit(2)).unwrap_or_else(|e| panic!("{e}"));
+        let tap = UsesTap::default();
+        let mut r = Toy::open(
+            v.clone(),
+            Path::new(STORE),
+            c.clone(),
+            tap.clone(),
+            ProcLocks::new(),
+        )
+        .unwrap_or_else(|e| panic!("open: {e}"));
+        tap.take();
+        r.refresh().unwrap_or_else(|e| panic!("{e}"));
+        let seg = StoreFile::Sealed {
+            family: crate::format::family::SEG_BASE,
+            no: ck.segment,
+        };
+        assert_eq!(tap.take(), vec![StoreFile::Head, StoreFile::log(1), seg]);
+        assert_eq!(seg.name().as_str(), format!("seg.base.{}", ck.segment));
+        assert_eq!(StoreFile::Head.name().as_str(), "HEAD");
+        let ctx = ScanCtx::of(&r.read_head().unwrap_or_else(|e| panic!("{e}")).0);
+        let p = c.extent_bytes + HEAD_GROUP;
+        assert_eq!(
+            r.chain_at(&ctx, p, u64::MAX),
+            Err(ToyError::ExtentMissing { n: 2, at: p })
+        );
+        assert_eq!(tap.take(), vec![StoreFile::Head, StoreFile::log(2)]);
+        assert_eq!(StoreFile::log(2).name().as_str(), "log.2");
     }
 
     #[test]
@@ -1408,9 +1842,101 @@ mod tests {
             .find(|x| x.0 > E && x.0 % E != 0)
             .unwrap_or((E + 200, 0, 0));
         let chain = u64_at(&exts[1], (mid % E) as usize - TRAILER).unwrap_or(0);
-        assert!(
-            matches!(t.scan(&ctx, mid, chain, None), Err(ToyError::Corrupt(m)) if m.contains("missing"))
+        assert_eq!(
+            t.scan(&ctx, mid, chain, None).map(|s| s.end),
+            Err(ToyError::ExtentMissing { n: 2, at: mid })
         );
+    }
+
+    /// A commit on `main` with its idempotency key.
+    fn commit(op: u64) -> crate::ops::Op {
+        crate::ops::Op::Commit(crate::ops::CommitOp {
+            op,
+            digest: op,
+            ref_name: crate::state::MAIN,
+            creates: vec![op << 8],
+            key: Some(op),
+            filler: 200,
+            ..crate::ops::CommitOp::default()
+        })
+    }
+
+    /// [F05 §5.4] (spec sync 2b S2B-P-22): a valid, chained group that leaves 1–39 bytes in its extent (G-4) is corrupt
+    /// wherever it lies. Every scan that reads it stops with exit 7, a writer's scan above `durable_lsn` included, so no
+    /// append overwrites it; a reader, which reads only the visible log, never reaches it there.
+    #[test]
+    fn a_valid_group_that_breaks_g4_is_corrupt_above_durable_lsn_too() {
+        let c = cfg();
+        let seed = hash64(&EPOCH.to_le_bytes());
+        let (w, v, img) = sim_store(&c, 17);
+        let (mut exts, laid) = layout(&img.log, &[]);
+        let (at, chain) = (laid[1].1, laid[1].2);
+        let len = E - at - 20;
+        let rec = Rec::new(kind::NOOP, vec![0; (len - MIN_GROUP) as usize], Bugs::NONE);
+        let mut b = Vec::new();
+        encode_group(&[rec], at, EPOCH, chain, &mut b);
+        put(&mut exts, at, &b);
+        place(&w, &exts);
+        let mut t = open(&v, &c);
+        let ctx = ctx_of(&t);
+        let r = t.scan(&ctx, 0, seed, None);
+        assert!(
+            matches!(&r, Err(ToyError::Corrupt(m)) if m.contains("leaves 20 bytes")),
+            "{r:?}"
+        );
+        // A scan limited to the boundary before it never reads it.
+        assert!(t.scan(&ctx, 0, seed, Some(at)).is_ok());
+        // The group lies above the published durable_lsn: a reader's view ends before it, a writer refuses the store.
+        assert!(t.refresh().is_ok());
+        let r = t.run(&commit(1));
+        assert!(
+            matches!(&r, Err(ToyError::Corrupt(m)) if m.contains("G-4")),
+            "{r:?}"
+        );
+        let (s, _) = t.read_head().unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(s.committed_lsn, at, "nothing was appended or published");
+    }
+
+    /// [F05 §5.4], §4.5 (spec sync 2b S2B-P-22; [F16] P-97): an extent whose first valid group is not one `ExtentHead`
+    /// record is corrupt wherever it lies.
+    #[test]
+    fn an_extent_whose_first_group_is_not_its_head_is_corrupt() {
+        let c = cfg();
+        let seed = hash64(&EPOCH.to_le_bytes());
+        let (w, v, img) = sim_store(&c, 18);
+        let (mut exts, laid) = layout(&img.log, &[]);
+        let (at, chain) = (laid[1].1, laid[1].2);
+        // The pad to the end of log.1, then a chained `Noop` group at log.2's first byte in place of its extent head.
+        let pad = Rec::new(
+            kind::NOOP,
+            vec![0; (E - at - MIN_GROUP) as usize],
+            Bugs::NONE,
+        );
+        let mut b = Vec::new();
+        let chain = encode_group(&[pad], at, EPOCH, chain, &mut b);
+        put(&mut exts, at, &b);
+        let mut b = Vec::new();
+        encode_group(
+            &[Rec::new(kind::NOOP, vec![0; 100], Bugs::NONE)],
+            E,
+            EPOCH,
+            chain,
+            &mut b,
+        );
+        put(&mut exts, E, &b);
+        place(&w, &exts);
+        let mut t = open(&v, &c);
+        let ctx = ctx_of(&t);
+        let r = t.scan(&ctx, 0, seed, None);
+        assert!(
+            matches!(&r, Err(ToyError::Corrupt(m)) if m.contains("the first group of log.2 is not its extent head")),
+            "{r:?}"
+        );
+        // The pad before it is valid: a scan limited to log.2's first byte ends there.
+        let sc = t
+            .scan(&ctx, 0, seed, Some(E))
+            .unwrap_or_else(|e| panic!("{e}"));
+        assert_eq!(sc.end, E);
     }
 
     #[test]

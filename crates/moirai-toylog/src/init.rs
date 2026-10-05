@@ -5,8 +5,8 @@
 use std::path::Path;
 
 use moirai_vfs::{
-    BootIdentity, Entropy, ProbeOutcome, RelPath, RootRole, ShareRetry, SyncKind, Vfs, VfsError,
-    VfsErrorKind, hlc_next,
+    BootIdentity, Entropy, ProbeOutcome, RelPath, RootAccess, RootRole, ShareRetry, SyncKind, Vfs,
+    VfsError, VfsErrorKind, hlc_next,
 };
 
 use crate::bugs::Bug;
@@ -16,7 +16,7 @@ use crate::format::{
     Counters, ExtentHeadRec, HEAD_GROUP, REASON_CREATE, Rec, RefEntry, RefTableRec, RefUpdateRec,
     encode_group, kind,
 };
-use crate::head::{HEAD_LEN, SLOT_LEN, Slot};
+use crate::head::{HEAD_LEN, ImageCursor, SLOT_LEN, Slot};
 use crate::state::MAIN;
 use crate::store::{ToyError, log_name, rel};
 
@@ -73,10 +73,13 @@ pub fn init<V: Vfs>(vfs: &V, dir: &Path, cfg: &Config) -> Result<(), ToyError> {
     if let Err(f) = vfs.sync_dir(&root, None) {
         fail(f);
     }
-    // Step 2: the environment probe (P-94).
+    // Step 2: the environment probe (P-94); a refusal removes what step 1 created, then exits 7.
     match vfs.probe_store(&root).map_err(err)? {
         ProbeOutcome::Admitted(_) => {}
-        ProbeOutcome::Refused(r) => return Err(ToyError::Location(format!("{r:?}"))),
+        ProbeOutcome::Refused(r) => {
+            remove_created(vfs, dir, root);
+            return Err(ToyError::Location(format!("{r:?}")));
+        }
     }
     let wall = vfs.wall_ms();
     // Step 3: LOCK, all 36,864 bytes, durable+meta, then durable-name.
@@ -186,6 +189,31 @@ pub fn init<V: Vfs>(vfs: &V, dir: &Path, cfg: &Config) -> Result<(), ToyError> {
     Ok(())
 }
 
+/// P-88 step 2's clean-up after a refused location: `tmp/`, then the store directory itself (removed from its parent,
+/// once the store's own root is closed), and `durable-name` on the parent, so that a crash does not bring back the
+/// directory a refused `init` made ([F15] NS-5). The removals' own errors are ignored — the refusal is the command's
+/// answer, and an empty leftover directory is no store (`not_a_store`, [F02 §3.2]) — while a failed flush ends the
+/// process like every other flush of `init`.
+fn remove_created<V: Vfs>(vfs: &V, dir: &Path, root: V::Root) {
+    let _ = vfs.remove_dir(&root, RelPath::literal("tmp"));
+    drop(root);
+    let (Some(parent), Some(name)) = (dir.parent(), dir.file_name().and_then(|n| n.to_str()))
+    else {
+        return;
+    };
+    let Ok(name) = RelPath::new(name) else {
+        return;
+    };
+    let Ok(up) = vfs.open_root(parent, RootRole::Other, RootAccess::ReadWrite) else {
+        return;
+    };
+    if vfs.remove_dir(&up, name).is_ok()
+        && let Err(f) = vfs.sync_dir(&up, None)
+    {
+        vfs.fail_stop(f);
+    }
+}
+
 /// The bytes `init` writes, computed without any call: the groups at the start of log.1 (the epoch-start group and the
 /// group that creates `main`), both `HEAD` slots, and `LOCK` ([F16] P-88 steps 3, 5, 6; [F04 §10]). A harness that needs
 /// a store to exist before its scenario puts these files in place.
@@ -281,6 +309,7 @@ pub fn image(
         pins_lsn: 0,
         heads_lsn: 0,
         markers_lsn: 0,
+        image_cursor: [ImageCursor::EMPTY; 4],
         seq_ring: [(0, 0); 32],
         init,
         epoch_lsn: 0,
@@ -356,6 +385,31 @@ mod tests {
             panic!("the image's HEAD has no valid slot");
         };
         assert_eq!(s.counters.next_ref_id, 0);
+    }
+
+    /// [F16] P-88 step 2: a location the environment probe refuses gets exit 7 (`Location`), and what step 1 created —
+    /// `tmp/` and the store directory — is removed; the location admitted, `init` makes the store.
+    #[test]
+    fn a_refused_location_leaves_nothing_behind() {
+        use moirai_vfs_sim::{SimConfig, SimWorld};
+        let cfg = Config::test_profile();
+        let mut sc = SimConfig::new(5);
+        sc.root_volume.refusal = Some(moirai_vfs::Refusal::Unc);
+        let w = SimWorld::new(sc);
+        w.mkdir_all(Path::new("/sim"));
+        let v = w.process_with("init", None, Some(true));
+        let r = init(&v, Path::new("/sim/store"), &cfg);
+        assert!(matches!(&r, Err(ToyError::Location(_))), "{r:?}");
+        assert!(!w.exists(Path::new("/sim/store/tmp")));
+        assert!(
+            !w.exists(Path::new("/sim/store")),
+            "the store directory is removed"
+        );
+        let w = SimWorld::new(SimConfig::new(5));
+        w.mkdir_all(Path::new("/sim"));
+        let v = w.process_with("init", None, Some(true));
+        assert_eq!(init(&v, Path::new("/sim/store"), &cfg), Ok(()));
+        assert!(w.exists(Path::new("/sim/store/HEAD")));
     }
 
     #[test]

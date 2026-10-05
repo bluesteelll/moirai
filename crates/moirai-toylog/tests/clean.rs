@@ -1,7 +1,8 @@
 //! E4, first half (PLAN §3.2 WP-40): with every seeded-bug switch off, the crash enumerator of WP-32 finds no violation
 //! in any scenario of the toy log — every acknowledged durable effect survives every crash state and every process
-//! death, every operation is all or nothing, first reads are fresh, the model checks of `doctor --verify` hold, and the
-//! trace predicates of [F13 §1.4] (I-G4, I-G6) and the simulator's protocol-violation checks ([F15 §3.13]) stay silent.
+//! death, every operation is all or nothing, first reads are fresh, every refusal and every exit 7 is one the run's
+//! injected faults allow ([F16 §17.2] "avail"), the model checks of `doctor --verify` hold, and the trace predicates of
+//! [F13 §1.4] (I-G4, I-G6) and the simulator's protocol-violation checks ([F15 §3.13]) stay silent.
 //!
 //! Each test enumerates one scenario (`tests/common`) with every dimension family on, in the tier `MOIRAI_TEST_TIER`
 //! names (PLAN §2.1): `pr` (the default: per-file prefixes plus one torn sector, the enumerator's 600 s budget) or
@@ -75,6 +76,7 @@ clean_tests!(
     admin,
     import,
     server,
+    refill,
     timeouts,
     retry,
     intents_live,

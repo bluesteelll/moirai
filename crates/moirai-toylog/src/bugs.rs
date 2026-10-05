@@ -1,11 +1,18 @@
 //! The seeded-bug switches ([F16 §17]; PLAN WP-40, S4): one switch per bug of the catalogue whose vehicle is the toy log
-//! — every row of [F16 §17.3] with vehicle **toy** and the three toy rows of [F16 §17.4] — each named after its P-rule
-//! (or L-rule) and the source bug it coincides with ([F16 §17.1]: T1–T14, G1–G13, LG, DF).
+//! — the 76 rows of [F16 §17.3] with vehicle **toy** and the rows L-6, L-7 and L-8 of [F16 §17.4], 79 in all ([F16] open
+//! point 1) — each named after its P-rule (or L-rule) and the source bug it coincides with ([F16 §17.1]: T1–T14, G1–G13,
+//! LG, DF).
 //!
 //! A [`Bugs`] value is part of the toy's [`crate::Config`]; with every switch off the toy follows [F16] exactly. Each
-//! switch is the smallest change of the toy that violates its rule, as the catalogue's "Primary seeded bug" column states
-//! it; where the toy's form differs from the catalogue's wording, [`BugInfo::toy_form`] says how. The code that a switch
+//! switch is the smallest change of the toy that violates its rule, as the catalogue's "Primary seeded bug" cell states
+//! it; where the toy's form needs more words than the cell, [`BugInfo::toy_form`] says how. The code that a switch
 //! changes checks it with [`Bugs::on`] at the one place the rule is enforced.
+//!
+//! [`CATALOGUE`] holds the specification's cells verbatim: the rule, the source bugs, the "Detected by" cell (whose
+//! families [`Bug::families`] reads) and the "Primary seeded bug" cell; a unit test compares them with
+//! `docs/spec/format/16-protocol.md`. The rows whose vehicle is not the toy carry no switch here: P-45 (G5) is "none
+//! (masked)", and P-59 and P-79 are carried by M1's gates ([F16 §17.3]; spec sync 2b S2B-P-41, S2B-P-44, S2B-P-45, which
+//! owner question OQ-A-1 confirms or reopens).
 //!
 //! The enumerator's author never reads this module before WP-32 is accepted (PLAN §3.1, `xtask/roles.toml`).
 
@@ -37,7 +44,7 @@ pub enum Bug {
     P10CheckpointBeforeSegmentDurable,
     /// P-12: a publish overwrites the slot that holds the newest valid state.
     P12PublishOverNewestSlot,
-    /// P-13, T9: the barrier writes one slot and flushes.
+    /// P-13, T9: a durable publish writes one slot and flushes.
     P13T9SingleSlotBarrier,
     /// P-14, T6: a released file is deleted before the barrier's `HEAD` flush.
     P14T6DeleteBeforeBarrier,
@@ -79,7 +86,7 @@ pub enum Bug {
     P38G2LazyPublishPastDurable,
     /// P-39, G13: a lazy group behind a dead writer's pending durable group is left unpublished.
     P39G13LazyStranded,
-    /// P-40, G1: a durable group is treated as covered when `committed_lsn` ≥ E_g.
+    /// P-40, G1: a durable group is acknowledged after its append and identity check, without a covering flush.
     P40G1CoveredByCommitted,
     /// P-41: a flush-byte timeout is acknowledged as success.
     P41FlushTimeoutAcked,
@@ -89,8 +96,6 @@ pub enum Bug {
     P43G8RewriteOutsideWriter,
     /// P-44: a failed flush is retried on the same handle and its success acknowledged.
     P44FlushRetriedAndAcked,
-    /// P-45, G5: a publish writes a smaller `durable_lsn`.
-    P45G5SmallerDurable,
     /// P-46, G7: acknowledgement by position, without reading the trailer.
     P46G7AckByPosition,
     /// P-47, LG: a writer whose group vanished re-appends its old bytes at the old position.
@@ -117,8 +122,6 @@ pub enum Bug {
     P57T3ReaderPastCommitted,
     /// P-58: a reader treats an invalid group below `durable_lsn` as the end of its view.
     P58CorruptionAsEndOfView,
-    /// P-59: a reader falls back to an older segment set when a named file is missing.
-    P59FallbackToOlderSet,
     /// P-60, T8: a reader serves a pre-crash view.
     P60T8NoBootCheck,
     /// P-61: a slot that passes its checksum but fails validity is skipped for the other slot.
@@ -151,8 +154,6 @@ pub enum Bug {
     P76MaintenanceWithoutByte,
     /// P-77: a file still referenced by a pin is deleted.
     P77DeletePinnedFile,
-    /// P-79: the sweeper deletes a file named only by a pending group.
-    P79SweepPendingNamed,
     /// P-81: a fork's `Pin` is written in a later group than its `RefUpdate`.
     P81PinInLaterGroup,
     /// P-82: a rename relies on write-through and skips the directory flush.
@@ -171,6 +172,8 @@ pub enum Bug {
     P92ReadErrorAsEnd,
     /// P-96: a rotation appends into a spare without re-issuing `durable+meta` and `durable-name`.
     P96SpareWithoutFlushes,
+    /// P-97: a rotation begins a new extent without its extent head.
+    P97NoExtentHead,
     /// L-6 ([OS/lock §5.4] I-L4 with I-L2): a grant obtained by one kernel wait is handed to two in-process waiters.
     L06GrantToTwoWaiters,
     /// L-7 ([OS/lock §5.4] I-L6): a grant that arrives after the waiter's deadline is neither returned nor released.
@@ -179,8 +182,8 @@ pub enum Bug {
     L08ProbeFirstQuietOnly,
 }
 
-/// The number of seeded bugs the toy log carries: the 78 toy rows of [F16 §17.3] and the 3 of [F16 §17.4].
-pub const N_BUGS: usize = 81;
+/// The number of seeded bugs the toy log carries: the 76 toy rows of [F16 §17.3] and the 3 of [F16 §17.4].
+pub const N_BUGS: usize = 79;
 
 /// One row of the catalogue.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -191,11 +194,11 @@ pub struct BugInfo {
     pub rule: &'static str,
     /// The source bugs it coincides with ([F16 §17.1]); empty for none.
     pub source: &'static str,
-    /// The catalogue's "Detected by" column.
+    /// The catalogue's "Detected by" cell, verbatim.
     pub detected_by: &'static str,
-    /// The primary seeded bug as the catalogue states it.
+    /// The catalogue's "Primary seeded bug" cell, verbatim.
     pub text: &'static str,
-    /// How the toy's switch realises it, when that differs from the catalogue's wording; empty otherwise.
+    /// How the toy's switch realises it, when the cell does not say; empty otherwise.
     pub toy_form: &'static str,
 }
 
@@ -219,6 +222,12 @@ impl Bug {
     /// The bug's index (its bit in [`Bugs`]).
     pub const fn index(self) -> usize {
         self as usize
+    }
+
+    /// The assertion families ([F16 §17.2]) the catalogue's "Detected by" cell names: the first word of each of its
+    /// `;`-separated parts (`ack`, `fresh`, `chain`, `trace`, `model`, `ns`, `avail`).
+    pub fn families(self) -> Vec<&'static str> {
+        classes(self.info().detected_by)
     }
 }
 
@@ -286,7 +295,7 @@ const fn row(
     }
 }
 
-/// The catalogue: [F16 §17.3]'s toy rows in rule order, then [F16 §17.4]'s toy rows.
+/// The catalogue: [F16 §17.3]'s toy rows in rule order, then [F16 §17.4]'s toy rows, with their cells verbatim.
 pub const CATALOGUE: [BugInfo; N_BUGS] = [
     row(
         Bug::P01G4WaitFlushUnderWriter,
@@ -356,7 +365,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P09GroupAcrossExtents,
         "P-9",
         "",
-        "ack",
+        "avail (the extent grows past E, which [F05 §2.2] makes corrupt, so every scan refuses and nothing is acknowledged)",
         "a group is written across an extent boundary",
         "G-3's placement is skipped: a group that does not fit the rest of the extent is written at E_v in one `write_at`, which extends the extent file past E",
     ),
@@ -372,7 +381,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P12PublishOverNewestSlot,
         "P-12",
         "",
-        "ack (a torn publish leaves no valid slot)",
+        "avail (after a torn publish the other slot names files a later checkpoint deleted; the log is intact, so nothing acknowledged is lost)",
         "a publish overwrites the slot that holds the newest valid state",
         "",
     ),
@@ -380,9 +389,9 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P13T9SingleSlotBarrier,
         "P-13",
         "T9",
-        "ack; avail",
-        "the barrier writes one slot and flushes",
-        "every durable publish (the barrier, `quiet`, boot-change recovery) writes one slot and flushes `HEAD`; for the barrier itself the bug is masked by P-62 (the covering publish of the maintenance's own `Checkpoint` already wrote the new set into the other slot, and the barrier's flush makes it durable), so the enumerator reaches it through flag changes: after `quiet on` and `quiet off` each wrote one slot, a crash that tears the newer slot while the older reverts brings back the flag state that the acknowledged `quiet off` replaced",
+        "ack",
+        "a durable publish of a flag change writes one slot and flushes; a crash that tears the newer slot while the older reverts brings back the replaced flag (the barrier form is masked by P-62: the covering publish of the `Checkpoint` already wrote the new set)",
+        "every durable publish (the barrier, `quiet`, boot-change recovery) writes one slot and flushes `HEAD`; the enumerator reaches the flag-change form: after `quiet on` and `quiet off` each wrote one slot, a crash that tears the newer slot while the older reverts to its durable content brings back the replaced flag",
     ),
     row(
         Bug::P14T6DeleteBeforeBarrier,
@@ -396,7 +405,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P15BootRecoveryPublishBeforeFlush,
         "P-15",
         "",
-        "fresh",
+        "avail (a later process finds an invalid group below `durable_lsn` and refuses, P-58)",
         "boot-change recovery publishes before flushing the re-written range",
         "",
     ),
@@ -508,7 +517,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P35NoFinalSizeCheck,
         "P-35",
         "",
-        "ack",
+        "avail (the extent grows past E and every scan refuses, [F05 §2.2])",
         "W3 is not re-checked; a group longer than E is appended and acknowledged",
         "a runtime batch whose final encoding (its symbol definitions, allocated under the writer byte) outgrows W3 is appended at E_v in one `write_at`, which extends the extent file past E",
     ),
@@ -516,15 +525,15 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P36CheckpointAdvancesHlc,
         "P-36",
         "",
-        "model (commit id; I43′)",
-        "a `Checkpoint` advances the sequence: a class-I checkpoint appended between two commits in one millisecond raises the next commit's `hlc`",
+        "model (commit id, I43′)",
+        "a `Checkpoint` advances the sequence: a class-I checkpoint appended between two commits in one millisecond raises the next commit's `hlc`, so its commit id differs from the model's (pass 1, P1-5)",
         "",
     ),
     row(
         Bug::P37ChainSeedAtCommitted,
         "P-37",
         "",
-        "ack; chain",
+        "avail (the chain rule rejects the group, so it is never acknowledged and the operation ends `outcome_unknown` without a failed flush)",
         "the trailer is seeded with the chain value at `committed_lsn` instead of at E_v",
         "",
     ),
@@ -549,8 +558,8 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         "P-40",
         "G1",
         "ack",
-        "a durable group is treated as covered when `committed_lsn` ≥ E_g",
-        "taken literally the switch changes nothing: the published `committed_lsn` never passes a pending durable group (P-38, P-49). The toy's form takes the committed position of the group's own append (the end of the valid log it extended, which P-49 would publish and which is at least E_g) for the covered test, so the durable group goes to the identity check right after its append, without a covering flush (source bug G1: acknowledge before a covering flush)",
+        "a durable group is acknowledged after its append and identity check, without a covering flush (covered by the committed position of its own append); the form \"covered when `committed_lsn` ≥ E_g\" cannot occur, because the published `committed_lsn` never passes a pending durable group (P-38, P-49)",
+        "the covered test takes the committed position of the group's own append (the end of the valid log it extended, at least E_g), so the durable group goes to its identity check right after the append",
     ),
     row(
         Bug::P41FlushTimeoutAcked,
@@ -564,7 +573,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P42G3T5FlushWithoutRewrite,
         "P-42",
         "G3, T5",
-        "ack",
+        "avail (the unrewritten sectors stay poisoned, so the holder's publish scans a shorter log than it flushed and refuses by P-48)",
         "the flush holder flushes without re-writing a dead predecessor's range after a failed flush",
         "",
     ),
@@ -572,7 +581,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P43G8RewriteOutsideWriter,
         "P-43",
         "G8",
-        "chain; ack",
+        "trace (ig4 states the rule itself; the chain or acknowledgement damage needs an append into the scanned range, which appenders never make)",
         "the pending range is scanned and re-written outside the writer byte",
         "",
     ),
@@ -583,14 +592,6 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         "ack",
         "a failed flush is retried on the same handle and its success acknowledged",
         "",
-    ),
-    row(
-        Bug::P45G5SmallerDurable,
-        "P-45",
-        "G5",
-        "trace (ig6)",
-        "a publish writes a smaller `durable_lsn`",
-        "the flush holder's publish sets `durable_lsn` to its flushed end E instead of max(the slot's `durable_lsn`, E)",
     ),
     row(
         Bug::P46G7AckByPosition,
@@ -652,7 +653,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P53G9NoChainCheck,
         "P-53",
         "G9",
-        "chain; ack",
+        "model (only the stale tail of a lost group surviving a refill passes, which revives a value no acknowledged operation wrote, I14′; an acknowledged group never loses its predecessor)",
         "a group is accepted whose predecessor differs (no chain check)",
         "",
     ),
@@ -660,17 +661,17 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P54T13NoPositionCheck,
         "P-54",
         "T13",
-        "chain; model",
-        "the position check is skipped; a same-epoch record left at another position is accepted",
-        "",
+        "avail (every later process refuses the rebuilt store, P-61 or P-58)",
+        "the position check is skipped; `repair` without a valid slot (P-85 step 2) takes a copy of another extent, put in place by setup as an external rewrite of the lowest extent's file ([F15] FM-10.1), as the lowest extent of the epoch and rebuilds the slots from it. Every other scan start is seeded from `HEAD`, where the chain rule (P-53) rejects a misplaced group first",
+        "the switch skips [F05 §5.2] check 5 wherever a record is validated, `repair`'s own check of the head it starts from included (P-85 step 2); the `misplaced` scenario's setup puts a byte copy of log.2 in place of the retired log.1 ([F15] FM-10.1)",
     ),
     row(
         Bug::P55NoEpochCheck,
         "P-55",
         "",
-        "chain",
-        "a record of another epoch is accepted",
-        "",
+        "avail (readers seed the chain at `epoch_lsn` with the slot's epoch and refuse the rebuilt store, P-58)",
+        "a record of another epoch is accepted; `repair` without a valid slot (P-85 step 2) takes an extent of another epoch, put in place by setup as an external rewrite ([F15] FM-10.1), as the lowest extent of its epoch. Every other scan start is seeded from `HEAD`, where the chain rule rejects such a group first",
+        "the switch skips [F05 §5.2] check 6 wherever a record is validated, `repair`'s check of the lower extents' heads against step 1's epoch included (P-85 step 2); the `foreign` scenario's setup puts log.1 of another epoch in place of the retired log.1 ([F15] FM-10.1)",
     ),
     row(
         Bug::P56OverlayKeptAfterRefill,
@@ -697,14 +698,6 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         "a reader treats an invalid group or a failed read below `durable_lsn` as the end of its view (P-92's reader rule)",
     ),
     row(
-        Bug::P59FallbackToOlderSet,
-        "P-59",
-        "",
-        "model",
-        "a reader falls back to an older segment set when a named file is missing",
-        "",
-    ),
-    row(
         Bug::P60T8NoBootCheck,
         "P-60",
         "T8",
@@ -717,8 +710,8 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         "P-61",
         "",
         "model",
-        "a slot that passes its checksum but fails validity is skipped for the other slot",
-        "",
+        "a slot that passes its checksum but fails validity is skipped for the other slot; only a defective writer produces such a slot, so setup injects one as an external rewrite of the slot with a checksummed slot that fails [F04 §7] check 5 ([F15] FM-10.1)",
+        "the `fatal` scenario's setup rewrites the prefilled store's newest slot, checksum included, with `durable_lsn` above `committed_lsn` ([F04 §7] check 5; [F15] FM-10.1)",
     ),
     row(
         Bug::P62G12BarrierBeforeCheckpoint,
@@ -740,7 +733,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P64T7ScanFromCommitted,
         "P-64",
         "T7",
-        "ack",
+        "avail (recovery publishes a `durable_lsn` over bytes the log does not hold, or refuses that fatal slot, and every later process refuses)",
         "recovery scans from `committed_lsn`",
         "",
     ),
@@ -756,7 +749,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P66BootRecoveryWithoutRewrite,
         "P-66",
         "",
-        "ack; fresh",
+        "avail (the flushed range keeps poisoned sectors, so the recovery's publish scans another end than it flushed and refuses by P-48)",
         "recovery publishes the new `boot_id` without re-writing `(durable_lsn, E_v]`",
         "",
     ),
@@ -774,14 +767,14 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         "T2",
         "model",
         "the ref move is written as a separate record in a later group",
-        "",
+        "a local commit carries the toy's `flags` bit 1 (it implies no ref move), and a `RefUpdate` with the toy's reason 6 moves its ref in a group of its own, written after the acknowledgement by the handle's next operation or when the handle is dropped",
     ),
     row(
         Bug::P70FailedCasMovesRef,
         "P-70",
         "",
         "model (I27′)",
-        "a commit whose ref CAS failed moves its ref anyway, where the rule appends a `RefUpdate` reason 5 `park` of `orphans/<R>`",
+        "a commit whose ref CAS failed moves its ref anyway, where the rule appends a `RefUpdate` reason 5 `park` of `orphans/<R>` ([F05 §9.2])",
         "",
     ),
     row(
@@ -796,7 +789,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P72RotateUnderWriterOnly,
         "P-72",
         "",
-        "ack",
+        "trace (the preparation's flushes and namespace calls run under the writer byte, which P-2's predicate reports)",
         "an appender that holds only the writer byte appends the first group into an extent that another process is preparing",
         "the appender prepares and rotates without the flush byte, under the writer byte",
     ),
@@ -812,7 +805,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         Bug::P74T1ReuseRetiredExtent,
         "P-74",
         "T1",
-        "fresh; model",
+        "avail (the reader meets an invalid group below `durable_lsn` and refuses, P-58)",
         "a retired extent's file is zero-filled and reused under its old number while a reader still replays from it",
         "",
     ),
@@ -833,18 +826,10 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         "",
     ),
     row(
-        Bug::P79SweepPendingNamed,
-        "P-79",
-        "",
-        "avail; ack",
-        "the sweeper deletes a file named only by a pending group",
-        "",
-    ),
-    row(
         Bug::P81PinInLaterGroup,
         "P-81",
         "",
-        "avail",
+        "ack; model (the Pin is one of the fork's acknowledged effects, lost with the later group; the deletion needs a later checkpoint)",
         "a fork's `Pin` is written in a later group than its `RefUpdate`; after a crash GC deletes the fork base",
         "",
     ),
@@ -901,7 +886,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         "P-92",
         "",
         "ack",
-        "an appender's scan treats a read error above `durable_lsn` as the end of the log and appends over an acknowledged group that an OS crash left above a stale `durable_lsn`",
+        "an appender's scan treats a read error above `durable_lsn` as the end of the log and appends over an acknowledged group that an OS crash left above a stale `durable_lsn` (pass 1, S1-25)",
         "",
     ),
     row(
@@ -909,14 +894,22 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         "P-96",
         "",
         "ack; ns",
-        "a rotation appends into a spare without re-issuing `durable+meta` and `durable-name`",
+        "a rotation appends into a spare without re-issuing `durable+meta` and `durable-name`; a crash loses the spare's size or name under an acknowledged group (pass 1, P1-7)",
         "",
+    ),
+    row(
+        Bug::P97NoExtentHead,
+        "P-97",
+        "",
+        "avail (every later scan that reaches the extent refuses the store, so the group after the missing head is never acknowledged, and a slot-less `repair` refuses too)",
+        "a rotation begins a new extent without its extent head; after one retirement a `repair` without a valid slot (P-85 step 2) cannot validate the active log (pass 1, P1-8). The toy reaches it: it rotates, retires (P-73) and repairs from the extent heads, and [F05 §5.4] makes an extent whose first group is not its head corrupt at every scan",
+        "the rotating appender writes the pad (when one is due) and then its own groups from the new extent's first byte, with no extent-head group before them",
     ),
     row(
         Bug::L06GrantToTwoWaiters,
         "L-6",
         "",
-        "ack",
+        "trace (ig4: the second client scans and re-writes without a grant of the writer byte; the first client's identity check fails and it re-runs, P-46, P-47, so no acknowledged group is overwritten)",
         "a grant obtained by one kernel wait is handed to two waiting clients of one process; both append at one lsn",
         "the toy's lock layer: a client that arrives while a sibling client is inside the process's kernel wait for the byte waits on that wait's outcome and is handed the grant the sibling obtains",
     ),
@@ -925,7 +918,7 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         "L-7",
         "",
         "avail",
-        "a grant that arrives after the waiter's deadline is neither returned nor released; the byte stays held by a client that returned `Busy`",
+        "a grant that arrives after the waiter's deadline is neither returned nor released; the byte stays held by a client that returned `Busy`, and every later writer times out",
         "after a timed-out wait the toy's lock layer takes the byte once more on a fresh client (a late grant) and neither returns nor releases it",
     ),
     row(
@@ -933,188 +926,10 @@ pub const CATALOGUE: [BugInfo; N_BUGS] = [
         "L-8",
         "",
         "trace (a checkpoint during quiet mode)",
-        "the maintenance decider probes only the first quiet byte; a checkpoint runs while another requester holds a later quiet byte",
+        "the maintenance decider probes only the first quiet byte; a checkpoint runs while another requester holds a later quiet byte (pass 1, P1-10)",
         "",
     ),
 ];
-
-/// The open E4 items: the seeded bugs the toy cannot make the enumerator report, with the reason. Each is masked in the
-/// toy by another rule it keeps, so the switch changes no reachable crash state; each awaits the specification's
-/// disposition of its catalogue row ([F16 §17.3]: a reachable form, another vehicle, or a detection class stating the
-/// masking). Every other bug of [`CATALOGUE`] is reached (E4).
-pub const OPEN: [(Bug, &str); 3] = [
-    (
-        Bug::P45G5SmallerDurable,
-        "masked by the flush byte: every publisher that raises durable_lsn holds it (P-41, P-42, P-66, P-85), and the \
-         flush holder's E is the end of a scan that starts at the slot's durable_lsn under that byte, so E is at least the \
-         slot's durable_lsn whenever it publishes and max(durable_lsn, E) = E in every reachable state",
-    ),
-    (
-        Bug::P59FallbackToOlderSet,
-        "masked by P-13 and P-62: after every barrier both slots name one segment set, so the fallback finds no other set; \
-         between a Checkpoint's covering publish and its barrier the other slot names the previous set, whose file still \
-         exists and whose replay to the newest committed_lsn gives the same state",
-    ),
-    (
-        Bug::P79SweepPendingNamed,
-        "masked by P-34 and P-62: the toy's only records that name files are Checkpoints and fork Pins; the sweeper runs \
-         after its own Checkpoint passed its identity check, whose publish covers every group before it, and a fork \
-         appended after that Checkpoint re-validates under the writer byte and pins the new set; the pending namer of \
-         the product is a bulk writer's cs.<n> (P-78), which the toy does not build",
-    ),
-];
-
-/// Where the toy's detection differs from the catalogue's "Detected by" column: the assertion families the enumerator
-/// reports for the bug in the toy, and why the catalogue's class is not what the toy can show. Each row is a proposed
-/// correction of its catalogue row ([F16 §17.3]) that awaits the specification's disposition (the protocol chapter's
-/// author, R-SPEC-P); until then a test accepts the catalogue's families and these.
-pub const TOY_DETECTION: [(Bug, &str, &str); 16] = [
-    (
-        Bug::P09GroupAcrossExtents,
-        "avail",
-        "the group is written at E_v in one write_at, which extends the extent past E; a log file longer than E is corrupt \
-         ([F05 §2.2]), so every scan refuses the store, the flush holder's included, and no process acknowledges the group",
-    ),
-    (
-        Bug::P12PublishOverNewestSlot,
-        "avail",
-        "every publish overwrites the newest slot, so the other slot keeps the state before the first publish; after a torn \
-         publish, or for a reader of that slot, it names files that a later checkpoint retired and deleted, and the store \
-         refuses; the log itself is intact, so no acknowledged effect is lost",
-    ),
-    (
-        Bug::P15BootRecoveryPublishBeforeFlush,
-        "avail",
-        "the durable publish makes HEAD name a durable_lsn over a range that a failed flush or a crash then leaves invalid; \
-         every later process finds an invalid group below durable_lsn and refuses the store (P-58), so no stale view is served",
-    ),
-    (
-        Bug::P35NoFinalSizeCheck,
-        "avail",
-        "the outgrown group is written at E_v in one write_at, which extends the extent past E; a log file longer than E is \
-         corrupt ([F05 §2.2]), so every scan refuses the store and no process acknowledges the group",
-    ),
-    (
-        Bug::P37ChainSeedAtCommitted,
-        "avail",
-        "the group's trailer is wrong for its position, so the chain rule rejects it: it is never covered or acknowledged, and \
-         while the pending group before it stays (its writer dead) every re-run is lost too, so the operation ends \
-         outcome_unknown in a run without a failed flush or read (P-47)",
-    ),
-    (
-        Bug::P42G3T5FlushWithoutRewrite,
-        "avail",
-        "the unrewritten range keeps the sectors a failed flush poisoned, which read differently on every read (FM-3.2): the \
-         holder's publish scans a shorter log than it flushed and refuses to write that fatal slot, and recovery, which \
-         also flushes without re-writing, refuses the store",
-    ),
-    (
-        Bug::P43G8RewriteOutsideWriter,
-        "trace",
-        "I-G4's predicate states P-43 itself: the flush holder scans and re-writes the pending range without holding the \
-         writer byte; the chain or acknowledgement damage needs a concurrent append into that range, which the toy's \
-         appenders never make below the end the holder scanned",
-    ),
-    (
-        Bug::P53G9NoChainCheck,
-        "model",
-        "a group behind the wrong predecessor is accepted only where the stale tail of a lost group survives a refill, which \
-         revives a value no acknowledged operation wrote and duplicates a retried commit (phantoms, I14′); an acknowledged \
-         group never loses its predecessor, which its own flush made durable, so I-G3's chain check cannot fire",
-    ),
-    (
-        Bug::P54T13NoPositionCheck,
-        "avail",
-        "every scan but one is seeded from HEAD (XXH3-64(epoch) at epoch_lsn, else the 8 bytes before its start), so a group \
-         left at another position fails its chain check (P-53) before its position matters; the one start seeded from a \
-         record itself is repair's extent head (P-85 step 2, P-97). A repair that accepts a copy of log.2 there as log.1 \
-         scans it from lsn 0 and folds its Checkpoint, whose checkpoint_lsn lies above the rebuilt durable_lsn, so both \
-         slots it writes fail validity and every process refuses the store (P-61); no rebuilt state is ever served for a \
-         model or ack check to compare",
-    ),
-    (
-        Bug::P55NoEpochCheck,
-        "avail",
-        "every scan but one is seeded from HEAD, so a group of another epoch fails its chain check (P-53) before its epoch \
-         matters; the one start seeded from a record itself is repair's extent head (P-85 step 2, P-97). A repair that \
-         accepts log.1 of another epoch there scans it and publishes slots of the current epoch over it; every reader then \
-         seeds the chain at epoch_lsn with XXH3-64 of the current epoch, finds the first group invalid below durable_lsn \
-         and refuses the store (P-58); no rebuilt state is ever served for a model or chain check to compare",
-    ),
-    (
-        Bug::P64T7ScanFromCommitted,
-        "avail",
-        "after a crash committed_lsn may lie beyond the valid log; boot-change recovery that scans from it publishes a \
-         durable_lsn over bytes the log does not hold (or refuses that fatal slot), and every later process refuses the store",
-    ),
-    (
-        Bug::P66BootRecoveryWithoutRewrite,
-        "avail",
-        "without the re-write the flushed range keeps the sectors a failed flush poisoned (FM-3.2): the recovery's publish \
-         scans another end than it flushed and refuses to write that fatal slot, so the first reader refuses the store",
-    ),
-    (
-        Bug::P72RotateUnderWriterOnly,
-        "trace",
-        "one process at a time holds the writer byte, so two rotators never prepare one extent; what the bug does is the \
-         preparation's namespace calls and flushes under the writer byte, which the trace predicates of P-2 report",
-    ),
-    (
-        Bug::P74T1ReuseRetiredExtent,
-        "avail",
-        "a reader that replays from the zero-filled extent meets an invalid group below durable_lsn and refuses by P-58 (exit \
-         7); it never serves the zeros as data",
-    ),
-    (
-        Bug::P81PinInLaterGroup,
-        "ack; model",
-        "the fork's Pin is one of the fork's acknowledged effects: a crash that keeps the fork's group and loses the later \
-         one loses it (ack), and doctor --verify's P-81 check finds the fork without its Pin (model); the deletion of the \
-         fork base that the catalogue names needs a later checkpoint",
-    ),
-    (
-        Bug::L06GrantToTwoWaiters,
-        "trace",
-        "the two clients handed one kernel grant enter phase 2a together: the second's append lands right after the first's, \
-         whose identity check then fails (P-46) and which re-runs (P-47), so no acknowledged group is overwritten; the \
-         enumerator sees the second client scan and re-write the pending range without a grant of the writer byte (I-G4)",
-    ),
-];
-
-impl Bug {
-    /// Why E4 cannot reach this bug in the toy yet ([`OPEN`]); `None` for a reached bug.
-    pub fn open(self) -> Option<&'static str> {
-        OPEN.iter().find(|(b, _)| *b == self).map(|(_, why)| *why)
-    }
-
-    /// The assertion families ([F16 §17.2]) the catalogue's "Detected by" column names: the first word of each of its
-    /// `;`-separated parts (`ack`, `fresh`, `chain`, `trace`, `model`, `ns`, `avail`).
-    pub fn families(self) -> Vec<&'static str> {
-        classes(self.info().detected_by)
-    }
-
-    /// The families the toy's detection adds to the catalogue's ([`TOY_DETECTION`]), with the reason; `None` when the toy
-    /// shows the catalogue's class.
-    pub fn toy_detection(self) -> Option<(Vec<&'static str>, &'static str)> {
-        TOY_DETECTION
-            .iter()
-            .find(|(b, _, _)| *b == self)
-            .map(|(_, f, why)| (classes(f), *why))
-    }
-
-    /// Every family a test of the bug accepts: the catalogue's and the toy's.
-    pub fn accepted_families(self) -> Vec<&'static str> {
-        let mut f = self.families();
-        if let Some((extra, _)) = self.toy_detection() {
-            for x in extra {
-                if !f.contains(&x) {
-                    f.push(x);
-                }
-            }
-        }
-        f
-    }
-}
 
 /// The first word of each `;`-separated part of a "Detected by" text (a `;` inside parentheses separates nothing).
 fn classes(text: &'static str) -> Vec<&'static str> {
@@ -1144,15 +959,7 @@ mod tests {
     use std::collections::BTreeSet;
 
     #[test]
-    fn open_items_are_distinct_and_detection_families_known() {
-        let open: BTreeSet<Bug> = OPEN.iter().map(|(b, _)| *b).collect();
-        assert_eq!(open.len(), OPEN.len());
-        assert!(OPEN.iter().all(|(_, why)| !why.is_empty()));
-        assert_eq!(
-            Bug::P45G5SmallerDurable.open().map(str::len).map(|n| n > 0),
-            Some(true)
-        );
-        assert_eq!(Bug::P01G4WaitFlushUnderWriter.open(), None);
+    fn detection_families_are_known() {
         let known = ["ack", "fresh", "chain", "trace", "model", "ns", "avail"];
         for b in Bug::ALL {
             let f = b.families();
@@ -1164,21 +971,10 @@ mod tests {
             ["ack", "avail"]
         );
         assert_eq!(Bug::P04BumpWithoutWriter.families(), ["trace"]);
-        // Every proposed detection row is for a distinct reached bug, adds a known family the catalogue does not name,
-        // and gives its reason.
-        let rows: BTreeSet<Bug> = TOY_DETECTION.iter().map(|(b, _, _)| *b).collect();
-        assert_eq!(rows.len(), TOY_DETECTION.len());
-        for (b, f, why) in TOY_DETECTION {
-            assert!(b.open().is_none() && !why.is_empty(), "{b}");
-            let extra = classes(f);
-            assert!(extra.iter().all(|x| known.contains(x)), "{b}: {extra:?}");
-            assert!(extra.iter().any(|x| !b.families().contains(x)), "{b}");
-            assert!(extra.iter().all(|x| b.accepted_families().contains(x)));
-        }
-        assert_eq!(
-            Bug::P54T13NoPositionCheck.accepted_families(),
-            ["chain", "model", "avail"]
-        );
+        // A `;` inside the parentheses of an explanation separates nothing.
+        assert_eq!(Bug::P53G9NoChainCheck.families(), ["model"]);
+        assert_eq!(Bug::P81PinInLaterGroup.families(), ["ack", "model"]);
+        assert_eq!(Bug::P97NoExtentHead.families(), ["avail"]);
     }
 
     #[test]
@@ -1197,7 +993,8 @@ mod tests {
                 .count(),
             3
         );
-        // Every source bug of [F16 §17.1] that the toy carries appears once, except G12 (two halves).
+        // Every source bug of [F16 §17.1] appears once, except G12 (two halves) and G5, whose row (P-45) has vehicle
+        // "none (masked)".
         let sources: Vec<&str> = CATALOGUE
             .iter()
             .flat_map(|r| r.source.split(", "))
@@ -1206,9 +1003,14 @@ mod tests {
         for g in 1..=13 {
             let label = format!("G{g}");
             let n = sources.iter().filter(|s| **s == label).count();
-            assert_eq!(n, if g == 12 { 2 } else { 1 }, "{label}");
+            let want = match g {
+                5 => 0,
+                12 => 2,
+                _ => 1,
+            };
+            assert_eq!(n, want, "{label}");
         }
-        for t in [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14] {
+        for t in 1..=14 {
             let label = format!("T{t}");
             assert_eq!(
                 sources.iter().filter(|s| **s == label).count(),
@@ -1217,6 +1019,77 @@ mod tests {
             );
         }
         assert!(sources.contains(&"LG") && sources.contains(&"DF"));
+    }
+
+    /// The cells of one row of a Markdown table: split at `|` outside code spans, trimmed.
+    fn cells(line: &str) -> Vec<String> {
+        let inner = line.trim().trim_start_matches('|').trim_end_matches('|');
+        let mut out = Vec::new();
+        let (mut cur, mut code) = (String::new(), false);
+        for ch in inner.chars() {
+            match ch {
+                '`' => {
+                    code = !code;
+                    cur.push(ch);
+                }
+                '|' if !code => out.push(core::mem::take(&mut cur).trim().to_owned()),
+                _ => cur.push(ch),
+            }
+        }
+        out.push(cur.trim().to_owned());
+        out
+    }
+
+    /// The catalogue is [F16 §17.3]'s rows with vehicle **toy** and [F16 §17.4]'s rows whose vehicle is the toy, in the
+    /// specification's order, each with its rule, source bugs, "Detected by" cell and "Primary seeded bug" cell verbatim
+    /// (spec sync 2b S2B-P-46, S2B-P-53; PLAN WP-40b: the bug list equals the chapter's list).
+    #[test]
+    fn the_catalogue_holds_the_specification_cells_verbatim() {
+        let path = concat!(
+            env!("CARGO_MANIFEST_DIR"),
+            "/../../docs/spec/format/16-protocol.md"
+        );
+        let text = std::fs::read_to_string(path).unwrap_or_else(|e| panic!("{path}: {e}"));
+        let mut rows: Vec<(String, String, String, String)> = Vec::new();
+        let mut section = 0;
+        for line in text.lines() {
+            if line.starts_with("### 17.3") {
+                section = 3;
+            } else if line.starts_with("### 17.4") {
+                section = 4;
+            } else if line.starts_with("## ") {
+                section = 0;
+            }
+            match section {
+                3 if line.starts_with("| P-") => {
+                    let c = cells(line);
+                    assert_eq!(c.len(), 6, "{line}");
+                    if c[5] == "toy" {
+                        let source = if c[3] == "—" {
+                            String::new()
+                        } else {
+                            c[3].clone()
+                        };
+                        rows.push((c[0].clone(), source, c[4].clone(), c[2].clone()));
+                    }
+                }
+                4 if line.starts_with("| L-") => {
+                    let c = cells(line);
+                    assert_eq!(c.len(), 5, "{line}");
+                    if c[4].starts_with("toy") {
+                        rows.push((c[0].clone(), String::new(), c[3].clone(), c[2].clone()));
+                    }
+                }
+                _ => {}
+            }
+        }
+        assert_eq!(rows.len(), N_BUGS, "the toy rows of [F16 §17.3] and §17.4");
+        for (row, (rule, source, detected, text)) in CATALOGUE.iter().zip(&rows) {
+            assert_eq!(row.rule, rule);
+            assert_eq!(row.source, source, "{rule}: source bugs");
+            assert_eq!(row.detected_by, detected, "{rule}: Detected by");
+            assert_eq!(row.text, text, "{rule}: Primary seeded bug");
+        }
     }
 
     #[test]

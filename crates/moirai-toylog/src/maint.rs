@@ -16,8 +16,16 @@ use crate::init::nonzero_u64;
 use crate::ops::Op;
 use crate::state::State;
 use crate::store::{ScanCtx, Toy, ToyError, log_name, rel, sealed_body, sealed_bytes};
-use crate::tap::Tap;
+use crate::tap::{Note, StoreFile, Tap};
 use crate::write::activity::MAINTENANCE;
+
+/// The sealed files of a store directory ([`Toy::fsck`]).
+pub(crate) struct SealedFiles {
+    /// The names of the files whose bytes do not match their headers.
+    pub(crate) damaged: Vec<String>,
+    /// Every sound `hist` file's extent and that extent's bytes.
+    pub(crate) hists: Vec<(u32, Vec<u8>)>,
+}
 
 /// What one checkpoint did.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -103,9 +111,17 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
     fn checkpoint_held(&mut self) -> Result<Option<Checkpointed>, ToyError> {
         let bugs = self.bugs();
         let s = self.refresh()?;
+        // [F03 §3.1] rule 2: quiet mode is evaluated once per maintenance decision, by one probe round of the quiet
+        // bytes, before the run's first record. Every maintenance run of the toy is an automatic delta checkpoint below
+        // the cap of [F17 §5.3], the kind quiet mode defers; a decided run may complete although a requester takes a
+        // quiet byte meanwhile.
         if self.quiet(&s) {
             return Ok(None);
         }
+        self.note(Note::MaintenanceDecided {
+            automatic: true,
+            below_cap: true,
+        });
         let ctx = ScanCtx::of(&s);
         // P-80: fold up to a group boundary at or below the published committed_lsn. The toy folds up to the published
         // durable_lsn, so that a segment never holds a lazy group that a crash may still take back from the log.
@@ -225,7 +241,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
         if upto >= limit {
             return Ok((state, upto));
         }
-        let chain = self.chain_at(ctx, upto)?;
+        let chain = self.chain_at(ctx, upto, s.durable_lsn)?;
         let bugs = self.bugs();
         let end = self.scan_each(ctx, upto, chain, Some(limit), false, &mut |g| {
             state.apply(&g, bugs, false).map_err(ToyError::from)
@@ -303,8 +319,8 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
     /// 3. no pin of the scanned valid log references it, pending groups included;
     /// 4. `gc.delete-grace` has elapsed since the `append_hlc` of the newest `Checkpoint`, measured by P-89.
     ///
-    /// `unlink` (no share retry), then `durable-name` on the store directory. Seeded bugs: P-77 ignores pins; P-79 counts
-    /// only the pins of the published view; P-74 zero-fills a retired extent and keeps it under its old number.
+    /// `unlink` (no share retry), then `durable-name` on the store directory. Seeded bugs: P-77 ignores pins; P-74
+    /// zero-fills a retired extent and keeps it under its old number.
     fn delete_released(&mut self) -> Result<Vec<String>, ToyError> {
         let bugs = self.bugs();
         let (s, _) = self.read_head()?;
@@ -321,8 +337,6 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
         };
         let pinned: Vec<(u8, u32)> = if bugs.on(Bug::P77DeletePinnedFile) {
             Vec::new()
-        } else if bugs.on(Bug::P79SweepPendingNamed) {
-            pins(&view.state)
         } else {
             pins(&scanned)
         };
@@ -423,7 +437,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
     /// `durable_lsn` (pending groups included); a read error there ends the scan where it stands.
     pub(crate) fn prepare_spare(&mut self, s: &Slot) -> Result<(), ToyError> {
         let ctx = ScanCtx::of(s);
-        let chain = self.chain_at(&ctx, s.durable_lsn)?;
+        let chain = self.chain_at(&ctx, s.durable_lsn, s.durable_lsn)?;
         let end = self
             .scan_each(&ctx, s.durable_lsn, chain, None, false, &mut |_| Ok(()))?
             .end;
@@ -472,20 +486,41 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
         Ok(())
     }
 
-    /// `doctor --fsck` over the sealed files, and `repair --rebuild-from-log` of a damaged segment ([80 §2.5] rule 8):
-    /// every `seg.base.*` and `hist.*` file whose bytes do not match its header is reported; when the newest slot's base
-    /// segment is one of them, it is rebuilt from the retired extents' `hist` files and the log and published by a
-    /// `Checkpoint`, followed by the barrier. Returns the damaged file names.
-    pub fn repair(&mut self) -> Result<Vec<String>, ToyError> {
-        // A store with no valid HEAD slot is repaired from its extent heads first (P-85, [F15] OP-1). `HEAD` is read once:
-        // a slot sector that a failed flush poisoned reads differently on every read (FM-3.2) until it is written again.
-        let s = match self.read_head() {
-            Err(ToyError::Corrupt(m)) if m.contains("no valid slot") => {
-                self.repair_head()?;
-                self.read_head()?.0
-            }
-            r => r?.0,
-        };
+    /// `doctor --fsck` over the sealed files, a diagnosis that changes nothing ([80 §2.5] rule 8): the names of every
+    /// `seg.base.*` and `hist.*` file whose bytes do not match its header.
+    pub fn fsck(&mut self) -> Result<Vec<String>, ToyError> {
+        Ok(self.sealed_files()?.damaged)
+    }
+
+    /// `doctor --verify`'s state ([F16 §17.2] "model"): the log of the newest slot's epoch replayed from the epoch's first
+    /// byte into a fresh state that keeps its raw facts, up to the end of the valid log, pending groups included; the
+    /// groups of an extent below the slot's `active_log` (retired) come from its `hist` file. It reads the bytes of the
+    /// log and of the `hist` files, never a segment snapshot, so no snapshot defect can hide a record from
+    /// [`crate::verify()`]. An error when the log cannot be replayed from the epoch's start (for example a `hist` file an
+    /// external actor damaged, [F15] FM-10). Like every first read of a process, it follows the boot check ([F16] P-60).
+    pub fn doctor_state(&mut self) -> Result<State, ToyError> {
+        let s = self.head_for_read()?;
+        let ctx = ScanCtx::of(&s);
+        let SealedFiles { hists, .. } = self.sealed_files()?;
+        self.hist = hists
+            .into_iter()
+            .filter(|&(n, _)| n < s.active_log)
+            .collect();
+        let bugs = self.bugs();
+        let r = (|| {
+            let mut st = State::new().keeping_facts(true);
+            let chain = self.chain_at(&ctx, ctx.epoch_lsn, s.durable_lsn)?;
+            self.scan_each(&ctx, ctx.epoch_lsn, chain, None, false, &mut |g| {
+                st.apply(&g, bugs, false).map_err(ToyError::from)
+            })?;
+            Ok(st)
+        })();
+        self.hist.clear();
+        r
+    }
+
+    /// The sealed files of the store directory, checked against their headers.
+    pub(crate) fn sealed_files(&mut self) -> Result<SealedFiles, ToyError> {
         let entries = self.vfs.list_dir(&self.root, None).map_err(ToyError::Io)?;
         let mut damaged = Vec::new();
         let mut hists: Vec<(u32, Vec<u8>)> = Vec::new();
@@ -501,6 +536,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
                 } else {
                     continue;
                 };
+            self.note(Note::Uses(StoreFile::Sealed { family: fam, no }));
             let ok = self
                 .read_file(rel(&name).as_rel_path())
                 .and_then(|b| sealed_body(&b, fam, no, None).map(<[u8]>::to_vec));
@@ -513,6 +549,25 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
                 Some(_) => {}
             }
         }
+        Ok(SealedFiles { damaged, hists })
+    }
+
+    /// Plain `moirai repair` ([F16] P-85, [80 §2.5] rule 8). A store whose `HEAD` has no valid slot or a fatal slot is
+    /// repaired from its extent heads first: neither slot is trusted, and both are rebuilt ([F04 §7], [F15] OP-1; spec
+    /// sync 2b S2B-P-28). Then `doctor --fsck` over the sealed files, and `repair --rebuild-from-log` of a damaged base
+    /// segment: when the newest slot's base segment does not match its header, it is rebuilt from the retired extents'
+    /// `hist` files and the log and published by a `Checkpoint`, followed by the barrier. Returns the damaged file names.
+    pub fn repair(&mut self) -> Result<Vec<String>, ToyError> {
+        // `HEAD` is read once: a slot sector that a failed flush poisoned reads differently on every read (FM-3.2) until
+        // it is written again, and `repair_head` rebuilds both slots whatever a read shows.
+        let s = match self.read_head() {
+            Err(ToyError::NoValidSlot | ToyError::FatalSlot(_)) => {
+                self.repair_head()?;
+                self.read_head()?.0
+            }
+            r => r?.0,
+        };
+        let SealedFiles { damaged, hists } = self.sealed_files()?;
         let Some(seg) = s.segments.first().copied() else {
             return Ok(damaged);
         };
@@ -544,7 +599,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
         self.hist = hists.into_iter().collect();
         let r = self
             .rebuild(&ctx, s.checkpoint_lsn)
-            .and_then(|st| Ok((st, self.chain_at(&ctx, s.checkpoint_lsn)?)));
+            .and_then(|st| Ok((st, self.chain_at(&ctx, s.checkpoint_lsn, s.durable_lsn)?)));
         self.hist.clear();
         let (state, chain) = r?;
         let g = s.counters.next_file_no.max(state.counters.next_file_no);
@@ -581,7 +636,7 @@ impl<V: Vfs, T: Tap> Toy<V, T> {
     /// Replays the whole log of the epoch up to `upto` into a fresh state (the retired extents come from `self.hist`).
     fn rebuild(&mut self, ctx: &ScanCtx, upto: u64) -> Result<State, ToyError> {
         let mut st = self.fresh_state();
-        let chain = self.chain_at(ctx, ctx.epoch_lsn)?;
+        let chain = self.chain_at(ctx, ctx.epoch_lsn, ctx.epoch_lsn)?;
         let bugs = self.bugs();
         let end = self.scan_each(ctx, ctx.epoch_lsn, chain, Some(upto), false, &mut |g| {
             st.apply(&g, bugs, false).map_err(ToyError::from)
@@ -716,6 +771,42 @@ mod tests {
             t.missing_pinned_files().unwrap_or_else(|e| panic!("{e}")),
             Vec::<String>::new()
         );
+    }
+
+    /// `doctor --verify`'s state is replayed from the log and the `hist` files ([F16 §17.2] "model"): after a retirement
+    /// and the deletion of the retired extent it holds the same facts as the reader's view, which starts from the
+    /// segment snapshot, and they verify.
+    #[test]
+    fn doctor_replays_the_facts_from_the_log_and_the_hist_files() {
+        let mut c = cfg();
+        c.active_extents = 1;
+        let e = c.extent_bytes;
+        let (_w, v, _) = sim_store(&c, 35);
+        let mut t = open(&v, &c);
+        let batch = |op: u64| {
+            Op::Runtime(RuntimeOp {
+                op,
+                rows: vec![(op, op)],
+                pad: (e / 2) as u32,
+                symbols: Vec::new(),
+                target_len: 0,
+            })
+        };
+        for o in [batch(7), commit(1), batch(8), commit(2)] {
+            t.run(&o).unwrap_or_else(|e| panic!("{e}"));
+        }
+        let ck = t
+            .checkpoint()
+            .unwrap_or_else(|e| panic!("{e}"))
+            .unwrap_or_else(|| panic!("the checkpoint ran"));
+        assert_eq!(ck.retired, [1]);
+        assert!(ck.deleted.contains(&"log.1".to_owned()), "{:?}", ck.deleted);
+        t.run(&commit(3)).unwrap_or_else(|e| panic!("{e}"));
+        let replayed = t.doctor_state().unwrap_or_else(|e| panic!("{e}"));
+        let view = t.scratch().unwrap_or_else(|e| panic!("{e}"));
+        assert!(replayed.commits.contains_key(&1) && replayed.commits.contains_key(&3));
+        assert_eq!(replayed.facts, view.facts);
+        assert_eq!(crate::verify(&replayed), Vec::<String>::new());
     }
 
     #[test]

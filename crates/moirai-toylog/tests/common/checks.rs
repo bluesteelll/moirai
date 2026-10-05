@@ -1,190 +1,195 @@
-//! The harness's own checks (WP-40, E4): every verdict the toy-log subject adds to the crash enumerator's own ones — the
-//! trace predicates of [F13 §1.4] over the `Vfs` events and the toy's protocol notes, the read checks of I-G2 ([F16 §8]),
-//! the availability checks of an operation's exit and a reader's refusal, the chain check of acknowledged groups (I-G3)
-//! and the namespace check of closed intents ([F16 §17.2] "ns"). They read only what a command returns, what the store
-//! and the project directories hold, and the events the simulator records; `doctor --verify` itself is the toy's
-//! ([`moirai_toylog::verify`], `Toy::head_fold_problem`), called from the scenarios and the recovery.
+//! The subject's own part of the harness (WP-40, E4) beyond the scenarios and the effects a state shows (`mod.rs`): the
+//! tap that turns the toy's protocol notes into the crash enumerator's notes and namespace expectations ([`SimTap`]),
+//! the read check of a reader's view against the operations acknowledged before it began ([`ReadWatch`]), the check of
+//! a view a process kept against the replay of the valid log up to the view's bound ([`KeptWatch`], [F16] P-56), and
+//! the reads of the project directories that the effect sets and the prefill use ([`ns_location`], [`read_all`]).
 //!
-//! **Authorship (PLAN §3.1 S4).** S4 keeps the seeded-bug author (R-TOY) from being the enumerator's author (R-HARN-S),
-//! so that the harness cannot be tuned to its own bugs. These checks judge the seeded bugs, and R-TOY wrote them; neither
-//! the plan nor `docs/m0/authors.md` records a rule for them yet (WP-40 review, finding 2). Their S4 disposition is open:
-//! either R-HARN-S authors or adopts them (the generic ones — lock holdings from `Granted` and `Released`, flushes and
-//! namespace operations under the writer byte, I-G6 over decoded `HEAD` slot writes where this file reads the toy's own
-//! publish notes, the namespace check — for example in `moirai-vfs-sim`, which [F16 §17.2] names for "ns"), or a plan
-//! issue records R-HARN-S's review of them as a WP-40 acceptance step. WP-40 is not accepted before that disposition.
-//! Such a review covers this file, `moirai_toylog::verify`, `Toy::head_fold_problem`, `moirai_toylog::TOY_DETECTION`,
-//! and the two judgements `mod.rs` makes besides running the scenarios: the effects a state shows to the ledger
-//! (`effects`, `ns_location`) and the refusals the operator answers with `repair` in the recovery (the fault-model cases
-//! of `head_may_be_damaged` and the fixtures' fatal slot). Every predicate the harness evaluates itself is in this file.
-//! Until the disposition, a change to it after a missed bug cites a fault-model item, as S4 asks of the enumerator.
+//! **Authorship (PLAN §3.1 S4; [F13 §1.4], [F16 §17.2] "Where the detectors live for the toy vehicle").** S4 keeps the
+//! seeded-bug author (R-TOY) from being the enumerator's author (R-HARN-S), so that the harness cannot be tuned to its
+//! own bugs. The generic detectors are the enumerator's (`moirai_vfs_sim::enumerate`): the trace predicates (I-G4 and
+//! I-G6 over the lock, flush and namespace events and the decoded `HEAD` slot writes, [F03 §3.1] rule 2 over the probe
+//! rounds), the avail verdict over the typed refusals the subject reports, the chain verdict over the identity bytes of
+//! acknowledged groups, fresh over observations with their group's position, and ns by node identity. The subject feeds
+//! them: its ledger calls, the slot decoder and the notes below. What stays the toy's, by R-HARN-S's S4 disposition, is
+//! the effects mapping, the scenarios and fixtures, `doctor --verify` (`moirai_toylog::verify`,
+//! `Toy::head_fold_problem`, `Toy::missing_pinned_files`), [`ReadWatch`] and [`KeptWatch`]; a change to either after a
+//! missed bug cites a fault-model item, as S4 asks of the enumerator. A toy check judges a rule of [F16] over the record
+//! forms the specification defines, and never reports a record form, flag or value the toy adds only so that a seeded
+//! bug can be expressed.
 
 use std::collections::{BTreeMap, BTreeSet};
-use std::path::Path;
+use std::path::{Path, PathBuf};
+use std::sync::{Arc, Mutex};
 
-use moirai_toylog::head::Slot;
-use moirai_toylog::{Note, State, Tap, ToyError, file_name};
-use moirai_vfs::{Access, OpenHint, ProcHost, RelPath, RootAccess, RootRole, StoreFs};
-use moirai_vfs_sim::{Event, EventKind, SimVfs, SimWorld};
+use moirai_toylog::{Note, Replay, State, StoreFile, Tap, View, file_name};
+use moirai_vfs::{Access, OpenHint, RelPath, RootAccess, RootRole, StoreFs};
+use moirai_vfs_sim::enumerate::{
+    EffectKey, EffectKind, MAINT_AUTOMATIC, MAINT_BELOW_CAP, NOTE_MAINT_DECISION, NOTE_PHASE,
+};
+use moirai_vfs_sim::{CallKind, EventKind, SECTOR, SimVfs, SimWorld};
 
-use super::{BAD, PROJ, STORE, TRASH, at_dir, content};
+use super::{BAD, DONE, OPEN, PROJ, STORE, Sink, TRASH, at_dir, content, lock};
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The protocol notes as trace notes ([F13 §1.4])
+// The protocol notes ([F13 §1.4])
 
-const TAG: u64 = 0x544F_594C_0000_0000;
-const T_PHASE1: u64 = TAG | 1;
-const T_PHASE3: u64 = TAG | 2;
-const T_REWRITE: u64 = TAG | 3;
-const T_LOGFLUSH: u64 = TAG | 4;
-const T_HEADFLUSH: u64 = TAG | 5;
-const T_CKPT: u64 = TAG | 6;
-/// The harness's note at the start of every task: `b` the pid, `c` the task's index in its process.
-pub const T_TASK: u64 = TAG | 7;
-const T_PUB_SEQ: u64 = TAG | 0x10;
-const T_PUB_DUR: u64 = TAG | 0x11;
-const T_PUB_CK: u64 = TAG | 0x12;
-const T_PUB_BOOT: u64 = TAG | 0x13;
-const T_PUB_FLAGS: u64 = TAG | 0x14;
+/// The `file rm --trash` operations of a task whose intent is not acknowledged yet: idempotency key → the file's source
+/// path. The runner registers one before the operation; the tap takes it when the intent is acknowledged.
+pub type TrashPending = Arc<Mutex<BTreeMap<u64, PathBuf>>>;
 
-/// The tap that turns the toy's notes into trace notes: `b` carries the process's pid where the predicate needs it.
+/// The tap of one process on the simulator. Phase 1 and phase 3 become [`NOTE_PHASE`] notes and a maintenance decision a
+/// [`NOTE_MAINT_DECISION`] note, written through the process's `Vfs`, so each carries the task that made it
+/// (`moirai_vfs_sim::enumerate` module `protocol`: P-25, P-51, [F03 §3.1] rule 2). For a workload task, an acknowledged
+/// intent of a `file rm --trash` the runner registered records the namespace expectations that need the intent's id —
+/// where its trash entry `trash/<lsn>/0` ([F16 §13.1]) must hold the file — in the run's ledger ([F16 §17.2] ns, [40
+/// §3.4]). The store files the process uses ([`Note::Uses`]) are collected for the files its refusals concern
+/// ([`SimTap::used`]); the clones of a tap share them.
 #[derive(Clone)]
 pub struct SimTap {
+    vfs: SimVfs,
     world: SimWorld,
-    pid: u64,
+    trash: Option<(Sink, TrashPending)>,
+    used: Arc<Mutex<BTreeSet<StoreFile>>>,
 }
 
 impl SimTap {
+    /// The tap of a process that reports no namespace expectation (the recovery's processes).
     pub fn new(world: &SimWorld, vfs: &SimVfs) -> SimTap {
         SimTap {
+            vfs: vfs.clone(),
             world: world.clone(),
-            pid: u64::from(vfs.self_id().pid),
+            trash: None,
+            used: Arc::default(),
         }
+    }
+
+    /// The tap of a workload task whose `file rm --trash` operations are registered in `pending` and whose expectations
+    /// go to `sink`.
+    pub fn with_ledger(
+        world: &SimWorld,
+        vfs: &SimVfs,
+        sink: &Sink,
+        pending: &TrashPending,
+    ) -> SimTap {
+        SimTap {
+            vfs: vfs.clone(),
+            world: world.clone(),
+            trash: Some((sink.clone(), Arc::clone(pending))),
+            used: Arc::default(),
+        }
+    }
+
+    /// Forgets the store files used so far: a refusal from now on concerns the files the process uses from now on.
+    pub fn clear_used(&self) {
+        lock(&self.used).clear();
+    }
+
+    /// The absolute paths of the store files the process used since the last [`SimTap::clear_used`] ([`Note::Uses`]).
+    pub fn used(&self) -> Vec<PathBuf> {
+        lock(&self.used)
+            .iter()
+            .map(|f| Path::new(STORE).join(f.name().as_str()))
+            .collect()
     }
 }
 
 impl Tap for SimTap {
     fn note(&self, n: Note) {
-        let w = &self.world;
-        let pid = self.pid;
-        let step = |s: moirai_toylog::Step| u64::from(s.begin) | s.client << 1;
         match n {
-            Note::Phase1(s) => w.note(T_PHASE1, pid, step(s)),
-            Note::Phase3(s) => w.note(T_PHASE3, pid, step(s)),
-            Note::Rewrite(s) => w.note(T_REWRITE, pid, step(s)),
-            Note::LogFlush(s) => w.note(T_LOGFLUSH, pid, step(s)),
-            Note::HeadFlush(s) => w.note(T_HEADFLUSH, pid, step(s)),
-            Note::CheckpointAppended(s) => w.note(T_CKPT, pid, step(s)),
-            Note::Publish(p) => {
-                w.note(T_PUB_SEQ, p.base_seq, p.new_seq);
-                w.note(T_PUB_DUR, p.base_durable, p.new_durable);
-                w.note(T_PUB_CK, p.base_checkpoint, p.new_checkpoint);
-                w.note(T_PUB_BOOT, p.base_boot, p.new_boot);
-                let flags = u64::from(p.flushed)
-                    | u64::from(p.boot_change) << 1
-                    | u64::from(p.known_boot) << 2;
-                w.note(T_PUB_FLAGS, flags, pid);
+            Note::Phase1(true) => self.vfs.note(NOTE_PHASE, 1, 0),
+            Note::Phase3(true) => self.vfs.note(NOTE_PHASE, 3, 0),
+            Note::Phase1(false) | Note::Phase3(false) => {}
+            Note::Uses(f) => {
+                lock(&self.used).insert(f);
+            }
+            Note::MaintenanceDecided {
+                automatic,
+                below_cap,
+            } => {
+                let flags = if automatic { MAINT_AUTOMATIC } else { 0 }
+                    | if below_cap { MAINT_BELOW_CAP } else { 0 };
+                self.vfs.note(NOTE_MAINT_DECISION, flags, 0);
+            }
+            Note::IntentAcked { key, lsn } => {
+                let Some((sink, pending)) = &self.trash else {
+                    return;
+                };
+                let Some(src) = lock(pending).remove(&key) else {
+                    return;
+                };
+                // A file the operation already moved (a rename issued before the intent's identity check, [F16] P-16)
+                // has no name at its source: the expectations recorded before the operation judge that state.
+                if !self.world.exists(&src) {
+                    return;
+                }
+                let entry = Path::new(STORE).join(format!("trash/{lsn}/0"));
+                let open = [src.clone(), entry.clone()];
+                let done = [entry];
+                sink.expect_names(
+                    &src,
+                    EffectKey::new(EffectKind::Intent, key),
+                    &[(Some(OPEN), &open[..]), (Some(DONE), &done[..])],
+                );
             }
         }
     }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The faults a run saw
+// Read visibility against the operations acknowledged before a view began
 
-/// Whether a flush of `HEAD` failed in the run, in a live process or at a death ([F15] FM-3.1, OP-1).
+/// The node of the store's `HEAD`, if it exists.
+fn head_node(w: &SimWorld) -> Option<u64> {
+    w.node_at(&Path::new(STORE).join("HEAD"))
+}
+
+/// Whether a read of `HEAD` may return an older slot, or a mix of versions, because a flush of `HEAD` failed ([F15]
+/// FM-3.1, FM-3.2: poisoning is per file, so a failed flush of a log extent never reaches `HEAD`). The poisoning ends
+/// once both slots have been re-written and a flush of `HEAD` has then succeeded (FM-3.5): two successful writes of
+/// `HEAD` (two publishes write the two slots) followed by a successful flush of it. Without the trace (a prefill), any
+/// failed flush counts.
 pub fn head_flush_failed(w: &SimWorld) -> bool {
     if w.failed_flushes() == 0 {
         return false;
     }
-    let Some(head) = w.node_at(&Path::new(STORE).join("HEAD")) else {
+    let events = w.trace();
+    if events.is_empty() {
+        return true;
+    }
+    let Some(head) = head_node(w) else {
         return true;
     };
-    w.trace().iter().any(|e| match e.kind {
-        EventKind::FlushEnd => e.a == head && e.c == 1,
-        EventKind::InFlight => e.a == head && e.b == 1 && e.c == 1,
-        _ => false,
-    })
-}
-
-/// Whether the adversary injected a fault into the run: a failed flush, a write, flush, `sync_dir`, creation, namespace
-/// or read fault, a sharing violation, or an external actor's act ([F15] FM-3, FM-5, FM-8.2, FM-10, FM-12).
-pub fn fault_injected(w: &SimWorld) -> bool {
-    use moirai_vfs_sim::Site;
-    if w.failed_flushes() > 0 {
-        return true;
+    let write = CallKind::Write as u64;
+    let (mut poisoned, mut rewrites) = (false, 0u32);
+    for e in &events {
+        match e.kind {
+            EventKind::FlushEnd if e.a == head && e.c == 1 => (poisoned, rewrites) = (true, 0),
+            EventKind::InFlight if e.a == head && e.b == 1 && e.c == 1 => {
+                (poisoned, rewrites) = (true, 0);
+            }
+            EventKind::Return if poisoned && e.a == write && e.b == head && e.c == 0 => {
+                rewrites += 1;
+            }
+            EventKind::FlushEnd if poisoned && e.a == head && e.c == 0 && rewrites >= 2 => {
+                poisoned = false;
+            }
+            _ => {}
+        }
     }
-    let sites = [
-        Site::WriteFault,
-        Site::FlushFault,
-        Site::SyncDirFault,
-        Site::CreateFault,
-        Site::NsFault,
-        Site::Sharing,
-        Site::ReadFault,
-        Site::MapFault,
-    ]
-    .map(|s| s as u64);
-    w.trace().iter().any(|e| match e.kind {
-        EventKind::Choice | EventKind::Injected => sites.contains(&e.a) && e.c != 0,
-        EventKind::External => true,
-        _ => false,
-    })
+    poisoned
 }
 
-/// Whether some read of the run failed (an injected read error, [F15] FM-12).
-pub fn read_failed(w: &SimWorld) -> bool {
-    let read = moirai_vfs_sim::CallKind::Read as u64;
-    w.trace()
-        .iter()
-        .any(|e| e.kind == EventKind::Return && e.a == read && e.c != 0)
-}
-
-/// Whether a `HEAD` slot may hold no valid state by the fault model alone, so that a store with no valid slot is a
-/// correct outcome ([F16] P-61: exit 7 for `moirai repair`): a failed flush in any process ([F15] FM-3.2, OP-1: both slots
-/// may fail validation), or a write to `HEAD` that failed or that a death interrupted (FM-5.2, §2.5: the slot it wrote
-/// holds any mix of old and new bytes) — after which a crash may tear the other slot (FM-1.2). The trace is read when the
-/// run keeps it; without it only the failed flushes count.
-pub fn head_may_be_damaged(w: &SimWorld) -> bool {
-    if w.failed_flushes() > 0 {
-        return true;
-    }
-    let Some(head) = w.node_at(&Path::new(STORE).join("HEAD")) else {
+/// Whether a scripted system crash happened in the run and no log flush has succeeded since ([OS/proc §5] U5, U6: an
+/// Unknown-boot reader runs no boot-change recovery, and after a crash it sees the acknowledged commits only once the
+/// next writer's flush has published them).
+pub fn crash_not_caught_up(w: &SimWorld) -> bool {
+    let events = w.trace();
+    let Some(i) = events.iter().rposition(|e| e.kind == EventKind::Crash) else {
         return false;
     };
-    let write = moirai_vfs_sim::CallKind::Write as u64;
-    w.trace().iter().any(|e| match e.kind {
-        EventKind::Return => e.a == write && e.b == head && e.c != 0,
-        EventKind::InFlight => e.a == head && e.b == 0,
-        _ => false,
-    })
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
-// Reads, operation exits and acknowledged groups
-
-/// An acknowledged operation's durable group: (op, start, end, chain_in, chain_out).
-pub type AckedGroup = (u64, u64, u64, u64, u64);
-
-/// I-G2 over a read ([F16 §17.2] "fresh": a read of an uncovered durable group): every durable record a view shows lies
-/// below the `durable_lsn` of the newest slot — a durable group at or below `committed_lsn` is covered by a flush whose
-/// publish raised `durable_lsn` past it (P-40, P-49), and `durable_lsn` never decreases. The check reads the commit
-/// positions of the view `st` a read returned and the published slot `s`. After a failed flush of `HEAD` a read may
-/// return an older slot (FM-3.2, OP-1): the check is then not made.
-pub fn uncovered(w: &SimWorld, st: &State, s: &Slot) -> Vec<String> {
-    if head_flush_failed(w) {
-        return Vec::new();
-    }
-    st.commits
+    !events[i..]
         .iter()
-        .filter(|(_, c)| c.lsn >= s.durable_lsn)
-        .map(|(op, c)| {
-            format!(
-                "read freshness (I-G2): a view shows commit {op:#x} at lsn {}, at or above durable_lsn {}: a durable \
-                 group no flush has covered",
-                c.lsn, s.durable_lsn
-            )
-        })
-        .collect()
+        .any(|e| e.kind == EventKind::FlushEnd && e.b == 0 && e.c == 0)
 }
 
 /// What one reader view ([F16 §8]) must show, taken when the view begins: the commits and the lazy rows acknowledged so
@@ -198,13 +203,18 @@ pub struct ReadWatch {
 
 impl ReadWatch {
     /// The watch of a view that begins now, after the acknowledgement of the commits `before` and the lazy rows `lazy`
-    /// (key, value).
-    pub fn begin(w: &SimWorld, before: BTreeSet<u64>, lazy: BTreeMap<u64, u64>) -> ReadWatch {
+    /// (key, value). `unknown_boot`: the reader is in Unknown-boot mode ([OS/proc §5]).
+    pub fn begin(
+        w: &SimWorld,
+        before: BTreeSet<u64>,
+        lazy: BTreeMap<u64, u64>,
+        unknown_boot: bool,
+    ) -> ReadWatch {
         ReadWatch {
             before,
             lazy,
             failed_flushes: w.failed_flushes(),
-            head_ok: !head_flush_failed(w),
+            head_ok: !head_flush_failed(w) && !(unknown_boot && crash_not_caught_up(w)),
         }
     }
 
@@ -213,7 +223,8 @@ impl ReadWatch {
     /// Every commit acknowledged before the view began is in it (I-G2). An acknowledged commit lies below `durable_lsn`
     /// of every slot published after its acknowledgement, in sectors a failed log flush never poisons (FM-3.1 reaches
     /// only sectors dirty during the flush); only a failed `HEAD` flush can make a read return an older slot (FM-3.2,
-    /// OP-1), and the check is not made after one.
+    /// OP-1), and the check is not made after one — nor for an Unknown-boot reader after a scripted crash until the next
+    /// flush ([OS/proc §5] U5, U6; [F13 §3.8] limits post-crash completeness to Known-boot readers).
     ///
     /// A lazy effect is reported as published, which promises visibility ([F16 §1.2] "acknowledge"), until a failed
     /// flush may take it back (FM-3.6). The view ends below `committed_lsn` only where the reader rules end it: a lazy
@@ -244,71 +255,188 @@ impl ReadWatch {
     }
 }
 
-/// A reader's refusal `e` (exit 7): a reader refuses only a store that some fault damaged, so in a run without an
-/// injected fault a refusal is a store the protocol must accept ([F16 §17.2] "avail"). `fixture`: the scenario's store
-/// carries a setup-injected defect that every process must refuse ([F16] P-61).
-pub fn reader_refusal(w: &SimWorld, e: &ToyError, fixture: bool) -> Option<String> {
-    (matches!(e, ToyError::Corrupt(_)) && !fault_injected(w) && !fixture).then(|| {
-        format!("avail: a reader refused the store in a run without an injected fault: {e}")
-    })
+/// The check of a view a process kept ([F16] P-56, [80 §2.4.3] "Readers"), taken when the operation that refreshes it
+/// begins: after the re-check of its bound, the process's view equals the replay of the valid log from the selected
+/// slot's segment set up to the view's bound. The toy's own model of that replay is a reader that starts after the
+/// refresh and replays the newest slot's set and the log up to exactly the view's bound
+/// ([`moirai_toylog::Toy::replay_to`]); [`KeptWatch::judge`] compares the two.
+///
+/// It runs after every refresh of a reader that kept a view from an earlier read, and after every acknowledged
+/// operation of a writer that kept its view (the view of its phase 1 and phase 2a, [F16] P-25, P-30); a writer's
+/// operation that ends in a refusal is not judged.
+///
+/// Its fault-model items (S4: it was added after the review of WP-40 found P-56 reported only through the ledger's ack
+/// and fresh verdicts, made an equality after R-HARN-S's S4 review, and made to judge a bound that the valid log no
+/// longer has after that review's second round, which found P-56 detected on one seed of 24):
+/// - **P-56's own terms:** a process re-checks its bound only when it reads a slot with a new `slot_seq`; under the
+///   slot it last read it keeps its view, which a lazy tail lost after a failed flush may have made stale ([F16] P-58,
+///   FM-3.6), also where no sector reads as poisoned any more: an append into a poisoned sector fixes the sector's
+///   other sub-sectors, a lost tail among them, to a version of their candidate set (FM-3.5). Nothing is judged unless
+///   the act's refresh read a new slot (the view's `slot_seq` changed). Under a new slot the re-check holds even then:
+///   a writer appends below a bound a published slot covers only after it has published the lowered `committed_lsn`
+///   ([F16] P-49), so the new slot's `committed_lsn` lies below the bound, or the refill re-wrote the 8 bytes before it.
+///   A read of `HEAD` that returns an older slot (FM-3.2, OP-1) changes no byte of the log, so its re-check is judged
+///   like any other.
+/// - **FM-3.6:** a flush that fails between the refresh and the replay may take back a lazy tail, and a writer's next
+///   flush re-writes the pending range (FM-3.5): nothing is judged after a failed flush since the watch began.
+///   Without one, and without a crash (which ends the process), the bytes below the view's bound cannot change between
+///   the refresh and the replay: appends land at the end of the valid log, and the protocol writes below a bound a
+///   view reached only to re-write a pending range or to refill a lost tail, after a failed flush or a crash, and only
+///   after a publish that lowers `committed_lsn` below the view's bound ([F16] P-43, P-49), which the re-check drops.
+/// - **FM-3.2:** a sector that a failed flush poisoned before the watch began, and that nobody has written since, may
+///   read a different version on every read, so the refresh and the replay may read different valid group sequences
+///   there. Nothing is judged when a log extent from the view's base on has a poisoned sector below the view's bound,
+///   asked of the simulator ([`SimWorld::poisoned_below`]) when the watch begins and again when it judges. A sector is
+///   poisoned only by a failed flush (FM-3.1), which the guard above excludes after the watch began, so a sector that a
+///   read between the two questions may have drawn from its candidate set is poisoned at the first. The lower bound is
+///   the view's base at the watch's start: every read the two views rest on starts at or above it (the refresh's from
+///   the kept bound or from a newer set's bound, the replay's from the newest set's, the newest set's own from the set
+///   before it), and a view rests on its own earlier reads only through the chain value at its bound, which the
+///   refresh re-checks.
+/// - **FM-12, FM-10:** a failed read, and an extent that an external truncation shortened, end the replay's scan
+///   without saying anything about the log below the bound ([`Replay::Unreached`]); a truncation never makes an
+///   invalid group, since a scan checks an extent's length before it reads it ([F05 §5.2] check 1).
+/// - With those excluded, the view's bound is the end of a valid group the refresh read, and the bytes below it are
+///   what the replay reads, so the replay reaches the bound and shows what the view shows. A replay that finds a valid
+///   group spanning the bound ([`Replay::Spanned`]), or that ends below it with an invalid group ([`Replay::Short`]),
+///   shows a bound the valid log no longer has: the view kept a lost tail, refilled with other group boundaries or not
+///   at all. A replay whose set folds beyond the bound, whose newest slot is of another epoch, or that stops below the
+///   bound at a failed read or at the end of the extents ([`Replay::Unreached`]) judges nothing, nor does a replay that
+///   refuses: its refusals are not the process's.
+pub struct KeptWatch {
+    failed_flushes: u64,
+    /// The view's `slot_seq` when the watch began.
+    slot_seq: u64,
+    /// The view's base when the watch began: the lowest lsn the poison questions cover.
+    from: u64,
+    /// The lowest poisoned lsn of the log from `from`'s extent on when the watch began ([`lowest_poisoned`]).
+    poisoned: u64,
+    /// The extent length E.
+    e: u64,
 }
 
-/// An operation that ended with `e`. An operation that exits 7 `outcome_unknown` ([F16] P-47: its group was lost three
-/// times) in a run without a failed flush or a failed read is an availability failure ([F16 §17.2] "avail"): the
-/// protocol loses a live writer's group only after a failed flush (its pages reverted, invalidated or evicted) or a
-/// failed read at its identity check. The check reads the operation's result (its exit), nothing inside the toy.
-pub fn outcome_unknown(w: &SimWorld, e: &ToyError) -> Option<String> {
-    (*e == ToyError::OutcomeUnknown && w.failed_flushes() == 0 && !read_failed(w)).then(|| {
-        "avail (P-47): an operation exited 7 outcome_unknown in a run without a failed flush or read".to_owned()
-    })
-}
-
-/// I-G3 over the acknowledged groups `acked` ([F13 §1.4]): every one is still in the log behind the predecessor it was
-/// validated against — its trailer at its end, and the 8 bytes before its start (its `chain_in`) unless it starts an
-/// extent. Only groups whose extents are still live log files are judged (a retired extent's history is in its `hist`
-/// file). `e` is the extent size E; the bytes are read through `v`, outside the toy.
-pub fn chain_breaks(v: &SimVfs, e: u64, acked: &[AckedGroup]) -> Vec<String> {
-    let Ok(root) = v.open_root(Path::new(STORE), RootRole::Other, RootAccess::Read) else {
-        return Vec::new();
-    };
-    let read8 = |lsn: u64| -> Option<u64> {
-        let n = lsn / e + 1;
-        let f = v
-            .open(
-                &root,
-                RelPath::new(&format!("log.{n}")).ok()?,
-                Access::Read,
-                OpenHint::Normal,
-            )
-            .ok()?;
-        let mut b = [0u8; 8];
-        v.read_exact_at(&f, lsn % e, &mut b).ok()?;
-        Some(u64::from_le_bytes(b))
-    };
-    let mut out = Vec::new();
-    for &(op, start, end, chain_in, chain_out) in acked {
-        let (Some(tr), Some(pre)) = (
-            read8(end - 8),
-            (start >= 8).then(|| read8(start - 8)).flatten(),
-        ) else {
-            continue;
-        };
-        if tr != chain_out || (start % e != 0 && pre != chain_in) {
-            out.push(format!(
-                "I-G3: the acknowledged group of op {op:#x} at [{start}, {end}) is no longer in the log behind the \
-                 predecessor it was validated against"
-            ));
+impl KeptWatch {
+    /// The watch of an operation that begins now and refreshes the view `v` the process kept, in a store whose extents
+    /// are `e` bytes long.
+    pub fn begin(w: &SimWorld, v: &View, e: u64) -> KeptWatch {
+        KeptWatch {
+            failed_flushes: w.failed_flushes(),
+            slot_seq: v.slot_seq,
+            from: v.base,
+            poisoned: lowest_poisoned(w, v.base, e),
+            e,
         }
     }
-    out
+
+    /// The view `v` of `who`, after its refresh, against `replay`, what a reader that starts now replays up to the view's
+    /// bound from the newest segment set. When the replay reaches the bound, every commit (by key) and every lazy runtime
+    /// row (key and value) the one holds, the other holds too: a kept overlay violates P-56 when it shows a row of a lost
+    /// tail, shows an older value of a row the refill rewrote, or lacks a row the refill wrote below its bound. When a
+    /// valid group spans the bound, or the valid log ends below it, the view kept a bound the valid log no longer has.
+    pub fn judge(&self, w: &SimWorld, v: &View, replay: &Replay, who: &str) -> Vec<String> {
+        let l0 = v.l0;
+        if v.slot_seq == self.slot_seq
+            || w.failed_flushes() != self.failed_flushes
+            || l0 > self.poisoned
+            || l0 > lowest_poisoned(w, self.from, self.e)
+        {
+            return Vec::new();
+        }
+        let replay = match replay {
+            Replay::Reached(r) => r,
+            Replay::Spanned { start, end } => {
+                return vec![format!(
+                    "kept view (P-56): {who} has the bound {l0}, which is no group boundary of the valid log: a valid \
+                     group spans [{start}, {end})"
+                )];
+            }
+            Replay::Short { end } => {
+                return vec![format!(
+                    "kept view (P-56): {who} has the bound {l0}, beyond the end of the valid log: the replay from the \
+                     newest segment set finds an invalid group at {end}"
+                )];
+            }
+            Replay::Unreached => return Vec::new(),
+        };
+        let st = &v.state;
+        let model = format!(
+            "the replay of the valid log from the newest segment set up to the view's bound {l0}"
+        );
+        let mut out = Vec::new();
+        let mut report = |what: String| out.push(format!("kept view (P-56): {who} {what}"));
+        for op in st
+            .commits
+            .keys()
+            .filter(|op| !replay.commits.contains_key(op))
+        {
+            report(format!("shows commit {op:#x}, which {model} lacks"));
+        }
+        for op in replay
+            .commits
+            .keys()
+            .filter(|op| !st.commits.contains_key(op))
+        {
+            report(format!("lacks commit {op:#x}, which {model} holds"));
+        }
+        for (k, v) in &st.runtime {
+            match replay.runtime.get(k) {
+                None => report(format!(
+                    "shows lazy row {k:#x} = {v:#x}, which {model} lacks"
+                )),
+                Some(x) if x != v => report(format!(
+                    "shows lazy row {k:#x} = {v:#x}, where {model} holds {x:#x}"
+                )),
+                Some(_) => {}
+            }
+        }
+        for (k, x) in &replay.runtime {
+            if !st.runtime.contains_key(k) {
+                report(format!(
+                    "lacks lazy row {k:#x} = {x:#x}, which {model} holds"
+                ));
+            }
+        }
+        out
+    }
+}
+
+/// The lowest lsn of the store's log, at or above the first byte of the extent that holds `from`, whose sector is
+/// poisoned now ([F15] FM-3.2: a read of it may return another version each time, [`SimWorld::poisoned_below`]), or
+/// `u64::MAX` when none is. It asks of `log.<n>` from that extent on, up to the first extent that does not exist: the
+/// extents of an epoch are numbered without gaps, and the ones below the newest set's bound that a checkpoint retired
+/// are gone. A poisoned sector below `from` in the same extent counts too: the question is per file prefix.
+pub fn lowest_poisoned(w: &SimWorld, from: u64, e: u64) -> u64 {
+    let sectors = e.div_ceil(SECTOR);
+    let mut n = from / e + 1;
+    loop {
+        let path = Path::new(STORE).join(format!("log.{n}"));
+        if w.node_at(&path).is_none() {
+            return u64::MAX;
+        }
+        if w.poisoned_below(&path, e) {
+            // The least k with a poisoned sector among the first k: sector k − 1 is poisoned, none before it.
+            let (mut clean, mut hit) = (0, sectors);
+            while hit - clean > 1 {
+                let mid = clean + (hit - clean) / 2;
+                if w.poisoned_below(&path, mid * SECTOR) {
+                    hit = mid;
+                } else {
+                    clean = mid;
+                }
+            }
+            return (n - 1) * e + (hit - 1) * SECTOR;
+        }
+        n += 1;
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// The namespace check ([F16 §17.2] "ns")
+// Where a project file is
 
-/// Where project file `f` is now, as seen through `v`: `at_dir(i)` with its content in directory i alone, `TRASH`, `BAD`
-/// (two places or other content), or none. A file whose name exists but whose bytes cannot be read (an injected read
-/// error, [F15] FM-12) counts as present with its content: the check judges names, and content only where it is readable.
+/// Where project file `f` is now, as seen through `v` — the value of its namespace register in an effect set
+/// (`mod.rs` `effects`): `at_dir(i)` with its content in directory i alone, `TRASH`, `BAD` (two places or other content),
+/// or none. A file whose name exists but whose bytes cannot be read (an injected read error, [F15] FM-12) counts as
+/// present with its content: the register names places, and content only where it is readable.
 pub fn ns_location(v: &SimVfs, f: u64) -> Option<u64> {
     let name = file_name(f);
     let want = content(f);
@@ -348,36 +476,6 @@ pub fn ns_location(v: &SimVfs, f: u64) -> Option<u64> {
     found.first().copied()
 }
 
-/// The namespace check of closed intents ([F16 §17.2] "ns"; [40 §3.4]'s recovery table): a file whose intent is done is
-/// where the intent moved it (its destination, the trash, or gone), and a file whose intent was aborted is back at its
-/// source (an abort rolls the item back or finds it unmoved, P-71).
-pub fn intent_namespace(v: &SimVfs, st: &State) -> Vec<String> {
-    use moirai_toylog::format::{INTENT_MV, INTENT_RM, INTENT_RM_TRASH};
-    use moirai_toylog::state::IntentState;
-    let mut out = Vec::new();
-    for row in st.intents.values() {
-        let Some(item) = row.rec.items.first() else {
-            continue;
-        };
-        let want = match (row.state, row.rec.op) {
-            (IntentState::Open, _) => continue,
-            (IntentState::Aborted { .. }, _) => Some(at_dir(item.src_dir)),
-            (IntentState::Done { .. }, INTENT_MV) => Some(at_dir(item.dst_dir)),
-            (IntentState::Done { .. }, INTENT_RM) => None,
-            (IntentState::Done { .. }, INTENT_RM_TRASH) => Some(TRASH),
-            (IntentState::Done { .. }, _) => continue,
-        };
-        let got = ns_location(v, item.file);
-        if got != want {
-            out.push(format!(
-                "ns: the intent of key {:#x} is {:?} but its file {} is at {got:?}, not {want:?}",
-                row.rec.key, row.state, item.file
-            ));
-        }
-    }
-    out
-}
-
 /// What a read of a project file found.
 pub enum Found {
     Absent,
@@ -410,277 +508,4 @@ pub fn read_all(v: &SimVfs, root: &moirai_vfs_sim::SimRoot, name: &str) -> Found
         Ok(()) => Found::Bytes(b),
         Err(_) => Found::Unreadable,
     }
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
-// The trace predicates ([F13 §1.4]: I-G4 and I-G6; [F16] P-2, P-25, P-51, L-8)
-
-/// The violations of the trace predicates in `events`.
-///
-/// Lock holdings are tracked per (process, client) from the `Granted` and `Released` events; the toy's step notes carry
-/// the client of the handle that performs the step, so a step of one client is never blamed on another client of the
-/// same process (the in-process clients of [F16] P-3). Raw `Vfs` events (a flush, a lock wait, a namespace change) name
-/// only the process: they are judged for processes that have used a single client.
-pub fn trace_violations(events: &[Event]) -> Vec<String> {
-    let writer = moirai_vfs::LockByte::Writer.offset();
-    let maintenance = moirai_vfs::LockByte::Maintenance.offset();
-    let quiet: BTreeSet<u64> = (0..moirai_vfs::N_QUIET)
-        .filter_map(moirai_vfs::QuietIndex::new)
-        .map(|q| moirai_vfs::LockByte::Quiet(q).offset())
-        .collect();
-    let mut out = Vec::new();
-    let mut pid_proc: BTreeMap<u64, u32> = BTreeMap::new();
-    // (process, client) that hold the writer byte; the clients each process has used; quiet bytes held.
-    let mut writer_held: BTreeSet<(u32, u64)> = BTreeSet::new();
-    let mut clients: BTreeMap<u32, BTreeSet<u64>> = BTreeMap::new();
-    // The tasks each process has started (a task is a client of its own, known before its first grant).
-    let mut tasks: BTreeMap<u32, u64> = BTreeMap::new();
-    let mut quiet_held: BTreeMap<(u32, u64), u64> = BTreeMap::new();
-    let mut maint_held: BTreeSet<(u32, u64)> = BTreeSet::new();
-    let mut log_flushing: BTreeSet<(u32, u64)> = BTreeSet::new();
-    // I-G6 over the publishes: the newest slot_seq written since the last disturbance.
-    let mut last_seq: Option<u64> = None;
-    let mut last_ck: Option<u64> = None;
-    let mut clean = true;
-    // A failed flush poisons its sectors for good ([F15] FM-3.3, OP-15: poisoning survives later flushes and system
-    // crashes, and only a re-write ends it): from then on a read of `HEAD` may return any candidate, so the publishes
-    // after it are not judged against each other.
-    let mut poisoned = false;
-    let mut pending_pub: [u64; 8] = [0; 8];
-    let single = |clients: &BTreeMap<u32, BTreeSet<u64>>, tasks: &BTreeMap<u32, u64>, p: u32| {
-        clients.get(&p).is_none_or(|c| c.len() <= 1) && tasks.get(&p).is_none_or(|&n| n <= 1)
-    };
-    let proc_holds = |held: &BTreeSet<(u32, u64)>, p: u32| held.iter().any(|&(q, _)| q == p);
-    for e in events {
-        match e.kind {
-            EventKind::ProcStart => {
-                pid_proc.insert(e.a, e.proc);
-            }
-            EventKind::ProcEnd => {
-                writer_held.retain(|&(p, _)| p != e.proc);
-                maint_held.retain(|&(p, _)| p != e.proc);
-                quiet_held.retain(|k, _| k.0 != e.proc);
-                log_flushing.retain(|&(p, _)| p != e.proc);
-                if e.a != 5 {
-                    // A death may leave a publish half written: the next publisher reads the other slot.
-                    last_seq = None;
-                    clean = false;
-                }
-            }
-            EventKind::Crash | EventKind::Boot => {
-                writer_held.clear();
-                maint_held.clear();
-                quiet_held.clear();
-                log_flushing.clear();
-                last_seq = None;
-                last_ck = None;
-                clean = !poisoned;
-            }
-            EventKind::FlushEnd if e.c == 1 => {
-                // A failed flush: reads of poisoned sectors may return older bytes (FM-3.2), after a crash too.
-                last_seq = None;
-                clean = false;
-                poisoned = true;
-            }
-            EventKind::InFlight if e.b == 1 && e.c == 1 => {
-                // A death's failed flush outcome poisons like a failed flush (FM-3.1).
-                last_seq = None;
-                clean = false;
-                poisoned = true;
-            }
-            EventKind::InFlight if e.b == 0 => {
-                // A death's partial write (§2.5): a publish in it may or may not have taken effect.
-                last_seq = None;
-                clean = false;
-            }
-            EventKind::External => {
-                last_seq = None;
-                clean = false;
-            }
-            EventKind::Return if e.c != 0 && e.a == moirai_vfs_sim::CallKind::Write as u64 => {
-                // A failed write may have applied any part of its bytes (FM-5.2): a publish in it may or may not have
-                // taken effect.
-                last_seq = None;
-                clean = false;
-            }
-            EventKind::Granted => {
-                clients.entry(e.proc).or_default().insert(e.c);
-                if e.b == writer {
-                    writer_held.insert((e.proc, e.c));
-                } else if e.b == maintenance {
-                    maint_held.insert((e.proc, e.c));
-                } else if quiet.contains(&e.b) {
-                    *quiet_held.entry((e.proc, e.b)).or_insert(0) += 1;
-                }
-            }
-            EventKind::Released => {
-                if e.b == writer {
-                    writer_held.remove(&(e.proc, e.c));
-                } else if e.b == maintenance {
-                    maint_held.remove(&(e.proc, e.c));
-                } else if quiet.contains(&e.b)
-                    && let Some(n) = quiet_held.get_mut(&(e.proc, e.b))
-                {
-                    *n = n.saturating_sub(1);
-                    if *n == 0 {
-                        quiet_held.remove(&(e.proc, e.b));
-                    }
-                }
-            }
-            EventKind::FlushStart
-                if single(&clients, &tasks, e.proc) && proc_holds(&writer_held, e.proc) =>
-            {
-                out.push(format!(
-                    "I-G4 (P-2): process {} flushes (node {}) while it holds the writer byte",
-                    e.proc, e.a
-                ));
-            }
-            EventKind::LockWait
-                if single(&clients, &tasks, e.proc) && proc_holds(&writer_held, e.proc) =>
-            {
-                out.push(format!(
-                    "I-G4 (P-1, P-2): process {} waits for lock byte {:#x} while it holds the writer byte",
-                    e.proc, e.b
-                ));
-            }
-            EventKind::NsOp
-                if e.proc != u32::MAX
-                    && single(&clients, &tasks, e.proc)
-                    && proc_holds(&writer_held, e.proc) =>
-            {
-                out.push(format!(
-                    "P-2: process {} changes the namespace while it holds the writer byte",
-                    e.proc
-                ));
-            }
-            EventKind::Note if e.a == T_TASK => {
-                if let Some(&p) = pid_proc.get(&e.b) {
-                    *tasks.entry(p).or_insert(0) += 1;
-                }
-            }
-            EventKind::Note => {
-                let p = pid_proc.get(&e.b).copied().unwrap_or(u32::MAX);
-                let (begin, client) = (e.c & 1 == 1, e.c >> 1);
-                let holds = writer_held.contains(&(p, client));
-                match e.a {
-                    T_PHASE1 if begin && holds => {
-                        out.push(format!(
-                            "P-25: process {p} runs phase 1 while it holds the writer byte"
-                        ));
-                    }
-                    T_PHASE3 if begin && holds => {
-                        out.push(format!(
-                            "P-51: process {p} runs phase 3 (maintenance) while it holds the writer byte"
-                        ));
-                    }
-                    T_REWRITE if begin && !holds => {
-                        out.push(format!(
-                            "I-G4 (P-43): process {p} scans and re-writes the pending range outside the writer byte"
-                        ));
-                    }
-                    T_LOGFLUSH | T_HEADFLUSH if begin && holds => {
-                        out.push(format!(
-                            "I-G4 (P-2): process {p} flushes while it holds the writer byte"
-                        ));
-                    }
-                    _ => {}
-                }
-                match e.a {
-                    T_LOGFLUSH if begin => {
-                        if !log_flushing.is_empty() && !log_flushing.contains(&(p, client)) {
-                            out.push(format!(
-                                "I-G4: process {p} starts a log flush while another is in flight"
-                            ));
-                        }
-                        log_flushing.insert((p, client));
-                    }
-                    T_LOGFLUSH => {
-                        log_flushing.remove(&(p, client));
-                    }
-                    T_CKPT => {
-                        if !maint_held.contains(&(p, client)) {
-                            out.push(format!(
-                                "P-76: process {p} appends a Checkpoint without holding the maintenance byte"
-                            ));
-                        }
-                        if !quiet_held.is_empty() {
-                            out.push(format!(
-                                "L-8 ([F03 §3.1] rule 2): process {p} appends a Checkpoint while a quiet byte is held \
-                                 (quiet mode)"
-                            ));
-                        }
-                    }
-                    T_PUB_SEQ => {
-                        pending_pub[0] = e.b;
-                        pending_pub[1] = e.c;
-                    }
-                    T_PUB_DUR => {
-                        pending_pub[2] = e.b;
-                        pending_pub[3] = e.c;
-                    }
-                    T_PUB_CK => {
-                        pending_pub[4] = e.b;
-                        pending_pub[5] = e.c;
-                    }
-                    T_PUB_BOOT => {
-                        pending_pub[6] = e.b;
-                        pending_pub[7] = e.c;
-                    }
-                    T_PUB_FLAGS => {
-                        let [bseq, nseq, bdur, ndur, bck, nck, bboot, nboot] = pending_pub;
-                        let flushed = e.b & 1 != 0;
-                        let boot_change = e.b & 2 != 0;
-                        let known = e.b & 4 != 0;
-                        if nseq != bseq + 1 {
-                            out.push(format!(
-                                "I-G6: a publish writes slot_seq {nseq} over {bseq}"
-                            ));
-                        }
-                        if ndur < bdur {
-                            out.push(format!(
-                                "I-G6 (P-45): a publish lowers durable_lsn from {bdur} to {ndur}"
-                            ));
-                        }
-                        if !flushed && ndur != bdur {
-                            out.push(format!(
-                                "I-G6 (P-7): a publish without a flush moves durable_lsn from {bdur} to {ndur}"
-                            ));
-                        }
-                        if nck < bck {
-                            out.push(format!(
-                                "I-G6: a publish moves checkpoint_lsn back from {bck} to {nck}"
-                            ));
-                        }
-                        if clean
-                            && let Some(c) = last_ck
-                            && nck < c
-                        {
-                            out.push(format!(
-                                "I-G6 (P-76): the published checkpoint_lsn goes back from {c} to {nck}"
-                            ));
-                        }
-                        if nboot != bboot && !(boot_change && known) {
-                            out.push(format!(
-                                "I-G6 (P-67): a publish that is not boot-change recovery changes boot_id \
-                                 ({bboot:#x} to {nboot:#x})"
-                            ));
-                        }
-                        if clean
-                            && let Some(l) = last_seq
-                            && bseq != l
-                        {
-                            out.push(format!(
-                                "I-G6 (P-48): a publish read-modify-writes slot_seq {bseq}, not the newest slot ({l})"
-                            ));
-                        }
-                        last_seq = Some(nseq.max(last_seq.unwrap_or(0)));
-                        last_ck = Some(nck.max(last_ck.unwrap_or(0)));
-                    }
-                    _ => {}
-                }
-            }
-            _ => {}
-        }
-    }
-    out
 }
