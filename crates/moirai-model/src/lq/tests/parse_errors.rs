@@ -83,6 +83,13 @@ fn annex_r_refused_forms() {
         ("ASSERT 1 = 1", (E006, 1, 1)),
         ("TX { SET #1.a = 1 }", (E006, 1, 1)),
         ("CALL tx.complete(#89, outcome: 'done')", (E006, 1, 6)),
+        // [LQ/lexical §9] (spec sync 2b): a back-quoted first segment is the same name.
+        ("CALL `tx`.complete(#89, outcome: 'done')", (E006, 1, 6)),
+        ("CALL `apoc`.coll.sum([1])", (E004, 1, 6)),
+        // [LQ/errors §3.1] (spec sync 2b): a lexical error inside a viable prefix is the first error.
+        ("RETURN a NOT $", (E001, 1, 14)),
+        // `[x IN l]` is a list literal; `WHERE` or `|` after the first element makes it a comprehension (Annex R).
+        ("RETURN [x IN [1, 2], 3 | 4]", (E004, 1, 8)),
         (
             "MATCH (a) WHERE EXISTS { USE main MATCH (b) } RETURN a",
             (E308, 1, 26),
@@ -155,6 +162,13 @@ fn transaction_decisions() {
         ("TX IF TIP main~x { SET #1.a = 1 }", (E003, 1, 11)),
         ("TX { UNLESS }", (E001, 1, 6)),
         ("TX { CREATE (n:task) UNLESS EXISTS { } }", (E001, 1, 38)),
+        // N5 ([LQ/canonical-ast §5.8], spec sync 2b): `EXPECT m..n` with m > n is E001 at the bound.
+        ("TX { MATCH (t) EXPECT 3..1 SET t.a = 1 }", (E001, 1, 23)),
+        // `POLICY REASSIGN` ([LQ/grammar-v1.ebnf] `delete_opt`, spec sync 2b) parses; a second policy does not.
+        (
+            "TX { DELETE #1 POLICY REASSIGN POLICY CASCADE }",
+            (E001, 1, 32),
+        ),
     ];
     for (src, want) in cases {
         assert_eq!(first_err_tx(src, false), *want, "{src}");

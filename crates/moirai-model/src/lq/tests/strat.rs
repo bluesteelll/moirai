@@ -460,31 +460,24 @@ const REV_RELATIONS: [(&str, bool, &[&str]); 6] = [
     ("violations", true, &["ref"]),
 ];
 
-/// A procedure name other than a revision relation's (those take [`rev_call`]'s arguments): dotted names, and names
-/// whose first segment is a refused prefix, in any case.
+/// A procedure name other than a revision relation's (those take [`rev_call`]'s arguments): dotted names. A first
+/// segment `tx` or a refused prefix (`apoc`, `gds`, `db`, `dbms`) is refused in a read whether back-quoted or not
+/// ([LQ/lexical §9], spec sync 2b; the WP-93a verification's R2), so no such name is generated.
 fn proc_name() -> impl Strategy<Value = String> {
-    let prefixed = (
-        prop::sample::select(vec!["apoc", "APOC", "gds", "db", "Db", "dbms", "tx", "TX"]),
-        prop::collection::vec(seg_name(), 0..2),
-    )
-        .prop_map(|(first, rest)| {
-            std::iter::once(first.to_string())
-                .chain(rest)
-                .collect::<Vec<_>>()
-                .join(".")
-        });
-    prop_oneof![
-        4 => prop::collection::vec(seg_name(), 1..3).prop_map(|v| v.join(".")),
-        1 => prefixed,
-    ]
-    .prop_filter(
-        "the revision relations read their arguments in revision mode",
-        |n| {
-            !REV_RELATIONS
-                .iter()
-                .any(|(r, ..)| r.eq_ignore_ascii_case(n))
-        },
-    )
+    prop::collection::vec(seg_name(), 1..3)
+        .prop_map(|v| v.join("."))
+        .prop_filter(
+            "the revision relations read their arguments in revision mode",
+            |n| {
+                !REV_RELATIONS
+                    .iter()
+                    .any(|(r, ..)| r.eq_ignore_ascii_case(n))
+            },
+        )
+        .prop_filter("no refused or tx first segment", |n| {
+            let first = n.split('.').next().unwrap_or("").to_ascii_lowercase();
+            !["tx", "apoc", "gds", "db", "dbms"].contains(&first.as_str())
+        })
 }
 
 /// A value at a revision position: a revspec, a range, a list, or a quoted string, which ends revision mode.
@@ -794,7 +787,8 @@ fn target() -> impl Strategy<Value = Target> {
 fn expect() -> impl Strategy<Value = Expect> {
     prop_oneof![
         (0..=i64::MAX).prop_map(Expect::Exact),
-        (0..=i64::MAX, 0..=i64::MAX).prop_map(|(a, b)| Expect::Range(a, b)),
+        // N5 (spec sync 2b): a written range with min > max is E001 at parse time, so the generator orders it.
+        (0..=i64::MAX, 0..=i64::MAX).prop_map(|(a, b)| Expect::Range(a.min(b), a.max(b))),
         (0..=i64::MAX).prop_map(Expect::Le),
         (0..=i64::MAX).prop_map(Expect::Ge),
         word().prop_map(|p| Expect::Param(name(p))),
@@ -803,8 +797,13 @@ fn expect() -> impl Strategy<Value = Expect> {
 
 fn mutation(inner: BoxedStrategy<Expr>) -> BoxedStrategy<Mut> {
     let dopt = prop_oneof![
-        prop::sample::select(vec![Policy::Restrict, Policy::Cascade, Policy::Reparent])
-            .prop_map(DOpt::Policy),
+        prop::sample::select(vec![
+            Policy::Restrict,
+            Policy::Cascade,
+            Policy::Reparent,
+            Policy::Reassign
+        ])
+        .prop_map(DOpt::Policy),
         target().prop_map(DOpt::Replaced),
         Just(DOpt::Release),
         inner.clone().prop_map(DOpt::Reason),
@@ -1013,7 +1012,8 @@ fn stmt() -> BoxedStrategy<Stmt> {
                 Just(Take::Theirs),
                 Just(Take::Base),
                 inner.prop_map(Take::Value),
-                target().prop_map(Take::Repoint)
+                target().prop_map(Take::Repoint),
+                Just(Take::Drop)
             ]
         )
             .prop_map(|(what, take)| Stmt::Resolve(Resolve {

@@ -123,14 +123,16 @@ pub fn explicit_key(k: &str) -> [u8; 16] {
     blake3_128(&[b"moirai-idem-key-v1", k.as_bytes()])
 }
 
-/// The default key: `BLAKE3-128(lp("moirai-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(P))` over the resolved session `s`,
-/// the attested thread or agent `a` and the payload `P` ([API §7.2]).
+/// The default key: `BLAKE3-128(lp("moirai-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(b) ‖ lp(P))` over the resolved
+/// session `s`, the attested thread or agent `a`, the name `b` of the command's branch and the payload `P` ([API §7.2];
+/// [F06 §4.4.7]): one command on two branches within the default window has two keys.
 // spec: [API §7.2]
-pub fn default_key(session: &str, agent: &str, payload: &[u8; 16]) -> [u8; 16] {
+pub fn default_key(session: &str, agent: &str, branch: &str, payload: &[u8; 16]) -> [u8; 16] {
     blake3_128(&[
         b"moirai-idem-default-v1",
         session.as_bytes(),
         agent.as_bytes(),
+        branch.as_bytes(),
         payload,
     ])
 }
@@ -242,7 +244,7 @@ impl Default for Windows {
 
 impl Windows {
     /// The window of an entry: the retention, or for a default key the default window within it.
-    fn of(self, e: &Entry) -> u64 {
+    pub fn of(self, e: &Entry) -> u64 {
         if e.default_key {
             self.default_ms.min(self.retention_ms)
         } else {

@@ -7,9 +7,6 @@ use std::collections::{BTreeMap, BTreeSet};
 
 /// The rows of procedure tables that later work packages implement, with the package.
 const LATER: &[(&str, &str)] = &[
-    // R4 link intent (WP-92): the settles after a merge and the history verbs against the working tree.
-    ("link-resolution", "WP-92"),
-    ("link-history", "WP-92"),
     // Packs, briefs and notices: LQ-3's evaluator and the reference renderer (WP-93b, WP-71a).
     ("pack-bytes", "WP-93b"),
     ("pack-floors", "WP-93b"),
@@ -44,9 +41,13 @@ const LATER_ROWS: &[(&str, &str)] = &[
     ),
     (
         "DM-015",
-        "M5: a foreign merge's counters taken from the ledger",
+        "M5: a foreign merge's counters taken from the typed merge",
     ),
     ("HT-003", "M5: the ForeignMerge hint of an import"),
+    (
+        "LH-007",
+        "M5: a hand-edited `field path:` in an image is a foreign SetField",
+    ),
 ];
 
 /// Every `// rule:` tag of the crate's source, by row id, with the file it is in.

@@ -372,6 +372,20 @@ impl Hlc {
         h
     }
 
+    /// The HLC a record that does not advance the sequence carries (CK-4: `Lazy` records and the lazy runtime rows):
+    /// `hlc_next(wall_ms, hlc_seq)` for the current sequence.
+    // spec: [API §6.2] CK-4
+    pub fn peek(&self, wall_ms: i64) -> u64 {
+        hlc_next(wall_ms, self.seq)
+    }
+
+    /// The HLC the next local commit will take ([`Hlc::commit`] without drawing it): a `path_moves` entry's `hlc`
+    /// (CK-5).
+    // spec: [API §6.2] CK-5
+    pub fn peek_commit(&self, wall_ms: i64) -> u64 {
+        hlc_next(wall_ms, self.seq.max(self.commit))
+    }
+
     /// `now_ms` of a retention window: `max(wall_ms, h >> 16)` over the greatest HLC seen (CK-6).
     // spec: [API §6.2] CK-6
     pub fn now_ms(&self, wall_ms: i64) -> u64 {

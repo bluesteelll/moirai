@@ -48,6 +48,18 @@ impl Default for EdgePolicies {
     }
 }
 
+impl EdgePolicies {
+    /// The policy data `edges.blocks.on-src-deleted` and `edges.gates.on-src-deleted` of a view: its `policy` items,
+    /// `flag` without one ([CFG §10.13]; [F08 §8.5.6]).
+    pub fn of(schema: &crate::schema::Schema) -> EdgePolicies {
+        let get = |n: &str| schema.policy(n).unwrap_or("flag").to_string();
+        EdgePolicies {
+            blocks: get("edges.blocks.on-src-deleted"),
+            gates: get("edges.gates.on-src-deleted"),
+        }
+    }
+}
+
 /// One edge a delete meets: (source, kind, destination, discriminator), `parent` for the hierarchy.
 #[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Met {

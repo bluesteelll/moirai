@@ -19,7 +19,7 @@ use crate::state::{
     Aspect, Changeset, Conflict, EdgeKey, Image, KState, KVal, Key, Node, Side, State,
 };
 use crate::text3;
-use crate::value::{Nid, PathMove, PathVal, Uid, Value, blake3_128};
+use crate::value::{Nid, PathMove, PathVal, Uid, Value};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -44,9 +44,9 @@ pub type MoveKey = (u64, [u8; 32]);
 /// The moves of one Kleppmann step: each moved node with its (parent, order), ascending by node.
 pub type Moves = Vec<(Nid, Option<KVal>)>;
 
-/// One step of Kleppmann's replay (RS-007 as the WP-91 review's spec finding S1b states it): one commit of
-/// A(side) \ A(B), holding the hierarchy entries of its net changeset against its first parent, each with its value in
-/// that commit's state ([F12 §7.4]; VM-7).
+/// One step of Kleppmann's replay (RS-007; [F12 §7.4] row "Kleppmann steps"; VM-7): one commit of A(side) \ A(B),
+/// holding the hierarchy entries of its canonical net changeset against its first parent, each with its value in that
+/// commit's state; or a revert's or cherry-pick's one src step, C's, valued in src's state.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Step {
     /// The commit's (hlc, id).
@@ -273,21 +273,7 @@ fn is_deleted(v: &Option<KVal>) -> bool {
     matches!(v, Some(KVal::Deleted { .. }))
 }
 
-/// `uid_file(r, p, q)` of [F08 §11.2].
-pub fn uid_file(root: &str, path: &str, q: Option<Uid>) -> Uid {
-    let q = q.map(|u| u.0.to_vec()).unwrap_or_default();
-    Uid(blake3_128(&[
-        b"moirai-file-v1",
-        root.as_bytes(),
-        path.as_bytes(),
-        &q,
-    ]))
-}
-
-/// `uid_root(r)` of [F08 §11.3].
-pub fn uid_root(root: &str) -> Uid {
-    Uid(blake3_128(&[b"moirai-root-v1", root.as_bytes()]))
-}
+pub use crate::r4::uid::{uid_file, uid_root};
 
 /// The disposition of a row.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -447,6 +433,37 @@ impl Engine<'_, '_> {
         a == b || self.enc(k, a) == self.enc(k, b)
     }
 
+    /// [F12 §5.4]'s ≈: §7.3's equality, widened for two conflict values that have the same class and base and
+    /// exchanged `ours` and `theirs` (on an existence key, the opposite `prov`, their node images exchanged with them):
+    /// a side that left its own merge's conflict untouched holds it in its own orientation (RVB-1 to RVB-4; VBC-3).
+    fn approx(&self, k: &Key, a: &KState, b: &KState) -> bool {
+        if self.eq(k, a, b) {
+            return true;
+        }
+        let (KState::Conflict(x), KState::Conflict(y)) = (a, b) else {
+            return false;
+        };
+        if x.class != y.class {
+            return false;
+        }
+        let exchanged = Conflict {
+            class: y.class.clone(),
+            base: y.base.clone(),
+            ours: y.theirs.clone(),
+            theirs: y.ours.clone(),
+            prov: y.prov.map(|p| match p {
+                Side::Ours => Side::Theirs,
+                Side::Theirs => Side::Ours,
+            }),
+            images: [
+                y.images[0].clone(),
+                y.images[2].clone(),
+                y.images[1].clone(),
+            ],
+        };
+        self.eq(k, a, &KState::Conflict(Box::new(exchanged)))
+    }
+
     fn val(&self, i: usize, k: &Key) -> KState {
         match k {
             Key::Node(n, a) => cval(self.st(i), *n, a),
@@ -529,9 +546,17 @@ impl Engine<'_, '_> {
     // ----------------------------------------------------------------------------------------------------------
 
     fn case(&self, case: &str, k: &Key, b: &KState, o: &KState, t: &KState) -> bool {
-        let same = self.eq(k, o, t);
-        let ob = self.eq(k, o, b);
-        let tb = self.eq(k, t, b);
+        // Over a conflict-valued base the `conflicted-key` rows compare by ≈ ([F12 §5.4]; MR-001, MR-003, MR-004).
+        let cmp = |x: &KState, y: &KState| {
+            if matches!(b, KState::Conflict(_)) {
+                self.approx(k, x, y)
+            } else {
+                self.eq(k, x, y)
+            }
+        };
+        let same = cmp(o, t);
+        let ob = cmp(o, b);
+        let tb = cmp(t, b);
         let both = !ob && !tb && !same;
         let pb = || flat(b);
         let (po, pt) = (flat(o), flat(t));
@@ -1496,20 +1521,28 @@ impl Engine<'_, '_> {
         });
     }
 
-    /// RS-007 `kleppmann` over the merged live nodes, as the WP-91 review's spec finding S1b states it ([F12 §7.4];
-    /// VM-7): from b's (parent, order), every commit ours or theirs made since the base is one step, applied in
-    /// ascending (hlc, commit id) order. A step sets each node it holds to the node's (parent, order) in that commit's
-    /// state, all at once, so the steps of one side alone pass through that side's own states, each a forest, and never
-    /// meet a cycle — a swap in one commit or a restructure over several. A step that leaves a node its own ancestor has
-    /// its moves undone (MR-039) one at a time, the least uid among the step's nodes that lie on a cycle first, until
-    /// the forest has none. A node counts as skipped when its last move was undone: a later move of it that applied
-    /// decides its value, as MR-040's later move does. When one commit is a step of both sides, src's moves apply
-    /// after dst's, as the later push.
+    /// RS-007 `kleppmann` over the merged live nodes ([F12 §7.4] row "Kleppmann steps"; [F12 §5.3] VM-7; MR-039,
+    /// MR-040, CS-013). Every merged node starts from b's (parent, order), for a revert or a cherry-pick too, whose b is
+    /// the DM row's base (state(C) for a revert, state(p₁(C)) for a cherry-pick). Each commit of A(o) \ A(B) and of
+    /// A(t) \ A(B) whose canonical net changeset against its first parent has hierarchy entries is one step
+    /// ([`crate::dag::Dag::move_steps`]), keyed by its (hlc, commit id) and setting those keys to their values in that
+    /// commit's state; for a revert or a cherry-pick of C, src has one step instead, C's, keyed by C's (hlc, id) and
+    /// valued in src's state. For each side, a hierarchy key whose value on that side differs from b while no step of
+    /// that side sets it (the base of a revert, a cherry-pick, `--base` or a virtual base is not where that side's
+    /// commits start) is set to that side's value in a step keyed (0, 0), before every commit.
     ///
-    /// The steps come from commits, so a node that a side's state holds elsewhere than the base while no commit of that
-    /// side since the base moved it — the base of a revert, a cherry-pick, `--base` or a virtual base is not where that
-    /// side's commits start — moves to the side's value in a first step of that side, at the least order key. Step
-    /// entries follow the re-key (RK-005, RK-006): U's moves are uid′'s, and a parent U that the side set is uid′.
+    /// The steps apply in ascending (hlc, commit id) order, commit ids compared bytewise, all moves of a step at once;
+    /// where two steps share a key (a commit that is a step of both sides, or the two sides' (0, 0) steps), dst's moves
+    /// apply first, then src's. Two steps that share a key stay two steps: dst's applies and is checked, then src's, so
+    /// a cycle that src's step closes undoes src's moves, never dst's (the reading of "dst's moves apply first, then
+    /// src's" this model takes; a commit that is a step of both sides moves the same keys to the same values twice,
+    /// which gives the result of applying it once). After a step in which a node is its own ancestor, the step's moves
+    /// are undone one at a time, the least uid among the step's nodes that lie on a cycle and are not yet undone first,
+    /// until none is (MR-039); a move that set the value its node already held is undone like any other. A key whose
+    /// last move was undone is `kleppmann-skipped` (CS-013); a later move of it that applied decides its value
+    /// (MR-040). Each key's value is its node's final (parent, order). Step entries follow the re-key (RK-005, RK-006):
+    /// U's moves are uid′'s, and a parent U that the side set is uid′. Keys of a uid fixed by an existence policy
+    /// (PR-007) take no part.
     fn kleppmann(&mut self, modes: &BTreeMap<Nid, Mode>) -> BTreeMap<Nid, Option<KVal>> {
         let hk = |n: Nid| Key::Node(n, Aspect::Hierarchy);
         let get = |st: &State, n: Nid| -> Option<KVal> { flat(&cval(st, n, &Aspect::Hierarchy)) };
@@ -1522,8 +1555,9 @@ impl Engine<'_, '_> {
         let mut cur: BTreeMap<Nid, Option<KVal>> = BTreeMap::new();
         for (n, m) in modes {
             let v = match m {
-                Mode::Merged => get(self.st(0), *n),
-                Mode::Fixed(From::Base, _) | Mode::Tomb(From::Base) => get(self.st(0), *n),
+                Mode::Merged | Mode::Fixed(From::Base, _) | Mode::Tomb(From::Base) => {
+                    get(self.st(0), *n)
+                }
                 Mode::Fixed(From::Ours, _) | Mode::Tomb(From::Ours) => get(self.st(1), *n),
                 Mode::Fixed(From::Theirs, _) | Mode::Tomb(From::Theirs) => get(self.st(2), *n),
                 Mode::Absent => continue,
@@ -1538,7 +1572,8 @@ impl Engine<'_, '_> {
                 self.out.rows.insert(k, "MR-040".into());
             }
         }
-        // (order key, moves): each side's steps in their order, dst's side first; the sort below is stable.
+        // (order key, moves): dst's steps, then src's, each side's (0, 0) step first; the stable sort below keeps dst's
+        // step before src's where two steps share a key.
         let mut steps: Vec<(MoveKey, Moves)> = Vec::new();
         for side in 0..2 {
             let i = side + 1;
@@ -1576,6 +1611,7 @@ impl Engine<'_, '_> {
                     own.push((s.key, moves));
                 }
             }
+            // A key the side changed that no step of it sets: a step keyed (0, 0), before every commit.
             let drift: Moves = merged
                 .iter()
                 .filter(|n| !listed.contains(n))
@@ -1593,36 +1629,27 @@ impl Engine<'_, '_> {
         steps.sort_by_key(|s| s.0);
         // Whether each moved node's last move applied.
         let mut last: BTreeMap<Nid, bool> = BTreeMap::new();
-        let mut i = 0;
-        while i < steps.len() {
-            let key = steps[i].0;
-            let end = steps[i..]
-                .iter()
-                .position(|s| s.0 != key)
-                .map_or(steps.len(), |p| i + p);
-            // The step: every move of the key at once, each node's value before the step kept.
+        for (_, moves) in &steps {
+            // The step: all its moves at once, each node's value before the step kept.
             let mut before: BTreeMap<Nid, Option<KVal>> = BTreeMap::new();
-            for (_, moves) in &steps[i..end] {
-                for (n, v) in moves {
-                    let old = cur.insert(*n, v.clone()).flatten();
-                    before.entry(*n).or_insert(old);
-                }
+            for (n, v) in moves {
+                let old = cur.insert(*n, v.clone()).flatten();
+                before.entry(*n).or_insert(old);
             }
-            let mut kept: BTreeSet<Nid> = before.keys().copied().collect();
+            let mut undone: BTreeSet<Nid> = BTreeSet::new();
             loop {
-                let worst = kept
-                    .iter()
+                let worst = before
+                    .keys()
                     .copied()
-                    .filter(|n| on_cycle(&cur, *n))
+                    .filter(|n| !undone.contains(n) && on_cycle(&cur, *n))
                     .min_by_key(|n| self.uid(*n));
                 let Some(n) = worst else { break };
                 cur.insert(n, before[&n].clone());
-                kept.remove(&n);
+                undone.insert(n);
             }
             for n in before.keys() {
-                last.insert(*n, kept.contains(n));
+                last.insert(*n, !undone.contains(n));
             }
-            i = end;
         }
         for (n, applied) in last {
             if !applied {
@@ -1777,7 +1804,12 @@ fn strengthening(k: &Key, b: &Option<KVal>, x: &Option<KVal>) -> bool {
         return false;
     }
     match (b, k) {
-        (None, Key::Schema(crate::schema::ItemKey::Query(_))) => true,
+        // A policy row's every change is a strengthening, its addition included ([RULES/merge-table] MC-013, MR-055;
+        // [F08 §8.5.6]: one atomic merge value).
+        (
+            None,
+            Key::Schema(crate::schema::ItemKey::Query(_) | crate::schema::ItemKey::Policy(_)),
+        ) => true,
         (None, Key::Schema(_)) => false,
         _ => true,
     }

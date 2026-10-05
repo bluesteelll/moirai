@@ -2,8 +2,9 @@
 //! `WorktreeBind` and `WorktreeUnbind` write ([API §11.3], §11.4), and the lookups the caller context's branch order
 //! reads ([API §4.2] CX-2: the binding of a path by its longest bound prefix, a client head, a session head).
 //!
-//! A binding designates a tree only when its directory is a simulated tree ([F18 §3.5]); the model's simulated trees
-//! arrive with `EnvTree` (WP-92), so until a tree exists every binding is `binding only` with the warning `not_a_tree`.
+//! A binding designates a tree only when its directory is a simulated tree's root ([F18 §3.3], §3.5; [API §6.5]); a
+//! binding of any other directory is `binding only`, with the warning `not_a_tree`. Directory keys are canonical
+//! absolute paths ([API §4.1]).
 
 use crate::api::{Ctx, Data, Door, Reply, Store};
 use crate::dag::{self, RefKind};
@@ -53,9 +54,9 @@ pub struct Head {
     pub target: Target,
     /// `designated` ([F18 §3.2]).
     pub designated: bool,
-    /// `expected_ref`.
+    /// `expected_ref`, in the short form of [F18 §3.2] rule 1.
     pub expected_ref: Option<String>,
-    /// `base`.
+    /// `base`: a git commit id as the API writes it (`sha1:<hex>`, [API §5.2]).
     pub base: Option<String>,
     /// The HLC of the `ClientHead` record that wrote the row.
     pub hlc: u64,
@@ -169,8 +170,8 @@ impl Store {
             return Ok((HeadKind::Session, format!("session:{s}")));
         }
         ctx.cwd
-            .clone()
-            .map(|d| (HeadKind::Directory, d))
+            .as_deref()
+            .map(|d| (HeadKind::Directory, crate::links::canon_abs(d)))
             .ok_or_else(|| {
                 Refusal::usage("checkout needs a client, an MCP session or a working directory")
             })
@@ -181,14 +182,13 @@ impl Store {
     /// `target` and checked out, in one group. Keyed; the command's branch is the checked-out ref.
     // spec: [API §11.3]
     pub fn checkout(&mut self, target: &str, branch_new: Option<&str>, ctx: &Ctx) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
         let mut args = BTreeMap::new();
         args.insert("target".to_string(), Cj::Str(target.to_string()));
         if let Some(b) = branch_new {
             args.insert("branch_new".to_string(), Cj::Str(b.to_string()));
         }
         let payload = crate::idem::payload("Checkout", &args);
-        let key = self.key_of(ctx, &caller, &payload);
         let (kind, text) = self.checkout_key(ctx, caller.session.as_deref())?;
         let mut t = revision(self, target)?;
         let branch_name = match (&t, branch_new) {
@@ -196,6 +196,7 @@ impl Store {
             (Target::Ref(r), None) => r.clone(),
             (Target::Detached(_), None) => String::new(),
         };
+        let key = self.key_of(ctx, &caller, &branch_name, &payload);
         if !branch_name.is_empty()
             && let Some(r) = self.keyed(&key, &payload, &branch_name, ctx, &caller)?
         {
@@ -261,25 +262,30 @@ impl Store {
         Ok(reply)
     }
 
-    /// `WorktreeBind` ([API §11.4]; [F18 §3.5]): a `ClientHead` record setting the directory row of `dir` to `ref`. A
-    /// directory that is not a simulated tree gets a binding only, not designated, with the warning `not_a_tree`; with no
-    /// simulated tree at M0 (WP-92's `EnvTree`) the I-F12 checks, which concern designated rows only, never refuse.
-    // spec: [API §11.4]
+    /// `WorktreeBind` ([API §11.4]; [F18 §3.5]): a `ClientHead` record setting the directory row of `dir` to `ref`. On a
+    /// tree (a simulated tree's root, [F18 §3.3]) the row is designated, with the expected git ref the tree's symbolic
+    /// HEAD names and the base its HEAD commit (none without git; no expected ref when detached), after the I-F12
+    /// checks of [F18 §3.5] (`binding_conflict`, exit 5, unless `replace`, whose displaced designated row is rewritten
+    /// with `designated` = 0 in the same group). A directory that is not a tree gets a binding only, with the warning
+    /// `not_a_tree`.
+    // spec: [API §11.4]; [F18 §3.5]
+    // rule: WV-003
     pub fn worktree_bind(&mut self, dir: &str, ref_: &str, replace: bool, ctx: &Ctx) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
+        let dir = crate::links::canon_abs(dir);
         let mut args = BTreeMap::new();
-        args.insert("dir".to_string(), Cj::Str(dir.to_string()));
+        args.insert("dir".to_string(), Cj::Str(dir.clone()));
         args.insert("ref".to_string(), Cj::Str(ref_.to_string()));
         if replace {
             args.insert("replace".to_string(), Cj::Bool(true));
         }
         let payload = crate::idem::payload("WorktreeBind", &args);
-        let key = self.key_of(ctx, &caller, &payload);
+        let key = self.key_of(ctx, &caller, ref_, &payload);
         if let Some(r) = self.keyed(&key, &payload, ref_, ctx, &caller)? {
             return Ok(r);
         }
         self.rights(&caller, ctx)
-            .verb("branch")
+            .verb("worktree")
             .map_err(|e| e.finish(None))?;
         let r = self
             .dag
@@ -290,22 +296,87 @@ impl Store {
             .clone();
         let mut reply = Reply::ok(Data::None);
         reply.warnings = caller.warnings.clone();
-        reply.warnings.push("not_a_tree".into());
         reply.branch = Some(r.clone());
+        reply.rev = Some(self.dag.live(&r).and_then(|x| x.tip).unwrap_or(0));
+        let tree = self.files.fs.trees.contains_key(&dir);
+        let mut replaced: Vec<(String, String)> = Vec::new();
+        let (mut expected_ref, mut base) = (None, None);
+        if tree {
+            // The checks of [F18 §3.5] over D, in order.
+            let d = self.designation();
+            if let Some(t0) = d.iter().find(|p| p.branch == r && p.tree != dir) {
+                if !replace {
+                    return Err(Refusal::new(
+                        "binding_conflict",
+                        5,
+                        format!("{r} already has the designated tree {}", t0.tree),
+                    )
+                    .key("tree", dir.clone())
+                    .key("writer_tree", t0.tree.clone())
+                    .key("ref", r.clone()));
+                }
+                if self
+                    .heads
+                    .get(HeadKind::Directory, &t0.tree)
+                    .is_some_and(|h| h.designated)
+                {
+                    replaced.push((t0.tree.clone(), r.clone()));
+                }
+            }
+            if let Some(b1) = d.iter().find(|p| p.tree == dir && p.branch != r) {
+                if !replace {
+                    return Err(Refusal::new(
+                        "binding_conflict",
+                        5,
+                        format!("{dir} is already the designated tree of {}", b1.branch),
+                    )
+                    .key("tree", dir.clone())
+                    .key("writer_tree", dir.clone())
+                    .key("ref", b1.branch.clone()));
+                }
+                if self
+                    .heads
+                    .get(HeadKind::Directory, &dir)
+                    .is_some_and(|h| h.designated)
+                {
+                    replaced.push((dir.clone(), b1.branch.clone()));
+                }
+            }
+            if let Some((repo, head)) = self.files.git.of_tree(&dir) {
+                if let crate::r4::git::Head::Ref(x) = head {
+                    expected_ref = Some(x.strip_prefix("refs/heads/").unwrap_or(x).to_string());
+                }
+                base = repo
+                    .head_commit(head)
+                    .map(|c| format!("{}:{c}", repo.algo.name()));
+            }
+        } else {
+            reply.warnings.push("not_a_tree".into());
+        }
         if ctx.dry {
             reply.outcome = crate::api::Outcome::Dry;
             return Ok(reply);
         }
+        // The displaced designated row keeps resolving branches, with a zero extension, in the same group.
+        for (t0, _) in replaced.iter().filter(|(t0, _)| *t0 != dir) {
+            let hlc = self.hlc.record(self.env.wall_ms);
+            if let Some(h) = self.heads.rows.get_mut(&(HeadKind::Directory, t0.clone())) {
+                h.designated = false;
+                h.expected_ref = None;
+                h.base = None;
+                h.hlc = hlc;
+            }
+        }
         let hlc = self.hlc.record(self.env.wall_ms);
         self.heads.rows.insert(
-            (HeadKind::Directory, dir.to_string()),
+            (HeadKind::Directory, dir.clone()),
             Head {
                 kind: HeadKind::Directory,
-                key: dir.to_string(),
+                key: dir.clone(),
                 target: Target::Ref(r.clone()),
-                designated: false,
-                expected_ref: None,
-                base: None,
+                designated: tree,
+                expected_ref: expected_ref.clone(),
+                base: base.clone(),
                 hlc,
             },
         );
@@ -321,12 +392,12 @@ impl Store {
             },
         );
         reply.data = Data::Bind(Box::new(BindData {
-            dir: dir.to_string(),
+            dir,
             ref_: Some(r),
-            designated: false,
-            expected_ref: None,
-            base: None,
-            replaced: Vec::new(),
+            designated: tree,
+            expected_ref,
+            base,
+            replaced,
             removed: false,
         }));
         Ok(reply)
@@ -335,11 +406,12 @@ impl Store {
     /// `WorktreeUnbind` ([API §11.4]): the directory row of `dir` is removed.
     // spec: [API §11.4]
     pub fn worktree_unbind(&mut self, dir: &str, ctx: &Ctx) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
+        let dir = crate::links::canon_abs(dir);
+        let dir = dir.as_str();
         let mut args = BTreeMap::new();
         args.insert("dir".to_string(), Cj::Str(dir.to_string()));
         let payload = crate::idem::payload("WorktreeUnbind", &args);
-        let key = self.key_of(ctx, &caller, &payload);
         let row_ref = self
             .heads
             .get(HeadKind::Directory, dir)
@@ -348,11 +420,12 @@ impl Store {
                 Target::Detached(_) => None,
             })
             .unwrap_or_else(|| caller.branch.clone());
+        let key = self.key_of(ctx, &caller, &row_ref, &payload);
         if let Some(r) = self.keyed(&key, &payload, &row_ref, ctx, &caller)? {
             return Ok(r);
         }
         self.rights(&caller, ctx)
-            .verb("branch")
+            .verb("worktree")
             .map_err(|e| e.finish(None))?;
         let mut reply = Reply::ok(Data::None);
         reply.warnings = caller.warnings.clone();

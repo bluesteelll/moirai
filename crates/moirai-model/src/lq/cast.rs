@@ -594,7 +594,7 @@ pub enum CStmt {
     Resolve {
         /// The key.
         key: CResolveKey,
-        /// 1 `ours`, 2 `theirs`, 3 `base`, 4 `value`, 5 `repoint`.
+        /// 1 `ours`, 2 `theirs`, 3 `base`, 4 `value`, 5 `repoint`, 6 `drop` ([LQ/canonical-ast §6.4]).
         take: u8,
         /// The value (take 4) or the target (take 5).
         operand: Option<CExpr>,
@@ -880,8 +880,8 @@ const RRANGE_ATOMS: [&str; 3] = ["", "two", "three"];
 const YMODE_ATOMS: [&str; 3] = ["none", "star", "items"];
 const EDGEDIR_ATOMS: [&str; 4] = ["typed", "right", "left", "both"];
 const CREATEDIR_ATOMS: [&str; 3] = ["", "out", "in"];
-const TAKE_ATOMS: [&str; 6] = ["", "ours", "theirs", "base", "value", "repoint"];
-const POLICY_ATOMS: [&str; 4] = ["none", "restrict", "cascade", "reparent"];
+const TAKE_ATOMS: [&str; 7] = ["", "ours", "theirs", "base", "value", "repoint", "drop"];
+const POLICY_ATOMS: [&str; 5] = ["none", "restrict", "cascade", "reparent", "reassign"];
 const POS_ATOMS: [&str; 5] = ["none", "before", "after", "first", "last"];
 
 fn atom(table: &'static [&'static str], v: u8) -> &'static str {

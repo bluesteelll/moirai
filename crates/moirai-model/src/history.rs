@@ -7,7 +7,7 @@
 //! move refs through [`crate::refmove`] with their markers recomputed in both directions (ME-006, ME-013).
 
 use crate::api::{Caller, Ctx, Data, MarkerOut, Outcome, Reply, Store};
-use crate::dag::{Commit, Dag, MoveReason, Ref, RefKind, RefMove};
+use crate::dag::{Commit, Dag, MoveReason, Ref, RefKind, RefMove, Stage};
 use crate::derived;
 use crate::err::{Kv, Refusal, Res};
 use crate::idem::{Cj, Recorded, ResultItem};
@@ -128,6 +128,9 @@ struct Plan {
     fresh: Fresh,
     lcas: Vec<u64>,
     virtual_base: bool,
+    /// The `stage` group a staged commit of this plan records ([F06 §4.4.16]): a merge's or sync's arguments; `None`
+    /// for a revert or cherry-pick, and for the absent group.
+    stage: Option<Stage>,
 }
 
 /// What a landing or staging wrote.
@@ -284,8 +287,9 @@ pub(crate) fn newest_staged(dag: &Dag, g: u32) -> Option<u64> {
 
 /// One side of the operation the staged commit `s` stands for, computed at its first parent D₀ ([F12 §9.4] step 1),
 /// as a `Resolve` on a violation's key reads it ([F06 §7.7]; [F12 §6.5]): `side` 0 is the base (for a merge or sync
-/// the base of §4.3 for (D₀, P₂); for a revert or cherry-pick its DM row's), 1 ours (the state of D₀), 2 theirs (the
-/// state of P₂, or the revert's or cherry-pick's src, [`pick_states`]).
+/// the `--base` its `stage` group records ([F06 §4.4.16]), else the base of §4.3 for (D₀, P₂); for a revert or
+/// cherry-pick its DM row's), 1 ours (the state of D₀), 2 theirs (the state of P₂, or the revert's or cherry-pick's
+/// src, [`pick_states`]).
 pub(crate) fn staged_side(
     dag: &Dag,
     alloc: &dyn Alloc,
@@ -304,9 +308,10 @@ pub(crate) fn staged_side(
             if side == 2 {
                 return dag.state_at(p2, alloc);
             }
+            let forced = c.stage.as_ref().and_then(|g| g.base);
             let uid = |n: Nid| alloc.uid(n);
             let nid = |u: Uid| uidx.get(&u).copied();
-            Bases::new(dag, alloc, &uid, &nid).base(d0, p2, None).st
+            Bases::new(dag, alloc, &uid, &nid).base(d0, p2, forced).st
         }
         _ => {
             let origin = c
@@ -340,7 +345,7 @@ impl Store {
         self.alloc.uidx.get(&u).copied()
     }
 
-    fn rev_ctx(&self, caller: &Caller) -> RevCtx {
+    pub(crate) fn rev_ctx(&self, caller: &Caller) -> RevCtx {
         RevCtx {
             head: match caller.detached {
                 Some(c) if caller.branch.is_empty() => Err(c),
@@ -398,12 +403,14 @@ impl Store {
         let (ao, at) = (self.dag.ancestors(dst_tip), self.dag.ancestors(src_tip));
         let mo = self.dag.move_steps(&ao, &base.anc);
         let mt = self.dag.move_steps(&at, &base.anc);
+        // `merge.policy.<kind>` of dst's view ([CFG §10.13]).
+        let auto = crate::policy::merge_policies(&o.schema);
         let cx = MCtx {
             op,
             dst_main: dst == "main",
             dst_plan: d.kind == RefKind::Plan,
             policy,
-            auto: &self.cfg.merge_policy,
+            auto: &auto,
             moves: [&mo[..], &mt[..]],
             uid: &uid,
             nid: &nid,
@@ -425,14 +432,17 @@ impl Store {
             fresh,
             lcas: base.lcas,
             virtual_base: base.virtual_base,
+            stage: None,
         }
     }
 
     /// A revert or cherry-pick of `c` onto the tip of `onto` (DM-003 to DM-005): dst = tip(R); src and base are the
     /// commit's and its first parent's states, swapped for a revert; a revert never makes a node `absent` (DM-017); a
     /// src change whose owner is live in the base and gone on dst is `NotFound` (DM-012); the staged resolutions of
-    /// `merge --continue` when given ([F12 §9.4] step 2); the validators.
-    // rule: DM-003, DM-004, DM-005, DM-012, DM-013, DM-017
+    /// `merge --continue` when given ([F12 §9.4] step 2); the validators. A root node's `path_moves` is an ordinary set
+    /// field here, so reverting the commit that added an entry removes it and cherry-picking it adds it
+    /// ([RULES/link-merge-rules] LH-003, LH-004); the plan reads states only and never touches a project tree (LH-001).
+    // rule: DM-003, DM-004, DM-005, DM-012, DM-013, DM-017, LH-001, LH-003, LH-004
     fn plan_pick(&self, onto: &str, c: u64, revert: bool, overlay: Option<&Overlay>) -> Plan {
         let d = self.dag.live(onto).expect("onto is live");
         let dst_tip = d.tip;
@@ -469,12 +479,13 @@ impl Store {
                 moves,
             }]
         };
+        let auto = crate::policy::merge_policies(&o.schema);
         let cx = MCtx {
             op: if revert { Op::Revert } else { Op::CherryPick },
             dst_main: onto == "main",
             dst_plan: d.kind == RefKind::Plan,
             policy: None,
-            auto: &self.cfg.merge_policy,
+            auto: &auto,
             moves: [&mo[..], &mt[..]],
             uid: &uid,
             nid: &nid,
@@ -539,6 +550,7 @@ impl Store {
             fresh,
             lcas: Vec::new(),
             virtual_base: false,
+            stage: None,
         }
     }
 
@@ -637,6 +649,8 @@ impl Store {
         c.affected = affected.to_vec();
         c.affected_complete = complete;
         if decision == "stage" {
+            // [F12 §9.2] item 3: the command's arguments in the `stage` group ([F06 §4.4.16]).
+            c.stage = plan.stage.clone();
             // [F12 §9.2] item 3: one `Violation` op per structural violation, its key on the landed `#N`s.
             let f = |n: Nid| renum.get(&n).copied().unwrap_or(n);
             c.violations = plan
@@ -661,7 +675,7 @@ impl Store {
             self.markers
                 .commit_lands(&self.dag, seq, old, &[], &mut self.hlc, self.env.wall_ms);
         let markers = self.listed(&entries);
-        self.feed_markers(&entries, &caller.actor);
+        self.feed_markers(&entries, Some(seq));
         Landed {
             outcome: if decision == "stage" {
                 "staged"
@@ -711,7 +725,7 @@ impl Store {
             &mut self.hlc,
             self.env.wall_ms,
         );
-        self.feed_markers(&entries, actor);
+        self.feed_markers(&entries, None);
     }
 
     /// Deletes a staging ref ([F12 §9.4] item 4, §9.5): `RefUpdate` reason 2; it held no marker (RE-004).
@@ -735,7 +749,6 @@ impl Store {
             &mut self.hlc,
             self.env.wall_ms,
         );
-        self.feed_markers(&entries, actor);
         self.feed.event(
             self.commit_seq,
             name,
@@ -745,7 +758,9 @@ impl Store {
             "ref",
             name.to_string(),
             actor,
+            None,
         );
+        self.feed_markers(&entries, None);
         Some((id, old))
     }
 
@@ -788,17 +803,18 @@ impl Store {
             .unwrap_or_default()
     }
 
-    /// The `staged` refusal of [F19 §10.2] with its success keys ([API §2.3]).
+    /// The `staged` refusal of [F19 §10.2] with its success keys ([API §2.3]): the staged commit's violations and its
+    /// number of conflicts.
     fn staged_reply(
         &self,
         mut r: Reply,
         op_text: String,
         staging: &str,
         dst: &str,
-        d: &MergeData,
+        violations: &[ViolationOut],
+        conflicts: usize,
     ) -> Reply {
-        let viol: Vec<Kv> = d
-            .violations
+        let viol: Vec<Kv> = violations
             .iter()
             .map(|v| {
                 Kv::Obj(vec![
@@ -814,14 +830,13 @@ impl Store {
             "staged",
             6,
             format!(
-                "{op_text} staged on {staging}: {} violations, {} conflicts; {dst} did not move",
-                d.violations.len(),
-                d.conflicts.len()
+                "{op_text} staged on {staging}: {} violations, {conflicts} conflicts; {dst} did not move",
+                violations.len(),
             ),
         )
         .key("staging_ref", staging)
         .key("violations", Kv::List(viol))
-        .key("conflicts", d.conflicts.len() as i64);
+        .key("conflicts", conflicts as i64);
         r.outcome = Outcome::Staged;
         r.exit = 6;
         r.error = Some(e);
@@ -912,23 +927,29 @@ impl Store {
         message: &str,
         ctx: &Ctx,
     ) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
+        // [API §7.3] `args′`: `into`, whose default is the resolved branch, only when given.
+        let given_into = into.map(|i| Cj::Str(i.into()));
         let into = into.map_or_else(|| caller.branch.clone(), str::to_string);
+        let base_full = base.map(|b| match self.dag.rev_commit(b, &self.rev_ctx(&caller)) {
+            Ok(Some(c)) => format!("c{}", hex(&self.dag.commits[&c].id)),
+            _ => b.to_string(),
+        });
         let payload = Self::w_payload(
             "Merge",
             &[
                 ("src", Some(Cj::Str(src.into()))),
-                ("into", Some(Cj::Str(into.clone()))),
+                ("into", given_into),
                 ("policy", policy.map(|p| Cj::Str(p.into()))),
                 ("strict", strict.map(Cj::Bool)),
-                ("base", base.map(|b| Cj::Str(b.into()))),
+                ("base", base_full.map(Cj::Str)),
                 (
                     "message",
                     (!message.is_empty()).then(|| Cj::Str(message.into())),
                 ),
             ],
         );
-        let key = self.key_of(ctx, &caller, &payload);
+        let key = Self::explicit_key(ctx);
         if let Some(r) = self.keyed(&key, &payload, &into, ctx, &caller)? {
             return Ok(r);
         }
@@ -986,11 +1007,11 @@ impl Store {
             reply.data = Data::Merge(Box::new(data));
             return Ok(reply);
         }
-        // PR-003: a merge into `main` while src holds unresolved conflicts.
+        // PR-003: a merge into `main` while src holds unresolved conflicts; `sync` is null, as no step 0 ran.
         if into == "main" {
             let keys = self.conflict_keys(s.tip);
             if !keys.is_empty() {
-                return Err(conflicted_src(src, keys));
+                return Err(conflicted_src(src, keys, None));
             }
         }
         if ctx.dry {
@@ -998,9 +1019,11 @@ impl Store {
             reply.data = Data::Merge(Box::new(data));
             return Ok(reply);
         }
-        // PR-001: sync first when `main`'s tip is not in src's history. Only a branch is synced: a tag never moves
-        // ([F12 §2.2]) and an import or orphans ref takes no sync commit, so such a src merges directly over the base
-        // of §4.3 (the WP-91 review's spec finding S4).
+        // PR-001: sync first when `main`'s tip is not in src's history. Only a branch is synced (`work` or `plan`): a
+        // tag never moves ([F12 §2.2]) and an import or orphans ref takes no sync commit, so such a src merges directly
+        // over the base of §4.3 and nothing is written on it ([F12 §8.1], §9.6). Step 0 runs with the merge's policy
+        // override and effective `strict` over §4.3's base, never with its `--base`; a staged step-0 sync records the
+        // override and `strict` but no base ([F06 §4.4.16]).
         let mut src_tip = s.tip;
         let src_branch = matches!(s.kind, RefKind::Work | RefKind::Plan);
         if into == "main"
@@ -1008,30 +1031,33 @@ impl Store {
             && !d.tip.is_none_or(|t| self.dag.ancestors(s.tip).contains(&t))
         {
             self.staging_exists(&staging_name(src, "main"))?;
-            let plan = self.plan_merge(Op::Sync, src, "main", d.tip, None, None, None);
+            let mut plan = self.plan_merge(Op::Sync, src, "main", d.tip, None, policy, None);
+            plan.stage = Stage::of(None, policy, strict);
             let conflicts = self.conflicts_out(&plan.m.conflicts);
             let violations = self.violations_out(&plan.m.violations);
             let decision =
                 merge::land_or_stage(plan.m.violations.len(), plan.m.conflicts.len(), strict);
-            if decision == "land-conflicted" {
-                // The sync would land conflict values on src, which a merge into `main` refuses (PR-003).
-                return Err(conflicted_src(
-                    src,
-                    conflicts.iter().map(|c| c.0.clone()).collect(),
-                ));
-            }
             let landed = self.land(&caller, plan, strict, "", None, None);
-            data.sync = Some(SyncOut {
+            let sync = SyncOut {
                 commit: Some(landed.commit),
                 outcome: landed.outcome,
                 conflicts,
                 violations,
-            });
+            };
+            if decision == "land-conflicted" {
+                // [API §11.7] "Sync first with conflict values": the sync's group alone on src, with no idempotency
+                // pair, then PR-003's refusal carrying that sync; nothing is written for `main` or the merge's key.
+                let keys = self.conflict_keys(Some(landed.commit));
+                return Err(conflicted_src(src, keys, Some(&sync)));
+            }
             if landed.outcome == "staged" {
+                // [API §11.7]: no merge is computed; the staged items are reported once, in `sync`, and the top-level
+                // `conflicts`, `violations`, `markers` and `lca` stay empty.
                 let g = landed.staging.clone().expect("a staging ref");
+                let (sv, sc) = (sync.violations.clone(), sync.conflicts.len());
+                data.sync = Some(sync);
                 data.outcome = "staged";
                 data.staging_ref = Some(g.clone());
-                data.markers = landed.markers;
                 data.absorbed = self.absorbed_named(&g);
                 self.record_idem(
                     key,
@@ -1047,17 +1073,19 @@ impl Store {
                 reply.commit = Some(landed.commit);
                 reply.rev_new = Some(landed.commit);
                 self.vcs_results.insert(landed.commit, data.clone());
-                let op_text = format!("merge of {src} into {into}");
-                let r = self.staged_reply(reply, op_text, &g, &into, &data);
+                let op_text = format!("sync of {src}");
+                let r = self.staged_reply(reply, op_text, &g, src, &sv, sc);
                 return Ok(Reply {
                     data: Data::Merge(Box::new(data)),
                     ..r
                 });
             }
+            data.sync = Some(sync);
             src_tip = Some(landed.commit);
             data.markers = landed.markers;
         }
-        let plan = self.plan_merge(Op::Merge, &into, src, src_tip, forced, policy, None);
+        let mut plan = self.plan_merge(Op::Merge, &into, src, src_tip, forced, policy, None);
+        plan.stage = Stage::of(forced, policy, strict);
         data.lca = plan.lcas.clone();
         data.virtual_base = plan.virtual_base;
         data.conflicts = self.conflicts_out(&plan.m.conflicts);
@@ -1119,7 +1147,14 @@ impl Store {
         reply.markers = data.markers.clone();
         self.vcs_results.insert(landed.commit, data.clone());
         if let Some(g) = &landed.staging {
-            let r = self.staged_reply(reply, op_text, g, branch, &data);
+            let r = self.staged_reply(
+                reply,
+                op_text,
+                g,
+                branch,
+                &data.violations,
+                data.conflicts.len(),
+            );
             return Ok(Reply {
                 data: Data::Merge(Box::new(data)),
                 ..r
@@ -1132,7 +1167,8 @@ impl Store {
     /// `Sync` ([API §11.9]): `Merge(src: main, into: lane)` with a commit of kind `sync`; `check` previews only.
     // spec: [API §11.9]
     pub(crate) fn sync_cmd(&mut self, lane: Option<&str>, check: bool, ctx: &Ctx) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
+        let given_lane = lane.map(|l| Cj::Str(l.into()));
         let lane = lane.map_or_else(|| caller.branch.clone(), str::to_string);
         if lane == "main" {
             return Err(Refusal::usage_arg("lane", "main is never synced"));
@@ -1140,15 +1176,11 @@ impl Store {
         let payload = Self::w_payload(
             "Sync",
             &[
-                ("lane", Some(Cj::Str(lane.clone()))),
+                ("lane", given_lane),
                 ("check", check.then_some(Cj::Bool(true))),
             ],
         );
-        let key = if check {
-            None
-        } else {
-            self.key_of(ctx, &caller, &payload)
-        };
+        let key = if check { None } else { Self::explicit_key(ctx) };
         if let Some(r) = self.keyed(&key, &payload, &lane, ctx, &caller)? {
             return Ok(r);
         }
@@ -1189,7 +1221,8 @@ impl Store {
             reply.data = Data::Merge(Box::new(data));
             return Ok(reply);
         }
-        let plan = self.plan_merge(Op::Sync, &lane, "main", m.tip, None, None, None);
+        let mut plan = self.plan_merge(Op::Sync, &lane, "main", m.tip, None, None, None);
+        plan.stage = Stage::of(None, None, strict);
         data.lca = plan.lcas.clone();
         data.virtual_base = plan.virtual_base;
         data.conflicts = self.conflicts_out(&plan.m.conflicts);
@@ -1268,7 +1301,7 @@ impl Store {
         into: Option<&str>,
         ctx: &Ctx,
     ) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
         let g = self.named_staging(&caller, src, into)?;
         let dst = g.name["merge/".len()..]
             .split("/from/")
@@ -1282,7 +1315,7 @@ impl Store {
                 ("into", into.map(|s| Cj::Str(s.into()))),
             ],
         );
-        let key = self.key_of(ctx, &caller, &payload);
+        let key = self.key_of(ctx, &caller, &dst, &payload);
         if let Some(r) = self.keyed(&key, &payload, &dst, ctx, &caller)? {
             return Ok(r);
         }
@@ -1330,7 +1363,7 @@ impl Store {
         into: Option<&str>,
         ctx: &Ctx,
     ) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
         let g = self.named_staging(&caller, src, into)?;
         let (dst, src_name) = {
             let rest = &g.name["merge/".len()..];
@@ -1344,7 +1377,7 @@ impl Store {
                 ("into", into.map(|s| Cj::Str(s.into()))),
             ],
         );
-        let key = self.key_of(ctx, &caller, &payload);
+        let key = Self::explicit_key(ctx);
         if let Some(r) = self.keyed(&key, &payload, &dst, ctx, &caller)? {
             return Ok(r);
         }
@@ -1356,7 +1389,12 @@ impl Store {
         let sc = self.dag.commits[&s].clone();
         let d = self.live_ref(&dst)?;
         let d1 = d.tip;
-        let strict = self.conf.flag("merge.strict");
+        // Step 1: s's own arguments, its `stage` group ([F06 §4.4.16]); without the group (a revert or cherry-pick
+        // always), no `--base`, no override and `strict` false, never the continue's configuration.
+        let (forced, policy, strict) = match &sc.stage {
+            Some(g) => (g.base, g.policy.clone(), g.strict),
+            None => (None, None, false),
+        };
         // Step 2's choice first: which staged resolutions apply. For each key a `Resolve` commit on G set, the newest
         // one counts; it applies when dst's value of the key at D₁ equals its value at D_k, the first parent of the
         // newest staged commit before it, and is otherwise stale (PR-014).
@@ -1405,7 +1443,15 @@ impl Store {
                     Op::Merge
                 };
                 let p2 = sc.parents.get(1).copied();
-                self.plan_merge(op, &dst, &src_name, p2, None, None, Some(&overlay))
+                self.plan_merge(
+                    op,
+                    &dst,
+                    &src_name,
+                    p2,
+                    forced,
+                    policy.as_deref(),
+                    Some(&overlay),
+                )
             }
             _ => self.plan_pick(
                 &dst,
@@ -1415,6 +1461,8 @@ impl Store {
             ),
         };
         plan.src = src_name.clone();
+        // A re-staged commit copies s's group ([F06 §4.4.16]).
+        plan.stage = sc.stage.clone();
         let data = MergeData {
             src: src_name.clone(),
             into: dst.clone(),
@@ -1472,6 +1520,7 @@ impl Store {
     /// `Revert` and `CherryPick` ([API §11.10]; [AR §5a.5]; I34′).
     // spec: [API §11.10]
     // rule: DM-006, DM-007, DM-008, DM-016, UD-001, UD-002, UD-003, UD-004, UD-005, UD-006, UD-007, UD-008, FL-009
+    // rule: LH-005
     #[allow(clippy::too_many_arguments)]
     pub(crate) fn pick_cmd(
         &mut self,
@@ -1482,14 +1531,20 @@ impl Store {
         revert: bool,
         ctx: &Ctx,
     ) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
+        let given_onto = onto.map(|o| Cj::Str(o.into()));
         let onto = onto.map_or_else(|| caller.branch.clone(), str::to_string);
         let name = if revert { "Revert" } else { "CherryPick" };
+        // [API §7.3] `args′`: a commit prefix as the full id, so every spelling of one commit gives one payload.
+        let full = match self.dag.rev_commit(commit, &self.rev_ctx(&caller)) {
+            Ok(Some(c)) => format!("c{}", hex(&self.dag.commits[&c].id)),
+            _ => commit.to_string(),
+        };
         let payload = Self::w_payload(
             name,
             &[
-                ("commit", Some(Cj::Str(commit.into()))),
-                ("onto", Some(Cj::Str(onto.clone()))),
+                ("commit", Some(Cj::Str(full))),
+                ("onto", given_onto),
                 ("mainline", mainline.map(|m| Cj::Int(i64::from(m)))),
                 (
                     "message",
@@ -1497,7 +1552,7 @@ impl Store {
                 ),
             ],
         );
-        let key = self.key_of(ctx, &caller, &payload);
+        let key = self.key_of(ctx, &caller, &onto, &payload);
         if let Some(r) = self.keyed(&key, &payload, &onto, ctx, &caller)? {
             return Ok(r);
         }
@@ -1564,7 +1619,9 @@ impl Store {
             }
         }
         self.staging_exists(&staging_name(&onto, &format!("c{}", hex(&x.id))))?;
-        let strict = self.conf.flag("merge.strict");
+        // A revert or cherry-pick takes no `--strict` and `merge.strict` governs merges and syncs only: a `DATA` case
+        // lands a conflict value ([API §11.10]; [F06 §4.4.16]; [CFG §10] `merge.strict`).
+        let strict = false;
         let plan = self.plan_pick(&onto, c, revert, None);
         let data = MergeData {
             src: plan.src.clone(),
@@ -1588,6 +1645,16 @@ impl Store {
         reply.rev = Some(r.tip.unwrap_or(0));
         reply.key = ctx.key.clone();
         reply.warnings = caller.warnings.clone();
+        // LH-005: a revert or cherry-pick of a commit whose group carried an `FsIntentDone` is graph-only; the warning
+        // names `file revert`, which moves the files back ([F19 §10.4] `graph_only_revert`).
+        if self
+            .files
+            .intents
+            .iter()
+            .any(|i| i.commit == Some(c) && i.state == crate::links::IntentState::Done)
+        {
+            reply.warnings.push("graph_only_revert".into());
+        }
         if ctx.dry {
             reply.outcome = Outcome::Dry;
             reply.data = Data::Merge(Box::new(data));
@@ -1688,7 +1755,7 @@ impl Store {
         expect: Option<&str>,
         ctx: &Ctx,
     ) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
         let name = ref_.map_or_else(|| caller.branch.clone(), str::to_string);
         let payload = Self::w_payload(
             "Undo",
@@ -1698,7 +1765,7 @@ impl Store {
                 ("expect", expect.map(|e| Cj::Str(e.into()))),
             ],
         );
-        let key = self.key_of(ctx, &caller, &payload);
+        let key = Self::explicit_key(ctx);
         if let Some(r) = self.keyed(&key, &payload, &name, ctx, &caller)? {
             return Ok(r);
         }
@@ -1806,12 +1873,13 @@ impl Store {
         Ok(reply)
     }
 
-    /// Whether a ref move lies at or before commit `seq` ([API §11.11]): a commit's move at that commit's seq; a move no
-    /// commit carries (a `RefUpdate`) after the newest commit appended before it, so before `seq` exactly when commit
-    /// `seq` was appended after it (append HLCs increase with seq, [API §6.2]). `restore_seq` names a commit seq
-    /// ([F05 §9.2] field 10); under this reading `op restore` of the newest seq takes back every ref move made since
-    /// that commit, a later `op restore` included. [API §11.11] does not say where a `RefUpdate` lies against the
-    /// commit seqs; this reading is the WP-91 review's spec finding S5. No `RefUpdate` lies at or before seq 0.
+    /// Whether a ref move lies at or before commit `seq`: a commit's move at that commit's seq; a move no commit carries
+    /// (a `RefUpdate`) after the newest commit appended before it, so before `seq` exactly when commit `seq` was
+    /// appended after it (append HLCs increase with seq, [API §6.2]) — [F05 §9.2] "Where a `RefUpdate` lies among
+    /// commit seqs" and [API §11.11] `OpRestore`. `restore_seq` names a commit seq ([F05 §9.2] field 10), so `op
+    /// restore` of the newest seq takes back every ref move made since that commit, an earlier `op restore` included;
+    /// a position between two commits needs an op-log position, which format v1 does not carry. No `RefUpdate` lies
+    /// at or before seq 0.
     fn at_or_before(&self, m: &RefMove, seq: u64) -> bool {
         match m.reason {
             MoveReason::Commit => m.new.is_some_and(|c| c <= seq),
@@ -1833,7 +1901,13 @@ impl Store {
             if matches!(r.kind, RefKind::Merge | RefKind::Orphans) {
                 continue;
             }
-            let (mut live, mut tip) = (r.id == 0, None);
+            // A ref whose older moves a `Gc` run dropped starts as its newest dropped move left it ([F12 §3.5]); the
+            // caller refuses a `seq` older than that move.
+            let (mut live, mut tip) = match self.moves_dropped.get(&r.id) {
+                Some(m) if m.reason == MoveReason::Delete => (false, None),
+                Some(m) => (true, m.new),
+                None => (r.id == 0, None),
+            };
             for m in r.moves.iter().filter(|m| self.at_or_before(m, seq)) {
                 let ends = m.reason == MoveReason::Delete
                     || (m.reason == MoveReason::OpRestore
@@ -1858,9 +1932,9 @@ impl Store {
     // spec: [API §11.11] OpRestore
     // rule: ME-006, ME-013, LE-008
     pub(crate) fn op_restore_cmd(&mut self, seq: u64, ctx: &Ctx) -> Res<Reply> {
-        let caller = self.resolve(ctx, false)?;
+        let caller = self.resolve_keyed(ctx, false, None)?;
         let payload = Self::w_payload("OpRestore", &[("seq", Some(Cj::Int(seq as i64)))]);
-        let key = self.key_of(ctx, &caller, &payload);
+        let key = self.key_of(ctx, &caller, &caller.branch, &payload);
         if let Some(r) = self.keyed(&key, &payload, &caller.branch, ctx, &caller)? {
             return Ok(r);
         }
@@ -1896,6 +1970,29 @@ impl Store {
             return Err(Refusal::lq(
                 "E301",
                 format!("s{c} was pruned by gc; op restore cannot reach it"),
+            ));
+        }
+        // [API §11.11]: a `seq` older than a moved ref's oldest held move is E301, nothing moves; after a `Gc` run the
+        // moves older than its reflog window are no longer held ([F12 §3.5]). A ref that holds no move at all is
+        // judged by its newest dropped move.
+        let older = |id: u32| {
+            self.moves_dropped.get(&id).is_some_and(|d| {
+                let oldest = self.dag.refs[&id].moves.first().unwrap_or(d);
+                !self.at_or_before(oldest, seq)
+            })
+        };
+        if let Some(id) = deletions
+            .iter()
+            .copied()
+            .chain(moves.iter().chain(&restorations).map(|m| m.0))
+            .find(|id| older(*id))
+        {
+            return Err(Refusal::lq(
+                "E301",
+                format!(
+                    "s{seq} is older than the oldest held move of {}; op restore cannot reach it",
+                    self.dag.refs[&id].name
+                ),
             ));
         }
         let mut reply = Reply::ok(Data::None);
@@ -1947,9 +2044,10 @@ impl Store {
                 "ref",
                 r.name.clone(),
                 &actor,
+                None,
             );
-            self.feed_markers(&e, &actor);
-            let released = self.release_branch_leases(&r.name, &actor);
+            self.feed_markers(&e, None);
+            let released = self.release_branch_leases(&r.name);
             let x = self.dag.refs.get_mut(&id).expect("a ref");
             x.deleted = true;
             x.moves.push(RefMove {
@@ -2014,14 +2112,15 @@ impl Store {
             self.feed.event(
                 self.commit_seq,
                 &y.name,
-                None,
+                target,
                 None,
                 MoveReason::OpRestore.name(),
                 "ref",
                 y.name.clone(),
                 &actor,
+                None,
             );
-            self.feed_markers(&e, &actor);
+            self.feed_markers(&e, None);
             data.moved.push((y.name.clone(), None, target));
             items.push(ResultItem::RefMove {
                 ref_id: id,
@@ -2087,8 +2186,32 @@ fn hints_out(h: &[merge::Hint]) -> Vec<(String, String)> {
         .collect()
 }
 
-/// `conflicted_src` of [F19 §10.2] (PR-003).
-fn conflicted_src(src: &str, keys: Vec<String>) -> Refusal {
+/// `conflicted_src` of [F19 §10.2] (PR-003), with [F19 §10.3]'s keys: `keys` (at most 10) and `sync`, the step-0
+/// sync the refused merge appended on src ([API §11.7] "Sync first with conflict values"), or null when src held the
+/// conflicts before the command.
+fn conflicted_src(src: &str, keys: Vec<String>, sync: Option<&SyncOut>) -> Refusal {
+    let sync = match sync {
+        None => Kv::Null,
+        Some(x) => Kv::Obj(vec![
+            ("commit".into(), x.commit.map_or(Kv::Null, Kv::Commit)),
+            ("outcome".into(), Kv::Str(x.outcome.into())),
+            (
+                "conflicts".into(),
+                Kv::List(
+                    x.conflicts
+                        .iter()
+                        .map(|(k, c)| {
+                            Kv::Obj(vec![
+                                ("key".into(), Kv::Str(k.clone())),
+                                ("class".into(), Kv::Str(c.clone())),
+                            ])
+                        })
+                        .collect(),
+                ),
+            ),
+            ("violations".into(), Kv::List(Vec::new())),
+        ]),
+    };
     Refusal::new(
         "conflicted_src",
         6,
@@ -2101,4 +2224,5 @@ fn conflicted_src(src: &str, keys: Vec<String>) -> Refusal {
         "keys",
         Kv::List(keys.into_iter().take(10).map(Kv::Str).collect()),
     )
+    .key("sync", sync)
 }

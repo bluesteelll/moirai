@@ -225,7 +225,8 @@ impl Binder<'_> {
 
     // ----- refusals of the tx binder --------------------------------------------------------------------------------
 
-    /// E411 ([RULES/role-write-policy] WQ-004, WQ-005): a free-form `TX` under the `unknown` profile.
+    /// E411 ([RULES/role-write-policy] WQ-004, WQ-005): a free-form `TX` under a profile whose write rule refuses it
+    /// (the binder's `unknown`); the text names the session's own profile ([LQ/errors §5.5], spec sync 2b).
     fn unknown_profile(&mut self, t: &Tx) {
         let c = self.ctx.caller;
         if c.profile != Profile::Unknown
@@ -233,9 +234,14 @@ impl Binder<'_> {
         {
             return;
         }
+        let name = match c.write_profile {
+            Profile::Gated => "gated",
+            Profile::Compatible => "compatible",
+            Profile::Unknown => "unknown",
+        };
         let mut d = Diag::unlocated(
             Code::E411,
-            "free-form TX is refused for a model with the unknown profile",
+            format!("free-form TX is refused for a model with the {name} profile"),
         );
         d = d.detail(match matching_mutation(t) {
             Some(n) => format!("use the named mutation tx.{n} (the write tool: name and params)"),
@@ -446,6 +452,15 @@ impl Binder<'_> {
                             .split_once("..")
                             .map_or_else(|| part(&t).map(|a| (a, a)), |(a, b)| part(a).zip(part(b)))
                         {
+                            // N5: a bound with min > max, through `$p`, is E001 at binding (spec sync 2b).
+                            Some((Some(lo), Some(hi))) if lo > hi => {
+                                self.err(Diag::new(
+                                    Code::E001,
+                                    p.span,
+                                    format!("EXPECT {lo}..{hi} has m > n"),
+                                ));
+                                (0, None)
+                            }
                             Some((lo, hi)) if lo.is_some() || hi.is_some() => (lo.unwrap_or(0), hi),
                             _ => bad(self, &Value::Text(t)),
                         }
@@ -537,6 +552,7 @@ impl Binder<'_> {
                                 Policy::Restrict => 1,
                                 Policy::Cascade => 2,
                                 Policy::Reparent => 3,
+                                Policy::Reassign => 4,
                             }
                         }
                         DOpt::Replaced(t) => replaced_by = Some(self.node_target(t)),
@@ -653,8 +669,9 @@ impl Binder<'_> {
                             format!("counter {} changes only by an increment", q(&prop.text)),
                         )
                         .inline(format!(
-                            "write SET {owner}.{f} = {owner}.{f} + <k>",
-                            f = prop.text
+                            "write SET {o}.{f} = {o}.{f} + <k>",
+                            o = printer::var(owner),
+                            f = printer::plain(&prop.text)
                         )),
                     );
                 }
@@ -968,6 +985,7 @@ impl Binder<'_> {
             Take::Base => (3, None),
             Take::Value(e) => (4, Some(self.expr_at(e, None, AggPos::Other).0)),
             Take::Repoint(t) => (5, Some(self.node_target(t))),
+            Take::Drop => (6, None),
         };
         CStmt::Resolve { key, take, operand }
     }

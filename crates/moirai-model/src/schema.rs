@@ -313,6 +313,17 @@ pub struct QueryItem {
     pub text: String,
 }
 
+/// A policy row ([F08 §8.5.6]): a [CFG §10.13] row instance and its value in canonical form. A view without the item
+/// takes the row's default, and an item never holds the default (absence is its one form).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct PolicyItem {
+    /// The row instance name ([F14 §7.1] `pname`).
+    pub name: String,
+    /// The value in [CFG §4.1]'s canonical form; a stored item always has one. `None` only in a `Schema` command's
+    /// item, where it (like the row's default) removes the row ([API §9.8]).
+    pub value: Option<String>,
+}
+
 /// A schema item with its class ([F08 §8.5]).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Item {
@@ -326,6 +337,8 @@ pub enum Item {
     Edge(EdgeItem),
     /// Class 5.
     Query(QueryItem),
+    /// Class 6 ([F08 §8.5.6]).
+    Policy(PolicyItem),
 }
 
 /// The key of a schema item ([F08 §8.5] "Item key order"): class, then its name components; `*` for "every kind".
@@ -341,11 +354,13 @@ pub enum ItemKey {
     Edge(String),
     /// A named query by name.
     Query(String),
+    /// A policy row by its instance name ([F08 §8.5.6]).
+    Policy(String),
 }
 
 impl ItemKey {
     /// The key text of [API §5.3]: `schema:kind:<k>`, `schema:field:<k or *>.<f>`,
-    /// `schema:enum:<k or *>.<f>.<v>`, `schema:edge:<e>`, `query:<name>`.
+    /// `schema:enum:<k or *>.<f>.<v>`, `schema:edge:<e>`, `query:<name>`, `schema:policy:<name>` ([F12 §6.6]).
     pub fn text(&self) -> String {
         match self {
             ItemKey::Kind(k) => format!("schema:kind:{k}"),
@@ -353,6 +368,7 @@ impl ItemKey {
             ItemKey::Enum(k, f, v) => format!("schema:enum:{k}.{f}.{v}"),
             ItemKey::Edge(e) => format!("schema:edge:{e}"),
             ItemKey::Query(q) => format!("query:{q}"),
+            ItemKey::Policy(p) => format!("schema:policy:{p}"),
         }
     }
 }
@@ -367,6 +383,7 @@ impl Item {
             Item::Enum(e) => ItemKey::Enum(star(&e.kind), e.field.clone(), e.name.clone()),
             Item::Edge(e) => ItemKey::Edge(e.name.clone()),
             Item::Query(q) => ItemKey::Query(q.name.clone()),
+            Item::Policy(p) => ItemKey::Policy(p.name.clone()),
         }
     }
 }
@@ -876,6 +893,9 @@ const KIND_FIELDS: [&[FieldRow]; 13] = [
             None,
             Shape::Plain,
         ),
+        // decl 29 and 30 ([F08 §9.3] `run`; spec sync 2b): the harness and the model family CX-6 reads.
+        optf("harness", T::Sym, "scalar", OL, None, Shape::Plain),
+        optf("model", T::Sym, "scalar", OL, None, Shape::Plain),
     ],
     // lane
     &[
@@ -1896,6 +1916,25 @@ impl Core {
     }
 }
 
+/// Whether a field item's `default` matches its type ([API §9.8] E103).
+fn default_fits(ty: Ty, v: &Value) -> bool {
+    matches!(
+        (ty, v),
+        (Ty::Bool, Value::Bool(_))
+            | (Ty::Int, Value::Int(_))
+            | (Ty::Counter, Value::Counter(_))
+            | (Ty::F64, Value::F64(_))
+            | (Ty::Enum, Value::Enum(_))
+            | (Ty::Text | Ty::Sym, Value::Text(_))
+            | (Ty::Set(_), Value::Set(_))
+            | (Ty::Ref, Value::Ref(_))
+            | (Ty::Commit, Value::Commit(_))
+            | (Ty::Path, Value::Path(_))
+            | (Ty::Oid, Value::Oid(_))
+            | (Ty::PathMove, Value::PathMove(_))
+    )
+}
+
 /// The effective schema of a view: the core and the view's items ([F08 §8.1]).
 #[derive(Clone, Debug, Default, PartialEq)]
 pub struct Schema {
@@ -2046,6 +2085,24 @@ impl Schema {
         v
     }
 
+    /// The value of a policy row the view holds as an item ([F08 §8.5.6]); `None` for the row's default.
+    pub fn policy(&self, name: &str) -> Option<&str> {
+        match self.items.get(&ItemKey::Policy(name.to_string())) {
+            Some(Item::Policy(p)) => p.value.as_deref(),
+            _ => None,
+        }
+    }
+
+    /// The policy items of the view, by name.
+    pub fn policies(&self) -> impl Iterator<Item = &PolicyItem> {
+        self.items
+            .range(ItemKey::Policy(String::new())..)
+            .filter_map(|(_, i)| match i {
+                Item::Policy(p) => Some(p),
+                _ => None,
+            })
+    }
+
     /// A named query of the view.
     pub fn query(&self, name: &str) -> Option<&QueryItem> {
         match self.items.get(&ItemKey::Query(name.to_string())) {
@@ -2055,10 +2112,13 @@ impl Schema {
     }
 
     /// Checks a weakening item against [F08 §8.2]'s names and §8.5's rules for project items, on this effective
-    /// schema ([API §9.8]): a name outside §8.2's grammar is `bad_value` (exit 2); a name that is not unique by §8.2's
-    /// uniqueness column, a target that does not exist or is not an enumeration field, and a member that §8.5 fixes
-    /// for project items are E405 with the rule `schema weakening` (exit 6). Whether the view holds the key already,
-    /// or it is a core key, is the caller's check.
+    /// schema ([API §9.8]): a name outside §8.2's grammar, and a policy row that names no row of [CFG §10.13] or whose
+    /// value does not parse as the row's type, are `bad_value` (exit 2); a target the view lacks is E105 (an unknown
+    /// kind, also in a `KindSet`), E101 (an enumeration value of a field the kind does not have) or E103 (an
+    /// enumeration value of a field that is not an enumeration, a `default` that does not match the field's type), exit
+    /// 2 (spec sync 2b); a name that is not unique by §8.2's uniqueness column and a member that §8.5 fixes for project
+    /// items are E405 with the rule `schema weakening` (exit 6). Whether the view holds the key already, or it is a
+    /// core key, is the caller's check.
     // spec: [F08 §8.2]
     // spec: [F08 §8.5]
     pub fn check_item(&self, it: &Item) -> Result<(), Refusal> {
@@ -2098,7 +2158,18 @@ impl Schema {
                 }
                 let k = f.kind.as_deref().unwrap_or("*");
                 if !kind_exists(k) {
-                    return Err(weak(format!("the field {}.{} names no kind", k, f.name)));
+                    return Err(Refusal::lq(
+                        "E105",
+                        format!("the field {}.{} names no kind {k}", k, f.name),
+                    ));
+                }
+                if let Some(v) = &f.default
+                    && !default_fits(f.ty, v)
+                {
+                    return Err(Refusal::lq(
+                        "E103",
+                        format!("the default of {}.{} does not match its type", k, f.name),
+                    ));
                 }
                 if names::LQ_BUILTINS.contains(&f.name.as_str()) {
                     return Err(weak(format!(
@@ -2142,18 +2213,27 @@ impl Schema {
                 }
                 let k = e.kind.as_deref().unwrap_or("*");
                 if !kind_exists(k) {
-                    return Err(weak(format!(
-                        "the value {k}.{}.{} names no kind",
-                        e.field, e.name
-                    )));
+                    return Err(Refusal::lq(
+                        "E105",
+                        format!("the value {k}.{}.{} names no kind {k}", e.field, e.name),
+                    ));
                 }
                 let target = if k == "*" {
                     core().field("", &e.field)
                 } else {
                     self.field(k, &e.field)
                 };
-                if target.is_none_or(|t| t.ty != Ty::Enum) {
-                    return Err(weak(format!("{k}.{} is not an enumeration field", e.field)));
+                match target {
+                    None => {
+                        return Err(Refusal::lq("E101", format!("{k} has no field {}", e.field)));
+                    }
+                    Some(t) if t.ty != Ty::Enum => {
+                        return Err(Refusal::lq(
+                            "E103",
+                            format!("{k}.{} is not an enumeration field", e.field),
+                        ));
+                    }
+                    Some(_) => {}
                 }
                 let taken = if k == "*" {
                     core()
@@ -2237,7 +2317,7 @@ impl Schema {
                     if let Ends::Kinds(ks) = ends
                         && let Some(k) = ks.iter().find(|k| self.kind(k).is_none())
                     {
-                        return Err(weak(format!("{} names no kind {k}", e.name)));
+                        return Err(Refusal::lq("E105", format!("{} names no kind {k}", e.name)));
                     }
                 }
             }
@@ -2246,6 +2326,23 @@ impl Schema {
                     "the named query {} is defined through Tx define_query",
                     q.name
                 )));
+            }
+            // A policy row names a row instance of [CFG §10.13] and a value of the row's type ([F08 §8.5.6]).
+            Item::Policy(p) => {
+                let ok = match &p.value {
+                    Some(v) => crate::policy::canonical_policy(&p.name, v).is_some(),
+                    None => crate::policy::default_policy(&p.name).is_some(),
+                };
+                if !ok {
+                    return Err(Refusal::bad_value(
+                        "shape",
+                        format!(
+                            "{} = {} is no policy row of [CFG §10.13] with a value of its type",
+                            p.name,
+                            p.value.as_deref().unwrap_or("null")
+                        ),
+                    ));
+                }
             }
         }
         Ok(())
@@ -2272,7 +2369,7 @@ impl Schema {
                     })
             }
             ItemKey::Edge(e) => c.edges.iter().any(|x| &x.name == e),
-            ItemKey::Query(_) => false,
+            ItemKey::Query(_) | ItemKey::Policy(_) => false,
         }
     }
 }
@@ -2451,6 +2548,12 @@ pub fn item_cj(it: &Item, uid: &dyn Fn(Nid) -> String) -> Cj {
     let star = |k: &Option<String>| s(k.as_deref().unwrap_or("*"));
     let mut m: Vec<(String, Cj)> = Vec::new();
     match it {
+        // [API §9.8]: `{"item":"policy","name":<row>,"value":<string or null>}`.
+        Item::Policy(p) => {
+            m.push(("item".into(), s("policy")));
+            m.push(("name".into(), s(&p.name)));
+            m.push(("value".into(), p.value.as_deref().map_or(Cj::Null, s)));
+        }
         Item::Kind(k) => {
             m.push(("item".into(), s("kind")));
             m.push(("name".into(), s(&k.name)));
@@ -2707,10 +2810,51 @@ mod tests {
             code(&value("task", "priority", "-x")).as_deref(),
             Some("bad_value")
         );
+        // Targets the view lacks ([API §9.8], spec sync 2b): E103, E101, E105, exit 2.
         assert_eq!(
             code(&value("task", "title", "x")).as_deref(),
-            Some("E405"),
+            Some("E103"),
             "title is text"
+        );
+        assert_eq!(
+            code(&value("task", "nosuch", "x")).as_deref(),
+            Some("E101"),
+            "no such field"
+        );
+        assert_eq!(
+            code(&value("nokind", "priority", "x")).as_deref(),
+            Some("E105"),
+            "no such kind"
+        );
+        assert_eq!(
+            code(&field(Some("nokind"), "effort", Ty::Int)).as_deref(),
+            Some("E105")
+        );
+        let mut mistyped = field(Some("task"), "effort", Ty::Int);
+        if let Item::Field(f) = &mut mistyped {
+            f.default = Some(Value::Text("x".into()));
+        }
+        assert_eq!(
+            code(&mistyped).as_deref(),
+            Some("E103"),
+            "a mistyped default"
+        );
+        // Policy rows ([F08 §8.5.6]): a row instance of [CFG §10.13] with a value of its type.
+        let policy = |n: &str, v: &str| {
+            Item::Policy(PolicyItem {
+                name: n.into(),
+                value: Some(v.into()),
+            })
+        };
+        assert_eq!(code(&policy("merge.policy.task", "ours")), None);
+        assert_eq!(code(&policy("policy.role.tester.mcp-write", "yes")), None);
+        assert_eq!(
+            code(&policy("merge.policy.task", "maybe")).as_deref(),
+            Some("bad_value")
+        );
+        assert_eq!(
+            code(&policy("policy.nosuch", "yes")).as_deref(),
+            Some("bad_value")
         );
         assert_eq!(code(&value("task", "work_kind", "spike")), None);
         assert_eq!(

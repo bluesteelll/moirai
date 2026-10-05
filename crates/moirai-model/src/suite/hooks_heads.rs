@@ -94,11 +94,19 @@ fn session_start_mints_only_in_a_main_session() {
     let w = hooks::session_start(&s.st.conf, hooks::Source::Startup, false, true, &ctx);
     assert!(w.contains(&Write::Later("image-export-checkpoint", "M5")));
     assert!(w.contains(&Write::Read("brief")));
+    // The orchestrator lease, then the link settle (`LinksSync`, [API §18]), which finds no tree and writes nothing.
     let r = hooks::run(&mut s.st, &w);
-    assert_eq!(r.len(), 1);
-    assert_eq!(r[0].outcome, Outcome::Ok, "{:?}", r[0].error);
+    assert_eq!(r.len(), 2);
+    for x in &r {
+        assert_eq!(x.outcome, Outcome::Ok, "{:?}", x.error);
+    }
+    assert_eq!(r[1].commit, s.st.dag.live("main").and_then(|m| m.tip));
     let worker = hooks::session_start(&s.st.conf, hooks::Source::Startup, true, false, &ctx);
-    assert!(!worker.iter().any(|x| matches!(x, Write::Command(..))));
+    assert!(
+        !worker
+            .iter()
+            .any(|x| matches!(x, Write::Command(c, _) if matches!(**c, Cmd::Claim { .. })))
+    );
     assert!(worker.contains(&Write::Read("role-pack")));
 }
 

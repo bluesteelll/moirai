@@ -10,7 +10,8 @@
 //! Each history runs twice. Without a fold, every command's listed markers must be exactly the entries the
 //! definition's holder sets imply (a `settled` or `deleted` entry when a hold origin gains its first live holder, a
 //! `cleared` entry when it loses its last; ME-001 to ME-007). With the checkpoint fold of ME-012 run after every
-//! command, the answers must be the same (ME-013; the records may differ, [RULES/state-definition] open point 17).
+//! command, the `Marker` records and every row's contents equal those without it (ME-012, ME-013; open point 17
+//! decided (a), spec sync 2b S2B-M-19).
 
 use super::*;
 use crate::api::MarkerOut;
@@ -256,7 +257,7 @@ fn checked(
         .map_err(|e| TestCaseError::fail(format!("after {what}: {e}")))
 }
 
-fn history(ops: Vec<G>, fold: bool) -> Result<(), TestCaseError> {
+fn history(ops: Vec<G>, fold: bool) -> Result<S, TestCaseError> {
     let mut s = start();
     for o in ops {
         let live = |s: &S, i: usize| s.st.dag.live(REFS[i]).is_some();
@@ -359,26 +360,43 @@ fn history(ops: Vec<G>, fold: bool) -> Result<(), TestCaseError> {
             _ => continue,
         }
     }
-    Ok(())
+    Ok(s)
 }
 
-/// GT18's oracle on the model, without and with the checkpoint fold between commands.
+/// The marker rows of both sections by identity: ME-012's move changes only where a row lies.
+fn all_rows(s: &S) -> BTreeMap<crate::markers::MKey, crate::markers::Marker> {
+    s.st.markers.rows().map(|m| (m.key, m.clone())).collect()
+}
+
+/// GT18's oracle on the model, without and with the checkpoint fold between commands; with the fold after every
+/// command the `Marker` records and every row's contents equal those without it ([RULES/state-definition] ME-012,
+/// ME-013, open point 17 decided (a)).
 #[test]
 fn the_marker_cache_equals_the_definition() {
     let cases = match std::env::var("MOIRAI_TEST_TIER").as_deref() {
         Ok("nightly") | Ok("exit") => 2048,
         _ => 128,
     };
-    for fold in [false, true] {
-        let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
-            cases,
-            ..ProptestConfig::default()
-        });
-        if let Err(e) = runner.run(&proptest::collection::vec(g(), 1..24), |ops| {
-            history(ops, fold)
-        }) {
-            panic!("fold {fold}: {e}");
-        }
+    let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
+        cases,
+        ..ProptestConfig::default()
+    });
+    if let Err(e) = runner.run(&proptest::collection::vec(g(), 1..24), |ops| {
+        let plain = history(ops.clone(), false)?;
+        let folded = history(ops, true)?;
+        prop_assert_eq!(
+            plain.st.markers.records(),
+            folded.st.markers.records(),
+            "the records differ with the fold"
+        );
+        prop_assert_eq!(
+            all_rows(&plain),
+            all_rows(&folded),
+            "the rows differ with the fold"
+        );
+        Ok(())
+    }) {
+        panic!("{e}");
     }
 }
 

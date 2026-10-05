@@ -596,10 +596,16 @@ impl Binder<'_> {
         c
     }
 
-    /// The unique commit whose id starts with `h`, E301 if none or several ([LQ/canonical-ast §5.6]) — a full 64-digit
-    /// id included: the table makes no exception for it.
+    /// The unique commit whose id starts with `h`, E301 if none or several ([LQ/canonical-ast §5.6] `rcommit`). A
+    /// literal of all 64 hex digits binds as that id whether or not the store holds the commit (spec sync 2a; E301 is
+    /// raised only when a view of it is resolved; [LQ/lexical §10.2]).
     fn commit_prefix(&mut self, h: &str, span: Span) -> Option<CommitId> {
         let found = self.ctx.ids.commits_by_prefix(h);
+        if found.is_empty()
+            && let Some(id) = unhex::<32>(&h.to_ascii_lowercase())
+        {
+            return Some(id);
+        }
         match found.len() {
             1 => Some(found[0].0),
             0 => {

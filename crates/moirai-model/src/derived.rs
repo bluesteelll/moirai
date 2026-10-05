@@ -508,6 +508,16 @@ pub fn affected_with_budget(
     affected_rows(&p, &c, budget)
 }
 
+/// The number of nodes whose `suspect` differs between two sets of rows ([F17 §8.2]'s S), which the `SuspectBudget` hint
+/// names ([F19 §12.3]).
+pub fn suspect_changes(p: &BTreeMap<Nid, Row>, c: &BTreeMap<Nid, Row>) -> usize {
+    let nodes: BTreeSet<Nid> = p.keys().chain(c.keys()).copied().collect();
+    nodes
+        .into_iter()
+        .filter(|n| p.get(n).map(|r| r.suspect) != c.get(n).map(|r| r.suspect))
+        .count()
+}
+
 /// [`affected_with_budget`] over the from-scratch rows of the two states.
 // spec: [F17 §8.2]
 pub fn affected_rows(

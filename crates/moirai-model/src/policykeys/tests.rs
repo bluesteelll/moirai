@@ -725,14 +725,11 @@ fn invariant(key: &str, v: &str, base: &str) -> Result<(), String> {
 /// The packages whose model functions exist in this crate. A row whose function belongs to another package is pending
 /// ([RULES/policy-keys] §2): its values run through the invariance of the reference stream only. When a package lands
 /// it is added here, and every row of its functions then needs an arm in [`check`] ("no test for the function").
-const LANDED: &[&str] = &["WP-90", "WP-91"];
+const LANDED: &[&str] = &["WP-90", "WP-91", "WP-92"];
 
-/// The rows pending on a later package (WP-91, WP-92, M5), by id: counted and reported apart from the tested rows,
-/// never as tests of their functions.
-const PENDING: &[&str] = &[
-    "KY-003", "KY-004", "KY-005", "KY-006", "KY-056", "KY-057", "KY-089", "KY-090", "KY-091",
-    "KY-099", "KY-101", "KY-102", "KY-153", "KY-154", "KY-157", "KY-162",
-];
+/// The rows pending on a later package (M5), by id: counted and reported apart from the tested rows, never as tests of
+/// their functions.
+const PENDING: &[&str] = &["KY-153", "KY-154", "KY-157", "KY-162"];
 
 /// Whether a function's package has landed.
 fn landed(function: &str) -> bool {
@@ -762,11 +759,7 @@ fn pending_rows_are_the_later_packages() {
             .map(|r| r.function)
             .or_else(|| policy_rows().into_iter().find(|p| p.0 == *id).map(|p| p.3))
             .expect("a row");
-        assert!(
-            ["WP-91", "WP-92", "M5"].contains(&wp_of(&f)),
-            "{id}: {f} is of {}",
-            wp_of(&f)
-        );
+        assert!(["M5"].contains(&wp_of(&f)), "{id}: {f} is of {}", wp_of(&f));
     }
 }
 
@@ -820,6 +813,29 @@ fn check(r: &KeyRow, v: &str, base: &str) -> Result<(), String> {
                 return fail(format!("resolved {got}"));
             }
         }
+        // CX-7 ([API §4.2]): `client.profile` names the client after `ctx.client` and `MOIRAI_CLIENT`, when it is
+        // not `auto`; `auto` leaves the harness detection (no harness here: `generic`).
+        "api::Store::resolve" => {
+            let s = store_with(key, v);
+            let bare = s
+                .resolve(&Ctx::default(), false)
+                .map_err(|e| e.detail)?
+                .client;
+            let mut env = Ctx::default();
+            env.env.insert("MOIRAI_CLIENT".into(), "codex".into());
+            let by_env = s.resolve(&env, false).map_err(|e| e.detail)?.client;
+            let flag = Ctx {
+                client: Some("claude".into()),
+                ..Default::default()
+            };
+            let by_flag = s.resolve(&flag, false).map_err(|e| e.detail)?.client;
+            let want = if v == "auto" { "generic" } else { v };
+            if bare != want || by_env != "codex" || by_flag != "claude" {
+                return fail(format!(
+                    "clients {bare}, {by_env} (MOIRAI_CLIENT), {by_flag} (ctx.client)"
+                ));
+            }
+        }
         // More suspects than the budget leave `affected` incomplete.
         "derived::affected_with_budget" => {
             let mut s = store_with(key, v);
@@ -855,6 +871,11 @@ fn check(r: &KeyRow, v: &str, base: &str) -> Result<(), String> {
             let want = 5 <= num(key, v);
             if c.affected_complete != want {
                 return fail(format!("affected_complete {}", c.affected_complete));
+            }
+            // DS-010: an incomplete `affected` prints the hint `SuspectBudget` ([API §3.3]; [F19 §12.3]).
+            let hinted = r2.hints.iter().any(|(c, _)| c == "SuspectBudget");
+            if hinted == want {
+                return fail(format!("hints {:?}", r2.hints));
             }
         }
         // The lookup's windows (CK-6).
@@ -1090,8 +1111,12 @@ fn check(r: &KeyRow, v: &str, base: &str) -> Result<(), String> {
                     return fail("model_profile".into());
                 }
             } else {
+                // WR-012's scope ([API §9.1] E411 row; spec sync 2b): a caller with a session identity (CX-4).
                 let mut s = store_with(key, v);
-                let r = s.run(&tx(vec![create("note", "n")]), &orch());
+                let mut ctx = orch();
+                ctx.env.insert("CLAUDECODE".into(), "1".into());
+                ctx.env.insert("CLAUDE_CODE_SESSION_ID".into(), "s1".into());
+                let r = s.run(&tx(vec![create("note", "n")]), &ctx);
                 if (code(&r) == Some("E411")) != (v == "unknown") {
                     return fail(format!("{:?}", r.error));
                 }
@@ -1100,12 +1125,14 @@ fn check(r: &KeyRow, v: &str, base: &str) -> Result<(), String> {
         // The write rule of the `unknown` profile: a Codex caller's free-form `TX`.
         "profile::model_write_rule" => {
             let mut s = store_with(key, v);
-            let codex = Ctx {
+            // A Codex session identity (CX-4) puts the block in WR-012's scope (spec sync 2b).
+            let mut codex = Ctx {
                 client: Some("codex".into()),
                 agent: Some("c1".into()),
                 no_dedupe: true,
                 ..Default::default()
             };
+            codex.env.insert("CODEX_THREAD_ID".into(), "t1".into());
             let r = s.run(&tx(vec![create("note", "n")]), &codex);
             if (code(&r) == Some("E411")) != (v != "off") {
                 return fail(format!("{:?}", r.error));
@@ -1260,7 +1287,11 @@ fn check(r: &KeyRow, v: &str, base: &str) -> Result<(), String> {
                     has == on && replies.iter().all(|r| r.outcome == Outcome::Ok)
                 }
                 "hooks.session-start.settle" => {
-                    w.contains(&crate::hooks::Write::Later("link-settle", "WP-92")) == on
+                    let has = w.iter().any(|x| {
+                        matches!(x, crate::hooks::Write::Command(c, cx) if matches!(**c, Cmd::LinksSync { .. }) && cx.door == crate::api::Door::Hook)
+                    });
+                    let replies = crate::hooks::run(&mut s, &w);
+                    has == on && replies.iter().all(|r| r.outcome == Outcome::Ok)
                 }
                 _ => w.contains(&crate::hooks::Write::Read("role-pack")) == on,
             };
@@ -1305,9 +1336,287 @@ fn check(r: &KeyRow, v: &str, base: &str) -> Result<(), String> {
                 return fail(got.to_string());
             }
         }
+        f if f.starts_with("links::") => {
+            if let Err(e) = links_arm(f, key, v) {
+                return fail(e);
+            }
+        }
         other => return fail(format!("no test for the function {other}")),
     }
     Ok(())
+}
+
+/// A store with the key set, the orchestrator's session lease, a simulated tree at `root` bound to `main` as its
+/// designated tree, holding `docs/a.md`, and the orchestrator's context in it.
+fn tree_store(key: &str, v: &str, root: &str) -> (Store, Ctx) {
+    let mut s = store_with(key, v);
+    run_ok(
+        &mut s,
+        Cmd::EnvTree {
+            tree: root.into(),
+            volume: Some("C".into()),
+            caps: None,
+            ops: vec![crate::r4::tree::TreeOp::Write {
+                path: "docs/a.md".into(),
+                bytes: b"alpha\nbeta\n".to_vec(),
+                btime_ns: None,
+            }],
+        },
+        &Ctx::default(),
+    );
+    let o = orch();
+    run_ok(
+        &mut s,
+        Cmd::WorktreeBind {
+            dir: root.into(),
+            ref_: "main".into(),
+            replace: false,
+        },
+        &o,
+    );
+    (
+        s,
+        Ctx {
+            tree: Some(root.into()),
+            ..o
+        },
+    )
+}
+
+/// KF-037 through a resolution ([F20 §2.4] item 1): under the read limit `p` carries, the only candidate of a moved
+/// file, an identical copy one byte above the limit, is `Unavailable(size)`, so the link is `unverified (size)`, never
+/// `missing`; a copy at the limit (checked for the smallest limits) is read and proposed.
+fn size_limit_resolves(p: &crate::r4::cascade::Params) -> bool {
+    use crate::r4::cascade::{FileNode, Params, Runtime, View, resolve_file};
+    use crate::r4::strings::State as L;
+    use crate::r4::tree::{Fs, TreeOp, VolumeCaps};
+    let limit = p.max_read_bytes.expect("a read limit") as usize;
+    let q = Params {
+        settle: true,
+        max_read_bytes: p.max_read_bytes,
+        ..Params::default()
+    };
+    let state = |len: usize| {
+        let body: Vec<u8> = (0..len).map(|i| b'a' + (i % 23) as u8).collect();
+        let root = "C:/w";
+        let mut fs = Fs::default();
+        fs.ensure_tree(root, "C", VolumeCaps::NTFS, crate::r4::path::Os::Windows);
+        for (op, t) in [
+            (
+                TreeOp::Write {
+                    path: "d/x.bin".into(),
+                    bytes: body.clone(),
+                    btime_ns: None,
+                },
+                1,
+            ),
+            (
+                TreeOp::Cp {
+                    from: "d/x.bin".into(),
+                    to: "d/y.bin".into(),
+                    keep_btime: false,
+                },
+                2,
+            ),
+            (
+                TreeOp::Rm {
+                    path: "d/x.bin".into(),
+                },
+                2,
+            ),
+        ] {
+            fs.apply(root, &op, t).expect("a tree operation");
+        }
+        let f = FileNode {
+            n: 1,
+            root: "project".into(),
+            path: "d/x.bin".into(),
+            oid: Some(crate::r4::text::oid(q.algo, &body)),
+            bytes: Some(len as u64),
+            observed_git: None,
+            observed_blob: None,
+            relink: None,
+            aliases: Vec::new(),
+            status: crate::r4::uid::FileStatus::Present,
+            artifact_kind: None,
+            tombstone: false,
+            obs_hlc: 0,
+            conflict: None,
+            path_claim: false,
+        };
+        let view = View {
+            files: vec![f.clone()],
+            ..View::default()
+        };
+        let r = resolve_file(
+            &f,
+            &view,
+            &fs,
+            &crate::r4::git::Git::default(),
+            &Runtime::default(),
+            root,
+            &q,
+        );
+        (r.state, r.details.first().map(|d| d.code))
+    };
+    state(limit + 1) == (L::Unverified, Some(58))
+        && (limit > (128 << 10) || state(limit) == (L::MovedNeedsConfirm, Some(10)))
+}
+
+/// The policy functions of the `files.*` and `roots.<name>` keys ([RULES/policy-keys] KF-033 to KF-044, WP-92): each
+/// value's effect through its function, and where the key decides a command, through the command.
+fn links_arm(f: &str, key: &str, v: &str) -> Result<(), String> {
+    let c = conf_with(key, v);
+    let text = value_text(v);
+    let list = |t: Option<&str>| -> Vec<String> {
+        t.unwrap_or("")
+            .split(',')
+            .filter(|x| !x.is_empty())
+            .map(str::to_string)
+            .collect()
+    };
+    let add = || Cmd::FileAdd {
+        paths: vec!["docs/a.md".into()],
+        kind: None,
+        root: None,
+    };
+    let ok = match f {
+        // `roots.docs`: a named root maps to its directory, else `unmapped root`; `FileAdd --root docs` registers under it.
+        "links::root_dir" => {
+            let got = crate::links::root_dir(&c, "docs");
+            let (mut s, ctx) = tree_store(key, v, "/work/x");
+            let r = s.run(
+                &Cmd::FileAdd {
+                    paths: vec!["docs/a.md".into()],
+                    kind: None,
+                    root: Some("docs".into()),
+                },
+                &ctx,
+            );
+            let registered =
+                matches!(&r.data, crate::api::Data::FileAdd(f) if f[0].0.root == "docs");
+            match text {
+                None => got.is_none() && r.outcome == Outcome::Refused,
+                Some(d) => {
+                    got.as_deref() == Some(crate::links::canon_abs(d).as_str()) && registered
+                }
+            }
+        }
+        // `files.main-tree`: the configuration pair of `main` joins the designation relation.
+        "links::designated_tree" => {
+            let mut s = store_with(key, v);
+            if let Some(d) = text {
+                run_ok(
+                    &mut s,
+                    Cmd::EnvTree {
+                        tree: d.into(),
+                        volume: None,
+                        caps: None,
+                        ops: vec![],
+                    },
+                    &Ctx::default(),
+                );
+            }
+            let d = s.designation();
+            match text {
+                None => d.is_empty(),
+                Some(t) => {
+                    d.len() == 1 && d[0].branch == "main" && d[0].tree == crate::links::canon_abs(t)
+                }
+            }
+        }
+        // `files.main-ref`: the expected git ref of the configuration pair.
+        "links::tree_gate" => crate::links::tree_gate(&c).as_deref() == text,
+        // `files.cloud`: `refuse` refuses a link target under a cloud sync root.
+        "links::cloud_policy" => {
+            let (mut s, ctx) = tree_store(key, v, "C:/cloud");
+            s.files
+                .fs
+                .trees
+                .get_mut("C:/cloud")
+                .expect("the tree")
+                .cloud_root = true;
+            let r = s.run(&add(), &ctx);
+            crate::links::cloud_policy(&c) == (v == "refuse")
+                && (r.outcome == Outcome::Refused) == (v == "refuse")
+        }
+        // `files.max-read-bytes`: a file above it has no content read (no `oid` recorded), and in a resolution its content
+        // is `Unavailable(size)` to the file and the anchor cascades ([F20 §2.4] item 1).
+        "links::content_available" => {
+            let limit = c.number("files.max-read-bytes") as usize;
+            let (s, ctx) = tree_store(key, v, "C:/work");
+            let caller = s.resolve(&ctx, false).expect("the caller");
+            let tc = s.tree_ctx(&caller, &ctx).expect("the tree");
+            let p = s.params(&tc, "main", true, &crate::r4::cascade::View::default());
+            let wired = p.max_read_bytes == Some(limit as u64)
+                && crate::links::anchor_consts(&c).max_read_bytes == Some(limit as u64);
+            crate::links::content_available(&c, limit)
+                && !crate::links::content_available(&c, limit + 1)
+                && wired
+                && (limit > (16 << 20) || size_limit_resolves(&p))
+        }
+        // `files.max-line-hashes`: the anchor constants' line-hash cap.
+        "links::window_available" => {
+            let n = text.and_then(|t| t.parse::<usize>().ok());
+            crate::links::window_available(&c) == n
+                && crate::links::anchor_consts(&c).max_line_hashes == n
+        }
+        // `files.policy.auto`: `strong` puts the policy into every resolution's parameters.
+        "links::auto_policy" => {
+            let (s, ctx) = tree_store(key, v, "C:/work");
+            let caller = s.resolve(&ctx, false).expect("the caller");
+            let tc = s.tree_ctx(&caller, &ctx).expect("the tree");
+            let p = s.params(&tc, "main", true, &crate::r4::cascade::View::default());
+            crate::links::auto_policy(&c) == (v == "strong") && p.policy_strong == (v == "strong")
+        }
+        // `files.scratchpads`: `refuse` refuses a path in a session scratchpad.
+        "links::scratchpad_policy" => {
+            let (mut s, ctx) = tree_store(key, v, "C:/tmp/claude/p/s/scratchpad");
+            let r = s.run(&add(), &ctx);
+            crate::links::scratchpad_policy(&c) == (v == "allow")
+                && (r.outcome == Outcome::Refused) == (v == "refuse")
+        }
+        // `files.ignore`: the patterns of a tree with no git and no ignore file.
+        "links::ignored" => crate::links::ignored(&c) == list(text),
+        // `files.deletion-inference`.
+        "links::deletion_inference" => {
+            crate::links::deletion_inference(&c) == (v == "main-tree-commits")
+        }
+        // `files.confirm-roles`: the role cell of `links fix --confirm` (WV-038).
+        "links::confirm_rights" => {
+            let roles = crate::links::confirm_rights(&c);
+            let s = store_with(key, v);
+            let o = orch();
+            let caller = s.resolve(&o, false).expect("the caller");
+            let allowed = s.rights(&caller, &o).verb("links-fix-confirm").is_ok();
+            roles == list(text) && allowed == roles.contains(&"orchestrator".to_string())
+        }
+        // `files.portable-names`: `refuse` refuses a destination some OS cannot hold, `warn` warns.
+        "links::portable_name_policy" => {
+            let (mut s, ctx) = tree_store(key, v, "C:/work");
+            let r = s.run(
+                &Cmd::FileMv {
+                    srcs: vec!["docs/a.md".into()],
+                    dst: "docs/aux.md".into(),
+                    git: false,
+                    retry_ms: None,
+                },
+                &ctx,
+            );
+            crate::links::portable_name_policy(&c) == (v == "refuse")
+                && if v == "refuse" {
+                    r.error.as_ref().map(|e| e.code.as_str()) == Some("nonportable_name")
+                } else {
+                    r.outcome == Outcome::Ok && r.warnings.contains(&"nonportable_name".to_string())
+                }
+        }
+        other => return Err(format!("no test for the function {other}")),
+    };
+    if ok {
+        Ok(())
+    } else {
+        Err(format!("{f}: the value's effect differs"))
+    }
 }
 
 /// Every allowed value of every key ([RULES/policy-keys] §2; [CFG §9.5]): through its function, or, for a key the
@@ -1337,8 +1646,8 @@ fn every_allowed_value_of_every_key() {
     }
     assert!(failures.is_empty(), "{failures:#?}");
     assert!(tested > 400, "{tested} values tested");
-    // Reported apart: 37 values of the 16 pending key rows.
-    assert_eq!(pending, 37, "the values of the pending key rows");
+    // Reported apart: 9 values of the 4 pending key rows.
+    assert_eq!(pending, 9, "the values of the pending key rows");
 }
 
 // ----- policy data ----------------------------------------------------------------------------------------------------
@@ -1351,6 +1660,30 @@ fn words(v: &str) -> Vec<String> {
         .unwrap_or_default()
 }
 
+/// Sets a policy-data row on `main` by a `Schema` write ([RULES/policy-keys] §2; [API §9.8]; [F08 §8.5.6]).
+fn set_policy(s: &mut Store, name: &str, value: &str) {
+    run_ok(
+        s,
+        Cmd::Schema {
+            items: vec![crate::schema::Item::Policy(crate::schema::PolicyItem {
+                name: name.into(),
+                value: Some(value.into()),
+            })],
+            message: String::new(),
+        },
+        &orch(),
+    );
+}
+
+/// The policy data of `main`'s view.
+fn main_policy(s: &Store) -> PolicyData {
+    PolicyData::of(
+        &s.dag
+            .state_at(s.dag.live("main").unwrap().tip, &s.alloc)
+            .schema,
+    )
+}
+
 fn rights(role: &str, data: PolicyData) -> Rights {
     Rights {
         role: role.into(),
@@ -1361,20 +1694,21 @@ fn rights(role: &str, data: PolicyData) -> Rights {
         owner_attested: true,
         acceptor: None,
         data,
+        confirm_roles: vec!["orchestrator".into(), "owner".into()],
     }
 }
 
-/// Every value of every policy-data row ([RULES/policy-keys] §6).
+/// Every value of every policy-data row ([RULES/policy-keys] §6), each set by a `Schema` write on `main` (§2); the view
+/// without the row's item takes its default.
 #[test]
 fn every_value_of_every_policy_row() {
-    for (id, name, _, _, values) in policy_rows() {
+    for (id, name, instance, _, values) in policy_rows() {
         for v in &values {
-            let mut data = PolicyData::default();
+            let text = words(v).join(",");
             let ok = match name.as_str() {
                 "policy.self-claim-roles" => {
-                    data.self_claim_roles = words(v);
                     let mut s = store_params(&[], &[]);
-                    s.policy = data;
+                    set_policy(&mut s, &instance, &text);
                     run_ok(
                         &mut s,
                         tx(vec![create("task", "a"), create("task", "b")]),
@@ -1394,9 +1728,8 @@ fn every_value_of_every_policy_row() {
                         && dev == set.contains(&"developer".to_string())
                 }
                 "policy.mint.role-lease" => {
-                    data.mint_role_lease = words(v);
                     let mut s = store_params(&[], &[]);
-                    s.policy = data;
+                    set_policy(&mut s, &instance, &text);
                     run_ok(
                         &mut s,
                         Cmd::RunOpen {
@@ -1428,13 +1761,8 @@ fn every_value_of_every_policy_row() {
                             == Some("tester")
                 }
                 "policy.role.<role>.mcp-write" => {
-                    if v == "yes" {
-                        data.mcp_write.push("developer".into());
-                    } else {
-                        data.mcp_write.retain(|r| r != "developer");
-                    }
                     let mut s = store_params(&[], &[]);
-                    s.policy = data;
+                    set_policy(&mut s, &instance, v);
                     run_ok(&mut s, tx(vec![create("task", "a")]), &orch());
                     let l = lease_of(&run_ok(
                         &mut s,
@@ -1454,18 +1782,16 @@ fn every_value_of_every_policy_row() {
                     (r.outcome == Outcome::Ok) == (v == "yes")
                 }
                 "policy.role.<role>.tx" => {
-                    if v == "none" {
-                        for roles in data.tx.values_mut() {
-                            roles.retain(|r| r != "owner");
-                        }
-                    }
-                    rights("owner", data).statement(1, "node-delete").is_ok()
+                    let mut s = store_params(&[], &[]);
+                    set_policy(&mut s, &instance, v);
+                    rights("owner", main_policy(&s))
+                        .statement(1, "node-delete")
+                        .is_ok()
                         == (v == "per-statement")
                 }
                 "policy.role.developer.fields" => {
-                    data.developer_fields = words(v);
                     let mut s = store_params(&[], &[]);
-                    s.policy = data;
+                    set_policy(&mut s, &instance, &text);
                     run_ok(&mut s, tx(vec![create("task", "a")]), &orch());
                     let l = lease_of(&run_ok(
                         &mut s,
@@ -1485,22 +1811,19 @@ fn every_value_of_every_policy_row() {
                     title == words(v).contains(&"title".to_string())
                 }
                 "policy.role.<role>.define-query" => {
-                    if v == "no" {
-                        data.define_query.retain(|r| r != "orchestrator");
-                    }
-                    rights("orchestrator", data)
+                    let mut s = store_params(&[], &[]);
+                    set_policy(&mut s, &instance, v);
+                    rights("orchestrator", main_policy(&s))
                         .statement(1, "define-query")
                         .is_ok()
                         == (v == "yes")
                 }
                 "policy.role.<role>.authority-owner" => {
-                    if v == "no" {
-                        data.authority_owner.retain(|r| r != "orchestrator");
-                    }
                     let mut s = store_params(&[], &[]);
+                    set_policy(&mut s, &instance, v);
                     run_ok(&mut s, tx(vec![create("note", "n")]), &orch());
                     let st = s.dag.state_at(s.dag.live("main").unwrap().tip, &s.alloc);
-                    rights("orchestrator", data)
+                    rights("orchestrator", main_policy(&s))
                         .value(
                             1,
                             &st,
@@ -1514,11 +1837,7 @@ fn every_value_of_every_policy_row() {
                 "edges.blocks.on-src-deleted" | "edges.gates.on-src-deleted" => {
                     let blocks = name.starts_with("edges.blocks");
                     let mut s = store_params(&[], &[]);
-                    if blocks {
-                        s.cfg.edge_policies.blocks = v.clone();
-                    } else {
-                        s.cfg.edge_policies.gates = v.clone();
-                    }
+                    set_policy(&mut s, &instance, v);
                     let src = if blocks {
                         create("task", "src")
                     } else {
@@ -1585,7 +1904,7 @@ fn every_value_of_every_policy_row() {
                         )
                     };
                     let mut s = store_params(&[], &[]);
-                    s.cfg.merge_policy.insert("task".into(), v.clone());
+                    set_policy(&mut s, &instance, v);
                     two_sided_merge(&mut s, false);
                     let (conflict, value, _, _) = prio(&s);
                     let p = |x: &str| Some(crate::value::Value::Enum(x.into()));
@@ -1595,7 +1914,7 @@ fn every_value_of_every_policy_row() {
                         _ => conflict,
                     };
                     let mut s = store_params(&[], &[]);
-                    s.cfg.merge_policy.insert("task".into(), v.clone());
+                    set_policy(&mut s, &instance, v);
                     two_sided_merge(&mut s, true);
                     let (_, _, live, dvm) = prio(&s);
                     let exist_ok = match v.as_str() {

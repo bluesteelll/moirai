@@ -24,7 +24,8 @@ pub fn in_quiet_mode(flag: bool, from_lane_measuring: bool, lane_measuring: bool
 }
 
 /// The commands quiet mode refuses without `force` ([API §8.3]): `Gc`, `ImageExport`, `ImageImport`, and `LinksSync`
-/// with `deep` or `all`. The model runs `Gc` at M0; the image and link commands are M5's and WP-92's.
+/// with `deep` or `all`. The model runs `Gc` at M0; the image commands are M5's and the link commands group F's
+/// ([API §12]).
 pub const REFUSED: [&str; 4] = ["Gc", "ImageExport", "ImageImport", "LinksSync-deep"];
 
 #[cfg(test)]

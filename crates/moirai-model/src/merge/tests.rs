@@ -525,6 +525,102 @@ fn a_cycle_closing_step_skips_the_least_uid_first() {
     );
 }
 
+/// RS-007's undo takes every node of a cycle-making step that lies on a cycle, a move that set the value its node
+/// already held included ([RULES/merge-table] RS-007, MR-039, CS-013; [F12 §7.4] row "Kleppmann steps"). Ours' commit
+/// (10) puts #3 under #2 and #1 under #3; theirs' commit (20) puts #1 under #3 too and #2 under #1. Replayed after ours',
+/// theirs' step moves #1 nowhere and closes the cycle #2 → #1 → #3 → #2: #1, the least uid of the step on the cycle, is
+/// undone first, which changes nothing, then #2. Both keys' last moves were undone, so both are `kleppmann-skipped`
+/// and stage as `HierarchyCycle`, #1.parent although both sides hold #1 under #3: RS-007's undo exempts no move, a
+/// move that leaves its node where it is included (open point 35 and spec sync 2b's S2B-M-2 record the neighbouring
+/// two-parent case, not adopted).
+#[test]
+fn a_cycle_closing_step_undoes_its_no_op_move_of_a_lower_uid() {
+    let b = base();
+    let mut o = b.clone();
+    o.nodes.get_mut(&Nid(3)).unwrap().parent = Some(Nid(2));
+    o.nodes.get_mut(&Nid(1)).unwrap().parent = Some(Nid(3));
+    let mut t = b.clone();
+    t.nodes.get_mut(&Nid(1)).unwrap().parent = Some(Nid(3));
+    t.nodes.get_mut(&Nid(2)).unwrap().parent = Some(Nid(1));
+    let auto = BTreeMap::new();
+    let (mo, mt) = (step(10, 1, &b, &o), step(20, 2, &b, &t));
+    assert!(
+        mt[0].moves.iter().any(|(n, _)| *n == Nid(1)),
+        "theirs' step holds #1's move"
+    );
+    let mut cx = ctx(&auto, Op::Merge);
+    cx.moves = [&mo, &mt];
+    let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
+    let parent = |n: u32| m.st.nodes[&Nid(n)].parent;
+    assert_eq!(
+        (parent(1), parent(2), parent(3)),
+        (Some(Nid(3)), None, Some(Nid(2)))
+    );
+    let hc = |n: u32| Key::Node(Nid(n), Aspect::Hierarchy);
+    assert_eq!(
+        m.violations
+            .iter()
+            .map(|v| (v.class, v.key.clone()))
+            .collect::<Vec<_>>(),
+        vec![
+            ("HierarchyCycle", Some(hc(1))),
+            ("HierarchyCycle", Some(hc(2)))
+        ]
+    );
+    assert_eq!(
+        (m.rows[&hc(1)].as_str(), m.rows[&hc(2)].as_str()),
+        ("MR-039", "MR-039")
+    );
+    assert_eq!(m.rows[&hc(3)], "MR-040", "#3's move applied");
+    // Inside a virtual merge the same undo is silent (VBC-10).
+    cx.op = Op::Virtual;
+    let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
+    assert!(m.violations.is_empty());
+    assert_eq!(m.st.nodes[&Nid(2)].parent, None);
+}
+
+/// Two steps that share a key stay two steps ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann steps": "dst's
+/// moves apply first, then src's"): with no commit steps, ours puts #1 under #2 and theirs #2 under #1, each in its
+/// side's (0, 0) step. dst's step applies; src's then closes the cycle and is undone, so dst's move stands and src's
+/// key is `kleppmann-skipped`, whichever side holds the lower uid. Fused into one step, the least uid would be undone
+/// first, which is dst's #1 in the first orientation.
+#[test]
+fn two_zero_steps_that_close_a_cycle_undo_srcs_move() {
+    let b = base();
+    let under = |c: u32, p: u32| {
+        let mut s = b.clone();
+        s.nodes.get_mut(&Nid(c)).unwrap().parent = Some(Nid(p));
+        s
+    };
+    let (one_under_two, two_under_one) = (under(1, 2), under(2, 1));
+    let hc = |n: u32| Key::Node(Nid(n), Aspect::Hierarchy);
+    for (o, t, kept, skipped) in [
+        (&one_under_two, &two_under_one, 1u32, 2u32),
+        (&two_under_one, &one_under_two, 2, 1),
+    ] {
+        let m = run(&b, o, t, Op::Merge);
+        let parent = |n: u32| m.st.nodes[&Nid(n)].parent;
+        assert_eq!(parent(kept), Some(Nid(skipped)), "dst's move stands");
+        assert_eq!(parent(skipped), None, "src's move is undone");
+        assert_eq!(
+            m.violations
+                .iter()
+                .map(|v| (v.class, v.key.clone()))
+                .collect::<Vec<_>>(),
+            vec![("HierarchyCycle", Some(hc(skipped)))]
+        );
+        assert_eq!(
+            (m.rows[&hc(kept)].as_str(), m.rows[&hc(skipped)].as_str()),
+            ("MR-040", "MR-039")
+        );
+        // Inside a virtual merge the same undo is silent (VBC-10).
+        let m = run(&b, o, t, Op::Virtual);
+        assert!(m.violations.is_empty());
+        assert_eq!(m.st.nodes[&Nid(kept)].parent, Some(Nid(skipped)));
+        assert_eq!(m.st.nodes[&Nid(skipped)].parent, None);
+    }
+}
+
 /// The WP-91 review's case for spec finding S1b: the base has #2 under #1; one side restructures over three commits —
 /// #2 to the root, #1 under #2, #2 under #3 — each state a forest, and the other side changes only #4's priority. Each
 /// commit is one step, so the replay passes through the side's own states: the result is #1 under #2 under #3 with no

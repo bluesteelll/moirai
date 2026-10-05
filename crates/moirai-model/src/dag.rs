@@ -203,7 +203,8 @@ pub struct Commit {
     pub origin: Option<u64>,
     /// `sync_base`: the second parent of a `sync`.
     pub sync_base: Option<u64>,
-    /// The git provenance group (canonical item 5); the model has no git state before WP-92's `EnvGit`.
+    /// The git provenance group (canonical item 5): the resolved tree's simulated git state ([API §4.4], §6.6), absent
+    /// when the tree has no git.
     pub git: Option<crate::canon::Git>,
     /// `schema_version` (canonical item 7): 1 in format v1.
     pub schema_version: u32,
@@ -213,6 +214,33 @@ pub struct Commit {
     /// The keys the commit's `Resolve` ops name ([F06 §7.7]; [F12 §6.5]), in key order, a resolution that left its
     /// key's value as it was included: `merge --continue` overlays each one ([F12 §9.4] step 2).
     pub resolves: Vec<Key>,
+    /// The `stage` group of a staged `merge` or `sync` ([F06 §4.4.16]): the arguments `merge --continue` recomputes
+    /// with ([F12 §9.4] step 1); `None` for the absent group (no `--base`, no override, `strict` false). Never hashed.
+    pub stage: Option<Stage>,
+}
+
+/// A staged merge's arguments ([F06 §4.4.16] `stage`): its `--base` commit, its policy override and its effective
+/// `strict`. A staged step-0 sync records the merge's override and `strict` but never its `--base` ([F12 §9.6]).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Stage {
+    /// `base`: the `--base` commit (`sgflags` bit 3).
+    pub base: Option<u64>,
+    /// The policy override: `delete-wins` or `resurrect` (`sgflags` bits 1–2).
+    pub policy: Option<String>,
+    /// `strict` (`sgflags` bit 0): `--strict`, else `merge.strict`.
+    pub strict: bool,
+}
+
+impl Stage {
+    /// The group a staged commit records for these arguments: `None` when all three are absent or false ([F06 §4.4.16]
+    /// "not 0").
+    pub fn of(base: Option<u64>, policy: Option<&str>, strict: bool) -> Option<Stage> {
+        (base.is_some() || policy.is_some() || strict).then(|| Stage {
+            base,
+            policy: policy.map(str::to_string),
+            strict,
+        })
+    }
 }
 
 impl Commit {
@@ -256,6 +284,7 @@ impl Commit {
             schema_version: 1,
             violations: Vec::new(),
             resolves: Vec::new(),
+            stage: None,
         }
     }
 }
@@ -895,34 +924,48 @@ pub fn check_branch_name(name: &str) -> Res<()> {
     check_rules(name, name)
 }
 
-/// RN-7 and RN-8 against the live refs ([F12 §2.4]).
+/// RN-7 and RN-8 over names ([F12 §2.4]): the first rule that fails, with the live name it fails against. `live`
+/// holds every live ref name with whether its kind takes part in RN-8 (work, plan and tag refs); RN-7 compares with
+/// every live ref, and a prefix ends at a segment boundary.
+// spec: [F12 §2.4] RN-7, RN-8
+pub fn unique_rule<'a>(
+    name: &str,
+    live: impl IntoIterator<Item = (&'a str, bool)> + Clone,
+) -> Option<(&'static str, &'a str)> {
+    if let Some((n, _)) = live.clone().into_iter().find(|(n, _)| *n == name) {
+        return Some(("RN-7", n));
+    }
+    let prefix = |a: &str, b: &str| b.starts_with(a) && b.as_bytes().get(a.len()) == Some(&b'/');
+    live.into_iter()
+        .find(|(n, counts)| *counts && (prefix(n, name) || prefix(name, n)))
+        .map(|(n, _)| ("RN-8", n))
+}
+
+/// RN-7 and RN-8 against the live refs ([F12 §2.4]), by [`unique_rule`].
 // spec: [F12 §2.4] RN-7, RN-8
 pub fn check_unique(dag: &Dag, name: &str) -> Res<()> {
-    if dag.live(name).is_some() {
-        return Err(
-            Refusal::new("ref_exists", 2, format!("{name} already exists")).key("name", name),
-        );
-    }
-    for r in dag.live_refs() {
-        if !matches!(r.kind, RefKind::Work | RefKind::Plan | RefKind::Tag) {
-            continue;
-        }
-        let prefix =
-            |a: &str, b: &str| b.starts_with(a) && b.as_bytes().get(a.len()) == Some(&b'/');
-        if prefix(&r.name, name) || prefix(name, &r.name) {
-            return Err(Refusal::new(
-                "ref_prefix",
-                2,
-                format!(
-                    "{name} and {} cannot both exist: one is a prefix of the other",
-                    r.name
-                ),
+    let live: Vec<(&str, bool)> = dag
+        .live_refs()
+        .map(|r| {
+            (
+                r.name.as_str(),
+                matches!(r.kind, RefKind::Work | RefKind::Plan | RefKind::Tag),
             )
-            .key("name", name)
-            .key("other", r.name.clone()));
+        })
+        .collect();
+    match unique_rule(name, live.iter().copied()) {
+        None => Ok(()),
+        Some(("RN-7", _)) => {
+            Err(Refusal::new("ref_exists", 2, format!("{name} already exists")).key("name", name))
         }
+        Some((_, other)) => Err(Refusal::new(
+            "ref_prefix",
+            2,
+            format!("{name} and {other} cannot both exist: one is a prefix of the other"),
+        )
+        .key("name", name)
+        .key("other", other.to_string())),
     }
-    Ok(())
 }
 
 #[cfg(test)]

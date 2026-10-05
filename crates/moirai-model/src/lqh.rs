@@ -111,18 +111,30 @@ pub fn lq_schema(s: &Schema) -> LqSchema {
                 );
             }
             Item::Query(q) => l.add_query(&q.name, &q.text),
+            // A policy row names nothing a query binds.
+            Item::Policy(_) => {}
         }
     }
     l
 }
 
 /// A binder refusal as a Store API refusal: the first diagnostic's code with its exit ([LQ/errors §5.1]), and the
-/// byte offset its span starts at, which names the statement.
+/// byte offset its span starts at, which names the statement. A refusal of one statement is unlocated and names the
+/// statement by its 1-based index as its text's `statement <i>: ` prefix (E406's statement case, [LQ/errors §5.5]); it
+/// carries that index as its `statement` key, while the verb-level cases, whose texts name no statement, carry none
+/// (§5.7; spec sync 2b S2B-F-41).
 pub fn refusal(d: &crate::lq::diag::Diag) -> (Refusal, Option<usize>) {
-    (
-        Refusal::lq(d.code.as_str(), d.message.clone()),
-        d.span.map(|s| s.start as usize),
-    )
+    let mut r = Refusal::lq(d.code.as_str(), d.message.clone());
+    if d.span.is_none()
+        && let Some(i) = d
+            .message
+            .strip_prefix("statement ")
+            .and_then(|m| m.split_once(": "))
+            .and_then(|(i, _)| i.parse::<i64>().ok())
+    {
+        r = r.key("statement", crate::err::Kv::Int(i));
+    }
+    (r, d.span.map(|s| s.start as usize))
 }
 
 /// `H` of a named mutation run by name (R4, [LQ/canonical-ast §5.9]): `TX { CALL tx.<name>(…) }` with its parameters.
@@ -130,6 +142,7 @@ pub fn refusal(d: &crate::lq::diag::Diag) -> (Refusal, Option<usize>) {
 pub fn h_of_mutation(
     name: &str,
     params: &Params,
+    message: Option<&str>,
     schema: &LqSchema,
     ids: &dyn Identities,
     caller: &Caller,
@@ -146,7 +159,8 @@ pub fn h_of_mutation(
         if_targets: None,
         key: None,
         lease: None,
-        message: None,
+        // The call's `message` is the block's `MESSAGE`, inside `H` ([API §7.3]; [LQ/canonical-ast] C-2).
+        message: message.map(str::to_string),
         stmts: Vec::new(),
         dry: false,
         span: crate::lq::diag::Span::default(),
