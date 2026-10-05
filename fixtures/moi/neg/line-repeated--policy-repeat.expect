@@ -1,0 +1,10 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/line-repeated--policy-repeat.moi
+%% file schema
+%% source [F14 §9.2]
+%% source [F14 §7.1]
+%% note Two policy rows of one name (spec sync 2b, S2B-R-28): schema/policy.moi with one row added.
+%% note The file is schema/policy.moi in its tree.
+%% refuse ImageParse line-repeated
+%% end

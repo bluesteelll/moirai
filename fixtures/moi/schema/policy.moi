@@ -1,0 +1,3 @@
+moirai-schema 1
+policy policy.role.developer.fields files_owned,title
+policy policy.role.developer.mcp-write yes

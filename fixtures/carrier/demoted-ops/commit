@@ -1,0 +1,16 @@
+tree f090addd6a650a9d0c504956d147091661e7b458
+parent 018e6a12ce584771b360c194bc69088493ee821e
+author moirai/dev#6 <developer@moirai.invalid> 1790004260 +0000
+committer moirai/dev#6 <developer@moirai.invalid> 1790004260 +0000
+
+re-estimate #2 on lane/ops
+
+Moirai-Commit: ce16b425c2a065518b3f53af1180c4b3306a855440d7f9503b07bef919e2ae1ef
+Moirai-Kind: ordinary
+Moirai-Ref: lane/ops
+Moirai-Hlc: 117309719199744000
+Moirai-Actor: dev#6
+Moirai-Role: developer
+Moirai-Session: claude:s6
+Moirai-Schema: 1
+Moirai-Ops: 2
