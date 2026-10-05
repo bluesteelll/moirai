@@ -59,7 +59,7 @@
 | WP-40 | 4 | A | R-TOY | `crates/moirai-toylog/` | S4: the seeded-bug author |
 | WP-40b | 4 | A | R-TOY | `crates/moirai-toylog/` | S4 |
 | WP-50 | 5 | A | R-HARN-I | `docs/spec/measurement-protocol.md`, `crates/moirai-probes/`, `crates/moirai-probes-bin/` | `empty`, `guard` |
-| WP-51 | 5 | A | R-HARN-I | `xtask/` (`loadrec`), `crates/moirai-probes/`, `crates/moirai-probes-bin/`, `.github/` (`noise.yml`), `docs/measurements/` | WP-51a first |
+| WP-51 | 5 | A | R-HARN-I | `xtask/` (`loadrec`), `crates/moirai-probes/`, `crates/moirai-probes-bin/`, `.github/` (`noise.yml`), `docs/measurements/`, `docs/spec/measurement-protocol.md` (§9), `docs/m0/` (`tools.md`) | WP-51a first |
 | WP-52 | 5 | A | R-HARN-I | `crates/moirai-probes/`, `crates/moirai-probes-bin/`, `docs/measurements/` | |
 | WP-53a–e | 5 | B | R-HARN-M | `crates/moirai-probes/`, `crates/moirai-probes-bin/`, `docs/measurements/` | |
 | WP-54 | 5 | B | R-HARN-M | `crates/moirai-probes/`, `crates/moirai-probes-bin/`, `crates/moirai-tokcount/`, `docs/measurements/` | |
@@ -148,7 +148,7 @@ to this file, reviewed like any other.
 | `crates/moirai-files/src/{path,fold,text,oid,uid,r14,anchor}` | R-FL1A | path rules and P1–P12; `fold_v1` and its generated tables; the two-pass reader, `is_text`, EOL and normalised lines; `oid`; uid derivations and predecessor order; chapter 20's R-14 constants; anchor capture and resolve |
 | `crates/moirai-files/src/{scan,ignore,sketch}` | R-FL1B | the scope scanners; the gitignore and never-candidate matchers; sketch, winnowing, similarity, containment and their predicates |
 | `docs/spec/**` | R-SPEC | the session per chapter is in §2 |
-| `docs/spec/measurement-protocol.md` | R-HARN | WP-50, session -I |
+| `docs/spec/measurement-protocol.md` | R-HARN | WP-50; §9 by WP-51; session -I |
 | `docs/spec/rules/**` | R-MODEL | |
 | `docs/spec/rules/SIGNED.md` | owner only | the owner-committed table digests (V3) |
 | `docs/spec/reviews/**` | R-REV-P, R-REV-S, R-REV-A | each lens writes only the files named with its lens: its letter as a `-`, `_` or `.`-separated token of the file name (`P-pass1.md`, `a1-p.md`) |

@@ -15,9 +15,9 @@
 //! | `ci commits [--event <path>]` | WP-04 | the pull-request and push checks over every commit ([`ci`]) |
 //! | `ucd [--check]` | WP-61 | generate the `fold_v1` tables from `fixtures/ucd/17.0.0/` ([`ucd`]); `--check` compares |
 //! | `hex <file.hex>... [-o <out>] \| --digest <file.hex>... \| --check [<path>...]` | WP-20 | the generic fixture assembler ([`hex`], [`hex::USAGE`]) |
+//! | `loadrec start [--max-duration <s>] [--private-dir <dir>] \| stop [--private-dir <dir>] \| check <file>` | WP-51a | measurement 16's load fixture in `/private/load/` ([`loadrec`]) |
 //!
-//! `loadrec` (WP-51) and `nightly` (WP-05) arrive with their work packages; until then the binary names them and
-//! exits with status 2.
+//! `nightly` (WP-05) arrives with its work package; until then the binary names it and exits with status 2.
 
 mod authors;
 mod cargo;
@@ -33,6 +33,7 @@ mod lint_deps;
 mod lint_fuzz;
 mod lint_roots;
 mod lint_source;
+mod loadrec;
 mod markers;
 mod metadata;
 mod paths;
@@ -53,18 +54,11 @@ use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 
 /// Subcommands that arrive with later work packages.
-const LATER: &[(&str, &str, &str)] = &[
-    (
-        "loadrec",
-        "WP-51",
-        "record the system-wide _Total counters for measurement 16",
-    ),
-    (
-        "nightly",
-        "WP-05",
-        "profile L nightly runner: guard pre-checks, window calendar, job list",
-    ),
-];
+const LATER: &[(&str, &str, &str)] = &[(
+    "nightly",
+    "WP-05",
+    "profile L nightly runner: guard pre-checks, window calendar, job list",
+)];
 
 const USAGE: &str = "usage: cargo xtask <subcommand>
   gate [--branch m0/<role> | --role <role>] [--ci] [--range <a>..<b>] [--only <step>,..] [--skip <step>,..] [--strict-coverage] [--list]
@@ -79,7 +73,8 @@ const USAGE: &str = "usage: cargo xtask <subcommand>
   ci commits [--event <path>]
   ucd [--check]
   hex <file.hex>... [-o <out.bin>] | --digest <file.hex>... | --check [<file or directory>...]
-      (cargo xtask hex --help: the .hex format and the --check rules)";
+      (cargo xtask hex --help: the .hex format and the --check rules)
+  loadrec start [--max-duration <seconds>] [--private-dir <dir>] | stop [--private-dir <dir>] | check <file>";
 
 /// A minimal option reader: `--name value` pairs and flags.
 struct Args {
@@ -140,6 +135,16 @@ impl Args {
 fn repo_root() -> Result<PathBuf, String> {
     let cwd = std::env::current_dir().map_err(|e| e.to_string())?;
     git::toplevel(&cwd)
+}
+
+/// `--private-dir`, or the main worktree's `/private/` (PLAN §2.5), found as the pre-commit hook finds it.
+fn private_dir(repo: &Path, given: Option<PathBuf>) -> Result<PathBuf, String> {
+    match given {
+        Some(p) => Ok(p),
+        None => Ok(git::main_worktree(repo)
+            .ok_or("cannot locate the main worktree")?
+            .join("private")),
+    }
 }
 
 fn print_diags(diags: &[diag::Diag]) {
@@ -321,29 +326,12 @@ fn run(argv: Vec<String>) -> Result<ExitCode, String> {
             let no_public = a.flag("--no-public");
             a.done()?;
             let repo = repo_root()?;
-            let pd = match pd {
-                Some(p) => p,
-                None => git::main_worktree(&repo)
-                    .ok_or("cannot locate the main worktree")?
-                    .join("private"),
-            };
-            let public = if no_public {
-                Vec::new()
-            } else {
-                let r = public_ref.unwrap_or_else(|| "master".into());
-                if git::probe(
-                    &repo,
-                    &["rev-parse", "--verify", "-q", &format!("{r}^{{commit}}")],
-                )
-                .is_some()
-                {
-                    private::public_shingles(&repo, &r)?
-                } else {
-                    println!("private index: {r} does not exist; no public text is left out");
-                    Vec::new()
-                }
-            };
-            let st = private::index(&pd, &public)?;
+            let pd = private_dir(&repo, pd)?;
+            let public_ref = (!no_public).then(|| public_ref.unwrap_or_else(|| "master".into()));
+            let (st, note) = private::rebuild(&repo, &pd, public_ref.as_deref())?;
+            if let Some(n) = note {
+                println!("private index: {n}");
+            }
             println!(
                 "private index: {} written: {} files ({} text), {} shingles ({} public ones left out; {} sorted runs spilled)",
                 pd.join(private::MANIFEST).display(),
@@ -402,6 +390,7 @@ fn run(argv: Vec<String>) -> Result<ExitCode, String> {
             })
         }
         "hex" => hex_cmd(a),
+        "loadrec" => loadrec_cmd(a),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(ExitCode::SUCCESS)
@@ -414,6 +403,60 @@ fn run(argv: Vec<String>) -> Result<ExitCode, String> {
             }
             Ok(ExitCode::from(2))
         }
+    }
+}
+
+/// `cargo xtask loadrec` ([`loadrec`], [`loadrec::USAGE`]).
+fn loadrec_cmd(mut a: Args) -> Result<ExitCode, String> {
+    let Some(which) = a.rest.first().cloned() else {
+        return Err(loadrec::USAGE.into());
+    };
+    a.rest.remove(0);
+    match which.as_str() {
+        "start" => {
+            let max = match a.value("--max-duration")? {
+                Some(v) => match v.parse::<u64>() {
+                    Ok(s) if s > 0 => std::time::Duration::from_secs(s),
+                    _ => {
+                        return Err(format!(
+                            "--max-duration takes a positive number of seconds, not '{v}'"
+                        ));
+                    }
+                },
+                None => loadrec::DEFAULT_MAX_DURATION,
+            };
+            let pd = a.value("--private-dir")?.map(PathBuf::from);
+            a.done()?;
+            let repo = repo_root()?;
+            loadrec::start(&repo, &private_dir(&repo, pd)?, max)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        "stop" => {
+            let pd = a.value("--private-dir")?.map(PathBuf::from);
+            a.done()?;
+            let repo = repo_root()?;
+            loadrec::stop(&repo, &private_dir(&repo, pd)?)?;
+            Ok(ExitCode::SUCCESS)
+        }
+        "check" => {
+            let [file] = a.rest.as_slice() else {
+                return Err(loadrec::USAGE.into());
+            };
+            Ok(if loadrec::check(Path::new(file))? {
+                ExitCode::SUCCESS
+            } else {
+                ExitCode::FAILURE
+            })
+        }
+        "--help" | "help" => {
+            println!("{}", loadrec::USAGE);
+            Ok(ExitCode::SUCCESS)
+        }
+        other => Err(format!(
+            "unknown loadrec command '{other}'
+{}",
+            loadrec::USAGE
+        )),
     }
 }
 

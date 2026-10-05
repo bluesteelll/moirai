@@ -1,0 +1,183 @@
+# Measurement 16's hosted noise runs (docs/m0/PLAN.md §3.2 WP-51, §2.5; docs/spec/measurement-protocol.md §2.1, §6,
+# §9.6, §9.7; [60 §5.1] the Noise band row; [60 §5.2] item 16).
+#
+# - Run by hand only (workflow_dispatch), never on a push or a pull request: a noise run is a measurement, and the
+#   owner runs measurements when he resumes them (PLAN §5).
+# - Idle, or under a synthetic load: `moirai-probes-bin loadgen` replaying a synthetic profile (§9.6). Never the load
+#   fixture: it stays on the owner's laptop and never reaches a hosted runner ([AR §11] #37). No input can name a file,
+#   and the workflow uses no secret.
+# - It runs the measurement drivers it is given, by the driver contract of §9.7, and prints their noise bands
+#   (`moirai-probes-bin noise`, §6.1) and the generator's verdict (§9.5) to the job log and the job summary. A hosted
+#   band is reported and never decides a gate (§6); the workflow gates nothing and uploads nothing.
+# - The stop file alone ends a synthetic replay: loadgen gets no --max-duration, so it cannot stop under drivers that
+#   run long. After the drivers the workflow checks that it was still replaying and that its log ends with
+#   `"ending":"stop-request"`, and says so in the summary when it was not (the drivers' runs were then not all under
+#   the synthetic load; their own verdicts, read from the log, fail rule (a), §9.5).
+# - Inputs reach the scripts through the environment, never through `${{ }}` inside a `run:` script, are checked
+#   against fixed patterns before use, and are split into words with pathname expansion off (`set -f`).
+# - permissions: contents: read. No third-party action: the checkout is plain git over HTTPS and the toolchain comes
+#   from rust-toolchain.toml through the runner's rustup, as in pr.yml.
+
+name: noise
+
+on:
+  workflow_dispatch:
+    inputs:
+      condition:
+        description: "The condition: idle, or synthetic (loadgen on a synthetic profile)"
+        type: choice
+        options: [idle, synthetic]
+        default: idle
+      drivers:
+        description: "The moirai-probes-bin measurement drivers to run, separated by spaces (measurement-protocol.md §9.7)"
+        type: string
+        required: true
+      synthetic:
+        description: "The synthetic spec of a synthetic run, key=value pairs (measurement-protocol.md §9.6); empty: the default profile"
+        type: string
+        default: ""
+
+permissions:
+  contents: read
+
+# One noise run at a time; a newer dispatch waits for the running one.
+concurrency:
+  group: noise
+  cancel-in-progress: false
+
+jobs:
+  noise:
+    name: noise
+    runs-on: windows-latest
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    env:
+      CARGO_TERM_COLOR: never
+      CARGO_INCREMENTAL: "0"
+      CONDITION: ${{ inputs.condition }}
+      DRIVERS: ${{ inputs.drivers }}
+      SYNTHETIC: ${{ inputs.synthetic }}
+    steps:
+      - name: Check out the commit
+        env:
+          REPO: ${{ github.repository }}
+        run: |
+          set -eu
+          git config --global core.autocrlf false
+          git config --global init.defaultBranch master
+          git init -q .
+          git remote add origin "https://github.com/${REPO}.git"
+          git fetch -q --no-tags --depth=1 origin "${GITHUB_SHA}"
+          git checkout -q --detach "${GITHUB_SHA}"
+          git log -1 --format='checked out %H (%s)'
+
+      - name: Check the inputs
+        run: |
+          set -euf
+          case "${CONDITION}" in
+            idle|synthetic) ;;
+            *) echo "::error::the condition is idle or synthetic, not '${CONDITION}'"; exit 1 ;;
+          esac
+          if [ -n "${SYNTHETIC}" ] && ! printf '%s\n' "${SYNTHETIC}" | grep -Eq '^[a-zA-Z0-9=,.]+$'; then
+            echo "::error::the synthetic spec holds only key=value pairs separated by commas"; exit 1
+          fi
+          if [ -n "${SYNTHETIC}" ] && [ "${CONDITION}" != synthetic ]; then
+            echo "::error::a synthetic spec needs the synthetic condition"; exit 1
+          fi
+          n=0
+          for d in ${DRIVERS}; do
+            if ! printf '%s\n' "${d}" | grep -Eq '^[a-z0-9][a-z0-9-]{0,63}$'; then
+              echo "::error::'${d}' is not a driver name"; exit 1
+            fi
+            case "${d}" in
+              loadgen|noise|guard|empty) echo "::error::'${d}' is a tool of moirai-probes-bin, not a measurement driver"; exit 1 ;;
+            esac
+            n=$((n + 1))
+          done
+          if [ "${n}" -eq 0 ]; then
+            echo "::error::no driver was given"; exit 1
+          fi
+
+      - name: Toolchain from rust-toolchain.toml
+        run: |
+          set -eu
+          rustup toolchain install --no-self-update
+          rustup show active-toolchain
+          rustc --version
+
+      - name: Build moirai-probes-bin
+        run: |
+          set -euf
+          cargo build --locked --release -p moirai-probes-bin
+          for d in ${DRIVERS}; do
+            if [ ! -x "target/release/${d}.exe" ]; then
+              echo "::error::moirai-probes-bin has no driver '${d}'"; exit 1
+            fi
+          done
+
+      - name: Noise runs
+        run: |
+          set -euf
+          work="${RUNNER_TEMP}/noise"
+          bin="${PWD}/target/release"
+          mkdir -p "${work}/records"
+          load_args=()
+          gen=
+          if [ "${CONDITION}" = synthetic ]; then
+            "${bin}/loadgen.exe" --synthetic "${SYNTHETIC}" --scratch "${work}/scratch" --log "${work}/replay.jsonl" \
+              --ready-file "${work}/ready" --stop-file "${work}/stop" \
+              > "${work}/loadgen.out" 2> "${work}/loadgen.err" &
+            gen=$!
+            # Settling takes at least 60 s; a driver starts 60 s after it (measurement-protocol.md §9.5, §9.7).
+            waited=0
+            while [ ! -f "${work}/ready" ]; do
+              if ! kill -0 "${gen}" 2>/dev/null; then
+                cat "${work}/loadgen.out" "${work}/loadgen.err"
+                echo "::error::loadgen ended before it settled"; exit 1
+              fi
+              if [ "${waited}" -ge 900 ]; then
+                touch "${work}/stop"; wait "${gen}" || true
+                cat "${work}/loadgen.out" "${work}/loadgen.err"
+                echo "::error::loadgen did not settle within 15 minutes"; exit 1
+              fi
+              sleep 5; waited=$((waited + 5))
+            done
+            sleep 60
+            load_args=(--load-log "${work}/replay.jsonl")
+          fi
+          status=0
+          for d in ${DRIVERS}; do
+            echo "::group::${d}"
+            "${bin}/${d}.exe" --host hosted --condition "${CONDITION}" "${load_args[@]}" --out "${work}/records" || status=1
+            echo "::endgroup::"
+          done
+          if [ -n "${gen}" ]; then
+            load_note="the synthetic load replayed through every driver"
+            if ! kill -0 "${gen}" 2>/dev/null; then
+              load_note="the synthetic load ended before the drivers finished: their runs were not all under it"
+              echo "::warning::${load_note}"
+            fi
+            touch "${work}/stop"
+            gen_status=0
+            wait "${gen}" || gen_status=$?
+            ending=$(grep -o '"ending":"[a-z-]*"' "${work}/replay.jsonl" | tail -n 1 || true)
+            if [ "${ending}" != '"ending":"stop-request"' ]; then
+              load_note="the synthetic load ended early (${ending:-no end line in its log}): the drivers' runs were not all under it"
+              echo "::warning::${load_note}"
+            fi
+            cat "${work}/loadgen.out"
+            cat "${work}/loadgen.err" >&2
+            echo "loadgen exited with ${gen_status} (a synthetic run's readings are recorded, not checked: §2.3)"
+            { echo "### loadgen verdict (synthetic)"; echo; echo "${load_note}"; echo; echo '```'; tail -n 1 "${work}/loadgen.out"; echo '```'; } >> "${GITHUB_STEP_SUMMARY}"
+          fi
+          set +f
+          shopt -s nullglob
+          records=("${work}/records"/*.json)
+          if [ "${#records[@]}" -eq 0 ]; then
+            echo "::error::the drivers wrote no run record"; exit 1
+          fi
+          "${bin}/noise.exe" "${records[@]}" | tee "${work}/bands.jsonl"
+          { echo "### Noise bands (hosted, ${CONDITION})"; echo; echo '```'; cat "${work}/bands.jsonl"; echo '```'; } >> "${GITHUB_STEP_SUMMARY}"
+          exit "${status}"

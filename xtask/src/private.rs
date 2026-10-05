@@ -19,6 +19,15 @@
 //! - **Tree digest.** BLAKE3 over `path NUL size NUL blake3-hex LF` for every file, in byte order of the paths. A
 //!   manifest whose digest differs from `/private/` now is stale. The check trusts a file's recorded hash when its
 //!   size and mtime are unchanged and the mtime is at least 2 s older than the manifest; any other file is re-hashed.
+//! - **Files left out.** The manifest and its temporary files, and the two files `xtask loadrec` changes while it
+//!   records the load fixture ([MP §9.3], `docs/spec/measurement-protocol.md`): `load/*.load.partial`, which grows by
+//!   one sample a second, and `load/stop.request`. Listed, they would make the manifest stale within a second of every
+//!   rebuild, and the hook would refuse every commit in every worktree for the whole recording. Leaving them out
+//!   costs nothing: both are binary (the partial begins with a NUL; the request is empty), so they give no shingles;
+//!   while recording, the partial's bytes change every second, so a listed hash would match no staged copy; and a
+//!   path under `private/` is refused anyway. The sealed fixture `load/<start>.load` is listed like any other file:
+//!   sealing makes the manifest stale, and `loadrec start` (or `loadrec stop`, which seals an interrupted recording)
+//!   rebuilds it.
 //! - **LF-normalised hash.** With `* text=auto eol=lf` (`.gitattributes`) git stores a text file's CRLF line ends
 //!   as LF, so the staged blob of a copied CRLF file is not byte-equal to the private file. For a file that git's
 //!   `text=auto` treats as text (convert.c: no NUL, no lone CR, at most one non-printable byte per 128 printable
@@ -39,6 +48,7 @@
 
 use crate::diag::Diag;
 use crate::git;
+use crate::loadrec;
 use std::collections::{BTreeSet, BinaryHeap};
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -335,7 +345,14 @@ fn manifest_file(name: &str) -> bool {
     name.starts_with(MANIFEST)
 }
 
-/// Every regular file under `dir` as `(relative path with /, absolute path, metadata)`, sorted by path bytes.
+/// Whether a file of `/private/load/` is one `xtask loadrec` changes while it records ([MP §9.3]): the fixture being
+/// recorded (`*.load.partial`, one sample appended a second) or the stop request.
+fn recorder_file(name: &str) -> bool {
+    name.ends_with(loadrec::PARTIAL) || name == loadrec::STOP_REQUEST
+}
+
+/// Every regular file under `dir` as `(relative path with /, absolute path, metadata)`, sorted by path bytes, except
+/// the manifest's own files and the files the load recorder changes while it records (the module header says why).
 /// Symbolic links are not followed and are reported as errors, so nothing under `/private/` escapes the manifest.
 fn walk(dir: &Path) -> Result<Vec<(String, PathBuf, std::fs::Metadata)>, String> {
     let mut out = Vec::new();
@@ -364,7 +381,9 @@ fn walk(dir: &Path) -> Result<Vec<(String, PathBuf, std::fs::Metadata)>, String>
             }
             if ft.is_dir() {
                 stack.push((e.path(), r));
-            } else if rel.is_empty() && manifest_file(&name) {
+            } else if (rel.is_empty() && manifest_file(&name))
+                || (rel == loadrec::LOAD_DIR && recorder_file(&name))
+            {
                 continue;
             } else {
                 let md = e.metadata().map_err(|e| e.to_string())?;
@@ -538,6 +557,34 @@ pub struct IndexStats {
 /// sorted and distinct.
 pub fn index(private_dir: &Path, public: &[u64]) -> Result<IndexStats, String> {
     index_with(private_dir, public, RUN_CAP)
+}
+
+/// `xtask private index` as the command runs it: the shingles of the tracked text of `public_ref` are left out
+/// (none when `public_ref` is `None`, `--no-public`), and a `public_ref` that does not exist leaves nothing out, with
+/// the note returned beside the statistics. `xtask loadrec` calls it after writing a fixture under `/private/`.
+pub fn rebuild(
+    repo: &Path,
+    private_dir: &Path,
+    public_ref: Option<&str>,
+) -> Result<(IndexStats, Option<String>), String> {
+    let mut note = None;
+    let public = match public_ref {
+        None => Vec::new(),
+        Some(r) => {
+            if git::probe(
+                repo,
+                &["rev-parse", "--verify", "-q", &format!("{r}^{{commit}}")],
+            )
+            .is_some()
+            {
+                public_shingles(repo, r)?
+            } else {
+                note = Some(format!("{r} does not exist; no public text is left out"));
+                Vec::new()
+            }
+        }
+    };
+    Ok((index(private_dir, &public)?, note))
 }
 
 fn index_with(private_dir: &Path, public: &[u64], cap: usize) -> Result<IndexStats, String> {
