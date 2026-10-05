@@ -2,8 +2,8 @@
 # Binaries only: it holds src/bin/*.rs wiring and nothing else. Allowed dependencies: moirai-probes, moirai-os,
 # moirai-toylog, moirai-harness-stub. Excluded from the GT20 (e) cross-target set and checked with
 # `cargo check -p moirai-probes-bin --locked --target x86_64-pc-windows-msvc`. No checked crate may depend on it.
-# Written by R-HARN: WP-50 adds `guard`; the other binaries (`peak`, `probe-p7`, `loadgen`, the measurement drivers)
-# arrive with the work packages that need them.
+# Written by R-HARN: WP-50 adds `guard`, WP-51 `loadgen` and `noise`; the other binaries (`peak`, `probe-p7`, the
+# measurement drivers) arrive with the work packages that need them.
 [package]
 name = "moirai-probes-bin"
 version.workspace = true
@@ -16,9 +16,33 @@ autobins = false
 autolib = false
 description = "Windows-only composition root wiring the measurement probes to the OS layer (test-only)."
 
+# Measurement 11's empty executable and the floor of the floor-relative RSS form (docs/spec/measurement-protocol.md
+# §4.6, §4.9).
 [[bin]]
 name = "empty"
 path = "src/bin/empty.rs"
+test = false
+bench = false
+
+# The pre-run guard of WP-05's nightly runner and the measurement drivers (docs/spec/measurement-protocol.md §8).
+[[bin]]
+name = "guard"
+path = "src/bin/guard.rs"
+test = false
+bench = false
+
+# Measurement 16's load generator: replays a load profile with available physical memory held at 1.8 GB and validates
+# the replay (docs/spec/measurement-protocol.md §9.4, §9.5).
+[[bin]]
+name = "loadgen"
+path = "src/bin/loadgen.rs"
+test = false
+bench = false
+
+# Measurement 16's noise bands: the bands of a set of noise runs (docs/spec/measurement-protocol.md §6, §9.7).
+[[bin]]
+name = "noise"
+path = "src/bin/noise.rs"
 test = false
 bench = false
 

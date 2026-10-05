@@ -18,6 +18,16 @@ moirai-vfs.workspace = true
 moirai-toylog.workspace = true
 moirai-harness-stub.workspace = true
 moirai-tokcount.workspace = true
+# Run records, noise-band records and the guard's output (docs/spec/measurement-protocol.md §7.1, §8.3), and the
+# load generator's log (§9.4).
+serde_json.workspace = true
+# The load fixture's id (BLAKE3-256 of the file, §2.3) and its checksum (xxh3-64, §9.2).
+blake3.workspace = true
+xxhash-rust.workspace = true
+
+# Property suites of the unit tests (PLAN §2.4: dev only).
+[dev-dependencies]
+proptest.workspace = true
 
 [lints]
 workspace = true

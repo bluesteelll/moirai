@@ -1,4 +1,6 @@
-//! `empty`: the empty Rust executable whose spawn-to-exit time is measurement 11's floor ([60 §5.2] row 11, §5.3). It
+//! `empty`: the empty Rust executable whose spawn-to-exit time is measurement 11's floor ([60 §5.2] row 11, §5.3), and
+//! whose peak private bytes are the floor of the floor-relative RSS form ([80 §2.9], [OS/mem §8]). It is measured
+//! interleaved with the operation it floors ([MP §4.3], [MP §4.6], [MP §4.9]; `docs/spec/measurement-protocol.md`). It
 //! does nothing, by definition.
 //!
 //! `moirai-probes-bin` is a test-only composition root, Windows only (`xtask/roots.toml`): it holds only
