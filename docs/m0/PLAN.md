@@ -527,6 +527,21 @@ request and goes through a PR under V10's ruleset. Until WP-03 is installed, the
 | #39 signing | Measurement 11's signed arm | Either a self-signed test certificate (a certificate-store change the owner makes), or dropping the signed arm | The measurement 11 session |
 | Push | Publishing the M0 tree | "Push" after reviewing WP-01 to WP-04, as a PR (A3 already accepted the docs) | End of phase 0 |
 
+**Owner decisions of 2026-09-29.** These change the table above:
+- **No pull requests.** PR #1 was merged. Work branches now merge straight into `master` after the local gate. The
+  `master` ruleset keeps only its deletion and non-fast-forward rules, and `pr.yml` still runs on every push to `master`.
+- **Measurements and benchmarks are deferred.** V4, V5 and V9 wait until the owner resumes them. So do the runs of
+  WP-51 to WP-57 and WP-72/73, and LQ-Bench's real-session stratum. The tools may still be built, but nothing is run
+  or recorded.
+- **V6 is delegated, and the owner confirmed the sources.** The replay corpora of [40 §8.3.4] come from the owner's
+  repository, its Claude Code transcripts and its auto-memory, as in the research reports. The paths are recorded
+  only in the gitignored `/private/sources.toml`. The extraction scripts process file contents mechanically: the
+  cited text for row 2 and the Rust sources for row 8. No agent studies the project itself. Extractions stay under
+  `/private/`, and only counts and rates are committed.
+- **V3 is delegated.** The rule tables and the GT10 core set are verified by independent agent reviews. `SIGNED.md`
+  records that the owner delegated the signature on this date.
+- **The private guard is on** (`moirai.private-guard`, with `/private/MANIFEST.b3` and `moirai.xtask` set).
+
 ## 6. Changes
 
 ### 6.1 Changes to the approved roadmap from the 2026-09-27 decisions
