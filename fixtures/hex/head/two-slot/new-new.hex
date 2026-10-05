@@ -27,7 +27,7 @@ slotA:
   {u32 10}                                  # segments[0].file_no
   01                                        # segments[0].kind (base)
   {u64 16660}                               # segments[0].upto_lsn
-  4c b0 13 6d 60 0a 80 26 6e 5a 39 51 29 e3 61 91  # segments[0].blake3_16
+  ef 1d f0 02 6e 3e 90 a0 c8 0c 2c bc 98 24 d4 7d  # segments[0].blake3_16
   00*29                                     # segments[1]: empty
   00*29                                     # segments[2]: empty
   00*29                                     # segments[3]: empty
@@ -136,7 +136,7 @@ slotB:
   {u32 10}                                  # segments[0].file_no
   01                                        # segments[0].kind (base)
   {u64 16660}                               # segments[0].upto_lsn
-  4c b0 13 6d 60 0a 80 26 6e 5a 39 51 29 e3 61 91  # segments[0].blake3_16
+  ef 1d f0 02 6e 3e 90 a0 c8 0c 2c bc 98 24 d4 7d  # segments[0].blake3_16
   00*29                                     # segments[1]: empty
   00*29                                     # segments[2]: empty
   00*29                                     # segments[3]: empty

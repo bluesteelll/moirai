@@ -3,6 +3,10 @@
 # STATS, the view's schema, SYMTAB [1, ...), and every store-level table (runtime window up to 19475).
 # Full-text tier 2 over every document of the view (the rollup builds it for the base, [F17 §6.4]): TERMS in
 # front-coded blocks of 16, POST, DOCLEN for rows #1-#16 and FTSSTAT (candidate `kept` of HOLE(F09-doclen)).
+# A base carries every FCOL and FIDX its FPROMO rows imply: no row holds assignee, so FCOL.assignee (0x4002) has
+# every absent bit set and FIDX.assignee (0x5002) is its 16-byte header with n_values 0 ([F09 §10.1]-§10.3). The
+# IDEM entries without result_inline hold result (0, 0), outside the heap order ([F11 §2.3], §8). Both as spec
+# sync 2b (S2B-R-1, S2B-R-6) states them.
 
 # SegHdr (120 B, [F09 §2.1])
 seghdr:
@@ -11,7 +15,7 @@ seghdr:
   03                                        # seg_kind 3 `seg-base`
   01                                        # tok_ver
   {u32 16}                                  # n_rows
-  {u16 93}                                  # n_sections
+  {u16 95}                                  # n_sections
   {u16 0}                                   # _reserved
   {u32 10}                                  # file_no
   {u32 0}                                   # ref_id
@@ -25,7 +29,7 @@ seghdr:
   {blake3_256 data..end}                    # seg_digest: BLAKE3-256 over [data_off, total_len)
   {xxh3_64 table..data}                     # table_xxh3 over the section table
   {xxh3_64 0..112}                          # hdr_xxh3 over [0, 112)
-# section table (93 entries of 32 B, [F09 §2.2])
+# section table (95 entries of 32 B, [F09 §2.2])
 table:
   # SecEnt NODE (0x0002)
   {u16 2}                                   # tag
@@ -433,6 +437,13 @@ table:
   {len 0..s_4001 u64}                       # off (absolute)
   {len s_4001..s_4001.e u64}                # len
   {xxh3_64 s_4001..s_4001.e}                # xxh3
+  # SecEnt FCOL.assignee (0x4002)
+  {u16 16386}                               # tag
+  {u16 0}                                   # flags
+  {u32 16}                                  # count
+  {len 0..s_4002 u64}                       # off (absolute)
+  {len s_4002..s_4002.e u64}                # len
+  {xxh3_64 s_4002..s_4002.e}                # xxh3
   # SecEnt FCOL.metric (0x4003)
   {u16 16387}                               # tag
   {u16 0}                                   # flags
@@ -496,6 +507,13 @@ table:
   {len 0..s_5001 u64}                       # off (absolute)
   {len s_5001..s_5001.e u64}                # len
   {xxh3_64 s_5001..s_5001.e}                # xxh3
+  # SecEnt FIDX.assignee (0x5002)
+  {u16 20482}                               # tag
+  {u16 0}                                   # flags
+  {u32 0}                                   # count
+  {len 0..s_5002 u64}                       # off (absolute)
+  {len s_5002..s_5002.e u64}                # len
+  {xxh3_64 s_5002..s_5002.e}                # xxh3
   # SecEnt FIDX.metric (0x5003)
   {u16 20483}                               # tag
   {u16 0}                                   # flags
@@ -3549,8 +3567,8 @@ s_0102:
     {u32 0}                                 # _reserved
     {u64 0}                                 # from_lsn
     {u64 9284}                              # upto_lsn
-    {u64 2316}                              # total_len
-    83 11 69 cb 20 24 f5 98 00 50 56 dc 13 47 71 de  # digest16
+    {u64 2812}                              # total_len
+    9f bf dd 27 9a 7b d5 9b c4 31 86 a5 d2 24 76 3a  # digest16
   # row 1
     06                                      # file.family
     {u32 0}                                 # file.ref_id
@@ -4217,7 +4235,7 @@ s_0207:
     00 00 00                                # _reserved
     {u64 0x1a0c45093100000}                 # append_hlc
     {u64 601}                               # origin_lsn
-    {u32 107}                               # result: HeapRef.off
+    {u32 0}                                 # result: HeapRef.off
     {u32 0}                                 # result: HeapRef.len
   # row 14
     6d fd a6 c3 b6 a4 9e 6a a9 37 60 f8 3a 53 d3 9d  # key
@@ -4229,7 +4247,7 @@ s_0207:
     00 00 00                                # _reserved
     {u64 0x1a0c450e1300000}                 # append_hlc
     {u64 4244}                              # origin_lsn
-    {u32 107}                               # result: HeapRef.off
+    {u32 0}                                 # result: HeapRef.off
     {u32 0}                                 # result: HeapRef.len
   # row 15
     00*72                                   # empty slot: all zero
@@ -5013,6 +5031,36 @@ s_4001:
 s_4001.e:
 {align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
 
+# === section FCOL.assignee (0x4002)
+s_4002:
+  {u32 8}                                   # field_sym `assignee`
+  {u32 16}                                  # n
+  {u32 0}                                   # n_vals
+  07                                        # vtype
+  00                                        # form
+  04                                        # elem_w
+  00                                        # _reserved
+  ff ff                                     # absent bitmap: no row holds the field ([F09 §10.1])
+  00 00 00 00 00 00                         # zero to a multiple of 8
+  00 00 00 00                               # row 0 (#1) absent
+  00 00 00 00                               # row 1 (#2) absent
+  00 00 00 00                               # row 2 (#3) absent
+  00 00 00 00                               # row 3 (#4) absent
+  00 00 00 00                               # row 4 (#5) absent
+  00 00 00 00                               # row 5 (#6) absent
+  00 00 00 00                               # row 6 (#7) absent
+  00 00 00 00                               # row 7 (#8) absent
+  00 00 00 00                               # row 8 (#9) absent
+  00 00 00 00                               # row 9 (#10) absent
+  00 00 00 00                               # row 10 (#11) absent
+  00 00 00 00                               # row 11 (#12) absent
+  00 00 00 00                               # row 12 (#13) absent
+  00 00 00 00                               # row 13 (#14) absent
+  00 00 00 00                               # row 14 (#15) absent
+  00 00 00 00                               # row 15 (#16) absent
+s_4002.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
 # === section FCOL.metric (0x4003)
 s_4003:
   {u32 20}                                  # field_sym `metric`
@@ -5301,6 +5349,17 @@ s_5001:
   {u64 24}                                  # chunk.off (from the section's first byte)
   {u16 11}                                  # array: #11
 s_5001.e:
+{align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FIDX.assignee (0x5002)
+s_5002:
+  {u32 8}                                   # field_sym `assignee`
+  {u32 0}                                   # n_values: no row holds the field ([F09 §10.1])
+  07                                        # vtype
+  04                                        # elem_w
+  00                                        # form (0 frozen, 1 ± lists)
+  00 00 00 00 00                            # _reserved
+s_5002.e:
 {align 8}                                   # sections start at multiples of 8 ([F09 §2.2] P-2)
 
 # === section FIDX.metric (0x5003)
