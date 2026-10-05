@@ -57,7 +57,9 @@ A value that does not convert, an unknown parameter and a missing required one a
 
 2.3. **Shapes.** Each named query declares one output shape ([50 §4.1], [50 §6.4]); the renderings are [LQ/envelope §5]'s. The
 closed v1 set: `node`, `table`, `tree`, `detail`, `diff`, `history`, `conflict`, `violation`, `across`, `loop`, `links`,
-`changes`, `blockers`. In the `node` shape, columns after the first render as extras ([LQ/envelope §5.4]).
+`changes`, `blockers`. In the `node` shape, columns after the first render as extras ([LQ/envelope §5.4]). A definition
+without `SHAPE` is `table`, the one shape that renders every projection ([LQ/envelope §5.1]), and its item stores that word
+([F14 §7.2.2]; spec sync 2b).
 
 2.4. **Budget classes.** `BUDGET light`, `medium` or `heavy` sets the default `work` budget of a run of the query to a tenth of,
 once, or ten times `query.budget.default.work` ([CFG §10.5]; pass 1, A1-37, [CFG] open point 18), which gives 200,000,
@@ -139,13 +141,13 @@ Cypher signatures. Function names and relation names are separate namespaces, so
 | `applies` | `k: node`, `glob: text` | bool |
 | `applies_role` | `k: node`, `role: text` | bool |
 | `applies_phase` | `k: node`, `phase: text` | bool |
-| `fits_role` | `t: node`, `role: text` | bool |
+| `fits_role` | `t: node`, `role: text` | bool: [RULES/role-write-policy]'s `role-status` table has a row for `role` whose kind is t's kind or `*` and whose target status is `done` or `*`, so the role may complete t; no other property of t is read (spec sync 2b) |
 | `glob_match` | `path: text`, `glob: text` | bool |
 | `text_match` | `n: node`, `terms: text` | bool |
 | `file` | `path: text`, `root: text = 'project'` | node or absent |
 | `link_state` | `x: node or edge` | text |
 | `staleness` | `n: node` | text |
-| `relevant_to` | `n: node`, `agent: text` | bool |
+| `relevant_to` | `n: node`, `agent: text` | bool: true when `agent` **claimed** n (a task lease on n whose holder is `agent`, live or ended; leases are store-wide), is **blocked on** n (a `blocks` or `gates` edge from n to a task `agent` claimed), **authored** n (n's `CREATOR` actor is `agent`), or **cited** n (a `cites` or `mentions` edge to n from a node `agent` authored or claimed). Every clause but the lease one reads the view's state, whatever ref the feed entry names, so a node that exists only on another ref is relevant only through a lease (spec sync 2b) |
 | `now`, `me`, `view_ref` | none | timestamp, text, text |
 | `datetime` | none (then `now()`), or `s: text` | timestamp |
 | `date` | `s: text` | timestamp |
@@ -231,6 +233,28 @@ whose edges a delete without replacement flags (EG-008, EG-014). The other struc
 `runs_in`, `answers`, `scoped_to`, `duplicate_of`, `depends_on`) never have a tombstone endpoint, so for them the
 pseudo-label `DELETED` is not among the endpoint kinds of [LQ/canonical-ast §5.10]'s kind sets, and a pattern that puts
 it on such an end is E106.
+
+2.15. **Change-feed entries that are not key changes** (spec sync 2b; [AR §6.3]). The `changes` relation yields one entry per
+key change of every commit (its net ops, [API §5.7]) and one per durable runtime event below. Lazy records (a heartbeat
+renewal, a cursor) are no entries.
+
+| Event | `op` | `aspect` | `name` | `node` | `ref` | `commit` | `actor` |
+|---|---|---|---|---|---|---|---|
+| a lease granted ([F05 §9.4] event 1) | `grant` | `lease` | `L-<n>` | the task; absent for a role lease | the lease's branch | the group's commit, else absent | the holder |
+| a lease ended (event 2, every reason of [F05 §9.4]: release, complete, reclaim, supersede, branch deletion, `apply`, run close, `rm --release`) | `end` | `lease` | `L-<n>` | as above | as above | as above | the holder |
+| a lease renewed durably (event 4) | `renew` | `lease` | `L-<n>` | as above | as above | absent | the holder |
+| a lease moved by `--move-lease` (event 3, mask bit 1) | `move` | `lease` | `L-<n>` | as above | the new branch | the group's commit | the holder |
+| a `settled`, `deleted` or `cleared` marker entry ([F05 §9.5] `mkind` 1–3) | `settled`, `deleted`, `cleared` | `marker` | `s<seq>`, the seq of the marker's origin commit | the node | the marker's origin ref | the origin commit | the entry's actor, else the origin commit's |
+| a ref move no commit carries ([F05 §9.2] reasons 1–5) | `create`, `delete`, `undo`, `op-restore`, `park` | `ref` | the ref's name | absent | the moved ref | the new tip; absent for a deletion | the record's actor |
+
+- **`seq`.** A commit's entries carry its seq. An entry that no commit carries has the seq of the newest commit appended
+  before it and counts after that commit ([F05 §9.2], [API §11.11]); `affected` is absent on it.
+- **The `since(s)` cut.** `changes(since: s)` yields the entries after commit s: those whose seq is above s, and those without
+  a commit whose seq is s.
+- **Ties.** Entries of one seq come in log order: the commit's key changes first, in [API §5.7]'s row order, then the group's
+  other entries in the order of their records ([F05 §4.7]), then the entries of later groups in append order. `ORDER BY seq`
+  keeps this order among ties.
+- `relevant_to` of an absent `node` is false.
 
 ## 3. The read catalog
 
@@ -816,9 +840,9 @@ the expansion, with the parameter values, is the idempotency payload ([50 §3.10
 | `tx.reopen` | `reopen ID --reason T` | `$id: node, $reason: text` | `TX { REOPEN <id> REASON $reason }` |
 | `tx.supersede` | `supersede OLD --with NEW` | `$old: node, $new: node` | `TX { CREATE (<new>)-[:SUPERSEDES]->(<old>) }` |
 | `tx.doc_patch` | `doc patch SECTION --remove FILE --add FILE [--depends-on S,..]` | `$section: node, $old: text, $new: text, $depends_on: list<node>?` | `TX { PATCH <section>.body REMOVE $old ADD $new[; CREATE (<section>)-[:DEPENDS_ON]->(<s>)]... }` |
-| `tx.rm` | `rm ID [--reason T] [--replaced-by ID] [--cascade\|--reparent] [--release] [--dry-run] [--yes]` | `$id: node, $reason: text?, $replaced_by: node?, $policy: text?, $release: bool = false` | `TX { DELETE <id>[ POLICY CASCADE\|REPARENT][ REPLACED BY <replaced_by>][ RELEASE][ REASON $reason] }`; without `--yes` the verb runs it with `DRY` |
-| `tx.resolve` | `resolve KEY --take ours\|theirs\|base\|repoint:ID \| --value V \| --all --policy P` | `$key: text?, $take: text, $value: text?, $all: bool = false` | `TX { RESOLVE '<key>' TAKE OURS\|THEIRS\|BASE\|VALUE $value\|REPOINT <id> }`; `--all --policy P`: `TX { RESOLVE (CALL conflicts() YIELD key RETURN key) EXPECT >= 1 TAKE <P> }` with `<P>` = `OURS`, `THEIRS` or `BASE` |
-| `tx.remember` | MCP `remember`; the CLI verbs `rule\|note\|decision\|finding\|verdict\|measurement --stdin` | `$kind: text, $title: text, $text: text, $fields: list<text>?, $about: list<node>?, $applies_to: list<text>?` | `TX { CREATE (n:<kind> {title: $title[, <f>: $<f>]...}); SET n.<textfield> = $text[; CREATE (n)-[:ABOUT]->(<x>)]... }` where `<textfield>` is `text` for a rule and `body` otherwise; the kind's mandatory fields are checked (`failure_scenario` for findings) and a verdict's `DERIVED_FROM` edges are written ([50 §4.2]) |
+| `tx.rm` | `rm ID [--reason T] [--replaced-by ID] [--cascade\|--reparent\|--reassign] [--release] [--dry-run] [--yes]` | `$id: node, $reason: text?, $replaced_by: node?, $policy: text?, $release: bool = false` | `TX { DELETE <id>[ POLICY CASCADE\|REPARENT\|REASSIGN][ REPLACED BY <replaced_by>][ RELEASE][ REASON $reason] }`; without `--yes` the verb runs it with `DRY` |
+| `tx.resolve` | `resolve KEY --take ours\|theirs\|base\|drop\|repoint:ID \| --value V \| --all --policy P` | `$key: text?, $take: text, $value: text?, $all: bool = false` | `TX { RESOLVE '<key>' TAKE OURS\|THEIRS\|BASE\|VALUE $value\|REPOINT <id> }`, and for `--take drop` (a flagged edge, [F12 §6.5]) `TX { RESOLVE '<key>' DROP }`; `--all --policy P`: `TX { RESOLVE (CALL conflicts() YIELD key RETURN key) EXPECT >= 1 TAKE <P> }` with `<P>` = `OURS`, `THEIRS` or `BASE` |
+| `tx.remember` | MCP `remember`; the CLI verbs `rule\|note\|decision\|finding\|verdict\|measurement --stdin` | `$kind: text, $title: text, $text: text, $fields: list<text>?, $about: list<node>?, $applies_to: list<text>?` | `TX { CREATE (n:<kind> {title: $title[, <f>: $<f>]...}); SET n.<textfield> = $text[; CREATE (n)-[:ABOUT]->(<x>)]... }` where `<textfield>` is `text` for a rule and `body` otherwise; the kind's mandatory fields are checked (`failure_scenario` for findings); for a verdict (`$kind` = `verdict`), after every `ABOUT` edge, `[; CREATE (n)-[:DERIVED_FROM]->(<x>)]...` for each `$about` element x that is a finding, in `$about`'s order: a verdict's `DERIVED_FROM` edges come from its `$about` findings, and these statements are part of the expansion, so of `H` ([50 §4.2]; [AR §2.12] N14; spec sync 2b) |
 
 `tx.resolve`'s key is a string literal in the grammar (`RESOLVE string`, [50 §2.3]), so the expansion inserts the key, after it
 passed the conflict-key syntax check of [F12], as a single-quoted literal with `'` and `\` escaped; it is the one value a template
@@ -858,8 +882,8 @@ TX { CREATE (n:finding {title: $title, failure_scenario: $failure_scenario, seve
 
 | Procedure | Parameters | Yields | Effect |
 |---|---|---|---|
-| `tx.complete` | `$id: node, $outcome: text, $summary: text, $evidence: list<text>? = NULL, $digest: text? = NULL` | `task, status, ready` | for every outcome (`done`, `failed`, `abandoned`): match the leased task (`EXPECT 1`), perform `open → in_progress → done` in one commit with `resolution` `completed`, `rework` or `wontdo` for `done`, `failed` or `abandoned`, release the lease into a `settled` marker whose outcome records `$outcome`, and yield the newly ready ids ([AR §6.2], [50 §4.2], [RULES/status-machines] CO-002, CO-003, [API §10.5]; pass 1, A1-36); refused with E404 while a child is open or a `fail_*` verdict gates the task; the link settle is a separate CAS-guarded commit after it ([72 M11]); `$digest` is the pack digest ([AR §7.4] step 4) |
-| `tx.claim` | `$ids: list<node>? = NULL, $next: bool = false, $scope: node? = NULL, $role: text? = NULL, $agent: text? = NULL, $ttl: text? = NULL, $start: bool = false, $run: text? = NULL, $session: bool = false` | `lease, token, branch, expires` | a `Lease` record only; `$start` also performs `open → in_progress`; `$ttl` is a duration or `run`, and `NULL` means the store's `lease.ttl-default` ([CFG]; pass 1, A1-37), so the named mutation and the verb honour the key alike; `$run` and `$session` mint role leases under [AR §7.3]'s minting policy ([AR §6.2], [90 §4.3]) |
+| `tx.complete` | `$id: node, $outcome: text, $summary: text, $evidence: list<text>? = NULL, $digest: text? = NULL, $lease: text? = NULL` | `task, status, ready` | for every outcome (`done`, `failed`, `abandoned`): match the leased task (`EXPECT 1`), perform `open → in_progress → done` in one commit with `resolution` `completed`, `rework` or `wontdo` for `done`, `failed` or `abandoned`, release the lease into a `settled` marker whose outcome records `$outcome`, and yield the newly ready ids ([AR §6.2], [50 §4.2], [RULES/status-machines] CO-002, CO-003, [API §10.5]; pass 1, A1-36); refused with E404 while a child is open or a `fail_*` verdict gates the task; the link settle is a separate CAS-guarded commit after it ([72 M11]); `$digest` is the pack digest ([AR §7.4] step 4); `$lease` presents a lease for this call only, in place of the block's `LEASE`, so one block can complete several tasks each under its own lease ([API §9.4] step 1, its open point 16; spec sync 2b) |
+| `tx.claim` | `$ids: list<node>? = NULL, $next: bool = false, $scope: node? = NULL, $role: text? = NULL, $agent: text? = NULL, $ttl: text? = NULL, $start: bool = false, $run: text? = NULL, $session: bool = false` | `lease, token, branch, expires` | a `Lease` record only; `$start` also performs `open → in_progress`; `$ttl` is a duration or `run`: a `text` value (`15m`, `run`), and also a `duration` or an `int` of milliseconds ([API §5.1], §10.1), which the binder accepts for this parameter and reads as that duration (spec sync 2b), and `NULL` means the store's `lease.ttl-default` ([CFG]; pass 1, A1-37), so the named mutation and the verb honour the key alike; `$run` and `$session` mint role leases under [AR §7.3]'s minting policy ([AR §6.2], [90 §4.3]) |
 | `tx.heartbeat` | `$lease: text` | `lease, expires` | a lazy renewal record |
 | `tx.release` | `$lease: text` | `lease` | releases the lease |
 | `tx.reclaim` | `$older_than: duration? = NULL, $run: text? = NULL` | `lease` | releases the matching leases ([AR §6.2]) |
@@ -970,3 +994,8 @@ None. The library's text is frozen at WP-72; it holds no measured value. The bud
     the evaluator scale `coerce = timestamp` fields between Unix seconds and LQ milliseconds, so no C-AST or hash sees the
     scale ([F08] open point 11). §2.14 lists the edge kinds that admit a `DELETED` endpoint, from the delete-policy rows.
     OQ-F-2 was decided on 2026-09-28: `std.ready` orders by `priority, id` (§4.1).
+19. **Spec sync 2b.** §2.15 fixes the change-feed entries that are not key changes (lease, marker and ref-move rows),
+    the `since(s)` cut and the order of ties. `fits_role` and `relevant_to` are defined in §2.10. `tx.claim`'s `$ttl`
+    also takes an `int` of milliseconds or a `duration`; `tx.complete` gains `$lease` ([API §9.4]); `tx.remember`
+    renders a verdict's `DERIVED_FROM` statements from its `$about` findings; `tx.rm` takes `--reassign`; `tx.resolve`
+    takes `--take drop`.

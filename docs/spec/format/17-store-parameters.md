@@ -212,6 +212,10 @@ whose init-fixed values are not the production ones:
   kinds other than `main`'s base and deltas (OP-17-06), and the further 1 is the one yield delta that a long maintenance
   holding may add above P14 ([F16] P-98; pass 1, P1-9). With `n_other` = 1, P14 ≤ 5.
 
+Until WP-81a fills the holes, a constraint over a production value written HOLE(…) is checked with the design figure in
+brackets (C-2 with P09 = 1 MiB and P10 = 2 MiB), and every other rule that reads such a production value reads that
+figure too, as the model does.
+
 ## 4. Log, history and commit size
 
 ### 4.1 `store.log-extent-bytes` (P01)
@@ -420,7 +424,9 @@ dictionary exists.
 - **Meaning.** Full-text tier 2 (`TERMS`, `POST` and, if kept, `DOCLEN`, [AR §4.4], [50] F12) is built once the store's row
   count reaches P18. The count is `HEAD.next_id − 1`. It is monotonic and store-wide, so every branch view uses the same
   tier (OP-17-02).
-- **Decision point.** Each delta checkpoint and each rollup.
+- **Decision point.** Each delta checkpoint and each rollup. A runtime-only fold (§5.4) is not a decision point. A
+  delta that a runtime-only fold writes after bit 1 is set carries the tier-2 sections like every other segment: `TERMS`,
+  `POST` and `DOCLEN` are empty, and `FTSSTAT`, if kept, equals the layer below's ([F09 §15.1]).
   - At the first decision point where `next_id − 1 ≥ P18`, the maintenance holder builds tier 2 for the segment it writes.
   - The publish that covers that `Checkpoint` sets `HEAD.flags` bit 1 (`fts_tier2`).
   - From then on, every segment written carries the tier-2 sections, and the next rollup builds them for the base.
@@ -510,8 +516,11 @@ This reading resolves the "violation record beyond it" of [AR §2.5] and [20 §7
 
 **Visibility.** V.
 
-**Model function.** `moirai_model::derived::affected_with_budget(parent: &State, child: &State, budget: u32)
--> (Vec<Id>, bool)`, tagged `spec: [F17 §8.2]`.
+**Model function.** `moirai_model::derived::affected_with_budget(parent: &State, child: &State, budget: u32,
+current_parent: Current<'_>, current_child: Current<'_>) -> (Vec<Nid>, bool)`, tagged `spec: [F17 §8.2]`. The two
+`Current` arguments (`&dyn Fn(Nid) -> Option<[u8; 32]>`) give each node's current commit on R's view at the parent and at
+`c` ([API §15.4] `rev`): `suspect`'s pinned clause compares an edge's `pinned_commit` with its target's current commit
+([F13 §6.2]), which is a fact of the view's history, not of its state alone.
 
 **Test value 4.** A delete or edit of a node cited by five nodes then takes the incomplete path at model scale.
 
@@ -557,8 +566,9 @@ The opening record of each window is named below. Elapsed time is measured by §
   first checkpoint fold after expiry drops the entry. The key's type requires P28 to be at least the longest Workflow resume
   ([AR §13]).
 - **`idempotency.default-window` (P29).** An entry created under a **default key** matches only while its age is at most
-  P29 ([AR §6.4], [72] m5). The default key is BLAKE3 of the namespaced session, the attested agent or actor, and the
-  canonical bound AST. `IDEM` rows must therefore record whether a key was a default key ([F11], OP-17-16).
+  P29 ([AR §6.4], [72] m5). The default key is BLAKE3 of the namespaced session, the attested agent or actor, the name of
+  the command's branch and the payload ([API §7.2], [F06 §4.4.7]), so it matches only an entry made on a branch of that
+  name ([F13] I14′). `IDEM` rows must therefore record whether a key was a default key ([F11], OP-17-16).
 - **Decision point.** Each idempotency lookup: phase 1 step 2 and phase 2 step 6 ([AR §4.5]).
 - **Visibility.** V.
 - **Model function.** `moirai_model::idem::lookup(key, payload, branch, now) -> Lookup`, tagged `spec: [F17 §11.1]`. It
@@ -567,17 +577,26 @@ The opening record of each window is named below. Elapsed time is measured by §
 
 ### 11.2 Reflog and cruft (P30, P31)
 
-- **Reachability at a `moirai gc` run** ([AR §4.9]): refs, plus reflog entries younger than P30 (window opened by the
-  `append_hlc` of the ref move), plus pins.
+- **Reachability at a `moirai gc` run** ([AR §4.9]): refs, plus reflog entries younger than P30, plus pins. A reflog
+  entry's window opens at the HLC of its ref move: the commit's `append_hlc` for a move that a commit carries, the `hlc`
+  ([F05 §9.2] order 4) of the `RefUpdate` for any other move (a `RefUpdate` has no `append_hlc`).
 - **Frame rewriting.** `hist` frames are rewritten to drop unreachable commits older than P31 (window opened by the
   commit's `append_hlc`). Commit headers are kept unless `--prune-headers` is given.
-- **`MARKERS_OLD`.** Rows older than P30 are dropped ([AR §4.4]).
+- **`MARKERS_OLD` and deleted refs.** The run's checkpoint fold, after its inertness move, drops the `MARKERS_OLD` rows
+  whose `hlc` is older than P30 ([F11 §7] "Retention", [AR §4.4]), and then the `REFS` rows of the deleted refs that
+  expire at the run, with their entries in the other refs' absorbed vectors ([F11 §3.8]: the deleting `RefUpdate`'s
+  `hlc` older than P30, no marker row naming the ref as origin ref, no `IDEM` entry bound to it inside its window). The
+  run's P30 is `gc.reflog-expire`, or its `reflog_expire` ([API §8.5]).
 - **Decision point.** Each `gc` run.
 - **Visibility.** V, through `gc` only: after a `gc`, `undo`, `reflog` and as-of cannot reach an expired entry or a dropped
-  commit.
+  commit, and the runtime snapshot ([API §15.7] `markers`, `refs`, `absorbed`) no longer holds the dropped `MARKERS_OLD`
+  rows, the expired deleted refs or their absorbed entries. Both drops are functions of the stream at the run, because
+  the inertness move comes first, so they do not depend on when earlier folds ran (SP-1).
 - **Model function.** `moirai_model::gc::reachable_after_gc(dag, refs, reflog, pins, now, expire, cruft) -> Set<CommitId>`,
-  tagged `spec: [F17 §11.2]`. The model implements only this reachability rule; physical GC is outside its scope
-  ([60 §4.3], OP-17-17).
+  tagged `spec: [F17 §11.2]`, for reachability. The model's `Gc` also applies the two runtime drops above, in that order:
+  it keeps every marker row in one set, so it drops the rows that [F11 §7]'s inertness rule places in `MARKERS_OLD` at
+  the run (cleared, or absorbed by every live ref) whose `hlc` is older than P30, then the expired deleted refs
+  ([API §8.5]). Physical GC (frame rewriting, file deletion, blob GC) is outside its scope ([60 §4.3], OP-17-17).
 - **Test values.** 2 h and 30 min.
 
 ### 11.3 Trash and file observations (P32, P33)
@@ -813,8 +832,10 @@ body-placement hole (measurement 6).
 - **OP-17-16 (default keys in `IDEM`).** The default-key window (P29) needs each `IDEM` row to record whether its key was a
   default key. [F11] (WP-13) owns the row layout and should reserve the bit.
 - **OP-17-17 (GC semantics in the model).** [60 §4.3] puts GC out of the model's scope. Reflog and cruft expiry are still
-  visible through `gc` followed by `undo`, `reflog` or as-of. The model implements only the reachability rule
-  (`gc::reachable_after_gc`). [API] (WP-25) should confirm that `gc` is a `Store` API command in GT2 streams.
+  visible through `gc` followed by `undo`, `reflog` or as-of. The model implements the reachability rule
+  (`gc::reachable_after_gc`) and, since spec sync 2b, the two runtime drops of §11.2 (`MARKERS_OLD` retention, then the
+  expiry of deleted refs), which the runtime snapshot shows ([API §15.7]). [API] (WP-25) should confirm that `gc` is a
+  `Store` API command in GT2 streams; [API §8.5] confirms it.
 - **OP-17-18 (as-of distance: a conflict between documents).** [AR §5a.6] says "reverse-apply from the nearest later pinned set
   within 50k ops, else replay forward". [50 §5.8] replaces this with a `mem`-bounded choice among three strategies and the
   `query.asof.max-ops.*` caps. By the precedence [50] > [AR] for LQ execution, the 50k-op rule is not a store parameter.
@@ -859,3 +880,12 @@ body-placement hole (measurement 6).
   from this chapter. Two of its statements are fixed numbers that this chapter makes parameters, and should cite them:
   - "at most 3 live before a tiered fold" (the `seg.d<K>` row) becomes "at most `store.fold-width`" (§6.1, production 3);
   - "after 60 s of grace" ([F02 §5.2] rule 3) becomes "`gc.delete-grace`" (§11.4, production 60 s).
+- **OP-17-27 (spec sync 2b).** Three points met by WP-20 and WP-90a: §6.4 says that a runtime-only fold is not a tier-2
+  decision point and that the delta it writes after bit 1 is set carries empty tier-2 sections ([F09 §15.1]); §3 says
+  that until WP-81a the constraints over holes use the bracketed design figures; §8.2's model function takes each view's
+  current commits, which the pinned clause of `suspect` needs.
+- **OP-17-28 (spec sync 2b, independent check).** §11.2 now states `gc`'s two runtime drops ([F11 §3.8], [F11 §7]
+  "Retention") as visible effects that the model reproduces, in the order the run applies them, where it limited the
+  model to reachability and Visibility to `undo`, `reflog` and as-of; the reflog window of a `RefUpdate` opens at its
+  `hlc` ([F05 §9.2] order 4), since it has no `append_hlc`. §11.1 names the branch among the default key's inputs
+  ([API §7.2]).

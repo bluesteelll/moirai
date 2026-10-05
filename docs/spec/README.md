@@ -63,7 +63,8 @@ The header block of each file is authoritative for its status; this index record
 | [format/17-store-parameters.md](format/17-store-parameters.md) | [F17] | Every threshold, fixed at `init` or tunable, with production values as holes and the test profile; the `InitParams` block | WP-16c (R-SPEC-P) | draft, pass 1 pending |
 | [format/18-file-links.md](format/18-file-links.md) | [F18] | R-12 (I-F1…I-F14), R-15, R-16, R-17 | WP-14 (R-SPEC-F) | draft, pass 1 pending |
 | [format/19-errors-and-output.md](format/19-errors-and-output.md) | [F19] | Exit codes 0–10, the v1 envelope, byte-unit and output rules, error codes and refusal texts, the F18 violation classes and validator | WP-18b (R-SPEC-F) | draft, pass 1 pending |
-| [format/20-r4-resolver-constants.md](format/20-r4-resolver-constants.md) | [F20] | R-14's appendix: `is_text`, EOL, `oid`, `fold_v1`, window and sketch hashes, winnowing, the git pair score, thresholds, the never-candidate list, the per-OS rules; the interim scanner rule | WP-14b (R-SPEC-R) | draft, pass 1 pending |
+| [format/20-r4-resolver-constants.md](format/20-r4-resolver-constants.md) | [F20] | R-14's appendix: `is_text`, EOL, `oid`, `fold_v1`, window and sketch hashes, winnowing, the git pair score, thresholds, the never-candidate list, the per-OS rules; the interim scanner rule (the scanners are [F21]'s) | WP-14b (R-SPEC-R) | draft, pass 1 pending |
+| [format/21-scope-scanners.md](format/21-scope-scanners.md) | [F21] | the scope scanners of resolver version 1: the Rust, Markdown and TOML scanners as total algorithms, name paths, recordable scopes, the scope a capture records and how it resolves, the `symbol` and `heading` authoring forms and their outcomes, the scanner constants | WP-14b (R-SPEC-R) | draft, pass 2 pending |
 
 ### OS layer — `os/`
 

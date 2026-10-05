@@ -64,7 +64,7 @@ Every table follows [RULES/README]. In addition:
 | WT-006 | created-in-tx | scope | derived | [50 §3.10] items 2, 6; [50 §4.2] `remember` | n is created by an earlier statement of the same `TX` block, or by the same named mutation or `remember` call. |
 | WT-007 | any | scope | design | [AR §7.3] | Every node. |
 | WT-008 | lease-run | scope | proposed | [AR §7.4] step 5; [90 §4.3] run-scoped leases; [OP-21] | n is the `run` node the presented lease names (a run-scoped role lease, or a task lease claimed with `--run`). |
-| WT-009 | W | set | proposed | [50 §3.10] item 6; [50 §6.5] "any writable field"; [OP-17]; [OP-28] | The writable fields of a kind: `title`, `abstract`, `body` (`SET x.body`, `PATCH`), `parent` and `order` (`MOVE`), `priority`, `criticality`, `confidence`, `labels`, the flags `pinned`, `archived` and `frozen`, `defer_until`, `due` and `reason`, and every kind field whose schema class is writable. Not in W: `status` and `resolution` (`role-status`), `authority` (`role-values`), and every field E115 refuses (derived, runtime, tree-derived, observation and identity fields, edge properties). |
+| WT-009 | W | set | proposed | [50 §3.10] item 6; [50 §6.5] "any writable field"; [OP-17]; [OP-28] | The writable fields of a kind: `title`, `abstract`, `body` (`SET x.body`, `PATCH`), `parent` and `order` (`MOVE`), `priority`, `criticality`, `confidence`, `labels`, the flags `pinned`, `archived` and `frozen`, `defer_until`, `due` and `reason`, and every kind field whose schema class is writable. A counter field is in W; it moves only by `incr` (an assignment is E103 before any policy check, [API §9.1]; spec sync 2b). Not in W: `status` and `resolution` (`role-status`), `authority` (`role-values`), and every field E115 refuses (derived, runtime, tree-derived, observation and identity fields, edge properties). |
 | WT-010 | may-write(n) | pred | proposed | [AR §7.3] R4 rows "every role that may write the referring node"; [50 §6.3]; [OP-10] | R is orchestrator or owner; or a `role-fields` or `role-status` row matches (R, kind(n), n); or n is own-role and a `role-create` row lets R create kind(n). |
 | WT-011 | bulk | pred | design | [50 §3.10] item 3 | A `MATCH` target whose `EXPECT` allows more than 10 bindings or has no upper bound. |
 | WT-012 | owner-attested | pred | proposed | [AR §7.3] owner row "(main session, `--by owner`)", orchestrator "`authority = owner` only with `--owner-quote`"; [AR §13] `policy.role.<role>.authority-owner`, `hooks.stamp.ask-for`; [OP-1] | The call presents an orchestrator session role lease and carries the owner attestation: `--by owner`, or `--authority owner` with `--owner-quote-file` on the CLI; through MCP, `authority=owner` with an owner quote, which the stamp's `ask` permission puts before the human by default. |
@@ -89,7 +89,7 @@ Every table follows [RULES/README]. In addition:
 | WR-009 | 9 | per-op | design | [AR §7.3] "per statement, per op and per field"; [50 §6.5]; [50 §3.10] item 5 | Every write verb, `apply` entry and MCP write compiles to one `TX` block. For each statement in order, each op it produces and each field an op sets: `role-statements`, `role-create`, `role-values`, `role-fields`, `role-status` and `role-edges` must each allow it, by the allowlist rule of §2. |
 | WR-010 | 10 | refuse-whole | design | [AR §7.3]; [50 §3.10] item 5; [50 §5.3] | The first refused op refuses the whole block: nothing is written, E406 (exit 6) names the statement (1-based) and the rule (WZ-001). Statically known ops are refused by the binder; ops whose scope depends on data (own-role, leased-task) are checked on the candidate overlay; nothing is checked after the commit. |
 | WR-011 | 11 | other-checks | design | [50 §3.10] item 5 | An allowed op still passes schema, status-machine, invariant and delete-policy checks (E115, E404, E405, E409, E410). |
-| WR-012 | 12 | model-profile | design | [90 §8.1] L2; [90 §8.2]; [AR §13] `query.safelist.model.<profile>` | After the role policy: a caller whose model profile is `unknown` writes named mutations only (`named-only`, the default for `unknown`); a free-form `TX` is refused with WZ-010, naming the matching named mutation. `dry-targets` (opt-in) also allows a `TX` applied with `IF TARGETS` from a `DRY`. |
+| WR-012 | 12 | model-profile | design | [90 §8.1] L2; [90 §8.2]; [AR §13] `query.safelist.model.<profile>` | After the role policy: a caller whose model profile is `unknown` writes named mutations only (`named-only`, the default for `unknown`); a free-form `TX` is refused with WZ-010, naming the matching named mutation. `dry-targets` (opt-in) also allows a `TX` applied with `IF TARGETS` from a `DRY`. The rule applies to a caller with a session identity ([API §4.2] CX-4) or with `door` = `mcp`; a CLI block with neither is not refused, as [API §19] example 02's free-form `Tx` shows ([API §9.1] E411 row; spec sync 2b). |
 | WR-013 | 13 | side-effects | proposed | [40 §3.3]; [40 §3.7] `links sync`; [AR §7.1] `file mv` example "2 globs rewritten"; [50 §3.10] item 7; [OP-16] | The fixed side effects of an allowed verb are part of it and are not checked against `role-fields`: capture registers file nodes and the root node (`link --at`, `file add`); `links sync` and settles write observations, `path_moves` and `PENDING`; `file mv` rewrites the globs of other nodes' `files_owned` and `applies_to`; ops produce markers. |
 | WR-014 | 14 | hooks | proposed | [AR §7.5]; [90 §2.5]; [OP-15] | A hook handler writes only what its `role-hooks` row lists; it never executes write text a model supplied. |
 
@@ -212,8 +212,8 @@ surface and any condition beyond the ops. `ref` and `admin` verbs are not `TX` b
 
 ## 9. Ops: create, values, fields, status, edges
 
-Kind-level validation applies to every role and is not repeated below: a `finding` needs `failure_scenario`; a node
-with `authority = owner` needs `owner_quote` (for rules, [AR §3.2]); a `verdict` written through `remember` writes its
+Kind-level validation applies to every role and is not repeated below: a `finding` needs `failure_scenario`; a rule
+with `authority = owner` needs `owner_quote` ([AR §3.2], [F08 §8.6] item 4); a `verdict` written through `remember` writes its
 `DERIVED_FROM` edges ([50 §4.2]); `CREATE (x:artifact ...)` is E115 because file nodes are registered by capture
 ([50 §3.10]), so the artifact rows below apply to capture and to the `artifact_kind` set that follows it.
 
@@ -239,7 +239,7 @@ with `authority = owner` needs `owner_quote` (for rules, [AR §3.2]); a `verdict
 | WC-017 | developer | question | - | - | design | [AR §7.3]; [50 §6.5] | - |
 | WC-018 | developer | finding | f_kind=plan | - | proposed | [AR §7.3] "`deviation`"; [50 §6.5] "deviation finding"; [OP-3] | - |
 | WC-019 | developer | artifact | artifact_kind=impl | - | design | [AR §7.3] "`artifact{impl}`"; [OP-4] | By capture. |
-| WC-020 | tester | measurement | - | env, measured_on | design | [AR §7.3] "`measurement` (env + `measured_on` mandatory)"; [50 §6.5] | - |
+| WC-020 | tester | measurement | - | env, measured_on | design | [AR §7.3] "`measurement` (env + `measured_on` mandatory)"; [50 §6.5]; [F08 §9.3] | `env` means at least one `env_*` field (`env_host`, `env_profile`, `env_load`, `env_scale`; [F08 §9.3], the design's `env.*`) (spec sync 2b). |
 | WC-021 | tester | artifact | artifact_kind=test | - | design | [AR §7.3] "`artifact{test}`"; [OP-4] | By capture. |
 | WC-022 | tester | finding | f_kind=test | - | design | [AR §7.3] "findings `f_kind=test`"; [50 §6.5] | - |
 | WC-023 | results-analyst | verdict | role=analyst | return_to | design | [AR §7.3] "`verdict{role=analyst, return_to}`" | - |
@@ -254,11 +254,12 @@ with `authority = owner` needs `owner_quote` (for rules, [AR §3.2]); a `verdict
 <!-- table: role-values -->
 | row | field | value | roles | requires | basis | source | note |
 |---|---|---|---|---|---|---|---|
-| WA-001 | authority | owner | owner, orchestrator | owner-attested, owner_quote | design | [AR §7.3] orchestrator "`authority = owner` only with `--owner-quote`", owner "`rule{authority=owner}`"; [AR §13] `policy.role.<role>.authority-owner` | On create or `SET`. The orchestrator row reaches it only with the owner quote, which makes the call owner-attested (WT-012). |
+| WA-001 | authority | owner | owner, orchestrator | owner-attested, owner_quote | design | [AR §7.3] orchestrator "`authority = owner` only with `--owner-quote`", owner "`rule{authority=owner}`"; [AR §13] `policy.role.<role>.authority-owner` | On create or `SET`. The orchestrator row reaches it only with the owner quote, which makes the call owner-attested (WT-012). `owner_quote` binds only a kind that has the field (rule, decision; [F08 §9.3]): an owner-authority node of another kind, such as the note `answer` writes, has none and needs the attestation alone (spec sync 2b). |
 | WA-002 | authority | orchestrator, measured, research, agent | * | - | proposed | [AR §3.1]; [OP-17] | The design restricts only `owner`. |
 | WA-003 | relink | owner/* | owner | owner-attested | design | [40 §3.7] "Provenance is `owner/<evidence>/<score>` for the owner, `agent/<evidence>/<score>` for any agent role"; [40 §2.11] R-17 | Written by `links fix`; any other role writes `agent/*`. |
 | WA-004 | relink | confirmed/* | orchestrator, owner | not-acceptor | design | [40 §3.7] `--confirm`; [AR §13] `files.confirm-roles` | Only through WV-038. |
 | WA-005 | criticality | critical, high, normal, low | * | - | proposed | [AR §3.1]; [OP-17] | Unrestricted by the design, for every kind a role may create. |
+| WA-006 | relink | agent/* | * | - | derived | [40 §3.7] "`agent/<evidence>/<score>` for any agent role"; [40 §3.6] `file relink --after`; [RULES/role-write-policy] WA-003 | The value every role but the owner writes through `links fix --accept`, `--to`, `--accept-replacement` and `file relink --after`; an allowlist needs its row beside WA-003 and WA-004 (WP-92). |
 
 <!-- table: role-fields -->
 | row | role | kind | scope | fields | key | basis | source | note |
@@ -317,7 +318,7 @@ with `authority = owner` needs `owner_quote` (for rules, [AR §3.2]); a `verdict
 | WQ-001 | * | read-verbs | yes | - | - | - | design | [50 §6.5] "Reads are the default everywhere" | WV-042. |
 | WQ-002 | * | named-query | yes | - | - | - | design | [50 §4.4] | - |
 | WQ-003 | * | free-form-query | yes | query.safelist.<role> | E406 | 6 | design | [AR §7.3] "unless its safelist (`query.safelist.<role> = named-only`) restricts it"; [50 §4.4]; [OP-18] | Default `off`; under `named-only` a free-form `q` or `query` is refused. |
-| WQ-004 | profile-unknown | free-form-tx | no | query.safelist.model.unknown | E411 | 6 | design | [90 §8.1] L2; [AR §13] `query.safelist.model.<profile>`; [F19 §11.1] | Default `named-only` for `unknown`; WR-012. |
+| WQ-004 | profile-unknown | free-form-tx | no | query.safelist.model.unknown | E411 | 6 | design | [90 §8.1] L2; [AR §13] `query.safelist.model.<profile>`; [F19 §11.1] | Default `named-only` for `unknown`; WR-012, for a caller with a session identity or `door` = `mcp` (spec sync 2b). |
 | WQ-005 | profile-unknown | dry-targets-tx | yes | query.safelist.model.unknown | - | - | design | [90 §8.1] L2 | Only when the key is `dry-targets` (opt-in): a `TX` applied with `IF TARGETS` from a `DRY`. |
 
 <!-- table: role-hooks -->
@@ -387,7 +388,7 @@ Rule tables specify semantics. The layouts of the values used here are [F11]'s (
 | [60 §2.5] "Harness-agnostic interface" row: `LEASES` fields, one error code, two exit-5 texts | as the two rows above |
 | [50 §8.1] F4: cold column `CREATOR` (actor, role) | WT-004 (use; layout [F09]) |
 | [40 §2.11] R-13: config key `files.confirm-roles` | WV-038, WV-039, WA-004 |
-| [40 §2.11] R-17: `relink` provenance vocabulary, `agent/*` distinct from `owner/*` and `confirmed/*` | WA-003, WA-004 (who may write which prefix; the vocabulary is [F18]'s) |
+| [40 §2.11] R-17: `relink` provenance vocabulary, `agent/*` distinct from `owner/*` and `confirmed/*` | WA-003, WA-004, WA-006 (who may write which prefix; the vocabulary is [F18]'s) |
 
 No X-F row concerns the role policy.
 
@@ -515,4 +516,6 @@ of E407 `lease`, exit 5, for WZ-004 and WZ-005 ([F19 §11.2]).
     `confidence` and `labels` as the common fields of W and left out the rest of [F08 §9.2]'s common rows, so no row
     let even the orchestrator set `defer_until` (the clause of `ready`, PD-016), `due`, the source-truth flags `pinned`,
     `archived` and `frozen`, or the `reason` that `retract` writes ([API §9.7]). Proposed: W holds every common field
-    other than `status`, `resolution` and `authority`, which have their own tables; the review confirms.
+    other than `status`, `resolution` and `authority`, which have their own tables; the review confirms. Spec sync 2b
+    (WP-91): WT-009 did not say whether a counter field is in W, and without it `incr` ([API §9.1], §9.2) was
+    unreachable for every role; a counter is in W and moves only by `incr`.

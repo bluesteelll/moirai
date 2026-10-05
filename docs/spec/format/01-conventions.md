@@ -67,7 +67,7 @@ Every chapter of every part begins with a header block, a two-column table with 
 |---|---|
 | Title | what the chapter specifies |
 | Chapter | the citation tag and the path |
-| Status | one of: `planned`, `draft, pass 1 pending`, `pass 1 closed`, `pass 2 closed`, `frozen (format-v1)` |
+| Status | one of: `planned`, `draft, pass 1 pending`, `pass 1 closed`, `draft, pass 2 pending` (a chapter written after pass 1 closed, reviewed first in pass 2; spec sync 2b), `pass 2 closed`, `frozen (format-v1)` |
 | Work package | the WP of [PLAN §3.2] and the author role |
 | Sources | the exact design-document sections the chapter specifies, never headings alone |
 | Depends on | the chapters whose definitions it uses |
@@ -481,6 +481,9 @@ store and user configuration files.
 - A text operand contributes its UTF-8 bytes, a byte-string operand its bytes.
 - An input made of several operands frames each operand with `lp()` (§6.3), unless the owning chapter gives another
   framing and says why it is unambiguous.
+- *(Informative)* A fixture writes such an input with `xtask hex`'s literal operands, the framing written out:
+  `{blake3_128 {len "moirai-file-v1"} "moirai-file-v1" a..b}` is BLAKE3-128 of `lp("moirai-file-v1")` followed by the
+  bytes a..b, which must themselves be framed operands (spec sync 2b).
 
 ### 7.4 Checksum ranges
 

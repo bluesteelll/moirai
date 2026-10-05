@@ -361,7 +361,9 @@ A process classifies each slot it reads by these checks, in order:
 
 A slot that passes the checksum but fails check 4 or 5 was written that way by a process: it is a defect, not a torn
 write, and the store stops rather than fall back to an older state (X5, [F17 §2.2] IP-2). The text is [F19]'s:
-exit 7, naming `HEAD` and `moirai doctor --fsck`.
+exit 7, naming `HEAD` and `moirai doctor --fsck`. The repair path is plain `moirai repair`: it treats a fatal slot as
+absent and rebuilds both slots from the log's extent heads ([F16] P-85), trusting neither slot, since a fatal slot shows
+a defective writer. A publisher never writes a fatal slot ([F16] P-48).
 
 ## 8. Choosing a slot
 
@@ -383,10 +385,15 @@ A process reads both slots with one `read_at` and classifies them (§7):
   valid state.
 - **Both slots valid** additionally requires byte-identical `init` blocks and equal `project_oid_algo` values
   ([F17 §2.2] IP-3); otherwise exit 7.
+- **Both slots absent.** A failed `HEAD` flush can leave both slots failing validation ([F15] OP-1). So can a publish
+  whose write failed (`DiskFull`, [F15] FM-5.2) or was cut by its writer's death ([F15 §2.5]), which leaves its slot any
+  mix of bytes, followed by a crash that tears the other, dirty slot (FM-1.2): no flush failed, yet no slot is valid.
 - The re-reads of the last row cover a read that raced two consecutive publishes (fault-model item (4), [F15]); a store
   in that state after a crash needs `repair`, which rebuilds the slot state from the log's extent heads ([F05 §4.5],
-  §9.28): the epoch, `epoch_lsn`, `init`, `project_oid_algo`, the `quiet` and `readonly` flags and the counters of the
-  head of the lowest surviving extent, then the fold of the log after it ([F15] OP-1, [F16] P-85; pass 1, P1-8).
+  §9.28): the epoch and `epoch_lsn` of the newest extent head that validates by itself, with its `quiet` and `readonly`
+  flags; `init`, `project_oid_algo` and the counters of the newest head the scan reaches; then the fold of the log after
+  it ([F15] OP-1, [F16] P-85; pass 1, P1-8). A flag change made after that extent head was written is lost by the
+  repair, since flags are kept only in `HEAD` (§6), and the operator re-issues it.
 
 ### 8.2 The nine two-slot states (informative)
 
@@ -399,6 +406,11 @@ is torn. Selection gives:
 | **new** | new (A) | the newer new state | new (A) |
 | **torn** | old (B) | new (B) | no valid slot: exit 7 after the re-reads |
 
+(torn, torn) needs two torn sectors in one file, which FM-1.2 forbids at one crash while both slots are dirty; it is
+reached only when a slot is poisoned by a failed flush ([F15] FM-3.3). A barrier point therefore has 8 reachable states
+when both slots are dirty, and 9 with a poisoned slot ([F15 §6.4]). A publish write that failed or was cut ([F15] FM-5.2,
+[F15 §2.5]) makes its slot's "new" content invalid, so (new, torn) can also leave no valid slot (§8.1).
+
 The barrier (§9.3; [AR §4.2], [80 §2.3.2]) makes every "old" cell safe: before it deletes anything, both slots on
 disk name the post-change state, so "old" there already means "post-change". [F16] and the crash enumerator
 ([PLAN §3.2] WP-32) use this table, and WP-20 writes a fixture per state.
@@ -410,9 +422,12 @@ disk name the post-change state, so "old" there already means "post-change". [F1
 Every change of `HEAD` is a publish, made under the writer byte ([80 §2.4.3], X-F3):
 
 1. `read_at` both slots and select the newest valid slot S by §8 (its exit-7 cases apply).
-2. Build S′ as a copy of S and apply the publish's changes: the fold of every newly covered group in log order
-   ([F05 §10]), the new `committed_lsn` and, after a flush, `durable_lsn` = max(S.`durable_lsn`, the flushed end); or the
-   one field kept in `HEAD` that this publish changes (§6).
+2. Build S′ as a copy of S and apply the publish's changes: the fold of every group from S.`durable_lsn` to the new
+   `committed_lsn`, in log order ([F05 §10.2], [F16] P-50; a group S already folded changes nothing), the new
+   `committed_lsn` and, after a flush, `durable_lsn` = max(S.`durable_lsn`, the flushed end); or the one field kept in
+   `HEAD` that this publish changes (§6). The fold starts at S.`durable_lsn`, not at S.`committed_lsn`: after a crash S
+   can be an older slot whose `committed_lsn` covers a lazy tail that was lost and refilled, and a fold from there would
+   miss the refill ([F16] P-50).
 3. `slot_seq` = S.`slot_seq` + 1. Recompute `xxh3_128`.
 4. `write_at` S′ into the slot that does **not** hold S (slot B when S is in slot A, and conversely), 4,096 bytes at its
    offset. Never write the slot that holds S.
@@ -426,9 +441,10 @@ a smaller `durable_lsn`, counter or table pointer, and never an older segment se
 A **durable publish** makes a state survive any crash:
 
 1. Under one holding of the writer byte, two consecutive publishes by §9.1. The first carries the change, if there is
-   one; the second is a no-op publish (§9.1 with no covered group and no changed field). Because each publish writes the
-   slot that does not hold the newest valid state, the two write **both** slots, and both then hold the newest state. The
-   second write also ends any poisoning of the other slot's sector left by an earlier failed flush ([F15] OP-1).
+   one; the second is a no-op publish (§9.1 with the same `committed_lsn`, so that its fold changes nothing, and no
+   changed field). Because each publish writes the slot that does not hold the newest valid state, the two write
+   **both** slots, and both then hold the newest state. The second write also ends any poisoning of the other slot's
+   sector left by an earlier failed flush ([F15] OP-1).
 2. Release the writer byte, then `durable+meta` on `HEAD` (`sync(DataAndMeta)`, [F15 §4]), outside the writer byte
    ([80 §2.3.2]).
 3. The operation that needed the durable state proceeds, or reports success, only after the flush returns.
@@ -559,5 +575,3 @@ appears in `segments`.
     mismatch and runs boot-change recovery once, which is harmless and records its boot.
 13. **Table pointers use 0 for "none"** (§5.10), relying on [F05 §4.5]'s rule that lsn 0 always holds the epoch-start
     group.
-</content>
-</invoke>

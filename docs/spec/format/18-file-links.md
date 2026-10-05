@@ -221,7 +221,8 @@ root node's `path_moves` is that root node's `root` field.
 
 ### 2.9 I-F9 — no bare line numbers
 
-**Statement.** No live span anchor has a bare line number as its only selector. Every `quote`, `range`, `symbol` and
+**Statement.** No span anchor, of either mode (`live` or `pinned`), has a bare line number as its only selector (spec
+sync 2b: a capture refuses an empty window in either mode). Every `quote`, `range`, `symbol` and
 `heading` anchor carries a quote, and every `lines` anchor carries a window.
 
 **Precision.**
@@ -591,7 +592,7 @@ the single byte `|` (Markdown escaping), so text 25 is `merge conflict: <path> |
 | 41 | `never-candidate` | `missing` | `moved to a temporary or backup name` | `moved to a temporary or backup name` |
 | 42 | `cloud-target` | `missing` | `moved to a cloud-only file` | `moved to a cloud-only file` |
 | 43 | `deleted-in-git` | `missing` | `deleted in git` | `deleted in git <g7>` |
-| 44 | `not-representable` | `missing` | `not representable on this OS` | `not representable on this OS` (decided by `representable_here` ([OS/path §8.1]) before any OS call on the path, [F20]'s cascade testing it first: a Windows segment with `:`, or ending in `.` or a space, never reaches the OS; `--allow-nonportable` never overrides it; pass 1, P1-15) |
+| 44 | `not-representable` | `missing` | `not representable on this OS` | `not representable on this OS` (decided by `moirai-files`' `representable` ([OS/path §1], §8.1) with the process's OS, the rule `moirai-os`'s `representable_here` restates, before any OS call on the path, [F20]'s cascade testing it first: a Windows segment with `:`, or ending in `.` or a space, never reaches the OS; `--allow-nonportable` never overrides it; pass 1, P1-15) |
 | 45 | `unrepresentable` | `missing` | `unrepresentable path` | `unrepresentable path` |
 | 46 | `nothing-written` | `missing` | — | `nothing written` |
 | 47 | `behind` | `absent-in-tree` | `behind` | `behind` |

@@ -84,6 +84,8 @@ This section closes the PLAN §3.3 gap "Placement of `ProjectFs`, `Meter` and th
 | `LockByte`, `SlotIndex`, `Acquired`, `Grant`, `ProbeResult`, `LockError`, `LockMode` | types | [OS/lock §2, §4] |
 | `RelPath`, `RelPathBuf`, `AbsPath`, `CanonicalRoot`, `EntryName`, `EntryNameRef`, `PathError` | types | [OS/path §2, §11] (one `RelPath` type for store and project paths; [OS/fs §2.1] adds only use-time checks) |
 | `RootAccess`, `RootRole`, `Access`, `OpenHint`, `SyncKind`, `DurabilityClass`, `GroupMember`, `FileIdentity`, `FreeSpace`, `DirEntry`, `EntryKind`, `VfsCounters`, `ShareRetry`, `SwapOutcome`, `SwapRecovery`, `VfsError`, `VfsErrorKind`, `OsCode`, `DurabilityFailure` | types | [OS/fs §2, §4.9, §6] |
+| `SwapIntent` (module `swap`) — the byte-exact codec of the swap intent file, with the names `<a>.swap` and `<a>.swap-old` it uses | struct, pure (no I/O, no clock) | [OS/fs §4.9.2, §4.9.3] |
+| `OS_SHARE_RETRY_MS` — the one named constant that holds the draft value of HOLE(OS-share-retry-ms) (1,000 ms) until WP-81a fills it | constant | [OS/fs §6.3], [OS/fs] Holes |
 | `SealedMap`, `Advice`, `MapError` | types | [OS/map §3] |
 | `ClassifyDepth`, `Classification`, `StoreVolume`, `FsKind`, `ExtentMethod`, `FsName`, `Refusal`, `CloudKind`, `OsVersion`, `ProbeReport`, `ProbeOutcome`, `EnvWarning` | types | [OS/env §2] |
 | `Meter`'s `ChildPeak`, `PeakKind`, `HeapCounts`, `CpuTimes`, `ChildTicket`, `MeterError` | types | §4.3 |
@@ -98,6 +100,12 @@ case) are only meaningful if the simulator and the real layer decide in-process 
 `moirai-vfs-sim` cannot depend on `moirai-os`, which exports nothing on the three cross targets and would fail GT20 (e).
 The table is pure logic, so the move changes no semantics; [OS/lock §5] specifies it as a state machine that both
 implementations drive. The move is recorded as a refinement of [80 §2.1] (open point 1).
+
+**`SwapIntent` and `OS_SHARE_RETRY_MS` are here for the same reason.** The swap intent is an on-disk format that
+`moirai-os` and the simulator must write and accept byte for byte, and the share-retry bound is read by both, so each is
+one piece of code in the one crate both depend on; WP-81a then fills the hole at one place. The XXH3-64 the intent's
+checksum uses is a private module of `moirai-vfs`, not part of its surface. The additive public helpers of the path types
+are listed in [OS/path §11].
 
 ### 2.2 `moirai-os` — the only OS crate (product crate)
 
@@ -174,7 +182,7 @@ specified at M0.
 | `os::project` | the `ProjectFs` surface of §4.2 | `ProjectFs` | [OS/project] | 2 | yes (the complete trait, PLAN §6.2 R1) |
 | `os::spawn` | `spawn_gc_child`, `enter_background`: the detached `moirai gc` child; priorities; no inheritable handles | `Vfs` (`ProcHost`) | [OS/proc §11] | 2 | yes (`ProcHost` is complete at M0, §4.1; the module is GT20 (a)'s one allowed spawn site) |
 | `os::term` | console vs pipe; UTF-8 output; broken pipe | — | [OS/shell §10] | 2 | no |
-| `os::test_host` (feature `test-host`) | `kill`, `suspend`, `resume`, `small_volume`, clock offset ([OS/clock §9]) | — | [OS/proc §13] | 2 | yes |
+| `os::test_host` (feature `test-host`) | `kill`, `suspend`, `resume`, `small_volume`, clock offset ([OS/clock §9]) | — | [OS/proc §13] | 2 | yes, except `small_volume` (owner-run, [OS/proc §13]) |
 
 Additions to [80 §2.1]'s surface made by part 1, each explained in its file ([OS/fs] open point 1): `open_root`,
 `create_root`, `create_dir`, `remove_dir`, `list_dir`, `read_exact_at`, `fail_stop`, `recycle_extent`, `swap_recover`,

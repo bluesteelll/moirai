@@ -78,11 +78,12 @@ stores.<store-id>.<key>
 ```
 
 - `<store-id>` is the 32 lower-case hexadecimal digits of a store id ([F02 §4], [F01 §6.4]).
-- `<key>` must be an instance of a user-scope key whose registry row is marked **q** (qualifiable). `discovery.git-hint` is
-  not qualifiable: it is read before a store is known.
+- `<key>` must be an instance of a user-scope key whose registry row is marked **q** (qualifiable), or of a user-lower
+  store key (§2.2), whose qualified entry §5.1 reads first (spec sync 2b). `discovery.git-hint` is not qualifiable: it is
+  read before a store is known.
 - A qualified entry applies only to the store with that id, and only in a process that has discovered that store. For that
   store it outranks the unqualified entry of the same key (§5.1). Entries qualified for other stores are ignored silently.
-- `stores.` followed by anything else, or a qualified store key, is an unknown key (`CFG04`).
+- `stores.` followed by anything else, or a qualified store key that is not user-lower, is an unknown key (`CFG04`).
 - No registry key begins with the segment `stores` (registry invariant RG-4, §9.2).
 
 *(Informative)* `stores.0123456789abcdef0123456789abcdef.files.main-tree = D:/work/demo-trunk` names the trunk worktree of one
@@ -478,7 +479,10 @@ A retired name is never reused with another meaning. A retired name in a file is
 5. the value would make a constraint fail (§5.3);
 6. the target file is malformed (§3.1): the owner repairs it by hand first; `config check` names the reason.
 
-A refusal names the rule, the key and, for rules 3 and 5, the valid range or the constraint, in one ASCII line.
+A refusal names the rule, the key and, for rules 3 and 5, the valid range or the constraint, in one ASCII line. Its
+[F19 §10.2] code is `config_key` for rules 1 and 2 and `config_value` for rules 3, 4 and 5 (an `init` key of an existing
+store included). `moirai config unset` is checked by rules 1, 2, 4, 5 and 6, rule 5 on the value that applies without the
+entry: an unset that would make a constraint fail is refused as a set is (spec sync 2b).
 
 ### 7.3 Textual edit rules
 
@@ -681,8 +685,9 @@ This chapter's registry tables carry, beside the binary's fields, three specific
 
 - **effect point** — where and when the effective value is used.
 - **read by** — the engine component (a crate of [PLAN §2.2]–§2.3) and, for class V, the reference-model function. Model
-  functions are written without the crate prefix `moirai_model::`; their names are proposals that [RULES/policy-keys]
-  (WP-90) binds, each tagged `spec: [CFG §10.x]` ([60 §4.6]). The model takes a configuration snapshot (a typed map from key
+  functions are written without the crate prefix `moirai_model::`; [RULES/policy-keys] (WP-90) binds them, each tagged
+  `spec: [CFG §10.x]` ([60 §4.6]), and is normative for their names: this chapter's `read by` and `model` cells follow its
+  `function` cells, and where they differ policy-keys wins (spec sync 2b). The model takes a configuration snapshot (a typed map from key
   instance to value) with each `Store` API command; it never parses a file.
 
 ### 9.5 Sweep plan
@@ -691,8 +696,9 @@ This chapter's registry tables carry, beside the binary's fields, three specific
 
 - **Allowed-value sets** per type: `bool`: both; `enum`: every value; `set`: the empty set, each single member, the full set;
   `words`, `glob-list`, `url-list`: the default, the empty list and one non-default list; `int`, `size`, `duration`, `percent`:
-  the default, the lower bound, the upper bound clipped to model scale ([60 §4.4] item 8), and the [F17 §12] test value where
-  one exists; `path`: set and unset; `family`, `word`: the default and one other value.
+  the default, the lower bound, the upper bound, and the [F17 §12] test value where one exists. The reference model runs the
+  upper bound unclipped (a bound is a value, not a scale); only a checker whose run at the upper bound would exceed its own
+  scale clips it to model scale ([60 §4.4] item 8) (spec sync 2b); `path`: set and unset; `family`, `word`: the default and one other value.
 - **One at a time.** Every key is swept away from its default one at a time over its allowed-value set, on the production
   profile ([F17 §12] TP-1). Class V: the reference model and GT2; the other classes: the checker named in §9.4.
 - **Pairs.** `files.policy.auto` × `files.deletion-inference`; `merge.strict` × `merge.policy.<kind>`; `hooks.transport` ×
@@ -755,8 +761,8 @@ section and [F17]'s); **scope**
 | `store.pack-objects-max` | P25; `int` | `65536` | hot | I | each object appended to a pack ([F17 §9.2]) | `moirai-image` export |
 | `lock.writer-wait-ms` | P26; `int` | `HOLE(F17-lock-writer)` | hot | Rs | each blocking acquisition of the writer byte ([F17 §10], [OS/lock §4]) | `moirai-store` via `os::lock` |
 | `lock.flush-wait-ms` | P27; `int` | `HOLE(F17-lock-flush)` | hot | Rs | each acquisition of the flush byte ([F17 §10]; [80] X-F11 registers it) | `moirai-store` via `os::lock` |
-| `idempotency.retention` | P28; `duration` | `30d` | hot | V | each idempotency lookup ([F17 §11.1]) | `moirai-store`; model `idem::lookup` |
-| `idempotency.default-window` | P29; `duration` | `10m` | hot | V | each lookup under a default key ([F17 §11.1]) | `moirai-store`; model `idem::lookup` |
+| `idempotency.retention` | P28; `duration` | `30d` | hot | V | each idempotency lookup ([F17 §11.1]) | `moirai-store`; model `idem::Table::lookup` |
+| `idempotency.default-window` | P29; `duration` | `10m` | hot | V | each lookup under a default key ([F17 §11.1]) | `moirai-store`; model `idem::Table::lookup` |
 | `gc.reflog-expire` | P30; `duration` | `90d` | hot | V | each `gc` run ([F17 §11.2]) | `moirai-store` gc; model `gc::reachable_after_gc` |
 | `gc.cruft-delay` | P31; `duration` | `14d` | hot | V | each `gc` run ([F17 §11.2]) | `moirai-store` gc; model `gc::reachable_after_gc` |
 | `gc.trash-expire` | P32; `duration` | `14d` | hot | I | each `gc` run ([F17 §11.3]) | `moirai-store` gc |
@@ -769,12 +775,12 @@ Constraints C-1 to C-4 are [F17 §3]'s; §5.3 applies them.
 
 | key | type | default | scope | reload | vis | effect point | read by | source |
 |---|---|---|---|---|---|---|---|---|
-| `durability.lazy-kinds` | `set(heartbeat\|cursor\|session-mark)` | `heartbeat,cursor,session-mark` | store | hot | V | the append of each heartbeat, read-cursor and session-mark record: a kind in the set gets the lazy durability tag, else durable ([F05], [AR §6.5]); the key governs these three kinds only: graph mutations are always durable (a rule) and R4 runtime evidence is always lazy | `moirai-store` append path; model `crash::survives` (what a crash may lose) | [AR §13], [AR §6.5] |
-| `quiet.from-lane-measuring` | `bool` | `true` | store | hot | V | every quiet-mode test: at maintenance decision points and at the verbs quiet mode refuses without `--force` ([AR §6.6]) | `moirai-store`, `moirai-app`; model `quiet::in_quiet_mode` | [AR §13], [AR §6.6] |
+| `durability.lazy-kinds` | `set(heartbeat\|cursor\|session-mark)` | `heartbeat,cursor,session-mark` | store | hot | V | the append of each heartbeat, read-cursor and session-mark record: a kind in the set gets the lazy durability tag, else durable ([F05], [AR §6.5]); the key governs these three kinds only: graph mutations are always durable (a rule) and R4 runtime evidence is always lazy. Its effect shows only after an OS crash, which no `Store` API stream has ([API §6.7]): GT3 checks it, not GT2 | `moirai-store` append path; model `crash::survives` (what a crash may lose), consumed by GT3's crash harness only | [AR §13], [AR §6.5] |
+| `quiet.from-lane-measuring` | `bool` | `true` | store | hot | V | every quiet-mode test: at maintenance decision points and at the verbs quiet mode refuses without `--force` ([AR §6.6]). Quiet mode is on when the explicit flag is set (`quiet on`, `HEAD.flags.quiet`) or when this key is true and a measuring lane exists: the explicit flag wins, so the key can only add quiet mode (spec sync 2b) | `moirai-store`, `moirai-app`; model `quiet::in_quiet_mode` | [AR §13], [AR §6.6] |
 | `maintenance.rollup` | `enum(auto\|explicit)` | `auto` | store | hot | I | when a rollup is due ([F17 §6.2]) after a CLI write or an MCP request: `auto` spawns `moirai gc --rollup --if-needed`; `explicit` spawns nothing and `brief` and `doctor` warn (O) | `moirai-app` maintenance spawn | [AR §13], [AR §4.9] |
-| `lease.ttl-default` | `duration[1m..30d]` | `15m` | store | hot | V | a `claim` without `--ttl`: the lease deadline, and the renewal-by-use threshold (half the TTL) ([AR §6.2], [90 §4.4]) | `moirai-graph` leases; model `lease::deadline` | [AR §13] |
+| `lease.ttl-default` | `duration[1m..30d]` | `15m` | store | hot | V | a `claim` without `--ttl`: the lease deadline, and the renewal-by-use threshold (half the TTL) ([AR §6.2], [90 §4.4]) | `moirai-graph` leases; model `lease::ttl_for` | [AR §13] |
 | `lease.reclaim-older-than` | `duration[1m..3650d]` | `30m` | store | hot | V | `reclaim` given neither `--older-than` nor `--run`: the age bound | `moirai-graph` leases; model `lease::reclaim` | [AR §13], [AR §7.1] |
-| `lease.orchestrator-ttl` | `duration[1m..30d]` | `12h` | store | hot | V | minting and renewal of an orchestrator session role lease that no slot anchors ([90 §4.3]) | `moirai-graph` leases; model `lease::deadline` | [90 §10.8] |
+| `lease.orchestrator-ttl` | `duration[1m..30d]` | `12h` | store | hot | V | minting and renewal of an orchestrator session role lease that no slot anchors ([90 §4.3]) | `moirai-graph` leases; model `lease::ttl_for` | [90 §10.8] |
 | `backup.max-age` | `duration[1h..3650d]` | `1d` | store | hot | O | `brief` and `doctor`: the age warning when the newest `Backup` record is older | `moirai-app` | [AR §13] |
 
 ### 10.4 Memory
@@ -831,14 +837,14 @@ pass 1, round 1). `<b>` and the defaults:
 |---|---|---|---|---|---|---|---|---|
 | `query.budget.default.<b>` (ten keys) | as the table above | as the table above | store | hot | B | the start of every query run: read verbs, `q`, `TX` evaluation, MCP `query`, the class queries of `pack` and `brief`; `wmem` at phase 1 of every write ([F17 §4.4] W2); [LQ/std §2.4]'s `BUDGET` classes derive `work` from this key (open point 18) | `moirai-lq` budgets, `moirai-store` write path; model `budget::effective` (arithmetic only) | [AR §13], [50 §5.10] |
 | `query.caps.<role>.<b>` (ten per role) | as the table above | `per-param` as the table above | store | hot | B | a per-call raise by a caller of that role; `links check` runs its `fs` at `query.caps.orchestrator.fs` ([LQ/std §4.21]); under the test profile ([F17 §12] TP-3) `wmem`'s request is its cap | `moirai-lq`; model `budget::effective` | [AR §13], [50 §5.10] ([50] D6) |
-| `query.safelist.<role>` | `enum(off\|named-only)` | `off` | store | hot | V | the binder, for a caller of that role: free-form LQ is refused with E406 ([LQ/errors]) | `moirai-lq` binder; model `policy::read_safelist` | [AR §13] ([50] D3) |
+| `query.safelist.<role>` | `enum(off\|named-only)` | `off` | store | hot | V | the binder, for a caller of that role: free-form LQ is refused with E406 ([LQ/errors]) | `moirai-lq` binder; model `profile::read_safelist` | [AR §13] ([50] D3) |
 | `query.asof.max-ops.cli` | `int[0..10000000]` | `16000` | store | hot | B | as-of view construction in a CLI or hook process: beyond it E303 ([50 §5.8]) | `moirai-lq` planner | [AR §13], [50 §5.8] |
 | `query.asof.max-ops.mcp` | `int[0..10000000]` | `100000` | store | hot | B | as above, MCP server | `moirai-lq` planner | as above |
 | `files.read.max-uncached-ancestry` | `int[0..64]` | `1` | store | hot | B | every read path's git work: beyond it `unverified (git)` ([F20 §5.11]) | `moirai-links` | [AR §13], [40] R-13 |
 | `files.read.max-e6-commits` | `int[0..4096]` | `32` | store | hot | B | as above, E6 commits per command | `moirai-links` | as above |
 | `input.max-bytes` | `size[64KiB..1GiB]` | `16MiB` | store | hot | O | every text a command reads from stdin or `-f FILE` (LQ text, `apply` batches, bodies, quote files): read incrementally, and refused with exit 2 as soon as it exceeds this many bytes, before any budget applies ([LQ/lexical §8], [OS/shell §5.2]; pass 1, P1-39) | `moirai-app` CLI input | this chapter (P1-39) |
-| `tx.max-statements` | `int[1..1000000]` | `1000` | store | hot | V | `TX` binding: a larger block is refused with E501 naming the split ([50 §3.10] item 10) | `moirai-lq` `TX`; model `tx::check_caps` | [AR §13] |
-| `tx.max-ops` | `int[1..1000000]` | `10000` (a call may raise it to the agent maximum 50,000, [50 §5.10]) | store | hot | V | `TX` execution, as above | `moirai-lq` `TX`; model `tx::check_caps` | [AR §13] |
+| `tx.max-statements` | `int[1..1000000]` | `1000` | store | hot | V | `TX` binding: a larger block is refused with E501 naming the split ([50 §3.10] item 10) | `moirai-lq` `TX`; model `budget::check_caps` | [AR §13] |
+| `tx.max-ops` | `int[1..1000000]` | `10000` (a call may raise it to the agent maximum 50,000, [50 §5.10]) | store | hot | V | `TX` execution, as above; the count is the block's net ops, one per changed key ([F06 §7.8] NF-1; spec sync 2b) | `moirai-lq` `TX`; model `budget::check_caps` | [AR §13] |
 | `tx.max-work-in-lock` | `int[0..1000000000]` | `500000` (provisional; M7's work-unit calibration sets it, [50 §3.10] item 10) | store | hot | I | re-validation under the writer byte: re-evaluate within this many units, else release and re-run phase 1 ([AR §4.5] step 7) | `moirai-lq`, `moirai-store` | [AR §13], [50 §3.10] |
 
 ### 10.6 File links (R4)
@@ -910,16 +916,16 @@ Nothing here changes semantics or the tool list, except the model-profile keys, 
 
 | key | type | default | scope | reload | vis | effect point | read by | source |
 |---|---|---|---|---|---|---|---|---|
-| `client.profile` | `enum(auto\|claude\|codex\|generic)` (+ Tier B names only if #45 builds them) | `auto`: MCP `clientInfo`, then environment detection, then `generic` ([90 §4.1] Client row) | user, q | hot | O | every command and MCP request: ceilings, instruction text and default tool subset ([90 §6.4]) | `moirai-app` | [90 §10.8] |
+| `client.profile` | `enum(auto\|claude\|codex\|generic)` (+ Tier B names only if #45 builds them) | `auto`: MCP `clientInfo`, then environment detection, then `generic` ([90 §4.1] Client row) | user, q | hot | V | every command and MCP request: the client profile of [API §4.2] CX-7, which a value other than `auto` sets after `--client` and `MOIRAI_CLIENT`; hence the default model family (`lq.model-profile.default.<client>`), the write rule and E411 (V), and the ceilings, instruction text and default tool subset ([90 §6.4]) (O) (spec sync 2b) | `moirai-app`; model `api::Store::resolve` (CX-7) | [90 §10.8] |
 | `mcp.tools` | `enum(read\|core\|all)` | `all`; `integrate` writes `core` for harnesses that load schemas up front | store | restart | X | server start: the served tool subset ([90 §6.4]) | `moirai-app` MCP front end | [90 §10.8] |
 | `integrate.instructions-scope` | `enum(project\|user)` | `project` | user | install | X | `integrate`: where the `AGENTS.md` block goes | `moirai-app` integrate | [90 §10.8] |
 | `integrate.claude-md` | `enum(import\|copy)` | `import` | user | install | X | `integrate claude`: `CLAUDE.md` import line or copy | `moirai-app` integrate | [90 §10.8] |
 | `integrate.codex.store-writes` | `enum(writable-root\|execpolicy-store\|execpolicy\|mcp)` | `HOLE(CFG-codex-store-writes)` | user | install | X | `integrate codex`: the sandbox write route ([90 §5.2]); the exit-7 text's owner line ([90 §5.3]) | `moirai-app` integrate | [90 §10.8], [90 §10.5] P7 |
 | `integrate.codex.approval` | `enum(prompt\|writes\|split\|approve)` | `HOLE(CFG-codex-approval)` | user | install | X | `integrate codex`: the plugin's approval modes | `moirai-app` integrate | [90 §10.8], [90 §10.5] P6 |
 | `integrate.hooks` | `enum(none\|min\|full)` | `rule:hooks-tier`: `full` when the harness being integrated is Tier A (`claude`, `codex`), `min` for a Tier B harness (only if #45 builds one) | user | install | X | `integrate`: the hook set rendered | `moirai-app` integrate | [90 §10.8] |
-| `lq.model-profile.<family>` | `enum(gated\|compatible\|unknown)` | `per-param(claude-opus-5-5:HOLE(CFG-model-profile-opus),*:unknown)`: written from the latest LQ-Bench run ([90 §8.2]) | store | hot | V | every write by a session of that family: the profile, hence the write rule and the reading echo ([90 §8.1] L2, L8) | `moirai-lq`; model `policy::model_profile` | [90 §10.8], [50 §7.4] item 9 |
-| `lq.model-profile.default.<client>` | `family` | `per-param(claude:claude-opus-5-5,codex:unknown,generic:unknown)` | store | hot | V | a session that declares no model ([90 §4.1] Model row) | `moirai-lq`; model `policy::model_profile` | [90 §10.8] |
-| `query.safelist.model.<profile>` | `enum(off\|named-only\|dry-targets)` | `per-param(unknown:named-only,*:off)` | store | hot | V | every write by a session with that profile: `named-only` refuses free-form `TX` with E411; `dry-targets` also admits a `DRY` → `IF TARGETS` pair ([90 §8.1] L2) | `moirai-lq` `TX` binder; model `policy::model_write_rule` | [90 §10.8] |
+| `lq.model-profile.<family>` | `enum(gated\|compatible\|unknown)` | `per-param(claude-opus-5-5:HOLE(CFG-model-profile-opus),*:unknown)`: written from the latest LQ-Bench run ([90 §8.2]) | store | hot | V | every write by a session of that family: the profile, hence the write rule and the reading echo ([90 §8.1] L2, L8) | `moirai-lq`; model `profile::model_profile` | [90 §10.8], [50 §7.4] item 9 |
+| `lq.model-profile.default.<client>` | `family` | `per-param(claude:claude-opus-5-5,codex:unknown,generic:unknown)` | store | hot | V | a session that declares no model ([90 §4.1] Model row) | `moirai-lq`; model `profile::model_profile` | [90 §10.8] |
+| `query.safelist.model.<profile>` | `enum(off\|named-only\|dry-targets)` | `per-param(unknown:named-only,*:off)` | store | hot | V | every write by a session with that profile: `named-only` refuses free-form `TX` with E411; `dry-targets` also admits a `DRY` → `IF TARGETS` pair ([90 §8.1] L2), where `ctx.dry` counts as the block's `DRY` ([API §9.1]; spec sync 2b) | `moirai-lq` `TX` binder; model `profile::model_write_rule` | [90 §10.8] |
 
 ### 10.10 Git image
 
@@ -979,21 +985,23 @@ The policy-data row `merge.policy.<kind>` is overridden by `merge --policy` and 
 
 ### 10.13 Policy data (schema rows, not keys)
 
-Versioned per branch, store-wide, read at every write the row governs; changed by schema writes ([F08]), never by
-`moirai config` (§2.4). The model evaluates them from its rule tables ([RULES/README]).
+Versioned per branch, store-wide, read at every write the row governs; changed by schema writes — a `policy` item
+([F08 §8.5.6]) written by the `Schema` command ([API §9.8]) — never by `moirai config` (§2.4). A row without an item on
+the view takes the default below. The model evaluates them from its rule tables ([RULES/README]) over the view's policy
+items (spec sync 2b; until the model reads them from the view it takes them as the input `PolicyData`).
 
 | row | values | default | effect point | model | source |
 |---|---|---|---|---|---|
-| `policy.self-claim-roles` | role set | `developer, tester`; a role-less self-claim is `developer` | `claim ID`, `claim --next` | `policy::may_self_claim` | [AR §13], [90 §4.3] |
-| `policy.mint.role-lease` | role set | `orchestrator, owner` | `claim --role R --run`, bulk claims | `policy::may_mint` | [AR §13], [90 §4.3] |
-| `policy.hook-label` | `narrow` only (a design rule, listed for completeness) | `narrow` | every write carrying a hook label: rights are the intersection of the lease's and the label's rows | `policy::effective_rights` | [90 §10.8] |
-| `policy.role.<role>.mcp-write` | yes, no | yes for `architect`, `architecture-critic`, `researcher`, `project-analyst`; no otherwise | MCP writes | `policy::role_rights` | [AR §13] ([AR §11] #7) |
-| `policy.role.<role>.tx` | the per-statement policy | every role under the per-statement policy; node `DELETE`, `RESOLVE` and query definitions for `orchestrator` and `owner` through the CLI; bulk targets for `orchestrator` only | every `TX` statement (E406) | `policy::role_rights` | [AR §13], [50 §6.5] ([50] D2) |
-| `policy.role.developer.fields` | field list | the [AR §7.3] allowlist | `set` and `TX SET` by a developer lease | `policy::role_rights` | [AR §13] ([50] D12) |
-| `policy.role.<role>.define-query` | yes, no | yes for `orchestrator`, `owner` | `DEFINE QUERY`, `DROP QUERY` | `policy::role_rights` | [AR §13] (#25) |
-| `policy.role.<role>.authority-owner` | yes, no | the owner's main session with `--owner-quote` | writes with `authority = owner` | `policy::role_rights` | [AR §13] (#13) |
-| `edges.blocks.on-src-deleted`, `edges.gates.on-src-deleted` | `flag`, `drop-notify` | `flag` | deletion of an edge source ([AR §3.3]) | [RULES/delete-policy-matrix] | [AR §13] (#9) |
-| `merge.policy.<kind>` | the values of [RULES/merge-table] `auto-policy` | none (opt-in) | merge resolution per kind | [RULES/merge-table] `auto-policy` | [AR §13], [AR §5a.7] |
+| `policy.self-claim-roles` | role set | `developer, tester`; a role-less self-claim is `developer` | `claim ID`, `claim --next` | `policy::Rights::mint` | [AR §13], [90 §4.3] |
+| `policy.mint.role-lease` | role set | `orchestrator, owner` | `claim --role R --run`, bulk claims | `policy::Rights::mint` | [AR §13], [90 §4.3] |
+| `policy.hook-label` | `narrow` only (a design rule, listed for completeness) | `narrow` | every write carrying a hook label: rights are the intersection of the lease's and the label's rows | `policy::narrowing_label` | [90 §10.8] |
+| `policy.role.<role>.mcp-write` | yes, no | yes for `architect`, `architecture-critic`, `researcher`, `project-analyst`; no otherwise | MCP writes | `policy::Rights::verb` | [AR §13] ([AR §11] #7) |
+| `policy.role.<role>.tx` | `per-statement` (the `role-statements` rows of [RULES/role-write-policy] whose key it is) or `none` (none of those statement classes) ([RULES/policy-keys] PV-005) | `per-statement` for every role; under it node `DELETE`, `RESOLVE` and query definitions for `orchestrator` and `owner` through the CLI, and bulk targets for `orchestrator` and `owner` ([RULES/role-write-policy] WX-005; spec sync 2b) | every `TX` statement (E406) | `policy::Rights::statement` | [AR §13], [50 §6.5] ([50] D2) |
+| `policy.role.developer.fields` | field list | the [AR §7.3] allowlist | `set` and `TX SET` by a developer lease | `policy::Rights::field` | [AR §13] ([50] D12) |
+| `policy.role.<role>.define-query` | yes, no | yes for `orchestrator`, `owner` | `DEFINE QUERY`, `DROP QUERY` | `policy::Rights::statement` | [AR §13] (#25) |
+| `policy.role.<role>.authority-owner` | yes, no | the owner's main session with `--owner-quote` | writes with `authority = owner` | `policy::Rights::value` | [AR §13] (#13) |
+| `edges.blocks.on-src-deleted`, `edges.gates.on-src-deleted` | `flag`, `drop-notify` | `flag` | deletion of an edge source ([AR §3.3]) | `delete::edge_policy` ([RULES/delete-policy-matrix]) | [AR §13] (#9) |
+| `merge.policy.<kind>` | the values of [RULES/merge-table] `auto-policy` | none (opt-in) | merge resolution per kind | `merge::auto_policy` ([RULES/merge-table] `auto-policy`) | [AR §13], [AR §5a.7] |
 
 Unleased callers always get the `general-purpose` row ([AR §7.3], [90 §4.3]; a rule, not a row).
 
@@ -1007,14 +1015,14 @@ value. This table maps each to its keys and class, for [RULES/policy-keys] (WP-9
 | [AR §11] #3, spawn half | `image.transport.spawn-git` | X | GT7 transport tests (M5); no model semantics |
 | #4 | `image.dest.<name>.{path, refs, granularity, object-format, kind}` | X, V, V, X, X | `image::export_set` for refs and granularity; GT7 for the rest |
 | #6 | `hooks.stamp.permission`, `hooks.stamp.ask-for` | X | GT12 |
-| #7 | `policy.role.<role>.mcp-write` | V | `policy::role_rights` |
+| #7 | `policy.role.<role>.mcp-write` | V | `policy::Rights::verb` |
 | #9, policy half | `edges.blocks.on-src-deleted`, `edges.gates.on-src-deleted` | V | [RULES/delete-policy-matrix] |
 | #10 | `merge.strict` | V | [RULES/merge-table] `land-or-stage` |
 | #12 | `durability.lazy-kinds`, `quiet.tail-cap-multiplier`, `quiet.from-lane-measuring` | V, I, V | `crash::survives`; SP-1; `quiet::in_quiet_mode` |
-| #13 | `brief.lang`; `policy.role.<role>.authority-owner` | O; V | GT12; `policy::role_rights` |
-| #14, retention half | `gc.reflog-expire`, `gc.cruft-delay`, `idempotency.retention` | V | `gc::reachable_after_gc`, `idem::lookup` |
+| #13 | `brief.lang`; `policy.role.<role>.authority-owner` | O; V | GT12; `policy::Rights::value` |
+| #14, retention half | `gc.reflog-expire`, `gc.cruft-delay`, `idempotency.retention` | V | `gc::reachable_after_gc`, `idem::Table::lookup` |
 | #19 | `runs.granularity` | V | `runs::open_policy` |
-| #25, definer half | `policy.role.<role>.define-query` | V | `policy::role_rights` |
+| #25, definer half | `policy.role.<role>.define-query` | V | `policy::Rights::statement` |
 | [40 §9.2] #1 | `files.policy.auto` | V | `links::auto_policy` |
 | [40] #2 | `roots.<name>`, `files.scratchpads` | V | `links::root_dir`, `links::scratchpad_policy` |
 | [40] #4 | `files.hooks.evidence`, `files.hooks.edit-evidence` | X | GT12; the model takes evidence as input events ([60 §4.4] item 1) |
@@ -1025,10 +1033,10 @@ value. This table maps each to its keys and class, for [RULES/policy-keys] (WP-9
 | [40] #14 | `files.cloud` | V | `links::cloud_policy` |
 | [40] #15 | `image.dest.<name>.anchor-text` | V | `image::anchor_text_on_import` |
 | [40] #16 | `files.confirm-roles` | V | `links::confirm_rights` |
-| [50] D2 | `policy.role.<role>.tx` | V | `policy::role_rights` |
-| [50] D3 | `query.safelist.<role>` | V | `policy::read_safelist` |
+| [50] D2 | `policy.role.<role>.tx` | V | `policy::Rights::statement` |
+| [50] D3 | `query.safelist.<role>` | V | `profile::read_safelist` |
 | [50] D6 | `query.caps.<role>.*` | B | `budget::effective` (the ceiling arithmetic); GT9 for the cut (open point 12) |
-| [50] D12 | `policy.role.developer.fields` | V | `policy::role_rights` |
+| [50] D12 | `policy.role.developer.fields` | V | `policy::Rights::field` |
 
 ### 10.15 Never a key
 
@@ -1197,3 +1205,10 @@ This chapter's own holes. The store-parameter holes (`F17-ckpt-ops`, `F17-ckpt-b
     [F08 §5.4.1] requires. `[RULES/delete-policy]` is corrected to `delete-policy-matrix`; `[RULES/policy-keys]` stays
     cited as a planned file. The configuration duration grammar and LQ's differ on purpose, and both chapters say so
     (§4.1, [LQ/lexical §5.6]).
+34. **Spec sync 2b.** The `read by` and `model` cells take [RULES/policy-keys]' bound names, which are normative (§9.4).
+    `client.profile` is class V and read by [API §4.2] CX-7. `durability.lazy-kinds` is checked by GT3 only, since no
+    `Store` API stream has an OS crash ([API §6.7]). `policy.role.<role>.tx` takes `per-statement` or `none`, and bulk
+    targets are for `orchestrator` and `owner` ([RULES/role-write-policy] WX-005). Policy data are schema items of class
+    `policy` ([F08 §8.5.6]). §7.2 names the refusal codes and checks `config unset` like a set; §2.3 admits a qualified
+    user-lower key, which §5.1 already read. `tx.max-ops` counts net ops; quiet mode is the flag or (the key and a
+    measuring lane); `ctx.dry` is the block's `DRY` under `dry-targets`; the model sweeps upper bounds unclipped.

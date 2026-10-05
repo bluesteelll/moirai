@@ -690,7 +690,8 @@ every OS (open point 12).
 ### 4.9 Paths this OS cannot represent (pass 1, P1-15)
 
 Before any OS call on a path — a node's path p, an alias, a candidate q, a path an evidence source or a `path_moves` entry
-yields — the resolver tests every segment of it with `representable_here` ([OS/path §8.1]), so no such path ever
+yields — the resolver tests every segment of it with `moirai-files`' `representable(os, segment)` for the process's OS
+tag ([OS/path §8.1]; the same rule as `moirai-os`'s `representable_here`, spec sync 2b), so no such path ever
 reaches `ProjectFs` or the OS (a `\\?\` path would otherwise bypass Win32's name checks, [OS/path §6]), and the outcome
 is a state, never an error:
 
@@ -1559,7 +1560,8 @@ normative here; citations of its sections resolve through this map:
 38. **Representability before any OS call** (§4.9; pass 1, P1-15). A git-tracked path such as `x::$DATA` or `a:b` is
     legal on Linux but names an NTFS alternate data stream on Windows, and a `\?\` open bypasses Win32's name checks, so
     a stat could hash another file's content and a link could read `ok`. The cascade therefore tests every segment of
-    every path with `representable_here` first and decides [F18 §4.6] detail 44 with no OS call. The matching check
+    every path with `representable` (the process's OS tag; [OS/path §8.1]) first and decides [F18 §4.6] detail 44 with
+    no OS call. The matching check
     inside `ProjectFs` ([OS/path], [OS/project §2.3], [OS/fs §2.1]) is R-SPEC-P's; this chapter does not rely on it.
 39. **Golden vectors for `gs`** (§5.11.4; pass 1, A1-34) were computed by an implementation of the §5.11.4 definition and
     agree with git 2.54.0 on them and on 60 random edited pairs of up to 65,000 bytes; WP-74 turns them into fixtures.

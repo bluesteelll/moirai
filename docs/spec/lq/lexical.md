@@ -255,7 +255,8 @@ are:
 
 `EXPLAIN PROFILE ALL WALK TRAIL ACYCLIC SIMPLE DIFFERENT RELATIONSHIPS EDGES STARTS ENDS CONTAINS COUNT ANY NONE SIZE
 ON IF TIP TARGETS KEY LEASE MESSAGE DRY MOVE UNDER BEFORE AFTER FIRST LAST REOPEN REASON PATCH ADD POLICY RESTRICT
-CASCADE REPARENT REPLACED RELEASE UNLESS RESOLVE TAKE OURS THEIRS BASE VALUE REPOINT DEFINE QUERY SHAPE BUDGET DROP`
+CASCADE REPARENT REASSIGN REPLACED RELEASE UNLESS RESOLVE TAKE OURS THEIRS BASE VALUE REPOINT DEFINE QUERY SHAPE BUDGET
+DROP`
 
 `YIELD key, node, class` and `r.order` work because `KEY` is contextual and a word after `.` is a name
 ([50 §2.2] rule 3). `HEAD` is not a normal-mode keyword; it exists only in revision mode (§7.2).
@@ -416,6 +417,11 @@ bound of the last row is not lexical: stdin and `-f FILE` are read incrementally
 Enum values, their coercion from strings and bare words, and the suggestions for a near miss are the binder's
 ([50 §3.2]; E102, E108 in [LQ/errors]).
 
+A back-quoted segment is the same name as the plain word it spells (§5.4 only quotes), so the prefix rules match it too:
+`` CALL `tx`.complete(#1) `` in a read is E006 and `` CALL `apoc`.x() `` is E004, as the unquoted forms are. The S-AST
+therefore holds such a first segment as the plain name, and a printer never needs to back-quote `tx`, `std`, `apoc`, `gds`,
+`db` or `dbms` (spec sync 2b).
+
 ## 10. Transport and stored-text checks
 
 ### 10.1 Stdin and file decoding ([80 §4] T6, X-F12)
@@ -470,7 +476,7 @@ kind  = "KW" / "NAME" / "QNAME" / "PARAM" / "INT" / "FLOAT" / "DUR" / "STR" / "N
 
 | Kind | When | Value printed |
 |---|---|---|
-| `KW` | a word the parse used as a keyword (reserved, or contextual at a keyword position, or `count`/`all`/`any`/`none`/`exists`/`size` in their keyword forms of [LQ/grammar-v1.ebnf §P.9]) | the keyword in upper case |
+| `KW` | a word the parse used as a keyword (reserved, or contextual at a keyword position, or `count`/`all`/`any`/`none`/`size` in their keyword forms of [LQ/grammar-v1.ebnf §P.9]); `exists` always, since `EXISTS` is reserved (§6.1), in `exists(e)` as in `exists(` with a path (spec sync 2b) | the keyword in upper case |
 | `NAME` | a word used as a name (variable, property, label, type, function, procedure, key) | the word as written |
 | `QNAME` | a back-quoted identifier | the decoded name as a JSON string (§11.1) |
 | `PARAM` | a parameter, in either mode | the name without `$` |
@@ -489,8 +495,8 @@ kind  = "KW" / "NAME" / "QNAME" / "PARAM" / "INT" / "FLOAT" / "DUR" / "STR" / "N
 | `RANGE` | a range operator | `..` or `...` |
 | `EOF` | the end | `-` |
 
-A generic function call is `NAME` (`count(x)`); the keyword forms are `KW` (`count( * )`, `COUNT {`, `exists(` with a
-path, `size(` with a path, `all(x IN …)`). A word in a plain-name position (§6.3) is `NAME`, printed as written, even
+A generic function call is `NAME` (`count(x)`); the keyword forms are `KW` (`count( * )`, `COUNT {`, `size(` with a path,
+`all(x IN …)`), and `exists(` is `KW EXISTS` in every form, the reserved word never being a name. A word in a plain-name position (§6.3) is `NAME`, printed as written, even
 when it is a reserved word: `CALL tx.claim(ids: [#15])` in a `TX` block records `KW CALL`, `NAME tx`, `P .`,
 `NAME claim`, and `std.ready` records `NAME std`, `P .`, `NAME ready` (Open point L-14). A failing input is not a
 token-stream fixture: its fixture asserts the first error's code, `line` and `col` ([LQ/grammar-v1.ebnf §P.14]).

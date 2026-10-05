@@ -50,7 +50,10 @@ also carries its provisional side `prov` (`ours` or `theirs`, set by RS-008, RS-
 and a `live` side carries its node image ([F06 §6.2]); both are part of the value and of its equality ([F12 §6.3],
 [F12 §7.3]). Where a plain value of a conflicted key is needed (derived state, validators, RE-009), the rules use its
 provisional value: the side `prov` names on an existence key; on every other key `ours`, or `theirs` when `ours` is
-`absent` ([F12 §6.3]).
+`absent` ([F12 §6.3]). When b is a conflict value, the `conflicted-key` rows compare b, o and t by [F12 §5.4]'s ≈
+instead: two conflict values with equal class and `base` whose `ours` and `theirs` are exchanged (on an existence key,
+with opposite provisional sides) are also equal, so a side that left its own merge's conflict unresolved matches the
+virtual base's conflict value in either orientation (MC-001; spec sync 2b).
 
 **Evaluation.** PR rows give the order: re-keys, then existence keys, then every other key. For a key of class C the
 model evaluates the `conflicted-key` rows first if b, o or t is a conflict value, and otherwise the rows of C in table
@@ -80,7 +83,7 @@ cites the open point that explains it.
 <!-- table: merge-classes -->
 | row | class | key_class | rules_file | basis | source | note |
 |---|---|---|---|---|---|---|
-| MC-001 | `conflicted-key` | conflict | merge-table | derived | [AR §4.6] item 10; [AR §5a.7] step 1; [60 §3.4] | Pre-class: its rows run before the key's own class whenever b, o or t is a conflict value, so conflict values merge like other values and the recursive-virtual-base rule of [60 §3.4] has one home. |
+| MC-001 | `conflicted-key` | conflict | merge-table | derived | [AR §4.6] item 10; [AR §5a.7] step 1; [60 §3.4] | Pre-class: its rows run before the key's own class whenever b, o or t is a conflict value, so conflict values merge like other values and the recursive-virtual-base rule of [60 §3.4] has one home. When b is a conflict value, its cases compare by [F12 §5.4]'s ≈ (§2; spec sync 2b). |
 | MC-002 | `scalar` | field | merge-table | design | [AR §2.7]; [AR §5a.7] step 4 row "enum / number scalar" | Whole-value three-way merge: enums, numbers, booleans, refs, commit refs, paths, oids, symbols, single-line strings, and the list and struct values FC rows mark atomic. |
 | MC-003 | `owner` | field | merge-table | design | [AR §2.7]; [AR §5a.7] step 4 row "owner-authority fields" | `owner_quote`: `main` wins when dst is `main`, otherwise `OwnerFieldEdited`. The scope of "owner-authority fields" is [OP-1]. |
 | MC-004 | `authority` | field | merge-table | design | [AR §5a.7] step 4 row "owner-authority fields"; [AR §3.1] | The `authority` column: the owner rule when the value `owner` is involved, the scalar rule otherwise. |
@@ -92,7 +95,7 @@ cites the open point that explains it.
 | MC-010 | `hierarchy` | hierarchy | merge-table | design | [AR §2.7]; [AR §5a.7] step 4 row "parent / order"; [AR §4.6] item 10 | The key (uid) → (parent uid, order): Kleppmann moves in HLC order. |
 | MC-011 | `existence` | existence | merge-table | design | [AR §2.5]; [AR §5a.7] step 4 row "existence"; [AR §5d.3] | Nodes of kinds whose uid derivation is `random`. |
 | MC-012 | `edge` | edge | merge-table | design | [AR §3.3]; [AR §5a.7] step 4 rows "structural edge …", "supersedes", "pinned_commit" | Every edge kind except `parent` (hierarchy) and `at` (anchor). Value: present with its properties, or absent. |
-| MC-013 | `schema-item` | schema | merge-table | design | [AR §2.12]; [AR §5a.7] step 4 row "schema"; [60 §2.5] "Schema as data" | One row of a schema table: a kind, a field of a kind, an enum value of a field, an edge kind. |
+| MC-013 | `schema-item` | schema | merge-table | design | [AR §2.12]; [AR §5a.7] step 4 row "schema"; [60 §2.5] "Schema as data" | One row of a schema table: a kind, a field of a kind, an enum value of a field, an edge kind, or a policy row ([F08 §8.5.6]; spec sync 2b). |
 | MC-014 | `query` | schema | merge-table | design | [50 §4.4]; [50 §8.1] F3; [AR §5a.7] step 4 row "R5 named-query definition" | One project named query, an atomic value (signature, shape, budget, text). |
 | MC-015 | `identity` | field | link-merge-rules | design | [40 §2.2]; [40 §2.11] R-2 | Immutable identity inputs of derived-uid nodes. |
 | MC-016 | `observation` | field | link-merge-rules | design | [40 §2.2]; [40 §5.5]; [40 §2.11] R-2 | The artifact observation composite: one merge key over `path`, `oid`, `bytes`, `observed_git`, `observed_blob`, `relink`. |
@@ -115,14 +118,14 @@ cites the open point that explains it.
 | CS-003 | `theirs-only` | * | t ≠ b and o = b. |
 | CS-004 | `both` | * | o ≠ b, t ≠ b and o ≠ t. After `same`, `ours-only` and `theirs-only` it is the only case left, so a class whose last row is `both` or `any` is exhaustive. |
 | CS-005 | `any` | counter, set, hierarchy, alias-set, glob-set, pathmove-set | Always true. |
-| CS-006 | `base-conflicted` | conflicted-key | b is a conflict value, o ≠ b, t ≠ b and o ≠ t: both sides changed the key since a conflict-valued base, to different values ([F12 §5.4] RVB-4). In practice the recursive virtual base of a criss-cross holds a conflict value on this key ([60 §3.4]). |
+| CS-006 | `base-conflicted` | conflicted-key | b is a conflict value, o ≉ b, t ≉ b and o ≉ t (≈ of [F12 §5.4], §2): both sides changed the key since a conflict-valued base, to different values ([F12 §5.4] RVB-4). In practice the recursive virtual base of a criss-cross holds a conflict value on this key ([60 §3.4]). |
 | CS-007 | `both-forward-comparable` | status | `both`, and: neither o nor t is a side state (SL `side = yes`); b is `absent` or a non-side state; b < o and b < t in the kind's merge order (the transitive closure of the SL `covers` relation, with `absent` below every non-side state); o and t have different statuses; and those two statuses are comparable. Resolutions travel with their status and play no part in the order. |
 | CS-008 | `dst-main-changed` | owner | dst is the ref `main` (never true inside a virtual merge, VB-007) and o ≠ t. |
 | CS-009 | `dst-main-owner-involved` | authority | dst is the ref `main` (never inside a virtual merge), o ≠ t, and at least one of b, o, t is `owner`. |
 | CS-010 | `both-owner-involved` | authority | `both`, and at least one of b, o, t is `owner`. |
 | CS-011 | `both-diff3-clean` | text, section-text | `both`, and diff3 of (b, o, t) over the line diff of [F12] has no conflicting hunk and its result is at most 65,536 bytes, the bound of a text value and of a body ([F12 §7.5] "Length"; [F08 §5.3], [F08 §7.2]); `absent` is read as the empty text. A clean diff3 whose result is longer falls to the class's `both` row (`TextHunk`). |
 | CS-012 | `both-guard-fail` | section-text | `both-diff3-clean`, and the removed-text guard fails for the diff3 result R: for S = o or S = t, the multiset of S's lines minus the multiset of R's lines is not contained in the multiset of b's lines (text a side had, the merge dropped, and the base never held). |
-| CS-013 | `kleppmann-skipped` | hierarchy | The `kleppmann` result (RS-007) skipped this key's move, because applying it would have made a node its own ancestor. |
+| CS-013 | `kleppmann-skipped` | hierarchy | The `kleppmann` result (RS-007) undid this key's last move, because the step that made it left a node its own ancestor. |
 | CS-014 | `deleted-vs-modified` | existence, derived-existence | b is live; one side's value is deleted; the other side's value is live, and that side changed at least one other key of the same uid since the base: a field, status, counter, body or hierarchy key of the uid, or an out-edge key whose source is the uid. In-edges belong to their sources and do not count; they meet VA-004 or become tombstone references ([AR §5d.3]). |
 | CS-015 | `both-created` | existence | b is `absent`, and o and t are both live: one uid created on both sides. |
 | CS-016 | `both-present` | edge, anchor | `both`, and o and t are both present: they differ only in their properties or anchor selectors. |
@@ -139,7 +142,7 @@ cites the open point that explains it.
 | RS-004 | `sum` | o + t − b, each `absent` read as 0, in checked i64 arithmetic; a sum of 0 is `absent` ([F07 §6.3], [F08 §6.2]). An overflow is a specification finding: the model panics. |
 | RS-005 | `union3` | (b ∩ o ∩ t) ∪ (o − b) ∪ (t − b), each `absent` read as the empty set: an element survives unless a side removed it, and an element either side added is kept. Sorted as the set type's canonical encoding requires; an empty result is `absent` ([F08 §5.3]). |
 | RS-006 | `diff3` | The merged text of the clean diff3 of CS-011; an empty result is `absent`, for a text field and for a body alike ([F12 §7.5] "Empty result"). |
-| RS-007 | `kleppmann` | Computed once per merge for all hierarchy keys. Start from b's (parent, order) for every node. Collect one move per hierarchy key that o or t changed: that side's value, with the (hlc, commit id) of that side's newest commit since the base whose net diff changed the key. A key both sides changed to the same value contributes one move, with the smaller (hlc, commit id); a key they changed differently contributes both moves. Apply the moves in ascending (hlc, commit id) order, commit ids compared bytewise; skip a move that would make a node its own ancestor. Each key's value is its node's final (parent, order). Keys of a uid fixed by an existence policy (PR-007) take no part. |
+| RS-007 | `kleppmann` | Computed once per merge for all hierarchy keys, in steps ([F12 §5.3] VM-7, [F12 §7.4]). Start from b's (parent, order) for every node. Each commit of A(o) \ A(B) and of A(t) \ A(B) (the ancestor sets of [F12 §5.2]) whose canonical net changeset against its first parent (the full state diff for a `sync`, [AR §4.6]) has hierarchy entries is one step, keyed by its (hlc, commit id); the step sets each of those keys to its value in that commit's state. For each side, a hierarchy key whose value on that side differs from b while no step of that side sets it (the base of a revert, a cherry-pick, `--base` or a virtual base is not where that side's commits start) is set to that side's value in a step keyed (0, 0), before every commit. Apply the steps in ascending (hlc, commit id) order, commit ids compared bytewise, all moves of a step at once; where two steps share a key (a commit that is a step of both sides, or the two sides' (0, 0) steps), dst's moves apply first, then src's. After a step in which a node is its own ancestor, undo the step's moves one at a time, the least uid among the step's nodes that lie on a cycle first, until none is (MR-039). A key whose last move was undone is `kleppmann-skipped` (CS-013); a later move of it that applied decides its value (MR-040). Each key's value is its node's final (parent, order). For a revert or a cherry-pick, src has one step, the origin C's, keyed by C's (hlc, id) and valued in src's state. Step entries follow the re-key (RK-005, RK-006). Keys of a uid fixed by an existence policy (PR-007) take no part. When tip(dst) is B (dst made no commit since B) and src's commits since B (A(t) \ A(B)) are a linear chain of single-parent commits whose first has B as its parent, the steps replay src's own states in order, each a forest, so the merge meets no cycle and every hierarchy key takes src's value. Outside that case the steps can stage a `HierarchyCycle` that the sides' histories do not call for, or land a value that neither side holds; the known cases are [OP-35], recorded and not decided (spec sync 2b). |
 | RS-008 | `policy` | `DeleteVsModify` on the existence key. The key holds the conflict value {DeleteVsModify, base b, ours o, theirs t}. The node's other keys take, provisionally, the values of the side the policy names: `delete-wins`, the deleting side (the node is deleted and keeps only its retained out-edges, [AR §3.4] I39′); `resurrect`, the modifying side (the node is live with that side's keys); `none`, dst's side. The policy is the kind's EP row unless `--policy` or `merge.policy.<kind>` overrides it (AP rows). No other conflict is emitted for the node's keys. A `live` side of the conflict value carries that side's node image, its value keys only ([F06 §6.2] `snap` = 1). A `resolve --take` towards a live side restores the value keys from that image, and the node's hierarchy key and out-edges from that side's state at the conflict's introducing commit M (the state of M's first parent for `ours`, of its second parent for `theirs`), as ordinary `Move`, `AddEdge` and `SetEdgeProps` ops of the `Resolve` commit, under the write path's checks ([F12 §6.5]; [OP-5]). |
 | RS-009 | `conflict-value` | The key holds the conflict value {class, base b, ours o, theirs t}, the class taken from the row's `conflict` cell; the node gets `conflicted` (RE-008). |
 | RS-010 | `conflict-as-class` | As `conflict-value`, with base b′, ours flat(o) and theirs flat(t) ([F12 §5.4] RVB-4): b′ is the `base` field of the conflict value b, and flat(v) is v when v is plain and v's provisional value ([F12 §6.3], §6.4) when v is itself a conflict value, so a conflict value never nests. Its class is found by evaluating the key's own class rows on (b′, flat(o), flat(t)), skipping every row whose disposition is not `value`: the first matching row's `conflict` cell is the class, or the class of b when no such row matches ([OP-18]). When the class is `DeleteVsModify` on an existence key, the node's other keys take RS-008's provisional state if exactly one of flat(o), flat(t) is live, and o's values otherwise; the conflict value's provisional side follows ([F12 §5.4], [F12 §6.3]). |
@@ -156,9 +159,9 @@ Rows are grouped by class; within a class the first matching row wins.
 <!-- table: merge-rules -->
 | row | class | case | result | conflict | disposition | basis | source | note |
 |---|---|---|---|---|---|---|---|---|
-| MR-001 | `conflicted-key` | `same` | `take-o` | - | clean | design | [60 §3.4]; [AR §5a.7] step 1; [F12 §5.4] RVB-1 | Two sides holding the same value never conflict, whatever the base holds: "resolved identically never conflict". A conflict value held by both sides stays, and no new `Conflict` op is emitted. |
-| MR-003 | `conflicted-key` | `ours-only` | `take-o` | - | clean | derived | [AR §5a.7] step 4; [AR §3.4] I25′; [F12 §5.4] RVB-3 | src did not touch the key since the base: dst's value stays. At a real LCA: a conflict value landed on dst stays, and a resolution made on dst stays. Over a conflict-valued (virtual) base: dst resolved it and src still holds the base's conflict value, so dst's resolution stands ([OP-18]). |
-| MR-004 | `conflicted-key` | `theirs-only` | `take-t` | - | clean | derived | [AR §5a.7] step 4; [AR §3.4] I25′; [F12 §5.4] RVB-2 | dst did not touch the key since the base: src's value lands. At a real LCA: a conflict value landed on src is carried to dst (into `main` only as PR-003 allows), and a resolution made on src lands. Over a conflict-valued (virtual) base: src resolved it and dst still holds the base's conflict value, so src's resolution lands ([OP-18]). |
+| MR-001 | `conflicted-key` | `same` | `take-o` | - | clean | design | [60 §3.4]; [AR §5a.7] step 1; [F12 §5.4] RVB-1 | Two sides holding the same value never conflict, whatever the base holds: "resolved identically never conflict". A conflict value held by both sides stays, and no new `Conflict` op is emitted. Over a conflict-valued base the sides compare by ≈ (§2), so two exchanged orientations of one conflict are the same (spec sync 2b). |
+| MR-003 | `conflicted-key` | `ours-only` | `take-o` | - | clean | derived | [AR §5a.7] step 4; [AR §3.4] I25′; [F12 §5.4] RVB-3 | src did not touch the key since the base: dst's value stays. At a real LCA: a conflict value landed on dst stays, and a resolution made on dst stays. Over a conflict-valued (virtual) base: dst resolved it and src still holds the base's conflict value, in either orientation (≈, §2; spec sync 2b), so dst's resolution stands ([OP-18]). |
+| MR-004 | `conflicted-key` | `theirs-only` | `take-t` | - | clean | derived | [AR §5a.7] step 4; [AR §3.4] I25′; [F12 §5.4] RVB-2 | dst did not touch the key since the base: src's value lands. At a real LCA: a conflict value landed on src is carried to dst (into `main` only as PR-003 allows), and a resolution made on src lands. Over a conflict-valued (virtual) base: src resolved it and dst still holds the base's conflict value, in either orientation (≈, §2; spec sync 2b), so src's resolution lands ([OP-18]). |
 | MR-002 | `conflicted-key` | `base-conflicted` | `conflict-as-class` | - | value | design | [60 §3.4]; [AR §2.7]; [AR §5a.7] step 1; [F12 §5.4] RVB-4; [OP-18] | The base holds a conflict value and both sides changed the key since it, to different values: "two sides that resolved a criss-cross differently always conflict". A side that still holds the base's conflict value did not touch the key, so MR-003 or MR-004 decides it first (I25′). The class, the sides and the base come from RS-010. |
 | MR-005 | `conflicted-key` | `both` | `conflict-plain-base` | - | value | derived | [F12 §5.4] "A plain base with a conflict-valued side"; [AR §5a.7]; [OP-18] | A plain base, both sides changed the key, and at least one side holds a conflict value. The design has no rule; [F12 §5.4] states RVB-4's flat form over the plain base (review pass 1, P1-21), so no merge input reaches `SpecGap`. The class, the sides and the base come from RS-015. |
 | MR-006 | `scalar` | `same` | `take-o` | - | clean | design | [AR §5a.7] step 4 row "enum / number scalar" | "equal → take". |
@@ -194,7 +197,7 @@ Rows are grouped by class; within a class the first matching row wins.
 | MR-036 | `section-text` | `both-guard-fail` | `stage-diff3` | RemovedTextNotInBase | structural | design | [AR §5a.7] step 4 row "text"; [AR §5a.8]; [OP-14] | "`doc.section` bodies also run the removed-text guard"; the guard's formula (CS-012) is [OP-14]. |
 | MR-037 | `section-text` | `both-diff3-clean` | `diff3` | - | clean | design | [AR §5a.7] step 4 row "text" | - |
 | MR-038 | `section-text` | `both` | `conflict-value` | TextHunk | value | design | [AR §5a.7] step 4 row "text" | The guard runs only on a clean diff3; a `TextHunk` value keeps all three texts and drops nothing. Also reached by a clean diff3 whose result exceeds 65,536 bytes (CS-011). |
-| MR-039 | `hierarchy` | `kleppmann-skipped` | `kleppmann` | HierarchyCycle | structural | design | [AR §5a.7] step 4 row "parent / order"; [AR §5a.8]; [OP-15] | "a cycle-creating move is skipped and logged"; `HierarchyCycle` is structural, so the merge stages. |
+| MR-039 | `hierarchy` | `kleppmann-skipped` | `kleppmann` | HierarchyCycle | structural | design | [AR §5a.7] step 4 row "parent / order"; [AR §5a.8]; [OP-15] | "a cycle-creating move is skipped and logged": RS-007 undoes it; `HierarchyCycle` is structural, so the merge stages. |
 | MR-040 | `hierarchy` | `any` | `kleppmann` | - | clean | design | [AR §2.7]; [AR §5a.7] step 4 row "parent / order" | Two different moves of one node do not conflict: the later one in (hlc, commit id) order wins. |
 | MR-041 | `existence` | `same` | `take-o` | - | clean | design | [AR §5a.7] step 4 row "existence" | Both live, or both deleted with the same reason and replacement. |
 | MR-042 | `existence` | `deleted-vs-modified` | `policy` | DeleteVsModify | value | design | [AR §2.5]; [AR §5a.7] step 4 row "existence"; [AR §5d.3] | "`main` modified #40 → `DeleteVsModify` conflict value"; the provisional state follows EP and AP rows. |
@@ -210,7 +213,7 @@ Rows are grouped by class; within a class the first matching row wins.
 | MR-052 | `schema-item` | `same` | `take-o` | - | clean | design | [AR §2.12] | - |
 | MR-053 | `schema-item` | `ours-only` | `take-o` | - | clean | design | [AR §2.12]; [AR §5a.7] step 4 row "schema" | A weakening lands; a strengthening lands and VA-010 re-validates the other side's data against it. |
 | MR-054 | `schema-item` | `theirs-only` | `take-t` | - | clean | design | [AR §2.12]; [AR §5a.7] step 4 row "schema" | As MR-053. |
-| MR-055 | `schema-item` | `both-strengthen` | `stage-take-o` | SchemaConflict | structural | design | [AR §2.12]; [AR §5a.7] step 4 row "schema" | "strengthening on both sides → `SchemaConflict`". |
+| MR-055 | `schema-item` | `both-strengthen` | `stage-take-o` | SchemaConflict | structural | design | [AR §2.12]; [AR §5a.7] step 4 row "schema" | "strengthening on both sides → `SchemaConflict`". Every change of a policy row ([F08 §8.5.6]) is a strengthening in CS-017's sense, so two sides that changed one row differently, a removal included, stage here and an effective policy is always plain (spec sync 2b). |
 | MR-056 | `schema-item` | `both` | `stage-take-o` | SchemaConflict | structural | proposed | [AR §2.12]; [OP-16] | Both sides added one schema item (same name) with different definitions: "weakening changes union" cannot unite two definitions of one item. |
 | MR-057 | `query` | `same` | `take-o` | - | clean | design | [50 §4.4] | - |
 | MR-058 | `query` | `ours-only` | `take-o` | - | clean | design | [50 §4.4] | "a query defined or changed on one side lands"; so does a `DROP` on one side. |
@@ -544,7 +547,7 @@ the hint codes 128–191.
 <!-- table: procedure -->
 | row | step | action | basis | source | note |
 |---|---|---|---|---|---|
-| PR-001 | 0 | sync-first | design | [AR §5a.7] step 0 | A merge into `main` whose src does not contain tip(main) first merges `main` into src (a `sync`, DM-002). Both are computed before the writer byte and committed as one flushed group; if the sync stages, the whole merge stages. Afterwards LCA(src, main) = tip(main). |
+| PR-001 | 0 | sync-first | design | [AR §5a.7] step 0 | A merge into `main` whose src does not contain tip(main) first merges `main` into src (a `sync`, DM-002). Step 0 applies only when src is a branch (`work` or `plan`); for any other src (a tag, `import/*`, `orphans/*`) the merge runs without step 0, over PR-004's base, and nothing is written on src ([F12 §8.1], [F12 §9.6]; spec sync 2b). Both are computed before the writer byte and committed as one flushed group; if the sync stages, the whole merge stages; if it lands conflict values, its group alone is appended on src and PR-003 refuses the merge ([API §11.7] "Sync first with conflict values"). Afterwards LCA(src, main) = tip(main). |
 | PR-002 | 0 | refuse-pair-staged | design | [AR §5a.7] step 8; [AR §3.4] I41′ | A second merge of one (dst, src) pair is refused while `merge/<dst>/from/<src>` exists; a sync of lane L is refused while `merge/<L>/from/main` exists; other pairs are never blocked. The refusal is [F19 §10.2] `staging_exists`, exit 6. |
 | PR-003 | 0 | refuse-src-conflicted | proposed | [AR §5a.7] step 0; [OP-22] | A merge into `main` is refused while tip(src) holds an unresolved conflict value, with [F19 §10.2] `conflicted_src`, exit 6; `merge-check` lists them. |
 | PR-004 | 1 | base | design | [AR §5a.7] step 1 | The base state: VB rows, or `--base <commit>`. |
@@ -557,7 +560,7 @@ the hint codes 128–191.
 | PR-011 | 7 | emit | design | [AR §5a.7] step 7 | One merge commit with parents (tip(dst), tip(src)); its net ops are the state diff against tip(dst); one `Conflict` op per value conflict; one `Violation` op per structural problem; `affected`; markers (RE-003); dst's new absorbed vector (RE-006). |
 | PR-012 | 8 | land-or-stage | design | [AR §5a.7] step 8 | LS rows. |
 | PR-013 | 8 | resolve | design | [AR §5a.7] step 8; [F12 §6.5] | `resolve <key>` with `--take` ours, theirs or base, or `--value V`, and `resolve --all --policy P`, append `Resolve` commits on the staging ref. A take towards a live side of a `DeleteVsModify` also restores the node's hierarchy key and out-edges (RS-008). |
-| PR-014 | 8 | continue | derived | [AR §5a.7] step 8; [F12 §9.4] | `merge --continue` re-runs PR-009 to PR-012 against the current tip(dst), with the staged resolutions as an overlay. A resolution whose key's value on the current tip(dst) differs from its value at the dst tip it was made against is stale: the key keeps the recomputed candidate's value and the command prints a notice naming it, so no resolution silently overwrites a later dst change ([F12 §9.4] step 2). When dst did not move, every resolution applies. |
+| PR-014 | 8 | continue | derived | [AR §5a.7] step 8; [F12 §9.4] | `merge --continue` recomputes the operation against the current tip(dst) with the staged commit's own arguments, its `--base`, policy override and effective `strict` ([F06 §4.4.16]; never the continue's configuration), and re-runs PR-009 to PR-012 with the staged resolutions as an overlay ([F12 §9.4] steps 1 and 2: the resolved keys include a `Resolve` whose `new` equals `old` and the keys of its companion ops). A resolution whose key's value on the current tip(dst) differs from its value at the dst tip it was made against is stale: the key keeps the recomputed candidate's value and the command prints a notice naming it, so no resolution silently overwrites a later dst change ([F12 §9.4] step 2). When dst did not move, every resolution applies. The validators run over the merge's own base, state(D₁) and state(P₂) (for a revert or cherry-pick, the DM row's base and source); on a key the overlay set, step 1's conflict value, the typed rules' violations and VA-001's skipped move are dropped, and every other step-1 structural violation is kept (MR-036, MR-039, MR-045, MR-055, MR-056, DM-012; [F12 §9.4] step 3; spec sync 2b). |
 | PR-015 | 8 | abort | design | [AR §5a.7] step 8 | `merge --abort` deletes the staging ref; no marker was written for it (RE-004). |
 | PR-016 | * | pure | design | [AR §5a.7] step 6; [40 §5.5]; [AR §3.4] I28′, I30′ | The merge reads neither the file system nor git. Its result is a function of the base, dst and src states, whether dst is `main`, the (hlc, commit id) of side commits (RS-007) and these tables; conflicts only the file system can settle land as values ([RULES/link-merge-rules] LV rows). |
 | PR-017 | * | order-independent | derived | [60 §3.4] GT6 | The result does not depend on the order in which keys are visited; RS-007 fixes the only order that matters. |
@@ -588,7 +591,8 @@ recomputation over the whole candidate ([60 §4.2]: DFS over the combined graph)
 | VA-016 | 3 | other-kinds-acyclic | Cycle | structural | proposed | [AR §3.3]; [F13 §5] V03; [F19 §12.2] code 65; [OP-10] | `merge_after`, `depends_on`, `supersedes`, `derived_from` and `discovered_from` are declared acyclic but are not in I37′'s list; checked at V03's position, with V03's class. |
 
 The land-or-stage decision. *strict* is `--strict` or the store key `merge.strict` (default `false`, [AR §13]); a
-command-line flag outranks the key.
+command-line flag outranks the key. `merge --continue` takes the effective `strict` its staged commit recorded
+([F06 §4.4.16]; PR-014), not the key's value at the continue.
 
 <!-- table: land-or-stage -->
 | row | violations | conflicts | strict | outcome | basis | source | note |
@@ -617,15 +621,15 @@ sets, maximal common ancestors, and each LCA's state materialised and merged by 
 | VB-008 | virtual-merge | dst=V(k-1),src=L(k) | proposed | [OP-19] | Direction matters for the rows that prefer dst: MR-046, MR-061, LM-004, LM-014. |
 | VB-009 | virtual-merge | validators=not-run | proposed | [OP-19] | A virtual base need not satisfy invariants; only the final candidate is validated, and a virtual merge never stages. |
 | VB-010 | virtual-merge | conflicts=kept-as-values | design | [AR §5a.7] step 1; [60 §3.4] | A key the inner merge leaves in conflict holds that conflict value in the base. |
-| VB-011 | virtual-merge | move-order=newest-real-commit | proposed | [OP-19] | For RS-007 on a virtual side, a key's move carries the (hlc, commit id) of the newest real commit in that side's ancestry since the inner base whose net diff changed the key. |
+| VB-011 | virtual-merge | move-steps=real-commits | proposed | [F12 §5.3] VM-7; [OP-19] | For RS-007 on a virtual side, the steps are the real commits of that side's ancestry since the inner base (A(side) \ A(inner base), [F12 §5.2]), each keyed by its (hlc, commit id) and valued in that commit's state (spec sync 2b). |
 | VB-012 | virtual-merge | link-rules=apply | derived | [40 §5.5]; [60 §3.4] | Composition and re-key ([RULES/link-merge-rules]) run inside virtual merges like every other rule. |
 | VB-019 | virtual-merge | auto-policy=ignored | proposed | [F12 §5.3] VM-2; [OP-19] | No automatic policy applies inside a virtual merge: `merge.policy.<kind>`, `--policy` and `--strict` of the outer command are ignored, and a `DeleteVsModify` takes the kind's EP row from the schema of the virtual merge's dst state. An automatic `ours`/`theirs` there would pick one LCA's value by generation order, the silent choice the virtual base exists to prevent, and the base would depend on the command line. |
 | VB-013 | vb-conflict | same=clean | design | [60 §3.4] | MR-001: "two sides that resolved it identically never do". |
 | VB-014 | vb-conflict | differ=conflict | design | [60 §3.4]; [F12 §5.4] RVB-4 | MR-002: "two sides that resolved a criss-cross differently always conflict", read as "both sides changed the key since the virtual base and differ" ([OP-18]). |
-| VB-018 | vb-conflict | one-side-untouched=other-side | derived | [AR §3.4] I25′; [F12 §5.4] RVB-2, RVB-3; [F12 §5.7] VBC-3; [OP-18] | MR-003 and MR-004: a side that still holds the virtual base's conflict value did not touch the key since the base, so the other side's value lands, clean, as at a real LCA. |
+| VB-018 | vb-conflict | one-side-untouched=other-side | derived | [AR §3.4] I25′; [F12 §5.4] RVB-2, RVB-3; [F12 §5.7] VBC-3; [OP-18] | MR-003 and MR-004: a side that still holds the virtual base's conflict value, in either orientation ([F12 §5.4]'s ≈), did not touch the key since the base, so the other side's value lands, clean, as at a real LCA, for both lanes of VBC-3 (spec sync 2b). |
 | VB-015 | property | independent-of-lca-enumeration-order | design | [60 §3.4] GT6 | Follows from VB-005's total order. |
 | VB-016 | property | agreed-untouched-key-never-conflicts | design | [60 §3.4] GT6 | "a key both LCAs agree on and neither side touched never conflicts". |
-| VB-017 | daily-path | sync-first=single-lca | design | [AR §5a.7] step 0 | After PR-001 the LCA of a merge into `main` is tip(main); the virtual base arises only in cross-lane and branch-of-branch merges (CM9). |
+| VB-017 | daily-path | sync-first=single-lca | design | [AR §5a.7] step 0 | After PR-001 the LCA of a merge of a branch into `main` is tip(main); the virtual base arises only in cross-lane and branch-of-branch merges (CM9), and in a merge into `main` of a tag or an `import/*` or `orphans/*` ref, which runs without step 0. |
 
 ## 12. Derived merges
 
@@ -649,7 +653,7 @@ computed for the row's dst and src.
 | DM-012 | revert-or-cherry-pick | - | - | - | notfound | proposed | [AR §5a.5]; [AR §3.4] I34′; [OP-21] | `NotFound` (structural; staged on `merge/<R>/from/<commit>`): src changes a key whose uid, or for an edge whose source or destination uid, is live in the base but deleted or absent on dst. |
 | DM-013 | revert-or-cherry-pick | - | - | - | data | proposed | [AR §5a.5]; [AR §2.7]; [OP-20] | The `DATA` case is the `both` case of the key's class; for `scalar` keys it lands as `FieldEdit` (MR-009). |
 | DM-014 | foreign-merge-import | - | - | - | texthunk-from-foreign-tree | design | [AR §5b.6] step 3 | For a `TextHunk`, a line present in the foreign file and in exactly one side is taken as that side's resolution; any remaining disagreement is a conflict value. |
-| DM-015 | foreign-merge-import | - | - | - | counters-from-ledger | design | [AR §5b.6] step 3; [AR §3.4] I30′ | Counters come from the union of the `incr` ledger lines, never from a text merge. |
+| DM-015 | foreign-merge-import | - | - | - | counters-from-typed-merge | design | [AR §5b.6] step 3; [AR §3.4] I30′; [F14 §11.2] | Counters come from the typed merge (MR-026) of the parents' imported states over their LCA, never from a text merge or from the foreign file's ledger lines: when both parents merged one shared increment, the union of their ledger lines counts it twice (spec sync 2b; [AR §5b.6] step 3's "union of the `incr` ledger lines" is edited at WP-81a). |
 | DM-016 | revert-or-cherry-pick-pruned | - | - | - | refuse | derived | [F06 §4.4.15]; [F06 §7.10]; [F19 §10.2] `commit_pruned` | A commit `gc` pruned to its header has no ops or before-images, so it is never reverted or picked: [F19 §10.2] `commit_pruned`, exit 3, before any state is read (review pass 1 round 2, S1-21 and A1-5). |
 | DM-017 | revert-creation | - | - | - | src-absent-reads-inverse | proposed | [F06 §7.10] "`Create` → `Delete`", "`CreateDeleted` has no inverse"; [F12 §7.8]; [OP-33] | On an existence key whose base value (state(c)) is not `absent` and whose src value (state(p1(c))) is `absent`, c brought the node into being, and a revert never makes a node `absent`: when c created it live, src reads as the tombstone that [F06 §7.10]'s inverse `Delete` writes, `deleted(kind, "", none)` (`reason` 0, `replaced_by` 0), so the node is deleted (CS-014 and DM-012 apply as to any delete); when c took it from `absent` to `deleted` (`CreateDeleted`), src reads as b, so dst's value stays and no existence op is emitted. The node's other keys follow their own rows. |
 
@@ -821,10 +825,20 @@ Each point names the rows it affects and the chapter or WP that owns the final t
 14. **Removed-text guard** (CS-012, MR-036). The design names the guard without a formula. Proposed: for each side S,
     the lines S has and the merged text lacks (as multisets) must all be in the base. A correct diff3 always passes, so
     the guard catches hunk misalignment and repeated lines. [F12 §7.5] states the guard over its lines.
-15. **Kleppmann details** (RS-007, MR-039, MR-040). The move order key is (hlc, commit id) of the side's newest commit
-    that changed the key; a key both sides moved identically counts once at the earlier position. "Skipped and
-    logged" is read together with `HierarchyCycle` being structural: the move is skipped in the staged candidate and
-    the merge stages.
+15. **Kleppmann details** (RS-007, MR-039, MR-040, CS-013, VB-011). **Decided in spec sync 2b** (WP-91 review, fix and
+    closure; [F12 §5.3] VM-7, [F12 §7.4]): per-commit steps. Each commit a side made since the base that has hierarchy
+    entries is one step keyed by its (hlc, commit id) and valued in that commit's state; after a step that leaves a
+    cycle, the step's moves are undone least uid first, and a key whose last move was undone is `kleppmann-skipped`. The
+    first draft gave each key one move, its side's final value keyed by the newest commit that changed it; moves of one
+    commit then shared a key and the uid tie-break ordered them, so a parent/child swap made in one `TX` was skipped,
+    and a side that restructured over several commits met cycles its own history never had (a three-commit restructure
+    staged `#1.parent HierarchyCycle` on `sync` and on the merge into `main`). A one-step-per-order-key reading (moves
+    with one (hlc, id) applied together) fixed only the first; per-commit steps contain it within a commit and replay a
+    linear chain of single-parent commits from the base through that side's own forests, so, merged into a dst that made
+    no commit since the base, it never skips (RS-007; the known cases outside it are open point 35). The (0, 0) step
+    covers a side whose value differs from a base its commits do not start at (revert, cherry-pick, `--base`, a virtual
+    base). "Skipped and logged" is read together with `HierarchyCycle` being structural: the move is undone in the
+    staged candidate and the merge stages.
 16. **Schema merge details** (MR-055, MR-056, CS-017). Two different definitions of one new item are proposed as
     `SchemaConflict`; identical strengthenings on both sides are `same` and clean. Enum integers are "never reused"
     ([AR §3.4] I11), but two lanes that each add an enum value may pick the same integer; whether enum integers are
@@ -845,10 +859,14 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     pass 1 (P1-21) adopted [F12] open point 3 as [F12 §5.4]'s normative rule, and MR-005 now takes it through RS-015:
     the plain base b, the flat sides, the class of the key's value rows on them, else the conflicted side's class (o's
     when both are conflicted). RS-010 and RS-015 give an existence key's provisional state as [F12 §5.4] does. The
-    owner re-signs the rows (V3).
+    owner re-signs the rows (V3). Spec sync 2b (WP-91 review): over a conflict-valued base the rows compare by
+    [F12 §5.4]'s ≈, which also equates a conflict value with its exchanged orientation; with byte equality a lane that
+    left its own merge's conflict unresolved would be clean in one LCA order and a spurious MR-002 conflict in the
+    other, so VBC-3 held for one lane only (§2, MC-001, CS-006).
 19. **Recursive virtual base details** (VB-003, VB-007 to VB-011, VB-019). Proposed: no common ancestor means an empty
-    base; inside a virtual merge dst is never `main`, validators do not run, dst is the earlier fold, moves carry their
-    real commits' order, and no automatic policy or outer `--strict` applies (VB-019, added for [F12 §5.3] VM-2 and
+    base; inside a virtual merge dst is never `main`, validators do not run, dst is the earlier fold, the Kleppmann
+    steps are the real commits since the inner base (VB-011, spec sync 2b), and no automatic policy or outer `--strict`
+    applies (VB-019, added for [F12 §5.3] VM-2 and
     [F12] open point 8). [F12 §5.3] VM-1 to VM-8 state the same rules.
 20. **`DATA` versus `FieldEdit`** (CM-007, DM-013). [AR §2.7] and [AR §5a.5] record a `DATA` mismatch "as a
     `FieldEdit` conflict value", while [AR §5a.8] lists `DATA` as a class. This table emits `FieldEdit`; WP-12 decides
@@ -892,3 +910,52 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     are `absent` ([F08 §5.3], [F08 §6.2], [F12 §7.5]), so the model's states compare with the engine's canonical states
     byte for byte. [F12 §7.5]'s length bound is part of the case `both-diff3-clean`: a clean diff3 longer than 65,536
     bytes is a `TextHunk`, as [F12 §7.5] says.
+35. **Spurious Kleppmann results** (RS-007, MR-039, MR-040, CS-013; spec sync 2b: WP-91 fix 2, the WP-91/92 sync closure
+    and its arbiter ruling; not decided). RS-007 guarantees a replay with no cycle only in its linear case: src's
+    commits since B are a linear chain of single-parent commits from B, merged into a dst that made no commit since B.
+    Outside that case there are three known cases where the hierarchy result is not one the sides' histories call for.
+    The reference model follows RS-007 as written in all three.
+    (i) **A two-parent commit inside one side.** A step carries only the hierarchy keys of its commit's net changeset
+    against the first parent. So a merge or `sync` on a side that kept its first parent's value of a key the merged
+    branch had changed (for example after resolving a skip to `ours`) is no step for that key. This has two outcomes.
+    - When the merged branch's commit lies in A(side) \ A(B), it can be that key's last step on the side. Its value can
+      then win, and the merge can land clean with a value that neither tip holds. Example: lane/x puts #2 under #1; main
+      then puts #1 under #2; `sync lane/x` stages `#1.parent HierarchyCycle`, which is resolved to `ours` (#1 at the
+      root, #2 under #1). lane/y, forked before main's move, puts #2 under #4 after lane/x's move and before main's.
+      `merge lane/x --into lane/y` replays lane/x's move, lane/y's move and main's move in that order. Main's move, #1
+      under #2, now closes no cycle and applies, so the merge lands #1 under #2, which neither lane holds.
+    - When B holds the merged branch's value, the side's commits from before the merge are replayed from B and can close
+      a cycle. Example: as above up to the sync; then lane/x puts #1 under #3. `merge lane/x --into main`, with main
+      unchanged since the sync, replays lane/x's first move from B, where #1 is under #2. That move closes a cycle and
+      is undone, so the merge stages `#2.parent HierarchyCycle` with #2 at the root, although lane/x holds #2 under #1
+      and main never moved #2.
+
+    (ii) **A base that is not where a side's commits start.** RS-007 replays every step from B. A commit of
+    A(side) \ A(B) that does not descend from B was made on another state, and when it is replayed from B it can close a
+    cycle it never met, even when the merged change has no hierarchy entry. A cherry-pick meets this whenever B = p₁(C)
+    is outside dst's history. A revert meets it when dst's commits since C include commits that do not descend from C.
+    `--base` meets it when a side's commits since the chosen commit do not all descend from it. A virtual base has the
+    same shape and has not been worked through. Example: lane/a puts #1 under #2, then sets #4.priority (C); main puts
+    #2 under #1, then #1 under #3. Picking C onto main replays main's two commits from B = state(p₁(C)), where #1 is
+    under #2. The first closes a cycle and is undone, so the pick stages `#2.parent HierarchyCycle` with #2 at the root,
+    although C has no hierarchy entry and main holds #2 under #1.
+    (iii) **A no-op move in a step that closes a cycle.** The undo exempts no move, so a move that sets the value its
+    node already holds can be the least uid on the cycle. Undoing it changes nothing, but its key becomes
+    `kleppmann-skipped` and stages unless a later move of it applies. Example, with #1's uid below #2's: ours, in one
+    commit, puts #3 under #2 and #1 under #3; theirs, in a later commit, puts #1 under #3 and #2 under #1. Both
+    `#1.parent` and `#2.parent` stage as `HierarchyCycle`, although both sides hold #1 under #3. If ours then puts #2
+    under #4 in a still later commit, `#1.parent` is the only key that stages.
+    **Option A** (proposed):
+    - (i) A two-parent commit is also a step for the hierarchy keys where its state differs from its second parent's, so
+      every key's last step on a side carries that side's final value. As worded, this also re-keys a side's own earlier
+      moves to the merge commit's (hlc, commit id), which changes MR-040's winner against a third branch. A narrower
+      form limits the extra step to keys that a commit of A(p₂) \ A(p₁) moved.
+    - (ii) A revert or a cherry-pick starts from o's (parent, order), dst has no step, and src's one step (C's) leaves
+      out each key that a dst commit after C, by (hlc, commit id), set. `--base` and a virtual base have no proposal
+      yet.
+    - (iii) A move that sets its node's current value is never undone and does not make its key `kleppmann-skipped`.
+
+    **Option B** (in force): RS-007 stands as written, and this point records the cases.
+    Option A changes merge results, so adopting it is an owner decision, to be taken before the engine implements
+    RS-007. If it is adopted, the reference model changes its step lists, its revert and cherry-pick replay and its
+    undo, and the tests that encode the three cases flip.

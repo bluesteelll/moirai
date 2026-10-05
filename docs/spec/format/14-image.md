@@ -194,6 +194,7 @@ nodes/<h1>/<h2>/<uid>.moi                      one node file per live or deleted
 schema/kinds.moi                               project kinds (§7.1)
 schema/fields.moi                              project fields and enumeration values (§7.1)
 schema/edges.moi                               project edge kinds (§7.1)
+schema/policy.moi                              policy-data rows ([F08 §8.5.6]; §7.1)
 schema/queries/<q>.moi                         one file per project named query (§7.2)
 refs/heads.moi  or  refs/tags.moi              checkpoint commits only: the checkpointed ref (§8)
 ```
@@ -356,8 +357,11 @@ pm-block    = 1*( SP SP v-pathmove LF ) %s">>" LF    ; a set of pathmove: one en
   lines up to the first line that is exactly `>>`, removes exactly two leading SP from each and joins them with LF. No line
   of a block equals `>>`, since every inner line begins with two SP. Lines inside a block are byte-exact and are exempt
   from the trailing-whitespace rule ([AR §5b.2] rule 1). A text holds no CR ([F08 §5.3]) and no U+0000.
-- **`pathmove` sets.** One entry per line, sorted by (`hlc`, `from`, `to`, `class`, `git`), which for well-formed values is
-  the bytewise order of the lines ([40 §5.7]: sorted by (hlc, from, to)).
+- **`pathmove` sets.** One entry per line, the lines sorted bytewise, as §5.3 sorts every set by its written form, with
+  no two equal. The `hlc` string has a fixed width, so the entries are in `hlc` order first ([40 §5.7]: sorted by
+  (hlc, from, to)); entries of one `hlc` follow the bytes of the rest of the array, which puts the class before `from`.
+  This is the image's order only: the stored order is [F08 §5.5]'s and the canonical order [F07 §2.4]'s, and the importer
+  re-sorts (§5.3) (spec sync 2b).
 
 ### 5.5 Tokens
 
@@ -456,10 +460,16 @@ edge-line   = %s"edge " iname " -> " uid [ %s" pin=" commit-id ] [ %s" flagged" 
 anchor-line = %s"anchor " uid " -> " uid a-props LF
 conflict-line = %s"conflict " c-key %s" class=" 1*ALPHA %s" base=" [ token ] %s" ours=" [ token ] %s" theirs=" [ token ] LF
 body        = %s"---" LF *( bch / LF ) LF
+
+hkey-line   = hkey ": " *lch LF                     ; the shape of every header line; §9.2 "unknown header key"
+hkey        = LALPHA *( LALPHA / DIGIT / "_" )
 ```
 
-`a-props` is §6.7's, `c-key` §6.8's. The grammar admits every line an exporter writes, in the exporter's order; the rules
-of §6.2–§6.11 say which lines a node file holds and which values they carry. A value that `fval` admits but the field's
+`a-props` is §6.7's, `c-key` §6.8's. A line of the `hkey-line` shape whose `hkey` is none of the header keys (the keys
+of the `h-…` productions above, §6.2) and that no other production of the file takes is an **unknown header key**; every
+other line that no production takes is a line that matches no production (§9.2; spec sync 2b). The grammar admits every
+line an exporter writes, in the exporter's order; the rules of §6.2–§6.11 say which lines a node file holds and which
+values they carry. A value that `fval` admits but the field's
 type does not is `ImageParse` (§9.2): the parse is by type, with the schema of the commit's own tree ([F08 §8.1]).
 
 ### 6.2 Header lines
@@ -486,9 +496,12 @@ type does not is `ImageParse` (§9.2): the parse is by type, with the schema of 
 - A default value is omitted and read back as the default ([F07 §6.3]: "a line whose value is the field's default is
   absent"). *(Informative)* [AR §5b.2]'s example writes `criticality: normal`, the default; the corrected example (§17.1)
   omits it.
-- Derived state (`open_blockers`, `ready`, `suspect`, `is_blocker`, rollups, `conflicted`, `has_dangling`, `container`,
-  `rev_seq`, `claimed`, `settled`, `stale`, the counters of [F08 §3.4]) is never written (I36′, [AR §5b.2] rule 6). There is
-  no `id:` line (N4).
+- Derived state is never written (I36′, [AR §5b.2] rule 6): the derived columns and flags of [F08 §3.2]–§3.4
+  (`open_blockers`, `open_blockers_exo`, the rollups `children_total` and `children_done`, `topo`, `suspect`,
+  `has_dangling`, `container`, `conflicted`) and the read-time states `ready`, `is_blocker`, `rev_seq`, `claimed`,
+  `settled` and `stale`. These fifteen are the **derived-state names**. A `field` line whose name the node's kind does not
+  have is a derived field (a line not allowed, §9.2) when the name is a derived-state name, and an unknown field otherwise
+  (spec sync 2b). There is no `id:` line (N4).
 
 ### 6.3 Provenance lines: `created`, `updated`, `deleted`
 
@@ -561,7 +574,8 @@ is the sum of the signed deltas of its lines, and no `field` line carries it.
 ([F07 §6.6]): `parent` is the hierarchy key (`parent:` line), and `at` edges are `anchor` lines (§6.7).
 
 - `<kind>` is the stored edge-kind name ([F08 §9.6]), never the LQ name. A symmetric edge (`contradicts`, `relates`) is
-  written in the file of the endpoint whose uid is bytewise smaller ([F08 §10.1]).
+  written in the file of the endpoint whose uid is bytewise smaller ([F08 §10.1]); an importer also reads it from the
+  other endpoint's file (§9.1 rule 10).
 - `pin=` carries `pinned_commit` for a kind whose `props` is `pinned`, when the edge has a pin; `flagged` is set on a
   retained `blocks` or `gates` out-edge of a tombstone that was neither re-pointed nor resolved (X4; [AR §5b.2] rule 8).
 - Lines are sorted by (kind name, dst uid, the rest of the line) bytewise ([AR §5b.2] rule 3). An edge with a
@@ -655,14 +669,15 @@ c-key       = %s"field." iname / %s"status" / %s"body" / %s"parent" / %s"existen
 | `parent` | hierarchy | (parent uid, order) | `<uid or ->,<order or ->`, for example `018f…9e09,a0V` or `-,a1` |
 | `body` | body | the body | the JSON string of the body's bytes, always ([AR §5b.2] rule 3) |
 | `edge.<kind>.<dst>` | edge (uid, kind, dst, empty disc) | `present(props)` | `present`, `pin=c<64 hex>` or `flagged` |
-| `edge.at.<dst>.<anchor>` | edge (uid, `at`, dst, anchor uid) | an anchor | the JSON string of the anchor line's properties, `kind=…` through `v=…`, as §6.7 writes them |
-| `observation` | observation (class 5) | the six observation fields ([40 §2.2]) | the JSON string of the side's `field` lines for `path`, `oid`, `bytes`, `observed_git`, `observed_blob` and `relink`, in that order, absent members left out, joined by LF |
+| `edge.at.<dst>.<anchor>` | edge (uid, `at`, dst, anchor uid) | an anchor | the JSON string of the anchor line's properties, `kind=…` through `v=…`, as §6.7 writes them on the line: the texts included exactly where §6.7 writes them (the destination's mode is `full` and the store holds them); the importer verifies them against the digests as on a line and hashes only the selector block |
+| `observation` | observation (class 5) | the six observation fields ([40 §2.2]) | the JSON string of the side's `field` lines for `path`, `oid`, `bytes`, `observed_git`, `observed_blob` and `relink`, in that order, absent members left out, joined by LF; the empty side is the absent composite, since a present one always holds `path` (a live artifact's `path` is required, [F08 §8.6] rule 1) |
 | `existence` | existence | an existence value | the JSON string of §6.8.1's text |
 
 - **Absent** is the empty side: nothing between `=` and the SP that follows, or the end of the line
   (`base= ours=5 theirs=7`). No non-absent side is empty: the empty text and the empty set are absent values (§5.1). A
   side that holds a field's default is absent and written empty ([F07 §6.3]); a `status` side is written by name even at
-  the kind's initial status with resolution `none`, as the `status:` line is (§6.2), and is read as absent.
+  the kind's initial status with resolution `none`, as the `status:` line is (§6.2), and is read as absent. A writer
+  therefore never writes an empty `status` side; an importer reads one as absent (§9.1 rule 7; spec sync 2b).
 - `<class>` is a value-conflict class name of [F12 §6.1] ([F19 §12.1], [F07 §2.2]): `FieldEdit`, `StatusFork`, `TextHunk`,
   `DeleteVsModify`, `SupersedeFork`, `OwnerFieldEdited`, `PathClaim`. Another name, `DATA` included (no store holds that
   class, [F12 §6.1]; pass 1, S1-32, A1-43), is `ImageParse`.
@@ -695,13 +710,19 @@ fval-1      = sval / v-f64 / v-set / v-pathmove     ; single-line forms only: a 
 
 - `live <kind>` carries the side's node image ([F07 §7.4], [F06 §6.3]): its status line (always, with `/<resolution>` when
   not `none`; the initial status with `none` is read as absent, as in §6.2), then its title, header, flag and field keys as `title:` and `field <name>:` lines (the header enumerations and
-  flags by their field names: `field priority: P1`, `field pinned: true`), sorted by field name, then `label` lines, then one
+  flags by their field names: `field priority: P1`, `field pinned: true`), sorted by field name, the `title:` line under
+  the name `title` (`field priority: P1`, `title: …`, `field work_kind: impl`; spec sync 2b), then `label` lines, then one
   `total <field> <value>` line per non-zero counter (the node image holds totals, not ledgers), then the body as
   `body <JSON string of its bytes>`. The image holds no hierarchy or edge key ([F06 §6.3]): a `--take` towards the live
   side restores them from that side's state with ordinary ops ([F12 §6.5]).
 - `deleted <kind>` carries the tombstone's reason and replacement.
 - This settles [RULES/merge-table] open point 5 (d) and [F06] open point 13: a provisionally deleted node is a tombstone
   file carrying its `conflict existence` line, and a provisionally live node is a live file carrying it.
+- **`prov`** ([F07 §7.3], [F12 §6.3]) has no text of its own: the file's form carries it. It names the side, `ours` or
+  `theirs`, whose value has the file's form (`deleted` in a tombstone file, `live` in a live file), and `ours` when both
+  sides or neither have it ([RULES/merge-table] RS-010: "o's values otherwise"). The exporter writes the form of the
+  provisional value (a tombstone file when it is `deleted`, [F12 §6.3]), so the two agree; §12.2 lists this carrier
+  (spec sync 2b).
 
 ### 6.9 The body
 
@@ -782,12 +803,17 @@ entries inside one uid by class code, and an importer that reads a checkpoint in
 The view's schema items ([F08 §8.1]; [F07 §9]) are written; the core schema of schema version 1 is not, since item 7
 identifies it ([F07 §9]). Each item class has its file ([AR §5b.1], [AR §2.12]): kinds in `schema/kinds.moi`, fields and
 enumeration values in `schema/fields.moi` (the "fields with type and lattice order" of [AR §2.12]), edge kinds in
-`schema/edges.moi`. Every value that [F08 §8.5] marks store-local (kind ids, edge ids, enumeration integers) is left out;
-every reference is by name.
+`schema/edges.moi`, policy rows in `schema/policy.moi` ([F08 §8.5.6]; spec sync 2b). Every value that [F08 §8.5]
+marks store-local (kind ids, edge ids, enumeration integers) is left out; every reference is by name.
 
 ```abnf
 schema-file = %s"moirai-schema 1" LF *schema-row
-schema-row  = kind-row / field-row / value-row / edge-row
+schema-row  = kind-row / field-row / value-row / edge-row / policy-row
+
+policy-row  = %s"policy " pname SP token LF   ; token: the row's canonical value ([CFG §4.1]) as a §5.5 token
+pname       = pseg *( "." pseg )             ; a [CFG §10.13] row instance in [CFG §3.3]'s canonical (lower-case)
+                                             ; key-name form: at most 16 segments and 255 bytes
+pseg        = ( LALPHA / DIGIT ) *63( LALPHA / DIGIT / "-" / "_" )
 
 kind-row    = %s"kind " iname
               %s" derivation=" ( %s"random" / %s"file-key" / %s"root-key" )
@@ -836,15 +862,17 @@ kset        = "*" / iname *( "," iname )
 | `field <kind> <field>` | field item | `type` and `elem` by [F08 §5.1]'s names, `text` and `sym` distinct ([F07 §9.3]); `elem` only for `set`; `flags` lists `one_line`, `ascii`; `default=` exactly when `has_default`, as a token of the field's type (§5.5); `min=` and `max=` exactly when `has_range`. A project field always names its kind ([F08 §8.5.2]) |
 | `value <kind or *> <field> <value>` | enumeration-value item | `rank` is `sort_rank`; `flags` lists `side`, `done`; `covers` lists the covered values by name |
 | `edge` | edge-kind item with [50] F1 | `flags` lists `symmetric`, `same_kind`; `src`/`dst` are the `KindSet` (`*` for `any`, else kind names); `reverse` the reverse names; `reading` the reading template as a token |
+| `policy <name> <value>` | policy row ([F08 §8.5.6]; spec sync 2b) | in `schema/policy.moi`; a row equal to its default is never written |
 
 - Every list (`flags`, `covers`, `src`, `dst`, `reverse`) is sorted bytewise and omitted when empty, except `src` and `dst`,
   which are always written (`*` or at least one name).
 - **Order.** `kinds.moi` rows by kind name; `fields.moi` rows by (kind name with `*` first, field name, value name), a field
-  row before the value rows of its field (its value name counts as empty); `edges.moi` rows by edge name.
+  row before the value rows of its field (its value name counts as empty); `edges.moi` rows by edge name; `policy.moi`
+  rows by row name.
 - `retired` marks `iflags.retired` ([F08 §8.1]): a retired item stays in the file.
-- A schema item never holds a conflict value in an exported image: a conflicting change to a kind, field, value or edge
-  kind is the structural `SchemaConflict`, which exists only on staging refs ([RULES/merge-table] MR-055, MR-056). Only
-  named queries carry value conflicts (§7.2.4).
+- A schema item never holds a conflict value in an exported image: a conflicting change to a kind, field, value, edge
+  kind or policy row is the structural `SchemaConflict`, which exists only on staging refs ([RULES/merge-table] MR-055,
+  MR-056). Only named queries carry value conflicts (§7.2.4).
 
 ### 7.2 Named-query files (F3)
 
@@ -894,8 +922,9 @@ query-conflict = %s"conflict definition class=" 1*ALPHA
 - **Consistency.** The text parses with start symbol `define_stmt` ([LQ/grammar-v1.ebnf]); its `qname` has the file's
   name, its `param_decl` list renders to the `params:` value by §7.2.3, its `SHAPE` word equals `shape:` and its `BUDGET`
   word equals `budget:` (compared ASCII-case-insensitively, [LQ/lexical §9]; written as the item stores them). A mismatch is
-  `ImageParse`. When the text has no `SHAPE` or `BUDGET`, the item's stored word ([LQ/std §2.4]: `medium` for the budget;
-  the default shape is [LQ/std]'s, open point 28) is written.
+  `ImageParse`. When the text has no `SHAPE` or `BUDGET`, the item's stored word is written: `table` for the shape
+  ([LQ/std §2.3]) and `medium` for the budget ([LQ/std §2.4]); a `shape:` or `budget:` line with another word is then a
+  mismatch (spec sync 2b).
 - **Portability** ([50 §4.4], S-02). The exporter asserts, and the importer checks, [LQ/lexical §10.2]: the stored normal form,
   and — by **re-binding** the definition against the schema of the commit that carries it, never by a character pattern —
   no node-typed constant other than a `#u:` literal, no revision-typed constant whose base is a sequence number or a commit
@@ -961,8 +990,14 @@ The exporter is the only writer of canonical bytes; the importer accepts a super
    `field` line, and the body is last; the importer re-sorts them;
 6. every [RFC 8259] escape and upper-case `\u` digits in JSON strings (§2.4);
 7. a written default (the initial status, `priority: P2`, a `field` equal to its default) is read as absent
-   ([F07 §6.3], [F07 §14.4] "normalisation");
-8. a live file without `created:` or `updated:` lines (a node file written by hand); the store fills them from history.
+   ([F07 §6.3], [F07 §14.4] "normalisation"), and so is an empty `status` side of a `conflict` line (§6.8);
+8. a live file without `created:` or `updated:` lines (a node file written by hand); the store fills them from history;
+9. the elements of a `v-set` and the entries of a `pathmove` block may come in any order, and the importer re-sorts them
+   (§5.3, §5.4); an element or entry written twice stages `ImageParse` (§9.2);
+10. a symmetric edge line written in the file of its larger endpoint is read as the key of the smaller endpoint
+    ([F07 §6.6], §6.6); written in both endpoints' files it is that one key, and the two lines must carry the same
+    properties (otherwise a line repeated, §9.2). Its state depends on both files, so an importer that parses only the
+    files a commit changes (§11.1) also reads the other endpoint's file for such a line (spec sync 2b).
 
 Nothing else is normalised: identifiers, digests and oids are lower-case only ([F01 §6.4]); a value keeps its bytes.
 
@@ -975,15 +1010,19 @@ An import that meets any of these stages `ImageParse` (code 75, [F19 §12.2]) wi
   differs from its file name; a query file's name does not hash to its file name;
 - a file that is not valid UTF-8 after §9.1, holds U+0000 outside a body or a block, or begins with an unknown magic line or
   version;
-- a line that matches no production of its file; an unknown header key; a required line missing (`uid:`, `kind:`; `title:`
-  of a kind that requires one, [F08 §7.1], and of every tombstone); a line repeated (two lines of one header key, two `field`
-  lines of one field, two `edge` lines of one (kind, dst), two `anchor` lines of one anchor uid, two `conflict` lines of one
-  key, two ledger lines of one (field, token)); a line not allowed in its form (§6.10, §6.11: a `title:` in a live artifact,
-  a counter as a `field` line, a derived field, `flagged` on a live node's edge, an `edge at` line); an ordinary line and a
+- a line that matches no production of its file; an unknown header key (§6.1); a required line missing (`uid:`, `kind:`;
+  `title:` of a kind that requires one, [F08 §7.1], and of every tombstone); a line repeated (two lines of one header key,
+  two `field` lines of one field, two `label` lines of one text, two `edge` lines of one (kind, dst), two `anchor` lines of
+  one anchor uid, two `conflict` lines of one key, two ledger lines of one (field, token), two `policy` rows of one name
+  (§7.1), one entry twice in a `pathmove`
+  block, a symmetric edge in both endpoints' files with different properties, §9.1 rule 10); a line not allowed in its
+  form (§6.10, §6.11: a `title:` in a live artifact, a counter as a `field` line, a derived field (a derived-state name,
+  §6.2), `flagged` on a live node's edge, an `edge at` line); an ordinary line and a
   `conflict` line for one key; a body with a body conflict;
 - an unknown kind, field, enumeration value, edge kind or conflict class for the commit's schema ([F08 §8.1]); a value that
   does not parse by its field's type or breaks the field's constraints ([F08 §5.3], [F08 §8.5.2]: range, one line, the
-  record-list shape of [F08 §5.4.5], the glob grammar of [F08 §5.4.3]); a `path` that breaks I-F8 ([F18 §2.8]); a `relink`
+  record-list shape of [F08 §5.4.5], the glob grammar of [F08 §5.4.3]; a `v-set` that holds one element twice, §9.1
+  rule 9); a `path` that breaks I-F8 ([F18 §2.8]); a `relink`
   outside R-17's grammar ([F18 §5.7]); NaN, an infinity, an out-of-range number (§2.8), a ledger whose sum leaves `i64`;
 - an anchor line whose texts do not match their digests ([40 §5.7]); whose texts are partly present; that lacks the digests
   its kind requires or breaks I-F9; with `end_h` on a kind other than `range`; with non-canonical base64url (§2.6); with a
@@ -1207,10 +1246,18 @@ not a trailer, makes the commit foreign ("unknown trailer", [AR §5b.6] step 3).
 but `Moirai-Ref` required; a missing required trailer makes the commit foreign. A malformed value, a repeat or an inconsistency
 listed in §9.2 stages `ImageParse`. The trailers may come in any order.
 
-A native candidate whose recomputed id (§11) differs from `Moirai-Commit`, or whose message part fails [F07 §5.1] step 1, is
-**demoted**: it alone becomes a foreign commit with [F07 §12.3]'s id, `verified = 0`, and the whole git message as its
-message ([F07 §12.5]); its children still verify against the ids their trailers state. A foreign commit with more than two
-parents stages `ImageParse` ([F07 §12.3]).
+A native candidate whose `Moirai-Ops` differs from the number of item-10 entries the importer counts ([F07 §10.4]; it is
+demoted without hashing, §12.1), whose recomputed id (§11) differs from `Moirai-Commit`, or whose message part fails
+[F07 §5.1] step 1, is **demoted**: it alone becomes a foreign commit with [F07 §12.3]'s id, `verified = 0`, and the whole
+git message as its message ([F07 §12.5]); its children still verify against the ids their trailers state. A foreign commit
+with more than two parents stages `ImageParse` ([F07 §12.3]).
+
+A verified native candidate whose `Moirai-Commit` names a commit the store already holds is a **twin**: nothing is
+appended ([F07 §12.2] imports only a commit the store does not hold), and its children's stated ids name the held commit
+as usual. `gitmap` holds one git id per commit and destination ([F10 §7.3]): when the held commit has none in this
+destination, the twin's git id is mapped to it; when it already has one (a hand-written twin of a commit exported or
+imported there), the first mapping stays, the twin stays unmapped, and `image doctor` reports it. An unmapped twin is
+classified again by each import that meets it, with the same outcome (spec sync 2b).
 
 ## 11. Reconstruction
 
@@ -1245,7 +1292,7 @@ For each node path whose blob differs between the first parent's tree and the co
 | tombstone | live | `live(kind)` (undeleted) | each restored value key | `Undelete` with its image |
 | tombstone | tombstone | changed when `kind:`, the reason or the replacement differ | changed retained edges, a changed `conflict` line | edge ops, `Conflict`, `Resolve` |
 | absent | tombstone | `deleted(kind, reason, replaced_by)` from the absent state | `title`; the retained out-edges | `CreateDeleted` ([F06 §7.4], NF-11) with the kind, reason, replacement, the creator by [F06 §7.4]'s rule, and the retained title as its image; the retained out-edges as `AddEdge` ops (pass 1, S1-6, A1-4) |
-| live | absent | foreign only: `deleted(kind, "image:file-removed", none)` | as live → tombstone; the title and the retained out-edges come from the first parent's file by each edge kind's `on_src` policy ([F08 §8.4.6]): `repoint-or-flag` edges stay with `flagged` (there is no replacement), `retain`, `retain-warn`, `retain-anchors` and `recompute` edges stay, the others become absent — so a hand-deleted blocker never unblocks silently (X4) | foreign `Delete{image:file-removed}`; a re-export writes the tombstone file ([AR §5b.6] step 2) |
+| live | absent | foreign only: `deleted(kind, "image:file-removed", none)` | as live → tombstone; the title and the retained out-edges come from the first parent's file by each edge kind's `on_src` policy under its default policy ([F08 §8.4.6]; never the store's `edges.<kind>.on-src-deleted`, so every importer computes the same entries): a `repoint-or-flag` edge (there is no replacement) stays with `flagged` when the source was an open blocker in the first parent's state (an unfinished `blocks` source, a gating `gates` verdict) and becomes absent otherwise; `retain`, `retain-warn`, `retain-anchors` and `recompute` edges stay; the others become absent — so a hand-deleted blocker never unblocks silently (X4; spec sync 2b) | foreign `Delete{image:file-removed}`; a re-export writes the tombstone file ([AR §5b.6] step 2) |
 | tombstone | absent | foreign only: none | none | `TombstoneRemoved`: a hint when nothing references the node, a violation when something does ([F19 §12.2]) |
 
 - An exporter never removes a node file, so the last two rows arise only from foreign commits; a native commit whose tree
@@ -1297,13 +1344,13 @@ from these carriers and nothing else (CB1, I38′, [AR §5b.4]). This section co
 | 10 `changeset_digest` | §12.2 over the diff of the commit's tree against its first git parent's tree (the empty tree for none) | 0–1 parents: as native; 2 parents: the typed merge (§11.2) | §12.2 over the diff against the git parent's tree |
 
 `Moirai-Ops` carries [F07 §10.4]'s entry count as a pre-check: an importer that counts another number demotes without
-hashing.
+hashing (§10.9).
 
 ### 12.2 Item 10 by key class
 
 | Key class ([F07 §6.1]) | Tree path | Carrier ([F14] section) | Value the importer reads |
 |---|---|---|---|
-| 1 existence | `nodes/<h1>/<h2>/<uid>.moi` | the file's presence and form; `kind:`; in a tombstone `field reason:` and `field replaced_by:` (§6.10) | absent; `live(kind)`; `deleted(kind, reason, replaced_by)`; transitions §11.2 |
+| 1 existence | `nodes/<h1>/<h2>/<uid>.moi` | the file's presence and form; `kind:`; in a tombstone `field reason:` and `field replaced_by:` (§6.10); with a `conflict existence` line, the form also carries `prov` (§6.8.1) | absent; `live(kind)`; `deleted(kind, reason, replaced_by)`; transitions §11.2; an existence conflict's `prov`: the side whose value has the file's form, else `ours` |
 | 2 status | same | `status:`, `resolution:` (§6.2) | (status, resolution); the initial status with `none` is absent |
 | 3 hierarchy | same | `parent:`, `order:` | (parent uid, order); both missing is absent |
 | 4 field: title | same | `title:` (live, not `title_derived`; every tombstone) | the text |
@@ -1318,6 +1365,7 @@ hashing.
 | 8 body | same | the `---` section (§6.9) | BLAKE3-128 of the decoded bytes; no section is absent |
 | conflict values | same | `conflict` lines (§6.8), sides by key | `{class, base, ours, theirs}`; a body side is hashed from its text; a `live` existence side carries its node image |
 | schema: kind, field, enumeration value, edge kind | `schema/kinds.moi`, `schema/fields.moi`, `schema/edges.moi` | one row per item (§7.1) | the item of [F07 §9.2]–§9.5, references by name |
+| schema: policy row ([F08 §8.5.6]; spec sync 2b) | `schema/policy.moi` | one `policy` row per item (§7.1) | the item of [F07 §9.7] |
 | schema: named query | `schema/queries/<q>.moi` | `name:` (the key), `lq:`, `params:`, `shape:`, `budget:`, the text (§7.2) | the item of [F07 §9.6]; a `conflict definition` line gives its conflict value |
 
 ### 12.3 R4 and R5 items
@@ -1387,6 +1435,7 @@ stream, `changeset_digest` and `commit_id`. The set keeps every row of [F07 §14
 | foreign | no trailer; a one-parent hand edit (a CR LF file, reordered lines, a ledger line with a non-commit token, a removed node file); a two-parent case whose item 10 comes from the typed merge |
 | import-checkpoint | kind `checkpoint`, a previous checkpoint as parent, and a first checkpoint with no parent; `Moirai-Folded` with n ≥ 1 and with n = 0 (+) |
 | + re-exports | a foreign commit and an import-checkpoint commit re-exported natively with `Moirai-Foreign-Git`; a child of a demoted parent re-exported with `Moirai-Parent` |
+| + demotion | a native candidate whose rebuilt id differs from `Moirai-Commit`; a native candidate whose `Moirai-Ops` differs from the counted entries while its rebuilt id equals `Moirai-Commit`, demoted without hashing (§10.9, §12.1; spec sync 2b) |
 | anchors | an `at` edge with a `range` anchor (S-04) and a `quote` anchor with an empty prefix, exported in `full` and in `hash-only` mode: the same `commit_id`; + a `symbol` anchor with a scope and an `occurrence`, a `lines` anchor with a window, an anchor with `pred` and `marker`, an anchor text that is not UTF-8 |
 | tombstones | a delete with flagged and historical retained edges; an undelete; a tombstone landed from the absent state; + a tombstone carrying a `conflict existence` line |
 | normalisation | messages of [F07 §5.4]; a default written explicitly in the image (the default priority, the initial status) giving the same id as the line left out |
@@ -1536,7 +1585,7 @@ and values of §11.1); each negative fixture is named for the `ImageParse` rule 
 | bodies | no body; a body without final LF; with one final LF; with three; with an inner `---` line; with trailing double SP; with U+0000 |
 | tombstones | with flagged and historical edges and anchors; an artifact tombstone with its last path as title; with `replaced_by`; without reason |
 | R4 | a file node with every field; a `removed` file node; a `planned` file node; a root node with `path_moves` |
-| schema | `kinds.moi`, `fields.moi` with field rows (defaults and ranges) and value rows (covers, `*` kind), `edges.moi` with a reading that needs JSON |
+| schema | `kinds.moi`, `fields.moi` with field rows (defaults and ranges) and value rows (covers, `*` kind), `edges.moi` with a reading that needs JSON, `policy.moi` with a row of a parameterised name (`policy.role.<role>.mcp-write` for one role) and a row with a list value (`policy.role.developer.fields`) |
 | queries | a query file with parameters, one without, one with a string default holding HT (JSON `params:`), a conflicted definition with an absent side |
 | side refs and rows | `.moirai-image` in both object formats, `meta.moi`, `aliases/<h1>.moi`, `ops.moi`, `refs/heads.moi`, `refs/tags.moi` |
 | superset inputs | a BOM, CR LF, trailing SP, reordered lines, `\u` and `\/` escapes, a default written explicitly, a live file without provenance lines |
@@ -1883,8 +1932,9 @@ the quote and context lengths ([F20 §6.1]); the codec holes of [F10] never reac
 28. **Named-query files** (§7.2): the stored text is the whole `define_stmt` ([LQ/lexical §10.2], [LQ/canonical-ast §8.1]),
     so `name:`, `params:`, `shape:` and `budget:` are hashed copies the importer checks against it; `params:` is omitted for
     a query without parameters (refining [50 §4.4]'s sketch, which would leave a trailing SP); the name's bytes are its
-    canonical `qname` spelling, which [LQ] and [F08] should confirm; a `q` collision is refused at `DEFINE`; [LQ/std] should
-    state the default shape of a definition without `SHAPE`.
+    canonical `qname` spelling, which [LQ] and [F08] should confirm; a `q` collision is refused at `DEFINE`. A definition
+    without `SHAPE` stores `table` ([LQ/std §2.3]; spec sync 2b), the one shape that renders every projection
+    ([LQ/envelope §5.1]), and one without `BUDGET` stores `medium`.
 29. **Schema tables** (§7.1): enumeration values live in `fields.moi` ("fields with type and lattice order", [AR §2.12]); only
     the view's project items are exported; list-valued properties are comma-separated without SP so that rows stay one
     token per property.
@@ -1938,3 +1988,18 @@ the quote and context lengths ([F20 §6.1]); the codec holes of [F10] never reac
 50. **The foreign file removal keeps X4** (§11.2): a git-side deletion of a live node file becomes a tombstone whose
     retained out-edges follow the edge kinds' `on_src` policies, a blocker's `blocks` edges flagged. [AR §5b.6] step 2 names
     the op but not its retained edges; without this rule a hand deletion of a blocker would unblock its dependents silently.
+51. **Spec sync 2b** (WP-21 carrier and `moi/` findings M-1 to M-9 and C-2 to C-4; WP-95 decoders and conformance).
+    The `pathmove` block is sorted by its lines' bytes, as every set is (§5.4). A header-key production separates an
+    unknown header key from a line with no production (§6.1). The fifteen derived-state names are listed, so a derived
+    field (a line not allowed) and an unknown field differ by name (§6.2); the alternative, the core fields of merge class
+    `derived`, names no field and would leave `neg/line-not-allowed--derived-field` without a rule. An empty `status` side
+    is read as absent (§6.8, §9.1 rule 7). `edge.at` sides carry the texts as the line does; an empty observation side
+    is the absent composite (§6.8). `title:` sorts among the snapshot's field lines; the file's form carries an existence
+    conflict's `prov` (§6.8.1, §12.2). A definition without `SHAPE` stores `table` (§7.2.2, [LQ/std §2.3]). Set and
+    `pathmove` elements are re-sorted and a repeat stages `ImageParse`; a symmetric edge is read from either endpoint's
+    file (§9.1 rules 9–10, §9.2). The `Moirai-Ops` demotion is in §10.9 with a carrier case (§12.6), and a native twin of
+    a held commit appends nothing (§10.9). A foreign file removal applies `repoint-or-flag`'s default policy, never the
+    store's configured one (§11.2). After the independent check of the sync: `pname` is [CFG §3.3]'s key name in its
+    canonical form (lower-case segments that start with a letter or digit, at most 16 segments and 255 bytes), the form
+    [F12 §6.6]'s `policy-name` and [F08 §8.2] use, instead of a production that allowed a trailing or repeated dot; the
+    `policy.moi` rows join §7.1's file list, its conflict bullet, §9.2's repeated lines and §16's catalogue.

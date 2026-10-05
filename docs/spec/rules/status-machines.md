@@ -144,7 +144,7 @@ lists what the door itself checks before any guard; its tokens are defined in th
 <!-- table: doors -->
 | row | door | requires | basis | source | note |
 |---|---|---|---|---|---|
-| DR-001 | set-status | target-live | design | [50 §3.10] item 6; [AR §7.1] | `SET x.status = 's'` and `SET x.done = true` in a `TX` (also inside `apply` and MCP `write`), and the verbs that expand to them: `set ID --status S`, `set ID --done`, `answer Q`, `lane close`, `lane freeze`, `run close`. |
+| DR-001 | set-status | target-live | design | [50 §3.10] item 6; [AR §7.1] | `SET x.status = 's'` and `SET x.done = true` in a `TX` (also inside `apply` and MCP `write`), and the verbs that expand to them: `set ID --status S`, `set ID --done`, `answer Q`, `run close`. `lane close` and `lane freeze` are DR-013's (spec sync 2b). |
 | DR-002 | tx-complete | task-lease | design | [AR §6.2]; [50 §4.2] | `CALL tx.complete(...)`, `complete ID --lease L`, MCP `complete`, and the complete records of `apply`. `task-lease`: a presented task lease on the target with its current fencing token (I17′), on the lease's branch. Releases the lease into `settled` (CO rows). |
 | DR-003 | claim-start | task-lease | design | [AR §6.2] | `claim ID --start` (and `tx.claim` with start): the new lease is the presented lease; the claim's own precondition, `ready` on the claimer's branch, is [RULES/state-definition]'s. |
 | DR-004 | lease-first-write | task-lease | design | [AR §6.2] | The first `set` of the leased task that presents its lease while the task is `open` also writes `open → in_progress`, in the same commit ("otherwise the first `set`/`complete` under the lease performs it"). |
@@ -156,6 +156,7 @@ lists what the door itself checks before any guard; its tokens are defined in th
 | DR-010 | links-fix | - | design | [40 §3.7]; [40 §6.3] | `links fix ID --drop`, `--same-as ID`, `--split` (to `removed`); `--restore` (to `present`); and the MCP `write` named mutation behind `links fix`. Records a decision, so it works from any eligible tree. |
 | DR-011 | deletion-inference | writer-tree | design | [40 §2.10] I-F7; [AR §13] `files.deletion-inference` | Only when `files.deletion-inference = main-tree-commits`: a settle on the main tree that sees a deletion commit records `removed`. |
 | DR-012 | delete-policy | - | design | [AR §3.3] `answers` row | A policy op that a node `Delete` writes in its own commit ([RULES/delete-policy-matrix] EG-022). |
+| DR-013 | lane-close | lane-verb | proposed | [AR §5a.9] `lane close`, `lane freeze`; [AR §7.6] step 8; [API §11.5] `LaneClose`; [OP-8] | `lane close NAME` and `lane freeze NAME` (API `LaneClose`, `mode` `close` or `freeze`), from every non-side lane state, `active` included ([AR §7.6] step 8 closes a lane that is still `active`). `lane-verb`: the verb picks the target itself — for `close`, `merged` when tip(`main`) contains tip(`lane/<name>`) (`main` has absorbed the lane), `abandoned` otherwise; for `freeze`, `frozen` (spec sync 2b). |
 
 ## 6. Transitions
 
@@ -219,13 +220,14 @@ lists what the door itself checks before any guard; its tokens are defined in th
 | TR-052 | artifact | `planned` | `removed` | links-fix | to-side | proposed | [40 §3.7]; [OP-7] | `--drop` of a planned link. |
 | TR-053 | artifact | `present` | `removed` | deletion-inference | to-side | design | [40 §2.10] I-F7 | - |
 | TR-054 | artifact | `removed` | `present` | links-fix | from-side | design | [40 §3.7] `--restore`; [40 §2.10] I-F14 | One of the two explicit doors that may bring a removed file node back. |
+| TR-081 | artifact | `present` | `removed` | settle | to-side | derived | [RULES/link-merge-rules] LV-005; [40 §2.3] "The residual case"; [40 §5.5] | A settle in a writer tree fresh for both claimants unifies a `PathClaim` by an exact rename inside one commit: the claimant whose alias is the rename's source becomes `removed{reason: same-as}` (the automatic form of `links fix --same-as`, which [F18 §2.7] I-F7 does not list; open point 26). |
 | TR-055 | run | `running` | `green` | set-status | up | design | [AR §3.6]; [AR §3.4] I14 | Guard TG-008. |
 | TR-056 | run | `running` | `red` | set-status | up | design | [AR §3.6] | - |
 | TR-057 | run | `running` | `stopped` | set-status | up | design | [AR §3.6] | - |
 | TR-058 | run | `running` | `died` | set-status | up | design | [AR §3.6] | - |
 | TR-059 | lane | `active` | `ready_to_merge` | set-status | up | design | [AR §3.6] | - |
 | TR-060 | lane | `ready_to_merge` | `merge_pending` | set-status | up | design | [AR §3.6] | - |
-| TR-061 | lane | `merge_pending` | `merged` | set-status | up | design | [AR §3.6]; [AR §5a.9] `lane close` | What `lane close` writes is [OP-8]. |
+| TR-061 | lane | `merge_pending` | `merged` | set-status | up | design | [AR §3.6]; [AR §5a.9] `lane close` | A direct status write; `lane close` itself goes through the door `lane-close` (DR-013, TR-072 to TR-080; [OP-8]). |
 | TR-062 | lane | `active` | `frozen` | set-status | to-side | derived | [AR §3.6]; [AR §5a.9] `lane freeze` | - |
 | TR-063 | lane | `ready_to_merge` | `frozen` | set-status | to-side | proposed | [AR §3.6]; [OP-8] | - |
 | TR-064 | lane | `merge_pending` | `frozen` | set-status | to-side | proposed | [AR §3.6]; [OP-8] | - |
@@ -235,6 +237,15 @@ lists what the door itself checks before any guard; its tokens are defined in th
 | TR-068 | lane | `active` | `measuring` | set-status | to-side | derived | [AR §3.6]; [AR §6.6] | - |
 | TR-069 | lane | `measuring` | `active` | set-status | from-side | proposed | [AR §6.6]; [OP-8] | Ends the measuring window; without it quiet mode could never end for that lane. |
 | TR-070 | lane | `frozen` | `active` | set-status | from-side | proposed | [OP-8] | Unfreeze. |
+| TR-072 | lane | `active` | `merged` | lane-close | up | proposed | [AR §7.6] step 8; [API §11.5]; [OP-8] | `lane close` of a lane `main` has absorbed while its status is still `active` (DR-013). |
+| TR-073 | lane | `ready_to_merge` | `merged` | lane-close | up | proposed | [AR §5a.9] `lane close`; [API §11.5]; [OP-8] | As TR-072. |
+| TR-074 | lane | `merge_pending` | `merged` | lane-close | up | derived | [AR §5a.9] `lane close`; [API §11.5]; [OP-8] | TR-061's transition through the verb: `lane close` after the lane's merge into `main`. |
+| TR-075 | lane | `active` | `abandoned` | lane-close | to-side | derived | [AR §5a.9] `lane close`; [API §11.5]; [OP-8] | `lane close` of a lane `main` has not absorbed; TR-065's transition through the verb. |
+| TR-076 | lane | `ready_to_merge` | `abandoned` | lane-close | to-side | proposed | [AR §5a.9] `lane close`; [API §11.5]; [OP-8] | As TR-075. |
+| TR-077 | lane | `merge_pending` | `abandoned` | lane-close | to-side | proposed | [AR §5a.9] `lane close`; [API §11.5]; [OP-8] | As TR-075. |
+| TR-078 | lane | `active` | `frozen` | lane-close | to-side | derived | [AR §5a.9] `lane freeze`; [API §11.5]; [OP-8] | `lane freeze`; TR-062's transition through the verb. |
+| TR-079 | lane | `ready_to_merge` | `frozen` | lane-close | to-side | proposed | [AR §5a.9] `lane freeze`; [API §11.5]; [OP-8] | As TR-078. |
+| TR-080 | lane | `merge_pending` | `frozen` | lane-close | to-side | proposed | [AR §5a.9] `lane freeze`; [API §11.5]; [OP-8] | As TR-078. |
 | TR-071 | area | `active` | `archived` | set-status | to-side | design | [AR §3.2] | Root nodes of R4 are never archived by a verb ([40 §2.4]); the row applies to scope areas. |
 
 ## 7. Guards
@@ -277,7 +288,7 @@ load that every row id cited here exists.
 <!-- table: door-roles -->
 | row | door | realized_by | basis | source | note |
 |---|---|---|---|---|---|
-| DG-001 | set-status | WS-001, WS-002, WS-007, WS-008, WS-009, WS-010, WV-018, WV-004, WV-023 | design | [AR §7.3]; [50 §6.5]; [RULES/role-write-policy] `role-status` | Orchestrator and owner: every transition (WS-001, WS-002); critics and reviewers: `open → withdrawn` on findings of their own role; refuters: `open → confirmed` or `refuted`. `answer` is the owner's (WV-018); `lane close` and `lane freeze` (WV-004) and `run close` (WV-023) are the orchestrator's and owner's. The architect changes no status ([RULES/role-write-policy] OP-24). |
+| DG-001 | set-status | WS-001, WS-002, WS-007, WS-008, WS-009, WS-010, WV-018, WV-023 | design | [AR §7.3]; [50 §6.5]; [RULES/role-write-policy] `role-status` | Orchestrator and owner: every transition (WS-001, WS-002); critics and reviewers: `open → withdrawn` on findings of their own role; refuters: `open → confirmed` or `refuted`. `answer` is the owner's (WV-018); `run close` (WV-023) is the orchestrator's and owner's; `lane close` and `lane freeze` are DG-013's (spec sync 2b). The architect changes no status ([RULES/role-write-policy] OP-24). |
 | DG-002 | tx-complete | WS-004, WS-006, WX-008, WM-009 | design | [AR §6.2]; [50 §6.5] | Developer and tester on their leased task, orchestrator and owner on any; the lease presented must be the task's live lease. |
 | DG-003 | claim-start | WS-003, WS-005, WM-001, WM-002 | design | [AR §6.2]; [90 §4.3] | Self-claim roles on their own claim; the orchestrator's bulk claims. |
 | DG-004 | lease-first-write | WS-003, WF-007 | design | [AR §6.2] | The first `set` of the leased task under its lease; WS-003's note covers the implicit start. |
@@ -289,6 +300,7 @@ load that every row id cited here exists.
 | DG-010 | links-fix | WV-037 | design | [AR §7.3] R4 rows; [40 §6.3] | Orchestrator, owner, developer, tester, and the architect on doc files only. |
 | DG-011 | deletion-inference | WV-036, WR-013 | design | [40 §2.10] I-F7; [AR §13] `files.deletion-inference` | Part of a settle. |
 | DG-012 | delete-policy | WV-016, WX-001 | design | [AR §7.3] "Node `DELETE` … orchestrator/owner only"; [RULES/delete-policy-matrix DP-001] | The policy op belongs to the node delete that writes it. |
+| DG-013 | lane-close | WV-004, WS-001, WS-002 | design | [AR §7.3]; [RULES/role-write-policy] `role-verbs` | `lane close` and `lane freeze` are the orchestrator's and owner's (WV-004), whose `role-status` rows allow every transition through any door (spec sync 2b). |
 
 ## 9. Views that accept status writes
 
@@ -359,7 +371,7 @@ node's `at` in-edges); `store`.
 <!-- table: general-rules -->
 | row | rule | applies_to | refusal | exit | basis | source | note |
 |---|---|---|---|---|---|---|---|
-| GR-001 | no-transition | status-write | E404 | 6 | design | [AR §3.4] I8; [50 §3.10] item 5 | A status write whose (kind, from, to, door) matches no `transitions` row is refused; the message names the door that exists, for example `REOPEN` for `done → open`. |
+| GR-001 | no-transition | status-write | E404 | 6 | design | [AR §3.4] I8; [50 §3.10] item 5 | A status write on a core kind whose (kind, from, to, door) matches no `transitions` row is refused; the message names the door that exists, for example `REOPEN` for `done → open`. A project kind has no `transitions` rows; GR-018 decides its status writes (spec sync 2b). |
 | GR-002 | role-policy | status-write | E406 | 6 | design | [AR §7.3]; [50 §6.5]; [RULES/role-write-policy WR-009] | Whether the caller's effective role may make the transition is decided by [RULES/role-write-policy] (`door-roles` names the rows). A role row is usable only through a door that `transitions` lists for the transition. |
 | GR-005 | target-live | status-write | not_found | 3 | design | [AR §7.1] exit 3; [F19 §10.2] `not_found`; [API §9.1] | A status write on a deleted or absent node is "not found": [F19 §10.2] `not_found` with `what` = `node`, and the tombstone is printed ([RULES/delete-policy-matrix] DP-003). |
 | GR-006 | create-status | create | E404 | 6 | proposed | [50 §3.10] item 6; [OP-17] | A `Create` takes an initial status. A `Create` that names another status is checked as a path of `transitions` rows from an initial status to it, every step with its guards and a role grant; `CREATE (x:artifact …)` stays E115 ([50 §3.10]). |
@@ -370,24 +382,28 @@ node's `at` in-edges); `store`.
 | GR-011 | reopen-count | reopen | - | - | design | [AR §3.6]; [50 §3.10] item 6 | `REOPEN` on a task also writes `Incr(reopen_count, 1)` in the same statement. |
 | GR-012 | artifact-set | set-status | E115 | 2 | design | [50 §3.10] item 6; [40 §2.2] | `SET` of an artifact's status is E115 naming `moirai file rm` or `links fix --drop`; an artifact's status changes only through the doors `settle`, `file-rm`, `links-fix` and `deletion-inference`. |
 | GR-013 | derived-set | set-status | E115 | 2 | design | [AR §3.4] I8; [50 §5.2] E115 | `blocked`, `ready`, `unblocked`, `stale`, `claimed`, `container`, `answered`, `conflicted` and `suspect` are never written. |
-| GR-014 | resolution | status-write | E404 | 6 | proposed | [AR §3.1]; [RULES/merge-table] OP-3; [OP-18] | `resolution` may be written only with a transition into a status whose `done` is `yes` (task) or out of `open` (finding); a transition to `open` clears it. |
+| GR-014 | resolution | status-write | E404 | 6 | proposed | [AR §3.1]; [RULES/merge-table] OP-3; [OP-18] | `resolution` may be written only with a transition into a status whose `done` is `yes` (task) or out of `open` (finding); a transition to `open` clears it. A task transition into `done` that names no resolution writes `completed`, whatever the door: `set --done`, `SET t.done = true`, `SET t.status = 'done'` and `complete` for outcome `done` (CO-001) alike; any other transition that names none writes `none` (spec sync 2b). |
 | GR-015 | affected | status-write | - | - | design | [AR §3.4] I42′; [50 §8.1] F15 | Every `derived-effects` subject whose predicate value changed is in the commit's `affected` list, or the commit carries `affected_complete = 0`. |
 | GR-016 | phase-state | set-field | - | - | proposed | [AR §3.6]; [OP-19] | `phase_state` is an ordinary field under the role policy; no transition table applies. |
 | GR-017 | lattice-check | load | - | - | derived | [RULES/merge-table] SL rows; [AR §3.2]; [AR §3.6] | At load the model checks that the `statuses` rows equal the SL rows kind by kind, and that the transitive closure of the `transitions` rows with `move = up` equals the SL order. |
+| GR-018 | project-kind | status-write | - | - | proposed | [F08 §8.5.1]; [AR §3.6]; [OP-25] | A node of a project kind ([F08 §8.5.1]) may move from any of its kind's statuses to any other through the door `set-status`, unguarded: the schema gives a project kind statuses, not transitions, so no `transitions`, `transition-guards` or `derived-effects` row applies. The value must be one of the kind's non-retired statuses ([F08 §8.6] item 1); the role policy decides who (WS rows with kind `*`), and `branch-mask` where (spec sync 2b). |
 
 ## Coverage
 
 These tables specify semantics, not bytes. The byte layouts they rely on are [F08]'s (`NodeHdr.status`, the status
 and resolution codes, `CREATOR`), [F06]'s (`SetStatus`, `Incr`) and [F19]'s (E115, E305, E404, E406, `not_found`).
 
+Model functions are named as `COVERAGE.md` names them (`xtask coverage` resolves them so): the module of the source
+file in `crates/moirai-model/src/`, then the function (spec sync 2b).
+
 | Checklist row | Covered by | Fixture | Model function |
 |---|---|---|---|
-| [60 §2.5] "Schema as data": each kind's status set (the field's lattice values) and its initial values | `statuses`, `status-fields`, GR-017 | WP-94 suite `status-machines` | `model::status::statuses` |
-| [40 §2.11] R-2: status values `planned`, `removed` | ST-039 to ST-041, TR-049 to TR-054 | WP-94 suite `status-machines` | `model::status::transition` |
-| [40 §2.11] R-12: I-F7 (`removed` never inferred) and I-F14 (only explicit doors bring a node back), status part | TR-050 to TR-054, DR-009 to DR-011 | WP-94; FL-3 at M2 | `model::status::transition` |
-| [90 §10.1] `LEASES.kind` and `role`: rights come from the presented lease | delegated: `door-roles`, GR-002, and [RULES/role-write-policy] | WP-94 | `model::policy::may_transition` |
-| [50 §8.1] F15: derived-predicate changes reach `affected` | `derived-effects`, GR-015 | WP-94 | `model::derived::affected` |
-| [AR §3.4] I8, I13, I14, I33′ | GR-001, GR-008, GD-005, GD-006, BM-002 | WP-94 | `model::status::transition` |
+| [60 §2.5] "Schema as data": each kind's status set (the field's lattice values) and its initial values | `statuses`, `status-fields`, GR-017 | WP-94 suite `status-machines` | `status::statuses` |
+| [40 §2.11] R-2: status values `planned`, `removed` | ST-039 to ST-041, TR-049 to TR-054, TR-081 | WP-94 suite `status-machines` | `status::transition` |
+| [40 §2.11] R-12: I-F7 (`removed` never inferred) and I-F14 (only explicit doors bring a node back), status part | TR-050 to TR-054, TR-081, DR-009 to DR-011 | WP-94; FL-3 at M2 | `status::transition` |
+| [90 §10.1] `LEASES.kind` and `role`: rights come from the presented lease | delegated: `door-roles`, GR-002, and [RULES/role-write-policy] | WP-94 | `policy::status` |
+| [50 §8.1] F15: derived-predicate changes reach `affected` | `derived-effects`, GR-015 | WP-94 | `derived::affected`, `derived::affected_with_budget` |
+| [AR §3.4] I8, I13, I14, I33′ | GR-001, GR-008, GD-005, GD-006, BM-002 | WP-94 | `status::transition`, `status::i8_status_machine`, `status::gd005_i13_review`, `status::gd006_i14_artifacts`, `status::branch_mask` |
 
 No X-F row concerns status machines.
 
@@ -428,10 +444,15 @@ None. No transition, guard or grant depends on a value an M0 measurement decides
    is the only non-final state.
 7. **`artifact planned → removed`** (TR-052). `links fix --drop` of a planned link is not described in [40 §3.7];
    proposed so that a planned file that will never exist can be dropped.
-8. **Lane side states** (TR-061 to TR-070). [AR §3.6] lists `frozen`, `abandoned` and `measuring` without sources or
-   exits. Proposed: `frozen` and `abandoned` from each forward state except `merged`; `measuring` only from `active` and
-   back to `active`; `frozen` back to `active`. `lane close` is read as `merged` after the lane's merge into `main` and
-   `abandoned` otherwise; WP-25 (Store API) fixes the verb's expansion.
+8. **Lane side states** (TR-061 to TR-080, DR-013). [AR §3.6] lists `frozen`, `abandoned` and `measuring` without
+   sources or exits. Proposed: `frozen` and `abandoned` from each forward state except `merged`; `measuring` only from
+   `active` and back to `active`; `frozen` back to `active`. `lane close` is read as `merged` after the lane's merge
+   into `main` and `abandoned` otherwise; WP-25 (Store API) fixes the verb's expansion. **Spec sync 2b** (GT10 finding
+   F-7): `LaneClose` ([API §11.5]) closes a lane that is still `active` ([AR §7.6] step 8), while only
+   `merge_pending → merged` was a transition, so `lane close` and `lane freeze` now have their own door `lane-close`
+   (DR-013, DG-013) with transitions from every non-side state to `merged` (when `main` has absorbed the lane's tip),
+   `abandoned` and `frozen` (TR-072 to TR-080). A `frozen` or `measuring` lane is first returned to `active` (TR-069,
+   TR-070). The `set-status` rows TR-061 to TR-067 stay for direct status writes.
 9. **Where a retraction's reason lives** (DR-007). `retract ID --reason T` needs a carrier: a field, or the commit
    message. [F08] and WP-19 decide; the door only requires that it is non-empty.
 10. **"While any child is open"** (GD-001, TR-008, TR-011). Read as "unfinished", so an `in_progress`, `deferred` or
@@ -468,7 +489,9 @@ None. No transition, guard or grant depends on a value an M0 measurement decides
 17. **Creating a node in a non-initial status** (GR-006). Proposed: allowed as a checked path of transitions, so
     `remember` can create an accepted decision only for a role that may accept it.
 18. **Resolution** (GR-014). The design lists the resolution values but not which statuses carry them. Proposed as in
-    GR-014; together with [RULES/merge-table] OP-3.
+    GR-014; together with [RULES/merge-table] OP-3. Spec sync 2b (GT10 gap G-4): a task that reaches `done` by
+    `set --done` or `SET`, not `complete`, gets resolution `completed` unless the write names one, as `complete` does for
+    outcome `done` ([API §10.5] step 1), so the resolution does not depend on the door.
 19. **`phase_state`** (SF-006, GR-016). "The 14 states of [01 §5.1]" do not match that report's diagram, which draws
     more nodes; the value set is [F08]'s. The design says it is "advanced by verdicts" without saying which write does
     it; no machine is imposed until the owner states one.
@@ -488,3 +511,14 @@ None. No transition, guard or grant depends on a value an M0 measurement decides
 24. **Header flags `frozen` and `archived`.** [AR §3.1] has flag bits of those names beside the statuses `frozen` and
     `archived`, and [RULES/merge-table] FC-013 and FC-014 treat them as source-truth flags. This file governs the
     `status` column only; whether the flags mirror the statuses or are separate facts is [F08]'s.
+25. **Status writes on project kinds** (GR-001, GR-018; spec sync 2b, WP-90a). A project kind ([F08 §8.5.1]) has
+    statuses in the schema but no `transitions` rows, so GR-001 read alone refused every status change on it. Proposed
+    (GR-018): any status of the kind to any other through `set-status`, with no guard, the role policy and
+    `branch-mask` applying as to a core kind. The alternative, transitions as schema data, needs a schema item class
+    [F08] does not have; the review decides whether a project needs it. A project kind's initial status is
+    [F08 §8.5.1]'s: its non-retired status with the least `sort_rank`.
+26. **The settle's path-claim unification** (TR-081; WP-92). [RULES/link-merge-rules] LV-005 and [40 §2.3] ("settle
+    performs the unification itself", evidence `git/r100`) make a settle write `removed{reason: same-as}`, but
+    [F18 §2.7] I-F7 lists only `file rm`, `links fix --drop`, `--same-as`, `--split` and deletion inference, and no
+    `transitions` row let the door `settle` reach `removed`. TR-081 adds that transition as the automatic form of
+    `--same-as`; [F18 §2.7] should list it (a spec finding of WP-92).

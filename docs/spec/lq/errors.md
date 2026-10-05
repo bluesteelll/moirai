@@ -54,6 +54,11 @@ UTF-8 bytes; C0 controls and DEL inside them are rendered as `\u{h}`, h the code
 | `<N>` in budget texts | a decimal integer with `,` every three digits (`2,000,000`), as [50 §6.4]'s footers |
 | `<list>` | up to 5 items joined by `, `; when more exist, `, ...` is appended |
 
+2.2a. **Names inside LQ text** (spec sync 2b). Where a template embeds a placeholder in LQ text — a `write …` replacement, a
+pattern such as N07's `(<b>)-[:<edge>]->(<a>)`, W01's `coalesce(<expr>, 0)`, E106's reversed pattern — the placeholder renders
+as LQ source, not with §2.2's back-quotes: a name as the S-AST printer writes it (back-quoted only when LQ requires it,
+[LQ/canonical-ast §3.4]), a value as an LQ literal. §2.2's back-quotes apply to names and values in prose.
+
 2.3. **Value cap.** Each interpolated value is at most `V` bytes, where `V` starts at 64 and may drop to 24 during fitting
 (§3.4). A longer value is cut at the last UTF-8 scalar boundary that leaves room for `...` and gets `...` appended; an escape
 sequence is never split.
@@ -80,6 +85,18 @@ any detail of the text (spec sync 2a). A lexer or parser error ends the pass bef
 them. When the two alternatives of [LQ/grammar-v1.ebnf §P.5] fail at the same byte and one of the errors is P13's nesting
 error, the nesting error wins (its text, `nesting deeper than 64 levels`, names the cause either way); every other tie keeps
 P5's rule, the path alternative's error.
+
+**Which error comes first** (spec sync 2b; normative for every implementation, whatever its lookahead). Read the text as the
+token sequence of [LQ/lexical]. The first error of a pass is at the first token t such that the tokens before t form a
+**viable prefix** — a prefix of some text grammar v1 accepts — and either t is not a valid token (a lexical error, at t) or
+the tokens up to and including t form no viable prefix (a syntax error, at t, or the refusal of Annex R whose form t
+completes). So a lexical error that lies after a syntax error is never reported first, and one inside a still-viable prefix
+always is: `RETURN a NOT $` gives E001 `$ must be followed by a parameter name` at 1:14, because `RETURN a NOT` is viable
+(`RETURN a NOT IN l`). An error whose detection point no chapter names is located at the first token or character of the
+construct the rule refuses: a refused keyword form at its first word, an operator at the operator, a literal out of range at
+its first character, E007 at the token where `EXPECT` was expected, E009 at the `}`, E114 at the quantifier's first
+character, E118 at the comparison operator or the property-map key (`fixtures/lq/INDEX.md` §4 G-7, adopted). Binder errors
+carry no position unless their row gives one.
 
 3.2. **Located form.** An error is *located* when it concerns a span of the submitted LQ text (or of a stored definition) and
 its code is not an E4xx or E5xx code. Let `L` be the 1-based line of the span start, `C` its 1-based column in Unicode scalar
@@ -127,7 +144,7 @@ never drops it (§3.4). Example (E401, [50 §2.9] Q18, in this chapter's form):
 error[E401 expect_mismatch]: statement 1 matched 0 bindings, expected 1
   #89 now: status=done rev=4470 (changed at c3e9a1f00 by dev#2 on lane/l5np: "complete L-17")
   nothing was written
-  = help: re-read with `moirai q show ids=89`
+  = help: re-read with moirai q show ids=89
 ```
 
 3.4. **Fitting.** The text is rendered with `W = 60`, at most `A = 5` help alternatives ([50 §5.2]: "at most 5 valid
@@ -225,7 +242,7 @@ exists only in the product (`product`: it depends on a planner, a memory account
 | E106 | `edge_direction` | error | 2 | binder | model | yes (reversed pattern) |
 | E107 | `ambiguous_edge_name` | error | 2 | binder | model | no |
 | E108 | `unknown_enum_word` | error | 2 | binder | model | no |
-| E109 | `unknown_function` | error | 2 | binder | model | no |
+| E109 | `unknown_function` | error | 2 | parser ([LQ/grammar-v1.ebnf §P.12]: a `CALL` inside `TX` that names no named mutation), binder | model | no |
 | E110 | `bad_parameter` | error | 2 | binder, CLI argv | model | no |
 | E111 | `no_such_node` | error | 2 | binder | model | no |
 | E112 | `aggregate_misuse` | error | 2 | binder | model | no |
@@ -310,6 +327,8 @@ texts.
 | E001 (Cypher `WITH` order, P16) | `WITH takes WHERE before ORDER BY and LIMIT` | `write WITH <items> WHERE <expr> ORDER BY <keys> LIMIT <n>` | none |
 | E001 (`USE` after a clause, P19) | `USE must start its query part` | `write USE <revspec>` at the start of the part | none |
 | E001 (group without a quantifier, P6) | `a parenthesised path group needs a quantifier` | `add +, * or {m,n} after the group` | none |
+| E001 (a `{` after an edge or a group that is not a quantifier and holds no integer, P6) | the generic form with `<list>` = `` `{m,n}`, `{m,}`, `{m}`, `{,n}` `` in this order and `<token>` = `` `{` `` (spec sync 2b) | none | none |
+| E001 (`EXPECT` with min > max, [LQ/canonical-ast] N5) | `EXPECT <m>..<n> has m > n` (spec sync 2b) | none | none |
 | E001 (empty subquery, P8) | `EXISTS { } needs a pattern or clauses` | none | none |
 | E001 (`CALL` without `YIELD` before another clause, P7) | `a CALL followed by more clauses needs YIELD with named columns` | none | none |
 | E001 (a repeated `TX` option, P12) | `TX takes <option> once` | none | none |
@@ -318,6 +337,7 @@ texts.
 | E001 (`:name` as a parameter, [50 §2.2] rule 7, §R) | `:<name> is not a parameter` | `write $<name>` | none |
 | E001 (nesting, [50 §5.2], P13) | `nesting deeper than 64 levels` | none | `split the query or flatten the expression` |
 | E001 (binder: an unaliased `WITH` item that is not a bare variable, [LQ/canonical-ast] C-21) | `WITH <expr> needs a name` | `write WITH <expr> AS <name>` | none |
+| E001 (binder: parts of a set operation with different column counts) | `<op> parts return <n> and <m> columns` — `<op>` the operator as written; parts are matched by position, their names may differ, and the result takes the first part's column names (spec sync 2b) | none | none |
 | E002 | `unterminated <what>` — `<what>` is `string`, `block comment` or `back-quoted name`; the span is the opening delimiter ([LQ/lexical §3], §5.4, §5.7: strings and names end on their line) | none | `close it with <delimiter> on the same line; write a line break as \n` for strings |
 | E003 (UTF-8, lexical §2.1) | `invalid UTF-8 at byte <n>` | none | `send UTF-8; from PowerShell pass the query with -f FILE or through the query tool` |
 | E003 (node or uid literal, lexical §5.8) | `<token> is not a node literal` or `#<digits> is out of range (1 to 4294967295)` | none | `write #<digits> or #u:<32 lower-case hex>` |
@@ -366,7 +386,7 @@ E114's bound is [LQ/lexical §8]'s (0 … 2^32 − 1).
 | E115 | `<target> is <class> and cannot be written here` — `<class>` is `derived`, `runtime`, `tree-derived`, `an observation field`, `an identity field`, `a root-node field`, `created by capture`, `an edge property` or `a file operation` | none | the verb that writes it, by class: `derived` and `runtime`: `it follows from the graph; write the fields it is derived from`; observation, identity and root-node fields, `removed` status: `moirai file mv, moirai file rm or moirai links fix`; `AT` creation: `moirai link ID --at SPEC (the write tool: tx.link_file)`; `CREATE (x:artifact ...)`: `moirai file add PATH`; edge properties: `moirai links fix ID --repin or --pin`; the five file named mutations inside a `TX` block ([LQ/std §7.4]): `send it alone: the write tool with name and params, or its CLI verb` |
 | E116 | `<var> is a step variable of a quantified group and is not visible outside it` | none | `bind the endpoints outside the group: (x)((a)-[...]->(b)){m,n}(y)` |
 | E117 | `a reflog position or anchor handle differs per store` (a reflog revision `REF@n`/`REF@<datetime>`, or an anchor handle `aN` compared in a definition; [50 §4.4] as amended for the A1 re-review's S-02) | none | `use a $param, a c<hex> commit id, a ref name or the anchor's fields` ([50 §4.4], verbatim) |
-| E118 | `a comparison with NULL is never true` | `write <x> IS NULL` for `=`, `write <x> IS NOT NULL` for `<>` and `!=`, `write WHERE <v>.<p> IS NULL` for `{<p>: null}` | none |
+| E118 | `a comparison with NULL is never true`; located at the comparison operator for `= NULL`, `<> NULL` and `!= NULL`, and at the property-map key for `{<p>: null}` (spec sync 2b) | `write <x> IS NULL` for `=`, `write <x> IS NOT NULL` for `<>` and `!=`, `write WHERE <v>.<p> IS NULL` for `{<p>: null}` | none |
 
 5.4. **Planner, view and executor errors (E2xx, E3xx, E5xx).**
 
@@ -380,7 +400,7 @@ E114's bound is [LQ/lexical §8]'s (0 … 2^32 − 1).
 | E304 | `<n> views requested; the budget is refs=<n>` — `<n>` counts the distinct views the query opens, compared by their C-AST revision nodes ([LQ/canonical-ast §5.6]), so a revspec written twice counts once: each part's view (its `USE`, else the default view, counted once), each element of `across(refs:)`, both ends of a `diff()` range and, for a three-dot range, its base, and the `ref` of `violations()`; `log`, `changes` and `history` walk commits and open no further view (spec sync 2a) | none | `--budget refs=<n> (at most <ceiling>)`, `<ceiling>` being the caller's role cap `query.caps.<role>.refs` ([CFG §10.5]; 8 for an agent role, 80 for the orchestrator and the owner; pass 1, A1-53) |
 | E305 | `<revspec> is read-only: <why>` — `<why>` is `a commit`, `a tag`, `an orphans ref` (a parked ref, [F12 §2.2]), `a past view`, `field <field> is masked on plan branches`, `a staging ref accepts only RESOLVE` or `an import ref accepts only RESOLVE` (a plain write on `import/*`; `RESOLVE` lands there, [F12 §3.7], §9.6 and its open point 21; spec sync 2a) | none | `write on a branch tip: TX ON <ref> { ... }` |
 | E306 | `cursor <cursor> belongs to another query or is damaged` | none | `run the query again without --cursor` |
-| E501 | `budget: work <N> exhausted after <id>`; for a write whose phase-1 working set exceeds `wmem` ([F17 §4.4] W2, [CFG §10.5]): `budget: wmem <N> B exceeded by statement <i>`; for an agent write whose changeset exceeds the inline bound ([F17 §4.4] W1, W4): `budget: the changeset needs <N> B; an agent write holds at most <N> B (store.commit.inline-max-bytes)` | for `wmem` and the inline bound: `nothing was written` | `add an anchor, a LIMIT, or --budget work=<N>`; for `wmem`: `--budget wmem=<N> (at most <ceiling>), or split the block` (pass 1, P1-11); for the inline bound: `split the block into smaller TX blocks; a wmem raise does not help` (pass 1, round 1, P1-11) |
+| E501 | `budget: work <N> exhausted after <id>`; for a write whose phase-1 working set exceeds `wmem` ([F17 §4.4] W2, [CFG §10.5]): `budget: wmem <N> B exceeded by statement <i>`; for an agent write whose changeset exceeds the inline bound ([F17 §4.4] W1, W4): `budget: the changeset needs <N> B; an agent write holds at most <N> B (store.commit.inline-max-bytes)`; for the deterministic caps of a `TX` block ([CFG §10.5]; spec sync 2b): `budget: the block has <n> statements; the cap is <N> (tx.max-statements)` and `budget: the block writes more than <N> ops (tx.max-ops)` | for `wmem`, the inline bound and the caps: `nothing was written` | `add an anchor, a LIMIT, or --budget work=<N>`; for `wmem`: `--budget wmem=<N> (at most <ceiling>), or split the block` (pass 1, P1-11); for the inline bound: `split the block into smaller TX blocks; a wmem raise does not help` (pass 1, round 1, P1-11); for the caps: `split the block into smaller TX blocks` |
 | E502 | `budget: mem <N> B exhausted` | none | `add an anchor or a LIMIT, or --budget mem=<N>` |
 | E503 | `deadline of <n> ms reached` | none | `add an anchor or a LIMIT` |
 | E504 | `cancelled` | none | none |
@@ -391,8 +411,12 @@ the footer *is* the error's text ([50 §5.10] "rows so far + footer + cursor, ex
 `data` and an `errors` entry. A blocking plan prints this error text with the EXPLAIN excerpt of [LQ/envelope §10] as detail
 lines (at most 6), no rows and no cursor ([50 §5.6]).
 
-5.5. **Transaction errors (E401–E411).** Every E4xx text names the statement by its 1-based index in the block, reports
-`nothing was written` as a detail line, and is raised before any append ([50 §3.10] item 5). E401 and E402 are decided against
+5.5. **Transaction errors (E401–E411).** Every E4xx text is raised before any append ([50 §3.10] item 5). The texts of a
+refusal of one statement — E401, E403, E404, E405, E409, E410 and E406's statement case — name it by its 1-based index in
+the block (for a deferred validator, E405, the block's last statement; for the `Schema` command, [API §9.8], the 1-based
+item index) and report `nothing was written` as their closing detail line; so does E402. The refusals of the block or the
+call as a whole — E406's unleased, MCP and safelist cases, E407, E408 and E411 — name no statement and have no closing line,
+as their rows show (spec sync 2b). E401 and E402 are decided against
 the tip the block commits on: `MATCH` targets are re-evaluated under the writer byte whenever a commit, a marker or a lease
 touched what they read ([50 §3.10] item 3 and [50 §5.9] step 4 as amended for the A1 re-review's S-06, [AR §4.5] step 7), so a
 runtime predicate such as `t.ready` or `t.claimed` in a target is checked against the current runtime tables.
@@ -403,7 +427,7 @@ runtime predicate such as `t.ready` or `t.claimed` in a target is checked agains
 | E402 | `<ref> moved: IF TIP <c8>, the tip is <c8> (rev <rev>)`; `IF TARGETS <digest>: the targets now digest to <digest>` | `nothing was written` | `run the block with DRY again and apply its digest` |
 | E403 | `statement <i>: ASSERT is false` | the assertion's `ELSE` text as `"<text>"` when present; `nothing was written` | none |
 | E404 | `statement <i>: <id> <from> -> <to> refused: <why>` — `<why>` is `<n> children are open`, `verdict <id> <outcome> gates it`, `the removed text is not in <id>.body`, `done -> open needs REOPEN` or the machine's rule name | the open children or gating verdicts (at most 10); `nothing was written` | for `done -> open`: `write REOPEN <id> REASON '<reason>'`; else none |
-| E405 | `statement <i>: <rule> would be violated` — `<rule>` is `acyclic precedence (I5')`, `forest depth 12 (I4)`, `live endpoints (I2)`, `one active superseder (I6)`, `canonical duplicate target (I7)`, `named-query cycle (QueryCycle)`, `at most one <edge> (cardinality)` (`runs_in`, `answers`), `named queries bind (QueryInvalid)`, `schema conformance (I11)` ([F19 §12.4], its open point 16) | the cycle or the offending edge, one line | none |
+| E405 | `statement <i>: <rule> would be violated` — `<rule>` is `acyclic precedence (I5')`, `forest depth 12 (I4)`, `live endpoints (I2)`, `one active superseder (I6)`, `canonical duplicate target (I7)`, `named-query cycle (QueryCycle)`, `at most one <edge> (cardinality)` (`runs_in`, `answers`), `named queries bind (QueryInvalid)`, `schema conformance (I11)` ([F19 §12.4], its open point 16) | the cycle or the offending edge, one line; `nothing was written` | none |
 | E406 | `statement <i>: role <role> may not <action>` | `nothing was written` | the refusing rule as [RULES/role-write-policy] WZ-001 renders it: `no <table> row lets <role> <op> <kind>` followed by `.<field>` when the op sets a field, `<table>` being the `role-write-policy` table whose check refused (`role-statements`, `role-create`, `role-values`, `role-fields`, `role-status` or `role-edges`, WR-009), e.g. `no role-fields row lets developer set decision.authority` (spec sync 2a) |
 | E406 (unleased, frozen) | `this write needs a lease` | none | `an orchestrator presents its session lease with --lease (mint it once per session: moirai claim --role orchestrator --session)`. The design writes the text as one line; this row renders it split at its semicolon into message and help, with no other change ([F19 §11.3]; pass 1, A1-51) |
 | E406 (MCP, CLI-only statements) | `<stmt> runs only through moirai tx, for the orchestrator and the owner` — `<stmt>` is `node DELETE`, `RESOLVE`, `DEFINE QUERY` or `DROP QUERY` | none | none |
@@ -415,11 +439,13 @@ runtime predicate such as `t.ready` or `t.claimed` in a target is checked agains
 | E407 (bound lease, [90 §4.1]) | `<lease> is bound to <identity>; pass your own lease` | none | none |
 | E408 | `key <key> was used for a different payload` or `key <key> was used on <ref>`; for a default key ([AR §6.4]): `this write's default key was used for a different payload` or `this write's default key was used on <ref>` | `original: rev <rev> <c8> on <ref>` when the entry records a commit; `original: recorded without a commit` otherwise ([API §7.4]; pass 1, A1-52) | `use a new key for a new write`; for a default key: `pass an explicit key, or --no-dedupe` |
 | E409 | `statement <i>: DELETE <id> refused: restricted references`; for a root node in the deleted set ([F08 §11.3], [RULES/delete-policy-matrix] DP-010): `statement <i>: DELETE <id> refused: <id> is a root node`, naming the root node of the deleted set with the smallest `#N`; for a live lease without `RELEASE` (I32′, [RULES/delete-policy-matrix] DP-005, [API §9.1]): `statement <i>: DELETE <id> refused: leased by <holder> on <ref> (<lease>)`, naming the first live task lease on a node of the deleted set in `LEASES` order ([F11 §6]: `#N`, then lease id), with `<ref>` its branch, and preceded by that node's `<id> ` when it is not the target (`DELETE #40 refused: #41 leased by dev#2 on lane/y (L-19)`); for an invalid replacement ([RULES/delete-policy-matrix] DP-007): `statement <i>: DELETE <id> refused: replacement <id> <why>`, `<why>` being `is not live`, `is in the deleted set` or `does not fit <id> -[:<edge>]-> <id>` (the first re-pointed edge, drawn as re-pointed, whose end does not accept the replacement's kind) | for restricted references, the references (at most 10): `<id> -[:<edge>]-> <id>`; for a lease, every other live task lease on the deleted set in the same order (at most 10): `<id> leased by <holder> on <ref> (<lease>)`; for a replacement that does not fit, every other such edge (at most 10): `<id> -[:<edge>]-> <id>`; edges are listed, and the first one chosen, in (source `#N`, edge name bytewise, destination `#N`) order; then, in every case, `nothing was written` | `add POLICY CASCADE or POLICY REPARENT, or REPLACED BY <id>`; for a root node: none; for a lease: `add RELEASE to release the lease; a triage note goes to the tombstone (moirai rm --release)`; for a replacement: `name a live replacement outside the deleted set that every re-pointed edge accepts` |
-| E410 | `statement <i>: UNLESS EXISTS matched <n> nodes; create-or-bind needs at most 1` | the matches (at most 10) | `narrow the UNLESS EXISTS pattern` |
-| E411 | `free-form TX is refused for a model with the unknown profile` | `use the named mutation <name> (the write tool: name and params)` when one matches the block's statements, else `no named mutation matches; ask the orchestrator`; with `query.safelist.model.unknown = dry-targets`: `or run the block with DRY and apply it with IF TARGETS` | none |
+| E410 | `statement <i>: UNLESS EXISTS matched <n> nodes; create-or-bind needs at most 1` | the matches (at most 10); `nothing was written` | `narrow the UNLESS EXISTS pattern` |
+| E411 | `free-form TX is refused for a model with the <profile> profile` — `<profile>` the caller's profile whose `query.safelist.model.<profile>` is `named-only` or `dry-targets` (`unknown` by default; spec sync 2b) | `use the named mutation <name> (the write tool: name and params)` when one matches the block's statements, else `no named mutation matches; ask the orchestrator`; with `query.safelist.model.unknown = dry-targets`: `or run the block with DRY and apply it with IF TARGETS` | none |
 
 E411 is the one new code of [90 §10.1] (the gap of PLAN §3.3, row "unknown-model write error code number"): E4 because it is a
 write refusal decided before execution, exit 6 because it is a policy refusal like E406 ([AR §7.1]: 6 covers role policy).
+Order (spec sync 2b): a message refusal (`bad_value`, [API §9.1]) and E402 are checked before E411; E406, static or on the
+candidate, wins over E411 (§3.1's code order); E411 comes before every statement's own refusal.
 The two exit-5 texts of [90 §10.1] are the E407 rows "declared agent" and "bound lease"; the E406 unleased text of [AR §7.3] and
 [90 §4.3] is frozen, rendered as a message and a help line split at its semicolon (open point 2; [F19 §11.3]).
 
@@ -459,14 +485,14 @@ the statement prefix, and its help names the one fix I32′ allows, `RELEASE` (`
 
 | Code | Keys |
 |---|---|
-| E401 | `"statement":<int>`, `"expect":<string>` (the bound as written, e.g. `"1"`, `"2..5"`, `">= 3"`), `"matched":<int>`, `"current":[<node object>...]` (with `"changed_by":{"commit":<commit>,"actor":<string>,"ref":<string>,"message":<string>}` inside each), `"written":false` |
+| E401 | `"statement":<int>`, `"expect":<string>` (the bound as written, e.g. `"1"`, `"2..5"`, `">= 3"`), `"matched":<int>`, `"current":[{"id":"#N","kind":<string>,"status":<string or null>,"title":<string or null>,"rev":<int>,"changed_by":{"commit":<commit>,"actor":<string>,"ref":<string>,"message":<string>}}...]` (one object per detail line, in its order; not a full node object; spec sync 2b), `"written":false` |
 | E402 | `"statement":null`, `"tip":<commit>`, `"expected_tip":<commit or null>`, `"targets":<32 hex or null>`, `"written":false` |
-| E403, E404, E405, E406, E409 (other cases), E410 | `"statement":<int>`, `"written":false` |
-| E409, lease case | `"statement":<int>`, `"leases":[{"node":"#N","id":<string>,"holder":<string>,"branch":<string>}...]` (the leases the text names, in its order; `id`, `holder` and `branch` as the `lease` object of [LQ/envelope §7.4]), `"written":false` (pass 1, round 3, closure NC-8) |
+| E403, E404, E405, E406, E409 (other cases), E410 | `"statement":<int>`, `"written":false`; for E405 of a deferred validator the block's last statement, for the `Schema` command the item index (§5.5); for E406's verb-level cases (unleased, MCP, safelist) `"statement":null` (spec sync 2b) |
+| E409, lease case | `"statement":<int>`, `"leases":[{"node":"#N","id":<string>,"holder":<string>,"branch":<string>}...]` (the line-1 lease, then the leases of the detail lines, at most 10 more, in the text's order; spec sync 2b; `id`, `holder` and `branch` as the `lease` object of [LQ/envelope §7.4]), `"written":false` (pass 1, round 3, closure NC-8) |
 | E407 | `"lease":<string>`, `"holder":<string or null>`, `"written":false` |
 | E408 | `"key":<string or null>` (`null` for a default key), `"original":{"rev":<int>,"commit":<commit>,"ref":<string>}` or `null` when the entry records no commit ([API §7.4]; pass 1, A1-52) |
 | E411 | `"mutation":<string or null>`, `"written":false` |
-| E201, E202, E303, E304, E501–E505 | `"budget":{<key>:<int>...}` as [LQ/envelope §7.5] |
+| E201, E202, E303, E304, E501–E505 | `"budget":{<key>:<int>...}` as [LQ/envelope §7.5]; for E501 of `tx.max-statements` `{"statements":<n>,"statements_limit":<cap>}` and of `tx.max-ops` `{"ops":<n>,"ops_limit":<cap>}`, `<n>` the count when the cap was passed (spec sync 2b) |
 | E301 | `"candidates":[<commit>...]` |
 
 A `<commit>` in JSON is `c` followed by the 64 lower-case hex digits of the commit id ([LQ/envelope §7.3]; the A1 dispositions of
@@ -632,3 +658,11 @@ at WP-72; a WP-73 remedy that changes one is a specification edit, not a hole fi
     renders [RULES/role-write-policy] WZ-001 (the refusing table and the (role, op, kind, field) tuple). E304 counts
     distinct views by their C-AST revision nodes. E305 gains `an orphans ref` and reads `an import ref accepts only
     RESOLVE`, matching [F12 §3.7] and §9.6, which let `import/*` take `RESOLVE`; [50 §3.9] item 6 is corrected at WP-81a.
+19. **Spec sync 2b.** §3.1 makes the first-error rule normative through viable prefixes (a lexical error inside a viable
+    prefix comes first; `RETURN a NOT $` is E001 at `$`) and adopts `fixtures/lq/INDEX.md` §4 G-7's positions. §2.2a
+    renders names inside embedded LQ text as LQ source. §5.5's preamble is scoped (statement refusals name the statement
+    and close with `nothing was written`, E405 and E410 included; block and call refusals do neither), E406's verb-level
+    `statement` is `null`, E405's `statement` is the last statement or the `Schema` item index. New texts: P6's
+    non-quantifier `{`, `EXPECT` with m > n, set-operation column counts, E501 for `tx.max-statements` and `tx.max-ops`
+    with a `budget` object. E401's `current` objects, E409's `leases`, E411's profile and order, E118's position and
+    E109's parser phase are stated. E401's help is not back-quoted (the table row; `fixtures/lq` follows).

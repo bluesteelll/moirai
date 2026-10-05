@@ -55,9 +55,7 @@
                 "id": "#2",
                 "kind": "task",
                 "status": "open",
-                "priority": 2,
                 "title": "Write the chapter",
-                "parent": "#1",
                 "rev": 1,
                 "changed_by": {
                   "commit": "c0000000100000000000000000000000000000000000000000000000000000000",

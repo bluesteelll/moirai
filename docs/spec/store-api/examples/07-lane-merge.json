@@ -111,7 +111,7 @@
           "lane": "#4",
           "ref": "lane/l1",
           "ref_id": 1,
-          "fork": "c0000000100000000000000000000000000000000000000000000000000000000",
+          "fork": "c0000000200000000000000000000000000000000000000000000000000000000",
           "binding": {
             "dir": "C:/work/moirai-l1",
             "ref": "lane/l1",
@@ -145,7 +145,7 @@
       "result": {
         "v": 1,
         "branch": "lane/l1",
-        "rev": 1,
+        "rev": 2,
         "commit": "c0000000300000000000000000000000000000000000000000000000000000000",
         "rev_new": 3,
         "key": null,
@@ -394,7 +394,15 @@
         "statements": [
           {
             "index": 1,
-            "text": "CREATE (rv:task {title: $p1}) UNDER #1 LAST",
+            "text": "CREATE (rv:task {title: $p1}) UNDER #1",
+            "matched": null,
+            "targets": [
+              "#5"
+            ]
+          },
+          {
+            "index": 2,
+            "text": "MOVE rv UNDER #1 LAST",
             "matched": null,
             "targets": [
               "#5"

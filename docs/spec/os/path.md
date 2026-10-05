@@ -104,7 +104,11 @@ impl EntryNameRef<'_> { pub fn to_owned(&self) -> EntryName; }
 impl EntryName { pub fn as_entry_ref(&self) -> EntryNameRef<'_>; }
 ```
 
-The two forms carry the same bytes and the same classification.
+The two forms carry the same bytes and the same classification. `to_owned` takes `&self` although `EntryNameRef` is
+`Copy`: an inherent `&self` method is found before the blanket `ToOwned::to_owned` both for `r.to_owned()` and for
+`(&r).to_owned()`, so both return an `EntryName`. A by-value receiver would let `(&r).to_owned()` resolve to `ToOwned`
+and return an `EntryNameRef`. Implementations therefore allow clippy's `wrong_self_convention` on this one method
+(open point 13).
 
 ## 3. The rules P1–P12 (frozen, X-F7 and X-F9)
 
@@ -321,20 +325,44 @@ impl<'a> RelPath<'a> {
     pub const ROOT: RelPath<'static>;                                  // the empty path
     pub const fn new(s: &'a str) -> Result<RelPath<'a>, PathError>;   // §2.1 grammar
     pub const fn as_str(&self) -> &'a str;
+    pub const fn is_root(&self) -> bool;                               // the empty path
     pub fn segments(&self) -> impl Iterator<Item = &'a str>;
     pub fn parent(&self) -> Option<RelPath<'a>>;                       // None for the root
     pub fn file_name(&self) -> Option<&'a str>;
     pub fn join(&self, seg: &str) -> Result<RelPathBuf, PathError>;
     pub fn to_buf(&self) -> RelPathBuf;
 }
+impl RelPath<'static> {
+    pub const fn literal(s: &'static str) -> RelPath<'static>;        // a checked literal (store names); panics on a violation
+}
 impl RelPathBuf {
     pub fn new(s: &str) -> Result<RelPathBuf, PathError>;             // §2.1 grammar
+    pub fn from_string(s: String) -> Result<RelPathBuf, PathError>;   // the same check, without a copy
     pub fn as_rel_path(&self) -> RelPath<'_>;
     pub fn as_str(&self) -> &str;
 }
 // RelPathBuf: Borrow<str> + AsRef<str> + PartialEq<RelPath<'_>>;  RelPath<'_>: AsRef<str> + PartialEq<RelPathBuf>;
 // From<RelPath<'_>> for RelPathBuf;  From<&'a RelPathBuf> for RelPath<'a>.
-impl AbsPath { pub fn new(s: &str) -> Result<AbsPath, PathError>; }                   // §2.2 grammar
+impl AbsPath {
+    pub fn new(s: &str) -> Result<AbsPath, PathError>;                // §2.2 grammar
+    pub fn from_string(s: String) -> Result<AbsPath, PathError>;      // the same check, without a copy
+    pub fn as_str(&self) -> &str;
+}
+impl EntryName {
+    pub fn from_os_bytes(bytes: &[u8]) -> EntryName;                  // §2.4 classification of an OS name's bytes
+    pub fn as_entry_ref(&self) -> EntryNameRef<'_>;
+    pub fn as_segment(&self) -> Option<&str>;                         // None if unrepresentable
+    pub fn as_bytes(&self) -> &[u8];                                  // the UTF-8 text, or the OS bytes
+    pub fn display(&self) -> String;                                  // display_name(as_bytes()), §9
+}
+impl<'a> EntryNameRef<'a> {
+    pub fn from_os_bytes(bytes: &'a [u8]) -> EntryNameRef<'a>;        // the same classification, no allocation
+    pub fn to_owned(&self) -> EntryName;                              // &self on purpose, §2.4
+    pub const fn as_segment(&self) -> Option<&'a str>;
+    pub const fn as_bytes(&self) -> &'a [u8];
+    pub fn display(&self) -> String;
+}
+// EntryName: PartialEq<EntryNameRef<'_>>;  EntryNameRef<'_>: PartialEq<EntryName>.
 pub fn display_name(bytes: &[u8]) -> String;                                          // §9
 
 #[derive(Copy, Clone, Debug, Eq, PartialEq, Hash)]
@@ -343,6 +371,10 @@ pub enum PathError {
     OutsideRoot,
 }
 ```
+
+The helpers `is_root`, `literal`, `from_string`, `from_os_bytes`, `as_segment`, `as_bytes` and `display` are additive
+public items of the implementation (spec sync 2b); they add no rule, and each applies the grammar or the classification
+already stated.
 
 `Borrow<str>` is sound because `RelPathBuf`'s `Eq`, `Ord` and `Hash` are those of its text. Every seam takes the view by
 value: [OS/fs §3] `rel: RelPath<'_>` and `dir: Option<RelPath<'_>>`, [OS/fs §2.4]
@@ -413,3 +445,4 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 | 10 | `PathError`'s variants had no stated meaning, and the drive-relative and device refusals of §7 step 3 had no variant of their own (WP-30, WP-33) | **closed (spec sync 2a):** §11's table gives every variant one meaning; `DriveRelative` (a bare `X:` included) and `DevicePath` are added | — |
 | 11 | §8.2 did not say whether a move's source counts as a sibling, nor which sibling or character a message cites (WP-61 review) | **closed (spec sync 2a):** siblings are the directory's names after the operation; `fold-sibling` cites the smallest sibling in byte order, `reserved-char` the first reserved character | — |
 | 12 | `representable_here` existed only in `moirai-os`, with its own copy of the device list: the Linux and macOS rows could not be tested on Windows and target-independent code could not call it (WP-61 review) | **closed (spec sync 2a):** a pure `representable(os, segment)` lives in `moirai-files` beside P5; `representable_here` is its build-OS restatement in `moirai-os`, and both crates test §8.1's common cases. [F18 §4.6] detail 44 and [F20] may cite `representable` at their next edit | R-SPEC-F, R-SPEC-R |
+| 13 | `EntryNameRef::to_owned(&self)` on a `Copy` type trips clippy's `wrong_self_convention`, and the implementation exported path helpers §11 did not list (WP-30b review) | **closed (spec sync 2b):** the receiver stays `&self`, because a by-value receiver lets `(&r).to_owned()` resolve to the blanket `ToOwned` and return an `EntryNameRef`; implementations allow the lint on that method (§2.4). Renaming it (`into_owned`, `to_entry_name`) was the alternative; it is unnecessary once the receiver is `&self`, and it would change every caller. §11 lists the additive helpers | — |

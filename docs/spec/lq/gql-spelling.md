@@ -174,7 +174,10 @@ draft card printed the provisional GQL `->+`; [LQ/card §3] prints the Cypher ca
 
 ## 5. The display printer
 
-5.1. **Use.** It prints LQ text from a bound AST: `--show-query` and `--show-tx` bodies ([LQ/envelope §10.3]), the replacement texts
+5.1. **Use.** It prints LQ text from a bound AST (WP-71a, M7); it is not the S-AST printer of [LQ/canonical-ast §3.4], which
+keeps every written spelling so that `parse(print(a)) == a` holds, and the choices of §2.1, §5.3 and §5.4 (shortest floats,
+canonical function names, `DIFFERENT EDGES` never printed, `{1,1}` as a plain hop) are this printer's only (spec sync 2b). It
+prints: `--show-query` and `--show-tx` bodies ([LQ/envelope §10.3]), the replacement texts
 of errors ([LQ/errors §2.4]), and the column names of the table shape ([LQ/envelope §5.5]). It keeps the names the text used
 (variables, parameters, aliases); the canonical form's renaming of variables applies to hashing only ([50 §5.3]). Its output is
 ASCII apart from string-literal contents ([90 §8.1] L5).

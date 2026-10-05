@@ -158,7 +158,10 @@ A `Delete` turns the row into a tombstone ([AR §2.5]; the op and its before-ima
 
 - `kind`, `status`, `resolution`, `priority`, `criticality`, `confidence`, `authority`, `created_tx` and the title are
   kept, so a tombstone renders with its kind and title at deletion ([50 §3.6]); an artifact, whose title is not stored
-  while it lives (§7.1), is given its last `path` text as its stored title;
+  while it lives (§7.1), is given its last `path` text as its stored title. The status, the resolution and the header
+  enumerations are kept for rendering only: the canonical form and the tombstone file carry none of them ([F07 §6.4],
+  [RULES/delete-policy-matrix] TB-012), and `content` shows them as the kind's initial values and the enumerations'
+  defaults ([API §15.3]; spec sync 2b);
 - `flags` = `deleted` only; `parent` = 0; the four counters = 0; `fields_off` = `NONE32`; `body_ref` = 0;
 - `updated_tx` and `rev_seq` name the deleting commit; `last_op_lsn` names the `Delete`;
 - the reason and replacement live in the `TOMB` section ([AR §4.4], [F09]); the retained out-edges (flagged structural
@@ -375,7 +378,7 @@ The stored order of set elements (strictly ascending) and of the field block (§
 | `text`, `commitref` | bytewise ([F01 §6.6]) |
 | `path` | (`root` id numeric, text bytewise) |
 | `oid` | (`algo`, digest bytewise) |
-| `pathmove` | (`hlc`, `from` text, `to` text, `class`, `git`) — [40 §2.4]'s (hlc, from, to) extended to a total order |
+| `pathmove` | (`hlc`, `root` id numeric, `from` text, `to` text, `class`, `git`) — [40 §2.4]'s (hlc, from, to) extended to a total order; `root` is compared so that two entries differing only in their root are distinct (spec sync 2b) |
 
 The stored order is store-local where it uses ids; the canonical order of a set is [F07]'s.
 
@@ -480,7 +483,8 @@ A decoder can skip an entry of any type without the schema: every encoding is se
 The **effective schema** of a view is the core schema of its schema version (§9) together with the view's **schema
 items**, which are versioned per branch, merged, hashed in canonical item 10 and exported as `schema/*.moi`
 ([AR §2.12], [AR §4.6], [F14]). Items describe project kinds, project fields (also on core kinds), project enumeration
-values (also of core enumerations), project edge kinds, and project named queries ([50] F3).
+values (also of core enumerations), project edge kinds, project named queries ([50] F3), and the policy-data rows of
+[CFG §10.13] (§8.5.6; spec sync 2b).
 
 - **Schema version.** Format v1 defines schema version **1**: the core schema of §9. It is the value of canonical item 7
   ([AR §4.6]) for every commit of a format-v1 store and the `schema-version` line of `.moirai-image` ([AR §5b.3]). A
@@ -489,13 +493,15 @@ values (also of core enumerations), project edge kinds, and project named querie
   kind; items may add fields to core kinds and values to core enumerations.
 - **Weakening and strengthening** ([AR §2.12], [RULES/merge-table] CS-017). Adding an item whose key the view does not
   hold is a weakening change (`Schema{weaken}`, or `Schema{query}` for a named query, [F06]); it applies at once and
-  merges freely. Every other change — retiring an item, changing a field's type, class, `optional`, default, range or
-  constraints, changing an enumeration value's rank, side flag or covers, changing an edge kind's policies, endpoints or
-  F1 columns — is a strengthening change (`Schema{strengthen}`), which needs `moirai migrate` on the branch and is
-  re-validated at merge (`SchemaConflict`). Defining, changing and dropping a named query is `Schema{query}` ([50 §4.4]).
+  merges freely, except a `policy` item (class 6), whose divergence is `SchemaConflict` (§8.5.6). Every other change —
+  retiring an item, changing a field's type, class, `optional`, default, range or constraints, changing an enumeration
+  value's rank, side flag or covers, changing an edge kind's policies, endpoints or F1 columns — is a strengthening
+  change (`Schema{strengthen}`), which needs `moirai migrate` on the branch and is re-validated at merge
+  (`SchemaConflict`). Defining, changing and dropping a named query is `Schema{query}` ([50 §4.4]). Setting, changing
+  and removing a policy row is `Schema{weaken}` of class `policy`: it applies at once and needs no migration (§8.5.6).
 - **Retired items.** A kind, field, enumeration value or edge kind is removed by retiring it (`iflags.retired`, §8.5):
   its store-local id is never given to another item (I11), and no live node or edge may use it after the migration.
-  A dropped named query is removed (its item is absent).
+  A dropped named query and a removed policy row are removed (their items are absent).
 - **Where items live.** [F06] carries items in `Schema` ops; [F09] stores the view's items in a segment section (open
   point 44).
 
@@ -509,6 +515,7 @@ values (also of core enumerations), project edge kinds, and project named querie
 | edge kind (stored) | `[a-z][a-z0-9_]*`, 1–64 bytes | among edge kinds | `name` |
 | `lq_name`, `reverse_names` | `[A-Z][A-Z0-9_]*`, 1–64 bytes | across every `lq_name`, reverse name and upper-cased stored edge name, ASCII case-insensitive | `name` |
 | named query | [LQ/grammar-v1.ebnf] `qname` | per view; never shadowing `std`, `tx` or a keyword ([50 §4.4]) | `name` |
+| policy row | a row instance of [CFG §10.13] (`policy.self-claim-roles`, `policy.role.developer.fields`, `merge.policy.task`), in [CFG §3.3]'s canonical key-name form: lower-case segments of `[a-z0-9][a-z0-9_-]*`, 1–64 bytes each, joined by `.`, at most 16 segments and 255 bytes ([F14 §7.1] `pname`) | per view | none: stored as `vstr` (§8.5.6) |
 
 A project item may not use a core name. Names are never hashed as symbol ids: canonical forms carry the strings.
 
@@ -672,18 +679,25 @@ Every item starts with:
 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
-| 1 | `class` | `u8` | always | 1 kind, 2 field, 3 enumeration value, 4 edge kind, 5 named query |
-| 2 | `iflags` | `u8` | always | bit 0 `retired` (not for class 5); bits 1–7 reserved-zero |
+| 1 | `class` | `u8` | always | 1 kind, 2 field, 3 enumeration value, 4 edge kind, 5 named query, 6 policy row; 0 and 7–255 invalid |
+| 2 | `iflags` | `u8` | always | bit 0 `retired` (not for classes 5 and 6); bits 1–7 reserved-zero |
 | 3 | … | the class's body below | always | |
 
 The item **key** (what the canonical form sorts and merges by) is: kind name; (kind name or `*`, field name); (kind name
-or `*`, field name, value name); edge kind name; query name. Every other part of the body is the item's value, except
+or `*`, field name, value name); edge kind name; query name; policy row name. Every other part of the body is the item's value, except
 the parts marked *store-local*, which are not hashed; symbol ids are hashed as their strings ([F07]).
 
 **Item key order** (pass 1, A1-41). Wherever a stored structure sorts items by key (the view's schema section,
 [F09 §8.3]), items are ordered by (`class`, then the key's components in the order above), each component compared as its
 **name string** bytewise ([F01 §6.6]), never as a symbol id; `*` is the one-byte string `2A`, which sorts before every
 name of §8.2. Two items of one view never have equal keys. The canonical order of schema entries is [F07 §10.3]'s.
+
+**Stored key form** (`item_key` of a schema `ckey` and of a `Schema` op, [F06 §6.1], [F06 §7.6]; spec sync 2b). The
+key's component name strings in the order above, joined by one `00` byte, with `*` as the one byte `2A`: a kind's is its
+name's UTF-8 bytes; a field's `task` `00` `estimate` (or `*` `00` `labels`); an enumeration value's `kind` `00` `field`
+`00` `value` (one `00` between each pair, two in all); an edge kind's, a named query's and a policy row's their names'
+UTF-8 bytes. Names never contain `00` (§8.2), so the form is unique, and within one class the bytewise order of stored
+keys equals the item key order above.
 
 #### 8.5.1 Kind
 
@@ -696,8 +710,11 @@ name of §8.2. Two items of one view never have equal keys. The canonical order 
 | 5 | `existence_policy` | `u8` | always | §8.4.5 |
 | 6 | `kflags` | `u8` | always | bit 0 `title_derived` (the title is derived from `path`); bit 1 `immutable_fields` (fields are read-only after `Create`; statuses still move); bit 2 `has_done` (the kind has the virtual `done` field); bit 3 `done_derived` (`done` follows the derived `answered` predicate); bits 4–7 reserved-zero |
 
-A project kind's statuses are enumeration items of its field `status`; it declares at least one, and the default of its
-`status` field is its initial status.
+A project kind's statuses are enumeration items of its field `status` (§8.5.3, `kind` = the kind, `field` = `status`); it
+declares at least one. It has no field item of its own for `status`, since the common field cannot be shadowed (§8.2),
+so its **initial status** — the default of the common `status` field for that kind (§9.2 decl 3), which the canonical
+form reads as absent with resolution `none` ([F07 §6.3]) — is its non-retired `status` value with the least `sort_rank`,
+ties broken by the value name bytewise ([F01 §6.6]) (spec sync 2b). A `status:` line naming it is a written default.
 
 #### 8.5.2 Field
 
@@ -776,6 +793,23 @@ Project edge kinds are `historical` with `on_dst` = `tombstone`, `on_src` = `ret
 
 Fields 1–6 are hashed ([50] F3). The item is one atomic merge value ([RULES/merge-table] MC-014).
 
+#### 8.5.6 Policy row (spec sync 2b)
+
+A policy-data row of [CFG §10.13], versioned per branch ([CFG §2.4]).
+
+| order | name | encoding | present when | meaning |
+|---|---|---|---|---|
+| 1 | `name` | `vstr` | always | the row instance name (§8.2) |
+| 2 | `value` | `vstr` | always | the row's value in [CFG §3.4]'s syntax and [CFG §4.1]'s canonical form, of the type [CFG §10.13] gives the row |
+
+A view without a row's item takes the row's default ([CFG §10.13]); an item whose value equals the default is removed
+instead of written (C), so absence is the one form of the default. Both fields are hashed ([F07 §9.7]). The item is one
+atomic merge value: two sides that changed one row differently (a removal included) give the structural
+`SchemaConflict` on its schema key, as a kind or field item does ([RULES/merge-table] MR-055, MR-056; [F12 §7.9]), never a
+conflict value, so an effective policy is always plain. An item whose name is no row instance of [CFG §10.13], or whose value does not parse as the
+row's type, is refused at write time (`bad_value`, [API §9.8]); a stored item never holds one (C: [CFG §10] is not frozen,
+so a decoder does not check the name).
+
 ### 8.6 Schema conformance at write time (I11)
 
 A write is refused ([F19]) unless its result conforms to the effective schema of the written view:
@@ -835,7 +869,7 @@ Every kind has these rows, in this declaration order. "req." = required; "def." 
 | 4 | `resolution` | `enum` | status | header | def. `none` | — | — | §3.1 column rule |
 | 5 | `priority` | `enum` | scalar | header | def. `P2` | — | priority | — |
 | 6 | `criticality` | `enum` | scalar | header | def. `normal` | — | — | — |
-| 7 | `confidence` | `enum` | scalar | header | def. `unset` | — | — | `confirmed` and `plausible` only on findings |
+| 7 | `confidence` | `enum` | scalar | header | def. `unset` | — | — | a finding takes only `unset`, `confirmed` and `plausible`; every other kind takes every value but `confirmed` and `plausible` (a value outside this is `bad_value`, [F19 §10.2]) |
 | 8 | `authority` | `enum` | authority | header | def. `agent` | — | — | — |
 | 9 | `parent` | `ref` | hierarchy | header | optional | — | — | §10.1 |
 | 10 | `order` | `text` | hierarchy | field | optional | — | — | §5.4.4; one line, ASCII |
@@ -1007,6 +1041,8 @@ The title is derived from `path`.
 | 26 | `started` | `int` | scalar | optional | — | Unix seconds ≥ 0; coerce `timestamp` |
 | 27 | `ended` | `int` | scalar | optional | — | Unix seconds ≥ 0; coerce `timestamp` |
 | 28 | `expected_artifacts` | `set` of `sym` | set | optional | — | — |
+| 29 | `harness` | `sym` | scalar | optional | — | one line; the harness that runs the run ([90 §7.1]; spec sync 2b) |
+| 30 | `model` | `sym` | scalar | optional | — | one line; the model family the run's workers declare, which [API §4.2] CX-6 reads ([90 §7.1]; spec sync 2b) |
 
 **lane** (no versioned dirty count: a worktree's dirty count is the runtime `TREES.dirty` row, [F11], [70 S5])
 
@@ -1281,7 +1317,7 @@ enter `captured` (§11.4):
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `lang` | `u8` | always | 1 `rust`, 2 `markdown`, 3 `toml` |
-| 2 | `n` | `u8` | always | number of segments, 1–64, outermost first. A scanner reports items at any depth; a capture whose item lies deeper than 64 segments records the name path of its nearest ancestor that has at most 64 segments and names one item, else no scope ([F20] Appendix A.6) |
+| 2 | `n` | `u8` | always | number of segments, 1–64, outermost first. A scanner reports items at any depth; a capture records only a recordable name path ([F21 §2.3]: at most 64 segments and a scope value of at most 4,096 bytes), the nearest one on the walk from its scope item through its ancestors that names one item, else no scope ([F21 §2.4]) |
 | 3 | `segments` | `n` × `ScopeSeg` | always | |
 
 `ScopeSeg`:
@@ -1289,16 +1325,20 @@ enter `captured` (§11.4):
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `skind` | `u8` | always | Rust: 1 `mod`, 2 `impl`, 3 `fn`, 4 `struct`, 5 `enum`, 6 `trait`, 7 `const`, 8 `static`, 9 `macro_rules`. Markdown: the heading level 1–6. TOML: 1 `table`, 2 `array_table`, 3 `key` |
-| 2 | `name` | `vstr` | always | the item's name as the scanner reports it, spelled exactly as [F20] Appendix A states (Rust: A.2, A.4; the `name` of an `impl` is the canonical spelling of its self type, paths and generic arguments kept: `impl<T> From<T> for Wrap<T>` → `Wrap<T>`; Markdown: the heading text without its numbering; TOML: the table path or key); non-empty, one line |
-| 3 | `qual` | `vstr` | always | Rust trait impl: the canonical spelling of the trait path with its generic arguments, preceded by `!` for a negative impl (`impl From<T> for W` → `From<T>`; `impl !Send for W` → `!Send`; [F20] Appendix A.4); Markdown: the stripped numbering (`3.2`, `§3`); empty otherwise |
+| 2 | `name` | `vstr` | always | the item's name as the scanner reports it, spelled exactly as [F21] states (Rust: §3.2, §3.7; the `name` of an `impl` is the canonical spelling of its self type, paths and generic arguments kept: `impl<T> From<T> for Wrap<T>` → `Wrap<T>`; Markdown: §4.7, the heading text without its numbering; TOML: §5.2, the table path or key); non-empty, one line |
+| 3 | `qual` | `vstr` | always | Rust trait impl: the canonical spelling of the trait path with its generic arguments, preceded by `!` for a negative impl (`impl From<T> for W` → `From<T>`; `impl !Send for W` → `!Send`; [F21 §3.7]); Markdown: the stripped numbering (`3.2`, `§3`; [F21 §4.7]), which segment equality does not compare ([F21 §2.2]); empty otherwise |
 
-`name` and `qual` are text values under §5.3 and never contain U+0000, CR or LF: the canonical spelling of [F20] Appendix
-A.2 writes a line break inside a literal as `\n` (LF or CR LF) or `\r` (a lone CR), a NUL as `\0`, and each maximal
-ill-formed subpart of invalid UTF-8 as U+FFFD, and it drops comments and line breaks between tokens.
+`name` and `qual` are text values under §5.3 and never contain U+0000, CR or LF: the canonical spelling of [F21 §3.2]
+writes a line break inside a literal as `\n` (LF or CR LF) or `\r` (a lone CR), a NUL as `\0`, and each maximal
+ill-formed subpart of invalid UTF-8 as U+FFFD, and it drops comments and line breaks between tokens. A writer never
+records a scope value longer than `SCOPE_MAX_BYTES` = 4,096 bytes ([F21 §2.3]); this is not a validity rule for decoders,
+since an imported anchor keeps its bytes as stored (§11.5).
 
 What the scanners report — item boundaries, names, numbering, TOML paths — is the scanner grammar of resolver version 1,
-[F20] Appendix A (its Rust part so far). Pass 1 (P1-20, S1-4, A1-14) requires it as a complete normative appendix of
-[F20] with a fixture per construct, before the freeze and before WP-63 is accepted; this section fixes only the bytes.
+[F21] (the recordable name paths §2.3, Rust §3, Markdown §4, TOML §5), which is complete for all three languages. Pass 1
+(P1-20, S1-4, A1-14) required it as a complete normative text with a fixture per construct, before the freeze and before
+WP-63 is accepted; this section fixes only the bytes. The interim rule below still holds until review accepts [F21]
+([F21 §1.4], open point 1).
 **Until that appendix is complete, no writer records a scope**: `has_scope` is clear on every anchor a store captures,
 capture's uniqueness ladder skips its scope rung ([F20 §6.1] step 8.2), and `captured` takes `lp("")` for scope (§11.1).
 The scanners also decide the header line, and so the quote, hint and header span hash, of a `symbol` or `heading`
@@ -1617,7 +1657,10 @@ lengths ([F20 §7]); whether `DOCLEN` exists ([F09]).
     scanner-derived bytes from the hashed inputs, is withdrawn. **Spec sync 2a** (WP-74 review): `name` and `qual` cite
     [F20] Appendix A.2/A.4 (an `impl`'s canonical type spelling; `qual` keeps a negative impl's `!` and the trait's
     generic arguments; no U+0000, CR or LF), and `n` states what a capture records for an item deeper than 64 segments
-    (Appendix A.6).
+    (Appendix A.6). **Spec sync 2b:** the scanners moved to [F21], which is complete for Rust, Markdown and TOML; §10.3.1
+    cites [F21 §2.3] (recordable name paths), §3.2 and §3.7 (Rust names), §4.7 (Markdown) and §5.2 (TOML); the interim
+    rule holds until review accepts [F21] ([F21] open point 1). The 4,096-byte `SCOPE_MAX_BYTES` bounds what a writer
+    records, not what a decoder accepts ([F21] open point 7).
 40. **`text-unavailable` anchors** store the four digests in place of the texts (§10.3), so a hash-only import keeps every
     canonical input.
 41. **Tombstone-reference `#N`s** (§2.1): an unknown uid referenced by an import gets a `#N` with no node; [F11] states
@@ -1648,3 +1691,14 @@ lengths ([F20 §7]); whether `DOCLEN` exists ([F09]).
 49. **Pass 1, round 2** (closure NC-5). §5.6's `pathmove` value now holds directory prefixes (`a/`, `b/`), as §5.2 and
     §5.4.2 require of `from` and `to`; its stored bytes and its `cv` were re-derived from §5.2 and [F07 §7.1], and every
     other row of §5.6 was re-derived and is unchanged.
+50. **Spec sync 2b.** (a) **Stored schema key form** (§8.5): contested between `lp()`-framed components and names joined by
+    `00`; the `00` join adopted, because names never hold `00`, so the bytewise order of stored keys equals the item key
+    order within a class, which a length prefix breaks; single-component keys are the bare UTF-8 bytes, as a named
+    query's already was ([F06 §7.6]). (b) A project kind's initial status is its non-retired `status` value of least
+    `sort_rank` (§8.5.1): no field row can hold a default for the common field, and a flag bit would change the item
+    bytes. (c) Class 6 `policy` (§8.5.6): the policy-data rows of [CFG §10.13] become schema items versioned per branch,
+    written by `Schema` and merged as one value with `SchemaConflict` on a divergence, so no command lacks a route to them
+    ([RULES/policy-keys] open point 1). (d) `run` gains `harness` and `model` (decl 29, 30), which [API §4.2] CX-6
+    reads ([API] open point 15). (e) `confidence` on findings is `unset`, `confirmed` or `plausible` only. (f) The
+    `pathmove` stored order compares `root`. (g) A tombstone's kept enumerations are for rendering only. (h) §10.3.1 cites
+    [F21] (open point 39).

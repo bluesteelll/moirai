@@ -80,7 +80,9 @@ standalone_call = "CALL" proc_name "(" [ args ] ")"
 yield_items     = ident [ "AS" ident ] { ',' ident [ "AS" ident ] } ;  (* P3: field names are plain names *)
 unwind_clause   = "UNWIND" expr "AS" ident ;                       (* EX7, EX13 *)
 with_clause     = "WITH" [ "DISTINCT" ] proj_items [ where ] order_limit ;   (* EX7; P16 *)
-return_clause   = "RETURN" [ "DISTINCT" | "ALL" ] proj_items       (* "ALL" [G], the default bag *)
+return_clause   = "RETURN" [ "DISTINCT" | "ALL" ] proj_items       (* "ALL" [G], the default bag; "ALL" directly
+                                                                        followed by '(' is P9's list predicate, so
+                                                                        RETURN ALL (1) AS x is E001 (spec sync 2b) *)
                   [ "GROUP" "BY" expr { ',' expr } ] order_limit ; (* GROUP BY [G], checked *)
 proj_items      = ( '*' | proj_item ) { ',' proj_item } ;
 proj_item       = expr [ "AS" ident ] ;
@@ -174,7 +176,7 @@ mutation        = "SET" target '.' ident '=' expr { ',' target '.' ident '=' exp
                 | ( "CREATE" | "INSERT" ) '(' target ')' edge_step '(' target ')'   (* "INSERT" [G] *)
                 | "REOPEN" target "REASON" expr
                 | "PATCH" target '.' ident "REMOVE" expr "ADD" expr ;
-delete_opt      = "POLICY" ( "RESTRICT" | "CASCADE" | "REPARENT" )
+delete_opt      = "POLICY" ( "RESTRICT" | "CASCADE" | "REPARENT" | "REASSIGN" )
                 | "REPLACED" "BY" target | "RELEASE" | "REASON" expr ;
 target          = ident | node_lit | param ;
 edge_step       = '-' '[' ':' type_name [ prop_map ] ']' '->'
@@ -183,7 +185,8 @@ create_stmt     = ( "CREATE" | "INSERT" ) '(' ident ':' label [ prop_map ] ')'  
                   { edge_step '(' target ')' } [ "UNDER" target ]
                   [ "UNLESS" "EXISTS" '{' subquery '}' ] ;
 resolve_stmt    = "RESOLVE" ( string | '(' query ')' "EXPECT" expect )
-                  "TAKE" ( "OURS" | "THEIRS" | "BASE" | "VALUE" expr | "REPOINT" target ) ;
+                  ( "TAKE" ( "OURS" | "THEIRS" | "BASE" | "VALUE" expr | "REPOINT" target )
+                  | "DROP" ) ;                   (* DROP: a flagged edge only, [F12 §6.5] *)
 define_stmt     = "DEFINE" "QUERY" qname '(' [ param_decl { ',' param_decl } ] ')'
                   [ "SHAPE" ident ] [ "BUDGET" ident ] "AS" '{' query '}' ;   (* reflog revspecs: E117 *)
 param_decl      = param ':' type [ '?' ] [ '=' ( literal | node_lit ) ] ;
@@ -351,8 +354,11 @@ datetime        = yyyy '-' mm '-' dd [ 'T' hh ':' mm [ ':' ss ] ] [ 'Z' ] ;
    CALL {                                 clause position                      E004  EXISTS { }, COUNT { }, WITH
    NEXT, FOREACH, FOR, LET, FILTER        clause position                      E004  WITH, UNWIND, WITH * WHERE ..., one SET
                                                                                      per MATCH target
-   [x IN list ...], [ ... | ... ]         list_lit: '[' word IN; or '|' after  E004  any()/all()/none(), IN, COUNT { }, UNWIND
-                                          an element
+   [x IN list WHERE ...], [x IN l | e],   list_lit: '[' word IN followed, at   E004  any()/all()/none(), IN, COUNT { }, UNWIND
+   [ ... | ... ]                          the list's top level before its ']',
+                                          by WHERE or '|'; or '|' after an
+                                          element. [x IN l] stays a list
+                                          literal of one boolean (spec sync 2b)
    x[i], x[a..b]                          '[' right after a postfix_expr       E004  IN, any()/all()/none()
    single(                                function position                    E004  COUNT { ... } = 1
    XOR                                    binary operator position             E004  (a OR b) AND NOT (a AND b)

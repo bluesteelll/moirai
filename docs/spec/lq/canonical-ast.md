@@ -194,14 +194,14 @@ names.
 | `cedge` | `dir` enum{right, left}; `type` name; `props` [kv]; `target` target | create_stmt, edge_step |  |
 | `stxcall` | `name` name; `args` [arg]; `yield` [yitem] | tx_stmt, tx_name | `name` without the `tx.` prefix. |
 | `sassert` | `expr` expr; `else` str? | tx_stmt |  |
-| `sresolve` | `key` str?; `query` query?; `expect` expect?; `take` enum{ours, theirs, base, value, repoint}; `value` expr?; `target` target? | resolve_stmt | Either `key`, or `query` with `expect`. `value` exactly for `value`, `target` exactly for `repoint`. |
+| `sresolve` | `key` str?; `query` query?; `expect` expect?; `take` enum{ours, theirs, base, value, repoint, drop}; `value` expr?; `target` target? | resolve_stmt | Either `key`, or `query` with `expect`. `value` exactly for `value`, `target` exactly for `repoint`; `drop` is the `DROP` form (spec sync 2b). |
 | `sdrop` | `name` name | tx_stmt, qname |  |
 | `mset` | `assigns` [assign]+ | mutation |  |
 | `assign` | `target` target; `prop` name; `value` expr | mutation |  |
 | `mremove` | `items` [tprop]+ | mutation |  |
 | `tprop` | `target` target; `prop` name | mutation |  |
 | `mdelete` | `targets` [target]+; `opts` [dopt] | mutation, delete_opt | Options in written order; a repeated option kind is E001. |
-| `dpolicy` | `v` enum{restrict, cascade, reparent} | delete_opt |  |
+| `dpolicy` | `v` enum{restrict, cascade, reparent, reassign} | delete_opt | `reassign`: spec sync 2b |
 | `dreplaced` | `target` target | delete_opt |  |
 | `drelease` | (none) | delete_opt |  |
 | `dreason` | `expr` expr | delete_opt |  |
@@ -236,7 +236,12 @@ names.
   `n`/`time`, `query`'s `ops` length). The JSON IR reader checks the same invariants and refuses a violation with E001
   ([LQ/json-ir §5]).
 - **Printer property** ([50 §8.2] LQ-1, [50 §8.3], PLAN WP-93a): for every S-AST `a`, `parse(print(a)) == a`, where
-  `print` is the display printer in either display spelling and `==` ignores spans. The printer back-quotes every name
+  `print` is the **S-AST printer** in either display spelling of quantifiers and `==` ignores spans. The S-AST printer keeps
+  every spelling the S-AST holds: floats and durations as written, function names as written (`toLower` stays `toLower`),
+  the match mode `DIFFERENT EDGES` when written, and `QUANT(1,1)` as `*1` or `{1}`. It is not the display printer of
+  [LQ/gql-spelling §5], which prints bound ASTs (`--show-query`, `--show-tx`, replacement texts; WP-71a, M7) with shortest
+  floats, canonical function names and `DIFFERENT EDGES` never printed, and which the printer property does not bind (spec
+  sync 2b). The printer back-quotes every name
   that is not a plain word or that is a reserved word ([LQ/lexical §6.1]); prints strings in single quotes, escaping
   `\`, `'`, LF, CR, HT and the controls of [LQ/lexical §5.2] (the latter as `\u{…}`); prints floats and durations as
   their text; and prints `not`(`in`(x, y)) as `NOT x IN y`.
@@ -498,6 +503,7 @@ scope rules below — the binder's name resolution, stated here because renaming
 | V9 | A list predicate `all(x IN l WHERE p)`: `x` is a new binding local to `p`. |
 | V10 | A `TX` block is one scope: its statements run in order ([50 §3.10] item 2); the pattern variables of a `MATCH … EXPECT`, the variable of a `CREATE` and the yields of a `CALL tx.…` are visible to the rest of that statement and to every later statement. |
 | V11 | A name that resolves to no binding is a coerced bare word (§5.5) or a bind error; it gets no index. |
+| V12 | The parts of a set operation (`QUERY.rest`) are bound one by one, each in its own scope. They must return the same number of columns (E001, [LQ/errors §5.2]); columns are matched by position, their names may differ, and the query's columns take the first part's names (spec sync 2b). |
 
 Example: `MATCH (a)-[:BLOCKS]->(b) WITH b AS x MATCH (x)<-[:CHILD_OF]-(c) RETURN c` numbers `a` 0, `b` 1, `x` 2, `c` 3;
 the same query with every variable renamed has the same indexes.
@@ -510,7 +516,7 @@ the same query with every variable renamed has the same indexes.
 | N2 | Arguments of a call to a **relation, named query or named mutation** are named by the callee's parameters ([LQ/std] signatures; positional arguments bind the parameters in declaration order) and listed in the callee's declaration order. An argument the caller omitted stays omitted: defaults are not filled in. Arguments of scalar and aggregate functions stay positional, in written order. (Open point C-5.) |
 | N3 | `DELETE` options go into fixed slots (`policy`, `replaced_by`, `release`, `reason`), so their written order does not matter; a repeated option is E001 at parse time. |
 | N4 | `MOVE … [BEFORE y \| AFTER y \| FIRST \| LAST]` becomes a position code and an optional relative target. |
-| N5 | `EXPECT` becomes (min, max): `n` → (n, n); `m..n` → (m, n); `<= n` → (0, n); `>= n` → (n, unbounded); `$p` → by its value: an int n → (n, n), a `range<int>` → (lo or 0, hi). |
+| N5 | `EXPECT` becomes (min, max): `n` → (n, n); `m..n` → (m, n); `<= n` → (0, n); `>= n` → (n, unbounded); `$p` → by its value: an int n → (n, n), a `range<int>` → (lo or 0, hi). A bound with min > max — `m..n` with m > n, written or through `$p` — is E001 (`EXPECT <m>..<n> has m > n`, [LQ/errors §5.2]), at parse time for literals and at binding for a parameter, so no guard that can never pass is bound (spec sync 2b). |
 | N6 | Created edges take the stored direction (§5.4). |
 | N7 | Kept exactly as written: the order of patterns, pattern elements, labels, edge types, map and property-map entries, list elements, `SET` assignments and `REMOVE` items, statements, `CASE` arms, yield items, projection items and sort keys, and the operands of every operator ([50 §5.3]). |
 
@@ -726,10 +732,12 @@ enumeration tables of [F01 §2.6] are merged into one table with a leading `enum
 | | 3 | `base` | `TAKE BASE` |
 | | 4 | `value` | `TAKE VALUE <expr>` |
 | | 5 | `repoint` | `TAKE REPOINT <target>` |
+| | 6 | `drop` | `DROP` (a flagged edge, [F12 §6.5]) |
 | `MDELETE.policy` | 0 | `none` | no `POLICY` |
 | | 1 | `restrict` | `POLICY RESTRICT` |
 | | 2 | `cascade` | `POLICY CASCADE` |
 | | 3 | `reparent` | `POLICY REPARENT` |
+| | 4 | `reassign` | `POLICY REASSIGN` ([RULES/delete-policy-matrix] EG-025, EG-026) |
 | `MMOVE.pos` | 0 | `none` | no position |
 | | 1 | `before` | `BEFORE <target>` |
 | | 2 | `after` | `AFTER <target>` |
@@ -762,7 +770,8 @@ both texts of §4.4 is BLAKE3-128 of these bytes; WP-22 records it in the fixtur
 
 `H(x)` = BLAKE3-128 of the encoding of x ([F01 §7.1]): the first 16 bytes of the BLAKE3 output over the encoding in
 BLAKE3's default, unkeyed mode, so `H(x)` = BLAKE3-256(encoding)[0..16], which is what a fixture assembled with
-`xtask hex`'s `{blake3_256 a..b}` directive gives ([PLAN §3.2] WP-20). `H` is a `b16` ([F01 §5.6]). The encoding's
+`xtask hex`'s `{blake3_128 a..b}` directive gives, or the first 16 bytes of what `{blake3_256 a..b}` gives (that directive
+emits 32 bytes) ([PLAN §3.2] WP-20; spec sync 2b). `H` is a `b16` ([F01 §5.6]). The encoding's
 leading `lp("moirai-lq-ast-v1")` separates this hash from every other BLAKE3 derivation of the format.
 
 ### 7.2 Values
@@ -835,8 +844,11 @@ this section):
   `%% entry define` with `define_stmt` ([LQ/grammar-v1.ebnf §P.1]); for a JSON IR document the value is its root tag
   ([LQ/json-ir]). `%% mode strict-gql` selects the strict-GQL spelling mode ([LQ/grammar-v1.ebnf §G]); without it the case
   runs in the default mode.
-- **Input.** `%% input` (block): the text, each line followed by LF except the last, holding no CR and no line starting with
-  `%% `; `%% input-hex` (block): the exact bytes; `%% input-file <path>`: a whole file, relative to `fixtures/lq/`.
+- **Input.** `%% input` (block): the LQ text, each line followed by LF except the last, holding no CR and no line starting
+  with `%% `; `%% input-json` (block): a JSON IR document ([LQ/json-ir]) in the same line form, so that a runner tells it
+  from LQ text by the directive, not by the file name or the entry value (a JSON IR root tag such as `read` is also an LQ
+  entry form; spec sync 2b); `%% input-hex` (block): the exact bytes; `%% input-file <path>`: a whole file, relative to
+  `fixtures/lq/`.
 - **Expected results.** `%% tokens` (block): the token stream of [LQ/lexical §11]; `%% sast` and `%% cast` (blocks): the
   S-expression forms of §4.2 and §4.3; `%% encoding` (block): the C-AST's encoding of §6 in hex; `%% error <code>
   <line>:<col> <basis>` (or `<code> *` when only the code is asserted; `<basis>` is `spec` or `conv`); the other directives
@@ -844,10 +856,12 @@ this section):
 - **Hex blocks** (`input-hex`, `encoding`, `hex`): pairs of lower-case hex digits; whitespace between pairs is ignored, and
   `;` starts a comment that runs to the end of the line.
 - **Hash lines.** `%% hash <algorithm> <a>..<b> [first <n>] = <hex>`: the named hash over bytes a (inclusive) to b
-  (exclusive) of the case's `encoding` (or `hex`) block, truncated to its first n bytes, in lower-case hex; `<algorithm>`
-  is `blake3_256` (BLAKE3 in its default mode, §7.1) or `xxh3_64` (seed 0, written `0x` and 16 hex digits as a number).
-  `blake3_256 0..<len> first 16` over a whole encoding is the query hash H (§7.1), the value `xtask hex`'s
-  `{blake3_256 a..b}` directive gives before truncation.
+  (exclusive) of the case's one byte block, truncated to its first n bytes, in lower-case hex; `<algorithm>` is
+  `blake3_256` (BLAKE3 in its default mode, §7.1) or `xxh3_64` (seed 0, written `0x` and 16 hex digits as a number). A case
+  holds at most one of the blocks `encoding` and `hex`, and its hash lines are over that block: in a C-AST case (`encoding`)
+  a hash line over the whole encoding with `blake3_256 … first 16` is the query hash H (§7.1), the value `xtask hex`'s
+  `{blake3_128 a..b}` directive gives; in a byte case (`hex`, as in `envelope.cases`) it is a digest of those bytes and
+  never a query hash (spec sync 2b).
 
 **Binding context.** A C-AST case states the context it was bound in with repeatable `%% context` lines, before the
 expected tree, one item each:
@@ -909,3 +923,4 @@ does not touch this chapter (§1.3).
 | C-20 | [F01]'s layout conventions. | §6.1 is an offset table with a `total` row; §6.3 and §6.4 merge the per-structure sequence and enumeration tables into one table each, a departure stated in place as [F01 §2.4] rule 5 requires. The encoding uses `lp()` for strings because it is a hash input that is never stored ([F01 §6.3]); its framing is argued unambiguous in §6.1 as [F01 §7.3] asks. |
 | C-21 | An unaliased `WITH` item that is not a bare variable (`WITH t.x WHERE …`) has no name to bind; Cypher refuses it ("expression in WITH must be aliased"), and [50] is silent. | A bind error, so the C-AST never meets it (V4). [LQ/errors] has no row for it yet; proposed: E001 with the rewrite `WITH <expr> AS <name>`. |
 | C-22 | **Spec sync 2a** (WP-93a review and author). | A bound `list<rev>` parameter is `RLIST`, as the same list written in place (§5.5), so a bound parameter and an equal literal keep one C-AST. A commit literal of all 64 hex digits binds as itself whether or not the store holds the commit; E301 comes only from view resolution (§5.6, §8.2, [LQ/lexical §10.2]), so an imported definition that carries one binds. Enum values match exactly, else by a unique ASCII-case-insensitive match (§5.5). An `ORDER BY` alias is visible inside `EXISTS {}` and `COUNT {}` subqueries of its sort key (V5, V8), which avoids binding a fresh variable silently. §5.10 restates [50 §3.2]'s kind sets (properties never narrow them) and adds duration arithmetic to [50 §3.3]. §9 fixes the file layout of `fixtures/lq/` (suffixes, cases, entry form, strict mode, context lines, hex and hash directives), taken from WP-22's layout. |
+| C-23 | **Spec sync 2b** (WP-93a verification, WP-22 and WP-02b reviews). | §3.4's printer property is over the S-AST printer, which keeps written spellings; [LQ/gql-spelling §5]'s display printer prints bound ASTs and is not bound by it. N5 refuses `EXPECT` with min > max (E001). V12: set-operation parts need equal column counts and take the first part's names. `sresolve` takes `drop` and `dpolicy` `reassign` (§6.4 codes 6 and 4). §7.1 cites `{blake3_128 a..b}` for H. §9: `%% input-json` marks a JSON IR document, and a hash line is over the case's one byte block (`encoding` or `hex`). |

@@ -211,7 +211,7 @@ The header's fields fall into four **parts**; the reader note is a fifth, on lin
 
 | Part | Fields ([LQ/envelope §3.1], §9.1–§9.3) | Limit |
 |---|---|---|
-| base | `branch: <ref>`; `rev <seq>` or `rev <old> -> <new>`; one view flag (`as-of (USE <revspec>)`, `staged (read-only)`, `live`); `<n> row`, `<n> rows`, `<n>+ rows`, `check` or `tx (dry)` (a `DRY` result has no rows field; its `tx (dry)` takes that place); `committed <c8>`; `replayed`; `staged` on a write to a staging ref | ≤ 60 B |
+| base | `branch: <ref>`; `rev <seq>` or `rev <old> -> <new>`; one view flag (`as-of (USE <revspec>)`, `staged (read-only)`, `live`); `<n> row`, `<n> rows`, `<n>+ rows`, `check` or `tx (dry)` (a `DRY` result has no rows field; its `tx (dry)` takes that place); `committed <c8>`; `replayed`; `staged` on a write to a staging ref | ≤ 60 B; ≤ 80 B when the view or the written ref is a staging ref, whose name `merge/<dst>/from/<src>` holds two ref names (spec sync 2b) |
 | files | the `files @` field or `files: no tree bound` (§4.3) | ≤ 80 B |
 | extras | every other field: a composite rev part, the `across` field, the `diff` field, the three search fields, the `derived recomputed` field, `schema v<n>`, `behind main <n>`, `view moved +<k> commits since page 1`, `key <key>`, `lease <lease>`, `IF TIP ok`, `IF TARGETS ok`, `would commit <n> changes` | ≤ 60 B, all extras of the line together |
 | continuation | `dropped <n>`; `more: cursor <cursor>` with the cursor text itself not counted | ≤ 30 B |
@@ -228,7 +228,9 @@ The header's fields fall into four **parts**; the reader note is a fifth, on lin
 4. The cursor text is not counted because its length follows its content ([LQ/envelope §8]), not a template. It is ASCII
    and shell-safe ([LQ/envelope §8.3]).
 
-*(Informative)* `branch: lane/l5np | rev 4471 -> 4472 | committed c4472a0f1` has a base part of 58 B;
+*(Informative)* `branch: merge/main/from/lane/l5np | rev 4471 | staged (read-only) | 12 rows` has a base part of 75 B,
+within a staging view's 80 B, where even `merge/a/from/b` would pass 60 B.
+`branch: lane/l5np | rev 4471 -> 4472 | committed c4472a0f1` has a base part of 58 B;
 ` | behind main 3` is an extras part of 16 B; ` | dropped 4 | more: cursor ` is a continuation part of 28 B. A `DRY`
 header's extras (pass 1, A1-30; open point 1 adopted) are at most ` | IF TIP ok | IF TARGETS ok | would commit 99999 changes`,
 57 B: `nothing written` is not printed (a dry run writes nothing by definition) and `tx (dry)` is counted in the base part.
@@ -648,12 +650,17 @@ Messages are line 1 after `error[<name>]: `; "detail" lists the detail lines; "h
 | | | quote input empty after trimming | `the quote text is empty` | — | — |
 | | | quote not in the file | `the quote does not occur in <path>` | — | `copy the quote from the file as it is now` |
 | | | a `path::A/B` or `path#H` form while [F20 §6.1]'s interim scanner rule holds ([F08 §10.3.1]; pass 1, round 1, A1-14, S1-4, P1-20) | `<spec>: symbol and heading anchors are not available yet` | — | `anchor the lines instead: --at <path>:L-M, with the item's first and last line` |
-| | | symbol or heading not found (once the scanner appendix of [F20] exists) | `<path> has no <kind> <scope>` | — | `candidates: <list>` when scope names lie within Levenshtein distance 2 |
+| | | symbol or heading not found ([F21 §6.5], once its interim rule is lifted) | `<path> has no <kind> <scope>` | — | `candidates: <list>` when scope names lie within Levenshtein distance 2 |
+| | | several items match, or the one match's name path names several items ([F21 §6.5]; spec sync 2b) | `<spec> matches <n> items in <path>` | their scope texts ([F14 §5.6]), one per line, in pre-order, at most 10 | `anchor the lines instead: --at <path>:L-M` |
+| | | the matching item's name path is not recordable ([F21 §2.3], §6.5) | `<spec> names an item whose name path cannot be stored (over 64 segments or 4,096 bytes)` | — | `anchor its lines: --at <path>:L-M records its nearest recordable ancestor` |
+| | | the file's scan failed ([F21 §2.7], §6.5) | `<path> could not be scanned as <lang>` | — | `anchor the lines instead: --at <path>:L-M` |
+| | | a malformed selector: an empty segment, a malformed `X[Y]`, a segment over 4,096 bytes ([F21 §6.1], §6.5) | `<spec> is not a valid symbol or heading selector: <why>` — `<why>`: `an empty segment`, `a malformed X[Y]`, `a segment longer than 4,096 bytes` | — | — |
 | | | a span of trivial lines with an empty window (I-F9, [F18] open point 23) | `<path>:<L>-<M> holds only blank or brace lines and no line around it to anchor on` | — | `anchor a line with text, or link the whole file` |
 | `bad_value` | 2 | a value that does not fit its type or shape outside LQ binding ([F08 §5.4.5], [F06 §5.2]) | `<field> expects <shape>; got <value>`; `NaN is not a value of <field>` | — | — |
 | | | a path value whose root differs from its node's `root` ([F18 §2.8]) | `<path>'s root <r> differs from the node's root <s>` | — | — |
 | | | a git branch name that is not UTF-8 ([F18 §3.2] rule 1) | `the git branch of <tree> is not valid UTF-8` | — | `rename the branch` |
 | | | `--base` ([F18 §3.5]) | `--base <sha> does not name exactly one commit of <tree>'s repository` | — | `write more hex digits` |
+| | | a commit message that [F07 §5.2] refuses (spec sync 2b) | `the commit message <why>` — `<why>`: `is not valid UTF-8 or contains U+0000`, `is longer than 65,535 bytes`, `ends in a paragraph that begins with Moirai-` | — | for the last: `reword the last paragraph; Moirai- lines are the image's trailers` |
 | `bad_ref_name` | 2 | a ref name that breaks [F12 §2.1] or [F12 §2.4] (RN-1–RN-6, IN-3); pass 1, A1-39 | `<name> is not a valid ref name: <reason>` — `<reason>`: `use lower-case a-z, 0-9, _ and - in segments joined by . and /` (RN-1), `branches start with lane/ or plan/, tags with tags/` (RN-1, IN-3), `--kind <k> does not match <prefix>` (IN-3), `the segment <s> is reserved` (RN-2), `the segment <s> reads as a commit or sequence number` (RN-3), `the segment <s> is a Windows device name` (RN-4), `the segment <s> ends in .lock` (RN-5), `it is longer than 128 bytes` (RN-6) | — | — |
 | `ref_exists` | 2 | a new ref whose name a live ref holds (RN-7) | `<name> already exists` | — | — |
 | `ref_prefix` | 2 | a new ref whose name is a prefix of a live ref's, or the reverse (RN-8) | `<name> and <other> cannot both exist: one is a prefix of the other` | — | — |
@@ -675,7 +682,7 @@ Messages are line 1 after `error[<name>]: `; "detail" lists the detail lines; "h
 | | | `restore --into` a directory that is not empty | `<dir> is not empty` | — | `restore into an empty directory` |
 | `staged` | 6 | a merge, sync, import, revert or cherry-pick that staged ([AR §5a.7] step 8) | `<op> staged on <staging>: <v> violations, <c> conflicts; <ref> did not move` — `<op>`: `merge of <src> into <dst>`, `sync of <lane>`, `import of <ref>`, `revert of <c8> onto <ref>`, `cherry-pick of <c8> onto <ref>` | one line per violation, `<skey> <class> <description>` (§12.6); under `--strict`, one line per conflict, `<skey> <class>`; at most 10, then `... <n> more` | `moirai conflicts <staging> lists each one with its fix` |
 | `staging_exists` | 6 | a second merge of one pair; a sync of L while `merge/<L>/from/main` exists (I41′) | `<staging> is open` | — | `finish it with moirai merge --continue <src> --into <dst>, or drop it with moirai merge --abort <src> --into <dst>` |
-| `conflicted_src` | 6 | a merge into `main` while src holds unresolved conflicts ([AR §5a.7] step 0, [RULES/merge-table] PR-003) | `<src> holds <n> unresolved conflicts; a merge into main needs none` | the keys, at most 10 | `resolve them on <src> (moirai conflicts <src>), then merge again` |
+| `conflicted_src` | 6 | a merge into `main` while src holds unresolved conflicts, those its own step-0 sync just landed included ([AR §5a.7] step 0, [RULES/merge-table] PR-003, [API §11.7]) | `<src> holds <n> unresolved conflicts; a merge into main needs none` | the keys, at most 10 | `resolve them on <src> (moirai conflicts <src>), then merge again` |
 | `links_not_ok` | 6 | `links check --strict`, `merge-check --strict-links` ([AR §7.1]) | `<n> of <m> links are not ok (--strict)` | — | — |
 | `repin_needs_at` | 6 | `links fix --repin` after a match that is not exact ([40 §3.7]) | `<handle> matched as <qualified state>, not exactly; --repin recaptures only an exact match` | — | `read moirai file where <handle> --evidence, then pass --at SPEC naming the intended place` |
 | `confirm_refused` | 6 | `links fix --confirm` ([F18 §5.5]) | `<id>'s relink is <how>/...; nothing to confirm`; `<actor> set this guess; another actor confirms it`; `role <role> may not confirm (files.confirm-roles = <list>)` | — | — |
@@ -729,7 +736,7 @@ After [LQ/errors §4.1]'s common keys (§8.6), in this order:
 | `usage` | `"argument":<string or null>` |
 | `bad_path`, `nonportable_name` | `"path":<string>`, `"rule":<string>` (the rule id, the issue name, or `drive-relative` or `device` for [OS/path §7] step 3) |
 | `ambiguous_path` | `"matches":[<string>...]` |
-| `anchor_spec`, `bad_value`, `placement_refused`, `confirm_refused` | `"case":<string>`, naming the case in the order of §10.2's rows for the code: `range`, `binary`, `fffd`, `empty`, `not-found`, `no-scanner`, `no-scope`, `no-window`; `shape`, `nan`, `root`, `branch-utf8`, `base`; `shadow`, `linked-worktree`, `subdirectory`, `broken-git`, `non-store`, `exists`, `link-target`, `not-empty`; `not-a-guess`, `same-actor`, `role`) |
+| `anchor_spec`, `bad_value`, `placement_refused`, `confirm_refused` | `"case":<string>`, naming the case in the order of §10.2's rows for the code: `range`, `binary`, `fffd`, `empty`, `not-found`, `no-scanner`, `no-scope`, `several`, `not-recordable`, `scan-failed`, `syntax`, `no-window`; `shape`, `nan`, `root`, `branch-utf8`, `base`, `message`; `shadow`, `linked-worktree`, `subdirectory`, `broken-git`, `non-store`, `exists`, `link-target`, `not-empty`; `not-a-guess`, `same-actor`, `role`) |
 | `bad_ref_name` | `"name":<string>`, `"rule":<string>` (`RN-1` … `RN-6`, `IN-3`) |
 | `ref_exists` | `"name":<string>` |
 | `ref_prefix` | `"name":<string>`, `"other":<string>` |
@@ -745,7 +752,7 @@ After [LQ/errors §4.1]'s common keys (§8.6), in this order:
 | `tree_mismatch` | `"tree":<string>`, `"lease":<string>`, `"lane_tree":<string>` |
 | `staged` | `"staging_ref":<string>`, `"violations":[{"key":<string>,"class":<string>,"code":<int>,"description":<string>,"suggested":<string>}...]`, `"conflicts":<int>` |
 | `staging_exists` | `"staging_ref":<string>` |
-| `conflicted_src` | `"keys":[<string>...]` |
+| `conflicted_src` | `"keys":[<string>...]`, `"sync":{"commit":<string>,"outcome":"landed","conflicts":[{"key":<string>,"class":<string>}...],"violations":[]}` or `null` (the step-0 sync this command appended on src before it refused, [API §11.7] "Sync first with conflict values"; `null` when src held the conflicts before the command) |
 | `links_not_ok` | `"not_ok":<int>`, `"total":<int>` |
 | `repin_needs_at` | `"anchor":<string>`, `"state":<string>` |
 | `path_claimed` | `"root":<string>`, `"path":<string>`, `"holder":"#N"` |
@@ -779,6 +786,7 @@ After [LQ/errors §4.1]'s common keys (§8.6), in this order:
 | `nonportable_name` | `link`, `file add`, `file mv` under `files.portable-names = warn` ([OS/path §8.2]) | `warning[nonportable_name]: <path> is not portable: <issue>`, the issue texts of §10.2 |
 | `not_a_tree` | `worktree bind DIR REF` on a directory that is not a tree ([F18 §3.5]) | `warning[not_a_tree]: <dir> is not a git tree: binding only, not a designated tree` |
 | `hook_label_narrowed` | a hook label that disagrees with the presented lease's role ([90 §4.3]) | `warning[hook_label_narrowed]: the hook label <label> differs from lease <lease>'s role <role>; the rights are their intersection` |
+| `lease_moved` | a write with `--move-lease <ref>` that moves the presented lease's branch ([AR §5a.4], [API §4.3]; spec sync 2b) | `warning[lease_moved]: lease <lease> moved from <ref> to <ref>` |
 | `two_harnesses` | detection with two harnesses' variables ([90 §4.1]); `doctor agents` | `warning[two_harnesses]: variables of <harness> and <harness> are both set: profile generic, no session identity` |
 | `foreign_lock` | `doctor` ([OS/lock §11]) | `warning[foreign_lock]: another program holds a lock on <store>/LOCK; moirai's waits may stall behind it` |
 | `flushing_disabled` | `doctor` ([OS/env §8]) | `warning[flushing_disabled]: write-cache buffer flushing is turned off for the disk of <store>; a flush may not reach the disk` |
@@ -1263,3 +1271,8 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is `HO
 37. **Pass 1, round 3** (closure NC-8, A1-39's residue). §10.5 lists the two E409 refusals that [API §9.1] and
     [RULES/delete-policy-matrix] DP-005 and DP-007 delegate: a node delete under a live lease without `RELEASE` (I32′)
     and an invalid replacement. Their texts and JSON keys are [LQ/errors §5.5] and §5.7's new cases.
+38. **Spec sync 2b.** §4.2: a staging view's base part may take 80 B, since its ref name holds two ref names and no
+    staged-view header fitted 60 B. §10.2: `anchor_spec` gains [F21 §6.5]'s refusals (cases `several`, `not-recordable`,
+    `scan-failed`, `syntax`); `bad_value` gains the commit-message case (`message`) of [F07 §5.2]. §10.4: `lease_moved`.
+    §10.3: `conflicted_src` carries `sync`, the step-0 sync a refused sync-first merge appended ([API §11.7]), because
+    the error envelope of §8.6 has no `data` (independent check of the sync).

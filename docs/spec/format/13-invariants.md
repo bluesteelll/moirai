@@ -63,6 +63,17 @@ invariants of the design of record, and no row is kept for them (OP-13-01).
   trace records the acknowledgements, flush and lock events, log appends and `ProjectFs` calls that the simulator or the
   harness emits. These functions are trace predicates in the modules `crash::trace` and `r4::trace`. They hold no lock
   and no timing logic of their own, which respects [60 §4.3] (OP-13-02).
+- **The toy vehicle (M0).** PLAN §2.2 forbids `moirai-toylog` → `moirai-model`, and PLAN §3.1 S4 makes the seeded-bug
+  author (R-TOY) someone other than the enumerator's author (R-HARN-S), so that the harness cannot be tuned to its own
+  bugs. For the toy log the I-G4 and I-G6 predicates are therefore written in `moirai-vfs-sim`, the enumerator's crate:
+  generic predicates over the simulator's lock, flush and namespace events and over the decoded `HEAD` slot writes
+  ([F04 §3]), with the namespace check of [F16 §17.2], which judges any subject against the simulator's own namespace
+  model. I-G1 to I-G3 (ack, fresh, chain) and avail are the enumerator's own verdicts there. I-G5 has no predicate of its
+  own on the toy: its adoption-or-loss and identity-check clauses are judged by ack and chain, and its exact retry by the
+  `model` family, which for the toy is the toy's own `doctor --verify` (I14′), written in the toy and reviewed by
+  R-HARN-S ([F16 §17.2]). S4 names only the enumerator's author, so a check in the toy does not break it; the review is
+  what keeps such a check from being fitted to the toy's bugs. The `crash` functions of `moirai-model` above serve the
+  engine's gates from M1 ([F16 §17.2]; OWNER O-2 confirms the authorship).
 - **How they are used.** The model's own suite (WP-94) evaluates every state predicate after every command. GT2 compares
   the engine with the model. GT1 and GT3 call the `crash` functions after every crash state.
 
@@ -144,7 +155,7 @@ invariants are checked at every crash state of GT1 and GT3.
 
 | ID | Invariant | Enforcement | Model function | Gates |
 |---|---|---|---|---|
-| I14′ | An idempotency key is bound to its payload hash and its branch. A hit with a different payload is exit 9. A hit on another branch is exit 9, unless the original branch was merged into the caller's branch or deleted after merge, in which case the original result is returned ([AR §6.4], N13e). Windows per [F17 §11.1] | EP-W2 (P); EP-W6 (P: evaluated after the scan, pending groups included; a hit on a pending group is returned only after that group's identity check); EP-CK (M: retention) | `idem::lookup` ([F17 §11.1]) and `inv::i14p_key_binding` | GT1 (M0 toy log; M1); GT2 (M1); GT4 retry streams (M1) |
+| I14′ | An idempotency key is bound to its payload hash and its branch. A hit with a different payload is exit 9. A hit on another branch is exit 9, unless the original branch was merged into the caller's branch or deleted after merge, in which case the original result is returned ([AR §6.4], N13e). A default key hashes the name of the command's branch ([API §7.2]), so it hits only an entry made on a branch of that name: the cross-branch rule, N13e included, applies to explicit keys, and to a default key only when that name now names another ref; a default-key command on a branch of another name executes as new ([API §7.4]). Windows per [F17 §11.1] | EP-W2 (P); EP-W6 (P: evaluated after the scan, pending groups included; a hit on a pending group is returned only after that group's identity check); EP-CK (M: retention) | `idem::lookup` ([F17 §11.1]) and `inv::i14p_key_binding` | GT1 (M0 toy log; M1); GT2 (M1); GT4 retry streams (M1) |
 | I17′ | A lease mutation must present the current fencing token. Expiry never bumps the token. The same holder may renew an expired, unreclaimed lease | EP-W4 (P: token check); EP-W7 (P: re-checked by key under the lock) | `lease::i17p_fencing` | GT18 lease liveness (M2 semantics; M8; M10); GT4 lease variants (M1); GT2 (M2) |
 | I26′ | Defined on states (§4.1): `#N` is excluded from `ready` and `claim` on branch R, and is never listed there as a live blocker, if and only if some live ref X ≠ R of kind `work` holds `#N` done, cancelled or deleted at `tip(X)`, and the commit on X's history that last set that state (its origin, §4.1) is not an ancestor-or-self of `tip(R)`. The markers and absorbed vectors are a cache of this definition (§4.2) | EP-W4 (M: markers from the hold changes of each landing commit); EP-VC (M: marker recomputation on `undo`, `op restore`, forks and `branch -d`/`-D`); EP-CK (M: `MARKERS_OLD`); EP-RD (P: the exclusion in `ready`, `claim`, `blocking`, `brief`); EP-DV (V: cache against definition) | `coord::i26p_excluded` (the definition, evaluated over all live refs, never from markers, [60 §4.2]) | GT18 I26′ state oracle (M0 on the model: ≥ 10^6 histories nightly, 10^4 in the PR tier; M3); GT10 node-40 table across branches (M0 on the model; M3) |
 | I27′ | Every commit reachable in the log after recovery is reachable from a ref, the reflog or a pin, or is marked orphan and never satisfies an idempotency lookup | EP-W6 and EP-RC (P: a commit whose implied ref move fails its CAS is parked on `orphans/<ref>`); EP-W2 and EP-W6 (P: lookups ignore orphans) | `crash::i27p_orphans` | GT1 (M0 toy log: the torn ref move N3; M1); GT3 (M1); GT4 (M1) |
@@ -186,11 +197,28 @@ invariants are checked at every crash state of GT1 and GT3.
 | ID | Invariant | Enforcement | Model function | Gates |
 |---|---|---|---|---|
 | I-G1 | An acknowledgement implies all three of these: a successful flush that began after the group's bytes were last written, a publish that covers the group, and a passed identity check. A replayed idempotent result is acknowledged the same way | EP-W10 (P: the identity check before acknowledging); EP-W6 (P: a replay of a pending group waits for its identity check) | `crash::ig1_ack_implies_durable`: every acknowledged durable effect is present in every recovered state ([60 §4.4] item 4) | GT1 (M0 toy log; M1); seeded bugs (1), (6) and (7) of [80 §2.4.4] (E4, M0 toy log); "Durable commit semantics" (M1) |
-| I-G2 | Readers never see a durable-class group before a flush covers it. `committed_lsn` never passes a pending durable group, and no process's overlay holds a group beyond the published `committed_lsn` | EP-W6 (P: pending groups go only to a scratch layer); EP-W10 (P: the publish stops before the first uncovered pending durable group); EP-RC (P) | `crash::ig2_read_freshness`: no read reflects a durable-class group that no flush has covered, and after a crash every read reflects every acknowledged record before any writer runs | GT1 post-crash read freshness (M0 toy log; M1); seeded bugs (2) and (10); GT3 (M1) |
+| I-G2 | Readers never see a durable-class group before a flush covers it. `committed_lsn` never passes a pending durable group, and no process's overlay holds a group beyond the published `committed_lsn` | EP-W6 (P: pending groups go only to a scratch layer); EP-W10 (P: the publish stops before the first uncovered pending durable group); EP-RC (P) | `crash::ig2_read_freshness`: no read reflects a durable-class group that no flush has covered, and after a crash every read reflects every acknowledged record before any writer runs, as read precisely below the table | GT1 post-crash read freshness (M0 toy log; M1); seeded bugs (2) and (10); GT3 (M1) |
 | I-G3 | The log is a chain: every group is valid only behind the exact predecessor it was validated against. After any crash or failed flush, the valid log is a prefix of that chain, and nothing acknowledged depends on a lost group | EP-W9 (C: the `group_end` chain trailer, [F05]); EP-W6 and EP-RC (P: a scan stops at the first invalid group) | `crash::ig3_chain_prefix` | GT1, including a failed flush with reverted, invalidated or evicted pages and ≥ 3 live pending writers (M0 toy log; M1); seeded bug (9) |
 | I-G4 | At most one log flush is in flight per store. The flush holder scans and re-writes the pending range under the writer byte, and never flushes or waits for a lock while it holds that byte | EP-W10 (P: the lock order slot < leader < maintenance < flush < writer, [80 §2.2.3]) | `crash::trace::ig4_flush_discipline`, a predicate over the simulator's lock and flush events | GT1 with lock-state assertions (M0 toy log; M1); seeded bugs (4) and (8) |
 | I-G5 | An appended group whose writer dies is either adopted by the next flush holder (re-write, flush, publish) or lost together with everything after it. It is acknowledged only by a process that passes its identity check, and its idempotency key makes a retry exact | EP-W10 (P); EP-RC (P) | `crash::ig5_orphan_group` | GT1 (M0 toy log; M1); seeded bugs (3) and (13); GT4 (M1) |
-| I-G6 | Every publish is a read-modify-write of the newest valid slot, under the writer byte, that folds the `HEAD` effects of every newly covered group in log order. `durable_lsn`, the counters and the `lsn` pointers never decrease. `committed_lsn` decreases only to the valid end after a lost lazy tail | EP-W10 (P); EP-RC (P) | `crash::trace::ig6_publish_monotone`, a predicate over the sequence of published slots | GT1 and the "`HEAD` barrier states" row (M0 toy log; M1); seeded bugs (5), (11) and (12) |
+| I-G6 | Every publish is a read-modify-write of the newest valid slot, under the writer byte, that folds, in log order, the `HEAD` effects of every group above the slot's `durable_lsn` that it covers ([F16] P-50). `durable_lsn`, the counters and the `lsn` pointers never decrease. `committed_lsn` decreases only to the valid end after a lost lazy tail | EP-W10 (P); EP-RC (P) | `crash::trace::ig6_publish_monotone`, a predicate over the sequence of published slots | GT1 and the "`HEAD` barrier states" row (M0 toy log; M1); seeded bugs (5), (11) and (12) |
+
+**I-G2's post-crash clause, read precisely** (spec sync 2b, WP-32 and WP-40):
+- **Boot mode.** The clause holds for Known-boot readers. An Unknown-boot reader reflects every acknowledged record only
+  after the next writer's flush ([OS/proc §5] U5–U6, [F16] P-67): a crash that tears one slot and reverts the other can
+  lose a publish that only that flush republishes.
+- **"Before any writer runs".** The judged read is a reader's first read after its own boot-change recovery ([F16] P-60,
+  P-66).
+- **Process deaths without a crash.** The first read after deaths alone is judged for consistency only: no phantom,
+  nothing half-applied, and freshness against the writers' published state, not completeness. A failed `HEAD` flush,
+  or a publish write that applied nothing, followed by a death that holds the writer byte forever ([F15] FM-8.1 class
+  (c)), can leave every reader's view behind the last publish with no writer to repair it. [60 §4.4] item 3 requires
+  only that `rev` be monotonic per process.
+- **Lazy values.** Read freshness covers durable-class records. A lazy value that a reader in the same boot has already
+  served may be absent from a later read after a failed flush of its file ([F15] FM-3.6); a harness may widen this
+  store-wide (FM-3.6 "Harness allowance"), which is a gate's allowance, not part of the invariant. A field kept only in
+  `HEAD` whose durable publish was not acknowledged may likewise be read again with its old value (FM-3.6 "Fields kept
+  only in `HEAD`").
 
 ### 3.9 File links (R-12, [40 §2.10])
 
@@ -251,16 +279,17 @@ The engine answers `excluded` in O(1) from markers and absorbed vectors ([AR §2
 cache's rules are [RULES/state-definition] §6: the marker fields MF-001 to MF-009, the events ME-001 to ME-013, the
 reader's test AB-001 to AB-004 and the absorbed-vector rules VR-001 to VR-006, with the argument there that the cache
 equals §4.1. [F11 §7] gives the byte layout of `MARKERS` and `MARKERS_OLD`, and [F05 §9.5] the `Marker` record that
-carries every marker change. The labels below are kept for citation; each points at the rule rows, which win.
+carries every change of a marker's holder set or flag (the entries of ME-001 to ME-011; the storage moves of ME-012 and
+ME-013 write none). The labels below are kept for citation; each points at the rule rows, which win.
 
 | # | Rule |
 |---|---|
-| MC-1 | **Emission follows holds.** A commit that lands on a ref X of kind `work` changes the cache only where X's hold of a node changes between its first parent and the commit: a hold the commit produced itself originates a marker with holders {X} (ME-001); a hold taken from the other parent adds X to the holder set of that hold's origin, or re-emits that marker if it is inactive (ME-002, ME-003); a hold that ends removes X from its origin's holder set, and `cleared` is written only when no holder remains (ME-004). This holds whatever produced the commit: verb, batch, `TX`, merge, sync, cherry-pick, revert or import. Commits on other ref kinds, staging refs included, change nothing (ME-008), and neither does a commit that leaves every hold as it was (ME-010): `TX { REOPEN t; SET t.done = true }` on a done task emits nothing ([AR §4.3]) |
+| MC-1 | **Emission follows holds.** A commit that lands on a ref X of kind `work` changes the cache only where X's hold of a node changes between its first parent and the commit: a hold the commit produced itself originates a marker with holders {X} (ME-001); a hold taken from the other parent adds X to the holder set of that hold's origin, or re-emits that marker if it is inactive (ME-002, ME-003); a hold that ends removes X from its origin's holder set, and `cleared` is written only when no holder remains (ME-004). This holds whatever produced the commit: verb, batch, `TX`, merge, sync, cherry-pick, revert or import. Commits on other ref kinds, staging refs included, change no holder set (ME-008), but they can still flag markers nonlinear (ME-011, which applies to every ref kind); a commit that leaves every hold as it was changes no holder set either (ME-010): `TX { REOPEN t; SET t.done = true }` on a done task emits nothing ([AR §4.3]) |
 | MC-2 | **Key and state.** A marker is keyed (`#N`, origin ref, origin commit) and carries the origin's `ref_seq`, `hlc` and `seq`, the set of live work refs that hold `#N` with that origin, and a `nonlinear` flag (MF-001 to MF-009). It is **active** while its holder set is non-empty (MF-006) |
 | MC-3 | **Absorbed vectors.** Every ref carries `absorbed[(ref_id, ref_seq)]`: `absorbed_R[Y]` is the greatest `ref_seq` of a Y-landed commit in ancestors-or-self(tip(R)), maintained by commit, fork, sync, merge (`absorbed_dst[src] = ref_seq(tip src)`, every other entry the maximum of both sides) and `undo` (VR-001 to VR-006; [AR §5a.2], [AR §5a.5], [AR §5a.7] step 7) |
 | MC-4 | **Excluded on R.** `#N` is excluded on R iff some active marker of `#N` is not absorbed by R: a linear marker when `absorbed_R[origin ref] < ref_seq`, a nonlinear one when its origin commit ∉ ancestors-or-self(tip(R)) (AB-001 to AB-004) |
 | MC-5 | **Ref moves and the ref set.** A ref deletion (`branch -d`, `-D`) removes the ref from every holder set and clears only the markers left with no holder, which is the design's "re-attribution to a live ref that contains the marker's commit" (ME-005). `undo` and `op restore` apply MC-1's changes for every node whose hold differs between the old and the new tip, in both directions (ME-006). A fork joins the holder sets of every closed hold at its fork commit (ME-007). The first commit to land on a ref that `undo` or `op restore` moved off a marker's origin flags that marker nonlinear for good (ME-011). Each `settled`, `deleted` or `cleared` record prints a triage line ([AR §5a.5], [AR §5a.9]) |
-| MC-6 | **Inertness.** At each checkpoint fold, cleared markers and markers absorbed by every live ref move from `MARKERS` to `MARKERS_OLD`, which no scan reads (ME-012, [AR §4.4]); a ref move or a fork that makes such a marker count again returns it to `MARKERS`, flagged nonlinear (ME-013). `gc` drops `MARKERS_OLD` rows older than `gc.reflog-expire` ([F17 §11.2]) |
+| MC-6 | **Inertness.** At each checkpoint fold, cleared markers and markers absorbed by every live ref of every kind move from `MARKERS` to `MARKERS_OLD`, which no scan reads, with their holder sets and flags (ME-012, [AR §4.4]). ME-002 to ME-007 and ME-011 go on writing for a row in `MARKERS_OLD` the entries they would write in `MARKERS`, and such an entry returns the row to `MARKERS` with the entry applied; after `undo` or `op restore` moves a ref, or a fork creates one, an active row that some live ref has not absorbed returns as well (ME-013). The move and the return are storage moves: they are derived from the rows and the absorbed vectors, write no record and change no holder set or flag, so the records are the same whether or not a fold ran ([F11 §7] "Records"). A `gc` run's checkpoint fold, after its inertness move, drops the `MARKERS_OLD` rows whose `hlc` is older than the run's reflog window (`gc.reflog-expire`, or the run's `reflog_expire`; [F11 §7] "Retention", [F17 §11.2]) |
 | MC-7 | **Equivalence obligation.** For every live ref R and every task `#N`, the cache answer (MC-4) equals `excluded(R, #N)` of §4.1. GT18's I26′ oracle checks this equivalence through every door: `complete`, `set --done`, `set --status`, MCP `write`, `apply`, `cherry-pick`, `revert`, `merge`, `sync`, image import. It also checks every ref move: `reopen`, `Undelete`, `undo` of either, `op restore` both ways, forks with `branch -D` or `undo` on the parent, staging and `merge --abort`, and `TX` coalescing ([AR §8.2]; [RULES/state-definition] `door-coverage` and the scenarios S1 to S13). `doctor --verify` re-checks it ([AR §4.10]) |
 
 The first draft's own rules MC-1 to MC-6 disagreed with §4.1 when a parent ref reopened a completion that a fork still held
@@ -301,6 +330,10 @@ Rules:
   - On a merge, sync, import, revert or cherry-pick, each structural violation becomes one `Violation` op, and the commit is
     staged on `merge/<dst>/from/<src>` or `import/<ref>` (I12, I41′). Value conflicts land as `Conflict` ops unless
     `--strict` is given ([AR §5a.7] step 8).
+  - On a staging ref, a `RESOLVE` block ([F12 §6.5]) is refused only for a structural violation of a check that the view
+    before it passed, and always when it makes a node its own ancestor. Violations the staged view already has do not
+    refuse it; `merge --continue` re-checks them ([F12 §9.4]). Otherwise single-key resolution would be impossible
+    whenever the staged view breaks I2, I4, I5′, I6, I7 or I11.
 - **VO-4 (immediate and deferred).** The immediate validators of EP-W4 (schema per op, write mask, CAS guards, lease token,
   role policy, status machine, restrict policies) run per statement and before the deferred ones. They are not part of the
   I37′ order. A `TX` runs the deferred validators once, over the whole block ([50 §5.9] step 2).
@@ -406,6 +439,13 @@ are specified in [F17], where the production values that measurements decide are
     That would break the "model function for every invariant" rule of [AR §8.3].
   - The review decides whether R-MODEL or R-HARN-S writes them. S4 forbids the seeded-bug author from being the enumerator's
     author, not the model's.
+  - **Spec sync 2b (WP-40 review and closure):** for the toy vehicle, R-HARN-S writes the I-G4 and I-G6 predicates and the
+    namespace check in `moirai-vfs-sim` (§1.4), because the toy may not depend on `moirai-model` (PLAN §2.2) and these
+    generic checks are the enumerator's, which S4 keeps from the seeded-bug author; ack, fresh, chain and avail are the
+    enumerator's verdicts; checks that need the toy's own state
+    (`doctor --verify`, which carries the `model` family, and read visibility against its replayed view) stay the toy's
+    and are reviewed by R-HARN-S as a WP-40 acceptance step. R-MODEL keeps the `crash` functions for the
+    engine's gates from M1. The authorship is PLAN's (OWNER O-2).
 - **OP-13-03 (`topo`).** I9 lists `topo` among the structures that "equal a full recomputation". A Pearce–Kelly position is
   not a function of the graph. The resolution:
   - I9 is read for `topo` as "is a topological order of the combined precedence graph";
@@ -475,3 +515,13 @@ are specified in [F17], where the production values that measurements decide are
     as the set of referrers whose single-hop value a commit changes; [F17 §8.2] budgets that set.
   - If the review wants transitive propagation, `P_F15`, the model's `derived` module and [F17 §8.2]'s `S(c)` change
     together.
+- **OP-13-15 (spec sync 2b).** Three readings met by WP-32, WP-90b and WP-91: I-G2's post-crash clause is stated
+  precisely after the §3.8 table (boot mode, the judged first read, deaths without a crash, lazy values); MC-1 says that
+  a commit on another ref kind changes no holder set but can still flag markers nonlinear (ME-008, ME-011); VO-3 lets a
+  `RESOLVE` block on a staging ref pass over the violations its view already has, re-checked by `merge --continue`
+  ([F12 §6.5], §9.4). The independent check of the sync added three: MC-6 and §4.2's lead-in follow
+  [RULES/state-definition] open point 17 (a) (ME-012's move and ME-013's return are storage moves that keep the holder
+  set and flag and write no record; `gc` drops `MARKERS_OLD` rows after its inertness move), where MC-6 still had ME-013
+  flag a returned row nonlinear; I14′ says that a default key, which hashes the branch name ([API §7.2]), meets the
+  cross-branch rule only when that name names another ref; §1.4 states PLAN S4 as PLAN does (it names only the
+  enumerator's author).

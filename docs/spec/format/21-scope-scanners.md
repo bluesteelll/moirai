@@ -4,7 +4,7 @@
 |---|---|
 | Title | The scope scanners of resolver version 1: the Rust, Markdown and TOML scanners as total algorithms over any anchor text (tokens and line classes, what an item is, names and qualifiers, line spans, nesting, malformed input, limits); name paths, the scope a capture records and how a scope resolves; the `symbol` and `heading` authoring forms; golden examples, one fixture per construct |
 | Chapter | [F21], `docs/spec/format/21-scope-scanners.md` |
-| Status | draft, pass 1 pending (written after pass 1 closed; its first review is pass 2, open point 1) |
+| Status | draft, pass 2 pending (written after pass 1 closed, [F01 §2.3]; open points 1 and 2) |
 | Work package | WP-14b (R-SPEC-R), the scanner appendix that owner question OQ-R-2 requires before the freeze and before WP-63 is accepted ([PLAN §3.2] items 1 and 6; `reviews/owner-questions.md`, decided 2026-09-28) |
 | Sources | [40 §2.7] (the `scope` selector, the authoring forms `path::A/B` and `path#H`, capture steps 3 and 4, "numbering such as `3.2` or `§` is stripped into its own field"); [40 §2.7.1] (the three scanners: a Rust tokenizer that tracks comments, strings, raw strings, char literals versus lifetimes and brace nesting; a fence-aware ATX/setext Markdown line scanner; a TOML table and key line scanner; validated against tree-sitter as a test-only oracle); [40 §4.5] (scope narrowing, same-kind headers); [40 §8.3.4] row 8 (scanner agreement); [F20] Appendix A as it stood after spec sync 2a (the Rust part, moved here); the WP-74 oracle's rules 1–8 (`moirai-tsoracle` crate documentation, "Items", output format 2); owner question OQ-R-2; informative: [11 §2.5, §2.6, §4.1] (numbered headings, name-path uniqueness, the scope shapes), CommonMark 0.31.2 (ATX and setext headings, fenced code, HTML blocks, thematic breaks, list items), TOML 1.0.0 (keys, tables, arrays of tables, strings, arrays, inline tables) |
 | Depends on | [F01] (notation, `uvar32`, `vstr`, order); [F08 §10.3.1] (the scope value and its `lang` and `skind` codes); [F14 §5.6] (the scope text); [F19 §10.2] (the `anchor_spec` refusal texts); [F20] (§1.2 notation, §1.3 resolver version, §2.5 `atext`, `lines`, `nl`, N and `start`/`end`, §2.8 header text, §6 the anchor constants and the interim scanner rule) |
@@ -1196,9 +1196,9 @@ file near them, and a change after the tag would be a new resolver version.
    pass 2 accepts this chapter with no open blocker or major finding; [F20 §6.1], [F08 §10.3.1], [F14 §5.6] and
    [F19 §10.2] then drop their interim texts in one sync. If pass 2 does not accept it before the freeze, format v1 keeps
    the interim rule (OQ-R-2 option (b)).
-2. **Status row.** [F01 §2.3] has no status for a chapter written after pass 1 closed. This chapter uses `draft, pass 1
-   pending`, as the closest listed value, and is reviewed first in pass 2. [F01] (R-SPEC-F) may add a status
-   `draft, pass 2 pending`.
+2. **Status row.** [F01 §2.3] had no status for a chapter written after pass 1 closed, so this chapter first used
+   `draft, pass 1 pending`, the closest listed value. Spec sync 2b added `draft, pass 2 pending` to [F01 §2.3] for
+   exactly this case; the header and the format index of `docs/spec/README.md` now use it, and the chapter is reviewed first in pass 2.
 3. **Correction: the scope item of a capture** (§2.4, formerly [F20] Appendix A.6). A.6 read "the deepest item of C that
    is an ancestor of, or equal to, every item of C"; since C holds every ancestor of its items, that is always C's
    outermost item, while A.9 construct 12 expects the innermost (`rust:mod a/impl S[Tr]/fn f/impl Local/fn g` for line
