@@ -446,8 +446,9 @@ fn item_name_refuses_an_empty_canonical_name() {
     assert_eq!(text, "xf");
 }
 
-/// Rule 8: a syntax error takes out of the claim only the items whose node contains it, the items inside an ERROR
-/// node, and the items inside an item whose name or trait contains it. Every other item of the file stays `ok`.
+/// Rule 8: a syntax error that leaves brackets balanced takes out of the claim only the items whose node contains it,
+/// the items inside an ERROR node, the items inside an item whose name or trait contains it, and an item it stands
+/// directly before on an earlier line. Every other item of the file stays `ok`.
 #[test]
 fn errors_exclude_only_the_items_they_touch() {
     // An error inside a function's parameters: only that function.
@@ -459,14 +460,23 @@ fn errors_exclude_only_the_items_they_touch() {
             claim("b", None, true)
         ]
     );
-    // A MISSING `)` and a MISSING `}`: the module and `g` contain one; `f` and `h` are clean inside the module.
+    // A MISSING `;`: the module and the `const` contain it; `h` and `z` are clean.
     assert_eq!(
-        claims(b"mod a { fn f() {} fn g( { } fn h() {}"),
+        claims(b"mod m {\n    const C: u8 = 1\n    fn h() {}\n}\nfn z() {}\n"),
+        [
+            claim("m", None, false),
+            claim("C", Some(0), false),
+            claim("h", Some(0), true),
+            claim("z", None, true)
+        ]
+    );
+    // A raw-string ABI (a grammar gap) whose ERROR node pairs its brackets: the items after it keep their places.
+    assert_eq!(
+        claims(b"fn a() {\n    extern r#\"C\"# {\n    }\n    fn b() {}\n}\nfn c() {}\n"),
         [
             claim("a", None, false),
-            claim("f", Some(0), true),
-            claim("g", Some(0), false),
-            claim("h", Some(0), true)
+            claim("b", Some(0), true),
+            claim("c", None, true)
         ]
     );
     // An error in an `impl`'s where clause, outside its name and trait: the methods stay in the claim.
@@ -488,11 +498,80 @@ fn errors_exclude_only_the_items_they_touch() {
         claims(b"fn g() {}\nimpl Tr for Foo<~> { fn f() {} }\n"),
         [claim("g", None, true), claim("f", None, false)]
     );
-    // An error in a sibling statement of a function body leaves a nested item clean.
+    // An error on an earlier line directly before an item may hold its qualifier (a grammar gap): the item's start
+    // line is suspect. On the item's own line it moves nothing.
+    let gap = b"unsafe extern \"C\" {\n    unsafe\n    static U: u8;\n    safe static S: u8;\n}\nfn after() {}\n";
+    assert_eq!(
+        claims(gap),
+        [
+            claim("U", None, false),
+            claim("S", None, true),
+            claim("after", None, true)
+        ]
+    );
+    assert_eq!(
+        rows_of(&scan_bytes(gap))[..2],
+        [
+            row("static", "U", "", 3, 3, None),
+            row("static", "S", "", 4, 4, None)
+        ]
+    );
+    // A comment between the error and the item changes nothing.
+    assert_eq!(
+        claims(b"unsafe extern \"C\" {\n    unsafe // c\n    static U: u8;\n}\n"),
+        [claim("U", None, false)]
+    );
+}
+
+/// Rule 8: a syntax error that leaves brackets unbalanced — a MISSING bracket, or an ERROR node whose brackets do not
+/// pair up — takes every later item of the file out of the claim, because error recovery closes the enclosing nodes
+/// at other brackets than the source's.
+#[test]
+fn an_error_that_unbalances_brackets_excludes_every_later_item() {
+    // A MISSING `)` and a MISSING `}`: by the source's brackets `h` lies inside `g`'s parameter list, where
+    // tree-sitter does not put it. `f`, before the errors, stays `ok`.
+    assert_eq!(
+        claims(b"mod a { fn f() {} fn g( { } fn h() {}"),
+        [
+            claim("a", None, false),
+            claim("f", Some(0), true),
+            claim("g", Some(0), false),
+            claim("h", Some(0), false)
+        ]
+    );
+    // An unclosed `(` in a statement: by the source's brackets `g` lies inside it.
     assert_eq!(
         claims(b"fn f() { let x = (; fn g() {} }"),
-        [claim("f", None, false), claim("g", Some(0), true)]
+        [claim("f", None, false), claim("g", Some(0), false)]
     );
+    // A stray `}`: every item after it.
+    assert_eq!(
+        claims(b"fn a() {}\n}\nfn b() {}\nfn c() {}\n"),
+        [
+            claim("a", None, true),
+            claim("b", None, false),
+            claim("c", None, false)
+        ]
+    );
+    // Raw-string ABIs (a grammar gap; found by moirai-replay's generated sources) whose ERROR nodes keep a block's
+    // `{`: the inner `impl` ends at line 10, not 13, and its second method (line 11) lands in the outer function. The
+    // item before the errors stays `ok`; every item after them is out of the claim, the misplaced method included.
+    let src = b"impl S {\n    fn a(&self) {\n        loop {\n            impl S {\n                fn a(&self) {\n                    fn a() {\n                    }\n                    extern r#\"C\"# {\n                    }\n                }\n                fn a(&self) {\n                }\n            }\n            break;\n        }\n    }\n    fn a(&self) {\n        extern r\"C\" fn a() {\n        }\n    }\n}\nfn after() {}\n";
+    let scan = scan_bytes(src);
+    let rows = rows_of(&scan);
+    let oks: Vec<bool> = scan.items().map(|i| i.ok).collect();
+    let at = |line: usize| {
+        rows.iter()
+            .position(|r| r.3 == line)
+            .unwrap_or_else(|| panic!("no item at line {line}: {rows:?}"))
+    };
+    assert_eq!(rows[at(11)].5, Some(1), "the method tree-sitter misplaces");
+    assert!(oks[at(6)], "the innermost function precedes the errors");
+    assert!(
+        rows.iter().zip(&oks).all(|(r, ok)| r.3 < 11 || !ok),
+        "items after the errors: {rows:?} {oks:?}"
+    );
+    assert!(!oks[at(22)]);
 }
 
 /// Outside literals and comments tree-sitter makes invalid UTF-8 an ERROR node, so the scan goes on; the source
@@ -565,7 +644,7 @@ fn a_nul_in_a_name_is_escaped() {
 /// list is updated.
 #[test]
 fn known_grammar_gaps_are_syntax_errors() {
-    let gaps: [&[u8]; 17] = [
+    let gaps: [&[u8]; 23] = [
         // Unstable Rust.
         b"auto trait A {}",
         b"unsafe auto trait A {}",
@@ -590,6 +669,14 @@ fn known_grammar_gaps_are_syntax_errors() {
         // A NUL byte in a line comment (block and doc comments take it).
         b"// a\0b\nfn f() {}",
         b"fn f() {\n    // a\0b\n}",
+        // A `const` named `default`, at the top level and in an `impl` body.
+        b"const default: u8 = 1;",
+        b"impl S {\n    const default: u8 = 1;\n}",
+        // An ABI written as a raw string: on a function, a block and a function pointer type.
+        b"extern r\"C\" fn f() {}",
+        b"const unsafe extern r#\"system\"# fn f() {}",
+        b"extern r#\"C\"# { fn f(); }",
+        b"type F = extern r\"C\" fn(u8);",
     ];
     for src in gaps {
         let scan = scan_bytes(src);

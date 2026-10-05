@@ -114,8 +114,9 @@ pub struct Item<'a> {
     /// The index in [`Scan::items`] of the nearest enclosing item, if any (rule 6). It is always less than this item's
     /// index.
     pub parent: Option<usize>,
-    /// Whether the item is inside the oracle's claim (rule 8): no syntax error lies in its node, in an enclosing node
-    /// or in the name of an enclosing item.
+    /// Whether the item is inside the oracle's claim (rule 8): no syntax error lies in its node, in an enclosing node,
+    /// in the name of an enclosing item, directly before it on an earlier line, or anywhere before it while leaving
+    /// brackets unbalanced.
     pub ok: bool,
 }
 
@@ -240,6 +241,8 @@ pub struct Oracle {
     /// During a walk, the tree depths of the enclosing nodes that take the items inside them out of the claim
     /// (rule 8): ERROR nodes, and item nodes whose name or qualifier is empty or has a syntax error.
     taint: Vec<usize>,
+    /// The open brackets while [`unbalances`] reads an ERROR node.
+    brackets: Vec<u8>,
 }
 
 impl Oracle {
@@ -277,6 +280,7 @@ impl Oracle {
             bang,
             stack: Vec::new(),
             taint: Vec::new(),
+            brackets: Vec::new(),
         })
     }
 
@@ -305,12 +309,16 @@ impl Oracle {
         self.taint.clear();
         // The cursor's depth below the root, kept in step with its moves.
         let mut depth = 0usize;
+        // Rule 8: once an error leaves brackets unbalanced, no later item is claimed. Nodes are visited in pre-order,
+        // so every item visited after the error starts at or after it.
+        let mut shifted = false;
         let mut cursor = tree.walk();
         loop {
             let node = cursor.node();
             let mut taints = node.is_error();
             if taints || node.is_missing() {
                 out.errors = out.errors.saturating_add(1);
+                shifted = shifted || unbalances(node, src, &mut self.brackets);
             }
             if let Some(kind) = self
                 .kinds
@@ -318,7 +326,7 @@ impl Oracle {
                 .copied()
                 .flatten()
             {
-                let path_ok = utf8 && self.taint.is_empty();
+                let path_ok = utf8 && !shifted && self.taint.is_empty();
                 taints |= !self.push_item(kind, node, src, path_ok, out);
             }
             if cursor.goto_first_child() {
@@ -402,7 +410,7 @@ impl Oracle {
             end: end_line,
             parent: self.stack.last().map(|&(i, _)| i),
             // `has_error` covers the node and everything inside it, MISSING nodes included.
-            ok: path_ok && !node.has_error(),
+            ok: path_ok && !node.has_error() && !after_error_line(node),
             name,
             qual,
         });
@@ -424,6 +432,87 @@ impl Oracle {
         }
         None
     }
+}
+
+/// Whether an ERROR node stands directly before `node` (only comments between) and ends on an earlier line than
+/// `node` starts (crate documentation, rule 8). Such an error may hold the item's visibility or a qualifier the
+/// grammar does not parse — `unsafe⏎static S: u8;` in an `unsafe extern` block gives an ERROR node `unsafe` and a
+/// `static_item` from `static` — so the item's first token, and with it `start` (rule 5), may lie inside the error.
+/// An error on the item's own line cannot move `start`, and the name path never includes a qualifier.
+fn after_error_line(node: Node<'_>) -> bool {
+    let mut prev = node.prev_sibling();
+    while let Some(p) = prev {
+        if p.is_error() {
+            return p.end_position().row < node.start_position().row;
+        }
+        if !p.is_extra() {
+            return false;
+        }
+        prev = p.prev_sibling();
+    }
+    false
+}
+
+/// Whether the syntax error `node` (an ERROR or a MISSING node) leaves brackets unbalanced (crate documentation,
+/// rule 8): a MISSING `(`, `)`, `[`, `]`, `{` or `}`, or an ERROR node whose bracket tokens, read in order, do not
+/// pair up. Error recovery then closes the enclosing nodes at other brackets than the source's, so the parent, the
+/// lines and the name path of every later item may be shifted: `extern r#"C"# {⏎}` in a function body (a grammar gap)
+/// gives an ERROR node holding the `{`, and the function ends at the `}` meant for it. A childless ERROR node's bytes,
+/// which no token covers, are read as brackets wherever they hold one. `open` is scratch space.
+fn unbalances(node: Node<'_>, src: &[u8], open: &mut Vec<u8>) -> bool {
+    if node.is_missing() {
+        return is_bracket(node.kind().as_bytes());
+    }
+    open.clear();
+    let mut cursor = node.walk();
+    loop {
+        let leaf = cursor.node();
+        if cursor.goto_first_child() {
+            continue;
+        }
+        let tokens: &[u8] = if leaf.is_missing() {
+            if is_bracket(leaf.kind().as_bytes()) {
+                return true;
+            }
+            &[]
+        } else if leaf.is_error() {
+            &src[leaf.byte_range()]
+        } else if is_bracket(leaf.kind().as_bytes()) {
+            // An anonymous token's kind is its text.
+            leaf.kind().as_bytes()
+        } else {
+            &[]
+        };
+        for &b in tokens {
+            let paired = match b {
+                b'(' | b'[' | b'{' => {
+                    open.push(b);
+                    true
+                }
+                b')' => open.pop() == Some(b'('),
+                b']' => open.pop() == Some(b'['),
+                b'}' => open.pop() == Some(b'{'),
+                _ => true,
+            };
+            if !paired {
+                return true;
+            }
+        }
+        // The cursor's root is `node`: it climbs no higher.
+        loop {
+            if cursor.goto_next_sibling() {
+                break;
+            }
+            if !cursor.goto_parent() {
+                return !open.is_empty();
+            }
+        }
+    }
+}
+
+/// Whether a token's text is one bracket.
+fn is_bracket(text: &[u8]) -> bool {
+    matches!(text, b"(" | b")" | b"[" | b"]" | b"{" | b"}")
 }
 
 /// Appends the canonical name of `src[range]` to `text` and returns its range there, or returns `None` with `text`
