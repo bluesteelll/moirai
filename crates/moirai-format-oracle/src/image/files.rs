@@ -1,4 +1,4 @@
-//! [F14] the image's other files: the `.moirai-image` marker (§4), the schema tables (§7.1), named-query files (§7.2),
+//! \[F14\] the image's other files: the `.moirai-image` marker (§4), the schema tables (§7.1), named-query files (§7.2),
 //! checkpoint ref rows (§8) and the side-ref files `meta.moi`, `aliases/<h1>.moi` and `ops.moi` (§14). Each parser reads
 //! the importer's superset (§9.1 rules 1–4) and each encoder writes the canonical bytes.
 
@@ -85,11 +85,11 @@ pub fn encode_marker(m: &Marker) -> Vec<u8> {
 /// One schema row ([F14 §7.1]) as its property list, kept to re-encode.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SchemaRow {
-    /// `kind`, `field`, `value` or `edge`.
+    /// `kind`, `field`, `value`, `edge` or `policy`.
     pub what: String,
-    /// The positional words after the row keyword.
+    /// The positional words after the row keyword (a `policy` row: its `pname`).
     pub keys: Vec<String>,
-    /// `k=v` properties in grammar order (values decoded).
+    /// `k=v` properties in grammar order (values decoded); a `policy` row's token as `value`.
     pub props: Vec<(String, String)>,
     /// `retired`.
     pub retired: bool,
@@ -268,8 +268,59 @@ fn prop_ok(what: &str, k: &str, v: &str) -> bool {
     }
 }
 
+/// [F14 §7.1] `pname`: 1–16 `pseg`s joined by `.`, at most 255 bytes, `pseg` = (LALPHA / DIGIT) *63(LALPHA / DIGIT /
+/// `-` / `_`): [CFG §3.3]'s canonical key-name form of a [CFG §10.13] row instance.
+pub fn is_pname(s: &str) -> bool {
+    s.len() <= 255
+        && s.split('.').count() <= 16
+        && s.split('.').all(|p| {
+            let b = p.as_bytes();
+            let word = |c: &u8| c.is_ascii_lowercase() || c.is_ascii_digit();
+            !b.is_empty()
+                && b.len() <= 64
+                && word(&b[0])
+                && b.iter().all(|c| word(c) || *c == b'-' || *c == b'_')
+        })
+}
+
+/// [F14 §7.1] `policy-row` = `policy ` pname SP token: the row's name and its canonical value ([CFG §4.1]) as a §5.5
+/// token, which the row keeps decoded.
+fn parse_policy_row(rest: &str, at: usize) -> Result<SchemaRow> {
+    let Some((name, value)) = rest.split_once(' ') else {
+        return parse_err(
+            Rule::NoProduction,
+            at,
+            "a policy row is `policy <pname> <token>` [F14 §7.1]",
+        );
+    };
+    if !is_pname(name) {
+        return parse_err(
+            Rule::NoProduction,
+            at,
+            format!("policy row name {name:?} is not a pname [F14 §7.1]"),
+        );
+    }
+    let (v, n, _) = read_token(value, at)?;
+    if n != value.len() {
+        return parse_err(
+            Rule::NoProduction,
+            at,
+            "bytes after a policy row's value [F14 §7.1]",
+        );
+    }
+    Ok(SchemaRow {
+        what: "policy".into(),
+        keys: vec![name.to_owned()],
+        props: vec![("value".into(), v)],
+        retired: false,
+    })
+}
+
 fn parse_row(line: &str, at: usize) -> Result<SchemaRow> {
     let (what, rest) = line.split_once(' ').unwrap_or((line, ""));
+    if what == "policy" {
+        return parse_policy_row(rest, at);
+    }
     let (nkeys, table): (usize, &[(&str, bool)]) = match what {
         "kind" => (1, &KIND_PROPS),
         "field" => (2, &FIELD_PROPS),
@@ -395,6 +446,12 @@ fn parse_row(line: &str, at: usize) -> Result<SchemaRow> {
 
 fn row_text(r: &SchemaRow) -> String {
     let mut o = format!("{} {}", r.what, r.keys.join(" "));
+    if r.what == "policy" {
+        let v = r.props.first().map_or("", |p| p.1.as_str());
+        o.push(' ');
+        o.push_str(&token(v));
+        return o;
+    }
     for (k, v) in &r.props {
         let v = if k == "default" || k == "reading" {
             token(v)
@@ -409,20 +466,33 @@ fn row_text(r: &SchemaRow) -> String {
     o
 }
 
-fn row_order_key(r: &SchemaRow) -> Vec<Vec<u8>> {
+/// A row's place in [F14 §7.1]'s order: its table (kinds, fields and values, edges, policy rows), then its key; a field
+/// row sorts before the value rows of its field (its value name counts as empty). Two rows of one key are a line
+/// repeated (§9.2), two `policy` rows of one name included.
+fn row_order_key(r: &SchemaRow) -> (u8, Vec<Vec<u8>>) {
     match r.what.as_str() {
-        "field" => vec![
-            r.keys[0].clone().into_bytes(),
-            r.keys[1].clone().into_bytes(),
-            Vec::new(),
-        ],
-        "value" => r.keys.iter().map(|k| k.clone().into_bytes()).collect(),
-        _ => vec![r.keys[0].clone().into_bytes()],
+        "field" => (
+            1,
+            vec![
+                r.keys[0].clone().into_bytes(),
+                r.keys[1].clone().into_bytes(),
+                Vec::new(),
+            ],
+        ),
+        "value" => (1, r.keys.iter().map(|k| k.clone().into_bytes()).collect()),
+        w => (
+            match w {
+                "kind" => 0,
+                "edge" => 2,
+                _ => 3,
+            },
+            vec![r.keys[0].clone().into_bytes()],
+        ),
     }
 }
 
-/// Parses a schema table file (`kinds.moi`, `fields.moi`, `edges.moi`, [F14 §7.1]); rows are returned in canonical
-/// order.
+/// Parses a schema table file (`kinds.moi`, `fields.moi`, `edges.moi`, `policy.moi`, [F14 §7.1]); rows are returned
+/// in canonical order.
 pub fn parse_schema_file(b: &[u8]) -> Result<Vec<SchemaRow>> {
     let l = lines_of(b)?;
     if l.first().map(String::as_str) != Some("moirai-schema 1") {
@@ -456,8 +526,11 @@ pub fn encode_schema_file(rows: &[SchemaRow]) -> Vec<u8> {
     join(&l)
 }
 
-/// Adds a tree's project schema rows to the effective schema ([F14 §11.1] step 1).
+/// Adds a tree's project schema rows to the effective schema ([F14 §11.1] step 1). A project kind's initial status is
+/// its non-retired `status` value with the least `rank`, ties by value name bytewise ([F08 §8.5.1]). Policy rows are
+/// policy data ([F08 §8.5.6]) and change no parse.
 pub fn extend_schema(schema: &mut Schema, rows: &[SchemaRow]) -> Result<()> {
+    let mut initial: std::collections::BTreeMap<String, (u64, String)> = Default::default();
     for r in rows {
         let p = |k: &str| r.props.iter().find(|x| x.0 == k).map(|x| x.1.as_str());
         match r.what.as_str() {
@@ -545,8 +618,10 @@ pub fn extend_schema(schema: &mut Schema, rows: &[SchemaRow]) -> Result<()> {
                         );
                     };
                     k.statuses.push(value.clone());
-                    if k.initial.is_empty() {
-                        k.initial = value.clone();
+                    let rank = p("rank").and_then(parse_dec).unwrap_or(u64::MAX);
+                    let cand = (rank, value.clone());
+                    if !r.retired && initial.get(kind).is_none_or(|best| cand < *best) {
+                        initial.insert(kind.clone(), cand);
                     }
                     continue;
                 }
@@ -574,6 +649,7 @@ pub fn extend_schema(schema: &mut Schema, rows: &[SchemaRow]) -> Result<()> {
                     }
                 }
             }
+            "policy" => {}
             _ => {
                 let props = match p("props") {
                     Some("pinned") => super::schema::Props::Pinned,
@@ -594,6 +670,11 @@ pub fn extend_schema(schema: &mut Schema, rows: &[SchemaRow]) -> Result<()> {
                     );
                 }
             }
+        }
+    }
+    for (kind, (_, value)) in initial {
+        if let Some(k) = schema.kinds.get_mut(&kind) {
+            k.initial = value;
         }
     }
     Ok(())
@@ -797,8 +878,9 @@ pub fn parse_query(b: &[u8], q: Option<&str>) -> Result<Query> {
 
 /// [F14 §7.2.2] consistency and portability of a definition: the text is a `define_stmt` whose `qname` is the file's
 /// name, whose `param_decl` list renders to `params:` (§7.2.3; the line is absent exactly when there is no parameter),
-/// whose `SHAPE` and `BUDGET` words equal `shape:` and `budget:` ASCII-case-insensitively (a text without `BUDGET` stores
-/// `medium`, [LQ/std §2.4]), and which holds no node literal ([LQ/lexical §10.2] pre-check).
+/// whose `SHAPE` and `BUDGET` words equal `shape:` and `budget:` ASCII-case-insensitively (a text without `SHAPE` stores
+/// `table`, [LQ/std §2.3], and one without `BUDGET` stores `medium`, [LQ/std §2.4]; spec sync 2b), and which holds no
+/// node literal ([LQ/lexical §10.2] pre-check).
 fn check_definition(
     name: &str,
     params: Option<&str>,
@@ -825,9 +907,11 @@ fn check_definition(
             "params: {params:?} is not the rendered param_decl list {want:?}"
         ));
     }
-    if h.shape
+    if !h
+        .shape
         .as_deref()
-        .is_some_and(|s| !s.eq_ignore_ascii_case(shape))
+        .unwrap_or("table")
+        .eq_ignore_ascii_case(shape)
     {
         return bad(format!("shape: {shape} differs from the SHAPE word"));
     }
@@ -1155,5 +1239,90 @@ mod tests {
         let rows = parse_schema_file(fields.as_bytes()).unwrap();
         assert_eq!(rows.len(), 2);
         assert!(parse_schema_file(b"moirai-schema 1\nkind x existence=none\n").is_err());
+    }
+
+    /// [F14 §7.1] (spec sync 2b S2B-R-28): `policy <pname> <token>` rows in name order; a value that needs JSON; a
+    /// repeated name is a line repeated (§9.2); `pname` is 1–16 lower-case segments of at most 64 bytes, 255 in all.
+    #[test]
+    fn policy_rows() {
+        let src = "moirai-schema 1\npolicy merge.policy.task delete-wins\npolicy policy.role.developer.fields \"files_owned, title\"\n";
+        let rows = parse_schema_file(src.as_bytes()).unwrap();
+        assert_eq!(
+            rows[1].keys,
+            vec!["policy.role.developer.fields".to_owned()]
+        );
+        assert_eq!(rows[1].props[0].1, "files_owned, title");
+        assert_eq!(encode_schema_file(&rows), src.as_bytes());
+        let swapped = "moirai-schema 1\npolicy policy.self-claim-roles developer\npolicy merge.policy.task delete-wins\n";
+        let rows = parse_schema_file(swapped.as_bytes()).unwrap();
+        assert_eq!(rows[0].keys[0], "merge.policy.task");
+        assert_ne!(encode_schema_file(&rows), swapped.as_bytes());
+        let twice = "moirai-schema 1\npolicy merge.policy.task delete-wins\npolicy merge.policy.task resurrect\n";
+        let e = parse_schema_file(twice.as_bytes()).unwrap_err();
+        assert_eq!(e.rule, Some(Rule::LineRepeated));
+        for name in ["a", "0x", "policy.role.dev_1.fields", "a-b.c_d"] {
+            assert!(is_pname(name), "{name}");
+        }
+        let long_seg = "a".repeat(65);
+        let many = vec!["a"; 17].join(".");
+        let wide = vec!["abcdefgh"; 29].join(".");
+        assert!(wide.len() > 255);
+        for name in [
+            "",
+            "Policy.x",
+            "a..b",
+            "a.",
+            ".a",
+            "-a",
+            "_a",
+            "a b",
+            long_seg.as_str(),
+            many.as_str(),
+            wide.as_str(),
+        ] {
+            assert!(!is_pname(name), "{name:?}");
+        }
+        for bad in [
+            "moirai-schema 1\npolicy Merge.policy x\n",
+            "moirai-schema 1\npolicy merge.policy.task\n",
+            "moirai-schema 1\npolicy merge.policy.task a b\n",
+            "moirai-schema 1\npolicy merge.policy.task %x\n",
+        ] {
+            assert_eq!(
+                parse_schema_file(bad.as_bytes()).unwrap_err().rule,
+                Some(Rule::NoProduction),
+                "{bad:?}"
+            );
+        }
+    }
+
+    /// [F08 §8.5.1] (spec sync 2b S2B-F-19): a project kind's initial status is its non-retired status value with the
+    /// least `rank`, ties by value name bytewise, whatever order the rows come in.
+    #[test]
+    fn project_initial_status() {
+        let src = "moirai-schema 1\nkind incident derivation=random root-variant=none existence=resurrect\n\
+                   value incident status alpha rank=3\nvalue incident status beta rank=0 retired\n\
+                   value incident status open rank=1\nvalue incident status new rank=1\n";
+        let rows = parse_schema_file(src.as_bytes()).unwrap();
+        let mut schema = Schema::core();
+        extend_schema(&mut schema, &rows).unwrap();
+        assert_eq!(schema.kinds["incident"].initial, "new");
+        assert_eq!(schema.kinds["incident"].statuses.len(), 4);
+    }
+
+    /// [F14 §7.2.2] (spec sync 2b S2B-R-18): a definition without `SHAPE` stores `table`, one without `BUDGET` stores
+    /// `medium`; another word on the `shape:` or `budget:` line is a mismatch.
+    #[test]
+    fn default_shape_and_budget() {
+        let file = |shape: &str, budget: &str| {
+            format!(
+                "moirai-query 1\nname: q\nlq: 1\nshape: {shape}\nbudget: {budget}\n---\nDEFINE QUERY q() AS {{\n  MATCH (n:note)\n  RETURN n\n}}\n"
+            )
+        };
+        assert!(parse_query(file("table", "medium").as_bytes(), None).is_ok());
+        for (shape, budget) in [("node", "medium"), ("table", "light")] {
+            let e = parse_query(file(shape, budget).as_bytes(), None).unwrap_err();
+            assert_eq!(e.rule, Some(Rule::QueryConsistency), "{shape} {budget}");
+        }
     }
 }

@@ -1,9 +1,9 @@
-//! [F01] primitives: little-endian fixed-width integers (§5.1), varints (§5.2, §5.3), booleans (§5.4), fixed-width byte
+//! \[F01\] primitives: little-endian fixed-width integers (§5.1), varints (§5.2, §5.3), booleans (§5.4), fixed-width byte
 //! strings (§5.6), length-prefixed strings (§6.2), `lp()` (§6.3), hexadecimal text (§6.4), the hash set (§7.1–§7.3) and
 //! the git object-format registry (§7.5).
 //!
 //! Every decoder here is hand-written over a byte cursor ([`Reader`]); every encoder appends to a [`Writer`]. Decoders
-//! refuse exactly what [F01] refuses: non-canonical or over-long varints, invalid UTF-8, non-zero reserved bytes.
+//! refuse exactly what \[F01\] refuses: non-canonical or over-long varints, invalid UTF-8, non-zero reserved bytes.
 
 use core::fmt;
 

@@ -10,17 +10,17 @@
 //!
 //! | module | chapter |
 //! |---|---|
-//! | [`prim`] | [F01] conventions: integers, varints, strings, hashes |
-//! | [`lock`] | [F03] the `LOCK` file |
-//! | [`head`] | [F04] the `HEAD` file |
-//! | [`log`] | [F05] extents, records, groups, the chain, the scan and every record payload |
-//! | [`commit`] | [F06] the `Commit` payload |
-//! | [`canon`] | [F07] canonical items (the parts the carrier check re-derives) and the typed value `cv` |
-//! | [`value`] | [F08] values, the field block, `NodeHdr`, schema items, edge props, anchors |
-//! | [`segment`] | [F09] segments and their sections |
-//! | [`sealed`] | [F10] sealed files |
-//! | [`runtime`] | [F11] runtime-table rows and row images |
-//! | [`image`] | [F14] the `.moi` ABNF, trees, git objects and carrier trailers |
+//! | [`prim`] | \[F01\] conventions: integers, varints, strings, hashes |
+//! | [`lock`] | \[F03\] the `LOCK` file |
+//! | [`head`] | \[F04\] the `HEAD` file |
+//! | [`log`] | \[F05\] extents, records, groups, the chain, the scan and every record payload |
+//! | [`commit`] | \[F06\] the `Commit` payload |
+//! | [`canon`] | \[F07\] canonical items (the parts the carrier check re-derives) and the typed value `cv` |
+//! | [`value`] | \[F08\] values, the field block, `NodeHdr`, schema items, edge props, anchors |
+//! | [`segment`] | \[F09\] segments and their sections |
+//! | [`sealed`] | \[F10\] sealed files |
+//! | [`runtime`] | \[F11\] runtime-table rows and row images |
+//! | [`image`] | \[F14\] the `.moi` ABNF, trees, git objects and carrier trailers |
 //! | [`sha`] | [F01 §7.1] SHA-1 and SHA-256 for git object ids |
 //! | [`fixture`] | the fixture checks: whole files, `HEAD` selection, log scans, fragments, the expectation framing |
 //!

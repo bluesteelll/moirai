@@ -1,13 +1,17 @@
-//! [F09] segments: `SegHdr` and the section table (§2), the tag registry and placement (§3), the layout classes (§4),
+//! \[F09\] segments: `SegHdr` and the section table (§2), the tag registry and placement (§3), the layout classes (§4),
 //! every section this chapter owns (§5–§14, §16), the runtime sections through [`crate::runtime`] (§14.5, §15), and the
-//! open and full checks of §17.1 that one file allows (V-1, V-2, V-4–V-7, V-9–V-11). [`decode_container`] and
-//! [`encode_container`] also serve the `hist` and `blobs` files of [F10].
+//! open and full checks of §17.1 that one file allows (V-1, V-2, V-4–V-7, V-9–V-11). Over a store's segment set,
+//! [`SetSymbols`] resolves names through every layer's `SYMTAB` and refuses one id or one string given twice (§14.2);
+//! [`check_stack`] adds V-12 over a stack (I-P3 of §7.1, main-set continuity of §2.3, the ± list preconditions of §4.6,
+//! the `FPROMO` presence rule of §10.1) with the main set's `SYMTAB` ranges (§14.2) and the set-wide `SCHEMA` order
+//! (§8.3, §17.1), and [`check_changeset`] the presence rule and the `SCHEMA` order for a changeset segment; `TOUCH` =
+//! `IDS` is a per-file check. [`decode_container`] and [`encode_container`] also serve the `hist` and `blobs` files of \[F10\].
 
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 
 use crate::commit::{CkimgEntry, Op, decode_ckimg_entry, encode_ckimg_entry};
 use crate::lock::check_format;
-use crate::prim::{Reader, Result, Writer, blake3_256, err, xxh3_64};
+use crate::prim::{Error, Reader, Result, Writer, blake3_256, err, xxh3_64};
 use crate::runtime::{self, SegKind, Table};
 use crate::value::{self, AnchorRec, Creator, FieldEntry, Item, ItemBody, NONE32, NodeHdr};
 
@@ -17,7 +21,7 @@ pub const SEG_HDR: usize = 120;
 /// `SegHdr` ([F09 §2.1]); the computed fields (`n_sections`, `total_len`, the digests) are recomputed on encode.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SegHdr {
-    /// `FileFamily` value: 3, 4, 5, 9 (this chapter), 2, 6 ([F10]).
+    /// `FileFamily` value: 3, 4, 5, 9 (this chapter), 2, 6 (\[F10\]).
     pub seg_kind: u8,
     /// Tokenizer version: 0 or 1.
     pub tok_ver: u8,
@@ -301,15 +305,17 @@ impl Bitset {
         self.chunks.iter().map(|c| c.1.len() as u64).sum()
     }
 
+    /// Every member, ascending, without collecting them.
+    pub fn iter(&self) -> impl Iterator<Item = u32> + '_ {
+        self.chunks.iter().flat_map(|(hi, lo)| {
+            lo.iter()
+                .map(move |l| (u32::from(*hi) << 16) | u32::from(*l))
+        })
+    }
+
     /// Every member.
     pub fn members(&self) -> Vec<u32> {
-        self.chunks
-            .iter()
-            .flat_map(|(hi, lo)| {
-                lo.iter()
-                    .map(move |l| (u32::from(*hi) << 16) | u32::from(*l))
-            })
-            .collect()
+        self.iter().collect()
     }
 
     /// A bitset from ascending members.
@@ -479,9 +485,16 @@ pub fn decode_pm(b: &[u8], at: usize) -> Result<PlusMinus> {
     };
     let plus = read(np)?;
     let minus = read(nm)?;
-    let ps: BTreeSet<u32> = plus.iter().copied().collect();
-    if minus.iter().any(|m| ps.contains(m)) {
-        return err(at, "± list plus and minus are not disjoint [F09 §4.6]");
+    // Both lists ascend, so one merge walk finds a common member.
+    let (mut i, mut j) = (0, 0);
+    while i < plus.len() && j < minus.len() {
+        match plus[i].cmp(&minus[j]) {
+            std::cmp::Ordering::Less => i += 1,
+            std::cmp::Ordering::Greater => j += 1,
+            std::cmp::Ordering::Equal => {
+                return err(at, "± list plus and minus are not disjoint [F09 §4.6]");
+            }
+        }
     }
     Ok(PlusMinus { plus, minus })
 }
@@ -660,8 +673,8 @@ pub struct AnchorRow {
     pub dst: u32,
     /// `aN`.
     pub anchor: u32,
-    /// The record bytes and their decode.
-    pub rec: (Vec<u8>, Box<AnchorRec>),
+    /// The decoded record, which re-encodes by [`AnchorRec::encode`] ([F08 §10.3]).
+    pub rec: Box<AnchorRec>,
 }
 
 /// A decoded section ([F09 §5]–§16).
@@ -695,8 +708,8 @@ pub enum Sec {
     EdgeProps(Vec<(u32, u8, [u8; 32])>),
     /// `TOMB` (id, tx, reason_sym, replaced_by).
     Tomb(Vec<(u32, u32, u32, u32)>),
-    /// `SCHEMA` rows (bytes, item).
-    Schema(Vec<(Vec<u8>, Item)>),
+    /// `SCHEMA` rows, each re-encoded by [`Item::encode`] ([F08 §8.5]).
+    Schema(Vec<Item>),
     /// `BMDIR` keys.
     Bmdir(Vec<[u8; 4]>),
     /// `TERMS`.
@@ -998,7 +1011,7 @@ fn decode_sec(tag: u16, b: &[u8], at: usize, kind: u8) -> Result<Sec> {
                 let mut r = Reader::with_base(row, r_at);
                 let it = Item::decode(&mut r)?;
                 r.finish("a SCHEMA row")?;
-                v.push((row.to_vec(), it));
+                v.push(it);
             }
             Sec::Schema(v)
         }
@@ -1092,6 +1105,14 @@ fn decode_sec(tag: u16, b: &[u8], at: usize, kind: u8) -> Result<Sec> {
         }
         0x0061 => {
             let (n, mut r) = fixed_table(b, at, 12)?;
+            // `slot` is the row's position and lies in 0–4,095, so the tags `0x4000 + slot` and `0x5000 + slot`
+            // stay in their own ranges; refused before any tag arithmetic.
+            if n > 4096 {
+                return err(
+                    at,
+                    "FPROMO has more than 4,096 rows: slot is 0–4,095 [F09 §10.1]",
+                );
+            }
             let mut v: Vec<Fpromo> = Vec::with_capacity(n);
             for i in 0..n {
                 let e_at = r.offset();
@@ -1174,7 +1195,7 @@ fn decode_sec(tag: u16, b: &[u8], at: usize, kind: u8) -> Result<Sec> {
                     src,
                     dst,
                     anchor,
-                    rec: (rb.to_vec(), Box::new(rec)),
+                    rec: Box::new(rec),
                 });
             }
             let keys: Vec<_> = v.iter().map(|x| (x.src, x.dst, x.anchor)).collect();
@@ -1687,6 +1708,20 @@ fn decode_symtab(b: &[u8], at: usize) -> Result<Symtab> {
         {
             return err(e_at, "SYMTAB class entry invalid or unsorted [F09 §14.2]");
         }
+        // [F01 §8.1] S3–S4, §8.2: the ids `first … first + n − 1` lie within the class's width.
+        let max = if crate::log::sym::is_u16(class) {
+            u64::from(u16::MAX)
+        } else {
+            u64::from(u32::MAX)
+        };
+        if u64::from(first) + n as u64 - 1 > max {
+            return err(
+                e_at,
+                format!(
+                    "SYMTAB ids of class {class} pass the class's width {max} [F01 §8.1 S4, §8.2]"
+                ),
+            );
+        }
         ents.push((class, first, n, by_id, by_str));
     }
     let arrays_start = 8 + 20 * nc;
@@ -1841,7 +1876,15 @@ pub fn encode_sec(s: &Sec) -> Vec<u8> {
             }
         }
         Sec::Schema(v) => {
-            return encode_variable(&v.iter().map(|(b, _)| b.clone()).collect::<Vec<_>>());
+            return encode_variable(
+                &v.iter()
+                    .map(|it| {
+                        let mut r = Writer::new();
+                        it.encode(&mut r);
+                        r.into_vec()
+                    })
+                    .collect::<Vec<_>>(),
+            );
         }
         Sec::Bmdir(v) => {
             w.u32(v.len() as u32);
@@ -1913,7 +1956,9 @@ pub fn encode_sec(s: &Sec) -> Vec<u8> {
                         r.u32(x.src);
                         r.u32(x.dst);
                         r.u32(x.anchor);
-                        r.vbytes(&x.rec.0);
+                        let mut a = Writer::new();
+                        x.rec.encode(&mut a);
+                        r.vbytes(a.as_slice());
                         r.into_vec()
                     })
                     .collect::<Vec<_>>(),
@@ -2117,7 +2162,45 @@ fn class_count(tag: u16, s: &Sec) -> Option<u64> {
     })
 }
 
-/// The cross-section checks of [F09 §17.1] V-7 (required sections) and V-11, and the per-kind rules of §5–§16.
+/// A segment's rows ([F09 §2.4]): a base's are `#1…#n_rows`, an upper segment's are its `IDS` (strictly ascending, §5.1).
+/// A row is found by a range test or a binary search; nothing is copied.
+#[derive(Clone, Copy)]
+struct Rows<'a> {
+    /// `None` for a base.
+    ids: Option<&'a [u32]>,
+    /// The row count.
+    n: usize,
+}
+
+impl Rows<'_> {
+    /// The row index of `#N` `id`, when the segment has it as a row.
+    fn index(&self, id: u32) -> Option<usize> {
+        match self.ids {
+            None => (id >= 1 && id as usize <= self.n).then(|| id as usize - 1),
+            Some(ids) => ids.binary_search(&id).ok(),
+        }
+    }
+}
+
+/// One bit per row, for the checks that an index names each row at most once.
+struct RowBits(Vec<u64>);
+
+impl RowBits {
+    fn new(n: usize) -> Self {
+        RowBits(vec![0; n.div_ceil(64)])
+    }
+
+    /// Sets bit `i`; false when it was already set.
+    fn insert(&mut self, i: usize) -> bool {
+        let (w, b) = (i / 64, 1u64 << (i % 64));
+        let fresh = self.0[w] & b == 0;
+        self.0[w] |= b;
+        fresh
+    }
+}
+
+/// The cross-section checks of [F09 §17.1] V-7 (required sections) and V-11, and the per-kind rules of §5–§16, among
+/// them §5.2's absent row: every row-scoped section holds its zero value for a row of `kind` 0.
 fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
     let kind = s.hdr.seg_kind;
     // A failure names the offset of the section it is about; 0 (the `SegHdr`) for an absent one.
@@ -2150,19 +2233,22 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
         }
     }
     let upper = kind != 3;
-    let rows: Vec<u32> = if upper {
-        s.u32s(0x0001).to_vec()
+    let ids = s.u32s(0x0001);
+    let n = if upper {
+        ids.len()
     } else {
-        (1..=s.hdr.n_rows).collect()
+        s.hdr.n_rows as usize
     };
-    let n = rows.len();
     if upper && s.hdr.n_rows as usize != n {
         return fail(
             0x0001,
             "n_rows differs from the IDS length [F09 §2.3]".into(),
         );
     }
-    let row_set: BTreeSet<u32> = rows.iter().copied().collect();
+    let rows = Rows {
+        ids: upper.then_some(ids),
+        n,
+    };
     let Some(Sec::Node(nodes)) = s.get(0x0002) else {
         unreachable!("NODE is required")
     };
@@ -2176,9 +2262,31 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
         Ok(())
     };
     col_len(0x0002, nodes.len())?;
-    if let Some(Sec::Creator(v)) = s.get(0x0003) {
-        col_len(0x0003, v.len())?;
-    }
+    // From here on `nodes[i]` is row i's header. A row is present when its kind is not 0 (§5.2), deleted when it is
+    // present with the `deleted` flag (§8.1).
+    let row_of = |id: u32| rows.index(id).map(|i| (i, &nodes[i]));
+    let present = |id: u32| row_of(id).is_some_and(|(_, h)| h.kind != 0);
+    // An index entry or a row-scoped entry of `id` (§5.1, V-11) that is not absent (§5.2).
+    let held = |tag: u16, id: u32, what: &str| -> Result<()> {
+        match row_of(id) {
+            None => fail(
+                tag,
+                format!("{what} #{id} is not a row of the segment [F09 §17.1 V-11]"),
+            ),
+            Some((_, h)) if h.kind == 0 => fail(
+                tag,
+                format!("{what} #{id} is an absent row, which holds no entry [F09 §5.2]"),
+            ),
+            Some(_) => Ok(()),
+        }
+    };
+    let creators: &[Creator] = match s.get(0x0003) {
+        Some(Sec::Creator(v)) => {
+            col_len(0x0003, v.len())?;
+            v
+        }
+        _ => &[],
+    };
     for t in [0x0004, 0x0005, 0x0006] {
         col_len(t, s.u32s(t).len())?;
     }
@@ -2214,24 +2322,15 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
         Some(Sec::BlobTab(v)) => v.len(),
         _ => 0,
     };
-    let deleted: BTreeSet<u32> = rows
-        .iter()
-        .zip(nodes)
-        .filter(|(_, h)| h.flags & 1 != 0 && h.kind != 0)
-        .map(|(r, _)| *r)
-        .collect();
-    let present: BTreeSet<u32> = rows
-        .iter()
-        .zip(nodes)
-        .filter(|(_, h)| h.kind != 0)
-        .map(|(r, _)| *r)
-        .collect();
+    let (mut n_present, mut n_deleted) = (0usize, 0usize);
     for h in nodes {
         // [F09 §5.2]: an absent row is all zero (NodeHdr::decode checks it), so its offsets are 0, not NONE32, and it
         // stores no title, field block or body.
         if h.kind == 0 {
             continue;
         }
+        n_present += 1;
+        n_deleted += usize::from(h.flags & 1 != 0);
         if h.title_off != NONE32 {
             if u64::from(h.title_off) != next_title || ti >= titles.len() {
                 return fail(
@@ -2286,20 +2385,26 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
         }
         for i in 0..n {
             let (a, b) = (off[i] as usize, off[i + 1] as usize);
-            let list: Vec<(u8, u32)> = (a..b).map(|j| (kinds[j], other[j])).collect();
-            if list.windows(2).any(|w| w[0] >= w[1]) {
+            let entry = |j: usize| (kinds[j], other[j]);
+            if (a + 1..b).any(|j| entry(j - 1) >= entry(j)) {
                 return fail(
                     tag,
                     format!("an {what}-list is not strictly ascending by (kind, node) [F09 §7.1]"),
                 );
             }
-            if list
-                .iter()
-                .any(|&(k, x)| !valid_edge_kind(k) || x == 0 || (what == "out" && k == 1))
+            if (a..b)
+                .map(entry)
+                .any(|(k, x)| !valid_edge_kind(k) || x == 0 || (what == "out" && k == 1))
             {
                 return fail(
                     tag,
                     format!("an {what}-list entry has an invalid kind or node [F09 §7.1]"),
+                );
+            }
+            if nodes[i].kind == 0 && a != b {
+                return fail(
+                    tag,
+                    format!("an absent row has a non-empty {what}-list [F09 §5.2]"),
                 );
             }
         }
@@ -2307,7 +2412,7 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
     let schema_edge_props: HashMap<u8, u8> = match s.get(0x0032) {
         Some(Sec::Schema(v)) => v
             .iter()
-            .filter_map(|(_, it)| match &it.body {
+            .filter_map(|it| match &it.body {
                 ItemBody::EdgeKind(e) => Some((e.edge_id, e.props)),
                 _ => None,
             })
@@ -2336,8 +2441,12 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
         }
     }
     if let Some(Sec::Uid(v)) = s.get(0x0007) {
-        let ids: BTreeSet<u32> = v.iter().map(|x| x.1).collect();
-        if ids != present || ids.len() != v.len() {
+        // One entry per present row ([F09 §5.5]): as many entries as present rows, each naming a distinct one.
+        let mut seen = RowBits::new(n);
+        let once = v.len() == n_present
+            && v.iter()
+                .all(|(_, id)| row_of(*id).is_some_and(|(i, h)| h.kind != 0 && seen.insert(i)));
+        if !once {
             return fail(
                 0x0007,
                 "UID does not hold exactly one entry per present row [F09 §5.5]".into(),
@@ -2345,8 +2454,10 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
         }
     }
     if let Some(Sec::Tomb(v)) = s.get(0x0030) {
-        let ids: BTreeSet<u32> = v.iter().map(|x| x.0).collect();
-        if ids != deleted {
+        // `TOMB` ids are strictly ascending (decoded so), so as many as the deleted rows, each naming one, are exactly
+        // the deleted rows ([F09 §8.1]).
+        let deleted = |id: u32| row_of(id).is_some_and(|(_, h)| h.kind != 0 && h.flags & 1 != 0);
+        if v.len() != n_deleted || !v.iter().all(|x| deleted(x.0)) {
             return fail(
                 0x0030,
                 "TOMB entries differ from the deleted rows [F09 §8.1]".into(),
@@ -2354,18 +2465,15 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
         }
     }
     if let Some(Sec::Anchors(v)) = s.get(0x0082) {
-        if v.iter().any(|a| !row_set.contains(&a.src)) {
-            return fail(
-                0x0082,
-                "an ANCHORS row's src is not a row of the segment [F09 §17.1 V-11]".into(),
-            );
+        for a in v {
+            held(0x0082, a.src, "an ANCHORS row's src")?;
         }
         let want: Vec<([u8; 16], u32, u32, u32)> = {
             let mut w: Vec<_> = v
                 .iter()
-                .map(|a| (a.rec.1.uid, a.src, a.dst, a.anchor))
+                .map(|a| (a.rec.uid, a.src, a.dst, a.anchor))
                 .collect();
-            w.sort();
+            w.sort_unstable();
             w
         };
         match s.get(0x0083) {
@@ -2379,36 +2487,26 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
         }
     }
     for t in [0x0080u16, 0x0081] {
-        if let Some(Sec::Paths(v)) = s.get(t)
-            && v.iter().any(|p| !row_set.contains(&p.id))
-        {
-            return fail(
-                t,
-                "a PATHIDX/ALIASIDX id is not a row of the segment [F09 §17.1 V-11]".into(),
-            );
+        if let Some(Sec::Paths(v)) = s.get(t) {
+            for p in v {
+                held(t, p.id, "a PATHIDX/ALIASIDX id")?;
+            }
         }
     }
-    if let Some(Sec::Runtime(c)) = s.get(0x0031)
-        && c.rows
-            .iter()
-            .any(|r| r.u("n") != 0 && !row_set.contains(&(r.u("n") as u32)))
-    {
-        return fail(
-            0x0031,
-            "a CONFLICTS row names a node that is not a row of the segment [F09 §8.2]".into(),
-        );
+    if let Some(Sec::Runtime(c)) = s.get(0x0031) {
+        // Rows of schema keys (`n` = 0) are not row-scoped ([F09 §8.2]).
+        for r in c.rows.iter().filter(|r| r.u("n") != 0) {
+            held(0x0031, r.u("n") as u32, "a CONFLICTS row's node")?;
+        }
     }
-    if let Some(Sec::Runtime(g)) = s.get(0x0084)
-        && g.rows.iter().any(|r| !row_set.contains(&(r.u("n") as u32)))
-    {
-        return fail(
-            0x0084,
-            "a GLOBIDX row names a node that is not a row of the segment [F09 §13.5]".into(),
-        );
+    if let Some(Sec::Runtime(g)) = s.get(0x0084) {
+        for r in &g.rows {
+            held(0x0084, r.u("n") as u32, "a GLOBIDX row's node")?;
+        }
     }
     if kind == 5 {
         match s.get(0x0008) {
-            Some(Sec::Bitset(b)) if b.members() == rows => {}
+            Some(Sec::Bitset(b)) if b.iter().eq(ids.iter().copied()) => {}
             _ => return fail(0x0008, "TOUCH differs from IDS [F09 §16.3]".into()),
         }
     }
@@ -2478,6 +2576,18 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
             );
         }
     }
+    // [F09 §5.2]: an absent row is in no set of the view. A base's frozen bitsets hold no absent row; an upper
+    // segment's ± lists add none. A `minus` entry may name one: a branch segment's absent row masks a node its pinned
+    // set holds (§16.3), and its ± lists, relative to that set, take the node out of the sets it was in.
+    let set_member = |tag: u16, id: u32| -> Result<()> {
+        if row_of(id).is_some_and(|(_, h)| h.kind == 0) {
+            return fail(
+                tag,
+                format!("a bitset adds #{id}, an absent row, which is in no set [F09 §5.2]"),
+            );
+        }
+        Ok(())
+    };
     for (e, x) in &s.sections {
         match x {
             Sec::Fcol(c) => {
@@ -2493,6 +2603,14 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
                             .into(),
                     );
                 }
+                if let Some(i) = (0..n).find(|&i| nodes[i].kind == 0 && c.rows[i].is_some()) {
+                    return fail(
+                        e.tag,
+                        format!(
+                            "an absent row (row {i}) has a promoted value; its absent bit must be set [F09 §5.2, §10.2]"
+                        ),
+                    );
+                }
             }
             Sec::Fidx(x) => {
                 let f = fpromo[usize::from(e.tag - 0x5000)];
@@ -2503,7 +2621,19 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
                             .into(),
                     );
                 }
+                for (_, body) in &x.values {
+                    match body {
+                        FidxBody::Frozen(b) => b.iter().try_for_each(|id| set_member(e.tag, id))?,
+                        FidxBody::Pm(p) => {
+                            p.plus.iter().try_for_each(|id| set_member(e.tag, *id))?
+                        }
+                    }
+                }
             }
+            Sec::Bitset(b) if e.tag >= 0x8000 => {
+                b.iter().try_for_each(|id| set_member(e.tag, id))?;
+            }
+            Sec::Pm(p) => p.plus.iter().try_for_each(|id| set_member(e.tag, *id))?,
             _ => {}
         }
     }
@@ -2525,16 +2655,46 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
     }
     if let Some(Sec::Doclen(v)) = s.get(0x0052) {
         col_len(0x0052, v.len())?;
+        // [F09 §12.4]: zero for absent and deleted rows.
+        if (0..n).any(|i| (nodes[i].kind == 0 || nodes[i].flags & 1 != 0) && v[i] != [0; 3]) {
+            return fail(
+                0x0052,
+                "DOCLEN is not zero for an absent or deleted row [F09 §5.2, §12.4]".into(),
+            );
+        }
     }
     if let Some(Sec::Post(lists)) = s.get(0x0051)
-        && lists.iter().flatten().any(|(id, _, _)| {
-            !row_set.contains(id) || deleted.contains(id) || !present.contains(id)
-        })
+        && lists
+            .iter()
+            .flatten()
+            .any(|(id, _, _)| !present(*id) || row_of(*id).is_some_and(|(_, h)| h.flags & 1 != 0))
     {
         return fail(
             0x0051,
             "a posting names a row that is not a live row of the segment [F09 §12.3]".into(),
         );
+    }
+    // [F09 §5.2]: the zero values of an absent row's columns.
+    let (topo, defer, due) = (s.u32s(0x0004), s.u32s(0x0005), s.u32s(0x0006));
+    for i in (0..n).filter(|&i| nodes[i].kind == 0) {
+        let zero = |c: &[u32]| c.get(i).is_none_or(|x| *x == 0);
+        let creator = creators.get(i).is_none_or(|c| c.actor == 0 && c.role == 0);
+        if !creator {
+            return fail(
+                0x0003,
+                format!("CREATOR is not zero for the absent row {i} [F09 §5.2, §5.3]"),
+            );
+        }
+        for (tag, c) in [(0x0004u16, topo), (0x0005, defer), (0x0006, due)] {
+            if !zero(c) {
+                return fail(
+                    tag,
+                    format!(
+                        "column 0x{tag:04X} is not zero for the absent row {i} [F09 §5.2, §5.4]"
+                    ),
+                );
+            }
+        }
     }
     for t in [0x00C1u16, 0x00C2] {
         let empty = match s.get(t) {
@@ -2549,44 +2709,30 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
             );
         }
     }
-    if let (Some(Sec::Schema(items)), Some(Sec::Symtab(st))) = (s.get(0x0032), s.get(0x0100)) {
-        check_schema_order(items, st, at(0x0032))?;
+    if let Some(Sec::Schema(items)) = s.get(0x0032) {
+        // A lone segment resolves names through its own `SYMTAB` (none in a branch or changeset segment); a store's set
+        // resolves them through every layer's ([`check_stack`], [F09 §17.1]).
+        let own = SetSymbols::of([s])?;
+        check_schema_order(items, |id| own.get(SYM_NAME, id), at(0x0032))?;
     }
     Ok(())
 }
 
-/// [F08 §8.5] item key order of `SCHEMA` (class, then the key's name strings), using the segment's own `SYMTAB` for
-/// class `name`; a pair whose names do not all resolve there is not compared (its symbols live in older layers).
-fn check_schema_order(items: &[(Vec<u8>, Item)], st: &Symtab, at: usize) -> Result<()> {
-    let names: BTreeMap<u32, &str> = st
-        .classes
+/// Symbol class `name` ([F09 §14.1]).
+const SYM_NAME: u8 = 10;
+
+/// [F09 §8.3]: `SCHEMA` rows strictly ascending in [F08 §8.5]'s item key order, which is (class, the stored key form
+/// bytewise) ([F08 §8.5] "Stored key form": names never hold `00`, so the joined form orders as its components do).
+/// `name` resolves class `name`; a pair whose names do not all resolve is not compared.
+fn check_schema_order<'a>(
+    items: &'a [Item],
+    name: impl Fn(u32) -> Option<&'a str>,
+    at: usize,
+) -> Result<()> {
+    let keys: Vec<Option<(u8, Vec<u8>)>> = items
         .iter()
-        .filter(|c| c.0 == 10)
-        .flat_map(|(_, f, v)| {
-            v.iter()
-                .enumerate()
-                .map(move |(j, s)| (f + j as u32, s.as_str()))
-        })
+        .map(|it| it.stored_key(&name).map(|k| (it.class(), k)))
         .collect();
-    let key = |it: &Item| -> Option<(u8, Vec<Vec<u8>>)> {
-        let nm = |id: u32| -> Option<Vec<u8>> {
-            if id == 0 {
-                Some(b"*".to_vec())
-            } else {
-                names.get(&id).map(|s| s.as_bytes().to_vec())
-            }
-        };
-        let parts = match &it.body {
-            ItemBody::Kind { name, .. } | ItemBody::Query { name, .. } => vec![nm(*name)?],
-            ItemBody::Field { kind, name, .. } => vec![nm(*kind)?, nm(*name)?],
-            ItemBody::EnumValue {
-                kind, field, name, ..
-            } => vec![nm(*kind)?, nm(*field)?, nm(*name)?],
-            ItemBody::EdgeKind(e) => vec![nm(e.name)?],
-        };
-        Some((it.class(), parts))
-    };
-    let keys: Vec<Option<(u8, Vec<Vec<u8>>)>> = items.iter().map(|(_, it)| key(it)).collect();
     for w in keys.windows(2) {
         if let (Some(a), Some(b)) = (&w[0], &w[1])
             && a >= b
@@ -2595,6 +2741,691 @@ fn check_schema_order(items: &[(Vec<u8>, Item)], st: &Symtab, at: usize) -> Resu
                 at,
                 "SCHEMA rows not strictly ascending in item key order [F09 §8.3]",
             );
+        }
+    }
+    Ok(())
+}
+
+/// The symbols of a segment set ([F09 §14.2]): every `SYMTAB` of the set, merged. A check that compares names resolves
+/// them here ([F09 §17.1], spec sync 2b): an upper segment's `SYMTAB` holds only the symbols its window allocated, and
+/// a branch or changeset segment carries none.
+///
+/// The strings stay in the segments' `SYMTAB`s: per class, the set keeps disjoint ascending id ranges, each a slice of
+/// one `SYMTAB`'s strings, and resolves an id by binary search.
+#[derive(Clone, Debug, Default)]
+pub struct SetSymbols<'a> {
+    /// Per class: disjoint id ranges in ascending order, as (first id, the strings of ids first, first + 1, …).
+    ranges: BTreeMap<u8, Vec<(u32, &'a [String])>>,
+}
+
+/// The string of `id` in disjoint ascending ranges.
+fn range_get<'a>(ranges: &[(u32, &'a [String])], id: u32) -> Option<&'a str> {
+    let i = ranges.partition_point(|r| r.0 <= id).checked_sub(1)?;
+    let (first, v) = ranges[i];
+    v.get((id - first) as usize).map(String::as_str)
+}
+
+impl<'a> SetSymbols<'a> {
+    /// Merges the `SYMTAB`s of `segs`. A (class, id) that two of them give different strings refuses the set: a store
+    /// has one id space per class across its layers ([F09 §14.2] "Ranges", [F01 §8.1]); so does a string that two ids
+    /// of one class carry ([F09 §14.2] "Uniqueness"). Whether a main set's layers hold their ranges in layer order is
+    /// [`check_stack`]'s.
+    pub fn of(segs: impl IntoIterator<Item = &'a Segment>) -> Result<SetSymbols<'a>> {
+        let mut given: BTreeMap<u8, Vec<(u32, &'a [String])>> = BTreeMap::new();
+        for s in segs {
+            let Some(Sec::Symtab(st)) = s.get(0x0100) else {
+                continue;
+            };
+            for (c, first, v) in &st.classes {
+                if !v.is_empty() {
+                    given.entry(*c).or_default().push((*first, v.as_slice()));
+                }
+            }
+        }
+        let mut ranges = BTreeMap::new();
+        for (c, mut v) in given {
+            v.sort_by_key(|r| r.0);
+            // Every range kept so far starts at or below `first`, so the ids they cover from `first` on are exactly
+            // `first..end`: those must agree, and only the part at or above `end` is new.
+            let mut kept: Vec<(u32, &'a [String])> = Vec::with_capacity(v.len());
+            let mut end = 0u64;
+            for (first, strs) in v {
+                let r_end = u64::from(first) + strs.len() as u64;
+                for id in u64::from(first)..r_end.min(end) {
+                    let t = &strs[(id - u64::from(first)) as usize];
+                    let old = range_get(&kept, id as u32).expect("covered by a kept range");
+                    if old != t {
+                        return err(
+                            0,
+                            format!(
+                                "symbol {id} of class {c} is {old:?} in one SYMTAB of the set and {t:?} in another [F09 §14.2]"
+                            ),
+                        );
+                    }
+                }
+                if r_end > end {
+                    let from = end.max(u64::from(first));
+                    kept.push((from as u32, &strs[(from - u64::from(first)) as usize..]));
+                    end = r_end;
+                }
+            }
+            // "Uniqueness": every id of the class is now in one kept range; sorted by string, two ids of one string
+            // are neighbours.
+            let mut by_text: Vec<(&str, u64)> = kept
+                .iter()
+                .flat_map(|(f, v)| {
+                    v.iter()
+                        .enumerate()
+                        .map(move |(j, t)| (t.as_str(), u64::from(*f) + j as u64))
+                })
+                .collect();
+            by_text.sort_unstable();
+            if let Some(w) = by_text.windows(2).find(|w| w[0].0 == w[1].0) {
+                return err(
+                    0,
+                    format!(
+                        "the string {:?} is symbol {} and symbol {} of class {c} in the set's SYMTABs [F09 §14.2]",
+                        w[0].0, w[0].1, w[1].1
+                    ),
+                );
+            }
+            ranges.insert(c, kept);
+        }
+        Ok(SetSymbols { ranges })
+    }
+
+    /// The string of symbol `id` of `class` ([F09 §14.1]); `None` when no `SYMTAB` of the set holds it.
+    pub fn get(&self, class: u8, id: u32) -> Option<&'a str> {
+        range_get(self.ranges.get(&class)?, id)
+    }
+}
+
+/// The core kinds of schema version 1 by id ([F08 §9.1]).
+const CORE_KINDS: [&str; 13] = [
+    "task",
+    "doc",
+    "note",
+    "rule",
+    "decision",
+    "question",
+    "finding",
+    "verdict",
+    "measurement",
+    "artifact",
+    "run",
+    "lane",
+    "area",
+];
+
+/// The core fields of schema version 1 with `index ≠ none` ([F08 §9.2], §9.3) as (kind or `*`, field, `vtype`, `index`,
+/// `form`) in [F09 §10.1]'s `FPROMO` terms.
+const CORE_PROMOTED: [(&str, &str, u8, u8, u8); 11] = [
+    ("*", "labels", value::ty::SYM, 2, 1),
+    ("task", "work_kind", value::ty::ENUM, 2, 0),
+    ("task", "phase_state", value::ty::ENUM, 2, 0),
+    ("task", "assignee", value::ty::SYM, 2, 0),
+    ("finding", "local_id", value::ty::SYM, 2, 0),
+    ("finding", "severity", value::ty::ENUM, 2, 0),
+    ("finding", "f_kind", value::ty::ENUM, 2, 0),
+    ("finding", "round", value::ty::INT, 1, 0),
+    ("verdict", "round", value::ty::INT, 1, 0),
+    ("verdict", "outcome", value::ty::ENUM, 2, 0),
+    ("measurement", "metric", value::ty::SYM, 2, 0),
+];
+
+/// The promoted fields of a view's effective schema ([F08 §8.1]: the core schema and the view's items): (kind or `*`,
+/// field) → (`vtype`, `index`, `form`) of [F09 §10.1]. Retired items are not fields of the view (no node may use them,
+/// [F08 §8.1]).
+type Promoted = BTreeMap<(String, String), (u8, u8, u8)>;
+
+/// The view's promoted fields and its kind names by kind id, from the core schema and `items` resolved through `syms`.
+fn view_schema(
+    items: &[Item],
+    syms: &SetSymbols<'_>,
+) -> core::result::Result<(Promoted, BTreeMap<u8, String>), String> {
+    let name = |id: u32| -> core::result::Result<String, String> {
+        if id == 0 {
+            return Ok("*".into());
+        }
+        syms.get(SYM_NAME, id).map(str::to_owned).ok_or_else(|| {
+            format!("a SCHEMA item names symbol {id}, which no SYMTAB of the set defines")
+        })
+    };
+    let mut promoted: Promoted = CORE_PROMOTED
+        .iter()
+        .map(|&(k, f, vt, ix, fm)| ((k.to_owned(), f.to_owned()), (vt, ix, fm)))
+        .collect();
+    let mut kinds: BTreeMap<u8, String> = (1u8..)
+        .zip(CORE_KINDS.iter().map(|k| (*k).to_owned()))
+        .collect();
+    for it in items.iter().filter(|it| it.iflags & 1 == 0) {
+        match &it.body {
+            ItemBody::Kind {
+                name: n, kind_id, ..
+            } => {
+                kinds.insert(*kind_id, name(*n)?);
+            }
+            ItemBody::Field {
+                kind,
+                name: n,
+                ty,
+                elem,
+                index,
+                ..
+            } if *index != 0 => {
+                let set = *ty == value::ty::SET;
+                promoted.insert(
+                    (name(*kind)?, name(*n)?),
+                    (if set { *elem } else { *ty }, *index, u8::from(set)),
+                );
+            }
+            _ => {}
+        }
+    }
+    Ok((promoted, kinds))
+}
+
+/// [F09 §17.1] V-12 over one stack of a view's layers, oldest first: a main set (its base, or its oldest delta when it
+/// has none, then its deltas, [F04 §4.1]) or a branch segment on top of its pinned set ([F09 §16.3]), each with the
+/// file name its failures name. Each layer is checked with the view's schema as of that layer, the `SCHEMA` of the
+/// newest layer at or below it that carries one ([F09 §8.3] fold "full (view)"; none: the core schema alone), and with
+/// the set's symbols `syms` ([F09 §17.1], spec sync 2b):
+///
+/// - the stack's shape ([F09 §4.7], [F04 §4.1]): at most one base, as the oldest layer, then deltas, and at most one
+///   branch segment, as the top layer;
+/// - main-set continuity ([F09 §2.3]): a delta's `from_lsn` is the `upto_lsn` of the layer below it, and `upto_lsn` and
+///   `rt_upto_lsn` never decrease going up (a base's `from_lsn` = 0 and `rt_upto_lsn ≥ upto_lsn` in every layer are
+///   checked per file, V-5); a branch segment's `from_lsn` is the `upto_lsn` of the newest layer of its pinned set
+///   (§2.3, §16.3). Below the oldest layer the bound is 0: a set without a base folds the log from its start;
+/// - "Ranges" ([F09 §14.2]): per symbol class, the main-set layers' `SYMTAB`s hold contiguous, disjoint id ranges in
+///   layer order, the oldest layer's from 1 (below it the set folds the log from its start, §2.3);
+/// - its `SCHEMA` rows are in [F08 §8.5]'s item key order, the names resolved through `syms` ([F09 §8.3]);
+/// - "Presence" ([F09 §10.1]): the layer carries `FPROMO` exactly when one of its rows holds, in its field block, a value
+///   for a field with `index ≠ none` of its kind (or of `*`) in that schema, or, in an upper segment, an `FIDX` is
+///   present (a value's set changed, §10.3);
+/// - a present `FPROMO` has one row per promoted field name, with that field's `vtype`, `index` and `form` (§10.1: "the
+///   rows are the fields with `index ≠ none` in the view's schema as of this layer");
+/// - the ± list preconditions ([F09 §4.6]): every set a ± list changes — a `BMDIR` key's (§9.2), or a promoted value's
+///   in `FIDX` (§10.3), known by field symbol, type and value because slots are per segment (§10.1) — is folded up the
+///   stack from the base's frozen bitset (empty without one, §4.7 "bitset"), and each `plus` id is not a member below
+///   the layer while each `minus` id is one;
+/// - I-P3 ([F09 §7.1]) in the view that each prefix of the stack forms (a prefix is the view at its top layer's bound,
+///   and I-P3 holds in every visible version, \[F13\] I-P3), with every `#N`'s lists and parent from its newest layer
+///   (§4.7 "row") and none for a `#N` that no layer holds as a row.
+pub fn check_stack(layers: &[(&str, &Segment)], syms: &SetSymbols<'_>) -> Result<()> {
+    let top = layers.len().saturating_sub(1);
+    let mut schema: &[Item] = &[];
+    let mut sets = ViewSets::default();
+    let mut view: Vec<Adjacency<'_>> = Vec::with_capacity(layers.len());
+    let mut next_sym = [1u64; 12];
+    for (j, (name, seg)) in layers.iter().enumerate() {
+        let named = |m: String| Error {
+            offset: 0,
+            reason: format!("{name}: {m}"),
+            rule: None,
+        };
+        let below = j.checked_sub(1).map(|i| &layers[i].1.hdr);
+        check_layer_place(&seg.hdr, j, top, below).map_err(named)?;
+        if matches!(seg.hdr.seg_kind, 3 | 4) {
+            check_symbol_ranges(seg, &mut next_sym).map_err(named)?;
+        }
+        if let Some(Sec::Schema(items)) = seg.get(0x0032) {
+            schema = items;
+        }
+        check_view_layer(seg, schema, syms).map_err(named)?;
+        sets.apply(seg).map_err(named)?;
+        view.push(Adjacency::of(seg).map_err(named)?);
+        check_ip3(&view).map_err(named)?;
+    }
+    Ok(())
+}
+
+/// [F09 §14.2] "Ranges" at one main-set layer: each class's ids in its `SYMTAB` start at `next[class]`, the id after the
+/// layers below, which then moves past them.
+fn check_symbol_ranges(seg: &Segment, next: &mut [u64; 12]) -> core::result::Result<(), String> {
+    let Some(Sec::Symtab(st)) = seg.get(0x0100) else {
+        return Ok(());
+    };
+    for (c, first, v) in &st.classes {
+        let Some(want) = next.get_mut(usize::from(*c)) else {
+            return Err(format!(
+                "SYMTAB class {c} is not a symbol class [F09 §14.1]"
+            ));
+        };
+        if u64::from(*first) != *want {
+            return Err(format!(
+                "SYMTAB ids of class {c} start at {first}, not at {want}, the id after the layers below: a main set's layers hold contiguous, disjoint ranges in layer order [F09 §14.2]"
+            ));
+        }
+        *want = u64::from(*first) + v.len() as u64;
+    }
+    Ok(())
+}
+
+/// The shape of a stack ([F09 §4.7], [F04 §4.1], §16.3) at layer `j` of `0..=top`, and main-set continuity with the
+/// layer below it (§2.3; 0 below the oldest layer).
+fn check_layer_place(
+    h: &SegHdr,
+    j: usize,
+    top: usize,
+    below: Option<&SegHdr>,
+) -> core::result::Result<(), String> {
+    let placed = match h.seg_kind {
+        3 => j == 0,
+        4 => true,
+        5 => j == top,
+        _ => false,
+    };
+    if !placed {
+        return Err(format!(
+            "seg_kind {} cannot be layer {j} of a stack: at most one base, first, then deltas, and at most one branch segment, on top [F09 §4.7, §16.3, F04 §4.1]",
+            h.seg_kind
+        ));
+    }
+    let under = below.map_or(0, |b| b.upto_lsn);
+    if h.seg_kind != 3 && h.from_lsn != under {
+        return Err(format!(
+            "from_lsn {} is not the upto_lsn {under} of the layer below [F09 §2.3, §17.1 V-12]",
+            h.from_lsn
+        ));
+    }
+    if h.seg_kind == 4
+        && let Some(b) = below
+        && (h.upto_lsn < b.upto_lsn || h.rt_upto_lsn < b.rt_upto_lsn)
+    {
+        return Err(format!(
+            "upto_lsn {} or rt_upto_lsn {} is below the layer below's ({}, {}): main-set continuity [F09 §2.3, §17.1 V-12]",
+            h.upto_lsn, h.rt_upto_lsn, b.upto_lsn, b.rt_upto_lsn
+        ));
+    }
+    Ok(())
+}
+
+/// A set of the view that ± lists change ([F09 §4.6]): a `BMDIR` key (§9.2), or the rows holding one promoted value
+/// (§10.3) by (`field_sym`, `vtype`, the value's promoted encoding).
+#[derive(Clone, Debug, PartialEq, Eq, PartialOrd, Ord)]
+enum SetKey {
+    Bm([u8; 4]),
+    Value(u32, u8, Vec<u8>),
+}
+
+impl std::fmt::Display for SetKey {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        match self {
+            SetKey::Bm(k) => write!(f, "the BMDIR set {k:?}"),
+            SetKey::Value(sym, vtype, v) => {
+                write!(
+                    f,
+                    "the FIDX set of field symbol {sym}, vtype {vtype}, value "
+                )?;
+                v.iter().try_for_each(|b| write!(f, "{b:02x}"))
+            }
+        }
+    }
+}
+
+/// A set's body in one layer: frozen in a base, a ± list in an upper segment ([F09 §9.3], §10.3).
+enum SetBody<'b> {
+    Frozen(&'b Bitset),
+    Pm(&'b PlusMinus),
+}
+
+/// Every non-empty set of the view as of the layers applied so far, members ascending ([F09 §4.7] "bitset").
+#[derive(Default)]
+struct ViewSets(BTreeMap<SetKey, Vec<u32>>);
+
+impl ViewSets {
+    /// Applies one layer's `BM.<i>` and `FIDX` sets ([F09 §9], §10.3).
+    fn apply(&mut self, seg: &Segment) -> core::result::Result<(), String> {
+        let base = seg.hdr.seg_kind == 3;
+        let keys: &[[u8; 4]] = match seg.get(0x0040) {
+            Some(Sec::Bmdir(v)) => v,
+            _ => &[],
+        };
+        for (e, sec) in &seg.sections {
+            match (e.tag, sec) {
+                (0x8000..=0xFFFE, Sec::Bitset(_) | Sec::Pm(_)) => {
+                    let i = usize::from(e.tag - 0x8000);
+                    let key = keys
+                        .get(i)
+                        .ok_or_else(|| format!("BM.{i} has no BMDIR entry [F09 §9.2]"))?;
+                    let body = match sec {
+                        Sec::Bitset(b) => SetBody::Frozen(b),
+                        Sec::Pm(p) => SetBody::Pm(p),
+                        _ => unreachable!("matched above"),
+                    };
+                    self.change(SetKey::Bm(*key), body, base)?;
+                }
+                (0x5000..=0x5FFF, Sec::Fidx(x)) => {
+                    for (v, b) in &x.values {
+                        let body = match b {
+                            FidxBody::Frozen(s) => SetBody::Frozen(s),
+                            FidxBody::Pm(p) => SetBody::Pm(p),
+                        };
+                        self.change(SetKey::Value(x.field_sym, x.vtype, v.clone()), body, base)?;
+                    }
+                }
+                _ => {}
+            }
+        }
+        Ok(())
+    }
+
+    /// A base's frozen bitset defines its set; an upper layer's ± list changes the set below it, each `plus` id not a
+    /// member there and each `minus` id one ([F09 §4.6]).
+    fn change(
+        &mut self,
+        key: SetKey,
+        body: SetBody<'_>,
+        base: bool,
+    ) -> core::result::Result<(), String> {
+        match (body, base) {
+            (SetBody::Frozen(b), true) => {
+                let m = b.members();
+                if !m.is_empty() {
+                    self.0.insert(key, m);
+                }
+            }
+            (SetBody::Pm(p), false) => {
+                let below = self.0.remove(&key).unwrap_or_default();
+                if let Some(x) = p.plus.iter().find(|x| below.binary_search(x).is_ok()) {
+                    return Err(format!(
+                        "a ± list of {key} adds #{x}, which is a member below the layer [F09 §4.6, §17.1 V-12]"
+                    ));
+                }
+                if let Some(x) = p.minus.iter().find(|x| below.binary_search(x).is_err()) {
+                    return Err(format!(
+                        "a ± list of {key} removes #{x}, which is not a member below the layer [F09 §4.6, §17.1 V-12]"
+                    ));
+                }
+                let mut next = Vec::with_capacity(below.len() + p.plus.len());
+                let mut plus = p.plus.iter().copied().peekable();
+                for x in below
+                    .into_iter()
+                    .filter(|x| p.minus.binary_search(x).is_err())
+                {
+                    while let Some(y) = plus.next_if(|&y| y < x) {
+                        next.push(y);
+                    }
+                    next.push(x);
+                }
+                next.extend(plus);
+                if !next.is_empty() {
+                    self.0.insert(key, next);
+                }
+            }
+            (SetBody::Frozen(_), false) => {
+                return Err(format!(
+                    "{key} is a frozen bitset in an upper segment [F09 §9.3, §10.3]"
+                ));
+            }
+            (SetBody::Pm(_), true) => {
+                return Err(format!("{key} is a ± list in a base [F09 §9.3, §10.3]"));
+            }
+        }
+        Ok(())
+    }
+}
+
+/// Edge id of `parent` ([F08 §8.3]), whose forward direction is `NodeHdr.parent` ([F09 §7.1]).
+const PARENT: u8 = 1;
+
+/// One direction of a layer's CSR ([F09 §7.1]): row i's list is `(kind[j], node[j])` for j in `off[i]..off[i + 1]`,
+/// strictly ascending.
+struct Csr<'a> {
+    off: &'a [u32],
+    node: &'a [u32],
+    kind: &'a [u8],
+}
+
+impl Csr<'_> {
+    /// Row i's list.
+    fn list(&self, i: usize) -> impl Iterator<Item = (u8, u32)> + '_ {
+        (self.off[i] as usize..self.off[i + 1] as usize).map(|j| (self.kind[j], self.node[j]))
+    }
+
+    /// Whether row i's list holds `(k, x)`, by binary search.
+    fn has(&self, i: usize, k: u8, x: u32) -> bool {
+        let (mut lo, mut hi) = (self.off[i] as usize, self.off[i + 1] as usize);
+        while lo < hi {
+            let mid = lo + (hi - lo) / 2;
+            match (self.kind[mid], self.node[mid]).cmp(&(k, x)) {
+                std::cmp::Ordering::Less => lo = mid + 1,
+                std::cmp::Ordering::Greater => hi = mid,
+                std::cmp::Ordering::Equal => return true,
+            }
+        }
+        false
+    }
+}
+
+/// One layer's rows as I-P3 reads them ([F09 §2.4], §5.2, §7.1): their `#N`s, `NodeHdr.parent` and both CSR lists.
+struct Adjacency<'a> {
+    /// A base's rows are `#1…#n`; an upper segment's are its `IDS`.
+    base: bool,
+    ids: &'a [u32],
+    nodes: &'a [NodeHdr],
+    out: Csr<'a>,
+    inn: Csr<'a>,
+}
+
+impl<'a> Adjacency<'a> {
+    /// The layer's rows, refused when its `IDS`, `NODE` and CSR lengths disagree (a segment that did not decode, V-11).
+    fn of(seg: &'a Segment) -> core::result::Result<Self, String> {
+        let base = seg.hdr.seg_kind == 3;
+        let ids: &[u32] = if base { &[] } else { seg.u32s(0x0001) };
+        let n = if base {
+            seg.hdr.n_rows as usize
+        } else {
+            ids.len()
+        };
+        let nodes: &[NodeHdr] = match seg.get(0x0002) {
+            Some(Sec::Node(v)) => v,
+            _ => &[],
+        };
+        let csr = |o: u16, x: u16, k: u16| Csr {
+            off: seg.u32s(o),
+            node: seg.u32s(x),
+            kind: seg.u8s(k),
+        };
+        let (out, inn) = (csr(0x0020, 0x0021, 0x0022), csr(0x0023, 0x0024, 0x0025));
+        let sound = |c: &Csr<'_>| {
+            c.off.len() == n + 1
+                && c.off[0] == 0
+                && c.off.windows(2).all(|w| w[0] <= w[1])
+                && c.off[n] as usize == c.node.len()
+                && c.node.len() == c.kind.len()
+        };
+        if nodes.len() != n || !sound(&out) || !sound(&inn) || ids.windows(2).any(|w| w[0] >= w[1])
+        {
+            return Err(
+                "its rows, NODE and CSR sections do not agree [F09 §5.1, §7.1, §17.1 V-11]".into(),
+            );
+        }
+        Ok(Adjacency {
+            base,
+            ids,
+            nodes,
+            out,
+            inn,
+        })
+    }
+
+    /// The row of `#N` r in this layer ([F09 §2.4]).
+    fn row(&self, r: u32) -> Option<usize> {
+        if self.base {
+            (r >= 1 && r as usize <= self.nodes.len()).then(|| r as usize - 1)
+        } else {
+            self.ids.binary_search(&r).ok()
+        }
+    }
+
+    /// The `#N` of row i.
+    fn id(&self, i: usize) -> u32 {
+        if self.base { i as u32 + 1 } else { self.ids[i] }
+    }
+}
+
+/// I-P3 of [F09 §7.1] in the view that `view` (oldest layer first) forms: `(s, k, d)` is in s's out-list iff
+/// `(d, k, s)` is in d's in-list, for every kind but `parent`, for which `NodeHdr.parent` of s is d iff `(parent, s)`
+/// is in d's in-list. Every `#N`'s state is its newest layer's (§4.7 "row").
+fn check_ip3(view: &[Adjacency<'_>]) -> core::result::Result<(), String> {
+    let newest = |r: u32| view.iter().rev().find_map(|l| l.row(r).map(|i| (l, i)));
+    let has_in = |d: u32, k: u8, s: u32| newest(d).is_some_and(|(l, i)| l.inn.has(i, k, s));
+    let has_out = |s: u32, k: u8, d: u32| newest(s).is_some_and(|(l, i)| l.out.has(i, k, d));
+    let parent_of = |s: u32| newest(s).map_or(0, |(l, i)| l.nodes[i].parent);
+    for (li, l) in view.iter().enumerate() {
+        for i in 0..l.nodes.len() {
+            let s = l.id(i);
+            if view[li + 1..].iter().any(|u| u.row(s).is_some()) {
+                continue;
+            }
+            let p = l.nodes[i].parent;
+            if p != 0 && !has_in(p, PARENT, s) {
+                return Err(format!(
+                    "I-P3: NodeHdr.parent of #{s} is #{p}, but (parent, #{s}) is not in the in-list of #{p} [F09 §7.1, §17.1 V-12]"
+                ));
+            }
+            for (k, d) in l.out.list(i) {
+                if !has_in(d, k, s) {
+                    return Err(format!(
+                        "I-P3: (#{s}, {k}, #{d}) is in the out-list of #{s}, but (#{d}, {k}, #{s}) is not in the in-list of #{d} [F09 §7.1, §17.1 V-12]"
+                    ));
+                }
+            }
+            for (k, x) in l.inn.list(i) {
+                let held = if k == PARENT {
+                    parent_of(x) == s
+                } else {
+                    has_out(x, k, s)
+                };
+                if !held {
+                    return Err(format!(
+                        "I-P3: (#{s}, {k}, #{x}) is in the in-list of #{s}, but #{x} does not hold the edge to #{s} ({}) [F09 §7.1, §17.1 V-12]",
+                        if k == PARENT {
+                            "its NodeHdr.parent differs"
+                        } else {
+                            "not in its out-list"
+                        }
+                    ));
+                }
+            }
+        }
+    }
+    Ok(())
+}
+
+/// A changeset segment `cs.<n>` ([F09 §16.4]) is no layer of a stack: it holds the rows its bulk commit touches, over
+/// the state of the commit's ref. When it carries `SCHEMA` (the commit changed the schema, §8.3), that section is the
+/// view's schema as of the changeset, and [`check_stack`]'s rules apply with it; otherwise the schema is the ref's
+/// state before the commit, which no segment holds, and only the per-file checks apply.
+pub fn check_changeset(name: &str, seg: &Segment, syms: &SetSymbols<'_>) -> Result<()> {
+    match seg.get(0x0032) {
+        Some(Sec::Schema(items)) => {
+            check_view_layer(seg, items, syms).or_else(|m| err(0, format!("{name}: {m}")))
+        }
+        _ => Ok(()),
+    }
+}
+
+/// The rules of [`check_stack`] over one layer with the view's schema `schema`.
+fn check_view_layer(
+    seg: &Segment,
+    schema: &[Item],
+    syms: &SetSymbols<'_>,
+) -> core::result::Result<(), String> {
+    let sym = |id: u32| syms.get(SYM_NAME, id);
+    if let Some(Sec::Schema(items)) = seg.get(0x0032) {
+        check_schema_order(items, sym, 0).map_err(|e| e.reason)?;
+    }
+    let (promoted, kinds) = view_schema(schema, syms)?;
+    let nodes: &[NodeHdr] = match seg.get(0x0002) {
+        Some(Sec::Node(v)) => v,
+        _ => &[],
+    };
+    let mut blocks = match seg.get(0x0011) {
+        Some(Sec::Fields(v)) => v.iter(),
+        _ => [].iter(),
+    };
+    let mut holds = false;
+    for h in nodes.iter().filter(|h| h.kind != 0) {
+        let block = if h.fields_off != NONE32 {
+            blocks.next().map(Vec::as_slice).unwrap_or(&[])
+        } else {
+            &[]
+        };
+        if block.is_empty() {
+            continue;
+        }
+        let kind = kinds.get(&h.kind).ok_or_else(|| {
+            format!(
+                "a row of kind id {} names no kind of the view's schema [F08 §8.3]",
+                h.kind
+            )
+        })?;
+        for e in block {
+            let f = sym(e.field_sym).ok_or_else(|| {
+                format!(
+                    "a field block names symbol {}, which no SYMTAB of the set defines",
+                    e.field_sym
+                )
+            })?;
+            let key = |k: &str| (k.to_owned(), f.to_owned());
+            if promoted.contains_key(&key(kind)) || promoted.contains_key(&key("*")) {
+                holds = true;
+            }
+        }
+    }
+    let upper = seg.hdr.seg_kind != 3;
+    let fidx = seg
+        .sections
+        .iter()
+        .any(|(e, _)| (0x5000..0x6000).contains(&e.tag));
+    let fpromo = match seg.get(0x0061) {
+        Some(Sec::Fpromo(v)) => Some(v),
+        _ => None,
+    };
+    let want = holds || (upper && fidx);
+    if fpromo.is_some() != want {
+        return Err(format!(
+            "FPROMO is {}, yet {} [F09 §10.1 Presence, §17.1 V-12]",
+            if fpromo.is_some() {
+                "present"
+            } else {
+                "absent"
+            },
+            if want {
+                "a row holds a promoted field's value or an FIDX is present"
+            } else {
+                "no row holds a value of a field with index != none in the view's schema"
+            }
+        ));
+    }
+    if let Some(rows) = fpromo {
+        let mut by_name: BTreeMap<&str, BTreeSet<(u8, u8, u8)>> = BTreeMap::new();
+        for ((_, f), v) in &promoted {
+            by_name.entry(f.as_str()).or_default().insert(*v);
+        }
+        let mut got: BTreeMap<&str, (u8, u8, u8)> = BTreeMap::new();
+        for r in rows {
+            let f = sym(r.field_sym).ok_or_else(|| {
+                format!(
+                    "an FPROMO row names symbol {}, which no SYMTAB of the set defines",
+                    r.field_sym
+                )
+            })?;
+            got.insert(f, (r.vtype, r.index, r.form));
+        }
+        let agree = got.len() == by_name.len()
+            && got.iter().all(|(f, v)| {
+                by_name
+                    .get(f)
+                    .is_some_and(|s| s.len() == 1 && s.contains(v))
+            });
+        if !agree {
+            return Err(format!(
+                "FPROMO rows {got:?} are not the view's promoted fields {by_name:?} [F09 §10.1, §17.1 V-12]"
+            ));
         }
     }
     Ok(())
@@ -2610,6 +3441,25 @@ pub(crate) mod tests {
             flags: 0,
             count,
         }
+    }
+
+    /// Recomputes every checksum and digest of a segment file whose section placement is unchanged ([F09 §2.1], §2.2).
+    pub(crate) fn reseal(b: &mut [u8]) {
+        let n = usize::from(u16::from_le_bytes([b[12], b[13]]));
+        let data_off = SEG_HDR + 32 * n;
+        for j in 0..n {
+            let e = SEG_HDR + 32 * j;
+            let off = u64::from_le_bytes(b[e + 8..e + 16].try_into().unwrap()) as usize;
+            let len = u64::from_le_bytes(b[e + 16..e + 24].try_into().unwrap()) as usize;
+            let sum = xxh3_64(&b[off..off + len]);
+            b[e + 24..e + 32].copy_from_slice(&sum.to_le_bytes());
+        }
+        let t = xxh3_64(&b[SEG_HDR..data_off]);
+        b[104..112].copy_from_slice(&t.to_le_bytes());
+        let d = blake3_256(&b[data_off..]);
+        b[72..104].copy_from_slice(&d);
+        let h = xxh3_64(&b[..112]);
+        b[112..120].copy_from_slice(&h.to_le_bytes());
     }
 
     fn rt_empty(t: Table, form: u8) -> Sec {
@@ -2842,6 +3692,59 @@ pub(crate) mod tests {
         assert_eq!(decode_post(&post, 0, &back).unwrap(), lists);
     }
 
+    /// [F01 §8.1] S4, §8.2, [F09 §14.2]: a `SYMTAB` class entry's ids lie within the class's width, 65,535 for `role`
+    /// and `root` and 2^32 - 1 for the others; an entry that would pass it is refused (built by hand: the encoder
+    /// writes only valid tables).
+    #[test]
+    fn symtab_ids_within_the_width() {
+        let table = |class: u8, first: u32, n: u32| {
+            let strings: Vec<String> = (0..n).map(|j| format!("s{j}")).collect();
+            let mut pool = Writer::new();
+            let mut by_id = Writer::new();
+            for t in &strings {
+                by_id.u32(pool.len() as u32);
+                pool.vstr(t);
+            }
+            let mut w = Writer::new();
+            w.u16(1);
+            w.u16(0);
+            w.u32(pool.len() as u32);
+            w.u8(class);
+            w.zeros(3);
+            w.u32(first);
+            w.u32(n);
+            w.u32(28);
+            w.u32(28 + 4 * n);
+            w.bytes(by_id.as_slice());
+            // The strings `s0`, `s1`, … sort as their ids do for n <= 10.
+            (0..n).for_each(|j| w.u32(first.wrapping_add(j)));
+            w.bytes(pool.as_slice());
+            w.into_vec()
+        };
+        for (class, first, n) in [
+            (2u8, 65_535u32, 1u32),
+            (8, 65_534, 2),
+            (1, u32::MAX, 1),
+            (11, u32::MAX - 2, 3),
+        ] {
+            let st = decode_symtab(&table(class, first, n), 0)
+                .unwrap_or_else(|e| panic!("class {class} first {first} n {n}: {e}"));
+            assert_eq!(encode_symtab(&st), table(class, first, n));
+        }
+        for (class, first, n) in [
+            (2u8, 65_535u32, 2u32),
+            (8, 65_536, 1),
+            (1, u32::MAX, 2),
+            (11, u32::MAX - 1, 3),
+        ] {
+            let e = decode_symtab(&table(class, first, n), 0).unwrap_err();
+            assert!(
+                e.reason.contains("width"),
+                "class {class} first {first} n {n}: {e}"
+            );
+        }
+    }
+
     /// [F09 §14.2]: `SYMTAB` arrays and pool in (class, id) order; `by_str` sorted by string.
     #[test]
     fn symtab_round_trip() {
@@ -2928,6 +3831,29 @@ pub(crate) mod tests {
         }
     }
 
+    /// [F09 §10.1]: `slot` is 0–4,095, so an `FPROMO` of 4,096 rows decodes and one of 4,097 is refused before any
+    /// `FCOL`/`FIDX` tag is formed from a slot.
+    #[test]
+    fn fpromo_slot_range() {
+        let table = |n: u32| {
+            let mut w = Writer::new();
+            w.u32(n);
+            w.u32(12);
+            for i in 0..n {
+                w.u32(i + 1);
+                w.u16(i as u16);
+                w.u8(2);
+                w.u8(1);
+                w.u8(0);
+                w.zeros(3);
+            }
+            w.into_vec()
+        };
+        assert!(decode_sec(0x0061, &table(4096), 0, 3).is_ok());
+        let e = decode_sec(0x0061, &table(4097), 0, 3).unwrap_err();
+        assert!(e.reason.contains("4,096 rows"), "{e}");
+    }
+
     /// Checks name the section they are about: a `TOMB` that misses a deleted row fails at `TOMB`'s offset.
     #[test]
     fn failures_name_their_section() {
@@ -2948,6 +3874,834 @@ pub(crate) mod tests {
             .map(|(_, (_, at))| *at)
             .unwrap();
         assert_eq!(decode_segment(&b).unwrap_err().offset, tomb_at);
+    }
+
+    /// `s` with section `tag` replaced by (or given) `sec`, in tag order.
+    fn with(mut s: Segment, tag: u16, sec: Sec) -> Segment {
+        s.sections.retain(|(e, _)| e.tag != tag);
+        s.sections.push((ent(tag, 0), sec));
+        s.sections.sort_by_key(|x| x.0.tag);
+        s
+    }
+
+    /// Base segment `s` as a delta over `below` ([F09 §2.3], §16.2): kind 4, the bounds just above `below`'s, `IDS` =
+    /// its rows `#1…#n`, no set changed (no `BMDIR`, no `BM.<i>`) and no symbol allocated (an empty `SYMTAB`, §14.2).
+    fn as_delta(s: Segment, below: &Segment) -> Segment {
+        let n = s.hdr.n_rows;
+        let s = with(s, 0x0100, Sec::Symtab(Symtab { classes: vec![] }));
+        let mut d = with(s, 0x0001, Sec::Ids((1..=n).collect()));
+        d.sections
+            .retain(|(e, _)| e.tag != 0x0040 && e.tag < 0x8000);
+        d.hdr.seg_kind = 4;
+        d.hdr.from_lsn = below.hdr.upto_lsn;
+        d.hdr.upto_lsn = below.hdr.upto_lsn + 100;
+        d.hdr.rt_upto_lsn = d.hdr.upto_lsn.max(below.hdr.rt_upto_lsn);
+        d
+    }
+
+    /// `s` with its CSR replaced ([F09 §7.1]): per row, its out-list and its in-list as (kind, node).
+    fn with_csr(mut s: Segment, out: &[&[(u8, u32)]], inn: &[&[(u8, u32)]]) -> Segment {
+        for (lists, tags) in [
+            (out, [0x0020u16, 0x0021, 0x0022]),
+            (inn, [0x0023, 0x0024, 0x0025]),
+        ] {
+            let mut off = vec![0u32];
+            let (mut node, mut kind) = (Vec::new(), Vec::new());
+            for l in lists {
+                for &(k, x) in *l {
+                    kind.push(k);
+                    node.push(x);
+                }
+                off.push(node.len() as u32);
+            }
+            s = with(s, tags[0], Sec::U32s(off));
+            s = with(s, tags[1], Sec::U32s(node));
+            s = with(s, tags[2], Sec::U8s(kind));
+        }
+        s
+    }
+
+    /// `s` with `f` applied to its `NODE` rows.
+    fn map_nodes(mut s: Segment, f: impl Fn(&mut Vec<NodeHdr>)) -> Segment {
+        for (_, x) in &mut s.sections {
+            if let Sec::Node(v) = x {
+                f(v);
+            }
+        }
+        s
+    }
+
+    /// [F09 §4.7], §2.3, §16.3, §17.1 V-12: a stack is at most one base, first, then deltas, with at most one branch
+    /// segment on top; a delta's `from_lsn` is the `upto_lsn` below it (0 below the oldest layer), `upto_lsn` and
+    /// `rt_upto_lsn` never decrease, and a branch segment's `from_lsn` is its pinned set's newest `upto_lsn`.
+    #[test]
+    fn stack_shape_and_continuity() {
+        let base = small_base();
+        let syms = SetSymbols::of([&base]).unwrap();
+        let d1 = as_delta(small_base(), &base);
+        check_stack(&[("base", &base), ("d1", &d1)], &syms).unwrap();
+        let d2 = as_delta(small_base(), &d1);
+        check_stack(&[("base", &base), ("d1", &d1), ("d2", &d2)], &syms).unwrap();
+        let mut gap = d1.clone();
+        gap.hdr.from_lsn -= 1;
+        let e = check_stack(&[("base", &base), ("d1", &gap)], &syms).unwrap_err();
+        assert!(e.reason.starts_with("d1: from_lsn 999"), "{e}");
+        let mut high = base.clone();
+        high.hdr.rt_upto_lsn = 5000;
+        let e = check_stack(&[("base", &high), ("d1", &d1)], &syms).unwrap_err();
+        assert!(e.reason.contains("main-set continuity"), "{e}");
+        let mut back = d2.clone();
+        back.hdr.upto_lsn = d1.hdr.upto_lsn - 1;
+        back.hdr.rt_upto_lsn = d1.hdr.rt_upto_lsn;
+        let e = check_stack(&[("base", &base), ("d1", &d1), ("d2", &back)], &syms).unwrap_err();
+        assert!(e.reason.contains("main-set continuity"), "{e}");
+        // A set without a base: its oldest delta folds the log from lsn 0.
+        let mut lone = d1.clone();
+        lone.hdr.from_lsn = 0;
+        check_stack(&[("d1", &lone)], &syms).unwrap();
+        assert!(check_stack(&[("d1", &d1)], &syms).is_err());
+        // A branch segment over its pinned set; its upto_lsn is its tip's and may lie below from_lsn.
+        let mut b = d1.clone();
+        b.hdr.seg_kind = 5;
+        b.hdr.upto_lsn = 400;
+        b.hdr.rt_upto_lsn = 0;
+        check_stack(&[("base", &base), ("b", &b)], &syms).unwrap();
+        let mut off = b.clone();
+        off.hdr.from_lsn = 7;
+        assert!(check_stack(&[("base", &base), ("b", &off)], &syms).is_err());
+        // Shapes that are no stack.
+        let mut cs = d1.clone();
+        cs.hdr.seg_kind = 9;
+        for layers in [
+            vec![("d1", &lone), ("base", &base)],
+            vec![("base", &base), ("b", &b), ("d1", &d1)],
+            vec![("base", &base), ("cs", &cs)],
+        ] {
+            let e = check_stack(&layers, &syms).unwrap_err();
+            assert!(e.reason.contains("cannot be layer"), "{e}");
+        }
+    }
+
+    /// [F09 §4.6], §9, §17.1 V-12: `small_base` holds the tasks #1 and #2 in the frozen `BMDIR` set (1, 1, 0, 0); a
+    /// delta may remove #2 and a later one add it back, but never add a member or remove a non-member; a set without a
+    /// frozen bitset in the base is empty.
+    #[test]
+    fn stack_plus_minus_preconditions() {
+        let base = small_base();
+        let syms = SetSymbols::of([&base]).unwrap();
+        let change = |below: &Segment, key: [u8; 4], plus: Vec<u32>, minus: Vec<u32>| {
+            let d = with(as_delta(small_base(), below), 0x0040, Sec::Bmdir(vec![key]));
+            with(d, 0x8000, Sec::Pm(PlusMinus { plus, minus }))
+        };
+        let tasks = [1, 1, 0, 0];
+        let d1 = change(&base, tasks, vec![], vec![2]);
+        let d2 = change(&d1, tasks, vec![2], vec![]);
+        check_stack(&[("base", &base), ("d1", &d1), ("d2", &d2)], &syms).unwrap();
+        let again = change(&d1, tasks, vec![], vec![2]);
+        let e = check_stack(&[("base", &base), ("d1", &d1), ("d2", &again)], &syms).unwrap_err();
+        assert!(
+            e.reason.starts_with("d2: ") && e.reason.contains("removes #2"),
+            "{e}"
+        );
+        let member = change(&base, tasks, vec![1], vec![]);
+        let e = check_stack(&[("base", &base), ("d1", &member)], &syms).unwrap_err();
+        assert!(e.reason.contains("adds #1"), "{e}");
+        let deleted = [3, 0, 0, 3];
+        let add = change(&base, deleted, vec![2], vec![]);
+        check_stack(&[("base", &base), ("d1", &add)], &syms).unwrap();
+        let remove = change(&base, deleted, vec![], vec![2]);
+        let e = check_stack(&[("base", &base), ("d1", &remove)], &syms).unwrap_err();
+        assert!(e.reason.contains("removes #2"), "{e}");
+    }
+
+    /// [F09 §4.6], §10.3: `FIDX` sets fold by field symbol, type and value across layers whatever their slots; a frozen
+    /// body belongs in a base and a ± list in an upper segment.
+    #[test]
+    fn view_sets_fold_fidx_values() {
+        let fidx = |kind: u8, slot: u16, values: Vec<(u16, FidxBody)>| Segment {
+            hdr: SegHdr {
+                seg_kind: kind,
+                ..small_base().hdr
+            },
+            sections: vec![(
+                ent(0x5000 + slot, 0),
+                Sec::Fidx(Fidx {
+                    field_sym: 3,
+                    vtype: 5,
+                    form: u8::from(kind != 3),
+                    values: values
+                        .into_iter()
+                        .map(|(v, b)| (v.to_le_bytes().to_vec(), b))
+                        .collect(),
+                }),
+            )],
+        };
+        let frozen = |m: &[u32]| FidxBody::Frozen(Bitset::from_members(m));
+        let pm = |plus: Vec<u32>, minus: Vec<u32>| FidxBody::Pm(PlusMinus { plus, minus });
+        let mut sets = ViewSets::default();
+        sets.apply(&fidx(3, 0, vec![(1, frozen(&[4, 9])), (2, frozen(&[5]))]))
+            .unwrap();
+        sets.apply(&fidx(
+            4,
+            3,
+            vec![(1, pm(vec![5], vec![9])), (2, pm(vec![], vec![5]))],
+        ))
+        .unwrap();
+        let key = |v: u16| SetKey::Value(3, 5, v.to_le_bytes().to_vec());
+        assert_eq!(sets.0.get(&key(1)), Some(&vec![4, 5]));
+        assert_eq!(sets.0.get(&key(2)), None, "an emptied set is dropped");
+        let e = sets
+            .apply(&fidx(4, 1, vec![(1, pm(vec![4], vec![]))]))
+            .unwrap_err();
+        assert!(e.contains("adds #4"), "{e}");
+        let mut other = ViewSets::default();
+        assert!(other.apply(&fidx(4, 0, vec![(1, frozen(&[4]))])).is_err());
+        assert!(
+            other
+                .apply(&fidx(3, 0, vec![(1, pm(vec![4], vec![]))]))
+                .is_err()
+        );
+    }
+
+    /// [F09 §7.1] I-P3, §17.1 V-12: `small_base`'s one `blocks` edge #1 → #2 is in both lists; either half alone, a
+    /// `NodeHdr.parent` without its in-list entry (or the reverse), an edge to a node no layer holds, and a delta that
+    /// changes one endpoint only are refused.
+    #[test]
+    fn stack_ip3() {
+        let base = small_base();
+        let syms = SetSymbols::of([&base]).unwrap();
+        check_stack(&[("base", &base)], &syms).unwrap();
+        let fails = |layers: &[(&str, &Segment)], want: &str| {
+            let e = check_stack(layers, &syms).unwrap_err();
+            assert!(e.reason.contains("I-P3") && e.reason.contains(want), "{e}");
+        };
+        let no_in = with_csr(small_base(), &[&[(2, 2)], &[]], &[&[], &[]]);
+        fails(&[("base", &no_in)], "not in the in-list of #2");
+        let no_out = with_csr(small_base(), &[&[], &[]], &[&[], &[(2, 1)]]);
+        fails(&[("base", &no_out)], "not in its out-list");
+        let dangling = with_csr(small_base(), &[&[(2, 2), (2, 5)], &[]], &[&[], &[(2, 1)]]);
+        fails(&[("base", &dangling)], "in-list of #5");
+        // parent: NodeHdr.parent of #1 is #2 exactly when (parent, #1) is in #2's in-list.
+        let child = map_nodes(small_base(), |v| v[0].parent = 2);
+        fails(&[("base", &child)], "NodeHdr.parent of #1 is #2");
+        let both = with_csr(child, &[&[(2, 2)], &[]], &[&[], &[(PARENT, 1), (2, 1)]]);
+        check_stack(&[("base", &both)], &syms).unwrap();
+        let orphan = with_csr(
+            small_base(),
+            &[&[(2, 2)], &[]],
+            &[&[], &[(PARENT, 1), (2, 1)]],
+        );
+        fails(&[("base", &orphan)], "NodeHdr.parent differs");
+        // A delta that drops the edge at #1 alone leaves #2's in-list entry in the base: refused in its view.
+        let mut one = with(as_delta(small_base(), &base), 0x0001, Sec::Ids(vec![1]));
+        one.hdr.n_rows = 1;
+        let one = with_csr(map_nodes(one, |v| v.truncate(1)), &[&[]], &[&[]]);
+        let e = check_stack(&[("base", &base), ("d", &one)], &syms).unwrap_err();
+        assert!(e.reason.starts_with("d: I-P3"), "{e}");
+        let both_ends = with_csr(as_delta(small_base(), &base), &[&[], &[]], &[&[], &[]]);
+        check_stack(&[("base", &base), ("d", &both_ends)], &syms).unwrap();
+        // A lone delta holds both endpoints of its edge.
+        let mut lone = as_delta(small_base(), &base);
+        lone.hdr.from_lsn = 0;
+        check_stack(&[("d", &lone)], &syms).unwrap();
+    }
+
+    /// [F09 §14.2]: the set's `SYMTAB` ranges merge per class, overlaps included; one id with two strings refuses the
+    /// set.
+    #[test]
+    fn set_symbols_merge_ranges() {
+        let seg = |first: u32, v: &[&str]| {
+            with(
+                small_base(),
+                0x0100,
+                Sec::Symtab(Symtab {
+                    classes: vec![(10, first, v.iter().map(|s| (*s).to_owned()).collect())],
+                }),
+            )
+        };
+        let (a, b, c) = (
+            seg(1, &["a", "b", "c", "d"]),
+            seg(3, &["c", "d", "e"]),
+            seg(2, &["b"]),
+        );
+        let s = SetSymbols::of([&b, &a, &c]).unwrap();
+        let got: Vec<Option<&str>> = (0..7).map(|id| s.get(10, id)).collect();
+        assert_eq!(
+            got,
+            [
+                None,
+                Some("a"),
+                Some("b"),
+                Some("c"),
+                Some("d"),
+                Some("e"),
+                None
+            ]
+        );
+        assert_eq!(s.get(1, 1), None);
+        let clash = seg(4, &["x"]);
+        let e = SetSymbols::of([&a, &b, &clash]).unwrap_err();
+        assert!(e.reason.contains("symbol 4 of class 10"), "{e}");
+    }
+
+    /// [F09 §14.2] "Uniqueness": a string is at most one id of its class across the set's `SYMTAB`s, overlapping
+    /// ranges included.
+    #[test]
+    fn set_symbols_unique_strings() {
+        let seg = |first: u32, v: &[&str]| {
+            with(
+                small_base(),
+                0x0100,
+                Sec::Symtab(Symtab {
+                    classes: vec![(10, first, v.iter().map(|s| (*s).to_owned()).collect())],
+                }),
+            )
+        };
+        let (a, b) = (seg(1, &["a", "b"]), seg(2, &["b", "c"]));
+        SetSymbols::of([&a, &b]).unwrap();
+        let again = seg(3, &["a"]);
+        let e = SetSymbols::of([&a, &again]).unwrap_err();
+        assert!(
+            e.reason
+                .contains("\"a\" is symbol 1 and symbol 3 of class 10"),
+            "{e}"
+        );
+        // Another class may hold the same string.
+        let other = with(
+            small_base(),
+            0x0100,
+            Sec::Symtab(Symtab {
+                classes: vec![(10, 1, vec!["a".into()]), (11, 1, vec!["a".into()])],
+            }),
+        );
+        SetSymbols::of([&other]).unwrap();
+    }
+
+    /// [F09 §14.2] "Ranges", §17.1 V-12: a main set's layers hold contiguous, disjoint per-class id ranges in layer
+    /// order, the oldest from 1; a gap, an overlap and a set without a base whose oldest delta starts above 1 are
+    /// refused; a branch segment carries no `SYMTAB`.
+    #[test]
+    fn stack_symbol_ranges() {
+        let base = small_base();
+        let syms = SetSymbols::of([&base]).unwrap();
+        let symtab = |first: u32, v: &[&str]| {
+            Sec::Symtab(Symtab {
+                classes: vec![(10, first, v.iter().map(|s| (*s).to_owned()).collect())],
+            })
+        };
+        let d1 = with(
+            as_delta(small_base(), &base),
+            0x0100,
+            symtab(2, &["x", "y"]),
+        );
+        check_stack(&[("base", &base), ("d1", &d1)], &syms).unwrap();
+        let d2 = with(as_delta(small_base(), &d1), 0x0100, symtab(4, &["z"]));
+        check_stack(&[("base", &base), ("d1", &d1), ("d2", &d2)], &syms).unwrap();
+        // d1 allocates nothing: d2 continues from the base.
+        let quiet = as_delta(small_base(), &base);
+        let next = with(as_delta(small_base(), &quiet), 0x0100, symtab(2, &["x"]));
+        check_stack(&[("base", &base), ("d1", &quiet), ("d2", &next)], &syms).unwrap();
+        for (first, what) in [(3, "a gap"), (1, "an overlap")] {
+            let d = with(as_delta(small_base(), &base), 0x0100, symtab(first, &["x"]));
+            let e = check_stack(&[("base", &base), ("d1", &d)], &syms).unwrap_err();
+            assert!(
+                e.reason.starts_with("d1: SYMTAB ids of class 10 start at"),
+                "{what}: {e}"
+            );
+        }
+        let mut lone = with(as_delta(small_base(), &base), 0x0100, symtab(2, &["x"]));
+        lone.hdr.from_lsn = 0;
+        assert!(check_stack(&[("d1", &lone)], &syms).is_err());
+    }
+
+    /// Every `SecEnt.count` of `s` set to its content's ([F09 §4]).
+    fn recount(mut s: Segment) -> Segment {
+        for (e, x) in &mut s.sections {
+            if let Some(c) = class_count(e.tag, x) {
+                e.count = c as u32;
+            }
+        }
+        s
+    }
+
+    /// The per-file checks of `s` ([F09 §17.1] V-11, §5–§16) on its decoded form.
+    fn per_file(s: &Segment) -> Result<()> {
+        check_segment(&recount(s.clone()), &BTreeMap::new())
+    }
+
+    /// `small_base` with a third row, #3, absent ([F09 §5.2]): an all-zero `NODE` row, zero column elements, empty
+    /// adjacency lists and no entry anywhere else.
+    fn with_absent() -> Segment {
+        let mut s = small_base();
+        s.hdr.n_rows = 3;
+        for (e, x) in &mut s.sections {
+            match (e.tag, x) {
+                (0x0002, Sec::Node(v)) => v.push(NodeHdr::default()),
+                (0x0003, Sec::Creator(v)) => v.push(Creator { actor: 0, role: 0 }),
+                (0x0004..=0x0006, Sec::U32s(v)) => v.push(0),
+                (0x0020 | 0x0023, Sec::U32s(v)) => v.push(*v.last().expect("n + 1 offsets")),
+                _ => {}
+            }
+        }
+        recount(s)
+    }
+
+    /// `s` with section `tag`'s content changed by `f`.
+    fn edit(mut s: Segment, tag: u16, f: impl FnOnce(&mut Sec)) -> Segment {
+        if let Some((_, x)) = s.sections.iter_mut().find(|(e, _)| e.tag == tag) {
+            f(x);
+        }
+        s
+    }
+
+    /// A promoted `enum` field, symbol 1, indexed as a bitmap in slot 0 ([F09 §10.1]-§10.3): #1 holds value 1.
+    fn with_promoted(s: Segment) -> Segment {
+        let s = with(
+            s,
+            0x0061,
+            Sec::Fpromo(vec![Fpromo {
+                field_sym: 1,
+                slot: 0,
+                vtype: 5,
+                index: 2,
+                form: 0,
+            }]),
+        );
+        let s = with(
+            s,
+            0x4000,
+            Sec::Fcol(Fcol {
+                field_sym: 1,
+                vtype: 5,
+                form: 0,
+                rows: vec![Some(vec![vec![1, 0]]), None, None],
+            }),
+        );
+        with(
+            s,
+            0x5000,
+            Sec::Fidx(Fidx {
+                field_sym: 1,
+                vtype: 5,
+                form: 0,
+                values: vec![(vec![1, 0], FidxBody::Frozen(Bitset::from_members(&[1])))],
+            }),
+        )
+    }
+
+    /// One `CONFLICTS` row (a status conflict) of node `n` ([F11 §10]).
+    fn conflict_row(n: u32) -> runtime::Row {
+        use runtime::{FV, Slice};
+        let side = || FV::Slice(Slice::KVal(Box::new(crate::commit::KVal::Status(None))));
+        runtime::Row {
+            table: Table::Conflicts,
+            vals: vec![
+                FV::U(u64::from(n)),
+                FV::U(2),
+                FV::U(0),
+                FV::Bytes(vec![0; 2]),
+                FV::Bytes(vec![0; 16]),
+                FV::Slice(Slice::CKey(crate::commit::CKey::Status(n))),
+                side(),
+                side(),
+                side(),
+            ],
+        }
+    }
+
+    /// One `GLOBIDX` row of node `n` ([F11 §11]).
+    fn glob_row(n: u32) -> runtime::Row {
+        use runtime::{FV, Slice};
+        runtime::Row {
+            table: Table::GlobIdx,
+            vals: vec![
+                FV::U(u64::from(n)),
+                FV::U(1),
+                FV::U(5),
+                FV::Slice(Slice::Text("docs/*.md".into())),
+            ],
+        }
+    }
+
+    /// `sec` (a runtime section of `rt_empty`'s form) holding `rows`.
+    fn rt_with(sec: Sec, rows: Vec<runtime::Row>) -> Sec {
+        let Sec::Runtime(mut r) = sec else {
+            unreachable!("a runtime section")
+        };
+        r.hdr.n_rows = rows.len() as u32;
+        r.rows = rows;
+        Sec::Runtime(r)
+    }
+
+    /// [F09 §5.2]: an absent row holds the zero value of every row-scoped section: zero `CREATOR`, `TOPO`, `DEFER` and
+    /// `DUE` elements, empty adjacency lists, no `PATHIDX`, `ALIASIDX`, `ANCHORS`, `CONFLICTS` or `GLOBIDX` entry, a
+    /// set absent bit in every `FCOL`, zero `DOCLEN`, and no membership in a base's bitsets or `FIDX` sets.
+    #[test]
+    fn absent_row_holds_zero_values() {
+        let s = with_absent();
+        per_file(&s).unwrap();
+        let refused = |s: Segment, what: &str| {
+            let e = per_file(&s).unwrap_err();
+            assert!(e.reason.contains("absent"), "{what}: {e}");
+        };
+        refused(
+            edit(s.clone(), 0x0003, |x| {
+                if let Sec::Creator(v) = x {
+                    v[2].actor = 5;
+                }
+            }),
+            "CREATOR",
+        );
+        for t in [0x0004u16, 0x0005, 0x0006] {
+            refused(
+                edit(s.clone(), t, |x| {
+                    if let Sec::U32s(v) = x {
+                        v[2] = 77;
+                    }
+                }),
+                "TOPO, DEFER, DUE",
+            );
+        }
+        refused(
+            with_csr(
+                s.clone(),
+                &[&[(2, 2)], &[], &[(2, 1)]],
+                &[&[(2, 3)], &[(2, 1)], &[]],
+            ),
+            "out-list",
+        );
+        refused(
+            with_csr(
+                s.clone(),
+                &[&[(2, 2)], &[], &[]],
+                &[&[], &[(2, 1)], &[(4, 1)]],
+            ),
+            "in-list",
+        );
+        let path = PathRow {
+            root: 1,
+            id: 3,
+            fold: b"a.md".to_vec(),
+            path: b"a.md".to_vec(),
+        };
+        for t in [0x0080u16, 0x0081] {
+            refused(
+                with(s.clone(), t, Sec::Paths(vec![path.clone()])),
+                "PATHIDX, ALIASIDX",
+            );
+        }
+        let anchor = AnchorRow {
+            src: 3,
+            dst: 1,
+            anchor: 1,
+            rec: Box::new(file_anchor(4)),
+        };
+        refused(
+            with(s.clone(), 0x0082, Sec::Anchors(vec![anchor])),
+            "ANCHORS",
+        );
+        let conflicts = rt_with(rt_empty(Table::Conflicts, 1), vec![conflict_row(3)]);
+        refused(with(s.clone(), 0x0031, conflicts), "CONFLICTS");
+        let ok = rt_with(rt_empty(Table::Conflicts, 1), vec![conflict_row(1)]);
+        per_file(&with(s.clone(), 0x0031, ok)).unwrap();
+        let globs = rt_with(rt_empty(Table::GlobIdx, 1), vec![glob_row(3)]);
+        refused(with(s.clone(), 0x0084, globs), "GLOBIDX");
+        refused(
+            with(
+                s.clone(),
+                0x8000,
+                Sec::Bitset(Bitset::from_members(&[1, 2, 3])),
+            ),
+            "BM.<i>",
+        );
+        let p = with_promoted(s.clone());
+        per_file(&p).unwrap();
+        refused(
+            edit(p.clone(), 0x4000, |x| {
+                if let Sec::Fcol(c) = x {
+                    c.rows[2] = Some(vec![vec![1, 0]]);
+                }
+            }),
+            "FCOL",
+        );
+        refused(
+            edit(p, 0x5000, |x| {
+                if let Sec::Fidx(f) = x {
+                    f.values[0].1 = FidxBody::Frozen(Bitset::from_members(&[1, 3]));
+                }
+            }),
+            "FIDX",
+        );
+        // Full text with DOCLEN: zero for the absent row #3 and for the deleted row #2 ([F09 §12.4]).
+        let mut fts = with(s.clone(), 0x0050, Sec::Terms(vec![]));
+        fts = with(fts, 0x0051, Sec::Post(vec![]));
+        fts = with(fts, 0x0052, Sec::Doclen(vec![[3, 0, 9], [0; 3], [0; 3]]));
+        fts = with(fts, 0x0053, Sec::FtsStat([(1, 3), (0, 0), (1, 9)]));
+        fts.hdr.tok_ver = 1;
+        per_file(&fts).unwrap();
+        for row in [1usize, 2] {
+            let bad = edit(fts.clone(), 0x0052, |x| {
+                if let Sec::Doclen(v) = x {
+                    v[row] = [1, 0, 0];
+                }
+            });
+            let e = per_file(&bad).unwrap_err();
+            assert!(e.reason.contains("DOCLEN"), "row {row}: {e}");
+        }
+    }
+
+    /// [F09 §5.2], §4.6, §16.3: an upper segment's ± lists never add an absent row; a `minus` entry may name one (a
+    /// branch segment's absent row takes a node of its pinned set out of the sets it was in).
+    #[test]
+    fn absent_row_in_plus_minus_lists() {
+        let mut d = with(
+            as_delta(with_absent(), &small_base()),
+            0x0040,
+            Sec::Bmdir(vec![[1, 1, 0, 0]]),
+        );
+        d.hdr.n_rows = 3;
+        let pm = |plus: Vec<u32>, minus: Vec<u32>| {
+            with(d.clone(), 0x8000, Sec::Pm(PlusMinus { plus, minus }))
+        };
+        per_file(&pm(vec![], vec![3])).unwrap();
+        let e = per_file(&pm(vec![3], vec![])).unwrap_err();
+        assert!(e.reason.contains("absent"), "{e}");
+    }
+
+    /// A `file` anchor record ([F08 §10.3]): no hint, quote, window or blob.
+    fn file_anchor(uid: u8) -> AnchorRec {
+        AnchorRec {
+            aflags: 0,
+            uid: [uid; 16],
+            kind: 1,
+            mode: 1,
+            watch: 1,
+            resolver: 1,
+            captured: [5; 16],
+            pred: None,
+            hint: None,
+            scope: None,
+            quote: None,
+            end: None,
+            occurrence: None,
+            window: None,
+            span_hash: None,
+            blob: crate::prim::Oid::None,
+            git: None,
+            marker: None,
+        }
+    }
+
+    /// [F08 §8.5], §10.3, E3: `SCHEMA` rows and `ANCHORS` records re-encode from their decoded values, so a re-encode
+    /// tests the item and record encodings instead of copying the input: a changed value changes the bytes. A row whose
+    /// bytes are more than its item's or record's encoding is refused.
+    #[test]
+    fn schema_and_anchor_rows_encode_from_their_values() {
+        let it = int_field(3, 1, 0, 0);
+        let mut iw = Writer::new();
+        it.encode(&mut iw);
+        let schema = Sec::Schema(vec![it.clone()]);
+        let b = encode_sec(&schema);
+        assert_eq!(b, encode_variable(&[iw.as_slice().to_vec()]));
+        assert_eq!(decode_sec(0x0032, &b, 0, 3).unwrap(), schema);
+        let mut retired = it.clone();
+        retired.iflags = 1;
+        let b2 = encode_sec(&Sec::Schema(vec![retired.clone()]));
+        assert_ne!(b2, b);
+        assert_eq!(
+            decode_sec(0x0032, &b2, 0, 3).unwrap(),
+            Sec::Schema(vec![retired])
+        );
+        let long = encode_variable(&[[iw.as_slice(), &[0]].concat()]);
+        assert!(decode_sec(0x0032, &long, 0, 3).is_err());
+
+        let row = AnchorRow {
+            src: 1,
+            dst: 2,
+            anchor: 7,
+            rec: Box::new(file_anchor(9)),
+        };
+        let anchors = Sec::Anchors(vec![row.clone()]);
+        let b = encode_sec(&anchors);
+        assert_eq!(decode_sec(0x0082, &b, 0, 3).unwrap(), anchors);
+        let mut pinned = row.clone();
+        pinned.rec.mode = 2;
+        let b2 = encode_sec(&Sec::Anchors(vec![pinned.clone()]));
+        assert_ne!(b2, b);
+        assert_eq!(
+            decode_sec(0x0082, &b2, 0, 3).unwrap(),
+            Sec::Anchors(vec![pinned])
+        );
+        let mut rw = Writer::new();
+        file_anchor(9).encode(&mut rw);
+        let mut long = Writer::new();
+        long.u32(1);
+        long.u32(2);
+        long.u32(7);
+        long.vbytes(&[rw.as_slice(), &[0]].concat());
+        assert!(decode_sec(0x0082, &encode_variable(&[long.into_vec()]), 0, 3).is_err());
+    }
+
+    /// A project field item `kind`.`name` of type `int` with `index`.
+    fn int_field(kind: u32, name: u32, index: u8, iflags: u8) -> Item {
+        Item {
+            iflags,
+            body: ItemBody::Field {
+                kind,
+                name,
+                ty: value::ty::INT,
+                elem: 0,
+                class: 0,
+                storage: 4,
+                decl: 30,
+                optional: true,
+                index,
+                coerce: 0,
+                cflags: 0,
+                default: None,
+                range: None,
+            },
+        }
+    }
+
+    /// [F09 §10.1] "Presence", §17.1 V-12: `FPROMO` exactly when a row holds a value of a field its kind (or `*`)
+    /// promotes in the view's schema as of the layer, or an upper segment's `FIDX` shows a changed set; its rows are the
+    /// view's promoted fields; the schema is the newest `SCHEMA` at or below the layer; retired items promote nothing.
+    #[test]
+    fn view_presence_rule() {
+        // Symbols 1 `estimate` (the field small_base's row #1, a task, holds), 2–11 the core promoted fields, 12 `task`.
+        let names = [
+            "estimate",
+            "labels",
+            "work_kind",
+            "phase_state",
+            "assignee",
+            "local_id",
+            "severity",
+            "f_kind",
+            "round",
+            "outcome",
+            "metric",
+            "task",
+        ];
+        let symtab = Sec::Symtab(Symtab {
+            classes: vec![(10, 1, names.iter().map(|s| (*s).to_owned()).collect())],
+        });
+        let base = with(small_base(), 0x0100, symtab);
+        let syms = SetSymbols::of([&base]).unwrap();
+        check_stack(&[("base", &base)], &syms).unwrap();
+        // A project item promotes task.estimate: row #1 now holds a promoted value, so FPROMO must be present.
+        let promoting = with(
+            base.clone(),
+            0x0032,
+            Sec::Schema(vec![int_field(12, 1, 1, 0)]),
+        );
+        let e = check_stack(&[("base", &promoting)], &syms).unwrap_err();
+        assert!(e.reason.contains("Presence"), "{e}");
+        let retired = with(
+            base.clone(),
+            0x0032,
+            Sec::Schema(vec![int_field(12, 1, 1, 1)]),
+        );
+        check_stack(&[("base", &retired)], &syms).unwrap();
+        let other_kind = with(
+            base.clone(),
+            0x0032,
+            Sec::Schema(vec![int_field(3, 1, 1, 0)]),
+        );
+        check_stack(&[("base", &other_kind)], &syms).unwrap();
+        let row = |sym: u32, vtype: u8, index: u8, form: u8| Fpromo {
+            field_sym: sym,
+            slot: 0,
+            vtype,
+            index,
+            form,
+        };
+        let core: Vec<Fpromo> = [
+            (2, 7, 2, 1),
+            (3, 5, 2, 0),
+            (4, 5, 2, 0),
+            (5, 7, 2, 0),
+            (6, 7, 2, 0),
+            (7, 5, 2, 0),
+            (8, 5, 2, 0),
+            (9, 2, 1, 0),
+            (10, 5, 2, 0),
+            (11, 7, 2, 0),
+        ]
+        .map(|(s, v, i, f)| row(s, v, i, f))
+        .to_vec();
+        let mut all = vec![row(1, 2, 1, 0)];
+        all.extend(core.iter().copied());
+        let full = with(promoting.clone(), 0x0061, Sec::Fpromo(all.clone()));
+        check_stack(&[("base", &full)], &syms).unwrap();
+        let short = with(promoting.clone(), 0x0061, Sec::Fpromo(core.clone()));
+        assert!(check_stack(&[("base", &short)], &syms).is_err());
+        let mut wrong = all.clone();
+        wrong[0].index = 2;
+        let wrong = with(promoting.clone(), 0x0061, Sec::Fpromo(wrong));
+        assert!(check_stack(&[("base", &wrong)], &syms).is_err());
+        // FPROMO where no row holds a promoted value: a base never, an upper segment only beside an FIDX.
+        let spare = with(base.clone(), 0x0061, Sec::Fpromo(core.clone()));
+        assert!(check_stack(&[("base", &spare)], &syms).is_err());
+        let upper = as_delta(spare.clone(), &base);
+        let e = check_stack(&[("base", &base), ("d", &upper)], &syms).unwrap_err();
+        assert!(e.reason.contains("Presence"), "{e}");
+        let changed = with(
+            upper,
+            0x5001,
+            Sec::Fidx(Fidx {
+                field_sym: 3,
+                vtype: 5,
+                form: 1,
+                values: vec![],
+            }),
+        );
+        check_stack(&[("base", &base), ("d", &changed)], &syms).unwrap();
+        // An upper layer without SCHEMA takes the promoting schema below it.
+        let mut delta = as_delta(base.clone(), &full);
+        delta.sections.retain(|(e, _)| e.tag != 0x0032);
+        let e = check_stack(&[("base", &full), ("d", &delta)], &syms).unwrap_err();
+        assert!(
+            e.reason.starts_with("d: ") && e.reason.contains("Presence"),
+            "{e}"
+        );
+    }
+
+    /// [F09 §17.1] (spec sync 2b): names resolve through every `SYMTAB` of the set. A branch segment without a `SYMTAB`
+    /// whose `SCHEMA` rows are out of order passes alone (nothing resolves) and fails in its set; two `SYMTAB`s that give
+    /// one id two strings refuse the set.
+    #[test]
+    fn set_symbols_resolve_names() {
+        let symtab = |v: &[&str]| {
+            Sec::Symtab(Symtab {
+                classes: vec![(10, 1, v.iter().map(|s| (*s).to_owned()).collect())],
+            })
+        };
+        let base = with(small_base(), 0x0100, symtab(&["estimate", "round", "task"]));
+        let mut branch = as_delta(
+            with(
+                base.clone(),
+                0x0032,
+                Sec::Schema(vec![int_field(3, 2, 0, 0), int_field(3, 1, 0, 0)]),
+            ),
+            &base,
+        );
+        branch.hdr.seg_kind = 5;
+        branch.sections.retain(|(e, _)| e.tag != 0x0100);
+        let lone = SetSymbols::of([&branch]).unwrap();
+        assert_eq!(lone.get(10, 1), None);
+        let Some(Sec::Schema(items)) = branch.get(0x0032) else {
+            unreachable!("set above")
+        };
+        check_schema_order(items, |id| lone.get(10, id), 0).unwrap();
+        let set = SetSymbols::of([&base, &branch]).unwrap();
+        assert!(check_schema_order(items, |id| set.get(10, id), 0).is_err());
+        assert_eq!(set.get(10, 3), Some("task"));
+        let e = check_stack(&[("base", &base), ("b", &branch)], &set).unwrap_err();
+        assert!(e.reason.contains("item key order"), "{e}");
+        let clash = with(small_base(), 0x0100, symtab(&["other"]));
+        assert!(SetSymbols::of([&base, &clash]).is_err());
     }
 }
 
@@ -2990,6 +4744,45 @@ mod props {
             prop_assert_eq!(encode_bitset(&back), b);
         }
 
+        /// [F01 §8.1] S4, [F09 §14.2]: `SYMTAB` class entries at and around the greatest id of each class's width
+        /// never panic; one decodes exactly when its ids fit the width.
+        #[test]
+        fn symtab_near_the_width_never_panics(
+            class in 1u8..=11,
+            first in prop_oneof![
+                Just(u32::MAX),
+                Just(u32::MAX - 1),
+                Just(65_535u32),
+                Just(65_534),
+                Just(65_536),
+                1u32..4,
+            ],
+            n in 1u32..4,
+        ) {
+            let mut pool = Writer::new();
+            let mut by_id = Writer::new();
+            for j in 0..n {
+                by_id.u32(pool.len() as u32);
+                pool.vstr(&format!("s{j}"));
+            }
+            let mut w = Writer::new();
+            w.u16(1);
+            w.u16(0);
+            w.u32(pool.len() as u32);
+            w.u8(class);
+            w.zeros(3);
+            w.u32(first);
+            w.u32(n);
+            w.u32(28);
+            w.u32(28 + 4 * n);
+            w.bytes(by_id.as_slice());
+            (0..n).for_each(|j| w.u32(first.wrapping_add(j)));
+            w.bytes(pool.as_slice());
+            let max = if crate::log::sym::is_u16(class) { 65_535 } else { u64::from(u32::MAX) };
+            let fits = u64::from(first) + u64::from(n) - 1 <= max;
+            prop_assert_eq!(decode_symtab(w.as_slice(), 0).is_ok(), fits);
+        }
+
         /// [F09 §3], §17.1: decoding arbitrary bytes as a segment never panics (the checksum paths).
         #[test]
         fn segment_decode_never_panics(tail in proptest::collection::vec(any::<u8>(), 0..400)) {
@@ -3015,7 +4808,7 @@ mod props {
             for (at, v) in edits {
                 b[data_off + at % n] = v;
             }
-            reseal(&mut b);
+            super::tests::reseal(&mut b);
             if let Ok(s) = decode_segment(&b) {
                 prop_assert_eq!(encode_segment(&s), b);
             }
@@ -3041,24 +4834,5 @@ mod props {
                 prop_assert_eq!(encode_sec(&back), b);
             }
         }
-    }
-
-    /// Recomputes every checksum and digest of a segment file whose section placement is unchanged ([F09 §2.1], §2.2).
-    fn reseal(b: &mut [u8]) {
-        let n = usize::from(u16::from_le_bytes([b[12], b[13]]));
-        let data_off = SEG_HDR + 32 * n;
-        for j in 0..n {
-            let e = SEG_HDR + 32 * j;
-            let off = u64::from_le_bytes(b[e + 8..e + 16].try_into().unwrap()) as usize;
-            let len = u64::from_le_bytes(b[e + 16..e + 24].try_into().unwrap()) as usize;
-            let sum = xxh3_64(&b[off..off + len]);
-            b[e + 24..e + 32].copy_from_slice(&sum.to_le_bytes());
-        }
-        let t = xxh3_64(&b[SEG_HDR..data_off]);
-        b[104..112].copy_from_slice(&t.to_le_bytes());
-        let d = blake3_256(&b[data_off..]);
-        b[72..104].copy_from_slice(&d);
-        let h = xxh3_64(&b[..112]);
-        b[112..120].copy_from_slice(&h.to_le_bytes());
     }
 }

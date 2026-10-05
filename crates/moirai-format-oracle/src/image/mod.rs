@@ -1,4 +1,4 @@
-//! [F14] the git image: the `.moi` v1 ABNF conformance check for every file of an image tree (§4, §6–§8, §14), the
+//! \[F14\] the git image: the `.moi` v1 ABNF conformance check for every file of an image tree (§4, §6–§8, §14), the
 //! commit objects and trailers (§10) and the gate-0 carrier check that re-derives the canonical items (§12).
 //!
 //! [`check_file`] dispatches on a file's magic line: it parses the importer's superset (§9.1), applies the `ImageParse`

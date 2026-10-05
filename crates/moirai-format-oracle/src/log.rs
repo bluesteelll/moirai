@@ -1,4 +1,4 @@
-//! [F05] the log: extents and lsns (§2), `RecHdr` (§3), groups and the chain trailer (§4), the scan with its validity
+//! \[F05\] the log: extents and lsns (§2), `RecHdr` (§3), groups and the chain trailer (§4), the scan with its validity
 //! and end-of-log rules (§5), durability classes (§6), the record kinds (§7), the common encodings (§8) and every payload
 //! (§9) except the commit body, which is [`crate::commit`]'s.
 //!
@@ -6,6 +6,7 @@
 //! breaks its kind's rules is *malformed*, which is corruption wherever it lies (§5.4). [`RecError`] keeps the two apart.
 
 use std::collections::HashMap;
+use std::rc::Rc;
 
 use crate::commit::Commit;
 use crate::head::{InitParams, SegRef, check_segment_set};
@@ -23,6 +24,9 @@ pub const H: u64 = 138;
 pub const R: u64 = H + 40;
 /// The smallest group ([F05 §4.4]).
 pub const MIN_GROUP: u64 = 40;
+/// The end of the last usable extent, `log.4294967295`, at the largest extent size 2^30: every record ends at or below
+/// it, whatever `E` is ([F05 §2.2], §2.3).
+pub const LSN_END_MAX: u64 = (u32::MAX as u64) << 30;
 
 /// Durability class of a record kind ([F05 §7]).
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
@@ -224,7 +228,8 @@ pub fn decode_symdefs(r: &mut Reader<'_>) -> Result<Vec<SymDef>> {
             return err(d_at, "SymDef id 0 [F01 §8.1 S2]");
         }
         if let Some(prev) = v.iter().rev().find(|d| d.class == class) {
-            if id != prev.id + 1 {
+            // In u64: a class's previous id may be the greatest of its width ([F01 §8.1] S4), and nothing follows it.
+            if u64::from(id) != u64::from(prev.id) + 1 {
                 return err(
                     d_at,
                     "definitions of one class in a block are not consecutive [F05 §8.1 SD-1]",
@@ -256,13 +261,40 @@ pub fn encode_symdefs(v: &[SymDef], w: &mut Writer) {
     }
 }
 
+/// The strings of one symbol class defined so far ([F05 §8.1]), each held once and reachable by its text (SD-2) and by
+/// its id (name resolution, §9.28 rules over `Schema` ops).
+#[derive(Clone, Debug, Default)]
+pub struct ClassSymbols {
+    by_text: HashMap<Rc<str>, u32>,
+    by_id: HashMap<u32, Rc<str>>,
+}
+
+impl ClassSymbols {
+    fn insert(&mut self, text: &str, id: u32) {
+        let t: Rc<str> = Rc::from(text);
+        self.by_text.insert(Rc::clone(&t), id);
+        self.by_id.insert(id, t);
+    }
+
+    /// The id `text` names, when defined.
+    pub fn id(&self, text: &str) -> Option<u32> {
+        self.by_text.get(text).copied()
+    }
+
+    /// The string of `id`, when defined.
+    pub fn text(&self, id: u32) -> Option<&str> {
+        self.by_id.get(&id).map(|t| &**t)
+    }
+}
+
 /// The symbol state a scan carries ([F05 §8.1], §10.5): per class, the next id and the strings defined.
 #[derive(Clone, Debug, Default)]
 pub struct Symbols {
-    /// Per class 1–11: the next id when known (from `SYMTAB`, or the first definition met).
-    pub next: [Option<u32>; 12],
+    /// Per class 1–11: the next id when known (from `SYMTAB`, or the first definition met). It is a `u64`: after the
+    /// greatest id of a class's width ([F01 §8.1] S4) it is 2^32 (or 65,536), which no definition can take.
+    pub next: [Option<u64>; 12],
     /// Per class: the strings defined so far with their ids.
-    pub strings: [HashMap<String, u32>; 12],
+    pub strings: [ClassSymbols; 12],
     /// True when `next` came from a `SYMTAB`: every reference must then be below it (SD-3).
     pub complete: bool,
 }
@@ -279,8 +311,8 @@ impl Symbols {
         }
         for (c, id, t) in defs {
             let c = usize::from(*c);
-            s.next[c] = Some(s.next[c].unwrap_or(1).max(id + 1));
-            s.strings[c].insert(t.clone(), *id);
+            s.next[c] = Some(s.next[c].unwrap_or(1).max(u64::from(*id) + 1));
+            s.strings[c].insert(t, *id);
         }
         s
     }
@@ -290,7 +322,7 @@ impl Symbols {
         for d in defs {
             let c = usize::from(d.class);
             if let Some(n) = self.next[c]
-                && d.id != n
+                && u64::from(d.id) != n
             {
                 return err(
                     at,
@@ -300,16 +332,21 @@ impl Symbols {
                     ),
                 );
             }
-            if self.strings[c].contains_key(&d.text) {
+            if self.strings[c].id(&d.text).is_some() {
                 return err(
                     at,
                     "SymDef text already names another id of its class [F05 §8.1 SD-2]",
                 );
             }
-            self.strings[c].insert(d.text.clone(), d.id);
-            self.next[c] = Some(d.id + 1);
+            self.strings[c].insert(&d.text, d.id);
+            self.next[c] = Some(u64::from(d.id) + 1);
         }
         Ok(())
+    }
+
+    /// The string of symbol `id` of `class`, when the state holds it.
+    pub fn text(&self, class: u8, id: u32) -> Option<&str> {
+        self.strings.get(usize::from(class))?.text(id)
     }
 
     /// SD-3: every reference is defined.
@@ -319,7 +356,7 @@ impl Symbols {
                 continue;
             }
             let known = match self.next[usize::from(c)] {
-                Some(n) => id < n,
+                Some(n) => u64::from(id) < n,
                 None => !self.complete,
             };
             if !known {
@@ -516,7 +553,7 @@ pub enum ClientHead {
 pub enum LeaseEvent {
     /// 1 claim.
     Claim(Box<Claim>),
-    /// 2 release with its reason.
+    /// 2 release with its reason: 1–7 or 9 ([F05 §9.4] field 18).
     Release(u8),
     /// 3 set: mask and the set fields.
     Set {
@@ -1203,7 +1240,19 @@ impl Payload {
                             lflags,
                         }))
                     }
-                    2 => LeaseEvent::Release(byte_range(r, 1, 9, "Lease release reason")?),
+                    2 => {
+                        // [F05 §9.4] field 18: reasons 1-7 and 9; 8 is not assigned, so a record with it is malformed
+                        // (§5.4).
+                        let at = r.offset();
+                        let reason = byte_range(r, 1, 9, "Lease release reason")?;
+                        if reason == 8 {
+                            return err(
+                                at,
+                                "Lease release reason 8 is not assigned [F05 §9.4 field 18, §5.4]",
+                            );
+                        }
+                        LeaseEvent::Release(reason)
+                    }
                     3 => {
                         let m_at = r.offset();
                         let mask = r.u8()?;
@@ -2264,7 +2313,9 @@ fn decode_checkpoint(r: &mut Reader<'_>) -> Result<Checkpoint> {
                 total_len: r.uvar64()?,
                 digest: r.b16()?,
             };
-            if v.last().is_some_and(|q| e.extent != q.extent + 1)
+            // A run never passes the greatest extent number ([F05 §9.9]): `checked_add` refuses one that would.
+            if v.last()
+                .is_some_and(|q| q.extent.checked_add(1) != Some(e.extent))
                 || e.extent == 0
                 || e.hist_file == 0
             {
@@ -2533,7 +2584,8 @@ impl Record {
 
     /// Decodes a record kept outside the log ([F10 §4.1]: a `hist` frame keeps records byte for byte), with every check
     /// of [F05 §5.2] that does not need the extent, the position or the slot: length, kind, header bits, checksum; then
-    /// the payload (§5.4).
+    /// the payload (§5.4). Without `E`, the record must fit an extent of the largest size, 2^30, and end by the end of
+    /// the last usable extent at that size, `(2^32 − 1)·2^30` ([F05 §2.2], §2.3).
     pub fn decode_detached(
         b: &[u8],
         base: usize,
@@ -2549,6 +2601,15 @@ impl Record {
         let o = h.lsn & (ctx.e - 1);
         if o + u64::from(h.len) > ctx.e {
             return invalid(base, "a record longer than the largest extent [F05 §2.2]");
+        }
+        if h.lsn
+            .checked_add(u64::from(h.len))
+            .is_none_or(|end| end > LSN_END_MAX)
+        {
+            return invalid(
+                base,
+                "a record past the last usable extent, log.4294967295 [F05 §2.3]",
+            );
         }
         Record::decode_at(b, h.lsn, ctx, base)
     }
@@ -2655,7 +2716,8 @@ pub fn encode_group(g: &Group, seed: u64) -> Vec<u8> {
 pub enum Stop {
     /// The end of the valid log at or above `durable_lsn`.
     End(Error),
-    /// Corruption: an invalid group below `durable_lsn`, or a malformed payload anywhere.
+    /// Corruption: an invalid group below `durable_lsn`, or anywhere a malformed payload or one of the two placement
+    /// defects of a valid group ([F05 §5.4]).
     Corrupt(Error),
     /// The extents ran out exactly at a boundary with nothing more to read.
     Clean,
@@ -2693,10 +2755,15 @@ pub struct ScanCtx {
 /// when absent), applying §4.5, §4.6, §5.2–§5.4 and SD-1–SD-3 with `symbols`. Error offsets are within the extent
 /// file the failure lies in.
 ///
-/// Two placements a writer never produces are classified like any invalid group at their boundary p (§5.3: the end of
-/// the valid log when p ≥ `durable_lsn`, corruption below it): a boundary that leaves 1–39 bytes in its extent (§4.4
-/// G-4: no group fits there), and a valid group at an extent's first byte that is not its extent-head group (§4.5:
-/// that position holds the `ExtentHead` and nothing else). See the WP-95 spec findings (§5.3 does not name them).
+/// An extent file shorter than `E` where the valid log reaches its first byte ends the log as a missing extent does:
+/// at or above `durable_lsn` it is the leftover of an interrupted preparation that the next rotation re-prepares
+/// ([F05 §2.2] with \[F16\] P-8), below it corruption. Any other extent of another length is corrupt (§2.2).
+///
+/// The two placement defects a reader checks (§4.7) are corrupt wherever they lie, above `durable_lsn` included (§5.4,
+/// second paragraph): a boundary that leaves 1–39 bytes in its extent, which a valid group ending there breaks G-4 with
+/// (§4.4: no group fits there), and a valid group at an extent's first byte that is not its one `ExtentHead` record
+/// (§4.5). Only a defective writer produces a checksummed, chained group like that, so the scan stops with
+/// [`Stop::Corrupt`] instead of classifying the position by `durable_lsn` as §5.3 does an invalid group.
 pub fn scan<'a>(
     ext: impl Fn(u32) -> Option<&'a [u8]>,
     sc: &ScanCtx,
@@ -2725,6 +2792,23 @@ pub fn scan<'a>(
                 )
             };
         };
+        if o == 0 && (file.len() as u64) < e {
+            // [F05 §2.2] read with [F16] P-8: the valid log ends at this extent's first byte, and a file shorter than E
+            // here is the leftover of a preparation that a death, crash or DiskFull interrupted ([F15] FM-5.4), which
+            // the next rotation re-prepares in place; below durable_lsn it is corruption, like a missing extent.
+            break classify(
+                p,
+                sc,
+                Error {
+                    offset: 0,
+                    reason: format!(
+                        "log.{n} is {} bytes, shorter than E = {e}, where the valid log reaches its first byte: an interrupted preparation [F05 §2.2, F16 P-8]",
+                        file.len()
+                    ),
+                    rule: None,
+                },
+            );
+        }
         if file.len() as u64 != e {
             break Stop::Corrupt(Error {
                 offset: 0,
@@ -2733,16 +2817,12 @@ pub fn scan<'a>(
             });
         }
         if o != 0 && e - (o as u64) < MIN_GROUP {
-            break classify(
-                p,
-                sc,
-                Error {
-                    offset: o,
-                    reason: "a group boundary leaves 1-39 bytes in its extent, where no group fits [F05 §4.4 G-4, §5.3]"
-                        .into(),
-                    rule: None,
-                },
-            );
+            break Stop::Corrupt(Error {
+                offset: o,
+                reason: "a group boundary leaves 1-39 bytes in its extent, where no group fits: corrupt wherever it lies [F05 §4.4 G-4, §4.7, §5.4]"
+                    .into(),
+                rule: None,
+            });
         }
         let seed = if p == sc.epoch_lsn {
             epoch_seed(sc.ctx.epoch)
@@ -2753,17 +2833,13 @@ pub fn scan<'a>(
             Ok(g) => {
                 let is_head = g.records.len() == 1 && g.records[0].hdr.kind == 28;
                 if o == 0 && !is_head {
-                    break classify(
-                        p,
-                        sc,
-                        Error {
-                            offset: 0,
-                            reason: format!(
-                                "the first group of log.{n} is not its extent-head group [F05 §4.5, §5.3]"
-                            ),
-                            rule: None,
-                        },
-                    );
+                    break Stop::Corrupt(Error {
+                        offset: 0,
+                        reason: format!(
+                            "the first group of log.{n} is not one ExtentHead record: corrupt wherever it lies [F05 §4.5, §4.7, §5.4]"
+                        ),
+                        rule: None,
+                    });
                 }
                 if let Err(m) = check_group_rules(&g, sc, seed, symbols) {
                     break Stop::Corrupt(m);
@@ -2820,6 +2896,11 @@ fn check_group_rules(
             symbols.define(d, at + HDR)?;
         }
         symbols.check_refs(&rec.payload.symbol_refs(), at + HDR)?;
+        if let Payload::Commit(c) = &rec.payload {
+            for op in &c.ops {
+                op.check_schema_key(|id| symbols.text(sym::NAME, id), at + HDR)?;
+            }
+        }
     }
     Ok(())
 }
@@ -3169,11 +3250,77 @@ pub(crate) mod tests {
         assert_eq!(s.end, E + H);
     }
 
-    /// [F05 §5.3] for the two placements no writer produces (§4.4 G-4, §4.5): a boundary with 20 bytes left in its
-    /// extent, and an extent whose first group is a `Noop` group, end the valid log at or above `durable_lsn` and are
-    /// corruption below it.
+    /// [F05 §2.2] with \[F16\] P-8 and \[F15\] FM-5.4: when the valid log ends exactly at the end of extent 1 (a pad group
+    /// fills it, §4.4 G-3), a `log.2` shorter than E is an interrupted preparation: the end of the valid log at and above
+    /// `durable_lsn` (as a missing `log.2` is), corruption below it. A `log.2` longer than E is corrupt wherever it lies.
     #[test]
-    fn misplaced_groups_follow_5_3() {
+    fn short_extent_at_the_end_of_the_valid_log() {
+        let mut ext1 = vec![0u8; E as usize];
+        let b0 = encode_group(&one(vec![head(0, epoch_seed(EPOCH))], 0), epoch_seed(EPOCH));
+        ext1[..b0.len()].copy_from_slice(&b0);
+        let seed = u64::from_le_bytes(b0[b0.len() - 8..].try_into().unwrap());
+        let pad = one(
+            vec![rec(12, 3, H, Payload::Noop((E - H - 40) as usize), None)],
+            H,
+        );
+        ext1[H as usize..].copy_from_slice(&encode_group(&pad, seed));
+        let scan_with = |ext2: Option<&[u8]>, durable: u64| {
+            let sc = ScanCtx {
+                ctx: Ctx { e: E, epoch: EPOCH },
+                epoch_lsn: 0,
+                durable_lsn: durable,
+                init: init(),
+                project_oid_algo: 1,
+            };
+            let mut syms = Symbols::default();
+            scan(
+                |n| match n {
+                    1 => Some(ext1.as_slice()),
+                    2 => ext2,
+                    _ => None,
+                },
+                &sc,
+                0,
+                0,
+                &mut syms,
+            )
+        };
+        for short in [&[][..], &[0u8; 4096][..]] {
+            for durable in [H, E] {
+                let s = scan_with(Some(short), durable);
+                assert!(
+                    matches!(&s.stop, Stop::End(e) if e.reason.contains("P-8")) && s.end == E,
+                    "{} bytes, durable_lsn {durable}: {:?}",
+                    short.len(),
+                    s.stop
+                );
+            }
+            let s = scan_with(Some(short), E + H);
+            assert!(
+                matches!(s.stop, Stop::Corrupt(_)) && s.end == E,
+                "{} bytes below durable_lsn: {:?}",
+                short.len(),
+                s.stop
+            );
+        }
+        let long = vec![0u8; E as usize + 8];
+        for durable in [H, E, E + H] {
+            let s = scan_with(Some(&long), durable);
+            assert!(
+                matches!(&s.stop, Stop::Corrupt(e) if e.reason.contains("not E")),
+                "durable_lsn {durable}: {:?}",
+                s.stop
+            );
+        }
+        assert!(matches!(scan_with(None, E).stop, Stop::Clean));
+        assert!(matches!(scan_with(None, E + H).stop, Stop::Corrupt(_)));
+    }
+
+    /// [F05 §5.4] second paragraph, §4.7 (R51): the two placement defects of a valid group — a group that leaves 20
+    /// bytes in its extent (§4.4 G-4), and an extent whose first group is a `Noop` group (§4.5) — are corruption at, above
+    /// and below `durable_lsn` alike.
+    #[test]
+    fn misplaced_groups_are_corrupt_wherever_they_lie() {
         let scan_at = |exts: &[Vec<u8>], durable: u64| {
             let sc = ScanCtx {
                 ctx: Ctx { e: E, epoch: EPOCH },
@@ -3205,18 +3352,14 @@ pub(crate) mod tests {
             seed,
         );
         short[H as usize..(H + len) as usize].copy_from_slice(&g);
-        let s = scan_at(std::slice::from_ref(&short), E - 20);
-        assert!(
-            matches!(s.stop, Stop::End(_)) && s.end == E - 20,
-            "{:?}",
-            s.stop
-        );
-        let s = scan_at(&[short], E);
-        assert!(
-            matches!(s.stop, Stop::Corrupt(_)) && s.end == E - 20,
-            "{:?}",
-            s.stop
-        );
+        for durable in [H, E - 20, E] {
+            let s = scan_at(std::slice::from_ref(&short), durable);
+            assert!(
+                matches!(&s.stop, Stop::Corrupt(e) if e.reason.contains("§5.4")) && s.end == E - 20,
+                "durable_lsn {durable}: {:?}",
+                s.stop
+            );
+        }
         // §4.5: extent 2 opens with a validly chained Noop group instead of its ExtentHead.
         let mut ext1 = vec![0u8; E as usize];
         ext1[..b0.len()].copy_from_slice(&b0);
@@ -3233,14 +3376,46 @@ pub(crate) mod tests {
         let noop = encode_group(&one(vec![rec(12, 3, E, Payload::Noop(8), None)], E), chain2);
         ext2[..noop.len()].copy_from_slice(&noop);
         let exts = [ext1, ext2];
-        let s = scan_at(&exts, E);
-        assert!(matches!(s.stop, Stop::End(_)) && s.end == E, "{:?}", s.stop);
-        let s = scan_at(&exts, E + 100);
-        assert!(
-            matches!(s.stop, Stop::Corrupt(_)) && s.end == E,
-            "{:?}",
-            s.stop
-        );
+        for durable in [H, E, E + 100] {
+            let s = scan_at(&exts, durable);
+            assert!(
+                matches!(&s.stop, Stop::Corrupt(e) if e.reason.contains("§5.4")) && s.end == E,
+                "durable_lsn {durable}: {:?}",
+                s.stop
+            );
+        }
+    }
+
+    /// [F05 §9.4] field 18: a release carries reason 1–7 or 9; reason 8 is not assigned and makes the record malformed
+    /// (§5.4), as 0 and 10 are outside the enumeration.
+    #[test]
+    fn lease_release_reasons() {
+        let bytes = |reason: u8| {
+            let mut w = Writer::new();
+            Payload::Lease(Box::new(Lease {
+                lease_id: 7,
+                token: 7,
+                hlc: 2,
+                event: LeaseEvent::Release(reason),
+            }))
+            .encode(&mut w);
+            w.into_vec()
+        };
+        for reason in (1..=7).chain([9]) {
+            payload_rt(
+                4,
+                Payload::Lease(Box::new(Lease {
+                    lease_id: 7,
+                    token: 7,
+                    hlc: 2,
+                    event: LeaseEvent::Release(reason),
+                })),
+            );
+        }
+        for reason in [0, 8, 10] {
+            let e = Payload::decode(4, &mut Reader::new(&bytes(reason))).unwrap_err();
+            assert!(e.reason.contains("reason"), "{reason}: {e}");
+        }
     }
 
     fn payload_rt(kind: u8, p: Payload) {
@@ -3509,6 +3684,108 @@ pub(crate) mod tests {
         encode_checkpoint(&c, &mut w);
         assert!(Payload::decode(9, &mut Reader::new(w.as_slice())).is_ok());
     }
+
+    /// A `Checkpoint` that publishes a set and retires the extents `extents` (bits 0 and 4, [F05 §9.9]).
+    pub(crate) fn retiring(extents: &[u32]) -> Vec<u8> {
+        let c = Checkpoint {
+            ckflags: 0b1_0001,
+            append_hlc: 0,
+            next_file_no: 20,
+            set: Some((
+                0,
+                1,
+                vec![SegRef {
+                    file_no: 8,
+                    kind: 1,
+                    upto_lsn: 0,
+                    blake3_16: [0; 16],
+                }],
+            )),
+            window: None,
+            rt_upto_lsn: None,
+            promotions: None,
+            retirements: Some(
+                extents
+                    .iter()
+                    .enumerate()
+                    .map(|(i, &extent)| Retirement {
+                        extent,
+                        hist_file: 10 + i as u32,
+                        total_len: 0,
+                        digest: [0; 16],
+                    })
+                    .collect(),
+            ),
+            added: None,
+            released: None,
+        };
+        let mut w = Writer::new();
+        encode_checkpoint(&c, &mut w);
+        w.into_vec()
+    }
+
+    /// [F05 §9.9]: retired extents increase by one; a run never passes the greatest extent number, so one that would is
+    /// refused rather than wrapping.
+    #[test]
+    fn retirements_stop_at_the_greatest_extent() {
+        let dec = |e: &[u32]| Payload::decode(9, &mut Reader::new(&retiring(e)));
+        assert!(dec(&[u32::MAX - 1, u32::MAX]).is_ok());
+        assert!(dec(&[u32::MAX]).is_ok());
+        for bad in [
+            &[u32::MAX, 0][..],
+            &[u32::MAX, 1],
+            &[u32::MAX, u32::MAX],
+            &[3, 5],
+        ] {
+            let e = dec(bad).unwrap_err();
+            assert!(e.reason.contains("increasing by one"), "{bad:?}: {e}");
+        }
+    }
+
+    /// [F01 §8.1] S4, [F05 §8.1] SD-1: a class's greatest id (2^32 − 1, or 65,535 for `role` and `root`) may be defined;
+    /// nothing follows it, and a later definition or a reference above it is refused, never wrapped.
+    #[test]
+    fn symbols_reach_the_greatest_id() {
+        let def = |class: u8, id: u32, text: &str| SymDef {
+            class,
+            id,
+            text: text.into(),
+        };
+        let block = |v: &[SymDef]| {
+            let mut w = Writer::new();
+            encode_symdefs(v, &mut w);
+            decode_symdefs(&mut Reader::new(w.as_slice()))
+        };
+        // Within a block: the greatest id, then one more of the class.
+        assert!(block(&[def(sym::ACTOR, u32::MAX, "a")]).is_ok());
+        let e = block(&[def(sym::ACTOR, u32::MAX, "a"), def(sym::ACTOR, 0, "b")]).unwrap_err();
+        assert!(
+            e.reason.contains("SD-1") || e.reason.contains("id 0"),
+            "{e}"
+        );
+        let e = block(&[def(sym::ACTOR, u32::MAX, "a"), def(sym::ACTOR, 1, "b")]).unwrap_err();
+        assert!(e.reason.contains("SD-1"), "{e}");
+        assert!(block(&[def(sym::ROLE, 65_534, "r"), def(sym::ROLE, 65_535, "s")]).is_ok());
+        // Against a state: SYMTAB ends at the greatest id; the next id is 2^32, which no definition can take.
+        let mut s = Symbols::from_symtab(&[
+            (sym::ACTOR, u32::MAX, "a".into()),
+            (sym::ROLE, 65_535, "r".into()),
+        ]);
+        assert_eq!(s.next[usize::from(sym::ACTOR)], Some(1 << 32));
+        assert_eq!(s.next[usize::from(sym::ROLE)], Some(65_536));
+        assert!(
+            s.check_refs(&[(sym::ACTOR, u32::MAX), (sym::ROLE, 65_535)], 0)
+                .is_ok()
+        );
+        let e = s.define(&[def(sym::ACTOR, 0, "b")], 0).unwrap_err();
+        assert!(e.reason.contains("SD-1"), "{e}");
+        let e = s.define(&[def(sym::ACTOR, 1, "b")], 0).unwrap_err();
+        assert!(e.reason.contains("SD-1"), "{e}");
+        let mut t = Symbols::from_symtab(&[(sym::ACTOR, u32::MAX - 1, "a".into())]);
+        t.define(&[def(sym::ACTOR, u32::MAX, "b")], 0).unwrap();
+        assert_eq!(t.next[usize::from(sym::ACTOR)], Some(1 << 32));
+        assert_eq!(t.text(sym::ACTOR, u32::MAX), Some("b"));
+    }
 }
 
 #[cfg(test)]
@@ -3590,6 +3867,59 @@ mod props {
                 }
                 Err(e) => prop_assert!(matches!(e, RecError::Malformed(_)), "{:?}", e),
             }
+        }
+
+        /// [F01 §8.1] S4, [F05 §8.1]: definitions and references at and around the greatest id of each class's width
+        /// never panic: a `SymDefs` block decodes or is refused, and a state from `SYMTAB` takes the block or refuses it.
+        #[test]
+        fn symbols_near_the_width_never_panic(
+            defs in proptest::collection::vec(
+                (
+                    1u8..=11,
+                    prop_oneof![
+                        Just(u32::MAX),
+                        Just(u32::MAX - 1),
+                        Just(65_535u32),
+                        Just(65_536),
+                        Just(1),
+                        any::<u32>(),
+                    ],
+                    0u8..4,
+                ),
+                1..6,
+            ),
+            table in proptest::collection::vec((1u8..=11, any::<u32>()), 0..4),
+        ) {
+            let v: Vec<SymDef> = defs
+                .iter()
+                .map(|&(class, id, t)| SymDef { class, id, text: format!("s{t}") })
+                .collect();
+            let mut w = Writer::new();
+            encode_symdefs(&v, &mut w);
+            let block = decode_symdefs(&mut Reader::new(w.as_slice()));
+            let triples: Vec<(u8, u32, String)> = table
+                .iter()
+                .enumerate()
+                .map(|(i, &(c, id))| (c, id.max(1), format!("t{i}")))
+                .collect();
+            let mut s = Symbols::from_symtab(&triples);
+            if let Ok(b) = block {
+                let refs: Vec<(u8, u32)> = b.iter().map(|d| (d.class, d.id)).collect();
+                if s.define(&b, 0).is_ok() {
+                    prop_assert!(s.check_refs(&refs, 0).is_ok());
+                }
+            }
+        }
+
+        /// [F05 §9.9]: retirement runs at and around the greatest extent number never panic; a run decodes exactly when
+        /// each number is one above the previous.
+        #[test]
+        fn retirements_near_the_width_never_panic(
+            a in prop_oneof![Just(u32::MAX), Just(u32::MAX - 1), 1u32..4],
+            b in prop_oneof![Just(u32::MAX), Just(0u32), Just(1), any::<u32>()],
+        ) {
+            let r = Payload::decode(9, &mut Reader::new(&super::tests::retiring(&[a, b])));
+            prop_assert_eq!(r.is_ok(), a.checked_add(1) == Some(b));
         }
 
         /// [F05 §9]: every payload decoder over arbitrary bytes never panics, and an accepted payload re-encodes to

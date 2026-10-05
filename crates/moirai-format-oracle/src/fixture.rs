@@ -24,11 +24,11 @@ use crate::{canon, commit, sealed, segment};
 /// A whole-file structure, told by its magic bytes.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum Kind {
-    /// The `LOCK` file ([F03]).
+    /// The `LOCK` file (\[F03\]).
     Lock,
-    /// The `HEAD` file ([F04]).
+    /// The `HEAD` file (\[F04\]).
     Head,
-    /// A graph segment (`seg_kind` 3, 4, 5, 9; [F09]).
+    /// A graph segment (`seg_kind` 3, 4, 5, 9; \[F09\]).
     Segment,
     /// A `hist` file ([F10 §4]).
     Hist,
@@ -230,12 +230,18 @@ pub enum Fragment {
     CanonicalValues,
     /// Anchor records ([F08 §10.3]).
     AnchorRecords,
-    /// Schema item records ([F08 §8.5]).
-    SchemaItems,
-    /// Op frames ([F06 §7.1]) as if in a `Commit` record at `lsn`: every `prev` lies below it.
+    /// Schema item records ([F08 §8.5]) in item key order, as a view's `SCHEMA` section holds them ([F09 §8.3]).
+    SchemaItems {
+        /// The fragment's symbols of class `name`: ids 1, 2, … dense in first-use order (a fragment carries no `SYMTAB`).
+        names: Vec<String>,
+    },
+    /// Op frames ([F06 §7.1]) as if in a `Commit` record at `lsn`: every `prev` lies below it, and every `Schema` op's
+    /// `item_key` is its items' stored key form ([F06 §7.6]).
     OpFrames {
         /// The record's lsn.
         lsn: u64,
+        /// The fragment's symbols of class `name`: ids 1, 2, … dense in first-use order (a fragment carries no `SYMTAB`).
+        names: Vec<String>,
     },
     /// The given numbers of `OsFileId` ([F11 §12.1]), then `VolumeCaps` (§12.3), then `FsTime` (§12.2).
     OsIds([usize; 3]),
@@ -248,6 +254,31 @@ pub enum Fragment {
         /// The symbols the fragment assumes defined.
         defined: Vec<(u8, u32)>,
     },
+}
+
+/// A fragment's own symbols of class `name` ([F09 §14.1]), which its first comment names where each is used: ids 1, 2,
+/// … dense in first-use order (a fragment carries no `SYMTAB`). They let a fragment check what needs names: the stored
+/// key form of a schema item ([F08 §8.5] "Stored key form") and the item key order (§8.5 "Item key order").
+struct FragmentNames<'a>(&'a [String]);
+
+impl<'a> FragmentNames<'a> {
+    /// The text of symbol `id`.
+    fn text(&self, id: u32) -> Option<&'a str> {
+        let i = usize::try_from(id).ok()?.checked_sub(1)?;
+        self.0.get(i).map(String::as_str)
+    }
+
+    /// The item's stored key form; an item naming a symbol the fragment does not define is refused, so no key goes
+    /// unchecked.
+    fn stored_key(&self, it: &Item, at: usize) -> Result<Vec<u8>> {
+        match it.stored_key(|id| self.text(id)) {
+            Some(k) => Ok(k),
+            None => err(
+                at,
+                "a schema item names a symbol of class name that the fragment does not define [F08 §8.5]",
+            ),
+        }
+    }
 }
 
 /// Decodes a fragment to its end, re-encodes every item byte-identically, and returns the number of items.
@@ -280,13 +311,26 @@ pub fn check_fragment(f: &Fragment, b: &[u8]) -> Result<usize> {
                 n += 1;
             }
         }
-        Fragment::SchemaItems => {
+        Fragment::SchemaItems { names } => {
+            let names = FragmentNames(names);
+            let mut last: Option<(u8, Vec<u8>)> = None;
             while !r.is_empty() {
-                Item::decode(&mut r)?.encode(&mut w);
+                let at = r.offset();
+                let it = Item::decode(&mut r)?;
+                let key = (it.class(), names.stored_key(&it, at)?);
+                if last.as_ref().is_some_and(|l| *l >= key) {
+                    return err(
+                        at,
+                        "schema items not strictly ascending in item key order [F08 §8.5, F09 §8.3]",
+                    );
+                }
+                it.encode(&mut w);
+                last = Some(key);
                 n += 1;
             }
         }
-        Fragment::OpFrames { lsn } => {
+        Fragment::OpFrames { lsn, names } => {
+            let names = FragmentNames(names);
             while !r.is_empty() {
                 let at = r.offset();
                 let op = commit::Op::decode(&mut r)?;
@@ -295,6 +339,12 @@ pub fn check_fragment(f: &Fragment, b: &[u8]) -> Result<usize> {
                         at,
                         format!("an op's prev is not below its record's lsn {lsn} [F06 §7.3]"),
                     );
+                }
+                if let commit::Op::Schema { old, new, .. } = &op {
+                    for it in old.iter().chain(new.iter()) {
+                        names.stored_key(it, at)?;
+                    }
+                    op.check_schema_key(|id| names.text(id), at)?;
                 }
                 op.encode(&mut w);
                 n += 1;
@@ -535,7 +585,8 @@ pub struct Sealed {
 }
 
 /// [F09 §17.1] V-3 and [F10 §2] self-identification: reads a sealed file's header and checks it against the file's
-/// name (the family's magic and `seg_kind`, `file_no`, and a `seg-branch`'s `ref_id`).
+/// name (the family's magic and `seg_kind`, `file_no`, and a `seg-branch`'s `ref_id`; a formatted dictionary's
+/// `Dictionary_ID`, [F10 §6.2], [`sealed::check_dict_number`]).
 pub fn sealed_identity(name: &str, b: &[u8]) -> Result<Sealed> {
     let Some(n) = FileName::parse(name) else {
         return err(0, format!("{name:?} is not a sealed file name [F02 §6.3]"));
@@ -563,13 +614,17 @@ pub fn sealed_identity(name: &str, b: &[u8]) -> Result<Sealed> {
                 upto_lsn: h.upto_lsn,
             })
         }
-        Some(b"MDIC") if n.family == 7 => Ok(Sealed {
-            name: n,
-            total_len: b.len() as u64,
-            digest16: sealed::decode_dict(b)?.digest,
-            from_lsn: 0,
-            upto_lsn: 0,
-        }),
+        Some(b"MDIC") if n.family == 7 => {
+            let d = sealed::decode_dict(b)?;
+            sealed::check_dict_number(&d, n.file_no)?;
+            Ok(Sealed {
+                name: n,
+                total_len: b.len() as u64,
+                digest16: d.digest,
+                from_lsn: 0,
+                upto_lsn: 0,
+            })
+        }
         Some(b"MGMP") if n.family == 8 => {
             let g = sealed::decode_gitmap(b)?;
             if g.file_no != n.file_no {
@@ -899,7 +954,9 @@ pub struct TailRecord {
 pub fn walk_tail(extent: &[u8], from: usize) -> Result<Vec<TailRecord>> {
     let mut out = Vec::new();
     let mut o = from;
-    while o + log::HDR <= extent.len() && extent[o..].iter().any(|&x| x != 0) {
+    // One past the extent's last non-zero byte: the rest of the extent from o is zero exactly when o reaches it.
+    let live = extent.iter().rposition(|&x| x != 0).map_or(0, |i| i + 1);
+    while o + log::HDR <= extent.len() && o < live {
         let len = u32::from_le_bytes(extent[o..o + 4].try_into().expect("4")) as usize;
         if len < log::HDR || o + len > extent.len() {
             break;
@@ -1112,5 +1169,93 @@ mod tests {
         let mut bad = cv.clone();
         bad.push(8);
         assert!(check_fragment(&Fragment::CanonicalValues, &bad).is_err());
+    }
+
+    /// [F08 §8.5] "Stored key form" and "Item key order", [F06 §7.6]: with a fragment's symbols of class `name`, schema
+    /// items must be strictly ascending by (class, stored key) and a `Schema` op's `item_key` must be its item's stored
+    /// key form; an item naming a symbol the fragment does not define is refused rather than left unchecked.
+    #[test]
+    fn fragment_schema_names() {
+        use crate::value::ItemBody;
+        let names = |n: &[&str]| n.iter().map(|s| (*s).to_owned()).collect::<Vec<_>>();
+        let kind = Item {
+            iflags: 0,
+            body: ItemBody::Kind {
+                name: 1,
+                kind_id: 64,
+                uid_derivation: 1,
+                root_variant: 0,
+                existence_policy: 2,
+                kflags: 4,
+            },
+        };
+        let value = |name: u32| Item {
+            iflags: 0,
+            body: ItemBody::EnumValue {
+                kind: 1,
+                field: 2,
+                name,
+                value: 0,
+                sort_rank: 0,
+                eflags: 0,
+                covers: vec![],
+            },
+        };
+        let policy = Item {
+            iflags: 0,
+            body: ItemBody::Policy {
+                name: "policy.role.developer.mcp-write".into(),
+                value: "yes".into(),
+            },
+        };
+        let items = |v: &[&Item]| {
+            let mut w = Writer::new();
+            for it in v {
+                it.encode(&mut w);
+            }
+            w.as_slice().to_vec()
+        };
+        let all = names(&["incident", "status", "open", "wontfix"]);
+        let good = items(&[&kind, &value(3), &value(4), &policy]);
+        let f = Fragment::SchemaItems { names: all.clone() };
+        assert_eq!(check_fragment(&f, &good).unwrap(), 4);
+        let swapped = items(&[&kind, &value(4), &value(3), &policy]);
+        let e = check_fragment(&f, &swapped).unwrap_err();
+        assert!(e.reason.contains("item key order"), "{e}");
+        let twice = items(&[&kind, &value(3), &value(3)]);
+        assert!(check_fragment(&f, &twice).is_err());
+        let short = Fragment::SchemaItems {
+            names: names(&["incident", "status"]),
+        };
+        let e = check_fragment(&short, &good).unwrap_err();
+        assert!(e.reason.contains("does not define"), "{e}");
+
+        let schema = |key: &[u8], it: &Item| {
+            let op = commit::Op::Schema {
+                mode: 0,
+                item_class: it.class(),
+                item_key: key.to_vec(),
+                old: None,
+                new: Some(it.clone()),
+            };
+            let mut w = Writer::new();
+            op.encode(&mut w);
+            w.as_slice().to_vec()
+        };
+        let frames = |n: Vec<String>| Fragment::OpFrames {
+            lsn: 30_000,
+            names: n,
+        };
+        let ok = [
+            schema(b"incident", &kind),
+            schema(b"incident\0status\0open", &value(3)),
+        ]
+        .concat();
+        assert_eq!(check_fragment(&frames(all.clone()), &ok).unwrap(), 2);
+        let wrong = schema(b"incident\0status\0wontfix", &value(3));
+        let e = check_fragment(&frames(all), &wrong).unwrap_err();
+        assert!(e.reason.contains("stored key form"), "{e}");
+        let e = check_fragment(&frames(names(&["incident"])), &ok).unwrap_err();
+        assert!(e.reason.contains("does not define"), "{e}");
     }
 }

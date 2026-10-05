@@ -1,4 +1,4 @@
-//! [F11] runtime tables: the section body `RtHdr` (§2.1), rows, keys and order (§2.2), the heap and `HeapRef` (§2.3),
+//! \[F11\] runtime tables: the section body `RtHdr` (§2.1), rows, keys and order (§2.2), the heap and `HeapRef` (§2.3),
 //! forms and dead rows (§2.4), the shared field types (§2.5, §12.1–§12.3), every table's row (§3–§13) and the row images
 //! log records carry (§2.9).
 //!
@@ -2426,15 +2426,14 @@ fn check_row(row: &Row, place: Place, at: usize) -> Result<()> {
                     "kind, status, cause, flags, actor or outcome invalid [F11 §7]".into(),
                 );
             }
+            // [F11 §7] with spec sync 2b S2B-M-19: a `MARKERS_OLD` row keeps the holder set it had when ME-012 moved it
+            // (ME-013 returns it with that set), so only a `cleared` row has an empty set; `flags` bit 0 `nonlinear`
+            // is valid in either section.
             let Slice::U32s(h) = row.slice("holders") else {
                 unreachable!()
             };
-            if h.windows(2).any(|w| w[0] >= w[1])
-                || ((kind == 3 || t == Table::MarkersOld) && !h.is_empty())
-            {
-                return fail(
-                    "holders unsorted, or non-empty in a cleared or inert row [F11 §7]".into(),
-                );
+            if h.windows(2).any(|w| w[0] >= w[1]) || (kind == 3 && !h.is_empty()) {
+                return fail("holders unsorted, or non-empty in a cleared row [F11 §7]".into());
             }
         }
         Table::Idem => {
@@ -2891,6 +2890,37 @@ mod tests {
         bad[88] = 1; // the HeapRef off
         assert!(decode_section(Table::Markers, &bad, 0, SegKind::Base).is_err());
         assert!(decode_section(Table::Markers, &b, 0, SegKind::Branch).is_err());
+    }
+
+    /// [F11 §7] with spec sync 2b S2B-M-19: a `MARKERS_OLD` row keeps its holder set (ME-012 moves the row with it);
+    /// `flags` bit 0 `nonlinear` is valid in either section; a `cleared` row with holders is refused in both.
+    #[test]
+    fn markers_old_keeps_holders() {
+        let b = markers_example();
+        let (kind, status, flags) = (24 + 24, 24 + 25, 24 + 27);
+        assert_eq!((b[kind], b[status], b[flags]), (1, 1, 0));
+        for t in [Table::Markers, Table::MarkersOld] {
+            let s = decode_section(t, &b, 0, SegKind::Base).unwrap();
+            assert_eq!(
+                s.rows[0].slice("holders"),
+                &Slice::U32s(vec![3]),
+                "{}",
+                t.name()
+            );
+            assert_eq!(encode_section(&s), b);
+            let mut nonlinear = b.clone();
+            nonlinear[flags] = 1;
+            assert!(
+                decode_section(t, &nonlinear, 0, SegKind::Base).is_ok(),
+                "{}",
+                t.name()
+            );
+            let mut cleared = b.clone();
+            cleared[kind] = 3;
+            cleared[status] = 0;
+            let e = decode_section(t, &cleared, 0, SegKind::Base).unwrap_err();
+            assert!(e.reason.contains("cleared"), "{}: {e}", t.name());
+        }
     }
 
     fn fileobs_row() -> Row {

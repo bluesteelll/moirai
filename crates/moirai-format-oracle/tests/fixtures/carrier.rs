@@ -17,7 +17,7 @@ use moirai_format_oracle::image::git;
 use moirai_format_oracle::image::tree::check_tree;
 use moirai_format_oracle::prim::{Algo, Oid, blake3_256, hex, unhex};
 
-use super::common::{blobs, family, read, run_all, text};
+use super::common::{blobs, check_digest_parts, family, read, run_all, text};
 
 /// One carrier case with the values the checks and the other cases use.
 pub struct Case {
@@ -401,18 +401,17 @@ fn check(c: &Case, cases: &Cases) -> Result<(), String> {
             "an exported tree holds {p}, which is not the exporter's encoding of its parse [F14 §15]"
         ));
     }
-    // Item 10 as stated: the digest input hashes to changeset-digest and ends in the entry count ([F07 §10.4]).
-    let di =
-        hex_block(f.block("digest-input").ok_or("no digest-input")?).map_err(|e| e.to_string())?;
+    // Item 10 as stated: the digest input hashes to changeset-digest, and its entries recompute it with the entry count
+    // ([F07 §10.4]).
+    let block = f.block("digest-input").ok_or("no digest-input")?;
+    let di = hex_block(block).map_err(|e| e.to_string())?;
     if blake3_256(&di) != c.changeset_digest {
         return Err("BLAKE3-256 of digest-input is not changeset-digest".into());
     }
     let n: u64 = line(f, "entry-count")?
         .parse()
         .map_err(|_| "entry-count is not a count")?;
-    if di.len() < 8 || di[di.len() - 8..] != n.to_le_bytes() {
-        return Err("digest-input does not end in u64(entry-count)".into());
-    }
+    check_digest_parts(block, n, &c.changeset_digest)?;
     // Items 1–9 from the carriers ([F14 §12.1]).
     let mut parents = Vec::new();
     for (_, p) in &c.parents {
@@ -520,17 +519,18 @@ fn check(c: &Case, cases: &Cases) -> Result<(), String> {
 /// bytes (§10.1–§10.5) and canonical trees ([F14 §15]) are checked for every other native and checkpoint case.
 const HAND_WRITTEN: &[&str] = &["defaults-explicit", "demoted-child"];
 
-/// Fixtures whose conclusion differs from the oracle's reading of the specification (reported as spec findings).
+/// Fixtures whose conclusion differs from the oracle's reading of the specification, reported as spec findings until the
+/// ruling lands. The walk runs them as expected failures: one that passes, or names no fixture, fails the walk.
 const KNOWN: &[&str] = &[];
 
-/// Every carrier case but the known mismatches.
+/// Every carrier case.
 #[test]
 fn carrier_cases() {
     let cases = Cases::load();
     assert_eq!(
         cases.list.len(),
-        44,
-        "fixtures/carrier/INDEX.md §5 lists 44 cases"
+        45,
+        "fixtures/carrier/INDEX.md §5 lists 45 cases"
     );
     run_all(
         "fixtures/carrier",

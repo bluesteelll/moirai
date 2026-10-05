@@ -1,6 +1,55 @@
-//! Shared helpers of the fixture walks: the fixture root, reading, and the recursive file listing.
+//! Shared helpers of the fixture walks: the fixture root, reading, the recursive file listing, and item 10 as a case
+//! states it.
 
 use std::path::{Path, PathBuf};
+
+use moirai_format_oracle::canon;
+use moirai_format_oracle::fixture::hex_block;
+use moirai_format_oracle::prim::lp;
+
+/// Item 10 as a case states it ([F07 §10.4]): the `digest-input` block holds `lp("moirai-changeset-v1") ‖ E_1 ‖ … ‖ E_n
+/// ‖ u64(n)` with one comment line before each part (`fixtures/canonical/INDEX.md` §2.2, §4.1). The block is split at
+/// its comment lines; it must hold the domain, `n` = `entry-count` non-empty entries and the count, and
+/// [`canon::changeset_digest`] of the entries must be `digest`.
+pub fn check_digest_parts(block: &[String], n: u64, digest: &[u8; 32]) -> Result<(), String> {
+    let starts: Vec<usize> = (0..block.len())
+        .filter(|&i| block[i].trim_start().starts_with(';'))
+        .collect();
+    if block[..starts.first().copied().unwrap_or(block.len())]
+        .iter()
+        .any(|l| !l.trim().is_empty())
+    {
+        return Err("digest-input holds bytes before its first comment line".into());
+    }
+    let mut parts = Vec::with_capacity(starts.len());
+    for (k, &s) in starts.iter().enumerate() {
+        let end = starts.get(k + 1).copied().unwrap_or(block.len());
+        parts.push(hex_block(&block[s + 1..end]).map_err(|e| format!("digest-input: {e}"))?);
+    }
+    let mut domain = Vec::new();
+    lp(&mut domain, b"moirai-changeset-v1");
+    let [first, entries @ .., last] = parts.as_slice() else {
+        return Err("digest-input has fewer than two commented parts".into());
+    };
+    if *first != domain || *last != n.to_le_bytes() {
+        return Err(
+            "digest-input's first part is not lp(\"moirai-changeset-v1\") or its last is not u64(entry-count) [F07 §10.4]"
+                .into(),
+        );
+    }
+    if entries.len() as u64 != n || entries.iter().any(Vec::is_empty) {
+        return Err(format!(
+            "digest-input holds {} entry parts, not entry-count {n} non-empty ones",
+            entries.len()
+        ));
+    }
+    if canon::changeset_digest(entries) != *digest {
+        return Err(
+            "changeset_digest of digest-input's entries is not changeset-digest [F07 §10.4]".into(),
+        );
+    }
+    Ok(())
+}
 
 /// `fixtures/<family>`.
 pub fn family(name: &str) -> PathBuf {
@@ -54,8 +103,10 @@ pub fn blobs(dir: &Path) -> Vec<(String, Vec<u8>)> {
         .collect()
 }
 
-/// Runs `check` over `items`, skipping the `known` mismatches, and panics with every failure; also panics when a known
-/// mismatch names no item (a stale entry).
+/// Runs `check` over every item of `items` and panics with every failure. A `known` mismatch (a fixture whose conclusion
+/// differs from the oracle's reading of the specification, reported as a spec finding) is run too, as an expected
+/// failure: it fails the walk once it passes (the ruling has landed and the entry is stale), and so does a known entry
+/// that names no item. Nothing is skipped, so no test of a walk is ignored.
 pub fn run_all<T>(
     family: &str,
     items: &[T],
@@ -69,21 +120,24 @@ pub fn run_all<T>(
         .filter(|k| !names.iter().any(|n| n == *k))
         .map(|k| format!("{k}: a known mismatch that names no fixture"))
         .collect();
-    let mut ran = 0usize;
     for (it, n) in items.iter().zip(&names) {
-        if known.contains(&n.as_str()) {
-            continue;
-        }
-        ran += 1;
-        if let Err(e) = check(it) {
-            failures.push(format!("{n}: {e}"));
+        match (check(it), known.contains(&n.as_str())) {
+            (Err(e), false) => failures.push(format!("{n}: {e}")),
+            (Ok(()), true) => failures.push(format!(
+                "{n}: a known mismatch that now passes; remove it from KNOWN"
+            )),
+            _ => {}
         }
     }
     assert!(
         failures.is_empty(),
-        "{family}: {} of {ran} fixture check(s) failed:\n{}",
+        "{family}: {} of {} fixture check(s) failed:\n{}",
         failures.len(),
+        items.len(),
         failures.join("\n")
     );
-    assert!(ran > 0, "{family}: no fixture was checked");
+    assert!(
+        items.len() > known.len(),
+        "{family}: no fixture was checked"
+    );
 }

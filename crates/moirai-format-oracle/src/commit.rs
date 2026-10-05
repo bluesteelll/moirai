@@ -1,4 +1,4 @@
-//! [F06] the `Commit` payload: the header with its presence bitmap (§4), keys, key values, conflict states and node
+//! \[F06\] the `Commit` payload: the header with its presence bitmap (§4), keys, key values, conflict states and node
 //! images (§6), every op (§7), carried bodies (§8) and the bulk-commit rules (§9). Every V-rule of §10 is checked on
 //! decode; C-rules are not (they need the base state, §2.4), except BD-2's hash, which the oracle checks.
 
@@ -142,7 +142,13 @@ impl CKey {
                 })
             }
             8 => CKey::Body(r.uvar32()?),
-            9 => CKey::Schema(r.u8()?, r.vbytes()?.to_vec()),
+            9 => {
+                let class = r.u8()?;
+                let k_at = r.offset();
+                let key = r.vbytes()?.to_vec();
+                check_item_key(class, &key, k_at)?;
+                CKey::Schema(class, key)
+            }
             c => return err(at, format!("ckey class {c} is invalid [F06 §6.1]")),
         })
     }
@@ -213,6 +219,41 @@ impl CKey {
             _ => Vec::new(),
         }
     }
+}
+
+/// [F06 §6.1] class 9, §7.6: `item_class` is [F08 §8.5]'s class 1–6, and `item_key` has that class's stored key form
+/// ([F08 §8.5] "Stored key form"): UTF-8 names, one per key component (a field's kind and name, an enumeration value's
+/// kind, field and value, else the one name), joined by one `00` byte, none empty, `*` (`2A`) only as the kind
+/// component of a field or enumeration-value key. Names never hold `00` ([F08 §8.2]), so the split is unique. Whether
+/// each name obeys its [F08 §8.2] grammar is a write-time rule (§8.6), not decoded here.
+pub fn check_item_key(class: u8, key: &[u8], at: usize) -> Result<()> {
+    if !(1..=6).contains(&class) {
+        return err(
+            at,
+            format!("schema item_class {class} outside 1-6 [F06 §6.1, §7.6; F08 §8.5]"),
+        );
+    }
+    crate::prim::utf8(key, at)?;
+    let n = match class {
+        2 => 2,
+        3 => 3,
+        _ => 1,
+    };
+    let parts: Vec<&[u8]> = key.split(|b| *b == 0).collect();
+    let ok = parts.len() == n
+        && parts
+            .iter()
+            .enumerate()
+            .all(|(i, p)| !p.is_empty() && (*p != b"*" || (i == 0 && n > 1)));
+    if !ok {
+        return err(
+            at,
+            format!(
+                "item_key is not the stored key form of class {class}: {n} non-empty name(s) joined by 00 [F08 §8.5]"
+            ),
+        );
+    }
+    Ok(())
 }
 
 /// A node image entry ([F06 §6.3]).
@@ -321,8 +362,8 @@ pub enum KVal {
     Hierarchy(u32, String),
     /// `edge`: absent or a property block.
     Edge(Option<EdgeProps>),
-    /// `schema`: absent or the item bytes, decoded.
-    Schema(Option<(Vec<u8>, Item)>),
+    /// `schema`: absent or the item, which re-encodes by [`Item::encode`] ([F08 §8.5]).
+    Schema(Option<Item>),
 }
 
 fn flag01(r: &mut Reader<'_>, what: &str) -> Result<bool> {
@@ -335,12 +376,20 @@ fn flag01(r: &mut Reader<'_>, what: &str) -> Result<bool> {
 }
 
 /// Decodes an item carried as `vbytes` ([F06 §6.2], §7.6) and requires it to fill its bytes.
-fn decode_item_bytes(r: &mut Reader<'_>) -> Result<(Vec<u8>, Item)> {
+fn decode_item_vbytes(r: &mut Reader<'_>) -> Result<Item> {
     let b = r.vbytes()?;
     let mut ir = Reader::with_base(b, r.offset() - b.len());
     let it = Item::decode(&mut ir)?;
     ir.finish("a schema item")?;
-    Ok((b.to_vec(), it))
+    Ok(it)
+}
+
+/// Encodes an item as `vbytes` ([F06 §6.2], §7.6) from its decoded value, so a re-encode tests the item's own encoding
+/// ([F08 §8.5]) rather than copying the bytes it was read from.
+fn encode_item_vbytes(it: &Item, w: &mut Writer) {
+    let mut iw = Writer::new();
+    it.encode(&mut iw);
+    w.vbytes(iw.as_slice());
 }
 
 impl KVal {
@@ -396,7 +445,7 @@ impl KVal {
                 None
             }),
             9 => KVal::Schema(if flag01(r, "schema")? {
-                Some(decode_item_bytes(r)?)
+                Some(decode_item_vbytes(r)?)
             } else {
                 None
             }),
@@ -454,9 +503,9 @@ impl KVal {
                 None => w.u8(0),
             },
             KVal::Schema(s) => match s {
-                Some((b, _)) => {
+                Some(it) => {
                     w.u8(1);
-                    w.vbytes(b);
+                    encode_item_vbytes(it, w);
                 }
                 None => w.u8(0),
             },
@@ -692,9 +741,9 @@ pub enum Op {
         /// Item key bytes.
         item_key: Vec<u8>,
         /// Before-image item.
-        old: Option<(Vec<u8>, Item)>,
+        old: Option<Item>,
         /// New item.
-        new: Option<(Vec<u8>, Item)>,
+        new: Option<Item>,
     },
     /// 13.
     Conflict {
@@ -726,7 +775,7 @@ pub enum Op {
         key: CKey,
         /// §7.3 when the key has an owner.
         prev: Option<u64>,
-        /// 0 ours … 4 repoint.
+        /// 0 ours, 1 theirs, 2 base, 3 value, 4 repoint, 5 drop.
         choice: u8,
         /// Repoint target.
         target: Option<u32>,
@@ -772,9 +821,9 @@ fn opt_hash(present: bool, r: &mut Reader<'_>) -> Result<Option<[u8; 16]>> {
     }
 }
 
-fn decode_item_opt(present: bool, r: &mut Reader<'_>) -> Result<Option<(Vec<u8>, Item)>> {
+fn decode_item_opt(present: bool, r: &mut Reader<'_>) -> Result<Option<Item>> {
     if present {
-        Ok(Some(decode_item_bytes(r)?))
+        Ok(Some(decode_item_vbytes(r)?))
     } else {
         Ok(None)
     }
@@ -858,6 +907,33 @@ impl Op {
                 (k.owner().unwrap_or(0), k.class(), k.detail())
             }
         }
+    }
+
+    /// [F06 §7.6]: a `Schema` op's `item_key` is the stored key form ([F08 §8.5]) of its `old` and `new` items. `name`
+    /// resolves a symbol of class `name`; an item whose names do not all resolve is not compared, so a caller without
+    /// the store's symbols checks the policy rows, whose names are strings (§8.5.6), and a log scan checks the rest.
+    pub fn check_schema_key<'a>(
+        &'a self,
+        name: impl Fn(u32) -> Option<&'a str>,
+        at: usize,
+    ) -> Result<()> {
+        let Op::Schema {
+            item_key, old, new, ..
+        } = self
+        else {
+            return Ok(());
+        };
+        for it in old.iter().chain(new.iter()) {
+            if let Some(k) = it.stored_key(&name)
+                && k != *item_key
+            {
+                return err(
+                    at,
+                    "Schema item_key is not its item's stored key form [F06 §7.6; F08 §8.5]",
+                );
+            }
+        }
+        Ok(())
     }
 
     /// The `aN` an anchor-creating op carries.
@@ -1085,16 +1161,10 @@ impl Op {
                 if mode > 1 {
                     return err(m_at, "Schema mode outside 0-1 [F06 §7.6]");
                 }
-                let c_at = r.offset();
                 let item_class = r.u8()?;
-                if !(1..=5).contains(&item_class) {
-                    return err(c_at, "Schema item_class outside 1-5 [F08 §8.5]");
-                }
                 let k_at = r.offset();
                 let item_key = r.vbytes()?.to_vec();
-                if item_class == 5 {
-                    crate::prim::utf8(&item_key, k_at)?;
-                }
+                check_item_key(item_class, &item_key, k_at)?;
                 let f_at = r.offset();
                 let sflags = r.u8()?;
                 if sflags & 0xFC != 0 || sflags == 0 {
@@ -1102,18 +1172,25 @@ impl Op {
                 }
                 let old = decode_item_opt(sflags & 1 != 0, r)?;
                 let new = decode_item_opt(sflags & 2 != 0, r)?;
-                for (_, it) in old.iter().chain(new.iter()) {
+                for it in old.iter().chain(new.iter()) {
                     if it.class() != item_class {
                         return err(f_at, "Schema item class differs from item_class [F06 §7.6]");
                     }
                 }
-                Op::Schema {
+                if let (Some(o), Some(n)) = (&old, &new)
+                    && o == n
+                {
+                    return err(f_at, "Schema new equals old [F06 §7.8 NF-3]");
+                }
+                let op = Op::Schema {
                     mode,
                     item_class,
                     item_key,
                     old,
                     new,
-                }
+                };
+                op.check_schema_key(|_| None, k_at)?;
+                op
             }
             13 => {
                 let key = CKey::decode(r)?;
@@ -1164,8 +1241,8 @@ impl Op {
                 };
                 let c_at = r.offset();
                 let choice = r.u8()?;
-                if choice > 4 {
-                    return err(c_at, "Resolve choice outside 0-4 [F06 §7.7]");
+                if choice > 5 {
+                    return err(c_at, "Resolve choice outside 0-5 [F06 §7.7]");
                 }
                 let target = if choice == 4 { Some(r.uvar32()?) } else { None };
                 let old = CState::decode(r, key.class())?;
@@ -1339,8 +1416,8 @@ impl Op {
                 w.u8(*item_class);
                 w.vbytes(item_key);
                 w.u8(u8::from(old.is_some()) | (u8::from(new.is_some()) << 1));
-                for (b, _) in old.iter().chain(new.iter()) {
-                    w.vbytes(b);
+                for it in old.iter().chain(new.iter()) {
+                    encode_item_vbytes(it, w);
                 }
             }
             Op::Conflict {
@@ -1520,6 +1597,46 @@ pub struct CkimgEntry {
     pub ledger: Vec<(u32, i64, String)>,
 }
 
+/// The `stage` group of a staged `merge` or `sync` ([F06 §4.4.16]): the command's own arguments, which
+/// `merge --continue` re-uses. Its `sgflags` byte is bit 0 `strict`, bits 1–2 `policy`, bit 3 `base` present.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Stage {
+    /// The command's effective `strict`.
+    pub strict: bool,
+    /// The policy override: 0 none, 1 `delete-wins`, 2 `resurrect`.
+    pub policy: u8,
+    /// The full id of the `--base` commit.
+    pub base: Option<[u8; 32]>,
+}
+
+impl Stage {
+    /// Decodes the group with its V-rules: `sgflags` bits 1–2 are not 3, bits 4–7 are zero, and the byte is not 0
+    /// ([F06 §4.4.16]).
+    pub fn decode(r: &mut Reader<'_>) -> Result<Stage> {
+        let at = r.offset();
+        let f = r.u8()?;
+        if f == 0 || f & 0xF0 != 0 || (f >> 1) & 3 == 3 {
+            return err(
+                at,
+                "stage sgflags 0, reserved bits 4-7 set, or policy override 3 [F06 §4.4.16]",
+            );
+        }
+        Ok(Stage {
+            strict: f & 1 != 0,
+            policy: (f >> 1) & 3,
+            base: if f & 8 != 0 { Some(r.b32()?) } else { None },
+        })
+    }
+
+    /// Re-encodes the group.
+    pub fn encode(&self, w: &mut Writer) {
+        w.u8(u8::from(self.strict) | (self.policy << 1) | (u8::from(self.base.is_some()) << 3));
+        if let Some(b) = &self.base {
+            w.bytes(b);
+        }
+    }
+}
+
 /// The `Commit` payload ([F06 §4.3]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Commit {
@@ -1601,6 +1718,8 @@ pub struct Commit {
     pub bodies: Vec<BodyEntry>,
     /// Import-checkpoint image-only data.
     pub ckimg: Option<Vec<CkimgEntry>>,
+    /// A staged merge's arguments (order 45).
+    pub stage: Option<Stage>,
 }
 
 fn bit(p: u32, b: u32) -> bool {
@@ -1681,8 +1800,8 @@ impl Commit {
     pub fn decode(r: &mut Reader<'_>) -> Result<Commit> {
         let start = r.offset();
         let presence = r.u32()?;
-        if presence >> 18 != 0 {
-            return err(start, "presence bits 18-31 are not zero [F06 §4.2]");
+        if presence >> 19 != 0 {
+            return err(start, "presence bits 19-31 are not zero [F06 §4.2]");
         }
         let commit_id = r.b32()?;
         let np_at = r.offset();
@@ -1988,6 +2107,11 @@ impl Commit {
         } else {
             None
         };
+        let stage = if bit(presence, 18) {
+            Some(Stage::decode(r)?)
+        } else {
+            None
+        };
         r.finish("a Commit payload")?;
         let c = Commit {
             presence,
@@ -2029,6 +2153,7 @@ impl Commit {
             ops,
             bodies,
             ckimg,
+            stage,
         };
         c.check_v(start)?;
         check_ops(&c.ops, ops_at)?;
@@ -2109,8 +2234,11 @@ impl Commit {
         if (bit(p, 15) || bit(p, 16)) && (!self.ops.is_empty() || !self.bodies.is_empty()) {
             return fail("a bulk or pruned commit carries ops or bodies [F06 §9 BK-1, §4.4.15]");
         }
-        if bit(p, 16) && (bit(p, 15) || bit(p, 17)) {
-            return fail("a pruned commit with cs_ref or ckimg [F06 §4.4.15]");
+        if bit(p, 16) && (bit(p, 15) || bit(p, 17) || bit(p, 18)) {
+            return fail("a pruned commit with cs_ref, ckimg or stage [F06 §4.4.15]");
+        }
+        if bit(p, 18) && !ms {
+            return fail("stage only for merge and sync [F06 §4.4.16]");
         }
         if bit(p, 17) && (self.kind != kind::CHECKPOINT || bit(p, 15)) {
             return fail("ckimg only on an inline checkpoint [F06 §4.2]");
@@ -2254,6 +2382,9 @@ impl Commit {
                 encode_ckimg_entry(e, w);
             }
         }
+        if let Some(st) = &self.stage {
+            st.encode(w);
+        }
     }
 
     /// Every symbol reference of the payload as (class code of [F05 §8.1], id), for SD-3: the header (`ref`, `actor`,
@@ -2315,7 +2446,7 @@ pub fn image_symbol_refs(img: &NodeImage, out: &mut Vec<(u8, u32)>) {
 }
 
 /// The symbol references of a schema item ([F08 §8.5]): every name it holds is class `name` (0 is `*` or none), and a
-/// field item's default value.
+/// field item's default value. A policy row stores its name and value as strings (§8.5.6) and references no symbol.
 pub fn item_symbol_refs(it: &Item, out: &mut Vec<(u8, u32)>) {
     match &it.body {
         ItemBody::Kind { name, .. } | ItemBody::Query { name, .. } => out.push((sym::NAME, *name)),
@@ -2341,6 +2472,7 @@ pub fn item_symbol_refs(it: &Item, out: &mut Vec<(u8, u32)>) {
             out.push((sym::NAME, e.lq_name));
             out.extend(e.reverse_names.iter().map(|n| (sym::NAME, *n)));
         }
+        ItemBody::Policy { .. } => {}
     }
 }
 
@@ -2363,7 +2495,7 @@ impl KVal {
             KVal::Existence(ExVal::Deleted(_, reason, _)) => out.push((sym::REASON, *reason)),
             KVal::Value(v) => value_symbol_refs(v, out),
             KVal::Observation(vs) => vs.iter().for_each(|v| value_symbol_refs(v, out)),
-            KVal::Schema(Some((_, it))) => item_symbol_refs(it, out),
+            KVal::Schema(Some(it)) => item_symbol_refs(it, out),
             _ => {}
         }
     }
@@ -2429,7 +2561,7 @@ impl Op {
             }
             Op::Incr { name, .. } => out.push((sym::NAME, *name)),
             Op::Schema { old, new, .. } => {
-                for (_, it) in old.iter().chain(new.iter()) {
+                for it in old.iter().chain(new.iter()) {
                     item_symbol_refs(it, out);
                 }
             }
@@ -2566,6 +2698,7 @@ pub(crate) mod tests {
             ops: Vec::new(),
             bodies: Vec::new(),
             ckimg: None,
+            stage: None,
         }
     }
 
@@ -2593,22 +2726,17 @@ pub(crate) mod tests {
                 item_class: 5,
                 item_key: b"q1".to_vec(),
                 old: None,
-                new: Some({
-                    let it = Item {
-                        iflags: 0,
-                        body: crate::value::ItemBody::Query {
-                            name: 3,
-                            lq_version: 1,
-                            params: String::new(),
-                            shape: "rows".into(),
-                            budget: "small".into(),
-                            text: "RETURN 1".into(),
-                            ast_hash: [0; 16],
-                        },
-                    };
-                    let mut w = Writer::new();
-                    it.encode(&mut w);
-                    (w.into_vec(), it)
+                new: Some(Item {
+                    iflags: 0,
+                    body: crate::value::ItemBody::Query {
+                        name: 3,
+                        lq_version: 1,
+                        params: String::new(),
+                        shape: "rows".into(),
+                        budget: "small".into(),
+                        text: "RETURN 1".into(),
+                        ast_hash: [0; 16],
+                    },
                 }),
             },
             Op::Violation {
@@ -2808,6 +2936,234 @@ pub(crate) mod tests {
         bad.sync_base = Some([9; 16]);
         let mut w = Writer::new();
         bad.encode(&mut w);
+        assert!(Commit::decode(&mut Reader::new(w.as_slice())).is_err());
+    }
+
+    /// A stored schema key: the names joined by one `00` byte ([F08 §8.5] "Stored key form").
+    fn skey(parts: &[&str]) -> Vec<u8> {
+        parts
+            .iter()
+            .map(|p| p.as_bytes())
+            .collect::<Vec<_>>()
+            .join(&0u8)
+    }
+
+    /// Encodes `op` and decodes it back.
+    fn op_rt(op: &Op) -> Result<Op> {
+        let mut w = Writer::new();
+        op.encode(&mut w);
+        Op::decode(&mut Reader::new(w.as_slice()))
+    }
+
+    /// [F06 §6.1] class 9, §7.6, [F08 §8.5] "Stored key form": `item_class` 1–6 and `item_key` of its class's form (the
+    /// check a `Schema` op's decode shares), here also through a `ckey` of class 9.
+    #[test]
+    fn schema_key_forms() {
+        let cases: [(u8, Vec<u8>, bool); 19] = [
+            (1, skey(&["incident"]), true),
+            (1, skey(&["a", "b"]), false),
+            (1, skey(&["*"]), false),
+            (1, Vec::new(), false),
+            (2, skey(&["task", "estimate"]), true),
+            (2, skey(&["*", "labels"]), true),
+            (2, skey(&["task"]), false),
+            (2, skey(&["task", "*"]), false),
+            (2, skey(&["task", ""]), false),
+            (3, skey(&["*", "priority", "P9"]), true),
+            (3, skey(&["task", "status"]), false),
+            (4, skey(&["blocks"]), true),
+            (5, skey(&["q1"]), true),
+            (5, vec![0xFF], false),
+            (6, skey(&["policy.self-claim-roles"]), true),
+            (6, skey(&["a", "b"]), false),
+            (0, skey(&["x"]), false),
+            (7, skey(&["x"]), false),
+            (9, skey(&["x"]), false),
+        ];
+        for (class, key, ok) in cases {
+            assert_eq!(
+                check_item_key(class, &key, 0).is_ok(),
+                ok,
+                "{class} {key:?}"
+            );
+            let mut w = Writer::new();
+            CKey::Schema(class, key.clone()).encode(&mut w);
+            assert_eq!(
+                CKey::decode(&mut Reader::new(w.as_slice())).is_ok(),
+                ok,
+                "ckey {class} {key:?}"
+            );
+        }
+    }
+
+    /// [F06 §7.6]: a `Schema` op's `item_key` is its item's stored key form. A policy row's name is a string, so its
+    /// decode checks it; the other classes need the store's names, which [`Op::check_schema_key`] takes. NF-3: a
+    /// `Schema` op whose `new` equals `old` is refused (both values are in the op).
+    #[test]
+    fn schema_key_matches_item() {
+        let policy = |name: &str, value: &str| Item {
+            iflags: 0,
+            body: ItemBody::Policy {
+                name: name.into(),
+                value: value.into(),
+            },
+        };
+        let op = |class: u8, key: Vec<u8>, old, new| Op::Schema {
+            mode: 0,
+            item_class: class,
+            item_key: key,
+            old,
+            new,
+        };
+        let good = op(
+            6,
+            skey(&["merge.policy.task"]),
+            None,
+            Some(policy("merge.policy.task", "delete-wins")),
+        );
+        assert_eq!(op_rt(&good).unwrap(), good);
+        let removed = op(
+            6,
+            skey(&["merge.policy.task"]),
+            Some(policy("merge.policy.task", "delete-wins")),
+            None,
+        );
+        assert_eq!(op_rt(&removed).unwrap(), removed);
+        let other = op(
+            6,
+            skey(&["merge.policy.doc"]),
+            None,
+            Some(policy("merge.policy.task", "delete-wins")),
+        );
+        assert!(op_rt(&other).is_err());
+        let same = op(
+            6,
+            skey(&["merge.policy.task"]),
+            Some(policy("merge.policy.task", "resurrect")),
+            Some(policy("merge.policy.task", "resurrect")),
+        );
+        assert!(op_rt(&same).unwrap_err().reason.contains("NF-3"));
+        // An enumeration value of a common field: kind `*` (symbol 0), field 2 `priority`, value 3 `P9`.
+        let value = Item {
+            iflags: 0,
+            body: ItemBody::EnumValue {
+                kind: 0,
+                field: 2,
+                name: 3,
+                value: 64,
+                sort_rank: 64,
+                eflags: 0,
+                covers: vec![],
+            },
+        };
+        let names = |id: u32| match id {
+            2 => Some("priority"),
+            3 => Some("P9"),
+            _ => None,
+        };
+        let e = op(3, skey(&["*", "priority", "P9"]), None, Some(value.clone()));
+        assert_eq!(op_rt(&e).unwrap(), e);
+        e.check_schema_key(names, 0).unwrap();
+        e.check_schema_key(|_| None, 0).unwrap();
+        let wrong = op(3, skey(&["*", "priority", "P8"]), None, Some(value));
+        assert!(
+            op_rt(&wrong).is_ok(),
+            "the names are not at hand in a lone decode"
+        );
+        assert!(wrong.check_schema_key(names, 0).is_err());
+    }
+
+    /// [F06 §7.7]: `Resolve.choice` 0–5 (5 `drop`, no `target`), 6 refused; [F06 §7.8] NF-3 is a C-rule for `Resolve`: a
+    /// `Resolve` whose `new` equals `old`'s plain value decodes.
+    #[test]
+    fn resolve_choices() {
+        let resolve = |choice: u8, old: CState, new: KVal| Op::Resolve {
+            key: CKey::Status(9),
+            prev: Some(40),
+            choice,
+            target: (choice == 4).then_some(12),
+            old,
+            new,
+        };
+        let plain = || CState::Plain(KVal::Status(Some((1, 0))));
+        for choice in 0..=5 {
+            let op = resolve(choice, plain(), KVal::Status(None));
+            assert_eq!(op_rt(&op).unwrap(), op, "choice {choice}");
+        }
+        let kept = resolve(0, plain(), KVal::Status(Some((1, 0))));
+        assert_eq!(op_rt(&kept).unwrap(), kept);
+        let bytes = |choice: u8| {
+            let mut w = Writer::new();
+            resolve(choice, plain(), KVal::Status(None)).encode(&mut w);
+            w.into_vec()
+        };
+        let (drop, ours) = (bytes(5), bytes(0));
+        let at = drop
+            .iter()
+            .zip(&ours)
+            .position(|(a, b)| a != b)
+            .expect("the choice byte");
+        let mut six = drop.clone();
+        six[at] = 6;
+        assert!(Op::decode(&mut Reader::new(&six)).is_err());
+    }
+
+    /// A local staged merge with its `stage` group ([F06 §4.4.16]): every `sgflags` form round-trips; `sgflags` 0,
+    /// policy override 3 and reserved bits 4–7 are refused, as are the group on an `ordinary` commit and beside `pruned`.
+    #[test]
+    fn stage_group() {
+        let mut c = base_commit();
+        c.presence = (1 << 7) | (1 << 12) | (1 << 18);
+        c.kind = kind::MERGE;
+        c.parents = vec![([2; 16], 138), ([3; 16], 300)];
+        c.stated = vec![None, None];
+        c.sync_base = Some([3; 16]);
+        for (strict, policy, base) in [
+            (true, 0, None),
+            (false, 1, None),
+            (false, 2, Some([7; 32])),
+            (true, 2, Some([8; 32])),
+            (false, 0, Some([9; 32])),
+        ] {
+            c.stage = Some(Stage {
+                strict,
+                policy,
+                base,
+            });
+            assert_eq!(round_trip(&c).stage, c.stage);
+        }
+        c.kind = kind::SYNC;
+        assert_eq!(round_trip(&c).stage, c.stage);
+        let mut w = Writer::new();
+        c.encode(&mut w);
+        let good = w.as_slice().to_vec();
+        let fl = good.len() - 33;
+        assert_eq!(good[fl], 0x08, "sgflags of (false, 0, base)");
+        for f in [0x00, 0x06, 0x0E, 0x10, 0x81] {
+            let mut bad = good.clone();
+            bad[fl] = f;
+            if f & 8 == 0 {
+                bad.truncate(fl + 1);
+            }
+            assert!(
+                Commit::decode(&mut Reader::new(&bad)).is_err(),
+                "sgflags {f:#04x}"
+            );
+        }
+        let mut ord = base_commit();
+        ord.presence = (1 << 12) | (1 << 18);
+        ord.stage = Some(Stage {
+            strict: true,
+            policy: 0,
+            base: None,
+        });
+        let mut w = Writer::new();
+        ord.encode(&mut w);
+        assert!(Commit::decode(&mut Reader::new(w.as_slice())).is_err());
+        let mut pruned = c.clone();
+        pruned.presence |= 1 << 16;
+        let mut w = Writer::new();
+        pruned.encode(&mut w);
         assert!(Commit::decode(&mut Reader::new(w.as_slice())).is_err());
     }
 }
