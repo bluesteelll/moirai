@@ -17,11 +17,12 @@ use moirai_vfs::{
     VfsError, VfsErrorKind,
 };
 use moirai_vfs_sim::enumerate::{
-    Class, Dim, Dims, EffectKey, EffectKind, EffectSet, EffectWrite, EnumConfig, GT1_MIN_STATES,
-    Ledger, NOTE_ACK, PoisonPolicy, Recovered, Report, Subject, Tier, Variant, enumerate,
+    BootMode, Class, Diagnosis, Dim, Dims, EffectKey, EffectKind, EffectSet, EffectWrite,
+    EnumConfig, GT1_MIN_STATES, Ledger, NOTE_ACK, PoisonPolicy, Recovered, Refusal, Refused,
+    Report, Subject, Tier, Variant, enumerate,
 };
 use moirai_vfs_sim::{
-    CallKind, Event, EventKind, SimFile, SimMap, SimRoot, SimVfs, SimWorld, TaskEnd,
+    CallKind, Event, EventKind, SimConfig, SimFile, SimMap, SimRoot, SimVfs, SimWorld, TaskEnd,
 };
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -69,6 +70,27 @@ fn run_tasks(w: &SimWorld, bodies: Vec<(String, Body)>) {
             panic!("a task panicked: {m}");
         }
     }
+}
+
+/// The refusal a failed open or read of the store file `name` ends in: a read error is an I/O fault ([F16] P-92), any
+/// other failure leaves a file the store needs unusable ([F16] P-59).
+fn read_refused(name: &str, what: &str, e: &VfsError) -> Refused {
+    let reason = if e.kind == VfsErrorKind::Io {
+        Refusal::IoFault
+    } else {
+        Refusal::Damaged(store(name))
+    };
+    Refused::new(reason, format!("{what} {name}: {e:?}"))
+}
+
+/// The refusal a failed write, create or namespace operation ends in (decision (f), [OS/fs §4.4.5]).
+fn write_refused(what: &str, e: &VfsError) -> Refused {
+    let reason = if e.kind == VfsErrorKind::DiskFull {
+        Refusal::DiskFull
+    } else {
+        Refusal::Io
+    };
+    Refused::new(reason, format!("{what}: {e:?}"))
 }
 
 /// An abort after a failed write (decision (f)): the process ends without acknowledging.
@@ -472,21 +494,21 @@ impl MiniLog {
     }
 
     /// The store as a reader sees it: the log up to the published end of the newest (or, broken, the oldest) valid slot.
-    fn read_view(&self, v: &SimVfs, root: &SimRoot, stale: bool) -> Result<EffectSet, String> {
+    fn read_view(&self, v: &SimVfs, root: &SimRoot, stale: bool) -> Result<EffectSet, Refused> {
         let head = v
             .open(root, rel("HEAD"), Access::Read, OpenHint::Normal)
-            .map_err(|e| format!("open HEAD: {e:?}"))?;
+            .map_err(|e| read_refused("HEAD", "open", &e))?;
         let log = v
             .open(root, rel("LOG"), Access::Read, OpenHint::Normal)
-            .map_err(|e| format!("open LOG: {e:?}"))?;
-        let hb = read_file(v, &head, HEAD_LEN).map_err(|e| format!("read HEAD: {e:?}"))?;
+            .map_err(|e| read_refused("LOG", "open", &e))?;
+        let hb = read_file(v, &head, HEAD_LEN).map_err(|e| read_refused("HEAD", "read", &e))?;
         let pick = if stale {
             slots(&hb).into_iter().min_by_key(|s| s.1)
         } else {
             newest_slot(&hb)
         };
         let end = pick.map_or(0, |s| s.2 as usize);
-        let lb = read_file(v, &log, LOG_LEN).map_err(|e| format!("read LOG: {e:?}"))?;
+        let lb = read_file(v, &log, LOG_LEN).map_err(|e| read_refused("LOG", "read", &e))?;
         let limit = if self.breaks.reader_past_published {
             lb.len()
         } else {
@@ -509,22 +531,31 @@ impl MiniLog {
     }
 
     /// The segment, mapped after the length check ([80 §2.5] rule 4).
-    fn map_segment(v: &SimVfs, root: &SimRoot) -> Result<SimMap, String> {
+    fn map_segment(v: &SimVfs, root: &SimRoot) -> Result<SimMap, Refused> {
+        let damaged = |e: String| {
+            Refused::new(
+                Refusal::Damaged(store("SEG.1")),
+                format!("segment: {e} (exit 7, repair)"),
+            )
+        };
         let f = v
             .open(root, rel("SEG.1"), Access::Read, OpenHint::Normal)
-            .map_err(|e| format!("segment: {e:?} (exit 7, repair)"))?;
+            .map_err(|e| damaged(format!("{e:?}")))?;
         v.map_sealed(&f, SEG_LEN, rel("SEG.1"))
-            .map_err(|e| format!("segment: {e:?} (exit 7, repair)"))
+            .map_err(|e| damaged(format!("{e:?}")))
     }
 
     /// The segment the log records, read through a mapping: a damaged one refuses the store (exit 7, `repair`).
-    fn check_segment(v: &SimVfs, root: &SimRoot, set: &EffectSet) -> Result<(), String> {
+    fn check_segment(v: &SimVfs, root: &SimRoot, set: &EffectSet) -> Result<(), Refused> {
         let Some(&digest) = set.get(&SEG) else {
             return Ok(());
         };
         let m = MiniLog::map_segment(v, root)?;
         if m.len() != SEG_LEN || fnv(3, m.bytes()) != digest {
-            return Err("segment: damaged (exit 7, repair)".to_owned());
+            return Err(Refused::new(
+                Refusal::Damaged(store("SEG.1")),
+                "segment: damaged (exit 7, repair)",
+            ));
         }
         Ok(())
     }
@@ -541,19 +572,19 @@ impl MiniLog {
 
     /// `repair --rebuild-from-log`: the segment is derived, so it is rebuilt when the log records it and removed
     /// otherwise.
-    fn repair_segment(v: &SimVfs, root: &SimRoot, recorded: bool) -> Result<(), String> {
+    fn repair_segment(v: &SimVfs, root: &SimRoot, recorded: bool) -> Result<(), Refused> {
         v.unlink(root, rel("SEG.1"), ShareRetry::None)
-            .map_err(|e| format!("repair: unlink: {e:?}"))?;
+            .map_err(|e| write_refused("repair: unlink", &e))?;
         if recorded {
             let f = v
                 .create_new(root, rel("SEG.1"))
-                .map_err(|e| format!("repair: create: {e:?}"))?;
+                .map_err(|e| write_refused("repair: create", &e))?;
             v.write_at(&f, 0, &seg_bytes())
-                .map_err(|e| format!("repair: write: {e:?}"))?;
+                .map_err(|e| write_refused("repair: write", &e))?;
             if let Err(e) = v.sync(&f, SyncKind::DataAndMeta) {
                 v.fail_stop(e);
             }
-            v.seal(&f).map_err(|e| format!("repair: seal: {e:?}"))?;
+            v.seal(&f).map_err(|e| write_refused("repair: seal", &e))?;
         }
         if let Err(e) = v.sync_dir(root, None) {
             v.fail_stop(e);
@@ -722,41 +753,44 @@ impl MiniLog {
     /// Boot-change recovery ([F16] P-66, simplified): under the writer byte, scan the whole valid chain, re-write what
     /// lies beyond the published end, flush, publish, flush `HEAD`. Returns the log's effects, or `None` when the writer
     /// byte stays with a dead holder beyond the wait bound (FM-8.1 classes (b), (c)): no writer runs.
-    fn boot_recover(&self, v: &SimVfs, root: &SimRoot) -> Result<Option<EffectSet>, String> {
+    fn boot_recover(&self, v: &SimVfs, root: &SimRoot) -> Result<Option<EffectSet>, Refused> {
+        let lock = |what: &str, e: String| Refused::new(Refusal::Lock, format!("{what}: {e}"));
         let mut client = v
             .lock_client(root, LockMode::Acquire)
-            .map_err(|e| format!("lock client: {e:?}"))?;
+            .map_err(|e| lock("lock client", format!("{e:?}")))?;
         let g = match v.acquire_within(&mut client, LockByte::Writer, 700_000) {
             Ok(Acquired::Granted(g)) => g,
             Ok(Acquired::Busy) => return Ok(None),
-            Err(e) => return Err(format!("acquire: {e:?}")),
+            Err(e) => return Err(lock("acquire", format!("{e:?}"))),
         };
         let head = v
             .open(root, rel("HEAD"), Access::ReadWrite, OpenHint::Normal)
-            .map_err(|e| format!("open HEAD: {e:?}"))?;
+            .map_err(|e| read_refused("HEAD", "open", &e))?;
         let log = v
             .open(root, rel("LOG"), Access::ReadWrite, OpenHint::Normal)
-            .map_err(|e| format!("open LOG: {e:?}"))?;
-        let hb = read_file(v, &head, HEAD_LEN).map_err(|e| format!("read HEAD: {e:?}"))?;
+            .map_err(|e| read_refused("LOG", "open", &e))?;
+        let hb = read_file(v, &head, HEAD_LEN).map_err(|e| read_refused("HEAD", "read", &e))?;
         let newest = newest_slot(&hb);
         let (seq, end) = newest.map_or((0, 0), |s| (s.1, s.2 as usize));
-        let lb = read_file(v, &log, LOG_LEN).map_err(|e| format!("read LOG: {e:?}"))?;
+        let lb = read_file(v, &log, LOG_LEN).map_err(|e| read_refused("LOG", "read", &e))?;
         let (e, recs) = scan(&lb, 0);
         if e < end {
-            return Err(format!(
-                "the valid log ends at {e}, below the published end {end}"
+            // After a failed flush the scan may read a shorter log than the published end ([F16] P-48).
+            return Err(Refused::new(
+                Refusal::Corrupt,
+                format!("the valid log ends at {e}, below the published end {end}"),
             ));
         }
         if e > end {
             v.write_at(&log, end as u64, &lb[end..e])
-                .map_err(|e| format!("re-write: {e:?}"))?;
+                .map_err(|e| write_refused("re-write", &e))?;
             if let Err(f) = v.sync(&log, SyncKind::Data) {
                 v.fail_stop(f);
             }
         }
         let slot = newest.map_or(0, |s| 1 - s.0);
         v.write_at(&head, (slot * 4096) as u64, &slot_bytes(seq + 1, e as u64))
-            .map_err(|e| format!("publish: {e:?}"))?;
+            .map_err(|e| write_refused("publish", &e))?;
         if let Err(f) = v.sync(&head, SyncKind::DataAndMeta) {
             v.fail_stop(f);
         }
@@ -812,23 +846,40 @@ impl Subject for MiniLog {
             MiniLog::check_segment(&rv, &rr, &s).map(|()| s)
         });
         let (wv, wr) = open(w, "recovery-writer", RootAccess::ReadWrite);
-        let mut diagnosed = Vec::new();
+        let (mut diagnosed, mut answered) = (Vec::new(), Vec::new());
         // Behind a byte a dead holder keeps, the writer gives up (exit busy).
         let state = self
             .boot_recover(&wv, &wr)
-            .and_then(|s| s.ok_or_else(|| "the writer byte stays held (exit busy)".to_owned()))
+            .and_then(|s| {
+                s.ok_or_else(|| {
+                    Refused::new(Refusal::Busy, "the writer byte stays held (exit busy)")
+                })
+            })
             .and_then(|mut s| {
                 MiniLog::config_view(&wv, &wr, &mut s);
                 MiniLog::check_backups(&wv, &wr, &s, &mut findings);
                 if MiniLog::segment_damaged(&wv, &wr) {
-                    diagnosed.push(store("SEG.1"));
-                    MiniLog::repair_segment(&wv, &wr, s.contains_key(&SEG))?;
+                    // `doctor --fsck` names it; a segment the log records is rebuilt by `repair --rebuild-from-log`
+                    // after the writer's exit 7, an unrecorded one (left by a crash before its record) is swept.
+                    let referenced = s.contains_key(&SEG);
+                    diagnosed.push(Diagnosis {
+                        path: store("SEG.1"),
+                        referenced,
+                    });
+                    if referenced {
+                        answered.push(Refused::new(
+                            Refusal::Damaged(store("SEG.1")),
+                            "segment: damaged (exit 7, repair)",
+                        ));
+                    }
+                    MiniLog::repair_segment(&wv, &wr, referenced)?;
                 }
                 MiniLog::check_segment(&wv, &wr, &s).map(|()| s)
             });
         Recovered {
             first_read,
             state,
+            answered,
             findings,
             diagnosed,
         }
@@ -1138,7 +1189,10 @@ impl Subject for Probe {
             .files
             .iter()
             .filter(|(n, d)| w.file_len(&store(n)).is_some_and(|l| l < d.len() as u64))
-            .map(|(n, _)| store(n))
+            .map(|(n, _)| Diagnosis {
+                path: store(n),
+                referenced: false,
+            })
             .collect();
         Recovered {
             diagnosed,
@@ -1946,15 +2000,22 @@ impl Subject for Adopt {
         if busy {
             note(&self.seen, "the recovering writer found the byte held");
         }
-        Recovered {
-            first_read: Ok(EffectSet::new()),
-            state: if busy {
-                Err("the writer byte stays held (exit busy)".to_owned())
+        // Behind a byte a dead holder keeps beyond every bound, the first reader's boot-change recovery (or the repair
+        // its exit 7 calls for) gives up too ([F16] P-60, P-66, P-85; E12).
+        let waits = || {
+            if busy {
+                Err(Refused::new(
+                    Refusal::Busy,
+                    "the writer byte stays held (exit busy)",
+                ))
             } else {
                 Ok(EffectSet::new())
-            },
-            findings: Vec::new(),
-            diagnosed: Vec::new(),
+            }
+        };
+        Recovered {
+            first_read: waits(),
+            state: waits(),
+            ..Recovered::same(EffectSet::new())
         }
     }
 }
@@ -2165,6 +2226,9 @@ struct SealedRecovery {
     diagnose: bool,
     /// `repair --rebuild-from-log` restores it (it is derived).
     repair: bool,
+    /// The diagnosis also names `other`, a file the state references that nothing touched (E6: a diagnosis with no
+    /// cause).
+    blame_other: bool,
 }
 
 /// A sealed file `Z` that a reader maps once and reads through its mapping several times, with other calls between;
@@ -2237,36 +2301,46 @@ impl Subject for Sealed {
             return Recovered::same(kept);
         }
         note(&self.seen, "the recovery found the sealed file truncated");
-        let state = if self.how.repair {
+        let damaged = |m: &str| Refused::new(Refusal::Damaged(store("Z")), m);
+        let (state, answered) = if self.how.repair {
             let z = rw_unsealed(&v, &r);
-            z.map(|()| kept.clone())
+            (
+                z.map(|()| kept.clone()),
+                vec![damaged("Z is damaged: exit 7, run repair")],
+            )
         } else {
-            Err("Z is damaged: exit 7, run repair".to_owned())
+            (Err(damaged("Z is damaged: exit 7, run repair")), Vec::new())
         };
         Recovered {
-            first_read: Err("Z is damaged: exit 7".to_owned()),
+            first_read: Err(damaged("Z is damaged: exit 7")),
             state,
+            answered,
             findings: Vec::new(),
-            diagnosed: if self.how.diagnose {
-                vec![store("Z")]
-            } else {
-                Vec::new()
-            },
+            diagnosed: [
+                (self.how.diagnose, store("Z")),
+                (self.how.blame_other, store("other")),
+            ]
+            .into_iter()
+            .filter(|(named, _)| *named)
+            .map(|(_, p)| Diagnosis::referenced(p))
+            .collect(),
         }
     }
 }
 
 /// `repair` of `Z`: removed and rebuilt from its source, sealed again.
-fn rw_unsealed(v: &SimVfs, r: &SimRoot) -> Result<(), String> {
+fn rw_unsealed(v: &SimVfs, r: &SimRoot) -> Result<(), Refused> {
     v.unlink(r, rel("Z"), ShareRetry::None)
-        .map_err(|e| format!("{e:?}"))?;
-    let f = v.create_new(r, rel("Z")).map_err(|e| format!("{e:?}"))?;
+        .map_err(|e| write_refused("repair: unlink", &e))?;
+    let f = v
+        .create_new(r, rel("Z"))
+        .map_err(|e| write_refused("repair: create", &e))?;
     v.write_at(&f, 0, &[0x5A; 4096])
-        .map_err(|e| format!("{e:?}"))?;
+        .map_err(|e| write_refused("repair: write", &e))?;
     if let Err(e) = v.sync(&f, SyncKind::DataAndMeta) {
         v.fail_stop(e);
     }
-    v.seal(&f).map_err(|e| format!("{e:?}"))?;
+    v.seal(&f).map_err(|e| write_refused("repair: seal", &e))?;
     if let Err(e) = v.sync_dir(r, None) {
         v.fail_stop(e);
     }
@@ -2286,6 +2360,7 @@ fn a_sealed_file_truncated_while_read_is_refused_repaired_and_named() {
         how: SealedRecovery {
             diagnose: true,
             repair: true,
+            blame_other: false,
         },
         seen: Arc::default(),
         reading: Arc::default(),
@@ -2311,6 +2386,7 @@ fn a_sealed_file_truncated_while_read_is_refused_repaired_and_named() {
         how: SealedRecovery {
             diagnose: false,
             repair: true,
+            blame_other: false,
         },
         seen: Arc::default(),
         reading: Arc::default(),
@@ -2322,12 +2398,35 @@ fn a_sealed_file_truncated_while_read_is_refused_repaired_and_named() {
         how: SealedRecovery {
             diagnose: true,
             repair: false,
+            blame_other: false,
         },
         seen: Arc::default(),
         reading: Arc::default(),
     };
     let report = enumerate(&refusing, &pr(&[1], only));
     assert!(has(&report, "recovery: refused"), "{report}");
+    // E6 ([F15] G-13): a diagnosis that also names `other`, which the state references and no fault touched, fails;
+    // the truncated `Z`, rebuilt by the repair as a new file, is still known by its path.
+    let blaming = Sealed {
+        how: SealedRecovery {
+            diagnose: true,
+            repair: true,
+            blame_other: true,
+        },
+        seen: Arc::default(),
+        reading: Arc::default(),
+    };
+    let report = enumerate(&blaming, &pr(&[1], only));
+    assert!(
+        has(&report, "diagnosis: the recovery names /sim/store")
+            && report
+                .failures
+                .iter()
+                .flat_map(|f| f.messages.iter())
+                .filter(|m| m.starts_with("diagnosis: the recovery names"))
+                .all(|m| m.contains("other")),
+        "{report}"
+    );
 }
 
 /// One file sector: a first operation publishes sub-sector 0 without a flush (lazy, or, broken, a durable one that is
@@ -2386,6 +2485,7 @@ impl Subject for LazyTail {
             first_read: Ok(LazyTail::read(w, "first-reader")),
             state: Ok(LazyTail::read(w, "writer")),
             findings: Vec::new(),
+            answered: Vec::new(),
             diagnosed: Vec::new(),
         }
     }
@@ -2424,4 +2524,292 @@ fn a_lazy_record_may_vanish_between_reads_after_a_failed_flush_but_a_durable_one
             .any(|f| f.crash.is_none() && matches!(f.variant, Variant::FlushError { .. })),
         "the death-only check after the failed flush: {report}"
     );
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Spec sync 2b: the second way to leave no valid slot (S2B-P-27), fields kept only in `HEAD` (S2B-P-14) and
+// Unknown-boot readers (S2B-P-18).
+
+/// A whole-sector `HEAD` slot like [F04 §3]'s: `seq` at 0 and 2048, `seq`'s low byte elsewhere, and a check over
+/// bytes [0, 4088) at 4088, so that a slot torn between two versions, or partly written, fails validation.
+fn sector_slot(seq: u64) -> Vec<u8> {
+    let mut b = vec![seq.to_le_bytes()[0]; 4096];
+    b[0..8].copy_from_slice(&seq.to_le_bytes());
+    b[2048..2056].copy_from_slice(&seq.to_le_bytes());
+    let check = fnv(SLOT_SEED, &b[..4088]);
+    b[4088..].copy_from_slice(&check.to_le_bytes());
+    b
+}
+
+/// The valid whole-sector slots of a two-slot `HEAD`: their `seq`.
+fn sector_slots(head: &[u8]) -> Vec<u64> {
+    (0..2)
+        .filter_map(|s| head.get(s * 4096..(s + 1) * 4096))
+        .filter(|b| u64_at(b, 4088) == fnv(SLOT_SEED, &b[..4088]) && u64_at(b, 0) > 0)
+        .map(|b| u64_at(b, 0))
+        .collect()
+}
+
+/// A two-slot `HEAD` whose durable publish ([F04 §9.2]) writes slot B, then slot A, then flushes; both slots are valid
+/// and durable before it. Its recovery notes every state that has no valid slot, with the failed flushes behind it.
+fn durable_publish_probe(seen: &Seen) -> Probe {
+    let mut head = sector_slot(2);
+    head.extend(sector_slot(1));
+    let s = Arc::clone(seen);
+    Probe {
+        files: vec![("H", head)],
+        workload: Arc::new(|v: SimVfs| {
+            let r = root_rw(&v);
+            let h = rw(&v, &r, "H");
+            // Each publish writes the slot that does not hold the newest valid state: B (seq 3) over seq 1, then A
+            // (seq 4) over seq 2.
+            for (at, seq) in [(4096, 3), (0, 4)] {
+                if let Err(e) = v.write_at(&h, at, &sector_slot(seq)) {
+                    abort(&v, &e);
+                }
+            }
+            if let Err(e) = v.sync(&h, SyncKind::DataAndMeta) {
+                v.fail_stop(e);
+            }
+        }),
+        recover: Box::new(move |w| {
+            let h = content(w, "H").unwrap_or_default();
+            if sector_slots(&h).is_empty() {
+                note(
+                    &s,
+                    format!("no valid slot, failed flushes {}", w.failed_flushes()),
+                );
+            }
+        }),
+        slots: vec![store("H")],
+    }
+}
+
+/// [F04 §8.1] "Both slots absent", [F15 §6.4] (spec sync 2b S2B-P-27): a durable publish's second slot write that fails
+/// with `DiskFull` (FM-5.2) or is cut by its writer's death (§2.5) leaves slot A any mix of bytes; a crash that tears
+/// slot B, which the first write left dirty, then leaves no valid slot although no flush failed. The PR tier reaches the
+/// state at the end of each such run (the slot states over the pivots).
+#[test]
+fn a_cut_slot_write_and_a_torn_dirty_slot_leave_no_valid_slot_without_a_failed_flush() {
+    for dims in [
+        Dims {
+            disk_full: true,
+            ..NO_DIMS
+        },
+        Dims {
+            kills: true,
+            ..NO_DIMS
+        },
+    ] {
+        let seen: Seen = Arc::default();
+        let report = enumerate(&durable_publish_probe(&seen), &pr(&[1], dims));
+        report.assert_passed();
+        let seen = lock(&seen).clone();
+        assert!(
+            seen.contains("no valid slot, failed flushes 0"),
+            "{dims:?}: {seen:?}\n{report}"
+        );
+        assert!(report.slot_fault_runs > 0, "{report}");
+        assert!(
+            report.states.get(&Dim::Slot).is_some_and(|&n| n > 0),
+            "{report}"
+        );
+    }
+}
+
+/// A durable publish of a flag kept only in `HEAD` ([F04 §6]), which its writer reads back before the `HEAD` flush and
+/// acknowledges after it; `head`: reported by [`Ledger::begin_kept_in_head`], else as an ordinary durable operation.
+struct HeadFlag {
+    head: bool,
+}
+
+const FLAG: EffectKey = EffectKey::new(EffectKind::Other(3), 1);
+
+impl HeadFlag {
+    fn read(w: &SimWorld, who: &str) -> EffectSet {
+        let (v, r) = open(w, who, RootAccess::Read);
+        let mut b = [0u8; 1];
+        let set = v
+            .open(&r, rel("H"), Access::Read, OpenHint::Normal)
+            .ok()
+            .is_some_and(|f| v.read_at(&f, 0, &mut b).is_ok() && b[0] == 1);
+        if set {
+            [(FLAG, 1)].into_iter().collect()
+        } else {
+            EffectSet::new()
+        }
+    }
+}
+
+impl Subject for HeadFlag {
+    fn setup(&self, w: &SimWorld, _l: &Ledger) {
+        w.mkdir_all(Path::new(STORE));
+        w.put_file(&store("H"), &[0u8; 4096]).expect("H");
+    }
+
+    fn workload(&self, w: &SimWorld, ledger: &Ledger) {
+        let (l, head) = (ledger.clone(), self.head);
+        let body: Body = Box::new(move |v: SimVfs| {
+            let r = root_rw(&v);
+            let h = rw(&v, &r, "H");
+            if head {
+                l.begin_kept_in_head(1, &[(FLAG, Some(1))]);
+            } else {
+                l.begin(1, Class::Durable, &[(FLAG, Some(1))]);
+            }
+            if let Err(e) = v.write_at(&h, 0, &[1; 512]) {
+                abort(&v, &e);
+            }
+            // A reader sees the published flag before the HEAD flush.
+            let mut b = [0u8; 1];
+            if v.read_at(&h, 0, &mut b).is_ok() && b[0] == 1 {
+                l.observe(FLAG, Some(1));
+            }
+            if let Err(e) = v.sync(&h, SyncKind::DataAndMeta) {
+                v.fail_stop(e);
+            }
+            l.ack(1);
+        });
+        run_tasks(w, vec![("writer".to_owned(), body)]);
+    }
+
+    fn recover(&self, w: &SimWorld) -> Recovered {
+        Recovered {
+            first_read: Ok(HeadFlag::read(w, "first-reader")),
+            state: Ok(HeadFlag::read(w, "writer")),
+            findings: Vec::new(),
+            answered: Vec::new(),
+            diagnosed: Vec::new(),
+        }
+    }
+}
+
+/// [F15 §3.3] FM-3.6 "Fields kept only in `HEAD`" (spec sync 2b S2B-P-14): after the `HEAD` flush failed, the
+/// unacknowledged flag that a reader saw may read back old, and a crash may leave either value; the same history
+/// reported as an ordinary durable operation fails, since a seen durable record must survive (I-G2).
+#[test]
+fn an_unacknowledged_head_only_flag_may_vanish_after_its_head_flush_failed() {
+    let mut cfg = pr(
+        &[1],
+        Dims {
+            flush_errors: true,
+            ..NO_DIMS
+        },
+    );
+    cfg.limits.poison_policies = vec![PoisonPolicy::Evict, PoisonPolicy::Revert];
+    let report = enumerate(&HeadFlag { head: true }, &cfg);
+    report.assert_passed();
+    assert!(
+        report.flush_errors > 0 && report.poisoned_reads > 0,
+        "{report}"
+    );
+    let report = enumerate(&HeadFlag { head: false }, &cfg);
+    assert!(has(&report, "op 1"), "{report}");
+    // The clean run's crash states: before the acknowledgement a crash may revert the unflushed flag that the reader
+    // saw (FM-1.1) when it is kept only in HEAD.
+    let crash_only = pr(
+        &[1],
+        Dims {
+            crash_points: true,
+            ..NO_DIMS
+        },
+    );
+    enumerate(&HeadFlag { head: true }, &crash_only).assert_passed();
+    let report = enumerate(&HeadFlag { head: false }, &crash_only);
+    assert!(has(&report, "op 1"), "{report}");
+}
+
+/// A store with one acknowledged durable record whose recovery's first reader always shows the empty store: a reader
+/// that lags.
+struct Lagging {
+    boot: BootMode,
+}
+
+impl Subject for Lagging {
+    fn setup(&self, w: &SimWorld, _l: &Ledger) {
+        w.mkdir_all(Path::new(STORE));
+        w.put_file(&store("F"), &[0u8; 4096]).expect("F");
+    }
+
+    fn workload(&self, w: &SimWorld, ledger: &Ledger) {
+        let l = ledger.clone();
+        let body: Body = Box::new(move |v: SimVfs| {
+            let r = root_rw(&v);
+            let f = rw(&v, &r, "F");
+            l.begin(1, Class::Durable, &[(REF, Some(7))]);
+            if let Err(e) = v.write_at(&f, 0, &[7; 512]) {
+                abort(&v, &e);
+            }
+            if let Err(e) = v.sync(&f, SyncKind::Data) {
+                v.fail_stop(e);
+            }
+            l.ack(1);
+        });
+        run_tasks(w, vec![("writer".to_owned(), body)]);
+    }
+
+    fn recover(&self, w: &SimWorld) -> Recovered {
+        self.recover_with_boot(w).0
+    }
+
+    fn recover_with_boot(&self, w: &SimWorld) -> (Recovered, BootMode) {
+        let (v, r) = open(w, "writer", RootAccess::Read);
+        let mut b = [0u8; 1];
+        let kept = v
+            .open(&r, rel("F"), Access::Read, OpenHint::Normal)
+            .ok()
+            .is_some_and(|f| v.read_at(&f, 0, &mut b).is_ok() && b[0] == 7);
+        let state: EffectSet = if kept {
+            [(REF, 7)].into_iter().collect()
+        } else {
+            EffectSet::new()
+        };
+        let rec = Recovered {
+            first_read: Ok(EffectSet::new()),
+            state: Ok(state),
+            findings: Vec::new(),
+            answered: Vec::new(),
+            diagnosed: Vec::new(),
+        };
+        (rec, self.boot)
+    }
+}
+
+/// [F13 §3.8] "I-G2's post-crash clause, read precisely", "Boot mode" (spec sync 2b S2B-P-18): after a crash, an
+/// Unknown-boot reader's first read is judged for consistency only ([`Subject::recover_with_boot`]), a Known-boot
+/// reader's for completeness too.
+#[test]
+fn an_unknown_boot_readers_lagging_first_read_passes_and_a_known_boot_readers_fails() {
+    let cfg = pr(
+        &[1],
+        Dims {
+            crash_points: true,
+            ..NO_DIMS
+        },
+    );
+    let report = enumerate(
+        &Lagging {
+            boot: BootMode::Unknown,
+        },
+        &cfg,
+    );
+    report.assert_passed();
+    assert!(report.unknown_boot_reads > 0, "{report}");
+    let report = enumerate(
+        &Lagging {
+            boot: BootMode::Known,
+        },
+        &cfg,
+    );
+    assert!(has(&report, "first read"), "{report}");
+    assert_eq!(report.unknown_boot_reads, 0);
+    // The default hook answers Known.
+    let probe = Probe {
+        files: Vec::new(),
+        workload: Arc::new(|_| {}),
+        recover: Box::new(|_| {}),
+        slots: Vec::new(),
+    };
+    let world = SimWorld::new(SimConfig::new(1));
+    assert_eq!(probe.recover_with_boot(&world).1, BootMode::Known);
 }

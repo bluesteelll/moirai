@@ -379,11 +379,19 @@ impl Content {
         self.secs.range(..n).next().is_some() || self.same.any_in(0, n)
     }
 
-    /// Whether a sector below `len` bytes is poisoned (reads of it draw from K).
+    /// Whether a sector below `len` bytes is poisoned (reads of it draw from K), counting the sectors beyond cs(f) that
+    /// a truncation left for a crash: a write that extends the file over them meets their poison (FM-3.5 merge).
     pub(crate) fn poisoned_below(&self, len: u64) -> bool {
         self.secs
             .range(..len.div_ceil(SECTOR))
             .any(|(_, st)| matches!(st, SecState::Poisoned { .. }))
+    }
+
+    /// Whether a read that reaches below byte `len` draws from K ([F15 §2.2] `poisoned`, FM-3.2): a sector overlapping
+    /// `[0, min(len, cs(f)))` is poisoned. Exactly the sectors for which [`Content::read`] of those bytes asks for a
+    /// [`Site::PoisonRead`] choice; a `dirty-over-poison` sector reads its cache content and does not count.
+    pub(crate) fn reads_poisoned(&self, len: u64) -> bool {
+        self.poisoned_below(len.min(self.len))
     }
 
     /// The cache bytes at `offset` into `buf`, with no poison draw; returns their count.
@@ -1155,6 +1163,190 @@ mod tests {
         c.flush_ok(&mark, true);
         assert!(c.secs.is_empty() && c.same.is_empty());
         assert!(!c.has_unflushed());
+    }
+
+    /// The FM-3.2 query (S4 finding 3): a failed flush makes reads of the sector draw from K (FM-3.1); a successful flush
+    /// (FM-3.4) and a crash (FM-3.3) leave it so; a re-write of any part of it ends it (FM-3.5); a sector beyond cs(f) is
+    /// not read.
+    #[test]
+    fn reads_poisoned_follows_the_fm3_life_cycle() {
+        let mut c = Content::durable(&[1u8; 3 * SEC]);
+        c.write(SECTOR, &[2; 10], &mut no_pick());
+        assert!(
+            !c.reads_poisoned(u64::MAX),
+            "a dirty sector reads its cache"
+        );
+        let mark = c.flush_mark();
+        c.flush_failed(&mark);
+        assert!(!c.reads_poisoned(0));
+        assert!(!c.reads_poisoned(SECTOR), "sector 0 was clean");
+        assert!(c.reads_poisoned(SECTOR + 1));
+        assert!(c.reads_poisoned(u64::MAX));
+        let mark = c.flush_mark();
+        c.flush_ok(&mark, true);
+        assert!(c.reads_poisoned(2 * SECTOR), "FM-3.4");
+        let mut after = c.clone();
+        after.crash(&mut fixed(0));
+        assert!(after.reads_poisoned(2 * SECTOR), "FM-3.3");
+        // One sub-sector re-written: dirty-over-poison, which reads its cache content.
+        c.write(SECTOR + 600, &[3; 4], &mut no_pick());
+        assert!(!c.reads_poisoned(u64::MAX), "FM-3.5");
+        let mark = c.flush_mark();
+        c.flush_failed(&mark);
+        assert!(
+            c.reads_poisoned(2 * SECTOR),
+            "a dirty-over-poison sector is poisoned again"
+        );
+        // A truncation below it writes zeros over it (ending the poison); a failed flush then poisons it beyond cs(f).
+        c.set_len(SECTOR, &mut no_pick());
+        assert!(!c.reads_poisoned(u64::MAX) && !c.poisoned_below(u64::MAX));
+        let mark = c.flush_mark();
+        c.flush_failed(&mark);
+        assert!(
+            c.poisoned_below(2 * SECTOR),
+            "kept for a crash that restores a larger size"
+        );
+        assert!(!c.reads_poisoned(u64::MAX), "no read reaches beyond cs(f)");
+    }
+
+    mod props {
+        use proptest::prelude::*;
+
+        use super::*;
+
+        /// Property-test cases for the tier `MOIRAI_TEST_TIER` names (PLAN §2.1): `pr` runs `pr` cases, `nightly` 16
+        /// times as many, `exit` 256 times as many.
+        fn cases(pr: u32) -> u32 {
+            match std::env::var("MOIRAI_TEST_TIER").as_deref() {
+                Ok("nightly") => pr * 16,
+                Ok("exit") => pr * 256,
+                _ => pr,
+            }
+        }
+
+        #[derive(Clone, Debug)]
+        enum Op {
+            Write { off: u64, len: u64, byte: u8 },
+            FailFlush,
+            OkFlush { meta: bool },
+            Crash { size: usize, torn: bool, pick: u64 },
+            SetLen(u64),
+        }
+
+        fn op() -> impl Strategy<Value = Op> {
+            prop_oneof![
+                4 => (0..4 * SECTOR, 1..2 * SECTOR, any::<u8>())
+                    .prop_map(|(off, len, byte)| Op::Write { off, len, byte }),
+                2 => Just(Op::FailFlush),
+                1 => any::<bool>().prop_map(|meta| Op::OkFlush { meta }),
+                1 => (any::<usize>(), any::<bool>(), any::<u64>())
+                    .prop_map(|(size, torn, pick)| Op::Crash { size, torn, pick }),
+                1 => (0..5 * SECTOR).prop_map(Op::SetLen),
+            ]
+        }
+
+        /// A crash resolution that reduces every choice into range.
+        struct Wrap {
+            size: usize,
+            torn: bool,
+            pick: u64,
+        }
+
+        impl CrashPick for Wrap {
+            fn size(&mut self, sizes: &[u64]) -> usize {
+                self.size % sizes.len()
+            }
+            fn torn(&mut self, dirty: &[u64]) -> Option<u64> {
+                if self.torn {
+                    dirty.first().copied()
+                } else {
+                    None
+                }
+            }
+            fn sector(&mut self, s: u64, n: u64) -> u64 {
+                (self.pick ^ s) % n
+            }
+            fn sub(&mut self, s: u64, j: usize, n: u64) -> u64 {
+                (self.pick ^ s).wrapping_add(j as u64) % n
+            }
+            fn beyond(&mut self) -> BeyondFill {
+                BeyondFill::Resolved
+            }
+        }
+
+        /// Whether [`Content::read`] of the first `len` bytes asks for a poison draw.
+        fn read_draws(c: &Content, len: u64) -> bool {
+            let mut buf = vec![0u8; len.min(c.cs()) as usize];
+            let mut draws = 0u32;
+            c.read(0, &mut buf, &mut |site, aux, n| {
+                assert_eq!(site, Site::PoisonRead);
+                draws += 1;
+                aux % n
+            });
+            draws > 0
+        }
+
+        proptest! {
+            #![proptest_config(ProptestConfig { cases: cases(256), failure_persistence: None, ..ProptestConfig::default() })]
+
+            /// Over any history of writes, size changes, flushes of both outcomes and crashes: the query answers exactly
+            /// whether a read of the prefix draws from K (FM-3.2); a failed flush poisons every non-clean sector and
+            /// clears none (FM-3.1); a successful flush changes nothing (FM-3.4); a crash keeps every poisoned sector
+            /// below the size it picks (FM-3.3); a write or a size change ends the poison of every sector it touches
+            /// (FM-3.5).
+            #[test]
+            fn reads_poisoned_is_what_reads_draw(
+                ops in proptest::collection::vec(op(), 1..24),
+                lens in proptest::collection::vec(0..6 * SECTOR, 1..6),
+            ) {
+                let mut c = Content::durable(&[0x11u8; 2 * SEC]);
+                let mut merge = |_: Site, aux: u64, n: u64| aux % n;
+                for op in ops {
+                    let before = c.clone();
+                    match op {
+                        Op::Write { off, len, byte } => {
+                            c.write(off, &vec![byte; len as usize], &mut merge);
+                            prop_assert_eq!(
+                                c.reads_poisoned(off + len),
+                                c.reads_poisoned(off / SECTOR * SECTOR)
+                            );
+                        }
+                        Op::FailFlush => {
+                            let mark = c.flush_mark();
+                            c.flush_failed(&mark);
+                            prop_assert_eq!(c.reads_poisoned(u64::MAX), before.has_unflushed());
+                            for &l in &lens {
+                                prop_assert!(!before.reads_poisoned(l) || c.reads_poisoned(l));
+                            }
+                        }
+                        Op::OkFlush { meta } => {
+                            let mark = c.flush_mark();
+                            c.flush_ok(&mark, meta);
+                            for &l in &lens {
+                                prop_assert_eq!(c.reads_poisoned(l), before.reads_poisoned(l));
+                            }
+                        }
+                        Op::Crash { size, torn, pick } => {
+                            c.crash(&mut Wrap { size, torn, pick });
+                            for &l in &lens {
+                                prop_assert!(!before.reads_poisoned(l.min(c.cs())) || c.reads_poisoned(l));
+                            }
+                        }
+                        Op::SetLen(n) => {
+                            c.set_len(n, &mut merge);
+                            if n != before.cs() {
+                                let edge = before.cs().min(n) / SECTOR * SECTOR;
+                                prop_assert_eq!(c.reads_poisoned(u64::MAX), c.reads_poisoned(edge));
+                            }
+                        }
+                    }
+                    for &l in &lens {
+                        prop_assert_eq!(c.reads_poisoned(l), read_draws(&c, l));
+                    }
+                    prop_assert_eq!(c.reads_poisoned(u64::MAX), read_draws(&c, u64::MAX));
+                }
+            }
+        }
     }
 
     #[test]

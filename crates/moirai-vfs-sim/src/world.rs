@@ -27,11 +27,14 @@ use moirai_vfs::{
 };
 
 use crate::adversary::{Adversary, Choice, FaultRates, PartialWrite, ReleaseDelayLaw, Site};
-use crate::content::{FlushMark, ZEROS};
+use crate::content::{FlushMark, Page, SECTOR, ZEROS};
 use crate::locks::KernelLocks;
 use crate::namespace::{Kind, Ns, NsOp, ROOT, ReadError, abs_components};
 use crate::rng::{Rng, splitmix};
-use crate::trace::{Event, EventKind, Trace, TraceMode};
+use crate::trace::{
+    CAPTURE_DIED, CLASS_DISCOVERABLE, CLASS_LOG, CLASS_SLOT, Event, EventKind, NOTE_CLASS,
+    NOTE_SLOT_WRITE, SlotCapture, Trace, TraceMode,
+};
 
 // ---------------------------------------------------------------------------------------------------------------------
 // Configuration
@@ -97,6 +100,22 @@ pub struct SimConfig {
     pub root_volume: VolumeProfile,
     /// Further volumes, each mounted at an absolute directory created at world start.
     pub volumes: Vec<(PathBuf, VolumeProfile)>,
+    /// The store files the crash enumerator's predicates watch ([F13 §1.4]); `None` watches nothing.
+    pub watch: Option<Watch>,
+}
+
+/// The store files a world watches for the crash enumerator's predicates ([F13 §1.4], [F16 §17.2]): every write to a slot
+/// file is captured with both slots before and after it ([`crate::NOTE_SLOT_WRITE`]), and every flush, write,
+/// death-resolved call and external act on a slot file or a log extent is preceded, when the file's class changed, by a
+/// [`crate::NOTE_CLASS`] note. A watch changes no adversary choice; it adds notes to the trace.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Watch {
+    /// The absolute paths of the slot files (`HEAD`: slot A is sector 0, slot B sector 1, [F04 §2]).
+    pub slots: Vec<PathBuf>,
+    /// The directory of the log extents ([F02 §6]: `log.<n>` in the store directory), if any.
+    pub log_dir: Option<PathBuf>,
+    /// The prefix of a log extent's name in [`Watch::log_dir`] (`log.`).
+    pub log_prefix: String,
 }
 
 impl SimConfig {
@@ -121,6 +140,7 @@ impl SimConfig {
             wall_origin_ms: 1_790_000_000_000,
             root_volume: VolumeProfile::default(),
             volumes: Vec::new(),
+            watch: None,
         }
     }
 }
@@ -541,6 +561,8 @@ impl WriteBytes {
 pub(crate) struct InFlightWrite {
     pub(crate) id: u64,
     pub(crate) proc: u32,
+    /// The writing task (`None`: the driver thread), for the capture of a slot write a death or crash cuts.
+    pub(crate) task: Option<u32>,
     pub(crate) node: u64,
     pub(crate) offset: u64,
     pub(crate) data: WriteBytes,
@@ -798,6 +820,127 @@ pub(crate) fn current_task(sh: &Shared) -> Option<u32> {
 }
 
 impl State {
+    /// The task of process `proc` that is running now, if the scheduler runs one of its tasks (`None` on the driver
+    /// thread, and for an event of another process, such as a death's resolution): the task an event of `proc` is
+    /// attributed to ([F13 §1.4]: lock, flush and namespace events carry the task, so that a predicate can tell two
+    /// clients of one process apart).
+    pub(crate) fn task_of(&self, proc: u32) -> Option<u32> {
+        let t = self.sched.running.filter(|_| self.sched.active)?;
+        (self.sched.tasks.get(&t).map(|r| r.proc) == Some(proc)).then_some(t)
+    }
+
+    /// The class of node `node` under the world's watch ([`Watch`]): [`CLASS_SLOT`] if a slot path names it,
+    /// [`CLASS_LOG`] if its name lies in the log directory with the log prefix, each with [`CLASS_DISCOVERABLE`] while a
+    /// slot file exists; 0 without a watch.
+    pub(crate) fn watch_class(&self, node: u64) -> u64 {
+        let Some(w) = &self.cfg.watch else {
+            return 0;
+        };
+        let ns = &self.k.ns;
+        let (mut class, mut discoverable) = (0, false);
+        for p in &w.slots {
+            if let Ok(n) = ns.lookup_abs(p) {
+                discoverable = true;
+                if n == node {
+                    class |= CLASS_SLOT;
+                }
+            }
+        }
+        if let Some(dir) = &w.log_dir
+            && let Some((parent, name)) = ns.cur.name_of(node)
+            && name.starts_with(w.log_prefix.as_str())
+            && ns.lookup_abs(dir) == Ok(*parent)
+            && ns.nodes.get(&node).is_some_and(|n| n.file().is_some())
+        {
+            class |= CLASS_LOG;
+        }
+        if class != 0 && discoverable {
+            class |= CLASS_DISCOVERABLE;
+        }
+        class
+    }
+
+    /// Writes a [`NOTE_CLASS`] note for `node`, attributed to `task` and `proc`, if its class changed since the last
+    /// one; returns the class. Called before the event of a flush, write, death-resolved call or external act on it.
+    pub(crate) fn note_class(&mut self, task: Option<u32>, proc: u32, node: u64) -> u64 {
+        if self.cfg.watch.is_none() {
+            return 0;
+        }
+        let class = self.watch_class(node);
+        let last = self.ch.trace.classes.get(&node).copied().unwrap_or(0);
+        if class != last {
+            if class == 0 {
+                self.ch.trace.classes.remove(&node);
+            } else {
+                self.ch.trace.classes.insert(node, class);
+            }
+            self.ev(EventKind::Note, task, proc, NOTE_CLASS, node, class);
+        }
+        class
+    }
+
+    /// Writes a [`crate::NOTE_PATH`] note for `node` with the path that names it now, if one does.
+    pub(crate) fn note_path(&mut self, task: Option<u32>, proc: u32, node: u64) {
+        if let Some(p) = self.k.ns.paths_of(node).first() {
+            let h = crate::trace::path_hash(p);
+            self.ev(
+                EventKind::Note,
+                task,
+                proc,
+                crate::trace::NOTE_PATH,
+                node,
+                h,
+            );
+        }
+    }
+
+    /// Slots A and B of file `node` (its sectors 0 and 1) in the cache, and whether a sector of the file is poisoned: a
+    /// slot write's view before it applies.
+    pub(crate) fn slot_view(&self, node: u64) -> ([Page; 2], bool) {
+        let c = &self.k.ns.file(node).content;
+        let n = c.cs().max(2 * SECTOR);
+        ([c.page(0), c.page(1)], c.poisoned_below(n))
+    }
+
+    /// Records a write of `[offset, offset + len)` to slot file `node` whose cache view before it applied was `before`
+    /// ([`State::slot_view`]), with its status, and writes its [`NOTE_SLOT_WRITE`] note.
+    #[allow(clippy::too_many_arguments)] // one capture's fields, filled at the write's end.
+    pub(crate) fn capture_slot_write(
+        &mut self,
+        task: Option<u32>,
+        proc: u32,
+        node: u64,
+        offset: u64,
+        len: u64,
+        status: u8,
+        before: ([Page; 2], bool),
+    ) {
+        let after = match self.k.ns.nodes.get(&node).and_then(|n| n.file()) {
+            Some(f) => [f.content.page(0), f.content.page(1)],
+            None => before.0.clone(),
+        };
+        let boot = self
+            .k
+            .procs
+            .get(proc as usize)
+            .filter(|p| p.boot_known)
+            .map(|_| self.k.clock.boot_id.0);
+        let index = self.ch.trace.captures.len() as u64;
+        self.ch.trace.captures.push(Arc::new(SlotCapture {
+            proc,
+            task: task.unwrap_or(u32::MAX),
+            node,
+            offset,
+            len,
+            status,
+            before: before.0,
+            after,
+            poisoned: before.1,
+            boot,
+        }));
+        self.ev(EventKind::Note, task, proc, NOTE_SLOT_WRITE, node, index);
+    }
+
     pub(crate) fn ev(
         &mut self,
         kind: EventKind,
@@ -1090,7 +1233,13 @@ impl State {
                     u64::MAX,
                 )),
             };
+            let class = self.note_class(None, p, w.node);
+            let before = (class & CLASS_SLOT != 0).then(|| self.slot_view(w.node));
             self.apply_partial(p, &w, pw);
+            if let Some(before) = before {
+                let len = w.data.as_slice().len() as u64;
+                self.capture_slot_write(w.task, p, w.node, w.offset, len, CAPTURE_DIED, before);
+            }
             self.ev(EventKind::InFlight, None, p, w.node, 0, pw.to_choice());
         }
         self.k.reads.retain(|r| r.proc != p);
@@ -1116,6 +1265,7 @@ impl State {
                         1 => self.flush_did_fail(f.node, &mark),
                         _ => {}
                     }
+                    self.note_class(None, p, f.node);
                     self.ev(EventKind::InFlight, None, p, f.node, 1, outcome);
                 }
                 FlushWhat::Dir { limit } => {

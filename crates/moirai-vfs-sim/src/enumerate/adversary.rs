@@ -50,6 +50,8 @@ pub(crate) struct AdvStats {
     pub(crate) counts: BTreeMap<Site, u64>,
     /// The scheduling point of the injection, if it happened.
     pub(crate) injected_at: Option<u64>,
+    /// The node the injected choice concerned (for a write fault, the written file), if it happened.
+    pub(crate) injected_node: Option<u64>,
     /// Reads of poisoned sub-sectors.
     pub(crate) poisoned_reads: u64,
 }
@@ -108,6 +110,7 @@ impl Adversary for EnumAdversary {
             && inj.nth == nth
         {
             st.injected_at = Some(self.last_point);
+            st.injected_node = Some(c.node);
             self.follow = inj.follow.map(|(s, v)| (s, c.proc, v));
             return inj.value;
         }
@@ -185,6 +188,11 @@ mod tests {
         b.choose(&choice(Site::PartialWrite, 3, u64::MAX), &mut rb);
         assert_eq!(ra, rb, "the generator stream is the seeded adversary's");
         assert_eq!(lock_stats(&stats).counts[&Site::WriteFault], 2);
+        assert_eq!(
+            lock_stats(&stats).injected_node,
+            Some(1),
+            "the written file's node"
+        );
     }
 
     #[test]

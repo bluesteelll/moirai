@@ -25,7 +25,7 @@ use moirai_vfs::{
 };
 
 use crate::adversary::Site;
-use crate::trace::EventKind;
+use crate::trace::{EventKind, NOTE_PROBE};
 use crate::vfs::{SimFile, SimRoot};
 use crate::world::{Block, CallKind, Ctx, Shared, State, TableRec, error_code, os_code};
 
@@ -213,7 +213,7 @@ pub(crate) fn kernel_try(st: &mut State, proc: u32, node: u64, byte: u64) -> boo
     }
     st.ev(
         EventKind::LockTry,
-        None,
+        st.task_of(proc),
         proc,
         node,
         byte,
@@ -226,7 +226,7 @@ pub(crate) fn kernel_try(st: &mut State, proc: u32, node: u64, byte: u64) -> boo
 pub(crate) fn kernel_unlock(st: &mut State, proc: u32, node: u64, byte: u64) {
     if st.k.locks.held.get(&(node, byte)) == Some(&Holder::Live { proc }) {
         st.k.locks.held.remove(&(node, byte));
-        st.ev(EventKind::LockUnlock, None, proc, node, byte, 0);
+        st.ev(EventKind::LockUnlock, st.task_of(proc), proc, node, byte, 0);
         kernel_freed(st, node, byte);
     }
 }
@@ -553,7 +553,7 @@ fn check_client(client: &SimClient, proc: u32) {
 fn granted(st: &mut State, proc: u32, node: u64, g: Grant) -> Result<Acquired, LockError> {
     st.ev(
         EventKind::Granted,
-        None,
+        st.task_of(proc),
         proc,
         node,
         g.byte().offset(),
@@ -642,7 +642,7 @@ fn start_kernel_wait(st: &mut State, proc: u32, node: u64, byte: u64, driver: KD
     });
     st.ev(
         EventKind::LockWait,
-        None,
+        st.task_of(proc),
         proc,
         node,
         byte,
@@ -806,7 +806,14 @@ pub(crate) fn release(sh: &Arc<Shared>, proc: u32, client: &mut SimClient, grant
     let st = ctx.st();
     let byte = grant.byte().offset();
     let rs = table(st, proc, node).release(client.id, grant);
-    st.ev(EventKind::Released, None, proc, node, byte, client.id.get());
+    st.ev(
+        EventKind::Released,
+        st.task_of(proc),
+        proc,
+        node,
+        byte,
+        client.id.get(),
+    );
     kernel_unlock(st, proc, node, byte);
     if let Some(s) = rs.then {
         perform(st, proc, node, s);
@@ -837,6 +844,16 @@ pub(crate) fn probe(
         ProbeStep::Held => ProbeResult::Held,
         ProbeStep::KernelProbe => kernel_probe(st, proc, node, byte.offset()),
     };
+    // The probed byte and the answer ([F03 §3.1] rule 2's probe round is judged from these, [F13 §1.4]).
+    let me = ctx.me;
+    ctx.st().ev(
+        EventKind::Note,
+        me,
+        proc,
+        NOTE_PROBE,
+        byte.offset(),
+        probe_code(p),
+    );
     ctx.ret_code(CallKind::Probe, node, probe_code(p));
     p
 }

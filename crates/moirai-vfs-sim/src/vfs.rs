@@ -3,7 +3,9 @@
 //!
 //! Every call starts at a scheduling point and ends with a `Return` event on every path; reads, writes, flushes and
 //! `sync_dir` have a second point between their start and their return, so other tasks can act inside them (FM-4, FM-6,
-//! FM-11). Every fault site of [F15 §3] is a choice of the adversary at the point the rule names.
+//! FM-11). Every fault site of [F15 §3] is a choice of the adversary at the point the rule names. The composites
+//! `create_extent` and `recycle_extent` ([F15 §5.2]) are sequences of such calls between two world notes
+//! ([`NOTE_COMPOSITE`], [`NOTE_COMPOSITE_END`]); they add no scheduling point of their own.
 
 use std::path::Path;
 use std::sync::{Arc, OnceLock};
@@ -22,7 +24,10 @@ use crate::adversary::{PartialWrite, Site};
 use crate::content::ZEROS;
 use crate::locks::{self, SimClient};
 use crate::namespace::{Kind, NsOp};
-use crate::trace::{EventKind, le_padded};
+use crate::trace::{
+    CAPTURE_FAILED, CAPTURE_OK, CLASS_SLOT, EventKind, NOTE_COMPOSITE, NOTE_COMPOSITE_END,
+    le_padded,
+};
 use crate::world::{
     Block, CallKind, Ctx, DeathCause, DeathPlan, FlushWhat, InFlightFlush, InFlightRead,
     InFlightWrite, Shared, SpawnRequest, State, ViolationKind, WriteBytes, error_code, os_code,
@@ -586,7 +591,7 @@ impl Ctx<'_> {
             node: dir,
             what: FlushWhat::Dir { limit },
         });
-        st.ev(EventKind::FlushStart, None, proc, dir, 2, id);
+        st.ev(EventKind::FlushStart, st.task_of(proc), proc, dir, 2, id);
         self.point(CallKind::SyncDir, dir, 1);
         let st = self.st();
         st.k.flushes.retain(|f| f.id != id);
@@ -595,10 +600,10 @@ impl Ctx<'_> {
             for op in st.k.ns.sync_dir_ok(dir, limit) {
                 st.ev(EventKind::NsDurable, None, proc, op, 0, 0);
             }
-            st.ev(EventKind::FlushEnd, None, proc, dir, 2, 0);
+            st.ev(EventKind::FlushEnd, st.task_of(proc), proc, dir, 2, 0);
             Ok(())
         } else {
-            st.ev(EventKind::FlushEnd, None, proc, dir, 2, 1);
+            st.ev(EventKind::FlushEnd, st.task_of(proc), proc, dir, 2, 1);
             Err(fail_durability(
                 st,
                 proc,
@@ -688,6 +693,8 @@ impl SimVfs {
         r
     }
 
+    /// Zeros over `[0, len)` in order from one reused zero buffer of at most 1 MiB ([OS/fs §4.5] `ZeroFill`): each chunk
+    /// a write of its own, to which FM-1, FM-3 and FM-5 apply ([F15 §5.2]: the model treats the zeros as written data).
     fn zero_fill(&self, file: &SimFile, len: u64) -> Result<(), VfsError> {
         let chunk = ZEROS.len() as u64;
         let mut off = 0;
@@ -695,6 +702,88 @@ impl SimVfs {
             let n = (len - off).min(chunk);
             self.write_at(file, off, &ZEROS[..n as usize])?;
             off += n;
+        }
+        Ok(())
+    }
+
+    /// The start of a composite of kind `call` ([`CallKind::CreateExtent`], [`CallKind::RecycleExtent`]): its
+    /// [`NOTE_COMPOSITE`] note. A composite's steps are calls of their own ([F15 §5.2]: "a composite", FM-5.1 "each step
+    /// of `create_extent`"), and its notes bracket them in the trace, so a predicate tells a preparer's zeros from a write
+    /// of the log protocol ([F16] P-72 step 2, P-2; [F13 §1.4]). The notes are no scheduling point and draw no adversary
+    /// choice: tracing a composite changes no schedule.
+    fn composite_start(&self, call: CallKind) {
+        let mut ctx = Ctx::quiet(&self.sh, self.proc);
+        let (me, proc) = (ctx.me, self.proc);
+        ctx.st()
+            .ev(EventKind::Note, me, proc, NOTE_COMPOSITE, call as u64, 0);
+    }
+
+    /// The end of a composite of kind `call`, after its last step returned or failed: the class note of the file it
+    /// prepared (`node`; 0 when it created none), then its [`NOTE_COMPOSITE_END`] note.
+    fn composite_end(&self, call: CallKind, node: u64) {
+        let mut ctx = Ctx::quiet(&self.sh, self.proc);
+        let (me, proc) = (ctx.me, self.proc);
+        let st = ctx.st();
+        if node != 0 {
+            st.note_class(me, proc, node);
+        }
+        st.ev(
+            EventKind::Note,
+            me,
+            proc,
+            NOTE_COMPOSITE_END,
+            call as u64,
+            node,
+        );
+    }
+
+    /// The steps of `create_extent` ([OS/fs §4.5], [F15 §5.2]); `made` receives the node of the file once its exclusive
+    /// create succeeded.
+    fn create_extent_steps(
+        &self,
+        root: &SimRoot,
+        rel: RelPath<'_>,
+        len: u64,
+        vol: &StoreVolume,
+        made: &mut u64,
+    ) -> Result<SimFile, VfsError> {
+        if vol.extent_method == ExtentMethod::Sparse {
+            let free = self.free_space(root)?;
+            if free.available < len.saturating_mul(2) {
+                return Err(VfsError::new(
+                    VfsErrorKind::InsufficientSpace,
+                    OsCode::NONE,
+                    "free_space",
+                ));
+            }
+        }
+        let f = self.create_new(root, rel)?;
+        *made = f.node;
+        match vol.extent_method {
+            ExtentMethod::Sparse => self.set_len(&f, len)?,
+            ExtentMethod::ZeroFill | ExtentMethod::WriteZeroes => self.zero_fill(&f, len)?,
+        }
+        Ok(f)
+    }
+
+    /// The steps of `recycle_extent` ([OS/fs §4.5]): the file ends exactly `len` bytes long and reads as zero, whatever
+    /// the method. `Sparse`: the size change to `len`, then the hole punch over `[0, len)`, which the model treats as
+    /// written zeros ([F15 §5.2]); `ZeroFill` and `WriteZeroes`: zeros over `[0, len)` (extending a shorter file), then
+    /// the size change if the file is longer.
+    fn recycle_extent_steps(
+        &self,
+        file: &SimFile,
+        len: u64,
+        vol: &StoreVolume,
+    ) -> Result<(), VfsError> {
+        if vol.extent_method == ExtentMethod::Sparse {
+            self.set_len(file, len)?;
+            return self.zero_fill(file, len);
+        }
+        self.zero_fill(file, len)?;
+        let size = self.sh.lock().k.ns.file(file.node).content.cs();
+        if size > len {
+            self.set_len(file, len)?;
         }
         Ok(())
     }
@@ -769,7 +858,15 @@ impl SimVfs {
             node,
             what: FlushWhat::File { mark, meta },
         });
-        st.ev(EventKind::FlushStart, None, proc, node, u64::from(meta), id);
+        st.note_class(st.task_of(proc), proc, node);
+        st.ev(
+            EventKind::FlushStart,
+            st.task_of(proc),
+            proc,
+            node,
+            u64::from(meta),
+            id,
+        );
         ctx.point(CallKind::Sync, node, 1);
         let st = ctx.st();
         // The mark at the return: its start state plus what concurrent flushes cleaned meanwhile (FM-3.1).
@@ -780,11 +877,25 @@ impl SimVfs {
         let op = if meta { Op::SyncMeta } else { Op::SyncData };
         let r = if fault == 0 {
             st.flush_succeeded(node, &mark, meta);
-            st.ev(EventKind::FlushEnd, None, proc, node, u64::from(meta), 0);
+            st.ev(
+                EventKind::FlushEnd,
+                st.task_of(proc),
+                proc,
+                node,
+                u64::from(meta),
+                0,
+            );
             Ok(())
         } else {
             st.flush_did_fail(node, &mark);
-            st.ev(EventKind::FlushEnd, None, proc, node, u64::from(meta), 1);
+            st.ev(
+                EventKind::FlushEnd,
+                st.task_of(proc),
+                proc,
+                node,
+                u64::from(meta),
+                1,
+            );
             Err(fail_durability(
                 st,
                 proc,
@@ -850,7 +961,7 @@ fn mkdir_op(st: &mut State, proc: u32, dir: u64, name: String) -> u64 {
         vol,
     );
     let id = st.k.ns.push(NsOp::Create { dir, name, node });
-    st.ev(EventKind::NsOp, None, proc, id, 0, node);
+    st.ev(EventKind::NsOp, st.task_of(proc), proc, id, 0, node);
     node
 }
 
@@ -872,7 +983,7 @@ fn remove_new_dir(ctx: &mut Ctx<'_>, parent: u64, name: &str, node: u64) {
         name: name.to_owned(),
         node,
     });
-    st.ev(EventKind::NsOp, None, proc, id, 1, node);
+    st.ev(EventKind::NsOp, st.task_of(proc), proc, id, 1, node);
     st.k.procs[proc as usize].counters.unlinks += 1;
 }
 
@@ -972,7 +1083,7 @@ fn rename_in(
         replaced,
     });
     let kind = if replace { 3 } else { 2 };
-    st.ev(EventKind::NsOp, None, proc, id, kind, node);
+    st.ev(EventKind::NsOp, st.task_of(proc), proc, id, kind, node);
     st.k.procs[proc as usize].counters.renames += 1;
     if let Some(d) = replaced {
         st.k.ns.gc(d);
@@ -1025,7 +1136,7 @@ fn unlink_in(
         name: name.to_owned(),
         node,
     });
-    st.ev(EventKind::NsOp, None, proc, id, 1, node);
+    st.ev(EventKind::NsOp, st.task_of(proc), proc, id, 1, node);
     st.k.ns.gc(node);
     Ok(())
 }
@@ -1206,7 +1317,7 @@ impl StoreFs for SimVfs {
                         name: name.to_owned(),
                         node,
                     });
-                    st.ev(EventKind::NsOp, None, proc, id, 0, node);
+                    st.ev(EventKind::NsOp, st.task_of(proc), proc, id, 0, node);
                 }
                 return Err(err(st, VfsErrorKind::DiskFull, Op::Open));
             }
@@ -1216,7 +1327,7 @@ impl StoreFs for SimVfs {
                 name: name.to_owned(),
                 node,
             });
-            st.ev(EventKind::NsOp, None, proc, id, 0, node);
+            st.ev(EventKind::NsOp, st.task_of(proc), proc, id, 0, node);
             let h = st.open_handle(node, proc, false);
             Ok(SimFile {
                 sh: Arc::clone(&self.sh),
@@ -1304,7 +1415,7 @@ impl StoreFs for SimVfs {
                 name: name.to_owned(),
                 node,
             });
-            st.ev(EventKind::NsOp, None, proc, id, 1, node);
+            st.ev(EventKind::NsOp, st.task_of(proc), proc, id, 1, node);
             st.k.procs[proc as usize].counters.unlinks += 1;
             Ok(())
         })();
@@ -1437,6 +1548,11 @@ impl StoreFs for SimVfs {
             }
             Ok(n)
         })();
+        if r.is_err() {
+            // The read error's file, by its path then (a diagnosis may name it after a repair replaced it).
+            let (me, proc) = (ctx.me, self.proc);
+            ctx.st().note_path(me, proc, node);
+        }
         ret(&mut ctx, CallKind::Read, node, &r);
         r
     }
@@ -1484,9 +1600,11 @@ impl StoreFs for SimVfs {
             // The in-flight record: a death or a crash inside the interval applies it in part, from another thread.
             let id = st.k.next_io;
             st.k.next_io += 1;
+            let task = st.task_of(proc);
             st.k.writes.push(InFlightWrite {
                 id,
                 proc,
+                task,
                 node,
                 offset,
                 data: WriteBytes::of(buf),
@@ -1498,6 +1616,10 @@ impl StoreFs for SimVfs {
                 Some(p) => st.k.writes.remove(p),
                 None => return Ok(()),
             };
+            // The class note precedes the write's `Return`; a slot write is captured with both slots before and after
+            // it ([F13 §1.4]).
+            let class = st.note_class(task, proc, node);
+            let before = (class & CLASS_SLOT != 0).then(|| st.slot_view(node));
             match st.pick(Site::WriteFault, proc, node, offset, 3) {
                 0 => {
                     let State { ch, k, .. } = &mut *st;
@@ -1507,6 +1629,9 @@ impl StoreFs for SimVfs {
                         });
                     });
                     st.k.procs[proc as usize].counters.bytes_written += len;
+                    if let Some(before) = before {
+                        st.capture_slot_write(task, proc, node, offset, len, CAPTURE_OK, before);
+                    }
                     Ok(())
                 }
                 v => {
@@ -1518,6 +1643,17 @@ impl StoreFs for SimVfs {
                         u64::MAX,
                     ));
                     st.apply_partial(proc, &w, pw);
+                    if let Some(before) = before {
+                        st.capture_slot_write(
+                            task,
+                            proc,
+                            node,
+                            offset,
+                            len,
+                            CAPTURE_FAILED,
+                            before,
+                        );
+                    }
                     let kind = if v == 1 {
                         VfsErrorKind::DiskFull
                     } else {
@@ -1559,6 +1695,8 @@ impl StoreFs for SimVfs {
         ctx.kill_self(DeathCause::FailStop)
     }
 
+    /// A composite whose steps are calls of their own, bracketed by the world's notes ([F15 §5.2],
+    /// [`NOTE_COMPOSITE`]); the end note names the created file, also when a later step failed.
     fn create_extent(
         &self,
         root: &SimRoot,
@@ -1566,30 +1704,20 @@ impl StoreFs for SimVfs {
         len: u64,
         vol: &StoreVolume,
     ) -> Result<SimFile, VfsError> {
-        match vol.extent_method {
-            ExtentMethod::Sparse => {
-                let free = self.free_space(root)?;
-                if free.available < len.saturating_mul(2) {
-                    return Err(VfsError::new(
-                        VfsErrorKind::InsufficientSpace,
-                        OsCode::NONE,
-                        "free_space",
-                    ));
-                }
-                let f = self.create_new(root, rel)?;
-                self.set_len(&f, len)?;
-                Ok(f)
-            }
-            ExtentMethod::ZeroFill | ExtentMethod::WriteZeroes => {
-                let f = self.create_new(root, rel)?;
-                self.zero_fill(&f, len)?;
-                Ok(f)
-            }
-        }
+        self.composite_start(CallKind::CreateExtent);
+        let mut made = 0;
+        let r = self.create_extent_steps(root, rel, len, vol, &mut made);
+        self.composite_end(CallKind::CreateExtent, made);
+        r
     }
 
-    fn recycle_extent(&self, file: &SimFile, len: u64, _vol: &StoreVolume) -> Result<(), VfsError> {
-        self.zero_fill(file, len)
+    /// A composite whose steps are calls of their own, bracketed by the world's notes ([F15 §5.2],
+    /// [`NOTE_COMPOSITE`]).
+    fn recycle_extent(&self, file: &SimFile, len: u64, vol: &StoreVolume) -> Result<(), VfsError> {
+        self.composite_start(CallKind::RecycleExtent);
+        let r = self.recycle_extent_steps(file, len, vol);
+        self.composite_end(CallKind::RecycleExtent, file.node);
+        r
     }
 
     fn seal(&self, file: &SimFile) -> Result<(), VfsError> {
@@ -1838,7 +1966,15 @@ fn sync_group_in(
                 node,
                 what,
             });
-            st.ev(EventKind::FlushStart, None, proc, node, limit_kind, id);
+            st.note_class(st.task_of(proc), proc, node);
+            st.ev(
+                EventKind::FlushStart,
+                st.task_of(proc),
+                proc,
+                node,
+                limit_kind,
+                id,
+            );
         }
         if mac {
             // One `F_FULLFSYNC` on the last member of the volume ([OS/fs §4.4.4], §4.13).
@@ -1865,7 +2001,7 @@ fn sync_group_in(
                     }
                     st.ev(
                         EventKind::FlushEnd,
-                        None,
+                        st.task_of(proc),
                         proc,
                         f.node,
                         u64::from(*meta),
@@ -1880,7 +2016,7 @@ fn sync_group_in(
                     }
                     st.ev(
                         EventKind::FlushEnd,
-                        None,
+                        st.task_of(proc),
                         proc,
                         f.node,
                         2,
