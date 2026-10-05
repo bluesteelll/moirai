@@ -184,6 +184,8 @@ jobs:
           { "${vs}/VC/Tools/MSVC/${toolset}/bin/Hostx64/x64/cl.exe" 2>&1 || true; } | head -n 1
 
       - name: tsoracle and replay - build, clippy and tests, unpoisoned
+        env:
+          MOIRAI_TSORACLE: target/debug/moirai-tsoracle.exe
         run: |
           set -eu
           cargo build --locked -p moirai-tsoracle -p moirai-replay --all-targets
