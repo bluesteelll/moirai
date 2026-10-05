@@ -7,7 +7,7 @@
 | Acceptance | GT10; E1 (the owner verifies the core set of §5); E5 |
 | Separation | S1 and S3 ([PLAN §3.1]): written from the specification text only. The author read no line of `moirai-format-oracle`, `moirai-model`, `moirai-toylog` or any product crate |
 | Sources | `docs/spec/lq/` ([LQ/lexical], [LQ/grammar-v1.ebnf], [LQ/canonical-ast], [LQ/json-ir], [LQ/errors], [LQ/envelope], [LQ/std], [LQ/card], [LQ/gql-spelling]); [F19]; the design [50] for its code blocks, its conformance-fixture names and its ten mistakes |
-| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28). The query surface freezes after WP-72; a WP-73 remedy that changes a rule updates the fixtures it touches (commit subject `WP-73:` or `WP-22:`) |
+| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28); updated for spec sync 2b (`docs/spec/reviews/spec-sync-2b.md`): `%% input-json` (S2B-F-33), `ir-nid-zero` (S2B-F-44), `pe-list-in-without-where` and `pe-list-in-pipe` (S2B-F-39), `e401-example` (S2B-F-40), `header-staged` (S2B-F-26), and §4's statuses. The query surface freezes after WP-72; a WP-73 remedy that changes a rule updates the fixtures it touches (commit subject `WP-73:` or `WP-22:`) |
 
 These files are data. The consumers are the reference model's front end and evaluator (WP-93a, WP-93b: the token,
 syntax-tree, canonical-AST, error and mistake cases), LQ-Bench's converter and reference renderer (WP-71a/b: JSON IR,
@@ -25,10 +25,10 @@ error texts and envelopes), and later the product's LQ-1/LQ-2 (M7) and CLI golde
 | `cases/std.cases` | 48 | Each `std/*.lq` parses (token stream); the 8 `lq-tx` blocks of [LQ/std §7] parse (token stream, S-AST for six) |
 | `cases/card.cases` | 8 | The card's 7 examples ([LQ/card §3]) and the GQL variant of example 2 (§4): parse, token stream, S-AST |
 | `cases/lexical.cases` | 134 | Every token kind and limit, keyword and plain-name positions, revision mode, and every E001/E002/E003 case of [LQ/lexical] |
-| `cases/parser.cases` | 145 | The parser decisions of Annex P (S-AST) and every refused form of Annex R (code and position) |
+| `cases/parser.cases` | 146 | The parser decisions of Annex P (S-AST) and every refused form of Annex R (code and position) |
 | `cases/strict-gql.cases` | 38 | The strict-GQL spelling mode ([LQ/grammar-v1.ebnf §G]): each Cypher-only spelling refused, the GQL spellings and shared constructs accepted |
 | `cases/cast.cases` | 33 | Canonical ASTs ([LQ/canonical-ast §5]) with their binding context, binary encoding (§6), query hash (§7); the portable form of definitions (§8); E117 |
-| `cases/json-ir.cases` | 25 | IR documents of [LQ/json-ir] as input: the S-AST each denotes, the output form (§8), the refusals of §5 |
+| `cases/json-ir.cases` | 25 | IR documents of [LQ/json-ir] as input (`%% input-json`): the S-AST each denotes, the output form (§8), the refusals of §5 |
 | `cases/errors-text.cases` | 37 | Located error texts and their JSON envelopes ([LQ/errors §3.2], §4.1); unlocated error texts, warning and notice texts for stated situations (§3.3, §4.2–§4.3, §5) |
 | `cases/envelope.cases` | 18 | Text and JSON renderings of stated results ([LQ/envelope §3]–§7); header and footer lines; `TX` result lines (§9); cursor bytes and text (§8); the target-set digest (§9.4) |
 
@@ -66,7 +66,8 @@ order; every other directive occurs at most once per case.
 | `profile` | line | The model profile ([90 §8.2]) the reading echo is computed for: `gated`, `compatible` or `unknown` |
 | `transport` | line | How the text arrived, which names the source of a located error ([LQ/errors §3.2]): `argv` (`<argv>`), `stdin` (`<stdin>`), `query` (an MCP string, `<query>`), `file <name>` (the file's base name) |
 | `context` | line, repeatable | The binding and call context, one item per line: `schema core` (the core schema of [F08]); `node <N> <uid>`; `commit <seq> <64 hex>`; `param <name> <type> <value>` ([LQ/canonical-ast §9]); `branch <ref>` and `rev <seq>` (the caller's resolved branch and tip, for JSON error envelopes) |
-| `input` | block | The query text: the block's lines, each followed by LF, without the last LF. It holds no CR and no line starting with `%% ` |
+| `input` | block | The LQ query text: the block's lines, each followed by LF, without the last LF. It holds no CR and no line starting with `%% ` |
+| `input-json` | block | A JSON IR document ([LQ/json-ir]) in the same line form as `input`; a runner tells it from LQ text by this directive, not by the file name or the `entry` value ([LQ/canonical-ast §9]; spec sync 2b, S2B-F-33). Every case of `json-ir.cases` uses it |
 | `input-hex` | block | The query bytes in hexadecimal. Whitespace between digits is ignored; `;` starts a comment that runs to the end of the line. Used for byte-exact inputs (byte-order marks, CR, controls, ill-formed UTF-8) |
 | `input-file` | line | The query is the whole file at this path, relative to `fixtures/lq/` |
 | `tokens` | block | The classified token stream of the successful parse ([LQ/lexical §11]), one token per line, ending with `EOF -`. Implies that the input parses |
@@ -74,8 +75,8 @@ order; every other directive occurs at most once per case.
 | `sast-same-as` | line | The S-AST equals the S-AST of the named case: `<id>` in the same file, or `<file>:<id>` |
 | `cast` | block | The canonical AST in the text form of [LQ/canonical-ast §4.3], bound in the `context` given |
 | `cast-same-as` | line | The C-AST (hence its encoding and hash) equals that of the named case of the same file |
-| `encoding` | block | The C-AST's binary encoding ([LQ/canonical-ast §6]) in hexadecimal, as for `input-hex` |
-| `hash` | line | `<algorithm> <a>..<b> [first <n>] = <hex>`: the named hash over bytes `a` to `b` (exclusive) of the case's `encoding` or `hex` block, truncated to its first `n` bytes. `blake3_256 0..174 first 16` is the query hash H of [LQ/canonical-ast §7.1], the value an `xtask hex` directive `{blake3_256 0..174}` gives before truncation. `xxh3_64 a..b = 0x<16 hex>` is the XXH3-64 value (seed 0) as a number |
+| `encoding` | block | The C-AST's binary encoding ([LQ/canonical-ast §6]) in hexadecimal, as for `input-hex`. A case holds at most one of `encoding` and `hex` ([LQ/canonical-ast §9]) |
+| `hash` | line | `<algorithm> <a>..<b> [first <n>] = <hex>`: the named hash over bytes `a` to `b` (exclusive) of the case's one byte block (`encoding` or `hex`), truncated to its first `n` bytes; a query hash only over `encoding`. `blake3_256 0..174 first 16` is the query hash H of [LQ/canonical-ast §7.1], the value an `xtask hex` directive `{blake3_256 0..174}` gives before truncation. `xxh3_64 a..b = 0x<16 hex>` is the XXH3-64 value (seed 0) as a number |
 | `explain-id` | line | The EXPLAIN id `q:` + the first 8 hex digits of H ([LQ/canonical-ast §7.2]) |
 | `cursor-query-hash` | line | H[0..8] read as a little-endian u64, written `0x` + 16 hex digits ([LQ/canonical-ast §7.2]) |
 | `portable` | block | The stored portable text of a definition ([LQ/canonical-ast §8.1]), each line followed by LF except the last |
@@ -88,7 +89,7 @@ order; every other directive occurs at most once per case.
 | `nodes` | block | Store facts for a rendering golden: one node object of [LQ/envelope §7.4] per line |
 | `text` | block | The expected text: the block's lines, each followed by LF |
 | `json` | block, one line | The expected JSON (an envelope, or a warning or notice object), byte for byte, followed by LF where it is printed |
-| `hex` | block | Expected bytes, as for `input-hex` |
+| `hex` | block | Expected bytes, as for `input-hex`; never with `encoding` in one case |
 
 ### 2.3 How a harness uses the cases
 
@@ -97,7 +98,9 @@ order; every other directive occurs at most once per case.
   parse succeeds.
 - **S-expressions** compare by their token sequences, whitespace ignored ([LQ/canonical-ast §4.1]).
 - **Errors.** A harness asserts the code of the first error and, for a `spec` position, its line and column. A mismatch
-  on a `conv` position is triaged as a specification gap (§4 G-7) before it is counted as a defect.
+  on a `conv` position is triaged against §4 G-7 before it is counted as a defect; [LQ/errors §3.1] adopts G-7's
+  positions (spec sync 2b, S2B-F-31), so a `conv` position of a construct that §3.1 names is normative, and such marks
+  may be re-marked `spec`.
 - **Outcomes** of `mistakes.cases` need a store with the core schema in which the named nodes exist (tasks `#51`, `#88`,
   `#93` and a doc `#130`); the `gt10/` walk-through store has nodes of these kinds under other numbers, so a harness
   creates the four ids itself. The warnings and reading-echo lines do not depend on the store's contents; notices that
@@ -163,39 +166,40 @@ The fixture column of these rows can cite (R-SPEC fills the column):
 
 ## 4. Specification findings and gaps
 
-Found while authoring; to be filed with the review. A **finding** (F) is a contradiction or an error in the
+Found while authoring and filed with the review. A **finding** (F) is a contradiction or an error in the
 specification; the fixtures follow the reading stated here until it is resolved. A **gap** (G) is something the
-specification does not decide; the fixtures either leave it unasserted or use the convention stated.
+specification does not decide; the fixtures either leave it unasserted or use the convention stated. The last column
+gives each one's status after spec sync 2b (`docs/spec/reviews/spec-sync-2b.md`; F-1 and F-2 by spec sync 2a).
 
-| # | Where | Finding | Fixtures |
+| # | Where | Finding | Fixtures | Status |
+|---|---|---|---|---|
+| F-1 | [LQ/lexical §7.2] `HEAD` row | `HEAD` must not be followed by `.`, which refuses `HEAD..x` and `HEAD...main`: [LQ/std §5.4] `pack_rules_unmerged` and [50 §4.3] use `diff(HEAD...main)`, and [LQ/std §1.1] and [50 §11] say every block parses. Proposed: `.` stops `HEAD` only when a `ref_word` follows it, as for ref names | assert the parse: `design-blocks.cases` `s4.3-pack-rules-unmerged`, `std.cases` `std-pack-rules-unmerged` | settled by spec sync 2a ([LQ/lexical] L-15: `HEAD..main` and `HEAD...main` are ranges) |
+| F-2 | [LQ/lexical §6.1] | "These 43 words" lists 44 reserved words | the 44 are reserved | settled by spec sync 2a ([LQ/lexical] L-15: 44 reserved words) |
+| F-3 | [LQ/lexical §11] `KW` row and the paragraph after it | `exists` is listed among the keyword forms of §P.9, as if `exists(e)` without a path were a `NAME`, but `EXISTS` is a reserved word | `exists(` is `KW EXISTS` in every form (`conformance.cases` `exists-fn-property`) | settled by S2B-F-38 (`exists` is always `KW`) |
+| F-4 | [LQ/grammar-v1.ebnf §R] list comprehensions | "`'[' word IN`" also refuses the list literal `[x IN l]` (a one-element list of a membership test) that `list_lit` derives; the rewrite `[(x IN l)]` is not stated | `parser.cases` `pe-list-in-without-where` now parses (tokens, S-AST); `pe-list-comprehension` (`WHERE`) and `pe-list-in-pipe` (`\|`) expect E004 | settled by S2B-F-39 (the refusal needs `WHERE` or `\|` at the list's top level; `[x IN l]` is a list literal) |
+| F-5 | [LQ/errors §3.3] vs §5.5 E401 | The example's help back-quotes the command (``re-read with `moirai q show ids=89` ``); the row's template does not | `errors-text.cases` `e401-example`: no back-quotes | settled by S2B-F-40 (the example's help has no back-quotes) |
+| F-6 | [LQ/errors §5.5] preamble vs rows | The preamble puts `nothing was written` in every E4xx text and names the statement index; the rows of E406 (unleased, safelist, MCP), E407, E408 and E411 give other or no detail lines and no index | `e406-unleased`, `e407-declared-agent`, `e411-no-match` follow the rows | settled by S2B-F-41 (statement refusals name the statement and close with `nothing was written`; block and call refusals do neither); the three texts follow it |
+| F-7 | [LQ/errors §2.2] | `<kind>`, `<field>`, `<edge>`, `<fn>`, `<var>`, `<param>` render inside back-quotes, which conflicts with templates that embed them in LQ text (N07's `(<b>)-[:<edge>]->(<a>)`, W01's `coalesce(<expr>, 0)`, E106's inline) and with §3.2's E101 example (`task fields: ...`) | those texts are not goldened | settled by S2B-F-42 ([LQ/errors §2.2a]: a placeholder inside embedded LQ text renders as LQ source); those texts may now be goldened |
+| F-8 | [LQ/grammar-v1.ebnf §P.12] vs [LQ/errors §5.1] | P12 raises E109 at parse time for a `CALL` of a non-`tx` name inside `TX`; the table lists E109 as the binder's only | `parser.cases` `pe-tx-call-non-tx` expects E109 | settled by S2B-F-43 (E109 is raised by the parser and the binder) |
+| F-9 | [F19 §4.2] base part ≤ 60 B | A staged header cannot fit: `branch: merge/a/from/b \| rev 4481 \| staged (read-only) \| 1 row` is 62 B, [50 §2.9] Q16's is 72 B | `envelope.cases` `header-staged` (72 B) is limit-checked | closed by S2B-F-26 (a staging view's base part may take 80 B) |
+| F-10 | [LQ/json-ir §5.1] steps 2 and 3 | The schema of §6 carries the `nid` and `int` ranges, so step 2 refuses them with E001 before step 3's E003 is reached; E003 remains for `float` and `dur` | `json-ir.cases` `ir-nid-zero`, `ir-float-infinite`, `ir-duration-overflow` expect E003 at the value's pointer | settled by S2B-F-44 (the schema states no numeric range of `nid` and `int`; step 3 refuses with E003) |
+
+| # | Gap | Fixtures | Status |
 |---|---|---|---|
-| F-1 | [LQ/lexical §7.2] `HEAD` row | `HEAD` must not be followed by `.`, which refuses `HEAD..x` and `HEAD...main`: [LQ/std §5.4] `pack_rules_unmerged` and [50 §4.3] use `diff(HEAD...main)`, and [LQ/std §1.1] and [50 §11] say every block parses. Proposed: `.` stops `HEAD` only when a `ref_word` follows it, as for ref names | assert the parse: `design-blocks.cases` `s4.3-pack-rules-unmerged`, `std.cases` `std-pack-rules-unmerged` |
-| F-2 | [LQ/lexical §6.1] | "These 43 words" lists 44 reserved words | the 44 are reserved |
-| F-3 | [LQ/lexical §11] `KW` row and the paragraph after it | `exists` is listed among the keyword forms of §P.9, as if `exists(e)` without a path were a `NAME`, but `EXISTS` is a reserved word | `exists(` is `KW EXISTS` in every form (`conformance.cases` `exists-fn-property`) |
-| F-4 | [LQ/grammar-v1.ebnf §R] list comprehensions | "`'[' word IN`" also refuses the list literal `[x IN l]` (a one-element list of a membership test) that `list_lit` derives; the rewrite `[(x IN l)]` is not stated | `parser.cases` `pe-list-in-without-where` expects E004 |
-| F-5 | [LQ/errors §3.3] vs §5.5 E401 | The example's help back-quotes the command (``re-read with `moirai q show ids=89` ``); the row's template does not | `errors-text.cases` `e401-example` follows §3.3 |
-| F-6 | [LQ/errors §5.5] preamble vs rows | The preamble puts `nothing was written` in every E4xx text and names the statement index; the rows of E406 (unleased, safelist, MCP), E407, E408 and E411 give other or no detail lines and no index | `e406-unleased`, `e407-declared-agent`, `e411-no-match` follow the rows |
-| F-7 | [LQ/errors §2.2] | `<kind>`, `<field>`, `<edge>`, `<fn>`, `<var>`, `<param>` render inside back-quotes, which conflicts with templates that embed them in LQ text (N07's `(<b>)-[:<edge>]->(<a>)`, W01's `coalesce(<expr>, 0)`, E106's inline) and with §3.2's E101 example (`task fields: ...`) | those texts are not goldened |
-| F-8 | [LQ/grammar-v1.ebnf §P.12] vs [LQ/errors §5.1] | P12 raises E109 at parse time for a `CALL` of a non-`tx` name inside `TX`; the table lists E109 as the binder's only | `parser.cases` `pe-tx-call-non-tx` expects E109 |
-| F-9 | [F19 §4.2] base part ≤ 60 B | A staged header cannot fit: `branch: merge/a/from/b \| rev 4481 \| staged (read-only) \| 1 row` is 61 B, [50 §2.9] Q16's is 71 B | `envelope.cases` `header-staged` is the rendering; a limit check skips it until F-9 is decided |
-| F-10 | [LQ/json-ir §5.1] steps 2 and 3 | The schema of §6 carries the `nid` and `int` ranges, so step 2 refuses them with E001 before step 3's E003 is reached; E003 remains for `float` and `dur` | `json-ir.cases` `ir-nid-zero` expects E001; `ir-float-infinite`, `ir-duration-overflow` E003 |
-
-| # | Gap | Fixtures |
-|---|---|---|
-| G-1 | The order of the expected-token list of a generic E001 (`expected <list>, found <token>`) | no generic E001 text is goldened |
-| G-2 | Whether the JSON error envelope of a lexer or parser error carries the caller's branch and tip or `null` ([F19 §8.2]: `null` "before a ref was resolved") | `errors-text.cases` assumes they are resolved first and gives them as `context` |
-| G-3 | E401's JSON `current` objects: which node-object keys, and where `changed_by` goes | E401 has a text golden only |
-| G-4 | `TX` results in JSON: where "after `commit`" puts the keys of [LQ/envelope §7.7] relative to `view`; the `diff` rows of `data` | `TX` results have text goldens only |
-| G-5 | The layout of a `DRY` body: how target lines, mutation lines and `diff` rows interleave ([LQ/envelope §9.3]) | only the `DRY` header and closing lines are goldened |
-| G-6 | Renderings of W02's `<mode>`, N04's `<datetime>`, N02's `<key>`, E003's `<token>`, `<char>` and `U+<hex>` | not goldened |
-| G-7 | Positions of errors whose detection point the specification does not name, and the span of binder errors. **Convention (`conv`)**: the first token or character of the construct the rule refuses — for a refused keyword form its first word; for an operator the operator; for a literal out of range its first character; in revision mode the revision's base for an upper-case letter or a run-in, the suffix for a count or a datetime out of range; for E118 the comparison operator or the property-map key; for E007 the token where `EXPECT` was expected; for E009 the `}`; for E114 the quantifier's first character; for a binder error, no position (`*`); for a JSON IR error, the offending node | every `conv` position |
-| G-8 | Placeholders not in [LQ/errors §2.2]'s table: `<agent>`, `<identity>`, `<actor>`, `<src>`, `<dst>`, `<key>` | `e407-declared-agent` renders `<agent>` like `<holder>`; the others are not goldened |
-| G-9 | How a value is printed inside a `write …` rewrite (E102's `write <value> IN <v>.labels`): as LQ text or back-quoted | E102 is asserted by code only |
-| G-10 | The `expected` array of a special-case E001 (and of a lexer E001) | E001 cases have text goldens without JSON |
-| G-11 | The JSON rows of the node-with-extras shape: a node column is `"#N"` by [LQ/envelope §7.3]–§7.4, so the facts its node lines print are not in the envelope | `envelope.cases` `result-node-with-extras` gives them in a `nodes` block |
-| G-12 | What `budget.bytes` and `budget.mem` count | budget values are not asserted |
-| G-13 | The text of a zero duration ("the largest exact unit") | not goldened |
-| G-14 | Whether the `--ids` continuation (`ids: … \| <rerun>`) repeats `--ids` | not goldened |
+| G-1 | The order of the expected-token list of a generic E001 (`expected <list>, found <token>`) | no generic E001 text is goldened | open |
+| G-2 | Whether the JSON error envelope of a lexer or parser error carries the caller's branch and tip or `null` ([F19 §8.2]: `null` "before a ref was resolved") | `errors-text.cases` assumes they are resolved first and gives them as `context` | open |
+| G-3 | E401's JSON `current` objects: which node-object keys, and where `changed_by` goes | E401 has a text golden only | settled by S2B-F-47 ([LQ/errors §5.7]: `current` holds `{id, kind, status, title, rev, changed_by}` per detail line); a JSON golden may be added |
+| G-4 | `TX` results in JSON: where "after `commit`" puts the keys of [LQ/envelope §7.7] relative to `view`; the `diff` rows of `data` | `TX` results have text goldens only | open |
+| G-5 | The layout of a `DRY` body: how target lines, mutation lines and `diff` rows interleave ([LQ/envelope §9.3]) | only the `DRY` header and closing lines are goldened | open |
+| G-6 | Renderings of W02's `<mode>`, N04's `<datetime>`, N02's `<key>`, E003's `<token>`, `<char>` and `U+<hex>` | not goldened | open |
+| G-7 | Positions of errors whose detection point the specification does not name, and the span of binder errors. **Convention (`conv`)**: the first token or character of the construct the rule refuses — for a refused keyword form its first word; for an operator the operator; for a literal out of range its first character; in revision mode the revision's base for an upper-case letter or a run-in, the suffix for a count or a datetime out of range; for E118 the comparison operator or the property-map key; for E007 the token where `EXPECT` was expected; for E009 the `}`; for E114 the quantifier's first character; for a binder error, no position (`*`); for a JSON IR error, the offending node | every `conv` position | adopted by [LQ/errors §3.1] (S2B-F-31): the positions it names there are normative (§2.3) |
+| G-8 | Placeholders not in [LQ/errors §2.2]'s table: `<agent>`, `<identity>`, `<actor>`, `<src>`, `<dst>`, `<key>` | `e407-declared-agent` renders `<agent>` like `<holder>`; the others are not goldened | open |
+| G-9 | How a value is printed inside a `write …` rewrite (E102's `write <value> IN <v>.labels`): as LQ text or back-quoted | E102 is asserted by code only | open |
+| G-10 | The `expected` array of a special-case E001 (and of a lexer E001) | E001 cases have text goldens without JSON | open |
+| G-11 | The JSON rows of the node-with-extras shape: a node column is `"#N"` by [LQ/envelope §7.3]–§7.4, so the facts its node lines print are not in the envelope | `envelope.cases` `result-node-with-extras` gives them in a `nodes` block | open |
+| G-12 | What `budget.bytes` and `budget.mem` count | budget values are not asserted | open |
+| G-13 | The text of a zero duration ("the largest exact unit") | not goldened | open |
+| G-14 | Whether the `--ids` continuation (`ids: … \| <rerun>`) repeats `--ids` | not goldened | open |
 
 ## 5. The core set for owner verification (E1)
 

@@ -199,14 +199,13 @@ lane/y $n40 excluded yes PD-012
 %% case c3r
 %% from c3
 %% core yes
-%% requires lq
-%% finding F-1
-%% source NC-005; NX-029 to NX-032; FL-006; FL-003; [LQ/std §2.14] (edges with a DELETED endpoint); [LQ/grammar-v1.ebnf] §6
-%% note Removing the flagged edge releases #12 (FL-006). The only spelling that reaches an edge whose source is a
-%% note tombstone is LQ's DELETED pseudo-label (finding F-1). In the text, #3 is n40 and #2 is n12.
+%% source NC-005; NX-029 to NX-032; FL-006; FL-003; [F12 §6.5] choice 5 `drop`; [API §9.2] resolve with `drop: true`
+%% note Resolving the flagged edge with drop removes it and releases #12 (FL-006). A flagged blocks out-edge of a
+%% note tombstone on a work branch is a resolvable key, and drop is its spelling; unlink and DELETE e do not reach an
+%% note edge whose endpoint is a tombstone ([API §9.1]) (spec sync 2b, S2B-F-10; finding F-1 settled).
 %% script
-9 Tx @lease=L-1 message="Drop the flagged blocker of #2" lq=|
-    TX { MATCH (d:DELETED {id: #3})-[e:BLOCKS]->(#2) EXPECT 1 DELETE e }
+9 Tx @lease=L-1 message="Drop the flagged blocker of #2"
+  resolve key=edge:$n40:blocks:$n12 drop=true
 %% result
 exit 0
 ready [$n12]
@@ -268,10 +267,10 @@ main edge:$n203:blocks:$n40 exists no EG-005
 %% case c4
 %% from c0
 %% core yes
-%% finding G-1
-%% source NC-008; NX-039 to NX-041; EG-002, EG-004, EG-006, EG-007; DS-002, DS-003; EF-002, EF-004
+%% source NC-008; NX-039 to NX-041; EG-002, EG-004, EG-006, EG-007; DS-002, DS-003, DS-005; EF-002, EF-004
 %% note --cascade deletes #41 with #40; the edge #41 -> #40 lies inside the deleted set (DS-003). #9 loses its only
-%% note child and becomes a ready leaf. The descendant's reason and replacement are not asserted (gap G-1).
+%% note child and becomes a ready leaf. Every node of the deleted set takes the delete's one reason and replacement,
+%% note the descendant #41 included (DS-005; spec sync 2b, S2B-M-9; gap G-1 settled).
 %% script
 8 Mutation tx.rm @lease=L-1 id=$n40 replaced_by=$n52 policy=cascade reason="duplicate of the reader table"
 %% result
@@ -283,6 +282,10 @@ marker deleted $n41 main
 main $n40 deleted yes NX-040
 main $n41 deleted yes NX-039
 main $n41 hold deleted
+main $n40 reason "duplicate of the reader table" DS-005
+main $n40 replaced_by $n52 DS-005
+main $n41 reason "duplicate of the reader table" DS-005
+main $n41 replaced_by $n52 DS-005
 main edge:$n52:blocks:$n12 exists yes NX-041
 main edge:$n203:blocks:$n52 exists yes EG-006
 main $n9 children_total 0 EF-004

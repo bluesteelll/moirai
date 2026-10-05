@@ -368,12 +368,13 @@ error[E001 syntax]: a revision here is written unquoted
 %% source [LQ/errors §5.5] E401
 %% note Statement 1 of a TX matched 0 bindings against EXPECT 1; literal target #89 now has status done, rev 4470,
 %% note changed at commit c3e9a1f0083f... (c8 c3e9a1f00) by dev#2 on lane/l5np with message complete L-17.
-%% note The help line follows §3.3's example, which back-quotes the command; §5.5's row does not (spec finding F-5).
+%% note The help line names the command without back-quotes, as §3.3's example and §5.5's row now both write it (spec
+%% note sync 2b, S2B-F-40; F-5 settled).
 %% text
 error[E401 expect_mismatch]: statement 1 matched 0 bindings, expected 1
   #89 now: status=done rev=4470 (changed at c3e9a1f00 by dev#2 on lane/l5np: "complete L-17")
   nothing was written
-  = help: re-read with `moirai q show ids=89`
+  = help: re-read with moirai q show ids=89
 %% end
 
 %% case e406-unleased
@@ -381,7 +382,8 @@ error[E401 expect_mismatch]: statement 1 matched 0 bindings, expected 1
 %% source [F19 §11.3]
 %% source [90 §4.3]
 %% note A write that needs a lease and presents none. The frozen one-line text, split at its semicolon.
-%% note No detail line: the row says none, while §5.5's preamble puts 'nothing was written' in every E4xx text (spec finding F-6).
+%% note No detail line and no closing line: a block or call refusal names no statement and does not close with
+%% note 'nothing was written' ([LQ/errors §5.5] preamble; spec sync 2b, S2B-F-41; F-6 settled).
 %% text
 error[E406 role_policy]: this write needs a lease
   = help: an orchestrator presents its session lease with --lease (mint it once per session: moirai claim --role orchestrator --session)
@@ -392,7 +394,7 @@ error[E406 role_policy]: this write needs a lease
 %% source [90 §4.1]
 %% source [F19 §11.2]
 %% note The caller declares agent dev#1 and presents lease L-18, whose holder is dev#2 (one of the two exit-5 texts of [90 §10.1]).
-%% note <agent> renders like <holder> (spec gap G-8); no detail line (F-6).
+%% note <agent> renders like <holder> (spec gap G-8); no detail line (a call refusal, S2B-F-41).
 %% text
 error[E407 lease]: declared agent dev#1 differs from lease L-18's holder dev#2
   = help: drop --agent, or pass your own lease

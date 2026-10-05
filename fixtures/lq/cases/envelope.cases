@@ -214,9 +214,8 @@ branch: lane/l5np | rev 4471 | tx (dry) | IF TIP ok | would commit 3 changes
 %% source [LQ/envelope §3.2] viewflag
 %% source [F19 §4.2]
 %% source [50 §2.9] Q16
-%% note A staging ref's header. Its base part is 71 bytes, above [F19 §4.2]'s 60: every staging ref name
-%% note merge/<dst>/from/<src> with the staged flag passes the limit (spec finding F-9); the line is the rendering
-%% note the rules give, and a limit check must not reject this case until F-9 is decided.
+%% note A staging ref's header. Its base part is 72 bytes, within the 80 B that [F19 §4.2] gives a staging view
+%% note (spec sync 2b, S2B-F-26; F-9 closed), so the limit check applies to this case.
 %% text
 branch: merge/lane/l10/from/main | rev 4481 | staged (read-only) | 1 row
 %% end
