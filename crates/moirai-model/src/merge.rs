@@ -1709,6 +1709,46 @@ impl Engine<'_, '_> {
                 last.insert(*n, !undone.contains(n));
             }
         }
+        // A hierarchy key whose value is the same in b, o and t keeps that value and is never `kleppmann-skipped`; the
+        // replay decides the others ([AR §11] OQ-A-12 (b); [F12 §7.2]).
+        let kept: BTreeSet<Nid> = merged
+            .iter()
+            .copied()
+            .filter(|n| {
+                let k = hk(*n);
+                let (b, o, t) = (self.val(0, &k), self.val(1, &k), self.val(2, &k));
+                self.eq(&k, &o, &b) && self.eq(&k, &t, &b)
+            })
+            .collect();
+        #[cfg(test)]
+        let kept: BTreeSet<Nid> = if rule() == Rule::Current {
+            kept
+        } else {
+            BTreeSet::new()
+        };
+        for n in &kept {
+            cur.insert(*n, get(self.st(0), *n));
+            last.remove(n);
+        }
+        // The backstop for a cycle the kept values close: the cycle's replay-decided keys are reset to their value in b
+        // one at a time, the least uid on a cycle first, until none is; each reset key is `kleppmann-skipped`. Every
+        // kept key holds its value in b, a forest, so every such cycle holds a key the replay decided.
+        loop {
+            let worst = merged
+                .iter()
+                .copied()
+                .filter(|n| {
+                    !kept.contains(n)
+                        && on_cycle(&cur, *n)
+                        && cur.get(n).cloned().flatten() != get(self.st(0), *n)
+                })
+                .min_by_key(|n| self.uid(*n));
+            let Some(n) = worst else { break };
+            cur.insert(n, get(self.st(0), n));
+            last.insert(n, false);
+            #[cfg(test)]
+            BACKSTOP.with(|c| c.set(c.get() + 1));
+        }
         for (n, applied) in last {
             if !applied {
                 self.skipped.insert(n);
@@ -1873,6 +1913,34 @@ fn strengthening(k: &Key, b: &Option<KVal>, x: &Option<KVal>) -> bool {
     }
 }
 
+/// The RS-007 variant a test runs on its thread, for the lockstep search that accepts OQ-A-12 (test builds only).
+#[cfg(test)]
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub(crate) enum Rule {
+    /// RS-007 as specified.
+    Current,
+    /// RS-007 as wave 3c left it: no kept key (OQ-A-12 (b)) and no resolved key (OQ-A-12 (c)).
+    Wave3c,
+    /// The replay from B, as spec sync 3 stated RS-007: no one-sided merge, no replay start, no kept key and no
+    /// resolved key; the parent-only undo of OQ-A-11 11.2 stays.
+    FromB,
+}
+
+#[cfg(test)]
+thread_local! {
+    /// How many keys RS-007's backstop reset to b on this thread ([AR §11] OQ-A-12 (b)): the acceptance search of
+    /// wave 3d requires it to stay zero, or the backstop's rule to be stated.
+    pub(crate) static BACKSTOP: std::cell::Cell<usize> = const { std::cell::Cell::new(0) };
+    /// The variant this thread runs.
+    pub(crate) static RULE: std::cell::Cell<Rule> = const { std::cell::Cell::new(Rule::Current) };
+}
+
+/// The variant this thread runs (test builds only).
+#[cfg(test)]
+pub(crate) fn rule() -> Rule {
+    RULE.with(|r| r.get())
+}
+
 /// The parent of a hierarchy value; `None` for a root and for `absent`.
 fn parent_of(v: &Option<KVal>) -> Option<Nid> {
     match v {
@@ -2023,7 +2091,7 @@ pub struct Pending<'a> {
     /// The nodes whose hierarchy move Kleppmann skipped (MR-039), which V01 reports.
     pub skipped: BTreeSet<Nid>,
     /// The uid of every `#N` the three states hold or the merge allocated.
-    uids: BTreeMap<Nid, Uid>,
+    pub(crate) uids: BTreeMap<Nid, Uid>,
 }
 
 impl Pending<'_> {

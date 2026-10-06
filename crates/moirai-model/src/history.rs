@@ -400,25 +400,12 @@ impl Store {
         let base = bases.base(dst_tip, src_tip, forced);
         let o = self.dag.state_at(dst_tip, &self.alloc);
         let t = self.dag.state_at(src_tip, &self.alloc);
-        let (ao, at) = (self.dag.ancestors(dst_tip), self.dag.ancestors(src_tip));
-        // RS-007 ([AR §11] OQ-A-11 11.1): a merge whose base is state(tip(dst)) (the single LCA, `--base`, or ε on both)
-        // is one-sided and takes src's hierarchy with no replay (A); any other replays both sides' commits since the
-        // replay start R (B).
-        let one_sided = match forced {
-            Some(c) => Some(c) == dst_tip,
-            None => base.lcas.len() <= 1 && base.lcas.first().copied() == dst_tip,
-        };
-        let (start, mo, mt) = if one_sided {
-            (Rc::new(State::default()), Vec::new(), Vec::new())
-        } else {
-            let r = self.dag.replay_start(&ao, &at, &base.anc);
-            let ar = self.dag.ancestors(r);
-            (
-                self.dag.state_at(r, &self.alloc),
-                self.dag.move_steps(&ao, &ar, &self.alloc),
-                self.dag.move_steps(&at, &ar, &self.alloc),
-            )
-        };
+        // RS-007 ([AR §11] OQ-A-11 11.1): a merge whose base's commit is tip(dst) (the single LCA, `--base`, or ε on
+        // both) is one-sided and takes src's hierarchy with no replay (A); any other replays both sides' commits since
+        // the replay start R (B).
+        let rp = self
+            .dag
+            .replay(dst_tip, src_tip, &base, forced, &self.alloc);
         // `merge.policy.<kind>` of dst's view ([CFG §10.13]).
         let auto = crate::policy::merge_policies(&o.schema);
         let cx = MCtx {
@@ -427,12 +414,8 @@ impl Store {
             dst_plan: d.kind == RefKind::Plan,
             policy,
             auto: &auto,
-            start: if one_sided {
-                merge::Start::TakeSrc
-            } else {
-                merge::Start::State(&start)
-            },
-            moves: [&mo[..], &mt[..]],
+            start: rp.start(),
+            moves: [&rp.moves[0][..], &rp.moves[1][..]],
             uid: &uid,
             nid: &nid,
         };

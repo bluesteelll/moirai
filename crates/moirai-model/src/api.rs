@@ -993,6 +993,9 @@ impl Alloc for AllocTable {
     fn creator(&self, n: Nid) -> Creator {
         self.rows.get(&n).map(|r| r.1.clone()).unwrap_or_default()
     }
+    fn nid(&self, u: Uid) -> Option<Nid> {
+        self.uidx.get(&u).copied()
+    }
 }
 
 /// The store after `Init` ([API §8.1]).

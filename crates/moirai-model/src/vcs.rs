@@ -162,76 +162,188 @@ impl Dag {
     /// The step keys of commit `c` (RS-007; [F12 §7.4] row "Kleppmann steps"): the hierarchy keys of its canonical net
     /// changeset against its first parent; for a two-parent commit M (a merge or a `sync`) with parents p₁ and p₂, also
     /// each hierarchy key whose canonical value in state(M) differs from its value in state(p₂) and that is a step key
-    /// of some commit of A(p₂) \ A(p₁), so that M re-asserts what it kept against the merged branch's moves and nothing
-    /// else ([RULES/merge-table] open point 35 case (i) in its narrow form, "moved" read as "is a step key of": a merge
-    /// inside the merged branch counts with its own second-parent keys). Step keys depend on the commit graph alone,
-    /// so they are computed once per commit and kept on the DAG for every later merge, `sync`, virtual merge, revert and
-    /// cherry-pick. Computed with an explicit stack, since a history of syncs nests merges deeply; a two-parent commit's
-    /// frame keeps its commits of A(p₂) \ A(p₁) while their step keys are computed, so its ancestor sets are walked once.
+    /// of some commit of A(p₂) \ A(p₁), so that M re-asserts what it kept against the merged branch's moves
+    /// ([RULES/merge-table] open point 35 case (i) in its narrow form, "moved" read as "is a step key of", recursively:
+    /// a merge inside the merged branch counts with its own second-parent keys, [AR §11] OQ-A-11 11.3), and each of
+    /// its resolved keys ([`Dag::resolved_keys`], OQ-A-12 (c)). Step keys depend on the commit graph alone, so they are
+    /// computed once per commit and kept on the DAG for every later merge, `sync`, virtual merge, revert and
+    /// cherry-pick. A commit's keys read only its ancestors' (its own merge's candidate reads its parents' histories), so
+    /// every ancestor not yet kept is computed first, ascending by (gen, id), with no recursion however deeply a history
+    /// of syncs nests its merges.
     // spec: [RULES/merge-table] results
     // spec: [F12 §7.4]
     pub fn step_keys(&self, c: u64, alloc: &dyn Alloc) -> Rc<BTreeSet<Nid>> {
         if let Some(k) = self.step_memo.borrow().get(&c) {
             return k.clone();
         }
-        // (commit, its commits of A(p₂) \ A(p₁) once walked: a two-parent commit's frame waiting for theirs).
-        let mut stack: Vec<(u64, Option<Vec<u64>>)> = vec![(c, None)];
-        while let Some((x, inner)) = stack.pop() {
-            if self.step_memo.borrow().contains_key(&x) {
-                continue;
-            }
-            let commit = &self.commits[&x];
-            let inner = match (inner, &commit.parents[..]) {
-                (Some(v), _) => Some(v),
-                (None, [p1, p2]) => Some(self.second_parent_only(*p1, *p2)),
-                (None, _) => None,
-            };
-            if let Some(v) = &inner {
-                let missing: Vec<u64> = {
-                    let memo = self.step_memo.borrow();
-                    v.iter()
-                        .copied()
-                        .filter(|d| !memo.contains_key(d))
-                        .collect()
-                };
-                if !missing.is_empty() {
-                    stack.push((x, inner));
-                    stack.extend(missing.into_iter().map(|d| (d, None)));
-                    continue;
-                }
-            }
-            let mut keys: BTreeSet<Nid> = commit
-                .changeset
-                .keys()
-                .filter_map(|k| match k {
-                    Key::Node(n, Aspect::Hierarchy) => Some(*n),
-                    _ => None,
-                })
-                .collect();
-            if let (Some(v), [_, p2]) = (&inner, &commit.parents[..]) {
-                let moved: BTreeSet<Nid> = {
-                    let memo = self.step_memo.borrow();
-                    v.iter()
-                        .flat_map(|d| memo[d].iter().copied())
-                        .filter(|n| !keys.contains(n))
-                        .collect()
-                };
-                if !moved.is_empty() {
-                    let (sm, s2) = (
-                        self.state_at(Some(x), alloc),
-                        self.state_at(Some(*p2), alloc),
-                    );
-                    let h = Aspect::Hierarchy;
-                    keys.extend(
-                        moved
-                            .into_iter()
-                            .filter(|n| merge::cval(&sm, *n, &h) != merge::cval(&s2, *n, &h)),
-                    );
-                }
-            }
+        let mut todo: Vec<u64> = {
+            let memo = self.step_memo.borrow();
+            self.ancestors(Some(c))
+                .into_iter()
+                .filter(|x| !memo.contains_key(x))
+                .collect()
+        };
+        todo.sort_by_key(|x| self.order_key(*x));
+        for x in todo {
+            let keys = self.own_step_keys(x, alloc);
             self.step_memo.borrow_mut().insert(x, Rc::new(keys));
         }
         self.step_memo.borrow()[&c].clone()
+    }
+
+    /// The step keys of commit `x` ([`Dag::step_keys`]), every ancestor's being kept already.
+    fn own_step_keys(&self, x: u64, alloc: &dyn Alloc) -> BTreeSet<Nid> {
+        let commit = &self.commits[&x];
+        let mut keys: BTreeSet<Nid> = commit
+            .changeset
+            .keys()
+            .filter_map(|k| match k {
+                Key::Node(n, Aspect::Hierarchy) => Some(*n),
+                _ => None,
+            })
+            .collect();
+        let [p1, p2] = commit.parents[..] else {
+            return keys;
+        };
+        let moved: BTreeSet<Nid> = {
+            let memo = self.step_memo.borrow();
+            self.second_parent_only(p1, p2)
+                .iter()
+                .flat_map(|d| memo[d].iter().copied())
+                .filter(|n| !keys.contains(n))
+                .collect()
+        };
+        if !moved.is_empty() {
+            let (sm, s2) = (
+                self.state_at(Some(x), alloc),
+                self.state_at(Some(p2), alloc),
+            );
+            let h = Aspect::Hierarchy;
+            keys.extend(
+                moved
+                    .into_iter()
+                    .filter(|n| merge::cval(&sm, *n, &h) != merge::cval(&s2, *n, &h)),
+            );
+        }
+        #[cfg(test)]
+        if merge::rule() != merge::Rule::Current {
+            return keys;
+        }
+        keys.extend(self.resolved_keys(x, alloc));
+        keys
+    }
+
+    /// The resolved keys of a two-parent commit M with parents p₁ and p₂ (RS-007; [AR §11] OQ-A-12 (c)): the hierarchy
+    /// keys of the nodes live in state(M) whose (parent, order), compared by uid, differs from their value in the
+    /// candidate of M's own merge, the typed merge of state(p₂) into state(p₁) as a `merge` (a `sync` for a sync
+    /// commit) over the base of [F12 §4.3] for (p₁, p₂), with no `--base`, no policy override and no resolution: a
+    /// landed commit records neither its `--base` nor its override ([F06 §4.4.16] records them on a staged commit
+    /// only), so the keys a resolution set, a `--base` moved or an override fixed differently are all keys where M holds
+    /// what its default merge would not give, and M's step re-asserts them at its (hlc, commit id). The candidate's
+    /// hierarchy follows RS-007 itself, so it reads the step keys of the commits of A(p₁) ∪ A(p₂), every one an
+    /// ancestor of M. A node the candidate does not hold live counts as differing.
+    // spec: [RULES/merge-table] results
+    // spec: [F12 §7.4]
+    pub fn resolved_keys(&self, m: u64, alloc: &dyn Alloc) -> BTreeSet<Nid> {
+        let c = &self.commits[&m];
+        let [p1, p2] = c.parents[..] else {
+            return BTreeSet::new();
+        };
+        let uid = |n: Nid| alloc.uid(n);
+        let nid = |u: Uid| alloc.nid(u);
+        let mut bases = Bases::new(self, alloc, &uid, &nid);
+        let base = bases.base(Some(p1), Some(p2), None);
+        let (o, t) = (
+            self.state_at(Some(p1), alloc),
+            self.state_at(Some(p2), alloc),
+        );
+        let rp = self.replay(Some(p1), Some(p2), &base, None, alloc);
+        let auto = crate::policy::merge_policies(&o.schema);
+        let r = &self.refs[&c.ref_id];
+        let cx = Ctx {
+            op: if c.kind == "sync" {
+                Op::Sync
+            } else {
+                Op::Merge
+            },
+            dst_main: r.name == "main",
+            dst_plan: r.kind == crate::dag::RefKind::Plan,
+            policy: None,
+            auto: &auto,
+            start: rp.start(),
+            moves: [&rp.moves[0][..], &rp.moves[1][..]],
+            uid: &uid,
+            nid: &nid,
+        };
+        let mut fresh = bases.fresh.clone();
+        let p = merge::typed(&base.st, &o, &t, &cx, &mut fresh);
+        let cuid = |n: Nid| p.uids.get(&n).copied().unwrap_or_else(|| alloc.uid(n));
+        let cand: BTreeMap<Uid, (Option<Uid>, Option<String>)> =
+            p.m.st
+                .nodes
+                .iter()
+                .filter(|(_, x)| x.live())
+                .map(|(n, x)| (cuid(*n), (x.parent.map(cuid), x.order.clone())))
+                .collect();
+        let st = self.state_at(Some(m), alloc);
+        st.nodes
+            .iter()
+            .filter(|(_, x)| x.live())
+            .filter(|(n, x)| {
+                cand.get(&alloc.uid(**n))
+                    != Some(&(x.parent.map(|q| alloc.uid(q)), x.order.clone()))
+            })
+            .map(|(n, _)| *n)
+            .collect()
+    }
+
+    /// RS-007's hierarchy inputs for a merge of `y` into `x` over `base`, `forced` being its `--base` ([RULES/merge-table]
+    /// RS-007; [AR §11] OQ-A-11 11.1): one-sided when the base's commit is `x` (the single LCA is `x`, `--base` names it,
+    /// or both are ε), and otherwise the state of the replay start R ([`Dag::replay_start`]) with each side's steps
+    /// since R.
+    // spec: [RULES/merge-table] results
+    // spec: [F12 §7.4]
+    pub fn replay(
+        &self,
+        x: Option<u64>,
+        y: Option<u64>,
+        base: &Base,
+        forced: Option<u64>,
+        alloc: &dyn Alloc,
+    ) -> Replay {
+        let one_sided = match forced {
+            Some(c) => Some(c) == x,
+            None => base.lcas.len() <= 1 && base.lcas.first().copied() == x,
+        };
+        #[cfg(test)]
+        if merge::rule() == merge::Rule::FromB {
+            return Replay {
+                one_sided: false,
+                state: base.st.clone(),
+                moves: [
+                    self.move_steps(&self.ancestors(x), &base.anc, alloc),
+                    self.move_steps(&self.ancestors(y), &base.anc, alloc),
+                ],
+            };
+        }
+        if one_sided {
+            return Replay {
+                one_sided,
+                state: Rc::new(State::default()),
+                moves: [Vec::new(), Vec::new()],
+            };
+        }
+        let (ax, ay) = (self.ancestors(x), self.ancestors(y));
+        let r = self.replay_start(&ax, &ay, &base.anc);
+        let ar = self.ancestors(r);
+        Replay {
+            one_sided,
+            state: self.state_at(r, alloc),
+            moves: [
+                self.move_steps(&ax, &ar, alloc),
+                self.move_steps(&ay, &ar, alloc),
+            ],
+        }
     }
 
     /// A(p₂) \ A(p₁) of a two-parent commit ([F12 §5.2]): the walk from p₂ stops at every member of A(p₁), whose
@@ -365,6 +477,28 @@ pub struct Base {
     pub virtual_base: bool,
 }
 
+/// RS-007's hierarchy inputs of one merge ([`Dag::replay`]).
+#[derive(Clone, Debug)]
+pub struct Replay {
+    /// The merge is one-sided: every hierarchy key takes src's value, with no replay (OQ-A-11 11.1 (A)).
+    pub one_sided: bool,
+    /// The state of the replay start R (OQ-A-11 11.1 (B)); empty when one-sided.
+    pub state: Rc<State>,
+    /// Each side's steps since R, dst's then src's; empty when one-sided.
+    pub moves: [Vec<Step>; 2],
+}
+
+impl Replay {
+    /// Where the typed merge starts the hierarchy keys ([`merge::Start`]).
+    pub fn start(&self) -> merge::Start<'_> {
+        if self.one_sided {
+            merge::Start::TakeSrc
+        } else {
+            merge::Start::State(&self.state)
+        }
+    }
+}
+
 /// The base-selection rule of I31′ with the recursive virtual base ([F12 §4.3], §5): memoised by the sorted LCA list
 /// within one merge (§5.5).
 pub struct Bases<'a> {
@@ -452,8 +586,21 @@ impl<'a> Bases<'a> {
             // VM-7: RS-007's replay from the replay start of the pair (OQ-A-11 11.1 (B)); a virtual merge's dst is no
             // ref tip, so it is never one-sided.
             let r = self.dag.replay_start(&a, &al, &ab);
+            #[cfg(test)]
+            let r = if merge::rule() == merge::Rule::FromB {
+                None
+            } else {
+                r
+            };
             let ar = self.dag.ancestors(r);
             let start = self.dag.state_at(r, self.alloc);
+            // The replay from B starts at the inner base itself (test builds only).
+            #[cfg(test)]
+            let (ar, start) = if merge::rule() == merge::Rule::FromB {
+                ((*ab).clone(), b.clone())
+            } else {
+                (ar, start)
+            };
             let (mo, mt) = (
                 self.dag.move_steps(&a, &ar, self.alloc),
                 self.dag.move_steps(&al, &ar, self.alloc),
