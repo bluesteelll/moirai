@@ -607,13 +607,17 @@ options everywhere"). This block is the plan issue that records them; the PLAN r
   fallback; the spec arbiter ruled (B) exact and its use for `--base` and the virtual base within the decision
   (`docs/spec/reviews/wave-3c-arbiter.md`); E1 to E4 and the order-only case land. Three findings stay open for the
   owner before the V3 signature: OQ-A-12 below.
-- **OQ-A-12, open** (asked in chat after wave 3c; `docs/spec/reviews/owner-questions.md`). After OQ-A-11, a `sync`
+- **OQ-A-12, decided the same day after wave 3c** ("Согласно рекомендации запиши", "record it as recommended";
+  `docs/spec/reviews/owner-questions.md`). After OQ-A-11, a `sync`
   after a resolution to `ours` that kept a side's cycle-closing move still stages (E5, on two daily paths), a
   cross-lane merge can stage a key that b, o and t all hold, where the replay from B landed (E6), and [F12 §7.2]'s "a
-  key equal in all three keeps its value" disagrees with RS-007 for hierarchy keys. Recommended: (b) such a key keeps
-  its value, with (c) a merge's resolved hierarchy keys as derived step keys, prototyped in the model in wave 3d with
-  the arbiter's random search as acceptance, before the merge table's V3 signature; (d), recording those keys, a format
-  addition, is the fallback and must be decided before the format freeze (WP-81b).
+  key equal in all three keeps its value" disagrees with RS-007 for hierarchy keys. Decided: (b) such a key keeps its
+  value, together with (c) a merge's resolved hierarchy keys as derived step keys. Wave 3d applies it before the merge
+  table's V3 signature and before the engine implements RS-007: R-MODEL prototypes both in the model, with the
+  arbiter's lockstep random search as the acceptance (E5 in both shapes and E6 land, no history stages that the replay
+  from B lands, the cycle backstop of (b) never needed or its rule stated), and changes RS-007 and open point 35;
+  R-SPEC-F changes [F12 §7.2] and the §7.4 row; a spec arbiter re-runs the search. If (c) cannot be made exact, (d),
+  recording those keys, a format addition, is the fallback and is decided before the format freeze (WP-81b).
 - **Next steps.** The owner runs a memory test before wave 3b: the host had about ten blue screens from 2026-08-17 to
   2026-09-30 with varied codes, the pattern of faulty RAM or an unstable XMP/EXPO profile. Wave 3b follows. (The owner
   declined the memory test the same day; wave 3b ran and was merged.)
