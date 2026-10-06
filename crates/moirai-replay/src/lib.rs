@@ -15,7 +15,8 @@
 //! | `oid` ([F20 §2.1–§2.4]; WP-62's acceptance) | `moirai_files::text` (`oid_of`, `analyse`, `ContentReader`), `moirai_files::oid::blob_oid` | `git hash-object` in SHA-1 and SHA-256 scratch repositories ([`git`]) | `tests/oid_git.rs` |
 //! | Rust scope scanner ([F21 §3.9]; WP-63's acceptance; [40 §8.3.4] row 8) | `moirai_files::scan` (`scan`, and `Scanner` fed in chunks) | `moirai-tsoracle`'s claimed items ([`tsoracle`], compared by [`scandiff`]), and the construction of generated sources | `tests/scan_oracle.rs` |
 //! | Markdown and TOML scope scanners ([F21 §4], §5) | `moirai_files::scan` (`scan`, and `Scanner` fed in chunks) | the construction of generated documents only: no M0 oracle has these grammars | `tests/scan_synth.rs` |
-//! | gitignore and never-candidate matchers (WP-61b) | — | `git check-ignore` | waits for WP-61b |
+//! | ignore matcher ([F20 §4.4]; WP-61b's acceptance) | `moirai_files::ignore` (`IgnoreStack::check` in `Mode::Git`, `PatternList`) | `git check-ignore --no-index`, verbose (`-v -n`) and plain, under both `core.ignorecase` values, in a scratch repository per test, over named and generated trees with virtual files (absent paths whose names hold `*`, `?` or trailing spaces and dots), and against `Mode::NoGit` on trees git's answers also decide ([`ignorediff`]) | `tests/ignore_git.rs` |
+//! | never-candidate patterns ([F20 §4.7.1], §4.7.2; WP-61b) | `moirai_files::ignore` (`matches_name_pattern`, `never_pattern`) | `git check-ignore --no-index -v` with `core.ignorecase = true`, the pattern list reversed in the root `.gitignore` ([`ignorediff::check_names`]) | `tests/ignore_git.rs` |
 //!
 //! **Where they run.** The replay job of `pr.yml` builds `moirai-tsoracle` unpoisoned and then runs this crate's
 //! tests (`cargo test --locked -p moirai-tsoracle -p moirai-replay`, `MOIRAI_TEST_TIER=pr`; `docs/m0/tools.md` §8).
@@ -39,5 +40,19 @@
 //! every crate, in their own work tree.
 
 pub mod git;
+pub mod ignorediff;
 pub mod scandiff;
 pub mod tsoracle;
+
+/// Writes `text` to the process's standard error itself, past libtest's capture, which takes only what the print
+/// macros write: a run without `--nocapture`, the replay job's and the gate's among them, shows it in its log even
+/// when the test passes. A line ending is added when `text` has none. A failed write is ignored: the log line is
+/// information, never the test's outcome.
+pub fn job_log(text: &str) {
+    use std::io::Write;
+    let mut err = std::io::stderr().lock();
+    let end = if text.ends_with('\n') { "" } else { "\n" };
+    let _ = err
+        .write_all(format!("{text}{end}").as_bytes())
+        .and_then(|()| err.flush());
+}
