@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Title | Questions that need the owner's call, raised by the author roles while closing review pass 1 |
-| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Decided 2026-10-06**: the owner accepted every recommendation ("Зафиксируй везде рекомендуемые варианты", "record the recommended options everywhere"): OQ-F-4 (a), OQ-A-1 (a), OQ-A-2 (a), OQ-A-3 (a), OQ-A-4 (a), OQ-A-5 (a), OQ-A-6 (a), OQ-A-7 (a), OQ-A-8 (c), OQ-A-9 (a), OQ-A-10 (a); each entry's Decision line names the follow-up. OQ-A-11, raised by the review of wave 3b's RS-007 change, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): 11.1 (A) together with (B), (A) alone as the fallback; 11.2 (a); 11.3 (a). **Nothing is open.** |
+| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Decided 2026-10-06**: the owner accepted every recommendation ("Зафиксируй везде рекомендуемые варианты", "record the recommended options everywhere"): OQ-F-4 (a), OQ-A-1 (a), OQ-A-2 (a), OQ-A-3 (a), OQ-A-4 (a), OQ-A-5 (a), OQ-A-6 (a), OQ-A-7 (a), OQ-A-8 (c), OQ-A-9 (a), OQ-A-10 (a); each entry's Decision line names the follow-up. OQ-A-11, raised by the review of wave 3b's RS-007 change, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): 11.1 (A) together with (B), (A) alone as the fallback; 11.2 (a); 11.3 (a); applied in wave 3c. **Open:** OQ-A-12, raised by wave 3c's spec arbiter and asked in chat on 2026-10-06. |
 | Scope | only questions that change an approved design decision or need the owner's call; runtime policy goes to config keys ([AGENTS.md]) and is not listed |
 
 Each entry names the raising role, the findings, the options and the role's recommendation. Roles append entries; ids
@@ -643,3 +643,58 @@ same day.
   and changes the model (the one-sided merge, the replay start of (B), the parent-only undo, the recursive step keys)
   with tests for E1 to E4 and the order-only case; R-SPEC-F changes [F12 §7.1] and the §7.4 row; a spec arbiter checks
   (B)'s statement.
+- **Outcome (wave 3c).** Applied as decided, with (B) and not the fallback (`spec-sync-3c.md`). The replay start R is
+  the greatest commit of A(B) ∩ A(o) ∩ A(t) that every other commit of A(o) ∪ A(t) descends from or is an ancestor of
+  (ε when none is): such commits form a chain, so R is unique, and no choice over a criss-cross arises, since R lies
+  below every LCA. The spec arbiter ruled the statement exact and its use for `--base` and the virtual base (open point
+  35 (iv)) within the decision (`wave-3c-arbiter.md`). E1 to E4 and the order-only case land; with (A) switched off in
+  the model, E1 to E3 land through (B) and E4 stages, as expected. Three findings remain for the owner: OQ-A-12 below.
+
+## 2026-10-06, wave 3c
+
+Raised by the orchestrator from the spec arbiter's check of wave 3c (`wave-3c-arbiter.md` W3C-ARB-1 to W3C-ARB-3) and
+from R-MODEL's open case E5 ([RULES/merge-table] open point 35 (v)); asked in chat.
+
+### OQ-A-12 — Spurious hierarchy stagings that OQ-A-11 leaves: E5, E6, and a key equal in b, o and t
+
+- **Raised by** R-MODEL (E5) and the wave 3c spec arbiter (W3C-ARB-1 to W3C-ARB-3). **Where** [RULES/merge-table]
+  RS-007, open point 35 (v) E5 and E6; [F12 §7.2], §7.4 row "Kleppmann steps"; [AR §3.4] I25′; GT6 (M3); the model
+  tests `suite::vcs::a_sync_after_a_merge_resolved_to_ours_stages_the_kept_move`,
+  `suite::vcs::a_sync_after_a_sync_that_kept_the_lanes_later_move_stages_it_on_every_sync` and
+  `suite::vcs::a_cross_lane_merge_after_a_resolved_sync_stages_a_key_all_three_states_hold`, which pin the results.
+- **Question.** After OQ-A-11, three kinds of history still stage a `HierarchyCycle` on a key that one side, or no
+  side, changed since the base, against I25′, which GT6's property (M3) checks:
+  (E5) a `sync` after a resolution to `ours` kept a side's cycle-closing move: after a cross-lane merge resolved to
+  `ours` ("merge another lane, resolve, sync"), and on "sync, resolve to `ours`, sync" when the lane's own move is the
+  later one, where every later sync of the lane stages the key again until the lane merges into `main`. The replay
+  meets again the cycle that the earlier resolution settled, and nothing re-asserts the kept move: the earlier merge's
+  step re-asserts only the keys the merged branch moved.
+  (E6) a cross-lane merge, after a sync whose cycle was resolved, stages a key that b, o and t all hold, with a value
+  none of them holds; the replay from B (the rule before wave 3c) landed it. The arbiter's random search found three
+  such histories in 1,950, against nine that (B) lands and the replay from B stages.
+  (W3C-ARB-3) [F12 §7.2] says that a key equal in all three keeps its value; RS-007 decides every hierarchy key. E6 is
+  where the two differ, and two engines must not read them differently. Wave 3c made the texts name the exception, so
+  the specification now says RS-007 wins; that is an interim reading, not a decision.
+- **Options.**
+  (a) Keep RS-007 as applied: E5 and E6 stay, as spurious stagings that the user resolves; I25′ is amended to exclude
+  hierarchy keys outside a one-sided merge, and GT6's I25′ property skips them.
+  (b) A hierarchy key equal in b, o and t keeps its value and is never `kleppmann-skipped`; the replay decides the
+  other hierarchy keys, and the validators' cycle check (I37′) is the backstop for a cycle the kept values close.
+  Covers E6 and W3C-ARB-3, not E5; it changes RS-007's results.
+  (c) A merge or `sync` commit is also a step for each hierarchy key that its resolutions set, the keys where its state
+  differs from the candidate its own merge computed, derived from the commit graph by recomputing that candidate (no
+  format addition; each commit's derived keys are computed once and kept, as step keys are). Covers E5 in both shapes,
+  not E6. A recomputed candidate depends on the merge rules of the format version, which is fixed within it.
+  (d) As (c), but the keys are recorded with the commit (OQ-A-11's option (D)): a format addition, so it must be decided
+  before the format freeze (WP-81b) or wait for a later format version. Covers what (c) covers.
+  (e) The broad form of OQ-A-6 (i) (OQ-A-11's option (C)): covers E5 and E6, but a routine `sync` can make a side's
+  older move beat a third branch's later one, against MR-040; rejected twice already.
+  (b) and (c) combine.
+- **Recommendation.** (b) together with (c), prototyped in the reference model in wave 3d before the merge table's V3
+  signature, with the arbiter's lockstep random search (wave 3c rule against the replay from B) as the acceptance: E5
+  in both shapes and E6 land, no history stages that the replay from B lands, and the cycle backstop of (b) is never
+  needed in the search, or its rule is stated. If (c) cannot be made exact (for example, if recomputing a commit's own
+  candidate is not well defined for some commit kind), fall back to (d) before the format freeze. (a) leaves spurious
+  structural stagings on two daily paths and weakens an invariant, against correctness and agent tokens, the binding
+  priorities.
+- **Decision.** Pending: asked in chat on 2026-10-06.

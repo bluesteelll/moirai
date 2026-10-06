@@ -16,7 +16,7 @@ check of (B)'s statement is `wave-3c-arbiter.md`. Each author role appends its o
 Rows S3C-M-1 to S3C-M-5 apply OQ-A-11 to `rules/merge-table.md`. No table changes shape, so `rules/README.md` is
 unchanged; the edited file's digest changes and it stays unsigned (V3). The model follows in the same wave (WP-91): the
 model's rule parser and reference checks pass on the edited file, and the whole model suite passes (`cargo test -p
-moirai-model --locked`: 614 passed).
+moirai-model --locked`: 614 passed; 616 after the arbiter's findings added the pins of E5's second shape and E6).
 
 | id | file § | change | source | affects |
 |---|---|---|---|---|
@@ -38,3 +38,22 @@ segment or fixture changes: the hierarchy rule is a merge function, and the mode
 | S3C-F-2 | `format/12-vcs.md` §7.1 | The inputs add whether B is state(tip dst) and the state of the replay start R; the commits whose step keys are read are each side's commits since R for a merge, `sync` or virtual merge that is not one-sided. | OQ-A-11 11.1, 11.3 | none |
 | S3C-F-3 | `format/12-vcs.md` §5.3 VM-7, §5.5 "Hierarchy cycles" | VM-7: a virtual merge replays from the replay start of its pair, over A(V_{i−1}), A(Lᵢ) and A(Bᵢ); it is never one-sided; the undo takes only the moves that changed their node's parent. §5.5: the undo takes the moves that changed their node's parent. | OQ-A-11 11.1 (B), 11.2 (a) | `moirai-model` (`Bases::vbase`) |
 | S3C-F-4 | `format/12-vcs.md` open point 32 (new) | Records wave 3c's change to the row, the coverage of (iv) through the replay start, the arbiter's check, the old guarantee (1) subsumed by the one-sided merge, and E5 left open. | OQ-A-11 | none |
+
+## Dispositions of the arbiter's findings
+
+The spec arbiter (`wave-3c-arbiter.md`) ruled (B) exact and its use for `--base` and the virtual base within the
+decision. Its findings are disposed of by the roles that own the text; W3C-ARB-1 to W3C-ARB-3 go to the owner as
+OQ-A-12 (`owner-questions.md`), asked in chat, before the merge table's V3 signature.
+
+| id | finding | disposition | where |
+|---|---|---|---|
+| W3C-ARB-1 | E6: the replay from R stages a key b, o and t all hold, where the replay from B landed | recorded as E6, pinned by `suite::vcs::a_cross_lane_merge_after_a_resolved_sync_stages_a_key_all_three_states_hold`; RS-007's guarantees name it; to the owner (OQ-A-12) | RS-007; open point 35 (v); [F12 §7.4] |
+| W3C-ARB-2 | E5 also covers "sync, resolve to `ours`, sync" with the lane's move the later one, on every sync | E5 widened, pinned by `suite::vcs::a_sync_after_a_sync_that_kept_the_lanes_later_move_stages_it_on_every_sync`; to the owner (OQ-A-12) | open point 35 (v) |
+| W3C-ARB-3 | [F12 §7.2] keeps a key equal in all three; RS-007 decides every hierarchy key | interim: [F12 §7.2] names the hierarchy exception and RS-007 states it, so the texts agree with each other and with the model; which rule wins goes to the owner (OQ-A-12) | [F12 §7.2]; RS-007; open point 35 (v) E6 |
+| W3C-ARB-4 | "otherwise R precedes the base and every commit ... that does not descend from it" is false as worded | restated as proposed | RS-007; [F12 §7.4] |
+| W3C-ARB-5 | "every merge of a branch into `main` is one-sided" fails under `--base` | the exception added | RS-007; [F12 §7.4]; open point 35 (v) |
+| W3C-ARB-6 | "the base is state(tip(dst))" reads as equal states | restated as commit identity ("the base's commit is tip(dst)") | RS-007; PR-016; [F12 §7.1], §7.4; open point 15, 35 |
+| W3C-ARB-7 | ancestors-first needs the hlc order; a native import's `hlc` is not checked | [F06 §4.4.4] cited and the sentence qualified; whether [F14]'s import checks refuse a native commit whose `hlc` does not exceed its parents' is left to R-SPEC-R (open point 35 (v) "Hlc order") | RS-007; [F12 §7.4]; open point 35 (v) |
+| W3C-ARB-8 | the record does not say how R meets "chosen over a criss-cross as I31′ chooses a base" | the reasoning and both examples added | open point 35 (v) |
+| W3C-ARB-9 | the property for R draws A(B) from the LCAs only | the property also draws `--base` naming any commit and ε | `vcs::tests::the_replay_start_meets_its_definition_on_random_dags` |
+| W3C-ARB-10 | the replay since R is not named in the work budget | named in [F12 §5.5a] and open point 35 (v)'s cost; measured when the engine implements RS-007 | [F12 §5.5a]; open point 35 (v) |
