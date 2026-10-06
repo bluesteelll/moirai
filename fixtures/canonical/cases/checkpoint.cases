@@ -18,6 +18,11 @@
 %% note value; the six member field keys are absent), a counter (the project field hits), edges and a body. The two at
 %% note keys of T -> file node sort by disc; the second anchor's uid has the first's uid as predecessor term.
 %% note The relates edge is written on the node with the greater uid (the file node's partner).
+%% note The two at-edge anchors are imported records with stated selector values (INDEX §3.4), not captures of blob
+%% note a050e26b.... Both carry the stated captured 8d98adbed974dc6c64d1e23a4302b066. It cannot be recomputed from
+%% note their current selectors ([F08 §11.5]): the first anchor was repinned after the capture that the second anchor
+%% note repeated, so [F08 §11.4] step 3 gives the second anchor the first's uid as its predecessor term (the second
+%% note anchor too was repinned after its capture). The uids follow [F08 §11.4] from captured and pred.
 %% p-state
 %% q-state
 node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
@@ -227,6 +232,8 @@ fdfc9772c5cccc86012e5e3260e7b1291b48918a1eb02c8bfce15492f8cbe0be
 %% source [F07 §6.6] symmetric kinds
 %% note As case checkpoint-first with the relates edge written on the node with the smaller uid: the same key,
 %% note entries and commit id.
+%% note The at-edge anchors are checkpoint-first's imported records with stated selector values and the stated
+%% note captured (see its notes; INDEX §3.4).
 %% p-state
 %% q-state
 node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
@@ -438,6 +445,8 @@ fdfc9772c5cccc86012e5e3260e7b1291b48918a1eb02c8bfce15492f8cbe0be
 %% note A checkpoint with the previous checkpoint as its parent. Between the two checkpoints the observation
 %% note conflict was resolved: the observation key becomes absent and the six member field keys take values.
 %% note The root node's path_moves gains an entry; the counter delta is +2.
+%% note The at-edge anchors, unchanged, are checkpoint-first's imported records with stated selector values and the
+%% note stated captured (see its notes; INDEX §3.4).
 %% p-state
 node 5bd0e29e6afc4a73557e4cbdf7d34c33 area
   field path_moves set pathmove 1 01a0c22b1b000000 explicit project "docs/plans/" project "docs/archive/plans/" sha1:b1e43ababc3315b634950b80ef5beb4d73c766be

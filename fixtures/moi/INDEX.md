@@ -142,7 +142,7 @@ An `.expect` file uses the framing of `fixtures/canonical/INDEX.md` §2.1 (UTF-8
 | superset inputs | `superset/trailing-sp.moi` | Item 3: SP and HT at the end of every line outside the block and the body. |
 | superset inputs | `tree/root-extra/` | Root entries outside the layout are ignored. |
 
-The group `ledgers` is `tree/project-schema/` (two counters, several lines, a negative delta, tokens that are not commit ids) with `node/task.moi` and `node/note.moi`; the project kind of `node kinds` is the same tree's `experiment` nodes. The anchor digests, `captured` values and anchor uids are derived by [F08 §11.4] over the stated texts; the `window` and `span` values are stated values of the record, not derived from file content (as in `fixtures/canonical/INDEX.md` §7 G-5).
+The group `ledgers` is `tree/project-schema/` (two counters, several lines, a negative delta, tokens that are not commit ids) with `node/task.moi` and `node/note.moi`; the project kind of `node kinds` is the same tree's `experiment` nodes. The anchor digests, `captured` values and anchor uids are derived by [F08 §11.4] over the stated texts; the texts themselves and the `hint`, `occurrence`, `window` and `span` values are stated values of the record, not the output of a [F20 §6.1] capture over any file content, and no capture or resolve check applies to them (as in `fixtures/canonical/INDEX.md` §3.4 and §7 G-5).
 
 ### 4.2 `ImageParse` rules and negatives
 
