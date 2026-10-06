@@ -568,7 +568,8 @@ options everywhere"). This block is the plan issue that records them; the PLAN r
 - **OQ-A-6 (a).** RS-007 takes Option A, with case (i) in its narrow form and (ii) and (iii) as stated. In wave 3b,
   before the merge table's V3 signature and before the engine implements RS-007, R-MODEL changes RS-007, open point 35
   and the model (`move_steps`, pick replay, `kleppmann` undo; three tests flip, one property widens), and R-SPEC-F
-  changes the [F12 §7.4] row.
+  changes the [F12 §7.4] row. Outcome in wave 3b: two of the three named tests flipped; the third case (E2) and a worse
+  one found by the review (E1) are OQ-A-11's.
 - **OQ-A-7 (a), new.** Owner decision #33 ("no erase: retract and rotate; bodies droppable by hash without changing
   commit ids") is not yet in the format chapters. The spec roles specify it before the format freeze: bodies addressed
   by hash, a record that a body was dropped, readers render the dropped body, commit ids unchanged. Deferring it to a
@@ -595,8 +596,17 @@ options everywhere"). This block is the plan issue that records them; the PLAN r
   (it must occur exactly once; an empty `$old` is refused; an E404 reason "occurs N times"), a deterministic "similar"
   notice after knowledge writes, and the token-usage rule (input + cache_read + cache_creation; never double-count
   Codex cached input).
+- **OQ-A-11, decided the same day after wave 3b** ("Согласно рекомендации запиши", "record it as recommended"). The
+  narrow form of OQ-A-6 leaves spurious stagings on the merge into `main` (open point 35 (v), E1 to E4). 11.1: (A) a
+  merge whose dst tip is the base takes src's hierarchy values without a replay, together with (B) a replay that starts
+  from a commit every commit of both sides descends from; (A) alone if R-MODEL cannot state (B) exactly before the
+  merge table's V3 signature. 11.2: the undo takes only moves that change their node's parent. 11.3: "moved" reads
+  "is a step key of", recursively. Wave 3c applies it (R-MODEL: the rules, PR-016 and the model, with tests for E1 to E4
+  and the order-only case; R-SPEC-F: [F12 §7.1] and §7.4; a spec arbiter checks (B)) before the V3 signature and before
+  the engine implements RS-007.
 - **Next steps.** The owner runs a memory test before wave 3b: the host had about ten blue screens from 2026-08-17 to
-  2026-09-30 with varied codes, the pattern of faulty RAM or an unstable XMP/EXPO profile. Wave 3b follows.
+  2026-09-30 with varied codes, the pattern of faulty RAM or an unstable XMP/EXPO profile. Wave 3b follows. (The owner
+  declined the memory test the same day; wave 3b ran and was merged.)
 
 ## 6. Changes
 
