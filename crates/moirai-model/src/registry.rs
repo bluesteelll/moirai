@@ -731,6 +731,13 @@ pub const DEFS: &[Def] = &[
         Val("500000"),
         I,
     ),
+    def(
+        "knowledge.owner-authority",
+        Ty::Enum(&["orchestrator-active", "strict"]),
+        Val("orchestrator-active"),
+        V,
+    ),
+    def("knowledge.similar-notice", Ty::Bool, Val("true"), O),
     // §10.6 File links (R4).
     def(
         "files.policy.auto",
@@ -853,6 +860,12 @@ pub const DEFS: &[Def] = &[
         Ty::Int(1, 1_000_000),
         Val("2000"),
         O,
+    ),
+    def(
+        "hooks.subagent-stop.triage-max-bytes",
+        Ty::Size(256, 64 * KIB),
+        Val("4000"),
+        X,
     ),
     // §10.8 Agent tokens and output.
     def(

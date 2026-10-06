@@ -99,8 +99,20 @@ pub struct Refusal {
     pub exit: u8,
     /// The code-specific keys of [F19 §10.3] and [LQ/errors §5.7], in their order.
     pub keys: Vec<(String, Kv)>,
-    /// One line naming what refused, for tests and triage; never compared.
+    /// One line naming what refused, for tests and triage; never compared. For an LQ code it is the message, line 1
+    /// of [LQ/errors §2.1].
     pub detail: String,
+    /// The detail lines and the help that follow the message ([LQ/errors §2.1]), for tests and triage; never compared.
+    pub more: Option<Box<More>>,
+}
+
+/// The detail lines and the `= help:` text of a refusal ([LQ/errors §2.1]).
+#[derive(Clone, PartialEq, Eq, Debug, Default)]
+pub struct More {
+    /// The detail lines, in order.
+    pub lines: Vec<String>,
+    /// The help text.
+    pub help: Option<String>,
 }
 
 /// Every code of [LQ/errors §5.1] with its name and exit code, transcribed row for row (E008 and E307 are not
@@ -177,7 +189,30 @@ impl Refusal {
             exit,
             keys: Vec::new(),
             detail: detail.into(),
+            more: None,
         }
+    }
+
+    /// Appends a detail line ([LQ/errors §2.1]).
+    pub fn line(mut self, l: impl Into<String>) -> Refusal {
+        self.more.get_or_insert_default().lines.push(l.into());
+        self
+    }
+
+    /// Sets the help text ([LQ/errors §2.1]).
+    pub fn help(mut self, h: impl Into<String>) -> Refusal {
+        self.more.get_or_insert_default().help = Some(h.into());
+        self
+    }
+
+    /// The detail lines ([LQ/errors §2.1]).
+    pub fn lines(&self) -> &[String] {
+        self.more.as_ref().map_or(&[], |m| &m.lines)
+    }
+
+    /// The help text ([LQ/errors §2.1]).
+    pub fn help_text(&self) -> Option<&str> {
+        self.more.as_ref().and_then(|m| m.help.as_deref())
     }
 
     /// Appends a code-specific key.

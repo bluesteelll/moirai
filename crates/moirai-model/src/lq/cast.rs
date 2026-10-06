@@ -15,6 +15,19 @@ pub type BindingId = u32;
 /// A node uid ([F01 §5.6] `b16`).
 pub type Uid = [u8; 16];
 
+/// The field an `ENUM` constant is a value of: the kind whose field declares the value (`*` for a common row) and the
+/// field ([LQ/canonical-ast §5.5]: the binder coerces a constant to the enum of its use site). The evaluator ranks the
+/// constant in that field, so that it orders with the field's stored values by declared rank ([50 §3.5]). The
+/// annotation is the binder's, not part of the canonical form: the encoding, the S-expression form and C-AST equality
+/// read the declared name only.
+#[derive(Clone, Debug, Default)]
+pub struct EnumOf {
+    /// The kind name, or `*`.
+    pub kind: String,
+    /// The field name.
+    pub field: String,
+}
+
 /// A full commit id ([F01 §5.6] `b32`).
 pub type CommitId = [u8; 32];
 
@@ -287,8 +300,8 @@ pub enum CExpr {
     Timestamp(i64),
     /// `NODE` (0x57).
     Node(Uid),
-    /// `ENUM` (0x58).
-    Enum(String),
+    /// `ENUM` (0x58): the declared name, with the field the binder coerced it to (not encoded, [`EnumOf`]).
+    Enum(String, Box<EnumOf>),
     /// `RANGEINT` (0x59).
     RangeInt(Option<i64>, Option<i64>),
     /// `RHEAD` (0x60).
@@ -349,6 +362,47 @@ impl CExpr {
         }
     }
 
+    /// Calls `f` on each direct sub-expression of the node, in encoding order: operands, call arguments, list and map
+    /// elements, a `CASE`'s subject, arms and else, a list predicate's list and predicate. A subquery (`EXISTS {}`,
+    /// `COUNT {}`) is a scope of its own and is not entered.
+    pub fn each_operand(&self, f: &mut dyn FnMut(&CExpr)) {
+        match self {
+            CExpr::Or(l, r)
+            | CExpr::And(l, r)
+            | CExpr::Cmp(_, l, r)
+            | CExpr::In(l, r)
+            | CExpr::StrPred(_, l, r)
+            | CExpr::Arith(_, l, r)
+            | CExpr::RRange(l, _, r)
+            | CExpr::ListPred(_, _, l, r) => {
+                f(l);
+                f(r);
+            }
+            CExpr::Not(x)
+            | CExpr::IsNull(_, x)
+            | CExpr::LabelTest(x, _)
+            | CExpr::Neg(x)
+            | CExpr::Prop(x, _)
+            | CExpr::RSuf(x, _, _) => f(x),
+            CExpr::Func(_, _, args) => args.iter().for_each(|a| f(&a.value)),
+            CExpr::List(v) | CExpr::RList(v) => v.iter().for_each(&mut *f),
+            CExpr::Map(v) => v.iter().for_each(|(_, x)| f(x)),
+            CExpr::Case(subject, arms, other) => {
+                if let Some(x) = subject {
+                    f(x);
+                }
+                for (w, t) in arms {
+                    f(w);
+                    f(t);
+                }
+                if let Some(x) = other {
+                    f(x);
+                }
+            }
+            _ => {}
+        }
+    }
+
     /// The node with its first operand replaced by `first`, the rest cloned; `None` when it has none.
     fn with_first_operand(&self, first: CExpr) -> Option<CExpr> {
         let a = Box::new(first);
@@ -391,7 +445,7 @@ impl CExpr {
             CExpr::Duration(n) => CExpr::Duration(*n),
             CExpr::Timestamp(n) => CExpr::Timestamp(*n),
             CExpr::Node(u) => CExpr::Node(*u),
-            CExpr::Enum(s) => CExpr::Enum(s.clone()),
+            CExpr::Enum(s, of) => CExpr::Enum(s.clone(), of.clone()),
             CExpr::RangeInt(a, b) => CExpr::RangeInt(*a, *b),
             CExpr::RHead => CExpr::RHead,
             CExpr::RRef(s) => CExpr::RRef(s.clone()),
@@ -438,7 +492,7 @@ impl CExpr {
             | (CExpr::Timestamp(a), CExpr::Timestamp(b)) => a == b,
             (CExpr::Float(a), CExpr::Float(b)) => a == b,
             (CExpr::Text(a), CExpr::Text(b))
-            | (CExpr::Enum(a), CExpr::Enum(b))
+            | (CExpr::Enum(a, _), CExpr::Enum(b, _))
             | (CExpr::RRef(a), CExpr::RRef(b)) => a == b,
             (CExpr::Node(a), CExpr::Node(b)) => a == b,
             (CExpr::RangeInt(a1, b1), CExpr::RangeInt(a2, b2)) => a1 == a2 && b1 == b2,
@@ -1428,7 +1482,7 @@ impl<S: Sink> Writer<S> {
                 self.sink.b16(u);
                 self.sink.end();
             }
-            CExpr::Enum(s) => {
+            CExpr::Enum(s, _) => {
                 self.sink.tag(0x58, "ENUM");
                 self.sink.str(s);
                 self.sink.end();
@@ -1734,7 +1788,7 @@ mod tests {
                             Box::new(CExpr::Cmp(
                                 1,
                                 Box::new(CExpr::Prop(v(), "status".into())),
-                                Box::new(CExpr::Enum("open".into())),
+                                Box::new(CExpr::Enum("open".into(), Box::default())),
                             )),
                             Box::new(CExpr::Cmp(
                                 4,

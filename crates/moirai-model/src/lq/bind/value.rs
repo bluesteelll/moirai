@@ -150,6 +150,31 @@ impl Binder<'_> {
         (ci.len() == 1).then(|| ci[0].clone())
     }
 
+    /// The `ENUM` constant of a declared value of an enum type, with the field it is a value of: the first kind of the
+    /// type whose field declares the value, else the common rows (`*`), so that the evaluator ranks it in that field
+    /// ([`EnumOf`]; [50 §3.5]).
+    // spec: [LQ/canonical-ast §5.5] coercion
+    fn enum_const(&self, e: &EnumTy, name: String) -> CExpr {
+        let s = self.ctx.schema;
+        let kind = e
+            .kinds
+            .iter()
+            .find(|k| {
+                s.enum_values(Some(*k), &e.field)
+                    .iter()
+                    .any(|v| v.name == name)
+            })
+            .and_then(|k| s.kinds.get(k))
+            .map_or_else(|| "*".to_string(), |k| k.name.clone());
+        CExpr::Enum(
+            name,
+            Box::new(EnumOf {
+                kind,
+                field: e.field.clone(),
+            }),
+        )
+    }
+
     /// A priority word or number: `P<n>` or `n` naming a declared value `P<n>` ([F08 §8.4.4]).
     fn priority_of(&self, e: &EnumTy, word: &str) -> Option<i64> {
         let digits = word.strip_prefix(['P', 'p']).unwrap_or(word);
@@ -243,6 +268,74 @@ impl Binder<'_> {
             .map_or(self.all_kinds(), KindSet::one)
     }
 
+    /// A requested-ids argument of a `SHAPE detail` query without the ids this store does not know, each recorded for
+    /// the executor's N12 ([LQ/errors] open point 6: the `show` family never raises E111 for its ids). `list` reads a
+    /// `list<node>` value (a list, or comma-separated text); a single `node` that is unknown becomes `NULL`.
+    // spec: [LQ/errors] open point 6
+    pub(super) fn known_ids(&mut self, v: &Value, list: bool) -> Value {
+        let known = |b: &mut Self, t: &str| -> bool {
+            let unknown = match node_text(t) {
+                Some(NodeRef::Num(n)) => b.ctx.ids.uid(n).is_none().then(|| format!("#{n}")),
+                Some(NodeRef::Uid(u)) => b
+                    .ctx
+                    .ids
+                    .nid(&u)
+                    .is_none()
+                    .then(|| format!("#u:{}", hex(&u))),
+                // Not an id at all: E110 when it converts.
+                None => None,
+            };
+            match unknown {
+                Some(id) => {
+                    if !b.unknown_ids.contains(&id) {
+                        b.unknown_ids.push(id);
+                    }
+                    false
+                }
+                None => true,
+            }
+        };
+        match v {
+            Value::Int(n) => {
+                if known(self, &n.to_string()) {
+                    v.clone()
+                } else if list {
+                    Value::List(Vec::new())
+                } else {
+                    Value::Null
+                }
+            }
+            Value::Text(t) if list => {
+                let kept: Vec<Value> = t
+                    .split(',')
+                    .filter(|p| !p.is_empty())
+                    .filter(|p| known(self, p))
+                    .map(|p| Value::Text(p.to_string()))
+                    .collect();
+                Value::List(kept)
+            }
+            Value::Text(t) => {
+                if known(self, t) {
+                    v.clone()
+                } else {
+                    Value::Null
+                }
+            }
+            Value::List(items) if list => Value::List(
+                items
+                    .iter()
+                    .filter(|x| match x {
+                        Value::Int(n) => known(self, &n.to_string()),
+                        Value::Text(t) => known(self, t),
+                        _ => true,
+                    })
+                    .cloned()
+                    .collect(),
+            ),
+            _ => v.clone(),
+        }
+    }
+
     // ----- literals and bare words ---------------------------------------------------------------------------------
 
     /// An integer literal typed by its use site: a priority, a sequence number, a node, or an `INT`.
@@ -287,7 +380,7 @@ impl Binder<'_> {
                         return (CExpr::Int(p), Ty::Enum(e.clone()));
                     }
                 } else if let Some(v) = self.enum_lookup(e, s) {
-                    return (CExpr::Enum(v), Ty::Enum(e.clone()));
+                    return (self.enum_const(e, v), Ty::Enum(e.clone()));
                 }
                 self.not_a_value(e, &printer::string_lit(s), s, span, false);
                 (CExpr::Null, Ty::Any)
@@ -344,7 +437,7 @@ impl Binder<'_> {
                         return (CExpr::Int(p), Ty::Enum(e.clone()));
                     }
                 } else if let Some(v) = self.enum_lookup(e, w) {
-                    return (CExpr::Enum(v), Ty::Enum(e.clone()));
+                    return (self.enum_const(e, v), Ty::Enum(e.clone()));
                 }
                 self.not_a_value(e, w, w, span, true);
                 (CExpr::Null, Ty::Any)
@@ -541,7 +634,7 @@ impl Binder<'_> {
                     }
                 } else {
                     match self.enum_lookup(e, t) {
-                        Some(x) => (CExpr::Enum(x), want.clone()),
+                        Some(x) => (self.enum_const(e, x), want.clone()),
                         None => self.bad_value(name, want, v, span),
                     }
                 }

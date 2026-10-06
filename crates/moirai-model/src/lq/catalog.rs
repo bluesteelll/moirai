@@ -997,7 +997,7 @@ pub fn mutation(name: &str) -> Option<&'static Mutation> {
 }
 
 /// The definitions of the standard library, [LQ/std §4]–§6, byte for byte.
-pub const STD_TEXTS: [&str; 40] = [
+pub const STD_TEXTS: [&str; 45] = [
     r#"DEFINE QUERY ready($scope: node? = NULL, $role: text? = NULL, $limit: int = 20) SHAPE node BUDGET light AS {
   MATCH (t:task)
   WHERE t.ready
@@ -1167,6 +1167,14 @@ pub const STD_TEXTS: [&str; 40] = [
   CALL root_moves($root) YIELD hlc, class, from, to, git
   RETURN hlc, class, from, to, git ORDER BY hlc, from, to
 }"#,
+    r#"DEFINE QUERY proposed($scope: node? = NULL, $kind: text? = NULL, $limit: int = 50) SHAPE node BUDGET light AS {
+  MATCH (k:rule|decision)
+  WHERE k.status = 'proposed'
+    AND ($kind IS NULL OR k.kind = $kind)
+    AND ($scope IS NULL OR k IN subtree($scope)
+         OR EXISTS { (k)-[:ABOUT]->(x) WHERE x IN subtree($scope) })
+  RETURN k ORDER BY k.created DESC, k.id DESC LIMIT $limit
+}"#,
     r#"DEFINE QUERY pack_header($target: node) SHAPE table BUDGET light AS {
   CALL refs() YIELD name, kind, tip, seq, ahead, behind, fork, staged
   WHERE name = view_ref() OR (kind = 'merge' AND name CONTAINS view_ref())
@@ -1181,12 +1189,26 @@ pub const STD_TEXTS: [&str; 40] = [
     AND (applies_role(r, $role) OR ($phase IS NOT NULL AND applies_phase(r, $phase)))
   RETURN r ORDER BY r.criticality, r.authority, r.id
 }"#,
+    r#"DEFINE QUERY pack_rules_proposed($role: text, $phase: text? = NULL) SHAPE node BUDGET light AS {
+  MATCH (r:rule)
+  WHERE r.status = 'proposed'
+    AND (applies_role(r, $role) OR ($phase IS NOT NULL AND applies_phase(r, $phase)))
+  RETURN r ORDER BY r.criticality, r.authority, r.id
+}"#,
     r#"DEFINE QUERY pack_rules_unmerged($role: text) SHAPE node BUDGET light AS {
   USE main
   CALL diff(HEAD...main) YIELD node, side
   WHERE side IN ['theirs', 'both']
   MATCH (r:rule)
   WHERE r = node AND r.status = 'active' AND r.criticality = 'critical' AND applies_role(r, $role)
+  RETURN DISTINCT r ORDER BY r.criticality, r.authority, r.id
+}"#,
+    r#"DEFINE QUERY pack_rules_unmerged_proposed($role: text) SHAPE node BUDGET light AS {
+  USE main
+  CALL diff(HEAD...main) YIELD node, side
+  WHERE side IN ['theirs', 'both']
+  MATCH (r:rule)
+  WHERE r = node AND r.status = 'proposed' AND r.criticality = 'critical' AND applies_role(r, $role)
   RETURN DISTINCT r ORDER BY r.criticality, r.authority, r.id
 }"#,
     r#"DEFINE QUERY pack_target($target: node) SHAPE node BUDGET medium AS {
@@ -1200,7 +1222,12 @@ pub const STD_TEXTS: [&str; 40] = [
   RETURN q AS node, 'question' AS why
   UNION
   MATCH (k)-[:ABOUT]->(x) WHERE x IN subtree($target) AND k.authority = 'owner'
+    AND NOT (k.kind IN ['rule', 'decision'] AND k.status = 'proposed')
   RETURN k AS node, 'ruling' AS why
+  UNION
+  MATCH (k:rule|decision)-[:ABOUT]->(x)
+  WHERE x IN subtree($target) AND k.authority = 'owner' AND k.status = 'proposed'
+  RETURN k AS node, 'proposed ruling' AS why
   UNION
   MATCH (t)-[:AT]->(f:artifact) WHERE t = $target
   RETURN f AS node, 'link' AS why
@@ -1248,6 +1275,19 @@ pub const STD_TEXTS: [&str; 40] = [
   WHERE k.status = 'active' AND glob_match(f.path, g)
   RETURN DISTINCT k AS node
 }"#,
+    r#"DEFINE QUERY pack_hazards_proposed($target: node) SHAPE node BUDGET medium AS {
+  MATCH (t:task) WHERE t = $target
+  UNWIND t.files_owned AS g
+  MATCH (k:rule)
+  WHERE k.status = 'proposed' AND coalesce(size(k.applies_to), 0) > 0 AND applies(k, g)
+  RETURN DISTINCT k AS node
+  UNION
+  MATCH (t:task) WHERE t = $target
+  UNWIND t.files_owned AS g
+  MATCH (k:rule|decision)-[:AT]->(f:artifact)
+  WHERE k.status = 'proposed' AND glob_match(f.path, g)
+  RETURN DISTINCT k AS node
+}"#,
     r#"DEFINE QUERY brief_lanes() SHAPE node BUDGET light AS {
   MATCH (l:lane) WHERE l.status IN ['active', 'ready_to_merge', 'merge_pending', 'measuring', 'frozen']
   RETURN l AS node, 'lane' AS why
@@ -1273,6 +1313,13 @@ pub const STD_TEXTS: [&str; 40] = [
   MATCH (v:verdict) WHERE v.created > $since
   RETURN v ORDER BY v.created, v.id
 }"#,
+    r#"DEFINE QUERY brief_proposed($scope: node? = NULL) SHAPE node BUDGET light AS {
+  MATCH (k:rule|decision)
+  WHERE k.status = 'proposed'
+    AND ($scope IS NULL OR k IN subtree($scope)
+         OR EXISTS { (k)-[:ABOUT]->(x) WHERE x IN subtree($scope) })
+  RETURN k ORDER BY k.created DESC, k.id DESC
+}"#,
 ];
 
 /// A standard or project named query, ready to be called ([LQ/std §2]).
@@ -1290,6 +1337,10 @@ pub struct NamedQuery {
     pub define: Define,
     /// The definition's C-AST (bound against the core schema).
     pub cast: CDefine,
+    /// The written name of each binding of the definition, by binding id.
+    pub names: Vec<String>,
+    /// It reads tree-derived state ([LQ/std §2.8] item 4).
+    pub tree: bool,
 }
 
 /// Builds a named query from its definition text; `None` when it does not parse or bind.
@@ -1304,13 +1355,23 @@ pub fn named_query_checked(
     text: &str,
     schema: &Schema,
 ) -> Result<NamedQuery, Vec<Diag>> {
+    named_query_in(qname, text, schema, &MapIds::new())
+}
+
+/// [`named_query_checked`] against a store's identity maps: a project definition's portable text names nodes by uid
+/// ([LQ/canonical-ast §8.1]), which bind to the store's `#N`.
+pub fn named_query_in(
+    qname: &str,
+    text: &str,
+    schema: &Schema,
+    ids: &dyn crate::lq::ctx::Identities,
+) -> Result<NamedQuery, Vec<Diag>> {
     let d = parse_define(text, ParseOptions::default())?.tree;
-    let ids = MapIds::new();
     let prm = Params::new();
     let caller = Caller::default();
     let ctx = BindCtx {
         schema,
-        ids: &ids,
+        ids,
         params: &prm,
         caller: &caller,
     };
@@ -1335,6 +1396,8 @@ pub fn named_query_checked(
         live: b.live,
         define: d,
         cast: b.ast,
+        names: b.names,
+        tree: b.tree,
     })
 }
 

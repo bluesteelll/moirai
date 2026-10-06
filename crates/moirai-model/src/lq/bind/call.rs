@@ -6,7 +6,7 @@ use super::{AggPos, BKind, Binder};
 use crate::lq::ast::*;
 use crate::lq::cast::*;
 use crate::lq::catalog::{self, PT, RelClass, Ty};
-use crate::lq::ctx::{BindCtx, Caller, MapIds, Params};
+use crate::lq::ctx::{BindCtx, Caller, Params};
 use crate::lq::diag::{Code, Diag, Span, near, q};
 use crate::lq::parser::{ParseOptions, parse_define};
 use std::cell::RefCell;
@@ -26,6 +26,10 @@ pub(super) struct Sig {
     pub class: Option<RelClass>,
     /// A named query that reads runtime or tree-derived state.
     pub live: bool,
+    /// A named query that reads tree-derived state ([LQ/std §2.8] item 4).
+    pub tree: bool,
+    /// A named query of `SHAPE detail`, whose requested ids never raise E111 ([LQ/errors] open point 6).
+    pub detail: bool,
 }
 
 impl Sig {
@@ -45,6 +49,8 @@ impl Sig {
             named: false,
             class: Some(r.class),
             live: false,
+            tree: false,
+            detail: false,
         }
     }
 
@@ -56,6 +62,8 @@ impl Sig {
             named: true,
             class: None,
             live: q.live,
+            tree: q.tree,
+            detail: is_detail(q.define.shape.as_ref()),
         }
     }
 
@@ -89,6 +97,11 @@ pub(super) enum Callee {
     Unknown,
     /// A project query that cannot be called: the E109 text.
     Refused(String),
+}
+
+/// Whether a definition's `SHAPE` is `detail` ([LQ/envelope §5.6]; shape words compare without case, [LQ/lexical §9]).
+fn is_detail(shape: Option<&Name>) -> bool {
+    shape.is_some_and(|s| s.text.eq_ignore_ascii_case("detail"))
 }
 
 /// The name after an ASCII-case-insensitive `std.` prefix ([LQ/lexical §9]), if the name has one and something after
@@ -180,8 +193,9 @@ impl Binder<'_> {
         }
     }
 
-    /// Parses and binds a project definition (as [LQ/std §2.1] binds a callee: the view's schema, no store ids, no
-    /// parameters) and reads its signature, or the E109 text naming its first error ([F19 §12.5.3]).
+    /// Parses and binds a project definition (as [LQ/std §2.1] binds a callee: the view's schema, the store's ids — a
+    /// stored text names nodes by uid, [LQ/canonical-ast §8.1] — and no parameters) and reads its signature, or the
+    /// E109 text naming its first error ([F19 §12.5.3]).
     fn bind_project_definition(&mut self, name: &str, text: &str) -> Result<Sig, String> {
         let invalid = |e: &[Diag]| {
             let first = e
@@ -195,10 +209,10 @@ impl Binder<'_> {
         let d = parse_define(text, ParseOptions::default())
             .map_err(|e| invalid(&e))?
             .tree;
-        let (ids, params, caller) = (MapIds::new(), Params::new(), Caller::default());
+        let (params, caller) = (Params::new(), Caller::default());
         let ctx = BindCtx {
             schema: self.ctx.schema,
-            ids: &ids,
+            ids: self.ctx.ids,
             params: &params,
             caller: &caller,
         };
@@ -228,6 +242,8 @@ impl Binder<'_> {
             named: true,
             class: None,
             live: bound.live,
+            tree: bound.tree,
+            detail: is_detail(d.shape.as_ref()),
         })
     }
 
@@ -462,7 +478,7 @@ impl Binder<'_> {
                 "runtime or tree-derived state",
                 &sig.proc,
                 span,
-                false,
+                sig.tree,
                 None,
             );
         }
@@ -653,11 +669,20 @@ impl Binder<'_> {
             }
         };
         let mut slots: Vec<Option<CArg>> = vec![None; sig.params.len()];
+        self.detail = sig.detail;
         for (k, v) in &self.ctx.params.0 {
             match sig.params.iter().position(|p| p.0 == *k) {
                 Some(i) => {
                     let want = sig.params[i].1.ty(self.all_kinds());
-                    let (c, _) = self.convert(v, Some(&want), k, span);
+                    // [LQ/errors] open point 6: the requested ids of a `SHAPE detail` query that this store does not
+                    // know are no E111; they leave the arguments and the executor reports each by N12.
+                    let v = match sig.params[i].1 {
+                        PT::Node | PT::ListNode if sig.detail => {
+                            self.known_ids(v, sig.params[i].1 == PT::ListNode)
+                        }
+                        _ => v.clone(),
+                    };
+                    let (c, _) = self.convert(&v, Some(&want), k, span);
                     slots[i] = Some(CArg {
                         name: Some(k.clone()),
                         value: c,

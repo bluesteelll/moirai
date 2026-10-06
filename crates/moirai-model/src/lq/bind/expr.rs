@@ -718,6 +718,10 @@ impl Binder<'_> {
         (CExpr::Arith(code, Box::new(lc), Box::new(rc)), t)
     }
 
+    /// `CASE` ([LQ/canonical-ast §5.5]): the conditions are compared with the subject (or are boolean), and the result
+    /// arms take one type ([`Self::one_typed`]), so `CASE WHEN c THEN 'normal' ELSE r.criticality END` holds the enum
+    /// value `normal` whichever arm comes first.
+    // spec: [LQ/canonical-ast §5.5] coercion
     fn case(
         &mut self,
         subject: Option<&Expr>,
@@ -726,7 +730,9 @@ impl Binder<'_> {
         want: Option<&Ty>,
     ) -> (CExpr, Ty) {
         let subj = subject.map(|s| self.expr(s, None));
-        let mut arms = Vec::with_capacity(whens.len());
+        let results: Vec<&Expr> = whens.iter().map(|w| &w.then).chain(else_).collect();
+        let mut bound: Vec<Option<CExpr>> = Vec::with_capacity(results.len());
+        let mut conds = Vec::with_capacity(whens.len());
         let mut ty = Ty::Null;
         for w in whens {
             let c = match &subj {
@@ -748,33 +754,53 @@ impl Binder<'_> {
                 }
                 None => self.operand_bool(&w.cond, "WHEN"),
             };
-            let hint = if ty == Ty::Null {
-                want.cloned()
-            } else {
-                Some(ty.clone())
-            };
-            let (t, tt) = self.expr(&w.then, hint.as_ref());
-            if ty == Ty::Null {
-                ty = tt;
-            }
-            arms.push((c, t));
+            conds.push(c);
+            bound.push(self.one_typed(&w.then, want, &mut ty));
         }
-        let e = else_.map(|x| {
-            let hint = if ty == Ty::Null {
-                want.cloned()
-            } else {
-                Some(ty.clone())
-            };
-            let (c, t) = self.expr(x, hint.as_ref());
-            if ty == Ty::Null {
-                ty = t;
+        if let Some(x) = else_ {
+            bound.push(self.one_typed(x, want, &mut ty));
+        }
+        // The coercible arms that waited, in written order: each takes the decided type; when no arm decided it, the
+        // first of them decides it from the use site.
+        for (slot, x) in bound.iter_mut().zip(&results) {
+            if slot.is_none() {
+                *slot = Some(self.typed(x, want, &mut ty));
             }
-            Box::new(c)
-        });
+        }
+        let mut bound = bound.into_iter().map(|c| c.unwrap_or(CExpr::Null));
+        let arms = conds.into_iter().zip(bound.by_ref()).collect();
+        let e = else_.and(bound.next()).map(Box::new);
         (
             CExpr::Case(subj.map(|(c, _)| Box::new(c)), arms, e),
             if ty == Ty::Null { Ty::Any } else { ty },
         )
+    }
+
+    /// One of several operands that take one type — the result arms of a `CASE`, the arguments of `coalesce`
+    /// ([LQ/canonical-ast §5.5]): the first operand that is not coercible decides the type, as a comparison's coercible
+    /// side takes the other side's type. A coercible operand met before the type is decided waits for it (`None`; it
+    /// allocates no binding, so the binder's order of bindings is kept); every other operand is bound now.
+    // spec: [LQ/canonical-ast §5.5] coercion
+    fn one_typed(&mut self, x: &Expr, want: Option<&Ty>, ty: &mut Ty) -> Option<CExpr> {
+        if *ty == Ty::Null && self.coercible(x) {
+            return None;
+        }
+        Some(self.typed(x, want, ty))
+    }
+
+    /// An operand of [`Self::one_typed`] bound with the decided type, else the use site's; the first operand bound
+    /// decides the type.
+    fn typed(&mut self, x: &Expr, want: Option<&Ty>, ty: &mut Ty) -> CExpr {
+        let hint = if *ty == Ty::Null {
+            want.cloned()
+        } else {
+            Some(ty.clone())
+        };
+        let (c, t) = self.expr(x, hint.as_ref());
+        if *ty == Ty::Null {
+            *ty = t;
+        }
+        c
     }
 
     // ----- properties ----------------------------------------------------------------------------------------------
@@ -1232,10 +1258,14 @@ impl Binder<'_> {
         if f.agg {
             self.agg = AggPos::Nested;
         }
-        let mut out = Vec::with_capacity(args.len());
-        let mut types = Vec::with_capacity(args.len());
+        // `coalesce`'s arguments take one type, as a `CASE`'s arms do ([`Self::one_typed`]): the first argument that is
+        // not coercible decides it, and a coercible argument met before then waits for it.
+        let coalesce = canonical == "coalesce";
+        let mut decided: Option<Ty> = None;
+        let mut slots: Vec<Option<(CExpr, Ty)>> = Vec::with_capacity(args.len());
+        let mut waiting: Vec<(usize, Option<Ty>)> = Vec::new();
         let mut pos = 0;
-        for a in args {
+        for (ai, a) in args.iter().enumerate() {
             let param = match &a.name {
                 Some(n) => match f.params.iter().find(|p| p.name == n.text) {
                     Some(p) => Some(*p),
@@ -1258,35 +1288,47 @@ impl Binder<'_> {
                     f.params.get(i).copied()
                 }
             };
-            let want = param.map(|p| p.ty.ty(self.all_kinds()));
-            let want = match (canonical, types.first()) {
-                ("coalesce", Some(t)) => Some(Ty::clone(t)),
-                _ => want.filter(|w| *w != Ty::Any),
-            };
-            let (c, t) = match &a.value {
-                ArgVal::Expr(x) => self.expr(x, want.as_ref()),
-                other => (self.rev_arg(other), Ty::Rev),
-            };
-            if let (Some(w), ArgVal::Expr(x)) = (&want, &a.value) {
-                let fits = match (w, &t) {
-                    (Ty::Node(_), Ty::Node(_) | Ty::Any | Ty::Null) => true,
-                    (Ty::Text, Ty::Enum(_) | Ty::KindName) => true,
-                    _ => compatible(false, w, &t),
-                };
-                if !fits {
-                    self.err(Diag::new(
-                        Code::E103,
-                        x.span,
-                        format!("{}({}): the types do not match", canonical, q(&t.name())),
-                    ));
-                }
+            let want = param
+                .map(|p| p.ty.ty(self.all_kinds()))
+                .filter(|w| *w != Ty::Any);
+            if coalesce
+                && decided.is_none()
+                && matches!(&a.value, ArgVal::Expr(x) if self.coercible(x))
+            {
+                waiting.push((ai, want));
+                slots.push(None);
+                continue;
             }
-            types.push(t);
+            let want = if coalesce {
+                decided.clone().or(want)
+            } else {
+                want
+            };
+            let (c, t) = self.func_arg(canonical, a, want);
+            if coalesce && decided.is_none() && t != Ty::Null {
+                decided = Some(t.clone());
+            }
+            slots.push(Some((c, t)));
+        }
+        for (ai, want) in waiting {
+            let (c, t) = self.func_arg(canonical, &args[ai], decided.clone().or(want));
+            if decided.is_none() && t != Ty::Null {
+                decided = Some(t.clone());
+            }
+            slots[ai] = Some((c, t));
+        }
+        let mut out = Vec::with_capacity(args.len());
+        let mut first = None;
+        for (a, slot) in args.iter().zip(slots) {
+            let (c, t) = slot.unwrap_or((CExpr::Null, Ty::Any));
+            first.get_or_insert(t);
             out.push(CArg {
                 name: a.name.as_ref().map(|n| n.text.clone()),
                 value: c,
             });
         }
+        // The type of the first argument; `coalesce`'s is the type its arguments take.
+        let first = decided.filter(|_| coalesce).or(first).unwrap_or(Ty::Any);
         self.agg = saved;
         match f.class {
             FnClass::Tree => {
@@ -1299,7 +1341,6 @@ impl Binder<'_> {
             }
             FnClass::Plain => {}
         }
-        let first = types.first().cloned().unwrap_or(Ty::Any);
         let ret = match f.ret {
             Ret::Bool => Ty::Bool,
             Ret::Int => Ty::Int,
@@ -1326,6 +1367,29 @@ impl Binder<'_> {
             Ret::ListOfArg0 => Ty::List(Box::new(first)),
         };
         (CExpr::Func(canonical.to_string(), distinct, out), ret)
+    }
+
+    /// One argument of a function call, bound with its use-site type; E103 when its type does not fit that type.
+    fn func_arg(&mut self, canonical: &str, a: &Arg, want: Option<Ty>) -> (CExpr, Ty) {
+        let (c, t) = match &a.value {
+            ArgVal::Expr(x) => self.expr(x, want.as_ref()),
+            other => (self.rev_arg(other), Ty::Rev),
+        };
+        if let (Some(w), ArgVal::Expr(x)) = (&want, &a.value) {
+            let fits = match (w, &t) {
+                (Ty::Node(_), Ty::Node(_) | Ty::Any | Ty::Null) => true,
+                (Ty::Text, Ty::Enum(_) | Ty::KindName) => true,
+                _ => compatible(false, w, &t),
+            };
+            if !fits {
+                self.err(Diag::new(
+                    Code::E103,
+                    x.span,
+                    format!("{}({}): the types do not match", canonical, q(&t.name())),
+                ));
+            }
+        }
+        (c, t)
     }
 
     // ----- lints ---------------------------------------------------------------------------------------------------

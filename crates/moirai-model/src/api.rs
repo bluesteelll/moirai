@@ -46,6 +46,27 @@ use std::rc::Rc;
 /// A named mutation run through [`Store::run`]'s write path: its name, its expansion and its own parameters.
 type Named<'a> = (&'a str, &'a mutation::Expansion, &'a [(String, P)]);
 
+/// Whether a `tx.add`, `tx.remember` or `tx.set` call writes `authority=owner` with a non-empty `owner_quote` in its
+/// `$fields`: WT-012's owner attestation in its CLI form (`--authority owner` with `--owner-quote-file`) and its MCP
+/// form (`authority=owner` with an owner quote) ([RULES/role-write-policy] WT-012).
+// rule: WT-012
+fn owner_quoted(ps: &[(String, P)]) -> bool {
+    let Some((_, P::List(items))) = ps.iter().find(|(k, _)| k == "fields") else {
+        return false;
+    };
+    let field = |name: &str| {
+        items.iter().find_map(|x| match x {
+            P::Text(s) => s
+                .split_once('=')
+                .filter(|(k, _)| *k == name)
+                .map(|(_, v)| v.to_string()),
+            _ => None,
+        })
+    };
+    field("authority").as_deref() == Some("owner")
+        && field("owner_quote").is_some_and(|q| !q.trim().is_empty())
+}
+
 /// The door of a command ([API §1.4]).
 #[derive(Clone, Copy, PartialEq, Eq, Debug, Default)]
 pub enum Door {
@@ -169,6 +190,17 @@ pub struct Caller {
     pub ended_lease: Option<u64>,
 }
 
+/// What a `Query` evaluates ([API §14.1]): LQ text, a JSON IR document as the converter's tree, or a named query.
+#[derive(Clone, Debug, PartialEq)]
+pub enum QueryInput {
+    /// `lq`.
+    Lq(String),
+    /// `ir`, converted to the S-AST ([LQ/json-ir]).
+    Ir(Box<crate::lq::ast::Read>),
+    /// `name`.
+    Named(String),
+}
+
 /// A command of the model's stream ([API §2.2]).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Cmd {
@@ -259,6 +291,43 @@ pub enum Cmd {
         stmts: Vec<Stmt>,
         /// `message`.
         message: String,
+    },
+    /// `Tx` with `lq` ([API §9.1]): a `TX { … }` block in LQ text, its `params`, `message` and `if_targets`.
+    TxLq {
+        /// `lq`.
+        lq: String,
+        /// `params`.
+        params: Params,
+        /// `message`.
+        message: String,
+        /// `if_targets`.
+        if_targets: Option<String>,
+    },
+    /// `Tx` with `ir` ([API §9.1]): a `tx` JSON IR document as the converter gives it, its S-AST ([LQ/json-ir]).
+    TxIr {
+        /// The block.
+        tree: Box<crate::lq::ast::Tx>,
+        /// `params`.
+        params: Params,
+        /// `message`.
+        message: String,
+        /// `if_targets`.
+        if_targets: Option<String>,
+    },
+    /// `Query` ([API §14.1]).
+    Query {
+        /// `lq` (LQ text) or `name` (a named query).
+        input: QueryInput,
+        /// `params`.
+        params: Params,
+        /// `use` (`--at`).
+        at: Option<String>,
+        /// `mode`.
+        mode: crate::lq::eval::Mode,
+        /// The strict-GQL spelling mode.
+        strict_gql: bool,
+        /// The ablation switches of LQ-Bench ([50 §7.4] item 7).
+        ablations: crate::lq::eval::Ablations,
     },
     /// `Apply` ([API §9.4]).
     Apply {
@@ -805,6 +874,8 @@ pub enum Data {
     State(Box<Snapshot>),
     /// `Runtime`.
     Runtime(Box<RuntimeSnap>),
+    /// `Query`: the read's result (family R, [LQ/envelope §7]).
+    Query(Box<crate::lq::eval::QueryOut>),
     /// `History`: the commits by seq, and the ref moves no commit carries, in the order they happened.
     /// `History` ([API §15.8]): the commits after `since_seq`, then the ref moves no commit carries that lie after it,
     /// each with its ref and `after_seq`.
@@ -860,6 +931,8 @@ pub struct Reply {
     pub hints: Vec<(String, String)>,
     /// The refusal of a `refused` outcome.
     pub error: Option<Refusal>,
+    /// The target-set digest of an LQ block's `MATCH … EXPECT` statements ([LQ/envelope §9.4]; `targets:` of a `DRY`).
+    pub targets: Option<[u8; 16]>,
 }
 
 impl Reply {
@@ -884,6 +957,7 @@ impl Reply {
             data,
             hints: Vec::new(),
             error: None,
+            targets: None,
         }
     }
 
@@ -943,6 +1017,9 @@ pub struct Inited {
 pub struct Store {
     /// The injected environment.
     pub env: Env,
+    /// This store is the copy a `DRY` run commits its block on to report `affected` ([50 §3.10] item 9): the copy's
+    /// run is the dry run's, so it keeps the dry run's permission under `dry-targets` (WQ-005).
+    pub(crate) dry_copy: bool,
     /// Set by `Init`.
     pub inited: Option<Inited>,
     /// The kernel's configuration.
@@ -1011,7 +1088,17 @@ impl Default for Store {
     }
 }
 
+/// A block of the write path: data-level statements ([API §9.2]) or an LQ block ([API §9.1] `lq`).
+#[derive(Clone, Copy)]
+pub(crate) enum Block<'b> {
+    /// Data-level statements.
+    Data(&'b [Stmt]),
+    /// An LQ block.
+    Lq(&'b crate::lq::eval::txrun::LqBlock),
+}
+
 /// How a write through [`Store::tx`] is keyed.
+#[derive(Clone)]
 pub(crate) enum Keying {
     /// By the block: the payload is `H` of its LQ form, looked up inside the write path ([API §7.3]).
     Block,
@@ -1026,6 +1113,7 @@ pub(crate) enum Keying {
 }
 
 /// What a write's group does after its statements, besides them.
+#[derive(Clone)]
 pub(crate) enum After {
     /// Nothing.
     Nothing,
@@ -1076,6 +1164,7 @@ impl Store {
     pub fn new() -> Store {
         Store {
             env: Env::default(),
+            dry_copy: false,
             inited: None,
             cfg: KernelCfg::default(),
             conf: Conf::default(),
@@ -1120,6 +1209,7 @@ impl Store {
                 | Cmd::State { .. }
                 | Cmd::Runtime
                 | Cmd::History { .. }
+                | Cmd::Query { .. }
                 | Cmd::Sync { check: true, .. }
         );
         if write && self.crash_next {
@@ -1266,6 +1356,75 @@ impl Store {
                 Keying::Block,
                 After::Nothing,
             ),
+            Cmd::TxLq { .. } | Cmd::TxIr { .. } => {
+                let (lq, params, message, if_targets) = match cmd {
+                    Cmd::TxLq {
+                        lq,
+                        params,
+                        message,
+                        if_targets,
+                    } => (lq.clone(), params, message, if_targets),
+                    Cmd::TxIr {
+                        tree,
+                        params,
+                        message,
+                        if_targets,
+                    } => (
+                        // The IR's tree as LQ text: the printer's `parse(print(ast)) == ast` makes it the same block.
+                        crate::lq::printer::print_tx(tree, crate::lq::printer::Spelling::Cypher),
+                        params,
+                        message,
+                        if_targets,
+                    ),
+                    _ => unreachable!("matched above"),
+                };
+                let (blk, c2, msg) = crate::lq::eval::txrun::prepare(
+                    self,
+                    &lq,
+                    params.clone(),
+                    message,
+                    if_targets.as_deref(),
+                    ctx,
+                )?;
+                self.tx_block(
+                    Block::Lq(&blk),
+                    &msg,
+                    &c2,
+                    None,
+                    None,
+                    Keying::Block,
+                    After::Nothing,
+                )
+            }
+            Cmd::Query {
+                input,
+                params,
+                at,
+                mode,
+                strict_gql,
+                ablations,
+            } => {
+                let req = crate::lq::eval::QueryReq {
+                    input: match input {
+                        QueryInput::Lq(t) => crate::lq::eval::Input::Lq(t),
+                        QueryInput::Ir(t) => crate::lq::eval::Input::Ast(t),
+                        QueryInput::Named(n) => crate::lq::eval::Input::Named(n),
+                    },
+                    params: params.clone(),
+                    at: at.clone(),
+                    mode: *mode,
+                    strict_gql: *strict_gql,
+                    ablations: *ablations,
+                };
+                let out = self.query(&req, ctx)?;
+                let mut r = Reply::ok(Data::None);
+                r.exit = out.exit;
+                r.branch = out.views.first().and_then(|v| v.branch.clone());
+                r.rev = out.views.first().and_then(|v| v.commit);
+                r.commit = r.rev;
+                r.data = Data::Query(Box::new(out));
+                Ok(r)
+            }
             Cmd::Schema { items, message } => self.schema(items, message, ctx),
             Cmd::Apply {
                 run,
@@ -2026,6 +2185,7 @@ impl Store {
                     .schema,
             ),
             confirm_roles: crate::links::confirm_rights(&self.conf),
+            knowledge_strict: self.cfg.knowledge_strict,
         }
     }
 
@@ -2463,7 +2623,13 @@ impl Store {
     /// session's model profile under its write rule (WR-012, [`crate::profile::binder_profile`]), otherwise
     /// `compatible` (a named mutation's expansion is not free-form); the read safelist of the role (WQ-003).
     // rule: WR-012
-    fn lq_caller(&self, c: &Caller, ctx: &Ctx, rights: &Rights, free_form: bool) -> LqCaller {
+    pub(crate) fn lq_caller(
+        &self,
+        c: &Caller,
+        ctx: &Ctx,
+        rights: &Rights,
+        free_form: bool,
+    ) -> LqCaller {
         let (profile, dry_targets) = if free_form {
             crate::profile::binder_profile(
                 c.profile,
@@ -2523,6 +2689,33 @@ impl Store {
         keying: Keying,
         after: After,
     ) -> Res<Reply> {
+        self.tx_block(Block::Data(stmts), message, ctx, proc, exp, keying, after)
+    }
+
+    /// [`Store::tx`] for a block in data-level or LQ form ([API §9.1]): the LQ form binds its own text for `H`, runs its
+    /// statements through [`crate::lq::eval::txrun`] and carries the target-set digest of its `MATCH … EXPECT`
+    /// statements ([LQ/envelope §9.4]).
+    #[allow(clippy::too_many_arguments)]
+    pub(crate) fn tx_block(
+        &mut self,
+        block: Block<'_>,
+        message: &str,
+        ctx: &Ctx,
+        proc: Option<&str>,
+        exp: Option<Named<'_>>,
+        keying: Keying,
+        after: After,
+    ) -> Res<Reply> {
+        let stmts: &[Stmt] = match block {
+            Block::Data(s) => s,
+            Block::Lq(..) => &[],
+        };
+        let lq = match block {
+            Block::Lq(b) => Some(b),
+            Block::Data(_) => None,
+        };
+        // A `DRY` reports the would-be `affected` of the same block committed on a copy ([50 §3.10] item 9).
+        let dry_sim = ctx.dry.then(|| (keying.clone(), after.clone()));
         let claim = proc == Some("tx.claim");
         let moving = match &after {
             After::MoveLease(b) => Some(b.as_str()),
@@ -2538,7 +2731,12 @@ impl Store {
         }
         let resolve_only = match exp {
             Some((n, _, _)) => n == "tx.resolve",
-            None => !stmts.is_empty() && stmts.iter().all(|s| matches!(s, Stmt::Resolve { .. })),
+            None => match lq {
+                Some(b) => b.resolve_only,
+                None => {
+                    !stmts.is_empty() && stmts.iter().all(|s| matches!(s, Stmt::Resolve { .. }))
+                }
+            },
         };
         // Row 7, after the lookup too.
         let view_ok = self.writable(&caller.branch, resolve_only);
@@ -2562,13 +2760,17 @@ impl Store {
             }
             None => rights.clone(),
         };
-        // WT-012: `answer --by owner` presented with the orchestrator's session role lease is owner-attested.
-        let attested = exp.is_some_and(|(n, _, ps)| {
-            n == "tx.answer"
-                && ps
-                    .iter()
-                    .find(|(k, _)| k == "by")
-                    .is_none_or(|(_, v)| *v == P::Text("owner".into()))
+        // WT-012: presented with the orchestrator's session role lease, `answer --by owner` is owner-attested, and so is
+        // a `tx.add`, `tx.remember` or `tx.set` that writes `authority=owner` with an owner quote in `$fields` (the
+        // CLI's `--authority owner` with `--owner-quote-file`, MCP's `authority=owner` with an owner quote); under
+        // `knowledge.owner-authority = strict` such a `tx.set` is the owner's confirmation (WR-015).
+        let attested = exp.is_some_and(|(n, _, ps)| match n {
+            "tx.answer" => ps
+                .iter()
+                .find(|(k, _)| k == "by")
+                .is_none_or(|(_, v)| *v == P::Text("owner".into())),
+            "tx.add" | "tx.remember" | "tx.set" => owner_quoted(ps),
+            _ => false,
         }) && rights.lease.as_ref().is_some_and(|l| l.session_role);
         if attested {
             rights.owner_attested = true;
@@ -2583,7 +2785,24 @@ impl Store {
                 stmts: e.lq_stmts.clone(),
                 params: e.params.clone(),
             },
-            None => tx::equivalent(&base.schema, stmts),
+            None => match lq {
+                Some(b) => tx::Equivalent {
+                    text: b.text.clone(),
+                    stmts: b
+                        .stmts
+                        .iter()
+                        .enumerate()
+                        .map(|(i, t)| (i + 1, t.clone()))
+                        .collect(),
+                    params: b
+                        .params
+                        .0
+                        .iter()
+                        .map(|(k, v)| (k.clone(), v.clone()))
+                        .collect(),
+                },
+                None => tx::equivalent(&base.schema, stmts),
+            },
         };
         // `tx.max-statements` ([CFG §10.5]), at binding.
         crate::budget::check_caps(
@@ -2598,15 +2817,24 @@ impl Store {
             Keying::Block => {
                 let params = Params(eq.params.iter().cloned().collect());
                 let lq_schema = lqh::lq_schema(&base.schema);
+                let commit_table = lqh::commit_table(&self.dag);
                 let ids = lqh::ViewIds {
                     uids: &self.alloc.uids,
                     uidx: &self.alloc.uidx,
                     st: &base,
                     next_id: self.next_id,
+                    commits: &commit_table,
                 };
                 // The statement of a binder refusal: the LQ statement its span starts in.
                 let static_stmt = |at: Option<usize>| -> Option<usize> {
                     let at = at?;
+                    if let Some(b) = lq {
+                        return b
+                            .spans
+                            .iter()
+                            .position(|(s, e)| *s <= at && at < *e)
+                            .map(|i| i + 1);
+                    }
                     let mut pos = "TX { ".len();
                     for (i, (_, t)) in eq.stmts.iter().enumerate() {
                         let end = pos + t.len();
@@ -2640,7 +2868,10 @@ impl Store {
                     let free_form =
                         proc.is_none() && exp.is_none() && matches!(after, After::Nothing);
                     // A non-empty `message` is the block's `MESSAGE` option, inside `H` ([API §7.3], §9.3).
-                    let text = match normalize_message(message).ok().filter(|m| !m.is_empty()) {
+                    let text = match normalize_message(message)
+                        .ok()
+                        .filter(|m| !m.is_empty() && lq.is_none())
+                    {
                         Some(m) => {
                             let lit = crate::lq::printer::string_lit(&m);
                             match eq.text.strip_prefix("TX {") {
@@ -2672,7 +2903,7 @@ impl Store {
                         // WR-012's scope ([API §9.1] E411 row; spec sync 2b): a caller with a session identity (CX-4) or
                         // `door` = `mcp`; a CLI block with neither is the owner's and is not refused.
                         Err(e) if e.code == "E411" => {
-                            let dry_ok = ctx.dry
+                            let dry_ok = (ctx.dry || self.dry_copy)
                                 && crate::profile::model_write_rule(&self.conf, caller.profile)
                                     == crate::profile::WriteRule::DryTargets;
                             let scoped = caller.session.is_some() || ctx.door == Door::Mcp;
@@ -2723,15 +2954,23 @@ impl Store {
         if let Some(v) = verb {
             rights.verb(v).map_err(|e| e.finish(None))?;
         }
-        // IF TIP ([API §9.1]; [LQ/errors §5.7] E402).
+        // IF TIP ([API §9.1]; [LQ/errors §5.5] E402, §5.7).
         if let Some(t) = ctx.if_tip
             && tip != Some(t)
         {
+            let c8 = |s: Option<u64>| {
+                s.and_then(|s| self.dag.commits.get(&s)).map_or_else(
+                    || "-".to_string(),
+                    |c| crate::value::hex(&c.id)[..8].to_string(),
+                )
+            };
             return Err(Refusal::lq(
                 "E402",
                 format!(
-                    "{} moved: IF TIP s{t}, the tip is s{}",
+                    "{} moved: IF TIP {}, the tip is {} (rev {})",
                     caller.branch,
+                    c8(Some(t)),
+                    c8(tip),
                     tip.unwrap_or(0)
                 ),
             )
@@ -2786,6 +3025,43 @@ impl Store {
             Some(x) if e.code != "E406" => x.clone(),
             _ => e,
         };
+        let mut targets_digest = None;
+        if let Some(b) = lq {
+            // The LQ form: its bound statements on the candidate ([API §9.1]; [50 §3.10]).
+            let store: &Store = &*self;
+            let lq_schema = lqh::lq_schema(&base.schema);
+            let commit_table = lqh::commit_table(&store.dag);
+            let ids = lqh::ViewIds {
+                uids: &store.alloc.uids,
+                uidx: &store.alloc.uidx,
+                st: &base,
+                next_id: store.next_id,
+                commits: &commit_table,
+            };
+            let params = Params(b.params.0.clone());
+            let lq_caller = store.lq_caller(&caller, ctx, &bind_rights, false);
+            let bound = lqh::bind_tx(&b.text, &params, &lq_schema, &ids, &lq_caller).map_err(
+                |(e, at)| {
+                    e.finish(
+                        at.and_then(|a| b.spans.iter().position(|(s, x)| *s <= a && a < *x))
+                            .map(|i| i + 1),
+                    )
+                },
+            )?;
+            targets_digest = Some(
+                crate::lq::eval::txrun::run(
+                    store,
+                    &mut cand,
+                    b,
+                    &bound.ast,
+                    &bound.portable,
+                    &caller,
+                    ctx,
+                    &store.hlc,
+                )
+                .map_err(|e| policy_first(e, &e411))?,
+            );
+        }
         for (i, s) in stmts.iter().enumerate() {
             cand.run(i + 1, s, &self.hlc)
                 .map_err(|e| policy_first(e, &e411))?;
@@ -2856,7 +3132,7 @@ impl Store {
             cand.leases.clone(),
             cand.notified.clone(),
         );
-        let st_after = Rc::new(std::mem::take(&mut cand.st));
+        let st_after = std::mem::take(&mut cand.st).into_rc();
         drop(cand);
         let mut reply = Reply::ok(Data::None);
         reply.branch = Some(caller.branch.clone());
@@ -2886,9 +3162,24 @@ impl Store {
         )?;
         // DRY runs every check and writes nothing ([API §9.1]); a delete's dry run shows its impact as the diff.
         // rule: DS-011
+        reply.targets = targets_digest;
         if ctx.dry {
             reply.outcome = Outcome::Dry;
             reply.diff = cs;
+            if let Some((k2, a2)) = dry_sim {
+                let mut sim = self.clone();
+                sim.dry_copy = true;
+                let mut c2 = ctx.clone();
+                c2.dry = false;
+                c2.key = None;
+                c2.no_dedupe = true;
+                // The same block committed on a copy passes every check the dry run passed; a refusal there is the
+                // model's own inconsistency and is reported, not hidden.
+                let r = sim.tx_block(block, message, &c2, proc, exp, k2, a2)?;
+                reply.ready = r.ready;
+                reply.other = r.other;
+                reply.markers = r.markers;
+            }
             return Ok(reply);
         }
         // A `Resolve` that left its key's value as it was still writes its commit: `merge --continue` overlays the key
@@ -2948,6 +3239,7 @@ impl Store {
                         (None, _) if stmts.len() == 1 && matches!(stmts[0], Stmt::Call { .. }) => {
                             "named-mutation"
                         }
+                        (None, _) if lq.is_some_and(|b| b.one_call.is_some()) => "named-mutation",
                         (None, Door::Mcp) => "mcp-write",
                         (None, _) => "tx",
                     };
@@ -2956,6 +3248,7 @@ impl Store {
                         (None, Some(Stmt::Call { proc, .. })) if stmts.len() == 1 => {
                             Some(proc.clone())
                         }
+                        (None, None) => lq.and_then(|b| b.one_call.clone()),
                         _ => None,
                     };
                     (origin, sym, h)

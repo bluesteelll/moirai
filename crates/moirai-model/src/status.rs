@@ -447,6 +447,42 @@ pub fn create_path(kind: &str, initial: &str, to: &str) -> Option<Vec<&'static R
     None
 }
 
+/// GR-019: the status a `Create` of a `rule` or a `decision` reaches ([CFG §10.5] `knowledge.owner-authority`; [AR
+/// §11] OQ-A-8): `proposed` (ST-015, ST-020), or, for an owner-authority one (`authority = owner`, which WA-001 lets
+/// only an owner-attested call write) while the key is `orchestrator-active`, `active` (TR-026) or `accepted`
+/// (TR-032). `None` for every other kind, whose `Create` GR-006 decides.
+// spec: [CFG §10.5] knowledge.owner-authority
+// rule: GR-019
+pub fn knowledge_initial(kind: &str, owner_authority: bool, strict: bool) -> Option<&'static str> {
+    let authoritative = match kind {
+        "rule" => "active",
+        "decision" => "accepted",
+        _ => return None,
+    };
+    Some(if owner_authority && !strict {
+        authoritative
+    } else {
+        "proposed"
+    })
+}
+
+/// WR-015's write ([RULES/role-write-policy]): while `knowledge.owner-authority` is `strict`, a status write that moves
+/// an owner-authority `rule` from `proposed` to `active`, or such a `decision` to `accepted`, is the owner's
+/// confirmation.
+// rule: WR-015
+pub fn is_owner_confirmation(
+    kind: &str,
+    from: &str,
+    to: &str,
+    owner_authority: bool,
+    strict: bool,
+) -> bool {
+    strict
+        && owner_authority
+        && from == "proposed"
+        && knowledge_initial(kind, true, false) == Some(to)
+}
+
 /// I8 on a state: every node's status is one of its kind's statuses ([RULES/status-machines] GR-008 for merges and
 /// history verbs).
 // spec: [F13 §3.3] I8

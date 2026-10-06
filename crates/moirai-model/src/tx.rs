@@ -22,6 +22,7 @@ use crate::state::{
 use crate::status::{self, Door, History};
 use crate::value::{Algo, F64, Nid, Oid, PathVal, Uid, Value, blake3_128};
 use std::collections::{BTreeMap, BTreeSet};
+use std::ops::{Deref, DerefMut};
 use std::rc::Rc;
 
 /// A statement target ([API §9.2] "Targets").
@@ -559,6 +560,10 @@ pub struct KernelCfg {
     pub max_statements: u64,
     /// `tx.max-ops`.
     pub max_ops: u64,
+    /// `knowledge.owner-authority` is `strict` ([CFG §10.5]; [RULES/status-machines] GR-019).
+    pub knowledge_strict: bool,
+    /// `gc.reflog-expire`: the reflog window a revision a write names resolves in ([F12 §3]).
+    pub reflog_expire_ms: u64,
 }
 
 impl Default for KernelCfg {
@@ -570,7 +575,91 @@ impl Default for KernelCfg {
             suspect_budget: 10_000,
             max_statements: 1000,
             max_ops: 10_000,
+            knowledge_strict: false,
+            reflog_expire_ms: 90 * 86_400_000,
         }
+    }
+}
+
+/// The fields of an op with `authority` last, so that WA-001's requirements read the values the same op writes
+/// ([RULES/role-write-policy] WA-001: `owner_quote`).
+fn authority_last(fields: &[(String, P)]) -> impl Iterator<Item = &(String, P)> {
+    fields
+        .iter()
+        .filter(|(f, _)| f != "authority")
+        .chain(fields.iter().filter(|(f, _)| f == "authority"))
+}
+
+/// The candidate state of a block, shared copy-on-write ([50 §3.10] item 2: the statements of an LQ block read the
+/// candidate where it stands): a statement's view takes it by reference count, and a write copies it only while such
+/// a view still holds it.
+#[derive(Clone, Debug, Default)]
+pub struct CandState(Rc<State>);
+
+impl CandState {
+    /// The state, shared with the caller.
+    pub fn shared(&self) -> Rc<State> {
+        self.0.clone()
+    }
+
+    /// The state, given up.
+    pub fn into_rc(self) -> Rc<State> {
+        self.0
+    }
+}
+
+impl Deref for CandState {
+    type Target = State;
+
+    fn deref(&self) -> &State {
+        &self.0
+    }
+}
+
+impl DerefMut for CandState {
+    fn deref_mut(&mut self) -> &mut State {
+        Rc::make_mut(&mut self.0)
+    }
+}
+
+/// The commit a write names ([F08 §5.1] `commitref`, [F08 §10] `pinned_commit`): `c` and 64 lower-case hexadecimal
+/// digits is that id, whether or not the store holds it (a cited commit need not be one it holds); any other text is
+/// a revision of this store ([F12 §3]), resolved for the branch written. An all-zero id is `bad_value`; a revision
+/// that names no commit is E301.
+// spec: [F08 §5.1] commitref
+pub fn commit_ref(
+    dag: &Dag,
+    branch: &str,
+    env: &Env,
+    reflog_expire_ms: u64,
+    field: &str,
+    text: &str,
+) -> Res<[u8; 32]> {
+    if let Some(h) = text.strip_prefix('c')
+        && h.len() == 64
+        && h.bytes()
+            .all(|b| b.is_ascii_digit() || (b'a'..=b'f').contains(&b))
+    {
+        let mut id = [0u8; 32];
+        for (i, x) in id.iter_mut().enumerate() {
+            *x = u8::from_str_radix(&h[2 * i..2 * i + 2], 16).expect("hex digits");
+        }
+        if id == [0u8; 32] {
+            return Err(bad(field, "a commit id other than all zero", text));
+        }
+        return Ok(id);
+    }
+    let cx = crate::vcs::RevCtx {
+        head: Ok(branch.to_string()),
+        now_ms: env.wall_ms,
+        reflog_expire_ms,
+    };
+    match dag.rev_commit(text, &cx)? {
+        Some(seq) => Ok(dag.commits[&seq].id),
+        None => Err(Refusal::lq(
+            "E301",
+            format!("{field}: {text} names no commit"),
+        )),
     }
 }
 
@@ -623,7 +712,7 @@ pub struct Cand<'a> {
     /// The view before the block.
     pub base: Rc<State>,
     /// The candidate state.
-    pub st: State,
+    pub st: CandState,
     /// The candidate lease table.
     pub leases: BTreeMap<u64, Lease>,
     /// Lease events in order.
@@ -863,6 +952,7 @@ pub fn convert(
     v: &P,
     uidx: &BTreeMap<Uid, Nid>,
     next_id: u32,
+    commit: &dyn Fn(&str) -> Res<[u8; 32]>,
 ) -> Res<Option<Value>> {
     if *v == P::Null {
         return Ok(None);
@@ -1043,10 +1133,10 @@ pub fn convert(
                     format!("{field} takes a node; got {o:?}"),
                 )),
             },
-            Ty::Commit => Err(Refusal::lq(
-                "E301",
-                format!("{field}: commit ids are resolved by the canonical encoder of WP-91"),
-            )),
+            Ty::Commit => {
+                let s = text_of(v)?;
+                commit(&s).map(Value::Commit)
+            }
             Ty::Path => {
                 let s = text_of(v)?;
                 let (root, text) = s
@@ -1170,7 +1260,7 @@ impl<'a> Cand<'a> {
         let fence = cx.fence;
         Cand {
             cx,
-            st: (*base).clone(),
+            st: CandState(base.clone()),
             base,
             leases,
             events: Vec::new(),
@@ -1232,7 +1322,7 @@ impl<'a> Cand<'a> {
 
     /// The node object of an E401 `current` entry ([LQ/errors §5.7]): the node's id, kind, status, title and `rev`,
     /// with `changed_by` naming the commit of that `rev` (its actor, ref and message).
-    fn current(&self, n: Nid) -> Kv {
+    pub fn current(&self, n: Nid) -> Kv {
         let tip = self.cx.dag.live(&self.cx.branch).and_then(|r| r.tip);
         let rev = self.cx.dag.local_seqs(tip, n).0;
         let x = self.st.nodes.get(&n);
@@ -1582,7 +1672,15 @@ impl<'a> Cand<'a> {
             ));
         }
         crate::policy::i33p_plan_mask(self.cx.view.token(), field)?;
-        let value = convert(&self.st.schema, &kind, field, v, self.cx.uidx, self.next_id)?;
+        let value = convert(
+            &self.st.schema,
+            &kind,
+            field,
+            v,
+            self.cx.uidx,
+            self.next_id,
+            &|t| self.commit_id(field, t),
+        )?;
         if let Some(fi) = self.st.schema.field(&kind, field)
             && matches!(fi.class, "identity" | "observation")
         {
@@ -1673,9 +1771,8 @@ impl<'a> Cand<'a> {
                 .unwrap_or_default(),
         };
         let _ = k;
-        self.st
-            .nodes
-            .insert(n, Node::new(uid, kind, &self.st.schema, creator.clone()));
+        let node = Node::new(uid, kind, &self.st.schema, creator.clone());
+        self.st.nodes.insert(n, node);
         self.new_alloc.insert(n, (uid, creator));
         self.created.push(n);
         self.created_ids.insert(n);
@@ -1689,7 +1786,9 @@ impl<'a> Cand<'a> {
         let initial = self.st.nodes[&n].status.clone();
         let mut status_to = None;
         let mut resolution = None;
-        for (f, v) in fields {
+        // `authority` is checked last: WA-001's owner quote is the one the same op writes, whatever the order of the
+        // op's fields.
+        for (f, v) in authority_last(fields) {
             match (f.as_str(), v) {
                 ("status", P::Text(to)) => status_to = Some(to.clone()),
                 ("resolution", P::Text(r)) => resolution = Some(r.clone()),
@@ -1737,8 +1836,21 @@ impl<'a> Cand<'a> {
         Ok(n)
     }
 
+    /// The commit a write names, resolved for the branch written ([`commit_ref`]).
+    fn commit_id(&self, field: &str, text: &str) -> Res<[u8; 32]> {
+        commit_ref(
+            self.cx.dag,
+            &self.cx.branch,
+            self.cx.env,
+            self.cx.cfg.reflog_expire_ms,
+            field,
+            text,
+        )
+    }
+
     /// The status a `Create` names: a checked path of transitions from the initial status (GR-006), or none; a
-    /// resolution without a status is GR-014's refusal.
+    /// resolution without a status is GR-014's refusal. A `rule` or a `decision` reaches the status GR-019 gives, and
+    /// naming another is refused.
     // rule: GR-006
     fn create_status(
         &mut self,
@@ -1748,6 +1860,13 @@ impl<'a> Cand<'a> {
         status_to: Option<String>,
         resolution: Option<String>,
     ) -> Res<()> {
+        let owner = matches!(
+            self.st.nodes[&n].fields.get("authority"),
+            Some(Value::Enum(a)) if a == "owner"
+        );
+        if let Some(target) = status::knowledge_initial(kind, owner, self.cx.cfg.knowledge_strict) {
+            return self.knowledge_status(n, kind, initial, target, status_to, resolution);
+        }
         if let Some(to) = status_to {
             if self.st.schema.value(kind, "status", &to).is_none() {
                 return Err(Refusal::lq(
@@ -1786,6 +1905,43 @@ impl<'a> Cand<'a> {
                 "E404",
                 format!("resolution {r} is written with its status transition (GR-014)"),
             ));
+        }
+        Ok(())
+    }
+
+    /// GR-019: a `Create` of a rule or a decision starts `proposed`; an owner-authority one moves on in the same
+    /// statement to `target` (`active` or `accepted`, TR-026 or TR-032) under the transition's guards and the role
+    /// grant. A `Create` that names another status is refused, naming the rule and the transition to use.
+    // rule: GR-019
+    fn knowledge_status(
+        &mut self,
+        n: Nid,
+        kind: &str,
+        initial: &str,
+        target: &str,
+        named: Option<String>,
+        resolution: Option<String>,
+    ) -> Res<()> {
+        if let Some(to) = named
+            && to != target
+        {
+            return Err(Refusal::lq(
+                "E404",
+                format!(
+                    "a new {kind} starts {target}, not {to} (GR-019); create it without a status, then a later write moves it"
+                ),
+            ));
+        }
+        if let Some(r) = resolution
+            && r != "none"
+        {
+            return Err(Refusal::lq(
+                "E404",
+                format!("resolution {r} is written with its status transition (GR-014)"),
+            ));
+        }
+        if target != initial {
+            self.transit(n, target, "none", Door::SetStatus)?;
         }
         Ok(())
     }
@@ -1835,7 +1991,7 @@ impl<'a> Cand<'a> {
         self.lease_first_write(n)?;
         let mut status_to: Option<String> = None;
         let mut resolution: Option<String> = None;
-        for (f, v) in fields {
+        for (f, v) in authority_last(fields) {
             match (f.as_str(), v) {
                 ("status", P::Text(to)) => {
                     status_to = Some(to.clone());
@@ -1938,19 +2094,15 @@ impl<'a> Cand<'a> {
         Ok(())
     }
 
-    /// `patch` ([API §9.2]): the body with `remove` replaced by `add` (the first occurrence). A removed text the body
-    /// does not contain is E404, `the removed text is not in <id>.body` ([LQ/errors §5.5]).
+    /// `patch` ([API §9.2]): the body with `remove`, which must occur exactly once ([LQ/std §7.2]), replaced by
+    /// `add`.
+    // spec: [LQ/std §7.2] PATCH
     pub fn patch(&mut self, target: &Target, remove: &str, add: &str) -> Res<()> {
         let n = self.resolve(target)?;
         self.lease_first_write(n)?;
         let body = self.st.nodes[&n].body.clone().unwrap_or_default();
         let remove = norm_text(remove);
-        let Some(i) = body.find(&remove) else {
-            return Err(Refusal::lq(
-                "E404",
-                format!("the removed text is not in {n}.body"),
-            ));
-        };
+        let i = self.patch_at(n, &body, &remove)?;
         let nb = format!(
             "{}{}{}",
             &body[..i],
@@ -1958,6 +2110,48 @@ impl<'a> Cand<'a> {
             &body[i + remove.len()..]
         );
         self.set_body(n, Some(&nb))
+    }
+
+    /// Where a `PATCH` applies ([LQ/std §7.2]; spec sync 3): the removed text must not be empty and must occur exactly
+    /// once in the body, its occurrences being every byte offset where its bytes match, overlapping ones counted; else
+    /// E404 with `occurrences` and the 1-based body `lines` of the occurrences (at most 10, none below two;
+    /// [LQ/errors §5.5], §5.7).
+    fn patch_at(&self, n: Nid, body: &str, remove: &str) -> Res<usize> {
+        let refuse = |why: String, occ: Option<usize>, at: &[usize]| {
+            let lines: Vec<Kv> = at
+                .iter()
+                .take(10)
+                .map(|i| {
+                    Kv::Int(
+                        1 + body.as_bytes()[..*i]
+                            .iter()
+                            .filter(|b| **b == b'\n')
+                            .count() as i64,
+                    )
+                })
+                .collect();
+            Refusal::lq("E404", format!("PATCH {n}.body refused: {why}"))
+                .key("occurrences", occ.map_or(Kv::Null, |o| Kv::Int(o as i64)))
+                .key(
+                    "lines",
+                    Kv::List(if at.len() >= 2 { lines } else { Vec::new() }),
+                )
+        };
+        if remove.is_empty() {
+            return Err(refuse("the removed text is empty".into(), None, &[]));
+        }
+        let (b, r) = (body.as_bytes(), remove.as_bytes());
+        let at: Vec<usize> = (0..=b.len().saturating_sub(r.len()))
+            .filter(|i| b.len() >= r.len() && &b[*i..*i + r.len()] == r)
+            .collect();
+        match at.as_slice() {
+            [one] => Ok(*one),
+            _ => Err(refuse(
+                format!("the removed text occurs {} times", at.len()),
+                Some(at.len()),
+                &at,
+            )),
+        }
     }
 
     /// `link` ([API §9.2]): an edge with the write-time checks of [F08 §8.6] rule 5 and the role grant; a
@@ -1982,12 +2176,19 @@ impl<'a> Cand<'a> {
                 .field(self.stmt, &self.scopes(), src, "parent")?;
             return self.place(src, Some(p), None);
         }
-        if pinned.is_some() {
-            return Err(Refusal::lq(
-                "E301",
-                "pinned commits are resolved by the canonical encoder of WP-91",
-            ));
-        }
+        // A pinned commit ([F08 §10]) is a property of the kinds whose props class is `pinned`.
+        let pin = match pinned {
+            Some(t) if e.props == crate::schema::Props::Pinned => {
+                Some(self.commit_id("pinned", t)?)
+            }
+            Some(_) => {
+                return Err(Refusal::lq(
+                    "E115",
+                    format!("{kind} edges carry no pinned commit"),
+                ));
+            }
+            None => None,
+        };
         if src == dst {
             return Err(e405(format!("a {kind} self-edge on {src}")));
         }
@@ -2011,13 +2212,17 @@ impl<'a> Cand<'a> {
             dst: d,
             disc: None,
         };
-        self.st
+        let props = self
+            .st
             .nodes
             .get_mut(&s)
             .expect("src")
             .out
             .entry(key)
             .or_default();
+        if pin.is_some() {
+            props.pinned = pin;
+        }
         self.edges_from
             .entry(src)
             .or_default()
@@ -2068,6 +2273,50 @@ impl<'a> Cand<'a> {
         self.touch(s);
         self.touch(d);
         Ok(())
+    }
+
+    /// Removes one edge by its full key, an `at` edge's anchor included ([50 §3.10]: `DELETE a` of an `AT` edge variable
+    /// removes that one anchor), under the edge rows of the role write policy. The edge is a value a statement bound
+    /// on the candidate, so it is missing only when an earlier statement of the block removed it: a write to an edge
+    /// that is not live, `not_found` as a write to a node that is not live is ([F19 §10.2]).
+    // spec: [50 §3.10] DELETE edge
+    pub fn unlink_key(&mut self, src: Nid, key: &EdgeKey) -> Res<()> {
+        if key.kind == "parent" {
+            return Err(Refusal::lq(
+                "E115",
+                "parent is detached with MOVE or SET parent = NULL",
+            ));
+        }
+        if !self
+            .st
+            .nodes
+            .get(&src)
+            .is_some_and(|x| x.out.contains_key(key))
+        {
+            let edge = format!("{src} -[:{}]-> {}", key.kind, key.dst);
+            return Err(Refusal::new(
+                "not_found",
+                3,
+                format!("edge {edge} is not live on {}", self.cx.branch),
+            )
+            .key("what", "edge")
+            .key("value", edge));
+        }
+        self.cx
+            .rights
+            .edge(self.stmt, &self.scopes(), &key.kind, "delete", src, key.dst)?;
+        self.st.nodes.get_mut(&src).expect("src").out.remove(key);
+        self.touch(src);
+        self.touch(key.dst);
+        Ok(())
+    }
+
+    /// Records the targets a statement bound ([API §3.3] `statements[].targets`).
+    pub fn record_targets(&mut self, stmt: usize, nodes: &[Nid]) {
+        self.targets
+            .entry(stmt)
+            .or_default()
+            .extend(nodes.iter().copied());
     }
 
     /// `move` ([API §9.2], §9.5).
@@ -2362,7 +2611,16 @@ impl<'a> Cand<'a> {
                     return Err(Refusal::usage(format!("{key} takes a side, not a value")));
                 };
                 let kind = self.st.nodes[&n].kind.clone();
-                convert(&self.st.schema, &kind, f, p, self.cx.uidx, self.next_id)?.map(KVal::Value)
+                convert(
+                    &self.st.schema,
+                    &kind,
+                    f,
+                    p,
+                    self.cx.uidx,
+                    self.next_id,
+                    &|t| self.commit_id(f, t),
+                )?
+                .map(KVal::Value)
             }
             Take::Repoint(_) | Take::Drop => {
                 return Err(Refusal::usage(format!("{key} is not a flagged edge")));
@@ -2616,7 +2874,16 @@ impl<'a> Cand<'a> {
                     .get(n)
                     .map(|x| x.kind.clone())
                     .ok_or_else(|| self.not_on_view(*n))?;
-                convert(&self.st.schema, &kind, f, p, self.cx.uidx, self.next_id)?.map(KVal::Value)
+                convert(
+                    &self.st.schema,
+                    &kind,
+                    f,
+                    p,
+                    self.cx.uidx,
+                    self.next_id,
+                    &|t| self.commit_id(f, t),
+                )?
+                .map(KVal::Value)
             }
             Take::Repoint(t) => {
                 let Key::Node(src, Aspect::Edge(ek)) = k else {
@@ -3585,6 +3852,29 @@ impl<'a> Cand<'a> {
             && !had(&|st| crate::inv::i11_schema_conformance(st).is_err())
         {
             return Err(e405(format!("SchemaConflict: {w} (I11)")));
+        }
+        // V10 and V11 ([F19 §12.5.6]; [50 §3.10] item 5): the named queries the block touched, or whose callees or
+        // schema it changed, bind and call no cycle; a `DEFINE QUERY`, a `DROP QUERY` of a callee or any other schema
+        // change that breaks one refuses the block. On a staging ref `merge --continue` re-checks them.
+        if !staged && self.st.schema.items != self.base.schema.items {
+            let mut ids = crate::mvalid::state_ids(&self.st);
+            for (seq, id, r) in crate::lqh::commit_table(self.cx.dag) {
+                ids.commit(seq, id, &r);
+            }
+            ids.next_id_at(self.next_id);
+            let (invalid, cycles) = crate::mvalid::query_violations(&self.st, &self.base, &ids);
+            if let Some(b) = invalid.first() {
+                return Err(e405(format!(
+                    "named queries bind (QueryInvalid) would be violated; {}: {} {}",
+                    b.name, b.code, b.message
+                )));
+            }
+            if let Some(c) = cycles.first() {
+                return Err(e405(format!(
+                    "named-query cycle (QueryCycle) would be violated; {}",
+                    crate::mvalid::cycle_text(&c.path)
+                )));
+            }
         }
         Ok(())
     }

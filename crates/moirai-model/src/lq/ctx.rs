@@ -180,7 +180,7 @@ pub enum Value {
 }
 
 /// The bound parameter values of a call, by name without `$` ([LQ/canonical-ast §5.1] item 3).
-#[derive(Clone, Debug, Default)]
+#[derive(Clone, Debug, Default, PartialEq)]
 pub struct Params(pub BTreeMap<String, Value>);
 
 impl Params {
