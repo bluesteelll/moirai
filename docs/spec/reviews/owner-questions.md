@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Title | Questions that need the owner's call, raised by the author roles while closing review pass 1 |
-| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Decided 2026-10-06**: the owner accepted every recommendation ("Зафиксируй везде рекомендуемые варианты", "record the recommended options everywhere"): OQ-F-4 (a), OQ-A-1 (a), OQ-A-2 (a), OQ-A-3 (a), OQ-A-4 (a), OQ-A-5 (a), OQ-A-6 (a), OQ-A-7 (a), OQ-A-8 (c), OQ-A-9 (a), OQ-A-10 (a); each entry's Decision line names the follow-up. **Nothing is open.** |
+| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Decided 2026-10-06**: the owner accepted every recommendation ("Зафиксируй везде рекомендуемые варианты", "record the recommended options everywhere"): OQ-F-4 (a), OQ-A-1 (a), OQ-A-2 (a), OQ-A-3 (a), OQ-A-4 (a), OQ-A-5 (a), OQ-A-6 (a), OQ-A-7 (a), OQ-A-8 (c), OQ-A-9 (a), OQ-A-10 (a); each entry's Decision line names the follow-up. OQ-A-11, raised by the review of wave 3b's RS-007 change, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): 11.1 (A) together with (B), (A) alone as the fallback; 11.2 (a); 11.3 (a). **Nothing is open.** |
 | Scope | only questions that change an approved design decision or need the owner's call; runtime policy goes to config keys ([AGENTS.md]) and is not listed |
 
 Each entry names the raising role, the findings, the options and the role's recommendation. Roles append entries; ids
@@ -473,6 +473,10 @@ changes behaviour; each leaves one call to the owner.
   In wave 3b, before the merge table's V3 signature and before the engine implements RS-007, R-MODEL changes RS-007,
   open point 35 and the model (`move_steps`, pick replay, `kleppmann` undo; three tests flip, one property widens), and
   R-SPEC-F changes the [F12 §7.4] row.
+- **Outcome (wave 3b).** The narrow form is in the rules, [F12 §7.4] and the model, but only two of the three named
+  tests flipped: the cherry-pick of (ii) and the no-op move of (iii). The third case (E2) still stages, and the review
+  found a worse one (E1, a default `merge --into main` with no resolution). The recommendation's premise, that Option A
+  fixes the daily sync-then-merge path, did not hold; OQ-A-11 below carries the rest.
 
 ## 2026-10-06, owner questions asked in chat
 
@@ -591,3 +595,51 @@ answer (the Status row). The ids continue the A series.
   ambiguous `$old` (it must occur exactly once; an empty `$old` is refused; an E404 reason "occurs N times"), a
   deterministic "similar" notice after knowledge writes, and the token-usage rule (input + cache_read + cache_creation;
   never double-count Codex cached input).
+
+## 2026-10-06, wave 3b
+
+Raised by the orchestrator from the review and closure check of wave 3b's RS-007 change (review RS-007-A), from
+R-MODEL's open point 35 (v) and (vi) in `rules/merge-table.md`; asked in chat with the options below and decided the
+same day.
+
+### OQ-A-11 — The limit of RS-007's narrow form, order-only moves and the reading of "moved" (open point 35 (v), (vi))
+
+- **Raised by** the review and closure check of RS-007 Option A (wave 3b), from R-MODEL's spec findings. **Where**
+  [RULES/merge-table] RS-007, MR-039, MR-040, CS-013, PR-016, open points 15 and 35 (v), (vi); [F12 §7.1], §7.4 row
+  "Kleppmann steps"; [AR §3.4] I25′; VB-017 (step 0's sync before a merge into `main`); OQ-A-6.
+- **Question.** OQ-A-6 (a) took Option A in its narrow form to fix the daily sync-then-merge path; two of its three
+  named tests flipped, the third did not. Three calls remain:
+  (11.1, open point 35 (v)) A two-parent commit re-asserts only the keys its second parent's branch moved, so a key it
+  kept from its first parent is not re-asserted when the replay undoes that side's move of it. E1: lane/x puts #2 under
+  #3, then #1 under #2, then #2 back at the root; main puts #3 under #1; a default `merge lane/x --into main` with no
+  resolution stages `#1.parent HierarchyCycle`, although main never moved #1. E2: the sync-resolve-merge path of OQ-A-6
+  (i) still stages `#2.parent`. E3: "sync, resolve, keep working, sync" stages the same key on a two-sided merge. E4: a
+  history whose commits all descend from B stages after a merge between lanes resolved to `ours`.
+  (11.2, open point 35 (vi)) A move that only reorders a node under the same parent counts as a change and can be
+  undone on a cycle, although it cannot close one; it then stages keys both sides agree on.
+  (11.3, open point 35 (i)) Whether "moved" in the narrow form means a direct move only, or "is a step key of",
+  recursively through nested merges (a sync on top of a sync).
+- **Options.**
+  11.1: (A) when tip(dst) is B, every hierarchy key takes src's value without a replay (a one-sided merge, as I25′ asks);
+  covers E1, E2 and E4, not E3. (B) start the replay from a commit that every commit of A(o) \ A(B) and of A(t) \ A(B)
+  descends from, and replay both sides' commits since it, so no commit is replayed on a state it was not made on;
+  covers E1, E2 and E3, not E4. (C) the broad form of (i): covers all four, but a routine sync can make a side's older
+  move beat a third branch's later one, against MR-040. (D) record the keys a merge's resolutions set with the commit and
+  use them with (B): covers all four, at the cost of a format addition.
+  11.2: (a) the undo takes only the step's moves that changed their node's parent; a move that keeps its parent and
+  changes only its order closes no cycle, is never undone and never makes its key `kleppmann-skipped`. (b) keep the
+  undo over every changed value.
+  11.3: (a) the recursive reading ("is a step key of"); PR-016 and [F12 §7.1] then name the history the step keys read
+  (each side's commits since the base, every commit of A(p₂) \ A(p₁) of a two-parent commit among them, recursively, and
+  for a revert or a cherry-pick the commits of A(o) after C). (b) direct moves only, which gives wrong results under
+  nested syncs.
+- **Recommendation.** 11.1 (A) together with (B): between them they cover E1 to E4 without re-keying a side's moves and
+  without a format addition; R-MODEL states (B) exactly (the commit the replay starts from, chosen over a criss-cross as
+  I31′ chooses a base) and a spec arbiter checks it before the merge table's V3 signature; (A) alone if (B) cannot be
+  stated by then, leaving E3 recorded in open point 35. 11.2 (a). 11.3 (a).
+- **Decision (2026-10-06).** As recommended ("Согласно рекомендации запиши", "record it as recommended"): 11.1 (A)
+  together with (B), with (A) alone as the fallback; 11.2 (a); 11.3 (a). Wave 3c applies it before the merge table's V3
+  signature and before the engine implements RS-007: R-MODEL rewrites RS-007, MR-039, CS-013, PR-016 and open point 35
+  and changes the model (the one-sided merge, the replay start of (B), the parent-only undo, the recursive step keys)
+  with tests for E1 to E4 and the order-only case; R-SPEC-F changes [F12 §7.1] and the §7.4 row; a spec arbiter checks
+  (B)'s statement.
