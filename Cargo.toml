@@ -4,8 +4,9 @@
 # `moirai-os`, which carries its own table (the only crate allowed `unsafe` code, PLAN §2.1).
 #
 # External (crates.io) dependencies are adopted in `[workspace.dependencies]` below, after WP-02's lints accept them
-# (PLAN §2.4); a member refers to one with `<name>.workspace = true`. None is adopted yet: downloads wait on the
-# day-1 bundle (PLAN §8), and each work package adds its own.
+# (PLAN §2.4); a member refers to one with `<name>.workspace = true`. Each work package adopts the crates it needs.
+#
+# Profiles: the dev profile optimises two test-path packages and nothing else (OQ-A-3 (f), at the end of this file).
 #
 # Gate scopes (PLAN §2.1): `xtask/host-only.toml` lists the host-only crates and `xtask/roots.toml` the composition
 # roots; both stay members here and are excluded from the GT20 (e) cross-target check by one `--exclude` each.
@@ -69,5 +70,16 @@ tree-sitter-rust = { version = "0.24.2" }
 [workspace.lints.rust]
 # PLAN §2.1: no crate but `moirai-os` may contain `unsafe` code. `forbid` cannot be lowered by an attribute.
 unsafe_code = "forbid"
+
+# Optimised test-path crates in the dev profile (owner decision OQ-A-3 (f), 2026-10-06; docs/spec/reviews/
+# owner-questions.md). The toy log's PR tier cost about 24.5 CPU-minutes in debug builds, most of it in xxh3 and in
+# the simulator and crash enumerator, and hosted CI runs it on every push to `master`. Only these two packages are
+# optimised: every product crate stays in debug, so the gate still tests the code with debug assertions and overflow
+# checks as written. The settings apply to every dev-profile build (`cargo build`, `check`, `clippy`, `test`).
+[profile.dev.package.xxhash-rust]
+opt-level = 3
+
+[profile.dev.package.moirai-vfs-sim]
+opt-level = 2
 
 # Clippy runs with its default lint set; the gate runs `clippy --workspace --all-targets -D warnings` (WP-02).

@@ -38,7 +38,7 @@ use std::io::{BufRead, BufReader, BufWriter, IsTerminal, Read, Seek, SeekFrom, W
 use std::path::{Path, PathBuf};
 use std::process::{Command, Stdio};
 use std::sync::mpsc::{self, Receiver, RecvTimeoutError};
-use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
+use std::time::{Duration, Instant, SystemTime};
 use xxhash_rust::xxh3::{Xxh3, xxh3_64};
 
 /// The usage text.
@@ -625,23 +625,7 @@ fn file_name(p: &Path) -> String {
 
 /// UTC as `YYYYMMDDTHHMMSSZ`, the stem of a fixture's file name.
 fn compact_utc(t: SystemTime) -> String {
-    let secs = t.duration_since(UNIX_EPOCH).map_or(0, |d| d.as_secs()) as i64;
-    let z = secs.div_euclid(86_400) + 719_468;
-    let era = z.div_euclid(146_097);
-    let doe = z.rem_euclid(146_097);
-    let yoe = (doe - doe / 1_460 + doe / 36_524 - doe / 146_096) / 365;
-    let doy = doe - (365 * yoe + yoe / 4 - yoe / 100);
-    let mp = (5 * doy + 2) / 153;
-    let d = doy - (153 * mp + 2) / 5 + 1;
-    let m = if mp < 10 { mp + 3 } else { mp - 9 };
-    let y = yoe + era * 400 + i64::from(m <= 2);
-    let s = secs.rem_euclid(86_400);
-    format!(
-        "{y:04}{m:02}{d:02}T{:02}{:02}{:02}Z",
-        s / 3_600,
-        s / 60 % 60,
-        s % 60
-    )
+    crate::utc::compact(crate::utc::unix_secs(t))
 }
 
 /// `%SystemRoot%\System32\typeperf.exe`, named by its full path so that no program of the same name on `PATH` runs
@@ -1096,6 +1080,7 @@ mod tests {
     use super::*;
     use crate::testdir::TestDir;
     use proptest::prelude::*;
+    use std::time::UNIX_EPOCH;
 
     /// One header line as typeperf prints it, with `machine` in every column and `banner` in the first.
     fn header_line(machine: &str, banner: &str) -> String {

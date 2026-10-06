@@ -409,6 +409,44 @@ fn pre_commit_checks_in_a_scratch_repository() {
 }
 
 #[test]
+fn empty_files_pass_the_hook_and_the_gate() {
+    // An empty file under /private/ (cargo-mutants' `timeout.txt` of a GT16 shard in which nothing timed out) makes
+    // neither an added empty file nor an emptied one "a copy"; a copied non-empty result is still refused.
+    let s = Scratch::new("emptyfiles");
+    let r = s.repo();
+    let pd = r.join("private");
+    let out = pd.join("nightly/20261013T210000Z/gt16/mutants.out");
+    std::fs::create_dir_all(&out).unwrap();
+    std::fs::write(out.join("timeout.txt"), b"").unwrap();
+    std::fs::write(
+        out.join("caught.txt"),
+        b"src/lib.rs:3:5: replace f -> u8 with 0\n",
+    )
+    .unwrap();
+    private::index(&pd, &[]).unwrap();
+    s.commit_file(&r, "docs/full.md", b"some text\n", "WP-05: full");
+    std::fs::create_dir_all(r.join("docs/empty")).unwrap();
+    std::fs::write(r.join("docs/empty/.gitkeep"), b"").unwrap();
+    std::fs::write(r.join("docs/full.md"), b"").unwrap();
+    s.ok(&r, &["add", "docs/empty/.gitkeep", "docs/full.md"]);
+    let d = hook::pre_commit(&r, true, Some(&pd)).unwrap();
+    assert!(d.is_empty(), "{d:?}");
+    s.ok(&r, &["commit", "-q", "-m", "WP-05: empty files"]);
+    let (d, note) = gate::private_scan(&r, "HEAD~1..HEAD").unwrap();
+    assert!(d.is_empty(), "{d:?}");
+    assert!(note.contains("manifest current"), "{note}");
+    std::fs::copy(out.join("caught.txt"), r.join("copied.txt")).unwrap();
+    s.ok(&r, &["add", "copied.txt"]);
+    let d = hook::pre_commit(&r, true, Some(&pd)).unwrap();
+    assert!(
+        d.iter()
+            .any(|x| x.path.as_deref() == Some("copied.txt")
+                && x.message.contains("BLAKE3 is listed")),
+        "{d:?}"
+    );
+}
+
+#[test]
 fn ci_commit_rules_on_a_scratch_repository() {
     let s = Scratch::new("ci");
     let r = s.repo();

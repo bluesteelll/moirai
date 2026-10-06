@@ -110,7 +110,10 @@ cache `D:\moirai-target\tools` (≈ 730 MB) can be deleted.
   included), and `cargo check` passed on the pinned nightly under `unsafe_code = "forbid"`: libfuzzer-sys's
   `fuzz_target!` expands to no code that the lint refuses. The nightly's cargo also runs its manifest lint
   `cargo::unused_dependencies` (warn by default): a target set that never uses `moirai-files` draws "unused dependency
-  `moirai-files`". FL-1's targets use it, so the warning ends with the first real target.
+  `moirai-files`", and the library target uses neither it nor `libfuzzer-sys`. FL-1's targets use both, so the
+  warnings end with the first real target; until then `fuzz/Cargo.toml` sets `[lints.cargo] unused_dependencies =
+  "allow"` with its reason, and the work package that adds the first target removes the table (wave 3b; stable cargo
+  accepts the table silently).
 - **libfuzzer-sys 0.4.13:** published 2026-06-04, licence `(MIT OR Apache-2.0) AND NCSA` (NCSA is allowed in
   `fuzz/Cargo.lock` only, PLAN §2.4), `.crate` SHA-256 `a9fd2f41a1cba099f79a0b6b6c35656cf7c03351a7bae8ff0f28f25270f929d2`.
   Its build script compiles libFuzzer's C++ with `cc`. The spike's lockfile added `arbitrary` 1.4.2, `cc` 1.5.1,
@@ -274,8 +277,8 @@ writing the recorded input under a prefix and to an exact path before it chains 
 process of the test binary, a request for 2^62 bytes that aborts after the allocation-error hook has written
 `oom-<sha1>` and the previous hook has printed its line), and `cargo clippy --all-targets -- -D warnings` is clean on
 the pinned nightly. The nightly's `cargo::unused_dependencies` warnings (`libfuzzer-sys` and `moirai-files`, §4.1)
-stay until the first target uses them; they are cargo's manifest warnings, which `-D warnings` does not turn into
-errors.
+were cargo's manifest warnings, which `-D warnings` does not turn into errors; the manifest's `[lints.cargo]` table
+allows them until the first target uses both (§4.1).
 
 ### 4.7 The gate's checks of `fuzz/` (WP-02b review)
 
@@ -315,8 +318,25 @@ The choice of a gate step over WP-05's nightly job: the checks are cheap once th
   - run cargo-mutants with `CARGO_TARGET_DIR` removed from its environment;
   - set `TMP` and `TEMP` to `D:\moirai-target\mutants`. By default the scratch copies go to `%TEMP%` on C:, which had
     ≈ 14 GB free at WP-06. Each copy then builds in its own `target\`, and cargo-mutants deletes it after the run
-    (verified);
-  - do not use `--in-place`, which mutates the working tree.
+    (verified). A run stopped at a deadline or by a watchdog (`taskkill /T`) cannot delete its copies
+    (`cargo-mutants-<tree>-<random>.tmp`); WP-05's mutants job removes such leftovers before it starts, in agent-free
+    windows only;
+  - do not use `--in-place`, which mutates the working tree;
+  - pass `--gitignore true`. cargo-mutants 27.1.0 copies files that `.gitignore` matches by default (`--gitignore`
+    defaults to false): from the main worktree every scratch copy would duplicate `/private/` (owner data, then
+    outside `/private/` and its manifest), `fuzz/corpus/` and `graphify-out/`. With `--gitignore true` a scratch
+    copy of a git tree holds no ignored path (verified on 2026-10-06 with a scratch crate whose gitignored
+    `private/` stayed out of the copy kept by `--leak-dirs`). The copy needs no `.git` (`--copy-vcs` defaults to
+    false);
+  - pass `--jobserver false` and give each cargo process its share of the build-jobs cap. cargo-mutants starts its
+    own GNU jobserver by default (`--jobserver` true, `--jobserver-tasks` NCPUS, 16 here), and every child cargo takes
+    its tokens instead of honouring `CARGO_BUILD_JOBS`: the WP-05 review saw four build scripts at once under
+    `CARGO_BUILD_JOBS=1`, at most two with `--jobserver-tasks 1`, and one at a time with `--jobserver false`. WP-05
+    passes `--jobserver false` with `CARGO_BUILD_JOBS` = build-jobs / `--jobs` (and `RUST_TEST_THREADS` likewise), so
+    the job's total stays within the window's cap.
+
+  WP-65's `.cargo/mutants.toml` keeps these rules: the `--gitignore true` and `--jobserver false` flags (or their
+  settings in that file, if the pinned version reads them there), and no `--in-place`.
 
 ## 6. The `zstd` CLI
 
@@ -417,6 +437,7 @@ a change to this section. `[workspace.dependencies]` states `version = "0.24.2"`
 | `D:\moirai-target\<lane>` | a lane's shared target directory | `xtask worktree` |
 | `D:\moirai-target\fuzz` | cargo-fuzz's `CARGO_TARGET_DIR` | WP-05, WP-65 |
 | `D:\moirai-target\mutants` | cargo-mutants' `TMP`/`TEMP`: scratch copies, each with its own `target\` | WP-05, WP-65 |
+| `D:\moirai-target\nightly` | the nightly runner's copy of the guard binary, outside every lane's target directory, so no cargo build replaces it and no `cargo clean` removes it during a run ([nightly.md](nightly.md) §1) | WP-05 |
 | `D:\moirai-target\tools` | the `cargo install` build cache (deletable) | WP-06 |
 | `D:\moirai-tools\zstd` | the `zstd` CLI | WP-06 |
 
@@ -431,10 +452,20 @@ a change to this section. `[workspace.dependencies]` states `version = "0.24.2"`
    to be `TMP`/`TEMP`, with `CARGO_TARGET_DIR` unset, and never a shared target directory (WP-05, WP-65).
 5. **Space on C:.** rustup's toolchains, `%TEMP%` and the Claude installs live on C:, which had ≈ 14 GB free. WP-05's
    disk guard counts only the D: directories.
-6. **`-rss_limit_mb` overshoot** (§4.5, WP-05).
+6. **`-rss_limit_mb` overshoot** (§4.5, WP-05). WP-05's fuzz job runs one target at a time; the fuzzing needs the
+   256 MB limit plus the observed overshoot, about 768 MB, but the job also builds its targets first (a release build
+   with libFuzzer's C++, unmeasured), so it declares 3 GB and runs in agent-free windows only (`xtask/nightly.toml`,
+   [nightly.md](nightly.md) §5, §7 item 4); a hard cap would need a job object (nightly.md §7 item 1).
 7. **The Claude Code path** for WP-58 (§9).
 8. **PLAN amendments for `fuzz/` and `xtask`.** WP-02b's manifests diverge from PLAN §2.2, §2.4 and §2.5, which only an
    owner-reviewed plan issue changes: authors.md §6 item 12 lists the three amendments.
+9. **Space on D: for the nightly runner (a prerequisite of E10).** With WP-05's caps (laneA and laneB 40 GB, fuzz
+   10 GB, mutants 20 GB, 110 GB in all) the guard refuses `disk-low` today: on 2026-10-06 D: had 26.17 GB available
+   (25.28 GB later that day), laneA held 26.6 GB and laneB 28.2 GB, so the caps reserve 54.72 GB and the headroom is
+   0 against the 25 GB floor. About 54 GB must be freed before a nightly run can start: candidates are the old
+   probe and scratch target directories beside the lanes (such as `D:\moirai-target\laneA-probe`, `laneB-probe`,
+   `laneB-scratch-review` and `spec3fix2`), once no session uses them. Which to remove is the orchestrator's or the
+   owner's call; buying space would be an owner question ([nightly.md](nightly.md) §7 item 3).
 
 ## 13. Gate timing (WP-02 acceptance: the incremental gate takes ≤ 90 s)
 
