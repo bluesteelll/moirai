@@ -9,7 +9,12 @@ DEFINE QUERY pack_target($target: node) SHAPE node BUDGET medium AS {
   RETURN q AS node, 'question' AS why
   UNION
   MATCH (k)-[:ABOUT]->(x) WHERE x IN subtree($target) AND k.authority = 'owner'
+    AND NOT (k.kind IN ['rule', 'decision'] AND k.status = 'proposed')
   RETURN k AS node, 'ruling' AS why
+  UNION
+  MATCH (k:rule|decision)-[:ABOUT]->(x)
+  WHERE x IN subtree($target) AND k.authority = 'owner' AND k.status = 'proposed'
+  RETURN k AS node, 'proposed ruling' AS why
   UNION
   MATCH (t)-[:AT]->(f:artifact) WHERE t = $target
   RETURN f AS node, 'link' AS why

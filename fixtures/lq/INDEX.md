@@ -7,7 +7,7 @@
 | Acceptance | GT10; E1 (the owner verifies the core set of §5); E5 |
 | Separation | S1 and S3 ([PLAN §3.1]): written from the specification text only. The author read no line of `moirai-format-oracle`, `moirai-model`, `moirai-toylog` or any product crate |
 | Sources | `docs/spec/lq/` ([LQ/lexical], [LQ/grammar-v1.ebnf], [LQ/canonical-ast], [LQ/json-ir], [LQ/errors], [LQ/envelope], [LQ/std], [LQ/card], [LQ/gql-spelling]); [F19]; the design [50] for its code blocks, its conformance-fixture names and its ten mistakes |
-| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28); updated for spec sync 2b (`docs/spec/reviews/spec-sync-2b.md`): `%% input-json` (S2B-F-33), `ir-nid-zero` (S2B-F-44), `pe-list-in-without-where` and `pe-list-in-pipe` (S2B-F-39), `e401-example` (S2B-F-40), `header-staged` (S2B-F-26), and §4's statuses. The query surface freezes after WP-72; a WP-73 remedy that changes a rule updates the fixtures it touches (commit subject `WP-73:` or `WP-22:`) |
+| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28); updated for spec sync 2b (`docs/spec/reviews/spec-sync-2b.md`): `%% input-json` (S2B-F-33), `ir-nid-zero` (S2B-F-44), `pe-list-in-without-where` and `pe-list-in-pipe` (S2B-F-39), `e401-example` (S2B-F-40), `header-staged` (S2B-F-26), and §4's statuses; updated for spec sync 3 (`docs/spec/reviews/spec-sync-3.md`): `std/pack_target.lq` and its case (S3-F-17), and the five new `std/` files `proposed`, `pack_rules_proposed`, `pack_rules_unmerged_proposed`, `pack_hazards_proposed` and `brief_proposed` with their catalog rows and cases (S3-F-17, S3-F-18). The query surface freezes after WP-72; a WP-73 remedy that changes a rule updates the fixtures it touches (commit subject `WP-73:` or `WP-22:`) |
 
 These files are data. The consumers are the reference model's front end and evaluator (WP-93a, WP-93b: the token,
 syntax-tree, canonical-AST, error and mistake cases), LQ-Bench's converter and reference renderer (WP-71a/b: JSON IR,
@@ -17,12 +17,12 @@ error texts and envelopes), and later the product's LQ-1/LQ-2 (M7) and CLI golde
 
 | Path | Cases | What it asserts |
 |---|---|---|
-| `std/<name>.lq` (40 files) | — | The 40 `lq-define` blocks of [LQ/std], copied byte for byte ([LQ/std §2.6]: LF line ends, no trailing whitespace, one final LF). Parsed with start symbol `define_stmt` ([LQ/grammar-v1.ebnf §P.1]) |
-| `std/catalog.txt` | 40 rows | Shape, budget class and cursor class of each file ([LQ/std §2.3]–§2.5, §3), for the catalog test of [LQ/std §9] |
+| `std/<name>.lq` (45 files) | — | The 45 `lq-define` blocks of [LQ/std], copied byte for byte ([LQ/std §2.6]: LF line ends, no trailing whitespace, one final LF). Parsed with start symbol `define_stmt` ([LQ/grammar-v1.ebnf §P.1]) |
+| `std/catalog.txt` | 45 rows | Shape, budget class and cursor class of each file ([LQ/std §2.3]–§2.5, §3), for the catalog test of [LQ/std §9] |
 | `cases/conformance.cases` | 47 | The 47 conformance fixtures of [50 §0.4] and [50 §11], re-authored (§3.1): 37 accepted inputs with token stream and S-AST, 10 refused inputs with the intended code and position |
 | `cases/design-blocks.cases` | 44 | The 44 LQ code blocks of [50] ([50 §11], `assemble2.py`): each parses; token stream; S-AST and JSON IR where [LQ/json-ir §7] gives the tree |
 | `cases/mistakes.cases` | 10 | The ten mistakes of [50 §2.9] with the frozen outcomes of [LQ/errors §7]: parse, outcome, warnings, reading echo |
-| `cases/std.cases` | 48 | Each `std/*.lq` parses (token stream); the 8 `lq-tx` blocks of [LQ/std §7] parse (token stream, S-AST for six) |
+| `cases/std.cases` | 53 | Each `std/*.lq` parses (token stream); the 8 `lq-tx` blocks of [LQ/std §7] parse (token stream, S-AST for six) |
 | `cases/card.cases` | 8 | The card's 7 examples ([LQ/card §3]) and the GQL variant of example 2 (§4): parse, token stream, S-AST |
 | `cases/lexical.cases` | 134 | Every token kind and limit, keyword and plain-name positions, revision mode, and every E001/E002/E003 case of [LQ/lexical] |
 | `cases/parser.cases` | 146 | The parser decisions of Annex P (S-AST) and every refused form of Annex R (code and position) |
