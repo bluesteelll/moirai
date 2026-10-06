@@ -307,6 +307,8 @@ pub struct Dag {
     pub commits: BTreeMap<u64, Commit>,
     /// Every ref ever created, by id.
     pub refs: BTreeMap<u32, Ref>,
+    /// The seq of each commit id, the first commit with that id ([F07 §3.1]: ids are unique in a store).
+    by_id: BTreeMap<[u8; 32], u64>,
     cache: RefCell<Cache>,
     /// First-parent depth of each commit (a root is 0).
     fp_depth: BTreeMap<u64, u32>,
@@ -316,6 +318,10 @@ pub struct Dag {
     fp_jump: BTreeMap<u64, Vec<u64>>,
     /// For each node, the commits (ascending) whose changesets change its existence or status.
     hold_ix: BTreeMap<Nid, Vec<u64>>,
+    /// The step keys of every commit read so far (RS-007; [`Dag::step_keys`]). They depend on the commit graph alone,
+    /// and a commit's parents and changeset never change once it is inserted, so they are kept for the store's life and
+    /// shared by every merge, `sync`, virtual merge, revert and cherry-pick.
+    pub(crate) step_memo: RefCell<BTreeMap<u64, Rc<BTreeSet<Nid>>>>,
 }
 
 impl Clone for Dag {
@@ -323,16 +329,23 @@ impl Clone for Dag {
         Dag {
             commits: self.commits.clone(),
             refs: self.refs.clone(),
+            by_id: self.by_id.clone(),
             cache: RefCell::new(self.cache.borrow().clone()),
             fp_depth: self.fp_depth.clone(),
             max_depth: self.max_depth,
             fp_jump: self.fp_jump.clone(),
             hold_ix: self.hold_ix.clone(),
+            step_memo: RefCell::new(self.step_memo.borrow().clone()),
         }
     }
 }
 
 impl Dag {
+    /// The seq of the commit with this id, if the store holds it ([F07 §3.1]).
+    pub fn seq_of(&self, id: &[u8; 32]) -> Option<u64> {
+        self.by_id.get(id).copied()
+    }
+
     /// The live ref with this name.
     pub fn live(&self, name: &str) -> Option<&Ref> {
         self.refs.values().find(|r| !r.deleted && r.name == name)
@@ -383,6 +396,7 @@ impl Dag {
                 }
             }
         }
+        self.by_id.entry(c.id).or_insert(seq);
         self.commits.insert(seq, c);
     }
 

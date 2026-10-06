@@ -142,9 +142,14 @@ The attributes of an `at` line (and of an edge side `present anchor …`) are `k
 | `blob`, `git` | `<algo>:<hex>` |
 | `marker` | a JSON string |
 
-An absent attribute is absent in the record. Where a case needs `window` and `span_hash`, they are stated values of the
-record, not derived from any file content here: [F07] hashes them as bytes, and their derivation ([F20 §2.7]–§2.8) is
-outside this directory.
+An absent attribute is absent in the record.
+
+Every content-derived selector of an anchor (the quote, prefix, suffix and end texts and their digests, `hint`,
+`occurrence`, `window` and `span_hash`) and the file node's `bytes` and `oid` are stated values of the record. They
+satisfy [F08 §10.3] V and C, and `captured` and the anchor uid follow [F08 §11.4] from the stated texts, or are stated
+where a case says so. They are not the output of a [F20 §6.1] capture over any content, and no capture or resolve check
+applies to them. Capture and resolve fixtures over a stated text depend on the holes of [F20 §6] and are written after
+the fill ([F01 §2.5], WP-20b). [F07] hashes the stated values as bytes.
 
 ### 3.5 Conflict values
 
@@ -379,5 +384,5 @@ Found while authoring; to be filed with the review. The cases follow the reading
 | G-2 | [F07 §10.5] | "What `main`'s window alone yields at the lane" is not defined in state terms. The informative `residue` block reads it as the lane state with each key that `main` changed in its window set to `main`'s value (a counter: the lane's total plus `main`'s delta) | `commits.cases` `sync` |
 | G-3 | [F07 §14.4] row normalisation | "A default written explicitly in the image" is an image-level case; this directory states it at the state level (explicit default values in a state block). Closed by WP-21's second part: `fixtures/carrier/defaults-explicit` is the image-level twin (the same id as `defaults-omitted`) | `normalisation.cases` `defaults-*` |
 | G-4 | [F08 §10.3.1] interim rule | Until [F20] Appendix A is complete no writer records a scope and no `symbol` or `heading` anchor is captured. Commit cases use `quote` and `range` anchors without a scope; the one scope value (`values.cases` `selector-quote-full-options`) encodes a scope as an imported anchor keeps it | — |
-| G-5 | [F07 §8.2] `window`, `span_hash` | The anchors' `window` and `span_hash` are stated values; this part of WP-21 does not derive them from file content ([F20 §2.7]–§2.8) | `anchors.cases`, `checkpoint.cases` |
+| G-5 | [F07 §8.2] anchor selectors, [F20 §6.1] | The anchors' content-derived selectors (the quote, prefix, suffix and end texts and their digests, `hint`, `occurrence`, `window` and `span_hash`) and the file node's `bytes` and `oid` are stated values (§3.4); this part of WP-21 does not derive them from file content ([F20 §2.7]–§2.8, §6.1), and no capture or resolve check applies to them ([F01 §2.5]). In `checkpoint.cases` the anchors' shared `captured` is stated too ([F08 §11.5]). Correction (wave 3b, spec arbiter ruling): this row, §3.4 and the case notes named only `window` and `span_hash` as stated, and `anchors.cases` described a registration with two captured anchors; the stated values contradict [F20 §6.1] for every fill of its holes. Only the descriptions changed: every case is byte-identical | `anchors.cases`, `checkpoint.cases` |
 | G-6 | [F14 §7.2.2], [LQ/lexical §10.2], [LQ/canonical-ast §8.1] | Correction (WP-21, second part). The named query `stale_blockers` was stored as a bare query (`MATCH … RETURN t, u`); the stored text of a named query is the whole `define_stmt` in portable form, which the image checks against `name:`, `params:`, `shape:` and `budget:`. The text is now `DEFINE QUERY stale_blockers() SHAPE table BUDGET light AS { … }`: the `changeset_digest` and `commit_id` of `checkpoint-first` and `checkpoint-first-sym` changed (`acc5b76f…`), `checkpoint-next` changed its id through its parent (`263c02ad…`; its item 10 did not change), and `values.cases` `schema-query` changed its bytes. Every other case is byte-identical | `checkpoint.cases`, `values.cases` `schema-query` |

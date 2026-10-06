@@ -4,10 +4,10 @@
 |---|---|
 | Title | The golden fixtures of R4's pure functions: the uid derivations of file nodes, root nodes and anchors with their hashed bytes, predecessor order and the dead-uid and anchor predecessor loops, the path rules P1–P12 as functions over data, and `fold_v1` |
 | Work package | WP-21, first part: `r4/` (R-FIX; [PLAN §3.2] item 1). `canonical/` is the other half of this part. The scanner-construct fixtures of [F20] Appendix A.9, also for `r4/`, are a later part (§4 G-6) |
-| Acceptance | E3 (derivations, used by WP-91's ids); WP-61 and WP-62 ("the `r4/` fixtures pass"); the model's `r4::` functions (WP-92) |
+| Acceptance | E3 (derivations, used by WP-91's ids); WP-61 and WP-62 ("the `r4/` fixtures pass"; for WP-61, except `paths.cases` `p3-01` … `p3-06`, which are the port phase's, §3.2); the model's `r4::` functions (WP-92) |
 | Separation | S1 ([PLAN §3.1]): written from the specification text only. The author read no line of `moirai-format-oracle`, `moirai-model`, `moirai-toylog` or any product crate (`moirai-files` included), and ran no project code. Hashes come from throw-away scripts that implement only what the chapters say (BLAKE3 checked against the BLAKE3 reference implementation over the standard test-vector inputs; SHA-1 and SHA-256 from the platform's library) |
 | Sources | [F08 §2.2], §5.4.1, §10.3.1, §11 (derivations, root names, the scope value); [F20 §3] (`fold_v1`, `ceq`); [OS/path] §2–§8 (P1–P12, the CLI boundary, representability and portability); [F12 §2] (ref names, P11 (b)); [F18 §2.8] (I-F8); [F01 §6.3] (`lp()`), §7 (hashes) |
-| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28) |
+| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28); spec sync 3 (`docs/spec/reviews/spec-sync-3.md` S3-X-1): §3.2 marks P3's six cases port phase, `p3-06` provisional, with no case byte changed |
 
 `fold.cases` was computed from `fixtures/ucd/17.0.0/UnicodeData.txt` and `CaseFolding.txt` (their SHA-256 pins checked
 first) by an implementation of [F20 §3.1] that reproduces the NFD column of every line of `NormalizationTest.txt` and
@@ -136,7 +136,7 @@ Root ids in `lookup_tree` are opaque tokens: equal tokens are the same object ([
 |---|---|
 | P1 (root-relative, no empty, `.` or `..` segment) | `relpath-01` … `relpath-13` |
 | P2 (tracked: git's spelling) | through P7: `p7-01` |
-| P3 (NFC for untracked names on normalization-insensitive volumes) | `p3-01` … `p3-06` |
+| P3 (NFC for untracked names on normalization-insensitive volumes) | `p3-01` … `p3-06`, **port phase** (owner decision OQ-A-5 (a), 2026-10-06; [OS/path §1] and open point 14): no M0–M11 crate runs them, the macOS port does ([PLAN §3.2] WP-61's acceptance). `p3-06` is **provisional**: its expected value (U+212B → U+00C5, as Unicode 17.0.0 NFC gives) waits for the port's test against git on APFS, because P3's function is git's precomposition, which may leave the singleton unchanged ([OS/path] open point 2); `p3-01` … `p3-05` stand under either reading. No byte of the six cases changed (spec sync 3) |
 | P4 (`\`, C0 controls, not UTF-8) | `relpath-14` … `relpath-19`; `cli-15` |
 | P5 (portability) | `p5-01` … `p5-22`; `representable-windows`, `representable-linux`, `representable-macos` |
 | P6 (`fold_v1`) | `fold.cases` |

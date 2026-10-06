@@ -210,9 +210,11 @@ slot and the log scanned beyond it ([80 §2.4.3] phase 2a step 3). Which records
 [F16] P-36's (the rule of record is [API §6.2] CK-4; pass 1, S1-13, P1-5, A1-17):
 
 - the **semantic durable records** (`Commit`, `RefUpdate`, `ClientHead`, `Lease`, `Marker`, `Idem`, `Backup`,
-  `FsIntent`, `FsIntentDone`, `FsIntentAborted`) draw from `hlc_seq`, the greatest value of the store's HLC sequence, and
-  raise it; a local commit draws from max(`hlc_seq`, `hlc_commit`), `hlc_commit` being the greatest `hlc` of any commit
-  the store holds, so that it lies above an imported commit whose `hlc` is ahead ([F04 §5.15]);
+  `FsIntent`, `FsIntentDone`, `FsIntentAborted`, `BodyDrop`, `Harvest`) draw from `hlc_seq`, the greatest value of the
+  store's HLC sequence, and raise it (`BodyDrop`, [F05 §9.29], and the reserved `Harvest`, [F05 §9.30], written from
+  M9–M10, since spec sync 3); a local commit draws from max(`hlc_seq`,
+  `hlc_commit`), `hlc_commit` being the greatest `hlc` of any commit the store holds, so that it lies above an imported
+  commit whose `hlc` is ahead ([F04 §5.15]);
 - every other record with an HLC field (`Checkpoint`, `Reserve`, `Lazy`, `SessionMark`, the lazy runtime rows) takes
   `hlc_next(wall_ms, hlc_seq)` and raises nothing, so maintenance and lazy records never move a commit's `hlc`.
 

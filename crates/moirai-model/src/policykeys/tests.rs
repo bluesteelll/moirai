@@ -1165,6 +1165,127 @@ fn check(r: &KeyRow, v: &str, base: &str) -> Result<(), String> {
                 return fail(format!("{names:?}"));
             }
         }
+        // GR-019 and WR-015: an owner-attested rule and decision (`tx.remember` with `authority=owner` and an owner
+        // quote, WT-012) are created `active` and `accepted` under `orchestrator-active`, `proposed` under `strict`; a
+        // rule without the attestation starts `proposed` under both. Under `strict` the orchestrator's later move of
+        // the rule to `active` is refused (E406, WR-015) and the owner's attested `tx.set` confirms it; under
+        // `orchestrator-active` WR-015 does not apply.
+        "status::knowledge_initial" => {
+            let strict = v == "strict";
+            let mut s = store_with(key, v);
+            let quote = |extra: &[(&str, &str)]| -> Vec<(String, P)> {
+                let mut fields = vec![
+                    P::Text("authority=owner".into()),
+                    P::Text("owner_quote=Use fencing tokens.".into()),
+                ];
+                let mut out: Vec<(String, P)> = Vec::new();
+                for (k, x) in extra {
+                    if *k == "status" {
+                        fields.push(P::Text(format!("status={x}")));
+                    } else {
+                        out.push((k.to_string(), P::Text(x.to_string())));
+                    }
+                }
+                out.push(("fields".into(), P::List(fields)));
+                out
+            };
+            let remember = |kind: &str, title: &str, owner: bool| Cmd::Mutation {
+                name: "tx.remember".into(),
+                params: {
+                    let mut p = vec![
+                        ("kind".into(), P::Text(kind.into())),
+                        ("title".into(), P::Text(title.into())),
+                        (
+                            "text".into(),
+                            P::Text("Every lease mutation carries a token.".into()),
+                        ),
+                    ];
+                    if owner {
+                        p.extend(quote(&[]));
+                    }
+                    p
+                },
+                message: String::new(),
+                move_lease: None,
+            };
+            run_ok(&mut s, remember("rule", "r1", true), &orch());
+            run_ok(&mut s, remember("decision", "d1", true), &orch());
+            run_ok(&mut s, remember("rule", "r2", false), &orch());
+            let status = |s: &Store, n: u32| {
+                s.dag
+                    .state_at(s.dag.live("main").unwrap().tip, &s.alloc)
+                    .nodes[&Nid(n)]
+                    .status
+                    .clone()
+            };
+            let (rule, decision) = if strict {
+                ("proposed", "proposed")
+            } else {
+                ("active", "accepted")
+            };
+            let created = status(&s, 1) == rule
+                && status(&s, 2) == decision
+                && status(&s, 3) == "proposed"
+                && crate::status::knowledge_initial("rule", true, strict) == Some(rule);
+            // A `Create` that names another status than GR-019's is refused.
+            let named = s.run(
+                &Cmd::Mutation {
+                    name: "tx.remember".into(),
+                    params: {
+                        let mut p = vec![
+                            ("kind".into(), P::Text("rule".into())),
+                            ("title".into(), P::Text("r3".into())),
+                            ("text".into(), P::Text("t".into())),
+                        ];
+                        p.extend(quote(&[(
+                            "status",
+                            if strict { "active" } else { "proposed" },
+                        )]));
+                        p
+                    },
+                    message: String::new(),
+                    move_lease: None,
+                },
+                &orch(),
+            );
+            let orch_move = s.run(
+                &tx(vec![set(1, "status", P::Text("active".into()))]),
+                &orch(),
+            );
+            let confirmed = if strict {
+                let r = s.run(
+                    &Cmd::Mutation {
+                        name: "tx.set".into(),
+                        params: {
+                            let mut p = vec![
+                                ("id".into(), P::Text("#1".into())),
+                                ("status".into(), P::Text("active".into())),
+                            ];
+                            p.extend(quote(&[]));
+                            p
+                        },
+                        message: String::new(),
+                        move_lease: None,
+                    },
+                    &orch(),
+                );
+                code(&orch_move) == Some("E406")
+                    && r.outcome == Outcome::Ok
+                    && status(&s, 1) == "active"
+            } else {
+                orch_move.outcome == Outcome::Ok && status(&s, 1) == "active"
+            };
+            if !(created && code(&named) == Some("E404") && confirmed) {
+                return fail(format!(
+                    "statuses {} {} {}; named {:?}; orchestrator's move {:?}",
+                    status(&s, 1),
+                    status(&s, 2),
+                    status(&s, 3),
+                    named.error,
+                    orch_move.error
+                ));
+            }
+        }
         // A budget's effective value against the ceiling.
         "budget::effective" => {
             let c = conf_with(key, v);
@@ -1695,6 +1816,7 @@ fn rights(role: &str, data: PolicyData) -> Rights {
         acceptor: None,
         data,
         confirm_roles: vec!["orchestrator".into(), "owner".into()],
+        knowledge_strict: false,
     }
 }
 

@@ -355,6 +355,34 @@ mextra       = <the extra the table below gives for the state>
    the qualified `ambiguous (normalization collision)`, which rule 1's fallback replaces by the bare state. The goldens
    (GT12, WP-71a) check every marker against 50 B (open point 23).
 
+### 4.7 The proposed marker and the proposed line
+
+Packs show records that wait for review, and the brief counts them ([AR §11] OQ-A-8 (c); [RULES/pack-classes] RN-018,
+HP-007, BR-012; spec sync 3). Their spelling:
+
+```abnf
+proposed-marker = %s"~proposed"
+proposed-line   = %s"needs review: " count %s" proposed" SEP %s"newest " idlist SEP %s"list: moirai q proposed"
+                  [ %s" scope=" count ]
+idlist          = handle-id *4( SP handle-id )
+handle-id       = "#" count
+```
+
+`SEP` is §4.5's; `count` and `SP` are §4.3's.
+
+1. **`~proposed`** is the last marker of an entry's line, after its link markers (§4.6), its flags and `~main`
+   ([RULES/pack-classes] RN-007, RN-016), one space before it; it prints at every level. On [RULES/pack-classes]
+   HP-007's ids line it prints once, after the ids.
+2. **The proposed line.** `count` after `needs review: ` is the number of rules and decisions in status `proposed` in the
+   brief's scope; `idlist` holds the ids of the newest five of them (fewer when there are fewer), newest first
+   ([LQ/std §6.2]); ` scope=<N>` is present when the brief ran with `--scope`, with that node's number. The listing
+   command runs as printed (§5 rule 3). No line prints when the count is 0. Example:
+   `needs review: 7 proposed | newest #231 #229 #228 #212 #205 | list: moirai q proposed`.
+3. **Place.** The proposed line is the brief's last line before the drop line: when the brief dropped anything, the
+   `dropped: <what> | more: <continuation>` line of §4.5 rule 3 still ends the brief, so the both-ends rule of §5 holds.
+4. **Limit**: the proposed line is at most 200 B in every golden; with a count, five ids and a scope of 10 digits each
+   it is 145 B.
+
 ## 5. The both-ends rule
 
 1. A result that dropped anything, or that continues on a next page, carries the drop count and the continuation on its
@@ -438,20 +466,20 @@ its error texts to stderr instead of the footer ([LQ/errors §3.1]). Each text i
 
 | Exit | LQ codes ([LQ/errors §5.1]) | Codes of this chapter (§10) |
 |---|---|---|
-| 0 | none; `W01`–`W09`, `N01`–`N12` and hints never set a code | — |
+| 0 | none; `W01`–`W10`, `N01`–`N13` and hints never set a code | — |
 | 1 | none | `internal` |
 | 2 | E001–E007, E009, E101–E118, E302, E306, E308 | `usage`, `bad_path`, `nonportable_name`, `ambiguous_path`, `anchor_spec`, `bad_value`, `config_key`, `config_value`, `bad_ref_name`, `ref_exists`, `ref_prefix` |
 | 3 | E301; the `detail` shape's missing ids (N01, N06, N12, [LQ/envelope §5.6]) | `not_found` (a write to a node that is not live included), `commit_pruned` |
 | 4 | E401, E402 | — |
 | 5 | E407 | `not_writer_tree`, `tree_mismatch`, `binding_conflict` |
-| 6 | E305, E403, E404, E405, E406, E409, E410, E411 | `placement_refused`, `staged`, `staging_exists`, `conflicted_src`, `links_not_ok`, `repin_needs_at`, `confirm_refused`, `path_claimed`, `quiet_mode`, `name_taken`, `not_merged`, `revert_refused`, `not_fresh` |
+| 6 | E305, E403, E404, E405, E406, E409, E410, E411 | `placement_refused`, `staged`, `staging_exists`, `conflicted_src`, `links_not_ok`, `repin_needs_at`, `confirm_refused`, `path_claimed`, `quiet_mode`, `name_taken`, `not_merged`, `revert_refused`, `not_fresh`, `body_dropped`, `harvest_overlap`, `harvest_changed` |
 | 7 | none | `no_store`, `not_a_store`, `bad_pointer`, `swap_in_progress`, `store_retired`, `no_canonical_path`, `other_store`, `format_version`, `refused_location`, `read_only_volume`, `readonly_flag`, `store_read_only`, `sandbox_write`, `store_locked`, `maintenance_busy`, `no_slot`, `outcome_pending`, `outcome_unknown`, `durability_failure`, `store_io_fault`, `sealed_size`, `store_corrupt`, `id_space_exhausted`, `commit_too_large`, `uid_collision`, `fs_busy`, `cross_volume`, `no_dir_flush`, `disk_full`, `no_git` |
 | 8 | none | `partial_batch` |
 | 9 | E408 | — |
 | 10 | E201, E202, E303, E304, E501–E505 | none: the `--ids` cut has no error text (§6.2) |
 
-E008 is unassigned and E307 retired ([LQ/errors §8.1]). The `PATCH` substring case of E404 is listed at exit 6 as
-[LQ/errors] has it; [AR §7.1] gives `doc patch` exit 4 (open point 7).
+E008 is unassigned and E307 retired ([LQ/errors §8.1]). A `PATCH` whose removed text is empty or does not occur exactly
+once in the body is E404, exit 6 ([LQ/errors §5.5]; open point 7, settled in spec sync 3).
 
 ### 7.4 Hooks
 
@@ -666,7 +694,7 @@ Messages are line 1 after `error[<name>]: `; "detail" lists the detail lines; "h
 | `ref_prefix` | 2 | a new ref whose name is a prefix of a live ref's, or the reverse (RN-8) | `<name> and <other> cannot both exist: one is a prefix of the other` | — | — |
 | `config_key` | 2 | `config get\|set\|unset` of an unregistered key ([CFG]) | `unknown configuration key <key>` | — | `did you mean <s>?`, else `moirai config list --defaults lists the keys` |
 | `config_value` | 2 | `config set` with a value outside the key's type or range ([CFG]) | `<key> takes <type>; got <value>` | — | `<key>: <allowed values or range>` |
-| `not_found` | 3 | a named object other than a revision or an LQ node id | `<what> <value> does not exist` — `<what>`: `lease`, `anchor`, `run`, `lane`, `intent`, `conflict key`, `staging ref`, `backup`, `path`, `file node`, `directory`; optionally ` on <ref>` | — | staging ref: `moirai conflicts lists the open staging refs`; directory (a `file mv` destination parent, [F18] open point 28): `create the directory, then run the command again`; else — |
+| `not_found` | 3 | a named object other than a revision or an LQ node id | `<what> <value> does not exist` — `<what>`: `lease`, `anchor`, `run`, `lane`, `intent`, `conflict key`, `staging ref`, `backup`, `path`, `file node`, `directory`, `body` (a hash `body drop` names that the store holds as no body, [API §8.7]), `transcript` (a `harvest forget` source with no row, [API §8.8]; spec sync 3); optionally ` on <ref>` | — | staging ref: `moirai conflicts lists the open staging refs`; directory (a `file mv` destination parent, [F18] open point 28): `create the directory, then run the command again`; transcript: `moirai harvest mark registers a transcript`; else — |
 | | | a write outside LQ that names a node that is not live on its view ([AR §5d.3] L3, [RULES/delete-policy-matrix] DP-003; [API] open point 5; pass 1, A1-39) | `node <id> is not live on <ref>` | the tombstone line or the not-found line of [LQ/errors] N01, N06 | — |
 | `commit_pruned` | 3 | `revert`, `cherry-pick`, `diff` or `history --patch` of a commit `gc` pruned to its header ([F06 §4.4.15]) | `commit <c8> was pruned by gc; its changes are gone` | — | — |
 | `not_writer_tree` | 5 | a file verb or R4 write outside the writer tree ([40 §3.4], [40 §5.3]) | `<tree> is not the writer tree of <ref> (writer tree: <tree>)`; `<ref> has no writer tree` | every role: `use a raw mv or rm instead; links follow by evidence once the code reaches <tree>, or ask the orchestrator` (with no writer tree: `ask the orchestrator to bind a tree for <ref>`). Orchestrator and owner roles only (review A-m4): `bind: moirai worktree bind <treepath> <ref> --replace` (without `--replace` when <ref> has no writer tree) | — |
@@ -692,6 +720,10 @@ Messages are line 1 after `error[<name>]: `; "detail" lists the detail lines; "h
 | `not_merged` | 6 | `branch -d` of a branch whose tip `main` has not absorbed ([AR §5a.9], [API §11.2]) | `<ref> is not merged into main` | — | `merge it first, or delete it with moirai branch -D <ref>` |
 | `revert_refused` | 6 | `revert` of a `sync` commit, of a merge without `--mainline 1`, or of a commit with a dependent set ([AR §5a.5], [API §11.10]) | `<c8> is a sync commit; a sync is never reverted`; `<c8> is a merge; revert it with --mainline 1`; `<c8> has dependent commits` | for a dependent set: the dependents as `<c8> <message>`, at most 10, then `... <n> more` | for a dependent set: `revert the dependents first, newest first` |
 | `not_fresh` | 6 | `file mv` of an alias source whose node this tree is not fresh for ([40 §3.4], [API §12.4] step 1) | `<path> is an old path of <id>, and this tree has not seen its latest move` | — | `moirai links sync, then run the command again` |
+| `body_dropped` | 6 | a write that supplies body bytes whose hash the owner dropped ([F06 §8.1] DB-7 (b); spec sync 3) | `<id>'s new body has the hash of a body the owner dropped (<reason>)` — `<reason>`: the drop's reason name ([F06 §8.1] DB-2: `secret`, `private`, `other`) | — | `write a different text; a dropped text is never stored again` |
+| | | a `PATCH` of a dropped body (DB-7 (c)) | `<id>'s body was dropped (<reason>); PATCH has no text to change` | — | `write the whole body with SET <id>.body = $text` |
+| `harvest_overlap` | 6 | an `apply` whose result entry's `harvest` range overlaps a live range of the same transcript, or another range of the same batch ([API §8.8]; spec sync 3; M9–M10) | `bytes <start>-<end> of <source> overlap bytes <start>-<end>, harvested by <c8>`; for a range of the same batch, `…, also in this batch` | — | `start the next batch at byte <next> (moirai q unharvested)` |
+| `harvest_changed` | 6 | a `harvest mark`, or an `apply` harvest range, whose `head` differs from the transcript's recorded head, or whose `seen` is below the end of a live range ([API §8.8]; spec sync 3; M9–M10) | `<source> changed since it was harvested: <what>` — `<what>`: `its first bytes differ`, `it is <n> bytes, shorter than the harvested end <e>` | — | `moirai harvest forget <source>, then harvest it again` |
 | `no_store` | 7 | discovery found nothing ([F02 §3.1] step 5, [F02 §3.5] step 5) | `no moirai store found for <dir>` | `walk-up: <n> directories from <dir> to <top>, no .moirai entry`; `git hint: <path> and <path>: nothing there`, `git hint: no .git entry above <dir>` or `git hint: off (discovery.git-hint = false)`; `store reachable by the git hint: <store>` when the hint is off and would have found one; `denied: <path> (<oserr>)`, at most 3 | CLI: `moirai init --link <store> links this directory to a store; moirai init creates one`; MCP without `tree`: `pass tree = your working directory` ([90 §2.2]) |
 | `not_a_store` | 7 | an entry that is not a store ([F02 §3.2]); `--store` or `MOIRAI_DIR` naming one | `<path> is not a store (initialisation in progress, or damaged)`; `<path> (from --store) is not a store directory`; `<path> (from MOIRAI_DIR) is not a store directory` | — | `moirai doctor store` |
 | `bad_pointer` | 7 | a malformed or stale pointer file ([F02 §3.3] rule 5) | `pointer file <path> is malformed: <reason>` — `line <n> does not match the grammar`, `it is larger than 4,096 bytes`, `it has lines after store-id`; `pointer file <path> is stale: <reason>` — `its target is not a store`, `its target is a pointer file`, `the store ids differ` | `target: <path>` when it parsed; `store id: recorded <32 hex>, found <32 hex>` when both exist | `remove <path>, then run moirai init --link <store>` |
@@ -706,7 +738,7 @@ Messages are line 1 after `error[<name>]: `; "detail" lists the detail lines; "h
 | `store_read_only` | 7 | a writer that cannot open `LOCK` or the log for writing ([90 §5.3], [OS/env §7]) | §11.4 | §11.4 | §11.4 |
 | `sandbox_write` | 7 | a sandboxed CLI that cannot write outside the store: an image destination, `backup DIR`, the `restore` swap ([80 §2.6]) | `this sandbox cannot write <path> (<reason>)` | `owner fix: add "/<parent>" to sandbox.filesystem.allowWrite`, where `/<parent>` is `/` followed by the canonical absolute path of the destination's parent | — |
 | `store_locked` | 7 | a store lock's bounded wait timed out before anything was written: the writer byte's ([OS/lock §4], [AR §4.5] step 5), or the flush byte's while a rotation held it ([F16] P-72; pass 1, P1-31), or the retries of a quiet-mode requester that found all nine quiet bytes busy ([F03 §3.1] rule 4; pass 1, P1-10) | `the <lock> lock of <store> was held for <t> ms (<key>)` — `<lock>` `<key>`: `writer` `lock.writer-wait-ms`, `flush` `lock.flush-wait-ms`, `quiet` `lock.writer-wait-ms` (every quiet byte busy, [F03 §3.1] rule 4; pass 1, P1-10) | writer lock: `holder: <cmd> (pid <pid>, <activity>, since <timestamp>, session <liveness>)` from `WriterDiag` ([F03 §6.3] WD-4): `<cmd>` quoted and cut to 80 bytes, `<activity>` the enumeration name, `<liveness>` `alive`, `dead`, `unknown` or `none` for a zero session hash; `holder not recorded` when the record fails its check; then, for both locks, `nothing was written` | `retry; a dead holder's lock is released by the OS` |
-| `maintenance_busy` | 7 | an explicit maintenance verb (`gc`, `backup`, `repair`, `maintain`) that finds the maintenance byte held; the byte is only tried, never waited for ([F16] P-1, P-76; [OS/lock §6]; pass 1, P1-31) | `maintenance of <store> is running in another process` | `nothing was changed` | `retry when it ends; moirai doctor agents names the holder` |
+| `maintenance_busy` | 7 | an explicit maintenance verb (`gc`, `backup`, `repair`, `maintain`) that finds the maintenance byte held; the byte is only tried, never waited for ([F16] P-1, P-76; [OS/lock §6]; pass 1, P1-31). Also a `backup` whose pending body purge stays pending after its run, because bulk commits appended meanwhile kept it from publishing ([F16] P-87 step 1, P-101 step 7; spec sync 3) | `maintenance of <store> is running in another process`; for the `backup` case, `the body purge of <store> could not publish while bulk commits were appended` | `nothing was changed`; for the `backup` case, `nothing was copied; the purge is still pending` | `retry when it ends; moirai doctor agents names the holder`; for the `backup` case, `retry when fewer bulk commits are written` |
 | `no_slot` | 7 | `file mv` or `file rm` with no liveness slot ([F03 §8.4] SR-4, §8.7) | `no liveness slot of <store> is free` | `nothing was changed` | `retry when fewer moirai processes run; moirai doctor agents lists slot use` |
 | `outcome_pending` | 7 | the flush byte's bounded wait timed out after the append ([AR §4.5] step 10.2, [OS/lock §4]) | `the commit is appended but not yet durable after <t> ms (lock.flush-wait-ms); outcome pending` | `key: <key>` | `re-run the same command with the same key: it completes the commit, or replays it once durable` |
 | `outcome_unknown` | 7 | a group lost before its flush twice ([AR §4.5] step 10.5, [50 §5.9] step 5) | `outcome unknown: re-run with the same key or check moirai changes` ([AR §6.4]) | `key: <key>` | — |
@@ -747,6 +779,9 @@ After [LQ/errors §4.1]'s common keys (§8.6), in this order:
 | `not_merged` | `"ref":<string>` |
 | `revert_refused` | `"commit":<string>`, `"case":<string>` (`sync`, `mainline`, `dependents`), `"dependents":[<string>...]` |
 | `not_fresh` | `"path":<string>`, `"node":"#N"` |
+| `body_dropped` | `"node":"#N"`, `"hash":<32 hex>`, `"reason":<string>` (`secret`, `private`, `other`), `"case":<string>` (`supplied`, `patch`) |
+| `harvest_overlap` | `"source":<string>`, `"start":<int>`, `"end":<int>`, `"other":{"start":<int>,"end":<int>,"commit":<commit or null>}` (`null` for a range of the same batch), `"next":<int>` |
+| `harvest_changed` | `"source":<string>`, `"case":<string>` (`head`, `shorter`) |
 | `no_dir_flush` | `"dir":<string>`, `"os":{"code":<int>,"symbol":<string>}` |
 | `not_writer_tree`, `binding_conflict` | `"tree":<string>` (canonical path), `"writer_tree":<string or null>`, `"ref":<string>` |
 | `tree_mismatch` | `"tree":<string>`, `"lease":<string>`, `"lane_tree":<string>` |
@@ -795,6 +830,7 @@ After [LQ/errors §4.1]'s common keys (§8.6), in this order:
 | `removable_drive` | `doctor` | `warning[removable_drive]: <store> is on a removable or external drive; some USB bridges ignore flushes` |
 | `untested_os` | `doctor` | `warning[untested_os]: <os> <found> is allowed but outside the tested set` |
 | `user_config_unresolved` | `doctor` ([F02 §7.3] rule 2, [OS/path §10]) | `warning[user_config_unresolved]: the user configuration file has no location (<variable> is unset or not absolute)` |
+| `purge_pending` | `doctor`, plain and `--fsck`, while an active extent holds a `BodyDrop` record of origin `command` ([F13 §3.10], [F16] P-101; spec sync 3); never `doctor --verify` ([API §8.6]) | `warning[purge_pending]: a body purge of <store> is pending; dropped bodies may still be in its files; moirai gc finishes it` |
 | `graph_only_revert` | `revert` or `cherry-pick` of a commit whose group carried an `FsIntentDone` ([40 §3.6], [API §11.10]; pass 1, A1-39) | `warning[graph_only_revert]: <c8> moved files on disk; moirai file revert <c8> moves them back` |
 
 ### 10.5 Refusals named by other chapters
@@ -847,7 +883,14 @@ Each refusal another chapter delegates here, with its code. A chapter that state
 | cross-volume `file mv` | [F20 §5.19], [OS/project §6.4] | `cross_volume` | 7 |
 | a project volume that cannot flush a directory | [OS/project §6.2], [API §12.4] | `no_dir_flush` | 7 |
 | a pruned commit named by `revert`, `cherry-pick` or `diff` | [F06 §4.4.15] | `commit_pruned` | 3 |
+| a write that supplies a dropped body's bytes; a `PATCH` of a dropped body | [F06 §8.1] DB-7, [API §8.7] | `body_dropped` | 6 |
+| `body drop` by a caller that is not owner-attested | [F06 §8.1] DB-3, [API §8.7] | E406 | 6 |
+| a `PATCH` whose removed text is empty or does not occur exactly once in the body | [LQ/std §7.2], [API §9.2] | E404, its `PATCH` case ([LQ/errors §5.5]) | 6 |
+| a `Create` of a rule or a decision that names a status other than GR-019's | [RULES/status-machines] GR-019 | E404, its GR-019 case ([LQ/errors §5.5]) | 6 |
+| the move of an owner-authority rule or decision out of `proposed` under `knowledge.owner-authority = strict` by a caller that is not owner-attested, or in the block that created it | [RULES/role-write-policy] WR-015 | E406 | 6 |
+| a harvest range that overlaps a live range; a transcript that changed since it was harvested | [API §8.8] | `harvest_overlap`, `harvest_changed` | 6 |
 | a busy maintenance byte seen by an explicit maintenance verb | [F16] P-76, [OS/lock §6] | `maintenance_busy` | 7 |
+| a `backup` whose pending body purge bulk commits kept from publishing (spec sync 3) | [F16] P-87 step 1, P-101 step 7 | `maintenance_busy` | 7 |
 | ref-name grammar, an existing name, a prefix clash | [F12 §2.1], §2.4 | `bad_ref_name`, `ref_exists`, `ref_prefix` | 2 |
 | a run name in use; an unmerged branch; a refused revert; a stale alias source | [API §10.7], §11.2, §11.10, §12.4 | `name_taken`, `not_merged`, `revert_refused`, `not_fresh` | 6 |
 | a write to a node that is not live | [API §9.1], [RULES/delete-policy-matrix] DP-003 | `not_found` (`node`) | 3 |
@@ -1150,7 +1193,10 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is `HO
 7. **`doc patch` exit (conflict).** [AR §7.1] gives exit 4 for a removed text that is not a substring; [50 §5.2] and
    [LQ/errors] put it under E404, exit 6. The error table is not a reservation of [F01 §2.4] rule 2's list, so [AR] would
    win; a code has one exit code, so following [AR] needs a new LQ code (proposal: `E412 patch_mismatch`, exit 4, the
-   current body excerpt printed like E401's values). Until the review decides, §7.3 mirrors [LQ/errors].
+   current body excerpt printed like E401's values). Until the review decides, §7.3 mirrors [LQ/errors]. **Settled in
+   spec sync 3**: the owner's decision of 2026-10-06 (OQ-A-10 (a), [AR §11] #46) names E404, with the reason "occurs N
+   times", for a removed text that does not occur exactly once, and an empty removed text is refused too
+   ([LQ/errors §5.5]). E404 keeps exit 6 and `E412` is not assigned; WP-81a corrects [AR §7.1]'s exit 4 for `doc patch`.
 8. **Non-LQ errors carry no numeric code.** [AR §7.1], [40 §3.8] and [90 §5.3] spell `error[store_read_only]`,
    `error[fs_busy]`; §9.1 keeps that form and puts the name in JSON `code` and `name`. The alternative, a numbered range
    printed as `error[S701 store_read_only]`, would change [90 §5.3]'s golden text.
@@ -1276,3 +1322,21 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is `HO
     `scan-failed`, `syntax`); `bad_value` gains the commit-message case (`message`) of [F07 §5.2]. §10.4: `lease_moved`.
     §10.3: `conflicted_src` carries `sync`, the step-0 sync a refused sync-first merge appended ([API §11.7]), because
     the error envelope of §8.6 has no `data` (independent check of the sync).
+39. **Spec sync 3** ([AR §11] #33, OQ-A-7). `body_dropped`, exit 6 (§10.2, §10.3, §10.5): a write that supplies the
+    bytes of a body the owner dropped, and a `PATCH` of a dropped body ([F06 §8.1] DB-7). Exit 6 because the store
+    refuses the write in its present state; the text names the node and the reason and never echoes the refused text. A
+    `body drop` by a caller who is not owner-attested is E406 (DB-3). The rendering of a dropped body,
+    `[body dropped: <reason>]`, is [LQ/envelope §5.16]'s; it is ASCII (§2.3). After the independent check of the sync,
+    R-SPEC-P's follow-ups (spec sync 3, S3-F-29): §10.4's warning `purge_pending` names a pending body purge
+    ([F13 §3.10], [F16] P-101), which no automatic maintenance runs ([F16] P-76), so plain `doctor` shows it as well as
+    `--fsck`; it is a warning, not a violation, because a pending purge is a state the protocol allows; and
+    `maintenance_busy` gains the `backup` whose purge bulk commits kept from publishing ([F16] P-87), with its own text,
+    since no other process holds the byte then.
+40. **Spec sync 3, part B** ([AR §11] OQ-A-8 (c), #46; the TencentDB research of 2026-09-30). §4.7 spells the
+    `~proposed` marker and the brief's "proposed / needs review" line that [RULES/pack-classes] RN-018 and BR-012
+    delegate here. BR-012 says the line is "emitted last"; rule 3 keeps the drop line last, as §5 requires, so the
+    proposed line is the last line before it. §7.3 counts N13 (`similar_records`, reserved for M9–M10) among the
+    notices that set no code and corrects the warning range to W01–W10. `PATCH`'s E404 cases settle open point 7. Two
+    reserved exit-6 codes come with the harvest cursor of [API §8.8] (M9–M10): `harvest_overlap`, the refusal that keeps
+    a resumed batch from harvesting a range twice, and `harvest_changed`, for a transcript rewritten or truncated since
+    it was harvested.

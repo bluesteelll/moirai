@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| Title | Segments: the segment header `SegHdr` (with `total_len`, X-F6) and its section table, the section tag registry with the `derived-optional` flag, the section layout classes and how layers compose into a view, every section of [AR §4.4] (node headers, cold columns, `CREATOR`, forward and reverse CSR, `EDGE_PROPS`, frozen bitsets with per-chunk cardinality, `TOPO`, `TOMB`, the view's schema, `FCOL`/`FIDX`, `STATS`, `TERMS`/`POST` with `DOCLEN` and the tokenizer, R4's link sections, `SYMTAB`, the store-level sections and where the runtime tables sit), and the four graph segment kinds: base, delta, promoted branch (with `TOUCH`) and changeset |
+| Title | Segments: the segment header `SegHdr` (with `total_len`, X-F6) and its section table, the section tag registry with the `derived-optional` flag, the section layout classes and how layers compose into a view, every section of [AR §4.4] (node headers, cold columns, `CREATOR`, forward and reverse CSR, `EDGE_PROPS`, frozen bitsets with per-chunk cardinality, `TOPO`, `TOMB`, the view's schema, `FCOL`/`FIDX`, `STATS`, `TERMS`/`POST` with `DOCLEN` and the tokenizer, R4's link sections, `SYMTAB`, the store-level sections and where the runtime tables sit), the dropped `BlobRef` of a dropped body (spec sync 3), and the four graph segment kinds: base, delta, promoted branch (with `TOUCH`) and changeset |
 | Chapter | [F09], `docs/spec/format/09-segments.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-13a (the `09-segments.md` part of WP-13, [PLAN §3.2] item 1), author role R-SPEC-R |
-| Sources | [AR §3.1] (the 60-byte header, row = `#N` − 1, cold columns `uid`, `topo`, `defer_until`, `due`, `CREATOR`; the field block); [AR §3.3] (edge key with the R4 discriminator, one CSR entry per (src, dst) for `at`, `pinned_commit` props); [AR §3.5] (the persisted bitsets); [AR §4.1] (rows `seg.base.G`, `seg.dK`, `seg.b<ref_id>.K`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, file count); [AR §4.2] (`SegRef`, `refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `next_id`, `next_anchor`); [AR §4.3] (bulk commits: "delta-segment layout", "readers map it as one more delta layer"; lazy runtime records decoded on use); [AR §4.4] (the whole section: `SegHdr`, the section tables, frozen bitsets, delta segments, hot bytes per node); [AR §4.5] step 12 (delta checkpoint, runtime-only fold, promotion); [AR §4.6] "Reserved in format v1" (the R4/R5 table and the audit, port and harness lists as they touch segments); [AR §4.7] (size check before mapping, `SYMTAB` probed in place); [AR §4.8] (the index table); [AR §4.9] (delta checkpoint, tiered fold, rollup, pins, `MARKERS_OLD`, GC); [AR §4.10] (`doctor --fsck`, `repair --rebuild-from-log`); [AR §5a.1] (ref, pin); [AR §5a.3] (the view formula, promotion, `TOUCH`); [AR §5d.1] (versioned versus store-level runtime state); [AR §2.11] T11 (tier-2 text search: front-coded dictionary, delta-varint postings per delta segment); [AR §2.12] T12 (schema as data per branch); [40 §2.4] (`PATHIDX` order), [40 §2.6] (runtime tables), [40 §2.7] (anchor handles `aN`, anchor uid), [40 §2.8] (`at` edges and the `ANCHORS` key), [40 §2.11] R-4, R-8, R-9, R-18 (authoritative); [50 §5.5] (search tokenisation "fixed in the format spec with a version byte", ranking statistics on the view), [50 §8.1] F3, F4, F5, F6, F7, F11, F12, F13, F17; [80 §2.5] rule 4, [80 §3.1] X-F6, X-F8, [80 §3.2] (8-byte section alignment); [60 §2.5] ([AR] row "Segments"; audit row "Segments"; the R4 and R5 tables), [60 §2.6] (the section-producer registry and its layout classes); [PLAN §3.2] WP-13, [PLAN §3.3] (WP-13's gaps: `MARKERS` field set, which sealed files carry `SegHdr`); `docs/spec/reviews/a1-S.md` S-09, S-22 and `a1-P.md` A1P-16 (dispositions in the open points); the sibling drafts [F04 §4.1] (`SegRef`), [F06 §7.3, §8, §9] (`prev`, bodies, bulk commits BK-1–BK-6), [F08 §3, §8.3, §8.4.3, §10.1] (`NodeHdr`, store-local schema ids, `index`, edges) and [F11 §1.3, §2] (runtime section bodies, forms and proposed tags), with which this chapter is reconciled (OP-09-23) |
-| Depends on | [F01], [F02]; cites [F04], [F05], [F06], [F07], [F08], [F10], [F11], [F12], [F13], [F15], [F16], [F17], [F19], [F20], [OS/map], [OS/fs], [LQ/std] |
+| Sources | [AR §3.1] (the 60-byte header, row = `#N` − 1, cold columns `uid`, `topo`, `defer_until`, `due`, `CREATOR`; the field block); [AR §3.3] (edge key with the R4 discriminator, one CSR entry per (src, dst) for `at`, `pinned_commit` props); [AR §3.5] (the persisted bitsets); [AR §4.1] (rows `seg.base.G`, `seg.dK`, `seg.b<ref_id>.K`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, file count); [AR §4.2] (`SegRef`, `refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `next_id`, `next_anchor`); [AR §4.3] (bulk commits: "delta-segment layout", "readers map it as one more delta layer"; lazy runtime records decoded on use); [AR §4.4] (the whole section: `SegHdr`, the section tables, frozen bitsets, delta segments, hot bytes per node); [AR §4.5] step 12 (delta checkpoint, runtime-only fold, promotion); [AR §4.6] "Reserved in format v1" (the R4/R5 table and the audit, port and harness lists as they touch segments); [AR §4.7] (size check before mapping, `SYMTAB` probed in place); [AR §4.8] (the index table); [AR §4.9] (delta checkpoint, tiered fold, rollup, pins, `MARKERS_OLD`, GC); [AR §4.10] (`doctor --fsck`, `repair --rebuild-from-log`); [AR §5a.1] (ref, pin); [AR §5a.3] (the view formula, promotion, `TOUCH`); [AR §5d.1] (versioned versus store-level runtime state); [AR §2.11] T11 (tier-2 text search: front-coded dictionary, delta-varint postings per delta segment); [AR §2.12] T12 (schema as data per branch); [40 §2.4] (`PATHIDX` order), [40 §2.6] (runtime tables), [40 §2.7] (anchor handles `aN`, anchor uid), [40 §2.8] (`at` edges and the `ANCHORS` key), [40 §2.11] R-4, R-8, R-9, R-18 (authoritative); [50 §5.5] (search tokenisation "fixed in the format spec with a version byte", ranking statistics on the view), [50 §8.1] F3, F4, F5, F6, F7, F11, F12, F13, F17; [80 §2.5] rule 4, [80 §3.1] X-F6, X-F8, [80 §3.2] (8-byte section alignment); [60 §2.5] ([AR] row "Segments"; audit row "Segments"; the R4 and R5 tables), [60 §2.6] (the section-producer registry and its layout classes); [PLAN §3.2] WP-13, [PLAN §3.3] (WP-13's gaps: `MARKERS` field set, which sealed files carry `SegHdr`); `docs/spec/reviews/a1-S.md` S-09, S-22 and `a1-P.md` A1P-16 (dispositions in the open points); the sibling drafts [F04 §4.1] (`SegRef`), [F06 §7.3, §8, §9] (`prev`, bodies, bulk commits BK-1–BK-6), [F08 §3, §8.3, §8.4.3, §10.1] (`NodeHdr`, store-local schema ids, `index`, edges) and [F11 §1.3, §2] (runtime section bodies, forms and proposed tags), with which this chapter is reconciled (OP-09-23). Spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F16] P-80, P-101, P-102 (the dropped `BlobRef`, full-text indexing, the `DROPPED` tag); [AR §11] OQ-A-9 with [F01 §8.2] (symbol class `model`); [AR §11] OQ-A-10 with [API §8.8] (the `HARVEST` tag) |
+| Depends on | [F01], [F02]; cites [F04], [F05], [F06], [F07], [F08], [F10], [F11], [F12], [F13], [F15], [F16], [F17], [F19], [F20], [OS/map], [OS/fs], [LQ/std], [API] |
 
 ## 1. Scope
 
@@ -195,6 +195,8 @@ placement.
 | `0x0101` | `SCHEMAIDS` | RtHdr body | snapshot / layer | R | R | — | — | this chapter | §14.3 |
 | `0x0102` | `FILES` | RtHdr body | snapshot | R | R | — | — | this chapter | §14.4 |
 | `0x0201`–`0x020C` | `REFS`, `PINS`, `HEADS`, `LEASES`, `MARKERS`, `MARKERS_OLD`, `IDEM`, `ALLOC`, `UIDX`, `CURSORS`, `SESSMARKS`, `BACKUPS` | RtHdr body | [F11 §1.3] | R | R | — | — | [F11] | §14.5 |
+| `0x020D` | `DROPPED` | RtHdr body | snapshot ([F11 §1.3]) | C | C | — | — | [F11 §13.4] | §14.5 |
+| `0x020E` | `HARVEST` | RtHdr body | snapshot / layer ([F11 §1.3]) | C | C | — | — | [F11 §13.5] | §14.5 |
 | `0x0210`–`0x021A` | `TREES`, `FILEOBS`, `PENDING`, `FSINTENT`, `FPRINT`, `JOURNALCUR`, `DIRMAP`, `PREFIXEV`, `ANCESTRY`, `GITRENAMES`, `ANCHORRES` | RtHdr body | [F11 §1.3]; runtime window (§15.1) except `FSINTENT` | R or O (§3.3) | R or O | — | — | [F11 §12] | §15.2 |
 | `0x0300`–`0x0302` | `HFRAMES`, `HCIDX`, `HDATA` | [F10 §4.3] | — | — | — | — | — | [F10] | `hist` only |
 | `0x0310`–`0x0311` | `BLOBIDX`, `BLOBDATA` | [F10 §5.2] | — | — | — | — | — | [F10] | `blobs` only |
@@ -216,8 +218,12 @@ The individual tags of the two runtime ranges are those [F11 §2.8] proposes, ad
 | `0x020A` | `CURSORS` | | | `0x0219` | `GITRENAMES` |
 | `0x020B` | `SESSMARKS` | | | `0x021A` | `ANCHORRES` |
 | `0x020C` | `BACKUPS` | | | | |
+| `0x020D` | `DROPPED` | | | | |
+| `0x020E` | `HARVEST` | | | | |
 
-`0x020D`–`0x020F` are reserved. `0x020A`–`0x020C` are [F11 §13]'s session and backup tables (pass 1, A1-23). A `hist` file carries only the tags `0x0300`–`0x0302` and a `blobs` file only
+`0x020F` is reserved. `0x020A`–`0x020C` are [F11 §13]'s session and backup tables (pass 1, A1-23); `0x020D` is the
+dropped-body table and `0x020E` the harvest cursor reserved for M9–M10 ([F11 §13.4], §13.5; spec sync 3), both carried
+only when they hold a row (§14.5). A `hist` file carries only the tags `0x0300`–`0x0302` and a `blobs` file only
 `0x0310`–`0x0311` ([F10]); a graph segment never carries them.
 
 ### 3.2 Tag ranges
@@ -451,9 +457,22 @@ Fixed table of `BlobRef`, `row_w` = 36, key `hash` ([AR §4.4] `(blake3_16, file
 
 - **Entries.** One per distinct `hash` that `body_ref` of this segment's rows names, plus every body that [F06 §8] BD-6
   requires the set to keep ("every body that a `Commit` record after u references without carrying it"). Sorted by `hash`
-  strictly ascending, so a reader resolves a body hash by binary search, as BD-6 asks.
+  strictly ascending, so a reader resolves a body hash by binary search, as BD-6 asks. A dropped hash (below) that a
+  row's `body_ref` names keeps its entry, so `body_ref` still indexes it; a dropped hash that only BD-6 would require is
+  left out, since BD-6 exempts it ([F06 §8.1]; [F16] P-102).
 - `body_ref` indexes the table 1-based (§5.2).
 - `BlobRef` is also the type of any other structure of the format that points at a blob by location.
+- **Dropped `BlobRef`** ([F06 §8.1] DB-1, DB-8; [AR §11] #33, OQ-A-7; spec sync 3). A `BlobRef` with `file` = 0 is
+  **dropped**: it keeps the `hash` of a body whose bytes this store has dropped and points into no file. `blobs` numbers
+  start at 1 ([F02 §6.2]), so 0 names none.
+  - `file` = 0 requires `off` = `len` = `raw_len` = 0 (V).
+  - `file` = 0 only for a hash in the store's dropped set (C: it needs the `DROPPED` table and the log, [F11 §13.4]). A
+    fold writes a dropped `BlobRef` for every entry whose hash is in the dropped set of its scanned log ([F16] P-80); a
+    segment written before a drop keeps its live `BlobRef` until the purge rewrites it ([F16] P-101 step 4); once no
+    purge is pending, `file` = 0 exactly when the hash is dropped ([F13] I-D1 (b)).
+  - A reader never follows a dropped `BlobRef`. It finds the hash in the dropped set first ([F16] P-102) and renders the
+    body as [F06 §8.1] DB-6 states; the reason comes from the dropped set, not from the entry.
+  - The same rules hold for the `BLOBTAB` of a changeset segment (§16.4).
 
 ## 7. Adjacency
 
@@ -759,6 +778,12 @@ query side (`search()`, `term*`, `-term`) is [LQ/std]'s and uses this tokenizer 
 - **Length.** The term is the UTF-8 encoding of the mapped token. A term longer than 64 bytes is cut to its longest prefix
   of at most 64 bytes that ends on a scalar-value boundary.
 - **Counts.** A field's term frequency `tf(t)` is the number of its tokens whose term is t; its length is its token count.
+- **A dropped body** ([F06 §8.1] DB-6; spec sync 3) gives no tokens: its field has length 0 and no posting, as an absent
+  body has. Title and abstract are indexed as usual. A fold never tokenises a body in the dropped set of its scanned log
+  ([F16] P-80); a segment written before the drop keeps the body's postings until the purge rewrites it ([F16] P-101
+  step 4), which clears bit 2 of the document's `fmask` in each such posting, drops a posting whose `fmask` becomes 0 and
+  a term whose `n_docs` becomes 0, sets the body count of `DOCLEN` to 0 and recomputes `FTSSTAT` (§12.3, §12.4). A
+  reader's search treats a body in its dropped set as no text even while a posting remains ([F16] P-102).
 
 The decisions in this list that [50 §5.5] leaves open (the Unicode version, simple lowercase, combining marks as
 separators, the 64-byte cut) are recorded as OP-09-11.
@@ -899,9 +924,11 @@ fold "index": a row belongs to the node `n`. Pack class C7 is then a range probe
 | 9 | `reason` | `u32` |
 | 10 | `name` | `u32` |
 | 11 | `text` | `u32` |
+| 12 | `model` | `u32` |
 
-Values 0 and 12–255 are reserved. A class added before the freeze ([F01 §8.2]) takes the next value. The same codes are
-used wherever a record names a class ([F05]'s new-symbol records).
+Values 0 and 13–255 are reserved. A class added before the freeze ([F01 §8.2]) takes the next value: class 12 `model`
+holds the declared model ids of the commit header's provenance group ([F06 §4.4.17]; [AR §11] OQ-A-9; spec sync 3).
+The same codes are used wherever a record names a class ([F05]'s new-symbol records).
 
 ### 14.2 `SYMTAB`
 
@@ -1005,6 +1032,12 @@ their placement in every `seg-base` and `seg-delta` and nowhere else, and that t
 `(#N, ref_id, commit)` ([AR §4.4], [60 §2.5]) and the field set are [F11 §7]'s (the [PLAN §3.3] gap "the `MARKERS` field
 set", closed there).
 
+`DROPPED` (tag `0x020D`, [F11 §13.4]) and `HARVEST` (tag `0x020E`, [F11 §13.5], reserved for M9–M10) are runtime tables
+of the same kind (spec sync 3), folded against `upto_lsn` and placed only in `seg-base` and `seg-delta`, but
+**conditional** (C in §3.1): a segment carries each exactly when the section holds at least one row, a section of either
+with `count` = 0 is invalid (V-7), and an absent one is read as a section with no rows ([F11 §2.4] "Conditional
+sections"). A store that never drops a body, and every store before M9–M10, writes neither.
+
 ## 15. R4 runtime sections ([40] R-8, R-18; [80] X-F8)
 
 ### 15.1 The runtime window
@@ -1016,7 +1049,9 @@ The lazy runtime record kinds `K_RT` = {`FileObs`, `Pending`, `FPrint`, `Journal
 - A **runtime-only fold** ([AR §4.5] step 12, [F17 §5.4]) writes a delta whose `from_lsn = upto_lsn` = the `upto_lsn` of the
   layer below (an empty graph window: `IDS` empty, every row-scoped section empty, no ± list) and whose `rt_upto_lsn`
   advances. It carries every section a delta requires, the snapshot sections unchanged apart from the runtime-window ones
-  ([F11] open point 27: "every snapshot section … and no graph section" with content). A runtime-only fold is not a
+  ([F11] open point 27: "every snapshot section … and no graph section" with content); of the conditional sections
+  (§14.5) it carries `DROPPED` exactly when the layer below does and no `HARVEST`, whose records fold against `upto_lsn`
+  (spec sync 3). A runtime-only fold is not a
   tier-2 decision point ([F17 §6.4]); one that runs after `HEAD.flags` bit 1 is set writes `tok_ver` 1 and carries the
   tier-2 sections like every other segment: `TERMS`, `POST` and `DOCLEN` empty, and `FTSSTAT`, if kept, equal to the
   layer below's (spec sync 2b).
@@ -1096,8 +1131,18 @@ them from its base state):
 | violations (a bulk merge that stages) | `VIOLATIONS` (below) |
 | schema items | `SCHEMA` |
 | anchors with their `aN` and edge props | `ANCHORS`, `ANCHOR_UID`, `EDGE_PROPS` |
-| bodies | `BLOBTAB`, pointing into the `blobs` file sealed before it ([F06 §9] BK-3) |
+| bodies | `BLOBTAB`, pointing into the `blobs` file sealed before it ([F06 §9] BK-3); a dropped body as a dropped `BlobRef` (§6.3) |
 | a bulk import-checkpoint's image-only data ([F06 §4.4.14]) | `CKIMG` (below; pass 1, S1-23, A1-10) |
+
+- **Dropped bodies** (spec sync 3). §6.3's rules for dropped hashes and dropped `BlobRef`s hold for a changeset
+  segment's `BLOBTAB`: a bulk commit streamed after a drop writes a dropped `BlobRef` for a row whose body is dropped and
+  seals no such body into its `blobs` file ([F06 §8.1] DB-7, [F16] P-34). A `cs.<n>` sealed before the drop is rewritten
+  by the purge under a new number when its `BLOBTAB` holds a live `BlobRef` of a purged hash or names a replaced `blobs`
+  file, and the commit's `cs_ref` follows ([F10 §8], [F16] P-101 steps 5–6); every other section keeps its bytes. A
+  `cs.<n>` named by a bulk `Commit` appended after a purge's forced rotation is never rewritten by that purge, since the
+  commit's record stays in the log and its `cs_ref` cannot follow; if it names a `blobs` file the purge replaces, the
+  purge starts again at its step 1 ([F16] P-101 step 7), and the commit's `cs_ref` follows through the `hist` file of
+  the later pass.
 
 - **`PREV`** (tag `0x00C0`, required): column of `u64`, parallel to `IDS`: the **absolute** lsn of the newest earlier
   `Commit` record with the same `ref_id` whose changeset touches the row, 0 when there is none — the lsn that [F06 §7.3]'s
@@ -1149,11 +1194,11 @@ copied into a new segment. [F11 §2.7] adds the checks of the `RtHdr` bodies.
 | V-4 | `total_len` equals the file size ([OS/map §4]) |
 | V-5 | every reserved field and bit of the header is zero; §2.3's zero fields are zero; `tok_ver` ∈ {0, 1} (0 for `hist` and `blobs`) |
 | V-6 | `table_xxh3` |
-| V-7 | P-1–P-4 of §2.2; every tag is registered for this kind with its §3.1 placement, or is unknown and `derived-optional`; every required section present; `flags` as §3.3 |
+| V-7 | P-1–P-4 of §2.2; every tag is registered for this kind with its §3.1 placement, or is unknown and `derived-optional`; every required section present; a `DROPPED` or `HARVEST` section has `count` ≥ 1 (§14.5); `flags` as §3.3 |
 | V-8 | the header fields against the reference that names the file: `HEAD`'s `SegRef` (`upto_lsn`, `blake3_16`, [F04 §4.1]), a `FILES` row (§14.4), a commit's `cs_ref` ([F06 §9]), a ref's `promoted_seg` ([F11 §3.1]) |
 | V-9 | each section's `xxh3`; `seg_digest` |
 | V-10 | each section's container rules (§4, [F11 §2]) and its own rules: sort orders, uniqueness, offset arrays, reserved bytes, canonical forms (bitset containers, pool order) |
-| V-11 | cross-section rules: column lengths equal `n_rows` or the `IDS` length; `IDS` covers every row-scoped and index entry; `NodeHdr` offsets fall inside their pools or are `NONE32`; `body_ref` within `BLOBTAB`; `EDGE_PROPS.edge` < e_out, its `pflags` admitted by the edge's kind ([F08 §10.2]) and `pinned_commit` zero without `has_pin`; `BMDIR` names exactly the `BM.<i>` tags present (§9.2); the `FCOL` tags present are exactly those the `FPROMO` rows imply, and the `FIDX` tags present are among those the rows imply (in a base, exactly those) (§10.1) |
+| V-11 | cross-section rules: column lengths equal `n_rows` or the `IDS` length; `IDS` covers every row-scoped and index entry; `NodeHdr` offsets fall inside their pools or are `NONE32`; `body_ref` within `BLOBTAB`, a dropped `BlobRef` (`file` = 0, §6.3) included; `EDGE_PROPS.edge` < e_out, its `pflags` admitted by the edge's kind ([F08 §10.2]) and `pinned_commit` zero without `has_pin`; `BMDIR` names exactly the `BM.<i>` tags present (§9.2); the `FCOL` tags present are exactly those the `FPROMO` rows imply, and the `FIDX` tags present are among those the rows imply (in a base, exactly those) (§10.1) |
 | V-12 | view-level rules over a whole stack: I-P3 of §7.1, `TOUCH` = `IDS`, main-set continuity (§2.3), ± list preconditions (§4.6), `FPROMO` present exactly as §10.1's presence rule gives with the view's schema |
 | V-13 | derived content equals a recomputation (`doctor --verify`, I9) |
 
@@ -1207,6 +1252,9 @@ section-producer registry's byte-identical rebuild ([60 §2.6]) and the format o
 | [80] X-F8 | the `JOURNALCUR`, `DIRMAP` (`derived-optional`) and `TREES` tags and placement; the layouts are [F11 §12]'s | §3.3, §15.2 |
 | [90 §10.1] `LEASES` runtime rows | the `LEASES` tag and placement; the section is [F11 §6]'s | §14.5 |
 | [90 §10.1] codec | none here: [F10] | — |
+| [AR §11] #33 and OQ-A-7 (bodies droppable by hash; spec sync 3) | the dropped `BlobRef` and which `BLOBTAB` entries a dropped hash keeps, in every graph segment and `cs.<n>`; a dropped body indexed as no text; the `DROPPED` tag and its conditional placement; the table is [F11 §13.4]'s, the purge [F16] P-101's | §3.1, §6.3, §12.1, §14.5, §16.4 |
+| [AR §11] OQ-A-9 (the provenance field; spec sync 3) | symbol class code 12 `model`; the field is [F06 §4.4.17]'s | §14.1 |
+| [AR §11] OQ-A-10 (the harvest cursor; spec sync 3) | the `HARVEST` tag and its conditional placement; the table is [F11 §13.5]'s | §3.1, §14.5 |
 
 ## Holes
 
@@ -1368,3 +1416,15 @@ The following decisions of other work packages condition this chapter without be
   an index-2 scalar row "also an `FCOL`", and V-11 is checkable from `FPROMO` alone only under this reading. Also:
   `FTSSTAT.docs` counts documents whose field has a token (§12.4); a runtime-only fold's delta after tier 2 is on carries
   empty tier-2 sections (§15.1, [F17 §6.4]); name comparisons in full checks go through the set's symbols (§17.1).
+- **OP-09-31 (spec sync 3).** Owner decisions OQ-A-7 (a) (#33's dropped bodies), OQ-A-9 (a) (the provenance field) and
+  OQ-A-10 (a) (the harvest cursor), decided 2026-10-06. (a) A dropped body keeps its `BLOBTAB` entry as a **dropped
+  `BlobRef`** (`file` = 0, `off` = `len` = `raw_len` = 0), so `body_ref` and every id stay as they are and a reader learns
+  from the entry alone that no bytes exist; the alternatives — removing the entry (which would renumber `body_ref`) or a
+  marker by a reserved codec byte (the form [F06] open point 37 set aside) — change more. Which entries carry `file` = 0
+  follows [F13] I-D1 (b): only dropped hashes, and all of them once no purge is pending; a dropped hash that only BD-6
+  would require is left out (§6.3). (b) A dropped body is indexed as no text, and the purge removes its postings (§12.1).
+  (c) `DROPPED` (`0x020D`) and `HARVEST` (`0x020E`) are registered as **conditional** (C), not required as R-SPEC-F's
+  design had `DROPPED`: present exactly when they hold a row, invalid with `count` 0 (§14.5, V-7). A required section
+  would invalidate every base and delta fixture of `fixtures/hex` under V-7 and change their digests and every reference
+  to them, for tables most stores never fill; [F11] open point 44 gives the reasoning. (d) Class code 12 is `model`
+  (§14.1, [F01 §8.2]); no layout changes. No byte of an existing segment or fixture changes.

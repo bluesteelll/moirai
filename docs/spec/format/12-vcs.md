@@ -409,7 +409,7 @@ VM(dst, src, base) is the typed three-way merge of §7 and the rule tables with 
 | VM-4 | A row whose disposition is `structural` yields its `result` value (`stage-take-o`: o; `stage-diff3`: the diff3 result) and records nothing | VB-009 |
 | VM-5 | Conflict values are kept as values: a key the virtual merge leaves in conflict holds that conflict value in the result | VB-010 |
 | VM-6 | The re-key and composition rules of [RULES/link-merge-rules] run as in a real merge | VB-012 |
-| VM-7 | Hierarchy moves (RS-007) are the Kleppmann steps of §7.4's row, with the inner base as B: a side's steps are the real commits of A(side) \ A(base) (§5.2), a virtual side's included, and every rule of that row applies (the (0, 0) steps, dst's moves first where two steps share a key, the undo one move at a time, least uid on a cycle first) | VB-011 |
+| VM-7 | Hierarchy moves (RS-007) are the Kleppmann steps of §7.4's row for a merge, with the inner base as B: a side's steps are the real commits of A(side) \ A(base) (§5.2) that have step keys, a virtual side's included, and every rule of that row applies (the second-parent step keys of a two-parent commit, the (0, 0) steps, dst's moves first where two steps share a key, a no-op move never undone, the undo one move at a time among the moves that changed their node's value, least uid on a cycle first). The row's guarantees do not cover a virtual base ([RULES/merge-table] open point 35 (iv)) | VB-011 |
 | VM-8 | §5.4 applies to every key whose inner base holds a conflict value | VB-013, VB-014 |
 
 ### 5.4 Keys whose base holds a conflict value
@@ -462,8 +462,8 @@ among them); the re-signature in `rules/SIGNED.md` follows under V3.
   depth at most μ(L). The DAG's acyclicity (§4.1) is what makes μ well-founded.
 - **No state is revisited.** VBase(L) is a pure function of the sorted list L, and Vᵢ of the prefix (L₁ … Lᵢ); an engine may
   memoise both by that list.
-- **Hierarchy cycles.** Inside a virtual merge a Kleppmann step that leaves a cycle has its moves undone as §7.4's row
-  says (RS-007) and nothing is recorded (VM-3, VM-4); a virtual state's `parent` relation is therefore a forest, whose
+- **Hierarchy cycles.** Inside a virtual merge a Kleppmann step that leaves a cycle has the moves that changed their
+  node's value undone as §7.4's row says (RS-007) and nothing is recorded (VM-3, VM-4); a virtual state's `parent` relation is therefore a forest, whose
   depth is not checked.
 - **Other cycles and violations.** A virtual state may break I2, I4's depth, I5′, I6, I7, I-F1 or schema conformance,
   because validators do not run there (VM-3). Only the final candidate of the real merge is validated (I37′), so nothing a
@@ -559,7 +559,7 @@ A conflict value sits on exactly one key and replaces that key's value. The key 
 |---|---|---|---|
 | `FieldEdit` | `field` (4) of merge class `scalar` or `authority`; `edge` (7), `at` edges with their anchor props included; `observation` (5); `schema` (9) of a `query` item | the key's b, o, t | [RULES/merge-table] MR-009, MR-020, MR-050, MR-051, MR-062, DM-013; [RULES/link-merge-rules] LM-006, LM-021, LM-022 |
 | `StatusFork` | `status` (2) | b, o, t | MR-025 |
-| `TextHunk` | `field` (4) of merge class `text`; `body` (8) | the three whole texts (`body`: the three body hashes) | MR-032, MR-038; §7.5's length rule |
+| `TextHunk` | `field` (4) of merge class `text`; `body` (8) | the three whole texts (`body`: the three body hashes) | MR-032, MR-038; §7.5's length rule and its dropped-body rule |
 | `DeleteVsModify` | `existence` (1) of the node; `schema` (9) of a `query` item | b, o, t; a `live` side carries its node image (`snap` = 1, [F06 §6.2]); on an existence key the `prov` byte (§6.3) | MR-042, MR-060, LM-010 |
 | `SupersedeFork` | `edge` (7) of kind `supersedes` from the **src side's** superseder S to the target T | base `absent`, ours `absent`, theirs = S's edge value | V06 ([F13 §5]); key form fixed here ([RULES/merge-table] open point 9) |
 | `OwnerFieldEdited` | `field` (4) of merge class `owner` or `authority` | b, o, t | MR-014, MR-019 |
@@ -711,10 +711,15 @@ exported ([AR §5b.4]). The `.moi` key forms and the placement of a provisionall
 ### 7.1 Inputs
 
 A merge is a function of: the base state B (§4.3, or a revert's or cherry-pick's DM row); the states O = state(tip dst) and
-T = state(tip src), or for a virtual merge the two states of §5.1; the ancestor sets A(B), A(O), A(T) (§5.2); whether dst is
+T = state(tip src), or for a virtual merge the two states of §5.1; the ancestor sets A(B), A(O), A(T) (§5.2); the
+(hlc, commit id), net changeset and state of every commit whose step keys §7.4's row "Kleppmann steps" reads (for a merge,
+a `sync` or a virtual merge, each side's commits since the base; for a revert or a cherry-pick of C, C and the commits of
+A(O) ordered after C; and, for each two-parent commit among them, recursively, every commit of A(p₂) \ A(p₁)), and the
+states of the second parents of the two-parent commits among them ([RULES/merge-table] PR-016; spec sync 3); whether dst is
 the ref `main` (false inside a virtual merge); the policy override and `--strict` (ignored inside a virtual merge); the
-operation (merge, sync, revert, cherry-pick, virtual, foreign-merge import, import merge: [RULES/merge-table] DM rows); and
-the rule tables. It reads neither the file system nor git ([AR §5a.7] step 6, PR-016).
+operation (merge, sync, revert, cherry-pick, virtual, foreign-merge import, import merge: [RULES/merge-table] DM rows); the
+store's set of dropped bodies ([F06 §8.1]), which only the text rule reads (§7.5; spec sync 3); and the rule tables. It
+reads neither the file system nor git ([AR §5a.7] step 6, PR-016).
 
 ### 7.2 Keys
 
@@ -749,7 +754,7 @@ sorted and unique, empty values are absent ([F08 §5.3]), and texts compare as e
 |---|---|---|
 | LCA order (§4.2, §5.1) | (gen, commit id) | `gen` as an integer; the 32-byte id bytewise ([F01 §6.6]) |
 | Hierarchy moves (RS-007, VM-7) | (hlc, commit id) | `hlc` is the commit's canonical item 3 ([F06 §4.3] order 16), compared as `u64`; never `append_hlc`, which is store-local |
-| Kleppmann steps (RS-007) | Start from B's (parent, order) for every node. The commits of A(side) \ A(B) whose canonical net changeset against the first parent ([AR §4.6], the full state diff for a `sync`) has a hierarchy entry: each is one step keyed by its (hlc, commit id), setting those keys to their values in that commit's state. For a revert or a cherry-pick of C, src has one step instead, C's, keyed by C's (hlc, commit id) and valued in src's state. For each side, a hierarchy key whose value on that side differs from B while no step of that side sets it (the base of a revert, a cherry-pick, `--base` or a virtual base is not where that side's commits start) is set to that side's value in a step keyed (0, 0), before every commit. Steps apply in ascending key order, all moves of a step at once; where two steps share a key (a commit that is a step of both sides, or the two sides' (0, 0) steps), dst's moves apply first, then src's. After a step that leaves a node its own ancestor, the step's moves are undone one at a time, the least uid among the step's nodes that lie on a cycle first, until none is; a key whose last move was undone is `kleppmann-skipped` (CS-013, MR-039), and a later move of it that applied decides its value (MR-040). Each key's value is its node's final (parent, order). When tip(dst) is B and src's commits since B (its A(side) \ A(B)) are a linear chain of single-parent commits whose first has B as its parent, the steps replay src's own states in order, each a forest, so the merge meets no cycle and every hierarchy key takes src's value. Outside that case the steps can stage a `HierarchyCycle` that the sides' histories do not call for, or land a value that neither side holds. The known cases are recorded, not decided, in [RULES/merge-table] open point 35: a two-parent commit inside a side; a base that is not where a side's commits start, as for a revert, a cherry-pick or `--base`; and a no-op move undone in a cycle-closing step | as above |
+| Kleppmann steps (RS-007) | **Step keys.** A commit's step keys are the hierarchy keys of its canonical net changeset against its first parent ([AR §4.6], the full state diff for a `sync`). A two-parent commit M (a merge or a `sync`) with parents p₁ and p₂ also has each hierarchy key whose value in state(M) differs from its value in state(p₂) and that is a step key of some commit of A(p₂) \ A(p₁), so M's step re-asserts what M kept against the merged branch's moves, and nothing else ([RULES/merge-table] open point 35 case (i), in its narrow form). **Merge, sync, virtual merge.** Start from B's (parent, order) for every node. Each commit of A(side) \ A(B) that has step keys is one step keyed by its (hlc, commit id), setting each of its step keys to its value in that commit's state. For each side, a hierarchy key whose value on that side differs from B while no step of that side sets it (the base of `--base` or a virtual base is not where that side's commits start) is set to that side's value in a step keyed (0, 0), before every commit. **Revert and cherry-pick of C** (DM-003 to DM-005; case (ii)). Start from O's (parent, order) for every node; dst has no step and neither side has a (0, 0) step; src has one step, keyed by C's (hlc, commit id), which sets each hierarchy key whose value in T differs from B (the hierarchy keys of C's net changeset against its first parent) to its value in T, leaving out each key that is a step key of a commit of A(O) ordered after C by (hlc, commit id): that later move stands (MR-040). **Applying the steps.** Steps apply in ascending key order, commit ids compared bytewise, all moves of a step at once; where two steps share a key (a commit that is a step of both sides, or the two sides' (0, 0) steps), dst's moves apply first, then src's. A move that sets its node's current value (its value just before the step) changes nothing: it is never undone and never makes its key `kleppmann-skipped` (case (iii)). After a step that leaves a node its own ancestor, the step's moves that changed their node's value are undone one at a time, the least uid among those moves' nodes that lie on a cycle first, until none is (MR-039); every such cycle holds one of them, because the state before each step is a forest. A key whose last move was undone is `kleppmann-skipped` (CS-013), and a later move of it that applied decides its value (MR-040). Each key's value is its node's final (parent, order). Step keys follow the re-key (RK-005, RK-006); keys of a uid fixed by an existence policy (PR-007) take no part. **Guarantees.** (1) When tip(dst) is B and src's commits since B (A(T) \ A(B)) are a linear chain of single-parent commits whose first has B as its parent, the steps replay src's own states in order, each a forest, so the merge meets no cycle and every hierarchy key takes src's value. (2) A revert or a cherry-pick of a commit whose net changeset against its first parent has no hierarchy entry leaves every hierarchy key at its value in O. Outside these cases the steps can still stage a `HierarchyCycle` that the sides' histories do not call for. [RULES/merge-table] open point 35 records the three cases the owner decided on 2026-10-06 ([AR §11] OQ-A-6 (a): (i) a two-parent commit inside a side, (ii) a revert or a cherry-pick, (iii) a no-op move in a cycle-closing step), which this row states, and the three still open: (iv) `--base` and a virtual base, (v) the limit of the narrow form of (i), (vi) a move that changes only its node's order | as above |
 | Emission order of conflicts and violations | [F13 §5] VO-2: validator order, then canonical key order ([AR §4.6] item 10) | [F07] |
 | Set members and `pathmove` entries | canonical order ([F07]) | [F07] |
 
@@ -820,6 +825,10 @@ concatenation, in order, of every stable chunk's lines and every unstable chunk'
 - **Length.** A result R longer than 65,536 bytes — the bound of a `text` value and of a body ([F08 §5.3], [F08 §7.2]) —
   makes the key a `TextHunk` conflict value instead (b, o, t), as MR-032 would.
 - A body result is carried by the merge commit as a body entry ([F06 §8] BD-4), and the key's value is its BLAKE3-128 hash.
+- **A dropped body** ([F06 §8.1]) has no readable lines. When b, o or t of a body key is a dropped body and the key's
+  case needs diff3 (o and t both differ from b and from each other), diff3 is not run: the key takes a `TextHunk`
+  conflict value (b, o, t), whose sides are the three hashes, as the length rule above gives (spec sync 3;
+  [RULES/merge-table] CS-011, MR-032, MR-038). Every other case of a body key compares hashes only and is unchanged.
 
 *(Informative)* b = `a\nb\nc\n`, o = `a\nB\nc\n`, t = `a\nb\nc\nd\n`: MA pairs lines 0 and 2, MB lines 0–2; the chunks are
 stable `a`, unstable (`b`, `B`, `b`) → `B`, stable `c`, unstable (∅, ∅, `d`) → `d`; clean, R = `a\nB\nc\nd\n`.
@@ -1220,7 +1229,16 @@ rule 3 (open points 11 and 13), not measured values.
     single-parent commits, merged into a dst that made no commit since the base, without a spurious cycle (R37).
     [RULES/merge-table] open point 35 records, not decided, the cases that can still give a spurious result: a
     two-parent commit inside a side; a revert, a cherry-pick or `--base` whose base is not where a side's commits start;
-    and a no-op move undone (spec sync 2b, arbiter ruling on RS-007's forest sentence). (e) Step 0 runs only for a
+    and a no-op move undone (spec sync 2b, arbiter ruling on RS-007's forest sentence). **Spec sync 3:** the owner
+    decided three of them on 2026-10-06 ([AR §11] OQ-A-6 (a), Option A) and §7.4's row now states them: a two-parent
+    commit also has as step keys the keys where its state differs from its second parent's that a commit of
+    A(p₂) \ A(p₁) has as step keys (case (i), narrow form); a revert or a cherry-pick starts from O, dst has no step,
+    neither side has a (0, 0) step, and src's one step leaves out the keys a later dst commit moved (case (ii)); a move
+    that sets its node's current value is never undone and never makes its key `kleppmann-skipped` (case (iii)). The
+    row gains the second guarantee (a revert or cherry-pick of a commit with no hierarchy entry leaves O's hierarchy).
+    `--base`, a virtual base (iv), the limit of the narrow form (v) and a move that changes only its node's order (vi,
+    which the undo can take back although it closes no cycle) stay open in [RULES/merge-table] open point 35, to be
+    decided before the merge table's V3 signature and before the engine implements RS-007. (e) Step 0 runs only for a
     branch src (§8.1, §9.6). (f) **IN-3's failing rule** (§2.5): contested between "RN-1 fails" and IN-3; IN-3 adopted,
     as [F19 §10.2]'s reason text and rule list and open point 16 already say (three places against one); only the JSON
     `rule` differed. (g) `schema:policy:` keys ([F08 §8.5.6]). (h) After the independent check of the sync: §8.1's
@@ -1232,3 +1250,12 @@ rule 3 (open points 11 and 13), not measured values.
     no step, so its hierarchy change never applied; and under `--base` or a virtual base a side's value that differs
     from the base while no step of that side sets it (the base is not where that side's commits start) never applied
     either.
+31. **Spec sync 3: a dropped body in the text rule** (§7.1, §7.5; [AR §11] #33, OQ-A-7). [F06 §8.1] lets the owner drop
+    a body's bytes while every record keeps its hash. A body key compares hashes, so every case but diff3 is unchanged;
+    diff3 needs the lines of b, o and t, and a dropped body has none. Decided here: the key takes `TextHunk` (b, o, t),
+    as a result over the length bound does, so the user resolves it by hand. The alternatives were refusing the merge
+    (it would block every merge of a lane forked before the drop that edited the body) and reading a dropped body as
+    the empty text (diff3 would then compute a "clean" result from text that is not the body). The merge's result now
+    also depends on the store's dropped set, which §7.1 lists among its inputs. [RULES/merge-table] carries the case:
+    PR-016 lists the dropped set among the merge's inputs, and CS-011's `both-diff3-clean` excludes a body key with a
+    dropped side, which falls to its class's `both` row, MR-032 or MR-038; no case token is added (SM-030).

@@ -51,7 +51,8 @@ Every table follows [RULES/README]. In addition:
   ([AR §7.4] C7 "criticality-ordered L1/L0"). Levels order as ID < L0 < L1 < L2.
 - **Order keys** (`pack-order`): `crit-asc` (critical first), `authr-asc` (owner first), `sev-asc` (blocker first),
   `id-asc`, `seq-asc`, `rev_seq-desc` (most recently touched first), `hop-asc`, `depth-asc`, `doc-position` (pre-order
-  of the doc tree by `order`, then id), `part-order` (the parts in the order the class's rows list them), `rank-asc`.
+  of the doc tree by `order`, then id), `part-order` (the parts in the order the class's rows list them), `rank-asc`,
+  `prop-last` (every entry without prop(n) before every entry with it, PT-033; spec sync 3).
 - **Bytes.** Every size is UTF-8 bytes of the emitted text, LF line ends ([90 §6.2]); `B` in a note means bytes.
 
 ## 3. Terms
@@ -91,6 +92,7 @@ Every table follows [RULES/README]. In addition:
 | PT-030 | authr(n) | fn | design | [AR §7.4] C2 "owner > orchestrator > measured > research > agent" | 0 owner, 1 orchestrator, 2 measured, 3 research, 4 agent. |
 | PT-031 | sev(f) | fn | design | [AR §3.2] `finding.severity` | 0 blocker, 1 important, 2 optional. |
 | PT-032 | rev | input | design | [50 §6.4] header "`rev <seq>`" | The seq of the commit at tip(B) that the pack read. |
+| PT-033 | prop(n) | pred | design | [AR §11] OQ-A-8 "packs do not hide proposed records"; [AR §3.2] status sets; [RULES/status-machines GR-019]; [OP-21] | live(n), kind(n) in {`rule`, `decision`}, and status(n) = `proposed`: a knowledge record that waits for review. Packs show such a record, marked as proposed (RN-018), where its authoritative counterpart would be shown, and never as authoritative: auth(n) and ruling(n) stay false for it, so it is never protected (RN-004), never in the stale-pack notice sets (NS rows) and never counted by PH-008 (spec sync 3). |
 
 ## 4. Pack kinds, budgets and ceilings
 
@@ -154,12 +156,12 @@ profile's `mcp.result-max-bytes.<client>` (36,000 for `codex`, [CFG §10.8]); a 
 | row | class | rank | name | named_query | basis | source | definition |
 |---|---|---|---|---|---|---|---|
 | CL-001 | C1 | 1 | header | pack_header | design | [AR §7.4] C1; [50 §4.3] | Always emitted, fixed items (`pack-header`). |
-| CL-002 | C2 | 2 | rules | pack_rules | design | [AR §7.4] C2; [50 §4.3] | Rules on B for the role, phase and lane, and critical rules on `main` not yet merged into B (PM-001, PM-002). |
-| CL-003 | C3 | 3 | target | pack_target | design | [AR §7.4] C3; [50 §4.3] | T, its ancestors, open questions blocking T, owner rulings about T's subtree (PM-003 to PM-006). |
+| CL-002 | C2 | 2 | rules | pack_rules | design | [AR §7.4] C2; [50 §4.3] | Rules on B for the role, phase and lane, and critical rules on `main` not yet merged into B (PM-001, PM-002); the proposed ones of both, marked (PM-026, PM-027; spec sync 3). |
+| CL-003 | C3 | 3 | target | pack_target | design | [AR §7.4] C3; [50 §4.3] | T, its ancestors, open questions blocking T, owner rulings about T's subtree (PM-003 to PM-006), and proposed owner rulings about it, marked (PM-028; spec sync 3). |
 | CL-004 | C4 | 4 | spec | pack_spec | design | [AR §7.4] C4; [50 §4.3] | The effective spec: implemented sections and decisions, per role (PM-007 to PM-014). |
 | CL-005 | C5 | 5 | findings | pack_findings | design | [AR §7.4] C5; [50 §4.3] | Findings about T, per role (PM-015 to PM-019). Branch-local ([OP-17]). |
 | CL-006 | C6 | 6 | measurements | pack_measurements | design | [AR §7.4] C6; [50 §4.3] | Current pins with their cached staleness, and known reds (PM-020 to PM-022). |
-| CL-007 | C7 | 7 | hazards | pack_hazards | design | [AR §7.4] C7; [50 §4.3] | Notes, rules and decisions scoped to or anchored in T's files (PM-023, PM-024). |
+| CL-007 | C7 | 7 | hazards | pack_hazards | design | [AR §7.4] C7; [50 §4.3] | Notes, rules and decisions scoped to or anchored in T's files (PM-023, PM-024), proposed ones marked (PM-029; spec sync 3). |
 | CL-008 | C8 | 8 | delta | delta | design | [AR §7.4] C8; [50 §4.1] `std.delta` | Changes since this agent's cursor for T (PM-025). |
 
 <!-- table: pack-quotas -->
@@ -196,10 +198,13 @@ phase takes a class's candidates in class order whatever their floor ([AR §7.4]
 |---|---|---|---|---|---|---|---|---|---|
 | PM-001 | C2 | rules | * | B | rule | crit-map | design | [AR §7.4] C2; [50 §4.3] `pack_rules` | auth(n) and at-rpl(n). |
 | PM-002 | C2 | unmerged | * | U | rule | L2 | design | [AR §7.4] C2 "critical rules on `main` not yet merged into B marked `~main`"; [50 §4.3] `pack_rules_unmerged` | n in U, and on view M: auth(n), crit(n) = 0 and at-role(n). Rendered from main's version with the `~main` marker (RN-016). Empty when B = main. |
+| PM-026 | C2 | proposed | * | B | rule | L0 | design | [AR §11] OQ-A-8; [AR §7.4] C2; [OP-21] | prop(n) and at-rpl(n). Rendered with `~proposed` (RN-018), after the authoritative rules (PO-001). |
+| PM-027 | C2 | proposed-unmerged | * | U | rule | L0 | derived | [AR §11] OQ-A-8; [AR §7.4] C2 `~main`; [OP-21] | n in U, and on view M: prop(n), crit(n) = 0 and at-role(n): PM-002's set for proposed rules. Rendered from main's version with `~main` and `~proposed` (RN-016, RN-018). Empty when B = main. |
 | PM-003 | C3 | target | * | B | * | L2 | design | [AR §7.4] C3 | n = T. Content by PL-010 for a task, by the kind's L2 content (PL-004, PL-007) otherwise. |
 | PM-004 | C3 | ancestors | * | B | * | L0 | design | [AR §7.4] C3 "ancestors L0" | n in anc(T). |
 | PM-005 | C3 | questions | * | B | question | L1 | design | [AR §7.4] C3 "open questions blocking T at L1 with options"; [50 §4.3] `pack_target` | status(n) = open and an edge (n)-[:BLOCKS]->(T) exists. |
 | PM-006 | C3 | rulings | * | B | rule, decision, note | L1 | proposed | [AR §7.4] C3 "owner rulings about the subtree at L1 (verbatim, never truncated)"; [50 §4.3] `pack_target`; [OP-2]; [OP-3] | ruling(n) and about(n, sub(T)). |
+| PM-028 | C3 | proposed-rulings | * | B | rule, decision | L1 | derived | [AR §11] OQ-A-8; [AR §7.4] C3; [OP-3]; [OP-21] | prop(n), `authority(n)` = owner and about(n, sub(T)): an owner ruling that waits for the owner's confirmation ([RULES/role-write-policy] WR-015). Rendered with `~proposed` (RN-018) and escaped but never truncated, like a ruling (RN-012), but not protected (RN-004). |
 | PM-007 | C4 | sections | developer | B | doc, decision | L2 | design | [AR §7.4] C4 "developer -> implementation sections L2" | n in spec(T). All implemented sections count as implementation sections ([OP-5]). |
 | PM-008 | C4 | sections | tester | B | doc | L2 | proposed | [AR §7.4] C4 "tester -> metrics-and-validation sections"; [OP-5] | n in spec(T) and `targets(n)` is not empty. |
 | PM-009 | C4 | sections | tester | B | doc, decision | L0 | proposed | [AR §7.4] C4; [OP-5] | n in spec(T) and n is not a member of PM-008. |
@@ -218,6 +223,7 @@ phase takes a class's candidates in class order whatever their floor ([AR §7.4]
 | PM-022 | C6 | reds | * | B | finding | L0 | proposed | [AR §7.4] C6 "known reds L0"; [AR §7.3] tester "findings `f_kind=test`"; [OP-6] | `f_kind(n)` = test, status(n) = confirmed and about(n, S6). |
 | PM-023 | C7 | globs | * | B | note, rule, decision | crit-map-l1 | design | [AR §7.4] C7 "whose `applies_to` paths intersect T's `files_owned`" | auth(n) and overlap(n). |
 | PM-024 | C7 | anchored | * | B | note, rule, decision | crit-map-l1 | design | [AR §7.4] C7 "or that are anchored (`at`) in those files"; [40 §6.2] | auth(n) and an edge (n)-[:AT]->(f) exists with infile(f). |
+| PM-029 | C7 | proposed | * | B | rule, decision | L0 | derived | [AR §11] OQ-A-8; [AR §7.4] C7; [OP-21] | prop(n), and overlap(n) or an edge (n)-[:AT]->(f) exists with infile(f). Rendered with `~proposed` (RN-018); PO-006 puts it after the authoritative entries. |
 | PM-025 | C8 | delta | * | feed | change | L0 | design | [AR §7.4] C8 "delta since this (agent, T) cursor: L0, max 10"; [50 §4.1] `std.delta`; [OP-8] | The rows of `std.delta(since: cursor(A,T), agent: A)` with its limit replaced by 10: change rows after the cursor whose node is `relevant_to` A and whose actor is not A, ordered by seq. Empty when cursor(A,T) is absent. |
 
 ### 5.3 Levels
@@ -249,14 +255,14 @@ phase takes a class's candidates in class order whatever their floor ([AR §7.4]
 <!-- table: pack-order -->
 | row | class | keys | basis | source | note |
 |---|---|---|---|---|---|
-| PO-001 | C2 | part-order, crit-asc, authr-asc, id-asc | design | [AR §7.4] C2 "order criticality desc, authority (owner > ...), id asc" | Parts: PM-001 (`rules`), then PM-002 (`unmerged`). RN-010 then moves `contradicts` partners together. |
-| PO-002 | C3 | part-order, depth-asc, id-asc | proposed | [AR §7.4] C3 | Parts: target, ancestors (root first), questions, rulings. |
+| PO-001 | C2 | part-order, crit-asc, authr-asc, id-asc | design | [AR §7.4] C2 "order criticality desc, authority (owner > ...), id asc"; [OP-21] | Parts: PM-001 (`rules`), then PM-002 (`unmerged`), PM-026 (`proposed`) and PM-027 (`proposed-unmerged`; spec sync 3). RN-010 then moves `contradicts` partners together. |
+| PO-002 | C3 | part-order, depth-asc, id-asc | proposed | [AR §7.4] C3; [OP-21] | Parts: target, ancestors (root first), questions, rulings, proposed rulings (PM-028; spec sync 3). |
 | PO-003 | C4 | hop-asc, doc-position, id-asc | proposed | [AR §7.4] C4 | Artifacts (PM-014) after sections and baselines, by id. |
 | PO-004 | C5 | sev-asc, id-asc | proposed | [AR §7.4] C5 | Ids-level members (PM-017) form the class's last line. |
 | PO-005 | C6 | part-order, id-asc | proposed | [AR §7.4] C6 | Parts: pins (PM-020, then PM-021), reds. |
-| PO-006 | C7 | crit-asc, authr-asc, id-asc | design | [AR §7.4] C7 "criticality-ordered" | - |
+| PO-006 | C7 | prop-last, crit-asc, authr-asc, id-asc | design | [AR §7.4] C7 "criticality-ordered"; [OP-21] | Proposed records (PM-029) after the authoritative entries; PM-023 and PM-024 stay interleaved (spec sync 3). |
 | PO-007 | C8 | seq-asc | design | [50 §4.1] `std.delta` "ORDER BY seq" | - |
-| PO-008 | * | rank-asc, crit-asc, rev_seq-desc, id-asc | design | [AR §7.4] step 3 "then the remaining budget by (class rank, criticality, recency, id)" | The fill-phase order (PX-007) only; emission uses the class orders above (PX-010). |
+| PO-008 | * | rank-asc, prop-last, crit-asc, rev_seq-desc, id-asc | design | [AR §7.4] step 3 "then the remaining budget by (class rank, criticality, recency, id)"; [OP-21] | The fill-phase order (PX-007) only; emission uses the class orders above (PX-010). Inside a class, every proposed entry (PT-033) is filled after the authoritative ones (spec sync 3). |
 
 <!-- table: pack-header -->
 | row | position | item | when | basis | source | definition |
@@ -277,7 +283,7 @@ phase takes a class's candidates in class order whatever their floor ([AR §7.4]
 | RN-001 | render-once | design | [AR §7.4] step 3 "each node renders once"; [73 F16]; [AR §8.3] | A node that several member rows select is one entry: it renders once, at the highest level any of its rows assigns, in the class of lowest rank among them. |
 | RN-002 | also-line | design | [AR §7.4] step 3 "the other classes list its id (`also: #212`)" | Every other class that selected the node lists its id in one `also:` line of that class. |
 | RN-003 | degrade-before-drop | design | [AR §7.4] step 3 | An entry that does not fit at its level is tried at each lower level down to L0 before it is dropped (PX-006, PX-007). |
-| RN-004 | protected | design | [AR §7.4] step 3 "owner rulings and critical rules never below L1" | An entry with ruling(n), or a rule with crit(n) = 0, never renders below L1, except by RN-009. It is taken in PX-005's protected pass; if E cannot hold it at L1 it is dropped whole and counted. |
+| RN-004 | protected | design | [AR §7.4] step 3 "owner rulings and critical rules never below L1"; [OP-21] | An entry with ruling(n), or a rule with auth(n) and crit(n) = 0, never renders below L1, except by RN-009. An entry with prop(n) is never protected (PT-033; spec sync 3). It is taken in PX-005's protected pass; if E cannot hold it at L1 it is dropped whole and counted. |
 | RN-005 | whole-entry | design | [AR §7.4] step 3 "never cut mid-text" | An entry renders whole at one level or not at all. |
 | RN-006 | conflicted | design | [AR §7.4] step 3 (N15) | A `conflicted` knowledge node renders as one L1 line with the base text and `~conflicted (moirai resolve '#N.<field>')`, never with conflict markers. |
 | RN-007 | markers-kept | design | [AR §7.4] step 3 "`suspect`/`stale` items keep their marker rather than being dropped" | Flags (`SUSPECT`, `CONFLICTED`, `SETTLED-ELSEWHERE`, `DELETED-ELSEWHERE`) and cached staleness stay on the line at every level. |
@@ -291,6 +297,7 @@ phase takes a class's candidates in class order whatever their floor ([AR §7.4]
 | RN-015 | refuted-ids | design | [AR §7.4] C5 | PM-017 members form one ids line ending `do not re-raise`. |
 | RN-016 | unmerged-marker | design | [AR §7.4] C2; [AR §5d.2] | PM-002 lines carry `~main`. |
 | RN-017 | staleness-cached | design | [AR §7.4] C6; [70 S6]; [50 §2.6] `staleness` | Staleness is read from the `ANCESTRY` cache only; with nothing cached the line shows `unverified` and the `moirai check` command. Never computed on the pack path. |
+| RN-018 | proposed-marker | design | [AR §11] OQ-A-8 "packs do not hide proposed records"; [OP-21] | An entry with prop(n) carries the marker `~proposed` on its line at every level, after its other markers (RN-007, RN-016), so a record that waits for review shows as such, never as authoritative; a rule's L0 line (PL-005) otherwise shows no status. The marker's spelling is [F19]'s (spec sync 3). |
 
 <!-- table: pack-fill -->
 | row | step | action | basis | source | definition |
@@ -320,9 +327,10 @@ phase takes a class's candidates in class order whatever their floor ([AR §7.4]
 | HP-004 | 4 | pack-reference | L0 | design | [AR §7.5] "the `pack` reference for the task in the dispatch table" | When the marker (or `MOIRAI_LEASE`) names a task: one line `moirai pack <T> --lease <L>`. |
 | HP-005 | 5 | sync-line | L0 | design | [AR §7.5] `SubagentStart` (D5) | The outcome of `sync --check` for the bound lane: nothing when an auto-applied sync succeeded, else `behind main: <n> commits, <c> conflicts ... -> moirai sync`. Not emitted by a worker's `SessionStart`. |
 | HP-006 | 6 | mark | - | design | [AR §7.5]; [AR §4.3] `SessionMark` | Appends one lazy `SessionMark` {A, ids of the rules HP-002 and HP-003 rendered at L1 or L2, rev}. Rules the budget dropped are not in the mark, so the agent's pack renders them in full. |
+| HP-007 | 7 | proposed-rules | ID | derived | [AR §11] OQ-A-8; [AR §7.5] `SubagentStart`; [OP-21] | The rules n on view B with prop(n), crit(n) = 0 and at-role(n) for R = the role label (only `applies_to` empty or `*` while R is `unknown`, as HP-002), in one ids line marked `~proposed` (RN-018); nothing when there is none. They are not in the mark (HP-006), which holds only rendered rules (spec sync 3). |
 
-The worker variant (`hooks.session-start.worker-pack` = true, [90 §7.5]) emits HP-001 to HP-004 and HP-006 for the
-role and task of `MOIRAI_LEASE` and mints no orchestrator lease. Budget: PK-004.
+The worker variant (`hooks.session-start.worker-pack` = true, [90 §7.5]) emits HP-001 to HP-004, HP-006 and HP-007 for
+the role and task of `MOIRAI_LEASE` and mints no orchestrator lease. Budget: PK-004.
 
 <!-- table: brief-classes -->
 | row | class | rank | named_query | kinds | level | basis | source | definition |
@@ -338,9 +346,11 @@ role and task of `MOIRAI_LEASE` and mints no orchestrator lease. Budget: PK-004.
 | BR-009 | stale-summaries | 9 | brief_critical | note | L0 | proposed | [AR §7.4] brief "stale summaries"; [OP-10] | `note_kind(n)` = summary, auth(n) and `suspect(n)`; git staleness is never computed on the brief path (RN-017). |
 | BR-010 | verdicts | 10 | brief_verdicts | verdict | L0 | design | [AR §7.4] brief "verdicts since last session" | Verdicts whose `created` seq is greater than the session cursor. |
 | BR-011 | links | 11 | links_broken | artifact | L0 | design | [AR §7.4] brief "at most three non-`ok` link lines ... with a `moirai links check` footer"; [40 §6.2] | At most 3 lines of `std.links_broken` over the brief's scope, in [40 §2.9]'s severity order, then id; plus the count of `links_guesses` rows and of interrupted file operations; the `moirai links check` footer when more exist. |
+| BR-012 | proposed | 12 | brief_proposed | rule, decision | L0 | design | [AR §11] OQ-A-8 "The brief gains a 'proposed / needs review' line"; [LQ/std §6.2]; [F19 §4.7]; [API §14.5]; [OP-21] | One line, the brief's "proposed / needs review" line: the number of nodes n on view B with prop(n) (with `--scope ID`, those in sub(ID) or about it), the ids of the newest five by `created` seq, newest first, and the command that lists them all, `moirai q proposed` ([LQ/std §4.24], [API §14.5]); no line when the number is 0. It is charged with BR-001, before any class, so it is never dropped, and it is the brief's last line before the drop line ([F19 §4.7] rule 3), so the drop line still ends the brief. Spelling: [F19 §4.7] (spec sync 3). |
 
 The brief fills in rank order, each class in its own order, degrading L1 to L0 before dropping (RN-003, RN-004 hold);
-the lowest ranks are dropped first. `--scope ID` restricts BR-006 to BR-011 to nodes in sub(ID) or about it.
+the lowest ranks are dropped first, except BR-012's line, which is charged with the header (spec sync 3). `--scope ID`
+restricts BR-006 to BR-012 to nodes in sub(ID) or about it.
 
 <!-- table: delta-rules -->
 | row | pack | rule | basis | source | definition |
@@ -435,6 +445,7 @@ little-endian; there is no padding.
 | PS-018 | AR-7.5-SessionStart-resume | PK-007, DL-006 | - |
 | PS-019 | AR-6.2-complete-notice | PK-009, NS-001, NS-002, NS-003, NS-004, NR-001, NR-002, NR-003, NR-004, NR-005, NR-006, NR-007, NR-008, NR-009, NR-010, ND-001, NE-001, NM-001, NM-002, NM-003 | - |
 | PS-020 | AR-8.3-render-once | RN-001 | The model's GT fixture: no node in two classes. |
+| PS-021 | AR-11-OQ-A-8 | PT-033, PM-026, PM-027, PM-028, PM-029, PO-001, PO-002, PO-006, PO-008, RN-004, RN-018, BR-012, HP-007 | Packs show proposed records as proposed; the brief's "proposed / needs review" line (spec sync 3). |
 
 ## Coverage
 
@@ -572,3 +583,19 @@ parameter `pack_digest`, the additive `result.v1` field `pack_digest` (a `string
     The RG numbers are placeholders for the README's next free ids. The decision tables here are allowlists or lookups,
     not first-match rows: README §8's decision-table paragraph describes the merge tables and needs one sentence for
     lookup tables.
+21. **Proposed records in packs and the brief** (PT-033, PM-026 to PM-029, PO-001, PO-002, PO-006, PO-008, RN-004,
+    RN-018, BR-012, HP-007; spec sync 3). **Decided** by the owner on 2026-10-06 (OQ-A-8, option (c)): the brief gains a
+    "proposed / needs review" line, and packs do not hide proposed records. Before, auth(n) kept every `proposed` rule
+    and decision out of every class, so the review queue that the capture pipeline feeds (owner decision #46) was
+    invisible. Readings, for the review: (a) a proposed record enters the classes where its authoritative counterpart
+    enters: C2 on B and from `main` (PM-026, PM-027), C3 as an owner ruling about T's subtree (PM-028), C7 (PM-029) and
+    the hook pack's critical rules (HP-007); C4 already shows a proposed decision through spec(T), whatever its status.
+    (b) It renders at L0 (an owner ruling at L1, as a ruling), with `~proposed` (RN-018), after the authoritative
+    entries of its class (PO rows, `prop-last`), and it is never protected: unreviewed records do not take the budget of
+    authoritative ones. (c) auth(n) is unchanged, so the stale-pack notice sets, PH-008's critical count, RN-004 and
+    BR-008 count no proposed record; the brief shows proposed records through BR-012's line, which is charged with the
+    header so it is never dropped. (d) A `note` has no `proposed` status ([F08 §9.1]) and a `draft` doc is not
+    "proposed": neither changes here. (e) The class queries of [LQ/std] and their fixtures gain the same parts, since
+    both forms must agree ([OP-1]): C2 through `pack_rules_proposed` and `pack_rules_unmerged_proposed`, C3 through
+    `pack_target`'s part `proposed ruling`, C7 through `pack_hazards_proposed` ([LQ/std §5.1] "Proposed records"), while
+    `brief_critical` (BR-008, BR-009) is unchanged, as (c) says; BR-012's query is [LQ/std §6.2] `brief_proposed`.

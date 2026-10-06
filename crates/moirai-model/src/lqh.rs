@@ -25,6 +25,8 @@ pub struct ViewIds<'a> {
     pub st: &'a State,
     /// `HEAD.next_id`.
     pub next_id: u32,
+    /// The commits, for sequence numbers and commit prefixes ([LQ/canonical-ast §5.6]).
+    pub commits: &'a [(u64, CommitId, String)],
 }
 
 impl Identities for ViewIds<'_> {
@@ -41,12 +43,31 @@ impl Identities for ViewIds<'_> {
         let n = self.nid(uid)?;
         self.st.live(Nid(n)).map(|x| x.kind.as_str())
     }
-    fn commit_by_seq(&self, _: u64) -> Option<CommitId> {
-        None
+    fn commit_by_seq(&self, seq: u64) -> Option<CommitId> {
+        self.commits.iter().find(|c| c.0 == seq).map(|c| c.1)
     }
-    fn commits_by_prefix(&self, _: &str) -> Vec<(CommitId, u64, String)> {
-        Vec::new()
+    fn commits_by_prefix(&self, hex: &str) -> Vec<(CommitId, u64, String)> {
+        self.commits
+            .iter()
+            .filter(|c| crate::value::hex(&c.1).starts_with(hex))
+            .map(|c| (c.1, c.0, c.2.clone()))
+            .collect()
     }
+}
+
+/// Every commit of the store as (sequence number, id, ref of its header), the binder's map of sequence numbers and
+/// commit prefixes ([LQ/canonical-ast §5.1] item 2).
+pub fn commit_table(dag: &crate::dag::Dag) -> Vec<(u64, CommitId, String)> {
+    dag.commits
+        .values()
+        .map(|c| {
+            let r = dag
+                .refs
+                .get(&c.ref_id)
+                .map_or_else(String::new, |r| r.name.clone());
+            (c.seq, c.id, r)
+        })
+        .collect()
 }
 
 fn lq_ty(t: Ty) -> FieldTy {
@@ -175,6 +196,25 @@ pub fn h_of_mutation(
     Ok(out)
 }
 
+/// Parses and binds `TX { … }` text: its canonical AST with its lints, or the binder's first refusal.
+pub fn bind_tx(
+    text: &str,
+    params: &Params,
+    schema: &LqSchema,
+    ids: &dyn Identities,
+    caller: &Caller,
+) -> Result<crate::lq::bind::Bound<crate::lq::cast::CTx>, (Refusal, Option<usize>)> {
+    let parsed =
+        parse_write(text, ParseOptions { strict_gql: false }).map_err(|d| refusal(&d[0]))?;
+    let ctx = BindCtx {
+        schema,
+        ids,
+        params,
+        caller,
+    };
+    bind_write(&ctx, text, &parsed.tree).map_err(|d| refusal(&d[0]))
+}
+
 /// Parses and binds `TX { … }` text and returns `H` of its canonical AST ([LQ/canonical-ast §7.2]), or the binder's
 /// first refusal.
 // spec: [LQ/canonical-ast §7.2]
@@ -217,6 +257,7 @@ mod tests {
             uidx: &uidx,
             st: &st,
             next_id: 1,
+            commits: &[],
         };
         let schema = lq_schema(&st.schema);
         let caller = Caller::default();

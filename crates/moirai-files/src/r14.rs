@@ -388,6 +388,16 @@ pub const HEADER_MARGIN: Ratio = Ratio::new(1, 10);
 /// HOLE(F20-lines-min), decided by replay row 2 (WP-76) and P11's generated cases (WP-77); draft 1/2.
 pub const LINES_MIN: Ratio = Ratio::new(1, 2);
 
+/// Whether [F20 §6.1]'s **interim scanner rule** holds: no capture records a scope, the `symbol` and `heading` forms
+/// are refused, and an anchor that carries a scope or is of kind `symbol` or `heading` resolves without scanner steps
+/// (no scope region, no same-kind header restriction, no scope-only step).
+///
+/// `true` for resolver version 1 as the chapter stands: OQ-R-2 (decided 2026-09-28) keeps the rule until review accepts
+/// \[F21\] (\[F20\] open point 30, [F21 §1.4] and its open point 1). Lifting it before the `format-v1` tag is part of
+/// what version 1 says at the tag ([F20 §1.3]); after the tag it is a new resolver version. The anchor module's
+/// scanner steps ([F21 §2.4]–§2.6, §6) are built and tested for both values.
+pub const INTERIM_SCANNER_RULE: bool = true;
+
 // The constraints a hole's value must meet ([F20] "Holes"), checked at compile time so that a fill breaking one does
 // not build.
 const _: () = {
@@ -397,13 +407,21 @@ const _: () = {
     assert!(CONTEXT_MAX >= CONTEXT);
     // Open point 19: the start and end quotes of a range are no longer than a whole quote.
     assert!(QUOTE_DEFAULT <= QUOTE_MAX);
-    // F20-fuzzy-weights: non-negative integers with a positive sum.
+    // F20-fuzzy-weights: non-negative integers with a positive sum. The anchor module also needs the sum below 2^16,
+    // so that a fuzzy score's common denominator fits `u128` for every quote a resolver-version-1 capture writes.
     assert!(
         FUZZY_WEIGHTS[0] as u64
             + FUZZY_WEIGHTS[1] as u64
             + FUZZY_WEIGHTS[2] as u64
             + FUZZY_WEIGHTS[3] as u64
             > 0
+    );
+    assert!(
+        FUZZY_WEIGHTS[0] as u64
+            + FUZZY_WEIGHTS[1] as u64
+            + FUZZY_WEIGHTS[2] as u64
+            + FUZZY_WEIGHTS[3] as u64
+            <= u16::MAX as u64
     );
     // F20-fuzzy-budget: `≤ 1/4`.
     assert!(FUZZY_BUDGET.num as u128 * 4 <= FUZZY_BUDGET.den as u128);

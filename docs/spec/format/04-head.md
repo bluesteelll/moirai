@@ -307,7 +307,8 @@ P1-5, A1-17):
 
 - `hlc_seq` is the greatest HLC of the store's **HLC sequence**: the values carried by the semantic durable records
   (`Commit` `append_hlc`, `RefUpdate`, `ClientHead`, `Lease`, `Marker`, `Idem`, `Backup`, `FsIntent`, `FsIntentDone`,
-  `FsIntentAborted`; [F05 §10.2]). Records of other kinds carry an HLC without raising it.
+  `FsIntentAborted`, `BodyDrop`, and the reserved `Harvest` from M9–M10; [F05 §10.2]). Records of other kinds carry an
+  HLC without raising it.
 - `hlc_commit` is the greatest `hlc` of any commit the store holds, local or imported (an imported commit keeps its own
   `hlc`, which can lie ahead of this store's clock).
 

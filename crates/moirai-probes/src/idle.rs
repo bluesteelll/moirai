@@ -137,6 +137,30 @@ pub struct IdleOutcome {
     pub decides: bool,
 }
 
+/// What a nightly run reports for an idle observation ([MP §6]): it has no noise band, so its gate is absolute.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum NightlyIdle {
+    /// The observation may decide and both maxima are zero.
+    Holds,
+    /// The observation may decide and a maximum is not zero: the nightly run reports a failure, as a regression does.
+    Fails {
+        /// The largest CPU-time delta, in nanoseconds.
+        max_cpu_ns: u64,
+        /// The largest context-switch delta.
+        max_context_switches: u64,
+    },
+    /// The observation is not exit-grade, so it may not decide: reported with its disqualifications, as a refused
+    /// comparison is ([MP §6.1]); neither a pass nor a failure.
+    Undecided(Vec<String>),
+}
+
+impl NightlyIdle {
+    /// Whether the nightly run reports a failure for this observation.
+    pub fn fails(&self) -> bool {
+        matches!(self, NightlyIdle::Fails { .. })
+    }
+}
+
 /// The validity reasons of the windows ([MP §4.7], [MP §7.3]): a delta that could not be read, and a window shorter
 /// than [`WINDOW_NS`].
 pub fn window_reasons(windows: &[IdleWindow]) -> Vec<String> {
@@ -349,6 +373,30 @@ impl IdleRecord {
             max_context_switches,
             holds: max_cpu_ns == Some(0) && max_context_switches == Some(0),
             decides: self.exit_grade(),
+        }
+    }
+
+    /// The nightly verdict of [MP §6]: the gate is absolute (an idle observation has no noise band, baseline or
+    /// regression rule); an observation that may decide holds or fails on its own maxima, and one that is not
+    /// exit-grade is undecided, with its disqualifications.
+    // spec: [MP §6] (the idle observation in nightly runs), [MP §4.7] (the gate), [MP §7.3] (who may decide)
+    pub fn nightly(&self) -> NightlyIdle {
+        let reasons = self.disqualifications();
+        if !reasons.is_empty() {
+            return NightlyIdle::Undecided(reasons);
+        }
+        // An exit-grade observation is valid, so every delta was read (an unreadable one is a validity reason).
+        let o = self.outcome();
+        match (o.max_cpu_ns, o.max_context_switches) {
+            (Some(0), Some(0)) => NightlyIdle::Holds,
+            (Some(cpu), Some(cs)) => NightlyIdle::Fails {
+                max_cpu_ns: cpu,
+                max_context_switches: cs,
+            },
+            _ => NightlyIdle::Undecided(vec![
+                "a window's delta could not be read, but the observation has no reason for it"
+                    .into(),
+            ]),
         }
     }
 
@@ -620,6 +668,61 @@ pub(crate) mod tests {
         assert_eq!(rec.windows[1].cpu_ns, Ok(15_625_000));
         assert_eq!(rec.windows[2].cpu_ns, Ok(0));
         reads_back(&rec);
+    }
+
+    #[test]
+    fn nightly_runs_judge_the_gate_absolutely() {
+        // [MP §6]: no band and no baseline. An exit-grade observation holds or fails on its own maxima.
+        let calm = sample_idle();
+        assert_eq!(calm.nightly(), NightlyIdle::Holds);
+        assert!(!calm.nightly().fails());
+        let meter = FakeMeter::new(8_000_000_000);
+        let mut busy = Scripted {
+            cpu: vec![Ok(10), Ok(10), Ok(10), Ok(15_625_010)],
+            switches: vec![Ok(5), Ok(5), Ok(5), Ok(7)],
+            ..Scripted::default()
+        };
+        let busy = observe(&meter, &spec(Condition::Idle), &mut busy, &[])
+            .0
+            .unwrap();
+        assert_eq!(
+            busy.nightly(),
+            NightlyIdle::Fails {
+                max_cpu_ns: 15_625_000,
+                max_context_switches: 2
+            }
+        );
+        assert!(busy.nightly().fails());
+        // One that may not decide is undecided with its disqualifications, even when its maxima are zero: a synthetic
+        // condition never decides, nor does a hosted runner or an invalid observation.
+        let synthetic = observe(
+            &meter,
+            &spec(Condition::Synthetic {
+                description: "hosted runner, synthetic load".into(),
+            }),
+            &mut quiet(),
+            &[],
+        )
+        .0
+        .unwrap();
+        assert!(synthetic.outcome().holds);
+        match synthetic.nightly() {
+            NightlyIdle::Undecided(r) => assert!(!r.is_empty(), "{r:?}"),
+            other => panic!("{other:?}"),
+        }
+        let mut hosted = calm.clone();
+        hosted.host.kind = HostKind::Hosted;
+        assert!(matches!(hosted.nightly(), NightlyIdle::Undecided(_)));
+        let mut short = calm.clone();
+        short.windows[1].elapsed_ns = WINDOW_NS - 1;
+        short.reasons = window_reasons(&short.windows);
+        assert!(
+            matches!(short.nightly(), NightlyIdle::Undecided(r) if r.iter().any(|x| x.contains("idle window 1")))
+        );
+        // A record assembled by hand with an unreadable delta but no reason for it never passes or fails.
+        let mut odd = calm;
+        odd.windows[0].cpu_ns = Err("lost".into());
+        assert!(matches!(odd.nightly(), NightlyIdle::Undecided(_)));
     }
 
     #[test]

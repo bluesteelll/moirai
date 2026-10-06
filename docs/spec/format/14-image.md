@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| Title | The git image (R3): the image tree and its fan-out, the `.moirai-image` marker, the complete `.moi` format version 1 (node files of every kind, tombstones with flagged and historical edges, scalar, body, existence and observation conflicts, ledger lines, block strings, file and root nodes, R-11 `anchor` lines with digests, hash-only anchors and the `text-unavailable` sub-state, schema tables, F3 named-query files), the git commit objects with their trailers and trailer order, ref mapping and destinations, the unhashed side refs, the reconstruction of every canonical item from an image commit, and the complete gate-0 carrier table |
+| Title | The git image (R3): the image tree and its fan-out, the `.moirai-image` marker, the complete `.moi` format version 1 (node files of every kind, tombstones with flagged and historical edges, scalar, body, existence and observation conflicts, ledger lines, block strings, dropped bodies, file and root nodes, R-11 `anchor` lines with digests, hash-only anchors and the `text-unavailable` sub-state, schema tables, F3 named-query files), the git commit objects with their trailers and trailer order, ref mapping and destinations, the unhashed side refs, the reconstruction of every canonical item from an image commit, and the complete gate-0 carrier table |
 | Chapter | [F14], `docs/spec/format/14-image.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-15 (R-SPEC-R), [PLAN §3.2] item 1 |
-| Sources | [AR §5b.1]–[AR §5b.8] (tree layout and fan-out; the `.moi` rules 1–9 and the example; the marker; the commit mapping, the canonical field → carrier table, trailer order, sync, foreign and import-checkpoint rules, ref mapping; determinism rules 1–8; export steps 1–6 and import steps 1–6; round-trip table and gates 0–3; destinations, defaults and failure table); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation-table rows "Canonical form" and "Image" for R4 and R5); [AR §2.15] T15 (N4, N5, N6, N12, N13a–c, CB1, CB2, CM2, CM3, CM4, CL1, O5); [AR §3.1]–[AR §3.3] (header columns, kinds and fields, edge kinds and properties); [AR §5a.1] (ref names and kinds, tags), [AR §5a.5] (revert, cherry-pick); [40 §2.2] (artifact fields, `relink`), [40 §2.3] (derivations, the `created` rule for dual creation, foreign uids), [40 §2.4] (root node, `path_moves`, `pathmove` classes), [40 §2.7] (anchor fields, `captured`, `pred`, the uniqueness ladder), [40 §2.11] R-1–R-5, R-10, R-11, R-12, R-13, R-17 (authoritative), [40 §5.5] (the observation composite as one merge key), [40 §5.7] (file and root node files, anchor lines, anchor text, hash-only destinations, `text-unavailable`, import validation, "never exported"); [50 §4.4] (portable form, storage, merge, the image file and its ABNF sketch), [50 §8.1] F3, F10, F14, F16; [60 §2.5] rows "Image format v1" ([AR] row and audit row), "Gate-0 carrier table", audit row "Canonical form", R4 row R-11, R5 row F3; [60 §3.6] (M5 exit criteria, gates 0–3); [80 §2.10] P1, P11, P12, [80 §3.1] X-F9, [80 §3.2] (image names, modes); [90 §10.1] row "Commit header"; reviews `docs/spec/reviews/a1-S.md` S-02, S-03, S-04 and `a1-dispositions.md` FB-4, FB-5, FS-2; [F07 §14] (the carrier-table stub this chapter completes) and [F07] open points 5, 6, 8, 9, 17, 18, 21, 22, 23, 26; [F06] open points 2 and 13; [RULES/merge-table] open points 5 (d) and 11; [F10] OP-10-09; [F04] open point 7; [CFG] open point 8; [F20 §2.7.3] and open point 8; [LQ/lexical §10.2]; [LQ/canonical-ast §8]; [PLAN §3.2] WP-15, WP-21; [PLAN §3.3] (the WP-15 gaps) |
-| Depends on | [F01], [F06], [F07], [F08]; cites [F02], [F04], [F05], [F10], [F12], [F13], [F16], [F18], [F19], [F20], [CFG], [LQ/grammar-v1.ebnf], [LQ/lexical], [LQ/canonical-ast], [LQ/std], [RULES/merge-table], [RULES/link-merge-rules]; external [RFC 5234], [RFC 7405], [RFC 3629], [RFC 8259], [RFC 4648], [RFC 3339], [ECMA-262], [git-objects], [git-hash-transition] |
+| Sources | [AR §5b.1]–[AR §5b.8] (tree layout and fan-out; the `.moi` rules 1–9 and the example; the marker; the commit mapping, the canonical field → carrier table, trailer order, sync, foreign and import-checkpoint rules, ref mapping; determinism rules 1–8; export steps 1–6 and import steps 1–6; round-trip table and gates 0–3; destinations, defaults and failure table); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation-table rows "Canonical form" and "Image" for R4 and R5); [AR §2.15] T15 (N4, N5, N6, N12, N13a–c, CB1, CB2, CM2, CM3, CM4, CL1, O5); [AR §3.1]–[AR §3.3] (header columns, kinds and fields, edge kinds and properties); [AR §5a.1] (ref names and kinds, tags), [AR §5a.5] (revert, cherry-pick); [40 §2.2] (artifact fields, `relink`), [40 §2.3] (derivations, the `created` rule for dual creation, foreign uids), [40 §2.4] (root node, `path_moves`, `pathmove` classes), [40 §2.7] (anchor fields, `captured`, `pred`, the uniqueness ladder), [40 §2.11] R-1–R-5, R-10, R-11, R-12, R-13, R-17 (authoritative), [40 §5.5] (the observation composite as one merge key), [40 §5.7] (file and root node files, anchor lines, anchor text, hash-only destinations, `text-unavailable`, import validation, "never exported"); [50 §4.4] (portable form, storage, merge, the image file and its ABNF sketch), [50 §8.1] F3, F10, F14, F16; [60 §2.5] rows "Image format v1" ([AR] row and audit row), "Gate-0 carrier table", audit row "Canonical form", R4 row R-11, R5 row F3; [60 §3.6] (M5 exit criteria, gates 0–3); [80 §2.10] P1, P11, P12, [80 §3.1] X-F9, [80 §3.2] (image names, modes); [90 §10.1] row "Commit header"; reviews `docs/spec/reviews/a1-S.md` S-02, S-03, S-04 and `a1-dispositions.md` FB-4, FB-5, FS-2; [F07 §14] (the carrier-table stub this chapter completes) and [F07] open points 5, 6, 8, 9, 17, 18, 21, 22, 23, 26; [F06] open points 2 and 13; [RULES/merge-table] open points 5 (d) and 11; [F10] OP-10-09; [F04] open point 7; [CFG] open point 8; [F20 §2.7.3] and open point 8; [LQ/lexical §10.2]; [LQ/canonical-ast §8]; [PLAN §3.2] WP-15, WP-21; [PLAN §3.3] (the WP-15 gaps). Spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] DB-6, DB-10, DB-11 (dropped bodies); [AR §11] OQ-A-9 with [F06 §4.4.17] (the provenance group); [AR §11] OQ-A-10 with [API §8.8] (the harvest cursor) |
+| Depends on | [F01], [F06], [F07], [F08]; cites [F02], [F04], [F05], [F10], [F11], [F12], [F13], [F16], [F17], [F18], [F19], [F20], [API], [CFG], [LQ/grammar-v1.ebnf], [LQ/lexical], [LQ/canonical-ast], [LQ/std], [RULES/merge-table], [RULES/link-merge-rules]; external [RFC 5234], [RFC 7405], [RFC 3629], [RFC 8259], [RFC 4648], [RFC 3339], [ECMA-262], [git-objects], [git-hash-transition] |
 
 ## 1. Scope
 
@@ -227,11 +227,14 @@ For a moirai commit C and a destination d, **T(C, d)** is the tree whose entries
 
 1. `.moirai-image` with d's object format and C's schema version (§4);
 2. for every node u that exists in CS(C) (its existence key is present, [F07 §6.1]), the node file of §6 encoding u's state
-   at C, with the anchor texts d's mode allows (§6.7);
+   at C, with the anchor texts d's mode allows (§6.7), and every body the exporting store has dropped written as its hash
+   and reason (§6.8, §6.9);
 3. for every schema item of CS(C), its row or query file (§7);
 
-and nothing else. A checkpoint commit's tree adds the row file of §8. T(C, d) is a pure function of moirai data and d
-([AR §5b] goal 1, I28′): two stores that hold C produce byte-identical trees for one d.
+and nothing else. A checkpoint commit's tree adds the row file of §8. T(C, d) is a pure function of moirai data, d and
+the exporting store's dropped set ([AR §5b] goal 1, I28′; [F06 §8.1] DB-11): two stores that hold C and have dropped the
+same bodies for the same reasons produce byte-identical trees for one d. The dropped set changes no canonical item, so
+the commit ids and item 10 of every commit are the same whichever bodies are dropped (§11.1, §12.2).
 
 **Reuse.** An exporter builds T(C, d) from the destination tree of C's first parent, rewriting root, touched mid and touched
 leaf trees only (G24). It may reuse a subtree only when the subtree equals the corresponding subtree of T(C, d). A subtree
@@ -247,6 +250,10 @@ an exporter wrote for d is equal, with three exceptions, and in each the exporte
   file that holds an `anchor` line is re-encoded.
 - **Image format version.** A tree written by an encoder of another format version is never reused (a new destination by
   rule, §15 rule 6; it does not occur in format v1).
+- **Dropped bodies** (spec sync 3). A node file written before the store dropped a body it holds (its body section, a
+  body conflict side or an existence snapshot's `body` line) is re-encoded, so its bytes become the dropped form of §6.8
+  and §6.9. Such a commit's tree differs from its first parent's in that file while no canonical key changes; the file
+  contributes no entry to item 10 (§11.1). Trees exported before the drop are not rewritten ([F06 §8.1] DB-10).
 
 ### 3.4 Entries outside the layout
 
@@ -425,7 +432,7 @@ node-file   = live-file / tomb-file
 
 live-file   = m-node h-uid h-kind [ h-title ] [ h-status ] [ h-resolution ] [ h-priority ] [ h-criticality ]
               [ h-confidence ] [ h-authority ] [ h-parent ] [ h-order ] h-created h-updated [ h-flags ]
-              *field-line *label-line *incr-line *edge-line *anchor-line *conflict-line [ body ]
+              *field-line *label-line *incr-line *edge-line *anchor-line *conflict-line [ body / dropped-body ]
 
 tomb-file   = m-node h-uid h-kind h-title h-deleted [ t-reason ] [ t-replaced ]
               *edge-line *anchor-line *conflict-line
@@ -460,6 +467,8 @@ edge-line   = %s"edge " iname " -> " uid [ %s" pin=" commit-id ] [ %s" flagged" 
 anchor-line = %s"anchor " uid " -> " uid a-props LF
 conflict-line = %s"conflict " c-key %s" class=" 1*ALPHA %s" base=" [ token ] %s" ours=" [ token ] %s" theirs=" [ token ] LF
 body        = %s"---" LF *( bch / LF ) LF
+dropped-body = %s"--- dropped " dg16 SP drop-reason LF   ; a dropped body (§6.9; spec sync 3)
+drop-reason = %s"secret" / %s"private" / %s"other"       ; [F06 §8.1] DB-2
 
 hkey-line   = hkey ": " *lch LF                     ; the shape of every header line; §9.2 "unknown header key"
 hkey        = LALPHA *( LALPHA / DIGIT / "_" )
@@ -660,6 +669,7 @@ theirs}` ([F07 §6.5], [F06 §6.2]). While it exists, the ordinary line or lines
 ```abnf
 c-key       = %s"field." iname / %s"status" / %s"body" / %s"parent" / %s"existence" / %s"observation"
             / %s"edge." iname "." uid [ "." uid ]
+dropped-tok = %s"dropped:" dg16 ":" drop-reason      ; a dropped body as a side (§6.1; spec sync 3)
 ```
 
 | Key | Canonical key ([F07 §6.1]) | A side is | Side token |
@@ -667,7 +677,7 @@ c-key       = %s"field." iname / %s"status" / %s"body" / %s"parent" / %s"existen
 | `field.<name>` | field (uid, name), every storage: header (`field.priority`), flag (`field.pinned`), cold, field, and title (`field.title`) | the field's value | its token (§5.5) |
 | `status` | status | (status, resolution) | `<status>` or `<status>/<resolution>` when the resolution is not `none` |
 | `parent` | hierarchy | (parent uid, order) | `<uid or ->,<order or ->`, for example `018f…9e09,a0V` or `-,a1` |
-| `body` | body | the body | the JSON string of the body's bytes, always ([AR §5b.2] rule 3) |
+| `body` | body | the body | the JSON string of the body's bytes, always ([AR §5b.2] rule 3); a body the exporting store has dropped is the bare token `dropped-tok`, `dropped:<hash>:<reason>` (spec sync 3) |
 | `edge.<kind>.<dst>` | edge (uid, kind, dst, empty disc) | `present(props)` | `present`, `pin=c<64 hex>` or `flagged` |
 | `edge.at.<dst>.<anchor>` | edge (uid, `at`, dst, anchor uid) | an anchor | the JSON string of the anchor line's properties, `kind=…` through `v=…`, as §6.7 writes them on the line: the texts included exactly where §6.7 writes them (the destination's mode is `full` and the store holds them); the importer verifies them against the digests as on a line and hashes only the selector block |
 | `observation` | observation (class 5) | the six observation fields ([40 §2.2]) | the JSON string of the side's `field` lines for `path`, `oid`, `bytes`, `observed_git`, `observed_blob` and `relink`, in that order, absent members left out, joined by LF; the empty side is the absent composite, since a present one always holds `path` (a live artifact's `path` is required, [F08 §8.6] rule 1) |
@@ -684,6 +694,13 @@ c-key       = %s"field." iname / %s"status" / %s"body" / %s"parent" / %s"existen
 - Lines are sorted bytewise by key. Sides are plain values ([F07 §6.5]).
 - A body conflict omits the `---` section ([AR §5b.2] rule 3). Its sides are the body texts; the canonical sides are their
   BLAKE3-128 hashes, which the importer computes, and it stores the texts as bodies ([F06 §8] BD-4).
+- **A dropped side** (spec sync 3; [F06 §8.1] DB-11). A body side whose body the exporting store has dropped is written
+  `dropped:<hash>:<reason>`: the body key's BLAKE3-128 in lower-case hexadecimal and the reason's name ([F06 §8.1] DB-2),
+  for example `base=dropped:5f0c…e1a2:secret`. It cannot be confused with a body text, which is always a JSON string
+  and so begins with `"`. Its canonical side is that hash, and the importer stores no bytes for it (§11.2). The other
+  sides keep their texts; a `TextHunk` with a dropped side is what a merge stages when its text rule needs a dropped
+  body's lines ([F06 §8.1] DB-7 (d), [F12 §7.5]). In a body side a bare token that is not a `dropped-tok` does not parse
+  by the key's type (§9.2).
 - `observation` is the key text for the observation composite that [AR §5b.2] rule 3 lacks ([F07] open point 8); it carries
   `FieldEdit` and `PathClaim` ([RULES/link-merge-rules] PC-002). While it exists the six member `field` lines are omitted
   ([F07 §6.5]).
@@ -704,7 +721,7 @@ snap-line   = %s"status: " vname [ "/" vname ]
             / %s"field " iname ": " fval-1
             / %s"label " sval
             / %s"total " iname SP sdec
-            / %s"body " jstring
+            / %s"body " ( jstring / dropped-tok )
 fval-1      = sval / v-f64 / v-set / v-pathmove     ; single-line forms only: a multi-line text is its JSON string
 ```
 
@@ -713,7 +730,8 @@ fval-1      = sval / v-f64 / v-set / v-pathmove     ; single-line forms only: a 
   flags by their field names: `field priority: P1`, `field pinned: true`), sorted by field name, the `title:` line under
   the name `title` (`field priority: P1`, `title: …`, `field work_kind: impl`; spec sync 2b), then `label` lines, then one
   `total <field> <value>` line per non-zero counter (the node image holds totals, not ledgers), then the body as
-  `body <JSON string of its bytes>`. The image holds no hierarchy or edge key ([F06 §6.3]): a `--take` towards the live
+  `body <JSON string of its bytes>`, or, for a body the exporting store has dropped, `body dropped:<hash>:<reason>`
+  (§6.8 "A dropped side"; spec sync 3). The image holds no hierarchy or edge key ([F06 §6.3]): a `--take` towards the live
   side restores them from that side's state with ordinary ops ([F12 §6.5]).
 - `deleted <kind>` carries the tombstone's reason and replacement.
 - This settles [RULES/merge-table] open point 5 (d) and [F06] open point 13: a provisionally deleted node is a tombstone
@@ -736,6 +754,16 @@ contain U+0000.
   ends in the `---` line and the one LF an empty body would give; an importer reads that form as no body.
 - The only normalisation a body receives is the store's CR LF → LF at write time; an importer applies the same rule to a
   git-side file that has CR LF ([AR §5b.2] rule 7) and never touches the bytes otherwise.
+- **A dropped body** ([F06 §8.1] DB-6, DB-11; [AR §11] #33, OQ-A-7; spec sync 3). When the exporting store has dropped
+  the node's body, the file ends with the one line `--- dropped <hash> <reason>` (`dropped-body`, §6.1) in place of the
+  `---` line and the bytes: `<hash>` is the body key, the BLAKE3-128 of the dropped bytes in lower-case hexadecimal, and
+  `<reason>` the drop's reason (`secret`, `private` or `other`, [F06 §8.1] DB-2), for example
+  `--- dropped 5f0c…e1a2 secret`. The line carries the body key exactly as a body section does: the importer takes the
+  hash as the body key without hashing anything (§11.1), so a native commit's `Moirai-Commit` still verifies. The file
+  ends in that line's LF. A body section begins with a line that is exactly `---`, so the two forms cannot be confused,
+  and a node has at most one of them: a `--- dropped` line followed by a body section matches no production (§9.2),
+  while the same text after a body's `---` line is part of the body. Only a live file can hold the line, since a
+  tombstone has no body (§6.10).
 
 ### 6.10 Tombstone files
 
@@ -794,7 +822,7 @@ entries inside one uid by class code, and an importer that reads a checkpoint in
 | 12 | `edge` lines | edge (7) | yes |
 | 13 | `anchor` lines | edge (7), kind `at` | yes, except the four texts |
 | 14 | `conflict` lines | the named key, including observation (5) | yes |
-| 15 | `---` and the body | body (8) | its BLAKE3-128 |
+| 15 | `---` and the body, or the `--- dropped` line (§6.9) | body (8) | its BLAKE3-128; for the dropped line its hash, not the reason |
 
 ## 7. Schema files
 
@@ -987,7 +1015,7 @@ The exporter is the only writer of canonical bytes; the importer accepts a super
 3. SP and HT at the end of a line are removed, except inside a block (§5.4) and the body;
 4. a missing final LF is accepted;
 5. the lines of a node file may come in any order, except that `moirai-node 1` is first, a block stays attached to its
-   `field` line, and the body is last; the importer re-sorts them;
+   `field` line, and the body or the `--- dropped` line (§6.9) is last; the importer re-sorts them;
 6. every [RFC 8259] escape and upper-case `\u` digits in JSON strings (§2.4);
 7. a written default (the initial status, `priority: P2`, a `field` equal to its default) is read as absent
    ([F07 §6.3], [F07 §14.4] "normalisation"), and so is an empty `status` side of a `conflict` line (§6.8);
@@ -1018,7 +1046,7 @@ An import that meets any of these stages `ImageParse` (code 75, [F19 §12.2]) wi
   block, a symmetric edge in both endpoints' files with different properties, §9.1 rule 10); a line not allowed in its
   form (§6.10, §6.11: a `title:` in a live artifact, a counter as a `field` line, a derived field (a derived-state name,
   §6.2), `flagged` on a live node's edge, an `edge at` line); an ordinary line and a
-  `conflict` line for one key; a body with a body conflict;
+  `conflict` line for one key; a body, or a `--- dropped` line (§6.9), with a body conflict;
 - an unknown kind, field, enumeration value, edge kind or conflict class for the commit's schema ([F08 §8.1]); a value that
   does not parse by its field's type or breaks the field's constraints ([F08 §5.3], [F08 §8.5.2]: range, one line, the
   record-list shape of [F08 §5.4.5], the glob grammar of [F08 §5.4.3]; a `v-set` that holds one element twice, §9.1
@@ -1272,8 +1300,8 @@ Every image commit's item 10 is the diff of two canonical states ([F07 §10.1]);
    to absent; `parent:`/`order:` to the hierarchy key; header lines, `flags:`, `field` and `label` lines to field keys, a
    default to absent; the ledger to each counter's total; `edge` lines to edge keys with `present(props)`; `anchor` lines to
    `at` edge keys with the selector block of [F07 §8.2] built from their properties (digests, never texts; the scope text
-   mapped to [F08 §10.3.1]'s bytes); the body to its BLAKE3-128; `conflict` lines to conflict values on their keys, with
-   §6.8's sides.
+   mapped to [F08 §10.3.1]'s bytes); the body to its BLAKE3-128, and a `--- dropped` line to its hash (§6.9);
+   `conflict` lines to conflict values on their keys, with §6.8's sides (a dropped side to its hash).
 3. For every query file it builds the named-query item or its conflict value ([F07 §9.6]).
 
 Only the files a commit changes need parsing: item 10 is the diff of T(C) against T(P1(C)) at the path level, and a file
@@ -1301,6 +1329,21 @@ For each node path whose blob differs between the first parent's tree and the co
   the total, an absent → live transition the total.
 - **Bodies.** The importer stores every body whose hash an entry introduces ([F06 §8] BD-4): the body section, a body
   conflict side, the `body` line of an existence snapshot.
+- **Dropped bodies** ([F06 §8.1] DB-11; spec sync 3). For a `--- dropped` line, a dropped side or a snapshot's
+  `body dropped:…` line, the importer stores no bytes and takes the hash as the body key. For each such hash that its
+  store neither holds as a body ([F06 §8.1] DB-4) nor has dropped, and whose bytes the import supplies nowhere, it
+  appends a `BodyDrop` record of origin `import` ([F05 §9.29]) with the line's reason, an empty note and the importing
+  command's actor, before the first imported `Commit` record that names the hash (in that record's group or an earlier
+  one, [F05 §4.7]), at most 2,048 hashes per record in ascending order so every group fits [F17 §4.4] W3: a record
+  that would make that commit's group exceed W3 stands in a group of its own before it. One record names hashes of one
+  reason. The import's first line for a hash decides its reason; a later line for the same hash, whatever its reason,
+  finds it dropped. For a hash its store holds, it keeps the bytes; only the owner's body drop drops held bytes (DB-3),
+  so an import's record leaves nothing to purge ([F16] P-101). When an imported commit supplies a hash's bytes (a body
+  section, a body side or a snapshot `body` line) that the store does not hold, the first imported `Commit` that names
+  the hash carries them, whether its own file holds the bytes or a dropped line (BD-4). An importer that meets bytes
+  whose hash its store has dropped (a body section, a body side or a snapshot `body` line of an image older than the
+  drop) stores none of them and does not refuse the import: the entry takes the hash, as for a `--- dropped` line, and
+  BD-4 does not apply to it.
 - **Foreign commits.** A foreign commit with 0 or 1 parents takes this table's entries. A two-parent foreign commit is
   imported as a typed merge of its parents' imported states over their merge base; its tree is consulted only to resolve
   `TextHunk` conflicts a human resolved on the git side, counters come from the typed merge, and every remaining
@@ -1320,7 +1363,9 @@ store to a new destination reproduces every head tree byte-identically", [AR §5
 | the stated parent ids | native imports below a demoted parent | `stated` ([F06 §4.4.1]) |
 | per node file brought in by an import-checkpoint commit: its `created:`, `updated:` and `deleted:` values (commit token and time text as written) and its ledger lines (field, token, delta) | import-checkpoint commits | `ckimg` ([F06 §4.4.14]) of an inline commit; the `CKIMG` section of the `cs.<n>` of a bulk one ([F09 §16.4], [F06 §9] BK-5); pass 1, S1-23, A1-10 |
 
-Everything else in a tree is a function of the canonical state and the commit graph (§3.3, §6.3, §6.5).
+Everything else in a tree is a function of the canonical state and the commit graph (§3.3, §6.3, §6.5), except the
+dropped-body lines and sides, which are a function of the store's dropped set: an importer keeps their reasons in its own
+`DROPPED` table through the `BodyDrop` records of §11.2, not as image-only data of a commit (§6.9; spec sync 3).
 
 ## 12. The gate-0 carrier table
 
@@ -1362,8 +1407,8 @@ hashing (§10.9).
 | 6 counter | same | `incr` lines (§6.5) | Σ(lines) at C − Σ(lines) at P1, as the delta of [F07 §7.5] |
 | 7 edge (not `at`) | same, the source's file | `edge` lines: `pin=`, `flagged` (§6.6) | `present(props)` |
 | 7 edge `at` | same, the referrer's file | `anchor` lines (§6.7): `kind`, `mode`, `watch`, `scope`, the four digests, `occurrence`, `hint`, `window`, `span`, `blob`, `git`, `captured`, `pred`, `marker`, `v` | the key's disc is the anchor uid; `present` with the selector block of [F07 §8.2]; identical in `full` and `hash-only` mode |
-| 8 body | same | the `---` section (§6.9) | BLAKE3-128 of the decoded bytes; no section is absent |
-| conflict values | same | `conflict` lines (§6.8), sides by key | `{class, base, ours, theirs}`; a body side is hashed from its text; a `live` existence side carries its node image |
+| 8 body | same | the `---` section, or the `--- dropped` line (§6.9) | BLAKE3-128 of the decoded bytes, or the dropped-body line's hash; no section and no line is absent |
+| conflict values | same | `conflict` lines (§6.8), sides by key | `{class, base, ours, theirs}`; a body side is hashed from its text, and a dropped side is its hash; a `live` existence side carries its node image |
 | schema: kind, field, enumeration value, edge kind | `schema/kinds.moi`, `schema/fields.moi`, `schema/edges.moi` | one row per item (§7.1) | the item of [F07 §9.2]–§9.5, references by name |
 | schema: policy row ([F08 §8.5.6]; spec sync 2b) | `schema/policy.moi` | one `policy` row per item (§7.1) | the item of [F07 §9.7] |
 | schema: named query | `schema/queries/<q>.moi` | `name:` (the key), `lq:`, `params:`, `shape:`, `budget:`, the text (§7.2) | the item of [F07 §9.6]; a `conflict definition` line gives its conflict value |
@@ -1400,6 +1445,7 @@ commits included.
 | node provenance | `created:`, `updated:`, `deleted:` (§6.3) |
 | ledger tokens | the last field of each `incr` line |
 | anchor texts | `quote=`, `prefix=`, `suffix=`, `end=` in `full` mode |
+| a dropped body's reason | the reason of the `--- dropped` line and of a `dropped:` side (§6.8, §6.9; spec sync 3) |
 | the ref's name and kind | the git ref name; `refs/heads.moi`, `refs/tags.moi` (§8) |
 | store id, granularity per ref, image format, anchor-text mode, export cursor; `#N` | the side ref `refs/moirai/meta/<store-id>`: `meta.moi`, `aliases/<h1>.moi` (§14.1) |
 | reflog and client-head events | `refs/moirai/ops/<store-id>` with `--with-oplog` (§14.2) |
@@ -1409,12 +1455,16 @@ commits included.
 `Violation` ops (they exist only on staging refs, which are never exported); before-images; `#N`, `aN`, `lsn`, `seq`,
 `gen`, `ref_id`, `ref_old`, `prev_on_ref`, `ref_seq`; symbol ids and every store-local schema id ([F08 §8.3]); the store id
 outside the side ref; `import`, `verified`, `idem_payload`, absorbed vectors, `affected` and `affected_complete`
-([50] F16); `stmt_origin`, `stmt_sym`, `stmt_hash` ([50] F10); `append_hlc` ([50] F14); `actor_src` ([90 §10.1]); `cs_ref`;
+([50] F16); `stmt_origin`, `stmt_sym`, `stmt_hash` ([50] F10); `append_hlc` ([50] F14); `actor_src` ([90 §10.1]); the
+provenance group `prov` (`actor_kind` and `model`, [F06 §4.4.17]; [AR §11] OQ-A-9, spec sync 3), declared and
+store-local, which is not this chapter's `prov` production (§6.1) nor an existence conflict's `prov` (§6.8.1); `cs_ref`;
 `CREATOR` (an importer derives it, [F06 §7.4]); markers, leases, idempotency results, cursors, pins, `next_id`, fencing
 tokens, `ALLOC` and `UIDX` ([50] F17); derived state (I36′) and a named query's canonical-AST hash; every R4 resolution
 and evidence table — `FILEOBS`, `PENDING`, `FSINTENT`, `FPRINT`, `JOURNALCUR`, `DIRMAP`, `TREES`, `PREFIXEV`, `GITFACTS`,
-`ANCHORRES`, the binding rows, file ids, volume keys, creation times and mtimes (I-F4, [40 §5.7], [F18 §2.4]); segments,
-log and store files ([AR §5b.4] "never exported", [AR §5b.7]).
+`ANCHORRES`, the binding rows, file ids, volume keys, creation times and mtimes (I-F4, [40 §5.7], [F18 §2.4]); the
+`DROPPED` table's `drop_lsn` and `hlc` and a `BodyDrop` record's note and actor ([F11 §13.4], [F05 §9.29]; a dropped body
+travels only as its hash and reason, §6.9); the harvest cursor `HARVEST` ([F11 §13.5], [API §8.8]); segments, log and
+store files ([AR §5b.4] "never exported", [AR §5b.7]).
 
 ### 12.6 Gate 0 and its fixtures
 
@@ -1443,6 +1493,7 @@ stream, `changeset_digest` and `commit_id`. The set keeps every row of [F07 §14
 | + R4 | a file node registered with `origin_pred`, `aliases` and `observed_blob`; a root node gaining a `path_moves` entry; a `relink` change; an `observation` conflict (`PathClaim`) |
 | + R5 | a named query defined, changed, and dropped, and a `FieldEdit` on a definition |
 | + trailers | JSON-escaped `Moirai-Actor` and `Moirai-Worktree` values; a commit without git provenance; a commit in a SHA-256 destination |
+| + dropped bodies | an `ordinary` commit that sets a body the exporting store has dropped, written as the `--- dropped` line, with the same `commit_id` as with the body section; a body `TextHunk` with a dropped side; a commit whose only tree change is a node file re-encoded after a drop (§3.3), with no item-10 entry for it (spec sync 3) |
 
 ## 13. Refs and destinations
 
@@ -1564,9 +1615,9 @@ These restate [AR §5b.5] for the bytes of this chapter; each is a condition of 
 7. Hashed content holds no store-local datum: no `#N`, `seq`, lsn, store id or granularity (§4, §12.5); named-query texts are
    portable (§7.2.2); derived uids read no machine-local input ([F08 §11]).
 8. Every commit kind is reconstructable from its trailers and the diff against its first parent's tree (§11, §12).
-9. T(C, d) is a function of moirai data and d (§3.3): values are written in one form (§2.4, §2.5, §5), lines in one order
-   (§6.2, §6.4–§6.8, §7.1), provenance and ledgers by functions of the commit graph (§6.3, §6.5), and subtrees are reused only
-   when they equal T(C, d).
+9. T(C, d) is a function of moirai data, d and the exporting store's dropped set (§3.3): values are written in one form
+   (§2.4, §2.5, §5), lines in one order (§6.2, §6.4–§6.8, §7.1), provenance and ledgers by functions of the commit graph
+   (§6.3, §6.5), a dropped body as its hash and reason (§6.8, §6.9), and subtrees are reused only when they equal T(C, d).
 
 ## 16. The `moi/` fixture catalogue
 
@@ -1581,15 +1632,15 @@ and values of §11.1); each negative fixture is named for the `ImageParse` rule 
 | ledgers | several counters and lines; a negative delta; a foreign token |
 | edges | pinned, flagged (tombstone), symmetric, `mentions` |
 | anchors | every anchor kind; `full` with texts, `hash-only`, and the `text-unavailable` import of a full-mode line without texts; `occurrence`, `marker`, `pred`, a one-line hint, a scope with each language and an escaped name, a non-UTF-8 text in `%` form, an empty prefix |
-| conflicts | a scalar `FieldEdit` with an absent side, a `StatusFork` with resolutions, a body `TextHunk` (bodies with LF and `"`), a `parent` conflict, an `edge` and an `edge.at` conflict, an `observation` `PathClaim`, `existence` `DeleteVsModify` on a live file and on a tombstone with a snapshot carrying status, fields, labels, a counter total and a body |
-| bodies | no body; a body without final LF; with one final LF; with three; with an inner `---` line; with trailing double SP; with U+0000 |
+| conflicts | a scalar `FieldEdit` with an absent side, a `StatusFork` with resolutions, a body `TextHunk` (bodies with LF and `"`), a `parent` conflict, an `edge` and an `edge.at` conflict, an `observation` `PathClaim`, `existence` `DeleteVsModify` on a live file and on a tombstone with a snapshot carrying status, fields, labels, a counter total and a body; a body `TextHunk` with a dropped side, and an `existence` snapshot whose `body` line is dropped (§6.8, §6.8.1; spec sync 3) |
+| bodies | no body; a body without final LF; with one final LF; with three; with an inner `---` line; with trailing double SP; with U+0000; a dropped body, one per reason (§6.9; spec sync 3) |
 | tombstones | with flagged and historical edges and anchors; an artifact tombstone with its last path as title; with `replaced_by`; without reason |
 | R4 | a file node with every field; a `removed` file node; a `planned` file node; a root node with `path_moves` |
 | schema | `kinds.moi`, `fields.moi` with field rows (defaults and ranges) and value rows (covers, `*` kind), `edges.moi` with a reading that needs JSON, `policy.moi` with a row of a parameterised name (`policy.role.<role>.mcp-write` for one role) and a row with a list value (`policy.role.developer.fields`) |
 | queries | a query file with parameters, one without, one with a string default holding HT (JSON `params:`), a conflicted definition with an absent side |
 | side refs and rows | `.moirai-image` in both object formats, `meta.moi`, `aliases/<h1>.moi`, `ops.moi`, `refs/heads.moi`, `refs/tags.moi` |
 | superset inputs | a BOM, CR LF, trailing SP, reordered lines, `\u` and `\/` escapes, a default written explicitly, a live file without provenance lines |
-| `ImageParse` | one negative per rule of §9.2 |
+| `ImageParse` | one negative per rule of §9.2; for dropped bodies (spec sync 3): a `--- dropped` line with an unknown reason, with an upper-case hash, in a tombstone, followed by a body section, or with a body conflict; a body side that is a bare token other than `dropped:<hash>:<reason>` |
 
 ## 17. Examples (informative)
 
@@ -1826,6 +1877,9 @@ ref tags/v1 checkpoint
 | [80] X-F9 (P11 (a) hashed query file names; P11 (b) ref names) | (a) complete; (b) only the image-side mapping and `doctor image`'s report; the rule is [F12]'s | §7.2.1, §13.1 |
 | [80] X-F7 (P1, P12 path text) | path values in the image are exact `/`-separated bytes, `abs` in the P12 form; the rules are [OS/path]'s | §5.2 |
 | [90 §10.1] row "Commit header" (`actor_src`) | not exported | §12.5 |
+| [AR §11] #33 and OQ-A-7 (bodies droppable by hash without changing commit ids; spec sync 3) | the image side of [F06 §8.1] DB-11: the `--- dropped` line, dropped conflict sides and snapshot lines, T(C, d) as a function of the dropped set, reuse after a drop, reconstruction and the import rule, the carrier, gate-0 and `moi/` rows | §3.3, §6.1, §6.8, §6.8.1, §6.9, §6.12, §9.1, §9.2, §11.1, §11.2, §12.2, §12.4–§12.6, §15, §16 |
+| [AR §11] OQ-A-9 (the provenance field; spec sync 3) | not exported | §12.5 |
+| [AR §11] OQ-A-10 (the harvest cursor; spec sync 3) | not exported | §12.5 |
 | [60 §3.1] item 1 (the `.moi` v1 ABNF with golden files for every node kind, a tombstone with flagged and historical edges, scalar and body conflicts, ledger lines, block strings, file nodes, anchor lines, named-query items) | the grammar and the catalogue WP-21 writes the `moi/` and `carrier/` fixtures from | §5–§8, §12.6, §16 |
 
 No other X-F item and no other [90 §10.1] item is specified here.
@@ -2003,3 +2057,34 @@ the quote and context lengths ([F20 §6.1]); the codec holes of [F10] never reac
     canonical form (lower-case segments that start with a letter or digit, at most 16 segments and 255 bytes), the form
     [F12 §6.6]'s `policy-name` and [F08 §8.2] use, instead of a production that allowed a trailing or repeated dot; the
     `policy.moi` rows join §7.1's file list, its conflict bullet, §9.2's repeated lines and §16's catalogue.
+52. **Spec sync 3** ([AR §11] #33, OQ-A-7 (a), OQ-A-9 (a) and OQ-A-10 (a), decided 2026-10-06; [F06 §8.1] DB-11).
+    (a) **The dropped-body line.** A node whose body the exporting store has dropped ends with
+    `--- dropped <hash> <reason>` in place of the body section (§6.9): the hash is the body key, so item 10 and every
+    commit id are unchanged and a native commit still verifies; the reason is carried, not hashed (§12.4). The line
+    shares the body's `---` prefix so that it sorts and parses where the body does, and it cannot be mistaken for a
+    body, which always starts with a line that is exactly `---`. (b) **Dropped sides.** A body conflict side and an
+    existence snapshot's `body` line are written `dropped:<hash>:<reason>`. R-SPEC-F's design wrote `dropped:<hash>`
+    without the reason; the reason is added because an importer that meets only a dropped side must still append a
+    `BodyDrop`, whose `reason` must be 1–3 ([F05 §9.29]), and a fixed fallback would lose the exporting store's
+    reason on a round trip (gate 2). A bare token cannot be a body text, which is always a JSON string, so the forms do
+    not collide. (c) **T(C, d)** depends on the exporting store's dropped set (§3.3, §15 rule 9; [F13] I28′); a subtree
+    written before a drop is re-encoded, and the resulting tree change carries no item-10 entry. Gate 2 still holds
+    for an image that one export wrote to a new destination: its trees all carry the dropped form, so it supplies no
+    dropped hash's bytes, and a fresh store that imports it records every dropped hash with the image's reason and
+    re-exports the same lines; an image that gives one hash two reasons (only a hand edit can) re-exports the first
+    one. An image that a destination accumulated across a drop — trees exported before it, which [F06 §8.1] DB-10
+    leaves in place, beside trees exported after it — does supply the bytes: a fresh store that imports it keeps them,
+    records no drop, and writes the body section on re-export, until its owner drops the body there. (d) **Import.**
+    No bytes are stored for a dropped line or side. A hash the store neither holds nor has dropped, and whose bytes the
+    import supplies nowhere, gets a `BodyDrop` of origin `import` (the line's reason, an empty note, the importing
+    command's actor; at most 2,048 hashes a record so that each group fits [F17 §4.4] W3) before the first imported
+    commit that names it. A hash the store holds keeps its bytes, since only the owner's drop drops held bytes
+    ([F06 §8.1] DB-3, [F05 §9.29] "Origin"); bytes the import supplies in some commit are carried by the first imported
+    commit that names the hash (BD-4); bytes whose hash the store has dropped are discarded without refusing the import
+    (§11.2). The first text of §11.2 recorded every dropped-line hash the store had not dropped, held ones included,
+    which let any import drop bytes its store holds, against [F05 §9.29], [F06 §8.1] DB-3 and DB-11 and [F13] EP-IM;
+    the closure check of spec sync 3 aligned it.
+    (e) **Never exported** (§12.5): the provenance group of [F06 §4.4.17] (named so, since this chapter already uses
+    `prov` for a production and for an existence conflict's side), the `DROPPED` table's lsn and HLC and the drop
+    record's note and actor, and the harvest cursor. (f) New fixture rows for `moi/` and `carrier/` (§12.6, §16); no
+    existing fixture byte changes, since none holds a dropped body.

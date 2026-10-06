@@ -1381,13 +1381,24 @@ fn check_merge_case(c: &Case, op: crate::merge::Op, dst_main: bool) {
     let nids: BTreeMap<Uid, Nid> = ids.uid.iter().map(|(n, u)| (*u, *n)).collect();
     let uid = |n: Nid| ids.uid_of(n);
     let nid = |u: Uid| nids.get(&u).copied();
+    // RS-007: a merge or a `sync` with no commit steps replays each side's value in its (0, 0) step; a revert or a
+    // cherry-pick replays from o, with src's one step, C's: the hierarchy keys where src differs from the base, valued
+    // on src. The case holds no dst commit after C, and with one step its order key decides nothing.
+    let src: Vec<crate::merge::Step> = match op {
+        crate::merge::Op::Revert | crate::merge::Op::CherryPick => {
+            crate::merge::Step::of((0, [0; 32]), &crate::state::diff(&b, &t))
+                .into_iter()
+                .collect()
+        }
+        _ => Vec::new(),
+    };
     let cx = Ctx {
         op,
         dst_main,
         dst_plan: false,
         policy: None,
         auto: &empty,
-        moves: [&[], &[]],
+        moves: [&[], &src],
         uid: &uid,
         nid: &nid,
     };

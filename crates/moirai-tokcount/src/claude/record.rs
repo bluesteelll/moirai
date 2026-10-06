@@ -46,8 +46,10 @@ pub struct Usage {
 }
 
 impl Usage {
-    /// Every input token the model read: uncached, cache-read and cache-write. `input` alone leaves out the cached
-    /// part, so a with/without difference ([`text_tokens`]) is taken over this sum.
+    /// Every input token the model read: uncached, cache-read and cache-write (`docs/spec/measurement-protocol.md`
+    /// §4.10, the token-usage rule). `input` alone leaves out the cached part, so a with/without difference
+    /// ([`text_tokens`]) is taken over this sum.
+    // spec: [MP §4.10] (agent token usage: input = input_tokens + cache_read_input_tokens + cache_creation_input_tokens)
     #[must_use]
     pub const fn total_input(&self) -> u64 {
         self.input

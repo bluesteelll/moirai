@@ -682,7 +682,7 @@ impl Binder<'_> {
                     .map_or(KindSet::EMPTY, KindSet::one);
                 if prop.text == "status"
                     && ks.live().subset_of(artifact)
-                    && c == CExpr::Enum("removed".into())
+                    && matches!(&c, CExpr::Enum(name, _) if name == "removed")
                 {
                     self.not_writable(
                         v.span,
@@ -1107,6 +1107,8 @@ fn mutation_sig(m: &catalog::Mutation, all: KindSet) -> Sig {
         named: true,
         class: None,
         live: false,
+        tree: false,
+        detail: false,
     }
 }
 

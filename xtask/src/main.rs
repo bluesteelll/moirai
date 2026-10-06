@@ -16,8 +16,7 @@
 //! | `ucd [--check]` | WP-61 | generate the `fold_v1` tables from `fixtures/ucd/17.0.0/` ([`ucd`]); `--check` compares |
 //! | `hex <file.hex>... [-o <out>] \| --digest <file.hex>... \| --check [<path>...]` | WP-20 | the generic fixture assembler ([`hex`], [`hex::USAGE`]) |
 //! | `loadrec start [--max-duration <s>] [--private-dir <dir>] \| stop [--private-dir <dir>] \| check <file>` | WP-51a | measurement 16's load fixture in `/private/load/` ([`loadrec`]) |
-//!
-//! `nightly` (WP-05) arrives with its work package; until then the binary names it and exits with status 2.
+//! | `nightly check [--private-dir <dir>] [--windows <file>] [--now <t>] [--guard <exe>] [--inject-…]... \| run [--private-dir <dir>] [--guard <exe>]` | WP-05 | the profile-L nightly runner ([`nightly`], [`nightly::USAGE`]) |
 
 mod authors;
 mod cargo;
@@ -36,6 +35,7 @@ mod lint_source;
 mod loadrec;
 mod markers;
 mod metadata;
+mod nightly;
 mod paths;
 mod private;
 mod rustscan;
@@ -43,6 +43,7 @@ mod semver;
 mod spdx;
 mod toml;
 mod ucd;
+mod utc;
 mod worktree;
 
 #[cfg(test)]
@@ -52,13 +53,6 @@ mod testdir;
 
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
-
-/// Subcommands that arrive with later work packages.
-const LATER: &[(&str, &str, &str)] = &[(
-    "nightly",
-    "WP-05",
-    "profile L nightly runner: guard pre-checks, window calendar, job list",
-)];
 
 const USAGE: &str = "usage: cargo xtask <subcommand>
   gate [--branch m0/<role> | --role <role>] [--ci] [--range <a>..<b>] [--only <step>,..] [--skip <step>,..] [--strict-coverage] [--list]
@@ -74,7 +68,9 @@ const USAGE: &str = "usage: cargo xtask <subcommand>
   ucd [--check]
   hex <file.hex>... [-o <out.bin>] | --digest <file.hex>... | --check [<file or directory>...]
       (cargo xtask hex --help: the .hex format and the --check rules)
-  loadrec start [--max-duration <seconds>] [--private-dir <dir>] | stop [--private-dir <dir>] | check <file>";
+  loadrec start [--max-duration <seconds>] [--private-dir <dir>] | stop [--private-dir <dir>] | check <file>
+  nightly check [--private-dir <dir>] [--windows <file>] [--now <date-time>] [--guard <exe>] [--inject-...]
+        | run [--private-dir <dir>] [--guard <exe>]   (cargo xtask nightly --help)";
 
 /// A minimal option reader: `--name value` pairs and flags.
 struct Args {
@@ -391,16 +387,13 @@ fn run(argv: Vec<String>) -> Result<ExitCode, String> {
         }
         "hex" => hex_cmd(a),
         "loadrec" => loadrec_cmd(a),
+        "nightly" => nightly::cli(&a.rest, &repo_root()?),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(ExitCode::SUCCESS)
         }
         other => {
-            if let Some((n, wp, what)) = LATER.iter().find(|(n, _, _)| *n == other) {
-                eprintln!("xtask {n}: arrives with {wp} ({what})");
-            } else {
-                eprintln!("xtask: unknown subcommand '{other}'\n{USAGE}");
-            }
+            eprintln!("xtask: unknown subcommand '{other}'\n{USAGE}");
             Ok(ExitCode::from(2))
         }
     }

@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| Title | Runtime tables: the store-level runtime state folded into segment sections — `REFS` (with the absorbed vectors, the move cache and the promotion counters `overlay_ops` and `overlay_bytes`), `PINS`, `HEADS` (client heads and the R-15 bindings), `LEASES` ([90 §10.1]), `MARKERS` and `MARKERS_OLD`, `IDEM`, `ALLOC` (F17) and `UIDX`; the versioned index sections `CONFLICTS` (F11) and `GLOBIDX`; R4's runtime tables `TREES` (with `VolumeCaps`, the settle epochs and the dirty row), `FILEOBS` (R-18), `PENDING`, `FSINTENT`, `FPRINT`, `JOURNALCUR`, `DIRMAP`, `PREFIXEV`, `ANCESTRY` and `GITRENAMES` (`GITFACTS`), `ANCHORRES`; the session tables `CURSORS` and `SESSMARKS` and the `BACKUPS` registry; the row images log records carry; the embedded `OsFileId` per OS (X-F8) |
+| Title | Runtime tables: the store-level runtime state folded into segment sections — `REFS` (with the absorbed vectors, the move cache and the promotion counters `overlay_ops` and `overlay_bytes`), `PINS`, `HEADS` (client heads and the R-15 bindings), `LEASES` ([90 §10.1]), `MARKERS` and `MARKERS_OLD`, `IDEM`, `ALLOC` (F17) and `UIDX`; the versioned index sections `CONFLICTS` (F11) and `GLOBIDX`; R4's runtime tables `TREES` (with `VolumeCaps`, the settle epochs and the dirty row), `FILEOBS` (R-18), `PENDING`, `FSINTENT`, `FPRINT`, `JOURNALCUR`, `DIRMAP`, `PREFIXEV`, `ANCESTRY` and `GITRENAMES` (`GITFACTS`), `ANCHORRES`; the session tables `CURSORS` and `SESSMARKS` and the `BACKUPS` registry; the dropped-body table `DROPPED` and the reserved harvest cursor `HARVEST` (spec sync 3); the row images log records carry; the embedded `OsFileId` per OS (X-F8) |
 | Chapter | [F11], `docs/spec/format/11-runtime-tables.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-13b, the runtime-table part of WP-13 ([PLAN §3.2] item 1), author role R-SPEC-R |
-| Sources | [AR §2.16] (T16: what is store-level runtime); [AR §3.4] I1, I14′, I17′, I26′, I27′, I36′; [AR §4.2] (the ref-table paragraph with `overlay_ops`/`overlay_bytes` and the absorbed vector; `next_id`, `fence`; `refs_lsn`, `pins_lsn`, `heads_lsn`, `markers_lsn`); [AR §4.3] (record kinds; commit-header fields `ref_id`, `ref_seq`, `idem_key`, `idem_payload`, absorbed vector); [AR §4.4] (section rows `IDEM`, `LEASES`/`MARKERS`/`MARKERS_OLD`, `REFS`/`PINS`/`HEADS`, `ANCESTRY`, "R4 link sections", "R5 sections"; the `derived-optional` flag); [AR §4.5] steps 4 (markers from net ops), 6 (replay by record kind), 8 (`ALLOC`, `UIDX`), 12 (runtime-only fold); [AR §4.6] ("Not hashed"); [AR §4.8] (indexes); [AR §4.9] (inert markers at the fold, pins, GC of the runtime tables); [AR §5a.1] (object model: ref, reflog, client head, tag, pin, runtime records); [AR §5a.2] (`ref_seq`, the 32 cached moves); [AR §5a.3] (fork pins, promotion and its counters, sync); [AR §5a.4] (client keys, bindings, R-15); [AR §5a.5] (`undo` and the absorbed vector; marker recomputation); [AR §5a.7] steps 7–8 (absorbed vector at merge; staging refs); [AR §5a.9] (`branch -d`/`-D`); [AR §5d.1] (the versioned-versus-runtime table); [AR §6.2] (leases, holder anchor, deadline, renewal); [AR §6.4] (idempotency); [AR §6.5] (durability classes). [40 §2.1], [40 §2.5] (`FPRINT` retention), [40 §2.6] (runtime tables, stat quadruple, OS id paragraph), [40 §2.9] (states), [40 §2.11] R-7, R-8, R-9, R-15, R-18 (authoritative), [40 §3.4] (`FsIntent`, recovery table), [40 §5.1], [40 §5.3] (tree identity, writer tree, expected ref). [50 §8.1] F11, F17. [80 §2.7.1], [80 §2.7.2] (deadline form, anchors), [80 §2.10] P9, [80 §2.11.1]–[80 §2.11.3] (capabilities, tagged layouts, frontier), [80 §3.1] X-F2, X-F5, X-F7, X-F8. [90 §4.1] (the environment-lease binding rule), [90 §4.3] (lease kinds), [90 §4.4] (anchors per harness), [90 §10.1] (rows "`LEASES` runtime rows", "Holder anchor (X-F2)"). [60 §2.5] rows "Segments" ([AR] rows and audit rows), "Ref table", "`Vfs`/`ProjectFs`", "Cross-platform", "Harness-agnostic interface and pure Rust", and the R4 rows R-7, R-8, R-9, R-15, R-18 and the R5 rows F11, F17. Audits [70] S1, S4, S5, S7, S8, S17; [72] B2, M4, M7. Reviews `docs/spec/reviews/a1-P.md` A1P-04, A1P-11, A1P-16 and `a1-S.md` S-09 (dispositions in the open points). [PLAN §3.2] WP-13; [PLAN §3.3] (the `MARKERS` field set) |
+| Sources | [AR §2.16] (T16: what is store-level runtime); [AR §3.4] I1, I14′, I17′, I26′, I27′, I36′; [AR §4.2] (the ref-table paragraph with `overlay_ops`/`overlay_bytes` and the absorbed vector; `next_id`, `fence`; `refs_lsn`, `pins_lsn`, `heads_lsn`, `markers_lsn`); [AR §4.3] (record kinds; commit-header fields `ref_id`, `ref_seq`, `idem_key`, `idem_payload`, absorbed vector); [AR §4.4] (section rows `IDEM`, `LEASES`/`MARKERS`/`MARKERS_OLD`, `REFS`/`PINS`/`HEADS`, `ANCESTRY`, "R4 link sections", "R5 sections"; the `derived-optional` flag); [AR §4.5] steps 4 (markers from net ops), 6 (replay by record kind), 8 (`ALLOC`, `UIDX`), 12 (runtime-only fold); [AR §4.6] ("Not hashed"); [AR §4.8] (indexes); [AR §4.9] (inert markers at the fold, pins, GC of the runtime tables); [AR §5a.1] (object model: ref, reflog, client head, tag, pin, runtime records); [AR §5a.2] (`ref_seq`, the 32 cached moves); [AR §5a.3] (fork pins, promotion and its counters, sync); [AR §5a.4] (client keys, bindings, R-15); [AR §5a.5] (`undo` and the absorbed vector; marker recomputation); [AR §5a.7] steps 7–8 (absorbed vector at merge; staging refs); [AR §5a.9] (`branch -d`/`-D`); [AR §5d.1] (the versioned-versus-runtime table); [AR §6.2] (leases, holder anchor, deadline, renewal); [AR §6.4] (idempotency); [AR §6.5] (durability classes). [40 §2.1], [40 §2.5] (`FPRINT` retention), [40 §2.6] (runtime tables, stat quadruple, OS id paragraph), [40 §2.9] (states), [40 §2.11] R-7, R-8, R-9, R-15, R-18 (authoritative), [40 §3.4] (`FsIntent`, recovery table), [40 §5.1], [40 §5.3] (tree identity, writer tree, expected ref). [50 §8.1] F11, F17. [80 §2.7.1], [80 §2.7.2] (deadline form, anchors), [80 §2.10] P9, [80 §2.11.1]–[80 §2.11.3] (capabilities, tagged layouts, frontier), [80 §3.1] X-F2, X-F5, X-F7, X-F8. [90 §4.1] (the environment-lease binding rule), [90 §4.3] (lease kinds), [90 §4.4] (anchors per harness), [90 §10.1] (rows "`LEASES` runtime rows", "Holder anchor (X-F2)"). [60 §2.5] rows "Segments" ([AR] rows and audit rows), "Ref table", "`Vfs`/`ProjectFs`", "Cross-platform", "Harness-agnostic interface and pure Rust", and the R4 rows R-7, R-8, R-9, R-15, R-18 and the R5 rows F11, F17. Audits [70] S1, S4, S5, S7, S8, S17; [72] B2, M4, M7. Reviews `docs/spec/reviews/a1-P.md` A1P-04, A1P-11, A1P-16 and `a1-S.md` S-09 (dispositions in the open points). [PLAN §3.2] WP-13; [PLAN §3.3] (the `MARKERS` field set). Spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F05 §9.29] (`DROPPED`); [AR §11] #46 and OQ-A-10 with [API §8.8] and [F05 §9.30] (`HARVEST`); [F05 §9.8] (a pin a purge moves) |
 | Depends on | [F01], [F02]; cites [F03] (`Anchor`), [F04] (`HEAD` counters and the `*_lsn` pointers), [F05] (record kinds and payloads), [F06] (commit header, the `Conflict` op key), [F07] (key classes), [F08] (value encodings, schema), [F09] (`SegHdr`, section tags, the versioned delta rule), [F10] (the fingerprint blob class), [F12] (ref names, conflict classes), [F13] (I26′ and the marker-cache rules MC-1–MC-7), [F14] (export of refs), [F16] (protocol, folds), [F17] (retention and promotion parameters), [F18] (strings, the `relink` vocabulary, I-F12), [F19] (exit codes), [F20] (the resolver), [OS/proc], [OS/clock], [OS/project], [OS/path], [API], [CFG] |
 
 ## 1. Scope
@@ -72,11 +72,15 @@ are [F05]'s; their durability tags are [F05]'s too ([80] X-F5) and are given her
 | change-feed and pack cursors | `CURSORS` | runtime | snapshot / layer | (`session`, `agent`, `feed`, `task`) | `Lazy` (`cursor`) | configurable ([F05 §6.1]) | no | 56 | 13.1 |
 | session marks | `SESSMARKS` | runtime | snapshot / layer | (`session`, `agent`) | `SessionMark` | configurable | no | 56 | 13.2 |
 | backups | `BACKUPS` | runtime | snapshot / snapshot | `dir` | `Backup` | durable | no | 56 | 13.3 |
+| dropped bodies | `DROPPED` | runtime | snapshot / snapshot | `hash` | `BodyDrop` | durable | no | 40 | 13.4 |
+| harvest cursor | `HARVEST` | runtime, reserved (M9–M10) | snapshot / layer | `source` | `Harvest` ([F05 §9.30], kind 30, reserved) | durable | no | 56 | 13.5 |
 
 `PENDING`, `FSINTENT`, `FPRINT`, `JOURNALCUR`, `PREFIXEV`, `ANCESTRY` and `GITRENAMES` are beyond the work package's
 list; they are here because [F20], [OS/proc], [OS/project] and review A1P-16 cite this chapter for them (open point 30).
 `CURSORS`, `SESSMARKS` and `BACKUPS` are the fold targets [F05 §7] names for cursors, session marks and the backup
-registry (pass 1, A1-23; open point 39). `PATHIDX`, `ALIASIDX`, `ANCHORS` and `ANCHOR_UID` (R-8) are versioned sections
+registry (pass 1, A1-23; open point 39). `DROPPED` is the dropped set of [F06 §8.1] DB-1 and `HARVEST` the harvest cursor
+of [API §8.8]; a segment carries either only when it holds a row (§2.4; spec sync 3, open point 44).
+`PATHIDX`, `ALIASIDX`, `ANCHORS` and `ANCHOR_UID` (R-8) are versioned sections
 of [F09].
 
 ## 2. Common encodings
@@ -145,17 +149,23 @@ segments, changeset segments (`cs.<n>`) or sealed files other than segments; the
   delta segment carries every runtime section of §1.3 (every class other than "versioned"), in the form its "Form"
   column gives for that segment kind, even with no rows (open point 27). For a table whose delta form is `snapshot`, the
   copy in the newest segment of the current set is authoritative and older copies are ignored.
+- **Conditional sections** (spec sync 3, open point 44). `DROPPED` (§13.4) and `HARVEST` (§13.5) are the exceptions to
+  the rule above: a base or delta segment carries each exactly when the section has at least one row in that segment
+  (a snapshot row, or a changed or dead row of a layer), and a section of either with `n_rows` = 0 is invalid. A reader
+  takes an absent one as a section with no rows: for `DROPPED`, and for `HARVEST` in a base, the table is empty as of
+  that segment's `upto_lsn`; for `HARVEST` in a delta, the layer changes no row.
 - **`layer`** (form 2): only the rows whose value changed after the next-older segment of the set, as of this
   segment's `upto_lsn`. A reader finds the value of a key by probing, in order, the log tail, the delta segments newest
   first, then the base segment; the first row with that key decides. Base segments always carry the snapshot form.
 - **Versioned sections.** `CONFLICTS` (§10) and `GLOBIDX` (§11) use this chapter's body in every graph segment kind and
   compose along a view's layers by [F09 §4.7] ("row" and "index"), not by the lookup above. Their `form` is 1
   `snapshot` in a base segment and 2 `layer` in a delta, promoted-branch or changeset segment ([F09] OP-09-13).
-- **Dead rows.** In the layered sections `FILEOBS`, `PENDING`, `FPRINT`, `DIRMAP`, `ANCESTRY`, `GITRENAMES` and
-  `ANCHORRES`, bit 7 of the row's `flags` byte is `dead`: the key is deleted as of this layer. In a dead row every field
-  outside the key and `flags` is zero (enumeration fields included, which are then exempt from their value tables), the
-  other bits of `flags` are zero, and every `HeapRef` outside the key has `len` 0 (a key component held in the heap, as
-  `PENDING`'s paths, keeps its slice). A dead row never appears in a snapshot. The append-only layered sections
+- **Dead rows.** In the layered sections `FILEOBS`, `PENDING`, `FPRINT`, `DIRMAP`, `ANCESTRY`, `GITRENAMES`,
+  `ANCHORRES` and `HARVEST`, bit 7 of the row's `flags` byte is `dead`: the key is deleted as of this layer. In a dead
+  row every field outside the key and `flags` is zero (enumeration fields included, which are then exempt from their
+  value tables), the other bits of `flags` are zero, and every `HeapRef` outside the key has `len` 0 (a key component
+  held in the heap, as `PENDING`'s paths and `HARVEST`'s `source`, keeps its slice). A dead row never appears in a
+  snapshot. The append-only layered sections
   (`MARKERS_OLD`, `IDEM`, `ALLOC`, `UIDX`) have no dead rows. `PREFIXEV`, a snapshot table, uses bit 7 of its `flags` the
   same way in a log record's delete image only (§2.9).
 - **The tail.** Records beyond the `upto_lsn` of the newest segment of the set (the bound is [F09]'s) and below the
@@ -249,6 +259,8 @@ The tag values and the section directory are [F09]'s; [F09 §3.1] adopted the va
 | `CURSORS` | `0x020A` | no |
 | `SESSMARKS` | `0x020B` | no |
 | `BACKUPS` | `0x020C` | no |
+| `DROPPED` | `0x020D` | no |
+| `HARVEST` | `0x020E` | no |
 | `TREES` | `0x0210` | no |
 | `FILEOBS` | `0x0211` | no |
 | `PENDING` | `0x0212` | no |
@@ -278,8 +290,9 @@ row's **image**, so that the fold into a section and the replay of the tail deco
   `ANCHORRES` (§12.13) row, a delete row its delete image; and the set form of `ClientHead` ([F05 §9.3]), which is the
   image of the `HEADS` row (§5). `JournalCursor` already carries the 41-byte `JOURNALCUR` row (§12.9). Records that
   describe events rather than rows — `RefUpdate`/`RefTable`, `Lease`, `Marker`, `Pin`, `FsIntent*`, `TreeReg`,
-  `GitFacts`, `FPrint`, `Lazy`, `SessionMark`, `Backup` — keep [F05]'s fields, and each table's section says which
-  record field sets which row field, with the enumerations this chapter owns cited by [F05].
+  `GitFacts`, `FPrint`, `Lazy`, `SessionMark`, `Backup`, `BodyDrop` and the reserved `Harvest` — keep [F05]'s fields,
+  and each table's section says which record field sets which row field, with the enumerations this chapter owns cited
+  by [F05].
 - **Enumerations of other chapters.** Rows store link states, anchor states, detail codes and evidence tokens as the
   `u8` codes of [F18 §4.2]–§4.6 and §5.2, which [F18 §4.10] owns; evidence classes as 1 `exact`, 2 `strong`, 3 `copy`,
   4 `weak` ([F20 §1.5]'s order, numbered by [F18 §4.10]); resolver versions as [F20 §1.3]'s `u16`.
@@ -453,11 +466,18 @@ One row per store file that at least one pin holds, sorted by `file` (`family`, 
 | 5 | 8 | `u64` | `set_lsn` | the lsn of the `Checkpoint` record that published the pinned set |
 | total | 13 | | | |
 
-- A pin holds a whole checkpoint set: every file the `Checkpoint` record at `set_lsn` names ([F05]) gets the holder, so
-  one pin adds one holder to several rows.
+- A pin holds a whole checkpoint set: every file its `Pin` record lists ([F05 §9.8]) gets the holder, so one pin adds
+  one holder to several rows. The list is the files the `Checkpoint` record at `set_lsn` names, until a body purge moves
+  the pin onto the files that replace them ([F05 §9.8], [F16] P-101 step 7); from then on the holder protects the files
+  its newest `Pin` record lists, not the ones that `Checkpoint` record names (spec sync 3).
 - A `Pin` record ([F05 §9.8]) with `op` 1 adds the holder (`holder`, `ref_id`, `set_lsn`) to the row of every file it
-  lists, creating rows as needed; `op` 2 removes it and drops a row whose `refcount` reaches 0. A promotion unpins the
-  ref's previous base holder and pins the new one as `promotion-base`, so a ref holds at most one base holder.
+  lists, creating rows as needed; `op` 2 removes it from the row of every file it lists and drops a row whose `refcount`
+  reaches 0. A promotion unpins the ref's previous base holder and pins the new one as `promotion-base`, so a ref holds
+  at most one base holder.
+- **A moved pin** (spec sync 3). A purge moves a pin by an unpin and a pin of the same (`holder`, `ref_id`, `set_lsn`) in
+  one group, which the fold applies in group order (§2.4 "The tail", [F05 §10.1]): the unpin removes the holder from
+  every file the holder held, the pin adds it to the same list with each replaced file replaced, and a file in both
+  lists ends with the holder. The set keeps its id, so `REFS.base_pin` (§3.1) and the ref's base holder do not change.
 - A file with a row is never deleted ([AR §4.1]). `branch -d` removes its `fork-base` and `promotion-base` holders;
   `doctor` lists holders whose ref is deleted or abandoned ([AR §5a.3]). How long `merge` pins are kept is the pin
   policy measurement 5 decides (WP-53c, [F17]); the layout holds any policy.
@@ -1153,12 +1173,15 @@ An `unverified` result is never stored: it depends on budgets and keys, not only
 **Retention** (A1P-16). A fold keeps a row only while its `oid` is the current or latest-observed content of a live file
 node on a live branch head, as for `FPRINT` (§12.8).
 
-## 13. Session and backup tables
+## 13. Session, backup, dropped-body and harvest tables
 
 The fold targets that [F05 §7] names for change-feed and pack cursors, session marks and backups (pass 1, A1-23,
 closure NC-10). Cursors and session marks let delta hooks and `pack`'s C8 show only what changed and `pack` render the
 rules a `SubagentStart` hook showed as one line ([AR §6.3], [AR §7.4], [73 F4]); the backup table gives `backup.max-age` ([CFG]) its newest backup. Losing a cursor or a
 session mark is harmless: the next prompt re-shows changes, and `pack` renders the rules in full ([F05] open point 14).
+Spec sync 3 adds two store-level tables that are not session state but have the same kind of key-replacing fold:
+`DROPPED` (§13.4), the store's dropped set ([F06 §8.1]), and `HARVEST` (§13.5), the harvest cursor reserved for M9–M10
+([API §8.8]). Unlike the three tables above, losing either is not harmless, so neither has a retention rule.
 
 ### 13.1 `CURSORS`
 
@@ -1221,6 +1244,88 @@ its directory.
 **Retention.** `gc` drops every row except the newest (by `hlc`) whose `hlc` is older than `gc.reflog-expire`
 ([F17 §11.2]).
 
+### 13.4 `DROPPED`
+
+The bodies whose bytes this store has dropped ([F06 §8.1] DB-1; [AR §11] #33, OQ-A-7; spec sync 3): one row per dropped
+hash, sorted by `hash`. Written by `BodyDrop` records ([F05 §9.29], §10.3): each hash of a record adds a row with the
+record's `reason`, the record's lsn as `drop_lsn` and its `hlc`; a hash that already has a row keeps it, so the row
+names the first record that dropped the hash.
+
+| offset | width | type | name | meaning |
+|---|---|---|---|---|
+| 0 | 16 | `b16` | `hash` | the dropped body's BLAKE3-128 ([F06 §8] BD-2) |
+| 16 | 8 | `u64` | `drop_lsn` | the lsn of the `BodyDrop` record that dropped it; below the segment's `upto_lsn` |
+| 24 | 8 | `u64` | `hlc` | that record's `hlc` ([F05 §9.29] order 6) |
+| 32 | 1 | `u8` | `reason` | [F06 §8.1] DB-2: 1 `secret`, 2 `private`, 3 `other`; other values invalid |
+| 33 | 7 | `[7]u8` | `_reserved` | zero |
+| total | 40 | | | |
+
+- **Form and placement.** `snapshot` in base and delta segments (§1.3), carried exactly when the table has a row (§2.4,
+  "Conditional sections"). Since no row is ever removed, every segment written after the first drop's fold carries it.
+- **The dropped set.** The dropped set of a view is the hashes of this table in its main set's newest segment (a pinned
+  set's copy is ignored, [F09 §4.8]) and of the `BodyDrop` records of the log range it replays after that set's
+  `upto_lsn` ([F06 §8.1] DB-1, [F16] P-102). A reader looks a hash up by binary search before it resolves any body
+  ([F06 §8.1] DB-6), and renders a dropped body's reason from the row, or from the tail record that dropped it.
+- **Consistency.** A row whose hash a `BLOBTAB` entry still names with a live `BlobRef` is not invalid: the purge of
+  [F16] P-101 may be pending, and [F13] I-D1 (b) states when the two must agree.
+- **Retention.** None. No fold, rollup, `gc` run or other rule drops a row: a drop is permanent ([F06 §8.1] DB-1), and a
+  lost row would let a writer store the bytes again ([F06 §8.1] DB-7). A tiered fold takes the newest input's copy and a
+  rollup writes the complete table, as for every snapshot table.
+- **Size.** 40 B per dropped hash; a store drops a handful of bodies, so the section is a few hundred bytes at most.
+
+### 13.5 `HARVEST` (reserved: M9–M10)
+
+The harvest cursor of [API §8.8] ([AR §11] #46, OQ-A-10; spec sync 3): per transcript file that the harness's harvest
+pipeline reported, which byte ranges are done. One row per transcript, sorted by `source` bytewise (§2.2: a key held
+in the heap is compared by its bytes). The table is store-local runtime state: not versioned, no part of any state
+digest and never exported ([F14 §12.5]). Its rows come from the durable `Harvest` records of [F05 §9.30] (kind 30,
+reserved; their payload and group are [F05]'s, open point 44); the engine writes them from M9–M10, so until then no
+segment carries the section, and a format-v1 reader decodes it.
+
+| offset | width | type | name | meaning |
+|---|---|---|---|---|
+| 0 | 16 | `b16` | `head` | BLAKE3-128 of the file's first min(4,096, `seen`) bytes, as the pipeline computed it ([API §8.8]); it tells a rewritten file from a grown one |
+| 16 | 8 | `u64` | `seen` | the file's size in bytes when it was last reported |
+| 24 | 1 | `u8` | `flags` | bit 7 `dead` (§2.4); bits 0–6 reserved-zero |
+| 25 | 7 | `[7]u8` | `_reserved` | zero |
+| 32 | 8 | `HeapRef` | `source` | `text`: the key, the transcript's identity, 1 to 200 bytes, each in `0x21`–`0x7E` (printable ASCII without SP; `<harness>:<session or thread id>` by convention, [API §8.8]) |
+| 40 | 8 | `HeapRef` | `path` | `text`: the file's path when it was last reported; informative and machine-local, never compared |
+| 48 | 8 | `HeapRef` | `ranges` | `list<HarvestRange>`, in the order the ranges were added |
+| total | 56 | | | |
+
+`HarvestRange` (40 bytes):
+
+| offset | width | type | name | meaning |
+|---|---|---|---|---|
+| 0 | 8 | `u64` | `start` | the first byte of the half-open byte range [`start`, `end`) |
+| 8 | 8 | `u64` | `end` | the end of the range; greater than `start` |
+| 16 | 16 | `b16` | `commit` | `id16` of the commit of the `Apply` that harvested the range ([API §9.4]) |
+| 32 | 8 | `u64` | `commit_lsn` | the lsn of that commit's `Commit` record (§2.5) |
+| total | 40 | | | |
+
+**Fold.** A `Harvest` record applies one of three operations, its `op`, to the row of its `source` ([F05 §9.30] "Fold";
+[API §8.8]):
+- **mark** (`HarvestMark`, and the row update of an `Apply` result entry's `harvest` member, [API §9.4]) creates the
+  row with no ranges, or sets its `path`, `head` and `seen`;
+- **range** (an `Apply` result entry's range, in the batch's group after its `Commit` record, [F05 §4.7]) appends one
+  `HarvestRange` at the end of `ranges`, with `commit` and `commit_lsn` naming that `Commit` record;
+- **forget** (`HarvestForget` with its `from`) removes every range whose `start` is at least `from`, and with `from` = 0
+  the row itself (in a delta layer, a dead row, §2.4).
+
+**Rules.** `source` as its row says and `start` < `end` in every range (V). Ranges stay in the order they were added and
+are not sorted. Two ranges of one row whose commits are both reachable from a live ref never overlap (C: liveness depends
+on the refs, so it is checked against them, not from the section alone; [API §8.8] refuses such a range with
+`harvest_overlap`). A row with no ranges is a transcript registered and not yet harvested. Whether a range is **live** or
+**lost** is computed when it is read, from `commit` and the live refs ([API §8.8]); the row stores no liveness bit.
+
+**Form and placement.** `snapshot` in a base and `layer` in a delta (§1.3), carried exactly when it has a row (§2.4,
+"Conditional sections"): a delta holds only the rows its window changed or removed, so a checkpoint never rewrites the
+whole table.
+
+**Retention.** None: a row leaves only by a forget with `from` = 0; a rollup drops dead rows as everywhere (§2.4).
+*(Informative)* A row costs 56 B plus its `source` and `path` and 40 B per range, about 0.4 KB for a transcript
+harvested in five batches.
+
 ## 14. Worked example *(informative)*
 
 A `MARKERS` snapshot section with one row: task `#40`, `settled` with status `done` (no `complete` outcome), origin
@@ -1273,6 +1378,8 @@ heap 0  03 00 00 00                                      holders = [3]
 | [80] X-F8 | complete for the layouts: `OsFileId`, timestamps, `JOURNALCUR`, `DIRMAP`, the `TREES` additions with the 16-byte `VolumeCaps` snapshot, the `FSINTENT` holder; the R-14 rules are [F20]'s | §12 |
 | [90 §10.1] `LEASES` runtime rows | complete | §6 |
 | [90 §10.1] holder anchor (X-F2 amendment) | the anchor field of `LEASES` and its allowed kinds (0, 1, 4); the anchor layout is [F03]'s | §6 |
+| [AR §11] #33 and OQ-A-7 (bodies droppable by hash without changing commit ids; spec sync 3) | the store-level side: the `DROPPED` table, its fold from `BodyDrop`, its placement and no retention; the `PINS` fold of a pin a purge moves. What a drop is, is [F06 §8.1]'s; the record [F05 §9.29]'s; the purge [F16] P-101's | §2.4, §4, §13.4 |
+| [AR §11] #46 and OQ-A-10 (the harvest cursor, reserved before the freeze; spec sync 3) | the `HARVEST` row layout, its fold operations, placement and retention; the verbs and refusals are [API §8.8]'s, the `Harvest` record [F05 §9.30]'s | §2.4, §13.5 |
 
 ## Holes
 
@@ -1369,7 +1476,8 @@ record ([F20]). Every byte of this chapter is fixed by the design or decided her
 22. **Retention this chapter decides** where the design is silent: closed `FSINTENT` rows for `gc.trash-expire` after
     closing; `PREFIXEV` rows until the `observed` move is recorded, at most 30 days; `DIRMAP` and `PENDING` rows dropped
     with the tree's `FILEOBS` rows; `HEADS` session rows, `CURSORS` and `SESSMARKS` rows after `idempotency.retention`;
-    `BACKUPS` rows other than the newest after `gc.reflog-expire`.
+    `BACKUPS` rows other than the newest after `gc.reflog-expire`; `DROPPED` rows never, and `HARVEST` rows only by a
+    forget (spec sync 3, open point 44).
 23. **Intent ids** are the lsn of the `FsIntent` record, as [F02] open point 7 proposes; `trash/<intent>/` uses it.
 24. **`GITFACTS` is two sections**, `ANCESTRY` ([AR §4.4]) and `GITRENAMES` (R-8), with commit and author times in
     `GITRENAMES`. Pass 1 (A1-6, P1-2) aligned `GITRENAMES` with [F05 §9.25]'s facts: paths are `vbytes`, groups carry
@@ -1385,9 +1493,10 @@ record ([F20]). Every byte of this chapter is fixed by the design or decided her
     tables are small (≈ 150 KB together at the owner's scale, est.: `REFS` ≈ 42 KB, `LEASES` ≈ 50 KB at a few hundred
     live leases, `HEADS` ≈ 25 KB, `TREES` ≈ 20 KB at 46 trees, the rest a few KB). Consequence for [F16]: a
     runtime-only fold writes a delta segment with every snapshot section and its layered runtime sections, and no graph
-    section.
-28. **Section tags.** §2.8's `0x0201`–`0x021A` (with `0x020A`–`0x020C` for §13's tables, pass 1) are the values
-    [F09 §3.1] registers. Closed.
+    section. `DROPPED` and `HARVEST` are the two exceptions (spec sync 3, open point 44): carried only with a row, which
+    keeps "absent means empty" exact for them.
+28. **Section tags.** §2.8's `0x0201`–`0x021A` (with `0x020A`–`0x020C` for §13's tables, pass 1, and `0x020D`–`0x020E`
+    for `DROPPED` and `HARVEST`, spec sync 3) are the values [F09 §3.1] registers. Closed.
 29. **Symbol classes.** [F01 §8.2]'s list of fields gains `LEASES.holder` and `MARKERS.actor` (`actor`), `PREFIXEV.root`
     (`root`) and `GLOBIDX.field` (`name`).
 30. **Tables beyond the work package's list.** `PENDING`, `FSINTENT`, `FPRINT`, `JOURNALCUR`, `PREFIXEV`, `ANCESTRY` and
@@ -1448,3 +1557,22 @@ record ([F20]). Every byte of this chapter is fixed by the design or decided her
     With [RULES/state-definition] open point 17's decision (a): a `MARKERS_OLD` row keeps its holder set and flag, ME-011
     flags a row in either section, and ME-012's move and ME-013's return are storage moves that write no record (§7
     `flags`, `holders`, "Records", "Inertness").
+44. **Spec sync 3** ([AR §11] #33, OQ-A-7 (a) and OQ-A-10 (a), decided 2026-10-06). (a) **`DROPPED`** (§13.4) is the
+    table into which checkpoints fold `BodyDrop` records ([F05 §9.29]): the 40-byte row of R-SPEC-F's design (hash,
+    `drop_lsn`, `hlc`, `reason`, seven reserved bytes), snapshot form, tag `0x020D`, no retention. (b) **`HARVEST`**
+    (§13.5) reserves the bytes of [API §8.8]'s harvest cursor: a 56-byte row keyed by `source` with `head`, `seen`, `path`
+    and the ranges as 40-byte `HarvestRange`s (`start`, `end`, the harvesting commit's `id16` and lsn, as §2.5 names a
+    commit in a row), tag `0x020E`. Its delta form is `layer`, not `snapshot`: a store may register thousands of
+    transcripts (≈ 0.4 KB each), which a snapshot would rewrite at every checkpoint against open point 27's ≈ 150 KB for
+    all snapshot tables together; a forget with `from` = 0 is a dead row. The `Harvest` record kind, its payload and its
+    group are [F05 §9.30]'s (kind 30, reserved; spec sync 3), whose fold §13.5 matches. (c) **Placement departs from
+    R-SPEC-F's design**, which marked `DROPPED` required (R) in bases and deltas: both tables are conditional, carried
+    exactly when they hold a row (§2.4). A required section would make every existing base and delta fixture
+    (`fixtures/hex` `store-a/seg.base.10`, `seg.d1`, `seg.d7`, `seg.d8`, `store-b/seg.d3`) invalid under [F09 §17.1]
+    V-7 and change their digests and every `SegRef`, `Checkpoint` and `HEAD` byte that carries them, for a table that
+    most stores never fill; under the conditional rule no fixture byte changes, a store that never drops a body and every
+    store before M9–M10 write neither section, and "absent means empty" is exact because a section with no rows is
+    invalid. `DROPPED` never loses a row, so the newest segment's copy stays authoritative (§2.4). (d) **`PINS`** (§4):
+    after a purge moves a pin ([F05 §9.8], [F16] P-101 step 7), the holder protects the files its newest `Pin` record
+    lists, not those of the `Checkpoint` at `set_lsn`; the unpin and the pin of one (`holder`, `ref_id`, `set_lsn`) fold
+    in group order, so a file in both lists keeps the holder.

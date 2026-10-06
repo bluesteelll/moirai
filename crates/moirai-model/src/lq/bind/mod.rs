@@ -43,6 +43,16 @@ pub struct Bound<T> {
     pub columns: Vec<(String, Ty)>,
     /// The portable texts of the definitions bound ([LQ/canonical-ast §8.1]): (query name, stored text).
     pub portable: Vec<(String, String)>,
+    /// The written name of each binding, by binding id (the evaluator's texts of W03, [LQ/errors §5.6]).
+    pub names: Vec<String>,
+    /// The root reads tree-derived state: a named query that does is E302 without a resolved tree.
+    pub tree: bool,
+    /// The root runs a named query of `SHAPE detail` by name: each requested id that yields no row is reported by
+    /// N01, N06 or N12 and the result exits 3 ([LQ/envelope §5.6]).
+    pub detail: bool,
+    /// The requested ids of a `SHAPE detail` run that this store never allocated (or whose uid it does not know), as
+    /// `#N` or `#u:<hex>`, in request order; they are not in the C-AST ([LQ/errors] open point 6).
+    pub unknown_ids: Vec<String>,
 }
 
 /// A warning or notice the binder decides ([LQ/errors §5.6]).
@@ -210,6 +220,12 @@ struct Binder<'a> {
     portable: Vec<(String, String)>,
     named: &'a NamedMemo,
     aliases: Option<ItemAliases>,
+    /// The root reads tree-derived state ([50 §3.8]), which needs a resolved tree ([LQ/std §2.8] item 4).
+    tree_read: bool,
+    /// The root runs a named query of `SHAPE detail` by name ([LQ/envelope §5.6]).
+    detail: bool,
+    /// The requested ids of such a run that this store does not know, as written ([LQ/errors] open point 6).
+    unknown_ids: Vec<String>,
 }
 
 /// The aliased items of the `RETURN` whose sort keys are binding (V5): (alias, item index, item type), and the scope's
@@ -246,6 +262,9 @@ impl<'a> Binder<'a> {
             portable: Vec::new(),
             named,
             aliases: None,
+            tree_read: false,
+            detail: false,
+            unknown_ids: Vec::new(),
         }
     }
 
@@ -309,6 +328,10 @@ impl<'a> Binder<'a> {
             live: self.live,
             columns,
             portable: self.portable,
+            names: self.b.iter().map(|b| b.name.clone()).collect(),
+            tree: self.tree_read,
+            detail: self.detail,
+            unknown_ids: self.unknown_ids,
         })
     }
 
@@ -403,6 +426,7 @@ impl<'a> Binder<'a> {
         ready_hint: Option<&str>,
     ) {
         self.live = true;
+        self.tree_read |= tree;
         if let View::Past(revspec) = &self.view {
             let mut d = Diag::new(
                 Code::E302,

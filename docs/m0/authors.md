@@ -34,7 +34,7 @@
 | WP-02b | 7 | A | R-HARN-I | `xtask/`, `fuzz/` (`build.rs`, `src/`, the shared manifest), `docs/m0/` | the WP-02 review re-checked; `xtask hex` (§6 item 3); fallback A of tools.md §4.4 |
 | WP-03 | 7 | A | R-HARN-I | `.githooks/`, `xtask/`, `.claude/settings.json`, `docs/m0/` | `xtask hook`, `xtask private index`, the Codex attribution record |
 | WP-04 | 7 | A | R-HARN-I | `.github/` | `pr.yml` |
-| WP-05 | 7 | A | R-HARN-I | `xtask/` | `xtask nightly` |
+| WP-05 | 7 | A | R-HARN-I | `xtask/` (`nightly`, `nightly.toml`; the private index's exclusions), `docs/m0/` (`nightly.md`, `tools.md` §12) | `xtask nightly` |
 | WP-06 | 7 | A | R-HARN-I | `docs/m0/tools.md`, `fuzz/` (the workspace and its toolchain) | |
 | WP-10 | 1 | A | R-SPEC-F | `docs/spec/` (`format/01`, `format/02`, `COVERAGE.md`) | |
 | WP-11 | 1 | A | R-SPEC-P | `docs/spec/` (`format/03`–`05`) | |

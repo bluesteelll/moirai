@@ -56,7 +56,9 @@ pub fn claude_abs(p: &str) -> String {
     }
 }
 
-fn default_root(main: &Path, leaf: &str) -> PathBuf {
+/// `<drive>:/<leaf>` beside a Windows main worktree, else `<parent of the main worktree>/<leaf>`: the default worktree
+/// root and target root (`nightly` resolves the target root the same way).
+pub(crate) fn default_root(main: &Path, leaf: &str) -> PathBuf {
     let s = main.to_string_lossy().replace('\\', "/");
     let b = s.as_bytes();
     if b.len() >= 2 && b[1] == b':' {

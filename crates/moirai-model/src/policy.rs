@@ -296,6 +296,9 @@ pub struct Rights {
     pub data: PolicyData,
     /// `files.confirm-roles` ([CFG §10.6]): the role cell of the rows keyed by it (WV-038, WV-039).
     pub confirm_roles: Vec<String>,
+    /// `knowledge.owner-authority` is `strict` ([CFG §10.5]): WR-015 keeps the confirmation of owner-authority
+    /// knowledge for the owner.
+    pub knowledge_strict: bool,
 }
 
 /// WR-006: the effective role of a call. No lease: `general-purpose`. A task lease: its role. A run-scoped role lease:
@@ -650,7 +653,45 @@ impl Rights {
                 ));
             }
         }
-        Ok(())
+        self.owner_confirm(stmt, sc, n, &kind, from, to)
+    }
+
+    /// WR-015: while `knowledge.owner-authority` is `strict`, the move of an owner-authority rule or decision out of
+    /// `proposed` into its authoritative status is the owner's confirmation: only an owner-attested call (effective
+    /// role `owner`, WT-012) makes it, and never in the block that created the node (WT-006), so the write that
+    /// recorded the owner's words and the confirmation are two acts. WS-001 does not grant it (E406, WZ-001).
+    // spec: [RULES/role-write-policy] owner-confirm
+    // rule: WR-015
+    fn owner_confirm(
+        &self,
+        stmt: usize,
+        sc: &Scopes<'_>,
+        n: Nid,
+        kind: &str,
+        from: &str,
+        to: &str,
+    ) -> Res<()> {
+        let owner = sc.st.nodes.get(&n).is_some_and(
+            |x| matches!(x.fields.get("authority"), Some(Value::Enum(a)) if a == "owner"),
+        );
+        if !crate::status::is_owner_confirmation(kind, from, to, owner, self.knowledge_strict) {
+            return Ok(());
+        }
+        if self.role == "owner" && !sc.created.contains(&n) {
+            return Ok(());
+        }
+        let why = if self.role == "owner" {
+            "in the block that created it"
+        } else {
+            "except as the owner"
+        };
+        Err(Refusal::lq(
+            "E406",
+            format!(
+                "statement {stmt}: role {} may not confirm owner-authority {kind} {n} ({from} -> {to}) {why}: under knowledge.owner-authority = strict the owner confirms it in a later block (WR-015)",
+                self.role
+            ),
+        ))
     }
 
     /// `role-edges`: some row lets R create or delete an edge of `kind` from `src` to `dst` (WE rows). `mentions` is
@@ -815,6 +856,7 @@ mod tests {
             acceptor: None,
             data: PolicyData::default(),
             confirm_roles: vec!["orchestrator".into(), "owner".into()],
+            knowledge_strict: false,
         }
     }
 

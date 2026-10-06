@@ -140,7 +140,12 @@ closure, `applies()`, ranges). The 0-example card drops line 25 (`Examples:`) an
 7.2. **Tokens** ([90 §8.3], the owner review of 2026-09-27): the Claude count is the difference in total input tokens
 between one headless call with the body appended and the same call without it (WP-58's invocation, Opus 5.5 pinned).
 Total input tokens are the sum of the uncached, cache-read and cache-write input tokens of the pinned model's usage
-entry in Claude Code's result, so prompt caching cannot move tokens out of the count. Both calls are one-turn calls
+entry in Claude Code's result, so prompt caching cannot move tokens out of the count. This is the token-usage rule of
+[AR §11] #46, which every input-token count read from a harness's usage record follows, here and in the measurements this
+specification cites: a model call's input tokens are input + cache_read + cache_creation (Claude Code's `input_tokens`,
+`cache_read_input_tokens` and `cache_creation_input_tokens`); a Codex usage record's `input_tokens` already include its
+`cached_input_tokens`, so its input tokens are `input_tokens` alone and the cached input is never added again (spec
+sync 3, open point 7). Both calls are one-turn calls
 (`num_turns` = 1), because each further request of a turn re-reads the appended text and would count it again. The two
 calls must agree on the Claude Code version, the tool list, and the MCP servers' names and status; a pair that differs
 in any of these is discarded and re-run. The invocation removes every other Claude Code tool (`--tools ""`; the A1
@@ -173,6 +178,7 @@ the baseline ([50 §7.4] item 6).
 | [90 §10.1] "LQ card": the display spelling chosen by the L1 ablation, ASCII, bare tool names | §1.1, §3, §4, §5.2; the spelling rule itself: [LQ/gql-spelling §4] |
 | [60 §2.5] "Harness-agnostic interface" row, part "the card's display spelling" | §4, Holes |
 | [80] X-F12 T1 and T5 as the card teaches them (ids bare in argv, stdin through a quoted heredoc) | §3 lines 4–7; the rules: [OS/shell] |
+| [AR §11] #46, the token-usage rule (input + cache_read + cache_creation; Codex cached input never added again; spec sync 3) | §7.2; the Codex reader and the measurement protocol: R-HARN (`moirai-tokcount`, `measurement-protocol.md`); [90 §8.3] and [60 §5.2] rows 6 and 20: WP-81a |
 
 ## Holes
 
@@ -202,3 +208,10 @@ Lines 10 and 27 of the body also depend on `HOLE(LQ-display-spelling)` of [LQ/gq
    Code version, the tool list and the MCP servers' names and status. The separator of about one token that Claude Code
    puts before appended text stays in the difference: it over-counts, which is the safe side of the gate. [90 §8.3] states
    the same method at WP-81a.
+7. **The token-usage rule** (§7.2; [AR §11] #46, 2026-10-06, an item taken without an owner question; spec sync 3, after
+   its independent check). #46 asks the next spec sync to take the rule, and §7.2 is where the R-SPEC chapters read a
+   model call's input tokens from a harness's usage record, so the rule is stated there for every such count. Claude
+   Code reports the uncached, cache-read and cache-write input tokens as three disjoint numbers, which the rule adds;
+   Codex reports `input_tokens` with the cached part already inside it and `cached_input_tokens` beside it, so adding the
+   two would count the cached input twice. The rule's other readers are not R-SPEC-F's: `moirai-tokcount`'s Codex reader
+   and the measurement protocol (R-HARN), and [90 §8.3]'s ledger and [60 §5.2] rows 6 and 20 (WP-81a).

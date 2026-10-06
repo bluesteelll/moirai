@@ -1,0 +1,118 @@
+# `cargo xtask nightly` (WP-05, docs/m0/PLAN.md §3.2 item 7): the profile-L nightly runner's caps, guard floors,
+# counted directories and job list. docs/m0/nightly.md §3 describes every key; xtask/src/nightly/config.rs reads and
+# checks this file. Every value is operational policy with a reviewed default (AGENTS.md "Runtime and operational
+# policy goes into config keys with defaults"); the limits PLAN WP-05 states (fuzz at most 2 targets with
+# -rss_limit_mb at most 256, jobs beside agents within 1 GB, the floors of 1.5 GB of RAM and 25 GB of disk) are
+# checked by the loader and cannot be widened here.
+# The agreed windows are owner data and live in the gitignored /private/windows.toml (PLAN §5 V4).
+
+version = 1
+
+[run]
+# The lane (xtask/roles.toml [lanes]) whose target directory the runner builds in; cargo's build-directory lock is the
+# lane's build semaphore (PLAN §2.1), so the runner's builds queue behind the lane's.
+lane = "A"
+# Every job ends this long before its window does; the finish (sealing the results, rebuilding the private manifest)
+# must fit in it (E10: a nightly run completes inside an agreed window). Each run's finish.json records how long the
+# finish took and whether the run ended inside its window; size this from the first real runs.
+finish-margin-minutes = 10
+# How often the guard checks the RAM floor while a job runs ([60 §3.15]: everything refused below 1.5 GB free).
+watch-seconds = 30
+# A job log longer than this keeps its first quarter and its last three quarters.
+log-cap = "8MiB"
+# Raw result directories kept in /private/nightly/; the oldest beyond this are removed after each run (0 keeps all).
+keep-runs = 30
+
+[guard]
+# The pre-check through moirai-probes-bin guard (docs/spec/measurement-protocol.md §8; PLAN WP-05): refuse below
+# 1.5 GB of available physical memory, or below 25 GB of disk headroom counted after the directories below. A floor
+# may be raised, never lowered.
+ram-floor = "1.5GB"
+disk-floor = "25GB"
+
+[guard.caps]
+# The four counted directories of PLAN §2.1 under the target root (`git config moirai.target-root`), with their caps:
+# the guard reserves each one's growth up to its cap before it counts the headroom ([MP §8.1]). The fuzz directory is
+# cargo-fuzz's CARGO_TARGET_DIR and the mutants directory cargo-mutants' TMP and TEMP (docs/m0/tools.md §4.2, §5, §12).
+# With these caps the guard refuses disk-low on the laptop today: freeing space is a prerequisite of E10
+# (docs/m0/nightly.md §7 item 3).
+laneA = "40GB"
+laneB = "40GB"
+fuzz = "10GB"
+mutants = "20GB"
+
+# The caps of each window kind. build-jobs is CARGO_BUILD_JOBS for every cargo the runner starts (until measurement 21,
+# WP-57, sets the lane cap: the lanes' default of `git config moirai.build-jobs`); test-threads is RUST_TEST_THREADS;
+# parallel caps the processes one job runs side by side (cargo-mutants --jobs), each of which gets its share of
+# build-jobs and test-threads, so parallel is at most build-jobs; ram-budget is the largest RAM budget a job may
+# declare in the window, and a job whose budget is larger is skipped.
+[window.agent-free]
+# PLAN §5 V4: no agent session, build or test beside the runner.
+build-jobs = 6
+test-threads = 4
+parallel = 2
+ram-budget = "6GB"
+
+[window.beside-agents]
+# [60 §3.15] "by day": gate jobs beside the agents stay within 1 GB in total (PLAN WP-05). The runner runs one job at a
+# time, so each job's budget is the total.
+build-jobs = 2
+test-threads = 2
+parallel = 1
+ram-budget = "1GB"
+
+# The job list (PLAN WP-05: GT1 full, GT18 long, fuzz at most 2 targets sanitizer-off -rss_limit_mb=256, GT16 sample),
+# run one at a time in this order. min-minutes: the job starts only if this much time is left before the deadline;
+# max-minutes: the longest it may run (0: to the deadline).
+#
+# RAM budgets: no measurement backs a job's peak yet, and each job builds before it tests (debug builds and links of
+# large crates, cargo-fuzz's release build with libFuzzer's C++). Until one does (docs/m0/nightly.md §7 item 4), every
+# job declares 3 GB, above the beside-agents 1 GB, so they all run in agent-free windows only ([60 §3.15] places the
+# GT suites in the night schedule).
+
+[[job]]
+name = "gt1"
+kind = "cargo-test"
+title = "GT1 full: the crash enumerator's nightly tier, on its own mini log and on the toy log with every seeded bug (WP-32, WP-40)"
+packages = ["moirai-vfs-sim", "moirai-toylog"]
+tier = "nightly"
+ram-budget = "3GB"
+min-minutes = 30
+max-minutes = 240
+
+[[job]]
+name = "gt18"
+kind = "cargo-test"
+title = "GT18 long: the model's suites at the nightly tier, its state oracles among them (WP-94: >= 1e6 histories, >= 5 refs)"
+packages = ["moirai-model"]
+tier = "nightly"
+ram-budget = "3GB"
+min-minutes = 30
+max-minutes = 240
+
+[[job]]
+name = "gt16"
+kind = "mutants"
+title = "GT16 sample: one shard of the mutants of FL-1 (moirai-files, moirai-diff), taking the next shard each run"
+packages = ["moirai-files", "moirai-diff"]
+shards = 32
+tier = "pr"
+ram-budget = "3GB"
+min-minutes = 30
+max-minutes = 180
+
+[[job]]
+name = "fuzz"
+kind = "fuzz"
+title = "GT5: at most two FL-1 fuzz targets, sanitizer off, taking the next targets each run, for the rest of the window"
+max-targets = 2
+rss-limit-mb = 256
+# The time kept between the end of the last target's -max_total_time and the deadline: cargo-fuzz's start and cargo's
+# freshness check come before libFuzzer's clock starts, and libFuzzer checks its limit about once a second (at least
+# 60 s).
+grace-seconds = 120
+# The fuzzing alone needs 256 MB plus libFuzzer's overshoot (-rss_limit_mb is checked about once a second; 540 MB was
+# observed under a 256 MB limit, docs/m0/tools.md §4.5): 768 MB. The release build before it is unmeasured (above).
+ram-budget = "3GB"
+min-minutes = 15
+max-minutes = 0

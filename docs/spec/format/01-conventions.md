@@ -554,6 +554,7 @@ hashed and never exported ([AR §4.6] "symbol numbers"); canonical forms and the
 | `reason` | `u32` | `TOMB.reason_sym` ([AR §4.4]) |
 | `name` | `u32` | schema names: field names (`field_sym` of the field block, [AR §3.1]), kind and edge-kind names, `lq_name` and `reverse_names` ([50] F1); [F08] binds the fields |
 | `text` | `u32` | interned text values ("strings are interned symbols", [AR §3.1]); [F08] says which strings are interned |
+| `model` | `u32` | the declared model id of the commit header's provenance group ([F06 §4.4.17]; [AR §11] OQ-A-9, added in spec sync 3) |
 
 The owning chapters ([F06], [F08], [F09], [F11]) bind each of their symbol fields to one class of this table. A chapter
 may add a class before the freeze; its width is `u32` unless S5's condition holds and the review agrees.

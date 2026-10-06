@@ -196,6 +196,8 @@ impl Store {
             u32::try_from(c.number("store.suspect-budget")).expect("P23's range fits u32");
         self.cfg.max_statements = c.number("tx.max-statements");
         self.cfg.max_ops = c.number("tx.max-ops");
+        self.cfg.knowledge_strict = c.text("knowledge.owner-authority") == "strict";
+        self.cfg.reflog_expire_ms = c.number("gc.reflog-expire");
         let windows = crate::idem::Windows {
             retention_ms: c.number("idempotency.retention"),
             default_ms: c.number("idempotency.default-window"),

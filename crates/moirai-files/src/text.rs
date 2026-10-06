@@ -1346,6 +1346,51 @@ impl ContentReader {
         Err(ReadError::Unstable)
     }
 
+    /// Reads again, in one pass, content that [`ContentReader::read`] returned as `first`, feeding its lines to `sink`
+    /// ([F20 §2.4]: every later read of one call must see the first read's bytes).
+    ///
+    /// The pass reads from offset 0 between two snapshots of the handle and recomputes the raw length and XXH3-64. Equal
+    /// sizes and last-write times around the pass and a raw length and hash equal to `first`'s are §2.4's stability test
+    /// against the first read, so the bytes are the first read's and `oid`, which pass 2 hashed from them, is not
+    /// computed again. An attempt that fails the test is repeated once ([F20 §2.4] `READ_RETRIES`).
+    ///
+    /// # Errors
+    /// [`ReadError::Size`] for a file larger than `opts.max_read_bytes`; [`ReadError::Unreadable`] when the source
+    /// fails; [`ReadError::Unstable`] when both attempts saw a change or bytes other than `first`'s.
+    // spec: [F20 §2.4] (two passes, one handle; stability by sizes, last-write times, raw length and r)
+    pub fn reread<S: ByteSource, H: LineSink>(
+        &mut self,
+        src: &mut S,
+        opts: &ReadOptions,
+        first: &Content,
+        sink: &mut H,
+    ) -> Result<(), ReadError<S::Error>> {
+        for _ in 0..=r14::READ_RETRIES {
+            let before = src.snapshot().map_err(ReadError::Unreadable)?;
+            if before.size > opts.max_read_bytes {
+                return Err(ReadError::Size { size: before.size });
+            }
+            src.rewind().map_err(ReadError::Unreadable)?;
+            sink.begin();
+            let mut p1 = Pass1::new(None, H::ACTIVE);
+            let n = pump(src, &mut self.buf, before.size.saturating_add(1), |c| {
+                p1.feed(c, sink);
+            })
+            .map_err(ReadError::Unreadable)?;
+            let (_, r, _) = p1.finish(sink);
+            let after = src.snapshot().map_err(ReadError::Unreadable)?;
+            let stable = n == before.size
+                && after.size == before.size
+                && after.mtime == before.mtime
+                && n == first.raw_len()
+                && r == first.raw_xxh3;
+            if stable {
+                return Ok(());
+            }
+        }
+        Err(ReadError::Unstable)
+    }
+
     /// One attempt from offset 0; `None` when unstable.
     fn attempt<S: ByteSource, H: LineSink>(
         &mut self,

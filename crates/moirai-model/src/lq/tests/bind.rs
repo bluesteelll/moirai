@@ -316,9 +316,10 @@ fn the_standard_library_binds_with_its_cursor_classes() {
         ("files_removed", false),
         ("files_replaced", true),
         ("root_moves", false),
+        ("proposed", false),
     ];
     let cat = crate::lq::catalog::std_catalog();
-    assert_eq!(cat.len(), 40);
+    assert_eq!(cat.len(), 45);
     for (name, is_live) in live {
         let q = crate::lq::catalog::std_query(name).unwrap_or_else(|| panic!("std.{name}"));
         assert_eq!(q.live, is_live, "std.{name}");
@@ -333,6 +334,40 @@ fn the_standard_library_binds_with_its_cursor_classes() {
     for t in crate::lq::catalog::STD_TEXTS {
         let b = fixture::define(t).unwrap_or_else(|e| panic!("{t}: {}", fixture::show(t, &e)));
         assert_eq!(b.portable[0].1, t);
+    }
+}
+
+/// The catalog's texts are [LQ/std]'s `lq-define` blocks byte for byte, in the chapter's order (§4–§6): the chapter is
+/// read at test time, so a definition that changes there and not here fails, whatever `fixtures/lq/std/` holds.
+#[test]
+fn the_catalog_texts_are_the_chapters_blocks() {
+    let p = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/spec/lq/std.md");
+    let md = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+    let mut blocks: Vec<String> = Vec::new();
+    let mut cur: Option<Vec<&str>> = None;
+    for line in md.lines() {
+        match (&mut cur, line) {
+            (None, "```lq-define") => cur = Some(Vec::new()),
+            (Some(b), "```") => {
+                blocks.push(b.join(
+                    "
+",
+                ));
+                cur = None;
+            }
+            (Some(b), l) => b.push(l),
+            (None, _) => {}
+        }
+    }
+    let ours: Vec<&str> = crate::lq::catalog::STD_TEXTS.to_vec();
+    assert_eq!(
+        blocks.len(),
+        ours.len(),
+        "the chapter has {} definitions",
+        blocks.len()
+    );
+    for (i, (a, b)) in blocks.iter().zip(&ours).enumerate() {
+        assert_eq!(a, b, "definition {} differs from the chapter", i + 1);
     }
 }
 
@@ -499,6 +534,56 @@ fn e102_unknown_value_and_labels() {
     .unwrap_err();
     assert_eq!(e[0].message, "`'opne'` is not a value of `status` (task)");
     assert_eq!(e[0].inline.as_deref(), Some("did you mean `open`?"));
+}
+
+/// [LQ/canonical-ast §5.5]: the result arms of a `CASE` and the arguments of `coalesce` take one type, decided by the
+/// first that is not coercible, so a literal there is the enum value in any order of the operands (and E102 when it
+/// is none); with no such operand the first decides, as written.
+#[test]
+fn case_arms_and_coalesce_arguments_take_one_type() {
+    let enum_normal = "(ENUM \"normal\")";
+    for q in [
+        "MATCH (r:rule) RETURN CASE WHEN r.title = 'a' THEN 'normal' ELSE r.criticality END",
+        "MATCH (r:rule) RETURN CASE WHEN r.title <> 'a' THEN r.criticality ELSE 'normal' END",
+        "MATCH (r:rule) RETURN CASE WHEN r.title = 'a' THEN NULL WHEN r.title = 'b' THEN normal ELSE r.criticality END",
+        "MATCH (r:rule) RETURN CASE r.title WHEN 'a' THEN 'normal' WHEN 'b' THEN r.criticality END",
+        "MATCH (r:rule) RETURN coalesce('normal', r.criticality)",
+        "MATCH (r:rule) RETURN coalesce(NULL, 'normal', r.criticality)",
+        "MATCH (r:rule) RETURN coalesce(r.criticality, 'normal')",
+    ] {
+        let c = cast_of(q);
+        assert!(c.contains(enum_normal), "{q}\n{c}");
+        assert!(!c.contains("(TEXT \"normal\")"), "{q}\n{c}");
+    }
+    // A comparison with the result coerces through it: the CASE is of the enum's type.
+    assert!(
+        cast_of(
+            "MATCH (r:rule) WHERE CASE WHEN r.title = 'a' THEN 'low' ELSE r.criticality END < 'high' RETURN r"
+        )
+        .contains("(ENUM \"high\")")
+    );
+    // No operand that is not coercible: the first decides, the others follow it.
+    let t = cast_of("MATCH (r:rule) RETURN CASE WHEN r.title = 'a' THEN 'x' ELSE 'y' END");
+    assert!(
+        t.contains("(TEXT \"x\")") && t.contains("(TEXT \"y\")"),
+        "{t}"
+    );
+    let t = cast_of("MATCH (r:rule) RETURN coalesce('x', 'y')");
+    assert!(
+        t.contains("(TEXT \"x\")") && t.contains("(TEXT \"y\")"),
+        "{t}"
+    );
+    // A literal that is no value of the field is E102 in either order.
+    for q in [
+        "MATCH (r:rule) RETURN CASE WHEN r.title = 'a' THEN 'foo' ELSE r.criticality END",
+        "MATCH (r:rule) RETURN CASE WHEN r.title <> 'a' THEN r.criticality ELSE 'foo' END",
+        "MATCH (r:rule) RETURN coalesce('foo', r.criticality)",
+        "MATCH (r:rule) RETURN coalesce(r.criticality, 'foo')",
+    ] {
+        assert_eq!(read_err(q).0, Code::E102, "{q}");
+    }
+    // A text operand that is not a literal stays a text: the arms are compatible, nothing is coerced.
+    read("MATCH (r:rule) RETURN CASE WHEN r.title = 'a' THEN r.title ELSE r.criticality END");
 }
 
 /// A priority is an integer 0–4 ([50 §2.5]): it negates, and a literal negated beside one takes its type

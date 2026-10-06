@@ -1,0 +1,8 @@
+DEFINE QUERY proposed($scope: node? = NULL, $kind: text? = NULL, $limit: int = 50) SHAPE node BUDGET light AS {
+  MATCH (k:rule|decision)
+  WHERE k.status = 'proposed'
+    AND ($kind IS NULL OR k.kind = $kind)
+    AND ($scope IS NULL OR k IN subtree($scope)
+         OR EXISTS { (k)-[:ABOUT]->(x) WHERE x IN subtree($scope) })
+  RETURN k ORDER BY k.created DESC, k.id DESC LIMIT $limit
+}

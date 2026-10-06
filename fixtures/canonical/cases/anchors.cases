@@ -10,10 +10,11 @@
 %% source [F07 §8.3]
 %% source [F08 §10.3]
 %% source [F08 §11.2]-§11.4
-%% note Registers docs/storage/lock.md: the file node (uid_file(project, docs/storage/lock.md, empty)), the root node
-%% note (uid_root(project)) and two anchors on (T2, at, file node). captured and the anchor uids follow [F08 §11.4];
-%% note window and span_hash are stated values of the anchor record (their derivation, [F20 §2.7]-§2.8, is not exercised
-%% note here). The quote anchor's prefix is empty: prefix_h is BLAKE3-128 of the empty string, present, not empty.
+%% note Adds the file node (uid_file(project, docs/storage/lock.md, empty)), the root node (uid_root(project)) and two
+%% note anchor records on (T2, at, file node) with stated selector values (INDEX §3.4). captured and the anchor uids
+%% note follow [F08 §11.4]; every content-derived selector is stated (it is not the output of a [F20 §6.1] capture
+%% note over any content, and no capture or resolve check applies here). The quote anchor's prefix is empty: prefix_h
+%% note is BLAKE3-128 of the empty string, present, not empty.
 %% note The anchors hold their texts (quote, prefix, suffix, end).
 %% p-state
 node 1a000000000000000000000000000001 task
@@ -199,10 +200,11 @@ foreign -
 %% source [F07 §14.4] row anchors
 %% source [F07 §8.3]
 %% source [F08 §10.3] text_unavailable
-%% note Registers docs/storage/lock.md: the file node (uid_file(project, docs/storage/lock.md, empty)), the root node
-%% note (uid_root(project)) and two anchors on (T2, at, file node). captured and the anchor uids follow [F08 §11.4];
-%% note window and span_hash are stated values of the anchor record (their derivation, [F20 §2.7]-§2.8, is not exercised
-%% note here). The quote anchor's prefix is empty: prefix_h is BLAKE3-128 of the empty string, present, not empty.
+%% note Adds the file node (uid_file(project, docs/storage/lock.md, empty)), the root node (uid_root(project)) and two
+%% note anchor records on (T2, at, file node) with stated selector values (INDEX §3.4). captured and the anchor uids
+%% note follow [F08 §11.4]; every content-derived selector is stated (it is not the output of a [F20 §6.1] capture
+%% note over any content, and no capture or resolve check applies here). The quote anchor's prefix is empty: prefix_h
+%% note is BLAKE3-128 of the empty string, present, not empty.
 %% note The same commit as case anchor-full with the anchors held as digests only (a hash-only
 %% note import): the q-state differs, the entries, digest and commit id are identical.
 %% p-state
@@ -388,7 +390,8 @@ foreign -
 %% case anchor-texts-added
 %% source [F07 §8.3]
 %% note P holds the anchors hash-only, Q holds their texts with unchanged digests: no entry for the at keys.
-%% note The one entry is T2's status.
+%% note The one entry is T2's status. The anchors are the records of case anchor-full, with stated selector values
+%% note (INDEX §3.4).
 %% p-state
 node 1a000000000000000000000000000001 task
   parent a0000000000000000000000000000001 "V"

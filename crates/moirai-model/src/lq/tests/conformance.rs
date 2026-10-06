@@ -892,6 +892,10 @@ fn run_block(lq: &Path, b: &Block) -> Result<Ran, String> {
             d.portable
         ));
     }
+    // `%% outcome runs`: the input evaluates without error on the fixture store of INDEX.md §2.3 (WP-93b).
+    if b.outcome.as_deref() == Some("runs") {
+        crate::lq::eval::tests::runs(src, entry == Entry::Write)?;
+    }
     ran.encoding = Some(d.encoding);
     Ok(ran)
 }
@@ -1294,8 +1298,9 @@ fn the_runner_reads_case_files() {
     }
 }
 
-/// [LQ/std §1]: every `fixtures/lq/std/<name>.lq` is the source of `std.<name>`: it parses with start symbol
-/// `define_stmt`, names `<name>`, and binds to the C-AST of the model's own standard library.
+/// [LQ/std §1], §2.6: every `fixtures/lq/std/<name>.lq` is the source of `std.<name>`: the chapter's block byte for byte
+/// with one final LF, which parses with start symbol `define_stmt`, names `<name>`, and binds to the C-AST of the model's
+/// own standard library.
 #[test]
 fn the_standard_library_sources_of_fixtures_lq_std() {
     let dir = fixtures().join("lq/std");
@@ -1314,8 +1319,8 @@ fn the_standard_library_sources_of_fixtures_lq_std() {
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_default();
         let result = (|| -> Result<(), String> {
-            let bytes = std::fs::read(p).map_err(|e| e.to_string())?;
-            let src = decode(&bytes).map_err(|d| format!("{} (decoding)", d.code))?;
+            let raw = std::fs::read(p).map_err(|e| e.to_string())?;
+            let src = decode(&raw).map_err(|d| format!("{} (decoding)", d.code))?;
             let d = parse_define(src, ParseOptions::default())
                 .map_err(|e| format!("does not parse: {}", first_error(src, &e)))?
                 .tree;
@@ -1330,6 +1335,17 @@ fn the_standard_library_sources_of_fixtures_lq_std() {
             if bytes != encode(Root::Define(&ours.cast)) {
                 return Err("binds to another C-AST than the model's".into());
             }
+            let block = crate::lq::catalog::STD_TEXTS
+                .iter()
+                .find(|t| {
+                    t.strip_prefix("DEFINE QUERY ")
+                        .and_then(|r| r.split('(').next())
+                        == Some(name.as_str())
+                })
+                .ok_or_else(|| "the model has no text for it".to_string())?;
+            if raw.strip_suffix(b"\n") != Some(block.as_bytes()) {
+                return Err("is not the chapter's block byte for byte with one final LF".into());
+            }
             Ok(())
         })();
         if let Err(e) = result {
@@ -1337,6 +1353,334 @@ fn the_standard_library_sources_of_fixtures_lq_std() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// One row of `fixtures/lq/std/catalog.txt` (its header): name, shape, budget class, cursor class and section, the
+/// columns separated by blanks and the section (`[LQ/std §N.M]`, which holds a blank) last.
+#[derive(Clone, Debug, PartialEq)]
+struct CatalogRow {
+    line: usize,
+    name: String,
+    shape: String,
+    budget: String,
+    cursor: String,
+    section: String,
+}
+
+/// The rows of `catalog.txt`; `#` starts a comment, and a blank or comment line is no row.
+fn catalog_rows(text: &str) -> Result<Vec<CatalogRow>, String> {
+    let mut rows = Vec::new();
+    for (i, raw) in text.lines().enumerate() {
+        let l = raw.split('#').next().unwrap_or("").trim();
+        if l.is_empty() {
+            continue;
+        }
+        let mut cols = l.split_whitespace();
+        let mut col = || cols.next().map(str::to_string);
+        let (Some(name), Some(shape), Some(budget), Some(cursor)) = (col(), col(), col(), col())
+        else {
+            return Err(format!("line {}: fewer than five columns", i + 1));
+        };
+        let section = cols.collect::<Vec<_>>().join(" ");
+        if section.is_empty() {
+            return Err(format!("line {}: fewer than five columns", i + 1));
+        }
+        rows.push(CatalogRow {
+            line: i + 1,
+            name,
+            shape,
+            budget,
+            cursor,
+            section,
+        });
+    }
+    Ok(rows)
+}
+
+/// `N.M` when the line opens the numbered paragraph `N.M.` of a chapter.
+fn paragraph_number(l: &str) -> Option<&str> {
+    let (num, _) = l.split_once(". ")?;
+    let (a, b) = num.split_once('.')?;
+    let digits = |s: &str| !s.is_empty() && s.bytes().all(|c| c.is_ascii_digit());
+    (digits(a) && digits(b)).then_some(num)
+}
+
+/// The name each `lq-define` block of [LQ/std] defines and the numbered paragraph it stands in (`4.22`), in the
+/// chapter's order.
+fn chapter_sections(md: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    let mut section = "";
+    let mut lines = md.lines();
+    while let Some(l) = lines.next() {
+        if l == "```lq-define" {
+            let name = lines
+                .next()
+                .and_then(|d| d.strip_prefix("DEFINE QUERY "))
+                .and_then(|d| d.split('(').next())
+                .unwrap_or("");
+            out.push((name.to_string(), section.to_string()));
+            for b in lines.by_ref() {
+                if b == "```" {
+                    break;
+                }
+            }
+        } else if let Some(n) = paragraph_number(l) {
+            section = n;
+        }
+    }
+    out
+}
+
+/// Checks `catalog.txt` and the `<name>.lq` files of `fixtures/lq/std/` against the model's standard library and the
+/// chapter `md`: one row per definition in the chapter's order ([LQ/std §2.6]), its shape and budget class the bound
+/// definition's (§2.3, §2.4: `table` and `medium` without the clause), its cursor class the bound one for a query of
+/// the read catalog (§2.5, §3) and `-` for the pack and brief classes (§5, §6), its section the paragraph its block
+/// stands in; and one file per row, no more (§2.6). Every mismatch, each `what: why`.
+fn check_std_catalog(catalog: &str, md: &str, lq_files: &[String]) -> Vec<String> {
+    let rows = match catalog_rows(catalog) {
+        Ok(r) => r,
+        Err(e) => return vec![format!("catalog.txt: {e}")],
+    };
+    let lib = crate::lq::catalog::std_catalog();
+    let sections = chapter_sections(md);
+    let mut failures = Vec::new();
+    let ours: Vec<&str> = lib
+        .iter()
+        .map(|q| q.qname.strip_prefix("std.").unwrap_or(&q.qname))
+        .collect();
+    for name in &ours {
+        if !rows.iter().any(|r| r.name == *name) {
+            failures.push(format!("catalog.txt: no row for std.{name}"));
+        }
+        if !lq_files.iter().any(|f| f == name) {
+            failures.push(format!("std/{name}.lq: missing"));
+        }
+    }
+    for f in lq_files {
+        if !ours.contains(&f.as_str()) {
+            failures.push(format!("std/{f}.lq: the model has no std.{f}"));
+        }
+    }
+    let placed = rows.iter().filter(|r| ours.contains(&r.name.as_str()));
+    if let Some((r, want)) = ours
+        .iter()
+        .filter(|n| rows.iter().any(|r| r.name == **n))
+        .zip(placed)
+        .find_map(|(n, r)| (r.name != *n).then_some((r, *n)))
+    {
+        failures.push(format!(
+            "catalog.txt line {}: {} out of the chapter's order (std.{want} comes here)",
+            r.line, r.name
+        ));
+    }
+    for (i, r) in rows.iter().enumerate() {
+        let at = format!("catalog.txt line {} ({})", r.line, r.name);
+        if rows[..i].iter().any(|p| p.name == r.name) {
+            failures.push(format!("{at}: a second row"));
+            continue;
+        }
+        let Some(q) = lib
+            .iter()
+            .find(|q| q.qname.strip_prefix("std.") == Some(&r.name))
+        else {
+            failures.push(format!("{at}: the model has no std.{}", r.name));
+            continue;
+        };
+        let shape = q.cast.shape.as_deref().unwrap_or("table");
+        if r.shape != shape {
+            failures.push(format!("{at}: shape {}, the definition's {shape}", r.shape));
+        }
+        let budget = q.cast.budget.as_deref().unwrap_or("medium");
+        if r.budget != budget {
+            failures.push(format!(
+                "{at}: budget {}, the definition's {budget}",
+                r.budget
+            ));
+        }
+        let Some((_, sec)) = sections.iter().find(|(n, _)| *n == r.name) else {
+            failures.push(format!("{at}: the chapter has no lq-define block for it"));
+            continue;
+        };
+        let section = format!("[LQ/std §{sec}]");
+        if r.section != section {
+            failures.push(format!(
+                "{at}: section {}, the block stands in {section}",
+                r.section
+            ));
+        }
+        let cursor = if sec.starts_with("4.") {
+            if q.live { "live" } else { "pinned" }
+        } else {
+            "-"
+        };
+        if r.cursor != cursor {
+            failures.push(format!("{at}: cursor {}, expected {cursor}", r.cursor));
+        }
+    }
+    failures
+}
+
+/// The stems of the `.lq` files directly in `dir`, in name order.
+fn lq_stems(dir: &Path) -> std::io::Result<Vec<String>> {
+    let mut out = Vec::new();
+    for e in std::fs::read_dir(dir)? {
+        let p = e?.path();
+        if p.is_file() && p.extension().is_some_and(|x| x == "lq") {
+            out.push(
+                p.file_stem()
+                    .map(|n| n.to_string_lossy().into_owned())
+                    .unwrap_or_default(),
+            );
+        }
+    }
+    out.sort();
+    Ok(out)
+}
+
+/// The chapter [LQ/std], read at test time.
+fn std_chapter() -> String {
+    let p = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../docs/spec/lq/std.md");
+    std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()))
+}
+
+/// [LQ/std §2.3]–§2.6, §9: `fixtures/lq/std/catalog.txt` and the files beside it describe the model's standard library.
+#[test]
+fn the_catalog_of_fixtures_lq_std() {
+    let dir = fixtures().join("lq/std");
+    if !dir.is_dir() {
+        return;
+    }
+    let p = dir.join("catalog.txt");
+    let catalog = std::fs::read_to_string(&p).unwrap_or_else(|e| panic!("{}: {e}", p.display()));
+    let stems = lq_stems(&dir).unwrap_or_else(|e| panic!("{}: {e}", dir.display()));
+    let failures = check_std_catalog(&catalog, &std_chapter(), &stems);
+    assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// The catalog the model and the chapter imply, in `catalog.txt`'s form, with every `.lq` file it needs.
+fn implied_catalog(md: &str) -> (Vec<CatalogRow>, Vec<String>) {
+    let sections = chapter_sections(md);
+    let rows: Vec<CatalogRow> = crate::lq::catalog::std_catalog()
+        .iter()
+        .enumerate()
+        .map(|(i, q)| {
+            let name = q.qname.strip_prefix("std.").unwrap_or(&q.qname).to_string();
+            let sec = sections
+                .iter()
+                .find(|(n, _)| *n == name)
+                .map(|(_, s)| s.clone())
+                .unwrap_or_default();
+            let cursor = match (sec.starts_with("4."), q.live) {
+                (true, true) => "live",
+                (true, false) => "pinned",
+                (false, _) => "-",
+            };
+            CatalogRow {
+                line: i + 1,
+                shape: q.cast.shape.clone().unwrap_or_else(|| "table".into()),
+                budget: q.cast.budget.clone().unwrap_or_else(|| "medium".into()),
+                cursor: cursor.into(),
+                section: format!("[LQ/std §{sec}]"),
+                name,
+            }
+        })
+        .collect();
+    let files = rows.iter().map(|r| r.name.clone()).collect();
+    (rows, files)
+}
+
+/// `catalog.txt`'s text of `rows`.
+fn catalog_text(rows: &[CatalogRow]) -> String {
+    rows.iter()
+        .map(|r| {
+            format!(
+                "{:<30} {:<10} {:<7} {:<7} {}\n",
+                r.name, r.shape, r.budget, r.cursor, r.section
+            )
+        })
+        .collect()
+}
+
+/// The catalog check accepts the catalog the model and the chapter imply, with comments and blank lines, and reports
+/// every single defect of a row, a missing or extra file, a missing row and two rows out of order.
+#[test]
+fn the_catalog_check_reports_each_defect() {
+    use proptest::prelude::*;
+    use proptest::test_runner::TestCaseError;
+    let md = std_chapter();
+    let (rows, files) = implied_catalog(&md);
+    assert_eq!(rows.len(), 45);
+    let text = format!("# a comment\n\n{}", catalog_text(&rows));
+    assert_eq!(check_std_catalog(&text, &md, &files), Vec::<String>::new());
+    for short in ["a b c\n", "# x\na b c d # e f\n"] {
+        assert!(
+            catalog_rows(short).is_err_and(|e| e.ends_with(": fewer than five columns")),
+            "{short:?}"
+        );
+    }
+    assert_eq!(
+        catalog_rows("ready node light live [LQ/std §4.1] # c\n").map(|r| r[0].section.clone()),
+        Ok("[LQ/std §4.1]".to_string())
+    );
+    let n = rows.len();
+    let mut runner = super::runner(200);
+    let check = |(i, j, kind): (usize, usize, u8)| -> Result<(), TestCaseError> {
+        let mut rows = rows.clone();
+        let mut files = files.clone();
+        let name = rows[i].name.clone();
+        let want = match kind {
+            0 => {
+                rows[i].shape.push('x');
+                format!("({name}): shape")
+            }
+            1 => {
+                rows[i].budget = if rows[i].budget == "heavy" {
+                    "light"
+                } else {
+                    "heavy"
+                }
+                .into();
+                format!("({name}): budget")
+            }
+            2 => {
+                rows[i].cursor = match rows[i].cursor.as_str() {
+                    "live" => "pinned",
+                    "pinned" => "-",
+                    _ => "live",
+                }
+                .into();
+                format!("({name}): cursor")
+            }
+            3 => {
+                rows[i].section = "[LQ/std §9.9]".into();
+                format!("({name}): section")
+            }
+            4 => {
+                files.retain(|f| *f != name);
+                format!("std/{name}.lq: missing")
+            }
+            5 => {
+                files.push("not_a_query".into());
+                "std/not_a_query.lq: the model has no std.not_a_query".into()
+            }
+            6 => {
+                rows.remove(i);
+                format!("catalog.txt: no row for std.{name}")
+            }
+            _ => {
+                let j = if j == i { (i + 1) % n } else { j };
+                rows.swap(i, j);
+                "out of the chapter's order".into()
+            }
+        };
+        let got = check_std_catalog(&catalog_text(&rows), &md, &files);
+        prop_assert!(got.iter().any(|g| g.contains(&want)), "{want}: {got:?}");
+        prop_assert_eq!(got.len(), 1, "{:?}", got);
+        Ok(())
+    };
+    if let Err(e) = runner.run(&(0..n, 0..n, 0u8..8), check) {
+        panic!("{e}");
+    }
 }
 
 // ----- the runner on the examples of the chapters -------------------------------------------------------------------

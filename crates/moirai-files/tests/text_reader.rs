@@ -627,6 +627,54 @@ fn a_source_not_at_offset_zero_is_read_from_the_start() {
     }
 }
 
+#[test]
+fn a_reread_is_one_pass_over_the_first_reads_bytes() {
+    let data = b"alpha\r\n  beta\r\ngamma";
+    let (first, _) = read_chunky(data, &[5], ObjectFormat::Sha1, None);
+    // The same bytes: one attempt, the lines of pass 1.
+    let mut src = Chunky::new(data, &[3]);
+    let mut sink = Collect::default();
+    ContentReader::new()
+        .reread(&mut src, &opts(ObjectFormat::Sha1, None), &first, &mut sink)
+        .unwrap();
+    assert_eq!(sink.begins, 1);
+    assert_eq!(
+        sink.lines,
+        vec![b"alpha".to_vec(), b"  beta".to_vec(), b"gamma".to_vec()]
+    );
+    // Other bytes of the same size: the raw hash differs, the attempt is repeated once, then unstable.
+    let other = b"alpha\r\n  BETA\r\ngamma";
+    let mut src = Chunky::new(other, &[3]);
+    let mut sink = Collect::default();
+    let err = ContentReader::new()
+        .reread(&mut src, &opts(ObjectFormat::Sha1, None), &first, &mut sink)
+        .unwrap_err();
+    assert!(matches!(err, ReadError::Unstable));
+    assert_eq!(sink.begins, 2);
+    // A last-write time that changes during the first attempt only: the retry succeeds.
+    let mut src = Racing {
+        versions: vec![data.to_vec(), data.to_vec()],
+        switch_at: vec![2],
+        reads: 0,
+        pos: 0,
+        same_stamp: false,
+    };
+    let mut sink = Collect::default();
+    ContentReader::new()
+        .reread(&mut src, &opts(ObjectFormat::Sha1, None), &first, &mut sink)
+        .unwrap();
+    assert_eq!(sink.begins, 2);
+    // Too large for the key.
+    let small = ReadOptions {
+        max_read_bytes: 4,
+        ..opts(ObjectFormat::Sha1, None)
+    };
+    let err = ContentReader::new()
+        .reread(&mut Chunky::new(data, &[3]), &small, &first, &mut ())
+        .unwrap_err();
+    assert!(matches!(err, ReadError::Size { .. }));
+}
+
 /// A source whose n-th rewind or n-th snapshot (1-based) fails.
 struct Failing {
     data: &'static [u8],

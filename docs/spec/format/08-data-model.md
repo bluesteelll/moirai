@@ -475,6 +475,10 @@ A decoder can skip an entry of any type without the schema: every encoding is se
   sets the body to the empty text stores `new` absent ([F06 §7.4] `SetBody`, `bflags` bit 1 clear), `body_ref` becomes 0,
   and the body key is absent in the canonical state ([F07 §6.3]). A diff3 result of zero bytes is absent in the same way
   ([F12 §7.5]).
+- **A dropped body** ([F06 §8.1]; [AR §11] #33; spec sync 3) is still the node's body: its key keeps its hash and the node
+  keeps its `body_ref`, whose `BLOBTAB` entry is a dropped `BlobRef` ([F09 §6.3]); only the bytes are gone. No canonical
+  state, id or digest changes. Readers render it as [F06 §8.1] DB-6 says, and a write that supplies its bytes again is
+  refused (DB-7).
 
 ## 8. Schema as data
 

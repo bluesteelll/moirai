@@ -1,14 +1,14 @@
 //! Commit identity, ancestry and bases by definition ([F12 §3]–§5; [F07 §12.1]; [60 §4.2] "LCA and the virtual
 //! base", "ahead/behind `main`"): full ancestor sets, maximal common ancestors ordered by (gen, commit id), the
 //! recursive virtual base built by materialising each LCA's state and merging them with the typed rules, the steps of
-//! Kleppmann's rule (one per side commit since the base), revisions, and ahead/behind as the size of an ancestor-set
-//! difference.
+//! Kleppmann's rule (one per side commit since the base that has step keys, a two-parent commit's second-parent keys
+//! included), revisions, and ahead/behind as the size of an ancestor-set difference.
 
 use crate::canon::{self, Header};
 use crate::dag::{Commit, Dag, Ref};
 use crate::err::{Refusal, Res};
-use crate::merge::{self, Ctx, Fresh, Op, Step};
-use crate::state::{Alloc, Changeset, Key, State, touched};
+use crate::merge::{self, Ctx, Fresh, MoveKey, Op, Step};
+use crate::state::{Alloc, Aspect, Changeset, Key, State, touched};
 use crate::value::{Nid, Uid, hex};
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
@@ -65,21 +65,168 @@ impl Dag {
     }
 
     /// The Kleppmann steps of one side since the base (RS-007; [F12 §7.4] row "Kleppmann steps"; [F12 §5.3] VM-7): one
-    /// per commit of A(side) \ A(B) whose canonical net changeset against its first parent has a hierarchy entry — for a
-    /// `sync`, which stores the full state diff against its first parent ([AR §4.6]), that diff — each entry with its
-    /// value in that commit's state, ascending by the commit's (hlc, id). A two-parent commit is a step for the entries of
-    /// that first-parent changeset only (open point 35 of [RULES/merge-table] is recorded, not adopted, spec sync 2b
-    /// S2B-M-2).
-    pub fn move_steps(&self, side: &BTreeSet<u64>, base: &BTreeSet<u64>) -> Vec<Step> {
+    /// per commit of A(side) \ A(B) that has step keys ([`Dag::step_keys`]), each key with its value in that commit's
+    /// state, ascending by the commit's (hlc, id). A first-parent key takes the `after` value of the commit's net
+    /// changeset (for a `sync`, which stores the full state diff against its first parent, [AR §4.6], that diff); a
+    /// second-parent key of a two-parent commit, which that changeset does not hold, takes its canonical value in the
+    /// commit's state ([RULES/merge-table] open point 35 case (i), narrow form; [AR §11] OQ-A-6 (a)).
+    // spec: [RULES/merge-table] results
+    // spec: [F12 §7.4]
+    pub fn move_steps(
+        &self,
+        side: &BTreeSet<u64>,
+        base: &BTreeSet<u64>,
+        alloc: &dyn Alloc,
+    ) -> Vec<Step> {
         let mut v: Vec<Step> = side
             .difference(base)
-            .filter_map(|c| {
-                let x = &self.commits[c];
-                Step::of((x.hlc, x.id), &x.changeset)
-            })
+            .filter_map(|c| self.step(*c, alloc))
             .collect();
         v.sort_by_key(|s| s.key);
         v
+    }
+
+    /// The Kleppmann step of commit `c` (RS-007: "the step sets each of its step keys to its value in that commit's
+    /// state"): its first-parent entries, the `after` values of its net changeset ([`Step::of`]), and for a two-parent
+    /// commit its second-parent keys valued in its state; `None` when it has no step key.
+    // spec: [RULES/merge-table] results
+    // spec: [F12 §7.4]
+    fn step(&self, c: u64, alloc: &dyn Alloc) -> Option<Step> {
+        let x = &self.commits[&c];
+        let key = (x.hlc, x.id);
+        let first = Step::of(key, &x.changeset);
+        if x.parents.len() < 2 {
+            return first;
+        }
+        let keys = self.step_keys(c, alloc);
+        let mut moves = first.map(|s| s.moves).unwrap_or_default();
+        let held: BTreeSet<Nid> = moves.iter().map(|(n, _)| *n).collect();
+        let extra: Vec<Nid> = keys.difference(&held).copied().collect();
+        if !extra.is_empty() {
+            let st = self.state_at(Some(c), alloc);
+            moves.extend(
+                extra
+                    .into_iter()
+                    .map(|n| (n, merge::flat(&merge::cval(&st, n, &Aspect::Hierarchy)))),
+            );
+            moves.sort_by_key(|(n, _)| *n);
+        }
+        (!moves.is_empty()).then_some(Step { key, moves })
+    }
+
+    /// The step keys of commit `c` (RS-007; [F12 §7.4] row "Kleppmann steps"): the hierarchy keys of its canonical net
+    /// changeset against its first parent; for a two-parent commit M (a merge or a `sync`) with parents p₁ and p₂, also
+    /// each hierarchy key whose canonical value in state(M) differs from its value in state(p₂) and that is a step key
+    /// of some commit of A(p₂) \ A(p₁), so that M re-asserts what it kept against the merged branch's moves and nothing
+    /// else ([RULES/merge-table] open point 35 case (i) in its narrow form, "moved" read as "is a step key of": a merge
+    /// inside the merged branch counts with its own second-parent keys). Step keys depend on the commit graph alone,
+    /// so they are computed once per commit and kept on the DAG for every later merge, `sync`, virtual merge, revert and
+    /// cherry-pick. Computed with an explicit stack, since a history of syncs nests merges deeply; a two-parent commit's
+    /// frame keeps its commits of A(p₂) \ A(p₁) while their step keys are computed, so its ancestor sets are walked once.
+    // spec: [RULES/merge-table] results
+    // spec: [F12 §7.4]
+    pub fn step_keys(&self, c: u64, alloc: &dyn Alloc) -> Rc<BTreeSet<Nid>> {
+        if let Some(k) = self.step_memo.borrow().get(&c) {
+            return k.clone();
+        }
+        // (commit, its commits of A(p₂) \ A(p₁) once walked: a two-parent commit's frame waiting for theirs).
+        let mut stack: Vec<(u64, Option<Vec<u64>>)> = vec![(c, None)];
+        while let Some((x, inner)) = stack.pop() {
+            if self.step_memo.borrow().contains_key(&x) {
+                continue;
+            }
+            let commit = &self.commits[&x];
+            let inner = match (inner, &commit.parents[..]) {
+                (Some(v), _) => Some(v),
+                (None, [p1, p2]) => Some(self.second_parent_only(*p1, *p2)),
+                (None, _) => None,
+            };
+            if let Some(v) = &inner {
+                let missing: Vec<u64> = {
+                    let memo = self.step_memo.borrow();
+                    v.iter()
+                        .copied()
+                        .filter(|d| !memo.contains_key(d))
+                        .collect()
+                };
+                if !missing.is_empty() {
+                    stack.push((x, inner));
+                    stack.extend(missing.into_iter().map(|d| (d, None)));
+                    continue;
+                }
+            }
+            let mut keys: BTreeSet<Nid> = commit
+                .changeset
+                .keys()
+                .filter_map(|k| match k {
+                    Key::Node(n, Aspect::Hierarchy) => Some(*n),
+                    _ => None,
+                })
+                .collect();
+            if let (Some(v), [_, p2]) = (&inner, &commit.parents[..]) {
+                let moved: BTreeSet<Nid> = {
+                    let memo = self.step_memo.borrow();
+                    v.iter()
+                        .flat_map(|d| memo[d].iter().copied())
+                        .filter(|n| !keys.contains(n))
+                        .collect()
+                };
+                if !moved.is_empty() {
+                    let (sm, s2) = (
+                        self.state_at(Some(x), alloc),
+                        self.state_at(Some(*p2), alloc),
+                    );
+                    let h = Aspect::Hierarchy;
+                    keys.extend(
+                        moved
+                            .into_iter()
+                            .filter(|n| merge::cval(&sm, *n, &h) != merge::cval(&s2, *n, &h)),
+                    );
+                }
+            }
+            self.step_memo.borrow_mut().insert(x, Rc::new(keys));
+        }
+        self.step_memo.borrow()[&c].clone()
+    }
+
+    /// A(p₂) \ A(p₁) of a two-parent commit ([F12 §5.2]): the walk from p₂ stops at every member of A(p₁), whose
+    /// ancestors are all in A(p₁) too.
+    // spec: [F12 §5.2]
+    fn second_parent_only(&self, p1: u64, p2: u64) -> Vec<u64> {
+        let a1 = self.ancestors(Some(p1));
+        let mut out = BTreeSet::new();
+        let mut stack = vec![p2];
+        while let Some(d) = stack.pop() {
+            if !a1.contains(&d) && out.insert(d) {
+                stack.extend(self.commits[&d].parents.iter().copied());
+            }
+        }
+        out.into_iter().collect()
+    }
+
+    /// The members of `keys` that are a step key ([`Dag::step_keys`]) of a commit of `side` ordered after `after` by
+    /// (hlc, commit id), commit ids compared bytewise: the keys whose later move stands against a revert's or a
+    /// cherry-pick's step (RS-007; [RULES/merge-table] open point 35 case (ii); MR-040).
+    // spec: [RULES/merge-table] results
+    pub fn moved_after(
+        &self,
+        side: &BTreeSet<u64>,
+        after: MoveKey,
+        keys: &BTreeSet<Nid>,
+        alloc: &dyn Alloc,
+    ) -> BTreeSet<Nid> {
+        let mut out = BTreeSet::new();
+        for c in side {
+            if out.len() == keys.len() {
+                break;
+            }
+            let x = &self.commits[c];
+            if (x.hlc, x.id) > after {
+                let sk = self.step_keys(*c, alloc);
+                out.extend(keys.intersection(&sk).copied());
+            }
+        }
+        out
     }
 
     /// Items 1–9 of a stored commit ([F07 §12.1]): its kind, its parents' ids, its `hlc`, actor, role, session, git
@@ -257,7 +404,10 @@ impl<'a> Bases<'a> {
             let m = self.dag.maximal(&common);
             let (b, ab) = self.of(&m);
             let src = self.state(*li);
-            let (mo, mt) = (self.dag.move_steps(&a, &ab), self.dag.move_steps(&al, &ab));
+            let (mo, mt) = (
+                self.dag.move_steps(&a, &ab, self.alloc),
+                self.dag.move_steps(&al, &ab, self.alloc),
+            );
             let cx = Ctx {
                 op: Op::Virtual,
                 dst_main: false,

@@ -211,7 +211,7 @@ where its text carries a count, and with the first occurrence's values otherwise
 
 4.3. **Warnings and notices, JSON.** The envelope's `warnings` and `notices` arrays hold objects
 `{"code":<string>,"name":<string>,"message":<string>,"detail":[<string>...]}` plus `"count":<int>` for the codes whose text
-carries a count (W01, W04, W05, W10, N09, N10), in the order of §4.2. `message` is the first line without the `Wnn: ` prefix.
+carries a count (W01, W04, W05, W10, N09, N10, N13), in the order of §4.2. `message` is the first line without the `Wnn: ` prefix.
 
 4.4. **Warnings do not change the exit code.** A result with warnings or notices exits as it would without them ([50 §5.2]: the
 W and N rows carry no exit code).
@@ -220,8 +220,9 @@ W and N rows carry no exit code).
 
 5.1. **Summary.** "Raised by" names the component of [50 §5.1]'s pipeline. "M0" says whether the reference model's LQ-3
 (WP-93a/b) or the LQ-Bench reference renderer (WP-71a) must produce the code at M0 (`model`, `renderer`), or whether it
-exists only in the product (`product`: it depends on a planner, a memory account, a clock or a shell the model does not have).
-"Fix" says whether the text carries a mechanical replacement (§2.4).
+exists only in the product (`product`: it depends on a planner, a memory account, a clock or a shell the model does not have),
+or whether it is reserved for a later milestone that names it (`reserved`: nothing raises it at M0, and no comparison
+covers it, [API §16.3]; spec sync 3). "Fix" says whether the text carries a mechanical replacement (§2.4).
 
 | Code | Name | Sev. | Exit | Raised by | M0 | Fix |
 |---|---|---|---|---|---|---|
@@ -300,6 +301,7 @@ exists only in the product (`product`: it depends on a planner, a memory account
 | N10 | `division_by_zero` | notice | — | executor | model | — |
 | N11 | `file_alias` | notice | — | executor | model | — |
 | N12 | `never_allocated_id` | notice | — | executor | model | — |
+| N13 | `similar_records` | notice | — | tx (after the commit; M9–M10) | reserved | — |
 
 W09 and N12 are added by this chapter (open points 5 and 6); W09's name is the one [LQ/lexical] open point L-7 proposed. W10 is
 [50 §5.2]'s, added by the A1 re-review's S-05 disposition after this chapter's W09. The W
@@ -426,7 +428,7 @@ runtime predicate such as `t.ready` or `t.claimed` in a target is checked agains
 | E401 | `statement <i> matched <n> bindings, expected <expect>` | per literal target and per matched target (at most 10): `<id> now: ` + each field the statement's `WHERE` reads as `<field>=<value>` joined by one space + ` rev=<rev> (changed at <c8> by <actor> on <ref>: "<message>")`; then `nothing was written` | `re-read with moirai q show ids=<ids>` |
 | E402 | `<ref> moved: IF TIP <c8>, the tip is <c8> (rev <rev>)`; `IF TARGETS <digest>: the targets now digest to <digest>` | `nothing was written` | `run the block with DRY again and apply its digest` |
 | E403 | `statement <i>: ASSERT is false` | the assertion's `ELSE` text as `"<text>"` when present; `nothing was written` | none |
-| E404 | `statement <i>: <id> <from> -> <to> refused: <why>` — `<why>` is `<n> children are open`, `verdict <id> <outcome> gates it`, `the removed text is not in <id>.body`, `done -> open needs REOPEN` or the machine's rule name | the open children or gating verdicts (at most 10); `nothing was written` | for `done -> open`: `write REOPEN <id> REASON '<reason>'`; else none |
+| E404 | `statement <i>: <id> <from> -> <to> refused: <why>` — `<why>` is `<n> children are open`, `verdict <id> <outcome> gates it`, `done -> open needs REOPEN` or the machine's rule name. For a `Create` of a rule or a decision that names a status other than the one [RULES/status-machines] GR-019 gives it (spec sync 3): `statement <i>: a new <kind> starts <status>, not <named> (GR-019)`. For a `PATCH` (spec sync 3): `statement <i>: PATCH <id>.body refused: the removed text occurs <n> times`, `<n>` being 0 or at least 2 (the count of byte offsets where the text matches, overlapping ones included, [LQ/std §7.2]), or `statement <i>: PATCH <id>.body refused: the removed text is empty` | the open children or gating verdicts (at most 10); for a `PATCH` whose text occurs 2 or more times, one line per occurrence (at most 10), `occurrence at line <l>`, `<l>` the 1-based line of the body where it starts; `nothing was written` | for `done -> open`: `write REOPEN <id> REASON '<reason>'`; for GR-019: `create it without a status; a later write moves it`; for a `PATCH` whose text occurs 0 times: `copy the removed text exactly from moirai show <id> --full`; 2 or more times: `add neighbouring lines to the removed text until it occurs once`; empty: `name the text to replace, or write the whole body with SET <id>.body = $text`; else none |
 | E405 | `statement <i>: <rule> would be violated` — `<rule>` is `acyclic precedence (I5')`, `forest depth 12 (I4)`, `live endpoints (I2)`, `one active superseder (I6)`, `canonical duplicate target (I7)`, `named-query cycle (QueryCycle)`, `at most one <edge> (cardinality)` (`runs_in`, `answers`), `named queries bind (QueryInvalid)`, `schema conformance (I11)` ([F19 §12.4], its open point 16) | the cycle or the offending edge, one line; `nothing was written` | none |
 | E406 | `statement <i>: role <role> may not <action>` | `nothing was written` | the refusing rule as [RULES/role-write-policy] WZ-001 renders it: `no <table> row lets <role> <op> <kind>` followed by `.<field>` when the op sets a field, `<table>` being the `role-write-policy` table whose check refused (`role-statements`, `role-create`, `role-values`, `role-fields`, `role-status` or `role-edges`, WR-009), e.g. `no role-fields row lets developer set decision.authority` (spec sync 2a) |
 | E406 (unleased, frozen) | `this write needs a lease` | none | `an orchestrator presents its session lease with --lease (mint it once per session: moirai claim --role orchestrator --session)`. The design writes the text as one line; this row renders it split at its semicolon into message and help, with no other change ([F19 §11.3]; pass 1, A1-51) |
@@ -480,6 +482,7 @@ the statement prefix, and its help names the one fix I32′ allows, `RELEASE` (`
 | N10 | `N10: division by zero gave absent in <n> rows` |
 | N11 | `N11: '<path>' is an old path of <id>; it is now '<path>'` |
 | N12 | `N12: <id> was never allocated in this store` |
+| N13 | `N13: <id> resembles <id> (<score>)[, <id> (<score>)][, <id> (<score>)]; compare with moirai q similar id=<n>` — the first `<id>` is the written record of smallest `#N` that `similar()` gives rows for ([LQ/std §2.16]), followed by at most three of its rows in rank order with their scores; continuation `<k> more written records resemble existing ones` when k > 0. Fires after a write whose commit creates a rule, decision, note or finding, or changes the title, abstract or text field of one, when `knowledge.similar-notice` is true ([CFG §10.5]); `count` is the number of written records with a row (spec sync 3; M9–M10) |
 
 5.7. **Code-specific JSON keys** (after `detail`, in this order when present):
 
@@ -487,7 +490,8 @@ the statement prefix, and its help names the one fix I32′ allows, `RELEASE` (`
 |---|---|
 | E401 | `"statement":<int>`, `"expect":<string>` (the bound as written, e.g. `"1"`, `"2..5"`, `">= 3"`), `"matched":<int>`, `"current":[{"id":"#N","kind":<string>,"status":<string or null>,"title":<string or null>,"rev":<int>,"changed_by":{"commit":<commit>,"actor":<string>,"ref":<string>,"message":<string>}}...]` (one object per detail line, in its order; not a full node object; spec sync 2b), `"written":false` |
 | E402 | `"statement":null`, `"tip":<commit>`, `"expected_tip":<commit or null>`, `"targets":<32 hex or null>`, `"written":false` |
-| E403, E404, E405, E406, E409 (other cases), E410 | `"statement":<int>`, `"written":false`; for E405 of a deferred validator the block's last statement, for the `Schema` command the item index (§5.5); for E406's verb-level cases (unleased, MCP, safelist) `"statement":null` (spec sync 2b) |
+| E404, `PATCH` case | `"statement":<int>`, `"occurrences":<int or null>` (null for an empty removed text), `"lines":[<int>...]` (the detail lines' `<l>`, at most 10; `[]` with fewer than 2 occurrences), `"written":false` (spec sync 3) |
+| E403, E404 (other cases), E405, E406, E409 (other cases), E410 | `"statement":<int>`, `"written":false`; for E405 of a deferred validator the block's last statement, for the `Schema` command the item index (§5.5); for E406's verb-level cases (unleased, MCP, safelist) `"statement":null` (spec sync 2b) |
 | E409, lease case | `"statement":<int>`, `"leases":[{"node":"#N","id":<string>,"holder":<string>,"branch":<string>}...]` (the line-1 lease, then the leases of the detail lines, at most 10 more, in the text's order; spec sync 2b; `id`, `holder` and `branch` as the `lease` object of [LQ/envelope §7.4]), `"written":false` (pass 1, round 3, closure NC-8) |
 | E407 | `"lease":<string>`, `"holder":<string or null>`, `"written":false` |
 | E408 | `"key":<string or null>` (`null` for a default key), `"original":{"rev":<int>,"commit":<commit>,"ref":<string>}` or `null` when the entry records no commit ([API §7.4]; pass 1, A1-52) |
@@ -557,12 +561,12 @@ WP-22's `lq/` fixtures assert these outcomes; the reading echo's text is [LQ/env
 ## 8. Numbering rules
 
 8.1. A code is never reused: E307 stays retired, E008 stays unassigned. A new code is appended after the last code of its range:
-the next free codes are `E010`, `E119`, `E203`, `E309`, `E412`, `E506`, `W11` and `N13`. A new code is a change to this chapter
+the next free codes are `E010`, `E119`, `E203`, `E309`, `E412`, `E506`, `W11` and `N14`. A new code is a change to this chapter
 before the freeze, and a new grammar version after it ([50 §7.4] item 6).
 
 8.2. Identifiers of the form `N13e`, `N14`, `N15` in [AR] and [50] (for example [50 §3.10] item 8's `(N13e)`, [50 §4.2]'s
-`(N14)`, [AR §7.4]'s `(N15)`) are entries of [AR §2.17]'s critique ledger, not LQ notices. `N13` is the next free LQ notice
-number (open point 8).
+`(N14)`, [AR §7.4]'s `(N15)`) are entries of [AR §2.17]'s critique ledger, not LQ notices. `N13` is the LQ notice
+`similar_records` (spec sync 3) and `N14` the next free LQ notice number (open point 8).
 
 ## Coverage
 
@@ -666,3 +670,15 @@ at WP-72; a WP-73 remedy that changes one is a specification edit, not a hole fi
     non-quantifier `{`, `EXPECT` with m > n, set-operation column counts, E501 for `tx.max-statements` and `tx.max-ops`
     with a `budget` object. E401's `current` objects, E409's `leases`, E411's profile and order, E118's position and
     E109's parser phase are stated. E401's help is not back-quoted (the table row; `fixtures/lq` follows).
+20. **Spec sync 3** ([AR §11] OQ-A-8 (c) and #46; the TencentDB research of 2026-09-30). (a) **`PATCH`** refuses an
+    empty or ambiguous `REMOVE` text with E404 (exit 6): the text must occur exactly once in the current body, overlapping
+    occurrences counted ([LQ/std §7.2]); the message gives the count, the detail lines the occurrences' lines, and JSON
+    `occurrences` and `lines`. The case was a `<why>` of the transition template, which printed `<from> -> <to>` for a
+    statement that has no transition; it now has its own `PATCH <id>.body` form. `E412` stays unassigned: the owner's
+    decision of 2026-10-06 names E404, which settles [F19] open point 7. (b) **E404's GR-019 case**: a `Create` of a rule
+    or a decision that names a status other than the one [RULES/status-machines] GR-019 gives. (c) **N13
+    `similar_records`** is reserved for the deterministic "similar records exist" notice after a knowledge write
+    ([CFG §10.5] `knowledge.similar-notice`, default on from M9–M10, when the notice is built), with the new M0-column
+    value `reserved`.
+    N13 shares its digits with the ledger entry `N13e` of §8.2, which is no LQ notice; the next free notice is N14,
+    which the ledger also uses, so §8.2's note still applies.

@@ -12,6 +12,7 @@ pub mod cast;
 pub mod catalog;
 pub mod ctx;
 pub mod diag;
+pub mod eval;
 pub mod lexer;
 pub mod parser;
 pub mod printer;

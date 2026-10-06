@@ -28,6 +28,26 @@
 //!   path under `private/` is refused anyway. The sealed fixture `load/<start>.load` is listed like any other file:
 //!   sealing makes the manifest stale, and `loadrec start` (or `loadrec stop`, which seals an interrupted recording)
 //!   rebuilds it.
+//!   Likewise the two things `xtask nightly run` changes for hours while it runs ([`nightly`], `docs/m0/nightly.md`
+//!   §6): `nightly/run.lock`, an empty file it holds locked, and the directory of a run in progress,
+//!   `nightly/<start>.partial/`, whose logs grow while the jobs run (a crashed run's stays so named until the next run
+//!   ends, which renames it `<start>.aborted` in its finish, just before it rebuilds the manifest). A run renames its
+//!   own directory to `nightly/<start>/` when it ends and then rebuilds the manifest, which lists the sealed results'
+//!   files and hashes like any others. Last it writes `nightly/<start>/finish.json` (how long the finish took and
+//!   whether the run ended inside its window: durations and a flag only), which is left out so the manifest stays
+//!   current.
+//! - **Nightly results give no shingles.** Files under `nightly/` are machine output of tests over synthetic data,
+//!   not owner text, and they quote the repository: test names (often 8 words or more, so a log line repeats a test's
+//!   `fn` line), panic messages built from string literals, compiler snippets and cargo-mutants' mutated source
+//!   lines. Their shingles would refuse the tested branch's own commits, or a later fix that matches a mutant, so
+//!   only their hashes are listed: a copied file is still refused.
+//! - **Empty files match nothing.** An empty file carries no data and cannot leak any, so the copy check never
+//!   matches empty content. The manifest still lists every empty file under `/private/` (its size and hash are in the
+//!   tree digest, so adding or removing one makes the manifest stale), but the check leaves size-0 entries out of the
+//!   hashes it matches, and [`blob_hashes`] leaves empty blobs out. Matched, the BLAKE3 of empty input would refuse
+//!   every commit that adds an empty file or empties one, in every worktree and on merges, as soon as any empty file
+//!   exists under `/private/`. The nightly runner makes one near certain: cargo-mutants creates `missed.txt`,
+//!   `caught.txt`, `unviable.txt` and `timeout.txt` in every `mutants.out`, empty when that list has no entries.
 //! - **LF-normalised hash.** With `* text=auto eol=lf` (`.gitattributes`) git stores a text file's CRLF line ends
 //!   as LF, so the staged blob of a copied CRLF file is not byte-equal to the private file. For a file that git's
 //!   `text=auto` treats as text (convert.c: no NUL, no lone CR, at most one non-printable byte per 128 printable
@@ -40,15 +60,16 @@
 //!   sorts them with bounded memory: runs of at most 4 Mi hashes are sorted, deduplicated and spilled to
 //!   `MANIFEST.b3.run<k>.tmp` files beside the manifest, then merged straight into it.
 //! - **Checks** over a change (the staged index for the hook; every commit of a range for the gate, merges through
-//!   their combined diff): a path under `private/`; a file whose BLAKE3 or LF-normalised BLAKE3 the manifest lists; a
-//!   block of added lines containing a listed shingle (a partial copy: one pasted line of 8 words is enough); and, in
-//!   `docs/measurements/**` and report files, absolute user paths, user and host names, volume serials, machine
-//!   GUIDs, BootIds and process command lines. The shingles of every checked change are matched in one pass over the
+//!   their combined diff): a path under `private/`; a non-empty file whose BLAKE3 or LF-normalised BLAKE3 the
+//!   manifest lists; a block of added lines containing a listed shingle (a partial copy: one pasted line of 8 words
+//!   is enough); and, in `docs/measurements/**` and report files, absolute user paths, user and host names, volume
+//!   serials, machine GUIDs, BootIds and process command lines. The shingles of every checked change are matched in one pass over the
 //!   manifest, which also verifies its `end` digest, so a run reads the shingle array once.
 
 use crate::diag::Diag;
 use crate::git;
 use crate::loadrec;
+use crate::nightly;
 use std::collections::{BTreeSet, BinaryHeap};
 use std::io::{BufRead, BufReader, BufWriter, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
@@ -352,7 +373,8 @@ fn recorder_file(name: &str) -> bool {
 }
 
 /// Every regular file under `dir` as `(relative path with /, absolute path, metadata)`, sorted by path bytes, except
-/// the manifest's own files and the files the load recorder changes while it records (the module header says why).
+/// the manifest's own files, the files the load recorder changes while it records, and the nightly runner's run lock,
+/// the directory of a run in progress and a run's `finish.json` (the module header says why).
 /// Symbolic links are not followed and are reported as errors, so nothing under `/private/` escapes the manifest.
 fn walk(dir: &Path) -> Result<Vec<(String, PathBuf, std::fs::Metadata)>, String> {
     let mut out = Vec::new();
@@ -380,9 +402,14 @@ fn walk(dir: &Path) -> Result<Vec<(String, PathBuf, std::fs::Metadata)>, String>
                 ));
             }
             if ft.is_dir() {
+                if rel == nightly::NIGHTLY_DIR && nightly::partial_dir(&name) {
+                    continue;
+                }
                 stack.push((e.path(), r));
             } else if (rel.is_empty() && manifest_file(&name))
                 || (rel == loadrec::LOAD_DIR && recorder_file(&name))
+                || (rel == nightly::NIGHTLY_DIR && name == nightly::RUN_LOCK)
+                || nightly::finish_file(&rel, &name)
             {
                 continue;
             } else {
@@ -602,7 +629,12 @@ fn index_with(private_dir: &Path, public: &[u64], cap: usize) -> Result<IndexSta
                 any = true;
                 runs.push(s);
             };
-            hash_file(abs, Some(&mut sink))?
+            // The nightly runner's results are hashed but give no shingles (the module header says why).
+            if nightly::unshingled(rel) {
+                hash_file(abs, None)?
+            } else {
+                hash_file(abs, Some(&mut sink))?
+            }
         };
         if let Some(e) = runs.error.take() {
             return Err(e);
@@ -1333,9 +1365,12 @@ pub fn check_changes(
         }
     }
     if let Some((_, m, _)) = &g.manifest {
+        // Empty files are listed for the tree digest but never matched: empty content carries no data, and its
+        // BLAKE3 would refuse every empty file a change adds (the module header says why).
         let listed: BTreeSet<[u8; 32]> = m
             .files
             .iter()
+            .filter(|f| f.size > 0)
             .flat_map(|f| std::iter::once(f.hash).chain(f.lf))
             .collect();
         for (path, h) in blob_hashes {
@@ -1448,7 +1483,8 @@ fn cat_blobs(
     Ok(())
 }
 
-/// BLAKE3 of the changed blobs (gitlinks and deletions left out).
+/// BLAKE3 of the changed blobs. Gitlinks, deletions and empty blobs are left out: an empty file is never a copy (the
+/// module header says why).
 pub fn blob_hashes(repo: &Path, changed: &[Changed]) -> Result<Vec<(String, [u8; 32])>, String> {
     let wanted: Vec<&Changed> = changed
         .iter()
@@ -1456,16 +1492,21 @@ pub fn blob_hashes(repo: &Path, changed: &[Changed]) -> Result<Vec<(String, [u8;
         .collect();
     let mut out = Vec::with_capacity(wanted.len());
     let mut cur = blake3::Hasher::new();
+    let mut empty = true;
     cat_blobs(
         repo,
         wanted.iter().map(|c| c.blob.clone()).collect(),
         &mut |i, chunk| match chunk {
             Some(c) => {
+                empty &= c.is_empty();
                 cur.update(c);
             }
             None => {
-                out.push((wanted[i].path.clone(), *cur.finalize().as_bytes()));
+                if !empty {
+                    out.push((wanted[i].path.clone(), *cur.finalize().as_bytes()));
+                }
                 cur = blake3::Hasher::new();
+                empty = true;
             }
         },
     )?;
@@ -1855,6 +1896,64 @@ mod tests {
         std::fs::write(d.join(MANIFEST), "moirai private manifest v1\n").unwrap();
         assert!(read_header(&mp).unwrap_err().contains("re-run"));
         std::fs::remove_dir_all(&d).unwrap();
+    }
+
+    #[test]
+    fn empty_files_are_never_copies() {
+        // cargo-mutants leaves `timeout.txt` empty when no mutant timed out; any empty file under /private/ would
+        // otherwise refuse every commit that adds an empty file or empties one.
+        let d = crate::testdir::TestDir::new("empty-private");
+        let run = "nightly/20261013T210000Z/gt16/mutants.out";
+        d.write(&format!("{run}/timeout.txt"), b"");
+        let caught = b"src/lib.rs:3:5: replace f -> u8 with 0\n";
+        d.write(&format!("{run}/caught.txt"), caught);
+        index(d.path(), &[]).unwrap();
+        let (m, mp) = load_current(d.path()).unwrap().unwrap();
+        let empty = *blake3::hash(b"").as_bytes();
+        assert!(
+            m.files
+                .iter()
+                .any(|f| f.path == format!("{run}/timeout.txt") && f.size == 0 && f.hash == empty),
+            "the empty file is listed: {:?}",
+            m.files
+        );
+        let names: Vec<String> = Vec::new();
+        let g = Guards {
+            manifest: Some((d.path(), &m, mp.clone())),
+            names: &names,
+        };
+        let changed = vec![
+            Changed {
+                path: "docs/.gitkeep".into(),
+                blob: "e69de29bb2d1d6434b8b29ae775ad8c2e48c5391".into(),
+                mode: "100644".into(),
+                status: "A".into(),
+            },
+            Changed {
+                path: "copied.txt".into(),
+                blob: "1".repeat(40),
+                mode: "100644".into(),
+                status: "A".into(),
+            },
+        ];
+        let blobs = [
+            ("docs/.gitkeep".to_string(), empty),
+            ("copied.txt".to_string(), *blake3::hash(caught).as_bytes()),
+        ];
+        let mut hits = Hits::default();
+        let mut dg = check_changes("staged", &changed, &blobs, &b""[..], &g, &mut hits).unwrap();
+        hits.resolve(&mp, &mut dg).unwrap();
+        let msgs: Vec<String> = dg.iter().map(|x| x.to_string()).collect();
+        assert!(!msgs.iter().any(|m| m.contains(".gitkeep")), "{msgs:#?}");
+        assert!(
+            msgs.iter()
+                .any(|m| m.contains("copied.txt") && m.contains("BLAKE3 is listed")),
+            "{msgs:#?}"
+        );
+        assert_eq!(msgs.len(), 1, "{msgs:#?}");
+        // The empty file stays in the tree digest: removing it makes the manifest stale.
+        std::fs::remove_file(d.path().join(format!("{run}/timeout.txt"))).unwrap();
+        assert!(load_current(d.path()).unwrap_err().contains("stale"));
     }
 
     #[test]

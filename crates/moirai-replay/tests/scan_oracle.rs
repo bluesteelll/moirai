@@ -42,6 +42,7 @@ use std::path::{Path, PathBuf};
 use moirai_files::scan::Lang;
 use moirai_files::text::atext;
 use moirai_replay::git::Git;
+use moirai_replay::job_log;
 use moirai_replay::scandiff::{
     Level, Report, Row, ScanSide, compare, name_items_requested, oracle_rows, scan_side,
 };
@@ -60,19 +61,6 @@ fn workspace() -> PathBuf {
         .and_then(Path::parent)
         .expect("the crate lies two levels below the workspace root")
         .to_path_buf()
-}
-
-/// Writes `text` to the process's standard error itself, past libtest's capture, which takes only what the print
-/// macros write: a run without `--nocapture`, the replay job's and the gate's among them, shows it in its log even
-/// when the test passes. A line ending is added when `text` has none. A failed write is ignored: the log line is
-/// information, never the test's outcome.
-fn job_log(text: &str) {
-    use std::io::Write;
-    let mut err = std::io::stderr().lock();
-    let end = if text.ends_with('\n') { "" } else { "\n" };
-    let _ = err
-        .write_all(format!("{text}{end}").as_bytes())
-        .and_then(|()| err.flush());
 }
 
 /// The oracle binary, or `None` with the reason written to the log ([`job_log`]).

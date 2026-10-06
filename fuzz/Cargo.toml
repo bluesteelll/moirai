@@ -57,3 +57,14 @@ cc = "=1.5.1"
 # PLAN §2.1: no crate but moirai-os contains unsafe code. libfuzzer-sys's `fuzz_target!` compiles under it
 # (WP-06 spike, tools.md §4.1).
 unsafe_code = "forbid"
+
+[lints.cargo]
+# libfuzzer-sys and moirai-files are for the fuzz targets, and the library target uses neither. Until FL-1's first
+# target exists (WP-65, WP-67), the pinned nightly's cargo reports both as unused dependencies on every build that
+# covers every target, the gate's `fuzz` step among them (tools.md §4.1, §4.7). They stay declared so that
+# fuzz/Cargo.lock holds the targets' graph and WP-02's lints scan it before the first target arrives: the NCSA licence
+# and libFuzzer's C++ build script. Once a target uses both, cargo stops reporting them (it reports a dependency only
+# when the targets it built include every one that could use it), so the work package that adds the first target
+# removes this table, and a dependency no target uses warns again. Stable cargo (the gate's `cargo metadata` and
+# `cargo fmt` over this manifest) accepts the table and stays silent.
+unused_dependencies = "allow"

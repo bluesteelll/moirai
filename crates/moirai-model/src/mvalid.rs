@@ -644,13 +644,40 @@ fn callees(text: &str, projects: &BTreeSet<String>) -> Option<BTreeSet<String>> 
     Some(out)
 }
 
-/// V10 and V11 ([F19 §12.5]): when the candidate's net changeset against dst changes a schema item, every named query
-/// in scope parses and binds (`QueryInvalid`), and the call graph has no cycle through a query in scope
-/// (`QueryCycle`).
-fn v10_v11_queries(v: &mut V<'_>, st: &State, d: &State, sides: [&State; 3]) {
-    let items_differ = |a: &State, b: &State| a.schema.items != b.schema.items;
-    if !items_differ(st, d) {
-        return;
+/// A named query V10 finds invalid ([F19 §12.5.3]): its name, its first diagnostic (the least span start, ties by the
+/// smaller code) and whether its text parses.
+pub(crate) struct Invalid {
+    /// The query's name.
+    pub name: String,
+    /// The first diagnostic's code.
+    pub code: String,
+    /// The first diagnostic's message.
+    pub message: String,
+    /// Whether the text parses (it then fails to bind).
+    pub parses: bool,
+}
+
+/// A call cycle V11 finds ([F19 §12.5.4]): its witness and the first path back to it.
+pub(crate) struct Cycle {
+    /// The component's least query name.
+    pub witness: String,
+    /// The cycle from the witness back to it, the witness first and last.
+    pub path: Vec<String>,
+}
+
+/// V10 and V11 over a candidate `st` against the state `d` it was made from ([F19 §12.5]): when the candidate changes
+/// a schema item, the queries in scope (§12.5.2) that do not parse or bind, ascending by name, and the call cycles
+/// through a query in scope, ascending by witness. A merge checks its candidate against dst; a `TX` block, a
+/// `DEFINE QUERY` or a `DROP QUERY` included, checks its candidate against the view it wrote on ([50 §3.10] item 5).
+// spec: [F19 §12.5]
+// rule: VA-011, VA-012
+pub(crate) fn query_violations(
+    st: &State,
+    d: &State,
+    ids: &dyn crate::lq::ctx::Identities,
+) -> (Vec<Invalid>, Vec<Cycle>) {
+    if st.schema.items == d.schema.items {
+        return (Vec::new(), Vec::new());
     }
     let queries = |s: &State| -> BTreeMap<String, String> {
         s.schema
@@ -699,7 +726,7 @@ fn v10_v11_queries(v: &mut V<'_>, st: &State, d: &State, sides: [&State; 3]) {
     let mut invalid = Vec::new();
     for q in &scope {
         let text = &qc[q];
-        let Err(diags) = crate::lq::catalog::named_query_checked(q, text, &lq) else {
+        let Err(diags) = crate::lq::catalog::named_query_in(q, text, &lq, ids) else {
             continue;
         };
         let Some(first) = diags
@@ -714,44 +741,13 @@ fn v10_v11_queries(v: &mut V<'_>, st: &State, d: &State, sides: [&State; 3]) {
         let parses =
             crate::lq::parser::parse_define(text, crate::lq::parser::ParseOptions::default())
                 .is_ok();
-        let mut msg = first.message.clone();
-        msg.truncate(160);
-        let description = format!(
-            "named query {q} no longer {}: {} {msg}",
-            if parses { "binds" } else { "parses" },
-            first.code.as_str()
-        );
-        let key = Key::Schema(ItemKey::Query(q.clone()));
-        let skey = v.text(&key);
-        let takes = ["ours", "theirs", "base"]
-            .iter()
-            .zip([sides[1], sides[2], sides[0]])
-            .find(|(_, s)| {
-                let mut alt = st.schema.clone();
-                match s.schema.items.get(&ItemKey::Query(q.clone())) {
-                    Some(i) => {
-                        alt.items.insert(ItemKey::Query(q.clone()), i.clone());
-                    }
-                    None => {
-                        alt.items.remove(&ItemKey::Query(q.clone()));
-                    }
-                }
-                let l = crate::lqh::lq_schema(&alt);
-                match alt.query(q) {
-                    Some(qi) => crate::lq::catalog::named_query_checked(q, &qi.text, &l).is_ok(),
-                    None => false,
-                }
-            })
-            .map(|(n, _)| *n);
-        let suggested = match takes {
-            Some(side) => format!("moirai resolve '{skey}' --take {side}"),
-            None => format!(
-                "moirai resolve '{skey}' --value - with a definition of {q} that binds against this schema"
-            ),
-        };
-        invalid.push((key, description, suggested));
+        invalid.push(Invalid {
+            name: q.clone(),
+            code: first.code.as_str().to_string(),
+            message: first.message.clone(),
+            parses,
+        });
     }
-    v.emit(st, "QueryInvalid", invalid);
     // V11: the strongly connected components of the call graph with a cycle and a query in scope.
     let ids: BTreeMap<&String, Nid> = qc
         .keys()
@@ -772,7 +768,7 @@ fn v10_v11_queries(v: &mut V<'_>, st: &State, d: &State, sides: [&State; 3]) {
     for (n, c) in &comp {
         members.entry(*c).or_default().push(by_id[n]);
     }
-    let mut cyc = Vec::new();
+    let mut cycles = Vec::new();
     for ms in members.values() {
         let self_loop = ms.len() == 1 && calls[ms[0]].as_ref().is_some_and(|cs| cs.contains(ms[0]));
         if ms.len() < 2 && !self_loop {
@@ -784,22 +780,94 @@ fn v10_v11_queries(v: &mut V<'_>, st: &State, d: &State, sides: [&State; 3]) {
         let w = ms.iter().min().expect("a member");
         let inside: BTreeSet<&String> = ms.iter().copied().collect();
         // The first path back to w of a DFS from w over successors inside the component in ascending name order.
-        let path = cycle_path(w, &calls, &inside);
-        let mut shown: Vec<String> = path.iter().take(8).cloned().collect();
-        if path.len() > 8 {
-            shown.push("...".into());
-        }
-        let key = Key::Schema(ItemKey::Query((*w).clone()));
+        cycles.push(Cycle {
+            witness: (*w).clone(),
+            path: cycle_path(w, &calls, &inside),
+        });
+    }
+    cycles.sort_by(|a, b| a.witness.cmp(&b.witness));
+    (invalid, cycles)
+}
+
+/// The identities a stored definition's portable text binds against ([LQ/canonical-ast §8.1]: it names nodes by uid):
+/// every node of the state, tombstones included, with its kind when it is live.
+pub(crate) fn state_ids(st: &State) -> crate::lq::ctx::MapIds {
+    let mut ids = crate::lq::ctx::MapIds::new();
+    for (n, x) in &st.nodes {
+        ids.node(n.0, x.uid.0, x.live().then_some(x.kind.as_str()));
+    }
+    ids
+}
+
+/// The cycle of a `QueryCycle` as its text: at most 8 names, then `...` ([F19 §12.6]).
+pub(crate) fn cycle_text(path: &[String]) -> String {
+    let mut shown: Vec<String> = path.iter().take(8).cloned().collect();
+    if path.len() > 8 {
+        shown.push("...".into());
+    }
+    shown.join(" -> ")
+}
+
+/// V10 and V11 on a merge ([F19 §12.5], §12.6): the violations of [`query_violations`] with their descriptions and
+/// suggested resolutions.
+fn v10_v11_queries(v: &mut V<'_>, st: &State, d: &State, sides: [&State; 3]) {
+    let ids = state_ids(st);
+    let (bad, cycles) = query_violations(st, d, &ids);
+    let mut invalid = Vec::new();
+    for b in bad {
+        let q = &b.name;
+        let mut msg = b.message.clone();
+        msg.truncate(160);
+        let description = format!(
+            "named query {q} no longer {}: {} {msg}",
+            if b.parses { "binds" } else { "parses" },
+            b.code
+        );
+        let key = Key::Schema(ItemKey::Query(q.clone()));
+        let skey = v.text(&key);
+        let takes = ["ours", "theirs", "base"]
+            .iter()
+            .zip([sides[1], sides[2], sides[0]])
+            .find(|(_, s)| {
+                let mut alt = st.schema.clone();
+                match s.schema.items.get(&ItemKey::Query(q.clone())) {
+                    Some(i) => {
+                        alt.items.insert(ItemKey::Query(q.clone()), i.clone());
+                    }
+                    None => {
+                        alt.items.remove(&ItemKey::Query(q.clone()));
+                    }
+                }
+                let l = crate::lqh::lq_schema(&alt);
+                match alt.query(q) {
+                    Some(qi) => crate::lq::catalog::named_query_in(q, &qi.text, &l, &ids).is_ok(),
+                    None => false,
+                }
+            })
+            .map(|(n, _)| *n);
+        let suggested = match takes {
+            Some(side) => format!("moirai resolve '{skey}' --take {side}"),
+            None => format!(
+                "moirai resolve '{skey}' --value - with a definition of {q} that binds against this schema"
+            ),
+        };
+        invalid.push((key, description, suggested));
+    }
+    v.emit(st, "QueryInvalid", invalid);
+    let mut cyc = Vec::new();
+    for c in cycles {
+        let w = &c.witness;
+        let key = Key::Schema(ItemKey::Query(w.clone()));
         let skey = v.text(&key);
         cyc.push((
             key,
             format!(
                 "named queries call each other in a cycle: {}",
-                shown.join(" -> ")
+                cycle_text(&c.path)
             ),
             format!(
                 "moirai resolve '{skey}' --value - with a definition of {w} that does not call {}",
-                path.get(1).cloned().unwrap_or_default()
+                c.path.get(1).cloned().unwrap_or_default()
             ),
         ));
     }
