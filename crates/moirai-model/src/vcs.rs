@@ -800,15 +800,17 @@ mod tests {
     }
 
     /// [`Dag::replay_start`] equals its definition taken literally on random DAGs (criss-crosses and several roots
-    /// among them): among the commits of A(B) ∩ A(o) ∩ A(t) that every other commit of A(o) ∪ A(t) descends from or is
-    /// an ancestor of, which are pairwise comparable, the one every other is an ancestor of; ε when there is none.
+    /// among them), over a base of the LCAs, of `--base` naming any commit, or ε (`wave-3c-arbiter.md` W3C-ARB-9):
+    /// among the commits of A(B) ∩ A(o) ∩ A(t) that every other commit of A(o) ∪ A(t) descends from or is an ancestor
+    /// of, which are pairwise comparable, the one every other is an ancestor of; ε when there is none.
     #[test]
     fn the_replay_start_meets_its_definition_on_random_dags() {
         use proptest::prelude::*;
         // Commit i + 1 takes up to two distinct parents among the commits before it (none: a root).
         let dag = proptest::collection::vec((0usize..64, 0usize..64, 0u8..4), 1..24);
-        let pick = (0usize..64, 0usize..64);
-        proptest!(ProptestConfig::with_cases(256), |(shape in dag, (x, y) in pick)| {
+        // The sides, and the base: the LCAs, `--base` naming any commit, or ε.
+        let pick = (0usize..64, 0usize..64, 0usize..64, 0u8..3);
+        proptest!(ProptestConfig::with_cases(256), |(shape in dag, (x, y, z, kind) in pick)| {
             let mut d = Dag::default();
             for (i, (p, q, k)) in shape.iter().enumerate() {
                 let seq = i as u64 + 1;
@@ -825,11 +827,15 @@ mod tests {
             let n = shape.len() as u64;
             let (o, t) = (x as u64 % n + 1, y as u64 % n + 1);
             let (ao, at) = (d.ancestors(Some(o)), d.ancestors(Some(t)));
-            let base: BTreeSet<u64> = d
-                .lcas(Some(o), Some(t))
-                .iter()
-                .flat_map(|c| d.ancestors(Some(*c)))
-                .collect();
+            let base: BTreeSet<u64> = match kind {
+                0 => d
+                    .lcas(Some(o), Some(t))
+                    .iter()
+                    .flat_map(|c| d.ancestors(Some(*c)))
+                    .collect(),
+                1 => d.ancestors(Some(z as u64 % n + 1)),
+                _ => BTreeSet::new(),
+            };
             let all: BTreeSet<u64> = ao.union(&at).copied().collect();
             let comparable = |r: u64, c: u64| {
                 d.ancestors(Some(r)).contains(&c) || d.ancestors(Some(c)).contains(&r)
