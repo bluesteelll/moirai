@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Title | Questions that need the owner's call, raised by the author roles while closing review pass 1 |
-| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Decided 2026-10-06**: the owner accepted every recommendation ("Зафиксируй везде рекомендуемые варианты", "record the recommended options everywhere"): OQ-F-4 (a), OQ-A-1 (a), OQ-A-2 (a), OQ-A-3 (a), OQ-A-4 (a), OQ-A-5 (a), OQ-A-6 (a), OQ-A-7 (a), OQ-A-8 (c), OQ-A-9 (a), OQ-A-10 (a); each entry's Decision line names the follow-up. OQ-A-11, raised by the review of wave 3b's RS-007 change, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): 11.1 (A) together with (B), (A) alone as the fallback; 11.2 (a); 11.3 (a); applied in wave 3c. **Open:** OQ-A-12, raised by wave 3c's spec arbiter and asked in chat on 2026-10-06. |
+| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Decided 2026-10-06**: the owner accepted every recommendation ("Зафиксируй везде рекомендуемые варианты", "record the recommended options everywhere"): OQ-F-4 (a), OQ-A-1 (a), OQ-A-2 (a), OQ-A-3 (a), OQ-A-4 (a), OQ-A-5 (a), OQ-A-6 (a), OQ-A-7 (a), OQ-A-8 (c), OQ-A-9 (a), OQ-A-10 (a); each entry's Decision line names the follow-up. OQ-A-11, raised by the review of wave 3b's RS-007 change, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): 11.1 (A) together with (B), (A) alone as the fallback; 11.2 (a); 11.3 (a); applied in wave 3c. OQ-A-12, raised by wave 3c's spec arbiter, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): (b) together with (c), prototyped in wave 3d, (d) as the fallback. **Nothing is open.** |
 | Scope | only questions that change an approved design decision or need the owner's call; runtime policy goes to config keys ([AGENTS.md]) and is not listed |
 
 Each entry names the raising role, the findings, the options and the role's recommendation. Roles append entries; ids
@@ -697,4 +697,10 @@ from R-MODEL's open case E5 ([RULES/merge-table] open point 35 (v)); asked in ch
   candidate is not well defined for some commit kind), fall back to (d) before the format freeze. (a) leaves spurious
   structural stagings on two daily paths and weakens an invariant, against correctness and agent tokens, the binding
   priorities.
-- **Decision.** Pending: asked in chat on 2026-10-06.
+- **Decision (2026-10-06).** As recommended ("Согласно рекомендации запиши", "record it as recommended"): (b) together
+  with (c), prototyped in the reference model in wave 3d before the merge table's V3 signature, with the arbiter's
+  lockstep random search as the acceptance: E5 in both shapes and E6 land, no history stages that the replay from B
+  lands, and the cycle backstop of (b) is never needed in the search, or its rule is stated. If (c) cannot be made
+  exact, the fallback is (d), decided before the format freeze (WP-81b). (a) and (e) were not taken. Wave 3d: R-MODEL
+  changes RS-007, open point 35 and the model, with the E5 and E6 tests flipped and the search as a model test;
+  R-SPEC-F changes [F12 §7.2] and the §7.4 row; a spec arbiter re-runs the search and checks the statement.
