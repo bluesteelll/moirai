@@ -2,11 +2,11 @@
 
 | Field | Value |
 |---|---|
-| Title | The measurement protocol: hosts, conditions (idle, loaded, synthetic), sample-size tiers, repetitions and statistics, interleaved floors, the timer, process readings, gates, the noise band, records and aggregates, the pre-run guard, and the load fixture with its recorder and generator |
+| Title | The measurement protocol: hosts, conditions (idle, loaded, synthetic), sample-size tiers, repetitions and statistics, interleaved floors, the timer, process readings, agent token usage, gates, the noise band, records and aggregates, the pre-run guard, and the load fixture with its recorder and generator |
 | Chapter | `[MP]`, `docs/spec/measurement-protocol.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-50 (role R-HARN-I), [PLAN §3.2] item 5; §9 WP-51 (R-HARN-I) |
-| Sources | [60 §5.1] (every row: load, sample size, floors, idle CPU, RSS, counts, spawn, noise band, and the paragraph above the table); [60 §5.2] items 11, 16, 19, 21; [60 §5.3] (floor-relative gates); [60 §3.15] (profile L: "everything refused below 1.5 GB free"; the disk row: "the harness refuses to start below 25 GB free"); [74 A04] (the tiers), [74 A24] (the disk budget); [61 M-6] (why the protocol exists); [AR §8.2] (the paragraph "M0 measurements on the owner's machine"); [80 §2.9] (metering per OS, the floor-relative gate form); [PLAN §2.1] (target directories, "WP-05's disk guard counts all four"), [PLAN §3.2] item 5 (the shared acceptance of WP-50 to WP-58), WP-03 (the private manifest), WP-05 (the guard's refusals), WP-50, WP-51 (the load fixture, its recorder and generator, the noise bands, `noise.yml`), [PLAN §5] (V4, V5; the owner's deferral of measurements of 2026-09-29); [AR §11] #35 and #37 (the fixture: a resource profile only, never off the laptop); `docs/m0/tools.md` §10 (typeperf, WPR) |
+| Sources | [60 §5.1] (every row: load, sample size, floors, idle CPU, RSS, counts, spawn, noise band, and the paragraph above the table); [60 §5.2] items 11, 16, 19, 21; [60 §5.3] (floor-relative gates); [60 §3.15] (profile L: "everything refused below 1.5 GB free"; the disk row: "the harness refuses to start below 25 GB free"); [74 A04] (the tiers), [74 A24] (the disk budget); [61 M-6] (why the protocol exists); [AR §8.2] (the paragraph "M0 measurements on the owner's machine"); [80 §2.9] (metering per OS, the floor-relative gate form); [PLAN §2.1] (target directories, "WP-05's disk guard counts all four"), [PLAN §3.2] item 5 (the shared acceptance of WP-50 to WP-58), WP-03 (the private manifest), WP-05 (the guard's refusals), WP-50, WP-51 (the load fixture, its recorder and generator, the noise bands, `noise.yml`), [PLAN §5] (V4, V5; the owner's deferral of measurements of 2026-09-29; the token-usage rule of the owner decisions of 2026-10-06); [AR §11] #35 and #37 (the fixture: a resource profile only, never off the laptop); `docs/m0/tools.md` §10 (typeperf, WPR) |
 | Depends on | [OS/README §4.3] (the `Meter` seam), [OS/mem] (its quantities and sources), [OS/fs §4.11] (`free_space`), [OS/fs §4.13] (`counters`) |
 
 ---
@@ -272,6 +272,37 @@ announced as one block of 5 (§4.2), so a spawn arm's pilot is one invocation wi
 when the invocation returns, so its five runs are the five pilot samples. A spawn arm cannot batch; every spawn takes far more
 than 20 × the timer's resolution, so its k is 1 (§4.5).
 
+### 4.10 Agent token usage
+
+Agent token usage is read from what the harness reports for each model call — Claude Code's `usage` object (the
+`result` line of `claude -p --output-format stream-json`, per model in `modelUsage`, or an assistant message of a
+transcript) and Codex's reported usage — never estimated from text. In a transcript or stream, usage is counted once
+per model response: Claude Code writes one response as several assistant lines (one per content block) that share a
+`message.id` (and `requestId`) and repeat its `usage`, so the response's usage is taken from the last of those lines,
+never summed over them; the `result` line's `usage` and `modelUsage` already total the responses of their
+`claude -p` call and are never added to per-message usage. Codex reports usage per response (`last_token_usage` of a
+`token_count` event; a `turn.completed` event's `usage` in `codex exec --json`, per turn) and cumulatively
+(`total_token_usage`, which already contains the earlier responses): usage is read per response or per turn, one of
+the two and never both, and the cumulative total is never summed. It is a count (§1.3) and is recorded in two parts:
+- **Input** is every token of context the model read for the call, cached or not. For Claude Code it is
+  `input_tokens` + `cache_read_input_tokens` + `cache_creation_input_tokens` (in `modelUsage`: `inputTokens` +
+  `cacheReadInputTokens` + `cacheCreationInputTokens`): `input_tokens` alone leaves out the cached part, so a prompt
+  served from the cache would look smaller than it is. For Codex it is the reported input total (`input_tokens`), which
+  already contains the cached input: `cached_input_tokens` is a part of it, recorded beside it, and never added to it,
+  so Codex's cached input is never counted twice.
+- **Output** is the reported output tokens (`output_tokens`; `outputTokens` in `modelUsage`). Codex's
+  `reasoning_output_tokens` is a part of `output_tokens`, as `cached_input_tokens` is of `input_tokens`: it is
+  recorded beside it and never added to it.
+
+The reported fields are kept as they are (for Claude Code: input, cache-read, cache-write and output; for Codex:
+input, cached input, output and reasoning output) beside the input total, so another reading can be recomputed. A
+difference between two calls (with and without a piece of text, measurement 6) and a token baseline read from harness
+logs (measurement 20) are taken over the input total. A required field that is missing, null or not a non-negative
+integer makes the call's usage an error, never a zero: `input_tokens` and `output_tokens` (`inputTokens` and
+`outputTokens` in `modelUsage`), for either harness. A cache field that is absent or null is 0, since the harness leaves
+it out when nothing was cached; one present with any other value than a non-negative integer is an error too (open
+point 28).
+
 ## 5. Gates
 
 - **Absolute gate.** The median over the repetitions of the arm's gated statistic is at most the budget.
@@ -298,7 +329,9 @@ than 20 × the timer's resolution, so its k is 1 (§4.5).
 - An exit decision uses the laptop's value; the hosted runners' bands are reported and never decide ([60 §5.1]).
 - An idle observation (§4.7) has no arm, statistic or repetitions, so it has no noise band, noise record or baseline;
   its gate (both maxima zero) is absolute in nightly runs too: a nightly observation that may decide (§7.3) and does
-  not hold reports a failure, as a regression does.
+  not hold reports a failure, as a regression does; one that holds passes; and one that may not decide (it is not
+  exit-grade) is reported with its disqualifications, as a refused comparison is (§6.1), and neither passes nor fails
+  (open point 29).
 
 ### 6.1 Noise records and the comparison
 
@@ -430,7 +463,9 @@ drafted in the same file (E8).
 ## 8. The pre-run guard
 
 `moirai-probes-bin guard` is the pre-check of WP-05's nightly runner and of every measurement driver: nothing starts
-when it refuses ([PLAN §3.2] WP-05, [60 §3.15]).
+when it refuses ([PLAN §3.2] WP-05, [60 §3.15]). The nightly runner also uses it as its RAM watchdog: before each job
+and periodically while one runs, with the RAM floor alone (no `--dir`, `--disk-floor 0`), stopping the job and the run
+on a refusal ([60 §3.15]: "everything refused below 1.5 GB free"; `docs/m0/nightly.md` §5).
 
 ### 8.1 Refusals
 
@@ -446,7 +481,7 @@ headroom = available − Σ max(0, capᵢ − sizeᵢ), floored at 0, where *ava
 its remaining growth is reserved before the 25 GB the nightly jobs need beside it are counted ([60 §3.15]: "beside each
 lane's `target` directory") (open point 8). WP-05 passes the four directories of [PLAN §2.1] — the two lane target
 directories and the fuzz and mutants directories, all on the work volume (`docs/m0/tools.md` §12) — with the caps of
-its configuration. A directory over its cap reserves nothing and is reported as over its cap.
+its configuration (`xtask/nightly.toml` `[guard.caps]`, `docs/m0/nightly.md` §3). A directory over its cap reserves nothing and is reported as over its cap.
 
 **The size of a directory** is the sum of the logical lengths of the regular files below it, walked recursively without
 following symbolic links or junctions below the directory itself. A directory that does not exist has size 0 (it
@@ -772,6 +807,7 @@ time, memory and Windows-behaviour gates of [60 §3.13] and [60 §5.3]–[60 §5
 | [60 §5.1] RSS | process readings | §4.6 |
 | [60 §5.1] Counts | `Vfs` counter deltas | §4.8 |
 | [60 §5.1] Spawn | hyperfine blocks, announced as bulk blocks | §4.3, §4.9 |
+| [PLAN §5] owner decisions of 2026-10-06, the token-usage rule | input = uncached + cache-read + cache-creation; Codex's cached input never counted twice | §4.10 |
 | [60 §5.1] Noise band | definition, baseline, regression rule, noise record, comparison | §6, §6.1 |
 | [PLAN §3.2] item 5, shared acceptance | idle and loaded, the Windows build and Defender versions, raw data and aggregates | §2.2, §2.3, §7 |
 | [PLAN §3.2] WP-05, the guard's refusals | `ram-low`, `disk-low`, fail-closed readings | §8 |
@@ -814,3 +850,5 @@ time, memory and Windows-behaviour gates of [60 §3.13] and [60 §5.3]–[60 §5
 | 25 | A loaded run shorter than the validation's minimum has too few samples to judge | a short run is judged on the minute before its end; a driver starts a loaded run 60 s after the generator settles (§9.5, §9.7) | R-REV-P |
 | 26 | "Synthetic load" on the hosted runners is not defined | a synthetic profile (§9.6) replayed by the same generator; never the fixture | R-REV-P |
 | 27 | `noise.yml` runs the measurement drivers of WP-52 to WP-57, which have no common command line yet | the driver contract of §9.7 | WP-52 to WP-57, R-REV-P |
+| 28 | The token-usage rule of [PLAN §5] (owner decisions of 2026-10-06) names the parts to add, not the fields; Codex is not installed yet (V9), so its usage fields are not observed here; and a transcript or stream repeats usage (Claude Code's per-content-block assistant lines, Codex's cumulative totals), which summed would count it twice | Claude Code's three input fields as `moirai-tokcount` parses them, counted once per response (`message.id`, the last line's usage) and never added to the `result` line's totals; for Codex, the reported `input_tokens` with `cached_input_tokens` read as a part of it and `reasoning_output_tokens` as a part of `output_tokens`, as OpenAI's usage reports them, read per response or per turn and never from the cumulative `total_token_usage` (§4.10). WP-56 checks the per-response and per-turn reading and the fields on Codex 0.157 with its first recorded usage | WP-56, R-REV-P |
+| 29 | [60 §5.1] has no rule for how a nightly run treats the idle-CPU observation, which has no noise band | its gate is absolute in nightly runs too; an observation that may not decide is reported with its disqualifications, as a refused comparison is (§6) | R-REV-P |
