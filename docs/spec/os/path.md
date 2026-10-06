@@ -18,8 +18,14 @@ This file is normative for X-F7 (P1–P10 and P12) and for the path-shaped name 
 | Part | Where it lives | Why |
 |---|---|---|
 | path value types and their syntax checks (`RelPath`, `AbsPath`, `CanonicalRoot`, `EntryName`) | `moirai-vfs` | every `ProjectFs` method takes them; they need no OS call |
-| P3 (NFC for some untracked names), P5 (portability), P6 (`fold_v1`), and `representable(os, segment)` (§8.1) for every OS | `moirai-files` (FL-1, target-independent) | they need Unicode tables ([PLAN §6.2] R6); `representable` shares P5's device list and must be callable, and testable for all three OSes, from target-independent code |
+| P5 (portability), P6 (`fold_v1`), and `representable(os, segment)` (§8.1) for every OS | `moirai-files` (FL-1, target-independent) | they need Unicode tables ([PLAN §6.2] R6); `representable` shares P5's device list and must be callable, and testable for all three OSes, from target-independent code |
 | conversion between OS paths and stored paths, `canonical_root`, `canonical_abs`, the CLI boundary, the user-config location, and `representable_here(segment)` (§8.1), the build OS's use-time check | `moirai-os::path` (Windows built from M0) | they call the OS, or guard every OS call ([OS/project §2.3]) |
+
+P3 is added to `moirai-files` by the port phase ([80 §5.2]). It applies only where `VolumeCaps` sets
+`norm_insensitive_always` (APFS, HFS+; [OS/project §4.2]), so no Windows volume reaches it. Its function is git's
+precomposition (open point 2), which needs composition data that the pinned UCD set of [PLAN §6.2] R6 does not hold;
+nothing in M0–M11 computes NFC. The P3 row of §3 stays frozen as written (owner decision OQ-A-5 (a), 2026-10-06; spec
+sync 3).
 
 `fold_v1` itself is defined in [F20] (R-14); this file only states where it is used.
 
@@ -446,3 +452,4 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]).
 | 11 | §8.2 did not say whether a move's source counts as a sibling, nor which sibling or character a message cites (WP-61 review) | **closed (spec sync 2a):** siblings are the directory's names after the operation; `fold-sibling` cites the smallest sibling in byte order, `reserved-char` the first reserved character | — |
 | 12 | `representable_here` existed only in `moirai-os`, with its own copy of the device list: the Linux and macOS rows could not be tested on Windows and target-independent code could not call it (WP-61 review) | **closed (spec sync 2a):** a pure `representable(os, segment)` lives in `moirai-files` beside P5; `representable_here` is its build-OS restatement in `moirai-os`, and both crates test §8.1's common cases. [F18 §4.6] detail 44 and [F20] may cite `representable` at their next edit | R-SPEC-F, R-SPEC-R |
 | 13 | `EntryNameRef::to_owned(&self)` on a `Copy` type trips clippy's `wrong_self_convention`, and the implementation exported path helpers §11 did not list (WP-30b review) | **closed (spec sync 2b):** the receiver stays `&self`, because a by-value receiver lets `(&r).to_owned()` resolve to the blanket `ToOwned` and return an `EntryNameRef`; implementations allow the lint on that method (§2.4). Renaming it (`into_owned`, `to_entry_name`) was the alternative; it is unnecessary once the receiver is `&self`, and it would change every caller. §11 lists the additive helpers | — |
+| 14 | §1 placed P3 in `moirai-files` beside P5 and P6 and cited the R6 UCD set as enough for it, but that set holds no composition data and no M0–M11 crate computes NFC (owner question OQ-A-5) | **decided 2026-10-06, (a) (spec sync 3):** §1's `moirai-files` row no longer lists P3, and the note after the table says that the port phase adds it, only for volumes with `norm_insensitive_always`. The P3 row of §3 is unchanged and open point 2 stays open; `fixtures/r4` `paths.cases` p3-01 … p3-06 are the port's ([PLAN §5], R-FIX) | port phase |

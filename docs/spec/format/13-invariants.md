@@ -27,6 +27,7 @@ fixes three things the invariants rest on:
 | Cited by I1 | I35′ | [21 §8]; [AR §3.4] I1 and [AR §5b.6] cite it; it is added here so that the citation resolves |
 | File links (R-12) | I-F1…I-F14 | [40 §2.10], authoritative; [AR §5e.8] summarises it. [F18] carries R-12 and cross-lists these rows; this chapter is where each row gets its enforcement point, model function and gates |
 | Group commit (X-F3) | I-G1–I-G6 | [80 §2.4.3] |
+| Dropped bodies | I-D1 | [AR §11] #33 and OQ-A-7 (decided 2026-10-06); [F06 §8.1]; spec sync 3 (§3.10) |
 | The I37′ order | validators V01–V13 | [AR §5a.7] step 6, [60 §2.6] (§5) |
 | Derived-state semantics (F15) | the predicate set `P_F15`, `affected`, `affected_complete` | [60 §2.5], [50 §3.8], [50 §5.8], [50] F15 and F16 (§6) |
 
@@ -185,12 +186,12 @@ invariants are checked at every crash state of GT1 and GT3.
 
 | ID | Invariant | Enforcement | Model function | Gates |
 |---|---|---|---|---|
-| I28′ | The git object ids of a moirai commit are a function of moirai data, the object format and the destination's anchor-text mode (`full` or `hash-only`, recorded in the unhashed side ref). The moirai commit id is a function of moirai data only, because anchor text enters the canonical form only as BLAKE3-128 digests | EP-EX (C); EP-FMT (C: canonical item 10 carries digests, [AR §4.6]) | `canon::i28p_commit_id` (the model's own canonical encoder, [60 §4.2]) | GT2 commit ids byte for byte (M1); GT8 gate 3 in both anchor-text modes (M5) |
+| I28′ | The git object ids of a moirai commit are a function of moirai data, the object format, the destination's anchor-text mode (`full` or `hash-only`, recorded in the unhashed side ref) and the exporting store's dropped set (a dropped body is written as its hash and reason, [F06 §8.1] DB-11, [F14 §3.3]). The moirai commit id is a function of moirai data only, because anchor text enters the canonical form only as BLAKE3-128 digests | EP-EX (C); EP-FMT (C: canonical item 10 carries digests, [AR §4.6]) | `canon::i28p_commit_id` (the model's own canonical encoder, [60 §4.2]) | GT2 commit ids byte for byte (M1); GT8 gate 3 in both anchor-text modes (M5) |
 | I29′ | Importing an image of the same format version reproduces every native commit id. A demotion affects one commit only | EP-IM (P: per-commit verification and `verified` bit) | `canon::i29p_native_reimport` | GT8 gates 0 and 1 (M5) |
 | I30′ | A foreign two-parent git commit is imported as a moirai merge computed by the typed rules. Counters are never taken from a text merge | EP-IM with EP-MG (P) | `merge::i30p_foreign_merge` | GT8 import onto a diverged ref (M5); GT10 git-side merge of counters (M5) |
 | I38′ | Every field of a commit's canonical form has exactly one carrier in the image. The importer recomputes every native commit id from the trailers plus the tree diff against the first parent, for every commit kind including `sync` | EP-EX (C: the gate-0 carrier table of [F14]); EP-IM (P) | `canon::i38p_gate0` (the model supplies the canonical items and ids; the carrier check is the format oracle's) | GT8 gate 0 per commit kind (M5) |
 | I39′ | A tombstone file carries every out-edge the store retains for the dead node: flagged structural edges marked `flagged`, historical edges as they are. After import, `has_dangling` and the reverse index therefore equal the exporting store's | EP-EX (C) | `image::i39p_tombstone_edges` (`state(ref)` includes a tombstone's retained out-edges) | GT8 gates 1 and 2 with the CM4 case (M5) |
-| I40′ | Body bytes survive export and import exactly. The only normalisation a body ever receives is CRLF → LF, in the store at write time, never in the image codec | EP-W4 (P: normalised at write); EP-EX and EP-IM (C) | `body::i40p_normalise_at_write` | GT8 gate 1 bodies (M5); GT5 `.moi` fuzzing (M5) |
+| I40′ | Body bytes survive export and import exactly. The only normalisation a body ever receives is CRLF → LF, in the store at write time, never in the image codec. A dropped body travels as its hash and reason, and the importer stores no bytes for it ([F06 §8.1] DB-11) | EP-W4 (P: normalised at write); EP-EX and EP-IM (C) | `body::i40p_normalise_at_write` | GT8 gate 1 bodies (M5); GT5 `.moi` fuzzing (M5) |
 
 ### 3.8 Group commit (X-F3, [80 §2.4.3])
 
@@ -243,6 +244,41 @@ clause of review S-19 to I-F8 and the history-verb doors of review S-14 to I-F14
 | I-F12 | Binding uniqueness: each moirai branch has at most one designated tree, and each tree is designated for at most one branch. Trees are identified by their exact git top-level, and a binding of a directory never covers a nested worktree inside it | EP-BD (P); EP-ST (P: a non-designated tree only reads) | `r4::if12_binding_unique` | GT2 FL-4 (M6); P7 (M6) |
 | I-F13 | No content-only re-bind. An automatic re-bind never rests on equal content alone: an equal-`oid` candidate needs corroboration by creation time (where the per-OS rule allows it), by a git rename inside one commit, or by captured intent. A candidate that coexisted with the original is never a target | EP-RS and EP-ST (P: the copy rule, [F20]) | `r4::if13_copy_rule` (the copy rule by definition over the simulated creation times) | P1 with backup, mirror and vendored-copy generators (M6); GT17 (M6); GT10 R4 corpora, row 1 (M0) |
 | I-F14 | No resurrection. A derived uid that is removed or deleted on a branch view never becomes live again on that view through registration or merge. Only `links fix --restore` or `Undelete`, both explicit and recorded, bring it back | EP-W4 (P: a registration after removal derives a new uid); EP-MG (P: the re-key rule, [AR §5a.7]); EP-DV (V) | `r4::if14_no_resurrection` | P13 (M2 FL-3; M3 FL-7); GT6 FL-7 (M3) |
+
+### 3.10 Dropped bodies ([AR §11] #33, OQ-A-7; spec sync 3)
+
+The **dropped set** of a view is the hashes of the `DROPPED` table of its segment set ([F11 §13.4]) and of the `BodyDrop`
+records ([F05 §9.29]) after that set's bound ([F06 §8.1] DB-1). A purge is **pending** while an active extent holds a
+`BodyDrop` record of origin `command` ([F16] P-73, P-101); a record of origin `import` names only hashes whose bytes the
+store does not hold ([F05 §9.29] "Origin") and leaves nothing to purge. For (b) and (c), the `cs.<n>` and `blobs.<n>` of
+a reservation whose bulk `Commit` has not landed ([F16] P-84) are not live: that `Commit` cannot land carrying a dropped
+body ((a), [F16] P-34), and once the `blobs.<n>` holds one, both files are a deletion still due, which `gc` or a purge
+makes without waiting for `gc.cruft-delay` ([F16] P-84, P-101 step 7).
+
+| ID | Invariant | Enforcement | Model function | Gates |
+|---|---|---|---|---|
+| I-D1 | Dropped bodies are not kept. (a) No `Commit` record appended after a `BodyDrop` record carries a body entry for a hash that record drops, in the log or in a `hist` file. (b) In every live graph segment and `cs.<n>`, a `BLOBTAB` entry has `file` = 0 only when its hash is in the dropped set, and, when no purge is pending, exactly when it is. (c) When no purge is pending and its deletions are done, no store file holds a dropped body's bytes: no live `blobs` file holds a blob of class `body` with a dropped hash, no live `hist` file holds a body entry for one, no full-text section holds a posting of one, and every dictionary that was live when the purge began has been replaced ([F16] P-101 step 3); the files of a reservation whose bulk `Commit` has not landed are not live, and such a `blobs.<n>` that holds a dropped body is a deletion still due ([F16] P-84) | EP-W4 (P: a write that supplies a dropped body's bytes is refused, [F06 §8.1] DB-7); EP-W7 (P: a `BodyDrop` in the window forces a recomputation, [F16] P-34); EP-W9 (C: a carried entry is only a body that is not dropped, [F06 §8] BD-4); EP-IM (P: an import stores no bytes of a dropped hash, and its `BodyDrop` names no hash the store holds, DB-11, [F05 §9.29]); EP-CK (M: no fold seals, indexes or trains on a dropped body, [F16] P-80); EP-GC (M: the purge, run by `BodyDrop`, `gc` and `backup`, [F16] P-101; the release of a reservation whose `blobs.<n>` holds a dropped body without `gc.cruft-delay`, [F16] P-84); EP-DV (V: `doctor --fsck`, below) | `body::id1_dropped_bodies`, over the store's decoded records, `BLOBTAB` entries, `BLOBIDX` rows and full-text postings that the harness supplies (the model's own suite checks (a)'s refusals and carriage over its command stream) | GT1 and GT3 with `BodyDrop` and its purge in the streams, `doctor --fsck` after every crash state and at the end of every run (M2, the re-certification of [60 §3.3]); GT2: the dropped set and the `body_dropped` refusals (M2) |
+
+**I-D1's `doctor --fsck` check.** `doctor --fsck` computes the dropped set of the newest slot's view and whether a purge
+is pending (a pending purge is itself reported, by plain `doctor` too, as the finding `purge_pending` of [F19] and
+[API §8.6], with `moirai gc` as its remedy; no automatic maintenance runs a purge, [F16] P-76), then reports a V-class
+violation of I-D1 (§1.3) for:
+- (a) a body entry, in a `Commit` record of the log or of a live `hist` file, whose hash is dropped at a lower lsn: the
+  record's `RecHdr.lsn`, which a `hist` file keeps ([F10 §4.1]), above the `BodyDrop` record's lsn or the `DROPPED` row's
+  `drop_lsn`;
+- (b) a `BLOBTAB` entry with `file` = 0 whose hash is not dropped, and, when no purge is pending, one with `file` ≠ 0
+  whose hash is dropped;
+- (c) when no purge is pending: a `BLOBIDX` row (h, 1) of a live `blobs` file with h dropped; a `hist` body entry with a
+  dropped hash; a full-text posting of a node whose `body_ref` names a dropped `BlobRef` ([F09 §12.1]). A store file
+  that no slot, record or pin names is reported as a deletion still due ([F16] P-77, P-79), not as a violation; so are
+  the `cs.<n>` and `blobs.<n>` of a reservation whose bulk `Commit` has not landed when that `blobs.<n>` holds a
+  dropped body ([F16] P-84), files that (b) and (c) do not check.
+  Dictionaries are not checked: no record says which bodies a training read, which is why a purge
+  replaces every live one ([F16] P-101 step 3).
+
+The check reads every live `hist` file, so its cost is that of a full history scan, as the rest of `doctor --fsck`.
+What a drop does not reach — backups, exported images, other stores, freed sectors — is outside the store and outside
+the check ([F06 §8.1] DB-10).
 
 ## 4. I26′: the state definition and its marker cache
 
@@ -419,6 +455,7 @@ For a commit `c` that lands on ref R, with first parent `p` (the empty state for
 | [50] F18 | the positions of `QueryInvalid` and `QueryCycle` in the validator order (V10, V11). The class enum is [F12]'s | §5 |
 | [60 §2.6] the validator table (I37′ order) | the ordered table with outcomes and registration milestones | §5 |
 | [AR §8.3] CORRECTNESS row "Invariant coverage" | every invariant of [AR §3.4] and [AR §5e.8], with I35′ and I-G1–I-G6, has an enforcement point, a model function and at least one gate | §3 |
+| [AR §11] #33 and OQ-A-7 (bodies droppable by hash without changing commit ids) | the invariant I-D1 with its enforcement points, model function, gates and `doctor --fsck` check; I28′ and I40′ name the dropped set. What a drop is, is [F06 §8.1]'s; the purge [F16] P-101's | §3.7, §3.10 |
 | [90 §10.1] | none | — |
 
 ## Holes
@@ -525,3 +562,30 @@ are specified in [F17], where the production values that measurements decide are
   flag a returned row nonlinear; I14′ says that a default key, which hashes the branch name ([API §7.2]), meets the
   cross-branch rule only when that name names another ref; §1.4 states PLAN S4 as PLAN does (it names only the
   enumerator's author).
+- **OP-13-16 (spec sync 3: dropped bodies).** [AR §11] #33 and OQ-A-7 (a), decided 2026-10-06, add the invariant I-D1
+  (§3.10) over [F06 §8.1]'s dropped bodies. Its three clauses come from R-SPEC-F's design: (a) no `Commit` appended after
+  a `BodyDrop` carries a body it drops; (b) a dropped `BlobRef` (`file` = 0) appears exactly for dropped hashes; (c) after
+  a completed purge no store file holds a dropped body's bytes. Two readings are added here:
+  - (b) and (c) hold fully only once no purge is pending ([F16] P-101: an active extent holds a `BodyDrop` record of
+    origin `command`), because a file written before the drop keeps its bytes until the purge rewrites it; (b)'s "only
+    when" direction holds always. `doctor --fsck` checks each clause in that scope and reports a pending purge as a
+    finding of its own.
+  - (c) is checked structurally (`BLOBIDX`, `hist` body entries, full-text postings), not by searching bytes, which
+    compressed files would hide; dictionaries cannot be checked, so [F16] P-101 replaces every live one.
+
+  The model function is in `body`, beside I40′. Its gates start at M2, where bodies and `BodyDrop` are built
+  ([API §8.7]); no M0 gate covers I-D1, which OP-13-13's list therefore does not name. I28′ and I40′ now say that an
+  exported dropped body is its hash and reason ([F06 §8.1] DB-11, [F14 §6.9]).
+  **Independent check of spec sync 3.** "Pending" counts only `BodyDrop` records of origin `command`: an import's record
+  now names only hashes its store does not hold ([F05 §9.29]), so it leaves no bytes for (b) or (c) to find. A pending
+  purge is the finding `purge_pending` of [F19] and [API §8.6] (named by R-SPEC-F), shown by plain `doctor` as well as by
+  `--fsck`, since no automatic maintenance runs a purge ([F16] P-76). EP-IM also states that an import drops no held
+  bytes.
+  **Closure check of spec sync 3.** Bytes that only the `blobs.<n>` of a reservation whose bulk `Commit` has not landed
+  holds are not held ([F05 §9.29] "Origin"), so an import may drop such a hash and no purge follows; the old file kept
+  the bytes until `gc.cruft-delay`, and (c)'s check reported a violation for a state the protocol allows. Such a
+  reservation's `Commit` cannot land carrying a dropped body ((a), [F16] P-34), so its files are now not live for (b)
+  and (c), are released without `gc.cruft-delay` by the next `gc` or by a purge's step 7 once the `blobs.<n>` holds a
+  dropped body ([F16] P-84, P-101), and are reported as a deletion still due until then. The other reading, counting
+  those bytes as held, is not taken: the reservation's `Commit` may never land, which would leave a body key with no
+  bytes that is not dropped.

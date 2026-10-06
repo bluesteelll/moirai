@@ -131,6 +131,7 @@ Column notes:
 | KF-046 | `image::anchor_text_on_import` | M5 | design | [40 §5.7]; [CFG §10.10] | As above. |
 | KF-047 | `image::import_merge` | M5 | design | [AR §5b.6]; [CFG §10.10] | As above. |
 | KF-048 | `api::Store::resolve` | WP-90 | design | [API §4.2] CX-1 to CX-9; [CFG §10.9] | The caller context of [API §4.2]; CX-7 reads `client.profile` (spec sync 2b). |
+| KF-049 | `status::knowledge_initial` | WP-90 | design | [RULES/status-machines GR-019]; [RULES/role-write-policy WR-015]; [CFG §10.5]; [AR §11] OQ-A-8 | The status a `Create` of a rule or a decision reaches (GR-019), and whether a status write is the owner's confirmation that `strict` requires (WR-015) (spec sync 3). |
 
 ## 5. Keys
 
@@ -225,6 +226,8 @@ Column notes:
 | KY-086 | `tx.max-statements` | `tx.max-statements` | V | `budget::check_caps` | 1000, 1, 1000000 | GT2 | design | [CFG §10.5] | A larger `TX` block is E501 naming the split, at binding. |
 | KY-087 | `tx.max-ops` | `tx.max-ops` | V | `budget::check_caps` | 10000, 1, 1000000 | GT2 | design | [CFG §10.5] | A `TX` whose net changeset has more ops is E501 naming the split. |
 | KY-088 | `tx.max-work-in-lock` | `tx.max-work-in-lock` | I | `invariance` | 500000, 0, 1000000000 | SP-1 | design | [CFG §10.5] | - |
+| KY-167 | `knowledge.owner-authority` | `knowledge.owner-authority` | V | `status::knowledge_initial` | orchestrator-active, strict | GT2 | design | [CFG §10.5]; [AR §11] OQ-A-8; [OP-5] | `orchestrator-active`: an owner-authority rule or decision (written owner-attested, with its `owner_quote`) is created `active` or `accepted` ([RULES/status-machines] GR-019); `strict`: it is created `proposed`, and only the owner's own later write confirms it ([RULES/role-write-policy] WR-015). Every other knowledge write starts `proposed` under both values (spec sync 3). |
+| KY-168 | `knowledge.similar-notice` | `knowledge.similar-notice` | O | `invariance` | true, false | GT12 | design | [CFG §10.5]; [AR §11] #46; [LQ/errors §5.6] N13 | The model raises no N13: the code is `reserved` until M9–M10 ([LQ/errors §5.1]) and no comparison covers it ([API §16.3]), so the model reads the key nowhere and both values leave every result, commit id and snapshot unchanged. GT12's goldens check the notice from M9–M10. If M9 makes the model raise N13, [CFG §10.5] makes the key class V, and this row takes class V and a model function (open point 6; spec sync 3). |
 | KY-089 | `files.policy.auto` | `files.policy.auto` | V | `links::auto_policy` | exact, strong | GT2 | design | [CFG §10.6] | `strong` also applies unique strong re-bind candidates, marked as guesses. |
 | KY-090 | `files.scratchpads` | `files.scratchpads` | V | `links::scratchpad_policy` | refuse, allow | GT2 | design | [CFG §10.6] | `link --at` and `file add` of a scratchpad path. |
 | KY-091 | `files.ignore` | `files.ignore` | V | `links::ignored` | target/,node_modules/,build/, (empty), *.tmp | GT2 | design | [CFG §10.6] | The ignore matcher of a tree with no git and no ignore file. |
@@ -257,6 +260,7 @@ Column notes:
 | KY-118 | `hooks.stamp.permission` | `hooks.stamp.permission` | X | `hooks::stamp` | allow, ask | GT12 | design | [CFG §10.7] | The stamp's `permissionDecision`. |
 | KY-119 | `hooks.stamp.ask-for` | `hooks.stamp.ask-for` | X | `hooks::stamp` | owner-authority, (empty), edge-delete, links-confirm, owner-authority,edge-delete,links-confirm | GT12 | design | [CFG §10.7] | The write classes for which the stamp answers `ask`. |
 | KY-120 | `hooks.delta.max-commits` | `hooks.delta.max-commits` | O | `invariance` | 2000, 1, 1000000 | GT12 | design | [CFG §10.7] | - |
+| KY-169 | `hooks.subagent-stop.triage-max-bytes` | `hooks.subagent-stop.triage-max-bytes` | X | `invariance` | 4000, 256, 64KiB | GT12 | design | [CFG §10.7]; [API §18]; [RULES/role-write-policy] WH-004 | The `SubagentStop` hook cuts the needs-triage note's body to this many bytes at both ends ([API §18]) before it issues `Mutation` `tx.remember`, so the `Store` receives the cut text as `$text` and no `Store` result depends on the key; GT12's hook fixtures check the cut (S3-F-16: the hook is M9's). The model's `hooks::subagent_stop` still writes the note of spec sync 2b, uncut; open point 6 proposes that it write [API §18]'s note and that this row then bind it (spec sync 3). |
 | KY-121 | `pack.budget.<role>` | `pack.budget.developer` | O | `pack::budget` | 16000, 1000, 1000000 | GT12 | design | [CFG §10.8] | N of a role pack without `--budget` ([RULES/pack-classes] PB rows). |
 | KY-122 | `pack.cli.max-bytes` | `pack.cli.max-bytes` | O | `pack::ceiling` | 24000, 1000, 28000 | GT12 | design | [CFG §10.8] | The CLI ceiling (PE-001); a user file can only lower it. |
 | KY-123 | `pack.mcp.max-bytes` | `pack.mcp.max-bytes` | O | `pack::ceiling` | 25000, 1000, 48000 | GT12 | design | [CFG §10.8] | The MCP ceiling (PE-003 to PE-005), capped by the profile's MCP result ceiling. |
@@ -361,3 +365,28 @@ first candidate where [CFG] names no design value: `gated` for `CFG-model-profil
    the file value. The review decides whether the key is class V or CX-7 ignores the file. **Decided in spec sync 2b**:
    CX-7 reads `client.profile` after `--client` and `MOIRAI_CLIENT` when it is not `auto`, and the key is class V with
    the function `api::Store::resolve` ([CFG §10.9]; KY-142, KF-048).
+5. **`knowledge.owner-authority`** (KY-167, KF-049; spec sync 3). The owner decided on 2026-10-06 (OQ-A-8, option (c))
+   that a config key which the spec names sets the status of owner-authority knowledge; [RULES/status-machines] GR-019
+   and its open point 27 apply it, and [RULES/role-write-policy] WR-015 makes the confirmation under `strict` the
+   owner's. The key is model-visible (class V): its value decides the status a commit's `Create` op carries, so commit
+   ids differ between its values, and its function is WP-90's. The key's row in [CFG §10] is R-SPEC-F's, written after
+   this row: its section, scope and reload class are [CFG]'s, and this row's position and cite follow it (it is placed
+   here after the keys of [CFG §10.5], the `TX` keys, as proposed). The model's registry holds the key with [CFG §10.5]'s
+   row (closure of spec sync 3); its test arm runs `status::knowledge_initial` (GR-019 in the kernel's `Create`, WR-015
+   in the role check of a status write; WP-93b review follow-up) for both values. The model takes WT-012's attestation
+   from a `tx.add`, `tx.remember` or `tx.set` call that writes `authority=owner` with an `owner_quote` in `$fields`,
+   or from `tx.answer --by owner`, because [API] names no other carrier of `--by owner`; such a `tx.set` in a later
+   block is the owner's confirmation under `strict`.
+6. **`knowledge.similar-notice` and `hooks.subagent-stop.triage-max-bytes`** (KY-168, KY-169; spec sync 3, S3-F-15 and
+   S3-F-16). Both rows are `invariance`, which is what the model computes, and both are checked by GT12. KY-168 is
+   class O while N13 is a `reserved` code ([LQ/errors §5.1]); [CFG §10.5] makes the key class V if M9 makes the model
+   raise N13, and the row then takes class V and a model function. KY-169: [API §18] has the `SubagentStop` hook cut the
+   body before it issues `Mutation` `tx.remember`, so the `Store` sees only the cut text. The model's
+   `hooks::subagent_stop` ([RULES/role-write-policy] WH-004) still writes the note of spec sync 2b: the title
+   `needs-triage: <holder> stopped holding <tasks>`, a `mentions` edge from the `#N` in that title, no `needs-triage`
+   label, and the whole message as its body. Proposed for WP-90's follow-up: the model's hook writes [API §18]'s note
+   (its title cut to 200 bytes, `labels=needs-triage` in `$fields`, the lease's task in `$about`, the both-ends cut),
+   and KY-169's function becomes `hooks::subagent_stop`, a new `key-functions` row of WP-90 tested per value as KY-117
+   tests `hooks::subagent_start`. [API §18] names one `<lease>` in the title and one task for the `ABOUT` edge, while a
+   stopping agent may hold several task leases; the model writes one note for all of them, and [API §18] should say
+   which it is.

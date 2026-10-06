@@ -846,6 +846,16 @@ pass 1, round 1). `<b>` and the defaults:
 | `tx.max-statements` | `int[1..1000000]` | `1000` | store | hot | V | `TX` binding: a larger block is refused with E501 naming the split ([50 §3.10] item 10) | `moirai-lq` `TX`; model `budget::check_caps` | [AR §13] |
 | `tx.max-ops` | `int[1..1000000]` | `10000` (a call may raise it to the agent maximum 50,000, [50 §5.10]) | store | hot | V | `TX` execution, as above; the count is the block's net ops, one per changed key ([F06 §7.8] NF-1; spec sync 2b) | `moirai-lq` `TX`; model `budget::check_caps` | [AR §13] |
 | `tx.max-work-in-lock` | `int[0..1000000000]` | `500000` (provisional; M7's work-unit calibration sets it, [50 §3.10] item 10) | store | hot | I | re-validation under the writer byte: re-evaluate within this many units, else release and re-run phase 1 ([AR §4.5] step 7) | `moirai-lq`, `moirai-store` | [AR §13], [50 §3.10] |
+| `knowledge.owner-authority` | `enum(orchestrator-active\|strict)` | `orchestrator-active` | store | hot | V | every `Create` of a `rule` or a `decision`, and every status write that moves one out of `proposed` ([RULES/status-machines] GR-019, [RULES/role-write-policy] WR-015): under `orchestrator-active` an owner-authority rule or decision (written owner-attested, with its `owner_quote`, [RULES/role-write-policy] WA-001) is created `active` or `accepted`; under `strict` it is created `proposed`, and only the owner's own later write confirms it. Every other rule or decision is created `proposed` under both values: one written without the owner attestation (the orchestrator's own included) and one written by any other role, agent or subagent. A `note` and a `doc` are unaffected. The value decides the status a `Create` op carries, so commit ids differ between the values (spec sync 3) | `moirai-graph` status machines; model `status::knowledge_initial` | [AR §11] OQ-A-8 (c); [RULES/policy-keys] KY-167 (open point 35) |
+| `knowledge.similar-notice` | `bool` | `true` from M9–M10 (reserved; nothing raises N13 before then) | store | hot | O | after a `Tx`, `Mutation` or `Apply` whose commit creates a `rule`, `decision`, `note` or `finding`, or changes the `title`, the `abstract` or the kind's text field of one: when `true`, the result's notices gain N13, which names live records that `std.similar` finds for the written ones ([LQ/std §4.25], [LQ/errors §5.6]). It is computed on the new tip after the commit, outside the writer byte; it never refuses or delays the write, and a budget cut gives no notice. Engine from M9–M10 | `moirai-app` rendering (M9–M10) | [AR §11] #46; the TencentDB research of 2026-09-30 (open point 35) |
+
+**Knowledge keys** (spec sync 3). `knowledge.owner-authority` is the key of owner decision OQ-A-8 (c): which writes of
+owner-authority knowledge start authoritative is policy a project may tighten, so it is a key with a default
+([AR §11]). `knowledge.similar-notice` reserves the deterministic "similar records exist" notice of owner decision #46;
+its class is O while N13 is a `reserved` code ([LQ/errors §5.1]) that no comparison covers ([API §16.3]); if M9 makes the
+model raise it, the key becomes class V and its [RULES/policy-keys] row takes that class and a model function. Like every
+key of §10.1–§10.11, each has a row in [RULES/policy-keys] and in the model's registry, which the model checks against
+this chapter ([RULES/policy-keys] §1).
 
 ### 10.6 File links (R4)
 
@@ -883,6 +893,7 @@ pass 1, round 1). `<b>` and the defaults:
 | `hooks.stamp.permission` | `enum(allow\|ask)` | `allow` | user, q | hot | X | the stamp hook's `permissionDecision` ([AR §7.5]) | `moirai-app` hooks | [AR §13] ([AR §11] #6) |
 | `hooks.stamp.ask-for` | `set(owner-authority\|edge-delete\|links-confirm)` | `owner-authority` | user, q | hot | X | the writes for which the stamp answers `ask` | `moirai-app` hooks | [AR §13] (#6) |
 | `hooks.delta.max-commits` | `int[1..1000000]` | `2000` | store | hot | O | `UserPromptSubmit` delta: commits scanned before `N older changes` | `moirai-app` hooks | [AR §13], [AR §6.3] |
+| `hooks.subagent-stop.triage-max-bytes` | `size[256..64KiB]` | `4000` | store | hot | X | `SubagentStop`: the body of the needs-triage note is the stopping agent's `last_assistant_message`, cut to at most this many bytes by the both-ends cut of [API §18] (spec sync 3) | `moirai-app` hooks | the TencentDB research of 2026-09-30 (open point 35) |
 
 ### 10.8 Agent tokens and output
 
@@ -1067,6 +1078,7 @@ layout and protocol constants of [F17 §13.2] are not keys either.
 | [AR §13] | complete registry: every key of its eleven tables, the policy data and "Never a key" | §10 |
 | [60 §3.14]: the 25 former owner questions as keys or rows | complete mapping | §10.14 |
 | [F17] OP-17-03: register `store.log-active-extents`, `store.dict.retrain-growth`, `gc.delete-grace` | complete | §10.2 |
+| [AR §11] OQ-A-8 (c) and #46 (spec sync 3): the owner-authority key, the reserved "similar" notice key, the cap on needs-triage notes | complete: `knowledge.owner-authority`, `knowledge.similar-notice`, `hooks.subagent-stop.triage-max-bytes`; their rule rows are [RULES/status-machines] GR-019, [RULES/role-write-policy] WR-015 and [RULES/policy-keys] KY-167 | §10.5, §10.7 |
 | [50 §5.10] budget keys and the named RSS gate | complete | §10.4, §10.5 |
 | R-1…R-12, R-15…R-18; F1–F18; X-F1…X-F10, X-F12 | none | — |
 
@@ -1212,3 +1224,17 @@ This chapter's own holes. The store-parameter holes (`F17-ckpt-ops`, `F17-ckpt-b
     `policy` ([F08 §8.5.6]). §7.2 names the refusal codes and checks `config unset` like a set; §2.3 admits a qualified
     user-lower key, which §5.1 already read. `tx.max-ops` counts net ops; quiet mode is the flag or (the key and a
     measuring lane); `ctx.dry` is the block's `DRY` under `dry-targets`; the model sweeps upper bounds unclipped.
+35. **Spec sync 3** ([AR §11] OQ-A-8 (c), #46; the TencentDB research of 2026-09-30). `knowledge.owner-authority`
+    (§10.5) is the key of OQ-A-8 (c), with R-MODEL's semantics ([RULES/status-machines] GR-019, [RULES/role-write-policy]
+    WR-015, [RULES/policy-keys] KY-167): class V, because its value decides the status a `Create` op carries. It sits in
+    §10.5 with the `TX` keys, where KY-167 cites it; it is store scope and `hot`, like every key a write reads.
+    `knowledge.similar-notice` (§10.5) reserves the switch of the "similar records exist" notice N13 ([LQ/errors §5.6]);
+    class O while N13 is a `reserved` code that no comparison covers. Its default is `true`, effective from M9–M10, when
+    the notice is built: owner decision #46 adopts the notice after knowledge writes from the TencentDB precedent, and the
+    key is how a project turns it off; nothing raises N13 before then, so the default changes no M0 result
+    (independent check of spec sync 3; an earlier text wrote `false` with M9–M10 deciding).
+    `hooks.subagent-stop.triage-max-bytes` (§10.7) caps the body of the `SubagentStop` needs-triage note at 4,000 bytes,
+    cut at both ends ([API §18]): a final message is unbounded in the harness, and the note is read by a person or an
+    orchestrator during triage, not replayed; the value is a 1,000-token order of magnitude, half the non-zero-exit cap.
+    It is class X because only the hook applies it, before it builds the `Mutation` ([API §18]); the model sees the cut
+    text.

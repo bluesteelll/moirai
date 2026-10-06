@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| Title | Sealed files: the sealed-file kinds and which of them carry `SegHdr`; the codec byte and the compressed-payload encoding; `hist` files (frames of at most `store.hist-frame-commits` commits and `store.hist-frame-bytes` raw bytes, split frames, the frame header of [50] F8, the commit index); `blobs` files (body blobs and R-9's fingerprint blob class, keyed through `FPRINT`); `dict.<D>`; `gitmap` pages; the sealed-file side of `cs.<n>`. Codec values, the dictionary form and where bodies are compressed are named holes decided by measurement 6 |
+| Title | Sealed files: the sealed-file kinds and which of them carry `SegHdr`; the codec byte and the compressed-payload encoding; `hist` files (frames of at most `store.hist-frame-commits` commits and `store.hist-frame-bytes` raw bytes, split frames, the frame header of [50] F8, the commit index); `blobs` files (body blobs and R-9's fingerprint blob class, keyed through `FPRINT`); `dict.<D>`; `gitmap` pages; the sealed-file side of `cs.<n>`; what retirement and the body purge leave out of these files for a dropped body (spec sync 3). Codec values, the dictionary form and where bodies are compressed are named holes decided by measurement 6 |
 | Chapter | [F10], `docs/spec/format/10-sealed-files.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-13a (the `10-sealed-files.md` part of WP-13, [PLAN §3.2] item 1), author role R-SPEC-R |
-| Sources | [AR §4.1] (rows `hist.NNNN`, `blobs.NNNN`, `dict.D`, `gitmap.NNNN`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, CL3); [AR §4.3] (bodies in the tail raw with a codec byte; bulk commits; "if the M0 measurement shows the tail must hold compressed bodies…"; ≈ 1.5–2.5× `hist` ratio); [AR §4.4] (`SegHdr` `seg_kind` `hist`, `blobs`; `BLOBTAB`); [AR §4.7] (one reused 64 KiB body buffer); [AR §4.8] ("commit id → lsn: per-frame fan-out index in `hist`"); [AR §4.9] (delta checkpoint sealing bodies; tiered fold and rollup merging blob files; dictionary retraining; history retirement; GC: `hist` rewrite, blob GC, `gitmap` compaction); [AR §4.6] "Reserved in format v1" (byte-bounded `hist` frames; the harness list's codec items); [AR §5a.6] (a cold `hist` frame decodes in ≤ 0.1–0.5 ms); [AR §5b.6] (export frontier through `gitmap`); [AR §2.6] T6 (bodies ≤ 64 KiB, content-addressed BLAKE3-128); [AR §2.10] T10 (the pure-Rust codec); [40 §2.5] (fingerprints: ≈ 300 B, runtime, retention), [40 §2.11] R-9; [50 §8.1] F8; [80 §2.5] rules 1–4, [80 §3.1] X-F6; [90 §10.1] (codec row), [90 §11.3] (options (1)–(4) and the decision rule), [90 §11.4]; [60 §2.5] ([AR] row "Segments"; audit rows "Segments" and "Commit body"; the harness row), [60 §3.1] "Decisions fixed at M0 exit", [60 §5.2] row 6; [71 RAM-B1] (≤ 2 MB per commit decode), [71 RAM-m3] (`gitmap` sorted with a fan-out table), [71 RAM-M6] (≤ 0.5 MB compression context); [PLAN §3.2] WP-13, WP-54, [PLAN §3.3] (WP-13's gaps: `gitmap` entry size 41 vs 50 B; which sealed files carry `SegHdr`; R-9's fingerprint blob class), [PLAN §6.2] R3; external: [RFC 8878] (zstd frames and dictionaries), [LZ4-block] (the LZ4 block format) |
-| Depends on | [F01], [F02], [F09]; cites [F04], [F05], [F06], [F11], [F14], [F15], [F16], [F17], [F19], [F20], [OS/fs], [OS/map] |
+| Sources | [AR §4.1] (rows `hist.NNNN`, `blobs.NNNN`, `dict.D`, `gitmap.NNNN`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, CL3); [AR §4.3] (bodies in the tail raw with a codec byte; bulk commits; "if the M0 measurement shows the tail must hold compressed bodies…"; ≈ 1.5–2.5× `hist` ratio); [AR §4.4] (`SegHdr` `seg_kind` `hist`, `blobs`; `BLOBTAB`); [AR §4.7] (one reused 64 KiB body buffer); [AR §4.8] ("commit id → lsn: per-frame fan-out index in `hist`"); [AR §4.9] (delta checkpoint sealing bodies; tiered fold and rollup merging blob files; dictionary retraining; history retirement; GC: `hist` rewrite, blob GC, `gitmap` compaction); [AR §4.6] "Reserved in format v1" (byte-bounded `hist` frames; the harness list's codec items); [AR §5a.6] (a cold `hist` frame decodes in ≤ 0.1–0.5 ms); [AR §5b.6] (export frontier through `gitmap`); [AR §2.6] T6 (bodies ≤ 64 KiB, content-addressed BLAKE3-128); [AR §2.10] T10 (the pure-Rust codec); [40 §2.5] (fingerprints: ≈ 300 B, runtime, retention), [40 §2.11] R-9; [50 §8.1] F8; [80 §2.5] rules 1–4, [80 §3.1] X-F6; [90 §10.1] (codec row), [90 §11.3] (options (1)–(4) and the decision rule), [90 §11.4]; [60 §2.5] ([AR] row "Segments"; audit rows "Segments" and "Commit body"; the harness row), [60 §3.1] "Decisions fixed at M0 exit", [60 §5.2] row 6; [71 RAM-B1] (≤ 2 MB per commit decode), [71 RAM-m3] (`gitmap` sorted with a fan-out table), [71 RAM-M6] (≤ 0.5 MB compression context); [PLAN §3.2] WP-13, WP-54, [PLAN §3.3] (WP-13's gaps: `gitmap` entry size 41 vs 50 B; which sealed files carry `SegHdr`; R-9's fingerprint blob class), [PLAN §6.2] R3; spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] DB-8, DB-9 and [F16] P-80, P-101, P-102; external: [RFC 8878] (zstd frames and dictionaries), [LZ4-block] (the LZ4 block format) |
+| Depends on | [F01], [F02], [F09]; cites [F04], [F05], [F06], [F11], [F13], [F14], [F15], [F16], [F17], [F19], [F20], [OS/fs], [OS/map] |
 
 ## 1. Scope
 
@@ -39,10 +39,10 @@ its header-only form are [F06]'s; the `FPRINT` row is [F11 §12.8]'s and the `FI
 | `seg.base.<G>` | 3 `seg-base` | `SegHdr` | [F09 §16.1] | rollup, repair | `HEAD.segments` ([F04 §4.1]); `PINS` while pinned | `main`'s state and the store-level tables |
 | `seg.d<K>` | 4 `seg-delta` | `SegHdr` | [F09 §16.2] | delta checkpoint, runtime-only fold, tiered fold | `HEAD.segments`; `PINS` while pinned | a change of `main` and of the store-level tables |
 | `seg.b<ref_id>.<K>` | 5 `seg-branch` | `SegHdr` | [F09 §16.3] | promotion | `REFS.promoted_seg` ([F11 §3.1]); `FILES` | a promoted branch's overrides and `TOUCH` |
-| `hist.<n>` | 2 `hist` | `SegHdr` | §4 | history retirement, `gc` rewrite | `FILES` ([F09 §14.4]) | a retired log extent as compressed frames with a commit index |
-| `blobs.<n>` | 6 `blobs` | `SegHdr` | §5 | delta checkpoint, runtime-only fold, bulk commit, fold, rollup, blob GC | `FILES`; `BLOBTAB` entries ([F09 §6.3]) | body blobs and fingerprint blobs |
-| `cs.<n>` | 9 `cs` | `SegHdr` | [F09 §16.4] | a bulk commit | the `Commit` record's `cs_ref` ([F06 §9]); before it lands, the `Reserve` record that claimed the number ([F05 §9.27]); `FILES` | one bulk commit's changeset |
-| `dict.<D>` | 7 `dict` | `DictHdr` (§6) | §6 | `init` or a rollup that retrains | `HEAD.segments` (the current one, `SegRef` kind 3); `FILES` | the compression dictionary, when `HOLE(F02-dict-file)` says one exists |
+| `hist.<n>` | 2 `hist` | `SegHdr` | §4 | history retirement, `gc` rewrite, body purge | `FILES` ([F09 §14.4]) | a retired log extent as compressed frames with a commit index |
+| `blobs.<n>` | 6 `blobs` | `SegHdr` | §5 | delta checkpoint, runtime-only fold, bulk commit, fold, rollup, blob GC, body purge | `FILES`; `BLOBTAB` entries ([F09 §6.3]) | body blobs and fingerprint blobs |
+| `cs.<n>` | 9 `cs` | `SegHdr` | [F09 §16.4] | a bulk commit; a body purge's rewrite (§8) | the `Commit` record's `cs_ref` ([F06 §9]); before it lands, the `Reserve` record that claimed the number ([F05 §9.27]); `FILES` | one bulk commit's changeset |
+| `dict.<D>` | 7 `dict` | `DictHdr` (§6) | §6 | `init`, a rollup that retrains, or a body purge (§6.3) | `HEAD.segments` (the current one, `SegRef` kind 3); `FILES` | the compression dictionary, when `HOLE(F02-dict-file)` says one exists |
 | `gitmap.<n>` | 8 `gitmap` | `GitmapHdr` (§7) | §7 | checkpoint fold of `GitMap` records, `gitmap` compaction | `FILES` | one page of the git id map |
 
 `HEAD.segments`, `PINS` and `FILES` together name every live sealed file ([F04 §4.1], [F11 §4], [F09 §14.4]).
@@ -155,15 +155,25 @@ The fallback to 0 is decided per payload by comparing lengths, so it is determin
 
 `hist.<n>` holds the records of one retired log extent ([AR §4.1], [AR §4.9] "History retirement"), compressed in frames,
 with a frame directory and a commit index. Retirement keeps every record of the extent in `lsn` order, byte for byte as
-[F05] wrote it (its `RecHdr` included), except the rotation padding: the `Noop` group that pads the extent after its last
-group ([80 §2.4.3], [F05 §4.4] G-3) is not kept. Nothing else is dropped by retirement ([AR §4.9] "nothing is dropped by
-default"). In particular the extent's first record, its `ExtentHead` (kind 28, [F05 §4.5], §9.28), is kept as the
-first record of the `hist` file's first frame. Its `chain_in` is the chain value at the extent's first byte (the trailer
-of the previous extent's pad, or `XXH3-64(epoch)` at an epoch start), so the chain value that this extent's own dropped
-pad held survives as the next extent's `ExtentHead.chain_in`. The head also carries the epoch's `epoch_lsn`, the `init`
+[F05] wrote it (its `RecHdr` included), except the rotation padding and dropped bodies:
+- the `Noop` group that pads the extent after its last group ([80 §2.4.3], [F05 §4.4] G-3) is not kept;
+- a body entry ([F06 §8]) of a `Commit` record whose hash is in the dropped set of the retirement's scanned log
+  ([F06 §8.1], [F11 §13.4]) is not kept (spec sync 3). The record keeps every other byte: its other entries in their
+  order (BD-1 still holds), `n_bodies` decreased by the entries removed, and `RecHdr.len` and `RecHdr.xxh3_64`
+  recomputed ([F05 §3.1], §3.4). Its `RecHdr.lsn` is unchanged, so `HCIDX` and every lsn that names it stay valid, and
+  the record is valid without the entries ([F06 §8.1] DB-9). A retirement in a purge's publish ([F16] P-101 steps 6–7)
+  also writes, in a bulk `Commit` whose `cs.<n>` that purge rewrote, the `cs_ref` (`file`, `len`, `b3`) of the
+  rewritten file (§8).
+
+Nothing else is dropped by retirement ([AR §4.9] "nothing is dropped by default"). In particular the extent's first
+record, its `ExtentHead` (kind 28, [F05 §4.5], §9.28), is kept as the first record of the `hist` file's first frame.
+Its `chain_in` is the chain value at the extent's first byte (the trailer of the previous extent's pad, or
+`XXH3-64(epoch)` at an epoch start), so the chain value that this extent's own dropped pad held survives as the next
+extent's `ExtentHead.chain_in`. The head also carries the epoch's `epoch_lsn`, the `init`
 parameters, `project_oid_algo` and the counters and HLC maxima a slot-less `repair` starts from ([F16] P-85, P-97;
 pass 1, P1-8). A bulk commit's `Commit` record keeps its `cs_ref`, and the `cs.<n>` it names stays alive with it
-([AR §4.9], §8).
+([AR §4.9], §8); a purge that rewrites that `cs.<n>` updates the `cs_ref` (§4.6). A `BodyDrop` record ([F05 §9.29]) is
+kept like every other record.
 
 *(Informative)* Records other than commits — ref moves, leases, markers, idempotency results, checkpoints with their per-ref
 `lsn` lists, pins, client heads, the lazy runtime records — stay readable, which reflog, `op log`, overlay builds of old
@@ -267,7 +277,7 @@ Then n entries of 24 bytes, sorted by `(id16, lsn)`, `id16` bytewise:
   `first_append_hlc`/`last_append_hlc` ([50] F8: "`s<seq>` revisions, `changes(since:)`, time → seq"), then a frame decode.
   `append_hlc` is monotonic in `seq` order (I43′), so both searches are valid.
 
-### 4.6 `gc` rewrite
+### 4.6 `gc` and purge rewrites
 
 `moirai gc` rewrites `hist` files to drop unreachable commits older than `gc.cruft-delay` ([AR §4.9], [F17 §11.2]). A
 rewrite writes a new `hist` file under a new number and never changes an existing one:
@@ -277,9 +287,17 @@ rewrite writes a new `hist` file under a new number and never changes an existin
   `pruned`, `n_ops` = `n_bodies` = 0, `changeset_digest` and every other header field kept), with `RecHdr.len` and
   `RecHdr.xxh3_64` recomputed ([F05]); a bulk commit's pruned form drops `cs_ref`, so its `cs.<n>` leaves `FILES` with
   the rewrite (§8);
+- it leaves out every body entry whose hash is dropped, as retirement does (§4.1; spec sync 3);
 - it cuts frames by §4.2 again and rebuilds `HCIDX`; a header-only commit stays in `HCIDX`, a dropped one leaves it;
 - the group chain trailers of [80] X-F3 are a rule of the log and are not verified inside `hist`; the frame's `raw_xxh3`,
   the section checksums and `seg_digest` protect `hist` bytes.
+
+**The purge rewrite** ([F06 §8.1] DB-8, DB-9; [F16] P-101 step 6; spec sync 3). The body purge reads every live `hist`
+file and rewrites, by the rules above and under a new number, each one that holds a `Commit` record with a body entry
+whose hash it purges, or a bulk `Commit` whose `cs.<n>` it rewrote (§8): the body entries of those hashes are left out as
+§4.1 states, and the bulk commit's `cs_ref` (`file`, `len`, `b3`) names the rewritten `cs.<n>`, with `RecHdr.len` and
+`RecHdr.xxh3_64` recomputed. It drops no commit and changes no other byte; the replaced file is released by the purge's
+`Checkpoint` ([F05 §9.9]).
 
 `hist` file numbers are their own family ([F02 §6.2]); they do not equal the number of the retired extent, and `from_lsn`
 and `upto_lsn` say which log range a file covers (OP-10-14).
@@ -317,6 +335,7 @@ Exactly two:
   every `off` is determined.
 - A `BlobRef` ([F09 §6.3]) that points into this file carries the same `hash`, `off`, `len` and `raw_len` as its `BlobIdx`
   row. A reader follows a `BlobRef` directly; `BLOBIDX` serves content-addressed lookups, merges, GC and `doctor --fsck`.
+  A dropped `BlobRef` (`file` = 0, [F09 §6.3]; spec sync 3) points into no file and has no `BlobIdx` row.
 
 ### 5.3 Blob classes ([40] R-9)
 
@@ -345,13 +364,24 @@ Values 0 and 3–255 are reserved.
 - A **tiered fold** merges the `blobs` files of the deltas it folds into one; a **rollup** merges all of them ([AR §4.1],
   CL3); **blob GC** writes a file without the blobs that no live row, retained history or ref references ([AR §4.9]). Each
   merge writes a new file under a new number and re-encodes payloads only as §3.5 requires.
+- A **body purge** ([F16] P-101 step 3; spec sync 3) writes, for every live `blobs` file (named by the segment set, by
+  `FILES` or by a pinned set's files, [F11 §4]) that holds a blob of class `body` whose hash it purges, a replacement
+  under a new number without those blobs; every other blob is copied, re-encoded only as §3.5 requires. When the purge
+  replaces the dictionaries (§6.3), it also rewrites every `blobs` file whose `dict_no` names a replaced one, against its
+  replacement. The purge's `Checkpoint` names the replacements and releases the replaced files ([F05 §9.9]).
+- **Dropped bodies** ([F06 §8.1] DB-7, DB-8; spec sync 3). No `blobs` file holds a blob of class `body` whose hash was in
+  its writer's dropped set when it was written: a seal, merge or blob GC leaves such a blob out ([F16] P-80), and the
+  purge removes the ones that files written before the drop still hold. Fingerprint blobs are never dropped.
 - Canonical order: a writer places blobs in `BLOBIDX` key order, so the file is a function of its blob set, `dict_no` and
   the codec (§2.4).
 
 ### 5.5 Finding a blob by content address
 
 - **A body** is found by its `BlobRef`: through `NodeHdr.body_ref` and `BLOBTAB`, or, for a hash alone, by a binary search
-  of `BLOBTAB` in the layers of the view after the tail records that carry bodies ([F09 §6.3], [F06 §8] BD-6).
+  of `BLOBTAB` in the layers of the view after the tail records that carry bodies ([F09 §6.3], [F06 §8] BD-6). Before
+  either, the reader looks the hash up in the dropped set of its view ([F11 §13.4], [F06 §8.1] DB-6, [F16] P-102): a
+  dropped hash resolves to no bytes, even while a `blobs` file still holds them, and a dropped `BlobRef` is never followed
+  (spec sync 3).
 - **A fingerprint** is found by its `FPRINT` row ([F11 §12.8]), which names the `blobs` file and the `hash`: one binary
   search for `(hash, 2)` in that file's `BLOBIDX`, so a lookup opens one file however many `blobs` files the store holds
   ([F09] OP-09-14 adopted; pass 1, P1-22). A row whose file is not live, or whose file holds no such entry, is a defect
@@ -391,8 +421,12 @@ The bytes after the header are the dictionary in the form HOLE(F10-dict-form) fi
 
 ### 6.3 Lifetime and naming
 
-- A dictionary is trained at `init` or retrained at a rollup ([AR §4.1], [F17 §6.3]) and written as a new `dict.<D>` under a
-  new number ([F02 §6.2]). A dictionary is never rewritten.
+- A dictionary is trained at `init`, retrained at a rollup ([AR §4.1], [F17 §6.3]) or replaced by a body purge, and written
+  as a new `dict.<D>` under a new number ([F02 §6.2]). A dictionary is never rewritten.
+- **Dropped bodies** (spec sync 3). No training sample holds a body in the trainer's dropped set ([F16] P-80, [F17 §6.3]).
+  Since a trained dictionary may hold fragments of its sample, a body purge replaces every live dictionary by one trained
+  on a sample without dropped bodies, and the `blobs` files coded with a replaced one are rewritten (§5.4; [F16] P-101
+  step 3).
 - A `dict.<D>` stays alive while any live `blobs` file has `dict_no` = D ([F16], GC).
 - The **current** dictionary — the one a new seal and a merge that re-encodes use — is the `dict` entry of `HEAD.segments`
   ([F04 §4.1], `SegRef` kind 3), whose `blake3_16` is `DictHdr.digest`. Every live dictionary, the current one included, is
@@ -481,6 +515,18 @@ The sections of a changeset segment are [F09 §16.4]'s. As a sealed file:
   `FILES` row with the `reserved` flag once a fold covers that record ([F09 §14.4]). A `cs` file no record names is an
   orphan that the sweep removes ([AR §4.3] "the crash state 'segment flushed, record not'", [F16]); a
   `gc` rewrite that keeps only the pruned header of its commit (§4.6) releases it.
+- **The purge rewrite** ([F06 §8.1] DB-8; [F16] P-101 step 5; spec sync 3). A body purge rewrites every live `cs.<n>`
+  of a bulk `Commit` below its forced rotation ([F16] P-101 step 1) whose `BLOBTAB` holds a live `BlobRef` of a hash it
+  purges, or names a `blobs` file it replaced (§5.4), as a new `cs.<n′>` under a new number, built through `tmp/` as
+  above: the `BLOBTAB` holds dropped `BlobRef`s for the purged hashes and points every other entry at its replacement
+  file ([F09 §6.3], §16.4), and every other section keeps its bytes. The `hist` file that the purge writes for the
+  commit's record (§4.1, §4.6) carries the new `cs_ref` (`file` = n′, `len`, `b3`), and the purge's `Checkpoint` names
+  `cs.<n′>` and releases `cs.<n>` ([F05 §9.9]). A `cs.<n>` named by a bulk `Commit` appended after a purge's forced
+  rotation is never rewritten by that purge: the commit's record stays in the log, so no `hist` file of this pass
+  carries it and its `cs_ref` cannot follow a rewrite. If it names a `blobs` file the purge replaces, the purge starts
+  again at its step 1 ([F16] P-101 step 7), whose new rotation puts the commit below the retirement line, and the
+  commit's `cs_ref` follows through the `hist` file of the later pass. No codec value is needed: a changeset segment is
+  never compressed.
 
 ## 9. Validation
 
@@ -489,7 +535,7 @@ a process needs, `doctor --fsck` and `repair --rebuild-from-log` otherwise; a `b
 
 | file | open checks (before mapping or use) | full checks (`doctor --fsck`, the oracle, a merge reading it) |
 |---|---|---|
-| `hist`, `blobs` | V-1 to V-8 of [F09 §17.1]; exactly the sections of §4.3 or §5.2 | V-9, V-10; `HFRAMES` continuity, ascending disjoint frames, block tables summing to `FrameHdr`, `off` chaining, `n_records`/`n_commits` against the decoded records, `first_*`/`last_*` against them, `raw_xxh3`; `HCIDX` fan-out, order and completeness; `BLOBIDX` order and uniqueness, `off` chaining, every payload decodes (§3.2) and hashes to `hash` |
+| `hist`, `blobs` | V-1 to V-8 of [F09 §17.1]; exactly the sections of §4.3 or §5.2 | V-9, V-10; `HFRAMES` continuity, ascending disjoint frames, block tables summing to `FrameHdr`, `off` chaining, `n_records`/`n_commits` against the decoded records, `first_*`/`last_*` against them, `raw_xxh3`; `HCIDX` fan-out, order and completeness; `BLOBIDX` order and uniqueness, `off` chaining, every payload decodes (§3.2) and hashes to `hash`; a `Commit` record without some of its body entries is valid (§4.1, [F06 §8.1] DB-9), and which dropped hashes a file may still hold is [F13] I-D1's check |
 | `dict` | magic; `total_len` against the file size; reserved bytes zero | `digest` (also checked at load, §6.1); the content is in the form HOLE(F10-dict-form) fixes: raw content of at most 65,536 bytes, or a formatted dictionary of at most 112,640 bytes that begins with the [RFC 8878] §5 magic number and whose `Dictionary_ID` equals D (§6.2) |
 | `gitmap` | magic; `format` ([F01 §9.1]); `hdr_xxh3`; `algo` ∈ {1, 2}; `file_no` against the name; `total_len` = 1,072 + n × w and against the file size | `digest`; `fan` consistent with the entries; entries strictly ascending |
 | `cs` | as graph segments ([F09 §17.1]) | as graph segments |
@@ -510,6 +556,7 @@ A decode of a `hist` frame also checks `raw_xxh3` at run time; a mismatch is exi
 | [40] R-9 | complete: the fingerprint blob class, its content and codec, and how `FPRINT`'s `hash` ([F11 §12.8]) finds it through `FILES` | §5.3, §5.5 |
 | [80] X-F6 | `total_len` in the `hist` and `blobs` `SegHdr`, the `gitmap` page header and the `dict` header, and the check before mapping; `SegHdr` itself is [F09 §2]'s, the mapping policy [OS/map]'s | §2.4, §6.1, §7.2 |
 | [60 §2.5] issue-2 row "Store parameters": `hist` frame size | how P03 and P04 cut frames; the values are [F17]'s | §4.2 |
+| [AR §11] #33 and OQ-A-7 (bodies droppable by hash; spec sync 3) | the sealed-file side: body entries left out at retirement and in `hist` rewrites, the purge's replacement `blobs`, `dict` and `cs.<n>` files, the reader's dropped-set check; the purge's steps are [F16] P-101's, the end state [F06 §8.1] DB-8's | §2.1, §4.1, §4.6, §5.4, §5.5, §6.3, §8 |
 
 ## Holes
 
@@ -594,3 +641,12 @@ A decode of a `hist` frame also checks `raw_xxh3` at run time; a mismatch is exi
   lower bound stays the trainer's target, because no reader depends on it and a rule would make a store whose corpus
   trains a smaller dictionary invalid. An informative note records that a small D falls in [RFC 8878] §5's registered
   range, which does not apply to dictionaries that are never distributed (§6.2).
+- **OP-10-21 (spec sync 3; [AR §11] #33, OQ-A-7 (a), decided 2026-10-06).** Retirement and every `hist` rewrite leave
+  out the body entries of dropped hashes and recompute `n_bodies`, `RecHdr.len` and `RecHdr.xxh3_64`, keeping
+  `RecHdr.lsn` (§4.1, §4.6); the record stays valid by [F06 §8.1] DB-9, and the chain trailers are not verified inside
+  `hist`, so nothing else moves. The body purge writes replacement `blobs` files without the purged blobs (§5.4),
+  replaces every live dictionary (§6.3, as [F16] P-101 step 3 decided), rewrites the `cs.<n>` files that name a purged
+  hash or a replaced `blobs` file under new numbers (§8), and rewrites the `hist` files that hold such entries or such
+  a bulk commit, with the new `cs_ref` (§4.6). No codec value is reserved: a dropped body is marked in `BLOBTAB`
+  ([F09 §6.3]), not in a payload. "Dropped" in §4.6's first bullet (a commit `gc` drops) and in a dropped body are two
+  different removals; the second never removes a record.

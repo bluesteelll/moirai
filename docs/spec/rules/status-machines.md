@@ -72,10 +72,13 @@ the last column is free prose, and every other cell holds one token (or a `, `-s
 `initial = yes` marks a status a `Create` may start in. The kind's **default** status — the one a `Create` without a
 status starts in, which the canonical form holds as absent ([F07 §6.3]) — is [F08 §9.1]'s "initial status (default)"
 column; it is the only `initial = yes` status of every kind but `artifact`, whose default is `present` (`planned` only
-through `link --planned`). The model checks that each default is an `initial = yes` status. `done` gives what the
-virtual field reads: `yes` or `no` for that status, `derived` for a kind whose `done` is a derived predicate independent
-of the status, and `absent` for a kind that has no `done`. `lattice` names the [RULES/merge-table] row of the same kind
-and status; the model checks at load that it exists and matches.
+through `link --planned`). A `rule` or a `decision` always starts in its default, `proposed`; GR-019 decides whether its
+creating statement moves it on at once (an owner-authority write while `knowledge.owner-authority` is
+`orchestrator-active`), and its op then carries the status it reached, since the canonical form holds only the default
+as absent (spec sync 3). The model checks that each default is an `initial = yes` status. `done` gives what the virtual
+field reads: `yes` or `no` for that status, `derived` for a kind whose `done` is a derived predicate independent of the
+status, and `absent` for a kind that has no `done`. `lattice` names the [RULES/merge-table] row of the same kind and
+status; the model checks at load that it exists and matches.
 
 <!-- table: statuses -->
 | row | kind | status | initial | done | lattice | basis | source | note |
@@ -94,12 +97,12 @@ and status; the model checks at load that it exists and matches.
 | ST-012 | note | `superseded` | no | absent | SL-012 | design | [AR §3.2] | - |
 | ST-013 | note | `retracted` | no | absent | SL-013 | design | [AR §3.2] | - |
 | ST-014 | note | `archived` | no | absent | SL-014 | design | [AR §3.2] | - |
-| ST-015 | rule | `proposed` | yes | absent | SL-015 | design | [AR §3.2] | - |
+| ST-015 | rule | `proposed` | yes | absent | SL-015 | design | [AR §3.2]; [AR §11] OQ-A-8 | The status every `Create` of a rule starts in; GR-019 moves an owner-authority one on to `active` in the same statement while `knowledge.owner-authority` is `orchestrator-active` (spec sync 3). |
 | ST-016 | rule | `active` | no | absent | SL-016 | design | [AR §3.2] | - |
 | ST-017 | rule | `superseded` | no | absent | SL-017 | design | [AR §3.2] | - |
 | ST-018 | rule | `retracted` | no | absent | SL-018 | design | [AR §3.2] | - |
 | ST-019 | rule | `archived` | no | absent | SL-019 | design | [AR §3.2] | - |
-| ST-020 | decision | `proposed` | yes | absent | SL-020 | design | [AR §3.2] | - |
+| ST-020 | decision | `proposed` | yes | absent | SL-020 | design | [AR §3.2]; [AR §11] OQ-A-8 | The status every `Create` of a decision starts in; GR-019 moves an owner-authority one on to `accepted` in the same statement while `knowledge.owner-authority` is `orchestrator-active` (spec sync 3). |
 | ST-021 | decision | `accepted` | no | absent | SL-021 | design | [AR §3.2] | "never edited after acceptance, only superseded". |
 | ST-022 | decision | `rejected` | no | absent | SL-022 | design | [AR §3.2] | - |
 | ST-023 | decision | `superseded` | no | absent | SL-023 | design | [AR §3.2] | - |
@@ -288,7 +291,7 @@ load that every row id cited here exists.
 <!-- table: door-roles -->
 | row | door | realized_by | basis | source | note |
 |---|---|---|---|---|---|
-| DG-001 | set-status | WS-001, WS-002, WS-007, WS-008, WS-009, WS-010, WV-018, WV-023 | design | [AR §7.3]; [50 §6.5]; [RULES/role-write-policy] `role-status` | Orchestrator and owner: every transition (WS-001, WS-002); critics and reviewers: `open → withdrawn` on findings of their own role; refuters: `open → confirmed` or `refuted`. `answer` is the owner's (WV-018); `run close` (WV-023) is the orchestrator's and owner's; `lane close` and `lane freeze` are DG-013's (spec sync 2b). The architect changes no status ([RULES/role-write-policy] OP-24). |
+| DG-001 | set-status | WS-001, WS-002, WS-007, WS-008, WS-009, WS-010, WV-018, WV-023, WR-015 | design | [AR §7.3]; [50 §6.5]; [RULES/role-write-policy] `role-status`; [OP-27] | Orchestrator and owner: every transition (WS-001, WS-002); critics and reviewers: `open → withdrawn` on findings of their own role; refuters: `open → confirmed` or `refuted`. `answer` is the owner's (WV-018); `run close` (WV-023) is the orchestrator's and owner's; `lane close` and `lane freeze` are DG-013's (spec sync 2b). The architect changes no status ([RULES/role-write-policy] OP-24). While `knowledge.owner-authority` is `strict`, WR-015 keeps the move of an owner-authority rule or decision into `active` or `accepted` for the owner, in a later block than its `Create` (spec sync 3). |
 | DG-002 | tx-complete | WS-004, WS-006, WX-008, WM-009 | design | [AR §6.2]; [50 §6.5] | Developer and tester on their leased task, orchestrator and owner on any; the lease presented must be the task's live lease. |
 | DG-003 | claim-start | WS-003, WS-005, WM-001, WM-002 | design | [AR §6.2]; [90 §4.3] | Self-claim roles on their own claim; the orchestrator's bulk claims. |
 | DG-004 | lease-first-write | WS-003, WF-007 | design | [AR §6.2] | The first `set` of the leased task under its lease; WS-003's note covers the implicit start. |
@@ -374,7 +377,8 @@ node's `at` in-edges); `store`.
 | GR-001 | no-transition | status-write | E404 | 6 | design | [AR §3.4] I8; [50 §3.10] item 5 | A status write on a core kind whose (kind, from, to, door) matches no `transitions` row is refused; the message names the door that exists, for example `REOPEN` for `done → open`. A project kind has no `transitions` rows; GR-018 decides its status writes (spec sync 2b). |
 | GR-002 | role-policy | status-write | E406 | 6 | design | [AR §7.3]; [50 §6.5]; [RULES/role-write-policy WR-009] | Whether the caller's effective role may make the transition is decided by [RULES/role-write-policy] (`door-roles` names the rows). A role row is usable only through a door that `transitions` lists for the transition. |
 | GR-005 | target-live | status-write | not_found | 3 | design | [AR §7.1] exit 3; [F19 §10.2] `not_found`; [API §9.1] | A status write on a deleted or absent node is "not found": [F19 §10.2] `not_found` with `what` = `node`, and the tombstone is printed ([RULES/delete-policy-matrix] DP-003). |
-| GR-006 | create-status | create | E404 | 6 | proposed | [50 §3.10] item 6; [OP-17] | A `Create` takes an initial status. A `Create` that names another status is checked as a path of `transitions` rows from an initial status to it, every step with its guards and a role grant; `CREATE (x:artifact …)` stays E115 ([50 §3.10]). |
+| GR-006 | create-status | create | E404 | 6 | proposed | [50 §3.10] item 6; [OP-17]; [OP-27] | A `Create` takes an initial status. A `Create` that names another status is checked as a path of `transitions` rows from an initial status to it, every step with its guards and a role grant; `CREATE (x:artifact …)` stays E115 ([50 §3.10]). For a `rule` or a `decision`, GR-019 decides the status the `Create` reaches instead, and a `Create` that names another status is refused (spec sync 3). |
+| GR-019 | knowledge-initial | create | E404 | 6 | design | [AR §11] OQ-A-8; [AR §7.1] "`#212 rule active critical … by orchestrator`"; [AR §7.3] orchestrator row; [AR §3.6] knowledge; [OP-27] | A `Create` of a `rule` or a `decision` starts in `proposed` (ST-015, ST-020). When it writes `authority = owner`, which [RULES/role-write-policy] WA-001 allows only to an owner-attested call with an `owner_quote` (WT-012: the orchestrator relaying the owner), and `knowledge.owner-authority` is `orchestrator-active` (the default, [CFG]), the same statement moves it on to `active` (rule, TR-026) or `accepted` (decision, TR-032), under that transition's guards and the owner's grant (WS-002): the net op is a `Create` in that status (GR-007), which carries the status because the canonical form holds only `proposed` as absent ([F07 §6.3]). Every other knowledge `Create` stays `proposed`: one written without the owner attestation, by the orchestrator or by any other role, agent or subagent, and, while the key is `strict`, an owner-authority one, which the owner confirms in a later write ([RULES/role-write-policy] WR-015). A `Create` of a rule or a decision that names a status other than the one this row gives is refused, naming GR-019 and the transition to use; a later statement of the same block that moves the node is a transition like any other (GR-001, GR-002, GR-007). A `note` (only `active`) and a `doc` (`draft`) have no `proposed` status; GR-006 decides their `Create` ([OP-27]). |
 | GR-007 | per-statement | tx | - | - | design | [50 §3.10] items 2, 5; [AR §4.3] coalescing | Statements are checked in order on the candidate; a guard sees the effects of earlier statements. The stored op is the net `SetStatus` per node, so `TX { REOPEN t; SET t.done = true }` on a done task stores no status op; its net changeset holds only GR-011's `reopen_count` increment. |
 | GR-008 | non-door | merge-history-import | - | - | design | [AR §5a.5]; [AR §5a.7]; [AR §5b.6]; [AR §3.4] I8 | Merge, `sync`, revert, cherry-pick, `undo`, `op restore` and import are not checked against `transitions` or the role write policy's status rows; I8 is checked on the resulting state: the status is one of the kind's `statuses` or a conflict value. |
 | GR-009 | done-true | set-status | E115 | 2 | design | [AR §3.1]; [50 §3.8]; [50 §5.2] E115 | `SET x.done = true` is the transition to `done` (task), `answered` (question) or `accepted` (verdict); on a kind whose `done` is `absent` it is E115. |
@@ -522,3 +526,21 @@ None. No transition, guard or grant depends on a value an M0 measurement decides
     [F18 §2.7] I-F7 lists only `file rm`, `links fix --drop`, `--same-as`, `--split` and deletion inference, and no
     `transitions` row let the door `settle` reach `removed`. TR-081 adds that transition as the automatic form of
     `--same-as`; [F18 §2.7] should list it (a spec finding of WP-92).
+27. **Owner-authority knowledge and the `proposed` status** (GR-019, GR-006, ST-015, ST-020; spec sync 3). **Decided**
+    by the owner on 2026-10-06 (OQ-A-8, option (c)): a config key that the spec names sets the status of owner-authority
+    knowledge. By default, owner-authority knowledge that the orchestrator writes with an owner quote is `active` at
+    once, and knowledge written by any other agent or subagent starts `proposed`; a strict value makes owner-authority
+    writes `proposed` until the owner confirms. The key is `knowledge.owner-authority`, with the values
+    `orchestrator-active` (the default) and `strict` ([CFG], [RULES/policy-keys] KY-167). This file applies the decision
+    as GR-019; [RULES/role-write-policy] WR-015 makes the confirmation under `strict` the owner's own write, and
+    [RULES/pack-classes] shows proposed records as proposed. Readings, for the review: (a) "knowledge" is the kinds
+    whose status set has `proposed`, `rule` and `decision`; a `note` has only `active` and a `doc` starts `draft`
+    ([F08 §9.1]), so neither changes, and whether a note that the capture pipeline writes needs a `proposed` status is a
+    format question that spec sync 3 raises. (b) "Written by the orchestrator with an owner quote" is an owner-attested
+    `Create` with `authority = owner`: WA-001 requires both the attestation and an `owner_quote` for a rule or a
+    decision, so every owner-authority rule or decision is such a write. (c) The orchestrator's own knowledge writes
+    without an owner quote start `proposed`: the decision's default takes option (a)'s rule, whose "every other
+    knowledge write starts `proposed`" covers them. (d) "Starts `proposed`" binds the `Create` itself: naming a later
+    status in it is refused, while a separate statement or command may move the node through the ordinary doors, and
+    under `strict` WR-015 keeps the move into `active` or `accepted` of an owner-authority record for the owner, in a
+    later block.

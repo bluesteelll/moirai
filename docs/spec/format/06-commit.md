@@ -2,24 +2,25 @@
 
 | | |
 |---|---|
-| Title | The commit record: the payload of a `Commit` log record — the header with its presence bitmap and every field of [AR §4.3], the unhashed fields of [50] F10, F14 and F16 and [90 §10.1]'s `actor_src`; the commit-kind and provenance enumerations, import-checkpoint included; the closed value set with R-1's `path`, `oid` and `pathmove`; every op with its before-image and `prev` delta, R-4's edge property block and anchor record included; the bodies a commit carries; bulk commits through `cs.<n>` |
+| Title | The commit record: the payload of a `Commit` log record — the header with its presence bitmap and every field of [AR §4.3], the unhashed fields of [50] F10, F14 and F16 and [90 §10.1]'s `actor_src`; the commit-kind and provenance enumerations, import-checkpoint included; the reserved provenance group ([AR §11] OQ-A-9); the closed value set with R-1's `path`, `oid` and `pathmove`; every op with its before-image and `prev` delta, R-4's edge property block and anchor record included; the bodies a commit carries and how a body is dropped ([AR §11] #33); bulk commits through `cs.<n>` |
 | Chapter | [F06], `docs/spec/format/06-commit.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-12a, the commit-record part of WP-12 ([PLAN §3.2] item 1), author role R-SPEC-F |
-| Sources | [AR §4.3] (the `Commit` body, the op list and coalescing, "Encoding and size", bulk commits, bodies in the log tail); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation tables for R4, R5, the audits and [90 §10.1]); [AR §4.5] steps 4, 7, 8 and 9 (candidate, re-parent, `#N` allocation, append); [AR §4.1] rows `cs.NNNN`, `blobs.NNNN` and rules; [AR §3.1] (field block and the closed type set; `CREATOR`); [AR §3.3] (edge properties, discriminator); [AR §5a.1] (commit content, schema version; ref fields); [AR §5a.2] (`ref_old`, `ref_seq`); [AR §5a.3] (sync residue); [AR §5a.5] (revert, cherry-pick, before-images); [AR §5a.7] steps 4, 7 and 8; [AR §5a.8] (conflict and violation classes); [AR §5b.4] (foreign and import-checkpoint ids, `hlc` rule, trailers, carrier table); [AR §5b.6] steps 2–5 (import flags, `verified`, stated parents); [AR §5b.7] (round-trip table: idempotency key hash); [AR §5d.1] (absorbed vectors); [AR §6.4] (idempotency, default keys); [40 §2.2] (artifact fields, `relink`), [40 §2.3], [40 §2.4] (`pathmove` and its `hlc`), [40 §2.7] (anchor record, `aN`, `captured`, `pred`), [40 §2.8], [40 §2.11] R-1, R-4, R-5, R-6, R-10; [50 §3.10] items 6, 8 and 11; [50 §4.4] (named-query definitions); [50 §8.1] F3, F10, F14, F15, F16, F18; [90 §4.1] (the actor row), [90 §4.2], [90 §10.1] (row "Commit header"); [60 §2.5] rows "Commit body" and "Ops and values", audit row "Commit body"; [PLAN §3.3] (the WP-12 gaps); reviews `a1-A.md` A-M2, `a1-S.md` S-03, S-04, S-09, S-19, S-20, `a1-P.md` A1P-12; [RULES/merge-table] open points 5, 9, 11, 18 and 20; [F17 §4.4] and OP-17-05; [OS/clock §7]; [LQ/canonical-ast §7.2] and its open points C-9, C-10 |
+| Sources | [AR §4.3] (the `Commit` body, the op list and coalescing, "Encoding and size", bulk commits, bodies in the log tail); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation tables for R4, R5, the audits and [90 §10.1]); [AR §4.5] steps 4, 7, 8 and 9 (candidate, re-parent, `#N` allocation, append); [AR §4.1] rows `cs.NNNN`, `blobs.NNNN` and rules; [AR §3.1] (field block and the closed type set; `CREATOR`); [AR §3.3] (edge properties, discriminator); [AR §5a.1] (commit content, schema version; ref fields); [AR §5a.2] (`ref_old`, `ref_seq`); [AR §5a.3] (sync residue); [AR §5a.5] (revert, cherry-pick, before-images); [AR §5a.7] steps 4, 7 and 8; [AR §5a.8] (conflict and violation classes); [AR §5b.4] (foreign and import-checkpoint ids, `hlc` rule, trailers, carrier table); [AR §5b.6] steps 2–5 (import flags, `verified`, stated parents); [AR §5b.7] (round-trip table: idempotency key hash); [AR §5d.1] (absorbed vectors); [AR §6.4] (idempotency, default keys); [40 §2.2] (artifact fields, `relink`), [40 §2.3], [40 §2.4] (`pathmove` and its `hlc`), [40 §2.7] (anchor record, `aN`, `captured`, `pred`), [40 §2.8], [40 §2.11] R-1, R-4, R-5, R-6, R-10; [50 §3.10] items 6, 8 and 11; [50 §4.4] (named-query definitions); [50 §8.1] F3, F10, F14, F15, F16, F18; [90 §4.1] (the actor row), [90 §4.2], [90 §10.1] (row "Commit header"); [60 §2.5] rows "Commit body" and "Ops and values", audit row "Commit body"; [PLAN §3.3] (the WP-12 gaps); reviews `a1-A.md` A-M2, `a1-S.md` S-03, S-04, S-09, S-19, S-20, `a1-P.md` A1P-12; [RULES/merge-table] open points 5, 9, 11, 18 and 20; [F17 §4.4] and OP-17-05; [OS/clock §7]; [LQ/canonical-ast §7.2] and its open points C-9, C-10; [AR §11] #33, OQ-A-7 and OQ-A-9 (spec sync 3); [90 §4.1] (the Model row) |
 | Depends on | [F01], [F02]; cites [F04], [F05], [F07], [F08], [F09], [F10], [F11], [F12], [F13], [F14], [F16], [F17], [F18], [F19], [F20], [API], [LQ/canonical-ast], [LQ/envelope], [OS/clock], [RULES/merge-table], [RULES/link-merge-rules] |
 
 ## 1. Scope
 
 This chapter specifies the **payload of a `Commit` log record**: every byte that follows the record's `RecHdr`. It owns:
 
-- the commit-kind, import-provenance, statement-origin and actor-source enumerations (§3);
+- the commit-kind, import-provenance, statement-origin, actor-source and actor-kind enumerations (§3);
 - the header part: the presence bitmap and every header field, hashed or not (§4);
 - the rules for values inside a commit; their bytes are [F08 §5]'s, which this chapter cites and never restates (§5);
 - the stored encoding of keys, key values, conflict values and node images (§6);
 - every op of the changeset, its before-image, its `prev` delta, the net form and the op order (§7); the edge property
   block and the anchor record the edge ops carry are [F08 §10.2] and [F08 §10.3]'s;
-- the bodies a commit record carries (§8);
+- the bodies a commit record carries, and what dropping a body's bytes means for every structure that names it (§8,
+  §8.1);
 - the `Commit` record of a bulk commit and what it requires of `cs.<n>` (§9).
 
 It does not own: the `RecHdr`, record validity, groups, the chain trailer and the record-kind code of `Commit` ([F05]);
@@ -71,7 +72,8 @@ Every rule below is tagged V or C.
 
 ## 3. Enumerations
 
-All four are `u8` ([F01 §5.4]). Values not listed are reserved and invalid (V).
+All five are `u8` ([F01 §5.4]). Values not listed are reserved and invalid (V), except `actor_kind`'s reserved range,
+which a reader accepts (§3.6).
 
 ### 3.1 Commit kind (hashed: canonical item 1)
 
@@ -140,17 +142,41 @@ rendering (`via tx.complete`, `via mcp.write`, `via file mv`) is [LQ/envelope §
 The value is the row of [90 §4.1]'s actor order that supplied the actor. `show --provenance` prints it; no other output
 does ([90 §4.2]).
 
+### 3.6 Actor kind: `actor_kind` ([AR §11] OQ-A-9; [90 §4.1]; not hashed)
+
+The first field of the provenance group (§4.4.17), reserved at M0 and filled from M9–M10.
+
+| value | name | the commit was written by |
+|---|---|---|
+| 1 | `owner` | the owner: an owner-attested call ([RULES/role-write-policy] WT-012) |
+| 2 | `orchestrator` | the orchestrating session, without the owner attestation |
+| 3 | `agent` | an agent in a session of its own: a worker the dispatcher started, a top-level harness session |
+| 4 | `subagent` | a subagent that a session spawned: a Claude Code subagent, a Codex thread other than its root |
+| 5 | `hook` | a hook acting for a session ([AR §7.2]) |
+| 6 | `tool` | a program acting with no agent: a script, a CI job, a git hook |
+| 255 | `other` | a writer the values above do not describe |
+
+Value 0 is invalid (V). Values 7–254 are reserved for kinds a later revision adds: a writer that follows this text never
+writes them, and a reader accepts them, renders the kind as `unknown(<n>)` and treats the record as valid. A reserved
+value is neither a V- nor a C-rule break, so a format-v1 reader, `doctor --verify` included, reads a commit that a later
+writer records under a new kind (spec sync 3, open point 37).
+
+The kind is declared, not attested, like the model id it travels with ([90 §4.1]): it informs a review and grants
+nothing, since rights come only from a presented lease ([90 §4.3]). The rule that derives it from the resolved caller
+([API §4.2]) is written with the writers that fill the group (M9–M10).
+
 ## 4. The `Commit` payload
 
 ### 4.1 Parts
 
 The payload is the byte string P that [F05] assigns to the record (its `RecHdr.len` minus the header and any padding
-[F05] defines). It consists of the **header part** (§4.3, orders 1–39) followed by the **changeset part** (§4.3, orders
-40–44) and, on a staged commit only, the **staging arguments** (order 45, §4.4.16). The fields fill P exactly (V): a decoder that ends before the end of P, or needs a byte beyond it, finds the
-record invalid (a V-rule break, with §2.4's consequence).
+[F05] defines). It consists of the **header part** (§4.3, orders 1–40) followed by the **changeset part** (§4.3, orders
+41–45) and, on a staged commit only, the **staging arguments** (order 46, §4.4.16). The fields fill P exactly (V): a decoder that ends before the end of P, or needs a byte beyond it, finds the
+record invalid (a V-rule break, with §2.4's consequence). Spec sync 3 inserted the provenance group at order 36, so the
+orders 36–45 of earlier texts are 37–46 here.
 
 The changeset part is the quantity `cs_bytes` of [F17 §4.4]: its byte length, from the first byte of `n_ops` to the end of
-order 44 (the end of P when bit `stage` is clear).
+order 45 (the end of P when bit `stage` is clear).
 
 ### 4.2 Presence bitmap
 
@@ -178,7 +204,8 @@ absent and takes no bytes.
 | 16 | `pruned` | the record is the header-only form of a commit that `gc` dropped (§4.4.15); only in a rewritten `hist` file (C); then `n_ops` = `n_bodies` = 0 and bits 15 and 17 are clear (V) |
 | 17 | `ckimg` | kind is `checkpoint`, the commit is inline, and its checkpoint tree holds at least one node file that differs from its parent checkpoint's tree: the image-only data of those node files follows (§4.4.14) (C); only with kind `checkpoint` and never with bit 15 (V). An inline checkpoint whose tree differs in no node file leaves the bit clear. A bulk checkpoint keeps the same data in its `cs.<n>` under the same condition (§9 BK-5, [F09 §16.4] `CKIMG`) |
 | 18 | `stage` | the commit is a staged `merge` or `sync` on a `merge/*` staging ref ([F12 §9.2], §9.4) and its command had a `--base`, a `--policy` or an effective `strict` of true (§4.4.16) (C); only with kind `merge` or `sync` and never with bit 16 (V); only on a ref of kind `merge` ([F05 §9.10] `rkind` 3) (C) |
-| 19–31 | — | reserved-zero ([F01 §10]) (V) |
+| 19 | `prov` | the commit records its writer's provenance, the actor kind and the declared model id (§4.4.17) (C); only with `import = local` (V). Reserved at M0 (OQ-A-9): writers leave it clear until M9–M10 fill the group, and a decoder reads the group whenever the bit is set |
+| 20–31 | — | reserved-zero ([F01 §10]) (V) |
 
 ### 4.3 Sequence
 
@@ -221,16 +248,17 @@ The "hashed" note names the canonical item ([AR §4.6]) a field feeds; every oth
 | 33 | `stmt_sym` | `uvar32` | always | symbol, class `stmt` (§3.4); 0 = none |
 | 34 | `stmt_hash` | `b16` | bit `stmt_hash` | §3.4 |
 | 35 | `append_delta` | `svar64` | always | `append_hlc − hlc` (§4.4.5) |
-| 36 | `msg` | `vstr`, length 1 to 65,535 | bit `msg` | the message, normalised at write time ([F07]; hashed: item 6) |
-| 37 | `affected` | §4.4.13 | bit `affected` | the change-feed set and its completeness flag ([50] F15, F16) |
-| 38 | `changeset_digest` | `b32` | always | BLAKE3-256 of canonical item 10 ([F07]) (item 10 enters `commit_id` through it) (C, as order 2) |
-| 39 | `cs_ref` | (`file` `uvar32`, `len` `uvar64`, `b3` `b16`) | bit `cs_ref` | the sealed changeset file of a bulk commit (§9) |
-| 40 | `n_ops` | `uvar32` | always | number of ops; 0 when bit `cs_ref` or `pruned` is set (V) |
-| 41 | `ops` | `n_ops` × op (§7) | always | the stored changeset in net form (§7.8) and op order (§7.9) |
-| 42 | `n_bodies` | `uvar32` | always | number of carried bodies; 0 when bit `cs_ref` or `pruned` is set (V) |
-| 43 | `bodies` | `n_bodies` × body entry (§8) | always | the bodies this commit carries |
-| 44 | `ckimg` | §4.4.14 | bit `ckimg` | an import-checkpoint's image-only data (not hashed) |
-| 45 | `stage` | §4.4.16 | bit `stage` | the staged merge's own arguments, which `merge --continue` re-uses (not hashed) |
+| 36 | `prov` | §4.4.17 | bit `prov` | the writer's actor kind and declared model id (not hashed; spec sync 3) |
+| 37 | `msg` | `vstr`, length 1 to 65,535 | bit `msg` | the message, normalised at write time ([F07]; hashed: item 6) |
+| 38 | `affected` | §4.4.13 | bit `affected` | the change-feed set and its completeness flag ([50] F15, F16) |
+| 39 | `changeset_digest` | `b32` | always | BLAKE3-256 of canonical item 10 ([F07]) (item 10 enters `commit_id` through it) (C, as order 2) |
+| 40 | `cs_ref` | (`file` `uvar32`, `len` `uvar64`, `b3` `b16`) | bit `cs_ref` | the sealed changeset file of a bulk commit (§9) |
+| 41 | `n_ops` | `uvar32` | always | number of ops; 0 when bit `cs_ref` or `pruned` is set (V) |
+| 42 | `ops` | `n_ops` × op (§7) | always | the stored changeset in net form (§7.8) and op order (§7.9) |
+| 43 | `n_bodies` | `uvar32` | always | number of carried bodies; 0 when bit `cs_ref` or `pruned` is set (V) |
+| 44 | `bodies` | `n_bodies` × body entry (§8) | always | the bodies this commit carries |
+| 45 | `ckimg` | §4.4.14 | bit `ckimg` | an import-checkpoint's image-only data (not hashed) |
+| 46 | `stage` | §4.4.16 | bit `stage` | the staged merge's own arguments, which `merge --continue` re-uses (not hashed) |
 
 ### 4.4 Field rules
 
@@ -442,6 +470,26 @@ byte for byte. A staged `revert` or `cherry-pick` never carries it: those comman
 `--strict` ([API §11.10]). The group is store-local: staged commits are never exported ([AR §5b.4]) and the group is
 not hashed (§4.5).
 
+#### 4.4.17 `prov`: the writer's provenance ([AR §11] OQ-A-9; spec sync 3)
+
+Reserved before the format freeze so that the capture pipeline of [AR §11] OQ-A-10 can record who wrote a commit without a
+format change; M9–M10 fill it. The group is:
+
+| order | name | encoding | present when | meaning |
+|---|---|---|---|---|
+| 1 | `actor_kind` | `u8` | always | §3.6: 1–6 and 255 `other`; 0 invalid (V); 7–254 reserved, accepted and rendered `unknown(<n>)` |
+| 2 | `model` | `uvar32` | always | symbol, class `model` ([F01 §8.2]): the declared model id the resolver returned ([90 §4.1] Model row, [API §4.2] CX-6), as written, 1 to 128 bytes (C); 0 = none declared |
+
+- **Declared, not attested.** Both fields record what the caller declared ([90 §4.1]). They grant nothing and no rule
+  reads them; `show --provenance` prints them beside `actor_src`, and no other output does ([90 §4.2]).
+- **Not hashed** (§4.5), as `actor_src` is not: the same change written under another model id or actor kind has the
+  same commit id, and an undeclared or mis-declared model never splits one change into two commits.
+- **Store-local.** The git image does not carry the group ([F14 §12.5]); an imported commit never has it (bit 19 only
+  with `import = local`, V). A re-parent ([AR §4.5] step 7) keeps it.
+- **Until M9–M10** a writer leaves bit 19 clear (C). A format-v1 decoder decodes the group whenever the bit is set, with
+  the V-rules above, so a commit an M9–M10 writer appends is readable by every format-v1 reader. The group adds at most 6
+  bytes.
+
 ### 4.5 Hashed and unhashed fields
 
 | Canonical item ([AR §4.6]) | Field(s) of this record |
@@ -459,18 +507,19 @@ not hashed (§4.5).
 
 Every other field is **not hashed**, exactly [AR §4.6]'s list: `lsn` and `parents[].lsn`, `seq`, `gen`, `ref`, `ref_id`,
 `ref_old`, `prev_on_ref`, `ref_seq`, symbol numbers, `import`, `verified`, the idempotency pair, `absorbed`, `affected`
-and `affected_complete`, `stmt_origin`, `stmt_sym`, `stmt_hash`, `append_hlc`, `actor_src`, `ckpt`, `xtr`, `cs_ref`,
-`ckimg`, `stage`, the `pruned` bit, and,
+and `affected_complete`, `stmt_origin`, `stmt_sym`, `stmt_hash`, `append_hlc`, `actor_src`, `prov` (§4.4.17), `ckpt`,
+`xtr`, `cs_ref`, `ckimg`, `stage`, the `pruned` bit, and,
 inside the changeset part, every `#N`, `aN`, `prev`, before-image, `Violation` op, `creator` of a `Create`, and anchor
-quote, prefix, suffix and `end` text (their digests are hashed, R-10).
+quote, prefix, suffix and `end` text (their digests are hashed, R-10). A body's bytes are never hashed: its key's
+value is its hash (§6.2), which is why a body can be dropped without changing any id (§8.1).
 
 ### 4.6 Size and the one-extent rule
 
 - **Header part bound.** With every group present, the header part is at most
-  `659 + 10·A + M + 5·F` bytes, where A is `n_absorbed`, M the message length and F `affected_len` (each varint at its
-  bound's maximum length, [F01 §5.2]; groups that cannot co-occur are counted anyway). It is the largest non-changeset
-  part of a `Commit` record ([F17] OP-17-05). The changeset part is `cs_bytes`. The staging arguments (order 45) add at
-  most 33 bytes.
+  `665 + 10·A + M + 5·F` bytes, where A is `n_absorbed`, M the message length and F `affected_len` (each varint at its
+  bound's maximum length, [F01 §5.2]; groups that cannot co-occur are counted anyway; the provenance group of §4.4.17
+  adds 6 to spec sync 2b's 659). It is the largest non-changeset part of a `Commit` record ([F17] OP-17-05). The
+  changeset part is `cs_bytes`. The staging arguments (order 46) add at most 33 bytes.
 - *(Informative)* A typical local agent commit — one parent, git provenance with SHA-1, a key, a named mutation, 2–4
   affected ids, a 20-byte message and one small op — has a header part of ≈ 230–250 B; §11 shows one without git
   (194 B).
@@ -991,7 +1040,7 @@ looks for; [F07] sorts canonically by uid and names.
 ## 8. Bodies carried by a commit
 
 A body travels in the log tail with a codec byte and is sealed into `blobs.<n>` at a checkpoint ([AR §4.3], [AR §4.9]).
-The `bodies` of a record (§4.3 order 43) are:
+The `bodies` of a record (§4.3 order 44) are:
 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
@@ -1010,11 +1059,104 @@ The `bodies` of a record (§4.3 order 43) are:
   `SetBody.new`, the body entry of a `Create` or `Undelete` image, a body side of a `Conflict`, a body `Resolve.new` —
   unless the body is **available**: listed in the `BLOBTAB` of the segment set published in the `HEAD` slot the writer read
   under the writer byte before appending, or carried by an earlier `Commit` record after that set's `upto_lsn`.
-  Before-images are never carried.
+  Before-images are never carried, and neither is a dropped body (§8.1 DB-7).
 - **BD-5** (C) A record carries no body that none of its ops references.
 - **BD-6 Obligation on [F16] and [F09]** (C). A checkpoint or GC that publishes a segment set S with bound u keeps in S's
-  `BLOBTAB` every body that a `Commit` record after u references without carrying it; a reader resolves a body hash first
-  through the tail records after its segment set's bound, then through `BLOBTAB`.
+  `BLOBTAB` every body that a `Commit` record after u references without carrying it, except a dropped one (§8.1); a
+  reader resolves a body hash first against the dropped set (§8.1 DB-6), then through the tail records after its segment
+  set's bound, then through `BLOBTAB`.
+
+### 8.1 Dropped bodies ([AR §11] #33; OQ-A-7, spec sync 3)
+
+History is never erased: a leaked secret is retracted and rotated ([AR §11] #33). The one removal the format allows is to
+drop the **bytes** of a body while every structure keeps its **hash**. A commit id covers a body only through that hash:
+the body key's value — in an op, a node image, a conflict side and canonical item 10 alike — is the BLAKE3-128 of the raw
+stored bytes (§6.2, §6.3, [F07 §6.3]), and no hashed field holds the bytes. So the bytes can go while every `commit_id`,
+`changeset_digest` and state digest ([API §15.6]) stays valid.
+
+- **DB-1 The drop record.** A drop is one `BodyDrop` record ([F05 §9.29], record kind 29; durable; [F05] fixes its
+  group) that names one or more body hashes, the reason (DB-2), the owner's note, the dropping actor and its origin:
+  `command` for the owner's drop (DB-3) or `import` for an image's (DB-11; [F05 §9.29] "Origin"). From the publish that
+  covers it on, each named hash is **dropped** in this store. The store's **dropped set** is the hashes of the `DROPPED`
+  table of the segment set ([F11 §13.4], store-level, section tag `0x020D`, [F09 §3.1]), into which a checkpoint folds
+  the records, and of every `BodyDrop` record of the valid log after that set's bound. A drop is permanent: format v1
+  has no record that undoes it.
+- **DB-2 Reason** (`u8`; values not listed are invalid, V, in the `BodyDrop` record and in the `DROPPED` row alike):
+
+  | value | name | meaning |
+  |---|---|---|
+  | 1 | `secret` | a credential, key or token that has been or is being rotated: #33's retract-and-rotate case |
+  | 2 | `private` | personal or private data written by mistake, owner-derived data included |
+  | 3 | `other` | any other reason; the note says which |
+
+- **DB-3 Who drops.** Only the owner. [API §8.7] `BodyDrop` (the CLI verb `moirai body drop`) is the one command that
+  writes the record, and it refuses every call that is not owner-attested ([RULES/role-write-policy] WT-012; E406,
+  exit 6). No MCP tool, hook, `TX` statement or `apply` batch carries it. The only other writer is an import that meets
+  a dropped body in an image (DB-11), which records a fact of the image, not a choice, and never drops bytes its store
+  holds.
+- **DB-4 What can be dropped.** Only a body (blob class `body`, [F10 §5.3]) whose hash the store holds: carried by a
+  `Commit` record (§8) or named by a `BLOBTAB` entry ([F09 §6.3]). A hash already dropped is left out of a new record, and a
+  drop that names only such hashes writes nothing. A title, a field, a message, an anchor text and every other value whose
+  text a commit id hashes cannot be dropped: its bytes are part of the id ("no erase").
+- **DB-5 Ids are unchanged.** A drop appends no `Commit`, moves no ref and changes no commit id, `changeset_digest`,
+  `stmt_hash`, idempotency pair, state digest or conflict value: each holds the hash, which stays.
+- **DB-6 Readers.** A reader that resolves a body hash (BD-6, [F10 §5.5]) first looks it up in the dropped set of its view
+  (the `DROPPED` table of its segment set and the `BodyDrop` records after that set's bound) and, when it is there, reads
+  no bytes, even while a file still holds them (DB-8). A dropped body is still the node's body: its key keeps its value and
+  the node keeps its `body_ref`. Where a result would print the bytes it prints the line `[body dropped: <reason>]`
+  instead ([LQ/envelope §5.16]; in JSON `{"dropped":"<reason>"}`, [LQ/envelope §7.3]), and a diff row prints
+  `body dropped` in place of its line counts ([LQ/envelope §5.8]). In an LQ expression its text reads `absent`, and
+  full-text search indexes it as no text ([F09 §12]). A reader whose view was opened before the drop's publish may still
+  print the body until its view moves on.
+- **DB-7 Writers.** (a) A dropped hash is never carried (BD-4): a record that introduces it as a new value — a merge, a
+  sync, a revert or a cherry-pick, which work on hashes — carries no entry for it. (b) A write that supplies body bytes
+  whose hash is dropped — `SET n.body`, a creating write with a body, the result of a `PATCH` — is refused with
+  `body_dropped` (exit 6, [F19 §10.2]), so a dropped text is never stored again; an import is the exception (DB-11).
+  (c) A `PATCH` of a dropped body is refused with `body_dropped`: its `$old` cannot be matched against bytes the store
+  does not have. (d) A merge whose text rule needs a dropped body's lines gives the key a `TextHunk` conflict value
+  instead ([F12 §7.5]).
+- **DB-8 Purging the bytes.** After a record of origin `command` is published, the purge removes the bytes from every
+  store file, under the maintenance byte, by steps that [F16] P-101 fixes; the format fixes the end state. A record of
+  origin `import` names no bytes the store holds and needs no purge (DB-11). When the purge completes:
+  - no `blobs` file holds a blob of class `body` whose hash is dropped ([F10 §5]), and every `BLOBTAB` entry of a dropped
+    hash is a dropped `BlobRef` ([F09 §6.3]: `file`, `off`, `len` and `raw_len` zero);
+  - no `Commit` record of a `hist` file carries a body entry whose hash is dropped: retirement leaves such entries out of
+    the records it keeps ([F10 §4.1]), and the purge rewrites every older `hist` file that holds one ([F10 §4.6]), each
+    with `RecHdr.len` and `RecHdr.xxh3_64` recomputed ([F05]);
+  - no log extent holds them: the purge rotates to a new extent and checkpoints, so every extent that carries one can be
+    retired ([F05 §2.5]) and deleted;
+  - no graph segment's full-text sections hold a posting of a dropped body ([F09 §12]);
+  - every live dictionary is replaced by one trained on a sample that holds no dropped body, and every `blobs` file coded
+    with a replaced dictionary is rewritten ([F10 §6.3]);
+  - these hold for every file of the store: the files of a pinned checkpoint set included (the purge moves each pin to the
+    replacement files, [F11 §4]), and no leftover file under `tmp/` holds the bytes ([F02 §5.3]);
+  - every file the purge replaced, and every extent it retired, is deleted after the two-slot `HEAD` barrier, without the
+    deletion grace ([F16] P-101 step 8).
+
+  `trash/` holds project files that `file rm --trash` moved aside ([F02 §5.4]), never store files, so a drop does not
+  touch it; a project file that holds the secret is the owner's to remove.
+
+  The purge is class I ([F17 §1.5] SP-1): it changes no result. A purge cut short by a crash or a refusal is finished by
+  the next `BodyDrop`, `gc` or `backup`, or by the rebuild of [F16] P-75, since the dropped set is durable.
+- **DB-9 A record without its dropped entries.** A `Commit` record from which retirement or a purge removed body entries
+  is otherwise byte-identical: its `commit_id`, `changeset_digest` and every other field stay valid, BD-1's order holds
+  after a removal, and BD-4 does not apply to a dropped hash, so the record is valid. Such a record occurs only in `hist`
+  files; the log itself is never rewritten.
+- **DB-10 What a drop does not reach.** Copies outside the store's files: backups taken before the drop ([F05 §9.13];
+  a backup taken after it runs a pending purge first, [F16] P-87; `BodyDrop`'s result lists the `BACKUPS` directories
+  older than the newest record that names one of its hashes, [API §8.7], so the owner can delete them), git images
+  exported before it ([F14]; no git history is rewritten), other stores that imported the body, and the freed sectors of
+  deleted files. The hash stays in every commit, so a body of low entropy (a short PIN) can be recovered from it by trial.
+  The remedy for a leaked secret is to rotate it; the drop stops the store from serving it.
+- **DB-11 Export and import.** A node file of a dropped body carries its hash and reason in place of the body section
+  ([F14 §6.9]), so a native commit's `Moirai-Commit` hash still verifies after export; the image tree of a commit is then a
+  function of its state and of the exporting store's dropped set. An importer stores no bytes for such a body. For a hash
+  its store neither holds (DB-4) nor has dropped, and whose bytes the import supplies nowhere, it records the hash as
+  dropped by a `BodyDrop` record of origin `import` with the image's reason, an empty note and the importing command's
+  actor, appended no later than the first imported commit that names it ([F05 §9.29], [F16]). For a hash its store holds,
+  it takes the hash as the body key and keeps the bytes: only the owner's drop (DB-3) drops held bytes, so an import's
+  record leaves nothing to purge (DB-8). An importer that meets bytes whose hash its store has dropped (an image older
+  than the drop) stores none of them and does not refuse the import.
 
 ## 9. Bulk commits
 
@@ -1057,8 +1199,8 @@ of the record.
 ## 10. Validation summary
 
 A decoder of a `Commit` payload (the product codec, the format oracle, `doctor --fsck`) checks every V-rule: §3.1–§3.3,
-§4.1, §4.2 (reserved bits, presence against kind and import), §4.3 (orders 3, 5, 26, 40, 42), §4.4.3, §4.4.5, §4.4.6,
-§4.4.9–§4.4.16, §5.1–§5.5 with [F08 §5]'s value rules, §6.1–§6.3, §7.1–§7.9 with [F08 §10.2]–§10.3's block and record
+§4.1, §4.2 (reserved bits, presence against kind and import), §4.3 (orders 3, 5, 26, 41, 43), §4.4.3, §4.4.5, §4.4.6,
+§4.4.9–§4.4.17, §5.1–§5.5 with [F08 §5]'s value rules, §6.1–§6.3, §7.1–§7.9 with [F08 §10.2]–§10.3's block and record
 rules, §8 BD-1 and BD-2's length rule, §9 BK-1, and [F01]'s encoding rules (canonical varints, UTF-8, `bool8`). The
 C-rules are checked by `doctor --verify`, the model and the gates (§2.4).
 
@@ -1124,6 +1266,8 @@ The payload is 205 bytes, 237 with the 32-byte `RecHdr` ([AR §4.3]'s estimate: 
 | [50] F17 (`ALLOC`) | only the `Create` inputs (`uid`, `#N`); the index is [F11]'s | §7.4 |
 | [50] F18 (`QueryInvalid`, `QueryCycle`) | the `Violation` op that carries a class; the enumeration is [F12]'s | §7.7 |
 | [90 §10.1] row "Commit header" (`actor_src`) | complete | §3.5, §4.3 |
+| [AR §11] #33 and OQ-A-7 (no erase; bodies droppable by hash without changing commit ids) | what a drop is and who makes it, the reason enumeration, the reader, writer and merge rules, the purge's end state and a record without its dropped entries; the `BodyDrop` record is [F05 §9.29]'s, the `DROPPED` table [F11 §13.4]'s, the dropped `BlobRef` [F09 §6.3]'s, the retirement and rewrite rules [F10]'s, the purge's steps [F16] P-101's, the invariant [F13 §3.10] I-D1's, the image line [F14 §6.9]'s, the verb [API §8.7]'s | §8, §8.1 |
+| [AR §11] OQ-A-9 (a provenance field in the commit header) | reserved: presence bit 19, the group at order 36 and the actor-kind enumeration; the `model` symbol class is [F01 §8.2]'s; filled from M9–M10 | §3.6, §4.2, §4.3, §4.4.17 |
 
 No X-F item of [80 §3] is specified here.
 
@@ -1140,7 +1284,8 @@ changing any width or presence rule: [F10]'s codec-byte values (the `codec` byte
      natively arrives as `native` with kind 5 (§3.3).
    - *Foreign-commit `hlc` unit*: seconds × 1000, then `<< 16` (§4.4.4). [AR §5b.4] and [AR §2.15] write
      `committer_time << 16`, which puts seconds into the millisecond bits; the review should correct both texts at WP-81a.
-   - *F10, F14, F16 and `actor_src` in the header*: placed at orders 31–37 (§4.3).
+   - *F10, F14, F16 and `actor_src` in the header*: placed at orders 31–35 and 38 (§4.3; 31–37 before spec sync 3
+     inserted `prov` at 36).
    - *The length-prefix scheme and the value encodings of canonical items* belong to [F07] (WP-12's other chapter). This
      chapter fixes the **stored** value encodings (§5) that [F07] maps.
 2. **Header fields missing from [AR §4.3].** [AR §5a.1] lists the schema version in the commit header and [AR §4.6] hashes
@@ -1249,7 +1394,7 @@ changing any width or presence rule: [F10]'s codec-byte values (the `codec` byte
     of a lane that created and deleted a node and a checkpoint import produce, had no op. A new op tag was chosen over a
     flag on `Delete`, so `Delete`'s layout and its NF-5 folding stay as they were. Its inverse is none (§7.10).
 30. **The header-only form** (§4.4.15, presence bit 16; pass 1, S1-21, A1-5) and **the image-only data of an
-    import-checkpoint** (§4.4.14, presence bit 17, order 44; pass 1, S1-23, A1-10). The latter lets gate 2 reproduce a
+    import-checkpoint** (§4.4.14, presence bit 17, order 45 since spec sync 3; pass 1, S1-23, A1-10). The latter lets gate 2 reproduce a
     checkpoint tree's provenance and ledger lines; [F09 §16.4] carries the same entries for a bulk checkpoint (BK-5).
 31. **Key classes share [F07]'s numbering** (§6.1; pass 1, A1-46). The `ckey` classes were 0–8 in another order; they are
     now [F07 §6.1]'s codes 1–8 with `schema` 9, and the op order's ranks follow. [F12 §6.2] cites the new values; [F11 §10]
@@ -1272,10 +1417,37 @@ changing any width or presence rule: [F10]'s codec-byte values (the `codec` byte
     proposes and DM-017 reads. §7.10 also states that a `Delete`'s inverse is an `Undelete` ([AR §5d.3],
     [RULES/delete-policy-matrix §9]); "`Create` ↔ `Delete` … and back" read as if a revert of a delete re-created the
     node.
-36. **Spec sync 2b.** Presence bit 18 and order 45, `stage` (§4.4.16): a staged `merge` or `sync` records its
+36. **Spec sync 2b.** Presence bit 18 and order 45 (46 since spec sync 3), `stage` (§4.4.16): a staged `merge` or `sync` records its
     command's `--base`, policy override and effective `strict`, which [F12 §9.4] step 1 re-uses (the contested row of
     [F12] open point 30 (a)); absent means none, none and false, so the staged commit of `fixtures/hex/` store A stays
     valid. NF-3 stores a `Resolve` on a staging ref even when `new` equals `old`. `Resolve.choice` 5 `drop` (a flagged
     edge, [F12 §6.5]). `item_key` is [F08 §8.5]'s stored key form (names joined by `00`), and `item_class` 6 is a policy
     row. `commit_id` and `changeset_digest` are tagged C (their correctness needs the symbols and states the record
     names; [F07 §12]). The default idempotency key hashes the command's branch too ([API §7.2]).
+37. **Spec sync 3** ([AR §11] #33, OQ-A-7 and OQ-A-9, decided 2026-10-06).
+    - **Dropped bodies** (§8.1; OQ-A-7 (a)). #33 allows one removal: a body's bytes, by hash, with commit ids unchanged.
+      The ids were already safe, since every structure that a commit id covers holds a body's BLAKE3-128 and not its
+      bytes; what was missing was the record that a body was dropped, the reader rule and the purge. Choices made here:
+      the drop is a store-wide fact keyed by hash (bodies are shared across branches and history by hash), recorded by a
+      durable record and folded into a store-level table, rather than a marker inside each `Commit` record's body entry,
+      which would need a reserved codec byte ([F10 §3.1]) and still a table for the bodies that `BLOBTAB` holds; a
+      record that loses an entry stays valid because BD-4 exempts a dropped hash (DB-9). The verb is owner-only and
+      CLI-only. A write that re-supplies a dropped text is refused, so an agent's retry or a replayed payload cannot
+      store a rotated secret again; a merge that would need the text stages `TextHunk` ([F12 §7.5]). The drop has no undo
+      in format v1. What other chapters add (spec sync 3, R-SPEC-P's and R-SPEC-R's rows): the `BodyDrop` record kind 29
+      ([F05]) and its place in the HLC sequence ([F16] P-36, [OS/clock §7]); the `DROPPED` table ([F11]) and its section
+      tag `0x020D` ([F09 §3.1]); the dropped `BlobRef` ([F09 §6.3]) and full-text indexing as no text ([F09 §12]);
+      retirement and the `hist` rewrite without dropped entries, and the purge's `blobs` and `cs.<n>` rewrites ([F10]);
+      the purge's steps and the reader check ([F16]); the image's dropped-body line and the import rule ([F14]); an
+      invariant and its `doctor --fsck` check ([F13]); and R-MODEL's rows (the verb's role-policy row, the text cases
+      and PR-016 of [RULES/merge-table]).
+    - **Provenance** (§3.6, §4.4.17; OQ-A-9 (a)). Presence bit 19 and the group at order 36: `actor_kind` (six kinds
+      and 255 `other`) and `model` (a symbol of the new class `model`, [F01 §8.2]), both declared and not attested. Not
+      hashed, as `actor_src` is not, and not exported. Reserving it now costs no byte in a commit that leaves the bit
+      clear; adding it after the freeze would be a format change ([90 §4.2]). The group sits in the header part, beside
+      the other unhashed provenance fields, so a reader of headers never walks the changeset to reach it; the orders after
+      it moved by one (36–45 became 37–46, §4.1), which changes no byte of any record. `actor_kind`'s values 7–254 are
+      reserved and accepted by every reader rather than invalid (independent check of spec sync 3): a closed V-set would
+      make a later kind, such as a pipeline or harvester actor at M9–M10, a format change that format-v1 readers refuse,
+      which is what reserving the field before the freeze avoids. They are not a C-rule either, since a C-rule break is a
+      corruption finding of `doctor --verify`. Value 0 stays invalid, so a zero byte is never read as a kind.

@@ -6,7 +6,7 @@
 | Chapter | [LQ/std], `docs/spec/lq/std.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-19b (R-SPEC-F), part of WP-19 of [PLAN §3.2] item 1 |
-| Sources | [50 §4.1]–[50 §4.4] (catalog, definitions, write verbs, pack and brief inputs, project named queries), [50 §2.6] (built-ins and table functions), [50 §3.5], [50 §3.8]–[50 §3.10], [50 §5.10] (budget classes), [50 §6.1] (argv forms), [50 §6.3] (MCP `query` and `write`), [50 §7.4] item 3; [AR §2.11] (the `find` filters), [AR §3.2]–[AR §3.6] (fields, edges, derived state, status machines), [AR §6.2] (claims, `complete`), [AR §7.1] (verbs), [AR §7.2], [AR §7.3], [AR §7.4] (pack classes C1–C8, brief), [AR §7.7.2]; [40 §6.3] (the file-link named mutations), [40 §6.5]; [90 §4.3], [90 §6.6] (`"k=v"` parameters); the WP-80a re-review files `reviews/a1-A.md` (A-m2, A-m5, A-m6) and `reviews/a1-S.md` (S-05, S-07); [LQ/grammar-v1.ebnf §P.1] and O-4, O-5; [LQ/lexical §4.2], §9 |
+| Sources | [AR §11] OQ-A-8 (c) and #46 (spec sync 3: proposed records in packs and the brief, the reserved work lists); [50 §4.1]–[50 §4.4] (catalog, definitions, write verbs, pack and brief inputs, project named queries), [50 §2.6] (built-ins and table functions), [50 §3.5], [50 §3.8]–[50 §3.10], [50 §5.10] (budget classes), [50 §6.1] (argv forms), [50 §6.3] (MCP `query` and `write`), [50 §7.4] item 3; [AR §2.11] (the `find` filters), [AR §3.2]–[AR §3.6] (fields, edges, derived state, status machines), [AR §6.2] (claims, `complete`), [AR §7.1] (verbs), [AR §7.2], [AR §7.3], [AR §7.4] (pack classes C1–C8, brief), [AR §7.7.2]; [40 §6.3] (the file-link named mutations), [40 §6.5]; [90 §4.3], [90 §6.6] (`"k=v"` parameters); the WP-80a re-review files `reviews/a1-A.md` (A-m2, A-m5, A-m6) and `reviews/a1-S.md` (S-05, S-07); [LQ/grammar-v1.ebnf §P.1] and O-4, O-5; [LQ/lexical §4.2], §9 |
 | Depends on | [LQ/grammar-v1.ebnf], [LQ/lexical], [LQ/canonical-ast] (argument naming, lookup order), [LQ/envelope] (shapes), [LQ/errors], [F08] (fields, F1, F3), [F11] (`LEASES`, `MARKERS`), [F12] (conflict keys), [F18] (R-16, R-17) |
 
 ## 1. Scope
@@ -256,6 +256,34 @@ renewal, a cursor) are no entries.
   keeps this order among ties.
 - `relevant_to` of an absent `node` is false.
 
+2.16. **Reserved built-ins (M9–M10)** (spec sync 3; [AR §11] #46). The work-list queries of §4.25 need three built-ins
+that M9–M10 add to §2.9–§2.12 with the queries. Their names and contracts are fixed here; until then the binder does
+not know them, so a text that names one is refused as an unknown function, relation or property is today (E109, E101).
+Each is deterministic: a function of the view (and, for `harvest()`, of the runtime table it reads), with no embedding,
+corpus statistic, clock or randomness.
+- **`body_bytes`** (built-in node property; every kind; `int`; class derived; never absent): the byte length of the
+  node's body ([F08 §7.2]); 0 when it has none and for a dropped body, whose text LQ reads as absent ([F06 §8.1] DB-6).
+  Reading it never reads the body's bytes, so it is not a body scan (W04).
+- **`similar(n: node, min: float = 0.5)`** (relation) yields `node` node, `score` float, `shared` int, `rank` int: the live
+  records that resemble n.
+  - The **terms** of a node x, d(x), are the set of terms that tokenizer v1 ([F09 §12.1]) gives for x's `title`, its
+    `abstract` and its kind's text field: `text` of a rule, `what` of a decision, `failure_scenario` of a finding; a note
+    contributes its title and abstract only (bodies are opt-in, [AR §2.11]). Multiplicity is ignored.
+  - The **candidates** are the live nodes y ≠ n of n's kind on the view whose status is open for review: a rule
+    `proposed` or `active`, a decision `proposed` or `accepted`, a note `active`, a finding `open`, `confirmed` or
+    `deferred`. For n of any other kind the relation yields no row.
+  - y yields a row when `shared` = |d(n) ∩ d(y)| ≥ 2 and J = |d(n) ∩ d(y)| / |d(n) ∪ d(y)| ≥ `min`. J is compared and
+    ordered as an exact rational; the `score` column is J rounded half-even to 3 decimals, as `search()`'s score is
+    ([LQ/envelope §5.2]); `rank` numbers the rows from 1 in the order (J descending, then y's `#N` ascending).
+  - Work: one unit per term compared; the engine may take the candidates from the full-text postings ([F09 §12]), the
+    model compares every candidate.
+- **`harvest()`** (relation; runtime, so its readers are live, §2.5) yields one row per row of the store-local harvest
+  table ([API §8.8]): `source` text, `path` text, `head` text (32 hex), `seen` int, `done` int, `next` int, `lost` int,
+  `ranges` int. `done` is the number of bytes the live ranges cover; `next` the end of the run of live ranges that starts
+  at byte 0 (0 when none does), the offset where the next batch starts; `lost` the number of bytes that lost ranges
+  cover and no live range does; `ranges` the number of ranges. A range is live when its batch commit is reachable from
+  a live ref, and lost otherwise.
+
 ## 3. The read catalog
 
 | Name | Signature | Shape | Order | Class | Cursor | Verb alias ([AR §7.1]) |
@@ -287,10 +315,26 @@ renewal, a cursor) are no entries.
 | `files_removed` | `$scope: node?` | links | node | medium | pinned | — |
 | `files_replaced` | `$scope: node?` | links | node | medium | live | — |
 | `root_moves` | `$root: text = 'project'` | table | hlc, from, to | light | pinned | — |
+| `proposed` | `$scope: node?, $kind: text?, $limit: int = 50` | node | created desc, id desc | light | pinned | — (the brief's "proposed / needs review" line prints `moirai q proposed`, §6.2) |
 
 `find`'s optional parameters are `$kind: text?`, `$status: text?`, `$label: text?`, `$text: text?`, `$done: bool?`,
 `$suspect: bool?`, `$conflicted: bool?`. `$done` is added to [50 §4.1]'s signature so [AR §2.11]'s `done:false` filter has a
 parameter (open point 3).
+
+**Reserved work-list queries** (M9–M10; [AR §11] #46, spec sync 3). The curation and harvesting pipeline of owner decision
+#46 runs in the harness's agents; moirai gives it deterministic work lists. Their names, signatures, shapes, orders and
+row sets are fixed now (§4.25); their LQ text, the built-ins of §2.16 they read, their `fixtures/lq/std/` files and the
+tests of §9 come with M9–M10, and until then no store's catalog holds them. `std` is reserved, so no project can take
+the names (§2.1).
+
+| Name | Signature | Shape | Order | Class | Cursor |
+|---|---|---|---|---|---|
+| `similar` | `$id: node, $min: float = 0.5, $limit: int = 10` | node (extras `score`, `shared`) | rank | medium | pinned |
+| `stale_link_rules` | `$scope: node?` | links | node, anchor | medium | live |
+| `rules_unscoped` | `$scope: node?` | node | id | light | pinned |
+| `triage_notes` | `$scope: node?` | node | created, id | light | pinned |
+| `long_bodies` | `$min_bytes: int = 2000, $kind: text?, $scope: node?` | node (extra `body_bytes`) | body_bytes desc, id | medium | pinned |
+| `unharvested` | `$limit: int = 50` | table | source | light | live |
 
 ## 4. Definitions of the read catalog
 
@@ -615,6 +659,47 @@ DEFINE QUERY root_moves($root: text = 'project') SHAPE table BUDGET light AS {
 }
 ```
 
+4.24. **`proposed`** (spec sync 3; [AR §11] OQ-A-8 (c)): the review queue, the rules and decisions that wait in status
+`proposed` ([RULES/pack-classes] PT-033 prop(n)), newest first. With `$scope`, those in the subtree or `ABOUT` a node of
+it, as [RULES/pack-classes] BR-012 counts them. It is the listing command of the brief's "proposed / needs review" line
+(§6.2), and it lists what packs show marked `~proposed` (§5).
+
+```lq-define
+DEFINE QUERY proposed($scope: node? = NULL, $kind: text? = NULL, $limit: int = 50) SHAPE node BUDGET light AS {
+  MATCH (k:rule|decision)
+  WHERE k.status = 'proposed'
+    AND ($kind IS NULL OR k.kind = $kind)
+    AND ($scope IS NULL OR k IN subtree($scope)
+         OR EXISTS { (k)-[:ABOUT]->(x) WHERE x IN subtree($scope) })
+  RETURN k ORDER BY k.created DESC, k.id DESC LIMIT $limit
+}
+```
+
+4.25. **The reserved work-list queries** (M9–M10; §3's second table). Each is a pure read of the view (`unharvested` reads
+the runtime harvest table; `stale_link_rules` is tree-derived, E302 without a tree, §2.8 item 4). M9–M10 write each
+one's LQ text, which must yield exactly the rows stated here, in the stated order. The **open statuses** of knowledge
+are those of `similar()`'s candidates (§2.16): a rule `proposed` or `active`, a decision `proposed` or `accepted`, a
+note `active`. "In scope" means, when `$scope` is given, in `subtree($scope)` or with an `ABOUT` edge to a node of it.
+- **`similar`**: the rows of `similar($id, min: $min)` (§2.16), as `node, score, shared`, by `rank`, at most `$limit`.
+  It also feeds the notice N13 ([LQ/errors §5.6]) under `knowledge.similar-notice` ([CFG §10.5]).
+- **`stale_link_rules`**: the rows of `links()` whose node is a live rule, decision or note in an open status and in
+  scope, and whose `state` ranks 1 to 6 in [F18 §4.5]'s severity order (`missing`, `replaced`, `deleted`, `ambiguous`,
+  `moved-needs-confirm`, `stale-anchor`): knowledge whose anchors need a decision. `unverified`, `pending`, `planned`,
+  `absent-in-tree`, `moved-auto` and `ok` are not stale. Ordered by node, then anchor handle.
+- **`rules_unscoped`**: live rules in an open status and in scope whose `applies_to` is absent or empty, which reads as
+  `*` ([F08 §9.3]; [RULES/pack-classes] PT-012), so they reach every pack. An explicit `*` element is a choice and is
+  not listed. Ordered by id.
+- **`triage_notes`**: live notes with status `active` whose `labels` hold `needs-triage` (the `SubagentStop` note of
+  [API §18]), in scope, oldest first: by `created`, then id.
+- **`long_bodies`**: live nodes with `body_bytes` (§2.16) ≥ `$min_bytes` and no `abstract`, of kind `$kind` when given,
+  in scope; nodes whose `archived` flag is set or whose status is `superseded`, `retracted`, `archived` or `rejected`
+  are left out. Extra column `body_bytes`; ordered by `body_bytes` descending, then id. Without an abstract such a
+  node's L1 rendering carries no summary and its L2 rendering the whole body ([RULES/pack-classes] PL-003, PL-004), so
+  an abstract saves tokens in every pack that shows it.
+- **`unharvested`**: the rows of `harvest()` (§2.16) with `next` < `seen` or `lost` > 0, as `source, path, seen, next,
+  done, lost`, ordered by `source` bytewise, at most `$limit`: the transcripts whose next batch starts at `next`, and
+  those whose lost bytes need harvesting again ([API §8.8]).
+
 ## 5. Pack classes (C1–C8)
 
 5.1. **Model.** Each class is a named query whose rows are its candidates ([50 §4.3], [AR §7.4] step 2). A class returns the
@@ -626,13 +711,20 @@ rule ([AR §7.4] step 3); none of that is in the text below. A `UNION` result is
 | Class ([AR §7.4]) | Named query | Parameters |
 |---|---|---|
 | C1 header | `pack_header` | `$target: node` |
-| C2 rules | `pack_rules` ∪ `pack_rules_unmerged` | `$role: text, $phase: text?`; `$role: text` |
+| C2 rules | `pack_rules` ∪ `pack_rules_unmerged` ∪ `pack_rules_proposed` ∪ `pack_rules_unmerged_proposed` | `$role: text, $phase: text?`; `$role: text`; `$role: text, $phase: text?`; `$role: text` |
 | C3 target | `pack_target` | `$target: node` |
 | C4 effective spec | `pack_spec` | `$target: node, $role: text, $round: int?` |
 | C5 findings | `pack_findings` | `$target: node, $role: text, $round: int?` |
 | C6 measurements | `pack_measurements` | `$lane: node` |
-| C7 hazards | `pack_hazards` | `$target: node` |
+| C7 hazards | `pack_hazards` ∪ `pack_hazards_proposed` | `$target: node` |
 | C8 delta | `delta` (§4.20) | `$since: rev, $agent: text` |
+
+**Proposed records** (spec sync 3; [AR §11] OQ-A-8 (c): "packs do not hide proposed records"). A rule or decision in
+status `proposed` enters the classes where its authoritative counterpart enters ([RULES/pack-classes] PT-033, PM-026 to
+PM-029): C2 through `pack_rules_proposed` and `pack_rules_unmerged_proposed`, C3 through `pack_target`'s part
+`proposed ruling`, C7 through `pack_hazards_proposed`. The algorithm renders each with `~proposed`
+([RULES/pack-classes] RN-018, [F19 §4.7]) after the authoritative entries of its class, and never protects it. A
+class without a reason column gets a separate query, so the authoritative queries keep their text and rows.
 
 5.2. **C1 `pack_header`** — the branch's ref row (ahead, behind, staged), the staging refs that involve it, and [40 §6.2]'s
 link-state counts. The worktree, the other lanes' `files_owned` from the lease rows, the quiet state, the dirty row and the global
@@ -661,6 +753,17 @@ DEFINE QUERY pack_rules($role: text, $phase: text? = NULL) SHAPE node BUDGET lig
 }
 ```
 
+`pack_rules_proposed` is the same set for rules in status `proposed` ([RULES/pack-classes] PM-026; spec sync 3).
+
+```lq-define
+DEFINE QUERY pack_rules_proposed($role: text, $phase: text? = NULL) SHAPE node BUDGET light AS {
+  MATCH (r:rule)
+  WHERE r.status = 'proposed'
+    AND (applies_role(r, $role) OR ($phase IS NOT NULL AND applies_phase(r, $phase)))
+  RETURN r ORDER BY r.criticality, r.authority, r.id
+}
+```
+
 5.4. **C2 `pack_rules_unmerged`** — the `~main` class ([50 §4.3], verbatim but for `BUDGET`): critical rules on `main` the
 caller's branch has not merged, including a rule changed on `main`.
 
@@ -675,9 +778,25 @@ DEFINE QUERY pack_rules_unmerged($role: text) SHAPE node BUDGET light AS {
 }
 ```
 
+`pack_rules_unmerged_proposed` is the same set for critical rules in status `proposed` on `main`, rendered with both
+`~main` and `~proposed` ([RULES/pack-classes] PM-027; spec sync 3).
+
+```lq-define
+DEFINE QUERY pack_rules_unmerged_proposed($role: text) SHAPE node BUDGET light AS {
+  USE main
+  CALL diff(HEAD...main) YIELD node, side
+  WHERE side IN ['theirs', 'both']
+  MATCH (r:rule)
+  WHERE r = node AND r.status = 'proposed' AND r.criticality = 'critical' AND applies_role(r, $role)
+  RETURN DISTINCT r ORDER BY r.criticality, r.authority, r.id
+}
+```
+
 5.5. **C3 `pack_target`** — the target, its ancestors, the open questions that block it, owner rulings about its subtree, and
 the files it links ([50 §4.3], [AR §7.4] C3). "Owner rulings" are the nodes with `authority = 'owner'` that are `ABOUT` a node of
-the subtree (open point 9).
+the subtree (open point 9). An owner-authority rule or decision in status `proposed` is not a ruling: it is the part
+`proposed ruling`, an owner ruling that waits for the owner's confirmation ([RULES/pack-classes] PM-028,
+[RULES/role-write-policy] WR-015; spec sync 3).
 
 ```lq-define
 DEFINE QUERY pack_target($target: node) SHAPE node BUDGET medium AS {
@@ -691,7 +810,12 @@ DEFINE QUERY pack_target($target: node) SHAPE node BUDGET medium AS {
   RETURN q AS node, 'question' AS why
   UNION
   MATCH (k)-[:ABOUT]->(x) WHERE x IN subtree($target) AND k.authority = 'owner'
+    AND NOT (k.kind IN ['rule', 'decision'] AND k.status = 'proposed')
   RETURN k AS node, 'ruling' AS why
+  UNION
+  MATCH (k:rule|decision)-[:ABOUT]->(x)
+  WHERE x IN subtree($target) AND k.authority = 'owner' AND k.status = 'proposed'
+  RETURN k AS node, 'proposed ruling' AS why
   UNION
   MATCH (t)-[:AT]->(f:artifact) WHERE t = $target
   RETURN f AS node, 'link' AS why
@@ -768,12 +892,32 @@ DEFINE QUERY pack_hazards($target: node) SHAPE node BUDGET medium AS {
 }
 ```
 
+`pack_hazards_proposed` takes the rules and decisions in status `proposed` by the same two paths ([RULES/pack-classes]
+PM-029; spec sync 3). A decision has no `applies_to` ([F08 §9.3]), so it enters only through an `AT` edge.
+
+```lq-define
+DEFINE QUERY pack_hazards_proposed($target: node) SHAPE node BUDGET medium AS {
+  MATCH (t:task) WHERE t = $target
+  UNWIND t.files_owned AS g
+  MATCH (k:rule)
+  WHERE k.status = 'proposed' AND coalesce(size(k.applies_to), 0) > 0 AND applies(k, g)
+  RETURN DISTINCT k AS node
+  UNION
+  MATCH (t:task) WHERE t = $target
+  UNWIND t.files_owned AS g
+  MATCH (k:rule|decision)-[:AT]->(f:artifact)
+  WHERE k.status = 'proposed' AND glob_match(f.path, g)
+  RETURN DISTINCT k AS node
+}
+```
+
 C8 is `std.delta` (§4.20).
 
 ## 6. Brief classes
 
 6.1. `brief` is the pack machine with fixed classes ([AR §7.4]); its classes are `brief_lanes`, `brief_triage`,
-`brief_questions`, `brief_critical` and `brief_verdicts` ([50 §4.3]). The brief's other lines (the checkpoint note of each open
+`brief_questions`, `brief_critical` and `brief_verdicts` ([50 §4.3]), and `brief_proposed` for the "proposed / needs
+review" line (§6.2; spec sync 3). The brief's other lines (the checkpoint note of each open
 campaign, stale summaries, at most three non-`ok` link lines) come from `stale`, `links_broken` and the checkpoint notes, and are
 listed in open point 12.
 
@@ -816,6 +960,24 @@ DEFINE QUERY brief_critical() SHAPE node BUDGET light AS {
 DEFINE QUERY brief_verdicts($since: rev) SHAPE node BUDGET light AS {
   MATCH (v:verdict) WHERE v.created > $since
   RETURN v ORDER BY v.created, v.id
+}
+```
+
+6.2. **The "proposed / needs review" line** (spec sync 3; [AR §11] OQ-A-8 (c); [RULES/pack-classes] BR-012). `brief_proposed`
+returns every rule and decision in status `proposed` on the brief's view, newest first; with `--scope ID`, those in
+the subtree or `ABOUT` a node of it. The brief prints one line from its rows: their number, the ids of the first five,
+and the listing command `moirai q proposed` (with `scope=<N>` under `--scope`), which runs `std.proposed` (§4.24) over
+the same set. No line is printed when there is no row. The line is charged with the brief's header, so it is never
+dropped, and it is the brief's last line before the drop line; its spelling is [F19 §4.7]'s. `brief_critical` (BR-008) is unchanged: it counts no
+proposed record.
+
+```lq-define
+DEFINE QUERY brief_proposed($scope: node? = NULL) SHAPE node BUDGET light AS {
+  MATCH (k:rule|decision)
+  WHERE k.status = 'proposed'
+    AND ($scope IS NULL OR k IN subtree($scope)
+         OR EXISTS { (k)-[:ABOUT]->(x) WHERE x IN subtree($scope) })
+  RETURN k ORDER BY k.created DESC, k.id DESC
 }
 ```
 
@@ -877,6 +1039,21 @@ TX { RESOLVE (CALL conflicts() YIELD key RETURN key) EXPECT >= 1 TAKE THEIRS }
 TX { CREATE (n:finding {title: $title, failure_scenario: $failure_scenario, severity: $severity, f_kind: $f_kind}); SET n.body = $text; CREATE (n)-[:ABOUT]->(#130) }
 ```
 
+**Knowledge status** (spec sync 3; [AR §11] OQ-A-8 (c)). A `tx.add` or `tx.remember` of a `rule` or a `decision` creates
+it in the status [RULES/status-machines] GR-019 gives, which the template does not spell: `proposed`, except that an
+owner-authority one (`authority=owner` with its `owner_quote` in `$fields`, written owner-attested, [RULES/role-write-policy]
+WA-001) is created `active` or `accepted` while `knowledge.owner-authority` is `orchestrator-active` ([CFG §10.5]). A
+`$fields` entry `status=<s>` for a rule or a decision that names another status is E404 naming GR-019 ([LQ/errors §5.5]);
+a later write moves the node through the ordinary doors, and under `strict` the move of an owner-authority one out of
+`proposed` is the owner's, in a later block ([RULES/role-write-policy] WR-015).
+
+**`PATCH`** (spec sync 3; the TencentDB research of 2026-09-30, taken without an owner question, [AR §11] #46).
+`tx.doc_patch`'s `$old`, like the `REMOVE` text of every `PATCH`, must occur exactly once in the current body: its
+occurrences are the byte offsets at which its UTF-8 bytes match the body's, overlapping ones counted, so `aa` occurs
+twice in `aaa`. An empty `$old`, and one that occurs 0 times or more than once, is E404 with the reason
+`the removed text is empty` or `the removed text occurs <n> times` ([LQ/errors §5.5]); nothing is replaced and nothing
+is written. A `PATCH` of a dropped body is `body_dropped` ([F06 §8.1] DB-7), checked first.
+
 7.3. **Procedures.** These are callable as `CALL tx.<name>(...)` inside a `TX` block but are not expressible with `SET`
 ([50 §4.2]); their effect is the engine's.
 
@@ -925,7 +1102,9 @@ differ in spelling, the flag's `-` becomes `_` (`--for-agent A` → `for_agent=A
 
 Each named query parses (`lq-define` blocks, grammar v1), binds against the core schema, classifies as its cursor column says
 (§2.5), and for every verb alias the verb's output equals the named query's for every argv form ([50 §8.3]). Each pack and brief
-class returns, on the model, exactly the members the owner-signed table lists (V3).
+class returns, on the model, exactly the members the owner-signed table lists (V3), the proposed parts of §5 and §6.2
+included. The reserved queries and built-ins of §4.25 and §2.16 get their parse, bind and membership tests with their
+text at M9–M10.
 
 ## Coverage
 
@@ -999,3 +1178,19 @@ None. The library's text is frozen at WP-72; it holds no measured value. The bud
     also takes an `int` of milliseconds or a `duration`; `tx.complete` gains `$lease` ([API §9.4]); `tx.remember`
     renders a verdict's `DERIVED_FROM` statements from its `$about` findings; `tx.rm` takes `--reassign`; `tx.resolve`
     takes `--take drop`.
+20. **Spec sync 3** ([AR §11] OQ-A-8 (c), #46; [RULES/pack-classes] open point 21). (a) Packs do not hide proposed
+    records: C2 gains `pack_rules_proposed` and `pack_rules_unmerged_proposed`, C7 `pack_hazards_proposed` (PM-026,
+    PM-027, PM-029), separate queries because those classes have no reason column and their authoritative text and rows
+    stay as they were; C3's `pack_target` gains the part `proposed ruling` (PM-028), and its `ruling` part leaves out a
+    proposed owner-authority rule or decision, which it returned before, since the part had no status filter. (b) The
+    brief gains `brief_proposed` and the "proposed / needs review" line (§6.2, BR-012), whose listing command is the new
+    catalog query `std.proposed` (§4.24). (c) The knowledge verbs create a rule or decision in GR-019's status, and
+    `PATCH` refuses an empty or ambiguous `REMOVE` text (§7.2). (d) Owner decision #46's work lists are reserved with
+    their contracts (§3, §4.25) and the three built-ins they read (§2.16), for M9–M10: `similar`, `stale_link_rules`,
+    `rules_unscoped`, `triage_notes`, `long_bodies`, `unharvested`. `similar` is a set-overlap (Jaccard) score over
+    tokenizer v1's terms of the title, the abstract and the kind's text field, so it needs no embedding and no corpus
+    statistic, gives the same rows on every machine, and handles Cyrillic as the full-text index does; its thresholds
+    (`min` 0.5, two shared terms) are starting values that M9–M10 may change when they write its text. (e) Not changed:
+    C4 already shows a proposed decision through spec(T); `pack_hazards` keeps `note|rule` for its authoritative parts,
+    while [RULES/pack-classes] PM-023 and PM-024 also list `decision`, a difference that predates this sync (a finding
+    for R-MODEL and the review).

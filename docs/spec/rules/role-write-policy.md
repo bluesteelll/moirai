@@ -92,6 +92,7 @@ Every table follows [RULES/README]. In addition:
 | WR-012 | 12 | model-profile | design | [90 §8.1] L2; [90 §8.2]; [AR §13] `query.safelist.model.<profile>` | After the role policy: a caller whose model profile is `unknown` writes named mutations only (`named-only`, the default for `unknown`); a free-form `TX` is refused with WZ-010, naming the matching named mutation. `dry-targets` (opt-in) also allows a `TX` applied with `IF TARGETS` from a `DRY`. The rule applies to a caller with a session identity ([API §4.2] CX-4) or with `door` = `mcp`; a CLI block with neither is not refused, as [API §19] example 02's free-form `Tx` shows ([API §9.1] E411 row; spec sync 2b). |
 | WR-013 | 13 | side-effects | proposed | [40 §3.3]; [40 §3.7] `links sync`; [AR §7.1] `file mv` example "2 globs rewritten"; [50 §3.10] item 7; [OP-16] | The fixed side effects of an allowed verb are part of it and are not checked against `role-fields`: capture registers file nodes and the root node (`link --at`, `file add`); `links sync` and settles write observations, `path_moves` and `PENDING`; `file mv` rewrites the globs of other nodes' `files_owned` and `applies_to`; ops produce markers. |
 | WR-014 | 14 | hooks | proposed | [AR §7.5]; [90 §2.5]; [OP-15] | A hook handler writes only what its `role-hooks` row lists; it never executes write text a model supplied. |
+| WR-015 | 15 | owner-confirm | design | [AR §11] OQ-A-8; [AR §7.3] owner row; [RULES/status-machines GR-019]; [OP-29] | While `knowledge.owner-authority` is `strict` ([CFG]), a status write that moves a `rule` from `proposed` to `active`, or a `decision` from `proposed` to `accepted`, on a node whose `authority` is `owner` is the owner's confirmation. It is allowed only when the call's effective role is `owner` (owner-attested, WT-012; WS-002) and the node was not created in the same block (WT-006): the confirmation is a write of its own, after the write that recorded the owner's words. WS-001 and every other `role-status` row do not allow it; the refusal is E406 (WZ-001). While the key is `orchestrator-active` this step does not apply (spec sync 3). The confirmation proves the owner no better than WT-012's attestation does: `strict` makes it a second act with its own commit, not a stronger proof ([OP-29] (e)). |
 
 ## 5. Roles
 
@@ -176,7 +177,7 @@ surface and any condition beyond the ops. `ref` and `admin` verbs are not `TX` b
 | WV-039 | links-fix-prefix | file-link | cli | orchestrator, owner | files.confirm-roles | E406 | 6 | proposed | [40 §3.7] "`--prefix FROM TO` confirms an inferred directory move"; [OP-9] | A confirmation, so the confirm roles. |
 | WV-040 | pack-record-run | graph | cli | * | - | E406 | 6 | proposed | [AR §7.4] step 5; [RULES/pack-classes PX-013]; [OP-21] | Allowed iff the presented lease names a run (WT-008) and the edges start at that run; orchestrator and owner for any run. |
 | WV-041 | links-import | graph | cli | orchestrator, owner | - | E406 | 6 | proposed | [AR §7.1] `links import --from-markdown`; [OP-27] | The cutover import of existing citations. |
-| WV-042 | read-verbs | read | both | * | - | - | - | design | [50 §6.5] "Reads are the default everywhere" | `brief`, `pack` without `--record-run`, `ready`, `blocking`, `blockers`, `show`, `find`, `tree`, `notes`, `stale`, `changes`, `stats`, `conflicts`, `log`, `diff`, `blame`, `reflog`, `op log`, `links check`, `links mentions`, `file where`, `image show`, `q` (WQ rows), MCP `brief`, `pack`, `get`, `query`, `changes`, `branch`. |
+| WV-042 | read-verbs | read | both | * | - | - | - | design | [50 §6.5] "Reads are the default everywhere" | `brief`, `pack` without `--record-run`, `ready`, `blocking`, `blockers`, `show`, `find`, `tree`, `notes`, `stale`, `changes`, `stats`, `conflicts`, `log`, `diff`, `blame`, `reflog`, `op log`, `links check`, `links mentions`, `file where`, `image show`, `q` (WQ rows), MCP `brief`, `pack`, `get`, `query`, `changes`, `branch`; from M9–M10, `curate` ([API §14.6], a pure read) and `harvest list` (`std.unharvested`, [API §8.8]) (spec sync 3). |
 | WV-043 | mcp-write | surface | mcp | architect, researcher, architecture-critic, project-analyst | policy.role.<role>.mcp-write | E406 | 6 | design | [AR §13] `policy.role.<role>.mcp-write` "(yes for architect, architecture-critic, researcher, project-analyst)"; [OP-8] | The `write` tool; the rows of WO `mcp_write`. |
 | WV-044 | mcp-remember | surface | mcp | * | - | E406 | 6 | design | [AR §7.2] `remember`; [90 §4.3] | Kinds per `role-create`; `general-purpose`: findings, notes and questions. |
 | WV-045 | mcp-claim | surface | mcp | * | - | - | - | design | [AR §7.2] `claim` | `role-mint`. |
@@ -185,6 +186,9 @@ surface and any condition beyond the ops. `ref` and `admin` verbs are not `TX` b
 | WV-048 | store-admin | admin | cli | orchestrator, owner | - | E406 | 6 | proposed | [AR §13]; [90 §4.3] "policy edits"; [OP-14] | Verbs that change store state outside the graph: `config set\|unset` at store scope, `quiet on\|off`, `gc`, `backup`, `restore`, `repair`, `migrate`. |
 | WV-049 | outside-store | admin | cli | * | - | - | - | proposed | [AR §7.1]; [OP-14] | Verbs that write no store: `init` (no store exists yet), `hooks install` without `--git`, `integrate`, `export`, `config set --user`, `mcp`, `hook` handlers (WH rows), `schema`. |
 | WV-050 | doctor | read | cli | * | - | - | - | proposed | [AR §7.1] `doctor`; [OP-14] | `doctor lanes --refresh-graph` spawns `git` for the project repository, not the store. |
+| WV-051 | body-drop | admin | cli | owner | - | E406 | 6 | design | [F06 §8.1] DB-3; [API §8.7] "Caller"; [AR §11] #33, OQ-A-7 | `moirai body drop … --by owner`, the command `BodyDrop`: owner-attested only (WT-012), as WV-047; every other caller, the orchestrator's session lease without the attestation included, is refused E406 before the arguments are checked. No MCP tool, hook, `TX` statement or `Apply` batch carries it (WR-008). An import's `BodyDrop` of origin `import` ([F06 §8.1] DB-11) is part of the import (WV-013, WR-013) and never drops a body the store holds (spec sync 3). |
+| WV-052 | harvest-mark | runtime | cli | orchestrator, owner | - | E406 | 6 | design | [API §8.8] "`HarvestMark`"; [AR §11] #46, OQ-A-10 | Reserved: engine and model from M9–M10. `moirai harvest mark`, the command `HarvestMark`: registers a transcript in the runtime table `HARVEST` or updates its row; it adds no range. No MCP tool or hook carries it. Only `Apply`'s `harvest` member adds a range, under the batch's own rows (WV-021, WV-022) (spec sync 3). |
+| WV-053 | harvest-forget | runtime | cli | orchestrator, owner | - | E406 | 6 | design | [API §8.8] "`HarvestForget`"; [AR §11] #46, OQ-A-10 | Reserved: engine and model from M9–M10. `moirai harvest forget`, the command `HarvestForget`: removes a transcript's ranges from `from` on, and its row at 0. No MCP tool or hook carries it (spec sync 3). |
 
 ## 8. Statements
 
@@ -279,7 +283,7 @@ with `authority = owner` needs `owner_quote` ([AR §3.2], [F08 §8.6] item 4); a
 <!-- table: role-status -->
 | row | role | kind | scope | from | to | via | basis | source | note |
 |---|---|---|---|---|---|---|---|---|---|
-| WS-001 | orchestrator | * | any | * | * | any | design | [AR §7.3]; [50 §6.5] | Within the kind's status machine ([AR §3.6]). |
+| WS-001 | orchestrator | * | any | * | * | any | design | [AR §7.3]; [50 §6.5] | Within the kind's status machine ([AR §3.6]). Under `knowledge.owner-authority = strict` it does not grant the owner's confirmation of an owner-authority rule or decision (WR-015; spec sync 3). |
 | WS-002 | owner | * | any | * | * | any | design | [AR §7.3] owner row | `question` becomes `answered` through an `ANSWERS` edge (WV-018). |
 | WS-003 | developer | task | leased-task | open | in_progress | claim-start | design | [AR §6.2] "`--start` ... performs `open -> in_progress`, otherwise the first `set`/`complete` under the lease performs it" | Also the implicit move by the first write under the lease. |
 | WS-004 | developer | task | leased-task | open, in_progress | done | tx-complete | design | [AR §7.3] "`claim`/`complete` with lease"; [50 §6.5]; [AR §6.2] | `complete` from `open` is the compound move in one commit. Outcomes `failed` and `abandoned` are [API]'s. |
@@ -375,6 +379,9 @@ with `authority = owner` needs `owner_quote` ([AR §3.2], [F08 §8.6] item 4); a
 | WY-018 | 90-4.3-mint | WM-001, WM-002, WM-003, WM-004, WM-005, WZ-012 | - |
 | WY-019 | 90-4.1-resolver | WR-002, WR-004, WR-005, WT-002, WT-003, WT-013 | - |
 | WY-020 | 90-8.1-L2 | WR-012, WQ-004, WQ-005, WZ-010 | - |
+| WY-021 | AR-11-OQ-A-8 | WR-015, WA-001, WS-002 | Owner-authority knowledge: who confirms it under `strict` (spec sync 3); the status a knowledge `Create` starts in is [RULES/status-machines] GR-019. |
+| WY-022 | AR-11-33-body-drop | WV-051, WT-012, WZ-001 | Owner decision #33 (OQ-A-7): only the owner drops a body ([F06 §8.1] DB-3, [API §8.7]; spec sync 3). |
+| WY-023 | AR-11-46-harvest-cursor | WV-052, WV-053, WV-042 | OQ-A-10's harvest cursor ([API §8.8]) and the curation bundle ([API §14.6]), reserved for M9–M10; the curation actions' role rows are open point 31's (spec sync 3). |
 
 ## Coverage
 
@@ -389,6 +396,8 @@ Rule tables specify semantics. The layouts of the values used here are [F11]'s (
 | [50 §8.1] F4: cold column `CREATOR` (actor, role) | WT-004 (use; layout [F09]) |
 | [40 §2.11] R-13: config key `files.confirm-roles` | WV-038, WV-039, WA-004 |
 | [40 §2.11] R-17: `relink` provenance vocabulary, `agent/*` distinct from `owner/*` and `confirmed/*` | WA-003, WA-004, WA-006 (who may write which prefix; the vocabulary is [F18]'s) |
+| [AR §11] #33, OQ-A-7: the body drop is the owner's ([F06 §8.1] DB-3; spec sync 3) | WV-051 (GT2 compares the model's refusal and result with the engine's from M2, [API §8.7]) |
+| [AR §11] #46, OQ-A-10: the harvest verbs and the curation bundle, reserved for M9–M10 (spec sync 3) | WV-052, WV-053, WV-042; the curation actions' rows are open point 31's |
 
 No X-F row concerns the role policy.
 
@@ -519,3 +528,43 @@ of E407 `lease`, exit 5, for WZ-004 and WZ-005 ([F19 §11.2]).
     other than `status`, `resolution` and `authority`, which have their own tables; the review confirms. Spec sync 2b
     (WP-91): WT-009 did not say whether a counter field is in W, and without it `incr` ([API §9.1], §9.2) was
     unreachable for every role; a counter is in W and moves only by `incr`.
+29. **The owner's confirmation under `strict`** (WR-015, WS-001; spec sync 3). **Decided** by the owner on 2026-10-06
+    (OQ-A-8, option (c)): under the strict value of `knowledge.owner-authority`, owner-authority writes start `proposed`
+    "until the owner confirms" ([RULES/status-machines] GR-019 and its open point 27). Without WR-015, WS-001 would let
+    the orchestrator move such a record to `active` at once and the strict value would change nothing. Readings, for the
+    review: (a) the owner confirms through the owner attestation (WT-012), the only owner identity the role policy has:
+    `--by owner` on the CLI, or an MCP write that the stamp's `ask` permission puts before the human ([AR §13]
+    `hooks.stamp.ask-for`, whose default includes `owner-authority`); (b) the confirmation is a separate block from the
+    `Create`, so the write that records the owner's words and the owner's confirmation are two acts, each with its own
+    commit; (c) only the move into the authoritative status is withheld from WS-001: the orchestrator may still retract
+    or archive a proposed owner-authority rule or reject such a decision (TR-028, TR-030, TR-033), as before; (d)
+    records created under `strict` that are still `proposed` when the key returns to `orchestrator-active` follow WS-001
+    again. (e) **The limit of `strict`** (independent check of spec sync 3). On the CLI the confirmation is the same
+    attestation that recorded the owner's words: the orchestrator session that relays them adds `--by owner` to a later
+    command, and nothing in the store tells the owner's own confirmation from that session issuing the next command.
+    So `strict` gives an audit trail of two acts, each with its own commit, and no stronger proof of the owner than
+    WT-012 gives. Only through MCP does a human see the call, and only where the stamp answers `ask` for it: whether
+    `hooks.stamp.ask-for`'s `owner-authority` class covers a status write that WR-015 governs is the stamp's
+    definition ([CFG §10.7], [AR §7.5]), not this table's. A rule here could not close the gap, because the model and
+    the engine see a CLI call's attestation, not who typed it. The review keeps this reading or names an attestation
+    the store can check.
+30. **The body drop and the harvest cursor** (WV-051 to WV-053; spec sync 3, independent check). Owner decision #33
+    (OQ-A-7) makes `BodyDrop` owner-attested only ([F06 §8.1] DB-3, [API §8.7]); the model implements it at M0
+    ([API §2.2]) and checks its caller against WV-051, an `admin` row because the drop changes no graph state and is no
+    `TX` block. OQ-A-10's harvest cursor ([API §8.8]) gives `HarvestMark` and `HarvestForget` to the orchestrator and the
+    owner on the CLI; WV-052 and WV-053 are reserved until M9–M10, when the engine and the model implement them, and
+    are `runtime` rows because `HARVEST` is a store-local runtime table outside `state(ref)`.
+31. **Curation actions under an entry's lease** (reserved, M9–M10; [API §9.4], §14.6; spec sync 3, independent check).
+    A curator's answer reaches the store as `result.v1`'s `curation` member in an `apply --from` batch (WV-022), and
+    [API §9.4] checks every action's statement under the entry's lease. No verb row is needed for the actions: each is a
+    named mutation, checked op by op (WR-009), and `curate` itself is a read (WV-042). Under the present rows, though,
+    a curator's run-scoped role lease can never be the orchestrator's (WM-004), so only `keep` always passes; `scope`,
+    `abstract` and `triaged` pass where a `role-fields` row lets the curator's role set that field of that kind; and
+    `accept`, `reject`, `retract`, `archive` and `supersede` of a rule or a decision pass for no curator, since only
+    WS-001 and WS-002 move their statuses. Two readings, for the design of M9–M10, which adds the rows with the
+    implementation: (a) a curation role with `role-status` and `role-fields` rows for exactly the actions of [API §9.4]'s
+    table, the move into an authoritative status governed by a policy key, so that a project chooses whether an agent's
+    review may make a proposed record authoritative; (b) the status actions run under the presenter's rights, as entry
+    outcomes do (WV-022, open point 7), which changes [API §9.4]'s "under the entry's lease". Proposed: (a), which keeps
+    the entry's role as the recorded author of its actions; under either reading WR-015 keeps the confirmation of an
+    owner-authority record under `strict` for the owner. Nothing at M0 reads these rows.

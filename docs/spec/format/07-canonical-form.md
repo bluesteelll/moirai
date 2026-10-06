@@ -192,7 +192,7 @@ Digests enter as raw bytes, never as hexadecimal text.
 
 ### 3.7 Item 6: message
 
-`lp` of the stored message ([F06 §4.3] order 36), which is the output of §5's normalisation. An absent `msg` group is the
+`lp` of the stored message ([F06 §4.3] order 37), which is the output of §5's normalisation. An absent `msg` group is the
 empty message, `lp("")`.
 
 ### 3.8 Item 7: schema version
@@ -213,7 +213,7 @@ and for their native re-imports ([F06 §3.3]).
 
 ### 3.11 Item 10: `changeset_digest`
 
-The 32 bytes of `changeset_digest` ([F06 §4.3] order 38), which §10.4 defines. Item 10 enters C only through this digest
+The 32 bytes of `changeset_digest` ([F06 §4.3] order 39), which §10.4 defines. Item 10 enters C only through this digest
 ([AR §4.6], [60 §2.5] audit row "Canonical form").
 
 ### 3.12 Re-parent and bulk commits
@@ -257,14 +257,14 @@ is normalised to N(m) before it is stored and hashed ([AR §4.6] item 6):
 4. **Trailing newlines.** Every trailing LF is removed.
 
 Leading empty lines and runs of empty lines inside the message are kept. N is idempotent: N(N(m)) = N(m). The result is
-`msg` ([F06 §4.3] order 36); an empty result is the absent `msg` group.
+`msg` ([F06 §4.3] order 37); an empty result is the absent `msg` group.
 
 ### 5.2 Refusals
 
 The write is refused with exit 2 ([F19] `bad_value`, open point 15) and nothing is written when:
 
 - m breaks step 1;
-- N(m) is longer than 65,535 bytes (the bound of `msg`, [F06 §4.3] order 36);
+- N(m) is longer than 65,535 bytes (the bound of `msg`, [F06 §4.3] order 37);
 - the **last paragraph** of N(m) begins with the seven bytes `Moirai-` (`4D 6F 69 72 61 69 2D`), compared case-sensitively
   ([AR §4.6] item 6). A paragraph is a maximal run of non-empty lines; the last paragraph is the one after the last empty
   line, or the whole of N(m) when it has no empty line; it "begins with" those bytes when its first line does.
@@ -373,7 +373,8 @@ For a node n that is live on V:
   `pinned` = false are absent. The `title` of a kind with `title_derived` (`artifact`) is absent: it is derived and not
   stored ([40 §2.2]).
 - **counter** f: the total, the sum of every `Incr` of f ([AR §3.1]); absent when 0 (the counter default).
-- **body**: BLAKE3-128 of the stored body bytes when n has a body ([F08 §7.2]); absent otherwise (open point 26).
+- **body**: BLAKE3-128 of the stored body bytes when n has a body ([F08 §7.2]); absent otherwise (open point 26). A body
+  whose bytes were dropped ([F06 §8.1]) keeps the hash it had: the value is the stored hash, never recomputed.
 - **edges**: one key per edge whose source is n (§6.6), holding `present(props)`.
 
 Because a default is absent, adding a field with a default to the schema (a weakening change) changes no node's canonical
@@ -826,13 +827,14 @@ Every field of the stored record that §3 does not name, and every stored datum 
 | `idem_key`, `idem_payload` | orders 24–25 |
 | `sync_base` (item 2 hashes the same id as the second parent) and the absorbed vector | orders 26–27 |
 | `stmt_origin`, `stmt_sym`, `stmt_hash` ([50] F10), `actor_src` ([90 §10.1]), `append_hlc` ([50] F14) | orders 31–35 |
-| `affected`, `affected_len`, `affected_complete` ([50] F15, F16) | order 37 |
-| `cs_ref` (a bulk commit hashes its entries, not its file) | order 39 |
+| the provenance group `prov`: the actor kind and the declared model id ([AR §11] OQ-A-9; spec sync 3) | order 36, [F06 §4.4.17] |
+| `affected`, `affected_len`, `affected_complete` ([50] F15, F16) | order 38 |
+| `cs_ref` (a bulk commit hashes its entries, not its file) | order 40 |
 | inside ops: every `#N`, `aN`, `prev`, symbol id, before-image, `Create.c_actor`/`c_role` (`CREATOR`), `Violation` ops | [F06 §7] |
 | anchor `quote`, `prefix`, `suffix` and `end` texts (their digests are hashed) and the `text-unavailable` state | [F08 §10.3] |
 | an import-checkpoint's image-only data (`ckimg`) and the header-only form's `pruned` bit | [F06 §4.4.14], [F06 §4.4.15] |
 | a staged commit's staging arguments (`stage`) | [F06 §4.4.16] |
-| bodies' bytes, codec and compressed form (the body key hashes BLAKE3-128 of the raw bytes) | [F06 §8], [F10] |
+| bodies' bytes, codec and compressed form (the body key hashes BLAKE3-128 of the raw bytes), and whether a body's bytes were dropped: a dropped body keeps its hash in item 10, so a drop changes no id ([AR §11] #33; spec sync 3) | [F06 §8], [F06 §8.1], [F10] |
 | every runtime table: markers, leases, `ALLOC` and `UIDX` ([50] F17), `IDEM`, `REFS`, `PINS`, `HEADS`, R4's resolution and evidence tables (file ids, volume serials, stat caches, fingerprints, proposals, intents, `ANCHORRES`; I-F4) | [F05], [F11] |
 | derived state: every derived column and flag, `rev_seq`, virtual `done`, `ready`, the named query's `ast_hash` | [F08 §3.4], [F08 §8.5.5] |
 | the store-local schema ids of [F08 §8.3] | [F09] |

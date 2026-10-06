@@ -92,7 +92,7 @@ The logical `Store` API is the interface of [60 §3.1] item 2. It has four parts
 | Group | Commands | § | Engine from |
 |---|---|---|---|
 | E environment | `EnvClock`, `EnvSlots`, `EnvTree`, `EnvGit`, `EnvCrash` | §6 | harness: M1 (clock, slots, crash), M6 (trees, git) |
-| S store | `Init`, `ConfigSet`, `ConfigUnset`, `Quiet`, `Maintain`, `Gc`, `Backup`, `Restore`, `Repair`, `Verify` | §8 | M1 |
+| S store | `Init`, `ConfigSet`, `ConfigUnset`, `Quiet`, `Maintain`, `Gc`, `Backup`, `Restore`, `Repair`, `Verify`, `BodyDrop`, `HarvestMark`, `HarvestForget` | §8 | M1 (`BodyDrop`: M2, with bodies; `HarvestMark`, `HarvestForget`: M9–M10, reserved) |
 | G graph | `Tx`, `Mutation`, `Apply`, `Schema`, `Migrate` | §9 | M2 (`Tx` in its `lq` and `ir` forms: M7) |
 | C coordination | `Claim`, `Heartbeat`, `Release`, `Reclaim`, `Complete`, `RunOpen`, `RunClose` | §10 | M2; the minting policy M8, `session-ttl` renewal M10 ([90 §10.2]) |
 | V version control | `BranchCreate`, `BranchDelete`, `Checkout`, `WorktreeBind`, `WorktreeUnbind`, `LaneOpen`, `LaneClose`, `Tag`, `Merge`, `MergeContinue`, `MergeAbort`, `Sync`, `Revert`, `CherryPick`, `Undo`, `OpRestore` | §11 | M1 (refs, pins, `RefUpdate`), M3 |
@@ -100,8 +100,9 @@ The logical `Store` API is the interface of [60 §3.1] item 2. It has four parts
 | I image | `ImageExport`, `ImageImport` | §13 | M5 |
 | O observation | `Query`, `State`, `Runtime`, `History` | §14 | M1 (`State`, `Runtime`, `History`), M7 (`Query`) |
 
-The model implements groups E to F and O at M0. For group I it supplies `state(ref)`, the canonical changesets and the
-commit ids ([60 §4.2] row "Image"); it produces no `.moi` bytes ([60 §4.3]).
+The model implements groups E to F and O at M0, except what is reserved for M9–M10 (§8.8, the `result.v1` members of
+§9.4, the bundles of §14.6), which no M0 stream carries. For group I it supplies `state(ref)`, the canonical changesets
+and the commit ids ([60 §4.2] row "Image"); it produces no `.moi` bytes ([60 §4.3]).
 
 ### 2.3 Outcomes
 
@@ -126,7 +127,7 @@ none, and the one exception of §11.7: a sync-first merge whose sync lands confl
 |---|---|---|
 | versioned | the commit DAG; each commit's state (`state_at`, [60 §4.2]) | commits of groups G, C, V, F, I |
 | refs | names, ids, kinds, tips, `ref_seq_next`, absorbed vectors, deleted flags, reflog ([F11 §3]) | commits and `RefUpdate` records |
-| runtime | `LEASES`, `MARKERS`, `IDEM`, `HEADS` (checkouts and bindings), `ALLOC`/`UIDX`; the counters `commit_seq`, `next_id`, `next_anchor`, `fence`, `next_ref_id`; R4's runtime tables; the quiet flag ([F11]) | records of the kinds of [F05 §7] |
+| runtime | `LEASES`, `MARKERS`, `IDEM`, `HEADS` (checkouts and bindings), `ALLOC`/`UIDX`; the counters `commit_seq`, `next_id`, `next_anchor`, `fence`, `next_ref_id`; R4's runtime tables; the quiet flag; the dropped set of [F06 §8.1] (`DROPPED`); from M9–M10, the harvest table of §8.8 (`HARVEST`) ([F11]) | records of the kinds of [F05 §7] |
 | configuration | the effective value of every key ([CFG]) | `Init`, `ConfigSet`, `ConfigUnset` |
 | environment | §6 | environment commands |
 
@@ -513,17 +514,19 @@ model use this section. Environment commands take no `ctx`, are never keyed and 
 - **CK-4 (one store HLC).** The HLC values a command's records carry are drawn from one sequence, in the order the command
   appends the records ([F16]; a group's records in [F05 §4.7]'s order): each record takes `hlc_next(wall_ms, h)` of
   [OS/clock §7], where h is the greatest value the sequence has produced before it (0 in a new store) and, for a local
-  commit, also the greatest `hlc` of any commit the store holds (an imported commit's `hlc` can lie ahead). The records that
-  take a value are the **semantic durable records** a command of this API writes: `Commit` (a local commit's `hlc`, which is
-  also its `append_hlc`, [F06 §4.4.4]; an imported commit keeps its own `hlc` and takes only its `append_hlc`),
-  `RefUpdate`, `ClientHead`, `Lease`, `Marker` (one value per record, carried by each entry), `Idem`, `Backup`, `FsIntent`,
-  `FsIntentDone` and `FsIntentAborted` ([F05 §9]). A record of another kind that has an HLC field — `Checkpoint`, `Reserve`,
-  `Lazy`, `SessionMark`, the lazy runtime rows — carries `hlc_next(wall_ms, h)` for the current h but does not advance the
-  sequence, and no result, snapshot or digest of this chapter shows its value. So class-I maintenance changes no HLC and no
-  commit id ([F17 §1.5] SP-1), and a lazy record lost in a crash changes none either. `append_hlc` stays strictly increasing
-  in `seq` order (I43′). This is the rule of record, and [F16] P-36 and [OS/clock §7] state the same (pass 1, S1-13, P1-5,
-  A1-17): the engine keeps the sequence's maximum as `HEAD.hlc_seq` and the greatest commit `hlc` as `HEAD.hlc_commit`
-  ([F04 §5.15]); a local commit draws from the larger of the two (open point 39).
+  commit, also the greatest `hlc` of any commit the store holds (an imported commit's `hlc` can lie ahead). The records
+  that take a value are the **semantic durable records** a command of this API writes: `Commit` (a local commit's `hlc`,
+  which is also its `append_hlc`, [F06 §4.4.4]; an imported commit keeps its own `hlc` and takes only its `append_hlc`),
+  `RefUpdate`, `ClientHead`, `Lease`, `Marker` (one value per record, carried by each entry), `Idem`, `Backup`,
+  `FsIntent`, `FsIntentDone`, `FsIntentAborted` and `BodyDrop` (§8.7), and from M9–M10 the reserved `Harvest` (§8.8)
+  ([F05 §9]; spec sync 3). A record of another kind that has an HLC field — `Checkpoint`, `Reserve`, `Lazy`,
+  `SessionMark`, the lazy runtime rows — carries `hlc_next(wall_ms, h)` for the current h but does not advance the
+  sequence, and no result, snapshot or digest of this chapter shows its value. So class-I maintenance changes no HLC and
+  no commit id ([F17 §1.5] SP-1), and a lazy record lost in a crash changes none either. `append_hlc` stays strictly
+  increasing in `seq` order (I43′). This is the rule of record, and [F16] P-36, [OS/clock §7] and [F04 §5.15] state the
+  same, over the same list (pass 1, S1-13, P1-5, A1-17; spec sync 3): the engine keeps the sequence's maximum as
+  `HEAD.hlc_seq` and the greatest commit `hlc` as `HEAD.hlc_commit` ([F04 §5.15]); a local commit draws from the larger
+  of the two (open point 39).
 - **CK-5 (`pathmove.hlc`).** A `path_moves` entry that a command adds carries the `hlc` of the first commit the command
   appends. This is the value "the writer's HLC when the candidate was computed" of [F06 §5.5] under a clock that is constant
   within the command; a re-parent never changes it.
@@ -835,6 +838,111 @@ resolving.
 | `Repair` | none | `repair --rebuild-from-log` ([AR §4.10]); the logical store is unchanged | `{}` |
 | `Verify` | none | `doctor --verify`: every derived structure recomputed and compared ([AR §4.10], [F13] EP-DV); the model evaluates its invariant predicates ([F13 §1.4]) | `{"findings":[{"check":<name>,"detail":<text>}…]}`; empty for a correct store |
 
+A pending body purge ([F16] P-101) is not a `Verify` finding: the purge is class I and the model runs none, so the
+finding would depend on engine timing. Plain `doctor` and `doctor --fsck` report it as the warning `purge_pending`
+([F19 §10.4], [F13 §3.10]). `Backup` runs a pending purge first ([F16] P-87); a purge that bulk commits appended by
+another process keep from publishing refuses the backup with `maintenance_busy` (exit 7, [F19 §10.2]), which a stream of
+this chapter, one process, never meets (spec sync 3).
+
+### 8.7 `BodyDrop` ([F06 §8.1]; [AR §11] #33, OQ-A-7; spec sync 3)
+
+| Argument | Type | Default | Meaning |
+|---|---|---|---|
+| `hashes` | array of strings, 32 lower-case hexadecimal digits each | required, 1 to 2,048 elements | the BLAKE3-128 hashes of the bodies to drop ([F06 §6.2]; §15.3's `body` member shows them) |
+| `reason` | `"secret"`, `"private"`, `"other"` | required | [F06 §8.1] DB-2 |
+| `note` | string, 0 to 200 bytes | `""` | the owner's note, kept in the record |
+
+The CLI verb is `moirai body drop <operand>… --reason <r> [--note T] --by owner`. An operand is a hash, or `<id>[@<rev>]`,
+which names the body that node holds at that revision of the resolved branch (its tip when `@<rev>` is absent); the CLI
+resolves operands to hashes before it builds the command.
+
+**Caller.** Owner-attested only ([RULES/role-write-policy] WT-012; [F06 §8.1] DB-3). Any other call is refused with E406,
+exit 6, before anything else is checked. No MCP tool, hook or `Apply` batch carries the command.
+
+**Checks**, in this order, after the caller's: the arguments (`usage`); then each distinct hash (a hash named twice counts
+once), in ascending order: a hash in the store's dropped set ([F06 §8.1] DB-1) goes to `already`, before and whether or
+not the store holds it as a body (a dropped hash that only BD-6 would keep may have left `BLOBTAB`, [F09 §6.3]); any
+other hash the store does not hold as a body ([F06 §8.1] DB-4) refuses the command (`not_found`, below) with nothing
+written.
+
+**Effect.** For the named hashes that the store holds as a body and has not dropped: one `BodyDrop` record ([F05 §9.29],
+origin `command`) holding them in ascending order, the reason, the note and the caller's actor (CX-3), in a group of its
+own ([F16] P-52); it draws one value from CK-4's sequence. The bound of 2,048 hashes keeps that group within [F17 §4.4]
+W3 at the smallest extent size (P01 ≥ 64 KiB, [F17 §4.1]; [F05 §9.29]), so a call writes at most one record and a drop
+is atomic; a larger set takes several calls. When every hash is already dropped, nothing is written. From the next
+command on, each recorded hash is dropped:
+- `Runtime`'s `dropped` member lists it (§15.7);
+- a read renders the body as [F06 §8.1] DB-6 says, and `Query` reads its text as absent;
+- a `Tx`, `Mutation` or `Apply` statement that sets a body to bytes whose hash is dropped, or `PATCH`es a dropped body, is
+  refused with `body_dropped` (exit 6, [F19 §10.2]);
+- a `Merge`, `Sync`, `Revert` or `CherryPick` whose text rule needs a dropped body's lines gives the key a `TextHunk`
+  conflict value ([F12 §7.5]); an `ImageImport` stores no bytes for a dropped body ([F06 §8.1] DB-11).
+
+No commit id and no member of §15's `content`, `local` and `derived` parts changes. The engine then runs a pending purge
+of the bytes from its files ([F06 §8.1] DB-8, [F16] P-101), also when the command wrote no record; the purge is class I,
+and the model executes nothing for it.
+
+**Refusals.** An empty `hashes` or one of more than 2,048 elements, a hash that is not 32 lower-case hexadecimal digits,
+an unknown `reason`, or a `note` longer than 200 bytes: `usage`, exit 2. A hash that is neither dropped nor held as a
+body: `not_found` (`what` = `body`), exit 3, nothing written. Quiet mode does not refuse the command.
+
+**Result** `data` = `{"dropped":[<32 hex>…],"already":[<32 hex>…],"backups":[<dir>…],"purged":<bool>}`: the hashes this
+command dropped and those that were already dropped, each ascending; the directories of the backups taken before the
+newest `BodyDrop` record that names one of `hashes` (this command's, when it wrote one), which may still hold the bytes
+([F05 §9.13], §8.6; [F06 §8.1] DB-10), ascending bytewise; and `purged`, true when no purge is pending as the command
+ends, false when the maintenance byte was busy or the purge's run stopped with it still pending ([F16] P-101; excluded
+from the comparison, §16.3).
+
+### 8.8 `HarvestMark`, `HarvestForget`: the harvest cursor (reserved: M9–M10; [AR §11] #46; spec sync 3)
+
+Owner decision #46 leaves the harvesting of old transcripts to the harness's agent pipeline: a shipped skill reads the
+harness's transcript files, cuts them into batches of byte ranges, has subagents extract proposed knowledge from each
+range, and submits the results with `apply`. moirai never reads a transcript. The harvest cursor records, per transcript
+file, which byte ranges are done, so a batch run that stops at any point resumes without harvesting a byte twice.
+
+**Where it is stored.** In the store-local runtime table `HARVEST` ([F11]), one row per transcript, folded from durable
+`Harvest` records ([F05]); both are reserved before the format freeze, their bytes being R-SPEC-R's and R-SPEC-P's. A row:
+
+| Member | Content |
+|---|---|
+| `source` | the key: the transcript's identity, 1 to 200 bytes of printable ASCII without spaces, `<harness>:<session or thread id>` by convention (`claude:<session id>`, `codex:<thread id>`) |
+| `path` | the file's absolute path when last reported; informative only, machine-local |
+| `head` | BLAKE3-128 of the file's first min(4,096, `seen`) bytes, 32 lower-case hex digits, as the pipeline computed it; it tells a rewritten file from a grown one |
+| `seen` | the file's size in bytes when last reported |
+| `ranges` | the harvested ranges in the order they were added, each `{start, end, commit}`: the half-open byte range [start, end) and the commit of the `Apply` that harvested it |
+
+The table is not versioned and is no part of `state(ref)`; the image never exports it ([F14]); `backup`, `restore` and
+`repair --rebuild-from-log` keep it as they keep every runtime table. A range is **live** while its commit is reachable
+from a live ref. A range whose commit no live ref reaches any more (its branch deleted, an `undo` past it) is **lost**:
+the records it produced are gone with that commit, so its bytes count as not harvested, and `std.unharvested` lists the
+transcript until a live range covers those bytes again or `HarvestForget` clears the range ([LQ/std §2.16], §4.25).
+
+**Which verb advances it.** Only `Apply` (§9.4), for a result entry whose `harvest` member names a range: the range is
+added by a `Harvest` record in the batch's own group, after its commit, so the records harvested from the range and the
+range become durable together or not at all ([F05 §4.7]). A refused batch adds nothing, and a replayed one (§7.5) adds
+nothing again. A range that overlaps a live range of its row, or another range of the same batch, refuses the whole
+batch with `harvest_overlap` (exit 6), so a batch planned from a stale cursor cannot land twice even under a new
+idempotency key.
+
+**`HarvestMark`** registers a transcript, or reports its growth, before it is harvested, so that the work list holds it.
+Arguments `source`, `path`, `head`, `seen` (each required). It creates the row with no ranges, or updates `path`, `head`
+and `seen`; one `Harvest` record in a group of its own, and nothing when no member changes. Refusals: a member out of its
+form, `usage` (exit 2); `head` different from the row's while the row has a live range, or `seen` below the end of a
+live range, `harvest_changed` (exit 6): the file was rewritten or truncated, and the pipeline forgets it before
+harvesting it again. **Result.** Family W, `branch` null; `data` = `{"source":…,"seen":<int>,"next":<int>}`, `next`
+being `harvest()`'s ([LQ/std §2.16]).
+
+**`HarvestForget`** rewinds a transcript. Arguments `source` (required) and `from` (int, default 0). It removes every
+range whose `start` is at least `from`, and with `from` 0 the row itself; one `Harvest` record, nothing when there is
+nothing to remove. Refusals: `not_found` (`what` = `transcript`, exit 3) for an unknown `source`. **Result.** Family W,
+`branch` null; `data` = `{"source":…,"removed":<int>}`.
+
+Both are CLI-only verbs of the orchestrator and the owner: `moirai harvest mark <source> --path P --bytes N --head H` and
+`moirai harvest forget <source> [--from B]` (the role rows are [RULES/role-write-policy]'s); no MCP tool or hook carries
+them. They are not keyed: a retry finds its work done and writes nothing. `moirai harvest list` is the verb alias of
+`std.unharvested`. The runtime snapshot (§15.7) gains the member `harvest`, after `dropped`, when M9–M10 implement the
+table, so no M0 runtime digest changes now. **Engine and model from M9–M10.**
+
 ## 9. Graph commands (group G)
 
 ### 9.1 `Tx`
@@ -854,11 +962,14 @@ A `TX` block: the semantic core of every graph write ([50 §3.10], [AR §4.5]).
 ([LQ/canonical-ast §5.9] R3). A block that also spells one of them in its `lq` text takes the text's value; the two differing is
 `usage`, exit 2.
 
-**Semantics.** [50 §3.10] items 1–11: one block is one commit on one branch, all or nothing; statements run in order on a
-candidate and later statements see earlier effects; the immediate validators run per statement and the deferred ones at the
-end in I37′ order ([F13 §5]); markers come from the net ops (MC-1, [F13 §4.2]); idempotency is §7; `DRY` runs every check and
-writes nothing. A block whose net changeset is empty and that emits no runtime record appends nothing: the result has
-`rev_new` = null, and nothing is recorded for idempotency.
+**Semantics.** [50 §3.10] items 1–11: one block is one commit on one branch, all or nothing; statements run in order on
+a candidate and later statements see earlier effects; the immediate validators run per statement and the deferred ones
+at the end in I37′ order ([F13 §5]); markers come from the net ops (MC-1, [F13 §4.2]); idempotency is §7; `DRY` runs
+every check and writes nothing. A `Create` of a `rule` or a `decision` reaches the status [RULES/status-machines] GR-019
+gives: `proposed`, or `active`/`accepted` for an owner-authority one written owner-attested while
+`knowledge.owner-authority` is `orchestrator-active` ([CFG §10.5]; spec sync 3). A block whose net changeset is empty
+and that emits no runtime record appends nothing: the result has `rev_new` = null, and nothing is recorded for
+idempotency.
 
 **The commit.** Kind `ordinary` ([F06 §3.1]); `stmt_origin` ([F06 §3.4]): `named-mutation` when the block is one
 `CALL tx.<name>(…)` (then `stmt_sym` = the name), else `tx` for `ctx.door` = `cli` and `mcp-write` for `ctx.door` = `mcp`;
@@ -878,6 +989,8 @@ writes nothing. A block whose net changeset is empty and that emits no runtime r
 | a stale fencing token | E407 | 5 |
 | the role write policy ([RULES/role-write-policy]) | E406 | 6 |
 | a transition or a guard of [RULES/status-machines] (a gating `fail_*` verdict, an unfinished child, a missing `answers` edge, …) | E404 | 6 |
+| a `Create` of a rule or a decision that names a status other than GR-019's ([RULES/status-machines] GR-019; spec sync 3) | E404, its GR-019 case ([LQ/errors §5.5]) | 6 |
+| a `PATCH` whose removed text is empty or does not occur exactly once in the current body (§9.2; spec sync 3) | E404, its `PATCH` case ([LQ/errors §5.5]) | 6 |
 | an invariant of [F13 §3] or a deferred validator (I2, I4, I5′, I6, I7, I11, `QueryInvalid`, `QueryCycle`) | E405 | 6 |
 | a second live holder of an (root, exact path) key (I-F1) | `path_claimed` | 6 |
 | a restricted delete; a live lease without `release` (I32′); a `replaced_by` that is not live, lies in the deleted set or does not fit a re-pointed edge ([RULES/delete-policy-matrix] DP-005 to DP-007; each case's text is [LQ/errors §5.5]'s) | E409 | 6 |
@@ -899,7 +1012,7 @@ it produces ([F06 §7.2]):
 |---|---|---|---|
 | `create` | `as` (a variable name, referable as `"$<name>"` by later statements), `kind`, `fields` (object: field → value, `title` and header fields included), `body` (text), `under` (a target), `position` (§9.5), `edges_out` (array of `{"kind":…, "dst":<target>}`), `edges_in` (array of `{"kind":…, "src":<target>}`) | `CREATE (<v>:<kind> {<f>: …})[ UNDER <p>]`, then, when `position` is given, `MOVE <v> UNDER <p> <position>` (grammar v1's `create_stmt` takes no position), then `CREATE` of each edge, then `SET <v>.body = …` | `Create` (+ `AddEdge`, `Move`) |
 | `set` | `target`; `fields` (object: field → value; `null` removes the field; `status`, `resolution` and `done` allowed); `incr` (object: counter field → non-zero delta); `body` (text, or `null` to remove); `guard` (object with `if_rev`, `if_status`, `if_holder`) | without `guard`: `SET <t>.<f> = …[, …]`, `REMOVE <t>.<f>`, `SET <t>.<c> = <t>.<c> + …`; with `guard`: `MATCH (n {id: <t>}) WHERE <guards> EXPECT 1 SET n.<f> = …` exactly as [LQ/std §7.2] `tx.set` | `SetField`, `SetStatus`, `Incr`, `SetBody` |
-| `patch` | `target`, `remove`, `add` (texts) | `PATCH <t>.body REMOVE … ADD …` | `SetBody` |
+| `patch` | `target`, `remove`, `add` (texts) | `PATCH <t>.body REMOVE … ADD …`; `remove` must occur exactly once in the current body, overlapping occurrences counted, and must not be empty, else E404 ([LQ/std §7.2]; spec sync 3) | `SetBody` |
 | `link` | `src`, `kind`, `dst`, `pinned` (a commit, for kinds whose `props` is `pinned`) | `CREATE (<src>)-[:<T>[ {pinned: …}]]->(<dst>)` | `AddEdge`; for `supersedes` also the target's `SetStatus` (I6) |
 | `unlink` | `src`, `kind`, `dst` | `MATCH (<src>)-[e:<T>]->(<dst>) EXPECT 1 DELETE e` | `RemoveEdge` |
 | `move` | `target`, `under` (a target, or null to detach), `position` | `MOVE <t> UNDER <p> <position>`, or `SET <t>.parent = NULL` | `Move` |
@@ -972,6 +1085,40 @@ write ([AR §6.4] D6). Any refusal of §9.1 for any statement refuses the whole 
 created, ascending; `released` every lease the batch ended — by a completion (into `settled`), by step 1's release or by step 4
 — ascending by lease id; `recorded` repeats the entries' `recorded` ids that exist on the batch branch; `markers` is §10.8's;
 `affected` is the commit's.
+
+**Reserved `result.v1` members** (M9–M10; [AR §11] #46; spec sync 3). The capture, harvest and curation pipeline of owner
+decision #46 submits its subagents' output through this command, as `result.v1` entries ([90 §7.2]) read by an
+`apply --from` adapter ([90 §7.3]). Three members are added to `result.v1`, additively ([90 §7.2]: in the strict
+schema subset every member is required and an unused one is `[]` or `null`; `apply` reads an entry that lacks one as
+if it held `[]` or `null`). Such an entry usually has `task` null, `outcome` `none` and the worker's run-scoped role
+lease. The members expand after step 2 and before step 3, entry by entry: the entry's `proposals`, then its `curation`,
+then its `harvest`.
+
+| Member | Value | Expansion |
+|---|---|---|
+| `proposals` | array of `{"kind":"rule"\|"decision","title":<string>,"text":<string>,"applies_to":[<string>…],"about":[<integer>…],"criticality":<string or null>}` | per element, a `create` of the kind with `title`, the kind's text field (`text` of a rule, `what` of a decision), `applies_to` (a rule only; elements as [F08 §5.4.6]), `criticality` when not null and an `ABOUT` edge to each `about` id; deduplicated within the batch as step 2's notes are, by the key `run:<run>/task:<n or 0>/<kind>:<hex(BLAKE3-128(lp(title) ‖ lp(text)))>`. A batch is never owner-attested, so [RULES/status-machines] GR-019 creates each proposal `proposed`, and the commit's provenance group ([F06 §4.4.17]) carries the actor kind and model once M9–M10 fill it |
+| `curation` | array of `{"action":<string>,"id":<integer>,"rev":<integer>,"by":<integer or null>,"applies_to":[<string>…] or null,"text":<string or null>,"reason":<string or null>}`, at most one action per `id` in an entry | per element, the named mutation of the table below on node `id`, guarded by `if_rev` = `rev` (the item's `rev` in the bundle, §14.6), so an item that changed after its bundle was built refuses the batch with E401 |
+| `harvest` | `{"source":<string>,"path":<string>,"head":<32 hex>,"seen":<integer>,"start":<integer>,"end":<integer>}` or null | the row of §8.8 is updated as `HarvestMark` would update it, then the range [`start`, `end`) is added by a `Harvest` record in the batch's group; `start` ≥ `end` is `usage` (exit 2), an overlap with a live range or with another range of the batch `harvest_overlap`, a changed file `harvest_changed` (exit 6, §8.8) |
+
+| `action` | Kinds | Named mutation ([LQ/std §7.2], §9.7) |
+|---|---|---|
+| `keep` | any | none: the item was reviewed and stays as it is |
+| `accept` | rule, decision | `tx.set` with `status` = `active` (rule) or `accepted` (decision) and `if_status` = `proposed` |
+| `reject` | rule, decision | a decision: `tx.set` with `status` = `rejected`; a rule: `tx.retract` with `reason` |
+| `retract` | rule, note | `tx.retract` with `reason` |
+| `archive` | rule, note | `tx.set` with `status` = `archived` |
+| `supersede` | rule, decision, note | `tx.supersede` with `old` = `id`, `new` = `by` |
+| `scope` | rule, note | `tx.set` with `applies_to` = `applies_to` |
+| `abstract` | any | `tx.set` with `abstract` = `text` |
+| `triaged` | note | `tx.set` with `labels` = the note's labels without `needs-triage` (§18) |
+
+An action on a kind its row does not list, or with a member it needs left null, is `usage` (exit 2). Every statement is
+checked by the role write policy under the entry's lease, and one refused action refuses the batch (E406); under
+`knowledge.owner-authority = strict`, `accept` of an owner-authority record is the owner's alone
+([RULES/role-write-policy] WR-015), so no batch confirms one. From M9–M10 the result's `data` gains, after `affected`,
+`"proposed":["#N"…]` (the proposals created, ascending), `"curated":[{"id":"#N","action":<string>}…]` (in entry and
+element order) and `"harvested":[{"source":<string>,"start":<int>,"end":<int>}…]`. **Engine and model from M9–M10**; no
+M0 stream carries these members, and `moirai schema result-v1` prints them from then on.
 
 ### 9.5 Positions and the `order` field
 
@@ -1545,7 +1692,8 @@ Observations append nothing ([40] I-F5) and are never keyed.
 ### 14.1 `Query`
 
 Every read verb ([AR §7.7.2], [LQ/std §3]). Arguments: `name` and `params` (a named query), or `lq` or `ir` with `params`; `use`
-(`--at`); `limit`; `cursor`; `mode` (`run`, `check`, `explain`, `profile`); `budget` (object); `ids` (bool). **Semantics**: [50 §3]
+(`--at`); `limit`; `cursor`; `mode` (`run`, `check`, `explain`, `profile`); `budget` (object); `ids` (bool); `bundle` (bool,
+default false; with `name` only; reserved for M9–M10: the curation bundle of §14.6). **Semantics**: [50 §3]
 and [LQ/std]; the view is `use`, else the resolved branch (CX-2, [50 §3.9]); tree-derived built-ins use CX-5's tree. **Result.**
 Family R ([LQ/envelope §7]); refusals are LQ codes ([LQ/errors]); a budget cut is exit 10 with the rows before it.
 **Appends.** A `Query` appends nothing, `pack` included ([40] I-F5). The C8 pack cursor ([AR §7.4]; [F05 §9.11] `feed` 2)
@@ -1567,6 +1715,59 @@ snapshot of §15.7.
 Arguments `ref` (default: every ref) and `since_seq` (default 0). **Result.** Family X; `data` = §15.8's history snapshot of the
 commits with seq above `since_seq` that are reachable from the ref (from any ref, reflog or pin without `ref`), and of the ref
 moves.
+
+### 14.5 `brief` and `pack`: proposed records (spec sync 3)
+
+`brief` and `pack` are `Query` of their class queries ([LQ/std §5], [LQ/std §6]) rendered by the pack machine
+([RULES/pack-classes]). Owner decision OQ-A-8 (c) makes the review queue visible ([AR §11]):
+- **Packs** show a rule or decision in status `proposed` where its authoritative counterpart would appear (C2, C3 as a
+  proposed owner ruling, C7, the hook packs' critical rules), marked `~proposed`, after the authoritative entries of its
+  class, never protected and never counted as authoritative ([RULES/pack-classes] PT-033, PM-026 to PM-029, RN-018,
+  HP-007; [F19 §4.7]).
+- **The brief** gains the "proposed / needs review" line ([RULES/pack-classes] BR-012): the number of rules and decisions
+  in status `proposed` in the brief's scope, the ids of the newest five, and the command that lists them all,
+  `moirai q proposed` (with `scope=<N>` under `--scope`), which is `Query` of `std.proposed` ([LQ/std §4.24]). Example:
+  `needs review: 7 proposed | newest #231 #229 #228 #212 #205 | list: moirai q proposed` ([F19 §4.7]). No line prints
+  when the number is 0; the line is never dropped.
+
+A record leaves the queue by a status write through the doors of [RULES/status-machines] (to `active` or `accepted`,
+`rejected`, `retracted`, `archived`, `superseded`), under the role write policy and, for an owner-authority record while
+`knowledge.owner-authority` is `strict`, only by the owner's own write ([RULES/role-write-policy] WR-015).
+
+### 14.6 Curation bundles (reserved: M9–M10; [AR §11] #46; spec sync 3)
+
+A curation task is the unit of work the curation pipeline of owner decision #46 gives one subagent: an **input bundle**
+that moirai builds, an **answer** in `result.v1`'s `curation` member (§9.4), and its **submission** through
+`apply --from` (§9.4). The bundle is `Query` with `name` = a work-list query and `bundle` = true; the CLI verb is
+`moirai curate <name> [k=v …] [--limit N]`, whose stdout is the bundle as one JSON object. The queries that take a bundle
+are `std.proposed` and the reserved work lists of [LQ/std §4.25] except `unharvested`, which is the harvest planner's list
+(§8.8); any other `name` is `usage` (exit 2). A bundle is a pure read, deterministic for a view, its arguments and, for
+link states, the tree. `data` is:
+
+```
+{"v":1,"query":"std.<name>","params":{<name>:<value>…},"branch":<ref>,"rev":<int>,"more":<bool>,
+ "answer":{"schema":"result.v1","member":"curation","actions":[<action>…]},
+ "items":[{"id":"#N","kind":<string>,"status":<string>,"rev":<int>,"authority":<string>,"criticality":<string>,
+           "title":<string>,"abstract":<string or null>,"text":<string or null>,"applies_to":[<string>…],
+           "labels":[<string>…],"links":[{"anchor":"aN","path":<string>,"state":<string>}…],
+           "similar":[{"id":"#N","score":<float>}…],"row":{<column>:<value>…}}…]}
+```
+
+- `items` are the nodes of the query's first column, in its order, at most `limit` (default 10); `more` is true when the
+  query had more rows. `rev` is the node's `rev` (the `if_rev` its action must carry, §9.4).
+- `text` is the kind's text field (`text` of a rule, `what` of a decision, `failure_scenario` of a finding), else null.
+  Bodies are not carried; a curator that needs one reads it with `moirai show <id> --full`.
+- `links` are the node's `AT` anchors with their link states ([F18 §4.4]; `unverified` with no tree); `similar` holds at
+  most three rows of `similar(id)` ([LQ/std §2.16]); `row` the query's other columns by name.
+- `answer.actions` lists the actions of §9.4 that fit the query: `proposed`: `accept`, `reject`, `supersede`, `scope`,
+  `abstract`, `keep`; `similar`: `supersede`, `retract`, `archive`, `keep`; `stale_link_rules`: `retract`, `archive`,
+  `scope`, `keep` (a link is repaired by the file-link verbs, not by curation); `rules_unscoped`: `scope`, `keep`;
+  `triage_notes`: `triaged`, `retract`, `archive`, `keep`; `long_bodies`: `abstract`, `keep`.
+
+The curator's answer is one `result.v1` object with `task` null, `outcome` `none`, its run-scoped role lease and one
+`curation` element per item it decided; an item it leaves out stays in the work list for the next bundle. The dispatcher
+submits every curator's answer of a run in one `apply --from <adapter> --run <run>` batch (§9.4). **Engine from
+M9–M10**; the model renders no bundle.
 
 ## 15. `state(ref)` and the snapshots
 
@@ -1692,6 +1893,7 @@ snapshot on a mismatch ([60 §4.4] item 2).
 | `heads` | every client head and binding, by (kind, key text): `{"kind":"directory"\|"client"\|"session","key":<text>,"ref":<name or null>,"commit":<commit or null>,"binding":<bool>,"designated":<bool>,"expected_ref":<text or null>,"base":<git id or null>}` ([F11 §5], [F18 §3]); a `session` row older than `idempotency.retention` (CK-6, [F11 §5] "Retention") is left out when the snapshot is read, whether or not a fold dropped it, so the snapshot does not depend on fold timing (spec sync 2b) |
 | `alloc` | every allocated `#N` that is bound to a uid: `{"id":"#N","uid":…,"ref":<name>,"create_seq":…}` ([F11 §9]); a skipped id (an `ALLOC` hole, [F11 §9.1]) is not listed, and `counters.next_id` counts it |
 | `intents` | every `FsIntent` of the last `gc.trash-expire` window: `{"intent":"i-n","op":…,"items":[…],"state":"open"\|"done"\|"aborted","outcomes":[…]}` ([F11 §12.7]) |
+| `dropped` | every dropped body ([F06 §8.1]), by hash: `{"hash":<32 hex>,"reason":"secret"\|"private"\|"other"}`; `[]` when none (spec sync 3) |
 | `quiet` | bool |
 | `digest` | `BLAKE3-256( lp("moirai-api-runtime-v1") ‖ lp(CJ(<this object without digest>)) )`, 64 hex |
 
@@ -1744,12 +1946,13 @@ A member this chapter does not define is a comparison failure, except the additi
 | every envelope | `budget` | engine work and memory accounting ([LQ/envelope §7.5]) |
 | family R | `next`; `dropped` | the cursor bytes carry the engine's remaining work budget ([LQ/envelope §8.1]); `dropped` depends on rendering budgets. The rows of every page are concatenated and compared instead |
 | families R and T | `reads` | rendering: the reading echo is the reference renderer's (WP-71a) |
-| families R and T | the entries of `warnings` and `notices` whose code [LQ/errors §5.1] marks `product` or `renderer` | the model raises only codes marked `model` |
+| families R and T | the entries of `warnings` and `notices` whose code [LQ/errors §5.1] marks `product`, `renderer` or `reserved` (N13, spec sync 3) | the model raises only codes marked `model` |
 | family T | `statements[].text` | the display printer's rendering ([LQ/gql-spelling §5]) |
 | family W | `warnings` other than `hook_label_narrowed`, `two_harnesses`, `not_a_tree`, `graph_only_revert` (§11.10) | environment diagnostics of `doctor` |
 | every error | `message`, `help`, `detail`, `suggest`, `span`, `expected` | texts ([60 §4.3]: CLI text rendering is outside the model) |
 | error keys | `store_locked.*`, `fs_busy.retries`, `fs_busy.waited_ms`, `fs_busy.os`, `disk_full.os`, `internal.*`, `refused_location.*`, `sealed_size.*`, `store_corrupt.*` | engine and OS faults |
 | `Maintain` | `data.ran` | class I |
+| `BodyDrop` | `data.purged` | class I: the purge of the bytes ([F06 §8.1] DB-8) is engine work |
 | `Verify` | `findings[].detail` | text |
 | `BranchDelete`, `Undo`, `OpRestore` | `data.triage` | text; the markers and counts are compared |
 | `ImageExport`, `ImageImport` | git object ids, `cursor_seq`, `git_commits` | the model produces no git bytes ([60 §4.3]); GT8 checks them |
@@ -1894,7 +2097,9 @@ every verb takes map to `ctx` (§4.1): `--branch`, `--lease`, `--agent`, `--clie
 | `branch`, `branch -d`/`-D`, `checkout`, `worktree bind`/`unbind`, `lane open`, `lane close`/`freeze`, `tag`, `merge`, `merge --continue`/`--abort`, `sync`, `cherry-pick`, `revert`, `undo`, `op restore` | `BranchCreate`, `BranchDelete`, `Checkout`, `WorktreeBind`, `WorktreeUnbind`, `LaneOpen`, `LaneClose`, `Tag`, `Merge`, `MergeContinue`, `MergeAbort`, `Sync`, `CherryPick`, `Revert`, `Undo`, `OpRestore` |
 | `link ID --at`, `unlink ID --at`, `file add`, `file mv`, `file rm`, `file relink --after`, `file revert`, `links sync`, `links fix`, `check` | `LinkFile`, `UnlinkFile`, `FileAdd`, `FileMv`, `FileRm`, `FileRelink`, `FileRevert`, `LinksSync`, `LinksFix`, `Check` |
 | `image export`, `image import`; `image push`/`pull` (transport, then import) | `ImageExport`, `ImageImport` |
-| `init`, `config set`/`unset`, `quiet`, `gc`, `backup`, `restore`, `repair`, `doctor --verify` | `Init`, `ConfigSet`/`ConfigUnset`, `Quiet`, `Gc`, `Backup`, `Restore`, `Repair`, `Verify` |
+| `init`, `config set`/`unset`, `quiet`, `gc`, `backup`, `restore`, `repair`, `doctor --verify`, `body drop` | `Init`, `ConfigSet`/`ConfigUnset`, `Quiet`, `Gc`, `Backup`, `Restore`, `Repair`, `Verify`, `BodyDrop` (§8.7) |
+| `harvest mark`, `harvest forget` (M9–M10) | `HarvestMark`, `HarvestForget` (§8.8) |
+| `harvest list`, `curate` (M9–M10) | `Query` of `std.unharvested`; `Query` with `bundle` (§14.6) |
 | `config get`/`list`/`check`, `doctor` (other modes, `--fsck`), `image doctor`/`show`/`gc`, `export`, `schema result-v1`, `integrate`, `hooks install`, `hook`, `mcp`, `links import` | none: front-end, integration and diagnostic verbs outside the `Store` API; `links import` (M9) issues `LinkFile` commands |
 
 | MCP tool ([AR §7.2]) | Command |
@@ -1905,10 +2110,17 @@ every verb takes map to `ctx` (§4.1): `--branch`, `--lease`, `--agent`, `--clie
 | `remember` | `Mutation` `tx.remember` |
 | `write` | `Tx` (`lq`) with `tx`; `Mutation` with `name` and `params` |
 
-Hooks that write: `SessionStart` (the settle: `LinksSync`; the orchestrator lease: `Claim` with `role` = `orchestrator` and
-`session`), `SubagentStop` (`Release`, reason 1, §10.3; and the needs-triage note of [RULES/role-write-policy] WH-004 and
-[AR §7.5], written as `Mutation` `tx.remember` with a `note`; spec sync 2b). The lazy records hooks append on their own (`SessionMark`, cursors, evidence rows) change
-no compared state and are outside the API at M0 (open point 25).
+Hooks that write: `SessionStart` (the settle: `LinksSync`; the orchestrator lease: `Claim` with `role` = `orchestrator`
+and `session`), `SubagentStop` (`Release`, reason 1, §10.3; and the needs-triage note of [RULES/role-write-policy]
+WH-004 and [AR §7.5], written as `Mutation` `tx.remember` with a `note`; spec sync 2b). The needs-triage note (spec sync
+3) has the title `needs triage: <agent> stopped holding <lease>`, cut to 200 bytes at a scalar boundary, the label
+`needs-triage`, an `ABOUT` edge to the lease's task when it has one, and as its body the stopping agent's
+`last_assistant_message`, cut at both ends to c = `hooks.subagent-stop.triage-max-bytes` bytes ([CFG §10.7]). When the
+message's length L exceeds c, the body is its head, an LF, the line `[cut from <L> bytes]`, an LF and its tail. With m
+the length of those middle parts, h = ⌊(c − m) / 2⌋ and t = c − m − h: the head ends at the last scalar boundary at or
+before byte h, and the tail starts at the first scalar boundary at or after byte L − t, so the body never splits a UTF-8
+scalar and never exceeds c. `std.triage_notes` lists such notes ([LQ/std §4.25]). The lazy records hooks append on their
+own (`SessionMark`, cursors, evidence rows) change no compared state and are outside the API at M0 (open point 25).
 
 ## 19. Examples
 
@@ -2228,3 +2440,34 @@ point 29).
     (g) E411 applies to a caller with a session identity or `door` = `mcp`, so example 02 holds ([RULES/role-write-policy]
     WR-012, R-MODEL's RM-15). (h) CX-6 reads `run.model`; CX-7 reads `client.profile`. (i) Open point 15 is closed by
     [F08 §9.3] (`harness`, `model`); open point 16 by [LQ/std §7.3] `tx.complete`'s `$lease`.
+50. **Spec sync 3** ([AR §11] #33, OQ-A-7; [F06 §8.1]). §8.7 `BodyDrop`, a group S command (engine from M2, with
+    bodies): owner-attested only, CLI only, not keyed (a retry finds the hashes already dropped and writes nothing).
+    §15.7's runtime snapshot gains `dropped`, so every runtime digest changes once for the new member; example 12 shows
+    it empty. The model implements the command, the dropped set, the `body_dropped` refusals and the text rule's
+    `TextHunk` for a dropped body ([F12 §7.5]); it executes no purge. The provenance group of [F06 §4.4.17] (OQ-A-9)
+    adds no member to §15.8's commit objects until M9–M10 fill it. **After the independent check of the sync:** CK-4
+    lists `BodyDrop` and the reserved `Harvest` among the semantic durable records, as [F16] P-36, [OS/clock §7] and
+    [F04 §5.15] do, so a `BodyDrop` record raises the sequence and the next local commit's `hlc` follows it. §8.7 bounds
+    `hashes` at 2,048, so a call writes at most one record, rather than as many W3-sized records as a large set needs:
+    how many records a split writes depends on the record's encoding, which the model does not produce (SP-2), and each
+    would draw a value of CK-4's sequence, so the model could not predict the later commits' `hlc`; one record also
+    keeps a drop atomic. A dropped hash goes to `already` before the held-body check, so a hash whose `BLOBTAB` entry
+    BD-6 no longer keeps is not `not_found`. `purged` and `backups` are defined for a call that writes no record, which
+    still runs a pending purge, and `Verify` never reports a pending purge (§8.6).
+51. **Spec sync 3, part B** ([AR §11] OQ-A-8 (c), #46; the TencentDB research of 2026-09-30). (a) **Proposed
+    records** (§14.5): this chapter had no brief section, which [RULES/pack-classes] BR-012 cites for the listing
+    command; §14.5 states what packs and the brief show, and the command is `moirai q proposed`, a `Query` of the new
+    catalog query `std.proposed`. (b) **Knowledge status and `PATCH`** (§9.1, §9.2): a `Create` of a rule or decision
+    takes GR-019's status under `knowledge.owner-authority`, and naming another status is E404; a `PATCH` whose removed
+    text is empty or does not occur exactly once is E404 ([LQ/errors §5.5]). (c) **Reservations for M9–M10.** The
+    harvest cursor (§8.8) is store-local runtime state rather than versioned data: a transcript is a file of one machine,
+    its path means nothing in another clone or in the image, and a range must become durable in the same group as the
+    batch that harvested it, which a runtime record in that group gives without a new node kind and its rule rows.
+    Branch operations do not move it; a range whose batch commit no live ref reaches is "lost" and listed again, so a
+    deleted lane never leaves bytes marked done whose records are gone. Only `Apply` advances it, and an overlap refuses
+    the batch, so neither a resumed run nor a retry under a new key harvests a range twice. The curation contract is the
+    bundle (§14.6), `result.v1`'s `curation` member and `Apply` (§9.4); capture and harvest results use `proposals`,
+    which GR-019 creates `proposed`, as owner decision #46 requires of pipeline output. `proposals` admits rules and
+    decisions only: a note has no `proposed` status ([F08 §9.5]), the format question that [RULES/status-machines] open
+    point 27 (a) records. (d) **§18**: the needs-triage note's title, label, edge and cut; the doors of `body drop`
+    (missing since §8.7 was added), `harvest` and `curate`. (e) **§16.3** excludes notices marked `reserved`.

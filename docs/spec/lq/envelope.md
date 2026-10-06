@@ -252,7 +252,8 @@ id is missing ([LQ/errors] open point 6).
 5.8. **Diff.** One line per change ([50 §6.4], Q13, Q19):
 `<change> <id> <kind> <aspect>[ <name>] <what>[ [<side>]][ rev <seq> <actor>]` where `<change>` is `+` added, `-` removed, `~`
 changed; `<name>` is omitted when it equals the aspect (`status`); `<what>` is `<before>-><after>` for fields and statuses,
-`"<title>" created` or `"<title>" deleted ("<reason>", replaced_by <id>)` for existence, `<n> lines +<a> -<r>` for bodies, and
+`"<title>" created` or `"<title>" deleted ("<reason>", replaced_by <id>)` for existence, `<n> lines +<a> -<r>` for bodies
+(`body dropped` when either side is a dropped body, [F06 §8.1]), and
 `<T> <id> added|removed` for edges; `[<side>]` (`ours`, `theirs`, `both`) only for three-dot ranges; `rev <seq> <actor>` is the
 last commit's, absent in `DRY`.
 
@@ -293,6 +294,8 @@ scalar boundary at or before byte 117 that does not split an escape, and `...` i
 when projected or with `--full`, fenced:
 `--- body <id> | <n> B | by <actor> rev <seq> | untrusted text ---`, the body bytes, then `--- end body <id> ---`. If the body
 contains a line equal to the closing fence, the fence gains `-` characters on both sides until no body line equals it.
+A body whose bytes the owner dropped ([F06 §8.1]; spec sync 3) prints, in place of the fenced body, the one line
+`[body dropped: <reason>]`, `<reason>` being `secret`, `private` or `other` ([F06 §8.1] DB-2).
 `authority` and `owner_quote` render so an owner ruling is distinguishable from an agent note.
 
 5.17. **Row order.** The rows print in the result's total order ([50 §3.5]).
@@ -364,7 +367,7 @@ revisions integers; timestamps RFC 3339 UTC with milliseconds (`2026-09-25T12:03
 milliseconds; enums their name; `priority` an integer; f64 as in §5.2; absent `null`;
 text as JSON strings with `"`, `\` and C0 controls escaped (`\n`, `\r`, `\t`, else `\u00XX`) and every other scalar as raw
 UTF-8, never truncated; an edge `{"src":"#N","type":<LQ name>,"dst":"#N"}` plus `"anchor":"aN","kind":<anchor kind>` for `AT`
-and `"flagged":true` for a flagged edge.
+and `"flagged":true` for a flagged edge; a dropped body ([F06 §8.1]) `{"dropped":<reason>}` in place of its text.
 
 7.4. **Rows.** In the `node` shape, each row is a node object; otherwise an object keyed by column name in column order. A node
 object has, in order: `id`, `uid` (with `--uid`), `kind`, `status`, `priority` (tasks), `criticality` and `authority` (when not

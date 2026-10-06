@@ -170,6 +170,7 @@
             }
           ],
           "intents": [],
+          "dropped": [],
           "quiet": false,
           "digest": "7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d7d"
         },

@@ -6,7 +6,7 @@
 | Chapter | [F05], `docs/spec/format/05-log.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-11 (R-SPEC-P), [60 §3.1] item 1 |
-| Sources | [AR §4.1] `log`, `hist`, `cs` and `gitmap` rows and the rules paragraph; [AR §4.2] (the log-derived `HEAD` fields and the table pointers); [AR §4.3] (`RecHdr`, validity, groups, the chain, the record kinds, the commit body's place); [AR §4.4] (the sections records fold into, the `LEASES`, `MARKERS`, `IDEM` rows); [AR §4.5] steps 6, 8, 9, 10 and 12; [AR §4.9] (checkpoint, retirement, pins, GC); [AR §4.10]; [AR §5a.1]–[AR §5a.5] (refs, reflog, client heads, pins, promotion); [AR §5b.6] (`gitmap`, `image_cursor`, last-seen oids); [AR §5d.1] (runtime state); [AR §6.2] (leases, heartbeats, anchors); [AR §6.3] (cursors); [AR §6.4] (idempotency); [AR §6.5] (durability classes); [AR §13] `durability.lazy-kinds`; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.3] (the chain, pending groups, the publish fold); [80 §2.7.2]; [80 §2.11.2] (`OsFileId`, timestamps, `JOURNALCUR`, `DIRMAP`, `TREES`, the `FSINTENT` holder); [80 §3.1] X-F2, X-F3, X-F5, X-F8; [40 §2.6] (every runtime table, the `TreeReg` epoch layout); [40 §2.7] (anchor handles); [40 §2.11] R-6, R-7, R-15, R-18; [40 §3.4], [40 §3.5] (the intent protocol); [50 §8.1] F8, F9, F14, F17; [90 §4.1], [90 §4.3], [90 §4.4], [90 §10.1] (`LEASES` rows); [60 §2.5] the [AR] row "Log", the audit row "Log", the "Protocol decisions" row (decisions (a), (b), (k)), the issue-2 row "Store parameters"; [70 S5], [70 S7], [70 S8], [70 S12]; [71 RAM-M5]; [72 M1], [72 M9]; [73 F4]; `docs/spec/reviews/a1-P.md` A1P-04, A1P-12; [PLAN §3.2] WP-11, [PLAN §3.3] (rotation padding when fewer than 40 B remain; record kinds for lazy `ANCESTRY`, heartbeat and cursor; the stale [60 §2.5] copy of R-7) |
+| Sources | [AR §4.1] `log`, `hist`, `cs` and `gitmap` rows and the rules paragraph; [AR §4.2] (the log-derived `HEAD` fields and the table pointers); [AR §4.3] (`RecHdr`, validity, groups, the chain, the record kinds, the commit body's place); [AR §4.4] (the sections records fold into, the `LEASES`, `MARKERS`, `IDEM` rows); [AR §4.5] steps 6, 8, 9, 10 and 12; [AR §4.9] (checkpoint, retirement, pins, GC); [AR §4.10]; [AR §5a.1]–[AR §5a.5] (refs, reflog, client heads, pins, promotion); [AR §5b.6] (`gitmap`, `image_cursor`, last-seen oids); [AR §5d.1] (runtime state); [AR §6.2] (leases, heartbeats, anchors); [AR §6.3] (cursors); [AR §6.4] (idempotency); [AR §6.5] (durability classes); [AR §13] `durability.lazy-kinds`; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.3] (the chain, pending groups, the publish fold); [80 §2.7.2]; [80 §2.11.2] (`OsFileId`, timestamps, `JOURNALCUR`, `DIRMAP`, `TREES`, the `FSINTENT` holder); [80 §3.1] X-F2, X-F3, X-F5, X-F8; [40 §2.6] (every runtime table, the `TreeReg` epoch layout); [40 §2.7] (anchor handles); [40 §2.11] R-6, R-7, R-15, R-18; [40 §3.4], [40 §3.5] (the intent protocol); [50 §8.1] F8, F9, F14, F17; [90 §4.1], [90 §4.3], [90 §4.4], [90 §10.1] (`LEASES` rows); [60 §2.5] the [AR] row "Log", the audit row "Log", the "Protocol decisions" row (decisions (a), (b), (k)), the issue-2 row "Store parameters"; [70 S5], [70 S7], [70 S8], [70 S12]; [71 RAM-M5]; [72 M1], [72 M9]; [73 F4]; `docs/spec/reviews/a1-P.md` A1P-04, A1P-12; [PLAN §3.2] WP-11, [PLAN §3.3] (rotation padding when fewer than 40 B remain; record kinds for lazy `ANCESTRY`, heartbeat and cursor; the stale [60 §2.5] copy of R-7); [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F14 §11.2] (the `BodyDrop` record, spec sync 3); [AR §11] OQ-A-9 with [F01 §8.2] (the symbol class `model`); [AR §11] #46 and OQ-A-10 with [API §8.8], §9.4 and [F11 §13.5] (the reserved `Harvest` record, spec sync 3); `docs/spec/reviews/spec-sync-3.md` (the independent check of spec sync 3) |
 | Depends on | [F01], [F02], [F03], [F04], [F17]; cites [F06], [F09], [F10], [F11], [F13], [F15], [F16], [F18], [F19], [F20], [API], [CFG], [OS/clock], [OS/fs], [OS/proc], [OS/project] |
 
 ## 1. Scope
@@ -109,7 +109,9 @@ holds the lsns `[(n − 1)·E, n·E)`. lsn 0 is the first byte of `log.1`.
 A group that does not fit the rest of the current extent goes to the next one after the current extent is padded (§4.4).
 The pad, the next extent's extent-head group (§4.5) and the group are three groups: the extent ends with the pad's chain
 trailer, whose 8 bytes are the chain value at the next extent's first byte, and the extent head that begins the next
-extent carries that value (`chain_in`, §9.28), so the next extent can be validated after the old one is retired.
+extent carries that value (`chain_in`, §9.28), so the next extent can be validated after the old one is retired. A purge
+also ends an extent before any group needs it, with the pad and the next extent's head alone (§4.4 G-3, forced rotation;
+[F16] P-101).
 
 ## 3. The record header
 
@@ -118,7 +120,7 @@ extent carries that value (`chain_in`, §9.28), so the next extent can be valida
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
 | 0 | 4 | `u32` | `len` | the record's total length in bytes: header, payload and, when `group_end` is set, the 8-byte chain trailer. 32 ≤ `len` ≤ `E`; `len` ≥ 40 when `group_end` is set |
-| 4 | 1 | `u8` | `kind` | the record kind (§7); 0 and 29–255 are invalid |
+| 4 | 1 | `u8` | `kind` | the record kind (§7); 0 and 31–255 are invalid |
 | 5 | 1 | `u8` | `flags` | §3.2 |
 | 6 | 2 | `u16` | `_reserved` | reserved-zero ([F01 §10]) |
 | 8 | 8 | `u64` | `lsn` | the record's own position in the log (§2.3) |
@@ -199,6 +201,10 @@ With H = 138, the length of an extent-head group (§4.5, §9.28), and the **rota
   - Otherwise the writer first writes a **pad group** at p: exactly one `Noop` record with `group_end` and `len` = r,
     whose payload is r − 40 zero bytes (§9.12). It then writes the next extent's extent-head group at `n(p)·E`, the first
     byte of the next extent, and its group right after it.
+  - **Forced rotation** ([F16] P-101 step 1). A purge ends the current extent whatever any group's length: at p, unless
+    p is an extent's first byte or lies right after an extent head, it writes the pad group of length r and then the
+    next extent's extent-head group; at an extent's first byte it writes that extent's head. It writes no group of its
+    own after the head. When p lies right after an extent head, the extent holds nothing else and no rotation is forced.
 - **G-4 (invariant).** At every group boundary p, either p is an extent's first byte or at least 40 bytes are left in
   its extent. An extent-head group leaves E − H ≥ 40 bytes (E ≥ 2^16), and G-3 keeps the invariant: a group written at p
   leaves 0 or at least 40 bytes, and the pad of G-3 always has r ≥ 40.
@@ -243,18 +249,20 @@ defects of §5.4 (a valid group that breaks G-4, and an extent's first group tha
 
 | Group | Records, in order | Rule |
 |---|---|---|
-| commit group | one or more `Commit` records, then the records they imply: `RefUpdate` and `RefTable` (for example `lane open`), `Lease`, `Marker`, `Idem`, `Pin`, `FsIntentDone`; optionally lazy evidence records of the same settle | a commit and the `Marker` records its net ops imply are in one group ([AR §4.3]: a completion is never adopted without its marker); a `file mv` or `file rm` commit and its `FsIntentDone` are in one group ([40 §3.4] step 4); a sync-first merge writes both commits in one group ([AR §5a.7] step 0) |
+| commit group | in an import's group, its `BodyDrop` records first (§9.29), each before the first `Commit` that names one of its hashes; then one or more `Commit` records and the records they imply: `RefUpdate` and `RefTable` (for example `lane open`), `Lease`, `Marker`, `Idem`, `Pin`, `FsIntentDone`; in an `Apply` group, then the `Harvest` records of its result entries (§9.30); optionally lazy evidence records of the same settle | a commit and the `Marker` records its net ops imply are in one group ([AR §4.3]: a completion is never adopted without its marker); a `file mv` or `file rm` commit and its `FsIntentDone` are in one group ([40 §3.4] step 4); a sync-first merge writes both commits in one group ([AR §5a.7] step 0); an import's `BodyDrop` record stands before the first `Commit` of the import that names one of its hashes ([F06 §8.1] DB-11); an `Apply` result entry's `Harvest` records — a mark when the entry changes its row, then the range — follow the `Commit` record the range names, so the range and the records harvested from it are adopted together ([API §8.8], §9.4) |
+| body-drop group | one `BodyDrop` | the record of [API §8.7] `BodyDrop` (origin `command`), alone; or an import's record (origin `import`) in a group of its own before the group of the first `Commit` that names one of its hashes (§9.29; [F14 §11.2]; [F16] P-101) |
+| harvest group | one `Harvest` | the record of a `HarvestMark` or `HarvestForget` command ([API §8.8]), alone (§9.30); reserved, M9–M10 |
 | ref group | `RefUpdate` records, each with the `RefTable` record that carries the new entries, then `Pin`, `Marker`, `Lease` and `Idem` records it implies | every `RefUpdate` and the `RefTable` entries of the refs it changes are in one group (§9.10); a park (reason 5) is a ref group of its own, appended before the appender's group ([F16] P-70) |
 | reservation group | one `Reserve` | a bulk commit's reservation, acknowledged before its `cs.<n>` streams ([F16] P-84) |
 | lease group | `Lease`, then `Idem` | — |
 | client-head group | `ClientHead`, then `Idem` | — |
 | intent group | one `FsIntent` | alone, so its durability precedes the rename ([40 §3.4] step 2) |
 | abort group | one `FsIntentAborted` | — |
-| checkpoint group | `Checkpoint`, then the `Pin` records its promotions move and the holder-3 `Pin` records of the merges into `main` whose commits its set folds first | [F16] P-81, [F12 §8.1] (pass 1, S1-11) |
+| checkpoint group | `Checkpoint`, then the `Pin` records its promotions move, the holder-3 `Pin` records of the merges into `main` whose commits its set folds first, and, for a purge's last `Checkpoint`, the unpin and pin records that move pins onto its replacements (§9.8) | [F16] P-81, P-101 step 7, [F12 §8.1] (pass 1, S1-11) |
 | export group | `GitMap` records | one durable group per export run ([AR §5b.6] step 5) |
 | backup group | one `Backup` | — |
 | lazy group | one or more records of the lazy or configurable kinds (`Lazy`, `SessionMark`, kinds 18–26) | a hook's evidence and a settle's `TreeReg` epoch and changed rows ([40 §2.6]) |
-| pad group | one `Noop` | §4.4 |
+| pad group | one `Noop` | §4.4; at a forced rotation it is followed by the next extent's head alone (G-3, [F16] P-101) |
 | extent-head group (the epoch-start group included) | one `ExtentHead` | §4.5; the first group of every extent |
 
 ## 5. The scan
@@ -390,15 +398,21 @@ The guarantees are [80 §2.3.1]'s and [F15 §4.1]'s; the protocol that provides 
 | 26 | `AnchorRes` | lazy | yes | §9.26 | `ANCHORRES` | — |
 | 27 | `Reserve` | durable | no | §9.27 | the store-wide schema-id map ([F08 §8.3]); the allocators | `next_id`, `next_anchor`, `next_file_no` |
 | 28 | `ExtentHead` | durable | no | §9.28 | nothing (read by `repair`) | `hlc_seq`, `hlc_commit`, the counters it carries |
+| 29 | `BodyDrop` | durable | no | §9.29 | `DROPPED` ([F11 §13.4]) | `hlc_seq` (as every semantic durable record) |
+| 30 | `Harvest` | durable | no | §9.30 | `HARVEST` ([F11 §13.5]) | `hlc_seq` (as every semantic durable record) |
 
-- Values 0 and 29–255 are invalid in format v1 ([F01 §9.3]).
+- Values 0 and 31–255 are invalid in format v1 ([F01 §9.3]).
 - The set `K_RT` is [F17 §5.1]'s: the lazy runtime kinds of [40] R-7 plus `AnchorRes`, which the runtime-only fold
   targets. Records outside `K_RT` count in `rec_bytes` ([F17 §5.1]).
 - Kinds 1–12 are [AR §4.3]'s base kinds, kinds 15–26 [40 §2.11] R-7's (authoritative, with `AnchorRes`; the [60 §2.5]
   copy of R-7 omits it, open point 13), and kinds 13 and 14 the audits' `Backup` ([72 M9]) and `SessionMark` ([73 F4]).
   Kinds 27 and 28 are the protocol's: the bulk-commit reservation of [F16] P-84 and the extent head of [F16] P-97
-  (pass 1, P1-3, S1-11, A1-12, P1-8; open points 20, 21).
+  (pass 1, P1-3, S1-11, A1-12, P1-8; open points 20, 21). Kind 29 records that bodies were dropped ([F06 §8.1] DB-1;
+  [AR §11] #33, OQ-A-7; spec sync 3, open point 24), and kind 30 the harvest cursor's progress ([API §8.8]; [AR §11]
+  #46, OQ-A-10; spec sync 3, open point 25).
 - `JournalCursor` is reserved: E2 is not built ([AR §11] #41), so format-v1 writers never append it; readers decode it.
+- `Harvest` is reserved before the freeze ([AR §11] OQ-A-10): format-v1 writers append it only from M9–M10, when the
+  harvest verbs are built ([API §8.8]); every format-v1 reader decodes it, so adding the writers changes no format.
 
 ## 8. Common payload encodings
 
@@ -433,6 +447,7 @@ the start of its payload and sets `flags` bit 2 ([F01 §8]: "new symbols of the 
 | 9 | `reason` |
 | 10 | `name` |
 | 11 | `text` |
+| 12 | `model` |
 
 Rules:
 - **SD-1.** `id` is exactly the next id of its class: one more than the greatest id of the class defined in `SYMTAB` and in
@@ -526,6 +541,7 @@ Some payload fields hold codes that another chapter enumerates. This chapter fix
 | `fstime.gran` | `u8` | [OS/project §3.3] |
 | the fingerprint bytes (`FPrint.fprint`) | `vbytes` | [F20] and [F10] (R-9) |
 | the stored idempotency result (`Idem.result`) | `vbytes` | [API], [F11] |
+| the drop reason (`BodyDrop.reason`) | `u8` | [F06 §8.1] DB-2 |
 
 ### 8.8 Payload end
 
@@ -704,6 +720,11 @@ A pin on a checkpoint set ([AR §4.9] "Pins", [AR §5a.3]).
 | 5 | `n` | `uvar32` | always | the number of files of the set |
 | 6 | `files` | `n` × `FileRefV` | always | the set's files, so the fold needs no other record ([F11] `PINS`: file → refcount and holders) |
 
+A purge moves a pin whose set names a file it replaces ([F16] P-101 step 7): in the group of the `Checkpoint` that names
+the replacements, an unpin (`op` 2) lists the files the holder held and a pin (`op` 1) of the same `holder`, `ref_id` and
+`set_lsn` lists them with each replaced file replaced. The set keeps its id, so every `base_pin` that names it stays
+valid; from then on `files` is what protects the set, not the files the `Checkpoint` at `set_lsn` named (spec sync 3).
+
 ### 9.9 `Checkpoint` (9) — durable
 
 Every change of the segment set and of the sealed-file registries: a delta checkpoint, a tiered fold, a rollup, a
@@ -728,9 +749,9 @@ segment set a record with a set change publishes; its id is that record's lsn.
 | 14 | `n_retirements` | `uvar32` | bit 4 | ≥ 1 |
 | 15 | `retirements` | `n_retirements` × `Retirement` | bit 4 | increasing extent numbers, starting at the current `active_log` |
 | 16 | `n_added` | `uvar32` | bit 5 | ≥ 1 |
-| 17 | `added` | `n_added` × `FileEntry` | bit 5 | sealed files this record names that are not in `segments`, `promotions` or `retirements`: the checkpoint's `blobs` file, `gitmap` pages, `hist` files that replace others |
+| 17 | `added` | `n_added` × `FileEntry` | bit 5 | sealed files this record names that are not in `segments`, `promotions` or `retirements`: the checkpoint's `blobs` file, `gitmap` pages, `hist` files that replace others, and a purge's replacement `blobs`, `cs`, `dict` and pinned-set files ([F16] P-101) |
 | 18 | `n_released` | `uvar32` | bit 6 | ≥ 1 |
-| 19 | `released` | `n_released` × `FileRefV` | bit 6 | every file this record stops naming: former set members, folded `cs` files, replaced `hist` and `gitmap` files; retired extents are released by their retirement entry and not listed again |
+| 19 | `released` | `n_released` × `FileRefV` | bit 6 | every file this record stops naming: former set members, folded `cs` files, replaced `hist` and `gitmap` files, and every file a purge replaces, those of pinned sets included ([F16] P-101); retired extents are released by their retirement entry and not listed again |
 
 | bit | name | meaning |
 |---|---|---|
@@ -780,8 +801,10 @@ entry is updated at replay (§10.3).
 | 4 | `digest` | `b16` | always | its recorded digest |
 
 A record with only bit 3 set is a standalone promotion, the "promotion record" of [80 §2.4.3]. A record with bit 0 whose
-`upto_lsn` equals the current `checkpoint_lsn` and without bit 2 changes the set without folding log records (a GC or
-rollup rewrite).
+`upto_lsn` equals the current `checkpoint_lsn` and without bit 2 changes the set without folding log records (a GC,
+rollup or purge rewrite). A purge names a rewritten `seg.b<ref_id>.<K>` by a `Promotion` entry with the new K, the
+`tip_lsn` and `tip_ref_seq` of the entry that named the segment it replaces, and the set id that entry's `base_pin` named
+(that entry's own record lsn where it was 0), so the ref's base and overlay counters do not change ([F16] P-101 step 7).
 
 ### 9.10 `RefTable` (10) — durable
 
@@ -1115,6 +1138,97 @@ Rules:
   every record of the retired extents before it. After an epoch re-roll the epoch-start head carries the values of the
   restored or repaired store, so the HLC sequence never restarts ([API §6.2] CK-6).
 
+### 9.29 `BodyDrop` (29) — durable
+
+The record that the bytes of one or more bodies are dropped ([F06 §8.1] DB-1; [AR §11] #33, OQ-A-7; spec sync 3). From the
+publish that covers it on, each named hash is dropped in this store: readers resolve it to no bytes ([F16] P-102), writers
+never store its bytes again ([F06 §8.1] DB-7), and, for a record of origin `command`, the purge of [F16] P-101 removes its
+bytes from the store's files. No commit id, `changeset_digest` or state digest changes ([F06 §8.1] DB-5).
+
+| order | name | encoding | present when | meaning |
+|---|---|---|---|---|
+| 1 | `n` | `uvar32` | always | 1 to 65,535 |
+| 2 | `hashes` | `n` × `b16` | always | the dropped bodies' BLAKE3-128 hashes ([F06 §6.2]), strictly ascending; none already dropped; which hashes each origin may name is the rule "Origin" below |
+| 3 | `reason` | `u8` | always | [F06 §8.1] DB-2: 1 `secret`, 2 `private`, 3 `other`; 0 and 4–255 invalid |
+| 4 | `note` | `vstr` | always | the owner's note, 0 to 200 bytes ([API §8.7]); empty for origin `import` |
+| 5 | `actor` | `sym(actor)` | always | the dropping caller ([API §8.7]); for an import, the importing command's actor ([F06 §8.1] DB-11) |
+| 6 | `hlc` | `hlc` | always | HLC at append, drawn from the store's HLC sequence, which the record raises ([F16] P-36) |
+| 7 | `origin` | `u8` | always | 1 `command`: the owner's `BodyDrop` command ([API §8.7]; [F06 §8.1] DB-3); 2 `import`: an image import that met a dropped body ([F06 §8.1] DB-11, [F14 §11.2]); 0 and 3–255 invalid |
+
+Rules:
+- `n` outside 1 to 65,535, hashes that are not strictly ascending, a `reason` outside 1–3, an `origin` outside 1–2, a
+  `note` longer than 200 bytes, or a non-empty `note` with origin `import` make the payload malformed (§5.4; V-rules in
+  [F06 §2.4]'s sense).
+- No hash is already dropped: none is in the `DROPPED` table of the segment set ([F11 §13.4]) or in an earlier `BodyDrop`
+  record of the valid log (C, as [F06 §2.4] defines it: it needs the earlier records, so it is not a §5.4 check). A writer
+  leaves such hashes out, and writes no record when none is left ([API §8.7]); replay keeps a hash's first row (§10.3).
+- **Origin** (C, checked by the writer against its scanned log, [F16] P-29, P-34). A record of origin `command` names
+  only bodies the store holds ([F06 §8.1] DB-4): its hashes are the owner's choice, and only the owner makes it (DB-3).
+  A record of origin `import` names only hashes that the store neither holds as a body (DB-4) nor has dropped, and whose
+  bytes the import supplies nowhere: a `--- dropped` line, a dropped side or a dropped snapshot line says only that the
+  exporter has no bytes ([F14 §6.9], §11.2). An import therefore never drops bytes its store holds: for a dropped line
+  whose hash the store holds, it takes the hash as the body key and keeps the bytes, and held bytes are dropped only by
+  the owner's `body drop` (DB-3, DB-11). Bytes that only the `blobs.<n>` of a reservation whose bulk `Commit` has not
+  landed holds ([F16] P-84) are not held: that `Commit` may never land, so an import that kept such a hash as a body key
+  could leave it with no bytes and not dropped; once the hash is dropped, the `Commit` cannot land carrying it ([F16]
+  P-34), and the reservation's files are released without waiting for `gc.cruft-delay` ([F16] P-84).
+- **The purge.** Only a record of origin `command` names bytes that a live store file may hold (the files of a
+  reservation whose bulk `Commit` has not landed are not live, [F13] I-D1), so only such a record makes a
+  purge pending while an active extent holds it, and only its purge retires that extent ([F16] P-73, P-101). A record of
+  origin `import` names no held bytes, needs no purge, and its extent is retired as any other ([F17 §4.2]); its hashes
+  still enter the dropped set and `DROPPED` like any other. For a record of either origin, the files of a reservation
+  whose bulk `Commit` has not landed and whose `blobs.<n>` holds one of its hashes' bytes are released by the next `gc`
+  run, or by a purge's step 7, without waiting for `gc.cruft-delay` ([F16] P-84, P-101).
+- **Group.** A `BodyDrop` command's record is a group of its own (§4.7; [F16] P-52, P-101). An import's record shares a
+  group of the import, standing before the first `Commit` record of the import that names one of its hashes, or is a group
+  of its own before that commit's group ([F06 §8.1] DB-11, [F14 §11.2]); no import appends it after such a commit.
+- Like every group, its group must fit [F17 §4.4] W3 and is otherwise refused with nothing written ([F16] P-35). With the
+  production extent size every `n` fits; under the test profile's 64 KiB extents ([F17 §12]) a record of more than about
+  4,000 hashes does not.
+- The record carries no body bytes and names no file. Its effect on `HEAD` is the HLC sequence's maximum (§10.2); its
+  hashes enter `DROPPED` at replay and at the checkpoint that folds it (§10.3).
+
+### 9.30 `Harvest` (30) — durable, reserved
+
+The harvest cursor's record ([API §8.8]; [AR §11] #46, OQ-A-10; spec sync 3): one operation on the `HARVEST` row of one
+transcript ([F11 §13.5]). Reserved before the freeze: format-v1 writers append it only from M9–M10, when `HarvestMark`,
+`HarvestForget` and `Apply`'s `harvest` member are built; every format-v1 reader decodes it (§7).
+
+| order | name | encoding | present when | meaning |
+|---|---|---|---|---|
+| 1 | `op` | `u8` | always | 1 `mark` (create the row, or set its `path`, `head` and `seen`), 2 `range` (add a harvested range), 3 `forget` (rewind the row); other values invalid |
+| 2 | `source` | `vstr` | always | the row's key, the transcript's identity: 1 to 200 bytes, each in `0x21`–`0x7E` ([F11 §13.5], [API §8.8]) |
+| 3 | `path` | `vstr` | `op` = 1 | the file's path when it was reported; informative and machine-local, never compared |
+| 4 | `head` | `b16` | `op` = 1 | BLAKE3-128 of the file's first min(4,096, `seen`) bytes, as the pipeline computed it |
+| 5 | `seen` | `u64` | `op` = 1 | the file's size in bytes when it was reported |
+| 6 | `start` | `u64` | `op` = 2 | the first byte of the harvested range [`start`, `end`) |
+| 7 | `end` | `u64` | `op` = 2 | the end of the range; greater than `start` |
+| 8 | `commit` | `cid16` | `op` = 2 | the `id16` of the `Apply` commit whose records the range produced; not zero |
+| 9 | `from` | `u64` | `op` = 3 | remove every range of the row whose `start` is at least `from`; with 0, the row itself |
+| 10 | `hlc` | `hlc` | always | HLC at append, drawn from the store's HLC sequence, which the record raises ([F16] P-36) |
+
+Rules:
+- An `op` outside 1–3, a `source` outside 1–200 bytes or with a byte outside `0x21`–`0x7E`, `start` ≥ `end`, or a zero
+  `commit` make the payload malformed (§5.4; V).
+- C-rules ([F06 §2.4]'s sense; [API §8.8], [F11 §13.5]): a range's `commit` names a `Commit` record earlier in the same
+  group; a range overlaps no range of its row whose commit a live ref reaches, nor another range of the same group
+  (`harvest_overlap` refuses the batch first); a mark is written only when it changes a member of the row, and a forget
+  only when it removes something.
+- **Group** (§4.7). A `HarvestMark` or `HarvestForget` command's record is a group of its own. An `Apply` batch writes,
+  for each result entry with a `harvest` member, a mark when the entry changes its row and then the range, after the
+  batch's `Commit` record that the range names, in that commit's group ([API §9.4]); the range and the records harvested
+  from it are therefore durable together or not at all.
+- **HLC.** `Harvest` is a semantic durable record ([F16] P-36). Like every record that raises the sequence, it is written
+  by a command of [API] (`HarvestMark`, `HarvestForget`, `Apply`) that the model executes, and its effect is visible (the
+  runtime snapshot's `harvest` member, [API §8.8], from M9–M10); it is not class-I maintenance. So it draws from
+  `hlc_seq` and raises it (§10.2), and the engine and the model give a later commit the same `hlc` ([API §6.2] CK-4).
+- **Fold** ([F11 §13.5]; §10.3). `mark` creates the row with no ranges, or sets its `path`, `head` and `seen`; `range`
+  appends `{start, end, commit, commit_lsn}` to the row's ranges, `commit_lsn` being the lsn of the `Commit` record the
+  range names; `forget` removes every range whose `start` is at least `from`, and the row itself when `from` = 0.
+- The table is store-local and the image never exports it ([F14 §12.5]). The record changes no existing commit id,
+  `changeset_digest` or state digest; only a later commit's `hlc` follows the sequence it raised, as after any semantic
+  durable record.
+
 ## 10. Replay and the effects on `HEAD`
 
 ### 10.1 Order
@@ -1137,7 +1251,7 @@ selected, over the groups it scanned. Each record contributes:
 | `Lease` | `fence` ← max(`fence`, `token`); `hlc_seq` ← max(`hlc_seq`, `hlc`) |
 | `Marker` | `markers_lsn` ← the record's lsn; `hlc_seq` ← max(`hlc_seq`, every entry's `hlc`) |
 | `Idem` | `hlc_seq` ← max(`hlc_seq`, `append_hlc`) |
-| `Backup`, `FsIntent`, `FsIntentDone`, `FsIntentAborted` | `hlc_seq` ← max(`hlc_seq`, `hlc`) |
+| `Backup`, `FsIntent`, `FsIntentDone`, `FsIntentAborted`, `BodyDrop`, `Harvest` | `hlc_seq` ← max(`hlc_seq`, `hlc`) |
 | `GitMap` | `image_cursor` by [F04 §5.11] with (`dest`, `algo`, `cursor_seq`) |
 | `Pin` | `pins_lsn` ← the record's lsn |
 | `Checkpoint` | bit 0: `segments`, `n_segments`, `checkpoint_lsn` ← `upto_lsn`, `active_log`; bit 7: `flags` bit 1 ← 1; `next_file_no` ← max(`next_file_no`, the record's `next_file_no`, 1 + every file number it names) |
@@ -1171,7 +1285,13 @@ particular:
 - a `RefUpdate` with reason 5 moves `orphans/<R>` to the parked commit, creating the ref when `old` is zero (§9.2); the
   parked commit's own ref is not moved (I27′);
 - a `Reserve` adds each `SchemaRes` to the store-wide map (space, key) → id of [F08 §8.3], so no other item takes the id,
-  and its ranges to the allocators (§10.2); an `ExtentHead` changes no table.
+  and its ranges to the allocators (§10.2); an `ExtentHead` changes no table;
+- a `BodyDrop` adds a `DROPPED` row ([F11 §13.4]) for each of its hashes, with its `reason`, the record's lsn as
+  `drop_lsn` and its `hlc`; a hash that already has a row keeps it (§9.29). From then on the hash is in the dropped set of
+  every view that holds the record ([F06 §8.1] DB-1, [F16] P-102);
+- a `Harvest` (reserved, M9–M10) applies its operation to the `HARVEST` row of its `source` ([F11 §13.5]): a mark creates
+  the row or sets `path`, `head` and `seen`, a range appends its range with the lsn of the `Commit` it names, a forget
+  removes the ranges from `from` on, and the row at `from` = 0 (§9.30).
 
 ### 10.4 Runtime records
 
@@ -1210,6 +1330,8 @@ definitions and then in `SYMTAB` ([F09]; probed in place, [AR §4.7]).
 | [80] X-F10 | the file numbers that records name, and the extents' lsn-derived numbers | §2.1, §8.4, §9.9 |
 | [90 §10.1] "`LEASES` runtime rows" | the log form carrying `kind`, `role`, `run`, `anchor`, `bound` and the root session; the row is [F11]'s | §9.4 |
 | [90 §10.1] "Holder anchor (X-F2)" | its use in `Lease` and `FsIntent`; the anchor is [F03]'s | §9.4, §9.15 |
+| [AR §11] #33 and OQ-A-7 (bodies droppable by hash without changing commit ids) | the log side: record kind 29 `BodyDrop` with its payload, its origin (the owner's command or an import), group, `HEAD` effect and fold into `DROPPED`; the forced rotation of a purge; a purge's `Checkpoint` and moved pins. What a drop is, is [F06 §8.1]'s; the table [F11 §13.4]'s; the purge's steps [F16] P-101's | §4.4, §4.7, §7, §9.8, §9.9, §9.29, §10.2, §10.3 |
+| [AR §11] #46 and OQ-A-10 (the harvest cursor, reserved before the freeze) | the log side: record kind 30 `Harvest` (reserved: written from M9–M10, decoded by every format-v1 reader) with its payload, its place in an `Apply` group, its `HEAD` effect and its fold into `HARVEST`. The verbs are [API §8.8]'s; the table [F11 §13.5]'s | §4.7, §7, §9.30, §10.2, §10.3 |
 
 ## Holes
 
@@ -1234,7 +1356,8 @@ None. No value in this chapter is decided by an M0 measurement. The extent size 
    chain value at `checkpoint_lsn` is always readable from an active extent. [F16] P-73 cites EX-4 and EX-5, and so does
    [F17 §4.2] (pass 1, S1-49).
 4. **Kind numbering** (§7). Values 1–26 in the order base kinds, audit kinds, R-7 kinds, then 27 and 28 for the
-   protocol's reservation and extent head; 0 is invalid so that a zero-filled extent ends every scan.
+   protocol's reservation and extent head, and 29 `BodyDrop` and 30 `Harvest` (spec sync 3); 0 is invalid so that a
+   zero-filled extent ends every scan.
 5. **Configurable durability** (§6.1; a conflict between design rows). X-F5 says "record kinds keep one tag in the
    registry", while [AR §13]'s `durability.lazy-kinds` lets the owner make heartbeats, cursors and session marks durable.
    Resolution: every kind has a fixed class except those three configurable sub-kinds; bit 0 on disk decides, and no
@@ -1244,8 +1367,10 @@ None. No value in this chapter is decided by an M0 measurement. The extent size 
    sub-kinds 1 and 2. Consequence for [F17 §5.4]: the runtime-only fold must also fold `GitFacts` ancestry facts into
    `ANCESTRY`. **Done (pass 1, A1-46):** [F17 §5.4] lists [F09 §15.1]'s ten runtime-window sections, `ANCESTRY` included.
 7. **Symbol definitions in the tail** (§8.1). [F01 §8.1] leaves "new symbols of the log tail" to this chapter. Any
-   record may define symbols in a leading block flagged by `RecHdr.flags` bit 2. The class codes 1–11 follow [F01 §8.2]'s
+   record may define symbols in a leading block flagged by `RecHdr.flags` bit 2. The class codes 1–12 follow [F01 §8.2]'s
    table order; [F09]'s `SYMTAB` must use the same codes, and the review may move the code column into [F01 §8.2].
+   **Spec sync 3:** code 12 `model` is the class of the provenance group's declared model id ([F06 §4.4.17], OQ-A-9),
+   the next code under [F09 §14.1]'s rule.
 8. **`Checkpoint` as the one record of segment-set and registry changes** (§9.9). Promotions (with or without a set
    change), retirements, runtime-only folds, GC rewrites and file releases share the record; a checkpoint set's id is the
    record's lsn, and 0 in a promotion's `base_pin` means "this record". Consequences:
@@ -1321,3 +1446,45 @@ None. No value in this chapter is decided by an M0 measurement. The extent size 
     fold's range as [F16] P-50 does: from the selected slot's `durable_lsn`, not from its `committed_lsn`. §9.5 names
     ME-001 to ME-011 as the events that write `Marker` entries; ME-012's move and ME-013's return write none
     ([RULES/state-definition] open point 17 (a)).
+24. **Spec sync 3** ([AR §11] #33, OQ-A-7 (a) and OQ-A-9 (a), decided 2026-10-06; [F06 §8.1]). Kind 29 `BodyDrop` is the
+    record that bodies were dropped: durable, a semantic durable record of the HLC sequence (so it raises `hlc_seq`, as
+    the other durable records a command writes do), folded into the store-level `DROPPED` table ([F11 §13.4]). Its
+    hashes are strictly ascending (a V-rule) and not already dropped (a C-rule, since it needs earlier records); a
+    `BodyDrop` command writes it alone, and an import puts it before its first commit that names the hash. A drop
+    record carries no body and names no file, so it changes no other table and no commit id. Two further changes serve
+    [F16] P-101's purge: a **forced rotation** (§4.4 G-3), the pad and the next extent's head with no group after them,
+    so that every extent holding a record that carries a dropped body can be retired at once (EX-5 then needs only a
+    checkpoint after the new head); and a moved pin keeps its `set_lsn` while its `files` name the replacements
+    (§9.8), so no `base_pin` changes. The purge's own `Checkpoint` uses the existing fields (a set change without a
+    fold, `added`, `released`, `promotions`, `retirements`), and its rewritten `seg.b` files are named by `Promotion`
+    entries that repeat the replaced entry's tip and base (§9.9). Values 31–255 are invalid (kind 30 is `Harvest`, open
+    point 25). §8.1 gains class code 12 `model` ([F01 §8.2], OQ-A-9).
+25. **Spec sync 3, independent check** ([AR §11] #33, #46, OQ-A-7, OQ-A-10; `docs/spec/reviews/spec-sync-3.md`).
+    - **Who may drop held bytes.** An import's `BodyDrop` named every hash of a `--- dropped` line, dropped side or
+      dropped snapshot line that the store had not dropped, even a hash whose bytes the store held. A foreign commit or a
+      hand-made image could then make a non-owner import (which the orchestrator may run) drop held bytes for good, an
+      owner-only act ([F06 §8.1] DB-3). Now an import's record names only hashes its store neither holds nor has dropped
+      and whose bytes the import supplies nowhere (§9.29 "Origin"); a held hash keeps its bytes.
+    - **`origin`** (§9.29 order 7). With that rule an import's record names no bytes any store file holds, so no purge is
+      needed for it; without a mark, "an active extent holds a `BodyDrop` record" would keep every extent after an
+      import that met a dropped line active until the next `gc`. The byte tells the two writers apart, so the pending
+      test of [F16] P-73 and P-101 counts only records of origin `command`. It is appended last, so orders 1–6 and
+      [F11 §13.4]'s citation of order 6 stay. An import's record carries an empty note: the image carries none.
+    - **`Harvest`** (§9.30, kind 30). [F11 §13.5] and [F09 §3.1] reserved the `HARVEST` table and its tag, but no record
+      kind folded into it, and a format-v1 reader refuses an unknown kind (§5.2), so adding it after the freeze would
+      have been a format change. Reserved now, as `JournalCursor` is: written from M9–M10, decoded by every format-v1
+      reader. Its payload follows [API §8.8] and §9.4: the three operations, a 1–200-byte printable `source`, fixed
+      `u64` sizes and offsets, and a range naming its commit by `id16`; `commit_lsn` ([F11 §13.5]) is not carried,
+      since the named `Commit` stands earlier in the same group. It raises the HLC sequence: its effect is visible and the
+      model executes its commands, which is the criterion of the sequence ([API §6.2] CK-4). An `Apply` batch's mark and
+      range follow the `Commit` the range names in that commit's group, so a range never outlives or precedes the
+      records harvested from it; a `HarvestMark` or `HarvestForget` record is alone.
+    - **Group order.** §4.7's commit-group row listed an import's `BodyDrop` records after the commits although its rule
+      put each before the first commit that names its hash; the records cell now lists them first.
+    - **Closure check: bytes in an unlanded reservation** (§9.29 "Origin" and "The purge"). "Holds" did not say whether
+      bytes that only the `blobs.<n>` of a reservation whose bulk `Commit` has not landed holds count. They do not:
+      counting them as held would let an import keep the hash as a body key while the only bytes sit in a file whose
+      `Commit` may never land (a crash, or a P-34 re-run for any other reason), leaving a body with no bytes that is not
+      dropped. So an import may drop such a hash; the producer's `Commit` then cannot land carrying it ([F16] P-34), and
+      the reservation's files are released without `gc.cruft-delay` by the next `gc` or by a purge's step 7 ([F16]
+      P-84, P-101), which [F13] I-D1 (b) and (c) count as a deletion still due until then.

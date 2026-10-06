@@ -240,6 +240,12 @@ figure too, as the model does.
   `checkpoint_lsn` ([F05 §2.5] EX-4) and that `checkpoint_lsn` > n·E, so at least one group of extent n + 1 is folded too
   (EX-5). An extent that holds a record at or after `checkpoint_lsn` is never retired. Retirement follows [AR §4.9] and
   [F16] P-73 (pass 1, S1-49).
+- **Dropped bodies** (spec sync 3). An extent that holds a `BodyDrop` record of origin `command` ([F05 §9.29]) is
+  retired only by the purge that removes its bodies ([F16] P-73, P-101), which retires every extent below its forced
+  rotation whatever P02 says. While that purge is pending, retirement stops at the extent, and more than P02 extents may
+  stay active, without bound until `BodyDrop`, `gc` or `backup` finishes the purge: no automatic trigger runs one
+  ([F16] P-76), and `doctor` reports it (`purge_pending`, [F19], [API §8.6]). An import's record (origin `import`)
+  names no bytes the store holds and holds no retirement back.
 - **Visibility.** I. **Test value 2**, so that retirement happens in every run of more than a few hundred commits.
 
 ### 4.3 `store.hist-frame-commits`, `store.hist-frame-bytes` (P03, P04)
@@ -413,7 +419,9 @@ dictionary exists.
 
 - **Retrain trigger.** At a rollup, the dictionary is retrained when the total raw body bytes stored has grown by more than
   P17 % since the training that produced the current `dict.<D>` ([AR §4.1]: "retrained at rollup when bodies grew > 25 %").
-- **Sample cap.** Training reads a sample of at most P16 raw body bytes ([AR §4.9]).
+  A body purge retrains whatever P17 says: it replaces every live dictionary ([F16] P-101 step 3; spec sync 3).
+- **Sample cap.** Training reads a sample of at most P16 raw body bytes ([AR §4.9]). The sample never holds a body in the
+  dropped set of the trainer's view ([F06 §8.1], [F16] P-80).
 - **Decision point.** Each rollup.
 - **Visibility.** I: a different dictionary changes blob bytes, never body content ([AR §4.6]: bodies enter commit ids as
   BLAKE3-128 of the raw bytes).
@@ -582,6 +590,16 @@ The opening record of each window is named below. Elapsed time is measured by §
   ([F05 §9.2] order 4) of the `RefUpdate` for any other move (a `RefUpdate` has no `append_hlc`).
 - **Frame rewriting.** `hist` frames are rewritten to drop unreachable commits older than P31 (window opened by the
   commit's `append_hlc`). Commit headers are kept unless `--prune-headers` is given.
+- **A pending body purge** (spec sync 3). A `gc` run first finishes a purge that is pending — an active extent holds a
+  `BodyDrop` record of origin `command` ([F05 §9.29]) — by [F16] P-101, which a crash, a refusal or a busy maintenance
+  byte cut short or never started ([F06 §8.1] DB-8). The purge is class I: it changes no result, so the model's `Gc`
+  executes nothing for it (as for the physical GC below), and it happens before the run's own rewrites, which then read
+  purged files. A purge that bulk commits keep from publishing stays pending after its run ([F16] P-101 step 7), and
+  the run goes on with its other work, whose rewrites seal no dropped body ([F16] P-80).
+- **Abandoned reservations** ([F16] P-84). A run releases the `cs.<n>` and `blobs.<n>` of a reservation that no `Commit`
+  names once its `hlc` is older than P31, and without waiting for P31 once its `blobs.<n>` holds a blob of class `body`
+  with a dropped hash, since its `Commit` can no longer land carrying it ([F16] P-34; spec sync 3). Like blob GC, this is
+  physical: the model's `Gc` executes nothing for it.
 - **`MARKERS_OLD` and deleted refs.** The run's checkpoint fold, after its inertness move, drops the `MARKERS_OLD` rows
   whose `hlc` is older than P30 ([F11 §7] "Retention", [AR §4.4]), and then the `REFS` rows of the deleted refs that
   expire at the run, with their entries in the other refs' absorbed vectors ([F11 §3.8]: the deleting `RefUpdate`'s
@@ -621,7 +639,8 @@ The opening record of each window is named below. Elapsed time is measured by §
   a numbered file that no slot, record or pin names is claimed by the sweeper's next `Checkpoint` and deleted without the
   grace once that `Checkpoint` passed its identity check ([F16] P-78, P-79). An entry of `tmp/` is deleted by the sweep
   when its last-modification time is more than P34 before the sweeper's wall clock ([F16] P-79), the one use of P34 on a
-  file-system time.
+  file-system time. A body purge deletes the files it replaced after the barrier without the grace ([F16] P-101 step 8):
+  the grace only spares readers a retry, and a dropped body's bytes should not outlive the purge by P34 (spec sync 3).
 - **Decision point.** Each deletion decision.
 - **Visibility.** I. A reader that loses the race sees a delete-pending miss, then re-reads `HEAD` and retries, a bounded
   number of times ([AR §4.7]).
@@ -889,3 +908,15 @@ body-placement hole (measurement 6).
   model to reachability and Visibility to `undo`, `reflog` and as-of; the reflog window of a `RefUpdate` opens at its
   `hlc` ([F05 §9.2] order 4), since it has no `append_hlc`. §11.1 names the branch among the default key's inputs
   ([API §7.2]).
+- **OP-17-29 (spec sync 3: dropped bodies).** [AR §11] #33 and OQ-A-7 (a) add the body purge of [F16] P-101, which no
+  parameter decides but three sections touch: §4.2 (an extent that holds a `BodyDrop` record is retired only by its
+  purge, so a pending purge can keep more than P02 extents active), §6.3 (a purge replaces every live dictionary, and no
+  training sample holds a dropped body) and §11.2 (`gc` finishes a pending purge before its own work); §11.4 lets the
+  purge delete without the grace. The purge is class I and the model executes nothing for it, so SP-1 holds; GT2 covers
+  `BodyDrop`'s visible effects ([API §8.7]) from M2. **Independent check of spec sync 3:** only a `BodyDrop` record of
+  origin `command` holds retirement back (an import's names no held bytes, [F05 §9.29]), and no automatic trigger runs a
+  pending purge ([F16] P-76), so §4.2 states that the active extents grow without bound until `BodyDrop`, `gc` or
+  `backup` finishes it and that `doctor` reports it; §11.2 states that `gc` goes on when bulk commits keep the purge
+  from publishing. **Closure check of spec sync 3:** §11.2 gains the release of abandoned reservations that [F16] P-84
+  already cited, and a reservation whose `blobs.<n>` holds a dropped body is released without waiting for P31, since its
+  `Commit` can no longer land carrying it ([F05 §9.29] "Origin", [F13] I-D1).
