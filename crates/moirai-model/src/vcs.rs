@@ -64,22 +64,67 @@ impl Dag {
             .collect()
     }
 
-    /// The Kleppmann steps of one side since the base (RS-007; [F12 §7.4] row "Kleppmann steps"; [F12 §5.3] VM-7): one
-    /// per commit of A(side) \ A(B) that has step keys ([`Dag::step_keys`]), each key with its value in that commit's
-    /// state, ascending by the commit's (hlc, id). A first-parent key takes the `after` value of the commit's net
-    /// changeset (for a `sync`, which stores the full state diff against its first parent, [AR §4.6], that diff); a
-    /// second-parent key of a two-parent commit, which that changeset does not hold, takes its canonical value in the
-    /// commit's state ([RULES/merge-table] open point 35 case (i), narrow form; [AR §11] OQ-A-6 (a)).
+    /// The replay start R of RS-007 for a merge, a `sync` or a virtual merge of sides with ancestor sets `a` and `b`
+    /// over a base with ancestor set `base` ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann steps"; [AR §11]
+    /// OQ-A-11 11.1 (B)): the greatest commit of A(B) ∩ A(o) ∩ A(t) that every other commit of A(o) ∪ A(t) descends
+    /// from or is an ancestor of; `None` (ε) when no commit is. Such commits are pairwise comparable, so they form a
+    /// chain and the greatest is unique, and no commit of A(o) ∪ A(t) that is not an ancestor-or-self of R is replayed
+    /// on a state it was not made on: each descends from R. When every commit of both sides since a single-LCA base
+    /// descends from it, R is the base's commit. Candidates are tried from the greatest (gen, id) down: a commit
+    /// qualifies when the commits of A(o) ∪ A(t) with a gen at most its own are exactly its ancestors-or-self, and
+    /// every other one descends from it.
+    // spec: [RULES/merge-table] results
+    // spec: [F12 §7.4]
+    pub fn replay_start(
+        &self,
+        a: &BTreeSet<u64>,
+        b: &BTreeSet<u64>,
+        base: &BTreeSet<u64>,
+    ) -> Option<u64> {
+        let gen_of = |c: &u64| self.commits[c].generation;
+        // A(o) ∪ A(t) in ascending (gen, id): every parent before its children.
+        let mut all: Vec<u64> = a.union(b).copied().collect();
+        all.sort_by_key(|c| self.order_key(*c));
+        let mut cand: Vec<u64> = base
+            .iter()
+            .copied()
+            .filter(|c| a.contains(c) && b.contains(c))
+            .collect();
+        cand.sort_by_key(|c| std::cmp::Reverse(self.order_key(*c)));
+        cand.into_iter().find(|r| {
+            let g = gen_of(r);
+            // A proper descendant has a greater gen, so every commit with a gen at most g must be an ancestor-or-self.
+            let anc = self.ancestors(Some(*r));
+            if all.iter().filter(|c| gen_of(c) <= g).count() != anc.len() {
+                return false;
+            }
+            let mut desc: BTreeSet<u64> = BTreeSet::from([*r]);
+            for c in all.iter().filter(|c| gen_of(c) > g) {
+                if self.commits[c].parents.iter().any(|p| desc.contains(p)) {
+                    desc.insert(*c);
+                }
+            }
+            anc.len() + desc.len() - 1 == all.len()
+        })
+    }
+
+    /// The Kleppmann steps of one side since the replay start (RS-007; [F12 §7.4] row "Kleppmann steps"; [F12 §5.3]
+    /// VM-7): one per commit of A(side) \ A(R) that has step keys ([`Dag::step_keys`]), `start` being A(R) (the
+    /// ancestor set of [`Dag::replay_start`]'s commit), each key with its value in that commit's state, ascending by the
+    /// commit's (hlc, id). A first-parent key takes the `after` value of the commit's net changeset (for a `sync`,
+    /// which stores the full state diff against its first parent, [AR §4.6], that diff); a second-parent key of a
+    /// two-parent commit, which that changeset does not hold, takes its canonical value in the commit's state
+    /// ([RULES/merge-table] open point 35 case (i), narrow form; [AR §11] OQ-A-6 (a)).
     // spec: [RULES/merge-table] results
     // spec: [F12 §7.4]
     pub fn move_steps(
         &self,
         side: &BTreeSet<u64>,
-        base: &BTreeSet<u64>,
+        start: &BTreeSet<u64>,
         alloc: &dyn Alloc,
     ) -> Vec<Step> {
         let mut v: Vec<Step> = side
-            .difference(base)
+            .difference(start)
             .filter_map(|c| self.step(*c, alloc))
             .collect();
         v.sort_by_key(|s| s.key);
@@ -404,9 +449,14 @@ impl<'a> Bases<'a> {
             let m = self.dag.maximal(&common);
             let (b, ab) = self.of(&m);
             let src = self.state(*li);
+            // VM-7: RS-007's replay from the replay start of the pair (OQ-A-11 11.1 (B)); a virtual merge's dst is no
+            // ref tip, so it is never one-sided.
+            let r = self.dag.replay_start(&a, &al, &ab);
+            let ar = self.dag.ancestors(r);
+            let start = self.dag.state_at(r, self.alloc);
             let (mo, mt) = (
-                self.dag.move_steps(&a, &ab, self.alloc),
-                self.dag.move_steps(&al, &ab, self.alloc),
+                self.dag.move_steps(&a, &ar, self.alloc),
+                self.dag.move_steps(&al, &ar, self.alloc),
             );
             let cx = Ctx {
                 op: Op::Virtual,
@@ -414,6 +464,7 @@ impl<'a> Bases<'a> {
                 dst_plan: false,
                 policy: None,
                 auto: &empty_auto,
+                start: merge::Start::State(&start),
                 moves: [&mo[..], &mt[..]],
                 uid: self.uid,
                 nid: self.nid,
@@ -689,6 +740,118 @@ mod tests {
         assert!(d.lcas(None, Some(4)).is_empty());
         assert_eq!(d.ahead_behind(Some(4), Some(5)), (1, 1));
         assert_eq!(d.ahead_behind(Some(4), Some(1)), (3, 0));
+    }
+
+    /// RS-007's replay start R ([RULES/merge-table] RS-007; [AR §11] OQ-A-11 11.1 (B)): the greatest commit of
+    /// A(B) ∩ A(o) ∩ A(t) that every other commit of A(o) ∪ A(t) descends from or precedes, or ε.
+    #[test]
+    fn the_replay_start_is_the_greatest_commit_every_other_one_is_comparable_with() {
+        let mut d = Dag::default();
+        let anc = |d: &Dag, c: u64| d.ancestors(Some(c));
+        let start = |d: &Dag, o: u64, t: u64| {
+            let l = d.lcas(Some(o), Some(t));
+            let base: BTreeSet<u64> = l.iter().flat_map(|c| d.ancestors(Some(*c))).collect();
+            d.replay_start(&anc(d, o), &anc(d, t), &base)
+        };
+        // F (1); the lane's Y (2) and main's X (3) off F; the sync N = merge(Y, X) (4); the lane's Z (5); main's W (6).
+        for (seq, parents) in [
+            (1, vec![]),
+            (2, vec![1]),
+            (3, vec![1]),
+            (4, vec![2, 3]),
+            (5, vec![4]),
+            (6, vec![3]),
+        ] {
+            commit(&mut d, seq, parents);
+        }
+        assert_eq!(start(&d, 2, 3), Some(1), "a plain fork starts at the base");
+        assert_eq!(
+            start(&d, 6, 3),
+            Some(3),
+            "every commit since B descends from it: R = B"
+        );
+        assert_eq!(d.lcas(Some(5), Some(3)), vec![3]);
+        assert_eq!(
+            start(&d, 5, 3),
+            Some(1),
+            "Y does not descend from B = X, so R is the fork"
+        );
+        assert_eq!(d.lcas(Some(5), Some(6)), vec![3]);
+        assert_eq!(start(&d, 5, 6), Some(1), "the second sync: the same");
+        // A criss-cross over the fork: L1 (7) and L2 (8) off W, A = merge(L1, L2) (9), B = merge(L2, L1) (10).
+        for (seq, parents) in [
+            (7, vec![6]),
+            (8, vec![6]),
+            (9, vec![7, 8]),
+            (10, vec![8, 7]),
+        ] {
+            commit(&mut d, seq, parents);
+        }
+        assert_eq!(d.lcas(Some(9), Some(10)).len(), 2);
+        assert_eq!(start(&d, 9, 10), Some(6), "below both LCAs");
+        // `--base` names a commit below the replay start that the LCA alone gives: R stays inside A(B).
+        assert_eq!(
+            d.replay_start(&anc(&d, 9), &anc(&d, 10), &anc(&d, 3)),
+            Some(3)
+        );
+        // An unrelated root: no commit is comparable with both histories.
+        commit(&mut d, 11, vec![]);
+        assert_eq!(start(&d, 6, 11), None);
+    }
+
+    /// [`Dag::replay_start`] equals its definition taken literally on random DAGs (criss-crosses and several roots
+    /// among them): among the commits of A(B) ∩ A(o) ∩ A(t) that every other commit of A(o) ∪ A(t) descends from or is
+    /// an ancestor of, which are pairwise comparable, the one every other is an ancestor of; ε when there is none.
+    #[test]
+    fn the_replay_start_meets_its_definition_on_random_dags() {
+        use proptest::prelude::*;
+        // Commit i + 1 takes up to two distinct parents among the commits before it (none: a root).
+        let dag = proptest::collection::vec((0usize..64, 0usize..64, 0u8..4), 1..24);
+        let pick = (0usize..64, 0usize..64);
+        proptest!(ProptestConfig::with_cases(256), |(shape in dag, (x, y) in pick)| {
+            let mut d = Dag::default();
+            for (i, (p, q, k)) in shape.iter().enumerate() {
+                let seq = i as u64 + 1;
+                let mut parents: Vec<u64> = Vec::new();
+                if i > 0 && *k > 0 {
+                    parents.push((p % i) as u64 + 1);
+                    let q = (q % i) as u64 + 1;
+                    if *k > 2 && !parents.contains(&q) {
+                        parents.push(q);
+                    }
+                }
+                commit(&mut d, seq, parents);
+            }
+            let n = shape.len() as u64;
+            let (o, t) = (x as u64 % n + 1, y as u64 % n + 1);
+            let (ao, at) = (d.ancestors(Some(o)), d.ancestors(Some(t)));
+            let base: BTreeSet<u64> = d
+                .lcas(Some(o), Some(t))
+                .iter()
+                .flat_map(|c| d.ancestors(Some(*c)))
+                .collect();
+            let all: BTreeSet<u64> = ao.union(&at).copied().collect();
+            let comparable = |r: u64, c: u64| {
+                d.ancestors(Some(r)).contains(&c) || d.ancestors(Some(c)).contains(&r)
+            };
+            let ok: Vec<u64> = base
+                .iter()
+                .copied()
+                .filter(|r| ao.contains(r) && at.contains(r))
+                .filter(|r| all.iter().all(|c| comparable(*r, *c)))
+                .collect();
+            for r in &ok {
+                for s in &ok {
+                    prop_assert!(comparable(*r, *s), "qualifying commits form a chain");
+                }
+            }
+            let want = ok
+                .iter()
+                .copied()
+                .find(|r| ok.iter().all(|s| d.ancestors(Some(*r)).contains(s)));
+            prop_assert_eq!(want.is_some(), !ok.is_empty());
+            prop_assert_eq!(d.replay_start(&ao, &at, &base), want);
+        });
     }
 
     /// VBC-8 ([F12 §5.7]): two unrelated roots have no LCA, and their base is the empty state with no ancestors.

@@ -24,6 +24,7 @@ fn ctx<'a>(auto: &'a BTreeMap<String, String>, op: Op) -> Ctx<'a> {
         dst_plan: false,
         policy: None,
         auto,
+        start: Start::Base,
         moves: [&[], &[]],
         uid: &uid,
         nid: &no_nid,
@@ -598,16 +599,15 @@ fn a_cycle_closing_step_never_undoes_its_no_op_move() {
     );
 }
 
-/// RS-007 as written undoes a move that changed only its node's order: "undo the step's moves that changed their node's
-/// value" ([RULES/merge-table] RS-007, MR-039, CS-013; [F12 §7.4] row "Kleppmann steps"; not decided,
-/// [RULES/merge-table] open point 35 (vi)). The base has #1 under #3. Ours' commit (10) puts #3 under #2; theirs'
-/// commit (20), in one transaction, gives #1 a new order under #3 and puts #2 under #1. Replayed after ours', theirs'
-/// step closes the cycle #2 → #1 → #3 → #2. #1's reorder changed its node's value and #1 has the least uid on the cycle,
-/// so it is undone first, which leaves the cycle in place; then #2's move is undone. Both keys stage as
-/// `HierarchyCycle`, `#1.parent` although both sides keep #1 under #3: a move that keeps its node's parent closes no
-/// cycle. The model follows RS-007 as written until the open point is ruled on.
+/// A move that changes only its node's order is never undone ([RULES/merge-table] RS-007, MR-039, CS-013; [F12 §7.4]
+/// row "Kleppmann steps"; [RULES/merge-table] open point 35 (vi), decided by [AR §11] OQ-A-11 11.2 (a)). The base has #1
+/// under #3. Ours' commit (10) puts #3 under #2; theirs' commit (20), in one transaction, gives #1 a new order under #3
+/// and puts #2 under #1. Replayed after ours', theirs' step closes the cycle #2 → #1 → #3 → #2. #1 has the least uid on
+/// the cycle, but its move keeps its parent and closes no cycle, so only #2's move is undone: `#2.parent` stages, the
+/// sides' real disagreement, and #1 takes theirs' order. RS-007 before the decision undid #1's reorder first, which left
+/// the cycle in place, and staged both keys, `#1.parent` although both sides keep #1 under #3.
 #[test]
-fn a_cycle_closing_step_undoes_an_order_only_move_on_the_cycle() {
+fn a_cycle_closing_step_never_undoes_an_order_only_move() {
     let mut b = base();
     b.nodes.get_mut(&Nid(1)).unwrap().parent = Some(Nid(3));
     let mut o = b.clone();
@@ -631,17 +631,14 @@ fn a_cycle_closing_step_undoes_an_order_only_move_on_the_cycle() {
         (node(1).parent, node(2).parent, node(3).parent),
         (Some(Nid(3)), None, Some(Nid(2)))
     );
-    assert_eq!(node(1).order, None, "#1's reorder is undone");
+    assert_eq!(node(1).order.as_deref(), Some("V"), "#1's reorder stands");
     let hc = |n: u32| Key::Node(Nid(n), Aspect::Hierarchy);
     assert_eq!(
         m.violations
             .iter()
             .map(|v| (v.class, v.key.clone()))
             .collect::<Vec<_>>(),
-        vec![
-            ("HierarchyCycle", Some(hc(1))),
-            ("HierarchyCycle", Some(hc(2)))
-        ]
+        vec![("HierarchyCycle", Some(hc(2)))]
     );
     assert_eq!(
         (
@@ -649,7 +646,7 @@ fn a_cycle_closing_step_undoes_an_order_only_move_on_the_cycle() {
             m.rows[&hc(2)].as_str(),
             m.rows[&hc(3)].as_str()
         ),
-        ("MR-039", "MR-039", "MR-040")
+        ("MR-040", "MR-039", "MR-040")
     );
 }
 
