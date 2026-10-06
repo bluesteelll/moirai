@@ -3,12 +3,12 @@
 | | |
 |---|---|
 | Title | Questions that need the owner's call, raised by the author roles while closing review pass 1 |
-| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Open:** OQ-F-4, raised in spec sync 2a after that decision; OQ-A-1 to OQ-A-4, raised in spec sync 2b (2026-09-29); OQ-A-5 and OQ-A-6, raised at the wave 3a gate (2026-10-05). |
+| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Decided 2026-10-06**: the owner accepted every recommendation ("Зафиксируй везде рекомендуемые варианты", "record the recommended options everywhere"): OQ-F-4 (a), OQ-A-1 (a), OQ-A-2 (a), OQ-A-3 (a), OQ-A-4 (a), OQ-A-5 (a), OQ-A-6 (a), OQ-A-7 (a), OQ-A-8 (c), OQ-A-9 (a), OQ-A-10 (a); each entry's Decision line names the follow-up. **Nothing is open.** |
 | Scope | only questions that change an approved design decision or need the owner's call; runtime policy goes to config keys ([AGENTS.md]) and is not listed |
 
 Each entry names the raising role, the findings, the options and the role's recommendation. Roles append entries; ids
 carry the role letter (R = R-SPEC-R, P = R-SPEC-P, F = R-SPEC-F, M = R-MODEL, A = R-REV-A, which merged the owner
-items of spec sync 2b).
+items of spec sync 2b; the A series also carries the orchestrator's questions of 2026-10-06, OQ-A-7 to OQ-A-10).
 
 ## OQ-R-1 — The side ref's alias table fans out (P1-17)
 
@@ -212,7 +212,7 @@ items of spec sync 2b).
 - **Recommendation.** (a): it is the one that makes "retest is not re-review" bite, since the review verdict must come
   from someone other than the fixer; [F13] OP-13-09 then cites GD-005.
 
-## OQ-F-4 — Three additions to the closed `unverified` set (open; [F18] open point 12)
+## OQ-F-4 — Three additions to the closed `unverified` set (decided 2026-10-06; [F18] open point 12)
 
 - **Raised by** R-SPEC-F, spec sync 2a. These additions date from WP-14 and pass 1, but no earlier entry asked for them,
   so the decisions of 2026-09-28 do not cover them. **Where** [F18 §4.6] codes 59–61, [F18] open point 12; [F20 §1.5],
@@ -230,6 +230,10 @@ items of spec sync 2b).
   misleading (a retry with a larger budget changes nothing). (c) Name the addition to revisit.
 - **Recommendation.** (a): each names a cause the agent can act on (fix a permission, map the root, re-capture the
   anchor), and the codes and strings already stand in [F18 §4.6] and [F20 §1.5], so (a) changes no spec chapter.
+- **Decision (2026-10-06).** (a). The three additions are signed: `unreadable` (59), `unmapped root` (60) and
+  `oid algorithm differs` (61). WP-81a adds them to [40 §2.9]; no byte or rule of a spec chapter changes. The next spec
+  sync marks them signed: R-SPEC-F in [F18 §4.6] and [F18] open point 12, R-SPEC-R in [F20 §1.5] and [F20] open
+  point 22.
 
 ## 2026-09-29, spec sync 2b
 
@@ -274,6 +278,12 @@ its WP-81a list (W-n).
   proves that its detector fires. P-59 and P-79 then follow the reading [F16] open point 1 already gives the 23 rules
   carried at milestone gates (24 before S2B-P-53 moved P-97 to the toy), and an orphan sweep in WP-40 would build a
   mechanism whose relevant namer exists only at M1.
+- **Decision (2026-10-06).** (a). E4 reads "… the 13 of [80 §2.4.4] (G5 by a unit test of its detector, which the flush
+  byte masks, [F16 §17.3] P-45) …", with the general rule: a catalogue bug that another rule masks in every reachable
+  toy state carries a written disposition in its [F16 §17.3] row (re-vehicled to a milestone gate, re-formed into a
+  reachable bug, or covered by a unit test of its detector), accepted at WP-80. P-59 and P-79 stay at M1. The plan issue
+  of 2026-10-06 ([PLAN §5]) amends E4, and WP-81a edits [80 §2.4.4] (W-7). In wave 3b's spec sync, R-SPEC-P replaces
+  the "OWNER O-1" markers in [F16]'s open points with this decision.
 
 ### OQ-A-2 — Who writes the detectors behind E4 (O-2)
 
@@ -299,6 +309,13 @@ its WP-81a list (W-n).
 - **Recommendation.** (a). [F13 §1.4] already keeps the predicates out of the bug author's crate and PLAN §2.2 forbids
   the toy → model edge, so `moirai-vfs-sim` is the one crate that satisfies both. S2B-P-19's code follow-ups wait on
   this answer. (b) is the fallback if R-HARN-S cannot take the work before WP-40's acceptance.
+- **Decision (2026-10-06).** (a), adopted by the plan issue of 2026-10-06 ([PLAN §5]): R-HARN-S's outputs (WP-32) gain
+  the generic predicates (I-G4, I-G6), the ns check and the avail verdict, a WP-32 follow-up that WP-40's acceptance
+  depends on; WP-40's acceptance gains "R-HARN-S reviews the toy's own checks"; S4 gains "the detectors are the
+  enumerator author's, or reviewed by that author". Wave 3a already did this in code: the enumerator took the generic
+  checks, and R-HARN-S reviewed the toy's three own checks. In wave 3b's spec sync, R-SPEC-P replaces the "OWNER O-2"
+  markers in [F16 §17.2] and its open points and in [F13 §1.4] and OP-13-02 with this decision, and brings their
+  statements of S4 ("S4 names only the enumerator's author") to the amended S4.
 
 ### OQ-A-3 — PLAN rows that lag the spec or the code (confirmation; O-3 to O-8)
 
@@ -340,6 +357,9 @@ its WP-81a list (W-n).
   revisit; each item states its alternative.
 - **Recommendation.** (a). No item moves a byte or weakens a gate, and each removes a place where an agent that reads
   PLAN would build less than the spec requires, or something else.
+- **Decision (2026-10-06).** (a). One plan issue, that of 2026-10-06 ([PLAN §5]), applies items (a)–(e) and (g) exactly
+  as stated above; R-HARN-I makes item (f), the two `[profile.dev.package.*]` opt-levels in the root manifest, in
+  wave 3b.
 
 ### OQ-A-4 — What ends a Dead or expired lease (O-9)
 
@@ -361,6 +381,7 @@ its WP-81a list (W-n).
   adds records and a liveness probe to every write.
 - **Recommendation.** (a). It keeps one live task lease per task (mutual exclusion) with no cost on the write path and
   no write from a read, and the engine can match the model record for record.
+- **Decision (2026-10-06).** (a). LE-012 stays; WP-81a edits [AR §6.2] (W-5).
 
 ## 2026-10-05, wave 3a gate
 
@@ -401,6 +422,12 @@ changes behaviour; each leaves one call to the owner.
   p3-06's expected value; p3-01 … p3-05 stand under both. Only the port's test against git on APFS settles it, and the
   ruling's findings (3) and (4) (P3's function and the p3-06 re-check) wait for that test, with (5) (the composition
   data a port pins in `fixtures/ucd/17.0.0/INDEX.md`).
+- **Decision (2026-10-06).** (a). P3 is the port phase's. PLAN WP-61's deliverable reads "P1, P2 and P4–P12 as pure
+  functions (P3 is the port phase's, [OS/path §3] and open point 2)" and its acceptance "the `r4/` fixtures pass, except
+  `paths.cases` p3-01 … p3-06, which no M0–M11 crate runs; the macOS port runs them" (the plan issue of 2026-10-06,
+  [PLAN §5]). In wave 3b's spec sync, R-SPEC-P adds the [OS/path §1] note, R-FIX marks the six cases "port phase"
+  (p3-06 provisional) in `fixtures/r4/INDEX.md` §3.2 without changing a byte, and WP-81a edits [80 §5.4]'s M0 row to
+  "P4–P12". Open point 2 stays open.
 
 ### OQ-A-6 — Change the Kleppmann replay (RS-007) before the engine implements it (open point 35)
 
@@ -442,3 +469,125 @@ changes behaviour; each leaves one call to the owner.
   (iii) are contained fixes that leave every other result unchanged, and the narrow form of (i) keeps MR-040's winner
   against a third branch. Decide it no later than the merge table's V3 signature (E1; delegated, `rules/SIGNED.md`),
   and in any case before the engine implements RS-007, so that neither the signature nor engine code is redone.
+- **Decision (2026-10-06).** (a): RS-007 takes Option A, with case (i) in its narrow form and (ii) and (iii) as stated.
+  In wave 3b, before the merge table's V3 signature and before the engine implements RS-007, R-MODEL changes RS-007,
+  open point 35 and the model (`move_steps`, pick replay, `kleppmann` undo; three tests flip, one property widens), and
+  R-SPEC-F changes the [F12 §7.4] row.
+
+## 2026-10-06, owner questions asked in chat
+
+Raised by the orchestrator from the TencentDB Agent Memory research of 2026-09-30 and the LLM-principle discussion, and
+asked in chat on 2026-10-06 together with the entries above that were still open. The owner decided all of them in one
+answer (the Status row). The ids continue the A series.
+
+### OQ-A-7 — Dropping bodies by hash (owner decision #33) before the format freeze
+
+- **Raised by** the orchestrator, from the TencentDB Agent Memory research of 2026-09-30. **Where** [AR §11] decision
+  #33 (row "Erasing history", milestone M0); [F06 §8] (the bodies a commit carries, keyed by `hash`), [F06 §4.4.15]
+  (`pruned`, the header-only form); [F07 §6.3] (the body key); [F08 §7.2]; [F09 §6.3] `BLOBTAB`; [F10 §4.6] (the `gc`
+  rewrite).
+- **Question.** Decision #33 reads "no erase: retract and rotate; bodies droppable by hash without changing commit ids".
+  The format chapters address a body by its BLAKE3-128, which is what the canonical form hashes ([F06 §8], [F07 §6.3],
+  [F08 §7.2]), but none specifies dropping one: the only removal they define is `gc`'s header-only form of an
+  unreachable commit, which drops its whole changeset ([F06 §4.4.15], [F10 §4.6]). No record says that a body was
+  dropped and no reader rule renders a dropped body, so the one removal #33 allows has no bytes in the format that
+  freezes at M0.
+- **Options.** (a) The spec roles specify it before the format freeze: bodies addressed by hash, a record that a body was
+  dropped, readers render the dropped body, commit ids unchanged. (b) Defer it to a later format version; until then no
+  body can be dropped.
+- **Recommendation.** (a). #33 is already decided, and its mechanism is format: added after the freeze it is a format
+  change, which older readers refuse ([AR §12] row "Auto-migration of the on-disk format on open"). The canonical form
+  already hashes a body's BLAKE3-128, not its bytes ([F07 §6.3]), so (a) can keep commit ids unchanged as #33 requires.
+- **Decision (2026-10-06).** (a). The spec roles specify it before the format freeze: bodies addressed by hash, a record
+  that a body was dropped, readers render the dropped body, commit ids unchanged. (b), deferring it to a later format
+  version, was rejected.
+
+### OQ-A-8 — The status of owner-authority knowledge and the visibility of proposed records
+
+- **Raised by** the orchestrator, from the TencentDB Agent Memory research of 2026-09-30. **Where** [AR §7.1] (the sample
+  session: `moirai rule --critical … --authority owner --owner-quote-file ruling.txt` →
+  `#212 rule active critical … by orchestrator`); [AR §7.3] (orchestrator row: "`authority = owner` only with
+  `--owner-quote`"); [AR §3.2] (`rule`: `proposed < active`; `decision`: `proposed < accepted`); [AR §3.6] (knowledge:
+  `proposed|draft → active|accepted|current`); [AR §7.4] (the brief); [RULES/status-machines] ST-015, ST-020, GR-006;
+  [RULES/pack-classes] PT-011 `auth(n)`, BR-001 to BR-011.
+- **Question.** Knowledge starts at `proposed`: it is the one initial status of a `rule` and of a `decision` (ST-015,
+  ST-020; [AR §3.6]). A proposed record is invisible: no brief class lists it (BR-001 to BR-011), and the pack classes
+  that take knowledge require auth(n), which holds only for `rule` active, `decision` accepted, `note` active and `doc`
+  current (PT-011). [AR §7.1]'s example, however, writes an owner-authority rule through the orchestrator straight to
+  `active` (#212; GR-006 lets a `Create` name a later status as a checked path of transitions). No text says which
+  writer may start a record active, and nothing shows a proposed record to a reviewer, so the review queue that the
+  capture pipeline of OQ-A-10 feeds would be invisible.
+- **Options.** (a) A fixed rule: owner-authority knowledge written by the orchestrator with an owner quote is `active` at
+  once; every other knowledge write starts `proposed`. (b) Every knowledge write starts `proposed`, owner-authority
+  writes included, until the owner confirms. (c) A config key that the spec names, with (a)'s rule as its default and a
+  strict value that gives owner-authority writes (b)'s behaviour; the brief gains a "proposed / needs review" line, and
+  packs do not hide proposed records.
+- **Recommendation.** (c). Which writes start active is policy that a project may tighten, so it belongs in a config key
+  with a default ([AR §11]). The default keeps [AR §7.1]'s owner ruling in force at once, behind the owner quote that
+  [AR §7.3] already requires, while every other agent's or subagent's write waits for review; the brief line and visible
+  proposed records make that review reachable.
+- **Decision (2026-10-06).** (c): a config key (the spec names it; default as follows): owner-authority knowledge
+  written by the orchestrator with an owner quote is active at once; knowledge written by any other agent or subagent
+  starts `proposed`; a strict value makes owner-authority writes `proposed` until the owner confirms. The brief gains a
+  "proposed / needs review" line, and packs do not hide proposed records. (a), a fixed default, and (b), always
+  proposed, were not taken. It is recorded in the next spec sync, before the format freeze (the brief line is one of
+  OQ-A-10's pre-freeze reservations): R-SPEC-F writes the key's WP-18 registry row, [AR §7.4] and the brief text;
+  R-MODEL changes the rows of [RULES/status-machines] (ST-015, ST-020, GR-006), [RULES/pack-classes] (PT-011's `auth(n)`
+  filter, the BR rows) and `rules/policy-keys`, which then need a fresh V3 signature (E1), and the M0 model implements
+  every allowed value of the key (E8, WP-90). For that spec sync: the wording above leaves the orchestrator's own
+  knowledge writes without an owner quote unstated; option (c) as asked takes (a)'s rule as its default, whose "every
+  other knowledge write starts `proposed`" covers them.
+
+### OQ-A-9 — A provenance field in the commit header
+
+- **Raised by** the orchestrator, from the TencentDB Agent Memory research of 2026-09-30 and the LLM-principle
+  discussion. **Where** [F06 §4.2] (the presence bitmap; bits 19–31 reserved-zero), [F06 §3.5] `actor_src`; [90 §4.1]
+  (the resolver's Actor and Model rows), [90 §4.2]; [AR §4.3].
+- **Question.** A commit records its `actor` and `actor_src`, the row of [90 §4.1]'s actor order that supplied the actor
+  ([F06 §3.5]), but neither the kind of actor that wrote it nor a model. [90 §4.1] already resolves a model for every
+  call (the run node, the lease, the marker, `--model`/`MOIRAI_MODEL`, a hook's `model` field, then a client default),
+  declared and not attested, and stores it nowhere. Once the pipeline of OQ-A-10 writes `proposed` records with
+  provenance, a reviewer needs both. The header's presence bits 19–31 are reserved-zero ([F06 §4.2]), so a group added
+  before the format freeze takes no bytes while absent; added later it is a format change, as [90 §4.2] says of
+  `actor_src`.
+- **Options.** (a) Reserve before the format freeze a provenance field in the commit header: the actor kind and the
+  declared model id, declared and not attested ([90 §4.1]); filled from M9–M10. (b) None: provenance stays `actor` and
+  `actor_src`.
+- **Recommendation.** (a). The reservation costs one presence bit now and no byte in a commit that leaves it absent, and
+  it avoids a format change when M9–M10 build the pipeline. Like [90 §4.1]'s model, the field is declared: it informs a
+  review and grants no rights, which come only from a presented lease ([90 §4.3]).
+- **Decision (2026-10-06).** (a). The spec roles reserve the field in the commit header before the format freeze, in the
+  next spec sync; M9–M10 fill it. (b), none, was rejected.
+
+### OQ-A-10 — The LLM principle: who does the LLM-shaped work
+
+- **Raised by** the orchestrator, from the LLM-principle discussion and the TencentDB Agent Memory research of
+  2026-09-30. **Where** [AR §12] (rows "Any background activity: polling, file watchers, timers, auto-compaction on a
+  schedule, telemetry, network calls" and "LLM-driven rewriting of stored facts"); [AR §7.5] (skills and hooks);
+  [AR §7.8] and [90] (decision #43); [AR §7.1] `apply --from` with `result.v1` records ([90 §7.2]); OQ-A-8, OQ-A-9.
+- **Question.** A memory needs work that only a model can do: capturing decisions, rules and findings at the end of a
+  task, harvesting old transcripts in batches, and curating similar records and the proposed queue. [AR §12] rules out
+  network calls and LLM rewriting of stored facts, but no text says who does this work or how its output enters the
+  store. The TencentDB Agent Memory project runs such work in an LLM pipeline inside its server. moirai could call a
+  model itself, through an API or command executor that a config key switches off, or leave the work to the harness's
+  agents with shipped instructions.
+- **Options.** (a) The LLM principle: moirai is the safe substrate (typed, validated, versioned, crash-safe, idempotent
+  commands; leases; branches; statuses; file links; packs and briefs) and never calls an LLM or the network itself; its
+  code has no API or command executor (an API path, if ever needed, is a documentation recipe). The harness's agent
+  pipeline does the LLM-shaped work (capture, batch harvesting, curation) through shipped skills and instructions that
+  spawn subagents, inline or headless where a harness has no subagents; its output enters only as normal writes with
+  status `proposed` and provenance. (b) An API or command executor in moirai's code that runs the same jobs, behind a
+  config key.
+- **Recommendation.** (a). It keeps [AR §12]'s no-network row and the pure-Rust rule whole, works in every harness
+  (decision #43) with no API key or billing, and leaves moirai the part it can check: typed, versioned writes whose
+  `proposed` status and provenance (OQ-A-8, OQ-A-9) keep the pipeline's output reviewable.
+- **Decision (2026-10-06).** (a), recorded as [AR §11] decision #46; (b) was rejected. [AR §12]'s ban on LLM rewriting of
+  stored facts stays: pipeline output enters only as normal writes with status `proposed` and provenance. Pre-freeze
+  reservations for the next spec sync: the "proposed / needs review" brief line (OQ-A-8), the provenance field
+  (OQ-A-9), deterministic work-list named queries (`std.similar`, stale-link rules, rules without `applies_to`,
+  needs-triage notes, long bodies without an abstract, unharvested transcripts), a harvest cursor (transcript file plus
+  byte range done) and a curation-task contract (input bundle, answer schema, submission via `apply --from` /
+  `result.v1`); implementation M9–M10. The next spec sync also takes, without an owner question: `PATCH` refuses an
+  ambiguous `$old` (it must occur exactly once; an empty `$old` is refused; an E404 reason "occurs N times"), a
+  deterministic "similar" notice after knowledge writes, and the token-usage rule (input + cache_read + cache_creation;
+  never double-count Codex cached input).
