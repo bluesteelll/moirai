@@ -18,5 +18,11 @@ pub mod r14;
 pub mod text;
 pub mod uid;
 
+// R-FL1A (WP-64).
+pub mod anchor;
+
 // R-FL1B (WP-63).
 pub mod scan;
+
+// R-FL1B (WP-61b).
+pub mod ignore;

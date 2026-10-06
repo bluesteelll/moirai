@@ -8,16 +8,17 @@
 //! |---|---|---|
 //! | `fold.cases` (all 37) | [`fold_v1`], [`ceq`] | [F20 §3.1], §3.4 |
 //! | `derivations.cases` (all 21) | [`uid_file`], [`uid_root`], [`captured`], [`uid_anchor`], with their hashed bytes | [F08 §11.1]–§11.4 |
-//! | `predecessor.cases` (all 15) | [`derive_file_uid`] (registration, steps 2–5), [`captured`] and [`derive_anchor_uid`] (capture, steps 2–4) | [F08 §11.2], §11.4 |
+//! | `predecessor.cases` (all 15) | [`derive_file_uid`] (registration, steps 2–5), [`captured`] and [`identify`] (capture, steps 1–4: de-duplication by current selectors, then [`derive_anchor_uid`](moirai_files::uid::derive_anchor_uid)) | [F08 §11.2], §11.4 |
 //! | `paths.cases` P5 | [`portable_issues`], [`representable`] | [OS/path §8.1], §8.2 |
 //! | `paths.cases` P8 | [`blob_oid`] over the target text | [F20 §2.3], [OS/path §3] P8 |
 //! | `paths.cases` P11 (b) | [`is_device_name`]: the RN-4 decision of every case that reaches RN-4 | [F12 §2.4], [OS/path §3] P11 (b) |
 //! | `canonical/` | the file, root and anchor uids and the `captured` digests of the states | [F08 §11.2]–§11.5 |
 //!
-//! The parts of a procedure that read a view — step 1 of a registration (the node that already holds the path), the
-//! candidate set of step 2, step 1 of a capture (de-duplication by current selectors) and the lookups of the loops —
-//! are the caller's ([`moirai_files::uid`]); the harness runs them over the fixture's stated view exactly as
-//! [F08 §11.2] and §11.4 word them, and the product supplies every derivation, the predecessor order and the loops.
+//! The parts of a registration that read a view — step 1 (the node that already holds the path), the candidate set of
+//! step 2 and the lookups of the loop — are the caller's ([`moirai_files::uid`]); the harness runs them over the
+//! fixture's stated view exactly as [F08 §11.2] words them, and the product supplies every derivation, the predecessor
+//! order and the loop. A capture's view is the anchors on (s, f) with their current selectors, which the harness hands
+//! to [`identify`] (WP-64), the product's steps 1–4 of [F08 §11.4].
 //!
 //! The `paths.cases` functions whose home is another crate ([OS/path §1]) are listed in [`ELSEWHERE`] with that home;
 //! a function the fixtures add later fails [`every_paths_case_is_run_or_placed`] until it is placed.
@@ -29,12 +30,12 @@ use std::collections::BTreeSet;
 use std::num::NonZeroU16;
 use std::str::CharIndices;
 
+use moirai_files::anchor::{Anchor, Identity, Mode, Texts, Watch, Window, identify};
 use moirai_files::fold::{ceq, fold_eq, fold_matches, fold_v1};
-use moirai_files::oid::{ObjectFormat, blob_oid};
+use moirai_files::oid::{ObjectFormat, Oid, blob_oid};
 use moirai_files::path::{Os, is_device_name, portable_issues, representable};
 use moirai_files::uid::{
-    AnchorKind, Capture, Uid, UidError, captured, derive_anchor_uid, derive_file_uid, uid_anchor,
-    uid_file, uid_root,
+    AnchorKind, Capture, Uid, UidError, captured, derive_file_uid, uid_anchor, uid_file, uid_root,
 };
 
 const FOLD: &str = include_str!("../../../fixtures/r4/cases/fold.cases");
@@ -694,30 +695,61 @@ struct ViewAnchor {
     uid: Uid,
     src: Uid,
     dst: Uid,
+    captured: [u8; 16],
     selectors: Selectors,
 }
 
-/// A capture of an anchor with selectors `sel` on the edge (s, `at`, f) of view V ([F08 §11.4]): step 1 compares
-/// current selectors as the section words it; the product supplies `captured`, the derivation and the loop
-/// (steps 2–4).
-fn capture(view: &[ViewAnchor], s: Uid, f: Uid, sel: &Selectors) -> Result<String, UidError> {
-    let on_edge: Vec<&ViewAnchor> = view.iter().filter(|a| a.src == s && a.dst == f).collect();
-    if let Some(a) = on_edge.iter().find(|a| a.selectors == *sel) {
-        return Ok(format!("reuse {}", a.uid));
+/// The selectors as the product's anchor record, with a stated `captured`; the fields capture de-duplication does not
+/// compare take placeholder values.
+fn anchor_of(sel: &Selectors, captured: [u8; 16]) -> Anchor {
+    let t = |x: &Option<String>| x.as_deref().unwrap_or("").as_bytes().to_vec();
+    Anchor {
+        kind: sel.kind,
+        mode: Mode::Live,
+        watch: Watch::default_for(sel.kind),
+        resolver: 1,
+        captured,
+        pred: None,
+        hint: None,
+        scope: (!sel.scope.is_empty()).then(|| sel.scope.clone()),
+        texts: sel.quote.as_ref().map(|_| Texts::Held {
+            quote: t(&sel.quote),
+            prefix: t(&sel.prefix),
+            suffix: t(&sel.suffix),
+            end: sel.end.as_ref().map(|_| t(&sel.end)),
+        }),
+        occurrence: sel.occurrence,
+        window: sel
+            .window
+            .as_deref()
+            .map(|w| Window::from_bytes(w).expect("a window value")),
+        span_hash: None,
+        blob: Oid::NONE,
+        git: None,
+        marker: None,
     }
-    let c = sel.captured(&f)?;
-    let k = derive_anchor_uid(
-        &s,
-        &c,
-        |u| on_edge.iter().any(|a| a.uid == *u),
-        on_edge.len() as u64,
-    )?;
-    Ok(format!(
-        "new {} captured {} pred {}",
-        k.uid,
-        hex(&c),
-        opt_uid(k.pred.as_ref())
-    ))
+}
+
+/// A capture of an anchor with selectors `sel` on the edge (s, `at`, f) of view V ([F08 §11.4]): the product's
+/// [`identify`] runs steps 1–4 over the anchors on (s, f).
+fn capture(view: &[ViewAnchor], s: Uid, f: Uid, sel: &Selectors) -> Result<String, UidError> {
+    let on_edge: Vec<(Uid, Anchor)> = view
+        .iter()
+        .filter(|a| a.src == s && a.dst == f)
+        .map(|a| (a.uid, anchor_of(&a.selectors, a.captured)))
+        .collect();
+    let cap = anchor_of(sel, sel.captured(&f)?);
+    Ok(
+        match identify(&s, &cap, on_edge.iter().map(|(u, a)| (u, a)))? {
+            Identity::Reuse(u) => format!("reuse {u}"),
+            Identity::New { uid, pred } => format!(
+                "new {} captured {} pred {}",
+                uid,
+                hex(&cap.captured),
+                opt_uid(pred.as_ref())
+            ),
+        },
+    )
 }
 
 #[test]
@@ -760,6 +792,7 @@ fn predecessor_cases() {
                             uid: u,
                             src,
                             dst: uid(attr(&a, "dst").expect("dst")),
+                            captured,
                             selectors: Selectors::from_attrs(&a),
                         }
                     })
@@ -1044,12 +1077,14 @@ fn check_node(c: &Case, n: &StateNode, r: &mut Report, seen: &mut Seen) {
     }
 }
 
-/// An `at` line of node `src`: the anchor uid is `uid_anchor(src, captured, pred)` ([F08 §11.5]). With `fresh` (the
-/// case captures its anchors with the selectors they hold, `anchors.cases`), an anchor without a predecessor term
+/// An `at` line of node `src`: the anchor uid is `uid_anchor(src, captured, pred)` ([F08 §11.5]). With `derived` (the
+/// case's `captured` follows [F08 §11.4] from the stated texts, `anchors.cases`), an anchor without a predecessor term
 /// whose texts are held is also checked as `captured` of those selectors on its target. Otherwise `captured` is
-/// trusted as stored ([F08 §11.5]): a repin keeps it while the selectors change ([F08 §11.4]), and an imported anchor
-/// keeps it as written, so it is not recomputed from the current selectors.
-fn check_anchor(c: &Case, src: Uid, toks: &[&str], fresh: bool, r: &mut Report, seen: &mut Seen) {
+/// stated and trusted as stored ([F08 §11.5]): a repin keeps it while the selectors change ([F08 §11.4]), and an
+/// imported anchor keeps it as written, so it is not recomputed from the current selectors. The selectors themselves
+/// are stated values, not the output of a [F20 §6.1] capture over any content (`fixtures/canonical/INDEX.md` §3.4), so
+/// no capture or resolve check applies to them.
+fn check_anchor(c: &Case, src: Uid, toks: &[&str], derived: bool, r: &mut Report, seen: &mut Seen) {
     let dst = uid(toks[1]);
     let u = uid(toks[2]);
     let a = attrs(&toks[3..]);
@@ -1064,7 +1099,7 @@ fn check_anchor(c: &Case, src: Uid, toks: &[&str], fresh: bool, r: &mut Report, 
     });
     seen.insert(("uid_anchor", u.to_string()));
     let sel = Selectors::from_attrs(&a);
-    if fresh && pred.is_none() && sel.has_texts() {
+    if derived && pred.is_none() && sel.has_texts() {
         let got = sel.captured(&dst);
         r.check(c, got == Ok(cap), || {
             format!(
@@ -1080,7 +1115,7 @@ fn check_anchor(c: &Case, src: Uid, toks: &[&str], fresh: bool, r: &mut Report, 
 fn canonical_derivations(
     file: &'static str,
     text: &'static str,
-    fresh: bool,
+    derived: bool,
     r: &mut Report,
     seen: &mut Seen,
 ) {
@@ -1114,7 +1149,7 @@ fn canonical_derivations(
                     ["field", "origin_pred", "ref", u] => node.origin_pred = Some(uid(u)),
                     ["at", ..] => {
                         let src = node.uid.expect("an at line belongs to a node");
-                        check_anchor(c, src, &t, fresh, r, seen);
+                        check_anchor(c, src, &t, derived, r, seen);
                     }
                     _ => {}
                 }
@@ -1128,10 +1163,11 @@ fn canonical_derivations(
 fn canonical_derived_uids() {
     let mut r = Report::new();
     let mut seen = Seen::new();
-    // `anchors.cases` registers the file and captures both anchors in the case's commit ("captured and the anchor
-    // uids follow [F08 §11.4]"). `checkpoint.cases` imports its anchors: the first one's selectors differ from the
-    // inputs of its `captured` (a repin), which is the digest of the quote "## 3. Storage" with the second anchor's
-    // prefix and suffix and no occurrence; the second anchor, whose predecessor term is the first, adds `occurrence`.
+    // `anchors.cases` adds two anchor records with stated selectors ("captured and the anchor uids follow
+    // [F08 §11.4]" from the stated texts, `fixtures/canonical/INDEX.md` §3.4). `checkpoint.cases` imports its anchors
+    // with a stated `captured`: the first one's selectors differ from the inputs of its `captured` (a repin), which is
+    // the digest of the quote "## 3. Storage" with the second anchor's prefix and suffix and no occurrence; the second
+    // anchor, whose predecessor term is the first, adds `occurrence`.
     canonical_derivations(
         "canonical/anchors.cases",
         CANONICAL_ANCHORS,
@@ -1148,7 +1184,7 @@ fn canonical_derived_uids() {
     );
     let count = |what: &str| seen.iter().filter(|(w, _)| *w == what).count();
     // Two file nodes (docs/storage/lock.md, docs/plans/storage.md), one root node (project), four anchors, and the
-    // `captured` of the two fresh captures of `anchors.cases`.
+    // derived `captured` of the two anchors of `anchors.cases`.
     assert_eq!(
         [
             count("uid_file"),
