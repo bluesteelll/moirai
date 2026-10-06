@@ -1415,15 +1415,37 @@ fn vbc_11_delete_versus_modify_in_the_virtual_base() {
     ids_verify(&s);
 }
 
-/// The WP-91 closure's P7 under RS-007 as written ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann steps"; open
-/// point 35 recorded, not adopted, spec sync 2b S2B-M-2). lane/x put #2 under #1 (L₁), then main put #1 under #2;
+/// The Kleppmann step of commit `c` among its side's steps since `base` (RS-007; [`crate::dag::Dag::move_steps`]): each
+/// moved node with its new parent; empty when `c` has no step key.
+fn step_of(s: &S, c: u64, base: Option<u64>) -> Vec<(Nid, Option<Nid>)> {
+    let dag = &s.st.dag;
+    let x = &dag.commits[&c];
+    dag.move_steps(&dag.ancestors(Some(c)), &dag.ancestors(base), &s.st.alloc)
+        .into_iter()
+        .find(|st| st.key == (x.hlc, x.id))
+        .map(|st| {
+            st.moves
+                .iter()
+                .map(|(n, v)| match v {
+                    Some(KVal::Hierarchy { parent, .. }) => (*n, *parent),
+                    _ => (*n, None),
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// The WP-91 closure's P7, example E2 of [RULES/merge-table] open point 35 case (v) ([RULES/merge-table] RS-007;
+/// [F12 §7.4] row "Kleppmann steps"; not decided, spec sync 3). lane/x put #2 under #1 (L₁), then main put #1 under #2;
 /// `sync lane/x` stages `#1.parent HierarchyCycle`, which is resolved to `ours` and continued (the lane: #1 at the
-/// root, #2 under #1; the sync commit's first-parent changeset has no hierarchy entry). lane/x then moves #1 under #3
-/// (L₂). `merge lane/x --into main`, with main unchanged since the sync (o = b, #1 under #2), replays lane/x's steps
-/// from b: L₁ (#2 under #1) closes a cycle with b's #1 under #2 and is undone, the sync is no step, and L₂ applies. So
-/// the merge stages `#2.parent HierarchyCycle` with #1 under #3 and #2 at the root: the two-parent commit inside one
-/// side of [RULES/merge-table] open point 35 (spec sync 2b S2B-M-2), for which RS-007's "a one-sided history never
-/// meets a cycle" does not hold. `resolve --take theirs` on the key then lands the lane's hierarchy.
+/// root, #2 under #1; the sync commit's first-parent changeset has no hierarchy entry). The sync's step re-asserts only
+/// #1, the key main moved and the sync kept against it ([RULES/merge-table] open point 35 case (i) in its narrow form,
+/// [AR §11] OQ-A-6 (a)). lane/x then moves #1 under #3 (L₂). `merge lane/x --into main`, with main unchanged since the
+/// sync (o = b, #1 under #2), replays lane/x's steps from b: L₁ (#2 under #1) closes a cycle with b's #1 under #2 and
+/// is undone, the sync's step puts #1 back at the root, and L₂ applies. Nothing re-asserts #2, so the merge stages
+/// `#2.parent HierarchyCycle` with #1 under #3 and #2 at the root, although lane/x holds #2 under #1 and main never
+/// moved #2: the limit of the narrow form, left open. `resolve --take theirs` on the key then lands the lane's
+/// hierarchy.
 #[test]
 fn a_sync_resolved_to_ours_then_merged_stages_the_undone_lane_move() {
     let mut s = S::base();
@@ -1461,6 +1483,11 @@ fn a_sync_resolved_to_ours_then_merged_stages_the_undone_lane_move() {
             .any(|k| matches!(k, Key::Node(_, Aspect::Hierarchy))),
         "the sync kept its first parent's hierarchy"
     );
+    assert_eq!(
+        step_of(&s, sync.seq, tip(&s, "main")),
+        vec![(Nid(1), None)],
+        "the sync's step re-asserts #1, which main moved, and not #2"
+    );
     s.ok(mv(1, Some(3)), fresh_on("lane/x"));
     let before = tip(&s, "main");
     let r = s.run(merge("lane/x", "main"), fresh_on("main"));
@@ -1488,16 +1515,14 @@ fn a_sync_resolved_to_ours_then_merged_stages_the_undone_lane_move() {
     ids_verify(&s);
 }
 
-/// The WP-91 closure's P1 under RS-007 as written ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann steps"; DM-003).
-/// lane/a put #1 under #2 and then set #4.priority (C); main put #2 under #1 and then #1 under #3. Picking C onto main
-/// replays from b = state(p₁(C)), where #1 is under #2: dst's steps are main's two commits, C's step is empty, and no
-/// (0, 0) step is needed. main's first step (#2 under #1) closes a cycle and is undone; its second (#1 under #3)
-/// applies. So the pick stages `#2.parent HierarchyCycle` with #1 under #3, #2 at the root and #4.priority P0: RS-007
-/// replays every side from b, and a pick's b is not where dst's commits start (its revert and cherry-pick sentences,
-/// spec sync 2b S2B-M-1 and S2B-F-98), so a one-sided history can meet a cycle here too. `resolve --take ours` on the
-/// key then lands main's hierarchy with C's priority.
+/// The WP-91 closure's P1, the example of [RULES/merge-table] open point 35 case (ii) ([RULES/merge-table] RS-007; [F12
+/// §7.4] row "Kleppmann steps"; DM-003; decided by [AR §11] OQ-A-6 (a)). lane/a put #1 under #2 and then set
+/// #4.priority (C); main put #2 under #1 and then #1 under #3. Replayed from b = state(p₁(C)), where #1 is under #2,
+/// main's first move closed a cycle and the pick staged `#2.parent HierarchyCycle`, although C moved nothing. A
+/// cherry-pick now replays from o, dst has no step and neither side has a (0, 0) step, and C's step is empty: the pick
+/// lands main's hierarchy with C's priority and changes no hierarchy key.
 #[test]
-fn a_cherry_pick_replays_dsts_moves_from_its_base() {
+fn a_cherry_pick_of_a_commit_with_no_move_keeps_dsts_hierarchy() {
     let mut s = S::base();
     s.ok(
         tx(vec![
@@ -1528,25 +1553,15 @@ fn a_cherry_pick_replays_dsts_moves_from_its_base() {
         },
         orch(),
     );
-    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
-    let d = data(&r);
-    assert!(d.conflicts.is_empty(), "{:?}", d.conflicts);
-    assert_eq!(violations(d), vec![("#2.parent", "HierarchyCycle")]);
-    let g = d.staging_ref.clone().expect("G");
-    assert_eq!(
-        parents_12(&s, &g),
-        (Some(Nid(3)), None),
-        "the staged candidate"
-    );
-    assert_eq!(field(&s, &g, 4, "priority"), prio("P0"));
-    assert_eq!(tip(&s, "main"), before, "dst did not move");
-    s.ok(resolve("#2.parent", Take::Ours), fresh_on(&g));
-    let src = &g["merge/main/from/".len()..];
-    let r = s.run(continue_(src, "main"), fresh_on("main"));
     assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
     let d = data(&r);
     assert_eq!(d.outcome, "landed");
-    assert!(d.violations.is_empty(), "{:?}", d.violations);
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
     assert_eq!(parents_12(&s, "main"), (Some(Nid(3)), Some(Nid(1))));
     assert_eq!(field(&s, "main", 4, "priority"), prio("P0"));
     let m = &s.st.dag.commits[&tip(&s, "main").unwrap()];
@@ -1554,16 +1569,28 @@ fn a_cherry_pick_replays_dsts_moves_from_its_base() {
         (m.kind, m.parents.clone(), m.origin),
         ("cherry-pick", vec![before.unwrap()], Some(c))
     );
+    assert!(
+        !m.changeset
+            .keys()
+            .any(|k| matches!(k, Key::Node(_, Aspect::Hierarchy))),
+        "the pick changes no hierarchy key"
+    );
     ids_verify(&s);
 }
 
 /// RS-007's src step for a revert or a cherry-pick ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann steps"; spec
-/// sync 2b S2B-F-98): src has one step, the origin C's, keyed by C's (hlc, commit id) and valued in src's state.
+/// sync 2b S2B-F-98; [RULES/merge-table] open point 35 case (ii), decided by [AR §11] OQ-A-6 (a)): the replay starts
+/// from o, dst has no step, and src has one step, the origin C's, keyed by C's (hlc, commit id), valued in src's state,
+/// less each key a commit of A(o) after C moved.
 /// - A cherry-pick of a lane commit that puts #1 under #2, over a main commit with no hierarchy entry, lands the move.
 /// - A revert of main's commit that put #1 under #2 puts #1 back at the root, src's (state(p₁(C))'s) value, although
 ///   A(src) \ A(base) holds no commit.
-/// - When a later main commit put #1 under #3, the revert's step (C's key) applies first and main's later step decides
-///   #1's value (MR-040): the revert lands with #1 under #3 and no violation.
+/// - When a later main commit put #1 under #3, the revert's step leaves #1 out and main's later move stands (MR-040):
+///   the revert lands with #1 under #3, no violation and no hierarchy change.
+/// - A cherry-pick of a lane move of #1 that main moved after C leaves it out the same way: #1 stays under #3.
+/// - A cherry-pick of a lane move of #1 under #2 onto a main that put #2 under #1 after C: C's step applies on o's
+///   state, closes a cycle and is undone, so the pick stages `#1.parent HierarchyCycle`, the picked move's own key
+///   (replayed from b, main's move applied after C's and staged `#2.parent` instead).
 #[test]
 fn a_revert_or_cherry_pick_of_a_move_replays_the_origins_step() {
     let three = || {
@@ -1636,6 +1663,499 @@ fn a_revert_or_cherry_pick_of_a_move_replays_the_origins_step() {
             .keys()
             .any(|k| matches!(k, Key::Node(_, Aspect::Hierarchy))),
         "the revert changes no hierarchy key"
+    );
+    ids_verify(&s);
+    let pick = |c: u64| Cmd::CherryPick {
+        commit: format!("s{c}"),
+        onto: Some("main".into()),
+        message: String::new(),
+    };
+    // A cherry-pick of a lane move whose key main moved after C: main's later move stands.
+    let mut s = three();
+    let c = s.ok(mv(1, Some(2)), orch_on("lane/x")).commit.unwrap();
+    s.ok(mv(1, Some(3)), orch());
+    let r = s.run(pick(c), orch());
+    landed(&r);
+    assert_eq!(parent(&s, 1), Some(Nid(3)), "main's later move stands");
+    ids_verify(&s);
+    // A cherry-pick whose move closes a cycle on dst's state stages the picked key.
+    let mut s = three();
+    let c = s.ok(mv(1, Some(2)), orch_on("lane/x")).commit.unwrap();
+    s.ok(mv(2, Some(1)), orch());
+    let before = tip(&s, "main");
+    let r = s.run(pick(c), orch());
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    let d = data(&r);
+    assert!(d.conflicts.is_empty(), "{:?}", d.conflicts);
+    assert_eq!(violations(d), vec![("#1.parent", "HierarchyCycle")]);
+    let g = d.staging_ref.clone().expect("G");
+    assert_eq!(
+        parents_12(&s, &g),
+        (None, Some(Nid(1))),
+        "the staged candidate"
+    );
+    assert_eq!(tip(&s, "main"), before, "dst did not move");
+    ids_verify(&s);
+}
+
+/// [RULES/merge-table] open point 35 (v), example E1: the default path into `main`, with no resolution (RS-007 as
+/// written; not decided, spec sync 3). lane/x puts #2 under #3, then #1 under #2, then #2 back at the root; main then
+/// puts #3 under #1. `merge lane/x --into main` runs step 0's sync, which replays the four moves from the fork and lands
+/// clean (#1 under #2, #3 under #1). Its step holds only #3, the key main moved, which the sync took unchanged. The
+/// merge then replays lane/x's moves from main's state, where #3 is under #1: #1 under #2 closes the cycle
+/// #1 → #2 → #3 → #1 and is undone, and nothing re-asserts it, so the merge stages `#1.parent HierarchyCycle`, although
+/// dst made no commit since the base, lane/x holds #1 under #2 and main never moved #1. Proposals (A), (B) and (C) of
+/// open point 35 land it with lane/x's hierarchy.
+#[test]
+fn a_clean_sync_first_merge_into_main_stages_an_undone_lane_move() {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("a", "task a"),
+            task("b", "task b"),
+            task("c", "task c"),
+        ]),
+        orch(),
+    );
+    s.ok(branch("x", "main"), orch());
+    s.ok(mv(2, Some(3)), orch_on("lane/x"));
+    s.ok(mv(1, Some(2)), orch_on("lane/x"));
+    s.ok(mv(2, None), orch_on("lane/x"));
+    s.ok(mv(3, Some(1)), orch());
+    let r = s.run(merge("lane/x", "main"), fresh_on("main"));
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    let d = data(&r);
+    let sync = d.sync.as_ref().expect("step 0's sync");
+    assert_eq!(sync.outcome, "landed");
+    assert!(sync.violations.is_empty() && sync.conflicts.is_empty());
+    let lane = state(&s, "lane/x");
+    assert_eq!(
+        (1..=3)
+            .map(|n| lane.nodes[&Nid(n)].parent)
+            .collect::<Vec<_>>(),
+        vec![Some(Nid(2)), None, Some(Nid(1))]
+    );
+    let sc = tip(&s, "lane/x").unwrap();
+    assert_eq!(
+        step_of(&s, sc, tip(&s, "main")),
+        vec![(Nid(3), Some(Nid(1)))]
+    );
+    assert_eq!(violations(d), vec![("#1.parent", "HierarchyCycle")]);
+    ids_verify(&s);
+}
+
+/// A store with tasks #1–#4 on `main` and lanes `lane/x` and `lane/y` forked from it at one commit.
+fn four_tasks_two_lanes() -> S {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("a", "task a"),
+            task("b", "task b"),
+            task("c", "task c"),
+            task("d", "task d"),
+        ]),
+        orch(),
+    );
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    assert_eq!(tip(&s, "lane/x"), tip(&s, "lane/y"));
+    s
+}
+
+/// [RULES/merge-table] open point 35 case (i), its example ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann
+/// steps"; decided by [AR §11] OQ-A-6 (a), narrow form). lane/x puts #2 under #1; lane/y, forked before main's move,
+/// puts #2 under #4; main then puts #1 under #2; `sync lane/x` stages `#1.parent HierarchyCycle`, which is resolved to
+/// `ours` (#1 at the root, #2 under #1). The sync's step re-asserts #1, the key main moved and the sync kept against
+/// it, and not #2, which main never moved. `merge lane/x --into lane/y` replays lane/x's move, lane/y's move, main's
+/// move and the sync's step: main's move of #1 under #2 closes no cycle (#2 is under #4) and applies, and the sync's
+/// step then puts #1 back at the root. The merge lands #1 at the root and #2 under #4 (lane/y's later move, MR-040).
+/// Before the decision the sync was no step, and the merge landed #1 under #2, which neither lane holds.
+#[test]
+fn a_syncs_step_reasserts_the_key_its_resolution_kept_against_main() {
+    let mut s = four_tasks_two_lanes();
+    s.ok(mv(2, Some(1)), orch_on("lane/x"));
+    s.ok(mv(2, Some(4)), orch_on("lane/y"));
+    s.ok(mv(1, Some(2)), orch());
+    let r = s.run(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check: false,
+        },
+        orch(),
+    );
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    assert_eq!(violations(data(&r)), vec![("#1.parent", "HierarchyCycle")]);
+    let g = "merge/lane/x/from/main";
+    s.ok(resolve("#1.parent", Take::Ours), fresh_on(g));
+    let r = s.run(continue_("main", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(parents_12(&s, "lane/x"), (None, Some(Nid(1))));
+    let sync = tip(&s, "lane/x").unwrap();
+    assert_eq!(s.st.dag.commits[&sync].kind, "sync");
+    assert_eq!(
+        step_of(&s, sync, tip(&s, "main")),
+        vec![(Nid(1), None)],
+        "the sync's step re-asserts #1 only"
+    );
+    let r = s.run(merge("lane/x", "lane/y"), fresh_on("lane/y"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let d = data(&r);
+    assert_eq!(d.outcome, "landed");
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
+    assert_eq!(parents_12(&s, "lane/y"), (None, Some(Nid(4))));
+    ids_verify(&s);
+}
+
+/// MR-040 under [RULES/merge-table] open point 35 case (i)'s narrow form ([RULES/merge-table] RS-007, MR-040; decided
+/// by [AR §11] OQ-A-6 (a)): a two-parent commit re-asserts only the keys it kept against its second parent's branch, so
+/// a side's own earlier move keeps its own (hlc, commit id) against a third branch. lane/x puts #2 under #1; lane/y, a
+/// third branch, then puts #2 under #3; main then puts #3 under #4, and `sync lane/x` lands clean. The sync's state
+/// differs from main's at #2, but main never moved #2, so the sync's step holds only #3 (the value it takes from main,
+/// a no-op in the replay). `merge lane/x --into lane/y` lands with #2 under #3: lane/y's move, later than lane/x's,
+/// still wins. The broad form would have re-asserted #2 under #1 at the sync's later (hlc, commit id) and beaten
+/// lane/y's move.
+#[test]
+fn a_third_branchs_later_move_still_wins_over_a_synced_lanes_earlier_one() {
+    let mut s = four_tasks_two_lanes();
+    s.ok(mv(2, Some(1)), orch_on("lane/x"));
+    s.ok(mv(2, Some(3)), orch_on("lane/y"));
+    s.ok(mv(3, Some(4)), orch());
+    let r = s.ok(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check: false,
+        },
+        orch(),
+    );
+    let d = data(&r);
+    assert_eq!(d.outcome, "landed");
+    assert!(d.violations.is_empty(), "{:?}", d.violations);
+    let sync = tip(&s, "lane/x").unwrap();
+    assert_eq!(s.st.dag.commits[&sync].kind, "sync");
+    let lane = state(&s, "lane/x");
+    assert_eq!(
+        (lane.nodes[&Nid(2)].parent, lane.nodes[&Nid(3)].parent),
+        (Some(Nid(1)), Some(Nid(4)))
+    );
+    assert_eq!(state(&s, "main").nodes[&Nid(2)].parent, None);
+    assert_eq!(
+        step_of(&s, sync, tip(&s, "main")),
+        vec![(Nid(3), Some(Nid(4)))],
+        "the sync's step holds #3 only, not #2"
+    );
+    let r = s.run(merge("lane/x", "lane/y"), fresh_on("lane/y"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let d = data(&r);
+    assert_eq!(d.outcome, "landed");
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
+    let y = state(&s, "lane/y");
+    assert_eq!(
+        (y.nodes[&Nid(2)].parent, y.nodes[&Nid(3)].parent),
+        (Some(Nid(3)), Some(Nid(4))),
+        "lane/y's later move of #2 wins"
+    );
+    ids_verify(&s);
+}
+
+/// RS-007's second-parent keys are limited to keys whose value in the two-parent commit's state differs from their value
+/// in state(p₂) ([RULES/merge-table] RS-007, MR-040; [RULES/merge-table] open point 35 case (i), decided by [AR §11]
+/// OQ-A-6 (a)). lane/x and main both put #2 under #3; lane/y, a third branch, then puts #2 under #4; `sync lane/x`
+/// lands clean. main's move makes #2 a step key of a commit of A(p₂) \ A(p₁), but the sync holds #2 at main's value, so
+/// its step leaves #2 out (it has no step at all). `merge lane/x --into lane/y` lands with #2 under #4: lane/y's move,
+/// later than both moves to #3, wins. Without the filter the sync's step would re-key #2 under #3 to the sync's later
+/// (hlc, commit id) and beat lane/y's move.
+#[test]
+fn a_syncs_step_leaves_out_a_key_it_holds_at_mains_value() {
+    let mut s = four_tasks_two_lanes();
+    s.ok(mv(2, Some(3)), orch_on("lane/x"));
+    let m = s.ok(mv(2, Some(3)), orch()).commit.expect("main's move");
+    s.ok(mv(2, Some(4)), orch_on("lane/y"));
+    let r = s.ok(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check: false,
+        },
+        orch(),
+    );
+    let d = data(&r);
+    assert_eq!(d.outcome, "landed");
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
+    let sync = tip(&s, "lane/x").unwrap();
+    let sc = &s.st.dag.commits[&sync];
+    assert_eq!((sc.kind, sc.parents.len()), ("sync", 2));
+    assert_eq!(sc.parents[1], m);
+    for b in ["lane/x", "main"] {
+        assert_eq!(state(&s, b).nodes[&Nid(2)].parent, Some(Nid(3)), "{b}");
+    }
+    assert!(
+        s.st.dag.step_keys(m, &s.st.alloc).contains(&Nid(2)),
+        "main's move is a step key of A(p₂) \\ A(p₁)"
+    );
+    assert!(
+        !s.st.dag.step_keys(sync, &s.st.alloc).contains(&Nid(2)),
+        "the sync holds #2 at main's value"
+    );
+    assert!(step_of(&s, sync, tip(&s, "main")).is_empty());
+    let r = s.run(merge("lane/x", "lane/y"), fresh_on("lane/y"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let d = data(&r);
+    assert_eq!(d.outcome, "landed");
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
+    assert_eq!(
+        state(&s, "lane/y").nodes[&Nid(2)].parent,
+        Some(Nid(4)),
+        "lane/y's later move of #2 wins"
+    );
+    ids_verify(&s);
+}
+
+/// RS-007's src step for a cherry-pick of C leaves out exactly the keys that are a step key of a commit of A(o) ordered
+/// after C by (hlc, commit id) ([RULES/merge-table] RS-007, MR-040; [RULES/merge-table] open point 35 case (ii),
+/// decided by [AR §11] OQ-A-6 (a)).
+/// - dst moved the picked key before C: main puts #1 under #3, then lane/x puts #1 under #2 (C). Picking C onto main
+///   replays C's move from o and lands #1 under #2, C's later move (MR-040). A reading that left out every key dst moved
+///   since the fork would keep #1 under #3.
+/// - dst's later commit holds the key only as a second-parent step key: main puts #1 under #3; lane/x then puts #1 under
+///   #4 (X); lane/y puts #1 under #2 (C); `sync lane/x` then lands clean with #1 under #4 (X is later than main's move),
+///   so the sync's net changeset has no hierarchy entry and #1 is its step key only because main moved #1 and the sync
+///   holds another value. Picking C onto lane/x leaves #1 out of C's step: the sync's step, after C, stands, as it does
+///   in `merge lane/y --into lane/x`, and #1 stays under #4.
+#[test]
+fn a_cherry_pick_leaves_out_only_keys_a_later_dst_step_sets() {
+    let pick = |c: u64, onto: &str| Cmd::CherryPick {
+        commit: format!("s{c}"),
+        onto: Some(onto.into()),
+        message: String::new(),
+    };
+    let landed = |r: &crate::api::Reply| {
+        assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+        let d = data(r);
+        assert_eq!(d.outcome, "landed");
+        assert!(
+            d.violations.is_empty() && d.conflicts.is_empty(),
+            "{:?} {:?}",
+            d.violations,
+            d.conflicts
+        );
+    };
+    let parent = |s: &S, r: &str| state(s, r).nodes[&Nid(1)].parent;
+    // dst moved the key before C.
+    let mut s = four_tasks_two_lanes();
+    s.ok(mv(1, Some(3)), orch());
+    let c = s.ok(mv(1, Some(2)), orch_on("lane/x")).commit.expect("C");
+    let r = s.run(pick(c, "main"), fresh_on("main"));
+    landed(&r);
+    assert_eq!(parent(&s, "main"), Some(Nid(2)), "C's later move lands");
+    ids_verify(&s);
+    // dst's later commit holds the key only as a second-parent step key.
+    let mut s = four_tasks_two_lanes();
+    s.ok(mv(1, Some(3)), orch());
+    s.ok(mv(1, Some(4)), orch_on("lane/x"));
+    let c = s.ok(mv(1, Some(2)), orch_on("lane/y")).commit.expect("C");
+    let r = s.ok(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check: false,
+        },
+        orch(),
+    );
+    assert_eq!(data(&r).outcome, "landed");
+    assert!(data(&r).violations.is_empty(), "{:?}", data(&r).violations);
+    let sync = tip(&s, "lane/x").unwrap();
+    let sc = &s.st.dag.commits[&sync];
+    assert_eq!((sc.kind, sc.parents.len()), ("sync", 2));
+    assert!(
+        !sc.changeset
+            .keys()
+            .any(|k| matches!(k, Key::Node(_, Aspect::Hierarchy))),
+        "the sync kept lane/x's hierarchy"
+    );
+    assert_eq!(
+        step_of(&s, sync, tip(&s, "main")),
+        vec![(Nid(1), Some(Nid(4)))],
+        "#1 is a second-parent step key of the sync"
+    );
+    let r = s.run(pick(c, "lane/x"), fresh_on("lane/x"));
+    landed(&r);
+    assert_eq!(parent(&s, "lane/x"), Some(Nid(4)), "the sync's step stands");
+    let pc = &s.st.dag.commits[&tip(&s, "lane/x").unwrap()];
+    assert_eq!((pc.kind, pc.origin), ("cherry-pick", Some(c)));
+    assert!(
+        !pc.changeset
+            .keys()
+            .any(|k| matches!(k, Key::Node(_, Aspect::Hierarchy))),
+        "the pick changes no hierarchy key"
+    );
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    landed(&r);
+    assert_eq!(parent(&s, "lane/x"), Some(Nid(4)), "the merge agrees");
+    ids_verify(&s);
+}
+
+/// [RULES/merge-table] open point 35 case (iii) through the Store API ([RULES/merge-table] RS-007, MR-039, CS-013;
+/// decided by [AR §11] OQ-A-6 (a)): a move that sets its node's current value is never undone. Of #1 and #2, `lo` is
+/// the node with the lower uid and `hi` the other. lane/x, in one commit, puts #3 under `hi` and `lo` under #3; lane/y,
+/// in a later commit, puts `lo` under #3 too and `hi` under `lo`. `merge lane/y --into lane/x` replays lane/y's step
+/// after lane/x's: `lo`'s move changes nothing and `hi`'s closes the cycle `hi` → `lo` → #3 → `hi`, so only `hi`'s move
+/// is undone and only `hi.parent` stages, although `lo` has the least uid on the cycle. After `merge --abort`, lane/x
+/// puts `hi` under #4 in a still later commit, and the merge lands with nothing staged: `lo` under #3, #3 under `hi`,
+/// `hi` under #4.
+#[test]
+fn a_no_op_move_in_a_cycle_closing_step_is_never_undone() {
+    let mut s = four_tasks_two_lanes();
+    let uid = |s: &S, n: u32| s.st.alloc.uids[&Nid(n)];
+    let (lo, hi) = if uid(&s, 1) < uid(&s, 2) {
+        (1, 2)
+    } else {
+        (2, 1)
+    };
+    let mv2 = |a: (u32, u32), b: (u32, u32)| {
+        tx(vec![
+            Stmt::Move {
+                target: Target::Id(Nid(a.0)),
+                under: Some(Target::Id(Nid(a.1))),
+                position: None,
+            },
+            Stmt::Move {
+                target: Target::Id(Nid(b.0)),
+                under: Some(Target::Id(Nid(b.1))),
+                position: None,
+            },
+        ])
+    };
+    s.ok(mv2((3, hi), (lo, 3)), orch_on("lane/x"));
+    s.ok(mv2((lo, 3), (hi, lo)), orch_on("lane/y"));
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    let d = data(&r);
+    assert!(d.conflicts.is_empty(), "{:?}", d.conflicts);
+    let hi_key = format!("#{hi}.parent");
+    assert_eq!(violations(d), vec![(hi_key.as_str(), "HierarchyCycle")]);
+    let g = d.staging_ref.clone().expect("G");
+    let st = state(&s, &g);
+    let parent = |n: u32| st.nodes[&Nid(n)].parent;
+    assert_eq!(
+        (parent(lo), parent(hi), parent(3)),
+        (Some(Nid(3)), None, Some(Nid(hi))),
+        "the staged candidate"
+    );
+    s.ok(
+        Cmd::MergeAbort {
+            src: Some("lane/y".into()),
+            into: Some("lane/x".into()),
+        },
+        fresh_on("lane/x"),
+    );
+    s.ok(mv(hi, Some(4)), fresh_on("lane/x"));
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let d = data(&r);
+    assert_eq!(d.outcome, "landed");
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
+    let st = state(&s, "lane/x");
+    let parent = |n: u32| st.nodes[&Nid(n)].parent;
+    assert_eq!(
+        (parent(lo), parent(hi), parent(3)),
+        (Some(Nid(3)), Some(Nid(4)), Some(Nid(hi)))
+    );
+    ids_verify(&s);
+}
+
+/// [RULES/merge-table] RS-007's step keys of a two-parent commit, "moved" read as "is a step key of" ([RULES/merge-table]
+/// open point 35 case (i), spec sync 3): a merge inside the merged branch counts with its own second-parent keys. Lanes
+/// a, b and c fork from main. lane/c puts #3 under #1 (C₁); lane/b then puts #1 under #3 (Z); lane/a sets #4.priority
+/// and merges lane/b, taking Z's move. `merge lane/b --into lane/c` replays C₁ and then Z, which closes a cycle; the key
+/// `#1.parent` is resolved to `ours`, so the merge M_z keeps #1 at the root against Z's move, and #1 is one of M_z's
+/// second-parent keys. lane/a then puts #1 under #2. `merge lane/c --into lane/a` (base Z) undoes C₁'s move (made on a
+/// state the base does not hold, open point 35 (v)), stages `#3.parent` and lands once it is resolved to `theirs`. Its
+/// commit M keeps lane/a's #1 under #2 against M_z's value. The commits of A(p₂) \ A(p₁) are C₁ and M_z: C₁ moved only
+/// #3, so #1 is a step key of M only because it is one of M_z's: M's step holds #1 under #2 and #3 under #1.
+#[test]
+fn a_merge_inside_the_merged_branch_counts_with_its_second_parent_keys() {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("a", "task a"),
+            task("b", "task b"),
+            task("c", "task c"),
+            task("d", "task d"),
+        ]),
+        orch(),
+    );
+    for l in ["a", "b", "c"] {
+        s.ok(branch(l, "main"), orch());
+    }
+    s.ok(mv(3, Some(1)), orch_on("lane/c"));
+    let z = s.ok(mv(1, Some(3)), orch_on("lane/b")).commit.expect("Z");
+    s.ok(
+        tx(vec![set(4, &[("priority", P::Int(0))])]),
+        orch_on("lane/a"),
+    );
+    let r = s.ok(merge("lane/b", "lane/a"), fresh_on("lane/a"));
+    assert_eq!(data(&r).outcome, "landed");
+    assert_eq!(parents_12(&s, "lane/a"), (Some(Nid(3)), None));
+    let r = s.run(merge("lane/b", "lane/c"), fresh_on("lane/c"));
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    assert_eq!(violations(data(&r)), vec![("#1.parent", "HierarchyCycle")]);
+    let g = "merge/lane/c/from/lane/b";
+    s.ok(resolve("#1.parent", Take::Ours), fresh_on(g));
+    let r = s.run(continue_("lane/b", "lane/c"), fresh_on("lane/c"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let mz = tip(&s, "lane/c").unwrap();
+    assert_eq!(s.st.dag.commits[&mz].parents.len(), 2);
+    assert_eq!(state(&s, "lane/c").nodes[&Nid(3)].parent, Some(Nid(1)));
+    assert_eq!(state(&s, "lane/c").nodes[&Nid(1)].parent, None);
+    assert_eq!(
+        step_of(&s, mz, Some(z)),
+        vec![(Nid(1), None)],
+        "M_z re-asserts #1 against Z's move"
+    );
+    s.ok(mv(1, Some(2)), fresh_on("lane/a"));
+    let r = s.run(merge("lane/c", "lane/a"), fresh_on("lane/a"));
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    let d = data(&r);
+    assert_eq!(d.lca, vec![z]);
+    assert_eq!(violations(d), vec![("#3.parent", "HierarchyCycle")]);
+    let g = "merge/lane/a/from/lane/c";
+    s.ok(resolve("#3.parent", Take::Theirs), fresh_on(g));
+    let r = s.run(continue_("lane/c", "lane/a"), fresh_on("lane/a"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let m = tip(&s, "lane/a").unwrap();
+    assert_eq!(s.st.dag.commits[&m].parents[1], mz);
+    let a = state(&s, "lane/a");
+    assert_eq!(
+        (a.nodes[&Nid(1)].parent, a.nodes[&Nid(3)].parent),
+        (Some(Nid(2)), Some(Nid(1)))
+    );
+    assert_eq!(
+        step_of(&s, m, Some(mz)),
+        vec![(Nid(1), Some(Nid(2))), (Nid(3), Some(Nid(1)))],
+        "#1 is a step key of M through M_z's second-parent keys"
     );
     ids_verify(&s);
 }
@@ -2400,8 +2920,8 @@ fn a_flagged_edge_takes_repoint_or_drop_only() {
     ids_verify(&s);
 }
 
-/// One lane commit of [`a_linear_lane_merged_into_an_unmoved_main_takes_its_hierarchy`]: a move of #n (1–5) under #p
-/// (`None`: to the root), or a priority edit of #n, a commit with no hierarchy entry.
+/// One lane commit of [`a_lane_merged_into_an_unmoved_main_takes_its_hierarchy`]: a move of #n (1–5) under #p (`None`:
+/// to the root), or a priority edit of #n, a commit with no hierarchy entry.
 #[derive(Clone, Debug)]
 enum LaneStep {
     Move(u32, Option<u32>),
@@ -2422,13 +2942,53 @@ fn lane_step() -> impl proptest::strategy::Strategy<Value = LaneStep> {
     ]
 }
 
-/// What RS-007 guarantees a one-sided history ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann steps"): when
-/// src's commits since the base are a linear chain of single-parent commits and dst has not moved since the base
-/// (o = b), every step is one of src's commits replayed from the state before it, each a forest, and no (0, 0) step is
-/// needed, so `merge lane/x --into main` lands with the lane's hierarchy and no `HierarchyCycle`. main's history before
-/// the fork is any sequence of moves; lane/x's commits are moves and priority edits.
+/// One step of [`a_lane_merged_into_an_unmoved_main_takes_its_hierarchy`] on lane/x or lane/y, both forked from main at
+/// one commit.
+#[derive(Clone, Debug)]
+enum LaneOp {
+    /// A commit on lane/x.
+    X(LaneStep),
+    /// A commit on lane/y.
+    Y(LaneStep),
+    /// A cherry-pick onto lane/x of a priority commit of lane/y's that lane/x does not hold: the k-th, modulo their
+    /// number.
+    Pick(usize),
+    /// A revert on lane/x of one of its own priority commits: the k-th, modulo their number.
+    Revert(usize),
+    /// `merge lane/y --into lane/x`, aborted when it stages; once one has landed, no other is tried.
+    MergeY,
+}
+
+fn lane_op() -> impl proptest::strategy::Strategy<Value = LaneOp> {
+    use proptest::prelude::*;
+    prop_oneof![
+        4 => lane_step().prop_map(LaneOp::X),
+        3 => lane_step().prop_map(LaneOp::Y),
+        1 => (0usize..8).prop_map(LaneOp::Pick),
+        1 => (0usize..8).prop_map(LaneOp::Revert),
+        1 => Just(LaneOp::MergeY),
+    ]
+}
+
+/// What RS-007 guarantees a lane merged into an unmoved `main` ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann
+/// steps"; [RULES/merge-table] open point 35 cases (i) to (iii), decided by [AR §11] OQ-A-6 (a)). lane/x and lane/y
+/// fork from main at one commit B; main's history before the fork is any sequence of moves, and main makes no commit
+/// after it (o = b).
+/// - lane/x's moves, priority edits, cherry-picks and reverts are single-parent commits, each replayed from the state
+///   it was made on: a forest, with no (0, 0) step needed (RS-007's linear case).
+/// - A cherry-pick of one of lane/y's commits with no hierarchy entry, and a revert of one of lane/x's, lands with no
+///   violation and leaves lane/x's hierarchy as it was: the replay starts from o, dst has no step and C's step is empty
+///   ([RULES/merge-table] open point 35 case (ii)). Before the decision a pick replayed lane/x's moves from
+///   state(p₁(C)), which holds lane/y's moves, and could stage a cycle.
+/// - A merge of lane/y into lane/x that lands with no violation has base B, as the final merge has. The final merge
+///   replays the same commits from the same state in the same order, then that merge's step, whose moves (the keys it
+///   changed against lane/x and those it kept against lane/y's moves, [RULES/merge-table] open point 35 case (i)) all
+///   set their node's current value and are never undone (case (iii)), then lane/x's later commits from their own
+///   states.
+///
+/// So `merge lane/x --into main` lands with lane/x's hierarchy and no `HierarchyCycle`.
 #[test]
-fn a_linear_lane_merged_into_an_unmoved_main_takes_its_hierarchy() {
+fn a_lane_merged_into_an_unmoved_main_takes_its_hierarchy() {
     use proptest::prelude::*;
     let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
         cases: 48,
@@ -2436,9 +2996,9 @@ fn a_linear_lane_merged_into_an_unmoved_main_takes_its_hierarchy() {
     });
     let steps = (
         proptest::collection::vec(hmove(), 0..8),
-        proptest::collection::vec(lane_step(), 1..12),
+        proptest::collection::vec(lane_op(), 1..16),
     );
-    let result = runner.run(&steps, |(before, lane_steps)| {
+    let result = runner.run(&steps, |(before, ops)| {
         let mut s = S::base();
         s.ok(
             tx((0..5)
@@ -2452,25 +3012,123 @@ fn a_linear_lane_merged_into_an_unmoved_main_takes_its_hierarchy() {
                 let _ = s.run(mv(n, p), fresh_on(b));
             }
         };
+        let parents = |s: &S, r: &str| -> Vec<Option<Nid>> {
+            let st = state(s, r);
+            (1..=5).map(|n| st.nodes[&Nid(n)].parent).collect()
+        };
         for (n, p) in before {
             mv_on(&mut s, "main", n, p);
         }
         s.ok(branch("x", "main"), orch());
+        s.ok(branch("y", "main"), orch());
         let base = tip(&s, "main");
-        for l in lane_steps {
-            match l {
-                LaneStep::Move(n, p) => mv_on(&mut s, "lane/x", n, p),
-                LaneStep::Priority(n, k) => {
-                    s.ok(
-                        tx(vec![set(n, &[("priority", P::Int(k))])]),
-                        fresh_on("lane/x"),
-                    );
+        prop_assert_eq!(tip(&s, "lane/x"), base);
+        prop_assert_eq!(tip(&s, "lane/y"), base);
+        // The priority commits of lane/x and of lane/y, by seq.
+        let (mut x_prio, mut y_prio): (Vec<u64>, Vec<u64>) = (Vec::new(), Vec::new());
+        let mut merged = false;
+        for op in ops {
+            match op {
+                LaneOp::X(LaneStep::Move(n, p)) => mv_on(&mut s, "lane/x", n, p),
+                LaneOp::Y(LaneStep::Move(n, p)) => mv_on(&mut s, "lane/y", n, p),
+                LaneOp::X(LaneStep::Priority(n, k)) | LaneOp::Y(LaneStep::Priority(n, k)) => {
+                    let (b, list) = if matches!(op, LaneOp::X(_)) {
+                        ("lane/x", &mut x_prio)
+                    } else {
+                        ("lane/y", &mut y_prio)
+                    };
+                    // An edit that changes nothing makes no commit.
+                    let was = tip(&s, b);
+                    s.ok(tx(vec![set(n, &[("priority", P::Int(k))])]), fresh_on(b));
+                    let now = tip(&s, b);
+                    if now != was {
+                        list.extend(now);
+                    }
+                }
+                LaneOp::Pick(k) | LaneOp::Revert(k) => {
+                    let pick = matches!(op, LaneOp::Pick(_));
+                    let held = s.st.dag.ancestors(tip(&s, "lane/x"));
+                    let pool: Vec<u64> = if pick {
+                        y_prio
+                            .iter()
+                            .copied()
+                            .filter(|c| !held.contains(c))
+                            .collect()
+                    } else {
+                        x_prio.clone()
+                    };
+                    if pool.is_empty() {
+                        continue;
+                    }
+                    let c = pool[k % pool.len()];
+                    let hier = parents(&s, "lane/x");
+                    let cmd = if pick {
+                        Cmd::CherryPick {
+                            commit: format!("s{c}"),
+                            onto: Some("lane/x".into()),
+                            message: String::new(),
+                        }
+                    } else {
+                        Cmd::Revert {
+                            commit: format!("s{c}"),
+                            onto: Some("lane/x".into()),
+                            mainline: None,
+                            message: String::new(),
+                        }
+                    };
+                    let r = s.run(cmd, fresh_on("lane/x"));
+                    // A revert of a commit that later commits depend on is refused (DM-008).
+                    if !pick && r.outcome == Outcome::Refused {
+                        prop_assert_eq!(
+                            r.error.as_ref().map(|e| e.code.as_str()),
+                            Some("revert_refused")
+                        );
+                        continue;
+                    }
+                    prop_assert!(r.outcome == Outcome::Ok, "{:?}", r.error);
+                    let d = data(&r);
+                    prop_assert_eq!(d.outcome, "landed");
+                    prop_assert!(d.violations.is_empty(), "{:?}", d.violations);
+                    prop_assert_eq!(parents(&s, "lane/x"), hier);
+                }
+                LaneOp::MergeY => {
+                    if merged {
+                        continue;
+                    }
+                    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+                    match r.outcome {
+                        Outcome::Ok => merged = data(&r).outcome == "landed",
+                        Outcome::Staged => {
+                            s.ok(
+                                Cmd::MergeAbort {
+                                    src: Some("lane/y".into()),
+                                    into: Some("lane/x".into()),
+                                },
+                                fresh_on("lane/x"),
+                            );
+                        }
+                        _ => prop_assert!(false, "{:?}", r.error),
+                    }
                 }
             }
         }
-        let lane: Vec<Option<Nid>> = (1..=5)
-            .map(|n| state(&s, "lane/x").nodes[&Nid(n)].parent)
+        // A merge into main needs lane/x free of unresolved conflicts (`conflicted_src`): each conflict value a pick, a
+        // revert or the merge of lane/y landed is resolved to ours first, a commit with no hierarchy entry.
+        let st = state(&s, "lane/x");
+        let uid = |n: Nid| s.st.alloc.uids[&n];
+        let keys: Vec<String> = st
+            .nodes
+            .iter()
+            .flat_map(|(n, x)| {
+                x.conflicts
+                    .keys()
+                    .map(|a| crate::merge::key_text(&Key::Node(*n, a.clone()), &uid))
+            })
             .collect();
+        for k in keys {
+            s.ok(resolve(&k, Take::Ours), fresh_on("lane/x"));
+        }
+        let lane = parents(&s, "lane/x");
         let r = s.run(merge("lane/x", "main"), fresh_on("main"));
         prop_assert!(r.outcome == Outcome::Ok, "{:?}", r.error);
         let d = data(&r);
@@ -2481,10 +3139,80 @@ fn a_linear_lane_merged_into_an_unmoved_main_takes_its_hierarchy() {
             prop_assert_eq!(d.lca.clone(), base.into_iter().collect::<Vec<_>>());
         }
         prop_assert!(d.violations.is_empty(), "{:?}", d.violations);
-        let main: Vec<Option<Nid>> = (1..=5)
-            .map(|n| state(&s, "main").nodes[&Nid(n)].parent)
-            .collect();
-        prop_assert_eq!(main, lane);
+        prop_assert_eq!(parents(&s, "main"), lane);
+        Ok(())
+    });
+    if let Err(e) = result {
+        panic!("{e}");
+    }
+}
+
+/// [RULES/merge-table] open point 35 case (ii)'s guarantee ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann
+/// steps"; DM-003; decided by [AR §11] OQ-A-6 (a)): a cherry-pick of a commit with no hierarchy entry leaves every
+/// hierarchy key at o's value. lane/y makes moves and then C, a priority edit; lane/x, forked at the same commit, makes
+/// its own moves; picking C onto lane/x lands with no violation, with C's priority and lane/x's hierarchy. The moves
+/// draw from three nodes, so lane/x's moves often close a cycle when replayed from state(p₁(C)), which holds lane/y's
+/// moves: replayed from there, as before the decision, such a pick staged a `HierarchyCycle`.
+#[test]
+fn a_cherry_pick_of_a_commit_with_no_move_lands_on_dsts_hierarchy() {
+    use proptest::prelude::*;
+    let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
+        cases: 64,
+        ..ProptestConfig::default()
+    });
+    // A move of one of #1–#3 under another of them.
+    let move3 = || (1u32..=3, 1u32..=2).prop_map(|(n, d)| (n, Some((n - 1 + d) % 3 + 1)));
+    let steps = (
+        proptest::collection::vec(move3(), 1..6),
+        proptest::collection::vec(move3(), 2..9),
+    );
+    let result = runner.run(&steps, |(on_y, on_x)| {
+        let mut s = S::base();
+        s.ok(
+            tx((0..4)
+                .map(|i| task(&format!("t{i}"), &format!("task {i}")))
+                .collect()),
+            orch(),
+        );
+        s.ok(branch("x", "main"), orch());
+        s.ok(branch("y", "main"), orch());
+        // A move its own branch refuses (a cycle there) is skipped.
+        for (b, moves) in [("lane/y", on_y), ("lane/x", on_x)] {
+            for (n, p) in moves {
+                let _ = s.run(mv(n, p), fresh_on(b));
+            }
+        }
+        let c = s
+            .ok(
+                tx(vec![set(4, &[("priority", P::Int(0))])]),
+                fresh_on("lane/y"),
+            )
+            .commit
+            .expect("C");
+        let parents = |s: &S| -> Vec<Option<Nid>> {
+            let st = state(s, "lane/x");
+            (1..=4).map(|n| st.nodes[&Nid(n)].parent).collect()
+        };
+        let hier = parents(&s);
+        let r = s.run(
+            Cmd::CherryPick {
+                commit: format!("s{c}"),
+                onto: Some("lane/x".into()),
+                message: String::new(),
+            },
+            fresh_on("lane/x"),
+        );
+        prop_assert!(r.outcome == Outcome::Ok, "{:?}", r.error);
+        let d = data(&r);
+        prop_assert_eq!(d.outcome, "landed");
+        prop_assert!(
+            d.violations.is_empty() && d.conflicts.is_empty(),
+            "{:?} {:?}",
+            d.violations,
+            d.conflicts
+        );
+        prop_assert_eq!(parents(&s), hier);
+        prop_assert_eq!(field(&s, "lane/x", 4, "priority"), prio("P0"));
         Ok(())
     });
     if let Err(e) = result {

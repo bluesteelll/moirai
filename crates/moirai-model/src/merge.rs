@@ -45,8 +45,9 @@ pub type MoveKey = (u64, [u8; 32]);
 pub type Moves = Vec<(Nid, Option<KVal>)>;
 
 /// One step of Kleppmann's replay (RS-007; [F12 §7.4] row "Kleppmann steps"; VM-7): one commit of A(side) \ A(B),
-/// holding the hierarchy entries of its canonical net changeset against its first parent, each with its value in that
-/// commit's state; or a revert's or cherry-pick's one src step, C's, valued in src's state.
+/// holding its step keys ([`crate::dag::Dag::step_keys`]: the hierarchy entries of its canonical net changeset against
+/// its first parent, and a two-parent commit's second-parent keys), each with its value in that commit's state; or a
+/// revert's or cherry-pick's one src step, C's, valued in src's state, less the keys a later commit of dst moved.
 #[derive(Clone, Debug, PartialEq)]
 pub struct Step {
     /// The commit's (hlc, id).
@@ -150,7 +151,9 @@ pub struct Ctx<'a> {
     pub policy: Option<&'a str>,
     /// `merge.policy.<kind>`: `none`, `ours` or `theirs` (AP-001 to AP-003).
     pub auto: &'a BTreeMap<String, String>,
-    /// The Kleppmann steps of ours' and theirs' commits since the base, each ascending by key (RS-007, VM-7).
+    /// The Kleppmann steps of ours' and theirs' commits since the base, each ascending by key (RS-007, VM-7). For a
+    /// revert or a cherry-pick, dst has no step (ours' are not read) and src's is C's one step (RS-007;
+    /// [RULES/merge-table] open point 35 case (ii)).
     pub moves: [&'a [Step]; 2],
     /// The store's uid of a `#N` (a node none of the three states holds: a tombstone reference).
     pub uid: &'a dyn Fn(Nid) -> Uid,
@@ -1522,27 +1525,34 @@ impl Engine<'_, '_> {
     }
 
     /// RS-007 `kleppmann` over the merged live nodes ([F12 §7.4] row "Kleppmann steps"; [F12 §5.3] VM-7; MR-039,
-    /// MR-040, CS-013). Every merged node starts from b's (parent, order), for a revert or a cherry-pick too, whose b is
-    /// the DM row's base (state(C) for a revert, state(p₁(C)) for a cherry-pick). Each commit of A(o) \ A(B) and of
-    /// A(t) \ A(B) whose canonical net changeset against its first parent has hierarchy entries is one step
-    /// ([`crate::dag::Dag::move_steps`]), keyed by its (hlc, commit id) and setting those keys to their values in that
-    /// commit's state; for a revert or a cherry-pick of C, src has one step instead, C's, keyed by C's (hlc, id) and
-    /// valued in src's state. For each side, a hierarchy key whose value on that side differs from b while no step of
-    /// that side sets it (the base of a revert, a cherry-pick, `--base` or a virtual base is not where that side's
-    /// commits start) is set to that side's value in a step keyed (0, 0), before every commit.
+    /// MR-040, CS-013). For a merge, a `sync` or a virtual merge, every merged node starts from b's (parent, order);
+    /// each commit of A(o) \ A(B) and of A(t) \ A(B) that has step keys is one step ([`crate::dag::Dag::move_steps`]:
+    /// the hierarchy keys of its net changeset against its first parent, and a two-parent commit's second-parent keys,
+    /// [RULES/merge-table] open point 35 case (i)), keyed by its (hlc, commit id) and setting those keys to their
+    /// values in that commit's state; and for each side, a hierarchy key whose value on that side differs from b while
+    /// no step of that side sets it (the base of `--base` or a virtual base is not where that side's commits start) is
+    /// set to that side's value in a step keyed (0, 0), before every commit. For a revert or a cherry-pick of C, every
+    /// merged node starts from o's (parent, order), dst has no step and neither side has a (0, 0) step: src's one step
+    /// is C's, which the caller builds (keyed by C's (hlc, id), valued in src's state, less the keys a commit of A(o)
+    /// after C moved; [RULES/merge-table] open point 35 case (ii)).
     ///
     /// The steps apply in ascending (hlc, commit id) order, commit ids compared bytewise, all moves of a step at once;
     /// where two steps share a key (a commit that is a step of both sides, or the two sides' (0, 0) steps), dst's moves
     /// apply first, then src's. Two steps that share a key stay two steps: dst's applies and is checked, then src's, so
     /// a cycle that src's step closes undoes src's moves, never dst's (the reading of "dst's moves apply first, then
     /// src's" this model takes; a commit that is a step of both sides moves the same keys to the same values twice,
-    /// which gives the result of applying it once). After a step in which a node is its own ancestor, the step's moves
-    /// are undone one at a time, the least uid among the step's nodes that lie on a cycle and are not yet undone first,
-    /// until none is (MR-039); a move that set the value its node already held is undone like any other. A key whose
-    /// last move was undone is `kleppmann-skipped` (CS-013); a later move of it that applied decides its value
-    /// (MR-040). Each key's value is its node's final (parent, order). Step entries follow the re-key (RK-005, RK-006):
-    /// U's moves are uid′'s, and a parent U that the side set is uid′. Keys of a uid fixed by an existence policy
-    /// (PR-007) take no part.
+    /// which gives the result of applying it once). A move that sets its node's current value (its value just before
+    /// the step) changes nothing: it is never undone and never makes its key `kleppmann-skipped` ([RULES/merge-table]
+    /// open point 35 case (iii)). After a step in which a node is its own ancestor, the step's moves that changed their
+    /// node's value are undone one at a time, the least uid among those moves' nodes that lie on a cycle and are not
+    /// yet undone first, until none is (MR-039); since the state before the step is a forest, every cycle holds such a
+    /// move. A key whose last move was undone is `kleppmann-skipped` (CS-013); a later move of it that applied decides
+    /// its value (MR-040). Each key's value is its node's final (parent, order). Step entries follow the re-key
+    /// (RK-005, RK-006): U's moves are uid′'s, and a parent U that the side set is uid′. Keys of a uid fixed by an
+    /// existence policy (PR-007) take no part.
+    // spec: [RULES/merge-table] results
+    // spec: [F12 §7.4]
+    // spec: [F12 §5.3]
     fn kleppmann(&mut self, modes: &BTreeMap<Nid, Mode>) -> BTreeMap<Nid, Option<KVal>> {
         let hk = |n: Nid| Key::Node(n, Aspect::Hierarchy);
         let get = |st: &State, n: Nid| -> Option<KVal> { flat(&cval(st, n, &Aspect::Hierarchy)) };
@@ -1551,10 +1561,15 @@ impl Engine<'_, '_> {
             .filter(|(_, m)| matches!(m, Mode::Merged))
             .map(|(n, _)| *n)
             .collect();
-        // Every result node's (parent, order) as the moves start: merged nodes from the base, fixed nodes as copied.
+        // A revert or a cherry-pick replays from o, with no dst step and no (0, 0) step ([RULES/merge-table] open point
+        // 35 case (ii)).
+        let pick = matches!(self.cx.op, Op::Revert | Op::CherryPick);
+        // Every result node's (parent, order) as the moves start: merged nodes from the base (from o for a revert or a
+        // cherry-pick), fixed nodes as copied.
         let mut cur: BTreeMap<Nid, Option<KVal>> = BTreeMap::new();
         for (n, m) in modes {
             let v = match m {
+                Mode::Merged if pick => get(self.st(1), *n),
                 Mode::Merged | Mode::Fixed(From::Base, _) | Mode::Tomb(From::Base) => {
                     get(self.st(0), *n)
                 }
@@ -1576,6 +1591,9 @@ impl Engine<'_, '_> {
         // step before src's where two steps share a key.
         let mut steps: Vec<(MoveKey, Moves)> = Vec::new();
         for side in 0..2 {
+            if pick && side == 0 {
+                continue;
+            }
             let i = side + 1;
             let (rk, base) = (&self.rekeyed[i], self.st(0));
             let mut listed: BTreeSet<Nid> = BTreeSet::new();
@@ -1611,7 +1629,12 @@ impl Engine<'_, '_> {
                     own.push((s.key, moves));
                 }
             }
-            // A key the side changed that no step of it sets: a step keyed (0, 0), before every commit.
+            // A key the side changed that no step of it sets: a step keyed (0, 0), before every commit; none for a
+            // revert or a cherry-pick, whose replay starts from o.
+            if pick {
+                steps.extend(own);
+                continue;
+            }
             let drift: Moves = merged
                 .iter()
                 .filter(|n| !listed.contains(n))
@@ -1636,10 +1659,17 @@ impl Engine<'_, '_> {
                 let old = cur.insert(*n, v.clone()).flatten();
                 before.entry(*n).or_insert(old);
             }
+            // The moves that changed their node's value: only these can be undone ([RULES/merge-table] open point 35
+            // case (iii)).
+            let changed: Vec<Nid> = before
+                .iter()
+                .filter(|(n, old)| cur.get(n).cloned().flatten() != **old)
+                .map(|(n, _)| *n)
+                .collect();
             let mut undone: BTreeSet<Nid> = BTreeSet::new();
             loop {
-                let worst = before
-                    .keys()
+                let worst = changed
+                    .iter()
                     .copied()
                     .filter(|n| !undone.contains(n) && on_cycle(&cur, *n))
                     .min_by_key(|n| self.uid(*n));

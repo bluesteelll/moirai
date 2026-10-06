@@ -401,8 +401,8 @@ impl Store {
         let o = self.dag.state_at(dst_tip, &self.alloc);
         let t = self.dag.state_at(src_tip, &self.alloc);
         let (ao, at) = (self.dag.ancestors(dst_tip), self.dag.ancestors(src_tip));
-        let mo = self.dag.move_steps(&ao, &base.anc);
-        let mt = self.dag.move_steps(&at, &base.anc);
+        let mo = self.dag.move_steps(&ao, &base.anc, &self.alloc);
+        let mt = self.dag.move_steps(&at, &base.anc, &self.alloc);
         // `merge.policy.<kind>` of dst's view ([CFG §10.13]).
         let auto = crate::policy::merge_policies(&o.schema);
         let cx = MCtx {
@@ -442,6 +442,9 @@ impl Store {
     /// `merge --continue` when given ([F12 §9.4] step 2); the validators. A root node's `path_moves` is an ordinary set
     /// field here, so reverting the commit that added an entry removes it and cherry-picking it adds it
     /// ([RULES/link-merge-rules] LH-003, LH-004); the plan reads states only and never touches a project tree (LH-001).
+    /// Its Kleppmann steps are RS-007's for a revert or a cherry-pick: none on dst, and on src C's one step less the
+    /// keys a later commit of dst moved ([RULES/merge-table] open point 35 case (ii); [AR §11] OQ-A-6 (a)).
+    // spec: [RULES/merge-table] results
     // rule: DM-003, DM-004, DM-005, DM-012, DM-013, DM-017, LH-001, LH-003, LH-004
     fn plan_pick(&self, onto: &str, c: u64, revert: bool, overlay: Option<&Overlay>) -> Plan {
         let d = self.dag.live(onto).expect("onto is live");
@@ -451,33 +454,37 @@ impl Store {
         let o = self.dag.state_at(dst_tip, &self.alloc);
         let uid = |n: Nid| self.alloc.uid(n);
         let nid = |u: Uid| self.uidx(u);
-        let base_at = if revert {
-            Some(c)
-        } else {
-            commit.parents.first().copied()
-        };
-        let mo = self
-            .dag
-            .move_steps(&self.dag.ancestors(dst_tip), &self.dag.ancestors(base_at));
-        // The src side is one step, the origin's, with each node's value on src: a revert's src (p1(c)) has no commit
-        // outside A(base), so its moves are ordered by the commit they invert.
-        let moves: merge::Moves = commit
+        // RS-007 for a revert or a cherry-pick of C ([RULES/merge-table] open point 35 case (ii)): the replay starts
+        // from o, dst has no step and neither side has a (0, 0) step; src has one step, C's, keyed by C's (hlc, commit
+        // id), setting each hierarchy key whose value on src differs from b (the hierarchy keys of C's net changeset
+        // against its first parent) to src's value, less each key a commit of A(o) after C moved: that later move
+        // stands (MR-040).
+        let key = (commit.hlc, commit.id);
+        let h = Aspect::Hierarchy;
+        let keys: BTreeSet<Nid> = commit
             .changeset
             .keys()
             .filter_map(|k| match k {
-                Key::Node(n, Aspect::Hierarchy) => {
-                    Some((*n, merge::flat(&merge::cval(&t, *n, &Aspect::Hierarchy))))
+                Key::Node(n, Aspect::Hierarchy)
+                    if merge::cval(&b, *n, &h) != merge::cval(&t, *n, &h) =>
+                {
+                    Some(*n)
                 }
                 _ => None,
             })
             .collect();
+        let later = self
+            .dag
+            .moved_after(&self.dag.ancestors(dst_tip), key, &keys, &self.alloc);
+        let moves: merge::Moves = keys
+            .difference(&later)
+            .map(|n| (*n, merge::flat(&merge::cval(&t, *n, &h))))
+            .collect();
+        let mo: Vec<Step> = Vec::new();
         let mt: Vec<Step> = if moves.is_empty() {
             Vec::new()
         } else {
-            vec![Step {
-                key: (commit.hlc, commit.id),
-                moves,
-            }]
+            vec![Step { key, moves }]
         };
         let auto = crate::policy::merge_policies(&o.schema);
         let cx = MCtx {
