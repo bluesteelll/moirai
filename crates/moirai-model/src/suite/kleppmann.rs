@@ -8,7 +8,7 @@
 
 use super::*;
 use crate::api::{Data, Outcome};
-use crate::merge::{BACKSTOP, RULE, Rule};
+use crate::merge::{self, Counter, RULE, Rule};
 use crate::tx::Take;
 use std::cell::RefCell;
 
@@ -75,16 +75,20 @@ struct Stats {
     both_land: usize,
     /// Both stage, on different keys.
     both_stage: usize,
-    /// The variant under test's backstop resets.
+    /// The variant under test's backstop resets (its own store's, outside resolved-key derivations).
     backstop: usize,
 }
 
-/// Runs `f` on a store under `rule`.
+/// Runs `f` on a store under `rule`, restoring the thread's rule after, also when `f` panics.
 fn under<T>(rule: Rule, f: impl FnOnce() -> T) -> T {
-    let was = RULE.with(|r| r.replace(rule));
-    let out = f();
-    RULE.with(|r| r.set(was));
-    out
+    struct Restore(Rule);
+    impl Drop for Restore {
+        fn drop(&mut self) {
+            RULE.with(|r| r.set(self.0));
+        }
+    }
+    let _restore = Restore(RULE.with(|r| r.replace(rule)));
+    f()
 }
 
 fn parents(s: &S, branch: &str) -> Vec<Option<Nid>> {
@@ -327,12 +331,12 @@ fn search(ra: Rule, rb: Rule, pr: u32, seed: u8) -> Stats {
         proptest::test_runner::TestRng::from_seed(proptest::test_runner::RngAlgorithm::ChaCha, &s),
     );
     let stats = RefCell::new(Stats::default());
-    BACKSTOP.with(|c| c.set(0));
+    merge::reset_counts();
     let result = runner.run(&proptest::collection::vec(op(), 1..24), |ops| {
         lockstep(&ops, ra, rb, &stats).map_err(proptest::test_runner::TestCaseError::fail)
     });
     let mut out = stats.into_inner();
-    out.backstop = BACKSTOP.with(|c| c.get());
+    out.backstop = merge::count(ra, Counter::Backstop);
     eprintln!("RS-007 lockstep {ra:?} against {rb:?}: {out:?}");
     if let Err(e) = result {
         panic!("{e}");
@@ -345,7 +349,7 @@ fn search(ra: Rule, rb: Rule, pr: u32, seed: u8) -> Stats {
 /// of OQ-A-11), and its backstop for a cycle the kept keys close never fires.
 #[test]
 fn rs_007_never_stages_what_the_replay_from_b_lands() {
-    let st = search(Rule::Current, Rule::FromB, 64, 1);
+    let st = search(merge::default_rule(), Rule::FromB, 64, 1);
     assert_eq!(st.worse, 0, "{st:?}");
     assert_eq!(st.backstop, 0, "the backstop fired: {st:?}");
 }
@@ -362,7 +366,7 @@ fn wave_3c_against_the_replay_from_b() {
 /// RS-007 against wave 3c's rule (OQ-A-11 alone), the same way: it never stages a merge that wave 3c lands.
 #[test]
 fn rs_007_never_stages_what_wave_3c_lands() {
-    let st = search(Rule::Current, Rule::Wave3c, 64, 2);
+    let st = search(merge::default_rule(), Rule::Wave3c, 64, 2);
     assert_eq!(st.worse, 0, "{st:?}");
     assert_eq!(st.backstop, 0, "the backstop fired: {st:?}");
 }

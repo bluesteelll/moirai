@@ -28,6 +28,7 @@ fn ctx<'a>(auto: &'a BTreeMap<String, String>, op: Op) -> Ctx<'a> {
         moves: [&[], &[]],
         uid: &uid,
         nid: &no_nid,
+        origin: None,
     }
 }
 

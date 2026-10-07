@@ -8,7 +8,7 @@ use crate::canon::{self, Header};
 use crate::dag::{Commit, Dag, Ref};
 use crate::err::{Refusal, Res};
 use crate::merge::{self, Ctx, Fresh, MoveKey, Op, Step};
-use crate::state::{Alloc, Aspect, Changeset, Key, State, touched};
+use crate::state::{Alloc, Aspect, Changeset, KVal, Key, State, touched};
 use crate::value::{Nid, Uid, hex};
 use std::collections::{BTreeMap, BTreeSet};
 use std::rc::Rc;
@@ -226,7 +226,7 @@ impl Dag {
             );
         }
         #[cfg(test)]
-        if merge::rule() != merge::Rule::Current {
+        if !merge::rule().resolved_keys() {
             return keys;
         }
         keys.extend(self.resolved_keys(x, alloc));
@@ -249,6 +249,9 @@ impl Dag {
         let [p1, p2] = c.parents[..] else {
             return BTreeSet::new();
         };
+        // The harness counts RS-007's work here apart from the merges a command runs (test builds only).
+        #[cfg(test)]
+        let _deriving = merge::Deriving::enter();
         let uid = |n: Nid| alloc.uid(n);
         let nid = |u: Uid| alloc.nid(u);
         let mut bases = Bases::new(self, alloc, &uid, &nid);
@@ -260,6 +263,9 @@ impl Dag {
         let rp = self.replay(Some(p1), Some(p2), &base, None, alloc);
         let auto = crate::policy::merge_policies(&o.schema);
         let r = &self.refs[&c.ref_id];
+        let og = |side: usize, n: Nid, v: &Option<KVal>| {
+            self.origin_among(&[if side == 1 { p1 } else { p2 }], n, v, alloc)
+        };
         let cx = Ctx {
             op: if c.kind == "sync" {
                 Op::Sync
@@ -274,6 +280,7 @@ impl Dag {
             moves: [&rp.moves[0][..], &rp.moves[1][..]],
             uid: &uid,
             nid: &nid,
+            origin: Some(&og),
         };
         let mut fresh = bases.fresh.clone();
         let p = merge::typed(&base.st, &o, &t, &cx, &mut fresh);
@@ -316,7 +323,7 @@ impl Dag {
             None => base.lcas.len() <= 1 && base.lcas.first().copied() == x,
         };
         #[cfg(test)]
-        if merge::rule() == merge::Rule::FromB {
+        if merge::rule().replays_from_b() {
             return Replay {
                 one_sided: false,
                 state: base.st.clone(),
@@ -326,7 +333,8 @@ impl Dag {
                 ],
             };
         }
-        if one_sided {
+        // A rule with no replay reads neither the replay start nor any step (the evaluation harness's candidate).
+        if one_sided || merge::no_replay() {
             return Replay {
                 one_sided,
                 state: Rc::new(State::default()),
@@ -344,6 +352,60 @@ impl Dag {
                 self.move_steps(&ay, &ar, alloc),
             ],
         }
+    }
+
+    /// The origin time of the hierarchy value commit `c` holds for node `n`: the (hlc, commit id) of the commit that
+    /// produced it. The walk starts at `c`; a commit whose net changeset against its first parent leaves the key's value
+    /// as it was passes it on to its first parent; a two-parent commit that changed it against its first parent but holds
+    /// its second parent's value passes it on to its second parent (a `sync` that takes `main`'s move, a merge that takes
+    /// the merged branch's); any other commit that changed it produced it. ε, and a root commit that left the key absent,
+    /// give (0, 0). The walk reads only each commit's own net changeset and, at a two-parent commit that changed the
+    /// key, its second parent's value of it: an engine follows the key's per-node chain (the commits whose net changeset
+    /// holds the key) and hops to the second parent's chain at such a commit, and since a commit's origins never change
+    /// they may be kept with it (the evaluation harness's candidate `threeway`, `merge/cand.rs`).
+    pub fn origin(&self, c: Option<u64>, n: Nid, alloc: &dyn Alloc) -> MoveKey {
+        let k = Key::Node(n, Aspect::Hierarchy);
+        let h = Aspect::Hierarchy;
+        let mut cur = c;
+        while let Some(x) = cur {
+            let cm = &self.commits[&x];
+            let changed = cm
+                .changeset
+                .get(&k)
+                .filter(|(b, a)| merge::flat(b) != merge::flat(a));
+            match changed {
+                None => cur = cm.parents.first().copied(),
+                Some((_, after)) => {
+                    if let [_, p2] = cm.parents[..] {
+                        let s2 = self.state_at(Some(p2), alloc);
+                        if merge::flat(&merge::cval(&s2, n, &h)) == merge::flat(after) {
+                            cur = Some(p2);
+                            continue;
+                        }
+                    }
+                    return (cm.hlc, cm.id);
+                }
+            }
+        }
+        (0, [0; 32])
+    }
+
+    /// The origin time of value `v` of node `n`'s hierarchy key on a side whose state is a fold of the commits `tips`
+    /// (one commit for a real side; the LCAs folded so far for a virtual merge's dst): the latest [`Dag::origin`] among
+    /// the tips that hold `v`, and (0, 0) when none does (a value only a base or a virtual merge produced).
+    pub fn origin_among(
+        &self,
+        tips: &[u64],
+        n: Nid,
+        v: &Option<KVal>,
+        alloc: &dyn Alloc,
+    ) -> MoveKey {
+        let h = Aspect::Hierarchy;
+        tips.iter()
+            .filter(|c| merge::flat(&merge::cval(&self.state_at(Some(**c), alloc), n, &h)) == *v)
+            .map(|c| self.origin(Some(*c), n, alloc))
+            .max()
+            .unwrap_or((0, [0; 32]))
     }
 
     /// A(p₂) \ A(p₁) of a two-parent commit ([F12 §5.2]): the walk from p₂ stops at every member of A(p₁), whose
@@ -577,34 +639,43 @@ impl<'a> Bases<'a> {
         let mut v = self.state(l[0]);
         let mut a: BTreeSet<u64> = self.dag.ancestors(Some(l[0]));
         let empty_auto = BTreeMap::new();
-        for li in &l[1..] {
+        for (i, li) in l[1..].iter().enumerate() {
             let al = self.dag.ancestors(Some(*li));
             let common: BTreeSet<u64> = a.intersection(&al).copied().collect();
             let m = self.dag.maximal(&common);
             let (b, ab) = self.of(&m);
             let src = self.state(*li);
             // VM-7: RS-007's replay from the replay start of the pair (OQ-A-11 11.1 (B)); a virtual merge's dst is no
-            // ref tip, so it is never one-sided.
-            let r = self.dag.replay_start(&a, &al, &ab);
-            #[cfg(test)]
-            let r = if merge::rule() == merge::Rule::FromB {
-                None
+            // ref tip, so it is never one-sided. A rule with no replay reads none of it.
+            let (start, mo, mt) = if merge::no_replay() {
+                (Rc::new(State::default()), Vec::new(), Vec::new())
             } else {
-                r
+                let r = self.dag.replay_start(&a, &al, &ab);
+                let ar = self.dag.ancestors(r);
+                let start = self.dag.state_at(r, self.alloc);
+                // The replay from B starts at the inner base itself (test builds only).
+                #[cfg(test)]
+                let (ar, start) = if merge::rule().replays_from_b() {
+                    ((*ab).clone(), b.clone())
+                } else {
+                    (ar, start)
+                };
+                (
+                    start,
+                    self.dag.move_steps(&a, &ar, self.alloc),
+                    self.dag.move_steps(&al, &ar, self.alloc),
+                )
             };
-            let ar = self.dag.ancestors(r);
-            let start = self.dag.state_at(r, self.alloc);
-            // The replay from B starts at the inner base itself (test builds only).
-            #[cfg(test)]
-            let (ar, start) = if merge::rule() == merge::Rule::FromB {
-                ((*ab).clone(), b.clone())
-            } else {
-                (ar, start)
+            // The origin time of each side's value: dst is the fold of the LCAs before this one, src this LCA.
+            let (dag, alloc, li_c) = (self.dag, self.alloc, *li);
+            let folded: Vec<u64> = l[..=i].to_vec();
+            let og = move |side: usize, n: Nid, v: &Option<KVal>| {
+                if side == 1 {
+                    dag.origin_among(&folded, n, v, alloc)
+                } else {
+                    dag.origin_among(&[li_c], n, v, alloc)
+                }
             };
-            let (mo, mt) = (
-                self.dag.move_steps(&a, &ar, self.alloc),
-                self.dag.move_steps(&al, &ar, self.alloc),
-            );
             let cx = Ctx {
                 op: Op::Virtual,
                 dst_main: false,
@@ -615,6 +686,7 @@ impl<'a> Bases<'a> {
                 moves: [&mo[..], &mt[..]],
                 uid: self.uid,
                 nid: self.nid,
+                origin: Some(&og),
             };
             let merged = merge::merge(&b, &v, &src, &cx, &mut self.fresh);
             v = Rc::new(merged.st);

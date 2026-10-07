@@ -408,6 +408,12 @@ impl Store {
             .replay(dst_tip, src_tip, &base, forced, &self.alloc);
         // `merge.policy.<kind>` of dst's view ([CFG §10.13]).
         let auto = crate::policy::merge_policies(&o.schema);
+        // The origin time of each side's hierarchy value ([`Dag::origin`]): dst's from tip(dst), src's from `src_tip`.
+        let og = |side: usize, n: Nid, v: &Option<KVal>| {
+            let tip = if side == 1 { dst_tip } else { src_tip };
+            self.dag
+                .origin_among(&tip.into_iter().collect::<Vec<_>>(), n, v, &self.alloc)
+        };
         let cx = MCtx {
             op,
             dst_main: dst == "main",
@@ -418,6 +424,7 @@ impl Store {
             moves: [&rp.moves[0][..], &rp.moves[1][..]],
             uid: &uid,
             nid: &nid,
+            origin: Some(&og),
         };
         let mut fresh = bases.fresh.clone();
         let mut p = merge::typed(&base.st, &o, &t, &cx, &mut fresh);
@@ -477,9 +484,13 @@ impl Store {
                 _ => None,
             })
             .collect();
-        let later = self
-            .dag
-            .moved_after(&self.dag.ancestors(dst_tip), key, &keys, &self.alloc);
+        // A rule with no replay reads no step keys here (the evaluation harness's candidate, test builds only).
+        let later = if merge::no_replay() {
+            BTreeSet::new()
+        } else {
+            self.dag
+                .moved_after(&self.dag.ancestors(dst_tip), key, &keys, &self.alloc)
+        };
         let moves: merge::Moves = keys
             .difference(&later)
             .map(|n| (*n, merge::flat(&merge::cval(&t, *n, &h))))
@@ -491,6 +502,16 @@ impl Store {
             vec![Step { key, moves }]
         };
         let auto = crate::policy::merge_policies(&o.schema);
+        // The origin time of each side's hierarchy value: dst's from tip(dst) ([`Dag::origin`]); src's is C's own
+        // (hlc, commit id), the key of its one step.
+        let og = |side: usize, n: Nid, v: &Option<KVal>| {
+            if side == 2 {
+                key
+            } else {
+                self.dag
+                    .origin_among(&dst_tip.into_iter().collect::<Vec<_>>(), n, v, &self.alloc)
+            }
+        };
         let cx = MCtx {
             op: if revert { Op::Revert } else { Op::CherryPick },
             dst_main: onto == "main",
@@ -501,6 +522,7 @@ impl Store {
             moves: [&mo[..], &mt[..]],
             uid: &uid,
             nid: &nid,
+            origin: Some(&og),
         };
         let mut fresh = Fresh::default();
         let mut p = merge::typed(&b, &o, &t, &cx, &mut fresh);
