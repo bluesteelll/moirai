@@ -622,13 +622,18 @@ options everywhere"). This block is the plan issue that records them; the PLAN r
   of three alternatives on one evaluation harness (`docs/spec/reviews/wave-3d-alternatives.md`; the harness and the
   recommended candidate are in the model as the test-only rule `merge::Rule::Cand`) found that every replay variant
   leaves avoidable stagings and silent wrong landings: OQ-A-13 below.
-- **OQ-A-13, asked 2026-10-07, open** (`docs/spec/reviews/owner-questions.md`). Replace RS-007's replay for hierarchy
-  keys with K2 `threeway` (a per-key three-way rule, the later origin on a two-sided key, an exact cycle repair; 1
-  oracle fault in 12,000 histories against 1,785 to 1,846 for the replays, no format addition), or keep a replay (K4,
-  the fallback; K3; or RS-007 as it stands with I25′ amended). Five further calls: "touched" in I25′, a two-sided key's
-  skipped cycle-closing move (MR-039), "later" in MR-040, a reparent against a concurrent reorder, and the acceptance.
-  Due before the merge table's V3 signature and before the engine implements RS-007; the rules, [F12], [AR] and model
-  changes follow the decision.
+- **OQ-A-13, asked and decided 2026-10-07** ("Рекомендации", "the recommendations";
+  `docs/spec/reviews/owner-questions.md`). Replace RS-007's replay for hierarchy keys with K2 `threeway` (a per-key
+  three-way rule, the later origin on a two-sided key, an exact cycle repair; 1 oracle fault in 12,000 histories against
+  1,785 to 1,846 for the replays, no format addition), or keep a replay (K4, the fallback; K3; or RS-007 as it stands
+  with I25′ amended). Five further calls: "touched" in I25′, a two-sided key's skipped cycle-closing move (MR-039),
+  "later" in MR-040, a reparent against a concurrent reorder, and the acceptance. Due before the merge table's V3
+  signature and before the engine implements RS-007; the rules, [F12], [AR] and model changes follow the decision.
+  Decided as recommended: K2 with its exactness fixes (K4 the fallback), "touched" by state, a hint for a skipped
+  two-sided move and a staging under `--strict`, MR-040 by original origins, a reparent beats a concurrent reorder, and
+  the absolute acceptance on a widened oracle. Wave 3e applies it: R-MODEL prototypes the hint, `--strict` and the
+  reparent rule in K2 and widens the harness, makes K2 the model's rule and removes the replay machinery; R-MODEL,
+  R-SPEC-F and WP-81a rewrite the texts the decision names; a spec arbiter re-runs the widened harness.
 - **Next steps.** The owner runs a memory test before wave 3b: the host had about ten blue screens from 2026-08-17 to
   2026-09-30 with varied codes, the pattern of faulty RAM or an unstable XMP/EXPO profile. Wave 3b follows. (The owner
   declined the memory test the same day; wave 3b ran and was merged.)

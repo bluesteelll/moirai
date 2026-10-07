@@ -923,8 +923,9 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     found its limit, (v), and a further case, (vi), which OQ-A-11 decided with the reading of "moved" in (i).
     Wave 3d found that the model's prototype of OQ-A-12 does not meet its acceptance (`wave-3d-verify.md`), and that
     every replay variant measured on one harness leaves avoidable `HierarchyCycle` stagings and silent wrong landings
-    of keys only one side changed (`wave-3d-alternatives.md`); OQ-A-13 asks the owner to replace the replay with a
-    per-key three-way rule and a cycle repair. Until it is decided, the text below stands as wave 3c left it.
+    of keys only one side changed (`wave-3d-alternatives.md`); the owner decided OQ-A-13 on 2026-10-07 to replace the
+    replay with a per-key three-way rule and a cycle repair. Until wave 3e applies it, the text below stands as wave 3c
+    left it.
     (i) **A two-parent commit inside one side.** A merge or `sync` that kept its first parent's value of a key the
     merged branch had changed (for example after resolving a skip to `ours`) was no step for that key, so the merged
     branch's move could be that key's last step and win. Example: lane/x puts #2 under #1; main then puts #1 under #2;

@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | `open`: the owner is asked OQ-A-13 (`owner-questions.md`) |
+| Status | `closed`: OQ-A-13 was decided on 2026-10-07 as recommended (`owner-questions.md`); wave 3e applies it |
 | Scope | RS-007's rule for the hierarchy key (parent, order) of every merged node, after the wave 3d verification found OQ-A-12's acceptance unmet (`wave-3d-verify.md`) |
 | Method | One evaluation harness built first, with an oracle that no rule computes; three alternatives built on it, each in its own copy of the tree; two judges with distinct lenses (semantics, engineering), each re-running what it scored; then a completeness critic with its own widened runs. Compiled here by the orchestrator |
 | Code | The harness and the recommended candidate K2 are in the reference model as the test-only rule `merge::Rule::Cand` (commit "WP-91: Add the RS-007 evaluation harness and the three-way candidate ..."); the model's default rule is unchanged. K3 and K4 are described below and not kept in the tree |
