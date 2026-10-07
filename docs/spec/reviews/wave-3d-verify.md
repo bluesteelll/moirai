@@ -85,3 +85,20 @@ replay, among them a per-key three-way rule for hierarchy keys with a cycle repa
 compared on one evaluation harness that closes the blind spots above, and the owner is asked a new question with that
 evidence before the merge table's V3 signature. Until then RS-007's text stands as wave 3c left it, and the model's
 prototype of (b) and (c) is not accepted.
+
+## The pre-existing model bugs, fixed, and the specification findings they raised
+
+Fixed in the model, each with regression tests (commits "WP-91: Accept a provisional #N ...", "WP-90: Scan the marker
+rows in identity order ...", "WP-91: Copy a carried existence conflict's node ..."); the whole model suite passes
+(630 passed). The fixes raised these points for the specification roles; each needs a rule or a text before the
+format freeze:
+
+| id | where | finding | proposed |
+|---|---|---|---|
+| W3D-SF-1 | [F12 §6.3]; [RULES/merge-table] §2, MR-001, MR-003, MR-004, PR-007 | No text says which side a node's other keys come from when a merge takes a side's conflict value unchanged; its `prov` names a side of the merge that made it. The model now copies the node from the side whose value is taken (ADV-C-2's fix) | "A conflict value taken from a side keeps its `prov`, which names a side of the merge that made it, never of this merge; the uid's node is that side's, which holds it in the value's provisional state" |
+| W3D-SF-2 | PR-007; I25′; [AR §3.4] I39′ | PR-007 says that only an existence row of `policy` fixes a node's other keys, but the model copies the whole node for every conflict-valued existence result, so a change only src made to a node whose existence both sides hold in conflict is lost (a `sync` lands an empty changeset and drops `main`'s retitle) | owner or spec decision: (a) a conflict-valued existence result fixes the node to the holding side, as the model does; (b) the other keys merge key by key, with the value attached, when its provisional state is live, and as a tombstone merge (I39′) when it is deleted |
+| W3D-SF-3 | [F12 §6.5] "A live existence side"; RS-008 | The restore of a `resolve --take` towards a live side reads the parents of the commit whose `Conflict` op set the value; a value carried by MR-004 gets a new `Conflict` op in the carrying merge, so the restore reads the wrong parent (the same resolution moves #1 differently on two lanes) | M is the merge that made the value, or the `Conflict` op records its originating merge |
+| W3D-SF-4 | [F05 §9.5], §10.1; ME-012; [F13 §4.2] MC-6; [LQ/std §2.15] "Ties" | The order of a `Marker` record's entries is observable (the change feed) and must not depend on folds, but no text states it | "written in this order, which no fold changes: for a commit landing, a ref move or a fork, by `#N` ascending, a node's leaving entry (ME-004) before its joining entry; for a ref deletion (ME-005), ascending by identity over both sections; then the `nonlinear` entries of ME-011, ascending by identity over both sections" (the model's order); or one total order by (identity, `mkind`) |
+| W3D-SF-5 | [API §9.6] item 2; RK-008 | A merge reply reports conflict and violation keys, and validator texts, with the provisional #Ns of uids new to the store, before the landing renumbers them (`#4294967295.observation` where the node lands as #7) | give the landing #Ns before the validators run; state which #N a preview or dry merge reports for a uid not yet allocated |
+| W3D-SF-6 | [F08 §2.1]; [F04 §5.7] | Off by one at the top of the id space: whether the last allocatable #N is 2^32 − 1 or 2^32 − 2; the model's landing renumber has no id-space check | state the last #N and the refusal |
+| W3D-SF-7 | RK-005; [API §15.4]; [F14] | RK-005's "created is S's creating commit" conflicts with [API §15.4] `created` (the merge commit for a uid′) and with [F14]'s least (generation, id) | pick one notion |
