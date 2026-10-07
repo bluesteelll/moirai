@@ -369,6 +369,9 @@ struct Decided {
     value: KState,
     row: String,
     violation: Option<&'static str>,
+    /// The side whose value the key takes as that side holds it: ours for `take-o` and `stage-take-o`, theirs for
+    /// `take-t`, the side of an automatic policy (AP-002, AP-003); `None` for a value the row computes.
+    taken: Option<From>,
 }
 
 /// The merge engine over three states: b, o and t borrowed, the side the re-key rewrites copied on its first change.
@@ -777,12 +780,23 @@ impl Engine<'_, '_> {
                         }
                     ),
                     violation: None,
+                    taken: Some(if side == Side::Ours {
+                        From::Ours
+                    } else {
+                        From::Theirs
+                    }),
                 };
             }
+            let taken = match r.tok("result") {
+                "take-o" | "stage-take-o" => Some(From::Ours),
+                "take-t" => Some(From::Theirs),
+                _ => None,
+            };
             return Decided {
                 value,
                 row: r.id.clone(),
                 violation,
+                taken,
             };
         }
         panic!("class {class} has no row for {k:?}: its rows are not exhaustive")
@@ -1348,7 +1362,7 @@ impl Engine<'_, '_> {
             let k = Key::Node(n, Aspect::Existence);
             let (b, o, t) = (self.val(0, &k), self.val(1, &k), self.val(2, &k));
             if self.eq(&k, &b, &o) && self.eq(&k, &o, &t) {
-                modes.insert(n, self.mode_of(n, &o, &b, &o, &t, false));
+                modes.insert(n, self.mode_of(n, &o, None, &b, &o, &t, false));
                 continue;
             }
             let d = self.decide(&k, &b, &o, &t);
@@ -1359,6 +1373,7 @@ impl Engine<'_, '_> {
             let mode = self.mode_of(
                 n,
                 &d.value,
+                d.taken,
                 &b,
                 &o,
                 &t,
@@ -1375,10 +1390,29 @@ impl Engine<'_, '_> {
         modes
     }
 
-    /// The mode of a uid from its existence result: a conflict value fixes the node to its provisional side (RS-008);
-    /// a tombstone is copied from the side that holds it; an automatic side or a staged value fixes the node to that
-    /// side; a live result merges the other keys.
-    fn mode_of(&self, n: Nid, r: &KState, b: &KState, o: &KState, t: &KState, fixed: bool) -> Mode {
+    /// The mode of a uid from its existence result `r`; `taken` is the side whose value `r` is, as that side holds it,
+    /// when the key takes a side's value. A conflict value fixes the node: it is copied whole, with `r` on its
+    /// existence key, from a side that holds it in `r`'s provisional state ([F12 §6.3]). For a value this merge makes
+    /// (RS-008, RS-010, RS-015) that is the side its `prov` names, a side of this merge (a conflict-valued side
+    /// contributes its provisional node). For a value the key takes from one side (MR-003, MR-004, AP-002, AP-003) it
+    /// is that side: the value is carried whole, its `prov` names a side of the merge that made it, and the side that
+    /// holds the value holds the node in its provisional state. When o and t both hold `r` (b, o and t equal, or
+    /// MR-001), both hold the node in that state and [`Engine::shared_holder`] picks the side. A tombstone is copied
+    /// from the side that holds it; an automatic side or a staged value fixes the node to that side; a live result
+    /// merges the other keys.
+    // spec: [F12 §6.3]
+    // spec: [RULES/merge-table] PR-007
+    #[allow(clippy::too_many_arguments)]
+    fn mode_of(
+        &self,
+        n: Nid,
+        r: &KState,
+        taken: Option<From>,
+        b: &KState,
+        o: &KState,
+        t: &KState,
+        fixed: bool,
+    ) -> Mode {
         let side_of = |v: &KState| -> From {
             let key = Key::Node(n, Aspect::Existence);
             if self.eq(&key, v, o) {
@@ -1393,11 +1427,14 @@ impl Engine<'_, '_> {
         };
         match r {
             KState::Conflict(c) => {
-                let from = match c.prov {
-                    Some(Side::Theirs) => From::Theirs,
-                    _ => From::Ours,
+                let from = if self.eq(&Key::Node(n, Aspect::Existence), o, t) {
+                    self.shared_holder(n)
+                } else {
+                    taken.unwrap_or(match c.prov {
+                        Some(Side::Theirs) => From::Theirs,
+                        _ => From::Ours,
+                    })
                 };
-                // RS-010, RS-015: a side that is itself conflict-valued contributes its provisional node.
                 Mode::Fixed(from, Some(c.clone()))
             }
             KState::Plain(None) => Mode::Absent,
@@ -1411,6 +1448,22 @@ impl Engine<'_, '_> {
             }
             KState::Plain(Some(_)) if fixed => Mode::Fixed(side_of(r), None),
             KState::Plain(Some(_)) => Mode::Merged,
+        }
+    }
+
+    /// The side a uid is copied from when o and t hold the same conflict value on its existence key, so both hold the
+    /// node in the value's provisional state ([F12 §6.3]): theirs when theirs changed one of the node's keys since the
+    /// base (CS-014's "modified") and ours did not, ours otherwise. When at most one side changed the node, its keys are
+    /// then the ones PR-007's key-by-key merge gives them, each key one side did not touch taking the other side's
+    /// value ([AR §3.4] I25′; the `ours-only` and `theirs-only` rows). When both changed it, ours is copied and theirs'
+    /// changes are lost, which PR-007 read literally does not call for (an open specification question).
+    // spec: [RULES/merge-table] PR-007
+    // spec: [F12 §6.3]
+    fn shared_holder(&self, n: Nid) -> From {
+        if self.modified(2, n) && !self.modified(1, n) {
+            From::Theirs
+        } else {
+            From::Ours
         }
     }
 

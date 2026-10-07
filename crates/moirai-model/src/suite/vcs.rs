@@ -3198,6 +3198,346 @@ fn a_live_existence_side_restores_the_node() {
     ids_verify(&s);
 }
 
+/// Every commit from seq `from` on has a cached state ([`crate::dag::Dag::state_at`]: a merge's candidate as the merge
+/// remembered it) equal to its definition, the fold of the net changesets along its first-parent chain from the empty
+/// state ([`crate::dag::Dag::state_from_scratch`]); the first commit whose two states differ is the error.
+fn states_verify(s: &S, from: u64) -> Result<(), String> {
+    for seq in s.st.dag.commits.keys().filter(|q| **q >= from) {
+        let cached = s.st.dag.state_at(Some(*seq), &s.st.alloc);
+        if *cached != s.st.dag.state_from_scratch(Some(*seq), &s.st.alloc) {
+            return Err(format!(
+                "s{seq}: the cached state differs from the fold of its changesets"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// [RULES/merge-table] MR-003 with [F12 §6.3] "The provisional side is a stored byte" (ADV-C-2): a merge that takes a
+/// side's `DeleteVsModify` value carries it whole, its `prov` naming a side of the merge that made it, and the node
+/// keeps the provisional state that side holds it in. lane/y deletes #5 while lane/x puts it under #1; `merge lane/y
+/// --into lane/x` lands `#5.existence DeleteVsModify` provisional on theirs, the deleting side (task's EP-001
+/// `delete-wins`), so #5 is a tombstone on lane/x. main sets #6.priority, and `sync lane/x`, whose src (main) holds #5
+/// live and untouched since the base, keeps lane/x's value (MR-003): the sync's net changeset is #6.priority alone, #5
+/// stays a tombstone with the same conflict value, and a `SET` of #5 on lane/x is `not_found`. Before the fix the sync
+/// copied #5 whole from main, the side the carried `prov` named in the sync's own frame: its cached state held #5 live
+/// while the fold of its changesets held the tombstone, and lane/x accepted the `SET`.
+#[test]
+fn a_sync_that_carries_a_delete_versus_modify_keeps_its_provisional_tombstone() {
+    use crate::state::Side;
+    let mut s = S::base();
+    s.ok(
+        tx((1..=6)
+            .map(|i| task(&format!("t{i}"), &format!("task {i}")))
+            .collect()),
+        orch(),
+    );
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    s.ok(delete(5), fresh_on("lane/y"));
+    s.ok(mv(5, Some(1)), fresh_on("lane/x"));
+    s.ok(
+        tx(vec![set(6, &[("priority", P::Int(1))])]),
+        fresh_on("main"),
+    );
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(
+        data(&r).conflicts,
+        vec![("#5.existence".to_string(), "DeleteVsModify".to_string())]
+    );
+    let held = |s: &S| {
+        let st = state(s, "lane/x");
+        let x = &st.nodes[&Nid(5)];
+        (x.live(), x.conflicts[&Aspect::Existence].clone())
+    };
+    let (live, c) = held(&s);
+    assert_eq!(
+        (live, c.class.as_str(), c.prov),
+        (false, "DeleteVsModify", Some(Side::Theirs))
+    );
+    let r = s.run(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check: false,
+        },
+        fresh_on("lane/x"),
+    );
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let d = data(&r);
+    assert_eq!(d.outcome, "landed");
+    assert!(d.conflicts.is_empty(), "a carried value is no new conflict");
+    let sync = &s.st.dag.commits[&tip(&s, "lane/x").unwrap()];
+    assert_eq!(sync.kind, "sync");
+    assert_eq!(
+        sync.changeset.keys().collect::<Vec<_>>(),
+        vec![&Key::Node(Nid(6), Aspect::Field("priority".into()))]
+    );
+    assert_eq!(held(&s), (false, c), "the tombstone and its value are kept");
+    states_verify(&s, 1).unwrap();
+    s.refused(
+        tx(vec![set(5, &[("priority", P::Int(3))])]),
+        fresh_on("lane/x"),
+        "not_found",
+    );
+    ids_verify(&s);
+}
+
+/// The other direction of ADV-C-2, MR-004 ([RULES/merge-table]; [F12 §6.3]): lane/x retitles note #1 while lane/y
+/// deletes it, and `merge lane/y --into lane/x` lands `#1.existence DeleteVsModify` provisional on ours, the modifying
+/// side (note's EP-003 `resurrect`), so #1 is live on lane/x with lane/x's title. `merge lane/x --into lane/y`, whose
+/// base is tip(lane/y), takes lane/x's value (MR-004) with #1 as lane/x holds it: live, lane/x's title, writable on
+/// lane/y. Before the fix the merge copied #1 from lane/y's tombstone, the side the carried `prov` named in its own
+/// frame, so its cached state held a tombstone that the fold of its changesets held live with the old title.
+#[test]
+fn a_merge_that_carries_a_resurrected_delete_versus_modify_keeps_the_live_node() {
+    use crate::state::Side;
+    let mut s = S::base();
+    s.ok(tx(vec![node("n", "note", &[("title", t("old"))])]), orch());
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    s.ok(tx(vec![set(1, &[("title", t("new"))])]), fresh_on("lane/x"));
+    s.ok(delete(1), fresh_on("lane/y"));
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(
+        data(&r).conflicts,
+        vec![("#1.existence".to_string(), "DeleteVsModify".to_string())]
+    );
+    let r = s.run(merge("lane/x", "lane/y"), fresh_on("lane/y"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(
+        data(&r).conflicts,
+        vec![("#1.existence".to_string(), "DeleteVsModify".to_string())],
+        "the carried value lands on lane/y ([F12 §6.3]: its commit carries the `Conflict` op)"
+    );
+    for b in ["lane/x", "lane/y"] {
+        let st = state(&s, b);
+        let x = &st.nodes[&Nid(1)];
+        assert_eq!(
+            (
+                x.live(),
+                x.text("title"),
+                x.conflicts[&Aspect::Existence].prov
+            ),
+            (true, Some("new"), Some(Side::Ours)),
+            "{b}"
+        );
+    }
+    states_verify(&s, 1).unwrap();
+    s.ok(
+        tx(vec![set(1, &[("title", t("newer"))])]),
+        fresh_on("lane/y"),
+    );
+    ids_verify(&s);
+}
+
+/// The branches of [`every_cached_state_equals_the_fold_of_its_changesets`]: `main` and two lanes forked from it at the
+/// commit that creates the nodes.
+const CACHE_BRANCHES: [&str; 3] = ["main", "lane/x", "lane/y"];
+
+/// The values a step of [`every_cached_state_equals_the_fold_of_its_changesets`] writes to `merge.policy.<kind>`
+/// ([RULES/merge-table] AP-001 to AP-005); `None` writes the default.
+const AUTO_POLICIES: [Option<&str>; 5] = [
+    None,
+    Some("ours"),
+    Some("theirs"),
+    Some("delete-wins"),
+    Some("resurrect"),
+];
+
+/// The `--policy` of a merge in [`every_cached_state_equals_the_fold_of_its_changesets`] (AP-004, AP-005).
+const MERGE_POLICIES: [Option<&str>; 3] = [None, Some("delete-wins"), Some("resurrect")];
+
+/// One step of [`every_cached_state_equals_the_fold_of_its_changesets`]. A branch is an index into [`CACHE_BRANCHES`]
+/// and a node is one of [`cache_store`]'s #1 to #4. A merge-family step that stages is resolved on every key it names
+/// to `ours` (`true`) or `theirs` and continued, and aborted when the continue does not land.
+#[derive(Clone, Debug)]
+enum CacheOp {
+    /// On a branch, #n under #p, or to the root.
+    Move(usize, u32, Option<u32>),
+    /// On a branch, #n's title.
+    Title(usize, u32, u8),
+    /// On a branch, #n deleted.
+    Delete(usize, u32),
+    /// On a branch, `merge.policy.task` (`true`) or `merge.policy.note` set to an [`AUTO_POLICIES`] value.
+    Auto(usize, bool, usize),
+    /// On a branch, `resolve #n.existence` to `ours` (`true`) or `theirs`.
+    Resolve(usize, u32, bool),
+    /// `sync` of lane 1 or 2.
+    Sync(usize, bool),
+    /// `merge` of lane 1 or 2 into the other lane, with a [`MERGE_POLICIES`] `--policy`.
+    Cross(usize, usize, bool),
+    /// `merge` of lane 1 or 2 into `main`, with a [`MERGE_POLICIES`] `--policy`.
+    IntoMain(usize, usize, bool),
+}
+
+/// The store of [`every_cached_state_equals_the_fold_of_its_changesets`]: tasks #1 to #3 (EP-001 `delete-wins`) and
+/// note #4 (EP-003 `resurrect`) on `main`, and lane/x and lane/y forked from it.
+fn cache_store() -> S {
+    let mut s = S::base();
+    let mut nodes: Vec<Stmt> = (1..=3)
+        .map(|i| task(&format!("t{i}"), &format!("task {i}")))
+        .collect();
+    nodes.push(node("n4", "note", &[("title", t("note 4"))]));
+    s.ok(tx(nodes), orch());
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    s
+}
+
+fn cache_op() -> impl proptest::strategy::Strategy<Value = CacheOp> {
+    use proptest::prelude::*;
+    let (b, n) = (0usize..3, 1u32..=4);
+    prop_oneof![
+        2 => (b.clone(), n.clone(), prop::option::of(n.clone()))
+            .prop_map(|(b, n, p)| CacheOp::Move(b, n, p.filter(|p| *p != n))),
+        2 => (b.clone(), n.clone(), any::<u8>()).prop_map(|(b, n, k)| CacheOp::Title(b, n, k)),
+        3 => (b.clone(), n.clone()).prop_map(|(b, n)| CacheOp::Delete(b, n)),
+        1 => (b.clone(), any::<bool>(), 0..AUTO_POLICIES.len())
+            .prop_map(|(b, k, v)| CacheOp::Auto(b, k, v)),
+        1 => (b, n, any::<bool>()).prop_map(|(b, n, o)| CacheOp::Resolve(b, n, o)),
+        3 => (1usize..3, any::<bool>()).prop_map(|(l, o)| CacheOp::Sync(l, o)),
+        4 => (1usize..3, 0..MERGE_POLICIES.len(), any::<bool>())
+            .prop_map(|(l, p, o)| CacheOp::Cross(l, p, o)),
+        1 => (1usize..3, 0..MERGE_POLICIES.len(), any::<bool>())
+            .prop_map(|(l, p, o)| CacheOp::IntoMain(l, p, o)),
+    ]
+}
+
+/// Runs a command and checks every commit it appended with [`states_verify`].
+fn run_checked(s: &mut S, cmd: Cmd, ctx: Ctx) -> Result<Reply, String> {
+    let from = s.st.dag.commits.keys().next_back().map_or(0, |q| q + 1);
+    let r = s.run(cmd.clone(), ctx);
+    states_verify(s, from).map_err(|e| format!("{e}, after {cmd:?}"))?;
+    Ok(r)
+}
+
+/// Runs one step of [`every_cached_state_equals_the_fold_of_its_changesets`], checking each command's commits.
+fn run_cache_op(s: &mut S, op: &CacheOp) -> Result<(), String> {
+    let on = |b: usize| fresh_on(CACHE_BRANCHES[b]);
+    let with = |src: &str, into: &str, p: usize| Cmd::Merge {
+        src: src.into(),
+        into: Some(into.into()),
+        policy: MERGE_POLICIES[p].map(str::to_string),
+        strict: None,
+        base: None,
+        message: String::new(),
+    };
+    let (cmd, dst, ours) = match op {
+        CacheOp::Move(b, n, p) => return run_checked(s, mv(*n, *p), on(*b)).map(drop),
+        CacheOp::Title(b, n, k) => {
+            let cmd = tx(vec![set(*n, &[("title", t(&format!("title {k}")))])]);
+            return run_checked(s, cmd, on(*b)).map(drop);
+        }
+        CacheOp::Delete(b, n) => return run_checked(s, delete(*n), on(*b)).map(drop),
+        CacheOp::Auto(b, task, v) => {
+            let name = if *task {
+                "merge.policy.task"
+            } else {
+                "merge.policy.note"
+            };
+            return run_checked(s, policy_cmd(name, AUTO_POLICIES[*v]), on(*b)).map(drop);
+        }
+        CacheOp::Resolve(b, n, ours) => {
+            let take = if *ours { Take::Ours } else { Take::Theirs };
+            return run_checked(s, resolve(&format!("#{n}.existence"), take), on(*b)).map(drop);
+        }
+        CacheOp::Sync(l, ours) => (
+            Cmd::Sync {
+                lane: Some(CACHE_BRANCHES[*l].into()),
+                check: false,
+            },
+            CACHE_BRANCHES[*l],
+            *ours,
+        ),
+        CacheOp::Cross(l, p, ours) => (
+            with(CACHE_BRANCHES[*l], CACHE_BRANCHES[3 - *l], *p),
+            CACHE_BRANCHES[3 - *l],
+            *ours,
+        ),
+        CacheOp::IntoMain(l, p, ours) => (with(CACHE_BRANCHES[*l], "main", *p), "main", *ours),
+    };
+    let r = run_checked(s, cmd, fresh_on(dst))?;
+    if r.outcome != Outcome::Staged {
+        return Ok(());
+    }
+    let d = data(&r);
+    let g = d
+        .staging_ref
+        .clone()
+        .expect("a staged merge names its staging ref");
+    let keys: Vec<String> = d
+        .violations
+        .iter()
+        .map(|v| v.key.clone())
+        .chain(d.conflicts.iter().map(|c| c.0.clone()))
+        .chain(
+            d.sync
+                .iter()
+                .flat_map(|x| x.violations.iter().map(|v| v.key.clone())),
+        )
+        .filter(|k| k != "-")
+        .collect();
+    let (gd, gs) = g
+        .strip_prefix("merge/")
+        .and_then(|x| x.split_once("/from/"))
+        .expect("merge/<dst>/from/<src>");
+    let take = if ours { Take::Ours } else { Take::Theirs };
+    for k in keys {
+        run_checked(s, resolve(&k, take.clone()), fresh_on(&g))?;
+    }
+    let r = run_checked(s, continue_(gs, gd), fresh_on(gd))?;
+    if r.outcome != Outcome::Ok {
+        let abort = Cmd::MergeAbort {
+            src: Some(gs.into()),
+            into: Some(gd.into()),
+        };
+        run_checked(s, abort, fresh_on(gd))?;
+    }
+    Ok(())
+}
+
+/// The cached state of every commit equals the fold of the net changesets along its first-parent chain
+/// ([`states_verify`]; [AR §4.6] "Net changeset = state diff"; [60 §4.2] `state_at`), over random histories of moves,
+/// title edits, deletes, existence resolutions, `merge.policy.<kind>` writes, syncs, cross-lane merges and merges into
+/// `main` with and without `--policy`, so that `DeleteVsModify` values land under every existence policy and are
+/// carried into later merges (ADV-C-2); every commit id equals its definition too ([`ids_verify`]).
+#[test]
+fn every_cached_state_equals_the_fold_of_its_changesets() {
+    use proptest::prelude::*;
+    let cases = match std::env::var("MOIRAI_TEST_TIER").as_deref() {
+        Ok("nightly") => 1280,
+        Ok("exit") => 12800,
+        _ => 128,
+    };
+    let mut runner = proptest::test_runner::TestRunner::new_with_rng(
+        ProptestConfig {
+            cases,
+            failure_persistence: None,
+            ..ProptestConfig::default()
+        },
+        proptest::test_runner::TestRng::from_seed(
+            proptest::test_runner::RngAlgorithm::ChaCha,
+            b"moirai-model/vcs/cached-states-1",
+        ),
+    );
+    let result = runner.run(&proptest::collection::vec(cache_op(), 1..28), |ops| {
+        let mut s = cache_store();
+        for op in &ops {
+            run_cache_op(&mut s, op).map_err(TestCaseError::fail)?;
+        }
+        states_verify(&s, 0).map_err(TestCaseError::fail)?;
+        s.st.dag
+            .verify_ids(&s.st.alloc)
+            .map_err(TestCaseError::fail)?;
+        Ok(())
+    });
+    if let Err(e) = result {
+        panic!("{e}");
+    }
+}
+
 /// [F12 §6.5] "A flagged edge" (spec sync 2b, S2B-F-10): on a work branch a flagged `blocks` out-edge of a tombstone is
 /// re-pointed (I5′ checked) or dropped; `ours`, `theirs`, `base` and `value` are usage there, and `drop` is usage on
 /// every other key.
@@ -3875,5 +4215,81 @@ fn a_supersede_fork_resolved_theirs_keeps_one_superseder() {
         "theirs keeps main's #3 edge and drops the lane's #2 edge"
     );
     assert!(st.nodes[&Nid(3)].conflicts.is_empty());
+    ids_verify(&s);
+}
+
+/// The history of [`a_merge_over_an_existence_value_both_sides_hold_lands_a_change_only_src_made`]: note #1 deleted on
+/// `deleter` and retitled `new` on the other lane; `merge lane/y --into lane/x` lands `#1.existence DeleteVsModify`
+/// (note EP-003 `resurrect`: provisional on the modifying side, so #1 is live with the title `new`), and `merge lane/x
+/// --into lane/y` carries it (MR-004), so both lanes hold the value.
+fn both_lanes_hold_a_resurrected_note(deleter: &str) -> S {
+    let mut s = S::base();
+    s.ok(tx(vec![node("n", "note", &[("title", t("old"))])]), orch());
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    let modifier = if deleter == "lane/x" {
+        "lane/y"
+    } else {
+        "lane/x"
+    };
+    s.ok(delete(1), fresh_on(deleter));
+    s.ok(tx(vec![set(1, &[("title", t("new"))])]), fresh_on(modifier));
+    for (src, dst) in [("lane/y", "lane/x"), ("lane/x", "lane/y")] {
+        let r = s.run(merge(src, dst), fresh_on(dst));
+        assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    }
+    s
+}
+
+/// [RULES/merge-table] PR-007 ("All other keys follow") with [F12 §6.3]: when b, o and t hold the same `DeleteVsModify`
+/// value on #1.existence, every side holds #1 in the value's provisional state, and a key only src changed since the
+/// base lands (I25′). After [`both_lanes_hold_a_resurrected_note`], lane/y retitles #1 `newer` and `merge lane/y
+/// --into lane/x`, one-sided (its base is tip(lane/x)), lands the title, whichever side the value's `prov` names: a
+/// side of the first merge, not of this one (theirs when lane/x deleted #1, ours when lane/y did). Copying the side
+/// `prov` names dropped the title in the second case, copying ours in both.
+#[test]
+fn a_merge_over_an_existence_value_both_sides_hold_lands_a_change_only_src_made() {
+    use crate::state::Side;
+    for (deleter, prov) in [("lane/x", Side::Theirs), ("lane/y", Side::Ours)] {
+        let mut s = both_lanes_hold_a_resurrected_note(deleter);
+        s.ok(
+            tx(vec![set(1, &[("title", t("newer"))])]),
+            fresh_on("lane/y"),
+        );
+        let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+        assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+        assert!(data(&r).conflicts.is_empty(), "{:?}", data(&r).conflicts);
+        let st = state(&s, "lane/x");
+        let x = &st.nodes[&Nid(1)];
+        assert_eq!(
+            (
+                x.live(),
+                x.text("title"),
+                x.conflicts[&Aspect::Existence].prov
+            ),
+            (true, Some("newer"), Some(prov)),
+            "{deleter} deleted #1"
+        );
+        states_verify(&s, 1).unwrap();
+        ids_verify(&s);
+    }
+}
+
+/// As [`a_merge_over_an_existence_value_both_sides_hold_lands_a_change_only_src_made`], with the change on dst: lane/x
+/// retitles #1 `newer` after [`both_lanes_hold_a_resurrected_note`] (lane/x the deleter, so `prov` names theirs), and
+/// `merge lane/y --into lane/x` keeps it, a key only dst changed since the base (I25′; PR-007).
+#[test]
+fn a_merge_over_an_existence_value_both_sides_hold_keeps_a_change_only_dst_made() {
+    let mut s = both_lanes_hold_a_resurrected_note("lane/x");
+    s.ok(
+        tx(vec![set(1, &[("title", t("newer"))])]),
+        fresh_on("lane/x"),
+    );
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let st = state(&s, "lane/x");
+    let x = &st.nodes[&Nid(1)];
+    assert_eq!((x.live(), x.text("title")), (true, Some("newer")));
+    states_verify(&s, 1).unwrap();
     ids_verify(&s);
 }
