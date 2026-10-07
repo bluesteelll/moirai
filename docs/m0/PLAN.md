@@ -158,14 +158,14 @@ docs/
 fixtures/    hex/ (+ INDEX.md), canonical/, carrier/, moi/, r4/, lq/ (+ std/*.lq), gt10/, lqbench/, ucd/17.0.0/
 .githooks/   pre-commit, commit-msg
 .github/workflows/  pr.yml (PR and master-push checks), noise.yml (manual: hosted-runner noise band, idle or synthetic load)
-.claude/settings.json  (tracked; attribution off, A2)
+.claude/     settings.json (tracked; attribution off, A2), agents/ (stage-role agents), workflows/ (the unit workflow)
 private/     gitignored owner data: corpora/r4/, lqbench/, gt10/, hdr/, load/, codec-bodies/, measurements/, nightly/,
              windows.toml (agreed windows), MANIFEST.b3 (file BLAKE3, 8-word shingle hashes of text files, tree digest)
 ```
 
 - **Hook installation.** The owner runs two commands once per clone: `git config core.hooksPath <absolute path of the main worktree>/.githooks` and `git config moirai.private-guard true`.
 - **`.gitattributes`.** It holds `* text=auto eol=lf`, `fixtures/** -text`, `**/testdata/** -text` and `*.cmd *.bat *.ps1 text eol=crlf`. Byte-exact test inputs (CRLF, `^Z`) live only under `fixtures/` or a `testdata/` directory. The gate checks that every non-ASCII `.ps1` carries a UTF-8 BOM.
-- **`.gitignore` additions.** `mutants.out*/`, `fuzz/corpus/`, `fuzz/artifacts/`, `fuzz/target/`, `*.etl`, `graphify-out/`, and `/.claude/*` with `!/.claude/settings.json`.
+- **`.gitignore` additions.** `mutants.out*/`, `fuzz/corpus/`, `fuzz/artifacts/`, `fuzz/target/`, `*.etl`, `graphify-out/`, and `/.claude/*` with `!/.claude/settings.json`, `!/.claude/agents/` and `!/.claude/workflows/`.
 
 ## 3. Work packages
 

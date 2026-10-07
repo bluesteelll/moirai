@@ -13,10 +13,12 @@ fuzz/target/
 *.etl
 graphify-out/
 
-# Claude Code: only the committed settings.json is tracked (A2); settings.local.json and all other local state stay
-# untracked (PLAN §2.5).
+# Claude Code: the committed settings.json (A2), the stage-role agents and the named workflows are tracked
+# (docs/m0/workflow.md); settings.local.json and all other local state stay untracked (PLAN §2.5).
 /.claude/*
 !/.claude/settings.json
+!/.claude/agents/
+!/.claude/workflows/
 
 # Local tool and editor state
 .vscode/

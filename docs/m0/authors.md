@@ -119,6 +119,8 @@ to this file, reviewed like any other.
 | `.gitattributes`, `.gitignore` | R-HARN | |
 | `.githooks/**`, `.github/**` | R-HARN | |
 | `.claude/settings.json` | R-HARN | attribution off (A2); a change needs the owner's approval |
+| `.claude/agents/**` | R-HARN | the stage-role agents of the unit workflow (docs/m0/workflow.md); a change needs the owner's approval |
+| `.claude/workflows/**` | R-HARN | the named workflow `unit` (docs/m0/workflow.md); a change needs the owner's approval |
 | `LICENSES/**` | R-FL1A | the Unicode-3.0 text (PLAN §2.4) |
 | `NOTICE` | R-FL1A | append-only: the third-party section after the owner's text, which never changes (§6 item 5) |
 | `LICENSE`, `README.md`, `AGENTS.md`, `CLAUDE.md` | owner only | |
