@@ -2,7 +2,7 @@
 
 | Field | Value |
 |---|---|
-| Status | `open`: the acceptance of OQ-A-12 is not met; a new owner question follows the comparison of alternatives |
+| Status | `open`: the acceptance of OQ-A-12 is not met; the comparison of alternatives is `wave-3d-alternatives.md`, and the owner question is OQ-A-13 |
 | Scope | The reference model's prototype of OQ-A-12 (b) and (c), commit 7131790, against the decision's acceptance |
 | Decision | `owner-questions.md` OQ-A-12; [m0/PLAN §5] "Owner decisions of 2026-10-06" |
 | Method | Four independent verifiers (lockstep search at scale, an adversary of (b), an adversary of (c), a code review), each in its own copy of the tree, then a completeness critic; compiled here by the orchestrator, ids as the verifiers gave them |
@@ -85,6 +85,10 @@ replay, among them a per-key three-way rule for hierarchy keys with a cycle repa
 compared on one evaluation harness that closes the blind spots above, and the owner is asked a new question with that
 evidence before the merge table's V3 signature. Until then RS-007's text stands as wave 3c left it, and the model's
 prototype of (b) and (c) is not accepted.
+
+Done on 2026-10-07: the comparison is `wave-3d-alternatives.md`, and the owner question is OQ-A-13
+(`owner-questions.md`). The harness and the recommended candidate are in the model as the test-only rule
+`merge::Rule::Cand`.
 
 ## The pre-existing model bugs, fixed, and the specification findings they raised
 

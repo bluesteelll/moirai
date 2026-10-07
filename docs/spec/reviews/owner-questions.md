@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Title | Questions that need the owner's call, raised by the author roles while closing review pass 1 |
-| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Decided 2026-10-06**: the owner accepted every recommendation ("Зафиксируй везде рекомендуемые варианты", "record the recommended options everywhere"): OQ-F-4 (a), OQ-A-1 (a), OQ-A-2 (a), OQ-A-3 (a), OQ-A-4 (a), OQ-A-5 (a), OQ-A-6 (a), OQ-A-7 (a), OQ-A-8 (c), OQ-A-9 (a), OQ-A-10 (a); each entry's Decision line names the follow-up. OQ-A-11, raised by the review of wave 3b's RS-007 change, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): 11.1 (A) together with (B), (A) alone as the fallback; 11.2 (a); 11.3 (a); applied in wave 3c. OQ-A-12, raised by wave 3c's spec arbiter, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): (b) together with (c), prototyped in wave 3d, (d) as the fallback. **Nothing is open.** |
+| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Decided 2026-10-06**: the owner accepted every recommendation ("Зафиксируй везде рекомендуемые варианты", "record the recommended options everywhere"): OQ-F-4 (a), OQ-A-1 (a), OQ-A-2 (a), OQ-A-3 (a), OQ-A-4 (a), OQ-A-5 (a), OQ-A-6 (a), OQ-A-7 (a), OQ-A-8 (c), OQ-A-9 (a), OQ-A-10 (a); each entry's Decision line names the follow-up. OQ-A-11, raised by the review of wave 3b's RS-007 change, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): 11.1 (A) together with (B), (A) alone as the fallback; 11.2 (a); 11.3 (a); applied in wave 3c. OQ-A-12, raised by wave 3c's spec arbiter, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): (b) together with (c), prototyped in wave 3d, (d) as the fallback. Its prototype did not meet the acceptance (wave 3d). **Open**: OQ-A-13, raised 2026-10-07 by the comparison of alternatives that followed wave 3d. |
 | Scope | only questions that change an approved design decision or need the owner's call; runtime policy goes to config keys ([AGENTS.md]) and is not listed |
 
 Each entry names the raising role, the findings, the options and the role's recommendation. Roles append entries; ids
@@ -704,3 +704,110 @@ from R-MODEL's open case E5 ([RULES/merge-table] open point 35 (v)); asked in ch
   exact, the fallback is (d), decided before the format freeze (WP-81b). (a) and (e) were not taken. Wave 3d: R-MODEL
   changes RS-007, open point 35 and the model, with the E5 and E6 tests flipped and the search as a model test;
   R-SPEC-F changes [F12 §7.2] and the §7.4 row; a spec arbiter re-runs the search and checks the statement.
+- **Outcome (wave 3d).** The prototype does not meet the acceptance (`wave-3d-verify.md`). E5 in both shapes and E6
+  land, but three classes of history stage where the replay from B lands, the backstop fires at the nightly tier, and
+  (c) depends on the cache. A comparison of alternatives on one evaluation harness (`wave-3d-alternatives.md`) found
+  that every replay variant leaves avoidable stagings and silent wrong landings, that E6 has no forest, and that the
+  relative criterion cannot be met by a correct rule: OQ-A-13 below. The model keeps the prototype as its default rule
+  until OQ-A-13 is decided.
+
+## 2026-10-07, wave 3d
+
+Raised by the orchestrator from the wave 3d verification of the OQ-A-12 prototype (`wave-3d-verify.md`) and from the
+comparison of alternatives that followed it (`wave-3d-alternatives.md`); asked in chat.
+
+### OQ-A-13 — Replace RS-007's replay for hierarchy keys (OQ-A-12's acceptance is not met)
+
+- **Raised by** the wave 3d verification, which found OQ-A-12's acceptance unmet, and the comparison of three
+  alternatives on one evaluation harness (`suite::rs007eval`: 12,000 generated histories and a 41-case corpus, judged by
+  a three-way oracle on states that no rule computes), two judges and a completeness critic. **Where**
+  [RULES/merge-table] RS-007, MR-039, MR-040, CS-013, PR-014, PR-016, PR-017, VB-011, VA-001, VA-005, the HT rows, open
+  points 15 and 35; [F12 §5.3] VM-7, §7.1, §7.2, §7.4; [F13 §5] V01, V05; [AR §2.7] T7, [AR §3.4] I25′, [AR §5a.7]
+  steps 3 and 4, [AR §5a.8]; [60] GT6 (M3); OQ-A-6, OQ-A-11, OQ-A-12.
+- **Question.** RS-007 decides each node's (parent, order) by replaying each side's commits in (hlc, commit id) order and
+  undoing the moves that close a cycle. Every variant measured leaves two classes of fault: wave 3c's rule (the text in
+  force), the OQ-A-12 prototype (b)+(c) that the model runs, and the replay from B. In 12,000 histories they stage 577,
+  581 and 800 `HierarchyCycle`s where a forest keeps every value only one side changed (21 % to 27 % of all such
+  stagings), and silently land 1,267, 1,265 and 985 keys that only one side changed at another value. On a wider
+  generator (6 tasks, multi-statement transactions, base and abort resolutions) the avoidable share is 33 % to 37 %.
+  OQ-A-6, OQ-A-11 and OQ-A-12 each fixed the cases they named, and the search found new ones each time. OQ-A-12's
+  acceptance cannot be met as written. E6 has no forest: every value it could land drops a move only one side made. And
+  "no history stages that the replay from B lands" fails for any correct rule, because those histories are the replay
+  from B's own wrong landings. Six calls: 13.1 the rule; 13.2 what "touched" means in I25′ for hierarchy keys, and with
+  it E6; 13.3 a two-sided key's later move that would close a cycle (MR-039); 13.4 what "later" means in MR-040; 13.5 a
+  reparent against a concurrent order-only move; 13.6 the acceptance.
+- **Options.**
+  13.1, the rule:
+  (a) **K2 `threeway`, no replay.** A key takes o's value when o = t, t's when o = b, o's when t = b. When both sides
+  changed it to different values (a two-sided key), the value with the later *origin* wins (MR-040). The origin is the
+  (hlc, commit id) of the commit that produced the value: the walk along first parents passes over commits that leave
+  the key unchanged, and over a two-parent commit that holds its second parent's value, so a `sync`, a merge into `main`
+  and a resolution to ours or theirs pass it on. Cycle repair: while no choice for the two-sided keys gives a forest,
+  one key on the unavoidable cycle that is not two-sided is reset to b and staged (MR-039; tie-breaks: for a revert or a
+  cherry-pick a key only C changed, a one-sided key before a both-same one, a key whose b parent leaves the cycle, the
+  latest origin, the least uid); then each two-sided key keeps its later value unless no forest remains, and otherwise
+  lands at the other side's value. Evidence: in 12,000 histories 1 oracle fault (a real cycle through a node the oracle
+  does not judge), 0 wrong landings, 0 stuck stagings, every corpus case as expected; on the wider generator 1 fault of
+  the same kind against 1,276, 1,275 and 1,107 for the three replays; a `sync` takes 3.9 ms at 300 rounds of a long
+  lane and 9.7 ms at 1,000, of which the rule's own work is about 80 µs and flat. No replay start, no step keys, no
+  derived index, no format addition, the shortest text. Cost: it leaves the letter of T7, "Kleppmann move in HLC
+  order", while Kleppmann's guarantees hold over net values (a forest results, the later move wins, a cycle-closing
+  later move is skipped and logged). Seven pinned model tests and the two relative lockstep tests are rewritten. It
+  supersedes OQ-A-6 (a) (i) to (iii), OQ-A-11 11.1 (B) and 11.3, and OQ-A-12 (b) to (d); OQ-A-11 11.1 (A) and 11.2
+  hold by construction. The engine needs each side's per-node first-parent chain and an as-of read at second parents.
+  The phrase "the keys that lie on a cycle within U" must be defined as the cycle of the option graph before V3: two
+  readings diverge in 472 and 88 of about 49,000 decisions.
+  (b) **K4 `fromb`**: the replay from B, with a net-change filter, one-sided shortcuts on states and repairs bounded at
+  three flips. Evidence: 2 faults in 12,000 (one real: a deleted node read as a root), 43 stuck stagings, 364 later
+  two-sided moves dropped where the later value fits; on the wider generator 3 faults and 26 stuck; a `sync` takes
+  9.9 ms at 300 rounds and 32.6 ms at 1,000, growing with the lane's life. Step keys stay. It reverses OQ-A-11 11.1
+  (B); its repair bound and tie order are heuristics.
+  (c) **K3 `replayfix`**: RS-007's replay from the replay start, seven repairs, and a forest step after them, without
+  which no replay meets the oracle. Evidence: 2 faults (one real), 0 stuck; on the wider generator 3 faults and 3 stuck;
+  a `sync` takes 151 ms at 300 rounds and 547 ms at 600, so W3C-ARB-10's bound is not met. About ten clauses; 73 later
+  moves dropped where they fit.
+  (d) Keep RS-007 as wave 3c left it and amend I25′ to leave out hierarchy keys outside a one-sided merge (OQ-A-12
+  (a)). Evidence: 1,846 faults in 12,000, 1,265 of them silent wrong landings.
+  13.2, "touched" in I25′: (a) by state: a key is touched on side S when S's value differs from b's. E6 then stages as a
+  genuine cycle (K2 stages `#4.parent`, and `--take theirs` resolves it), and I25′ for hierarchy keys reads "a merge
+  stages a `HierarchyCycle` on a key untouched on one side only when no forest keeps every such key at the other side's
+  value", which GT6 (M3) checks. (b) by changeset: a key is also touched when a commit of the side since the base has it
+  in its net changeset (a move away and back, a sync that re-asserts a value). No candidate meets (b): 269 to 273
+  avoidable stagings each; the replays that land E6 do it by dropping lane/y's move, which only lane/y made.
+  13.3, a two-sided key whose later value would close a cycle that no other choice avoids, or whose parent the result
+  does not hold live: (a) it lands at the other side's value, and the reply carries a hint (a new HT row, a log line,
+  not stored); under K2 this happens to 442 keys in 12,000 histories (301 cycles, 141 dead parents). (b) as (a), and
+  under `--strict` such a key stages. (c) every such skip stages, as MR-039 reads today: about 364 more avoidable
+  stagings per 12,000.
+  13.4, "later" in MR-040: (a) original origins: a value keeps the (hlc, commit id) of the commit that produced it; a
+  `sync`, a merge into `main` and a resolution to ours or theirs pass it on; a move, a revert, and a resolution to base
+  or to a new value produce a new one. In the CONTESTED cases (ADV-C-6, W3D-REV-5) a lane's earlier move loses to a
+  third branch's later one. This is MR-040's own sentence: "a side's own earlier move keeps its own (hlc, commit id)
+  against a third branch". (b) a resolution is a move at the resolving commit's time (OQ-A-12 (c)'s reading). (c) the
+  narrow form's re-assertion (OQ-A-6 (a) (i)), which re-times the keys a two-parent commit kept.
+  13.5, one side changes only a node's order and the other changes its parent: (a) whole value, as every rule does now:
+  the later of the two wins; in 7,500 histories about 190 reparents, 59 % of such keys under every rule, were lost to a
+  later reorder with no staging and no hint. (b) a change of parent beats a concurrent order-only change, whatever their
+  times, and the node takes the reparenting side's (parent, order); the oracle allows either value, so no fault count
+  changes. (c) as (a), with a hint.
+  13.6, the acceptance: (a) absolute, on the harness's oracle at the nightly and exit tiers: 0 avoidable `HierarchyCycle`
+  stagings, 0 wrong landings, 0 stuck stagings; before V3 the oracle is widened to judge every node live in the result,
+  with absent as a value (today 14,311 of about 68,400 merges hold an unjudged task, and every remaining fault of every
+  candidate lies there), and the generators gain existence policies, `blocks` and `gates` edges, re-key and more tasks
+  (`wave-3d-alternatives.md` ALT-4); the relative lockstep tests are retired. (b) keep the relative criterion; no
+  correct rule can meet it.
+- **Recommendation.** 13.1 (a), with the exactness fixes and nothing grafted that has not been run: the cycle phrase
+  defined as the cycle of the option graph; a both-same key's origin stated; absent compared canonically in the origin
+  walk; a cycle with no repairable key sent to a validator that checks cycles, with VA-005's "cycles are VA-001's"
+  corrected. If a literal replay must stay, (b) is the fallback: its cost grows linearly, (c)'s super-linearly. 13.2
+  (a). 13.3 (b): by default the merge lands with a hint and costs few tokens, and an agent that wants to be asked uses
+  `--strict`. 13.4 (a). 13.5 (b): a reparent carries more intent than a reorder, and the change cannot add a fault;
+  prototyped in K2 and re-run on the harness before V3, with (c) as the fallback. 13.6 (a). OQ-A-6 (a), OQ-A-11 11.1
+  (B) and 11.3 and OQ-A-12 (b), (c) and (d) are superseded, and OQ-A-12's acceptance clauses "E6 lands" and "no history
+  stages that the replay from B lands" are withdrawn. No option adds to the format. Decide before the merge table's V3
+  signature and before the engine implements RS-007. Then R-MODEL makes K2 the model's rule, removes the replay
+  machinery (step keys, the replay start, resolved keys, the backstop), re-pins the seven tests and commits the widened
+  harness as the acceptance, and rewrites RS-007, MR-039, MR-040, CS-013, PR-014, PR-016, PR-017, VB-011, VA-001,
+  VA-005, a new HT row and open points 15 and 35; R-SPEC-F edits [F12 §5.3] VM-7, §7.1, §7.2 and §7.4 and [F13 §5] V01
+  and V05; WP-81a edits [AR §2.7] T7, I25′, [AR §5a.7] steps 3 and 4, [AR §5a.8] and [60] GT6; a spec arbiter re-runs
+  the widened harness and checks the statement.
