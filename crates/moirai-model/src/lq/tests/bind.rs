@@ -776,6 +776,24 @@ fn e110_parameters() {
     assert_eq!(e[0].code, Code::E110);
 }
 
+/// [F08 §2.1]: `#N` runs from 1 to 2^32 − 1, so the identity maps record the top of the range, where a merge keeps the
+/// provisional `#N` of a uid new to the store until its landing renumbers it (ADV-C-5), and `next_id`, a `u32` as
+/// `HEAD.next_id` is ([F04 §5.7]), saturates there instead of overflowing.
+#[test]
+fn the_identity_maps_hold_the_top_of_the_id_space() {
+    use crate::lq::ctx::{Identities, MapIds};
+    let mut ids = MapIds::new();
+    ids.node(7, fixture::uid(7), Some("task"));
+    assert_eq!(ids.next_id(), 8);
+    let top = fixture::uid(u32::MAX);
+    ids.node(u32::MAX, top, Some("artifact"));
+    assert_eq!(
+        (ids.uid(u32::MAX), ids.nid(&top), ids.kind_of(&top)),
+        (Some(top), Some(u32::MAX), Some("artifact"))
+    );
+    assert_eq!(ids.next_id(), u32::MAX);
+}
+
 #[test]
 fn e111_ids_never_allocated() {
     let e = fixture::read_with(

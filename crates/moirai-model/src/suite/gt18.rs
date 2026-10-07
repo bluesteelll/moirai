@@ -5,20 +5,21 @@
 //! listed entries of its group ([API §10.8]).
 //!
 //! WP-94 runs the full volume (≥ 10⁶ histories nightly, 10⁴ in the PR tier); this suite keeps its shape at unit-test
-//! size, and more cases with `MOIRAI_TEST_TIER=nightly`.
+//! size, and more cases with `MOIRAI_TEST_TIER=nightly` or `exit`, each tier from its own fixed seed ([PLAN §2.1]).
 //!
 //! Each history runs twice. Without a fold, every command's listed markers must be exactly the entries the
 //! definition's holder sets imply (a `settled` or `deleted` entry when a hold origin gains its first live holder, a
 //! `cleared` entry when it loses its last; ME-001 to ME-007). With the checkpoint fold of ME-012 run after every
-//! command, the `Marker` records and every row's contents equal those without it (ME-012, ME-013; open point 17
-//! decided (a), spec sync 2b S2B-M-19).
+//! command, the `Marker` records (their entries in order), every row's contents and the change feed equal those
+//! without it (ME-012, ME-013; open point 17 decided (a), spec sync 2b S2B-M-19; [LQ/std §2.15] "Ties").
 
 use super::*;
 use crate::api::MarkerOut;
 use crate::coord::{Oracle, closed, view_kind};
 use crate::dag::{MoveReason, RefKind};
-use crate::markers::{Cause, MKind, agrees_with_definition};
+use crate::markers::{Cause, Group, MKind, agrees_with_definition};
 use proptest::prelude::*;
+use proptest::test_runner::{RngAlgorithm, TestRng, TestRunner};
 use std::collections::{BTreeMap, BTreeSet};
 
 const REFS: [&str; 5] = ["main", "lane/a", "lane/b", "lane/c", "plan/p"];
@@ -368,36 +369,124 @@ fn all_rows(s: &S) -> BTreeMap<crate::markers::MKey, crate::markers::Marker> {
     s.st.markers.rows().map(|m| (m.key, m.clone())).collect()
 }
 
+/// Runs a history without and with the checkpoint fold between commands and requires the same `Marker` records,
+/// their entries in the same order, the same rows and the same change feed: the fold changes only a row's storage
+/// layer and reaches no record ([RULES/state-definition] ME-012, ME-013, open point 17 decided (a)), and the feed
+/// lists a record's entries in its order ([LQ/std §2.15] "Ties"), which no class-I choice may change ([API §2.5]
+/// DT-2).
+fn same_with_fold(ops: Vec<G>) -> Result<(), TestCaseError> {
+    let plain = history(ops.clone(), false)?;
+    let folded = history(ops, true)?;
+    prop_assert_eq!(
+        plain.st.markers.records(),
+        folded.st.markers.records(),
+        "the records differ with the fold"
+    );
+    prop_assert_eq!(
+        all_rows(&plain),
+        all_rows(&folded),
+        "the rows differ with the fold"
+    );
+    prop_assert_eq!(
+        &plain.st.feed.rows,
+        &folded.st.feed.rows,
+        "the change feed differs with the fold"
+    );
+    Ok(())
+}
+
+/// The runner for the tier `MOIRAI_TEST_TIER` names ([PLAN §2.1]: `pr` by default, `nightly`, `exit`): 128 histories
+/// in the `pr` tier and 2048 in the others, each tier from its own fixed seed, so every run of a tier tries the same
+/// histories. Nothing is persisted: a minimised failure becomes a named unit test.
+fn runner() -> TestRunner {
+    let (tier, cases) = match std::env::var("MOIRAI_TEST_TIER").as_deref() {
+        Ok("nightly") => (2u8, 2048),
+        Ok("exit") => (3u8, 2048),
+        _ => (1u8, 128),
+    };
+    let mut seed = *b"moirai-model/gt18/proptest-seed1";
+    seed[31] ^= tier;
+    TestRunner::new_with_rng(
+        ProptestConfig {
+            cases,
+            max_shrink_iters: 4096,
+            failure_persistence: None,
+            ..ProptestConfig::default()
+        },
+        TestRng::from_seed(RngAlgorithm::ChaCha, &seed),
+    )
+}
+
 /// GT18's oracle on the model, without and with the checkpoint fold between commands; with the fold after every
-/// command the `Marker` records and every row's contents equal those without it ([RULES/state-definition] ME-012,
-/// ME-013, open point 17 decided (a)).
+/// command the `Marker` records, every row's contents and the change feed equal those without it
+/// ([RULES/state-definition] ME-012, ME-013, open point 17 decided (a)).
 #[test]
 fn the_marker_cache_equals_the_definition() {
-    let cases = match std::env::var("MOIRAI_TEST_TIER").as_deref() {
-        Ok("nightly") | Ok("exit") => 2048,
-        _ => 128,
-    };
-    let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
-        cases,
-        ..ProptestConfig::default()
-    });
-    if let Err(e) = runner.run(&proptest::collection::vec(g(), 1..24), |ops| {
-        let plain = history(ops.clone(), false)?;
-        let folded = history(ops, true)?;
-        prop_assert_eq!(
-            plain.st.markers.records(),
-            folded.st.markers.records(),
-            "the records differ with the fold"
-        );
-        prop_assert_eq!(
-            all_rows(&plain),
-            all_rows(&folded),
-            "the rows differ with the fold"
-        );
-        Ok(())
+    if let Err(e) = runner().run(&proptest::collection::vec(g(), 1..24), |ops| {
+        same_with_fold(ops)
     }) {
         panic!("{e}");
     }
+}
+
+/// ADV-C-9, the property's minimised failure: `plan/p` deletes `#2` and `#1` with lanes forked after each, moves on,
+/// and `op restore` moves it back before both deletions; `branch -D lane/b` clears `#1`'s marker, which the fold then
+/// moves to `MARKERS_OLD`, while `#2`'s stays in `MARKERS`. The next `rm #1` on `plan/p` flags both markers nonlinear
+/// (ME-011) in one record, whose entries come in identity order, `#1` then `#2`, whichever section holds each row.
+#[test]
+fn a_commit_flags_nonlinear_markers_in_identity_order_whichever_section_holds_them() {
+    let ops = vec![
+        G::Rm(2, PLAN),
+        G::Fork(3, PLAN),
+        G::Rm(1, PLAN),
+        G::Fork(2, PLAN),
+        G::Set(3, PLAN, 0),
+        G::Restore(PLAN, 3),
+        G::Drop(2),
+        G::Rm(1, PLAN),
+    ];
+    same_with_fold(ops.clone()).unwrap();
+    let s = history(ops, true).unwrap();
+    let tip =
+        s.st.dag
+            .live(REFS[PLAN])
+            .and_then(|x| x.tip)
+            .expect("a tip");
+    let flagged: Vec<(u8, Nid)> =
+        s.st.markers
+            .group(Group::Commit(tip))
+            .iter()
+            .map(|e| (e.mkind, e.key.0))
+            .collect();
+    assert_eq!(flagged, [(5, Nid(1)), (5, Nid(2))]);
+}
+
+/// ME-005 with the fold, where the order is listed: `main` completes `#1` and reopens it after `lane/a` forks, every
+/// other ref is forked again, so `#1`'s marker, held by `lane/a` alone, is absorbed everywhere and the fold moves it
+/// to `MARKERS_OLD`; `lane/a` then completes `#2`. `branch -D lane/a` clears both markers in one record, `#1` then
+/// `#2`, and the change feed lists them in that order with or without the fold ([LQ/std §2.15] "Ties").
+#[test]
+fn a_branch_deletion_clears_in_identity_order_whichever_section_holds_them() {
+    let ops = vec![
+        G::Complete(1, 0),
+        G::Fork(1, 0),
+        G::Reopen(1, 0),
+        G::Fork(2, 0),
+        G::Fork(3, 0),
+        G::Fork(4, 0),
+        G::Complete(2, 1),
+        G::Drop(1),
+    ];
+    same_with_fold(ops.clone()).unwrap();
+    let s = history(ops, true).unwrap();
+    let cleared: Vec<Option<Nid>> =
+        s.st.feed
+            .rows
+            .iter()
+            .filter(|c| c.op == "cleared")
+            .map(|c| c.node)
+            .collect();
+    assert_eq!(cleared, [Some(Nid(1)), Some(Nid(2))]);
 }
 
 /// The reviewer's case of ME-011 on a plan ref, as a fixed history: `rm #1` on `plan/p`, a lane forked from it, `undo`
@@ -586,4 +675,34 @@ fn a_diverged_ref_flags_its_markers_nonlinear() {
     );
     assert!(row(&s, 1)[0].marker.nonlinear, "ME-011");
     agrees_with_definition(&s.st.dag, &s.st.alloc, (1..=TASKS).map(Nid), &s.st.markers).unwrap();
+}
+
+/// ME-005 with three markers, the middle one in `MARKERS` and the outer two in `MARKERS_OLD`: `main` completes #1 and
+/// #3, `lane/a` forks, `main` reopens both and every other ref forks again, so both markers, held by `lane/a` alone,
+/// are absorbed everywhere and the fold moves them to `MARKERS_OLD`; `lane/a` then completes #2. `branch -D lane/a`
+/// clears #1, #2 and #3 in identity order, with or without the fold ([LQ/std §2.15] "Ties"; ME-012).
+#[test]
+fn a_branch_deletion_clears_three_markers_in_identity_order_across_both_sections() {
+    let ops = vec![
+        G::Complete(1, 0),
+        G::Complete(3, 0),
+        G::Fork(1, 0),
+        G::Reopen(1, 0),
+        G::Reopen(3, 0),
+        G::Fork(2, 0),
+        G::Fork(3, 0),
+        G::Fork(4, 0),
+        G::Complete(2, 1),
+        G::Drop(1),
+    ];
+    same_with_fold(ops.clone()).unwrap();
+    let s = history(ops, true).unwrap();
+    let cleared: Vec<Option<Nid>> =
+        s.st.feed
+            .rows
+            .iter()
+            .filter(|c| c.op == "cleared")
+            .map(|c| c.node)
+            .collect();
+    assert_eq!(cleared, [Some(Nid(1)), Some(Nid(2)), Some(Nid(3))]);
 }

@@ -1914,3 +1914,408 @@ fn file_verbs_record_creation_times_only_where_the_volume_has_them() {
     ntfs.ok(add(), in_tree());
     assert!(creation(&ntfs).is_some());
 }
+
+/// A context on `lane/<l>` in the tree, without the per-key dedupe, so that one command may run on two lanes.
+fn on_lane(l: &str) -> Ctx {
+    Ctx {
+        branch: Some(format!("lane/{l}")),
+        no_dedupe: true,
+        ..in_tree()
+    }
+}
+
+/// Binds the tree to `lane/<l>`, replacing its binding when `replace`.
+fn bind_lane(s: &mut S, l: &str, replace: bool) {
+    s.ok(
+        Cmd::WorktreeBind {
+            dir: TREE.into(),
+            ref_: format!("lane/{l}"),
+            replace,
+        },
+        orch(),
+    );
+}
+
+/// `FileAdd` of `paths` on `lane/<l>`: the `#N` of each, in the order given.
+fn add_on(s: &mut S, l: &str, paths: &[&str]) -> Vec<Nid> {
+    let r = s.ok(
+        Cmd::FileAdd {
+            paths: paths.iter().map(|p| p.to_string()).collect(),
+            kind: None,
+            root: None,
+        },
+        on_lane(l),
+    );
+    let Data::FileAdd(files) = &r.data else {
+        panic!("{:?}", r.data)
+    };
+    files.iter().map(|f| f.1).collect()
+}
+
+/// `merge lane/<src> --into lane/<dst>`.
+fn merge_lanes(s: &mut S, src: &str, dst: &str) -> crate::history::MergeData {
+    let r = s.ok(
+        Cmd::Merge {
+            src: format!("lane/{src}"),
+            into: Some(format!("lane/{dst}")),
+            policy: None,
+            strict: None,
+            base: None,
+            message: String::new(),
+        },
+        orch(),
+    );
+    let Data::Merge(d) = r.data else {
+        panic!("{:?}", r.data)
+    };
+    *d
+}
+
+/// The state at the tip of a ref.
+fn state_of(s: &S, r: &str) -> std::rc::Rc<crate::state::State> {
+    let tip = s.st.dag.live(r).and_then(|x| x.tip);
+    s.st.dag.state_at(tip, &s.st.alloc)
+}
+
+/// The lanes of an RK re-key ([RULES/link-merge-rules] LC-003): `lane/x` and `lane/y` fork from `main`, which holds
+/// neither file; `lane/x` registers `docs/f.md` (#5) and `docs/g.md` (#6), links task #2 to `docs/f.md` (an `at` edge
+/// with its anchor) and lets task #3's body name #6 (a `mentions` edge); `lane/y` registers both files (the same uids,
+/// so the same `#N`s, I1), defines a named query that names #5, and deletes both nodes.
+fn rekey_lanes() -> S {
+    let mut s = bound();
+    s.ok(
+        env_tree(vec![w("docs/f.md", "eff\n"), w("docs/g.md", "gee\n")]),
+        Ctx::default(),
+    );
+    for l in ["x", "y"] {
+        s.ok(
+            Cmd::BranchCreate {
+                name: l.into(),
+                from: Some("main".into()),
+                kind: None,
+            },
+            orch(),
+        );
+    }
+    bind_lane(&mut s, "x", false);
+    assert_eq!(
+        add_on(&mut s, "x", &["docs/f.md", "docs/g.md"]),
+        vec![Nid(5), Nid(6)]
+    );
+    s.ok(
+        Cmd::LinkFile {
+            node: Target::Id(Nid(2)),
+            specs: vec!["docs/f.md".into()],
+            watch: None,
+            planned: false,
+            quote: None,
+            end: None,
+        },
+        on_lane("x"),
+    );
+    s.ok(
+        tx(vec![Stmt::Set {
+            target: Target::Id(Nid(3)),
+            fields: vec![],
+            incr: vec![],
+            body: Some(Some("see #6".into())),
+            guard: None,
+        }]),
+        orch_on("lane/x"),
+    );
+    bind_lane(&mut s, "y", true);
+    assert_eq!(
+        add_on(&mut s, "y", &["docs/g.md", "docs/f.md"]),
+        vec![Nid(6), Nid(5)]
+    );
+    s.ok(
+        Cmd::TxLq {
+            lq: "TX { DEFINE QUERY the_f() SHAPE node AS { MATCH (a:artifact) WHERE a = #5 RETURN a } }"
+                .into(),
+            params: crate::lq::ctx::Params::new(),
+            message: String::new(),
+            if_targets: None,
+        },
+        orch_on("lane/y"),
+    );
+    for n in [5, 6] {
+        s.ok(
+            tx(vec![Stmt::Delete {
+                target: Target::Id(Nid(n)),
+                policy: None,
+                replaced_by: None,
+                release: false,
+                reason: None,
+            }]),
+            orch_on("lane/y"),
+        );
+    }
+    s
+}
+
+/// A merge that re-keys file nodes lands, in either direction, the RK rows' result ([RULES/link-merge-rules] RK-001 to
+/// RK-010; [F12 §7.6]): a file uid U absent in the base, live on one side S and deleted on the other (LC-003) moves on
+/// S to uid′ = `uid_file(root, origin_path, U)` (RK-003; RK-009: the uid a registration after the removal derives),
+/// with `origin_pred` = U (RK-005) and every edge S added to U re-pointed to uid′, the `at` edge with its anchor
+/// unchanged and the `mentions` edge alike (RK-006); U keeps the other side's state, a tombstone, and is not live
+/// (RK-007, RK-010); each uid′ gets a new `#N`, in ascending uid order ([API §9.6] item 2), and U keeps its own
+/// (RK-008). The validators read the candidate while it holds the merge's provisional `#N`s for the uid′s, and V10
+/// binds `lane/y`'s named query, which names U, against it on the merge into `lane/x` (ADV-C-5: recording those `#N`s
+/// overflowed `next_id`). Both directions land equal states ([F12 §7.7]).
+#[test]
+fn a_merge_that_re_keys_file_nodes_lands_their_successors_in_either_direction() {
+    let mut states = Vec::new();
+    for (src, dst) in [("y", "x"), ("x", "y")] {
+        let mut s = rekey_lanes();
+        let before = state_of(&s, "lane/x");
+        let anchor = before.nodes[&Nid(2)]
+            .out
+            .iter()
+            .find(|(k, _)| k.kind == "at" && k.dst == Nid(5))
+            .map(|(_, p)| p.anchor.clone())
+            .expect("#2's anchor in docs/f.md");
+        let next = s.st.next_id;
+        let d = merge_lanes(&mut s, src, dst);
+        assert_eq!(d.outcome, "landed");
+        assert!(
+            d.conflicts.is_empty() && d.violations.is_empty(),
+            "{:?} {:?}",
+            d.conflicts,
+            d.violations
+        );
+        let st = state_of(&s, &format!("lane/{dst}"));
+        let succ = |n: u32, path: &str| {
+            let u = s.st.alloc.uids[&Nid(n)];
+            let u2 = crate::r4::uid::uid_file("project", path, Some(u));
+            (u2, s.st.alloc.uidx[&u2])
+        };
+        let (uf, nf) = succ(5, "docs/f.md");
+        let (ug, ng) = succ(6, "docs/g.md");
+        assert_eq!(s.st.next_id, next + 2, "RK-008: two new #Ns");
+        let mut fresh = [(uf, nf), (ug, ng)];
+        fresh.sort();
+        assert_eq!(
+            fresh.map(|(_, n)| n),
+            [Nid(next), Nid(next + 1)],
+            "[API §9.6] item 2: ascending uid order"
+        );
+        for (n, nn, p) in [(5, nf, "docs/f.md"), (6, ng, "docs/g.md")] {
+            let u = &st.nodes[&Nid(n)];
+            assert!(!u.live(), "RK-007, RK-010: #{n} keeps the deletion");
+            let x = &st.nodes[&nn];
+            assert!(x.live() && x.status == "present", "{x:?}");
+            assert_eq!(x.fields.get("origin_pred"), Some(&Value::Ref(Nid(n))));
+            assert_eq!(x.fields.get("origin_path"), path(p).as_ref());
+            assert_eq!(x.fields.get("path"), path(p).as_ref());
+            assert_eq!(
+                x.fields.get("oid"),
+                before.nodes[&Nid(n)].fields.get("oid"),
+                "RK-005: S's observation moves with the node"
+            );
+        }
+        let at: Vec<_> = st.nodes[&Nid(2)]
+            .out
+            .iter()
+            .filter(|(k, _)| k.kind == "at")
+            .map(|(k, p)| (k.dst, p.anchor.clone()))
+            .collect();
+        assert_eq!(at, vec![(nf, anchor)], "RK-006: the anchor follows");
+        assert!(
+            st.nodes[&Nid(3)]
+                .out
+                .keys()
+                .any(|k| k.kind == "mentions" && k.dst == ng)
+                && !st.nodes[&Nid(3)].out.keys().any(|k| k.dst == Nid(6)),
+            "RK-006: a non-anchor edge follows"
+        );
+        assert!(st.schema.query("the_f").is_some());
+        states.push((st.nodes.clone(), uf, ug));
+    }
+    assert_eq!(states[0], states[1], "RK-009; [F12 §7.7]");
+}
+
+/// RK-004: a uid′ that names a node of the merge's states is derived again over it. `lane/y` removes `docs/f.md` and
+/// registers the re-created file, whose uid is `uid_file(root, path, U)` (#6); the merge into `lane/x`, which holds U
+/// live, moves U to `uid_file(root, path, #6's uid)` with `origin_pred` = #6, the predecessor of the last derivation
+/// (RK-005), and a new `#N` (RK-008); U keeps `lane/y`'s `removed` state (RK-007) and claims no path (PC-005), while
+/// the two live files at `docs/f.md` each hold a `PathClaim` conflict value (PC-001, PC-002), which lands (PC-004).
+#[test]
+fn a_re_key_derives_again_past_a_successor_the_other_side_registered() {
+    let mut s = bound();
+    s.ok(env_tree(vec![w("docs/f.md", "eff\n")]), Ctx::default());
+    for l in ["x", "y"] {
+        s.ok(
+            Cmd::BranchCreate {
+                name: l.into(),
+                from: Some("main".into()),
+                kind: None,
+            },
+            orch(),
+        );
+    }
+    bind_lane(&mut s, "x", false);
+    assert_eq!(add_on(&mut s, "x", &["docs/f.md"]), vec![Nid(5)]);
+    bind_lane(&mut s, "y", true);
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(5)]);
+    s.ok(
+        Cmd::FileRm {
+            paths: vec!["docs/f.md".into()],
+            reason: None,
+            replaced_by: None,
+            trash: false,
+            recursive: false,
+            yes: true,
+        },
+        on_lane("y"),
+    );
+    s.ok(env_tree(vec![w("docs/f.md", "new eff\n")]), Ctx::default());
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(6)]);
+    let u = s.st.alloc.uids[&Nid(5)];
+    let u1 = crate::r4::uid::uid_file("project", "docs/f.md", Some(u));
+    assert_eq!(
+        s.st.alloc.uids[&Nid(6)],
+        u1,
+        "F08 §11.2: the registration after the removal"
+    );
+    let d = merge_lanes(&mut s, "y", "x");
+    assert_eq!(d.outcome, "landed");
+    let classes: Vec<&str> = d.conflicts.iter().map(|(_, c)| c.as_str()).collect();
+    assert_eq!(classes, vec!["PathClaim", "PathClaim"], "{:?}", d.conflicts);
+    let u2 = crate::r4::uid::uid_file("project", "docs/f.md", Some(u1));
+    let n2 = s.st.alloc.uidx[&u2];
+    assert_eq!(n2, Nid(7), "RK-008");
+    let st = state_of(&s, "lane/x");
+    let x = &st.nodes[&n2];
+    assert!(x.live() && x.status == "present");
+    assert_eq!(x.fields.get("origin_pred"), Some(&Value::Ref(Nid(6))));
+    let old = &st.nodes[&Nid(5)];
+    assert!(
+        old.live() && old.status == "removed",
+        "RK-007: lane/y's state"
+    );
+    assert!(!old.conflicts.contains_key(&Aspect::Observation), "PC-005");
+    for n in [Nid(6), n2] {
+        assert_eq!(
+            st.nodes[&n]
+                .conflicts
+                .get(&Aspect::Observation)
+                .map(|c| c.class.as_str()),
+            Some("PathClaim"),
+            "PC-002: {n}"
+        );
+    }
+}
+
+/// A `sync` that re-keys file nodes lands their successors in ascending uid order ([RULES/link-merge-rules] RK-001 to
+/// RK-003, RK-008), on the `sync` path of ADV-C-5, where S is dst: `lane/x` registers `docs/a.md`, `docs/b.md` and
+/// `docs/c.md` (#5 to #7); `main` registers the same files (the same uids, so the same `#N`s) and deletes them. `sync
+/// lane/x` moves each to its uid′ on lane/x; the three uid′s hold the provisional `#N`s 2^32 − 1 to 2^32 − 3 while the
+/// validators run and land as three new `#N`s in ascending uid order ([API §9.6] item 2), and every commit's cached
+/// state equals the fold of its changesets.
+#[test]
+fn a_sync_that_re_keys_three_file_nodes_lands_them_in_uid_order() {
+    let mut s = bound();
+    s.ok(
+        env_tree(vec![
+            w("docs/a.md", "a\n"),
+            w("docs/b.md", "b\n"),
+            w("docs/c.md", "c\n"),
+        ]),
+        Ctx::default(),
+    );
+    s.ok(
+        Cmd::BranchCreate {
+            name: "x".into(),
+            from: Some("main".into()),
+            kind: None,
+        },
+        orch(),
+    );
+    let files = ["docs/a.md", "docs/b.md", "docs/c.md"];
+    bind_lane(&mut s, "x", false);
+    assert_eq!(add_on(&mut s, "x", &files), vec![Nid(5), Nid(6), Nid(7)]);
+    s.ok(
+        Cmd::WorktreeBind {
+            dir: TREE.into(),
+            ref_: "main".into(),
+            replace: true,
+        },
+        orch(),
+    );
+    let on_main = Ctx {
+        branch: Some("main".into()),
+        no_dedupe: true,
+        ..in_tree()
+    };
+    let r = s.ok(
+        Cmd::FileAdd {
+            paths: files.iter().map(|p| p.to_string()).collect(),
+            kind: None,
+            root: None,
+        },
+        on_main,
+    );
+    let Data::FileAdd(added) = &r.data else {
+        panic!("{:?}", r.data)
+    };
+    assert_eq!(
+        added.iter().map(|f| f.1).collect::<Vec<_>>(),
+        vec![Nid(5), Nid(6), Nid(7)]
+    );
+    for n in [5, 6, 7] {
+        s.ok(
+            tx(vec![Stmt::Delete {
+                target: Target::Id(Nid(n)),
+                policy: None,
+                replaced_by: None,
+                release: false,
+                reason: None,
+            }]),
+            orch_on("main"),
+        );
+    }
+    let next = s.st.next_id;
+    let r = s.ok(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check: false,
+        },
+        Ctx {
+            no_dedupe: true,
+            ..orch_on("lane/x")
+        },
+    );
+    let Data::Merge(d) = &r.data else {
+        panic!("{:?}", r.data)
+    };
+    assert_eq!(d.outcome, "landed", "{:?} {:?}", d.conflicts, d.violations);
+    assert_eq!(s.st.next_id, next + 3, "RK-008: three new #Ns");
+    let mut fresh: Vec<_> = [(5, "docs/a.md"), (6, "docs/b.md"), (7, "docs/c.md")]
+        .iter()
+        .map(|(n, p)| {
+            let u = s.st.alloc.uids[&Nid(*n)];
+            let u2 = crate::r4::uid::uid_file("project", p, Some(u));
+            (u2, s.st.alloc.uidx[&u2])
+        })
+        .collect();
+    fresh.sort();
+    assert_eq!(
+        fresh.iter().map(|x| x.1).collect::<Vec<_>>(),
+        vec![Nid(next), Nid(next + 1), Nid(next + 2)]
+    );
+    let st = state_of(&s, "lane/x");
+    for (_, n) in &fresh {
+        assert!(st.nodes[n].live(), "{n}");
+    }
+    for n in [5, 6, 7] {
+        assert!(!st.nodes[&Nid(n)].live(), "#{n}");
+    }
+    for seq in s.st.dag.commits.keys() {
+        assert!(
+            *s.st.dag.state_at(Some(*seq), &s.st.alloc)
+                == s.st.dag.state_from_scratch(Some(*seq), &s.st.alloc),
+            "s{seq}"
+        );
+    }
+    s.st.dag.verify_ids(&s.st.alloc).unwrap();
+}

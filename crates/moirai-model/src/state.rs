@@ -437,6 +437,10 @@ pub trait Alloc {
     fn uid(&self, n: Nid) -> Uid;
     /// The `CREATOR` of `#N`.
     fn creator(&self, n: Nid) -> Creator;
+    /// The `#N` bound to a uid (`UIDX`), when the store knows it; an allocator with no index knows none.
+    fn nid(&self, _u: Uid) -> Option<Nid> {
+        None
+    }
 }
 
 impl State {

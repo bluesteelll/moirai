@@ -125,7 +125,7 @@ cites the open point that explains it.
 | CS-010 | `both-owner-involved` | authority | `both`, and at least one of b, o, t is `owner`. |
 | CS-011 | `both-diff3-clean` | text, section-text | `both`, and diff3 of (b, o, t) over the line diff of [F12] has no conflicting hunk and its result is at most 65,536 bytes, the bound of a text value and of a body ([F12 §7.5] "Length"; [F08 §5.3], [F08 §7.2]); `absent` is read as the empty text. A clean diff3 whose result is longer falls to the class's `both` row (`TextHunk`). On a body key, it also needs that none of b, o and t is a dropped body, a hash in the store's dropped set (PR-016; [F06 §8.1] DB-1): a dropped body has no readable lines, so diff3 is not run and the key falls to the class's `both` row, a `TextHunk` whose sides are the three hashes, as a result over the length bound does ([F12 §7.5] "A dropped body"; spec sync 3). Every other case of a body key compares hashes and reads no dropped set. |
 | CS-012 | `both-guard-fail` | section-text | `both-diff3-clean`, and the removed-text guard fails for the diff3 result R: for S = o or S = t, the multiset of S's lines minus the multiset of R's lines is not contained in the multiset of b's lines (text a side had, the merge dropped, and the base never held). |
-| CS-013 | `kleppmann-skipped` | hierarchy | The `kleppmann` result (RS-007) undid this key's last move, because the step that made it left a node its own ancestor. A move that set its node's current value is never undone, so it never makes its key `kleppmann-skipped` (RS-007; [OP-35] case (iii), spec sync 3). |
+| CS-013 | `kleppmann-skipped` | hierarchy | The `kleppmann` result (RS-007) undid this key's last move, because the step that made it left a node its own ancestor. Only a move that changes its node's parent is ever undone: a move that sets its node's current value or changes only its order never makes its key `kleppmann-skipped` (RS-007; [OP-35] cases (iii) and (vi); [AR §11] OQ-A-11 11.2), and a one-sided merge, which replays nothing, makes no key `kleppmann-skipped` (RS-007; OQ-A-11 11.1 (A)). |
 | CS-014 | `deleted-vs-modified` | existence, derived-existence | b is live; one side's value is deleted; the other side's value is live, and that side changed at least one other key of the same uid since the base: a field, status, counter, body or hierarchy key of the uid, or an out-edge key whose source is the uid. In-edges belong to their sources and do not count; they meet VA-004 or become tombstone references ([AR §5d.3]). |
 | CS-015 | `both-created` | existence | b is `absent`, and o and t are both live: one uid created on both sides. |
 | CS-016 | `both-present` | edge, anchor | `both`, and o and t are both present: they differ only in their properties or anchor selectors. |
@@ -142,7 +142,7 @@ cites the open point that explains it.
 | RS-004 | `sum` | o + t − b, each `absent` read as 0, in checked i64 arithmetic; a sum of 0 is `absent` ([F07 §6.3], [F08 §6.2]). An overflow is a specification finding: the model panics. |
 | RS-005 | `union3` | (b ∩ o ∩ t) ∪ (o − b) ∪ (t − b), each `absent` read as the empty set: an element survives unless a side removed it, and an element either side added is kept. Sorted as the set type's canonical encoding requires; an empty result is `absent` ([F08 §5.3]). |
 | RS-006 | `diff3` | The merged text of the clean diff3 of CS-011; an empty result is `absent`, for a text field and for a body alike ([F12 §7.5] "Empty result"). |
-| RS-007 | `kleppmann` | Computed once per merge for all hierarchy keys, in steps ([F12 §5.3] VM-7, [F12 §7.4]). A commit's step keys are the hierarchy keys of its canonical net changeset against its first parent (the full state diff for a `sync`, [AR §4.6]); a two-parent commit M (a merge or a `sync`) with parents p₁ and p₂ also has each hierarchy key whose value in state(M) differs from its value in state(p₂) and that is a step key of some commit of A(p₂) \ A(p₁), so M's step re-asserts what M kept against the merged branch's moves, and nothing else ([AR §11] OQ-A-6 (a): case (i) of [OP-35] in its narrow form). A commit's step keys depend only on the commit graph, so an engine may compute them once per commit and keep them (PR-016 lists the commits whose step keys a merge reads). For a merge or a `sync` (and a virtual merge, VB-011): start from b's (parent, order) for every node. Each commit of A(o) \ A(B) and of A(t) \ A(B) (the ancestor sets of [F12 §5.2]) that has step keys is one step, keyed by its (hlc, commit id); the step sets each of its step keys to its value in that commit's state. For each side, a hierarchy key whose value on that side differs from b while no step of that side sets it (the base of `--base` or a virtual base is not where that side's commits start) is set to that side's value in a step keyed (0, 0), before every commit. For a revert or a cherry-pick of a commit C (DM-003 to DM-005; [OP-35] case (ii)): start from o's (parent, order) for every node; dst has no step and neither side has a (0, 0) step; src has one step, keyed by C's (hlc, commit id), which sets each hierarchy key whose value in src's state differs from b (the hierarchy keys of C's net changeset against its first parent) to src's value, leaving out each key that is a step key of a commit of A(o) ordered after C by (hlc, commit id): that later move stands (MR-040). Apply the steps in ascending (hlc, commit id) order, commit ids compared bytewise, all moves of a step at once; where two steps share a key (a commit that is a step of both sides, or the two sides' (0, 0) steps), dst's moves apply first, then src's. A move that sets its node's current value (its value just before the step) changes nothing: it is never undone and never makes its key `kleppmann-skipped` ([OP-35] case (iii)). After a step in which a node is its own ancestor, undo the step's moves that changed their node's value one at a time, the least uid among those moves' nodes that lie on a cycle first, until none is (MR-039); every such cycle holds one of them, because the state before each step is a forest. A key whose last move was undone is `kleppmann-skipped` (CS-013); a later move of it that applied decides its value (MR-040). Each key's value is its node's final (parent, order). Step keys follow the re-key (RK-005, RK-006). Keys of a uid fixed by an existence policy (PR-007) take no part. When tip(dst) is B (dst made no commit since B) and src's commits since B (A(t) \ A(B)) are a linear chain of single-parent commits whose first has B as its parent, the steps replay src's own states in order, each a forest, so the merge meets no cycle and every hierarchy key takes src's value. A revert or a cherry-pick of a commit whose net changeset against its first parent has no hierarchy entry leaves every hierarchy key at o's value. Outside these cases the steps can still stage a `HierarchyCycle` that the sides' histories do not call for; [OP-35] lists the known cases, those the owner decided and those still open (spec sync 3). |
+| RS-007 | `kleppmann` | Computed once per merge for all hierarchy keys ([F12 §5.3] VM-7, [F12 §7.4]). **Step keys.** A commit's step keys are the hierarchy keys of its canonical net changeset against its first parent (the full state diff for a `sync`, [AR §4.6]); a two-parent commit M (a merge or a `sync`) with parents p₁ and p₂ also has each hierarchy key whose value in state(M) differs from its value in state(p₂) and that is a step key of some commit of A(p₂) \ A(p₁), so M's step re-asserts what M kept against the merged branch's moves, and nothing else ([AR §11] OQ-A-6 (a): case (i) of [OP-35] in its narrow form). "Is a step key of" is read recursively: a two-parent commit of A(p₂) \ A(p₁) counts with its own second-parent keys, since its step can be the key's last one too ([AR §11] OQ-A-11 11.3). A commit's step keys depend only on the commit graph, so an engine may compute them once per commit and keep them (PR-016 lists the commits whose step keys a merge reads). **One-sided merge** ([AR §11] OQ-A-11 11.1 (A)). When the base's commit is tip(dst) (exactly when the single LCA is tip(dst), `--base` names tip(dst), or tip(dst) and the base are both ε; equal states of different commits do not count), dst made no commit since the base and I25′ forbids a conflict on any key: every hierarchy key takes t, with no replay, and no key is `kleppmann-skipped`. Every merge of a branch into `main` is one-sided after its step 0, which leaves LCA(src, main) = tip(main), unless `--base` names a commit other than tip(main) (PR-001, VB-017). A virtual merge and a revert or a cherry-pick are never one-sided. **Replay start** ([AR §11] OQ-A-11 11.1 (B)). For any other merge or `sync`, and for a virtual merge (VB-011), the replay start R is the greatest commit of A(B) ∩ A(o) ∩ A(t) (the ancestor sets of [F12 §5.2]) that every other commit of A(o) ∪ A(t) descends from or is an ancestor of; when no commit is, R is ε, whose state holds no node. Such commits are pairwise comparable, so they form a chain and R is unique. Every commit of A(o) \ A(R) and of A(t) \ A(R) descends from R, and its own ancestors since R are steps too, which the (hlc, commit id) order applies before it ([F06 §4.4.4]: a local, foreign or import-checkpoint commit's `hlc` exceeds its parents'; a native import keeps the `hlc` its origin store gave it by the same rule, which the importing store does not check, [OP-35] (v)), so no commit is replayed on a state that lacks the history it was made on. R is the base's commit when the base is a commit of A(o) ∩ A(t) that every commit of both sides since it descends from (a single LCA, or `--base` naming such a commit); otherwise R is a proper ancestor of that commit, or of every LCA, or ε. In every case R is an ancestor of every commit of A(o) \ A(B) and of A(t) \ A(B): a lane that has synced keeps its commits from before its last sync in A(o) \ A(B), so its R precedes them. **Merge, sync, virtual merge.** Start from state(R)'s (parent, order) for every node. Each commit of A(o) \ A(R) and of A(t) \ A(R) that has step keys is one step, keyed by its (hlc, commit id); the step sets each of its step keys to its value in that commit's state. For each side, a hierarchy key whose value on that side differs from its value in state(R) while no step of that side sets it is set to that side's value in a step keyed (0, 0), before every commit ([OP-35] (iv)). **Revert and cherry-pick** of a commit C (DM-003 to DM-005; [OP-35] case (ii)): start from o's (parent, order) for every node; dst has no step and neither side has a (0, 0) step; src has one step, keyed by C's (hlc, commit id), which sets each hierarchy key whose value in src's state differs from b (the hierarchy keys of C's net changeset against its first parent) to src's value, leaving out each key that is a step key of a commit of A(o) ordered after C by (hlc, commit id): that later move stands (MR-040). **Applying the steps.** Apply the steps in ascending (hlc, commit id) order, commit ids compared bytewise, all moves of a step at once; where two steps share a key (a commit that is a step of both sides, or the two sides' (0, 0) steps), dst's moves apply first, then src's. Only a move that changes its node's parent can close a cycle, so only such a move is ever undone: a move that keeps its node's parent, because it sets its node's current value (its value just before the step, [OP-35] case (iii)) or changes only its order ([AR §11] OQ-A-11 11.2), is never undone and never makes its key `kleppmann-skipped`. After a step in which a node is its own ancestor, undo the step's moves that changed their node's parent one at a time, the least uid among those moves' nodes that lie on a cycle first, until none is (MR-039); every such cycle holds one of them, because the state before each step is a forest. A key whose last move was undone is `kleppmann-skipped` (CS-013); a later move of it that applied decides its value (MR-040). Each key's value is its node's final (parent, order). Step keys follow the re-key (RK-005, RK-006). Keys of a uid fixed by an existence policy (PR-007) take no part. **Guarantees.** A one-sided merge lands every hierarchy key at t's value. A revert or a cherry-pick of a commit whose net changeset against its first parent has no hierarchy entry leaves every hierarchy key at o's value. Outside these cases the steps can still stage a `HierarchyCycle` that the sides' histories do not call for, and a replay from R can stage where a replay from B landed (W3C-ARB-1); [OP-35] lists the known cases, those the owner decided and those still open (E5, E6). RS-007 decides every hierarchy key of a merged node, a key equal in b, o and t included, against [F12 §7.2]'s rule that such a key keeps its value; which rule wins is open ([OP-35] (v), W3C-ARB-3). |
 | RS-008 | `policy` | `DeleteVsModify` on the existence key. The key holds the conflict value {DeleteVsModify, base b, ours o, theirs t}. The node's other keys take, provisionally, the values of the side the policy names: `delete-wins`, the deleting side (the node is deleted and keeps only its retained out-edges, [AR §3.4] I39′); `resurrect`, the modifying side (the node is live with that side's keys); `none`, dst's side. The policy is the kind's EP row unless `--policy` or `merge.policy.<kind>` overrides it (AP rows). No other conflict is emitted for the node's keys. A `live` side of the conflict value carries that side's node image, its value keys only ([F06 §6.2] `snap` = 1). A `resolve --take` towards a live side restores the value keys from that image, and the node's hierarchy key and out-edges from that side's state at the conflict's introducing commit M (the state of M's first parent for `ours`, of its second parent for `theirs`), as ordinary `Move`, `AddEdge` and `SetEdgeProps` ops of the `Resolve` commit, under the write path's checks ([F12 §6.5]; [OP-5]). |
 | RS-009 | `conflict-value` | The key holds the conflict value {class, base b, ours o, theirs t}, the class taken from the row's `conflict` cell; the node gets `conflicted` (RE-008). |
 | RS-010 | `conflict-as-class` | As `conflict-value`, with base b′, ours flat(o) and theirs flat(t) ([F12 §5.4] RVB-4): b′ is the `base` field of the conflict value b, and flat(v) is v when v is plain and v's provisional value ([F12 §6.3], §6.4) when v is itself a conflict value, so a conflict value never nests. Its class is found by evaluating the key's own class rows on (b′, flat(o), flat(t)), skipping every row whose disposition is not `value`: the first matching row's `conflict` cell is the class, or the class of b when no such row matches ([OP-18]). When the class is `DeleteVsModify` on an existence key, the node's other keys take RS-008's provisional state if exactly one of flat(o), flat(t) is live, and o's values otherwise; the conflict value's provisional side follows ([F12 §5.4], [F12 §6.3]). |
@@ -197,8 +197,8 @@ Rows are grouped by class; within a class the first matching row wins.
 | MR-036 | `section-text` | `both-guard-fail` | `stage-diff3` | RemovedTextNotInBase | structural | design | [AR §5a.7] step 4 row "text"; [AR §5a.8]; [OP-14] | "`doc.section` bodies also run the removed-text guard"; the guard's formula (CS-012) is [OP-14]. |
 | MR-037 | `section-text` | `both-diff3-clean` | `diff3` | - | clean | design | [AR §5a.7] step 4 row "text" | - |
 | MR-038 | `section-text` | `both` | `conflict-value` | TextHunk | value | design | [AR §5a.7] step 4 row "text"; [F12 §7.5] "A dropped body"; [F06 §8.1] DB-7 | The guard runs only on a clean diff3; a `TextHunk` value keeps all three texts and drops nothing. Also reached by a clean diff3 whose result exceeds 65,536 bytes (CS-011), and whenever b, o or t is a dropped body: diff3 is not run, so neither MR-036's guard nor MR-037 applies, and the sides are the three hashes (CS-011; spec sync 3). |
-| MR-039 | `hierarchy` | `kleppmann-skipped` | `kleppmann` | HierarchyCycle | structural | design | [AR §5a.7] step 4 row "parent / order"; [AR §5a.8]; [AR §11] OQ-A-6; [OP-15]; [OP-35] | "a cycle-creating move is skipped and logged": RS-007 undoes it; `HierarchyCycle` is structural, so the merge stages. A move that sets its node's current value closes no cycle and is never undone (RS-007; [OP-35] case (iii), spec sync 3). |
-| MR-040 | `hierarchy` | `any` | `kleppmann` | - | clean | design | [AR §2.7]; [AR §5a.7] step 4 row "parent / order"; [AR §11] OQ-A-6; [OP-35] | Two different moves of one node do not conflict: the later one in (hlc, commit id) order wins. A two-parent commit's step re-asserts only the keys it kept against its second parent's branch, so a side's own earlier move keeps its own (hlc, commit id) against a third branch; a revert or a cherry-pick leaves out C's move of a key that a dst commit after C moved (RS-007; [OP-35] cases (i) and (ii), spec sync 3). |
+| MR-039 | `hierarchy` | `kleppmann-skipped` | `kleppmann` | HierarchyCycle | structural | design | [AR §5a.7] step 4 row "parent / order"; [AR §5a.8]; [AR §11] OQ-A-6, OQ-A-11; [OP-15]; [OP-35] | "a cycle-creating move is skipped and logged": RS-007 undoes it; `HierarchyCycle` is structural, so the merge stages. Only a move that changes its node's parent is undone: a move that sets its node's current value or changes only its order closes no cycle (RS-007; [OP-35] cases (iii) and (vi)). A one-sided merge replays nothing and never reaches this row (RS-007; OQ-A-11 11.1 (A)). |
+| MR-040 | `hierarchy` | `any` | `kleppmann` | - | clean | design | [AR §2.7]; [AR §5a.7] step 4 row "parent / order"; [AR §11] OQ-A-6, OQ-A-11; [OP-35] | Two different moves of one node do not conflict: the later one in (hlc, commit id) order wins. A two-parent commit's step re-asserts only the keys it kept against its second parent's branch, so a side's own earlier move keeps its own (hlc, commit id) against a third branch; a revert or a cherry-pick leaves out C's move of a key that a dst commit after C moved (RS-007; [OP-35] cases (i) and (ii), spec sync 3). A one-sided merge takes t for every key, the value I25′ asks for (RS-007; OQ-A-11 11.1 (A)). |
 | MR-041 | `existence` | `same` | `take-o` | - | clean | design | [AR §5a.7] step 4 row "existence" | Both live, or both deleted with the same reason and replacement. |
 | MR-042 | `existence` | `deleted-vs-modified` | `policy` | DeleteVsModify | value | design | [AR §2.5]; [AR §5a.7] step 4 row "existence"; [AR §5d.3] | "`main` modified #40 → `DeleteVsModify` conflict value"; the provisional state follows EP and AP rows. |
 | MR-043 | `existence` | `ours-only` | `take-o` | - | clean | design | [AR §2.5]; [AR §5d.3] | Deleted on dst while src only read the node: the delete wins ("`main` only read #40 → delete wins"). Also a creation or an `Undelete` on one side. |
@@ -562,7 +562,7 @@ the hint codes 128–191.
 | PR-013 | 8 | resolve | design | [AR §5a.7] step 8; [F12 §6.5] | `resolve <key>` with `--take` ours, theirs or base, or `--value V`, and `resolve --all --policy P`, append `Resolve` commits on the staging ref. A take towards a live side of a `DeleteVsModify` also restores the node's hierarchy key and out-edges (RS-008). |
 | PR-014 | 8 | continue | derived | [AR §5a.7] step 8; [F12 §9.4] | `merge --continue` recomputes the operation against the current tip(dst) with the staged commit's own arguments, its `--base`, policy override and effective `strict` ([F06 §4.4.16]; never the continue's configuration), and re-runs PR-009 to PR-012 with the staged resolutions as an overlay ([F12 §9.4] steps 1 and 2: the resolved keys include a `Resolve` whose `new` equals `old` and the keys of its companion ops). A resolution whose key's value on the current tip(dst) differs from its value at the dst tip it was made against is stale: the key keeps the recomputed candidate's value and the command prints a notice naming it, so no resolution silently overwrites a later dst change ([F12 §9.4] step 2). When dst did not move, every resolution applies. The validators run over the merge's own base, state(D₁) and state(P₂) (for a revert or cherry-pick, the DM row's base and source); on a key the overlay set, step 1's conflict value, the typed rules' violations and VA-001's skipped move are dropped, and every other step-1 structural violation is kept (MR-036, MR-039, MR-045, MR-055, MR-056, DM-012; [F12 §9.4] step 3; spec sync 2b). |
 | PR-015 | 8 | abort | design | [AR §5a.7] step 8 | `merge --abort` deletes the staging ref; no marker was written for it (RE-004). |
-| PR-016 | * | pure | design | [AR §5a.7] step 6; [40 §5.5]; [AR §3.4] I28′, I30′; [F12 §7.1] | The merge reads neither the file system nor git. Its result is a function of the base, dst and src states, whether dst is `main`, the (hlc, commit id), net changesets and states of the commits whose step keys RS-007 reads (for a merge, a `sync` or a virtual merge, each side's commits since the base; for a revert or a cherry-pick of C, C and the commits of A(o) ordered after C; and for each two-parent commit among them, recursively, every commit of A(p₂) \ A(p₁)), with the second parents' states of the two-parent commits among them, the store's set of dropped bodies ([F06 §8.1] DB-1), which only the text rule reads (CS-011; [F12 §7.5] "A dropped body"; spec sync 3), and these tables; conflicts only the file system can settle land as values ([RULES/link-merge-rules] LV rows). |
+| PR-016 | * | pure | design | [AR §5a.7] step 6; [40 §5.5]; [AR §3.4] I28′, I30′; [F12 §7.1] | The merge reads neither the file system nor git. Its result is a function of the base, dst and src states, whether dst is `main`, whether the base's commit is tip(dst) (RS-007's one-sided merge), the ancestor sets A(B), A(o) and A(t) ([F12 §5.2]) and the state of RS-007's replay start R, the (hlc, commit id), net changesets and states of the commits whose step keys RS-007 reads (for a merge, a `sync` or a virtual merge that is not one-sided, each side's commits since R; for a revert or a cherry-pick of C, C and the commits of A(o) ordered after C; and for each two-parent commit among them, recursively, every commit of A(p₂) \ A(p₁), [AR §11] OQ-A-11 11.3), with the second parents' states of the two-parent commits among them, the store's set of dropped bodies ([F06 §8.1] DB-1), which only the text rule reads (CS-011; [F12 §7.5] "A dropped body"; spec sync 3), and these tables; conflicts only the file system can settle land as values ([RULES/link-merge-rules] LV rows). |
 | PR-017 | * | order-independent | derived | [60 §3.4] GT6 | The result does not depend on the order in which keys are visited; RS-007 fixes the only order that matters. |
 
 Validators run on the candidate in this order ([AR §3.4] I37′, [AR §5a.7] step 6). `order` is the position of the
@@ -621,7 +621,7 @@ sets, maximal common ancestors, and each LCA's state materialised and merged by 
 | VB-008 | virtual-merge | dst=V(k-1),src=L(k) | proposed | [OP-19] | Direction matters for the rows that prefer dst: MR-046, MR-061, LM-004, LM-014. |
 | VB-009 | virtual-merge | validators=not-run | proposed | [OP-19] | A virtual base need not satisfy invariants; only the final candidate is validated, and a virtual merge never stages. |
 | VB-010 | virtual-merge | conflicts=kept-as-values | design | [AR §5a.7] step 1; [60 §3.4] | A key the inner merge leaves in conflict holds that conflict value in the base. |
-| VB-011 | virtual-merge | move-steps=real-commits | proposed | [F12 §5.3] VM-7; [OP-19] | For RS-007 on a virtual side, the steps are the real commits of that side's ancestry since the inner base (A(side) \ A(inner base), [F12 §5.2]), each keyed by its (hlc, commit id) and valued in that commit's state (spec sync 2b). |
+| VB-011 | virtual-merge | move-steps=real-commits | proposed | [F12 §5.3] VM-7; [OP-19] | For RS-007 on a virtual side, the steps are the real commits of that side's ancestry since the replay start of the pair (A(side) \ A(R), with R taken over A(V(k−1)), A(Lk) and the inner base's ancestor set, [F12 §5.2]; [AR §11] OQ-A-11 11.1 (B)), each keyed by its (hlc, commit id) and valued in that commit's state (spec sync 2b). A virtual merge is never one-sided. |
 | VB-012 | virtual-merge | link-rules=apply | derived | [40 §5.5]; [60 §3.4] | Composition and re-key ([RULES/link-merge-rules]) run inside virtual merges like every other rule. |
 | VB-019 | virtual-merge | auto-policy=ignored | proposed | [F12 §5.3] VM-2; [OP-19] | No automatic policy applies inside a virtual merge: `merge.policy.<kind>`, `--policy` and `--strict` of the outer command are ignored, and a `DeleteVsModify` takes the kind's EP row from the schema of the virtual merge's dst state. An automatic `ours`/`theirs` there would pick one LCA's value by generation order, the silent choice the virtual base exists to prevent, and the base would depend on the command line. |
 | VB-013 | vb-conflict | same=clean | design | [60 §3.4] | MR-001: "two sides that resolved it identically never do". |
@@ -837,10 +837,12 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     staged `#1.parent HierarchyCycle` on `sync` and on the merge into `main`). A one-step-per-order-key reading (moves
     with one (hlc, id) applied together) fixed only the first; per-commit steps contain it within a commit and replay a
     linear chain of single-parent commits from the base through that side's own forests, so, merged into a dst that made
-    no commit since the base, it never skips (RS-007; the known cases outside it are open point 35). The (0, 0) step
-    covers a side whose value differs from a base its commits do not start at (`--base`, a virtual base); a revert or a
-    cherry-pick starts from o instead (open point 35 (ii), spec sync 3). "Skipped and logged" is read together with
-    `HierarchyCycle` being structural: the move is undone in the staged candidate and the merge stages.
+    no commit since the base, it never skips (RS-007; the known cases outside it are open point 35). Since
+    [AR §11] OQ-A-11, a merge whose base's commit is tip(dst) replays nothing and takes src's hierarchy, every other
+    merge replays from the replay start R, a commit every replayed commit descends from, and the (0, 0) step covers a
+    side value that no step of that side since R sets; a revert or a cherry-pick starts from o instead (open point 35
+    (ii), spec sync 3). "Skipped and logged" is read together with `HierarchyCycle` being structural: the move is undone
+    in the staged candidate and the merge stages.
 16. **Schema merge details** (MR-055, MR-056, CS-017). Two different definitions of one new item are proposed as
     `SchemaConflict`; identical strengthenings on both sides are `same` and clean. Enum integers are "never reused"
     ([AR §3.4] I11), but two lanes that each add an enum value may pick the same integer; whether enum integers are
@@ -867,9 +869,9 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     other, so VBC-3 held for one lane only (§2, MC-001, CS-006).
 19. **Recursive virtual base details** (VB-003, VB-007 to VB-011, VB-019). Proposed: no common ancestor means an empty
     base; inside a virtual merge dst is never `main`, validators do not run, dst is the earlier fold, the Kleppmann
-    steps are the real commits since the inner base (VB-011, spec sync 2b), and no automatic policy or outer `--strict`
-    applies (VB-019, added for [F12 §5.3] VM-2 and
-    [F12] open point 8). [F12 §5.3] VM-1 to VM-8 state the same rules.
+    steps are the real commits since the replay start of the pair (VB-011, spec sync 2b; OQ-A-11), and no automatic
+    policy or outer `--strict` applies (VB-019, added for [F12 §5.3] VM-2 and [F12] open point 8). [F12 §5.3] VM-1 to
+    VM-8 state the same rules.
 20. **`DATA` versus `FieldEdit`** (CM-007, DM-013). [AR §2.7] and [AR §5a.5] record a `DATA` mismatch "as a
     `FieldEdit` conflict value", while [AR §5a.8] lists `DATA` as a class. This table emits `FieldEdit`; WP-12 decides
     whether `DATA` keeps an enum code. **Decided** by [F12 §6.1] (open point 5 there): `DATA` has no code; the case is
@@ -913,11 +915,17 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     byte for byte. [F12 §7.5]'s length bound is part of the case `both-diff3-clean`: a clean diff3 longer than 65,536
     bytes is a `TextHunk`, as [F12 §7.5] says.
 35. **Spurious Kleppmann results** (RS-007, MR-039, MR-040, CS-013; spec sync 2b: WP-91 fix 2, the WP-91/92 sync closure
-    and its arbiter ruling; **decided in part** by the owner on 2026-10-06, OQ-A-6 (a), and applied in spec sync 3). As
-    spec sync 2b left it, RS-007 replayed every side from B, made a two-parent commit a step only for its first-parent
-    keys and undid every move of a cycle-closing step, and three known cases gave a hierarchy result that the sides'
-    histories do not call for. The owner took Option A, with case (i) in its narrow form; RS-007 now states the three
-    rules, and the reference model is changed to follow them in wave 3b ([m0/PLAN §5]).
+    and its arbiter ruling; **decided** by the owner on 2026-10-06, OQ-A-6 (a), applied in spec sync 3, and OQ-A-11,
+    applied in wave 3c, except E5 of (v), which stays open). As spec sync 2b left it, RS-007 replayed every side from B,
+    made a two-parent commit a step only for its first-parent keys and undid every move of a cycle-closing step, and
+    three known cases gave a hierarchy result that the sides' histories do not call for. The owner took Option A, with
+    case (i) in its narrow form, and the reference model followed it in wave 3b ([m0/PLAN §5]); the review of wave 3b
+    found its limit, (v), and a further case, (vi), which OQ-A-11 decided with the reading of "moved" in (i).
+    Wave 3d found that the model's prototype of OQ-A-12 does not meet its acceptance (`wave-3d-verify.md`), and that
+    every replay variant measured on one harness leaves avoidable `HierarchyCycle` stagings and silent wrong landings
+    of keys only one side changed (`wave-3d-alternatives.md`); the owner decided OQ-A-13 on 2026-10-07 to replace the
+    replay with a per-key three-way rule and a cycle repair. Until wave 3e applies it, the text below stands as wave 3c
+    left it.
     (i) **A two-parent commit inside one side.** A merge or `sync` that kept its first parent's value of a key the
     merged branch had changed (for example after resolving a skip to `ours`) was no step for that key, so the merged
     branch's move could be that key's last step and win. Example: lane/x puts #2 under #1; main then puts #1 under #2;
@@ -926,31 +934,33 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     replayed lane/x's move, lane/y's move and main's move; main's move, #1 under #2, then closed no cycle and applied,
     so the merge landed clean with #1 under #2, which neither lane holds. **Decided:** a two-parent commit is also a
     step for the hierarchy keys where its state differs from its second parent's, limited to keys that a commit of
-    A(p₂) \ A(p₁) moved. "Moved" is read as "is a step key of": a merge inside the merged branch counts with its own
-    second-parent keys, since its step can be the key's last one too. In the example the sync's step sets #1 back to the
-    root after main's move, and the merge lands #1 at the root and #2 under #4 (lane/y's later move, MR-040). The broad
-    form (every key where the state differs from the second parent's) was not taken: it re-keys a side's own earlier
-    moves to the merge commit's (hlc, commit id), so a routine `sync` could make that older move beat a third branch's
-    later one, against MR-040.
-    **The reading of "moved" is an interpretation**, not the owner's literal text, and awaits confirmation (owner
-    question OQ-A-11, below; independent check of spec sync 3). The literal narrow form counts only a commit's
-    first-parent hierarchy keys as its moves; the recursive reading also counts an inner merge's second-parent keys,
-    which that merge kept rather than moved. Example where the two differ, in (hlc, commit id) order Y, X, L, N, M, with
-    #1 under #3 and #2, #3 at the root in the base: lane/b puts #2 under #1 (Y); main puts #1 under #2 (X); `sync lane/b`
-    (N) replays Y and then X, whose move closes #1 → #2 → #1 and is undone, and `#1.parent` is resolved to `ours`, so N
-    holds #1 under #3 and #2 under #1, and N's step keys are {#1} under either reading (X moved #1). lane/a, forked at X,
-    puts #3 under #1 (L). `merge lane/b --into lane/a` (M) replays from X: Y's move closes #2 → #1 → #2 and is undone, L
-    applies, N's #1 under #3 closes #1 → #3 → #1 and is undone; both keys stage and are resolved to `ours` (#1 under #2,
-    #2 at the root, #3 under #1). M's state differs from N's at #1, #2 and #3; of the commits of A(N) \ A(L), Y has the
-    step key #2 and N the step key #1 but moved nothing against its first parent, so M's second-parent keys are {#2}
-    under the literal reading and {#1, #2} under the recursive one. main then makes a commit with no hierarchy entry and
-    lane/a syncs: the sync replays Y, L, N and M from X, and Y's and N's moves are undone again. Under the recursive
-    reading M's step sets #1 under #2 and #2 at the root, both no-ops that apply, so the sync lands lane/a's own
-    hierarchy. Under the literal reading M's step sets only #2, #1's last move is N's undone one, and the sync stages
-    `#1.parent HierarchyCycle` on a key that main has not moved since X and that lane/a already holds. The recursive
-    reading keeps the boundary that MR-040's argument against the broad form rests on, read as "a key some step of the
-    merged branch sets": a side's own move that no step of the merged branch sets keeps its (hlc, commit id). RS-007,
-    [F12 §7.4] and the model follow the recursive reading until OQ-A-11 is decided.
+    A(p₂) \ A(p₁) moved, "moved" read recursively (below). In the example the sync's step sets #1 back to the root after
+    main's move, and the merge lands #1 at the root and #2 under #4 (lane/y's later move, MR-040). The broad form (every
+    key where the state differs from the second parent's) was not taken: it re-keys a side's own earlier moves to the
+    merge commit's (hlc, commit id), so a routine `sync` could make that older move beat a third branch's later one,
+    against MR-040.
+    **"Moved" reads "is a step key of"**, recursively (decided by OQ-A-11 11.3 (a)): a merge inside the merged branch
+    counts with its own second-parent keys, since its step can be the key's last one too. The literal narrow form counts
+    only a commit's first-parent hierarchy keys as its moves; the recursive reading also counts an inner merge's
+    second-parent keys, which that merge kept rather than moved. Example where the two differ, in (hlc, commit id) order
+    Y, X, L, N, M, with #1 under #3 and #2, #3 at the root in the base: lane/b puts #2 under #1 (Y); main puts #1 under
+    #2 (X); `sync lane/b` (N) replays Y and then X, whose move closes #1 → #2 → #1 and is undone, and `#1.parent` is
+    resolved to `ours`, so N holds #1 under #3 and #2 under #1, and N's step keys are {#1} under either reading (X moved
+    #1). lane/a, forked at X, puts #3 under #1 (L). `merge lane/b --into lane/a` (M) replays from X: Y's move closes #2
+    → #1 → #2 and is undone, L applies, N's #1 under #3 closes #1 → #3 → #1 and is undone; both keys stage and are
+    resolved to `ours` (#1 under #2, #2 at the root, #3 under #1). M's state differs from N's at #1, #2 and #3; of the
+    commits of A(N) \ A(L), Y has the step key #2 and N the step key #1 but moved nothing against its first parent, so
+    M's second-parent keys are {#2} under the literal reading and {#1, #2} under the recursive one. main then makes a
+    commit with no hierarchy entry and lane/a syncs: the sync replays Y, L, N and M from X, and Y's and N's moves are
+    undone again. Under the recursive reading M's step sets #1 under #2 and #2 at the root, both no-ops that apply, so
+    the sync lands lane/a's own hierarchy. Under the literal reading M's step sets only #2, #1's last move is N's undone
+    one, and the sync stages `#1.parent HierarchyCycle` on a key that main has not moved since X and that lane/a already
+    holds. The example is computed under RS-007 as spec sync 3 stated it, replaying from B; under the replay start of
+    (v) its merge M and the later sync replay from the fork instead, and the model test
+    `suite::vcs::a_merge_inside_the_merged_branch_counts_with_its_second_parent_keys` shows a step key that only the
+    recursive reading gives. The recursive reading keeps the boundary that MR-040's argument against the broad form
+    rests on, read as "a key some step of the merged branch sets": a side's own move that no step of the merged branch
+    sets keeps its (hlc, commit id). PR-016 and [F12 §7.1] name the history it reads.
     (ii) **A revert or a cherry-pick.** RS-007 replayed every step from B, and a pick's B = state(p₁(C)) is not where
     dst's commits start (nor a revert's B = state(C) when dst's commits since C do not all descend from C), so dst's own
     commits replayed from B could close a cycle they never met, even when C has no hierarchy entry. Example: lane/a puts
@@ -966,16 +976,16 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     sides hold #1 under #3. **Decided:** a move that sets its node's current value is never undone and does not make its
     key `kleppmann-skipped`. In the example only `#2.parent` stages, the sides' real disagreement; if ours then puts #2
     under #4 in a still later commit, nothing stages.
-    **Not decided** (spec sync 3). The owner or an arbiter decides these before the merge table's V3 signature and
-    before the engine implements RS-007; until then RS-007 stands as written, and the reference model follows it, with
-    the tests that pin its current results (E1, E2 and (vi) below). Owner question OQ-A-11, which the independent check of
-    spec sync 3 asked for before the merge table's V3 signature and before WP-91 closes, puts (v) with E1 to E4, (vi)
-    and the reading of "moved" in (i) to the owner; (iv) has no proposal yet and stays here. GT6's I25′ property over
-    random DAGs with interleaved sync and merge (M3) would meet E1 to E3, each a structural staging on a key that only one
-    side changed.
-    (iv) **`--base` and a virtual base.** Their steps still start from B, with the (0, 0) steps. A side's commits since
-    the chosen commit, or since an inner base, that do not all descend from it can close a cycle they never met. There
-    is no proposal yet.
+    (iv) **`--base` and a virtual base.** As spec sync 3 left them, their steps started from B, with the (0, 0) steps,
+    and a side's commits since the chosen commit, or since an inner base, that do not all descend from it could close a
+    cycle they never met. OQ-A-11 11.1 (B) is stated over A(B), which [F12 §5.2] defines for every base, so RS-007
+    applies its replay start to them as to a single-LCA base: the replay starts from state(R), R taken inside A(B) ∩
+    A(o) ∩ A(t), so every replayed commit descends from R; inside the recursive virtual base each virtual merge takes
+    the replay start of its own pair (VB-011, [F12 §5.3] VM-7), and a `--base` that names tip(dst) makes the merge
+    one-sided (A). The decision names (v) only; that (B) as stated covers (iv) too is the wave 3c reading, which the
+    arbiter's check of (B) confirms (`docs/spec/reviews/wave-3c-arbiter.md`). The (0, 0) step stays, for a side value
+    that no step of that side since R sets: the model's suite, its GT18 histories included, met no history in which it
+    is non-empty in wave 3c, and a proof that it never is would let a later spec sync drop it.
     (v) **The limit of the narrow form.** A two-parent commit re-asserts only keys that its second parent's branch
     moved. A key it kept from its first parent is not re-asserted, so when the replay undoes the first-parent side's
     move of that key, the key ends `kleppmann-skipped`. That happens when the move was made on a state that B does not
@@ -987,10 +997,10 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     RS-007-A).
     - **E1**, with no resolution: lane/x puts #2 under #3, then #1 under #2, then #2 back at the root; main puts #3
       under #1. `merge lane/x --into main`: step 0's sync lands clean (#1 under #2, #3 under #1), and its step holds
-      only #3. The merge then replays lane/x's moves from main's state, where #1 under #2 closes the cycle
-      #1 → #2 → #3 → #1 and is undone. Nothing re-asserts #1, so the merge stages `#1.parent HierarchyCycle`, although dst made no commit
-      since the base and main never moved #1. This is the default `merge --into main` on the most common workflow: a
-      structural staging on a key that one side never touched, against the intent of I25′.
+      only #3. The merge then replays lane/x's moves from main's state, where #1 under #2 closes the cycle #1 → #2 → #3
+      → #1 and is undone. Nothing re-asserts #1, so the merge stages `#1.parent HierarchyCycle`, although dst made no
+      commit since the base and main never moved #1. This is the default `merge --into main` on the most common
+      workflow: a structural staging on a key that one side never touched, against the intent of I25′.
     - **E2**: (i)'s example up to the sync, then lane/x puts #1 under #3: `merge lane/x --into main`, with main
       unchanged since the sync, replays lane/x's first move from B (main's move, #1 under #2), where it closes a cycle
       and is undone. The sync's step re-asserts only #1, which main moved, so the merge still stages `#2.parent
@@ -1002,30 +1012,94 @@ Each point names the rows it affects and the chapter or WP that owns the final t
       then puts #2 under #1 and later #1 under #3; `merge lane/b --into lane/a` stages `#2.parent` (lane/a's move closed
       the cycle), which is resolved to `ours`. Merging lane/a into an unmoved `main` replays lane/a's first move after
       lane/b's, undoes it again, and the merge commit's step re-asserts only #1.
-
-    The broad form of (i) re-asserts these keys, at the cost to MR-040 stated under (i). Proposed, not decided: (A) when
-    tip(dst) is B, every hierarchy key takes src's value without a replay. Such a merge is one-sided: dst touched no key
-    since the base, so I25′ forbids a conflict on any key, and (A) is what I25′ asks of a merge whose dst tip is B for
-    the hierarchy keys. It covers every merge into `main` after step 0's sync (VB-017), so E1, E2 and E4, but not a
-    `sync` or a merge between lanes (E3). (B) Start the replay from a commit that every commit of A(o) \ A(B) and of
-    A(t) \ A(B) descends from, and replay the commits of both sides since it, so that no commit is replayed on a state
-    it was not made on; this covers E1, E2 and E3, not E4. (C) The broad form of (i), which covers all four. (D) A
-    two-parent commit is also a step for each hierarchy key that its merge's resolutions set (the resolved keys of
-    [F12 §9.4] step 2), which needs those keys recorded with the commit; with (B) it covers all four without re-keying
-    the side's other moves.
+    The broad form of (i) re-asserts these keys, at the cost to MR-040 stated under (i). The options put to the owner
+    were (A) the one-sided merge, (B) the replay start, (C) the broad form of (i) and (D) a two-parent commit that is
+    also a step for each hierarchy key that its merge's resolutions set (the resolved keys of [F12 §9.4] step 2), which
+    needs those keys recorded with the commit: (A) covers E1, E2 and E4, (B) E1, E2 and E3, (C) all four, and (D) with
+    (B) all four without re-keying a side's other moves.
+    **Decided** (OQ-A-11 11.1: (A) together with (B)). (A): when the base's commit is tip(dst), every hierarchy key
+    takes src's value without a replay. Such a merge is one-sided: dst touched no key since the base, so I25′ forbids a
+    conflict on any key, and (A) is what I25′ asks of it for the hierarchy keys. It covers every merge of a branch into
+    `main` after step 0's sync, unless `--base` names a commit other than tip(main) (VB-017), so E1, E2 and E4. (B): the
+    replay starts from R, the greatest commit of A(B) ∩ A(o) ∩ A(t) that every other commit of A(o) ∪ A(t) descends from
+    or is an ancestor of (ε when none is), and replays the commits of both sides since R, so no commit is replayed on a
+    state that lacks the history it was made on; the commits that qualify are pairwise comparable, so R is unique, and
+    it is the base's commit whenever every commit since a single-LCA base descends from it, so (B) changes no merge
+    whose sides start at its base. It covers E1, E2 and E3. The decided words "(the commit the replay starts from,
+    chosen over a criss-cross as I31′ chooses a base)" need no choice under this statement (`wave-3c-arbiter.md`
+    W3C-ARB-8): a commit that every commit since B descends from is not enough, since the replay also takes the commits
+    of A(B) \ A(R), and they must descend from R too; with x and y off F, `main`'s C merging both, a lane forked at x
+    and synced at C, and one more commit on each side, the next sync's base is C and both F and x are commits every
+    commit since C descends from, but starting at x would replay y on state(x), which y was not made on, while R = F.
+    Over a criss-cross (L₁ and L₂ off C₂, merged into each other both ways) the LCAs are incomparable, so no LCA
+    qualifies and R = C₂, below both, with nothing to choose. The model's tests: E1
+    `suite::vcs::a_clean_sync_first_merge_into_main_takes_the_lanes_hierarchy`, E2
+    `suite::vcs::a_sync_resolved_to_ours_then_merged_into_an_unmoved_main_lands_the_lane`, E3
+    `suite::vcs::a_second_sync_after_a_sync_resolved_to_ours_lands_clean`, E4
+    `suite::vcs::a_merge_resolved_to_ours_then_merged_into_an_unmoved_main_lands_the_lane`, with the properties
+    `suite::vcs::a_lane_merged_into_an_unmoved_main_takes_its_hierarchy` (widened: lane/x may merge lane/y any number of
+    times, resolving to `ours`) and
+    `suite::vcs::a_lane_that_kept_its_own_moves_against_a_merged_lane_lands_on_an_unmoved_main`, and R against its
+    definition on random DAGs (`vcs::tests::the_replay_start_meets_its_definition_on_random_dags`). With (A) switched
+    off in the model, E1 to E3 still land through (B) and E4 stages, as OQ-A-11 expected, and the second property finds
+    E4's shape. Cost: R precedes every commit of both sides that does not descend from the base, so the replay of a lane
+    that has synced reaches back before its commits from before its last sync, to its fork point when `main` holds none
+    of its commits, and covers `main`'s commits since then, on every sync; each commit's step keys are still computed
+    once and kept (PR-016), but [AR §5a.7] step 3's daily-path bound (the LCA within 4k ops of a pin) does not bound the
+    replay, which the merge's work budget ([F12 §5.5a]; [F17 §4.4] W1, W2) must name and the engine must measure on a
+    long-lived lane when it implements RS-007 (`wave-3c-arbiter.md` W3C-ARB-10).
+    - **E5, still open**: E4's history on a two-sided merge. After E4's `merge lane/b --into lane/a`, resolved to
+      `ours`, `main` makes a commit with no hierarchy entry and lane/a syncs. The sync is not one-sided (lane/a made
+      commits since the base, the fork), and every commit descends from the fork, so R is the base and the replay meets
+      again the cycle the merge resolved: lane/a's #2 under #1 is undone, nothing re-asserts it, and the sync stages
+      `#2.parent HierarchyCycle`, although `main` never moved #2
+      (`suite::vcs::a_sync_after_a_merge_resolved_to_ours_stages_the_kept_move` pins it). The same happens on the path
+      "sync, resolve to `ours`, sync" when the lane's own move is the later one (`wave-3c-arbiter.md` W3C-ARB-2):
+      `main` puts #2 under #1; lane/x puts #1 under #2 and then #2 under #3; the sync undoes lane/x's first move and
+      stages `#1.parent`, resolved to `ours`, and its step re-asserts only #2; every later sync replays from the fork,
+      since lane/x's first move does not descend from its base, and stages `#1.parent` again, until the lane merges into
+      an unmoved `main`, which (A) makes one-sided
+      (`suite::vcs::a_sync_after_a_sync_that_kept_the_lanes_later_move_stages_it_on_every_sync`). (B) covers E3 only in
+      E3's order, where `main`'s move is the later one. The rule before wave 3c staged both shapes alike. E5 sits on two
+      daily paths, and GT6's I25′ property (M3) would meet it, a structural staging on a key that one side never
+      changed. (C), the broad form of (i), and (D), recording the keys a merge's resolutions
+      set, cover it; OQ-A-11 took neither. (D) is a format addition, so it can be taken only before the format freeze
+      (WP-81b) or in a later format version; the owner decides whether E5 is settled before the freeze.
+    - **E6, still open** (`wave-3c-arbiter.md` W3C-ARB-1): the replay from R stages a key that b, o and t all hold,
+      where the replay from B landed. Tasks #1 to #4; lane/y puts #2 under #3 (Y1); lane/x puts #1 under #3; `main` puts
+      #4 under #2; lane/x puts #3 under #4 (X2); `main` puts #2 under #1; `merge lane/x --into lane/y` lands; `sync
+      lane/x` stages `#2.parent`, resolved to `ours`. `merge lane/y --into lane/x` has the base X2, and b, o and t all
+      hold #3 under #4; Y1 does not descend from X2, so R is the fork; X2's and the cross merge's #3 under #4 each close
+      a cycle through #2 and are undone, the sync puts #2 at the root, and the merge stages `#3.parent HierarchyCycle`
+      with #3 at the root, a value none of b, o and t holds
+      (`suite::vcs::a_cross_lane_merge_after_a_resolved_sync_stages_a_key_all_three_states_hold`). The replay from B
+      lands it with lane/x's hierarchy, so (B) is not monotone against it: the arbiter's random search found three such
+      histories in 1,950, against nine where (B) lands what the replay from B stages, and none when every staging is
+      aborted rather than resolved. Against I25′ (#3 is untouched on both sides) and [F12 §7.2] ("a key equal in all
+      three keeps its value"), which RS-007 contradicts for hierarchy keys (W3C-ARB-3): until the owner decides, RS-007
+      decides every hierarchy key of a merged node and [F12 §7.2] names the exception. (C) covers E6 and (D) does not;
+      a hierarchy key equal in b, o and t that keeps its value and is never `kleppmann-skipped`, the replay deciding the
+      others with I37′'s cycle check as the backstop (W3C-ARB-3 (b)), covers it too and changes RS-007's results.
+    - **Hlc order.** A replayed commit's ancestors apply before it only if the (hlc, commit id) order puts them first:
+      [F06 §4.4.4] gives that for local, foreign and import-checkpoint commits, and a native import keeps the `hlc` its
+      origin store gave it by the same rule, but the importing store does not check it (W3C-ARB-7). Whether [F14]'s
+      import checks refuse a native commit whose `hlc` does not exceed each parent's is R-SPEC-R's to decide.
     (vi) **A move that changes only its node's order.** A hierarchy value is (parent, order), so a move that reorders a
     node under the same parent changes its node's value and can be undone, although a move that keeps its node's parent
     cannot close a cycle: the forest argument needs only the parent changes. Example, with #1's uid below #2's: the base
     has #1 under #3; ours (commit 10) puts #3 under #2; theirs (commit 20), in one transaction, gives #1 a new order
     under #3 and puts #2 under #1. Theirs' step closes the cycle #2 → #1 → #3 → #2. #1's reorder, the least uid on the
     cycle, is undone first, which leaves the cycle in place, and then #2's move: both `#1.parent` and `#2.parent` stage,
-    although both sides keep #1 under #3. Proposed (review RS-007-A): the undo takes the step's moves that changed their
-    node's parent; a move that keeps its node's parent and changes only its order closes no cycle and is never undone
-    (it never makes its key `kleppmann-skipped`). The example then stages only `#2.parent`, and #1 takes theirs' order.
-    This changes results beyond OQ-A-6 (a), so it needs an arbiter ruling or the owner's call (OQ-A-11); RS-007, MR-039,
-    CS-013 and [F12 §7.4]'s row would change together.
-    **The recommendation R-MODEL gives in OQ-A-11**: for (v), (A) together with (B), which cover E1 to E4 between them without re-keying a side's moves and without a
-    format addition, (B) being stated exactly by R-MODEL (the commit the replay starts from, chosen over a criss-cross as
-    I31′ chooses a base) and checked by the arbiter before the V3 signature; (A) alone if (B) cannot be stated before
-    then, leaving E3 recorded here; for (vi), the undo of only the moves that changed their node's parent; for (i), the
-    recursive reading.
+    although both sides keep #1 under #3. **Decided** (OQ-A-11 11.2 (a)): the undo takes only the step's moves that
+    changed their node's parent; a move that keeps its node's parent and changes only its order closes no cycle, is
+    never undone and never makes its key `kleppmann-skipped`. The example now stages only `#2.parent`, and #1 takes
+    theirs' order (`merge::tests::a_cycle_closing_step_never_undoes_an_order_only_move`).
+    **Decision record** (2026-10-06, [AR §11] OQ-A-11, "record it as recommended"): 11.1 (A) together with (B), with (A)
+    alone as the fallback if (B) could not be stated exactly before the merge table's V3 signature; 11.2 (a); 11.3 (a).
+    Wave 3c applied it: RS-007, MR-039, MR-040, CS-013, PR-016, VB-011, open point 15 and this point; [F12 §5.3] VM-7,
+    [F12 §7.1] and [F12 §7.4]'s row "Kleppmann steps"; and the model (`Dag::replay_start`, the one-sided merge in
+    `plan_merge`, the parent-only undo in `kleppmann`). A spec arbiter checked the statement before the V3 signature
+    (`docs/spec/reviews/wave-3c-arbiter.md`) and ruled that (B) is stated exactly, so the fallback was not needed, and
+    that its use for `--base` and the virtual base ((iv)) is within the decision. The check stays open on three findings
+    for the owner before the V3 signature: E6 (W3C-ARB-1), E5's second shape (W3C-ARB-2), and which rule decides a
+    hierarchy key equal in b, o and t (W3C-ARB-3); its minor findings are applied (`spec-sync-3c.md`).

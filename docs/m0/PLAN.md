@@ -158,14 +158,14 @@ docs/
 fixtures/    hex/ (+ INDEX.md), canonical/, carrier/, moi/, r4/, lq/ (+ std/*.lq), gt10/, lqbench/, ucd/17.0.0/
 .githooks/   pre-commit, commit-msg
 .github/workflows/  pr.yml (PR and master-push checks), noise.yml (manual: hosted-runner noise band, idle or synthetic load)
-.claude/settings.json  (tracked; attribution off, A2)
+.claude/     settings.json (tracked; attribution off, A2), agents/ (stage-role agents), workflows/ (the unit workflow)
 private/     gitignored owner data: corpora/r4/, lqbench/, gt10/, hdr/, load/, codec-bodies/, measurements/, nightly/,
              windows.toml (agreed windows), MANIFEST.b3 (file BLAKE3, 8-word shingle hashes of text files, tree digest)
 ```
 
 - **Hook installation.** The owner runs two commands once per clone: `git config core.hooksPath <absolute path of the main worktree>/.githooks` and `git config moirai.private-guard true`.
 - **`.gitattributes`.** It holds `* text=auto eol=lf`, `fixtures/** -text`, `**/testdata/** -text` and `*.cmd *.bat *.ps1 text eol=crlf`. Byte-exact test inputs (CRLF, `^Z`) live only under `fixtures/` or a `testdata/` directory. The gate checks that every non-ASCII `.ps1` carries a UTF-8 BOM.
-- **`.gitignore` additions.** `mutants.out*/`, `fuzz/corpus/`, `fuzz/artifacts/`, `fuzz/target/`, `*.etl`, `graphify-out/`, and `/.claude/*` with `!/.claude/settings.json`.
+- **`.gitignore` additions.** `mutants.out*/`, `fuzz/corpus/`, `fuzz/artifacts/`, `fuzz/target/`, `*.etl`, `graphify-out/`, and `/.claude/*` with `!/.claude/settings.json`, `!/.claude/agents/` and `!/.claude/workflows/`.
 
 ## 3. Work packages
 
@@ -603,7 +603,37 @@ options everywhere"). This block is the plan issue that records them; the PLAN r
   merge table's V3 signature. 11.2: the undo takes only moves that change their node's parent. 11.3: "moved" reads
   "is a step key of", recursively. Wave 3c applies it (R-MODEL: the rules, PR-016 and the model, with tests for E1 to E4
   and the order-only case; R-SPEC-F: [F12 §7.1] and §7.4; a spec arbiter checks (B)) before the V3 signature and before
-  the engine implements RS-007.
+  the engine implements RS-007. Outcome (wave 3c, `docs/spec/reviews/spec-sync-3c.md`): applied with (B), not the
+  fallback; the spec arbiter ruled (B) exact and its use for `--base` and the virtual base within the decision
+  (`docs/spec/reviews/wave-3c-arbiter.md`); E1 to E4 and the order-only case land. Three findings stay open for the
+  owner before the V3 signature: OQ-A-12 below.
+- **OQ-A-12, decided the same day after wave 3c** ("Согласно рекомендации запиши", "record it as recommended";
+  `docs/spec/reviews/owner-questions.md`). After OQ-A-11, a `sync`
+  after a resolution to `ours` that kept a side's cycle-closing move still stages (E5, on two daily paths), a
+  cross-lane merge can stage a key that b, o and t all hold, where the replay from B landed (E6), and [F12 §7.2]'s "a
+  key equal in all three keeps its value" disagrees with RS-007 for hierarchy keys. Decided: (b) such a key keeps its
+  value, together with (c) a merge's resolved hierarchy keys as derived step keys. Wave 3d applies it before the merge
+  table's V3 signature and before the engine implements RS-007: R-MODEL prototypes both in the model, with the
+  arbiter's lockstep random search as the acceptance (E5 in both shapes and E6 land, no history stages that the replay
+  from B lands, the cycle backstop of (b) never needed or its rule stated), and changes RS-007 and open point 35;
+  R-SPEC-F changes [F12 §7.2] and the §7.4 row; a spec arbiter re-runs the search. If (c) cannot be made exact, (d),
+  recording those keys, a format addition, is the fallback and is decided before the format freeze (WP-81b).
+  Outcome (wave 3d, `docs/spec/reviews/wave-3d-verify.md`): the prototype does not meet the acceptance. A comparison
+  of three alternatives on one evaluation harness (`docs/spec/reviews/wave-3d-alternatives.md`; the harness and the
+  recommended candidate are in the model as the test-only rule `merge::Rule::Cand`) found that every replay variant
+  leaves avoidable stagings and silent wrong landings: OQ-A-13 below.
+- **OQ-A-13, asked and decided 2026-10-07** ("Рекомендации", "the recommendations";
+  `docs/spec/reviews/owner-questions.md`). Replace RS-007's replay for hierarchy keys with K2 `threeway` (a per-key
+  three-way rule, the later origin on a two-sided key, an exact cycle repair; 1 oracle fault in 12,000 histories against
+  1,785 to 1,846 for the replays, no format addition), or keep a replay (K4, the fallback; K3; or RS-007 as it stands
+  with I25′ amended). Five further calls: "touched" in I25′, a two-sided key's skipped cycle-closing move (MR-039),
+  "later" in MR-040, a reparent against a concurrent reorder, and the acceptance. Due before the merge table's V3
+  signature and before the engine implements RS-007; the rules, [F12], [AR] and model changes follow the decision.
+  Decided as recommended: K2 with its exactness fixes (K4 the fallback), "touched" by state, a hint for a skipped
+  two-sided move and a staging under `--strict`, MR-040 by original origins, a reparent beats a concurrent reorder, and
+  the absolute acceptance on a widened oracle. Wave 3e applies it: R-MODEL prototypes the hint, `--strict` and the
+  reparent rule in K2 and widens the harness, makes K2 the model's rule and removes the replay machinery; R-MODEL,
+  R-SPEC-F and WP-81a rewrite the texts the decision names; a spec arbiter re-runs the widened harness.
 - **Next steps.** The owner runs a memory test before wave 3b: the host had about ten blue screens from 2026-08-17 to
   2026-09-30 with varied codes, the pattern of faulty RAM or an unstable XMP/EXPO profile. Wave 3b follows. (The owner
   declined the memory test the same day; wave 3b ran and was merged.)

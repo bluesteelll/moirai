@@ -808,9 +808,20 @@ impl Markers {
         )
     }
 
-    /// Every marker row, `MARKERS` then `MARKERS_OLD`.
+    /// Every marker row, ascending by identity (`#N`, origin ref, origin commit) whichever section holds it: the order
+    /// of `MARKERS`, whose sort key `MARKERS_OLD` shares ([F11 §7]). ME-012's move changes only a row's storage layer,
+    /// so the rules that scan the rows (ME-005, ME-011) write their entries in the order a store without a fold
+    /// writes them, and the fold reaches no record nor, through a record's entry order, the change feed
+    /// ([LQ/std §2.15] "Ties"; [API §2.5] DT-2). The model holds an identity in one section at most.
+    // spec: [F11 §7]
+    // rule: ME-012
     pub fn rows(&self) -> impl Iterator<Item = &Marker> {
-        self.hot.values().chain(self.old.values())
+        let (mut hot, mut old) = (self.hot.values().peekable(), self.old.values().peekable());
+        std::iter::from_fn(move || match (hot.peek(), old.peek()) {
+            (Some(h), Some(o)) if o.key < h.key => old.next(),
+            (Some(_), _) => hot.next(),
+            (None, _) => old.next(),
+        })
     }
 
     /// The facts [`Markers::record_commit`] recorded for a commit: the nodes whose (hold, origin) differs from its first

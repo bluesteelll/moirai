@@ -790,7 +790,9 @@ pub(crate) fn query_violations(
 }
 
 /// The identities a stored definition's portable text binds against ([LQ/canonical-ast §8.1]: it names nodes by uid):
-/// every node of the state, tombstones included, with its kind when it is live.
+/// every node of the state, tombstones included, with its kind when it is live. A merge candidate's uids new to the
+/// store hold the provisional `#N`s of [`crate::merge::Fresh`] at the top of the id space until the landing renumbers
+/// them; since the text names nodes by uid, the `#N` a node holds changes no binding.
 pub(crate) fn state_ids(st: &State) -> crate::lq::ctx::MapIds {
     let mut ids = crate::lq::ctx::MapIds::new();
     for (n, x) in &st.nodes {

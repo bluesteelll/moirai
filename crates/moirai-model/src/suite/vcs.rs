@@ -1435,19 +1435,12 @@ fn step_of(s: &S, c: u64, base: Option<u64>) -> Vec<(Nid, Option<Nid>)> {
         .unwrap_or_default()
 }
 
-/// The WP-91 closure's P7, example E2 of [RULES/merge-table] open point 35 case (v) ([RULES/merge-table] RS-007;
-/// [F12 §7.4] row "Kleppmann steps"; not decided, spec sync 3). lane/x put #2 under #1 (L₁), then main put #1 under #2;
-/// `sync lane/x` stages `#1.parent HierarchyCycle`, which is resolved to `ours` and continued (the lane: #1 at the
-/// root, #2 under #1; the sync commit's first-parent changeset has no hierarchy entry). The sync's step re-asserts only
-/// #1, the key main moved and the sync kept against it ([RULES/merge-table] open point 35 case (i) in its narrow form,
-/// [AR §11] OQ-A-6 (a)). lane/x then moves #1 under #3 (L₂). `merge lane/x --into main`, with main unchanged since the
-/// sync (o = b, #1 under #2), replays lane/x's steps from b: L₁ (#2 under #1) closes a cycle with b's #1 under #2 and
-/// is undone, the sync's step puts #1 back at the root, and L₂ applies. Nothing re-asserts #2, so the merge stages
-/// `#2.parent HierarchyCycle` with #1 under #3 and #2 at the root, although lane/x holds #2 under #1 and main never
-/// moved #2: the limit of the narrow form, left open. `resolve --take theirs` on the key then lands the lane's
-/// hierarchy.
-#[test]
-fn a_sync_resolved_to_ours_then_merged_stages_the_undone_lane_move() {
+/// The history of examples E2 and E3 of [RULES/merge-table] open point 35 case (v), the WP-91 closure's P7. lane/x puts
+/// #2 under #1 (Y), then main puts #1 under #2 (X); `sync lane/x` stages `#1.parent HierarchyCycle`, which is resolved
+/// to `ours` and continued (N: #1 at the root, #2 under #1; its first-parent changeset has no hierarchy entry). N's step
+/// re-asserts only #1, the key main moved and the sync kept against it ([RULES/merge-table] open point 35 case (i) in
+/// its narrow form, [AR §11] OQ-A-6 (a)). lane/x then moves #1 under #3 (Z).
+fn synced_to_ours_then_moved() -> S {
     let mut s = S::base();
     s.ok(
         tx(vec![
@@ -1489,29 +1482,71 @@ fn a_sync_resolved_to_ours_then_merged_stages_the_undone_lane_move() {
         "the sync's step re-asserts #1, which main moved, and not #2"
     );
     s.ok(mv(1, Some(3)), fresh_on("lane/x"));
-    let before = tip(&s, "main");
+    s
+}
+
+/// Example E2 of [RULES/merge-table] open point 35 case (v) ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann
+/// steps"; decided by [AR §11] OQ-A-11 11.1 (A)). On [`synced_to_ours_then_moved`]'s history, `merge lane/x --into
+/// main`, with main unchanged since the sync, is one-sided: its base is X = tip(main), so every hierarchy key takes
+/// lane/x's value with no replay, and the merge lands with #1 under #3 and #2 under #1. Before the decision it replayed
+/// lane/x's commits from X, where Y's move (#2 under #1) closed a cycle with X's #1 under #2 and was undone, and since
+/// N re-asserts only #1 the merge staged `#2.parent HierarchyCycle`, although lane/x holds #2 under #1 and main never
+/// moved #2.
+#[test]
+fn a_sync_resolved_to_ours_then_merged_into_an_unmoved_main_lands_the_lane() {
+    let mut s = synced_to_ours_then_moved();
+    let lane = parents_12(&s, "lane/x");
+    assert_eq!(lane, (Some(Nid(3)), Some(Nid(1))));
+    let x = tip(&s, "main").unwrap();
     let r = s.run(merge("lane/x", "main"), fresh_on("main"));
-    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
     let d = data(&r);
     assert!(d.sync.is_none(), "main did not move since the sync");
-    assert!(d.conflicts.is_empty(), "{:?}", d.conflicts);
-    assert_eq!(violations(d), vec![("#2.parent", "HierarchyCycle")]);
-    let g = d.staging_ref.clone().expect("G");
-    assert_eq!(g, "merge/main/from/lane/x");
-    assert_eq!(
-        parents_12(&s, &g),
-        (Some(Nid(3)), None),
-        "the staged candidate"
+    assert_eq!(d.outcome, "landed");
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
     );
-    assert_eq!(tip(&s, "main"), before, "dst did not move");
-    s.ok(resolve("#2.parent", Take::Theirs), fresh_on(&g));
-    let r = s.run(continue_("lane/x", "main"), fresh_on("main"));
+    assert_eq!(d.lca, vec![x], "the base is X = tip(main)");
+    assert_eq!(parents_12(&s, "main"), lane);
+    ids_verify(&s);
+}
+
+/// Example E3 of [RULES/merge-table] open point 35 case (v), the daily path "sync, resolve, keep working, sync"
+/// ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann steps"; decided by [AR §11] OQ-A-11 11.1 (B)). On
+/// [`synced_to_ours_then_moved`]'s history, main sets #3.priority (W, no hierarchy entry) and lane/x syncs again. The
+/// sync is two-sided and its base is X, but Y does not descend from X, so the replay starts from the fork F, the
+/// greatest commit every other commit of both sides descends from or precedes: Y puts #2 under #1, X's #1 under #2
+/// closes a cycle and is undone, N's step puts #1 back at the root (a move that keeps its parent, never undone), Z puts
+/// #1 under #3, and W moves nothing. The sync lands with lane/x's hierarchy. Before the decision it replayed from X, as
+/// E2's merge did, and staged `#2.parent HierarchyCycle`.
+#[test]
+fn a_second_sync_after_a_sync_resolved_to_ours_lands_clean() {
+    let mut s = synced_to_ours_then_moved();
+    let x = tip(&s, "main").unwrap();
+    let lane = parents_12(&s, "lane/x");
+    s.ok(tx(vec![set(3, &[("priority", P::Int(1))])]), orch());
+    let r = s.run(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check: false,
+        },
+        fresh_on("lane/x"),
+    );
     assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
     let d = data(&r);
     assert_eq!(d.outcome, "landed");
-    assert!(d.violations.is_empty(), "{:?}", d.violations);
-    assert_eq!(parents_12(&s, "main"), (Some(Nid(3)), Some(Nid(1))));
-    assert!(s.st.dag.live(&g).is_none(), "G is deleted");
+    assert_eq!(d.lca, vec![x], "the base is X, main's first move");
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
+    assert_eq!(parents_12(&s, "lane/x"), lane);
+    assert_eq!(field(&s, "lane/x", 3, "priority"), prio("P1"));
     ids_verify(&s);
 }
 
@@ -1698,16 +1733,17 @@ fn a_revert_or_cherry_pick_of_a_move_replays_the_origins_step() {
     ids_verify(&s);
 }
 
-/// [RULES/merge-table] open point 35 (v), example E1: the default path into `main`, with no resolution (RS-007 as
-/// written; not decided, spec sync 3). lane/x puts #2 under #3, then #1 under #2, then #2 back at the root; main then
-/// puts #3 under #1. `merge lane/x --into main` runs step 0's sync, which replays the four moves from the fork and lands
-/// clean (#1 under #2, #3 under #1). Its step holds only #3, the key main moved, which the sync took unchanged. The
-/// merge then replays lane/x's moves from main's state, where #3 is under #1: #1 under #2 closes the cycle
-/// #1 → #2 → #3 → #1 and is undone, and nothing re-asserts it, so the merge stages `#1.parent HierarchyCycle`, although
-/// dst made no commit since the base, lane/x holds #1 under #2 and main never moved #1. Proposals (A), (B) and (C) of
-/// open point 35 land it with lane/x's hierarchy.
+/// [RULES/merge-table] open point 35 (v), example E1: the default path into `main`, with no resolution
+/// ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann steps"; decided by [AR §11] OQ-A-11 11.1 (A)). lane/x puts #2
+/// under #3, then #1 under #2, then #2 back at the root; main then puts #3 under #1. `merge lane/x --into main` runs step
+/// 0's sync, which replays the four moves from the fork and lands clean (#1 under #2, #3 under #1). Its step holds only
+/// #3, the key main moved, which the sync took unchanged. The merge itself is one-sided, since its base is tip(main),
+/// so every hierarchy key takes the synced lane's value with no replay, and it lands with lane/x's hierarchy. Before
+/// the decision it replayed lane/x's moves from main's state, where #3 is under #1: #1 under #2 closed the cycle
+/// #1 → #2 → #3 → #1 and was undone, and nothing re-asserted it, so the merge staged `#1.parent HierarchyCycle`,
+/// although dst made no commit since the base and main never moved #1.
 #[test]
-fn a_clean_sync_first_merge_into_main_stages_an_undone_lane_move() {
+fn a_clean_sync_first_merge_into_main_takes_the_lanes_hierarchy() {
     let mut s = S::base();
     s.ok(
         tx(vec![
@@ -1723,24 +1759,311 @@ fn a_clean_sync_first_merge_into_main_stages_an_undone_lane_move() {
     s.ok(mv(2, None), orch_on("lane/x"));
     s.ok(mv(3, Some(1)), orch());
     let r = s.run(merge("lane/x", "main"), fresh_on("main"));
-    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
     let d = data(&r);
     let sync = d.sync.as_ref().expect("step 0's sync");
     assert_eq!(sync.outcome, "landed");
     assert!(sync.violations.is_empty() && sync.conflicts.is_empty());
     let lane = state(&s, "lane/x");
+    let want = vec![Some(Nid(2)), None, Some(Nid(1))];
     assert_eq!(
         (1..=3)
             .map(|n| lane.nodes[&Nid(n)].parent)
             .collect::<Vec<_>>(),
-        vec![Some(Nid(2)), None, Some(Nid(1))]
+        want
     );
     let sc = tip(&s, "lane/x").unwrap();
     assert_eq!(
-        step_of(&s, sc, tip(&s, "main")),
+        step_of(&s, sc, s.st.dag.commits[&sc].parents.get(1).copied()),
         vec![(Nid(3), Some(Nid(1)))]
     );
-    assert_eq!(violations(d), vec![("#1.parent", "HierarchyCycle")]);
+    assert_eq!(d.outcome, "landed");
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
+    let main = state(&s, "main");
+    assert_eq!(
+        (1..=3)
+            .map(|n| main.nodes[&Nid(n)].parent)
+            .collect::<Vec<_>>(),
+        want
+    );
+    ids_verify(&s);
+}
+
+/// Example E4 of [RULES/merge-table] open point 35 case (v), a history whose commits all descend from the base
+/// ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann steps"; decided by [AR §11] OQ-A-11 11.1 (A)). lane/b puts #1
+/// under #2; lane/a, forked at the same commit, then puts #2 under #1 and later #1 under #3; `merge lane/b --into
+/// lane/a` stages `#2.parent` (lane/a's move closed the cycle), which is resolved to `ours`, so the merge commit M keeps
+/// lane/a's #2 under #1; M's step re-asserts #1, which lane/b moved, and #2, the key its resolution set (a resolved key,
+/// [AR §11] OQ-A-12 (c)). Merging lane/a into an unmoved `main` is
+/// one-sided (its base is tip(main)) and lands with lane/a's hierarchy. Before the decision it replayed lane/a's first
+/// move after lane/b's, undid it again, and staged `#2.parent`; the replay start of 11.1 (B) alone does not cover E4,
+/// since every commit here descends from the base and the replay is the one M already resolved.
+#[test]
+fn a_merge_resolved_to_ours_then_merged_into_an_unmoved_main_lands_the_lane() {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("a", "task a"),
+            task("b", "task b"),
+            task("c", "task c"),
+        ]),
+        orch(),
+    );
+    let f = tip(&s, "main");
+    for l in ["a", "b"] {
+        s.ok(branch(l, "main"), orch());
+    }
+    s.ok(mv(1, Some(2)), orch_on("lane/b"));
+    s.ok(mv(2, Some(1)), orch_on("lane/a"));
+    s.ok(mv(1, Some(3)), orch_on("lane/a"));
+    let r = s.run(merge("lane/b", "lane/a"), fresh_on("lane/a"));
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    assert_eq!(violations(data(&r)), vec![("#2.parent", "HierarchyCycle")]);
+    let g = "merge/lane/a/from/lane/b";
+    s.ok(resolve("#2.parent", Take::Ours), fresh_on(g));
+    let r = s.run(continue_("lane/b", "lane/a"), fresh_on("lane/a"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let m = tip(&s, "lane/a").unwrap();
+    assert_eq!(s.st.dag.commits[&m].parents.len(), 2);
+    let lane = parents_12(&s, "lane/a");
+    assert_eq!(lane, (Some(Nid(3)), Some(Nid(1))));
+    assert_eq!(
+        step_of(&s, m, f),
+        vec![(Nid(1), Some(Nid(3))), (Nid(2), Some(Nid(1)))],
+        "M re-asserts #1, which lane/b moved, and #2, its resolved key"
+    );
+    let r = s.run(merge("lane/a", "main"), fresh_on("main"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let d = data(&r);
+    assert!(d.sync.is_none(), "main did not move since the fork");
+    assert_eq!(d.outcome, "landed");
+    assert_eq!(d.lca, f.into_iter().collect::<Vec<_>>());
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
+    assert_eq!(parents_12(&s, "main"), lane);
+    ids_verify(&s);
+}
+
+/// E5 of [RULES/merge-table] open point 35 (v), E4's history on a two-sided merge ([RULES/merge-table] RS-007; [F12
+/// §7.4] row "Kleppmann steps"; decided by [AR §11] OQ-A-12 (c)). lane/b puts #1 under #2; lane/a, forked at the same
+/// commit F, puts #2 under #1 and later #1 under #3; `merge lane/b --into lane/a` stages `#2.parent`, which is resolved
+/// to `ours`, so the merge M keeps lane/a's #2 under #1. main then sets #3.priority, a commit with no hierarchy entry,
+/// and lane/a syncs. The sync is two-sided and its replay starts from F, so it meets the cycle M resolved again:
+/// lane/a's #2 under #1 is undone, but M's step re-asserts #2, its resolved key (the key where M's state differs from
+/// the candidate of its own merge), after lane/b's move, and the sync lands with lane/a's hierarchy. Under OQ-A-11
+/// alone M re-asserted only #1, and the sync staged `#2.parent HierarchyCycle`, although main never moved #2.
+#[test]
+fn a_sync_after_a_merge_resolved_to_ours_lands_the_kept_move() {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("a", "task a"),
+            task("b", "task b"),
+            task("c", "task c"),
+        ]),
+        orch(),
+    );
+    let f = tip(&s, "main");
+    for l in ["a", "b"] {
+        s.ok(branch(l, "main"), orch());
+    }
+    s.ok(mv(1, Some(2)), orch_on("lane/b"));
+    s.ok(mv(2, Some(1)), orch_on("lane/a"));
+    s.ok(mv(1, Some(3)), orch_on("lane/a"));
+    let r = s.run(merge("lane/b", "lane/a"), fresh_on("lane/a"));
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    let g = "merge/lane/a/from/lane/b";
+    s.ok(resolve("#2.parent", Take::Ours), fresh_on(g));
+    let r = s.run(continue_("lane/b", "lane/a"), fresh_on("lane/a"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let lane = parents_12(&s, "lane/a");
+    assert_eq!(lane, (Some(Nid(3)), Some(Nid(1))));
+    let m = tip(&s, "lane/a").unwrap();
+    assert_eq!(
+        s.st.dag.resolved_keys(m, &s.st.alloc),
+        [Nid(2)].into_iter().collect(),
+        "M's resolution set #2"
+    );
+    s.ok(tx(vec![set(3, &[("priority", P::Int(1))])]), orch());
+    let r = s.run(
+        Cmd::Sync {
+            lane: Some("lane/a".into()),
+            check: false,
+        },
+        fresh_on("lane/a"),
+    );
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let d = data(&r);
+    assert_eq!(d.outcome, "landed");
+    assert_eq!(d.lca, f.into_iter().collect::<Vec<_>>());
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
+    assert_eq!(parents_12(&s, "lane/a"), lane);
+    ids_verify(&s);
+}
+
+/// E5 of [RULES/merge-table] open point 35 (v) on the path "sync, resolve to `ours`, sync", in the order where the
+/// lane's own move is the later one (`wave-3c-arbiter.md` W3C-ARB-2; RS-007; [F12 §7.4] row "Kleppmann steps"; decided
+/// by [AR §11] OQ-A-12 (c)). main puts #2 under #1 (X); lane/x puts #1 under #2 (Y), then #2 under #3; `sync lane/x`
+/// replays X, then Y, which closes #1 → #2 → #1 and is undone, and stages `#1.parent`, a real disagreement; resolved to
+/// `ours`, the sync N lands, and its step re-asserts #2, the key main moved, and #1, its resolved key. Each later sync,
+/// after main makes a commit with no hierarchy entry, replays from the fork, since Y does not descend from its base,
+/// undoes Y again, and N's step puts #1 back under #2: the sync lands with lane/x's hierarchy. Under OQ-A-11 alone every
+/// later sync staged `#1.parent HierarchyCycle` again, although main never moved #1.
+#[test]
+fn a_sync_after_a_sync_that_kept_the_lanes_later_move_lands_every_later_sync() {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("a", "task a"),
+            task("b", "task b"),
+            task("c", "task c"),
+        ]),
+        orch(),
+    );
+    let f = tip(&s, "main");
+    s.ok(branch("x", "main"), orch());
+    s.ok(mv(2, Some(1)), orch());
+    s.ok(mv(1, Some(2)), orch_on("lane/x"));
+    s.ok(mv(2, Some(3)), orch_on("lane/x"));
+    let sync = |s: &mut S| {
+        s.run(
+            Cmd::Sync {
+                lane: Some("lane/x".into()),
+                check: false,
+            },
+            fresh_on("lane/x"),
+        )
+    };
+    for round in 0..3 {
+        if round > 0 {
+            s.ok(
+                tx(vec![set(3, &[("priority", P::Int(round))])]),
+                fresh_on("main"),
+            );
+        }
+        let r = sync(&mut s);
+        if round == 0 {
+            assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+            assert_eq!(violations(data(&r)), vec![("#1.parent", "HierarchyCycle")]);
+            let g = "merge/lane/x/from/main";
+            s.ok(resolve("#1.parent", Take::Ours), fresh_on(g));
+            let r = s.run(continue_("main", "lane/x"), fresh_on("lane/x"));
+            assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+            let n = tip(&s, "lane/x").unwrap();
+            assert!(
+                s.st.dag.resolved_keys(n, &s.st.alloc).contains(&Nid(1)),
+                "N's resolution set #1"
+            );
+        } else {
+            assert_eq!(r.outcome, Outcome::Ok, "round {round}: {:?}", r.error);
+            let d = data(&r);
+            assert_ne!(
+                d.lca,
+                f.into_iter().collect::<Vec<_>>(),
+                "the base moves on"
+            );
+            assert!(
+                d.violations.is_empty() && d.conflicts.is_empty(),
+                "round {round}: {:?} {:?}",
+                d.violations,
+                d.conflicts
+            );
+        }
+        assert_eq!(parents_12(&s, "lane/x"), (Some(Nid(2)), Some(Nid(3))));
+    }
+    ids_verify(&s);
+}
+
+/// E6 of [RULES/merge-table] open point 35 (v) (`wave-3c-arbiter.md` W3C-ARB-1; RS-007; [F12 §7.2], §7.4 row
+/// "Kleppmann steps"; decided by [AR §11] OQ-A-12 (b)). Tasks #1 to #4; lane/y puts #2 under #3 (Y1); lane/x puts #1
+/// under #3 (X1); main puts #4 under #2 (M1); lane/x puts #3 under #4 (X2); main puts #2 under #1 (M2); `merge lane/x
+/// --into lane/y` lands (MY); `sync lane/x` stages `#2.parent`, which is resolved to `ours` (N). `merge lane/y --into
+/// lane/x` has the base X2, and b, o and t all hold #3 under #4; Y1 does not descend from X2, so R is the fork. A key
+/// equal in b, o and t keeps its value and is never `kleppmann-skipped`, so #3 stays under #4 and the merge lands.
+/// Under OQ-A-11 alone the replay undid X2's and MY's #3 under #4 (each closes a cycle through #2) and the merge staged
+/// `#3.parent HierarchyCycle` with #3 at the root, a value none of b, o and t holds.
+#[test]
+fn a_cross_lane_merge_after_a_resolved_sync_keeps_a_key_all_three_states_hold() {
+    let mut s = S::base();
+    s.ok(
+        tx((1..=4)
+            .map(|i| task(&format!("t{i}"), &format!("task {i}")))
+            .collect()),
+        orch(),
+    );
+    let f = tip(&s, "main");
+    for l in ["x", "y"] {
+        s.ok(branch(l, "main"), orch());
+    }
+    s.ok(mv(2, Some(3)), orch_on("lane/y"));
+    s.ok(mv(1, Some(3)), orch_on("lane/x"));
+    s.ok(mv(4, Some(2)), orch());
+    let x2 = s.ok(mv(3, Some(4)), orch_on("lane/x")).commit.expect("X2");
+    s.ok(mv(2, Some(1)), orch());
+    let r = s.ok(merge("lane/x", "lane/y"), fresh_on("lane/y"));
+    assert_eq!(data(&r).outcome, "landed");
+    let r = s.run(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check: false,
+        },
+        fresh_on("lane/x"),
+    );
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    assert_eq!(violations(data(&r)), vec![("#2.parent", "HierarchyCycle")]);
+    s.ok(
+        resolve("#2.parent", Take::Ours),
+        fresh_on("merge/lane/x/from/main"),
+    );
+    let r = s.run(continue_("main", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let three = |s: &S, r: &str| state(s, r).nodes[&Nid(3)].parent;
+    assert_eq!(three(&s, "lane/x"), Some(Nid(4)));
+    assert_eq!(three(&s, "lane/y"), Some(Nid(4)));
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let d = data(&r);
+    assert_eq!(d.outcome, "landed");
+    assert_eq!(d.lca, vec![x2]);
+    assert_eq!(
+        s.st.dag.replay_start(
+            &s.st.dag.ancestors(tip(&s, "lane/x")),
+            &s.st.dag.ancestors(tip(&s, "lane/y")),
+            &s.st.dag.ancestors(Some(x2)),
+        ),
+        f,
+        "R is the fork"
+    );
+    assert_eq!(
+        state(&s, "main").nodes[&Nid(3)].parent,
+        None,
+        "main never moved #3"
+    );
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
+    assert_eq!(
+        three(&s, "lane/x"),
+        Some(Nid(4)),
+        "the kept key keeps its value"
+    );
     ids_verify(&s);
 }
 
@@ -2086,13 +2409,16 @@ fn a_no_op_move_in_a_cycle_closing_step_is_never_undone() {
     ids_verify(&s);
 }
 
-/// [RULES/merge-table] RS-007's step keys of a two-parent commit, "moved" read as "is a step key of" ([RULES/merge-table]
-/// open point 35 case (i), spec sync 3): a merge inside the merged branch counts with its own second-parent keys. Lanes
-/// a, b and c fork from main. lane/c puts #3 under #1 (C₁); lane/b then puts #1 under #3 (Z); lane/a sets #4.priority
-/// and merges lane/b, taking Z's move. `merge lane/b --into lane/c` replays C₁ and then Z, which closes a cycle; the key
-/// `#1.parent` is resolved to `ours`, so the merge M_z keeps #1 at the root against Z's move, and #1 is one of M_z's
-/// second-parent keys. lane/a then puts #1 under #2. `merge lane/c --into lane/a` (base Z) undoes C₁'s move (made on a
-/// state the base does not hold, open point 35 (v)), stages `#3.parent` and lands once it is resolved to `theirs`. Its
+/// [RULES/merge-table] RS-007's step keys of a two-parent commit, "moved" read as "is a step key of", recursively
+/// ([RULES/merge-table] open point 35 case (i); decided by [AR §11] OQ-A-11 11.3 (a)): a merge inside the merged branch
+/// counts with its own second-parent keys. Lanes a, b and c fork from main at F. lane/c puts #3 under #1 (C₁); lane/b
+/// then puts #1 under #3 (Z); lane/a sets #4.priority and merges lane/b, taking Z's move. `merge lane/b --into lane/c`
+/// replays C₁ and then Z, which closes a cycle; the key `#1.parent` is resolved to `ours`, so the merge M_z keeps #1 at
+/// the root against Z's move, and #1 is one of M_z's second-parent keys. lane/a then puts #1 under #2. `merge lane/c
+/// --into lane/a` has the base Z, which C₁ does not descend from, so its replay starts from F (11.1 (B)): C₁ applies,
+/// Z's move and lane/a's merge of it close a cycle and are undone, M_z's step keeps #1 at the root (a move that keeps
+/// its parent), and lane/a's #1 under #2 applies, so the merge lands clean with #1 under #2 and #3 under #1. Replayed
+/// from Z, as before the decision, C₁ was undone on a state it was not made on and the merge staged `#3.parent`. Its
 /// commit M keeps lane/a's #1 under #2 against M_z's value. The commits of A(p₂) \ A(p₁) are C₁ and M_z: C₁ moved only
 /// #3, so #1 is a step key of M only because it is one of M_z's: M's step holds #1 under #2 and #3 under #1.
 #[test]
@@ -2137,14 +2463,16 @@ fn a_merge_inside_the_merged_branch_counts_with_its_second_parent_keys() {
     );
     s.ok(mv(1, Some(2)), fresh_on("lane/a"));
     let r = s.run(merge("lane/c", "lane/a"), fresh_on("lane/a"));
-    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
     let d = data(&r);
     assert_eq!(d.lca, vec![z]);
-    assert_eq!(violations(d), vec![("#3.parent", "HierarchyCycle")]);
-    let g = "merge/lane/a/from/lane/c";
-    s.ok(resolve("#3.parent", Take::Theirs), fresh_on(g));
-    let r = s.run(continue_("lane/c", "lane/a"), fresh_on("lane/a"));
-    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(d.outcome, "landed");
+    assert!(
+        d.violations.is_empty() && d.conflicts.is_empty(),
+        "{:?} {:?}",
+        d.violations,
+        d.conflicts
+    );
     let m = tip(&s, "lane/a").unwrap();
     assert_eq!(s.st.dag.commits[&m].parents[1], mz);
     let a = state(&s, "lane/a");
@@ -2870,6 +3198,346 @@ fn a_live_existence_side_restores_the_node() {
     ids_verify(&s);
 }
 
+/// Every commit from seq `from` on has a cached state ([`crate::dag::Dag::state_at`]: a merge's candidate as the merge
+/// remembered it) equal to its definition, the fold of the net changesets along its first-parent chain from the empty
+/// state ([`crate::dag::Dag::state_from_scratch`]); the first commit whose two states differ is the error.
+fn states_verify(s: &S, from: u64) -> Result<(), String> {
+    for seq in s.st.dag.commits.keys().filter(|q| **q >= from) {
+        let cached = s.st.dag.state_at(Some(*seq), &s.st.alloc);
+        if *cached != s.st.dag.state_from_scratch(Some(*seq), &s.st.alloc) {
+            return Err(format!(
+                "s{seq}: the cached state differs from the fold of its changesets"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// [RULES/merge-table] MR-003 with [F12 §6.3] "The provisional side is a stored byte" (ADV-C-2): a merge that takes a
+/// side's `DeleteVsModify` value carries it whole, its `prov` naming a side of the merge that made it, and the node
+/// keeps the provisional state that side holds it in. lane/y deletes #5 while lane/x puts it under #1; `merge lane/y
+/// --into lane/x` lands `#5.existence DeleteVsModify` provisional on theirs, the deleting side (task's EP-001
+/// `delete-wins`), so #5 is a tombstone on lane/x. main sets #6.priority, and `sync lane/x`, whose src (main) holds #5
+/// live and untouched since the base, keeps lane/x's value (MR-003): the sync's net changeset is #6.priority alone, #5
+/// stays a tombstone with the same conflict value, and a `SET` of #5 on lane/x is `not_found`. Before the fix the sync
+/// copied #5 whole from main, the side the carried `prov` named in the sync's own frame: its cached state held #5 live
+/// while the fold of its changesets held the tombstone, and lane/x accepted the `SET`.
+#[test]
+fn a_sync_that_carries_a_delete_versus_modify_keeps_its_provisional_tombstone() {
+    use crate::state::Side;
+    let mut s = S::base();
+    s.ok(
+        tx((1..=6)
+            .map(|i| task(&format!("t{i}"), &format!("task {i}")))
+            .collect()),
+        orch(),
+    );
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    s.ok(delete(5), fresh_on("lane/y"));
+    s.ok(mv(5, Some(1)), fresh_on("lane/x"));
+    s.ok(
+        tx(vec![set(6, &[("priority", P::Int(1))])]),
+        fresh_on("main"),
+    );
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(
+        data(&r).conflicts,
+        vec![("#5.existence".to_string(), "DeleteVsModify".to_string())]
+    );
+    let held = |s: &S| {
+        let st = state(s, "lane/x");
+        let x = &st.nodes[&Nid(5)];
+        (x.live(), x.conflicts[&Aspect::Existence].clone())
+    };
+    let (live, c) = held(&s);
+    assert_eq!(
+        (live, c.class.as_str(), c.prov),
+        (false, "DeleteVsModify", Some(Side::Theirs))
+    );
+    let r = s.run(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check: false,
+        },
+        fresh_on("lane/x"),
+    );
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let d = data(&r);
+    assert_eq!(d.outcome, "landed");
+    assert!(d.conflicts.is_empty(), "a carried value is no new conflict");
+    let sync = &s.st.dag.commits[&tip(&s, "lane/x").unwrap()];
+    assert_eq!(sync.kind, "sync");
+    assert_eq!(
+        sync.changeset.keys().collect::<Vec<_>>(),
+        vec![&Key::Node(Nid(6), Aspect::Field("priority".into()))]
+    );
+    assert_eq!(held(&s), (false, c), "the tombstone and its value are kept");
+    states_verify(&s, 1).unwrap();
+    s.refused(
+        tx(vec![set(5, &[("priority", P::Int(3))])]),
+        fresh_on("lane/x"),
+        "not_found",
+    );
+    ids_verify(&s);
+}
+
+/// The other direction of ADV-C-2, MR-004 ([RULES/merge-table]; [F12 §6.3]): lane/x retitles note #1 while lane/y
+/// deletes it, and `merge lane/y --into lane/x` lands `#1.existence DeleteVsModify` provisional on ours, the modifying
+/// side (note's EP-003 `resurrect`), so #1 is live on lane/x with lane/x's title. `merge lane/x --into lane/y`, whose
+/// base is tip(lane/y), takes lane/x's value (MR-004) with #1 as lane/x holds it: live, lane/x's title, writable on
+/// lane/y. Before the fix the merge copied #1 from lane/y's tombstone, the side the carried `prov` named in its own
+/// frame, so its cached state held a tombstone that the fold of its changesets held live with the old title.
+#[test]
+fn a_merge_that_carries_a_resurrected_delete_versus_modify_keeps_the_live_node() {
+    use crate::state::Side;
+    let mut s = S::base();
+    s.ok(tx(vec![node("n", "note", &[("title", t("old"))])]), orch());
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    s.ok(tx(vec![set(1, &[("title", t("new"))])]), fresh_on("lane/x"));
+    s.ok(delete(1), fresh_on("lane/y"));
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(
+        data(&r).conflicts,
+        vec![("#1.existence".to_string(), "DeleteVsModify".to_string())]
+    );
+    let r = s.run(merge("lane/x", "lane/y"), fresh_on("lane/y"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(
+        data(&r).conflicts,
+        vec![("#1.existence".to_string(), "DeleteVsModify".to_string())],
+        "the carried value lands on lane/y ([F12 §6.3]: its commit carries the `Conflict` op)"
+    );
+    for b in ["lane/x", "lane/y"] {
+        let st = state(&s, b);
+        let x = &st.nodes[&Nid(1)];
+        assert_eq!(
+            (
+                x.live(),
+                x.text("title"),
+                x.conflicts[&Aspect::Existence].prov
+            ),
+            (true, Some("new"), Some(Side::Ours)),
+            "{b}"
+        );
+    }
+    states_verify(&s, 1).unwrap();
+    s.ok(
+        tx(vec![set(1, &[("title", t("newer"))])]),
+        fresh_on("lane/y"),
+    );
+    ids_verify(&s);
+}
+
+/// The branches of [`every_cached_state_equals_the_fold_of_its_changesets`]: `main` and two lanes forked from it at the
+/// commit that creates the nodes.
+const CACHE_BRANCHES: [&str; 3] = ["main", "lane/x", "lane/y"];
+
+/// The values a step of [`every_cached_state_equals_the_fold_of_its_changesets`] writes to `merge.policy.<kind>`
+/// ([RULES/merge-table] AP-001 to AP-005); `None` writes the default.
+const AUTO_POLICIES: [Option<&str>; 5] = [
+    None,
+    Some("ours"),
+    Some("theirs"),
+    Some("delete-wins"),
+    Some("resurrect"),
+];
+
+/// The `--policy` of a merge in [`every_cached_state_equals_the_fold_of_its_changesets`] (AP-004, AP-005).
+const MERGE_POLICIES: [Option<&str>; 3] = [None, Some("delete-wins"), Some("resurrect")];
+
+/// One step of [`every_cached_state_equals_the_fold_of_its_changesets`]. A branch is an index into [`CACHE_BRANCHES`]
+/// and a node is one of [`cache_store`]'s #1 to #4. A merge-family step that stages is resolved on every key it names
+/// to `ours` (`true`) or `theirs` and continued, and aborted when the continue does not land.
+#[derive(Clone, Debug)]
+enum CacheOp {
+    /// On a branch, #n under #p, or to the root.
+    Move(usize, u32, Option<u32>),
+    /// On a branch, #n's title.
+    Title(usize, u32, u8),
+    /// On a branch, #n deleted.
+    Delete(usize, u32),
+    /// On a branch, `merge.policy.task` (`true`) or `merge.policy.note` set to an [`AUTO_POLICIES`] value.
+    Auto(usize, bool, usize),
+    /// On a branch, `resolve #n.existence` to `ours` (`true`) or `theirs`.
+    Resolve(usize, u32, bool),
+    /// `sync` of lane 1 or 2.
+    Sync(usize, bool),
+    /// `merge` of lane 1 or 2 into the other lane, with a [`MERGE_POLICIES`] `--policy`.
+    Cross(usize, usize, bool),
+    /// `merge` of lane 1 or 2 into `main`, with a [`MERGE_POLICIES`] `--policy`.
+    IntoMain(usize, usize, bool),
+}
+
+/// The store of [`every_cached_state_equals_the_fold_of_its_changesets`]: tasks #1 to #3 (EP-001 `delete-wins`) and
+/// note #4 (EP-003 `resurrect`) on `main`, and lane/x and lane/y forked from it.
+fn cache_store() -> S {
+    let mut s = S::base();
+    let mut nodes: Vec<Stmt> = (1..=3)
+        .map(|i| task(&format!("t{i}"), &format!("task {i}")))
+        .collect();
+    nodes.push(node("n4", "note", &[("title", t("note 4"))]));
+    s.ok(tx(nodes), orch());
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    s
+}
+
+fn cache_op() -> impl proptest::strategy::Strategy<Value = CacheOp> {
+    use proptest::prelude::*;
+    let (b, n) = (0usize..3, 1u32..=4);
+    prop_oneof![
+        2 => (b.clone(), n.clone(), prop::option::of(n.clone()))
+            .prop_map(|(b, n, p)| CacheOp::Move(b, n, p.filter(|p| *p != n))),
+        2 => (b.clone(), n.clone(), any::<u8>()).prop_map(|(b, n, k)| CacheOp::Title(b, n, k)),
+        3 => (b.clone(), n.clone()).prop_map(|(b, n)| CacheOp::Delete(b, n)),
+        1 => (b.clone(), any::<bool>(), 0..AUTO_POLICIES.len())
+            .prop_map(|(b, k, v)| CacheOp::Auto(b, k, v)),
+        1 => (b, n, any::<bool>()).prop_map(|(b, n, o)| CacheOp::Resolve(b, n, o)),
+        3 => (1usize..3, any::<bool>()).prop_map(|(l, o)| CacheOp::Sync(l, o)),
+        4 => (1usize..3, 0..MERGE_POLICIES.len(), any::<bool>())
+            .prop_map(|(l, p, o)| CacheOp::Cross(l, p, o)),
+        1 => (1usize..3, 0..MERGE_POLICIES.len(), any::<bool>())
+            .prop_map(|(l, p, o)| CacheOp::IntoMain(l, p, o)),
+    ]
+}
+
+/// Runs a command and checks every commit it appended with [`states_verify`].
+fn run_checked(s: &mut S, cmd: Cmd, ctx: Ctx) -> Result<Reply, String> {
+    let from = s.st.dag.commits.keys().next_back().map_or(0, |q| q + 1);
+    let r = s.run(cmd.clone(), ctx);
+    states_verify(s, from).map_err(|e| format!("{e}, after {cmd:?}"))?;
+    Ok(r)
+}
+
+/// Runs one step of [`every_cached_state_equals_the_fold_of_its_changesets`], checking each command's commits.
+fn run_cache_op(s: &mut S, op: &CacheOp) -> Result<(), String> {
+    let on = |b: usize| fresh_on(CACHE_BRANCHES[b]);
+    let with = |src: &str, into: &str, p: usize| Cmd::Merge {
+        src: src.into(),
+        into: Some(into.into()),
+        policy: MERGE_POLICIES[p].map(str::to_string),
+        strict: None,
+        base: None,
+        message: String::new(),
+    };
+    let (cmd, dst, ours) = match op {
+        CacheOp::Move(b, n, p) => return run_checked(s, mv(*n, *p), on(*b)).map(drop),
+        CacheOp::Title(b, n, k) => {
+            let cmd = tx(vec![set(*n, &[("title", t(&format!("title {k}")))])]);
+            return run_checked(s, cmd, on(*b)).map(drop);
+        }
+        CacheOp::Delete(b, n) => return run_checked(s, delete(*n), on(*b)).map(drop),
+        CacheOp::Auto(b, task, v) => {
+            let name = if *task {
+                "merge.policy.task"
+            } else {
+                "merge.policy.note"
+            };
+            return run_checked(s, policy_cmd(name, AUTO_POLICIES[*v]), on(*b)).map(drop);
+        }
+        CacheOp::Resolve(b, n, ours) => {
+            let take = if *ours { Take::Ours } else { Take::Theirs };
+            return run_checked(s, resolve(&format!("#{n}.existence"), take), on(*b)).map(drop);
+        }
+        CacheOp::Sync(l, ours) => (
+            Cmd::Sync {
+                lane: Some(CACHE_BRANCHES[*l].into()),
+                check: false,
+            },
+            CACHE_BRANCHES[*l],
+            *ours,
+        ),
+        CacheOp::Cross(l, p, ours) => (
+            with(CACHE_BRANCHES[*l], CACHE_BRANCHES[3 - *l], *p),
+            CACHE_BRANCHES[3 - *l],
+            *ours,
+        ),
+        CacheOp::IntoMain(l, p, ours) => (with(CACHE_BRANCHES[*l], "main", *p), "main", *ours),
+    };
+    let r = run_checked(s, cmd, fresh_on(dst))?;
+    if r.outcome != Outcome::Staged {
+        return Ok(());
+    }
+    let d = data(&r);
+    let g = d
+        .staging_ref
+        .clone()
+        .expect("a staged merge names its staging ref");
+    let keys: Vec<String> = d
+        .violations
+        .iter()
+        .map(|v| v.key.clone())
+        .chain(d.conflicts.iter().map(|c| c.0.clone()))
+        .chain(
+            d.sync
+                .iter()
+                .flat_map(|x| x.violations.iter().map(|v| v.key.clone())),
+        )
+        .filter(|k| k != "-")
+        .collect();
+    let (gd, gs) = g
+        .strip_prefix("merge/")
+        .and_then(|x| x.split_once("/from/"))
+        .expect("merge/<dst>/from/<src>");
+    let take = if ours { Take::Ours } else { Take::Theirs };
+    for k in keys {
+        run_checked(s, resolve(&k, take.clone()), fresh_on(&g))?;
+    }
+    let r = run_checked(s, continue_(gs, gd), fresh_on(gd))?;
+    if r.outcome != Outcome::Ok {
+        let abort = Cmd::MergeAbort {
+            src: Some(gs.into()),
+            into: Some(gd.into()),
+        };
+        run_checked(s, abort, fresh_on(gd))?;
+    }
+    Ok(())
+}
+
+/// The cached state of every commit equals the fold of the net changesets along its first-parent chain
+/// ([`states_verify`]; [AR §4.6] "Net changeset = state diff"; [60 §4.2] `state_at`), over random histories of moves,
+/// title edits, deletes, existence resolutions, `merge.policy.<kind>` writes, syncs, cross-lane merges and merges into
+/// `main` with and without `--policy`, so that `DeleteVsModify` values land under every existence policy and are
+/// carried into later merges (ADV-C-2); every commit id equals its definition too ([`ids_verify`]).
+#[test]
+fn every_cached_state_equals_the_fold_of_its_changesets() {
+    use proptest::prelude::*;
+    let cases = match std::env::var("MOIRAI_TEST_TIER").as_deref() {
+        Ok("nightly") => 1280,
+        Ok("exit") => 12800,
+        _ => 128,
+    };
+    let mut runner = proptest::test_runner::TestRunner::new_with_rng(
+        ProptestConfig {
+            cases,
+            failure_persistence: None,
+            ..ProptestConfig::default()
+        },
+        proptest::test_runner::TestRng::from_seed(
+            proptest::test_runner::RngAlgorithm::ChaCha,
+            b"moirai-model/vcs/cached-states-1",
+        ),
+    );
+    let result = runner.run(&proptest::collection::vec(cache_op(), 1..28), |ops| {
+        let mut s = cache_store();
+        for op in &ops {
+            run_cache_op(&mut s, op).map_err(TestCaseError::fail)?;
+        }
+        states_verify(&s, 0).map_err(TestCaseError::fail)?;
+        s.st.dag
+            .verify_ids(&s.st.alloc)
+            .map_err(TestCaseError::fail)?;
+        Ok(())
+    });
+    if let Err(e) = result {
+        panic!("{e}");
+    }
+}
+
 /// [F12 §6.5] "A flagged edge" (spec sync 2b, S2B-F-10): on a work branch a flagged `blocks` out-edge of a tombstone is
 /// re-pointed (I5′ checked) or dropped; `ours`, `theirs`, `base` and `value` are usage there, and `drop` is usage on
 /// every other key.
@@ -2928,10 +3596,10 @@ enum LaneStep {
     Priority(u32, i64),
 }
 
-/// A move of #n (1–5) under #p, or to the root with `None`.
+/// A move of #n (1–3) under #p, or to the root with `None`.
 fn hmove() -> impl proptest::strategy::Strategy<Value = (u32, Option<u32>)> {
     use proptest::prelude::*;
-    (1u32..=5, prop::option::of(1u32..=5))
+    (1u32..=3, prop::option::of(1u32..=3))
 }
 
 fn lane_step() -> impl proptest::strategy::Strategy<Value = LaneStep> {
@@ -2955,7 +3623,8 @@ enum LaneOp {
     Pick(usize),
     /// A revert on lane/x of one of its own priority commits: the k-th, modulo their number.
     Revert(usize),
-    /// `merge lane/y --into lane/x`, aborted when it stages; once one has landed, no other is tried.
+    /// `merge lane/y --into lane/x`; when it stages, each violation's key is resolved to `ours` and the merge
+    /// continued, and aborted if it stages again.
     MergeY,
 }
 
@@ -2971,22 +3640,20 @@ fn lane_op() -> impl proptest::strategy::Strategy<Value = LaneOp> {
 }
 
 /// What RS-007 guarantees a lane merged into an unmoved `main` ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann
-/// steps"; [RULES/merge-table] open point 35 cases (i) to (iii), decided by [AR §11] OQ-A-6 (a)). lane/x and lane/y
-/// fork from main at one commit B; main's history before the fork is any sequence of moves, and main makes no commit
-/// after it (o = b).
-/// - lane/x's moves, priority edits, cherry-picks and reverts are single-parent commits, each replayed from the state
-///   it was made on: a forest, with no (0, 0) step needed (RS-007's linear case).
+/// steps"; [RULES/merge-table] open point 35 cases (i) to (iii) and (v), decided by [AR §11] OQ-A-6 (a) and OQ-A-11
+/// 11.1 (A)). lane/x and lane/y fork from main at one commit B; main's history before the fork is any sequence of
+/// moves, and main makes no commit after it (o = b).
 /// - A cherry-pick of one of lane/y's commits with no hierarchy entry, and a revert of one of lane/x's, lands with no
 ///   violation and leaves lane/x's hierarchy as it was: the replay starts from o, dst has no step and C's step is empty
-///   ([RULES/merge-table] open point 35 case (ii)). Before the decision a pick replayed lane/x's moves from
-///   state(p₁(C)), which holds lane/y's moves, and could stage a cycle.
-/// - A merge of lane/y into lane/x that lands with no violation has base B, as the final merge has. The final merge
-///   replays the same commits from the same state in the same order, then that merge's step, whose moves (the keys it
-///   changed against lane/x and those it kept against lane/y's moves, [RULES/merge-table] open point 35 case (i)) all
-///   set their node's current value and are never undone (case (iii)), then lane/x's later commits from their own
-///   states.
+///   ([RULES/merge-table] open point 35 case (ii)). Before OQ-A-6 a pick replayed lane/x's moves from state(p₁(C)),
+///   which holds lane/y's moves, and could stage a cycle.
+/// - lane/x merges lane/y any number of times; a merge that stages is resolved to `ours` on every violation's key and
+///   continued (aborted if it stages again), so lane/x's history can hold merges that kept a cycle-closing move of
+///   lane/x's against lane/y's (open point 35 (v), E4).
 ///
-/// So `merge lane/x --into main` lands with lane/x's hierarchy and no `HierarchyCycle`.
+/// `merge lane/x --into main` is one-sided, since its base is tip(main), so it takes lane/x's hierarchy with no replay
+/// and lands with no `HierarchyCycle` whatever lane/x's history holds (11.1 (A)). Before OQ-A-11 it replayed lane/x's
+/// commits from B, which held for single-parent commits and clean merges only.
 #[test]
 fn a_lane_merged_into_an_unmoved_main_takes_its_hierarchy() {
     use proptest::prelude::*;
@@ -3026,8 +3693,8 @@ fn a_lane_merged_into_an_unmoved_main_takes_its_hierarchy() {
         prop_assert_eq!(tip(&s, "lane/y"), base);
         // The priority commits of lane/x and of lane/y, by seq.
         let (mut x_prio, mut y_prio): (Vec<u64>, Vec<u64>) = (Vec::new(), Vec::new());
-        let mut merged = false;
-        for op in ops {
+        // lane/x ends by merging lane/y, so its last commit is often a merge resolved to `ours`.
+        for op in ops.into_iter().chain([LaneOp::MergeY]) {
             match op {
                 LaneOp::X(LaneStep::Move(n, p)) => mv_on(&mut s, "lane/x", n, p),
                 LaneOp::Y(LaneStep::Move(n, p)) => mv_on(&mut s, "lane/y", n, p),
@@ -3092,20 +3759,38 @@ fn a_lane_merged_into_an_unmoved_main_takes_its_hierarchy() {
                     prop_assert_eq!(parents(&s, "lane/x"), hier);
                 }
                 LaneOp::MergeY => {
-                    if merged {
-                        continue;
-                    }
                     let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
                     match r.outcome {
-                        Outcome::Ok => merged = data(&r).outcome == "landed",
+                        Outcome::Ok => {}
                         Outcome::Staged => {
-                            s.ok(
-                                Cmd::MergeAbort {
-                                    src: Some("lane/y".into()),
-                                    into: Some("lane/x".into()),
-                                },
-                                fresh_on("lane/x"),
-                            );
+                            let d = data(&r);
+                            let g = d.staging_ref.clone().expect("G");
+                            let keys: Vec<String> = d
+                                .violations
+                                .iter()
+                                .filter(|v| v.key != "-")
+                                .map(|v| v.key.clone())
+                                .collect();
+                            // A resolution the write path refuses (a cycle it would close) leaves the merge
+                            // staged.
+                            let mut ok = true;
+                            for k in keys {
+                                ok &= s.run(resolve(&k, Take::Ours), fresh_on(&g)).outcome
+                                    == Outcome::Ok;
+                            }
+                            let landed = ok
+                                && s.run(continue_("lane/y", "lane/x"), fresh_on("lane/x"))
+                                    .outcome
+                                    == Outcome::Ok;
+                            if !landed {
+                                s.ok(
+                                    Cmd::MergeAbort {
+                                        src: Some("lane/y".into()),
+                                        into: Some("lane/x".into()),
+                                    },
+                                    fresh_on("lane/x"),
+                                );
+                            }
                         }
                         _ => prop_assert!(false, "{:?}", r.error),
                     }
@@ -3140,6 +3825,107 @@ fn a_lane_merged_into_an_unmoved_main_takes_its_hierarchy() {
         }
         prop_assert!(d.violations.is_empty(), "{:?}", d.violations);
         prop_assert_eq!(parents(&s, "main"), lane);
+        Ok(())
+    });
+    if let Err(e) = result {
+        panic!("{e}");
+    }
+}
+
+/// The family of example E4 of [RULES/merge-table] open point 35 case (v) ([RULES/merge-table] RS-007; [F12 §7.4] row
+/// "Kleppmann steps"; decided by [AR §11] OQ-A-11 11.1 (A)). lane/y and lane/x fork from main at B; lane/y makes moves,
+/// then lane/x makes moves (each later than every move of lane/y's), so lane/x's moves are the ones that close cycles;
+/// lane/x merges lane/y, resolving every violation's key to `ours`, which keeps lane/x's cycle-closing moves; a merge
+/// that a refused resolution or a re-staging leaves staged is aborted. `merge lane/x --into main`, with main unmoved,
+/// lands with lane/x's hierarchy. Every commit here descends from B, so the replay start of 11.1 (B) is B and does not
+/// cover the case: the merge commit re-asserts only the keys lane/y moved, and a replay undoes lane/x's resolved moves
+/// again. The one-sided rule (A) takes lane/x's values with no replay.
+#[test]
+fn a_lane_that_kept_its_own_moves_against_a_merged_lane_lands_on_an_unmoved_main() {
+    use proptest::prelude::*;
+    let mut runner = proptest::test_runner::TestRunner::new(ProptestConfig {
+        cases: 64,
+        ..ProptestConfig::default()
+    });
+    // A move of #n (1–3) under another of the three, or now and then to the root: moves that often close cycles.
+    let dense = || {
+        (
+            1u32..=3,
+            prop_oneof![4 => (1u32..=2).prop_map(Some), 1 => Just(None)],
+        )
+            .prop_map(|(n, d)| (n, d.map(|d| (n - 1 + d) % 3 + 1)))
+    };
+    let moves = (
+        proptest::collection::vec(dense(), 1..5),
+        proptest::collection::vec(dense(), 1..5),
+    );
+    let result = runner.run(&moves, |(ys, xs)| {
+        let mut s = S::base();
+        s.ok(
+            tx((0..3)
+                .map(|i| task(&format!("t{i}"), &format!("task {i}")))
+                .collect()),
+            orch(),
+        );
+        s.ok(branch("x", "main"), orch());
+        s.ok(branch("y", "main"), orch());
+        let base = tip(&s, "main");
+        for (b, list) in [("lane/y", &ys), ("lane/x", &xs)] {
+            for (n, p) in list {
+                // A move its own branch refuses (a cycle there) is skipped.
+                let _ = s.run(mv(*n, *p), fresh_on(b));
+            }
+        }
+        let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+        if r.outcome == Outcome::Staged {
+            let d = data(&r);
+            let g = d.staging_ref.clone().expect("G");
+            let keys: Vec<String> = d
+                .violations
+                .iter()
+                .filter(|v| v.key != "-")
+                .map(|v| v.key.clone())
+                .collect();
+            let mut ok = true;
+            for k in keys {
+                ok &= s.run(resolve(&k, Take::Ours), fresh_on(&g)).outcome == Outcome::Ok;
+            }
+            let landed = ok
+                && s.run(continue_("lane/y", "lane/x"), fresh_on("lane/x"))
+                    .outcome
+                    == Outcome::Ok;
+            if !landed {
+                s.ok(
+                    Cmd::MergeAbort {
+                        src: Some("lane/y".into()),
+                        into: Some("lane/x".into()),
+                    },
+                    fresh_on("lane/x"),
+                );
+            }
+        } else {
+            prop_assert!(r.outcome == Outcome::Ok, "{:?}", r.error);
+        }
+        let lane: Vec<Option<Nid>> = {
+            let st = state(&s, "lane/x");
+            (1..=3).map(|n| st.nodes[&Nid(n)].parent).collect()
+        };
+        let r = s.run(merge("lane/x", "main"), fresh_on("main"));
+        prop_assert!(r.outcome == Outcome::Ok, "{:?}", r.error);
+        let d = data(&r);
+        prop_assert!(d.sync.is_none(), "main did not move since the fork");
+        if d.outcome != "up-to-date" {
+            prop_assert_eq!(d.outcome, "landed");
+            prop_assert_eq!(d.lca.clone(), base.into_iter().collect::<Vec<_>>());
+        }
+        prop_assert!(d.violations.is_empty(), "{:?}", d.violations);
+        let st = state(&s, "main");
+        prop_assert_eq!(
+            (1..=3)
+                .map(|n| st.nodes[&Nid(n)].parent)
+                .collect::<Vec<_>>(),
+            lane
+        );
         Ok(())
     });
     if let Err(e) = result {
@@ -3429,5 +4215,81 @@ fn a_supersede_fork_resolved_theirs_keeps_one_superseder() {
         "theirs keeps main's #3 edge and drops the lane's #2 edge"
     );
     assert!(st.nodes[&Nid(3)].conflicts.is_empty());
+    ids_verify(&s);
+}
+
+/// The history of [`a_merge_over_an_existence_value_both_sides_hold_lands_a_change_only_src_made`]: note #1 deleted on
+/// `deleter` and retitled `new` on the other lane; `merge lane/y --into lane/x` lands `#1.existence DeleteVsModify`
+/// (note EP-003 `resurrect`: provisional on the modifying side, so #1 is live with the title `new`), and `merge lane/x
+/// --into lane/y` carries it (MR-004), so both lanes hold the value.
+fn both_lanes_hold_a_resurrected_note(deleter: &str) -> S {
+    let mut s = S::base();
+    s.ok(tx(vec![node("n", "note", &[("title", t("old"))])]), orch());
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    let modifier = if deleter == "lane/x" {
+        "lane/y"
+    } else {
+        "lane/x"
+    };
+    s.ok(delete(1), fresh_on(deleter));
+    s.ok(tx(vec![set(1, &[("title", t("new"))])]), fresh_on(modifier));
+    for (src, dst) in [("lane/y", "lane/x"), ("lane/x", "lane/y")] {
+        let r = s.run(merge(src, dst), fresh_on(dst));
+        assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    }
+    s
+}
+
+/// [RULES/merge-table] PR-007 ("All other keys follow") with [F12 §6.3]: when b, o and t hold the same `DeleteVsModify`
+/// value on #1.existence, every side holds #1 in the value's provisional state, and a key only src changed since the
+/// base lands (I25′). After [`both_lanes_hold_a_resurrected_note`], lane/y retitles #1 `newer` and `merge lane/y
+/// --into lane/x`, one-sided (its base is tip(lane/x)), lands the title, whichever side the value's `prov` names: a
+/// side of the first merge, not of this one (theirs when lane/x deleted #1, ours when lane/y did). Copying the side
+/// `prov` names dropped the title in the second case, copying ours in both.
+#[test]
+fn a_merge_over_an_existence_value_both_sides_hold_lands_a_change_only_src_made() {
+    use crate::state::Side;
+    for (deleter, prov) in [("lane/x", Side::Theirs), ("lane/y", Side::Ours)] {
+        let mut s = both_lanes_hold_a_resurrected_note(deleter);
+        s.ok(
+            tx(vec![set(1, &[("title", t("newer"))])]),
+            fresh_on("lane/y"),
+        );
+        let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+        assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+        assert!(data(&r).conflicts.is_empty(), "{:?}", data(&r).conflicts);
+        let st = state(&s, "lane/x");
+        let x = &st.nodes[&Nid(1)];
+        assert_eq!(
+            (
+                x.live(),
+                x.text("title"),
+                x.conflicts[&Aspect::Existence].prov
+            ),
+            (true, Some("newer"), Some(prov)),
+            "{deleter} deleted #1"
+        );
+        states_verify(&s, 1).unwrap();
+        ids_verify(&s);
+    }
+}
+
+/// As [`a_merge_over_an_existence_value_both_sides_hold_lands_a_change_only_src_made`], with the change on dst: lane/x
+/// retitles #1 `newer` after [`both_lanes_hold_a_resurrected_note`] (lane/x the deleter, so `prov` names theirs), and
+/// `merge lane/y --into lane/x` keeps it, a key only dst changed since the base (I25′; PR-007).
+#[test]
+fn a_merge_over_an_existence_value_both_sides_hold_keeps_a_change_only_dst_made() {
+    let mut s = both_lanes_hold_a_resurrected_note("lane/x");
+    s.ok(
+        tx(vec![set(1, &[("title", t("newer"))])]),
+        fresh_on("lane/x"),
+    );
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let st = state(&s, "lane/x");
+    let x = &st.nodes[&Nid(1)];
+    assert_eq!((x.live(), x.text("title")), (true, Some("newer")));
+    states_verify(&s, 1).unwrap();
     ids_verify(&s);
 }

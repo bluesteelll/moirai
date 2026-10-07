@@ -43,11 +43,14 @@ impl MapIds {
         }
     }
 
-    /// Records `#N` with its uid and, when live in the view, its kind.
+    /// Records `#N` with its uid and, when live in the view, its kind. `#N` is any `u32` from 1 to 2^32 − 1
+    /// ([F08 §2.1]), the top of the range included; `next_id` becomes at least `#N` + 1, saturating at 2^32 − 1, the
+    /// largest value `HEAD.next_id` holds ([F04 §5.7]).
+    // spec: [F08 §2.1]
     pub fn node(&mut self, n: u32, uid: Uid, kind: Option<&str>) -> &mut MapIds {
         self.nodes.insert(n, (uid, kind.map(str::to_string)));
         self.by_uid.insert(uid, n);
-        self.next = self.next.max(n + 1);
+        self.next = self.next.max(n.saturating_add(1));
         self
     }
 
