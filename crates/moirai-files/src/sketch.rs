@@ -9,6 +9,8 @@
 //! ([F20 §2.6.1]): the weight, the bottom-`SKETCH_K` sketch of `sh(f) = low(XXH3-64(f), 32)` ([F20 §2.6.2]) and the
 //! number of distinct values, estimated by k minimum values above `SKETCH_K`. [`FingerprintSink::finish`] gives the
 //! [`Fingerprint`] of a text content of less than 4 GiB, with `nlines` and `nbytes` from the same read's statistics.
+//! [`Fingerprint::to_bytes`] and [`Fingerprint::from_bytes`] are its stored value ([F20 §2.6.4]), which `FPRINT` and
+//! the fingerprint blob class hold.
 //!
 //! Every sink of this module hashes a line the same way: one private hasher streams `collapse(nl(l))` over the
 //! pieces the reader hands it, wherever a piece boundary falls.
@@ -25,4 +27,4 @@
 mod fingerprint;
 mod line;
 
-pub use fingerprint::{Fingerprint, FingerprintSink};
+pub use fingerprint::{Fingerprint, FingerprintError, FingerprintSink};

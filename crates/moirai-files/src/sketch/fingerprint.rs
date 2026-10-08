@@ -1,7 +1,10 @@
-//! The fingerprint of a text content ([F20 §2.6.3]) and the pass-1 sink that computes it.
+//! The fingerprint of a text content ([F20 §2.6.3]), the pass-1 sink that computes it, and its stored value
+//! ([F20 §2.6.4]).
+
+use core::fmt;
 
 use super::line::LineHasher;
-use crate::r14::{SKETCH_BITS, SKETCH_K};
+use crate::r14::{RESOLVER_VERSION, SKETCH_BITS, SKETCH_K, TINY_BYTES, TINY_LINES};
 use crate::text::{LineSink, TextStats};
 
 // `sh(f)` is a `u32` and the sketch an array of them: the module is written for `SKETCH_BITS` = 32.
@@ -80,7 +83,160 @@ impl Fingerprint {
     pub fn sketch(&self) -> &[u32] {
         &self.sketch[..usize::from(self.n)]
     }
+
+    /// Whether the content is tiny by its fingerprint, `nlines < TINY_LINES` or `nbytes < TINY_BYTES` ([F20 §2.6.5]):
+    /// the text form of the test. Binary content has no fingerprint; its form, and a file node's, are the caller's.
+    #[must_use]
+    pub fn is_tiny(&self) -> bool {
+        u64::from(self.nlines) < TINY_LINES || u64::from(self.nbytes) < TINY_BYTES
+    }
+
+    /// The fingerprint value ([F20 §2.6.4]): the sequence table `ver`, `n_sketch`, `flags`, `nlines`, `nbytes`,
+    /// `weight`, `distinct`, `sketch`, every integer little-endian ([F01 §2.6]), `20 + 4 × n_sketch` bytes.
+    #[must_use]
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut out = Vec::with_capacity(HEADER_LEN + 4 * usize::from(self.n));
+        out.extend_from_slice(&RESOLVER_VERSION.to_le_bytes());
+        out.push(self.n);
+        out.push(if self.estimated { FLAG_ESTIMATED } else { 0 });
+        for v in [self.nlines, self.nbytes, self.weight, self.distinct] {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        for v in self.sketch() {
+            out.extend_from_slice(&v.to_le_bytes());
+        }
+        out
+    }
+
+    /// The fingerprint a stored value holds ([F20 §2.6.4]).
+    ///
+    /// # Errors
+    /// The checks run in this order, and the first that fails decides:
+    /// 1. [`FingerprintError::Version`]: `ver` is not [`RESOLVER_VERSION`], so the value counts as absent
+    ///    ([F20 §1.3]); a value of fewer than 2 bytes has no `ver` and is [`FingerprintError::Length`];
+    /// 2. [`FingerprintError::Length`]: fewer than 20 bytes, or not exactly `20 + 4 × n_sketch` (a sequence table
+    ///    defines every byte, [F01 §2.6]);
+    /// 3. [`FingerprintError::SketchCount`]: `n_sketch > SKETCH_K`;
+    /// 4. [`FingerprintError::ReservedFlags`]: a reserved bit of `flags` (1–7) is set ([F01 §10]);
+    /// 5. [`FingerprintError::NotAscending`]: the sketch is not strictly ascending;
+    /// 6. [`FingerprintError::Distinct`]: `n_sketch < 64` while `distinct ≠ n_sketch` or the flag is set;
+    ///    `n_sketch = 64` with the flag clear while `distinct ≠ 64`, or with the flag set while `distinct < 65`.
+    ///
+    /// Nothing else is refused: [F20 §2.6.4] lists no other invalid case.
+    pub fn from_bytes(b: &[u8]) -> Result<Fingerprint, FingerprintError> {
+        let &[v0, v1, ..] = b else {
+            return Err(FingerprintError::Length(b.len()));
+        };
+        let ver = u16::from_le_bytes([v0, v1]);
+        if ver != RESOLVER_VERSION {
+            return Err(FingerprintError::Version(ver));
+        }
+        if b.len() < HEADER_LEN {
+            return Err(FingerprintError::Length(b.len()));
+        }
+        let n_sketch = b[2];
+        let n = usize::from(n_sketch);
+        if b.len() != HEADER_LEN + 4 * n {
+            return Err(FingerprintError::Length(b.len()));
+        }
+        if n > SKETCH_K {
+            return Err(FingerprintError::SketchCount(n_sketch));
+        }
+        let flags = b[3];
+        if flags & RESERVED_FLAGS != 0 {
+            return Err(FingerprintError::ReservedFlags(flags));
+        }
+        let u32_at = |i: usize| u32::from_le_bytes([b[i], b[i + 1], b[i + 2], b[i + 3]]);
+        let mut sketch = [0; SKETCH_K];
+        for (k, slot) in sketch[..n].iter_mut().enumerate() {
+            *slot = u32_at(HEADER_LEN + 4 * k);
+        }
+        if !sketch[..n].windows(2).all(|w| w[0] < w[1]) {
+            return Err(FingerprintError::NotAscending);
+        }
+        let estimated = flags & FLAG_ESTIMATED != 0;
+        let distinct = u32_at(16);
+        let consistent = if n < SKETCH_K {
+            !estimated && u64::from(distinct) == n as u64
+        } else if estimated {
+            u64::from(distinct) > SKETCH_K as u64
+        } else {
+            u64::from(distinct) == SKETCH_K as u64
+        };
+        if !consistent {
+            return Err(FingerprintError::Distinct);
+        }
+        Ok(Fingerprint {
+            nlines: u32_at(4),
+            nbytes: u32_at(8),
+            weight: u32_at(12),
+            distinct,
+            estimated,
+            n: n_sketch,
+            sketch,
+        })
+    }
 }
+
+/// The bytes of the fixed fields of a fingerprint value, `ver` to `distinct` ([F20 §2.6.4]).
+const HEADER_LEN: usize = 20;
+
+/// Bit 0 of `flags`: `distinct_estimated` ([F20 §2.6.4]).
+const FLAG_ESTIMATED: u8 = 0x01;
+
+/// Bits 1–7 of `flags`: reserved-zero ([F20 §2.6.4], [F01 §10]).
+const RESERVED_FLAGS: u8 = 0xFE;
+
+/// Why bytes are not a valid fingerprint value of this resolver version ([F20 §2.6.4]); see
+/// [`Fingerprint::from_bytes`] for the order of the checks.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum FingerprintError {
+    /// `ver` is another resolver version (0 included), whose fingerprint counts as absent ([F20 §1.3], §2.6.4).
+    Version(u16),
+    /// The value's length: below 20 bytes, or not `20 + 4 × n_sketch`.
+    Length(usize),
+    /// `n_sketch` is above `SKETCH_K` = 64.
+    SketchCount(u8),
+    /// The `flags` byte has a reserved bit (1–7) set.
+    ReservedFlags(u8),
+    /// The sketch is not strictly ascending.
+    NotAscending,
+    /// `distinct` or the `distinct_estimated` flag does not agree with `n_sketch`.
+    Distinct,
+}
+
+impl fmt::Display for FingerprintError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            FingerprintError::Version(v) => {
+                write!(
+                    f,
+                    "a fingerprint of resolver version {v}, not {RESOLVER_VERSION}"
+                )
+            }
+            FingerprintError::Length(n) => {
+                write!(f, "a fingerprint value of {n} bytes, not 20 + 4 × n_sketch")
+            }
+            FingerprintError::SketchCount(n) => {
+                write!(
+                    f,
+                    "a fingerprint with {n} sketch values, more than {SKETCH_K}"
+                )
+            }
+            FingerprintError::ReservedFlags(b) => {
+                write!(f, "a fingerprint with reserved flag bits set: {b:#04x}")
+            }
+            FingerprintError::NotAscending => {
+                f.write_str("a fingerprint sketch not strictly ascending")
+            }
+            FingerprintError::Distinct => {
+                f.write_str("a fingerprint whose distinct count disagrees with its sketch")
+            }
+        }
+    }
+}
+
+impl std::error::Error for FingerprintError {}
 
 /// The pass-1 sink that computes the [`Fingerprint`] of the content the reader streams ([F20 §2.4], §2.6).
 ///
