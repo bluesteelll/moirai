@@ -142,7 +142,7 @@ impl Scope {
     /// Reads a scope value ([F08 §10.3.1]): `lang` 1–3, `n` 1–64, and n segments of `skind` (defined for the
     /// language), `name` (non-empty) and `qual` as `vstr` — valid UTF-8 without U+0000, CR or LF, with canonical
     /// `uvar32` lengths ([F01 §5.2]). The 4,096-byte bound of [F21 §2.3] binds capture only, so a longer imported
-    /// value is read ([F21] open point 7) and resolves like any other, except that a segment whose name is longer
+    /// value is read (\[F21\] open point 7) and resolves like any other, except that a segment whose name is longer
     /// than 4,096 bytes names no item ([`Items::matching`](super::Items::matching)).
     ///
     /// # Errors
