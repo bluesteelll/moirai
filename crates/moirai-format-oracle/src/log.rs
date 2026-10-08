@@ -4034,6 +4034,17 @@ pub(crate) mod tests {
         w.into_vec()
     }
 
+    /// `n` strictly ascending hashes for a `BodyDrop`: hash `i` (1 to `n`) is `i` big-endian in its last four bytes.
+    fn ascending_hashes(n: u32) -> Vec<[u8; 16]> {
+        (1..=n)
+            .map(|i| {
+                let mut h = [0u8; 16];
+                h[12..].copy_from_slice(&i.to_be_bytes());
+                h
+            })
+            .collect()
+    }
+
     /// A `Harvest` payload laid out from [F05 §9.30]'s table: `op`, `source` (`vstr`), the op's own fields as given,
     /// then `hlc`.
     fn harvest_bytes(op: u8, source: &[u8], fields: &[u8]) -> Vec<u8> {
@@ -4083,8 +4094,8 @@ pub(crate) mod tests {
     }
 
     /// [F05 §9.29]: a `BodyDrop` payload of each reason and origin, with a note of 0 and 200 bytes (origin `command`),
-    /// an empty note (origin `import`), and one or three ascending hashes, decodes as kind 29 and re-encodes to its
-    /// bytes; its one symbol reference is its actor (§8.1 SD-3), none for actor 0.
+    /// an empty note (origin `import`), and one, three or 65,535 ascending hashes (the top of `n`'s range), decodes as
+    /// kind 29 and re-encodes to its bytes; its one symbol reference is its actor (§8.1 SD-3), none for actor 0.
     #[test]
     fn body_drop_payload_round_trips() {
         let (h1, h2, h3) = ([1u8; 16], [2u8; 16], [0xF0u8; 16]);
@@ -4100,17 +4111,42 @@ pub(crate) mod tests {
         assert_eq!(p.symbol_refs(), vec![(1, 300)]);
         let p = payload_from(29, &body_drop_bytes(1, &[h1], 3, b"", 0, 2));
         assert!(p.symbol_refs().is_empty());
+        // n = 65,535, the range's top. Checked without `payload_from`, whose messages would print a megabyte.
+        let top = body_drop_bytes(65_535, &ascending_hashes(65_535), 1, b"", 1, 1);
+        let p =
+            Payload::decode(29, &mut Reader::new(&top)).unwrap_or_else(|e| panic!("n 65535: {e}"));
+        let Payload::BodyDrop(d) = &p else {
+            panic!("n 65535: decoded as kind {}", p.kind())
+        };
+        assert_eq!(d.hashes.len(), 65_535);
+        let mut w = Writer::new();
+        p.encode(&mut w);
+        assert!(w.as_slice() == top.as_slice(), "n 65535 re-encodes");
     }
 
-    /// [F05 §9.29] "Rules": `n` outside 1–65,535 (an `n` of 65,536 by this rule, before the bytes run out), hashes not
-    /// strictly ascending, a `reason` outside 1–3, an `origin` outside 1–2, a note above 200 bytes and a non-empty note
-    /// with origin `import` are malformed; so is a byte after the last field (§8.8).
+    /// [F05 §9.29] "Rules": `n` outside 1–65,535, hashes not strictly ascending, a `reason` outside 1–3, an `origin`
+    /// outside 1–2, a note above 200 bytes and a non-empty note with origin `import` are malformed; so is a byte after
+    /// the last field (§8.8). An `n` of 0 or 65,536 is refused by the range rule itself: 65,536 both with one hash
+    /// (the range is checked before the bytes left bound `n`) and with all 65,536 hashes present.
     #[test]
     fn body_drop_payload_refusals() {
         let (h1, h2) = ([1u8; 16], [2u8; 16]);
-        let cases: Vec<(Vec<u8>, &str)> = vec![
+        for (b, what) in [
             (body_drop_bytes(0, &[], 1, b"", 1, 1), "n 0"),
             (body_drop_bytes(65_536, &[h1], 1, b"", 1, 1), "n 65536"),
+        ] {
+            payload_refused(29, &b, "outside 1-65535 [F05 §9.29]", what);
+        }
+        // Not through `payload_refused`, whose message on an accept would print a megabyte.
+        let full = body_drop_bytes(65_536, &ascending_hashes(65_536), 1, b"", 1, 1);
+        match Payload::decode(29, &mut Reader::new(&full)) {
+            Ok(_) => panic!("n 65536 with every hash present: accepted"),
+            Err(e) => assert!(
+                e.reason.contains("outside 1-65535 [F05 §9.29]"),
+                "n 65536 with every hash present: {e}"
+            ),
+        }
+        let cases: Vec<(Vec<u8>, &str)> = vec![
             (body_drop_bytes(2, &[h1, h1], 1, b"", 1, 1), "equal hashes"),
             (
                 body_drop_bytes(2, &[h2, h1], 1, b"", 1, 1),
