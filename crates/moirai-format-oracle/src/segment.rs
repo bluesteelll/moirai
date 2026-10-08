@@ -1,6 +1,7 @@
 //! \[F09\] segments: `SegHdr` and the section table (§2), the tag registry and placement (§3), the layout classes (§4),
 //! every section this chapter owns (§5–§14, §16), the runtime sections through [`crate::runtime`] (§14.5, §15), and the
-//! open and full checks of §17.1 that one file allows (V-1, V-2, V-4–V-7, V-9–V-11). Over a store's segment set,
+//! open and full checks of §17.1 that one file allows (V-1, V-2, V-4–V-7, V-9–V-11), with the conditional runtime
+//! sections `DROPPED` and `HARVEST` (§3.1, §14.5) and the dropped `BlobRef` (§6.3). Over a store's segment set,
 //! [`SetSymbols`] resolves names through every layer's `SYMTAB` and refuses one id or one string given twice (§14.2);
 //! [`check_stack`] adds V-12 over a stack (I-P3 of §7.1, main-set continuity of §2.3, the ± list preconditions of §4.6,
 //! the `FPROMO` presence rule of §10.1) with the main set's `SYMTAB` ranges (§14.2) and the set-wide `SCHEMA` order
@@ -778,6 +779,9 @@ fn placement(tag: u16, kind: u8) -> Option<Pl> {
         0x00C0 => [F, F, F, R],
         0x00C1 | 0x00C2 => [F, F, F, C],
         0x0100..=0x0102 | 0x0201..=0x020C => [R, R, F, F],
+        // [F09 §3.1], §14.5 (spec sync 3): `DROPPED` and `HARVEST`, conditional in base and delta segments; `0x020F` is
+        // reserved, so it stays unknown.
+        0x020D | 0x020E => [C, C, F, F],
         0x0210..=0x021A => {
             let t = Table::from_tag(tag)?;
             if t.derived_optional() {
@@ -959,11 +963,17 @@ fn decode_sec(tag: u16, b: &[u8], at: usize, kind: u8) -> Result<Sec> {
                     len: r.u32()?,
                     raw_len: r.u32()?,
                 };
-                if x.file == 0 || x.len == 0 || x.raw_len > 65_536 {
-                    return err(
-                        e_at,
-                        "BlobRef file 0, len 0 or raw_len above 65536 [F09 §6.3]",
-                    );
+                // [F09 §6.3] (spec sync 3): `file` = 0 is a dropped `BlobRef`, which keeps only its hash; that its hash
+                // is in the dropped set is a C-rule.
+                if x.file == 0 {
+                    if x.off != 0 || x.len != 0 || x.raw_len != 0 {
+                        return err(
+                            e_at,
+                            "a dropped BlobRef (file 0) with a non-zero off, len or raw_len [F09 §6.3]",
+                        );
+                    }
+                } else if x.len == 0 || x.raw_len > 65_536 {
+                    return err(e_at, "BlobRef len 0 or raw_len above 65536 [F09 §6.3]");
                 }
                 v.push(x);
             }
@@ -1701,11 +1711,13 @@ fn decode_symtab(b: &[u8], at: usize) -> Result<Symtab> {
             r.u32()? as usize,
             r.u32()? as usize,
         );
-        if !(1..=11).contains(&class)
-            || first == 0
-            || n == 0
-            || ents.last().is_some_and(|&(c, ..)| c >= class)
-        {
+        if !(1..=12).contains(&class) {
+            return err(
+                e_at,
+                format!("SYMTAB class {class} outside 1-12 [F09 §14.1]"),
+            );
+        }
+        if first == 0 || n == 0 || ents.last().is_some_and(|&(c, ..)| c >= class) {
             return err(e_at, "SYMTAB class entry invalid or unsorted [F09 §14.2]");
         }
         // [F01 §8.1] S3–S4, §8.2: the ids `first … first + n − 1` lie within the class's width.
@@ -2218,6 +2230,20 @@ fn check_segment(s: &Segment, offs: &BTreeMap<u16, usize>) -> Result<()> {
                 ),
             );
         }
+    }
+    // [F11 §13.4]: a `DROPPED` row's `drop_lsn` lies below the segment's `upto_lsn` (the section's own decoder does not
+    // see the header).
+    if let Some(Sec::Runtime(d)) = s.get(0x020D)
+        && let Some(row) = d.rows.iter().find(|r| r.u("drop_lsn") >= s.hdr.upto_lsn)
+    {
+        return fail(
+            0x020D,
+            format!(
+                "DROPPED drop_lsn {} is not below upto_lsn {} [F11 §13.4]",
+                row.u("drop_lsn"),
+                s.hdr.upto_lsn
+            ),
+        );
     }
     let tags: BTreeSet<u16> = s.sections.iter().map(|(e, _)| e.tag).collect();
     for t in (0x0001u16..=0x0060)
@@ -2957,7 +2983,7 @@ pub fn check_stack(layers: &[(&str, &Segment)], syms: &SetSymbols<'_>) -> Result
     let mut schema: &[Item] = &[];
     let mut sets = ViewSets::default();
     let mut view: Vec<Adjacency<'_>> = Vec::with_capacity(layers.len());
-    let mut next_sym = [1u64; 12];
+    let mut next_sym = [1u64; 13];
     for (j, (name, seg)) in layers.iter().enumerate() {
         let named = |m: String| Error {
             offset: 0,
@@ -2982,7 +3008,7 @@ pub fn check_stack(layers: &[(&str, &Segment)], syms: &SetSymbols<'_>) -> Result
 
 /// [F09 §14.2] "Ranges" at one main-set layer: each class's ids in its `SYMTAB` start at `next[class]`, the id after the
 /// layers below, which then moves past them.
-fn check_symbol_ranges(seg: &Segment, next: &mut [u64; 12]) -> core::result::Result<(), String> {
+fn check_symbol_ranges(seg: &Segment, next: &mut [u64; 13]) -> core::result::Result<(), String> {
     let Some(Sec::Symtab(st)) = seg.get(0x0100) else {
         return Ok(());
     };
@@ -4214,6 +4240,260 @@ pub(crate) mod tests {
         assert!(check_stack(&[("d1", &lone)], &syms).is_err());
     }
 
+    /// A runtime section body laid out from [F11 §2.1]: `RtHdr` (`n_rows`, `row_size`, `form`, `aux` 0, no index,
+    /// `heap_len`), the rows, then `heap`.
+    fn rt_body(n_rows: u32, row_size: u16, form: u8, rows: &[u8], heap: &[u8]) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.u32(n_rows);
+        w.u16(row_size);
+        w.u8(form);
+        w.u8(0);
+        w.u32(0);
+        w.u32(0);
+        w.u64(heap.len() as u64);
+        w.bytes(rows);
+        w.bytes(heap);
+        w.into_vec()
+    }
+
+    /// The table of tag `tag` ([F11 §2.8]).
+    fn table_of(tag: u16) -> Table {
+        Table::from_tag(tag).unwrap_or_else(|| panic!("no table has tag 0x{tag:04X} [F11 §2.8]"))
+    }
+
+    /// A one-row `DROPPED` snapshot section (tag `0x020D`, [F11 §13.4]) for a segment of kind `seg`, decoded from its
+    /// bytes: hash 16 × `0x44`, `drop_lsn`, reason 1.
+    fn dropped_sec(drop_lsn: u64, seg: SegKind) -> Sec {
+        let mut row = Writer::new();
+        row.bytes(&[0x44; 16]);
+        row.u64(drop_lsn);
+        row.u64(1 << 16);
+        row.u8(1);
+        row.zeros(7);
+        let b = rt_body(1, 40, 1, row.as_slice(), &[]);
+        Sec::Runtime(Box::new(
+            runtime::decode_section(table_of(0x020D), &b, 0, seg).unwrap(),
+        ))
+    }
+
+    /// A one-row `HARVEST` snapshot section (tag `0x020E`, [F11 §13.5]) for a base, decoded from its bytes: source
+    /// `claude:s`, an empty path, no range.
+    fn harvest_sec() -> Sec {
+        let mut row = Writer::new();
+        row.bytes(&[0x55; 16]);
+        row.u64(10);
+        row.u8(0);
+        row.zeros(7);
+        for (off, len) in [(0u32, 8u32), (8, 0), (8, 0)] {
+            row.u32(off);
+            row.u32(len);
+        }
+        let b = rt_body(1, 56, 1, row.as_slice(), b"claude:s");
+        Sec::Runtime(Box::new(
+            runtime::decode_section(table_of(0x020E), &b, 0, SegKind::Base).unwrap(),
+        ))
+    }
+
+    /// The segment `s` must decode and re-encode to its bytes.
+    fn segment_round_trip(s: &Segment, what: &str) {
+        let b = encode_segment(s);
+        let d = decode_segment(&b).unwrap_or_else(|e| panic!("{what}: {e}"));
+        assert_eq!(encode_segment(&d), b, "{what}");
+    }
+
+    /// The segment `s` must be refused with a reason that contains each of `cites`.
+    fn segment_refused(s: &Segment, cites: &[&str], what: &str) {
+        match decode_segment(&encode_segment(s)) {
+            Ok(_) => panic!("{what}: accepted"),
+            Err(e) => {
+                for c in cites {
+                    assert!(e.reason.contains(c), "{what}: {e}");
+                }
+            }
+        }
+    }
+
+    /// [F09 §3.1], §3.3, §14.5, §17.1 V-7 (spec sync 3): `DROPPED` (`0x020D`) and `HARVEST` (`0x020E`) are conditional
+    /// in base and delta segments: a base with a one-row section of each round-trips, and one without either is
+    /// `small_base` itself; a present section with no row is refused; either tag is forbidden in a promoted-branch
+    /// (kind 5) and a changeset (kind 9) segment and takes no `derived-optional` flag; `0x020F` is reserved, so it is
+    /// refused without the flag and kept as an unknown section with it.
+    #[test]
+    fn conditional_runtime_sections() {
+        let both = recount(with(
+            with(small_base(), 0x020D, dropped_sec(999, SegKind::Base)),
+            0x020E,
+            harvest_sec(),
+        ));
+        segment_round_trip(&both, "a base with DROPPED and HARVEST");
+        let d = decode_segment(&encode_segment(&both)).unwrap();
+        assert!(matches!(d.get(0x020D), Some(Sec::Runtime(r)) if r.rows.len() == 1));
+        assert!(matches!(d.get(0x020E), Some(Sec::Runtime(r)) if r.rows.len() == 1));
+        segment_round_trip(&small_base(), "a base with neither");
+        let empty = recount(with(small_base(), 0x020D, rt_empty(table_of(0x020D), 1)));
+        segment_refused(&empty, &["no row", "V-7"], "an empty DROPPED");
+        for kind in [5u8, 9] {
+            for (tag, sec) in [
+                (0x020D, dropped_sec(1, SegKind::Base)),
+                (0x020E, harvest_sec()),
+            ] {
+                let lone = Segment {
+                    hdr: SegHdr {
+                        seg_kind: kind,
+                        tok_ver: 0,
+                        n_rows: 0,
+                        file_no: 7,
+                        ref_id: if kind == 5 { 1 } else { 0 },
+                        dict_no: 0,
+                        base_seq: 0,
+                        from_lsn: 0,
+                        upto_lsn: 0,
+                        rt_upto_lsn: 0,
+                        total_len: 0,
+                        seg_digest: [0; 32],
+                    },
+                    sections: vec![(ent(tag, 1), sec)],
+                };
+                let want = format!("tag 0x{tag:04X} is forbidden in seg_kind {kind}");
+                segment_refused(&lone, &[want.as_str(), "§3.1"], &want);
+            }
+        }
+        let mut flagged = both.clone();
+        for (e, _) in &mut flagged.sections {
+            if e.tag == 0x020D {
+                e.flags = 1;
+            }
+        }
+        segment_refused(&flagged, &["0x020D", "§3.3"], "derived-optional on DROPPED");
+        let reserved = with(small_base(), 0x020F, Sec::Unknown(vec![1, 2, 3]));
+        segment_refused(
+            &reserved,
+            &["unknown tag 0x020F"],
+            "0x020F without the flag",
+        );
+        let mut kept = reserved.clone();
+        for (e, _) in &mut kept.sections {
+            if e.tag == 0x020F {
+                e.flags = 1;
+            }
+        }
+        segment_round_trip(&kept, "0x020F with the flag");
+        let d = decode_segment(&encode_segment(&kept)).unwrap();
+        assert_eq!(d.get(0x020F), Some(&Sec::Unknown(vec![1, 2, 3])));
+    }
+
+    /// [F11 §13.4]: a `DROPPED` row's `drop_lsn` is below the segment's `upto_lsn` (1000 in `small_base`): 999 is
+    /// accepted, 1000 and 1001 are refused.
+    #[test]
+    fn dropped_lsn_below_upto() {
+        let base = |lsn: u64| recount(with(small_base(), 0x020D, dropped_sec(lsn, SegKind::Base)));
+        segment_round_trip(&base(999), "drop_lsn 999");
+        for lsn in [1000, 1001] {
+            segment_refused(
+                &base(lsn),
+                &["drop_lsn", "§13.4"],
+                &format!("drop_lsn {lsn}"),
+            );
+        }
+    }
+
+    /// [F09 §6.3] (spec sync 3), §16.4, §17.1 V-11: a dropped `BlobRef` (`file` = 0 with `off` = `len` = `raw_len` = 0,
+    /// its hash kept) is valid in a base, where a row's `body_ref` still names it, and in a changeset segment's
+    /// `BLOBTAB`; `file` = 0 with any of the three non-zero is refused, as is a live `BlobRef` with `len` 0.
+    #[test]
+    fn dropped_blob_ref() {
+        let blob = |file: u32, off: u64, len: u32, raw_len: u32| BlobRef {
+            hash: [9; 16],
+            file,
+            off,
+            len,
+            raw_len,
+        };
+        let dropped = edit(small_base(), 0x0012, |x| {
+            *x = Sec::BlobTab(vec![blob(0, 0, 0, 0)])
+        });
+        segment_round_trip(&dropped, "a base whose body is dropped");
+        let live = BlobRef {
+            hash: [0xA0; 16],
+            ..blob(2, 120, 7, 6)
+        };
+        let tab = encode_sec(&Sec::BlobTab(vec![blob(0, 0, 0, 0), live]));
+        for kind in [3u8, 9] {
+            let back = decode_sec(0x0012, &tab, 0, kind).unwrap_or_else(|e| panic!("{kind}: {e}"));
+            assert_eq!(encode_sec(&back), tab);
+        }
+        for (b, what) in [
+            (blob(0, 120, 0, 0), "off"),
+            (blob(0, 0, 7, 0), "len"),
+            (blob(0, 0, 0, 6), "raw_len"),
+        ] {
+            let e = decode_sec(0x0012, &encode_sec(&Sec::BlobTab(vec![b])), 0, 3).unwrap_err();
+            assert!(
+                e.reason.contains("dropped BlobRef") && e.reason.contains("§6.3"),
+                "{what}: {e}"
+            );
+        }
+        let e = decode_sec(
+            0x0012,
+            &encode_sec(&Sec::BlobTab(vec![blob(2, 120, 0, 6)])),
+            0,
+            3,
+        )
+        .unwrap_err();
+        assert!(
+            e.reason.contains("len 0") && e.reason.contains("§6.3"),
+            "{e}"
+        );
+    }
+
+    /// [F09 §14.1], §14.2 (spec sync 3): `SYMTAB` class 12 `model` (`u32`) decodes and re-encodes beside class 1; class
+    /// 13 is reserved. A main set's layers hold class-12 ranges like any class's: 1–2 in the base and 3 in a delta are
+    /// contiguous, a delta range from 4 leaves a gap.
+    #[test]
+    fn symtab_class_model() {
+        let st = Symtab {
+            classes: vec![
+                (1, 1, vec!["owner".into()]),
+                (12, 1, vec!["model-b".into(), "model-a".into()]),
+            ],
+        };
+        let b = encode_symtab(&st);
+        assert_eq!(decode_symtab(&b, 0).unwrap(), st);
+        assert_eq!(encode_symtab(&decode_symtab(&b, 0).unwrap()), b);
+        let thirteen = Symtab {
+            classes: vec![(13, 1, vec!["x".into()])],
+        };
+        let e = decode_symtab(&encode_symtab(&thirteen), 0).unwrap_err();
+        assert!(e.reason.contains("§14.1"), "{e}");
+        let symtab = |v: Vec<(u8, u32, Vec<String>)>| Sec::Symtab(Symtab { classes: v });
+        let base = with(
+            small_base(),
+            0x0100,
+            symtab(vec![
+                (10, 1, vec!["estimate".into()]),
+                (12, 1, vec!["m1".into(), "m2".into()]),
+            ]),
+        );
+        let syms = SetSymbols::of([&base]).unwrap();
+        let d1 = with(
+            as_delta(small_base(), &base),
+            0x0100,
+            symtab(vec![(12, 3, vec!["m3".into()])]),
+        );
+        check_stack(&[("base", &base), ("d1", &d1)], &syms).unwrap();
+        let gap = with(
+            as_delta(small_base(), &base),
+            0x0100,
+            symtab(vec![(12, 4, vec!["m3".into()])]),
+        );
+        let e = check_stack(&[("base", &base), ("d1", &gap)], &syms).unwrap_err();
+        assert!(
+            e.reason
+                .starts_with("d1: SYMTAB ids of class 12 start at 4"),
+            "{e}"
+        );
+    }
+
     /// Every `SecEnt.count` of `s` set to its content's ([F09 §4]).
     fn recount(mut s: Segment) -> Segment {
         for (e, x) in &mut s.sections {
@@ -4748,7 +5028,7 @@ mod props {
         /// never panic; one decodes exactly when its ids fit the width.
         #[test]
         fn symtab_near_the_width_never_panics(
-            class in 1u8..=11,
+            class in 1u8..=12,
             first in prop_oneof![
                 Just(u32::MAX),
                 Just(u32::MAX - 1),
