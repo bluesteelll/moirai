@@ -1059,6 +1059,32 @@ pub(crate) mod tests {
         one_frame(vec![(40, noop)], 1, (lsn, lsn), 0, (lsn, upto))
     }
 
+    /// [F10 §4.1], last sentence: a `BodyDrop` record is kept like every other record, so a `hist` file whose codec-0
+    /// frame holds one (laid out from [F05 §9.29]'s table) decodes and re-encodes byte for byte.
+    #[test]
+    fn hist_keeps_a_body_drop_record() {
+        let mut p = Writer::new();
+        p.uvar(2);
+        p.bytes(&[3; 16]);
+        p.bytes(&[4; 16]);
+        p.u8(2);
+        p.vstr("private notes");
+        p.uvar(1);
+        p.u64((1 << 16) | 1);
+        p.u8(1);
+        let payload =
+            Payload::decode(29, &mut Reader::new(p.as_slice())).unwrap_or_else(|e| panic!("{e}"));
+        let r = rec(29, 2, 138, payload, None).encode();
+        let n = r.len() as u64;
+        let h = one_frame(vec![(n as u32, r)], 1, (138, 138), 0, (138, 138 + n));
+        let b = encode_hist(&h);
+        let d = decode_hist(&b).unwrap_or_else(|e| panic!("{e}"));
+        let recs = d.frames[0].records.as_ref().unwrap();
+        assert_eq!(recs.len(), 1);
+        assert_eq!(recs[0].hdr.kind, 29);
+        assert_eq!(encode_hist(&d), b);
+    }
+
     /// [F05 §2.2], §2.3, [F09 §2.3]: a `hist` record lies in the usable lsn space: it ends by the end of
     /// `log.4294967295` at the largest extent size, so its end is never wrapped (a record that would end at 2^64 is
     /// refused like any other past that bound); one that ends exactly there is read.
