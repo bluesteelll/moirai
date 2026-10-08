@@ -3583,7 +3583,7 @@ pub(crate) mod tests {
         ];
         let mut secs = secs;
         for t in runtime::TABLES {
-            if (0x0201..=0x021A).contains(&t.tag()) && !t.derived_optional() {
+            if (0x0201..=0x021A).contains(&t.tag()) && !t.derived_optional() && !t.conditional() {
                 secs.push((
                     ent(t.tag(), if t == Table::Idem { 16 } else { 0 }),
                     rt_empty(t, 1),
