@@ -369,3 +369,61 @@ fn jaccard_exact_limit_boundary() {
     assert_eq!(jaccard(&fw, &fw), Ratio::ONE);
     assert_eq!(winnow(&prefix(tokens_for(over.unwrap()))), None);
 }
+
+/// Feeds a text line by line, each line as one piece.
+fn feed(sink: &mut WinnowSink, t: &[u8]) {
+    for l in t.split(|&b| b == b'\n') {
+        if !l.is_empty() {
+            sink.piece(l);
+        }
+        sink.end_line();
+    }
+}
+
+/// [F20 §2.4]: every read attempt starts with `begin`, which forgets the earlier attempt (its tokens, k-grams, window
+/// and values), a half-received word token, and a set dropped past `EXACT_LIMIT`.
+#[test]
+fn winnow_sink_begin_discards_an_earlier_attempt() {
+    let earlier: &[u8] = b"fn earlier(a: u8) -> u8 { a + 1 }\nlet earlier_value = compute(alpha, beta);\nearlier tokens";
+    // Exactly `WINNOW_K` tokens over two lines, so `FW(later) = {g_0}`: a change to any later token changes it.
+    let words: Vec<String> = (0..WINNOW_K).map(|i| format!("later_{i}")).collect();
+    let later = format!("{}\n  {}  ", words[0], words[1..].join(" ")).into_bytes();
+    let want = winnow(&later).unwrap();
+    assert_eq!(want.values(), naive_kgrams(&later).as_slice());
+
+    // After a closed line.
+    let mut s = WinnowSink::new();
+    s.begin();
+    feed(&mut s, earlier);
+    assert!(!s.clone().finish().unwrap().is_empty());
+    s.begin();
+    feed(&mut s, &later);
+    assert_eq!(s.finish(), Some(want.clone()));
+
+    // In the middle of a word token, and after a pending space.
+    for half in [&b"earlier_half_wo"[..], b"half (a) line \t"] {
+        let mut s = WinnowSink::new();
+        s.begin();
+        feed(&mut s, earlier);
+        s.piece(half);
+        s.begin();
+        feed(&mut s, &later);
+        assert_eq!(
+            s.finish(),
+            Some(want.clone()),
+            "{:?}",
+            String::from_utf8_lossy(half)
+        );
+    }
+
+    // After an attempt past `EXACT_LIMIT` values (about 2 / (W + 1) values per k-gram: twice the limit), whose set
+    // was dropped.
+    let long = distinct_tokens((EXACT_LIMIT as usize + 1) * (WINNOW_W + 1));
+    let mut s = WinnowSink::new();
+    s.begin();
+    feed(&mut s, &long);
+    assert_eq!(s.clone().finish(), None);
+    s.begin();
+    feed(&mut s, &later);
+    assert_eq!(s.finish(), Some(want));
+}
