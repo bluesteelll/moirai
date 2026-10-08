@@ -114,6 +114,16 @@ fn fingerprint(n: u8, estimated: bool, distinct: u32) -> Fingerprint {
     Fingerprint::from_bytes(&b).unwrap()
 }
 
+/// Feeds whole lines, as one piece each.
+fn feed<S: LineSink>(sink: &mut S, lines: &[&[u8]]) {
+    for l in lines {
+        if !l.is_empty() {
+            sink.piece(l);
+        }
+        sink.end_line();
+    }
+}
+
 // --- the property tests ------------------------------------------------------------------------------------------
 
 /// The proptest configuration of a suite whose tier-`pr` case count is `base`: `MOIRAI_TEST_TIER` = `nightly` runs 16
@@ -362,4 +372,49 @@ fn enio_clamps_and_empty_cases() {
         (e.eoin, e.enio, e.esym),
         (Ratio::ONE, Ratio::ONE, Ratio::ONE)
     );
+}
+
+/// [F20 §2.4]: every read attempt starts with `begin`, which forgets the hits of the earlier attempt and a half line,
+/// after a closed line and in the middle of a line, and keeps `S_A`.
+#[test]
+fn hit_sink_begin_discards_an_earlier_attempt() {
+    let earlier: [&[u8]; 4] = [
+        b"earlier attempt line 0",
+        b"earlier attempt line 1",
+        b"earlier attempt line 2",
+        b"earlier attempt line 3",
+    ];
+    // The first two later lines are in A, the third is not.
+    let later: [&[u8]; 3] = [b"the line that stays", b"another line", b"a line A lacks"];
+    let a = b"earlier attempt line 0\nearlier attempt line 1\nearlier attempt line 2\nearlier attempt line 3\n\
+              the line that stays\nanother line\n";
+    let fa = fingerprint_of(a);
+    // `S_A` holds every fingerprint line of A.
+    assert_eq!(fa.sketch().len(), 6);
+    let mut fresh = HitSink::new(&fa);
+    fresh.begin();
+    feed(&mut fresh, &later);
+    assert_eq!(fresh.hit(), 2);
+
+    // After a closed line.
+    let mut s = HitSink::new(&fa);
+    s.begin();
+    feed(&mut s, &earlier);
+    assert_eq!(s.hit(), 4);
+    s.begin();
+    assert_eq!(s.hit(), 0);
+    feed(&mut s, &later);
+    assert_eq!(s.hit(), fresh.hit());
+
+    // In the middle of a line, and after a pending space: the later attempt's first line is a hit only on its own.
+    for half in [&b"half a li"[..], b"half a line \t"] {
+        let mut s = HitSink::new(&fa);
+        s.begin();
+        feed(&mut s, &earlier);
+        s.piece(half);
+        s.begin();
+        assert_eq!(s.hit(), 0);
+        feed(&mut s, &later);
+        assert_eq!(s.hit(), fresh.hit(), "{:?}", String::from_utf8_lossy(half));
+    }
 }
