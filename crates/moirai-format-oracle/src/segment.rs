@@ -4276,9 +4276,10 @@ pub(crate) mod tests {
         ))
     }
 
-    /// A one-row `HARVEST` snapshot section (tag `0x020E`, [F11 §13.5]) for a base, decoded from its bytes: source
-    /// `claude:s`, an empty path, no range.
-    fn harvest_sec() -> Sec {
+    /// A one-row `HARVEST` section (tag `0x020E`, [F11 §13.5]) for a segment of kind `seg`, decoded from its bytes: a
+    /// snapshot (form 1) in a base, a layer (form 2) in a delta ([F11 §2.4]); one live row of source `claude:s`, an
+    /// empty path, no range.
+    fn harvest_sec(seg: SegKind) -> Sec {
         let mut row = Writer::new();
         row.bytes(&[0x55; 16]);
         row.u64(10);
@@ -4288,10 +4289,33 @@ pub(crate) mod tests {
             row.u32(off);
             row.u32(len);
         }
-        let b = rt_body(1, 56, 1, row.as_slice(), b"claude:s");
+        let form = if seg == SegKind::Base { 1 } else { 2 };
+        let b = rt_body(1, 56, form, row.as_slice(), b"claude:s");
         Sec::Runtime(Box::new(
-            runtime::decode_section(table_of(0x020E), &b, 0, SegKind::Base).unwrap(),
+            runtime::decode_section(table_of(0x020E), &b, 0, seg).unwrap(),
         ))
+    }
+
+    /// `small_base` as a delta over `below` that decodes as a file ([F09 §3.1], [F11 §2.4]): `as_delta`'s segment
+    /// without `STATS` (forbidden in a delta), each runtime table empty in its delta form (form 1 for a snapshot table,
+    /// form 2 for a layer or a versioned one), and `ALLOC`'s `aux` 0, as an empty delta layer has it ([F11 §9.1]).
+    fn decodable_delta(below: &Segment) -> Segment {
+        let mut d = as_delta(small_base(), below);
+        d.sections.retain(|(e, _)| e.tag != 0x0060);
+        for (_, x) in &mut d.sections {
+            if let Sec::Runtime(r) = x {
+                let form = match r.table.delta_form() {
+                    runtime::DeltaForm::Snapshot => 1,
+                    _ => 2,
+                };
+                let mut empty = rt_empty(r.table, form);
+                if let Sec::Runtime(e) = &mut empty {
+                    e.hdr.aux = 0;
+                }
+                *x = empty;
+            }
+        }
+        recount(d)
     }
 
     /// The segment `s` must decode and re-encode to its bytes.
@@ -4315,15 +4339,17 @@ pub(crate) mod tests {
 
     /// [F09 §3.1], §3.3, §14.5, §17.1 V-7 (spec sync 3): `DROPPED` (`0x020D`) and `HARVEST` (`0x020E`) are conditional
     /// in base and delta segments: a base with a one-row section of each round-trips, and one without either is
-    /// `small_base` itself; a present section with no row is refused; either tag is forbidden in a promoted-branch
-    /// (kind 5) and a changeset (kind 9) segment and takes no `derived-optional` flag; `0x020F` is reserved, so it is
-    /// refused without the flag and kept as an unknown section with it.
+    /// `small_base` itself; a delta (kind 4) with a one-row `DROPPED` snapshot and a one-row `HARVEST` layer
+    /// round-trips, and so does one with neither; a present section with no row is refused in a base and in a delta;
+    /// either tag is forbidden in a promoted-branch (kind 5) and a changeset (kind 9) segment and takes no
+    /// `derived-optional` flag; `0x020F` is reserved, so it is refused without the flag and kept as an unknown section
+    /// with it.
     #[test]
     fn conditional_runtime_sections() {
         let both = recount(with(
             with(small_base(), 0x020D, dropped_sec(999, SegKind::Base)),
             0x020E,
-            harvest_sec(),
+            harvest_sec(SegKind::Base),
         ));
         segment_round_trip(&both, "a base with DROPPED and HARVEST");
         let d = decode_segment(&encode_segment(&both)).unwrap();
@@ -4332,10 +4358,25 @@ pub(crate) mod tests {
         segment_round_trip(&small_base(), "a base with neither");
         let empty = recount(with(small_base(), 0x020D, rt_empty(table_of(0x020D), 1)));
         segment_refused(&empty, &["no row", "V-7"], "an empty DROPPED");
+        // The delta column of §3.1 (`upto_lsn` 1100 over `small_base`'s 1000).
+        let delta = decodable_delta(&small_base());
+        segment_round_trip(&delta, "a delta with neither");
+        let in_delta = recount(with(
+            with(delta.clone(), 0x020D, dropped_sec(1050, SegKind::Delta)),
+            0x020E,
+            harvest_sec(SegKind::Delta),
+        ));
+        segment_round_trip(&in_delta, "a delta with DROPPED and HARVEST");
+        let d = decode_segment(&encode_segment(&in_delta)).unwrap();
+        assert_eq!(d.hdr.seg_kind, 4);
+        assert!(matches!(d.get(0x020D), Some(Sec::Runtime(r)) if r.rows.len() == 1));
+        assert!(matches!(d.get(0x020E), Some(Sec::Runtime(r)) if r.rows.len() == 1));
+        let empty = recount(with(delta, 0x020E, rt_empty(table_of(0x020E), 2)));
+        segment_refused(&empty, &["no row", "V-7"], "an empty HARVEST in a delta");
         for kind in [5u8, 9] {
             for (tag, sec) in [
                 (0x020D, dropped_sec(1, SegKind::Base)),
-                (0x020E, harvest_sec()),
+                (0x020E, harvest_sec(SegKind::Base)),
             ] {
                 let lone = Segment {
                     hdr: SegHdr {
