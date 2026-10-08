@@ -1637,6 +1637,16 @@ impl Stage {
     }
 }
 
+/// The `prov` group of a commit header ([F06 §4.4.17]; spec sync 3): the writer's provenance, declared and not hashed.
+/// Named apart from [`Prov`], the provenance value of a `ckimg` entry.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct WriterProv {
+    /// [F06 §3.6]: 1–6 and 255; 0 invalid; 7–254 reserved and accepted.
+    pub actor_kind: u8,
+    /// Symbol, class `model` ([F01 §8.2]): the declared model id; 0 = none declared.
+    pub model: u32,
+}
+
 /// The `Commit` payload ([F06 §4.3]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct Commit {
@@ -1704,6 +1714,8 @@ pub struct Commit {
     pub stmt_hash: Option<[u8; 16]>,
     /// `append_hlc − hlc`.
     pub append_delta: i64,
+    /// The writer's provenance (order 36, [F06 §4.4.17]); not hashed.
+    pub prov: Option<WriterProv>,
     /// Message.
     pub msg: Option<String>,
     /// (ids, complete).
@@ -1718,7 +1730,7 @@ pub struct Commit {
     pub bodies: Vec<BodyEntry>,
     /// Import-checkpoint image-only data.
     pub ckimg: Option<Vec<CkimgEntry>>,
-    /// A staged merge's arguments (order 45).
+    /// A staged merge's arguments (order 46).
     pub stage: Option<Stage>,
 }
 
@@ -1800,8 +1812,8 @@ impl Commit {
     pub fn decode(r: &mut Reader<'_>) -> Result<Commit> {
         let start = r.offset();
         let presence = r.u32()?;
-        if presence >> 19 != 0 {
-            return err(start, "presence bits 19-31 are not zero [F06 §4.2]");
+        if presence >> 20 != 0 {
+            return err(start, "presence bits 20-31 are not zero [F06 §4.2]");
         }
         let commit_id = r.b32()?;
         let np_at = r.offset();
@@ -2000,6 +2012,20 @@ impl Commit {
         {
             return err(d_at, "append_hlc outside [0, 2^64 - 1] [F06 §4.4.5]");
         }
+        // [F06 §4.3] order 36, spec sync 3: the provenance group stands between `append_delta` (35) and `msg` (37).
+        let prov = if bit(presence, 19) {
+            let at = r.offset();
+            let actor_kind = r.u8()?;
+            if actor_kind == 0 {
+                return err(at, "prov actor_kind 0 is invalid [F06 §3.6, §4.4.17]");
+            }
+            Some(WriterProv {
+                actor_kind,
+                model: r.uvar32()?,
+            })
+        } else {
+            None
+        };
         let msg = if bit(presence, 13) {
             let at = r.offset();
             let m = r.vstr()?;
@@ -2146,6 +2172,7 @@ impl Commit {
             stmt_sym,
             stmt_hash,
             append_delta,
+            prov,
             msg,
             affected,
             changeset_digest,
@@ -2215,6 +2242,9 @@ impl Commit {
         }
         if bit(p, 6) && self.import != import::LOCAL {
             return fail("idem only for local commits");
+        }
+        if bit(p, 19) && self.import != import::LOCAL {
+            return fail("prov only for local commits");
         }
         let sh = bit(p, 12);
         let sh_ok = match self.stmt_origin {
@@ -2347,6 +2377,10 @@ impl Commit {
             w.bytes(h);
         }
         w.svar(self.append_delta);
+        if let Some(pv) = &self.prov {
+            w.u8(pv.actor_kind);
+            u(w, pv.model);
+        }
         if let Some(m) = &self.msg {
             w.vstr(m);
         }
@@ -2388,8 +2422,8 @@ impl Commit {
     }
 
     /// Every symbol reference of the payload as (class code of [F05 §8.1], id), for SD-3: the header (`ref`, `actor`,
-    /// `role`, `session`, `stmt`, the git provenance, `xtr`), every op's own symbols ([`Op::symbol_refs`]) and the
-    /// `ckimg` ledger fields. Id 0 ("none") is not a reference.
+    /// `role`, `session`, `stmt`, the git provenance, `xtr`, the `prov` group's `model`), every op's own symbols
+    /// ([`Op::symbol_refs`]) and the `ckimg` ledger fields. Id 0 ("none") is not a reference.
     pub fn symbol_refs(&self) -> Vec<(u8, u32)> {
         let mut v = vec![
             (sym::REF, self.ref_sym),
@@ -2404,6 +2438,9 @@ impl Commit {
         }
         if let Some(Xtr { x_ref: Some(s), .. }) = &self.xtr {
             v.push((sym::REF, *s));
+        }
+        if let Some(pv) = &self.prov {
+            v.push((sym::MODEL, pv.model));
         }
         for op in &self.ops {
             op.symbol_refs(&mut v);
@@ -2691,6 +2728,7 @@ pub(crate) mod tests {
             stmt_sym: 0,
             stmt_hash: Some([9; 16]),
             append_delta: 0,
+            prov: None,
             msg: None,
             affected: None,
             changeset_digest: [3; 32],
@@ -3165,6 +3203,129 @@ pub(crate) mod tests {
         let mut w = Writer::new();
         pruned.encode(&mut w);
         assert!(Commit::decode(&mut Reader::new(w.as_slice())).is_err());
+    }
+
+    /// `b`, the payload of a commit whose message is `msg` (shorter than 128 bytes, so one length byte), with presence
+    /// bit 19 `prov` set and `group` inserted right before the message's length byte: [F06 §4.3] order 36, between
+    /// `append_delta` (35) and `msg` (37).
+    pub(crate) fn with_prov(b: &[u8], msg: &str, group: &[u8]) -> Vec<u8> {
+        let mut m = vec![msg.len() as u8];
+        m.extend_from_slice(msg.as_bytes());
+        let at = b
+            .windows(m.len())
+            .position(|w| w == m.as_slice())
+            .expect("the message");
+        let mut out = b[..at].to_vec();
+        out.extend_from_slice(group);
+        out.extend_from_slice(&b[at..]);
+        out[2] |= 0x08;
+        out
+    }
+
+    /// [F06 §4.2] bit 19, §4.3 order 36, §4.4.17, §3.6 (spec sync 3): the [F06 §11] commit with the provenance group
+    /// inserted between `append_delta` and `msg` decodes to the same message, `affected` and ops and re-encodes byte for
+    /// byte, for every listed `actor_kind` and the reserved 7, 128 and 254, with `model` 0 (none) and 300 (two varint
+    /// bytes). `model` is a symbol reference of class 12 `model`, none for 0; the other references are unchanged.
+    #[test]
+    fn prov_group_round_trips() {
+        let plain = example_payload();
+        let base = Commit::decode(&mut Reader::new(&plain)).unwrap();
+        for actor_kind in [1u8, 2, 3, 4, 5, 6, 255, 7, 128, 254] {
+            for (model, varint) in [(0u32, vec![0u8]), (300, vec![0xAC, 0x02])] {
+                let what = format!("actor_kind {actor_kind}, model {model}");
+                let group = [&[actor_kind][..], &varint].concat();
+                let b = with_prov(&plain, "claim --start", &group);
+                assert_eq!(b.len(), plain.len() + group.len());
+                let c =
+                    Commit::decode(&mut Reader::new(&b)).unwrap_or_else(|e| panic!("{what}: {e}"));
+                assert_eq!(c.presence, base.presence | (1 << 19), "{what}");
+                assert_eq!(c.msg, base.msg, "{what}");
+                assert_eq!(c.affected, base.affected, "{what}");
+                assert_eq!(c.ops, base.ops, "{what}");
+                let mut w = Writer::new();
+                c.encode(&mut w);
+                assert_eq!(w.as_slice(), &b[..], "{what}");
+                let refs = c.symbol_refs();
+                let models: Vec<(u8, u32)> = refs.iter().copied().filter(|r| r.0 == 12).collect();
+                let want: Vec<(u8, u32)> = if model == 0 {
+                    vec![]
+                } else {
+                    vec![(12, model)]
+                };
+                assert_eq!(models, want, "{what}");
+                let others: Vec<(u8, u32)> = refs.iter().copied().filter(|r| r.0 != 12).collect();
+                assert_eq!(others, base.symbol_refs(), "{what}");
+            }
+        }
+    }
+
+    /// [F06 §3.6], §4.2, §4.4.17: `actor_kind` 0 is invalid; bit 19 with an import other than `local` is refused (each
+    /// commit valid without it); each of bits 20–31 is reserved-zero; with bit 19 set and no group the decoder reads the
+    /// message as the group and then runs out of bytes; a `model` varint in a non-canonical form is refused ([F01 §5.2]).
+    #[test]
+    fn prov_group_refusals() {
+        let plain = example_payload();
+        let refused = |b: &[u8], cites: &[&str], what: &str| {
+            let e = Commit::decode(&mut Reader::new(b)).expect_err(what);
+            for c in cites {
+                assert!(e.reason.contains(c), "{what}: {e}");
+            }
+        };
+        refused(
+            &with_prov(&plain, "claim --start", &[0, 0]),
+            &["actor_kind", "§3.6"],
+            "actor_kind 0",
+        );
+        let imported = |presence: u32, import: u8, kind: u8| {
+            let mut c = base_commit();
+            c.presence = presence | (1 << 13);
+            c.import = import;
+            c.kind = kind;
+            c.stmt_origin = 5;
+            c.stmt_hash = None;
+            c.msg = Some("m-prov".into());
+            c
+        };
+        let mut native = imported(1 << 9, import::NATIVE, kind::ORDINARY);
+        native.verified = Some(true);
+        let mut foreign = imported(1 << 4, import::FOREIGN, kind::ORDINARY);
+        foreign.foreign_git = Some(Oid::Sha1([6; 20]));
+        let mut ckpt = imported((1 << 4) | (1 << 10), import::CHECKPOINT, kind::CHECKPOINT);
+        ckpt.foreign_git = Some(Oid::Sha1([6; 20]));
+        ckpt.ckpt = Some(Ckpt {
+            head: [1; 32],
+            n_folded: 0,
+            first: [0; 32],
+            last: [0; 32],
+        });
+        for (c, what) in [
+            (native, "native"),
+            (foreign, "foreign"),
+            (ckpt, "checkpoint"),
+        ] {
+            let mut w = Writer::new();
+            c.encode(&mut w);
+            Commit::decode(&mut Reader::new(w.as_slice()))
+                .unwrap_or_else(|e| panic!("{what} without prov: {e}"));
+            refused(
+                &with_prov(w.as_slice(), "m-prov", &[1, 0]),
+                &["local", "§4.2"],
+                what,
+            );
+        }
+        for b in 20..32 {
+            let mut bad = plain.clone();
+            bad[b / 8] |= 1 << (b % 8);
+            refused(&bad, &["20-31", "§4.2"], &format!("presence bit {b}"));
+        }
+        let mut missing = plain.clone();
+        missing[2] |= 0x08;
+        refused(&missing, &["needs 108 bytes"], "bit 19 without the group");
+        refused(
+            &with_prov(&plain, "claim --start", &[1, 0x80, 0x00]),
+            &["non-canonical", "§5.2"],
+            "model 0 in two varint bytes",
+        );
     }
 }
 

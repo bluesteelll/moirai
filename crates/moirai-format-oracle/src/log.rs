@@ -4375,6 +4375,72 @@ pub(crate) mod tests {
         let e = s.check_refs(&[(12, 6)], 0).unwrap_err();
         assert!(e.reason.contains("SD-3"), "{e}");
     }
+
+    /// [F05 §8.1] SD-3 over class 12 `model` ([F06 §4.4.17]): a log of the extent head and one `Commit` whose provenance
+    /// group declares `model` 1, which its record defines (with its actor and ref), is adopted; with `model` 2, which
+    /// nothing defines, the record is malformed and the scan stops as corruption at its group (§5.4).
+    #[test]
+    fn commit_model_symbol_is_a_reference() {
+        use crate::commit::tests::{base_commit, with_prov};
+        let sc = ScanCtx {
+            ctx: Ctx { e: E, epoch: EPOCH },
+            epoch_lsn: 0,
+            durable_lsn: H,
+            init: init(),
+            project_oid_algo: 1,
+        };
+        let build = |model: u8| {
+            let mut c = base_commit();
+            c.presence = (1 << 12) | (1 << 13);
+            c.msg = Some("m-prov".into());
+            let mut w = Writer::new();
+            c.encode(&mut w);
+            let b = with_prov(w.as_slice(), "m-prov", &[3, model]);
+            let c = Commit::decode(&mut Reader::new(&b)).unwrap_or_else(|e| panic!("{e}"));
+            let def = |class, text: &str| SymDef {
+                class,
+                id: 1,
+                text: text.into(),
+            };
+            let defs = vec![
+                def(sym::ACTOR, "owner"),
+                def(sym::REF, "main"),
+                def(12, "claude-x"),
+            ];
+            let mut log = vec![0u8; E as usize];
+            let b0 = encode_group(&one(vec![head(0, epoch_seed(EPOCH))], 0), epoch_seed(EPOCH));
+            log[..b0.len()].copy_from_slice(&b0);
+            let seed = u64::from_le_bytes(b0[b0.len() - 8..].try_into().unwrap());
+            let g = one(
+                vec![rec(1, 2, H, Payload::Commit(Box::new(c)), Some(defs))],
+                H,
+            );
+            let b1 = encode_group(&g, seed);
+            log[H as usize..H as usize + b1.len()].copy_from_slice(&b1);
+            (log, H + b1.len() as u64)
+        };
+        let (good, end) = build(1);
+        let mut syms = Symbols::from_symtab(&[]);
+        let s = scan(
+            |n| (n == 1).then_some(good.as_slice()),
+            &sc,
+            0,
+            0,
+            &mut syms,
+        );
+        assert_eq!((s.groups.len(), s.end), (2, end), "{:?}", s.stop);
+        let (bad, _) = build(2);
+        let mut syms = Symbols::from_symtab(&[]);
+        let s = scan(|n| (n == 1).then_some(bad.as_slice()), &sc, 0, 0, &mut syms);
+        match &s.stop {
+            Stop::Corrupt(e) => assert!(
+                e.reason.contains("SD-3") && e.reason.contains("class 12"),
+                "{e}"
+            ),
+            other => panic!("an undefined model symbol ended the scan as {other:?}"),
+        }
+        assert_eq!(s.end, H);
+    }
 }
 
 #[cfg(test)]
