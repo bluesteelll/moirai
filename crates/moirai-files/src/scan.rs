@@ -1,4 +1,4 @@
-//! The scope scanners of resolver version 1 ([F21]): the Rust, Markdown and TOML scanners as total, streaming
+//! The scope scanners of resolver version 1 (\[F21\]): the Rust, Markdown and TOML scanners as total, streaming
 //! functions over any anchor text, and the item model they share — name paths, recordable scope values, the scope a
 //! capture records, how a scope resolves, item headers of the same kind — with the `symbol` and `heading` authoring
 //! forms ([F21 §6]).
@@ -57,7 +57,7 @@
 //!
 //! # Status
 //!
-//! [F21] is normative for these scanners. While [F20 §6.1]'s interim scanner rule holds ([F21 §1.4]), capture records
+//! \[F21\] is normative for these scanners. While [F20 §6.1]'s interim scanner rule holds ([F21 §1.4]), capture records
 //! no scope and refuses the `symbol` and `heading` forms: that decision belongs to the anchor resolver, which calls
 //! this module only once the rule is lifted. The differential against `moirai-tsoracle` ([F21 §3.9]; WP-74) reads
 //! [`scan`]'s items for a Rust file: kind ([`Lang::skind_name`]), name, qualifier, lines, parent and order are the
