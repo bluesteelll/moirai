@@ -15,6 +15,11 @@
 //! Every sink of this module hashes a line the same way: one private hasher streams `collapse(nl(l))` over the
 //! pieces the reader hands it, wherever a piece boundary falls.
 //!
+//! # Token winnowing
+//!
+//! [`winnow`] and [`WinnowSink`] compute the winnowing fingerprint set `FW(t)` of an anchor text ([F20 §2.9]) and
+//! [`jaccard`] its measure `J`; [`tokens`] and [`select`] expose the token rule and the window selection.
+//!
 //! # Memory
 //!
 //! The fingerprint sink holds a fixed-size state and no heap memory: the line hasher, the weight, the 64 sketch values
@@ -26,5 +31,7 @@
 
 mod fingerprint;
 mod line;
+mod winnow;
 
 pub use fingerprint::{Fingerprint, FingerprintError, FingerprintSink};
+pub use winnow::{Tokens, WinnowSet, WinnowSink, jaccard, select, tokens, winnow};
