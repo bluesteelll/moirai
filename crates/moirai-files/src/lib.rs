@@ -26,3 +26,6 @@ pub mod scan;
 
 // R-FL1B (WP-61b).
 pub mod ignore;
+
+// R-FL1B (WP-66).
+pub mod sketch;
