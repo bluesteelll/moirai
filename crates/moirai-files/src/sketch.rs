@@ -20,6 +20,13 @@
 //! [`winnow`] and [`WinnowSink`] compute the winnowing fingerprint set `FW(t)` of an anchor text ([F20 §2.9]) and
 //! [`jaccard`] its measure `J`; [`tokens`] and [`select`] expose the token rule and the window selection.
 //!
+//! # Similarity and containment
+//!
+//! [`exact`] gives the exact measures `oin`, `nio` and `sym` of two contents read in full, over the multisets of
+//! their fingerprint lines ([`MultisetSink`], [`LineMultiset`]) within `EXACT_LIMIT` ([F20 §2.10.1], §2.10.5).
+//! [`estimates`] gives `eoin`, `enio` and `esym` of an old content known only by its fingerprint, from the `hit`
+//! count a [`HitSink`] takes while the new content streams ([F20 §2.10.2]).
+//!
 //! # Memory
 //!
 //! The fingerprint sink holds a fixed-size state and no heap memory: the line hasher, the weight, the 64 sketch values
@@ -31,7 +38,9 @@
 
 mod fingerprint;
 mod line;
+mod measure;
 mod winnow;
 
 pub use fingerprint::{Fingerprint, FingerprintError, FingerprintSink};
+pub use measure::{Estimates, Exact, HitSink, LineMultiset, MultisetSink, estimates, exact};
 pub use winnow::{Tokens, WinnowSet, WinnowSink, jaccard, select, tokens, winnow};
