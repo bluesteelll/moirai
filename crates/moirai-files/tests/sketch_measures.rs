@@ -325,6 +325,65 @@ fn exact_limit_boundary() {
     assert_eq!(LineMultiset::from_pairs(pairs(limit + 1)), None);
 }
 
+/// [F20 §2.4]: every read attempt starts with `begin`, which forgets the pairs of the earlier attempt, a half line,
+/// and pairs dropped past `EXACT_LIMIT`.
+#[test]
+fn multiset_sink_begin_discards_an_earlier_attempt() {
+    // The earlier attempt shares a line with the later one: a kept pair would also change a multiplicity.
+    let earlier: [&[u8]; 4] = [
+        b"earlier attempt line 0",
+        b"earlier attempt line 1",
+        b"the line that stays",
+        b"earlier attempt line 3",
+    ];
+    let later: [&[u8]; 3] = [b"the line that stays", b"another line", b"  third   line  "];
+    let mut fresh = MultisetSink::new();
+    fresh.begin();
+    feed(&mut fresh, &later);
+    let fresh = fresh.finish().unwrap();
+    assert_eq!(
+        fresh,
+        multiset_of(b"the line that stays\nanother line\n  third   line  \n")
+    );
+    assert!(fresh.weight() > 0);
+
+    // After a closed line.
+    let mut s = MultisetSink::new();
+    s.begin();
+    feed(&mut s, &earlier);
+    s.begin();
+    feed(&mut s, &later);
+    assert_eq!(s.finish(), Some(fresh.clone()));
+
+    // In the middle of a line, and after a pending space: the half line must not prefix the later first line.
+    for half in [&b"half a li"[..], b"half a line \t"] {
+        let mut s = MultisetSink::new();
+        s.begin();
+        feed(&mut s, &earlier);
+        s.piece(half);
+        s.begin();
+        feed(&mut s, &later);
+        assert_eq!(
+            s.finish(),
+            Some(fresh.clone()),
+            "{:?}",
+            String::from_utf8_lossy(half)
+        );
+    }
+
+    // After an attempt past `EXACT_LIMIT` fingerprint lines, whose pairs were dropped.
+    let mut s = MultisetSink::new();
+    s.begin();
+    for i in 0..=EXACT_LIMIT {
+        s.piece(format!("fingerprint line {i}").as_bytes());
+        s.end_line();
+    }
+    assert_eq!(s.clone().finish(), None);
+    s.begin();
+    feed(&mut s, &later);
+    assert_eq!(s.finish(), Some(fresh));
+}
+
 /// `enio` is clamped at 1, is 0 when `D_B = 0`, and an empty `S_A` gives 0 everywhere ([F20 §2.10.2]).
 #[test]
 fn enio_clamps_and_empty_cases() {
