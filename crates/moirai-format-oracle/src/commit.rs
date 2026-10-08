@@ -3223,9 +3223,10 @@ pub(crate) mod tests {
     }
 
     /// [F06 §4.2] bit 19, §4.3 order 36, §4.4.17, §3.6 (spec sync 3): the [F06 §11] commit with the provenance group
-    /// inserted between `append_delta` and `msg` decodes to the same message, `affected` and ops and re-encodes byte for
-    /// byte, for every listed `actor_kind` and the reserved 7, 128 and 254, with `model` 0 (none) and 300 (two varint
-    /// bytes). `model` is a symbol reference of class 12 `model`, none for 0; the other references are unchanged.
+    /// inserted between `append_delta` and `msg` decodes to the same message, `affected` and ops and re-encodes byte
+    /// for byte, for every listed `actor_kind` and the reserved 7, 128 and 254, with `model` 0 (none) and 300 (two
+    /// varint bytes). `model` is a symbol reference of class 12 `model`, none for 0; the other references are
+    /// unchanged.
     #[test]
     fn prov_group_round_trips() {
         let plain = example_payload();
@@ -3260,8 +3261,9 @@ pub(crate) mod tests {
     }
 
     /// [F06 §3.6], §4.2, §4.4.17: `actor_kind` 0 is invalid; bit 19 with an import other than `local` is refused (each
-    /// commit valid without it); each of bits 20–31 is reserved-zero; with bit 19 set and no group the decoder reads the
-    /// message as the group and then runs out of bytes; a `model` varint in a non-canonical form is refused ([F01 §5.2]).
+    /// commit valid without it); each of bits 20–31 is reserved-zero; with bit 19 set and no group the decoder reads
+    /// the message as the group and then runs out of bytes; a `model` varint in a non-canonical form is refused
+    /// ([F01 §5.2]).
     #[test]
     fn prov_group_refusals() {
         let plain = example_payload();

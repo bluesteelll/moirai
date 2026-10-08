@@ -2355,8 +2355,8 @@ fn decode_body_drop(r: &mut Reader<'_>) -> Result<BodyDrop> {
 }
 
 /// The `Harvest` payload with its V-rules ([F05 §9.30] "Rules"): `op` 1–3, a `source` of 1 to 200 bytes each in
-/// `0x21`–`0x7E`, and for a range `start` < `end` and a non-zero `commit`. The C-rules (the range's commit earlier in the
-/// group, no overlap, a mark or forget only when it changes the row) need the group and the refs.
+/// `0x21`–`0x7E`, and for a range `start` < `end` and a non-zero `commit`. The C-rules (the range's commit earlier in
+/// the group, no overlap, a mark or forget only when it changes the row) need the group and the refs.
 fn decode_harvest(r: &mut Reader<'_>) -> Result<Harvest> {
     let op_at = r.offset();
     let op = r.u8()?;
@@ -4011,7 +4011,8 @@ pub(crate) mod tests {
     const T_HLC: u64 = (1 << 16) | 7;
 
     /// A `BodyDrop` payload laid out from [F05 §9.29]'s table: `n` (`uvar32`), the hashes, `reason`, `note` (`vstr`),
-    /// `actor` (`sym(actor)`, a `uvar32`), `hlc`, `origin`. `n` is written as given, so it may disagree with the hashes.
+    /// `actor` (`sym(actor)`, a `uvar32`), `hlc`, `origin`. `n` is written as given, so it may disagree with the
+    /// hashes.
     fn body_drop_bytes(
         n: u64,
         hashes: &[[u8; 16]],
@@ -4082,8 +4083,8 @@ pub(crate) mod tests {
     }
 
     /// [F05 §9.29]: a `BodyDrop` payload of each reason and origin, with a note of 0 and 200 bytes (origin `command`),
-    /// an empty note (origin `import`), and one or three ascending hashes, decodes as kind 29 and re-encodes to its bytes;
-    /// its one symbol reference is its actor (§8.1 SD-3), none for actor 0.
+    /// an empty note (origin `import`), and one or three ascending hashes, decodes as kind 29 and re-encodes to its
+    /// bytes; its one symbol reference is its actor (§8.1 SD-3), none for actor 0.
     #[test]
     fn body_drop_payload_round_trips() {
         let (h1, h2, h3) = ([1u8; 16], [2u8; 16], [0xF0u8; 16]);
@@ -4198,8 +4199,8 @@ pub(crate) mod tests {
         }
     }
 
-    /// A record laid out from [F05 §3.1] at lsn 4096 of epoch `EPOCH`, `group_end` set (its trailer 0), with `flags` and
-    /// `payload` as given and its checksum computed (§3.4).
+    /// A record laid out from [F05 §3.1] at lsn 4096 of epoch `EPOCH`, `group_end` set (its trailer 0), with `flags`
+    /// and `payload` as given and its checksum computed (§3.4).
     fn raw_record(kind: u8, flags: u8, payload: &[u8]) -> Vec<u8> {
         let mut b = Writer::new();
         b.u32((HDR + payload.len() + 8) as u32);
@@ -4217,9 +4218,9 @@ pub(crate) mod tests {
         b
     }
 
-    /// [F05 §7], §5.2 checks 3–4: kinds 29 `BodyDrop` and 30 `Harvest` are registered and durable, so a record of either
-    /// with `lazy` = 0 is valid, with or without a `SymDefs` block (§9: only `Noop` and `ExtentHead` carry none), and one
-    /// with `lazy` = 1 is invalid; kinds 0, 31 and 255 are invalid (§3.1).
+    /// [F05 §7], §5.2 checks 3–4: kinds 29 `BodyDrop` and 30 `Harvest` are registered and durable, so a record of
+    /// either with `lazy` = 0 is valid, with or without a `SymDefs` block (§9: only `Noop` and `ExtentHead` carry
+    /// none), and one with `lazy` = 1 is invalid; kinds 0, 31 and 255 are invalid (§3.1).
     #[test]
     fn record_kinds_29_and_30_are_durable() {
         let ctx = Ctx { e: E, epoch: EPOCH };
@@ -4336,8 +4337,8 @@ pub(crate) mod tests {
         assert_eq!(s.end, H);
     }
 
-    /// [F05 §8.1], [F01 §8.2]: symbol class 12 `model` (spec sync 3) is a class of the `SymDefs` block and of the scan's
-    /// symbol state, with SD-1 and SD-3 as for every class; class 13 is outside the enumeration.
+    /// [F05 §8.1], [F01 §8.2]: symbol class 12 `model` (spec sync 3) is a class of the `SymDefs` block and of the
+    /// scan's symbol state, with SD-1 and SD-3 as for every class; class 13 is outside the enumeration.
     #[test]
     fn symdef_class_model() {
         let block = |class: u8, id: u32| {
@@ -4376,9 +4377,9 @@ pub(crate) mod tests {
         assert!(e.reason.contains("SD-3"), "{e}");
     }
 
-    /// [F05 §8.1] SD-3 over class 12 `model` ([F06 §4.4.17]): a log of the extent head and one `Commit` whose provenance
-    /// group declares `model` 1, which its record defines (with its actor and ref), is adopted; with `model` 2, which
-    /// nothing defines, the record is malformed and the scan stops as corruption at its group (§5.4).
+    /// [F05 §8.1] SD-3 over class 12 `model` ([F06 §4.4.17]): a log of the extent head and one `Commit` whose
+    /// provenance group declares `model` 1, which its record defines (with its actor and ref), is adopted; with `model`
+    /// 2, which nothing defines, the record is malformed and the scan stops as corruption at its group (§5.4).
     #[test]
     fn commit_model_symbol_is_a_reference() {
         use crate::commit::tests::{base_commit, with_prov};

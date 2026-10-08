@@ -3370,11 +3370,11 @@ mod tests {
         w.into_vec()
     }
 
-    /// [F11 §1.3], §2.4, §2.8, §13.4 (spec sync 3): `DROPPED` is tag `0x020D`, 40-byte rows sorted by `hash`, a snapshot
-    /// in base and delta segments and conditional; a base and a delta section of two rows decode and re-encode. Refused:
-    /// a `reason` outside 1–3 (§13.4), a non-zero reserved byte ([F01 §10]), unsorted rows and two rows with one hash
-    /// (§2.2), the layer form in a delta, a section with no row, any form in a branch or changeset segment (§2.4), and a
-    /// non-zero `aux` (§2.1).
+    /// [F11 §1.3], §2.4, §2.8, §13.4 (spec sync 3): `DROPPED` is tag `0x020D`, 40-byte rows sorted by `hash`, a
+    /// snapshot in base and delta segments and conditional; a base and a delta section of two rows decode and
+    /// re-encode. Refused: a `reason` outside 1–3 (§13.4), a non-zero reserved byte ([F01 §10]), unsorted rows and two
+    /// rows with one hash (§2.2), the layer form in a delta, a section with no row, any form in a branch or changeset
+    /// segment (§2.4), and a non-zero `aux` (§2.1).
     #[test]
     fn dropped_section() {
         let t = Table::from_tag(0x020D).expect("DROPPED is tag 0x020D [F11 §2.8]");
@@ -3441,8 +3441,8 @@ mod tests {
     /// bytes of `ranges`).
     type HRow<'a> = (u8, u64, u8, &'a [u8], &'a [u8], Vec<u8>);
 
-    /// A `HARVEST` section of `rows` in `form`: each row's 56 fixed bytes with its `HeapRef`s at the running heap offset,
-    /// then the heap: per row, in row order, its `source`, `path` and `ranges` slices ([F11 §2.3]).
+    /// A `HARVEST` section of `rows` in `form`: each row's 56 fixed bytes with its `HeapRef`s at the running heap
+    /// offset, then the heap: per row, in row order, its `source`, `path` and `ranges` slices ([F11 §2.3]).
     fn harvest_section_bytes(form: u8, rows: &[HRow<'_>]) -> Vec<u8> {
         let mut fixed = Writer::new();
         let mut heap: Vec<u8> = Vec::new();
