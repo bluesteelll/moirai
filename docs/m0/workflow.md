@@ -94,10 +94,10 @@ rewrite of `RESUME.md`, and never pushed to the public repository (R-1). It hold
 | `baseline.tsv` | the test IDs (`<package>\|<source>\|<test>`, §7) and statuses of the whole workspace at tier `pr` on `master` (§15 step 8), refreshed per package at each merge (§5.4 step 6); no unit agent reads it (§5.2 step 6) |
 | `mechanic-escapes.tsv` | the mechanic's escapes (§9) |
 | `embed/<unit>.src.js`, `embed/<unit>.js`, `embed/args_<unit>.json` | the copy of `unit.js` taken at the unit's first launch, the embedded copy made from it, and the arguments of every launch (§6.3, §6.4) |
-| `<unit>/` | `spec.md`, `baseline_unit.tsv`, `launch.md`, `run_<k>.txt`, `result_<k>.json`, `cut.md`, `critique.md`, `impl.md`, `gate_r<n>/` (a kit run directory) and `gate_r<n>.md`, `expected_r<n>.tsv`, `tests_r<n>-<m>/` (the tester's kit runs), `test_r<n>.md`, `review_r<n>.md`, `triage_r<n>.md`, `fix_r<n>.md`, `pack.md`, `run<k>/` (the round files of an earlier launch), `wt-<stage>/` (scratch worktrees) |
+| `<unit>/` | `spec.md`, `baseline_unit.tsv`, `launch.md`, `run_<k>.txt`, `result_<k>.json`, `cut.md`, `critique.md`, `impl.md`, `gate_r<n>/` (a kit run directory) and `gate_r<n>.md`, `expected_r<n>.tsv`, `tests_r<n>-<m>/` (the tester's kit runs), `test_r<n>.md`, `review_r<n>.md`, `triage_r<n>.md`, `fix_r<n>.md`, `pack.md`, `run<k>/` (the round files of an earlier launch), `wt-<stage>/` (scratch worktrees), `kit-<commit>/` (the scratch kits of a unit that changes Appendix A, §7) |
 | `kit/` | the scripts of Appendix A, `budgets.txt`, `caps.txt`, `unit-allow.txt`, `guard.exe`, `locks/`, `selftest-runs/` |
 
-Its `.gitignore` holds `/*/wt-*/`, `log.txt`, `/kit/locks/`, `/kit/selftest-runs/` and `/kit/guard.exe`.
+Its `.gitignore` holds `/*/wt-*/`, `/*/kit-*/`, `log.txt`, `/kit/locks/`, `/kit/selftest-runs/` and `/kit/guard.exe`.
 
 `RESUME.md` skeleton:
 
@@ -384,10 +384,11 @@ or stop it.
 
 - **Scripts** (Appendix A; Windows PowerShell 5.1, ASCII): `start-gate.ps1` (start one run), `run-gate.ps1` (the
   detached runner it starts), `wait-gate.ps1` (one bounded wait), `stop-gate.ps1` (stop by PID tree and archive),
-  `preflight.ps1` (the floors, through the guard of [MP §8]), `embed.ps1` (§6.3), `local-settings.ps1` (§5.2 step 5,
-  §8), `kit-hash.ps1`, `kit-common.ps1` (shared helpers), `selftest.ps1` and `selftest-fake.ps1` (the red-proof).
-  Beside them: `budgets.txt` (`gate=<minutes>`, `tests=<minutes>`, §15 step 9), `caps.txt` (the counted directories
-  of the pre-flight and their caps, `<dir>=<cap>` per line, from `xtask/nightly.toml` `[guard.caps]`, §10),
+  `preflight.ps1` (the floors: disk and RAM through the guard of [MP §8], and the commit charge), `embed.ps1` (§6.3),
+  `local-settings.ps1` (§8: the main checkout only, §15 step 6), `kit-hash.ps1`, `kit-common.ps1` (shared helpers),
+  `selftest.ps1` and `selftest-fake.ps1` (the red-proof). Beside them: `budgets.txt` (`gate=<minutes>`,
+  `tests=<minutes>`, §15 step 9), `caps.txt` (the counted directories of the pre-flight and their caps, `<dir>=<cap>`
+  per line, from `xtask/nightly.toml` `[guard.caps]`, §10; laneA only while units build only in lane A, R-11),
   `unit-allow.txt` (§8), `guard.exe` (a copy of `moirai-probes-bin guard`, §15 step 5) and `locks/` (one lock per
   work directory).
 - **A run directory** holds `params.txt` and `cmd.txt` (written before the start), `PID` and `owner.txt` (unit, run
@@ -401,10 +402,11 @@ or stop it.
   exited 0 —, an expected test is missing, or the run changed a file other than a lockfile); `VACUOUS` (7: no gate rows,
   or zero tests: a vacuous green is red); `VOID` (8: the runner failed); `HANG` (124: past the budget, stopped by its
   PID tree). A tests run also fails when a test binary has no package (§7 "Test IDs"). `start-gate.ps1` exits 0
-  (started), 1 (pre-flight refused), 2 (usage or precondition: an existing run directory, no `CARGO_TARGET_DIR`, a gate
-  worktree that is not clean, a tests run of cargo without `--message-format=json-render-diagnostics`, no `caps.txt`) or
-  6 (the work directory is busy). `wait-gate.ps1` exits 0 (DONE), 3 (still running within the budget), 4 (past the
-  budget: a hang) or 5 (the runner is gone without DONE).
+  (started), 1 (pre-flight refused: its line names the reasons, `ram-low`, `disk-low`, `commit-low`, or `guard`), 2
+  (usage or precondition: an existing run directory, no `CARGO_TARGET_DIR`, a gate worktree that is not clean, a tests
+  run of cargo without `--message-format=json-render-diagnostics`, no `caps.txt`) or 6 (the work directory is busy).
+  `wait-gate.ps1` exits 0 (DONE), 3 (still running within the budget), 4 (past the budget: a hang) or 5 (the runner
+  is gone without DONE).
 - **Commands agents run** (from the Bash tool, each after `cd` into its directory):
   - the full gate (the mechanic): `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/start-gate.ps1
     -RunDir <ORCH>/<unit>/gate_r<n> -WorkDir <gateWt> -Unit <unit> -RunId <unit>-r<n> -Kind gate -Detach m0/<role>
@@ -416,7 +418,13 @@ or stop it.
   - a bounded wait: `… wait-gate.ps1 -RunDir <run dir>` (540 s by default; the shell tool's timeout above it), one
     call per slice, never a sleep loop in the shell;
   - a stop: `… stop-gate.ps1 -RunDir <run dir> -Reason "<why>"`. Never `taskkill /IM` or any kill by image name: it
-    stops every unit's builds.
+    stops every unit's builds;
+  - a start refused for the commit charge alone (exit 1, and the pre-flight line says `verdict=refuse commit-low`,
+    R-10): a pause of `… wait-gate.ps1 -File <ORCH>/<unit>/commit-wait -SliceSec 300` (nothing writes that file, so
+    it returns exit 3 after 300 s; the shell tool's timeout above it, 600000 ms), then the same start again; after six
+    pauses (30 minutes) the mechanic reports `STOPPED` and the tester `RED`, with the last pre-flight line. A refused
+    start made no run, so starting it again is not re-running a gate for a different result. Any other refusal is
+    reported at once. The orchestrator's own kit starts (§4, §10, §15) follow the same rule.
 - **Test IDs** are `<package>|<source>|<test>` (`moirai-vfs|unittests src/lib.rs|a::b`, `moirai-vfs|tests/basic.rs|x`,
   `moirai-vfs|doc-tests|<name>`). The source is what cargo's `Running` line prints; the package comes from the
   `compiler-artifact` message that announced the executable, which is why a tests run of cargo must pass
@@ -429,15 +437,28 @@ or stop it.
   as host-only is excluded here too.
 - **The kit hash** (SHA-256 over every kit script) is stamped into every `summary.tsv` and `DONE`. A gate verdict
   counts for a merge only with the current hash (§5.4 step 1). Any change to a kit script changes the hash: run
-  `selftest.ps1` again and record the new hash and its result in `inventory.md`.
+  `selftest.ps1` again and record the new hash and its result in `inventory.md`. A change of Appendix A goes through a
+  unit, and it reaches the kit as follows (RULINGS R-12):
+  - the unit never edits the live kit `<ORCH>/kit/`;
+  - for each commit that changes Appendix A, it extracts the commit's scripts into `<ORCH>/<unit>/kit-<commit>/`
+    exactly as printed (ASCII, CRLF), copies `guard.exe`, `caps.txt`, `budgets.txt` and `unit-allow.txt` from
+    `<ORCH>/kit/`, adds an empty `locks/`, and runs `selftest.ps1` there;
+  - after the merge, with no kit run alive, the orchestrator writes the scripts of Appendix A over `<ORCH>/kit/`. It
+    keeps `budgets.txt`, `caps.txt`, `unit-allow.txt`, `guard.exe` and `locks/`, which hold this machine's values;
+  - it then runs `selftest.ps1` and records the new hash and the summary line in `inventory.md` and in `RESUME.md`'s
+    header;
+  - every such selftest starts only while the free commit charge is at least 4 GB (§10), and one selftest runs at a
+    time: the timed cases can fail under contention.
 - **Red-proof.** A gate script is trusted only after it was seen exiting non-zero on a failing row (AGENTS.md).
   `selftest.ps1` runs every kit script the way an agent does on synthetic inputs and checks: a failing row with exit 0,
   a non-zero exit with passing rows, zero rows, zero tests, a missing expected test, test IDs that carry the package
   (two packages with one test file name, a binary no message announced), a tests run without JSON messages, a hang
   stopped by its PID tree, a bounded wait on a live run, a busy work directory, a stop and its archive, a runner that
   dies (the orphaned command is stopped by its recorded PID), the pre-flight below each floor and with a capped
-  directory's reserve, through the fallback and the guard, the embedded copy, the local settings, and the `-Detach`
-  checkout with its lockfile rules. Each script's own red-proof is the selftest case named after it in Appendix A.
+  directory's reserve, through the fallback and the guard, the pre-flight below the commit floor on both paths, with
+  the floor's default pinned, and start-gate passing the floor on, the embedded copy, the local settings, and the
+  `-Detach` checkout with its lockfile rules. Each script's own red-proof is the selftest case named after it in
+  Appendix A.
 
 ## 8. Settings
 
@@ -523,26 +544,39 @@ rule then reaches every later unit.
   directory) and `CARGO_BUILD_JOBS` cap, no rust-analyzer in role worktrees, fuzzers sanitizer-off at no more than two
   targets with `-rss_limit_mb=256`, gate jobs beside the agents within 1 GB in total, and everything refused below
   1.5 GB of free RAM.
-- **Proposed ruling R-5: what the 1 GB covers** (the owner rules, §15 step 7). [60 §3.15] lists "the two build lanes"
-  apart from "gate jobs beside the agents ≤ 1 GB in total", and `xtask/nightly.toml` `[window.beside-agents]` applies
-  the 1 GB to the nightly runner's jobs (PLAN WP-05); PLAN §4 lists it among the general parallelism limits. The
-  proposed reading: `cargo xtask gate` and the per-commit gates are build-lane work, held by the lane's build
-  semaphore and `CARGO_BUILD_JOBS` within R-4's half of the RAM, and the 1 GB binds the nightly-tier jobs run beside
-  the agents. Under the other reading no full gate fits beside the owner's work, and units gate only in agreed
-  windows. This is the orchestrator's reading, not the owner's: no full gate starts before the owner rules.
+- **What the 1 GB covers** (R-5, ruled by the orchestrator on 2026-10-08 on the owner's delegation). [60 §3.15]
+  lists "the two build lanes" apart from "gate jobs beside the agents ≤ 1 GB in total", and `xtask/nightly.toml`
+  `[window.beside-agents]` applies the 1 GB to the nightly runner's jobs (PLAN WP-05); PLAN §4 lists it among the
+  general parallelism limits. The ruling: `cargo xtask gate` and the per-commit gates are build-lane work, bounded by
+  the lane's build lock, `CARGO_BUILD_JOBS` (`git config moirai.build-jobs`) and R-4's half of the RAM, with the
+  pre-flight's floors before every kit start. The 1 GB binds the nightly-tier jobs run beside the agents. It is
+  operational policy (AGENTS.md "Binding rules"). Until the capacity is measured (§15 step 9), at most one unit builds
+  at a time. Revisit it if a gate run's peak (`peak.txt`) leaves less than 1.5 GB free while the owner works.
 - **Build jobs.** `git config moirai.build-jobs` = half the logical cores divided by the number of lanes that may build
   at once (two), until measurement 21 sets the lane cap (`xtask/src/worktree.rs`, `.cargo/config.toml`). Role
-  worktrees made after a change get the new value.
+  worktrees made after a change get the new value. Under R-8 and R-9 every unit builds with the orchestrator
+  session's `CARGO_BUILD_JOBS` (4, from the main checkout's `settings.local.json`, §8); the value that `xtask worktree`
+  writes into a role worktree is unused.
 - **Disk.** Before every gate start, the pre-flight's floor (`diskFloorGb`, by default 25 GB, [MP §8.1]) on the
   headroom: the available space less the growth the directories of `kit/caps.txt` may still take up to their caps.
   They are the four counted directories under the target root (`laneA`, `laneB`, `fuzz`, `mutants`) with the caps
   of `xtask/nightly.toml` `[guard.caps]` (nightly.md §3), as the nightly runner passes them to the guard; a change of
   `[guard.caps]` on `master` is copied into `caps.txt`. With today's caps the headroom on the PC can be 0 (nightly.md
-  §7 item 3): §15 step 5 checks it before the first gate.
+  §7 item 3): §15 step 5 checks it before the first gate. While units build only in lane A (R-8, R-9), `caps.txt`
+  counts `laneA` alone and keeps the other three lines as comments (R-11). Restore the full `[guard.caps]` set before
+  any nightly run or any lane B unit.
+- **Commit charge** (R-10). Every kit start refuses while the free commit charge
+  (`Win32_OperatingSystem.FreeVirtualMemory`) is below `-CommitFloorGb`: 4 GB by default, operational policy like the
+  other floors. The refusal makes no run directory, and the pre-flight line says `verdict=refuse commit-low` when the
+  commit charge is the only reason. The mechanic and the tester then pause and start again for at most 30 minutes
+  (§7 "Commands agents run"); after that the unit returns to the orchestrator, which waits for the commit charge to
+  recover and relaunches. A gate FAIL caused by the machine, such as an allocation failure in a target the unit did
+  not touch while another process held the commit charge, is environmental: the orchestrator re-runs the full gate
+  through the kit on the same head, once. A second environmental FAIL is a STOP for the owner.
 - **Capacity**: the number of units open at once, measured on the PC (§15 step 9): the largest number whose units'
-  peak (one full gate's process tree, from `peak.txt`, plus the unit session's own working set) fits in half the RAM
-  while at least 1.5 GB stays free. Builds of units in one lane serialise on cargo's lock; the other stages (cut,
-  critique, review) do not build.
+  peak (one full gate's process tree, from `peak.txt`, plus the orchestrator session's working set while it runs a
+  unit) fits in half the RAM while at least 1.5 GB stays free. Builds of units in one lane serialise on cargo's lock;
+  the other stages (cut, critique, review) do not build.
 - **Windows.** No unit runs during an agreed measurement or nightly window (`/private/windows.toml`, nightly.md §2,
   §14).
 
