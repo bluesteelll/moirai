@@ -1,12 +1,9 @@
-//! The RS-007 evaluation harness: one harness that any variant of RS-007's hierarchy rule is measured with
-//! ([RULES/merge-table] RS-007, open points 15 and 35; [AR §11] OQ-A-6, OQ-A-11, OQ-A-12;
-//! `docs/spec/reviews/wave-3d-verify.md`). A variant is a [`Rule`]: `Current` (RS-007 with the OQ-A-12 prototype),
-//! `Wave3c` (RS-007 as wave 3c left it), `FromB` (the replay from B of spec sync 3) and `Cand`, the candidate slot
-//! (`merge/cand.rs`), which behaves as `Current` until a candidate fills it.
+//! The RS-007 evaluation harness: RS-007's hierarchy rule, as the model runs it ([RULES/merge-table] RS-007; [AR §11]
+//! OQ-A-13), measured against an oracle that no rule computes.
 //!
-//! Every history runs on its own store per variant, to its end, and every merge-family command in it (a `sync`, a
-//! cross-lane merge, a merge into `main` with its step-0 sync, a `--base` merge, both merges of a criss-cross, a
-//! revert and a cherry-pick) is judged by the oracle ([`oracle`]), which no rule computes:
+//! Every history runs on its own store, to its end, and every merge-family command in it (a `sync`, a cross-lane merge,
+//! a merge into `main` with its step-0 sync, a `--base` merge, both merges of a criss-cross, a revert and a
+//! cherry-pick) is judged by the oracle ([`oracle`]):
 //! - a key is the hierarchy value (parent, order) of a task live in the result (OQ-A-13 13.6 (a)), with `absent` as a
 //!   value on a side where the task is not live; it is touched on side S when S's value differs from b's (state-based
 //!   touch);
@@ -23,22 +20,16 @@
 //! its net changeset ([`Tri::touch`]); it is reported next to the primary, state-based one, since the two disagree on
 //! whole classes (a merge into `main` re-times the merged lane's moves; a revert after the reverted commit was merged).
 //!
-//! Two variants' logs of one history are then compared at their first divergence (outcome, resolution, or the
-//! hierarchy of any branch), and the difference is judged by the oracle verdicts of both sides at that command, and
-//! by the oracle faults of each whole history.
-//!
 //! The tests: [`rs007_eval_oracle_classifies_by_state`] and its siblings (the oracle alone),
-//! [`rs007_eval_corpus_invariants`] and [`rs007_eval_random_invariants`] (PR tier, under the thread's default rule,
-//! `MOIRAI_RS007_RULE`: only what every acceptable rule must meet), [`rs007_eval_absolute_acceptance`] (PR tier, the
-//! candidate K2 against OQ-A-13's absolute acceptance over every generator, with the link check of every strict
-//! staging, [`link_check`]), and the ignored [`rs007_eval_report`] (one table of every metric for a variant, against
-//! references), [`rs007_eval_trace`] (one corpus case or generated history, verbose) and [`rs007_eval_find`] (the
-//! generated histories in which a variant's merge of a kind gets a verdict).
+//! [`rs007_eval_corpus_invariants`] and [`rs007_eval_random_invariants`] (PR tier: the corpus cases and the random
+//! invariants RS-007 guarantees), [`rs007_eval_absolute_acceptance`] (PR tier: OQ-A-13's absolute acceptance over every
+//! generator, with the link check of every strict staging, [`link_check`]), and the ignored generators
+//! [`rs007_eval_report`] (one table of every metric), [`rs007_eval_trace`] (one corpus case or generated history,
+//! verbose) and [`rs007_eval_find`] (the generated histories in which a merge of a kind gets a verdict).
 
 use super::*;
 use crate::api::{Data, Outcome};
 use crate::history::MergeData;
-use crate::merge::{self, Counter, RULE, Rule};
 use crate::state::{Alloc, State};
 use crate::tx::{Position, Take};
 use crate::vcs::Bases;
@@ -291,7 +282,7 @@ pub(crate) struct Tri {
     pub t: Hier,
     /// The landed state, or the staged candidate.
     pub r: Hier,
-    /// The base came from two or more LCAs (a virtual base, which the variant itself computes).
+    /// The base came from two or more LCAs (a virtual base, which RS-007 itself computes).
     pub virtual_base: bool,
     /// The base's commit is tip(dst) (a single LCA, or `--base`, naming it): RS-007's one-sided merge.
     pub one_sided: bool,
@@ -309,7 +300,7 @@ pub(crate) struct Tri {
     pub fixed: Vec<bool>,
 }
 
-/// One merge-family command (or edit) of a history, as one variant's store ran it.
+/// One merge-family command (or edit) of a history, as its store ran it.
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Entry {
     /// The event's index in the history.
@@ -326,15 +317,11 @@ pub(crate) struct Entry {
     pub verdict_ch: Option<Verdict>,
     /// The inputs the verdict was judged on.
     pub tri: Option<Box<Tri>>,
-    /// The backstop's resets in the command (outside resolved-key derivations).
-    pub backstop: usize,
-    /// A candidate's repairs in the command.
-    pub repairs: usize,
     /// The reply's hints, `(class, text)`: `data.hints`, or `data.sync.hints` for a step-0 entry.
     pub hints: Vec<(String, String)>,
 }
 
-/// One history on one variant's store.
+/// One history on its store.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Log {
     /// Every entry, in order.
@@ -343,8 +330,6 @@ pub(crate) struct Log {
     pub snaps: Vec<Vec<(String, Hier)>>,
     /// Wall time of the history, in seconds.
     pub secs: f64,
-    /// The backstop's resets inside resolved-key derivations.
-    pub derived_backstop: usize,
     /// The model panicked on the history (the message); the log is empty.
     pub panic: Option<String>,
 }
@@ -517,6 +502,11 @@ pub(crate) fn oracle_touch(
     }
 }
 
+/// Whether the existence rule fixed task `i` ([`Tri::fixed`], which may be shorter than the task list).
+fn fixed(tri: &Tri, i: usize) -> bool {
+    tri.fixed.get(i).copied().unwrap_or(false)
+}
+
 /// The task index of a violation key `#n.parent`.
 fn parent_key(k: &str) -> Option<usize> {
     let n: usize = k.strip_prefix('#')?.strip_suffix(".parent")?.parse().ok()?;
@@ -525,8 +515,9 @@ fn parent_key(k: &str) -> Option<usize> {
 
 /// The requested pairs of a staging (R-16 Q3; the cut's addendum, I-1): each (task index, class, w) where the 13.3 (b)
 /// rule staged two-sided key k because strict asked for it, read from the states alone. Key k is staged as `#k.parent`
-/// with class `HierarchyCycle` or `DanglingEdge`, is judged with two allowed values, and the candidate holds one of
-/// them; w is the other.
+/// with class `HierarchyCycle` or `DanglingEdge`; it is judged, not fixed by the existence rule ([`Tri::fixed`]: RS-007
+/// does not decide a node the result copied whole), and `both-diff`, with two allowed values (R-17 m-2); the
+/// candidate holds one of them; w is the other.
 /// - A `HierarchyCycle` pair: the candidate with k under par(w) is not a forest over the judged tasks.
 /// - A `DanglingEdge` pair: par(r[k]) is a task not live in r, par(w) is a root or a task live in r, and the candidate
 ///   with k under par(w) is a forest; and jointly, the candidate with every such key under its par(w) is a forest, or
@@ -548,7 +539,8 @@ pub(crate) fn requested_pairs(
         }
         forest(&p, &judged)
     };
-    // The keys staged with `class`, each once, that are judged with two allowed values one of which r holds, with w.
+    // The keys staged with `class`, each once, that are judged, not fixed and `both-diff`, with two allowed values one of
+    // which r holds, with w.
     let staged = |class: &str| -> Vec<(usize, HV)> {
         let ks: BTreeSet<usize> = viols
             .iter()
@@ -557,6 +549,7 @@ pub(crate) fn requested_pairs(
             .filter(|k| *k < n)
             .collect();
         ks.into_iter()
+            .filter(|k| !fixed(tri, *k) && or.class[*k] == Class::BothDiff)
             .filter(|k| or.allowed[*k].len() == 2 && or.allowed[*k].contains(&r[*k]))
             .map(|k| {
                 let w = or.allowed[k]
@@ -719,18 +712,6 @@ pub(crate) fn judge_touch(
 // ---------------------------------------------------------------------------------------------------------------------
 // The executor.
 
-/// Runs `f` on this thread under `rule`, restoring the thread's rule after, also when `f` panics.
-pub(crate) fn under<R>(rule: Rule, f: impl FnOnce() -> R) -> R {
-    struct Restore(Rule);
-    impl Drop for Restore {
-        fn drop(&mut self) {
-            RULE.with(|r| r.set(self.0));
-        }
-    }
-    let _restore = Restore(RULE.with(|r| r.replace(rule)));
-    f()
-}
-
 fn fresh_on(b: &str) -> Ctx {
     Ctx {
         no_dedupe: true,
@@ -772,10 +753,9 @@ fn move_stmt(n: u32, p: Option<u32>, pos: Option<Pos>) -> Stmt {
     }
 }
 
-/// One history on one store under one rule.
+/// One history on one store.
 struct Run {
     s: S,
-    rule: Rule,
     /// `merge.strict` as the history last set it ([`Ev::Strict`]).
     strict: bool,
     tasks: u32,
@@ -786,7 +766,7 @@ struct Run {
 }
 
 impl Run {
-    fn new(h: &Hist, rule: Rule) -> Run {
+    fn new(h: &Hist) -> Run {
         let mut s = S::base();
         let mut nodes: Vec<Stmt> = (1..=h.tasks)
             .map(|i| task(&format!("t{i}"), &format!("task {i}")))
@@ -817,7 +797,6 @@ impl Run {
         }
         let mut r = Run {
             s,
-            rule,
             strict: false,
             tasks: h.tasks,
             branches,
@@ -867,23 +846,15 @@ impl Run {
             .collect()
     }
 
-    fn counts(&self) -> (usize, usize) {
-        (
-            merge::count(self.rule, Counter::Backstop),
-            merge::count(self.rule, Counter::Repair),
-        )
-    }
-
     fn edit(&mut self, op: usize, b: &str, stmts: Vec<Stmt>) {
         let r = self.s.run(tx(stmts), fresh_on(b));
         let got = match r.outcome {
             Outcome::Ok | Outcome::Replayed | Outcome::Dry => Got::Ok,
             _ => Got::Refused(r.error.as_ref().map(|e| e.code.clone()).unwrap_or_default()),
         };
-        self.push(op, Kind::Edit, got, None, None, None, (0, 0));
+        self.push(op, Kind::Edit, got, None, None, None);
     }
 
-    #[allow(clippy::too_many_arguments)]
     fn push(
         &mut self,
         op: usize,
@@ -892,7 +863,6 @@ impl Run {
         settled: Option<bool>,
         verdict: Option<Verdict>,
         tri: Option<Tri>,
-        d: (usize, usize),
     ) {
         self.log.entries.push(Entry {
             op,
@@ -902,8 +872,6 @@ impl Run {
             verdict,
             verdict_ch: None,
             tri: tri.map(Box::new),
-            backstop: d.0,
-            repairs: d.1,
             hints: Vec::new(),
         });
     }
@@ -925,7 +893,7 @@ impl Run {
     }
 
     /// The oracle's inputs of a merge of `t` into `o` (`forced`: `--base`): b (the base of [F12 §4.3], a virtual base
-    /// as the variant computes it), o, t, whether the base is virtual or the merge one-sided, and the changeset
+    /// as RS-007 computes it), o, t, whether the base is virtual or the merge one-sided, and the changeset
     /// touches; the result is filled in by [`Run::record`].
     fn inputs(&self, o: Option<u64>, t: Option<u64>, forced: Option<u64>) -> Tri {
         let uid = |n: Nid| self.s.st.alloc.uid(n);
@@ -966,7 +934,6 @@ impl Run {
         dst: &str,
         inputs: Tri,
         take: T,
-        before: (usize, usize),
     ) -> bool {
         let d = match &r.data {
             Data::Merge(d) => Some(d.as_ref()),
@@ -1028,16 +995,7 @@ impl Run {
             settled = Some(ok);
             landed = ok;
         }
-        let now = self.counts();
-        self.push(
-            op,
-            kind,
-            got,
-            settled,
-            Some(verdict),
-            tri,
-            (now.0 - before.0, now.1 - before.1),
-        );
+        self.push(op, kind, got, settled, Some(verdict), tri);
         if let Some(e) = self.log.entries.last_mut() {
             e.verdict_ch = verdict_ch;
             e.hints = hints;
@@ -1107,7 +1065,6 @@ impl Run {
         take: T,
     ) {
         let (od, ts, tm) = (self.tip(dst), self.tip(src), self.tip("main"));
-        let before = self.counts();
         let base = forced.map(|c| format!("s{c}"));
         let r = self
             .s
@@ -1118,22 +1075,21 @@ impl Run {
         };
         let Some(sync) = d.as_ref().and_then(|d| d.sync.clone()) else {
             let inputs = self.inputs(od, ts, forced);
-            self.record(op, kind, &r, dst, inputs, take, before);
+            self.record(op, kind, &r, dst, inputs, take);
             return;
         };
         // Step 0: `sync src` (o = src's tip, t = main's).
         let inputs = self.inputs(ts, tm, None);
         if sync.outcome == "staged" {
-            let landed = self.record(op, Kind::Step0, &r, src, inputs, take, before);
+            let landed = self.record(op, Kind::Step0, &r, src, inputs, take);
             if !landed {
                 return;
             }
             // The step-0 sync landed by resolution: the merge into `main` runs again, now with no step 0.
             let (od, ts) = (self.tip(dst), self.tip(src));
-            let before = self.counts();
             let r = self.s.run(merge_cmd(src, dst, base, policy), fresh_on(dst));
             let inputs = self.inputs(od, ts, forced);
-            self.record(op, kind, &r, dst, inputs, take, before);
+            self.record(op, kind, &r, dst, inputs, take);
             return;
         }
         // Step 0 landed: its entry, judged on the lane's new tip, then the merge itself.
@@ -1146,21 +1102,13 @@ impl Run {
         let vs: Vec<(String, String)> = Vec::new();
         let verdict = judge(&Got::Landed, &tri, &vs);
         let verdict_ch = judge_touch(&Got::Landed, &tri, &vs, tri.touch.as_ref());
-        self.push(
-            op,
-            Kind::Step0,
-            Got::Landed,
-            None,
-            Some(verdict),
-            Some(tri),
-            (0, 0),
-        );
+        self.push(op, Kind::Step0, Got::Landed, None, Some(verdict), Some(tri));
         if let Some(e) = self.log.entries.last_mut() {
             e.verdict_ch = Some(verdict_ch);
             e.hints = sync.hints.clone();
         }
         let inputs = self.inputs(od, sc, forced);
-        self.record(op, kind, &r, dst, inputs, take, before);
+        self.record(op, kind, &r, dst, inputs, take);
     }
 
     fn resolve_c(&self, c: CRef, onto: &str, revert: bool) -> Option<u64> {
@@ -1182,11 +1130,10 @@ impl Run {
     fn pick(&mut self, op: usize, c: CRef, onto: &str, take: T, revert: bool) {
         let kind = if revert { Kind::Revert } else { Kind::Pick };
         let Some(c) = self.resolve_c(c, onto, revert) else {
-            self.push(op, kind, Got::Skipped, None, None, None, (0, 0));
+            self.push(op, kind, Got::Skipped, None, None, None);
             return;
         };
         let o = self.tip(onto);
-        let before = self.counts();
         let x = &self.s.st.dag.commits[&c];
         let two = x.parents.len() == 2;
         let no_hier = !x.changeset.keys().any(|k| {
@@ -1236,7 +1183,7 @@ impl Run {
             fixed: Vec::new(),
         };
         let r = self.s.run(cmd, fresh_on(onto));
-        self.record(op, kind, &r, onto, inputs, take, before);
+        self.record(op, kind, &r, onto, inputs, take);
     }
 
     fn event(&mut self, op: usize, ev: &Ev) {
@@ -1253,7 +1200,7 @@ impl Run {
                 if r.outcome == Outcome::Ok && !self.branches.iter().any(|b| b == name) {
                     self.branches.push(name.to_string());
                 }
-                self.push(op, Kind::Edit, Got::Ok, None, None, None, (0, 0));
+                self.push(op, Kind::Edit, Got::Ok, None, None, None);
             }
             Ev::Mv(b, n, p) => self.edit(op, b, vec![move_stmt(*n, *p, None)]),
             Ev::MvAt(b, n, p, pos) => self.edit(op, b, vec![move_stmt(*n, *p, Some(*pos))]),
@@ -1274,7 +1221,7 @@ impl Run {
                     Some((Some(p), _)) => {
                         self.edit(op, b, vec![move_stmt(*n, Some(p), Some(*pos))])
                     }
-                    _ => self.push(op, Kind::Edit, Got::Skipped, None, None, None, (0, 0)),
+                    _ => self.push(op, Kind::Edit, Got::Skipped, None, None, None),
                 }
             }
             Ev::Prio(b, n, k) => self.edit(op, b, vec![set(*n, &[("priority", P::Int(*k))])]),
@@ -1301,7 +1248,6 @@ impl Run {
             ),
             Ev::Sync(l, take) => {
                 let (o, t) = (self.tip(l), self.tip("main"));
-                let before = self.counts();
                 let r = self.s.run(
                     Cmd::Sync {
                         lane: Some((*l).into()),
@@ -1310,7 +1256,7 @@ impl Run {
                     fresh_on(l),
                 );
                 let inputs = self.inputs(o, t, None);
-                self.record(op, Kind::Sync, &r, l, inputs, *take, before);
+                self.record(op, Kind::Sync, &r, l, inputs, *take);
             }
             Ev::Merge(src, dst, take) => {
                 let kind = if *dst == "main" {
@@ -1343,14 +1289,14 @@ impl Run {
                     Outcome::Ok | Outcome::Replayed | Outcome::Dry => Got::Ok,
                     _ => Got::Refused(r.error.as_ref().map(|e| e.code.clone()).unwrap_or_default()),
                 };
-                self.push(op, Kind::Edit, got, None, None, None, (0, 0));
+                self.push(op, Kind::Edit, got, None, None, None);
             }
             Ev::Based(src, dst, c, take) => match match c {
                 CRef::Pool(k) => (!self.pool.is_empty()).then(|| self.pool[k % self.pool.len()]),
                 CRef::Label(l) => self.labels.get(l).copied(),
             } {
                 Some(c) => self.merge(op, Kind::Based, src, dst, Some(c), None, *take),
-                None => self.push(op, Kind::Based, Got::Skipped, None, None, None, (0, 0)),
+                None => self.push(op, Kind::Based, Got::Skipped, None, None, None),
             },
             Ev::Pick(c, onto, take) => self.pick(op, *c, onto, *take, false),
             Ev::Revert(c, onto, take) => self.pick(op, *c, onto, *take, true),
@@ -1365,7 +1311,7 @@ impl Run {
                     orch(),
                 );
                 if r.outcome != Outcome::Ok {
-                    self.push(op, Kind::Criss, Got::Skipped, None, None, None, (0, 0));
+                    self.push(op, Kind::Criss, Got::Skipped, None, None, None);
                     return;
                 }
                 self.branches.push(name.clone());
@@ -1376,7 +1322,7 @@ impl Run {
                 if let Some(t) = self.tip(b) {
                     self.labels.insert(label, t);
                 }
-                self.push(op, Kind::Edit, Got::Ok, None, None, None, (0, 0));
+                self.push(op, Kind::Edit, Got::Ok, None, None, None);
             }
             Ev::Strict(on) => {
                 self.s.ok(
@@ -1388,7 +1334,7 @@ impl Run {
                     Ctx::default(),
                 );
                 self.strict = *on;
-                self.push(op, Kind::Edit, Got::Ok, None, None, None, (0, 0));
+                self.push(op, Kind::Edit, Got::Ok, None, None, None);
             }
         }
     }
@@ -1419,27 +1365,23 @@ pub(crate) fn hier_of(st: &State, n: u32) -> Hier {
         .collect()
 }
 
-/// Runs history `h` on a new store under `rule`, to its end.
-pub(crate) fn run(h: &Hist, rule: Rule) -> Log {
-    under(rule, || {
-        let t0 = std::time::Instant::now();
-        let d0 = merge::count_derived(rule, Counter::Backstop);
-        let mut r = Run::new(h, rule);
-        for (i, ev) in h.ops.iter().enumerate() {
-            r.event(i, ev);
-            r.note_pool();
-            let snap = r.snap();
-            r.log.snaps.push(snap);
-        }
-        r.log.secs = t0.elapsed().as_secs_f64();
-        r.log.derived_backstop = merge::count_derived(rule, Counter::Backstop) - d0;
-        r.log
-    })
+/// Runs history `h` on a new store, to its end.
+pub(crate) fn run(h: &Hist) -> Log {
+    let t0 = std::time::Instant::now();
+    let mut r = Run::new(h);
+    for (i, ev) in h.ops.iter().enumerate() {
+        r.event(i, ev);
+        r.note_pool();
+        let snap = r.snap();
+        r.log.snaps.push(snap);
+    }
+    r.log.secs = t0.elapsed().as_secs_f64();
+    r.log
 }
 
-/// Runs history `h` under each of `rules`, a panic recorded as the log's `panic` instead of failing the caller.
-fn run_caught(h: &Hist, rule: Rule) -> Log {
-    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(h, rule))) {
+/// Runs history `h`, a panic recorded as the log's `panic` instead of failing the caller.
+fn run_caught(h: &Hist) -> Log {
+    match std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| run(h))) {
         Ok(l) => l,
         Err(e) => Log {
             panic: Some(
@@ -1453,9 +1395,8 @@ fn run_caught(h: &Hist, rule: Rule) -> Log {
     }
 }
 
-/// Runs every history under every rule on `threads` threads (each history's stores on one thread); the result is per
-/// history, per rule in `rules`' order.
-pub(crate) fn run_all(hists: &[Hist], rules: &[Rule], threads: usize) -> Vec<Vec<Log>> {
+/// Runs every history on `threads` threads (each history's store on one thread); the result is per history.
+pub(crate) fn run_all(hists: &[Hist], threads: usize) -> Vec<Log> {
     let threads = threads.max(1);
     std::thread::scope(|sc| {
         let handles: Vec<_> = (0..threads)
@@ -1467,21 +1408,16 @@ pub(crate) fn run_all(hists: &[Hist], rules: &[Rule], threads: usize) -> Vec<Vec
                             .iter()
                             .enumerate()
                             .filter(|(i, _)| i % threads == tid)
-                            .map(|(i, h)| {
-                                (
-                                    i,
-                                    rules.iter().map(|r| run_caught(h, *r)).collect::<Vec<_>>(),
-                                )
-                            })
+                            .map(|(i, h)| (i, run_caught(h)))
                             .collect::<Vec<_>>()
                     })
                     .expect("a worker thread")
             })
             .collect();
-        let mut all: Vec<Vec<Log>> = vec![Vec::new(); hists.len()];
+        let mut all: Vec<Log> = vec![Log::default(); hists.len()];
         for h in handles {
-            for (i, logs) in h.join().expect("a worker") {
-                all[i] = logs;
+            for (i, l) in h.join().expect("a worker") {
+                all[i] = l;
             }
         }
         all
@@ -1489,188 +1425,9 @@ pub(crate) fn run_all(hists: &[Hist], rules: &[Rule], threads: usize) -> Vec<Vec
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
-// Comparison of two variants' logs of one history.
-
-/// Where two variants' runs of one history first differ (outcome, resolution, or any branch's hierarchy).
-#[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
-pub(crate) enum Div {
-    /// No divergence.
-    Same,
-    /// The variant stages or is refused where the reference lands.
-    Worse,
-    /// The variant lands where the reference stages or is refused.
-    Better,
-    /// Both land (directly or by the history's resolution), with different parents on some branch.
-    BothLand,
-    /// Both land, with the same parents and different orders.
-    BothLandOrder,
-    /// Both stage, on different keys.
-    BothStage,
-    /// The same staging; the variant's resolution aborts where the reference's lands.
-    ResolveWorse,
-    /// The same staging; the variant's resolution lands where the reference's aborts.
-    ResolveBetter,
-    /// Anything else (refused against staged, a different number of commands, ...).
-    Other,
-}
-
-impl Div {
-    const ALL: [Div; 9] = [
-        Div::Same,
-        Div::Worse,
-        Div::Better,
-        Div::BothLand,
-        Div::BothLandOrder,
-        Div::BothStage,
-        Div::ResolveWorse,
-        Div::ResolveBetter,
-        Div::Other,
-    ];
-
-    fn name(self) -> &'static str {
-        match self {
-            Div::Same => "same (no divergence)",
-            Div::Worse => "worse: stages/refused where ref lands",
-            Div::Better => "better: lands where ref stages/refused",
-            Div::BothLand => "both land, parents differ",
-            Div::BothLandOrder => "both land, only orders differ",
-            Div::BothStage => "both stage, different keys",
-            Div::ResolveWorse => "same staging, resolution aborts where ref's lands",
-            Div::ResolveBetter => "same staging, resolution lands where ref's aborts",
-            Div::Other => "other divergence",
-        }
-    }
-}
-
-/// The comparison of a variant's log `a` with a reference's log `r` of one history.
-#[derive(Clone, Debug)]
-pub(crate) struct Cmp {
-    /// The first divergence.
-    pub div: Div,
-    /// The event it is at.
-    pub at: Option<usize>,
-    /// The variant has an oracle fault at that event.
-    pub a_fault: bool,
-    /// The reference has an oracle fault at that event.
-    pub r_fault: bool,
-    /// Oracle faults over the whole history: the variant's, the reference's.
-    pub faults: (usize, usize),
-    /// A one-line description.
-    pub msg: String,
-}
-
-fn brief(es: &[&Entry]) -> String {
-    es.iter()
-        .map(|e| {
-            let v = e.verdict.as_ref().map(verdict_text).unwrap_or_default();
-            let s = match e.settled {
-                Some(true) => " -> resolved, landed",
-                Some(false) => " -> resolution aborted",
-                None => "",
-            };
-            format!("{}:{}{s} [{v}]", e.kind.name(), got_text(&e.got))
-        })
-        .collect::<Vec<_>>()
-        .join("; ")
-}
-
-/// Compares two logs of history `h` ([`Div`]).
-pub(crate) fn compare(h: &Hist, a: &Log, r: &Log) -> Cmp {
-    let faults = (a.faults(), r.faults());
-    if a.panic.is_some() || r.panic.is_some() {
-        return Cmp {
-            div: Div::Other,
-            at: None,
-            a_fault: false,
-            r_fault: false,
-            faults,
-            msg: format!("panic: {:?} / {:?}", a.panic, r.panic),
-        };
-    }
-    for i in 0..h.ops.len() {
-        let ea: Vec<&Entry> = a.entries.iter().filter(|e| e.op == i).collect();
-        let er: Vec<&Entry> = r.entries.iter().filter(|e| e.op == i).collect();
-        let same = ea.len() == er.len()
-            && ea
-                .iter()
-                .zip(&er)
-                .all(|(x, y)| x.kind == y.kind && x.got == y.got && x.settled == y.settled);
-        if same && a.snaps.get(i) == r.snaps.get(i) {
-            continue;
-        }
-        let fault = |es: &[&Entry]| {
-            es.iter()
-                .any(|e| e.verdict.as_ref().is_some_and(Verdict::fault))
-        };
-        let mut div = None;
-        for (x, y) in ea.iter().zip(&er) {
-            if x.kind != y.kind {
-                div = Some(Div::Other);
-            } else if x.got != y.got {
-                div = Some(match (&x.got, &y.got) {
-                    (Got::Staged(_) | Got::Refused(_), Got::Landed) => Div::Worse,
-                    (Got::Landed, Got::Staged(_) | Got::Refused(_)) => Div::Better,
-                    (Got::Staged(_), Got::Staged(_)) => Div::BothStage,
-                    _ => Div::Other,
-                });
-            } else if x.settled != y.settled {
-                div = Some(match (x.settled, y.settled) {
-                    (Some(false), Some(true)) => Div::ResolveWorse,
-                    (Some(true), Some(false)) => Div::ResolveBetter,
-                    _ => Div::Other,
-                });
-            }
-            if div.is_some() {
-                break;
-            }
-        }
-        let div = div.unwrap_or_else(|| {
-            if ea.len() != er.len() {
-                return Div::Other;
-            }
-            let par = |s: Option<&Vec<(String, Hier)>>| {
-                s.map(|s| {
-                    s.iter()
-                        .map(|(b, h)| {
-                            (
-                                b.clone(),
-                                h.iter()
-                                    .map(|v| v.as_ref().map(|x| x.0))
-                                    .collect::<Vec<_>>(),
-                            )
-                        })
-                        .collect::<Vec<_>>()
-                })
-            };
-            if par(a.snaps.get(i)) == par(r.snaps.get(i)) {
-                Div::BothLandOrder
-            } else {
-                Div::BothLand
-            }
-        });
-        return Cmp {
-            div,
-            at: Some(i),
-            a_fault: fault(&ea),
-            r_fault: fault(&er),
-            faults,
-            msg: format!("[{i}] {:?}: {} || ref {}", h.ops[i], brief(&ea), brief(&er)),
-        };
-    }
-    Cmp {
-        div: Div::Same,
-        at: None,
-        a_fault: false,
-        r_fault: false,
-        faults,
-        msg: String::new(),
-    }
-}
-
-// ---------------------------------------------------------------------------------------------------------------------
 // Metrics.
 
-/// One variant's absolute counts over merge-family commands (all kinds, or one).
+/// The absolute counts over merge-family commands (all kinds, or one).
 #[derive(Clone, Debug, Default)]
 pub(crate) struct KStats {
     pub n: usize,
@@ -1697,8 +1454,6 @@ pub(crate) struct KStats {
     pub one_sided_not_t: usize,
     pub pick_no_hier: usize,
     pub pick_no_hier_not_o: usize,
-    pub backstop: usize,
-    pub repairs: usize,
     pub virtual_n: usize,
     pub partial_n: usize,
     pub avoidable_partial: usize,
@@ -1716,7 +1471,8 @@ pub(crate) struct KStats {
     /// `MoveSkipped` hints (13.3 (b)).
     pub hints: usize,
     /// Keys of a landing that lost a reparent to a concurrent order-only change with no hint (13.5 (b); ALT-10): the
-    /// task is judged and live in b, o and t; one side's value has b's parent and another order, the other side's
+    /// task is judged, live in b, o and t, and not fixed by the existence rule ([`Tri::fixed`]: copied whole from a
+    /// side, so RS-007 does not decide it); one side's value has b's parent and another order, the other side's
     /// another parent; the result holds the order-only side's value; no hint names the key.
     pub reparent_lost: usize,
 }
@@ -1727,8 +1483,6 @@ impl KStats {
             return;
         }
         self.n += 1;
-        self.backstop += e.backstop;
-        self.repairs += e.repairs;
         match &e.got {
             Got::Landed => self.landed += 1,
             Got::Staged(_) => self.staged += 1,
@@ -1824,10 +1578,14 @@ impl KStats {
 }
 
 /// The keys of a landing ([`KStats::reparent_lost`]) that lost a reparent to a concurrent order-only change with no
-/// hint naming them.
+/// hint naming them. A task the existence rule fixed ([`Tri::fixed`], which may be shorter than the task list) is left
+/// out: the result copied it whole from a side, and RS-007 did not decide its key (R-17 m-1).
 fn reparents_lost(t: &Tri, hints: &[(String, String)]) -> usize {
     (0..t.b.len())
         .filter(|i| {
+            if fixed(t, *i) {
+                return false;
+            }
             let (Some(b), Some(o), Some(x), Some(r)) = (&t.b[*i], &t.o[*i], &t.t[*i], &t.r[*i])
             else {
                 return false;
@@ -1846,14 +1604,13 @@ fn judged_eq(x: &Hier, y: &Hier, t: &Tri) -> bool {
     (0..x.len()).all(|i| t.b[i].is_none() || t.o[i].is_none() || t.t[i].is_none() || x[i] == y[i])
 }
 
-/// One variant's counts over a set of histories.
+/// The counts over a set of histories.
 #[derive(Clone, Debug, Default)]
 pub(crate) struct Abs {
     pub histories: usize,
     pub panics: usize,
     pub with_fault: usize,
     pub secs: f64,
-    pub derived_backstop: usize,
     pub total: KStats,
     pub by_kind: BTreeMap<Kind, KStats>,
 }
@@ -1864,46 +1621,12 @@ impl Abs {
         self.panics += l.panic.is_some() as usize;
         self.with_fault += (l.faults() > 0) as usize;
         self.secs += l.secs;
-        self.derived_backstop += l.derived_backstop;
         for e in &l.entries {
             self.total.add(e);
             if e.kind != Kind::Edit {
                 self.by_kind.entry(e.kind).or_default().add(e);
             }
         }
-    }
-}
-
-/// A variant against one reference over a set of histories.
-#[derive(Clone, Debug, Default)]
-pub(crate) struct Rel {
-    /// (divergence, variant's fault there, reference's fault there) → histories.
-    pub div: BTreeMap<(Div, bool, bool), usize>,
-    /// Histories where the variant has fewer, as many and more oracle faults than the reference.
-    pub fewer: usize,
-    pub equal: usize,
-    pub more: usize,
-}
-
-impl Rel {
-    fn add(&mut self, c: &Cmp) {
-        *self.div.entry((c.div, c.a_fault, c.r_fault)).or_default() += 1;
-        match c.faults.0.cmp(&c.faults.1) {
-            std::cmp::Ordering::Less => self.fewer += 1,
-            std::cmp::Ordering::Equal => self.equal += 1,
-            std::cmp::Ordering::Greater => self.more += 1,
-        }
-    }
-
-    fn of(&self, d: Div) -> (usize, [usize; 4]) {
-        let g = |a: bool, r: bool| self.div.get(&(d, a, r)).copied().unwrap_or(0);
-        let parts = [
-            g(true, false),
-            g(false, true),
-            g(true, true),
-            g(false, false),
-        ];
-        (parts.iter().sum(), parts)
     }
 }
 
@@ -2074,12 +1797,6 @@ fn entry_text(e: &Entry) -> String {
     {
         let _ = write!(s, " [changeset-touch reading: {}]", verdict_text(w));
     }
-    if e.backstop > 0 {
-        let _ = write!(s, " (backstop {})", e.backstop);
-    }
-    if e.repairs > 0 {
-        let _ = write!(s, " (repairs {})", e.repairs);
-    }
     s
 }
 
@@ -2140,7 +1857,7 @@ pub(crate) fn trace_text(h: &Hist, l: &Log) -> String {
 /// other tasks (4 times in 5) or at the root.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum Gen {
-    /// The committed lockstep search's alphabet (`suite::kleppmann`): `main` and two lanes; moves, priority edits,
+    /// The alphabet of wave 3c's lockstep search: `main` and two lanes; moves, priority edits,
     /// syncs, cross-lane merges, merges into `main`; 1 to 23 events.
     Narrow,
     /// Narrow, plus moves at a position, order-only moves (a node reordered under its current parent) and deletes
@@ -2167,7 +1884,7 @@ pub(crate) enum Gen {
 }
 
 impl Gen {
-    /// The four generators of wave 3d, which `rs007_eval_random_invariants` runs under the default rule.
+    /// The four generators of wave 3d, which `rs007_eval_random_invariants` runs.
     pub(crate) const ALL: [Gen; 4] = [Gen::Narrow, Gen::Lanes, Gen::Wide, Gen::Based];
     /// Every generator: the four and those of OQ-A-13 13.6 (a).
     pub(crate) const EVERY: [Gen; 9] = [
@@ -2490,8 +2207,8 @@ pub(crate) fn histories(g: Gen, seed: u8, n: usize) -> Vec<Hist> {
 // The corpus.
 
 /// A named history of the corpus, from the findings that RS-007's history of fixes left (open point 35, wave 3c's
-/// arbiter, wave 3d's verifiers). Its expectation is the oracle's, computed on each variant's own states; the cases a
-/// rule reading decides are `readings`.
+/// arbiter, wave 3d's verifiers). Its expectation is the oracle's, computed on the run's own states; the cases a rule
+/// reading decides are `readings`.
 #[derive(Clone, Debug)]
 pub(crate) struct Case {
     /// The id.
@@ -3299,7 +3016,7 @@ fn event_merges(l: &Log, op: usize) -> Vec<&Entry> {
         .collect()
 }
 
-/// The link check of entry `e` (a `Requested` one) of history `h`'s log `l` under `rule`: h′ is h's events before e's,
+/// The link check of entry `e` (a `Requested` one) of history `h`'s log `l`: h′ is h's events before e's,
 /// then `merge.strict` off, then e's event; e′ is the entry of h′'s last event of e's kind at e's position among that
 /// event's merge-family entries.
 /// - Not applicable when an earlier merge of e's event did not land (or was not up to date), since strict then changed
@@ -3307,12 +3024,13 @@ fn event_merges(l: &Log, op: usize) -> Vec<&Entry> {
 ///   conflicted without strict, and PR-003 refuses the merge).
 /// - Strict changes the candidate only through the dead-parent preference, so a judged key that is no requested key and
 ///   differs in e′ breaks the link, unless e holds a two-sided key one of whose values has a parent not live in the
-///   result while the other's is live or a root (the step-(2) order changed under the preference: not applicable).
+///   result while the other's is live or a root (the step-(2) order changed under the preference: not applicable;
+///   [`dead_parent_preference`]).
 /// - For each requested pair (k, C, w): e′ stages no `C` on `#k.parent`; e′'s value of k is o's or t's, with exactly
 ///   one `MoveSkipped` hint for `#k.parent` naming that side; for `HierarchyCycle` it is e's value, for `DanglingEdge`
 ///   w.
 /// - When every violation of e is a requested pair, e′ lands.
-pub(crate) fn link_check(h: &Hist, l: &Log, e: &Entry, rule: Rule) -> Link {
+pub(crate) fn link_check(h: &Hist, l: &Log, e: &Entry) -> Link {
     let i = e.op;
     let mine = event_merges(l, i);
     let p = mine
@@ -3333,7 +3051,7 @@ pub(crate) fn link_check(h: &Hist, l: &Log, e: &Entry, rule: Rule) -> Link {
         lanes: h.lanes.clone(),
         ops,
     };
-    let l2 = run_caught(&h2, rule);
+    let l2 = run_caught(&h2);
     if let Some(m) = &l2.panic {
         return Link::Broken(format!("the run without strict panicked: {m}"));
     }
@@ -3357,13 +3075,7 @@ pub(crate) fn link_check(h: &Hist, l: &Log, e: &Entry, rule: Rule) -> Link {
     let judged = or.judged();
     let n = t.r.len();
     if let Some(j) = (0..n).find(|j| judged[*j] && !keys.contains(j) && t2.r[*j] != t.r[*j]) {
-        let live = |p: Option<u32>| {
-            p.is_none_or(|p| (p as usize) >= 1 && (p as usize) <= n && judged[p as usize - 1])
-        };
-        let preference = (0..n).any(|k| match or.allowed[k].as_slice() {
-            [x, y] => live(par(x)) != live(par(y)),
-            _ => false,
-        });
+        let preference = dead_parent_preference(t, &or);
         let why = format!(
             "#{} lands at {} without strict, at {} with it",
             j + 1,
@@ -3432,6 +3144,25 @@ pub(crate) fn link_check(h: &Hist, l: &Log, e: &Entry, rule: Rule) -> Link {
     Link::Holds
 }
 
+/// Whether the dead-parent preference may have changed the step-(2) order of a merge whose states and result are `tri`
+/// ([`link_check`]): some two-sided key, judged, not fixed by the existence rule ([`Tri::fixed`]) and `both-diff`
+/// (R-17 m-2), has one allowed value whose parent is not live in the result while the other's is live or a root.
+fn dead_parent_preference(tri: &Tri, or: &Oracle) -> bool {
+    let n = tri.r.len();
+    let judged = or.judged();
+    let live = |p: Option<u32>| {
+        p.is_none_or(|p| (p as usize) >= 1 && (p as usize) <= n && judged[p as usize - 1])
+    };
+    (0..n).any(|k| {
+        !fixed(tri, k)
+            && or.class[k] == Class::BothDiff
+            && match or.allowed[k].as_slice() {
+                [x, y] => live(par(x)) != live(par(y)),
+                _ => false,
+            }
+    })
+}
+
 /// The history of the probe `k2_a_later_two_sided_move_that_closes_a_cycle_is_skipped_and_lands` (13.3 (b)): main puts
 /// #4 under #2, then #1 under #3; lane/x puts #2 under #1, then #1 under #4; `sync lane/x`. Under `merge.strict` when
 /// `strict` (LF-1).
@@ -3476,7 +3207,7 @@ pub(crate) fn later_dead_parent(strict: bool) -> Hist {
 }
 
 /// One link fixture: a strict history whose merge-family entry `entry` (by index among the log's merge-family
-/// entries) has the verdict `verdict` under `cand`, and for a `Requested` one the link `holds` (`Some(true)`) or does
+/// entries) has the verdict `verdict`, and for a `Requested` one the link `holds` (`Some(true)`) or does
 /// not apply (`Some(false)`).
 pub(crate) struct LinkFixture {
     /// LF-1 to LF-5.
@@ -3584,7 +3315,7 @@ pub(crate) fn strict_link_fixtures() -> Vec<LinkFixture> {
 // ---------------------------------------------------------------------------------------------------------------------
 // Cost.
 
-/// The long-lane cost scenario (ADV-C-4's `c1`, `wave-3c-arbiter.md` W3C-ARB-10) under one variant.
+/// The long-lane cost scenario (ADV-C-4's `c1`, `wave-3c-arbiter.md` W3C-ARB-10).
 #[derive(Clone, Debug)]
 pub(crate) struct CostRow {
     pub total_s: f64,
@@ -3594,153 +3325,138 @@ pub(crate) struct CostRow {
     pub aborted: usize,
     pub last10_ms: f64,
     pub max_ms: f64,
-    pub cold_s: f64,
     pub next_ms: f64,
 }
 
 /// Six tasks, `main`, `lane/x` and `lane/y`; `n` rounds of: `main` moves a task under a lower-numbered one and edits a
 /// priority, `lane/x` moves a task (mostly under a higher-numbered one, which closes cycles against `main`), `sync
 /// lane/x` (timed; a staging resolved to ours, aborted if that does not land); every 25 rounds `lane/y` moves a task,
-/// merges into `lane/x` (aborted when it stages) and syncs (aborted when it stages). Then, on a copy of the store with
-/// an empty step-key memo, the step keys of `lane/x`'s tip are computed ("step keys from an empty memo"), and one more
-/// edit on `main` and `sync lane/x` are timed.
-pub(crate) fn cost(rule: Rule, n: usize) -> CostRow {
-    under(rule, || {
-        let h = Hist {
-            tasks: 6,
-            lanes: vec![X, Y],
-            ops: Vec::new(),
-        };
-        let mut r = Run::new(&h, rule);
-        let t0 = std::time::Instant::now();
-        let mut sync_ms: Vec<f64> = Vec::new();
-        let (mut staged, mut aborted) = (0, 0);
-        let mut x: u64 = 12345;
-        let mut rnd = |m: u32| {
-            x = x
-                .wrapping_mul(6364136223846793005)
-                .wrapping_add(1442695040888963407);
-            ((x >> 33) % m as u64) as u32
-        };
-        let mv = |n: u32, p: Option<u32>| tx(vec![move_stmt(n, p, None)]);
-        let sync = |l: &str| Cmd::Sync {
-            lane: Some(l.into()),
-            check: false,
-        };
-        let abort = |s: &mut S, src: &str, into: &str| {
-            s.run(
-                Cmd::MergeAbort {
-                    src: Some(src.into()),
-                    into: Some(into.into()),
+/// merges into `lane/x` (aborted when it stages) and syncs (aborted when it stages). Then one more edit on `main` and
+/// `sync lane/x` are timed.
+pub(crate) fn cost(n: usize) -> CostRow {
+    let h = Hist {
+        tasks: 6,
+        lanes: vec![X, Y],
+        ops: Vec::new(),
+    };
+    let mut r = Run::new(&h);
+    let t0 = std::time::Instant::now();
+    let mut sync_ms: Vec<f64> = Vec::new();
+    let (mut staged, mut aborted) = (0, 0);
+    let mut x: u64 = 12345;
+    let mut rnd = |m: u32| {
+        x = x
+            .wrapping_mul(6364136223846793005)
+            .wrapping_add(1442695040888963407);
+        ((x >> 33) % m as u64) as u32
+    };
+    let mv = |n: u32, p: Option<u32>| tx(vec![move_stmt(n, p, None)]);
+    let sync = |l: &str| Cmd::Sync {
+        lane: Some(l.into()),
+        check: false,
+    };
+    let abort = |s: &mut S, src: &str, into: &str| {
+        s.run(
+            Cmd::MergeAbort {
+                src: Some(src.into()),
+                into: Some(into.into()),
+            },
+            fresh_on(into),
+        );
+    };
+    for i in 0..n {
+        let s = &mut r.s;
+        let (a, b) = (rnd(6) + 1, rnd(6) + 1);
+        let (lo, hi) = (a.min(b), a.max(b));
+        if lo != hi {
+            s.run(mv(hi, Some(lo)), fresh_on(M));
+        }
+        s.run(
+            tx(vec![set(rnd(6) + 1, &[("priority", P::Int(i as i64 % 4))])]),
+            fresh_on(M),
+        );
+        let (a, b) = (rnd(6) + 1, rnd(6) + 1);
+        let (lo, hi) = (a.min(b), a.max(b));
+        if lo != hi {
+            let rr = if rnd(3) == 0 {
+                s.run(mv(hi, Some(lo)), fresh_on(X))
+            } else {
+                s.run(mv(lo, Some(hi)), fresh_on(X))
+            };
+            if rr.outcome != Outcome::Ok {
+                s.run(mv(lo, None), fresh_on(X));
+            }
+        }
+        let t = std::time::Instant::now();
+        let rr = s.run(sync(X), fresh_on(X));
+        if rr.outcome == Outcome::Staged {
+            staged += 1;
+            if let Data::Merge(d) = &rr.data {
+                let g = d.staging_ref.clone().unwrap_or_default();
+                for k in d
+                    .violations
+                    .iter()
+                    .map(|v| v.key.clone())
+                    .filter(|k| k != "-")
+                {
+                    s.run(
+                        tx(vec![Stmt::Resolve {
+                            key: k,
+                            take: Take::Ours,
+                        }]),
+                        fresh_on(&g),
+                    );
+                }
+            }
+            let c = s.run(
+                Cmd::MergeContinue {
+                    src: Some(M.into()),
+                    into: Some(X.into()),
                 },
-                fresh_on(into),
+                fresh_on(X),
             );
-        };
-        for i in 0..n {
-            let s = &mut r.s;
-            let (a, b) = (rnd(6) + 1, rnd(6) + 1);
-            let (lo, hi) = (a.min(b), a.max(b));
-            if lo != hi {
-                s.run(mv(hi, Some(lo)), fresh_on(M));
+            if c.outcome != Outcome::Ok {
+                aborted += 1;
+                abort(s, M, X);
             }
-            s.run(
-                tx(vec![set(rnd(6) + 1, &[("priority", P::Int(i as i64 % 4))])]),
-                fresh_on(M),
-            );
+        }
+        sync_ms.push(t.elapsed().as_secs_f64() * 1e3);
+        if i % 25 == 24 {
             let (a, b) = (rnd(6) + 1, rnd(6) + 1);
-            let (lo, hi) = (a.min(b), a.max(b));
-            if lo != hi {
-                let rr = if rnd(3) == 0 {
-                    s.run(mv(hi, Some(lo)), fresh_on(X))
-                } else {
-                    s.run(mv(lo, Some(hi)), fresh_on(X))
-                };
-                if rr.outcome != Outcome::Ok {
-                    s.run(mv(lo, None), fresh_on(X));
-                }
+            if a != b {
+                s.run(mv(a, Some(b)), fresh_on(Y));
             }
-            let t = std::time::Instant::now();
-            let rr = s.run(sync(X), fresh_on(X));
+            let rr = s.run(merge_cmd(Y, X, None, None), fresh_on(X));
             if rr.outcome == Outcome::Staged {
-                staged += 1;
-                if let Data::Merge(d) = &rr.data {
-                    let g = d.staging_ref.clone().unwrap_or_default();
-                    for k in d
-                        .violations
-                        .iter()
-                        .map(|v| v.key.clone())
-                        .filter(|k| k != "-")
-                    {
-                        s.run(
-                            tx(vec![Stmt::Resolve {
-                                key: k,
-                                take: Take::Ours,
-                            }]),
-                            fresh_on(&g),
-                        );
-                    }
-                }
-                let c = s.run(
-                    Cmd::MergeContinue {
-                        src: Some(M.into()),
-                        into: Some(X.into()),
-                    },
-                    fresh_on(X),
-                );
-                if c.outcome != Outcome::Ok {
-                    aborted += 1;
-                    abort(s, M, X);
-                }
+                abort(s, Y, X);
             }
-            sync_ms.push(t.elapsed().as_secs_f64() * 1e3);
-            if i % 25 == 24 {
-                let (a, b) = (rnd(6) + 1, rnd(6) + 1);
-                if a != b {
-                    s.run(mv(a, Some(b)), fresh_on(Y));
-                }
-                let rr = s.run(merge_cmd(Y, X, None, None), fresh_on(X));
-                if rr.outcome == Outcome::Staged {
-                    abort(s, Y, X);
-                }
-                s.run(sync(Y), fresh_on(Y));
-                if s.st.dag.live("merge/lane/y/from/main").is_some() {
-                    abort(s, M, Y);
-                }
+            s.run(sync(Y), fresh_on(Y));
+            if s.st.dag.live("merge/lane/y/from/main").is_some() {
+                abort(s, M, Y);
             }
         }
-        let total_s = t0.elapsed().as_secs_f64();
-        let k = sync_ms.len();
-        let last = &sync_ms[k.saturating_sub(10)..];
-        let last10_ms = last.iter().sum::<f64>() / last.len().max(1) as f64;
-        let max_ms = sync_ms.iter().copied().fold(0.0, f64::max);
-        let commits = r.s.st.dag.commits.len();
-        // The same store with an empty step-key memo.
-        let mut d = S { st: r.s.st.clone() };
-        d.st.dag.step_memo.borrow_mut().clear();
-        let t = std::time::Instant::now();
-        let tipx =
-            d.st.dag
-                .live(X)
-                .and_then(|r| r.tip)
-                .expect("lane/x has a tip");
-        let _ = d.st.dag.step_keys(tipx, &d.st.alloc);
-        let cold_s = t.elapsed().as_secs_f64();
-        d.run(tx(vec![set(1, &[("priority", P::Int(3))])]), fresh_on(M));
-        let t = std::time::Instant::now();
-        d.run(sync(X), fresh_on(X));
-        let next_ms = t.elapsed().as_secs_f64() * 1e3;
-        CostRow {
-            total_s,
-            commits,
-            syncs: k,
-            staged,
-            aborted,
-            last10_ms,
-            max_ms,
-            cold_s,
-            next_ms,
-        }
-    })
+    }
+    let total_s = t0.elapsed().as_secs_f64();
+    let k = sync_ms.len();
+    let last = &sync_ms[k.saturating_sub(10)..];
+    let last10_ms = last.iter().sum::<f64>() / last.len().max(1) as f64;
+    let max_ms = sync_ms.iter().copied().fold(0.0, f64::max);
+    let commits = r.s.st.dag.commits.len();
+    let d = &mut r.s;
+    d.run(tx(vec![set(1, &[("priority", P::Int(3))])]), fresh_on(M));
+    let t = std::time::Instant::now();
+    d.run(sync(X), fresh_on(X));
+    let next_ms = t.elapsed().as_secs_f64() * 1e3;
+    CostRow {
+        total_s,
+        commits,
+        syncs: k,
+        staged,
+        aborted,
+        last10_ms,
+        max_ms,
+        next_ms,
+    }
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -3756,10 +3472,6 @@ fn env_or(k: &str, d: &str) -> String {
 /// The report's configuration, from the environment.
 #[derive(Clone, Debug)]
 pub(crate) struct Cfg {
-    /// `MOIRAI_RS007_EVAL_RULE` (default `cand`): the variant under test.
-    pub variant: Rule,
-    /// `MOIRAI_RS007_EVAL_VS` (default `current,wave3c,fromb` less the variant; `none` for none): the references.
-    pub refs: Vec<Rule>,
     /// `MOIRAI_RS007_EVAL_CASES` (default 200): histories per generator and seed.
     pub cases: usize,
     /// `MOIRAI_RS007_EVAL_SEEDS` (default `1,2`).
@@ -3780,20 +3492,6 @@ pub(crate) struct Cfg {
 
 impl Cfg {
     pub(crate) fn from_env() -> Cfg {
-        let variant = Rule::parse(&env_or("MOIRAI_RS007_EVAL_RULE", "cand"))
-            .expect("MOIRAI_RS007_EVAL_RULE: current, wave3c, fromb or cand");
-        let vs = env_or("MOIRAI_RS007_EVAL_VS", "current,wave3c,fromb");
-        let refs: Vec<Rule> = if vs.trim() == "none" {
-            Vec::new()
-        } else {
-            vs.split(',')
-                .map(|r| {
-                    Rule::parse(r)
-                        .expect("MOIRAI_RS007_EVAL_VS: a list of current, wave3c, fromb, cand")
-                })
-                .filter(|r| *r != variant)
-                .collect()
-        };
         let list = |k: &str, d: &str| -> Vec<String> {
             env_or(k, d)
                 .split(',')
@@ -3802,8 +3500,6 @@ impl Cfg {
                 .collect()
         };
         Cfg {
-            variant,
-            refs,
             cases: env_or("MOIRAI_RS007_EVAL_CASES", "200")
                 .parse()
                 .expect("MOIRAI_RS007_EVAL_CASES"),
@@ -3837,14 +3533,10 @@ impl Cfg {
                 .collect(),
         }
     }
-
-    /// The variant first, then the references.
-    pub(crate) fn rules(&self) -> Vec<Rule> {
-        let mut v = vec![self.variant];
-        v.extend(self.refs.iter().copied());
-        v
-    }
 }
+
+/// The report's one column: RS-007's result token.
+const COLUMN: &str = "threeway";
 
 /// A table: a label column, then one column per header.
 fn table(out: &mut String, head: &[String], rows: &[(String, Vec<String>)]) {
@@ -3886,20 +3578,14 @@ fn pct(a: usize, b: usize) -> String {
     }
 }
 
-/// One absolute row: its label, its machine-readable key and its value per variant.
+/// One absolute row: its label, its machine-readable key and its value.
 type AbsRow = (&'static str, &'static str, Box<dyn Fn(&Abs) -> String>);
 
 /// One cost row: its label, its machine-readable key and its value.
 type CostLine = (&'static str, &'static str, fn(&CostRow) -> String);
 
-/// The absolute rows, one column per variant, with their machine-readable lines (`RS007EVAL <section> <metric>
-/// <rule> <value>`).
-fn abs_rows(
-    section: &str,
-    rules: &[Rule],
-    abs: &[&Abs],
-    tsv: &mut String,
-) -> Vec<(String, Vec<String>)> {
+/// The absolute rows, with their machine-readable lines (`RS007EVAL <section> <metric> threeway <value>`).
+fn abs_rows(section: &str, abs: &Abs, tsv: &mut String) -> Vec<(String, Vec<String>)> {
     let k = |f: fn(&KStats) -> usize| move |a: &Abs| f(&a.total).to_string();
     let rows: Vec<AbsRow> = vec![
         (
@@ -4064,18 +3750,7 @@ fn abs_rows(
             Box::new(k(|s| s.pick_no_hier_not_o)),
         ),
         (
-            "backstop resets (in commands)",
-            "backstop",
-            Box::new(k(|s| s.backstop)),
-        ),
-        (
-            "backstop resets (in resolved-key derivations)",
-            "backstop_derived",
-            Box::new(|a: &Abs| a.derived_backstop.to_string()),
-        ),
-        ("candidate repairs", "repairs", Box::new(k(|s| s.repairs))),
-        (
-            "merges over a virtual base (b is the variant's own)",
+            "merges over a virtual base",
             "virtual_base",
             Box::new(k(|s| s.virtual_n)),
         ),
@@ -4102,92 +3777,25 @@ fn abs_rows(
     ];
     let mut out = Vec::new();
     for (label, key, f) in &rows {
-        let cells: Vec<String> = abs.iter().map(|a| f(a)).collect();
-        for (r, c) in rules.iter().zip(&cells) {
-            let _ = writeln!(tsv, "RS007EVAL\t{section}\t{key}\t{}\t{c}", r.name());
-        }
-        out.push((label.to_string(), cells));
+        let c = f(abs);
+        let _ = writeln!(tsv, "RS007EVAL\t{section}\t{key}\t{COLUMN}\t{c}");
+        out.push((label.to_string(), vec![c]));
     }
     for kind in Kind::MERGES {
-        let cells: Vec<String> = abs
-            .iter()
-            .map(|a| {
-                a.by_kind.get(&kind).map_or("-".into(), |s| {
-                    format!("{}/{}/{}/{}", s.n, s.genuine, s.avoidable, s.wrong)
-                })
-            })
-            .collect();
-        if cells.iter().all(|c| c == "-") {
+        let Some(s) = abs.by_kind.get(&kind) else {
             continue;
-        }
-        for (r, c) in rules.iter().zip(&cells) {
-            let _ = writeln!(
-                tsv,
-                "RS007EVAL\t{section}\tkind_{}\t{}\t{c}",
-                kind.name(),
-                r.name()
-            );
-        }
-        out.push((
-            format!("{} (n/genuine/avoidable/wrong)", kind.name()),
-            cells,
-        ));
-    }
-    out
-}
-
-/// The relative rows of the variant against one reference.
-fn rel_rows(
-    section: &str,
-    v: Rule,
-    r: Rule,
-    rel: &Rel,
-    tsv: &mut String,
-) -> Vec<(String, Vec<String>)> {
-    let mut out = Vec::new();
-    for d in Div::ALL {
-        let (tot, p) = rel.of(d);
-        let key = format!("{d:?}").to_lowercase();
+        };
+        let c = format!("{}/{}/{}/{}", s.n, s.genuine, s.avoidable, s.wrong);
         let _ = writeln!(
             tsv,
-            "RS007EVAL\t{section}\trel_{key}\t{}_vs_{}\t{tot}\t{}\t{}\t{}\t{}",
-            v.name(),
-            r.name(),
-            p[0],
-            p[1],
-            p[2],
-            p[3]
+            "RS007EVAL\t{section}\tkind_{}\t{COLUMN}\t{c}",
+            kind.name()
         );
         out.push((
-            d.name().to_string(),
-            vec![
-                tot.to_string(),
-                p[0].to_string(),
-                p[1].to_string(),
-                p[2].to_string(),
-                p[3].to_string(),
-            ],
+            format!("{} (n/genuine/avoidable/wrong)", kind.name()),
+            vec![c],
         ));
     }
-    let _ = writeln!(
-        tsv,
-        "RS007EVAL\t{section}\trel_history_faults\t{}_vs_{}\t{}\t{}\t{}",
-        v.name(),
-        r.name(),
-        rel.fewer,
-        rel.equal,
-        rel.more
-    );
-    out.push((
-        "whole history: variant has fewer / as many / more oracle faults".into(),
-        vec![
-            format!("{}/{}/{}", rel.fewer, rel.equal, rel.more),
-            String::new(),
-            String::new(),
-            String::new(),
-            String::new(),
-        ],
-    ));
     out
 }
 
@@ -4242,15 +3850,11 @@ fn print_examples(
 }
 
 /// The corpus part of the report.
-fn report_corpus(cfg: &Cfg, out: &mut String, tsv: &mut String) {
-    let rules = cfg.rules();
+fn report_corpus(out: &mut String, tsv: &mut String) {
     let cases = corpus();
     let _ = writeln!(out, "\n== RS-007 eval: corpus ({} cases) ==", cases.len());
-    let logs: Vec<Vec<Log>> = cases
-        .iter()
-        .map(|c| rules.iter().map(|r| run_caught(&c.hist, *r)).collect())
-        .collect();
-    // Summary: one row per focus merge, one column per variant.
+    let logs: Vec<Log> = cases.iter().map(|c| run_caught(&c.hist)).collect();
+    // Summary: one row per focus merge.
     let word = |v: &Option<Verdict>, e: &Entry| -> String {
         match v {
             Some(Verdict::LandedOk { .. }) => "ok".to_string(),
@@ -4266,99 +3870,60 @@ fn report_corpus(cfg: &Cfg, out: &mut String, tsv: &mut String) {
         }
     };
     let short = |e: &Entry| -> String {
-        let mut s = word(&e.verdict, e);
+        let s = word(&e.verdict, e);
         if e.verdict_ch.is_some() && word(&e.verdict_ch, e) != s {
-            s = format!("{s}/ch:{}", word(&e.verdict_ch, e));
+            format!("{s}/ch:{}", word(&e.verdict_ch, e))
+        } else {
+            s
         }
-        if e.backstop > 0 { format!("{s}+bs") } else { s }
     };
     let mut rows = Vec::new();
-    for (c, ls) in cases.iter().zip(&logs) {
-        let fe: Vec<Vec<&Entry>> = ls.iter().map(|l| focus_entries(c, l)).collect();
-        let n = fe.iter().map(Vec::len).max().unwrap_or(0);
-        for j in 0..n {
-            let label = fe
-                .iter()
-                .find_map(|f| f.get(j))
-                .map(|e| format!("{} [{}] {}", c.id, e.op, e.kind.name()))
-                .unwrap_or_default();
-            let cells: Vec<String> = fe
-                .iter()
-                .map(|f| f.get(j).map_or("-".to_string(), |e| short(e)))
-                .collect();
-            for (r, x) in rules.iter().zip(&cells) {
-                let _ = writeln!(tsv, "RS007EVAL\tcorpus\t{label}\t{}\t{x}", r.name());
-            }
-            rows.push((label, cells));
+    for (c, l) in cases.iter().zip(&logs) {
+        for e in focus_entries(c, l) {
+            let label = format!("{} [{}] {}", c.id, e.op, e.kind.name());
+            let x = short(e);
+            let _ = writeln!(tsv, "RS007EVAL\tcorpus\t{label}\t{COLUMN}\t{x}");
+            rows.push((label, vec![x]));
         }
     }
-    let head: Vec<String> = rules.iter().map(|r| r.name().to_string()).collect();
-    table(out, &head, &rows);
+    table(out, &[COLUMN.to_string()], &rows);
     let _ = writeln!(
         out,
-        "(+bs: the backstop fired; /ch:x: the secondary (changeset-touch) reading says x; columns: the variant under test first)"
+        "(/ch:x: the secondary (changeset-touch) reading says x)"
     );
-    for (c, ls) in cases.iter().zip(&logs) {
+    for (c, l) in cases.iter().zip(&logs) {
         let _ = writeln!(out, "\n-- {} [{}]: {}", c.id, c.source, c.note);
         let _ = writeln!(out, "   ops: {:?}", c.hist.ops);
-        let fe: Vec<Vec<&Entry>> = ls.iter().map(|l| focus_entries(c, l)).collect();
-        let n = fe.iter().map(Vec::len).max().unwrap_or(0);
-        for j in 0..n {
-            let tris: Vec<Option<&Tri>> = fe
-                .iter()
-                .map(|f| f.get(j).and_then(|e| e.tri.as_deref()))
-                .collect();
-            let first = tris.iter().flatten().next();
-            if let Some(t) = first {
-                let e0 = fe.iter().find_map(|f| f.get(j)).expect("an entry");
+        for e in focus_entries(c, l) {
+            if let Some(t) = e.tri.as_deref() {
                 let _ = writeln!(
                     out,
                     "   [{}] {}: b {} | o {} | t {}",
-                    e0.op,
-                    e0.kind.name(),
+                    e.op,
+                    e.kind.name(),
                     hier_text(&t.b),
                     hier_text(&t.o),
                     hier_text(&t.t)
                 );
                 let _ = writeln!(out, "       oracle: {}", expectation_text(t));
-                let differ = tris
-                    .iter()
-                    .flatten()
-                    .any(|x| (&x.b, &x.o, &x.t) != (&t.b, &t.o, &t.t));
-                if differ {
-                    let _ = writeln!(
-                        out,
-                        "       (the variants reach different b, o, t here: each is judged on its own)"
-                    );
-                }
             }
-            for (r, f) in rules.iter().zip(&fe) {
-                let Some(e) = f.get(j) else {
-                    let _ = writeln!(
-                        out,
-                        "       {:8} (no such command: an earlier resolution aborted)",
-                        r.name()
-                    );
-                    continue;
-                };
-                let res = e
-                    .tri
-                    .as_ref()
-                    .map(|t| format!(" -> {}", hier_text(&t.r)))
-                    .unwrap_or_default();
-                let _ = writeln!(out, "       {:8} {}{res}", r.name(), entry_text(e));
-                if !c.readings.is_empty()
-                    && e.got == Got::Landed
-                    && let Some(t) = &e.tri
-                {
-                    for (text, n, p) in &c.readings {
-                        let got = t.r[*n as usize - 1].as_ref().map(|x| x.0);
-                        if got == Some(*p) {
-                            let _ = writeln!(
-                                out,
-                                "                CONTESTED: takes the reading \"{text}\""
-                            );
-                        }
+            let res = e
+                .tri
+                .as_ref()
+                .map(|t| format!(" -> {}", hier_text(&t.r)))
+                .unwrap_or_default();
+            let _ = writeln!(out, "       {}{res}", entry_text(e));
+            if !c.readings.is_empty()
+                && e.got == Got::Landed
+                && let Some(t) = &e.tri
+            {
+                for (text, n, p) in &c.readings {
+                    let got = t.r[*n as usize - 1].as_ref().map(|x| x.0);
+                    if got == Some(*p) {
+                        let _ = writeln!(
+                            out,
+                            "                CONTESTED: takes the reading \"{text}\""
+                        );
                     }
                 }
             }
@@ -4377,29 +3942,22 @@ fn report_corpus(cfg: &Cfg, out: &mut String, tsv: &mut String) {
 
 /// The search part of the report.
 fn report_search(cfg: &Cfg, out: &mut String, tsv: &mut String) {
-    let rules = cfg.rules();
-    let mut all_abs: Vec<Abs> = vec![Abs::default(); rules.len()];
-    let mut all_rel: Vec<Rel> = vec![Rel::default(); rules.len()];
+    let mut all_abs = Abs::default();
     for g in &cfg.gens {
-        let mut abs: Vec<Abs> = vec![Abs::default(); rules.len()];
-        let mut rel: Vec<Rel> = vec![Rel::default(); rules.len()];
+        let mut abs = Abs::default();
         let mut per_seed = String::new();
         let mut ex_avoid: Vec<Example> = Vec::new();
         let mut ex_wrong: Vec<Example> = Vec::new();
-        let mut ex_rel: BTreeMap<(usize, &'static str), Vec<Example>> = BTreeMap::new();
         let t0 = std::time::Instant::now();
         for seed in &cfg.seeds {
             let hists = histories(*g, *seed, cfg.cases);
-            let logs = run_all(&hists, &rules, cfg.threads);
-            let mut seed_abs: Vec<Abs> = vec![Abs::default(); rules.len()];
-            for (i, (h, ls)) in hists.iter().zip(&logs).enumerate() {
-                for (j, l) in ls.iter().enumerate() {
-                    abs[j].add(l);
-                    all_abs[j].add(l);
-                    seed_abs[j].add(l);
-                }
-                let v = &ls[0];
-                for e in &v.entries {
+            let logs = run_all(&hists, cfg.threads);
+            let mut seed_abs = Abs::default();
+            for (i, (h, l)) in hists.iter().zip(&logs).enumerate() {
+                abs.add(l);
+                all_abs.add(l);
+                seed_abs.add(l);
+                for e in &l.entries {
                     let head = format!(
                         "{} seed {seed} history {i} event [{}] {}",
                         g.name(),
@@ -4429,48 +3987,16 @@ fn report_search(cfg: &Cfg, out: &mut String, tsv: &mut String) {
                         _ => {}
                     }
                 }
-                for j in 1..rules.len() {
-                    let c = compare(h, &ls[0], &ls[j]);
-                    rel[j].add(&c);
-                    all_rel[j].add(&c);
-                    let cat = match (c.div, c.a_fault, c.r_fault) {
-                        (Div::Same, ..) => None,
-                        (_, true, false) => Some("judged worse (variant faults, ref clean)"),
-                        (_, false, true) => Some("judged better (ref faults, variant clean)"),
-                        (Div::Worse, ..) => Some("worse, not judged worse"),
-                        (Div::Other, ..) => Some("other divergence"),
-                        _ => None,
-                    };
-                    if let Some(cat) = cat {
-                        let v = ex_rel.entry((j, cat)).or_default();
-                        if v.len() < cfg.examples {
-                            v.push(Example {
-                                hist: h.clone(),
-                                head: format!(
-                                    "{} seed {seed} history {i} vs {}",
-                                    g.name(),
-                                    rules[j].name()
-                                ),
-                                text: c.msg.clone(),
-                            });
-                        }
-                    }
-                }
             }
-            let _ = write!(per_seed, "  seed {seed}:");
-            for (r, a) in rules.iter().zip(&seed_abs) {
-                let _ = write!(
-                    per_seed,
-                    "  {} merges {} staged {} genuine {} avoidable {} wrong {}",
-                    r.name(),
-                    a.total.n,
-                    a.total.staged,
-                    a.total.genuine,
-                    a.total.avoidable,
-                    a.total.wrong
-                );
-            }
-            per_seed.push('\n');
+            let _ = writeln!(
+                per_seed,
+                "  seed {seed}: merges {} staged {} genuine {} avoidable {} wrong {}",
+                seed_abs.total.n,
+                seed_abs.total.staged,
+                seed_abs.total.genuine,
+                seed_abs.total.avoidable,
+                seed_abs.total.wrong
+            );
         }
         let section = g.name();
         let _ = writeln!(
@@ -4480,75 +4006,29 @@ fn report_search(cfg: &Cfg, out: &mut String, tsv: &mut String) {
             cfg.cases,
             t0.elapsed().as_secs_f64()
         );
-        let head: Vec<String> = rules.iter().map(|r| r.name().to_string()).collect();
-        let rows = abs_rows(section, &rules, &abs.iter().collect::<Vec<_>>(), tsv);
-        table(out, &head, &rows);
+        let rows = abs_rows(section, &abs, tsv);
+        table(out, &[COLUMN.to_string()], &rows);
         out.push_str(&per_seed);
-        for j in 1..rules.len() {
-            let _ = writeln!(
-                out,
-                "  -- {} against {} (first divergence per history; columns: total, variant fault & ref clean, variant clean & ref fault, both fault, neither)",
-                rules[0].name(),
-                rules[j].name()
-            );
-            let rows = rel_rows(section, rules[0], rules[j], &rel[j], tsv);
-            let head: Vec<String> = ["total", "v-fault", "r-fault", "both", "neither"]
-                .iter()
-                .map(|s| s.to_string())
-                .collect();
-            table(out, &head, &rows);
-        }
-        let v = rules[0];
         let pred_avoid = |h: &Hist| {
-            run(h, v)
+            run(h)
                 .entries
                 .iter()
                 .any(|e| matches!(e.verdict, Some(Verdict::Avoidable { .. })))
         };
         let pred_wrong = |h: &Hist| {
-            run(h, v)
+            run(h)
                 .entries
                 .iter()
                 .any(|e| matches!(e.verdict, Some(Verdict::LandedWrong { .. })))
         };
         print_examples(
             out,
-            &format!("{} avoidable stagings", v.name()),
+            "avoidable stagings",
             &ex_avoid,
             cfg.shrink,
             &pred_avoid,
         );
-        print_examples(
-            out,
-            &format!("{} wrong landings", v.name()),
-            &ex_wrong,
-            cfg.shrink,
-            &pred_wrong,
-        );
-        for ((j, cat), ex) in &ex_rel {
-            let r = rules[*j];
-            let want = *cat;
-            let pred = move |h: &Hist| {
-                let c = compare(h, &run(h, v), &run(h, r));
-                match want {
-                    "judged worse (variant faults, ref clean)" => {
-                        c.div != Div::Same && c.a_fault && !c.r_fault
-                    }
-                    "judged better (ref faults, variant clean)" => {
-                        c.div != Div::Same && !c.a_fault && c.r_fault
-                    }
-                    "worse, not judged worse" => c.div == Div::Worse,
-                    _ => c.div == Div::Other,
-                }
-            };
-            print_examples(
-                out,
-                &format!("{} vs {}: {cat}", v.name(), r.name()),
-                ex,
-                cfg.shrink,
-                &pred,
-            );
-        }
+        print_examples(out, "wrong landings", &ex_wrong, cfg.shrink, &pred_wrong);
         // Each generator's section as soon as it is done.
         eprint!("{out}");
         out.clear();
@@ -4559,29 +4039,18 @@ fn report_search(cfg: &Cfg, out: &mut String, tsv: &mut String) {
             "\n== RS-007 eval: all generators, seeds {:?}, {} histories per generator and seed ==",
             cfg.seeds, cfg.cases
         );
-        let head: Vec<String> = rules.iter().map(|r| r.name().to_string()).collect();
-        let rows = abs_rows("all", &rules, &all_abs.iter().collect::<Vec<_>>(), tsv);
-        table(out, &head, &rows);
-        for j in 1..rules.len() {
-            let _ = writeln!(out, "  -- {} against {}", rules[0].name(), rules[j].name());
-            let rows = rel_rows("all", rules[0], rules[j], &all_rel[j], tsv);
-            let head: Vec<String> = ["total", "v-fault", "r-fault", "both", "neither"]
-                .iter()
-                .map(|s| s.to_string())
-                .collect();
-            table(out, &head, &rows);
-        }
+        let rows = abs_rows("all", &all_abs, tsv);
+        table(out, &[COLUMN.to_string()], &rows);
     }
 }
 
 /// The cost part of the report.
 fn report_cost(cfg: &Cfg, out: &mut String, tsv: &mut String) {
-    let rules = cfg.rules();
     let _ = writeln!(out, "\n== RS-007 eval: cost (long lane; debug build) ==");
     let mut rows = Vec::new();
     for n in &cfg.cost_n {
-        let rs: Vec<CostRow> = rules.iter().map(|r| cost(*r, *n)).collect();
-        let lines: [CostLine; 9] = [
+        let r = cost(*n);
+        let lines: [CostLine; 8] = [
             ("total seconds", "total_s", |c| format!("{:.2}", c.total_s)),
             ("commits", "commits", |c| c.commits.to_string()),
             ("syncs of lane/x", "syncs", |c| c.syncs.to_string()),
@@ -4593,23 +4062,17 @@ fn report_cost(cfg: &Cfg, out: &mut String, tsv: &mut String) {
                 format!("{:.1}", c.last10_ms)
             }),
             ("slowest sync, ms", "max_ms", |c| format!("{:.1}", c.max_ms)),
-            ("step keys from an empty memo, s", "cold_s", |c| {
-                format!("{:.2}", c.cold_s)
-            }),
-            ("next sync after that, ms", "next_ms", |c| {
+            ("next sync after one more edit, ms", "next_ms", |c| {
                 format!("{:.1}", c.next_ms)
             }),
         ];
         for (label, key, f) in lines {
-            let cells: Vec<String> = rs.iter().map(f).collect();
-            for (r, c) in rules.iter().zip(&cells) {
-                let _ = writeln!(tsv, "RS007EVAL\tcost_n{n}\t{key}\t{}\t{c}", r.name());
-            }
-            rows.push((format!("N={n}: {label}"), cells));
+            let c = f(&r);
+            let _ = writeln!(tsv, "RS007EVAL\tcost_n{n}\t{key}\t{COLUMN}\t{c}");
+            rows.push((format!("N={n}: {label}"), vec![c]));
         }
     }
-    let head: Vec<String> = rules.iter().map(|r| r.name().to_string()).collect();
-    table(out, &head, &rows);
+    table(out, &[COLUMN.to_string()], &rows);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -4883,7 +4346,7 @@ fn rs007_eval_oracle_takes_a_fixed_nodes_value_from_the_result() {
         Verdict::LandedWrong { one_sided: 1, .. }
     ));
     let c = corpus_case("FIXED-COPY").expect("the case");
-    let l = run(&c.hist, Rule::Cand);
+    let l = run(&c.hist);
     let fe = focus_entries(&c, &l);
     assert_eq!(fe.len(), 1, "{}", trace_text(&c.hist, &l));
     let e = fe[0];
@@ -4901,13 +4364,95 @@ fn rs007_eval_oracle_takes_a_fixed_nodes_value_from_the_result() {
     );
 }
 
+/// R-17 m-1: a node the existence rule fixed ([`Tri::fixed`]) loses no reparent to a concurrent order-only change,
+/// since the result copied it whole from a side and RS-007 did not decide its key. #1 is under #3 in b, o reorders it
+/// there (order-only), t puts it under #2 (a reparent), and the result holds o's value; #2 and #3 are roots. Fixed, it
+/// counts nothing; merged (no task fixed), it is one lost reparent.
+#[test]
+fn rs007_eval_a_fixed_node_loses_no_reparent() {
+    let v = |p: Option<u32>| Some((p, None::<String>));
+    let root = v(None);
+    let reordered = Some((Some(3), Some("V".to_string())));
+    let tri = Tri {
+        b: vec![v(Some(3)), root.clone(), root.clone()],
+        o: vec![reordered.clone(), root.clone(), root.clone()],
+        t: vec![v(Some(2)), root.clone(), root.clone()],
+        r: vec![reordered, root.clone(), root.clone()],
+        virtual_base: false,
+        one_sided: false,
+        pick_no_hier: false,
+        touch: None,
+        strict: false,
+        fixed: vec![true, false, false],
+    };
+    assert_eq!(reparents_lost(&tri, &[]), 0, "a fixed node is not judged");
+    let merged = Tri {
+        fixed: Vec::new(),
+        ..tri
+    };
+    assert_eq!(reparents_lost(&merged, &[]), 1, "the control");
+}
+
+/// R-17 m-2: a node the existence rule fixed ([`Tri::fixed`]) is never a requested key, and its two values do not
+/// switch the link check's dead-parent preference on, since RS-007 did not decide its key. b holds every task at the
+/// root; o puts #1 under #2; t puts #1 under #3 and deletes #2; the strict result holds #1 under the dead #2 and stages
+/// its `DanglingEdge`. Fixed, the staging is one for another reason; merged (no task fixed), it is `Requested`, with
+/// one requested pair, and the preference is on. A fixed #1 whose class is `only-o` (b and t under #3) is no requested
+/// key either.
+#[test]
+fn rs007_eval_a_fixed_node_is_never_a_requested_key() {
+    let v = |p: Option<u32>| Some((p, None::<String>));
+    let root = v(None);
+    let tri = Tri {
+        b: vec![root.clone(), root.clone(), root.clone()],
+        o: vec![v(Some(2)), root.clone(), root.clone()],
+        t: vec![v(Some(3)), None, root.clone()],
+        r: vec![v(Some(2)), None, root.clone()],
+        virtual_base: false,
+        one_sided: false,
+        pick_no_hier: false,
+        touch: None,
+        strict: true,
+        fixed: vec![true, false, false],
+    };
+    let de = vec![("#1.parent".to_string(), "DanglingEdge".to_string())];
+    let staged = Got::Staged(vec![]);
+    let or_of = |t: &Tri| oracle_touch(&t.b, &t.o, &t.t, &t.r, &t.fixed, None);
+    let or = or_of(&tri);
+    assert_eq!(requested_pairs(&tri, &or, &de), vec![]);
+    assert_eq!(
+        judge(&staged, &tri, &de),
+        Verdict::StagedOther { cand_wrong: false }
+    );
+    assert!(!dead_parent_preference(&tri, &or));
+    let merged = Tri {
+        fixed: Vec::new(),
+        ..tri.clone()
+    };
+    let or = or_of(&merged);
+    assert_eq!(
+        requested_pairs(&merged, &or, &de),
+        vec![(0, "DanglingEdge", v(Some(3)))],
+        "the control"
+    );
+    assert_eq!(judge(&staged, &merged, &de), Verdict::Requested);
+    assert!(dead_parent_preference(&merged, &or));
+    let only_o = Tri {
+        b: vec![v(Some(3)), root.clone(), root.clone()],
+        ..tri
+    };
+    let or = or_of(&only_o);
+    assert_eq!(or.class[0], Class::OnlyO);
+    assert_eq!(requested_pairs(&only_o, &or, &de), vec![]);
+}
+
 /// K2's one fault of wave 3d (`wide:2:893`, shrunk to the corpus case `K2-W3D`): the cherry-pick's cycle runs through
 /// #3, which the pick's base and src hold deleted and its dst live. The old oracle did not judge #3 and called the
 /// staging avoidable; the widened oracle judges #3 (o's value, the only live one) and finds no forest.
 #[test]
 fn rs007_eval_k2s_wave_3d_fault_is_a_genuine_cycle() {
     let c = corpus_case("K2-W3D").expect("the case");
-    let l = run(&c.hist, Rule::Cand);
+    let l = run(&c.hist);
     let fe = focus_entries(&c, &l);
     assert_eq!(fe.len(), 1, "{}", trace_text(&c.hist, &l));
     let e = fe[0];
@@ -5023,7 +4568,7 @@ fn rs007_eval_oracle_calls_a_strict_staging_of_a_two_sided_key_requested() {
     );
 }
 
-/// What a corpus case's focus merges must do under every acceptable rule.
+/// What a corpus case's focus merges must do.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 enum Must {
     /// Stage a `HierarchyCycle`, and the oracle agrees no forest exists.
@@ -5032,13 +4577,11 @@ enum Must {
     Land,
 }
 
-/// PR tier: the corpus cases whose outcome every acceptable rule must give, under the thread's default rule
-/// (`MOIRAI_RS007_RULE`): the X1 genuine cycles and the order-only cycle of open point 35 (vi) and (iii) stage; the
-/// swap in one transaction, the three-commit restructure, E1's one-sided merge into an unmoved `main` and the
-/// cherry-pick of a commit with no hierarchy entry land, with nothing the oracle calls wrong.
+/// PR tier: the corpus cases whose outcome RS-007 guarantees: the X1 genuine cycles and the order-only cycle of open
+/// point 35 (vi) and (iii) stage; the swap in one transaction, the three-commit restructure, E1's one-sided merge into
+/// an unmoved `main` and the cherry-pick of a commit with no hierarchy entry land, with nothing the oracle calls wrong.
 #[test]
 fn rs007_eval_corpus_invariants() {
-    let rule = merge::default_rule();
     let musts = [
         ("X1", Must::Stage),
         ("X1-sync", Must::Stage),
@@ -5052,7 +4595,7 @@ fn rs007_eval_corpus_invariants() {
     ];
     for (id, must) in musts {
         let c = corpus_case(id).expect("a corpus case");
-        let l = run(&c.hist, rule);
+        let l = run(&c.hist);
         assert!(l.panic.is_none(), "{id}: {:?}", l.panic);
         let fe = focus_entries(&c, &l);
         assert!(
@@ -5070,16 +4613,12 @@ fn rs007_eval_corpus_invariants() {
                     e.got == Got::Landed && matches!(e.verdict, Some(Verdict::LandedOk { .. }))
                 }
             };
-            assert!(
-                ok,
-                "{id} under {rule:?}: {must:?} expected\n{}",
-                trace_text(&c.hist, &l)
-            );
+            assert!(ok, "{id}: {must:?} expected\n{}", trace_text(&c.hist, &l));
         }
     }
     // The order-only move of (vi) keeps theirs' order: the staged candidate holds #1 at theirs' value.
     let c = corpus_case("OP35-vi").expect("OP35-vi");
-    let l = run(&c.hist, rule);
+    let l = run(&c.hist);
     let e = focus_entries(&c, &l)[0];
     let t = e.tri.as_ref().expect("judged");
     assert_eq!(
@@ -5095,24 +4634,17 @@ fn rs007_eval_corpus_invariants() {
     );
 }
 
-/// PR tier: over random histories of every generator (16 per generator at the PR tier, seed fixed), under the thread's
-/// default rule: the model never panics; every branch's hierarchy stays a forest; a one-sided merge (its base's commit
+/// PR tier: over random histories of the four generators of wave 3d (16 per generator at the PR tier, seed fixed): the
+/// model never panics; every branch's hierarchy stays a forest; a one-sided merge (its base's commit
 /// is tip(dst)) never stages a `HierarchyCycle` and lands src's hierarchy on every judged task (OQ-A-11 11.1 (A), I25′);
 /// a revert or cherry-pick of a commit with no hierarchy entry never stages a `HierarchyCycle` and keeps dst's
 /// hierarchy (RS-007's guarantee); and a history run twice gives the same log.
 #[test]
 fn rs007_eval_random_invariants() {
-    let rule = merge::default_rule();
     for g in Gen::ALL {
         for (i, h) in histories(g, 1, tier(16)).iter().enumerate() {
-            let l = run(h, rule);
-            let where_ = || {
-                format!(
-                    "{} history {i} under {rule:?}\n{}",
-                    g.name(),
-                    trace_text(h, &l)
-                )
-            };
+            let l = run(h);
+            let where_ = || format!("{} history {i}\n{}", g.name(), trace_text(h, &l));
             assert!(l.panic.is_none(), "{}", where_());
             for snap in &l.snaps {
                 for (b, hh) in snap {
@@ -5138,7 +4670,7 @@ fn rs007_eval_random_invariants() {
                 }
             }
             if i < 4 {
-                let again = run(h, rule);
+                let again = run(h);
                 assert_eq!(
                     (&again.entries, &again.snaps),
                     (&l.entries, &l.snaps),
@@ -5163,18 +4695,17 @@ fn acceptance_faults(k: &KStats) -> usize {
         + k.pick_no_hier_not_o
 }
 
-/// The absolute acceptance of OQ-A-13 (13.6 (b); R-15, R-16; the cut's §4.8) for K2 (`Rule::Cand`), over every
+/// The absolute acceptance of OQ-A-13 (13.6 (b); R-15, R-16; u05a's cut §4.8) for RS-007 (K2), over every
 /// generator ([`Gen::EVERY`]) × seeds 1 and 2 × `tier(15)` histories: no panic; every branch a forest; the first
 /// four histories of each (generator, seed) run twice to one log; no avoidable `HierarchyCycle` staging, wrong
 /// landing, stuck staging, wrong candidate of another staging, reparent lost to an order-only change, one-sided merge
 /// off t or pick of a commit with no hierarchy entry off o; every `Requested` staging linked to the same history
 /// without strict ([`Link`]; not applicable is counted apart). Then the link fixtures ([`strict_link_fixtures`]), and
-/// the corpus under `cand`: no panic and no fault, `K2-W3D`'s pick genuine, and the CONTESTED cases at MR-040's
+/// the corpus: no panic and no fault, `K2-W3D`'s pick genuine, and the CONTESTED cases at MR-040's
 /// reading by the original moves' times (13.4 (a)). One `RS007ACCEPT` line per generator goes to stderr; a failure
 /// names the first failing `<generator>:<seed>:<index>` for [`rs007_eval_trace`].
 #[test]
 fn rs007_eval_absolute_acceptance() {
-    let rule = Rule::Cand;
     let t0 = std::time::Instant::now();
     let mut lines: Vec<String> = Vec::new();
     let mut failed: Vec<String> = Vec::new();
@@ -5192,7 +4723,7 @@ fn rs007_eval_absolute_acceptance() {
                         first = Some(format!("{id}: {why}"));
                     }
                 };
-                let l = run_caught(h, rule);
+                let l = run_caught(h);
                 if let Some(p) = &l.panic {
                     panics += 1;
                     note(format!("panic {p}"));
@@ -5207,7 +4738,7 @@ fn rs007_eval_absolute_acceptance() {
                     note("a branch is not a forest".into());
                 }
                 if i < 4 {
-                    let again = run_caught(h, rule);
+                    let again = run_caught(h);
                     if (&again.entries, &again.snaps) != (&l.entries, &l.snaps) {
                         nondet += 1;
                         note("not deterministic".into());
@@ -5218,7 +4749,7 @@ fn rs007_eval_absolute_acceptance() {
                     hk.add(e);
                     ks.add(e);
                     if e.verdict == Some(Verdict::Requested) {
-                        match link_check(h, &l, e, rule) {
+                        match link_check(h, &l, e) {
                             Link::Holds => {}
                             Link::NotApplicable(_) => na += 1,
                             Link::Broken(why) => {
@@ -5267,7 +4798,7 @@ fn rs007_eval_absolute_acceptance() {
     }
     // The link fixtures.
     for f in strict_link_fixtures() {
-        let l = run_caught(&f.hist, rule);
+        let l = run_caught(&f.hist);
         let es: Vec<&Entry> = l.entries.iter().filter(|e| e.kind != Kind::Edit).collect();
         let Some(e) = es.get(f.entry) else {
             failed.push(format!("{}: no entry {}", f.id, f.entry));
@@ -5284,7 +4815,7 @@ fn rs007_eval_absolute_acceptance() {
             continue;
         }
         if let Some(holds) = f.holds {
-            let link = link_check(&f.hist, &l, e, rule);
+            let link = link_check(&f.hist, &l, e);
             if matches!(link, Link::Holds) != holds
                 || (!holds && !matches!(link, Link::NotApplicable(_)))
             {
@@ -5298,7 +4829,7 @@ fn rs007_eval_absolute_acceptance() {
     }
     // The corpus.
     for c in corpus() {
-        let l = run_caught(&c.hist, rule);
+        let l = run_caught(&c.hist);
         if l.panic.is_some() || l.faults() > 0 {
             failed.push(format!(
                 "corpus {}: panic {:?}, {} faults\n{}",
@@ -5341,28 +4872,25 @@ fn rs007_eval_absolute_acceptance() {
     );
     assert!(
         failed.is_empty(),
-        "the absolute acceptance of K2 fails:\n{}\nfirst failures:\n{}",
+        "the absolute acceptance of RS-007 fails:\n{}\nfirst failures:\n{}",
         lines.join("\n"),
         failed.join("\n")
     );
 }
 
-/// The report: one table of every metric for the variant `MOIRAI_RS007_EVAL_RULE` (default `cand`) against the
-/// references `MOIRAI_RS007_EVAL_VS`, over the corpus, `MOIRAI_RS007_EVAL_CASES` histories of each generator per seed
-/// of `MOIRAI_RS007_EVAL_SEEDS`, and the long-lane cost ([`Cfg`] lists every variable). Run by hand:
-/// `MOIRAI_RS007_EVAL_RULE=cand cargo test -p moirai-model --locked --lib rs007_eval_report -- --ignored --nocapture`.
-/// Machine-readable lines start with `RS007EVAL`; `MOIRAI_RS007_EVAL_OUT=<path>` also writes the report there.
+/// The report: one table of every metric of RS-007 over the corpus, `MOIRAI_RS007_EVAL_CASES` histories of each
+/// generator per seed of `MOIRAI_RS007_EVAL_SEEDS`, and the long-lane cost ([`Cfg`] lists every variable). Run by hand:
+/// `cargo test -p moirai-model --locked --lib rs007_eval_report -- --ignored --nocapture`. Machine-readable lines start
+/// with `RS007EVAL`; `MOIRAI_RS007_EVAL_OUT=<path>` also writes the report there.
 #[test]
-#[ignore]
+#[ignore = "generator"]
 fn rs007_eval_report() {
     let cfg = Cfg::from_env();
     let mut out = String::new();
     let mut tsv = String::new();
     let _ = writeln!(
         out,
-        "RS-007 evaluation: variant {} against {:?}; parts {:?}; cases {}; seeds {:?}; generators {:?}; threads {}",
-        cfg.variant.name(),
-        cfg.refs.iter().map(|r| r.name()).collect::<Vec<_>>(),
+        "RS-007 evaluation ({COLUMN}): parts {:?}; cases {}; seeds {:?}; generators {:?}; threads {}",
         cfg.parts,
         cfg.cases,
         cfg.seeds,
@@ -5371,7 +4899,7 @@ fn rs007_eval_report() {
     );
     let t0 = std::time::Instant::now();
     if cfg.parts.contains("corpus") {
-        report_corpus(&cfg, &mut out, &mut tsv);
+        report_corpus(&mut out, &mut tsv);
         eprint!("{out}");
         out.clear();
     }
@@ -5392,18 +4920,13 @@ fn rs007_eval_report() {
     }
 }
 
-/// A verbose trace of one history under each variant of `MOIRAI_RS007_EVAL_RULE` (a comma list; default
-/// `current,wave3c,fromb`): `MOIRAI_RS007_EVAL_CASE` names a corpus case (`E6`), or a generated history as
+/// A verbose trace of one history: `MOIRAI_RS007_EVAL_CASE` names a corpus case (`E6`), or a generated history as
 /// `<generator>:<seed>:<index>` (`lanes:1:17`, the numbering of the report's examples). Run by hand, `--ignored
 /// --nocapture`.
 #[test]
-#[ignore]
+#[ignore = "generator"]
 fn rs007_eval_trace() {
     let which = env_or("MOIRAI_RS007_EVAL_CASE", "E6");
-    let rules: Vec<Rule> = env_or("MOIRAI_RS007_EVAL_RULE", "current,wave3c,fromb")
-        .split(',')
-        .map(|r| Rule::parse(r).expect("MOIRAI_RS007_EVAL_RULE"))
-        .collect();
     let h = match corpus_case(&which) {
         Some(c) => {
             eprintln!("{} [{}]: {}", c.id, c.source, c.note);
@@ -5422,38 +4945,19 @@ fn rs007_eval_trace() {
             histories(g, seed, i + 1).pop().expect("the history")
         }
     };
-    let logs: Vec<Log> = rules.iter().map(|r| run_caught(&h, *r)).collect();
-    for (r, l) in rules.iter().zip(&logs) {
-        eprintln!("=== {} ({:.2} s)\n{}", r.name(), l.secs, trace_text(&h, l));
-    }
-    for j in 1..rules.len() {
-        let c = compare(&h, &logs[0], &logs[j]);
-        eprintln!(
-            "=== {} against {}: {:?} at event {:?} (variant fault {}, ref fault {}; history faults {} / {}) {}",
-            rules[0].name(),
-            rules[j].name(),
-            c.div,
-            c.at,
-            c.a_fault,
-            c.r_fault,
-            c.faults.0,
-            c.faults.1,
-            c.msg
-        );
-    }
+    let l = run_caught(&h);
+    eprintln!("=== {COLUMN} ({:.2} s)\n{}", l.secs, trace_text(&h, &l));
 }
 
-/// Lists the generated histories in which a variant's merge of a kind gets a verdict: `MOIRAI_RS007_EVAL_RULE` (one
-/// variant, default `current`), `MOIRAI_RS007_EVAL_GENS` (one generator, default `lanes`), `MOIRAI_RS007_EVAL_SEEDS`
+/// Lists the generated histories in which a merge of a kind gets a verdict: `MOIRAI_RS007_EVAL_GENS` (one generator,
+/// default `lanes`), `MOIRAI_RS007_EVAL_SEEDS`
 /// (one seed, default 1), `MOIRAI_RS007_EVAL_CASES` (default 200), `MOIRAI_RS007_EVAL_KIND` (`sync`, `cross`,
 /// `step0`, `into-main`, `based`, `criss`, `pick`, `revert` or `any`, default `any`), `MOIRAI_RS007_EVAL_VERDICT`
 /// (`wrong`, `avoidable`, `genuine`, `fault`, `ok`; default `fault`), `MOIRAI_RS007_EVAL_EXAMPLES` (default 5). Each
 /// hit prints `<generator>:<seed>:<index>` for [`rs007_eval_trace`]. Run by hand, `--ignored --nocapture`.
 #[test]
-#[ignore]
+#[ignore = "generator"]
 fn rs007_eval_find() {
-    let rule =
-        Rule::parse(&env_or("MOIRAI_RS007_EVAL_RULE", "current")).expect("MOIRAI_RS007_EVAL_RULE");
     let g = Gen::parse(&env_or("MOIRAI_RS007_EVAL_GENS", "lanes")).expect("MOIRAI_RS007_EVAL_GENS");
     let seed: u8 = env_or("MOIRAI_RS007_EVAL_SEEDS", "1")
         .parse()
@@ -5468,7 +4972,7 @@ fn rs007_eval_find() {
         .expect("MOIRAI_RS007_EVAL_EXAMPLES");
     let mut hits = 0;
     for (i, h) in histories(g, seed, cases).iter().enumerate() {
-        let l = run_caught(h, rule);
+        let l = run_caught(h);
         for e in &l.entries {
             if kind != "any" && e.kind.name() != kind {
                 continue;

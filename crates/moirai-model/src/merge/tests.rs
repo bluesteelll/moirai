@@ -1,5 +1,5 @@
 //! The typed merge on hand-built states: the rows of each class, the rules over conflict-valued bases ([F12 §5.4]),
-//! Kleppmann's moves, the existence policies, and properties over random edits of both sides.
+//! RS-007's hierarchy rule, the existence policies, and properties over random edits of both sides.
 
 use super::*;
 use crate::state::{Creator, EdgeProps, Tomb};
@@ -15,8 +15,8 @@ fn no_nid(_: Uid) -> Option<Nid> {
     None
 }
 
-/// A context with no commit steps on either side: every move is a side's value in its first step (RS-007 as the WP-91
-/// review's spec finding S1b states it), as for a merge whose base is not where the sides' commits start.
+/// A context with no history: every origin RS-007 reads is (0, 0), so a two-sided hierarchy key takes theirs' value
+/// (MR-040), unless a test sets [`Ctx::origin`].
 fn ctx<'a>(auto: &'a BTreeMap<String, String>, op: Op) -> Ctx<'a> {
     Ctx {
         op,
@@ -24,8 +24,6 @@ fn ctx<'a>(auto: &'a BTreeMap<String, String>, op: Op) -> Ctx<'a> {
         dst_plan: false,
         policy: None,
         auto,
-        start: Start::Base,
-        moves: [&[], &[]],
         uid: &uid,
         nid: &no_nid,
         origin: None,
@@ -36,26 +34,6 @@ fn ctx<'a>(auto: &'a BTreeMap<String, String>, op: Op) -> Ctx<'a> {
 fn run(b: &State, o: &State, t: &State, op: Op) -> Merged {
     let auto = BTreeMap::new();
     merge(b, o, t, &ctx(&auto, op), &mut Fresh::default())
-}
-
-/// The steps of a side's commits, each turning one state of `states` into the next, with order keys (10·(i + 1),
-/// [i + 1; 32]): built as [`crate::dag::Dag::move_steps`] builds a real side's, from each commit's net changeset.
-fn steps(states: &[&State]) -> Vec<Step> {
-    states
-        .windows(2)
-        .enumerate()
-        .filter_map(|(i, w)| {
-            let c = i as u64 + 1;
-            Step::of((10 * c, [c as u8; 32]), &crate::state::diff(w[0], w[1]))
-        })
-        .collect()
-}
-
-/// The step of one commit that turned `from` into `to`, with order key (hlc, [id; 32]).
-fn step(hlc: u64, id: u8, from: &State, to: &State) -> Vec<Step> {
-    Step::of((hlc, [id; 32]), &crate::state::diff(from, to))
-        .into_iter()
-        .collect()
 }
 
 fn cs(st: &State) -> canon::Cs {
@@ -246,8 +224,8 @@ fn apply(st: &mut State, edits: &[Edit]) {
 
 proptest! {
     /// A side that did not move gives the other side's state ([RULES/merge-table] ours-only, theirs-only rows), its
-    /// hierarchy moves included (with no commit steps, the side's values move in its first step) and with no violation
-    /// of a real merge; two equal sides give that state (`same`).
+    /// hierarchy moves included (every hierarchy key is one-sided, RS-007) and with no violation of a real merge; two
+    /// equal sides give that state (`same`).
     #[test]
     fn one_sided_and_equal_merges_take_the_changed_side(es in proptest::collection::vec(edit(), 0..12)) {
         let b = base();
@@ -443,8 +421,10 @@ fn typed_rules_merge_text_counters_and_sets() {
     );
 }
 
-/// Kleppmann's moves in (hlc, commit id) order; a move that would close a cycle is skipped and stages as
-/// `HierarchyCycle` (MR-039, V01), silently inside a virtual merge (VBC-10).
+/// RS-007's cycle repair ([RULES/merge-table] RS-007, MR-039, CS-013): ours puts #1 under #2 (origin 10), theirs #2
+/// under #1 (origin 20). Both keys are one-sided and together close a cycle, so the repair resets the one whose value
+/// has the later origin, theirs' #2, which stages as `HierarchyCycle` (MR-039, V01), silently inside a virtual merge
+/// (VBC-10).
 #[test]
 fn a_cycle_closing_move_is_skipped() {
     let b = base();
@@ -456,87 +436,39 @@ fn a_cycle_closing_move_is_skipped() {
     let o = under(&b, 1, 2);
     let t = under(&b, 2, 1);
     let auto = BTreeMap::new();
-    let (mo, mt) = (step(10, 1, &b, &o), step(20, 2, &b, &t));
+    let og = |side: usize, _: Nid, _: bool, _: &Option<KVal>| {
+        if side == 1 {
+            (10, [1; 32])
+        } else {
+            (20, [2; 32])
+        }
+    };
     let mut cx = ctx(&auto, Op::Merge);
-    cx.moves = [&mo, &mt];
+    cx.origin = Some(&og);
     let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
     assert_eq!(m.st.nodes[&Nid(1)].parent, Some(Nid(2)));
-    assert_eq!(
-        m.st.nodes[&Nid(2)].parent,
-        None,
-        "the later move is skipped"
-    );
+    assert_eq!(m.st.nodes[&Nid(2)].parent, None, "the later move is reset");
     assert_eq!(m.violations.len(), 1);
     assert_eq!(m.violations[0].class, "HierarchyCycle");
+    assert_eq!(
+        m.violations[0].key,
+        Some(Key::Node(Nid(2), Aspect::Hierarchy))
+    );
     cx.op = Op::Virtual;
     let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
     assert!(m.violations.is_empty());
+    assert_eq!(m.st.nodes[&Nid(2)].parent, None);
 }
 
-/// A commit that swaps a parent and its child moves both at one order key: its two moves are one Kleppmann step, so a
-/// merge with an untouched other side takes the swap and records no `HierarchyCycle` (the WP-91 review's spec finding
-/// S1; applied one at a time from the base, the first move met a cycle and was skipped).
+/// RS-007's step (1) resets a one-sided key before a key both sides set alike ([RULES/merge-table] RS-007, MR-039,
+/// MR-040, CS-013). Ours puts #3 under #2 and #1 under #3; theirs puts #1 under #3 too and #2 under #1. #1 is
+/// both-same, #2 one-sided (theirs) and #3 one-sided (ours), and they close the cycle #2 → #1 → #3 → #2. Ours' values
+/// have the origin 10, theirs' #2 20 and #1 30, so the both-same #1 has the latest origin (30), and only the tie-break
+/// "a one-sided key before a both-same one" resets #2 (20, later than #3's 10): `#2.parent` stages, the sides' real
+/// disagreement, and `#1.parent` is clean (MR-040). When ours then puts #2 under #4 at a still later origin (40), #2 is
+/// two-sided and takes ours' later value, and the merge lands with no hint.
 #[test]
-fn a_swap_in_one_commit_is_one_step() {
-    let mut b = base();
-    b.nodes.get_mut(&Nid(2)).unwrap().parent = Some(Nid(1));
-    let mut x = b.clone();
-    x.nodes.get_mut(&Nid(1)).unwrap().parent = Some(Nid(2));
-    x.nodes.get_mut(&Nid(2)).unwrap().parent = None;
-    let auto = BTreeMap::new();
-    let swap = step(10, 1, &b, &x);
-    assert_eq!(swap[0].moves.len(), 2, "one commit moves both");
-    for op in OPS {
-        for (o, t, moves) in [(&x, &b, [&swap[..], &[]]), (&b, &x, [&[], &swap[..]])] {
-            let mut cx = ctx(&auto, op);
-            cx.moves = moves;
-            let m = merge(&b, o, t, &cx, &mut Fresh::default());
-            assert_eq!(m.st.nodes[&Nid(1)].parent, Some(Nid(2)), "{op:?}");
-            assert_eq!(m.st.nodes[&Nid(2)].parent, None, "{op:?}");
-            assert!(m.violations.is_empty(), "{op:?}: {:?}", m.violations);
-        }
-    }
-}
-
-/// A step that closes a cycle with an earlier move skips its moves one at a time, the least uid on the cycle first,
-/// until the forest has none: ours' commit (10) puts #1 under #2; theirs' one commit (20) puts #2 under #3 and #3
-/// under #1; #2's move is skipped and #3's stays (MR-039, V01).
-#[test]
-fn a_cycle_closing_step_skips_the_least_uid_first() {
-    let b = base();
-    let mut o = b.clone();
-    o.nodes.get_mut(&Nid(1)).unwrap().parent = Some(Nid(2));
-    let mut t = b.clone();
-    t.nodes.get_mut(&Nid(2)).unwrap().parent = Some(Nid(3));
-    t.nodes.get_mut(&Nid(3)).unwrap().parent = Some(Nid(1));
-    let auto = BTreeMap::new();
-    let (mo, mt) = (step(10, 1, &b, &o), step(20, 2, &b, &t));
-    let mut cx = ctx(&auto, Op::Merge);
-    cx.moves = [&mo, &mt];
-    let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
-    let parent = |n: u32| m.st.nodes[&Nid(n)].parent;
-    assert_eq!(
-        (parent(1), parent(2), parent(3)),
-        (Some(Nid(2)), None, Some(Nid(1)))
-    );
-    assert_eq!(
-        m.violations
-            .iter()
-            .map(|v| (v.class, v.key.clone()))
-            .collect::<Vec<_>>(),
-        vec![("HierarchyCycle", Some(Key::Node(Nid(2), Aspect::Hierarchy)))]
-    );
-}
-
-/// A move that sets its node's current value is never undone and never makes its key `kleppmann-skipped`
-/// ([RULES/merge-table] RS-007, MR-039, CS-013; [RULES/merge-table] open point 35 case (iii), decided by [AR §11]
-/// OQ-A-6 (a)). Ours' commit (10) puts #3 under #2 and #1 under #3; theirs' commit (20) puts #1 under #3 too and #2
-/// under #1. Replayed after ours', theirs' step leaves #1 where it is and closes the cycle #2 → #1 → #3 → #2: #1 has
-/// the least uid of the step on the cycle, but its move changed nothing, so only #2's move is undone. Only `#2.parent`
-/// stages, the sides' real disagreement; `#1.parent`, which both sides hold under #3, is clean (MR-040). When ours then
-/// puts #2 under #4 in a still later commit (30), that move applies and decides #2's value, and nothing stages.
-#[test]
-fn a_cycle_closing_step_never_undoes_its_no_op_move() {
+fn a_cycle_repair_resets_a_one_sided_key_before_a_both_same_one() {
     let b = base();
     let mut o = b.clone();
     o.nodes.get_mut(&Nid(3)).unwrap().parent = Some(Nid(2));
@@ -545,14 +477,14 @@ fn a_cycle_closing_step_never_undoes_its_no_op_move() {
     t.nodes.get_mut(&Nid(1)).unwrap().parent = Some(Nid(3));
     t.nodes.get_mut(&Nid(2)).unwrap().parent = Some(Nid(1));
     let auto = BTreeMap::new();
-    let (mo, mt) = (step(10, 1, &b, &o), step(20, 2, &b, &t));
-    assert!(
-        mt[0].moves.iter().any(|(n, _)| *n == Nid(1)),
-        "theirs' step holds #1's move"
-    );
-    assert!(uid(Nid(1)) < uid(Nid(2)), "#1 has the lower uid");
+    let og = |side: usize, n: Nid, _: bool, _: &Option<KVal>| match (side, n.0) {
+        (1, 2) => (40, [4; 32]),
+        (1, _) => (10, [1; 32]),
+        (_, 1) => (30, [3; 32]),
+        _ => (20, [2; 32]),
+    };
     let mut cx = ctx(&auto, Op::Merge);
-    cx.moves = [&mo, &mt];
+    cx.origin = Some(&og);
     let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
     let parent = |n: u32| m.st.nodes[&Nid(n)].parent;
     assert_eq!(
@@ -575,25 +507,28 @@ fn a_cycle_closing_step_never_undoes_its_no_op_move() {
         ),
         ("MR-040", "MR-039", "MR-040")
     );
-    // Inside a virtual merge the same undo is silent (VBC-10).
+    // Inside a virtual merge the same reset is silent (VBC-10).
     cx.op = Op::Virtual;
     let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
     assert!(m.violations.is_empty());
     assert_eq!(m.st.nodes[&Nid(2)].parent, None);
-    // Ours' later move of #2 applies after theirs' step: nothing stages.
+    // Ours' later move of #2 (origin 40) wins the two-sided key: nothing stages.
     let mut o2 = o.clone();
     o2.nodes.get_mut(&Nid(2)).unwrap().parent = Some(Nid(4));
-    let mut mo2 = mo.clone();
-    mo2.extend(step(30, 3, &o, &o2));
     let mut cx = ctx(&auto, Op::Merge);
-    cx.moves = [&mo2, &mt];
+    cx.origin = Some(&og);
     let m = merge(&b, &o2, &t, &cx, &mut Fresh::default());
     let parent = |n: u32| m.st.nodes[&Nid(n)].parent;
     assert_eq!(
         (parent(1), parent(2), parent(3)),
         (Some(Nid(3)), Some(Nid(4)), Some(Nid(2)))
     );
-    assert!(m.violations.is_empty(), "{:?}", m.violations);
+    assert!(
+        m.violations.is_empty() && m.hints.is_empty(),
+        "{:?} {:?}",
+        m.violations,
+        m.hints
+    );
     assert!(
         [1, 2, 3].iter().all(|n| m.rows[&hc(*n)] == "MR-040"),
         "{:?}",
@@ -601,15 +536,15 @@ fn a_cycle_closing_step_never_undoes_its_no_op_move() {
     );
 }
 
-/// A move that changes only its node's order is never undone ([RULES/merge-table] RS-007, MR-039, CS-013; [F12 §7.4]
-/// row "Kleppmann steps"; [RULES/merge-table] open point 35 (vi), decided by [AR §11] OQ-A-11 11.2 (a)). The base has #1
-/// under #3. Ours' commit (10) puts #3 under #2; theirs' commit (20), in one transaction, gives #1 a new order under #3
-/// and puts #2 under #1. Replayed after ours', theirs' step closes the cycle #2 → #1 → #3 → #2. #1 has the least uid on
-/// the cycle, but its move keeps its parent and closes no cycle, so only #2's move is undone: `#2.parent` stages, the
-/// sides' real disagreement, and #1 takes theirs' order. RS-007 before the decision undid #1's reorder first, which left
-/// the cycle in place, and staged both keys, `#1.parent` although both sides keep #1 under #3.
+/// RS-007's cycle repair never resets an order-only key ([RULES/merge-table] RS-007, MR-039, CS-013; [AR §11] OQ-A-11
+/// 11.2, OQ-A-13). The base has #1 under #3. Ours puts #3 under #2 (origin 10); theirs gives #1 a new order under #3
+/// and puts #2 under #1 (origin 20). The result closes the cycle #2 → #1 → #3 → #2. #1 has the least uid on the cycle,
+/// but its value keeps its parent and closes no cycle, so it never takes part in the repair: #2, the later of the two
+/// one-sided keys that change a parent, is reset. `#2.parent` stages, the sides' real disagreement, and #1 takes
+/// theirs' order. (`merge::threeway::tests::an_order_only_key_is_never_reset` pins the same rule on a cycle no other
+/// key can break.)
 #[test]
-fn a_cycle_closing_step_never_undoes_an_order_only_move() {
+fn a_cycle_repair_never_resets_an_order_only_key() {
     let mut b = base();
     b.nodes.get_mut(&Nid(1)).unwrap().parent = Some(Nid(3));
     let mut o = b.clone();
@@ -617,16 +552,17 @@ fn a_cycle_closing_step_never_undoes_an_order_only_move() {
     let mut t = b.clone();
     t.nodes.get_mut(&Nid(1)).unwrap().order = Some("V".into());
     t.nodes.get_mut(&Nid(2)).unwrap().parent = Some(Nid(1));
-    let auto = BTreeMap::new();
-    let (mo, mt) = (step(10, 1, &b, &o), step(20, 2, &b, &t));
-    assert_eq!(
-        mt[0].moves.iter().map(|(n, _)| *n).collect::<Vec<_>>(),
-        vec![Nid(1), Nid(2)],
-        "theirs' step holds #1's reorder and #2's move"
-    );
     assert!(uid(Nid(1)) < uid(Nid(2)), "#1 has the lower uid");
+    let auto = BTreeMap::new();
+    let og = |side: usize, _: Nid, _: bool, _: &Option<KVal>| {
+        if side == 1 {
+            (10, [1; 32])
+        } else {
+            (20, [2; 32])
+        }
+    };
     let mut cx = ctx(&auto, Op::Merge);
-    cx.moves = [&mo, &mt];
+    cx.origin = Some(&og);
     let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
     let node = |n: u32| &m.st.nodes[&Nid(n)];
     assert_eq!(
@@ -652,15 +588,14 @@ fn a_cycle_closing_step_never_undoes_an_order_only_move() {
     );
 }
 
-/// A revert or a cherry-pick replays from o's (parent, order), dst has no step and neither side has a (0, 0) step
-/// ([RULES/merge-table] RS-007; [RULES/merge-table] open point 35 case (ii), decided by [AR §11] OQ-A-6 (a)). The base
-/// b (state(p₁(C)) for the pick, state(C) for the revert) has #1 under #2; dst moved #2 under #1 and then #1 under #3;
-/// C changes #4's priority only. Replayed from b, dst's first move closed a cycle and staged `#2.parent`, although C
-/// moved nothing; replayed from o, the pick and the revert land o's hierarchy with C's priority, whatever dst steps the
-/// caller passes. Src's step then applies on o's state: a move of C that closes a cycle there is undone and stages its
-/// own key, and one that does not lands.
+/// A revert or a cherry-pick keeps dst's hierarchy where C moved nothing, and its cycle repair resets C's key first
+/// ([RULES/merge-table] RS-007, DM-003 to DM-005; [AR §11] OQ-A-13). The base b (state(p₁(C)) for the pick, state(C)
+/// for the revert) has #1 under #2; dst moved #2 under #1 and then #1 under #3 (origin 20); C changes #4's priority
+/// only (origin 5). The pick and the revert land dst's hierarchy with C's priority. A move of C's that closes a cycle
+/// on dst's hierarchy is reset and stages its own key, although dst's keys have the later origin: for a revert or a
+/// cherry-pick the tie-breaks reset a key only C changed first. A move of C's that closes no cycle lands.
 #[test]
-fn a_revert_or_cherry_pick_replays_from_dsts_state() {
+fn a_revert_or_cherry_pick_keeps_dsts_hierarchy_and_resets_cs_key_first() {
     let mv = |st: &State, c: u32, p: Option<u32>| {
         let mut s = st.clone();
         s.nodes.get_mut(&Nid(c)).unwrap().parent = p.map(Nid);
@@ -672,11 +607,16 @@ fn a_revert_or_cherry_pick_replays_from_dsts_state() {
     let mut t = b.clone();
     apply(&mut t, &[Edit::Priority(4, 0)]);
     let auto = BTreeMap::new();
-    let mut mo = step(10, 1, &b, &o1);
-    mo.extend(step(20, 2, &o1, &o));
+    let og = |side: usize, _: Nid, _: bool, _: &Option<KVal>| {
+        if side == 1 {
+            (20, [2; 32])
+        } else {
+            (5, [9; 32])
+        }
+    };
     for op in [Op::CherryPick, Op::Revert] {
         let mut cx = ctx(&auto, op);
-        cx.moves = [&mo, &[]];
+        cx.origin = Some(&og);
         let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
         let parent = |n: u32| m.st.nodes[&Nid(n)].parent;
         assert_eq!(
@@ -690,10 +630,9 @@ fn a_revert_or_cherry_pick_replays_from_dsts_state() {
             Some(&Value::Enum("P0".into())),
             "{op:?}"
         );
-        // C's move of #3 under #2 closes the cycle #3 → #2 → #1 → #3 on o's state: undone, and `#3.parent` stages.
+        // C's move of #3 under #2 closes the cycle #3 → #2 → #1 → #3 on dst's hierarchy: reset, and `#3.parent`
+        // stages.
         let t3 = mv(&t, 3, Some(2));
-        let mt = step(5, 9, &b, &t3);
-        cx.moves = [&mo, &mt];
         let m = merge(&b, &o, &t3, &cx, &mut Fresh::default());
         assert_eq!(m.st.nodes[&Nid(3)].parent, None, "{op:?}");
         assert_eq!(
@@ -704,10 +643,8 @@ fn a_revert_or_cherry_pick_replays_from_dsts_state() {
             vec![("HierarchyCycle", Some(Key::Node(Nid(3), Aspect::Hierarchy)))],
             "{op:?}"
         );
-        // C's move of #4 under #2 lands on o's state.
+        // C's move of #4 under #2 lands on dst's hierarchy.
         let t4 = mv(&t, 4, Some(2));
-        let mt = step(5, 9, &b, &t4);
-        cx.moves = [&mo, &mt];
         let m = merge(&b, &o, &t4, &cx, &mut Fresh::default());
         let parent = |n: u32| m.st.nodes[&Nid(n)].parent;
         assert_eq!(
@@ -719,165 +656,10 @@ fn a_revert_or_cherry_pick_replays_from_dsts_state() {
     }
 }
 
-/// Two steps that share a key stay two steps ([RULES/merge-table] RS-007; [F12 §7.4] row "Kleppmann steps": "dst's
-/// moves apply first, then src's"): with no commit steps, ours puts #1 under #2 and theirs #2 under #1, each in its
-/// side's (0, 0) step. dst's step applies; src's then closes the cycle and is undone, so dst's move stands and src's
-/// key is `kleppmann-skipped`, whichever side holds the lower uid. Fused into one step, the least uid would be undone
-/// first, which is dst's #1 in the first orientation.
-#[test]
-fn two_zero_steps_that_close_a_cycle_undo_srcs_move() {
-    let b = base();
-    let under = |c: u32, p: u32| {
-        let mut s = b.clone();
-        s.nodes.get_mut(&Nid(c)).unwrap().parent = Some(Nid(p));
-        s
-    };
-    let (one_under_two, two_under_one) = (under(1, 2), under(2, 1));
-    let hc = |n: u32| Key::Node(Nid(n), Aspect::Hierarchy);
-    for (o, t, kept, skipped) in [
-        (&one_under_two, &two_under_one, 1u32, 2u32),
-        (&two_under_one, &one_under_two, 2, 1),
-    ] {
-        let m = run(&b, o, t, Op::Merge);
-        let parent = |n: u32| m.st.nodes[&Nid(n)].parent;
-        assert_eq!(parent(kept), Some(Nid(skipped)), "dst's move stands");
-        assert_eq!(parent(skipped), None, "src's move is undone");
-        assert_eq!(
-            m.violations
-                .iter()
-                .map(|v| (v.class, v.key.clone()))
-                .collect::<Vec<_>>(),
-            vec![("HierarchyCycle", Some(hc(skipped)))]
-        );
-        assert_eq!(
-            (m.rows[&hc(kept)].as_str(), m.rows[&hc(skipped)].as_str()),
-            ("MR-040", "MR-039")
-        );
-        // Inside a virtual merge the same undo is silent (VBC-10).
-        let m = run(&b, o, t, Op::Virtual);
-        assert!(m.violations.is_empty());
-        assert_eq!(m.st.nodes[&Nid(kept)].parent, Some(Nid(skipped)));
-        assert_eq!(m.st.nodes[&Nid(skipped)].parent, None);
-    }
-}
-
-/// The WP-91 review's case for spec finding S1b: the base has #2 under #1; one side restructures over three commits —
-/// #2 to the root, #1 under #2, #2 under #3 — each state a forest, and the other side changes only #4's priority. Each
-/// commit is one step, so the replay passes through the side's own states: the result is #1 under #2 under #3 with no
-/// `HierarchyCycle`, from either side. With each node keyed by its newest commit alone, #1's move (commit 2) met #2
-/// still under #1 in the base and was skipped.
-#[test]
-fn a_restructure_over_three_commits_replays_commit_by_commit() {
-    let mut b = base();
-    b.nodes.get_mut(&Nid(2)).unwrap().parent = Some(Nid(1));
-    let mv = |st: &State, c: u32, p: Option<u32>| {
-        let mut s = st.clone();
-        s.nodes.get_mut(&Nid(c)).unwrap().parent = p.map(Nid);
-        s
-    };
-    let x1 = mv(&b, 2, None);
-    let x2 = mv(&x1, 1, Some(2));
-    let x3 = mv(&x2, 2, Some(3));
-    let lane = steps(&[&b, &x1, &x2, &x3]);
-    assert_eq!(lane.len(), 3);
-    let mut other = b.clone();
-    apply(&mut other, &[Edit::Priority(4, 1)]);
-    let auto = BTreeMap::new();
-    for op in OPS {
-        for (o, t, moves) in [
-            (&x3, &other, [&lane[..], &[]]),
-            (&other, &x3, [&[], &lane[..]]),
-        ] {
-            let mut cx = ctx(&auto, op);
-            cx.moves = moves;
-            let m = merge(&b, o, t, &cx, &mut Fresh::default());
-            let parent = |n: u32| m.st.nodes[&Nid(n)].parent;
-            assert_eq!(
-                (parent(1), parent(2), parent(3)),
-                (Some(Nid(2)), Some(Nid(3)), None),
-                "{op:?}"
-            );
-            assert!(m.violations.is_empty(), "{op:?}: {:?}", m.violations);
-            assert_eq!(
-                m.st.nodes[&Nid(4)].fields.get("priority"),
-                Some(&Value::Enum("P1".into()))
-            );
-        }
-    }
-}
-
-/// A node whose move was undone is not skipped when a later move of it applies: its last move decides its value
-/// (MR-040; RS-007 as spec finding S1b states it). Ours' commit (10) puts #1 under #2; theirs' commit (20) puts #2 under
-/// #1, which closes a cycle and is undone, and its commit (30) puts #2 under #3, which applies.
-#[test]
-fn a_later_applied_move_supersedes_an_undone_one() {
-    let b = base();
-    let under = |st: &State, c: u32, p: u32| {
-        let mut s = st.clone();
-        s.nodes.get_mut(&Nid(c)).unwrap().parent = Some(Nid(p));
-        s
-    };
-    let o = under(&b, 1, 2);
-    let t1 = under(&b, 2, 1);
-    let t2 = under(&t1, 2, 3);
-    let mo = step(10, 1, &b, &o);
-    let mut mt = step(20, 2, &b, &t1);
-    mt.extend(step(30, 3, &t1, &t2));
-    let auto = BTreeMap::new();
-    let mut cx = ctx(&auto, Op::Merge);
-    cx.moves = [&mo, &mt];
-    let m = merge(&b, &o, &t2, &cx, &mut Fresh::default());
-    let parent = |n: u32| m.st.nodes[&Nid(n)].parent;
-    assert_eq!((parent(1), parent(2)), (Some(Nid(2)), Some(Nid(3))));
-    assert!(m.violations.is_empty(), "{:?}", m.violations);
-    assert_eq!(m.rows[&Key::Node(Nid(2), Aspect::Hierarchy)], "MR-040");
-}
-
 proptest! {
-    /// One side passes through several commits from a base forest, each commit's state any forest and its moves one
-    /// step as `Dag::move_steps` derives them from its net changeset: the replay passes through the side's own states,
-    /// so a merge with an other side that moved nothing takes the side's hierarchy with no `HierarchyCycle`, from
-    /// either side — the WP-91 review's minimum guarantee for spec finding S1b.
-    #[test]
-    fn a_side_of_several_commits_replays_without_a_cycle(
-        base_forest in forest(),
-        forests in proptest::collection::vec(forest(), 1..6),
-        other in proptest::collection::vec(edit(), 0..6),
-    ) {
-        let b = with_forest(&base(), &base_forest);
-        let mut states = vec![b.clone()];
-        states.extend(forests.iter().map(|f| with_forest(&b, f)));
-        let x = states.last().expect("the last commit's state");
-        let lane = steps(&states.iter().collect::<Vec<_>>());
-        // The other side edits keys other than the hierarchy: no move and no delete.
-        let other: Vec<Edit> = other
-            .into_iter()
-            .filter(|e| !matches!(e, Edit::Move(..) | Edit::Delete(_)))
-            .collect();
-        let mut y = b.clone();
-        apply(&mut y, &other);
-        let auto = BTreeMap::new();
-        for op in OPS {
-            for (o, t, moves) in [(x, &y, [&lane[..], &[]]), (&y, x, [&[], &lane[..]])] {
-                let mut cx = ctx(&auto, op);
-                cx.moves = moves;
-                let m = merge(&b, o, t, &cx, &mut Fresh::default());
-                prop_assert!(
-                    !m.violations.iter().any(|v| v.class == "HierarchyCycle"),
-                    "{op:?} {:?}",
-                    m.violations
-                );
-                for (n, xn) in x.nodes.iter().filter(|(_, xn)| xn.live()) {
-                    if let Some(mn) = m.st.live(*n) {
-                        prop_assert_eq!(mn.parent, xn.parent, "{:?} {}", op, n);
-                    }
-                }
-            }
-        }
-    }
-
-    /// Two sides that each pass through several forests, their commits interleaved in (hlc, id) order: the candidate's
-    /// parents are a forest, and in a real merge the `HierarchyCycle` keys are exactly the keys MR-039 decided (V01).
+    /// Two sides that each pass through several forests, merged at their last forests with no history: the
+    /// candidate's parents are a forest, and in a real merge the `HierarchyCycle` keys are exactly the keys MR-039
+    /// decided (V01).
     #[test]
     fn two_sides_of_several_commits_merge_to_a_forest(
         base_forest in forest(),
@@ -889,22 +671,9 @@ proptest! {
             std::iter::once(b.clone()).chain(fs.iter().map(|f| with_forest(&b, f))).collect()
         };
         let (so, st) = (side(&fo), side(&ft));
-        // Ours' commits at odd hlcs, theirs' at even ones.
-        let steps_at = |states: &[State], first: u64, id: u8| -> Vec<Step> {
-            states
-                .windows(2)
-                .enumerate()
-                .filter_map(|(i, w)| {
-                    let key = (first + 2 * i as u64, [id + i as u8; 32]);
-                    Step::of(key, &crate::state::diff(&w[0], &w[1]))
-                })
-                .collect()
-        };
-        let (mo, mt) = (steps_at(&so, 11, 1), steps_at(&st, 12, 101));
         let auto = BTreeMap::new();
         for op in OPS {
-            let mut cx = ctx(&auto, op);
-            cx.moves = [&mo, &mt];
+            let cx = ctx(&auto, op);
             let m = merge(&b, so.last().expect("ours"), st.last().expect("theirs"), &cx, &mut Fresh::default());
             for (n, x) in &m.st.nodes {
                 if let Some(p) = x.parent {

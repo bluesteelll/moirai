@@ -12,7 +12,7 @@ use crate::derived;
 use crate::err::{Kv, Refusal, Res};
 use crate::idem::{Cj, Recorded, ResultItem};
 use crate::markers::Group;
-use crate::merge::{self, Ctx as MCtx, Fresh, Merged, Op, Step, Violation};
+use crate::merge::{self, Ctx as MCtx, Fresh, Merged, Op, Violation};
 use crate::state::{Alloc, Aspect, KState, KVal, Key, Node, State, Tomb, diff};
 use crate::value::{Nid, Uid, Value, hex};
 use crate::vcs::{Bases, RevCtx};
@@ -407,15 +407,10 @@ impl Store {
         let base = bases.base(dst_tip, src_tip, forced);
         let o = self.dag.state_at(dst_tip, &self.alloc);
         let t = self.dag.state_at(src_tip, &self.alloc);
-        // RS-007 ([AR §11] OQ-A-11 11.1): a merge whose base's commit is tip(dst) (the single LCA, `--base`, or ε on
-        // both) is one-sided and takes src's hierarchy with no replay (A); any other replays both sides' commits since
-        // the replay start R (B).
-        let rp = self
-            .dag
-            .replay(dst_tip, src_tip, &base, forced, &self.alloc);
         // `merge.policy.<kind>` of dst's view ([CFG §10.13]).
         let auto = crate::policy::merge_policies(&o.schema);
-        // The origin time of each side's hierarchy value ([`Dag::origin`]): dst's from tip(dst), src's from `src_tip`.
+        // The origin of each side's hierarchy value (RS-007; [`Dag::origin`]): dst's from tip(dst), src's from
+        // `src_tip`.
         let og = |side: usize, n: Nid, live: bool, v: &Option<KVal>| {
             let tip = if side == 1 { dst_tip } else { src_tip };
             self.dag.origin_among(
@@ -432,8 +427,6 @@ impl Store {
             dst_plan: d.kind == RefKind::Plan,
             policy,
             auto: &auto,
-            start: rp.start(),
-            moves: [&rp.moves[0][..], &rp.moves[1][..]],
             uid: &uid,
             nid: &nid,
             origin: Some(&og),
@@ -467,8 +460,8 @@ impl Store {
     /// `merge --continue` when given ([F12 §9.4] step 2); the validators. A root node's `path_moves` is an ordinary set
     /// field here, so reverting the commit that added an entry removes it and cherry-picking it adds it
     /// ([RULES/link-merge-rules] LH-003, LH-004); the plan reads states only and never touches a project tree (LH-001).
-    /// Its Kleppmann steps are RS-007's for a revert or a cherry-pick: none on dst, and on src C's one step less the
-    /// keys a later commit of dst moved ([RULES/merge-table] open point 35 case (ii); [AR §11] OQ-A-6 (a)).
+    /// RS-007 decides its hierarchy keys over b, o and t as for a merge, src's values having C's origin ([AR §11]
+    /// OQ-A-13 13.4 (a)).
     // spec: [RULES/merge-table] results
     // rule: DM-003, DM-004, DM-005, DM-012, DM-013, DM-017, LH-001, LH-003, LH-004
     fn plan_pick(&self, onto: &str, c: u64, revert: bool, overlay: Option<&Overlay>) -> Plan {
@@ -479,45 +472,11 @@ impl Store {
         let o = self.dag.state_at(dst_tip, &self.alloc);
         let uid = |n: Nid| self.alloc.uid(n);
         let nid = |u: Uid| self.uidx(u);
-        // RS-007 for a revert or a cherry-pick of C ([RULES/merge-table] open point 35 case (ii)): the replay starts
-        // from o, dst has no step and neither side has a (0, 0) step; src has one step, C's, keyed by C's (hlc, commit
-        // id), setting each hierarchy key whose value on src differs from b (the hierarchy keys of C's net changeset
-        // against its first parent) to src's value, less each key a commit of A(o) after C moved: that later move
-        // stands (MR-040).
+        // C's (hlc, commit id): the origin of src's values (RS-007; [AR §11] OQ-A-13 13.4 (a)).
         let key = (commit.hlc, commit.id);
-        let h = Aspect::Hierarchy;
-        let keys: BTreeSet<Nid> = commit
-            .changeset
-            .keys()
-            .filter_map(|k| match k {
-                Key::Node(n, Aspect::Hierarchy)
-                    if merge::cval(&b, *n, &h) != merge::cval(&t, *n, &h) =>
-                {
-                    Some(*n)
-                }
-                _ => None,
-            })
-            .collect();
-        // A rule with no replay reads no step keys here (the evaluation harness's candidate, test builds only).
-        let later = if merge::no_replay() {
-            BTreeSet::new()
-        } else {
-            self.dag
-                .moved_after(&self.dag.ancestors(dst_tip), key, &keys, &self.alloc)
-        };
-        let moves: merge::Moves = keys
-            .difference(&later)
-            .map(|n| (*n, merge::flat(&merge::cval(&t, *n, &h))))
-            .collect();
-        let mo: Vec<Step> = Vec::new();
-        let mt: Vec<Step> = if moves.is_empty() {
-            Vec::new()
-        } else {
-            vec![Step { key, moves }]
-        };
         let auto = crate::policy::merge_policies(&o.schema);
-        // The origin time of each side's hierarchy value: dst's from tip(dst) ([`Dag::origin`]); src's is C's own
-        // (hlc, commit id), the key of its one step.
+        // The origin of each side's hierarchy value: dst's from tip(dst) ([`Dag::origin`]); src's is C's own (hlc,
+        // commit id).
         let og = |side: usize, n: Nid, live: bool, v: &Option<KVal>| {
             if side == 2 {
                 key
@@ -537,8 +496,6 @@ impl Store {
             dst_plan: d.kind == RefKind::Plan,
             policy: None,
             auto: &auto,
-            start: merge::Start::Base,
-            moves: [&mo[..], &mt[..]],
             uid: &uid,
             nid: &nid,
             origin: Some(&og),
@@ -1508,8 +1465,8 @@ impl Store {
         drop(st_d1);
         // Steps 1–3: the operation s stands for, computed afresh against D₁; the overlay on its typed candidate, whose
         // records on the overlaid keys are settled while every other key keeps the typed rules' violations and
-        // conflicts; the validators over the merge's own base, dst and src states, V01 with the moves Kleppmann
-        // skipped on keys no resolution set.
+        // conflicts; the validators over the merge's own base, dst and src states, V01 with the keys RS-007's cycle
+        // repair reset or skipped (MR-039) that no resolution set.
         let mut plan = match sc.kind {
             "merge" | "sync" => {
                 let op = if sc.kind == "sync" {

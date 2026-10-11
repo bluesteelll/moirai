@@ -1,86 +1,61 @@
-//! The candidate slot of the RS-007 evaluation harness (`suite::rs007eval`; test builds only), filled with the
-//! candidate **K2, `threeway`**: a state-based three-way merge of the hierarchy keys with a cycle repair, and no replay.
+//! RS-007, the model's hierarchy rule ([RULES/merge-table] RS-007; [AR §11] OQ-A-13: K2 with the exactness fixes F1 to
+//! F5, 13.2 (a), 13.3 (b), 13.4 (a) and 13.5 (b)): a three-way merge of the hierarchy keys by state, with a cycle
+//! repair, read from the three states, the origins of the sides' values and the effective strict.
 //!
-//! Each merged node's hierarchy key (parent, order) is decided from the three states, as every other key class is
-//! ([AR §2.7] T7, "one side equals base → take the other"):
-//! - o = t: that value (`untouched` when it is also b's, else `both-same`);
-//! - o = b: t (`only-t`); t = b: o (`only-o`);
-//! - otherwise (`both-diff`): when one side's value is order-only by state (its parent is b's) and the other's is not,
-//!   the other side's reparent wins (13.5 (b)); else the side whose value has the later origin time wins (MR-040), t
-//!   on a tie.
-//!
-//! The origin time of side S's value of a key is the (hlc, commit id) of the commit that produced it
-//! ([`crate::dag::Dag::origin`]; values compared as (live, flat), so `absent` is no live root, F3): the walk from S's
-//! tip passes over every commit whose net changeset against its first parent leaves the key's value as it was, and
-//! over a two-parent commit that holds its second parent's value (a `sync` that takes `main`'s move does not re-time
-//! it; a resolution to `ours` that keeps the side's own move keeps its original time); the first other commit that
-//! changed it produced it; ε gives (0, 0). For a revert or a cherry-pick of
-//! C, src's value is C's (its origin is C's (hlc, commit id)). For a virtual merge's dst, a fold of LCAs, it is the
-//! latest origin among the folded LCAs that hold the value, and (0, 0) when none does.
-//!
-//! Then the cycle repair, over the result nodes (merged nodes at their value, nodes an existence policy fixed at their
-//! copied value as immovable context; a parent that is no result node ends a chain). Only a key whose value and
-//! fallback have different parents can break a cycle (order cannot close one, OQ-A-11 11.2), so only such a key is ever
-//! repaired. The variant `MOIRAI_K2_VARIANT` selects the repair (default `exact`, the final candidate):
-//! - `greedy` (K2-a, the first statement): while a cycle exists, the repairable key on a cycle whose value has the
-//!   latest origin is demoted to its fallback (the other side's value for `both-diff`, else b's), `both-same` keys
-//!   only when no other repairable key is on the cycle; every demoted key is `kleppmann-skipped` (stages);
-//! - `greedy-silent` (K2-a2): the same, `both-diff` keys first, and a demoted `both-diff` key lands at the other
-//!   side's value (skipped and logged, not staged);
-//! - `exact` (K2-b): a `both-diff` key has two allowed values; first, while no choice of them gives a forest, a
-//!   determined key on a cycle of the unavoidable part (the nodes from which every choice leads into a cycle) is
-//!   demoted to b and `kleppmann-skipped`: for a revert or a cherry-pick a key only C changed first; a key one side
-//!   changed before one both sides set alike; a key whose reset leaves the unavoidable part first; then the latest
-//!   origin (src's on equal origins); then the least uid. Then the `both-diff` keys are fixed in ascending origin of
-//!   their MR-040 winner, each to its winner unless that leaves no forest, else to the other side's value (the move
-//!   that closes a cycle is skipped, as Kleppmann's replay skips it). A `both-diff` key whose MR-040 winner has a
-//!   parent that is not live in the result (a `DanglingEdge`, V04) while the other side's value has a live parent or
-//!   none tries the other side's value first, as a cycle-closing winner does. A key that lands at the other side's
-//!   value this way gets one `MoveSkipped` hint, which names the key, the side whose value landed and the reason
-//!   (`cycle` or `dead-parent`; 13.3 (b), R-15 Q1). Under `--strict` or `merge.strict` such a key stages instead
-//!   (R-15 Q2): a `cycle` key is `kleppmann-skipped` (V01's `HierarchyCycle`, the candidate holding the other side's
-//!   value), and the dead-parent preference is off, so the winner stays and V04 stages its `DanglingEdge`.
-//!
-//! Each demotion and each `both-diff` key that takes the other side's value counts one [`Counter::Repair`].
+//! - **Scope.** Computed once per merge, `sync`, virtual merge (VM-7), revert and cherry-pick, after the re-key
+//!   (PR-007) and over the re-keyed states, for every merged node: a node live in the result with no existence policy.
+//!   Its inputs are b, o and t (for a revert or a cherry-pick, those of its DM row), the effective strict and the
+//!   origins.
+//! - **Values (F3, 13.2 (a)).** Values compare canonically. On a side where the node is not live the key holds
+//!   `absent`, which equals no live value: a live root with no order is not `absent`. A key is touched on side S when
+//!   S's value differs from b's.
+//! - **Three-way.** o's value when o = t (`untouched` when it is also b's, else `both-same`); t's when o = b
+//!   (`only-t`); o's when t = b (`only-o`). Otherwise the key is two-sided (`both-diff`), and every other key is
+//!   determined.
+//! - **13.5 (b).** When b, o and t are live and exactly one side's value is order-only by state (its parent is b's, its
+//!   order is not), a two-sided key takes the other side's value, whatever the origins; a revert and a cherry-pick
+//!   included (R-15 Q3).
+//! - **MR-040.** Otherwise the side whose value has the later origin wins, t's on equal origins.
+//! - **Origin (13.4 (a)).** The origin of a value is the (hlc, commit id) of the commit that produced it
+//!   ([`crate::dag::Dag::origin`]): the walk from a side's tip passes to the first parent over a commit whose net
+//!   changeset leaves the key's (live, flat) value unchanged, and to the second parent at a two-parent commit that
+//!   changed the key and holds its second parent's value; a commit that records a resolution of the key to `base` or to
+//!   a value produced the value, also where it equals a parent's, while `ours` and `theirs` pass the origin on; any
+//!   other commit produced it; ε gives (0, 0). For a revert or a cherry-pick of C, src's origin is C's. In a virtual
+//!   merge dst's is the latest among the folded LCAs that hold the value, (0, 0) when none does. A both-same key's
+//!   origin is the later of its two sides' (F2). A merge with no history ([`super::Ctx::origin`] is `None`) gives every
+//!   value (0, 0).
+//! - **Cycle repair, participants.** The result must be a forest. A node an existence policy fixed, and a tombstone,
+//!   keeps its copied value and is never moved; a parent that is no result node ends a chain. Only a key whose value
+//!   and fallback differ in parent takes part: order alone closes no cycle. The fallback is the other side's value for
+//!   a two-sided key and b's for a determined key.
+//! - **Step (1) (F1, F4).** While no choice of the two-sided keys gives a forest, let U be the nodes from which every
+//!   choice leads into a cycle. Among the determined keys of U that lie on a cycle of the option graph restricted to U
+//!   (F1), one is reset to b, by these tie-breaks in order: for a revert or a cherry-pick, a key only C changed; a
+//!   one-sided key before a both-same one; a key whose b value's parent is a root or outside U; the latest origin,
+//!   src's on equal origins; the least uid. That key is MR-039's (CS-013), silently inside a virtual merge. A cycle
+//!   with no such key (only fixed nodes, untouched keys and keys already reset) is left as it is, for VA-005 to stage
+//!   (F4).
+//! - **Step (2).** Then the two-sided keys are taken in ascending origin of their three-way value, least uid on a tie.
+//!   Each keeps that value unless it leaves a node unable to reach a root that could before; otherwise it takes the
+//!   other side's value. Outside strict, a key whose three-way value has a parent not live in the result, while the
+//!   other side's value has a live parent or none, tries the other side's value first.
+//! - **13.3 (b).** A two-sided key that ends at the other side's value this way lands there, with one `MoveSkipped`
+//!   hint (HT-004) naming the key, the side whose value landed and the reason (`cycle` or `dead-parent`); none inside a
+//!   virtual merge (VB-019). Under strict (`--strict` or `merge.strict`; never a revert, a cherry-pick or a virtual
+//!   merge, R-15 Q2) a `cycle` key is MR-039's instead, the candidate holding the other side's value, and the
+//!   dead-parent preference is off, so the three-way value stays and VA-004 stages its `DanglingEdge`.
+//! - **Guarantees (F5, 13.2 (a)).** Every key lands at its three-way value or, for a two-sided key, at the other side's
+//!   value. A merge stages a `HierarchyCycle` on a key untouched on one side only when no forest keeps every such key
+//!   at the other side's value (I25′). A merge whose base's commit is tip(dst) lands t's hierarchy, and a revert or a
+//!   cherry-pick of a commit with no hierarchy entry lands o's. A key equal in b, o and t keeps its value and is never
+//!   reset ([F12 §7.2]).
 
-use super::{Counter, HInput, HOutput, MoveKey, Op, bump, parent_of};
+use super::{HInput, HOutput, MoveKey, Op, parent_of};
 use crate::state::KVal;
 use crate::value::Nid;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-
-/// OQ-A-12 (b): unused by `threeway`, which never replays.
-pub(crate) const KEPT_KEYS: bool = false;
-/// OQ-A-12 (b)'s backstop: unused.
-pub(crate) const BACKSTOP: bool = false;
-/// OQ-A-12 (c): `threeway` reads no step keys, so none are derived.
-pub(crate) const RESOLVED_KEYS: bool = false;
-/// The replay from B: unused.
-pub(crate) const FROM_B: bool = false;
-/// `threeway` reads no replay input: no replay start, no step, no step key ([`super::no_replay`]).
-pub(crate) const NO_REPLAY: bool = true;
-
-/// The repair `MOIRAI_K2_VARIANT` selects.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Variant {
-    /// K2-a: greedy, latest origin first, every demotion staged.
-    Greedy,
-    /// K2-a2: greedy, `both-diff` first, a `both-diff` demotion lands.
-    GreedySilent,
-    /// K2-b: the exact repair (the final candidate).
-    Exact,
-}
-
-/// The variant of this process: `MOIRAI_K2_VARIANT` = `greedy`, `greedy-silent` or `exact` (default).
-pub(crate) fn variant() -> Variant {
-    static V: std::sync::OnceLock<Variant> = std::sync::OnceLock::new();
-    *V.get_or_init(|| match std::env::var("MOIRAI_K2_VARIANT").as_deref() {
-        Ok("greedy") => Variant::Greedy,
-        Ok("greedy-silent") => Variant::GreedySilent,
-        Ok("exact") | Ok("") | Err(_) => Variant::Exact,
-        Ok(v) => panic!("MOIRAI_K2_VARIANT={v:?}: expected greedy, greedy-silent or exact"),
-    })
-}
 
 /// A merged key's class under the three-way rule.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -108,12 +83,12 @@ struct K {
 }
 
 /// `threeway`'s hierarchy decision for one merge.
-pub(crate) fn hierarchy(x: &HInput<'_>) -> Option<HOutput> {
-    Some(threeway(x, variant()))
+pub(crate) fn hierarchy(x: &HInput<'_>) -> HOutput {
+    threeway(x)
 }
 
-/// The origin times of the sides' values, memoised per merge: the caller's [`super::Ctx::origin`], or for a hand-built
-/// merge with no history the key of the side's last step that sets the side's value ((0, 0) when none does).
+/// The origins of the sides' values, memoised per merge: the caller's [`super::Ctx::origin`], or (0, 0) for a merge
+/// with no history.
 struct Origins<'x, 'a> {
     x: &'x HInput<'a>,
     memo: RefCell<BTreeMap<(usize, Nid), MoveKey>>,
@@ -135,21 +110,7 @@ impl Origins<'_, '_> {
         let v = self.side_value(side, n);
         let k = match self.x.origin {
             Some(f) => f(side, n, !self.x.dead[side].contains(&n), &v),
-            None => self
-                .x
-                .steps
-                .iter()
-                .rev()
-                .filter(|s| s.side + 1 == side)
-                .find_map(|s| {
-                    s.moves
-                        .iter()
-                        .find(|(m, _)| *m == n)
-                        .map(|(_, w)| (s.key, w))
-                })
-                .filter(|(_, w)| **w == v)
-                .map(|(key, _)| key)
-                .unwrap_or((0, [0; 32])),
+            None => (0, [0; 32]),
         };
         self.memo.borrow_mut().insert((side, n), k);
         k
@@ -241,21 +202,8 @@ fn takes_t(
     og.of(2, n) >= og.of(1, n)
 }
 
-/// Whether `n` is its own ancestor in the parent map `p` (a parent outside the map ends the chain).
-fn cyclic(p: &BTreeMap<Nid, Option<Nid>>, n: Nid) -> bool {
-    let mut x = p.get(&n).copied().flatten();
-    for _ in 0..=p.len() {
-        match x {
-            None => return false,
-            Some(y) if y == n => return true,
-            Some(y) => x = p.get(&y).copied().flatten(),
-        }
-    }
-    false
-}
-
 /// `threeway` over one merge's inputs.
-fn threeway(x: &HInput<'_>, v: Variant) -> HOutput {
+fn threeway(x: &HInput<'_>) -> HOutput {
     let og = Origins {
         x,
         memo: RefCell::new(BTreeMap::new()),
@@ -265,12 +213,7 @@ fn threeway(x: &HInput<'_>, v: Variant) -> HOutput {
     for (n, k) in &keys {
         values.insert(*n, k.chosen.clone());
     }
-    let (skipped, hinted) = match v {
-        Variant::Greedy | Variant::GreedySilent => {
-            (greedy(x, &og, &keys, &mut values, v), BTreeMap::new())
-        }
-        Variant::Exact => exact(x, &og, &keys, &mut values),
-    };
+    let (skipped, hinted) = exact(x, &og, &keys, &mut values);
     values.retain(|n, _| x.merged.contains(n));
     HOutput {
         values,
@@ -283,42 +226,6 @@ fn threeway(x: &HInput<'_>, v: Variant) -> HOutput {
 /// cycle).
 fn repairable(k: &K) -> bool {
     k.class != Class::Untouched && parent_of(&k.chosen) != parent_of(&k.fallback)
-}
-
-/// K2-a and K2-a2: while a cycle exists, demote the repairable key on a cycle with the highest rank, then the latest
-/// origin, then the least uid.
-fn greedy(
-    x: &HInput<'_>,
-    og: &Origins<'_, '_>,
-    keys: &BTreeMap<Nid, K>,
-    values: &mut BTreeMap<Nid, Option<KVal>>,
-    v: Variant,
-) -> BTreeSet<Nid> {
-    let mut demoted: BTreeSet<Nid> = BTreeSet::new();
-    let mut skipped = BTreeSet::new();
-    loop {
-        let parents: BTreeMap<Nid, Option<Nid>> =
-            values.iter().map(|(n, w)| (*n, parent_of(w))).collect();
-        let rank = |k: &K| match (v, k.class) {
-            (_, Class::BothSame) => 0,
-            (Variant::GreedySilent, Class::BothDiff) => 2,
-            _ => 1,
-        };
-        let pick = keys
-            .iter()
-            .filter(|(n, k)| !demoted.contains(n) && repairable(k) && cyclic(&parents, **n))
-            .max_by_key(|(n, k)| (rank(k), og.chosen(**n, k), std::cmp::Reverse((x.uid)(**n))))
-            .map(|(n, _)| *n);
-        let Some(n) = pick else { break };
-        let k = &keys[&n];
-        values.insert(n, k.fallback.clone());
-        demoted.insert(n);
-        if v == Variant::Greedy || k.class != Class::BothDiff {
-            skipped.insert(n);
-        }
-        bump(Counter::Repair);
-    }
-    skipped
 }
 
 /// The nodes that reach no root under any choice of their options: every option of each leads to another of them. A
@@ -398,7 +305,6 @@ fn exact(
             if !x.strict && dangles(&k.chosen) && !dangles(&k.fallback) {
                 opts.insert(*n, vec![k.fallback.clone(), k.chosen.clone()]);
                 preferred.insert(*n);
-                bump(Counter::Repair);
             } else {
                 opts.insert(*n, vec![k.chosen.clone(), k.fallback.clone()]);
             }
@@ -451,13 +357,12 @@ fn exact(
         let Some(n) = pick else { break };
         opts.insert(n, vec![keys[&n].fallback.clone()]);
         skipped.insert(n);
-        bump(Counter::Repair);
     }
     // The `both-diff` keys, in ascending origin of their MR-040 winner: each takes its winner unless that leaves a
     // node that can reach no root, else the other side's value (a dead-parent key tries the other side's value first).
     // A key that ends at the other side's value this way lands there with a `MoveSkipped` hint naming the reason the
     // winner was skipped (13.3 (b); R-15 Q1): `cycle`, or `dead-parent` for a key the preference kept at it. Under
-    // strict a `cycle` key is `kleppmann-skipped` instead (MR-039: V01 stages a `HierarchyCycle`, the candidate holding
+    // strict a `cycle` key is MR-039's instead (CS-013: V01 stages a `HierarchyCycle`, the candidate holding
     // the other side's value), and a dead-parent winner stays, which V04 stages (R-15 Q2). A preferred key whose other
     // value would leave a node that can reach no root lands at its winner, with no hint, and V04 stages it.
     let base_u = unsafe_set(&opts).len();
@@ -475,7 +380,6 @@ fn exact(
         opts.insert(n, vec![both[0].clone()]);
         if unsafe_set(&opts).len() > base_u {
             opts.insert(n, vec![both[1].clone()]);
-            bump(Counter::Repair);
             if !preferred.contains(&n) {
                 if x.strict {
                     skipped.insert(n);
@@ -533,14 +437,11 @@ mod tests {
     ) -> HInput<'a> {
         HInput {
             op: Op::Merge,
-            one_sided: false,
             merged,
             b: values(b),
             o: values(o),
             t: values(t),
             init: values(b),
-            steps: Vec::new(),
-            same3: BTreeSet::new(),
             uid: &uid,
             origin,
             dead: Default::default(),
@@ -574,7 +475,7 @@ mod tests {
             ),
             None,
         );
-        let out = threeway(&x, Variant::Exact);
+        let out = threeway(&x);
         assert_eq!(out.skipped, BTreeSet::from([Nid(1)]), "a is reset");
         assert_eq!(
             out.values,
@@ -634,7 +535,7 @@ mod tests {
             (keys[&Nid(1)].class, keys[&Nid(1)].side),
             (Class::BothDiff, 2)
         );
-        assert_eq!(threeway(&x, Variant::Exact).values[&Nid(1)], under(Some(3)));
+        assert_eq!(threeway(&x).values[&Nid(1)], under(Some(3)));
     }
 
     /// F4: a cycle that holds no repairable key is left as it is, for the validators' cycle check (V05, I37′): #1, a
@@ -655,7 +556,7 @@ mod tests {
             live: BTreeSet::from([Nid(1), Nid(2), Nid(3)]),
             ..input(&merged, (&[], &[], &[]), None)
         };
-        let out = threeway(&x, Variant::Exact);
+        let out = threeway(&x);
         assert!(
             out.skipped.is_empty() && out.hinted.is_empty(),
             "{:?} {:?}",
@@ -666,5 +567,36 @@ mod tests {
             out.values,
             BTreeMap::from([(Nid(2), under(Some(1))), (Nid(3), under(Some(2)))])
         );
+    }
+
+    /// Order alone closes no cycle (RS-007's participants; OQ-A-11 11.2): a key whose value and fallback have the same
+    /// parent is never reset, even when it lies on a cycle no other key can break. #1, a node an existence policy
+    /// fixed, is under #2 as copied; #2's merged key is under #1 in b and o, and t gives it a new order there
+    /// (`only-t`, order-only). The cycle #1 ↔ #2 holds no repairable key, so it is left to the validators (F4):
+    /// `threeway` resets nothing, hints nothing, and #2 keeps t's order. A repair that admitted the order-only key
+    /// would reset it to b and make it MR-039's.
+    #[test]
+    fn an_order_only_key_is_never_reset() {
+        let merged = BTreeSet::from([Nid(2)]);
+        let reordered = Some(KVal::Hierarchy {
+            parent: Some(Nid(1)),
+            order: Some("V".into()),
+        });
+        let x = HInput {
+            init: values(&[Some(2), None]),
+            b: BTreeMap::from([(Nid(2), under(Some(1)))]),
+            o: BTreeMap::from([(Nid(2), under(Some(1)))]),
+            t: BTreeMap::from([(Nid(2), reordered.clone())]),
+            live: BTreeSet::from([Nid(1), Nid(2)]),
+            ..input(&merged, (&[], &[], &[]), None)
+        };
+        let out = threeway(&x);
+        assert!(
+            out.skipped.is_empty() && out.hinted.is_empty(),
+            "{:?} {:?}",
+            out.skipped,
+            out.hinted
+        );
+        assert_eq!(out.values, BTreeMap::from([(Nid(2), reordered)]));
     }
 }
