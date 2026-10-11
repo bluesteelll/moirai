@@ -1,11 +1,12 @@
 export const meta = {
   name: 'unit',
   description: 'One moirai unit on its role branch: cut -> critique -> implement -> (mechanic gate -> tester) || review -> triage -> fix -> delta re-verify; local commits only',
-  whenToUse: 'Launched from the unit session in the role worktree, as docs/m0/workflow.md section 6 describes',
+  whenToUse: 'Launched by the orchestrator session with the Workflow tool, from the embedded copy, as docs/m0/workflow.md section 6.3 describes',
   phases: [ { title: 'Cut' }, { title: 'Critique' }, { title: 'Implement' }, { title: 'Verify' }, { title: 'Fix' } ],
 }
-// The unit workflow of docs/m0/workflow.md section 6. Arguments (args, or embedded by <ORCH>/kit/embed.ps1, which
-// replaces the line below in the per-launch copy <ORCH>/embed/<unit>.js):
+// The unit workflow of docs/m0/workflow.md section 6, launched by the orchestrator session (RULINGS R-8, R-9).
+// Arguments (args, or embedded by <ORCH>/kit/embed.ps1, which replaces the line below in the per-launch copy
+// <ORCH>/embed/<unit>.js):
 //   role (author role, xtask/roles.toml), unit, orch, wt (the role worktree), gateWt (the lane's gate worktree),
 //   branch (m0/<role>), base (the master sha the unit started from), trunk (master), spec (a path), lock, others,
 //   gates (the per-commit gate commands), diskFloorGb, resumeNote, dryRun.
@@ -23,7 +24,7 @@ const SP = A.orch + '/' + A.unit + '/'
 const DM = /^DELTA SINCE ([0-9a-f]{7,40})\b/.exec(A.resumeNote || '')
 const SINCE0 = DM ? DM[1] : ''
 const HDR = `UNIT ${A.unit}, author role ${A.role}. Spec: ${A.spec}. Rulings: ${A.orch}/RULINGS.md. Procedure: docs/m0/workflow.md.
-- Author role ${A.role} binds you: PLAN §3.1 (S1-S6), its deny_read in xtask/roles.toml and the write map of docs/m0/authors.md §3. deny_read binds every way of reading, Bash included (cat, rg, git show <rev>:<path>, git diff over those paths); a file you need but may not read is a review finding in your report, never a read.
+- Author role ${A.role} binds you: PLAN §3.1 (S1-S6) and the write map of docs/m0/authors.md §3. Its deny_read path rules in xtask/roles.toml are not applied (RULINGS R-8). A reading limit that the spec or this header sets binds every way of reading, Bash included (cat, rg, git show <rev>:<path>, git diff over those paths); a file you need but may not read under it is a review finding in your report, never a read.
 - Every shell command starts with cd into your directory: ${A.wt} unless your stage names another. Write only in ${A.wt}, under ${SP} and in the scratch worktrees your stage makes; delete only by absolute path under ${SP}. Under ${A.orch} read only ${SP}, kit/ and RULINGS.md: the baseline and other units' directories hold other roles' files and test names.
 - Branch ${A.branch} from ${A.base}; trunk ${A.trunk}. Lock set: ${A.lock}. Other open units: ${A.others}. A file outside the lock set, or in another unit's set, is a STOP.
 - Per-commit gates: ${A.gates}. The full verdict is cargo xtask gate --branch ${A.branch} in ${A.gateWt}, run by the mechanic through ${A.orch}/kit. A pre-flight below ${A.diskFloorGb} GB of free disk is a STOP.
@@ -53,7 +54,7 @@ const cut = await run('cut', 'Cut', 'architect', S(['CUT READY', 'STOPPED']),
 if (!cut || cut.verdict !== 'CUT READY') return { ok: false, stage: 'cut', cut }
 phase('Critique')
 const crit = await run('critique', 'Critique', 'architecture-critic', S(['APPROVED', 'CHANGES_REQUESTED'], RATED),
-  `ROLE: architecture-critic. First check ${SP}cut.md exists, else STOP. Critique it against the spec and the tree: wrong locations, a touch set outside the lock set or in another unit's set, a path ${A.role} may not write (docs/m0/authors.md §3) or read (deny_read), a gate that cannot fail, unproved claims, concurrency and performance hazards. Line-cited findings, each Critical, Important or Minor, and CONFIRMED or PLAUSIBLE. Save ${SP}critique.md.`)
+  `ROLE: architecture-critic. First check ${SP}cut.md exists, else STOP. Critique it against the spec and the tree: wrong locations, a touch set outside the lock set or in another unit's set, a path ${A.role} may not write (docs/m0/authors.md §3), a read the spec's reading limits forbid, a gate that cannot fail, unproved claims, concurrency and performance hazards. Line-cited findings, each Critical, Important or Minor, and CONFIRMED or PLAUSIBLE. Save ${SP}critique.md.`)
 if (!crit) return { ok: false, stage: 'critique', crit: null }
 phase('Implement')
 const impl = await run('implement', 'Implement', 'developer', S(['DONE', 'STOPPED']),
