@@ -321,10 +321,6 @@ pub struct Dag {
     fp_jump: BTreeMap<u64, Vec<u64>>,
     /// For each node, the commits (ascending) whose changesets change its existence or status.
     hold_ix: BTreeMap<Nid, Vec<u64>>,
-    /// The step keys of every commit read so far (RS-007; [`Dag::step_keys`]). They depend on the commit graph alone,
-    /// and a commit's parents and changeset never change once it is inserted, so they are kept for the store's life and
-    /// shared by every merge, `sync`, virtual merge, revert and cherry-pick.
-    pub(crate) step_memo: RefCell<BTreeMap<u64, Rc<BTreeSet<Nid>>>>,
 }
 
 impl Clone for Dag {
@@ -338,7 +334,6 @@ impl Clone for Dag {
             max_depth: self.max_depth,
             fp_jump: self.fp_jump.clone(),
             hold_ix: self.hold_ix.clone(),
-            step_memo: RefCell::new(self.step_memo.borrow().clone()),
         }
     }
 }

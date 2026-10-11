@@ -67,7 +67,7 @@ pub fn validate(
         out: Found::default(),
     };
     let o = sides[1];
-    // V01: the moves Kleppmann skipped (MR-039).
+    // V01: the keys RS-007's cycle repair reset or, under strict, skipped (MR-039).
     let hc: Vec<(Key, String, String)> = skipped
         .iter()
         .map(|n| {
