@@ -1,8 +1,9 @@
 # The agent workflow: units, the orchestrator and the gate kit
 
-- **Status:** set up on 2026-10-07 from the owner's brief and the plan the owner approved that day; R-HARN
-  (`docs/m0/**`, [authors.md](authors.md) §3), reviewed like any other `docs/m0/` file. The orchestrator reads this
-  file. Every other agent reads only AGENTS.md "Agent work", its role file in `.claude/agents/` and its brief.
+- **Status:** set up on 2026-10-07 from the owner's brief and the plan the owner approved that day, and updated on
+  2026-10-11 for R-5 to R-11; R-HARN (`docs/m0/**`, [authors.md](authors.md) §3), reviewed like any other `docs/m0/`
+  file. The orchestrator reads this file. Every other agent reads only AGENTS.md "Agent work", its role file in
+  `.claude/agents/` and its brief.
 - **Sources:** AGENTS.md ("Git", "Data", "Agent work"); [PLAN.md](PLAN.md) §2.1 (target directories, test tiers),
   §2.5, §3.1 (author roles, S1–S6, "Mechanics"), §5 (commits and pushes); [authors.md](authors.md) §1–§3, §5;
   `xtask/roles.toml`; the module docs of `xtask/src/worktree.rs`, `gate.rs` and `authors.rs`;
@@ -23,33 +24,38 @@
 - **Trunk**: local `master`. Only the orchestrator merges into it, and it pushes it after the merge (R-2).
 - **Author role** (PLAN §3.1: R-HARN-I, R-MODEL, …) and **stage role** (`.claude/agents/`: architect,
   architecture-critic, developer, tester, code-reviewer, researcher, project-analyst, results-analyst, doc-writer,
-  mechanic). Every agent of a unit is a stage role acting for the unit's author role, bound by that role's S1–S6,
-  `deny_read` and write map (AGENTS.md "Agent work").
+  mechanic). Every agent of a unit is a stage role acting for the unit's author role, bound by that role's S1–S6
+  and write map (AGENTS.md "Agent work") and by any reading limit its spec sets; the role's `deny_read` path rules are
+  not applied (R-8).
 - **Gate worktree**: a neutral, non-authoring worktree, detached, where only the full gate runs
   (`cargo xtask gate --branch m0/<role>`, PLAN §3.1 "The gate worktree"). There is one per PLAN lane, `gate-a` for
   the lane-A roles and `gate-b` for the lane-B roles of `xtask/roles.toml`, because the gate runs with the target
   directory of the branch's lane: units of different lanes then gate at once, and units of one lane take turns on the
-  kit's lock of that worktree (they would wait on cargo's build lock of the shared target directory anyway).
+  kit's lock of that worktree (they would wait on cargo's build lock of the shared target directory anyway). While
+  the capacity is one unit, every unit gates in `gate-a` with lane A's target directory, whatever its role's lane
+  (R-8, R-9).
 - **Lock set**: the paths a unit may write. **Red-first**, **pin**: AGENTS.md "Agent work". **Mutation**: a deliberate
   bug that a named gate must catch. **Delta-scoped**: only what the last fix or sync changed.
 - **Kit**: the PowerShell scripts in `<ORCH>/kit/` that run long gates detached under a budget (§7, Appendix A).
-- **Orchestrator session**: an interactive Claude Code session in the main checkout, on `master`. It plans, launches,
-  reads verdicts, rules, merges and pushes; it never runs a unit's agents itself.
-- **Unit session**: a Claude Code session started in the role worktree, which launches the unit workflow and nothing
-  else. A subagent starts in the launching session's working directory and inherits that session's permission rules
-  and environment (Claude Code sub-agents documentation). The role's `deny_read` rules and its lane's
-  `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS` live in the role worktree's `.claude/settings.local.json`
-  (`xtask/src/worktree.rs`), so only a session started there applies them to every agent of the unit. On Windows
-  Claude Code reads that file from the session's starting directory; elsewhere a worktree session reads the main
-  checkout's (settings documentation), one more reason units run only on the Windows PC (R-1).
+- **Orchestrator session**: an interactive Claude Code session in the main checkout, on `master`. It plans, launches
+  each unit's workflow itself (§6.3), reads verdicts, rules, merges and pushes; it never does a stage's work. Its
+  environment (the main checkout's `.claude/settings.local.json`, §8) gives every unit agent lane A's target
+  directory and 4 build jobs (R-8, R-9).
+- **Unit session** (superseded by R-8 and R-9; used under R-1 to R-7, up to the trial unit): a Claude Code session
+  started in the role worktree, which launched the unit workflow and nothing else. A subagent starts in the launching
+  session's working directory and inherits that session's permission rules and environment (Claude Code sub-agents
+  documentation). So a unit's agents now take the orchestrator session's rules and environment, and work in the role
+  worktree by starting every shell command with a `cd` into it (the unit header, §6.1). The role worktree's
+  `.claude/settings.local.json`, which `xtask worktree` still writes with the role's `deny_read` rules and its lane's
+  `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS` (`xtask/src/worktree.rs`), is unused.
 
 | Place | Path | Made by |
 |---|---|---|
-| Main checkout (the orchestrator session) | `D:/claude/moirai` | the owner's clone (R-1) |
+| Main checkout (the orchestrator session, which launches every unit) | `D:/claude/moirai` | the owner's clone (R-1) |
 | `<WT_ROOT>`, the worktree root | `D:/moirai-wt` | `git config moirai.worktree-root` (R-1) |
 | Role worktree, one per open unit | `<WT_ROOT>/<role>`, branch `m0/<role>` | `cargo xtask worktree <role> --base master` |
 | Gate worktrees | `<WT_ROOT>/gate-a`, `<WT_ROOT>/gate-b` | `git worktree add --detach`, once (§15 step 6) |
-| Lane target directories | `D:/moirai-target/laneA`, `D:/moirai-target/laneB` | `git config moirai.target-root`; `xtask worktree` sets them (PLAN §2.1) |
+| Lane target directories | `D:/moirai-target/laneA`, `D:/moirai-target/laneB` | `git config moirai.target-root` (PLAN §2.1); the orchestrator session's environment sets lane A for every unit (§8, R-8) |
 | `<ORCH>`, the orchestration state | `D:/orch/moirai` | §15 step 3 (R-1) |
 
 ## 2. The owner's rulings
@@ -94,7 +100,7 @@ rewrite of `RESUME.md`, and never pushed to the public repository (R-1). It hold
 | `baseline.tsv` | the test IDs (`<package>\|<source>\|<test>`, §7) and statuses of the whole workspace at tier `pr` on `master` (§15 step 8), refreshed per package at each merge (§5.4 step 6); no unit agent reads it (§5.2 step 6) |
 | `mechanic-escapes.tsv` | the mechanic's escapes (§9) |
 | `embed/<unit>.src.js`, `embed/<unit>.js`, `embed/args_<unit>.json` | the copy of `unit.js` taken at the unit's first launch, the embedded copy made from it, and the arguments of every launch (§6.3, §6.4) |
-| `<unit>/` | `spec.md`, `baseline_unit.tsv`, `launch.md`, `run_<k>.txt`, `result_<k>.json`, `cut.md`, `critique.md`, `impl.md`, `gate_r<n>/` (a kit run directory) and `gate_r<n>.md`, `expected_r<n>.tsv`, `tests_r<n>-<m>/` (the tester's kit runs), `test_r<n>.md`, `review_r<n>.md`, `triage_r<n>.md`, `fix_r<n>.md`, `pack.md`, `run<k>/` (the round files of an earlier launch), `wt-<stage>/` (scratch worktrees), `kit-<commit>/` (the scratch kits of a unit that changes Appendix A, §7) |
+| `<unit>/` | `spec.md`, `baseline_unit.tsv`, `run_<k>.txt` and `result_<k>.json` (written by the orchestrator, §6.3), `cut.md`, `critique.md`, `impl.md`, `gate_r<n>/` (a kit run directory) and `gate_r<n>.md`, `expected_r<n>.tsv`, `tests_r<n>-<m>/` (the tester's kit runs), `test_r<n>.md`, `review_r<n>.md`, `triage_r<n>.md`, `fix_r<n>.md`, `pack.md`, `run<k>/` (the round files of an earlier launch), `wt-<stage>/` (scratch worktrees), `kit-<commit>/` (the scratch kits of a unit that changes Appendix A, §7) |
 | `kit/` | the scripts of Appendix A, `budgets.txt`, `caps.txt`, `unit-allow.txt`, `guard.exe`, `locks/`, `selftest-runs/` |
 
 Its `.gitignore` holds `/*/wt-*/`, `/*/kit-*/`, `log.txt`, `/kit/locks/`, `/kit/selftest-runs/` and `/kit/guard.exe`.
@@ -109,7 +115,7 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 
 ## Units
 
-| unit | role | WP | branch | worktree | base | stage | unit session | run id | script | lock set |
+| unit | role | WP | branch | worktree | base | stage | session | run id | script | lock set |
 |---|---|---|---|---|---|---|---|---|---|---|
 
 ## Running gates
@@ -128,15 +134,16 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 
 ## 4. Units, worktrees and the trunk
 
-- **One worktree per unit**, the role worktree; its settings carry the role's `deny_read` rules, the lane's target
-  directory and `CARGO_BUILD_JOBS` (`xtask/src/worktree.rs`). Two agents never build or edit in one checkout at once:
+- **One worktree per unit**, the role worktree. `xtask worktree` still writes the role's `deny_read` rules, the lane's
+  target directory and `CARGO_BUILD_JOBS` into its settings (`xtask/src/worktree.rs`), but no session starts there,
+  so they are unused: unit agents take the orchestrator session's rules and environment (§8, R-8, R-9). Two agents
+  never build or edit in one checkout at once:
   inside a unit the stages run one after another in the role worktree, and the tester and the reviewer, which run in
   parallel, only read it.
 - **Scratch worktrees** for red-firsts on the parent and for mutations: `git worktree add --detach
   <ORCH>/<unit>/wt-<stage> <sha>`, removed with `git worktree remove` when done. They build into the session's lane
   target directory, never into a private one (the disk headroom is the binding resource, [MP §8]); cargo's build
-  lock serialises them with the lane's other builds. `kit/local-settings.ps1` extends the role's `deny_read` rules to
-  `<WT_ROOT>/**` and `<ORCH>/**`, so these paths are covered too.
+  lock serialises them with the lane's other builds.
 - **Lock sets.** A file outside the unit's lock set, or in another open unit's set, is a STOP. The lock set lies
   inside what the author role may write (authors.md §3); two open units never share a path.
 - **Concurrency**: at most the measured capacity (§10), one open unit per role.
@@ -149,7 +156,8 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 - **Lockfile changes.** `Cargo.lock` and `fuzz/Cargo.lock` change only in the gate worktree (PLAN §3.1; authors.md
   §3), and every per-commit gate runs `--locked`. A unit that changes a manifest so that the lockfile must change:
   1. the developer commits the manifest change and STOPs with the reason `lockfile` (its `--locked` gates cannot run);
-  2. the orchestrator runs the full gate once itself, through the kit in the lane's gate worktree
+  2. the orchestrator runs the full gate once itself, through the kit in the unit's gate worktree (`gate-a` with lane
+     A's target directory while units build only in lane A, R-8)
      (`start-gate.ps1 -RunDir <ORCH>/<unit>/lock_<k> -WorkDir <gateWt> -Unit <unit> -RunId <unit>-lock<k> -Kind gate
      -Detach m0/<role> -TargetDir <the lane's target directory> -CmdLine "cargo xtask gate --branch m0/<role>"`):
      its DONE says `lockfile=updated` (the `lock` step resolved the branch's manifests and the build steps ran on the
@@ -167,13 +175,14 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 ### 5.1 Classify each owner request
 
 - **Direct** (at most about 30 lines in at most two files, an existing test covers it): still a unit, because every
-  merge into `master` passes the gate (PLAN §3.1), but a short one: in the unit session a developer, then the
-  mechanic's gate run, then a tester, through the Agent tool with the same role files; no cut, critique, review or
-  triage.
+  merge into `master` passes the gate (PLAN §3.1), but a short one: the orchestrator session launches a developer,
+  then a mechanic's gate run, then a tester, through the Agent tool, with the same role files and unit.js's unit
+  header; no cut, critique, review or triage.
 - **Unit**: one reviewable portion of one WP (§1).
 - **Campaign** (larger): a design workflow first (researcher, architect, architecture-critic; at most two rounds,
   the second delta-only), then a STOP for the owner's value calls, then the plan cut into rungs, one unit each. An
-  agent that must read a crate's sources runs in a unit session of the author role allowed to read them.
+  agent that must read a crate's sources acts for an author role that S1–S6 let read them; its brief states any
+  reading limit the separation rules need (R-8).
 - Before any launch: no agreed measurement or nightly window falls inside the expected run (§10, §14).
 
 ### 5.2 Launch a unit
@@ -188,36 +197,36 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
    refuses an existing worktree directory and reuses an existing `m0/<role>` branch, ignoring `--base`; so an existing
    worktree, or a branch that is not merged into `master` (`git merge-base --is-ancestor m0/<role> master` fails), is
    open work of an earlier session: STOP and ask. A merged leftover branch is deleted first (`git branch --delete
-   m0/<role>`).
-5. **Local settings.** `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/local-settings.ps1 -Worktree
-   <WT_ROOT>/<role> -Orch <ORCH> -WtRoot <WT_ROOT>`: it adds `permissions.additionalDirectories` `<ORCH>` and
-   `<WT_ROOT>` (agents write their reports under `<ORCH>`, and the session may launch a script kept there only when it
-   may read it), the allow rules of `kit/unit-allow.txt`, and the role's `deny_read` rules under `<WT_ROOT>/**` and
-   `<ORCH>/**` with Read denies of `<ORCH>/baseline.tsv` and `<ORCH>/baseline/**` (step 6); it keeps every other key and
-   rule.
+   m0/<role>`). The `settings.local.json` the command writes into the worktree goes unused (R-9, §4).
+5. **No local settings** (R-8, R-9): `kit/local-settings.ps1` is not run for the role worktree; unit agents run under
+   the main checkout's settings (§8). Until R-8 this step ran it for the role worktree, to add the additional
+   directories, the allow rules and the role's `deny_read` rules there.
 6. **Arguments and the unit's baseline.** Write `<ORCH>/embed/args_<unit>.json` (§6.2): `base` = `git rev-parse
-   master`, `gateWt` = the gate worktree of the role's lane, `dryRun` = `false`, `resumeNote` = `""`. Write
+   master`, `gateWt` = `gate-a` while units build only in lane A (otherwise the gate worktree of the role's lane),
+   `dryRun` = `false`, `resumeNote` = `""`. Write
    `<ORCH>/<unit>/baseline_unit.tsv`: the first line of `baseline.tsv`, then its rows whose package is one of the
    unit's (the `-p` values of `gates`), for example `grep -E '^(xtask|moirai-vfs)[|]' <ORCH>/baseline.tsv`. A role
    writes and reads its own packages; should a `deny_read` module pattern of the role (`xtask/roles.toml`) name one of
    them, its rows whose test path lies in that module are dropped too, as the gate's filter drops them
    (`xtask/src/cargo.rs`). The tester builds its expected set from this file; `baseline.tsv` itself holds every
-   crate's test names, which S2 withholds from most roles, and `kit/local-settings.ps1` denies it to every role with
-   `deny_read` rules.
+   crate's test names, which S2 withholds from most roles, and the unit header (§6.1, `unit.js`) limits every agent's
+   reads under `<ORCH>` to its unit's directory, `kit/` and `RULINGS.md`.
 7. **Embedded copy.** Copy the main checkout's `.claude/workflows/unit.js` (on `master`) to
    `<ORCH>/embed/<unit>.src.js`, then `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/embed.ps1
    -Script <ORCH>/embed/<unit>.src.js -ArgsFile <ORCH>/embed/args_<unit>.json -Out <ORCH>/embed/<unit>.js`.
 8. **Dry run** in the orchestrator session: `Workflow({ name: "unit", args: <the args with dryRun true> })` must
    return `{ ok: true, args }` with no agent started; it checks the script and the arguments.
-9. **Launch file** `<ORCH>/<unit>/launch.md` for launch `k` = 1 (template in §6.3), then start the unit session
-   (§6.3).
-10. **Record.** A `RESUME.md` row: unit, role, WP, branch, worktree, base, stage `launched`, the unit session's name,
-    the run id (from `run_1.txt` once it appears), the script `<ORCH>/embed/<unit>.js`, the lock set. Commit `<ORCH>`.
+9. **Launch** (§6.3): `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js" })` from this session; the run id it returns
+   goes to `<ORCH>/<unit>/run_1.txt`.
+10. **Record.** A `RESUME.md` row: unit, role, WP, branch, worktree, base, stage `launched`, the session (this
+    orchestrator session, §6.4), the run id (`run_1.txt`), the script `<ORCH>/embed/<unit>.js`, the lock set. Commit
+    `<ORCH>`.
 
 ### 5.3 Between runs
 
-- Wait for `<ORCH>/<unit>/result_<k>.json` in bounded slices (`kit/wait-gate.ps1 -File <path>`), doing other work
-  between them.
+- The workflow runs in the background of the orchestrator session, which does other work meanwhile. When it returns,
+  the orchestrator writes its return value to `<ORCH>/<unit>/result_<k>.json`. If the session ended first, the value
+  is in the run record `~/.claude/projects/<project>/<session>/workflows/<run id>.json` (§6.4).
 - Read the result's fields only (§6.5). Open a report, by section (`rg -n`, ranged reads), only on `RED`,
   `CHANGES_REQUESTED`, `STOPPED`, a gate outcome other than `PASS`, or `ok: false`.
 - Answer a question as a numbered ruling in `RULINGS.md` and relaunch with a resume note that cites it (§6.4).
@@ -225,9 +234,8 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
   failure excerpt, rule, and relaunch.
 - A unit still red after round 3 is not merged: rule, then relaunch fix-only (`DELTA SINCE <head>: fix …`) or split it
   into two units.
-- A unit session under `Needs input` in agent view (the first workflow launch, a permission prompt, a classifier
-  pause, §8) waits for the owner: STOP and ask the owner to attach to it (`→` in `claude agents`). A reply from the
-  peek panel does not answer a dialog (Claude Code agent-view documentation).
+- A unit agent's permission prompt or a classifier pause (§8) waits in the orchestrator session: STOP and ask the
+  owner to answer it there.
 - Copy the mechanic escapes the tester reported into `<ORCH>/mechanic-escapes.tsv` (§9).
 - Rewrite `RESUME.md` and commit `<ORCH>` after every change of a unit's stage.
 
@@ -250,13 +258,13 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
    the owner (the never-list rules out undoing the merge).
 5. **Push** (R-2): `git push origin master`. A refusal (not a fast-forward, a branch ruleset that requires a pull
    request, PLAN §5 V10, the network) is not retried in another form: record it under "Waiting on the owner" and STOP.
-6. **Clean up.** The unit session has nothing running. `git worktree remove <WT_ROOT>/<role>` (it refuses a dirty
-   worktree: STOP); `git branch --delete m0/<role>` (it refuses an unmerged branch: STOP), so that the role's next unit
-   is made from `master` and not from the reused old branch; `git worktree remove <ORCH>/<unit>/wt-<stage>` for every
-   scratch worktree left, then `git worktree prune`. The lane target directory stays. In `baseline.tsv`, replace the
-   rows of each package the final round's tests runs covered on the verified head with those runs' `id` and `status`
-   columns, so that the next unit's expected set matches `master`. Close the row in `RESUME.md`, update the trunk line
-   (`pushed: yes`) and commit `<ORCH>`.
+6. **Clean up.** The unit's workflow has returned and no kit run of the unit is alive. `git worktree remove
+   <WT_ROOT>/<role>` (it refuses a dirty worktree: STOP); `git branch --delete m0/<role>` (it refuses an unmerged
+   branch: STOP), so that the role's next unit is made from `master` and not from the reused old branch; `git worktree
+   remove <ORCH>/<unit>/wt-<stage>` for every scratch worktree left, then `git worktree prune`. The lane target
+   directory stays. In `baseline.tsv`, replace the rows of each package the final round's tests runs covered on the
+   verified head with those runs' `id` and `status` columns, so that the next unit's expected set matches `master`.
+   Close the row in `RESUME.md`, update the trunk line (`pushed: yes`) and commit `<ORCH>`.
 
 ## 6. The unit workflow
 
@@ -298,7 +306,7 @@ structured verdict and the script parses nothing.
 | `unit` | `u<nn>-<slug>` |
 | `orch` | `D:/orch/moirai` |
 | `wt` | `D:/moirai-wt/<role>` |
-| `gateWt` | `D:/moirai-wt/gate-a` or `gate-b`, by the role's lane |
+| `gateWt` | `D:/moirai-wt/gate-a` while units build only in lane A (R-8); otherwise `gate-a` or `gate-b`, by the role's lane |
 | `branch` | `m0/<role>` (the script refuses anything else) |
 | `base` | the `master` sha the unit started from |
 | `trunk` | `master` |
@@ -320,30 +328,19 @@ structured verdict and the script parses nothing.
   `unit.js` can change between a launch and its relaunch, so every relaunch embeds from `<ORCH>/embed/<unit>.src.js`,
   the copy taken at launch 1 (§5.2 step 7). `kit/embed.ps1` writes it with LF line endings (the runtime rejects CR as
   a hidden control character).
-- **The unit session** launches it. The orchestrator starts the session from the role worktree:
-  `cd <WT_ROOT>/<role> && "<claude>" --bg --permission-mode auto --name unit-<unit> "Read <ORCH>/<unit>/launch.md and
-  do exactly what it says."`, where `<claude>` is the executable recorded in `inventory.md` (tools.md §9: neither
-  install is on `PATH`). The permission mode is §8's. A background session keeps its workflow running when no terminal
-  is open, and one started inside a linked worktree, as a role worktree is, edits it in place instead of moving into
-  a worktree of its own (Claude Code agent-view documentation). Workspace trust is keyed on the main checkout's root
-  for every worktree of the repository (permissions documentation), so the trust of `D:/claude/moirai` (§15 step 1)
-  covers the role and gate worktrees; if `claude --bg` still exits with `Workspace not trusted`, STOP and ask the
-  owner to open Claude Code in the role worktree once and accept the dialog. Where `--bg` is not available (§15 step
-  1), STOP and ask the owner to open a session in the role worktree with the same permission mode and paste the one
-  line.
-- **`launch.md`** (rewritten for every launch `k`):
+- **The orchestrator session launches it** (R-8, R-9), from the main checkout, with `wt` = the role worktree:
+  - the launch is `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js" })`, run in the background of the session;
+  - every agent of the unit starts in the session's directory, with its rules and environment, and starts each shell
+    command with a `cd` into `wt` or the directory its stage names (the unit header);
+  - `<ORCH>/<unit>/run_<k>.txt` holds the run id the tool returns;
+  - `<ORCH>/<unit>/result_<k>.json` holds the workflow's return value, or
+    `{"ok": false, "stage": "launch", "note": "<the error>"}` when it fails to start or ends with an error;
+  - if the session ends before the workflow returns, the value is in the run record
+    `~/.claude/projects/<project>/<session>/workflows/<run id>.json` (§6.4).
 
-  ```markdown
-  # Launch <k> of unit <unit>
-
-  You are the unit session of <unit>, in <WT_ROOT>/<role>. Do only this, then end your turn:
-  1. Start the workflow with the Workflow tool: scriptPath <ORCH>/embed/<unit>.js[, resumeFromRunId <run id>].
-  2. Write the run id the tool returns to <ORCH>/<unit>/run_<k>.txt.
-  3. When the workflow returns, write its return value as JSON to <ORCH>/<unit>/result_<k>.json. If it fails to
-     start or ends with an error, write {"ok": false, "stage": "launch", "note": "<the error>"} there instead.
-  Do not read the reports, fix anything or launch anything else, and do not commit, push or open a pull request:
-  the workflow's agents commit on the unit's branch (AGENTS.md "Agent work") and the orchestrator merges.
-  ```
+  Until R-8, a unit session in the role worktree launched the workflow, started with `claude --bg` and a
+  `launch.md`; R-7 found that a session started from the command line has no login of its own on the PC, and R-8
+  dropped the unit session.
 
 ### 6.4 Relaunch and resume
 
@@ -359,12 +356,13 @@ structured verdict and the script parses nothing.
 - Before a relaunch: move the round files of the earlier launch (`impl.md`, `gate_r*`, `expected_r*`, `tests_r*`,
   `test_r*`, `review_r*`, `triage_r*`, `fix_r*`) into `<unit>/run<k>/` (the re-run stages write the same names, and the
   kit refuses an existing run directory); update `args_<unit>.json` and re-run `kit/embed.ps1` with `-Script
-  <ORCH>/embed/<unit>.src.js` (never the current `unit.js`, and never the embedded copy: it has no marker line); rewrite
-  `launch.md` for `k + 1` with the run id; then send the unit session the same one line (in agent view, or by resuming
-  it with `claude --resume` from the role worktree).
-- A run is resumable from the session that ran it. Across sessions, resume that session and relaunch with the run
-  id. Copying a run's directory under another session's directory in `~/.claude/projects/` is an undocumented
-  internal path: a fallback only. A relaunch that reports "nothing to resume" starts over as a new run (new `k`).
+  <ORCH>/embed/<unit>.src.js` (never the current `unit.js`, and never the embedded copy: it has no marker line); then
+  relaunch from the orchestrator session that ran launch `k`: `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js",
+  resumeFromRunId: "<run id>" })`, writing `run_<k+1>.txt` and `result_<k+1>.json` as §6.3 does.
+- A run is resumable from the session that ran it. Across sessions, resume that orchestrator session in the main
+  checkout and relaunch from it with the run id. Copying a run's directory under another session's directory in
+  `~/.claude/projects/` is an undocumented internal path: a fallback only. A relaunch that reports "nothing to
+  resume" starts over as a new run (new `k`).
 - Scripts are plain JavaScript; `Date.now()`, `Math.random()` and a bare `new Date()` throw in the runtime, so
   anything time-dependent comes in through the arguments.
 
@@ -373,7 +371,8 @@ structured verdict and the script parses nothing.
 `ok`, `unit`, `stage` (`verify` when the rounds ran out or finished; else the stage that returned it: `args`, `cut`,
 `critique`, `implement`, `gate`, `test`, `review`, `triage`, `fix`), `note`, `round`, `crit`, `gate` (the mechanic's
 outcome), `head`, `tree`, `kit`, `test`, `review`, `critical`, `important`, `reports` (the unit's directory): verdicts
-and paths, about a few hundred tokens. Nothing else is read until a verdict calls for it.
+and paths, about a few hundred tokens; the orchestrator copies it into `result_<k>.json`. Nothing else is read until a
+verdict calls for it.
 
 ## 7. The gate kit
 
@@ -488,35 +487,36 @@ or stop it.
   agent's life), no hook or index tool that agents must use. Hooks are optional accelerators (AGENTS.md).
 
 **Local, `.claude/settings.local.json`** (this machine, untracked): `kit/local-settings.ps1` adds to the main checkout
-(§15 step 6) and to every new role worktree (§5.2 step 5) `permissions.additionalDirectories` `<ORCH>` and
-`<WT_ROOT>`, the allow rules of `kit/unit-allow.txt`, and in a role worktree the role's `deny_read` rules under
-`<WT_ROOT>/**` and `<ORCH>/**`, with the baseline's Read denies for a role that has `deny_read` rules (§5.2 step 6).
-`unit-allow.txt` starts with the kit's one rule:
+(§15 step 6) `permissions.additionalDirectories` `<ORCH>` and `<WT_ROOT>` and the allow rules of `kit/unit-allow.txt`.
+It is not run for role worktrees (R-8, R-9); its extension of a role's `deny_read` rules to `<WT_ROOT>/**` and
+`<ORCH>/**` serves only a return to unit sessions. The main checkout's file also sets `env.CARGO_TARGET_DIR`
+(`D:/moirai-target/laneA`) and `env.CARGO_BUILD_JOBS` (4), which the orchestrator session and every unit agent take
+(R-8). `unit-allow.txt` starts with the kit's one rule:
 
 ```text
-# Local allow rules for the main checkout and every role worktree (kit/local-settings.ps1).
+# Local allow rules for the main checkout (kit/local-settings.ps1).
 Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:/orch/moirai/kit/*)
 ```
 
-A prompt that stopped an agent of the trial unit (§15 step 10) gets the narrowest rule that covers it, here, and the
-rule then reaches every later unit.
+A prompt that stops a unit agent gets the narrowest rule that covers it, here, and the rule then reaches every later
+unit.
 
 - Allow rules and additional directories wait for workspace trust, and the main checkout's trust covers every
-  worktree of the repository (permissions documentation, §6.3).
+  worktree of the repository (permissions documentation).
 - The rules are Bash rules: agents use the Bash tool (Git Bash on Windows). If the PowerShell tool is turned on, the
   same rules would be needed as `PowerShell(…)` rules.
-- **Permission mode.** A unit session runs in auto mode (`--permission-mode auto`, §6.3), and its subagents and
-  workflow agents run in the session's mode (sub-agents documentation). In Manual mode every edit and every workflow
-  launch would prompt (additional directories make reads, not edits, prompt-free; "don't ask again" is offered only
-  for a workflow launched by name), and in `acceptEdits` every launch and every command outside the allow rules
-  would, such as a `cd` into a scratch worktree followed by `git` (permissions and workflows documentation). In auto
-  mode a classifier reviews the actions instead; deny rules still apply, and the classifier does not count a
-  workflow's computed prompts as the owner's requests. A unit can still stop for the owner: the first workflow
-  launch in auto mode asks once (the answer is kept in the user settings); writes to protected paths such as
-  `.claude/` and `.cargo/` go to the classifier and may be refused, so a unit whose lock set holds them is launched
-  only with the owner present; and the classifier pauses auto mode after three refusals in a row or twenty in all
-  (permission-modes documentation). The session then waits under `Needs input` (§5.3). Without auto mode
-  (unavailable to the account or the model), units run only with the owner attached: §15 step 1 records which.
+- **Permission mode.** Unit agents run in the orchestrator session's permission mode, as its subagents and workflow
+  agents do (sub-agents documentation), and auto mode keeps a unit going unattended. In Manual mode every edit and
+  every workflow launch would prompt (additional directories make reads, not edits, prompt-free; "don't ask again" is
+  offered only for a workflow launched by name), and in `acceptEdits` every launch and every command outside the
+  allow rules would, such as a `cd` into a scratch worktree followed by `git` (permissions and workflows
+  documentation). In auto mode a classifier reviews the actions instead; deny rules still apply, and the classifier
+  does not count a workflow's computed prompts as the owner's requests. A unit can still stop for the owner: the
+  first workflow launch in auto mode asks once (the answer is kept in the user settings); writes to protected paths
+  such as `.claude/` and `.cargo/` go to the classifier and may be refused, so a unit whose lock set holds them is
+  launched only with the owner present; and the classifier pauses auto mode after three refusals in a row or twenty
+  in all (permission-modes documentation). The orchestrator session then waits for the owner (§5.3). Without auto
+  mode (unavailable to the account or the model), units run only with the owner present: §15 step 1 records which.
 - On a subscription within the plan's usage, the main conversation already gets the one-hour TTL. On usage credits, an
   API key or a cloud provider, also set `"promptCacheTtl": "1h"` in the user settings: the orchestrator waits on
   workflows.
@@ -609,8 +609,7 @@ rule then reaches every later unit.
 
 - Claude Code's auto memory lives in `%USERPROFILE%\.claude\projects\<project>\memory\`: a `MEMORY.md` index loaded in
   every session and one file per fact. The project is the session's directory, so the orchestrator's memory is the
-  main checkout's, and a role worktree's memory starts empty each time the worktree is made: unit agents rely on their
-  briefs, never on memory.
+  main checkout's. Unit agents run inside the orchestrator session (R-8) and rely on their briefs, never on memory.
 - One fact per file (`user`, `feedback`, `project` or `reference`, each with Why and How to apply); the index at one
   short line per file and at most about 15 KB; a "read first" block that holds only the current state line (older
   checkpoints live in the project file).
@@ -620,9 +619,9 @@ rule then reaches every later unit.
 ## 13. Crash and resume
 
 1. **Orphans.** For every kit run with an `owner.txt` and no `DONE`: if its unit's workflow is not running now (the
-   unit session's `/workflows`, the result file), it is an orphan: `stop-gate.ps1 -RunDir <run dir> -Reason orphan`.
-   Judge by the unit's workflow, not by process ancestry: kit runs are detached on purpose. An orphan keeps spawning
-   builds for hours.
+   orchestrator session's `/workflows`, the result file), it is an orphan: `stop-gate.ps1 -RunDir <run dir> -Reason
+   orphan`. Judge by the unit's workflow, not by process ancestry: kit runs are detached on purpose. An orphan keeps
+   spawning builds for hours.
 2. **Void outputs.** Gate outputs written before the crash are void; `stop-gate.ps1` archives them as
    `<run dir>.stopped-<time>`. After a machine crash, a corrupt build artifact (a linker or compiler access violation,
    a nonsense link error) is cleaned for that package (`cargo clean -p <package>` with the lane's
@@ -630,8 +629,8 @@ rule then reaches every later unit.
 3. **A worktree left in the middle of `git merge`**: never abort. A developer agent of the unit's role reviews the
    resolved files against both parents (`git show :1:<file>`, `:2:`, `:3:`), in lock-set paths only (a conflict in
    any other path is a STOP), adds them, re-runs the per-commit gates and commits the merge.
-4. **Relaunch** each workflow in its unit session with its run id, the new state only in the step that must re-run
-   (§6.4).
+4. **Relaunch** each workflow from the session that ran it, with its run id (§6.4), the new state only in the step
+   that must re-run.
 5. **Rewrite `RESUME.md`** and commit `<ORCH>`.
 
 ## 14. Performance measurement
