@@ -1744,14 +1744,15 @@ impl Engine<'_, '_> {
                 }),
                 strict: self.cx.strict,
             };
-            // The RS-007 variant of a test thread ([`Rule`]); the candidate slot's hook first ([`cand::hierarchy`]).
+            // RS-007 `threeway` ([`cand::hierarchy`]); a test thread may name a reference rule instead ([`Rule`]).
             #[cfg(test)]
-            let out = (rule() == Rule::Cand)
-                .then(|| cand::hierarchy(&x))
-                .flatten()
-                .unwrap_or_else(|| replay_rule(&x, rule().kept_keys(), rule().backstop()));
+            let out = if rule() == Rule::Cand {
+                cand::hierarchy(&x)
+            } else {
+                replay_rule(&x, rule().kept_keys(), rule().backstop())
+            };
             #[cfg(not(test))]
-            let out = replay_rule(&x, true, true);
+            let out = cand::hierarchy(&x);
             out
         };
         for n in &out.skipped {
@@ -2033,7 +2034,7 @@ pub(crate) enum Rule {
     /// The replay from B, as spec sync 3 stated RS-007: no one-sided merge, no replay start, no kept key, no backstop and
     /// no resolved key; the parent-only undo of OQ-A-11 11.2 and the recursive step keys of OQ-A-11 11.3 stay.
     FromB,
-    /// The candidate slot of the evaluation harness ([`cand`]): `Current` until a candidate fills it.
+    /// RS-007 `threeway`, the model's rule ([`cand`]; OQ-A-13): every thread's default.
     Cand,
 }
 
@@ -2063,7 +2064,7 @@ impl Rule {
     pub(crate) fn kept_keys(self) -> bool {
         match self {
             Rule::Current => true,
-            Rule::Cand => cand::KEPT_KEYS,
+            Rule::Cand => false,
             Rule::Wave3c | Rule::FromB => false,
         }
     }
@@ -2072,7 +2073,7 @@ impl Rule {
     pub(crate) fn backstop(self) -> bool {
         match self {
             Rule::Current => true,
-            Rule::Cand => cand::BACKSTOP,
+            Rule::Cand => false,
             Rule::Wave3c | Rule::FromB => false,
         }
     }
@@ -2081,7 +2082,7 @@ impl Rule {
     pub(crate) fn resolved_keys(self) -> bool {
         match self {
             Rule::Current => true,
-            Rule::Cand => cand::RESOLVED_KEYS,
+            Rule::Cand => false,
             Rule::Wave3c | Rule::FromB => false,
         }
     }
@@ -2090,14 +2091,14 @@ impl Rule {
     pub(crate) fn replays_from_b(self) -> bool {
         match self {
             Rule::FromB => true,
-            Rule::Cand => cand::FROM_B,
+            Rule::Cand => false,
             Rule::Current | Rule::Wave3c => false,
         }
     }
 }
 
 /// The variant every test thread starts under: `MOIRAI_RS007_RULE` (`current`, `wave3c`, `fromb` or `cand`), read once
-/// per process, else `current` (test builds only).
+/// per process, else `cand`, the model's rule (test builds only).
 #[cfg(test)]
 pub(crate) fn default_rule() -> Rule {
     static DEFAULT: std::sync::OnceLock<Rule> = std::sync::OnceLock::new();
@@ -2105,7 +2106,7 @@ pub(crate) fn default_rule() -> Rule {
         Ok(v) if !v.trim().is_empty() => Rule::parse(&v).unwrap_or_else(|| {
             panic!("MOIRAI_RS007_RULE={v:?}: expected current, wave3c, fromb or cand")
         }),
-        _ => Rule::Current,
+        _ => Rule::Cand,
     })
 }
 
@@ -2133,17 +2134,16 @@ thread_local! {
     static DERIVING: std::cell::Cell<u32> = const { std::cell::Cell::new(0) };
 }
 
-/// Whether the merge reads no replay inputs (RS-007's replay start, steps and step keys): the evaluation harness's
-/// candidate when it decides the hierarchy without a replay (`cand::NO_REPLAY`, test builds only); always `false`
-/// outside test builds.
+/// Whether the merge reads no replay inputs (a replay start, steps or step keys): RS-007 `threeway` reads none, so this
+/// is always `true` outside test builds, and in a test build unless the thread names a reference rule ([`Rule`]).
 pub(crate) fn no_replay() -> bool {
     #[cfg(test)]
     {
-        rule() == Rule::Cand && cand::NO_REPLAY
+        rule() == Rule::Cand
     }
     #[cfg(not(test))]
     {
-        false
+        true
     }
 }
 
@@ -2170,12 +2170,6 @@ pub(crate) fn count(r: Rule, c: Counter) -> usize {
 #[cfg(test)]
 pub(crate) fn count_derived(r: Rule, c: Counter) -> usize {
     COUNTS.with(|m| m.borrow().get(&(r, c, true)).copied().unwrap_or(0))
-}
-
-/// Clears this thread's counters.
-#[cfg(test)]
-pub(crate) fn reset_counts() {
-    COUNTS.with(|m| m.borrow_mut().clear());
 }
 
 /// While alive, RS-007 runs on this thread count as a resolved-key derivation ([`count_derived`]).
@@ -2208,6 +2202,7 @@ fn parent_of(v: &Option<KVal>) -> Option<Nid> {
 
 /// Whether node `n` is its own ancestor in a (parent, order) map: its parent chain comes back to it. A chain that enters
 /// a cycle without `n` stops after as many steps as the map has nodes.
+#[cfg(test)]
 fn on_cycle(cur: &BTreeMap<Nid, Option<KVal>>, n: Nid) -> bool {
     let parent = |x: Nid| match cur.get(&x) {
         Some(Some(KVal::Hierarchy { parent, .. })) => *parent,
@@ -2244,6 +2239,7 @@ pub(crate) struct HInput<'a> {
     #[allow(dead_code)]
     pub op: Op,
     /// A one-sided merge: the base's commit is tip(dst) (OQ-A-11 11.1 (A)); `steps` is then empty.
+    #[allow(dead_code)]
     pub one_sided: bool,
     /// The merged nodes, those whose keys the merge decides key by key (live in the result, no existence policy).
     pub merged: &'a BTreeSet<Nid>,
@@ -2260,6 +2256,7 @@ pub(crate) struct HInput<'a> {
     /// RS-007's steps in the order they apply ([`Engine::hsteps`]).
     pub steps: Vec<HStep>,
     /// The merged nodes whose key is the same in b, o and t (canonical equality, [F07 §7.3]).
+    #[allow(dead_code)]
     pub same3: BTreeSet<Nid>,
     /// The uid of a `#N` (RS-007's undo order is by least uid).
     pub uid: &'a dyn Fn(Nid) -> Uid,
@@ -2296,6 +2293,7 @@ pub(crate) struct HOutput {
 /// moves' nodes that lie on a cycle first, until none is (MR-039; a move that keeps its node's parent is never undone,
 /// [RULES/merge-table] open point 35 cases (iii) and (vi)). The result maps each moved node to whether its last move
 /// applied.
+#[cfg(test)]
 pub(crate) fn replay_steps(
     cur: &mut BTreeMap<Nid, Option<KVal>>,
     steps: &[HStep],
@@ -2340,7 +2338,8 @@ pub(crate) fn replay_steps(
 /// `kleppmann-skipped`. With `kept_keys` (OQ-A-12 (b)), a key the same in b, o and t then takes that value and is never
 /// `kleppmann-skipped`; with `backstop`, a cycle left after that (one the kept values close, or one through a node an
 /// existence policy fixed) has its replay-decided keys reset to their value in b one at a time, the least uid on a
-/// cycle first, until none is, each reset key `kleppmann-skipped`. Both are on outside test builds.
+/// cycle first, until none is, each reset key `kleppmann-skipped` (test builds only: a reference rule for the harness).
+#[cfg(test)]
 pub(crate) fn replay_rule(x: &HInput<'_>, kept_keys: bool, backstop: bool) -> HOutput {
     if x.one_sided {
         return HOutput {
@@ -2656,7 +2655,6 @@ impl Node {
     }
 }
 
-#[cfg(test)]
 pub(crate) mod cand;
 #[cfg(test)]
 mod tests;

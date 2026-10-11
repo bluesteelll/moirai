@@ -1,5 +1,5 @@
-//! The candidate slot of the RS-007 evaluation harness (`suite::rs007eval`; test builds only), filled with the
-//! candidate **K2, `threeway`**: a state-based three-way merge of the hierarchy keys with a cycle repair, and no replay.
+//! RS-007 **`threeway`** (K2 of OQ-A-13), the model's hierarchy rule: a state-based three-way merge of the hierarchy keys
+//! with a cycle repair, and no replay.
 //!
 //! Each merged node's hierarchy key (parent, order) is decided from the three states, as every other key class is
 //! ([AR §2.7] T7, "one side equals base → take the other"):
@@ -21,66 +21,29 @@
 //! Then the cycle repair, over the result nodes (merged nodes at their value, nodes an existence policy fixed at their
 //! copied value as immovable context; a parent that is no result node ends a chain). Only a key whose value and
 //! fallback have different parents can break a cycle (order cannot close one, OQ-A-11 11.2), so only such a key is ever
-//! repaired. The variant `MOIRAI_K2_VARIANT` selects the repair (default `exact`, the final candidate):
-//! - `greedy` (K2-a, the first statement): while a cycle exists, the repairable key on a cycle whose value has the
-//!   latest origin is demoted to its fallback (the other side's value for `both-diff`, else b's), `both-same` keys
-//!   only when no other repairable key is on the cycle; every demoted key is `kleppmann-skipped` (stages);
-//! - `greedy-silent` (K2-a2): the same, `both-diff` keys first, and a demoted `both-diff` key lands at the other
-//!   side's value (skipped and logged, not staged);
-//! - `exact` (K2-b): a `both-diff` key has two allowed values; first, while no choice of them gives a forest, a
-//!   determined key on a cycle of the unavoidable part (the nodes from which every choice leads into a cycle) is
-//!   demoted to b and `kleppmann-skipped`: for a revert or a cherry-pick a key only C changed first; a key one side
-//!   changed before one both sides set alike; a key whose reset leaves the unavoidable part first; then the latest
-//!   origin (src's on equal origins); then the least uid. Then the `both-diff` keys are fixed in ascending origin of
-//!   their MR-040 winner, each to its winner unless that leaves no forest, else to the other side's value (the move
-//!   that closes a cycle is skipped, as Kleppmann's replay skips it). A `both-diff` key whose MR-040 winner has a
-//!   parent that is not live in the result (a `DanglingEdge`, V04) while the other side's value has a live parent or
-//!   none tries the other side's value first, as a cycle-closing winner does. A key that lands at the other side's
-//!   value this way gets one `MoveSkipped` hint, which names the key, the side whose value landed and the reason
-//!   (`cycle` or `dead-parent`; 13.3 (b), R-15 Q1). Under `--strict` or `merge.strict` such a key stages instead
-//!   (R-15 Q2): a `cycle` key is `kleppmann-skipped` (V01's `HierarchyCycle`, the candidate holding the other side's
-//!   value), and the dead-parent preference is off, so the winner stays and V04 stages its `DanglingEdge`.
+//! repaired. The repair is exact (K2-b). A `both-diff` key has two allowed values. First, while no choice of them gives
+//! a forest, a determined key on a cycle of the unavoidable part (the nodes from which every choice leads into a cycle)
+//! is demoted to b and `kleppmann-skipped`: for a revert or a cherry-pick a key only C changed first; a key one side
+//! changed before one both sides set alike; a key whose reset leaves the unavoidable part first; then the latest
+//! origin (src's on equal origins); then the least uid. Then the `both-diff` keys are fixed in ascending origin of
+//! their MR-040 winner, each to its winner unless that leaves no forest, else to the other side's value. A `both-diff`
+//! key whose MR-040 winner has a parent that is not live in the result (a `DanglingEdge`, V04) while the other side's
+//! value has a live parent or none tries the other side's value first, as a cycle-closing winner does. A key that lands
+//! at the other side's value this way gets one `MoveSkipped` hint, which names the key, the side whose value landed and
+//! the reason (`cycle` or `dead-parent`; 13.3 (b), R-15 Q1). Under `--strict` or `merge.strict` such a key stages
+//! instead (R-15 Q2): a `cycle` key is `kleppmann-skipped` (V01's `HierarchyCycle`, the candidate holding the other
+//! side's value), and the dead-parent preference is off, so the winner stays and V04 stages its `DanglingEdge`.
 //!
-//! Each demotion and each `both-diff` key that takes the other side's value counts one [`Counter::Repair`].
+//! In test builds each demotion and each `both-diff` key that takes the other side's value counts one
+//! [`super::Counter::Repair`].
 
-use super::{Counter, HInput, HOutput, MoveKey, Op, bump, parent_of};
+#[cfg(test)]
+use super::{Counter, bump};
+use super::{HInput, HOutput, MoveKey, Op, parent_of};
 use crate::state::KVal;
 use crate::value::Nid;
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-
-/// OQ-A-12 (b): unused by `threeway`, which never replays.
-pub(crate) const KEPT_KEYS: bool = false;
-/// OQ-A-12 (b)'s backstop: unused.
-pub(crate) const BACKSTOP: bool = false;
-/// OQ-A-12 (c): `threeway` reads no step keys, so none are derived.
-pub(crate) const RESOLVED_KEYS: bool = false;
-/// The replay from B: unused.
-pub(crate) const FROM_B: bool = false;
-/// `threeway` reads no replay input: no replay start, no step, no step key ([`super::no_replay`]).
-pub(crate) const NO_REPLAY: bool = true;
-
-/// The repair `MOIRAI_K2_VARIANT` selects.
-#[derive(Clone, Copy, PartialEq, Eq, Debug)]
-pub(crate) enum Variant {
-    /// K2-a: greedy, latest origin first, every demotion staged.
-    Greedy,
-    /// K2-a2: greedy, `both-diff` first, a `both-diff` demotion lands.
-    GreedySilent,
-    /// K2-b: the exact repair (the final candidate).
-    Exact,
-}
-
-/// The variant of this process: `MOIRAI_K2_VARIANT` = `greedy`, `greedy-silent` or `exact` (default).
-pub(crate) fn variant() -> Variant {
-    static V: std::sync::OnceLock<Variant> = std::sync::OnceLock::new();
-    *V.get_or_init(|| match std::env::var("MOIRAI_K2_VARIANT").as_deref() {
-        Ok("greedy") => Variant::Greedy,
-        Ok("greedy-silent") => Variant::GreedySilent,
-        Ok("exact") | Ok("") | Err(_) => Variant::Exact,
-        Ok(v) => panic!("MOIRAI_K2_VARIANT={v:?}: expected greedy, greedy-silent or exact"),
-    })
-}
 
 /// A merged key's class under the three-way rule.
 #[derive(Clone, Copy, PartialEq, Eq, Debug)]
@@ -108,8 +71,8 @@ struct K {
 }
 
 /// `threeway`'s hierarchy decision for one merge.
-pub(crate) fn hierarchy(x: &HInput<'_>) -> Option<HOutput> {
-    Some(threeway(x, variant()))
+pub(crate) fn hierarchy(x: &HInput<'_>) -> HOutput {
+    threeway(x)
 }
 
 /// The origin times of the sides' values, memoised per merge: the caller's [`super::Ctx::origin`], or for a hand-built
@@ -241,21 +204,8 @@ fn takes_t(
     og.of(2, n) >= og.of(1, n)
 }
 
-/// Whether `n` is its own ancestor in the parent map `p` (a parent outside the map ends the chain).
-fn cyclic(p: &BTreeMap<Nid, Option<Nid>>, n: Nid) -> bool {
-    let mut x = p.get(&n).copied().flatten();
-    for _ in 0..=p.len() {
-        match x {
-            None => return false,
-            Some(y) if y == n => return true,
-            Some(y) => x = p.get(&y).copied().flatten(),
-        }
-    }
-    false
-}
-
 /// `threeway` over one merge's inputs.
-fn threeway(x: &HInput<'_>, v: Variant) -> HOutput {
+fn threeway(x: &HInput<'_>) -> HOutput {
     let og = Origins {
         x,
         memo: RefCell::new(BTreeMap::new()),
@@ -265,12 +215,7 @@ fn threeway(x: &HInput<'_>, v: Variant) -> HOutput {
     for (n, k) in &keys {
         values.insert(*n, k.chosen.clone());
     }
-    let (skipped, hinted) = match v {
-        Variant::Greedy | Variant::GreedySilent => {
-            (greedy(x, &og, &keys, &mut values, v), BTreeMap::new())
-        }
-        Variant::Exact => exact(x, &og, &keys, &mut values),
-    };
+    let (skipped, hinted) = exact(x, &og, &keys, &mut values);
     values.retain(|n, _| x.merged.contains(n));
     HOutput {
         values,
@@ -283,42 +228,6 @@ fn threeway(x: &HInput<'_>, v: Variant) -> HOutput {
 /// cycle).
 fn repairable(k: &K) -> bool {
     k.class != Class::Untouched && parent_of(&k.chosen) != parent_of(&k.fallback)
-}
-
-/// K2-a and K2-a2: while a cycle exists, demote the repairable key on a cycle with the highest rank, then the latest
-/// origin, then the least uid.
-fn greedy(
-    x: &HInput<'_>,
-    og: &Origins<'_, '_>,
-    keys: &BTreeMap<Nid, K>,
-    values: &mut BTreeMap<Nid, Option<KVal>>,
-    v: Variant,
-) -> BTreeSet<Nid> {
-    let mut demoted: BTreeSet<Nid> = BTreeSet::new();
-    let mut skipped = BTreeSet::new();
-    loop {
-        let parents: BTreeMap<Nid, Option<Nid>> =
-            values.iter().map(|(n, w)| (*n, parent_of(w))).collect();
-        let rank = |k: &K| match (v, k.class) {
-            (_, Class::BothSame) => 0,
-            (Variant::GreedySilent, Class::BothDiff) => 2,
-            _ => 1,
-        };
-        let pick = keys
-            .iter()
-            .filter(|(n, k)| !demoted.contains(n) && repairable(k) && cyclic(&parents, **n))
-            .max_by_key(|(n, k)| (rank(k), og.chosen(**n, k), std::cmp::Reverse((x.uid)(**n))))
-            .map(|(n, _)| *n);
-        let Some(n) = pick else { break };
-        let k = &keys[&n];
-        values.insert(n, k.fallback.clone());
-        demoted.insert(n);
-        if v == Variant::Greedy || k.class != Class::BothDiff {
-            skipped.insert(n);
-        }
-        bump(Counter::Repair);
-    }
-    skipped
 }
 
 /// The nodes that reach no root under any choice of their options: every option of each leads to another of them. A
@@ -398,6 +307,7 @@ fn exact(
             if !x.strict && dangles(&k.chosen) && !dangles(&k.fallback) {
                 opts.insert(*n, vec![k.fallback.clone(), k.chosen.clone()]);
                 preferred.insert(*n);
+                #[cfg(test)]
                 bump(Counter::Repair);
             } else {
                 opts.insert(*n, vec![k.chosen.clone(), k.fallback.clone()]);
@@ -451,6 +361,7 @@ fn exact(
         let Some(n) = pick else { break };
         opts.insert(n, vec![keys[&n].fallback.clone()]);
         skipped.insert(n);
+        #[cfg(test)]
         bump(Counter::Repair);
     }
     // The `both-diff` keys, in ascending origin of their MR-040 winner: each takes its winner unless that leaves a
@@ -475,6 +386,7 @@ fn exact(
         opts.insert(n, vec![both[0].clone()]);
         if unsafe_set(&opts).len() > base_u {
             opts.insert(n, vec![both[1].clone()]);
+            #[cfg(test)]
             bump(Counter::Repair);
             if !preferred.contains(&n) {
                 if x.strict {
@@ -574,7 +486,7 @@ mod tests {
             ),
             None,
         );
-        let out = threeway(&x, Variant::Exact);
+        let out = threeway(&x);
         assert_eq!(out.skipped, BTreeSet::from([Nid(1)]), "a is reset");
         assert_eq!(
             out.values,
@@ -634,7 +546,7 @@ mod tests {
             (keys[&Nid(1)].class, keys[&Nid(1)].side),
             (Class::BothDiff, 2)
         );
-        assert_eq!(threeway(&x, Variant::Exact).values[&Nid(1)], under(Some(3)));
+        assert_eq!(threeway(&x).values[&Nid(1)], under(Some(3)));
     }
 
     /// F4: a cycle that holds no repairable key is left as it is, for the validators' cycle check (V05, I37′): #1, a
@@ -655,7 +567,7 @@ mod tests {
             live: BTreeSet::from([Nid(1), Nid(2), Nid(3)]),
             ..input(&merged, (&[], &[], &[]), None)
         };
-        let out = threeway(&x, Variant::Exact);
+        let out = threeway(&x);
         assert!(
             out.skipped.is_empty() && out.hinted.is_empty(),
             "{:?} {:?}",
