@@ -34,6 +34,12 @@
 //! ([F20 §2.10.4]): `max(sym, J)` with the exact containments when both were read within the exact limit, else
 //! `esym` with the estimates. Its [`Basis`] records which.
 //!
+//! # Tiny contents and file nodes
+//!
+//! [`content_is_tiny`] is the tiny test of a content X, text or binary, over its byte statistics, and
+//! [`node_is_tiny`] that of a file node F, over its reference fingerprint or else `F.bytes` ([F20 §2.6.5]). Tiny
+//! content carries no content signal.
+//!
 //! # Memory
 //!
 //! The fingerprint sink holds a fixed-size state and no heap memory: the line hasher, the weight, the 64 sketch values
@@ -47,9 +53,11 @@ mod fingerprint;
 mod line;
 mod measure;
 mod score;
+mod tiny;
 mod winnow;
 
 pub use fingerprint::{Fingerprint, FingerprintError, FingerprintSink};
 pub use measure::{Estimates, Exact, HitSink, LineMultiset, MultisetSink, estimates, exact};
 pub use score::{Basis, PairScore, pair_score, resemblance};
+pub use tiny::{content_is_tiny, node_is_tiny};
 pub use winnow::{Tokens, WinnowSet, WinnowSink, jaccard, select, tokens, winnow};
