@@ -206,12 +206,12 @@ fn k2_a_move_away_and_back_is_no_touch() {
     assert_eq!(parents(&c, X), vec![Some(2), None]);
 }
 
-/// Weakness (shared with RS-007): MR-040 compares whole (parent, order) values, so a later order-only move on one side
-/// beats an earlier parent change on the other: main puts #1 and #2 under #3 before the fork; lane/x puts #1 under #4;
-/// main then moves #1 first under #3 (an order-only move); `sync lane/x` lands #1 under #3 and lane/x's move of #1 is
-/// lost, under both rules.
+/// OQ-A-13 13.5 (b) (R-15 Q3): a reparent beats a concurrent order-only change, whatever their origins. main puts #1
+/// and #2 under #3 before the fork; lane/x puts #1 under #4; main then moves #1 first under #3 (an order-only change,
+/// by state: its parent is b's); `sync lane/x` lands #1 under #4, lane/x's reparent. RS-007's replay compares whole
+/// (parent, order) values by MR-040, so main's later order-only move wins there and lane/x's move is lost.
 #[test]
-fn k2_a_later_order_only_move_beats_an_earlier_parent_change() {
+fn k2_a_reparent_beats_a_concurrent_order_only_move() {
     use Ev::*;
     let h = hist(
         4,
@@ -225,7 +225,7 @@ fn k2_a_later_order_only_move_beats_an_earlier_parent_change() {
             Sync(X, T::Ours),
         ],
     );
-    for rule in [Rule::Cand, Rule::Current] {
+    for (rule, want) in [(Rule::Cand, Some(4)), (Rule::Current, Some(3))] {
         let l = run(&h, rule);
         assert_eq!(
             outcomes(&l),
@@ -233,13 +233,16 @@ fn k2_a_later_order_only_move_beats_an_earlier_parent_change() {
             "{}",
             trace_text(&h, &l)
         );
-        assert_eq!(
-            parents(&l, X)[0],
-            Some(3),
-            "{rule:?}: {}",
-            trace_text(&h, &l)
-        );
+        assert_eq!(parents(&l, X)[0], want, "{rule:?}: {}", trace_text(&h, &l));
     }
+    let l = run(&h, Rule::Cand);
+    let e = last_merge(&l);
+    assert!(e.hints.is_empty(), "{:?}", e.hints);
+    assert!(
+        matches!(e.verdict, Some(Verdict::LandedOk { took_o: 1, .. })),
+        "{}",
+        trace_text(&h, &l)
+    );
 }
 
 /// Weakness: the staged key of a cycle no choice avoids is the one-sided key with the latest origin, whatever side it

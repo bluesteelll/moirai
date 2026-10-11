@@ -5,7 +5,9 @@
 //! ([AR §2.7] T7, "one side equals base → take the other"):
 //! - o = t: that value (`untouched` when it is also b's, else `both-same`);
 //! - o = b: t (`only-t`); t = b: o (`only-o`);
-//! - otherwise (`both-diff`): the side whose value has the later origin time wins (MR-040), t on a tie.
+//! - otherwise (`both-diff`): when one side's value is order-only by state (its parent is b's) and the other's is not,
+//!   the other side's reparent wins (13.5 (b)); else the side whose value has the later origin time wins (MR-040), t
+//!   on a tie.
 //!
 //! The origin time of side S's value of a key is the (hlc, commit id) of the commit that produced it
 //! ([`crate::dag::Dag::origin`]; values compared as (live, flat), so `absent` is no live root, F3): the walk from S's
@@ -199,7 +201,7 @@ fn classify(x: &HInput<'_>, og: &Origins<'_, '_>) -> BTreeMap<Nid, K> {
                 fallback: b.clone(),
                 side: 1,
             }
-        } else if og.of(2, *n) >= og.of(1, *n) {
+        } else if takes_t(og, *n, (b, o, t), [db, dob, dt]) {
             K {
                 class: Class::BothDiff,
                 chosen: t.clone(),
@@ -217,6 +219,26 @@ fn classify(x: &HInput<'_>, og: &Origins<'_, '_>) -> BTreeMap<Nid, K> {
         out.insert(*n, k);
     }
     out
+}
+
+/// Whether a two-sided key takes t's value (its three-way value, the MR-040 winner): when b, o and t are all live
+/// and exactly one side's value is order-only by state (its parent is b's, its order not), the other side's
+/// reparent, whatever their origins (13.5 (b); R-15 Q3, revert and cherry-pick included); otherwise the side whose
+/// value has the later origin, t on equal origins (MR-040).
+fn takes_t(
+    og: &Origins<'_, '_>,
+    n: Nid,
+    (b, o, t): (&Option<KVal>, &Option<KVal>, &Option<KVal>),
+    dead: [bool; 3],
+) -> bool {
+    if dead == [false; 3] {
+        let o_reorder = parent_of(o) == parent_of(b);
+        let t_reorder = parent_of(t) == parent_of(b);
+        if o_reorder != t_reorder {
+            return o_reorder;
+        }
+    }
+    og.of(2, n) >= og.of(1, n)
 }
 
 /// Whether `n` is its own ancestor in the parent map `p` (a parent outside the map ends the chain).
