@@ -40,6 +40,12 @@
 //! [`node_is_tiny`] that of a file node F, over its reference fingerprint or else `F.bytes` ([F20 §2.6.5]). Tiny
 //! content carries no content signal.
 //!
+//! # `replaced` and E8
+//!
+//! [`replaced_content`] and [`e8_content`] are the content conditions of the `replaced` test ([F20 §5.4.1]) and of E8
+//! ([F20 §5.13]), over a [`RefEstimates`]: the reference fingerprint R, the fingerprint of the content compared with
+//! it, and their sketch estimates, which both tests always use. The cascade's own conditions are the caller's.
+//!
 //! # Memory
 //!
 //! The fingerprint sink holds a fixed-size state and no heap memory: the line hasher, the weight, the 64 sketch values
@@ -52,12 +58,14 @@
 mod fingerprint;
 mod line;
 mod measure;
+mod reference;
 mod score;
 mod tiny;
 mod winnow;
 
 pub use fingerprint::{Fingerprint, FingerprintError, FingerprintSink};
 pub use measure::{Estimates, Exact, HitSink, LineMultiset, MultisetSink, estimates, exact};
+pub use reference::{RefEstimates, e8_content, replaced_content};
 pub use score::{Basis, PairScore, pair_score, resemblance};
 pub use tiny::{content_is_tiny, node_is_tiny};
 pub use winnow::{Tokens, WinnowSet, WinnowSink, jaccard, select, tokens, winnow};
