@@ -52,6 +52,12 @@
 //! that carry a path and the containments of the old content in them: an old content found in pieces across several
 //! candidates, or folded into one host. The split sum is exact for every [`crate::r14::Ratio`].
 //!
+//! # The similarity classification
+//!
+//! [`classify`] gives the [`Similarity`] class of [F20 §5.15] for a list of [`Scored`] candidates: split, strong,
+//! merged, weak (one candidate or `ambiguous`) or none, with the rows in [F20 §5.11.4]'s order and weak the residual
+//! class (RULINGS R-13).
+//!
 //! # Memory
 //!
 //! The fingerprint sink holds a fixed-size state and no heap memory: the line hasher, the weight, the 64 sketch values
@@ -61,6 +67,7 @@
 //!
 //! Integers only: no measure is a floating-point number ([F20 §1.2] "Rationals").
 
+mod classify;
 mod fingerprint;
 mod line;
 mod measure;
@@ -71,6 +78,7 @@ mod score;
 mod tiny;
 mod winnow;
 
+pub use classify::{Scored, Similarity, classify};
 pub use fingerprint::{Fingerprint, FingerprintError, FingerprintSink};
 pub use measure::{Estimates, Exact, HitSink, LineMultiset, MultisetSink, estimates, exact};
 pub use pieces::{Candidate, merged, split};
