@@ -27,6 +27,37 @@
 //! [`estimates`] gives `eoin`, `enio` and `esym` of an old content known only by its fingerprint, from the `hit`
 //! count a [`HitSink`] takes while the new content streams ([F20 §2.10.2]).
 //!
+//! # Resemblance and the pair score
+//!
+//! [`resemblance`] gives the bottom-k resemblance `r` of two fingerprints ([F20 §2.10.3]), by which stage 1 of the
+//! similarity search ranks its candidates. [`pair_score`] gives the [`PairScore`] of an old and a new content
+//! ([F20 §2.10.4]): `max(sym, J)` with the exact containments when both were read within the exact limit, else
+//! `esym` with the estimates. Its [`Basis`] records which.
+//!
+//! # Tiny contents and file nodes
+//!
+//! [`content_is_tiny`] is the tiny test of a content X, text or binary, over its byte statistics, and
+//! [`node_is_tiny`] that of a file node F, over its reference fingerprint or else `F.bytes` ([F20 §2.6.5]). Tiny
+//! content carries no content signal.
+//!
+//! # `replaced` and E8
+//!
+//! [`replaced_content`] and [`e8_content`] are the content conditions of the `replaced` test ([F20 §5.4.1]) and of E8
+//! ([F20 §5.13]), over a [`RefEstimates`]: the reference fingerprint R, the fingerprint of the content compared with
+//! it, and their sketch estimates, which both tests always use. The cascade's own conditions are the caller's.
+//!
+//! # Split and merged
+//!
+//! [`split`] and [`merged`] are the tests of [F20 §5.11.4] rows 2 and 5, which §5.15 reuses, over [`Candidate`]s
+//! that carry a path and the containments of the old content in them: an old content found in pieces across several
+//! candidates, or folded into one host. The split sum is exact for every [`crate::r14::Ratio`].
+//!
+//! # The similarity classification
+//!
+//! [`classify`] gives the [`Similarity`] class of [F20 §5.15] for a list of [`Scored`] candidates: split, strong,
+//! merged, weak (one candidate or `ambiguous`) or none, with the rows in [F20 §5.11.4]'s order and weak the residual
+//! class (RULINGS R-13).
+//!
 //! # Memory
 //!
 //! The fingerprint sink holds a fixed-size state and no heap memory: the line hasher, the weight, the 64 sketch values
@@ -36,11 +67,22 @@
 //!
 //! Integers only: no measure is a floating-point number ([F20 §1.2] "Rationals").
 
+mod classify;
 mod fingerprint;
 mod line;
 mod measure;
+mod nat;
+mod pieces;
+mod reference;
+mod score;
+mod tiny;
 mod winnow;
 
+pub use classify::{Scored, Similarity, classify};
 pub use fingerprint::{Fingerprint, FingerprintError, FingerprintSink};
 pub use measure::{Estimates, Exact, HitSink, LineMultiset, MultisetSink, estimates, exact};
+pub use pieces::{Candidate, merged, split};
+pub use reference::{RefEstimates, e8_content, replaced_content};
+pub use score::{Basis, PairScore, pair_score, resemblance};
+pub use tiny::{content_is_tiny, node_is_tiny};
 pub use winnow::{Tokens, WinnowSet, WinnowSink, jaccard, select, tokens, winnow};
