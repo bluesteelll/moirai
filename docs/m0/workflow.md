@@ -750,18 +750,19 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
 
 ## Appendix A. The gate kit
 
-The scripts below are the kit of §7, written into `<ORCH>/kit/` by §15 step 5 exactly as printed. They are Windows
-PowerShell 5.1 scripts in ASCII; `.gitattributes`' CRLF rule for `*.ps1` concerns files in the repository, and these
-live only in `<ORCH>`. Each script's header states its call, its outputs and its exit codes. The red-proof of each is
-the `selftest.ps1` case that names it:
+The scripts below are the kit of §7, written into `<ORCH>/kit/` by §15 step 5 exactly as printed, in ASCII with CRLF
+line endings, the last line too: the kit hash is over those bytes. They are Windows PowerShell 5.1 scripts;
+`.gitattributes`' CRLF rule for `*.ps1` concerns files in the repository, and these live only in `<ORCH>`. A merged
+change of this appendix is re-installed as §7 "The kit hash" says. Each script's header states its call, its outputs
+and its exit codes. The red-proof of each is the `selftest.ps1` case that names it:
 
 | Script | Red-proof cases in `selftest.ps1` |
 |---|---|
-| `start-gate.ps1` | `run-dir-reuse-refused`, `start-refused-below-disk-floor`, `lock-released-after-refusal`, `start-refused-without-target-dir`, `start-refused-cmd-metacharacter`, `tests-kind-needs-json-messages`, `busy-work-dir-refused`, `detach-dirty-refused`, `foreign-lockfile-refused`, `lockfile-equal-to-branch-staged-and-switched` |
+| `start-gate.ps1` | `run-dir-reuse-refused`, `start-refused-below-disk-floor`, `lock-released-after-refusal`, `start-refused-without-target-dir`, `start-refused-cmd-metacharacter`, `tests-kind-needs-json-messages`, `start-refused-below-commit-floor`, `start-passes-default-commit-floor`, `busy-work-dir-refused`, `detach-dirty-refused`, `foreign-lockfile-refused`, `lockfile-equal-to-branch-staged-and-switched` |
 | `run-gate.ps1` | `gate-fail-row-exit-0`, `gate-pass-rows-exit-3`, `gate-nothing-exit-0`, `tests-zero`, `tests-missing-expected`, `tests-failed-exit-101`, `tests-unannounced-binary`, `tests-ids-carry-package`, `hang-stopped-by-pid-tree`, `detach-records-head-and-tree`, `lockfile-update-reported`, `summary-stamped-with-kit-hash`; the passing controls `gate-pass`, `tests-pass`, `tests-ids-by-name`, `tests-two-packages` |
 | `wait-gate.ps1` | `wait-slice-running`, `dead-runner-reported` |
 | `stop-gate.ps1` | `stop-gate-archives-and-kills`, `orphan-killed-by-pid`, `lock-released-after-stop` |
-| `preflight.ps1` | `preflight-fallback-disk-low`, `preflight-fallback-ram-low`, `preflight-fallback-cap-reserved`, `preflight-no-caps-refused`, `preflight-guard-disk-low`, `preflight-guard-ram-low`, `preflight-guard-cap-reserved`; the controls `preflight-fallback-pass`, `preflight-fallback-cap-control`, `preflight-guard-pass`, `preflight-guard-cap-control` |
+| `preflight.ps1` | `preflight-fallback-disk-low`, `preflight-fallback-ram-low`, `preflight-fallback-cap-reserved`, `preflight-no-caps-refused`, `preflight-fallback-commit-low`, `preflight-commit-default-floor`, `preflight-guard-disk-low`, `preflight-guard-ram-low`, `preflight-guard-cap-reserved`, `preflight-guard-commit-low`; the controls `preflight-fallback-pass`, `preflight-fallback-cap-control`, `preflight-fallback-commit-control`, `preflight-guard-pass`, `preflight-guard-cap-control`, `preflight-guard-commit-control` |
 | `embed.ps1` | `embed-no-marker-refused`, `embed-two-markers-refused`, `embed-writes-lf-copy` |
 | `local-settings.ps1` | `local-settings-malformed-refused`, `local-settings-adds-and-keeps`, `local-settings-idempotent` |
 | `kit-common.ps1`, `kit-hash.ps1` | every case above; `summary-stamped-with-kit-hash` |
@@ -1054,8 +1055,8 @@ function ConvertTo-ClaudeAbs([string]$Path) {
 #
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/start-gate.ps1 -RunDir <new dir> -WorkDir <dir>
 #     -Unit <unit> -RunId <id> -Kind gate|tests -CmdLine "<command>" [-Detach <branch>] [-BudgetMin <min>]
-#     [-TargetDir <dir>] [-Jobs <n>] [-Expected <tsv>] [-DiskFloorGb <gb>] [-RamFloorGb <gb>] [-Guard <exe>]
-#     [-CapsFile <file>]
+#     [-TargetDir <dir>] [-Jobs <n>] [-Expected <tsv>] [-DiskFloorGb <gb>] [-RamFloorGb <gb>] [-CommitFloorGb <gb>]
+#     [-Guard <exe>] [-CapsFile <file>]
 #
 # -Detach <branch> (the gate worktree): under the lock, the work directory must be clean - except Cargo.lock and
 # fuzz/Cargo.lock when they equal the branch's, which are then staged - and is switched to the branch tip, detached
@@ -1064,12 +1065,13 @@ function ConvertTo-ClaudeAbs([string]$Path) {
 # so none of & | < > ^ % " may appear in them. The run directory must not exist. A tests run of cargo needs
 # --message-format=json-render-diagnostics: its test ids take the package from cargo's compiler-artifact messages.
 # Defaults: -BudgetMin from <kit>/budgets.txt (<kind>=<minutes>), -TargetDir and -Jobs from CARGO_TARGET_DIR and
-# CARGO_BUILD_JOBS (set by the role worktree's settings.local.json), -Guard <kit>/guard.exe, -CapsFile <kit>/caps.txt
-# (the counted directories of the pre-flight, preflight.ps1).
+# CARGO_BUILD_JOBS (the session's environment; the main checkout's settings.local.json sets them, docs/m0/workflow.md
+# section 8), -CommitFloorGb 4 (RULINGS R-10), -Guard <kit>/guard.exe, -CapsFile <kit>/caps.txt (the counted
+# directories of the pre-flight, preflight.ps1).
 # One run per work directory at a time: the lock is <kit>/locks/<work dir>.lock.
 # Writes in the run directory: params.txt and cmd.txt (before the start), PID and owner.txt (after it); the runner
-# (run-gate.ps1) writes the rest. Exit codes: 0 started; 1 pre-flight refused; 2 usage or precondition;
-# 6 the work directory is busy (another live run holds its lock).
+# (run-gate.ps1) writes the rest. Exit codes: 0 started; 1 pre-flight refused (the pre-flight line names its
+# reasons); 2 usage or precondition; 6 the work directory is busy (another live run holds its lock).
 param(
     [Parameter(Mandatory = $true)][string]$RunDir,
     [Parameter(Mandatory = $true)][string]$WorkDir,
@@ -1084,6 +1086,7 @@ param(
     [string]$Expected = '',
     [double]$DiskFloorGb = 25,
     [double]$RamFloorGb = 1.5,
+    [double]$CommitFloorGb = 4,
     [string]$Guard = '',
     [string]$CapsFile = ''
 )
@@ -1094,7 +1097,7 @@ if (-not (Test-NoSpace @($RunDir, $WorkDir, $TargetDir, $Expected, $Unit, $RunId
 }
 if (-not (Test-Path -LiteralPath $WorkDir -PathType Container)) { Fail 2 "start-gate: no work directory $WorkDir" }
 if ([string]::IsNullOrEmpty($TargetDir)) {
-    Fail 2 'start-gate: CARGO_TARGET_DIR is unset: start the gate from the unit session (its role worktree sets it) or pass -TargetDir'
+    Fail 2 'start-gate: CARGO_TARGET_DIR is unset: start the gate from the orchestrator session, whose settings set it (docs/m0/workflow.md section 8), or pass -TargetDir'
 }
 if ($Expected -ne '' -and -not (Test-Path -LiteralPath $Expected -PathType Leaf)) { Fail 2 "start-gate: no expected set $Expected" }
 if (Test-Path -LiteralPath $RunDir) { Fail 2 "start-gate: $RunDir exists: every run gets a new directory" }
@@ -1157,7 +1160,7 @@ if ($Detach -ne '') {
 $volume = $TargetDir
 if (-not (Test-Path -LiteralPath $volume -PathType Container)) { $volume = Split-Path -Parent $TargetDir }
 $pf = Join-Path $PSScriptRoot 'preflight.ps1'
-& $pf -Volume $volume -DiskFloorGb $DiskFloorGb -RamFloorGb $RamFloorGb -Guard $Guard -CapsFile $CapsFile
+& $pf -Volume $volume -DiskFloorGb $DiskFloorGb -RamFloorGb $RamFloorGb -CommitFloorGb $CommitFloorGb -Guard $Guard -CapsFile $CapsFile
 $pfCode = $LASTEXITCODE
 if ($pfCode -eq 2) { Stop-Start 2 'start-gate: the pre-flight could not run (exit 2)' }
 if ($pfCode -ne 0) { Stop-Start 1 "start-gate: pre-flight refused (exit $pfCode): nothing started" }
@@ -1425,29 +1428,38 @@ exit 0
 ### A.6 `kit/preflight.ps1`
 
 ```powershell
-# preflight.ps1 - refuse a big build below the RAM or disk floor (docs/m0/workflow.md sections 7 and 10, Appendix A).
+# preflight.ps1 - refuse a big build below the RAM, commit-charge or disk floor (docs/m0/workflow.md sections 7 and
+# 10, Appendix A).
 #
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/preflight.ps1 -Volume <dir on the work volume>
-#     [-DiskFloorGb 25] [-RamFloorGb 1.5] [-Guard <exe>] [-CapsFile <file>] [-InjectFreeGb <gb>] [-InjectRamGb <gb>]
+#     [-DiskFloorGb 25] [-RamFloorGb 1.5] [-CommitFloorGb 4] [-Guard <exe>] [-CapsFile <file>] [-InjectFreeGb <gb>]
+#     [-InjectRamGb <gb>] [-InjectCommitGb <gb>]
 #
 # The disk floor is on the headroom of [MP 8.1]: the volume's available space less each counted directory's remaining
 # growth up to its cap, as the nightly runner counts it. The counted directories and their caps are the lines
 # "<absolute dir>=<cap>" of -CapsFile (default <kit>/caps.txt, copied from xtask/nightly.toml [guard.caps]; "#"
 # comments; caps in the guard's units, such as 40GB); a missing file or one with no directory is refused (exit 2).
+# While units build only in lane A, caps.txt counts laneA alone and keeps the other entries as comments (RULINGS R-11).
 # With the guard binary (default <kit>/guard.exe, a copy of moirai-probes-bin guard, [MP 8]) it asks the guard:
 # guard --volume <dir> --dir <dir> <cap>... --ram-floor <gb>GB --disk-floor <gb>GB, the injections as
 # --inject-volume-available and --inject-available-physical. Without it, it reads the volume's available space, the
 # directories' sizes (regular files, reparse points not followed) and the available physical memory itself and applies
-# the same rule. GB is 10^9 bytes ([MP 1.3]). The -Inject options exist to red-prove this script and are never passed
-# by a real run. Exit codes: 0 pass; 1 refused; 2 usage or unreadable.
+# the same rule. The commit floor is on the free commit charge (Win32_OperatingSystem.FreeVirtualMemory, RULINGS
+# R-10); the guard does not read it, so this script checks it on both paths. The output line carries the verdict, pass
+# or refuse <reasons> (ram-low, disk-low, commit-low, or guard when the guard refused), or unreadable, and the field
+# commit=<x>GB floor=<y>GB; it says "verdict=refuse commit-low " exactly when the commit charge is the only reason.
+# GB is 10^9 bytes ([MP 1.3]). The -Inject options exist to red-prove this script and are never passed by a real run.
+# Exit codes: 0 pass; 1 refused; 2 usage or unreadable.
 param(
     [Parameter(Mandatory = $true)][string]$Volume,
     [double]$DiskFloorGb = 25,
     [double]$RamFloorGb = 1.5,
+    [double]$CommitFloorGb = 4,
     [string]$Guard = '',
     [string]$CapsFile = '',
     [double]$InjectFreeGb = -1,
-    [double]$InjectRamGb = -1
+    [double]$InjectRamGb = -1,
+    [double]$InjectCommitGb = -1
 )
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
@@ -1493,6 +1505,13 @@ foreach ($line in (Read-Lines $CapsFile)) {
 }
 if ($caps.Count -eq 0) { Fail 2 "preflight: $CapsFile names no counted directory" }
 
+# The free commit charge (RULINGS R-10), in kilobytes; read here because the guard does not read it.
+try {
+    if ($InjectCommitGb -ge 0) { $commit = [double]$InjectCommitGb * 1e9 }
+    else { $commit = [double](Get-CimInstance -ClassName Win32_OperatingSystem).FreeVirtualMemory * 1024 }
+} catch { Fail 2 ('preflight: a reading failed: {0}' -f $_.Exception.Message) }
+$commitLow = ($commit -lt $CommitFloorGb * 1e9)
+
 if (Test-Path -LiteralPath $Guard -PathType Leaf) {
     $a = @('--volume', $Volume)
     foreach ($c in $caps) { $a += @('--dir', $c.Dir, $c.Cap) }
@@ -1503,10 +1522,16 @@ if (Test-Path -LiteralPath $Guard -PathType Leaf) {
     $ErrorActionPreference = 'Continue'
     try { $out = (& $Guard @a 2>&1 | Out-String) } finally { $ErrorActionPreference = $old }
     $code = $LASTEXITCODE
-    Write-Output ('preflight: source=guard exit={0} dirs={1} {2}' -f $code, $caps.Count, (ConvertTo-Field $out.Trim()))
-    if ($code -eq 0) { exit 0 }
+    $why = New-Object System.Collections.ArrayList
+    if ($code -ne 0) { [void]$why.Add('guard') }
+    if ($commitLow) { [void]$why.Add('commit-low') }
+    $verdict = 'pass'
+    if ($code -eq 2) { $verdict = 'unreadable' }
+    elseif ($why.Count -gt 0) { $verdict = 'refuse ' + ($why -join ',') }
+    Write-Output ([string]::Format($script:Inv, 'preflight: source=guard verdict={0} exit={1} dirs={2} commit={3:F2}GB floor={4}GB {5}', $verdict, $code, $caps.Count, ($commit / 1e9), $CommitFloorGb, (ConvertTo-Field $out.Trim())))
     if ($code -eq 2) { exit 2 }
-    exit 1
+    if ($why.Count -gt 0) { exit 1 }
+    exit 0
 }
 
 try {
@@ -1524,9 +1549,10 @@ $headroom = [Math]::Max([double]0, $free - $reserved)
 $refuse = New-Object System.Collections.ArrayList
 if ($ram -lt $RamFloorGb * 1e9) { [void]$refuse.Add('ram-low') }
 if ($headroom -lt $DiskFloorGb * 1e9) { [void]$refuse.Add('disk-low') }
+if ($commitLow) { [void]$refuse.Add('commit-low') }
 $verdict = 'pass'
 if ($refuse.Count -gt 0) { $verdict = 'refuse ' + ($refuse -join ',') }
-Write-Output ([string]::Format($script:Inv, 'preflight: source=fallback verdict={0} ram={1:F2}GB floor={2}GB available={3:F2}GB reserved={4:F2}GB headroom={5:F2}GB floor={6}GB dirs={7} volume={8}', $verdict, ($ram / 1e9), $RamFloorGb, ($free / 1e9), ($reserved / 1e9), ($headroom / 1e9), $DiskFloorGb, $caps.Count, $Volume))
+Write-Output ([string]::Format($script:Inv, 'preflight: source=fallback verdict={0} ram={1:F2}GB floor={2}GB commit={3:F2}GB floor={4}GB available={5:F2}GB reserved={6:F2}GB headroom={7:F2}GB floor={8}GB dirs={9} volume={10}', $verdict, ($ram / 1e9), $RamFloorGb, ($commit / 1e9), $CommitFloorGb, ($free / 1e9), ($reserved / 1e9), ($headroom / 1e9), $DiskFloorGb, $caps.Count, $Volume))
 if ($refuse.Count -gt 0) { exit 1 }
 exit 0
 ```
@@ -1574,7 +1600,8 @@ exit 0
 
 ```powershell
 # local-settings.ps1 - add the workflow's local keys to a checkout's .claude/settings.local.json, keeping every key
-# and rule already there (docs/m0/workflow.md sections 5 and 8, Appendix A).
+# and rule already there (docs/m0/workflow.md sections 8 and 15, Appendix A). Under RULINGS R-8 and R-9 it is run for
+# the main checkout only; its deny-rule part below serves only a return to unit sessions in role worktrees.
 #
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/local-settings.ps1 -Worktree <checkout>
 #     -Orch <ORCH> -WtRoot <worktree root> [-AllowFile <kit>/unit-allow.txt]
@@ -1712,7 +1739,8 @@ exit $Code
 # <kit>/selftest-runs/<UTC time>/ and checks its exit code and outputs: a failing row must give a non-zero exit even
 # when the command itself exits 0, zero rows or zero tests must not pass, a missing expected test must fail, test ids
 # must carry the package, a hang must be stopped by its PID tree, a busy work directory must be refused, and the
-# pre-flight must refuse below its floors, counting the reserve of the capped directories. Prints one line per case and "selftest: PASS" or "selftest: FAIL". Exit codes: 0 every case behaved;
+# pre-flight must refuse below its floors (disk, RAM and the commit charge), counting the reserve of the capped
+# directories. Prints one line per case and "selftest: PASS" or "selftest: FAIL". Exit codes: 0 every case behaved;
 # 1 a case misbehaved. Takes about three minutes. Never run beside a unit's gate in the same work directory.
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
@@ -1756,7 +1784,7 @@ function Start-Detached([string]$Case, [string]$Repo, [string]$Branch, [string]$
     $run = Join-Path $base ('run-' + $Case)
     $a = @('-RunDir', $run, '-WorkDir', $Repo, '-Unit', 'selftest', '-RunId', ('selftest-' + $Case), '-Kind', 'gate',
         '-CmdLine', (Get-FakeCmd (New-Lines $Case $pass) 0 0 $Touch), '-Detach', $Branch, '-BudgetMin', '2',
-        '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CapsFile', $caps)
+        '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-CapsFile', $caps)
     return @{ Run = $run; Start = (Invoke-Kit 'start-gate.ps1' $a) }
 }
 function Start-Fake([string]$Case, [string]$Kind, [string]$LinesFile, [int]$Code, [int]$SleepSec, [double]$Budget, [string]$Work = '', [string]$Expected = '') {
@@ -1765,7 +1793,7 @@ function Start-Fake([string]$Case, [string]$Kind, [string]$LinesFile, [int]$Code
     $run = Join-Path $base ('run-' + $Case)
     $a = @('-RunDir', $run, '-WorkDir', $Work, '-Unit', 'selftest', '-RunId', ('selftest-' + $Case), '-Kind', $Kind,
         '-CmdLine', (Get-FakeCmd $LinesFile $Code $SleepSec), '-BudgetMin', $Budget.ToString($script:Inv),
-        '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CapsFile', $caps)
+        '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-CapsFile', $caps)
     if ($Expected -ne '') { $a += @('-Expected', $Expected) }
     $r = Invoke-Kit 'start-gate.ps1' $a
     return @{ Run = $run; Work = $Work; Start = $r }
@@ -1880,13 +1908,26 @@ if ($d.Start.Code -eq 0) {
     Add-Result 'orphan-killed-by-pid' '0, tree dead' ('{0}, tree dead {1}' -f $st.Code, $dead) ($st.Code -eq 0 -and $dead)
 } else { Add-Result 'dead-runner-reported' 'start 0' $d.Start.Out $false }
 
+# The commit field of a pre-flight line and whether the commit charge is its only reason (preflight.ps1's header).
+function Test-CommitLine([string]$Out, [string]$Floor, [bool]$Low) {
+    $field = [regex]::IsMatch($Out, ('commit=[0-9.]+GB floor={0}GB' -f [regex]::Escape($Floor)))
+    $named = [regex]::IsMatch($Out, 'verdict=refuse commit-low( |$)')
+    return ($field -and ($named -eq $Low))
+}
+function Get-Brief([string]$Out) {
+    # One line of at most 240 characters: the guard's own output after the commit field can be long.
+    $t = ConvertTo-Field $Out
+    if ($t.Length -gt 240) { $t = $t.Substring(0, 240) + ' ...' }
+    return $t
+}
+
 # Preconditions of start-gate.
 $x = Start-Fake 'gate-pass' 'gate' '' 0 0 1
 Add-Result 'run-dir-reuse-refused' '2' ([string]$x.Start.Code) ($x.Start.Code -eq 2)
 $wk = Join-Path $base 'work-pf'
 New-Item -ItemType Directory -Path $wk | Out-Null
 $pfa = @('-RunDir', (Join-Path $base 'run-pf'), '-WorkDir', $wk, '-Unit', 'selftest', '-RunId', 'selftest-pf', '-Kind', 'gate',
-    '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-TargetDir', $base, '-DiskFloorGb', '1000000', '-RamFloorGb', '0', '-CapsFile', $caps)
+    '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-TargetDir', $base, '-DiskFloorGb', '1000000', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-CapsFile', $caps)
 $pf = Invoke-Kit 'start-gate.ps1' $pfa
 Add-Result 'start-refused-below-disk-floor' '1' ([string]$pf.Code) ($pf.Code -eq 1)
 $lockLeft = @(Get-ChildItem -LiteralPath (Join-Path $K 'locks') -Filter '*work_pf.lock').Count
@@ -1903,34 +1944,60 @@ Add-Result 'start-refused-cmd-metacharacter' '2' ([string]$mc.Code) ($mc.Code -e
 $mf = Invoke-Kit 'start-gate.ps1' @('-RunDir', (Join-Path $base 'run-mf'), '-WorkDir', $wk, '-Unit', 'selftest', '-RunId', 'selftest-mf',
     '-Kind', 'tests', '-CmdLine', 'cargo test --locked -p demo --no-fail-fast', '-BudgetMin', '1', '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CapsFile', $caps)
 Add-Result 'tests-kind-needs-json-messages' '2' ([string]$mf.Code) ($mf.Code -eq 2)
+# The commit floor through start-gate: a floor of 10^6 GB refuses on any machine, before the run directory is made;
+# without -CommitFloorGb, start-gate passes its default of 4 GB on (here refused for the disk, so nothing starts).
+$wc = Join-Path $base 'work-cc'
+New-Item -ItemType Directory -Path $wc | Out-Null
+$q6 = Invoke-Kit 'start-gate.ps1' @('-RunDir', (Join-Path $base 'run-cc'), '-WorkDir', $wc, '-Unit', 'selftest', '-RunId', 'selftest-cc',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '1000000', '-CapsFile', $caps)
+$ccRun = Test-Path -LiteralPath (Join-Path $base 'run-cc')
+$ccLock = @(Get-ChildItem -LiteralPath (Join-Path $K 'locks') -Filter '*work_cc.lock').Count
+Add-Result 'start-refused-below-commit-floor' '1, commit-low at floor 1000000GB, no run dir, 0 locks' ('{0}, run dir {1}, locks {2}: {3}' -f $q6.Code, $ccRun, $ccLock, (Get-Brief $q6.Out)) ($q6.Code -eq 1 -and (Test-CommitLine $q6.Out '1000000' $true) -and -not $ccRun -and $ccLock -eq 0)
+$wd = Join-Path $base 'work-cd'
+New-Item -ItemType Directory -Path $wd | Out-Null
+$q7 = Invoke-Kit 'start-gate.ps1' @('-RunDir', (Join-Path $base 'run-cd'), '-WorkDir', $wd, '-Unit', 'selftest', '-RunId', 'selftest-cd',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-TargetDir', $base, '-DiskFloorGb', '1000000', '-RamFloorGb', '0', '-CapsFile', $caps)
+Add-Result 'start-passes-default-commit-floor' '1, floor=4GB' ('{0}: {1}' -f $q7.Code, (Get-Brief $q7.Out)) ($q7.Code -eq 1 -and [regex]::IsMatch($q7.Out, 'commit=[0-9.]+GB floor=4GB'))
 
 # The pre-flight, through the fallback (a missing guard path) and, when present, through the guard.
 $none = Join-Path $base 'no-guard.exe'
-$p1 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-InjectFreeGb', '1', '-Guard', $none, '-CapsFile', $caps)
+$p1 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-InjectFreeGb', '1', '-Guard', $none, '-CapsFile', $caps)
 Add-Result 'preflight-fallback-disk-low' '1' ([string]$p1.Code) ($p1.Code -eq 1)
-$p2 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '1.5', '-InjectRamGb', '0.5', '-Guard', $none, '-CapsFile', $caps)
+$p2 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '1.5', '-CommitFloorGb', '0', '-InjectRamGb', '0.5', '-Guard', $none, '-CapsFile', $caps)
 Add-Result 'preflight-fallback-ram-low' '1' ([string]$p2.Code) ($p2.Code -eq 1)
-$p3 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+$p3 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
 Add-Result 'preflight-fallback-pass' '0' ([string]$p3.Code) ($p3.Code -eq 0)
 # 30 GB available less the 10 GB the empty capped directory may still grow is below the 25 GB floor; 40 GB is not.
-$p7 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-InjectFreeGb', '30', '-Guard', $none, '-CapsFile', $caps10)
+$p7 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-InjectFreeGb', '30', '-Guard', $none, '-CapsFile', $caps10)
 Add-Result 'preflight-fallback-cap-reserved' '1' ([string]$p7.Code) ($p7.Code -eq 1)
-$p8 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-InjectFreeGb', '40', '-Guard', $none, '-CapsFile', $caps10)
+$p8 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-InjectFreeGb', '40', '-Guard', $none, '-CapsFile', $caps10)
 Add-Result 'preflight-fallback-cap-control' '0' ([string]$p8.Code) ($p8.Code -eq 0)
 $p9 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-Guard', $none, '-CapsFile', (Join-Path $base 'no-caps.txt'))
 Add-Result 'preflight-no-caps-refused' '2' ([string]$p9.Code) ($p9.Code -eq 2)
+# The commit floor (RULINGS R-10) on injected readings: 8 GB is below a floor of 10, 12 GB is not, and 3.5 GB is below
+# the default floor of 4.
+$q1 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '10', '-InjectCommitGb', '8', '-Guard', $none, '-CapsFile', $caps)
+Add-Result 'preflight-fallback-commit-low' '1, commit-low at floor 10GB' ('{0}: {1}' -f $q1.Code, (Get-Brief $q1.Out)) ($q1.Code -eq 1 -and (Test-CommitLine $q1.Out '10' $true))
+$q2 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '10', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps)
+Add-Result 'preflight-fallback-commit-control' '0, floor 10GB, no commit-low' ('{0}: {1}' -f $q2.Code, (Get-Brief $q2.Out)) ($q2.Code -eq 0 -and (Test-CommitLine $q2.Out '10' $false))
+$q3 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-InjectCommitGb', '3.5', '-Guard', $none, '-CapsFile', $caps)
+Add-Result 'preflight-commit-default-floor' '1, commit-low at floor 4GB' ('{0}: {1}' -f $q3.Code, (Get-Brief $q3.Out)) ($q3.Code -eq 1 -and (Test-CommitLine $q3.Out '4' $true))
 $g = Join-Path $K 'guard.exe'
 if (Test-Path -LiteralPath $g) {
-    $p4 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-InjectFreeGb', '1', '-CapsFile', $caps)
+    $p4 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-CommitFloorGb', '0', '-InjectFreeGb', '1', '-CapsFile', $caps)
     Add-Result 'preflight-guard-disk-low' '1' ([string]$p4.Code) ($p4.Code -eq 1)
-    $p5 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '1', '-InjectFreeGb', '200', '-CapsFile', $caps)
+    $p5 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-CommitFloorGb', '0', '-InjectRamGb', '1', '-InjectFreeGb', '200', '-CapsFile', $caps)
     Add-Result 'preflight-guard-ram-low' '1' ([string]$p5.Code) ($p5.Code -eq 1)
-    $p6 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '8', '-InjectFreeGb', '200', '-CapsFile', $caps)
+    $p6 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-CommitFloorGb', '0', '-InjectRamGb', '8', '-InjectFreeGb', '200', '-CapsFile', $caps)
     Add-Result 'preflight-guard-pass' '0' ([string]$p6.Code) ($p6.Code -eq 0)
-    $p10 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '8', '-InjectFreeGb', '30', '-CapsFile', $caps10)
+    $p10 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-CommitFloorGb', '0', '-InjectRamGb', '8', '-InjectFreeGb', '30', '-CapsFile', $caps10)
     Add-Result 'preflight-guard-cap-reserved' '1' ([string]$p10.Code) ($p10.Code -eq 1)
-    $p11 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '8', '-InjectFreeGb', '40', '-CapsFile', $caps10)
+    $p11 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-CommitFloorGb', '0', '-InjectRamGb', '8', '-InjectFreeGb', '40', '-CapsFile', $caps10)
     Add-Result 'preflight-guard-cap-control' '0' ([string]$p11.Code) ($p11.Code -eq 0)
+    $q4 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '8', '-InjectFreeGb', '200', '-CommitFloorGb', '10', '-InjectCommitGb', '8', '-CapsFile', $caps)
+    Add-Result 'preflight-guard-commit-low' '1, commit-low at floor 10GB' ('{0}: {1}' -f $q4.Code, (Get-Brief $q4.Out)) ($q4.Code -eq 1 -and (Test-CommitLine $q4.Out '10' $true))
+    $q5 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '8', '-InjectFreeGb', '200', '-CommitFloorGb', '10', '-InjectCommitGb', '12', '-CapsFile', $caps)
+    Add-Result 'preflight-guard-commit-control' '0, floor 10GB, no commit-low' ('{0}: {1}' -f $q5.Code, (Get-Brief $q5.Out)) ($q5.Code -eq 0 -and (Test-CommitLine $q5.Out '10' $false))
 } else { [Console]::Out.WriteLine('note: no guard.exe in the kit: the guard cases are skipped (section 15 copies it)') }
 
 # embed.ps1.
