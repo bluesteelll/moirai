@@ -837,11 +837,11 @@ Each point names the rows it affects and the chapter or WP that owns the final t
     produced it: a sync, a merge into `main` and a resolution to `ours` or `theirs` pass it on, and a resolution to
     `base` or to a value produces a new one (13.4 (a)). When the result is not a forest, the repair resets to b one
     determined key on a cycle that no choice of the two-sided keys avoids, chosen by its tie-breaks, and that key stages
-    (MR-039). A two-sided key whose value would leave a node unable to reach a root, or under a deleted parent, lands at
-    the other side's value with a `MoveSkipped` hint (HT-004), and under strict it stages instead (13.3 (b)). A
-    two-sided key whose value is under a deleted parent keeps that value when the other side's value would leave a node
-    unable to reach a root: it gets no hint, and VA-004 stages it, also outside strict. A key equal in b, o and t keeps
-    its value. RS-007 states the rule in full.
+    (MR-039). A two-sided key whose value would leave a node unable to reach a root, or is under a deleted parent while
+    the other side's value has a live parent or none, lands at the other side's value with a `MoveSkipped` hint
+    (HT-004), and under strict it stages instead (13.3 (b)). A two-sided key whose value is under a deleted parent keeps
+    that value when the other side's value would leave a node unable to reach a root: it gets no hint, and VA-004 stages
+    it, also outside strict. A key equal in b, o and t keeps its value. RS-007 states the rule in full.
     **History** (spec sync 2b, the WP-91 review, fix and closure; [F12 §5.3] VM-7, [F12 §7.4]), which OQ-A-13 replaced:
     per-commit steps. Each commit a side made since the base that has hierarchy entries is one step keyed by its (hlc,
     commit id) and valued in that commit's state; after a step that leaves a cycle, the step's moves are undone least
