@@ -656,6 +656,62 @@ fn a_revert_or_cherry_pick_keeps_dsts_hierarchy_and_resets_cs_key_first() {
     }
 }
 
+/// A dead-parent hierarchy key whose other value would close a cycle keeps its three-way value and stages, also
+/// outside strict ([RULES/merge-table] RS-007, VA-004, HT-004; [RULES/delete-policy-matrix] XB-004). Ours puts #1 under
+/// #2 and deletes #3; theirs puts #2 under #1 and #1 under #3. #1 is two-sided and takes theirs' value, #3, on equal
+/// origins (MR-040). The result deletes #3, and ours' value, #2, has a live parent, so outside strict #1 tries ours'
+/// value first. Ours' value closes #1 ↔ #2 with theirs' one-sided #2, so #1 keeps its value under #3, with no hint and
+/// no reset, and V04 stages `#1.parent` as `DanglingEdge`. Under strict, where the preference is off, the outcome is
+/// the same. Without theirs' move of #2, ours' value lands with a `dead-parent` hint and nothing stages.
+#[test]
+fn a_dead_parent_key_whose_other_value_closes_a_cycle_stages_outside_strict() {
+    let b = base();
+    let mut o = b.clone();
+    apply(&mut o, &[Edit::Move(1, Some(2)), Edit::Delete(3)]);
+    let mut t = b.clone();
+    apply(&mut t, &[Edit::Move(2, Some(1)), Edit::Move(1, Some(3))]);
+    let hk = Key::Node(Nid(1), Aspect::Hierarchy);
+    let auto = BTreeMap::new();
+    for strict in [false, true] {
+        let mut cx = ctx(&auto, Op::Merge);
+        cx.strict = strict;
+        let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
+        let parent = |n: u32| m.st.nodes[&Nid(n)].parent;
+        assert_eq!(
+            (parent(1), parent(2)),
+            (Some(Nid(3)), Some(Nid(1))),
+            "strict {strict}"
+        );
+        assert!(
+            !m.st.nodes[&Nid(3)].live(),
+            "strict {strict}: the result deletes #3"
+        );
+        assert_eq!(
+            m.violations
+                .iter()
+                .map(|v| (v.class, v.key.clone()))
+                .collect::<Vec<_>>(),
+            vec![("DanglingEdge", Some(hk.clone()))],
+            "strict {strict}"
+        );
+        assert!(m.hints.is_empty(), "strict {strict}: {:?}", m.hints);
+        assert_eq!(m.rows[&hk], "MR-040", "strict {strict}");
+    }
+    // Without theirs' move of #2, ours' value closes no cycle: it lands with a `dead-parent` hint.
+    let mut t1 = b.clone();
+    apply(&mut t1, &[Edit::Move(1, Some(3))]);
+    let m = run(&b, &o, &t1, Op::Merge);
+    assert_eq!(m.st.nodes[&Nid(1)].parent, Some(Nid(2)));
+    assert!(m.violations.is_empty(), "{:?}", m.violations);
+    assert_eq!(
+        m.hints,
+        vec![Hint {
+            class: "MoveSkipped",
+            text: "#1.parent took ours; theirs skipped (dead-parent)".into(),
+        }]
+    );
+}
+
 proptest! {
     /// Two sides that each pass through several forests, merged at their last forests with no history: the
     /// candidate's parents are a forest, and in a real merge the `HierarchyCycle` keys are exactly the keys MR-039
