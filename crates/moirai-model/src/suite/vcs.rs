@@ -315,6 +315,58 @@ fn revert_and_cherry_pick_apply_a_commit_three_ways() {
     ids_verify(&s);
 }
 
+/// Every merge-family reply lists its merge's hints ([F19 §12.3]; [API §11.7], §11.9, §11.10): V13's `Duplicate` of
+/// two task nodes with one title under #1, which a side brought in, shows on a `sync`, on the step-0 sync of a merge
+/// into `main` (its `sync.hints`) and on the merge itself, and on a cherry-pick.
+#[test]
+fn every_merge_family_reply_lists_its_hints() {
+    let mut s = S::base();
+    s.ok(tx(vec![task("p", "parent")]), orch());
+    for l in ["x", "y", "z"] {
+        s.ok(branch(l, "main"), orch());
+    }
+    let dup = |name: &str| tx(vec![child(name, "dup", Target::Id(Nid(1)))]);
+    s.ok(dup("m"), orch());
+    s.ok(dup("x"), orch_on("lane/x"));
+    s.ok(dup("y"), orch_on("lane/y"));
+    let c = s.ok(dup("z"), orch_on("lane/z")).commit.unwrap();
+    let hints = |r: &crate::api::Reply| data(r).hints.clone();
+    let sync = s.ok(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check: false,
+        },
+        fresh_on("lane/x"),
+    );
+    let into_main = s.ok(merge("lane/y", "main"), fresh_on("lane/y"));
+    let step0 = data(&into_main)
+        .sync
+        .as_ref()
+        .expect("a step-0 sync")
+        .hints
+        .clone();
+    let pick = s.ok(
+        Cmd::CherryPick {
+            commit: format!("s{c}"),
+            onto: Some("main".into()),
+            message: String::new(),
+        },
+        fresh_on("main"),
+    );
+    let h = |a: u32, b: u32| {
+        vec![(
+            "Duplicate".to_string(),
+            format!("#{a} and #{b} are task nodes with the same title under #1"),
+        )]
+    };
+    assert_eq!(
+        (hints(&sync), step0, hints(&into_main), hints(&pick)),
+        (h(2, 3), h(2, 4), h(2, 4), h(2, 5)),
+        "sync, step 0, merge into main, cherry-pick"
+    );
+    ids_verify(&s);
+}
+
 #[test]
 fn reverting_a_creation_leaves_a_tombstone_and_dependents_refuse() {
     let mut s = S::base();

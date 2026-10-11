@@ -45,6 +45,8 @@ pub struct SyncOut {
     pub conflicts: Vec<(String, String)>,
     /// Its violations.
     pub violations: Vec<ViolationOut>,
+    /// Its hints, `(class, text)` ([F19 §12.3]).
+    pub hints: Vec<(String, String)>,
 }
 
 /// The `data` of `Merge`, `MergeContinue` and `Sync` ([API §11.7]) and of `Revert` and `CherryPick` (§11.10).
@@ -78,7 +80,7 @@ pub struct MergeData {
     pub origin: Option<u64>,
     /// `merge --continue`'s notices for stale resolutions ([F12 §9.4] step 2).
     pub notices: Vec<String>,
-    /// The hints of V13, `(class, text)`.
+    /// The hints, `(class, text)` ([F19 §12.3]): the typed step's, then V13's.
     pub hints: Vec<(String, String)>,
 }
 
@@ -379,7 +381,8 @@ impl Store {
     }
 
     /// A merge of `src_tip` into the tip of `dst` (DM-001, DM-002): the base of [F12 §4.3], the typed merge, the staged
-    /// resolutions of `merge --continue` when given ([F12 §9.4] step 2), and the validators.
+    /// resolutions of `merge --continue` when given ([F12 §9.4] step 2), and the validators. `strict` is the merge's
+    /// effective `--strict` or `merge.strict` ([`MCtx::strict`]).
     // rule: DM-001, DM-002, PR-004
     #[allow(clippy::too_many_arguments)]
     fn plan_merge(
@@ -391,6 +394,7 @@ impl Store {
         forced: Option<u64>,
         policy: Option<&str>,
         overlay: Option<&Overlay>,
+        strict: bool,
     ) -> Plan {
         let d = self.dag.live(dst).expect("dst is live");
         let dst_tip = d.tip;
@@ -425,6 +429,7 @@ impl Store {
             uid: &uid,
             nid: &nid,
             origin: Some(&og),
+            strict,
         };
         let mut fresh = bases.fresh.clone();
         let mut p = merge::typed(&base.st, &o, &t, &cx, &mut fresh);
@@ -523,6 +528,8 @@ impl Store {
             uid: &uid,
             nid: &nid,
             origin: Some(&og),
+            // A revert or a cherry-pick records no strict group: it keeps its behaviour (R-15 Q2).
+            strict: false,
         };
         let mut fresh = Fresh::default();
         let mut p = merge::typed(&b, &o, &t, &cx, &mut fresh);
@@ -1065,10 +1072,12 @@ impl Store {
             && !d.tip.is_none_or(|t| self.dag.ancestors(s.tip).contains(&t))
         {
             self.staging_exists(&staging_name(src, "main"))?;
-            let mut plan = self.plan_merge(Op::Sync, src, "main", d.tip, None, policy, None);
+            let mut plan =
+                self.plan_merge(Op::Sync, src, "main", d.tip, None, policy, None, strict);
             plan.stage = Stage::of(None, policy, strict);
             let conflicts = self.conflicts_out(&plan.m.conflicts);
             let violations = self.violations_out(&plan.m.violations);
+            let hints = hints_out(&plan.m.hints);
             let decision =
                 merge::land_or_stage(plan.m.violations.len(), plan.m.conflicts.len(), strict);
             let landed = self.land(&caller, plan, strict, "", None, None);
@@ -1077,6 +1086,7 @@ impl Store {
                 outcome: landed.outcome,
                 conflicts,
                 violations,
+                hints,
             };
             if decision == "land-conflicted" {
                 // [API §11.7] "Sync first with conflict values": the sync's group alone on src, with no idempotency
@@ -1118,7 +1128,8 @@ impl Store {
             src_tip = Some(landed.commit);
             data.markers = landed.markers;
         }
-        let mut plan = self.plan_merge(Op::Merge, &into, src, src_tip, forced, policy, None);
+        let mut plan =
+            self.plan_merge(Op::Merge, &into, src, src_tip, forced, policy, None, strict);
         plan.stage = Stage::of(forced, policy, strict);
         data.lca = plan.lcas.clone();
         data.virtual_base = plan.virtual_base;
@@ -1255,12 +1266,13 @@ impl Store {
             reply.data = Data::Merge(Box::new(data));
             return Ok(reply);
         }
-        let mut plan = self.plan_merge(Op::Sync, &lane, "main", m.tip, None, None, None);
+        let mut plan = self.plan_merge(Op::Sync, &lane, "main", m.tip, None, None, None, strict);
         plan.stage = Stage::of(None, None, strict);
         data.lca = plan.lcas.clone();
         data.virtual_base = plan.virtual_base;
         data.conflicts = self.conflicts_out(&plan.m.conflicts);
         data.violations = self.violations_out(&plan.m.violations);
+        data.hints = hints_out(&plan.m.hints);
         if check || ctx.dry {
             // `--check` and DRY: the preview ([AR §5a.7] step 0, D5); nothing is appended.
             data.outcome =
@@ -1485,6 +1497,7 @@ impl Store {
                     forced,
                     policy.as_deref(),
                     Some(&overlay),
+                    strict,
                 )
             }
             _ => self.plan_pick(
@@ -1672,7 +1685,7 @@ impl Store {
             affected: Vec::new(),
             origin: Some(c),
             notices: Vec::new(),
-            hints: Vec::new(),
+            hints: hints_out(&plan.m.hints),
         };
         let mut reply = Reply::ok(Data::None);
         reply.branch = Some(onto.clone());
@@ -2198,7 +2211,8 @@ impl Store {
         {
             return None;
         }
-        let plan = self.plan_merge(Op::Sync, lane, "main", m.tip, None, None, None);
+        let strict = self.conf.flag("merge.strict");
+        let plan = self.plan_merge(Op::Sync, lane, "main", m.tip, None, None, None, strict);
         let cs = diff(&self.dag.state_at(d.tip, &self.alloc), &plan.m.st);
         Some(crate::hooks::SyncPreview {
             conflicts: plan.m.conflicts.len() as u64,
@@ -2213,7 +2227,7 @@ impl Store {
     }
 }
 
-/// The hints of V13 as a merge-family result lists them, `(class, text)`.
+/// The hints of a merge as a merge-family result lists them, `(class, text)`: the typed step's, then V13's.
 fn hints_out(h: &[merge::Hint]) -> Vec<(String, String)> {
     h.iter()
         .map(|h| (h.class.to_string(), h.text.clone()))

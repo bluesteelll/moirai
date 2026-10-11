@@ -166,6 +166,12 @@ pub struct Ctx<'a> {
     /// the (hlc, commit id) of the commit that produced the value ([`crate::dag::Dag::origin`]); read only by the
     /// evaluation harness's candidate `threeway` (`merge/cand.rs`, test builds), `None` for a hand-built merge.
     pub origin: Option<Origin<'a>>,
+    /// The merge's effective `strict` (`--strict` or `merge.strict`, [RULES/policy-keys] KF-031): a merge's, a `sync`'s,
+    /// a step-0 sync's, or the staged group's of a `merge --continue`; `false` for a revert and a cherry-pick (which
+    /// record no strict group), a virtual merge (VB-019) and a resolved-key derivation. Read only by the evaluation
+    /// harness's candidate `threeway` (`merge/cand.rs`, test builds); the landing takes it from its caller
+    /// ([`land_or_stage`]).
+    pub strict: bool,
 }
 
 /// The origin time of a side's hierarchy value of a node ([`Ctx::origin`]): side 1 is dst, 2 is src.
@@ -2505,7 +2511,8 @@ impl Pending<'_> {
             );
             self.m.conflicts.extend(v.conflicts);
             self.m.violations.extend(v.violations);
-            self.m.hints = v.hints;
+            // The typed step's hints first, then V13's ([F13 §5] VO-2).
+            self.m.hints.extend(v.hints);
         }
         self.m
     }

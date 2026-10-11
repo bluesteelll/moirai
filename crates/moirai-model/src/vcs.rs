@@ -281,6 +281,8 @@ impl Dag {
             uid: &uid,
             nid: &nid,
             origin: Some(&og),
+            // A derivation recomputes the landed merge's default candidate ([`Dag::resolved_keys`]).
+            strict: false,
         };
         let mut fresh = bases.fresh.clone();
         let p = merge::typed(&base.st, &o, &t, &cx, &mut fresh);
@@ -687,6 +689,8 @@ impl<'a> Bases<'a> {
                 uid: self.uid,
                 nid: self.nid,
                 origin: Some(&og),
+                // A virtual merge stages nothing (VB-019).
+                strict: false,
             };
             let merged = merge::merge(&b, &v, &src, &cx, &mut self.fresh);
             v = Rc::new(merged.st);
