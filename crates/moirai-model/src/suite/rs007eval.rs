@@ -517,6 +517,11 @@ pub(crate) fn oracle_touch(
     }
 }
 
+/// Whether the existence rule fixed task `i` ([`Tri::fixed`], which may be shorter than the task list).
+fn fixed(tri: &Tri, i: usize) -> bool {
+    tri.fixed.get(i).copied().unwrap_or(false)
+}
+
 /// The task index of a violation key `#n.parent`.
 fn parent_key(k: &str) -> Option<usize> {
     let n: usize = k.strip_prefix('#')?.strip_suffix(".parent")?.parse().ok()?;
@@ -525,8 +530,9 @@ fn parent_key(k: &str) -> Option<usize> {
 
 /// The requested pairs of a staging (R-16 Q3; the cut's addendum, I-1): each (task index, class, w) where the 13.3 (b)
 /// rule staged two-sided key k because strict asked for it, read from the states alone. Key k is staged as `#k.parent`
-/// with class `HierarchyCycle` or `DanglingEdge`, is judged with two allowed values, and the candidate holds one of
-/// them; w is the other.
+/// with class `HierarchyCycle` or `DanglingEdge`; it is judged, not fixed by the existence rule ([`Tri::fixed`]: RS-007
+/// does not decide a node the result copied whole), and `both-diff`, with two allowed values (R-17 m-2); the
+/// candidate holds one of them; w is the other.
 /// - A `HierarchyCycle` pair: the candidate with k under par(w) is not a forest over the judged tasks.
 /// - A `DanglingEdge` pair: par(r[k]) is a task not live in r, par(w) is a root or a task live in r, and the candidate
 ///   with k under par(w) is a forest; and jointly, the candidate with every such key under its par(w) is a forest, or
@@ -548,7 +554,8 @@ pub(crate) fn requested_pairs(
         }
         forest(&p, &judged)
     };
-    // The keys staged with `class`, each once, that are judged with two allowed values one of which r holds, with w.
+    // The keys staged with `class`, each once, that are judged, not fixed and `both-diff`, with two allowed values one of
+    // which r holds, with w.
     let staged = |class: &str| -> Vec<(usize, HV)> {
         let ks: BTreeSet<usize> = viols
             .iter()
@@ -557,6 +564,7 @@ pub(crate) fn requested_pairs(
             .filter(|k| *k < n)
             .collect();
         ks.into_iter()
+            .filter(|k| !fixed(tri, *k) && or.class[*k] == Class::BothDiff)
             .filter(|k| or.allowed[*k].len() == 2 && or.allowed[*k].contains(&r[*k]))
             .map(|k| {
                 let w = or.allowed[k]
@@ -1830,7 +1838,7 @@ impl KStats {
 fn reparents_lost(t: &Tri, hints: &[(String, String)]) -> usize {
     (0..t.b.len())
         .filter(|i| {
-            if t.fixed.get(*i).copied().unwrap_or(false) {
+            if fixed(t, *i) {
                 return false;
             }
             let (Some(b), Some(o), Some(x), Some(r)) = (&t.b[*i], &t.o[*i], &t.t[*i], &t.r[*i])
@@ -3312,7 +3320,8 @@ fn event_merges(l: &Log, op: usize) -> Vec<&Entry> {
 ///   conflicted without strict, and PR-003 refuses the merge).
 /// - Strict changes the candidate only through the dead-parent preference, so a judged key that is no requested key and
 ///   differs in e′ breaks the link, unless e holds a two-sided key one of whose values has a parent not live in the
-///   result while the other's is live or a root (the step-(2) order changed under the preference: not applicable).
+///   result while the other's is live or a root (the step-(2) order changed under the preference: not applicable;
+///   [`dead_parent_preference`]).
 /// - For each requested pair (k, C, w): e′ stages no `C` on `#k.parent`; e′'s value of k is o's or t's, with exactly
 ///   one `MoveSkipped` hint for `#k.parent` naming that side; for `HierarchyCycle` it is e's value, for `DanglingEdge`
 ///   w.
@@ -3362,13 +3371,7 @@ pub(crate) fn link_check(h: &Hist, l: &Log, e: &Entry, rule: Rule) -> Link {
     let judged = or.judged();
     let n = t.r.len();
     if let Some(j) = (0..n).find(|j| judged[*j] && !keys.contains(j) && t2.r[*j] != t.r[*j]) {
-        let live = |p: Option<u32>| {
-            p.is_none_or(|p| (p as usize) >= 1 && (p as usize) <= n && judged[p as usize - 1])
-        };
-        let preference = (0..n).any(|k| match or.allowed[k].as_slice() {
-            [x, y] => live(par(x)) != live(par(y)),
-            _ => false,
-        });
+        let preference = dead_parent_preference(t, &or);
         let why = format!(
             "#{} lands at {} without strict, at {} with it",
             j + 1,
@@ -3435,6 +3438,25 @@ pub(crate) fn link_check(h: &Hist, l: &Log, e: &Entry, rule: Rule) -> Link {
         ));
     }
     Link::Holds
+}
+
+/// Whether the dead-parent preference may have changed the step-(2) order of a merge whose states and result are `tri`
+/// ([`link_check`]): some two-sided key, judged, not fixed by the existence rule ([`Tri::fixed`]) and `both-diff`
+/// (R-17 m-2), has one allowed value whose parent is not live in the result while the other's is live or a root.
+fn dead_parent_preference(tri: &Tri, or: &Oracle) -> bool {
+    let n = tri.r.len();
+    let judged = or.judged();
+    let live = |p: Option<u32>| {
+        p.is_none_or(|p| (p as usize) >= 1 && (p as usize) <= n && judged[p as usize - 1])
+    };
+    (0..n).any(|k| {
+        !fixed(tri, k)
+            && or.class[k] == Class::BothDiff
+            && match or.allowed[k].as_slice() {
+                [x, y] => live(par(x)) != live(par(y)),
+                _ => false,
+            }
+    })
 }
 
 /// The history of the probe `k2_a_later_two_sided_move_that_closes_a_cycle_is_skipped_and_lands` (13.3 (b)): main puts
@@ -4933,6 +4955,59 @@ fn rs007_eval_a_fixed_node_loses_no_reparent() {
         ..tri
     };
     assert_eq!(reparents_lost(&merged, &[]), 1, "the control");
+}
+
+/// R-17 m-2: a node the existence rule fixed ([`Tri::fixed`]) is never a requested key, and its two values do not
+/// switch the link check's dead-parent preference on, since RS-007 did not decide its key. b holds every task at the
+/// root; o puts #1 under #2; t puts #1 under #3 and deletes #2; the strict result holds #1 under the dead #2 and stages
+/// its `DanglingEdge`. Fixed, the staging is one for another reason; merged (no task fixed), it is `Requested`, with
+/// one requested pair, and the preference is on. A fixed #1 whose class is `only-o` (b and t under #3) is no requested
+/// key either.
+#[test]
+fn rs007_eval_a_fixed_node_is_never_a_requested_key() {
+    let v = |p: Option<u32>| Some((p, None::<String>));
+    let root = v(None);
+    let tri = Tri {
+        b: vec![root.clone(), root.clone(), root.clone()],
+        o: vec![v(Some(2)), root.clone(), root.clone()],
+        t: vec![v(Some(3)), None, root.clone()],
+        r: vec![v(Some(2)), None, root.clone()],
+        virtual_base: false,
+        one_sided: false,
+        pick_no_hier: false,
+        touch: None,
+        strict: true,
+        fixed: vec![true, false, false],
+    };
+    let de = vec![("#1.parent".to_string(), "DanglingEdge".to_string())];
+    let staged = Got::Staged(vec![]);
+    let or_of = |t: &Tri| oracle_touch(&t.b, &t.o, &t.t, &t.r, &t.fixed, None);
+    let or = or_of(&tri);
+    assert_eq!(requested_pairs(&tri, &or, &de), vec![]);
+    assert_eq!(
+        judge(&staged, &tri, &de),
+        Verdict::StagedOther { cand_wrong: false }
+    );
+    assert!(!dead_parent_preference(&tri, &or));
+    let merged = Tri {
+        fixed: Vec::new(),
+        ..tri.clone()
+    };
+    let or = or_of(&merged);
+    assert_eq!(
+        requested_pairs(&merged, &or, &de),
+        vec![(0, "DanglingEdge", v(Some(3)))],
+        "the control"
+    );
+    assert_eq!(judge(&staged, &merged, &de), Verdict::Requested);
+    assert!(dead_parent_preference(&merged, &or));
+    let only_o = Tri {
+        b: vec![v(Some(3)), root.clone(), root.clone()],
+        ..tri
+    };
+    let or = or_of(&only_o);
+    assert_eq!(or.class[0], Class::OnlyO);
+    assert_eq!(requested_pairs(&only_o, &or, &de), vec![]);
 }
 
 /// K2's one fault of wave 3d (`wide:2:893`, shrunk to the corpus case `K2-W3D`): the cherry-pick's cycle runs through
