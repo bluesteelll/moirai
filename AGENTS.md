@@ -46,8 +46,9 @@ reports in [docs/research/](docs/research/).
 
 The procedure, the orchestrator's loop and the Claude Code mechanics are in
 [docs/m0/workflow.md](docs/m0/workflow.md). A **unit** is one reviewable portion of one WP by one author role, on the
-role's branch `m0/<role>` in its worktree (PLAN §3.1 "Mechanics"). The trunk is local `master`. `<ORCH>` is the
-orchestration state outside the repository (workflow.md §3).
+role's branch `m0/<role>` in its worktree (PLAN §3.1 "Mechanics"). The orchestrator session launches each unit
+itself (workflow.md §6.3). The trunk is local `master`. `<ORCH>` is the orchestration state outside the repository
+(workflow.md §3).
 
 - **Layout.** `crates/` (the workspace, PLAN §2.2), `xtask/` (the gate and its lints; author roles and lanes in
   `xtask/roles.toml`), `docs/spec/` (the specification), `docs/m0/` (the M0 plan, `authors.md`, tools, nightly,
@@ -62,8 +63,9 @@ orchestration state outside the repository (workflow.md §3).
     `running 0 tests` where tests are expected is red.
 - **Separation of duties.** Stage roles (architect, architecture-critic, developer, tester, code-reviewer, which also
   triages, researcher, project-analyst, results-analyst, doc-writer, mechanic) sit on top of PLAN §3.1's author roles.
-  Every agent of a unit obeys the unit's author role: S1–S6, its `deny_read` in `xtask/roles.toml` and the write map of
-  `docs/m0/authors.md` §3. `deny_read` binds every way of reading, Bash included (`cat`, `rg`,
+  Every agent of a unit obeys the unit's author role: S1–S6 and the write map of `docs/m0/authors.md` §3. The role's
+  `deny_read` path rules in `xtask/roles.toml` are not applied to unit agents (workflow.md §2, R-8). A reading limit
+  that a unit's spec or brief sets for a separation rule binds every way of reading, Bash included (`cat`, `rg`,
   `git show <rev>:<path>`, a `git diff` over those paths). A file you need but may not read is a review finding in
   your report; never read it. The developer never gives the final verdict; the tester owns the full suite, the pins
   and the mutations and never commits; the reviewer finds and never fixes; the critic critiques and never redesigns;
@@ -84,8 +86,8 @@ orchestration state outside the repository (workflow.md §3).
 - **Tokens.** Logs stay on disk. Search with `rg -n` and read in ranges of about 200 lines; read summaries, verdict
   lines and failure excerpts, never whole logs. Save your report to the path your brief names and return only the
   verdict. Briefs and reports carry paths, not pasted documents. Every shell command starts with `cd` into your own
-  worktree. Long runs go through the kit under a budget; waits are bounded; a hung run is stopped by its own PID tree,
-  never by image name.
+  worktree. Long runs go through the kit under a budget, and the kit refuses a start below its disk, RAM and
+  commit-charge floors; waits are bounded; a hung run is stopped by its own PID tree, never by image name.
 - **Git in agent work.**
   - Commit only on your unit's branch, with an explicit path list after reading `git diff --cached --stat`. Subjects
     start `WP-xx:` with a WP that `docs/m0/authors.md` §2 gives the unit's author role.
