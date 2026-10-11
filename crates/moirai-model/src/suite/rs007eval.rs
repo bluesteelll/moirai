@@ -1716,7 +1716,8 @@ pub(crate) struct KStats {
     /// `MoveSkipped` hints (13.3 (b)).
     pub hints: usize,
     /// Keys of a landing that lost a reparent to a concurrent order-only change with no hint (13.5 (b); ALT-10): the
-    /// task is judged and live in b, o and t; one side's value has b's parent and another order, the other side's
+    /// task is judged, live in b, o and t, and not fixed by the existence rule ([`Tri::fixed`]: copied whole from a
+    /// side, so RS-007 does not decide it); one side's value has b's parent and another order, the other side's
     /// another parent; the result holds the order-only side's value; no hint names the key.
     pub reparent_lost: usize,
 }
@@ -1824,10 +1825,14 @@ impl KStats {
 }
 
 /// The keys of a landing ([`KStats::reparent_lost`]) that lost a reparent to a concurrent order-only change with no
-/// hint naming them.
+/// hint naming them. A task the existence rule fixed ([`Tri::fixed`], which may be shorter than the task list) is left
+/// out: the result copied it whole from a side, and RS-007 did not decide its key (R-17 m-1).
 fn reparents_lost(t: &Tri, hints: &[(String, String)]) -> usize {
     (0..t.b.len())
         .filter(|i| {
+            if t.fixed.get(*i).copied().unwrap_or(false) {
+                return false;
+            }
             let (Some(b), Some(o), Some(x), Some(r)) = (&t.b[*i], &t.o[*i], &t.t[*i], &t.r[*i])
             else {
                 return false;
@@ -4899,6 +4904,35 @@ fn rs007_eval_oracle_takes_a_fixed_nodes_value_from_the_result() {
         "{}",
         trace_text(&c.hist, &l)
     );
+}
+
+/// R-17 m-1: a node the existence rule fixed ([`Tri::fixed`]) loses no reparent to a concurrent order-only change,
+/// since the result copied it whole from a side and RS-007 did not decide its key. #1 is under #3 in b, o reorders it
+/// there (order-only), t puts it under #2 (a reparent), and the result holds o's value; #2 and #3 are roots. Fixed, it
+/// counts nothing; merged (no task fixed), it is one lost reparent.
+#[test]
+fn rs007_eval_a_fixed_node_loses_no_reparent() {
+    let v = |p: Option<u32>| Some((p, None::<String>));
+    let root = v(None);
+    let reordered = Some((Some(3), Some("V".to_string())));
+    let tri = Tri {
+        b: vec![v(Some(3)), root.clone(), root.clone()],
+        o: vec![reordered.clone(), root.clone(), root.clone()],
+        t: vec![v(Some(2)), root.clone(), root.clone()],
+        r: vec![reordered, root.clone(), root.clone()],
+        virtual_base: false,
+        one_sided: false,
+        pick_no_hier: false,
+        touch: None,
+        strict: false,
+        fixed: vec![true, false, false],
+    };
+    assert_eq!(reparents_lost(&tri, &[]), 0, "a fixed node is not judged");
+    let merged = Tri {
+        fixed: Vec::new(),
+        ..tri
+    };
+    assert_eq!(reparents_lost(&merged, &[]), 1, "the control");
 }
 
 /// K2's one fault of wave 3d (`wide:2:893`, shrunk to the corpus case `K2-W3D`): the cherry-pick's cycle runs through
