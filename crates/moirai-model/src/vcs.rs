@@ -263,8 +263,8 @@ impl Dag {
         let rp = self.replay(Some(p1), Some(p2), &base, None, alloc);
         let auto = crate::policy::merge_policies(&o.schema);
         let r = &self.refs[&c.ref_id];
-        let og = |side: usize, n: Nid, v: &Option<KVal>| {
-            self.origin_among(&[if side == 1 { p1 } else { p2 }], n, v, alloc)
+        let og = |side: usize, n: Nid, live: bool, v: &Option<KVal>| {
+            self.origin_among(&[if side == 1 { p1 } else { p2 }], n, live, v, alloc)
         };
         let cx = Ctx {
             op: if c.kind == "sync" {
@@ -357,54 +357,72 @@ impl Dag {
     }
 
     /// The origin time of the hierarchy value commit `c` holds for node `n`: the (hlc, commit id) of the commit that
-    /// produced it. The walk starts at `c`; a commit whose net changeset against its first parent leaves the key's value
-    /// as it was passes it on to its first parent; a two-parent commit that changed it against its first parent but holds
-    /// its second parent's value passes it on to its second parent (a `sync` that takes `main`'s move, a merge that takes
-    /// the merged branch's); any other commit that changed it produced it. ε, and a root commit that left the key absent,
-    /// give (0, 0). The walk reads only each commit's own net changeset and, at a two-parent commit that changed the
-    /// key, its second parent's value of it: an engine follows the key's per-node chain (the commits whose net changeset
-    /// holds the key) and hops to the second parent's chain at such a commit, and since a commit's origins never change
-    /// they may be kept with it (the evaluation harness's candidate `threeway`, `merge/cand.rs`).
+    /// produced it. A value is compared canonically as (live, flat): on a commit where the node is not live the key
+    /// holds `absent`, which equals no live value, so a live root with no order is not `absent` (OQ-A-13 F3). The walk
+    /// starts at `c`; a commit whose net changeset against its first parent leaves the key's value as it was (neither
+    /// its flat hierarchy value nor the node's liveness changed) passes it on to its first parent; a two-parent commit
+    /// that changed it against its first parent but holds its second parent's value passes it on to its second parent
+    /// (a `sync` that takes `main`'s move, a merge that takes the merged branch's); any other commit that changed it
+    /// produced it (a delete, and a revert that brings the node back, included). ε gives (0, 0). The walk reads only
+    /// each commit's own net changeset and, at a two-parent commit that changed the key, its own and its second
+    /// parent's value of it: an engine follows the key's per-node chain (the commits whose net changeset holds the key
+    /// or the node's existence) and hops to the second parent's chain at such a commit, and since a commit's origins
+    /// never change they may be kept with it (the evaluation harness's candidate `threeway`, `merge/cand.rs`).
     pub fn origin(&self, c: Option<u64>, n: Nid, alloc: &dyn Alloc) -> MoveKey {
         let k = Key::Node(n, Aspect::Hierarchy);
-        let h = Aspect::Hierarchy;
+        let e = Key::Node(n, Aspect::Existence);
+        let live = |v: &crate::state::KState| matches!(merge::flat(v), Some(KVal::Live(_)));
         let mut cur = c;
         while let Some(x) = cur {
             let cm = &self.commits[&x];
-            let changed = cm
+            let moved = cm
                 .changeset
                 .get(&k)
-                .filter(|(b, a)| merge::flat(b) != merge::flat(a));
-            match changed {
-                None => cur = cm.parents.first().copied(),
-                Some((_, after)) => {
-                    if let [_, p2] = cm.parents[..] {
-                        let s2 = self.state_at(Some(p2), alloc);
-                        if merge::flat(&merge::cval(&s2, n, &h)) == merge::flat(after) {
-                            cur = Some(p2);
-                            continue;
-                        }
-                    }
-                    return (cm.hlc, cm.id);
-                }
+                .is_some_and(|(b, a)| merge::flat(b) != merge::flat(a));
+            let revived = cm
+                .changeset
+                .get(&e)
+                .is_some_and(|(b, a)| live(b) != live(a));
+            if !moved && !revived {
+                cur = cm.parents.first().copied();
+                continue;
             }
+            if let [_, p2] = cm.parents[..]
+                && self.value_at(p2, n, alloc) == self.value_at(x, n, alloc)
+            {
+                cur = Some(p2);
+                continue;
+            }
+            return (cm.hlc, cm.id);
         }
         (0, [0; 32])
     }
 
+    /// Node `n`'s hierarchy key at commit `c` as [`Dag::origin`] compares it: (live, flat value).
+    fn value_at(&self, c: u64, n: Nid, alloc: &dyn Alloc) -> (bool, Option<KVal>) {
+        let s = self.state_at(Some(c), alloc);
+        (
+            s.live(n).is_some(),
+            merge::flat(&merge::cval(&s, n, &Aspect::Hierarchy)),
+        )
+    }
+
     /// The origin time of value `v` of node `n`'s hierarchy key on a side whose state is a fold of the commits `tips`
-    /// (one commit for a real side; the LCAs folded so far for a virtual merge's dst): the latest [`Dag::origin`] among
-    /// the tips that hold `v`, and (0, 0) when none does (a value only a base or a virtual merge produced).
+    /// (one commit for a real side; the LCAs folded so far for a virtual merge's dst), where the node is live on the
+    /// side iff `live`: the latest [`Dag::origin`] among the tips that hold (`live`, `v`), compared as [`Dag::origin`]
+    /// compares (so a tip where the node is dead does not hold a live root), and (0, 0) when none does (a value only a
+    /// base or a virtual merge produced).
     pub fn origin_among(
         &self,
         tips: &[u64],
         n: Nid,
+        live: bool,
         v: &Option<KVal>,
         alloc: &dyn Alloc,
     ) -> MoveKey {
-        let h = Aspect::Hierarchy;
+        let want = (live, v.clone());
         tips.iter()
-            .filter(|c| merge::flat(&merge::cval(&self.state_at(Some(**c), alloc), n, &h)) == *v)
+            .filter(|c| self.value_at(**c, n, alloc) == want)
             .map(|c| self.origin(Some(*c), n, alloc))
             .max()
             .unwrap_or((0, [0; 32]))
@@ -671,11 +689,11 @@ impl<'a> Bases<'a> {
             // The origin time of each side's value: dst is the fold of the LCAs before this one, src this LCA.
             let (dag, alloc, li_c) = (self.dag, self.alloc, *li);
             let folded: Vec<u64> = l[..=i].to_vec();
-            let og = move |side: usize, n: Nid, v: &Option<KVal>| {
+            let og = move |side: usize, n: Nid, live: bool, v: &Option<KVal>| {
                 if side == 1 {
-                    dag.origin_among(&folded, n, v, alloc)
+                    dag.origin_among(&folded, n, live, v, alloc)
                 } else {
-                    dag.origin_among(&[li_c], n, v, alloc)
+                    dag.origin_among(&[li_c], n, live, v, alloc)
                 }
             };
             let cx = Ctx {

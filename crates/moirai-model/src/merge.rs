@@ -174,8 +174,9 @@ pub struct Ctx<'a> {
     pub strict: bool,
 }
 
-/// The origin time of a side's hierarchy value of a node ([`Ctx::origin`]): side 1 is dst, 2 is src.
-pub type Origin<'a> = &'a dyn Fn(usize, Nid, &Option<KVal>) -> MoveKey;
+/// The origin time of a side's hierarchy value of a node ([`Ctx::origin`]): side 1 is dst, 2 is src; the flag says
+/// whether the node is live on the side (a flat value reads `None` for `absent` and for a live root with no order).
+pub type Origin<'a> = &'a dyn Fn(usize, Nid, bool, &Option<KVal>) -> MoveKey;
 
 /// Where RS-007 starts the hierarchy keys of a merge, a `sync` or a virtual merge ([RULES/merge-table] RS-007;
 /// [F12 §7.4] row "Kleppmann steps"; [AR §11] OQ-A-11 11.1).

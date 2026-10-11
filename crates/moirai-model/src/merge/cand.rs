@@ -8,10 +8,11 @@
 //! - otherwise (`both-diff`): the side whose value has the later origin time wins (MR-040), t on a tie.
 //!
 //! The origin time of side S's value of a key is the (hlc, commit id) of the commit that produced it
-//! ([`crate::dag::Dag::origin`]): the walk from S's tip passes over every commit whose net changeset against its first
-//! parent leaves the key's value as it was, and over a two-parent commit that holds its second parent's value (a
-//! `sync` that takes `main`'s move does not re-time it; a resolution to `ours` that keeps the side's own move keeps its
-//! original time); the first other commit that changed it produced it; ε gives (0, 0). For a revert or a cherry-pick of
+//! ([`crate::dag::Dag::origin`]; values compared as (live, flat), so `absent` is no live root, F3): the walk from S's
+//! tip passes over every commit whose net changeset against its first parent leaves the key's value as it was, and
+//! over a two-parent commit that holds its second parent's value (a `sync` that takes `main`'s move does not re-time
+//! it; a resolution to `ours` that keeps the side's own move keeps its original time); the first other commit that
+//! changed it produced it; ε gives (0, 0). For a revert or a cherry-pick of
 //! C, src's value is C's (its origin is C's (hlc, commit id)). For a virtual merge's dst, a fold of LCAs, it is the
 //! latest origin among the folded LCAs that hold the value, and (0, 0) when none does.
 //!
@@ -127,7 +128,7 @@ impl Origins<'_, '_> {
         }
         let v = self.side_value(side, n);
         let k = match self.x.origin {
-            Some(f) => f(side, n, &v),
+            Some(f) => f(side, n, !self.x.dead[side].contains(&n), &v),
             None => self
                 .x
                 .steps

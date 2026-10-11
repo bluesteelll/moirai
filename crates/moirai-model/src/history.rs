@@ -413,10 +413,15 @@ impl Store {
         // `merge.policy.<kind>` of dst's view ([CFG §10.13]).
         let auto = crate::policy::merge_policies(&o.schema);
         // The origin time of each side's hierarchy value ([`Dag::origin`]): dst's from tip(dst), src's from `src_tip`.
-        let og = |side: usize, n: Nid, v: &Option<KVal>| {
+        let og = |side: usize, n: Nid, live: bool, v: &Option<KVal>| {
             let tip = if side == 1 { dst_tip } else { src_tip };
-            self.dag
-                .origin_among(&tip.into_iter().collect::<Vec<_>>(), n, v, &self.alloc)
+            self.dag.origin_among(
+                &tip.into_iter().collect::<Vec<_>>(),
+                n,
+                live,
+                v,
+                &self.alloc,
+            )
         };
         let cx = MCtx {
             op,
@@ -509,12 +514,17 @@ impl Store {
         let auto = crate::policy::merge_policies(&o.schema);
         // The origin time of each side's hierarchy value: dst's from tip(dst) ([`Dag::origin`]); src's is C's own
         // (hlc, commit id), the key of its one step.
-        let og = |side: usize, n: Nid, v: &Option<KVal>| {
+        let og = |side: usize, n: Nid, live: bool, v: &Option<KVal>| {
             if side == 2 {
                 key
             } else {
-                self.dag
-                    .origin_among(&dst_tip.into_iter().collect::<Vec<_>>(), n, v, &self.alloc)
+                self.dag.origin_among(
+                    &dst_tip.into_iter().collect::<Vec<_>>(),
+                    n,
+                    live,
+                    v,
+                    &self.alloc,
+                )
             }
         };
         let cx = MCtx {

@@ -367,6 +367,63 @@ fn every_merge_family_reply_lists_its_hints() {
     ids_verify(&s);
 }
 
+/// OQ-A-13 F3: the origin walk ([`crate::dag::Dag::origin`]) compares a hierarchy value canonically, as (live, flat):
+/// `absent` equals no live value and is not a live root with no order. Deleting #2, a root, changes its key, and the
+/// revert that brings it back produces its value again, so the revert is its origin, as the delete is of `absent`; and
+/// the delete's tip holds `absent`, not a live root.
+#[test]
+fn the_origin_walk_compares_absent_canonically() {
+    let mut s = two_tasks();
+    let d = s
+        .ok(
+            tx(vec![Stmt::Delete {
+                target: Target::Id(Nid(2)),
+                policy: None,
+                replaced_by: None,
+                release: false,
+                reason: Some("gone".into()),
+            }]),
+            orch(),
+        )
+        .commit
+        .unwrap();
+    let r = s
+        .ok(
+            Cmd::Revert {
+                commit: format!("s{d}"),
+                onto: Some("main".into()),
+                mainline: None,
+                message: String::new(),
+            },
+            orch(),
+        )
+        .commit
+        .unwrap();
+    assert_eq!(
+        state(&s, "main").live(Nid(2)).map(|x| x.parent),
+        Some(None),
+        "#2 is back at the root"
+    );
+    let (dag, alloc) = (&s.st.dag, &s.st.alloc);
+    let id = |c: u64| (dag.commits[&c].hlc, dag.commits[&c].id);
+    assert_eq!(
+        (
+            dag.origin(Some(r), Nid(2), alloc),
+            dag.origin(Some(d), Nid(2), alloc)
+        ),
+        (id(r), id(d)),
+        "the revert produced #2's live root, the delete its absent value"
+    );
+    assert_eq!(
+        (
+            dag.origin_among(&[d], Nid(2), false, &None, alloc),
+            dag.origin_among(&[d], Nid(2), true, &None, alloc)
+        ),
+        (id(d), (0, [0; 32])),
+        "the delete's tip holds absent, not a live root"
+    );
+}
+
 #[test]
 fn reverting_a_creation_leaves_a_tombstone_and_dependents_refuse() {
     let mut s = S::base();
