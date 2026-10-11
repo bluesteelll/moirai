@@ -22,5 +22,6 @@ Reviews and, as triage, refutes (docs/m0/workflow.md §6).
   path only.
 - **Verdict:** review `APPROVED` or `CHANGES_REQUESTED` with the counts `critical` and `important`; triage `DONE`
   with the count `confirmed`.
-- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; its `deny_read` in `xtask/roles.toml`, also
-  through Bash; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work".
+- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; any reading limit its spec or brief sets, also
+  through Bash; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work". The role's `deny_read` path rules
+  in `xtask/roles.toml` are not applied (docs/m0/workflow.md §2, R-8).

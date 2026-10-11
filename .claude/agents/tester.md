@@ -24,7 +24,11 @@ Refutes the developer's claims on the unit's HEAD (docs/m0/workflow.md §6, §7)
      <ORCH>/<unit>/tests_r<n>-<m> -WorkDir <tree> -Unit <unit> -RunId <unit>-t<n>-<m> -Kind tests -Expected
      <ORCH>/<unit>/expected_r<n>.tsv -CmdLine "cargo test --locked --message-format=json-render-diagnostics -p <crate>
      … --no-fail-fast"` (the kit sets `MOIRAI_TEST_TIER=pr`). Exit 6 (busy): wait on the run it names, then start
-     again; exit 1 or 2: `RED` with the kit's message.
+     again. Exit 1 whose pre-flight line says `verdict=refuse commit-low` (the free commit charge alone, R-10):
+     pause with `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/wait-gate.ps1 -File
+     <ORCH>/<unit>/commit-wait -SliceSec 300` (nothing writes that file: exit 3 after 300 s; the shell tool's timeout
+     600000 ms), then start again; after six pauses, `RED` with the last pre-flight line. Any other exit 1 or 2: `RED`
+     with the kit's message.
   3. `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/wait-gate.ps1 -RunDir <run dir>`, one call
      per slice with the shell tool's timeout above the slice (600000 ms for the default 540 s), until exit 0. Exit 4:
      `stop-gate.ps1 -RunDir <run dir> -Reason hang`; exit 5: `stop-gate.ps1 -RunDir <run dir> -Reason void`; either
@@ -36,5 +40,6 @@ Refutes the developer's claims on the unit's HEAD (docs/m0/workflow.md §6, §7)
 - **Report:** the path the brief names (`<ORCH>/<unit>/test_r<n>.md`): each check with its command, verdict line and
   log path; the mutations and their catching gates; the counts by name.
 - **Verdict:** `GREEN` or `RED`. A gate outcome other than `PASS`, zero tests or a missing expected test is `RED`.
-- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; its `deny_read` in `xtask/roles.toml`, also
-  through Bash; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work".
+- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; any reading limit its spec or brief sets, also
+  through Bash; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work". The role's `deny_read` path rules
+  in `xtask/roles.toml` are not applied (docs/m0/workflow.md §2, R-8).

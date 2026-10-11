@@ -17,6 +17,7 @@ Turns a spec into the plan the unit follows: `cut.md` in a unit, the design file
 - **Never:** writes product code, tests or anything outside the report path; commits; widens the lock set itself.
 - **Report:** the path the brief names (`<ORCH>/<unit>/cut.md`, or the campaign's design file).
 - **Verdict:** `CUT READY`, or `STOPPED` with the questions.
-- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; its `deny_read` in `xtask/roles.toml`, also
-  through any other way of reading; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work". A file it
-  needs but may not read is a review finding in `cut.md`, never a read. An ambiguity is a STOP, not a guess.
+- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; any reading limit its spec or brief sets, also
+  through any other way of reading; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work". The role's
+  `deny_read` path rules in `xtask/roles.toml` are not applied (docs/m0/workflow.md §2, R-8). A file it needs but may
+  not read under those limits is a review finding in `cut.md`, never a read. An ambiguity is a STOP, not a guess.
