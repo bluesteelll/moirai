@@ -12,7 +12,7 @@
   on 2026-10-07 (code.claude.com/docs/en/: `settings`, `settings-reference`, `permissions`, `sub-agents`,
   `workflows`, `prompt-caching`, `agent-view`); a fact that moves with a release is checked again in §15.
 - **Rulings:** R-1 to R-4 (§2) are the owner's answers of 2026-10-07. Later rulings are numbered on from R-5 in
-  `<ORCH>/RULINGS.md`, and units cite them by number.
+  `<ORCH>/RULINGS.md`, and units cite them by number. §2 summarises R-5 to R-11.
 
 ## 1. Terms and places
 
@@ -83,8 +83,37 @@ identity written out there:
   daytime limits of profile L ([60 §3.15], restated in docs/m0/nightly.md's sources) and the disk guard ([MP §8],
   docs/spec/measurement-protocol.md); unit capacity is set by measuring one gate's peak on the PC.
 
-§9 and §10 apply R-3 and R-4. Chat with the owner may be in Russian; every file in the repository and in `<ORCH>`
-is in English (AGENTS.md).
+Later rulings, in short (the full text is in `<ORCH>/RULINGS.md`; units cite them by number):
+
+- **R-5 What the 1 GB covers** (2026-10-08, by the orchestrator on the owner's delegation; in force). The 1 GB of
+  [60 §3.15] binds the nightly-tier jobs run beside the agents. `cargo xtask gate` and the per-commit gates are
+  build-lane work within R-4's share, bounded by the lane's build lock, `CARGO_BUILD_JOBS` and the pre-flight's
+  floors (§10).
+- **R-6 The trial unit** (2026-10-08; for the trial only). The trial unit was `u00-f21-doclinks` (role `r-fl1b`,
+  WP-63), with a doc gate in place of a unit test (§15 step 10).
+- **R-7 Unit sessions through the app** (2026-10-08; superseded by R-8). A unit session started from the command
+  line had no login of its own on the PC, so the orchestrator started unit sessions through the Claude app.
+- **R-8 Units from the orchestrator session** (2026-10-08; amended by R-9). The orchestrator session launches each
+  unit itself with the Workflow tool, from the embedded copy. There is no unit session and no CLI login, and the
+  role's `deny_read` path rules are not applied. S1–S6 and the write map of authors.md §3 still bind what a unit
+  writes. Builds take the main checkout's settings, lane A's target directory and 4 jobs, and every unit gates in
+  `gate-a`. R-8 first ran units in the main checkout itself; R-9 moved them into the role worktree.
+- **R-9 A unit works in its own folder** (2026-10-08; in force). `wt` is the role worktree made by
+  `cargo xtask worktree <role> --base master`, so the main checkout stays on `master`. `kit/local-settings.ps1` is
+  not run for the role worktree, and the settings `xtask worktree` writes there go unused (§5.2).
+- **R-10 The commit charge and an environmental FAIL** (2026-10-08; in force). No full gate or other kit run starts
+  while the free commit charge is below 4 GB, and the kit refuses such a start (§7, §10). A gate FAIL caused by the
+  machine is re-run once on the same head; a second one is a STOP for the owner.
+- **R-11 The kit counts lane A only** (2026-10-11; in force until a nightly run or a lane B unit). `kit/caps.txt`
+  counts `D:/moirai-target/laneA` alone and keeps the other entries as comments. The full `[guard.caps]` set is
+  restored before any nightly run or any lane B unit (§10).
+
+R-12 (2026-10-11) settles the questions of one unit, and §7 "The kit hash" carries its rule for re-installing the
+kit. Such unit rulings are not summarised here.
+
+§9 applies R-3. §10 applies R-4, R-5, R-10 and R-11, and §7 and Appendix A apply R-10 and R-11 to the kit. §1, §3 to
+§6, §8, §12, §13 and §15 apply R-8 and R-9. Chat with the owner may be in Russian; every file in the repository and in
+`<ORCH>` is in English (AGENTS.md).
 
 ## 3. The orchestration state: `<ORCH>`
 
@@ -655,7 +684,9 @@ The project measures performance under its protocol ([MP]; [60 §5.2]); the brie
 A Claude Code session on the owner's PC follows these steps in order, in the main checkout `D:/claude/moirai`; it then
 stays the orchestrator session. Every **STOP** is a question to the owner (in Russian if the owner writes Russian),
 asked once, with this session's recommendation; steps that do not depend on the answer go on meanwhile. Every
-finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`).
+finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`). The setup was carried out on
+2026-10-07 and 2026-10-08 (`inventory.md`). The steps describe a setup under R-8 to R-11; where the first setup
+differed, the step says so.
 
 1. **Check the clone and the tools** (read-only, except the fetch).
    - `git rev-parse --show-toplevel` is `D:/claude/moirai`; `git branch --show-current` is `claude/prodolzhai-g331bu`
@@ -666,7 +697,7 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
      origin/master` holds, **STOP** and propose `git merge --ff-only origin/master` on `master`; any other difference
      is a **STOP** too. A stale `master` would make step 2's merge and every later push (R-2) a non-fast-forward.
    - This session runs in `D:/claude/moirai` with its workspace trust accepted (the dialog appears when Claude Code
-     first opens a folder); that trust covers every worktree of the repository (§6.3).
+     first opens a folder); that trust covers every worktree of the repository (§8).
    - `git config core.hooksPath` is the absolute `D:/claude/moirai/.githooks` and `git config moirai.private-guard` is
      `true` (PLAN §2.5). If not: **STOP** — the owner runs these two commands once per clone, or allows this session
      to.
@@ -677,9 +708,9 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
      no unit is launched for that role until the owner rules.
    - `git config moirai.worktree-root`, `moirai.target-root` and `moirai.build-jobs` (unset means `D:/moirai-wt`,
      `D:/moirai-target` and 6).
-   - Claude Code: its executable path and version (tools.md §9; at least 2.1.242), whether `--bg` and
-     `--permission-mode` appear in its `--help`, and whether auto mode is available (`auto` in the `Shift+Tab` cycle or
-     the status bar of this session; §8 "Permission mode"); the Bash tool is Git Bash (`echo $BASH_VERSION`);
+   - Claude Code: its executable path and version (tools.md §9; at least 2.1.242), and whether auto mode is available
+     (`auto` in the `Shift+Tab` cycle or the status bar of this session; §8 "Permission mode"); the Bash tool is Git
+     Bash (`echo $BASH_VERSION`);
      `powershell.exe -NoProfile -Command '$PSVersionTable.PSVersion'` prints 5.1; `git --version` is at least 2.36
      (`git show --remerge-diff`, §6.1).
 2. **STOP: merge the branch.** Ask the owner whether `claude/prodolzhai-g331bu` is merged into `master` now, before
@@ -696,16 +727,20 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
    from step 1, the CI (`.github/workflows/pr.yml` runs `cargo xtask gate --ci` on hosted Windows runners), the gate's
    steps (`cargo xtask gate --list`), the existing `.claude/` files, and step 1's worktrees and branches. Facts about
    the machine and the tree only; no owner data.
-5. **The kit.** Write every file of Appendix A into `D:/orch/moirai/kit/` exactly as printed (ASCII), then
-   `budgets.txt` with `gate=30` and `tests=30` (until step 9), `unit-allow.txt` as in §8, and `caps.txt`: a comment
-   line naming `master`'s sha, then one line per entry of `xtask/nightly.toml` `[guard.caps]` on `master`,
-   `<target root>/<name>=<cap>` (`D:/moirai-target/laneA=40GB`, `laneB`, `fuzz`, `mutants`). Build the guard
+5. **The kit.** Write every file of Appendix A into `D:/orch/moirai/kit/` exactly as printed (ASCII, CRLF line
+   endings), then `budgets.txt` with `gate=30` and `tests=30` (until step 9), `unit-allow.txt` as in §8, and
+   `caps.txt`: a comment line naming `master`'s sha, then one line per entry of `xtask/nightly.toml` `[guard.caps]` on
+   `master`, `<target root>/<name>=<cap>` (`D:/moirai-target/laneA=40GB`, `laneB`, `fuzz`, `mutants`). While units
+   build only in lane A, `caps.txt` holds only `D:/moirai-target/laneA=40GB` and the other three entries as comments
+   (R-11, §10). Build the guard
    (`cargo build -p moirai-probes-bin --bin guard --locked` with `CARGO_TARGET_DIR=D:/moirai-target/laneA`) and copy
    the executable to `D:/orch/moirai/kit/guard.exe` (the nightly runner keeps its own copy, nightly.md §1). Run
    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:/orch/moirai/kit/selftest.ps1`: it must end with
    `selftest: PASS` and every case `ok`. A case that fails is fixed in the kit script and the self-test re-run until
    it passes; the change is recorded in `inventory.md` and reported to the owner, so that Appendix A is corrected by
-   an R-HARN change. Record the kit hash (`kit-hash.ps1`) and the self-test's summary line. Then the pre-flight on
+   an R-HARN change. Record the kit hash (`kit-hash.ps1`) and the self-test's summary line. This step is the first
+   install: a re-install after a merged change of Appendix A writes only the scripts and keeps `budgets.txt`,
+   `caps.txt`, `unit-allow.txt`, `guard.exe` and `locks/` (§7 "The kit hash"; R-12). Then the pre-flight on
    the real volume: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:/orch/moirai/kit/preflight.ps1 -Volume
    D:/moirai-target`, its output line in `inventory.md`. If it refuses `disk-low`: **STOP**, citing nightly.md §7
    item 3, with the headroom from the guard's output and a proposal: the directories under `D:/moirai-target` beside
@@ -713,15 +748,17 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
    live process uses and that were not written in the last two hours. Only those the owner names are deleted, and
    each deletion is logged (§4); steps 8–12 wait until the pre-flight passes. Commit `<ORCH>`.
 6. **Settings and gate worktrees.** `kit/local-settings.ps1 -Worktree D:/claude/moirai -Orch D:/orch/moirai -WtRoot
-   D:/moirai-wt` for the main checkout; restart the session if `<ORCH>` is still not readable without a prompt. Then
-   the gate worktrees, before any new role worktree (`xtask worktree` writes its deny rules for the worktrees that
-   exist): `git worktree add --detach D:/moirai-wt/gate-a HEAD` and `git worktree add --detach D:/moirai-wt/gate-b
-   HEAD`. If step 1 found a neutral worktree that earlier sessions used as their gate worktree, record it and ask the
-   owner before adding new ones.
+   D:/moirai-wt` for the main checkout. Also set the main checkout's `.claude/settings.local.json` `env`:
+   `CARGO_TARGET_DIR` = `D:/moirai-target/laneA` and `CARGO_BUILD_JOBS` = 4 (R-8). Restart the session if `<ORCH>` is
+   still not readable without a prompt. Then the gate worktrees: `git worktree add --detach D:/moirai-wt/gate-a HEAD`
+   and `git worktree add --detach D:/moirai-wt/gate-b HEAD`. The first setup made them before any role worktree,
+   because `xtask worktree` writes its deny rules for the worktrees that exist; under R-8 those rules go unused. If
+   step 1 found a neutral worktree that earlier sessions used as their gate worktree, record it and ask the owner
+   before adding new ones.
 7. **`RULINGS.md` and `RESUME.md`.** `RULINGS.md` holds R-1 to R-4 of §2 word for word, with the author identity of
-   step 1 written out in R-2, and R-5 of §10 marked "proposed". **STOP: R-5.** Ask the owner to confirm or correct
-   it; steps 8–12 wait for the answer, which is recorded in R-5 word for word. `RESUME.md` follows the skeleton of
-   §3: the trunk line, no units, "Next" = steps 8–12, "Waiting on the owner" = the open STOPs. Commit `<ORCH>`.
+   step 1 written out in R-2, and the later rulings from R-5 (§2); R-5 was ruled on 2026-10-08. `RESUME.md` follows
+   the skeleton of §3: the trunk line, no units, "Next" = steps 8–12, "Waiting on the owner" = the open STOPs. Commit
+   `<ORCH>`.
 8. **The baseline** (on `master`, after steps 2, 5 and 7). Through the kit, in `gate-a` with lane A's target
    directory:
    - `start-gate.ps1 -RunDir D:/orch/moirai/baseline/gate -WorkDir D:/moirai-wt/gate-a -Unit baseline -RunId
@@ -743,26 +780,28 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
    its peak working set (`peak.txt`), the free RAM at rest, and lane A's target directory size before and after. Set
    `git config moirai.build-jobs` to half the logical cores divided by two; write `budgets.txt` as
    `gate=` and `tests=` three times the measured durations (at least 10 minutes each); compute the capacity of §10,
-   taking 1 GB for a unit session's own working set until step 10 measures one. Record all of it in `inventory.md`
-   and in `RESUME.md`'s header; the kit hash is unchanged by `budgets.txt`. Commit `<ORCH>`.
-10. **The trial unit**: a real typo fix plus a tiny test, through the whole workflow to the merge and the push.
+   taking 1 GB for the orchestrator session's working set while a unit runs, until step 10 measures it. Record all of
+   it in `inventory.md` and in `RESUME.md`'s header; the kit hash is unchanged by `budgets.txt`. Commit `<ORCH>`.
+10. **The trial unit**: a real typo fix plus a tiny test, through the whole workflow to the merge and the push. Done:
+    the trial was `u00-f21-doclinks` (R-6), run under R-7 in a unit session. For a new setup:
     - Find a typo in a path R-HARN-I writes and may read, preferably a message or comment in `xtask/src/` so that a
       unit test can pin the corrected text (`rg` for common misspellings); if none is found, **STOP** and ask for one.
     - Role `r-harn-i`, the WP whose authors.md §2 row covers the file (`WP-02` for `xtask/`). If `m0/r-harn-i` or
       `D:/moirai-wt/r-harn-i` exists (step 1), **STOP** and ask which role the trial uses.
-    - Run §5.2 steps 1–10: the spec (the fix and one unit test pinning it; the lock set is that one file; acceptance:
-      the new test red-first on the parent, the full gate `PASS`), the worktree, the local settings, the arguments,
-      the embedded copy, the dry run by name, `launch.md`, the unit session.
-    - **STOP: the first launch.** The first workflow launch in auto mode asks once (§8). Ask the owner to attach to the
-      unit session (`claude agents`, `→` on its row), approve the launch, and check that the status bar shows auto
-      mode; then the owner detaches. A session that is not in auto mode: §8 "Permission mode". Every later
-      `Needs input` of the trial (§5.3), such as a question before a commit, is recorded with its cause.
+    - Run §5.2 steps 1–10 from this orchestrator session: the spec (the fix and one unit test pinning it; the lock set
+      is that one file; acceptance: the new test red-first on the parent, the full gate `PASS`), the worktree, the
+      arguments, the embedded copy, the dry run by name, the launch.
+    - **STOP: the first launch.** The first workflow launch in auto mode asks once in this session (§8); the owner
+      approves it here and checks that the status bar shows auto mode. A session that is not in auto mode: §8
+      "Permission mode". Every later prompt or pause of the trial (§5.3), such as a question before a commit, is
+      recorded with its cause.
     - Wait (§5.3), then merge (§5.4 steps 1–5), push included, and keep the worktree for one more check:
-    - **Relaunch from the journal**: in the unit session, relaunch the same embedded copy with the run id of
-      `run_1.txt` and `k` = 2, nothing changed: every agent must return its saved result (`/workflows` shows no agent
-      running) and `result_2.json` must equal `result_1.json`.
+    - **Relaunch from the journal**: from this orchestrator session, relaunch the same embedded copy with the run id
+      of `run_1.txt` and `k` = 2, nothing changed: every agent must return its saved result (`/workflows` shows no
+      agent running) and `result_2.json` must equal `result_1.json`.
     - Then §5.4 step 6. Every permission prompt that stopped an agent gets its narrowest rule in `unit-allow.txt`
-      (§8). Measure the unit session's working set during the run and correct the capacity of step 9 if needed.
+      (§8). Measure the orchestrator session's working set during the run and correct the capacity of step 9 if
+      needed.
 11. **The checks** (record each with its evidence):
     - the files exist: AGENTS.md "Agent work", this file, the ten `.claude/agents/*.md`, `.claude/settings.json`, the
       main checkout's `settings.local.json` with both additional directories; in `<ORCH>`: `inventory.md`,
@@ -774,8 +813,9 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
       later round); no log was pasted into a brief (the prompts in the run's journal carry paths only); the merge's tree
       equals the verified tree; `master` is pushed (`git status -sb` shows it even with `origin/master`); the relaunch
       came back from the journal;
-    - the one-hour subagent TTL: after the next session start, at least one subagent transcript of a unit session
-      (under `%USERPROFILE%\.claude\projects\`, the role worktree's project) has
+    - the one-hour subagent TTL: after the next session start, at least one subagent transcript of a unit agent
+      (under `%USERPROFILE%\.claude\projects\`, the main checkout's project, since unit agents run in the
+      orchestrator session) has
       `usage.cache_creation.ephemeral_1h_input_tokens` above 0 (`rg -l "\"ephemeral_1h_input_tokens\":[1-9]"`);
       `/usage` shows the cache statistics from Claude Code 2.1.251.
 12. **Report to the owner**: what was created, the STOPs still open, the measured capacity, budgets and kit hash, and
