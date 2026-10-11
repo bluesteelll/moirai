@@ -400,6 +400,8 @@ struct Engine<'s, 'c> {
     skipped: BTreeSet<Nid>,
     /// Per state, the uids the re-key moved on it: U's `#N` → uid′'s `#N` (RK-005).
     rekeyed: [BTreeMap<Nid, Nid>; 3],
+    /// The typed step's hints, each with the key it names, in canonical key order ([F19 §12.3]).
+    hinted: Vec<(Key, Hint)>,
 }
 
 impl Engine<'_, '_> {
@@ -1740,6 +1742,7 @@ impl Engine<'_, '_> {
                         .filter(|n| self.st(i).live(*n).is_none())
                         .collect()
                 }),
+                strict: self.cx.strict,
             };
             // The RS-007 variant of a test thread ([`Rule`]); the candidate slot's hook first ([`cand::hierarchy`]).
             #[cfg(test)]
@@ -1754,6 +1757,33 @@ impl Engine<'_, '_> {
         for n in &out.skipped {
             self.skipped.insert(*n);
             self.out.rows.insert(hk(*n), "MR-039".into());
+        }
+        // One `MoveSkipped` hint per two-sided key that landed at its fallback (13.3 (b)), in canonical key order; none
+        // inside a virtual merge, which has no reply (VB-019).
+        if self.cx.op != Op::Virtual {
+            let mut hinted: Vec<(Nid, (usize, &'static str))> =
+                out.hinted.iter().map(|(n, x)| (*n, *x)).collect();
+            hinted.sort_by_cached_key(|(n, _)| {
+                canonical_key(&hk(*n), &|m: Nid| self.uid(m), &self.st(1).schema)
+            });
+            for (n, (side, reason)) in hinted {
+                let (took, other) = if side == 1 {
+                    ("ours", "theirs")
+                } else {
+                    ("theirs", "ours")
+                };
+                let text = format!(
+                    "{} took {took}; {other} skipped ({reason})",
+                    key_text(&hk(n), &|m: Nid| self.uid(m))
+                );
+                self.hinted.push((
+                    hk(n),
+                    Hint {
+                        class: "MoveSkipped",
+                        text,
+                    },
+                ));
+            }
         }
         out.values
     }
@@ -2244,6 +2274,9 @@ pub(crate) struct HInput<'a> {
     /// it is a `DanglingEdge`, V04).
     #[allow(dead_code)]
     pub live: BTreeSet<Nid>,
+    /// The merge's effective strict ([`Ctx::strict`]; `false` in a virtual merge).
+    #[allow(dead_code)]
+    pub strict: bool,
 }
 
 /// RS-007's hierarchy decision for one merge: every merged node's final value, and the nodes whose key is
@@ -2253,6 +2286,9 @@ pub(crate) struct HOutput {
     pub values: BTreeMap<Nid, Option<KVal>>,
     /// The `kleppmann-skipped` keys' nodes.
     pub skipped: BTreeSet<Nid>,
+    /// The two-sided keys that landed at their fallback, each with the side whose value landed (1 o, 2 t) and the
+    /// reason the other side's value was skipped (`cycle` or `dead-parent`): one `MoveSkipped` hint each (13.3 (b)).
+    pub hinted: BTreeMap<Nid, (usize, &'static str)>,
 }
 
 /// Applies RS-007's steps to `cur` in order, all moves of a step at once; after a step in which a node is its own
@@ -2310,6 +2346,7 @@ pub(crate) fn replay_rule(x: &HInput<'_>, kept_keys: bool, backstop: bool) -> HO
         return HOutput {
             values: x.t.clone(),
             skipped: BTreeSet::new(),
+            hinted: BTreeMap::new(),
         };
     }
     let mut cur = x.init.clone();
@@ -2352,6 +2389,7 @@ pub(crate) fn replay_rule(x: &HInput<'_>, kept_keys: bool, backstop: bool) -> HO
     HOutput {
         values: cur,
         skipped,
+        hinted: BTreeMap::new(),
     }
 }
 
@@ -2480,6 +2518,8 @@ pub struct Pending<'a> {
     pub skipped: BTreeSet<Nid>,
     /// The uid of every `#N` the three states hold or the merge allocated.
     pub(crate) uids: BTreeMap<Nid, Uid>,
+    /// The typed step's hints with the keys they name ([`Engine::kleppmann`]), listed before the validators' ones.
+    hinted: Vec<(Key, Hint)>,
 }
 
 impl Pending<'_> {
@@ -2494,11 +2534,14 @@ impl Pending<'_> {
             .retain(|v| v.key.as_ref().is_none_or(|k| !settled(k)));
         self.skipped
             .retain(|n| !settled(&Key::Node(*n, Aspect::Hierarchy)));
+        self.hinted.retain(|(k, _)| !settled(k));
     }
 
     /// The validators V01–V13 of [F13 §5] on the candidate, in their order after the typed records, over the merge's
     /// own three states as the sides; none inside a virtual merge (VM-3).
     pub fn validate(mut self, cx: &Ctx<'_>) -> Merged {
+        let hinted = std::mem::take(&mut self.hinted);
+        self.m.hints.extend(hinted.into_iter().map(|(_, h)| h));
         if cx.op != Op::Virtual {
             let uids = &self.uids;
             let uid = |n: Nid| uids.get(&n).copied().unwrap_or_else(|| (cx.uid)(n));
@@ -2545,6 +2588,7 @@ pub fn typed<'a>(
         precomp: BTreeMap::new(),
         skipped: BTreeSet::new(),
         rekeyed: Default::default(),
+        hinted: Vec::new(),
     };
     e.rekey();
     let modes = e.existence();
@@ -2561,6 +2605,7 @@ pub fn typed<'a>(
         s,
         mut out,
         skipped,
+        hinted,
         ..
     } = e;
     // Emission order ([F13 §5] VO-2): the typed rules' conflicts and violations in canonical key order; the
@@ -2576,6 +2621,7 @@ pub fn typed<'a>(
         m: out,
         skipped,
         uids,
+        hinted,
     }
 }
 

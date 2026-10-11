@@ -2,7 +2,7 @@
 //! state-based three-way rule does where it differs from RS-007's replay, and the known weaknesses of the rule. Each
 //! runs under `Rule::Cand` and, for comparison, `Rule::Current`, on the harness's own runner ([`run`]).
 
-use super::rs007eval::{Ev, Got, Hist, Kind, Log, T, run, trace_text};
+use super::rs007eval::{Ev, Got, Hist, Kind, Log, T, Verdict, run, trace_text};
 use crate::merge::Rule;
 
 const M: &str = "main";
@@ -33,24 +33,58 @@ fn hist(tasks: u32, lanes: &[&'static str], ops: Vec<Ev>) -> Hist {
     }
 }
 
+/// The last merge-family entry of a log.
+fn last_merge(l: &Log) -> &super::rs007eval::Entry {
+    l.entries
+        .iter()
+        .rfind(|e| e.kind != Kind::Edit)
+        .expect("a merge-family entry")
+}
+
+/// A `MoveSkipped` hint as a reply lists it (13.3 (b)).
+fn move_skipped(text: &str) -> Vec<(String, String)> {
+    vec![("MoveSkipped".to_string(), text.to_string())]
+}
+
+/// The history of [`k2_a_later_two_sided_move_that_closes_a_cycle_is_skipped_and_lands`], under strict when `strict`.
+fn later_cycle(strict: bool) -> Hist {
+    use Ev::*;
+    let mut ops = vec![
+        Mv(M, 4, Some(2)),
+        Mv(M, 1, Some(3)),
+        Mv(X, 2, Some(1)),
+        Mv(X, 1, Some(4)),
+        Sync(X, T::Ours),
+    ];
+    if strict {
+        ops.insert(0, Strict(true));
+    }
+    hist(4, &[X], ops)
+}
+
+/// The history of [`k2_a_later_move_under_a_node_the_result_deletes_lands_with_a_hint`]: main moves #1 under #3 and
+/// deletes #2; lane/x then moves #1 under #2; `sync lane/x`. Under strict when `strict`.
+fn later_dead_parent(strict: bool) -> Hist {
+    use Ev::*;
+    let mut ops = vec![
+        Mv(M, 1, Some(3)),
+        Del(M, 2, false),
+        Mv(X, 1, Some(2)),
+        Sync(X, T::Ours),
+    ];
+    if strict {
+        ops.insert(0, Strict(true));
+    }
+    hist(3, &[X], ops)
+}
+
 /// A two-sided key whose later move would close a cycle with keys only one side changed lands at the other side's
-/// (earlier) value, with no staging: main puts #4 under #2, then #1 under #3; lane/x puts #2 under #1, then #1 under
-/// #4; `sync lane/x` lands with #1 under #3 (main's), #2 under #1 and #4 under #2. RS-007's replay undoes lane/x's
-/// later move of #1 and stages `#1.parent`.
+/// (earlier) value, with no staging and one `MoveSkipped` hint (13.3 (b)): main puts #4 under #2, then #1 under #3;
+/// lane/x puts #2 under #1, then #1 under #4; `sync lane/x` lands with #1 under #3 (main's), #2 under #1 and #4 under
+/// #2. RS-007's replay undoes lane/x's later move of #1 and stages `#1.parent`.
 #[test]
 fn k2_a_later_two_sided_move_that_closes_a_cycle_is_skipped_and_lands() {
-    use Ev::*;
-    let h = hist(
-        4,
-        &[X],
-        vec![
-            Mv(M, 4, Some(2)),
-            Mv(M, 1, Some(3)),
-            Mv(X, 2, Some(1)),
-            Mv(X, 1, Some(4)),
-            Sync(X, T::Ours),
-        ],
-    );
+    let h = later_cycle(false);
     let c = run(&h, Rule::Cand);
     assert_eq!(
         outcomes(&c),
@@ -59,11 +93,91 @@ fn k2_a_later_two_sided_move_that_closes_a_cycle_is_skipped_and_lands() {
         trace_text(&h, &c)
     );
     assert_eq!(parents(&c, X), vec![Some(3), Some(1), None, Some(2)]);
+    assert_eq!(
+        last_merge(&c).hints,
+        move_skipped("#1.parent took theirs; ours skipped (cycle)"),
+        "{}",
+        trace_text(&h, &c)
+    );
     let r = run(&h, Rule::Current);
     assert!(
         matches!(&outcomes(&r)[0].2, Got::Staged(k) if k.iter().any(|s| s.starts_with("#1.parent"))),
         "{}",
         trace_text(&h, &r)
+    );
+}
+
+/// 13.3 (b) under `merge.strict` (R-15 Q2): the same history stages the skipped two-sided key as a `HierarchyCycle`,
+/// the candidate holding main's value, and the oracle calls the staging `Requested` (R-16 Q3).
+#[test]
+fn k2_under_strict_a_skipped_two_sided_move_stages_a_hierarchy_cycle() {
+    let h = later_cycle(true);
+    let c = run(&h, Rule::Cand);
+    let e = last_merge(&c);
+    assert_eq!(
+        (e.kind, &e.got),
+        (
+            Kind::Sync,
+            &Got::Staged(vec!["#1.parent HierarchyCycle".into()])
+        ),
+        "{}",
+        trace_text(&h, &c)
+    );
+    let r = &e.tri.as_ref().expect("judged").r;
+    assert_eq!(r[0].as_ref().map(|x| x.0), Some(Some(3)), "main's #1");
+    assert_eq!(
+        e.verdict,
+        Some(Verdict::Requested),
+        "{}",
+        trace_text(&h, &c)
+    );
+}
+
+/// A two-sided key whose later move goes under a node the result deletes lands at the other side's value with a
+/// `MoveSkipped` hint (13.3 (b); the dead-parent preference): main moves #1 under #3 and deletes #2; lane/x then moves
+/// #1 under #2; `sync lane/x` lands with #1 under #3.
+#[test]
+fn k2_a_later_move_under_a_node_the_result_deletes_lands_with_a_hint() {
+    let h = later_dead_parent(false);
+    let c = run(&h, Rule::Cand);
+    let e = last_merge(&c);
+    assert_eq!(
+        (e.kind, &e.got),
+        (Kind::Sync, &Got::Landed),
+        "{}",
+        trace_text(&h, &c)
+    );
+    assert_eq!(parents(&c, X)[0], Some(3), "{}", trace_text(&h, &c));
+    assert_eq!(
+        e.hints,
+        move_skipped("#1.parent took theirs; ours skipped (dead-parent)"),
+        "{}",
+        trace_text(&h, &c)
+    );
+}
+
+/// 13.3 (b) under `merge.strict` (R-15 Q2): the dead-parent preference is off, so the same history keeps lane/x's later
+/// move under the deleted #2 and stages its `DanglingEdge`; the oracle calls it `Requested` (R-16 Q3).
+#[test]
+fn k2_under_strict_a_move_under_a_node_the_result_deletes_stages_a_dangling_edge() {
+    let h = later_dead_parent(true);
+    let c = run(&h, Rule::Cand);
+    let e = last_merge(&c);
+    assert_eq!(
+        (e.kind, &e.got),
+        (
+            Kind::Sync,
+            &Got::Staged(vec!["#1.parent DanglingEdge".into()])
+        ),
+        "{}",
+        trace_text(&h, &c)
+    );
+    assert!(e.hints.is_empty(), "{:?}", e.hints);
+    assert_eq!(
+        e.verdict,
+        Some(Verdict::Requested),
+        "{}",
+        trace_text(&h, &c)
     );
 }
 

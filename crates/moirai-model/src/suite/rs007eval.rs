@@ -126,6 +126,9 @@ pub(crate) enum Ev {
     Criss(&'static str, &'static str, T, T),
     /// Labels branch `.1`'s tip `.0`.
     Mark(&'static str, &'static str),
+    /// Sets `merge.strict` at store scope (`ConfigSet`): every later sync and merge runs under it (KF-031); a revert
+    /// and a cherry-pick never do (R-15 Q2).
+    Strict(bool),
 }
 
 /// A history: the number of tasks (#1 to #n on `main` at the root), the lanes forked right after them, and its events.
@@ -754,6 +757,8 @@ fn move_stmt(n: u32, p: Option<u32>, pos: Option<Pos>) -> Stmt {
 struct Run {
     s: S,
     rule: Rule,
+    /// `merge.strict` as the history last set it ([`Ev::Strict`]).
+    strict: bool,
     tasks: u32,
     branches: Vec<String>,
     pool: Vec<u64>,
@@ -785,6 +790,7 @@ impl Run {
         let mut r = Run {
             s,
             rule,
+            strict: false,
             tasks: h.tasks,
             branches,
             pool: Vec::new(),
@@ -905,7 +911,7 @@ impl Run {
             one_sided,
             pick_no_hier: false,
             touch: Some(touch),
-            strict: false,
+            strict: self.strict,
         }
     }
 
@@ -1279,6 +1285,18 @@ impl Run {
                 if let Some(t) = self.tip(b) {
                     self.labels.insert(label, t);
                 }
+                self.push(op, Kind::Edit, Got::Ok, None, None, None, (0, 0));
+            }
+            Ev::Strict(on) => {
+                self.s.ok(
+                    Cmd::ConfigSet {
+                        key: "merge.strict".into(),
+                        value: on.to_string(),
+                        scope: crate::confcmd::FileScope::Store,
+                    },
+                    Ctx::default(),
+                );
+                self.strict = *on;
                 self.push(op, Kind::Edit, Got::Ok, None, None, None, (0, 0));
             }
         }

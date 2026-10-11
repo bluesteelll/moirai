@@ -30,10 +30,14 @@
 //!   demoted to b and `kleppmann-skipped`: for a revert or a cherry-pick a key only C changed first; a key one side
 //!   changed before one both sides set alike; a key whose reset leaves the unavoidable part first; then the latest
 //!   origin (src's on equal origins); then the least uid. Then the `both-diff` keys are fixed in ascending origin of
-//!   their MR-040 winner, each to its winner unless that leaves no forest, else to the other side's value (the later
-//!   move that closes a cycle is skipped, as Kleppmann's replay skips it, and logged, not staged). A `both-diff` key
-//!   whose MR-040 winner has a parent that is not live in the result (a `DanglingEdge`, V04) while the other side's
-//!   value has a live parent or none tries the other side's value first, as a cycle-closing winner does.
+//!   their MR-040 winner, each to its winner unless that leaves no forest, else to the other side's value (the move
+//!   that closes a cycle is skipped, as Kleppmann's replay skips it). A `both-diff` key whose MR-040 winner has a
+//!   parent that is not live in the result (a `DanglingEdge`, V04) while the other side's value has a live parent or
+//!   none tries the other side's value first, as a cycle-closing winner does. A key that lands at the other side's
+//!   value this way gets one `MoveSkipped` hint, which names the key, the side whose value landed and the reason
+//!   (`cycle` or `dead-parent`; 13.3 (b), R-15 Q1). Under `--strict` or `merge.strict` such a key stages instead
+//!   (R-15 Q2): a `cycle` key is `kleppmann-skipped` (V01's `HierarchyCycle`, the candidate holding the other side's
+//!   value), and the dead-parent preference is off, so the winner stays and V04 stages its `DanglingEdge`.
 //!
 //! Each demotion and each `both-diff` key that takes the other side's value counts one [`Counter::Repair`].
 
@@ -239,12 +243,18 @@ fn threeway(x: &HInput<'_>, v: Variant) -> HOutput {
     for (n, k) in &keys {
         values.insert(*n, k.chosen.clone());
     }
-    let skipped = match v {
-        Variant::Greedy | Variant::GreedySilent => greedy(x, &og, &keys, &mut values, v),
+    let (skipped, hinted) = match v {
+        Variant::Greedy | Variant::GreedySilent => {
+            (greedy(x, &og, &keys, &mut values, v), BTreeMap::new())
+        }
         Variant::Exact => exact(x, &og, &keys, &mut values),
     };
     values.retain(|n, _| x.merged.contains(n));
-    HOutput { values, skipped }
+    HOutput {
+        values,
+        skipped,
+        hinted,
+    }
 }
 
 /// A key the repair may change: its value's parent differs from its fallback's (an order-only difference cannot break a
@@ -342,24 +352,30 @@ fn on_option_cycle(opts: &BTreeMap<Nid, Vec<Option<KVal>>>, u: &BTreeSet<Nid>) -
     out
 }
 
+/// The skipped keys (MR-039) and the hinted keys (13.3 (b)) of [`exact`].
+type Exact = (BTreeSet<Nid>, BTreeMap<Nid, (usize, &'static str)>);
+
 /// K2-b: the exact repair.
 fn exact(
     x: &HInput<'_>,
     og: &Origins<'_, '_>,
     keys: &BTreeMap<Nid, K>,
     values: &mut BTreeMap<Nid, Option<KVal>>,
-) -> BTreeSet<Nid> {
+) -> Exact {
     // Every result node's allowed values: one for a determined key and for a node an existence policy fixed, two for a
     // `both-diff` key (its MR-040 winner first).
     let mut opts: BTreeMap<Nid, Vec<Option<KVal>>> =
         values.iter().map(|(n, w)| (*n, vec![w.clone()])).collect();
     // A value whose parent is not live in the result would stage a `DanglingEdge` (V04): a `both-diff` key whose MR-040
-    // winner has such a parent takes the other side's value first when that one's parent is live (or a root).
+    // winner has such a parent takes the other side's value first when that one's parent is live (or a root); not under
+    // strict, which stages the winner instead (13.3 (b); R-15 Q2).
     let dangles = |w: &Option<KVal>| parent_of(w).is_some_and(|p| !x.live.contains(&p));
+    let mut preferred: BTreeSet<Nid> = BTreeSet::new();
     for (n, k) in keys {
         if k.class == Class::BothDiff {
-            if dangles(&k.chosen) && !dangles(&k.fallback) {
+            if !x.strict && dangles(&k.chosen) && !dangles(&k.fallback) {
                 opts.insert(*n, vec![k.fallback.clone(), k.chosen.clone()]);
+                preferred.insert(*n);
                 bump(Counter::Repair);
             } else {
                 opts.insert(*n, vec![k.chosen.clone(), k.fallback.clone()]);
@@ -416,7 +432,12 @@ fn exact(
         bump(Counter::Repair);
     }
     // The `both-diff` keys, in ascending origin of their MR-040 winner: each takes its winner unless that leaves a
-    // node that can reach no root, else the other side's value.
+    // node that can reach no root, else the other side's value (a dead-parent key tries the other side's value first).
+    // A key that ends at the other side's value this way lands there with a `MoveSkipped` hint naming the reason the
+    // winner was skipped (13.3 (b); R-15 Q1): `cycle`, or `dead-parent` for a key the preference kept at it. Under
+    // strict a `cycle` key is `kleppmann-skipped` instead (MR-039: V01 stages a `HierarchyCycle`, the candidate holding
+    // the other side's value), and a dead-parent winner stays, which V04 stages (R-15 Q2). A preferred key whose other
+    // value would leave a node that can reach no root lands at its winner, with no hint, and V04 stages it.
     let base_u = unsafe_set(&opts).len();
     let mut xs: Vec<Nid> = keys
         .iter()
@@ -424,16 +445,28 @@ fn exact(
         .map(|(n, _)| *n)
         .collect();
     xs.sort_by_key(|n| (og.chosen(*n, &keys[n]), (x.uid)(*n)));
+    let mut hinted: BTreeMap<Nid, (usize, &'static str)> = BTreeMap::new();
     for n in xs {
         let both = opts[&n].clone();
+        // The side whose value is the fallback: the MR-040 winner's other side.
+        let fallback_side = 3 - keys[&n].side;
         opts.insert(n, vec![both[0].clone()]);
         if unsafe_set(&opts).len() > base_u {
             opts.insert(n, vec![both[1].clone()]);
             bump(Counter::Repair);
+            if !preferred.contains(&n) {
+                if x.strict {
+                    skipped.insert(n);
+                } else {
+                    hinted.insert(n, (fallback_side, "cycle"));
+                }
+            }
+        } else if preferred.contains(&n) {
+            hinted.insert(n, (fallback_side, "dead-parent"));
         }
     }
     for (n, os) in opts {
         values.insert(n, os[0].clone());
     }
-    skipped
+    (skipped, hinted)
 }
