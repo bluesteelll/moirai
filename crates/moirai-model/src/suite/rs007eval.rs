@@ -7,14 +7,17 @@
 //! Every history runs on its own store per variant, to its end, and every merge-family command in it (a `sync`, a
 //! cross-lane merge, a merge into `main` with its step-0 sync, a `--base` merge, both merges of a criss-cross, a
 //! revert and a cherry-pick) is judged by the oracle ([`oracle`]), which no rule computes:
-//! - a key is the hierarchy value (parent, order) of a task live in b, o and t; it is touched on side S when S's
-//!   value differs from b's (state-based touch);
-//! - a key touched on one side only must take that side's value, a key touched on neither keeps b's, a key touched on
-//!   both with equal values takes it (the determined keys); a key touched on both with different values may take
-//!   either side's value (MR-040 decides which; both are recorded);
-//! - a staging with a `HierarchyCycle` is avoidable when some assignment under these constraints is a forest (brute
-//!   force over the two-sided keys), genuine otherwise; a landing is wrong when a determined key lands at another value
-//!   or a two-sided key at neither side's value.
+//! - a key is the hierarchy value (parent, order) of a task live in the result (OQ-A-13 13.6 (a)), with `absent` as a
+//!   value on a side where the task is not live; it is touched on side S when S's value differs from b's (state-based
+//!   touch);
+//! - a key's allowed values: b's when touched on neither side, the side's when touched on one, the common value when
+//!   touched on both alike, and either side's when touched on both differently (MR-040 decides which; both are
+//!   recorded), `absent` dropped; when nothing is left, the live values among o's and t's (the result took the node's
+//!   existence from a live side, whose value it copied). A key with one allowed value is determined;
+//! - a staging with a `HierarchyCycle` is avoidable when some assignment of allowed values is a forest (brute force
+//!   over the keys with two), genuine otherwise; a landing is wrong when a key lands off its allowed values; a staging
+//!   for another reason is wrong when its candidate holds a key no violation names off its allowed values (R-15 Q5); a
+//!   staging that `--strict` or `merge.strict` asked for is `Requested`, not a fault (R-16 Q3).
 //!
 //! A secondary reading (CRIT-2's audit) also counts a key touched on a side when a commit of that side since B has it in
 //! its net changeset ([`Tri::touch`]); it is reported next to the primary, state-based one, since the two disagree on
@@ -24,9 +27,11 @@
 //! hierarchy of any branch), and the difference is judged by the oracle verdicts of both sides at that command, and
 //! by the oracle faults of each whole history.
 //!
-//! The tests: [`rs007_eval_oracle_classifies_by_state`] (the oracle alone), [`rs007_eval_corpus_invariants`] and
-//! [`rs007_eval_random_invariants`] (PR tier, under the thread's default rule, `MOIRAI_RS007_RULE`: only what every
-//! acceptable rule must meet), and the ignored [`rs007_eval_report`] (one table of every metric for a variant, against
+//! The tests: [`rs007_eval_oracle_classifies_by_state`] and its siblings (the oracle alone),
+//! [`rs007_eval_corpus_invariants`] and [`rs007_eval_random_invariants`] (PR tier, under the thread's default rule,
+//! `MOIRAI_RS007_RULE`: only what every acceptable rule must meet), [`rs007_eval_absolute_acceptance`] (PR tier, the
+//! candidate K2 against OQ-A-13's absolute acceptance over every generator, with the link check of every strict
+//! staging, [`link_check`]), and the ignored [`rs007_eval_report`] (one table of every metric for a variant, against
 //! references), [`rs007_eval_trace`] (one corpus case or generated history, verbose) and [`rs007_eval_find`] (the
 //! generated histories in which a variant's merge of a kind gets a verdict).
 
@@ -108,6 +113,16 @@ pub(crate) enum Ev {
     Prio(&'static str, u32, i64),
     /// On branch `.0`, a delete of #n (`.2`: `POLICY REPARENT`).
     Del(&'static str, u32, bool),
+    /// On branch `.0`, an edge `#a kind #b` linked (a `gates` edge's source is the history's verdict node,
+    /// #(tasks + 1)).
+    Link(&'static str, u32, &'static str, u32),
+    /// On branch `.0`, the edge `#a kind #b` unlinked.
+    Unlink(&'static str, u32, &'static str, u32),
+    /// On branch `.0`, the policy row `merge.policy.task` set to `delete-wins` or `resurrect`, or removed (`None`), by
+    /// a `Schema` command (AP-004, AP-005; [F08 §8.5.6]).
+    Policy(&'static str, Option<&'static str>),
+    /// `merge src --into dst --policy P` (`delete-wins` or `resurrect`; step 0's sync first when dst is `main`).
+    PolicyMerge(&'static str, &'static str, &'static str, T),
     /// `sync` of a lane.
     Sync(&'static str, T),
     /// `merge src --into dst` (step 0's sync first when dst is `main`).
@@ -123,6 +138,9 @@ pub(crate) enum Ev {
     Criss(&'static str, &'static str, T, T),
     /// Labels branch `.1`'s tip `.0`.
     Mark(&'static str, &'static str),
+    /// Sets `merge.strict` at store scope (`ConfigSet`): every later sync and merge runs under it (KF-031); a revert
+    /// and a cherry-pick never do (R-15 Q2).
+    Strict(bool),
 }
 
 /// A history: the number of tasks (#1 to #n on `main` at the root), the lanes forked right after them, and its events.
@@ -227,9 +245,9 @@ pub(crate) enum Verdict {
         order_only: bool,
     },
     /// Staged on a `HierarchyCycle` although a forest keeps every constraint; `on_determined` when a staged key is a
-    /// determined one; `cand_wrong` when the staged candidate holds a determined key it did not stage elsewhere;
-    /// `stuck` when no choice of o's or t's value for each staged key makes the candidate a forest (only `--take base`
-    /// or a value resolves it).
+    /// determined one; `cand_wrong` when the staged candidate holds a judged key that no violation names off its
+    /// allowed values; `stuck` when no choice of o's or t's live value for each staged key makes the candidate a forest
+    /// (only `--take base` or a value resolves it).
     Avoidable {
         on_determined: bool,
         cand_wrong: bool,
@@ -237,8 +255,12 @@ pub(crate) enum Verdict {
     },
     /// Staged on a `HierarchyCycle`, and no forest keeps every constraint (`cand_wrong`, `stuck` as for `Avoidable`).
     Genuine { cand_wrong: bool, stuck: bool },
-    /// Staged with no `HierarchyCycle`.
-    StagedOther,
+    /// Staged with no `HierarchyCycle`; `cand_wrong` when the staged candidate holds a judged key that no violation
+    /// names off its allowed values (a fault, R-15 Q5).
+    StagedOther { cand_wrong: bool },
+    /// Staged under `--strict` or `merge.strict` on two-sided keys the 13.3 (b) rule staged because strict asked for it
+    /// ([`requested_pairs`]; R-16 Q3): not a fault.
+    Requested,
     /// Refused.
     Refused,
     /// Up to date.
@@ -246,11 +268,14 @@ pub(crate) enum Verdict {
 }
 
 impl Verdict {
-    /// An oracle fault: an avoidable staging or a wrong landing.
+    /// An oracle fault: an avoidable staging, a wrong landing, or a staging for another reason whose candidate is
+    /// wrong (R-15 Q5). `Genuine { cand_wrong: true }` and `Requested` are not faults.
     pub(crate) fn fault(&self) -> bool {
         matches!(
             self,
-            Verdict::Avoidable { .. } | Verdict::LandedWrong { .. }
+            Verdict::Avoidable { .. }
+                | Verdict::LandedWrong { .. }
+                | Verdict::StagedOther { cand_wrong: true }
         )
     }
 }
@@ -276,6 +301,12 @@ pub(crate) struct Tri {
     /// cherry-pick, C itself) has the task's hierarchy key in its net changeset. The secondary oracle reading
     /// (CRIT-2's audit) counts a key touched on a side when it is state-touched or changeset-touched there.
     pub touch: Option<(Vec<bool>, Vec<bool>)>,
+    /// The command ran under an effective `--strict` or `merge.strict` (never a revert or a cherry-pick, R-15 Q2).
+    pub strict: bool,
+    /// Each task the result holds with a conflict value on its existence key (by index; missing: not fixed): the
+    /// existence rule fixed the node and copied it whole from a side ([F12 §6.3]; PR-007), so its hierarchy value is
+    /// that side's, not one RS-007 decides. The oracle takes it from the result (R-15 Q5).
+    pub fixed: Vec<bool>,
 }
 
 /// One merge-family command (or edit) of a history, as one variant's store ran it.
@@ -299,6 +330,8 @@ pub(crate) struct Entry {
     pub backstop: usize,
     /// A candidate's repairs in the command.
     pub repairs: usize,
+    /// The reply's hints, `(class, text)`: `data.hints`, or `data.sync.hints` for a step-0 entry.
+    pub hints: Vec<(String, String)>,
 }
 
 /// One history on one variant's store.
@@ -332,7 +365,7 @@ impl Log {
 /// A key's class under the oracle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Class {
-    /// The task is not live in all of b, o and t: not judged.
+    /// The task is not live in the result: not judged.
     NotJudged,
     /// Touched on neither side: keeps b's value.
     Untouched,
@@ -346,32 +379,32 @@ pub(crate) enum Class {
     BothDiff,
 }
 
-/// The oracle's reading of b, o and t ([`oracle`]).
+/// The oracle's reading of b, o and t over the result's live tasks ([`oracle`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Oracle {
     /// Each task's class.
     pub class: Vec<Class>,
-    /// Some task is not live in all three.
+    /// Each judged task's allowed values A(i), o's before t's; empty for a task that is not judged.
+    pub allowed: Vec<Vec<HV>>,
+    /// Some task is not live in all of b, o and t.
     pub partial: bool,
-    /// Some assignment under the constraints is a forest over the judged tasks.
+    /// Some assignment of allowed values is a forest over the judged tasks.
     pub forest: bool,
 }
 
 impl Oracle {
-    /// The value a determined key must take; `None` for a two-sided or unjudged key.
-    pub(crate) fn expected<'a>(
-        &self,
-        i: usize,
-        b: &'a Hier,
-        o: &'a Hier,
-        t: &'a Hier,
-    ) -> Option<&'a HV> {
-        match self.class[i] {
-            Class::Untouched => Some(&b[i]),
-            Class::OnlyO | Class::BothSame => Some(&o[i]),
-            Class::OnlyT => Some(&t[i]),
-            Class::NotJudged | Class::BothDiff => None,
+    /// The value a determined key must take (its one allowed value); `None` for a key with two allowed values or an
+    /// unjudged one.
+    pub(crate) fn expected(&self, i: usize) -> Option<&HV> {
+        match self.allowed[i].as_slice() {
+            [v] => Some(v),
+            _ => None,
         }
+    }
+
+    /// Whether each task is judged (live in the result).
+    pub(crate) fn judged(&self) -> Vec<bool> {
+        self.allowed.iter().map(|a| !a.is_empty()).collect()
     }
 }
 
@@ -399,56 +432,77 @@ fn forest(p: &[Option<u32>], judged: &[bool]) -> bool {
     true
 }
 
-/// The oracle over b, o and t (state-based touch; no rule is read): each task's class, and whether some assignment of
-/// the two-sided keys (each o's or t's value) with every determined key at its value is a forest.
-pub(crate) fn oracle(b: &Hier, o: &Hier, t: &Hier) -> Oracle {
-    oracle_touch(b, o, t, None)
+/// The parent of a hierarchy value; `None` for a root and for `absent`.
+fn par(v: &HV) -> Option<u32> {
+    v.as_ref().and_then(|(p, _)| *p)
 }
 
-/// [`oracle`], with a key also touched on a side where `touch` (o's mask, t's mask) says so (the secondary reading).
+/// The oracle over b, o and t and the result r (state-based touch; no rule is read), with no node fixed by the
+/// existence rule: each task's class and allowed values, and whether some assignment of allowed values is a forest.
+pub(crate) fn oracle(b: &Hier, o: &Hier, t: &Hier, r: &Hier) -> Oracle {
+    oracle_touch(b, o, t, r, &[], None)
+}
+
+/// [`oracle`], with a key also touched on a side where `touch` (o's mask, t's mask) says so (the secondary reading),
+/// and the tasks `fixed` names ([`Tri::fixed`]) taken from the result. A task is judged iff it is live in r (OQ-A-13
+/// 13.6 (a)); `absent` is a value (a side where the task is not live holds it), and it is never an allowed value: a
+/// class whose value is `absent` falls back to the live values among o's and t's, the side the result took the node's
+/// existence from. The oracle takes existence from the result (R-15 Q5): a node the existence rule fixed, which it
+/// copied whole from a live side ([F12 §6.3]), may hold either live side's value.
 pub(crate) fn oracle_touch(
     b: &Hier,
     o: &Hier,
     t: &Hier,
+    r: &Hier,
+    fixed: &[bool],
     touch: Option<&(Vec<bool>, Vec<bool>)>,
 ) -> Oracle {
     let n = b.len();
     let mut class = vec![Class::NotJudged; n];
+    let mut allowed: Vec<Vec<HV>> = vec![Vec::new(); n];
     for i in 0..n {
-        if b[i].is_none() || o[i].is_none() || t[i].is_none() {
+        if r[i].is_none() {
             continue;
         }
         let (co, ct) = touch.map_or((false, false), |(co, ct)| (co[i], ct[i]));
         let (to, tt) = (o[i] != b[i] || co, t[i] != b[i] || ct);
-        class[i] = match (to, tt) {
+        let c = match (to, tt) {
             (false, false) => Class::Untouched,
             (true, false) => Class::OnlyO,
             (false, true) => Class::OnlyT,
             (true, true) if o[i] == t[i] => Class::BothSame,
             (true, true) => Class::BothDiff,
         };
+        let mut a: Vec<HV> = match c {
+            Class::Untouched => vec![b[i].clone()],
+            Class::OnlyO | Class::BothSame => vec![o[i].clone()],
+            Class::OnlyT => vec![t[i].clone()],
+            _ => vec![o[i].clone(), t[i].clone()],
+        };
+        a.retain(Option::is_some);
+        if a.is_empty() || fixed.get(i).copied().unwrap_or(false) {
+            a = [&o[i], &t[i]]
+                .into_iter()
+                .filter(|v| v.is_some())
+                .cloned()
+                .collect();
+            a.dedup();
+        }
+        assert!(
+            !a.is_empty(),
+            "the oracle: task #{} is live in the result with no live value on o or t",
+            i + 1
+        );
+        class[i] = c;
+        allowed[i] = a;
     }
-    let judged: Vec<bool> = class.iter().map(|c| *c != Class::NotJudged).collect();
-    let two: Vec<usize> = (0..n).filter(|i| class[*i] == Class::BothDiff).collect();
-    let par = |v: &HV| v.as_ref().and_then(|(p, _)| *p);
+    let judged: Vec<bool> = allowed.iter().map(|a| !a.is_empty()).collect();
+    let two: Vec<usize> = (0..n).filter(|i| allowed[*i].len() == 2).collect();
     let mut found = false;
     for mask in 0..(1u32 << two.len()) {
-        let mut p: Vec<Option<u32>> = vec![None; n];
-        for i in 0..n {
-            p[i] = match class[i] {
-                Class::NotJudged => None,
-                Class::Untouched => par(&b[i]),
-                Class::OnlyO | Class::BothSame => par(&o[i]),
-                Class::OnlyT => par(&t[i]),
-                Class::BothDiff => None,
-            };
-        }
+        let mut p: Vec<Option<u32>> = allowed.iter().map(|a| a.first().and_then(par)).collect();
         for (j, i) in two.iter().enumerate() {
-            p[*i] = if mask >> j & 1 == 1 {
-                par(&t[*i])
-            } else {
-                par(&o[*i])
-            };
+            p[*i] = par(&allowed[*i][(mask >> j & 1) as usize]);
         }
         if forest(&p, &judged) {
             found = true;
@@ -457,7 +511,8 @@ pub(crate) fn oracle_touch(
     }
     Oracle {
         class,
-        partial: judged.iter().any(|j| !j),
+        allowed,
+        partial: (0..n).any(|i| b[i].is_none() || o[i].is_none() || t[i].is_none()),
         forest: found,
     }
 }
@@ -466,6 +521,71 @@ pub(crate) fn oracle_touch(
 fn parent_key(k: &str) -> Option<usize> {
     let n: usize = k.strip_prefix('#')?.strip_suffix(".parent")?.parse().ok()?;
     n.checked_sub(1)
+}
+
+/// The requested pairs of a staging (R-16 Q3; the cut's addendum, I-1): each (task index, class, w) where the 13.3 (b)
+/// rule staged two-sided key k because strict asked for it, read from the states alone. Key k is staged as `#k.parent`
+/// with class `HierarchyCycle` or `DanglingEdge`, is judged with two allowed values, and the candidate holds one of
+/// them; w is the other.
+/// - A `HierarchyCycle` pair: the candidate with k under par(w) is not a forest over the judged tasks.
+/// - A `DanglingEdge` pair: par(r[k]) is a task not live in r, par(w) is a root or a task live in r, and the candidate
+///   with k under par(w) is a forest; and jointly, the candidate with every such key under its par(w) is a forest, or
+///   none of them is requested (their w values close a cycle together).
+pub(crate) fn requested_pairs(
+    tri: &Tri,
+    or: &Oracle,
+    viols: &[(String, String)],
+) -> Vec<(usize, &'static str, HV)> {
+    let r = &tri.r;
+    let n = r.len();
+    let judged = or.judged();
+    let rp: Vec<Option<u32>> = r.iter().map(par).collect();
+    let live_task = |p: u32| (p as usize) >= 1 && (p as usize) <= n && judged[p as usize - 1];
+    let with = |set: &[(usize, Option<u32>)]| {
+        let mut p = rp.clone();
+        for (k, v) in set {
+            p[*k] = *v;
+        }
+        forest(&p, &judged)
+    };
+    // The keys staged with `class`, each once, that are judged with two allowed values one of which r holds, with w.
+    let staged = |class: &str| -> Vec<(usize, HV)> {
+        let ks: BTreeSet<usize> = viols
+            .iter()
+            .filter(|(_, c)| c == class)
+            .filter_map(|(k, _)| parent_key(k))
+            .filter(|k| *k < n)
+            .collect();
+        ks.into_iter()
+            .filter(|k| or.allowed[*k].len() == 2 && or.allowed[*k].contains(&r[*k]))
+            .map(|k| {
+                let w = or.allowed[k]
+                    .iter()
+                    .find(|v| **v != r[k])
+                    .cloned()
+                    .expect("two allowed values");
+                (k, w)
+            })
+            .collect()
+    };
+    let mut out: Vec<(usize, &'static str, HV)> = staged("HierarchyCycle")
+        .into_iter()
+        .filter(|(k, w)| !with(&[(*k, par(w))]))
+        .map(|(k, w)| (k, "HierarchyCycle", w))
+        .collect();
+    let de: Vec<(usize, HV)> = staged("DanglingEdge")
+        .into_iter()
+        .filter(|(k, w)| {
+            rp[*k].is_some_and(|p| !live_task(p))
+                && par(w).is_none_or(live_task)
+                && with(&[(*k, par(w))])
+        })
+        .collect();
+    let joint: Vec<(usize, Option<u32>)> = de.iter().map(|(k, w)| (*k, par(w))).collect();
+    if with(&joint) {
+        out.extend(de.into_iter().map(|(k, w)| (k, "DanglingEdge", w)));
+    }
+    out
 }
 
 /// Judges one merge-family command by the oracle: `got` is what it did, `tri` its states and result, `viols` its
@@ -482,37 +602,36 @@ pub(crate) fn judge_touch(
     touch: Option<&(Vec<bool>, Vec<bool>)>,
 ) -> Verdict {
     let (b, o, t, r) = (&tri.b, &tri.o, &tri.t, &tri.r);
-    let or = oracle_touch(b, o, t, touch);
+    let or = oracle_touch(b, o, t, r, &tri.fixed, touch);
+    let judged = or.judged();
+    // The parent of a value, `None` for `absent` (an order-only wrong landing keeps an allowed value's parent).
+    let parent = |v: &HV| v.as_ref().map(|(p, _)| *p);
     match got {
         Got::Landed => {
             let (mut one, mut unt, mut same, mut neither) = (0, 0, 0, 0);
             let (mut took_o, mut took_t) = (0, 0);
             let mut order_only = true;
             for i in 0..b.len() {
-                let par = |v: &HV| v.as_ref().map(|(p, _)| *p);
-                match or.class[i] {
-                    Class::NotJudged => {}
-                    Class::BothDiff => {
+                let a = &or.allowed[i];
+                if a.is_empty() {
+                    continue;
+                }
+                if a.contains(&r[i]) {
+                    if or.class[i] == Class::BothDiff {
                         if r[i] == o[i] {
                             took_o += 1;
-                        } else if r[i] == t[i] {
-                            took_t += 1;
                         } else {
-                            neither += 1;
-                            order_only &= par(&r[i]) == par(&o[i]) || par(&r[i]) == par(&t[i]);
+                            took_t += 1;
                         }
                     }
-                    c => {
-                        let e = or.expected(i, b, o, t).expect("a determined key");
-                        if r[i] != *e {
-                            order_only &= par(&r[i]) == par(e);
-                            match c {
-                                Class::Untouched => unt += 1,
-                                Class::BothSame => same += 1,
-                                _ => one += 1,
-                            }
-                        }
-                    }
+                    continue;
+                }
+                order_only &= a.iter().any(|x| parent(x) == parent(&r[i]));
+                match or.class[i] {
+                    Class::Untouched => unt += 1,
+                    Class::BothSame => same += 1,
+                    Class::BothDiff => neither += 1,
+                    _ => one += 1,
                 }
             }
             if one + unt + same + neither == 0 {
@@ -528,35 +647,63 @@ pub(crate) fn judge_touch(
             }
         }
         Got::Staged(_) => {
+            // K: the task of every violation's `#n.parent`, of any class.
+            let keyed: BTreeSet<usize> = viols.iter().filter_map(|(k, _)| parent_key(k)).collect();
             let hc: BTreeSet<usize> = viols
                 .iter()
                 .filter(|(_, c)| c == "HierarchyCycle")
                 .filter_map(|(k, _)| parent_key(k))
                 .collect();
-            if !viols.iter().any(|(_, c)| c == "HierarchyCycle") {
-                return Verdict::StagedOther;
-            }
             let cand_wrong = (0..b.len())
-                .any(|i| !hc.contains(&i) && or.expected(i, b, o, t).is_some_and(|e| r[i] != *e));
-            // Whether `--take ours` or `--take theirs` on the staged keys can give a forest, the other keys as the
-            // candidate holds them.
-            let judged: Vec<bool> = or.class.iter().map(|c| *c != Class::NotJudged).collect();
+                .any(|i| judged[i] && !keyed.contains(&i) && !or.allowed[i].contains(&r[i]));
+            let rp: Vec<Option<u32>> = r.iter().map(par).collect();
+            if tri.strict {
+                let req = requested_pairs(tri, &or, viols);
+                let every_hc = viols
+                    .iter()
+                    .filter(|(_, c)| c == "HierarchyCycle")
+                    .all(|(k, _)| {
+                        parent_key(k).is_some_and(|i| {
+                            req.iter()
+                                .any(|(j, c, _)| *j == i && *c == "HierarchyCycle")
+                        })
+                    });
+                if !req.is_empty() && every_hc && !cand_wrong && forest(&rp, &judged) {
+                    return Verdict::Requested;
+                }
+            }
+            if !viols.iter().any(|(_, c)| c == "HierarchyCycle") {
+                return Verdict::StagedOther { cand_wrong };
+            }
+            // Whether some choice of a live value of o's or t's for each staged key gives a forest, the other keys as
+            // the candidate holds them.
             let staged: Vec<usize> = hc.iter().copied().filter(|i| judged[*i]).collect();
-            let par = |v: &HV| v.as_ref().and_then(|(p, _)| *p);
-            let stuck = !(0..(1u32 << staged.len())).any(|mask| {
-                let mut p: Vec<Option<u32>> = r.iter().map(par).collect();
+            let opts: Vec<Vec<Option<u32>>> = staged
+                .iter()
+                .map(|i| {
+                    let mut v: Vec<Option<u32>> = [&o[*i], &t[*i]]
+                        .into_iter()
+                        .filter(|x| x.is_some())
+                        .map(par)
+                        .collect();
+                    if v.is_empty() {
+                        v.push(rp[*i]);
+                    }
+                    v
+                })
+                .collect();
+            let combos: usize = opts.iter().map(Vec::len).product();
+            let stuck = !(0..combos).any(|mut m| {
+                let mut p = rp.clone();
                 for (j, i) in staged.iter().enumerate() {
-                    p[*i] = if mask >> j & 1 == 1 {
-                        par(&t[*i])
-                    } else {
-                        par(&o[*i])
-                    };
+                    p[*i] = opts[j][m % opts[j].len()];
+                    m /= opts[j].len();
                 }
                 forest(&p, &judged)
             });
             if or.forest {
                 Verdict::Avoidable {
-                    on_determined: hc.iter().any(|i| or.expected(*i, b, o, t).is_some()),
+                    on_determined: hc.iter().any(|i| or.expected(*i).is_some()),
                     cand_wrong,
                     stuck,
                 }
@@ -591,11 +738,11 @@ fn fresh_on(b: &str) -> Ctx {
     }
 }
 
-fn merge_cmd(src: &str, dst: &str, base: Option<String>) -> Cmd {
+fn merge_cmd(src: &str, dst: &str, base: Option<String>, policy: Option<&str>) -> Cmd {
     Cmd::Merge {
         src: src.into(),
         into: Some(dst.into()),
-        policy: None,
+        policy: policy.map(str::to_string),
         strict: None,
         base,
         message: String::new(),
@@ -629,6 +776,8 @@ fn move_stmt(n: u32, p: Option<u32>, pos: Option<Pos>) -> Stmt {
 struct Run {
     s: S,
     rule: Rule,
+    /// `merge.strict` as the history last set it ([`Ev::Strict`]).
+    strict: bool,
     tasks: u32,
     branches: Vec<String>,
     pool: Vec<u64>,
@@ -639,12 +788,21 @@ struct Run {
 impl Run {
     fn new(h: &Hist, rule: Rule) -> Run {
         let mut s = S::base();
-        s.ok(
-            tx((1..=h.tasks)
-                .map(|i| task(&format!("t{i}"), &format!("task {i}")))
-                .collect()),
-            orch(),
-        );
+        let mut nodes: Vec<Stmt> = (1..=h.tasks)
+            .map(|i| task(&format!("t{i}"), &format!("task {i}")))
+            .collect();
+        // A verdict node, #(tasks + 1), only for a history that links or unlinks `gates` (so no other history changes).
+        if h.ops
+            .iter()
+            .any(|e| matches!(e, Ev::Link(_, _, k, _) | Ev::Unlink(_, _, k, _) if *k == "gates"))
+        {
+            nodes.push(node(
+                "verdict",
+                "verdict",
+                &[("title", t("verdict")), ("outcome", t("fail_fixable"))],
+            ));
+        }
+        s.ok(tx(nodes), orch());
         let mut branches = vec!["main".to_string()];
         for l in &h.lanes {
             s.ok(
@@ -660,6 +818,7 @@ impl Run {
         let mut r = Run {
             s,
             rule,
+            strict: false,
             tasks: h.tasks,
             branches,
             pool: Vec::new(),
@@ -677,6 +836,17 @@ impl Run {
     fn hier_at(&self, c: Option<u64>) -> Hier {
         let st = self.s.st.dag.state_at(c, &self.s.st.alloc);
         hier_of(&st, self.tasks)
+    }
+
+    /// The tasks commit `c` holds live with a conflict value on their existence key ([`Tri::fixed`]).
+    fn fixed_at(&self, c: Option<u64>) -> Vec<bool> {
+        let st = self.s.st.dag.state_at(c, &self.s.st.alloc);
+        (1..=self.tasks)
+            .map(|i| {
+                st.live(Nid(i))
+                    .is_some_and(|x| x.conflicts.contains_key(&crate::state::Aspect::Existence))
+            })
+            .collect()
     }
 
     fn note_pool(&mut self) {
@@ -734,6 +904,7 @@ impl Run {
             tri: tri.map(Box::new),
             backstop: d.0,
             repairs: d.1,
+            hints: Vec::new(),
         });
     }
 
@@ -779,6 +950,8 @@ impl Run {
             one_sided,
             pick_no_hier: false,
             touch: Some(touch),
+            strict: self.strict,
+            fixed: Vec::new(),
         }
     }
 
@@ -811,6 +984,13 @@ impl Run {
             };
             v.into_iter().map(|v| (v.key, v.class)).collect()
         };
+        // The reply's hints: a step-0 entry's are its sync's.
+        let hints = d
+            .map(|d| match kind {
+                Kind::Step0 => d.sync.as_ref().map(|x| x.hints.clone()).unwrap_or_default(),
+                _ => d.hints.clone(),
+            })
+            .unwrap_or_default();
         let (got, result, vs) = match (&r.outcome, d) {
             (Outcome::Ok, Some(d)) if d.outcome == "up-to-date" => (Got::UpToDate, None, vec![]),
             (Outcome::Ok, _) => (Got::Landed, Some(self.tip(dst)), vec![]),
@@ -829,6 +1009,7 @@ impl Run {
         };
         let tri = result.map(|c| Tri {
             r: self.hier_at(c),
+            fixed: self.fixed_at(c),
             ..inputs
         });
         let verdict = match &tri {
@@ -859,6 +1040,7 @@ impl Run {
         );
         if let Some(e) = self.log.entries.last_mut() {
             e.verdict_ch = verdict_ch;
+            e.hints = hints;
         }
         landed
     }
@@ -911,12 +1093,25 @@ impl Run {
         false
     }
 
-    /// A merge of `src` into `dst` (`forced`: `--base`), with step 0's sync first when the store runs one.
-    fn merge(&mut self, op: usize, kind: Kind, src: &str, dst: &str, forced: Option<u64>, take: T) {
+    /// A merge of `src` into `dst` (`forced`: `--base`; `policy`: `--policy`), with step 0's sync first when the store
+    /// runs one.
+    #[allow(clippy::too_many_arguments)]
+    fn merge(
+        &mut self,
+        op: usize,
+        kind: Kind,
+        src: &str,
+        dst: &str,
+        forced: Option<u64>,
+        policy: Option<&str>,
+        take: T,
+    ) {
         let (od, ts, tm) = (self.tip(dst), self.tip(src), self.tip("main"));
         let before = self.counts();
         let base = forced.map(|c| format!("s{c}"));
-        let r = self.s.run(merge_cmd(src, dst, base.clone()), fresh_on(dst));
+        let r = self
+            .s
+            .run(merge_cmd(src, dst, base.clone(), policy), fresh_on(dst));
         let d = match &r.data {
             Data::Merge(d) => Some(d.as_ref().clone()),
             _ => None,
@@ -936,7 +1131,7 @@ impl Run {
             // The step-0 sync landed by resolution: the merge into `main` runs again, now with no step 0.
             let (od, ts) = (self.tip(dst), self.tip(src));
             let before = self.counts();
-            let r = self.s.run(merge_cmd(src, dst, base), fresh_on(dst));
+            let r = self.s.run(merge_cmd(src, dst, base, policy), fresh_on(dst));
             let inputs = self.inputs(od, ts, forced);
             self.record(op, kind, &r, dst, inputs, take, before);
             return;
@@ -945,6 +1140,7 @@ impl Run {
         let sc = sync.commit;
         let tri = Tri {
             r: self.hier_at(sc),
+            fixed: self.fixed_at(sc),
             ..inputs
         };
         let vs: Vec<(String, String)> = Vec::new();
@@ -961,6 +1157,7 @@ impl Run {
         );
         if let Some(e) = self.log.entries.last_mut() {
             e.verdict_ch = Some(verdict_ch);
+            e.hints = sync.hints.clone();
         }
         let inputs = self.inputs(od, sc, forced);
         self.record(op, kind, &r, dst, inputs, take, before);
@@ -1034,6 +1231,9 @@ impl Run {
             one_sided: false,
             pick_no_hier: no_hier,
             touch: Some(touch),
+            // A revert or a cherry-pick takes no strict (R-15 Q2).
+            strict: false,
+            fixed: Vec::new(),
         };
         let r = self.s.run(cmd, fresh_on(onto));
         self.record(op, kind, &r, onto, inputs, take, before);
@@ -1089,6 +1289,16 @@ impl Run {
                     reason: Some("gone".into()),
                 }],
             ),
+            Ev::Link(b, x, kind, y) => self.edit(op, b, vec![link(*x, kind, *y)]),
+            Ev::Unlink(b, x, kind, y) => self.edit(
+                op,
+                b,
+                vec![Stmt::Unlink {
+                    src: Target::Id(Nid(*x)),
+                    kind: kind.to_string(),
+                    dst: Target::Id(Nid(*y)),
+                }],
+            ),
             Ev::Sync(l, take) => {
                 let (o, t) = (self.tip(l), self.tip("main"));
                 let before = self.counts();
@@ -1108,13 +1318,38 @@ impl Run {
                 } else {
                     Kind::Cross
                 };
-                self.merge(op, kind, src, dst, None, *take);
+                self.merge(op, kind, src, dst, None, None, *take);
+            }
+            Ev::PolicyMerge(src, dst, policy, take) => {
+                let kind = if *dst == "main" {
+                    Kind::IntoMain
+                } else {
+                    Kind::Cross
+                };
+                self.merge(op, kind, src, dst, None, Some(policy), *take);
+            }
+            Ev::Policy(b, v) => {
+                let r = self.s.run(
+                    Cmd::Schema {
+                        items: vec![crate::schema::Item::Policy(crate::schema::PolicyItem {
+                            name: "merge.policy.task".into(),
+                            value: v.map(str::to_string),
+                        })],
+                        message: String::new(),
+                    },
+                    fresh_on(b),
+                );
+                let got = match r.outcome {
+                    Outcome::Ok | Outcome::Replayed | Outcome::Dry => Got::Ok,
+                    _ => Got::Refused(r.error.as_ref().map(|e| e.code.clone()).unwrap_or_default()),
+                };
+                self.push(op, Kind::Edit, got, None, None, None, (0, 0));
             }
             Ev::Based(src, dst, c, take) => match match c {
                 CRef::Pool(k) => (!self.pool.is_empty()).then(|| self.pool[k % self.pool.len()]),
                 CRef::Label(l) => self.labels.get(l).copied(),
             } {
-                Some(c) => self.merge(op, Kind::Based, src, dst, Some(c), *take),
+                Some(c) => self.merge(op, Kind::Based, src, dst, Some(c), None, *take),
                 None => self.push(op, Kind::Based, Got::Skipped, None, None, None, (0, 0)),
             },
             Ev::Pick(c, onto, take) => self.pick(op, *c, onto, *take, false),
@@ -1134,13 +1369,25 @@ impl Run {
                     return;
                 }
                 self.branches.push(name.clone());
-                self.merge(op, Kind::Criss, l2, l1, None, *t1);
-                self.merge(op, Kind::Criss, &name, l2, None, *t2);
+                self.merge(op, Kind::Criss, l2, l1, None, None, *t1);
+                self.merge(op, Kind::Criss, &name, l2, None, None, *t2);
             }
             Ev::Mark(label, b) => {
                 if let Some(t) = self.tip(b) {
                     self.labels.insert(label, t);
                 }
+                self.push(op, Kind::Edit, Got::Ok, None, None, None, (0, 0));
+            }
+            Ev::Strict(on) => {
+                self.s.ok(
+                    Cmd::ConfigSet {
+                        key: "merge.strict".into(),
+                        value: on.to_string(),
+                        scope: crate::confcmd::FileScope::Store,
+                    },
+                    Ctx::default(),
+                );
+                self.strict = *on;
                 self.push(op, Kind::Edit, Got::Ok, None, None, None, (0, 0));
             }
         }
@@ -1157,6 +1404,8 @@ fn dummy_tri(n: u32) -> Tri {
         one_sided: false,
         pick_no_hier: false,
         touch: None,
+        strict: false,
+        fixed: Vec::new(),
     }
 }
 
@@ -1459,6 +1708,17 @@ pub(crate) struct KStats {
     pub genuine_ch: usize,
     pub avoidable_ch: usize,
     pub wrong_ch: usize,
+    /// Stagings with no `HierarchyCycle` whose candidate holds a judged key no violation names off its allowed values
+    /// (a fault, R-15 Q5).
+    pub staged_other_wrong: usize,
+    /// Stagings strict asked for ([`Verdict::Requested`]).
+    pub requested: usize,
+    /// `MoveSkipped` hints (13.3 (b)).
+    pub hints: usize,
+    /// Keys of a landing that lost a reparent to a concurrent order-only change with no hint (13.5 (b); ALT-10): the
+    /// task is judged and live in b, o and t; one side's value has b's parent and another order, the other side's
+    /// another parent; the result holds the order-only side's value; no hint names the key.
+    pub reparent_lost: usize,
 }
 
 impl KStats {
@@ -1477,6 +1737,12 @@ impl KStats {
         }
         if e.settled == Some(false) {
             self.settle_aborted += 1;
+        }
+        self.hints += e.hints.iter().filter(|(c, _)| c == "MoveSkipped").count();
+        if e.got == Got::Landed
+            && let Some(t) = &e.tri
+        {
+            self.reparent_lost += reparents_lost(t, &e.hints);
         }
         if let Some(t) = &e.tri {
             let partial =
@@ -1547,10 +1813,32 @@ impl KStats {
                 self.cand_wrong += *cand_wrong as usize;
                 self.stuck += *stuck as usize;
             }
-            Some(Verdict::StagedOther) => self.staged_other += 1,
+            Some(Verdict::StagedOther { cand_wrong }) => {
+                self.staged_other += 1;
+                self.staged_other_wrong += *cand_wrong as usize;
+            }
+            Some(Verdict::Requested) => self.requested += 1,
             _ => {}
         }
     }
+}
+
+/// The keys of a landing ([`KStats::reparent_lost`]) that lost a reparent to a concurrent order-only change with no
+/// hint naming them.
+fn reparents_lost(t: &Tri, hints: &[(String, String)]) -> usize {
+    (0..t.b.len())
+        .filter(|i| {
+            let (Some(b), Some(o), Some(x), Some(r)) = (&t.b[*i], &t.o[*i], &t.t[*i], &t.r[*i])
+            else {
+                return false;
+            };
+            let order_only = |s: &(Option<u32>, Option<String>)| s.0 == b.0 && s != b;
+            let lost =
+                (order_only(o) && x.0 != b.0 && r == o) || (order_only(x) && o.0 != b.0 && r == x);
+            let named = format!("#{}.parent ", i + 1);
+            lost && !hints.iter().any(|(_, h)| h.starts_with(&named))
+        })
+        .count()
 }
 
 /// Whether `x` and `y` agree on every task live in b, o and t.
@@ -1683,7 +1971,7 @@ fn verdict_text(v: &Verdict) -> String {
                 ""
             },
             if *cand_wrong {
-                ", candidate moves a determined key"
+                ", candidate holds a key off its allowed values"
             } else {
                 ""
             },
@@ -1696,7 +1984,7 @@ fn verdict_text(v: &Verdict) -> String {
         Verdict::Genuine { cand_wrong, stuck } => format!(
             "genuine staging{}{}",
             if *cand_wrong {
-                ", candidate moves a determined key"
+                ", candidate holds a key off its allowed values"
             } else {
                 ""
             },
@@ -1706,35 +1994,51 @@ fn verdict_text(v: &Verdict) -> String {
                 ""
             }
         ),
-        Verdict::StagedOther => "staged (no HierarchyCycle)".into(),
+        Verdict::StagedOther { cand_wrong } => format!(
+            "staged (no HierarchyCycle){}",
+            if *cand_wrong {
+                ", WRONG: the candidate holds a key off its allowed values"
+            } else {
+                ""
+            }
+        ),
+        Verdict::Requested => "staged at strict's request (requested)".into(),
         Verdict::Refused => "refused".into(),
         Verdict::UpToDate => "up to date".into(),
     }
 }
 
-/// The oracle's expectation on (b, o, t), as text.
+/// The oracle's expectation on (b, o, t) over the result's live tasks, as text.
 pub(crate) fn expectation_text(t: &Tri) -> String {
-    let or = oracle(&t.b, &t.o, &t.t);
+    let or = oracle_touch(&t.b, &t.o, &t.t, &t.r, &t.fixed, None);
     let mut det = Vec::new();
     let mut two = Vec::new();
     for i in 0..t.b.len() {
-        match or.class[i] {
-            Class::NotJudged => det.push(format!("#{} not judged", i + 1)),
-            Class::BothDiff => two.push(format!(
-                "#{} o {} | t {}",
+        match (or.class[i], or.allowed[i].as_slice()) {
+            (Class::NotJudged, _) => det.push(format!("#{} not judged", i + 1)),
+            (_, [x, y]) => two.push(format!("#{} o {} | t {}", i + 1, hv_text(x), hv_text(y))),
+            (c, a) if t.fixed.get(i).copied().unwrap_or(false) => det.push(format!(
+                "#{} {} (fixed by its existence, {})",
                 i + 1,
-                hv_text(&t.o[i]),
-                hv_text(&t.t[i])
-            )),
-            c => det.push(format!(
-                "#{} {} ({})",
-                i + 1,
-                hv_text(or.expected(i, &t.b, &t.o, &t.t).expect("determined")),
+                a.iter().map(hv_text).collect::<Vec<_>>().join(" | "),
                 match c {
                     Class::Untouched => "untouched",
                     Class::OnlyO => "o only",
                     Class::OnlyT => "t only",
-                    _ => "both, same",
+                    Class::BothSame => "both, same",
+                    _ => "both",
+                }
+            )),
+            (c, a) => det.push(format!(
+                "#{} {} ({})",
+                i + 1,
+                a.iter().map(hv_text).collect::<Vec<_>>().join(" | "),
+                match c {
+                    Class::Untouched => "untouched",
+                    Class::OnlyO => "o only",
+                    Class::OnlyT => "t only",
+                    Class::BothSame => "both, same",
+                    _ => "both, one side absent",
                 }
             )),
         }
@@ -1831,8 +2135,9 @@ pub(crate) fn trace_text(h: &Hist, l: &Log) -> String {
 // ---------------------------------------------------------------------------------------------------------------------
 // Generators.
 
-/// A random-history generator. All histories have tasks #1 to #4, created at the root on `main`, with every lane
-/// forked at that commit; a move puts #n under one of the other three (4 times in 5) or at the root.
+/// A random-history generator. The histories of the first four have tasks #1 to #4, the others #1 to #6 (OQ-A-13
+/// 13.6 (a)), created at the root on `main`, with every lane forked at that commit; a move puts #n under one of the
+/// other tasks (4 times in 5) or at the root.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum Gen {
     /// The committed lockstep search's alphabet (`suite::kleppmann`): `main` and two lanes; moves, priority edits,
@@ -1846,10 +2151,36 @@ pub(crate) enum Gen {
     Wide,
     /// Lanes' events plus `merge --base C` of a random earlier commit C, between any two branches (S-4); 1 to 23 events.
     Based,
+    /// The critic's generator (`wave-3d-alternatives.md`, "multi"): 6 tasks, three lanes, Wide's events, transactions
+    /// of 2 or 3 statements, and the takes ours, theirs, base and abort; 1 to 40 events.
+    Multi,
+    /// Existence policies (13.6 (a)): 6 tasks, two lanes, Lanes' events with more deletes, the `merge.policy.task` row
+    /// and `--policy` on half the cross-lane merges and merges into `main`, reverts and cherry-picks; 1 to 30 events.
+    Policy,
+    /// `merge.strict` (13.6 (a)): Multi's events with `merge.strict` switched on and off.
+    Strict,
+    /// `blocks` and `gates` edges (13.6 (a)): 6 tasks and a verdict node, two lanes, Lanes' events, `blocks` edges
+    /// linked and unlinked between tasks and `gates` edges from the verdict; 1 to 30 events.
+    Edges,
+    /// The union of Multi, Policy, Strict and Edges; three lanes; 1 to 40 events.
+    Full,
 }
 
 impl Gen {
+    /// The four generators of wave 3d, which `rs007_eval_random_invariants` runs under the default rule.
     pub(crate) const ALL: [Gen; 4] = [Gen::Narrow, Gen::Lanes, Gen::Wide, Gen::Based];
+    /// Every generator: the four and those of OQ-A-13 13.6 (a).
+    pub(crate) const EVERY: [Gen; 9] = [
+        Gen::Narrow,
+        Gen::Lanes,
+        Gen::Wide,
+        Gen::Based,
+        Gen::Multi,
+        Gen::Policy,
+        Gen::Strict,
+        Gen::Edges,
+        Gen::Full,
+    ];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -1857,26 +2188,39 @@ impl Gen {
             Gen::Lanes => "lanes",
             Gen::Wide => "wide",
             Gen::Based => "based",
+            Gen::Multi => "multi",
+            Gen::Policy => "policy",
+            Gen::Strict => "strict",
+            Gen::Edges => "edges",
+            Gen::Full => "full",
         }
     }
 
     pub(crate) fn parse(s: &str) -> Option<Gen> {
-        Gen::ALL
+        Gen::EVERY
             .into_iter()
             .find(|g| g.name().eq_ignore_ascii_case(s.trim()))
     }
 
     fn lanes(self) -> Vec<&'static str> {
         match self {
-            Gen::Wide => vec![NAMES[1], NAMES[2], NAMES[3]],
+            Gen::Wide | Gen::Multi | Gen::Strict | Gen::Full => vec![NAMES[1], NAMES[2], NAMES[3]],
             _ => vec![NAMES[1], NAMES[2]],
         }
+    }
+
+    /// The number of tasks of a history: 4 for the four of wave 3d, 6 for the rest.
+    pub(crate) fn tasks(self) -> u32 {
+        if Gen::ALL.contains(&self) { 4 } else { 6 }
     }
 }
 
 /// The events of generator `g`.
 fn strategy(g: Gen) -> proptest::strategy::BoxedStrategy<Vec<Ev>> {
     use proptest::prelude::*;
+    if !Gen::ALL.contains(&g) {
+        return strategy_wide(g);
+    }
     let nb: usize = if g == Gen::Wide { 4 } else { 3 };
     let under = |n: u32, d: Option<u32>| d.map(|d| (n - 1 + d) % 4 + 1);
     let target = || prop_oneof![4 => (1u32..=3).prop_map(Some), 1 => Just(None)];
@@ -1940,6 +2284,187 @@ fn strategy(g: Gen) -> proptest::strategy::BoxedStrategy<Vec<Ev>> {
     }
 }
 
+/// The events of the generators of OQ-A-13 13.6 (a) ([`Gen::Multi`], [`Gen::Policy`], [`Gen::Strict`], [`Gen::Edges`]
+/// and [`Gen::Full`]): 6 tasks; a move puts #n under one of the other five (4 times in 5) or at the root; every take of
+/// [`T`]; the verdict node of a `gates` edge is #7.
+fn strategy_wide(g: Gen) -> proptest::strategy::BoxedStrategy<Vec<Ev>> {
+    use proptest::prelude::*;
+    use proptest::strategy::Union;
+    const N: u32 = 6;
+    let nb: usize = g.lanes().len() + 1;
+    let lanes = nb - 1;
+    let under = |n: u32, d: Option<u32>| d.map(|d| (n - 1 + d) % N + 1);
+    let target = || prop_oneof![4 => (1u32..N).prop_map(Some), 1 => Just(None)];
+    let take = || {
+        prop_oneof![
+            Just(T::Ours),
+            Just(T::Theirs),
+            Just(T::Base),
+            Just(T::Abort)
+        ]
+    };
+    let pos = || prop_oneof![Just(Pos::First), Just(Pos::Last)];
+    let pol = || prop_oneof![Just("delete-wins"), Just("resurrect")];
+    // Two different lanes; two different tasks.
+    let pair = move || (1..nb, 1..lanes).prop_map(move |(a, d)| (a, (a - 1 + d) % lanes + 1));
+    let tasks2 = || (1u32..=N, 1u32..N).prop_map(|(a, d)| (a, (a - 1 + d) % N + 1));
+    let mv = (
+        0..nb,
+        1u32..=N,
+        target(),
+        prop_oneof![3 => Just(None), 1 => pos().prop_map(Some)],
+    )
+        .prop_map(move |(b, n, d, p)| match p {
+            None => Ev::Mv(NAMES[b], n, under(n, d)),
+            Some(p) => Ev::MvAt(NAMES[b], n, under(n, d), p),
+        })
+        .boxed();
+    let item =
+        (1u32..=N, target(), 0u8..4, pos(), 0i64..4).prop_map(move |(n, d, w, p, k)| match w {
+            0 | 1 => It::Mv(n, under(n, d)),
+            2 => It::MvAt(n, under(n, d), p),
+            _ => It::Prio(n, k),
+        });
+    let txn = (0..nb, proptest::collection::vec(item, 2..=3))
+        .prop_map(|(b, items)| Ev::Tx(NAMES[b], items))
+        .boxed();
+    let reorder = (0..nb, 1u32..=N, pos())
+        .prop_map(|(b, n, p)| Ev::Reorder(NAMES[b], n, p))
+        .boxed();
+    let prio = (0..nb, 1u32..=N, 0i64..4)
+        .prop_map(|(b, n, k)| Ev::Prio(NAMES[b], n, k))
+        .boxed();
+    let del = (0..nb, 1u32..=N, any::<bool>())
+        .prop_map(|(b, n, r)| Ev::Del(NAMES[b], n, r))
+        .boxed();
+    let sync = (1..nb, take())
+        .prop_map(|(l, t)| Ev::Sync(NAMES[l], t))
+        .boxed();
+    let into_main = (1..nb, take())
+        .prop_map(|(l, t)| Ev::Merge(NAMES[l], "main", t))
+        .boxed();
+    let cross = (pair(), take())
+        .prop_map(|((a, d), t)| Ev::Merge(NAMES[a], NAMES[d], t))
+        .boxed();
+    let criss = (pair(), take(), take())
+        .prop_map(|((a, d), t1, t2)| Ev::Criss(NAMES[a], NAMES[d], t1, t2))
+        .boxed();
+    let revert = (0..nb, 0usize..64, take())
+        .prop_map(|(b, k, t)| Ev::Revert(CRef::Pool(k), NAMES[b], t))
+        .boxed();
+    let pick = (0..nb, 0usize..64, take())
+        .prop_map(|(b, k, t)| Ev::Pick(CRef::Pool(k), NAMES[b], t))
+        .boxed();
+    let policy = (
+        0..nb,
+        prop_oneof![
+            Just(Some("delete-wins")),
+            Just(Some("resurrect")),
+            Just(None)
+        ],
+    )
+        .prop_map(|(b, v)| Ev::Policy(NAMES[b], v))
+        .boxed();
+    let cross_p = (pair(), pol(), take())
+        .prop_map(|((a, d), p, t)| Ev::PolicyMerge(NAMES[a], NAMES[d], p, t))
+        .boxed();
+    let into_main_p = (1..nb, pol(), take())
+        .prop_map(|(l, p, t)| Ev::PolicyMerge(NAMES[l], "main", p, t))
+        .boxed();
+    let strict = any::<bool>().prop_map(Ev::Strict).boxed();
+    let blocks = (0..nb, tasks2())
+        .prop_map(|(b, (x, y))| Ev::Link(NAMES[b], x, "blocks", y))
+        .boxed();
+    let unblock = (0..nb, tasks2())
+        .prop_map(|(b, (x, y))| Ev::Unlink(NAMES[b], x, "blocks", y))
+        .boxed();
+    let gates = (0..nb, 1u32..=N)
+        .prop_map(|(b, y)| Ev::Link(NAMES[b], N + 1, "gates", y))
+        .boxed();
+    let ungate = (0..nb, 1u32..=N)
+        .prop_map(|(b, y)| Ev::Unlink(NAMES[b], N + 1, "gates", y))
+        .boxed();
+    let (arms, max): (Vec<(u32, BoxedStrategy<Ev>)>, usize) = match g {
+        Gen::Multi | Gen::Strict => {
+            let mut arms = vec![
+                (8, mv),
+                (3, txn),
+                (2, reorder),
+                (1, prio),
+                (1, del),
+                (2, sync),
+                (3, cross),
+                (1, into_main),
+                (1, criss),
+                (1, revert),
+                (1, pick),
+            ];
+            if g == Gen::Strict {
+                arms.push((2, strict));
+            }
+            (arms, 41)
+        }
+        Gen::Policy => (
+            vec![
+                (8, mv),
+                (2, reorder),
+                (1, prio),
+                (3, del),
+                (2, sync),
+                (1, cross),
+                (1, cross_p),
+                (1, into_main),
+                (1, into_main_p),
+                (2, policy),
+                (1, revert),
+                (1, pick),
+            ],
+            31,
+        ),
+        Gen::Edges => (
+            vec![
+                (8, mv),
+                (2, reorder),
+                (1, prio),
+                (1, del),
+                (2, sync),
+                (2, cross),
+                (1, into_main),
+                (3, blocks),
+                (1, unblock),
+                (1, gates),
+                (1, ungate),
+            ],
+            31,
+        ),
+        _ => (
+            vec![
+                (8, mv),
+                (3, txn),
+                (2, reorder),
+                (1, prio),
+                (3, del),
+                (2, sync),
+                (2, cross),
+                (1, cross_p),
+                (1, into_main),
+                (1, into_main_p),
+                (1, criss),
+                (1, revert),
+                (1, pick),
+                (2, policy),
+                (2, strict),
+                (3, blocks),
+                (1, unblock),
+                (1, gates),
+                (1, ungate),
+            ],
+            41,
+        ),
+    };
+    proptest::collection::vec(Union::new_weighted(arms), 1..max).boxed()
+}
+
 /// `n` histories of generator `g` with seed `seed`: a fixed ChaCha seed per (generator, seed), as the crate's other
 /// property tests fix theirs, so every run of a tier sees the same histories.
 pub(crate) fn histories(g: Gen, seed: u8, n: usize) -> Vec<Hist> {
@@ -1954,7 +2479,7 @@ pub(crate) fn histories(g: Gen, seed: u8, n: usize) -> Vec<Hist> {
     let strat = strategy(g);
     (0..n)
         .map(|_| Hist {
-            tasks: 4,
+            tasks: g.tasks(),
             lanes: g.lanes(),
             ops: strat.new_tree(&mut runner).expect("a history").current(),
         })
@@ -2682,6 +3207,41 @@ pub(crate) fn corpus() -> Vec<Case> {
             ],
             &[],
         ),
+        case(
+            "K2-W3D",
+            "wave-3d-alternatives.md: K2's one fault (wide:2:893, shrunk); OQ-A-13 13.6 (a)",
+            "lane/x deletes #3 and puts #2 under #4 (C); lane/z holds #4 under #3 and #3 under #2; cherry-pick C onto lane/z: the cycle runs through #3, which C's base does not hold live",
+            4,
+            &[X, Y, Z],
+            vec![
+                MvAt(M, 4, Some(3), Pos::Last),
+                Del(X, 3, false),
+                Sync(Z, Theirs),
+                Mv(X, 2, Some(4)),
+                Mark("C", X),
+                Mv(Y, 3, Some(2)),
+                Merge(Y, Z, Ours),
+                Pick(CRef::Label("C"), Z, Ours),
+            ],
+            &[],
+        ),
+        case(
+            "FIXED-COPY",
+            "this harness (policy:2:100 at the nightly tier, shrunk); [F12 §6.3]; R-15 Q5",
+            "main puts #1 under #2; lane/x deletes #1 and, under resurrect, syncs: #1 holds a DeleteVsModify value; lane/x into lane/y; main puts #1 under #5; sync lane/y copies #1 whole from lane/y",
+            5,
+            &[X, Y],
+            vec![
+                Mv(M, 1, Some(2)),
+                Del(X, 1, true),
+                Policy(X, Some("resurrect")),
+                Sync(X, Theirs),
+                Mv(M, 1, Some(5)),
+                Merge(X, Y, Abort),
+                Sync(Y, Theirs),
+            ],
+            &[],
+        ),
     ]);
     v
 }
@@ -2702,6 +3262,323 @@ fn focus_entries<'a>(c: &Case, l: &'a Log) -> Vec<&'a Entry> {
         .iter()
         .filter(|e| e.kind != Kind::Edit && focus.contains(&e.op))
         .collect()
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
+// The link check of a strict staging.
+
+/// The link check of a [`Verdict::Requested`] entry (R-16 Q3; the cut's §4.8 and its addendum, I-1): the same history
+/// without strict lands each requested key at a value of the other side's, with the hint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Link {
+    /// The link holds.
+    Holds,
+    /// The check does not apply here (why).
+    NotApplicable(String),
+    /// The link is broken (why).
+    Broken(String),
+}
+
+/// (key, class) of a staged entry's violations.
+fn entry_viols(e: &Entry) -> Vec<(String, String)> {
+    match &e.got {
+        Got::Staged(ks) => ks
+            .iter()
+            .filter_map(|k| k.rsplit_once(' '))
+            .map(|(k, c)| (k.to_string(), c.to_string()))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The merge-family entries of event `op` of a log, in order.
+fn event_merges(l: &Log, op: usize) -> Vec<&Entry> {
+    l.entries
+        .iter()
+        .filter(|e| e.op == op && e.kind != Kind::Edit)
+        .collect()
+}
+
+/// The link check of entry `e` (a `Requested` one) of history `h`'s log `l` under `rule`: h′ is h's events before e's,
+/// then `merge.strict` off, then e's event; e′ is the entry of h′'s last event of e's kind at e's position among that
+/// event's merge-family entries.
+/// - Not applicable when an earlier merge of e's event did not land (or was not up to date), since strict then changed
+///   what e merges; and when h′'s event has no such entry (a strict step-0 sync that staged with a value conflict lands
+///   conflicted without strict, and PR-003 refuses the merge).
+/// - Strict changes the candidate only through the dead-parent preference, so a judged key that is no requested key and
+///   differs in e′ breaks the link, unless e holds a two-sided key one of whose values has a parent not live in the
+///   result while the other's is live or a root (the step-(2) order changed under the preference: not applicable).
+/// - For each requested pair (k, C, w): e′ stages no `C` on `#k.parent`; e′'s value of k is o's or t's, with exactly
+///   one `MoveSkipped` hint for `#k.parent` naming that side; for `HierarchyCycle` it is e's value, for `DanglingEdge`
+///   w.
+/// - When every violation of e is a requested pair, e′ lands.
+pub(crate) fn link_check(h: &Hist, l: &Log, e: &Entry, rule: Rule) -> Link {
+    let i = e.op;
+    let mine = event_merges(l, i);
+    let p = mine
+        .iter()
+        .position(|x| std::ptr::eq(*x, e))
+        .expect("an entry of the log");
+    if mine[..p]
+        .iter()
+        .any(|x| !matches!(x.got, Got::Landed | Got::UpToDate))
+    {
+        return Link::NotApplicable(format!("an earlier merge of event {i} did not land"));
+    }
+    let mut ops = h.ops[..i].to_vec();
+    ops.push(Ev::Strict(false));
+    ops.push(h.ops[i].clone());
+    let h2 = Hist {
+        tasks: h.tasks,
+        lanes: h.lanes.clone(),
+        ops,
+    };
+    let l2 = run_caught(&h2, rule);
+    if let Some(m) = &l2.panic {
+        return Link::Broken(format!("the run without strict panicked: {m}"));
+    }
+    let theirs = event_merges(&l2, i + 1);
+    let Some(e2) = theirs.get(p).filter(|x| x.kind == e.kind) else {
+        return Link::NotApplicable(format!(
+            "without strict, event {i} has no {} at position {p}",
+            e.kind.name()
+        ));
+    };
+    let (Some(t), Some(t2)) = (&e.tri, &e2.tri) else {
+        return Link::Broken(format!(
+            "without strict: {} (no result to compare)",
+            got_text(&e2.got)
+        ));
+    };
+    let viols = entry_viols(e);
+    let or = oracle_touch(&t.b, &t.o, &t.t, &t.r, &t.fixed, None);
+    let req = requested_pairs(t, &or, &viols);
+    let keys: BTreeSet<usize> = req.iter().map(|(k, _, _)| *k).collect();
+    let judged = or.judged();
+    let n = t.r.len();
+    if let Some(j) = (0..n).find(|j| judged[*j] && !keys.contains(j) && t2.r[*j] != t.r[*j]) {
+        let live = |p: Option<u32>| {
+            p.is_none_or(|p| (p as usize) >= 1 && (p as usize) <= n && judged[p as usize - 1])
+        };
+        let preference = (0..n).any(|k| match or.allowed[k].as_slice() {
+            [x, y] => live(par(x)) != live(par(y)),
+            _ => false,
+        });
+        let why = format!(
+            "#{} lands at {} without strict, at {} with it",
+            j + 1,
+            hv_text(&t2.r[j]),
+            hv_text(&t.r[j])
+        );
+        return if preference {
+            Link::NotApplicable(why)
+        } else {
+            Link::Broken(why)
+        };
+    }
+    let viols2 = entry_viols(e2);
+    for (k, class, w) in &req {
+        let key = format!("#{}.parent", k + 1);
+        if viols2.iter().any(|(x, c)| *x == key && c == class) {
+            return Link::Broken(format!("{key} {class} stages without strict"));
+        }
+        let r2 = &t2.r[*k];
+        let side = if *r2 == t.o[*k] {
+            "ours"
+        } else if *r2 == t.t[*k] {
+            "theirs"
+        } else {
+            return Link::Broken(format!(
+                "{key} lands at {} without strict, neither side's value",
+                hv_text(r2)
+            ));
+        };
+        let named = format!("{key} ");
+        let lines: Vec<&String> = e2
+            .hints
+            .iter()
+            .filter(|(c, x)| c == "MoveSkipped" && x.starts_with(&named))
+            .map(|(_, x)| x)
+            .collect();
+        if lines.len() != 1 || !lines[0].starts_with(&format!("{key} took {side};")) {
+            return Link::Broken(format!(
+                "{key} lands at the {side} value without strict, hints {:?}",
+                e2.hints
+            ));
+        }
+        let want = if *class == "HierarchyCycle" {
+            &t.r[*k]
+        } else {
+            w
+        };
+        if r2 != want {
+            return Link::Broken(format!(
+                "{key} lands at {} without strict, not {}",
+                hv_text(r2),
+                hv_text(want)
+            ));
+        }
+    }
+    let all_requested = viols.iter().all(|(x, c)| {
+        req.iter()
+            .any(|(k, rc, _)| format!("#{}.parent", k + 1) == *x && rc == c)
+    });
+    if all_requested && e2.got != Got::Landed {
+        return Link::Broken(format!(
+            "without strict: {}, where it must land",
+            got_text(&e2.got)
+        ));
+    }
+    Link::Holds
+}
+
+/// The history of the probe `k2_a_later_two_sided_move_that_closes_a_cycle_is_skipped_and_lands` (13.3 (b)): main puts
+/// #4 under #2, then #1 under #3; lane/x puts #2 under #1, then #1 under #4; `sync lane/x`. Under `merge.strict` when
+/// `strict` (LF-1).
+pub(crate) fn later_cycle(strict: bool) -> Hist {
+    use Ev::*;
+    let mut ops = vec![
+        Mv(M, 4, Some(2)),
+        Mv(M, 1, Some(3)),
+        Mv(X, 2, Some(1)),
+        Mv(X, 1, Some(4)),
+        Sync(X, T::Ours),
+    ];
+    if strict {
+        ops.insert(0, Strict(true));
+    }
+    Hist {
+        tasks: 4,
+        lanes: vec![X],
+        ops,
+    }
+}
+
+/// The history of the probe `k2_a_later_move_under_a_node_the_result_deletes_lands_with_a_hint` (13.3 (b)): main moves
+/// #1 under #3 and deletes #2; lane/x then moves #1 under #2; `sync lane/x`. Under `merge.strict` when `strict`
+/// (LF-2).
+pub(crate) fn later_dead_parent(strict: bool) -> Hist {
+    use Ev::*;
+    let mut ops = vec![
+        Mv(M, 1, Some(3)),
+        Del(M, 2, false),
+        Mv(X, 1, Some(2)),
+        Sync(X, T::Ours),
+    ];
+    if strict {
+        ops.insert(0, Strict(true));
+    }
+    Hist {
+        tasks: 3,
+        lanes: vec![X],
+        ops,
+    }
+}
+
+/// One link fixture: a strict history whose merge-family entry `entry` (by index among the log's merge-family
+/// entries) has the verdict `verdict` under `cand`, and for a `Requested` one the link `holds` (`Some(true)`) or does
+/// not apply (`Some(false)`).
+pub(crate) struct LinkFixture {
+    /// LF-1 to LF-5.
+    pub id: &'static str,
+    /// The history.
+    pub hist: Hist,
+    /// The merge-family entry judged.
+    pub entry: usize,
+    /// Its verdict.
+    pub verdict: Verdict,
+    /// For a `Requested` entry: whether the link holds (else it does not apply).
+    pub holds: Option<bool>,
+}
+
+/// The link fixtures (the cut's §4.8 and addendum I-1), shared with `suite::k2probe`:
+/// - LF-1 ([`later_cycle`]) and LF-2 ([`later_dead_parent`]): `Requested`, and the link holds;
+/// - LF-3, a cycle key whose other value's parent the result deletes: main moves #2 under #1 and then #1 under #3;
+///   lane/x deletes #3 and then moves #1 under #2; the strict sync stages `#1.parent` as `HierarchyCycle` and as
+///   `DanglingEdge`: `Requested`, and the link holds (without strict the key lands at main's value with the `cycle`
+///   hint and stages its `DanglingEdge` again);
+/// - LF-4, two dead-parent keys whose other values close a cycle together: lane/x moves #1 under #2; main moves #2
+///   under #1 and then #1 under #3; lane/x moves #2 under #4 and deletes #3; main deletes #4; the strict sync stages
+///   `DanglingEdge` on both: a staging for another reason, not `Requested`;
+/// - LF-5, LF-2's history with a `#4.priority` conflict, merged into `main` under strict: the step-0 sync is
+///   `Requested`, and without strict it lands conflicted and PR-003 refuses the merge, so the link does not apply.
+pub(crate) fn strict_link_fixtures() -> Vec<LinkFixture> {
+    use Ev::*;
+    let hist = |tasks: u32, ops: Vec<Ev>| Hist {
+        tasks,
+        lanes: vec![X],
+        ops,
+    };
+    vec![
+        LinkFixture {
+            id: "LF-1",
+            hist: later_cycle(true),
+            entry: 0,
+            verdict: Verdict::Requested,
+            holds: Some(true),
+        },
+        LinkFixture {
+            id: "LF-2",
+            hist: later_dead_parent(true),
+            entry: 0,
+            verdict: Verdict::Requested,
+            holds: Some(true),
+        },
+        LinkFixture {
+            id: "LF-3",
+            hist: hist(
+                3,
+                vec![
+                    Strict(true),
+                    Mv(M, 2, Some(1)),
+                    Mv(M, 1, Some(3)),
+                    Del(X, 3, false),
+                    Mv(X, 1, Some(2)),
+                    Sync(X, T::Ours),
+                ],
+            ),
+            entry: 0,
+            verdict: Verdict::Requested,
+            holds: Some(true),
+        },
+        LinkFixture {
+            id: "LF-4",
+            hist: hist(
+                4,
+                vec![
+                    Strict(true),
+                    Mv(X, 1, Some(2)),
+                    Mv(M, 2, Some(1)),
+                    Mv(M, 1, Some(3)),
+                    Mv(X, 2, Some(4)),
+                    Del(X, 3, false),
+                    Del(M, 4, false),
+                    Sync(X, T::Ours),
+                ],
+            ),
+            entry: 0,
+            verdict: Verdict::StagedOther { cand_wrong: false },
+            holds: None,
+        },
+        LinkFixture {
+            id: "LF-5",
+            hist: hist(
+                4,
+                vec![
+                    Strict(true),
+                    Mv(M, 1, Some(3)),
+                    Del(M, 2, false),
+                    Mv(X, 1, Some(2)),
+                    Prio(M, 4, 1),
+                    Prio(X, 4, 3),
+                    Merge(X, M, T::Ours),
+                ],
+            ),
+            entry: 0,
+            verdict: Verdict::Requested,
+            holds: Some(false),
+        },
+    ]
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -2821,7 +3698,7 @@ pub(crate) fn cost(rule: Rule, n: usize) -> CostRow {
                 if a != b {
                     s.run(mv(a, Some(b)), fresh_on(Y));
                 }
-                let rr = s.run(merge_cmd(Y, X, None), fresh_on(X));
+                let rr = s.run(merge_cmd(Y, X, None, None), fresh_on(X));
                 if rr.outcome == Outcome::Staged {
                     abort(s, Y, X);
                 }
@@ -2936,7 +3813,11 @@ impl Cfg {
                 .collect(),
             gens: list("MOIRAI_RS007_EVAL_GENS", "narrow,lanes,wide,based")
                 .iter()
-                .map(|x| Gen::parse(x).expect("MOIRAI_RS007_EVAL_GENS: narrow, lanes, wide, based"))
+                .map(|x| {
+                    Gen::parse(x).expect(
+                        "MOIRAI_RS007_EVAL_GENS: narrow, lanes, wide, based, multi, policy, strict, edges, full",
+                    )
+                })
                 .collect(),
             parts: list("MOIRAI_RS007_EVAL_PARTS", "corpus,search,cost")
                 .into_iter()
@@ -3066,7 +3947,23 @@ fn abs_rows(
             Box::new(k(|s| s.staged_other)),
         ),
         (
-            "staged candidate moves an unstaged determined key",
+            "  of which the candidate holds an unstaged key off its allowed values (a fault)",
+            "staged_other_wrong",
+            Box::new(k(|s| s.staged_other_wrong)),
+        ),
+        (
+            "staged at strict's request (requested, not a fault)",
+            "requested",
+            Box::new(k(|s| s.requested)),
+        ),
+        ("MoveSkipped hints", "hints", Box::new(k(|s| s.hints))),
+        (
+            "reparents lost to an order-only change with no hint",
+            "reparent_lost",
+            Box::new(k(|s| s.reparent_lost)),
+        ),
+        (
+            "staged candidate holds an unstaged key off its allowed values",
             "staged_candidate_wrong",
             Box::new(k(|s| s.cand_wrong)),
         ),
@@ -3360,7 +4257,9 @@ fn report_corpus(cfg: &Cfg, out: &mut String, tsv: &mut String) {
             Some(Verdict::LandedWrong { .. }) => "WRONG".into(),
             Some(Verdict::Avoidable { .. }) => "AVOIDABLE".into(),
             Some(Verdict::Genuine { .. }) => "genuine".into(),
-            Some(Verdict::StagedOther) => "staged-other".into(),
+            Some(Verdict::StagedOther { cand_wrong: false }) => "staged-other".into(),
+            Some(Verdict::StagedOther { cand_wrong: true }) => "STAGED-OTHER-WRONG".into(),
+            Some(Verdict::Requested) => "requested".into(),
             Some(Verdict::Refused) => "refused".into(),
             Some(Verdict::UpToDate) => "up-to-date".into(),
             None => got_text(&e.got),
@@ -3741,7 +4640,7 @@ fn rs007_eval_oracle_classifies_by_state() {
     let b = vec![root.clone(), root.clone(), root.clone()];
     let o = vec![v(Some(2)), root.clone(), root.clone()];
     let t = vec![root.clone(), v(Some(1)), root.clone()];
-    let or = oracle(&b, &o, &t);
+    let or = oracle(&b, &o, &t, &b);
     assert_eq!(or.class[..2], [Class::OnlyO, Class::OnlyT]);
     assert_eq!(or.class[2], Class::Untouched);
     assert!(!or.forest);
@@ -3754,6 +4653,8 @@ fn rs007_eval_oracle_classifies_by_state() {
         one_sided: false,
         pick_no_hier: false,
         touch: None,
+        strict: false,
+        fixed: Vec::new(),
     };
     let hc = |n: u32| vec![(format!("#{n}.parent"), "HierarchyCycle".to_string())];
     assert_eq!(
@@ -3770,7 +4671,7 @@ fn rs007_eval_oracle_classifies_by_state() {
     // A two-sided key makes a forest possible: o #1 under #2, t #1 under #3 and #2 under #1.
     let o2 = vec![v(Some(2)), root.clone(), root.clone()];
     let t2 = vec![v(Some(3)), v(Some(1)), root.clone()];
-    let or = oracle(&b, &o2, &t2);
+    let or = oracle(&b, &o2, &t2, &b);
     assert_eq!(or.class[..2], [Class::BothDiff, Class::OnlyT]);
     assert!(or.forest, "#1 under #3 with #2 under #1 is a forest");
     let t3 = Tri {
@@ -3782,6 +4683,8 @@ fn rs007_eval_oracle_classifies_by_state() {
         one_sided: false,
         pick_no_hier: false,
         touch: None,
+        strict: false,
+        fixed: Vec::new(),
     };
     assert_eq!(
         judge(&Got::Staged(vec![]), &t3, &hc(2)),
@@ -3821,7 +4724,7 @@ fn rs007_eval_oracle_classifies_by_state() {
         root.clone(),
     ];
     let t4 = vec![v(Some(2)), root.clone(), v(Some(1))];
-    let or = oracle(&b4, &o4, &t4);
+    let or = oracle(&b4, &o4, &t4, &b4);
     assert_eq!(or.class, vec![Class::OnlyO, Class::Untouched, Class::OnlyT]);
     let w = Tri {
         b: b4,
@@ -3832,6 +4735,8 @@ fn rs007_eval_oracle_classifies_by_state() {
         one_sided: false,
         pick_no_hier: false,
         touch: None,
+        strict: false,
+        fixed: Vec::new(),
     };
     assert_eq!(
         judge(&Got::Landed, &w, &[]),
@@ -3843,14 +4748,279 @@ fn rs007_eval_oracle_classifies_by_state() {
             order_only: false
         }
     );
-    // A dead task is not judged.
-    let or = oracle(
-        &vec![root.clone(), None],
-        &vec![root.clone(), root.clone()],
-        &vec![root.clone(), root.clone()],
-    );
+    // A task dead in the result is not judged; one live in the result and dead in b is (`absent` is a value).
+    let (bd, live) = (vec![root.clone(), None], vec![root.clone(), root.clone()]);
+    let or = oracle(&bd, &live, &live, &vec![root.clone(), None]);
     assert_eq!(or.class, vec![Class::Untouched, Class::NotJudged]);
     assert!(or.partial && or.forest);
+    let or = oracle(&bd, &live, &live, &live);
+    assert_eq!(or.class, vec![Class::Untouched, Class::BothSame]);
+}
+
+/// The widened oracle (OQ-A-13 13.6 (a); R-15 Q5): a task live in the result is judged, with `absent` as a value, also
+/// where b does not hold it; a task live in the result and deleted on one side takes the live side's value; a task
+/// dead in the result is not judged; and a staging with no `HierarchyCycle` whose candidate holds a key no violation
+/// names off its allowed values is a fault.
+#[test]
+fn rs007_eval_oracle_judges_every_node_live_in_the_result() {
+    let v = |p: Option<u32>| Some((p, None::<String>));
+    let root = v(None);
+    // #1 at the root throughout; #2 absent in b and t and revived at the root on o (a flat-`None` root), landed under
+    // #1; #3 deleted on o and untouched on t, kept live; #4 deleted on t, dead in the result.
+    let tri = Tri {
+        b: vec![root.clone(), None, root.clone(), root.clone()],
+        o: vec![root.clone(), root.clone(), None, root.clone()],
+        t: vec![root.clone(), None, root.clone(), None],
+        r: vec![root.clone(), v(Some(1)), root.clone(), None],
+        virtual_base: false,
+        one_sided: false,
+        pick_no_hier: false,
+        touch: None,
+        strict: false,
+        fixed: Vec::new(),
+    };
+    let or = oracle(&tri.b, &tri.o, &tri.t, &tri.r);
+    assert_eq!(
+        or.class,
+        vec![
+            Class::Untouched,
+            Class::OnlyO,
+            Class::OnlyO,
+            Class::NotJudged
+        ]
+    );
+    assert_eq!(
+        judge(&Got::Landed, &tri, &[]),
+        Verdict::LandedWrong {
+            one_sided: 1,
+            untouched: 0,
+            both_same: 0,
+            neither: 0,
+            order_only: false
+        },
+        "#2 must take o's root"
+    );
+    // #2 at o's root and #3 at t's root land right; #3 elsewhere is wrong.
+    let ok = Tri {
+        r: vec![root.clone(), root.clone(), root.clone(), None],
+        ..tri.clone()
+    };
+    assert_eq!(
+        judge(&Got::Landed, &ok, &[]),
+        Verdict::LandedOk {
+            took_o: 0,
+            took_t: 0
+        }
+    );
+    let moved = Tri {
+        r: vec![root.clone(), root.clone(), v(Some(1)), None],
+        ..tri.clone()
+    };
+    assert!(
+        matches!(
+            judge(&Got::Landed, &moved, &[]),
+            Verdict::LandedWrong { one_sided: 1, .. }
+        ),
+        "#3 must keep the live side's value"
+    );
+    // A `DanglingEdge` staging on #3 whose candidate holds #1 at the root, where o put it under #2.
+    let staged = Tri {
+        b: vec![root.clone(), root.clone(), root.clone()],
+        o: vec![v(Some(2)), root.clone(), root.clone()],
+        t: vec![root.clone(), root.clone(), v(Some(2))],
+        r: vec![root.clone(), root.clone(), v(Some(2))],
+        ..tri.clone()
+    };
+    let de = vec![("#3.parent".to_string(), "DanglingEdge".to_string())];
+    let vd = judge(&Got::Staged(vec![]), &staged, &de);
+    assert_eq!(vd, Verdict::StagedOther { cand_wrong: true });
+    assert!(
+        vd.fault(),
+        "a wrong candidate of another staging is a fault"
+    );
+    let right = Tri {
+        r: vec![v(Some(2)), root.clone(), v(Some(2))],
+        ..staged.clone()
+    };
+    let vd = judge(&Got::Staged(vec![]), &right, &de);
+    assert_eq!(vd, Verdict::StagedOther { cand_wrong: false });
+    assert!(!vd.fault());
+}
+
+/// The oracle takes existence from the result (R-15 Q5): a node the existence rule fixed and copied whole from a side
+/// ([F12 §6.3]; [`Tri::fixed`]) may hold either live side's value, which RS-007 does not decide. In the corpus case
+/// `FIXED-COPY` lane/y holds #1 with a `DeleteVsModify` value on its existence key, so `sync lane/y` copies #1 whole
+/// from lane/y, at #2, where main put it under #5.
+#[test]
+fn rs007_eval_oracle_takes_a_fixed_nodes_value_from_the_result() {
+    let v = |p: Option<u32>| Some((p, None::<String>));
+    let root = v(None);
+    let tri = Tri {
+        b: vec![v(Some(2)), root.clone(), root.clone()],
+        o: vec![v(Some(2)), root.clone(), root.clone()],
+        t: vec![v(Some(3)), root.clone(), root.clone()],
+        r: vec![v(Some(2)), root.clone(), root.clone()],
+        virtual_base: false,
+        one_sided: false,
+        pick_no_hier: false,
+        touch: None,
+        strict: false,
+        fixed: vec![true, false, false],
+    };
+    assert_eq!(
+        judge(&Got::Landed, &tri, &[]),
+        Verdict::LandedOk {
+            took_o: 0,
+            took_t: 0
+        }
+    );
+    let merged = Tri {
+        fixed: Vec::new(),
+        ..tri.clone()
+    };
+    assert!(matches!(
+        judge(&Got::Landed, &merged, &[]),
+        Verdict::LandedWrong { one_sided: 1, .. }
+    ));
+    let c = corpus_case("FIXED-COPY").expect("the case");
+    let l = run(&c.hist, Rule::Cand);
+    let fe = focus_entries(&c, &l);
+    assert_eq!(fe.len(), 1, "{}", trace_text(&c.hist, &l));
+    let e = fe[0];
+    let t = e.tri.as_ref().expect("judged");
+    assert_eq!(
+        (&e.got, t.fixed[0], t.r[0].as_ref().map(|x| x.0)),
+        (&Got::Landed, true, Some(Some(2))),
+        "{}",
+        trace_text(&c.hist, &l)
+    );
+    assert!(
+        matches!(e.verdict, Some(Verdict::LandedOk { .. })),
+        "{}",
+        trace_text(&c.hist, &l)
+    );
+}
+
+/// K2's one fault of wave 3d (`wide:2:893`, shrunk to the corpus case `K2-W3D`): the cherry-pick's cycle runs through
+/// #3, which the pick's base and src hold deleted and its dst live. The old oracle did not judge #3 and called the
+/// staging avoidable; the widened oracle judges #3 (o's value, the only live one) and finds no forest.
+#[test]
+fn rs007_eval_k2s_wave_3d_fault_is_a_genuine_cycle() {
+    let c = corpus_case("K2-W3D").expect("the case");
+    let l = run(&c.hist, Rule::Cand);
+    let fe = focus_entries(&c, &l);
+    assert_eq!(fe.len(), 1, "{}", trace_text(&c.hist, &l));
+    let e = fe[0];
+    assert_eq!(
+        (e.kind, &e.got),
+        (
+            Kind::Pick,
+            &Got::Staged(vec!["#2.parent HierarchyCycle".into()])
+        ),
+        "{}",
+        trace_text(&c.hist, &l)
+    );
+    assert!(
+        matches!(
+            e.verdict,
+            Some(Verdict::Genuine {
+                cand_wrong: false,
+                ..
+            })
+        ),
+        "{}",
+        trace_text(&c.hist, &l)
+    );
+}
+
+/// `Requested` (R-16 Q3; the cut's addendum, I-1): under strict, a two-sided key staged as the 13.3 (b) rule stages it
+/// is no fault. The cycle class: the candidate holds o's #1 and t's would close a cycle; without strict the staging is
+/// avoidable, and so is a strict one whose candidate reset the key to b. The dead-parent class: the candidate holds o's
+/// #1 under the deleted #2 and t's has a live parent; without strict it is a staging for another reason. Two
+/// dead-parent keys whose other values close a cycle together are not requested.
+#[test]
+fn rs007_eval_oracle_calls_a_strict_staging_of_a_two_sided_key_requested() {
+    let v = |p: Option<u32>| Some((p, None::<String>));
+    let root = v(None);
+    let tri = |b: Hier, o: Hier, t: Hier, r: Hier, strict: bool| Tri {
+        b,
+        o,
+        t,
+        r,
+        virtual_base: false,
+        one_sided: false,
+        pick_no_hier: false,
+        touch: None,
+        strict,
+        fixed: Vec::new(),
+    };
+    let viol = |k: &str, c: &str| (k.to_string(), c.to_string());
+    let all_root = vec![root.clone(); 3];
+    // The cycle class.
+    let (o, t) = (
+        vec![v(Some(3)), v(Some(1)), root.clone()],
+        vec![v(Some(2)), root.clone(), root.clone()],
+    );
+    let hc = [viol("#1.parent", "HierarchyCycle")];
+    let staged = Got::Staged(vec![]);
+    let strict_hc = tri(all_root.clone(), o.clone(), t.clone(), o.clone(), true);
+    assert_eq!(judge(&staged, &strict_hc, &hc), Verdict::Requested);
+    assert!(!Verdict::Requested.fault());
+    let plain = Tri {
+        strict: false,
+        ..strict_hc.clone()
+    };
+    assert!(matches!(
+        judge(&staged, &plain, &hc),
+        Verdict::Avoidable { .. }
+    ));
+    let reset = Tri {
+        r: vec![root.clone(), v(Some(1)), root.clone()],
+        ..strict_hc.clone()
+    };
+    assert!(matches!(
+        judge(&staged, &reset, &hc),
+        Verdict::Avoidable { .. }
+    ));
+    // The dead-parent class.
+    let (o, t, r) = (
+        vec![v(Some(2)), root.clone(), root.clone()],
+        vec![v(Some(3)), None, root.clone()],
+        vec![v(Some(2)), None, root.clone()],
+    );
+    let de = [viol("#1.parent", "DanglingEdge")];
+    let strict_de = tri(all_root.clone(), o, t, r, true);
+    assert_eq!(judge(&staged, &strict_de, &de), Verdict::Requested);
+    let plain = Tri {
+        strict: false,
+        ..strict_de.clone()
+    };
+    assert_eq!(
+        judge(&staged, &plain, &de),
+        Verdict::StagedOther { cand_wrong: false }
+    );
+    // Two dead-parent keys: #1 holds t's (under the deleted #3), o's is under #2; #2 holds o's (under the deleted #4),
+    // t's is under #1. Each alone could take its other value; together they close a cycle.
+    let both = tri(
+        vec![root.clone(); 4],
+        vec![v(Some(2)), v(Some(4)), None, root.clone()],
+        vec![v(Some(3)), v(Some(1)), root.clone(), None],
+        vec![v(Some(3)), v(Some(4)), None, None],
+        true,
+    );
+    let two = [
+        viol("#1.parent", "DanglingEdge"),
+        viol("#2.parent", "DanglingEdge"),
+    ];
+    assert_eq!(
+        judge(&staged, &both, &two),
+        Verdict::StagedOther { cand_wrong: false }
+    );
+    assert_eq!(
+        judge(&staged, &both, &two[..1]),
+        Verdict::Requested,
+        "#1 alone is requested"
+    );
 }
 
 /// What a corpus case's focus merges must do under every acceptable rule.
@@ -3978,6 +5148,203 @@ fn rs007_eval_random_invariants() {
             }
         }
     }
+}
+
+/// The fault counts the absolute acceptance asserts to be 0 (OQ-A-13 13.6 (b)): avoidable `HierarchyCycle`
+/// stagings, wrong landings, stuck stagings, wrong candidates of other stagings, reparents lost to an order-only
+/// change, one-sided merges off t and picks of a commit with no hierarchy entry off o.
+fn acceptance_faults(k: &KStats) -> usize {
+    k.avoidable
+        + k.wrong
+        + k.stuck
+        + k.staged_other_wrong
+        + k.reparent_lost
+        + k.one_sided_not_t
+        + k.pick_no_hier_not_o
+}
+
+/// The absolute acceptance of OQ-A-13 (13.6 (b); R-15, R-16; the cut's §4.8) for K2 (`Rule::Cand`), over every
+/// generator ([`Gen::EVERY`]) × seeds 1 and 2 × `tier(15)` histories: no panic; every branch a forest; the first
+/// four histories of each (generator, seed) run twice to one log; no avoidable `HierarchyCycle` staging, wrong
+/// landing, stuck staging, wrong candidate of another staging, reparent lost to an order-only change, one-sided merge
+/// off t or pick of a commit with no hierarchy entry off o; every `Requested` staging linked to the same history
+/// without strict ([`Link`]; not applicable is counted apart). Then the link fixtures ([`strict_link_fixtures`]), and
+/// the corpus under `cand`: no panic and no fault, `K2-W3D`'s pick genuine, and the CONTESTED cases at MR-040's
+/// reading by the original moves' times (13.4 (a)). One `RS007ACCEPT` line per generator goes to stderr; a failure
+/// names the first failing `<generator>:<seed>:<index>` for [`rs007_eval_trace`].
+#[test]
+fn rs007_eval_absolute_acceptance() {
+    let rule = Rule::Cand;
+    let t0 = std::time::Instant::now();
+    let mut lines: Vec<String> = Vec::new();
+    let mut failed: Vec<String> = Vec::new();
+    for g in Gen::EVERY {
+        let mut ks = KStats::default();
+        let (mut hists, mut panics, mut not_forest, mut nondet) = (0, 0, 0, 0);
+        let (mut broken, mut na) = (0, 0);
+        let mut first: Option<String> = None;
+        for seed in [1u8, 2] {
+            for (i, h) in histories(g, seed, tier(15)).iter().enumerate() {
+                hists += 1;
+                let id = format!("{}:{seed}:{i}", g.name());
+                let mut note = |why: String| {
+                    if first.is_none() {
+                        first = Some(format!("{id}: {why}"));
+                    }
+                };
+                let l = run_caught(h, rule);
+                if let Some(p) = &l.panic {
+                    panics += 1;
+                    note(format!("panic {p}"));
+                    continue;
+                }
+                if l.snaps
+                    .iter()
+                    .flatten()
+                    .any(|(_, hh)| !branch_is_forest(hh))
+                {
+                    not_forest += 1;
+                    note("a branch is not a forest".into());
+                }
+                if i < 4 {
+                    let again = run_caught(h, rule);
+                    if (&again.entries, &again.snaps) != (&l.entries, &l.snaps) {
+                        nondet += 1;
+                        note("not deterministic".into());
+                    }
+                }
+                let mut hk = KStats::default();
+                for e in &l.entries {
+                    hk.add(e);
+                    ks.add(e);
+                    if e.verdict == Some(Verdict::Requested) {
+                        match link_check(h, &l, e, rule) {
+                            Link::Holds => {}
+                            Link::NotApplicable(_) => na += 1,
+                            Link::Broken(why) => {
+                                broken += 1;
+                                note(format!("event {} link broken: {why}", e.op));
+                            }
+                        }
+                    }
+                }
+                if acceptance_faults(&hk) > 0 {
+                    note(format!(
+                        "avoidable {} wrong {} stuck {} staged_other_wrong {} reparent_lost {} one_sided_off_t {} pick_off_o {}",
+                        hk.avoidable,
+                        hk.wrong,
+                        hk.stuck,
+                        hk.staged_other_wrong,
+                        hk.reparent_lost,
+                        hk.one_sided_not_t,
+                        hk.pick_no_hier_not_o
+                    ));
+                }
+            }
+        }
+        let line = format!(
+            "RS007ACCEPT gen={} histories={hists} merges={} landed={} staged={} genuine={} requested={} avoidable={} wrong={} stuck={} staged_other_wrong={} reparent_lost={} hints={} link_broken={broken} link_na={na} one_sided_off_t={} pick_off_o={} panics={panics} not_forest={not_forest} nondet={nondet}",
+            g.name(),
+            ks.n,
+            ks.landed,
+            ks.staged,
+            ks.genuine,
+            ks.requested,
+            ks.avoidable,
+            ks.wrong,
+            ks.stuck,
+            ks.staged_other_wrong,
+            ks.reparent_lost,
+            ks.hints,
+            ks.one_sided_not_t,
+            ks.pick_no_hier_not_o
+        );
+        eprintln!("{line}");
+        lines.push(line);
+        if acceptance_faults(&ks) + broken + panics + not_forest + nondet > 0 {
+            failed.push(first.unwrap_or_else(|| g.name().to_string()));
+        }
+    }
+    // The link fixtures.
+    for f in strict_link_fixtures() {
+        let l = run_caught(&f.hist, rule);
+        let es: Vec<&Entry> = l.entries.iter().filter(|e| e.kind != Kind::Edit).collect();
+        let Some(e) = es.get(f.entry) else {
+            failed.push(format!("{}: no entry {}", f.id, f.entry));
+            continue;
+        };
+        if e.verdict.as_ref() != Some(&f.verdict) {
+            failed.push(format!(
+                "{}: verdict {:?}, not {:?}\n{}",
+                f.id,
+                e.verdict,
+                f.verdict,
+                trace_text(&f.hist, &l)
+            ));
+            continue;
+        }
+        if let Some(holds) = f.holds {
+            let link = link_check(&f.hist, &l, e, rule);
+            if matches!(link, Link::Holds) != holds
+                || (!holds && !matches!(link, Link::NotApplicable(_)))
+            {
+                failed.push(format!(
+                    "{}: link {link:?}\n{}",
+                    f.id,
+                    trace_text(&f.hist, &l)
+                ));
+            }
+        }
+    }
+    // The corpus.
+    for c in corpus() {
+        let l = run_caught(&c.hist, rule);
+        if l.panic.is_some() || l.faults() > 0 {
+            failed.push(format!(
+                "corpus {}: panic {:?}, {} faults\n{}",
+                c.id,
+                l.panic,
+                l.faults(),
+                trace_text(&c.hist, &l)
+            ));
+            continue;
+        }
+        let fe = focus_entries(&c, &l);
+        if c.id == "K2-W3D"
+            && !matches!(fe[..], [e] if matches!(e.verdict, Some(Verdict::Genuine { .. })))
+        {
+            failed.push(format!(
+                "corpus K2-W3D: not genuine\n{}",
+                trace_text(&c.hist, &l)
+            ));
+        }
+        if let Some((_, n, p)) = c.readings.get(1) {
+            let at = |e: &&Entry| {
+                e.got == Got::Landed
+                    && e.tri
+                        .as_ref()
+                        .is_some_and(|t| t.r[*n as usize - 1].as_ref().map(|x| x.0) == Some(*p))
+            };
+            if fe.is_empty() || !fe.iter().all(at) {
+                failed.push(format!(
+                    "corpus {}: not at the reading by the original moves' times\n{}",
+                    c.id,
+                    trace_text(&c.hist, &l)
+                ));
+            }
+        }
+    }
+    eprintln!(
+        "RS007ACCEPT tier={} seconds={:.1}",
+        std::env::var("MOIRAI_TEST_TIER").unwrap_or_else(|_| "pr".into()),
+        t0.elapsed().as_secs_f64()
+    );
+    assert!(
+        failed.is_empty(),
+        "the absolute acceptance of K2 fails:\n{}\nfirst failures:\n{}",
+        lines.join("\n"),
+        failed.join("\n")
+    );
 }
 
 /// The report: one table of every metric for the variant `MOIRAI_RS007_EVAL_RULE` (default `cand`) against the

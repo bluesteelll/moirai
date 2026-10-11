@@ -3128,7 +3128,7 @@ impl Store {
         let events = cand.events.clone();
         let cand_message = cand.message.clone();
         let new_alloc = cand.new_alloc.clone();
-        let resolves: Vec<Key> = cand.resolves.iter().cloned().collect();
+        let resolves: Vec<(Key, u8)> = cand.resolves.iter().map(|(k, c)| (k.clone(), *c)).collect();
         let (next_id, fence, mut leases_after, notified) = (
             cand.next_id,
             cand.fence,
@@ -3273,7 +3273,8 @@ impl Store {
                 affected.into_iter().collect(),
                 complete,
             );
-            // The keys its `Resolve` ops name; unhashed, as the canonical form records values only ([F06 §7.7]).
+            // The keys its `Resolve` ops name with their choices; unhashed, as the canonical form records values only
+            // ([F06 §7.7]).
             if let Some(c) = self.dag.commits.get_mut(&seq) {
                 c.resolves = resolves;
             }

@@ -77,6 +77,21 @@ pub enum Take {
     Drop,
 }
 
+impl Take {
+    /// The `choice` a `Resolve` op records for this take ([F12 §6.5]; [F06 §7.7]): 0 `ours`, 1 `theirs`, 2 `base`,
+    /// 3 `value`, 4 `repoint`, 5 `drop`.
+    pub fn choice(&self) -> u8 {
+        match self {
+            Take::Ours => 0,
+            Take::Theirs => 1,
+            Take::Base => 2,
+            Take::Value(_) => 3,
+            Take::Repoint(_) => 4,
+            Take::Drop => 5,
+        }
+    }
+}
+
 /// A data-level statement ([API §9.2]).
 #[derive(Clone, Debug, PartialEq)]
 pub enum Stmt {
@@ -754,8 +769,9 @@ pub struct Cand<'a> {
     pub sub: usize,
     /// The LQ statement that created each node of the block.
     pub created_at: BTreeMap<Nid, usize>,
-    /// The keys the block's `Resolve` ops name ([F06 §7.7]), one whose value stayed as it was included.
-    pub resolves: BTreeSet<Key>,
+    /// The keys the block's `Resolve` ops name ([F06 §7.7]), one whose value stayed as it was included, each with the
+    /// op's `choice` ([`Take::choice`]); a key the block resolves twice keeps its newest choice.
+    pub resolves: BTreeMap<Key, u8>,
     /// The keys of the companion ops [F12 §6.5] puts in a `Resolve`'s commit: a live restore's `Move`, `AddEdge` and
     /// `SetEdgeProps`, a `repoint`'s `AddEdge`, a `SupersedeFork`'s `RemoveEdge` ([F12 §9.3]).
     pub companions: BTreeSet<Key>,
@@ -1282,7 +1298,7 @@ impl<'a> Cand<'a> {
             lq_total: 0,
             sub: 0,
             created_at: BTreeMap::new(),
-            resolves: BTreeSet::new(),
+            resolves: BTreeMap::new(),
             companions: BTreeSet::new(),
         }
     }
@@ -2572,7 +2588,8 @@ impl<'a> Cand<'a> {
                 .edge(self.stmt, &self.scopes(), &ek.kind, "create", y, ek.dst)?;
         }
         delete::resolve_flagged(&mut self.st, s, ek, repoint)?;
-        self.resolves.insert(Key::Node(s, Aspect::Edge(ek.clone())));
+        self.resolves
+            .insert(Key::Node(s, Aspect::Edge(ek.clone())), take.choice());
         if let Some(y) = repoint {
             self.companions
                 .insert(Key::Node(y, Aspect::Edge(ek.clone())));
@@ -2629,7 +2646,7 @@ impl<'a> Cand<'a> {
         let k = Key::Node(n, a.clone());
         let live = *a == Aspect::Existence && matches!(v, Some(KVal::Live(_)));
         self.set_key(&k, v);
-        self.resolves.insert(k);
+        self.resolves.insert(k, take.choice());
         self.touch(n);
         if live {
             let side = match take {
@@ -2794,8 +2811,8 @@ impl<'a> Cand<'a> {
         let uid = |n: Nid| self.cx.alloc.uid(n);
         for k in cs.keys() {
             let restored = matches!(k, Key::Node(n, _)
-                if self.resolves.contains(&Key::Node(*n, Aspect::Existence)));
-            if !(self.resolves.contains(k) || self.companions.contains(k) || restored) {
+                if self.resolves.contains_key(&Key::Node(*n, Aspect::Existence)));
+            if !(self.resolves.contains_key(k) || self.companions.contains(k) || restored) {
                 return Err(Refusal::lq(
                     "E305",
                     format!(
@@ -2920,7 +2937,7 @@ impl<'a> Cand<'a> {
             }
         }
         self.set_key(k, v);
-        self.resolves.insert(k.clone());
+        self.resolves.insert(k.clone(), take.choice());
         if let Key::Node(n, a) = k {
             self.touch(*n);
             if let Aspect::Edge(ek) = a {
@@ -2981,7 +2998,8 @@ impl<'a> Cand<'a> {
             );
         }
         self.companions.insert(Key::Node(from, Aspect::Edge(added)));
-        self.resolves.insert(k.clone());
+        // `repoint` is choice 4 ([F06 §7.7]).
+        self.resolves.insert(k.clone(), 4);
         for n in [src, ek.dst, y] {
             self.touch(n);
         }

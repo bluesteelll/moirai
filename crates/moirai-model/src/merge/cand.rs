@@ -5,13 +5,16 @@
 //! ([AR §2.7] T7, "one side equals base → take the other"):
 //! - o = t: that value (`untouched` when it is also b's, else `both-same`);
 //! - o = b: t (`only-t`); t = b: o (`only-o`);
-//! - otherwise (`both-diff`): the side whose value has the later origin time wins (MR-040), t on a tie.
+//! - otherwise (`both-diff`): when one side's value is order-only by state (its parent is b's) and the other's is not,
+//!   the other side's reparent wins (13.5 (b)); else the side whose value has the later origin time wins (MR-040), t
+//!   on a tie.
 //!
 //! The origin time of side S's value of a key is the (hlc, commit id) of the commit that produced it
-//! ([`crate::dag::Dag::origin`]): the walk from S's tip passes over every commit whose net changeset against its first
-//! parent leaves the key's value as it was, and over a two-parent commit that holds its second parent's value (a
-//! `sync` that takes `main`'s move does not re-time it; a resolution to `ours` that keeps the side's own move keeps its
-//! original time); the first other commit that changed it produced it; ε gives (0, 0). For a revert or a cherry-pick of
+//! ([`crate::dag::Dag::origin`]; values compared as (live, flat), so `absent` is no live root, F3): the walk from S's
+//! tip passes over every commit whose net changeset against its first parent leaves the key's value as it was, and
+//! over a two-parent commit that holds its second parent's value (a `sync` that takes `main`'s move does not re-time
+//! it; a resolution to `ours` that keeps the side's own move keeps its original time); the first other commit that
+//! changed it produced it; ε gives (0, 0). For a revert or a cherry-pick of
 //! C, src's value is C's (its origin is C's (hlc, commit id)). For a virtual merge's dst, a fold of LCAs, it is the
 //! latest origin among the folded LCAs that hold the value, and (0, 0) when none does.
 //!
@@ -29,10 +32,14 @@
 //!   demoted to b and `kleppmann-skipped`: for a revert or a cherry-pick a key only C changed first; a key one side
 //!   changed before one both sides set alike; a key whose reset leaves the unavoidable part first; then the latest
 //!   origin (src's on equal origins); then the least uid. Then the `both-diff` keys are fixed in ascending origin of
-//!   their MR-040 winner, each to its winner unless that leaves no forest, else to the other side's value (the later
-//!   move that closes a cycle is skipped, as Kleppmann's replay skips it, and logged, not staged). A `both-diff` key
-//!   whose MR-040 winner has a parent that is not live in the result (a `DanglingEdge`, V04) while the other side's
-//!   value has a live parent or none tries the other side's value first, as a cycle-closing winner does.
+//!   their MR-040 winner, each to its winner unless that leaves no forest, else to the other side's value (the move
+//!   that closes a cycle is skipped, as Kleppmann's replay skips it). A `both-diff` key whose MR-040 winner has a
+//!   parent that is not live in the result (a `DanglingEdge`, V04) while the other side's value has a live parent or
+//!   none tries the other side's value first, as a cycle-closing winner does. A key that lands at the other side's
+//!   value this way gets one `MoveSkipped` hint, which names the key, the side whose value landed and the reason
+//!   (`cycle` or `dead-parent`; 13.3 (b), R-15 Q1). Under `--strict` or `merge.strict` such a key stages instead
+//!   (R-15 Q2): a `cycle` key is `kleppmann-skipped` (V01's `HierarchyCycle`, the candidate holding the other side's
+//!   value), and the dead-parent preference is off, so the winner stays and V04 stages its `DanglingEdge`.
 //!
 //! Each demotion and each `both-diff` key that takes the other side's value counts one [`Counter::Repair`].
 
@@ -127,7 +134,7 @@ impl Origins<'_, '_> {
         }
         let v = self.side_value(side, n);
         let k = match self.x.origin {
-            Some(f) => f(side, n, &v),
+            Some(f) => f(side, n, !self.x.dead[side].contains(&n), &v),
             None => self
                 .x
                 .steps
@@ -194,7 +201,7 @@ fn classify(x: &HInput<'_>, og: &Origins<'_, '_>) -> BTreeMap<Nid, K> {
                 fallback: b.clone(),
                 side: 1,
             }
-        } else if og.of(2, *n) >= og.of(1, *n) {
+        } else if takes_t(og, *n, (b, o, t), [db, dob, dt]) {
             K {
                 class: Class::BothDiff,
                 chosen: t.clone(),
@@ -212,6 +219,26 @@ fn classify(x: &HInput<'_>, og: &Origins<'_, '_>) -> BTreeMap<Nid, K> {
         out.insert(*n, k);
     }
     out
+}
+
+/// Whether a two-sided key takes t's value (its three-way value, the MR-040 winner): when b, o and t are all live
+/// and exactly one side's value is order-only by state (its parent is b's, its order not), the other side's
+/// reparent, whatever their origins (13.5 (b); R-15 Q3, revert and cherry-pick included); otherwise the side whose
+/// value has the later origin, t on equal origins (MR-040).
+fn takes_t(
+    og: &Origins<'_, '_>,
+    n: Nid,
+    (b, o, t): (&Option<KVal>, &Option<KVal>, &Option<KVal>),
+    dead: [bool; 3],
+) -> bool {
+    if dead == [false; 3] {
+        let o_reorder = parent_of(o) == parent_of(b);
+        let t_reorder = parent_of(t) == parent_of(b);
+        if o_reorder != t_reorder {
+            return o_reorder;
+        }
+    }
+    og.of(2, n) >= og.of(1, n)
 }
 
 /// Whether `n` is its own ancestor in the parent map `p` (a parent outside the map ends the chain).
@@ -238,12 +265,18 @@ fn threeway(x: &HInput<'_>, v: Variant) -> HOutput {
     for (n, k) in &keys {
         values.insert(*n, k.chosen.clone());
     }
-    let skipped = match v {
-        Variant::Greedy | Variant::GreedySilent => greedy(x, &og, &keys, &mut values, v),
+    let (skipped, hinted) = match v {
+        Variant::Greedy | Variant::GreedySilent => {
+            (greedy(x, &og, &keys, &mut values, v), BTreeMap::new())
+        }
         Variant::Exact => exact(x, &og, &keys, &mut values),
     };
     values.retain(|n, _| x.merged.contains(n));
-    HOutput { values, skipped }
+    HOutput {
+        values,
+        skipped,
+        hinted,
+    }
 }
 
 /// A key the repair may change: its value's parent differs from its fallback's (an order-only difference cannot break a
@@ -341,24 +374,30 @@ fn on_option_cycle(opts: &BTreeMap<Nid, Vec<Option<KVal>>>, u: &BTreeSet<Nid>) -
     out
 }
 
+/// The skipped keys (MR-039) and the hinted keys (13.3 (b)) of [`exact`].
+type Exact = (BTreeSet<Nid>, BTreeMap<Nid, (usize, &'static str)>);
+
 /// K2-b: the exact repair.
 fn exact(
     x: &HInput<'_>,
     og: &Origins<'_, '_>,
     keys: &BTreeMap<Nid, K>,
     values: &mut BTreeMap<Nid, Option<KVal>>,
-) -> BTreeSet<Nid> {
+) -> Exact {
     // Every result node's allowed values: one for a determined key and for a node an existence policy fixed, two for a
     // `both-diff` key (its MR-040 winner first).
     let mut opts: BTreeMap<Nid, Vec<Option<KVal>>> =
         values.iter().map(|(n, w)| (*n, vec![w.clone()])).collect();
     // A value whose parent is not live in the result would stage a `DanglingEdge` (V04): a `both-diff` key whose MR-040
-    // winner has such a parent takes the other side's value first when that one's parent is live (or a root).
+    // winner has such a parent takes the other side's value first when that one's parent is live (or a root); not under
+    // strict, which stages the winner instead (13.3 (b); R-15 Q2).
     let dangles = |w: &Option<KVal>| parent_of(w).is_some_and(|p| !x.live.contains(&p));
+    let mut preferred: BTreeSet<Nid> = BTreeSet::new();
     for (n, k) in keys {
         if k.class == Class::BothDiff {
-            if dangles(&k.chosen) && !dangles(&k.fallback) {
+            if !x.strict && dangles(&k.chosen) && !dangles(&k.fallback) {
                 opts.insert(*n, vec![k.fallback.clone(), k.chosen.clone()]);
+                preferred.insert(*n);
                 bump(Counter::Repair);
             } else {
                 opts.insert(*n, vec![k.chosen.clone(), k.fallback.clone()]);
@@ -415,7 +454,12 @@ fn exact(
         bump(Counter::Repair);
     }
     // The `both-diff` keys, in ascending origin of their MR-040 winner: each takes its winner unless that leaves a
-    // node that can reach no root, else the other side's value.
+    // node that can reach no root, else the other side's value (a dead-parent key tries the other side's value first).
+    // A key that ends at the other side's value this way lands there with a `MoveSkipped` hint naming the reason the
+    // winner was skipped (13.3 (b); R-15 Q1): `cycle`, or `dead-parent` for a key the preference kept at it. Under
+    // strict a `cycle` key is `kleppmann-skipped` instead (MR-039: V01 stages a `HierarchyCycle`, the candidate holding
+    // the other side's value), and a dead-parent winner stays, which V04 stages (R-15 Q2). A preferred key whose other
+    // value would leave a node that can reach no root lands at its winner, with no hint, and V04 stages it.
     let base_u = unsafe_set(&opts).len();
     let mut xs: Vec<Nid> = keys
         .iter()
@@ -423,16 +467,204 @@ fn exact(
         .map(|(n, _)| *n)
         .collect();
     xs.sort_by_key(|n| (og.chosen(*n, &keys[n]), (x.uid)(*n)));
+    let mut hinted: BTreeMap<Nid, (usize, &'static str)> = BTreeMap::new();
     for n in xs {
         let both = opts[&n].clone();
+        // The side whose value is the fallback: the MR-040 winner's other side.
+        let fallback_side = 3 - keys[&n].side;
         opts.insert(n, vec![both[0].clone()]);
         if unsafe_set(&opts).len() > base_u {
             opts.insert(n, vec![both[1].clone()]);
             bump(Counter::Repair);
+            if !preferred.contains(&n) {
+                if x.strict {
+                    skipped.insert(n);
+                } else {
+                    hinted.insert(n, (fallback_side, "cycle"));
+                }
+            }
+        } else if preferred.contains(&n) {
+            hinted.insert(n, (fallback_side, "dead-parent"));
         }
     }
     for (n, os) in opts {
         values.insert(n, os[0].clone());
     }
-    skipped
+    (skipped, hinted)
+}
+
+/// Pins of `threeway`'s exactness fixes (OQ-A-13 F1, F2 and F4) and of MR-040's tie, on hand-built merges.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::merge::Origin;
+    use crate::value::Uid;
+
+    fn uid(n: Nid) -> Uid {
+        let mut b = [0u8; 16];
+        b[12..].copy_from_slice(&n.0.to_be_bytes());
+        Uid(b)
+    }
+
+    /// The value of a node under `p` (`None`: the root), with no order.
+    fn under(p: Option<u32>) -> Option<KVal> {
+        p.map(|p| KVal::Hierarchy {
+            parent: Some(Nid(p)),
+            order: None,
+        })
+    }
+
+    /// Parents by node, #1 first, as values.
+    fn values(ps: &[Option<u32>]) -> BTreeMap<Nid, Option<KVal>> {
+        ps.iter()
+            .enumerate()
+            .map(|(i, p)| (Nid(i as u32 + 1), under(*p)))
+            .collect()
+    }
+
+    /// The parents of b's, o's and t's nodes, #1 first (`None`: the root).
+    type Sides<'s> = (&'s [Option<u32>], &'s [Option<u32>], &'s [Option<u32>]);
+
+    /// A merge of nodes #1..=#n, all merged and live in b, o and t, given as parents.
+    fn input<'a>(
+        merged: &'a BTreeSet<Nid>,
+        (b, o, t): Sides<'_>,
+        origin: Option<Origin<'a>>,
+    ) -> HInput<'a> {
+        HInput {
+            op: Op::Merge,
+            one_sided: false,
+            merged,
+            b: values(b),
+            o: values(o),
+            t: values(t),
+            init: values(b),
+            steps: Vec::new(),
+            same3: BTreeSet::new(),
+            uid: &uid,
+            origin,
+            dead: Default::default(),
+            live: merged.clone(),
+            strict: false,
+        }
+    }
+
+    fn origins<'x, 'a>(x: &'x HInput<'a>) -> Origins<'x, 'a> {
+        Origins {
+            x,
+            memo: RefCell::new(BTreeMap::new()),
+        }
+    }
+
+    /// F1 (ALT-7): "lies on a cycle within U" is the cycle of the option graph restricted to U. b holds a (#1), b (#2)
+    /// and d (#3) at the root; o puts d under a and b under d; t puts d under b and a under d; every origin is (0, 0).
+    /// Every choice of d's two values leads into a cycle, so U = {a, b, d}, and both determined keys lie on a cycle of
+    /// the option graph: a (t's, through d's o value) and b (o's, through d's t value). The tie-breaks reset a (src's
+    /// on equal origins); d then takes ours, a, with a `cycle` hint, and b stays under d. Reading the cycle on the
+    /// current values (d at its MR-040 winner, under b) would reset b instead.
+    #[test]
+    fn f1_the_reset_key_lies_on_a_cycle_of_the_option_graph() {
+        let merged: BTreeSet<Nid> = (1..=3).map(Nid).collect();
+        let x = input(
+            &merged,
+            (
+                &[None, None, None],
+                &[None, Some(3), Some(1)],
+                &[Some(3), None, Some(2)],
+            ),
+            None,
+        );
+        let out = threeway(&x, Variant::Exact);
+        assert_eq!(out.skipped, BTreeSet::from([Nid(1)]), "a is reset");
+        assert_eq!(
+            out.values,
+            values(&[None, Some(3), Some(1)]),
+            "a at the root, b under d, d under a"
+        );
+        assert_eq!(out.hinted, BTreeMap::from([(Nid(3), (1, "cycle"))]));
+    }
+
+    /// F2: a both-same key's origin, which orders it among step (1)'s tie-breaks, is the later of both sides' origins,
+    /// whichever side that is. #1 and #2 are both under #3 on o and on t; #1's o value is the older, #2's the newer.
+    #[test]
+    fn f2_a_both_same_keys_origin_is_the_later_of_its_sides() {
+        let merged: BTreeSet<Nid> = (1..=3).map(Nid).collect();
+        let og_fn = |side: usize, n: Nid, _live: bool, _v: &Option<KVal>| {
+            let older_side = if n == Nid(1) { 1 } else { 2 };
+            if side == older_side {
+                (5, [1; 32])
+            } else {
+                (9, [2; 32])
+            }
+        };
+        let x = input(
+            &merged,
+            (
+                &[None, None, None],
+                &[Some(3), Some(3), None],
+                &[Some(3), Some(3), None],
+            ),
+            Some(&og_fn),
+        );
+        let og = origins(&x);
+        let keys = classify(&x, &og);
+        for n in [Nid(1), Nid(2)] {
+            assert_eq!(keys[&n].class, Class::BothSame);
+            assert_eq!(og.chosen(n, &keys[&n]), (9, [2; 32]), "{n}");
+        }
+    }
+
+    /// MR-040's tie: a two-sided key whose sides' values have equal origins takes t's value. o puts #1 under #2, t
+    /// under #3; neither is order-only.
+    #[test]
+    fn a_two_sided_tie_goes_to_t() {
+        let merged: BTreeSet<Nid> = (1..=3).map(Nid).collect();
+        let x = input(
+            &merged,
+            (
+                &[None, None, None],
+                &[Some(2), None, None],
+                &[Some(3), None, None],
+            ),
+            None,
+        );
+        let og = origins(&x);
+        let keys = classify(&x, &og);
+        assert_eq!(
+            (keys[&Nid(1)].class, keys[&Nid(1)].side),
+            (Class::BothDiff, 2)
+        );
+        assert_eq!(threeway(&x, Variant::Exact).values[&Nid(1)], under(Some(3)));
+    }
+
+    /// F4: a cycle that holds no repairable key is left as it is, for the validators' cycle check (V05, I37′): #1, a
+    /// node an existence policy fixed, is under #2 as copied, and #2's merged key is under #1 in b, o and t.
+    /// `threeway` skips nothing, hints nothing and changes no value; #3, which o puts under #2, cannot reach a root
+    /// either but lies on no cycle, so it keeps o's value.
+    #[test]
+    fn f4_a_cycle_with_no_repairable_key_is_left_to_the_validators() {
+        let merged = BTreeSet::from([Nid(2), Nid(3)]);
+        let side = |three: Option<u32>| -> BTreeMap<Nid, Option<KVal>> {
+            BTreeMap::from([(Nid(2), under(Some(1))), (Nid(3), under(three))])
+        };
+        let x = HInput {
+            init: values(&[Some(2), Some(1), None]),
+            b: side(None),
+            o: side(Some(2)),
+            t: side(None),
+            live: BTreeSet::from([Nid(1), Nid(2), Nid(3)]),
+            ..input(&merged, (&[], &[], &[]), None)
+        };
+        let out = threeway(&x, Variant::Exact);
+        assert!(
+            out.skipped.is_empty() && out.hinted.is_empty(),
+            "{:?} {:?}",
+            out.skipped,
+            out.hinted
+        );
+        assert_eq!(
+            out.values,
+            BTreeMap::from([(Nid(2), under(Some(1))), (Nid(3), under(Some(2)))])
+        );
+    }
 }

@@ -1403,6 +1403,7 @@ fn check_merge_case(c: &Case, op: crate::merge::Op, dst_main: bool) {
         uid: &uid,
         nid: &nid,
         origin: None,
+        strict: false,
     };
     let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
     let got = canonical_state(&m.st, &uid);
