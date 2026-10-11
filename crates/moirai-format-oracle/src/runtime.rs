@@ -317,6 +317,10 @@ pub enum Table {
     Sessmarks,
     /// `BACKUPS` 0x020C.
     Backups,
+    /// `DROPPED` 0x020D (conditional, spec sync 3).
+    Dropped,
+    /// `HARVEST` 0x020E (conditional, reserved for M9–M10; spec sync 3).
+    Harvest,
     /// `TREES` 0x0210.
     Trees,
     /// `FILEOBS` 0x0211.
@@ -350,7 +354,7 @@ pub enum Table {
 }
 
 /// Every table.
-pub const TABLES: [Table; 27] = [
+pub const TABLES: [Table; 29] = [
     Table::Refs,
     Table::Pins,
     Table::Heads,
@@ -363,6 +367,8 @@ pub const TABLES: [Table; 27] = [
     Table::Cursors,
     Table::Sessmarks,
     Table::Backups,
+    Table::Dropped,
+    Table::Harvest,
     Table::Trees,
     Table::FileObs,
     Table::Pending,
@@ -469,6 +475,8 @@ pub enum S {
     Epochs,
     /// The `FILEOBS` `var` sequence (§12.5).
     FileObsVar,
+    /// `list<HarvestRange>` (§13.5).
+    HarvestRanges,
     /// `n_items` × `IntentItem` (§12.7).
     Items,
     /// The `GITRENAMES` `list` sequence (§12.12).
@@ -789,6 +797,24 @@ const BACKUPS: Fields = &[
     ("dir", K::Heap(S::Text)),
 ];
 
+const DROPPED: Fields = &[
+    ("hash", K::B16),
+    ("drop_lsn", K::U64),
+    ("hlc", K::U64),
+    ("reason", K::U8),
+    ("_reserved", K::Z(7)),
+];
+
+const HARVEST: Fields = &[
+    ("head", K::B16),
+    ("seen", K::U64),
+    ("flags", K::U8),
+    ("_reserved", K::Z(7)),
+    ("source", K::Heap(S::Text)),
+    ("path", K::Heap(S::Text)),
+    ("ranges", K::Heap(S::HarvestRanges)),
+];
+
 /// Delta-segment form of a runtime table ([F11 §1.3] "Form").
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub enum DeltaForm {
@@ -816,6 +842,8 @@ impl Table {
             Table::Cursors => 0x020A,
             Table::Sessmarks => 0x020B,
             Table::Backups => 0x020C,
+            Table::Dropped => 0x020D,
+            Table::Harvest => 0x020E,
             Table::Trees => 0x0210,
             Table::FileObs => 0x0211,
             Table::Pending => 0x0212,
@@ -854,6 +882,8 @@ impl Table {
             Table::Cursors => "CURSORS",
             Table::Sessmarks => "SESSMARKS",
             Table::Backups => "BACKUPS",
+            Table::Dropped => "DROPPED",
+            Table::Harvest => "HARVEST",
             Table::Trees => "TREES",
             Table::FileObs => "FILEOBS",
             Table::Pending => "PENDING",
@@ -886,6 +916,8 @@ impl Table {
             Table::Cursors => CURSORS,
             Table::Sessmarks => SESSMARKS,
             Table::Backups => BACKUPS,
+            Table::Dropped => DROPPED,
+            Table::Harvest => HARVEST,
             Table::Trees => TREES,
             Table::FileObs => FILEOBS,
             Table::Pending => PENDING,
@@ -931,6 +963,7 @@ impl Table {
             | Table::JournalCur
             | Table::PrefixEv
             | Table::Backups
+            | Table::Dropped
             | Table::Files => DeltaForm::Snapshot,
             Table::Conflicts | Table::GlobIdx => DeltaForm::Versioned,
             _ => DeltaForm::Layer,
@@ -956,7 +989,14 @@ impl Table {
                 | Table::Ancestry
                 | Table::GitRenames
                 | Table::AnchorRes
+                | Table::Harvest
         )
+    }
+
+    /// The conditional tables ([F11 §2.4] "Conditional sections", spec sync 3; [F09 §3.1] placement C): a base or delta
+    /// segment carries the section exactly when it has a row, and a section with `n_rows` = 0 is invalid.
+    pub fn conditional(self) -> bool {
+        matches!(self, Table::Dropped | Table::Harvest)
     }
 
     /// The fields forming the key ([F11 §2.2] and each section's sort key).
@@ -973,6 +1013,8 @@ impl Table {
             Table::Cursors => &["session", "agent", "feed", "task"],
             Table::Sessmarks => &["session", "agent"],
             Table::Backups => &["dir"],
+            Table::Dropped => &["hash"],
+            Table::Harvest => &["source"],
             Table::Trees => &["key"],
             Table::FileObs => &["n", "tree"],
             Table::Pending => &["n", "tree", "from", "to"],
@@ -1046,6 +1088,8 @@ pub enum Slice {
     Epochs(Vec<Epoch>),
     /// The `FILEOBS` `var` sequence.
     FileObsVar(Box<FileObsVar>),
+    /// `list<HarvestRange>`, in the order added.
+    HarvestRanges(Vec<HarvestRange>),
     /// Intent items.
     Items(Vec<IntentItem>),
     /// The `GITRENAMES` list.
@@ -1056,6 +1100,19 @@ pub enum Slice {
     CKey(CKey),
     /// A `kval`.
     KVal(Box<KVal>),
+}
+
+/// `HarvestRange` ([F11 §13.5]), 40 bytes: the half-open byte range [`start`, `end`) one `Apply` harvested.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct HarvestRange {
+    /// First byte.
+    pub start: u64,
+    /// End; above `start`.
+    pub end: u64,
+    /// `id16` of the `Apply` commit.
+    pub commit: [u8; 16],
+    /// The lsn of that commit's `Commit` record.
+    pub commit_lsn: u64,
 }
 
 /// The `FILEOBS` `var` sequence ([F11 §12.5]).
@@ -1780,6 +1837,24 @@ fn decode_slice(
                 proposals,
             }))
         }
+        S::HarvestRanges => {
+            if !b.len().is_multiple_of(40) {
+                return err(
+                    at,
+                    "list<HarvestRange> length is not a multiple of 40 [F11 §13.5]",
+                );
+            }
+            let mut v = Vec::with_capacity(b.len() / 40);
+            while !r.is_empty() {
+                v.push(HarvestRange {
+                    start: r.u64()?,
+                    end: r.u64()?,
+                    commit: r.b16()?,
+                    commit_lsn: r.u64()?,
+                });
+            }
+            Slice::HarvestRanges(v)
+        }
         S::Items => {
             let n = row_u(fixed, t, "n_items") as usize;
             let op = row_u(fixed, t, "op") as u8;
@@ -1854,6 +1929,12 @@ fn encode_slice(s: &Slice) -> Vec<u8> {
                 w.u64(p.score_den);
             }
         }
+        Slice::HarvestRanges(v) => v.iter().for_each(|x| {
+            w.u64(x.start);
+            w.u64(x.end);
+            w.bytes(&x.commit);
+            w.u64(x.commit_lsn);
+        }),
         Slice::Items(v) => encode_items(v, &mut w),
         Slice::Renames(rn) => encode_renames(rn, &mut w, false),
         Slice::Raw(b) => w.bytes(b),
@@ -2265,6 +2346,13 @@ pub fn glob_prefix_len(g: &str) -> usize {
 fn check_row(row: &Row, place: Place, at: usize) -> Result<()> {
     let t = row.table;
     let fail = |m: String| err(at, format!("{}: {m}", t.name()));
+    // [F11 §13.5]: `source` is the key, which a dead row keeps (§2.4), so its rule binds dead rows too.
+    if t == Table::Harvest
+        && let Slice::Text(src) = row.slice("source")
+        && (src.is_empty() || src.len() > 200 || src.bytes().any(|c| !(0x21..=0x7E).contains(&c)))
+    {
+        return fail("source is not 1-200 bytes each in 0x21-0x7E [F11 §13.5]".into());
+    }
     if t.has_dead() || t == Table::PrefixEv {
         let flags = row.u("flags");
         if flags & 0x80 != 0 {
@@ -2649,6 +2737,21 @@ fn check_row(row: &Row, place: Place, at: usize) -> Result<()> {
             }
         }
         Table::Sessmarks | Table::Backups => {}
+        Table::Dropped => {
+            if !(1..=3).contains(&u("reason")) {
+                return fail("reason outside 1-3 [F11 §13.4, F06 §8.1 DB-2]".into());
+            }
+        }
+        Table::Harvest => {
+            if u("flags") != 0 {
+                return fail("flags bits 0-6 are reserved-zero [F11 §13.5]".into());
+            }
+            if let Slice::HarvestRanges(v) = row.slice("ranges")
+                && v.iter().any(|x| x.start >= x.end)
+            {
+                return fail("a range whose start is not below its end [F11 §13.5]".into());
+            }
+        }
         Table::SchemaIds => {
             let (space, kind, id) = (u("space"), u("kind"), u("id"));
             let id_ok = match space {
@@ -2696,6 +2799,11 @@ fn check_row(row: &Row, place: Place, at: usize) -> Result<()> {
 fn check_section(s: &Section, at: usize, seg: SegKind) -> Result<()> {
     let t = s.table;
     let fail = |m: String| err(at, format!("{}: {m}", t.name()));
+    // [F11 §2.4] "Conditional sections", [F09 §14.5]: a present `DROPPED` or `HARVEST` holds a row; its `count`, which
+    // must equal `n_rows` ([F09 §2.2]), is then at least 1 (V-7).
+    if t.conditional() && s.rows.is_empty() {
+        return fail("a conditional section with no row [F11 §2.4, F09 §17.1 V-7]".into());
+    }
     match t {
         Table::Idem => {
             let n_used = s.rows.iter().filter(|r| r.u("flags") & 1 != 0).count();
@@ -3206,6 +3314,303 @@ mod tests {
         }
         .encode(&mut w);
         assert!(Stamp::decode(&mut Reader::new(w.as_slice())).is_err());
+    }
+
+    /// A section body laid out from [F11 §2.1]: `RtHdr` (`n_rows`, `row_size`, `form`, a zero byte, `aux`, `index_len`
+    /// 0, `heap_len`), the rows' bytes, then `heap`.
+    fn section_bytes(
+        n_rows: u32,
+        row_size: u16,
+        form: u8,
+        aux: u32,
+        rows: &[u8],
+        heap: &[u8],
+    ) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.u32(n_rows);
+        w.u16(row_size);
+        w.u8(form);
+        w.u8(0);
+        w.u32(aux);
+        w.u32(0);
+        w.u64(heap.len() as u64);
+        w.bytes(rows);
+        w.bytes(heap);
+        w.into_vec()
+    }
+
+    /// `b` decoded as a section of `t` in a segment of kind `seg`; it must re-encode to `b`.
+    fn rt_round_trip(t: Table, b: &[u8], seg: SegKind) -> Section {
+        let s = decode_section(t, b, 0, seg).unwrap_or_else(|e| panic!("{}: {e}", t.name()));
+        assert_eq!(encode_section(&s), b, "{}", t.name());
+        s
+    }
+
+    /// `b` refused as a section of `t` in a segment of kind `seg`, with a reason that contains each of `cites`.
+    fn rt_refused(t: Table, b: &[u8], seg: SegKind, cites: &[&str], what: &str) {
+        match decode_section(t, b, 0, seg) {
+            Ok(_) => panic!("{} {what}: accepted", t.name()),
+            Err(e) => {
+                for c in cites {
+                    assert!(e.reason.contains(c), "{} {what}: {e}", t.name());
+                }
+            }
+        }
+    }
+
+    /// A `DROPPED` row laid out from [F11 §13.4]: `hash` (16 × `h`), `drop_lsn` 500 + `h`, `hlc`, `reason`, 7 zero
+    /// bytes.
+    fn dropped_row(h: u8, reason: u8) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.bytes(&[h; 16]);
+        w.u64(500 + u64::from(h));
+        w.u64((1 << 16) | 3);
+        w.u8(reason);
+        w.zeros(7);
+        w.into_vec()
+    }
+
+    /// [F11 §1.3], §2.4, §2.8, §13.4 (spec sync 3): `DROPPED` is tag `0x020D`, 40-byte rows sorted by `hash`, a
+    /// snapshot in base and delta segments and conditional; a base and a delta section of two rows decode and
+    /// re-encode. Refused: a `reason` outside 1–3 (§13.4), a non-zero reserved byte ([F01 §10]), unsorted rows and two
+    /// rows with one hash (§2.2), the layer form in a delta, a section with no row, any form in a branch or changeset
+    /// segment (§2.4), and a non-zero `aux` (§2.1).
+    #[test]
+    fn dropped_section() {
+        let t = Table::from_tag(0x020D).expect("DROPPED is tag 0x020D [F11 §2.8]");
+        assert_eq!((t.name(), t.row_size()), ("DROPPED", 40));
+        let rows = |v: &[(u8, u8)]| -> Vec<u8> {
+            v.iter().flat_map(|&(h, r)| dropped_row(h, r)).collect()
+        };
+        let snap = |v: &[(u8, u8)]| section_bytes(v.len() as u32, 40, 1, 0, &rows(v), &[]);
+        let two = snap(&[(1, 1), (2, 3)]);
+        for seg in [SegKind::Base, SegKind::Delta] {
+            let s = rt_round_trip(t, &two, seg);
+            let reasons: Vec<u64> = s.rows.iter().map(|r| r.u("reason")).collect();
+            assert_eq!(reasons, vec![1, 3]);
+            assert_eq!(s.rows[1].u("drop_lsn"), 502);
+            assert_eq!(s.rows[0].bytes("hash"), &[1u8; 16]);
+        }
+        for reason in [0, 4, 255] {
+            rt_refused(
+                t,
+                &snap(&[(1, reason)]),
+                SegKind::Base,
+                &["reason", "§13.4"],
+                &format!("reason {reason}"),
+            );
+        }
+        let mut reserved = snap(&[(1, 1)]);
+        reserved[24 + 39] = 1;
+        rt_refused(
+            t,
+            &reserved,
+            SegKind::Base,
+            &["[F01 §10]"],
+            "a reserved byte",
+        );
+        rt_refused(
+            t,
+            &snap(&[(2, 1), (1, 1)]),
+            SegKind::Base,
+            &["§2.2"],
+            "unsorted",
+        );
+        rt_refused(
+            t,
+            &snap(&[(1, 1), (1, 2)]),
+            SegKind::Delta,
+            &["§2.2"],
+            "one hash twice",
+        );
+        let layer = section_bytes(2, 40, 2, 0, &rows(&[(1, 1), (2, 3)]), &[]);
+        rt_refused(t, &layer, SegKind::Delta, &["§2.4"], "form 2 in a delta");
+        for seg in [SegKind::Base, SegKind::Delta] {
+            rt_refused(t, &snap(&[]), seg, &["no row", "§2.4"], "n_rows 0");
+        }
+        for seg in [SegKind::Branch, SegKind::Changeset] {
+            for b in [&two, &layer] {
+                rt_refused(t, b, seg, &["§2.4"], "a branch or changeset segment");
+            }
+        }
+        let aux = section_bytes(2, 40, 1, 1, &rows(&[(1, 1), (2, 3)]), &[]);
+        rt_refused(t, &aux, SegKind::Base, &["aux", "§2.1"], "aux 1");
+    }
+
+    /// One `HARVEST` row of [F11 §13.5]'s offset table: (the byte of `head`, `seen`, `flags`, `source`, `path`, the
+    /// bytes of `ranges`).
+    type HRow<'a> = (u8, u64, u8, &'a [u8], &'a [u8], Vec<u8>);
+
+    /// A `HARVEST` section of `rows` in `form`: each row's 56 fixed bytes with its `HeapRef`s at the running heap
+    /// offset, then the heap: per row, in row order, its `source`, `path` and `ranges` slices ([F11 §2.3]).
+    fn harvest_section_bytes(form: u8, rows: &[HRow<'_>]) -> Vec<u8> {
+        let mut fixed = Writer::new();
+        let mut heap: Vec<u8> = Vec::new();
+        for (head, seen, flags, source, path, ranges) in rows {
+            fixed.bytes(&[*head; 16]);
+            fixed.u64(*seen);
+            fixed.u8(*flags);
+            fixed.zeros(7);
+            for s in [*source, *path, ranges.as_slice()] {
+                fixed.u32(heap.len() as u32);
+                fixed.u32(s.len() as u32);
+                heap.extend_from_slice(s);
+            }
+        }
+        section_bytes(rows.len() as u32, 56, form, 0, fixed.as_slice(), &heap)
+    }
+
+    /// `HarvestRange`s laid out from [F11 §13.5]: `start`, `end`, `commit` (16 × 7), `commit_lsn` 1000 + `start`.
+    fn harvest_ranges(v: &[(u64, u64)]) -> Vec<u8> {
+        let mut w = Writer::new();
+        for &(start, end) in v {
+            w.u64(start);
+            w.u64(end);
+            w.bytes(&[7; 16]);
+            w.u64(1000 + start);
+        }
+        w.into_vec()
+    }
+
+    /// A live `HARVEST` row of `source` with `ranges`.
+    fn live_harvest<'a>(source: &'a [u8], ranges: &[(u64, u64)]) -> HRow<'a> {
+        (
+            0xAB,
+            9_000,
+            0,
+            source,
+            b"C:/t.jsonl",
+            harvest_ranges(ranges),
+        )
+    }
+
+    /// A dead `HARVEST` row ([F11 §2.4]): `flags` 0x80, its `source` kept, every other field zero.
+    fn dead_harvest(source: &[u8]) -> HRow<'_> {
+        (0, 0, 0x80, source, b"", Vec::new())
+    }
+
+    /// [F11 §1.3], §2.4, §2.8, §13.5 (spec sync 3): `HARVEST` is tag `0x020E`, 56-byte rows sorted by `source` bytes, a
+    /// snapshot in a base and a layer in a delta, with dead rows in a layer, and conditional. A base of two rows (one
+    /// with two ranges kept in the order added, not sorted, one with none) and a delta layer of a live and a dead row
+    /// decode and re-encode. Refused: a dead row in a base, and one with a non-zero `seen`, `path` or `ranges` (§2.4);
+    /// a `source` empty, of 201 bytes, or holding `0x20` or `0x7F`, in a live and in a dead row, a range whose `start`
+    /// is not below its `end`, a `ranges` slice of 39 bytes and `flags` bit 0 (§13.5); unsorted rows (§2.2); a section
+    /// with no row and the snapshot form in a delta (§2.4).
+    #[test]
+    fn harvest_section() {
+        let t = Table::from_tag(0x020E).expect("HARVEST is tag 0x020E [F11 §2.8]");
+        assert_eq!((t.name(), t.row_size()), ("HARVEST", 56));
+        let base = harvest_section_bytes(
+            1,
+            &[
+                live_harvest(b"claude:a", &[(100, 200), (0, 50)]),
+                live_harvest(b"codex:b", &[]),
+            ],
+        );
+        let s = rt_round_trip(t, &base, SegKind::Base);
+        assert_eq!(s.rows[0].u("seen"), 9_000);
+        assert_eq!(s.rows[1].slice("source"), &Slice::Text("codex:b".into()));
+        let layer = harvest_section_bytes(
+            2,
+            &[
+                live_harvest(b"claude:a", &[(0, 10)]),
+                dead_harvest(b"codex:b"),
+            ],
+        );
+        let s = rt_round_trip(t, &layer, SegKind::Delta);
+        assert_eq!(s.rows[1].u("flags"), 0x80);
+        assert_eq!(s.rows[1].slice("source"), &Slice::Text("codex:b".into()));
+        let in_base = harvest_section_bytes(1, &[dead_harvest(b"codex:b")]);
+        rt_refused(
+            t,
+            &in_base,
+            SegKind::Base,
+            &["dead", "§2.4"],
+            "a dead row in a base",
+        );
+        let mut seen = dead_harvest(b"codex:b");
+        seen.1 = 5;
+        let mut path = dead_harvest(b"codex:b");
+        path.4 = b"p";
+        let mut ranges = dead_harvest(b"codex:b");
+        ranges.5 = harvest_ranges(&[(0, 1)]);
+        for (row, field) in [(seen, "seen"), (path, "path"), (ranges, "ranges")] {
+            let b = harvest_section_bytes(2, &[row]);
+            rt_refused(
+                t,
+                &b,
+                SegKind::Delta,
+                &[field, "§2.4"],
+                "a dead row's field",
+            );
+        }
+        let long = [b's'; 201];
+        for source in [&b""[..], &long[..], &b"a b"[..], &b"a\x7Fb"[..]] {
+            let b = harvest_section_bytes(1, &[live_harvest(source, &[])]);
+            rt_refused(
+                t,
+                &b,
+                SegKind::Base,
+                &["source", "§13.5"],
+                "a live row's source",
+            );
+            let b = harvest_section_bytes(2, &[dead_harvest(source)]);
+            rt_refused(
+                t,
+                &b,
+                SegKind::Delta,
+                &["source", "§13.5"],
+                "a dead row's source",
+            );
+        }
+        for r in [(9, 9), (10, 9)] {
+            let b = harvest_section_bytes(1, &[live_harvest(b"claude:a", &[(0, 5), r])]);
+            rt_refused(t, &b, SegKind::Base, &["range", "§13.5"], "start >= end");
+        }
+        let mut short = live_harvest(b"claude:a", &[(0, 5)]);
+        short.5.pop();
+        let b = harvest_section_bytes(1, &[short]);
+        rt_refused(
+            t,
+            &b,
+            SegKind::Base,
+            &["40", "§13.5"],
+            "a 39-byte ranges slice",
+        );
+        let mut flagged = live_harvest(b"claude:a", &[]);
+        flagged.2 = 1;
+        let b = harvest_section_bytes(1, &[flagged]);
+        rt_refused(t, &b, SegKind::Base, &["flags", "§13.5"], "flags bit 0");
+        let unsorted = harvest_section_bytes(
+            1,
+            &[
+                live_harvest(b"codex:b", &[]),
+                live_harvest(b"claude:a", &[]),
+            ],
+        );
+        rt_refused(t, &unsorted, SegKind::Base, &["§2.2"], "unsorted");
+        rt_refused(
+            t,
+            &harvest_section_bytes(1, &[]),
+            SegKind::Base,
+            &["no row", "§2.4"],
+            "n_rows 0",
+        );
+        rt_refused(
+            t,
+            &harvest_section_bytes(2, &[]),
+            SegKind::Delta,
+            &["no row", "§2.4"],
+            "n_rows 0",
+        );
+        let snapshot = harvest_section_bytes(1, &[live_harvest(b"claude:a", &[])]);
+        rt_refused(
+            t,
+            &snapshot,
+            SegKind::Delta,
+            &["form", "§2.4"],
+            "form 1 in a delta",
+        );
     }
 }
 

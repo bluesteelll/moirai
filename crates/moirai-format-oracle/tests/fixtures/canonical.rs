@@ -1,5 +1,5 @@
 //! `fixtures/canonical` (WP-21): the ids of every case, recomputed. A decoder never recomputes a commit id or a
-//! `changeset_digest` (their correctness is a C-rule, [F06 §4.3] orders 2 and 38); the oracle recomputes them over the
+//! `changeset_digest` (their correctness is a C-rule, [F06 §4.3] orders 2 and 39); the oracle recomputes them over the
 //! fixtures that carry real ids, here and in `fixtures/carrier` ([F07 §12] intro; spec sync 2b S2B-F-14). Per case
 //! (`fixtures/canonical/INDEX.md` §2.2, §4): `changeset-digest` is BLAKE3-256 of `digest-input`, which is
 //! `lp("moirai-changeset-v1") ‖ E_1 ‖ … ‖ E_n ‖ u64(entry-count)` ([F07 §10.4]); `commit-id` is BLAKE3-256 of `c`

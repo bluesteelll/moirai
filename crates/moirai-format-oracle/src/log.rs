@@ -42,7 +42,7 @@ pub enum Class {
 /// The registry class of `kind`, or `None` when the kind is invalid ([F05 §7]).
 pub fn kind_class(kind: u8) -> Option<Class> {
     Some(match kind {
-        1..=10 | 13 | 15..=17 | 27 | 28 => Class::Durable,
+        1..=10 | 13 | 15..=17 | 27..=30 => Class::Durable,
         12 | 18..=26 => Class::Lazy,
         11 | 14 => Class::Configurable,
         _ => return None,
@@ -51,7 +51,7 @@ pub fn kind_class(kind: u8) -> Option<Class> {
 
 /// The kind name ([F05 §7]).
 pub fn kind_name(kind: u8) -> &'static str {
-    const N: [&str; 29] = [
+    const N: [&str; 31] = [
         "?",
         "Commit",
         "RefUpdate",
@@ -81,6 +81,8 @@ pub fn kind_name(kind: u8) -> &'static str {
         "AnchorRes",
         "Reserve",
         "ExtentHead",
+        "BodyDrop",
+        "Harvest",
     ];
     N.get(usize::from(kind)).copied().unwrap_or("?")
 }
@@ -179,6 +181,8 @@ pub mod sym {
     pub const NAME: u8 = 10;
     /// `text`.
     pub const TEXT: u8 = 11;
+    /// `model` (spec sync 3: the declared model id of a commit's provenance group, [F06 §4.4.17]).
+    pub const MODEL: u8 = 12;
 
     /// True for the `u16` classes ([F01 §8.2]).
     pub fn is_u16(class: u8) -> bool {
@@ -189,7 +193,7 @@ pub mod sym {
 /// One symbol definition ([F05 §8.1]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub struct SymDef {
-    /// Class code 1–11.
+    /// Class code 1–12.
     pub class: u8,
     /// The new id.
     pub id: u32,
@@ -208,10 +212,10 @@ pub fn decode_symdefs(r: &mut Reader<'_>) -> Result<Vec<SymDef>> {
     for _ in 0..n {
         let d_at = r.offset();
         let class = r.u8()?;
-        if !(1..=11).contains(&class) {
+        if !(1..=12).contains(&class) {
             return err(
                 d_at,
-                format!("SymDef class {class} outside 1-11 [F05 §8.1]"),
+                format!("SymDef class {class} outside 1-12 [F05 §8.1]"),
             );
         }
         let id = if sym::is_u16(class) {
@@ -290,11 +294,11 @@ impl ClassSymbols {
 /// The symbol state a scan carries ([F05 §8.1], §10.5): per class, the next id and the strings defined.
 #[derive(Clone, Debug, Default)]
 pub struct Symbols {
-    /// Per class 1–11: the next id when known (from `SYMTAB`, or the first definition met). It is a `u64`: after the
+    /// Per class 1–12: the next id when known (from `SYMTAB`, or the first definition met). It is a `u64`: after the
     /// greatest id of a class's width ([F01 §8.1] S4) it is 2^32 (or 65,536), which no definition can take.
-    pub next: [Option<u64>; 12],
+    pub next: [Option<u64>; 13],
     /// Per class: the strings defined so far with their ids.
-    pub strings: [ClassSymbols; 12],
+    pub strings: [ClassSymbols; 13],
     /// True when `next` came from a `SYMTAB`: every reference must then be below it (SD-3).
     pub complete: bool,
 }
@@ -306,7 +310,7 @@ impl Symbols {
             complete: true,
             ..Symbols::default()
         };
-        for c in 1..=11 {
+        for c in 1..=12 {
             s.next[c] = Some(1);
         }
         for (c, id, t) in defs {
@@ -1012,6 +1016,77 @@ pub enum Payload {
     Reserve(Box<Reserve>),
     /// 28.
     ExtentHead(Box<ExtentHead>),
+    /// 29.
+    BodyDrop(Box<BodyDrop>),
+    /// 30.
+    Harvest(Box<Harvest>),
+}
+
+/// `BodyDrop` ([F05 §9.29]): the bodies whose bytes this store drops.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct BodyDrop {
+    /// The dropped bodies' BLAKE3-128 hashes, strictly ascending; 1 to 65,535 of them.
+    pub hashes: Vec<[u8; 16]>,
+    /// [F06 §8.1] DB-2: 1 `secret`, 2 `private`, 3 `other`.
+    pub reason: u8,
+    /// The owner's note, 0 to 200 bytes; empty for origin `import`.
+    pub note: String,
+    /// Symbol, class `actor`: the dropping caller.
+    pub actor: u32,
+    /// HLC at append.
+    pub hlc: u64,
+    /// 1 `command`, 2 `import`.
+    pub origin: u8,
+}
+
+/// `Harvest` ([F05 §9.30]): one operation on the `HARVEST` row of one transcript.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub struct Harvest {
+    /// The row's key: 1 to 200 bytes, each in `0x21`–`0x7E`.
+    pub source: String,
+    /// The operation (order 1) with its own fields (orders 3–9).
+    pub op: HarvestOp,
+    /// HLC at append.
+    pub hlc: u64,
+}
+
+/// The operation of a `Harvest` record ([F05 §9.30] order 1).
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum HarvestOp {
+    /// 1 `mark`: the file's path, the hash of its first bytes and its size.
+    Mark {
+        /// The path when it was reported.
+        path: String,
+        /// BLAKE3-128 of the first min(4,096, `seen`) bytes.
+        head: [u8; 16],
+        /// The size when it was reported.
+        seen: u64,
+    },
+    /// 2 `range`: the harvested range [`start`, `end`) and the `id16` of the `Apply` commit.
+    Range {
+        /// First byte.
+        start: u64,
+        /// End, above `start`.
+        end: u64,
+        /// Not zero.
+        commit: [u8; 16],
+    },
+    /// 3 `forget`: every range whose `start` is at least `from` (the row itself with 0).
+    Forget {
+        /// The rewind point.
+        from: u64,
+    },
+}
+
+impl HarvestOp {
+    /// The `op` code.
+    pub fn code(&self) -> u8 {
+        match self {
+            HarvestOp::Mark { .. } => 1,
+            HarvestOp::Range { .. } => 2,
+            HarvestOp::Forget { .. } => 3,
+        }
+    }
 }
 
 /// `FsIntent` ([F05 §9.15]).
@@ -1741,6 +1816,8 @@ impl Payload {
                     hlc_commit: r.u64()?,
                 }))
             }
+            29 => Payload::BodyDrop(Box::new(decode_body_drop(r)?)),
+            30 => Payload::Harvest(Box::new(decode_harvest(r)?)),
             k => return r.fail(format!("record kind {k} is invalid [F05 §7]")),
         };
         r.finish(kind_name(kind))?;
@@ -1772,6 +1849,8 @@ impl Payload {
             Payload::GitFacts(_) => 25,
             Payload::Reserve(_) => 27,
             Payload::ExtentHead(_) => 28,
+            Payload::BodyDrop(_) => 29,
+            Payload::Harvest(_) => 30,
         }
     }
 
@@ -2125,6 +2204,35 @@ impl Payload {
                 w.u64(h.hlc_seq);
                 w.u64(h.hlc_commit);
             }
+            Payload::BodyDrop(x) => {
+                w.uvar(x.hashes.len() as u64);
+                for h in &x.hashes {
+                    w.bytes(h);
+                }
+                w.u8(x.reason);
+                w.vstr(&x.note);
+                u(w, x.actor);
+                w.u64(x.hlc);
+                w.u8(x.origin);
+            }
+            Payload::Harvest(x) => {
+                w.u8(x.op.code());
+                w.vstr(&x.source);
+                match &x.op {
+                    HarvestOp::Mark { path, head, seen } => {
+                        w.vstr(path);
+                        w.bytes(head);
+                        w.u64(*seen);
+                    }
+                    HarvestOp::Range { start, end, commit } => {
+                        w.u64(*start);
+                        w.u64(*end);
+                        w.bytes(commit);
+                    }
+                    HarvestOp::Forget { from } => w.u64(*from),
+                }
+                w.u64(x.hlc);
+            }
         }
     }
 
@@ -2134,6 +2242,7 @@ impl Payload {
         match self {
             Payload::Commit(c) => v = c.symbol_refs(),
             Payload::RefUpdate(x) => v.push((sym::ACTOR, x.actor)),
+            Payload::BodyDrop(x) => v.push((sym::ACTOR, x.actor)),
             Payload::Lease(l) => match &l.event {
                 LeaseEvent::Claim(c) => {
                     v.push((sym::ROLE, u32::from(c.role)));
@@ -2179,6 +2288,117 @@ impl Payload {
         v.retain(|&(_, id)| id != 0);
         v
     }
+}
+
+/// The `BodyDrop` payload with its V-rules ([F05 §9.29] "Rules"): `n` 1 to 65,535 (checked before the bytes left bound
+/// it, so an `n` above the range is refused by this rule), hashes strictly ascending, `reason` 1–3 ([F06 §8.1] DB-2),
+/// a `note` of at most 200 bytes and empty for origin `import`, `origin` 1–2. "None already dropped" and "Origin" are
+/// C-rules: they need the earlier records and the store.
+fn decode_body_drop(r: &mut Reader<'_>) -> Result<BodyDrop> {
+    let n_at = r.offset();
+    let n = r.uvar32()?;
+    if n == 0 || n > 65_535 {
+        return err(n_at, format!("BodyDrop n {n} outside 1-65535 [F05 §9.29]"));
+    }
+    let n = n as usize;
+    if n > r.remaining() / 16 {
+        return err(
+            n_at,
+            format!("BodyDrop n {n} exceeds the bytes left in the payload [F05 §9.29]"),
+        );
+    }
+    let h_at = r.offset();
+    let mut hashes: Vec<[u8; 16]> = Vec::with_capacity(n);
+    for _ in 0..n {
+        hashes.push(r.b16()?);
+    }
+    if hashes.windows(2).any(|w| w[0] >= w[1]) {
+        return err(h_at, "BodyDrop hashes not strictly ascending [F05 §9.29]");
+    }
+    let rs_at = r.offset();
+    let reason = r.u8()?;
+    if !(1..=3).contains(&reason) {
+        return err(
+            rs_at,
+            format!("BodyDrop reason {reason} outside 1-3 [F05 §9.29, F06 §8.1 DB-2]"),
+        );
+    }
+    let note_at = r.offset();
+    let note = r.vstr()?.to_owned();
+    if note.len() > 200 {
+        return err(note_at, "BodyDrop note longer than 200 bytes [F05 §9.29]");
+    }
+    let actor = r.uvar32()?;
+    let hlc = r.u64()?;
+    let o_at = r.offset();
+    let origin = r.u8()?;
+    if !(1..=2).contains(&origin) {
+        return err(
+            o_at,
+            format!("BodyDrop origin {origin} outside 1-2 [F05 §9.29]"),
+        );
+    }
+    if origin == 2 && !note.is_empty() {
+        return err(
+            note_at,
+            "BodyDrop note not empty with origin import [F05 §9.29]",
+        );
+    }
+    Ok(BodyDrop {
+        hashes,
+        reason,
+        note,
+        actor,
+        hlc,
+        origin,
+    })
+}
+
+/// The `Harvest` payload with its V-rules ([F05 §9.30] "Rules"): `op` 1–3, a `source` of 1 to 200 bytes each in
+/// `0x21`–`0x7E`, and for a range `start` < `end` and a non-zero `commit`. The C-rules (the range's commit earlier in
+/// the group, no overlap, a mark or forget only when it changes the row) need the group and the refs.
+fn decode_harvest(r: &mut Reader<'_>) -> Result<Harvest> {
+    let op_at = r.offset();
+    let op = r.u8()?;
+    if !(1..=3).contains(&op) {
+        return err(op_at, format!("Harvest op {op} outside 1-3 [F05 §9.30]"));
+    }
+    let s_at = r.offset();
+    let sb = r.vbytes()?;
+    if sb.is_empty() || sb.len() > 200 || sb.iter().any(|c| !(0x21..=0x7E).contains(c)) {
+        return err(
+            s_at,
+            "Harvest source is not 1-200 bytes each in 0x21-0x7E [F05 §9.30]",
+        );
+    }
+    let source = crate::prim::utf8(sb, s_at)?.to_owned();
+    let op = match op {
+        1 => HarvestOp::Mark {
+            path: r.vstr()?.to_owned(),
+            head: r.b16()?,
+            seen: r.u64()?,
+        },
+        2 => {
+            let at = r.offset();
+            let start = r.u64()?;
+            let end = r.u64()?;
+            if start >= end {
+                return err(at, "Harvest range start is not below end [F05 §9.30]");
+            }
+            let c_at = r.offset();
+            let commit = r.b16()?;
+            if commit == [0; 16] {
+                return err(c_at, "Harvest range commit is zero [F05 §9.30]");
+            }
+            HarvestOp::Range { start, end, commit }
+        }
+        _ => HarvestOp::Forget { from: r.u64()? },
+    };
+    Ok(Harvest {
+        source,
+        op,
+        hlc: r.u64()?,
+    })
 }
 
 fn decode_checkpoint(r: &mut Reader<'_>) -> Result<Checkpoint> {
@@ -3786,6 +4006,478 @@ pub(crate) mod tests {
         assert_eq!(t.next[usize::from(sym::ACTOR)], Some(1 << 32));
         assert_eq!(t.text(sym::ACTOR, u32::MAX), Some("b"));
     }
+
+    /// The hlc these tests write ([F01 §5.7]): 1 ms, counter 7.
+    const T_HLC: u64 = (1 << 16) | 7;
+
+    /// A `BodyDrop` payload laid out from [F05 §9.29]'s table: `n` (`uvar32`), the hashes, `reason`, `note` (`vstr`),
+    /// `actor` (`sym(actor)`, a `uvar32`), `hlc`, `origin`. `n` is written as given, so it may disagree with the
+    /// hashes.
+    fn body_drop_bytes(
+        n: u64,
+        hashes: &[[u8; 16]],
+        reason: u8,
+        note: &[u8],
+        actor: u64,
+        origin: u8,
+    ) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.uvar(n);
+        for h in hashes {
+            w.bytes(h);
+        }
+        w.u8(reason);
+        w.vbytes(note);
+        w.uvar(actor);
+        w.u64(T_HLC);
+        w.u8(origin);
+        w.into_vec()
+    }
+
+    /// `n` strictly ascending hashes for a `BodyDrop`: hash `i` (1 to `n`) is `i` big-endian in its last four bytes.
+    fn ascending_hashes(n: u32) -> Vec<[u8; 16]> {
+        (1..=n)
+            .map(|i| {
+                let mut h = [0u8; 16];
+                h[12..].copy_from_slice(&i.to_be_bytes());
+                h
+            })
+            .collect()
+    }
+
+    /// A `Harvest` payload laid out from [F05 §9.30]'s table: `op`, `source` (`vstr`), the op's own fields as given,
+    /// then `hlc`.
+    fn harvest_bytes(op: u8, source: &[u8], fields: &[u8]) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.u8(op);
+        w.vbytes(source);
+        w.bytes(fields);
+        w.u64(T_HLC);
+        w.into_vec()
+    }
+
+    /// The fields of a `mark` (orders 3–5): `path`, `head`, `seen`.
+    fn mark_fields(path: &str, seen: u64) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.vstr(path);
+        w.bytes(&[0xAB; 16]);
+        w.u64(seen);
+        w.into_vec()
+    }
+
+    /// The fields of a `range` (orders 6–8): `start`, `end`, `commit`.
+    fn range_fields(start: u64, end: u64, commit: [u8; 16]) -> Vec<u8> {
+        let mut w = Writer::new();
+        w.u64(start);
+        w.u64(end);
+        w.bytes(&commit);
+        w.into_vec()
+    }
+
+    /// The payload of `kind` decoded from `b`; it must re-encode to `b` and report `kind`.
+    fn payload_from(kind: u8, b: &[u8]) -> Payload {
+        let p = Payload::decode(kind, &mut Reader::new(b))
+            .unwrap_or_else(|e| panic!("kind {kind}: {e}"));
+        let mut w = Writer::new();
+        p.encode(&mut w);
+        assert_eq!(w.as_slice(), b, "kind {kind} re-encodes");
+        assert_eq!(p.kind(), kind);
+        p
+    }
+
+    /// `b` refused as a payload of `kind`, with a reason that contains `cites`.
+    fn payload_refused(kind: u8, b: &[u8], cites: &str, what: &str) {
+        match Payload::decode(kind, &mut Reader::new(b)) {
+            Ok(p) => panic!("{what}: accepted as {p:?}"),
+            Err(e) => assert!(e.reason.contains(cites), "{what}: {e}"),
+        }
+    }
+
+    /// [F05 §9.29]: a `BodyDrop` payload of each reason and origin, with a note of 0 and 200 bytes (origin `command`),
+    /// an empty note (origin `import`), and one, three or 65,535 ascending hashes (the top of `n`'s range), decodes as
+    /// kind 29 and re-encodes to its bytes; its one symbol reference is its actor (§8.1 SD-3), none for actor 0.
+    #[test]
+    fn body_drop_payload_round_trips() {
+        let (h1, h2, h3) = ([1u8; 16], [2u8; 16], [0xF0u8; 16]);
+        for reason in 1..=3 {
+            let p = payload_from(29, &body_drop_bytes(1, &[h1], reason, b"", 4, 1));
+            assert_eq!(p.symbol_refs(), vec![(1, 4)], "reason {reason}");
+        }
+        let long = [b'n'; 200];
+        for note in [&b""[..], &b"leaked key"[..], &long[..]] {
+            payload_from(29, &body_drop_bytes(1, &[h1], 1, note, 1, 1));
+        }
+        let p = payload_from(29, &body_drop_bytes(3, &[h1, h2, h3], 2, b"", 300, 2));
+        assert_eq!(p.symbol_refs(), vec![(1, 300)]);
+        let p = payload_from(29, &body_drop_bytes(1, &[h1], 3, b"", 0, 2));
+        assert!(p.symbol_refs().is_empty());
+        // n = 65,535, the range's top. Checked without `payload_from`, whose messages would print a megabyte.
+        let top = body_drop_bytes(65_535, &ascending_hashes(65_535), 1, b"", 1, 1);
+        let p =
+            Payload::decode(29, &mut Reader::new(&top)).unwrap_or_else(|e| panic!("n 65535: {e}"));
+        let Payload::BodyDrop(d) = &p else {
+            panic!("n 65535: decoded as kind {}", p.kind())
+        };
+        assert_eq!(d.hashes.len(), 65_535);
+        let mut w = Writer::new();
+        p.encode(&mut w);
+        assert!(w.as_slice() == top.as_slice(), "n 65535 re-encodes");
+    }
+
+    /// [F05 §9.29] "Rules": `n` outside 1–65,535, hashes not strictly ascending, a `reason` outside 1–3, an `origin`
+    /// outside 1–2, a note above 200 bytes and a non-empty note with origin `import` are malformed; so is a byte after
+    /// the last field (§8.8). An `n` of 0 or 65,536 is refused by the range rule itself: 65,536 both with one hash
+    /// (the range is checked before the bytes left bound `n`) and with all 65,536 hashes present.
+    #[test]
+    fn body_drop_payload_refusals() {
+        let (h1, h2) = ([1u8; 16], [2u8; 16]);
+        for (b, what) in [
+            (body_drop_bytes(0, &[], 1, b"", 1, 1), "n 0"),
+            (body_drop_bytes(65_536, &[h1], 1, b"", 1, 1), "n 65536"),
+        ] {
+            payload_refused(29, &b, "outside 1-65535 [F05 §9.29]", what);
+        }
+        // Not through `payload_refused`, whose message on an accept would print a megabyte.
+        let full = body_drop_bytes(65_536, &ascending_hashes(65_536), 1, b"", 1, 1);
+        match Payload::decode(29, &mut Reader::new(&full)) {
+            Ok(_) => panic!("n 65536 with every hash present: accepted"),
+            Err(e) => assert!(
+                e.reason.contains("outside 1-65535 [F05 §9.29]"),
+                "n 65536 with every hash present: {e}"
+            ),
+        }
+        let cases: Vec<(Vec<u8>, &str)> = vec![
+            (body_drop_bytes(2, &[h1, h1], 1, b"", 1, 1), "equal hashes"),
+            (
+                body_drop_bytes(2, &[h2, h1], 1, b"", 1, 1),
+                "descending hashes",
+            ),
+            (body_drop_bytes(1, &[h1], 0, b"", 1, 1), "reason 0"),
+            (body_drop_bytes(1, &[h1], 4, b"", 1, 1), "reason 4"),
+            (body_drop_bytes(1, &[h1], 255, b"", 1, 1), "reason 255"),
+            (body_drop_bytes(1, &[h1], 1, b"", 1, 0), "origin 0"),
+            (body_drop_bytes(1, &[h1], 1, b"", 1, 3), "origin 3"),
+            (
+                body_drop_bytes(1, &[h1], 1, &[b'n'; 201], 1, 1),
+                "a 201-byte note",
+            ),
+            (
+                body_drop_bytes(1, &[h1], 1, b"x", 1, 2),
+                "a note with origin import",
+            ),
+        ];
+        for (b, what) in &cases {
+            payload_refused(29, b, "§9.29", what);
+        }
+        let mut trailing = body_drop_bytes(1, &[h1], 1, b"", 1, 1);
+        payload_from(29, &trailing);
+        trailing.push(0);
+        payload_refused(29, &trailing, "bytes left", "a trailing byte");
+    }
+
+    /// [F05 §9.30]: `Harvest` payloads of each op (a mark with an empty and a non-empty path, a range, a forget from 0
+    /// and from a later byte) and sources of 1 and 200 bytes at both ends of `0x21`–`0x7E` decode as kind 30 and
+    /// re-encode to their bytes; the record names no symbol.
+    #[test]
+    fn harvest_payload_round_trips() {
+        let src = b"claude:3f2a-session";
+        let forget = |from: u64| from.to_le_bytes().to_vec();
+        for (op, fields) in [
+            (1, mark_fields("", 0)),
+            (1, mark_fields("C:/Users/x/.claude/t.jsonl", 9_000)),
+            (2, range_fields(0, 4_096, [7; 16])),
+            (3, forget(0)),
+            (3, forget(4_096)),
+        ] {
+            let p = payload_from(30, &harvest_bytes(op, src, &fields));
+            assert!(p.symbol_refs().is_empty(), "op {op}");
+        }
+        let edge: Vec<u8> = (0..200)
+            .map(|i| if i % 2 == 0 { 0x21 } else { 0x7E })
+            .collect();
+        for source in [&[0x21u8][..], &[0x7Eu8][..], &edge[..]] {
+            payload_from(30, &harvest_bytes(3, source, &forget(1)));
+        }
+    }
+
+    /// [F05 §9.30] "Rules": an `op` outside 1–3, a `source` outside 1–200 bytes or with a byte outside `0x21`–`0x7E`
+    /// (a valid UTF-8 non-ASCII byte included), `start` ≥ `end` and a zero `commit` are malformed.
+    #[test]
+    fn harvest_payload_refusals() {
+        let src = b"codex:thread-1";
+        let mark = mark_fields("p", 1);
+        let cases: Vec<(Vec<u8>, &str)> = vec![
+            (harvest_bytes(0, src, &mark), "op 0"),
+            (harvest_bytes(4, src, &mark), "op 4"),
+            (harvest_bytes(1, b"", &mark), "an empty source"),
+            (harvest_bytes(1, &[b's'; 201], &mark), "a 201-byte source"),
+            (harvest_bytes(1, b"a b", &mark), "a source byte 0x20"),
+            (harvest_bytes(1, b"a\x7Fb", &mark), "a source byte 0x7F"),
+            (
+                harvest_bytes(1, "caf\u{e9}".as_bytes(), &mark),
+                "a source byte 0xC3",
+            ),
+            (
+                harvest_bytes(2, src, &range_fields(9, 9, [7; 16])),
+                "start = end",
+            ),
+            (
+                harvest_bytes(2, src, &range_fields(10, 9, [7; 16])),
+                "start > end",
+            ),
+            (
+                harvest_bytes(2, src, &range_fields(0, 9, [0; 16])),
+                "a zero commit",
+            ),
+        ];
+        for (b, what) in &cases {
+            payload_refused(30, b, "§9.30", what);
+        }
+    }
+
+    /// A record laid out from [F05 §3.1] at lsn 4096 of epoch `EPOCH`, `group_end` set (its trailer 0), with `flags`
+    /// and `payload` as given and its checksum computed (§3.4).
+    fn raw_record(kind: u8, flags: u8, payload: &[u8]) -> Vec<u8> {
+        let mut b = Writer::new();
+        b.u32((HDR + payload.len() + 8) as u32);
+        b.u8(kind);
+        b.u8(flags | 2);
+        b.u16(0);
+        b.u64(4096);
+        b.u64(EPOCH);
+        b.u64(0);
+        b.bytes(payload);
+        b.u64(0);
+        let mut b = b.into_vec();
+        let sum = record_checksum(&b, 8);
+        b[24..32].copy_from_slice(&sum.to_le_bytes());
+        b
+    }
+
+    /// [F05 §7], §5.2 checks 3–4: kinds 29 `BodyDrop` and 30 `Harvest` are registered and durable, so a record of
+    /// either with `lazy` = 0 is valid, with or without a `SymDefs` block (§9: only `Noop` and `ExtentHead` carry
+    /// none), and one with `lazy` = 1 is invalid; kinds 0, 31 and 255 are invalid (§3.1).
+    #[test]
+    fn record_kinds_29_and_30_are_durable() {
+        let ctx = Ctx { e: E, epoch: EPOCH };
+        let mut defs = Writer::new();
+        encode_symdefs(
+            &[SymDef {
+                class: sym::ACTOR,
+                id: 1,
+                text: "owner".into(),
+            }],
+            &mut defs,
+        );
+        let payloads = [
+            (29u8, body_drop_bytes(1, &[[5; 16]], 1, b"", 1, 1)),
+            (30, harvest_bytes(1, b"claude:s", &mark_fields("t", 3))),
+        ];
+        for (kind, p) in &payloads {
+            for with_defs in [false, true] {
+                let (flags, body) = if with_defs {
+                    (4, [defs.as_slice(), p.as_slice()].concat())
+                } else {
+                    (0, p.clone())
+                };
+                let b = raw_record(*kind, flags, &body);
+                let (r, n) = Record::decode_at(&b, 4096, ctx, 0)
+                    .unwrap_or_else(|e| panic!("kind {kind}, symdefs {with_defs}: {e:?}"));
+                assert_eq!(
+                    (n, r.hdr.kind, r.symdefs.is_some()),
+                    (b.len(), *kind, with_defs)
+                );
+                assert_eq!(r.encode(), b);
+            }
+            let lazy = raw_record(*kind, 1, p);
+            match Record::decode_at(&lazy, 4096, ctx, 0) {
+                Err(RecError::Invalid(e)) => assert!(e.reason.contains("lazy"), "kind {kind}: {e}"),
+                other => panic!("kind {kind} with lazy = 1: {other:?}"),
+            }
+        }
+        for kind in [0u8, 31, 255] {
+            let b = raw_record(kind, 0, &[]);
+            match Record::decode_at(&b, 4096, ctx, 0) {
+                Err(RecError::Invalid(e)) => assert!(
+                    e.reason.contains("kind") && e.reason.contains("§5.2"),
+                    "kind {kind}: {e}"
+                ),
+                other => panic!("kind {kind}: {other:?}"),
+            }
+        }
+    }
+
+    /// [F05 §4.7]: a log of the extent head, a body-drop group (one `BodyDrop` of origin `command` whose actor its own
+    /// `SymDefs` block defines) and a harvest group (one mark) scans as three valid groups to the end of the written
+    /// log. Without the definition the actor is an undefined symbol (§8.1 SD-3), which makes the record malformed and
+    /// the scan stop as corruption at its group.
+    #[test]
+    fn scan_adopts_body_drop_and_harvest_groups() {
+        let sc = ScanCtx {
+            ctx: Ctx { e: E, epoch: EPOCH },
+            epoch_lsn: 0,
+            durable_lsn: H,
+            init: init(),
+            project_oid_algo: 1,
+        };
+        let dropped = Payload::decode(
+            29,
+            &mut Reader::new(&body_drop_bytes(1, &[[5; 16]], 1, b"", 1, 1)),
+        )
+        .unwrap();
+        let harvest = Payload::decode(
+            30,
+            &mut Reader::new(&harvest_bytes(1, b"claude:s", &mark_fields("t", 3))),
+        )
+        .unwrap();
+        let build = |defined: bool| {
+            let mut log = vec![0u8; E as usize];
+            let b0 = encode_group(&one(vec![head(0, epoch_seed(EPOCH))], 0), epoch_seed(EPOCH));
+            log[..b0.len()].copy_from_slice(&b0);
+            let seed = u64::from_le_bytes(b0[b0.len() - 8..].try_into().unwrap());
+            let defs = defined.then(|| {
+                vec![SymDef {
+                    class: sym::ACTOR,
+                    id: 1,
+                    text: "owner".into(),
+                }]
+            });
+            let b1 = encode_group(&one(vec![rec(29, 2, H, dropped.clone(), defs)], H), seed);
+            log[H as usize..H as usize + b1.len()].copy_from_slice(&b1);
+            let p2 = H + b1.len() as u64;
+            let seed2 = u64::from_le_bytes(b1[b1.len() - 8..].try_into().unwrap());
+            let b2 = encode_group(&one(vec![rec(30, 2, p2, harvest.clone(), None)], p2), seed2);
+            log[p2 as usize..p2 as usize + b2.len()].copy_from_slice(&b2);
+            (log, p2 + b2.len() as u64)
+        };
+        let (good, end) = build(true);
+        let mut syms = Symbols::from_symtab(&[]);
+        let s = scan(
+            |n| (n == 1).then_some(good.as_slice()),
+            &sc,
+            0,
+            0,
+            &mut syms,
+        );
+        assert_eq!((s.groups.len(), s.end), (3, end), "{:?}", s.stop);
+        assert!(matches!(s.stop, Stop::End(_)), "{:?}", s.stop);
+        let kinds: Vec<u8> = s.groups.iter().map(|g| g.records[0].hdr.kind).collect();
+        assert_eq!(kinds, vec![28, 29, 30]);
+        let (bad, _) = build(false);
+        let mut syms = Symbols::from_symtab(&[]);
+        let s = scan(|n| (n == 1).then_some(bad.as_slice()), &sc, 0, 0, &mut syms);
+        match &s.stop {
+            Stop::Corrupt(e) => assert!(e.reason.contains("SD-3"), "{e}"),
+            other => panic!("an undefined BodyDrop actor ended the scan as {other:?}"),
+        }
+        assert_eq!(s.end, H);
+    }
+
+    /// [F05 §8.1], [F01 §8.2]: symbol class 12 `model` (spec sync 3) is a class of the `SymDefs` block and of the
+    /// scan's symbol state, with SD-1 and SD-3 as for every class; class 13 is outside the enumeration.
+    #[test]
+    fn symdef_class_model() {
+        let block = |class: u8, id: u32| {
+            let mut w = Writer::new();
+            encode_symdefs(
+                &[SymDef {
+                    class,
+                    id,
+                    text: "model-x".into(),
+                }],
+                &mut w,
+            );
+            w.into_vec()
+        };
+        let b = block(12, 300);
+        let v = decode_symdefs(&mut Reader::new(&b)).unwrap();
+        assert_eq!((v[0].class, v[0].id), (12, 300));
+        let mut w = Writer::new();
+        encode_symdefs(&v, &mut w);
+        assert_eq!(w.as_slice(), &b[..]);
+        let e = decode_symdefs(&mut Reader::new(&block(13, 1))).unwrap_err();
+        assert!(e.reason.contains("1-12"), "{e}");
+        let mut s = Symbols::from_symtab(&[(12, 4, "m".into())]);
+        assert_eq!(s.next.get(12).copied().flatten(), Some(5));
+        assert_eq!(s.text(12, 4), Some("m"));
+        let def = |id: u32| SymDef {
+            class: 12,
+            id,
+            text: format!("m{id}"),
+        };
+        let e = s.define(&[def(6)], 0).unwrap_err();
+        assert!(e.reason.contains("SD-1"), "{e}");
+        s.define(&[def(5)], 0).unwrap();
+        s.check_refs(&[(12, 5)], 0).unwrap();
+        let e = s.check_refs(&[(12, 6)], 0).unwrap_err();
+        assert!(e.reason.contains("SD-3"), "{e}");
+    }
+
+    /// [F05 §8.1] SD-3 over class 12 `model` ([F06 §4.4.17]): a log of the extent head and one `Commit` whose
+    /// provenance group declares `model` 1, which its record defines (with its actor and ref), is adopted; with `model`
+    /// 2, which nothing defines, the record is malformed and the scan stops as corruption at its group (§5.4).
+    #[test]
+    fn commit_model_symbol_is_a_reference() {
+        use crate::commit::tests::{base_commit, with_prov};
+        let sc = ScanCtx {
+            ctx: Ctx { e: E, epoch: EPOCH },
+            epoch_lsn: 0,
+            durable_lsn: H,
+            init: init(),
+            project_oid_algo: 1,
+        };
+        let build = |model: u8| {
+            let mut c = base_commit();
+            c.presence = (1 << 12) | (1 << 13);
+            c.msg = Some("m-prov".into());
+            let mut w = Writer::new();
+            c.encode(&mut w);
+            let b = with_prov(w.as_slice(), "m-prov", &[3, model]);
+            let c = Commit::decode(&mut Reader::new(&b)).unwrap_or_else(|e| panic!("{e}"));
+            let def = |class, text: &str| SymDef {
+                class,
+                id: 1,
+                text: text.into(),
+            };
+            let defs = vec![
+                def(sym::ACTOR, "owner"),
+                def(sym::REF, "main"),
+                def(12, "claude-x"),
+            ];
+            let mut log = vec![0u8; E as usize];
+            let b0 = encode_group(&one(vec![head(0, epoch_seed(EPOCH))], 0), epoch_seed(EPOCH));
+            log[..b0.len()].copy_from_slice(&b0);
+            let seed = u64::from_le_bytes(b0[b0.len() - 8..].try_into().unwrap());
+            let g = one(
+                vec![rec(1, 2, H, Payload::Commit(Box::new(c)), Some(defs))],
+                H,
+            );
+            let b1 = encode_group(&g, seed);
+            log[H as usize..H as usize + b1.len()].copy_from_slice(&b1);
+            (log, H + b1.len() as u64)
+        };
+        let (good, end) = build(1);
+        let mut syms = Symbols::from_symtab(&[]);
+        let s = scan(
+            |n| (n == 1).then_some(good.as_slice()),
+            &sc,
+            0,
+            0,
+            &mut syms,
+        );
+        assert_eq!((s.groups.len(), s.end), (2, end), "{:?}", s.stop);
+        let (bad, _) = build(2);
+        let mut syms = Symbols::from_symtab(&[]);
+        let s = scan(|n| (n == 1).then_some(bad.as_slice()), &sc, 0, 0, &mut syms);
+        match &s.stop {
+            Stop::Corrupt(e) => assert!(
+                e.reason.contains("SD-3") && e.reason.contains("class 12"),
+                "{e}"
+            ),
+            other => panic!("an undefined model symbol ended the scan as {other:?}"),
+        }
+        assert_eq!(s.end, H);
+    }
 }
 
 #[cfg(test)]
@@ -3839,7 +4531,7 @@ mod props {
         /// (the header and checksum hold, so the record is valid).
         #[test]
         fn sealed_record_decode_is_canonical(
-            kind in 1u8..=28,
+            kind in 1u8..=30,
             symdefs in any::<bool>(),
             payload in proptest::collection::vec(any::<u8>(), 0..160),
         ) {
@@ -3875,7 +4567,7 @@ mod props {
         fn symbols_near_the_width_never_panic(
             defs in proptest::collection::vec(
                 (
-                    1u8..=11,
+                    1u8..=12,
                     prop_oneof![
                         Just(u32::MAX),
                         Just(u32::MAX - 1),
@@ -3888,7 +4580,7 @@ mod props {
                 ),
                 1..6,
             ),
-            table in proptest::collection::vec((1u8..=11, any::<u32>()), 0..4),
+            table in proptest::collection::vec((1u8..=12, any::<u32>()), 0..4),
         ) {
             let v: Vec<SymDef> = defs
                 .iter()
@@ -3926,7 +4618,7 @@ mod props {
         /// exactly its bytes.
         #[test]
         fn payload_decode_is_canonical(
-            kind in 1u8..=28,
+            kind in 1u8..=30,
             b in proptest::collection::vec(any::<u8>(), 0..200),
         ) {
             let mut r = Reader::new(&b);
