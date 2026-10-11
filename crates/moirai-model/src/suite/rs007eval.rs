@@ -303,6 +303,10 @@ pub(crate) struct Tri {
     pub touch: Option<(Vec<bool>, Vec<bool>)>,
     /// The command ran under an effective `--strict` or `merge.strict` (never a revert or a cherry-pick, R-15 Q2).
     pub strict: bool,
+    /// Each task the result holds with a conflict value on its existence key (by index; missing: not fixed): the
+    /// existence rule fixed the node and copied it whole from a side ([F12 §6.3]; PR-007), so its hierarchy value is
+    /// that side's, not one RS-007 decides. The oracle takes it from the result (R-15 Q5).
+    pub fixed: Vec<bool>,
 }
 
 /// One merge-family command (or edit) of a history, as one variant's store ran it.
@@ -433,21 +437,24 @@ fn par(v: &HV) -> Option<u32> {
     v.as_ref().and_then(|(p, _)| *p)
 }
 
-/// The oracle over b, o and t and the result r (state-based touch; no rule is read): each task's class and allowed
-/// values, and whether some assignment of allowed values is a forest.
+/// The oracle over b, o and t and the result r (state-based touch; no rule is read), with no node fixed by the
+/// existence rule: each task's class and allowed values, and whether some assignment of allowed values is a forest.
 pub(crate) fn oracle(b: &Hier, o: &Hier, t: &Hier, r: &Hier) -> Oracle {
-    oracle_touch(b, o, t, r, None)
+    oracle_touch(b, o, t, r, &[], None)
 }
 
-/// [`oracle`], with a key also touched on a side where `touch` (o's mask, t's mask) says so (the secondary reading).
-/// A task is judged iff it is live in r (OQ-A-13 13.6 (a)); `absent` is a value (a side where the task is not live
-/// holds it), and it is never an allowed value: a class whose value is `absent` falls back to the live values among
-/// o's and t's, the side the result took the node's existence from.
+/// [`oracle`], with a key also touched on a side where `touch` (o's mask, t's mask) says so (the secondary reading),
+/// and the tasks `fixed` names ([`Tri::fixed`]) taken from the result. A task is judged iff it is live in r (OQ-A-13
+/// 13.6 (a)); `absent` is a value (a side where the task is not live holds it), and it is never an allowed value: a
+/// class whose value is `absent` falls back to the live values among o's and t's, the side the result took the node's
+/// existence from. The oracle takes existence from the result (R-15 Q5): a node the existence rule fixed, which it
+/// copied whole from a live side ([F12 §6.3]), may hold either live side's value.
 pub(crate) fn oracle_touch(
     b: &Hier,
     o: &Hier,
     t: &Hier,
     r: &Hier,
+    fixed: &[bool],
     touch: Option<&(Vec<bool>, Vec<bool>)>,
 ) -> Oracle {
     let n = b.len();
@@ -473,7 +480,7 @@ pub(crate) fn oracle_touch(
             _ => vec![o[i].clone(), t[i].clone()],
         };
         a.retain(Option::is_some);
-        if a.is_empty() {
+        if a.is_empty() || fixed.get(i).copied().unwrap_or(false) {
             a = [&o[i], &t[i]]
                 .into_iter()
                 .filter(|v| v.is_some())
@@ -595,7 +602,7 @@ pub(crate) fn judge_touch(
     touch: Option<&(Vec<bool>, Vec<bool>)>,
 ) -> Verdict {
     let (b, o, t, r) = (&tri.b, &tri.o, &tri.t, &tri.r);
-    let or = oracle_touch(b, o, t, r, touch);
+    let or = oracle_touch(b, o, t, r, &tri.fixed, touch);
     let judged = or.judged();
     // The parent of a value, `None` for `absent` (an order-only wrong landing keeps an allowed value's parent).
     let parent = |v: &HV| v.as_ref().map(|(p, _)| *p);
@@ -831,6 +838,17 @@ impl Run {
         hier_of(&st, self.tasks)
     }
 
+    /// The tasks commit `c` holds live with a conflict value on their existence key ([`Tri::fixed`]).
+    fn fixed_at(&self, c: Option<u64>) -> Vec<bool> {
+        let st = self.s.st.dag.state_at(c, &self.s.st.alloc);
+        (1..=self.tasks)
+            .map(|i| {
+                st.live(Nid(i))
+                    .is_some_and(|x| x.conflicts.contains_key(&crate::state::Aspect::Existence))
+            })
+            .collect()
+    }
+
     fn note_pool(&mut self) {
         for b in &self.branches {
             if let Some(t) = self.s.st.dag.live(b).and_then(|r| r.tip)
@@ -933,6 +951,7 @@ impl Run {
             pick_no_hier: false,
             touch: Some(touch),
             strict: self.strict,
+            fixed: Vec::new(),
         }
     }
 
@@ -990,6 +1009,7 @@ impl Run {
         };
         let tri = result.map(|c| Tri {
             r: self.hier_at(c),
+            fixed: self.fixed_at(c),
             ..inputs
         });
         let verdict = match &tri {
@@ -1120,6 +1140,7 @@ impl Run {
         let sc = sync.commit;
         let tri = Tri {
             r: self.hier_at(sc),
+            fixed: self.fixed_at(sc),
             ..inputs
         };
         let vs: Vec<(String, String)> = Vec::new();
@@ -1212,6 +1233,7 @@ impl Run {
             touch: Some(touch),
             // A revert or a cherry-pick takes no strict (R-15 Q2).
             strict: false,
+            fixed: Vec::new(),
         };
         let r = self.s.run(cmd, fresh_on(onto));
         self.record(op, kind, &r, onto, inputs, take, before);
@@ -1383,6 +1405,7 @@ fn dummy_tri(n: u32) -> Tri {
         pick_no_hier: false,
         touch: None,
         strict: false,
+        fixed: Vec::new(),
     }
 }
 
@@ -1987,13 +2010,25 @@ fn verdict_text(v: &Verdict) -> String {
 
 /// The oracle's expectation on (b, o, t) over the result's live tasks, as text.
 pub(crate) fn expectation_text(t: &Tri) -> String {
-    let or = oracle(&t.b, &t.o, &t.t, &t.r);
+    let or = oracle_touch(&t.b, &t.o, &t.t, &t.r, &t.fixed, None);
     let mut det = Vec::new();
     let mut two = Vec::new();
     for i in 0..t.b.len() {
         match (or.class[i], or.allowed[i].as_slice()) {
             (Class::NotJudged, _) => det.push(format!("#{} not judged", i + 1)),
             (_, [x, y]) => two.push(format!("#{} o {} | t {}", i + 1, hv_text(x), hv_text(y))),
+            (c, a) if t.fixed.get(i).copied().unwrap_or(false) => det.push(format!(
+                "#{} {} (fixed by its existence, {})",
+                i + 1,
+                a.iter().map(hv_text).collect::<Vec<_>>().join(" | "),
+                match c {
+                    Class::Untouched => "untouched",
+                    Class::OnlyO => "o only",
+                    Class::OnlyT => "t only",
+                    Class::BothSame => "both, same",
+                    _ => "both",
+                }
+            )),
             (c, a) => det.push(format!(
                 "#{} {} ({})",
                 i + 1,
@@ -3190,6 +3225,23 @@ pub(crate) fn corpus() -> Vec<Case> {
             ],
             &[],
         ),
+        case(
+            "FIXED-COPY",
+            "this harness (policy:2:100 at the nightly tier, shrunk); [F12 §6.3]; R-15 Q5",
+            "main puts #1 under #2; lane/x deletes #1 and, under resurrect, syncs: #1 holds a DeleteVsModify value; lane/x into lane/y; main puts #1 under #5; sync lane/y copies #1 whole from lane/y",
+            5,
+            &[X, Y],
+            vec![
+                Mv(M, 1, Some(2)),
+                Del(X, 1, true),
+                Policy(X, Some("resurrect")),
+                Sync(X, Theirs),
+                Mv(M, 1, Some(5)),
+                Merge(X, Y, Abort),
+                Sync(Y, Theirs),
+            ],
+            &[],
+        ),
     ]);
     v
 }
@@ -3299,7 +3351,7 @@ pub(crate) fn link_check(h: &Hist, l: &Log, e: &Entry, rule: Rule) -> Link {
         ));
     };
     let viols = entry_viols(e);
-    let or = oracle(&t.b, &t.o, &t.t, &t.r);
+    let or = oracle_touch(&t.b, &t.o, &t.t, &t.r, &t.fixed, None);
     let req = requested_pairs(t, &or, &viols);
     let keys: BTreeSet<usize> = req.iter().map(|(k, _, _)| *k).collect();
     let judged = or.judged();
@@ -4602,6 +4654,7 @@ fn rs007_eval_oracle_classifies_by_state() {
         pick_no_hier: false,
         touch: None,
         strict: false,
+        fixed: Vec::new(),
     };
     let hc = |n: u32| vec![(format!("#{n}.parent"), "HierarchyCycle".to_string())];
     assert_eq!(
@@ -4631,6 +4684,7 @@ fn rs007_eval_oracle_classifies_by_state() {
         pick_no_hier: false,
         touch: None,
         strict: false,
+        fixed: Vec::new(),
     };
     assert_eq!(
         judge(&Got::Staged(vec![]), &t3, &hc(2)),
@@ -4682,6 +4736,7 @@ fn rs007_eval_oracle_classifies_by_state() {
         pick_no_hier: false,
         touch: None,
         strict: false,
+        fixed: Vec::new(),
     };
     assert_eq!(
         judge(&Got::Landed, &w, &[]),
@@ -4722,6 +4777,7 @@ fn rs007_eval_oracle_judges_every_node_live_in_the_result() {
         pick_no_hier: false,
         touch: None,
         strict: false,
+        fixed: Vec::new(),
     };
     let or = oracle(&tri.b, &tri.o, &tri.t, &tri.r);
     assert_eq!(
@@ -4791,6 +4847,60 @@ fn rs007_eval_oracle_judges_every_node_live_in_the_result() {
     assert!(!vd.fault());
 }
 
+/// The oracle takes existence from the result (R-15 Q5): a node the existence rule fixed and copied whole from a side
+/// ([F12 §6.3]; [`Tri::fixed`]) may hold either live side's value, which RS-007 does not decide. In the corpus case
+/// `FIXED-COPY` lane/y holds #1 with a `DeleteVsModify` value on its existence key, so `sync lane/y` copies #1 whole
+/// from lane/y, at #2, where main put it under #5.
+#[test]
+fn rs007_eval_oracle_takes_a_fixed_nodes_value_from_the_result() {
+    let v = |p: Option<u32>| Some((p, None::<String>));
+    let root = v(None);
+    let tri = Tri {
+        b: vec![v(Some(2)), root.clone(), root.clone()],
+        o: vec![v(Some(2)), root.clone(), root.clone()],
+        t: vec![v(Some(3)), root.clone(), root.clone()],
+        r: vec![v(Some(2)), root.clone(), root.clone()],
+        virtual_base: false,
+        one_sided: false,
+        pick_no_hier: false,
+        touch: None,
+        strict: false,
+        fixed: vec![true, false, false],
+    };
+    assert_eq!(
+        judge(&Got::Landed, &tri, &[]),
+        Verdict::LandedOk {
+            took_o: 0,
+            took_t: 0
+        }
+    );
+    let merged = Tri {
+        fixed: Vec::new(),
+        ..tri.clone()
+    };
+    assert!(matches!(
+        judge(&Got::Landed, &merged, &[]),
+        Verdict::LandedWrong { one_sided: 1, .. }
+    ));
+    let c = corpus_case("FIXED-COPY").expect("the case");
+    let l = run(&c.hist, Rule::Cand);
+    let fe = focus_entries(&c, &l);
+    assert_eq!(fe.len(), 1, "{}", trace_text(&c.hist, &l));
+    let e = fe[0];
+    let t = e.tri.as_ref().expect("judged");
+    assert_eq!(
+        (&e.got, t.fixed[0], t.r[0].as_ref().map(|x| x.0)),
+        (&Got::Landed, true, Some(Some(2))),
+        "{}",
+        trace_text(&c.hist, &l)
+    );
+    assert!(
+        matches!(e.verdict, Some(Verdict::LandedOk { .. })),
+        "{}",
+        trace_text(&c.hist, &l)
+    );
+}
+
 /// K2's one fault of wave 3d (`wide:2:893`, shrunk to the corpus case `K2-W3D`): the cherry-pick's cycle runs through
 /// #3, which the pick's base and src hold deleted and its dst live. The old oracle did not judge #3 and called the
 /// staging avoidable; the widened oracle judges #3 (o's value, the only live one) and finds no forest.
@@ -4842,6 +4952,7 @@ fn rs007_eval_oracle_calls_a_strict_staging_of_a_two_sided_key_requested() {
         pick_no_hier: false,
         touch: None,
         strict,
+        fixed: Vec::new(),
     };
     let viol = |k: &str, c: &str| (k.to_string(), c.to_string());
     let all_root = vec![root.clone(); 3];
