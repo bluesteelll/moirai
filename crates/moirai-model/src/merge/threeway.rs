@@ -34,8 +34,8 @@
 //!   (F1), one is reset to b, by these tie-breaks in order: for a revert or a cherry-pick, a key only C changed; a
 //!   one-sided key before a both-same one; a key whose b value's parent is a root or outside U; the latest origin,
 //!   src's on equal origins; the least uid. That key is MR-039's (CS-013), silently inside a virtual merge. A cycle
-//!   with no such key (only fixed nodes, untouched keys and keys already reset) is left as it is, for VA-005 to stage
-//!   (F4).
+//!   with no such key (only fixed nodes, untouched keys, keys whose value and fallback have the same parent, two-sided
+//!   keys and keys already reset) is left as it is, for VA-005 to stage (F4).
 //! - **Step (2).** Then the two-sided keys are taken in ascending origin of their three-way value, least uid on a tie.
 //!   Each keeps that value unless it leaves a node unable to reach a root that could before; otherwise it takes the
 //!   other side's value. Outside strict, a key whose three-way value has a parent not live in the result, while the
@@ -352,8 +352,9 @@ fn exact(
             })
             .max_by_key(|(n, k)| rank(**n, k))
             .map(|(n, _)| *n);
-        // A cycle with no demotable key (only fixed nodes, untouched keys and keys already demoted on it) is left to
-        // the validators' cycle check (V05, I37′), which stages it.
+        // A cycle with no demotable key (only fixed nodes, untouched keys, keys whose value and fallback have the
+        // same parent, two-sided keys and keys already demoted on it) is left to the validators' cycle check (V05,
+        // I37′), which stages it.
         let Some(n) = pick else { break };
         opts.insert(n, vec![keys[&n].fallback.clone()]);
         skipped.insert(n);

@@ -2491,13 +2491,15 @@ fn a_cherry_pick_takes_the_later_origin_of_a_key_dst_moved() {
 }
 
 /// [RULES/merge-table] open point 35 case (iii) through the Store API ([RULES/merge-table] RS-007, MR-039, CS-013; [AR
-/// §11] OQ-A-13): RS-007's cycle repair resets a one-sided key before a key both sides set alike. Of #1 and #2, `lo` is
-/// the node with the lower uid and `hi` the other. lane/x, in one commit, puts #3 under `hi` and `lo` under #3; lane/y,
-/// in a later commit, puts `lo` under #3 too and `hi` under `lo`. `merge lane/y --into lane/x` meets the cycle `hi` →
-/// `lo` → #3 → `hi`: `lo` is both-same, #3 and `hi` one-sided, and `hi` has the later origin, so only `hi` is reset and
-/// only `hi.parent` stages, although `lo` has the least uid on the cycle. After `merge --abort`, lane/x puts `hi` under
-/// #4 in a still later commit: `hi` is two-sided and lane/x's later value wins, and the merge lands with nothing
-/// staged: `lo` under #3, #3 under `hi`, `hi` under #4.
+/// §11] OQ-A-13): RS-007's cycle repair resets a one-sided key before a key both sides set alike, even when the
+/// both-same key's origin is the latest. Of #1 and #2, `lo` is the node with the lower uid and `hi` the other. lane/x,
+/// in one commit X, puts #3 under `hi` and `lo` under #3; lane/y then puts `hi` under `lo` (Y₁) and, in a later commit
+/// Y₂, `lo` under #3 too. `merge lane/y --into lane/x` meets the cycle `hi` → `lo` → #3 → `hi`: `lo` is both-same with
+/// the origin Y₂, the later of X and Y₂; `hi` is one-sided with Y₁ and #3 one-sided with X; and every b parent is a
+/// root. Without the tie-break the latest origin would reset `lo`, so the tie-break alone resets `hi`, the later
+/// one-sided key, and only `hi.parent` stages. After `merge --abort`, lane/x puts `hi` under #4 in a still later
+/// commit: `hi` is two-sided and lane/x's later value wins, and the merge lands with nothing staged: `lo` under #3, #3
+/// under `hi`, `hi` under #4.
 #[test]
 fn a_key_both_sides_set_alike_is_not_reset_before_a_one_sided_one() {
     let mut s = four_tasks_two_lanes();
@@ -2522,7 +2524,8 @@ fn a_key_both_sides_set_alike_is_not_reset_before_a_one_sided_one() {
         ])
     };
     s.ok(mv2((3, hi), (lo, 3)), orch_on("lane/x"));
-    s.ok(mv2((lo, 3), (hi, lo)), orch_on("lane/y"));
+    s.ok(mv(hi, Some(lo)), fresh_on("lane/y"));
+    s.ok(mv(lo, Some(3)), fresh_on("lane/y"));
     let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
     assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
     let d = data(&r);
