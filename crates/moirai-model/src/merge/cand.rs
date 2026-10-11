@@ -492,3 +492,179 @@ fn exact(
     }
     (skipped, hinted)
 }
+
+/// Pins of `threeway`'s exactness fixes (OQ-A-13 F1, F2 and F4) and of MR-040's tie, on hand-built merges.
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::merge::Origin;
+    use crate::value::Uid;
+
+    fn uid(n: Nid) -> Uid {
+        let mut b = [0u8; 16];
+        b[12..].copy_from_slice(&n.0.to_be_bytes());
+        Uid(b)
+    }
+
+    /// The value of a node under `p` (`None`: the root), with no order.
+    fn under(p: Option<u32>) -> Option<KVal> {
+        p.map(|p| KVal::Hierarchy {
+            parent: Some(Nid(p)),
+            order: None,
+        })
+    }
+
+    /// Parents by node, #1 first, as values.
+    fn values(ps: &[Option<u32>]) -> BTreeMap<Nid, Option<KVal>> {
+        ps.iter()
+            .enumerate()
+            .map(|(i, p)| (Nid(i as u32 + 1), under(*p)))
+            .collect()
+    }
+
+    /// The parents of b's, o's and t's nodes, #1 first (`None`: the root).
+    type Sides<'s> = (&'s [Option<u32>], &'s [Option<u32>], &'s [Option<u32>]);
+
+    /// A merge of nodes #1..=#n, all merged and live in b, o and t, given as parents.
+    fn input<'a>(
+        merged: &'a BTreeSet<Nid>,
+        (b, o, t): Sides<'_>,
+        origin: Option<Origin<'a>>,
+    ) -> HInput<'a> {
+        HInput {
+            op: Op::Merge,
+            one_sided: false,
+            merged,
+            b: values(b),
+            o: values(o),
+            t: values(t),
+            init: values(b),
+            steps: Vec::new(),
+            same3: BTreeSet::new(),
+            uid: &uid,
+            origin,
+            dead: Default::default(),
+            live: merged.clone(),
+            strict: false,
+        }
+    }
+
+    fn origins<'x, 'a>(x: &'x HInput<'a>) -> Origins<'x, 'a> {
+        Origins {
+            x,
+            memo: RefCell::new(BTreeMap::new()),
+        }
+    }
+
+    /// F1 (ALT-7): "lies on a cycle within U" is the cycle of the option graph restricted to U. b holds a (#1), b (#2)
+    /// and d (#3) at the root; o puts d under a and b under d; t puts d under b and a under d; every origin is (0, 0).
+    /// Every choice of d's two values leads into a cycle, so U = {a, b, d}, and both determined keys lie on a cycle of
+    /// the option graph: a (t's, through d's o value) and b (o's, through d's t value). The tie-breaks reset a (src's
+    /// on equal origins); d then takes ours, a, with a `cycle` hint, and b stays under d. Reading the cycle on the
+    /// current values (d at its MR-040 winner, under b) would reset b instead.
+    #[test]
+    fn f1_the_reset_key_lies_on_a_cycle_of_the_option_graph() {
+        let merged: BTreeSet<Nid> = (1..=3).map(Nid).collect();
+        let x = input(
+            &merged,
+            (
+                &[None, None, None],
+                &[None, Some(3), Some(1)],
+                &[Some(3), None, Some(2)],
+            ),
+            None,
+        );
+        let out = threeway(&x, Variant::Exact);
+        assert_eq!(out.skipped, BTreeSet::from([Nid(1)]), "a is reset");
+        assert_eq!(
+            out.values,
+            values(&[None, Some(3), Some(1)]),
+            "a at the root, b under d, d under a"
+        );
+        assert_eq!(out.hinted, BTreeMap::from([(Nid(3), (1, "cycle"))]));
+    }
+
+    /// F2: a both-same key's origin, which orders it among step (1)'s tie-breaks, is the later of both sides' origins,
+    /// whichever side that is. #1 and #2 are both under #3 on o and on t; #1's o value is the older, #2's the newer.
+    #[test]
+    fn f2_a_both_same_keys_origin_is_the_later_of_its_sides() {
+        let merged: BTreeSet<Nid> = (1..=3).map(Nid).collect();
+        let og_fn = |side: usize, n: Nid, _live: bool, _v: &Option<KVal>| {
+            let older_side = if n == Nid(1) { 1 } else { 2 };
+            if side == older_side {
+                (5, [1; 32])
+            } else {
+                (9, [2; 32])
+            }
+        };
+        let x = input(
+            &merged,
+            (
+                &[None, None, None],
+                &[Some(3), Some(3), None],
+                &[Some(3), Some(3), None],
+            ),
+            Some(&og_fn),
+        );
+        let og = origins(&x);
+        let keys = classify(&x, &og);
+        for n in [Nid(1), Nid(2)] {
+            assert_eq!(keys[&n].class, Class::BothSame);
+            assert_eq!(og.chosen(n, &keys[&n]), (9, [2; 32]), "{n}");
+        }
+    }
+
+    /// MR-040's tie: a two-sided key whose sides' values have equal origins takes t's value. o puts #1 under #2, t
+    /// under #3; neither is order-only.
+    #[test]
+    fn a_two_sided_tie_goes_to_t() {
+        let merged: BTreeSet<Nid> = (1..=3).map(Nid).collect();
+        let x = input(
+            &merged,
+            (
+                &[None, None, None],
+                &[Some(2), None, None],
+                &[Some(3), None, None],
+            ),
+            None,
+        );
+        let og = origins(&x);
+        let keys = classify(&x, &og);
+        assert_eq!(
+            (keys[&Nid(1)].class, keys[&Nid(1)].side),
+            (Class::BothDiff, 2)
+        );
+        assert_eq!(threeway(&x, Variant::Exact).values[&Nid(1)], under(Some(3)));
+    }
+
+    /// F4: a cycle that holds no repairable key is left as it is, for the validators' cycle check (V05, I37′): #1, a
+    /// node an existence policy fixed, is under #2 as copied, and #2's merged key is under #1 in b, o and t.
+    /// `threeway` skips nothing, hints nothing and changes no value; #3, which o puts under #2, cannot reach a root
+    /// either but lies on no cycle, so it keeps o's value.
+    #[test]
+    fn f4_a_cycle_with_no_repairable_key_is_left_to_the_validators() {
+        let merged = BTreeSet::from([Nid(2), Nid(3)]);
+        let side = |three: Option<u32>| -> BTreeMap<Nid, Option<KVal>> {
+            BTreeMap::from([(Nid(2), under(Some(1))), (Nid(3), under(three))])
+        };
+        let x = HInput {
+            init: values(&[Some(2), Some(1), None]),
+            b: side(None),
+            o: side(Some(2)),
+            t: side(None),
+            live: BTreeSet::from([Nid(1), Nid(2), Nid(3)]),
+            ..input(&merged, (&[], &[], &[]), None)
+        };
+        let out = threeway(&x, Variant::Exact);
+        assert!(
+            out.skipped.is_empty() && out.hinted.is_empty(),
+            "{:?} {:?}",
+            out.skipped,
+            out.hinted
+        );
+        assert_eq!(
+            out.values,
+            BTreeMap::from([(Nid(2), under(Some(1))), (Nid(3), under(Some(2)))])
+        );
+    }
+}

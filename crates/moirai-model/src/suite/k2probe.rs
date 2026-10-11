@@ -281,6 +281,74 @@ fn k2_e6_stages_a_key_whose_ours_closes_the_cycle() {
     assert_eq!(last.settled, Some(false), "{}", trace_text(&h, &c));
 }
 
+/// F5 (OQ-A-13): K2's forest guarantee covers `HierarchyCycle` only. lane/y makes #1 block #2 and moves #2 under #3;
+/// lane/x later moves #2 under #1. `merge lane/y --into lane/x` keeps #2's MR-040 winner, lane/x's #2 under #1, which
+/// with #1 blocking #2 is a precedence cycle: the merge stages `Cycle` (V03), where taking lane/y's #2 would have
+/// landed. The oracle calls it a staging for another reason, with a right candidate.
+#[test]
+fn k2_a_precedence_cycle_a_two_sided_choice_closes_stages_as_today() {
+    use Ev::*;
+    let h = hist(
+        3,
+        &[X, Y],
+        vec![
+            Link(Y, 1, "blocks", 2),
+            Mv(Y, 2, Some(3)),
+            Mv(X, 2, Some(1)),
+            Merge(Y, X, T::Ours),
+        ],
+    );
+    let c = run(&h, Rule::Cand);
+    let e = last_merge(&c);
+    assert!(
+        matches!(&e.got, Got::Staged(k) if !k.is_empty() && k.iter().all(|k| k.ends_with(" Cycle"))),
+        "{}",
+        trace_text(&h, &c)
+    );
+    let r = &e.tri.as_ref().expect("judged").r;
+    assert_eq!(r[1].as_ref().map(|x| x.0), Some(Some(1)), "lane/x's #2");
+    assert_eq!(
+        e.verdict,
+        Some(Verdict::StagedOther { cand_wrong: false }),
+        "{}",
+        trace_text(&h, &c)
+    );
+}
+
+/// E6's final merge (see [`k2_e6_stages_a_key_whose_ours_closes_the_cycle`]) resolved with `--take theirs`: the staged
+/// key's theirs value closes no cycle, so the resolution lands (OQ-A-13 13.2 (a): a key is touched by state).
+#[test]
+fn k2_e6_take_theirs_resolves_the_staged_key() {
+    use Ev::*;
+    let h = hist(
+        4,
+        &[X, Y],
+        vec![
+            Mv(Y, 2, Some(3)),
+            Mv(X, 1, Some(3)),
+            Mv(M, 4, Some(2)),
+            Mv(X, 3, Some(4)),
+            Mv(M, 2, Some(1)),
+            Merge(X, Y, T::Ours),
+            Sync(X, T::Ours),
+            Merge(Y, X, T::Theirs),
+        ],
+    );
+    let c = run(&h, Rule::Cand);
+    let last = c
+        .entries
+        .iter()
+        .rfind(|e| e.kind == Kind::Cross)
+        .expect("the merge");
+    assert_eq!(
+        last.got,
+        Got::Staged(vec!["#4.parent HierarchyCycle".into()]),
+        "{}",
+        trace_text(&h, &c)
+    );
+    assert_eq!(last.settled, Some(true), "{}", trace_text(&h, &c));
+}
+
 /// Prints the traces of the probes under both rules (run by hand, `--ignored --nocapture`).
 #[test]
 #[ignore]

@@ -111,6 +111,8 @@ pub(crate) enum Ev {
     Prio(&'static str, u32, i64),
     /// On branch `.0`, a delete of #n (`.2`: `POLICY REPARENT`).
     Del(&'static str, u32, bool),
+    /// On branch `.0`, an edge `#a kind #b` linked.
+    Link(&'static str, u32, &'static str, u32),
     /// `sync` of a lane.
     Sync(&'static str, T),
     /// `merge src --into dst` (step 0's sync first when dst is `main`).
@@ -1233,6 +1235,7 @@ impl Run {
                     reason: Some("gone".into()),
                 }],
             ),
+            Ev::Link(b, x, kind, y) => self.edit(op, b, vec![link(*x, kind, *y)]),
             Ev::Sync(l, take) => {
                 let (o, t) = (self.tip(l), self.tip("main"));
                 let before = self.counts();
