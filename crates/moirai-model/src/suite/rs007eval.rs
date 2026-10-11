@@ -27,9 +27,11 @@
 //! hierarchy of any branch), and the difference is judged by the oracle verdicts of both sides at that command, and
 //! by the oracle faults of each whole history.
 //!
-//! The tests: [`rs007_eval_oracle_classifies_by_state`] (the oracle alone), [`rs007_eval_corpus_invariants`] and
-//! [`rs007_eval_random_invariants`] (PR tier, under the thread's default rule, `MOIRAI_RS007_RULE`: only what every
-//! acceptable rule must meet), and the ignored [`rs007_eval_report`] (one table of every metric for a variant, against
+//! The tests: [`rs007_eval_oracle_classifies_by_state`] and its siblings (the oracle alone),
+//! [`rs007_eval_corpus_invariants`] and [`rs007_eval_random_invariants`] (PR tier, under the thread's default rule,
+//! `MOIRAI_RS007_RULE`: only what every acceptable rule must meet), [`rs007_eval_absolute_acceptance`] (PR tier, the
+//! candidate K2 against OQ-A-13's absolute acceptance over every generator, with the link check of every strict
+//! staging, [`link_check`]), and the ignored [`rs007_eval_report`] (one table of every metric for a variant, against
 //! references), [`rs007_eval_trace`] (one corpus case or generated history, verbose) and [`rs007_eval_find`] (the
 //! generated histories in which a variant's merge of a kind gets a verdict).
 
@@ -111,8 +113,16 @@ pub(crate) enum Ev {
     Prio(&'static str, u32, i64),
     /// On branch `.0`, a delete of #n (`.2`: `POLICY REPARENT`).
     Del(&'static str, u32, bool),
-    /// On branch `.0`, an edge `#a kind #b` linked.
+    /// On branch `.0`, an edge `#a kind #b` linked (a `gates` edge's source is the history's verdict node,
+    /// #(tasks + 1)).
     Link(&'static str, u32, &'static str, u32),
+    /// On branch `.0`, the edge `#a kind #b` unlinked.
+    Unlink(&'static str, u32, &'static str, u32),
+    /// On branch `.0`, the policy row `merge.policy.task` set to `delete-wins` or `resurrect`, or removed (`None`), by
+    /// a `Schema` command (AP-004, AP-005; [F08 §8.5.6]).
+    Policy(&'static str, Option<&'static str>),
+    /// `merge src --into dst --policy P` (`delete-wins` or `resurrect`; step 0's sync first when dst is `main`).
+    PolicyMerge(&'static str, &'static str, &'static str, T),
     /// `sync` of a lane.
     Sync(&'static str, T),
     /// `merge src --into dst` (step 0's sync first when dst is `main`).
@@ -721,11 +731,11 @@ fn fresh_on(b: &str) -> Ctx {
     }
 }
 
-fn merge_cmd(src: &str, dst: &str, base: Option<String>) -> Cmd {
+fn merge_cmd(src: &str, dst: &str, base: Option<String>, policy: Option<&str>) -> Cmd {
     Cmd::Merge {
         src: src.into(),
         into: Some(dst.into()),
-        policy: None,
+        policy: policy.map(str::to_string),
         strict: None,
         base,
         message: String::new(),
@@ -771,12 +781,21 @@ struct Run {
 impl Run {
     fn new(h: &Hist, rule: Rule) -> Run {
         let mut s = S::base();
-        s.ok(
-            tx((1..=h.tasks)
-                .map(|i| task(&format!("t{i}"), &format!("task {i}")))
-                .collect()),
-            orch(),
-        );
+        let mut nodes: Vec<Stmt> = (1..=h.tasks)
+            .map(|i| task(&format!("t{i}"), &format!("task {i}")))
+            .collect();
+        // A verdict node, #(tasks + 1), only for a history that links or unlinks `gates` (so no other history changes).
+        if h.ops
+            .iter()
+            .any(|e| matches!(e, Ev::Link(_, _, k, _) | Ev::Unlink(_, _, k, _) if *k == "gates"))
+        {
+            nodes.push(node(
+                "verdict",
+                "verdict",
+                &[("title", t("verdict")), ("outcome", t("fail_fixable"))],
+            ));
+        }
+        s.ok(tx(nodes), orch());
         let mut branches = vec!["main".to_string()];
         for l in &h.lanes {
             s.ok(
@@ -1054,12 +1073,25 @@ impl Run {
         false
     }
 
-    /// A merge of `src` into `dst` (`forced`: `--base`), with step 0's sync first when the store runs one.
-    fn merge(&mut self, op: usize, kind: Kind, src: &str, dst: &str, forced: Option<u64>, take: T) {
+    /// A merge of `src` into `dst` (`forced`: `--base`; `policy`: `--policy`), with step 0's sync first when the store
+    /// runs one.
+    #[allow(clippy::too_many_arguments)]
+    fn merge(
+        &mut self,
+        op: usize,
+        kind: Kind,
+        src: &str,
+        dst: &str,
+        forced: Option<u64>,
+        policy: Option<&str>,
+        take: T,
+    ) {
         let (od, ts, tm) = (self.tip(dst), self.tip(src), self.tip("main"));
         let before = self.counts();
         let base = forced.map(|c| format!("s{c}"));
-        let r = self.s.run(merge_cmd(src, dst, base.clone()), fresh_on(dst));
+        let r = self
+            .s
+            .run(merge_cmd(src, dst, base.clone(), policy), fresh_on(dst));
         let d = match &r.data {
             Data::Merge(d) => Some(d.as_ref().clone()),
             _ => None,
@@ -1079,7 +1111,7 @@ impl Run {
             // The step-0 sync landed by resolution: the merge into `main` runs again, now with no step 0.
             let (od, ts) = (self.tip(dst), self.tip(src));
             let before = self.counts();
-            let r = self.s.run(merge_cmd(src, dst, base), fresh_on(dst));
+            let r = self.s.run(merge_cmd(src, dst, base, policy), fresh_on(dst));
             let inputs = self.inputs(od, ts, forced);
             self.record(op, kind, &r, dst, inputs, take, before);
             return;
@@ -1236,6 +1268,15 @@ impl Run {
                 }],
             ),
             Ev::Link(b, x, kind, y) => self.edit(op, b, vec![link(*x, kind, *y)]),
+            Ev::Unlink(b, x, kind, y) => self.edit(
+                op,
+                b,
+                vec![Stmt::Unlink {
+                    src: Target::Id(Nid(*x)),
+                    kind: kind.to_string(),
+                    dst: Target::Id(Nid(*y)),
+                }],
+            ),
             Ev::Sync(l, take) => {
                 let (o, t) = (self.tip(l), self.tip("main"));
                 let before = self.counts();
@@ -1255,13 +1296,38 @@ impl Run {
                 } else {
                     Kind::Cross
                 };
-                self.merge(op, kind, src, dst, None, *take);
+                self.merge(op, kind, src, dst, None, None, *take);
+            }
+            Ev::PolicyMerge(src, dst, policy, take) => {
+                let kind = if *dst == "main" {
+                    Kind::IntoMain
+                } else {
+                    Kind::Cross
+                };
+                self.merge(op, kind, src, dst, None, Some(policy), *take);
+            }
+            Ev::Policy(b, v) => {
+                let r = self.s.run(
+                    Cmd::Schema {
+                        items: vec![crate::schema::Item::Policy(crate::schema::PolicyItem {
+                            name: "merge.policy.task".into(),
+                            value: v.map(str::to_string),
+                        })],
+                        message: String::new(),
+                    },
+                    fresh_on(b),
+                );
+                let got = match r.outcome {
+                    Outcome::Ok | Outcome::Replayed | Outcome::Dry => Got::Ok,
+                    _ => Got::Refused(r.error.as_ref().map(|e| e.code.clone()).unwrap_or_default()),
+                };
+                self.push(op, Kind::Edit, got, None, None, None, (0, 0));
             }
             Ev::Based(src, dst, c, take) => match match c {
                 CRef::Pool(k) => (!self.pool.is_empty()).then(|| self.pool[k % self.pool.len()]),
                 CRef::Label(l) => self.labels.get(l).copied(),
             } {
-                Some(c) => self.merge(op, Kind::Based, src, dst, Some(c), *take),
+                Some(c) => self.merge(op, Kind::Based, src, dst, Some(c), None, *take),
                 None => self.push(op, Kind::Based, Got::Skipped, None, None, None, (0, 0)),
             },
             Ev::Pick(c, onto, take) => self.pick(op, *c, onto, *take, false),
@@ -1281,8 +1347,8 @@ impl Run {
                     return;
                 }
                 self.branches.push(name.clone());
-                self.merge(op, Kind::Criss, l2, l1, None, *t1);
-                self.merge(op, Kind::Criss, &name, l2, None, *t2);
+                self.merge(op, Kind::Criss, l2, l1, None, None, *t1);
+                self.merge(op, Kind::Criss, &name, l2, None, None, *t2);
             }
             Ev::Mark(label, b) => {
                 if let Some(t) = self.tip(b) {
@@ -2034,8 +2100,9 @@ pub(crate) fn trace_text(h: &Hist, l: &Log) -> String {
 // ---------------------------------------------------------------------------------------------------------------------
 // Generators.
 
-/// A random-history generator. All histories have tasks #1 to #4, created at the root on `main`, with every lane
-/// forked at that commit; a move puts #n under one of the other three (4 times in 5) or at the root.
+/// A random-history generator. The histories of the first four have tasks #1 to #4, the others #1 to #6 (OQ-A-13
+/// 13.6 (a)), created at the root on `main`, with every lane forked at that commit; a move puts #n under one of the
+/// other tasks (4 times in 5) or at the root.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub(crate) enum Gen {
     /// The committed lockstep search's alphabet (`suite::kleppmann`): `main` and two lanes; moves, priority edits,
@@ -2049,10 +2116,36 @@ pub(crate) enum Gen {
     Wide,
     /// Lanes' events plus `merge --base C` of a random earlier commit C, between any two branches (S-4); 1 to 23 events.
     Based,
+    /// The critic's generator (`wave-3d-alternatives.md`, "multi"): 6 tasks, three lanes, Wide's events, transactions
+    /// of 2 or 3 statements, and the takes ours, theirs, base and abort; 1 to 40 events.
+    Multi,
+    /// Existence policies (13.6 (a)): 6 tasks, two lanes, Lanes' events with more deletes, the `merge.policy.task` row
+    /// and `--policy` on half the cross-lane merges and merges into `main`, reverts and cherry-picks; 1 to 30 events.
+    Policy,
+    /// `merge.strict` (13.6 (a)): Multi's events with `merge.strict` switched on and off.
+    Strict,
+    /// `blocks` and `gates` edges (13.6 (a)): 6 tasks and a verdict node, two lanes, Lanes' events, `blocks` edges
+    /// linked and unlinked between tasks and `gates` edges from the verdict; 1 to 30 events.
+    Edges,
+    /// The union of Multi, Policy, Strict and Edges; three lanes; 1 to 40 events.
+    Full,
 }
 
 impl Gen {
+    /// The four generators of wave 3d, which `rs007_eval_random_invariants` runs under the default rule.
     pub(crate) const ALL: [Gen; 4] = [Gen::Narrow, Gen::Lanes, Gen::Wide, Gen::Based];
+    /// Every generator: the four and those of OQ-A-13 13.6 (a).
+    pub(crate) const EVERY: [Gen; 9] = [
+        Gen::Narrow,
+        Gen::Lanes,
+        Gen::Wide,
+        Gen::Based,
+        Gen::Multi,
+        Gen::Policy,
+        Gen::Strict,
+        Gen::Edges,
+        Gen::Full,
+    ];
 
     pub(crate) fn name(self) -> &'static str {
         match self {
@@ -2060,26 +2153,39 @@ impl Gen {
             Gen::Lanes => "lanes",
             Gen::Wide => "wide",
             Gen::Based => "based",
+            Gen::Multi => "multi",
+            Gen::Policy => "policy",
+            Gen::Strict => "strict",
+            Gen::Edges => "edges",
+            Gen::Full => "full",
         }
     }
 
     pub(crate) fn parse(s: &str) -> Option<Gen> {
-        Gen::ALL
+        Gen::EVERY
             .into_iter()
             .find(|g| g.name().eq_ignore_ascii_case(s.trim()))
     }
 
     fn lanes(self) -> Vec<&'static str> {
         match self {
-            Gen::Wide => vec![NAMES[1], NAMES[2], NAMES[3]],
+            Gen::Wide | Gen::Multi | Gen::Strict | Gen::Full => vec![NAMES[1], NAMES[2], NAMES[3]],
             _ => vec![NAMES[1], NAMES[2]],
         }
+    }
+
+    /// The number of tasks of a history: 4 for the four of wave 3d, 6 for the rest.
+    pub(crate) fn tasks(self) -> u32 {
+        if Gen::ALL.contains(&self) { 4 } else { 6 }
     }
 }
 
 /// The events of generator `g`.
 fn strategy(g: Gen) -> proptest::strategy::BoxedStrategy<Vec<Ev>> {
     use proptest::prelude::*;
+    if !Gen::ALL.contains(&g) {
+        return strategy_wide(g);
+    }
     let nb: usize = if g == Gen::Wide { 4 } else { 3 };
     let under = |n: u32, d: Option<u32>| d.map(|d| (n - 1 + d) % 4 + 1);
     let target = || prop_oneof![4 => (1u32..=3).prop_map(Some), 1 => Just(None)];
@@ -2143,6 +2249,187 @@ fn strategy(g: Gen) -> proptest::strategy::BoxedStrategy<Vec<Ev>> {
     }
 }
 
+/// The events of the generators of OQ-A-13 13.6 (a) ([`Gen::Multi`], [`Gen::Policy`], [`Gen::Strict`], [`Gen::Edges`]
+/// and [`Gen::Full`]): 6 tasks; a move puts #n under one of the other five (4 times in 5) or at the root; every take of
+/// [`T`]; the verdict node of a `gates` edge is #7.
+fn strategy_wide(g: Gen) -> proptest::strategy::BoxedStrategy<Vec<Ev>> {
+    use proptest::prelude::*;
+    use proptest::strategy::Union;
+    const N: u32 = 6;
+    let nb: usize = g.lanes().len() + 1;
+    let lanes = nb - 1;
+    let under = |n: u32, d: Option<u32>| d.map(|d| (n - 1 + d) % N + 1);
+    let target = || prop_oneof![4 => (1u32..N).prop_map(Some), 1 => Just(None)];
+    let take = || {
+        prop_oneof![
+            Just(T::Ours),
+            Just(T::Theirs),
+            Just(T::Base),
+            Just(T::Abort)
+        ]
+    };
+    let pos = || prop_oneof![Just(Pos::First), Just(Pos::Last)];
+    let pol = || prop_oneof![Just("delete-wins"), Just("resurrect")];
+    // Two different lanes; two different tasks.
+    let pair = move || (1..nb, 1..lanes).prop_map(move |(a, d)| (a, (a - 1 + d) % lanes + 1));
+    let tasks2 = || (1u32..=N, 1u32..N).prop_map(|(a, d)| (a, (a - 1 + d) % N + 1));
+    let mv = (
+        0..nb,
+        1u32..=N,
+        target(),
+        prop_oneof![3 => Just(None), 1 => pos().prop_map(Some)],
+    )
+        .prop_map(move |(b, n, d, p)| match p {
+            None => Ev::Mv(NAMES[b], n, under(n, d)),
+            Some(p) => Ev::MvAt(NAMES[b], n, under(n, d), p),
+        })
+        .boxed();
+    let item =
+        (1u32..=N, target(), 0u8..4, pos(), 0i64..4).prop_map(move |(n, d, w, p, k)| match w {
+            0 | 1 => It::Mv(n, under(n, d)),
+            2 => It::MvAt(n, under(n, d), p),
+            _ => It::Prio(n, k),
+        });
+    let txn = (0..nb, proptest::collection::vec(item, 2..=3))
+        .prop_map(|(b, items)| Ev::Tx(NAMES[b], items))
+        .boxed();
+    let reorder = (0..nb, 1u32..=N, pos())
+        .prop_map(|(b, n, p)| Ev::Reorder(NAMES[b], n, p))
+        .boxed();
+    let prio = (0..nb, 1u32..=N, 0i64..4)
+        .prop_map(|(b, n, k)| Ev::Prio(NAMES[b], n, k))
+        .boxed();
+    let del = (0..nb, 1u32..=N, any::<bool>())
+        .prop_map(|(b, n, r)| Ev::Del(NAMES[b], n, r))
+        .boxed();
+    let sync = (1..nb, take())
+        .prop_map(|(l, t)| Ev::Sync(NAMES[l], t))
+        .boxed();
+    let into_main = (1..nb, take())
+        .prop_map(|(l, t)| Ev::Merge(NAMES[l], "main", t))
+        .boxed();
+    let cross = (pair(), take())
+        .prop_map(|((a, d), t)| Ev::Merge(NAMES[a], NAMES[d], t))
+        .boxed();
+    let criss = (pair(), take(), take())
+        .prop_map(|((a, d), t1, t2)| Ev::Criss(NAMES[a], NAMES[d], t1, t2))
+        .boxed();
+    let revert = (0..nb, 0usize..64, take())
+        .prop_map(|(b, k, t)| Ev::Revert(CRef::Pool(k), NAMES[b], t))
+        .boxed();
+    let pick = (0..nb, 0usize..64, take())
+        .prop_map(|(b, k, t)| Ev::Pick(CRef::Pool(k), NAMES[b], t))
+        .boxed();
+    let policy = (
+        0..nb,
+        prop_oneof![
+            Just(Some("delete-wins")),
+            Just(Some("resurrect")),
+            Just(None)
+        ],
+    )
+        .prop_map(|(b, v)| Ev::Policy(NAMES[b], v))
+        .boxed();
+    let cross_p = (pair(), pol(), take())
+        .prop_map(|((a, d), p, t)| Ev::PolicyMerge(NAMES[a], NAMES[d], p, t))
+        .boxed();
+    let into_main_p = (1..nb, pol(), take())
+        .prop_map(|(l, p, t)| Ev::PolicyMerge(NAMES[l], "main", p, t))
+        .boxed();
+    let strict = any::<bool>().prop_map(Ev::Strict).boxed();
+    let blocks = (0..nb, tasks2())
+        .prop_map(|(b, (x, y))| Ev::Link(NAMES[b], x, "blocks", y))
+        .boxed();
+    let unblock = (0..nb, tasks2())
+        .prop_map(|(b, (x, y))| Ev::Unlink(NAMES[b], x, "blocks", y))
+        .boxed();
+    let gates = (0..nb, 1u32..=N)
+        .prop_map(|(b, y)| Ev::Link(NAMES[b], N + 1, "gates", y))
+        .boxed();
+    let ungate = (0..nb, 1u32..=N)
+        .prop_map(|(b, y)| Ev::Unlink(NAMES[b], N + 1, "gates", y))
+        .boxed();
+    let (arms, max): (Vec<(u32, BoxedStrategy<Ev>)>, usize) = match g {
+        Gen::Multi | Gen::Strict => {
+            let mut arms = vec![
+                (8, mv),
+                (3, txn),
+                (2, reorder),
+                (1, prio),
+                (1, del),
+                (2, sync),
+                (3, cross),
+                (1, into_main),
+                (1, criss),
+                (1, revert),
+                (1, pick),
+            ];
+            if g == Gen::Strict {
+                arms.push((2, strict));
+            }
+            (arms, 41)
+        }
+        Gen::Policy => (
+            vec![
+                (8, mv),
+                (2, reorder),
+                (1, prio),
+                (3, del),
+                (2, sync),
+                (1, cross),
+                (1, cross_p),
+                (1, into_main),
+                (1, into_main_p),
+                (2, policy),
+                (1, revert),
+                (1, pick),
+            ],
+            31,
+        ),
+        Gen::Edges => (
+            vec![
+                (8, mv),
+                (2, reorder),
+                (1, prio),
+                (1, del),
+                (2, sync),
+                (2, cross),
+                (1, into_main),
+                (3, blocks),
+                (1, unblock),
+                (1, gates),
+                (1, ungate),
+            ],
+            31,
+        ),
+        _ => (
+            vec![
+                (8, mv),
+                (3, txn),
+                (2, reorder),
+                (1, prio),
+                (3, del),
+                (2, sync),
+                (2, cross),
+                (1, cross_p),
+                (1, into_main),
+                (1, into_main_p),
+                (1, criss),
+                (1, revert),
+                (1, pick),
+                (2, policy),
+                (2, strict),
+                (3, blocks),
+                (1, unblock),
+                (1, gates),
+                (1, ungate),
+            ],
+            41,
+        ),
+    };
+    proptest::collection::vec(Union::new_weighted(arms), 1..max).boxed()
+}
+
 /// `n` histories of generator `g` with seed `seed`: a fixed ChaCha seed per (generator, seed), as the crate's other
 /// property tests fix theirs, so every run of a tier sees the same histories.
 pub(crate) fn histories(g: Gen, seed: u8, n: usize) -> Vec<Hist> {
@@ -2157,7 +2444,7 @@ pub(crate) fn histories(g: Gen, seed: u8, n: usize) -> Vec<Hist> {
     let strat = strategy(g);
     (0..n)
         .map(|_| Hist {
-            tasks: 4,
+            tasks: g.tasks(),
             lanes: g.lanes(),
             ops: strat.new_tree(&mut runner).expect("a history").current(),
         })
@@ -2926,6 +3213,323 @@ fn focus_entries<'a>(c: &Case, l: &'a Log) -> Vec<&'a Entry> {
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
+// The link check of a strict staging.
+
+/// The link check of a [`Verdict::Requested`] entry (R-16 Q3; the cut's §4.8 and its addendum, I-1): the same history
+/// without strict lands each requested key at a value of the other side's, with the hint.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub(crate) enum Link {
+    /// The link holds.
+    Holds,
+    /// The check does not apply here (why).
+    NotApplicable(String),
+    /// The link is broken (why).
+    Broken(String),
+}
+
+/// (key, class) of a staged entry's violations.
+fn entry_viols(e: &Entry) -> Vec<(String, String)> {
+    match &e.got {
+        Got::Staged(ks) => ks
+            .iter()
+            .filter_map(|k| k.rsplit_once(' '))
+            .map(|(k, c)| (k.to_string(), c.to_string()))
+            .collect(),
+        _ => Vec::new(),
+    }
+}
+
+/// The merge-family entries of event `op` of a log, in order.
+fn event_merges(l: &Log, op: usize) -> Vec<&Entry> {
+    l.entries
+        .iter()
+        .filter(|e| e.op == op && e.kind != Kind::Edit)
+        .collect()
+}
+
+/// The link check of entry `e` (a `Requested` one) of history `h`'s log `l` under `rule`: h′ is h's events before e's,
+/// then `merge.strict` off, then e's event; e′ is the entry of h′'s last event of e's kind at e's position among that
+/// event's merge-family entries.
+/// - Not applicable when an earlier merge of e's event did not land (or was not up to date), since strict then changed
+///   what e merges; and when h′'s event has no such entry (a strict step-0 sync that staged with a value conflict lands
+///   conflicted without strict, and PR-003 refuses the merge).
+/// - Strict changes the candidate only through the dead-parent preference, so a judged key that is no requested key and
+///   differs in e′ breaks the link, unless e holds a two-sided key one of whose values has a parent not live in the
+///   result while the other's is live or a root (the step-(2) order changed under the preference: not applicable).
+/// - For each requested pair (k, C, w): e′ stages no `C` on `#k.parent`; e′'s value of k is o's or t's, with exactly
+///   one `MoveSkipped` hint for `#k.parent` naming that side; for `HierarchyCycle` it is e's value, for `DanglingEdge`
+///   w.
+/// - When every violation of e is a requested pair, e′ lands.
+pub(crate) fn link_check(h: &Hist, l: &Log, e: &Entry, rule: Rule) -> Link {
+    let i = e.op;
+    let mine = event_merges(l, i);
+    let p = mine
+        .iter()
+        .position(|x| std::ptr::eq(*x, e))
+        .expect("an entry of the log");
+    if mine[..p]
+        .iter()
+        .any(|x| !matches!(x.got, Got::Landed | Got::UpToDate))
+    {
+        return Link::NotApplicable(format!("an earlier merge of event {i} did not land"));
+    }
+    let mut ops = h.ops[..i].to_vec();
+    ops.push(Ev::Strict(false));
+    ops.push(h.ops[i].clone());
+    let h2 = Hist {
+        tasks: h.tasks,
+        lanes: h.lanes.clone(),
+        ops,
+    };
+    let l2 = run_caught(&h2, rule);
+    if let Some(m) = &l2.panic {
+        return Link::Broken(format!("the run without strict panicked: {m}"));
+    }
+    let theirs = event_merges(&l2, i + 1);
+    let Some(e2) = theirs.get(p).filter(|x| x.kind == e.kind) else {
+        return Link::NotApplicable(format!(
+            "without strict, event {i} has no {} at position {p}",
+            e.kind.name()
+        ));
+    };
+    let (Some(t), Some(t2)) = (&e.tri, &e2.tri) else {
+        return Link::Broken(format!(
+            "without strict: {} (no result to compare)",
+            got_text(&e2.got)
+        ));
+    };
+    let viols = entry_viols(e);
+    let or = oracle(&t.b, &t.o, &t.t, &t.r);
+    let req = requested_pairs(t, &or, &viols);
+    let keys: BTreeSet<usize> = req.iter().map(|(k, _, _)| *k).collect();
+    let judged = or.judged();
+    let n = t.r.len();
+    if let Some(j) = (0..n).find(|j| judged[*j] && !keys.contains(j) && t2.r[*j] != t.r[*j]) {
+        let live = |p: Option<u32>| {
+            p.is_none_or(|p| (p as usize) >= 1 && (p as usize) <= n && judged[p as usize - 1])
+        };
+        let preference = (0..n).any(|k| match or.allowed[k].as_slice() {
+            [x, y] => live(par(x)) != live(par(y)),
+            _ => false,
+        });
+        let why = format!(
+            "#{} lands at {} without strict, at {} with it",
+            j + 1,
+            hv_text(&t2.r[j]),
+            hv_text(&t.r[j])
+        );
+        return if preference {
+            Link::NotApplicable(why)
+        } else {
+            Link::Broken(why)
+        };
+    }
+    let viols2 = entry_viols(e2);
+    for (k, class, w) in &req {
+        let key = format!("#{}.parent", k + 1);
+        if viols2.iter().any(|(x, c)| *x == key && c == class) {
+            return Link::Broken(format!("{key} {class} stages without strict"));
+        }
+        let r2 = &t2.r[*k];
+        let side = if *r2 == t.o[*k] {
+            "ours"
+        } else if *r2 == t.t[*k] {
+            "theirs"
+        } else {
+            return Link::Broken(format!(
+                "{key} lands at {} without strict, neither side's value",
+                hv_text(r2)
+            ));
+        };
+        let named = format!("{key} ");
+        let lines: Vec<&String> = e2
+            .hints
+            .iter()
+            .filter(|(c, x)| c == "MoveSkipped" && x.starts_with(&named))
+            .map(|(_, x)| x)
+            .collect();
+        if lines.len() != 1 || !lines[0].starts_with(&format!("{key} took {side};")) {
+            return Link::Broken(format!(
+                "{key} lands at the {side} value without strict, hints {:?}",
+                e2.hints
+            ));
+        }
+        let want = if *class == "HierarchyCycle" {
+            &t.r[*k]
+        } else {
+            w
+        };
+        if r2 != want {
+            return Link::Broken(format!(
+                "{key} lands at {} without strict, not {}",
+                hv_text(r2),
+                hv_text(want)
+            ));
+        }
+    }
+    let all_requested = viols.iter().all(|(x, c)| {
+        req.iter()
+            .any(|(k, rc, _)| format!("#{}.parent", k + 1) == *x && rc == c)
+    });
+    if all_requested && e2.got != Got::Landed {
+        return Link::Broken(format!(
+            "without strict: {}, where it must land",
+            got_text(&e2.got)
+        ));
+    }
+    Link::Holds
+}
+
+/// The history of the probe `k2_a_later_two_sided_move_that_closes_a_cycle_is_skipped_and_lands` (13.3 (b)): main puts
+/// #4 under #2, then #1 under #3; lane/x puts #2 under #1, then #1 under #4; `sync lane/x`. Under `merge.strict` when
+/// `strict` (LF-1).
+pub(crate) fn later_cycle(strict: bool) -> Hist {
+    use Ev::*;
+    let mut ops = vec![
+        Mv(M, 4, Some(2)),
+        Mv(M, 1, Some(3)),
+        Mv(X, 2, Some(1)),
+        Mv(X, 1, Some(4)),
+        Sync(X, T::Ours),
+    ];
+    if strict {
+        ops.insert(0, Strict(true));
+    }
+    Hist {
+        tasks: 4,
+        lanes: vec![X],
+        ops,
+    }
+}
+
+/// The history of the probe `k2_a_later_move_under_a_node_the_result_deletes_lands_with_a_hint` (13.3 (b)): main moves
+/// #1 under #3 and deletes #2; lane/x then moves #1 under #2; `sync lane/x`. Under `merge.strict` when `strict`
+/// (LF-2).
+pub(crate) fn later_dead_parent(strict: bool) -> Hist {
+    use Ev::*;
+    let mut ops = vec![
+        Mv(M, 1, Some(3)),
+        Del(M, 2, false),
+        Mv(X, 1, Some(2)),
+        Sync(X, T::Ours),
+    ];
+    if strict {
+        ops.insert(0, Strict(true));
+    }
+    Hist {
+        tasks: 3,
+        lanes: vec![X],
+        ops,
+    }
+}
+
+/// One link fixture: a strict history whose merge-family entry `entry` (by index among the log's merge-family
+/// entries) has the verdict `verdict` under `cand`, and for a `Requested` one the link `holds` (`Some(true)`) or does
+/// not apply (`Some(false)`).
+pub(crate) struct LinkFixture {
+    /// LF-1 to LF-5.
+    pub id: &'static str,
+    /// The history.
+    pub hist: Hist,
+    /// The merge-family entry judged.
+    pub entry: usize,
+    /// Its verdict.
+    pub verdict: Verdict,
+    /// For a `Requested` entry: whether the link holds (else it does not apply).
+    pub holds: Option<bool>,
+}
+
+/// The link fixtures (the cut's §4.8 and addendum I-1), shared with `suite::k2probe`:
+/// - LF-1 ([`later_cycle`]) and LF-2 ([`later_dead_parent`]): `Requested`, and the link holds;
+/// - LF-3, a cycle key whose other value's parent the result deletes: main moves #2 under #1 and then #1 under #3;
+///   lane/x deletes #3 and then moves #1 under #2; the strict sync stages `#1.parent` as `HierarchyCycle` and as
+///   `DanglingEdge`: `Requested`, and the link holds (without strict the key lands at main's value with the `cycle`
+///   hint and stages its `DanglingEdge` again);
+/// - LF-4, two dead-parent keys whose other values close a cycle together: lane/x moves #1 under #2; main moves #2
+///   under #1 and then #1 under #3; lane/x moves #2 under #4 and deletes #3; main deletes #4; the strict sync stages
+///   `DanglingEdge` on both: a staging for another reason, not `Requested`;
+/// - LF-5, LF-2's history with a `#4.priority` conflict, merged into `main` under strict: the step-0 sync is
+///   `Requested`, and without strict it lands conflicted and PR-003 refuses the merge, so the link does not apply.
+pub(crate) fn strict_link_fixtures() -> Vec<LinkFixture> {
+    use Ev::*;
+    let hist = |tasks: u32, ops: Vec<Ev>| Hist {
+        tasks,
+        lanes: vec![X],
+        ops,
+    };
+    vec![
+        LinkFixture {
+            id: "LF-1",
+            hist: later_cycle(true),
+            entry: 0,
+            verdict: Verdict::Requested,
+            holds: Some(true),
+        },
+        LinkFixture {
+            id: "LF-2",
+            hist: later_dead_parent(true),
+            entry: 0,
+            verdict: Verdict::Requested,
+            holds: Some(true),
+        },
+        LinkFixture {
+            id: "LF-3",
+            hist: hist(
+                3,
+                vec![
+                    Strict(true),
+                    Mv(M, 2, Some(1)),
+                    Mv(M, 1, Some(3)),
+                    Del(X, 3, false),
+                    Mv(X, 1, Some(2)),
+                    Sync(X, T::Ours),
+                ],
+            ),
+            entry: 0,
+            verdict: Verdict::Requested,
+            holds: Some(true),
+        },
+        LinkFixture {
+            id: "LF-4",
+            hist: hist(
+                4,
+                vec![
+                    Strict(true),
+                    Mv(X, 1, Some(2)),
+                    Mv(M, 2, Some(1)),
+                    Mv(M, 1, Some(3)),
+                    Mv(X, 2, Some(4)),
+                    Del(X, 3, false),
+                    Del(M, 4, false),
+                    Sync(X, T::Ours),
+                ],
+            ),
+            entry: 0,
+            verdict: Verdict::StagedOther { cand_wrong: false },
+            holds: None,
+        },
+        LinkFixture {
+            id: "LF-5",
+            hist: hist(
+                4,
+                vec![
+                    Strict(true),
+                    Mv(M, 1, Some(3)),
+                    Del(M, 2, false),
+                    Mv(X, 1, Some(2)),
+                    Prio(M, 4, 1),
+                    Prio(X, 4, 3),
+                    Merge(X, M, T::Ours),
+                ],
+            ),
+            entry: 0,
+            verdict: Verdict::Requested,
+            holds: Some(false),
+        },
+    ]
+}
+
+// ---------------------------------------------------------------------------------------------------------------------
 // Cost.
 
 /// The long-lane cost scenario (ADV-C-4's `c1`, `wave-3c-arbiter.md` W3C-ARB-10) under one variant.
@@ -3042,7 +3646,7 @@ pub(crate) fn cost(rule: Rule, n: usize) -> CostRow {
                 if a != b {
                     s.run(mv(a, Some(b)), fresh_on(Y));
                 }
-                let rr = s.run(merge_cmd(Y, X, None), fresh_on(X));
+                let rr = s.run(merge_cmd(Y, X, None, None), fresh_on(X));
                 if rr.outcome == Outcome::Staged {
                     abort(s, Y, X);
                 }
@@ -3157,7 +3761,11 @@ impl Cfg {
                 .collect(),
             gens: list("MOIRAI_RS007_EVAL_GENS", "narrow,lanes,wide,based")
                 .iter()
-                .map(|x| Gen::parse(x).expect("MOIRAI_RS007_EVAL_GENS: narrow, lanes, wide, based"))
+                .map(|x| {
+                    Gen::parse(x).expect(
+                        "MOIRAI_RS007_EVAL_GENS: narrow, lanes, wide, based, multi, policy, strict, edges, full",
+                    )
+                })
                 .collect(),
             parts: list("MOIRAI_RS007_EVAL_PARTS", "corpus,search,cost")
                 .into_iter()
@@ -4429,6 +5037,203 @@ fn rs007_eval_random_invariants() {
             }
         }
     }
+}
+
+/// The fault counts the absolute acceptance asserts to be 0 (OQ-A-13 13.6 (b)): avoidable `HierarchyCycle`
+/// stagings, wrong landings, stuck stagings, wrong candidates of other stagings, reparents lost to an order-only
+/// change, one-sided merges off t and picks of a commit with no hierarchy entry off o.
+fn acceptance_faults(k: &KStats) -> usize {
+    k.avoidable
+        + k.wrong
+        + k.stuck
+        + k.staged_other_wrong
+        + k.reparent_lost
+        + k.one_sided_not_t
+        + k.pick_no_hier_not_o
+}
+
+/// The absolute acceptance of OQ-A-13 (13.6 (b); R-15, R-16; the cut's §4.8) for K2 (`Rule::Cand`), over every
+/// generator ([`Gen::EVERY`]) × seeds 1 and 2 × `tier(15)` histories: no panic; every branch a forest; the first
+/// four histories of each (generator, seed) run twice to one log; no avoidable `HierarchyCycle` staging, wrong
+/// landing, stuck staging, wrong candidate of another staging, reparent lost to an order-only change, one-sided merge
+/// off t or pick of a commit with no hierarchy entry off o; every `Requested` staging linked to the same history
+/// without strict ([`Link`]; not applicable is counted apart). Then the link fixtures ([`strict_link_fixtures`]), and
+/// the corpus under `cand`: no panic and no fault, `K2-W3D`'s pick genuine, and the CONTESTED cases at MR-040's
+/// reading by the original moves' times (13.4 (a)). One `RS007ACCEPT` line per generator goes to stderr; a failure
+/// names the first failing `<generator>:<seed>:<index>` for [`rs007_eval_trace`].
+#[test]
+fn rs007_eval_absolute_acceptance() {
+    let rule = Rule::Cand;
+    let t0 = std::time::Instant::now();
+    let mut lines: Vec<String> = Vec::new();
+    let mut failed: Vec<String> = Vec::new();
+    for g in Gen::EVERY {
+        let mut ks = KStats::default();
+        let (mut hists, mut panics, mut not_forest, mut nondet) = (0, 0, 0, 0);
+        let (mut broken, mut na) = (0, 0);
+        let mut first: Option<String> = None;
+        for seed in [1u8, 2] {
+            for (i, h) in histories(g, seed, tier(15)).iter().enumerate() {
+                hists += 1;
+                let id = format!("{}:{seed}:{i}", g.name());
+                let mut note = |why: String| {
+                    if first.is_none() {
+                        first = Some(format!("{id}: {why}"));
+                    }
+                };
+                let l = run_caught(h, rule);
+                if let Some(p) = &l.panic {
+                    panics += 1;
+                    note(format!("panic {p}"));
+                    continue;
+                }
+                if l.snaps
+                    .iter()
+                    .flatten()
+                    .any(|(_, hh)| !branch_is_forest(hh))
+                {
+                    not_forest += 1;
+                    note("a branch is not a forest".into());
+                }
+                if i < 4 {
+                    let again = run_caught(h, rule);
+                    if (&again.entries, &again.snaps) != (&l.entries, &l.snaps) {
+                        nondet += 1;
+                        note("not deterministic".into());
+                    }
+                }
+                let mut hk = KStats::default();
+                for e in &l.entries {
+                    hk.add(e);
+                    ks.add(e);
+                    if e.verdict == Some(Verdict::Requested) {
+                        match link_check(h, &l, e, rule) {
+                            Link::Holds => {}
+                            Link::NotApplicable(_) => na += 1,
+                            Link::Broken(why) => {
+                                broken += 1;
+                                note(format!("event {} link broken: {why}", e.op));
+                            }
+                        }
+                    }
+                }
+                if acceptance_faults(&hk) > 0 {
+                    note(format!(
+                        "avoidable {} wrong {} stuck {} staged_other_wrong {} reparent_lost {} one_sided_off_t {} pick_off_o {}",
+                        hk.avoidable,
+                        hk.wrong,
+                        hk.stuck,
+                        hk.staged_other_wrong,
+                        hk.reparent_lost,
+                        hk.one_sided_not_t,
+                        hk.pick_no_hier_not_o
+                    ));
+                }
+            }
+        }
+        let line = format!(
+            "RS007ACCEPT gen={} histories={hists} merges={} landed={} staged={} genuine={} requested={} avoidable={} wrong={} stuck={} staged_other_wrong={} reparent_lost={} hints={} link_broken={broken} link_na={na} one_sided_off_t={} pick_off_o={} panics={panics} not_forest={not_forest} nondet={nondet}",
+            g.name(),
+            ks.n,
+            ks.landed,
+            ks.staged,
+            ks.genuine,
+            ks.requested,
+            ks.avoidable,
+            ks.wrong,
+            ks.stuck,
+            ks.staged_other_wrong,
+            ks.reparent_lost,
+            ks.hints,
+            ks.one_sided_not_t,
+            ks.pick_no_hier_not_o
+        );
+        eprintln!("{line}");
+        lines.push(line);
+        if acceptance_faults(&ks) + broken + panics + not_forest + nondet > 0 {
+            failed.push(first.unwrap_or_else(|| g.name().to_string()));
+        }
+    }
+    // The link fixtures.
+    for f in strict_link_fixtures() {
+        let l = run_caught(&f.hist, rule);
+        let es: Vec<&Entry> = l.entries.iter().filter(|e| e.kind != Kind::Edit).collect();
+        let Some(e) = es.get(f.entry) else {
+            failed.push(format!("{}: no entry {}", f.id, f.entry));
+            continue;
+        };
+        if e.verdict.as_ref() != Some(&f.verdict) {
+            failed.push(format!(
+                "{}: verdict {:?}, not {:?}\n{}",
+                f.id,
+                e.verdict,
+                f.verdict,
+                trace_text(&f.hist, &l)
+            ));
+            continue;
+        }
+        if let Some(holds) = f.holds {
+            let link = link_check(&f.hist, &l, e, rule);
+            if matches!(link, Link::Holds) != holds
+                || (!holds && !matches!(link, Link::NotApplicable(_)))
+            {
+                failed.push(format!(
+                    "{}: link {link:?}\n{}",
+                    f.id,
+                    trace_text(&f.hist, &l)
+                ));
+            }
+        }
+    }
+    // The corpus.
+    for c in corpus() {
+        let l = run_caught(&c.hist, rule);
+        if l.panic.is_some() || l.faults() > 0 {
+            failed.push(format!(
+                "corpus {}: panic {:?}, {} faults\n{}",
+                c.id,
+                l.panic,
+                l.faults(),
+                trace_text(&c.hist, &l)
+            ));
+            continue;
+        }
+        let fe = focus_entries(&c, &l);
+        if c.id == "K2-W3D"
+            && !matches!(fe[..], [e] if matches!(e.verdict, Some(Verdict::Genuine { .. })))
+        {
+            failed.push(format!(
+                "corpus K2-W3D: not genuine\n{}",
+                trace_text(&c.hist, &l)
+            ));
+        }
+        if let Some((_, n, p)) = c.readings.get(1) {
+            let at = |e: &&Entry| {
+                e.got == Got::Landed
+                    && e.tri
+                        .as_ref()
+                        .is_some_and(|t| t.r[*n as usize - 1].as_ref().map(|x| x.0) == Some(*p))
+            };
+            if fe.is_empty() || !fe.iter().all(at) {
+                failed.push(format!(
+                    "corpus {}: not at the reading by the original moves' times\n{}",
+                    c.id,
+                    trace_text(&c.hist, &l)
+                ));
+            }
+        }
+    }
+    eprintln!(
+        "RS007ACCEPT tier={} seconds={:.1}",
+        std::env::var("MOIRAI_TEST_TIER").unwrap_or_else(|_| "pr".into()),
+        t0.elapsed().as_secs_f64()
+    );
+    assert!(
+        failed.is_empty(),
+        "the absolute acceptance of K2 fails:\n{}\nfirst failures:\n{}",
+        lines.join("\n"),
+        failed.join("\n")
+    );
 }
 
 /// The report: one table of every metric for the variant `MOIRAI_RS007_EVAL_RULE` (default `cand`) against the

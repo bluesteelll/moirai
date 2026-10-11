@@ -2,7 +2,9 @@
 //! state-based three-way rule does where it differs from RS-007's replay, and the known weaknesses of the rule. Each
 //! runs under `Rule::Cand` and, for comparison, `Rule::Current`, on the harness's own runner ([`run`]).
 
-use super::rs007eval::{Ev, Got, Hist, Kind, Log, T, Verdict, run, trace_text};
+use super::rs007eval::{
+    Ev, Got, Hist, Kind, Log, T, Verdict, later_cycle, later_dead_parent, run, trace_text,
+};
 use crate::merge::Rule;
 
 const M: &str = "main";
@@ -44,38 +46,6 @@ fn last_merge(l: &Log) -> &super::rs007eval::Entry {
 /// A `MoveSkipped` hint as a reply lists it (13.3 (b)).
 fn move_skipped(text: &str) -> Vec<(String, String)> {
     vec![("MoveSkipped".to_string(), text.to_string())]
-}
-
-/// The history of [`k2_a_later_two_sided_move_that_closes_a_cycle_is_skipped_and_lands`], under strict when `strict`.
-fn later_cycle(strict: bool) -> Hist {
-    use Ev::*;
-    let mut ops = vec![
-        Mv(M, 4, Some(2)),
-        Mv(M, 1, Some(3)),
-        Mv(X, 2, Some(1)),
-        Mv(X, 1, Some(4)),
-        Sync(X, T::Ours),
-    ];
-    if strict {
-        ops.insert(0, Strict(true));
-    }
-    hist(4, &[X], ops)
-}
-
-/// The history of [`k2_a_later_move_under_a_node_the_result_deletes_lands_with_a_hint`]: main moves #1 under #3 and
-/// deletes #2; lane/x then moves #1 under #2; `sync lane/x`. Under strict when `strict`.
-fn later_dead_parent(strict: bool) -> Hist {
-    use Ev::*;
-    let mut ops = vec![
-        Mv(M, 1, Some(3)),
-        Del(M, 2, false),
-        Mv(X, 1, Some(2)),
-        Sync(X, T::Ours),
-    ];
-    if strict {
-        ops.insert(0, Strict(true));
-    }
-    hist(3, &[X], ops)
 }
 
 /// A two-sided key whose later move would close a cycle with keys only one side changed lands at the other side's
