@@ -1170,7 +1170,8 @@ fn a_partial_resolution_restages() {
     let r = s.ok(resolve("3.order", Take::Ours), fresh_on(g));
     let rc = &s.st.dag.commits[&r.commit.expect("the resolve commit")];
     assert!(rc.changeset.is_empty());
-    assert_eq!(rc.resolves, vec![Key::Node(Nid(3), Aspect::Hierarchy)]);
+    // `--take ours` is choice 0 ([F06 §7.7]).
+    assert_eq!(rc.resolves, vec![(Key::Node(Nid(3), Aspect::Hierarchy), 0)]);
     let main_tip = tip(&s, "main").unwrap();
     let r = s.run(continue_("main", "lane/x"), fresh_on("main"));
     assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
@@ -1197,6 +1198,140 @@ fn a_partial_resolution_restages() {
     assert_eq!(field(&s, "lane/x", 1, "priority"), prio("P1"));
     assert!(s.st.dag.live(g).is_none(), "G is deleted");
     ids_verify(&s);
+}
+
+/// OQ-A-13 13.4 (a) (R-15 Q4, R-16 Q2): a resolution to base produces a new origin. A `Resolve` op records its
+/// `choice` ([F12 §6.5]; [F06 §7.7]), and the commit a `merge --continue` lands records the resolutions it applied, so
+/// the origin walk ([`crate::dag::Dag::origin`]) gives that commit its own origin for a key resolved to base, even
+/// where base's value equals a parent's; a resolution to ours or theirs passes the origin on. Each pair runs one
+/// history twice and resolves its staged key two ways to the same value:
+/// - (i) b = ours: `staged_with_a_cycle`'s `#3.parent`, to base (A) and to ours (B), `#1.priority` to theirs in both;
+/// - (ii) b = theirs: main puts #2 under #1, lane/x then #1 under #2, `sync lane/x` stages `#1.parent`, resolved to
+///   base (A) and to theirs (B);
+/// - (iii) (ii) with a `#3.priority` conflict left unresolved: the continue lands conflicted (LS-003), and its commit
+///   records the resolution all the same.
+#[test]
+fn a_resolution_to_base_produces_a_new_origin() {
+    let key = |n: u32| Key::Node(Nid(n), Aspect::Hierarchy);
+    let prio1 = Key::Node(Nid(1), Aspect::Field("priority".into()));
+    let id = |s: &S, c: u64| (s.st.dag.commits[&c].hlc, s.st.dag.commits[&c].id);
+    let origin = |s: &S, c: u64, n: u32| s.st.dag.origin(Some(c), Nid(n), &s.st.alloc);
+    let g = "merge/lane/x/from/main";
+    // (i) b = ours.
+    let mut a = staged_with_a_cycle();
+    let mut b = staged_with_a_cycle();
+    let before = tip(&a, "lane/x").unwrap();
+    assert_eq!(before, tip(&b, "lane/x").unwrap());
+    for (s, take) in [(&mut a, Take::Base), (&mut b, Take::Ours)] {
+        s.ok(resolve("#1.priority", Take::Theirs), orch_on(g));
+        let rc = s
+            .ok(resolve("#3.parent", take.clone()), fresh_on(g))
+            .commit
+            .unwrap();
+        assert_eq!(
+            s.st.dag.commits[&rc].resolves,
+            vec![(key(3), take.choice())],
+            "the resolve commit records its choice"
+        );
+        let r = s.run(continue_("main", "lane/x"), fresh_on("main"));
+        assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+        assert_eq!(data(&r).outcome, "landed");
+        assert_eq!(
+            state(s, "lane/x").nodes[&Nid(3)].parent,
+            None,
+            "#3 at the root"
+        );
+    }
+    let (ma, mb) = (tip(&a, "lane/x").unwrap(), tip(&b, "lane/x").unwrap());
+    assert_eq!(
+        a.st.dag.commits[&ma].resolves,
+        vec![(prio1.clone(), 1), (key(3), 2)],
+        "the landed commit records the resolutions it applied"
+    );
+    assert_eq!(
+        b.st.dag.commits[&mb].resolves,
+        vec![(prio1, 1), (key(3), 0)]
+    );
+    assert_eq!(origin(&a, ma, 3), id(&a, ma), "base: a new origin");
+    assert_eq!(
+        origin(&b, mb, 3),
+        origin(&b, before, 3),
+        "ours: lane/x's origin, passed on"
+    );
+    assert_ne!(origin(&b, mb, 3), id(&b, mb));
+    // (ii) b = theirs, and (iii) with a value conflict left for the landing.
+    let synced = |conflict: bool| {
+        let mut s = S::base();
+        s.ok(
+            tx(vec![
+                task("a", "task a"),
+                task("b", "task b"),
+                task("c", "task c"),
+            ]),
+            orch(),
+        );
+        s.ok(branch("x", "main"), orch());
+        s.ok(mv(2, Some(1)), orch());
+        s.ok(mv(1, Some(2)), orch_on("lane/x"));
+        if conflict {
+            s.ok(tx(vec![set(3, &[("priority", P::Int(1))])]), orch());
+            s.ok(
+                tx(vec![set(3, &[("priority", P::Int(3))])]),
+                orch_on("lane/x"),
+            );
+        }
+        let r = s.run(
+            Cmd::Sync {
+                lane: Some("lane/x".into()),
+                check: false,
+            },
+            fresh_on("lane/x"),
+        );
+        assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+        assert_eq!(violations(data(&r)), vec![("#1.parent", "HierarchyCycle")]);
+        s
+    };
+    let mut a = synced(false);
+    let mut b = synced(false);
+    for (s, take) in [(&mut a, Take::Base), (&mut b, Take::Theirs)] {
+        s.ok(resolve("#1.parent", take), orch_on(g));
+        let r = s.run(continue_("main", "lane/x"), fresh_on("main"));
+        assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+        assert_eq!(data(&r).outcome, "landed");
+    }
+    let (ma, mb) = (tip(&a, "lane/x").unwrap(), tip(&b, "lane/x").unwrap());
+    assert_eq!(
+        parents_12(&a, "lane/x"),
+        parents_12(&b, "lane/x"),
+        "both land one state"
+    );
+    assert_eq!(parents_12(&a, "lane/x"), (None, Some(Nid(1))));
+    assert_eq!(origin(&a, ma, 1), id(&a, ma), "base: a new origin");
+    let main_tip = tip(&b, "main").unwrap();
+    assert_eq!(
+        origin(&b, mb, 1),
+        origin(&b, main_tip, 1),
+        "theirs: main's origin, passed on"
+    );
+    let mut c = synced(true);
+    c.ok(resolve("#1.parent", Take::Base), orch_on(g));
+    let r = c.run(continue_("main", "lane/x"), fresh_on("main"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let d = data(&r);
+    assert_eq!(
+        (d.outcome, d.conflicts.clone()),
+        (
+            "landed",
+            vec![("#3.priority".to_string(), "FieldEdit".to_string())]
+        ),
+        "a conflicted landing"
+    );
+    let mc = tip(&c, "lane/x").unwrap();
+    assert_eq!(c.st.dag.commits[&mc].resolves, vec![(key(1), 2)]);
+    assert_eq!(origin(&c, mc, 1), id(&c, mc), "base: a new origin");
+    ids_verify(&a);
+    ids_verify(&b);
+    ids_verify(&c);
 }
 
 /// [F12 §6.5] "On a violation's key" for `DanglingEdge`: lane/x deletes #3 and #4 while main makes #1 block #3 and #2

@@ -368,6 +368,11 @@ impl Dag {
     /// parent's value of it: an engine follows the key's per-node chain (the commits whose net changeset holds the key
     /// or the node's existence) and hops to the second parent's chain at such a commit, and since a commit's origins
     /// never change they may be kept with it (the evaluation harness's candidate `threeway`, `merge/cand.rs`).
+    ///
+    /// A commit that records a resolution of the key to `base` or to a value (`choice` 2 or 3, [`Commit::resolves`]:
+    /// the commit a `merge --continue` lands) produced its value, also where it equals a parent's value: the walk does
+    /// not pass a resolution commit's origin on to a parent (OQ-A-13 13.4 (a); R-15 Q4). A resolution to `ours` or
+    /// `theirs` passes it on, as above.
     pub fn origin(&self, c: Option<u64>, n: Nid, alloc: &dyn Alloc) -> MoveKey {
         let k = Key::Node(n, Aspect::Hierarchy);
         let e = Key::Node(n, Aspect::Existence);
@@ -375,6 +380,13 @@ impl Dag {
         let mut cur = c;
         while let Some(x) = cur {
             let cm = &self.commits[&x];
+            if cm
+                .resolves
+                .iter()
+                .any(|(r, c)| *r == k && matches!(c, 2 | 3))
+            {
+                return (cm.hlc, cm.id);
+            }
             let moved = cm
                 .changeset
                 .get(&k)
