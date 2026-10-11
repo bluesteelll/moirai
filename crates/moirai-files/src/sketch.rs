@@ -27,6 +27,13 @@
 //! [`estimates`] gives `eoin`, `enio` and `esym` of an old content known only by its fingerprint, from the `hit`
 //! count a [`HitSink`] takes while the new content streams ([F20 §2.10.2]).
 //!
+//! # Resemblance and the pair score
+//!
+//! [`resemblance`] gives the bottom-k resemblance `r` of two fingerprints ([F20 §2.10.3]), by which stage 1 of the
+//! similarity search ranks its candidates. [`pair_score`] gives the [`PairScore`] of an old and a new content
+//! ([F20 §2.10.4]): `max(sym, J)` with the exact containments when both were read within the exact limit, else
+//! `esym` with the estimates. Its [`Basis`] records which.
+//!
 //! # Memory
 //!
 //! The fingerprint sink holds a fixed-size state and no heap memory: the line hasher, the weight, the 64 sketch values
@@ -39,8 +46,10 @@
 mod fingerprint;
 mod line;
 mod measure;
+mod score;
 mod winnow;
 
 pub use fingerprint::{Fingerprint, FingerprintError, FingerprintSink};
 pub use measure::{Estimates, Exact, HitSink, LineMultiset, MultisetSink, estimates, exact};
+pub use score::{Basis, PairScore, pair_score, resemblance};
 pub use winnow::{Tokens, WinnowSet, WinnowSink, jaccard, select, tokens, winnow};
