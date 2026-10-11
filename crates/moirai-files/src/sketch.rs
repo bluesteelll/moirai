@@ -46,6 +46,12 @@
 //! ([F20 §5.13]), over a [`RefEstimates`]: the reference fingerprint R, the fingerprint of the content compared with
 //! it, and their sketch estimates, which both tests always use. The cascade's own conditions are the caller's.
 //!
+//! # Split and merged
+//!
+//! [`split`] and [`merged`] are the tests of [F20 §5.11.4] rows 2 and 5, which §5.15 reuses, over [`Candidate`]s
+//! that carry a path and the containments of the old content in them: an old content found in pieces across several
+//! candidates, or folded into one host. The split sum is exact for every [`crate::r14::Ratio`].
+//!
 //! # Memory
 //!
 //! The fingerprint sink holds a fixed-size state and no heap memory: the line hasher, the weight, the 64 sketch values
@@ -58,6 +64,8 @@
 mod fingerprint;
 mod line;
 mod measure;
+mod nat;
+mod pieces;
 mod reference;
 mod score;
 mod tiny;
@@ -65,6 +73,7 @@ mod winnow;
 
 pub use fingerprint::{Fingerprint, FingerprintError, FingerprintSink};
 pub use measure::{Estimates, Exact, HitSink, LineMultiset, MultisetSink, estimates, exact};
+pub use pieces::{Candidate, merged, split};
 pub use reference::{RefEstimates, e8_content, replaced_content};
 pub use score::{Basis, PairScore, pair_score, resemblance};
 pub use tiny::{content_is_tiny, node_is_tiny};
