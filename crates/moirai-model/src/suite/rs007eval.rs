@@ -7,14 +7,17 @@
 //! Every history runs on its own store per variant, to its end, and every merge-family command in it (a `sync`, a
 //! cross-lane merge, a merge into `main` with its step-0 sync, a `--base` merge, both merges of a criss-cross, a
 //! revert and a cherry-pick) is judged by the oracle ([`oracle`]), which no rule computes:
-//! - a key is the hierarchy value (parent, order) of a task live in b, o and t; it is touched on side S when S's
-//!   value differs from b's (state-based touch);
-//! - a key touched on one side only must take that side's value, a key touched on neither keeps b's, a key touched on
-//!   both with equal values takes it (the determined keys); a key touched on both with different values may take
-//!   either side's value (MR-040 decides which; both are recorded);
-//! - a staging with a `HierarchyCycle` is avoidable when some assignment under these constraints is a forest (brute
-//!   force over the two-sided keys), genuine otherwise; a landing is wrong when a determined key lands at another value
-//!   or a two-sided key at neither side's value.
+//! - a key is the hierarchy value (parent, order) of a task live in the result (OQ-A-13 13.6 (a)), with `absent` as a
+//!   value on a side where the task is not live; it is touched on side S when S's value differs from b's (state-based
+//!   touch);
+//! - a key's allowed values: b's when touched on neither side, the side's when touched on one, the common value when
+//!   touched on both alike, and either side's when touched on both differently (MR-040 decides which; both are
+//!   recorded), `absent` dropped; when nothing is left, the live values among o's and t's (the result took the node's
+//!   existence from a live side, whose value it copied). A key with one allowed value is determined;
+//! - a staging with a `HierarchyCycle` is avoidable when some assignment of allowed values is a forest (brute force
+//!   over the keys with two), genuine otherwise; a landing is wrong when a key lands off its allowed values; a staging
+//!   for another reason is wrong when its candidate holds a key no violation names off its allowed values (R-15 Q5); a
+//!   staging that `--strict` or `merge.strict` asked for is `Requested`, not a fault (R-16 Q3).
 //!
 //! A secondary reading (CRIT-2's audit) also counts a key touched on a side when a commit of that side since B has it in
 //! its net changeset ([`Tri::touch`]); it is reported next to the primary, state-based one, since the two disagree on
@@ -227,9 +230,9 @@ pub(crate) enum Verdict {
         order_only: bool,
     },
     /// Staged on a `HierarchyCycle` although a forest keeps every constraint; `on_determined` when a staged key is a
-    /// determined one; `cand_wrong` when the staged candidate holds a determined key it did not stage elsewhere;
-    /// `stuck` when no choice of o's or t's value for each staged key makes the candidate a forest (only `--take base`
-    /// or a value resolves it).
+    /// determined one; `cand_wrong` when the staged candidate holds a judged key that no violation names off its
+    /// allowed values; `stuck` when no choice of o's or t's live value for each staged key makes the candidate a forest
+    /// (only `--take base` or a value resolves it).
     Avoidable {
         on_determined: bool,
         cand_wrong: bool,
@@ -237,8 +240,12 @@ pub(crate) enum Verdict {
     },
     /// Staged on a `HierarchyCycle`, and no forest keeps every constraint (`cand_wrong`, `stuck` as for `Avoidable`).
     Genuine { cand_wrong: bool, stuck: bool },
-    /// Staged with no `HierarchyCycle`.
-    StagedOther,
+    /// Staged with no `HierarchyCycle`; `cand_wrong` when the staged candidate holds a judged key that no violation
+    /// names off its allowed values (a fault, R-15 Q5).
+    StagedOther { cand_wrong: bool },
+    /// Staged under `--strict` or `merge.strict` on two-sided keys the 13.3 (b) rule staged because strict asked for it
+    /// ([`requested_pairs`]; R-16 Q3): not a fault.
+    Requested,
     /// Refused.
     Refused,
     /// Up to date.
@@ -246,11 +253,14 @@ pub(crate) enum Verdict {
 }
 
 impl Verdict {
-    /// An oracle fault: an avoidable staging or a wrong landing.
+    /// An oracle fault: an avoidable staging, a wrong landing, or a staging for another reason whose candidate is
+    /// wrong (R-15 Q5). `Genuine { cand_wrong: true }` and `Requested` are not faults.
     pub(crate) fn fault(&self) -> bool {
         matches!(
             self,
-            Verdict::Avoidable { .. } | Verdict::LandedWrong { .. }
+            Verdict::Avoidable { .. }
+                | Verdict::LandedWrong { .. }
+                | Verdict::StagedOther { cand_wrong: true }
         )
     }
 }
@@ -276,6 +286,8 @@ pub(crate) struct Tri {
     /// cherry-pick, C itself) has the task's hierarchy key in its net changeset. The secondary oracle reading
     /// (CRIT-2's audit) counts a key touched on a side when it is state-touched or changeset-touched there.
     pub touch: Option<(Vec<bool>, Vec<bool>)>,
+    /// The command ran under an effective `--strict` or `merge.strict` (never a revert or a cherry-pick, R-15 Q2).
+    pub strict: bool,
 }
 
 /// One merge-family command (or edit) of a history, as one variant's store ran it.
@@ -299,6 +311,8 @@ pub(crate) struct Entry {
     pub backstop: usize,
     /// A candidate's repairs in the command.
     pub repairs: usize,
+    /// The reply's hints, `(class, text)`: `data.hints`, or `data.sync.hints` for a step-0 entry.
+    pub hints: Vec<(String, String)>,
 }
 
 /// One history on one variant's store.
@@ -332,7 +346,7 @@ impl Log {
 /// A key's class under the oracle.
 #[derive(Clone, Copy, Debug, PartialEq, Eq)]
 pub(crate) enum Class {
-    /// The task is not live in all of b, o and t: not judged.
+    /// The task is not live in the result: not judged.
     NotJudged,
     /// Touched on neither side: keeps b's value.
     Untouched,
@@ -346,32 +360,32 @@ pub(crate) enum Class {
     BothDiff,
 }
 
-/// The oracle's reading of b, o and t ([`oracle`]).
+/// The oracle's reading of b, o and t over the result's live tasks ([`oracle`]).
 #[derive(Clone, Debug, PartialEq, Eq)]
 pub(crate) struct Oracle {
     /// Each task's class.
     pub class: Vec<Class>,
-    /// Some task is not live in all three.
+    /// Each judged task's allowed values A(i), o's before t's; empty for a task that is not judged.
+    pub allowed: Vec<Vec<HV>>,
+    /// Some task is not live in all of b, o and t.
     pub partial: bool,
-    /// Some assignment under the constraints is a forest over the judged tasks.
+    /// Some assignment of allowed values is a forest over the judged tasks.
     pub forest: bool,
 }
 
 impl Oracle {
-    /// The value a determined key must take; `None` for a two-sided or unjudged key.
-    pub(crate) fn expected<'a>(
-        &self,
-        i: usize,
-        b: &'a Hier,
-        o: &'a Hier,
-        t: &'a Hier,
-    ) -> Option<&'a HV> {
-        match self.class[i] {
-            Class::Untouched => Some(&b[i]),
-            Class::OnlyO | Class::BothSame => Some(&o[i]),
-            Class::OnlyT => Some(&t[i]),
-            Class::NotJudged | Class::BothDiff => None,
+    /// The value a determined key must take (its one allowed value); `None` for a key with two allowed values or an
+    /// unjudged one.
+    pub(crate) fn expected(&self, i: usize) -> Option<&HV> {
+        match self.allowed[i].as_slice() {
+            [v] => Some(v),
+            _ => None,
         }
+    }
+
+    /// Whether each task is judged (live in the result).
+    pub(crate) fn judged(&self) -> Vec<bool> {
+        self.allowed.iter().map(|a| !a.is_empty()).collect()
     }
 }
 
@@ -399,56 +413,74 @@ fn forest(p: &[Option<u32>], judged: &[bool]) -> bool {
     true
 }
 
-/// The oracle over b, o and t (state-based touch; no rule is read): each task's class, and whether some assignment of
-/// the two-sided keys (each o's or t's value) with every determined key at its value is a forest.
-pub(crate) fn oracle(b: &Hier, o: &Hier, t: &Hier) -> Oracle {
-    oracle_touch(b, o, t, None)
+/// The parent of a hierarchy value; `None` for a root and for `absent`.
+fn par(v: &HV) -> Option<u32> {
+    v.as_ref().and_then(|(p, _)| *p)
+}
+
+/// The oracle over b, o and t and the result r (state-based touch; no rule is read): each task's class and allowed
+/// values, and whether some assignment of allowed values is a forest.
+pub(crate) fn oracle(b: &Hier, o: &Hier, t: &Hier, r: &Hier) -> Oracle {
+    oracle_touch(b, o, t, r, None)
 }
 
 /// [`oracle`], with a key also touched on a side where `touch` (o's mask, t's mask) says so (the secondary reading).
+/// A task is judged iff it is live in r (OQ-A-13 13.6 (a)); `absent` is a value (a side where the task is not live
+/// holds it), and it is never an allowed value: a class whose value is `absent` falls back to the live values among
+/// o's and t's, the side the result took the node's existence from.
 pub(crate) fn oracle_touch(
     b: &Hier,
     o: &Hier,
     t: &Hier,
+    r: &Hier,
     touch: Option<&(Vec<bool>, Vec<bool>)>,
 ) -> Oracle {
     let n = b.len();
     let mut class = vec![Class::NotJudged; n];
+    let mut allowed: Vec<Vec<HV>> = vec![Vec::new(); n];
     for i in 0..n {
-        if b[i].is_none() || o[i].is_none() || t[i].is_none() {
+        if r[i].is_none() {
             continue;
         }
         let (co, ct) = touch.map_or((false, false), |(co, ct)| (co[i], ct[i]));
         let (to, tt) = (o[i] != b[i] || co, t[i] != b[i] || ct);
-        class[i] = match (to, tt) {
+        let c = match (to, tt) {
             (false, false) => Class::Untouched,
             (true, false) => Class::OnlyO,
             (false, true) => Class::OnlyT,
             (true, true) if o[i] == t[i] => Class::BothSame,
             (true, true) => Class::BothDiff,
         };
+        let mut a: Vec<HV> = match c {
+            Class::Untouched => vec![b[i].clone()],
+            Class::OnlyO | Class::BothSame => vec![o[i].clone()],
+            Class::OnlyT => vec![t[i].clone()],
+            _ => vec![o[i].clone(), t[i].clone()],
+        };
+        a.retain(Option::is_some);
+        if a.is_empty() {
+            a = [&o[i], &t[i]]
+                .into_iter()
+                .filter(|v| v.is_some())
+                .cloned()
+                .collect();
+            a.dedup();
+        }
+        assert!(
+            !a.is_empty(),
+            "the oracle: task #{} is live in the result with no live value on o or t",
+            i + 1
+        );
+        class[i] = c;
+        allowed[i] = a;
     }
-    let judged: Vec<bool> = class.iter().map(|c| *c != Class::NotJudged).collect();
-    let two: Vec<usize> = (0..n).filter(|i| class[*i] == Class::BothDiff).collect();
-    let par = |v: &HV| v.as_ref().and_then(|(p, _)| *p);
+    let judged: Vec<bool> = allowed.iter().map(|a| !a.is_empty()).collect();
+    let two: Vec<usize> = (0..n).filter(|i| allowed[*i].len() == 2).collect();
     let mut found = false;
     for mask in 0..(1u32 << two.len()) {
-        let mut p: Vec<Option<u32>> = vec![None; n];
-        for i in 0..n {
-            p[i] = match class[i] {
-                Class::NotJudged => None,
-                Class::Untouched => par(&b[i]),
-                Class::OnlyO | Class::BothSame => par(&o[i]),
-                Class::OnlyT => par(&t[i]),
-                Class::BothDiff => None,
-            };
-        }
+        let mut p: Vec<Option<u32>> = allowed.iter().map(|a| a.first().and_then(par)).collect();
         for (j, i) in two.iter().enumerate() {
-            p[*i] = if mask >> j & 1 == 1 {
-                par(&t[*i])
-            } else {
-                par(&o[*i])
-            };
+            p[*i] = par(&allowed[*i][(mask >> j & 1) as usize]);
         }
         if forest(&p, &judged) {
             found = true;
@@ -457,7 +489,8 @@ pub(crate) fn oracle_touch(
     }
     Oracle {
         class,
-        partial: judged.iter().any(|j| !j),
+        allowed,
+        partial: (0..n).any(|i| b[i].is_none() || o[i].is_none() || t[i].is_none()),
         forest: found,
     }
 }
@@ -466,6 +499,71 @@ pub(crate) fn oracle_touch(
 fn parent_key(k: &str) -> Option<usize> {
     let n: usize = k.strip_prefix('#')?.strip_suffix(".parent")?.parse().ok()?;
     n.checked_sub(1)
+}
+
+/// The requested pairs of a staging (R-16 Q3; the cut's addendum, I-1): each (task index, class, w) where the 13.3 (b)
+/// rule staged two-sided key k because strict asked for it, read from the states alone. Key k is staged as `#k.parent`
+/// with class `HierarchyCycle` or `DanglingEdge`, is judged with two allowed values, and the candidate holds one of
+/// them; w is the other.
+/// - A `HierarchyCycle` pair: the candidate with k under par(w) is not a forest over the judged tasks.
+/// - A `DanglingEdge` pair: par(r[k]) is a task not live in r, par(w) is a root or a task live in r, and the candidate
+///   with k under par(w) is a forest; and jointly, the candidate with every such key under its par(w) is a forest, or
+///   none of them is requested (their w values close a cycle together).
+pub(crate) fn requested_pairs(
+    tri: &Tri,
+    or: &Oracle,
+    viols: &[(String, String)],
+) -> Vec<(usize, &'static str, HV)> {
+    let r = &tri.r;
+    let n = r.len();
+    let judged = or.judged();
+    let rp: Vec<Option<u32>> = r.iter().map(par).collect();
+    let live_task = |p: u32| (p as usize) >= 1 && (p as usize) <= n && judged[p as usize - 1];
+    let with = |set: &[(usize, Option<u32>)]| {
+        let mut p = rp.clone();
+        for (k, v) in set {
+            p[*k] = *v;
+        }
+        forest(&p, &judged)
+    };
+    // The keys staged with `class`, each once, that are judged with two allowed values one of which r holds, with w.
+    let staged = |class: &str| -> Vec<(usize, HV)> {
+        let ks: BTreeSet<usize> = viols
+            .iter()
+            .filter(|(_, c)| c == class)
+            .filter_map(|(k, _)| parent_key(k))
+            .filter(|k| *k < n)
+            .collect();
+        ks.into_iter()
+            .filter(|k| or.allowed[*k].len() == 2 && or.allowed[*k].contains(&r[*k]))
+            .map(|k| {
+                let w = or.allowed[k]
+                    .iter()
+                    .find(|v| **v != r[k])
+                    .cloned()
+                    .expect("two allowed values");
+                (k, w)
+            })
+            .collect()
+    };
+    let mut out: Vec<(usize, &'static str, HV)> = staged("HierarchyCycle")
+        .into_iter()
+        .filter(|(k, w)| !with(&[(*k, par(w))]))
+        .map(|(k, w)| (k, "HierarchyCycle", w))
+        .collect();
+    let de: Vec<(usize, HV)> = staged("DanglingEdge")
+        .into_iter()
+        .filter(|(k, w)| {
+            rp[*k].is_some_and(|p| !live_task(p))
+                && par(w).is_none_or(live_task)
+                && with(&[(*k, par(w))])
+        })
+        .collect();
+    let joint: Vec<(usize, Option<u32>)> = de.iter().map(|(k, w)| (*k, par(w))).collect();
+    if with(&joint) {
+        out.extend(de.into_iter().map(|(k, w)| (k, "DanglingEdge", w)));
+    }
+    out
 }
 
 /// Judges one merge-family command by the oracle: `got` is what it did, `tri` its states and result, `viols` its
@@ -482,37 +580,36 @@ pub(crate) fn judge_touch(
     touch: Option<&(Vec<bool>, Vec<bool>)>,
 ) -> Verdict {
     let (b, o, t, r) = (&tri.b, &tri.o, &tri.t, &tri.r);
-    let or = oracle_touch(b, o, t, touch);
+    let or = oracle_touch(b, o, t, r, touch);
+    let judged = or.judged();
+    // The parent of a value, `None` for `absent` (an order-only wrong landing keeps an allowed value's parent).
+    let parent = |v: &HV| v.as_ref().map(|(p, _)| *p);
     match got {
         Got::Landed => {
             let (mut one, mut unt, mut same, mut neither) = (0, 0, 0, 0);
             let (mut took_o, mut took_t) = (0, 0);
             let mut order_only = true;
             for i in 0..b.len() {
-                let par = |v: &HV| v.as_ref().map(|(p, _)| *p);
-                match or.class[i] {
-                    Class::NotJudged => {}
-                    Class::BothDiff => {
+                let a = &or.allowed[i];
+                if a.is_empty() {
+                    continue;
+                }
+                if a.contains(&r[i]) {
+                    if or.class[i] == Class::BothDiff {
                         if r[i] == o[i] {
                             took_o += 1;
-                        } else if r[i] == t[i] {
-                            took_t += 1;
                         } else {
-                            neither += 1;
-                            order_only &= par(&r[i]) == par(&o[i]) || par(&r[i]) == par(&t[i]);
+                            took_t += 1;
                         }
                     }
-                    c => {
-                        let e = or.expected(i, b, o, t).expect("a determined key");
-                        if r[i] != *e {
-                            order_only &= par(&r[i]) == par(e);
-                            match c {
-                                Class::Untouched => unt += 1,
-                                Class::BothSame => same += 1,
-                                _ => one += 1,
-                            }
-                        }
-                    }
+                    continue;
+                }
+                order_only &= a.iter().any(|x| parent(x) == parent(&r[i]));
+                match or.class[i] {
+                    Class::Untouched => unt += 1,
+                    Class::BothSame => same += 1,
+                    Class::BothDiff => neither += 1,
+                    _ => one += 1,
                 }
             }
             if one + unt + same + neither == 0 {
@@ -528,35 +625,63 @@ pub(crate) fn judge_touch(
             }
         }
         Got::Staged(_) => {
+            // K: the task of every violation's `#n.parent`, of any class.
+            let keyed: BTreeSet<usize> = viols.iter().filter_map(|(k, _)| parent_key(k)).collect();
             let hc: BTreeSet<usize> = viols
                 .iter()
                 .filter(|(_, c)| c == "HierarchyCycle")
                 .filter_map(|(k, _)| parent_key(k))
                 .collect();
-            if !viols.iter().any(|(_, c)| c == "HierarchyCycle") {
-                return Verdict::StagedOther;
-            }
             let cand_wrong = (0..b.len())
-                .any(|i| !hc.contains(&i) && or.expected(i, b, o, t).is_some_and(|e| r[i] != *e));
-            // Whether `--take ours` or `--take theirs` on the staged keys can give a forest, the other keys as the
-            // candidate holds them.
-            let judged: Vec<bool> = or.class.iter().map(|c| *c != Class::NotJudged).collect();
+                .any(|i| judged[i] && !keyed.contains(&i) && !or.allowed[i].contains(&r[i]));
+            let rp: Vec<Option<u32>> = r.iter().map(par).collect();
+            if tri.strict {
+                let req = requested_pairs(tri, &or, viols);
+                let every_hc = viols
+                    .iter()
+                    .filter(|(_, c)| c == "HierarchyCycle")
+                    .all(|(k, _)| {
+                        parent_key(k).is_some_and(|i| {
+                            req.iter()
+                                .any(|(j, c, _)| *j == i && *c == "HierarchyCycle")
+                        })
+                    });
+                if !req.is_empty() && every_hc && !cand_wrong && forest(&rp, &judged) {
+                    return Verdict::Requested;
+                }
+            }
+            if !viols.iter().any(|(_, c)| c == "HierarchyCycle") {
+                return Verdict::StagedOther { cand_wrong };
+            }
+            // Whether some choice of a live value of o's or t's for each staged key gives a forest, the other keys as
+            // the candidate holds them.
             let staged: Vec<usize> = hc.iter().copied().filter(|i| judged[*i]).collect();
-            let par = |v: &HV| v.as_ref().and_then(|(p, _)| *p);
-            let stuck = !(0..(1u32 << staged.len())).any(|mask| {
-                let mut p: Vec<Option<u32>> = r.iter().map(par).collect();
+            let opts: Vec<Vec<Option<u32>>> = staged
+                .iter()
+                .map(|i| {
+                    let mut v: Vec<Option<u32>> = [&o[*i], &t[*i]]
+                        .into_iter()
+                        .filter(|x| x.is_some())
+                        .map(par)
+                        .collect();
+                    if v.is_empty() {
+                        v.push(rp[*i]);
+                    }
+                    v
+                })
+                .collect();
+            let combos: usize = opts.iter().map(Vec::len).product();
+            let stuck = !(0..combos).any(|mut m| {
+                let mut p = rp.clone();
                 for (j, i) in staged.iter().enumerate() {
-                    p[*i] = if mask >> j & 1 == 1 {
-                        par(&t[*i])
-                    } else {
-                        par(&o[*i])
-                    };
+                    p[*i] = opts[j][m % opts[j].len()];
+                    m /= opts[j].len();
                 }
                 forest(&p, &judged)
             });
             if or.forest {
                 Verdict::Avoidable {
-                    on_determined: hc.iter().any(|i| or.expected(*i, b, o, t).is_some()),
+                    on_determined: hc.iter().any(|i| or.expected(*i).is_some()),
                     cand_wrong,
                     stuck,
                 }
@@ -734,6 +859,7 @@ impl Run {
             tri: tri.map(Box::new),
             backstop: d.0,
             repairs: d.1,
+            hints: Vec::new(),
         });
     }
 
@@ -779,6 +905,7 @@ impl Run {
             one_sided,
             pick_no_hier: false,
             touch: Some(touch),
+            strict: false,
         }
     }
 
@@ -811,6 +938,13 @@ impl Run {
             };
             v.into_iter().map(|v| (v.key, v.class)).collect()
         };
+        // The reply's hints: a step-0 entry's are its sync's.
+        let hints = d
+            .map(|d| match kind {
+                Kind::Step0 => d.sync.as_ref().map(|x| x.hints.clone()).unwrap_or_default(),
+                _ => d.hints.clone(),
+            })
+            .unwrap_or_default();
         let (got, result, vs) = match (&r.outcome, d) {
             (Outcome::Ok, Some(d)) if d.outcome == "up-to-date" => (Got::UpToDate, None, vec![]),
             (Outcome::Ok, _) => (Got::Landed, Some(self.tip(dst)), vec![]),
@@ -859,6 +993,7 @@ impl Run {
         );
         if let Some(e) = self.log.entries.last_mut() {
             e.verdict_ch = verdict_ch;
+            e.hints = hints;
         }
         landed
     }
@@ -961,6 +1096,7 @@ impl Run {
         );
         if let Some(e) = self.log.entries.last_mut() {
             e.verdict_ch = Some(verdict_ch);
+            e.hints = sync.hints.clone();
         }
         let inputs = self.inputs(od, sc, forced);
         self.record(op, kind, &r, dst, inputs, take, before);
@@ -1034,6 +1170,8 @@ impl Run {
             one_sided: false,
             pick_no_hier: no_hier,
             touch: Some(touch),
+            // A revert or a cherry-pick takes no strict (R-15 Q2).
+            strict: false,
         };
         let r = self.s.run(cmd, fresh_on(onto));
         self.record(op, kind, &r, onto, inputs, take, before);
@@ -1157,6 +1295,7 @@ fn dummy_tri(n: u32) -> Tri {
         one_sided: false,
         pick_no_hier: false,
         touch: None,
+        strict: false,
     }
 }
 
@@ -1459,6 +1598,17 @@ pub(crate) struct KStats {
     pub genuine_ch: usize,
     pub avoidable_ch: usize,
     pub wrong_ch: usize,
+    /// Stagings with no `HierarchyCycle` whose candidate holds a judged key no violation names off its allowed values
+    /// (a fault, R-15 Q5).
+    pub staged_other_wrong: usize,
+    /// Stagings strict asked for ([`Verdict::Requested`]).
+    pub requested: usize,
+    /// `MoveSkipped` hints (13.3 (b)).
+    pub hints: usize,
+    /// Keys of a landing that lost a reparent to a concurrent order-only change with no hint (13.5 (b); ALT-10): the
+    /// task is judged and live in b, o and t; one side's value has b's parent and another order, the other side's
+    /// another parent; the result holds the order-only side's value; no hint names the key.
+    pub reparent_lost: usize,
 }
 
 impl KStats {
@@ -1477,6 +1627,12 @@ impl KStats {
         }
         if e.settled == Some(false) {
             self.settle_aborted += 1;
+        }
+        self.hints += e.hints.iter().filter(|(c, _)| c == "MoveSkipped").count();
+        if e.got == Got::Landed
+            && let Some(t) = &e.tri
+        {
+            self.reparent_lost += reparents_lost(t, &e.hints);
         }
         if let Some(t) = &e.tri {
             let partial =
@@ -1547,10 +1703,32 @@ impl KStats {
                 self.cand_wrong += *cand_wrong as usize;
                 self.stuck += *stuck as usize;
             }
-            Some(Verdict::StagedOther) => self.staged_other += 1,
+            Some(Verdict::StagedOther { cand_wrong }) => {
+                self.staged_other += 1;
+                self.staged_other_wrong += *cand_wrong as usize;
+            }
+            Some(Verdict::Requested) => self.requested += 1,
             _ => {}
         }
     }
+}
+
+/// The keys of a landing ([`KStats::reparent_lost`]) that lost a reparent to a concurrent order-only change with no
+/// hint naming them.
+fn reparents_lost(t: &Tri, hints: &[(String, String)]) -> usize {
+    (0..t.b.len())
+        .filter(|i| {
+            let (Some(b), Some(o), Some(x), Some(r)) = (&t.b[*i], &t.o[*i], &t.t[*i], &t.r[*i])
+            else {
+                return false;
+            };
+            let order_only = |s: &(Option<u32>, Option<String>)| s.0 == b.0 && s != b;
+            let lost =
+                (order_only(o) && x.0 != b.0 && r == o) || (order_only(x) && o.0 != b.0 && r == x);
+            let named = format!("#{}.parent ", i + 1);
+            lost && !hints.iter().any(|(_, h)| h.starts_with(&named))
+        })
+        .count()
 }
 
 /// Whether `x` and `y` agree on every task live in b, o and t.
@@ -1683,7 +1861,7 @@ fn verdict_text(v: &Verdict) -> String {
                 ""
             },
             if *cand_wrong {
-                ", candidate moves a determined key"
+                ", candidate holds a key off its allowed values"
             } else {
                 ""
             },
@@ -1696,7 +1874,7 @@ fn verdict_text(v: &Verdict) -> String {
         Verdict::Genuine { cand_wrong, stuck } => format!(
             "genuine staging{}{}",
             if *cand_wrong {
-                ", candidate moves a determined key"
+                ", candidate holds a key off its allowed values"
             } else {
                 ""
             },
@@ -1706,35 +1884,39 @@ fn verdict_text(v: &Verdict) -> String {
                 ""
             }
         ),
-        Verdict::StagedOther => "staged (no HierarchyCycle)".into(),
+        Verdict::StagedOther { cand_wrong } => format!(
+            "staged (no HierarchyCycle){}",
+            if *cand_wrong {
+                ", WRONG: the candidate holds a key off its allowed values"
+            } else {
+                ""
+            }
+        ),
+        Verdict::Requested => "staged at strict's request (requested)".into(),
         Verdict::Refused => "refused".into(),
         Verdict::UpToDate => "up to date".into(),
     }
 }
 
-/// The oracle's expectation on (b, o, t), as text.
+/// The oracle's expectation on (b, o, t) over the result's live tasks, as text.
 pub(crate) fn expectation_text(t: &Tri) -> String {
-    let or = oracle(&t.b, &t.o, &t.t);
+    let or = oracle(&t.b, &t.o, &t.t, &t.r);
     let mut det = Vec::new();
     let mut two = Vec::new();
     for i in 0..t.b.len() {
-        match or.class[i] {
-            Class::NotJudged => det.push(format!("#{} not judged", i + 1)),
-            Class::BothDiff => two.push(format!(
-                "#{} o {} | t {}",
-                i + 1,
-                hv_text(&t.o[i]),
-                hv_text(&t.t[i])
-            )),
-            c => det.push(format!(
+        match (or.class[i], or.allowed[i].as_slice()) {
+            (Class::NotJudged, _) => det.push(format!("#{} not judged", i + 1)),
+            (_, [x, y]) => two.push(format!("#{} o {} | t {}", i + 1, hv_text(x), hv_text(y))),
+            (c, a) => det.push(format!(
                 "#{} {} ({})",
                 i + 1,
-                hv_text(or.expected(i, &t.b, &t.o, &t.t).expect("determined")),
+                a.iter().map(hv_text).collect::<Vec<_>>().join(" | "),
                 match c {
                     Class::Untouched => "untouched",
                     Class::OnlyO => "o only",
                     Class::OnlyT => "t only",
-                    _ => "both, same",
+                    Class::BothSame => "both, same",
+                    _ => "both, one side absent",
                 }
             )),
         }
@@ -2682,6 +2864,24 @@ pub(crate) fn corpus() -> Vec<Case> {
             ],
             &[],
         ),
+        case(
+            "K2-W3D",
+            "wave-3d-alternatives.md: K2's one fault (wide:2:893, shrunk); OQ-A-13 13.6 (a)",
+            "lane/x deletes #3 and puts #2 under #4 (C); lane/z holds #4 under #3 and #3 under #2; cherry-pick C onto lane/z: the cycle runs through #3, which C's base does not hold live",
+            4,
+            &[X, Y, Z],
+            vec![
+                MvAt(M, 4, Some(3), Pos::Last),
+                Del(X, 3, false),
+                Sync(Z, Theirs),
+                Mv(X, 2, Some(4)),
+                Mark("C", X),
+                Mv(Y, 3, Some(2)),
+                Merge(Y, Z, Ours),
+                Pick(CRef::Label("C"), Z, Ours),
+            ],
+            &[],
+        ),
     ]);
     v
 }
@@ -3066,7 +3266,23 @@ fn abs_rows(
             Box::new(k(|s| s.staged_other)),
         ),
         (
-            "staged candidate moves an unstaged determined key",
+            "  of which the candidate holds an unstaged key off its allowed values (a fault)",
+            "staged_other_wrong",
+            Box::new(k(|s| s.staged_other_wrong)),
+        ),
+        (
+            "staged at strict's request (requested, not a fault)",
+            "requested",
+            Box::new(k(|s| s.requested)),
+        ),
+        ("MoveSkipped hints", "hints", Box::new(k(|s| s.hints))),
+        (
+            "reparents lost to an order-only change with no hint",
+            "reparent_lost",
+            Box::new(k(|s| s.reparent_lost)),
+        ),
+        (
+            "staged candidate holds an unstaged key off its allowed values",
             "staged_candidate_wrong",
             Box::new(k(|s| s.cand_wrong)),
         ),
@@ -3360,7 +3576,9 @@ fn report_corpus(cfg: &Cfg, out: &mut String, tsv: &mut String) {
             Some(Verdict::LandedWrong { .. }) => "WRONG".into(),
             Some(Verdict::Avoidable { .. }) => "AVOIDABLE".into(),
             Some(Verdict::Genuine { .. }) => "genuine".into(),
-            Some(Verdict::StagedOther) => "staged-other".into(),
+            Some(Verdict::StagedOther { cand_wrong: false }) => "staged-other".into(),
+            Some(Verdict::StagedOther { cand_wrong: true }) => "STAGED-OTHER-WRONG".into(),
+            Some(Verdict::Requested) => "requested".into(),
             Some(Verdict::Refused) => "refused".into(),
             Some(Verdict::UpToDate) => "up-to-date".into(),
             None => got_text(&e.got),
@@ -3741,7 +3959,7 @@ fn rs007_eval_oracle_classifies_by_state() {
     let b = vec![root.clone(), root.clone(), root.clone()];
     let o = vec![v(Some(2)), root.clone(), root.clone()];
     let t = vec![root.clone(), v(Some(1)), root.clone()];
-    let or = oracle(&b, &o, &t);
+    let or = oracle(&b, &o, &t, &b);
     assert_eq!(or.class[..2], [Class::OnlyO, Class::OnlyT]);
     assert_eq!(or.class[2], Class::Untouched);
     assert!(!or.forest);
@@ -3754,6 +3972,7 @@ fn rs007_eval_oracle_classifies_by_state() {
         one_sided: false,
         pick_no_hier: false,
         touch: None,
+        strict: false,
     };
     let hc = |n: u32| vec![(format!("#{n}.parent"), "HierarchyCycle".to_string())];
     assert_eq!(
@@ -3770,7 +3989,7 @@ fn rs007_eval_oracle_classifies_by_state() {
     // A two-sided key makes a forest possible: o #1 under #2, t #1 under #3 and #2 under #1.
     let o2 = vec![v(Some(2)), root.clone(), root.clone()];
     let t2 = vec![v(Some(3)), v(Some(1)), root.clone()];
-    let or = oracle(&b, &o2, &t2);
+    let or = oracle(&b, &o2, &t2, &b);
     assert_eq!(or.class[..2], [Class::BothDiff, Class::OnlyT]);
     assert!(or.forest, "#1 under #3 with #2 under #1 is a forest");
     let t3 = Tri {
@@ -3782,6 +4001,7 @@ fn rs007_eval_oracle_classifies_by_state() {
         one_sided: false,
         pick_no_hier: false,
         touch: None,
+        strict: false,
     };
     assert_eq!(
         judge(&Got::Staged(vec![]), &t3, &hc(2)),
@@ -3821,7 +4041,7 @@ fn rs007_eval_oracle_classifies_by_state() {
         root.clone(),
     ];
     let t4 = vec![v(Some(2)), root.clone(), v(Some(1))];
-    let or = oracle(&b4, &o4, &t4);
+    let or = oracle(&b4, &o4, &t4, &b4);
     assert_eq!(or.class, vec![Class::OnlyO, Class::Untouched, Class::OnlyT]);
     let w = Tri {
         b: b4,
@@ -3832,6 +4052,7 @@ fn rs007_eval_oracle_classifies_by_state() {
         one_sided: false,
         pick_no_hier: false,
         touch: None,
+        strict: false,
     };
     assert_eq!(
         judge(&Got::Landed, &w, &[]),
@@ -3843,14 +4064,223 @@ fn rs007_eval_oracle_classifies_by_state() {
             order_only: false
         }
     );
-    // A dead task is not judged.
-    let or = oracle(
-        &vec![root.clone(), None],
-        &vec![root.clone(), root.clone()],
-        &vec![root.clone(), root.clone()],
-    );
+    // A task dead in the result is not judged; one live in the result and dead in b is (`absent` is a value).
+    let (bd, live) = (vec![root.clone(), None], vec![root.clone(), root.clone()]);
+    let or = oracle(&bd, &live, &live, &vec![root.clone(), None]);
     assert_eq!(or.class, vec![Class::Untouched, Class::NotJudged]);
     assert!(or.partial && or.forest);
+    let or = oracle(&bd, &live, &live, &live);
+    assert_eq!(or.class, vec![Class::Untouched, Class::BothSame]);
+}
+
+/// The widened oracle (OQ-A-13 13.6 (a); R-15 Q5): a task live in the result is judged, with `absent` as a value, also
+/// where b does not hold it; a task live in the result and deleted on one side takes the live side's value; a task
+/// dead in the result is not judged; and a staging with no `HierarchyCycle` whose candidate holds a key no violation
+/// names off its allowed values is a fault.
+#[test]
+fn rs007_eval_oracle_judges_every_node_live_in_the_result() {
+    let v = |p: Option<u32>| Some((p, None::<String>));
+    let root = v(None);
+    // #1 at the root throughout; #2 absent in b and t and revived at the root on o (a flat-`None` root), landed under
+    // #1; #3 deleted on o and untouched on t, kept live; #4 deleted on t, dead in the result.
+    let tri = Tri {
+        b: vec![root.clone(), None, root.clone(), root.clone()],
+        o: vec![root.clone(), root.clone(), None, root.clone()],
+        t: vec![root.clone(), None, root.clone(), None],
+        r: vec![root.clone(), v(Some(1)), root.clone(), None],
+        virtual_base: false,
+        one_sided: false,
+        pick_no_hier: false,
+        touch: None,
+        strict: false,
+    };
+    let or = oracle(&tri.b, &tri.o, &tri.t, &tri.r);
+    assert_eq!(
+        or.class,
+        vec![
+            Class::Untouched,
+            Class::OnlyO,
+            Class::OnlyO,
+            Class::NotJudged
+        ]
+    );
+    assert_eq!(
+        judge(&Got::Landed, &tri, &[]),
+        Verdict::LandedWrong {
+            one_sided: 1,
+            untouched: 0,
+            both_same: 0,
+            neither: 0,
+            order_only: false
+        },
+        "#2 must take o's root"
+    );
+    // #2 at o's root and #3 at t's root land right; #3 elsewhere is wrong.
+    let ok = Tri {
+        r: vec![root.clone(), root.clone(), root.clone(), None],
+        ..tri.clone()
+    };
+    assert_eq!(
+        judge(&Got::Landed, &ok, &[]),
+        Verdict::LandedOk {
+            took_o: 0,
+            took_t: 0
+        }
+    );
+    let moved = Tri {
+        r: vec![root.clone(), root.clone(), v(Some(1)), None],
+        ..tri.clone()
+    };
+    assert!(
+        matches!(
+            judge(&Got::Landed, &moved, &[]),
+            Verdict::LandedWrong { one_sided: 1, .. }
+        ),
+        "#3 must keep the live side's value"
+    );
+    // A `DanglingEdge` staging on #3 whose candidate holds #1 at the root, where o put it under #2.
+    let staged = Tri {
+        b: vec![root.clone(), root.clone(), root.clone()],
+        o: vec![v(Some(2)), root.clone(), root.clone()],
+        t: vec![root.clone(), root.clone(), v(Some(2))],
+        r: vec![root.clone(), root.clone(), v(Some(2))],
+        ..tri.clone()
+    };
+    let de = vec![("#3.parent".to_string(), "DanglingEdge".to_string())];
+    let vd = judge(&Got::Staged(vec![]), &staged, &de);
+    assert_eq!(vd, Verdict::StagedOther { cand_wrong: true });
+    assert!(
+        vd.fault(),
+        "a wrong candidate of another staging is a fault"
+    );
+    let right = Tri {
+        r: vec![v(Some(2)), root.clone(), v(Some(2))],
+        ..staged.clone()
+    };
+    let vd = judge(&Got::Staged(vec![]), &right, &de);
+    assert_eq!(vd, Verdict::StagedOther { cand_wrong: false });
+    assert!(!vd.fault());
+}
+
+/// K2's one fault of wave 3d (`wide:2:893`, shrunk to the corpus case `K2-W3D`): the cherry-pick's cycle runs through
+/// #3, which the pick's base and src hold deleted and its dst live. The old oracle did not judge #3 and called the
+/// staging avoidable; the widened oracle judges #3 (o's value, the only live one) and finds no forest.
+#[test]
+fn rs007_eval_k2s_wave_3d_fault_is_a_genuine_cycle() {
+    let c = corpus_case("K2-W3D").expect("the case");
+    let l = run(&c.hist, Rule::Cand);
+    let fe = focus_entries(&c, &l);
+    assert_eq!(fe.len(), 1, "{}", trace_text(&c.hist, &l));
+    let e = fe[0];
+    assert_eq!(
+        (e.kind, &e.got),
+        (
+            Kind::Pick,
+            &Got::Staged(vec!["#2.parent HierarchyCycle".into()])
+        ),
+        "{}",
+        trace_text(&c.hist, &l)
+    );
+    assert!(
+        matches!(
+            e.verdict,
+            Some(Verdict::Genuine {
+                cand_wrong: false,
+                ..
+            })
+        ),
+        "{}",
+        trace_text(&c.hist, &l)
+    );
+}
+
+/// `Requested` (R-16 Q3; the cut's addendum, I-1): under strict, a two-sided key staged as the 13.3 (b) rule stages it
+/// is no fault. The cycle class: the candidate holds o's #1 and t's would close a cycle; without strict the staging is
+/// avoidable, and so is a strict one whose candidate reset the key to b. The dead-parent class: the candidate holds o's
+/// #1 under the deleted #2 and t's has a live parent; without strict it is a staging for another reason. Two
+/// dead-parent keys whose other values close a cycle together are not requested.
+#[test]
+fn rs007_eval_oracle_calls_a_strict_staging_of_a_two_sided_key_requested() {
+    let v = |p: Option<u32>| Some((p, None::<String>));
+    let root = v(None);
+    let tri = |b: Hier, o: Hier, t: Hier, r: Hier, strict: bool| Tri {
+        b,
+        o,
+        t,
+        r,
+        virtual_base: false,
+        one_sided: false,
+        pick_no_hier: false,
+        touch: None,
+        strict,
+    };
+    let viol = |k: &str, c: &str| (k.to_string(), c.to_string());
+    let all_root = vec![root.clone(); 3];
+    // The cycle class.
+    let (o, t) = (
+        vec![v(Some(3)), v(Some(1)), root.clone()],
+        vec![v(Some(2)), root.clone(), root.clone()],
+    );
+    let hc = [viol("#1.parent", "HierarchyCycle")];
+    let staged = Got::Staged(vec![]);
+    let strict_hc = tri(all_root.clone(), o.clone(), t.clone(), o.clone(), true);
+    assert_eq!(judge(&staged, &strict_hc, &hc), Verdict::Requested);
+    assert!(!Verdict::Requested.fault());
+    let plain = Tri {
+        strict: false,
+        ..strict_hc.clone()
+    };
+    assert!(matches!(
+        judge(&staged, &plain, &hc),
+        Verdict::Avoidable { .. }
+    ));
+    let reset = Tri {
+        r: vec![root.clone(), v(Some(1)), root.clone()],
+        ..strict_hc.clone()
+    };
+    assert!(matches!(
+        judge(&staged, &reset, &hc),
+        Verdict::Avoidable { .. }
+    ));
+    // The dead-parent class.
+    let (o, t, r) = (
+        vec![v(Some(2)), root.clone(), root.clone()],
+        vec![v(Some(3)), None, root.clone()],
+        vec![v(Some(2)), None, root.clone()],
+    );
+    let de = [viol("#1.parent", "DanglingEdge")];
+    let strict_de = tri(all_root.clone(), o, t, r, true);
+    assert_eq!(judge(&staged, &strict_de, &de), Verdict::Requested);
+    let plain = Tri {
+        strict: false,
+        ..strict_de.clone()
+    };
+    assert_eq!(
+        judge(&staged, &plain, &de),
+        Verdict::StagedOther { cand_wrong: false }
+    );
+    // Two dead-parent keys: #1 holds t's (under the deleted #3), o's is under #2; #2 holds o's (under the deleted #4),
+    // t's is under #1. Each alone could take its other value; together they close a cycle.
+    let both = tri(
+        vec![root.clone(); 4],
+        vec![v(Some(2)), v(Some(4)), None, root.clone()],
+        vec![v(Some(3)), v(Some(1)), root.clone(), None],
+        vec![v(Some(3)), v(Some(4)), None, None],
+        true,
+    );
+    let two = [
+        viol("#1.parent", "DanglingEdge"),
+        viol("#2.parent", "DanglingEdge"),
+    ];
+    assert_eq!(
+        judge(&staged, &both, &two),
+        Verdict::StagedOther { cand_wrong: false }
+    );
+    assert_eq!(
+        judge(&staged, &both, &two[..1]),
+        Verdict::Requested,
+        "#1 alone is requested"
+    );
 }
 
 /// What a corpus case's focus merges must do under every acceptable rule.
