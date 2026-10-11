@@ -15,5 +15,6 @@ Writes the documents a cut names (docs/m0/workflow.md §6).
   its files); edits a path outside the lock set or one the author role may not write.
 - **Report:** the path the brief names (under `<ORCH>/<unit>/`): the files written and the source of each fact.
 - **Verdict:** `DONE`, or `STOPPED` with the missing source.
-- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; its `deny_read` in `xtask/roles.toml`, also
-  through any other way of reading; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work".
+- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; any reading limit its spec or brief sets, also
+  through any other way of reading; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work". The role's
+  `deny_read` path rules in `xtask/roles.toml` are not applied (docs/m0/workflow.md §2, R-8).

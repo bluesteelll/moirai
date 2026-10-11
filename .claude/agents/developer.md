@@ -21,6 +21,7 @@ Implements the approved plan in the unit's role worktree (docs/m0/workflow.md §
 - **Report:** the path the brief names (`<ORCH>/<unit>/impl.md`, `fix_r<n>.md`): commits, red-first evidence, gate
   verdict lines, paths of logs.
 - **Verdict:** `DONE`, or `STOPPED` with the reason and what the orchestrator must decide.
-- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; its `deny_read` in `xtask/roles.toml`, also
-  through Bash; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work". Commit subjects start `WP-xx:`
-  with a WP of that role; commits take an explicit path list after `git diff --cached --stat`.
+- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; any reading limit its spec or brief sets, also
+  through Bash; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work". The role's `deny_read` path rules
+  in `xtask/roles.toml` are not applied (docs/m0/workflow.md §2, R-8). Commit subjects start `WP-xx:` with a WP of
+  that role; commits take an explicit path list after `git diff --cached --stat`.

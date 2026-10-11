@@ -12,8 +12,9 @@ Audits where the project stands (docs/m0/workflow.md §5).
   `<ORCH>/RESUME.md`): which WPs are done and accepted, which gates are green, which findings are open, what blocks
   what; every claim cites a file:line, a commit or a command with its verdict line.
 - **Never:** edits the repository or commits; runs a build or a gate outside the kit; reads a path its brief's
-  author role may not read.
+  reading limits forbid.
 - **Report:** the path the brief names (under `<ORCH>/`); `Write` is for that path only.
 - **Verdict:** `MEETS`, `MISSES` or `INCONCLUSIVE` against each target the brief names.
-- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; its `deny_read` in `xtask/roles.toml`, also
-  through Bash; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work".
+- **Rules:** obeys the author role its brief names (PLAN §3.1: S1–S6; any reading limit its spec or brief sets, also
+  through Bash; the write map of docs/m0/authors.md §3) and AGENTS.md "Agent work". The role's `deny_read` path rules
+  in `xtask/roles.toml` are not applied (docs/m0/workflow.md §2, R-8).

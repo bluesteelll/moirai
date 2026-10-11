@@ -1,8 +1,9 @@
 # The agent workflow: units, the orchestrator and the gate kit
 
-- **Status:** set up on 2026-10-07 from the owner's brief and the plan the owner approved that day; R-HARN
-  (`docs/m0/**`, [authors.md](authors.md) §3), reviewed like any other `docs/m0/` file. The orchestrator reads this
-  file. Every other agent reads only AGENTS.md "Agent work", its role file in `.claude/agents/` and its brief.
+- **Status:** set up on 2026-10-07 from the owner's brief and the plan the owner approved that day, and updated on
+  2026-10-11 for R-5 to R-11; R-HARN (`docs/m0/**`, [authors.md](authors.md) §3), reviewed like any other `docs/m0/`
+  file. The orchestrator reads this file. Every other agent reads only AGENTS.md "Agent work", its role file in
+  `.claude/agents/` and its brief.
 - **Sources:** AGENTS.md ("Git", "Data", "Agent work"); [PLAN.md](PLAN.md) §2.1 (target directories, test tiers),
   §2.5, §3.1 (author roles, S1–S6, "Mechanics"), §5 (commits and pushes); [authors.md](authors.md) §1–§3, §5;
   `xtask/roles.toml`; the module docs of `xtask/src/worktree.rs`, `gate.rs` and `authors.rs`;
@@ -11,7 +12,7 @@
   on 2026-10-07 (code.claude.com/docs/en/: `settings`, `settings-reference`, `permissions`, `sub-agents`,
   `workflows`, `prompt-caching`, `agent-view`); a fact that moves with a release is checked again in §15.
 - **Rulings:** R-1 to R-4 (§2) are the owner's answers of 2026-10-07. Later rulings are numbered on from R-5 in
-  `<ORCH>/RULINGS.md`, and units cite them by number.
+  `<ORCH>/RULINGS.md`, and units cite them by number. §2 summarises R-5 to R-11.
 
 ## 1. Terms and places
 
@@ -23,33 +24,38 @@
 - **Trunk**: local `master`. Only the orchestrator merges into it, and it pushes it after the merge (R-2).
 - **Author role** (PLAN §3.1: R-HARN-I, R-MODEL, …) and **stage role** (`.claude/agents/`: architect,
   architecture-critic, developer, tester, code-reviewer, researcher, project-analyst, results-analyst, doc-writer,
-  mechanic). Every agent of a unit is a stage role acting for the unit's author role, bound by that role's S1–S6,
-  `deny_read` and write map (AGENTS.md "Agent work").
+  mechanic). Every agent of a unit is a stage role acting for the unit's author role, bound by that role's S1–S6
+  and write map (AGENTS.md "Agent work") and by any reading limit its spec sets; the role's `deny_read` path rules are
+  not applied (R-8).
 - **Gate worktree**: a neutral, non-authoring worktree, detached, where only the full gate runs
   (`cargo xtask gate --branch m0/<role>`, PLAN §3.1 "The gate worktree"). There is one per PLAN lane, `gate-a` for
   the lane-A roles and `gate-b` for the lane-B roles of `xtask/roles.toml`, because the gate runs with the target
   directory of the branch's lane: units of different lanes then gate at once, and units of one lane take turns on the
-  kit's lock of that worktree (they would wait on cargo's build lock of the shared target directory anyway).
+  kit's lock of that worktree (they would wait on cargo's build lock of the shared target directory anyway). While
+  the capacity is one unit, every unit gates in `gate-a` with lane A's target directory, whatever its role's lane
+  (R-8, R-9).
 - **Lock set**: the paths a unit may write. **Red-first**, **pin**: AGENTS.md "Agent work". **Mutation**: a deliberate
   bug that a named gate must catch. **Delta-scoped**: only what the last fix or sync changed.
 - **Kit**: the PowerShell scripts in `<ORCH>/kit/` that run long gates detached under a budget (§7, Appendix A).
-- **Orchestrator session**: an interactive Claude Code session in the main checkout, on `master`. It plans, launches,
-  reads verdicts, rules, merges and pushes; it never runs a unit's agents itself.
-- **Unit session**: a Claude Code session started in the role worktree, which launches the unit workflow and nothing
-  else. A subagent starts in the launching session's working directory and inherits that session's permission rules
-  and environment (Claude Code sub-agents documentation). The role's `deny_read` rules and its lane's
-  `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS` live in the role worktree's `.claude/settings.local.json`
-  (`xtask/src/worktree.rs`), so only a session started there applies them to every agent of the unit. On Windows
-  Claude Code reads that file from the session's starting directory; elsewhere a worktree session reads the main
-  checkout's (settings documentation), one more reason units run only on the Windows PC (R-1).
+- **Orchestrator session**: an interactive Claude Code session in the main checkout, on `master`. It plans, launches
+  each unit's workflow itself (§6.3), reads verdicts, rules, merges and pushes; it never does a stage's work. Its
+  environment (the main checkout's `.claude/settings.local.json`, §8) gives every unit agent lane A's target
+  directory and 4 build jobs (R-8, R-9).
+- **Unit session** (superseded by R-8 and R-9; used under R-1 to R-7, up to the trial unit): a Claude Code session
+  started in the role worktree, which launched the unit workflow and nothing else. A subagent starts in the launching
+  session's working directory and inherits that session's permission rules and environment (Claude Code sub-agents
+  documentation). So a unit's agents now take the orchestrator session's rules and environment, and work in the role
+  worktree by starting every shell command with a `cd` into it (the unit header, §6.1). The role worktree's
+  `.claude/settings.local.json`, which `xtask worktree` still writes with the role's `deny_read` rules and its lane's
+  `CARGO_TARGET_DIR` and `CARGO_BUILD_JOBS` (`xtask/src/worktree.rs`), is unused.
 
 | Place | Path | Made by |
 |---|---|---|
-| Main checkout (the orchestrator session) | `D:/claude/moirai` | the owner's clone (R-1) |
+| Main checkout (the orchestrator session, which launches every unit) | `D:/claude/moirai` | the owner's clone (R-1) |
 | `<WT_ROOT>`, the worktree root | `D:/moirai-wt` | `git config moirai.worktree-root` (R-1) |
 | Role worktree, one per open unit | `<WT_ROOT>/<role>`, branch `m0/<role>` | `cargo xtask worktree <role> --base master` |
 | Gate worktrees | `<WT_ROOT>/gate-a`, `<WT_ROOT>/gate-b` | `git worktree add --detach`, once (§15 step 6) |
-| Lane target directories | `D:/moirai-target/laneA`, `D:/moirai-target/laneB` | `git config moirai.target-root`; `xtask worktree` sets them (PLAN §2.1) |
+| Lane target directories | `D:/moirai-target/laneA`, `D:/moirai-target/laneB` | `git config moirai.target-root` (PLAN §2.1); the orchestrator session's environment sets lane A for every unit (§8, R-8) |
 | `<ORCH>`, the orchestration state | `D:/orch/moirai` | §15 step 3 (R-1) |
 
 ## 2. The owner's rulings
@@ -77,8 +83,37 @@ identity written out there:
   daytime limits of profile L ([60 §3.15], restated in docs/m0/nightly.md's sources) and the disk guard ([MP §8],
   docs/spec/measurement-protocol.md); unit capacity is set by measuring one gate's peak on the PC.
 
-§9 and §10 apply R-3 and R-4. Chat with the owner may be in Russian; every file in the repository and in `<ORCH>`
-is in English (AGENTS.md).
+Later rulings, in short (the full text is in `<ORCH>/RULINGS.md`; units cite them by number):
+
+- **R-5 What the 1 GB covers** (2026-10-08, by the orchestrator on the owner's delegation; in force). The 1 GB of
+  [60 §3.15] binds the nightly-tier jobs run beside the agents. `cargo xtask gate` and the per-commit gates are
+  build-lane work within R-4's share, bounded by the lane's build lock, `CARGO_BUILD_JOBS` and the pre-flight's
+  floors (§10).
+- **R-6 The trial unit** (2026-10-08; for the trial only). The trial unit was `u00-f21-doclinks` (role `r-fl1b`,
+  WP-63), with a doc gate in place of a unit test (§15 step 10).
+- **R-7 Unit sessions through the app** (2026-10-08; superseded by R-8). A unit session started from the command
+  line had no login of its own on the PC, so the orchestrator started unit sessions through the Claude app.
+- **R-8 Units from the orchestrator session** (2026-10-08; amended by R-9). The orchestrator session launches each
+  unit itself with the Workflow tool, from the embedded copy. There is no unit session and no CLI login, and the
+  role's `deny_read` path rules are not applied. S1–S6 and the write map of authors.md §3 still bind what a unit
+  writes. Builds take the main checkout's settings, lane A's target directory and 4 jobs, and every unit gates in
+  `gate-a`. R-8 first ran units in the main checkout itself; R-9 moved them into the role worktree.
+- **R-9 A unit works in its own folder** (2026-10-08; in force). `wt` is the role worktree made by
+  `cargo xtask worktree <role> --base master`, so the main checkout stays on `master`. `kit/local-settings.ps1` is
+  not run for the role worktree, and the settings `xtask worktree` writes there go unused (§5.2).
+- **R-10 The commit charge and an environmental FAIL** (2026-10-08; in force). No full gate or other kit run starts
+  while the free commit charge is below 4 GB, and the kit refuses such a start (§7, §10). A gate FAIL caused by the
+  machine is re-run once on the same head; a second one is a STOP for the owner.
+- **R-11 The kit counts lane A only** (2026-10-11; in force until a nightly run or a lane B unit). `kit/caps.txt`
+  counts `D:/moirai-target/laneA` alone and keeps the other entries as comments. The full `[guard.caps]` set is
+  restored before any nightly run or any lane B unit (§10).
+
+R-12 (2026-10-11) settles the questions of one unit, and §7 "The kit hash" carries its rule for re-installing the
+kit. Such unit rulings are not summarised here.
+
+§9 applies R-3. §10 applies R-4, R-5, R-10 and R-11, and §7 and Appendix A apply R-10 and R-11 to the kit. §1, §3 to
+§6, §8, §12, §13 and §15 apply R-8 and R-9. Chat with the owner may be in Russian; every file in the repository and in
+`<ORCH>` is in English (AGENTS.md).
 
 ## 3. The orchestration state: `<ORCH>`
 
@@ -94,10 +129,10 @@ rewrite of `RESUME.md`, and never pushed to the public repository (R-1). It hold
 | `baseline.tsv` | the test IDs (`<package>\|<source>\|<test>`, §7) and statuses of the whole workspace at tier `pr` on `master` (§15 step 8), refreshed per package at each merge (§5.4 step 6); no unit agent reads it (§5.2 step 6) |
 | `mechanic-escapes.tsv` | the mechanic's escapes (§9) |
 | `embed/<unit>.src.js`, `embed/<unit>.js`, `embed/args_<unit>.json` | the copy of `unit.js` taken at the unit's first launch, the embedded copy made from it, and the arguments of every launch (§6.3, §6.4) |
-| `<unit>/` | `spec.md`, `baseline_unit.tsv`, `launch.md`, `run_<k>.txt`, `result_<k>.json`, `cut.md`, `critique.md`, `impl.md`, `gate_r<n>/` (a kit run directory) and `gate_r<n>.md`, `expected_r<n>.tsv`, `tests_r<n>-<m>/` (the tester's kit runs), `test_r<n>.md`, `review_r<n>.md`, `triage_r<n>.md`, `fix_r<n>.md`, `pack.md`, `run<k>/` (the round files of an earlier launch), `wt-<stage>/` (scratch worktrees) |
+| `<unit>/` | `spec.md`, `baseline_unit.tsv`, `run_<k>.txt` and `result_<k>.json` (written by the orchestrator, §6.3), `cut.md`, `critique.md`, `impl.md`, `gate_r<n>/` (a kit run directory) and `gate_r<n>.md`, `expected_r<n>.tsv`, `tests_r<n>-<m>/` (the tester's kit runs), `test_r<n>.md`, `review_r<n>.md`, `triage_r<n>.md`, `fix_r<n>.md`, `pack.md`, `run<k>/` (the round files of an earlier launch), `wt-<stage>/` (scratch worktrees), `kit-<commit>/` (the scratch kits of a unit that changes Appendix A, §7) |
 | `kit/` | the scripts of Appendix A, `budgets.txt`, `caps.txt`, `unit-allow.txt`, `guard.exe`, `locks/`, `selftest-runs/` |
 
-Its `.gitignore` holds `/*/wt-*/`, `log.txt`, `/kit/locks/`, `/kit/selftest-runs/` and `/kit/guard.exe`.
+Its `.gitignore` holds `/*/wt-*/`, `/*/kit-*/`, `log.txt`, `/kit/locks/`, `/kit/selftest-runs/` and `/kit/guard.exe`.
 
 `RESUME.md` skeleton:
 
@@ -109,7 +144,7 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 
 ## Units
 
-| unit | role | WP | branch | worktree | base | stage | unit session | run id | script | lock set |
+| unit | role | WP | branch | worktree | base | stage | session | run id | script | lock set |
 |---|---|---|---|---|---|---|---|---|---|---|
 
 ## Running gates
@@ -128,15 +163,16 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 
 ## 4. Units, worktrees and the trunk
 
-- **One worktree per unit**, the role worktree; its settings carry the role's `deny_read` rules, the lane's target
-  directory and `CARGO_BUILD_JOBS` (`xtask/src/worktree.rs`). Two agents never build or edit in one checkout at once:
+- **One worktree per unit**, the role worktree. `xtask worktree` still writes the role's `deny_read` rules, the lane's
+  target directory and `CARGO_BUILD_JOBS` into its settings (`xtask/src/worktree.rs`), but no session starts there,
+  so they are unused: unit agents take the orchestrator session's rules and environment (§8, R-8, R-9). Two agents
+  never build or edit in one checkout at once:
   inside a unit the stages run one after another in the role worktree, and the tester and the reviewer, which run in
   parallel, only read it.
 - **Scratch worktrees** for red-firsts on the parent and for mutations: `git worktree add --detach
   <ORCH>/<unit>/wt-<stage> <sha>`, removed with `git worktree remove` when done. They build into the session's lane
   target directory, never into a private one (the disk headroom is the binding resource, [MP §8]); cargo's build
-  lock serialises them with the lane's other builds. `kit/local-settings.ps1` extends the role's `deny_read` rules to
-  `<WT_ROOT>/**` and `<ORCH>/**`, so these paths are covered too.
+  lock serialises them with the lane's other builds.
 - **Lock sets.** A file outside the unit's lock set, or in another open unit's set, is a STOP. The lock set lies
   inside what the author role may write (authors.md §3); two open units never share a path.
 - **Concurrency**: at most the measured capacity (§10), one open unit per role.
@@ -149,7 +185,8 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 - **Lockfile changes.** `Cargo.lock` and `fuzz/Cargo.lock` change only in the gate worktree (PLAN §3.1; authors.md
   §3), and every per-commit gate runs `--locked`. A unit that changes a manifest so that the lockfile must change:
   1. the developer commits the manifest change and STOPs with the reason `lockfile` (its `--locked` gates cannot run);
-  2. the orchestrator runs the full gate once itself, through the kit in the lane's gate worktree
+  2. the orchestrator runs the full gate once itself, through the kit in the unit's gate worktree (`gate-a` with lane
+     A's target directory while units build only in lane A, R-8)
      (`start-gate.ps1 -RunDir <ORCH>/<unit>/lock_<k> -WorkDir <gateWt> -Unit <unit> -RunId <unit>-lock<k> -Kind gate
      -Detach m0/<role> -TargetDir <the lane's target directory> -CmdLine "cargo xtask gate --branch m0/<role>"`):
      its DONE says `lockfile=updated` (the `lock` step resolved the branch's manifests and the build steps ran on the
@@ -167,13 +204,14 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
 ### 5.1 Classify each owner request
 
 - **Direct** (at most about 30 lines in at most two files, an existing test covers it): still a unit, because every
-  merge into `master` passes the gate (PLAN §3.1), but a short one: in the unit session a developer, then the
-  mechanic's gate run, then a tester, through the Agent tool with the same role files; no cut, critique, review or
-  triage.
+  merge into `master` passes the gate (PLAN §3.1), but a short one: the orchestrator session launches a developer,
+  then a mechanic's gate run, then a tester, through the Agent tool, with the same role files and unit.js's unit
+  header; no cut, critique, review or triage.
 - **Unit**: one reviewable portion of one WP (§1).
 - **Campaign** (larger): a design workflow first (researcher, architect, architecture-critic; at most two rounds,
   the second delta-only), then a STOP for the owner's value calls, then the plan cut into rungs, one unit each. An
-  agent that must read a crate's sources runs in a unit session of the author role allowed to read them.
+  agent that must read a crate's sources acts for an author role that S1–S6 let read them; its brief states any
+  reading limit the separation rules need (R-8).
 - Before any launch: no agreed measurement or nightly window falls inside the expected run (§10, §14).
 
 ### 5.2 Launch a unit
@@ -188,36 +226,36 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
    refuses an existing worktree directory and reuses an existing `m0/<role>` branch, ignoring `--base`; so an existing
    worktree, or a branch that is not merged into `master` (`git merge-base --is-ancestor m0/<role> master` fails), is
    open work of an earlier session: STOP and ask. A merged leftover branch is deleted first (`git branch --delete
-   m0/<role>`).
-5. **Local settings.** `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/local-settings.ps1 -Worktree
-   <WT_ROOT>/<role> -Orch <ORCH> -WtRoot <WT_ROOT>`: it adds `permissions.additionalDirectories` `<ORCH>` and
-   `<WT_ROOT>` (agents write their reports under `<ORCH>`, and the session may launch a script kept there only when it
-   may read it), the allow rules of `kit/unit-allow.txt`, and the role's `deny_read` rules under `<WT_ROOT>/**` and
-   `<ORCH>/**` with Read denies of `<ORCH>/baseline.tsv` and `<ORCH>/baseline/**` (step 6); it keeps every other key and
-   rule.
+   m0/<role>`). The `settings.local.json` the command writes into the worktree goes unused (R-9, §4).
+5. **No local settings** (R-8, R-9): `kit/local-settings.ps1` is not run for the role worktree; unit agents run under
+   the main checkout's settings (§8). Until R-8 this step ran it for the role worktree, to add the additional
+   directories, the allow rules and the role's `deny_read` rules there.
 6. **Arguments and the unit's baseline.** Write `<ORCH>/embed/args_<unit>.json` (§6.2): `base` = `git rev-parse
-   master`, `gateWt` = the gate worktree of the role's lane, `dryRun` = `false`, `resumeNote` = `""`. Write
+   master`, `gateWt` = `gate-a` while units build only in lane A (otherwise the gate worktree of the role's lane),
+   `dryRun` = `false`, `resumeNote` = `""`. Write
    `<ORCH>/<unit>/baseline_unit.tsv`: the first line of `baseline.tsv`, then its rows whose package is one of the
    unit's (the `-p` values of `gates`), for example `grep -E '^(xtask|moirai-vfs)[|]' <ORCH>/baseline.tsv`. A role
    writes and reads its own packages; should a `deny_read` module pattern of the role (`xtask/roles.toml`) name one of
    them, its rows whose test path lies in that module are dropped too, as the gate's filter drops them
    (`xtask/src/cargo.rs`). The tester builds its expected set from this file; `baseline.tsv` itself holds every
-   crate's test names, which S2 withholds from most roles, and `kit/local-settings.ps1` denies it to every role with
-   `deny_read` rules.
+   crate's test names, which S2 withholds from most roles, and the unit header (§6.1, `unit.js`) limits every agent's
+   reads under `<ORCH>` to its unit's directory, `kit/` and `RULINGS.md`.
 7. **Embedded copy.** Copy the main checkout's `.claude/workflows/unit.js` (on `master`) to
    `<ORCH>/embed/<unit>.src.js`, then `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/embed.ps1
    -Script <ORCH>/embed/<unit>.src.js -ArgsFile <ORCH>/embed/args_<unit>.json -Out <ORCH>/embed/<unit>.js`.
 8. **Dry run** in the orchestrator session: `Workflow({ name: "unit", args: <the args with dryRun true> })` must
    return `{ ok: true, args }` with no agent started; it checks the script and the arguments.
-9. **Launch file** `<ORCH>/<unit>/launch.md` for launch `k` = 1 (template in §6.3), then start the unit session
-   (§6.3).
-10. **Record.** A `RESUME.md` row: unit, role, WP, branch, worktree, base, stage `launched`, the unit session's name,
-    the run id (from `run_1.txt` once it appears), the script `<ORCH>/embed/<unit>.js`, the lock set. Commit `<ORCH>`.
+9. **Launch** (§6.3): `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js" })` from this session; the run id it returns
+   goes to `<ORCH>/<unit>/run_1.txt`.
+10. **Record.** A `RESUME.md` row: unit, role, WP, branch, worktree, base, stage `launched`, the session (this
+    orchestrator session, §6.4), the run id (`run_1.txt`), the script `<ORCH>/embed/<unit>.js`, the lock set. Commit
+    `<ORCH>`.
 
 ### 5.3 Between runs
 
-- Wait for `<ORCH>/<unit>/result_<k>.json` in bounded slices (`kit/wait-gate.ps1 -File <path>`), doing other work
-  between them.
+- The workflow runs in the background of the orchestrator session, which does other work meanwhile. When it returns,
+  the orchestrator writes its return value to `<ORCH>/<unit>/result_<k>.json`. If the session ended first, the value
+  is in the run record `~/.claude/projects/<project>/<session>/workflows/<run id>.json` (§6.4).
 - Read the result's fields only (§6.5). Open a report, by section (`rg -n`, ranged reads), only on `RED`,
   `CHANGES_REQUESTED`, `STOPPED`, a gate outcome other than `PASS`, or `ok: false`.
 - Answer a question as a numbered ruling in `RULINGS.md` and relaunch with a resume note that cites it (§6.4).
@@ -225,9 +263,8 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
   failure excerpt, rule, and relaunch.
 - A unit still red after round 3 is not merged: rule, then relaunch fix-only (`DELTA SINCE <head>: fix …`) or split it
   into two units.
-- A unit session under `Needs input` in agent view (the first workflow launch, a permission prompt, a classifier
-  pause, §8) waits for the owner: STOP and ask the owner to attach to it (`→` in `claude agents`). A reply from the
-  peek panel does not answer a dialog (Claude Code agent-view documentation).
+- A unit agent's permission prompt or a classifier pause (§8) waits in the orchestrator session: STOP and ask the
+  owner to answer it there.
 - Copy the mechanic escapes the tester reported into `<ORCH>/mechanic-escapes.tsv` (§9).
 - Rewrite `RESUME.md` and commit `<ORCH>` after every change of a unit's stage.
 
@@ -250,13 +287,13 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
    the owner (the never-list rules out undoing the merge).
 5. **Push** (R-2): `git push origin master`. A refusal (not a fast-forward, a branch ruleset that requires a pull
    request, PLAN §5 V10, the network) is not retried in another form: record it under "Waiting on the owner" and STOP.
-6. **Clean up.** The unit session has nothing running. `git worktree remove <WT_ROOT>/<role>` (it refuses a dirty
-   worktree: STOP); `git branch --delete m0/<role>` (it refuses an unmerged branch: STOP), so that the role's next unit
-   is made from `master` and not from the reused old branch; `git worktree remove <ORCH>/<unit>/wt-<stage>` for every
-   scratch worktree left, then `git worktree prune`. The lane target directory stays. In `baseline.tsv`, replace the
-   rows of each package the final round's tests runs covered on the verified head with those runs' `id` and `status`
-   columns, so that the next unit's expected set matches `master`. Close the row in `RESUME.md`, update the trunk line
-   (`pushed: yes`) and commit `<ORCH>`.
+6. **Clean up.** The unit's workflow has returned and no kit run of the unit is alive. `git worktree remove
+   <WT_ROOT>/<role>` (it refuses a dirty worktree: STOP); `git branch --delete m0/<role>` (it refuses an unmerged
+   branch: STOP), so that the role's next unit is made from `master` and not from the reused old branch; `git worktree
+   remove <ORCH>/<unit>/wt-<stage>` for every scratch worktree left, then `git worktree prune`. The lane target
+   directory stays. In `baseline.tsv`, replace the rows of each package the final round's tests runs covered on the
+   verified head with those runs' `id` and `status` columns, so that the next unit's expected set matches `master`.
+   Close the row in `RESUME.md`, update the trunk line (`pushed: yes`) and commit `<ORCH>`.
 
 ## 6. The unit workflow
 
@@ -298,7 +335,7 @@ structured verdict and the script parses nothing.
 | `unit` | `u<nn>-<slug>` |
 | `orch` | `D:/orch/moirai` |
 | `wt` | `D:/moirai-wt/<role>` |
-| `gateWt` | `D:/moirai-wt/gate-a` or `gate-b`, by the role's lane |
+| `gateWt` | `D:/moirai-wt/gate-a` while units build only in lane A (R-8); otherwise `gate-a` or `gate-b`, by the role's lane |
 | `branch` | `m0/<role>` (the script refuses anything else) |
 | `base` | the `master` sha the unit started from |
 | `trunk` | `master` |
@@ -320,30 +357,19 @@ structured verdict and the script parses nothing.
   `unit.js` can change between a launch and its relaunch, so every relaunch embeds from `<ORCH>/embed/<unit>.src.js`,
   the copy taken at launch 1 (§5.2 step 7). `kit/embed.ps1` writes it with LF line endings (the runtime rejects CR as
   a hidden control character).
-- **The unit session** launches it. The orchestrator starts the session from the role worktree:
-  `cd <WT_ROOT>/<role> && "<claude>" --bg --permission-mode auto --name unit-<unit> "Read <ORCH>/<unit>/launch.md and
-  do exactly what it says."`, where `<claude>` is the executable recorded in `inventory.md` (tools.md §9: neither
-  install is on `PATH`). The permission mode is §8's. A background session keeps its workflow running when no terminal
-  is open, and one started inside a linked worktree, as a role worktree is, edits it in place instead of moving into
-  a worktree of its own (Claude Code agent-view documentation). Workspace trust is keyed on the main checkout's root
-  for every worktree of the repository (permissions documentation), so the trust of `D:/claude/moirai` (§15 step 1)
-  covers the role and gate worktrees; if `claude --bg` still exits with `Workspace not trusted`, STOP and ask the
-  owner to open Claude Code in the role worktree once and accept the dialog. Where `--bg` is not available (§15 step
-  1), STOP and ask the owner to open a session in the role worktree with the same permission mode and paste the one
-  line.
-- **`launch.md`** (rewritten for every launch `k`):
+- **The orchestrator session launches it** (R-8, R-9), from the main checkout, with `wt` = the role worktree:
+  - the launch is `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js" })`, run in the background of the session;
+  - every agent of the unit starts in the session's directory, with its rules and environment, and starts each shell
+    command with a `cd` into `wt` or the directory its stage names (the unit header);
+  - `<ORCH>/<unit>/run_<k>.txt` holds the run id the tool returns;
+  - `<ORCH>/<unit>/result_<k>.json` holds the workflow's return value, or
+    `{"ok": false, "stage": "launch", "note": "<the error>"}` when it fails to start or ends with an error;
+  - if the session ends before the workflow returns, the value is in the run record
+    `~/.claude/projects/<project>/<session>/workflows/<run id>.json` (§6.4).
 
-  ```markdown
-  # Launch <k> of unit <unit>
-
-  You are the unit session of <unit>, in <WT_ROOT>/<role>. Do only this, then end your turn:
-  1. Start the workflow with the Workflow tool: scriptPath <ORCH>/embed/<unit>.js[, resumeFromRunId <run id>].
-  2. Write the run id the tool returns to <ORCH>/<unit>/run_<k>.txt.
-  3. When the workflow returns, write its return value as JSON to <ORCH>/<unit>/result_<k>.json. If it fails to
-     start or ends with an error, write {"ok": false, "stage": "launch", "note": "<the error>"} there instead.
-  Do not read the reports, fix anything or launch anything else, and do not commit, push or open a pull request:
-  the workflow's agents commit on the unit's branch (AGENTS.md "Agent work") and the orchestrator merges.
-  ```
+  Until R-8, a unit session in the role worktree launched the workflow, started with `claude --bg` and a
+  `launch.md`; R-7 found that a session started from the command line has no login of its own on the PC, and R-8
+  dropped the unit session.
 
 ### 6.4 Relaunch and resume
 
@@ -359,12 +385,13 @@ structured verdict and the script parses nothing.
 - Before a relaunch: move the round files of the earlier launch (`impl.md`, `gate_r*`, `expected_r*`, `tests_r*`,
   `test_r*`, `review_r*`, `triage_r*`, `fix_r*`) into `<unit>/run<k>/` (the re-run stages write the same names, and the
   kit refuses an existing run directory); update `args_<unit>.json` and re-run `kit/embed.ps1` with `-Script
-  <ORCH>/embed/<unit>.src.js` (never the current `unit.js`, and never the embedded copy: it has no marker line); rewrite
-  `launch.md` for `k + 1` with the run id; then send the unit session the same one line (in agent view, or by resuming
-  it with `claude --resume` from the role worktree).
-- A run is resumable from the session that ran it. Across sessions, resume that session and relaunch with the run
-  id. Copying a run's directory under another session's directory in `~/.claude/projects/` is an undocumented
-  internal path: a fallback only. A relaunch that reports "nothing to resume" starts over as a new run (new `k`).
+  <ORCH>/embed/<unit>.src.js` (never the current `unit.js`, and never the embedded copy: it has no marker line); then
+  relaunch from the orchestrator session that ran launch `k`: `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js",
+  resumeFromRunId: "<run id>" })`, writing `run_<k+1>.txt` and `result_<k+1>.json` as §6.3 does.
+- A run is resumable from the session that ran it. Across sessions, resume that orchestrator session in the main
+  checkout and relaunch from it with the run id. Copying a run's directory under another session's directory in
+  `~/.claude/projects/` is an undocumented internal path: a fallback only. A relaunch that reports "nothing to
+  resume" starts over as a new run (new `k`).
 - Scripts are plain JavaScript; `Date.now()`, `Math.random()` and a bare `new Date()` throw in the runtime, so
   anything time-dependent comes in through the arguments.
 
@@ -373,7 +400,8 @@ structured verdict and the script parses nothing.
 `ok`, `unit`, `stage` (`verify` when the rounds ran out or finished; else the stage that returned it: `args`, `cut`,
 `critique`, `implement`, `gate`, `test`, `review`, `triage`, `fix`), `note`, `round`, `crit`, `gate` (the mechanic's
 outcome), `head`, `tree`, `kit`, `test`, `review`, `critical`, `important`, `reports` (the unit's directory): verdicts
-and paths, about a few hundred tokens. Nothing else is read until a verdict calls for it.
+and paths, about a few hundred tokens; the orchestrator copies it into `result_<k>.json`. Nothing else is read until a
+verdict calls for it.
 
 ## 7. The gate kit
 
@@ -384,10 +412,11 @@ or stop it.
 
 - **Scripts** (Appendix A; Windows PowerShell 5.1, ASCII): `start-gate.ps1` (start one run), `run-gate.ps1` (the
   detached runner it starts), `wait-gate.ps1` (one bounded wait), `stop-gate.ps1` (stop by PID tree and archive),
-  `preflight.ps1` (the floors, through the guard of [MP §8]), `embed.ps1` (§6.3), `local-settings.ps1` (§5.2 step 5,
-  §8), `kit-hash.ps1`, `kit-common.ps1` (shared helpers), `selftest.ps1` and `selftest-fake.ps1` (the red-proof).
-  Beside them: `budgets.txt` (`gate=<minutes>`, `tests=<minutes>`, §15 step 9), `caps.txt` (the counted directories
-  of the pre-flight and their caps, `<dir>=<cap>` per line, from `xtask/nightly.toml` `[guard.caps]`, §10),
+  `preflight.ps1` (the floors: disk and RAM through the guard of [MP §8], and the commit charge), `embed.ps1` (§6.3),
+  `local-settings.ps1` (§8: the main checkout only, §15 step 6), `kit-hash.ps1`, `kit-common.ps1` (shared helpers),
+  `selftest.ps1` and `selftest-fake.ps1` (the red-proof). Beside them: `budgets.txt` (`gate=<minutes>`,
+  `tests=<minutes>`, §15 step 9), `caps.txt` (the counted directories of the pre-flight and their caps, `<dir>=<cap>`
+  per line, from `xtask/nightly.toml` `[guard.caps]`, §10; laneA only while units build only in lane A, R-11),
   `unit-allow.txt` (§8), `guard.exe` (a copy of `moirai-probes-bin guard`, §15 step 5) and `locks/` (one lock per
   work directory).
 - **A run directory** holds `params.txt` and `cmd.txt` (written before the start), `PID` and `owner.txt` (unit, run
@@ -401,10 +430,11 @@ or stop it.
   exited 0 —, an expected test is missing, or the run changed a file other than a lockfile); `VACUOUS` (7: no gate rows,
   or zero tests: a vacuous green is red); `VOID` (8: the runner failed); `HANG` (124: past the budget, stopped by its
   PID tree). A tests run also fails when a test binary has no package (§7 "Test IDs"). `start-gate.ps1` exits 0
-  (started), 1 (pre-flight refused), 2 (usage or precondition: an existing run directory, no `CARGO_TARGET_DIR`, a gate
-  worktree that is not clean, a tests run of cargo without `--message-format=json-render-diagnostics`, no `caps.txt`) or
-  6 (the work directory is busy). `wait-gate.ps1` exits 0 (DONE), 3 (still running within the budget), 4 (past the
-  budget: a hang) or 5 (the runner is gone without DONE).
+  (started), 1 (pre-flight refused: its line names the reasons, `ram-low`, `disk-low`, `commit-low`, or `guard`), 2
+  (usage or precondition: an existing run directory, no `CARGO_TARGET_DIR`, a gate worktree that is not clean, a tests
+  run of cargo without `--message-format=json-render-diagnostics`, no `caps.txt`) or 6 (the work directory is busy).
+  `wait-gate.ps1` exits 0 (DONE), 3 (still running within the budget), 4 (past the budget: a hang) or 5 (the runner
+  is gone without DONE).
 - **Commands agents run** (from the Bash tool, each after `cd` into its directory):
   - the full gate (the mechanic): `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/start-gate.ps1
     -RunDir <ORCH>/<unit>/gate_r<n> -WorkDir <gateWt> -Unit <unit> -RunId <unit>-r<n> -Kind gate -Detach m0/<role>
@@ -416,7 +446,13 @@ or stop it.
   - a bounded wait: `… wait-gate.ps1 -RunDir <run dir>` (540 s by default; the shell tool's timeout above it), one
     call per slice, never a sleep loop in the shell;
   - a stop: `… stop-gate.ps1 -RunDir <run dir> -Reason "<why>"`. Never `taskkill /IM` or any kill by image name: it
-    stops every unit's builds.
+    stops every unit's builds;
+  - a start refused for the commit charge alone (exit 1, and the pre-flight line says `verdict=refuse commit-low`,
+    R-10): a pause of `… wait-gate.ps1 -File <ORCH>/<unit>/commit-wait -SliceSec 300` (nothing writes that file, so
+    it returns exit 3 after 300 s; the shell tool's timeout above it, 600000 ms), then the same start again; after six
+    pauses (30 minutes) the mechanic reports `STOPPED` and the tester `RED`, with the last pre-flight line. A refused
+    start made no run, so starting it again is not re-running a gate for a different result. Any other refusal is
+    reported at once. The orchestrator's own kit starts (§4, §10, §15) follow the same rule.
 - **Test IDs** are `<package>|<source>|<test>` (`moirai-vfs|unittests src/lib.rs|a::b`, `moirai-vfs|tests/basic.rs|x`,
   `moirai-vfs|doc-tests|<name>`). The source is what cargo's `Running` line prints; the package comes from the
   `compiler-artifact` message that announced the executable, which is why a tests run of cargo must pass
@@ -429,15 +465,28 @@ or stop it.
   as host-only is excluded here too.
 - **The kit hash** (SHA-256 over every kit script) is stamped into every `summary.tsv` and `DONE`. A gate verdict
   counts for a merge only with the current hash (§5.4 step 1). Any change to a kit script changes the hash: run
-  `selftest.ps1` again and record the new hash and its result in `inventory.md`.
+  `selftest.ps1` again and record the new hash and its result in `inventory.md`. A change of Appendix A goes through a
+  unit, and it reaches the kit as follows (RULINGS R-12):
+  - the unit never edits the live kit `<ORCH>/kit/`;
+  - for each commit that changes Appendix A, it extracts the commit's scripts into `<ORCH>/<unit>/kit-<commit>/`
+    exactly as printed (ASCII, CRLF), copies `guard.exe`, `caps.txt`, `budgets.txt` and `unit-allow.txt` from
+    `<ORCH>/kit/`, adds an empty `locks/`, and runs `selftest.ps1` there;
+  - after the merge, with no kit run alive, the orchestrator writes the scripts of Appendix A over `<ORCH>/kit/`. It
+    keeps `budgets.txt`, `caps.txt`, `unit-allow.txt`, `guard.exe` and `locks/`, which hold this machine's values;
+  - it then runs `selftest.ps1` and records the new hash and the summary line in `inventory.md` and in `RESUME.md`'s
+    header;
+  - every such selftest starts only while the free commit charge is at least 4 GB (§10), and one selftest runs at a
+    time: the timed cases can fail under contention.
 - **Red-proof.** A gate script is trusted only after it was seen exiting non-zero on a failing row (AGENTS.md).
   `selftest.ps1` runs every kit script the way an agent does on synthetic inputs and checks: a failing row with exit 0,
   a non-zero exit with passing rows, zero rows, zero tests, a missing expected test, test IDs that carry the package
   (two packages with one test file name, a binary no message announced), a tests run without JSON messages, a hang
   stopped by its PID tree, a bounded wait on a live run, a busy work directory, a stop and its archive, a runner that
   dies (the orphaned command is stopped by its recorded PID), the pre-flight below each floor and with a capped
-  directory's reserve, through the fallback and the guard, the embedded copy, the local settings, and the `-Detach`
-  checkout with its lockfile rules. Each script's own red-proof is the selftest case named after it in Appendix A.
+  directory's reserve, through the fallback and the guard, the pre-flight below the commit floor on both paths, with
+  the floor's default pinned, and start-gate passing the floor on, the embedded copy, the local settings, and the
+  `-Detach` checkout with its lockfile rules. Each script's own red-proof is the selftest case named after it in
+  Appendix A.
 
 ## 8. Settings
 
@@ -467,35 +516,36 @@ or stop it.
   agent's life), no hook or index tool that agents must use. Hooks are optional accelerators (AGENTS.md).
 
 **Local, `.claude/settings.local.json`** (this machine, untracked): `kit/local-settings.ps1` adds to the main checkout
-(§15 step 6) and to every new role worktree (§5.2 step 5) `permissions.additionalDirectories` `<ORCH>` and
-`<WT_ROOT>`, the allow rules of `kit/unit-allow.txt`, and in a role worktree the role's `deny_read` rules under
-`<WT_ROOT>/**` and `<ORCH>/**`, with the baseline's Read denies for a role that has `deny_read` rules (§5.2 step 6).
-`unit-allow.txt` starts with the kit's one rule:
+(§15 step 6) `permissions.additionalDirectories` `<ORCH>` and `<WT_ROOT>` and the allow rules of `kit/unit-allow.txt`.
+It is not run for role worktrees (R-8, R-9); its extension of a role's `deny_read` rules to `<WT_ROOT>/**` and
+`<ORCH>/**` serves only a return to unit sessions. The main checkout's file also sets `env.CARGO_TARGET_DIR`
+(`D:/moirai-target/laneA`) and `env.CARGO_BUILD_JOBS` (4), which the orchestrator session and every unit agent take
+(R-8). `unit-allow.txt` starts with the kit's one rule:
 
 ```text
-# Local allow rules for the main checkout and every role worktree (kit/local-settings.ps1).
+# Local allow rules for the main checkout (kit/local-settings.ps1).
 Bash(powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:/orch/moirai/kit/*)
 ```
 
-A prompt that stopped an agent of the trial unit (§15 step 10) gets the narrowest rule that covers it, here, and the
-rule then reaches every later unit.
+A prompt that stops a unit agent gets the narrowest rule that covers it, here, and the rule then reaches every later
+unit.
 
 - Allow rules and additional directories wait for workspace trust, and the main checkout's trust covers every
-  worktree of the repository (permissions documentation, §6.3).
+  worktree of the repository (permissions documentation).
 - The rules are Bash rules: agents use the Bash tool (Git Bash on Windows). If the PowerShell tool is turned on, the
   same rules would be needed as `PowerShell(…)` rules.
-- **Permission mode.** A unit session runs in auto mode (`--permission-mode auto`, §6.3), and its subagents and
-  workflow agents run in the session's mode (sub-agents documentation). In Manual mode every edit and every workflow
-  launch would prompt (additional directories make reads, not edits, prompt-free; "don't ask again" is offered only
-  for a workflow launched by name), and in `acceptEdits` every launch and every command outside the allow rules
-  would, such as a `cd` into a scratch worktree followed by `git` (permissions and workflows documentation). In auto
-  mode a classifier reviews the actions instead; deny rules still apply, and the classifier does not count a
-  workflow's computed prompts as the owner's requests. A unit can still stop for the owner: the first workflow
-  launch in auto mode asks once (the answer is kept in the user settings); writes to protected paths such as
-  `.claude/` and `.cargo/` go to the classifier and may be refused, so a unit whose lock set holds them is launched
-  only with the owner present; and the classifier pauses auto mode after three refusals in a row or twenty in all
-  (permission-modes documentation). The session then waits under `Needs input` (§5.3). Without auto mode
-  (unavailable to the account or the model), units run only with the owner attached: §15 step 1 records which.
+- **Permission mode.** Unit agents run in the orchestrator session's permission mode, as its subagents and workflow
+  agents do (sub-agents documentation), and auto mode keeps a unit going unattended. In Manual mode every edit and
+  every workflow launch would prompt (additional directories make reads, not edits, prompt-free; "don't ask again" is
+  offered only for a workflow launched by name), and in `acceptEdits` every launch and every command outside the
+  allow rules would, such as a `cd` into a scratch worktree followed by `git` (permissions and workflows
+  documentation). In auto mode a classifier reviews the actions instead; deny rules still apply, and the classifier
+  does not count a workflow's computed prompts as the owner's requests. A unit can still stop for the owner: the
+  first workflow launch in auto mode asks once (the answer is kept in the user settings); writes to protected paths
+  such as `.claude/` and `.cargo/` go to the classifier and may be refused, so a unit whose lock set holds them is
+  launched only with the owner present; and the classifier pauses auto mode after three refusals in a row or twenty
+  in all (permission-modes documentation). The orchestrator session then waits for the owner (§5.3). Without auto
+  mode (unavailable to the account or the model), units run only with the owner present: §15 step 1 records which.
 - On a subscription within the plan's usage, the main conversation already gets the one-hour TTL. On usage credits, an
   API key or a cloud provider, also set `"promptCacheTtl": "1h"` in the user settings: the orchestrator waits on
   workflows.
@@ -523,26 +573,39 @@ rule then reaches every later unit.
   directory) and `CARGO_BUILD_JOBS` cap, no rust-analyzer in role worktrees, fuzzers sanitizer-off at no more than two
   targets with `-rss_limit_mb=256`, gate jobs beside the agents within 1 GB in total, and everything refused below
   1.5 GB of free RAM.
-- **Proposed ruling R-5: what the 1 GB covers** (the owner rules, §15 step 7). [60 §3.15] lists "the two build lanes"
-  apart from "gate jobs beside the agents ≤ 1 GB in total", and `xtask/nightly.toml` `[window.beside-agents]` applies
-  the 1 GB to the nightly runner's jobs (PLAN WP-05); PLAN §4 lists it among the general parallelism limits. The
-  proposed reading: `cargo xtask gate` and the per-commit gates are build-lane work, held by the lane's build
-  semaphore and `CARGO_BUILD_JOBS` within R-4's half of the RAM, and the 1 GB binds the nightly-tier jobs run beside
-  the agents. Under the other reading no full gate fits beside the owner's work, and units gate only in agreed
-  windows. This is the orchestrator's reading, not the owner's: no full gate starts before the owner rules.
+- **What the 1 GB covers** (R-5, ruled by the orchestrator on 2026-10-08 on the owner's delegation). [60 §3.15]
+  lists "the two build lanes" apart from "gate jobs beside the agents ≤ 1 GB in total", and `xtask/nightly.toml`
+  `[window.beside-agents]` applies the 1 GB to the nightly runner's jobs (PLAN WP-05); PLAN §4 lists it among the
+  general parallelism limits. The ruling: `cargo xtask gate` and the per-commit gates are build-lane work, bounded by
+  the lane's build lock, `CARGO_BUILD_JOBS` (`git config moirai.build-jobs`) and R-4's half of the RAM, with the
+  pre-flight's floors before every kit start. The 1 GB binds the nightly-tier jobs run beside the agents. It is
+  operational policy (AGENTS.md "Binding rules"). Until the capacity is measured (§15 step 9), at most one unit builds
+  at a time. Revisit it if a gate run's peak (`peak.txt`) leaves less than 1.5 GB free while the owner works.
 - **Build jobs.** `git config moirai.build-jobs` = half the logical cores divided by the number of lanes that may build
   at once (two), until measurement 21 sets the lane cap (`xtask/src/worktree.rs`, `.cargo/config.toml`). Role
-  worktrees made after a change get the new value.
+  worktrees made after a change get the new value. Under R-8 and R-9 every unit builds with the orchestrator
+  session's `CARGO_BUILD_JOBS` (4, from the main checkout's `settings.local.json`, §8); the value that `xtask worktree`
+  writes into a role worktree is unused.
 - **Disk.** Before every gate start, the pre-flight's floor (`diskFloorGb`, by default 25 GB, [MP §8.1]) on the
   headroom: the available space less the growth the directories of `kit/caps.txt` may still take up to their caps.
   They are the four counted directories under the target root (`laneA`, `laneB`, `fuzz`, `mutants`) with the caps
   of `xtask/nightly.toml` `[guard.caps]` (nightly.md §3), as the nightly runner passes them to the guard; a change of
   `[guard.caps]` on `master` is copied into `caps.txt`. With today's caps the headroom on the PC can be 0 (nightly.md
-  §7 item 3): §15 step 5 checks it before the first gate.
+  §7 item 3): §15 step 5 checks it before the first gate. While units build only in lane A (R-8, R-9), `caps.txt`
+  counts `laneA` alone and keeps the other three lines as comments (R-11). Restore the full `[guard.caps]` set before
+  any nightly run or any lane B unit.
+- **Commit charge** (R-10). Every kit start refuses while the free commit charge
+  (`Win32_OperatingSystem.FreeVirtualMemory`) is below `-CommitFloorGb`: 4 GB by default, operational policy like the
+  other floors. The refusal makes no run directory, and the pre-flight line says `verdict=refuse commit-low` when the
+  commit charge is the only reason. The mechanic and the tester then pause and start again for at most 30 minutes
+  (§7 "Commands agents run"); after that the unit returns to the orchestrator, which waits for the commit charge to
+  recover and relaunches. A gate FAIL caused by the machine, such as an allocation failure in a target the unit did
+  not touch while another process held the commit charge, is environmental: the orchestrator re-runs the full gate
+  through the kit on the same head, once. A second environmental FAIL is a STOP for the owner.
 - **Capacity**: the number of units open at once, measured on the PC (§15 step 9): the largest number whose units'
-  peak (one full gate's process tree, from `peak.txt`, plus the unit session's own working set) fits in half the RAM
-  while at least 1.5 GB stays free. Builds of units in one lane serialise on cargo's lock; the other stages (cut,
-  critique, review) do not build.
+  peak (one full gate's process tree, from `peak.txt`, plus the orchestrator session's working set while it runs a
+  unit) fits in half the RAM while at least 1.5 GB stays free. Builds of units in one lane serialise on cargo's lock;
+  the other stages (cut, critique, review) do not build.
 - **Windows.** No unit runs during an agreed measurement or nightly window (`/private/windows.toml`, nightly.md §2,
   §14).
 
@@ -575,8 +638,7 @@ rule then reaches every later unit.
 
 - Claude Code's auto memory lives in `%USERPROFILE%\.claude\projects\<project>\memory\`: a `MEMORY.md` index loaded in
   every session and one file per fact. The project is the session's directory, so the orchestrator's memory is the
-  main checkout's, and a role worktree's memory starts empty each time the worktree is made: unit agents rely on their
-  briefs, never on memory.
+  main checkout's. Unit agents run inside the orchestrator session (R-8) and rely on their briefs, never on memory.
 - One fact per file (`user`, `feedback`, `project` or `reference`, each with Why and How to apply); the index at one
   short line per file and at most about 15 KB; a "read first" block that holds only the current state line (older
   checkpoints live in the project file).
@@ -586,9 +648,9 @@ rule then reaches every later unit.
 ## 13. Crash and resume
 
 1. **Orphans.** For every kit run with an `owner.txt` and no `DONE`: if its unit's workflow is not running now (the
-   unit session's `/workflows`, the result file), it is an orphan: `stop-gate.ps1 -RunDir <run dir> -Reason orphan`.
-   Judge by the unit's workflow, not by process ancestry: kit runs are detached on purpose. An orphan keeps spawning
-   builds for hours.
+   orchestrator session's `/workflows`, the result file), it is an orphan: `stop-gate.ps1 -RunDir <run dir> -Reason
+   orphan`. Judge by the unit's workflow, not by process ancestry: kit runs are detached on purpose. An orphan keeps
+   spawning builds for hours.
 2. **Void outputs.** Gate outputs written before the crash are void; `stop-gate.ps1` archives them as
    `<run dir>.stopped-<time>`. After a machine crash, a corrupt build artifact (a linker or compiler access violation,
    a nonsense link error) is cleaned for that package (`cargo clean -p <package>` with the lane's
@@ -596,8 +658,8 @@ rule then reaches every later unit.
 3. **A worktree left in the middle of `git merge`**: never abort. A developer agent of the unit's role reviews the
    resolved files against both parents (`git show :1:<file>`, `:2:`, `:3:`), in lock-set paths only (a conflict in
    any other path is a STOP), adds them, re-runs the per-commit gates and commits the merge.
-4. **Relaunch** each workflow in its unit session with its run id, the new state only in the step that must re-run
-   (§6.4).
+4. **Relaunch** each workflow from the session that ran it, with its run id (§6.4), the new state only in the step
+   that must re-run.
 5. **Rewrite `RESUME.md`** and commit `<ORCH>`.
 
 ## 14. Performance measurement
@@ -622,7 +684,9 @@ The project measures performance under its protocol ([MP]; [60 §5.2]); the brie
 A Claude Code session on the owner's PC follows these steps in order, in the main checkout `D:/claude/moirai`; it then
 stays the orchestrator session. Every **STOP** is a question to the owner (in Russian if the owner writes Russian),
 asked once, with this session's recommendation; steps that do not depend on the answer go on meanwhile. Every
-finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`).
+finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`). The setup was carried out on
+2026-10-07 and 2026-10-08 (`inventory.md`). The steps describe a setup under R-8 to R-11; where the first setup
+differed, the step says so.
 
 1. **Check the clone and the tools** (read-only, except the fetch).
    - `git rev-parse --show-toplevel` is `D:/claude/moirai`; `git branch --show-current` is `claude/prodolzhai-g331bu`
@@ -633,7 +697,7 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
      origin/master` holds, **STOP** and propose `git merge --ff-only origin/master` on `master`; any other difference
      is a **STOP** too. A stale `master` would make step 2's merge and every later push (R-2) a non-fast-forward.
    - This session runs in `D:/claude/moirai` with its workspace trust accepted (the dialog appears when Claude Code
-     first opens a folder); that trust covers every worktree of the repository (§6.3).
+     first opens a folder); that trust covers every worktree of the repository (§8).
    - `git config core.hooksPath` is the absolute `D:/claude/moirai/.githooks` and `git config moirai.private-guard` is
      `true` (PLAN §2.5). If not: **STOP** — the owner runs these two commands once per clone, or allows this session
      to.
@@ -644,9 +708,9 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
      no unit is launched for that role until the owner rules.
    - `git config moirai.worktree-root`, `moirai.target-root` and `moirai.build-jobs` (unset means `D:/moirai-wt`,
      `D:/moirai-target` and 6).
-   - Claude Code: its executable path and version (tools.md §9; at least 2.1.242), whether `--bg` and
-     `--permission-mode` appear in its `--help`, and whether auto mode is available (`auto` in the `Shift+Tab` cycle or
-     the status bar of this session; §8 "Permission mode"); the Bash tool is Git Bash (`echo $BASH_VERSION`);
+   - Claude Code: its executable path and version (tools.md §9; at least 2.1.242), and whether auto mode is available
+     (`auto` in the `Shift+Tab` cycle or the status bar of this session; §8 "Permission mode"); the Bash tool is Git
+     Bash (`echo $BASH_VERSION`);
      `powershell.exe -NoProfile -Command '$PSVersionTable.PSVersion'` prints 5.1; `git --version` is at least 2.36
      (`git show --remerge-diff`, §6.1).
 2. **STOP: merge the branch.** Ask the owner whether `claude/prodolzhai-g331bu` is merged into `master` now, before
@@ -663,16 +727,20 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
    from step 1, the CI (`.github/workflows/pr.yml` runs `cargo xtask gate --ci` on hosted Windows runners), the gate's
    steps (`cargo xtask gate --list`), the existing `.claude/` files, and step 1's worktrees and branches. Facts about
    the machine and the tree only; no owner data.
-5. **The kit.** Write every file of Appendix A into `D:/orch/moirai/kit/` exactly as printed (ASCII), then
-   `budgets.txt` with `gate=30` and `tests=30` (until step 9), `unit-allow.txt` as in §8, and `caps.txt`: a comment
-   line naming `master`'s sha, then one line per entry of `xtask/nightly.toml` `[guard.caps]` on `master`,
-   `<target root>/<name>=<cap>` (`D:/moirai-target/laneA=40GB`, `laneB`, `fuzz`, `mutants`). Build the guard
+5. **The kit.** Write every file of Appendix A into `D:/orch/moirai/kit/` exactly as printed (ASCII, CRLF line
+   endings), then `budgets.txt` with `gate=30` and `tests=30` (until step 9), `unit-allow.txt` as in §8, and
+   `caps.txt`: a comment line naming `master`'s sha, then one line per entry of `xtask/nightly.toml` `[guard.caps]` on
+   `master`, `<target root>/<name>=<cap>` (`D:/moirai-target/laneA=40GB`, `laneB`, `fuzz`, `mutants`). While units
+   build only in lane A, `caps.txt` holds only `D:/moirai-target/laneA=40GB` and the other three entries as comments
+   (R-11, §10). Build the guard
    (`cargo build -p moirai-probes-bin --bin guard --locked` with `CARGO_TARGET_DIR=D:/moirai-target/laneA`) and copy
    the executable to `D:/orch/moirai/kit/guard.exe` (the nightly runner keeps its own copy, nightly.md §1). Run
    `powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:/orch/moirai/kit/selftest.ps1`: it must end with
    `selftest: PASS` and every case `ok`. A case that fails is fixed in the kit script and the self-test re-run until
    it passes; the change is recorded in `inventory.md` and reported to the owner, so that Appendix A is corrected by
-   an R-HARN change. Record the kit hash (`kit-hash.ps1`) and the self-test's summary line. Then the pre-flight on
+   an R-HARN change. Record the kit hash (`kit-hash.ps1`) and the self-test's summary line. This step is the first
+   install: a re-install after a merged change of Appendix A writes only the scripts and keeps `budgets.txt`,
+   `caps.txt`, `unit-allow.txt`, `guard.exe` and `locks/` (§7 "The kit hash"; R-12). Then the pre-flight on
    the real volume: `powershell.exe -NoProfile -ExecutionPolicy Bypass -File D:/orch/moirai/kit/preflight.ps1 -Volume
    D:/moirai-target`, its output line in `inventory.md`. If it refuses `disk-low`: **STOP**, citing nightly.md §7
    item 3, with the headroom from the guard's output and a proposal: the directories under `D:/moirai-target` beside
@@ -680,15 +748,17 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
    live process uses and that were not written in the last two hours. Only those the owner names are deleted, and
    each deletion is logged (§4); steps 8–12 wait until the pre-flight passes. Commit `<ORCH>`.
 6. **Settings and gate worktrees.** `kit/local-settings.ps1 -Worktree D:/claude/moirai -Orch D:/orch/moirai -WtRoot
-   D:/moirai-wt` for the main checkout; restart the session if `<ORCH>` is still not readable without a prompt. Then
-   the gate worktrees, before any new role worktree (`xtask worktree` writes its deny rules for the worktrees that
-   exist): `git worktree add --detach D:/moirai-wt/gate-a HEAD` and `git worktree add --detach D:/moirai-wt/gate-b
-   HEAD`. If step 1 found a neutral worktree that earlier sessions used as their gate worktree, record it and ask the
-   owner before adding new ones.
+   D:/moirai-wt` for the main checkout. Also set the main checkout's `.claude/settings.local.json` `env`:
+   `CARGO_TARGET_DIR` = `D:/moirai-target/laneA` and `CARGO_BUILD_JOBS` = 4 (R-8). Restart the session if `<ORCH>` is
+   still not readable without a prompt. Then the gate worktrees: `git worktree add --detach D:/moirai-wt/gate-a HEAD`
+   and `git worktree add --detach D:/moirai-wt/gate-b HEAD`. The first setup made them before any role worktree,
+   because `xtask worktree` writes its deny rules for the worktrees that exist; under R-8 those rules go unused. If
+   step 1 found a neutral worktree that earlier sessions used as their gate worktree, record it and ask the owner
+   before adding new ones.
 7. **`RULINGS.md` and `RESUME.md`.** `RULINGS.md` holds R-1 to R-4 of §2 word for word, with the author identity of
-   step 1 written out in R-2, and R-5 of §10 marked "proposed". **STOP: R-5.** Ask the owner to confirm or correct
-   it; steps 8–12 wait for the answer, which is recorded in R-5 word for word. `RESUME.md` follows the skeleton of
-   §3: the trunk line, no units, "Next" = steps 8–12, "Waiting on the owner" = the open STOPs. Commit `<ORCH>`.
+   step 1 written out in R-2, and the later rulings from R-5 (§2); R-5 was ruled on 2026-10-08. `RESUME.md` follows
+   the skeleton of §3: the trunk line, no units, "Next" = steps 8–12, "Waiting on the owner" = the open STOPs. Commit
+   `<ORCH>`.
 8. **The baseline** (on `master`, after steps 2, 5 and 7). Through the kit, in `gate-a` with lane A's target
    directory:
    - `start-gate.ps1 -RunDir D:/orch/moirai/baseline/gate -WorkDir D:/moirai-wt/gate-a -Unit baseline -RunId
@@ -710,26 +780,28 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
    its peak working set (`peak.txt`), the free RAM at rest, and lane A's target directory size before and after. Set
    `git config moirai.build-jobs` to half the logical cores divided by two; write `budgets.txt` as
    `gate=` and `tests=` three times the measured durations (at least 10 minutes each); compute the capacity of §10,
-   taking 1 GB for a unit session's own working set until step 10 measures one. Record all of it in `inventory.md`
-   and in `RESUME.md`'s header; the kit hash is unchanged by `budgets.txt`. Commit `<ORCH>`.
-10. **The trial unit**: a real typo fix plus a tiny test, through the whole workflow to the merge and the push.
+   taking 1 GB for the orchestrator session's working set while a unit runs, until step 10 measures it. Record all of
+   it in `inventory.md` and in `RESUME.md`'s header; the kit hash is unchanged by `budgets.txt`. Commit `<ORCH>`.
+10. **The trial unit**: a real typo fix plus a tiny test, through the whole workflow to the merge and the push. Done:
+    the trial was `u00-f21-doclinks` (R-6), run under R-7 in a unit session. For a new setup:
     - Find a typo in a path R-HARN-I writes and may read, preferably a message or comment in `xtask/src/` so that a
       unit test can pin the corrected text (`rg` for common misspellings); if none is found, **STOP** and ask for one.
     - Role `r-harn-i`, the WP whose authors.md §2 row covers the file (`WP-02` for `xtask/`). If `m0/r-harn-i` or
       `D:/moirai-wt/r-harn-i` exists (step 1), **STOP** and ask which role the trial uses.
-    - Run §5.2 steps 1–10: the spec (the fix and one unit test pinning it; the lock set is that one file; acceptance:
-      the new test red-first on the parent, the full gate `PASS`), the worktree, the local settings, the arguments,
-      the embedded copy, the dry run by name, `launch.md`, the unit session.
-    - **STOP: the first launch.** The first workflow launch in auto mode asks once (§8). Ask the owner to attach to the
-      unit session (`claude agents`, `→` on its row), approve the launch, and check that the status bar shows auto
-      mode; then the owner detaches. A session that is not in auto mode: §8 "Permission mode". Every later
-      `Needs input` of the trial (§5.3), such as a question before a commit, is recorded with its cause.
+    - Run §5.2 steps 1–10 from this orchestrator session: the spec (the fix and one unit test pinning it; the lock set
+      is that one file; acceptance: the new test red-first on the parent, the full gate `PASS`), the worktree, the
+      arguments, the embedded copy, the dry run by name, the launch.
+    - **STOP: the first launch.** The first workflow launch in auto mode asks once in this session (§8); the owner
+      approves it here and checks that the status bar shows auto mode. A session that is not in auto mode: §8
+      "Permission mode". Every later prompt or pause of the trial (§5.3), such as a question before a commit, is
+      recorded with its cause.
     - Wait (§5.3), then merge (§5.4 steps 1–5), push included, and keep the worktree for one more check:
-    - **Relaunch from the journal**: in the unit session, relaunch the same embedded copy with the run id of
-      `run_1.txt` and `k` = 2, nothing changed: every agent must return its saved result (`/workflows` shows no agent
-      running) and `result_2.json` must equal `result_1.json`.
+    - **Relaunch from the journal**: from this orchestrator session, relaunch the same embedded copy with the run id
+      of `run_1.txt` and `k` = 2, nothing changed: every agent must return its saved result (`/workflows` shows no
+      agent running) and `result_2.json` must equal `result_1.json`.
     - Then §5.4 step 6. Every permission prompt that stopped an agent gets its narrowest rule in `unit-allow.txt`
-      (§8). Measure the unit session's working set during the run and correct the capacity of step 9 if needed.
+      (§8). Measure the orchestrator session's working set during the run and correct the capacity of step 9 if
+      needed.
 11. **The checks** (record each with its evidence):
     - the files exist: AGENTS.md "Agent work", this file, the ten `.claude/agents/*.md`, `.claude/settings.json`, the
       main checkout's `settings.local.json` with both additional directories; in `<ORCH>`: `inventory.md`,
@@ -741,8 +813,9 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
       later round); no log was pasted into a brief (the prompts in the run's journal carry paths only); the merge's tree
       equals the verified tree; `master` is pushed (`git status -sb` shows it even with `origin/master`); the relaunch
       came back from the journal;
-    - the one-hour subagent TTL: after the next session start, at least one subagent transcript of a unit session
-      (under `%USERPROFILE%\.claude\projects\`, the role worktree's project) has
+    - the one-hour subagent TTL: after the next session start, at least one subagent transcript of a unit agent
+      (under `%USERPROFILE%\.claude\projects\`, the main checkout's project, since unit agents run in the
+      orchestrator session) has
       `usage.cache_creation.ephemeral_1h_input_tokens` above 0 (`rg -l "\"ephemeral_1h_input_tokens\":[1-9]"`);
       `/usage` shows the cache statistics from Claude Code 2.1.251.
 12. **Report to the owner**: what was created, the STOPs still open, the measured capacity, budgets and kit hash, and
@@ -750,18 +823,19 @@ finding goes into `<ORCH>/inventory.md` (step 1's once step 3 has made `<ORCH>`)
 
 ## Appendix A. The gate kit
 
-The scripts below are the kit of §7, written into `<ORCH>/kit/` by §15 step 5 exactly as printed. They are Windows
-PowerShell 5.1 scripts in ASCII; `.gitattributes`' CRLF rule for `*.ps1` concerns files in the repository, and these
-live only in `<ORCH>`. Each script's header states its call, its outputs and its exit codes. The red-proof of each is
-the `selftest.ps1` case that names it:
+The scripts below are the kit of §7, written into `<ORCH>/kit/` by §15 step 5 exactly as printed, in ASCII with CRLF
+line endings, the last line too: the kit hash is over those bytes. They are Windows PowerShell 5.1 scripts;
+`.gitattributes`' CRLF rule for `*.ps1` concerns files in the repository, and these live only in `<ORCH>`. A merged
+change of this appendix is re-installed as §7 "The kit hash" says. Each script's header states its call, its outputs
+and its exit codes. The red-proof of each is the `selftest.ps1` case that names it:
 
 | Script | Red-proof cases in `selftest.ps1` |
 |---|---|
-| `start-gate.ps1` | `run-dir-reuse-refused`, `start-refused-below-disk-floor`, `lock-released-after-refusal`, `start-refused-without-target-dir`, `start-refused-cmd-metacharacter`, `tests-kind-needs-json-messages`, `busy-work-dir-refused`, `detach-dirty-refused`, `foreign-lockfile-refused`, `lockfile-equal-to-branch-staged-and-switched` |
+| `start-gate.ps1` | `run-dir-reuse-refused`, `start-refused-below-disk-floor`, `lock-released-after-refusal`, `start-refused-without-target-dir`, `start-refused-cmd-metacharacter`, `tests-kind-needs-json-messages`, `start-refused-below-commit-floor`, `start-passes-default-commit-floor`, `busy-work-dir-refused`, `detach-dirty-refused`, `foreign-lockfile-refused`, `lockfile-equal-to-branch-staged-and-switched` |
 | `run-gate.ps1` | `gate-fail-row-exit-0`, `gate-pass-rows-exit-3`, `gate-nothing-exit-0`, `tests-zero`, `tests-missing-expected`, `tests-failed-exit-101`, `tests-unannounced-binary`, `tests-ids-carry-package`, `hang-stopped-by-pid-tree`, `detach-records-head-and-tree`, `lockfile-update-reported`, `summary-stamped-with-kit-hash`; the passing controls `gate-pass`, `tests-pass`, `tests-ids-by-name`, `tests-two-packages` |
 | `wait-gate.ps1` | `wait-slice-running`, `dead-runner-reported` |
 | `stop-gate.ps1` | `stop-gate-archives-and-kills`, `orphan-killed-by-pid`, `lock-released-after-stop` |
-| `preflight.ps1` | `preflight-fallback-disk-low`, `preflight-fallback-ram-low`, `preflight-fallback-cap-reserved`, `preflight-no-caps-refused`, `preflight-guard-disk-low`, `preflight-guard-ram-low`, `preflight-guard-cap-reserved`; the controls `preflight-fallback-pass`, `preflight-fallback-cap-control`, `preflight-guard-pass`, `preflight-guard-cap-control` |
+| `preflight.ps1` | `preflight-fallback-disk-low`, `preflight-fallback-ram-low`, `preflight-fallback-cap-reserved`, `preflight-no-caps-refused`, `preflight-fallback-commit-low`, `preflight-commit-default-floor`, `preflight-guard-disk-low`, `preflight-guard-ram-low`, `preflight-guard-cap-reserved`, `preflight-guard-commit-low`; the controls `preflight-fallback-pass`, `preflight-fallback-cap-control`, `preflight-fallback-commit-control`, `preflight-guard-pass`, `preflight-guard-cap-control`, `preflight-guard-commit-control` |
 | `embed.ps1` | `embed-no-marker-refused`, `embed-two-markers-refused`, `embed-writes-lf-copy` |
 | `local-settings.ps1` | `local-settings-malformed-refused`, `local-settings-adds-and-keeps`, `local-settings-idempotent` |
 | `kit-common.ps1`, `kit-hash.ps1` | every case above; `summary-stamped-with-kit-hash` |
@@ -1054,8 +1128,8 @@ function ConvertTo-ClaudeAbs([string]$Path) {
 #
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/start-gate.ps1 -RunDir <new dir> -WorkDir <dir>
 #     -Unit <unit> -RunId <id> -Kind gate|tests -CmdLine "<command>" [-Detach <branch>] [-BudgetMin <min>]
-#     [-TargetDir <dir>] [-Jobs <n>] [-Expected <tsv>] [-DiskFloorGb <gb>] [-RamFloorGb <gb>] [-Guard <exe>]
-#     [-CapsFile <file>]
+#     [-TargetDir <dir>] [-Jobs <n>] [-Expected <tsv>] [-DiskFloorGb <gb>] [-RamFloorGb <gb>] [-CommitFloorGb <gb>]
+#     [-Guard <exe>] [-CapsFile <file>]
 #
 # -Detach <branch> (the gate worktree): under the lock, the work directory must be clean - except Cargo.lock and
 # fuzz/Cargo.lock when they equal the branch's, which are then staged - and is switched to the branch tip, detached
@@ -1064,12 +1138,13 @@ function ConvertTo-ClaudeAbs([string]$Path) {
 # so none of & | < > ^ % " may appear in them. The run directory must not exist. A tests run of cargo needs
 # --message-format=json-render-diagnostics: its test ids take the package from cargo's compiler-artifact messages.
 # Defaults: -BudgetMin from <kit>/budgets.txt (<kind>=<minutes>), -TargetDir and -Jobs from CARGO_TARGET_DIR and
-# CARGO_BUILD_JOBS (set by the role worktree's settings.local.json), -Guard <kit>/guard.exe, -CapsFile <kit>/caps.txt
-# (the counted directories of the pre-flight, preflight.ps1).
+# CARGO_BUILD_JOBS (the session's environment; the main checkout's settings.local.json sets them, docs/m0/workflow.md
+# section 8), -CommitFloorGb 4 (RULINGS R-10), -Guard <kit>/guard.exe, -CapsFile <kit>/caps.txt (the counted
+# directories of the pre-flight, preflight.ps1).
 # One run per work directory at a time: the lock is <kit>/locks/<work dir>.lock.
 # Writes in the run directory: params.txt and cmd.txt (before the start), PID and owner.txt (after it); the runner
-# (run-gate.ps1) writes the rest. Exit codes: 0 started; 1 pre-flight refused; 2 usage or precondition;
-# 6 the work directory is busy (another live run holds its lock).
+# (run-gate.ps1) writes the rest. Exit codes: 0 started; 1 pre-flight refused (the pre-flight line names its
+# reasons); 2 usage or precondition; 6 the work directory is busy (another live run holds its lock).
 param(
     [Parameter(Mandatory = $true)][string]$RunDir,
     [Parameter(Mandatory = $true)][string]$WorkDir,
@@ -1084,6 +1159,7 @@ param(
     [string]$Expected = '',
     [double]$DiskFloorGb = 25,
     [double]$RamFloorGb = 1.5,
+    [double]$CommitFloorGb = 4,
     [string]$Guard = '',
     [string]$CapsFile = ''
 )
@@ -1094,7 +1170,7 @@ if (-not (Test-NoSpace @($RunDir, $WorkDir, $TargetDir, $Expected, $Unit, $RunId
 }
 if (-not (Test-Path -LiteralPath $WorkDir -PathType Container)) { Fail 2 "start-gate: no work directory $WorkDir" }
 if ([string]::IsNullOrEmpty($TargetDir)) {
-    Fail 2 'start-gate: CARGO_TARGET_DIR is unset: start the gate from the unit session (its role worktree sets it) or pass -TargetDir'
+    Fail 2 'start-gate: CARGO_TARGET_DIR is unset: start the gate from the orchestrator session, whose settings set it (docs/m0/workflow.md section 8), or pass -TargetDir'
 }
 if ($Expected -ne '' -and -not (Test-Path -LiteralPath $Expected -PathType Leaf)) { Fail 2 "start-gate: no expected set $Expected" }
 if (Test-Path -LiteralPath $RunDir) { Fail 2 "start-gate: $RunDir exists: every run gets a new directory" }
@@ -1157,7 +1233,7 @@ if ($Detach -ne '') {
 $volume = $TargetDir
 if (-not (Test-Path -LiteralPath $volume -PathType Container)) { $volume = Split-Path -Parent $TargetDir }
 $pf = Join-Path $PSScriptRoot 'preflight.ps1'
-& $pf -Volume $volume -DiskFloorGb $DiskFloorGb -RamFloorGb $RamFloorGb -Guard $Guard -CapsFile $CapsFile
+& $pf -Volume $volume -DiskFloorGb $DiskFloorGb -RamFloorGb $RamFloorGb -CommitFloorGb $CommitFloorGb -Guard $Guard -CapsFile $CapsFile
 $pfCode = $LASTEXITCODE
 if ($pfCode -eq 2) { Stop-Start 2 'start-gate: the pre-flight could not run (exit 2)' }
 if ($pfCode -ne 0) { Stop-Start 1 "start-gate: pre-flight refused (exit $pfCode): nothing started" }
@@ -1425,29 +1501,38 @@ exit 0
 ### A.6 `kit/preflight.ps1`
 
 ```powershell
-# preflight.ps1 - refuse a big build below the RAM or disk floor (docs/m0/workflow.md sections 7 and 10, Appendix A).
+# preflight.ps1 - refuse a big build below the RAM, commit-charge or disk floor (docs/m0/workflow.md sections 7 and
+# 10, Appendix A).
 #
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/preflight.ps1 -Volume <dir on the work volume>
-#     [-DiskFloorGb 25] [-RamFloorGb 1.5] [-Guard <exe>] [-CapsFile <file>] [-InjectFreeGb <gb>] [-InjectRamGb <gb>]
+#     [-DiskFloorGb 25] [-RamFloorGb 1.5] [-CommitFloorGb 4] [-Guard <exe>] [-CapsFile <file>] [-InjectFreeGb <gb>]
+#     [-InjectRamGb <gb>] [-InjectCommitGb <gb>]
 #
 # The disk floor is on the headroom of [MP 8.1]: the volume's available space less each counted directory's remaining
 # growth up to its cap, as the nightly runner counts it. The counted directories and their caps are the lines
 # "<absolute dir>=<cap>" of -CapsFile (default <kit>/caps.txt, copied from xtask/nightly.toml [guard.caps]; "#"
 # comments; caps in the guard's units, such as 40GB); a missing file or one with no directory is refused (exit 2).
+# While units build only in lane A, caps.txt counts laneA alone and keeps the other entries as comments (RULINGS R-11).
 # With the guard binary (default <kit>/guard.exe, a copy of moirai-probes-bin guard, [MP 8]) it asks the guard:
 # guard --volume <dir> --dir <dir> <cap>... --ram-floor <gb>GB --disk-floor <gb>GB, the injections as
 # --inject-volume-available and --inject-available-physical. Without it, it reads the volume's available space, the
 # directories' sizes (regular files, reparse points not followed) and the available physical memory itself and applies
-# the same rule. GB is 10^9 bytes ([MP 1.3]). The -Inject options exist to red-prove this script and are never passed
-# by a real run. Exit codes: 0 pass; 1 refused; 2 usage or unreadable.
+# the same rule. The commit floor is on the free commit charge (Win32_OperatingSystem.FreeVirtualMemory, RULINGS
+# R-10); the guard does not read it, so this script checks it on both paths. The output line carries the verdict, pass
+# or refuse <reasons> (ram-low, disk-low, commit-low, or guard when the guard refused), or unreadable, and the field
+# commit=<x>GB floor=<y>GB; it says "verdict=refuse commit-low " exactly when the commit charge is the only reason.
+# GB is 10^9 bytes ([MP 1.3]). The -Inject options exist to red-prove this script and are never passed by a real run.
+# Exit codes: 0 pass; 1 refused; 2 usage or unreadable.
 param(
     [Parameter(Mandatory = $true)][string]$Volume,
     [double]$DiskFloorGb = 25,
     [double]$RamFloorGb = 1.5,
+    [double]$CommitFloorGb = 4,
     [string]$Guard = '',
     [string]$CapsFile = '',
     [double]$InjectFreeGb = -1,
-    [double]$InjectRamGb = -1
+    [double]$InjectRamGb = -1,
+    [double]$InjectCommitGb = -1
 )
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
@@ -1493,6 +1578,13 @@ foreach ($line in (Read-Lines $CapsFile)) {
 }
 if ($caps.Count -eq 0) { Fail 2 "preflight: $CapsFile names no counted directory" }
 
+# The free commit charge (RULINGS R-10), in kilobytes; read here because the guard does not read it.
+try {
+    if ($InjectCommitGb -ge 0) { $commit = [double]$InjectCommitGb * 1e9 }
+    else { $commit = [double](Get-CimInstance -ClassName Win32_OperatingSystem).FreeVirtualMemory * 1024 }
+} catch { Fail 2 ('preflight: a reading failed: {0}' -f $_.Exception.Message) }
+$commitLow = ($commit -lt $CommitFloorGb * 1e9)
+
 if (Test-Path -LiteralPath $Guard -PathType Leaf) {
     $a = @('--volume', $Volume)
     foreach ($c in $caps) { $a += @('--dir', $c.Dir, $c.Cap) }
@@ -1503,10 +1595,16 @@ if (Test-Path -LiteralPath $Guard -PathType Leaf) {
     $ErrorActionPreference = 'Continue'
     try { $out = (& $Guard @a 2>&1 | Out-String) } finally { $ErrorActionPreference = $old }
     $code = $LASTEXITCODE
-    Write-Output ('preflight: source=guard exit={0} dirs={1} {2}' -f $code, $caps.Count, (ConvertTo-Field $out.Trim()))
-    if ($code -eq 0) { exit 0 }
+    $why = New-Object System.Collections.ArrayList
+    if ($code -ne 0) { [void]$why.Add('guard') }
+    if ($commitLow) { [void]$why.Add('commit-low') }
+    $verdict = 'pass'
+    if ($code -eq 2) { $verdict = 'unreadable' }
+    elseif ($why.Count -gt 0) { $verdict = 'refuse ' + ($why -join ',') }
+    Write-Output ([string]::Format($script:Inv, 'preflight: source=guard verdict={0} exit={1} dirs={2} commit={3:F2}GB floor={4}GB {5}', $verdict, $code, $caps.Count, ($commit / 1e9), $CommitFloorGb, (ConvertTo-Field $out.Trim())))
     if ($code -eq 2) { exit 2 }
-    exit 1
+    if ($why.Count -gt 0) { exit 1 }
+    exit 0
 }
 
 try {
@@ -1524,9 +1622,10 @@ $headroom = [Math]::Max([double]0, $free - $reserved)
 $refuse = New-Object System.Collections.ArrayList
 if ($ram -lt $RamFloorGb * 1e9) { [void]$refuse.Add('ram-low') }
 if ($headroom -lt $DiskFloorGb * 1e9) { [void]$refuse.Add('disk-low') }
+if ($commitLow) { [void]$refuse.Add('commit-low') }
 $verdict = 'pass'
 if ($refuse.Count -gt 0) { $verdict = 'refuse ' + ($refuse -join ',') }
-Write-Output ([string]::Format($script:Inv, 'preflight: source=fallback verdict={0} ram={1:F2}GB floor={2}GB available={3:F2}GB reserved={4:F2}GB headroom={5:F2}GB floor={6}GB dirs={7} volume={8}', $verdict, ($ram / 1e9), $RamFloorGb, ($free / 1e9), ($reserved / 1e9), ($headroom / 1e9), $DiskFloorGb, $caps.Count, $Volume))
+Write-Output ([string]::Format($script:Inv, 'preflight: source=fallback verdict={0} ram={1:F2}GB floor={2}GB commit={3:F2}GB floor={4}GB available={5:F2}GB reserved={6:F2}GB headroom={7:F2}GB floor={8}GB dirs={9} volume={10}', $verdict, ($ram / 1e9), $RamFloorGb, ($commit / 1e9), $CommitFloorGb, ($free / 1e9), ($reserved / 1e9), ($headroom / 1e9), $DiskFloorGb, $caps.Count, $Volume))
 if ($refuse.Count -gt 0) { exit 1 }
 exit 0
 ```
@@ -1574,7 +1673,8 @@ exit 0
 
 ```powershell
 # local-settings.ps1 - add the workflow's local keys to a checkout's .claude/settings.local.json, keeping every key
-# and rule already there (docs/m0/workflow.md sections 5 and 8, Appendix A).
+# and rule already there (docs/m0/workflow.md sections 8 and 15, Appendix A). Under RULINGS R-8 and R-9 it is run for
+# the main checkout only; its deny-rule part below serves only a return to unit sessions in role worktrees.
 #
 #   powershell.exe -NoProfile -ExecutionPolicy Bypass -File <kit>/local-settings.ps1 -Worktree <checkout>
 #     -Orch <ORCH> -WtRoot <worktree root> [-AllowFile <kit>/unit-allow.txt]
@@ -1712,7 +1812,8 @@ exit $Code
 # <kit>/selftest-runs/<UTC time>/ and checks its exit code and outputs: a failing row must give a non-zero exit even
 # when the command itself exits 0, zero rows or zero tests must not pass, a missing expected test must fail, test ids
 # must carry the package, a hang must be stopped by its PID tree, a busy work directory must be refused, and the
-# pre-flight must refuse below its floors, counting the reserve of the capped directories. Prints one line per case and "selftest: PASS" or "selftest: FAIL". Exit codes: 0 every case behaved;
+# pre-flight must refuse below its floors (disk, RAM and the commit charge), counting the reserve of the capped
+# directories. Prints one line per case and "selftest: PASS" or "selftest: FAIL". Exit codes: 0 every case behaved;
 # 1 a case misbehaved. Takes about three minutes. Never run beside a unit's gate in the same work directory.
 . (Join-Path $PSScriptRoot 'kit-common.ps1')
 
@@ -1756,7 +1857,7 @@ function Start-Detached([string]$Case, [string]$Repo, [string]$Branch, [string]$
     $run = Join-Path $base ('run-' + $Case)
     $a = @('-RunDir', $run, '-WorkDir', $Repo, '-Unit', 'selftest', '-RunId', ('selftest-' + $Case), '-Kind', 'gate',
         '-CmdLine', (Get-FakeCmd (New-Lines $Case $pass) 0 0 $Touch), '-Detach', $Branch, '-BudgetMin', '2',
-        '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CapsFile', $caps)
+        '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-CapsFile', $caps)
     return @{ Run = $run; Start = (Invoke-Kit 'start-gate.ps1' $a) }
 }
 function Start-Fake([string]$Case, [string]$Kind, [string]$LinesFile, [int]$Code, [int]$SleepSec, [double]$Budget, [string]$Work = '', [string]$Expected = '') {
@@ -1765,7 +1866,7 @@ function Start-Fake([string]$Case, [string]$Kind, [string]$LinesFile, [int]$Code
     $run = Join-Path $base ('run-' + $Case)
     $a = @('-RunDir', $run, '-WorkDir', $Work, '-Unit', 'selftest', '-RunId', ('selftest-' + $Case), '-Kind', $Kind,
         '-CmdLine', (Get-FakeCmd $LinesFile $Code $SleepSec), '-BudgetMin', $Budget.ToString($script:Inv),
-        '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CapsFile', $caps)
+        '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-CapsFile', $caps)
     if ($Expected -ne '') { $a += @('-Expected', $Expected) }
     $r = Invoke-Kit 'start-gate.ps1' $a
     return @{ Run = $run; Work = $Work; Start = $r }
@@ -1880,13 +1981,26 @@ if ($d.Start.Code -eq 0) {
     Add-Result 'orphan-killed-by-pid' '0, tree dead' ('{0}, tree dead {1}' -f $st.Code, $dead) ($st.Code -eq 0 -and $dead)
 } else { Add-Result 'dead-runner-reported' 'start 0' $d.Start.Out $false }
 
+# The commit field of a pre-flight line and whether the commit charge is its only reason (preflight.ps1's header).
+function Test-CommitLine([string]$Out, [string]$Floor, [bool]$Low) {
+    $field = [regex]::IsMatch($Out, ('commit=[0-9.]+GB floor={0}GB' -f [regex]::Escape($Floor)))
+    $named = [regex]::IsMatch($Out, 'verdict=refuse commit-low( |$)')
+    return ($field -and ($named -eq $Low))
+}
+function Get-Brief([string]$Out) {
+    # One line of at most 240 characters: the guard's own output after the commit field can be long.
+    $t = ConvertTo-Field $Out
+    if ($t.Length -gt 240) { $t = $t.Substring(0, 240) + ' ...' }
+    return $t
+}
+
 # Preconditions of start-gate.
 $x = Start-Fake 'gate-pass' 'gate' '' 0 0 1
 Add-Result 'run-dir-reuse-refused' '2' ([string]$x.Start.Code) ($x.Start.Code -eq 2)
 $wk = Join-Path $base 'work-pf'
 New-Item -ItemType Directory -Path $wk | Out-Null
 $pfa = @('-RunDir', (Join-Path $base 'run-pf'), '-WorkDir', $wk, '-Unit', 'selftest', '-RunId', 'selftest-pf', '-Kind', 'gate',
-    '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-TargetDir', $base, '-DiskFloorGb', '1000000', '-RamFloorGb', '0', '-CapsFile', $caps)
+    '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-TargetDir', $base, '-DiskFloorGb', '1000000', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-CapsFile', $caps)
 $pf = Invoke-Kit 'start-gate.ps1' $pfa
 Add-Result 'start-refused-below-disk-floor' '1' ([string]$pf.Code) ($pf.Code -eq 1)
 $lockLeft = @(Get-ChildItem -LiteralPath (Join-Path $K 'locks') -Filter '*work_pf.lock').Count
@@ -1903,34 +2017,60 @@ Add-Result 'start-refused-cmd-metacharacter' '2' ([string]$mc.Code) ($mc.Code -e
 $mf = Invoke-Kit 'start-gate.ps1' @('-RunDir', (Join-Path $base 'run-mf'), '-WorkDir', $wk, '-Unit', 'selftest', '-RunId', 'selftest-mf',
     '-Kind', 'tests', '-CmdLine', 'cargo test --locked -p demo --no-fail-fast', '-BudgetMin', '1', '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CapsFile', $caps)
 Add-Result 'tests-kind-needs-json-messages' '2' ([string]$mf.Code) ($mf.Code -eq 2)
+# The commit floor through start-gate: a floor of 10^6 GB refuses on any machine, before the run directory is made;
+# without -CommitFloorGb, start-gate passes its default of 4 GB on (here refused for the disk, so nothing starts).
+$wc = Join-Path $base 'work-cc'
+New-Item -ItemType Directory -Path $wc | Out-Null
+$q6 = Invoke-Kit 'start-gate.ps1' @('-RunDir', (Join-Path $base 'run-cc'), '-WorkDir', $wc, '-Unit', 'selftest', '-RunId', 'selftest-cc',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-TargetDir', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '1000000', '-CapsFile', $caps)
+$ccRun = Test-Path -LiteralPath (Join-Path $base 'run-cc')
+$ccLock = @(Get-ChildItem -LiteralPath (Join-Path $K 'locks') -Filter '*work_cc.lock').Count
+Add-Result 'start-refused-below-commit-floor' '1, commit-low at floor 1000000GB, no run dir, 0 locks' ('{0}, run dir {1}, locks {2}: {3}' -f $q6.Code, $ccRun, $ccLock, (Get-Brief $q6.Out)) ($q6.Code -eq 1 -and (Test-CommitLine $q6.Out '1000000' $true) -and -not $ccRun -and $ccLock -eq 0)
+$wd = Join-Path $base 'work-cd'
+New-Item -ItemType Directory -Path $wd | Out-Null
+$q7 = Invoke-Kit 'start-gate.ps1' @('-RunDir', (Join-Path $base 'run-cd'), '-WorkDir', $wd, '-Unit', 'selftest', '-RunId', 'selftest-cd',
+    '-Kind', 'gate', '-CmdLine', (Get-FakeCmd '' 0 0), '-BudgetMin', '1', '-TargetDir', $base, '-DiskFloorGb', '1000000', '-RamFloorGb', '0', '-CapsFile', $caps)
+Add-Result 'start-passes-default-commit-floor' '1, floor=4GB' ('{0}: {1}' -f $q7.Code, (Get-Brief $q7.Out)) ($q7.Code -eq 1 -and [regex]::IsMatch($q7.Out, 'commit=[0-9.]+GB floor=4GB'))
 
 # The pre-flight, through the fallback (a missing guard path) and, when present, through the guard.
 $none = Join-Path $base 'no-guard.exe'
-$p1 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-InjectFreeGb', '1', '-Guard', $none, '-CapsFile', $caps)
+$p1 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-InjectFreeGb', '1', '-Guard', $none, '-CapsFile', $caps)
 Add-Result 'preflight-fallback-disk-low' '1' ([string]$p1.Code) ($p1.Code -eq 1)
-$p2 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '1.5', '-InjectRamGb', '0.5', '-Guard', $none, '-CapsFile', $caps)
+$p2 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '1.5', '-CommitFloorGb', '0', '-InjectRamGb', '0.5', '-Guard', $none, '-CapsFile', $caps)
 Add-Result 'preflight-fallback-ram-low' '1' ([string]$p2.Code) ($p2.Code -eq 1)
-$p3 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
+$p3 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-Guard', $none, '-CapsFile', $caps)
 Add-Result 'preflight-fallback-pass' '0' ([string]$p3.Code) ($p3.Code -eq 0)
 # 30 GB available less the 10 GB the empty capped directory may still grow is below the 25 GB floor; 40 GB is not.
-$p7 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-InjectFreeGb', '30', '-Guard', $none, '-CapsFile', $caps10)
+$p7 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-InjectFreeGb', '30', '-Guard', $none, '-CapsFile', $caps10)
 Add-Result 'preflight-fallback-cap-reserved' '1' ([string]$p7.Code) ($p7.Code -eq 1)
-$p8 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-InjectFreeGb', '40', '-Guard', $none, '-CapsFile', $caps10)
+$p8 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-RamFloorGb', '0', '-CommitFloorGb', '0', '-InjectFreeGb', '40', '-Guard', $none, '-CapsFile', $caps10)
 Add-Result 'preflight-fallback-cap-control' '0' ([string]$p8.Code) ($p8.Code -eq 0)
 $p9 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-Guard', $none, '-CapsFile', (Join-Path $base 'no-caps.txt'))
 Add-Result 'preflight-no-caps-refused' '2' ([string]$p9.Code) ($p9.Code -eq 2)
+# The commit floor (RULINGS R-10) on injected readings: 8 GB is below a floor of 10, 12 GB is not, and 3.5 GB is below
+# the default floor of 4.
+$q1 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '10', '-InjectCommitGb', '8', '-Guard', $none, '-CapsFile', $caps)
+Add-Result 'preflight-fallback-commit-low' '1, commit-low at floor 10GB' ('{0}: {1}' -f $q1.Code, (Get-Brief $q1.Out)) ($q1.Code -eq 1 -and (Test-CommitLine $q1.Out '10' $true))
+$q2 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-CommitFloorGb', '10', '-InjectCommitGb', '12', '-Guard', $none, '-CapsFile', $caps)
+Add-Result 'preflight-fallback-commit-control' '0, floor 10GB, no commit-low' ('{0}: {1}' -f $q2.Code, (Get-Brief $q2.Out)) ($q2.Code -eq 0 -and (Test-CommitLine $q2.Out '10' $false))
+$q3 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '0', '-RamFloorGb', '0', '-InjectCommitGb', '3.5', '-Guard', $none, '-CapsFile', $caps)
+Add-Result 'preflight-commit-default-floor' '1, commit-low at floor 4GB' ('{0}: {1}' -f $q3.Code, (Get-Brief $q3.Out)) ($q3.Code -eq 1 -and (Test-CommitLine $q3.Out '4' $true))
 $g = Join-Path $K 'guard.exe'
 if (Test-Path -LiteralPath $g) {
-    $p4 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-InjectFreeGb', '1', '-CapsFile', $caps)
+    $p4 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-DiskFloorGb', '25', '-CommitFloorGb', '0', '-InjectFreeGb', '1', '-CapsFile', $caps)
     Add-Result 'preflight-guard-disk-low' '1' ([string]$p4.Code) ($p4.Code -eq 1)
-    $p5 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '1', '-InjectFreeGb', '200', '-CapsFile', $caps)
+    $p5 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-CommitFloorGb', '0', '-InjectRamGb', '1', '-InjectFreeGb', '200', '-CapsFile', $caps)
     Add-Result 'preflight-guard-ram-low' '1' ([string]$p5.Code) ($p5.Code -eq 1)
-    $p6 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '8', '-InjectFreeGb', '200', '-CapsFile', $caps)
+    $p6 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-CommitFloorGb', '0', '-InjectRamGb', '8', '-InjectFreeGb', '200', '-CapsFile', $caps)
     Add-Result 'preflight-guard-pass' '0' ([string]$p6.Code) ($p6.Code -eq 0)
-    $p10 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '8', '-InjectFreeGb', '30', '-CapsFile', $caps10)
+    $p10 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-CommitFloorGb', '0', '-InjectRamGb', '8', '-InjectFreeGb', '30', '-CapsFile', $caps10)
     Add-Result 'preflight-guard-cap-reserved' '1' ([string]$p10.Code) ($p10.Code -eq 1)
-    $p11 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '8', '-InjectFreeGb', '40', '-CapsFile', $caps10)
+    $p11 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-CommitFloorGb', '0', '-InjectRamGb', '8', '-InjectFreeGb', '40', '-CapsFile', $caps10)
     Add-Result 'preflight-guard-cap-control' '0' ([string]$p11.Code) ($p11.Code -eq 0)
+    $q4 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '8', '-InjectFreeGb', '200', '-CommitFloorGb', '10', '-InjectCommitGb', '8', '-CapsFile', $caps)
+    Add-Result 'preflight-guard-commit-low' '1, commit-low at floor 10GB' ('{0}: {1}' -f $q4.Code, (Get-Brief $q4.Out)) ($q4.Code -eq 1 -and (Test-CommitLine $q4.Out '10' $true))
+    $q5 = Invoke-Kit 'preflight.ps1' @('-Volume', $base, '-InjectRamGb', '8', '-InjectFreeGb', '200', '-CommitFloorGb', '10', '-InjectCommitGb', '12', '-CapsFile', $caps)
+    Add-Result 'preflight-guard-commit-control' '0, floor 10GB, no commit-low' ('{0}: {1}' -f $q5.Code, (Get-Brief $q5.Out)) ($q5.Code -eq 0 -and (Test-CommitLine $q5.Out '10' $false))
 } else { [Console]::Out.WriteLine('note: no guard.exe in the kit: the guard cases are skipped (section 15 copies it)') }
 
 # embed.ps1.
