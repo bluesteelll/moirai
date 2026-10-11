@@ -575,7 +575,7 @@ impl Engine<'_, '_> {
                     text3::guard_fails(&bt, &ot, &tt, &r)
                 })
             }
-            "kleppmann-skipped" => matches!(k, Key::Node(n, _) if self.skipped.contains(n)),
+            "threeway-skipped" => matches!(k, Key::Node(n, _) if self.skipped.contains(n)),
             "deleted-vs-modified" => {
                 let Key::Node(n, _) = k else { return false };
                 is_live(&pb())
@@ -821,7 +821,7 @@ impl Engine<'_, '_> {
                     .expect("the row's case holds a clean diff3");
                 KState::Plain(text_value(k, r))
             }
-            "kleppmann" => o.clone(),
+            "threeway" => o.clone(),
             "policy" => self.policy(k, b, o, t, &conflict_cell),
             "conflict-value" => {
                 KState::Conflict(Box::new(self.conflict(k, &conflict_cell, flat(b), b, o, t)))
@@ -1566,6 +1566,7 @@ impl Engine<'_, '_> {
     // spec: [RULES/merge-table] results
     // spec: [F12 §7.4]
     // spec: [F12 §5.3]
+    // rule: HT-004
     fn hierarchy(&mut self, modes: &BTreeMap<Nid, Mode>) -> BTreeMap<Nid, Option<KVal>> {
         let hk = |n: Nid| Key::Node(n, Aspect::Hierarchy);
         let get = |st: &State, n: Nid| -> Option<KVal> { flat(&cval(st, n, &Aspect::Hierarchy)) };
