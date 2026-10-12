@@ -293,14 +293,14 @@ The tier sets the unit's stages (§6.1).
    directories, the allow rules and the role's `deny_read` rules there.
 6. **Arguments and the unit's baseline.** Write `<ORCH>/embed/args_<unit>.json` (§6.2): `base` = `git rev-parse master`,
    `gateWt` = `gate-a` while units build only in lane A (otherwise the gate worktree of the role's lane), `tier` = the
-   spec's tier, `dryRun` = `false`, `resumeNote` = `""`, `gateRun` = `""`, `deltaLogic` = `true`. Write
-   `<ORCH>/<unit>/baseline_unit.tsv`: the first line of `baseline.tsv`, then its rows whose package is one of the unit's
-   (the `-p` values of `gates`), for example `grep -E '^(xtask|moirai-vfs)[|]' <ORCH>/baseline.tsv`. A role writes and
-   reads its own packages; should a `deny_read` module pattern of the role (`xtask/roles.toml`) name one of them, its
-   rows whose test path lies in that module are dropped too, as the gate's filter drops them (`xtask/src/cargo.rs`). The
-   tester or the verifier builds its expected set from this file; `baseline.tsv` itself holds every crate's test names,
-   which S2 withholds from most roles, and the unit header (§6.1, `unit.js`) limits every agent's reads under `<ORCH>`
-   to its unit's directory, `kit/` and `RULINGS.md`.
+   spec's tier, `dryRun` = `false`, `resumeNote` = `""`, `gateRun` = `""`, `deltaLogic` = `true`, `deltaRound` = `1`.
+   Write `<ORCH>/<unit>/baseline_unit.tsv`: the first line of `baseline.tsv`, then its rows whose package is one of the
+   unit's (the `-p` values of `gates`), for example `grep -E '^(xtask|moirai-vfs)[|]' <ORCH>/baseline.tsv`. A role
+   writes and reads its own packages; should a `deny_read` module pattern of the role (`xtask/roles.toml`) name one of
+   them, its rows whose test path lies in that module are dropped too, as the gate's filter drops them
+   (`xtask/src/cargo.rs`). The tester or the verifier builds its expected set from this file; `baseline.tsv` itself
+   holds every crate's test names, which S2 withholds from most roles, and the unit header (§6.1, `unit.js`) limits
+   every agent's reads under `<ORCH>` to its unit's directory, `kit/` and `RULINGS.md`.
 7. **Embedded copy.** Copy the main checkout's `.claude/workflows/unit.js` (on `master`) to
    `<ORCH>/embed/<unit>.src.js`, then `powershell.exe -NoProfile -ExecutionPolicy Bypass -File <ORCH>/kit/embed.ps1
    -Script <ORCH>/embed/<unit>.src.js -ArgsFile <ORCH>/embed/args_<unit>.json -Out <ORCH>/embed/<unit>.js`.
@@ -499,7 +499,8 @@ structured verdict and the script parses nothing.
 | `tier` | `LIGHT`, `STANDARD` or `HEAVY`, as the spec states it (§5.1); the script refuses anything else |
 | `resumeNote` | `""` on a first launch (§6.4) |
 | `gateRun` | optional, `""` on a first launch: a token that only the mechanic's prompt carries; a relaunch that must re-run round 1's gate changes it (§6.4) |
-| `deltaLogic` | optional, default `true`; read only with a `DELTA SINCE` resume note: `false` says that the delta changed no non-test code and makes round 1 slim (§6.1, §6.4) |
+| `deltaLogic` | optional, default `true`; read only with a `DELTA SINCE` resume note: `false` says that the delta changed no non-test code and makes the relaunch's first verify round slim (§6.1, §6.4) |
+| `deltaRound` | optional, default `1`; read only with a `DELTA SINCE` resume note: the round the relaunch's first verify round is. A gate re-run of round n of 2 or more passes n, so that the relaunch repeats round n (§6.4). The script refuses a value that is not a round of the tier, one above 1 without a `DELTA SINCE` note, and one other than n with a note `DELTA SINCE <sha>: gate re-run of round <n>` |
 | `dryRun` | `true` returns `{ ok: true, args, stages, maxRounds }` (the tier's stages and round limit, §6.1) before any agent starts |
 
 ### 6.3 Launching

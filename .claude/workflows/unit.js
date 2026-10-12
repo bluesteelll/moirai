@@ -11,10 +11,13 @@ export const meta = {
 //   branch (m0/<role>), base (the master sha the unit started from), trunk (master), spec (a path), lock, others,
 //   gates (the per-commit gate commands), diskFloorGb, tier (LIGHT, STANDARD or HEAVY: docs/m0/workflow.md section
 //   5.1), resumeNote, dryRun; optional gateRun (a token that only the mechanic's prompt carries: change it on a
-//   relaunch that must re-run the gate) and deltaLogic (read only with a DELTA SINCE resumeNote; false says that the
-//   delta changed no non-test code, which makes round 1 slim; default true).
+//   relaunch that must re-run the gate), deltaLogic (read only with a DELTA SINCE resumeNote; false says that the
+//   delta changed no non-test code, which makes the first round slim; default true) and deltaRound (read only with a
+//   DELTA SINCE resumeNote: the round the first verify round is; default 1).
 // A resumeNote reaches only the implement stage, so a relaunch replays the cut and the critique from the journal.
-// A resumeNote that starts "DELTA SINCE <sha>:" makes round 1 delta-scoped since that verified head.
+// A resumeNote that starts "DELTA SINCE <sha>:" makes the first verify round delta-scoped since that verified head:
+// round 1, or round n with deltaRound n, which a gate re-run of round n of 2 or more passes so that the relaunch
+// repeats round n with its closure checks and its place in the round limit (docs/m0/workflow.md section 6.4).
 // A HEAVY delta round whose delta changed no non-test code (logic false) is slim: the gate, then the tester, who
 // checks that flag; the review runs after the tester only when the tester finds the flag wrong. Otherwise the review
 // starts first, so a relaunch that changes only gateRun replays round 1's review from the journal. That relaunch is
@@ -35,13 +38,16 @@ const TIERS = {
   LIGHT: { stages: ['implement', 'gate', 'review', 'fix'], maxRounds: 2 },
 }
 const T = TIERS[A.tier]
+const DM = /^DELTA SINCE ([0-9a-f]{7,40})\b/.exec(A.resumeNote || '')
+const SINCE0 = DM ? DM[1] : ''
+const GR = /^DELTA SINCE [0-9a-f]{7,40}: gate re-run of round (\d+)\b/.exec(A.resumeNote || '')
+const R0 = A.deltaRound === undefined || A.deltaRound === null || A.deltaRound === '' ? 1 : A.deltaRound
+if (!Number.isInteger(R0) || R0 < 1 || R0 > T.maxRounds || (R0 > 1 && !DM) || (GR && Number(GR[1]) !== R0)) return { ok: false, stage: 'args', error: 'deltaRound must be a round of the tier (default 1), above 1 only with a DELTA SINCE resumeNote, and n with a "gate re-run of round <n>" resumeNote' }
 if (A.dryRun) return { ok: true, args: A, stages: T.stages.slice(), maxRounds: T.maxRounds }
 const has = s => T.stages.includes(s)
 const HEAVY = A.tier === 'HEAVY'
 
 const SP = A.orch + '/' + A.unit + '/'
-const DM = /^DELTA SINCE ([0-9a-f]{7,40})\b/.exec(A.resumeNote || '')
-const SINCE0 = DM ? DM[1] : ''
 const TIER = HEAVY ? '- Tier HEAVY (docs/m0/workflow.md section 5.1).'
   : `- Tier ${A.tier} (docs/m0/workflow.md section 5.1). The HEAVY triggers: H1 product source, a product crate's manifest or build.rs, or the build configuration; H2 the simulator or the toy log; H3 bytes, ids, hashes, codecs or the canonical form; H4 what a rule requires; H5 a decision the spec leaves open, or a ruling applied for the first time; H6 the merge-verdict machinery (unit.js control flow and schemas, the kit, .githooks, the gate, the fmt, clippy and mutation configuration, the by-name and zero-test rules). A trigger met in the spec, the tree or the diff is a STOP with the reason "escalate: H<n>"; when in doubt, the higher tier.${A.tier === 'LIGHT' ? ' A change of behaviour or of a test is a STOP with the reason "escalate: STANDARD".' : ''}`
 const HDR = `UNIT ${A.unit}, author role ${A.role}. Spec: ${A.spec}. Rulings: ${A.orch}/RULINGS.md. Procedure: docs/m0/workflow.md.
@@ -174,12 +180,12 @@ const broken = v => {
   if (has('test') && !v.test) return 'test: the tester returned nothing'
   if (has('verifier') && !v.ver) return 'verifier: the verifier returned nothing'
   if (v.reviewDue && !v.review) return 'review: the reviewer returned nothing'
-  if (v.review && !sameHead(v.review.head, v.gate.head)) return `review: the review examined ${norm(v.review.head) || 'no head'} and the gate verified ${v.gate.head}: not a review of the verified head (one replayed from an earlier launch); relaunch DELTA SINCE the head the last review examined (docs/m0/workflow.md section 6.4)`
+  if (v.review && !sameHead(v.review.head, v.gate.head)) return `review: the review examined ${norm(v.review.head) || 'no head'} and the gate verified ${v.gate.head}: not a review of the verified head (one replayed from an earlier launch, or a misreported head); after a gateRun-only relaunch of round n's gate, relaunch DELTA SINCE the head gate_r<n-1>.md verified, with deltaRound n (docs/m0/workflow.md sections 5.3 and 6.4)`
   return ''
 }
 
-let v = await verify(1, SINCE0 || A.base, SINCE0 ? A.deltaLogic !== false : true)
-let round = 1
+let round = R0
+let v = await verify(round, SINCE0 || A.base, SINCE0 ? A.deltaLogic !== false : true)
 while (!green(v) && !broken(v) && round < T.maxRounds) {
   phase('Fix')
   let items
