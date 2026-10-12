@@ -420,6 +420,13 @@ pub fn check<H: Host + ?Sized>(
             );
         }
         for q in &m.quantities {
+            if !smoke
+                && let Some(head) = env.tree.commit.as_deref()
+                && let Ok(Some(name)) = done_before(&env.out(m.n), m.n, q, head)
+            {
+                let _ = writeln!(out, "measure: run {}/{q}: done before ({name})", m.n);
+                continue;
+            }
             let c = driver_cmd(env, plan, m, q, commit, TOOLCHAIN_AT_RUN, smoke);
             let _ = if smoke {
                 writeln!(
@@ -574,6 +581,28 @@ impl Session {
     }
 }
 
+/// The attempts of one run in one invocation: the first and one retry ([MP §9.8]).
+const MAX_ATTEMPTS: u32 = 2;
+
+/// Resume ([MP §9.8]): the name of an exit-grade record of measurement `n`, quantity `q` and the measured `commit`
+/// already in `dir`, if there is one. Records of other commits, and records that are not exit-grade, stay raw data
+/// and do not count.
+// spec: [MP §9.8] (resume), [MP §7.3]
+fn done_before(dir: &Path, n: u32, q: &str, commit: &str) -> Result<Option<String>, String> {
+    for name in record::list(dir)?
+        .into_keys()
+        .filter(|f| record::record_name(f, q))
+    {
+        let Ok(text) = std::fs::read_to_string(dir.join(&name)) else {
+            continue;
+        };
+        if record::judge(&text, n, q, commit).is_ok() {
+            return Ok(Some(name));
+        }
+    }
+    Ok(None)
+}
+
 /// What every attempt of a session shares.
 struct Ctx<'a> {
     env: &'a Env,
@@ -670,7 +699,7 @@ fn attempt<H: Host + ?Sized>(
     }
     let dir = cx.env.out(m.n);
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let before = record::names(&dir)?;
+    let before = record::list(&dir)?;
     let cmd = driver_cmd(cx.env, cx.plan, m, q, &cx.commit, &cx.toolchain, false);
     let log = format!("{}.{q}.{k}.log", m.n);
     let start = host.now();
@@ -686,9 +715,11 @@ fn attempt<H: Host + ?Sized>(
     };
     let ended = exec::run_cmd(host, &cmd, &cx.dir.join(&log), deadline, &mut watch);
     let end = host.now();
-    let added: Vec<String> = record::names(&dir)?
-        .difference(&before)
-        .filter(|n| record::record_name(n, q))
+    let after = record::list(&dir)?;
+    let touched = record::changed(&before, &after);
+    let added: Vec<String> = after
+        .keys()
+        .filter(|n| !before.contains_key(*n) && record::record_name(n, q))
         .cloned()
         .collect();
     let stop_why = |at: i64| {
@@ -768,6 +799,17 @@ fn attempt<H: Host + ?Sized>(
         }
     );
     let mut stop = None;
+    if !touched.is_empty() {
+        let why = format!(
+            "record-changed: {} in {} changed or vanished during {}/{q}; a record is never overwritten ([MP §7.2])",
+            touched.join(", "),
+            dir.display(),
+            m.n
+        );
+        let _ = writeln!(out, "measure: {why}; the session stops");
+        j["records_changed"] = json!(touched);
+        stop = Some(why);
+    }
     if let Some(change) = tree_change(host, cx.env) {
         let _ = writeln!(
             out,
@@ -775,7 +817,7 @@ fn attempt<H: Host + ?Sized>(
             m.n
         );
         j["tree_changed"] = change;
-        stop = Some(format!("the tested tree changed during {}/{q}", m.n));
+        stop.get_or_insert(format!("the tested tree changed during {}/{q}", m.n));
     }
     Ok(Attempt {
         outcome: Some(outcome),
@@ -882,8 +924,18 @@ pub fn run<H: Host + ?Sized>(
                 ses.save()?;
                 continue;
             }
+            // Resume: a run with an exit-grade record of the measured commit is done.
+            if let Some(name) = done_before(&env.out(m.n), m.n, q, &cx.commit)? {
+                let _ = writeln!(out, "measure: {}/{q} done-before: {name}", m.n);
+                r["status"] = json!("done-before");
+                r["record"] = json!(name);
+                exit_grade += 1;
+                ses.push_run(r);
+                ses.save()?;
+                continue;
+            }
             if !work_made {
-                // Made empty before the measurement's first attempt; kept across its runs.
+                // Made empty before the measurement's first attempt; kept across its runs and retries.
                 if work.exists() {
                     std::fs::remove_dir_all(&work)
                         .map_err(|e| format!("{}: {e}", work.display()))?;
@@ -891,34 +943,50 @@ pub fn run<H: Host + ?Sized>(
                 std::fs::create_dir_all(&work).map_err(|e| format!("{}: {e}", work.display()))?;
                 work_made = true;
             }
-            let a = attempt(host, &cx, m, q, 1, m_deadline, out)?;
-            if a.stop.is_some() && !started_any && !a.started {
-                refused_first = true;
-            }
-            started_any |= a.started;
-            if let Some(list) = r["attempts"].as_array_mut() {
-                list.push(a.json);
-            }
-            match a.outcome {
-                None => {
-                    r["status"] = json!("not-run");
-                    r["reason"] = json!(a.stop);
+            let mut k = 0;
+            loop {
+                k += 1;
+                let a = attempt(host, &cx, m, q, k, m_deadline, out)?;
+                if a.stop.is_some() && !started_any && !a.started {
+                    refused_first = true;
                 }
-                Some(o) => {
-                    r["status"] = json!(o.as_str());
-                    if o == Outcome::ExitGrade {
-                        exit_grade += 1;
+                started_any |= a.started;
+                if let Some(list) = r["attempts"].as_array_mut() {
+                    list.push(a.json);
+                }
+                match a.outcome {
+                    None if k == 1 => {
+                        r["status"] = json!("not-run");
+                        r["reason"] = json!(a.stop);
                     }
-                    if o == Outcome::BudgetEnded {
-                        spent = Some(format!(
-                            "the measurement's budget was spent during {}/{q}",
-                            m.n
-                        ));
+                    None => {}
+                    Some(o) => {
+                        r["status"] = json!(o.as_str());
+                        if o == Outcome::ExitGrade {
+                            exit_grade += 1;
+                        }
+                        if o == Outcome::BudgetEnded {
+                            spent = Some(format!(
+                                "the measurement's budget was spent during {}/{q}",
+                                m.n
+                            ));
+                        }
                     }
                 }
-            }
-            if let Some(why) = a.stop {
-                stopped.get_or_insert(why);
+                if let Some(why) = a.stop {
+                    stopped.get_or_insert(why);
+                    break;
+                }
+                // One retry, at once, of an attempt that is not exit-grade and was not stopped at the measurement's
+                // budget or the window's deadline, while time is left before both.
+                let retry = matches!(
+                    a.outcome,
+                    Some(Outcome::NotExitGrade | Outcome::TimedOut | Outcome::Error)
+                ) && k < MAX_ATTEMPTS
+                    && host.now() < m_deadline.min(cx.deadline);
+                if !retry {
+                    break;
+                }
             }
             ses.push_run(r);
             ses.save()?;
@@ -1091,7 +1159,7 @@ pub fn cli(args: &[String], repo: &Path) -> Result<ExitCode, String> {
             Err(e) => {
                 let _ = writeln!(
                     stdout,
-                    "measure: error: {e}; the records already written stay"
+                    "measure: error: {e}; the records already written stay, and starting the runner again resumes the night"
                 );
                 Ok(ExitCode::from(EXIT_INTERNAL))
             }
@@ -1181,6 +1249,15 @@ quantities = ["lz4.encode"]
     enum Writes {
         /// One exit-grade record of the run.
         ExitGrade,
+        /// One record of the run whose `reasons` is not empty.
+        NotExitGrade,
+        /// Nothing.
+        Nothing,
+        /// Two records of the run.
+        Two,
+        /// An exit-grade record of the run, after appending to the first file already in `--out`: a driver that
+        /// breaks [MP §7.2].
+        Overwrite,
     }
 
     /// The fake driver ([MP §9.7]): when a driver starts, it writes what `writes` says directly into its `--out`,
@@ -1220,6 +1297,29 @@ quantities = ["lz4.encode"]
             let good = |at: i64| record::tests::exit_grade(n, &q, &commit, &utc::rfc3339(at));
             match s.borrow_mut().pop_front().unwrap_or(Writes::ExitGrade) {
                 Writes::ExitGrade => write(now, good(now)),
+                Writes::NotExitGrade => {
+                    let mut v = good(now);
+                    v["reasons"] = json!(["a round-boundary reading failed"]);
+                    write(now, v);
+                }
+                Writes::Nothing => {}
+                Writes::Two => {
+                    write(now, good(now));
+                    write(now + 1, good(now + 1));
+                }
+                Writes::Overwrite => {
+                    let first = std::fs::read_dir(&dir)
+                        .unwrap()
+                        .map(|e| e.unwrap().path())
+                        .min()
+                        .unwrap();
+                    let mut f = std::fs::OpenOptions::new()
+                        .append(true)
+                        .open(first)
+                        .unwrap();
+                    std::io::Write::write_all(&mut f, b" ").unwrap();
+                    write(now, good(now));
+                }
             }
         }));
         script
@@ -1801,19 +1901,34 @@ quantities = ["d"]
         let plan = Plan::parse(BUDGETS).unwrap();
         let env = env(&d, &plan);
         let t0 = at(NOW) + 15 * 60;
-        // At its run budget: a hangs, and its process tree is stopped exactly 30 minutes after it started.
+        // At its run budget: a hangs, and its process tree is stopped exactly 30 minutes after it started. It is
+        // retried at once and hangs again; the measurement's budget stops the retry 50 minutes into the measurement,
+        // so b and c are not run, and measurement 6 runs.
         let mut h = FakeHost::new(at(NOW));
         fake_driver(&mut h, &[]);
         h.scripts.push_back(hangs());
-        for _ in 0..3 {
-            h.scripts.push_back(runs(60, 0));
-        }
+        h.scripts.push_back(hangs());
+        h.scripts.push_back(runs(60, 0));
         let (_, text) = run_text(&mut h, &env, &plan);
         let s = session(&env, &plan, at(NOW));
         let a = &s["runs"][0]["attempts"][0];
         assert_eq!(a["ended"], utc::rfc3339(t0 + 30 * 60), "{text}");
         assert_eq!(a["outcome"], "timed-out", "{text}");
         assert_eq!(h.killed.borrow()[0], h.spawned[0].line());
+        let a = &s["runs"][0]["attempts"][1];
+        assert_eq!(a["ended"], utc::rfc3339(t0 + 50 * 60), "{text}");
+        assert_eq!(a["outcome"], "budget-ended", "{text}");
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/a", "budget-ended"),
+                ("14/b", "not-run"),
+                ("14/c", "not-run"),
+                ("6/d", "exit-grade"),
+            ])
+        );
+        assert_eq!(h.killed.borrow().len(), 2);
+        assert_eq!((h.spawned.len(), h.captured.len()), (3, 3));
         std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
         let _ = std::fs::remove_dir_all(env.private.join(MEASUREMENTS));
         // At the measurement's budget: b hangs after a took 25 minutes and is stopped 50 minutes into the
@@ -1870,5 +1985,288 @@ quantities = ["d"]
         assert_eq!(s["runs"][0]["attempts"][0]["ended"], "2026-10-14T03:50:00Z");
         assert_eq!((h.spawned.len(), h.captured.len()), (1, 1));
         assert_eq!(h.killed.borrow().len(), 1);
+    }
+
+    #[test]
+    fn a_run_that_is_not_exit_grade_is_retried_once() {
+        let d = TestDir::new("measure-run-retry");
+        let plan = plan();
+        let env = env(&d, &plan);
+        // csr.1e5: a record that is not exit-grade, then an exit-grade one: two attempts, exit-grade. t1.read: not
+        // exit-grade twice: two attempts, not-exit-grade, and the next run starts. lz4.encode: exit-grade at once.
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(
+            &mut h,
+            &[
+                Writes::NotExitGrade,
+                Writes::ExitGrade,
+                Writes::NotExitGrade,
+                Writes::NotExitGrade,
+                Writes::ExitGrade,
+            ],
+        );
+        for _ in 0..5 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (code, text) = run_text(&mut h, &env, &plan);
+        let quantities: Vec<&str> = h.spawned.iter().map(|c| c.args[5].as_str()).collect();
+        assert_eq!(
+            quantities,
+            ["csr.1e5", "csr.1e5", "t1.read", "t1.read", "lz4.encode"],
+            "{text}"
+        );
+        assert_eq!(code, EXIT_FAIL, "{text}");
+        // The retry has its own guard.
+        assert_eq!(h.captured.len(), 5);
+        let s = session(&env, &plan, at(NOW));
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/csr.1e5", "exit-grade"),
+                ("14/t1.read", "not-exit-grade"),
+                ("6/lz4.encode", "exit-grade"),
+            ])
+        );
+        let a = &s["runs"][1]["attempts"];
+        assert_eq!(a.as_array().unwrap().len(), 2);
+        assert_eq!(a[0]["outcome"], "not-exit-grade");
+        assert!(
+            a[1]["why"][0]
+                .as_str()
+                .unwrap()
+                .contains("not valid: a round-boundary reading failed"),
+            "{a}"
+        );
+        // The retry starts at once, with its log beside the first attempt's.
+        let t0 = at(NOW) + 15 * 60;
+        assert_eq!(
+            s["runs"][0]["attempts"][1]["started"],
+            utc::rfc3339(t0 + 60)
+        );
+        assert_eq!(s["runs"][0]["attempts"][1]["log"], "14.csr.1e5.2.log");
+        std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        let _ = std::fs::remove_dir_all(env.private.join(MEASUREMENTS));
+        // A non-zero exit, a missing record and two records of one run are retried too.
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(
+            &mut h,
+            &[
+                Writes::ExitGrade,
+                Writes::ExitGrade,
+                Writes::Nothing,
+                Writes::ExitGrade,
+                Writes::Two,
+                Writes::ExitGrade,
+            ],
+        );
+        h.scripts.push_back(runs(60, 3));
+        for _ in 0..5 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (code, text) = run_text(&mut h, &env, &plan);
+        assert_eq!(h.spawned.len(), 6, "{text}");
+        assert_eq!(code, EXIT_PASS, "{text}");
+        let s = session(&env, &plan, at(NOW));
+        let first = |i: usize| {
+            s["runs"][i]["attempts"][0]["why"][0]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert_eq!(first(0), "the driver exited with 3");
+        assert_eq!(first(1), "the driver wrote no record");
+        assert_eq!(first(2), "the driver wrote 2 records of the run");
+        std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        let _ = std::fs::remove_dir_all(env.private.join(MEASUREMENTS));
+        // A run stopped at its run budget is retried: two attempts, each stopped by its tree at its budget.
+        let plan =
+            Plan::parse(&BUDGETS.replace("run-budget-minutes = 30", "run-budget-minutes = 20"))
+                .unwrap();
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[]);
+        h.scripts.push_back(hangs());
+        h.scripts.push_back(hangs());
+        for _ in 0..3 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (_, text) = run_text(&mut h, &env, &plan);
+        let s = session(&env, &plan, at(NOW));
+        let a = &s["runs"][0]["attempts"];
+        assert_eq!(a.as_array().unwrap().len(), 2, "{text}");
+        assert_eq!(
+            (a[0]["outcome"].as_str(), a[1]["outcome"].as_str()),
+            (Some("timed-out"), Some("timed-out"))
+        );
+        assert_eq!(a[1]["ended"], utc::rfc3339(t0 + 40 * 60));
+        assert_eq!(h.killed.borrow().len(), 2);
+        assert_eq!(s["runs"][0]["status"], "timed-out");
+    }
+
+    /// Writes a record into `/private/measurements/<n>/` before a session.
+    fn earlier(env: &Env, n: u32, name: &str, text: &str) -> PathBuf {
+        let dir = env.out(n);
+        std::fs::create_dir_all(&dir).unwrap();
+        let p = dir.join(name);
+        std::fs::write(&p, text).unwrap();
+        p
+    }
+
+    const OTHER: &str = "fedcba9876543210fedcba9876543210fedcba98";
+
+    #[test]
+    fn records_are_never_overwritten() {
+        let d = TestDir::new("measure-run-records");
+        let plan = plan();
+        let env = env(&d, &plan);
+        let head = test_tree().commit.unwrap();
+        // Earlier records: an exit-grade one of another commit, one of the measured commit that is not exit-grade,
+        // and a truncated one.
+        let other =
+            record::tests::exit_grade(14, "csr.1e5", OTHER, "2026-10-01T00:00:00Z").to_string();
+        let mut invalid = record::tests::exit_grade(14, "csr.1e5", &head, "2026-10-02T00:00:00Z");
+        invalid["reasons"] = json!(["a round-boundary reading failed"]);
+        let invalid = invalid.to_string();
+        let truncated = record::tests::exit_grade(14, "t1.read", &head, "2026-10-03T00:00:00Z")
+            .to_string()[..100]
+            .to_string();
+        let files = [
+            (
+                earlier(&env, 14, "csr.1e5.idle.20261001T000000Z.json", &other),
+                other,
+            ),
+            (
+                earlier(&env, 14, "csr.1e5.idle.20261002T000000Z.json", &invalid),
+                invalid,
+            ),
+            (
+                earlier(&env, 14, "t1.read.idle.20261003T000000Z.json", &truncated),
+                truncated,
+            ),
+        ];
+        let times: Vec<_> = files
+            .iter()
+            .map(|(p, _)| std::fs::metadata(p).unwrap().modified().unwrap())
+            .collect();
+        // A session with a retry: every earlier record, and the first attempt's record, stay as they were.
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[Writes::NotExitGrade]);
+        for _ in 0..4 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (code, text) = run_text(&mut h, &env, &plan);
+        assert_eq!(code, EXIT_PASS, "{text}");
+        for ((p, text), t) in files.iter().zip(&times) {
+            assert_eq!(
+                &std::fs::read_to_string(p).unwrap(),
+                text,
+                "{}",
+                p.display()
+            );
+            assert_eq!(&std::fs::metadata(p).unwrap().modified().unwrap(), t);
+        }
+        let s = session(&env, &plan, at(NOW));
+        let first = s["runs"][0]["attempts"][0]["records"][0].as_str().unwrap();
+        assert!(env.out(14).join(first).is_file(), "{first}");
+        assert_eq!(record::list(&env.out(14)).unwrap().len(), 3 + 3);
+        // No file of the session lies under /private/ but the records.
+        assert_eq!(env.out(6).read_dir().unwrap().count(), 1);
+        std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        // A driver that changes an earlier record stops the session: record-changed, exit 1. (The session's own
+        // records are removed first, so no run is done before.)
+        std::fs::remove_dir_all(env.private.join(MEASUREMENTS)).unwrap();
+        for (p, text) in &files {
+            earlier(&env, 14, &p.file_name().unwrap().to_string_lossy(), text);
+        }
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[Writes::Overwrite]);
+        for _ in 0..3 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (code, text) = run_text(&mut h, &env, &plan);
+        assert_eq!(code, EXIT_FAIL, "{text}");
+        let s = session(&env, &plan, at(NOW));
+        assert!(
+            s["stopped"]
+                .as_str()
+                .unwrap()
+                .starts_with("record-changed: csr.1e5.idle.20261001T000000Z.json"),
+            "{s}"
+        );
+        assert_eq!(
+            s["runs"][0]["attempts"][0]["records_changed"],
+            json!(["csr.1e5.idle.20261001T000000Z.json"])
+        );
+        assert_eq!(h.spawned.len(), 1);
+        // A scratch directory below /private/, or one that holds it, is refused.
+        for scratch in [env.private.join("scratch"), d.path().to_path_buf()] {
+            let mut p = plan.clone();
+            p.scratch = scratch.to_string_lossy().into_owned();
+            let kinds = kinds(&env, &p, at(NOW));
+            assert!(
+                kinds.contains(&"scratch"),
+                "{} {kinds:?}",
+                scratch.display()
+            );
+        }
+    }
+
+    #[test]
+    fn resume_skips_runs_with_an_exit_grade_record() {
+        let d = TestDir::new("measure-run-resume");
+        let plan = plan();
+        let env = env(&d, &plan);
+        let head = test_tree().commit.unwrap();
+        // csr.1e5 has an exit-grade record of the measured commit; t1.read has one of another commit; lz4.encode has one
+        // of the measured commit that is not exit-grade.
+        let done = "csr.1e5.idle.20261013T200500Z.json";
+        earlier(
+            &env,
+            14,
+            done,
+            &record::tests::exit_grade(14, "csr.1e5", &head, "2026-10-13T20:05:00Z").to_string(),
+        );
+        earlier(
+            &env,
+            14,
+            "t1.read.idle.20261013T200600Z.json",
+            &record::tests::exit_grade(14, "t1.read", OTHER, "2026-10-13T20:06:00Z").to_string(),
+        );
+        let mut invalid = record::tests::exit_grade(6, "lz4.encode", &head, "2026-10-13T20:07:00Z");
+        invalid["reasons"] = json!(["a round-boundary reading failed"]);
+        earlier(
+            &env,
+            6,
+            "lz4.encode.idle.20261013T200700Z.json",
+            &invalid.to_string(),
+        );
+        // check marks the done run, and only it.
+        let mut h = FakeHost::new(at(NOW));
+        let (code, text) = check_text(&mut h, &env, &plan, false);
+        assert_eq!(code, EXIT_PASS, "{text}");
+        assert!(
+            text.contains(&format!("measure: run 14/csr.1e5: done before ({done})\n")),
+            "{text}"
+        );
+        assert!(text.contains("measure: run 14/t1.read: budget"), "{text}");
+        assert!(text.contains("measure: run 6/lz4.encode: budget"), "{text}");
+        // run starts no driver for it, and the session passes with the two runs it makes.
+        fake_driver(&mut h, &[]);
+        h.scripts.push_back(runs(60, 0));
+        h.scripts.push_back(runs(60, 0));
+        let (code, text) = run_text(&mut h, &env, &plan);
+        let quantities: Vec<&str> = h.spawned.iter().map(|c| c.args[5].as_str()).collect();
+        assert_eq!(quantities, ["t1.read", "lz4.encode"], "{text}");
+        assert_eq!(code, EXIT_PASS, "{text}");
+        let s = session(&env, &plan, at(NOW));
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/csr.1e5", "done-before"),
+                ("14/t1.read", "exit-grade"),
+                ("6/lz4.encode", "exit-grade"),
+            ])
+        );
+        assert_eq!(s["runs"][0]["record"], done);
+        assert_eq!(s["counts"]["exit_grade"], 3);
     }
 }

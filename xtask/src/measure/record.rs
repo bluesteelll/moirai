@@ -5,28 +5,60 @@
 
 use crate::utc;
 use serde_json::{Value, json};
-use std::collections::BTreeSet;
+use std::collections::BTreeMap;
 use std::path::Path;
+use std::time::SystemTime;
 
 /// The schema of a run record ([MP §7.1]).
 pub const RUN_SCHEMA: &str = "moirai-probes/run/1";
 
-/// The names of the files directly in `dir`, a measurement's directory of raw records; a missing directory lists
-/// none.
-pub fn names(dir: &Path) -> Result<BTreeSet<String>, String> {
+/// A file of a measurement's directory of raw records as the runner lists it before and after an attempt.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Entry {
+    pub len: u64,
+    /// Its modification time, where the file system keeps one.
+    pub modified: Option<SystemTime>,
+}
+
+/// The files directly in `dir`, a measurement's directory of raw records, by name; a missing directory lists none.
+pub fn list(dir: &Path) -> Result<BTreeMap<String, Entry>, String> {
     let rd = match std::fs::read_dir(dir) {
         Ok(rd) => rd,
-        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeMap::new()),
         Err(e) => return Err(format!("{}: {e}", dir.display())),
     };
-    let mut out = BTreeSet::new();
+    let mut out = BTreeMap::new();
     for e in rd {
         let e = e.map_err(|e| format!("{}: {e}", dir.display()))?;
-        if e.file_type().is_ok_and(|t| t.is_file()) {
-            out.insert(e.file_name().to_string_lossy().into_owned());
+        let md = e
+            .metadata()
+            .map_err(|x| format!("{}: {x}", e.path().display()))?;
+        if md.is_file() {
+            out.insert(
+                e.file_name().to_string_lossy().into_owned(),
+                Entry {
+                    len: md.len(),
+                    modified: md.modified().ok(),
+                },
+            );
         }
     }
     Ok(out)
+}
+
+/// The files of `before` that are gone from `after` or have another length or modification time there: a record is
+/// never overwritten ([MP §7.2]).
+// spec: [MP §7.2] (an existing file is never overwritten), [MP §9.8] (records are never touched)
+pub fn changed(before: &BTreeMap<String, Entry>, after: &BTreeMap<String, Entry>) -> Vec<String> {
+    before
+        .iter()
+        .filter(|(name, b)| {
+            after
+                .get(*name)
+                .is_none_or(|a| a.len != b.len || a.modified != b.modified)
+        })
+        .map(|(name, _)| name.clone())
+        .collect()
 }
 
 /// Whether `name` is the raw file name of an idle run record of quantity `q` ([MP §7.2]):
