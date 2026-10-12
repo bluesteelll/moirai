@@ -70,7 +70,8 @@ pub trait Rig {
     fn commits(&self, r: &mut Self::Reader) -> Result<BTreeSet<u64>, String>;
     /// The process-wide `Vfs` counters.
     fn counters(&self) -> VfsCounters;
-    /// Creates the directory `dir` as a store root and a zero-filled extent of `len` bytes in it.
+    /// Creates the directory `dir` as a store root and a zero-filled extent of `len` bytes in it, made durable, so a
+    /// later flush writes only what the probe wrote.
     fn floor_create(&self, dir: &Path, len: u64) -> Result<Self::Floor, String>;
     /// Writes `bytes` at `off` of the floor's extent (class `lazy`).
     fn write(&self, f: &Self::Floor, off: u64, bytes: &[u8]) -> Result<(), String>;
@@ -180,6 +181,14 @@ impl<V: Vfs + Clone> Rig for ToyRig<V> {
         let file = self
             .vfs
             .create_extent(&root, RelPath::literal("floor.1"), len, &vol)
+            .map_err(|e| format!("floor: {e}"))?;
+        // `create_extent` makes nothing durable: without this flush the first timed `sync(Data)` would write the whole
+        // zero-filled extent (about 47 ms for 64 MiB in the first smoke), which is setup.
+        self.vfs
+            .sync(&file, SyncKind::DataAndMeta)
+            .map_err(|e| format!("floor: {e}"))?;
+        self.vfs
+            .sync_dir(&root, None)
             .map_err(|e| format!("floor: {e}"))?;
         Ok((root, file))
     }

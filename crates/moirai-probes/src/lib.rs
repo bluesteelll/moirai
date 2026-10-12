@@ -36,7 +36,7 @@
 //!
 //! | Module | What it holds | Specification |
 //! |---|---|---|
-//! | [`m1`] | the CLI commit cycle, the close and the data-only-flush floor over the toy log; the store seam [`m1::store`] (the `Rig`, its toy implementation, the generations) | [60 §5.2] item 1, `60-roadmap.md:788`, [MP §4.1] |
+//! | [`m1`] | the CLI commit cycle, the close and the data-only-flush floor over the toy log, the smoke and the driver's command line (`moirai-probes-bin m1`); the store seam [`m1::store`] (the `Rig`, its toy implementation, the generations); the driver contract [`m1::driver`], shared with measurement 2 | [60 §5.2] item 1, `60-roadmap.md:788`, [MP §4.1], [MP §9.7] |
 //!
 //! # Measurement 10 (WP-53d)
 //!

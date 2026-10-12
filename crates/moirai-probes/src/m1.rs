@@ -33,16 +33,38 @@
 //! commits (P06) or 4 MiB of fillers (P07); at typical sizes the commit bound binds. Every file lies below the run's
 //! directory `<cwd>/m1.<pid>/`, removed on every path out of the run ([MP §9.7] "The working directory").
 
+pub mod driver;
 pub mod store;
 
 use crate::arm::{Arm, ArmError, Ticker};
+use crate::host::{CommandRunner, HostKind};
+use crate::run::{Context, RunSpec, measure};
+use crate::tier::Tier;
 use crate::units::Unit;
-use moirai_vfs::SyncKind;
+use driver::{Args, EXIT_DONE, EXIT_FAILED, EXIT_USAGE};
+use moirai_vfs::{Meter, SyncKind};
+use std::ffi::OsString;
+use std::io::Write;
 use std::path::{Path, PathBuf};
-use store::{Generations, Rig, draw64, seed};
+use store::{GEN_BYTES, GEN_COMMITS, Generations, Rig, draw64, seed};
 
 /// The measurement's row number.
 pub const MEASUREMENT: u32 = 1;
+
+/// The quantities, in run order (R-31 Q3): the decisive cycle with its floor first, then the close.
+pub fn quantities() -> Vec<&'static str> {
+    vec!["cycle.e64mib", "close.e64mib"]
+}
+
+/// The usage text.
+pub const USAGE: &str = "usage: m1 --host laptop|hosted --condition idle|loaded|synthetic [--load-log <file>]
+          [--quantity cycle.e64mib|close.e64mib] --commit <sha> --toolchain <text> --out <dir>
+       m1 [--host ...] [--condition ...] [--quantity <name>] --commit <sha> --toolchain <text> --smoke
+       m1 --help
+Measurement 1: the CLI commit cycle on a 64 MiB log with its data-only-flush floor, and the close
+(docs/spec/measurement-protocol.md §9.7). Every file but the records lies below the working directory.
+Exit: 0 done; 1 a run or arm failed or a record could not be written; 2 usage error.
+";
 /// The largest filler: typical commits only (R-31 Q2), `commit_size(draw, 600)`.
 pub const FILLER_MAX: u32 = 600;
 /// The floor extent's length, E = 64 MiB (P01, the production profile).
@@ -89,8 +111,8 @@ pub struct CycleArm<'r, R: Rig, T: Ticker> {
     next_op: u64,
     ticker: T,
     batch: u32,
-    /// The directory flushes of the last sample (reported by the smoke).
-    pub last_dir_flushes: u64,
+    /// The flushes of the last sample: (durable, durable+meta, directory), reported by the smoke.
+    pub last: (u64, u64, u64),
 }
 
 impl<'r, R: Rig, T: Ticker> CycleArm<'r, R, T> {
@@ -103,7 +125,7 @@ impl<'r, R: Rig, T: Ticker> CycleArm<'r, R, T> {
             next_op: 1,
             ticker,
             batch: 1,
-            last_dir_flushes: 0,
+            last: (0, 0, 0),
         }
     }
 }
@@ -133,13 +155,13 @@ impl<R: Rig, T: Ticker> Arm for CycleArm<'_, R, T> {
         let c1 = self.rig.counters();
         self.next_op += k;
         let (data, meta, dirs) = flushes(&c0, &c1);
+        self.last = (data, meta, dirs);
         if data != k || meta != 0 {
             return Err(ArmError(format!(
                 "cycle: {k} commits made {data} durable and {meta} durable+meta flushes; one durable flush each and no \
                  durable+meta flush expected (write.rs:1186)"
             )));
         }
-        self.last_dir_flushes = dirs;
         self.gens
             .add(k, fillers.iter().map(|&f| u64::from(f)).sum());
         Ok(t1.saturating_sub(t0) / k)
@@ -233,6 +255,8 @@ pub struct FloorArm<'r, R: Rig, T: Ticker> {
     buf: Vec<u8>,
     ticker: T,
     batch: u32,
+    /// The flushes of the last sample: (durable, durable+meta, directory), reported by the smoke.
+    pub last: (u64, u64, u64),
 }
 
 impl<'r, R: Rig, T: Ticker> FloorArm<'r, R, T> {
@@ -249,6 +273,7 @@ impl<'r, R: Rig, T: Ticker> FloorArm<'r, R, T> {
             buf: vec![0x5A; FILLER_MAX as usize],
             ticker,
             batch: 1,
+            last: (0, 0, 0),
         }
     }
 
@@ -294,6 +319,7 @@ impl<R: Rig, T: Ticker> Arm for FloorArm<'_, R, T> {
         let c1 = self.rig.counters();
         self.off = off;
         let (data, meta, dirs) = flushes(&c0, &c1);
+        self.last = (data, meta, dirs);
         if data != k || meta != 0 || dirs != 0 {
             return Err(ArmError(format!(
                 "floor.flush: {k} writes made {data} durable, {meta} durable+meta and {dirs} directory flushes; one \
@@ -312,11 +338,237 @@ impl<R: Rig, T: Ticker> Arm for FloorArm<'_, R, T> {
     }
 }
 
+/// A run's directory `<cwd>/m<k>.<pid>/`, removed with everything below it on every path out of the run, an unwinding
+/// panic included ([MP §9.7] "The working directory").
+pub struct RunDir<'r, R: Rig> {
+    rig: &'r R,
+    dir: PathBuf,
+}
+
+impl<'r, R: Rig> RunDir<'r, R> {
+    /// Makes `<cwd>/<tag>.<pid>/`.
+    pub fn make(rig: &'r R, cwd: &Path, tag: &str) -> Result<RunDir<'r, R>, String> {
+        let dir = cwd.join(format!("{tag}.{}", std::process::id()));
+        rig.make_dir(&dir)?;
+        Ok(RunDir { rig, dir })
+    }
+
+    /// The directory.
+    pub fn path(&self) -> &Path {
+        &self.dir
+    }
+}
+
+impl<R: Rig> Drop for RunDir<'_, R> {
+    fn drop(&mut self) {
+        self.rig.remove(&self.dir);
+    }
+}
+
+/// What the binary passes in: the seams, the working directory and the process spawner.
+pub struct System<'a, R, M, T, Ru> {
+    /// The store seam.
+    pub rig: &'a R,
+    /// The measurement seam.
+    pub meter: &'a M,
+    /// The timer.
+    pub ticker: T,
+    /// The host-snapshot command runner.
+    pub runner: Ru,
+    /// Runs this driver again with the given arguments and returns its exit code.
+    pub spawn: &'a mut dyn FnMut(&[OsString]) -> Result<u8, String>,
+    /// The working directory: every file but the records lies below it.
+    pub cwd: PathBuf,
+}
+
+/// The arms of quantity `q` over `rig` in `dir`: `[cycle, floor.flush]` or `[close]`.
+fn arms<'r, R: Rig, T: Ticker + Clone + 'r>(
+    rig: &'r R,
+    dir: &Path,
+    q: &str,
+    ticker: &T,
+) -> Vec<Box<dyn Arm + 'r>> {
+    let gens = Generations::new(dir, GEN_COMMITS, GEN_BYTES);
+    let sizes = Sizes::new(&format!("m1:{q}"));
+    if q == "close.e64mib" {
+        vec![Box::new(CloseArm::new(rig, gens, sizes, ticker.clone()))]
+    } else {
+        let floor = Sizes::new(&format!("m1-floor:{q}"));
+        vec![
+            Box::new(CycleArm::new(rig, gens, sizes, ticker.clone())),
+            Box::new(FloorArm::new(rig, dir, FLOOR_LEN, floor, ticker.clone())),
+        ]
+    }
+}
+
+/// `--smoke`: every arm of each requested quantity once (`begin_block(1)`, one sample), at the production profile, with
+/// the counters checks; no pilot, plan, statistics, host snapshot or record ([MP §9.7]).
+fn smoke<R: Rig, T: Ticker + Clone>(
+    rig: &R,
+    ticker: &T,
+    cwd: &Path,
+    qs: &[&str],
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    fn once(arm: &mut dyn Arm) -> Result<u64, String> {
+        arm.begin_block(1)
+            .and_then(|()| arm.sample())
+            .map_err(|e| format!("{}: {e}", arm.name()))
+    }
+    let flushes = |f: (u64, u64, u64)| {
+        format!(
+            "({} durable, {} durable+meta, {} directory flushes)",
+            f.0, f.1, f.2
+        )
+    };
+    let mut code = EXIT_DONE;
+    for q in qs {
+        let run = || -> Result<Vec<String>, String> {
+            let dir = RunDir::make(rig, cwd, "m1")?;
+            let gens = Generations::new(dir.path(), GEN_COMMITS, GEN_BYTES);
+            let sizes = Sizes::new(&format!("m1:{q}"));
+            let mut lines = Vec::new();
+            if *q == "close.e64mib" {
+                let mut close = CloseArm::new(rig, gens, sizes, ticker.clone());
+                lines.push(format!("close ok {} ns", once(&mut close)?));
+            } else {
+                let mut cycle = CycleArm::new(rig, gens, sizes, ticker.clone());
+                let ns = once(&mut cycle)?;
+                lines.push(format!("cycle ok {ns} ns {}", flushes(cycle.last)));
+                let floor_sizes = Sizes::new(&format!("m1-floor:{q}"));
+                let mut floor =
+                    FloorArm::new(rig, dir.path(), FLOOR_LEN, floor_sizes, ticker.clone());
+                let ns = once(&mut floor)?;
+                lines.push(format!("floor.flush ok {ns} ns {}", flushes(floor.last)));
+            }
+            Ok(lines)
+        };
+        match run() {
+            Ok(lines) => {
+                for l in lines {
+                    let _ = writeln!(out, "m1 smoke {q} {l}");
+                }
+            }
+            Err(e) => {
+                let _ = writeln!(err, "m1 smoke {q} FAILED: {e}");
+                code = EXIT_FAILED;
+            }
+        }
+    }
+    code
+}
+
+/// One recorded run of `q` in this process.
+fn run_one<R: Rig, M: Meter, T: Ticker + Clone, Ru: CommandRunner>(
+    sys: System<'_, R, M, T, Ru>,
+    a: &Args,
+    q: &str,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let condition = match driver::condition(a) {
+        Ok(c) => c,
+        Err((code, e)) => {
+            let _ = writeln!(err, "m1 {q}: {e}");
+            return code;
+        }
+    };
+    let rec = {
+        let dir = match RunDir::make(sys.rig, &sys.cwd, "m1") {
+            Ok(d) => d,
+            Err(e) => {
+                let _ = writeln!(err, "m1 {q}: {e}");
+                return EXIT_FAILED;
+            }
+        };
+        let mut arms = arms(sys.rig, dir.path(), q, &sys.ticker);
+        let mut refs: Vec<&mut dyn Arm> =
+            arms.iter_mut().map(|a| &mut **a as &mut dyn Arm).collect();
+        let spec = RunSpec {
+            measurement: MEASUREMENT,
+            quantity: q.to_string(),
+            condition,
+            min_tier: Some(Tier::T2),
+        };
+        let mut ctx = Context {
+            meter: sys.meter,
+            ticker: sys.ticker.clone(),
+            runner: sys.runner,
+            host: a.host.unwrap_or(HostKind::Laptop),
+            toolchain: a.toolchain.clone().unwrap_or_default(),
+            commit: a.commit.clone().unwrap_or_default(),
+        };
+        let t0 = driver::now_ms();
+        let r = measure(&mut ctx, &spec, &mut refs);
+        let t1 = driver::now_ms();
+        r.map(|mut rec| {
+            driver::set_load_verdict(a, &mut rec, t0, t1, err, &format!("m1 {q}"));
+            rec
+        })
+    };
+    let rec = match rec {
+        Ok(r) => r,
+        Err(e) => {
+            let _ = writeln!(err, "m1 {q}: {e}");
+            return EXIT_FAILED;
+        }
+    };
+    match driver::write_record(&rec, a.out.as_deref().unwrap_or(Path::new("."))) {
+        Ok(p) => {
+            let _ = writeln!(out, "m1 {q} recorded {}", p.display());
+            EXIT_DONE
+        }
+        Err(e) => {
+            let _ = writeln!(err, "m1 {q}: the record could not be written: {e}");
+            EXIT_FAILED
+        }
+    }
+}
+
+/// The driver's command line ([MP §9.7]): parses `args` (without the program name), then runs the smoke, one quantity,
+/// or every quantity in a child process of its own; returns the exit code.
+pub fn cli<R: Rig, M: Meter, T: Ticker + Clone, Ru: CommandRunner>(
+    args: &[OsString],
+    sys: System<'_, R, M, T, Ru>,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let qs = quantities();
+    let a = match driver::parse(args, &qs) {
+        Ok(a) => a,
+        Err(e) => {
+            let _ = writeln!(err, "m1: {e}");
+            let _ = err.write_all(USAGE.as_bytes());
+            return EXIT_USAGE;
+        }
+    };
+    if a.help {
+        let _ = out.write_all(USAGE.as_bytes());
+        return EXIT_DONE;
+    }
+    if a.smoke {
+        let only: Vec<&str> = match &a.quantity {
+            Some(q) => qs.iter().copied().filter(|x| x == q).collect(),
+            None => qs.clone(),
+        };
+        return smoke(sys.rig, &sys.ticker, &sys.cwd, &only, out, err);
+    }
+    if let Some(q) = a.quantity.clone() {
+        return run_one(sys, &a, &q, out, err);
+    }
+    driver::each_in_own_process(args, &qs, sys.spawn, out, err, "m1")
+}
+
 #[cfg(test)]
 mod tests {
     use super::store::fake::{Ev, FakeRig, TraceTicker};
     use super::store::{GEN_BYTES, GEN_COMMITS};
     use super::*;
+    use crate::host::tests::Canned;
+    use crate::record::RunRecord;
+    use crate::testkit::{FakeMeter, scratch_dir};
+    use crate::tier::Plan;
 
     fn base() -> PathBuf {
         PathBuf::from("/w/m1.7")
@@ -523,5 +775,302 @@ mod tests {
         );
         assert!(matches!(&timed[1], Ev::Open { dir, .. } if *dir == base().join("store.2")));
         assert!(matches!(timed[2], Ev::Commit { op: 3, .. }));
+    }
+
+    fn os(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
+    fn no_spawn(_: &[OsString]) -> Result<u8, String> {
+        Err("no child process in this test".into())
+    }
+
+    /// The working directory of the command-line tests.
+    fn cwd() -> PathBuf {
+        PathBuf::from("/w")
+    }
+
+    /// Runs the command line over `rig`, in `/w`, with a ticker on the rig's clock that steps 1 ns per reading (a
+    /// timer resolution of 1 ns); returns (exit, stdout, stderr).
+    fn run_cli(rig: &FakeRig, args: &[&str]) -> (u8, String, String) {
+        let meter = FakeMeter::new(8_000_000_000);
+        let mut spawn = no_spawn;
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = cli(
+            &os(args),
+            System {
+                rig,
+                meter: &meter,
+                ticker: rig.clock.with_steps(&[1]),
+                runner: Canned::good(),
+                spawn: &mut spawn,
+                cwd: cwd(),
+            },
+            &mut out,
+            &mut err,
+        );
+        (
+            code,
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+        )
+    }
+
+    /// A rig whose commit and flush take 2 ms, so both arms of `cycle.e64mib` pilot in t2 (1,000 × 5).
+    fn slow_rig() -> FakeRig {
+        let rig = FakeRig::new();
+        rig.world.borrow_mut().lat.commit = 2_000_000;
+        rig.world.borrow_mut().lat.sync = 2_000_000;
+        rig
+    }
+
+    const SMOKE: [&str; 9] = [
+        "--host",
+        "laptop",
+        "--condition",
+        "idle",
+        "--commit",
+        "c",
+        "--toolchain",
+        "t",
+        "--smoke",
+    ];
+
+    /// `--smoke` runs every arm of each quantity once, with its flush counts, and records nothing; its run directories
+    /// are removed. The values carry the stepping ticker's 1 ns per reading.
+    #[test]
+    fn smoke_runs_every_arm_once_and_records_nothing() {
+        let rig = FakeRig::new();
+        let (code, out, err) = run_cli(&rig, &SMOKE);
+        assert_eq!(code, EXIT_DONE, "{err}");
+        let oks: Vec<(String, String)> = out
+            .lines()
+            .map(|l| {
+                let w: Vec<&str> = l.split(' ').collect();
+                assert_eq!((w[0], w[1], w[4]), ("m1", "smoke", "ok"), "{l}");
+                (w[2].to_string(), w[3].to_string())
+            })
+            .collect();
+        let want = [
+            ("cycle.e64mib", "cycle"),
+            ("cycle.e64mib", "floor.flush"),
+            ("close.e64mib", "close"),
+        ]
+        .map(|(q, a)| (q.to_string(), a.to_string()));
+        assert_eq!(oks, want);
+        assert!(
+            out.contains("cycle ok 21301 ns (1 durable, 0 durable+meta, 0 directory flushes)"),
+            "{out}"
+        );
+        assert!(
+            out.contains("floor.flush ok 751 ns (1 durable, 0 durable+meta, 0 directory flushes)"),
+            "{out}"
+        );
+        let t = rig.trace();
+        let commits = t.iter().filter(|e| matches!(e, Ev::Commit { .. })).count();
+        let writes = t.iter().filter(|e| matches!(e, Ev::Write(..))).count();
+        assert_eq!((commits, writes), (2, 1), "each arm once");
+        assert!(!out.contains("recorded"));
+        assert!(
+            rig.world.borrow().live.is_empty(),
+            "the run directories are removed"
+        );
+        let rig = FakeRig::new();
+        let mut one = SMOKE.to_vec();
+        one.extend(["--quantity", "close.e64mib"]);
+        let (code, out, _) = run_cli(&rig, &one);
+        assert_eq!((code, out.lines().count()), (EXIT_DONE, 1), "{out}");
+        assert!(out.starts_with("m1 smoke close.e64mib close ok 301 ns"));
+    }
+
+    /// A `--quantity` run writes exactly one record directly in `--out` that reads back: measurement 1, the arms `cycle`
+    /// and `floor.flush`, t2's 1,000 × 5 plan, the given commit and toolchain.
+    #[test]
+    fn a_run_writes_one_valid_record() {
+        let out_dir = scratch_dir("m1-run");
+        let o = out_dir.join("measurements").join("1");
+        let o = o.to_str().unwrap();
+        let rig = slow_rig();
+        let (code, out, err) = run_cli(
+            &rig,
+            &[
+                "--quantity",
+                "cycle.e64mib",
+                "--host",
+                "laptop",
+                "--condition",
+                "idle",
+                "--commit",
+                "0123abcd",
+                "--toolchain",
+                "1.98.1",
+                "--out",
+                o,
+            ],
+        );
+        assert_eq!(code, EXIT_DONE, "{err}");
+        assert!(out.contains("recorded"), "{out}");
+        let files: Vec<PathBuf> = std::fs::read_dir(o)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(files.len(), 1);
+        let v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&files[0]).unwrap()).unwrap();
+        let rec = RunRecord::from_json(&v).unwrap();
+        assert_eq!(
+            (rec.measurement, rec.quantity.as_str()),
+            (1, "cycle.e64mib")
+        );
+        let arms: Vec<&str> = rec.arms.iter().map(|a| a.name.as_str()).collect();
+        assert_eq!(arms, ["cycle", "floor.flush"]);
+        assert_eq!(rec.plan, Plan::new(1_000, 5));
+        assert!(
+            rec.arms.iter().all(|a| a.tier == Tier::T2),
+            "both arms in t2"
+        );
+        assert_eq!(
+            (rec.commit.as_str(), rec.toolchain.as_str()),
+            ("0123abcd", "1.98.1")
+        );
+        assert!(rec.valid(), "{:?}", rec.disqualifications());
+        let _ = std::fs::remove_dir_all(&out_dir);
+    }
+
+    /// Without `--quantity` each quantity runs in a child of its own, in list order, with the same arguments plus
+    /// `--quantity <q>`; the exit is the worst child's, and a child that cannot start counts as failed.
+    #[test]
+    fn without_quantity_each_quantity_runs_in_its_own_process() {
+        let rig = FakeRig::new();
+        let meter = FakeMeter::new(8_000_000_000);
+        let base = os(&[
+            "--host",
+            "laptop",
+            "--condition",
+            "idle",
+            "--commit",
+            "c",
+            "--toolchain",
+            "t",
+            "--out",
+            "/o",
+        ]);
+        for (bad, expect) in [
+            (None, EXIT_DONE),
+            (Some(Ok(1)), EXIT_FAILED),
+            (Some(Err(())), EXIT_FAILED),
+        ] {
+            let mut calls: Vec<Vec<OsString>> = Vec::new();
+            let mut spawn = |a: &[OsString]| -> Result<u8, String> {
+                calls.push(a.to_vec());
+                match (calls.len(), bad) {
+                    (2, Some(Ok(c))) => Ok(c),
+                    (2, Some(Err(()))) => Err("cannot start".into()),
+                    _ => Ok(0),
+                }
+            };
+            let (mut out, mut err) = (Vec::new(), Vec::new());
+            let code = cli(
+                &base,
+                System {
+                    rig: &rig,
+                    meter: &meter,
+                    ticker: rig.clock.with_steps(&[1]),
+                    runner: Canned::good(),
+                    spawn: &mut spawn,
+                    cwd: cwd(),
+                },
+                &mut out,
+                &mut err,
+            );
+            assert_eq!(code, expect);
+            assert_eq!(calls.len(), 2);
+            for (c, q) in calls.iter().zip(quantities()) {
+                let mut want = base.clone();
+                want.extend(["--quantity".into(), q.into()]);
+                assert_eq!(c, &want);
+            }
+        }
+        assert!(rig.trace().is_empty(), "the parent touches no store");
+    }
+
+    /// Every directory a run or a smoke makes lies below the working directory, and none is left after it: the double
+    /// records every directory made (`World::made`) and those that still exist (`World::live`).
+    #[test]
+    fn every_file_stays_below_the_working_directory_and_is_removed() {
+        let out_dir = scratch_dir("m1-cwd");
+        let o = out_dir.to_str().unwrap();
+        let rig = slow_rig();
+        let (code, _, err) = run_cli(&rig, &SMOKE);
+        assert_eq!(code, EXIT_DONE, "{err}");
+        for q in quantities() {
+            let (code, _, err) = run_cli(
+                &rig,
+                &[
+                    "--quantity",
+                    q,
+                    "--host",
+                    "laptop",
+                    "--condition",
+                    "idle",
+                    "--commit",
+                    "c",
+                    "--toolchain",
+                    "t",
+                    "--out",
+                    o,
+                ],
+            );
+            assert_eq!(code, EXIT_DONE, "{q}: {err}");
+        }
+        let w = rig.world.borrow();
+        let run = cwd().join(format!("m1.{}", std::process::id()));
+        for p in [
+            run.clone(),
+            run.join("store.1"),
+            run.join("store.2"),
+            run.join("floor.1"),
+        ] {
+            assert!(w.made.contains(&p), "{} made", p.display());
+        }
+        assert!(w.made.iter().all(|p| p.starts_with(cwd())), "{:?}", w.made);
+        assert!(w.live.is_empty(), "left: {:?}", w.live);
+        assert!(w.handles.is_empty(), "every handle closed");
+        drop(w);
+        let _ = std::fs::remove_dir_all(&out_dir);
+    }
+
+    /// The night's plan lists exactly this driver's quantities, in run order, and the driver accepts each of them with
+    /// `--quantity` ([MP §4.1], R-27 Q2); the scan reads an array split over lines.
+    #[test]
+    fn the_plan_lists_exactly_the_driver_quantities() {
+        let plan = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../xtask/measure-night.toml");
+        let text = std::fs::read_to_string(plan).unwrap();
+        let list = driver::plan_quantities(&text, MEASUREMENT).unwrap();
+        assert_eq!(list, quantities());
+        assert_eq!(list, ["cycle.e64mib", "close.e64mib"]);
+        for q in &list {
+            let a = driver::parse(
+                &os(&[
+                    "--quantity",
+                    q,
+                    "--commit",
+                    "c",
+                    "--toolchain",
+                    "t",
+                    "--smoke",
+                ]),
+                &quantities(),
+            );
+            assert!(a.is_ok(), "{q}: {a:?}");
+        }
+        let wrapped = "[[measurement]]\nn = 2 # two\nquantities = [\n  \"a.b\", # first\n  \"c\",\n]\n\
+                       [[measurement]]\nn = 1\ntitle = \"x # y\"\nquantities = [\"d\"]\n";
+        assert_eq!(
+            driver::plan_quantities(wrapped, 2),
+            Some(vec!["a.b".into(), "c".into()])
+        );
+        assert_eq!(driver::plan_quantities(wrapped, 1), Some(vec!["d".into()]));
+        assert_eq!(driver::plan_quantities(wrapped, 3), None);
     }
 }

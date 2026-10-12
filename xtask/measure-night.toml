@@ -41,7 +41,7 @@ driver = "m1"
 title = "the CLI commit cycle on a 64 MiB log: open, append, data-only flush, close, with its data-only-flush floor"
 run-budget-minutes = 20
 budget-minutes = 25
-quantities = []
+quantities = ["cycle.e64mib", "close.e64mib"]
 
 [[measurement]]
 n = 14
