@@ -32,6 +32,12 @@
 //! |---|---|---|
 //! | [`load`] | the load fixture's format, the load generator (`moirai-probes-bin loadgen`), its log and its verdict | [MP §9] |
 //!
+//! # Measurement 1 (WP-52)
+//!
+//! | Module | What it holds | Specification |
+//! |---|---|---|
+//! | [`m1`] | the CLI commit cycle, the close and the data-only-flush floor over the toy log; the store seam [`m1::store`] (the `Rig`, its toy implementation, the generations) | [60 §5.2] item 1, `60-roadmap.md:788`, [MP §4.1] |
+//!
 //! # Measurement 10 (WP-53d)
 //!
 //! | Module | What it holds | Specification |
@@ -59,6 +65,7 @@ pub mod guard;
 pub mod host;
 pub mod idle;
 pub mod load;
+pub mod m1;
 pub mod m10;
 pub mod m14;
 pub mod noise;
