@@ -409,7 +409,7 @@ VM(dst, src, base) is the typed three-way merge of §7 and the rule tables with 
 | VM-4 | A row whose disposition is `structural` yields its `result` value (`stage-take-o`: o; `stage-diff3`: the diff3 result) and records nothing | VB-009 |
 | VM-5 | Conflict values are kept as values: a key the virtual merge leaves in conflict holds that conflict value in the result | VB-010 |
 | VM-6 | The re-key and composition rules of [RULES/link-merge-rules] run as in a real merge | VB-012 |
-| VM-7 | Hierarchy moves (RS-007) are the Kleppmann steps of §7.4's row for a merge, with the inner base as B: the replay starts from the replay start R of the pair, taken over A(V_{i−1}), A(Lᵢ) and A(Bᵢ) (§5.2), and a side's steps are the real commits of A(side) \ A(R) that have step keys, a virtual side's included; every rule of that row applies (the recursive second-parent step keys of a two-parent commit, the (0, 0) steps, dst's moves first where two steps share a key, a move that keeps its node's parent never undone, the undo one move at a time among the moves that changed their node's parent, least uid on a cycle first). A virtual merge is never one-sided ([AR §11] OQ-A-11; [RULES/merge-table] open point 35 (iv)) | VB-011 |
+| VM-7 | Hierarchy keys are decided by [RULES/merge-table] RS-007 `threeway` as in a real merge, with Bᵢ as b, V_{i−1} as o and Lᵢ as t. The origin (§7.4) of dst's value is the latest origin among the folded LCAs L₁ … L_{i−1} that hold it, and (0, 0) when none does; src's is Lᵢ's (VB-011). Strict is off (VM-2). A key the cycle repair resets, and a two-sided key that lands at the other side's value, are decided silently, with no violation and no hint (VM-3, VM-4; VB-019). A cycle with no repairable key stays in the virtual state (§5.5) | VB-011 |
 | VM-8 | §5.4 applies to every key whose inner base holds a conflict value | VB-013, VB-014 |
 
 ### 5.4 Keys whose base holds a conflict value
@@ -462,10 +462,12 @@ among them); the re-signature in `rules/SIGNED.md` follows under V3.
   depth at most μ(L). The DAG's acyclicity (§4.1) is what makes μ well-founded.
 - **No state is revisited.** VBase(L) is a pure function of the sorted list L, and Vᵢ of the prefix (L₁ … Lᵢ); an engine may
   memoise both by that list.
-- **Hierarchy cycles.** Inside a virtual merge a Kleppmann step that leaves a cycle has the moves that changed their
-  node's parent undone as §7.4's row says (RS-007) and nothing is recorded (VM-3, VM-4); a virtual state's `parent`
-  relation is therefore a forest, whose depth is not checked.
-- **Other cycles and violations.** A virtual state may break I2, I4's depth, I5′, I6, I7, I-F1 or schema conformance,
+- **Hierarchy cycles.** Inside a virtual merge, RS-007's cycle repair resets a key, and a two-sided key takes the other
+  side's value, as in a real merge, but nothing is recorded (VM-3, VM-4; VB-011). A cycle with no repairable key
+  (RS-007's step (1), OQ-A-13 F4), which VA-005 stages in a real merge, stays in the virtual state, so a virtual state's
+  `parent` relation need not be a forest, and its depth is not checked. This follows from RS-007's step (1) with VB-009
+  and VM-3; it adds no rule.
+- **Other cycles and violations.** A virtual state may break I2, I4, I5′, I6, I7, I-F1 or schema conformance,
   because validators do not run there (VM-3). Only the final candidate of the real merge is validated (I37′), so nothing a
   virtual state holds can reach a ref by itself.
 - **Criss-cross.** |LCA| ≥ 2 arises only through merges across lanes and branch-of-branch merges (CM9). A merge into `main`
@@ -480,12 +482,15 @@ merge's keys, entries and text merges count against the command's `wmem` and wor
 exactly as the real merge's do. A merge whose virtual bases, held in memory, would exceed `wmem` is a bulk-class producer:
 it streams per-key results and spills sorted runs as [F07 §10.6] requires, or is refused with the budget error when it may
 not ([F17 §4.4] W1). Memoised states (§5.5) are released when the merge ends. Criss-cross histories are rare on the daily
-path (§5.5), so the rule bounds a worst case and costs nothing on the usual one. RS-007's replay since the replay start R
-(§7.4), with the step keys it reads, is charged to the merge in the same way. Unlike a virtual base, it is not rare: R
-precedes every commit of both sides that does not descend from B, so for a lane that has synced it reaches back to the
-lane's fork point when `main` holds none of the lane's commits, on every sync, and the daily-path bound of [AR §5a.7]
-step 3 (the LCA within 4k ops of a pin) does not bound it. The engine measures it on a long-lived lane when it implements
-RS-007 (`reviews/wave-3c-arbiter.md` W3C-ARB-10).
+path (§5.5), so the rule bounds a worst case and costs nothing on the usual one. RS-007's origin walks (§7.4;
+[RULES/merge-table] PR-016) are charged to the merge in the same way. A walk runs for each origin RS-007 reads: from the
+tip of the side whose value it is, it reads the commits back to the commit that produced the value, passing to a second
+parent where §7.4 says so. That commit can be older than B by any distance (a lane's early move that every later sync
+kept, MR-040), so the daily-path bound of [AR §5a.7] step 3 (the LCA within 4k ops of a pin) does not bound a walk. A
+walk examines only the commits whose net changeset holds the key or its node's existence (every other commit passes it
+to its first parent), and a commit's origins never change, so an engine may index those commits per node and keep each
+commit's origins with it. The engine measures the walks on a long-lived lane when it implements RS-007
+(`reviews/wave-3c-arbiter.md` W3C-ARB-10).
 
 ### 5.6 Determinism
 
@@ -514,7 +519,7 @@ The model's suite (E5, [PLAN §7]) and GT6's I31′ properties ([60 §3.13]) cov
 | VBC-7 | an inner set Mᵢ with two elements (nested criss-cross) | the recursion of §5.1 |
 | VBC-8 | unrelated roots | empty base |
 | VBC-9 | a counter incremented on both LCAs and on both sides | the sum over the virtual base |
-| VBC-10 | a hierarchy move that would close a cycle inside a virtual merge | undone silently in the base (RS-007); the real merge validates |
+| VBC-10 | a hierarchy value that would close a cycle inside a virtual merge | decided silently in the base: the cycle repair resets the key, or the two-sided key takes the other side's value, with no violation and no hint (RS-007, VB-011); the real merge validates |
 | VBC-11 | a `DeleteVsModify` in the virtual base, then both sides resolved differently | RVB-4 with class `DeleteVsModify` and RS-008's provisional state |
 | VBC-12 | two stores importing the same criss-cross history | byte-identical merge commits |
 
