@@ -1781,36 +1781,66 @@ quantities = ["lz4.encode"]
             assert!(text.contains("measure: refused: dirty-tree: "), "{text}");
             assert!(!e.scratch(&plan).exists());
         }
-        // A tracked change while a driver runs stops the session after that run.
-        let mut h = FakeHost::new(at(NOW));
-        fake_driver(&mut h, &[]);
-        h.scripts.push_back(runs(60, 0));
-        h.trees.push_back(Ok(Tree {
-            changes: 1,
-            ..test_tree()
-        }));
-        let (code, text) = run_text(&mut h, &env, &plan);
-        assert_eq!(code, EXIT_FAIL, "{text}");
-        assert_eq!(h.spawned.len(), 1);
-        let s = session(&env, &plan, at(NOW));
-        assert_eq!(
-            statuses(&s),
-            pairs(&[
-                ("14/csr.1e5", "exit-grade"),
-                ("14/t1.read", "not-run"),
-                ("6/lz4.encode", "not-run"),
-            ])
-        );
-        assert_eq!(
-            s["runs"][0]["attempts"][0]["tree_changed"]["tracked_changes"],
-            1
-        );
-        assert!(
-            s["stopped"]
-                .as_str()
-                .unwrap()
-                .contains("the tested tree changed during 14/csr.1e5")
-        );
+        // A tracked change, a moved HEAD or a moved branch while a driver runs (each alone, the other two as the
+        // pre-checks found them) stops the session after that run, and the session fails.
+        let moved = [
+            Tree {
+                changes: 1,
+                ..test_tree()
+            },
+            Tree {
+                commit: Some("f".repeat(40)),
+                ..test_tree()
+            },
+            Tree {
+                branch: Some("other".into()),
+                ..test_tree()
+            },
+        ];
+        for t in moved {
+            // Each session starts afresh, so that no record of the one before makes its first run done-before.
+            for dir in [env.scratch(&plan), env.private.join(MEASUREMENTS)] {
+                if dir.exists() {
+                    std::fs::remove_dir_all(&dir).unwrap();
+                }
+            }
+            let mut h = FakeHost::new(at(NOW));
+            fake_driver(&mut h, &[]);
+            for _ in 0..3 {
+                h.scripts.push_back(runs(60, 0));
+            }
+            h.trees.push_back(Ok(t.clone()));
+            let (code, text) = run_text(&mut h, &env, &plan);
+            assert_eq!(h.spawned.len(), 1, "{t:?}: {text}");
+            assert_eq!(code, EXIT_FAIL, "{t:?}: {text}");
+            let s = session(&env, &plan, at(NOW));
+            assert_eq!(
+                statuses(&s),
+                pairs(&[
+                    ("14/csr.1e5", "exit-grade"),
+                    ("14/t1.read", "not-run"),
+                    ("6/lz4.encode", "not-run"),
+                ]),
+                "{t:?}"
+            );
+            assert_eq!(
+                s["runs"][0]["attempts"][0]["tree_changed"],
+                json!({
+                    "commit": t.commit,
+                    "branch": t.branch,
+                    "tracked_changes": t.changes,
+                }),
+                "{s}"
+            );
+            assert!(
+                s["stopped"]
+                    .as_str()
+                    .unwrap()
+                    .contains("the tested tree changed during 14/csr.1e5"),
+                "{s}"
+            );
+            assert_eq!(s["verdict"], "fail", "{s}");
+        }
     }
 
     #[test]
