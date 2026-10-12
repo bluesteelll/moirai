@@ -506,12 +506,12 @@ mod tests {
     use super::*;
     use crate::arm::valid_name;
     use crate::host::tests::Canned;
-    use crate::m1::store::fake::FakeRig;
-    use crate::m2::burst::CHILDREN;
+    use crate::m1::store::fake::{Ev, FakeRig};
+    use crate::m2::burst::{CHILDREN, cost_seed};
     use crate::m2::child::fake::FakeWriters;
     use crate::record::RunRecord;
     use crate::testkit::{FakeMeter, scratch_dir};
-    use std::collections::BTreeSet;
+    use std::collections::{BTreeMap, BTreeSet};
 
     fn os(args: &[&str]) -> Vec<OsString> {
         args.iter().map(OsString::from).collect()
@@ -562,6 +562,29 @@ mod tests {
         let gens = Generations::new(Path::new("/w/m2.1"), GEN_COMMITS, GEN_BYTES);
         let coord = Coordinator::new(rig, pool, gens, &q.name, q.shape, q.scale);
         BurstArm::new(q.measure, coord)
+    }
+
+    /// Checks every commit of `trace` against quantity `q`'s draw: the store it was made on was opened with the cost
+    /// `cost::draw(cost_seed(q), op − 1, shape, scale)` of `q`'s own shape and scale. Returns the commits checked and
+    /// how many of them drew a cost above 0.
+    fn check_costs(trace: &[Ev], q: &Quantity) -> (u64, u64) {
+        let mut opened = BTreeMap::new();
+        let (mut seen, mut above) = (0, 0);
+        for e in trace {
+            match e {
+                Ev::Open { id, cost, .. } => {
+                    opened.insert(*id, *cost);
+                }
+                Ev::Commit { id, op, .. } => {
+                    let want = cost::draw(cost_seed(&q.name), op - 1, q.shape, q.scale);
+                    assert_eq!(opened[id], want, "{} op {op}", q.name);
+                    seen += 1;
+                    above += u64::from(want > 0);
+                }
+                _ => {}
+            }
+        }
+        (seen, above)
     }
 
     /// The 12 quantities are valid and unique, in the importance order of R-31; each parses back to its measure, shape
@@ -754,6 +777,47 @@ mod tests {
         );
     }
 
+    /// `--smoke` draws every commit's cost at its own quantity's shape and scale: the commits between the making of one
+    /// run directory and the next are one quantity's, in list order, and each opened its store with
+    /// `cost::draw(cost_seed(q), op − 1, shape, scale)`; the quantities at 0 % draw 0, the others draw above 0.
+    #[test]
+    fn the_smoke_draws_each_commit_cost_at_its_quantity_shape_and_scale() {
+        let rig = FakeRig::new();
+        rig.world.borrow_mut().lat.flush = 30_000;
+        let (code, _, err) = run_cli(
+            &rig,
+            &[
+                "--host",
+                "laptop",
+                "--condition",
+                "idle",
+                "--commit",
+                "c",
+                "--toolchain",
+                "t",
+                "--smoke",
+            ],
+            "",
+        );
+        assert_eq!(code, EXIT_DONE, "{err}");
+        let trace = rig.trace();
+        let runs: Vec<&[Ev]> = trace
+            .split(|e| matches!(e, Ev::MakeDir(_)))
+            .skip(1)
+            .collect();
+        assert_eq!(runs.len(), 12, "one run directory per quantity");
+        for (run, name) in runs.iter().zip(quantities()) {
+            let q = parse_quantity(name).unwrap();
+            let (seen, above) = check_costs(run, &q);
+            assert!(seen >= 16 && seen % 16 == 0, "{name}: {seen} commits");
+            if q.scale == 0 {
+                assert_eq!(above, 0, "{name}");
+            } else {
+                assert!(above * 10 > seen * 9, "{name}: {above} of {seen} above 0");
+            }
+        }
+    }
+
     /// A `--quantity` run writes one record directly in `--out` that reads back: measurement 2, `last-ack.c100`, the
     /// arm `last-ack`, t2's 1,000 × 5 plan; the run's replay report goes to stdout.
     #[test]
@@ -811,6 +875,50 @@ mod tests {
             "the run directory is removed"
         );
         let _ = std::fs::remove_dir_all(&out_dir);
+    }
+
+    /// A `--quantity` run draws every commit's cost at its quantity's own shape and scale: each commit of the run
+    /// opened its store with `cost::draw(cost_seed(q), op − 1, shape, scale)`, for the `Uniform` `last-ack.a100` and
+    /// for `last-ack.c50` at 50 %; every commit the run's report counts is checked.
+    #[test]
+    fn a_run_draws_each_commit_cost_at_its_quantity_shape_and_scale() {
+        for name in ["last-ack.a100", "last-ack.c50"] {
+            let q = parse_quantity(name).unwrap();
+            let out_dir = scratch_dir("m2-cost");
+            let rig = FakeRig::new();
+            let (code, out, err) = run_cli(
+                &rig,
+                &[
+                    "--quantity",
+                    name,
+                    "--host",
+                    "laptop",
+                    "--condition",
+                    "idle",
+                    "--commit",
+                    "c",
+                    "--toolchain",
+                    "t",
+                    "--out",
+                    out_dir.to_str().unwrap(),
+                ],
+                "",
+            );
+            assert_eq!(code, EXIT_DONE, "{name}: {err}");
+            assert!(out.contains("recorded"), "{name}: {out}");
+            // The run's report line: "…; <n> commits, <m> bursts (…".
+            let reported: u64 = out
+                .split(" commits, ")
+                .next()
+                .and_then(|s| s.rsplit(' ').next())
+                .and_then(|n| n.parse().ok())
+                .unwrap_or_else(|| panic!("{name}: no commit count in {out}"));
+            let (seen, above) = check_costs(&rig.trace(), &q);
+            assert_eq!(seen, reported, "{name}: every commit of the run is checked");
+            assert!(seen >= 16 * 1_000, "{name}: {seen} commits");
+            assert!(above * 10 > seen * 9, "{name}: {above} of {seen} above 0");
+            let _ = std::fs::remove_dir_all(&out_dir);
+        }
     }
 
     /// Without `--quantity` each quantity runs in a child of its own, in list order, with the same arguments plus
