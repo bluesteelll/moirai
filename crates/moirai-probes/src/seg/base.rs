@@ -172,14 +172,15 @@ pub struct Csr {
 }
 
 impl Csr {
-    /// The CSR of `lists`, each already sorted by `(kind, id)`.
-    pub fn of_lists<I: IntoIterator<Item = Vec<(u8, u32)>>>(lists: I) -> Csr {
+    /// The CSR of `lists`, each already sorted by `(kind, id)`: owned lists or borrowed slices, so a writer need not
+    /// copy its rows' lists.
+    pub fn of_lists<L: AsRef<[(u8, u32)]>, I: IntoIterator<Item = L>>(lists: I) -> Csr {
         let mut c = Csr {
             off: vec![0],
             ..Csr::default()
         };
         for l in lists {
-            for (k, id) in l {
+            for &(k, id) in l.as_ref() {
                 c.kinds.push(k);
                 c.ids.push(id);
             }

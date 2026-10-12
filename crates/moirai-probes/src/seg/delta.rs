@@ -2,10 +2,12 @@
 //! the fold of a tail's commits over the base, as touched rows with complete states and ± lists, in the probe's subset
 //! of sections.
 //!
-//! - **Touched rows** (`09-segments.md:378-382`): a row is listed in `IDS` iff a row-scoped section of it changes: the
-//!   owner of every op, both endpoints of an added or removed edge (I-P3, `:502-504`), and the old and new parent of a
-//!   `Move`, whose in-lists hold the reverse of `parent` (`:499-501`). Each listed row carries its complete state; the
-//!   other rows stay in the base.
+//! - **Touched rows** (`09-segments.md:378-382`): a row is listed in `IDS` iff a row-scoped section of it differs from
+//!   its state in the base. The fold visits the owner of every op, both endpoints of an added or removed edge (I-P3,
+//!   `:502-504`), and the old and new parent of a `Move`, whose in-lists hold the reverse of `parent` (`:499-501`), and
+//!   [`Fold::finish`] drops a visited row whose state ends equal to the base's, such as an endpoint of an edge added
+//!   and removed again; an owner always differs, by `rev_seq`. Each listed row carries its complete state; the other
+//!   rows stay in the base.
 //! - **The ops** ([F06 §7.4]–§7.5): `Create` makes a row of its kind, status and resolution with the commit's `seq` as
 //!   `created_tx` and its creator (`08-data-model.md:89-91`, `:182`); `Delete` makes a tombstone (`flags` = `deleted`
 //!   only, `parent` 0, counters 0, `fields_off` `NONE32`, `body_ref` 0, `topo`, `defer_until` and `due` 0, the out-list
@@ -13,6 +15,9 @@
 //!   the source's out-list and the destination's in-list; `Move` sets `parent`. Every op sets its owner's `rev_seq`,
 //!   `updated_tx` and `last_op_lsn` (`:87-91`). `SetField` and `SetBody` change only these: the field blocks and
 //!   `BLOBTAB` are outside the subset. Settles (`K_RT` records) fold into runtime sections the probe does not write.
+//!   Nor does it write `TITLE_BLOB`, `UID` rows for creates, `TOMB` rows for deletes, new symbols or the store-level
+//!   tables ([F09 §16.2], `09-segments.md:1085-1089`): a delta checkpoint that wrote them does more work, so the
+//!   checkpoint measurement 14 times over this delta is a lower bound (`m14`, "What the checkpoint omits").
 //! - **Derived columns** (`open_blockers`, the counters, `container`, `topo` order) are not recomputed: the probe's
 //!   choice, since the base holds no precedence order to keep; a created row's `topo` is its `#N`.
 //! - **± lists** (`09-segments.md:319-332`, `:591-594`): per bitset key, the ids that joined and left it relative to
@@ -20,7 +25,8 @@
 //!   equal [`crate::overlay::Overlay::plus_minus`] over the same tail. `BMDIR` and the lists are absent when no set
 //!   changed.
 //! - **The header** (`09-segments.md:119-128`): `n_rows` the `IDS` length, `from_lsn` the base's `upto_lsn`,
-//!   `upto_lsn` and `rt_upto_lsn` the tail's end, `base_seq` the largest `seq` folded.
+//!   `upto_lsn` and `rt_upto_lsn` the tail's end, `base_seq` the largest `seq` folded. `rt_upto_lsn` = `upto_lsn`
+//!   because a main-set layer needs `rt_upto_lsn ≥ upto_lsn` (`:128`, `:136`), although no runtime section is folded.
 
 use super::base::{Columns, Csr, put_bitsets, put_rows, sections};
 use super::bitset::{decode_plus_minus, encode_plus_minus};
@@ -104,29 +110,9 @@ impl<'c, 'a> Fold<'c, 'a> {
         }
     }
 
-    /// The base's state of `id`: its row, or an absent row.
-    fn base_row(&self, id: u32) -> Row {
-        if id >= 1 && id as usize <= self.base.rows {
-            let i = id as usize - 1;
-            Row {
-                id,
-                node: self.base.node(i),
-                creator: self.base.creator(i),
-                cold: self.base.cold(i),
-                out: self.base.out_list(i),
-                inn: self.base.in_list(i),
-            }
-        } else {
-            Row {
-                id,
-                ..Row::default()
-            }
-        }
-    }
-
     fn row(&mut self, id: u32) -> &mut Row {
         if !self.rows.contains_key(&id) {
-            let r = self.base_row(id);
+            let r = base_row(self.base, id);
             self.rows.insert(id, r);
         }
         self.rows.get_mut(&id).expect("inserted")
@@ -219,32 +205,71 @@ impl<'c, 'a> Fold<'c, 'a> {
         }
     }
 
-    /// The delta numbered `file_no` that folds up to `upto_lsn`: the touched rows and the ± lists against the base.
+    /// The delta numbered `file_no` that folds up to `upto_lsn`: the visited rows whose state differs from the base's
+    /// (F09 §5.1) and the ± lists against the base. The ± keys need the base's `NodeHdr` alone; a row's lists are
+    /// decoded from the base only when its `NodeHdr` equals the base's, which no owner's does.
     pub fn finish(self, file_no: u32, upto_lsn: u64) -> Delta {
+        let base = self.base;
         let mut lists: BTreeMap<BitsetKey, (Vec<u32>, Vec<u32>)> = BTreeMap::new();
-        for (&id, r) in &self.rows {
-            let (before, after) = (keys_of(&self.base_row(id).node), keys_of(&r.node));
+        let mut rows: Vec<Row> = Vec::with_capacity(self.rows.len());
+        for (id, r) in self.rows {
+            let node = base_node(base, id);
+            if r.node == node && r == base_row(base, id) {
+                continue;
+            }
+            let (before, after) = (keys_of(&node), keys_of(&r.node));
             for k in after.iter().filter(|k| !before.contains(k)) {
                 lists.entry(*k).or_default().0.push(id);
             }
             for k in before.iter().filter(|k| !after.contains(k)) {
                 lists.entry(*k).or_default().1.push(id);
             }
+            rows.push(r);
         }
-        let rows: Vec<Row> = self.rows.into_values().collect();
         Delta {
             header: Header {
                 seg_kind: seg_kind::DELTA,
                 n_rows: rows.len() as u32,
                 file_no,
                 base_seq: self.seq,
-                from_lsn: self.base.view.header.upto_lsn,
+                from_lsn: base.view.header.upto_lsn,
                 upto_lsn,
+                // F09 requires rt_upto_lsn >= upto_lsn in a main-set layer (09-segments.md:128, :136); the probe folds
+                // no runtime section (the module docs).
                 rt_upto_lsn: upto_lsn,
                 ..Header::default()
             },
             rows,
             lists: lists.into_iter().map(|(k, (p, m))| (k, p, m)).collect(),
+        }
+    }
+}
+
+/// The base's `NodeHdr` of `id`, or an absent row's.
+fn base_node(base: &Columns<'_>, id: u32) -> NodeHdr {
+    if id >= 1 && id as usize <= base.rows {
+        base.node(id as usize - 1)
+    } else {
+        NodeHdr::default()
+    }
+}
+
+/// The base's state of `id`: its row, or an absent row.
+fn base_row(base: &Columns<'_>, id: u32) -> Row {
+    if id >= 1 && id as usize <= base.rows {
+        let i = id as usize - 1;
+        Row {
+            id,
+            node: base.node(i),
+            creator: base.creator(i),
+            cold: base.cold(i),
+            out: base.out_list(i),
+            inn: base.in_list(i),
+        }
+    } else {
+        Row {
+            id,
+            ..Row::default()
         }
     }
 }
@@ -291,11 +316,11 @@ pub fn encode(d: &Delta) -> Result<Vec<u8>, String> {
     put_rows(&mut w, &nodes, &creators, [&col(0), &col(1), &col(2)])?;
     for (lists, tags) in [
         (
-            Csr::of_lists(d.rows.iter().map(|r| r.out.clone())),
+            Csr::of_lists(d.rows.iter().map(|r| r.out.as_slice())),
             [tag::OUT_OFF, tag::OUT_DST, tag::OUT_KIND],
         ),
         (
-            Csr::of_lists(d.rows.iter().map(|r| r.inn.clone())),
+            Csr::of_lists(d.rows.iter().map(|r| r.inn.as_slice())),
             [tag::IN_OFF, tag::IN_SRC, tag::IN_KIND],
         ),
     ] {
@@ -476,16 +501,15 @@ mod tests {
         }
     }
 
-    /// Naive per-node state: (kind, status, deleted, parent, out-set, in-set, last op lsn).
-    #[derive(Clone, Debug, Default)]
+    /// Naive per-node state: the whole `NodeHdr`, `CREATOR` and the cold columns (`topo`, `defer_until`, `due`) as F08
+    /// gives them, and the out- and in-sets.
+    #[derive(Clone, Debug, Default, Eq, PartialEq)]
     struct Naive {
-        kind: u8,
-        status: u8,
-        deleted: bool,
-        parent: u32,
+        hdr: NodeHdr,
+        creator: Creator,
+        cold: [u32; 3],
         out: BTreeSet<(u8, u32)>,
         inn: BTreeSet<(u8, u32)>,
-        last: u64,
     }
 
     /// The naive replay: each touched node's state, from the base's generator.
@@ -496,21 +520,22 @@ mod tests {
     }
 
     impl World {
+        /// The base's state of `id` from its generator ([`base::Spec`]), or an absent row (all zero, F08 §3.3).
         fn start(&self, id: u32) -> Naive {
             if id > self.s.n {
                 return Naive::default();
             }
             let s = self.s;
             Naive {
-                kind: 1,
-                status: (id % 4) as u8,
+                hdr: s.row(id),
+                creator: s.creator(id),
+                cold: [s.topo(id), s.defer(id), s.due(id)],
                 out: s.out_edges(id).into_iter().collect(),
                 inn: (1..=s.n)
                     .flat_map(|src| s.out_edges(src).into_iter().map(move |e| (src, e)))
                     .filter(|(_, (_, dst))| *dst == id)
                     .map(|(src, (k, _))| (k, src))
                     .collect(),
-                ..Naive::default()
             }
         }
 
@@ -524,28 +549,73 @@ mod tests {
         }
 
         fn set_parent(&mut self, id: u32, new: u32) {
-            let old = self.get(id).parent;
+            let old = self.get(id).hdr.parent;
             if old != 0 {
                 self.get(old).inn.remove(&(PARENT_EKIND, id));
             }
             if new != 0 {
                 self.get(new).inn.insert((PARENT_EKIND, id));
             }
-            self.get(id).parent = new;
+            self.get(id).hdr.parent = new;
         }
 
-        fn apply(&mut self, op: &Op<'_>) {
+        /// Applies one op of the commit `seq` whose record is at `lsn`.
+        fn apply(&mut self, op: &Op<'_>, seq: u64, lsn: u64) {
             let o = op.owner();
             match op {
-                Op::Create { kind, image, .. } => {
+                Op::Create {
+                    kind,
+                    c_actor,
+                    c_role,
+                    image,
+                    ..
+                } => {
+                    let (status, resolution) = image.status.unwrap();
                     let v = self.get(o);
-                    (v.kind, v.status) = (*kind, image.status.unwrap().0);
+                    // F08 §3.1: the header defaults, `created_tx` the creating commit, no title, field or body in
+                    // the probe's subset; §4: `CREATOR` is the commit's actor and role; the probe's `topo` is #N.
+                    v.hdr = NodeHdr {
+                        kind: *kind,
+                        status,
+                        resolution,
+                        priority: 2,
+                        criticality: 2,
+                        confidence: 0,
+                        authority: 4,
+                        created_tx: seq as u32,
+                        title_off: NONE32,
+                        fields_off: NONE32,
+                        ..NodeHdr::default()
+                    };
+                    v.creator = Creator {
+                        actor: *c_actor,
+                        role: *c_role as u16,
+                    };
+                    v.cold = [o, 0, 0];
                 }
                 Op::Delete { .. } => {
                     self.set_parent(o, 0);
-                    self.get(o).deleted = true;
+                    let v = self.get(o);
+                    // F08 §3.5 (`08-data-model.md:157-169`): the enumerations, `created_tx` and the title kept;
+                    // `flags` = deleted only, `parent` 0, the counters 0, no field block or body; `CREATOR` kept,
+                    // `topo`, `defer_until` and `due` 0.
+                    v.hdr = NodeHdr {
+                        flags: FLAG_DELETED,
+                        parent: 0,
+                        open_blockers: 0,
+                        open_blockers_exo: 0,
+                        children_total: 0,
+                        children_done: 0,
+                        fields_off: NONE32,
+                        body_ref: 0,
+                        ..v.hdr
+                    };
+                    v.cold = [0, 0, 0];
                 }
-                Op::SetStatus { new, .. } => self.get(o).status = new.0,
+                Op::SetStatus { new, .. } => {
+                    let v = self.get(o);
+                    (v.hdr.status, v.hdr.resolution) = *new;
+                }
                 Op::AddEdge(e) => {
                     self.get(e.src).out.insert((e.ekind, e.dst));
                     self.get(e.dst).inn.insert((e.ekind, e.src));
@@ -555,19 +625,28 @@ mod tests {
                     self.get(e.dst).inn.remove(&(e.ekind, e.src));
                 }
                 Op::Move { new_parent, .. } => self.set_parent(o, *new_parent),
-                Op::SetField { .. } | Op::SetBody { .. } => {
-                    self.get(o);
-                }
+                Op::SetField { .. } | Op::SetBody { .. } => {}
             }
+            // F08 §3.1: `rev_seq`, `updated_tx` and `last_op_lsn` name the owner's last op (the probe stamps them on
+            // every op of the owner, `SetField` and edges included).
+            let v = self.get(o);
+            v.hdr.rev_seq = seq;
+            v.hdr.updated_tx = seq as u32;
+            v.hdr.last_op_lsn = lsn;
         }
     }
 
-    /// The delta's rows follow the tail, against a naive replay with sets: `IDS` is exactly the op owners, the edge
-    /// endpoints and the old and new parents; each row's kind, status, tombstone, parent, out-list and in-list are
-    /// the naive ones; a tombstone has F08 §3.5's fields; each owner's `last_op_lsn` is the overlay's node index entry;
-    /// and I-P3 holds across the base and the delta.
+    /// The delta's rows follow the tail, against a naive replay with sets: `IDS` is exactly the visited rows (the op
+    /// owners, the edge endpoints, the old and new parents) whose naive state differs from the base's (F09 §5.1,
+    /// review m-2), every owner among them, and over the four seeds some visited row ends equal to its base and is not
+    /// listed; each row's whole `NodeHdr`, `CREATOR` and cold columns, its out-list and
+    /// its in-list are the naive ones (review m-3: a created row's creator, `created_tx`, resolution and defaults,
+    /// every owner's `rev_seq` and `updated_tx`, F08 §3.5's tombstone with its kept creator); a tombstone has F08
+    /// §3.5's fields; each owner's `last_op_lsn` is the overlay's node index entry; and I-P3 holds across the base and
+    /// the delta.
     #[test]
     fn delta_rows_follow_the_tail() {
+        let (mut created, mut tombs, mut unchanged) = (0, 0, Vec::new());
         for seed in 1..=4 {
             let t = tail(120, 400, seed);
             let s = spec(t.base.n);
@@ -579,29 +658,35 @@ mod tests {
                 naive: BTreeMap::new(),
                 touched: BTreeSet::new(),
             };
+            let mut owners = BTreeSet::new();
             for r in &t.records {
                 let Payload::Commit(cm) = &r.payload else {
                     continue;
                 };
                 for op in &cm.ops {
-                    w.apply(op);
-                    w.naive.get_mut(&op.owner()).unwrap().last = r.lsn;
+                    w.apply(op, cm.seq, r.lsn);
+                    owners.insert(op.owner());
                 }
             }
-            let (naive, touched) = (w.naive, w.touched);
+            let changed: BTreeSet<u32> = w
+                .touched
+                .iter()
+                .copied()
+                .filter(|&id| w.naive[&id] != w.start(id))
+                .collect();
+            unchanged.push(w.touched.len() - changed.len());
+            let naive = w.naive;
             let ids: BTreeSet<u32> = d.rows.iter().map(|r| r.id).collect();
-            assert_eq!(ids, touched, "seed {seed}: IDS");
+            assert_eq!(ids, changed, "seed {seed}: IDS");
+            assert!(owners.is_subset(&ids), "seed {seed}: every owner is listed");
             let o = t.overlay().unwrap();
             let lsn_of: BTreeMap<u32, u64> = o.nodes().iter().map(|e| (e.n, e.lsn)).collect();
             for r in &d.rows {
                 let v = &naive[&r.id];
                 let h = r.node;
-                assert_eq!(
-                    (h.kind, h.status, h.deleted(), h.parent),
-                    (v.kind, v.status, v.deleted, v.parent),
-                    "#{}",
-                    r.id
-                );
+                assert_eq!(h, v.hdr, "#{} NodeHdr", r.id);
+                assert_eq!(r.creator, v.creator, "#{} CREATOR", r.id);
+                assert_eq!(r.cold, v.cold, "#{} topo, defer_until, due", r.id);
                 assert_eq!(
                     r.out,
                     v.out.iter().copied().collect::<Vec<_>>(),
@@ -615,7 +700,7 @@ mod tests {
                     r.id
                 );
                 if let Some(&l) = lsn_of.get(&r.id) {
-                    assert_eq!((h.last_op_lsn, v.last), (l, l), "#{}", r.id);
+                    assert_eq!((h.last_op_lsn, v.hdr.last_op_lsn), (l, l), "#{}", r.id);
                 }
                 if h.deleted() {
                     assert_eq!(
@@ -623,6 +708,10 @@ mod tests {
                         (1, NONE32, 0, 0)
                     );
                     assert_eq!(r.cold, [0, 0, 0]);
+                    tombs += 1;
+                }
+                if r.id > s.n {
+                    created += 1;
                 }
                 if let Ok(Probe::Tail(Value::Status(st, _))) =
                     o.get(&mut MemLog::new(t.start, &t.bytes), r.id, &Key::Status)
@@ -643,5 +732,13 @@ mod tests {
                 }
             }
         }
+        assert!(
+            created > 0 && tombs > 0,
+            "created {created}, tombstones {tombs}"
+        );
+        assert!(
+            unchanged.iter().sum::<usize>() > 0,
+            "visited rows equal to their base, per seed: {unchanged:?}"
+        );
     }
 }
