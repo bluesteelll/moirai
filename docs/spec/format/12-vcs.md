@@ -720,18 +720,31 @@ exported ([AR §5b.4]). The `.moi` key forms and the placement of a provisionall
 
 ### 7.1 Inputs
 
-A merge is a function of: the base state B (§4.3, or a revert's or cherry-pick's DM row); the states O = state(tip dst)
-and T = state(tip src), or for a virtual merge the two states of §5.1; the ancestor sets A(B), A(O), A(T) (§5.2);
-whether B's commit is tip(dst), which makes the merge one-sided (§7.4); the state of the replay start R of §7.4's row
-"Kleppmann steps"; the (hlc, commit id), net changeset and state of every commit whose step keys that row reads (for a
-merge, a `sync` or a virtual merge that is not one-sided, each side's commits since R; for a revert or a cherry-pick of
-C, C and the commits of A(O) ordered after C; and, for each two-parent commit among them, recursively, every commit of
-A(p₂) \ A(p₁)), and the states of the second parents of the two-parent commits among them ([RULES/merge-table] PR-016;
-spec sync 3; [AR §11] OQ-A-11); whether dst is the ref `main` (false inside a virtual merge); the policy override and
-`--strict` (ignored inside a virtual merge); the operation (merge, sync, revert, cherry-pick, virtual, foreign-merge
-import, import merge: [RULES/merge-table] DM rows); the store's set of dropped bodies ([F06 §8.1]), which only the text
-rule reads (§7.5; spec sync 3); and the rule tables. It reads neither the file system nor git ([AR §5a.7] step 6,
-PR-016).
+A merge is a function of the inputs [RULES/merge-table] PR-016 lists, in its order:
+
+- the base state B (§4.3, or a revert's or cherry-pick's DM row);
+- the states O = state(tip dst) and T = state(tip src), or for a virtual merge the two states of §5.1;
+- whether dst is the ref `main` (false inside a virtual merge);
+- the effective strict, as RS-007 defines it: `--strict` or `merge.strict` of a merge, a `sync`, a step-0 sync or the
+  staged group of a continue, and never a revert's, a cherry-pick's or a virtual merge's;
+- the origins RS-007 reads ([AR §11] OQ-A-13 13.4 (a); §7.4): those of each side's value of every merged hierarchy key
+  that a side changed, read for its two-sided keys and for the determined keys its cycle repair ranks (a one-sided
+  key's side, both sides of a both-same key). Each reads the (hlc, commit id), net changeset and parents of the commits
+  on the key's origin walk, and the second parent's value of the key at a two-parent commit that changed it. For a
+  revert or a cherry-pick of C, src's origin is C's (hlc, commit id); for a virtual merge, dst's origins read the folded
+  LCAs (VB-011);
+- the store's set of dropped bodies ([F06 §8.1]), which only the text rule reads (§7.5; spec sync 3);
+- the rule tables.
+
+It also reads two inputs that PR-016 does not list:
+
+- the policy override (`--policy`, `merge.policy.<kind>`: [RULES/merge-table] AP-001 to AP-005, RS-008), ignored inside
+  a virtual merge (VB-019);
+- the operation (merge, sync, revert, cherry-pick, virtual, foreign-merge import, import merge: [RULES/merge-table]
+  DM-001 to DM-017).
+
+It reads neither the file system nor git ([AR §5a.7] step 6, PR-016), and conflicts only the file system can settle
+land as values ([RULES/link-merge-rules] LV rows).
 
 ### 7.2 Keys
 
@@ -739,9 +752,8 @@ PR-016).
   Inside one store a `ckey` ([F06 §6.1]) names exactly one canonical key, so a merge may work on either form; results
   compare by the canonical key.
 - The keys a merge decides are every key whose value is not the same in B, O and T, plus the keys the validators and the
-  re-key read ([RULES/merge-table] PR-007, PR-008). A key equal in all three keeps its value, except a hierarchy key,
-  which RS-007's replay decides with every other hierarchy key of a merged node (§7.4); whether a hierarchy key equal
-  in all three keeps its value instead is an owner question (`reviews/wave-3c-arbiter.md` W3C-ARB-3).
+  re-key read ([RULES/merge-table] PR-007, PR-008). A key equal in b, o and t keeps its value, a hierarchy key included:
+  it is never `threeway-skipped` ([RULES/merge-table] RS-007, CS-013).
 - The six observation fields of an `artifact` are one key; `status` and `resolution` are one key; `parent` and `order` are
   one key ([F06 §6.1]).
 
