@@ -1038,4 +1038,98 @@ mod tests {
             "replay and record-by-record build agree"
         );
     }
+
+    /// A generated tail over a small base (N = 50, so owners repeat and probes walk `prev`): the overlay equals the
+    /// naive map on every key the tail sets, and on the ± lists, `ALLOC`, `UIDX`, the runtime index and the symbols
+    /// (spec item 2).
+    fn equals_naive(seed: u64) {
+        use crate::tail::synth::{Clause, generate, tests::test_target};
+        let mut t = test_target(Clause::Ops, 50, seed);
+        t.threshold = 120;
+        t.rt_bound = Some(u64::MAX);
+        let tail = generate(&t, true).unwrap();
+        let o = tail.overlay().unwrap();
+        let naive = Naive::of(&tail.records, &tail.base);
+        let mut owners = std::collections::BTreeMap::<u32, u32>::new();
+        for &(n, _) in &naive.touches {
+            *owners.entry(n).or_default() += 1;
+        }
+        assert!(owners.values().any(|&c| c > 1), "an owner repeats");
+        let mut src = MemLog::new(tail.start, &tail.bytes);
+        for ((n, key), v) in &naive.values {
+            assert_eq!(
+                o.get(&mut src, *n, key),
+                Ok(Probe::Tail(v.clone())),
+                "#{n} {key:?}"
+            );
+        }
+        assert_eq!(o.get(&mut src, 1, &Key::Field(99)), Ok(Probe::NotInTail));
+        let pm: BTreeMap<BitsetKey, (Vec<u32>, Vec<u32>)> = o
+            .plus_minus()
+            .iter()
+            .map(|p| (p.key, (p.plus.to_vec(), p.minus.to_vec())))
+            .collect();
+        assert_eq!(pm, naive.plus_minus(&tail.base));
+        let (first, rows) = o.alloc();
+        let alloc: Vec<(u32, [u8; 16], u32, u32)> = rows
+            .iter()
+            .enumerate()
+            .map(|(i, r)| (first + i as u32, r.uid, r.ref_id, r.create_seq))
+            .collect();
+        assert_eq!(alloc, naive.creates);
+        let mut uidx: Vec<([u8; 16], u32)> = naive.creates.iter().map(|c| (c.1, c.0)).collect();
+        uidx.sort();
+        assert_eq!(
+            o.uidx().iter().map(|r| (r.uid, r.n)).collect::<Vec<_>>(),
+            uidx
+        );
+        let files: BTreeMap<(u32, [u8; 16]), (u64, u32)> = o
+            .files()
+            .iter()
+            .map(|f| ((f.n, f.tree), (f.lsn, f.row)))
+            .collect();
+        assert_eq!(files, naive.files);
+        let epochs: BTreeMap<([u8; 16], u8, u32), u64> = o
+            .epochs()
+            .iter()
+            .map(|e| ((e.tree, e.scope_kind, e.scope_ref), e.lsn))
+            .collect();
+        assert_eq!(epochs, naive.epochs);
+        let syms: Vec<(u8, u32, String)> = o
+            .symbols()
+            .iter()
+            .map(|s| (s.class, s.id, s.text.to_string()))
+            .collect();
+        assert_eq!(syms, naive.symbols);
+    }
+
+    proptest::proptest! {
+        #![proptest_config(crate::tail::enc::tests::config())]
+
+        /// Overlay apply equals a naive map over generated tails (spec item 2).
+        #[test]
+        fn overlay_apply_equals_naive_map(seed in proptest::prelude::any::<u64>()) {
+            equals_naive(seed);
+        }
+    }
+
+    /// The generator's `ovl(T)`, kept as it appends, is the replayed overlay's `heap_bytes`, for every clause.
+    #[test]
+    fn heap_bytes_equal_the_generators_ovl() {
+        use crate::tail::synth::{Clause, generate, tests::test_target};
+        for clause in [
+            Clause::Ops,
+            Clause::Rec,
+            Clause::Body,
+            Clause::Ovl,
+            Clause::Quiet,
+        ] {
+            for seed in 1..=4 {
+                let tail = generate(&test_target(clause, 1_000_000, seed), false).unwrap();
+                let o = tail.overlay().unwrap();
+                assert!(o.heap_bytes() > 0);
+                assert_eq!(tail.measures.ovl, o.heap_bytes(), "{clause:?} seed {seed}");
+            }
+        }
+    }
 }
