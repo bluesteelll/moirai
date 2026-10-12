@@ -323,12 +323,15 @@ The tier sets the unit's stages (§6.1).
   `CHANGES_REQUESTED`, `STOPPED`, a gate outcome other than `PASS`, or `ok: false`.
 - Answer a question as a numbered ruling in `RULINGS.md` and relaunch with a resume note that cites it (§6.4).
 - A `LOCKFILE` outcome: §4 "Lockfile changes". A `HANG`, `VOID` or `VACUOUS` gate: read the kit run's DONE and the
-  failure excerpt, rule, and relaunch.
+  failure excerpt, rule, and relaunch (§6.4 "A gate re-run").
+- A return with stage `review` whose note says that the review examined another head than the gate verified: the
+  review was replayed from an earlier launch. Relaunch `DELTA SINCE <the head the last review examined>` (§6.4).
 - A unit still red after its last round (2 below HEAVY, 3 in HEAVY) is not merged: rule, then relaunch fix-only
   (`DELTA SINCE <head>: fix …`) or split it into two units.
 - A return below HEAVY with no CONFIRMED Critical or Important (stage `gate`, `verifier` or `review`; the note says
   so) is the orchestrator's to rule: a PLAUSIBLE item, read in the report, or a gate FAIL, which is environmental only
-  on R-10's terms (§10) and is then re-run once on the same head (§6.4, `gateRun`).
+  on R-10's terms (§10) and is then re-run once on the same head (§6.4: `gateRun` for round 1's gate, a `DELTA
+  SINCE` relaunch for a later round's).
 - A STOP with the reason `escalate: <trigger>`: record the trigger in `spec.md` and relaunch the unit at the higher
   tier (§5.1, §6.4).
 - Minor findings never start a unit of their own: at the merge they are folded into one fix-only relaunch or dropped
@@ -467,8 +470,9 @@ the script drives both the control flow and the dry run, which returns it as `st
   `ok`. With no CONFIRMED Critical or Important the unit returns to the orchestrator (§5.3).
 - **Fix** (developer): follow-up commits, never an amend, for the CONFIRMED items of the triage (HEAVY) or of the
   checker's report (below HEAVY); it returns `logic`. An item marked "escalate" is a STOP, never a fix.
-- A stage that returns nothing, or a gate outcome other than `PASS` or `FAIL`, returns the unit to the orchestrator
-  at once.
+- A stage that returns nothing, a gate outcome other than `PASS` or `FAIL`, or a review whose `head` is not the head
+  the gate verified returns the unit to the orchestrator at once. The last is a review replayed from an earlier
+  launch (§6.4). A short sha is the same head; an empty `head` is none.
 - **Context pack** (optional, HEAVY): when two or more checkers need the same orientation, a scout first writes
   `<unit>/pack.md` (at most 15k tokens: files and line ranges, the delta, key facts) and the briefs point at it.
 
@@ -494,7 +498,7 @@ structured verdict and the script parses nothing.
 | `diskFloorGb` | the disk floor of the pre-flight (default 25, [MP §8.1]; operational policy, AGENTS.md) |
 | `tier` | `LIGHT`, `STANDARD` or `HEAVY`, as the spec states it (§5.1); the script refuses anything else |
 | `resumeNote` | `""` on a first launch (§6.4) |
-| `gateRun` | optional, `""` on a first launch: a token that only the mechanic's prompt carries; a relaunch that must re-run the gate changes it (§6.4) |
+| `gateRun` | optional, `""` on a first launch: a token that only the mechanic's prompt carries; a relaunch that must re-run round 1's gate changes it (§6.4) |
 | `deltaLogic` | optional, default `true`; read only with a `DELTA SINCE` resume note: `false` says that the delta changed no non-test code and makes round 1 slim (§6.1, §6.4) |
 | `dryRun` | `true` returns `{ ok: true, args, stages, maxRounds }` (the tier's stages and round limit, §6.1) before any agent starts |
 
@@ -535,19 +539,27 @@ structured verdict and the script parses nothing.
   (§5.4 step 2), a fix-only relaunch, a lockfile commit (§4). A fix-only relaunch whose fix changes no non-test,
   non-comment code may pass `deltaLogic` `false`, which makes round 1 slim (§6.1); the tester or the verifier checks
   that flag.
-- **A gate re-run** (an environmental FAIL under R-10, a `HANG`, a `VOID`) changes `gateRun` only. It is in every
-  gate prompt, so the round-1 gate and every agent that started after it run again, while the cut, the critique, the
-  implement stage and round 1's review, which start before that gate (HEAVY and LIGHT), return from the journal. A
-  replayed agent does not rewrite its file: this relaunch copies `impl.md` and `review_r1.md` into `<unit>/run<k>/`
-  instead of moving them, which also covers a review that runs again. The replay is relied on for the saving only
-  after the first such relaunch has shown in its run record that round 1's review came back from the journal.
+- **A gate re-run** (an environmental FAIL under R-10, a `HANG`, a `VOID`) depends on the round of the gate.
+  - **Round 1's gate**: change `gateRun` only. It is in every gate prompt, so the round-1 gate and every agent that
+    started after it run again. The cut, the critique, the implement stage and round 1's review start before that
+    gate (HEAVY and LIGHT), so they return from the journal. Nothing was committed after that review started, so it
+    is a review of the head the gate runs on again. A replayed agent does not rewrite its file: this relaunch copies
+    `impl.md` and `review_r1.md` into `<unit>/run<k>/` instead of moving them, which also covers a review that runs
+    again. The replay is relied on for the saving only after the first such relaunch has shown in its run record
+    that round 1's review came back from the journal.
+  - **A later round's gate** (round n of 2 or more) runs on fix commits that round 1's review never saw. A relaunch
+    that changed only `gateRun` would replay that review against them. Relaunch instead with the resume note `DELTA
+    SINCE <the head gate_r<n-1>.md verified>: gate re-run of round <n>; no change`, and `deltaLogic` as
+    `fix_r<n-1>.md` states. The review and the tester or the verifier then run again on that delta.
+  - The script refuses the wrong relaunch: a round whose review examined another head than its gate verified returns
+    stage `review` with both heads (§6.1). A mistake costs a relaunch, never a stale verdict.
 - **An escalation** changes `tier`, which is in the header of every prompt, so every stage runs again; `spec.md`
   records the trigger. The relaunch also moves `cut.md` into `<unit>/run<k>/`, where the HEAVY cut takes over the
   developer's own cut and the existing commits (§5.1).
 - Before a relaunch: move the round files of the earlier launch (`impl.md`, `gate_r*`, `expected_r*`, `tests_r*`,
   `test_r*`, `verify_r*`, `review_r*`, `triage_r*`, `fix_r*`) into `<unit>/run<k>/` (the re-run stages write the same
-  names, and the kit refuses an existing run directory; a gate re-run copies `impl.md` and `review_r1.md`, above);
-  update `args_<unit>.json` and re-run `kit/embed.ps1` with `-Script
+  names, and the kit refuses an existing run directory; a re-run of round 1's gate copies `impl.md` and
+  `review_r1.md`, above); update `args_<unit>.json` and re-run `kit/embed.ps1` with `-Script
   <ORCH>/embed/<unit>.src.js` (never the current `unit.js`, and never the embedded copy: it has no marker line); then
   relaunch from the orchestrator session that ran launch `k`: `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js",
   resumeFromRunId: "<run id>" })`, writing `run_<k+1>.txt` and `result_<k+1>.json` as §6.3 does.
