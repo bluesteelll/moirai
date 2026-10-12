@@ -1035,10 +1035,12 @@ P₂ its second parent (kinds 1, 2) or its origin (kinds 3, 4), and D₁ = the c
    command prints one notice per stale key.
 3. **Validate** the overlaid candidate in I37′ order ([F13 §5]) over the merge's own states: step 1's base, state(D₁) as
    dst and state(P₂) as src (for kinds 3 and 4, the DM row's base and source). On a key the overlay set (an applying
-   resolution), step 1's conflict value, the typed rules' violations and V01's skipped move are dropped. Every step-1
-   structural violation whose key the overlay did not set is kept: `IdCollision`, `TombstoneRemoved`, `SchemaConflict`,
-   the `stage-take-o` rows, DM-012's `NotFound`, and V01's Kleppmann skips (V01 reports step 1's skipped moves less the
-   keys the overlay set). V01 to V13 then check the overlaid candidate as usual.
+   resolution), these are dropped: step 1's conflict value, the typed rules' violations, V01's key (a key RS-007's
+   cycle repair reset or, under strict, skipped: MR-039) and the key's `MoveSkipped` hint ([F19 §12.3] code 132;
+   HT-004). Every step-1 structural violation whose key the overlay did not set is kept: `IdCollision`,
+   `TombstoneRemoved`, `SchemaConflict`, the `stage-take-o` rows, DM-012's `NotFound`, and V01's keys (V01 reports
+   step 1's reset and skipped keys less the keys the overlay set). V01 to V13 then check the overlaid candidate as
+   usual. This is [RULES/merge-table] PR-014's list.
 4. **Land or re-stage** by [RULES/merge-table] `land-or-stage`:
    - land: one `Commit` on DST with parents (D₁, P₂) for kinds 1 and 2, or (D₁) with `origin` for kinds 3 and 4, its net
      changeset against D₁, its markers and absorbed vector; then `RefUpdate` reason 2 and a `RefTable` entry deleting G;
