@@ -17,7 +17,9 @@ export const meta = {
 // A resumeNote that starts "DELTA SINCE <sha>:" makes round 1 delta-scoped since that verified head.
 // A HEAVY delta round whose delta changed no non-test code (logic false) is slim: the gate, then the tester, who
 // checks that flag; the review runs after the tester only when the tester finds the flag wrong. Otherwise the review
-// starts first, so a relaunch that changes only gateRun replays round 1's review from the journal.
+// starts first, so a relaunch that changes only gateRun replays round 1's review from the journal. That relaunch is
+// for round 1's gate only (docs/m0/workflow.md section 6.4): a round whose review examined another head than its gate
+// verified goes back to the orchestrator.
 const A = args || {} // EMBED: kit/embed.ps1 replaces this line in the per-launch copy
 
 const NEED = ['role', 'unit', 'orch', 'wt', 'gateWt', 'branch', 'base', 'trunk', 'spec', 'lock', 'others', 'gates', 'diskFloorGb', 'tier']
@@ -161,13 +163,18 @@ const okP = r => ok0(r) && r.plausible_ci === 0
 const green = v => !!v.gate && v.gate.outcome === 'PASS' && (has('test')
   ? !!v.test && v.test.verdict === 'GREEN' && (!v.reviewDue || ok0(v.review))
   : has('verifier') ? !!v.ver && v.ver.verdict === 'GREEN' && okP(v.ver) : okP(v.review))
-// A stage that returned nothing, or a gate that did not reach a verdict, goes back to the orchestrator.
+// A review answers for the head it examined; a short sha is the same head, and an empty one is none.
+const norm = h => String(h || '').trim().toLowerCase()
+const sameHead = (a, b) => { const x = norm(a), y = norm(b); return x !== '' && y !== '' && (x === y || (x.length >= 7 && y.startsWith(x)) || (y.length >= 7 && x.startsWith(y))) }
+// A stage that returned nothing, a gate that did not reach a verdict, or a review of another head than the gate
+// verified (a review replayed from an earlier launch, docs/m0/workflow.md section 6.4) goes back to the orchestrator.
 const broken = v => {
   if (!v.gate) return 'gate: the mechanic returned nothing'
   if (v.gate.outcome !== 'PASS' && v.gate.outcome !== 'FAIL') return 'gate: ' + v.gate.outcome
   if (has('test') && !v.test) return 'test: the tester returned nothing'
   if (has('verifier') && !v.ver) return 'verifier: the verifier returned nothing'
   if (v.reviewDue && !v.review) return 'review: the reviewer returned nothing'
+  if (v.review && !sameHead(v.review.head, v.gate.head)) return `review: the review examined ${norm(v.review.head) || 'no head'} and the gate verified ${v.gate.head}: not a review of the verified head (one replayed from an earlier launch); relaunch DELTA SINCE the head the last review examined (docs/m0/workflow.md section 6.4)`
   return ''
 }
 
@@ -205,7 +212,7 @@ while (!green(v) && !broken(v) && round < T.maxRounds) {
 const why = broken(v)
 const rep = has('verifier') ? v.ver : v.review
 return {
-  ok: !!green(v), unit: A.unit, tier: A.tier, stage: why ? why.split(':')[0] : 'verify', note: why, round, crit: CRIT,
+  ok: !why && !!green(v), unit: A.unit, tier: A.tier, stage: why ? why.split(':')[0] : 'verify', note: why, round, crit: CRIT,
   gate: v.gate && v.gate.outcome, head: v.gate && v.gate.head, tree: v.gate && v.gate.tree, kit: v.gate && v.gate.kit,
   test: v.test && v.test.verdict, ver: v.ver && v.ver.verdict, review: v.review && v.review.verdict,
   critical: rep && rep.critical, important: rep && rep.important, plausible: rep && rep.plausible_ci, slim: !!v.slim, reports: SP,
