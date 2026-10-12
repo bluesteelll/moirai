@@ -2,8 +2,8 @@
 # Binaries only: it holds src/bin/*.rs wiring and nothing else. Allowed dependencies: moirai-probes, moirai-os,
 # moirai-toylog, moirai-harness-stub. Excluded from the GT20 (e) cross-target set and checked with
 # `cargo check -p moirai-probes-bin --locked --target x86_64-pc-windows-msvc`. No checked crate may depend on it.
-# Written by R-HARN: WP-50 adds `guard`, WP-51 `loadgen` and `noise`, WP-53d `m10`, WP-53e `m14`; the other binaries
-# (`peak`, `probe-p7`, the other measurement drivers) arrive with the work packages that need them.
+# Written by R-HARN: WP-50 adds `guard` and `aggregate`, WP-51 `loadgen` and `noise`, WP-53d `m10`, WP-53e `m14`; the
+# other binaries (`peak`, `probe-p7`, the other measurement drivers) arrive with the work packages that need them.
 [package]
 name = "moirai-probes-bin"
 version.workspace = true
@@ -43,6 +43,14 @@ bench = false
 [[bin]]
 name = "noise"
 path = "src/bin/noise.rs"
+test = false
+bench = false
+
+# A measurement's committed aggregate, docs/measurements/m0/<n>.md, rendered from its records
+# (docs/spec/measurement-protocol.md §7.4).
+[[bin]]
+name = "aggregate"
+path = "src/bin/aggregate.rs"
 test = false
 bench = false
 
