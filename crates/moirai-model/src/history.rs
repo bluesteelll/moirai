@@ -133,9 +133,6 @@ struct Plan {
     /// The `stage` group a staged commit of this plan records ([F06 §4.4.16]): a merge's or sync's arguments; `None`
     /// for a revert or cherry-pick, and for the absent group.
     stage: Option<Stage>,
-    /// The resolutions a `merge --continue` applied, (key, `choice`) in key order, which the commit records when it
-    /// lands ([`Commit::resolves`]); empty for every other plan.
-    resolves: Vec<(Key, u8)>,
 }
 
 /// What a landing or staging wrote.
@@ -450,7 +447,6 @@ impl Store {
             lcas: base.lcas,
             virtual_base: base.virtual_base,
             stage: None,
-            resolves: Vec::new(),
         }
     }
 
@@ -563,7 +559,6 @@ impl Store {
             lcas: Vec::new(),
             virtual_base: false,
             stage: None,
-            resolves: Vec::new(),
         }
     }
 
@@ -662,15 +657,6 @@ impl Store {
         c.affected = affected.to_vec();
         c.affected_complete = complete;
         let f = |n: Nid| renum.get(&n).copied().unwrap_or(n);
-        if decision != "stage" {
-            // The resolutions a `merge --continue` applied, on the commit it lands (a conflicted landing included):
-            // [F12 §6.5] lets a merge commit carry `Resolve` ops.
-            c.resolves = plan
-                .resolves
-                .iter()
-                .map(|(k, x)| (map_key(k, &f), *x))
-                .collect();
-        }
         if decision == "stage" {
             // [F12 §9.2] item 3: the command's arguments in the `stage` group ([F06 §4.4.16]).
             c.stage = plan.stage.clone();
@@ -1428,8 +1414,6 @@ impl Store {
         let tip_g = self.dag.state_at(g.tip, &self.alloc);
         let st_d1 = self.dag.state_at(d1, &self.alloc);
         let mut resolved: BTreeMap<Key, u64> = BTreeMap::new();
-        // The choice of the newest `Resolve` that named each key (a companion key has none).
-        let mut choices: BTreeMap<Key, u8> = BTreeMap::new();
         let mut staged_before = None;
         for c in &chain {
             let x = &self.dag.commits[c];
@@ -1442,9 +1426,6 @@ impl Store {
             // included.
             for k in x.changeset.keys().chain(x.resolves.iter().map(|(k, _)| k)) {
                 resolved.insert(k.clone(), dk.unwrap_or(0));
-            }
-            for (k, c) in &x.resolves {
-                choices.insert(k.clone(), *c);
             }
         }
         let mut notices = Vec::new();
@@ -1496,12 +1477,6 @@ impl Store {
         plan.src = src_name.clone();
         // A re-staged commit copies s's group ([F06 §4.4.16]).
         plan.stage = sc.stage.clone();
-        // The applied resolutions with their choices, which a landing records ([`Commit::resolves`]); a stale one is
-        // not applied, and a companion key has no choice.
-        plan.resolves = overlay
-            .keys()
-            .filter_map(|k| choices.get(k).map(|c| (k.clone(), *c)))
-            .collect();
         let data = MergeData {
             src: src_name.clone(),
             into: dst.clone(),
