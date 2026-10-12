@@ -319,8 +319,9 @@ impl Hasher for FastHasher {
 
 type Map<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
 
-/// Builds an [`Overlay`] from a tail's records in log order ([F05 §10.1]).
-#[derive(Debug)]
+/// Builds an [`Overlay`] from a tail's records in log order ([F05 §10.1]). It clones, so a long-lived process can keep
+/// its warm state and catch up from it (measurement 14's MCP model, `m14.rs`).
+#[derive(Clone, Debug)]
 pub struct Builder {
     base: Base,
     start: u64,
@@ -766,8 +767,10 @@ mod tests {
     }
 
     /// Every key the tail sets probes to the naive map's last value; keys the tail never sets are left to the base.
-    /// The naive map's values are pinned by hand from `testdata::hand_built`: one key per op kind, the newest op
-    /// winning (#5's field 2 is `second`, #7's edge is removed, #51's status is the later `SetStatus`).
+    /// The naive map's values are pinned by hand from `testdata::hand_built`: 14 keys, set by its 15 ops of the eight
+    /// kinds (a `Create` sets its existence and each key of its image), the newest op winning (#5's field 2 is
+    /// `second`, #7's edge is removed, #51's status is the later `SetStatus`); #9's `Delete` has distinct `reason` and
+    /// `replaced_by`, so a swap of the two is red here.
     #[test]
     fn overlay_equals_naive_map_on_a_hand_built_tail() {
         let b = built();
@@ -779,7 +782,7 @@ mod tests {
             ((3, Key::Field(4)), Value::Field(TValue::int(42).0.to_vec())),
             ((5, Key::Field(2)), text("second")),
             ((7, Key::Edge(1, 51)), Value::Edge(false)),
-            ((9, Key::Exist), Value::Deleted(0, 0)),
+            ((9, Key::Exist), Value::Deleted(3, 52)),
             ((20, Key::Field(6)), text("x")),
             ((21, Key::Field(6)), text("x")),
             ((22, Key::Field(6)), text("x")),
