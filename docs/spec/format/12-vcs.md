@@ -738,11 +738,11 @@ A merge is a function of the inputs [RULES/merge-table] PR-016 lists, in its ord
 - the effective strict, as RS-007 defines it: `--strict` or `merge.strict` of a merge, a `sync`, a step-0 sync or the
   staged group of a continue, and never a revert's, a cherry-pick's or a virtual merge's;
 - the origins RS-007 reads ([AR §11] OQ-A-13 13.4 (a); §7.4): those of each side's value of every merged hierarchy key
-  that a side changed, read for its two-sided keys and for the determined keys its cycle repair ranks (a one-sided
-  key's side, both sides of a both-same key). Each reads the (hlc, commit id), net changeset and parents of the commits
-  on the key's origin walk, and the second parent's value of the key at a two-parent commit that changed it. For a
-  revert or a cherry-pick of C, src's origin is C's (hlc, commit id); for a virtual merge, dst's origins read the folded
-  LCAs (VB-011);
+  that a side changed, read for its two-sided keys and for the determined keys its cycle repair ranks
+  (a one-sided key's side, both sides of a both-same key). Each reads the (hlc, commit id), net changeset and parents
+  of the commits on the key's origin walk, and the second parent's value of the key at a two-parent commit that
+  changed it. For a revert or a cherry-pick of C, src's origin is C's (hlc, commit id); for a virtual merge, dst's
+  origins read the folded LCAs (VB-011);
 - the store's set of dropped bodies ([F06 §8.1]), which only the text rule reads (§7.5; spec sync 3);
 - the rule tables.
 
