@@ -5,9 +5,29 @@
 
 use crate::utc;
 use serde_json::{Value, json};
+use std::collections::BTreeSet;
+use std::path::Path;
 
 /// The schema of a run record ([MP §7.1]).
 pub const RUN_SCHEMA: &str = "moirai-probes/run/1";
+
+/// The names of the files directly in `dir`, a measurement's directory of raw records; a missing directory lists
+/// none.
+pub fn names(dir: &Path) -> Result<BTreeSet<String>, String> {
+    let rd = match std::fs::read_dir(dir) {
+        Ok(rd) => rd,
+        Err(e) if e.kind() == std::io::ErrorKind::NotFound => return Ok(BTreeSet::new()),
+        Err(e) => return Err(format!("{}: {e}", dir.display())),
+    };
+    let mut out = BTreeSet::new();
+    for e in rd {
+        let e = e.map_err(|e| format!("{}: {e}", dir.display()))?;
+        if e.file_type().is_ok_and(|t| t.is_file()) {
+            out.insert(e.file_name().to_string_lossy().into_owned());
+        }
+    }
+    Ok(out)
+}
 
 /// Whether `name` is the raw file name of an idle run record of quantity `q` ([MP §7.2]):
 /// `<q>.idle.<YYYYMMDDTHHMMSSZ>.json`.

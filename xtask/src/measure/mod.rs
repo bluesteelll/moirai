@@ -7,21 +7,36 @@
 //! | `measure check [--smoke] --plan <file>` | the plan, the window, every run's command line and the refusals `run` would make now; starts and writes nothing |
 //! | `measure run [--smoke] --plan <file>` | the pre-checks, then the plan's runs inside the current agent-free window |
 //!
+//! **The pre-checks of `run`** ([`pre_checks`]); every refusal is listed, and any one stops `run` before anything
+//! starts: `host`, `plan` (incomplete), `calendar`, `outside-window`, `window-kind`, `window-ending`, `dirty-tree`,
+//! `bins`, `scratch` and `toolchain`.
+//!
+//! **The run** ([`run`]): the scratch directory is made, the settle waited out, and then each measurement's quantities
+//! are run in plan order, one driver process per run ([MP §9.7]). Before each attempt the guard checks the RAM and disk
+//! floors, and no guard runs while a driver runs. An attempt ends by the earliest of its run budget, its measurement's
+//! budget and the window's end less the finish margin, where its process tree is stopped. Its record is the one new
+//! file of its quantity in `/private/measurements/<n>/`, judged by [`record::judge`]. After each attempt the tested tree
+//! is read again.
+//!
+//! **The finish**: the drivers' working directories are removed, the session record
+//! `<scratch>/sessions/<start>/session.json` is written, and the private manifest is rebuilt.
+//!
 //! It reuses the nightly runner's window calendar, byte quantities, guard and process code (`crate::nightly`).
 //!
-//! Exit codes: 0 pass; 1 fail; 2 usage error; 3 refused; 4 internal error.
+//! Exit codes: 0 pass (every run has an exit-grade record); 1 fail; 2 usage error; 3 refused (nothing ran); 4 internal
+//! error.
 
 mod plan;
-// The session runner (the next commit) judges the records; until then only the tests call this module.
-#[allow(dead_code)]
 mod record;
 
 use crate::git;
 use crate::nightly::Tree;
-use crate::nightly::calendar::{self, WindowKind};
-use crate::nightly::exec::{self, Cmd, Host, RealHost};
+use crate::nightly::calendar::{self, Window, WindowKind};
+use crate::nightly::exec::{self, Cmd, Ended, Host, RealHost, Watch};
+use crate::nightly::guard;
 use crate::utc;
 use plan::{Measurement, Plan};
+use serde_json::{Value, json};
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
@@ -39,6 +54,8 @@ See docs/spec/measurement-protocol.md §9.8.";
 
 /// Exit code: every run passed (`check`: no refusal).
 pub const EXIT_PASS: u8 = 0;
+/// Exit code: a run has no exit-grade record, or the session stopped after a driver ran.
+pub const EXIT_FAIL: u8 = 1;
 /// Exit code: usage error.
 pub const EXIT_USAGE: u8 = 2;
 /// Exit code: a pre-check refused; nothing started.
@@ -50,6 +67,11 @@ pub const EXIT_INTERNAL: u8 = 4;
 pub const MEASUREMENTS: &str = "measurements";
 /// The directory under the scratch directory that holds the drivers' working directories.
 pub const WORK: &str = "work";
+/// The directory under the scratch directory that holds each session's logs and record.
+pub const SESSIONS: &str = "sessions";
+/// The session record's file name and schema ([MP §9.8]).
+pub const SESSION: &str = "session.json";
+pub const SESSION_SCHEMA: &str = "moirai-xtask/measure-session/1";
 /// The guard's binary in `bins` ([MP §8]).
 pub const GUARD: &str = "guard";
 /// What `check` shows in place of the toolchain, which `run` reads when it starts.
@@ -110,6 +132,12 @@ pub struct Env {
     pub root: PathBuf,
     pub has_taskkill: bool,
     pub tree: Tree,
+    /// `rustc --version` run in the repository (read for `run` only): the records' `toolchain`.
+    pub toolchain: Result<String, String>,
+    /// Rebuild the private manifest at the finish (the real runner always does).
+    pub rebuild_manifest: bool,
+    /// The revision whose tracked text the rebuilt manifest treats as public (`master`; `xtask private index`).
+    pub public_ref: Option<String>,
 }
 
 impl Env {
@@ -429,9 +457,546 @@ pub fn check<H: Host + ?Sized>(
     }
 }
 
+/// What the pre-checks of `run` found.
+struct Pre {
+    /// The current window, when one holds now.
+    window: Option<Window>,
+    refusals: Vec<Refusal>,
+}
+
+/// The pre-checks of `run` ([MP §9.8]): [`refusals`], the window (it holds now, it is agent-free, and more than the
+/// finish margin of it is left) and the toolchain.
+// spec: [MP §9.8] (the pre-checks of run), [MP §2.3] (an idle run is made in an agent-free window)
+fn pre_checks(env: &Env, plan: &Plan, now: i64) -> Pre {
+    let mut r = refusals(env, plan);
+    let mut window = None;
+    match std::fs::read_to_string(&env.windows) {
+        Err(e) => r.push(refusal(
+            "calendar",
+            format!(
+                "no agreed window: {} cannot be read ({e}); the owner keeps the calendar there (PLAN §5 V4)",
+                env.windows.display()
+            ),
+        )),
+        Ok(text) => match calendar::parse(&text) {
+            Err(e) => r.push(refusal("calendar", e)),
+            Ok(ws) => match calendar::current(&ws, now) {
+                None => r.push(refusal(
+                    "outside-window",
+                    format!(
+                        "{} is outside every agreed window; {}",
+                        utc::rfc3339(now),
+                        calendar::next(&ws, now).map_or("no later window is agreed".into(), |w| {
+                            format!("the next is {}", w.describe())
+                        })
+                    ),
+                )),
+                Some(w) if w.kind != WindowKind::AgentFree => r.push(refusal(
+                    "window-kind",
+                    format!(
+                        "the window {} is not agent-free: an idle run is made in an agent-free window ([MP §2.3])",
+                        w.describe()
+                    ),
+                )),
+                Some(w) if w.end - now <= plan.finish_margin_secs => r.push(refusal(
+                    "window-ending",
+                    format!(
+                        "the window {} ends in {}, within the finish margin of {}",
+                        w.describe(),
+                        utc::hm(w.end - now),
+                        utc::hm(plan.finish_margin_secs)
+                    ),
+                )),
+                Some(w) => window = Some(w),
+            },
+        },
+    }
+    if let Err(e) = &env.toolchain {
+        r.push(refusal(
+            "toolchain",
+            format!("rustc --version failed in the repository: {e}"),
+        ));
+    }
+    Pre {
+        window,
+        refusals: r,
+    }
+}
+
+/// How one attempt of a run ended ([MP §9.8]).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+enum Outcome {
+    /// The driver exited 0 and wrote one record of the run, and it is exit-grade.
+    ExitGrade,
+    /// The driver exited, but no exit-grade record of the run came of it.
+    NotExitGrade,
+    /// Stopped at its run budget.
+    TimedOut,
+    /// Stopped at its measurement's budget.
+    BudgetEnded,
+    /// Stopped at the window's end less the finish margin.
+    WindowEnded,
+    /// The driver could not be started, or its tree could not be stopped.
+    Error,
+}
+
+impl Outcome {
+    fn as_str(self) -> &'static str {
+        match self {
+            Outcome::ExitGrade => "exit-grade",
+            Outcome::NotExitGrade => "not-exit-grade",
+            Outcome::TimedOut => "timed-out",
+            Outcome::BudgetEnded => "budget-ended",
+            Outcome::WindowEnded => "window-ended",
+            Outcome::Error => "error",
+        }
+    }
+}
+
+/// The session record ([MP §9.8]), rewritten through a temporary file after every run.
+struct Session {
+    path: PathBuf,
+    value: Value,
+}
+
+impl Session {
+    fn save(&self) -> Result<(), String> {
+        let tmp = self.path.with_extension("json.tmp");
+        let text = serde_json::to_string_pretty(&self.value).map_err(|e| e.to_string())?;
+        std::fs::write(&tmp, text + "\n").map_err(|e| format!("{}: {e}", tmp.display()))?;
+        std::fs::rename(&tmp, &self.path).map_err(|e| format!("{}: {e}", self.path.display()))
+    }
+
+    fn push_run(&mut self, run: Value) {
+        if let Some(a) = self.value["runs"].as_array_mut() {
+            a.push(run);
+        }
+    }
+}
+
+/// What every attempt of a session shares.
+struct Ctx<'a> {
+    env: &'a Env,
+    plan: &'a Plan,
+    commit: String,
+    toolchain: String,
+    /// The guard before each attempt: `--volume <scratch>` and the two floors, no counted directory ([MP §8.2]).
+    guard: Cmd,
+    /// The session's directory: its logs and its record.
+    dir: PathBuf,
+    /// The window's end less the finish margin.
+    deadline: i64,
+}
+
+/// One attempt and what it decided.
+struct Attempt {
+    /// `None` when the guard stopped the session before the driver started.
+    outcome: Option<Outcome>,
+    json: Value,
+    /// Why the session stops after this attempt: the guard refused or failed, or the tested tree changed.
+    stop: Option<String>,
+    /// Whether a driver process was started.
+    started: bool,
+}
+
+/// Whether the tested tree moved during an attempt: `HEAD` or the branch changed, a tracked file changed, or the tree
+/// could not be read; `None` when it is the commit the pre-checks found, clean (as `xtask nightly` reads it).
+// spec: [MP §9.8] (the tree)
+fn tree_change<H: Host + ?Sized>(host: &mut H, env: &Env) -> Option<Value> {
+    match host.tree(&env.repo) {
+        Ok(t) if t.commit == env.tree.commit && t.branch == env.tree.branch && t.changes == 0 => {
+            None
+        }
+        Ok(t) => Some(json!({
+            "commit": t.commit,
+            "branch": t.branch,
+            "tracked_changes": t.changes,
+        })),
+        Err(e) => Some(json!({ "error": e })),
+    }
+}
+
+/// One attempt of the run of quantity `q` ([MP §9.8]): the guard, then one driver process in the measurement's
+/// working directory until it exits or its deadline (the earliest of its run budget, `m_deadline` and the window's),
+/// where its process tree is stopped; then the record's judgment and the tree.
+// spec: [MP §9.8] (the guard before each attempt, one driver process per run, budgets, the record, the tree),
+// [MP §9.7] (the driver contract), [MP §7.3]
+fn attempt<H: Host + ?Sized>(
+    host: &mut H,
+    cx: &Ctx,
+    m: &Measurement,
+    q: &str,
+    k: u32,
+    m_deadline: i64,
+    out: &mut dyn Write,
+) -> Result<Attempt, String> {
+    let t0 = host.now();
+    let _ = writeln!(
+        out,
+        "measure: {}/{q} attempt {k} at {}",
+        m.n,
+        utc::rfc3339(t0)
+    );
+    let mut j = json!({ "attempt": k, "started": utc::rfc3339(t0) });
+    let stopped = |j: Value, why: String| Attempt {
+        outcome: None,
+        json: j,
+        stop: Some(why),
+        started: false,
+    };
+    match host
+        .capture(&cx.guard, guard::TIMEOUT_SECS)
+        .and_then(|o| guard::parse(o.exit, &o.stdout, &o.stderr))
+    {
+        Err(e) => {
+            j["guard"] = json!({ "error": e });
+            return Ok(stopped(
+                j,
+                format!("the guard failed (it fails closed): {e}"),
+            ));
+        }
+        Ok(v) => {
+            j["guard"] = v.json.clone();
+            if !v.pass {
+                let why = v
+                    .refusals
+                    .iter()
+                    .map(|r| format!("{}: {}", r.kind, r.detail))
+                    .collect::<Vec<_>>()
+                    .join("; ");
+                return Ok(stopped(j, format!("the guard refused: {why}")));
+            }
+        }
+    }
+    let dir = cx.env.out(m.n);
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let before = record::names(&dir)?;
+    let cmd = driver_cmd(cx.env, cx.plan, m, q, &cx.commit, &cx.toolchain, false);
+    let log = format!("{}.{q}.{k}.log", m.n);
+    let start = host.now();
+    let deadline = (start + m.run_budget_secs).min(m_deadline).min(cx.deadline);
+    j["deadline"] = json!(utc::rfc3339(deadline));
+    j["command"] = json!(cmd.line());
+    j["log"] = json!(log);
+    // No guard while the driver runs ([MP §9.8]): the watch's period lies past the deadline.
+    let mut watch = Watch {
+        guard: cx.guard.clone(),
+        every_secs: (deadline - start).max(0) + 1,
+        min_available: None,
+    };
+    let ended = exec::run_cmd(host, &cmd, &cx.dir.join(&log), deadline, &mut watch);
+    let end = host.now();
+    let added: Vec<String> = record::names(&dir)?
+        .difference(&before)
+        .filter(|n| record::record_name(n, q))
+        .cloned()
+        .collect();
+    let stop_why = |at: i64| {
+        if at == cx.deadline {
+            (
+                Outcome::WindowEnded,
+                "stopped at the window's end less the finish margin".to_string(),
+            )
+        } else if at == m_deadline {
+            (
+                Outcome::BudgetEnded,
+                format!(
+                    "stopped at the measurement's budget of {}",
+                    utc::hm(m.budget_secs)
+                ),
+            )
+        } else {
+            (
+                Outcome::TimedOut,
+                format!(
+                    "stopped at its run budget of {}",
+                    utc::hm(m.run_budget_secs)
+                ),
+            )
+        }
+    };
+    let (outcome, exit, why): (Outcome, Option<i32>, Vec<String>) = match ended {
+        Ended::Exited(0) => match added.as_slice() {
+            [] => (
+                Outcome::NotExitGrade,
+                Some(0),
+                vec!["the driver wrote no record".into()],
+            ),
+            [one] => {
+                let judged = std::fs::read_to_string(dir.join(one))
+                    .map_err(|e| vec![format!("{one}: {e}")])
+                    .and_then(|t| record::judge(&t, m.n, q, &cx.commit));
+                match judged {
+                    Ok(()) => (Outcome::ExitGrade, Some(0), Vec::new()),
+                    Err(why) => (Outcome::NotExitGrade, Some(0), why),
+                }
+            }
+            many => (
+                Outcome::NotExitGrade,
+                Some(0),
+                vec![format!(
+                    "the driver wrote {} records of the run",
+                    many.len()
+                )],
+            ),
+        },
+        Ended::Exited(c) => (
+            Outcome::NotExitGrade,
+            Some(c),
+            vec![format!("the driver exited with {c}")],
+        ),
+        Ended::TimedOut => {
+            let (o, why) = stop_why(deadline);
+            (o, None, vec![why])
+        }
+        Ended::Stopped(e) | Ended::Error(e) => (Outcome::Error, None, vec![e]),
+    };
+    j["ended"] = json!(utc::rfc3339(end));
+    j["outcome"] = json!(outcome.as_str());
+    j["exit_code"] = json!(exit);
+    j["records"] = json!(added);
+    j["why"] = json!(why);
+    let _ = writeln!(
+        out,
+        "measure: {}/{q} {}{}",
+        m.n,
+        outcome.as_str(),
+        if why.is_empty() {
+            String::new()
+        } else {
+            format!(": {}", why.join("; "))
+        }
+    );
+    let mut stop = None;
+    if let Some(change) = tree_change(host, cx.env) {
+        let _ = writeln!(
+            out,
+            "measure: the tested tree changed during {}/{q}: {change}; the session stops",
+            m.n
+        );
+        j["tree_changed"] = change;
+        stop = Some(format!("the tested tree changed during {}/{q}", m.n));
+    }
+    Ok(Attempt {
+        outcome: Some(outcome),
+        json: j,
+        stop,
+        started: true,
+    })
+}
+
+/// `measure run` ([MP §9.8]): the pre-checks, then the plan's runs inside the current agent-free window, and the
+/// finish. Returns the exit code; `Err` is an internal error.
+// spec: [MP §9.8] (the run, the finish, the verdict), [MP §1.1] (the measurement night)
+pub fn run<H: Host + ?Sized>(
+    host: &mut H,
+    env: &Env,
+    plan: &Plan,
+    plan_path: &Path,
+    out: &mut dyn Write,
+) -> Result<u8, String> {
+    let start = host.now();
+    let pre = pre_checks(env, plan, start);
+    for r in &pre.refusals {
+        let _ = writeln!(out, "measure: refused: {}: {}", r.kind, r.detail);
+    }
+    let (Some(w), Some(commit), Ok(toolchain), true) = (
+        pre.window,
+        env.tree.commit.clone(),
+        env.toolchain.clone(),
+        pre.refusals.is_empty(),
+    ) else {
+        return Ok(EXIT_REFUSED);
+    };
+    let scratch = env.scratch(plan);
+    let dir = scratch.join(SESSIONS).join(utc::compact(start));
+    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let cx = Ctx {
+        env,
+        plan,
+        guard: Cmd::new(env.exe(plan, GUARD).to_string_lossy(), &scratch).args(
+            guard::pre_check_args(&scratch, &[], plan.ram_floor, plan.disk_floor, &[]),
+        ),
+        dir: dir.clone(),
+        deadline: w.end - plan.finish_margin_secs,
+        commit,
+        toolchain,
+    };
+    let mut ses = Session {
+        path: dir.join(SESSION),
+        value: json!({
+            "schema": SESSION_SCHEMA,
+            "plan": plan_path.to_string_lossy(),
+            "started": utc::rfc3339(start),
+            "ended": null,
+            "window": { "start": utc::rfc3339(w.start), "end": utc::rfc3339(w.end), "kind": w.kind.as_str() },
+            "deadline": utc::rfc3339(cx.deadline),
+            "commit": cx.commit,
+            "branch": env.tree.branch,
+            "toolchain": cx.toolchain,
+            "settle_secs": plan.settle_secs,
+            "runs": [],
+            "stopped": null,
+            "verdict": null,
+            "manifest": null,
+        }),
+    };
+    ses.save()?;
+    let _ = writeln!(
+        out,
+        "measure: session {} in {}; window {}; every run ends by {}; settling for {}",
+        utc::compact(start),
+        dir.display(),
+        w.describe(),
+        utc::rfc3339(cx.deadline),
+        utc::hm(plan.settle_secs)
+    );
+    host.sleep(plan.settle_secs as u64);
+    let mut stopped: Option<String> = None;
+    let mut started_any = false;
+    let mut refused_first = false;
+    let mut exit_grade = 0;
+    for m in &plan.measurements {
+        let m_deadline = host.now() + m.budget_secs;
+        let mut spent: Option<String> = None;
+        let work = env.work(plan, m.n);
+        let mut work_made = false;
+        for q in &m.quantities {
+            let mut r = json!({ "n": m.n, "driver": m.driver, "quantity": q, "status": null, "reason": null, "attempts": [] });
+            let now = host.now();
+            let blocked = stopped
+                .clone()
+                .or_else(|| spent.clone())
+                .or_else(|| {
+                    (now >= cx.deadline)
+                        .then(|| "the window's end less the finish margin has passed".to_string())
+                })
+                .or_else(|| {
+                    (now >= m_deadline).then(|| "the measurement's budget is spent".to_string())
+                });
+            if let Some(why) = blocked {
+                let _ = writeln!(out, "measure: {}/{q} not-run: {why}", m.n);
+                r["status"] = json!("not-run");
+                r["reason"] = json!(why);
+                ses.push_run(r);
+                ses.save()?;
+                continue;
+            }
+            if !work_made {
+                // Made empty before the measurement's first attempt; kept across its runs.
+                if work.exists() {
+                    std::fs::remove_dir_all(&work)
+                        .map_err(|e| format!("{}: {e}", work.display()))?;
+                }
+                std::fs::create_dir_all(&work).map_err(|e| format!("{}: {e}", work.display()))?;
+                work_made = true;
+            }
+            let a = attempt(host, &cx, m, q, 1, m_deadline, out)?;
+            if a.stop.is_some() && !started_any && !a.started {
+                refused_first = true;
+            }
+            started_any |= a.started;
+            if let Some(list) = r["attempts"].as_array_mut() {
+                list.push(a.json);
+            }
+            match a.outcome {
+                None => {
+                    r["status"] = json!("not-run");
+                    r["reason"] = json!(a.stop);
+                }
+                Some(o) => {
+                    r["status"] = json!(o.as_str());
+                    if o == Outcome::ExitGrade {
+                        exit_grade += 1;
+                    }
+                    if o == Outcome::BudgetEnded {
+                        spent = Some(format!(
+                            "the measurement's budget was spent during {}/{q}",
+                            m.n
+                        ));
+                    }
+                }
+            }
+            if let Some(why) = a.stop {
+                stopped.get_or_insert(why);
+            }
+            ses.push_run(r);
+            ses.save()?;
+        }
+        if work_made {
+            let _ = std::fs::remove_dir_all(&work);
+        }
+    }
+    finish(host, &cx, &mut ses, stopped, exit_grade, out)?;
+    Ok(if refused_first {
+        EXIT_REFUSED
+    } else if ses.value["verdict"] == "pass" {
+        EXIT_PASS
+    } else {
+        EXIT_FAIL
+    })
+}
+
+/// The finish ([MP §9.8]): the drivers' working directories removed, the verdict, the private manifest rebuilt, and
+/// the session record written.
+// spec: [MP §9.8] (the finish, the verdict)
+fn finish<H: Host + ?Sized>(
+    host: &mut H,
+    cx: &Ctx,
+    ses: &mut Session,
+    stopped: Option<String>,
+    exit_grade: usize,
+    out: &mut dyn Write,
+) -> Result<(), String> {
+    let work = cx.env.scratch(cx.plan).join(WORK);
+    if work.exists()
+        && let Err(e) = std::fs::remove_dir_all(&work)
+    {
+        let _ = writeln!(out, "measure: {}: {e}", work.display());
+    }
+    let runs = cx.plan.runs();
+    let pass = stopped.is_none() && exit_grade == runs;
+    ses.value["ended"] = json!(utc::rfc3339(host.now()));
+    ses.value["stopped"] = json!(stopped);
+    ses.value["counts"] = json!({ "runs": runs, "exit_grade": exit_grade });
+    ses.value["verdict"] = json!(if pass { "pass" } else { "fail" });
+    ses.value["manifest"] = if cx.env.rebuild_manifest {
+        match crate::private::rebuild(&cx.env.repo, &cx.env.private, cx.env.public_ref.as_deref()) {
+            Ok(_) => {
+                let _ = writeln!(
+                    out,
+                    "measure: rebuilt {}",
+                    cx.env.private.join(crate::private::MANIFEST).display()
+                );
+                json!("rebuilt")
+            }
+            Err(e) => {
+                let _ = writeln!(
+                    out,
+                    "measure: the private manifest could not be rebuilt ({e}); run `cargo xtask private index` before the next commit"
+                );
+                json!({ "error": e })
+            }
+        }
+    } else {
+        json!("not rebuilt")
+    };
+    ses.save()?;
+    let _ = writeln!(
+        out,
+        "measure: {} ({exit_grade} of {runs} runs exit-grade{}); session record {}",
+        if pass { "PASS" } else { "FAIL" },
+        stopped
+            .map(|s| format!("; stopped: {s}"))
+            .unwrap_or_default(),
+        ses.path.display()
+    );
+    Ok(())
+}
+
 /// Resolves the environment: `/private/` and the target root as `xtask nightly` finds them, the calendar and the
 /// tree.
-fn resolve(repo: &Path) -> Result<Env, String> {
+fn resolve(repo: &Path, read_toolchain: bool) -> Result<Env, String> {
     let main = git::main_worktree(repo).ok_or("cannot locate the main worktree")?;
     let private = main.join("private");
     let root = git::probe(repo, &["config", "--get", "moirai.target-root"])
@@ -444,7 +1009,33 @@ fn resolve(repo: &Path) -> Result<Env, String> {
         root,
         has_taskkill: exec::taskkill().is_some(),
         tree: Tree::read(repo, true)?,
+        toolchain: if read_toolchain {
+            rustc_version(repo)
+        } else {
+            Err("read by run only".into())
+        },
+        rebuild_manifest: true,
+        public_ref: Some("master".into()),
     })
+}
+
+/// `rustc --version` run in the repository, whose `rust-toolchain.toml` names the toolchain: the records'
+/// `toolchain` ([MP §7.1]). It runs outside `Host`, so a test host's captures stay the guard's.
+fn rustc_version(repo: &Path) -> Result<String, String> {
+    let o = std::process::Command::new("rustc")
+        .arg("--version")
+        .current_dir(repo)
+        .stdin(std::process::Stdio::null())
+        .output()
+        .map_err(|e| format!("rustc: {e}"))?;
+    let v = String::from_utf8_lossy(&o.stdout).trim().to_string();
+    if !o.status.success() || v.is_empty() {
+        return Err(format!(
+            "rustc --version exited with {} and printed '{v}'",
+            o.status
+        ));
+    }
+    Ok(v)
 }
 
 /// `cargo xtask measure …` ([`USAGE`]).
@@ -471,7 +1062,7 @@ pub fn cli(args: &[String], repo: &Path) -> Result<ExitCode, String> {
             return Ok(ExitCode::from(EXIT_REFUSED));
         }
     };
-    let env = match resolve(repo) {
+    let env = match resolve(repo, o.mode == Mode::Run) {
         Ok(env) => env,
         Err(e) => {
             let _ = writeln!(stdout, "measure: error: {e}");
@@ -488,18 +1079,35 @@ pub fn cli(args: &[String], repo: &Path) -> Result<ExitCode, String> {
             o.smoke,
             &mut stdout,
         ))),
-        Mode::Run => {
-            let _ = writeln!(stdout, "measure: error: run is not built at this commit");
+        Mode::Run if o.smoke => {
+            let _ = writeln!(
+                stdout,
+                "measure: error: run --smoke is not built at this commit"
+            );
             Ok(ExitCode::from(EXIT_INTERNAL))
         }
+        Mode::Run => match run(&mut host, &env, &plan, &o.plan, &mut stdout) {
+            Ok(code) => Ok(ExitCode::from(code)),
+            Err(e) => {
+                let _ = writeln!(
+                    stdout,
+                    "measure: error: {e}; the records already written stay"
+                );
+                Ok(ExitCode::from(EXIT_INTERNAL))
+            }
+        },
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nightly::exec::tests::{FakeHost, test_tree};
+    use crate::nightly::exec::Captured;
+    use crate::nightly::exec::tests::{FakeHost, guard_pass, guard_refuse, hangs, runs, test_tree};
     use crate::testdir::TestDir;
+    use std::cell::RefCell;
+    use std::collections::VecDeque;
+    use std::rc::Rc;
 
     /// Inside the synthetic calendar's agent-free window, 2026-10-13T20:00Z..2026-10-14T04:00Z.
     const NOW: &str = "2026-10-13T21:00:00Z";
@@ -558,7 +1166,108 @@ quantities = ["lz4.encode"]
             root: d.path().join("target"),
             has_taskkill: true,
             tree: test_tree(),
+            toolchain: Ok(TOOLCHAIN.into()),
+            rebuild_manifest: false,
+            public_ref: None,
         }
+    }
+
+    /// The toolchain the test environments name.
+    const TOOLCHAIN: &str = "rustc 1.0.0 (synthetic)";
+
+    /// What the fake driver writes into its `--out` when it starts, in spawn order ([`Writes::ExitGrade`] once the
+    /// list is empty).
+    #[derive(Clone, Debug)]
+    enum Writes {
+        /// One exit-grade record of the run.
+        ExitGrade,
+    }
+
+    /// The fake driver ([MP §9.7]): when a driver starts, it writes what `writes` says directly into its `--out`,
+    /// named as [MP §7.2] says with the start time of the virtual clock, after checking that its working directory
+    /// exists.
+    fn fake_driver(h: &mut FakeHost, writes: &[Writes]) -> Rc<RefCell<VecDeque<Writes>>> {
+        let script = Rc::new(RefCell::new(
+            writes.iter().cloned().collect::<VecDeque<_>>(),
+        ));
+        let s = script.clone();
+        let clock = h.clock.clone();
+        h.on_spawn = Some(Box::new(move |c: &Cmd| {
+            assert!(
+                c.cwd.is_dir(),
+                "the working directory {} exists",
+                c.cwd.display()
+            );
+            let arg = |k: &str| {
+                c.args
+                    .iter()
+                    .position(|a| a == k)
+                    .map(|i| c.args[i + 1].clone())
+            };
+            let (Some(dir), Some(q), Some(commit)) =
+                (arg("--out"), arg("--quantity"), arg("--commit"))
+            else {
+                return;
+            };
+            let dir = PathBuf::from(dir);
+            let n: u32 = dir.file_name().unwrap().to_string_lossy().parse().unwrap();
+            let now = clock.get();
+            let write = |at: i64, v: Value| {
+                std::fs::create_dir_all(&dir).unwrap();
+                let p = dir.join(format!("{q}.idle.{}.json", utc::compact(at)));
+                std::fs::write(&p, v.to_string() + "\n").unwrap();
+            };
+            let good = |at: i64| record::tests::exit_grade(n, &q, &commit, &utc::rfc3339(at));
+            match s.borrow_mut().pop_front().unwrap_or(Writes::ExitGrade) {
+                Writes::ExitGrade => write(now, good(now)),
+            }
+        }));
+        script
+    }
+
+    /// The session record of the session that started at `start`.
+    fn session(env: &Env, plan: &Plan, start: i64) -> Value {
+        let p = env
+            .scratch(plan)
+            .join(SESSIONS)
+            .join(utc::compact(start))
+            .join(SESSION);
+        serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap()
+    }
+
+    fn run_text(h: &mut FakeHost, env: &Env, plan: &Plan) -> (u8, String) {
+        let mut out = Vec::new();
+        let code = run(h, env, plan, Path::new("plan.toml"), &mut out).unwrap();
+        (code, String::from_utf8(out).unwrap())
+    }
+
+    /// Each run's quantity and status in the session record.
+    fn statuses(s: &Value) -> Vec<(String, String)> {
+        s["runs"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| {
+                (
+                    format!("{}/{}", r["n"], r["quantity"].as_str().unwrap()),
+                    r["status"].as_str().unwrap().to_string(),
+                )
+            })
+            .collect()
+    }
+
+    fn pairs(v: &[(&str, &str)]) -> Vec<(String, String)> {
+        v.iter()
+            .map(|(a, b)| (a.to_string(), b.to_string()))
+            .collect()
+    }
+
+    fn kinds(env: &Env, plan: &Plan, now: i64) -> Vec<&'static str> {
+        pre_checks(env, plan, now)
+            .refusals
+            .iter()
+            .map(|r| r.kind)
+            .collect()
     }
 
     /// Every path below `dir`, sorted: what a command that writes nothing leaves unchanged.
@@ -761,5 +1470,405 @@ quantities = ["lz4.encode"]
         assert_eq!(code, EXIT_REFUSED, "{text}");
         assert!(text.contains("measure: refused: scratch: "), "{text}");
         assert!(h.spawned.is_empty() && h.captured.is_empty());
+    }
+
+    #[test]
+    fn run_refuses_outside_an_agent_free_window() {
+        let d = TestDir::new("measure-run-window");
+        let plan = plan();
+        let env = env(&d, &plan);
+        for (now, kind, detail) in [
+            (
+                "2026-10-13T19:00:00Z",
+                "outside-window",
+                "the next is 2026-10-13T20:00:00Z",
+            ),
+            ("2026-10-12T10:00:00Z", "window-kind", "is not agent-free"),
+            (
+                "2026-10-14T03:51:00Z",
+                "window-ending",
+                "within the finish margin",
+            ),
+            (
+                "2026-10-15T00:00:00Z",
+                "outside-window",
+                "no later window is agreed",
+            ),
+        ] {
+            let mut h = FakeHost::new(at(now));
+            fake_driver(&mut h, &[]);
+            let (code, text) = run_text(&mut h, &env, &plan);
+            // Nothing started and nothing written.
+            assert!(
+                h.spawned.is_empty() && h.captured.is_empty(),
+                "{now}: {text}"
+            );
+            assert_eq!(code, EXIT_REFUSED, "{now}: {text}");
+            assert!(
+                text.contains(&format!("measure: refused: {kind}: ")) && text.contains(detail),
+                "{now}: {text}"
+            );
+            assert_eq!(kinds(&env, &plan, at(now)), [kind]);
+            assert!(!env.scratch(&plan).exists(), "{now}");
+            assert!(!env.private.join(MEASUREMENTS).exists(), "{now}");
+        }
+        // No calendar, or a malformed one.
+        let mut e = env.clone();
+        e.windows = d.path().join("none.toml");
+        assert_eq!(kinds(&e, &plan, at(NOW)), ["calendar"]);
+        d.write("bad.toml", "version = 1\n[[window]]\nstart = \"tonight\"\n");
+        e.windows = d.path().join("bad.toml");
+        assert_eq!(kinds(&e, &plan, at(NOW)), ["calendar"]);
+        // A toolchain that cannot be read.
+        let mut e = env.clone();
+        e.toolchain = Err("rustc: not found".into());
+        assert_eq!(kinds(&e, &plan, at(NOW)), ["toolchain"]);
+        // Inside the agent-free window, more than the finish margin before its end, nothing refuses.
+        assert!(kinds(&env, &plan, at(NOW)).is_empty());
+        assert!(kinds(&env, &plan, at("2026-10-14T03:49:00Z")).is_empty());
+    }
+
+    #[test]
+    fn run_refuses_on_each_guard_refusal() {
+        let d = TestDir::new("measure-run-guard");
+        let plan = plan();
+        let env = env(&d, &plan);
+        let not_run = pairs(&[
+            ("14/csr.1e5", "not-run"),
+            ("14/t1.read", "not-run"),
+            ("6/lz4.encode", "not-run"),
+        ]);
+        // An injected refusal before the first run, of each kind, and a guard that prints no JSON (it fails closed):
+        // no driver starts, exit 3, and the session record says why.
+        let no_json = Captured {
+            exit: Some(2),
+            stdout: String::new(),
+            stderr: "guard: usage".into(),
+        };
+        for (g, needle) in [
+            (
+                guard_refuse(1_000_000_000, "ram-low"),
+                "the guard refused: ram-low",
+            ),
+            (
+                guard_refuse(8_000_000_000, "disk-low"),
+                "the guard refused: disk-low",
+            ),
+            (no_json, "the guard failed (it fails closed)"),
+        ] {
+            let mut h = FakeHost::new(at(NOW));
+            fake_driver(&mut h, &[]);
+            h.guards.push_back(g);
+            let (code, text) = run_text(&mut h, &env, &plan);
+            assert!(h.spawned.is_empty(), "{needle}: {text}");
+            assert_eq!(code, EXIT_REFUSED, "{needle}: {text}");
+            assert_eq!(h.captured.len(), 1);
+            let s = session(&env, &plan, at(NOW));
+            assert!(s["stopped"].as_str().unwrap().contains(needle), "{s}");
+            assert_eq!(statuses(&s), not_run);
+            assert_eq!(s["verdict"], "fail");
+            std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        }
+        // A refusal before the second run: the first run stands, and the session stops and fails.
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[]);
+        h.scripts.push_back(runs(60, 0));
+        h.guards.push_back(guard_pass(8_000_000_000));
+        h.guards.push_back(guard_refuse(1_000_000_000, "ram-low"));
+        let (code, text) = run_text(&mut h, &env, &plan);
+        assert_eq!(code, EXIT_FAIL, "{text}");
+        assert_eq!(h.spawned.len(), 1);
+        assert_eq!(h.captured.len(), 2);
+        let s = session(&env, &plan, at(NOW));
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/csr.1e5", "exit-grade"),
+                ("14/t1.read", "not-run"),
+                ("6/lz4.encode", "not-run"),
+            ])
+        );
+        assert!(
+            s["runs"][1]["reason"].as_str().unwrap().contains("ram-low"),
+            "{s}"
+        );
+    }
+
+    #[test]
+    fn run_refuses_a_dirty_tree() {
+        let d = TestDir::new("measure-run-tree");
+        let plan = plan();
+        let env = env(&d, &plan);
+        type Change = fn(&mut Env);
+        let cases: [Change; 2] = [|e| e.tree.changes = 1, |e| e.tree.commit = None];
+        for change in cases {
+            let mut e = env.clone();
+            change(&mut e);
+            let mut h = FakeHost::new(at(NOW));
+            fake_driver(&mut h, &[]);
+            let (code, text) = run_text(&mut h, &e, &plan);
+            assert!(h.spawned.is_empty() && h.captured.is_empty(), "{text}");
+            assert_eq!(code, EXIT_REFUSED, "{text}");
+            assert!(text.contains("measure: refused: dirty-tree: "), "{text}");
+            assert!(!e.scratch(&plan).exists());
+        }
+        // A tracked change while a driver runs stops the session after that run.
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[]);
+        h.scripts.push_back(runs(60, 0));
+        h.trees.push_back(Ok(Tree {
+            changes: 1,
+            ..test_tree()
+        }));
+        let (code, text) = run_text(&mut h, &env, &plan);
+        assert_eq!(code, EXIT_FAIL, "{text}");
+        assert_eq!(h.spawned.len(), 1);
+        let s = session(&env, &plan, at(NOW));
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/csr.1e5", "exit-grade"),
+                ("14/t1.read", "not-run"),
+                ("6/lz4.encode", "not-run"),
+            ])
+        );
+        assert_eq!(
+            s["runs"][0]["attempts"][0]["tree_changed"]["tracked_changes"],
+            1
+        );
+        assert!(
+            s["stopped"]
+                .as_str()
+                .unwrap()
+                .contains("the tested tree changed during 14/csr.1e5")
+        );
+    }
+
+    #[test]
+    fn drivers_run_under_the_contract_and_the_finish_indexes_private() {
+        let d = TestDir::new("measure-run-contract");
+        let plan = plan();
+        let mut env = env(&d, &plan);
+        env.rebuild_manifest = true;
+        d.write(
+            "private/notes/a.txt",
+            "synthetic words for the private index of this unit test",
+        );
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[]);
+        for _ in 0..3 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (code, text) = run_text(&mut h, &env, &plan);
+        let commit = test_tree().commit.unwrap();
+        let scratch = env.scratch(&plan);
+        // Every driver: its program, the contract's arguments and its own working directory, in plan order.
+        let got: Vec<(String, Vec<String>, PathBuf)> = h
+            .spawned
+            .iter()
+            .map(|c| (c.program.clone(), c.args.clone(), c.cwd.clone()))
+            .collect();
+        let want = |n: u32, driver: &str, q: &str| {
+            let out = env.out(n).to_string_lossy().into_owned();
+            let args = [
+                "--host",
+                "laptop",
+                "--condition",
+                "idle",
+                "--quantity",
+                q,
+                "--commit",
+                &commit,
+                "--toolchain",
+                TOOLCHAIN,
+                "--out",
+                &out,
+            ];
+            (
+                env.exe(&plan, driver).to_string_lossy().into_owned(),
+                args.iter().map(|s| s.to_string()).collect::<Vec<_>>(),
+                scratch.join(WORK).join(n.to_string()),
+            )
+        };
+        assert_eq!(
+            got,
+            [
+                want(14, "m14", "csr.1e5"),
+                want(14, "m14", "t1.read"),
+                want(6, "m6", "lz4.encode")
+            ]
+        );
+        assert_eq!(code, EXIT_PASS, "{text}");
+        // The guard before each attempt: the scratch volume and the two floors, no counted directory.
+        assert_eq!(h.captured.len(), 3);
+        let volume = scratch.to_string_lossy().into_owned();
+        for g in &h.captured {
+            assert_eq!(g.program, env.exe(&plan, GUARD).to_string_lossy());
+            assert_eq!(
+                g.args,
+                [
+                    "--volume",
+                    volume.as_str(),
+                    "--ram-floor",
+                    "1500000000",
+                    "--disk-floor",
+                    "25000000000"
+                ]
+            );
+        }
+        // The first attempt after the settle, under its run budget.
+        let t0 = at(NOW) + 15 * 60;
+        let s = session(&env, &plan, at(NOW));
+        assert_eq!(s["runs"][0]["attempts"][0]["started"], utc::rfc3339(t0));
+        assert_eq!(
+            s["runs"][0]["attempts"][0]["deadline"],
+            utc::rfc3339(t0 + 30 * 60)
+        );
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/csr.1e5", "exit-grade"),
+                ("14/t1.read", "exit-grade"),
+                ("6/lz4.encode", "exit-grade"),
+            ])
+        );
+        assert_eq!(s["schema"], SESSION_SCHEMA);
+        assert_eq!(s["verdict"], "pass");
+        assert_eq!(s["commit"], commit.as_str());
+        assert_eq!(s["toolchain"], TOOLCHAIN);
+        assert_eq!(s["window"]["kind"], "agent-free");
+        // The logs are the session's; the working directories are gone.
+        assert!(
+            scratch
+                .join(SESSIONS)
+                .join(utc::compact(at(NOW)))
+                .join("14.csr.1e5.1.log")
+                .is_file()
+        );
+        assert!(!scratch.join(WORK).exists());
+        // The private manifest was rebuilt, is current, and lists the new records.
+        assert_eq!(s["manifest"], "rebuilt");
+        let (m, _) = crate::private::load_current(&env.private).unwrap().unwrap();
+        let paths: Vec<String> = m.files.iter().map(|f| f.path.clone()).collect();
+        let rec =
+            |n: u32, q: &str, t: i64| format!("measurements/{n}/{q}.idle.{}.json", utc::compact(t));
+        assert_eq!(
+            paths,
+            [
+                rec(14, "csr.1e5", t0),
+                rec(14, "t1.read", t0 + 60),
+                rec(6, "lz4.encode", t0 + 120),
+                "notes/a.txt".to_string(),
+                "windows.toml".to_string(),
+            ]
+        );
+        assert!(
+            text.contains("measure: PASS (3 of 3 runs exit-grade)"),
+            "{text}"
+        );
+    }
+
+    /// Measurement 14 of three quantities with a run budget of 30 minutes and a measurement budget of 50, then
+    /// measurement 6.
+    const BUDGETS: &str = r#"version = 1
+[session]
+bins = "bins"
+scratch = "scratch"
+settle-minutes = 15
+finish-margin-minutes = 10
+smoke-budget-minutes = 10
+ram-floor = "1.5GB"
+disk-floor = "25GB"
+[[measurement]]
+n = 14
+driver = "m14"
+title = "synthetic"
+run-budget-minutes = 30
+budget-minutes = 50
+quantities = ["a", "b", "c"]
+[[measurement]]
+n = 6
+driver = "m6"
+title = "synthetic"
+run-budget-minutes = 20
+budget-minutes = 25
+quantities = ["d"]
+"#;
+
+    #[test]
+    fn an_overrunning_driver_is_stopped_by_its_tree() {
+        let d = TestDir::new("measure-run-budgets");
+        let plan = Plan::parse(BUDGETS).unwrap();
+        let env = env(&d, &plan);
+        let t0 = at(NOW) + 15 * 60;
+        // At its run budget: a hangs, and its process tree is stopped exactly 30 minutes after it started.
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[]);
+        h.scripts.push_back(hangs());
+        for _ in 0..3 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (_, text) = run_text(&mut h, &env, &plan);
+        let s = session(&env, &plan, at(NOW));
+        let a = &s["runs"][0]["attempts"][0];
+        assert_eq!(a["ended"], utc::rfc3339(t0 + 30 * 60), "{text}");
+        assert_eq!(a["outcome"], "timed-out", "{text}");
+        assert_eq!(h.killed.borrow()[0], h.spawned[0].line());
+        std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        let _ = std::fs::remove_dir_all(env.private.join(MEASUREMENTS));
+        // At the measurement's budget: b hangs after a took 25 minutes and is stopped 50 minutes into the
+        // measurement; it is not retried, c is not run, and measurement 6 runs.
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[]);
+        h.scripts.push_back(runs(25 * 60, 0));
+        h.scripts.push_back(hangs());
+        h.scripts.push_back(runs(60, 0));
+        let (code, text) = run_text(&mut h, &env, &plan);
+        assert_eq!(code, EXIT_FAIL, "{text}");
+        let s = session(&env, &plan, at(NOW));
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/a", "exit-grade"),
+                ("14/b", "budget-ended"),
+                ("14/c", "not-run"),
+                ("6/d", "exit-grade"),
+            ])
+        );
+        assert_eq!(
+            s["runs"][1]["attempts"][0]["ended"],
+            utc::rfc3339(t0 + 50 * 60)
+        );
+        assert_eq!(s["runs"][1]["attempts"].as_array().unwrap().len(), 1);
+        assert!(
+            s["runs"][2]["reason"]
+                .as_str()
+                .unwrap()
+                .contains("the measurement's budget was spent during 14/b")
+        );
+        assert_eq!(h.killed.borrow().as_slice(), [h.spawned[1].line()]);
+        assert_eq!((h.spawned.len(), h.captured.len()), (3, 3));
+        std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        let _ = std::fs::remove_dir_all(env.private.join(MEASUREMENTS));
+        // At the window's end less the finish margin: a hangs from 03:35 and is stopped at 03:50; nothing else runs.
+        let start = at("2026-10-14T03:20:00Z");
+        let mut h = FakeHost::new(start);
+        fake_driver(&mut h, &[]);
+        h.scripts.push_back(hangs());
+        let (code, text) = run_text(&mut h, &env, &plan);
+        assert_eq!(code, EXIT_FAIL, "{text}");
+        let s = session(&env, &plan, start);
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/a", "window-ended"),
+                ("14/b", "not-run"),
+                ("14/c", "not-run"),
+                ("6/d", "not-run"),
+            ])
+        );
+        assert_eq!(s["runs"][0]["attempts"][0]["ended"], "2026-10-14T03:50:00Z");
+        assert_eq!((h.spawned.len(), h.captured.len()), (1, 1));
+        assert_eq!(h.killed.borrow().len(), 1);
     }
 }
