@@ -1,0 +1,76 @@
+# `cargo xtask measure` (WP-51): the measurement night's plan (docs/spec/measurement-protocol.md §1.1 and §9.8).
+# Measurement-protocol §9.8 describes every key; xtask/src/measure/plan.rs reads and checks this file. Every value is
+# operational policy with a reviewed default (AGENTS.md "Runtime and operational policy goes into config keys with
+# defaults"); the guard's floors of measurement-protocol §8.1 may be raised, never lowered.
+# The agreed windows are owner data and live in the gitignored /private/windows.toml (PLAN §5 V4).
+
+version = 1
+
+[session]
+# The release build of moirai-probes-bin (its guard and its drivers), made at the measured commit before the night and
+# left alone until it ends; relative to the target root (`git config moirai.target-root`) unless absolute. The runner
+# builds nothing.
+bins = "laneA/release"
+# The drivers' working directories (<scratch>/work/<n>/) and the session's logs and record (<scratch>/sessions/);
+# relative to the target root unless absolute. It lies outside the repository and /private/, on the work volume, and
+# is not a Defender exclusion.
+scratch = "measure"
+# The wait after the pre-checks, before the first guard: disk and Defender activity settles after the sessions close.
+settle-minutes = 15
+# Every run ends this long before the window does; the finish (the session record, the private index) fits in it.
+finish-margin-minutes = 10
+# The budget of each `run --smoke` run, which takes one sample of each arm.
+smoke-budget-minutes = 10
+# The guard's floors before each attempt (measurement-protocol §8.1): available RAM, and disk headroom on the scratch
+# directory's volume.
+ram-floor = "1.5GB"
+disk-floor = "25GB"
+
+# The measurements in run order: a short canary (1), the two that decide bytes (14, then 6), the leader (2), and the
+# hot keys last (10), which a short window loses first.
+# - run-budget-minutes is one run's budget: the upper estimate of the whole measurement until real run times exist.
+# - budget-minutes bounds every run and retry of the measurement together: the upper estimate plus its share of the
+#   retry reserve. A hang costs only its own measurement, and the five budgets with the settle and the finish margin
+#   fit a 6-hour window.
+# - quantities lists the names (measurement-protocol §4.1) of the quantities the driver measures, one run each. The
+#   work that builds the driver fills it; `check` and `run` refuse the plan while any list is empty.
+
+[[measurement]]
+n = 1
+driver = "m1"
+title = "the CLI commit cycle on a 64 MiB log: open, append, data-only flush, close, with its data-only-flush floor"
+run-budget-minutes = 20
+budget-minutes = 25
+quantities = []
+
+[[measurement]]
+n = 14
+driver = "m14"
+title = "CSR, bitsets, column scans and the overlay at 1e5 and 1e6 nodes; T1's point read and delta checkpoint; T2's writer wait and catch-up"
+run-budget-minutes = 90
+budget-minutes = 110
+quantities = []
+
+[[measurement]]
+n = 6
+driver = "m6"
+title = "the codecs (lz4_flex with and without a raw-content dictionary, ruzstd, the zstd CLI as proxy): size, speed and RSS"
+run-budget-minutes = 45
+budget-minutes = 55
+quantities = []
+
+[[measurement]]
+n = 2
+driver = "m2"
+title = "16 writer processes on the overlapped lock: last ack, flushes per burst, fairness and the flush-byte hand-off"
+run-budget-minutes = 70
+budget-minutes = 85
+quantities = []
+
+[[measurement]]
+n = 10
+driver = "m10"
+title = "full-tail replay at candidate thresholds into the overlay, with the lazy share and the open floor"
+run-budget-minutes = 45
+budget-minutes = 55
+quantities = []

@@ -17,6 +17,7 @@
 //! | `hex <file.hex>... [-o <out>] \| --digest <file.hex>... \| --check [<path>...]` | WP-20 | the generic fixture assembler ([`hex`], [`hex::USAGE`]) |
 //! | `loadrec start [--max-duration <s>] [--private-dir <dir>] \| stop [--private-dir <dir>] \| check <file>` | WP-51a | measurement 16's load fixture in `/private/load/` ([`loadrec`]) |
 //! | `nightly check [--private-dir <dir>] [--windows <file>] [--now <t>] [--guard <exe>] [--inject-…]... \| run [--private-dir <dir>] [--guard <exe>]` | WP-05 | the profile-L nightly runner ([`nightly`], [`nightly::USAGE`]) |
+//! | `measure check\|run [--smoke] --plan <file>` | WP-51 | the measurement night's session runner ([`measure`], [`measure::USAGE`]; measurement-protocol.md §9.8) |
 
 mod authors;
 mod cargo;
@@ -34,6 +35,7 @@ mod lint_roots;
 mod lint_source;
 mod loadrec;
 mod markers;
+mod measure;
 mod metadata;
 mod nightly;
 mod paths;
@@ -70,7 +72,8 @@ const USAGE: &str = "usage: cargo xtask <subcommand>
       (cargo xtask hex --help: the .hex format and the --check rules)
   loadrec start [--max-duration <seconds>] [--private-dir <dir>] | stop [--private-dir <dir>] | check <file>
   nightly check [--private-dir <dir>] [--windows <file>] [--now <date-time>] [--guard <exe>] [--inject-...]
-        | run [--private-dir <dir>] [--guard <exe>]   (cargo xtask nightly --help)";
+        | run [--private-dir <dir>] [--guard <exe>]   (cargo xtask nightly --help)
+  measure check | run [--smoke] --plan <file>   (cargo xtask measure --help)";
 
 /// A minimal option reader: `--name value` pairs and flags.
 struct Args {
@@ -388,6 +391,7 @@ fn run(argv: Vec<String>) -> Result<ExitCode, String> {
         "hex" => hex_cmd(a),
         "loadrec" => loadrec_cmd(a),
         "nightly" => nightly::cli(&a.rest, &repo_root()?),
+        "measure" => measure::cli(&a.rest, &repo_root()?),
         "help" | "--help" | "-h" => {
             println!("{USAGE}");
             Ok(ExitCode::SUCCESS)
