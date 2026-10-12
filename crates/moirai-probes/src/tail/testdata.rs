@@ -277,11 +277,13 @@ pub fn hand_built() -> HandBuilt {
                     old: TValue::text("first"),
                     new: TValue::text("second"),
                 },
+                // `reason` and `replaced_by` differ, so the tail's round trip and the overlay's pinned values catch a
+                // swap of the two (R-28); both still encode as one-byte `uvar32`s, so no offset moves.
                 Op::Delete {
                     id: 9,
                     prev: prev(l, 9, lsn),
-                    reason: 0,
-                    replaced_by: 0,
+                    reason: 3,
+                    replaced_by: 52,
                     before: Image {
                         status: Some((1, 0)),
                         body: None,
