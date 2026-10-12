@@ -526,7 +526,8 @@ measures the noise bands of §6. WP-51 builds its tools ([PLAN §3.2] WP-51): `c
 fixture (WP-51a); `moirai-probes-bin loadgen`, which replays it; `moirai-probes-bin noise`, which computes noise bands;
 and `noise.yml`, which runs the hosted noise runs. The owner records the fixture (V5) and the noise bands are measured
 when the owner resumes the measurements ([PLAN §5]); the owner's procedure is
-`docs/measurements/v5-load-recording.md`.
+`docs/measurements/v5-load-recording.md`. For the measurement night of §1.1, WP-51 also builds the session runner
+`cargo xtask measure`, which runs the drivers of §9.7 unattended (§9.8).
 
 ### 9.1 The counters
 
@@ -774,10 +775,35 @@ every key, in the order of the table, with byte quantities in bytes. A run under
   (a) anyway), reads the log for the verdict over the run's window, records it with the run (`load_replay_valid`), and
   creates the stop file. `moirai-probes`' `validate::verdict_when_covered` is that wait and read. The log's header
   gives the run's condition: loaded with the fixture's id, or synthetic with the description of §9.6.
-- **The driver contract** (for the measurement drivers of WP-52 to WP-57, which `noise.yml` runs): a driver of
-  `moirai-probes-bin` accepts `--host laptop|hosted`, `--condition idle|loaded|synthetic`, `--load-log <file>` (the
-  generator's log, required for a loaded or synthetic run) and `--out <dir>`, and writes every run record (§7.1) it
-  makes as one JSON file in `<dir>`. On the laptop, `<dir>` is `/private/measurements/<n>/` (§7.2).
+- **The driver contract** (for the measurement drivers of WP-52 to WP-57, which `noise.yml` and the session runner of
+  §9.8 run). A driver of `moirai-probes-bin` accepts:
+  - `--host laptop|hosted`, `--condition idle|loaded|synthetic` and `--load-log <file>` (the generator's log, required
+    for a loaded or synthetic run);
+  - `--quantity <name>`: the run of that quantity (§4.1) alone. Without it the driver makes every quantity it
+    measures, each as one run;
+  - `--commit <sha>` and `--toolchain <text>`, both required: the values of the record's `commit` and `toolchain`
+    (§7.1), taken as given;
+  - `--out <dir>`, required unless `--smoke` is given: the directory that receives the records, as given. The driver
+    creates `<dir>` when it is missing and writes each run record (§7.1) directly in it, as one JSON file named and
+    written as §7.2 says (`<quantity>.<condition kind>.<start>.json`; a new file, never an existing one; removed when
+    its writing fails). It adds no directory of its own below `<dir>`. On the laptop `<dir>` is
+    `/private/measurements/<n>/` (§7.2, §9.8); `noise.yml` passes one directory for all its drivers and reads the
+    records there;
+  - `--smoke`: every arm of each requested quantity runs once, with one sample, no pilot, no plan and no statistics.
+    The driver takes no host snapshot, writes no record and takes no `--out`. A smoke run is never a measurement.
+
+  A driver exits 0 when it made every run it was asked for and wrote its record (with `--smoke`: when every arm ran),
+  and non-zero otherwise.
+
+  **One process per run.** Every run record carries `private_peak` (§4.6, §7.1), so every run that writes a record is
+  made in a process of its own. A driver given `--quantity` makes that one run and exits. A driver started without it
+  makes each of its quantities in a child process of its own: it starts itself again once per quantity, with
+  `--quantity <name>` and its other arguments unchanged, one after another, and exits non-zero when any child did. A
+  `--smoke` run writes no record, so it may make every quantity in one process.
+
+  **The working directory.** A driver keeps every file it makes, other than its records, below its working directory:
+  fixtures, scratch stores and logs alike. The session runner starts each driver in a working directory of its own
+  (§9.8).
 - **`moirai-probes-bin noise <run record>...`** prints one noise record (§6.1) per gated statistic of every arm of the
   records, combining the runs of one measurement, quantity, arm, statistic, condition and host into the widest band;
   it refuses a laptop run that is not exit-grade and a hosted run that is invalid or loaded (§6.1). Exit 0 printed, 1 a
@@ -791,6 +817,141 @@ every key, in the order of the table, with byte quantities in bytes. A run under
   (`noise`), the generator's verdict and, when the synthetic load ended early, a warning that the drivers' runs were
   not all under it, to the job log and summary. A hosted band is reported and never decides (§6); the workflow gates
   nothing.
+
+### 9.8 The session runner: `cargo xtask measure`
+
+For the measurement night of §1.1, `cargo xtask measure` runs the drivers of §9.7 one run at a time, unattended, in an
+agreed agent-free window. It builds nothing: the release build of `moirai-probes-bin` (its guard and its drivers) at
+the measured commit is made before the night.
+
+```
+cargo xtask measure check [--smoke] --plan <file>
+cargo xtask measure run [--smoke] --plan <file>
+cargo xtask measure --help
+```
+
+**The plan file** (`xtask/measure-night.toml`). Every key is required, an unknown key is refused, and every value is
+operational policy with a reviewed default (AGENTS.md):
+- `version = 1`;
+- `[session]`:
+  - `bins`: the directory of the release `moirai-probes-bin` binaries;
+  - `scratch`: the directory of the drivers' working directories and of the session's own files;
+  - `settle-minutes`: the wait before the first run (0 or more);
+  - `finish-margin-minutes`: every run ends this long before the window does;
+  - `smoke-budget-minutes`: the budget of each `--smoke` run;
+  - `ram-floor` and `disk-floor`: the guard's floors (§8.1), at least 1.5 GB and 25 GB, written as byte quantities
+    (§8.2).
+
+  `bins` and `scratch` are relative to the target root ([PLAN §2.1]) unless absolute. Every minutes value is a whole
+  number from 1 to 4,320 (72 hours, the longest window); `settle-minutes` may also be 0.
+- `[[measurement]]`, at least one, in run order. Each has:
+  - `n`: the measurement's row number, at least 1 and unique;
+  - `driver`: the binary's name, 1 to 64 bytes of `a`-`z`, `0`-`9` and `-` starting with a letter or digit, and not
+    one of the tools `guard`, `loadgen`, `noise` and `empty`;
+  - `title`;
+  - `run-budget-minutes`: the budget of one run;
+  - `budget-minutes`: the budget of every run and retry of the measurement together, at least `run-budget-minutes`;
+  - `quantities`: the names (§4.1) of the quantities the driver measures, unique. The work that builds the driver
+    fills them.
+
+  A plan with an empty `quantities` list loads but is incomplete, and `check` and `run` refuse it.
+
+**The pre-checks of `run`.** Every refusal is listed, and any one stops `run` with exit 3 before anything starts:
+- `host`: `%SystemRoot%\System32\taskkill.exe` exists; it stops a driver's process tree, and it marks the laptop;
+- `plan`: the plan is complete;
+- `calendar`, `outside-window`, `window-kind` and `window-ending`: `/private/windows.toml` loads
+  (`docs/m0/nightly.md` §2), a window holds now, it is agent-free (an idle run is made in an agent-free window,
+  §2.3), and more than the finish margin of it is left;
+- `dirty-tree`: the working tree has no change and no untracked file, and `HEAD` names a commit;
+- `bins`: `guard` and every driver of the plan exist in `bins`;
+- `scratch`: `scratch` lies neither below nor above the repository or `/private/`, so removing what lies below it
+  cannot reach a record;
+- `toolchain`: `rustc --version` runs in the repository.
+
+**The run.**
+- **Settle.** After the pre-checks the runner creates `scratch` and waits `settle-minutes`. It then makes the
+  measurements in plan order, and each one's quantities in list order, one run per quantity.
+- **Resume.** Before a run, every `<quantity>.idle.<start>.json` in `/private/measurements/<n>/` is judged as the record
+  bullet below says. When one is exit-grade and names the measured commit, the run is `done-before` and nothing starts.
+  Records of other commits and records that are not exit-grade stay raw data and do not count. Starting the runner
+  again after a crash is the resume; retries count per invocation.
+- **The guard before each attempt.** The runner runs `guard --volume <scratch> --ram-floor <b> --disk-floor <b>`
+  (§8.2), with no `--dir`. A refusal, or a guard that fails (it fails closed, §8.1), stops the session. Before any
+  driver ran, that is exit 3; later, the remaining runs are `not-run` and the session fails. No guard runs while a
+  driver runs: it would be a user process beside the measured one (§2.3), and the framework's round-boundary readings
+  already hold the 1.5 GB floor inside the run.
+- **One driver process per run.** The command is
+  `<bins>/<driver> --host laptop --condition idle --quantity <q> --commit <HEAD> --toolchain <rustc --version> --out
+  /private/measurements/<n>/`, so the driver writes its record directly in that directory (§9.7).
+  - It runs in the working directory `<scratch>/work/<n>/`. That directory is made empty before the measurement's
+    first attempt, kept across its runs and retries, and removed after its last run.
+  - Its output goes to the log `<scratch>/sessions/<start>/<n>.<q>.<attempt>.log`.
+- **Budgets.** An attempt ends by the earliest of three times: its start plus `run-budget-minutes`, the measurement's
+  start plus `budget-minutes`, and the window's end less the finish margin. At that time the runner stops the driver's
+  process tree, and the attempt is `timed-out`, `budget-ended` or `window-ended`.
+  - A `budget-ended` run leaves the measurement's other runs `not-run`, and the session goes on with the next
+    measurement.
+  - A `window-ended` run leaves every later run `not-run`.
+  - So a hang costs at most its own measurement's budget, and the measurements after it keep their slots.
+- **The record.** Before an attempt the runner lists the files of `/private/measurements/<n>/`. After it, the run's
+  record is the one new file named `<q>.idle.<YYYYMMDDTHHMMSSZ>.json`. The attempt is exit-grade when all of these
+  hold:
+  - the driver exited 0 and wrote exactly one such file;
+  - the record parses with schema `moirai-probes/run/1`, the run's measurement, quantity and commit, and the idle
+    condition;
+  - it has no reason, so it is valid (§7.3);
+  - its host kind is `laptop`, both host snapshots were read with Defender real-time protection on, and the start and
+    end snapshots are equal (§7.3).
+
+  The runner reads only these fields; the framework's full read-back (§7.3) stays the framework's. The runner judges
+  run records only: a measurement whose driver writes idle observations (§4.7) is not one it runs.
+- **One retry.** A run whose first attempt is not exit-grade gets one more attempt at once, with its own guard, unless
+  that attempt is `budget-ended` or `window-ended`. A run stopped at its own run budget is retried. After two attempts
+  the run takes its second attempt's outcome. The retry is immediate so that the plan keeps its order, with the
+  measurements that decide bytes first.
+- **Records are never touched.**
+  - The runner creates `/private/measurements/<n>/` when it is missing. Under `/private/` it writes nothing else but
+    the private manifest.
+  - After each attempt, every file listed before the attempt must still exist with its length and modification time.
+    If one does not, the session stops and fails (`record-changed`; §7.2).
+- **The tree.** After each attempt the runner reads the tree again. A moved `HEAD` or branch, or a changed tracked
+  file, stops the session and fails it (`tree-changed`).
+- **The finish.** After the last run, or after a stop, the runner removes `<scratch>/work/`, writes the session record
+  and rebuilds the private manifest (`cargo xtask private index`).
+  - The session record is `<scratch>/sessions/<start>/session.json`, schema `moirai-xtask/measure-session/1`. It is
+    rewritten after every run. It holds the plan, the window, the commit, the toolchain, every run's status and
+    attempts with their guard outputs, and the verdict.
+  - It lives outside `/private/`, so it adds nothing to the private manifest.
+  - The runner asserts `commit` and `toolchain` on the drivers' command lines and does not check them against the
+    binaries. Building the release binaries at the measured commit with that toolchain, and leaving them alone until
+    the night ends, is the owner's step before the night.
+- **Verdict.** `pass` (exit 0) when every planned run has an exit-grade record of the measured commit, made now or
+  before; otherwise `fail` (exit 1).
+
+**`check`** reads the plan, the calendar, the tree, `bins` and `/private/measurements/`; it starts nothing and writes
+nothing. It prints:
+- the current or the next window;
+- the measured commit, `bins` and `scratch`;
+- the settle and the budgets against the window;
+- every run with its budget and its driver command line, or `done-before` with its record;
+- the refusals `run` would make now, apart from the window, the guard and the toolchain.
+
+It exits 0 when it finds none of those refusals, and 3 otherwise.
+
+**`--smoke`** checks the build before the night. `run --smoke` makes each run once, outside any window and with no
+settle, under `smoke-budget-minutes`, with `--smoke` in place of `--out`.
+- It keeps the pre-checks `host`, `plan`, `dirty-tree`, `bins`, `scratch` and `toolchain`, the guard before each run
+  and the tree check after it.
+- It writes nothing under `/private/` and does not rebuild the private manifest. Its logs and its session record go
+  to `<scratch>/sessions/<start>.smoke/`.
+- It passes (exit 0) when every driver exits 0 within its budget.
+
+`check --smoke` prints the smoke command lines.
+
+**Not detected.** The runner checks neither the nightly runner's lock nor builds in the lane target directories. The
+window is agreed agent-free, and no nightly run, build or agent session is started in it.
+
+Exit codes: 0 pass, 1 fail, 2 usage error, 3 refused, 4 internal error.
 
 ## Coverage
 
