@@ -1029,10 +1029,110 @@ mod tests {
     use crate::tail::memfs::MemFs;
     use crate::tail::store::tests::scratch;
     use crate::tail::synth::tests::test_target;
+    use crate::tail::{Geometry, REC_HDR_LEN};
     use crate::testkit::{FakeMeter, FakeTicker, scratch_dir};
     use crate::tier::Plan;
     use crate::units::MS;
+    use std::cell::RefCell;
     use std::collections::{BTreeMap, BTreeSet};
+    use std::rc::Rc;
+
+    /// A read the store logged: (file name, offset, bytes asked).
+    type Read = (String, u64, usize);
+
+    /// One reading of [`FsTicker`]: how many reads the store had logged, and each watched file's bytes and seal.
+    #[derive(Clone, Debug)]
+    struct Tick {
+        reads: usize,
+        files: BTreeMap<String, (Vec<u8>, bool)>,
+    }
+
+    /// The probe counter (spec Goal 2): a ticker over a [`MemFs`] that records a [`Tick`] at every reading and
+    /// returns 1, 2, 3, … `Staged::sample` and `TimedFn::sample` read their ticker exactly at t0 and t1, so the reads
+    /// logged between a sample's two ticks are exactly its timed region's I/O, and the two ticks show the watched files
+    /// as the timed region found and left them. The product code carries no instrumentation.
+    #[derive(Clone)]
+    struct FsTicker<'f> {
+        fs: &'f MemFs,
+        dir: PathBuf,
+        watch: Vec<String>,
+        ticks: Rc<RefCell<Vec<Tick>>>,
+    }
+
+    impl<'f> FsTicker<'f> {
+        /// A ticker over `fs` that watches the files `watch` of the fixture directory `dir`.
+        fn new(fs: &'f MemFs, dir: &Path, watch: &[&str]) -> FsTicker<'f> {
+            FsTicker {
+                fs,
+                dir: dir.to_path_buf(),
+                watch: watch.iter().map(|w| w.to_string()).collect(),
+                ticks: Rc::default(),
+            }
+        }
+
+        /// The readings so far.
+        fn count(&self) -> usize {
+            self.ticks.borrow().len()
+        }
+
+        /// The last sample's two ticks, (t0, t1).
+        fn last(&self) -> (Tick, Tick) {
+            let t = self.ticks.borrow();
+            assert!(
+                t.len() >= 2 && t.len().is_multiple_of(2),
+                "{} ticks",
+                t.len()
+            );
+            (t[t.len() - 2].clone(), t[t.len() - 1].clone())
+        }
+
+        /// The reads logged between the last sample's ticks.
+        fn timed_reads(&self) -> Vec<Read> {
+            let (t0, t1) = self.last();
+            self.fs.log().reads[t0.reads..t1.reads].to_vec()
+        }
+    }
+
+    impl Ticker for FsTicker<'_> {
+        fn now_ns(&mut self) -> u64 {
+            let files = self
+                .watch
+                .iter()
+                .filter_map(|w| {
+                    let p = self.dir.join(w);
+                    let b = self.fs.bytes(&p)?;
+                    Some((w.clone(), (b, self.fs.is_sealed(&p))))
+                })
+                .collect();
+            let mut t = self.ticks.borrow_mut();
+            t.push(Tick {
+                reads: self.fs.log().reads.len(),
+                files,
+            });
+            t.len() as u64
+        }
+    }
+
+    /// The lsn ranges that the reads of `log.<k>` among `reads` cover, merged and sorted.
+    fn lsn_cover(geo: Geometry, reads: &[Read]) -> Vec<(u64, u64)> {
+        let mut v: Vec<(u64, u64)> = reads
+            .iter()
+            .filter_map(|(name, off, len)| {
+                let k: u64 = name.strip_prefix("log.")?.parse().ok()?;
+                let a = geo.extent_start(k) + off;
+                Some((a, a + *len as u64))
+            })
+            .collect();
+        v.sort_unstable();
+        let mut out: Vec<(u64, u64)> = Vec::new();
+        for (a, b) in v {
+            match out.last_mut() {
+                Some(l) if a <= l.1 => l.1 = l.1.max(b),
+                _ => out.push((a, b)),
+            }
+        }
+        out
+    }
 
     fn os(args: &[&str]) -> Vec<OsString> {
         args.iter().map(OsString::from).collect()
@@ -1392,6 +1492,140 @@ mod tests {
             fs.log().opens.iter().any(|o| o.starts_with("log.")),
             "the fold reads the extents"
         );
+    }
+
+    /// The fixture of `family`'s first quantity at the test profile.
+    fn fixture<'v>(fs: &'v MemFs, family: Family) -> (Quantity, Prepared<'v, MemFs>) {
+        let q = grid().into_iter().find(|q| q.family == family).unwrap();
+        let p = prepare(fs, &scratch(), &q, Profile::Test).unwrap();
+        (q, p)
+    }
+
+    /// The checkpoint's operation runs inside its timed region (spec Goal 2, audit mutation C): between the ticks of
+    /// `ckpt` the store reads only the log, exactly the tail's `[start, end)` at its extent offsets, and `seg.d1` goes
+    /// from absent at t0 to present and sealed at t1; the floor `ckpt.write` reads no log between its ticks and leaves
+    /// `seg.d2` sealed at t1.
+    #[test]
+    fn ckpt_arm_folds_inside_its_timed_region() {
+        let fs = MemFs::with_dir(&scratch());
+        let (q, p) = fixture(&fs, Family::Ckpt);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let t = p.tail.as_ref().unwrap();
+        let geo = t.expect.geo;
+        let ticker = FsTicker::new(&fs, p.dir(), &[DELTA_NAME, FLOOR_NAME]);
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        for k in 0..2 {
+            arms[0].sample().unwrap();
+            let (t0, t1) = ticker.last();
+            let w = ticker.timed_reads();
+            assert!(
+                !t0.files.contains_key(DELTA_NAME),
+                "sample {k}: seg.d1 at t0"
+            );
+            assert!(
+                !w.is_empty(),
+                "sample {k}: no log.* read between the ticks: the fold left the timed region"
+            );
+            assert!(
+                w.iter().all(|r| r.0.starts_with("log.")),
+                "sample {k}: {w:?}"
+            );
+            assert_eq!(lsn_cover(geo, &w), [(t.start, t.end)], "sample {k}");
+            assert_eq!(
+                t1.files.get(DELTA_NAME).map(|f| f.1),
+                Some(true),
+                "sample {k}: seg.d1 sealed at t1"
+            );
+            arms[1].sample().unwrap();
+            let (t0, t1) = ticker.last();
+            let w = ticker.timed_reads();
+            assert!(
+                !t0.files.contains_key(FLOOR_NAME),
+                "sample {k}: seg.d2 at t0"
+            );
+            assert!(
+                w.iter().all(|r| !r.0.starts_with("log.")),
+                "sample {k}: the floor reads the log: {w:?}"
+            );
+            assert_eq!(
+                t1.files.get(FLOOR_NAME).map(|f| f.1),
+                Some(true),
+                "sample {k}: seg.d2 sealed at t1"
+            );
+        }
+        assert_eq!(ticker.count(), 8, "two ticks per sample");
+    }
+
+    /// The catch-up runs inside its timed region (spec Goal 2, audit mutation D): between the ticks the store reads
+    /// `HEAD` exactly once (8,192 B at 0) and the log exactly over `[x, end)`, x being the warm state's boundary.
+    #[test]
+    fn catchup_arm_scans_inside_its_timed_region() {
+        let fs = MemFs::with_dir(&scratch());
+        let (q, p) = fixture(&fs, Family::Catchup);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let t = p.tail.as_ref().unwrap();
+        let (x, _, _) = warm(t, BURST).unwrap();
+        assert!(x > t.start && x < t.end, "a warm state and a burst");
+        let ticker = FsTicker::new(&fs, p.dir(), &[]);
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        for k in 0..2 {
+            arms[0].sample().unwrap();
+            let w = ticker.timed_reads();
+            let head: Vec<&Read> = w.iter().filter(|r| r.0 == "HEAD").collect();
+            assert_eq!(
+                head,
+                [&("HEAD".to_string(), 0, HEAD_LEN)],
+                "sample {k}: {w:?}"
+            );
+            let log: Vec<Read> = w.iter().filter(|r| r.0 != "HEAD").cloned().collect();
+            assert!(
+                !log.is_empty(),
+                "sample {k}: only the HEAD read between the ticks: the scan left the timed region"
+            );
+            assert!(
+                log.iter().all(|r| r.0.starts_with("log.")),
+                "sample {k}: {w:?}"
+            );
+            assert_eq!(lsn_cover(t.expect.geo, &log), [(x, t.end)], "sample {k}");
+        }
+        assert_eq!(ticker.count(), 4, "two ticks per sample");
+    }
+
+    /// T1's read samples the nodes the tail touched (spec Goal 2, audit mutation I): over one cycle of as many
+    /// samples as the node index has entries, every sample reads between its ticks, its first read is the 32-byte
+    /// record header at a node index lsn, and the first reads' lsns are the node index's, as a multiset.
+    #[test]
+    fn read_arm_samples_the_nodes_the_tail_touched() {
+        let fs = MemFs::with_dir(&scratch());
+        let (q, p) = fixture(&fs, Family::Read);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let t = p.tail.as_ref().unwrap();
+        let geo = t.expect.geo;
+        let mut want: Vec<u64> = t.overlay().unwrap().nodes().iter().map(|e| e.lsn).collect();
+        assert!(want.len() > 1, "{} nodes", want.len());
+        let ticker = FsTicker::new(&fs, p.dir(), &[]);
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        let mut got = Vec::new();
+        for k in 0..want.len() {
+            arms[0].sample().unwrap();
+            let w = ticker.timed_reads();
+            let Some((name, off, len)) = w.first() else {
+                panic!("sample {k}: a sample with no read between its ticks");
+            };
+            assert_eq!(*len, REC_HDR_LEN, "sample {k}: {w:?}");
+            let n: u64 = name
+                .strip_prefix("log.")
+                .and_then(|s| s.parse().ok())
+                .unwrap_or_else(|| panic!("sample {k}: first read {name}"));
+            got.push(geo.extent_start(n) + off);
+        }
+        want.sort_unstable();
+        got.sort_unstable();
+        assert_eq!(
+            got, want,
+            "the cycle's first reads are the node index's lsns"
+        );
+        assert_eq!(ticker.count(), 2 * want.len(), "two ticks per sample");
     }
 
     /// A staged arm times only its operation: the setup's 5 ms stay outside, the operation's 2 ms are the sample; a
