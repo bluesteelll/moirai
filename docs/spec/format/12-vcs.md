@@ -495,9 +495,10 @@ commit's origins with it. The engine measures the walks on a long-lived lane whe
 ### 5.6 Determinism
 
 VBase(L), and so every merge result, depends only on: the commit DAG over actual parents; commit ids and gens; the states
-at the commits involved; the canonical `hlc` of the commits that moved hierarchy keys (§7.4); and the rule tables. It does
-not depend on `#N`, symbol ids, store-local schema ids, lsns, `seq`, `append_hlc`, configuration, the outer command's
-flags (other than `--base`, which bypasses it), the process, or the order in which an implementation enumerates LCAs.
+at the commits involved; the canonical `hlc` of the commits RS-007's origin walks reach (§7.4); and the rule tables. It
+does not depend on `#N`, symbol ids, store-local schema ids, lsns, `seq`, `append_hlc`, a `Resolve` op's `choice`
+(§6.5), configuration, the outer command's flags (other than `--base`, which bypasses it), the process, or the order in
+which an implementation enumerates LCAs.
 Two stores that hold the same commits compute the same virtual base and emit merge commits with the same canonical form
 (I28′, I30′).
 
@@ -662,6 +663,15 @@ plan branch a flagged edge, by a plain value (`new`):
   ([50 §3.10] item 6) write on a branch where a conflict value stands, or on a staging ref.
 - `resolve --all --policy P` resolves every conflict value of the view with the side P names ([RULES/merge-table]
   `auto-policy`) and leaves violations alone.
+- **The origin of a resolved hierarchy value** ([RULES/merge-table] RS-007, MR-040; [AR §11] OQ-A-13 13.4 (a), read by
+  state). §7.4's origin walk reads the commit a `merge --continue` lands (§9.4 step 4) by state, like any other commit:
+  a resolution whose landed value equals a parent's value passes that parent's origin on, whatever its `choice` (`base`
+  included), and one whose value equals neither parent's produced the value. No origin reads a `choice`. A staged
+  resolution's `choice` stays in the `Resolve` ops of the staging ref's commits (§9.3) and never reaches the landed
+  commit, whose ops are §7.8's for its net changeset against §9.4's D₁: a hierarchy key, which never holds a conflict
+  value (§6.2), lands as a `Move` ([F06 §7.8] NF-8), and a key that leaves a conflict value lands as a `Resolve` with
+  `choice` 3 (§7.8; [F06 §7.8] NF-9). The canonical form does not hash a choice ([F06 §7.7]; [F07 §11]) and the image
+  never exports it (§6.7), so two stores that hold the same commits compute the same origins (§5.6).
 
 ### 6.6 The key text form
 
@@ -1043,7 +1053,10 @@ P₂ its second parent (kinds 1, 2) or its origin (kinds 3, 4), and D₁ = the c
    usual. This is [RULES/merge-table] PR-014's list.
 4. **Land or re-stage** by [RULES/merge-table] `land-or-stage`:
    - land: one `Commit` on DST with parents (D₁, P₂) for kinds 1 and 2, or (D₁) with `origin` for kinds 3 and 4, its net
-     changeset against D₁, its markers and absorbed vector; then `RefUpdate` reason 2 and a `RefTable` entry deleting G;
+     changeset against D₁, its markers and absorbed vector; then `RefUpdate` reason 2 and a `RefTable` entry deleting G.
+     No staged resolution's `choice` reaches it: its ops are §7.8's, so a hierarchy key lands as a `Move` and a
+     `Resolve` it holds has `choice` 3. RS-007's origin (§7.4) of each hierarchy value it lands follows that value by
+     state (§6.5);
    - re-stage: one `Commit` on G with the same parents and fields, `ref_old` = `id16`(tip G), holding the overlaid
      candidate's net changeset against D₁ and its `Violation` ops; G stays.
 
