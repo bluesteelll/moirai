@@ -76,6 +76,17 @@ pub struct Burst {
     pub acks: Vec<Ack>,
 }
 
+impl Burst {
+    /// The latest start after T, in ns (0 for a start at or before T).
+    pub fn start_lag(&self) -> u64 {
+        self.acks
+            .iter()
+            .map(|a| a.t_start.saturating_sub(self.t0))
+            .max()
+            .unwrap_or(0)
+    }
+}
+
 /// The last acknowledgement: max(`t_ack`) − T.
 pub fn last_ack(b: &Burst) -> u64 {
     b.acks
@@ -160,8 +171,12 @@ pub fn writer_waits(b: &Burst) -> Vec<u64> {
 pub const CHILDREN: usize = 16;
 /// The lead between stamping T and T: the `go` lines are sent within it.
 pub const LEAD_NS: u64 = 5_000_000;
-/// The latest a child may start after T (runtime check 2).
+/// The latest a child of a measured burst may start after T (runtime check 2); a later burst is re-run.
 pub const LATE_NS: u64 = 1_000_000;
+/// Late bursts a run may always re-run.
+pub const LATE_RUNS: u64 = 20;
+/// Beyond [`LATE_RUNS`], at most one burst in this many may be late (5 %).
+pub const LATE_SHARE: u64 = 20;
 /// How long a burst waits for its replies.
 pub const BURST_TIMEOUT: Duration = Duration::from_secs(60);
 /// The largest filler: P05 `store.commit.inline-max-bytes`, 1 MiB, the full spec-derived size distribution.
@@ -175,6 +190,10 @@ pub trait Writers {
     fn send(&mut self, i: usize, go: &Go) -> Result<(), String>;
     /// The next reply of any child, waiting at most `timeout`.
     fn recv(&mut self, timeout: Duration) -> Result<(usize, Reply), String>;
+    /// The children's process ids, when they are processes.
+    fn pids(&self) -> Vec<u32> {
+        Vec::new()
+    }
 }
 
 /// The seed of a quantity's cost draws.
@@ -197,6 +216,8 @@ pub struct Report {
     pub phase1_ns: Vec<u64>,
     /// Each burst's latest start after T, in ns.
     pub start_lag: Vec<u64>,
+    /// The bursts re-run because a child started more than [`LATE_NS`] after T.
+    pub late: u64,
     /// The generations made.
     pub generations: u32,
 }
@@ -219,13 +240,14 @@ impl Report {
             )
         }
         format!(
-            "replay: bytes read per commit {}; phase 1 ns {}; latest start after T ns {}; {} commits, {} bursts, {} \
-             generations",
+            "replay: bytes read per commit {}; phase 1 ns {}; latest start after T ns {}; {} commits, {} bursts ({} \
+             late, re-run), {} generations",
             stats(&self.bytes_read),
             stats(&self.phase1_ns),
             stats(&self.start_lag),
             self.bytes_read.len(),
             self.start_lag.len(),
+            self.late,
             self.generations
         )
     }
@@ -272,8 +294,13 @@ impl<'a, R: Rig> Coordinator<'a, R> {
         }
     }
 
-    /// One burst and its runtime checks; the acks of the burst come back in `go` order.
-    pub fn burst(&mut self) -> Result<Burst, ArmError> {
+    /// The bursts made so far.
+    pub fn bursts(&self) -> u64 {
+        self.bursts
+    }
+
+    /// One burst and its runtime checks but the start's lateness; the acks come back in `go` order.
+    fn one(&mut self) -> Result<Burst, ArmError> {
         let n = self.writers.count();
         let k = self.bursts;
         // Setup: the generation (its reader closed before a retired one is removed), the reader, the draws.
@@ -347,11 +374,8 @@ impl<'a, R: Rig> Coordinator<'a, R> {
             if a.op != go.op {
                 return Err(fail(format!("the ack is for op {}", a.op)));
             }
-            if a.t_start < t0 || a.t_start - t0 > LATE_NS {
-                return Err(fail(format!(
-                    "it started at T{:+} ns, outside [T, T + {LATE_NS} ns]",
-                    i128::from(a.t_start) - i128::from(t0)
-                )));
+            if a.t_start < t0 {
+                return Err(fail(format!("it started {} ns before T", t0 - a.t_start)));
             }
             if !a
                 .first_writer_grant()
@@ -388,9 +412,30 @@ impl<'a, R: Rig> Coordinator<'a, R> {
             self.report.bytes_read.push(a.bytes_read);
             self.report.phase1_ns.push(a.phase1_ns);
         }
-        let lag = b.acks.iter().map(|a| a.t_start - t0).max().unwrap_or(0);
-        self.report.start_lag.push(lag);
         Ok(b)
+    }
+
+    /// One measured burst: bursts whose latest start lies more than [`LATE_NS`] after T are re-run, so every burst
+    /// measured started within 1 ms of T (runtime check 2); the arm fails once the late bursts exceed
+    /// max([`LATE_RUNS`], 1/[`LATE_SHARE`] of every burst made). Every burst's lag goes to the report.
+    pub fn burst(&mut self) -> Result<Burst, ArmError> {
+        loop {
+            let b = self.one()?;
+            let lag = b.start_lag();
+            self.report.start_lag.push(lag);
+            if lag <= LATE_NS {
+                return Ok(b);
+            }
+            self.report.late += 1;
+            let bound = LATE_RUNS.max(self.bursts / LATE_SHARE);
+            if self.report.late > bound {
+                return Err(ArmError(format!(
+                    "{} of {} bursts started more than {LATE_NS} ns after T (the last T+{lag} ns), above the bound of \
+                     {bound}",
+                    self.report.late, self.bursts
+                )));
+            }
+        }
     }
 }
 
@@ -846,34 +891,63 @@ pub(crate) mod tests {
         }
     }
 
-    /// A child that starts more than 1 ms after T fails the burst; one that starts 1 ms after T is within the bound,
-    /// and the report records the lag.
+    /// A burst in which a child started more than 1 ms after T is not measured: it is re-run, counted and its lag
+    /// reported; a start 1 ms after T is within the bound; the 21st late burst in 21 fails the arm.
     #[test]
-    fn a_late_start_fails_the_burst() {
-        for (late, ok) in [(LATE_NS + 1, false), (LATE_NS, true)] {
-            let rig = FakeRig::new();
-            let mut pool = FakeWriters::new(&rig, CHILDREN);
-            pool.late.insert(3, late);
-            let (r, lags) = with_coordinator(
-                &rig,
-                &mut pool,
-                GEN_COMMITS,
-                "last-ack.c0",
-                Shape::Design,
-                0,
-                |c| (c.burst(), c.report.start_lag.clone()),
-            );
-            if ok {
-                assert!(r.is_ok(), "{r:?}");
-                assert_eq!(lags, [LATE_NS]);
-            } else {
-                let e = r.unwrap_err();
-                assert!(
-                    e.0.contains("child 2, op 3: it started at T+1000001 ns"),
-                    "{e}"
-                );
-            }
+    fn a_late_burst_is_rerun_and_too_many_fail_the_arm() {
+        let rig = FakeRig::new();
+        let mut pool = FakeWriters::new(&rig, CHILDREN);
+        pool.late.insert(3, LATE_NS + 1);
+        let (b, report) = with_coordinator(
+            &rig,
+            &mut pool,
+            GEN_COMMITS,
+            "last-ack.c0",
+            Shape::Design,
+            0,
+            |c| (c.burst().unwrap(), c.report.clone()),
+        );
+        assert!(
+            b.acks.iter().all(|a| a.op > 16),
+            "the second burst is the one measured"
+        );
+        assert_eq!(b.start_lag(), 0);
+        assert_eq!((report.late, report.start_lag), (1, vec![LATE_NS + 1, 0]));
+        let rig = FakeRig::new();
+        let mut pool = FakeWriters::new(&rig, CHILDREN);
+        pool.late.insert(3, LATE_NS);
+        let (b, report) = with_coordinator(
+            &rig,
+            &mut pool,
+            GEN_COMMITS,
+            "last-ack.c0",
+            Shape::Design,
+            0,
+            |c| (c.burst().unwrap(), c.report.clone()),
+        );
+        assert!(
+            b.acks.iter().all(|a| a.op <= 16),
+            "the first burst is measured"
+        );
+        assert_eq!((report.late, report.start_lag), (0, vec![LATE_NS]));
+        let rig = FakeRig::new();
+        let mut pool = FakeWriters::new(&rig, CHILDREN);
+        for k in 0..40 {
+            pool.late.insert(16 * k + 3, 2 * LATE_NS);
         }
+        let e = with_coordinator(
+            &rig,
+            &mut pool,
+            GEN_COMMITS,
+            "last-ack.c0",
+            Shape::Design,
+            0,
+            |c| c.burst().unwrap_err(),
+        );
+        assert!(
+            e.0.contains("21 of 21 bursts started more than 1000000 ns after T"),
+            "{e}"
+        );
     }
 
     /// Burst k sends its go lines from child k mod 16 round, so no child is always first; its acks come back in

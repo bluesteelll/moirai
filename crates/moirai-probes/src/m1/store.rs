@@ -107,9 +107,10 @@ impl<V, T> ToyRig<V, T> {
     }
 }
 
-/// The time a waiter sleeps through before it polls: the last stretch before the deadline is polled with
-/// `yield_now`, so a sleep's overshoot (about 0.5 ms with Windows' high-resolution timers) never delays the start.
-const SPIN_NS: u64 = 2_000_000;
+/// The last stretch before a start time that a waiter spins through on the clock (`spin_loop`, never yielding the
+/// processor) after sleeping through the rest: a sleep overshoots by up to about a millisecond even with Windows'
+/// high-resolution timers, and a yield can hand the processor to another thread for a whole quantum.
+const SPIN_NS: u64 = 3_000_000;
 
 impl<V: Vfs + Clone, T: Tap> Rig for ToyRig<V, T> {
     type Handle = Toy<V, T>;
@@ -224,10 +225,10 @@ impl<V: Vfs + Clone, T: Tap> Rig for ToyRig<V, T> {
                 return;
             }
             let left = t_ns - now;
-            if left > 2 * SPIN_NS {
+            if left > SPIN_NS + SPIN_NS / 4 {
                 std::thread::sleep(std::time::Duration::from_nanos(left - SPIN_NS));
             } else {
-                std::thread::yield_now();
+                std::hint::spin_loop();
             }
         }
     }
@@ -417,6 +418,8 @@ pub(crate) mod fake {
         pub ignore_cost: bool,
         /// Operations whose commit logs no lock event.
         pub quiet_ops: BTreeSet<u64>,
+        /// Keep no trace (long runs).
+        pub untraced: bool,
     }
 
     /// The test double. [`FakeRig::new`] runs on the world's clock (the coordinator's, and measurement 1's); each
@@ -440,7 +443,11 @@ pub(crate) mod fake {
 
     impl Ticker for TraceTicker {
         fn now_ns(&mut self) -> u64 {
-            self.world.borrow_mut().trace.push(Ev::Tick);
+            let mut w = self.world.borrow_mut();
+            if !w.untraced {
+                w.trace.push(Ev::Tick);
+            }
+            drop(w);
             self.clock.clone().now_ns()
         }
     }
@@ -501,8 +508,16 @@ pub(crate) mod fake {
             std::mem::take(&mut *self.events.borrow_mut())
         }
 
+        /// Logs `e` unless the world is untraced.
+        pub fn note(&self, e: Ev) {
+            let mut w = self.world.borrow_mut();
+            if !w.untraced {
+                w.trace.push(e);
+            }
+        }
+
         fn ev(&self, e: Ev) {
-            self.world.borrow_mut().trace.push(e);
+            self.note(e);
         }
 
         fn mkdir(&self, p: &Path) {

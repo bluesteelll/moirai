@@ -317,11 +317,6 @@ impl ProcessWriters {
         }
         Ok(pool)
     }
-
-    /// The children's process ids.
-    pub fn pids(&self) -> Vec<u32> {
-        self.children.iter().map(Child::id).collect()
-    }
 }
 
 impl Writers for ProcessWriters {
@@ -345,6 +340,10 @@ impl Writers for ProcessWriters {
             }
             Err(RecvTimeoutError::Disconnected) => Err("every writer is gone".into()),
         }
+    }
+
+    fn pids(&self) -> Vec<u32> {
+        self.children.iter().map(Child::id).collect()
     }
 }
 
@@ -422,7 +421,7 @@ pub(crate) mod fake {
         }
 
         fn send(&mut self, i: usize, go: &Go) -> Result<(), String> {
-            self.coord.world.borrow_mut().trace.push(Ev::Go {
+            self.coord.note(Ev::Go {
                 child: i,
                 op: go.op,
             });
@@ -447,11 +446,7 @@ pub(crate) mod fake {
                 Reply::Ack(a) => a.op,
                 Reply::Err { op, .. } => *op,
             };
-            self.coord
-                .world
-                .borrow_mut()
-                .trace
-                .push(Ev::Ack { child: i, op });
+            self.coord.note(Ev::Ack { child: i, op });
             let t = self.children[i].now();
             self.coord.catch_up(t);
             Ok((i, r))
