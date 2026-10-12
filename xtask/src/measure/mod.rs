@@ -1853,14 +1853,38 @@ quantities = ["lz4.encode"]
             "private/notes/a.txt",
             "synthetic words for the private index of this unit test",
         );
+        // An earlier invocation that ended between making a working directory and removing it (an internal error, a
+        // crash, a power loss) left a partial fixture in each measurement's working directory.
+        for n in [14, 6] {
+            let fixture = env.work(&plan, n).join("fixture");
+            std::fs::create_dir_all(&fixture).unwrap();
+            std::fs::write(fixture.join("partial"), b"a crashed run's partial fixture").unwrap();
+        }
         let mut h = FakeHost::new(at(NOW));
         fake_driver(&mut h, &[]);
         for _ in 0..3 {
             h.scripts.push_back(runs(60, 0));
         }
+        // What each driver finds in its working directory when it starts.
+        let mut driver = h.on_spawn.take().unwrap();
+        let found = Rc::new(RefCell::new(Vec::new()));
+        let f = found.clone();
+        h.on_spawn = Some(Box::new(move |c: &Cmd| {
+            let names: Vec<String> = std::fs::read_dir(&c.cwd)
+                .map(|r| {
+                    r.map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                        .collect()
+                })
+                .unwrap_or_default();
+            f.borrow_mut().push(names);
+            driver(c);
+        }));
         let (code, text) = run_text(&mut h, &env, &plan);
         let commit = test_tree().commit.unwrap();
         let scratch = env.scratch(&plan);
+        // Every driver starts in an empty working directory: each leftover was removed before its measurement's
+        // first run.
+        assert_eq!(*found.borrow(), vec![Vec::<String>::new(); 3], "{text}");
         // Every driver: its program, the contract's arguments and its own working directory, in plan order.
         let got: Vec<(String, Vec<String>, PathBuf)> = h
             .spawned
