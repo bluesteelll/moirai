@@ -1019,7 +1019,7 @@ A class is stored as one `u8` code wherever a stored structure carries one: the 
 
 | Code | Name | Raised by | Rule |
 |---|---|---|---|
-| 64 | `HierarchyCycle` | V01 (a Kleppmann move skipped because it would close a cycle) and V05 ([F13 §5]) | the `parent` forest has no cycle (I4) |
+| 64 | `HierarchyCycle` | V01 (a key RS-007's cycle repair reset or, under strict, a two-sided key it skipped: [RULES/merge-table] MR-039, VA-001) and V05 (a cycle RS-007 left, with no repairable key: VA-005) ([F13 §5]) | the `parent` forest has no cycle (I4) |
 | 65 | `Cycle` | V03 ([F13 §5]); [RULES/merge-table] VA-016 | the combined precedence graph is acyclic (I5′); the declared-acyclic kinds |
 | 66 | `DanglingEdge` | V04 | structural edges have live endpoints (I2) |
 | 67 | `DepthExceeded` | V05 | the `parent` forest has depth ≤ 12 (I4); [F13] OP-13-06, confirmed at pass 1 (P1-21, S1-33) |
@@ -1047,6 +1047,7 @@ A hint lands as a hint line (§9.3) and is never stored ([AR §5a.8] "yes, as a 
 | 129 | `Contradiction` | V13 (HT-002) | `rules <id> and <id> apply to the same scope and contradict each other`, or `rules <id> and <id> apply to the same scope and have the same heading` |
 | 130 | `ForeignMerge` | import of a foreign git merge (HT-003) | `git commit <7 hex> is a foreign merge; imported as a typed merge of its <n> parents` |
 | 131 | `SuspectBudget` | a commit whose `suspect` changes exceed `store.suspect-budget` ([F17 §8.2]) | `suspect changed on <n> nodes, above store.suspect-budget (<P23>); affected is incomplete and past views recompute derived state` |
+| 132 | `MoveSkipped` | [RULES/merge-table] RS-007's step (2): a two-sided hierarchy key that lands at the other side's value (HT-004, CM-026); one line per key, in canonical key order, before V13's hints; none inside a virtual merge (VB-019); under strict the key stages instead (MR-039, VA-004) | `<skey> took <side>; <other> skipped (<reason>)`, where `<skey>` is the key, bare (§10.1's `<skey>`, [F12]'s text form), `<side>` the side whose value landed, `ours` (dst) or `theirs` (src), `<other>` the other side, and `<reason>` `cycle` or `dead-parent` |
 | — | `TombstoneRemoved` (code 77) | import, the node unreferenced | `the image no longer holds the tombstone of <id>; nothing references it` |
 
 ### 12.4 Outcome by command
@@ -1340,3 +1341,10 @@ and [AR §13], not here. The display spelling inside LQ replacement texts is `HO
     reserved exit-6 codes come with the harvest cursor of [API §8.8] (M9–M10): `harvest_overlap`, the refusal that keeps
     a resumed batch from harvesting a range twice, and `harvest_changed`, for a transcript rewritten or truncated since
     it was harvested.
+41. **Wave 3e: OQ-A-13** ([AR §11] OQ-A-13; [RULES/merge-table] RS-007, CM-011, CM-026, HT-004; [F12] open point 33).
+    §12.2's code 64 names its sources as CM-011 states them: V01 reports the keys RS-007's cycle repair reset or, under
+    strict, skipped (MR-039, VA-001), and V05 a cycle RS-007 left, with no repairable key (VA-005). §12.3 gains
+    `MoveSkipped`, code 132, the hint CM-026 asks for: the next free hint code, and never stored, like every hint. Its
+    text writes the hierarchy key `<skey>` where HT-004 writes `<key>`, because `<key>` is an idempotency key in this
+    chapter (§10.1) and `<skey>` is the key in [F12]'s text form; the rendered line is the same. [F13 §5] V01 still
+    describes the per-commit rule OQ-A-13 replaced, until an R-SPEC-P unit rewrites it.
