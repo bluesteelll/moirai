@@ -19,7 +19,9 @@
 //! (`09-segments.md:158-179`, `:205`), and none of the other sections §3.1 requires, so its segments are not valid
 //! under V-7 (`:1197`). Their bytes follow the chapters; what the sections the probe omits would add is outside the
 //! hot index measurement 14 times (`ARCHITECTURE-RESEARCH.md:1681`). `NodeHdr.title_off` and `fields_off` are
-//! therefore `NONE32` and `body_ref` 0 in every row (`09-segments.md:389-393`).
+//! therefore `NONE32` and `body_ref` 0 in every row (`09-segments.md:389-393`). The T1 checkpoint is the exception:
+//! there the omitted sections are work a real delta checkpoint does, so `ckpt-4096.n5e5` times a reduced delta, a lower
+//! bound, as `m14`'s "What the checkpoint omits" states (review m-4).
 
 pub mod base;
 pub mod bitset;

@@ -15,6 +15,9 @@
 //!   the source's out-list and the destination's in-list; `Move` sets `parent`. Every op sets its owner's `rev_seq`,
 //!   `updated_tx` and `last_op_lsn` (`:87-91`). `SetField` and `SetBody` change only these: the field blocks and
 //!   `BLOBTAB` are outside the subset. Settles (`K_RT` records) fold into runtime sections the probe does not write.
+//!   Nor does it write `TITLE_BLOB`, `UID` rows for creates, `TOMB` rows for deletes, new symbols or the store-level
+//!   tables ([F09 §16.2], `09-segments.md:1085-1089`): a delta checkpoint that wrote them does more work, so the
+//!   checkpoint measurement 14 times over this delta is a lower bound (`m14`, "What the checkpoint omits").
 //! - **Derived columns** (`open_blockers`, the counters, `container`, `topo` order) are not recomputed: the probe's
 //!   choice, since the base holds no precedence order to keep; a created row's `topo` is its `#N`.
 //! - **± lists** (`09-segments.md:319-332`, `:591-594`): per bitset key, the ids that joined and left it relative to
@@ -22,7 +25,8 @@
 //!   equal [`crate::overlay::Overlay::plus_minus`] over the same tail. `BMDIR` and the lists are absent when no set
 //!   changed.
 //! - **The header** (`09-segments.md:119-128`): `n_rows` the `IDS` length, `from_lsn` the base's `upto_lsn`,
-//!   `upto_lsn` and `rt_upto_lsn` the tail's end, `base_seq` the largest `seq` folded.
+//!   `upto_lsn` and `rt_upto_lsn` the tail's end, `base_seq` the largest `seq` folded. `rt_upto_lsn` = `upto_lsn`
+//!   because a main-set layer needs `rt_upto_lsn ≥ upto_lsn` (`:128`, `:136`), although no runtime section is folded.
 
 use super::base::{Columns, Csr, put_bitsets, put_rows, sections};
 use super::bitset::{decode_plus_minus, encode_plus_minus};
@@ -230,6 +234,8 @@ impl<'c, 'a> Fold<'c, 'a> {
                 base_seq: self.seq,
                 from_lsn: base.view.header.upto_lsn,
                 upto_lsn,
+                // F09 requires rt_upto_lsn >= upto_lsn in a main-set layer (09-segments.md:128, :136); the probe folds
+                // no runtime section (the module docs).
                 rt_upto_lsn: upto_lsn,
                 ..Header::default()
             },
