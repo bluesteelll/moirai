@@ -15,7 +15,7 @@
 //! | `scan.n1e5`, `scan.n1e6` | `scan.status`, `scan.split` | counts the rows of one status in `NODE`'s 60-byte rows; the floor counts the same status in a dense 1-byte column built from `NODE` in the run's setup, the layout a per-field split of `NODE` would give (OP-09-21, `09-segments.md:1369-1372`; `status`, `08-data-model.md:80`). Both cycle the status through 0–3 with their own counters, so they time the same counts | — |
 //! | `overlay.n1e5`, `overlay.n1e6` | `probe` | looks one `#N` up in a full tail's node index ("overlay probe ~0.2 µs", `ARCHITECTURE-RESEARCH.md:968`) | — |
 //! | `read-4096.n1e6` | `read` | T1's point read: the status of a node the tail touched, through the overlay and the tail's records, else the base row | t1 (read ≤ 50 µs) |
-//! | `ckpt-4096.n5e5` | `ckpt`, `ckpt.write` | T1's delta checkpoint: replays the tail from its extents, folds it over the base, encodes `seg.d1`, then `create_new`, `write_at`, `sync(DataAndMeta)`, `seal`, `sync_dir` (`docs/spec/os/fs.md:411`, `:456`); the floor writes and flushes the same bytes without the fold. The products (the delta and its bytes) are dropped and the sample's file is unlinked in the teardown, outside the timed region ([MP §4.1]) | t3 (≤ 100 ms) |
+//! | `ckpt-4096.n5e5` | `ckpt`, `ckpt.write` | T1's delta checkpoint over a fresh tail per sample (scoping §4.2): the setup writes sample j's tail ([`ckpt_tail`]) in place over the fixture's extent through a read-write handle kept for the run, zeroes the rest of the previous tail and flushes it (`sync(Data)`), all untimed; the timed op replays tail j from the extent, folds it over the base, encodes `seg.d1`, then `create_new`, `write_at`, `sync(DataAndMeta)`, `seal`, `sync_dir` (`docs/spec/os/fs.md:411`, `:456`). The floor's sample j folds tail j from memory in its setup and writes and flushes the same bytes, so the pair is matched. The products (the tail, the delta and its bytes) are dropped and the sample's file is unlinked in the teardown, outside the timed region ([MP §4.1]). The setup's generation and rewrite lengthen a sample's untimed part, so the pilot's 1 s ([MP §4.2]) may take fewer than 5 samples; the declared minimum tier t3 bounds that | t3 (≤ 100 ms) |
 //! | `catchup-16.n1e6` | `catchup` | T2's MCP model: a long-lived process holds the overlay of a full tail but its last 16 commits (one per writer of T2's burst) and catches up: `HEAD` pread (8,192 B), the new records scanned from the extents, applied to its warm builder, the overlay finished again (`ARCHITECTURE-RESEARCH.md:783`). The warm builder is cloned in the setup and the finished overlay dropped in the teardown, both outside the timed region | t2 (catch-up p50 ≤ 5 ms) |
 //!
 //! Every run's fixture is the base `seg.base.1` at the quantity's N ([`crate::seg::base`]), written, sealed and
@@ -484,6 +484,18 @@ pub fn catch_up<S: LogSource>(
     Ok(b.finish())
 }
 
+/// Checkpoint sample `j`'s tail (scoping §4.2: "a fresh tail per sample outside the timed region"): a full `ops` tail
+/// at P06 over the base like the fixture's, from a seed of its own, so it is deterministic and distinct per `j`.
+pub fn ckpt_tail(q: &Quantity, profile: Profile, j: u64) -> Result<Tail, String> {
+    generate(
+        &Target {
+            seed: mix(seed(&q.name) ^ (j + 1)),
+            ..target(q, profile)
+        },
+        false,
+    )
+}
+
 /// T1's checkpoint fold: the whole tail of `t`, read from `log`, over the base `c`, into `seg.d1`.
 pub fn fold_tail<S: LogSource>(
     log: &mut S,
@@ -577,10 +589,12 @@ fn unlink_if<V: StoreFs>(vfs: &V, root: &V::Root, name: &str) -> Result<(), ArmE
     }
 }
 
-/// What one sample of the checkpoint arm made: the delta and its bytes. The op returns it and the teardown drops it,
-/// outside the timed region (review m-5).
+/// What one sample of the checkpoint arm made: the tail, the delta and its bytes. The op returns it and the teardown
+/// drops it, outside the timed region (review m-5).
 #[derive(Debug)]
 pub struct CkptOut {
+    /// The sample's tail.
+    pub tail: Tail,
     /// The folded delta.
     pub delta: delta::Delta,
     /// Its bytes, written as `seg.d1`.
@@ -663,6 +677,8 @@ pub struct Prepared<'v, V: StoreFs + SealedMaps> {
     pub tail: Option<Tail>,
     /// N at the run's profile.
     pub n: u32,
+    /// The run's profile.
+    pub profile: Profile,
     /// The quantity's seed.
     pub seed: u64,
     /// What the counting arms read besides the base ([`operands`]).
@@ -760,6 +776,7 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
         root,
         tail,
         n,
+        profile,
         seed: seed(&q.name),
         operands,
         vfs,
@@ -818,17 +835,57 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
         }
         Family::Ckpt => {
             let t = tail()?;
-            let bytes = delta::encode(&fold_tail(&mut MemLog::new(t.start, &t.bytes), t, c)?)?;
-            let mut log = VfsLog::new(p.vfs, &p.root, t.expect.geo);
+            let geo = t.expect.geo;
+            let k = geo.extent(t.start);
+            if geo.extent(t.end - 1) != k {
+                return Err("the checkpoint's tail spans more than one extent".into());
+            }
+            // Held for the run, so no written file is closed between samples.
+            let ext = p
+                .vfs
+                .open(
+                    &p.root,
+                    rel(&extent_name(k))?.as_rel_path(),
+                    Access::ReadWrite,
+                    OpenHint::Normal,
+                )
+                .map_err(|e| e.to_string())?;
+            let (profile, q0, q1) = (p.profile, q.clone(), q.clone());
+            let (mut j0, mut j1, mut prev_end) = (0u64, 0u64, t.end);
+            let mut log = VfsLog::new(p.vfs, &p.root, geo);
             arms.push(Box::new(Staged::new(
                 "ckpt",
                 ticker.clone(),
-                || Ok(()),
-                move |()| -> Result<CkptOut, ArmError> {
-                    let delta = fold_tail(&mut log, t, c).map_err(ArmError)?;
+                move || -> Result<Tail, ArmError> {
+                    let tj = ckpt_tail(&q0, profile, j0).map_err(ArmError)?;
+                    if tj.start != t.start || geo.extent(tj.end - 1) != k {
+                        return Err(ArmError(format!(
+                            "checkpoint tail {j0} leaves the fixture's extent {k}"
+                        )));
+                    }
+                    j0 += 1;
+                    p.vfs
+                        .write_at(&ext, geo.offset(tj.start), &tj.bytes)
+                        .map_err(arm_err)?;
+                    if prev_end > tj.end {
+                        let zeros = vec![0u8; (prev_end - tj.end) as usize];
+                        p.vfs
+                            .write_at(&ext, geo.offset(tj.end), &zeros)
+                            .map_err(arm_err)?;
+                    }
+                    prev_end = tj.end;
+                    p.vfs.sync(&ext, SyncKind::Data).map_err(arm_err)?;
+                    Ok(tj)
+                },
+                move |tj: Tail| -> Result<CkptOut, ArmError> {
+                    let delta = fold_tail(&mut log, &tj, c).map_err(ArmError)?;
                     let bytes = delta::encode(&delta).map_err(ArmError)?;
                     seal_new(p.vfs, &p.root, DELTA_NAME, &bytes)?;
-                    Ok(CkptOut { delta, bytes })
+                    Ok(CkptOut {
+                        tail: tj,
+                        delta,
+                        bytes,
+                    })
                 },
                 move |out: CkptOut| {
                     drop(out);
@@ -838,9 +895,21 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
             arms.push(Box::new(Staged::new(
                 "ckpt.write",
                 ticker.clone(),
-                || Ok(()),
-                move |()| seal_new(p.vfs, &p.root, FLOOR_NAME, &bytes),
-                move |_: u64| unlink_if(p.vfs, &p.root, FLOOR_NAME),
+                move || -> Result<Vec<u8>, ArmError> {
+                    let tj = ckpt_tail(&q1, profile, j1).map_err(ArmError)?;
+                    j1 += 1;
+                    let d = fold_tail(&mut MemLog::new(tj.start, &tj.bytes), &tj, c)
+                        .map_err(ArmError)?;
+                    delta::encode(&d).map_err(ArmError)
+                },
+                move |bytes: Vec<u8>| -> Result<Vec<u8>, ArmError> {
+                    seal_new(p.vfs, &p.root, FLOOR_NAME, &bytes)?;
+                    Ok(bytes)
+                },
+                move |bytes: Vec<u8>| {
+                    drop(bytes);
+                    unlink_if(p.vfs, &p.root, FLOOR_NAME)
+                },
             )));
         }
         Family::Catchup => {
@@ -1764,42 +1833,52 @@ mod tests {
         }
     }
 
-    /// The checkpoint arm folds the tail from its extents into `seg.d1`, sealed at t1, whose bytes read back to the
-    /// fold over the tail in memory; its floor writes the same bytes to `seg.d2`; each arm's teardown removes its file,
-    /// so neither is left after a sample.
+    /// The checkpoint arm folds a fresh tail per sample (scoping §4.2): for j = 0, 1, 2, `seg.d1` at sample j's t1
+    /// is sealed and reads back to the fold of [`ckpt_tail`] j in memory, and the three deltas differ pairwise; the
+    /// floor's sample j writes the same bytes to `seg.d2`; each arm's teardown removes its file, so neither is left
+    /// after a sample; the fold reads the extents.
     #[test]
     fn ckpt_arm_writes_a_sealed_delta_outside_setup() {
         let fs = MemFs::with_dir(&scratch());
         let (q, p) = fixture(&fs, Family::Ckpt);
         let c = Columns::parse(p.map.bytes()).unwrap();
-        let t = p.tail.as_ref().unwrap();
-        let want = fold_tail(&mut MemLog::new(t.start, &t.bytes), t, &c).unwrap();
-        assert!(!want.rows.is_empty());
         let ticker = FsTicker::new(&fs, p.dir(), &[DELTA_NAME, FLOOR_NAME]);
         let mut arms = arms(&p, &c, &q, &ticker).unwrap();
         let names: Vec<&str> = arms.iter().map(|a| a.name()).collect();
         assert_eq!(names, ["ckpt", "ckpt.write"]);
         let (d1, d2) = (p.dir().join(DELTA_NAME), p.dir().join(FLOOR_NAME));
-        for k in 0..2 {
+        let mut seen: Vec<Vec<u8>> = Vec::new();
+        for j in 0..3 {
+            let tj = ckpt_tail(&q, Profile::Test, j).unwrap();
+            let want = fold_tail(&mut MemLog::new(tj.start, &tj.bytes), &tj, &c).unwrap();
+            assert!(!want.rows.is_empty());
             arms[0].sample().unwrap();
             let (bytes, sealed) = ticker.last().1.files[DELTA_NAME].clone();
-            assert!(sealed, "sample {k}: seg.d1 sealed at t1");
-            assert_eq!(decode(&bytes).unwrap(), want, "sample {k}");
+            assert!(sealed, "sample {j}: seg.d1 sealed at t1");
+            assert_eq!(
+                decode(&bytes).unwrap(),
+                want,
+                "sample {j}: seg.d1 is the fold of tail {j}"
+            );
             assert!(
                 fs.bytes(&d1).is_none(),
-                "sample {k}: seg.d1 left after the sample"
+                "sample {j}: seg.d1 left after the sample"
             );
+            for (i, b) in seen.iter().enumerate() {
+                assert_ne!(*b, bytes, "the deltas of samples {i} and {j} are equal");
+            }
             arms[1].sample().unwrap();
             let (floor, sealed) = ticker.last().1.files[FLOOR_NAME].clone();
-            assert!(sealed, "sample {k}: seg.d2 sealed at t1");
-            assert_eq!(floor, bytes, "sample {k}: the floor writes the same bytes");
+            assert!(sealed, "sample {j}: seg.d2 sealed at t1");
+            assert_eq!(floor, bytes, "sample {j}: the floor writes ckpt's bytes");
             assert!(
                 fs.bytes(&d2).is_none(),
-                "sample {k}: seg.d2 left after the sample"
+                "sample {j}: seg.d2 left after the sample"
             );
+            seen.push(bytes);
         }
         assert!(
-            fs.log().opens.iter().any(|o| o.starts_with("log.")),
+            fs.log().reads.iter().any(|r| r.0.starts_with("log.")),
             "the fold reads the extents"
         );
     }
@@ -1811,23 +1890,34 @@ mod tests {
         (q, p)
     }
 
-    /// The checkpoint's operation runs inside its timed region (spec Goal 2, audit mutation C): between the ticks of
-    /// `ckpt` the store reads only the log, exactly the tail's `[start, end)` at its extent offsets, and `seg.d1` goes
-    /// from absent at t0 to present and sealed at t1; the floor `ckpt.write` reads no log between its ticks and leaves
-    /// `seg.d2` sealed at t1. Each file is removed by its arm's teardown, after t1 (review m-5).
+    /// The checkpoint's operation runs inside its timed region (spec Goal 2, audit mutation C): at sample j's t0 the
+    /// extent holds tail j's image, as the fixture would write it (scoping §4.2); between the ticks of `ckpt` the store
+    /// reads only the log, exactly tail j's `[start, end)` at its extent offsets, and `seg.d1` goes from absent at t0 to
+    /// present and sealed at t1; the floor `ckpt.write` reads no log between its ticks and leaves `seg.d2` sealed at
+    /// t1. Each file is removed by its arm's teardown, after t1 (review m-5).
     #[test]
     fn ckpt_arm_folds_inside_its_timed_region() {
         let fs = MemFs::with_dir(&scratch());
         let (q, p) = fixture(&fs, Family::Ckpt);
         let c = Columns::parse(p.map.bytes()).unwrap();
-        let t = p.tail.as_ref().unwrap();
-        let geo = t.expect.geo;
-        let ticker = FsTicker::new(&fs, p.dir(), &[DELTA_NAME, FLOOR_NAME]);
+        let geo = p.tail.as_ref().unwrap().expect.geo;
+        let ext = extent_name(geo.extent(p.tail.as_ref().unwrap().start));
+        let ticker = FsTicker::new(&fs, p.dir(), &[DELTA_NAME, FLOOR_NAME, &ext]);
         let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        let mut tails = BTreeSet::new();
         for k in 0..2 {
+            let t = ckpt_tail(&q, Profile::Test, k).unwrap();
+            tails.insert(t.bytes.clone());
             arms[0].sample().unwrap();
             let (t0, t1) = ticker.last();
             let w = ticker.timed_reads();
+            let mut image = vec![0u8; geo.e() as usize];
+            let at = geo.offset(t.start) as usize;
+            image[at..at + t.bytes.len()].copy_from_slice(&t.bytes);
+            assert!(
+                t0.files[&ext].0 == image,
+                "sample {k}: the extent at t0 is not tail {k}'s image"
+            );
             assert!(
                 !t0.files.contains_key(DELTA_NAME),
                 "sample {k}: seg.d1 at t0"
@@ -1871,6 +1961,7 @@ mod tests {
                 "sample {k}: seg.d2 left after the sample"
             );
         }
+        assert_eq!(tails.len(), 2, "tails 0 and 1 differ");
         assert_eq!(ticker.count(), 8, "two ticks per sample");
     }
 
