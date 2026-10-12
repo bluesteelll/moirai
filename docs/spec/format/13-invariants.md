@@ -589,3 +589,17 @@ are specified in [F17], where the production values that measurements decide are
   dropped body ([F16] P-84, P-101), and are reported as a deletion still due until then. The other reading, counting
   those bytes as held, is not taken: the reservation's `Commit` may never land, which would leave a body key with no
   bytes that is not dropped.
+- **OP-13-17 (wave 3e: OQ-A-13).** [AR §11] OQ-A-13, decided 2026-10-07, replaced RS-007's per-commit replay of
+  hierarchy moves with the per-key rule `threeway` and its cycle repair ([RULES/merge-table] RS-007, MR-039, VA-001,
+  VA-004, VA-005, HT-004, PR-014; [F12] open point 33). This chapter follows the rules and adds no rule:
+  - I4's EP-MG clause states the rule as RS-007 does;
+  - V01 reports the keys RS-007's cycle repair reset or, under strict, skipped, and runs for every merge, `sync`, revert
+    and cherry-pick, because a reset key can hold dst's value and so carry no `Move` op; a two-sided key landed at the
+    other side's value carries a `MoveSkipped` hint ([F19 §12.3] code 132), and a dead-parent key that keeps its
+    three-way value is V04's (VA-004); at a `merge --continue`, the keys an applying resolution set and their hints
+    are dropped ([F12 §9.4] step 3);
+  - V05's cycles include one with no repairable key (OQ-A-13 F4; VA-005);
+  - I25′ carries the hierarchy sentence of 13.2 (a), with "touched" read by state.
+
+  The [AR] and [60] texts that OQ-A-13's decision gives WP-81a follow there, among them [AR §0] item 4, [AR §2.7] T7,
+  [AR §3.4] I25′ and [AR §5a.7] step 4's row "parent / order".
