@@ -32,6 +32,12 @@
 //! |---|---|---|
 //! | [`load`] | the load fixture's format, the load generator (`moirai-probes-bin loadgen`), its log and its verdict | [MP §9] |
 //!
+//! # Measurement 10 (WP-53d)
+//!
+//! | Module | What it holds | Specification |
+//! |---|---|---|
+//! | [`tail`] | the F05/F06 codec of a log tail of commits and settles: records, groups, placement, the `Commit` payload, the runtime records, the streaming scan | [F05], [F06], [F11 §12.4]–§12.5 |
+//!
 //! Every reading of the machine goes through `moirai_vfs::Meter` ([OS/README §4.3]); the framework never reads a
 //! counter itself. The load generator is the one exception the protocol names: the system-wide totals it replays and
 //! validates are read by `typeperf`, as the fixture was ([MP §9.4]). No measurement runs at M0 until the owner resumes them (`docs/m0/PLAN.md` §5).
@@ -48,6 +54,7 @@ pub mod noise;
 pub mod record;
 pub mod run;
 pub mod stats;
+pub mod tail;
 pub mod tier;
 pub mod units;
 
