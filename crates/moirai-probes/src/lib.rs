@@ -44,6 +44,7 @@
 //!
 //! | Module | What it holds | Specification |
 //! |---|---|---|
+//! | [`m14`] | the grid of 11 quantities: the layout probes (CSR, bitset AND/popcount, column scans, overlay probe) at 1e5 and 1e6, T1's point read and delta checkpoint, T2's MCP overlay catch-up model; the arms, the fixture, the smoke and the driver's command line (`moirai-probes-bin m14`) | [60 §5.2] item 14, `ARCHITECTURE-RESEARCH.md:130`, `:140`, [MP §9.7] |
 //! | [`seg`] | the F09 segment builder: `SegHdr` and its section table, the 60-byte `NodeHdr`, cold columns, the forward and reverse CSR, frozen bitsets and ± lists, a synthetic base at N nodes | [F09], [F08 §3]–§4, `ARCHITECTURE-RESEARCH.md:1681` |
 //!
 //! Every reading of the machine goes through `moirai_vfs::Meter` ([OS/README §4.3]); the framework never reads a
@@ -59,6 +60,7 @@ pub mod host;
 pub mod idle;
 pub mod load;
 pub mod m10;
+pub mod m14;
 pub mod noise;
 pub mod overlay;
 pub mod record;

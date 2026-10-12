@@ -319,8 +319,9 @@ impl Hasher for FastHasher {
 
 type Map<K, V> = HashMap<K, V, BuildHasherDefault<FastHasher>>;
 
-/// Builds an [`Overlay`] from a tail's records in log order ([F05 §10.1]).
-#[derive(Debug)]
+/// Builds an [`Overlay`] from a tail's records in log order ([F05 §10.1]). It clones, so a long-lived process can keep
+/// its warm state and catch up from it (measurement 14's MCP model, `m14.rs`).
+#[derive(Clone, Debug)]
 pub struct Builder {
     base: Base,
     start: u64,
