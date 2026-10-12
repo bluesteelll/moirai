@@ -37,6 +37,7 @@ use crate::nightly::guard;
 use crate::utc;
 use plan::{Measurement, Plan};
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
@@ -472,20 +473,22 @@ struct Pre {
 }
 
 /// The pre-checks of `run` ([MP §9.8]): [`refusals`], the window (it holds now, it is agent-free, and more than the
-/// finish margin of it is left) and the toolchain.
-// spec: [MP §9.8] (the pre-checks of run), [MP §2.3] (an idle run is made in an agent-free window)
-fn pre_checks(env: &Env, plan: &Plan, now: i64) -> Pre {
+/// finish margin of it is left; not for `--smoke`, which runs outside any window) and the toolchain.
+// spec: [MP §9.8] (the pre-checks of run; --smoke), [MP §2.3] (an idle run is made in an agent-free window)
+fn pre_checks(env: &Env, plan: &Plan, now: i64, smoke: bool) -> Pre {
     let mut r = refusals(env, plan);
     let mut window = None;
-    match std::fs::read_to_string(&env.windows) {
-        Err(e) => r.push(refusal(
+    let file = (!smoke).then(|| std::fs::read_to_string(&env.windows));
+    match file {
+        None => {}
+        Some(Err(e)) => r.push(refusal(
             "calendar",
             format!(
                 "no agreed window: {} cannot be read ({e}); the owner keeps the calendar there (PLAN §5 V4)",
                 env.windows.display()
             ),
         )),
-        Ok(text) => match calendar::parse(&text) {
+        Some(Ok(text)) => match calendar::parse(&text) {
             Err(e) => r.push(refusal("calendar", e)),
             Ok(ws) => match calendar::current(&ws, now) {
                 None => r.push(refusal(
@@ -545,11 +548,17 @@ enum Outcome {
     WindowEnded,
     /// The driver could not be started, or its tree could not be stopped.
     Error,
+    /// `--smoke`: the driver exited 0 within its budget.
+    Passed,
+    /// `--smoke`: the driver exited with another code.
+    Failed,
 }
 
 impl Outcome {
     fn as_str(self) -> &'static str {
         match self {
+            Outcome::Passed => "passed",
+            Outcome::Failed => "failed",
             Outcome::ExitGrade => "exit-grade",
             Outcome::NotExitGrade => "not-exit-grade",
             Outcome::TimedOut => "timed-out",
@@ -613,8 +622,10 @@ struct Ctx<'a> {
     guard: Cmd,
     /// The session's directory: its logs and its record.
     dir: PathBuf,
-    /// The window's end less the finish margin.
+    /// The window's end less the finish margin (`i64::MAX` for `--smoke`, which runs outside any window).
     deadline: i64,
+    /// `--smoke` ([MP §9.8]): `--smoke` in place of `--out`, the smoke budget, no record and no retry.
+    smoke: bool,
 }
 
 /// One attempt and what it decided.
@@ -697,13 +708,28 @@ fn attempt<H: Host + ?Sized>(
             }
         }
     }
+    // A smoke run writes no record, so nothing under /private/ is made or listed.
     let dir = cx.env.out(m.n);
-    std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    let before = record::list(&dir)?;
-    let cmd = driver_cmd(cx.env, cx.plan, m, q, &cx.commit, &cx.toolchain, false);
+    let list = |dir: &Path| {
+        if cx.smoke {
+            Ok(BTreeMap::new())
+        } else {
+            record::list(dir)
+        }
+    };
+    if !cx.smoke {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    }
+    let before = list(&dir)?;
+    let cmd = driver_cmd(cx.env, cx.plan, m, q, &cx.commit, &cx.toolchain, cx.smoke);
     let log = format!("{}.{q}.{k}.log", m.n);
     let start = host.now();
-    let deadline = (start + m.run_budget_secs).min(m_deadline).min(cx.deadline);
+    let budget = if cx.smoke {
+        cx.plan.smoke_budget_secs
+    } else {
+        m.run_budget_secs
+    };
+    let deadline = (start + budget).min(m_deadline).min(cx.deadline);
     j["deadline"] = json!(utc::rfc3339(deadline));
     j["command"] = json!(cmd.line());
     j["log"] = json!(log);
@@ -715,7 +741,7 @@ fn attempt<H: Host + ?Sized>(
     };
     let ended = exec::run_cmd(host, &cmd, &cx.dir.join(&log), deadline, &mut watch);
     let end = host.now();
-    let after = record::list(&dir)?;
+    let after = list(&dir)?;
     let touched = record::changed(&before, &after);
     let added: Vec<String> = after
         .keys()
@@ -739,14 +765,17 @@ fn attempt<H: Host + ?Sized>(
         } else {
             (
                 Outcome::TimedOut,
-                format!(
-                    "stopped at its run budget of {}",
-                    utc::hm(m.run_budget_secs)
-                ),
+                format!("stopped at its run budget of {}", utc::hm(budget)),
             )
         }
     };
     let (outcome, exit, why): (Outcome, Option<i32>, Vec<String>) = match ended {
+        Ended::Exited(0) if cx.smoke => (Outcome::Passed, Some(0), Vec::new()),
+        Ended::Exited(c) if cx.smoke => (
+            Outcome::Failed,
+            Some(c),
+            vec![format!("the driver exited with {c}")],
+        ),
         Ended::Exited(0) => match added.as_slice() {
             [] => (
                 Outcome::NotExitGrade,
@@ -828,30 +857,37 @@ fn attempt<H: Host + ?Sized>(
 }
 
 /// `measure run` ([MP §9.8]): the pre-checks, then the plan's runs inside the current agent-free window, and the
-/// finish. Returns the exit code; `Err` is an internal error.
-// spec: [MP §9.8] (the run, the finish, the verdict), [MP §1.1] (the measurement night)
+/// finish; with `smoke`, each run once outside any window, recording nothing. Returns the exit code; `Err` is an
+/// internal error.
+// spec: [MP §9.8] (the run, the finish, the verdict, --smoke), [MP §1.1] (the measurement night)
 pub fn run<H: Host + ?Sized>(
     host: &mut H,
     env: &Env,
     plan: &Plan,
     plan_path: &Path,
+    smoke: bool,
     out: &mut dyn Write,
 ) -> Result<u8, String> {
     let start = host.now();
-    let pre = pre_checks(env, plan, start);
+    let pre = pre_checks(env, plan, start, smoke);
     for r in &pre.refusals {
         let _ = writeln!(out, "measure: refused: {}: {}", r.kind, r.detail);
     }
-    let (Some(w), Some(commit), Ok(toolchain), true) = (
-        pre.window,
+    let (Some(commit), Ok(toolchain), true, true) = (
         env.tree.commit.clone(),
         env.toolchain.clone(),
         pre.refusals.is_empty(),
+        smoke || pre.window.is_some(),
     ) else {
         return Ok(EXIT_REFUSED);
     };
     let scratch = env.scratch(plan);
-    let dir = scratch.join(SESSIONS).join(utc::compact(start));
+    let stamp = utc::compact(start);
+    let dir = scratch.join(SESSIONS).join(if smoke {
+        format!("{stamp}.smoke")
+    } else {
+        stamp.clone()
+    });
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
     let cx = Ctx {
         env,
@@ -860,7 +896,10 @@ pub fn run<H: Host + ?Sized>(
             guard::pre_check_args(&scratch, &[], plan.ram_floor, plan.disk_floor, &[]),
         ),
         dir: dir.clone(),
-        deadline: w.end - plan.finish_margin_secs,
+        deadline: pre
+            .window
+            .map_or(i64::MAX, |w| w.end - plan.finish_margin_secs),
+        smoke,
         commit,
         toolchain,
     };
@@ -868,15 +907,16 @@ pub fn run<H: Host + ?Sized>(
         path: dir.join(SESSION),
         value: json!({
             "schema": SESSION_SCHEMA,
+            "mode": if smoke { "smoke" } else { "run" },
             "plan": plan_path.to_string_lossy(),
             "started": utc::rfc3339(start),
             "ended": null,
-            "window": { "start": utc::rfc3339(w.start), "end": utc::rfc3339(w.end), "kind": w.kind.as_str() },
-            "deadline": utc::rfc3339(cx.deadline),
+            "window": pre.window.map(|w| json!({ "start": utc::rfc3339(w.start), "end": utc::rfc3339(w.end), "kind": w.kind.as_str() })),
+            "deadline": pre.window.map(|_| utc::rfc3339(cx.deadline)),
             "commit": cx.commit,
             "branch": env.tree.branch,
             "toolchain": cx.toolchain,
-            "settle_secs": plan.settle_secs,
+            "settle_secs": if smoke { 0 } else { plan.settle_secs },
             "runs": [],
             "stopped": null,
             "verdict": null,
@@ -884,22 +924,36 @@ pub fn run<H: Host + ?Sized>(
         }),
     };
     ses.save()?;
-    let _ = writeln!(
-        out,
-        "measure: session {} in {}; window {}; every run ends by {}; settling for {}",
-        utc::compact(start),
-        dir.display(),
-        w.describe(),
-        utc::rfc3339(cx.deadline),
-        utc::hm(plan.settle_secs)
-    );
-    host.sleep(plan.settle_secs as u64);
+    match pre.window {
+        Some(w) => {
+            let _ = writeln!(
+                out,
+                "measure: session {stamp} in {}; window {}; every run ends by {}; settling for {}",
+                dir.display(),
+                w.describe(),
+                utc::rfc3339(cx.deadline),
+                utc::hm(plan.settle_secs)
+            );
+            host.sleep(plan.settle_secs as u64);
+        }
+        None => {
+            let _ = writeln!(
+                out,
+                "measure: smoke session {stamp} in {}: each run once with --smoke, outside any window, recording nothing",
+                dir.display()
+            );
+        }
+    }
     let mut stopped: Option<String> = None;
     let mut started_any = false;
     let mut refused_first = false;
-    let mut exit_grade = 0;
+    let mut good = 0;
     for m in &plan.measurements {
-        let m_deadline = host.now() + m.budget_secs;
+        let m_deadline = if smoke {
+            i64::MAX
+        } else {
+            host.now() + m.budget_secs
+        };
         let mut spent: Option<String> = None;
         let work = env.work(plan, m.n);
         let mut work_made = false;
@@ -925,11 +979,11 @@ pub fn run<H: Host + ?Sized>(
                 continue;
             }
             // Resume: a run with an exit-grade record of the measured commit is done.
-            if let Some(name) = done_before(&env.out(m.n), m.n, q, &cx.commit)? {
+            if !smoke && let Some(name) = done_before(&env.out(m.n), m.n, q, &cx.commit)? {
                 let _ = writeln!(out, "measure: {}/{q} done-before: {name}", m.n);
                 r["status"] = json!("done-before");
                 r["record"] = json!(name);
-                exit_grade += 1;
+                good += 1;
                 ses.push_run(r);
                 ses.save()?;
                 continue;
@@ -962,8 +1016,8 @@ pub fn run<H: Host + ?Sized>(
                     None => {}
                     Some(o) => {
                         r["status"] = json!(o.as_str());
-                        if o == Outcome::ExitGrade {
-                            exit_grade += 1;
+                        if matches!(o, Outcome::ExitGrade | Outcome::Passed) {
+                            good += 1;
                         }
                         if o == Outcome::BudgetEnded {
                             spent = Some(format!(
@@ -979,10 +1033,12 @@ pub fn run<H: Host + ?Sized>(
                 }
                 // One retry, at once, of an attempt that is not exit-grade and was not stopped at the measurement's
                 // budget or the window's deadline, while time is left before both.
-                let retry = matches!(
-                    a.outcome,
-                    Some(Outcome::NotExitGrade | Outcome::TimedOut | Outcome::Error)
-                ) && k < MAX_ATTEMPTS
+                let retry = !smoke
+                    && matches!(
+                        a.outcome,
+                        Some(Outcome::NotExitGrade | Outcome::TimedOut | Outcome::Error)
+                    )
+                    && k < MAX_ATTEMPTS
                     && host.now() < m_deadline.min(cx.deadline);
                 if !retry {
                     break;
@@ -995,7 +1051,7 @@ pub fn run<H: Host + ?Sized>(
             let _ = std::fs::remove_dir_all(&work);
         }
     }
-    finish(host, &cx, &mut ses, stopped, exit_grade, out)?;
+    finish(host, &cx, &mut ses, stopped, good, out)?;
     Ok(if refused_first {
         EXIT_REFUSED
     } else if ses.value["verdict"] == "pass" {
@@ -1005,15 +1061,16 @@ pub fn run<H: Host + ?Sized>(
     })
 }
 
-/// The finish ([MP §9.8]): the drivers' working directories removed, the verdict, the private manifest rebuilt, and
-/// the session record written.
-// spec: [MP §9.8] (the finish, the verdict)
+/// The finish ([MP §9.8]): the drivers' working directories removed, the verdict, the private manifest rebuilt (not
+/// for `--smoke`, which wrote nothing under `/private/`), and the session record written. `good` counts the runs that
+/// have an exit-grade record (with `--smoke`: that passed).
+// spec: [MP §9.8] (the finish, the verdict, --smoke)
 fn finish<H: Host + ?Sized>(
     host: &mut H,
     cx: &Ctx,
     ses: &mut Session,
     stopped: Option<String>,
-    exit_grade: usize,
+    good: usize,
     out: &mut dyn Write,
 ) -> Result<(), String> {
     let work = cx.env.scratch(cx.plan).join(WORK);
@@ -1023,12 +1080,20 @@ fn finish<H: Host + ?Sized>(
         let _ = writeln!(out, "measure: {}: {e}", work.display());
     }
     let runs = cx.plan.runs();
-    let pass = stopped.is_none() && exit_grade == runs;
+    let pass = stopped.is_none() && good == runs;
     ses.value["ended"] = json!(utc::rfc3339(host.now()));
     ses.value["stopped"] = json!(stopped);
-    ses.value["counts"] = json!({ "runs": runs, "exit_grade": exit_grade });
+    let mut counts = serde_json::Map::new();
+    counts.insert("runs".into(), json!(runs));
+    counts.insert(
+        (if cx.smoke { "passed" } else { "exit_grade" }).into(),
+        json!(good),
+    );
+    ses.value["counts"] = Value::Object(counts);
     ses.value["verdict"] = json!(if pass { "pass" } else { "fail" });
-    ses.value["manifest"] = if cx.env.rebuild_manifest {
+    ses.value["manifest"] = if cx.smoke {
+        json!("not rebuilt (smoke)")
+    } else if cx.env.rebuild_manifest {
         match crate::private::rebuild(&cx.env.repo, &cx.env.private, cx.env.public_ref.as_deref()) {
             Ok(_) => {
                 let _ = writeln!(
@@ -1052,8 +1117,9 @@ fn finish<H: Host + ?Sized>(
     ses.save()?;
     let _ = writeln!(
         out,
-        "measure: {} ({exit_grade} of {runs} runs exit-grade{}); session record {}",
+        "measure: {} ({good} of {runs} runs {}{}); session record {}",
         if pass { "PASS" } else { "FAIL" },
+        if cx.smoke { "passed" } else { "exit-grade" },
         stopped
             .map(|s| format!("; stopped: {s}"))
             .unwrap_or_default(),
@@ -1147,14 +1213,7 @@ pub fn cli(args: &[String], repo: &Path) -> Result<ExitCode, String> {
             o.smoke,
             &mut stdout,
         ))),
-        Mode::Run if o.smoke => {
-            let _ = writeln!(
-                stdout,
-                "measure: error: run --smoke is not built at this commit"
-            );
-            Ok(ExitCode::from(EXIT_INTERNAL))
-        }
-        Mode::Run => match run(&mut host, &env, &plan, &o.plan, &mut stdout) {
+        Mode::Run => match run(&mut host, &env, &plan, &o.plan, o.smoke, &mut stdout) {
             Ok(code) => Ok(ExitCode::from(code)),
             Err(e) => {
                 let _ = writeln!(
@@ -1337,7 +1396,7 @@ quantities = ["lz4.encode"]
 
     fn run_text(h: &mut FakeHost, env: &Env, plan: &Plan) -> (u8, String) {
         let mut out = Vec::new();
-        let code = run(h, env, plan, Path::new("plan.toml"), &mut out).unwrap();
+        let code = run(h, env, plan, Path::new("plan.toml"), false, &mut out).unwrap();
         (code, String::from_utf8(out).unwrap())
     }
 
@@ -1363,7 +1422,7 @@ quantities = ["lz4.encode"]
     }
 
     fn kinds(env: &Env, plan: &Plan, now: i64) -> Vec<&'static str> {
-        pre_checks(env, plan, now)
+        pre_checks(env, plan, now, false)
             .refusals
             .iter()
             .map(|r| r.kind)
@@ -2268,5 +2327,117 @@ quantities = ["d"]
         );
         assert_eq!(s["runs"][0]["record"], done);
         assert_eq!(s["counts"]["exit_grade"], 3);
+    }
+
+    #[test]
+    fn smoke_ignores_the_window_and_records_nothing() {
+        let d = TestDir::new("measure-run-smoke");
+        let plan = plan();
+        let mut env = env(&d, &plan);
+        env.rebuild_manifest = true;
+        // Outside every window, and with no calendar at all: --smoke needs none.
+        env.windows = d.path().join("none.toml");
+        let start = at("2026-10-15T00:00:00Z");
+        let k: Vec<&str> = pre_checks(&env, &plan, start, true)
+            .refusals
+            .iter()
+            .map(|r| r.kind)
+            .collect();
+        assert!(k.is_empty(), "{k:?}");
+        let smoke = |h: &mut FakeHost| {
+            let mut out = Vec::new();
+            let code = run(h, &env, &plan, Path::new("plan.toml"), true, &mut out).unwrap();
+            (code, String::from_utf8(out).unwrap())
+        };
+        let mut h = FakeHost::new(start);
+        fake_driver(&mut h, &[]);
+        for _ in 0..3 {
+            h.scripts.push_back(runs(5, 0));
+        }
+        let (code, text) = smoke(&mut h);
+        // Each run once, with --smoke in place of --out.
+        let commit = test_tree().commit.unwrap();
+        let args: Vec<Vec<String>> = h.spawned.iter().map(|c| c.args.clone()).collect();
+        let want = |q: &str| {
+            [
+                "--host",
+                "laptop",
+                "--condition",
+                "idle",
+                "--quantity",
+                q,
+                "--commit",
+                &commit,
+                "--toolchain",
+                TOOLCHAIN,
+                "--smoke",
+            ]
+            .iter()
+            .map(|s| s.to_string())
+            .collect::<Vec<_>>()
+        };
+        assert_eq!(
+            args,
+            [want("csr.1e5"), want("t1.read"), want("lz4.encode")],
+            "{text}"
+        );
+        assert_eq!(code, EXIT_PASS, "{text}");
+        // The guard before each run; no settle (the clock moved only while the drivers ran, 5 s each).
+        assert_eq!(h.captured.len(), 3);
+        assert_eq!(h.slept, 15);
+        // Nothing under /private/: no record, no directory, no manifest.
+        assert_eq!(listing(&env.private), [env.private.join("windows.toml")]);
+        // The session record is the smoke session's, outside /private/.
+        let p = env
+            .scratch(&plan)
+            .join(SESSIONS)
+            .join(format!("{}.smoke", utc::compact(start)))
+            .join(SESSION);
+        let s: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(s["mode"], "smoke");
+        assert_eq!(s["window"], Value::Null);
+        assert_eq!(s["manifest"], "not rebuilt (smoke)");
+        assert_eq!(s["verdict"], "pass");
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/csr.1e5", "passed"),
+                ("14/t1.read", "passed"),
+                ("6/lz4.encode", "passed"),
+            ])
+        );
+        assert!(!env.scratch(&plan).join(WORK).exists());
+        // A driver that exits non-zero, or overruns the smoke budget and is stopped by its tree, fails the smoke run;
+        // nothing is retried.
+        let start = start + 3_600;
+        let mut h = FakeHost::new(start);
+        fake_driver(&mut h, &[]);
+        h.scripts.push_back(runs(5, 0));
+        h.scripts.push_back(runs(5, 2));
+        h.scripts.push_back(hangs());
+        let (code, text) = smoke(&mut h);
+        assert_eq!(code, EXIT_FAIL, "{text}");
+        assert_eq!(h.spawned.len(), 3);
+        assert_eq!(h.killed.borrow().len(), 1);
+        let p = env
+            .scratch(&plan)
+            .join(SESSIONS)
+            .join(format!("{}.smoke", utc::compact(start)))
+            .join(SESSION);
+        let s: Value = serde_json::from_str(&std::fs::read_to_string(&p).unwrap()).unwrap();
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/csr.1e5", "passed"),
+                ("14/t1.read", "failed"),
+                ("6/lz4.encode", "timed-out"),
+            ])
+        );
+        // The overrunning driver was stopped at the smoke budget of 10 minutes.
+        assert_eq!(
+            s["runs"][2]["attempts"][0]["ended"],
+            utc::rfc3339(start + 10 + 10 * 60)
+        );
+        assert_eq!(listing(&env.private), [env.private.join("windows.toml")]);
     }
 }
