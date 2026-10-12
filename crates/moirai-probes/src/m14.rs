@@ -30,6 +30,14 @@
 //! timed. The results analyst reads the quantity as a lower bound of the delta checkpoint of
 //! `ARCHITECTURE-RESEARCH.md:130`.
 //!
+//! **What no test sees** (u12 review r1 m-1, test r1 m-1). The tests watch the fixture's store at each sample's two
+//! ticks: its reads, and for the checkpoint also its opens, writes and flushes, and the files' bytes and seals.
+//! In-memory work leaves no trace there, so these placements rest on the code alone: the catch-up's clone of its warm
+//! builder (setup); the floor `ckpt.write`'s generation, fold and encode of tail j (setup; in its op they would
+//! inflate the floor); and the drop of the products (teardown). `staged_arm_times_only_the_operation` pins the
+//! mechanism, and each teardown takes its arm's products by type, but an op that dropped the real tail, delta and
+//! bytes inside the timed region and returned a placeholder of the same type would still pass every test.
+//!
 //! Every run's fixture is the base `seg.base.1` at the quantity's N ([`crate::seg::base`]), written, sealed and
 //! mapped, and, for the last four families, a full `ops` tail at P06 (4,096 at production) written as `log.<n>`
 //! extents with `HEAD`; it is removed on every path out of the run. The probe's choices: the ids a probe cycles
@@ -1392,9 +1400,9 @@ mod tests {
         n: usize,
     }
 
-    /// [`MemFs`] with every open, write and flush logged by file name and handle (tester I-1, I-2): `MemFs` logs no
-    /// write or flush, and not which handle a call goes through. Every call goes on to `fs` unchanged, so `fs`'s own
-    /// log, files and seals are as without the wrapper.
+    /// [`MemFs`] with every open, write and flush logged by file name and handle (u12 test r1 I-1, I-2): `MemFs`
+    /// logs no write or flush, and not which handle a call goes through. Every call goes on to `fs` unchanged, so
+    /// `fs`'s own log, files and seals are as without the wrapper.
     struct LoggedFs<'f> {
         fs: &'f MemFs,
         calls: Rc<RefCell<Vec<Call>>>,
@@ -2311,7 +2319,7 @@ mod tests {
     }
 
     /// The checkpoint's setup rewrites the extent through the read-write handle that [`arms`] opens for the run, and
-    /// flushes it before t0 (tester I-1, I-2; the module doc's `ckpt` row). Over a [`LoggedFs`]: `arms` opens the
+    /// flushes it before t0 (u12 test r1 I-1, I-2; the module doc's `ckpt` row). Over a [`LoggedFs`]: `arms` opens the
     /// extent once, for writing; in each sample, every call on the extent before t0 goes through that handle, the
     /// setup writes it, and its last call on it is `sync(Data)`; between the ticks the extent is at most opened for
     /// reading (the fold's log), never written or flushed. So no sample opens or closes a handle that writes the
