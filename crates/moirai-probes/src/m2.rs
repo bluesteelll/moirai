@@ -69,4 +69,6 @@
 //! reused by the smoke's quantities. Every file lies below the run's directory `<cwd>/m2.<pid>/`, removed on every path
 //! out of the run ([MP §9.7]); a retired generation is removed in setup.
 
+pub mod burst;
 pub mod cost;
+pub mod locks;
