@@ -1965,6 +1965,31 @@ mod tests {
         );
     }
 
+    /// The split floor scans the column its run builds from `NODE` (u12 review r1 I-1; R-29): for a `scan` quantity,
+    /// [`prepare`]'s [`Prepared::operands`] hold one byte per row of the mapped base, each row's `NodeHdr.status` in
+    /// row order; [`arms`] hands these operands to [`count_ops`], whose `scan.split` scans them. A run's floor over the
+    /// 4-byte `DUE` column, or over an empty one, fails here.
+    #[test]
+    fn split_floor_scans_the_fixtures_status_bytes() {
+        let fs = MemFs::with_dir(&scratch());
+        let (q, p) = fixture(&fs, Family::Scan);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        assert_eq!(c.rows, p.n as usize, "{}", q.name);
+        let rows: Vec<u8> = (0..c.rows).map(|i| c.node(i).status).collect();
+        assert!(
+            p.operands.split == rows,
+            "{}: the run's split column ({} bytes) is not NODE's status bytes ({} rows)",
+            q.name,
+            p.operands.split.len(),
+            c.rows
+        );
+        assert!(
+            rows.iter().any(|&s| s != 0),
+            "{}: every row's status is 0, so the column check is vacuous",
+            q.name
+        );
+    }
+
     /// The sparse AND/popcount quantities take the array paths of the frozen AND (R-30; test m-2): at N = 100,000 and
     /// 1,000,000 every chunk of each sparse set A_s and B_s is an array and every chunk of kind-status s a bitmap, and
     /// both ANDs equal the naive intersections. Through the arms' operations (critique I-1), on a base at N = 20,000,
