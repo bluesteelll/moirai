@@ -4,12 +4,14 @@
 //! overlay catch-up (T2, `:140`). T2's 16-writer wait is taken from measurement 2's run (R-24 Q7) and is not built
 //! here. The tails are u10's ([`crate::tail::synth`]), from [70 S8]'s spec-derived mix (R-24 Q10).
 //!
-//! **The grid** (11 quantities, names by [MP §4.1]):
+//! **The grid** (15 quantities, names by [MP §4.1]):
 //!
 //! | Quantity | Arms (arm 0 first) | What one sample does | Minimum tier |
 //! |---|---|---|---|
 //! | `csr.n1e5`, `csr.n1e6` | `expand` | reads one node's out-list and in-list from the six CSR columns (`09-segments.md:479-505`) | — |
 //! | `bitset.n1e5`, `bitset.n1e6` | `and.popcount` | ANDs the kind bitset with one kind-status bitset and counts ([50] F6) | — |
+//! | `bitset-ab.n1e5`, `bitset-ab.n1e6` | `and.popcount` | ANDs one kind-status bitset (bitmap chunks at these N) with the sparse set A_s (array chunks) and counts: the array × bitmap path of the frozen AND ([F09 §4.5], `09-segments.md:288-317`; R-30) | — |
+//! | `bitset-aa.n1e5`, `bitset-aa.n1e6` | `and.popcount` | ANDs A_s with the second sparse set B_s and counts: the array × array path | — |
 //! | `scan.n1e5`, `scan.n1e6` | `scan.status`, `scan.split` | counts the rows of one status in `NODE`'s 60-byte rows; the floor counts the same status in a dense 1-byte column built from `NODE` in the run's setup, the layout a per-field split of `NODE` would give (OP-09-21, `09-segments.md:1369-1372`; `status`, `08-data-model.md:80`). Both cycle the status through 0–3 with their own counters, so they time the same counts | — |
 //! | `overlay.n1e5`, `overlay.n1e6` | `probe` | looks one `#N` up in a full tail's node index ("overlay probe ~0.2 µs", `ARCHITECTURE-RESEARCH.md:968`) | — |
 //! | `read-4096.n1e6` | `read` | T1's point read: the status of a node the tail touched, through the overlay and the tail's records, else the base row | t1 (read ≤ 50 µs) |
@@ -20,7 +22,11 @@
 //! mapped, and, for the last four families, a full `ops` tail at P06 (4,096 at production) written as `log.<n>`
 //! extents with `HEAD`; it is removed on every path out of the run. The probe's choices: the ids a probe cycles
 //! through ([`PROBE_IDS`] drawn from the quantity's seed; the read's are the tail's touched nodes), the families'
-//! single arms, and the catch-up's burst.
+//! single arms, and the catch-up's burst. The sparse sets are the probe's too: A_s = {#N : mix(`SALT_A` ^ #N) mod 32
+//! = s} and B_s likewise with `SALT_B`, for s = 0–3, about 2,048 ids per 65,536-id chunk, under the array limit of
+//! 4,096 ([`sparse_ids`]); they live in the fixture's memory, not in the base, so the base's sections are unchanged. At
+//! the test profile (N / 100) the kind-status sets are arrays too, so the smoke's `bitset-ab` takes the array × array
+//! path; the array × bitmap path at production N is pinned by `sparse_bitset_arms_take_the_array_paths`.
 //!
 //! **The driver** ([MP §9.7] as merged, `measurement-protocol.md:777-780`; the flags of `m10` beside it): `--host`,
 //! `--condition`, `--load-log`, `--out`, `--quantity`, `--commit`, `--toolchain`, `--scratch`, `--smoke` (every
@@ -35,7 +41,7 @@ use crate::load::validate::{COVER_WAIT, read_log_file, verdict_when_covered};
 use crate::overlay::{Builder, Key, Overlay, Probe, Value, kind_key, kind_status_key};
 use crate::run::{Context, RunSpec, measure};
 use crate::seg::base::{self, Columns};
-use crate::seg::bitset::{Frozen, and_popcount};
+use crate::seg::bitset::{Frozen, and_popcount, encode_frozen};
 use crate::seg::delta;
 use crate::seg::{NODE_HDR_LEN, STATUS_AT, u32_at};
 use crate::tail::rec::Payload;
@@ -83,6 +89,10 @@ pub enum Family {
     Csr,
     /// Frozen-bitset AND/popcount.
     Bitset,
+    /// AND/popcount of a kind-status bitset with a sparse set: array × bitmap.
+    BitsetAb,
+    /// AND/popcount of two sparse sets: array × array.
+    BitsetAa,
     /// Column scans.
     Scan,
     /// The overlay probe.
@@ -101,6 +111,8 @@ impl Family {
         match self {
             Family::Csr => "csr",
             Family::Bitset => "bitset",
+            Family::BitsetAb => "bitset-ab",
+            Family::BitsetAa => "bitset-aa",
             Family::Scan => "scan",
             Family::Overlay => "overlay",
             Family::Read => "read-4096",
@@ -113,7 +125,7 @@ impl Family {
     pub const fn arms(self) -> &'static [&'static str] {
         match self {
             Family::Csr => &["expand"],
-            Family::Bitset => &["and.popcount"],
+            Family::Bitset | Family::BitsetAb | Family::BitsetAa => &["and.popcount"],
             Family::Scan => &["scan.status", "scan.split"],
             Family::Overlay => &["probe"],
             Family::Read => &["read"],
@@ -152,7 +164,7 @@ pub struct Quantity {
     pub n: u32,
 }
 
-/// The 11 quantities in run order.
+/// The 15 quantities in run order.
 pub fn grid() -> Vec<Quantity> {
     let q = |family: Family, n: u32| {
         let scale = match n {
@@ -168,7 +180,14 @@ pub fn grid() -> Vec<Quantity> {
     };
     let mut g = Vec::new();
     for n in [100_000, 1_000_000] {
-        for f in [Family::Csr, Family::Bitset, Family::Scan, Family::Overlay] {
+        for f in [
+            Family::Csr,
+            Family::Bitset,
+            Family::BitsetAb,
+            Family::BitsetAa,
+            Family::Scan,
+            Family::Overlay,
+        ] {
             g.push(q(f, n));
         }
     }
@@ -270,18 +289,53 @@ pub fn scan_split(col: &[u8], s: u8) -> u64 {
     col.iter().filter(|&&b| b == s).count() as u64
 }
 
+/// The sparse sets' modulus: about 65,536 / 32 = 2,048 ids per chunk, so every chunk is an array.
+pub const SPARSE_MOD: u64 = 32;
+/// The salt of the sparse sets A_s.
+pub const SALT_A: u64 = 0x6D31_345F_7370_4131;
+/// The salt of the sparse sets B_s.
+pub const SALT_B: u64 = 0x6D31_345F_7370_4232;
+
+/// The sparse set of status slot `s` under `salt` in `1..=n`: the ids whose `mix(salt ^ #N)` is `s` modulo
+/// [`SPARSE_MOD`], strictly ascending.
+pub fn sparse_ids(n: u32, salt: u64, s: u8) -> Vec<u32> {
+    (1..=n)
+        .filter(|&id| mix(salt ^ u64::from(id)) % SPARSE_MOD == u64::from(s))
+        .collect()
+}
+
 /// What the counting arms read besides the base's sections, built by [`prepare`] outside every timed region.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Operands {
     /// The split status column of a `scan` fixture ([`split_status`]), else empty.
     pub split: Vec<u8>,
+    /// The frozen bitsets of A_0 … A_3 of a `bitset-ab` or `bitset-aa` fixture, else empty.
+    pub sparse_a: Vec<Vec<u8>>,
+    /// The frozen bitsets of B_0 … B_3 of a `bitset-ab` or `bitset-aa` fixture, else empty.
+    pub sparse_b: Vec<Vec<u8>>,
 }
 
 /// The operands of `family`'s counting arms over the base `c`.
 pub fn operands(family: Family, c: &Columns<'_>) -> Result<Operands, String> {
+    let n = u32::try_from(c.rows).map_err(|_| "more than 2^32 rows")?;
+    let sets = |salt: u64| -> Result<Vec<Vec<u8>>, String> {
+        (0..STATUSES)
+            .map(|s| {
+                let mut b = Vec::new();
+                encode_frozen(&sparse_ids(n, salt, s), &mut b)?;
+                Ok(b)
+            })
+            .collect()
+    };
     Ok(match family {
         Family::Scan => Operands {
             split: split_status(c),
+            ..Operands::default()
+        },
+        Family::BitsetAb | Family::BitsetAa => Operands {
+            sparse_a: sets(SALT_A)?,
+            sparse_b: sets(SALT_B)?,
+            ..Operands::default()
         },
         _ => Operands::default(),
     })
@@ -293,7 +347,8 @@ pub type CountOp<'p> = Box<dyn FnMut() -> u64 + 'p>;
 /// The operations of the AND/popcount and scan arms of `family` over the base `c` and the operands `ops`, named as
 /// [`Family::arms`], arm 0 first. Each cycles the status s through 0–3 with its own counter, so arm 0 and its floor
 /// time the same counts. [`arms`] times exactly these calls, so a test that calls them checks the operands each arm
-/// passes to its probe.
+/// passes to its probe: `bitset` ANDs the kind set with kind-status s, `bitset-ab` kind-status s with A_s, `bitset-aa`
+/// A_s with B_s.
 pub fn count_ops<'p>(
     family: Family,
     c: &'p Columns<'p>,
@@ -304,15 +359,44 @@ pub fn count_ops<'p>(
         (*i % usize::from(STATUSES)) as u8
     };
     let (mut i, mut j) = (0usize, 0usize);
+    let status_sets = || -> Result<Vec<Frozen<'p>>, String> {
+        (0..STATUSES)
+            .map(|s| c.frozen(kind_status_key(BASE_KIND, s)))
+            .collect()
+    };
+    let parsed = |sets: &'p [Vec<u8>]| -> Result<Vec<Frozen<'p>>, String> {
+        if sets.len() != usize::from(STATUSES) {
+            return Err(format!("{} sparse sets, not {STATUSES}", sets.len()));
+        }
+        sets.iter().map(|b| Frozen::parse(b)).collect()
+    };
     let v: Vec<(&'static str, CountOp<'p>)> = match family {
         Family::Bitset => {
             let kind = c.frozen(kind_key(BASE_KIND))?;
-            let sets = (0..STATUSES)
-                .map(|s| c.frozen(kind_status_key(BASE_KIND, s)))
-                .collect::<Result<Vec<Frozen<'p>>, String>>()?;
+            let sets = status_sets()?;
             vec![(
                 "and.popcount",
                 Box::new(move || and_popcount(&kind, &sets[usize::from(s_of(&mut i))])),
+            )]
+        }
+        Family::BitsetAb => {
+            let (x, y) = (status_sets()?, parsed(&ops.sparse_a)?);
+            vec![(
+                "and.popcount",
+                Box::new(move || {
+                    let s = usize::from(s_of(&mut i));
+                    and_popcount(&x[s], &y[s])
+                }),
+            )]
+        }
+        Family::BitsetAa => {
+            let (x, y) = (parsed(&ops.sparse_a)?, parsed(&ops.sparse_b)?);
+            vec![(
+                "and.popcount",
+                Box::new(move || {
+                    let s = usize::from(s_of(&mut i));
+                    and_popcount(&x[s], &y[s])
+                }),
             )]
         }
         Family::Scan => vec![
@@ -685,7 +769,7 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
                 },
             )));
         }
-        Family::Bitset | Family::Scan => {
+        Family::Bitset | Family::BitsetAb | Family::BitsetAa | Family::Scan => {
             for (name, mut op) in count_ops(q.family, c, &p.operands)? {
                 arms.push(Box::new(TimedFn::new(name, ticker.clone(), move || {
                     Ok(op())
@@ -1073,6 +1157,7 @@ mod tests {
     use crate::arm::{MonoTicker, valid_name};
     use crate::host::tests::Canned;
     use crate::record::RunRecord;
+    use crate::seg::bitset::Container;
     use crate::seg::delta::decode;
     use crate::tail::commit::Op;
     use crate::tail::memfs::MemFs;
@@ -1231,11 +1316,12 @@ mod tests {
         (tail, b)
     }
 
-    /// 11 quantities with valid, unique names ([MP §4.1]): the four layout families at 1e5 and 1e6, the read and the
-    /// catch-up at 1e6, the checkpoint at 0.5 M; 14 arms; the minimum tiers of the budgets (t1 read ≤ 50 µs, t3
-    /// checkpoint ≤ 100 ms, t2 catch-up ≤ 5 ms, `ARCHITECTURE-RESEARCH.md:130`, `:140`).
+    /// 15 quantities with valid, unique names ([MP §4.1]): the six layout families at 1e5 and 1e6 (the sparse
+    /// AND/popcount pair of R-30 among them), the read and the catch-up at 1e6, the checkpoint at 0.5 M; 18 arms; the
+    /// minimum tiers of the budgets (t1 read ≤ 50 µs, t3 checkpoint ≤ 100 ms, t2 catch-up ≤ 5 ms,
+    /// `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and no tail for the sparse pair.
     #[test]
-    fn grid_has_eleven_valid_quantities() {
+    fn grid_has_fifteen_valid_quantities() {
         let g = grid();
         let names: Vec<&str> = g.iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
@@ -1243,10 +1329,14 @@ mod tests {
             [
                 "csr.n1e5",
                 "bitset.n1e5",
+                "bitset-ab.n1e5",
+                "bitset-aa.n1e5",
                 "scan.n1e5",
                 "overlay.n1e5",
                 "csr.n1e6",
                 "bitset.n1e6",
+                "bitset-ab.n1e6",
+                "bitset-aa.n1e6",
                 "scan.n1e6",
                 "overlay.n1e6",
                 "read-4096.n1e6",
@@ -1255,12 +1345,16 @@ mod tests {
             ]
         );
         assert!(names.iter().all(|n| valid_name(n)));
-        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 11);
+        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 15);
         let arms: Vec<&str> = g
             .iter()
             .flat_map(|q| q.family.arms().iter().copied())
             .collect();
-        assert_eq!(arms.len(), 14);
+        assert_eq!(arms.len(), 18);
+        for f in [Family::BitsetAb, Family::BitsetAa] {
+            assert_eq!(f.arms(), ["and.popcount"]);
+            assert_eq!((f.min_tier(), f.needs_tail()), (None, false));
+        }
         assert!(arms.iter().all(|a| valid_name(a)));
         let n_of = |name: &str| g.iter().find(|q| q.name == name).unwrap().n;
         assert_eq!(
@@ -1278,19 +1372,20 @@ mod tests {
             tiers,
             [Some(Tier::T1), Some(Tier::T3), Some(Tier::T2), None]
         );
-        let t = target(&g[9], Profile::Production);
+        assert_eq!(g[13].family, Family::Ckpt);
+        let t = target(&g[13], Profile::Production);
         assert_eq!((t.clause, t.threshold, t.n), (Clause::Ops, 4_096, 500_000));
-        assert_eq!(target(&g[9], Profile::Test).n, 5_000);
+        assert_eq!(target(&g[13], Profile::Test).n, 5_000);
     }
 
-    /// `--smoke` runs every quantity at the test profile with each arm once: 14 lines, one per (quantity, arm).
+    /// `--smoke` runs every quantity at the test profile with each arm once: 18 lines, one per (quantity, arm).
     #[test]
     fn smoke_exercises_every_arm_once() {
         let fs = MemFs::with_dir(&scratch());
         let (code, out, err) = run(&fs, &["--smoke", "--scratch", "/scratch"]);
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), 14, "{out}");
+        assert_eq!(lines.len(), 18, "{out}");
         let pairs: BTreeSet<(String, String)> = lines
             .iter()
             .map(|l| {
@@ -1310,7 +1405,7 @@ mod tests {
             })
             .collect();
         assert_eq!(pairs, expect);
-        assert_eq!(fs.log().maps.len(), 11, "each run maps its base once");
+        assert_eq!(fs.log().maps.len(), 15, "each run maps its base once");
     }
 
     /// `--smoke` with the contract flags records nothing: no file under `--out`, and every fixture is removed, the
@@ -1335,7 +1430,7 @@ mod tests {
             ],
         );
         assert_eq!(code, EXIT_DONE, "{err}");
-        assert_eq!(out.lines().count(), 14);
+        assert_eq!(out.lines().count(), 18);
         assert_eq!(
             std::fs::read_dir(&out_dir).unwrap().count(),
             0,
@@ -1403,7 +1498,10 @@ mod tests {
         // The arms' operations, call by call: s = 1, 2, 3, 0, 1, …
         let calls = |ops: &mut CountOp<'_>| (0..8).map(|_| ops()).collect::<Vec<u64>>();
         let want = |shift: usize| -> Vec<u64> { (1..=8).map(|i| naive[(i + shift) % 4]).collect() };
-        let real = Operands { split: col.clone() };
+        let real = Operands {
+            split: col.clone(),
+            ..Operands::default()
+        };
         let mut v = count_ops(Family::Scan, &c, &real).unwrap();
         let names: Vec<&str> = v.iter().map(|o| o.0).collect();
         assert_eq!(names, Family::Scan.arms());
@@ -1415,6 +1513,7 @@ mod tests {
         );
         let rotated = Operands {
             split: col.iter().map(|b| (b + 1) % 4).collect(),
+            ..Operands::default()
         };
         let mut v = count_ops(Family::Scan, &c, &rotated).unwrap();
         assert_eq!(calls(&mut v[0].1), want(0), "scan.status reads NODE");
@@ -1449,6 +1548,96 @@ mod tests {
                 .iter()
                 .all(|&id| (1..=1_000).contains(&id))
         );
+    }
+
+    /// The sparse AND/popcount quantities take the array paths of the frozen AND (R-30; test m-2): at N = 100,000 and
+    /// 1,000,000 every chunk of each sparse set A_s and B_s is an array and every chunk of kind-status s a bitmap, and
+    /// both ANDs equal the naive intersections. Through the arms' operations (critique I-1), on a base at N = 20,000,
+    /// where kind-status s is already a bitmap and A_s, B_s arrays: `bitset-ab` returns |kind-status s ∩ A_s| and
+    /// `bitset-aa` |A_s ∩ B_s|, call by call for s = 1, 2, 3, 0, …
+    #[test]
+    fn sparse_bitset_arms_take_the_array_paths() {
+        let frozen = |ids: &[u32]| -> Vec<u8> {
+            let mut b = Vec::new();
+            encode_frozen(ids, &mut b).unwrap();
+            b
+        };
+        let arrays = |f: &Frozen<'_>| {
+            !f.chunks().is_empty()
+                && f.chunks()
+                    .iter()
+                    .all(|c| matches!(c.2, Container::Array(_)))
+        };
+        let bitmaps = |f: &Frozen<'_>| {
+            !f.chunks().is_empty()
+                && f.chunks()
+                    .iter()
+                    .all(|c| matches!(c.2, Container::Bitmap(_)))
+        };
+        let meet = |x: &[u32], y: &[u32]| -> u64 {
+            let y: BTreeSet<u32> = y.iter().copied().collect();
+            x.iter().filter(|v| y.contains(v)).count() as u64
+        };
+        for n in [100_000u32, 1_000_000] {
+            for s in 0..STATUSES {
+                let ks: Vec<u32> = (1..=n).filter(|id| id % 4 == u32::from(s)).collect();
+                let (a, b) = (sparse_ids(n, SALT_A, s), sparse_ids(n, SALT_B, s));
+                assert!(
+                    a.len() > (n / 40) as usize && b.len() > (n / 40) as usize,
+                    "N {n} s {s}: {} {}",
+                    a.len(),
+                    b.len()
+                );
+                let (kb, ab, bb) = (frozen(&ks), frozen(&a), frozen(&b));
+                let (kf, af, bf) = (
+                    Frozen::parse(&kb).unwrap(),
+                    Frozen::parse(&ab).unwrap(),
+                    Frozen::parse(&bb).unwrap(),
+                );
+                assert!(bitmaps(&kf), "N {n} s {s}: kind-status s is a bitmap");
+                assert!(
+                    arrays(&af) && arrays(&bf),
+                    "N {n} s {s}: A_s, B_s are arrays"
+                );
+                let ab_naive = a.iter().filter(|id| *id % 4 == u32::from(s)).count() as u64;
+                assert_eq!(and_popcount(&kf, &af), ab_naive, "N {n} s {s}: ab");
+                assert_eq!(and_popcount(&af, &bf), meet(&a, &b), "N {n} s {s}: aa");
+            }
+        }
+        let n = 20_000;
+        let b = base::build(&base::Spec {
+            n,
+            upto_lsn: 1 << 16,
+            base_seq: BASE_SEQ,
+        })
+        .unwrap();
+        let c = Columns::parse(&b).unwrap();
+        for family in [Family::BitsetAb, Family::BitsetAa] {
+            let ops = operands(family, &c).unwrap();
+            for s in 0..STATUSES {
+                let ks = c.frozen(kind_status_key(BASE_KIND, s)).unwrap();
+                assert!(bitmaps(&ks), "N {n} s {s}: kind-status s is a bitmap");
+                let i = usize::from(s);
+                assert!(arrays(&Frozen::parse(&ops.sparse_a[i]).unwrap()));
+                assert!(arrays(&Frozen::parse(&ops.sparse_b[i]).unwrap()));
+            }
+            let mut v = count_ops(family, &c, &ops).unwrap();
+            assert_eq!(v.iter().map(|o| o.0).collect::<Vec<_>>(), family.arms());
+            let got: Vec<u64> = (0..8).map(|_| v[0].1()).collect();
+            let want: Vec<u64> = (1..=8)
+                .map(|i| {
+                    let s = (i % 4) as u8;
+                    let a = sparse_ids(n, SALT_A, s);
+                    match family {
+                        Family::BitsetAb => {
+                            a.iter().filter(|id| *id % 4 == u32::from(s)).count() as u64
+                        }
+                        _ => meet(&a, &sparse_ids(n, SALT_B, s)),
+                    }
+                })
+                .collect();
+            assert_eq!(got, want, "{family:?}: the arm's operands");
+        }
     }
 
     /// T1's point read returns the tail's value (spec gate 1): for every node the tail touched, the status its last
@@ -1909,14 +2098,14 @@ mod tests {
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 11);
+            assert_eq!(calls.len(), 15);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 11);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 15);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
