@@ -615,6 +615,38 @@ mod tests {
         v.check_digests().unwrap();
     }
 
+    /// `SecEnt` ([F09 §2.2], `09-segments.md:85-93`): 32 bytes, little-endian, `tag` at 0 (2 B), `flags` at 2 (2 B),
+    /// `count` at 4 (4 B), `off` at 8 (8 B), `len` at 16 (8 B) and `xxh3` at 24 (8 B). A hand-built entry with a
+    /// distinct byte per position encodes to its literal and decodes back, and in `four()`'s segment entry 2 (tag
+    /// 0x0020, 13 bytes at `data_off + 8`) holds each field at its offset; a writer and a reader that agreed on other
+    /// offsets would still round-trip, so only these pins tie the entry to the chapter (review m-1).
+    #[test]
+    fn sec_ent_fields_sit_at_f09_offsets() {
+        let e = SecEnt {
+            tag: 0x0201,
+            flags: 0x0403,
+            count: 0x0807_0605,
+            off: 0x100F_0E0D_0C0B_0A09,
+            len: 0x1817_1615_1413_1211,
+            xxh3: 0x201F_1E1D_1C1B_1A19,
+        };
+        let mut b = [0u8; SEC_ENT_LEN];
+        e.encode(&mut b);
+        assert_eq!(b.to_vec(), (1..=32).collect::<Vec<u8>>());
+        assert_eq!(SecEnt::decode(&b), e);
+        let seg = four();
+        let d = data_off(4) as u64;
+        let at = SEG_HDR_LEN + 2 * SEC_ENT_LEN;
+        let raw = &seg[at..at + SEC_ENT_LEN];
+        assert_eq!(&raw[0..2], &0x0020u16.to_le_bytes(), "tag at 0");
+        assert_eq!(&raw[2..4], &[0, 0], "flags at 2");
+        assert_eq!(&raw[4..8], &13u32.to_le_bytes(), "count at 4");
+        assert_eq!(&raw[8..16], &(d + 8).to_le_bytes(), "off at 8");
+        assert_eq!(&raw[16..24], &13u64.to_le_bytes(), "len at 16");
+        let section = &seg[d as usize + 8..d as usize + 21];
+        assert_eq!(&raw[24..32], &xxh3_64(section).to_le_bytes(), "xxh3 at 24");
+    }
+
     /// The section table and placement (`09-segments.md:80-110`): 32-byte entries sorted by tag; each section at the
     /// first multiple of 8 at or after the previous one's end, zeros between, `total_len` at the last one's end; the
     /// entry's `xxh3` covers the section. Out-of-order or surplus sections are refused, and the parser refuses a
