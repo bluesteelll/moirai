@@ -1227,6 +1227,12 @@ fn a_resolutions_origin_follows_the_state_it_lands() {
         let r = s.run(continue_("main", "lane/x"), fresh_on("main"));
         assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
         assert_eq!(data(&r).outcome, "landed");
+        let m = tip(s, "lane/x").unwrap();
+        assert_eq!(
+            s.st.dag.commits[&m].resolves,
+            Vec::<(Key, u8)>::new(),
+            "the landed commit records no resolution"
+        );
         assert_eq!(
             state(s, "lane/x").nodes[&Nid(3)].parent,
             None,
@@ -1320,6 +1326,11 @@ fn a_resolutions_origin_follows_the_state_it_lands() {
         "a conflicted landing"
     );
     let mc = tip(&c, "lane/x").unwrap();
+    assert_eq!(
+        c.st.dag.commits[&mc].resolves,
+        Vec::<(Key, u8)>::new(),
+        "the landed commit records no resolution"
+    );
     let main_tip_c = tip(&c, "main").unwrap();
     assert_eq!(
         origin(&c, mc, 1),
@@ -1352,6 +1363,11 @@ fn a_resolutions_origin_follows_the_state_it_lands() {
     assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
     assert_eq!(data(&r).outcome, "landed");
     let md = tip(&d, "lane/x").unwrap();
+    assert_eq!(
+        d.st.dag.commits[&md].resolves,
+        Vec::<(Key, u8)>::new(),
+        "the landed commit records no resolution"
+    );
     assert_eq!(d.st.dag.commits[&md].parents, vec![x1, m2]);
     assert_eq!(state(&d, "lane/x").nodes[&Nid(2)].parent, None);
     assert_eq!(

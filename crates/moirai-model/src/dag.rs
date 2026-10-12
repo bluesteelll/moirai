@@ -213,9 +213,9 @@ pub struct Commit {
     pub violations: Vec<crate::merge::Violation>,
     /// The keys the commit's `Resolve` ops name ([F06 §7.7]; [F12 §6.5]), in key order, a resolution that left its
     /// key's value as it was included, each with the op's `choice` (0 `ours`, 1 `theirs`, 2 `base`, 3 `value`, 4
-    /// `repoint`, 5 `drop`): on a staging ref, `merge --continue` overlays each one ([F12 §9.4] step 2); on the commit
-    /// a `merge --continue` lands, the resolutions it applied ([F12 §6.5] lets a merge commit carry `Resolve` ops),
-    /// whose choice 2 or 3 makes the commit the key's origin ([`crate::dag::Dag::origin`]). Never hashed.
+    /// `repoint`, 5 `drop`), on a `Resolve` commit of any ref. Only a staging ref's are read: `merge --continue`
+    /// overlays each key ([F12 §9.4] step 2). The commit a `merge --continue` lands records none, and no origin reads
+    /// a choice ([`crate::dag::Dag::origin`]; R-20). Never hashed, never exported.
     pub resolves: Vec<(Key, u8)>,
     /// The `stage` group of a staged `merge` or `sync` ([F06 §4.4.16]): the arguments `merge --continue` recomputes
     /// with ([F12 §9.4] step 1); `None` for the absent group (no `--base`, no override, `strict` false). Never hashed.
