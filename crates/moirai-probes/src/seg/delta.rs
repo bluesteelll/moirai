@@ -310,11 +310,11 @@ pub fn encode(d: &Delta) -> Result<Vec<u8>, String> {
     put_rows(&mut w, &nodes, &creators, [&col(0), &col(1), &col(2)])?;
     for (lists, tags) in [
         (
-            Csr::of_lists(d.rows.iter().map(|r| r.out.clone())),
+            Csr::of_lists(d.rows.iter().map(|r| r.out.as_slice())),
             [tag::OUT_OFF, tag::OUT_DST, tag::OUT_KIND],
         ),
         (
-            Csr::of_lists(d.rows.iter().map(|r| r.inn.clone())),
+            Csr::of_lists(d.rows.iter().map(|r| r.inn.as_slice())),
             [tag::IN_OFF, tag::IN_SRC, tag::IN_KIND],
         ),
     ] {
