@@ -1,8 +1,10 @@
 //! The naive map the overlay is checked against: every key the subset can set mapped to its last value in log order,
 //! the final set memberships over the base, `ALLOC` and `UIDX` rows, the newest `K_RT` row per key and the symbols,
-//! all in ordered maps, with none of the overlay's indexes or `prev` walks.
+//! all in ordered maps, with none of the overlay's indexes or `prev` walks. It reads each op's (key, value) pairs
+//! itself ([`written`]), not through the overlay's [`sets`](super::sets), so a wrong value reading in the probe
+//! disagrees with this map.
 
-use super::{BitsetKey, DELETED_KEY, Key, Value, kind_key, kind_status_key, sets};
+use super::{BitsetKey, DELETED_KEY, Key, Value, kind_key, kind_status_key};
 use crate::overlay::Base;
 use crate::tail::commit::Op;
 use crate::tail::rec::{Payload, Record};
@@ -74,7 +76,7 @@ impl Naive {
                     for op in &c.ops {
                         let id = op.owner();
                         n.touches.push((id, rec.lsn));
-                        for (k, v) in sets(op) {
+                        for (k, v) in written(op) {
                             n.values.insert((id, k), v);
                         }
                         let now = *n.states.entry(id).or_insert_with(|| base_state(base, id));
@@ -130,6 +132,49 @@ impl Naive {
         }
         out
     }
+}
+
+/// The (key, value) pairs `op` leaves ([F06 §7.4]–§7.5), read here on its own: a `Create` its existence (live, of its
+/// kind) and every entry of its image; a `Delete` its existence (deleted, with its `reason` and `replaced_by`);
+/// `SetField`, `SetStatus`, `SetBody` and `Move` the new side of their key; an `AddEdge` the edge present and a
+/// `RemoveEdge` the edge absent.
+pub(super) fn written(op: &Op<'_>) -> Vec<(Key, Value)> {
+    let mut out = Vec::new();
+    match op {
+        Op::Create { kind, image, .. } => {
+            out.push((Key::Exist, Value::Live(*kind)));
+            if let Some((status, resolution)) = image.status {
+                out.push((Key::Status, Value::Status(status, resolution)));
+            }
+            if let Some(hash) = image.body {
+                out.push((Key::Body, Value::Body(Some(hash))));
+            }
+            for (name, value) in &image.fields {
+                out.push((Key::Field(*name), Value::Field(value.0.to_vec())));
+            }
+        }
+        Op::Delete {
+            reason,
+            replaced_by,
+            ..
+        } => out.push((Key::Exist, Value::Deleted(*reason, *replaced_by))),
+        Op::SetField { name, new, .. } => {
+            out.push((Key::Field(*name), Value::Field(new.0.to_vec())));
+        }
+        Op::SetStatus {
+            new: (status, resolution),
+            ..
+        } => out.push((Key::Status, Value::Status(*status, *resolution))),
+        Op::SetBody { new, .. } => out.push((Key::Body, Value::Body(*new))),
+        Op::AddEdge(e) => out.push((Key::Edge(e.ekind, e.dst), Value::Edge(true))),
+        Op::RemoveEdge(e) => out.push((Key::Edge(e.ekind, e.dst), Value::Edge(false))),
+        Op::Move {
+            new_parent,
+            new_order,
+            ..
+        } => out.push((Key::Hier, Value::Hier(*new_parent, new_order.to_string()))),
+    }
+    out
 }
 
 fn uid_of(op: &Op<'_>) -> [u8; 16] {

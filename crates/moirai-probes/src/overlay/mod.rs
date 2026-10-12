@@ -248,8 +248,9 @@ fn field(v: &TValue<'_>) -> Value {
     Value::Field(v.0.to_vec())
 }
 
-/// The (key, value) pairs an op sets: an existence op its existence and, for a `Create`, every value key of its image;
-/// a value op its key. The naive map and the probe share this one reading of [F06 §7.4]–§7.5.
+/// The (key, value) pairs an op sets ([F06 §7.4]–§7.5): an existence op its existence and, for a `Create`, every value
+/// key of its image; a value op the new side of its key. The naive map reads the same rules on its own
+/// (`overlay/naive.rs`), so the probe's values are checked against it, not shared with it.
 pub fn sets(op: &Op<'_>) -> Vec<(Key, Value)> {
     match op {
         Op::Create { kind, image, .. } => {
@@ -721,9 +722,10 @@ mod naive;
 
 #[cfg(test)]
 mod tests {
-    use super::naive::Naive;
+    use super::naive::{self, Naive};
     use super::*;
     use crate::tail::TAIL_READ_CHUNK;
+    use crate::tail::commit::{Edge, Image, blake3_16};
     use crate::tail::scan::{MemLog, decode};
     use crate::tail::testdata::{self, CHAIN_IN, START};
 
@@ -764,11 +766,32 @@ mod tests {
     }
 
     /// Every key the tail sets probes to the naive map's last value; keys the tail never sets are left to the base.
+    /// The naive map's values are pinned by hand from `testdata::hand_built`: one key per op kind, the newest op
+    /// winning (#5's field 2 is `second`, #7's edge is removed, #51's status is the later `SetStatus`).
     #[test]
     fn overlay_equals_naive_map_on_a_hand_built_tail() {
         let b = built();
         let mut src = MemLog::new(START, &b.bytes);
-        assert_eq!(b.naive.values.len(), 14, "a non-empty map");
+        let text = |s: &str| Value::Field(TValue::text(s).0.to_vec());
+        let pinned: BTreeMap<(u32, Key), Value> = [
+            ((3, Key::Status), Value::Status(1, 0)),
+            ((3, Key::Hier), Value::Hier(2, "a0".to_string())),
+            ((3, Key::Field(4)), Value::Field(TValue::int(42).0.to_vec())),
+            ((5, Key::Field(2)), text("second")),
+            ((7, Key::Edge(1, 51)), Value::Edge(false)),
+            ((9, Key::Exist), Value::Deleted(0, 0)),
+            ((20, Key::Field(6)), text("x")),
+            ((21, Key::Field(6)), text("x")),
+            ((22, Key::Field(6)), text("x")),
+            ((51, Key::Exist), Value::Live(2)),
+            ((51, Key::Status), Value::Status(2, 1)),
+            ((51, Key::Field(1)), text("title 51")),
+            ((51, Key::Body), Value::Body(Some(blake3_16(&[0x5B; 300])))),
+            ((52, Key::Exist), Value::Live(1)),
+        ]
+        .into_iter()
+        .collect();
+        assert_eq!(b.naive.values, pinned, "the naive map, by hand");
         for ((n, key), v) in &b.naive.values {
             assert_eq!(
                 b.overlay.get(&mut src, *n, key),
@@ -841,6 +864,114 @@ mod tests {
         let first_touch = |n: u32| b.naive.touches.iter().find(|t| t.0 == n).unwrap().1;
         assert!(got[&3] > first_touch(3) && got[&51] > first_touch(51));
         assert_eq!(std::mem::size_of::<NodeEntry>(), 16, "16 B per entry");
+    }
+
+    /// Each op sets the new side of its key ([F06 §7.4]–§7.5), in the probe ([`sets`]) and in the naive map alike,
+    /// pinned by hand on ops whose old and new sides differ and on a `Delete` whose `reason` and `replaced_by` differ:
+    /// a reading of the old side, a swap or a wrong edge presence is red.
+    #[test]
+    fn each_op_sets_the_new_side_of_its_key() {
+        let edge = Edge {
+            src: 7,
+            prev: 1,
+            ekind: 3,
+            dst: 60,
+        };
+        let field = |t: TValue<'_>| Value::Field(t.0.to_vec());
+        let cases: Vec<(Op<'static>, Vec<(Key, Value)>)> = vec![
+            (
+                Op::Create {
+                    id: 61,
+                    prev: 0,
+                    uid: [0xC2; 16],
+                    kind: 4,
+                    c_actor: 5,
+                    c_role: 2,
+                    image: Image {
+                        status: Some((3, 1)),
+                        body: Some([0xB1; 16]),
+                        fields: vec![(1, TValue::text("t")), (6, TValue::int(-7))],
+                    },
+                },
+                vec![
+                    (Key::Exist, Value::Live(4)),
+                    (Key::Status, Value::Status(3, 1)),
+                    (Key::Body, Value::Body(Some([0xB1; 16]))),
+                    (Key::Field(1), field(TValue::text("t"))),
+                    (Key::Field(6), field(TValue::int(-7))),
+                ],
+            ),
+            (
+                Op::Delete {
+                    id: 9,
+                    prev: 1,
+                    reason: 4,
+                    replaced_by: 60,
+                    before: Image::default(),
+                },
+                vec![(Key::Exist, Value::Deleted(4, 60))],
+            ),
+            (
+                Op::SetField {
+                    id: 5,
+                    prev: 1,
+                    name: 2,
+                    old: TValue::text("old"),
+                    new: TValue::text("new"),
+                },
+                vec![(Key::Field(2), field(TValue::text("new")))],
+            ),
+            (
+                Op::SetStatus {
+                    id: 3,
+                    prev: 1,
+                    old: (1, 0),
+                    new: (2, 3),
+                },
+                vec![(Key::Status, Value::Status(2, 3))],
+            ),
+            (
+                Op::SetBody {
+                    id: 51,
+                    prev: 1,
+                    old: Some([0xB1; 16]),
+                    new: Some([0xB2; 16]),
+                },
+                vec![(Key::Body, Value::Body(Some([0xB2; 16])))],
+            ),
+            (
+                Op::SetBody {
+                    id: 51,
+                    prev: 1,
+                    old: Some([0xB2; 16]),
+                    new: None,
+                },
+                vec![(Key::Body, Value::Body(None))],
+            ),
+            (
+                Op::AddEdge(edge),
+                vec![(Key::Edge(3, 60), Value::Edge(true))],
+            ),
+            (
+                Op::RemoveEdge(edge),
+                vec![(Key::Edge(3, 60), Value::Edge(false))],
+            ),
+            (
+                Op::Move {
+                    id: 3,
+                    prev: 1,
+                    old_parent: 2,
+                    new_parent: 8,
+                    old_order: "a0".into(),
+                    new_order: "b1".into(),
+                },
+                vec![(Key::Hier, Value::Hier(8, "b1".to_string()))],
+            ),
+        ];
+        for (op, want) in &cases {
+            assert_eq!(&sets(op), want, "the probe: {op:?}");
+            assert_eq!(&naive::written(op), want, "the naive map: {op:?}");
+        }
     }
 
     /// A probe of a key the newest record of its owner does not set follows the owner's `prev` back
