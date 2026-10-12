@@ -476,16 +476,15 @@ mod tests {
         }
     }
 
-    /// Naive per-node state: (kind, status, deleted, parent, out-set, in-set, last op lsn).
+    /// Naive per-node state: the whole `NodeHdr`, `CREATOR` and the cold columns (`topo`, `defer_until`, `due`) as F08
+    /// gives them, and the out- and in-sets.
     #[derive(Clone, Debug, Default)]
     struct Naive {
-        kind: u8,
-        status: u8,
-        deleted: bool,
-        parent: u32,
+        hdr: NodeHdr,
+        creator: Creator,
+        cold: [u32; 3],
         out: BTreeSet<(u8, u32)>,
         inn: BTreeSet<(u8, u32)>,
-        last: u64,
     }
 
     /// The naive replay: each touched node's state, from the base's generator.
@@ -496,21 +495,22 @@ mod tests {
     }
 
     impl World {
+        /// The base's state of `id` from its generator ([`base::Spec`]), or an absent row (all zero, F08 §3.3).
         fn start(&self, id: u32) -> Naive {
             if id > self.s.n {
                 return Naive::default();
             }
             let s = self.s;
             Naive {
-                kind: 1,
-                status: (id % 4) as u8,
+                hdr: s.row(id),
+                creator: s.creator(id),
+                cold: [s.topo(id), s.defer(id), s.due(id)],
                 out: s.out_edges(id).into_iter().collect(),
                 inn: (1..=s.n)
                     .flat_map(|src| s.out_edges(src).into_iter().map(move |e| (src, e)))
                     .filter(|(_, (_, dst))| *dst == id)
                     .map(|(src, (k, _))| (k, src))
                     .collect(),
-                ..Naive::default()
             }
         }
 
@@ -524,28 +524,73 @@ mod tests {
         }
 
         fn set_parent(&mut self, id: u32, new: u32) {
-            let old = self.get(id).parent;
+            let old = self.get(id).hdr.parent;
             if old != 0 {
                 self.get(old).inn.remove(&(PARENT_EKIND, id));
             }
             if new != 0 {
                 self.get(new).inn.insert((PARENT_EKIND, id));
             }
-            self.get(id).parent = new;
+            self.get(id).hdr.parent = new;
         }
 
-        fn apply(&mut self, op: &Op<'_>) {
+        /// Applies one op of the commit `seq` whose record is at `lsn`.
+        fn apply(&mut self, op: &Op<'_>, seq: u64, lsn: u64) {
             let o = op.owner();
             match op {
-                Op::Create { kind, image, .. } => {
+                Op::Create {
+                    kind,
+                    c_actor,
+                    c_role,
+                    image,
+                    ..
+                } => {
+                    let (status, resolution) = image.status.unwrap();
                     let v = self.get(o);
-                    (v.kind, v.status) = (*kind, image.status.unwrap().0);
+                    // F08 §3.1: the header defaults, `created_tx` the creating commit, no title, field or body in
+                    // the probe's subset; §4: `CREATOR` is the commit's actor and role; the probe's `topo` is #N.
+                    v.hdr = NodeHdr {
+                        kind: *kind,
+                        status,
+                        resolution,
+                        priority: 2,
+                        criticality: 2,
+                        confidence: 0,
+                        authority: 4,
+                        created_tx: seq as u32,
+                        title_off: NONE32,
+                        fields_off: NONE32,
+                        ..NodeHdr::default()
+                    };
+                    v.creator = Creator {
+                        actor: *c_actor,
+                        role: *c_role as u16,
+                    };
+                    v.cold = [o, 0, 0];
                 }
                 Op::Delete { .. } => {
                     self.set_parent(o, 0);
-                    self.get(o).deleted = true;
+                    let v = self.get(o);
+                    // F08 §3.5 (`08-data-model.md:157-169`): the enumerations, `created_tx` and the title kept;
+                    // `flags` = deleted only, `parent` 0, the counters 0, no field block or body; `CREATOR` kept,
+                    // `topo`, `defer_until` and `due` 0.
+                    v.hdr = NodeHdr {
+                        flags: FLAG_DELETED,
+                        parent: 0,
+                        open_blockers: 0,
+                        open_blockers_exo: 0,
+                        children_total: 0,
+                        children_done: 0,
+                        fields_off: NONE32,
+                        body_ref: 0,
+                        ..v.hdr
+                    };
+                    v.cold = [0, 0, 0];
                 }
-                Op::SetStatus { new, .. } => self.get(o).status = new.0,
+                Op::SetStatus { new, .. } => {
+                    let v = self.get(o);
+                    (v.hdr.status, v.hdr.resolution) = *new;
+                }
                 Op::AddEdge(e) => {
                     self.get(e.src).out.insert((e.ekind, e.dst));
                     self.get(e.dst).inn.insert((e.ekind, e.src));
@@ -555,19 +600,26 @@ mod tests {
                     self.get(e.dst).inn.remove(&(e.ekind, e.src));
                 }
                 Op::Move { new_parent, .. } => self.set_parent(o, *new_parent),
-                Op::SetField { .. } | Op::SetBody { .. } => {
-                    self.get(o);
-                }
+                Op::SetField { .. } | Op::SetBody { .. } => {}
             }
+            // F08 §3.1: `rev_seq`, `updated_tx` and `last_op_lsn` name the owner's last op (the probe stamps them on
+            // every op of the owner, `SetField` and edges included).
+            let v = self.get(o);
+            v.hdr.rev_seq = seq;
+            v.hdr.updated_tx = seq as u32;
+            v.hdr.last_op_lsn = lsn;
         }
     }
 
     /// The delta's rows follow the tail, against a naive replay with sets: `IDS` is exactly the op owners, the edge
-    /// endpoints and the old and new parents; each row's kind, status, tombstone, parent, out-list and in-list are
-    /// the naive ones; a tombstone has F08 §3.5's fields; each owner's `last_op_lsn` is the overlay's node index entry;
-    /// and I-P3 holds across the base and the delta.
+    /// endpoints and the old and new parents; each row's whole `NodeHdr`, `CREATOR` and cold columns, its out-list and
+    /// its in-list are the naive ones (review m-3: a created row's creator, `created_tx`, resolution and defaults,
+    /// every owner's `rev_seq` and `updated_tx`, F08 §3.5's tombstone with its kept creator); a tombstone has F08
+    /// §3.5's fields; each owner's `last_op_lsn` is the overlay's node index entry; and I-P3 holds across the base and
+    /// the delta.
     #[test]
     fn delta_rows_follow_the_tail() {
+        let (mut created, mut tombs) = (0, 0);
         for seed in 1..=4 {
             let t = tail(120, 400, seed);
             let s = spec(t.base.n);
@@ -584,8 +636,7 @@ mod tests {
                     continue;
                 };
                 for op in &cm.ops {
-                    w.apply(op);
-                    w.naive.get_mut(&op.owner()).unwrap().last = r.lsn;
+                    w.apply(op, cm.seq, r.lsn);
                 }
             }
             let (naive, touched) = (w.naive, w.touched);
@@ -596,12 +647,9 @@ mod tests {
             for r in &d.rows {
                 let v = &naive[&r.id];
                 let h = r.node;
-                assert_eq!(
-                    (h.kind, h.status, h.deleted(), h.parent),
-                    (v.kind, v.status, v.deleted, v.parent),
-                    "#{}",
-                    r.id
-                );
+                assert_eq!(h, v.hdr, "#{} NodeHdr", r.id);
+                assert_eq!(r.creator, v.creator, "#{} CREATOR", r.id);
+                assert_eq!(r.cold, v.cold, "#{} topo, defer_until, due", r.id);
                 assert_eq!(
                     r.out,
                     v.out.iter().copied().collect::<Vec<_>>(),
@@ -615,7 +663,7 @@ mod tests {
                     r.id
                 );
                 if let Some(&l) = lsn_of.get(&r.id) {
-                    assert_eq!((h.last_op_lsn, v.last), (l, l), "#{}", r.id);
+                    assert_eq!((h.last_op_lsn, v.hdr.last_op_lsn), (l, l), "#{}", r.id);
                 }
                 if h.deleted() {
                     assert_eq!(
@@ -623,6 +671,10 @@ mod tests {
                         (1, NONE32, 0, 0)
                     );
                     assert_eq!(r.cold, [0, 0, 0]);
+                    tombs += 1;
+                }
+                if r.id > s.n {
+                    created += 1;
                 }
                 if let Ok(Probe::Tail(Value::Status(st, _))) =
                     o.get(&mut MemLog::new(t.start, &t.bytes), r.id, &Key::Status)
@@ -643,5 +695,9 @@ mod tests {
                 }
             }
         }
+        assert!(
+            created > 0 && tombs > 0,
+            "created {created}, tombstones {tombs}"
+        );
     }
 }
