@@ -45,10 +45,10 @@
 //! failed (an internal error, such as git or a record that cannot be written; a run's directory stays `.partial`);
 //! 5 `no-job-ran`.
 
-mod calendar;
-mod config;
-mod exec;
-mod guard;
+pub(crate) mod calendar;
+pub(crate) mod config;
+pub(crate) mod exec;
+pub(crate) mod guard;
 mod jobs;
 
 use crate::git;
@@ -237,7 +237,7 @@ impl Tree {
     /// Reads the tree: the pre-checks count untracked paths too; the check after each job counts tracked changes
     /// only, since a job may leave an untracked file (a failing proptest's regression file) without changing what it
     /// tested.
-    fn read(repo: &Path, untracked: bool) -> Result<Tree, String> {
+    pub(crate) fn read(repo: &Path, untracked: bool) -> Result<Tree, String> {
         let u = if untracked {
             "--untracked-files=all"
         } else {

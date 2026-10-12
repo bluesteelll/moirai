@@ -66,6 +66,12 @@ proptest = { version = "1.11.0", default-features = false, features = ["std"] }
 tiktoken-rs = { version = "0.12.1" }
 tree-sitter = { version = "0.27.0" }
 tree-sitter-rust = { version = "0.24.2" }
+# The codecs measurement 6 compares (PLAN §2.4 "lz4_flex 0.14, ruzstd 0.9", features "as measured"; [90 §11.3]): the
+# releases `fixtures/hex/INDEX.md` decoded its frames with. Default features stay off, since a member can add features
+# but on this toolchain cannot remove a workspace default; WP-54 adds those its measurement chooses. No member uses
+# them yet, so they are not in `Cargo.lock`, and WP-02's lints judge them when a member first does.
+lz4_flex = { version = "0.14.0", default-features = false }
+ruzstd = { version = "0.9.0", default-features = false }
 
 [workspace.lints.rust]
 # PLAN §2.1: no crate but `moirai-os` may contain `unsafe` code. `forbid` cannot be lowered by an attribute.
