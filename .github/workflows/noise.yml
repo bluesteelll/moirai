@@ -150,7 +150,7 @@ jobs:
           status=0
           for d in ${DRIVERS}; do
             echo "::group::${d}"
-            "${bin}/${d}.exe" --host hosted --condition "${CONDITION}" "${load_args[@]}" --out "${work}/records" || status=1
+            "${bin}/${d}.exe" --host hosted --condition "${CONDITION}" "${load_args[@]}" --commit "${GITHUB_SHA}" --toolchain "$(rustc --version)" --out "${work}/records" || status=1
             echo "::endgroup::"
           done
           if [ -n "${gen}" ]; then
