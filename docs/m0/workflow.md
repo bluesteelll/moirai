@@ -1,10 +1,11 @@
 # The agent workflow: units, the orchestrator and the gate kit
 
 - **Status:** set up on 2026-10-07 from the owner's brief and the plan the owner approved that day, and updated on
-  2026-10-11 for R-5 to R-11; R-HARN (`docs/m0/**`, [authors.md](authors.md) §3), reviewed like any other `docs/m0/`
-  file. The orchestrator reads this file. Every other agent reads only AGENTS.md "Agent work", its role file in
-  `.claude/agents/` and its brief; an agent of a LIGHT or STANDARD unit may also read §5.1 (the tiers and their
-  triggers), and the verifier also reads `tester.md` and `code-reviewer.md` for the checks it shares with them.
+  2026-10-11 for R-5 to R-11 and on 2026-10-12 for R-23 (the tiers, the stop-list, two units after a trial pair); R-HARN
+  (`docs/m0/**`, [authors.md](authors.md) §3), reviewed like any other `docs/m0/` file. The orchestrator reads this
+  file. Every other agent reads only AGENTS.md "Agent work", its role file in `.claude/agents/` and its brief; an agent
+  of a LIGHT or STANDARD unit may also read §5.1 (the tiers and their triggers), and the verifier also reads `tester.md`
+  and `code-reviewer.md` for the checks it shares with them.
 - **Sources:** AGENTS.md ("Git", "Data", "Agent work"); [PLAN.md](PLAN.md) §2.1 (target directories, test tiers),
   §2.5, §3.1 (author roles, S1–S6, "Mechanics"), §5 (commits and pushes); [authors.md](authors.md) §1–§3, §5;
   `xtask/roles.toml`; the module docs of `xtask/src/worktree.rs`, `gate.rs` and `authors.rs`;
@@ -13,7 +14,7 @@
   on 2026-10-07 (code.claude.com/docs/en/: `settings`, `settings-reference`, `permissions`, `sub-agents`,
   `workflows`, `prompt-caching`, `agent-view`); a fact that moves with a release is checked again in §15.
 - **Rulings:** R-1 to R-4 (§2) are the owner's answers of 2026-10-07. Later rulings are numbered on from R-5 in
-  `<ORCH>/RULINGS.md`, and units cite them by number. §2 summarises R-5 to R-11.
+  `<ORCH>/RULINGS.md`, and units cite them by number. §2 summarises R-5 to R-11 and R-23.
 
 ## 1. Terms and places
 
@@ -35,8 +36,8 @@
   the lane-A roles and `gate-b` for the lane-B roles of `xtask/roles.toml`, because the gate runs with the target
   directory of the branch's lane: units of different lanes then gate at once, and units of one lane take turns on the
   kit's lock of that worktree (they would wait on cargo's build lock of the shared target directory anyway). While
-  the capacity is one unit, every unit gates in `gate-a` with lane A's target directory, whatever its role's lane
-  (R-8, R-9).
+  units build only in lane A, every unit gates in `gate-a` with lane A's target directory, whatever its role's lane
+  (R-8, R-9); two open units take turns there on the kit's lock (R-23, §4).
 - **Lock set**: the paths a unit may write. **Red-first**, **pin**: AGENTS.md "Agent work". **Mutation**: a deliberate
   bug that a named gate must catch. **Delta-scoped**: only what the last fix or sync changed.
 - **Tier**: LIGHT, STANDARD or HEAVY, the depth of a unit's checks (§5.1), which sets its stages (§6.1).
@@ -111,13 +112,19 @@ Later rulings, in short (the full text is in `<ORCH>/RULINGS.md`; units cite the
 - **R-11 The kit counts lane A only** (2026-10-11; in force until a nightly run or a lane B unit). `kit/caps.txt`
   counts `D:/moirai-target/laneA` alone and keeps the other entries as comments. The full `[guard.caps]` set is
   restored before any nightly run or any lane B unit (§10).
+- **R-23 The lean workflow** (2026-10-12; in force). The owner chose risk tiers and a stop-list. Every unit runs at
+  a tier, LIGHT, STANDARD or HEAVY (§5.1, §6.1), as the lean design states it with the amendments of its adversarial
+  check: the merge-verdict machinery and every kit script are HEAVY; normative text brought in line with code is not
+  exempt; a PLAUSIBLE Critical or Important blocks `ok`; tests are counted by name in every tier; and lower-tier units
+  are audited, every one for the first 8, then 1 in 2 (§5.6). The stop-list says what is not built yet (§5.5). Two
+  units run at once after a trial pair (§4, §10). The matching change of AGENTS.md is the owner's commit.
 
 R-12 (2026-10-11) settles the questions of one unit, and §7 "The kit hash" carries its rule for re-installing the
 kit. Such unit rulings are not summarised here.
 
 §9 applies R-3. §10 applies R-4, R-5, R-10 and R-11, and §7 and Appendix A apply R-10 and R-11 to the kit. §1, §3 to
-§6, §8, §12, §13 and §15 apply R-8 and R-9. Chat with the owner may be in Russian; every file in the repository and in
-`<ORCH>` is in English (AGENTS.md).
+§6, §8, §12, §13 and §15 apply R-8 and R-9. §4, §5, §6, §10 and §11 apply R-23. Chat with the owner may be in Russian;
+every file in the repository and in `<ORCH>` is in English (AGENTS.md).
 
 ## 3. The orchestration state: `<ORCH>`
 
@@ -180,7 +187,13 @@ Capacity: <n> units; build jobs <n> per lane; budgets gate <min>, tests <min>; k
   lock serialises them with the lane's other builds.
 - **Lock sets.** A file outside the unit's lock set, or in another open unit's set, is a STOP. The lock set lies
   inside what the author role may write (authors.md §3); two open units never share a path.
-- **Concurrency**: at most the measured capacity (§10), one open unit per role.
+- **Concurrency**: at most the capacity (§10), one open unit per role. Under R-23, two units run at once after a
+  trial pair: the trial is a docs or spec unit beside another unit, and two code units follow only if RAM and D: hold
+  (the pre-flight's floors, `peak.txt`). Both gate in `gate-a`, serialised by the kit's lock (a busy start is exit 6:
+  the mechanic waits on the named run and starts again), so no second set of lane A artifacts is built. A `LOCKFILE`
+  outcome of one unit leaves `gate-a`'s lockfiles changed, and the other unit's next start there exits 2 ("lockfiles
+  differ") until that unit's lockfile commit lands: the orchestrator takes the lockfile steps below first, and two
+  code units that may change a manifest do not run at once.
 - **Disk.** Every gate start checks the disk headroom first (the kit's pre-flight, §10): the volume's available space
   less the growth the counted directories of `kit/caps.txt` may still take up to their caps, as the guard counts it for
   the nightly runner ([MP §8.1]); below the floor, nothing starts. The lane target directories are shared and never
@@ -352,6 +365,49 @@ The tier sets the unit's stages (§6.1).
    verified head with those runs' `id` and `status` columns, so that the next unit's expected set matches `master`; a
    unit whose last round ran no tests run (a LIGHT unit) refreshes no row. Close the row in `RESUME.md`, update the
    trunk line (`pushed: yes`) and commit `<ORCH>`.
+
+### 5.5 The stop-list (R-23)
+
+Orchestrator rules for what is not built yet. Each holds until the owner, or a consumer's need, lifts it.
+
+- **S1. No probe bodies beyond the measurement night's** until a consumer needs them. This is a deferral, not a
+  saving: the work stays owed before that consumer's deadline, and the M0 exit criteria that need it stand unless the
+  owner amends them.
+- **S2a. The model grows only by need**: its code and tests grow only through a spec finding, an exit criterion, or a
+  GT2 or GT18 row of the next milestone, and no new evaluation harness starts without an owner decision ([60 §4.6]).
+- **S3. `moirai-toylog` is frozen after WP-40b.** E4 stays its job, and M1's seeded protocol bugs belong to the
+  engine ([60 §3.2]).
+- **S4. One mutation on test-only crates.** A STANDARD unit on a test-only crate makes its one hand mutation (§6.1)
+  and no more; a HEAVY unit keeps its own counts (§6.1), and GT16 at each milestone exit stays the mutation gate of
+  record. Every harness that judges an exit criterion or a GT gate is shown red on a seeded fault, in any tier.
+- **S6. Each harness is built at its milestone**, sized to its gate: no GT4 variants for M3, M5 or M6 at M1, GT15
+  stays deferred, and the `ProjectFs` simulator waits for M6.
+- **S7. Minors never get a unit of their own.** At the merge, a review's Minor findings are folded into one fix-only
+  relaunch (`DELTA SINCE <head>: fix …`) or dropped with a reason in `RESUME.md`.
+
+### 5.6 The tier trial and the audit (R-23)
+
+The tiers run as a measured trial, for the rest of M0 or for 25 tiered units, whichever comes first. No HEAVY arm is
+cut on this trial.
+
+- **`<ORCH>/arms.tsv`**: one row per finding of a tiered unit's checkers and of its audit, with the columns `unit`,
+  `tier`, `round`, `arm`, `id`, `severity`, `rating` (CONFIRMED or PLAUSIBLE), `class` (normative text, test,
+  procedure or code), `unique` (no other arm, the audit included, found it), `merged` and `escaped_from` (filled when
+  a later stage or unit finds a defect in this unit's change). A wrong `logic` flag is a row of the fix agent's arm.
+- **The audit.** Every LIGHT and STANDARD unit is audited for the first 8 such units, then 1 in 2.
+  - After the merge (§5.4) and off the critical path, the orchestrator launches through the Agent tool a tester
+    (at least two mutations of its own, the touched crates' tests counted by name) and a code-reviewer (the merged
+    range, as a HEAVY round 1), each with the unit's header.
+  - The role worktree and the branch are gone by then (§5.4 step 6), so the header's `wt` is
+    `<ORCH>/<unit>/wt-audit`, a scratch worktree detached at the verified head (`git worktree add --detach
+    <ORCH>/<unit>/wt-audit <head>`), and the scope is `git diff <base>...<head>` in lock-set paths. Both run
+    read-only, write `audit_test.md` and `audit_review.md`, and the worktree is removed afterwards.
+  - The audit's tests run builds in lane A beside the open units: it counts as one unit for the capacity (§4, §10)
+    and starts only when there is room.
+  - A real defect becomes a fix unit; Minors follow S7. The audit's unique Critical and Important findings are the
+    tier's escapes.
+- **After 25 tiered units** a results-analyst repeats the stage analysis by tier. An escape that a skipped arm would
+  have caught adds or widens a trigger (§5.1).
 
 ## 6. The unit workflow
 
@@ -684,14 +740,15 @@ unit.
   directory) and `CARGO_BUILD_JOBS` cap, no rust-analyzer in role worktrees, fuzzers sanitizer-off at no more than two
   targets with `-rss_limit_mb=256`, gate jobs beside the agents within 1 GB in total, and everything refused below
   1.5 GB of free RAM.
-- **What the 1 GB covers** (R-5, ruled by the orchestrator on 2026-10-08 on the owner's delegation). [60 §3.15]
-  lists "the two build lanes" apart from "gate jobs beside the agents ≤ 1 GB in total", and `xtask/nightly.toml`
+- **What the 1 GB covers** (R-5, ruled by the orchestrator on 2026-10-08 on the owner's delegation). [60 §3.15] lists
+  "the two build lanes" apart from "gate jobs beside the agents ≤ 1 GB in total", and `xtask/nightly.toml`
   `[window.beside-agents]` applies the 1 GB to the nightly runner's jobs (PLAN WP-05); PLAN §4 lists it among the
   general parallelism limits. The ruling: `cargo xtask gate` and the per-commit gates are build-lane work, bounded by
   the lane's build lock, `CARGO_BUILD_JOBS` (`git config moirai.build-jobs`) and R-4's half of the RAM, with the
   pre-flight's floors before every kit start. The 1 GB binds the nightly-tier jobs run beside the agents. It is
   operational policy (AGENTS.md "Binding rules"). Until the capacity is measured (§15 step 9), at most one unit builds
-  at a time. Revisit it if a gate run's peak (`peak.txt`) leaves less than 1.5 GB free while the owner works.
+  at a time; R-23 then allows two units after a trial pair (§4, "Capacity" below). Revisit it if a gate run's peak
+  (`peak.txt`) leaves less than 1.5 GB free while the owner works.
 - **Build jobs.** `git config moirai.build-jobs` = half the logical cores divided by the number of lanes that may build
   at once (two), until measurement 21 sets the lane cap (`xtask/src/worktree.rs`, `.cargo/config.toml`). Role
   worktrees made after a change get the new value. Under R-8 and R-9 every unit builds with the orchestrator
@@ -716,7 +773,10 @@ unit.
 - **Capacity**: the number of units open at once, measured on the PC (§15 step 9): the largest number whose units'
   peak (one full gate's process tree, from `peak.txt`, plus the orchestrator session's working set while it runs a
   unit) fits in half the RAM while at least 1.5 GB stays free. Builds of units in one lane serialise on cargo's lock;
-  the other stages (cut, critique, review) do not build.
+  the other stages (cut, critique, review) do not build. R-23 sets it at two units after a trial pair: first a docs or
+  spec unit beside another unit, both gating in `gate-a` under the kit's lock (§4); then two code units only if RAM
+  and D: hold, that is, the pre-flight's floors pass and the trial's `peak.txt` leaves at least 1.5 GB free. An
+  audit's tests run (§5.6) counts as one unit.
 - **Windows.** No unit runs during an agreed measurement or nightly window (`/private/windows.toml`, nightly.md §2,
   §14).
 
@@ -740,8 +800,9 @@ unit.
 - **Rounds after the first are delta-scoped**, with mutations by tier (§6.1): a delta round whose delta changed
   non-test code makes one new mutation, which can find the round's only defect while the review says APPROVED; a slim
   round makes none, and its tester checks the flag that made it slim.
-- **Keep every checking arm** (critique, triage, the tester's mutations, review each round): they catch the defects.
-  Cut one only on a measured escape-rate difference over at least about 25 items.
+- **Checking arms by tier.** HEAVY keeps every arm (critique, triage, the tester's mutations, the review in every round
+  that changed non-test code): they catch the defects. LIGHT and STANDARD drop arms as R-23 rules, and the trial of
+  §5.6 measures what that loses; a further arm is cut only on that trial's measured escapes.
 - **A small always-loaded floor**: a lean AGENTS.md and memory index; typed agents with small tool sets start much
   lighter than a general-purpose agent.
 - **The orchestrator**: workflows return verdicts and paths (at most about 2k tokens); reports are read by section;
