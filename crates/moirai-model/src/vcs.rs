@@ -77,10 +77,12 @@ impl Dag {
     /// net changeset holds the key or the node's existence) and hops to the second parent's chain at such a commit, and
     /// since a commit's origins never change they may be kept with it.
     ///
-    /// A commit that records a resolution of the key to `base` or to a value (`choice` 2 or 3, [`Commit::resolves`]:
-    /// the commit a `merge --continue` lands) produced its value, also where it equals a parent's value: the walk does
-    /// not pass a resolution commit's origin on to a parent (OQ-A-13 13.4 (a); R-15 Q4). A resolution to `ours` or
-    /// `theirs` passes it on, as above.
+    /// The commit a `merge --continue` lands is walked by the same rules, by state, whatever its resolutions' choices
+    /// (OQ-A-13 13.4 (a) read by state; R-20): a resolution whose value equals its first parent's passes the origin on
+    /// to that parent, one that holds its second parent's value at a two-parent commit passes it on to the second
+    /// parent, `base` included in both, and one whose value equals neither parent's produced it. The walk reads no
+    /// `Resolve` choice, which is neither hashed nor exported ([F07 §11]; [F12 §6.7]), so two stores that hold the
+    /// same commits compute the same origins ([F12 §5.6]).
     pub fn origin(&self, c: Option<u64>, n: Nid, alloc: &dyn Alloc) -> MoveKey {
         let k = Key::Node(n, Aspect::Hierarchy);
         let e = Key::Node(n, Aspect::Existence);
@@ -88,13 +90,6 @@ impl Dag {
         let mut cur = c;
         while let Some(x) = cur {
             let cm = &self.commits[&x];
-            if cm
-                .resolves
-                .iter()
-                .any(|(r, c)| *r == k && matches!(c, 2 | 3))
-            {
-                return (cm.hlc, cm.id);
-            }
             let moved = cm
                 .changeset
                 .get(&k)

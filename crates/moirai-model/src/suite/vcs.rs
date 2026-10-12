@@ -1189,20 +1189,22 @@ fn a_partial_resolution_restages() {
     ids_verify(&s);
 }
 
-/// OQ-A-13 13.4 (a) (R-15 Q4, R-16 Q2): a resolution to base produces a new origin. A `Resolve` op records its
-/// `choice` ([F12 §6.5]; [F06 §7.7]), and the commit a `merge --continue` lands records the resolutions it applied, so
-/// the origin walk ([`crate::dag::Dag::origin`]) gives that commit its own origin for a key resolved to base, even
-/// where base's value equals a parent's; a resolution to ours or theirs passes the origin on. Each pair runs one
-/// history twice and resolves its staged key two ways to the same value:
+/// OQ-A-13 13.4 (a) read by state (R-20): the commit a `merge --continue` lands is walked by the origin rules
+/// ([`crate::dag::Dag::origin`]) whatever its resolutions' choices, so its origin follows the value it holds and two
+/// stores that hold the same commits compute the same origins ([F12 §5.6]). A resolution whose value equals a
+/// parent's passes that parent's origin on, `base` included; one whose value equals neither parent's produces a new
+/// origin. (i) and (ii) run one history twice and resolve its staged key two ways to the same value:
 /// - (i) b = ours: `staged_with_a_cycle`'s `#3.parent`, to base (A) and to ours (B), `#1.priority` to theirs in both;
+///   both pass on the first parent's (lane/x's) origin;
 /// - (ii) b = theirs: main puts #2 under #1, lane/x then #1 under #2, `sync lane/x` stages `#1.parent`, resolved to
-///   base (A) and to theirs (B);
-/// - (iii) (ii) with a `#3.priority` conflict left unresolved: the continue lands conflicted (LS-003), and its commit
-///   records the resolution all the same.
+///   base (A) and to theirs (B); both pass on the second parent's (main's) origin;
+/// - (iii) (ii) with a `#3.priority` conflict left unresolved, resolved to base: the continue lands conflicted
+///   (LS-003) and passes main's origin on all the same;
+/// - (iv) b equal to neither side: main puts #2 under #1 and then deletes #3, lane/x puts #2 under #3, the strict
+///   merge stages `#2.parent DanglingEdge`, resolved to base (the root): the landed commit produced the value.
 #[test]
-fn a_resolution_to_base_produces_a_new_origin() {
+fn a_resolutions_origin_follows_the_state_it_lands() {
     let key = |n: u32| Key::Node(Nid(n), Aspect::Hierarchy);
-    let prio1 = Key::Node(Nid(1), Aspect::Field("priority".into()));
     let id = |s: &S, c: u64| (s.st.dag.commits[&c].hlc, s.st.dag.commits[&c].id);
     let origin = |s: &S, c: u64, n: u32| s.st.dag.origin(Some(c), Nid(n), &s.st.alloc);
     let g = "merge/lane/x/from/main";
@@ -1233,21 +1235,19 @@ fn a_resolution_to_base_produces_a_new_origin() {
     }
     let (ma, mb) = (tip(&a, "lane/x").unwrap(), tip(&b, "lane/x").unwrap());
     assert_eq!(
-        a.st.dag.commits[&ma].resolves,
-        vec![(prio1.clone(), 1), (key(3), 2)],
-        "the landed commit records the resolutions it applied"
+        origin(&a, ma, 3),
+        origin(&a, before, 3),
+        "base equal to ours: lane/x's origin, passed on"
     );
-    assert_eq!(
-        b.st.dag.commits[&mb].resolves,
-        vec![(prio1, 1), (key(3), 0)]
-    );
-    assert_eq!(origin(&a, ma, 3), id(&a, ma), "base: a new origin");
     assert_eq!(
         origin(&b, mb, 3),
         origin(&b, before, 3),
         "ours: lane/x's origin, passed on"
     );
+    assert_ne!(origin(&a, ma, 3), id(&a, ma));
     assert_ne!(origin(&b, mb, 3), id(&b, mb));
+    ids_verify(&a);
+    ids_verify(&b);
     // (ii) b = theirs, and (iii) with a value conflict left for the landing.
     let synced = |conflict: bool| {
         let mut s = S::base();
@@ -1288,20 +1288,24 @@ fn a_resolution_to_base_produces_a_new_origin() {
         assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
         assert_eq!(data(&r).outcome, "landed");
     }
-    let (ma, mb) = (tip(&a, "lane/x").unwrap(), tip(&b, "lane/x").unwrap());
     assert_eq!(
         parents_12(&a, "lane/x"),
         parents_12(&b, "lane/x"),
         "both land one state"
     );
     assert_eq!(parents_12(&a, "lane/x"), (None, Some(Nid(1))));
-    assert_eq!(origin(&a, ma, 1), id(&a, ma), "base: a new origin");
-    let main_tip = tip(&b, "main").unwrap();
-    assert_eq!(
-        origin(&b, mb, 1),
-        origin(&b, main_tip, 1),
-        "theirs: main's origin, passed on"
-    );
+    for s in [&a, &b] {
+        let m = tip(s, "lane/x").unwrap();
+        let main_tip = tip(s, "main").unwrap();
+        assert_eq!(
+            origin(s, m, 1),
+            origin(s, main_tip, 1),
+            "main's origin, passed on by the second parent"
+        );
+        assert_ne!(origin(s, m, 1), id(s, m));
+        ids_verify(s);
+    }
+    // (iii)
     let mut c = synced(true);
     c.ok(resolve("#1.parent", Take::Base), orch_on(g));
     let r = c.run(continue_("main", "lane/x"), fresh_on("main"));
@@ -1316,11 +1320,155 @@ fn a_resolution_to_base_produces_a_new_origin() {
         "a conflicted landing"
     );
     let mc = tip(&c, "lane/x").unwrap();
-    assert_eq!(c.st.dag.commits[&mc].resolves, vec![(key(1), 2)]);
-    assert_eq!(origin(&c, mc, 1), id(&c, mc), "base: a new origin");
+    let main_tip_c = tip(&c, "main").unwrap();
+    assert_eq!(
+        origin(&c, mc, 1),
+        origin(&c, main_tip_c, 1),
+        "a conflicted landing: main's origin, passed on by the second parent"
+    );
+    ids_verify(&c);
+    // (iv) b equal to neither side.
+    let mut d = S::base();
+    d.ok(
+        tx(vec![
+            task("a", "task a"),
+            task("b", "task b"),
+            task("c", "task c"),
+        ]),
+        orch(),
+    );
+    d.ok(branch("x", "main"), orch());
+    d.ok(mv(2, Some(1)), orch());
+    let x1 = d.ok(mv(2, Some(3)), orch_on("lane/x")).commit.expect("X1");
+    let m2 = d.ok(delete(3), orch()).commit.expect("M2");
+    let r = d.run(strict_merge("main", "lane/x"), orch());
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    let dr = data(&r);
+    assert!(dr.conflicts.is_empty(), "{:?}", dr.conflicts);
+    assert_eq!(violations(dr), vec![("#2.parent", "DanglingEdge")]);
+    d.ok(resolve("#2.parent", Take::Base), fresh_on(g));
+    assert_eq!(parents_12(&d, g), (None, None), "base: #2 at the root");
+    let r = d.run(continue_("main", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(data(&r).outcome, "landed");
+    let md = tip(&d, "lane/x").unwrap();
+    assert_eq!(d.st.dag.commits[&md].parents, vec![x1, m2]);
+    assert_eq!(state(&d, "lane/x").nodes[&Nid(2)].parent, None);
+    assert_eq!(
+        origin(&d, md, 2),
+        id(&d, md),
+        "a value equal to neither parent's: a new origin"
+    );
+    assert_ne!(origin(&d, md, 2), origin(&d, x1, 2));
+    assert_ne!(origin(&d, md, 2), origin(&d, m2, 2));
+    ids_verify(&d);
+}
+
+/// [F12 §5.6]: a merge result depends only on the commit DAG, the states, the canonical hlc and the rule tables, and a
+/// `Resolve`'s choice is none of them: it is neither hashed nor exported ([F07 §11]; [F12 §6.7]). Two stores run one
+/// history and resolve its staged key two ways to one value. main puts #2 under #1 (M1), lane/x #1 under #2 (X1),
+/// lane/y forks at X1 and puts #1 under #3 (Y1), and `sync lane/x` stages `#1.parent HierarchyCycle`, resolved to base
+/// in A and to theirs in B, both main's root, and landed as L. Both stores hold the same commits and states and give
+/// L's value one origin, the one main passes on (OQ-A-13 13.4 (a) read by state; R-20). They merge lane/y into lane/x
+/// alike: over the base X1, #1 is two-sided (L's root, whose origin is C₀'s; Y1's #3), and Y1's move is the later
+/// (MR-040), while #2 is one-sided (L's #1). A choice record a store keeps on L changes no origin.
+#[test]
+fn histories_that_differ_only_in_a_resolutions_choice_merge_alike() {
+    let origin = |s: &S, c: u64, n: u32| s.st.dag.origin(Some(c), Nid(n), &s.st.alloc);
+    let g = "merge/lane/x/from/main";
+    let history = |take: Take| {
+        let mut s = S::base();
+        s.ok(
+            tx(vec![
+                task("a", "task a"),
+                task("b", "task b"),
+                task("c", "task c"),
+            ]),
+            orch(),
+        );
+        s.ok(branch("x", "main"), orch());
+        s.ok(mv(2, Some(1)), orch());
+        s.ok(mv(1, Some(2)), orch_on("lane/x"));
+        s.ok(branch("y", "lane/x"), orch());
+        s.ok(mv(1, Some(3)), orch_on("lane/y"));
+        let r = s.run(
+            Cmd::Sync {
+                lane: Some("lane/x".into()),
+                check: false,
+            },
+            fresh_on("lane/x"),
+        );
+        assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+        assert_eq!(violations(data(&r)), vec![("#1.parent", "HierarchyCycle")]);
+        s.ok(resolve("#1.parent", take), orch_on(g));
+        let r = s.run(continue_("main", "lane/x"), fresh_on("main"));
+        assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+        assert_eq!(data(&r).outcome, "landed");
+        assert_eq!(parents_12(&s, "lane/x"), (None, Some(Nid(1))));
+        let l = tip(&s, "lane/x").unwrap();
+        let main_tip = tip(&s, "main").unwrap();
+        (s, l, main_tip)
+    };
+    let (mut a, la, main_a) = history(Take::Base);
+    let (mut b, lb, _) = history(Take::Theirs);
+    // 1. The same commits and states.
+    let ids = |s: &S| {
+        s.st.dag
+            .commits
+            .values()
+            .map(|c| (c.seq, c.id))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(ids(&a), ids(&b), "the same commits");
+    assert_eq!(la, lb);
+    assert_eq!(*state(&a, "lane/x"), *state(&b, "lane/x"), "the same state");
+    // 2. One origin.
+    assert_eq!(
+        origin(&a, la, 1),
+        origin(&b, lb, 1),
+        "both stores give the landed value one origin"
+    );
+    assert_eq!(
+        origin(&a, la, 1),
+        origin(&a, main_a, 1),
+        "main's origin, passed on by the second parent"
+    );
+    // 3. The same following merge.
+    for s in [&mut a, &mut b] {
+        let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+        assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+        let d = data(&r);
+        assert_eq!(d.outcome, "landed");
+        assert!(
+            d.violations.is_empty() && d.conflicts.is_empty() && d.hints.is_empty(),
+            "{:?} {:?} {:?}",
+            d.violations,
+            d.conflicts,
+            d.hints
+        );
+    }
+    assert_eq!(tip(&a, "lane/x"), tip(&b, "lane/x"));
+    assert_eq!(
+        a.st.dag.commits[&tip(&a, "lane/x").unwrap()].id,
+        b.st.dag.commits[&tip(&b, "lane/x").unwrap()].id,
+        "the same merge commit"
+    );
+    assert_eq!(*state(&a, "lane/x"), *state(&b, "lane/x"));
+    assert_eq!(
+        parents_12(&a, "lane/x"),
+        (Some(Nid(3)), Some(Nid(1))),
+        "lane/y's later move wins over the origin main passed on"
+    );
+    // 4. A store-local record changes nothing.
+    b.st.dag.commits.get_mut(&lb).unwrap().resolves =
+        vec![(Key::Node(Nid(1), Aspect::Hierarchy), 2)];
+    assert_eq!(
+        origin(&b, lb, 1),
+        origin(&a, la, 1),
+        "a choice record a store keeps changes no origin"
+    );
     ids_verify(&a);
     ids_verify(&b);
-    ids_verify(&c);
 }
 
 /// [F12 §6.5] "On a violation's key" for `DanglingEdge`: lane/x deletes #3 and #4 while main makes #1 block #3 and #2
@@ -2568,7 +2716,7 @@ fn a_key_both_sides_set_alike_is_not_reset_before_a_one_sided_one() {
 }
 
 /// A merge resolved to `ours` inside the merged branch passes the kept value's origin on ([RULES/merge-table] RS-007,
-/// MR-040; [AR §11] OQ-A-13 13.4 (a), R-15 Q4). Lanes a, b and c fork from main at F. lane/c puts #3 under #1 (C₁);
+/// MR-040; [AR §11] OQ-A-13 13.4 (a), R-20). Lanes a, b and c fork from main at F. lane/c puts #3 under #1 (C₁);
 /// lane/b then puts #1 under #3 (Z); lane/a sets #4.priority and merges lane/b, taking Z's move. `merge lane/b --into
 /// lane/c` meets the cycle of C₁'s and Z's moves and resets #1 (Z's, the later origin); `#1.parent` is resolved to
 /// `ours`, so the merge M_z keeps #1 at the root. lane/a then puts #1 under #2. `merge lane/c --into lane/a` has the

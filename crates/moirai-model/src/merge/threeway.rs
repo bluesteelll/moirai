@@ -19,12 +19,12 @@
 //! - **Origin (13.4 (a)).** The origin of a value is the (hlc, commit id) of the commit that produced it
 //!   ([`crate::dag::Dag::origin`]): the walk from a side's tip passes to the first parent over a commit whose net
 //!   changeset leaves the key's (live, flat) value unchanged, and to the second parent at a two-parent commit that
-//!   changed the key and holds its second parent's value; a commit that records a resolution of the key to `base` or to
-//!   a value produced the value, also where it equals a parent's, while `ours` and `theirs` pass the origin on; any
-//!   other commit produced it; ε gives (0, 0). For a revert or a cherry-pick of C, src's origin is C's. In a virtual
-//!   merge dst's is the latest among the folded LCAs that hold the value, (0, 0) when none does. A both-same key's
-//!   origin is the later of its two sides' (F2). A merge with no history ([`super::Ctx::origin`] is `None`) gives every
-//!   value (0, 0).
+//!   changed the key and holds its second parent's value; any other commit that changed the key produced it; ε gives
+//!   (0, 0). The commit a `merge --continue` lands is walked by the same rules, whatever its resolutions' choices
+//!   (13.4 (a) read by state, R-20). For a revert or a cherry-pick of C, src's origin is C's. In a virtual merge dst's
+//!   is the latest among the folded LCAs that hold the value, (0, 0) when none does. A both-same key's origin is the
+//!   later of its two sides' (F2). A merge with no history ([`super::Ctx::origin`] is `None`) gives every value
+//!   (0, 0).
 //! - **Cycle repair, participants.** The result must be a forest. A node an existence policy fixed, and a tombstone,
 //!   keeps its copied value and is never moved; a parent that is no result node ends a chain. Only a key whose value
 //!   and fallback differ in parent takes part: order alone closes no cycle. The fallback is the other side's value for
