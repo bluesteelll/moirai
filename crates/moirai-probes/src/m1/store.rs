@@ -8,7 +8,7 @@
 //! the burst checks of measurement 2), never by a unit test: probes may not depend on `moirai-os`
 //! (`xtask/roots.toml`).
 
-use moirai_toylog::{CommitOp, Config, MAIN, NoTap, Op, ProcLocks, Toy};
+use moirai_toylog::{CommitOp, Config, MAIN, NoTap, Op, ProcLocks, Tap, Toy};
 use moirai_vfs::{Classification, ClassifyDepth, RelPath, RootRole, SyncKind, Vfs, VfsCounters};
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
@@ -57,7 +57,7 @@ pub trait Rig {
     fn make_dir(&self, path: &Path) -> Result<(), String>;
     /// `moirai_toylog::init` of a new store in `dir` (which must not exist) with [`Config::production`].
     fn init(&self, dir: &Path) -> Result<(), String>;
-    /// Opens the store in `dir` as a new CLI process does: `Toy::open` with [`commit_config`]`(cost_ns)`, `NoTap` and
+    /// Opens the store in `dir` as a new CLI process does: `Toy::open` with [`commit_config`]`(cost_ns)`, the rig's `Tap` and
     /// a new `ProcLocks`.
     fn open(&self, dir: &Path, cost_ns: u64) -> Result<Self::Handle, String>;
     /// One commit on `main` through the handle: operation `op`, `filler` filler bytes. A replayed result is an error.
@@ -86,25 +86,33 @@ pub trait Rig {
 }
 
 /// The real [`Rig`] over a `Vfs` (the composition root passes `moirai_os::OsVfs`, or measurement 2's lock-logging
-/// wrapper over it).
+/// wrapper over it), its commits' handles reporting to the toy `Tap` `T` (`NoTap`, or measurement 2's phase timer).
 #[derive(Clone, Debug)]
-pub struct ToyRig<V> {
+pub struct ToyRig<V, T = NoTap> {
     pub(crate) vfs: V,
+    pub(crate) tap: T,
 }
 
 impl<V> ToyRig<V> {
     /// The rig over `vfs`.
     pub fn new(vfs: V) -> ToyRig<V> {
-        ToyRig { vfs }
+        ToyRig { vfs, tap: NoTap }
+    }
+}
+
+impl<V, T> ToyRig<V, T> {
+    /// The rig over `vfs` whose commits' handles report to `tap`.
+    pub fn with_tap(vfs: V, tap: T) -> ToyRig<V, T> {
+        ToyRig { vfs, tap }
     }
 }
 
 /// The time a waiter sleeps through before it polls: the last stretch before the deadline is polled with
-/// `yield_now`, so a sleep's overshoot never delays the start.
-const SPIN_NS: u64 = 1_000_000;
+/// `yield_now`, so a sleep's overshoot (about 0.5 ms with Windows' high-resolution timers) never delays the start.
+const SPIN_NS: u64 = 2_000_000;
 
-impl<V: Vfs + Clone> Rig for ToyRig<V> {
-    type Handle = Toy<V>;
+impl<V: Vfs + Clone, T: Tap> Rig for ToyRig<V, T> {
+    type Handle = Toy<V, T>;
     type Reader = Toy<V>;
     type Floor = (V::Root, V::File);
 
@@ -116,18 +124,18 @@ impl<V: Vfs + Clone> Rig for ToyRig<V> {
         moirai_toylog::init(&self.vfs, dir, &Config::production()).map_err(|e| format!("init: {e}"))
     }
 
-    fn open(&self, dir: &Path, cost_ns: u64) -> Result<Toy<V>, String> {
+    fn open(&self, dir: &Path, cost_ns: u64) -> Result<Toy<V, T>, String> {
         Toy::open(
             self.vfs.clone(),
             dir,
             commit_config(cost_ns),
-            NoTap,
+            self.tap.clone(),
             ProcLocks::new(),
         )
         .map_err(|e| format!("open: {e}"))
     }
 
-    fn commit(&self, h: &mut Toy<V>, op: u64, filler: u32) -> Result<(), String> {
+    fn commit(&self, h: &mut Toy<V, T>, op: u64, filler: u32) -> Result<(), String> {
         let done = h
             .run(&Op::Commit(CommitOp {
                 op,
@@ -143,7 +151,7 @@ impl<V: Vfs + Clone> Rig for ToyRig<V> {
         Ok(())
     }
 
-    fn close(&self, h: Toy<V>) {
+    fn close(&self, h: Toy<V, T>) {
         drop(h);
     }
 
@@ -305,12 +313,13 @@ impl Generations {
 }
 
 /// The test double of [`Rig`] and its shared world: a trace of every call, a fake clock that each operation advances
-/// by its scripted latency, the stores' committed operations, the directories made and removed, and per-process
-/// counters.
+/// by its scripted latency, the stores' committed operations, the directories made and removed, per-process counters,
+/// and for measurement 2's children their own clocks and the writer and flush bytes' events.
 #[cfg(test)]
 pub(crate) mod fake {
     use super::Rig;
     use crate::arm::Ticker;
+    use crate::m2::locks::{Byte, LockEvent};
     use crate::testkit::FakeTicker;
     use moirai_vfs::{SyncKind, VfsCounters};
     use std::cell::RefCell;
@@ -343,13 +352,27 @@ pub(crate) mod fake {
         Sync(PathBuf, SyncKind),
         WaitUntil(u64),
         Remove(PathBuf),
+        /// A reading of the world's clock by the coordinator's rig.
+        Stamp(u64),
+        /// Measurement 2's coordinator sent `go` to a child.
+        Go {
+            child: usize,
+            op: u64,
+        },
+        /// Measurement 2's coordinator received a child's reply.
+        Ack {
+            child: usize,
+            op: u64,
+        },
     }
 
-    /// The scripted latencies, in ns: each distinct, so a sample names the operations it timed.
+    /// The scripted latencies, in ns: each distinct, so a sample names the operations it timed. A commit holds the
+    /// writer byte `commit` ns plus its cost (unless the world ignores the cost), then the flush byte `flush` ns.
     #[derive(Clone, Copy, Debug)]
     pub(crate) struct Lat {
         pub open: u64,
         pub commit: u64,
+        pub flush: u64,
         pub close: u64,
         pub init: u64,
         pub write: u64,
@@ -361,6 +384,7 @@ pub(crate) mod fake {
             Lat {
                 open: 1_000,
                 commit: 20_000,
+                flush: 0,
                 close: 300,
                 init: 1_000_000_000,
                 write: 50,
@@ -369,7 +393,7 @@ pub(crate) mod fake {
         }
     }
 
-    /// What every process of a test shares: the trace, the clock, the file system.
+    /// What every process of a test shares: the trace, the file system and the lock bytes.
     #[derive(Debug, Default)]
     pub(crate) struct World {
         pub trace: Vec<Ev>,
@@ -383,14 +407,28 @@ pub(crate) mod fake {
         pub commit_extra: (u64, u64),
         pub next_id: u64,
         pub handles: BTreeMap<u64, PathBuf>,
+        /// When the writer and the flush byte are next free.
+        pub writer_free: u64,
+        pub flush_free: u64,
+        /// Operations whose commit fails, and those acknowledged without being committed.
+        pub fail_ops: BTreeSet<u64>,
+        pub lost_ops: BTreeSet<u64>,
+        /// The commit's hold leaves out its cost (a `Config` that lost its draw).
+        pub ignore_cost: bool,
+        /// Operations whose commit logs no lock event.
+        pub quiet_ops: BTreeSet<u64>,
     }
 
-    /// The test double. [`FakeRig::new`] runs on the world's clock.
+    /// The test double. [`FakeRig::new`] runs on the world's clock (the coordinator's, and measurement 1's); each
+    /// [`FakeRig::child`] is a process of its own, with its own clock, counters and lock events.
     #[derive(Clone, Debug)]
     pub(crate) struct FakeRig {
         pub world: Rc<RefCell<World>>,
         pub clock: FakeTicker,
         pub counters: Rc<RefCell<VfsCounters>>,
+        pub events: Rc<RefCell<Vec<LockEvent>>>,
+        /// Log [`Ev::Stamp`] at each `mono_ns` (the coordinator's rig only).
+        pub stamps: bool,
     }
 
     /// A ticker that logs [`Ev::Tick`] and reads the rig's clock.
@@ -413,6 +451,21 @@ pub(crate) mod fake {
                 world: Rc::default(),
                 clock: FakeTicker::manual(),
                 counters: Rc::default(),
+                events: Rc::default(),
+                stamps: true,
+            }
+        }
+
+        /// A child process on the same world, with its own clock (at the world's time), counters and events.
+        pub fn child(&self) -> FakeRig {
+            let clock = FakeTicker::manual();
+            clock.advance(self.now());
+            FakeRig {
+                world: self.world.clone(),
+                clock,
+                counters: Rc::default(),
+                events: Rc::default(),
+                stamps: false,
             }
         }
 
@@ -433,6 +486,19 @@ pub(crate) mod fake {
 
         pub fn now(&self) -> u64 {
             self.clock.clone().now_ns()
+        }
+
+        /// Moves this rig's clock forward to `t`, never back.
+        pub fn catch_up(&self, t: u64) {
+            let now = self.now();
+            if t > now {
+                self.clock.advance(t - now);
+            }
+        }
+
+        /// Takes the lock events of this process.
+        pub fn drain_events(&self) -> Vec<LockEvent> {
+            std::mem::take(&mut *self.events.borrow_mut())
         }
 
         fn ev(&self, e: Ev) {
@@ -500,18 +566,55 @@ pub(crate) mod fake {
             })
         }
 
+        /// The append holds the writer byte `commit` ns plus the cost, from when it is free; then the flush byte `flush`
+        /// ns, from when it is free; the acknowledgement follows the flush.
         fn commit(&self, h: &mut FakeHandle, op: u64, filler: u32) -> Result<(), String> {
             self.ev(Ev::Commit {
                 id: h.id,
                 op,
                 filler,
             });
-            let (lat, extra) = {
+            let now = self.now();
+            let (end, extra) = {
                 let mut w = self.world.borrow_mut();
-                w.stores.entry(h.dir.clone()).or_default().insert(op);
-                (w.lat.commit, w.commit_extra)
+                if w.fail_ops.contains(&op) {
+                    return Err(format!("commit {op}: scripted failure"));
+                }
+                if !w.lost_ops.contains(&op) {
+                    w.stores.entry(h.dir.clone()).or_default().insert(op);
+                }
+                let cost = if w.ignore_cost { 0 } else { h.cost };
+                let grant = now.max(w.writer_free);
+                let rel = grant + w.lat.commit + cost;
+                w.writer_free = rel;
+                let fgrant = rel.max(w.flush_free);
+                let frel = fgrant + w.lat.flush;
+                w.flush_free = frel;
+                let mut e = self.events.borrow_mut();
+                e.push(LockEvent::Grant {
+                    byte: Byte::Writer,
+                    req: now,
+                    grant,
+                });
+                e.push(LockEvent::Release {
+                    byte: Byte::Writer,
+                    t: rel,
+                });
+                e.push(LockEvent::Grant {
+                    byte: Byte::Flush,
+                    req: rel,
+                    grant: fgrant,
+                });
+                e.push(LockEvent::Release {
+                    byte: Byte::Flush,
+                    t: frel,
+                });
+                if w.quiet_ops.contains(&op) {
+                    e.clear();
+                }
+                (frel, w.commit_extra)
             };
-            self.clock.advance(lat + h.cost);
+            self.catch_up(end);
             let mut c = self.counters.borrow_mut();
             c.sync_data += 1 + extra.0;
             c.sync_meta += extra.1;
@@ -570,15 +673,16 @@ pub(crate) mod fake {
         }
 
         fn mono_ns(&self) -> u64 {
-            self.now()
+            let t = self.now();
+            if self.stamps {
+                self.ev(Ev::Stamp(t));
+            }
+            t
         }
 
         fn wait_until(&self, t_ns: u64) {
             self.ev(Ev::WaitUntil(t_ns));
-            let now = self.now();
-            if now < t_ns {
-                self.clock.advance(t_ns - now);
-            }
+            self.catch_up(t_ns);
         }
 
         fn remove(&self, dir: &Path) {

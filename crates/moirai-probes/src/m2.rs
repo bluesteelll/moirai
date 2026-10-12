@@ -70,5 +70,6 @@
 //! out of the run ([MP §9.7]); a retired generation is removed in setup.
 
 pub mod burst;
+pub mod child;
 pub mod cost;
 pub mod locks;

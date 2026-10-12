@@ -1,7 +1,13 @@
-//! Measurement 2's burst: what each child acknowledges ([`Ack`]), the burst it belongs to ([`Burst`]), and the measures
-//! of the module docs of [`crate::m2`], each a function of one burst.
+//! Measurement 2's burst: what each child acknowledges ([`Ack`]), the burst it belongs to ([`Burst`]), the measures
+//! of the module docs of [`crate::m2`], each a function of one burst, and the [`Coordinator`] that runs bursts over a
+//! pool of [`Writers`] and checks each.
 
+use super::child::{Go, Reply};
+use super::cost::{self, Shape};
 use super::locks::{Byte, LockEvent};
+use crate::arm::ArmError;
+use crate::m1::store::{Generations, Rig, draw64, seed};
+use std::time::{Duration, Instant};
 
 /// One child's acknowledgement of its commit.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
@@ -148,6 +154,244 @@ pub fn writer_waits(b: &Burst) -> Vec<u64> {
             _ => None,
         })
         .collect()
+}
+
+/// The child writers of a burst: 16 in a run.
+pub const CHILDREN: usize = 16;
+/// The lead between stamping T and T: the `go` lines are sent within it.
+pub const LEAD_NS: u64 = 5_000_000;
+/// The latest a child may start after T (runtime check 2).
+pub const LATE_NS: u64 = 1_000_000;
+/// How long a burst waits for its replies.
+pub const BURST_TIMEOUT: Duration = Duration::from_secs(60);
+/// The largest filler: P05 `store.commit.inline-max-bytes`, 1 MiB, the full spec-derived size distribution.
+pub const FILLER_MAX: u32 = 1 << 20;
+
+/// The pool of child writers, as the coordinator sees it.
+pub trait Writers {
+    /// The number of children.
+    fn count(&self) -> usize;
+    /// Sends `go` to child `i`.
+    fn send(&mut self, i: usize, go: &Go) -> Result<(), String>;
+    /// The next reply of any child, waiting at most `timeout`.
+    fn recv(&mut self, timeout: Duration) -> Result<(usize, Reply), String>;
+}
+
+/// The seed of a quantity's cost draws.
+pub fn cost_seed(quantity: &str) -> u64 {
+    seed(&format!("m2-cost:{quantity}"))
+}
+
+/// The seed of a quantity's filler sizes.
+pub fn filler_seed(quantity: &str) -> u64 {
+    seed(&format!("m2-filler:{quantity}"))
+}
+
+/// What a run's bursts report beside their measures, for the results analyst: per ack the bytes it read and its
+/// phase-1 time (the replay's share, module docs "Generations and the replay"), per burst the latest start after T.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Report {
+    /// The bytes each commit read.
+    pub bytes_read: Vec<u64>,
+    /// Each commit's phase-1 time, in ns.
+    pub phase1_ns: Vec<u64>,
+    /// Each burst's latest start after T, in ns.
+    pub start_lag: Vec<u64>,
+    /// The generations made.
+    pub generations: u32,
+}
+
+impl Report {
+    /// One line: p50, p99 and maximum of each series (nearest rank), and the counts.
+    pub fn summary(&self) -> String {
+        fn stats(v: &[u64]) -> String {
+            let mut s = v.to_vec();
+            s.sort_unstable();
+            let at = |p: f64| -> u64 {
+                let i = (p * s.len() as f64).ceil() as usize;
+                s.get(i.max(1) - 1).copied().unwrap_or(0)
+            };
+            format!(
+                "p50 {} p99 {} max {}",
+                at(0.5),
+                at(0.99),
+                s.last().copied().unwrap_or(0)
+            )
+        }
+        format!(
+            "replay: bytes read per commit {}; phase 1 ns {}; latest start after T ns {}; {} commits, {} bursts, {} \
+             generations",
+            stats(&self.bytes_read),
+            stats(&self.phase1_ns),
+            stats(&self.start_lag),
+            self.bytes_read.len(),
+            self.start_lag.len(),
+            self.generations
+        )
+    }
+}
+
+/// The coordinator of a run's bursts (module docs of [`crate::m2`], "The burst"): it owns the generations and the
+/// reader, draws each burst's costs and fillers, sends the `go` lines, collects the replies and makes the runtime
+/// checks.
+pub struct Coordinator<'a, R: Rig> {
+    rig: &'a R,
+    writers: &'a mut dyn Writers,
+    gens: Generations,
+    reader: Option<R::Reader>,
+    shape: Shape,
+    scale: u32,
+    cost_seed: u64,
+    filler_seed: u64,
+    bursts: u64,
+    /// The run's report.
+    pub report: Report,
+}
+
+impl<'a, R: Rig> Coordinator<'a, R> {
+    /// The coordinator of quantity `quantity`'s bursts over `writers`, with the cost `shape` at `scale` %.
+    pub fn new(
+        rig: &'a R,
+        writers: &'a mut dyn Writers,
+        gens: Generations,
+        quantity: &str,
+        shape: Shape,
+        scale: u32,
+    ) -> Coordinator<'a, R> {
+        Coordinator {
+            rig,
+            writers,
+            gens,
+            reader: None,
+            shape,
+            scale,
+            cost_seed: cost_seed(quantity),
+            filler_seed: filler_seed(quantity),
+            bursts: 0,
+            report: Report::default(),
+        }
+    }
+
+    /// One burst and its runtime checks; the acks of the burst come back in `go` order.
+    pub fn burst(&mut self) -> Result<Burst, ArmError> {
+        let n = self.writers.count();
+        let k = self.bursts;
+        // Setup: the generation (its reader closed before a retired one is removed), the reader, the draws.
+        if self.gens.due() {
+            self.reader = None;
+        }
+        let (dir, made) = self.gens.ready(self.rig).map_err(ArmError)?;
+        self.report.generations += u32::from(made);
+        if self.reader.is_none() {
+            self.reader = Some(self.rig.reader(&dir).map_err(ArmError)?);
+        }
+        let first = (k % n as u64) as usize;
+        let mut gos: Vec<(usize, Go)> = (0..n)
+            .map(|j| {
+                let i = (first + j) % n;
+                let index = k * n as u64 + i as u64;
+                let go = Go {
+                    op: index + 1,
+                    start_ns: 0,
+                    cost_ns: cost::draw(self.cost_seed, index, self.shape, self.scale),
+                    filler: moirai_toylog::commit_size(draw64(self.filler_seed, index), FILLER_MAX),
+                    dir: dir.clone(),
+                };
+                (i, go)
+            })
+            .collect();
+        // The burst: T, the go lines, the replies.
+        let t0 = self.rig.mono_ns() + LEAD_NS;
+        for (i, go) in &mut gos {
+            go.start_ns = t0;
+            self.writers.send(*i, go).map_err(ArmError)?;
+        }
+        self.bursts += 1;
+        let deadline = Instant::now() + BURST_TIMEOUT;
+        let mut acks: Vec<Option<Ack>> = vec![None; n];
+        let mut got = 0;
+        while got < n {
+            let left = deadline.saturating_duration_since(Instant::now());
+            let (i, reply) = self
+                .writers
+                .recv(left)
+                .map_err(|m| ArmError(format!("burst {k}: {got} of {n} acks: {m}")))?;
+            match reply {
+                Reply::Ack(a) if i < n && acks[i].is_none() => {
+                    acks[i] = Some(a);
+                    got += 1;
+                }
+                Reply::Ack(_) => {
+                    return Err(ArmError(format!(
+                        "burst {k}: a second reply from child {i}"
+                    )));
+                }
+                Reply::Err { op, message } => {
+                    return Err(ArmError(format!(
+                        "burst {k}, child {i}, op {op}: {message}"
+                    )));
+                }
+            }
+        }
+        // Teardown: the store as a reader sees it, then the checks, in go order.
+        let seen = self
+            .rig
+            .commits(self.reader.as_mut().expect("opened above"))
+            .map_err(ArmError)?;
+        let mut ordered = Vec::with_capacity(n);
+        let mut fillers = 0;
+        for (i, go) in &gos {
+            let a = acks[*i].take().expect("every child replied");
+            let fail =
+                |what: String| ArmError(format!("burst {k}, child {i}, op {}: {what}", go.op));
+            if a.op != go.op {
+                return Err(fail(format!("the ack is for op {}", a.op)));
+            }
+            if a.t_start < t0 || a.t_start - t0 > LATE_NS {
+                return Err(fail(format!(
+                    "it started at T{:+} ns, outside [T, T + {LATE_NS} ns]",
+                    i128::from(a.t_start) - i128::from(t0)
+                )));
+            }
+            if !a
+                .first_writer_grant()
+                .is_some_and(|(req, _)| req >= a.t_start)
+            {
+                return Err(fail("no writer grant requested after its start".into()));
+            }
+            let hold = a.append_hold().unwrap_or(0);
+            if hold < go.cost_ns || a.t_ack.saturating_sub(a.t_start) < go.cost_ns {
+                return Err(fail(format!(
+                    "its append held the writer byte {hold} ns, below its in-lock cost of {} ns",
+                    go.cost_ns
+                )));
+            }
+            if !seen.contains(&go.op) {
+                return Err(fail("Toy::read does not see its commit".into()));
+            }
+            fillers += u64::from(go.filler);
+            ordered.push(a);
+        }
+        let expected = self.gens.commits() + n as u64;
+        if seen.len() as u64 != expected {
+            return Err(ArmError(format!(
+                "burst {k}: Toy::read sees {} commits in the generation, {expected} expected",
+                seen.len()
+            )));
+        }
+        let b = Burst { t0, acks: ordered };
+        if flushes(&b) == 0 {
+            return Err(ArmError(format!("burst {k}: no log data flush")));
+        }
+        self.gens.add(n as u64, fillers);
+        for a in &b.acks {
+            self.report.bytes_read.push(a.bytes_read);
+            self.report.phase1_ns.push(a.phase1_ns);
+        }
+        let lag = b.acks.iter().map(|a| a.t_start - t0).max().unwrap_or(0);
+        self.report.start_lag.push(lag);
+        Ok(b)
+    }
 }
 
 #[cfg(test)]
@@ -343,5 +587,327 @@ pub(crate) mod tests {
         };
         assert_eq!(last_ack(&b), 8_000);
         assert_eq!(last_ack(&Burst::default()), 0);
+    }
+
+    use crate::m1::store::fake::{Ev, FakeRig};
+    use crate::m1::store::{GEN_BYTES, GEN_COMMITS};
+    use crate::m2::child::fake::FakeWriters;
+    use std::path::{Path, PathBuf};
+
+    fn run_dir() -> PathBuf {
+        PathBuf::from("/w/m2.1")
+    }
+
+    /// A coordinator over 16 fake children for quantity `q` at `shape` and `scale`, with generations of
+    /// `max_commits`; runs `f` on it.
+    fn with_coordinator<T>(
+        rig: &FakeRig,
+        pool: &mut FakeWriters,
+        max_commits: u64,
+        q: &str,
+        shape: Shape,
+        scale: u32,
+        f: impl FnOnce(&mut Coordinator<'_, FakeRig>) -> T,
+    ) -> T {
+        let gens = Generations::new(&run_dir(), max_commits, GEN_BYTES);
+        let mut c = Coordinator::new(rig, pool, gens, q, shape, scale);
+        f(&mut c)
+    }
+
+    /// The coordinator's own events: setup, T, the go lines, the replies and the store read.
+    fn coordinator_events(t: &[Ev]) -> Vec<Ev> {
+        t.iter()
+            .filter(|e| {
+                matches!(
+                    e,
+                    Ev::Init(_)
+                        | Ev::Remove(_)
+                        | Ev::ReaderOpen(_)
+                        | Ev::Read(_)
+                        | Ev::Stamp(_)
+                        | Ev::Go { .. }
+                        | Ev::Ack { .. }
+                )
+            })
+            .cloned()
+            .collect()
+    }
+
+    /// A burst gives 16 acks, one per child, and the reader's `Toy::read` sees exactly the 16 new commits; the next
+    /// burst's 16 follow.
+    #[test]
+    fn a_burst_yields_sixteen_acks_and_the_store_sees_sixteen_commits() {
+        let rig = FakeRig::new();
+        let mut pool = FakeWriters::new(&rig, CHILDREN);
+        with_coordinator(
+            &rig,
+            &mut pool,
+            GEN_COMMITS,
+            "last-ack.c0",
+            Shape::Design,
+            0,
+            |c| {
+                let b = c.burst().unwrap();
+                assert_eq!(b.acks.len(), 16);
+                let ops: Vec<u64> = b.acks.iter().map(|a| a.op).collect();
+                assert_eq!(ops, (1..=16).collect::<Vec<u64>>());
+                let store = rig.world.borrow().stores[&run_dir().join("store.1")].clone();
+                assert_eq!(store, (1..=16).collect());
+                let b = c.burst().unwrap();
+                assert_eq!(b.acks.len(), 16);
+                assert_eq!(
+                    rig.world.borrow().stores[&run_dir().join("store.1")].len(),
+                    32
+                );
+                assert_eq!(c.report.start_lag, [0, 0]);
+                assert_eq!(c.report.bytes_read.len(), 32);
+            },
+        );
+    }
+
+    /// A lost commit, an ack for another op, a child that never replies and an ack without a writer grant each fail
+    /// the burst, naming the child.
+    #[test]
+    fn a_lost_commit_or_a_wrong_ack_fails_the_burst() {
+        type Script = fn(&FakeRig, &mut FakeWriters);
+        let cases: [(Script, &str); 4] = [
+            (
+                |rig, _| {
+                    rig.world.borrow_mut().lost_ops.insert(5);
+                },
+                "child 4, op 5: Toy::read does not see its commit",
+            ),
+            (
+                |_, pool| {
+                    pool.misreport.insert(3, 99);
+                },
+                "child 2, op 3: the ack is for op 99",
+            ),
+            (|_, pool| pool.silent.push(7), "15 of 16 acks"),
+            (
+                |rig, _| {
+                    rig.world.borrow_mut().quiet_ops.insert(12);
+                },
+                "child 11, op 12: no writer grant",
+            ),
+        ];
+        for (script, says) in cases {
+            let rig = FakeRig::new();
+            let mut pool = FakeWriters::new(&rig, CHILDREN);
+            script(&rig, &mut pool);
+            let e = with_coordinator(
+                &rig,
+                &mut pool,
+                GEN_COMMITS,
+                "last-ack.c0",
+                Shape::Design,
+                0,
+                |c| c.burst().unwrap_err(),
+            );
+            assert!(e.0.contains(says), "{says}: {e}");
+        }
+    }
+
+    /// Child i's commit of burst k carries the cost `cost::draw(cost_seed(q), 16k + i, shape, scale)` in the `Config`
+    /// it opens with, and the filler `commit_size(draw64(filler_seed(q), 16k + i), 1 MiB)`, for a `Design` and a
+    /// `Uniform` quantity.
+    #[test]
+    fn costs_and_fillers_follow_the_seeded_draws() {
+        for (q, shape) in [
+            ("last-ack.c100", Shape::Design),
+            ("last-ack.a100", Shape::Uniform),
+        ] {
+            let rig = FakeRig::new();
+            let mut pool = FakeWriters::new(&rig, CHILDREN);
+            with_coordinator(&rig, &mut pool, GEN_COMMITS, q, shape, 100, |c| {
+                c.burst().unwrap();
+                c.burst().unwrap();
+            });
+            let t = rig.trace();
+            let mut costs = std::collections::BTreeMap::new();
+            let mut seen = 0;
+            for e in &t {
+                match e {
+                    Ev::Open { id, cost, .. } => {
+                        costs.insert(*id, *cost);
+                    }
+                    Ev::Commit { id, op, filler } => {
+                        let index = op - 1;
+                        let want = cost::draw(cost_seed(q), index, shape, 100);
+                        assert_eq!(costs[id], want, "{q} op {op}");
+                        let size =
+                            moirai_toylog::commit_size(draw64(filler_seed(q), index), 1 << 20);
+                        assert_eq!(*filler, size, "{q} op {op}");
+                        seen += 1;
+                    }
+                    _ => {}
+                }
+            }
+            assert_eq!(seen, 32);
+            assert!(
+                costs.values().any(|&c| c > 1_000_000),
+                "{q}: the draws reach the ms range"
+            );
+            assert_ne!(cost_seed(q), filler_seed(q));
+        }
+    }
+
+    /// The generation's `init`, the reader's opening and its read lie outside the burst: T is stamped after setup,
+    /// then the 16 go lines and the 16 replies, then the store is read; the last acknowledgement is the children's
+    /// serialised open + commit (1,000 + 16 × 20,000 ns), even in the burst that retires a generation (init's 10^9 ns
+    /// stay out).
+    #[test]
+    fn setup_and_the_store_read_stay_outside_the_burst() {
+        let rig = FakeRig::new();
+        let mut pool = FakeWriters::new(&rig, CHILDREN);
+        let store = |g: u32| run_dir().join(format!("store.{g}"));
+        with_coordinator(&rig, &mut pool, 16, "last-ack.c0", Shape::Design, 0, |c| {
+            for g in [1u32, 2] {
+                rig.clear();
+                let b = c.burst().unwrap();
+                assert_eq!(last_ack(&b), 1_000 + 16 * 20_000, "generation {g}");
+                let ev = coordinator_events(&rig.trace());
+                let mut want = vec![Ev::Init(store(g))];
+                if g == 2 {
+                    want.push(Ev::Remove(store(1)));
+                }
+                want.push(Ev::ReaderOpen(store(g)));
+                assert_eq!(ev[..want.len()], want[..], "generation {g}");
+                let rest = &ev[want.len()..];
+                assert!(matches!(rest[0], Ev::Stamp(t) if t + LEAD_NS == b.t0));
+                assert!(rest[1..17].iter().all(|e| matches!(e, Ev::Go { .. })));
+                assert!(rest[17..33].iter().all(|e| matches!(e, Ev::Ack { .. })));
+                assert_eq!(rest[33..], [Ev::Read(store(g))]);
+            }
+        });
+    }
+
+    /// A due generation retires between bursts: the next burst commits to `store.<g+1>`, the old one's reader is
+    /// closed and the old directory removed in that burst's setup, before T.
+    #[test]
+    fn generations_retire_between_bursts() {
+        let rig = FakeRig::new();
+        let mut pool = FakeWriters::new(&rig, CHILDREN);
+        with_coordinator(&rig, &mut pool, 32, "flushes.c0", Shape::Design, 0, |c| {
+            c.burst().unwrap();
+            c.burst().unwrap();
+            rig.clear();
+            c.burst().unwrap();
+            assert_eq!(c.report.generations, 2);
+        });
+        let t = rig.trace();
+        let at = |e: &Ev| t.iter().position(|x| x == e).unwrap();
+        let stamp = t.iter().position(|e| matches!(e, Ev::Stamp(_))).unwrap();
+        assert!(at(&Ev::Init(run_dir().join("store.2"))) < stamp);
+        assert!(
+            at(&Ev::Remove(run_dir().join("store.1")))
+                < at(&Ev::ReaderOpen(run_dir().join("store.2")))
+        );
+        assert!(at(&Ev::ReaderOpen(run_dir().join("store.2"))) < stamp);
+        assert!(
+            t.iter().all(|e| !matches!(e, Ev::Open { dir, .. } if dir.as_path() != Path::new("/w/m2.1/store.2"))),
+            "every commit of the third burst goes to store.2"
+        );
+        assert!(!rig.world.borrow().live.contains(&run_dir().join("store.1")));
+    }
+
+    /// A commit whose append did not hold the writer byte for its cost (its `Config` lost the draw) fails the burst,
+    /// even when its acknowledgement came later than the cost; with the cost spent the same burst passes.
+    #[test]
+    fn a_commit_that_did_not_spend_its_cost_in_the_append_fails_the_burst() {
+        for ignore in [true, false] {
+            let rig = FakeRig::new();
+            {
+                let mut w = rig.world.borrow_mut();
+                w.lat.open = 25_000_000;
+                w.ignore_cost = ignore;
+            }
+            let mut pool = FakeWriters::new(&rig, CHILDREN);
+            let r = with_coordinator(
+                &rig,
+                &mut pool,
+                GEN_COMMITS,
+                "last-ack.c100",
+                Shape::Design,
+                100,
+                |c| c.burst(),
+            );
+            if ignore {
+                let e = r.unwrap_err();
+                assert!(
+                    e.0.contains(
+                        "its append held the writer byte 20000 ns, below its in-lock cost"
+                    ),
+                    "{e}"
+                );
+            } else {
+                assert!(r.is_ok(), "{r:?}");
+            }
+        }
+    }
+
+    /// A child that starts more than 1 ms after T fails the burst; one that starts 1 ms after T is within the bound,
+    /// and the report records the lag.
+    #[test]
+    fn a_late_start_fails_the_burst() {
+        for (late, ok) in [(LATE_NS + 1, false), (LATE_NS, true)] {
+            let rig = FakeRig::new();
+            let mut pool = FakeWriters::new(&rig, CHILDREN);
+            pool.late.insert(3, late);
+            let (r, lags) = with_coordinator(
+                &rig,
+                &mut pool,
+                GEN_COMMITS,
+                "last-ack.c0",
+                Shape::Design,
+                0,
+                |c| (c.burst(), c.report.start_lag.clone()),
+            );
+            if ok {
+                assert!(r.is_ok(), "{r:?}");
+                assert_eq!(lags, [LATE_NS]);
+            } else {
+                let e = r.unwrap_err();
+                assert!(
+                    e.0.contains("child 2, op 3: it started at T+1000001 ns"),
+                    "{e}"
+                );
+            }
+        }
+    }
+
+    /// Burst k sends its go lines from child k mod 16 round, so no child is always first; its acks come back in
+    /// that order.
+    #[test]
+    fn the_go_order_rotates_by_burst() {
+        let rig = FakeRig::new();
+        let mut pool = FakeWriters::new(&rig, CHILDREN);
+        with_coordinator(
+            &rig,
+            &mut pool,
+            GEN_COMMITS,
+            "handoff.c0",
+            Shape::Design,
+            0,
+            |c| {
+                for k in 0..3u64 {
+                    rig.clear();
+                    let b = c.burst().unwrap();
+                    let gos: Vec<usize> = rig
+                        .trace()
+                        .iter()
+                        .filter_map(|e| match e {
+                            Ev::Go { child, .. } => Some(*child),
+                            _ => None,
+                        })
+                        .collect();
+                    let want: Vec<usize> = (0..16).map(|j| (k as usize + j) % 16).collect();
+                    assert_eq!(gos, want, "burst {k}");
+                    let ops: Vec<u64> = b.acks.iter().map(|a| a.op).collect();
+                    let want_ops: Vec<u64> = want.iter().map(|&i| 16 * k + i as u64 + 1).collect();
+                    assert_eq!(ops, want_ops, "burst {k}");
+                }
+            },
+        );
     }
 }
