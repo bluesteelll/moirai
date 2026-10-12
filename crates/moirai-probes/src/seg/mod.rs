@@ -12,6 +12,7 @@
 //! | this one | `SegHdr` with `total_len`, `seg_digest`, `table_xxh3` and `hdr_xxh3`; `SecEnt`; the placement P-1 to P-4; a parser that checks them; `NodeHdr` and `Creator` | [F09 §2.1]–§2.3 (`09-segments.md:51-136`); [F08 §3.1], [F08 §4] (`08-data-model.md:77-100`, `:185-191`) |
 //! | [`bitset`] | the frozen bitset with per-chunk cardinality and its AND/popcount, the ± list | [F09 §4.5], [F09 §4.6] (`09-segments.md:288-332`) |
 //! | [`base`] | the synthetic base `seg.base.1` at N: rows, cold columns, forward and reverse CSR, `BMDIR` and its frozen bitsets | [F09 §5], §7.1, §9, §16.1 (`09-segments.md:376-416`, `:479-505`, `:569-599`, `:1077-1083`); `ARCHITECTURE-RESEARCH.md:1677-1681` |
+//! | [`delta`] | the delta `seg.d<K>` a checkpoint folds from a tail over the base: the touched rows with complete states and the ± lists against the base | [F09 §16.2] (`09-segments.md:1085-1089`), §5.1 (`:378-382`), §4.6; [F08 §3.5] (`08-data-model.md:157-169`) |
 //!
 //! **The subset** (spec Goal 1: "the 60-byte `NodeHdr`, CSR, frozen bitsets, cold columns and delta"): the probe
 //! writes `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE`, the six CSR columns, `BMDIR` and `BM.<i>`
@@ -22,6 +23,7 @@
 
 pub mod base;
 pub mod bitset;
+pub mod delta;
 
 use crate::tail::store::{SEG_HDR_LEN, SEG_MAGIC};
 use xxhash_rust::xxh3::xxh3_64;
