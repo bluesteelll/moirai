@@ -1270,13 +1270,17 @@ mod tests {
     use crate::seg::bitset::Container;
     use crate::seg::delta::decode;
     use crate::tail::commit::Op;
-    use crate::tail::memfs::MemFs;
+    use crate::tail::memfs::{MemFile, MemFs, MemMap};
     use crate::tail::store::tests::scratch;
     use crate::tail::synth::tests::test_target;
     use crate::tail::{Geometry, REC_HDR_LEN};
     use crate::testkit::{FakeMeter, FakeTicker, scratch_dir};
     use crate::tier::Plan;
     use crate::units::MS;
+    use moirai_vfs::{
+        Advice, DirEntry, DurabilityFailure, FileIdentity, FreeSpace, GroupMember, MapError,
+        StoreVolume, SwapOutcome, SwapRecovery, VfsCounters, VfsError, VfsTypes,
+    };
     use std::cell::RefCell;
     use std::collections::{BTreeMap, BTreeSet};
     use std::rc::Rc;
@@ -1284,22 +1288,26 @@ mod tests {
     /// A read the store logged: (file name, offset, bytes asked).
     type Read = (String, u64, usize);
 
-    /// One reading of [`FsTicker`]: how many reads the store had logged, and each watched file's bytes and seal.
+    /// One reading of [`FsTicker`]: how many reads the store had logged, how many calls a [`LoggedFs`] over it had
+    /// logged, and each watched file's bytes and seal.
     #[derive(Clone, Debug)]
     struct Tick {
         reads: usize,
+        calls: usize,
         files: BTreeMap<String, (Vec<u8>, bool)>,
     }
 
     /// The probe counter (spec Goal 2): a ticker over a [`MemFs`] that records a [`Tick`] at every reading and
     /// returns 1, 2, 3, … `Staged::sample` and `TimedFn::sample` read their ticker exactly at t0 and t1, so the reads
-    /// logged between a sample's two ticks are exactly its timed region's I/O, and the two ticks show the watched files
-    /// as the timed region found and left them. The product code carries no instrumentation.
+    /// (and a [`LoggedFs`]'s calls) logged between a sample's two ticks are exactly its timed region's I/O, and the two
+    /// ticks show the watched files as the timed region found and left them. The product code carries no
+    /// instrumentation.
     #[derive(Clone)]
     struct FsTicker<'f> {
         fs: &'f MemFs,
         dir: PathBuf,
         watch: Vec<String>,
+        calls: Rc<RefCell<Vec<Call>>>,
         ticks: Rc<RefCell<Vec<Tick>>>,
     }
 
@@ -1310,8 +1318,15 @@ mod tests {
                 fs,
                 dir: dir.to_path_buf(),
                 watch: watch.iter().map(|w| w.to_string()).collect(),
+                calls: Rc::default(),
                 ticks: Rc::default(),
             }
+        }
+
+        /// The same ticker, counting the calls that `lfs`, a [`LoggedFs`] over its `fs`, logs.
+        fn logging(mut self, lfs: &LoggedFs<'_>) -> FsTicker<'f> {
+            self.calls = lfs.calls.clone();
+            self
         }
 
         /// The readings so far.
@@ -1351,9 +1366,299 @@ mod tests {
             let mut t = self.ticks.borrow_mut();
             t.push(Tick {
                 reads: self.fs.log().reads.len(),
+                calls: self.calls.borrow().len(),
                 files,
             });
             t.len() as u64
+        }
+    }
+
+    /// A call that [`LoggedFs`] logs on a file: an open (whether its handle may write), a write or a flush.
+    #[derive(Clone, Copy, Debug, Eq, PartialEq)]
+    enum Io {
+        Open(bool),
+        Write,
+        Sync(SyncKind),
+    }
+
+    /// A logged call: the file's name, the number of the handle it went through, and the call.
+    type Call = (String, usize, Io);
+
+    /// An open file of a [`LoggedFs`]: [`MemFs`]'s handle, the file's name, and the handle's number (the index of its
+    /// open in the log).
+    struct LoggedFile {
+        file: MemFile,
+        name: String,
+        n: usize,
+    }
+
+    /// [`MemFs`] with every open, write and flush logged by file name and handle (tester I-1, I-2): `MemFs` logs no
+    /// write or flush, and not which handle a call goes through. Every call goes on to `fs` unchanged, so `fs`'s own
+    /// log, files and seals are as without the wrapper.
+    struct LoggedFs<'f> {
+        fs: &'f MemFs,
+        calls: Rc<RefCell<Vec<Call>>>,
+    }
+
+    impl<'f> LoggedFs<'f> {
+        fn new(fs: &'f MemFs) -> LoggedFs<'f> {
+            LoggedFs {
+                fs,
+                calls: Rc::default(),
+            }
+        }
+
+        /// The calls so far.
+        fn calls(&self) -> Vec<Call> {
+            self.calls.borrow().clone()
+        }
+
+        fn log(&self, f: &LoggedFile, io: Io) {
+            self.calls.borrow_mut().push((f.name.clone(), f.n, io));
+        }
+
+        /// `file`, just opened as `rel`, numbered and logged.
+        fn opened(&self, file: MemFile, rel: RelPath<'_>, write: bool) -> LoggedFile {
+            let f = LoggedFile {
+                file,
+                name: rel.as_str().to_string(),
+                n: self.calls.borrow().len(),
+            };
+            self.log(&f, Io::Open(write));
+            f
+        }
+    }
+
+    impl VfsTypes for LoggedFs<'_> {
+        type Root = PathBuf;
+        type File = LoggedFile;
+    }
+
+    impl StoreFs for LoggedFs<'_> {
+        fn open_root(
+            &self,
+            dir: &Path,
+            role: RootRole,
+            access: RootAccess,
+        ) -> Result<PathBuf, VfsError> {
+            self.fs.open_root(dir, role, access)
+        }
+
+        fn create_root(&self, dir: &Path, role: RootRole) -> Result<PathBuf, VfsError> {
+            self.fs.create_root(dir, role)
+        }
+
+        fn open(
+            &self,
+            root: &PathBuf,
+            rel: RelPath<'_>,
+            access: Access,
+            hint: OpenHint,
+        ) -> Result<LoggedFile, VfsError> {
+            let file = self.fs.open(root, rel, access, hint)?;
+            Ok(self.opened(file, rel, access == Access::ReadWrite))
+        }
+
+        fn create_new(&self, root: &PathBuf, rel: RelPath<'_>) -> Result<LoggedFile, VfsError> {
+            let file = self.fs.create_new(root, rel)?;
+            Ok(self.opened(file, rel, true))
+        }
+
+        fn create_dir(&self, root: &PathBuf, rel: RelPath<'_>) -> Result<(), VfsError> {
+            self.fs.create_dir(root, rel)
+        }
+
+        fn remove_dir(&self, root: &PathBuf, rel: RelPath<'_>) -> Result<(), VfsError> {
+            self.fs.remove_dir(root, rel)
+        }
+
+        fn list_dir(
+            &self,
+            root: &PathBuf,
+            dir: Option<RelPath<'_>>,
+        ) -> Result<Vec<DirEntry>, VfsError> {
+            self.fs.list_dir(root, dir)
+        }
+
+        fn read_at(&self, f: &LoggedFile, offset: u64, buf: &mut [u8]) -> Result<usize, VfsError> {
+            self.fs.read_at(&f.file, offset, buf)
+        }
+
+        fn read_exact_at(
+            &self,
+            f: &LoggedFile,
+            offset: u64,
+            buf: &mut [u8],
+        ) -> Result<(), VfsError> {
+            self.fs.read_exact_at(&f.file, offset, buf)
+        }
+
+        fn write_at(&self, f: &LoggedFile, offset: u64, buf: &[u8]) -> Result<(), VfsError> {
+            self.log(f, Io::Write);
+            self.fs.write_at(&f.file, offset, buf)
+        }
+
+        fn sync(&self, f: &LoggedFile, kind: SyncKind) -> Result<(), DurabilityFailure> {
+            self.log(f, Io::Sync(kind));
+            self.fs.sync(&f.file, kind)
+        }
+
+        fn sync_dir(
+            &self,
+            root: &PathBuf,
+            dir: Option<RelPath<'_>>,
+        ) -> Result<(), DurabilityFailure> {
+            self.fs.sync_dir(root, dir)
+        }
+
+        fn sync_group(
+            &self,
+            members: &[GroupMember<'_, PathBuf, LoggedFile>],
+        ) -> Result<(), DurabilityFailure> {
+            let mut inner = Vec::new();
+            for m in members {
+                inner.push(match *m {
+                    GroupMember::File { file, kind } => {
+                        self.log(file, Io::Sync(kind));
+                        GroupMember::File {
+                            file: &file.file,
+                            kind,
+                        }
+                    }
+                    GroupMember::Dir { root, dir } => GroupMember::Dir { root, dir },
+                });
+            }
+            self.fs.sync_group(&inner)
+        }
+
+        fn fail_stop(&self, failure: DurabilityFailure) -> ! {
+            self.fs.fail_stop(failure)
+        }
+
+        fn create_extent(
+            &self,
+            root: &PathBuf,
+            rel: RelPath<'_>,
+            len: u64,
+            vol: &StoreVolume,
+        ) -> Result<LoggedFile, VfsError> {
+            let file = self.fs.create_extent(root, rel, len, vol)?;
+            Ok(self.opened(file, rel, true))
+        }
+
+        fn recycle_extent(
+            &self,
+            f: &LoggedFile,
+            len: u64,
+            vol: &StoreVolume,
+        ) -> Result<(), VfsError> {
+            self.log(f, Io::Write);
+            self.fs.recycle_extent(&f.file, len, vol)
+        }
+
+        fn seal(&self, f: &LoggedFile) -> Result<(), VfsError> {
+            self.fs.seal(&f.file)
+        }
+
+        fn unlink(
+            &self,
+            root: &PathBuf,
+            rel: RelPath<'_>,
+            retry: ShareRetry,
+        ) -> Result<(), VfsError> {
+            self.fs.unlink(root, rel, retry)
+        }
+
+        fn rename_noreplace(
+            &self,
+            from_root: &PathBuf,
+            from: RelPath<'_>,
+            to_root: &PathBuf,
+            to: RelPath<'_>,
+            retry: ShareRetry,
+        ) -> Result<(), VfsError> {
+            self.fs
+                .rename_noreplace(from_root, from, to_root, to, retry)
+        }
+
+        fn rename_replace(
+            &self,
+            from_root: &PathBuf,
+            from: RelPath<'_>,
+            to_root: &PathBuf,
+            to: RelPath<'_>,
+            retry: ShareRetry,
+        ) -> Result<(), VfsError> {
+            self.fs.rename_replace(from_root, from, to_root, to, retry)
+        }
+
+        fn swap_dirs(
+            &self,
+            a_parent: &PathBuf,
+            a: RelPath<'_>,
+            b_parent: &PathBuf,
+            b: RelPath<'_>,
+            retry: ShareRetry,
+        ) -> Result<SwapOutcome, VfsError> {
+            self.fs.swap_dirs(a_parent, a, b_parent, b, retry)
+        }
+
+        fn swap_recover(
+            &self,
+            a_parent: &PathBuf,
+            a: RelPath<'_>,
+            retry: ShareRetry,
+        ) -> Result<SwapRecovery, VfsError> {
+            self.fs.swap_recover(a_parent, a, retry)
+        }
+
+        fn file_size(&self, f: &LoggedFile) -> Result<u64, VfsError> {
+            self.fs.file_size(&f.file)
+        }
+
+        fn identity(&self, f: &LoggedFile) -> Result<FileIdentity, VfsError> {
+            self.fs.identity(&f.file)
+        }
+
+        fn root_identity(&self, root: &PathBuf) -> Result<FileIdentity, VfsError> {
+            self.fs.root_identity(root)
+        }
+
+        fn path_identity(
+            &self,
+            root: &PathBuf,
+            rel: RelPath<'_>,
+        ) -> Result<FileIdentity, VfsError> {
+            self.fs.path_identity(root, rel)
+        }
+
+        fn free_space(&self, root: &PathBuf) -> Result<FreeSpace, VfsError> {
+            self.fs.free_space(root)
+        }
+
+        fn advise_dontneed(&self, f: &LoggedFile, offset: u64, len: u64) {
+            self.fs.advise_dontneed(&f.file, offset, len)
+        }
+
+        fn counters(&self) -> VfsCounters {
+            self.fs.counters()
+        }
+    }
+
+    impl SealedMaps for LoggedFs<'_> {
+        type Map = MemMap;
+
+        fn map_sealed(
+            &self,
+            f: &LoggedFile,
+            expected_len: u64,
+            name: RelPath<'_>,
+        ) -> Result<MemMap, MapError> {
+            self.fs.map_sealed(&f.file, expected_len, name)
+        }
+
+        fn advise(&self, map: &MemMap, offset: u64, len: u64, advice: Advice) {
+            self.fs.advise(map, offset, len, advice)
         }
     }
 
@@ -1896,7 +2201,10 @@ mod tests {
     }
 
     /// The fixture of `family`'s first quantity at the test profile.
-    fn fixture<'v>(fs: &'v MemFs, family: Family) -> (Quantity, Prepared<'v, MemFs>) {
+    fn fixture<'v, V: StoreFs + SealedMaps>(
+        fs: &'v V,
+        family: Family,
+    ) -> (Quantity, Prepared<'v, V>) {
         let q = grid().into_iter().find(|q| q.family == family).unwrap();
         let p = prepare(fs, &scratch(), &q, Profile::Test).unwrap();
         (q, p)
@@ -1975,6 +2283,62 @@ mod tests {
         }
         assert_eq!(tails.len(), 2, "tails 0 and 1 differ");
         assert_eq!(ticker.count(), 8, "two ticks per sample");
+    }
+
+    /// The checkpoint's setup rewrites the extent through the read-write handle that [`arms`] opens for the run, and
+    /// flushes it before t0 (tester I-1, I-2; the module doc's `ckpt` row). Over a [`LoggedFs`]: `arms` opens the
+    /// extent once, for writing; in each sample, every call on the extent before t0 goes through that handle, the
+    /// setup writes it, and its last call on it is `sync(Data)`; between the ticks the extent is at most opened for
+    /// reading (the fold's log), never written or flushed. So no sample opens or closes a handle that writes the
+    /// extent, and the timed region finds the rewrite flushed.
+    #[test]
+    fn ckpt_setup_flushes_the_tail_through_the_runs_handle() {
+        let fs = MemFs::with_dir(&scratch());
+        let lfs = LoggedFs::new(&fs);
+        let (q, p) = fixture(&lfs, Family::Ckpt);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let t = p.tail.as_ref().unwrap();
+        let ext = extent_name(t.expect.geo.extent(t.start));
+        let ticker = FsTicker::new(&fs, p.dir(), &[]).logging(&lfs);
+        let on_ext = |from: usize, to: usize| -> Vec<(usize, Io)> {
+            lfs.calls()[from..to]
+                .iter()
+                .filter(|c| c.0 == ext)
+                .map(|c| (c.1, c.2))
+                .collect()
+        };
+        let before = lfs.calls().len();
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        let mut from = lfs.calls().len();
+        let opened = on_ext(before, from);
+        let &[(h, Io::Open(true))] = opened.as_slice() else {
+            panic!("arms opens {ext} once, for writing: {opened:?}");
+        };
+        for k in 0..3 {
+            arms[0].sample().unwrap();
+            let (t0, t1) = ticker.last();
+            let setup = on_ext(from, t0.calls);
+            assert!(
+                setup.iter().all(|&(n, _)| n == h),
+                "sample {k}: a call on {ext} before t0 through another handle than the run's {h}: {setup:?}"
+            );
+            assert!(
+                setup.contains(&(h, Io::Write)),
+                "sample {k}: the setup does not rewrite {ext}: {setup:?}"
+            );
+            assert_eq!(
+                setup.last(),
+                Some(&(h, Io::Sync(SyncKind::Data))),
+                "sample {k}: the setup's last call on {ext} is not its flush"
+            );
+            let timed = on_ext(t0.calls, t1.calls);
+            assert!(
+                timed.iter().all(|&(_, io)| io == Io::Open(false)),
+                "sample {k}: {ext} written, flushed or opened for writing between the ticks: {timed:?}"
+            );
+            from = t1.calls;
+        }
+        assert_eq!(ticker.count(), 6, "two ticks per sample");
     }
 
     /// The catch-up runs inside its timed region (spec Goal 2, audit mutation D): between the ticks the store reads
