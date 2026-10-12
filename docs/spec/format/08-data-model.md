@@ -560,7 +560,7 @@ open point 7):
 | 6 | `set` | add-wins relative to the base |
 | 7 | `text` | line diff3 |
 | 8 | `section-text` | line diff3 plus the removed-text guard (the body of a doc section) |
-| 9 | `hierarchy` | (`parent`, `order`) moved by Kleppmann's rule |
+| 9 | `hierarchy` | (`parent`, `order`), one key, merged by the per-key three-way rule with a cycle repair ([RULES/merge-table] MC-010, RS-007 `threeway`) |
 | 10 | `identity` | immutable identity input (R-2) |
 | 11 | `observation` | a member of the artifact's observation composite, one merge key (R-2) |
 | 12 | `alias-set` | `aliases` |
