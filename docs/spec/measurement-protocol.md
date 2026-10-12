@@ -2,11 +2,11 @@
 
 | Field | Value |
 |---|---|
-| Title | The measurement protocol: hosts, conditions (idle, loaded, synthetic), sample-size tiers, repetitions and statistics, interleaved floors, the timer, process readings, agent token usage, gates, the noise band, records and aggregates, the pre-run guard, and the load fixture with its recorder and generator |
+| Title | The measurement protocol: hosts, conditions (idle, loaded, synthetic), sample-size tiers, repetitions and statistics, interleaved floors, the timer, process readings, agent token usage, gates, the noise band, records and aggregates, the pre-run guard, the load fixture with its recorder and generator, the driver contract and the session runner |
 | Chapter | `[MP]`, `docs/spec/measurement-protocol.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-50 (role R-HARN-I), [PLAN §3.2] item 5; §9 WP-51 (R-HARN-I) |
-| Sources | [60 §5.1] (every row: load, sample size, floors, idle CPU, RSS, counts, spawn, noise band, and the paragraph above the table); [60 §5.2] items 11, 16, 19, 21; [60 §5.3] (floor-relative gates); [60 §3.15] (profile L: "everything refused below 1.5 GB free"; the disk row: "the harness refuses to start below 25 GB free"); [74 A04] (the tiers), [74 A24] (the disk budget); [61 M-6] (why the protocol exists); [AR §8.2] (the paragraph "M0 measurements on the owner's machine"); [80 §2.9] (metering per OS, the floor-relative gate form); [PLAN §2.1] (target directories, "WP-05's disk guard counts all four"), [PLAN §3.2] item 5 (the shared acceptance of WP-50 to WP-58), WP-03 (the private manifest), WP-05 (the guard's refusals), WP-50, WP-51 (the load fixture, its recorder and generator, the noise bands, `noise.yml`), [PLAN §5] (V4, V5; the owner's deferral of measurements of 2026-09-29; the token-usage rule of the owner decisions of 2026-10-06); [AR §11] #35 and #37 (the fixture: a resource profile only, never off the laptop); `docs/m0/tools.md` §10 (typeperf, WPR) |
+| Sources | [60 §5.1] (every row: load, sample size, floors, idle CPU, RSS, counts, spawn, noise band, and the paragraph above the table); [60 §5.2] items 11, 16, 19, 21; [60 §5.3] (floor-relative gates); [60 §3.15] (profile L: "everything refused below 1.5 GB free"; the disk row: "the harness refuses to start below 25 GB free"); [74 A04] (the tiers), [74 A24] (the disk budget); [61 M-6] (why the protocol exists); [AR §8.2] (the paragraph "M0 measurements on the owner's machine"); [80 §2.9] (metering per OS, the floor-relative gate form); [PLAN §2.1] (target directories, "WP-05's disk guard counts all four"), [PLAN §3.2] item 5 (the shared acceptance of WP-50 to WP-58), WP-03 (the private manifest), WP-05 (the guard's refusals), WP-50, WP-51 (the load fixture, its recorder and generator, the noise bands, `noise.yml`), [PLAN §5] (V4, V5; the owner's deferral of measurements of 2026-09-29; the token-usage rule of the owner decisions of 2026-10-06); the owner's decision of 2026-10-12 to run one measurement night (§1.1); [AR §11] #35 and #37 (the fixture: a resource profile only, never off the laptop); `docs/m0/tools.md` §10 (typeperf, WPR) |
 | Depends on | [OS/README §4.3] (the `Meter` seam), [OS/mem] (its quantities and sources), [OS/fs §4.11] (`free_space`), [OS/fs §4.13] (`counters`) |
 
 ---
@@ -27,7 +27,10 @@ Windows OS layer by the
 composition root `moirai-probes-bin` ([PLAN §2.2], §6.2 R17); the load fixture's recorder of §9 is the tool
 `cargo xtask loadrec`. The measurements themselves and their probe bodies are the later work packages' ([PLAN §3.2]
 item 5). By the owner's decision of 2026-09-29 no measurement is run until the
-owner resumes them ([PLAN §5]); this protocol and its framework are written now.
+owner resumes them ([PLAN §5]), except one measurement night that the owner decided on 2026-10-12. On a date the owner
+names, it runs measurements 14, 6 (its codec half), 1, 2 and 10 idle, with nothing else running on the machine,
+through the session runner of §9.8. Every other measurement stays deferred. This protocol and its framework are written
+now.
 
 ### 1.2 Normative words and citations
 
@@ -973,6 +976,7 @@ time, memory and Windows-behaviour gates of [60 §3.13] and [60 §5.3]–[60 §5
 | [PLAN §3.2] item 5, shared acceptance | idle and loaded, the Windows build and Defender versions, raw data and aggregates | §2.2, §2.3, §7 |
 | [PLAN §3.2] WP-05, the guard's refusals | `ram-low`, `disk-low`, fail-closed readings | §8 |
 | [60 §5.2] item 16, [PLAN §3.2] WP-51 | the counters, the fixture file, `xtask loadrec`, `loadgen`, the replay verdict, synthetic profiles, the noise bands of noise runs, `noise.yml` | §9 |
+| the owner's decision of 2026-10-12, one measurement night | the deferral's exception; the driver contract; the session runner (window, guard, budgets, one process per run, retry, resume, private index) | §1.1, §9.7, §9.8 |
 
 ## Holes
 
@@ -1013,3 +1017,6 @@ time, memory and Windows-behaviour gates of [60 §3.13] and [60 §5.3]–[60 §5
 | 27 | `noise.yml` runs the measurement drivers of WP-52 to WP-57, which have no common command line yet | the driver contract of §9.7 | WP-52 to WP-57, R-REV-P |
 | 28 | The token-usage rule of [PLAN §5] (owner decisions of 2026-10-06) names the parts to add, not the fields; Codex is not installed yet (V9), so its usage fields are not observed here; and a transcript or stream repeats usage (Claude Code's per-content-block assistant lines, Codex's cumulative totals), which summed would count it twice | Claude Code's three input fields as `moirai-tokcount` parses them, counted once per response (`message.id`, the last line's usage) and never added to the `result` line's totals; for Codex, the reported `input_tokens` with `cached_input_tokens` read as a part of it and `reasoning_output_tokens` as a part of `output_tokens`, as OpenAI's usage reports them, read per response or per turn and never from the cumulative `total_token_usage` (§4.10). WP-56 checks the per-response and per-turn reading and the fields on Codex 0.157 with its first recorded usage | WP-56, R-REV-P |
 | 29 | [60 §5.1] has no rule for how a nightly run treats the idle-CPU observation, which has no noise band | its gate is absolute in nightly runs too; an observation that may not decide is reported with its disqualifications, as a refused comparison is (§6) | R-REV-P |
+| 30 | The session runner of §9.8 retries a run that is not exit-grade; nothing says when, or which runs | one immediate retry with its own guard, so the plan keeps its order and the measurements that decide bytes run first; a run stopped at its own run budget is retried, and one stopped at its measurement's budget or at the window's deadline is not (§9.8). A Defender signature update ends its own run's exit grade (§7.3), and its scan burst (open point 10) may then overlap the next run, the retry or the next planned run, whose snapshots are equal, so that run passes every check; the runner does not wait after such an update | R-REV-P |
+| 31 | The nightly runner checks the RAM floor with the guard every 30 s while a job runs (§8); in an idle run that guard is a user process beside the measured one (§2.3) | the session runner runs the guard before each attempt and none while a driver runs; inside the run the framework's round-boundary readings hold the 1.5 GB floor (§2.3, §9.8) | R-REV-P |
+| 32 | A session resumed after a crash must know which runs are done | a run is done when `/private/measurements/<n>/` holds an exit-grade record of its quantity and of the measured commit; records of other commits, and records that are not exit-grade, stay raw data and do not count (§9.8) | R-REV-P |
