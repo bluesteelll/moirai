@@ -10,7 +10,7 @@
 //! |---|---|---|---|
 //! | `csr.n1e5`, `csr.n1e6` | `expand` | reads one node's out-list and in-list from the six CSR columns (`09-segments.md:479-505`) | — |
 //! | `bitset.n1e5`, `bitset.n1e6` | `and.popcount` | ANDs the kind bitset with one kind-status bitset and counts ([50] F6) | — |
-//! | `scan.n1e5`, `scan.n1e6` | `scan.status`, `scan.due` | counts the rows of one status in `NODE`'s 60-byte rows; the floor counts the non-zero elements of the dense `DUE` column, the layout a per-field split would give (OP-09-21, `09-segments.md:1369-1372`) | — |
+//! | `scan.n1e5`, `scan.n1e6` | `scan.status`, `scan.split` | counts the rows of one status in `NODE`'s 60-byte rows; the floor counts the same status in a dense 1-byte column built from `NODE` in the run's setup, the layout a per-field split of `NODE` would give (OP-09-21, `09-segments.md:1369-1372`; `status`, `08-data-model.md:80`). Both cycle the status through 0–3 with their own counters, so they time the same counts | — |
 //! | `overlay.n1e5`, `overlay.n1e6` | `probe` | looks one `#N` up in a full tail's node index ("overlay probe ~0.2 µs", `ARCHITECTURE-RESEARCH.md:968`) | — |
 //! | `read-4096.n1e6` | `read` | T1's point read: the status of a node the tail touched, through the overlay and the tail's records, else the base row | t1 (read ≤ 50 µs) |
 //! | `ckpt-4096.n5e5` | `ckpt`, `ckpt.write` | T1's delta checkpoint: replays the tail from its extents, folds it over the base, encodes `seg.d1`, then `create_new`, `write_at`, `sync(DataAndMeta)`, `seal`, `sync_dir` (`docs/spec/os/fs.md:411`, `:456`); the floor writes and flushes the same bytes without the fold. The unlink of the previous sample's file is setup, outside the timed region ([MP §4.1]) | t3 (≤ 100 ms) |
@@ -114,7 +114,7 @@ impl Family {
         match self {
             Family::Csr => &["expand"],
             Family::Bitset => &["and.popcount"],
-            Family::Scan => &["scan.status", "scan.due"],
+            Family::Scan => &["scan.status", "scan.split"],
             Family::Overlay => &["probe"],
             Family::Read => &["read"],
             Family::Ckpt => &["ckpt", "ckpt.write"],
@@ -258,10 +258,76 @@ pub fn scan_status(c: &Columns<'_>, s: u8) -> u64 {
     rows.iter().filter(|row| row[STATUS_AT] == s).count() as u64
 }
 
-/// The floor scan over the dense `DUE` column: its non-zero elements.
-pub fn scan_due(c: &Columns<'_>) -> u64 {
-    let (due, _) = c.due.as_chunks::<4>();
-    due.iter().filter(|e| **e != [0; 4]).count() as u64
+/// The split status column: byte [`STATUS_AT`] of every 60-byte `NODE` row, in row order, the dense 1-byte column a
+/// per-field split of `NODE` would give (OP-09-21, `09-segments.md:1369-1372`; `08-data-model.md:80`).
+pub fn split_status(c: &Columns<'_>) -> Vec<u8> {
+    let (rows, _) = c.node.as_chunks::<NODE_HDR_LEN>();
+    rows.iter().map(|row| row[STATUS_AT]).collect()
+}
+
+/// The floor scan over the split status column: the rows whose status is `s`.
+pub fn scan_split(col: &[u8], s: u8) -> u64 {
+    col.iter().filter(|&&b| b == s).count() as u64
+}
+
+/// What the counting arms read besides the base's sections, built by [`prepare`] outside every timed region.
+#[derive(Clone, Debug, Default, Eq, PartialEq)]
+pub struct Operands {
+    /// The split status column of a `scan` fixture ([`split_status`]), else empty.
+    pub split: Vec<u8>,
+}
+
+/// The operands of `family`'s counting arms over the base `c`.
+pub fn operands(family: Family, c: &Columns<'_>) -> Result<Operands, String> {
+    Ok(match family {
+        Family::Scan => Operands {
+            split: split_status(c),
+        },
+        _ => Operands::default(),
+    })
+}
+
+/// One operation of a counting arm: each call returns the count its timed call computes.
+pub type CountOp<'p> = Box<dyn FnMut() -> u64 + 'p>;
+
+/// The operations of the AND/popcount and scan arms of `family` over the base `c` and the operands `ops`, named as
+/// [`Family::arms`], arm 0 first. Each cycles the status s through 0–3 with its own counter, so arm 0 and its floor
+/// time the same counts. [`arms`] times exactly these calls, so a test that calls them checks the operands each arm
+/// passes to its probe.
+pub fn count_ops<'p>(
+    family: Family,
+    c: &'p Columns<'p>,
+    ops: &'p Operands,
+) -> Result<Vec<(&'static str, CountOp<'p>)>, String> {
+    let s_of = |i: &mut usize| {
+        *i += 1;
+        (*i % usize::from(STATUSES)) as u8
+    };
+    let (mut i, mut j) = (0usize, 0usize);
+    let v: Vec<(&'static str, CountOp<'p>)> = match family {
+        Family::Bitset => {
+            let kind = c.frozen(kind_key(BASE_KIND))?;
+            let sets = (0..STATUSES)
+                .map(|s| c.frozen(kind_status_key(BASE_KIND, s)))
+                .collect::<Result<Vec<Frozen<'p>>, String>>()?;
+            vec![(
+                "and.popcount",
+                Box::new(move || and_popcount(&kind, &sets[usize::from(s_of(&mut i))])),
+            )]
+        }
+        Family::Scan => vec![
+            (
+                "scan.status",
+                Box::new(move || scan_status(c, s_of(&mut i))),
+            ),
+            (
+                "scan.split",
+                Box::new(move || scan_split(&ops.split, s_of(&mut j))),
+            ),
+        ],
+        f => return Err(format!("{} has no counting arm", f.stem())),
+    };
+    Ok(v)
 }
 
 /// The overlay probe: whether the tail touched `#id`.
@@ -494,6 +560,8 @@ pub struct Prepared<'v, V: StoreFs + SealedMaps> {
     pub n: u32,
     /// The quantity's seed.
     pub seed: u64,
+    /// What the counting arms read besides the base ([`operands`]).
+    pub operands: Operands,
     /// The store seam.
     pub vfs: &'v V,
     guard: FixtureGuard<'v, V>,
@@ -506,7 +574,8 @@ impl<V: StoreFs + SealedMaps> Prepared<'_, V> {
     }
 }
 
-/// Writes `q`'s fixture under `scratch` at `profile`: the base sealed, the tail's extents and `HEAD`; maps the base.
+/// Writes `q`'s fixture under `scratch` at `profile`: the base sealed, the tail's extents and `HEAD`; maps the base
+/// and builds the counting arms' operands from it.
 pub fn prepare<'v, V: StoreFs + SealedMaps>(
     vfs: &'v V,
     scratch: &Path,
@@ -580,19 +649,21 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
         .map_sealed(&f, len, base_rel.as_rel_path())
         .map_err(|e| e.to_string())?;
     drop(f);
+    let operands = operands(q.family, &Columns::parse(map.bytes())?)?;
     Ok(Prepared {
         map,
         root,
         tail,
         n,
         seed: seed(&q.name),
+        operands,
         vfs,
         guard,
     })
 }
 
 /// The arms of `q` over a prepared fixture, arm 0 first; their setup (the overlay, the warm builder, the floor's
-/// bytes) runs here, outside every timed region.
+/// bytes) runs here, outside every timed region. The AND/popcount and scan arms time the calls of [`count_ops`].
 pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
     p: &'p Prepared<'_, V>,
     c: &'p Columns<'p>,
@@ -614,34 +685,12 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
                 },
             )));
         }
-        Family::Bitset => {
-            let kind = c.frozen(kind_key(BASE_KIND))?;
-            let sets = (0..STATUSES)
-                .map(|s| c.frozen(kind_status_key(BASE_KIND, s)))
-                .collect::<Result<Vec<Frozen<'p>>, String>>()?;
-            arms.push(Box::new(TimedFn::new(
-                "and.popcount",
-                ticker.clone(),
-                move || {
-                    i += 1;
-                    Ok(and_popcount(&kind, &sets[i % sets.len()]))
-                },
-            )));
-        }
-        Family::Scan => {
-            arms.push(Box::new(TimedFn::new(
-                "scan.status",
-                ticker.clone(),
-                move || {
-                    i += 1;
-                    Ok(scan_status(c, (i % usize::from(STATUSES)) as u8))
-                },
-            )));
-            arms.push(Box::new(TimedFn::new(
-                "scan.due",
-                ticker.clone(),
-                move || Ok(scan_due(c)),
-            )));
+        Family::Bitset | Family::Scan => {
+            for (name, mut op) in count_ops(q.family, c, &p.operands)? {
+                arms.push(Box::new(TimedFn::new(name, ticker.clone(), move || {
+                    Ok(op())
+                })));
+            }
         }
         Family::Overlay => {
             let o = tail()?.overlay()?;
@@ -1303,15 +1352,18 @@ mod tests {
         let _ = std::fs::remove_dir_all(&out_dir);
     }
 
-    /// The layout probes return the naive counts: the CSR probe the sum over the generator's out-edges and their
-    /// reverse; AND/popcount and the status scan the rows of #N mod 4 = s; the due scan every fourth row; the overlay
-    /// probe membership in the tail's owners.
+    /// The layout probes return the naive counts, at an N whose four status counts differ (1,002: 250, 251, 251,
+    /// 250): the CSR probe the sum over the generator's out-edges and their reverse; AND/popcount and both scans the
+    /// rows of #N mod 4 = s; the overlay probe membership in the tail's owners. The split column holds `NODE`'s status
+    /// bytes. The counting arms' operations (critique I-1) are named as their family's arms and return, call by call,
+    /// the counts of s = 1, 2, 3, 0, …: arm 0 from `NODE` and the floor from its own column, which a rotated column
+    /// shows.
     #[test]
     fn layout_arms_equal_naive_counts() {
-        let (t, b) = tail_and_base(1_000, 200, 3);
+        let (t, b) = tail_and_base(1_002, 200, 3);
         let c = Columns::parse(&b).unwrap();
         let s = base::Spec {
-            n: 1_000,
+            n: 1_002,
             upto_lsn: t.start,
             base_seq: BASE_SEQ,
         };
@@ -1334,13 +1386,51 @@ mod tests {
             );
         }
         let kind = c.frozen(kind_key(BASE_KIND)).unwrap();
+        let col = split_status(&c);
+        let rows: Vec<u8> = (0..c.rows).map(|i| c.node(i).status).collect();
+        assert_eq!(col, rows, "the split column holds NODE's status bytes");
+        assert_eq!(col, (1..=s.n).map(|id| (id % 4) as u8).collect::<Vec<_>>());
+        let mut naive = Vec::new();
         for st in 0..STATUSES {
-            let naive = (1..=s.n).filter(|id| id % 4 == u32::from(st)).count() as u64;
+            let n = (1..=s.n).filter(|id| id % 4 == u32::from(st)).count() as u64;
             let set = c.frozen(kind_status_key(BASE_KIND, st)).unwrap();
-            assert_eq!(and_popcount(&kind, &set), naive, "status {st}");
-            assert_eq!(scan_status(&c, st), naive, "status {st}");
+            assert_eq!(and_popcount(&kind, &set), n, "status {st}");
+            assert_eq!(scan_status(&c, st), n, "status {st}");
+            assert_eq!(scan_split(&col, st), n, "status {st}");
+            naive.push(n);
         }
-        assert_eq!(scan_due(&c), 250);
+        assert_eq!(naive, [250, 251, 251, 250]);
+        // The arms' operations, call by call: s = 1, 2, 3, 0, 1, …
+        let calls = |ops: &mut CountOp<'_>| (0..8).map(|_| ops()).collect::<Vec<u64>>();
+        let want = |shift: usize| -> Vec<u64> { (1..=8).map(|i| naive[(i + shift) % 4]).collect() };
+        let real = Operands { split: col.clone() };
+        let mut v = count_ops(Family::Scan, &c, &real).unwrap();
+        let names: Vec<&str> = v.iter().map(|o| o.0).collect();
+        assert_eq!(names, Family::Scan.arms());
+        assert_eq!(calls(&mut v[0].1), want(0), "scan.status");
+        assert_eq!(
+            calls(&mut v[1].1),
+            want(0),
+            "scan.split: the same counts as arm 0"
+        );
+        let rotated = Operands {
+            split: col.iter().map(|b| (b + 1) % 4).collect(),
+        };
+        let mut v = count_ops(Family::Scan, &c, &rotated).unwrap();
+        assert_eq!(calls(&mut v[0].1), want(0), "scan.status reads NODE");
+        assert_eq!(
+            calls(&mut v[1].1),
+            want(3),
+            "scan.split reads its own column, not NODE"
+        );
+        let none = Operands::default();
+        let mut v = count_ops(Family::Bitset, &c, &none).unwrap();
+        assert_eq!(
+            v.iter().map(|o| o.0).collect::<Vec<_>>(),
+            Family::Bitset.arms()
+        );
+        assert_eq!(calls(&mut v[0].1), want(0), "and.popcount");
+        assert!(count_ops(Family::Csr, &c, &real).is_err());
         let o = t.overlay().unwrap();
         let owners: BTreeSet<u32> = t
             .records
