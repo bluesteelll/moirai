@@ -324,14 +324,17 @@ The tier sets the unit's stages (§6.1).
 - Answer a question as a numbered ruling in `RULINGS.md` and relaunch with a resume note that cites it (§6.4).
 - A `LOCKFILE` outcome: §4 "Lockfile changes". A `HANG`, `VOID` or `VACUOUS` gate: read the kit run's DONE and the
   failure excerpt, rule, and relaunch (§6.4 "A gate re-run").
-- A return with stage `review` whose note says that the review examined another head than the gate verified: the
-  review was replayed from an earlier launch. Relaunch `DELTA SINCE <the head the last review examined>` (§6.4).
+- A return with stage `review` whose note says that the review examined another head than the gate verified: a
+  relaunch that changed only `gateRun` re-ran the gate of a later round n and replayed round 1's review. Relaunch as
+  §6.4 gives for that gate: `DELTA SINCE <the head gate_r<n-1>.md verified>`, with `deltaRound` n, where n is the
+  `round` of the launch whose gate was re-run. On a first launch nothing replays: the head is misreported, so read the
+  review report and rule.
 - A unit still red after its last round (2 below HEAVY, 3 in HEAVY) is not merged: rule, then relaunch fix-only
   (`DELTA SINCE <head>: fix …`) or split it into two units.
 - A return below HEAVY with no CONFIRMED Critical or Important (stage `gate`, `verifier` or `review`; the note says
   so) is the orchestrator's to rule: a PLAUSIBLE item, read in the report, or a gate FAIL, which is environmental only
   on R-10's terms (§10) and is then re-run once on the same head (§6.4: `gateRun` for round 1's gate, a `DELTA
-  SINCE` relaunch for a later round's).
+  SINCE` relaunch with `deltaRound` for a later round's).
 - A STOP with the reason `escalate: <trigger>`: record the trigger in `spec.md` and relaunch the unit at the higher
   tier (§5.1, §6.4).
 - Minor findings never start a unit of their own: at the merge they are folded into one fix-only relaunch or dropped
@@ -536,8 +539,9 @@ structured verdict and the script parses nothing.
 - New state goes only into the step that must re-run. `resumeNote` reaches only the implement prompt, so the cut and
   the critique replay from the journal. A changed header field (`lock`, `others`, `spec`, …) re-runs the cut and
   overwrites `cut.md`: change one only on purpose.
-- A resume note that starts `DELTA SINCE <sha>:` makes round 1 delta-scoped since that verified head: a trunk sync
-  (§5.4 step 2), a fix-only relaunch, a lockfile commit (§4). A fix-only relaunch whose fix changes no non-test,
+- A resume note that starts `DELTA SINCE <sha>:` makes the relaunch's first verify round delta-scoped since that
+  verified head: round 1 after a trunk sync (§5.4 step 2), a fix-only relaunch or a lockfile commit (§4), and round n
+  after a gate re-run of round n with `deltaRound` n (below). A fix-only relaunch whose fix changes no non-test,
   non-comment code may pass `deltaLogic` `false`, which makes round 1 slim (§6.1); the tester or the verifier checks
   that flag.
 - **A gate re-run** (an environmental FAIL under R-10, a `HANG`, a `VOID`) depends on the round of the gate.
@@ -550,20 +554,29 @@ structured verdict and the script parses nothing.
     that round 1's review came back from the journal.
   - **A later round's gate** (round n of 2 or more) runs on fix commits that round 1's review never saw. A relaunch
     that changed only `gateRun` would replay that review against them. Relaunch instead with the resume note `DELTA
-    SINCE <the head gate_r<n-1>.md verified>: gate re-run of round <n>; no change`, and `deltaLogic` as
-    `fix_r<n-1>.md` states. The review and the tester or the verifier then run again on that delta.
-  - The script refuses the wrong relaunch: a round whose review examined another head than its gate verified returns
-    stage `review` with both heads (§6.1). A mistake costs a relaunch, never a stale verdict.
+    SINCE <the head gate_r<n-1>.md verified>: gate re-run of round <n>; no change`, `deltaRound` n, and `deltaLogic`
+    as `fix_r<n-1>.md` states. The relaunch's first verify round is then round n again, with what round n checks
+    beyond its delta: whether the fix closes the CONFIRMED items of round n-1, which the review asks of
+    `triage_r<n-1>.md` or `review_r<n-1>.md` and the verifier of `verify_r<n-1>.md`; the re-run of the surviving
+    mutations of round n-1 by the tester or the verifier; and round n's place in the round limit. A round 1 in its
+    place would check the delta alone, and the findings of launch k's round n would be lost.
+  - The script refuses two wrong relaunches: a `gateRun`-only relaunch of a later round's gate, whose replayed review
+    examined another head than the gate verified (it returns stage `review` with both heads, §6.1), and a
+    `deltaRound` other than n with the resume note above (stage `args`). It does not check that the files round n
+    cites are in place (the move list below).
 - **An escalation** changes `tier`, which is in the header of every prompt, so every stage runs again; `spec.md`
   records the trigger. The relaunch also moves `cut.md` into `<unit>/run<k>/`, where the HEAVY cut takes over the
   developer's own cut and the existing commits (§5.1).
 - Before a relaunch: move the round files of the earlier launch (`impl.md`, `gate_r*`, `expected_r*`, `tests_r*`,
   `test_r*`, `verify_r*`, `review_r*`, `triage_r*`, `fix_r*`) into `<unit>/run<k>/` (the re-run stages write the same
   names, and the kit refuses an existing run directory; a re-run of round 1's gate copies `impl.md` and
-  `review_r1.md`, above); update `args_<unit>.json` and re-run `kit/embed.ps1` with `-Script
-  <ORCH>/embed/<unit>.src.js` (never the current `unit.js`, and never the embedded copy: it has no marker line); then
-  relaunch from the orchestrator session that ran launch `k`: `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js",
-  resumeFromRunId: "<run id>" })`, writing `run_<k+1>.txt` and `result_<k+1>.json` as §6.3 does.
+  `review_r1.md`, above; a re-run of round n's gate moves `impl.md` and round n's files only, and copies the earlier
+  rounds' files, which stay in `<unit>/` because round n's prompts cite `fix_r<n-1>.md` and round n-1's reports
+  there: copy back from `run<k>/` any of them that an earlier relaunch moved); update `args_<unit>.json` and re-run
+  `kit/embed.ps1` with `-Script <ORCH>/embed/<unit>.src.js` (never the current `unit.js`, and never the embedded copy:
+  it has no marker line); then relaunch from the orchestrator session that ran launch `k`:
+  `Workflow({ scriptPath: "<ORCH>/embed/<unit>.js", resumeFromRunId: "<run id>" })`, writing `run_<k+1>.txt` and
+  `result_<k+1>.json` as §6.3 does.
 - A run is resumable from the session that ran it. Across sessions, resume that orchestrator session in the main
   checkout and relaunch from it with the run id. Copying a run's directory under another session's directory in
   `~/.claude/projects/` is an undocumented internal path: a fallback only. A relaunch that reports "nothing to
