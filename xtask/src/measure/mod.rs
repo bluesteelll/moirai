@@ -12,14 +12,24 @@
 //! `bins`, `scratch` and `toolchain`.
 //!
 //! **The run** ([`run`]): the scratch directory is made, the settle waited out, and then each measurement's quantities
-//! are run in plan order, one driver process per run ([MP §9.7]). Before each attempt the guard checks the RAM and disk
-//! floors, and no guard runs while a driver runs. An attempt ends by the earliest of its run budget, its measurement's
-//! budget and the window's end less the finish margin, where its process tree is stopped. Its record is the one new
-//! file of its quantity in `/private/measurements/<n>/`, judged by [`record::judge`]. After each attempt the tested tree
-//! is read again.
+//! are run in plan order, one driver process per run ([MP §9.7]).
+//! - A run with an exit-grade record of the measured commit already in `/private/measurements/<n>/` is done before
+//!   ([`done_before`]): starting the runner again after a crash resumes the night.
+//! - Before each attempt the guard checks the RAM and disk floors; no guard runs while a driver runs.
+//! - An attempt ends by the earliest of its run budget, its measurement's budget and the window's end less the finish
+//!   margin, where its process tree is stopped.
+//! - Its record is the one new file of its quantity in `/private/measurements/<n>/`, judged by [`record::judge`]; a
+//!   file that was there before and vanished or changed stops the session (`record-changed`).
+//! - An attempt that is not exit-grade, timed out at its run budget or could not start is retried once, at once, while
+//!   time is left before the measurement's budget and the window's deadline.
+//! - After each attempt the tested tree is read again.
 //!
 //! **The finish**: the drivers' working directories are removed, the session record
 //! `<scratch>/sessions/<start>/session.json` is written, and the private manifest is rebuilt.
+//!
+//! **`--smoke`**: each run once, outside any window and with no settle, with `--smoke` in place of `--out` under the
+//! smoke budget; no calendar, record, resume, retry or private index, and the session record goes to
+//! `<scratch>/sessions/<start>.smoke/`.
 //!
 //! It reuses the nightly runner's window calendar, byte quantities, guard and process code (`crate::nightly`).
 //!

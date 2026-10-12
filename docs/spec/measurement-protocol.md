@@ -909,9 +909,10 @@ operational policy with a reviewed default (AGENTS.md):
   The runner reads only these fields; the framework's full read-back (§7.3) stays the framework's. The runner judges
   run records only: a measurement whose driver writes idle observations (§4.7) is not one it runs.
 - **One retry.** A run whose first attempt is not exit-grade gets one more attempt at once, with its own guard, unless
-  that attempt is `budget-ended` or `window-ended`. A run stopped at its own run budget is retried. After two attempts
-  the run takes its second attempt's outcome. The retry is immediate so that the plan keeps its order, with the
-  measurements that decide bytes first.
+  that attempt is `budget-ended` or `window-ended`. A run stopped at its own run budget is retried, and so is a driver
+  that could not be started. A retry is made only while time is left before both the measurement's budget and the
+  window's end less the finish margin. After two attempts the run takes its second attempt's outcome. The retry is
+  immediate so that the plan keeps its order, with the measurements that decide bytes first.
 - **Records are never touched.**
   - The runner creates `/private/measurements/<n>/` when it is missing. Under `/private/` it writes nothing else but
     the private manifest.
