@@ -32,6 +32,14 @@
 //! |---|---|---|
 //! | [`load`] | the load fixture's format, the load generator (`moirai-probes-bin loadgen`), its log and its verdict | [MP §9] |
 //!
+//! # Measurement 10 (WP-53d)
+//!
+//! | Module | What it holds | Specification |
+//! |---|---|---|
+//! | [`m10`] | the grid of 18 quantities, the `replay` and `floor.open` arms, the run, the smoke, the list and the driver's command line (`moirai-probes-bin m10`) | [60 §5.2] item 10, [F17 §5], [MP §9.7] |
+//! | [`overlay`] | the compact tail overlay: the node index, the ± lists, `ALLOC` and `UIDX`, the runtime index, the tail's symbols, and its charge `ovl(T)` | [AR §4.5] step 1, [F09 §4.6], [F11 §9], [F05 §10.4] |
+//! | [`tail`] | the F05/F06 codec of a log tail of commits and settles: records, groups, placement, the `Commit` payload, the runtime records, the streaming scan | [F05], [F06], [F11 §12.4]–§12.5 |
+//!
 //! Every reading of the machine goes through `moirai_vfs::Meter` ([OS/README §4.3]); the framework never reads a
 //! counter itself. The load generator is the one exception the protocol names: the system-wide totals it replays and
 //! validates are read by `typeperf`, as the fixture was ([MP §9.4]). No measurement runs at M0 until the owner resumes them (`docs/m0/PLAN.md` §5).
@@ -44,10 +52,13 @@ pub mod guard;
 pub mod host;
 pub mod idle;
 pub mod load;
+pub mod m10;
 pub mod noise;
+pub mod overlay;
 pub mod record;
 pub mod run;
 pub mod stats;
+pub mod tail;
 pub mod tier;
 pub mod units;
 
