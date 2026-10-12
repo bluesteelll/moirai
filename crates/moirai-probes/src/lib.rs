@@ -36,6 +36,7 @@
 //!
 //! | Module | What it holds | Specification |
 //! |---|---|---|
+//! | [`m10`] | the grid of 18 quantities, the `replay` and `floor.open` arms, the run, the smoke, the list and the driver's command line (`moirai-probes-bin m10`) | [60 §5.2] item 10, [F17 §5], [MP §9.7] |
 //! | [`overlay`] | the compact tail overlay: the node index, the ± lists, `ALLOC` and `UIDX`, the runtime index, the tail's symbols, and its charge `ovl(T)` | [AR §4.5] step 1, [F09 §4.6], [F11 §9], [F05 §10.4] |
 //! | [`tail`] | the F05/F06 codec of a log tail of commits and settles: records, groups, placement, the `Commit` payload, the runtime records, the streaming scan | [F05], [F06], [F11 §12.4]–§12.5 |
 //!
@@ -51,6 +52,7 @@ pub mod guard;
 pub mod host;
 pub mod idle;
 pub mod load;
+pub mod m10;
 pub mod noise;
 pub mod overlay;
 pub mod record;

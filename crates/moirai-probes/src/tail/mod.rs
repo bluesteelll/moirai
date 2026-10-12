@@ -12,6 +12,7 @@
 //! | [`commit`] | the `Commit` payload of a local ordinary commit and its eight op kinds | [F06 §4], [F06 §5], [F06 §6], [F06 §7], [F06 §8] (`06-commit.md:168-534`, `:536-576`, `:600-865`, `:1040-1067`) |
 //! | [`rt`] | `TreeReg` (sub 2, the settle epoch) and the `FileObs` row batch with the 187-byte row image | [F05 §8.5], [F05 §9.18], [F05 §9.23] (`05-log.md:507-521`, `:974-981`, `:1006-1032`); [F11 §2.9], [F11 §12.1]–§12.5 (`11-runtime-tables.md:278-298`, `:764-914`) |
 //! | [`scan`] | `LogSource` and `MemLog`, the streaming scan with record and group validity, and `decode` | [F05 §5], [F05 §10] (`05-log.md:268-341`, `:1232-1307`) |
+//! | [`store`] | `VfsLog` (a `LogSource` over `log.<n>` files), the open floor (`HEAD` with one 8,192-B read, 8 sealed files read and mapped), the fixture writer | `60-roadmap.md:790`; [F04 §2], [F04 §4.1]; [F09 §2.1]; `docs/spec/os/map.md:84-90` |
 //! | [`synth`] | the generator of measurement 10's tails: the spec-derived mix, the stop rules, the tail measures | [F17 §5.1]–§5.3 (`17-store-parameters.md:313-369`); [70 S8]; [60 §5.2] item 2 |
 //!
 //! **The subset.** The tail holds exactly five kinds: `ExtentHead` (28), `Noop` (12, the rotation pad), `Commit` (1),
@@ -26,8 +27,11 @@ pub mod enc;
 pub mod rec;
 pub mod rt;
 pub mod scan;
+pub mod store;
 pub mod synth;
 
+#[cfg(test)]
+pub(crate) mod memfs;
 #[cfg(test)]
 pub(crate) mod testdata;
 
