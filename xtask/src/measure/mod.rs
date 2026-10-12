@@ -12,6 +12,9 @@
 //! Exit codes: 0 pass; 1 fail; 2 usage error; 3 refused; 4 internal error.
 
 mod plan;
+// The session runner (the next commit) judges the records; until then only the tests call this module.
+#[allow(dead_code)]
+mod record;
 
 use crate::git;
 use crate::nightly::Tree;
