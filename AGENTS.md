@@ -45,10 +45,11 @@ reports in [docs/research/](docs/research/).
 ## Agent work
 
 The procedure, the orchestrator's loop and the Claude Code mechanics are in
-[docs/m0/workflow.md](docs/m0/workflow.md). A **unit** is one reviewable portion of one WP by one author role, on the
-role's branch `m0/<role>` in its worktree (PLAN §3.1 "Mechanics"). The orchestrator session launches each unit
-itself (workflow.md §6.3). The trunk is local `master`. `<ORCH>` is the orchestration state outside the repository
-(workflow.md §3).
+[docs/m0/workflow.md](docs/m0/workflow.md). A **unit** is one reviewable portion of one WP by one author role, or a
+batch of one role's LIGHT or STANDARD text fixes across its WPs that carry no decision (each commit names its own WP),
+on the role's branch `m0/<role>` in its worktree (PLAN §3.1 "Mechanics"). Every unit runs at a tier, LIGHT, STANDARD
+or HEAVY (workflow.md §5.1). The orchestrator session launches each unit itself (workflow.md §6.3). The trunk is local
+`master`. `<ORCH>` is the orchestration state outside the repository (workflow.md §3).
 
 - **Layout.** `crates/` (the workspace, PLAN §2.2), `xtask/` (the gate and its lints; author roles and lanes in
   `xtask/roles.toml`), `docs/spec/` (the specification), `docs/m0/` (the M0 plan, `authors.md`, tools, nightly,
@@ -61,24 +62,33 @@ itself (workflow.md §6.3). The trunk is local `master`. `<ORCH>` is the orchest
     `MOIRAI_TEST_TIER=pr cargo test --locked -p <crates> --no-fail-fast`.
   - Every run runs everything (`--keep-going`, `--no-fail-fast`) and never stops at the first failure. A test run with
     `running 0 tests` where tests are expected is red.
-- **Separation of duties.** Stage roles (architect, architecture-critic, developer, tester, code-reviewer, which also
-  triages, researcher, project-analyst, results-analyst, doc-writer, mechanic) sit on top of PLAN §3.1's author roles.
-  Every agent of a unit obeys the unit's author role: S1–S6 and the write map of `docs/m0/authors.md` §3. The role's
-  `deny_read` path rules in `xtask/roles.toml` are not applied to unit agents (workflow.md §2, R-8). A reading limit
-  that a unit's spec or brief sets for a separation rule binds every way of reading, Bash included (`cat`, `rg`,
-  `git show <rev>:<path>`, a `git diff` over those paths). A file you need but may not read is a review finding in
-  your report; never read it. The developer never gives the final verdict; the tester owns the full suite, the pins
-  and the mutations and never commits; the reviewer finds and never fixes; the critic critiques and never redesigns;
-  the researcher and the analysts never edit the repository; the mechanic runs and summarises and never gives a
-  verdict. An agent that meets an ambiguity stops and escalates in its report.
+- **Separation of duties.** Stage roles (architect, architecture-critic, developer, tester, verifier, code-reviewer,
+  which also triages, researcher, project-analyst, results-analyst, doc-writer, mechanic) sit on top of PLAN §3.1's
+  author roles. Every agent of a unit obeys the unit's author role: S1–S6 and the write map of `docs/m0/authors.md` §3.
+  The role's `deny_read` path rules in `xtask/roles.toml` are not applied to unit agents (workflow.md §2, R-8). A
+  reading limit that a unit's spec or brief sets for a separation rule binds every way of reading, Bash included (`cat`,
+  `rg`, `git show <rev>:<path>`, a `git diff` over those paths). A file you need but may not read is a review finding in
+  your report; never read it. The developer never gives the final verdict; the tester, or in a STANDARD unit the
+  verifier, owns the full suite, the pins and the mutations, never commits and never fixes; the reviewer finds and never
+  fixes; the critic critiques and never redesigns; the researcher and the analysts never edit the repository; the
+  mechanic runs and summarises and never gives a verdict. An agent that meets an ambiguity stops and escalates in its
+  report.
 - **Plan Mode.** An interactive change that touches three or more files goes through Plan Mode. Inside a unit the
-  critiqued `cut.md` is the approved plan, and a subagent never enters Plan Mode.
+  approved plan is `cut.md`: the architect's, critiqued, in a HEAVY unit, and the developer's own in a STANDARD unit;
+  a LIGHT unit follows its spec. A subagent never enters Plan Mode.
 - **Gate discipline.**
-  - Red-first: every behavioural claim and every new gate is shown failing for the predicted reason on the tree
-    without the change, then passing with it.
+  - Checks scale with the unit's tier (workflow.md §5.1): LIGHT changes no behaviour and no test; HEAVY is product
+    behaviour, crash safety, bytes and ids, a rule change, an open decision or the merge gate; STANDARD is the rest.
+    When in doubt, the higher tier. A HEAVY trigger met in a lower tier is a STOP.
+  - Red-first: in every tier, every behavioural claim and every new or changed gate is shown failing for the predicted
+    reason on the tree without the change, then passing with it. A change that claims no behaviour needs none. An
+    independent re-run: every red-first in HEAVY, the unit's main claim in STANDARD.
   - A gate script is trusted only after it was seen to exit non-zero on a failing row.
-  - Tests are counted by name against the expected set. Equal counts over different sets, or zero tests, are a
-    vacuous green.
+  - Mutations: at least two in a HEAVY unit's first verify round, one at the change in a STANDARD unit, none in a
+    LIGHT unit. A later round re-runs the survivors and adds one only when the fix changed non-test code. GT16 at each
+    milestone exit stays the mutation gate of record.
+  - Every tests run in every tier is counted by name against the expected set; LIGHT runs none. Equal counts over
+    different sets, or zero tests, are a vacuous green.
   - Every skipped or ignored test states its reason class at the site: needs-hardware, needs-network,
     needs-credentials, slow, flaky, generator or deferred.
   - A single red you cannot reproduce is re-run alone before it is blamed. A pin (a committed expected value: a
