@@ -1,0 +1,445 @@
+//! Hand-built tails for the unit tests: every byte follows from the chapters' rules through the encoder, with digests
+//! as fixed bytes (no fixture is copied from an informative example, [F01 §2.1]).
+
+use super::Geometry;
+use super::commit::{Affected, Body, Commit, Edge, Git, Image, Op, Parent, TValue, blake3_16};
+use super::rec::{Appender, ExtentHead, InitParams, Payload, Record, SymDef, sequence, sym};
+use super::rt::{Epoch, FileObsRow, Row, RowBatch, TreeReg};
+use super::scan::Expect;
+use std::borrow::Cow;
+
+/// E = 2^16, the test profile's extent ([F17] P01, `17-store-parameters.md:166`).
+pub const E: u64 = 1 << 16;
+/// The tail starts at extent 2's first byte.
+pub const START: u64 = E;
+/// The chain value the tail's first extent head carries.
+pub const CHAIN_IN: u64 = 0x0C0F_FEE0_1234_5678;
+
+/// The `HEAD` fields the scan checks.
+pub fn expect() -> Expect {
+    Expect {
+        geo: Geometry::new(E).unwrap(),
+        epoch: 0x1122_3344_5566_7788,
+        epoch_lsn: 0,
+        init: InitParams {
+            log_extent_bytes: E,
+            hist_frame_commits: 4,
+            hist_frame_bytes: 4_096,
+            store_id: [0x5A; 16],
+        }
+        .encode(),
+        project_oid_algo: 1,
+    }
+}
+
+/// The extent-head template of [`expect`].
+pub fn head(x: &Expect) -> ExtentHead {
+    ExtentHead {
+        epoch_lsn: x.epoch_lsn,
+        chain_in: 0,
+        init: x.init,
+        project_oid_algo: x.project_oid_algo,
+        hflags: 0,
+        commit_seq: 100,
+        next_id: 51,
+        next_anchor: 1,
+        fence: 7,
+        next_file_no: 9,
+        next_ref_id: 1,
+        hlc_seq: 1 << 40,
+        hlc_commit: 1 << 40,
+    }
+}
+
+/// A local ordinary commit on `main` with every group of the subset present.
+pub fn commit(seq: u64, parent_lsn: u64, ops: Vec<Op<'static>>, msg: &str) -> Commit<'static> {
+    let mut ids: Vec<u32> = ops.iter().map(Op::owner).collect();
+    ids.dedup();
+    Commit {
+        commit_id: [seq as u8; 32],
+        parent: Some(Parent {
+            id16: [seq as u8 ^ 0xFF; 16],
+            lsn: parent_lsn,
+        }),
+        gen_no: seq as u32,
+        seq,
+        ref_sym: 1,
+        ref_id: 0,
+        ref_old: Some([seq as u8 ^ 0xFF; 16]),
+        prev_on_ref: Some(parent_lsn),
+        ref_seq: seq as u32,
+        hlc: (1_790_000_000_000 + seq) << 16,
+        actor: 5,
+        role: 2,
+        session: 17,
+        schema_version: 1,
+        git: Some(Git {
+            algo: 1,
+            head: Some(Cow::Owned(vec![0xAB; 20])),
+            branch: 1,
+            worktree: 1,
+            base: None,
+        }),
+        idem: Some(([0x11; 16], [0x22; 16])),
+        stmt_origin: 1,
+        actor_src: 1,
+        stmt_sym: 9,
+        stmt_hash: Some([0x33; 16]),
+        msg: Some(Cow::Owned(msg.to_string())),
+        affected: Some(Affected {
+            complete: true,
+            ids,
+        }),
+        changeset_digest: [0x44; 32],
+        ops,
+        bodies: Vec::new(),
+    }
+}
+
+/// The two symbols the first commit defines (SD-1: the next ids after an assumed `SYMTAB` of 16 sessions and 8 stmts).
+pub fn symdefs() -> Vec<SymDef<'static>> {
+    vec![
+        SymDef {
+            class: sym::SESSION,
+            id: 17,
+            text: Cow::Borrowed("probe:session-1"),
+        },
+        SymDef {
+            class: sym::STMT,
+            id: 9,
+            text: Cow::Borrowed("tx.claim"),
+        },
+    ]
+}
+
+/// A one-record commit group at `lsn`.
+pub fn commit_group(
+    lsn: u64,
+    c: Commit<'static>,
+    defs: Vec<SymDef<'static>>,
+) -> Vec<Record<'static>> {
+    vec![Record {
+        lsn,
+        group_end: true,
+        symdefs: defs,
+        payload: Payload::Commit(Box::new(c)),
+    }]
+}
+
+/// A settle group at `lsn`: a `TreeReg` epoch and a `FileObs` batch of `rows` rows for files `first..`.
+pub fn settle_group(lsn: u64, tree: u8, first: u32, rows: u32, hlc: u64) -> Vec<Record<'static>> {
+    let row = |n: u32| FileObsRow {
+        n,
+        tree: [tree; 16],
+        state: 1,
+        resolver_version: 1,
+        file_id: [1; 57],
+        size: u64::from(n) * 10,
+        times: [[0; 9]; 4],
+        attrs: 0,
+        last_oid: [0; 33],
+        verified_at: hlc,
+        missing_since: 0,
+    };
+    let mut g = vec![
+        Record {
+            lsn,
+            group_end: false,
+            symdefs: Vec::new(),
+            payload: Payload::TreeReg(TreeReg {
+                tree: [tree; 16],
+                epoch: Epoch {
+                    scope_kind: 0,
+                    scope_ref: 0,
+                    digest: [0; 16],
+                    hlc,
+                },
+            }),
+        },
+        Record {
+            lsn: 0,
+            group_end: true,
+            symdefs: Vec::new(),
+            payload: Payload::FileObs(RowBatch {
+                rows: (first..first + rows)
+                    .map(|n| Row {
+                        op: 1,
+                        image: Cow::Owned(row(n).image().to_vec()),
+                    })
+                    .collect(),
+            }),
+        },
+    ];
+    sequence(lsn, &mut g).unwrap();
+    g
+}
+
+/// The ops of one commit, given each owner's newest commit lsn so far and the commit's own lsn.
+type OpsFn = dyn Fn(&[(u32, u64)], u64) -> Vec<Op<'static>>;
+
+/// A hand-built tail and the records it holds, preludes included, in log order.
+pub struct HandBuilt {
+    /// The bytes from [`START`].
+    pub bytes: Vec<u8>,
+    /// Every record.
+    pub records: Vec<Record<'static>>,
+    /// The lsn of each commit record, in order.
+    pub commits: Vec<u64>,
+}
+
+/// The tail of the overlay and scan tests (base `N` = 50): an extent head, three commits that touch #3, #5 and #7
+/// more than once and create #51 and #52, a settle, three large commits of which the third rotates the tail into
+/// extent 3 after a pad, a commit after the rotation and a second settle.
+pub fn hand_built() -> HandBuilt {
+    let x = expect();
+    let mut app = Appender::new(x.geo, x.epoch, START, CHAIN_IN, head(&x));
+    let mut records = Vec::new();
+    let mut commits: Vec<u64> = Vec::new();
+    let below = START - 1;
+    // `prev` of `owner` at `lsn`: back to its newest commit in `last`, or to the notional record below the tail.
+    let prev = move |last: &[(u32, u64)], owner: u32, lsn: u64| {
+        last.iter()
+            .rev()
+            .find(|(o, _)| *o == owner)
+            .map_or(lsn - below, |(_, l)| lsn - l)
+    };
+    let mut last: Vec<(u32, u64)> = Vec::new();
+    let body = vec![0x5Bu8; 300];
+    let bh = blake3_16(&body);
+    let plans: Vec<Box<OpsFn>> = vec![
+        Box::new(move |l, lsn| {
+            vec![
+                Op::SetStatus {
+                    id: 3,
+                    prev: prev(l, 3, lsn),
+                    old: (3, 0),
+                    new: (1, 0),
+                },
+                Op::SetField {
+                    id: 5,
+                    prev: prev(l, 5, lsn),
+                    name: 2,
+                    old: TValue::absent(),
+                    new: TValue::text("first"),
+                },
+                Op::Create {
+                    id: 51,
+                    prev: 0,
+                    uid: [0xC1; 16],
+                    kind: 2,
+                    c_actor: 5,
+                    c_role: 2,
+                    image: Image {
+                        status: Some((0, 0)),
+                        body: None,
+                        fields: vec![(1, TValue::text("title 51"))],
+                    },
+                },
+            ]
+        }),
+        Box::new(move |l, lsn| {
+            vec![
+                Op::Move {
+                    id: 3,
+                    prev: prev(l, 3, lsn),
+                    old_parent: 0,
+                    new_parent: 2,
+                    old_order: Cow::Borrowed(""),
+                    new_order: Cow::Borrowed("a0"),
+                },
+                Op::SetField {
+                    id: 3,
+                    prev: prev(l, 3, lsn),
+                    name: 4,
+                    old: TValue::absent(),
+                    new: TValue::int(42),
+                },
+                Op::AddEdge(Edge {
+                    src: 7,
+                    prev: prev(l, 7, lsn),
+                    ekind: 1,
+                    dst: 51,
+                }),
+                Op::SetBody {
+                    id: 51,
+                    prev: prev(l, 51, lsn),
+                    old: None,
+                    new: Some(bh),
+                },
+            ]
+        }),
+        Box::new(move |l, lsn| {
+            vec![
+                Op::SetField {
+                    id: 5,
+                    prev: prev(l, 5, lsn),
+                    name: 2,
+                    old: TValue::text("first"),
+                    new: TValue::text("second"),
+                },
+                Op::Delete {
+                    id: 9,
+                    prev: prev(l, 9, lsn),
+                    reason: 0,
+                    replaced_by: 0,
+                    before: Image {
+                        status: Some((1, 0)),
+                        body: None,
+                        fields: Vec::new(),
+                    },
+                },
+                Op::Create {
+                    id: 52,
+                    prev: 0,
+                    uid: [0x0A; 16],
+                    kind: 1,
+                    c_actor: 5,
+                    c_role: 2,
+                    image: Image::default(),
+                },
+            ]
+        }),
+        Box::new(move |l, lsn| {
+            vec![
+                Op::RemoveEdge(Edge {
+                    src: 7,
+                    prev: prev(l, 7, lsn),
+                    ekind: 1,
+                    dst: 51,
+                }),
+                Op::SetStatus {
+                    id: 51,
+                    prev: prev(l, 51, lsn),
+                    old: (0, 0),
+                    new: (2, 1),
+                },
+            ]
+        }),
+    ];
+    let mut seq = 101;
+    let mut put = |app: &mut Appender,
+                   records: &mut Vec<Record<'static>>,
+                   commits: &mut Vec<u64>,
+                   last: &mut Vec<(u32, u64)>,
+                   ops: &OpsFn,
+                   msg: &str,
+                   bodies: Vec<Body<'static>>| {
+        let parent = commits.last().copied().unwrap_or(below);
+        let defs = if commits.is_empty() {
+            symdefs()
+        } else {
+            Vec::new()
+        };
+        let (pre, g) = app
+            .place(|lsn| {
+                let mut c = commit(seq, parent, ops(last, lsn), msg);
+                c.bodies = bodies.clone();
+                Ok(commit_group(lsn, c, defs.clone()))
+            })
+            .unwrap();
+        records.extend(pre);
+        let lsn = g[0].lsn;
+        if let Payload::Commit(c) = &g[0].payload {
+            for op in &c.ops {
+                last.push((op.owner(), lsn));
+            }
+        }
+        commits.push(lsn);
+        records.extend(g);
+        seq += 1;
+    };
+    put(
+        &mut app,
+        &mut records,
+        &mut commits,
+        &mut last,
+        &*plans[0],
+        "claim --start",
+        Vec::new(),
+    );
+    put(
+        &mut app,
+        &mut records,
+        &mut commits,
+        &mut last,
+        &*plans[1],
+        "edit",
+        vec![Body {
+            hash: bh,
+            data: Cow::Owned(body.clone()),
+        }],
+    );
+    let (pre, g) = app
+        .place(|lsn| Ok(settle_group(lsn, 0xE1, 10, 2, 5 << 40)))
+        .unwrap();
+    records.extend(pre);
+    records.extend(g);
+    put(
+        &mut app,
+        &mut records,
+        &mut commits,
+        &mut last,
+        &*plans[2],
+        "rework",
+        Vec::new(),
+    );
+    // Three commits with 25-KB messages: the third does not fit extent 2 and rotates.
+    let big = "m".repeat(25_000);
+    let filler = |id: u32| {
+        move |l: &[(u32, u64)], lsn: u64| {
+            vec![Op::SetField {
+                id,
+                prev: prev(l, id, lsn),
+                name: 6,
+                old: TValue::absent(),
+                new: TValue::text("x"),
+            }]
+        }
+    };
+    put(
+        &mut app,
+        &mut records,
+        &mut commits,
+        &mut last,
+        &filler(20),
+        &big,
+        Vec::new(),
+    );
+    put(
+        &mut app,
+        &mut records,
+        &mut commits,
+        &mut last,
+        &filler(21),
+        &big,
+        Vec::new(),
+    );
+    put(
+        &mut app,
+        &mut records,
+        &mut commits,
+        &mut last,
+        &filler(22),
+        &big,
+        Vec::new(),
+    );
+    put(
+        &mut app,
+        &mut records,
+        &mut commits,
+        &mut last,
+        &*plans[3],
+        "after rotation",
+        Vec::new(),
+    );
+    let (pre, g) = app
+        .place(|lsn| Ok(settle_group(lsn, 0xE1, 11, 1, 6 << 40)))
+        .unwrap();
+    records.extend(pre);
+    records.extend(g);
+    HandBuilt {
+        bytes: app.into_bytes(),
+        records,
+        commits,
+    }
+}
