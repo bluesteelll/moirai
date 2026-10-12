@@ -15,8 +15,8 @@
 //! | `scan.n1e5`, `scan.n1e6` | `scan.status`, `scan.split` | counts the rows of one status in `NODE`'s 60-byte rows; the floor counts the same status in a dense 1-byte column built from `NODE` in the run's setup, the layout a per-field split of `NODE` would give (OP-09-21, `09-segments.md:1369-1372`; `status`, `08-data-model.md:80`). Both cycle the status through 0–3 with their own counters, so they time the same counts | — |
 //! | `overlay.n1e5`, `overlay.n1e6` | `probe` | looks one `#N` up in a full tail's node index ("overlay probe ~0.2 µs", `ARCHITECTURE-RESEARCH.md:968`) | — |
 //! | `read-4096.n1e6` | `read` | T1's point read: the status of a node the tail touched, through the overlay and the tail's records, else the base row | t1 (read ≤ 50 µs) |
-//! | `ckpt-4096.n5e5` | `ckpt`, `ckpt.write` | T1's delta checkpoint: replays the tail from its extents, folds it over the base, encodes `seg.d1`, then `create_new`, `write_at`, `sync(DataAndMeta)`, `seal`, `sync_dir` (`docs/spec/os/fs.md:411`, `:456`); the floor writes and flushes the same bytes without the fold. The unlink of the previous sample's file is setup, outside the timed region ([MP §4.1]) | t3 (≤ 100 ms) |
-//! | `catchup-16.n1e6` | `catchup` | T2's MCP model: a long-lived process holds the overlay of a full tail but its last 16 commits (one per writer of T2's burst) and catches up: `HEAD` pread (8,192 B), the new records scanned from the extents, applied to its warm builder, the overlay finished again (`ARCHITECTURE-RESEARCH.md:783`). The warm builder is cloned outside the timed region | t2 (catch-up p50 ≤ 5 ms) |
+//! | `ckpt-4096.n5e5` | `ckpt`, `ckpt.write` | T1's delta checkpoint: replays the tail from its extents, folds it over the base, encodes `seg.d1`, then `create_new`, `write_at`, `sync(DataAndMeta)`, `seal`, `sync_dir` (`docs/spec/os/fs.md:411`, `:456`); the floor writes and flushes the same bytes without the fold. The products (the delta and its bytes) are dropped and the sample's file is unlinked in the teardown, outside the timed region ([MP §4.1]) | t3 (≤ 100 ms) |
+//! | `catchup-16.n1e6` | `catchup` | T2's MCP model: a long-lived process holds the overlay of a full tail but its last 16 commits (one per writer of T2's burst) and catches up: `HEAD` pread (8,192 B), the new records scanned from the extents, applied to its warm builder, the overlay finished again (`ARCHITECTURE-RESEARCH.md:783`). The warm builder is cloned in the setup and the finished overlay dropped in the teardown, both outside the timed region | t2 (catch-up p50 ≤ 5 ms) |
 //!
 //! Every run's fixture is the base `seg.base.1` at the quantity's N ([`crate::seg::base`]), written, sealed and
 //! mapped, and, for the last four families, a full `ops` tail at P06 (4,096 at production) written as `log.<n>`
@@ -502,31 +502,42 @@ pub fn fold_tail<S: LogSource>(
     )
 }
 
-/// A time arm whose sample runs `setup` untimed, then times `op` on its result ([MP §4.1]: setup stays outside the
-/// timed region). It cannot batch, so its operation must take 20 × the timer's resolution ([MP §4.5]).
-pub struct Staged<S, P, T> {
+/// A time arm whose sample runs `setup` untimed, times `op` on its result, then hands the op's product to `teardown`
+/// untimed ([MP §4.1]: setup and teardown stay outside the timed region). The teardown takes the product by value, so
+/// the product is dropped there, outside the timed region too; a failing setup, op or teardown fails the sample. It
+/// cannot batch, so its operation must take 20 × the timer's resolution ([MP §4.5]).
+pub struct Staged<S, P, D, T> {
     name: String,
     setup: S,
     op: P,
+    teardown: D,
     ticker: T,
 }
 
-impl<S, P, T> Staged<S, P, T> {
+impl<S, P, D, T> Staged<S, P, D, T> {
     /// A staged arm named `name`.
-    pub fn new(name: impl Into<String>, ticker: T, setup: S, op: P) -> Staged<S, P, T> {
+    pub fn new(
+        name: impl Into<String>,
+        ticker: T,
+        setup: S,
+        op: P,
+        teardown: D,
+    ) -> Staged<S, P, D, T> {
         Staged {
             name: name.into(),
             setup,
             op,
+            teardown,
             ticker,
         }
     }
 }
 
-impl<S, P, T, X, O> Arm for Staged<S, P, T>
+impl<S, P, D, T, X, O> Arm for Staged<S, P, D, T>
 where
     S: FnMut() -> Result<X, ArmError>,
     P: FnMut(X) -> Result<O, ArmError>,
+    D: FnMut(O) -> Result<(), ArmError>,
     T: Ticker,
 {
     fn name(&self) -> &str {
@@ -542,7 +553,7 @@ where
         let t0 = self.ticker.now_ns();
         let o = (self.op)(x)?;
         let t1 = self.ticker.now_ns();
-        std::hint::black_box(o);
+        (self.teardown)(std::hint::black_box(o))?;
         Ok(t1.saturating_sub(t0))
     }
 }
@@ -555,7 +566,7 @@ fn arm_err(e: impl std::fmt::Display) -> ArmError {
     ArmError(e.to_string())
 }
 
-/// Removes `name` from `root` if it is there (setup of the checkpoint arms).
+/// Removes `name` from `root` if it is there (the teardown of the checkpoint arms, and the fixture's removal).
 fn unlink_if<V: StoreFs>(vfs: &V, root: &V::Root, name: &str) -> Result<(), ArmError> {
     let retry = ShareRetry::Bounded {
         total_ms: OS_SHARE_RETRY_MS,
@@ -564,6 +575,16 @@ fn unlink_if<V: StoreFs>(vfs: &V, root: &V::Root, name: &str) -> Result<(), ArmE
         Err(e) if e.kind != VfsErrorKind::NotFound => Err(arm_err(e)),
         _ => Ok(()),
     }
+}
+
+/// What one sample of the checkpoint arm made: the delta and its bytes. The op returns it and the teardown drops it,
+/// outside the timed region (review m-5).
+#[derive(Debug)]
+pub struct CkptOut {
+    /// The folded delta.
+    pub delta: delta::Delta,
+    /// Its bytes, written as `seg.d1`.
+    pub bytes: Vec<u8>,
 }
 
 /// A sealed file's write ([OS/fs] `fs.md:411`, `:456`): `create_new` under its final name, `write_at`,
@@ -802,18 +823,24 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
             arms.push(Box::new(Staged::new(
                 "ckpt",
                 ticker.clone(),
-                move || unlink_if(p.vfs, &p.root, DELTA_NAME),
-                move |()| {
-                    let d = fold_tail(&mut log, t, c).map_err(ArmError)?;
-                    let b = delta::encode(&d).map_err(ArmError)?;
-                    seal_new(p.vfs, &p.root, DELTA_NAME, &b)
+                || Ok(()),
+                move |()| -> Result<CkptOut, ArmError> {
+                    let delta = fold_tail(&mut log, t, c).map_err(ArmError)?;
+                    let bytes = delta::encode(&delta).map_err(ArmError)?;
+                    seal_new(p.vfs, &p.root, DELTA_NAME, &bytes)?;
+                    Ok(CkptOut { delta, bytes })
+                },
+                move |out: CkptOut| {
+                    drop(out);
+                    unlink_if(p.vfs, &p.root, DELTA_NAME)
                 },
             )));
             arms.push(Box::new(Staged::new(
                 "ckpt.write",
                 ticker.clone(),
-                move || unlink_if(p.vfs, &p.root, FLOOR_NAME),
+                || Ok(()),
                 move |()| seal_new(p.vfs, &p.root, FLOOR_NAME, &bytes),
+                move |_: u64| unlink_if(p.vfs, &p.root, FLOOR_NAME),
             )));
         }
         Family::Catchup => {
@@ -834,14 +861,16 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
                 "catchup",
                 ticker.clone(),
                 move || -> Result<Builder, ArmError> { Ok(warm.clone()) },
-                move |b: Builder| {
+                move |b: Builder| -> Result<Overlay, ArmError> {
                     let got = p.vfs.read_at(&head, 0, &mut buf).map_err(arm_err)?;
                     if got != HEAD_LEN {
                         return Err(ArmError(format!("HEAD read {got} bytes, not 8,192")));
                     }
-                    catch_up(&mut log, t, x, chain, b)
-                        .map(|o| o.entries())
-                        .map_err(ArmError)
+                    catch_up(&mut log, t, x, chain, b).map_err(ArmError)
+                },
+                |o: Overlay| {
+                    drop(o);
+                    Ok(())
                 },
             )));
         }
@@ -1735,36 +1764,38 @@ mod tests {
         }
     }
 
-    /// The checkpoint arm folds the tail from its extents into `seg.d1`, sealed, whose bytes read back to the fold
-    /// over the tail in memory; its floor writes the same bytes to `seg.d2`; both arms replace their file each sample.
+    /// The checkpoint arm folds the tail from its extents into `seg.d1`, sealed at t1, whose bytes read back to the
+    /// fold over the tail in memory; its floor writes the same bytes to `seg.d2`; each arm's teardown removes its file,
+    /// so neither is left after a sample.
     #[test]
     fn ckpt_arm_writes_a_sealed_delta_outside_setup() {
         let fs = MemFs::with_dir(&scratch());
-        let q = grid()
-            .into_iter()
-            .find(|q| q.family == Family::Ckpt)
-            .unwrap();
-        let p = prepare(&fs, &scratch(), &q, Profile::Test).unwrap();
+        let (q, p) = fixture(&fs, Family::Ckpt);
         let c = Columns::parse(p.map.bytes()).unwrap();
         let t = p.tail.as_ref().unwrap();
         let want = fold_tail(&mut MemLog::new(t.start, &t.bytes), t, &c).unwrap();
         assert!(!want.rows.is_empty());
-        let mut arms = arms(&p, &c, &q, &MonoTicker::new()).unwrap();
+        let ticker = FsTicker::new(&fs, p.dir(), &[DELTA_NAME, FLOOR_NAME]);
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
         let names: Vec<&str> = arms.iter().map(|a| a.name()).collect();
         assert_eq!(names, ["ckpt", "ckpt.write"]);
-        for _ in 0..2 {
-            for a in arms.iter_mut() {
-                a.sample().unwrap();
-            }
-            let d1 = p.dir().join(DELTA_NAME);
-            let d2 = p.dir().join(FLOOR_NAME);
-            assert!(fs.is_sealed(&d1) && fs.is_sealed(&d2));
-            let bytes = fs.bytes(&d1).unwrap();
-            assert_eq!(decode(&bytes).unwrap(), want);
-            assert_eq!(
-                fs.bytes(&d2).unwrap(),
-                bytes,
-                "the floor writes the same bytes"
+        let (d1, d2) = (p.dir().join(DELTA_NAME), p.dir().join(FLOOR_NAME));
+        for k in 0..2 {
+            arms[0].sample().unwrap();
+            let (bytes, sealed) = ticker.last().1.files[DELTA_NAME].clone();
+            assert!(sealed, "sample {k}: seg.d1 sealed at t1");
+            assert_eq!(decode(&bytes).unwrap(), want, "sample {k}");
+            assert!(
+                fs.bytes(&d1).is_none(),
+                "sample {k}: seg.d1 left after the sample"
+            );
+            arms[1].sample().unwrap();
+            let (floor, sealed) = ticker.last().1.files[FLOOR_NAME].clone();
+            assert!(sealed, "sample {k}: seg.d2 sealed at t1");
+            assert_eq!(floor, bytes, "sample {k}: the floor writes the same bytes");
+            assert!(
+                fs.bytes(&d2).is_none(),
+                "sample {k}: seg.d2 left after the sample"
             );
         }
         assert!(
@@ -1783,7 +1814,7 @@ mod tests {
     /// The checkpoint's operation runs inside its timed region (spec Goal 2, audit mutation C): between the ticks of
     /// `ckpt` the store reads only the log, exactly the tail's `[start, end)` at its extent offsets, and `seg.d1` goes
     /// from absent at t0 to present and sealed at t1; the floor `ckpt.write` reads no log between its ticks and leaves
-    /// `seg.d2` sealed at t1.
+    /// `seg.d2` sealed at t1. Each file is removed by its arm's teardown, after t1 (review m-5).
     #[test]
     fn ckpt_arm_folds_inside_its_timed_region() {
         let fs = MemFs::with_dir(&scratch());
@@ -1815,6 +1846,10 @@ mod tests {
                 Some(true),
                 "sample {k}: seg.d1 sealed at t1"
             );
+            assert!(
+                fs.bytes(&p.dir().join(DELTA_NAME)).is_none(),
+                "sample {k}: seg.d1 left after the sample"
+            );
             arms[1].sample().unwrap();
             let (t0, t1) = ticker.last();
             let w = ticker.timed_reads();
@@ -1830,6 +1865,10 @@ mod tests {
                 t1.files.get(FLOOR_NAME).map(|f| f.1),
                 Some(true),
                 "sample {k}: seg.d2 sealed at t1"
+            );
+            assert!(
+                fs.bytes(&p.dir().join(FLOOR_NAME)).is_none(),
+                "sample {k}: seg.d2 left after the sample"
             );
         }
         assert_eq!(ticker.count(), 8, "two ticks per sample");
@@ -1907,12 +1946,24 @@ mod tests {
         assert_eq!(ticker.count(), 2 * want.len(), "two ticks per sample");
     }
 
-    /// A staged arm times only its operation: the setup's 5 ms stay outside, the operation's 2 ms are the sample; a
-    /// failing setup or operation fails the sample; it never batches.
+    /// A product whose drop advances the fake clock by 4 ms.
+    struct Heavy(FakeTicker);
+
+    impl Drop for Heavy {
+        fn drop(&mut self) {
+            self.0.advance(4 * MS);
+        }
+    }
+
+    /// A staged arm times only its operation: the setup's 5 ms, the teardown's 3 ms and the 4 ms of the product's
+    /// drop stay outside, the operation's 2 ms are the sample; the teardown gets the op's product; a failing setup,
+    /// operation or teardown fails the sample; it never batches.
     #[test]
     fn staged_arm_times_only_the_operation() {
         let clock = FakeTicker::manual();
-        let (c1, c2) = (clock.clone(), clock.clone());
+        let (c1, c2, c3) = (clock.clone(), clock.clone(), clock.clone());
+        let got = Rc::new(std::cell::Cell::new(0u32));
+        let g = got.clone();
         let mut fail = 0;
         let mut a = Staged::new(
             "x",
@@ -1927,22 +1978,39 @@ mod tests {
                 if fail == 3 {
                     Err(ArmError("op".into()))
                 } else {
-                    Ok(v)
+                    Ok((v + fail, Heavy(c2.clone())))
                 }
+            },
+            move |(v, h): (u32, Heavy)| {
+                c3.advance(3 * MS);
+                g.set(v);
+                drop(h);
+                Ok(())
             },
         );
         assert_eq!(a.sample(), Ok(2 * MS));
+        assert_eq!(got.get(), 8, "the teardown gets the op's product");
         a.set_batch(20);
         assert_eq!(a.batch(), 1);
         assert_eq!(a.sample(), Ok(2 * MS));
+        assert_eq!(got.get(), 9);
         assert_eq!(a.sample(), Err(ArmError("op".into())));
         let mut b = Staged::new(
             "y",
-            clock,
+            clock.clone(),
             || Err::<(), _>(ArmError("setup".into())),
             |()| Ok(0),
+            |_: u32| Ok(()),
         );
         assert_eq!(b.sample(), Err(ArmError("setup".into())));
+        let mut d = Staged::new(
+            "z",
+            clock,
+            || Ok(()),
+            |()| Ok(0u8),
+            |_: u8| Err(ArmError("teardown".into())),
+        );
+        assert_eq!(d.sample(), Err(ArmError("teardown".into())));
     }
 
     /// A `--quantity` run writes exactly one record under `--out` that reads back: measurement 14, its arm, t1's
