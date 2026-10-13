@@ -12,6 +12,11 @@
 //! **The dictionary** ([`dict`]): the probe's own deterministic trainer (R-33 Q1 (b)), the epoch cover of `ruzstd`'s
 //! `dict_builder` with exact d-mer counts, over the training side only; at most 64 KiB of raw content. A product
 //! trainer may do better or worse, so the gain the dictionary shows is this trainer's.
+//!
+//! **The `hist` frames** ([`frames`]): the records of four synthetic tails of measurement 10's `rec` family, without
+//! their rotation pads, cut into frames by F10 §4.2; split frames of P04-byte blocks. They follow the generator, not real
+//! logs.
 
 pub mod corpus;
 pub mod dict;
+pub mod frames;
