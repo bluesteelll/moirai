@@ -262,7 +262,7 @@ pub fn render(
         let _ = writeln!(
             w,
             "Process readings are the probe process's own at the end of the run ([MP §4.6]): its peak private bytes \
-             since it started, and the heap high-water mark since the runner reset it before the pilot; `none` where \
+             since it started, and its heap high water since the runner reset it before the pilot; `none` where \
              the record holds no reading."
         );
     }
@@ -960,9 +960,12 @@ mod tests {
             out.contains("|---|---|---|---|---|---|---|---|---|---|---|---|\n| 1 | spawn.empty |"),
             "12 columns: {out}"
         );
+        // The whole sentence, which names the readings in the column's own words.
         assert!(
             out.contains(
-                "\nProcess readings are the probe process's own at the end of the run ([MP §4.6])"
+                "\n\nProcess readings are the probe process's own at the end of the run ([MP §4.6]): its peak private \
+                 bytes since it started, and its heap high water since the runner reset it before the pilot; `none` \
+                 where the record holds no reading.\n"
             ),
             "{out}"
         );
