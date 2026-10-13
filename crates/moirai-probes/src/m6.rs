@@ -1778,4 +1778,57 @@ mod tests {
         let p = PathBuf::from("/some/work/6");
         assert_eq!(work_dir(Some(p.clone())).unwrap(), p);
     }
+
+    /// A working directory below `root` that is a regular file, so no stage can be made below it, and a `zstd` that
+    /// does not exist; returns them and the stage's path as an error names it.
+    fn blocked_work(root: &Path) -> (PathBuf, PathBuf, String) {
+        let work = root.join("not-a-dir");
+        std::fs::write(&work, b"x").unwrap();
+        let stage = work.join(codec::CLI_DIR).display().to_string();
+        (work, root.join("no-such-zstd"), stage)
+    }
+
+    /// The smoke stages a `size.cli` quantity below the given working directory (R-34 B-1): when that is a regular
+    /// file, the smoke fails naming `<work>/m6-cli`. A stage made anywhere else would get as far as the missing
+    /// `zstd` and fail naming that.
+    #[test]
+    fn the_smoke_stages_the_cli_below_the_working_directory() {
+        let root = scratch_dir("m6-cli-stage-smoke");
+        let (work, zstd, stage) = blocked_work(&root);
+        let args = smoke_args(Some("size.cli.notes"));
+        let (code, _, err) = run_cli(&args, Some(zstd), &work, None);
+        assert_eq!(code, EXIT_FAILED);
+        assert!(err.contains(&stage), "the stage below the work: {err}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// A recording run stages a `size.cli` quantity below the given working directory too (R-34 B-1): over the tree's
+    /// corpora, with the working directory a regular file, it fails naming `<work>/m6-cli` and records nothing.
+    #[test]
+    fn a_recording_run_stages_the_cli_below_the_working_directory() {
+        let root = scratch_dir("m6-cli-stage-run");
+        tree(&root);
+        let (work, zstd, stage) = blocked_work(&root);
+        let o = root.join("private").join("measurements").join("6");
+        let o = o.to_str().unwrap().to_string();
+        let mut args = vec![
+            "--quantity",
+            "size.cli.plan",
+            "--host",
+            "laptop",
+            "--condition",
+            "idle",
+            "--out",
+            &o,
+        ];
+        args.extend(CT);
+        let (code, _, err) = run_cli(&args, Some(zstd), &work, None);
+        assert_eq!(code, EXIT_FAILED);
+        assert!(err.contains(&stage), "the stage below the work: {err}");
+        assert!(
+            !root.join("private").join("measurements").exists(),
+            "no record"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
 }
