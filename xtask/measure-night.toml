@@ -46,10 +46,26 @@ quantities = ["cycle.e64mib", "close.e64mib"]
 [[measurement]]
 n = 14
 driver = "m14"
-title = "CSR, bitsets, column scans and the overlay at 1e5 and 1e6 nodes; T1's point read and delta checkpoint; T2's writer wait and catch-up"
+title = "CSR, bitsets, column scans and the overlay at 1e5 and 1e6 nodes; T1's point read and delta checkpoint; T2's MCP overlay catch-up (its writer wait is measurement 2's)"
 run-budget-minutes = 90
 budget-minutes = 110
-quantities = []
+quantities = [
+    "read-4096.n1e6",
+    "ckpt-4096.n5e5",
+    "catchup-16.n1e6",
+    "csr.n1e5",
+    "bitset.n1e5",
+    "bitset-ab.n1e5",
+    "bitset-aa.n1e5",
+    "scan.n1e5",
+    "overlay.n1e5",
+    "csr.n1e6",
+    "bitset.n1e6",
+    "bitset-ab.n1e6",
+    "bitset-aa.n1e6",
+    "scan.n1e6",
+    "overlay.n1e6",
+]
 
 [[measurement]]
 n = 6

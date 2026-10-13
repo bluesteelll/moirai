@@ -2,7 +2,8 @@
 //! over the F09 segment at 1e5 and 1e6 nodes (CSR, frozen-bitset AND/popcount, column scans, overlay probe), T1's
 //! point read after a full 4,096-op tail and delta checkpoint at 0.5 M nodes, and T2's MCP overlay catch-up model. It
 //! records one run per quantity under the driver contract of [MP §9.7] (`docs/spec/measurement-protocol.md`), each in
-//! a child process of its own; `--smoke` runs every arm once at the test profile and records nothing.
+//! a child process of its own, the deciding quantities first; `--smoke` runs each requested arm once at the test
+//! profile and records nothing. Every fixture lies below the working directory.
 //!
 //! Wiring only: the logic and its tests are `moirai_probes::m14`. This file passes it the Windows store seam
 //! (`moirai_os::OsVfs`, [OS/fs], [OS/map]), the `Meter` (`moirai_os::OsMeter`, [OS/mem]), the monotonic timer, the
