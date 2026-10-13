@@ -24,6 +24,7 @@
 //!   file that was there before and vanished or changed stops the session (`record-changed`).
 //! - An attempt that is not exit-grade, timed out at its run budget or could not start is retried once, at once, while
 //!   time is left before the measurement's budget and the window's deadline.
+//! - A driver whose process tree cannot be stopped stops the session (`tree-unstoppable`); its run is never retried.
 //! - After each attempt the tested tree is read again.
 //!
 //! **The finish**: the drivers' working directories are removed, the session record
@@ -44,15 +45,17 @@ mod record;
 use crate::git;
 use crate::nightly::Tree;
 use crate::nightly::calendar::{self, Window, WindowKind};
-use crate::nightly::exec::{self, Cmd, Ended, Host, RealHost, Watch};
+use crate::nightly::exec::{self, Captured, Cmd, Ended, Host, Proc, RealHost, Watch};
 use crate::nightly::guard;
 use crate::utc;
 use plan::{Measurement, Plan};
 use serde_json::{Value, json};
+use std::cell::RefCell;
 use std::collections::BTreeMap;
 use std::io::Write;
 use std::path::{Component, Path, PathBuf};
 use std::process::ExitCode;
+use std::rc::Rc;
 
 /// The usage text.
 pub const USAGE: &str = "usage: cargo xtask measure check [--smoke] --plan <file>
@@ -560,7 +563,8 @@ enum Outcome {
     BudgetEnded,
     /// Stopped at the window's end less the finish margin.
     WindowEnded,
-    /// The driver could not be started, or its tree could not be stopped.
+    /// The driver could not be started, or its process tree could not be stopped (`tree-unstoppable`, which also
+    /// stops the session).
     Error,
     /// `--smoke`: the driver exited 0 within its budget.
     Passed,
@@ -647,7 +651,8 @@ struct Attempt {
     /// `None` when the guard stopped the session before the driver started.
     outcome: Option<Outcome>,
     json: Value,
-    /// Why the session stops after this attempt: the guard refused or failed, or the tested tree changed.
+    /// Why the session stops after this attempt: the guard refused or failed, the driver's process tree could not be
+    /// stopped, a record changed, or the tested tree changed.
     stop: Option<String>,
     /// Whether a driver process was started.
     started: bool,
@@ -670,9 +675,68 @@ fn tree_change<H: Host + ?Sized>(host: &mut H, env: &Env) -> Option<Value> {
     }
 }
 
+/// The stop of a session whose driver's process tree could not be stopped ([MP §9.8]).
+const TREE_UNSTOPPABLE: &str = "tree-unstoppable";
+
+/// The attempt's host for [`exec::run_cmd`]: it remembers the first error of a driver's `kill_tree`, so the attempt
+/// learns that the process tree could not be stopped without reading the text of [`Ended::Error`], which `exec` owns.
+struct Tracked<'a, H: Host + ?Sized> {
+    host: &'a mut H,
+    unstoppable: Rc<RefCell<Option<String>>>,
+}
+
+/// A driver process of [`Tracked`].
+struct TrackedProc {
+    p: Box<dyn Proc>,
+    unstoppable: Rc<RefCell<Option<String>>>,
+}
+
+impl Proc for TrackedProc {
+    fn try_wait(&mut self) -> Result<Option<i32>, String> {
+        self.p.try_wait()
+    }
+
+    fn kill_tree(&mut self) -> Result<(), String> {
+        let r = self.p.kill_tree();
+        if let Err(e) = &r {
+            self.unstoppable
+                .borrow_mut()
+                .get_or_insert_with(|| e.clone());
+        }
+        r
+    }
+}
+
+impl<H: Host + ?Sized> Host for Tracked<'_, H> {
+    fn now(&self) -> i64 {
+        self.host.now()
+    }
+
+    fn sleep(&mut self, secs: u64) {
+        self.host.sleep(secs)
+    }
+
+    fn spawn(&mut self, cmd: &Cmd, log: &Path) -> Result<Box<dyn Proc>, String> {
+        let p = self.host.spawn(cmd, log)?;
+        Ok(Box::new(TrackedProc {
+            p,
+            unstoppable: self.unstoppable.clone(),
+        }))
+    }
+
+    fn capture(&mut self, cmd: &Cmd, timeout_secs: u64) -> Result<Captured, String> {
+        self.host.capture(cmd, timeout_secs)
+    }
+
+    fn tree(&mut self, repo: &Path) -> Result<Tree, String> {
+        self.host.tree(repo)
+    }
+}
+
 /// One attempt of the run of quantity `q` ([MP §9.8]): the guard, then one driver process in the measurement's
 /// working directory until it exits or its deadline (the earliest of its run budget, `m_deadline` and the window's),
-/// where its process tree is stopped; then the record's judgment and the tree.
+/// where its process tree is stopped; then the record's judgment and the tree. A tree that cannot be stopped makes the
+/// attempt an error and stops the session.
 // spec: [MP §9.8] (the guard before each attempt, one driver process per run, budgets, the record, the tree),
 // [MP §9.7] (the driver contract), [MP §7.3]
 fn attempt<H: Host + ?Sized>(
@@ -753,7 +817,18 @@ fn attempt<H: Host + ?Sized>(
         every_secs: (deadline - start).max(0) + 1,
         min_available: None,
     };
-    let ended = exec::run_cmd(host, &cmd, &cx.dir.join(&log), deadline, &mut watch);
+    let unstoppable = Rc::new(RefCell::new(None));
+    let ended = exec::run_cmd(
+        &mut Tracked {
+            host: &mut *host,
+            unstoppable: unstoppable.clone(),
+        },
+        &cmd,
+        &cx.dir.join(&log),
+        deadline,
+        &mut watch,
+    );
+    let unstoppable = unstoppable.borrow_mut().take();
     let end = host.now();
     let after = list(&dir)?;
     let touched = record::changed(&before, &after);
@@ -825,6 +900,12 @@ fn attempt<H: Host + ?Sized>(
         }
         Ended::Stopped(e) | Ended::Error(e) => (Outcome::Error, None, vec![e]),
     };
+    // A process tree that could not be stopped makes the attempt an error, whatever ended it, and stops the session
+    // below, so its run is never retried beside it.
+    let (outcome, why) = match &unstoppable {
+        Some(e) => (Outcome::Error, vec![format!("{TREE_UNSTOPPABLE}: {e}")]),
+        None => (outcome, why),
+    };
     j["ended"] = json!(utc::rfc3339(end));
     j["outcome"] = json!(outcome.as_str());
     j["exit_code"] = json!(exit);
@@ -841,7 +922,14 @@ fn attempt<H: Host + ?Sized>(
             format!(": {}", why.join("; "))
         }
     );
-    let mut stop = None;
+    let mut stop = unstoppable.as_ref().map(|e| {
+        let why = format!(
+            "{TREE_UNSTOPPABLE}: the process tree of {}/{q} could not be stopped ({e}); start the runner again only after that tree is gone",
+            m.n
+        );
+        let _ = writeln!(out, "measure: {why}; the session stops");
+        why
+    });
     if !touched.is_empty() {
         let why = format!(
             "record-changed: {} in {} changed or vanished during {}/{q}; a record is never overwritten ([MP §7.2])",
@@ -851,7 +939,7 @@ fn attempt<H: Host + ?Sized>(
         );
         let _ = writeln!(out, "measure: {why}; the session stops");
         j["records_changed"] = json!(touched);
-        stop = Some(why);
+        stop.get_or_insert(why);
     }
     if let Some(change) = tree_change(host, cx.env) {
         let _ = writeln!(
@@ -1243,10 +1331,10 @@ pub fn cli(args: &[String], repo: &Path) -> Result<ExitCode, String> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::nightly::exec::Captured;
     use crate::nightly::exec::tests::{FakeHost, guard_pass, guard_refuse, hangs, runs, test_tree};
+    use crate::nightly::exec::{Captured, Proc};
     use crate::testdir::TestDir;
-    use std::cell::RefCell;
+    use std::cell::{Cell, RefCell};
     use std::collections::VecDeque;
     use std::rc::Rc;
 
@@ -2244,6 +2332,141 @@ quantities = ["d"]
         assert_eq!(a[1]["ended"], utc::rfc3339(t0 + 40 * 60));
         assert_eq!(h.killed.borrow().len(), 2);
         assert_eq!(s["runs"][0]["status"], "timed-out");
+    }
+
+    /// [`FakeHost`] for the tests of the runner's failure paths. With `stuck`, every driver's `kill_tree` fails, as the
+    /// real stop fails when a driver has not exited a minute after `taskkill`, and is counted in `kills`.
+    struct Hooked {
+        h: FakeHost,
+        stuck: bool,
+        kills: Rc<Cell<u32>>,
+    }
+
+    fn hooked(h: FakeHost) -> Hooked {
+        Hooked {
+            h,
+            stuck: false,
+            kills: Rc::new(Cell::new(0)),
+        }
+    }
+
+    /// A driver process of [`Hooked`] whose tree cannot be stopped.
+    struct StuckProc {
+        p: Box<dyn Proc>,
+        kills: Rc<Cell<u32>>,
+    }
+
+    impl Proc for StuckProc {
+        fn try_wait(&mut self) -> Result<Option<i32>, String> {
+            self.p.try_wait()
+        }
+        fn kill_tree(&mut self) -> Result<(), String> {
+            self.kills.set(self.kills.get() + 1);
+            Err("process 4242 did not exit after it was stopped".into())
+        }
+    }
+
+    impl Host for Hooked {
+        fn now(&self) -> i64 {
+            self.h.now()
+        }
+        fn sleep(&mut self, secs: u64) {
+            self.h.sleep(secs)
+        }
+        fn spawn(&mut self, cmd: &Cmd, log: &Path) -> Result<Box<dyn Proc>, String> {
+            let p = self.h.spawn(cmd, log)?;
+            Ok(if self.stuck {
+                Box::new(StuckProc {
+                    p,
+                    kills: self.kills.clone(),
+                })
+            } else {
+                p
+            })
+        }
+        fn capture(&mut self, cmd: &Cmd, timeout_secs: u64) -> Result<Captured, String> {
+            self.h.capture(cmd, timeout_secs)
+        }
+        fn tree(&mut self, repo: &Path) -> Result<Tree, String> {
+            self.h.tree(repo)
+        }
+    }
+
+    /// `run` on a [`Hooked`] host: its result, and what it printed.
+    fn run_hooked(h: &mut Hooked, env: &Env, plan: &Plan) -> (Result<u8, String>, String) {
+        let mut out = Vec::new();
+        let code = run(h, env, plan, Path::new("plan.toml"), false, &mut out);
+        (code, String::from_utf8(out).unwrap())
+    }
+
+    #[test]
+    fn an_unstoppable_tree_stops_the_session_with_no_retry() {
+        let d = TestDir::new("measure-run-unstoppable");
+        let plan = plan();
+        let env = env(&d, &plan);
+        // csr.1e5 hangs to its run budget, and its process tree cannot be stopped: it is not retried beside that tree,
+        // and nothing else runs.
+        let mut h = hooked(FakeHost::new(at(NOW)));
+        h.stuck = true;
+        fake_driver(&mut h.h, &[]);
+        h.h.scripts.push_back(hangs());
+        for _ in 0..3 {
+            h.h.scripts.push_back(runs(60, 0));
+        }
+        let (code, text) = run_hooked(&mut h, &env, &plan);
+        assert_eq!(h.h.spawned.len(), 1, "{text}");
+        assert_eq!(h.kills.get(), 1, "{text}");
+        assert_eq!(code, Ok(EXIT_FAIL), "{text}");
+        let s = session(&env, &plan, at(NOW));
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/csr.1e5", "error"),
+                ("14/t1.read", "not-run"),
+                ("6/lz4.encode", "not-run"),
+            ])
+        );
+        let a = &s["runs"][0]["attempts"];
+        assert_eq!(a.as_array().unwrap().len(), 1, "{s}");
+        assert_eq!(
+            a[0]["why"],
+            json!(["tree-unstoppable: process 4242 did not exit after it was stopped"])
+        );
+        let stopped = s["stopped"].as_str().unwrap();
+        assert!(
+            stopped.starts_with(
+                "tree-unstoppable: the process tree of 14/csr.1e5 could not be stopped (process 4242 did not exit after it was stopped); start the runner again only after that tree is gone"
+            ),
+            "{stopped}"
+        );
+        assert_eq!(s["runs"][1]["reason"], stopped);
+        assert_eq!(s["verdict"], "fail");
+        // The tested tree changed during the same attempt: the stop is still tree-unstoppable, and the change is
+        // recorded.
+        std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        let _ = std::fs::remove_dir_all(env.private.join(MEASUREMENTS));
+        let mut h = hooked(FakeHost::new(at(NOW)));
+        h.stuck = true;
+        fake_driver(&mut h.h, &[]);
+        h.h.scripts.push_back(hangs());
+        h.h.trees.push_back(Ok(Tree {
+            changes: 1,
+            ..test_tree()
+        }));
+        let (code, text) = run_hooked(&mut h, &env, &plan);
+        assert_eq!(code, Ok(EXIT_FAIL), "{text}");
+        let s = session(&env, &plan, at(NOW));
+        assert!(
+            s["stopped"]
+                .as_str()
+                .unwrap()
+                .starts_with("tree-unstoppable: "),
+            "{s}"
+        );
+        assert_eq!(
+            s["runs"][0]["attempts"][0]["tree_changed"]["tracked_changes"], 1,
+            "{s}"
+        );
     }
 
     /// Writes a record into `/private/measurements/<n>/` before a session.

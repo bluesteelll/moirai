@@ -918,6 +918,11 @@ operational policy with a reviewed default (AGENTS.md):
     measurement.
   - A `window-ended` run leaves every later run `not-run`.
   - So a hang costs at most its own measurement's budget, and the measurements after it keep their slots.
+  - If the tree cannot be stopped (the driver's process has not exited 60 s after `taskkill /T /F`), the attempt is
+    `error`, the session stops and fails (`tree-unstoppable`), and the run is never retried beside that tree. Only a
+    driver process that does not exit is seen: a process the driver started that outlives the stop, while the driver
+    itself exits, is not detected. A session stopped `tree-unstoppable` is not started again until no process of that
+    tree is left, which whoever starts it checks first.
 - **The record.** Before an attempt the runner lists the files of `/private/measurements/<n>/`. After it, the run's
   record is the one new file named `<q>.idle.<YYYYMMDDTHHMMSSZ>.json`. The attempt is exit-grade when all of these
   hold:
@@ -933,8 +938,9 @@ operational policy with a reviewed default (AGENTS.md):
 - **One retry.** A run whose first attempt is not exit-grade gets one more attempt at once, with its own guard, unless
   that attempt is `budget-ended` or `window-ended`. A run stopped at its own run budget is retried, and so is a driver
   that could not be started. A retry is made only while time is left before both the measurement's budget and the
-  window's end less the finish margin. After two attempts the run takes its second attempt's outcome. The retry is
-  immediate so that the plan keeps its order, with the measurements that decide bytes first.
+  window's end less the finish margin. A run whose process tree could not be stopped is never retried (Budgets
+  above). After two attempts the run takes its second attempt's outcome. The retry is immediate so that the plan
+  keeps its order, with the measurements that decide bytes first.
 - **Records are never touched.**
   - The runner creates `/private/measurements/<n>/` when it is missing. Under `/private/` it writes nothing else but
     the private manifest.
