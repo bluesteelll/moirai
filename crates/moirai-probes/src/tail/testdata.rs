@@ -106,14 +106,22 @@ pub fn commit(seq: u64, parent_lsn: u64, ops: Vec<Op<'static>>, msg: &str) -> Co
     }
 }
 
+/// Each placed commit's lsn and where each owner's frames lie in it, in op order.
+pub type Placed = Vec<(u64, Vec<(u32, PrevLoc)>)>;
+
+/// A change to the locators the writer would write (u20 cut §3.3's refused pointers): given the owner, its true locator
+/// and the spans of every owner in the record its `prev` names, the locator to write.
+pub type Perturb<'p> = &'p dyn Fn(u32, PrevLoc, &[(u32, PrevLoc)]) -> PrevLoc;
+
 /// The locators of `ops` at `lsn` in `form` (u20 cut §3.1, SoT-1 and SoT-4): for each owner whose first op has
-/// `prev` ≠ 0, where its frames lie in the record `prev` names, from `spans` (owner, lsn, locator) of the records
-/// placed so far; (0, 0) for a record below the tail.
+/// `prev` ≠ 0, where its frames lie in the record `prev` names, from the commits `placed` so far, passed through
+/// `perturb`; (0, 0) for a record below the tail.
 pub fn locs_at(
     form: Locator,
     ops: &[Op<'_>],
     lsn: u64,
-    spans: &[(u32, u64, PrevLoc)],
+    placed: &Placed,
+    perturb: Perturb<'_>,
 ) -> Vec<(u32, PrevLoc)> {
     if form == Locator::None {
         return Vec::new();
@@ -122,33 +130,33 @@ pub fn locs_at(
     for (i, op) in ops.iter().enumerate() {
         if (i == 0 || ops[i - 1].owner() != op.owner()) && op.prev() != 0 {
             let older = lsn - op.prev();
-            let loc = spans
+            let loc = placed
                 .iter()
-                .find(|s| s.0 == op.owner() && s.1 == older)
-                .map_or(PrevLoc::default(), |s| s.2);
+                .find(|p| p.0 == older)
+                .and_then(|p| {
+                    let own = p.1.iter().find(|s| s.0 == op.owner())?;
+                    Some(perturb(op.owner(), own.1, &p.1))
+                })
+                .unwrap_or_default();
             locs.push((op.owner(), loc));
         }
     }
     locs
 }
 
-/// Records where each owner's frames lie in the commit `c` placed at `lsn` with `defs` (its `SymDefs` block), keeping
-/// only each owner's newest.
-pub fn note_spans(
-    spans: &mut Vec<(u32, u64, PrevLoc)>,
-    c: &Commit<'_>,
-    lsn: u64,
-    defs: &[SymDef<'_>],
-) {
+/// Where each owner's frames lie in the commit `c` placed with `defs` (its `SymDefs` block), counted from its lsn with
+/// the header included, in op order.
+pub fn spans_of(c: &Commit<'_>, defs: &[SymDef<'_>]) -> Vec<(u32, PrevLoc)> {
     let mut block = Vec::new();
     if !defs.is_empty() {
         encode_symdefs(defs, &mut block).expect("valid symbols");
     }
     let head = (REC_HDR_LEN + block.len()) as u32;
-    for (owner, at, len) in c.op_spans().expect("an encodable commit") {
-        spans.retain(|s| s.0 != owner);
-        spans.push((owner, lsn, PrevLoc { at: head + at, len }));
-    }
+    c.op_spans()
+        .expect("an encodable commit")
+        .into_iter()
+        .map(|(owner, at, len)| (owner, PrevLoc { at: head + at, len }))
+        .collect()
 }
 
 /// The two symbols the first commit defines (SD-1: the next ids after an assumed `SYMTAB` of 16 sessions and 8 stmts).
@@ -254,6 +262,12 @@ pub fn hand_built() -> HandBuilt {
 /// [`hand_built`] with its op frames in `form`: in A1 each owner's first frame names its frames in the record its
 /// `prev` names (#3's two frames in the second commit, `Move` and `SetField`, are one span), or (0, 0) below the tail.
 pub fn hand_built_in(form: Locator) -> HandBuilt {
+    hand_built_with(form, &|_, loc, _| loc)
+}
+
+/// [`hand_built_in`] with every locator the writer writes passed through `perturb` (u20 cut §3.3: a pointer one frame
+/// off, of a wrong length, or (0, 0) into the tail).
+pub fn hand_built_with(form: Locator, perturb: Perturb<'_>) -> HandBuilt {
     let x = expect_in(form);
     let mut app = Appender::new(x.geo, x.epoch, START, CHAIN_IN, head(&x));
     let mut records = Vec::new();
@@ -382,7 +396,7 @@ pub fn hand_built_in(form: Locator) -> HandBuilt {
         }),
     ];
     let mut seq = 101;
-    let mut spans: Vec<(u32, u64, PrevLoc)> = Vec::new();
+    let mut placed: Placed = Vec::new();
     let mut put = |app: &mut Appender,
                    records: &mut Vec<Record<'static>>,
                    commits: &mut Vec<u64>,
@@ -401,7 +415,7 @@ pub fn hand_built_in(form: Locator) -> HandBuilt {
                 let mut c = commit(seq, parent, ops(last, lsn), msg);
                 c.bodies = bodies.clone();
                 c.form = form;
-                c.locs = locs_at(form, &c.ops, lsn, &spans);
+                c.locs = locs_at(form, &c.ops, lsn, &placed, perturb);
                 Ok(commit_group(lsn, c, defs.clone()))
             })
             .unwrap();
@@ -411,7 +425,7 @@ pub fn hand_built_in(form: Locator) -> HandBuilt {
             for op in &c.ops {
                 last.push((op.owner(), lsn));
             }
-            note_spans(&mut spans, c, lsn, &defs);
+            placed.push((lsn, spans_of(c, &defs)));
         }
         commits.push(lsn);
         records.extend(g);

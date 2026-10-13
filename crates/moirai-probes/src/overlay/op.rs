@@ -49,13 +49,28 @@
 //! the replay's scan validated every record ([F05 §5.2]), and a replay never hashes bodies ([F06 §8] BD-2,
 //! `06-commit.md:1053-1054`). So both reads return what `get` returns for every (n, key) on a valid tail; on a corrupt
 //! record they may differ, because `get` decodes every op of the record.
+//!
+//! **The read through item 1a** ([`Overlay::get_1a`], u20 cut §3.3; design-A's A2 with A1). The newest record of n is
+//! one read of the bytes the offsets mode keeps beside the node index ([`Overlay::replay_at`]), n's frames decoded. If
+//! the key is not there, the first frame's `prev` and locator lead on, one read per hop:
+//! - `prev` leaves the tail: not in the tail;
+//! - the locator is (0, 0): that record is read by the frame walk ([`ReadStats::unlocated`]);
+//! - otherwise one read of `prev_len` bytes at `(lsn − prev) + prev_at`, validated: every decoded frame has owner n
+//!   (V-L1), the frames fill `prev_len` exactly (V-L2), and the first decodes in the first-of-owner form, its own
+//!   locator included when its `prev` ≠ 0 (V-L3). A refused locator is counted ([`ReadStats::fallbacks`]) and that
+//!   record is read by the frame walk instead.
+//!
+//! In the newest record a frame of another owner is an error, as in the offset read: the offsets are the process's own.
+//! The residual case V-L1 to V-L3 cannot see is a locator on a later frame of the same owner with the matching shorter
+//! length, when that owner's `prev` is 0 (u20 cut F-1, R-53: the 1a spec unit's). The read decodes all of n's frames in
+//! each record it reads before it applies `get`'s rule, so V-L2 sees the whole span.
 
-use super::{Key, NodeEntry, Overlay, Probe, Value, sets};
+use super::{Key, Loc, NodeEntry, Overlay, Probe, Value, sets};
 use crate::tail::commit::{Op, presence};
 use crate::tail::enc::{Bound, DecodeError, Reader};
 use crate::tail::rec::{RecHdr, sym};
 use crate::tail::scan::LogSource;
-use crate::tail::{Locator, REC_HDR_LEN, TRAILER_LEN, flag, kind};
+use crate::tail::{Locator, PrevLoc, REC_HDR_LEN, TAIL_READ_CHUNK, TRAILER_LEN, flag, kind};
 use std::cmp::Ordering;
 
 /// The most bytes of a frame's head: `op` (1), `len` (`uvar32`, at most 5) and the owner (`uvar32`, at most 5).
@@ -558,6 +573,177 @@ impl Overlay {
             Some(lsn - prev)
         }
     }
+
+    /// The value of `key` of node `n`, as [`Overlay::get`] gives it on a valid tail, through item 1a (the module doc's
+    /// read): n's newest frames from the offsets of [`Overlay::replay_at`], then one read per hop at each record's
+    /// locator, the frame walk where a locator is (0, 0) or refused. `buf` is reused across calls; `stats` counts the
+    /// older records read each way.
+    pub fn get_1a<S: LogSource>(
+        &self,
+        source: &mut S,
+        n: u32,
+        key: &Key,
+        buf: &mut Vec<u8>,
+        stats: &mut ReadStats,
+    ) -> Result<Probe, String> {
+        let Ok(i) = self.nodes.binary_search_by_key(&n, |e| e.n) else {
+            return Ok(Probe::NotInTail);
+        };
+        let Some(&Loc { off, len }) = self.at.get(i) else {
+            return Err(format!(
+                "#{n}: the overlay holds no offsets (Overlay::replay_at builds them)"
+            ));
+        };
+        let mut lsn = self.nodes[i].lsn;
+        let mut hop = {
+            let bytes = read_span(source, lsn + u64::from(off), len as usize, buf)?;
+            let (ops, loc) = own_frames(bytes, n, lsn, self.locator)?;
+            rule(&ops, loc, key)
+        };
+        loop {
+            let (prev, loc) = match hop {
+                Hop::Value(v) => return Ok(Probe::Tail(v)),
+                Hop::Prev(p, l) => (p, l),
+            };
+            let Some(older) = self.older(lsn, prev) else {
+                return Ok(Probe::NotInTail);
+            };
+            lsn = older;
+            hop = match loc.filter(|l| *l != PrevLoc::default()) {
+                None => {
+                    stats.unlocated += 1;
+                    self.walk_one(source, lsn, n, key, buf)?
+                }
+                Some(l) => match self.located(source, lsn, l, n, key, buf) {
+                    Ok(h) => {
+                        stats.located += 1;
+                        h
+                    }
+                    Err(_) => {
+                        stats.fallbacks += 1;
+                        self.walk_one(source, lsn, n, key, buf)?
+                    }
+                },
+            };
+        }
+    }
+
+    /// One read of n's frames at `lsn`'s locator `l`, validated (V-L1 to V-L3); an error refuses the locator.
+    fn located<S: LogSource>(
+        &self,
+        source: &mut S,
+        lsn: u64,
+        l: PrevLoc,
+        n: u32,
+        key: &Key,
+        buf: &mut Vec<u8>,
+    ) -> Result<Hop, String> {
+        if l.len == 0 || l.len > LOC_LEN_MAX || (l.at as usize) < REC_HDR_LEN {
+            return Err(format!("lsn {lsn}: the locator {l:?} is out of range"));
+        }
+        let bytes = read_span(source, lsn + u64::from(l.at), l.len as usize, buf)?;
+        let (ops, loc) = own_frames(bytes, n, lsn, self.locator)?;
+        Ok(rule(&ops, loc, key))
+    }
+
+    /// The frame walk of the one record at `lsn`, n's frames decoded as a located read's.
+    fn walk_one<S: LogSource>(
+        &self,
+        source: &mut S,
+        lsn: u64,
+        n: u32,
+        key: &Key,
+        buf: &mut Vec<u8>,
+    ) -> Result<Hop, String> {
+        let Some(s) = locate(source, buf, TAIL_READ_CHUNK, lsn, n)? else {
+            return Err(format!("the record at lsn {lsn} holds no op of #{n}"));
+        };
+        let (ops, loc) = own_frames(s.bytes(buf), n, lsn, self.locator)?;
+        Ok(rule(&ops, loc, key))
+    }
+}
+
+/// What one [`Overlay::get_1a`] read did on its way: the older records it read each way (u20 cut §3.3).
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub struct ReadStats {
+    /// Older records read in one read at their locator.
+    pub located: u64,
+    /// Older records read by the frame walk because their locator was (0, 0).
+    pub unlocated: u64,
+    /// Locators refused by V-L1 to V-L3, each record then read by the frame walk.
+    pub fallbacks: u64,
+}
+
+/// The most bytes a locator may name: a corrupt `prev_len` is refused before it sizes a read.
+pub const LOC_LEN_MAX: u32 = 1 << 24;
+
+/// What one record's frames of n give: the key's value, or their `prev` and the first frame's locator.
+enum Hop {
+    Value(Value),
+    Prev(u64, Option<PrevLoc>),
+}
+
+/// Reads `[at, at + len)` through `buf`: one read, more only when the source returns fewer bytes.
+fn read_span<'b, S: LogSource>(
+    source: &mut S,
+    at: u64,
+    len: usize,
+    buf: &'b mut Vec<u8>,
+) -> Result<&'b [u8], String> {
+    buf.clear();
+    buf.resize(len, 0);
+    let mut done = 0;
+    while done < len {
+        let got = source.read_at(at + done as u64, &mut buf[done..])?;
+        if got == 0 {
+            return Err(format!("the log ends inside the frames at lsn {at}"));
+        }
+        done += got;
+    }
+    Ok(&buf[..len])
+}
+
+/// Every frame of `bytes`, which must be n's frames in the record at `lsn` (V-L1 to V-L3): the first in the
+/// first-of-owner form of `form`, each of owner n, together filling `bytes` exactly. Returns the ops and the first
+/// frame's locator.
+fn own_frames(
+    bytes: &[u8],
+    n: u32,
+    lsn: u64,
+    form: Locator,
+) -> Result<(Vec<Op<'_>>, Option<PrevLoc>), String> {
+    let mut r = Reader::new(bytes);
+    let mut ops: Vec<Op<'_>> = Vec::new();
+    let mut first = None;
+    while r.remaining() > 0 {
+        let (op, loc) = Op::decode_in(&mut r, form, (!ops.is_empty()).then_some(n))
+            .map_err(|e| format!("lsn {lsn}: {e}"))?;
+        if op.owner() != n {
+            return Err(format!(
+                "lsn {lsn}: a frame of #{} where #{n}'s was located",
+                op.owner()
+            ));
+        }
+        if ops.is_empty() {
+            first = loc;
+        }
+        ops.push(op);
+    }
+    if ops.is_empty() {
+        return Err(format!("lsn {lsn}: no frame of #{n} at its offset"));
+    }
+    Ok((ops, first))
+}
+
+/// [`Overlay::get`]'s rule on n's ops of one record: the first that sets `key` gives its value; otherwise their `prev`
+/// and the first frame's locator.
+fn rule(ops: &[Op<'_>], loc: Option<PrevLoc>, key: &Key) -> Hop {
+    for op in ops {
+        if let Some((_, v)) = sets(op).into_iter().find(|(k, _)| k == key) {
+            return Hop::Value(v);
+        }
+    }
+    Hop::Prev(ops[0].prev(), loc)
 }
 
 #[cfg(test)]
@@ -571,7 +757,7 @@ mod tests {
     use crate::tail::synth::{Clause, Target, generate, tests::test_target};
     use crate::tail::testdata::{self, CHAIN_IN, START};
     use crate::tail::{Params, TAIL_READ_CHUNK};
-    use std::collections::BTreeMap;
+    use std::collections::{BTreeMap, BTreeSet};
 
     /// The hand-built tail's base: 50 live nodes of kind 1, status `#N mod 4`.
     const BASE: Base = Base {
@@ -1230,11 +1416,16 @@ mod tests {
         assert_eq!(std::mem::size_of::<OpEntry>(), 16);
     }
 
-    /// The hand-built tail in A1, probed as [`hand_built`].
+    /// The hand-built tail in A1, probed as [`hand_built`], its overlay built in the offsets mode.
     fn hand_built_a1() -> Probed {
-        let hb = testdata::hand_built_in(Locator::A1);
+        hand_built_a1_with(&|_, loc, _| loc)
+    }
+
+    /// [`hand_built_a1`] with its locators passed through `perturb` ([`testdata::hand_built_with`]).
+    fn hand_built_a1_with(perturb: testdata::Perturb<'_>) -> Probed {
+        let hb = testdata::hand_built_with(Locator::A1, perturb);
         let end = START + hb.bytes.len() as u64;
-        let overlay = Overlay::replay(
+        let overlay = Overlay::replay_at(
             &mut MemLog::new(START, &hb.bytes),
             &hb.expect,
             START,
@@ -1261,13 +1452,22 @@ mod tests {
         }
     }
 
-    /// [`generated`] in A1.
+    /// [`generated`] in A1, its overlay built in the offsets mode.
     fn generated_a1(seed: u64) -> Probed {
         let mut t = crate::tail::synth::tests::a1(test_target(Clause::Ops, 50, seed));
         t.threshold = 120;
         t.rt_bound = Some(u64::MAX);
         let tail = generate(&t, true).unwrap();
-        let overlay = tail.overlay().unwrap();
+        let overlay = Overlay::replay_at(
+            &mut MemLog::new(tail.start, &tail.bytes),
+            &tail.expect,
+            tail.start,
+            tail.end,
+            tail.chain_in,
+            tail.base,
+            TAIL_READ_CHUNK,
+        )
+        .unwrap();
         Probed {
             name: format!("A1 seed {seed}"),
             start: tail.start,
@@ -1314,5 +1514,278 @@ mod tests {
             }
             assert!(set >= p.naive.values.len() && set > 10, "{}: {set}", p.name);
         }
+    }
+
+    /// The A1 tails the item-1a read is tested on: the hand-built one and three generated ones at N = 50.
+    fn a1_probed() -> Vec<Probed> {
+        vec![
+            hand_built_a1(),
+            generated_a1(1),
+            generated_a1(2),
+            generated_a1(3),
+        ]
+    }
+
+    /// T1's read through item 1a returns what the whole-record read returns (spec Goal 1, u20 cut §3.3): on
+    /// [`a1_probed`], for every key of [`keys`], with no locator refused or (0, 0) on the way; every value of the naive
+    /// map is among them, and reads hop through locators.
+    #[test]
+    fn read_1a_equals_the_whole_record_read() {
+        let mut buf = Vec::new();
+        let mut hops = 0;
+        for p in a1_probed() {
+            let mut set = 0;
+            for (n, key) in keys(&p) {
+                let want = p.overlay.get(&mut MemLog::new(p.start, &p.bytes), n, &key);
+                if p.naive.values.contains_key(&(n, key.clone())) {
+                    set += 1;
+                }
+                let mut stats = ReadStats::default();
+                let got = p.overlay.get_1a(
+                    &mut MemLog::new(p.start, &p.bytes),
+                    n,
+                    &key,
+                    &mut buf,
+                    &mut stats,
+                );
+                assert_eq!(got, want, "{} #{n} {key:?}", p.name);
+                assert_eq!(
+                    (stats.unlocated, stats.fallbacks),
+                    (0, 0),
+                    "{} #{n} {key:?}",
+                    p.name
+                );
+                hops += stats.located;
+            }
+            assert!(set >= p.naive.values.len() && set > 10, "{}: {set}", p.name);
+        }
+        assert!(hops > 20, "{hops} hops through a locator");
+    }
+
+    proptest::proptest! {
+        #![proptest_config(crate::tail::enc::tests::config())]
+
+        /// The read through item 1a equals the whole-record read on generated A1 tails, with no locator refused.
+        #[test]
+        fn read_1a_equals_the_whole_record_read_on_generated_tails(
+            seed in proptest::prelude::any::<u64>(),
+        ) {
+            let p = generated_a1(seed);
+            let mut buf = Vec::new();
+            for (n, key) in keys(&p) {
+                let want = p.overlay.get(&mut MemLog::new(p.start, &p.bytes), n, &key);
+                let mut stats = ReadStats::default();
+                let got = p.overlay.get_1a(&mut MemLog::new(p.start, &p.bytes), n, &key, &mut buf, &mut stats);
+                proptest::prop_assert_eq!(&got, &want, "#{} {:?}", n, key);
+                proptest::prop_assert_eq!((stats.unlocated, stats.fallbacks), (0, 0));
+            }
+        }
+    }
+
+    /// The model of a read through item 1a, from the decoded records: n's newest frames at the overlay's offset, then,
+    /// while a record's ops of n do not set `key` and its `prev` stays in the tail, the record `prev` names at the first
+    /// frame's locator: the (lsn, length) of every read.
+    fn model_reads(p: &Probed, n: u32, key: &Key) -> Vec<(u64, usize)> {
+        let by_lsn: BTreeMap<u64, &Commit<'_>> = commits(&p.records).into_iter().collect();
+        let Ok(i) = p.overlay.nodes().binary_search_by_key(&n, |e| e.n) else {
+            return Vec::new();
+        };
+        let (mut lsn, at) = (p.overlay.nodes()[i].lsn, p.overlay.at()[i]);
+        let mut reads = vec![(lsn + u64::from(at.off), at.len as usize)];
+        loop {
+            let c = by_lsn[&lsn];
+            let own: Vec<&Op<'_>> = c.ops.iter().filter(|o| o.owner() == n).collect();
+            if own.iter().any(|op| sets(op).iter().any(|(k, _)| k == key)) {
+                return reads;
+            }
+            let Some(older) = p.overlay.older(lsn, own[0].prev()) else {
+                return reads;
+            };
+            let l = c.locs.iter().find(|(o, _)| *o == n).unwrap().1;
+            reads.push((older + u64::from(l.at), l.len as usize));
+            lsn = older;
+        }
+    }
+
+    /// Every hop is one read (u20 cut §3.3): on [`a1_probed`], each read's reads through a `MemLog` are exactly
+    /// [`model_reads`]: n's newest frames' bytes at the overlay's offset, then one read of each older record's
+    /// `prev_len` bytes at its `prev_at`, none at a record's lsn (no header read); some reads take three records or more.
+    #[test]
+    fn read_1a_takes_one_read_per_hop() {
+        let mut buf = Vec::new();
+        let (mut reads, mut deep) = (0, 0);
+        for p in a1_probed() {
+            let lsns: BTreeSet<u64> = commits(&p.records).iter().map(|c| c.0).collect();
+            for (n, key) in keys(&p) {
+                let mut src = MemLog::new(p.start, &p.bytes);
+                let mut stats = ReadStats::default();
+                p.overlay
+                    .get_1a(&mut src, n, &key, &mut buf, &mut stats)
+                    .unwrap();
+                let want = model_reads(&p, n, &key);
+                assert_eq!(src.reads, want, "{} #{n} {key:?}", p.name);
+                assert!(
+                    !src.reads.iter().any(|r| lsns.contains(&r.0)),
+                    "{} #{n} {key:?}: a read at a record's lsn",
+                    p.name
+                );
+                assert_eq!(stats.located as usize, want.len().saturating_sub(1));
+                reads += want.len();
+                deep += usize::from(want.len() > 2);
+            }
+        }
+        assert!(
+            reads > 300 && deep > 5,
+            "{reads} reads, {deep} of three records or more"
+        );
+    }
+
+    /// The hand-built A1 tail with `owner`'s locators moved `by` frames in the record they name.
+    fn shifted(owner: u32, by: isize) -> Probed {
+        hand_built_a1_with(&move |o: u32, loc: PrevLoc, rec: &[(u32, PrevLoc)]| {
+            if o != owner {
+                return loc;
+            }
+            let i = rec.iter().position(|s| s.0 == o).unwrap() as isize + by;
+            rec[i as usize].1
+        })
+    }
+
+    /// One read of `key` of `n` through item 1a on `p`: (the result, the stats, the reads).
+    fn read_1a(
+        p: &Probed,
+        n: u32,
+        key: &Key,
+    ) -> (Result<Probe, String>, ReadStats, Vec<(u64, usize)>) {
+        let mut src = MemLog::new(p.start, &p.bytes);
+        let mut stats = ReadStats::default();
+        let got = p
+            .overlay
+            .get_1a(&mut src, n, key, &mut Vec::new(), &mut stats);
+        (got, stats, src.reads)
+    }
+
+    /// A pointer one frame off is refused and the read falls back (spec Goal 1, CC A-3; u20 cut §3.3, V-L1): in the
+    /// hand-built A1 tail, #3's locator into the first commit moved one frame later (to #5's frame) and #7's into the
+    /// second moved one frame earlier (to #3's frames). The read of #3's status and of #7's field 1, which hop through
+    /// them, returns the whole-record read's value with one fallback, and the read after the refused one is the frame
+    /// walk's 32-byte header.
+    #[test]
+    fn pointer_one_frame_off_is_refused_and_falls_back() {
+        let clean = hand_built_a1();
+        for (owner, by, key) in [(3, 1, Key::Status), (7, -1, Key::Field(1))] {
+            let p = shifted(owner, by);
+            assert_ne!(p.bytes, clean.bytes, "#{owner}'s locator moved");
+            let want = p
+                .overlay
+                .get(&mut MemLog::new(p.start, &p.bytes), owner, &key);
+            assert_eq!(
+                read_1a(&clean, owner, &key).0,
+                want,
+                "#{owner}: the clean read"
+            );
+            let (got, stats, reads) = read_1a(&p, owner, &key);
+            assert_eq!(got, want, "#{owner} {key:?}");
+            assert_eq!(
+                stats,
+                ReadStats {
+                    located: 0,
+                    unlocated: 0,
+                    fallbacks: 1,
+                },
+                "#{owner} {key:?}: the moved pointer refused"
+            );
+            assert_eq!(reads[2].1, REC_HDR_LEN, "#{owner}: then the frame walk");
+        }
+    }
+
+    /// A pointer of a wrong length is refused and the read falls back (u20 cut §3.3, V-L2): #3's locator into the first
+    /// commit one byte longer, then one byte shorter; the read of #3's status returns the whole-record read's value with
+    /// one fallback each time.
+    #[test]
+    fn pointer_of_a_wrong_length_is_refused_and_falls_back() {
+        for delta in [1i64, -1] {
+            let p = hand_built_a1_with(&move |o: u32, loc: PrevLoc, _: &[(u32, PrevLoc)]| {
+                if o == 3 {
+                    PrevLoc {
+                        at: loc.at,
+                        len: (i64::from(loc.len) + delta) as u32,
+                    }
+                } else {
+                    loc
+                }
+            });
+            let want = p
+                .overlay
+                .get(&mut MemLog::new(p.start, &p.bytes), 3, &Key::Status);
+            assert!(matches!(want, Ok(Probe::Tail(_))), "{want:?}");
+            let (got, stats, _) = read_1a(&p, 3, &Key::Status);
+            assert_eq!(got, want, "length {delta:+}");
+            assert_eq!(
+                (stats.located, stats.unlocated, stats.fallbacks),
+                (0, 0, 1),
+                "length {delta:+}"
+            );
+        }
+    }
+
+    /// A (0, 0) locator into the tail takes the frame walk (u20 cut §3.3): #3's locator into the first commit set to (0,
+    /// 0); the read of #3's status returns the whole-record read's value, counted as unlocated, and its second read is
+    /// the frame walk's 32-byte header at the first commit's lsn.
+    #[test]
+    fn zero_pointer_takes_the_frame_walk() {
+        let p = hand_built_a1_with(&|o: u32, loc: PrevLoc, _: &[(u32, PrevLoc)]| {
+            if o == 3 { PrevLoc::default() } else { loc }
+        });
+        let want = p
+            .overlay
+            .get(&mut MemLog::new(p.start, &p.bytes), 3, &Key::Status);
+        let (got, stats, reads) = read_1a(&p, 3, &Key::Status);
+        assert_eq!(got, want);
+        assert_eq!((stats.located, stats.unlocated, stats.fallbacks), (0, 1, 0));
+        let first = commits(&p.records)[0].0;
+        assert_eq!(reads[1], (first, REC_HDR_LEN), "the frame walk's header");
+    }
+
+    /// The newest record's offsets are the process's own: an overlay whose offset of a names b's frames in their shared
+    /// newest record makes every read of a fail with "a frame of #b where #a's was located", never a fallback (u20 cut
+    /// §3.3, as `offset_read_refuses_another_owners_frames`).
+    #[test]
+    fn read_1a_refuses_a_newest_entry_of_another_owner() {
+        let mut tried = 0;
+        for p in a1_probed() {
+            let nodes = p.overlay.nodes();
+            for (i, a) in nodes.iter().enumerate() {
+                let Some(j) = nodes.iter().position(|b| b.lsn == a.lsn && b.n != a.n) else {
+                    continue;
+                };
+                let mut bad = p.overlay.clone();
+                let mut at = bad.at.to_vec();
+                at[i] = at[j];
+                bad.at = at.into_boxed_slice();
+                for key in [Key::Status, Key::Exist, Key::Field(1)] {
+                    tried += 1;
+                    let mut stats = ReadStats::default();
+                    let got = bad.get_1a(
+                        &mut MemLog::new(p.start, &p.bytes),
+                        a.n,
+                        &key,
+                        &mut Vec::new(),
+                        &mut stats,
+                    );
+                    assert_eq!(
+                        got,
+                        Err(format!(
+                            "lsn {}: a frame of #{} where #{}'s was located",
+                            a.lsn, nodes[j].n, a.n
+                        )),
+                        "{} #{} {key:?}",
+                        p.name,
+                        a.n
+                    );
+                }
+            }
+        }
+        assert!(tried > 50, "{tried} reads of a shared newest record");
     }
 }
