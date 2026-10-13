@@ -3090,6 +3090,34 @@ mod tests {
         }
     }
 
+    /// [`Counted`] refuses a continuation read off `get`'s protocol, so a drift fails the run instead of miscounting
+    /// (a read past `rest` would wrap `rest` in a release build): after a header read, a read 1 byte past the next lsn
+    /// and a read of `rest + 1` bytes at it are errors and change nothing; the record's `rest` bytes at the next lsn
+    /// are then read, and the next record's header counts a second record.
+    #[test]
+    fn read_cost_refuses_an_off_protocol_continuation_read() {
+        let (t, _) = tail_and_base(300, 400, 1);
+        let mut cnt = Counted::new(MemLog::new(t.start, &t.bytes));
+        let mut h = [0u8; REC_HDR_LEN];
+        assert_eq!(cnt.read_at(t.start, &mut h), Ok(REC_HDR_LEN));
+        let (next, rest) = (t.start + REC_HDR_LEN as u64, cnt.rest);
+        assert!(rest > 4, "the first record's rest: {rest}");
+        let due = |len: u64, lsn: u64| {
+            Err(format!(
+                "a read of {len} bytes at lsn {lsn} where {rest} bytes at lsn {next} are due"
+            ))
+        };
+        assert_eq!(cnt.read_at(next + 1, &mut [0u8; 4]), due(4, next + 1));
+        let mut long = vec![0u8; rest as usize + 1];
+        assert_eq!(cnt.read_at(next, &mut long), due(rest + 1, next));
+        let tl = u64::from(RecHdr::decode(&h).group_end()) * TRAILER_LEN as u64;
+        assert_eq!((cnt.records(), cnt.bytes()), (1, rest - tl));
+        long.truncate(rest as usize);
+        assert_eq!(cnt.read_at(next, &mut long), Ok(rest as usize));
+        assert_eq!(cnt.read_at(next + rest, &mut h), Ok(REC_HDR_LEN));
+        assert_eq!(cnt.records(), 2);
+    }
+
     /// `read-cost`'s arms count, in [`Unit::Count`] and [`Unit::Bytes`], the read of the read's nodes: over one cycle,
     /// sample k of `records` and of `bytes` is the naive cost of `ids[(k + 1) mod len]`, and the byte counts differ
     /// between nodes, so the cycle read in another order would not pass.
