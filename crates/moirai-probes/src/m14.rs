@@ -4,10 +4,10 @@
 //! overlay catch-up (T2, `:140`). T2's 16-writer wait is taken from measurement 2's run (R-24 Q7) and is not built
 //! here. The tails are u10's ([`crate::tail::synth`]), from [70 S8]'s spec-derived mix (R-24 Q10).
 //!
-//! **The grid** (18 quantities, names by [MP §4.1]), run with the deciding quantities first: `read-4096.n1e6`,
-//! `ckpt-4096.n5e5` and `catchup-16.n1e6`, then T1's read diagnostics `read-op-4096.n1e6`,
+//! **The grid** (23 quantities, names by [MP §4.1]). The night's 18 run with the deciding quantities first:
+//! `read-4096.n1e6`, `ckpt-4096.n5e5` and `catchup-16.n1e6`, then T1's read diagnostics `read-op-4096.n1e6`,
 //! `read-cost-records-4096.n1e6` and `read-cost-bytes-4096.n1e6` (R-40 O-2, R-42, R-44), then the layout probes (R-34
-//! B-3, M-15; R-35 Q2):
+//! B-3, M-15; R-35 Q2). u20's blocks follow, appended (u20 cut §3.10): T1's read with item 1a (M-A1, R-50):
 //!
 //! | Quantity | Arms (arm 0 first) | What one sample does | Minimum tier |
 //! |---|---|---|---|
@@ -23,6 +23,10 @@
 //! | `read-cost-bytes-4096.n1e6` | `bytes` | the same read through [`Counted`] on the same tail and nodes, and the sample is the bytes it decodes ([MP §4.8]). The records and the bytes are two counts of one read, so they are two quantities of one arm each: [MP §4.1] makes every arm after arm 0 a floor of the operation, and neither count is a floor of the other (R-44 I-1 (b), as R-30 Q1 reads §4.1) | t1 |
 //! | `ckpt-4096.n5e5` | `ckpt`, `ckpt.write` | T1's delta checkpoint over a fresh tail per sample (scoping §4.2): the setup writes sample j's tail ([`ckpt_tail`]) in place over the fixture's extent through a read-write handle kept for the run, zeroes the rest of the previous tail and flushes it (`sync(Data)`), all untimed; the timed op replays tail j from the extent, folds it over the base into a delta of the probe's subset (below), encodes `seg.d1`, then `create_new`, `write_at`, `sync(DataAndMeta)`, `seal`, `sync_dir` (`docs/spec/os/fs.md:411`, `:456`). The floor's sample j folds tail j from memory in its setup and writes and flushes the same bytes, so the pair is matched. The products (the tail, the delta and its bytes) are dropped and the sample's file is unlinked in the teardown, outside the timed region ([MP §4.1]). The setup's generation and rewrite lengthen a sample's untimed part, so the pilot's 1 s ([MP §4.2]) may take fewer than 5 samples; the declared minimum tier t3 bounds that | t3 (≤ 100 ms) |
 //! | `catchup-16.n1e6` | `catchup` | T2's MCP model: a long-lived process holds the overlay of a full tail but its last 16 commits (one per writer of T2's burst) and catches up: `HEAD` pread (8,192 B), the new records scanned from the extents, applied to its warm builder, the overlay finished again (`ARCHITECTURE-RESEARCH.md:783`). The warm builder is cloned in the setup and the finished overlay dropped in the teardown, both outside the timed region | t2 (catch-up p50 ≤ 5 ms) |
+//! | `read-1a-4096.n1e6`, `read-1a-1024.n1e6` | `read`, `read.op`, `read.op.at`, `read.1a` | T1's read of a node's status in an A1 tail (`design-A.md:104-129`) at P06 4,096, and at 1,024 (design-A A3's draft), from `read-<P06>.n1e6`'s seed, so their plans and read cycle are the whole read's ([`seed_name`]; the locators move lsns, u20 cut F-11). Each arm is a floor of the one before ([MP §4.1]): the whole record ([`Overlay::get`]), the frame walk, u17's offset read over an index built in the setup, and item 1a's read ([`Overlay::get_1a`]: n's newest frames from the offsets [`Overlay::replay_at`] built, then one read per hop at each record's locator). The setup replays the offsets-mode overlay from the fixture's store and refuses the run unless the four agree on every node of the cycle and no locator is refused ([`read_1a_agree`]) | t1 |
+//! | `read-1a-d4.n1e6`, `read-1a-d16.n1e6`, `read-1a-d64.n1e6` | the same four | the depth arm: the 4,096-op A1 tail with one base node, #500,000, in each of its first d commits ([`crate::tail::Shape::hot`]), its field 9 set in the first; every sample reads that field, so it walks all d records. The seed is `seed(name) ^ k` with the first k < 64 whose production tail holds at least d commits ([`Family::seed_k`]). Reported, no gate | — |
+//!
+//! Item 1a's bytes per op (M-A5) are a pinned count, not a time quantity (`a1_bytes_per_op_are_pinned_on_the_read_tails`).
 //!
 //! **What the checkpoint omits** (review m-4). `ckpt-4096.n5e5` times a delta of the probe's subset of sections
 //! ([`crate::seg`]), not the whole delta of [F09 §16.2] (`09-segments.md:1085-1089`; the sections `:156-206`). Its
@@ -72,7 +76,7 @@
 use crate::arm::{Arm, ArmError, Ticker, TimedFn, ValueFn};
 use crate::host::{CommandRunner, HostKind};
 use crate::m1::driver::{self, Args};
-use crate::overlay::op::OpIndex;
+use crate::overlay::op::{OpIndex, ReadStats};
 use crate::overlay::{Builder, Key, Overlay, Probe, Value, kind_key, kind_status_key};
 use crate::run::{Context, RunSpec, measure};
 use crate::seg::base::{self, Columns};
@@ -82,8 +86,10 @@ use crate::seg::{NODE_HDR_LEN, STATUS_AT, u32_at};
 use crate::tail::rec::{Payload, RecHdr};
 use crate::tail::scan::{LogSource, MemLog, scan};
 use crate::tail::store::{VfsLog, extent_name};
-use crate::tail::synth::{BASE_KIND, Clause, STATUSES, Tail, Target, generate};
-use crate::tail::{HEAD_LEN, Params, REC_HDR_LEN, TAIL_READ_CHUNK, TRAILER_LEN};
+use crate::tail::synth::{
+    BASE_KIND, Clause, HOT_FIELD, STATUSES, Tail, Target, generate, hot_node,
+};
+use crate::tail::{HEAD_LEN, Locator, Params, REC_HDR_LEN, Shape, TAIL_READ_CHUNK, TRAILER_LEN};
 use crate::tier::Tier;
 use crate::units::Unit;
 use moirai_vfs::{
@@ -144,6 +150,17 @@ pub enum Family {
     Ckpt,
     /// T2's MCP overlay catch-up.
     Catchup,
+    /// T1 with item 1a (M-A1; u20 cut §3.4): `read-4096.n1e6`'s tail and nodes in A1, read by the whole record, the
+    /// frame walk, the offset read and item 1a's locator.
+    Read1a4096,
+    /// The same at P06 1,024, design-A A3's draft, from `read-1024.n1e6`'s seed.
+    Read1a1024,
+    /// The depth arm: one node in each of the 4,096-op A1 tail's first 4 commits, read through all of them.
+    Read1aDepth4,
+    /// The depth arm at 16 commits.
+    Read1aDepth16,
+    /// The depth arm at 64 commits.
+    Read1aDepth64,
 }
 
 impl Family {
@@ -162,6 +179,11 @@ impl Family {
             Family::ReadCostBytes => "read-cost-bytes-4096",
             Family::Ckpt => "ckpt-4096",
             Family::Catchup => "catchup-16",
+            Family::Read1a4096 => "read-1a-4096",
+            Family::Read1a1024 => "read-1a-1024",
+            Family::Read1aDepth4 => "read-1a-d4",
+            Family::Read1aDepth16 => "read-1a-d16",
+            Family::Read1aDepth64 => "read-1a-d64",
         }
     }
 
@@ -178,15 +200,23 @@ impl Family {
             Family::ReadCostBytes => &["bytes"],
             Family::Ckpt => &["ckpt", "ckpt.write"],
             Family::Catchup => &["catchup"],
+            Family::Read1a4096
+            | Family::Read1a1024
+            | Family::Read1aDepth4
+            | Family::Read1aDepth16
+            | Family::Read1aDepth64 => &["read", "read.op", "read.op.at", "read.1a"],
         }
     }
 
     /// The minimum tier: the tier of the quantity's budget ([MP §3.2]); the layout probes have none.
     pub const fn min_tier(self) -> Option<Tier> {
         match self {
-            Family::Read | Family::ReadOp | Family::ReadCostRecords | Family::ReadCostBytes => {
-                Some(Tier::T1)
-            }
+            Family::Read
+            | Family::ReadOp
+            | Family::ReadCostRecords
+            | Family::ReadCostBytes
+            | Family::Read1a4096
+            | Family::Read1a1024 => Some(Tier::T1),
             Family::Ckpt => Some(Tier::T3),
             Family::Catchup => Some(Tier::T2),
             _ => None,
@@ -204,7 +234,45 @@ impl Family {
                 | Family::ReadCostBytes
                 | Family::Ckpt
                 | Family::Catchup
+                | Family::Read1a4096
+                | Family::Read1a1024
+                | Family::Read1aDepth4
+                | Family::Read1aDepth16
+                | Family::Read1aDepth64
         )
+    }
+
+    /// The P06 of item 1a's quantities' A1 tail at production, else `None`.
+    pub const fn read_1a_p06(self) -> Option<u64> {
+        match self {
+            Family::Read1a4096
+            | Family::Read1aDepth4
+            | Family::Read1aDepth16
+            | Family::Read1aDepth64 => Some(4_096),
+            Family::Read1a1024 => Some(1_024),
+            _ => None,
+        }
+    }
+
+    /// The depth arm's d: the commits the hot node is in, all of which its read walks.
+    pub const fn depth(self) -> Option<u32> {
+        match self {
+            Family::Read1aDepth4 => Some(4),
+            Family::Read1aDepth16 => Some(16),
+            Family::Read1aDepth64 => Some(64),
+            _ => None,
+        }
+    }
+
+    /// The production k of the seed `seed(name) ^ k` (u20 cut §3.4): for a depth arm the first k < 64 whose production
+    /// tail holds at least d commits, pinned here and recomputed by
+    /// `depth_arms_read_the_hot_node_through_d_records`; 0 for every other family and at the test profile. A 4,096-op
+    /// tail of the mix holds about 40–90 commits, its long commits carrying hundreds of ops.
+    pub const fn seed_k(self) -> u64 {
+        match self {
+            Family::Read1aDepth64 => 2,
+            _ => 0,
+        }
     }
 }
 
@@ -219,9 +287,10 @@ pub struct Quantity {
     pub n: u32,
 }
 
-/// The 18 quantities in run order: the deciding quantities first (T1's read and checkpoint, T2's catch-up), then T1's
-/// read diagnostics, its evidence (R-40 O-2; the read cost's two counts as two quantities, R-44), then the layout
-/// probes at 1e5 and 1e6 (R-34 B-3, M-15).
+/// The quantities in run order: the night's 18, the deciding quantities first (T1's read and checkpoint, T2's
+/// catch-up), then T1's read diagnostics, its evidence (R-40 O-2; the read cost's two counts as two quantities, R-44),
+/// then the layout probes at 1e5 and 1e6 (R-34 B-3, M-15); then u20's block, appended (u20 cut §3.10): T1's read with
+/// item 1a at P06 4,096 and 1,024, then its depth arm at 4, 16 and 64 records (§3.4).
 pub fn grid() -> Vec<Quantity> {
     let q = |family: Family, n: u32| {
         let scale = match n {
@@ -254,6 +323,15 @@ pub fn grid() -> Vec<Quantity> {
         ] {
             g.push(q(f, n));
         }
+    }
+    for f in [
+        Family::Read1a4096,
+        Family::Read1a1024,
+        Family::Read1aDepth4,
+        Family::Read1aDepth16,
+        Family::Read1aDepth64,
+    ] {
+        g.push(q(f, 1_000_000));
     }
     g
 }
@@ -291,27 +369,45 @@ fn seed(name: &str) -> u64 {
 }
 
 /// The name `q`'s seed is drawn from: its own, except that T1's read diagnostics take the read's at the same scale, so
-/// their tail is `read-4096`'s byte for byte and their nodes come in its order (spec Goal 1).
+/// their tail is `read-4096`'s byte for byte and their nodes come in its order (spec Goal 1); and that item 1a's reads
+/// at P06 take `read-<P06>`'s, so their plans and read cycle are the whole read's (u20 cut §3.4). The depth arms keep
+/// their own name's, with [`Family::seed_k`] at production.
 pub fn seed_name(q: &Quantity) -> String {
+    let scale = &q.name[q.family.stem().len()..];
     match q.family {
-        Family::ReadOp | Family::ReadCostRecords | Family::ReadCostBytes => format!(
-            "{}{}",
-            Family::Read.stem(),
-            &q.name[q.family.stem().len()..]
-        ),
+        Family::ReadOp | Family::ReadCostRecords | Family::ReadCostBytes => {
+            format!("{}{scale}", Family::Read.stem())
+        }
+        Family::Read1a4096 | Family::Read1a1024 => {
+            format!("read-{}{scale}", q.family.read_1a_p06().expect("a P06"))
+        }
         _ => q.name.clone(),
     }
 }
 
-/// The tail of `q` at `profile`: a full `ops` tail at P06 over the base.
+/// The tail of `q` at `profile`: a full `ops` tail at P06 over the base; for item 1a's quantities in A1, at their P06 at
+/// production, with the depth arm's option and its seed's k.
 pub fn target(q: &Quantity, profile: Profile) -> Target {
-    let p = profile.params();
+    let mut p = profile.params();
+    let k = match profile {
+        Profile::Production => q.family.seed_k(),
+        Profile::Test => 0,
+    };
+    if let Some(p06) = q.family.read_1a_p06() {
+        if profile == Profile::Production {
+            p.p06 = p06;
+        }
+        p.shape = Shape {
+            locator: Locator::A1,
+            hot: q.family.depth().unwrap_or(0),
+        };
+    }
     Target {
         clause: Clause::Ops,
         threshold: p.p06,
         mult: 1,
         n: profile.n(q.n),
-        seed: seed(&seed_name(q)),
+        seed: seed(&seed_name(q)) ^ k,
         params: p,
         rt_bound: None,
     }
@@ -556,6 +652,96 @@ pub fn point_read_op_at<S: LogSource>(
     )
 }
 
+/// How one of item 1a's four arms reads (u20 cut §3.4): each a floor of the one before it ([MP §4.1]).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ReadPath {
+    /// `read`: the whole record ([`Overlay::get`]).
+    Whole,
+    /// `read.op`: the frame walk ([`Overlay::get_op`]).
+    Walk,
+    /// `read.op.at`: u17's offset read ([`Overlay::get_op_at`]).
+    Offset,
+    /// `read.1a`: item 1a's locator ([`Overlay::get_1a`]).
+    Item1a,
+}
+
+/// The key item 1a's quantities read: the status, or for the depth arm the hot node's field [`HOT_FIELD`].
+pub fn read_1a_key(f: Family) -> Key {
+    match f.depth() {
+        Some(_) => Key::Field(HOT_FIELD),
+        None => Key::Status,
+    }
+}
+
+/// A read's value as one number the arms return and the setup compares: a status byte (the tail's, else the base
+/// row's `NodeHdr.status`), or a field's xxh3-64 (0 when the tail does not set it: the base holds no field).
+fn value_of(p: Probe, c: &Columns<'_>, id: u32, key: &Key) -> Result<u64, String> {
+    match key {
+        Key::Status => status_of(p, c, id).map(u64::from),
+        Key::Field(_) => match p {
+            Probe::Tail(Value::Field(b)) => Ok(xxhash_rust::xxh3::xxh3_64(&b)),
+            Probe::NotInTail => Ok(0),
+            Probe::Tail(v) => Err(format!("#{id}'s {key:?} probed as {v:?}")),
+        },
+        k => Err(format!("item 1a's reads read no {k:?}")),
+    }
+}
+
+/// T1's read of `key` of `#id` by `path` through `log`: the value item 1a's arms time ([`value_of`]). `idx` serves the
+/// offset read, `o`'s offsets the read through item 1a; `buf` and `stats` are the arm's own.
+#[allow(clippy::too_many_arguments)]
+pub fn read_by<S: LogSource>(
+    path: ReadPath,
+    log: &mut S,
+    o: &Overlay,
+    idx: &OpIndex,
+    c: &Columns<'_>,
+    id: u32,
+    key: &Key,
+    buf: &mut Vec<u8>,
+    stats: &mut ReadStats,
+) -> Result<u64, String> {
+    let p = match path {
+        ReadPath::Whole => o.get(log, id, key)?,
+        ReadPath::Walk => o.get_op(log, id, key, TAIL_READ_CHUNK, buf)?,
+        ReadPath::Offset => o.get_op_at(idx, log, id, key, TAIL_READ_CHUNK, buf)?,
+        ReadPath::Item1a => o.get_1a(log, id, key, buf, stats)?,
+    };
+    value_of(p, c, id, key)
+}
+
+/// The setup's check of item 1a's quantities (u20 cut §3.4, `read_1a_agree`): reads `key` of every id of `ids` by the
+/// four paths, each through its own source, and refuses, naming the id, any difference, any failure, or a read through
+/// item 1a that refused a locator or met a (0, 0) one in the tail.
+#[allow(clippy::too_many_arguments)]
+pub fn read_1a_agree<A: LogSource, B: LogSource, C: LogSource, D: LogSource>(
+    o: &Overlay,
+    idx: &OpIndex,
+    c: &Columns<'_>,
+    ids: &[u32],
+    key: &Key,
+    whole: &mut A,
+    walk: &mut B,
+    at: &mut C,
+    item: &mut D,
+) -> Result<(), String> {
+    let mut buf = Vec::new();
+    for &id in ids {
+        let mut s = ReadStats::default();
+        let w = read_by(ReadPath::Whole, whole, o, idx, c, id, key, &mut buf, &mut s);
+        let f = read_by(ReadPath::Walk, walk, o, idx, c, id, key, &mut buf, &mut s);
+        let a = read_by(ReadPath::Offset, at, o, idx, c, id, key, &mut buf, &mut s);
+        let x = read_by(ReadPath::Item1a, item, o, idx, c, id, key, &mut buf, &mut s);
+        if w.is_err() || f != w || a != w || x != w || s.fallbacks > 0 || s.unlocated > 0 {
+            return Err(format!(
+                "#{id}: the whole-record read gives {w:?}, the frame walk {f:?}, the offset read {a:?}, item 1a \
+                 {x:?} with {s:?}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The ids T1's read and its diagnostics cycle through: the node index's, ordered by `mix(seed ^ id)`.
 pub fn read_cycle(o: &Overlay, seed: u64) -> Vec<u32> {
     let mut ids: Vec<u32> = o.nodes().iter().map(|e| e.n).collect();
@@ -681,6 +867,35 @@ fn replayed<V: StoreFs + SealedMaps>(p: &Prepared<'_, V>, t: &Tail) -> Result<Ov
     )
     .map_err(|e| e.to_string())?;
     if o != t.overlay()? {
+        return Err("the overlay replayed from the store differs from the tail's".into());
+    }
+    Ok(o)
+}
+
+/// The overlay in the offsets mode replayed from the fixture's store (`Overlay::replay_at` over its extents), checked
+/// equal to the offsets-mode replay of the tail's bytes in memory, so the replay's reads are the store's (R-29).
+fn replayed_at<V: StoreFs + SealedMaps>(p: &Prepared<'_, V>, t: &Tail) -> Result<Overlay, String> {
+    let o = Overlay::replay_at(
+        &mut VfsLog::new(p.vfs, &p.root, t.expect.geo),
+        &t.expect,
+        t.start,
+        t.end,
+        t.chain_in,
+        t.base,
+        TAIL_READ_CHUNK,
+    )
+    .map_err(|e| e.to_string())?;
+    let mem = Overlay::replay_at(
+        &mut MemLog::new(t.start, &t.bytes),
+        &t.expect,
+        t.start,
+        t.end,
+        t.chain_in,
+        t.base,
+        TAIL_READ_CHUNK,
+    )
+    .map_err(|e| e.to_string())?;
+    if o != mem {
         return Err("the overlay replayed from the store differs from the tail's".into());
     }
     Ok(o)
@@ -1217,6 +1432,52 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
                     unlink_if(p.vfs, &p.root, FLOOR_NAME)
                 },
             )));
+        }
+        Family::Read1a4096
+        | Family::Read1a1024
+        | Family::Read1aDepth4
+        | Family::Read1aDepth16
+        | Family::Read1aDepth64 => {
+            let t = tail()?;
+            let geo = t.expect.geo;
+            let o = replayed_at(p, t)?;
+            let key = read_1a_key(q.family);
+            let ids = match q.family.depth() {
+                Some(_) => vec![hot_node(t.base.n)],
+                None => read_cycle(&o, p.seed),
+            };
+            let idx = OpIndex::build(
+                &o,
+                &mut VfsLog::new(p.vfs, &p.root, geo),
+                TAIL_READ_CHUNK,
+                &mut Vec::with_capacity(TAIL_READ_CHUNK),
+            )?;
+            // Each arm's own source; the setup's check reads through them, so every extent a sample reads is open
+            // before the pilot.
+            let mut logs: [VfsLog<'p, V>; 4] =
+                std::array::from_fn(|_| VfsLog::new(p.vfs, &p.root, geo));
+            let [l0, l1, l2, l3] = &mut logs;
+            read_1a_agree(&o, &idx, c, &ids, &key, l0, l1, l2, l3)?;
+            for ((name, path), mut log) in [
+                ("read", ReadPath::Whole),
+                ("read.op", ReadPath::Walk),
+                ("read.op.at", ReadPath::Offset),
+                ("read.1a", ReadPath::Item1a),
+            ]
+            .into_iter()
+            .zip(logs)
+            {
+                let (o, idx, ids, key) = (o.clone(), idx.clone(), ids.clone(), key.clone());
+                let mut buf = Vec::with_capacity(TAIL_READ_CHUNK);
+                let mut stats = ReadStats::default();
+                let mut k = 0usize;
+                arms.push(Box::new(TimedFn::new(name, ticker.clone(), move || {
+                    k += 1;
+                    let id = ids[k % ids.len()];
+                    read_by(path, &mut log, &o, &idx, c, id, &key, &mut buf, &mut stats)
+                        .map_err(ArmError)
+                })));
+            }
         }
         Family::Catchup => {
             let t = tail()?;
@@ -1944,14 +2205,16 @@ mod tests {
         (tail, b)
     }
 
-    /// 18 quantities with valid, unique names ([MP §4.1]): the six layout families at 1e5 and 1e6 (the sparse
-    /// AND/popcount pair of R-30 among them), the read, its three diagnostics and the catch-up at 1e6, the checkpoint
-    /// at 0.5 M; 22 arms; the minimum tiers of the budgets (t1 read ≤ 50 µs and its diagnostics, t3 checkpoint ≤
-    /// 100 ms, t2 catch-up ≤ 5 ms, `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and no tail
-    /// for the sparse pair; the diagnostics' arms (R-42 Q2) and their tails; the read cost's two counts as two
-    /// quantities of one arm each, since every arm after arm 0 is a floor (R-44 I-1 (b)).
+    /// The grid in run order with valid, unique names ([MP §4.1]): the night's 18 (the six layout families at 1e5 and
+    /// 1e6, the sparse AND/popcount pair of R-30 among them, the read, its three diagnostics and the catch-up at 1e6, the
+    /// checkpoint at 0.5 M), then u20's appended block of item 1a's 5 reads (u20 cut §3.4, §3.10); 42 arms; the minimum
+    /// tiers of the budgets (t1 read ≤ 50 µs, its diagnostics and the reads with item 1a; t3 checkpoint ≤ 100 ms; t2
+    /// catch-up ≤ 5 ms, `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and the depth arms, no
+    /// tail for the sparse pair; the diagnostics' arms (R-42 Q2) and their tails; the read cost's two counts as two
+    /// quantities of one arm each, since every arm after arm 0 is a floor (R-44 I-1 (b)); item 1a's four arms, each a
+    /// floor of the one before, and their A1 targets: P06 4,096 or 1,024 at production, the depth option at d.
     #[test]
-    fn grid_has_eighteen_valid_quantities() {
+    fn grid_lists_the_valid_quantities_in_run_order() {
         let g = grid();
         let names: Vec<&str> = g.iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
@@ -1974,17 +2237,68 @@ mod tests {
                 "bitset-ab.n1e6",
                 "bitset-aa.n1e6",
                 "scan.n1e6",
-                "overlay.n1e6"
+                "overlay.n1e6",
+                "read-1a-4096.n1e6",
+                "read-1a-1024.n1e6",
+                "read-1a-d4.n1e6",
+                "read-1a-d16.n1e6",
+                "read-1a-d64.n1e6"
             ],
-            "the deciding quantities first (R-34 B-3, M-15)"
+            "the night's 18 with the deciding quantities first (R-34 B-3, M-15), then u20's block"
         );
         assert!(names.iter().all(|n| valid_name(n)));
-        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 18);
+        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 23);
         let arms: Vec<&str> = g
             .iter()
             .flat_map(|q| q.family.arms().iter().copied())
             .collect();
-        assert_eq!(arms.len(), 22);
+        assert_eq!(arms.len(), 42);
+        for q in &g[18..] {
+            assert_eq!(
+                q.family.arms(),
+                ["read", "read.op", "read.op.at", "read.1a"],
+                "{}",
+                q.name
+            );
+            assert!(q.family.needs_tail(), "{}", q.name);
+            let t = target(q, Profile::Production);
+            let depth = q.family.depth();
+            assert_eq!(
+                (t.params.shape.locator, t.params.shape.hot, t.n),
+                (Locator::A1, depth.unwrap_or(0), 1_000_000),
+                "{}",
+                q.name
+            );
+            assert_eq!(t.threshold, q.family.read_1a_p06().unwrap(), "{}", q.name);
+            assert_eq!(t.params.p06, t.threshold, "{}", q.name);
+            assert_eq!(
+                q.family.min_tier(),
+                depth.map_or(Some(Tier::T1), |_| None),
+                "{}: t1 for the reads, none for the depth arms",
+                q.name
+            );
+            let tt = target(q, Profile::Test);
+            assert_eq!(
+                (tt.threshold, tt.n),
+                (Params::TEST.p06, 10_000),
+                "{}",
+                q.name
+            );
+        }
+        assert_eq!(
+            g[18..]
+                .iter()
+                .map(|q| (q.family.read_1a_p06(), q.family.depth()))
+                .collect::<Vec<_>>(),
+            [
+                (Some(4_096), None),
+                (Some(1_024), None),
+                (Some(4_096), Some(4)),
+                (Some(4_096), Some(16)),
+                (Some(4_096), Some(64))
+            ]
+        );
+        assert!(g[..18].iter().all(|q| q.family.read_1a_p06().is_none()));
         assert_eq!(Family::ReadOp.arms(), ["read.op", "read.op.at"]);
         assert_eq!(Family::ReadCostRecords.arms(), ["records"]);
         assert_eq!(Family::ReadCostBytes.arms(), ["bytes"]);
@@ -2022,8 +2336,8 @@ mod tests {
         assert_eq!(target(&g[1], Profile::Test).n, 5_000);
     }
 
-    /// `--smoke` runs every quantity at the test profile with each arm once: 22 lines, one per (quantity, arm), each
-    /// ending with the arm's unit; with `--quantity` it runs that one alone.
+    /// `--smoke` runs every quantity at the test profile with each arm once: 42 lines, one per (quantity, arm), each
+    /// ending with the arm's unit; with `--quantity` it runs that one alone; each run maps its base once.
     #[test]
     fn smoke_exercises_every_arm_once() {
         let fs = MemFs::with_dir(&cwd());
@@ -2040,7 +2354,7 @@ mod tests {
         let (code, out, err) = run(&fs, &[&["--smoke"][..], &CT].concat());
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), 22, "{out}");
+        assert_eq!(lines.len(), 42, "{out}");
         let pairs: BTreeSet<(String, String)> = lines
             .iter()
             .map(|l| {
@@ -2066,7 +2380,11 @@ mod tests {
             })
             .collect();
         assert_eq!(pairs, expect);
-        assert_eq!(fs.log().maps.len(), 18, "each run maps its base once");
+        assert_eq!(
+            fs.log().maps.len(),
+            grid().len(),
+            "each run maps its base once"
+        );
     }
 
     /// `--smoke` with the runner's contract flags records nothing: no line says recorded, every fixture is removed,
@@ -2081,7 +2399,7 @@ mod tests {
         .concat();
         let (code, out, err) = run(&fs, &args);
         assert_eq!(code, EXIT_DONE, "{err}");
-        assert_eq!(out.lines().count(), 22);
+        assert_eq!(out.lines().count(), 42);
         assert!(!out.contains("recorded"));
         assert!(
             fs.files().is_empty(),
@@ -2673,7 +2991,8 @@ mod tests {
     /// The read and its three diagnostics share their tail and their nodes (spec Goal 1): at both profiles their
     /// targets are equal; at the test profile `prepare`'s four fixtures hold byte-identical tails, the same seed and the
     /// same cycle of ids; at production `generate` gives four byte-identical tails of 4,096 ops (a production fixture
-    /// would also build a 1e6-node base). Every other quantity keeps the seed of its own name.
+    /// would also build a 1e6-node base). Every other quantity of the night's 18 keeps the seed of its own name; u20's
+    /// reads with item 1a have their own rule (`read_1a_quantities_share_the_read_tails_seed_and_nodes`).
     #[test]
     fn read_quantities_share_the_reads_tail_and_nodes() {
         let g = grid();
@@ -2719,7 +3038,7 @@ mod tests {
         for (q, t) in qs.iter().zip(&tails).skip(1) {
             assert!(t.bytes == tails[0].bytes, "{}'s production tail", q.name);
         }
-        for q in g.iter().filter(|q| !qs.contains(q)) {
+        for q in g[..18].iter().filter(|q| !qs.contains(q)) {
             assert_eq!(seed_name(q), q.name);
             assert_eq!(
                 target(q, Profile::Production).seed,
@@ -3413,14 +3732,14 @@ mod tests {
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 18);
+            assert_eq!(calls.len(), 23);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 18);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 23);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
@@ -3464,5 +3783,442 @@ mod tests {
             let pages = len.div_ceil(PAGE);
             assert_eq!(prefault(&b), (pages, pages as u64), "len {len}");
         }
+    }
+
+    /// A test-profile A1 tail of `ops` ops over N = `n`, records kept, and its base's bytes.
+    fn a1_tail_and_base(n: u32, ops: u64, seed: u64) -> (Tail, Vec<u8>) {
+        let mut t = crate::tail::synth::tests::a1(test_target(Clause::Ops, n, seed));
+        t.threshold = ops;
+        t.rt_bound = Some(u64::MAX);
+        let tail = generate(&t, true).unwrap();
+        let b = base::build(&base::Spec {
+            n,
+            upto_lsn: tail.start,
+            base_seq: BASE_SEQ,
+        })
+        .unwrap();
+        (tail, b)
+    }
+
+    /// The offsets-mode overlay of `t`, replayed from memory.
+    fn overlay_at(t: &Tail) -> Overlay {
+        Overlay::replay_at(
+            &mut MemLog::new(t.start, &t.bytes),
+            &t.expect,
+            t.start,
+            t.end,
+            t.chain_in,
+            t.base,
+            TAIL_READ_CHUNK,
+        )
+        .unwrap()
+    }
+
+    /// The four reads of item 1a's quantities of `key` of `id` through clean sources of `t`, with the stats of the read
+    /// through item 1a.
+    fn four_reads(
+        t: &Tail,
+        o: &Overlay,
+        idx: &OpIndex,
+        c: &Columns<'_>,
+        id: u32,
+        key: &Key,
+    ) -> ([Result<u64, String>; 4], ReadStats) {
+        let mut stats = ReadStats::default();
+        let mut buf = Vec::new();
+        let reads = [
+            ReadPath::Whole,
+            ReadPath::Walk,
+            ReadPath::Offset,
+            ReadPath::Item1a,
+        ]
+        .map(|path| {
+            let mut log = MemLog::new(t.start, &t.bytes);
+            read_by(path, &mut log, o, idx, c, id, key, &mut buf, &mut stats)
+        });
+        (reads, stats)
+    }
+
+    /// The offset index of `o` over `t`'s bytes.
+    fn index_of(t: &Tail, o: &Overlay) -> OpIndex {
+        OpIndex::build(
+            o,
+            &mut MemLog::new(t.start, &t.bytes),
+            TAIL_READ_CHUNK,
+            &mut Vec::new(),
+        )
+        .unwrap()
+    }
+
+    /// Item 1a's reads share the whole read's plans and nodes (u20 cut §3.4; F-11): `read-1a-4096` draws `read-4096`'s
+    /// seed and `read-1a-1024` that of `read-1024.n1e6`, while the depth arms keep their own names'; at production each
+    /// A1 read tail holds, commit by commit, the owners and op kinds of the night-form tail of the same target (for
+    /// `read-1a-4096` that is `read-4096`'s), so the read cycle is the same; only the A1 tail carries locator bytes.
+    #[test]
+    fn read_1a_quantities_share_the_read_tails_seed_and_nodes() {
+        let g = grid();
+        let of = |f: Family| g.iter().find(|q| q.family == f).unwrap().clone();
+        let read = of(Family::Read);
+        let (r4, r1) = (of(Family::Read1a4096), of(Family::Read1a1024));
+        assert_eq!(seed_name(&r4), read.name);
+        assert_eq!(seed_name(&r1), "read-1024.n1e6");
+        for f in [
+            Family::Read1aDepth4,
+            Family::Read1aDepth16,
+            Family::Read1aDepth64,
+        ] {
+            assert_eq!(seed_name(&of(f)), of(f).name);
+        }
+        let plans = |tail: &Tail| -> Vec<Vec<(u32, u8)>> {
+            tail.records
+                .iter()
+                .filter_map(|r| match &r.payload {
+                    Payload::Commit(c) => {
+                        Some(c.ops.iter().map(|o| (o.owner(), o.tag())).collect())
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        for (q, p06) in [(&r4, 4_096), (&r1, 1_024)] {
+            let t = target(q, Profile::Production);
+            let mut night = t;
+            night.params.shape = Shape::NIGHT;
+            if p06 == 4_096 {
+                assert_eq!(night, target(&read, Profile::Production));
+            }
+            let (a, b) = (generate(&t, true).unwrap(), generate(&night, true).unwrap());
+            assert_eq!((a.measures.ops, b.measures.ops), (p06, p06), "{}", q.name);
+            assert_eq!(plans(&a), plans(&b), "{}: the same plans", q.name);
+            assert_eq!(
+                read_cycle(&a.overlay().unwrap(), t.seed),
+                read_cycle(&b.overlay().unwrap(), night.seed),
+                "{}: the same read cycle",
+                q.name
+            );
+            assert!(
+                a.measures.loc_bytes > 0 && b.measures.loc_bytes == 0,
+                "{}",
+                q.name
+            );
+        }
+    }
+
+    /// Item 1a's four reads return the whole-record read's value (spec Goal 1, u20 cut §3.4): on A1 tails of seeds 1–3
+    /// over N = 300 (owners repeat), every touched node's status is the naive map's or its base row's by all four paths,
+    /// with no locator refused; on the `read-1a-4096` test fixture every id of the cycle reads the same by all four; on
+    /// the `read-1a-d16` fixture so does the hot node's field 9, which the tail sets.
+    #[test]
+    fn read_1a_arms_return_the_whole_record_reads_value() {
+        for seed in 1..=3 {
+            let (t, b) = a1_tail_and_base(300, 400, seed);
+            let c = Columns::parse(&b).unwrap();
+            let o = overlay_at(&t);
+            let idx = index_of(&t, &o);
+            let naive = naive_status(&t);
+            let (mut from_base, mut hops) = (0, 0);
+            for e in o.nodes() {
+                let want = naive.get(&e.n).copied().unwrap_or_else(|| {
+                    from_base += 1;
+                    (e.n % 4) as u8
+                });
+                let (reads, stats) = four_reads(&t, &o, &idx, &c, e.n, &Key::Status);
+                for (i, r) in reads.iter().enumerate() {
+                    assert_eq!(r, &Ok(u64::from(want)), "seed {seed} #{} path {i}", e.n);
+                }
+                assert_eq!((stats.unlocated, stats.fallbacks), (0, 0));
+                hops += stats.located;
+            }
+            assert!(
+                naive.len() > 50 && from_base > 20 && hops > 20,
+                "both paths and hops"
+            );
+        }
+        let fs = MemFs::with_dir(&scratch());
+        for (family, depth) in [(Family::Read1a4096, false), (Family::Read1aDepth16, true)] {
+            let (q, p) = fixture(&fs, family);
+            let c = Columns::parse(p.map.bytes()).unwrap();
+            let t = p.tail.as_ref().unwrap();
+            let o = overlay_at(t);
+            let idx = index_of(t, &o);
+            let key = read_1a_key(family);
+            let ids = if depth {
+                vec![hot_node(t.base.n)]
+            } else {
+                read_cycle(&o, p.seed)
+            };
+            assert!(!ids.is_empty(), "{}", q.name);
+            for id in ids {
+                let (reads, _) = four_reads(t, &o, &idx, &c, id, &key);
+                assert!(reads[0].is_ok(), "{} #{id}: {:?}", q.name, reads[0]);
+                assert!(
+                    reads.iter().all(|r| r == &reads[0]),
+                    "{} #{id}: {reads:?}",
+                    q.name
+                );
+                assert!(!depth || reads[0] != Ok(0), "{}: field 9 is set", q.name);
+            }
+        }
+    }
+
+    /// `read.1a` times one read per hop (R-29, spec gate 1; u20 cut §3.4): over a [`LoggedFs`] and an [`FsTicker`] on
+    /// the `read-1a-4096` test fixture, one cycle of arm 3: before the first tick the setup has read the whole tail;
+    /// each sample's reads between its ticks are not empty and are exactly [`Overlay::get_1a`]'s on a `MemLog` for the
+    /// cycle's next node, the first at its newest frames' offset, never a 32-byte header; no open falls between the
+    /// ticks; and the first reads' lsns are the node index's `lsn + off`, as a multiset.
+    #[test]
+    fn read_1a_arm_times_one_read_per_hop() {
+        let fs = MemFs::with_dir(&scratch());
+        let lfs = LoggedFs::new(&fs);
+        let (q, p) = fixture(&lfs, Family::Read1a4096);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let t = p.tail.as_ref().unwrap();
+        let geo = t.expect.geo;
+        let o = overlay_at(t);
+        let ids = read_cycle(&o, p.seed);
+        assert!(ids.len() > 1, "{} ids", ids.len());
+        let ticker = FsTicker::new(&fs, p.dir(), &[]).logging(&lfs);
+        let reads0 = fs.log().reads.len();
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        assert_eq!(arms[3].name(), "read.1a");
+        let mut firsts = Vec::new();
+        let mut hops = 0;
+        for k in 0..ids.len() {
+            arms[3].sample().unwrap();
+            let (t0, t1) = ticker.last();
+            if k == 0 {
+                assert_eq!(
+                    lsn_cover(geo, &fs.log().reads[reads0..t0.reads]),
+                    [(t.start, t.end)],
+                    "the setup read the whole tail before the first tick"
+                );
+            }
+            let w = ticker.timed_reads();
+            assert!(!w.is_empty(), "sample {k}: no read between its ticks");
+            let id = ids[(k + 1) % ids.len()];
+            let mut mem = MemLog::new(t.start, &t.bytes);
+            let mut stats = ReadStats::default();
+            o.get_1a(&mut mem, id, &Key::Status, &mut Vec::new(), &mut stats)
+                .unwrap();
+            assert_eq!(w, as_store_reads(geo, &mem.reads), "sample {k}: #{id}");
+            assert!(
+                w.iter().all(|r| r.2 != REC_HDR_LEN),
+                "sample {k}: a header read"
+            );
+            hops += stats.located;
+            let opens: Vec<Call> = lfs.calls()[t0.calls..t1.calls]
+                .iter()
+                .filter(|c| matches!(c.2, Io::Open(_)))
+                .cloned()
+                .collect();
+            assert!(
+                opens.is_empty(),
+                "sample {k}: an open between the ticks: {opens:?}"
+            );
+            let (name, off, _) = &w[0];
+            let n: u64 = name.strip_prefix("log.").unwrap().parse().unwrap();
+            firsts.push(geo.extent_start(n) + off);
+        }
+        let mut want: Vec<u64> = o
+            .nodes()
+            .iter()
+            .zip(o.at())
+            .map(|(e, l)| e.lsn + u64::from(l.off))
+            .collect();
+        want.sort_unstable();
+        firsts.sort_unstable();
+        assert_eq!(
+            firsts, want,
+            "the cycle's first reads are the newest frames' offsets"
+        );
+        assert_eq!(ticker.count(), 2 * ids.len(), "two ticks per sample");
+        let _ = hops;
+    }
+
+    /// The setup refuses a disagreeing read (spec Goal 1; u20 cut §3.4): [`read_1a_agree`] is `Ok` over four clean
+    /// sources of an A1 tail; it refuses, naming the node, a changed `SetStatus` byte in the read through item 1a's
+    /// source alone, and a locator whose `prev_len` is one byte longer in that source alone, which the read refuses and
+    /// reads by the frame walk: the same value, one fallback.
+    #[test]
+    fn read_1a_setup_refuses_a_disagreeing_read() {
+        let (t, b) = a1_tail_and_base(300, 400, 1);
+        let c = Columns::parse(&b).unwrap();
+        let o = overlay_at(&t);
+        let idx = index_of(&t, &o);
+        let ids = read_cycle(&o, 7);
+        let agree = |item: &Vec<u8>| {
+            read_1a_agree(
+                &o,
+                &idx,
+                &c,
+                &ids,
+                &Key::Status,
+                &mut MemLog::new(t.start, &t.bytes),
+                &mut MemLog::new(t.start, &t.bytes),
+                &mut MemLog::new(t.start, &t.bytes),
+                &mut MemLog::new(t.start, item),
+            )
+        };
+        assert_eq!(agree(&t.bytes), Ok(()));
+        let newest: BTreeMap<u32, u64> = o.nodes().iter().map(|e| (e.n, e.lsn)).collect();
+        let commits: Vec<(u64, &Commit<'_>)> = t
+            .records
+            .iter()
+            .filter_map(|r| match &r.payload {
+                Payload::Commit(cm) => Some((r.lsn, &**cm)),
+                _ => None,
+            })
+            .collect();
+        // A SetStatus in its owner's newest record: its new status changed.
+        let (n, at) = commits
+            .iter()
+            .find_map(|(lsn, cm)| {
+                cm.ops.iter().find_map(|op| match op {
+                    Op::SetStatus { id, .. } if newest[id] == *lsn => {
+                        let (_, off, len) =
+                            cm.op_spans().unwrap().into_iter().find(|s| s.0 == *id)?;
+                        let end = (*lsn - t.start) as usize + REC_HDR_LEN + (off + len) as usize;
+                        Some((*id, end - 2))
+                    }
+                    _ => None,
+                })
+            })
+            .expect("a SetStatus in its owner's newest record");
+        let mut bad = t.bytes.clone();
+        bad[at] = (bad[at] + 1) % 4;
+        let r = agree(&bad);
+        assert!(
+            r.as_ref().is_err_and(|e| e.starts_with(&format!("#{n}:"))),
+            "{r:?}"
+        );
+        // A node whose status read hops: its newest record's locator, prev_len one byte longer.
+        let (n, at) = commits
+            .iter()
+            .find_map(|(lsn, cm)| {
+                cm.locs.iter().find_map(|(id, loc)| {
+                    let own: Vec<&Op<'_>> = cm.ops.iter().filter(|o| o.owner() == *id).collect();
+                    let sets = own.iter().any(|o| matches!(o, Op::SetStatus { .. }));
+                    if newest[id] != *lsn || sets || *lsn - own[0].prev() < t.start || loc.len >= 127 {
+                        return None;
+                    }
+                    let (_, off, _) = cm.op_spans().unwrap().into_iter().find(|s| s.0 == *id)?;
+                    let frame = (*lsn - t.start) as usize + REC_HDR_LEN + off as usize;
+                    let mut r = crate::tail::enc::Reader::new(&t.bytes[frame..]);
+                    r.u8().ok()?;
+                    r.uvar32().ok()?;
+                    r.uvar32().ok()?;
+                    r.uvar64().ok()?;
+                    r.uvar32().ok()?;
+                    let pos = r.pos();
+                    (r.uvar32().ok()? == loc.len).then_some((*id, frame + pos))
+                })
+            })
+            .expect("a node whose newest record does not set its status and whose chain stays in the tail");
+        let mut longer = t.bytes.clone();
+        longer[at] += 1;
+        let r = agree(&longer);
+        assert!(
+            r.as_ref()
+                .is_err_and(|e| e.starts_with(&format!("#{n}:")) && e.contains("fallbacks: 1")),
+            "{r:?}"
+        );
+    }
+
+    /// The depth arm reads the hot node through d records (u20 cut §3.4; critique m-1): at production each depth arm's
+    /// seed `seed(name) ^ k` takes the pinned [`Family::seed_k`], the first k < 64 whose tail holds at least d commits,
+    /// and the hot node #500,000 is in exactly its first d; at the test profile (k = 0) #5,000 is in its first
+    /// min(d, commits). Item 1a's read of the hot node's field 9 returns the first commit's value after d − 1 (or
+    /// min(d, commits) − 1) hops through locators, none refused.
+    #[test]
+    fn depth_arms_read_the_hot_node_through_d_records() {
+        let g = grid();
+        let mut buf = Vec::new();
+        for f in [
+            Family::Read1aDepth4,
+            Family::Read1aDepth16,
+            Family::Read1aDepth64,
+        ] {
+            let q = g.iter().find(|q| q.family == f).unwrap();
+            let d = f.depth().unwrap() as usize;
+            for profile in [Profile::Production, Profile::Test] {
+                let t = target(q, profile);
+                let tail = generate(&t, true).unwrap();
+                let hot = hot_node(t.n);
+                let commits: Vec<&Commit<'_>> = tail
+                    .records
+                    .iter()
+                    .filter_map(|r| match &r.payload {
+                        Payload::Commit(c) => Some(&**c),
+                        _ => None,
+                    })
+                    .collect();
+                if profile == Profile::Production {
+                    assert_eq!(hot, 500_000);
+                    assert!(commits.len() >= d, "{}: {} commits", q.name, commits.len());
+                    let k = f.seed_k();
+                    assert_eq!(t.seed, seed(&q.name) ^ k, "{}", q.name);
+                    for j in 0..k {
+                        let mut tj = t;
+                        tj.seed = seed(&q.name) ^ j;
+                        let m = generate(&tj, false).unwrap().measures;
+                        assert!(
+                            m.commits < d as u64,
+                            "{}: k = {j} already holds {} commits",
+                            q.name,
+                            m.commits
+                        );
+                    }
+                }
+                let records = d.min(commits.len());
+                let with: Vec<bool> = commits
+                    .iter()
+                    .map(|c| c.ops.iter().any(|o| o.owner() == hot))
+                    .collect();
+                assert!(
+                    with[..records].iter().all(|&w| w) && !with[records..].iter().any(|&w| w),
+                    "{} {profile:?}: #{hot} in exactly the first {records} commits",
+                    q.name
+                );
+                let o = overlay_at(&tail);
+                let mut stats = ReadStats::default();
+                let got = o.get_1a(
+                    &mut MemLog::new(tail.start, &tail.bytes),
+                    hot,
+                    &Key::Field(HOT_FIELD),
+                    &mut buf,
+                    &mut stats,
+                );
+                assert!(matches!(got, Ok(Probe::Tail(Value::Field(_)))), "{got:?}");
+                assert_eq!(
+                    stats,
+                    ReadStats {
+                        located: records as u64 - 1,
+                        unlocated: 0,
+                        fallbacks: 0,
+                    },
+                    "{} {profile:?}",
+                    q.name
+                );
+            }
+        }
+    }
+
+    /// M-A5, item 1a's bytes per op (u20 cut D-10; `design-A.md:117` estimates 0.5–3 %): on the two production read tails
+    /// in A1, (ops, `rec_bytes`, `loc_bytes`) are pinned. `read-1a-4096.n1e6`: 4,096 ops, 1,748,587 B of records of which
+    /// 7,564 B are locators, a growth `loc_bytes / (rec_bytes − loc_bytes)` of 0.43 %, 1.85 B per op;
+    /// `read-1a-1024.n1e6`: 1,024 ops, 379,323 B and 1,859 B, 0.49 %, 1.82 B per op. The mix's long commits carry most
+    /// ops, one locator per touched node, so the growth sits at the low end of design-A's estimate.
+    #[test]
+    fn a1_bytes_per_op_are_pinned_on_the_read_tails() {
+        let g = grid();
+        let mut got = Vec::new();
+        for f in [Family::Read1a4096, Family::Read1a1024] {
+            let q = g.iter().find(|q| q.family == f).unwrap();
+            let m = generate(&target(q, Profile::Production), false)
+                .unwrap()
+                .measures;
+            got.push((m.ops, m.rec_bytes, m.loc_bytes));
+        }
+        assert_eq!(got, [(4_096, 1_748_587, 7_564), (1_024, 379_323, 1_859)]);
     }
 }

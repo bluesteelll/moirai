@@ -161,11 +161,15 @@ pub struct PrevLoc {
     pub len: u32,
 }
 
-/// The shape of a tail beyond F17's parameters: the locator's form.
+/// The shape of a tail beyond F17's parameters: the locator's form and the depth option.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Shape {
     /// The form of item 1a's locator.
     pub locator: Locator,
+    /// The depth option (u20 cut §3.4, M-A1's depth arm): when d > 0, the base node #⌈N/2⌉
+    /// ([`synth::hot_node`]) is an owner in each of the tail's first d commits and in no other, its first op setting
+    /// field [`synth::HOT_FIELD`] and the later ones its status; 0 is none.
+    pub hot: u32,
 }
 
 impl Shape {
@@ -173,11 +177,13 @@ impl Shape {
     /// (u20 cut D-3).
     pub const NIGHT: Shape = Shape {
         locator: Locator::None,
+        hot: 0,
     };
 
     /// Design-A's A1, the decided format (R-50).
     pub const A1: Shape = Shape {
         locator: Locator::A1,
+        hot: 0,
     };
 }
 

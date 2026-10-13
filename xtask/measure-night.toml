@@ -69,6 +69,11 @@ quantities = [
     "bitset-aa.n1e6",
     "scan.n1e6",
     "overlay.n1e6",
+    "read-1a-4096.n1e6",
+    "read-1a-1024.n1e6",
+    "read-1a-d4.n1e6",
+    "read-1a-d16.n1e6",
+    "read-1a-d64.n1e6",
 ]
 
 [[measurement]]

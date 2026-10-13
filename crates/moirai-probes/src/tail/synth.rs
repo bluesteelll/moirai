@@ -79,6 +79,14 @@ pub const FIELDS: u32 = 8;
 pub const EKINDS: u8 = 4;
 /// Trees settled in turn.
 pub const TREES: u8 = 4;
+/// The field the depth option's first op sets: one the mix never sets ([`FIELDS`] + 1), so a read of it walks every
+/// record of the hot node's chain (u20 cut §3.4).
+pub const HOT_FIELD: u32 = FIELDS + 1;
+
+/// The depth option's node at a base of `n` nodes: #⌈n/2⌉, a base node at every profile (u20 critique m-1).
+pub const fn hot_node(n: u32) -> u32 {
+    n.div_ceil(2)
+}
 /// The `SYMTAB` the tail is assumed to start from: its greatest `session` and `stmt` ids (SD-1).
 pub const SYMTAB_SESSIONS: u32 = 16;
 /// Its greatest `stmt` id.
@@ -416,15 +424,48 @@ impl Gen {
             .map_or(id >= 1 && id <= self.base.n, |n| n.live)
     }
 
-    /// A live owner not yet used by this commit.
+    /// A live owner not yet used by this commit, never the depth option's node.
     fn pick(&mut self, used: &BTreeSet<u32>) -> Option<u32> {
+        let hot = self.hot();
         for _ in 0..64 {
             let id = self.rng.range(1, u64::from(self.next_id - 1)) as u32;
-            if self.live(id) && !used.contains(&id) {
+            if self.live(id) && !used.contains(&id) && Some(id) != hot {
                 return Some(id);
             }
         }
         None
+    }
+
+    /// The depth option's node, when the shape has one.
+    fn hot(&self) -> Option<u32> {
+        (self.t.params.shape.hot > 0).then(|| hot_node(self.base.n))
+    }
+
+    /// The depth option's op of the next commit: in each of the first d commits, the hot node's field
+    /// [`HOT_FIELD`] in the first and its status in the later ones.
+    fn plan_hot(&mut self, used: &mut BTreeSet<u32>) -> Option<Planned> {
+        let id = self.hot()?;
+        if self.commits >= u64::from(self.t.params.shape.hot) {
+            return None;
+        }
+        used.insert(id);
+        let n = self.node(id);
+        Some(if self.commits == 0 {
+            Planned::SetField {
+                id,
+                name: HOT_FIELD,
+                old: n
+                    .fields
+                    .get(&HOT_FIELD)
+                    .cloned()
+                    .unwrap_or_else(|| TValue::absent().0.into_owned()),
+            }
+        } else {
+            Planned::SetStatus {
+                id,
+                new: (n.status.0 + 1) % STATUSES,
+            }
+        })
     }
 
     fn draw_kind(&mut self) -> OpKind {
@@ -812,6 +853,9 @@ impl Gen {
         let mut creates = 0u32;
         let mut ops = Vec::new();
         let mut cs_body = 0u64;
+        if let Some(op) = self.plan_hot(&mut used) {
+            ops.push(op);
+        }
         if body_family && let Some(op) = self.plan_op(OpKind::SetBody, &mut used, &mut creates, fb)
         {
             cs_body += fb + 24;
@@ -836,12 +880,13 @@ impl Gen {
                 }
             }
         }
-        // A long commit carries at least one SetField, whose text takes up its length.
+        // A long commit carries at least one SetField, whose text takes up its length (never the hot node's op).
+        let hot = self.hot();
         if ops.len() > 50
             && !ops.iter().any(|o| matches!(o, Planned::SetField { .. }))
             && let Some(pos) = ops
                 .iter()
-                .position(|o| matches!(o, Planned::SetStatus { .. }))
+                .position(|o| matches!(o, Planned::SetStatus { .. }) && Some(o.owner()) != hot)
         {
             let id = ops[pos].owner();
             let name = 1;
@@ -1900,6 +1945,49 @@ pub(crate) mod tests {
             .map(|(_, c)| c.locs.len() as u64)
             .sum();
         assert!(tail.measures.loc_bytes >= 2 * pairs && pairs > 100);
+    }
+
+    /// The depth option (u20 cut §3.4; critique m-1): with `hot` = d, the base node #⌈N/2⌉ is an owner in each of the
+    /// tail's first d commits and in no later one, its first op setting field 9 (`HOT_FIELD`, which the mix never sets)
+    /// and the later ones its status; at the test profile's N = 10,000 that is #5,000, and with d past the tail's
+    /// commits it is in every commit. The night's shape has no depth option.
+    #[test]
+    fn hot_node_sits_in_the_first_d_commits() {
+        assert_eq!(
+            (hot_node(1_000_000), hot_node(10_000), hot_node(7)),
+            (500_000, 5_000, 4)
+        );
+        for (d, n) in [(3u32, 10_000u32), (16, 1_000_000), (400, 10_000)] {
+            let mut t = a1(test_target(Clause::Ops, n, 11));
+            t.threshold = 300;
+            t.rt_bound = Some(u64::MAX);
+            t.params.shape.hot = d;
+            let tail = generate(&t, true).unwrap();
+            let hot = hot_node(n);
+            let commits = decoded_commits(&tail);
+            assert!(commits.len() > 20, "{} commits", commits.len());
+            for (i, (lsn, c)) in commits.iter().enumerate() {
+                let own: Vec<&Op<'_>> = c.ops.iter().filter(|o| o.owner() == hot).collect();
+                if i < d as usize {
+                    assert_eq!(own.len(), 1, "d {d}: commit {i} at {lsn}");
+                    match (i, own[0]) {
+                        (0, Op::SetField { name, .. }) => assert_eq!(*name, HOT_FIELD),
+                        (0, op) => panic!("d {d}: the first hot op is {op:?}"),
+                        (_, Op::SetStatus { .. }) => {}
+                        (_, op) => panic!("d {d}: commit {i}'s hot op is {op:?}"),
+                    }
+                } else {
+                    assert!(own.is_empty(), "d {d}: #{hot} in commit {i}");
+                }
+                let nines = c
+                    .ops
+                    .iter()
+                    .filter(|o| matches!(o, Op::SetField { name, .. } if *name == HOT_FIELD))
+                    .count();
+                assert_eq!(nines, usize::from(i == 0), "d {d}: field 9 in commit {i}");
+            }
+        }
+        assert_eq!(test_target(Clause::Ops, 10_000, 11).params.shape.hot, 0);
     }
 
     /// The identity rule (u20 cut D-3; R-38, R-40): a tail in the night's form is byte-identical to ba4fc23's. The
