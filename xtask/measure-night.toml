@@ -74,6 +74,18 @@ quantities = [
     "read-1a-d4.n1e6",
     "read-1a-d16.n1e6",
     "read-1a-d64.n1e6",
+    "ready-warm-5pct.n1e6",
+    "ready-first-5pct.n1e5",
+    "ready-first-20pct.n1e5",
+    "ready-warm-5pct.n1e5",
+    "ready-warm-20pct.n1e5",
+    "ready-warm-20pct.n1e6",
+    "ready-first-5pct.n1e6",
+    "ready-first-20pct.n1e6",
+    "ready-willneed-5pct.n1e5",
+    "ready-willneed-5pct.n1e6",
+    "ready-willneed-20pct.n1e5",
+    "ready-willneed-20pct.n1e6",
 ]
 
 [[measurement]]
