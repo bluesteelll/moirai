@@ -470,18 +470,35 @@ do not set aside. A run that is not exit-grade, or is set aside, is still kept a
 
 ### 7.4 Aggregates
 
-Aggregates go to `docs/measurements/m0/<n>.md`, one file per measurement ([PLAN §3.2] item 5), and later milestones
-use `docs/measurements/<milestone>/<n>.md`. An aggregate holds, for every run: its condition, host kind, Windows
-version, Defender versions and real-time state, toolchain, the first 12 hex digits of the commit, its start time,
-validity and exit grade, and for a run record its process readings of §4.6, `private_peak` and `heap_high_water`, each
-in bytes or `none` where the record holds null (an idle observation has no process readings, and its cell is empty);
-for every arm of a run record: the quantity, the arm, the unit, the gate tier, n × repetitions,
-the batch, the medians over the repetitions of p50, p95, p99 and the maximum, the gated statistic's median and its
-spread over the repetitions; for every idle observation: the CPU-time and context-switch deltas of its three windows
-and whether the gate holds; and the disqualifications of every run that is not exit-grade. It holds no samples, no
-paths, and no user name, host name, volume serial, machine GUID, `BootId` or
-process command line; the pre-commit scrub refuses them ([PLAN §3.2] WP-03). Each measurement's decision for WP-81a is
-drafted in the same file (E8).
+Aggregates go to `docs/measurements/m0/<n>.md`, one file per measurement ([PLAN §3.2] item 5), and later milestones use
+`docs/measurements/<milestone>/<n>.md`. An aggregate holds, for every run: its condition, host kind, Windows version,
+Defender versions and real-time state, toolchain, the first 12 hex digits of the commit, its start time, validity and
+exit grade, and for a run record its process readings of §4.6, `private_peak` and `heap_high_water`, each in bytes or
+`none` where the record holds null (an idle observation has no process readings, and its cell is empty); for every arm
+of a run record: the quantity, the arm, the unit, the gate tier, n × repetitions, the batch, the medians over the
+repetitions of p50, p95, p99 and the maximum, the gated statistic's median and its spread over the repetitions; for
+every idle observation: the CPU-time and context-switch deltas of its three windows and whether the gate holds; the
+disqualifications of every run that is not exit-grade; its notes; and the measurement's decision for WP-81a, drafted in
+the same file (E8). It holds no samples, no paths, and no user name, host name, volume serial, machine GUID, `BootId` or
+process command line; the pre-commit scrub refuses them ([PLAN §3.2] WP-03).
+
+A **note** states a limitation of one quantity's result that its records do not show, such as a lower bound, a proxy, a
+run that left no record, or activity outside the checks of §2.3. The notes and the decision come from the aggregate's
+**notes file**, `<n>.notes.md` beside it and committed with it. `moirai-probes-bin aggregate --notes <file>` reads it
+together with the measurement's records (§7.2), so that at the commit that adds or changes an aggregate, the aggregate
+is rendered again, byte for byte, from the records and the repository; that commit's message gives the invocation that
+rendered it. A later change of the renderer leaves a committed aggregate as it is until a commit renders it again.
+
+The notes file is UTF-8, and a CRLF line end is read as LF. It is a sequence of entries: an entry starts at a line
+`## <key>`, its key is the rest of that line, trimmed, and its body is the lines after it up to the next such line or
+the end of the file, less leading and trailing blank lines. The key `Decision for WP-81a` holds the decision, and every
+other key is a quantity name (§4.1) and holds that quantity's note. A notes file is refused when it is not UTF-8, when
+anything but blank lines precedes its first entry, when a key is neither a quantity name nor `Decision for WP-81a`, when
+a key appears twice, when a body is empty, or when a line of a body begins with `#` after any blanks (a heading would
+break the aggregate's outline). The aggregate renders the notes in a section `Notes` after the runs' tables and the
+disqualifications, in the file's order, each under its quantity followed by the numbers of the quantity's runs in the
+runs table, or by `no record` when no run of the aggregate has that quantity; the section is absent when the file holds
+no note. The decision comes last, or `Not drafted yet.` when no notes file is given or it holds no decision.
 
 ## 8. The pre-run guard
 
