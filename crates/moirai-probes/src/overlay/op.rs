@@ -55,7 +55,7 @@ use crate::tail::commit::{Op, presence};
 use crate::tail::enc::{Bound, DecodeError, Reader};
 use crate::tail::rec::{RecHdr, sym};
 use crate::tail::scan::LogSource;
-use crate::tail::{REC_HDR_LEN, TRAILER_LEN, flag, kind};
+use crate::tail::{Locator, REC_HDR_LEN, TRAILER_LEN, flag, kind};
 use std::cmp::Ordering;
 
 /// The most bytes of a frame's head: `op` (1), `len` (`uvar32`, at most 5) and the owner (`uvar32`, at most 5).
@@ -351,13 +351,21 @@ enum Step {
     Prev(u64),
 }
 
-/// Decodes n's `frames` frames from `bytes` (the record at `lsn`) and applies [`Overlay::get`]'s rule: the first that
-/// sets `key` gives its value; otherwise their `prev`.
-fn step(bytes: &[u8], frames: usize, n: u32, key: &Key, lsn: u64) -> Result<Step, String> {
+/// Decodes n's `frames` frames from `bytes` (the record at `lsn`, its op frames in `form`; the first is n's first in
+/// the record) and applies [`Overlay::get`]'s rule: the first that sets `key` gives its value; otherwise their `prev`.
+fn step(
+    bytes: &[u8],
+    frames: usize,
+    n: u32,
+    key: &Key,
+    lsn: u64,
+    form: Locator,
+) -> Result<Step, String> {
     let mut r = Reader::new(bytes);
     let mut prev = 0;
-    for _ in 0..frames {
-        let op = Op::decode(&mut r).map_err(|e| format!("lsn {lsn}: {e}"))?;
+    for k in 0..frames {
+        let (op, _) = Op::decode_in(&mut r, form, (k > 0).then_some(n))
+            .map_err(|e| format!("lsn {lsn}: {e}"))?;
         if op.owner() != n {
             return Err(format!(
                 "lsn {lsn}: a frame of #{} where #{n}'s was located",
@@ -509,7 +517,7 @@ impl Overlay {
             q = end;
         }
         let bytes = w.hold(first, first, (q - first) as usize)?;
-        match step(bytes, frames, n, key, lsn)? {
+        match step(bytes, frames, n, key, lsn, self.locator)? {
             Step::Value(v) => Ok(Probe::Tail(v)),
             Step::Prev(p) => match self.older(lsn, p) {
                 Some(l) => self.walk_op(source, l, n, key, chunk, buf),
@@ -532,7 +540,7 @@ impl Overlay {
             let Some(s) = locate(source, buf, chunk, lsn, n)? else {
                 return Err(format!("the record at lsn {lsn} holds no op of #{n}"));
             };
-            match step(s.bytes(buf), s.frames, n, key, lsn)? {
+            match step(s.bytes(buf), s.frames, n, key, lsn, self.locator)? {
                 Step::Value(v) => return Ok(Probe::Tail(v)),
                 Step::Prev(p) => match self.older(lsn, p) {
                     Some(l) => lsn = l,
@@ -1220,5 +1228,91 @@ mod tests {
             assert_eq!(unpack(pack(off, k).unwrap()), (off, k));
         }
         assert_eq!(std::mem::size_of::<OpEntry>(), 16);
+    }
+
+    /// The hand-built tail in A1, probed as [`hand_built`].
+    fn hand_built_a1() -> Probed {
+        let hb = testdata::hand_built_in(Locator::A1);
+        let end = START + hb.bytes.len() as u64;
+        let overlay = Overlay::replay(
+            &mut MemLog::new(START, &hb.bytes),
+            &hb.expect,
+            START,
+            end,
+            CHAIN_IN,
+            BASE,
+            TAIL_READ_CHUNK,
+        )
+        .unwrap();
+        Probed {
+            name: "hand-built A1".into(),
+            start: START,
+            naive: Naive::of(&hb.records, &BASE),
+            bytes: hb.bytes,
+            records: hb.records,
+            overlay,
+            unset: vec![
+                (40, Key::Status),
+                (5, Key::Status),
+                (7, Key::Field(1)),
+                (51, Key::Hier),
+                (3, Key::Edge(1, 51)),
+            ],
+        }
+    }
+
+    /// [`generated`] in A1.
+    fn generated_a1(seed: u64) -> Probed {
+        let mut t = crate::tail::synth::tests::a1(test_target(Clause::Ops, 50, seed));
+        t.threshold = 120;
+        t.rt_bound = Some(u64::MAX);
+        let tail = generate(&t, true).unwrap();
+        let overlay = tail.overlay().unwrap();
+        Probed {
+            name: format!("A1 seed {seed}"),
+            start: tail.start,
+            naive: Naive::of(&tail.records, &tail.base),
+            bytes: tail.bytes,
+            records: tail.records,
+            overlay,
+            unset: vec![(1, Key::Field(99)), (60, Key::Hier)],
+        }
+    }
+
+    /// The frame walk and the offset read decode an owner's first frame in its tail's form (u20 cut §3.1): on A1 tails
+    /// they return what the whole-record read returns for every key of [`keys`], at chunks of 1, 64 and 64 KiB, and
+    /// every value of the naive map is among them.
+    #[test]
+    fn op_reads_equal_the_whole_record_read_on_a1_tails() {
+        let mut buf = Vec::new();
+        for p in [hand_built_a1(), generated_a1(1), generated_a1(2)] {
+            assert_eq!(p.overlay.locator(), Locator::A1, "{}", p.name);
+            let idx = OpIndex::build(
+                &p.overlay,
+                &mut MemLog::new(p.start, &p.bytes),
+                TAIL_READ_CHUNK,
+                &mut buf,
+            )
+            .unwrap();
+            let mut set = 0;
+            for (n, key) in keys(&p) {
+                let want = p.overlay.get(&mut MemLog::new(p.start, &p.bytes), n, &key);
+                if let Some(v) = p.naive.values.get(&(n, key.clone())) {
+                    assert_eq!(want, Ok(Probe::Tail(v.clone())), "{} #{n} {key:?}", p.name);
+                    set += 1;
+                }
+                for chunk in [1, 64, TAIL_READ_CHUNK] {
+                    let mut src = MemLog::new(p.start, &p.bytes);
+                    let got = p.overlay.get_op(&mut src, n, &key, chunk, &mut buf);
+                    assert_eq!(got, want, "{} walk chunk {chunk} #{n} {key:?}", p.name);
+                    let mut src = MemLog::new(p.start, &p.bytes);
+                    let at = p
+                        .overlay
+                        .get_op_at(&idx, &mut src, n, &key, chunk, &mut buf);
+                    assert_eq!(at, want, "{} offset chunk {chunk} #{n} {key:?}", p.name);
+                }
+            }
+            assert!(set >= p.naive.values.len() && set > 10, "{}: {set}", p.name);
+        }
     }
 }

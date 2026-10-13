@@ -28,7 +28,7 @@
 use crate::tail::commit::{Op, TValue};
 use crate::tail::rec::{Payload, RecHdr, Record};
 use crate::tail::scan::{Expect, GroupView, LogSource, RawRecord, ScanError, decode_record, scan};
-use crate::tail::{REC_HDR_LEN, TRAILER_LEN};
+use crate::tail::{Locator, REC_HDR_LEN, TRAILER_LEN};
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{BuildHasherDefault, Hasher};
 
@@ -494,7 +494,8 @@ impl Builder {
             + pm_ids * size_of::<u32>() as u64
     }
 
-    /// Sorts every table into its final, exact-length form.
+    /// Sorts every table into its final, exact-length form. The overlay reads its tail in the night's form;
+    /// [`Overlay::replay`] gives it the form of the tail it replayed.
     pub fn finish(self) -> Overlay {
         let mut nodes: Vec<NodeEntry> = self
             .nodes
@@ -546,6 +547,7 @@ impl Builder {
         epochs.sort_unstable_by_key(|e| (e.tree, e.scope_kind, e.scope_ref));
         Overlay {
             start: self.start,
+            locator: Locator::None,
             nodes: nodes.into_boxed_slice(),
             pm: pm.into_boxed_slice(),
             alloc_first: self.alloc_first,
@@ -562,6 +564,7 @@ impl Builder {
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Overlay {
     start: u64,
+    locator: Locator,
     nodes: Box<[NodeEntry]>,
     pm: Box<[PlusMinus]>,
     alloc_first: u32,
@@ -617,7 +620,9 @@ impl Overlay {
         scan(source, expect, from, to, chain_in, chunk, &mut |g| {
             b.apply_group(g)
         })?;
-        Ok(b.finish())
+        let mut o = b.finish();
+        o.locator = expect.locator;
+        Ok(o)
     }
 
     /// The value of `key` of node `n`: the newest op of the tail that sets it, found from the node index and the
@@ -634,6 +639,7 @@ impl Overlay {
             let rec = decode_record(&RawRecord {
                 hdr,
                 payload: &buf[REC_HDR_LEN..buf.len() - t],
+                locator: self.locator,
             })
             .map_err(|e| e.to_string())?;
             let Payload::Commit(c) = &rec.payload else {
@@ -655,6 +661,11 @@ impl Overlay {
                 Some(p) => lsn -= p,
             }
         }
+    }
+
+    /// The form of item 1a's locator the overlay reads its tail's records in.
+    pub fn locator(&self) -> Locator {
+        self.locator
     }
 
     /// The node index, sorted by `#N`.
@@ -1267,6 +1278,67 @@ mod tests {
                 let o = tail.overlay().unwrap();
                 assert!(o.heap_bytes() > 0);
                 assert_eq!(tail.measures.ovl, o.heap_bytes(), "{clause:?} seed {seed}");
+            }
+        }
+    }
+
+    /// A tail in A1 (u20 cut §3.1): the overlay replays it in its form, and on every key the tail sets it probes to the
+    /// naive map's value; the hand-built A1 tail sets exactly the night tail's values (its locators change no value),
+    /// and generated A1 tails at N = 50 carry locators while owners repeat.
+    #[test]
+    fn a1_tail_overlay_equals_the_naive_map() {
+        use crate::tail::synth::tests::{a1, test_target};
+        use crate::tail::synth::{Clause, generate};
+        let hb = testdata::hand_built_in(Locator::A1);
+        let end = START + hb.bytes.len() as u64;
+        let o = Overlay::replay(
+            &mut MemLog::new(START, &hb.bytes),
+            &hb.expect,
+            START,
+            end,
+            CHAIN_IN,
+            BASE,
+            TAIL_READ_CHUNK,
+        )
+        .unwrap();
+        assert_eq!(o.locator(), Locator::A1);
+        let recs = decode(&hb.bytes, START, &hb.expect, CHAIN_IN).unwrap();
+        let naive = Naive::of(&recs, &BASE);
+        assert_eq!(
+            naive.values,
+            built().naive.values,
+            "the night tail's values"
+        );
+        let mut src = MemLog::new(START, &hb.bytes);
+        for ((n, key), v) in &naive.values {
+            assert_eq!(
+                o.get(&mut src, *n, key),
+                Ok(Probe::Tail(v.clone())),
+                "hand-built A1 #{n} {key:?}"
+            );
+        }
+        assert_eq!(o.get(&mut src, 5, &Key::Status), Ok(Probe::NotInTail));
+        for seed in 1..=3 {
+            let mut t = a1(test_target(Clause::Ops, 50, seed));
+            t.threshold = 120;
+            t.rt_bound = Some(u64::MAX);
+            let tail = generate(&t, true).unwrap();
+            let o = tail.overlay().unwrap();
+            assert_eq!(o.locator(), Locator::A1);
+            let located = tail
+                .records
+                .iter()
+                .filter(|r| matches!(&r.payload, Payload::Commit(c) if !c.locs.is_empty()))
+                .count();
+            assert!(located > 10, "seed {seed}: {located} commits with locators");
+            let naive = Naive::of(&tail.records, &tail.base);
+            let mut src = MemLog::new(tail.start, &tail.bytes);
+            for ((n, key), v) in &naive.values {
+                assert_eq!(
+                    o.get(&mut src, *n, key),
+                    Ok(Probe::Tail(v.clone())),
+                    "seed {seed} #{n} {key:?}"
+                );
             }
         }
     }

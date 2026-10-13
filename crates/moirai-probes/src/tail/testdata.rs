@@ -1,11 +1,13 @@
 //! Hand-built tails for the unit tests: every byte follows from the chapters' rules through the encoder, with digests
 //! as fixed bytes (no fixture is copied from an informative example, [F01 §2.1]).
 
-use super::Geometry;
 use super::commit::{Affected, Body, Commit, Edge, Git, Image, Op, Parent, TValue, blake3_16};
-use super::rec::{Appender, ExtentHead, InitParams, Payload, Record, SymDef, sequence, sym};
+use super::rec::{
+    Appender, ExtentHead, InitParams, Payload, Record, SymDef, encode_symdefs, sequence, sym,
+};
 use super::rt::{Epoch, FileObsRow, Row, RowBatch, TreeReg};
 use super::scan::Expect;
+use super::{Geometry, Locator, PrevLoc, REC_HDR_LEN};
 use std::borrow::Cow;
 
 /// E = 2^16, the test profile's extent ([F17] P01, `17-store-parameters.md:166`).
@@ -15,8 +17,13 @@ pub const START: u64 = E;
 /// The chain value the tail's first extent head carries.
 pub const CHAIN_IN: u64 = 0x0C0F_FEE0_1234_5678;
 
-/// The `HEAD` fields the scan checks.
+/// The `HEAD` fields the scan checks, in the night's form.
 pub fn expect() -> Expect {
+    expect_in(Locator::None)
+}
+
+/// The `HEAD` fields the scan checks, with the tail's locator in `form`.
+pub fn expect_in(form: Locator) -> Expect {
     Expect {
         geo: Geometry::new(E).unwrap(),
         epoch: 0x1122_3344_5566_7788,
@@ -29,6 +36,7 @@ pub fn expect() -> Expect {
         }
         .encode(),
         project_oid_algo: 1,
+        locator: form,
     }
 }
 
@@ -92,7 +100,54 @@ pub fn commit(seq: u64, parent_lsn: u64, ops: Vec<Op<'static>>, msg: &str) -> Co
         }),
         changeset_digest: [0x44; 32],
         ops,
+        form: Locator::None,
+        locs: Vec::new(),
         bodies: Vec::new(),
+    }
+}
+
+/// The locators of `ops` at `lsn` in `form` (u20 cut §3.1, SoT-1 and SoT-4): for each owner whose first op has
+/// `prev` ≠ 0, where its frames lie in the record `prev` names, from `spans` (owner, lsn, locator) of the records
+/// placed so far; (0, 0) for a record below the tail.
+pub fn locs_at(
+    form: Locator,
+    ops: &[Op<'_>],
+    lsn: u64,
+    spans: &[(u32, u64, PrevLoc)],
+) -> Vec<(u32, PrevLoc)> {
+    if form == Locator::None {
+        return Vec::new();
+    }
+    let mut locs = Vec::new();
+    for (i, op) in ops.iter().enumerate() {
+        if (i == 0 || ops[i - 1].owner() != op.owner()) && op.prev() != 0 {
+            let older = lsn - op.prev();
+            let loc = spans
+                .iter()
+                .find(|s| s.0 == op.owner() && s.1 == older)
+                .map_or(PrevLoc::default(), |s| s.2);
+            locs.push((op.owner(), loc));
+        }
+    }
+    locs
+}
+
+/// Records where each owner's frames lie in the commit `c` placed at `lsn` with `defs` (its `SymDefs` block), keeping
+/// only each owner's newest.
+pub fn note_spans(
+    spans: &mut Vec<(u32, u64, PrevLoc)>,
+    c: &Commit<'_>,
+    lsn: u64,
+    defs: &[SymDef<'_>],
+) {
+    let mut block = Vec::new();
+    if !defs.is_empty() {
+        encode_symdefs(defs, &mut block).expect("valid symbols");
+    }
+    let head = (REC_HDR_LEN + block.len()) as u32;
+    for (owner, at, len) in c.op_spans().expect("an encodable commit") {
+        spans.retain(|s| s.0 != owner);
+        spans.push((owner, lsn, PrevLoc { at: head + at, len }));
     }
 }
 
@@ -179,6 +234,8 @@ type OpsFn = dyn Fn(&[(u32, u64)], u64) -> Vec<Op<'static>>;
 
 /// A hand-built tail and the records it holds, preludes included, in log order.
 pub struct HandBuilt {
+    /// What the scan checks it against, its form included.
+    pub expect: Expect,
     /// The bytes from [`START`].
     pub bytes: Vec<u8>,
     /// Every record.
@@ -191,7 +248,13 @@ pub struct HandBuilt {
 /// more than once and create #51 and #52, a settle, three large commits of which the third rotates the tail into
 /// extent 3 after a pad, a commit after the rotation and a second settle.
 pub fn hand_built() -> HandBuilt {
-    let x = expect();
+    hand_built_in(Locator::None)
+}
+
+/// [`hand_built`] with its op frames in `form`: in A1 each owner's first frame names its frames in the record its
+/// `prev` names (#3's two frames in the second commit, `Move` and `SetField`, are one span), or (0, 0) below the tail.
+pub fn hand_built_in(form: Locator) -> HandBuilt {
+    let x = expect_in(form);
     let mut app = Appender::new(x.geo, x.epoch, START, CHAIN_IN, head(&x));
     let mut records = Vec::new();
     let mut commits: Vec<u64> = Vec::new();
@@ -319,6 +382,7 @@ pub fn hand_built() -> HandBuilt {
         }),
     ];
     let mut seq = 101;
+    let mut spans: Vec<(u32, u64, PrevLoc)> = Vec::new();
     let mut put = |app: &mut Appender,
                    records: &mut Vec<Record<'static>>,
                    commits: &mut Vec<u64>,
@@ -336,6 +400,8 @@ pub fn hand_built() -> HandBuilt {
             .place(|lsn| {
                 let mut c = commit(seq, parent, ops(last, lsn), msg);
                 c.bodies = bodies.clone();
+                c.form = form;
+                c.locs = locs_at(form, &c.ops, lsn, &spans);
                 Ok(commit_group(lsn, c, defs.clone()))
             })
             .unwrap();
@@ -345,6 +411,7 @@ pub fn hand_built() -> HandBuilt {
             for op in &c.ops {
                 last.push((op.owner(), lsn));
             }
+            note_spans(&mut spans, c, lsn, &defs);
         }
         commits.push(lsn);
         records.extend(g);
@@ -440,6 +507,7 @@ pub fn hand_built() -> HandBuilt {
     records.extend(pre);
     records.extend(g);
     HandBuilt {
+        expect: x,
         bytes: app.into_bytes(),
         records,
         commits,
