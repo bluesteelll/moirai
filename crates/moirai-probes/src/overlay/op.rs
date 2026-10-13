@@ -1,5 +1,6 @@
-//! The op-locating read of the probe's tail overlay (WP-53e; R-40 O-2, R-42): T1's diagnostic, a read that decodes
-//! only the ops of the node it reads ([`Overlay::get_op`]), beside the whole-record read [`Overlay::get`].
+//! The op-locating reads of the probe's tail overlay (WP-53e; R-40 O-2, R-42): T1's diagnostic, reads that decode
+//! only the ops of the node they read ([`Overlay::get_op`] and its floor [`Overlay::get_op_at`]), beside the
+//! whole-record read [`Overlay::get`].
 //!
 //! **What locates the op** is the record format, not the overlay's tables: [F09 §4.6], [F11 §9] and [F05 §10.4] index
 //! no position inside a `Commit` record.
@@ -26,16 +27,32 @@
 //! Then it does as `get` does: the first of n's ops that sets the key gives the value, else their `prev` leads to the
 //! older record or out of the tail.
 //!
+//! **The offset read** ([`Overlay::get_op_at`], the floor `read.op.at` of R-42 Q2). The node index's entry has 4 spare
+//! bytes (u32 `n` and u64 `lsn` make 16 B with padding; `AR:709` budgets "12–16 B per op"). Process state can hold
+//! there where n's frames start in its newest record and how many there are ([`OpEntry`]: a 24-bit offset from the
+//! record's lsn, header included, and an 8-bit frame count), so no format change is needed. The probe keeps that state
+//! in a copy of the node index, [`OpIndex`], built in its setup by the frame walk; in the design these are the node
+//! entry's own bytes. The read takes n's newest record with no header read, no header walk and no frame skip: a first
+//! read of [`FRAME_HEAD_MAX`] bytes at `lsn + off`, then per frame the rest of it and, while frames of n remain, the
+//! next frame's head (k frames, at most k + 1 reads). No read leaves the group, so none crosses its extent's end
+//! ([F05 §4.4] G-1): from a frame's first byte the group holds at least 13 bytes (a frame of at least 4, `n_bodies`,
+//! then the trailer or the group's next record). It decodes n's frames, refuses a frame of another owner (the index is
+//! not this log's), and then does as `get` does, the older records by the frame walk.
+//!
+//! It is a floor of the frame walk ([MP §4.1]): a subset of its work, the same decode of n's frames and the same walk of
+//! the older records, without the newest record's header read, header walk, frame skip and bytes before n's frames. The
+//! paired difference `read.op − read.op.at` is the cost of locating n's frames in the newest record (R-42 Q2).
+//!
 //! **What differs from `get`.** The buffer is the caller's and is reused: only its allocation carries over, and the bytes
 //! it holds are dropped at each record's start, so a read never reuses an earlier record's I/O. No trailer is read; no
 //! frame of another owner is decoded, and none past the held window is read; no body is read. It does not re-validate:
 //! the replay's scan validated every record ([F05 §5.2]), and a replay never hashes bodies ([F06 §8] BD-2,
-//! `06-commit.md:1053-1054`). So it returns what `get` returns for every (n, key) on a valid tail; on a corrupt record
-//! the two may differ, because `get` decodes every op of the record.
+//! `06-commit.md:1053-1054`). So both reads return what `get` returns for every (n, key) on a valid tail; on a corrupt
+//! record they may differ, because `get` decodes every op of the record.
 
-use super::{Key, Overlay, Probe, Value, sets};
+use super::{Key, NodeEntry, Overlay, Probe, Value, sets};
 use crate::tail::commit::{Op, presence};
-use crate::tail::enc::{Bound, Reader};
+use crate::tail::enc::{Bound, DecodeError, Reader};
 use crate::tail::rec::{RecHdr, sym};
 use crate::tail::scan::LogSource;
 use crate::tail::{REC_HDR_LEN, TRAILER_LEN, flag, kind};
@@ -303,7 +320,7 @@ fn locate<S: LogSource>(
             r.u8()?;
             let len = r.uvar32()?;
             let body = r.pos();
-            Ok::<_, crate::tail::enc::DecodeError>((len, body, r.uvar32()?))
+            Ok::<_, DecodeError>((len, body, r.uvar32()?))
         })();
         let (len, body, owner) = head.map_err(|e| format!("lsn {lsn}: {}", e.what))?;
         let next = q + body as u64 + u64::from(len);
@@ -355,6 +372,94 @@ fn step(bytes: &[u8], frames: usize, n: u32, key: &Key, lsn: u64) -> Result<Step
     Ok(Step::Prev(prev))
 }
 
+/// One entry of the offset index: [`NodeEntry`]'s layout with its 4 spare bytes used by `at` (R-42 Q2).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct OpEntry {
+    /// The owner `#N`.
+    pub n: u32,
+    /// Bits 0–23: the offset of n's first frame from the record's lsn, header included; bits 24–31: n's frame count in
+    /// that record ([`pack`]).
+    pub at: u32,
+    /// The lsn of the newest `Commit` whose ops have `#N` as owner.
+    pub lsn: u64,
+}
+
+// The offset and the frame count cost no RAM beyond the node entry's 16 B (`AR:709`).
+const _: () = assert!(
+    std::mem::size_of::<OpEntry>() == std::mem::size_of::<NodeEntry>()
+        && std::mem::size_of::<NodeEntry>() == 16
+);
+
+/// The first offset that does not fit `at`'s 24 bits.
+pub const OFFSET_LIMIT: u64 = 1 << 24;
+/// The most frames `at`'s 8 bits count.
+pub const FRAMES_MAX: usize = 255;
+
+/// Packs the offset of n's first frame and n's frame count into `at`; `None` when the offset is 2^24 or more, or the
+/// count is not 1–255. The count is needed: an owner may have several frames in one record (F06 §7.9 orders them by
+/// rank), and a reader at its last frame cannot tell the next owner's frame from `n_bodies` without it.
+pub const fn pack(off: u64, frames: usize) -> Option<u32> {
+    if off >= OFFSET_LIMIT || frames == 0 || frames > FRAMES_MAX {
+        None
+    } else {
+        Some(((frames as u32) << 24) | off as u32)
+    }
+}
+
+/// The inverse of [`pack`]: (the offset, the frame count).
+pub const fn unpack(at: u32) -> (u64, usize) {
+    ((at & 0x00FF_FFFF) as u64, (at >> 24) as usize)
+}
+
+/// The offset index: a copy of the node index whose entries also say where n's frames start in its newest record and
+/// how many there are, sorted by `#N`. The probe's setup state; in the design these are the node entry's own bytes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct OpIndex {
+    entries: Box<[OpEntry]>,
+}
+
+impl OpIndex {
+    /// Locates each node entry's frames in its newest record with the frame walk (`chunk` and `buf` as
+    /// [`Overlay::get_op`]'s). Refuses, naming `#n` and the lsn, a record with no frame of n, an offset of 2^24 or
+    /// more and more than 255 frames: a silent fallback would no longer be the floor the record names.
+    pub fn build<S: LogSource>(
+        o: &Overlay,
+        source: &mut S,
+        chunk: usize,
+        buf: &mut Vec<u8>,
+    ) -> Result<OpIndex, String> {
+        let mut entries = Vec::with_capacity(o.nodes.len());
+        for e in o.nodes.iter() {
+            let Some(s) = locate(source, buf, chunk, e.lsn, e.n)? else {
+                return Err(format!(
+                    "the record at lsn {} holds no op of #{}",
+                    e.lsn, e.n
+                ));
+            };
+            let off = s.first - e.lsn;
+            let at = pack(off, s.frames).ok_or_else(|| {
+                format!(
+                    "#{}'s {} frames at lsn {} + {off} do not fit the entry's 24-bit offset and 8-bit count",
+                    e.n, s.frames, e.lsn
+                )
+            })?;
+            entries.push(OpEntry {
+                n: e.n,
+                at,
+                lsn: e.lsn,
+            });
+        }
+        Ok(OpIndex {
+            entries: entries.into_boxed_slice(),
+        })
+    }
+
+    /// The entries, sorted by `#N`.
+    pub fn entries(&self) -> &[OpEntry] {
+        &self.entries
+    }
+}
+
 impl Overlay {
     /// The value of `key` of node `n`, as [`Overlay::get`] gives it on a valid tail, decoding only n's ops: the frame
     /// walk of the module doc, through `buf` (reused across calls, never shrunk) in reads of at least `chunk` bytes.
@@ -370,6 +475,47 @@ impl Overlay {
             return Ok(Probe::NotInTail);
         };
         self.walk_op(source, self.nodes[i].lsn, n, key, chunk, buf)
+    }
+
+    /// The value of `key` of node `n`, as [`Overlay::get`] gives it on a valid tail: the offset read of the module doc
+    /// in n's newest record, located by `idx` (an [`OpIndex`] of this overlay), then the frame walk (`chunk`, `buf`).
+    pub fn get_op_at<S: LogSource>(
+        &self,
+        idx: &OpIndex,
+        source: &mut S,
+        n: u32,
+        key: &Key,
+        chunk: usize,
+        buf: &mut Vec<u8>,
+    ) -> Result<Probe, String> {
+        let Ok(i) = idx.entries.binary_search_by_key(&n, |e| e.n) else {
+            return Ok(Probe::NotInTail);
+        };
+        let OpEntry { lsn, at, .. } = idx.entries[i];
+        let (off, frames) = unpack(at);
+        let first = lsn + off;
+        let mut w = Window::new(source, buf, 0, lsn, first, u64::MAX);
+        let mut q = first;
+        for k in 0..frames {
+            let mut r = Reader::new(w.hold(first, q, FRAME_HEAD_MAX)?);
+            let head = (|| {
+                r.u8()?;
+                let len = r.uvar32()?;
+                Ok::<_, DecodeError>(r.pos() as u64 + u64::from(len))
+            })();
+            let end = q + head.map_err(|e| format!("lsn {lsn}: {}", e.what))?;
+            let next = if k + 1 < frames { FRAME_HEAD_MAX } else { 0 };
+            w.hold(first, q, (end - q) as usize + next)?;
+            q = end;
+        }
+        let bytes = w.hold(first, first, (q - first) as usize)?;
+        match step(bytes, frames, n, key, lsn)? {
+            Step::Value(v) => Ok(Probe::Tail(v)),
+            Step::Prev(p) => match self.older(lsn, p) {
+                Some(l) => self.walk_op(source, l, n, key, chunk, buf),
+                None => Ok(Probe::NotInTail),
+            },
+        }
     }
 
     /// The frame walk from the record at `lsn` back along n's `prev` chain.
@@ -408,8 +554,8 @@ impl Overlay {
 
 #[cfg(test)]
 mod tests {
+    use super::super::Base;
     use super::super::naive::Naive;
-    use super::super::{Base, NodeEntry};
     use super::*;
     use crate::tail::commit::Commit;
     use crate::tail::rec::{Payload, Record};
@@ -417,6 +563,7 @@ mod tests {
     use crate::tail::synth::{Clause, Target, generate, tests::test_target};
     use crate::tail::testdata::{self, CHAIN_IN, START};
     use crate::tail::{Params, TAIL_READ_CHUNK};
+    use std::collections::BTreeMap;
 
     /// The hand-built tail's base: 50 live nodes of kind 1, status `#N mod 4`.
     const BASE: Base = Base {
@@ -554,7 +701,7 @@ mod tests {
     proptest::proptest! {
         #![proptest_config(crate::tail::enc::tests::config())]
 
-        /// The frame walk equals the whole-record read on generated tails, at a random chunk.
+        /// The frame walk and the offset read equal the whole-record read on generated tails, at a random chunk.
         #[test]
         fn op_read_equals_the_whole_record_read_on_generated_tails(
             seed in proptest::prelude::any::<u64>(),
@@ -562,10 +709,13 @@ mod tests {
         ) {
             let p = generated(seed);
             let mut buf = Vec::new();
+            let idx = OpIndex::build(&p.overlay, &mut MemLog::new(p.start, &p.bytes), chunk, &mut buf).unwrap();
             for (n, key) in keys(&p) {
                 let want = p.overlay.get(&mut MemLog::new(p.start, &p.bytes), n, &key);
                 let got = p.overlay.get_op(&mut MemLog::new(p.start, &p.bytes), n, &key, chunk, &mut buf);
-                proptest::prop_assert_eq!(got, want, "#{} {:?}", n, key);
+                proptest::prop_assert_eq!(&got, &want, "#{} {:?}", n, key);
+                let at = p.overlay.get_op_at(&idx, &mut MemLog::new(p.start, &p.bytes), n, &key, chunk, &mut buf);
+                proptest::prop_assert_eq!(&at, &want, "the offset read: #{} {:?}", n, key);
             }
         }
     }
@@ -764,5 +914,193 @@ mod tests {
             }
         }
         assert!(owners_seen > 200, "{owners_seen}");
+    }
+
+    /// The bytes of `ops`' frames.
+    fn span_of(ops: &[&Op<'_>]) -> u64 {
+        let (mut out, mut scratch) = (Vec::new(), Vec::new());
+        for op in ops {
+            op.encode(&mut out, &mut scratch).unwrap();
+        }
+        out.len() as u64
+    }
+
+    /// The offset read returns what the whole-record read returns ([`Overlay::get`]) for the keys of
+    /// `op_read_equals_the_whole_record_read`, at chunks of 1, 64 and 64 KiB; the offset index's (n, lsn) are the node
+    /// index's; and each entry's `frames` frames at `lsn + off` decode to exactly `Commit::decode`'s ops of n in that
+    /// record. The hand-built tail's #3 has two frames in its newest record (`Move`, then `SetField` 4).
+    #[test]
+    fn offset_read_equals_the_whole_record_read() {
+        let mut buf = Vec::new();
+        for p in probed() {
+            let mut src = MemLog::new(p.start, &p.bytes);
+            let idx = OpIndex::build(&p.overlay, &mut src, TAIL_READ_CHUNK, &mut buf).unwrap();
+            for (n, key) in keys(&p) {
+                let want = p.overlay.get(&mut MemLog::new(p.start, &p.bytes), n, &key);
+                for chunk in [1, 64, TAIL_READ_CHUNK] {
+                    let got = p.overlay.get_op_at(
+                        &idx,
+                        &mut MemLog::new(p.start, &p.bytes),
+                        n,
+                        &key,
+                        chunk,
+                        &mut buf,
+                    );
+                    assert_eq!(got, want, "{} chunk {chunk} #{n} {key:?}", p.name);
+                }
+            }
+            let pairs: Vec<(u32, u64)> = idx.entries().iter().map(|e| (e.n, e.lsn)).collect();
+            let nodes: Vec<(u32, u64)> = p.overlay.nodes().iter().map(|e| (e.n, e.lsn)).collect();
+            assert_eq!(pairs, nodes, "{}", p.name);
+            let by_lsn: BTreeMap<u64, &Commit<'_>> = commits(&p.records).into_iter().collect();
+            let mut multi = 0;
+            for e in idx.entries() {
+                let (off, frames) = unpack(e.at);
+                let want: Vec<&Op<'_>> = by_lsn[&e.lsn]
+                    .ops
+                    .iter()
+                    .filter(|o| o.owner() == e.n)
+                    .collect();
+                let mut r = Reader::new(&p.bytes[(e.lsn + off - p.start) as usize..]);
+                let got: Vec<Op<'_>> = (0..frames).map(|_| Op::decode(&mut r).unwrap()).collect();
+                assert_eq!(got.iter().collect::<Vec<_>>(), want, "{} #{}", p.name, e.n);
+                multi += usize::from(frames > 1);
+            }
+            assert!(p.name != "hand-built" || multi >= 1, "#3's two frames");
+        }
+    }
+
+    /// The offset read touches only n's frames in its newest record: over a `MemLog`, for every entry of the tails of
+    /// `offset_read_equals_the_whole_record_read` and for each key n's ops there set, `Status` and a key never set, the
+    /// first read is [`FRAME_HEAD_MAX`] bytes at `lsn + off`; the reads at the newest record lie in
+    /// `[lsn + off, lsn + off + span + 11)` (span: n's frames' bytes), are at most frames + 1, and none is at `lsn`;
+    /// when the key is not in the newest record, the later reads are the frame walk's from `lsn − prev`, and there are
+    /// none when `prev` leaves the tail. On a copy whose newest record is 0xFF outside n's frames, its header included,
+    /// every key n's ops set there still reads `get`'s value on the clean log.
+    #[test]
+    fn offset_read_touches_only_the_owners_frames_in_the_newest_record() {
+        let mut buf = Vec::new();
+        let mut walk = Vec::new();
+        // The first failure of each clause, so that one run shows every clause that fails.
+        let mut failed: BTreeMap<&str, String> = BTreeMap::new();
+        let mut walked = 0;
+        for p in probed() {
+            let mut src = MemLog::new(p.start, &p.bytes);
+            let idx = OpIndex::build(&p.overlay, &mut src, TAIL_READ_CHUNK, &mut buf).unwrap();
+            let by_lsn: BTreeMap<u64, (&Record<'_>, &Commit<'_>)> = p
+                .records
+                .iter()
+                .filter_map(|r| match &r.payload {
+                    Payload::Commit(c) => Some((r.lsn, (r, &**c))),
+                    _ => None,
+                })
+                .collect();
+            for e in idx.entries() {
+                let (off, frames) = unpack(e.at);
+                let first = e.lsn + off;
+                let (rec, c) = by_lsn[&e.lsn];
+                let own: Vec<&Op<'_>> = c.ops.iter().filter(|o| o.owner() == e.n).collect();
+                let span = span_of(&own);
+                let set: Vec<Key> = own.iter().flat_map(|op| sets(op)).map(|(k, _)| k).collect();
+                let mut ks = set.clone();
+                ks.extend([Key::Status, Key::Field(99)]);
+                for key in ks {
+                    let what = format!("{} #{} {key:?}", p.name, e.n);
+                    let mut src = MemLog::new(p.start, &p.bytes);
+                    let got =
+                        p.overlay
+                            .get_op_at(&idx, &mut src, e.n, &key, TAIL_READ_CHUNK, &mut buf);
+                    let want = p
+                        .overlay
+                        .get(&mut MemLog::new(p.start, &p.bytes), e.n, &key);
+                    if got != want {
+                        failed
+                            .entry("value")
+                            .or_insert(format!("{what}: {got:?}, not {want:?}"));
+                    }
+                    if src.reads.first() != Some(&(first, FRAME_HEAD_MAX)) {
+                        failed.entry("first read").or_insert(format!(
+                            "{what}: the first read is {:?}, not ({first}, {FRAME_HEAD_MAX})",
+                            src.reads.first()
+                        ));
+                    }
+                    let k = src.reads.iter().take_while(|r| r.0 >= e.lsn).count();
+                    let (newest, rest) = src.reads.split_at(k);
+                    let top = first + span + FRAME_HEAD_MAX as u64;
+                    if newest.len() > frames + 1
+                        || newest
+                            .iter()
+                            .any(|&(a, l)| a == e.lsn || a < first || a + l as u64 > top)
+                    {
+                        failed.entry("newest reads").or_insert(format!(
+                            "{what}: reads {newest:?} outside [{first}, {top}) or more than {} of them",
+                            frames + 1
+                        ));
+                    }
+                    let mut later = MemLog::new(p.start, &p.bytes);
+                    if let (false, Some(l)) =
+                        (set.contains(&key), p.overlay.older(e.lsn, own[0].prev()))
+                    {
+                        let _ =
+                            p.overlay
+                                .walk_op(&mut later, l, e.n, &key, TAIL_READ_CHUNK, &mut walk);
+                        walked += 1;
+                    }
+                    if rest != later.reads.as_slice() {
+                        failed.entry("later reads").or_insert(format!(
+                            "{what}: the reads after the newest record {rest:?}, not the frame walk's {:?}",
+                            later.reads
+                        ));
+                    }
+                }
+                let mut ff = p.bytes.clone();
+                let at = (e.lsn - p.start) as usize;
+                let len = rec.encoded_len().unwrap() as usize;
+                for (i, b) in ff[at..at + len].iter_mut().enumerate() {
+                    let lsn = e.lsn + i as u64;
+                    if lsn < first || lsn >= first + span {
+                        *b = 0xFF;
+                    }
+                }
+                for key in &set {
+                    let want = p.overlay.get(&mut MemLog::new(p.start, &p.bytes), e.n, key);
+                    let got = p.overlay.get_op_at(
+                        &idx,
+                        &mut MemLog::new(p.start, &ff),
+                        e.n,
+                        key,
+                        TAIL_READ_CHUNK,
+                        &mut buf,
+                    );
+                    if got != want {
+                        failed.entry("0xFF copy").or_insert(format!(
+                            "{} #{} {key:?} on the 0xFF copy: {got:?}, not {want:?}",
+                            p.name, e.n
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(
+            failed.is_empty(),
+            "{}",
+            failed.into_values().collect::<Vec<_>>().join("\n")
+        );
+        assert!(walked > 20, "{walked} reads went on past the newest record");
+    }
+
+    /// `at` packs a 24-bit offset and an 8-bit frame count: `Some` at (32, 1) and (2^24 − 1, 255), `None` at (2^24, 1),
+    /// (32, 0) and (32, 256); `unpack` inverts `pack`; an entry is 16 bytes.
+    #[test]
+    fn offset_entry_packs_the_offset_and_the_frame_count() {
+        assert_eq!(pack(32, 1), Some((1 << 24) | 32));
+        assert_eq!(pack(OFFSET_LIMIT - 1, FRAMES_MAX), Some(u32::MAX));
+        for (off, k) in [(OFFSET_LIMIT, 1), (32, 0), (32, FRAMES_MAX + 1)] {
+            assert_eq!(pack(off, k), None, "({off}, {k})");
+        }
+        for (off, k) in [(32, 1), (77, 3), (OFFSET_LIMIT - 1, FRAMES_MAX)] {
+            assert_eq!(unpack(pack(off, k).unwrap()), (off, k));
+        }
+        assert_eq!(std::mem::size_of::<OpEntry>(), 16);
     }
 }
