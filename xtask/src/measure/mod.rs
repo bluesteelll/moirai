@@ -2743,6 +2743,39 @@ quantities = ["d"]
             s["runs"][0]["attempts"][0]["tree_changed"]["tracked_changes"], 1,
             "{s}"
         );
+        // The driver also changed an earlier record during the same attempt: the stop is still tree-unstoppable, which
+        // tells whoever restarts the night to wait for that tree ([MP §9.8]), and the changed record is recorded.
+        std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        let _ = std::fs::remove_dir_all(env.private.join(MEASUREMENTS));
+        let other =
+            record::tests::exit_grade(14, "csr.1e5", OTHER, "2026-10-01T00:00:00Z").to_string();
+        earlier(&env, 14, "csr.1e5.idle.20261001T000000Z.json", &other);
+        let mut h = hooked(FakeHost::new(at(NOW)));
+        h.stuck = true;
+        fake_driver(&mut h.h, &[Writes::Overwrite]);
+        h.h.scripts.push_back(hangs());
+        let (code, text) = run_hooked(&mut h, &env, &plan);
+        assert_eq!(code, Ok(EXIT_FAIL), "{text}");
+        assert_eq!(h.h.spawned.len(), 1, "{text}");
+        let s = session(&env, &plan, at(NOW));
+        let stopped = s["stopped"].as_str().unwrap();
+        assert!(
+            stopped.starts_with(
+                "tree-unstoppable: the process tree of 14/csr.1e5 could not be stopped"
+            ),
+            "{s}"
+        );
+        assert_eq!(s["runs"][1]["reason"], stopped);
+        let a = &s["runs"][0]["attempts"][0];
+        assert_eq!(
+            a["records_changed"],
+            json!(["csr.1e5.idle.20261001T000000Z.json"]),
+            "{s}"
+        );
+        assert_eq!(
+            a["why"],
+            json!(["tree-unstoppable: process 4242 did not exit after it was stopped"])
+        );
     }
 
     #[test]
