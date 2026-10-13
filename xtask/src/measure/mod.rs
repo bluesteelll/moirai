@@ -27,9 +27,13 @@
 //!   snapshot, the retry waits `settle-minutes` first, and is made only if that wait fits.
 //! - A driver whose process tree cannot be stopped stops the session (`tree-unstoppable`); its run is never retried.
 //! - After each attempt the tested tree is read again.
+//! - A record directory that cannot be made or listed ends only its attempt (`error`), and a resume listing that
+//!   fails counts no earlier record. The session record is saved after every run; a save that fails three times is a
+//!   warning, and the runs go on.
 //!
 //! **The finish**: the drivers' working directories are removed, the session record
-//! `<scratch>/sessions/<start>/session.json` is written, and the private manifest is rebuilt.
+//! `<scratch>/sessions/<start>/session.json` is written, and the private manifest is rebuilt. An internal error (exit
+//! 4: the session directory or a working directory cannot be made) ends the session at once and skips the finish.
 //!
 //! **`--smoke`**: each run once, outside any window and with no settle, with `--smoke` in place of `--out` under the
 //! smoke budget; no calendar, record, resume, retry or private index, and the session record goes to
@@ -594,8 +598,36 @@ struct Session {
     value: Value,
 }
 
+/// The waits (seconds) between the tries of a session record's save: three tries in all.
+const SAVE_WAITS_SECS: [u64; 2] = [1, 2];
+
 impl Session {
-    fn save(&self) -> Result<(), String> {
+    /// Saves the record ([MP §9.8]). A save that fails is tried again after each of [`SAVE_WAITS_SECS`]; after the
+    /// last try it is a warning, and the session goes on: the records already written, and the next save, keep the
+    /// night.
+    // spec: [MP §9.8] (the finish: the session record)
+    fn save<H: Host + ?Sized>(&self, host: &mut H, out: &mut dyn Write) {
+        let mut e = match self.write() {
+            Ok(()) => return,
+            Err(e) => e,
+        };
+        for wait in SAVE_WAITS_SECS {
+            host.sleep(wait);
+            match self.write() {
+                Ok(()) => return,
+                Err(x) => e = x,
+            }
+        }
+        let _ = writeln!(
+            out,
+            "measure: warning: the session record {} could not be saved after {} tries ({e}); the runs go on",
+            self.path.display(),
+            SAVE_WAITS_SECS.len() + 1
+        );
+    }
+
+    /// Writes the record through a temporary file beside it.
+    fn write(&self) -> Result<(), String> {
         let tmp = self.path.with_extension("json.tmp");
         let text = serde_json::to_string_pretty(&self.value).map_err(|e| e.to_string())?;
         std::fs::write(&tmp, text + "\n").map_err(|e| format!("{}: {e}", tmp.display()))?;
@@ -751,7 +783,7 @@ fn attempt<H: Host + ?Sized>(
     k: u32,
     m_deadline: i64,
     out: &mut dyn Write,
-) -> Result<Attempt, String> {
+) -> Attempt {
     let t0 = host.now();
     let _ = writeln!(
         out,
@@ -773,10 +805,7 @@ fn attempt<H: Host + ?Sized>(
     {
         Err(e) => {
             j["guard"] = json!({ "error": e });
-            return Ok(stopped(
-                j,
-                format!("the guard failed (it fails closed): {e}"),
-            ));
+            return stopped(j, format!("the guard failed (it fails closed): {e}"));
         }
         Ok(v) => {
             j["guard"] = v.json.clone();
@@ -787,11 +816,12 @@ fn attempt<H: Host + ?Sized>(
                     .map(|r| format!("{}: {}", r.kind, r.detail))
                     .collect::<Vec<_>>()
                     .join("; ");
-                return Ok(stopped(j, format!("the guard refused: {why}")));
+                return stopped(j, format!("the guard refused: {why}"));
             }
         }
     }
-    // A smoke run writes no record, so nothing under /private/ is made or listed.
+    // A smoke run writes no record, so nothing under /private/ is made or listed. Making and listing the record
+    // directory before the driver is one step; if it fails, the attempt ends as an error and the session goes on.
     let dir = cx.env.out(m.n);
     let list = |dir: &Path| {
         if cx.smoke {
@@ -800,10 +830,32 @@ fn attempt<H: Host + ?Sized>(
             record::list(dir)
         }
     };
-    if !cx.smoke {
-        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
-    }
-    let before = list(&dir)?;
+    let made = if cx.smoke {
+        Ok(())
+    } else {
+        std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))
+    };
+    let before = match made.and_then(|()| list(&dir)) {
+        Ok(before) => before,
+        Err(e) => {
+            let why = [format!(
+                "the record directory could not be made or listed: {e}"
+            )];
+            j["ended"] = json!(utc::rfc3339(host.now()));
+            j["outcome"] = json!(Outcome::Error.as_str());
+            j["exit_code"] = Value::Null;
+            j["records"] = json!([]);
+            j["why"] = json!(why);
+            let _ = writeln!(out, "measure: {}/{q} error: {}", m.n, why[0]);
+            return Attempt {
+                outcome: Some(Outcome::Error),
+                json: j,
+                stop: None,
+                started: false,
+                snapshot_only: false,
+            };
+        }
+    };
     let cmd = driver_cmd(cx.env, cx.plan, m, q, &cx.commit, &cx.toolchain, cx.smoke);
     let log = format!("{}.{q}.{k}.log", m.n);
     let start = host.now();
@@ -835,13 +887,20 @@ fn attempt<H: Host + ?Sized>(
     );
     let unstoppable = unstoppable.borrow_mut().take();
     let end = host.now();
-    let after = list(&dir)?;
-    let touched = record::changed(&before, &after);
-    let added: Vec<String> = after
-        .keys()
-        .filter(|n| !before.contains_key(*n) && record::record_name(n, q))
-        .cloned()
-        .collect();
+    // A listing after the driver that fails ends the attempt as an error: no record is judged, and no record is checked
+    // for a change during it; the next attempt's listing is a new baseline ([MP §9.8]).
+    let after = list(&dir);
+    let (touched, added) = match &after {
+        Ok(after) => (
+            record::changed(&before, after),
+            after
+                .keys()
+                .filter(|n| !before.contains_key(*n) && record::record_name(n, q))
+                .cloned()
+                .collect::<Vec<String>>(),
+        ),
+        Err(_) => (Vec::new(), Vec::new()),
+    };
     let stop_why = |at: i64| {
         if at == cx.deadline {
             (
@@ -907,9 +966,15 @@ fn attempt<H: Host + ?Sized>(
     };
     // A process tree that could not be stopped makes the attempt an error, whatever ended it, and stops the session
     // below, so its run is never retried beside it.
-    let (outcome, why) = match &unstoppable {
-        Some(e) => (Outcome::Error, vec![format!("{TREE_UNSTOPPABLE}: {e}")]),
-        None => (outcome, why),
+    let (outcome, why) = match (&unstoppable, &after) {
+        (Some(e), _) => (Outcome::Error, vec![format!("{TREE_UNSTOPPABLE}: {e}")]),
+        (None, Err(e)) => (
+            Outcome::Error,
+            vec![format!(
+                "the record directory could not be listed after the run: {e}"
+            )],
+        ),
+        (None, Ok(_)) => (outcome, why),
     };
     let snapshot_only = outcome == Outcome::NotExitGrade && why == [record::SNAPSHOT_CHANGED];
     j["ended"] = json!(utc::rfc3339(end));
@@ -956,13 +1021,13 @@ fn attempt<H: Host + ?Sized>(
         j["tree_changed"] = change;
         stop.get_or_insert(format!("the tested tree changed during {}/{q}", m.n));
     }
-    Ok(Attempt {
+    Attempt {
         outcome: Some(outcome),
         json: j,
         stop,
         started: true,
         snapshot_only,
-    })
+    }
 }
 
 /// `measure run` ([MP §9.8]): the pre-checks, then the plan's runs inside the current agent-free window, and the
@@ -1032,7 +1097,7 @@ pub fn run<H: Host + ?Sized>(
             "manifest": null,
         }),
     };
-    ses.save()?;
+    ses.save(host, out);
     match pre.window {
         Some(w) => {
             let _ = writeln!(
@@ -1084,18 +1149,32 @@ pub fn run<H: Host + ?Sized>(
                 r["status"] = json!("not-run");
                 r["reason"] = json!(why);
                 ses.push_run(r);
-                ses.save()?;
+                ses.save(host, out);
                 continue;
             }
-            // Resume: a run with an exit-grade record of the measured commit is done.
-            if !smoke && let Some(name) = done_before(&env.out(m.n), m.n, q, &cx.commit)? {
-                let _ = writeln!(out, "measure: {}/{q} done-before: {name}", m.n);
-                r["status"] = json!("done-before");
-                r["record"] = json!(name);
-                good += 1;
-                ses.push_run(r);
-                ses.save()?;
-                continue;
+            // Resume: a run with an exit-grade record of the measured commit is done. A listing that fails counts no
+            // earlier record, as `check` reads it.
+            if !smoke {
+                match done_before(&env.out(m.n), m.n, q, &cx.commit) {
+                    Ok(Some(name)) => {
+                        let _ = writeln!(out, "measure: {}/{q} done-before: {name}", m.n);
+                        r["status"] = json!("done-before");
+                        r["record"] = json!(name);
+                        good += 1;
+                        ses.push_run(r);
+                        ses.save(host, out);
+                        continue;
+                    }
+                    Ok(None) => {}
+                    Err(e) => {
+                        let _ = writeln!(
+                            out,
+                            "measure: {}/{q}: the earlier records could not be listed ({e}); the run is made as if there were none",
+                            m.n
+                        );
+                        r["resume_error"] = json!(e);
+                    }
+                }
             }
             if !work_made {
                 // Made empty before the measurement's first attempt; kept across its runs and retries.
@@ -1110,7 +1189,7 @@ pub fn run<H: Host + ?Sized>(
             let mut cool_down = None;
             loop {
                 k += 1;
-                let mut a = attempt(host, &cx, m, q, k, m_deadline, out)?;
+                let mut a = attempt(host, &cx, m, q, k, m_deadline, out);
                 if let Some(secs) = cool_down.take() {
                     a.json["cool_down_secs"] = json!(secs);
                 }
@@ -1182,13 +1261,13 @@ pub fn run<H: Host + ?Sized>(
                 }
             }
             ses.push_run(r);
-            ses.save()?;
+            ses.save(host, out);
         }
         if work_made {
             let _ = std::fs::remove_dir_all(&work);
         }
     }
-    finish(host, &cx, &mut ses, stopped, good, out)?;
+    finish(host, &cx, &mut ses, stopped, good, out);
     Ok(if refused_first {
         EXIT_REFUSED
     } else if ses.value["verdict"] == "pass" {
@@ -1209,7 +1288,7 @@ fn finish<H: Host + ?Sized>(
     stopped: Option<String>,
     good: usize,
     out: &mut dyn Write,
-) -> Result<(), String> {
+) {
     let work = cx.env.scratch(cx.plan).join(WORK);
     if work.exists()
         && let Err(e) = std::fs::remove_dir_all(&work)
@@ -1251,7 +1330,7 @@ fn finish<H: Host + ?Sized>(
     } else {
         json!("not rebuilt")
     };
-    ses.save()?;
+    ses.save(host, out);
     let _ = writeln!(
         out,
         "measure: {} ({good} of {runs} runs {}{}); session record {}",
@@ -1262,7 +1341,6 @@ fn finish<H: Host + ?Sized>(
             .unwrap_or_default(),
         ses.path.display()
     );
-    Ok(())
 }
 
 /// Resolves the environment: `/private/` and the target root as `xtask nightly` finds them, the calendar and the
@@ -2475,12 +2553,21 @@ quantities = ["d"]
         );
     }
 
+    /// A test's look at a host call.
+    type Hook = Box<dyn FnMut()>;
+
     /// [`FakeHost`] for the tests of the runner's failure paths. With `stuck`, every driver's `kill_tree` fails, as the
     /// real stop fails when a driver has not exited a minute after `taskkill`, and is counted in `kills`.
+    /// `on_capture` runs before each guard capture with its number (from 1), `on_sleep` before each sleep and
+    /// `on_tree` before each read of the tested tree.
     struct Hooked {
         h: FakeHost,
         stuck: bool,
         kills: Rc<Cell<u32>>,
+        captures: usize,
+        on_capture: Option<Box<dyn FnMut(usize)>>,
+        on_sleep: Option<Hook>,
+        on_tree: Option<Hook>,
     }
 
     fn hooked(h: FakeHost) -> Hooked {
@@ -2488,6 +2575,10 @@ quantities = ["d"]
             h,
             stuck: false,
             kills: Rc::new(Cell::new(0)),
+            captures: 0,
+            on_capture: None,
+            on_sleep: None,
+            on_tree: None,
         }
     }
 
@@ -2512,6 +2603,9 @@ quantities = ["d"]
             self.h.now()
         }
         fn sleep(&mut self, secs: u64) {
+            if let Some(f) = self.on_sleep.as_mut() {
+                f();
+            }
             self.h.sleep(secs)
         }
         fn spawn(&mut self, cmd: &Cmd, log: &Path) -> Result<Box<dyn Proc>, String> {
@@ -2526,9 +2620,16 @@ quantities = ["d"]
             })
         }
         fn capture(&mut self, cmd: &Cmd, timeout_secs: u64) -> Result<Captured, String> {
+            self.captures += 1;
+            if let Some(f) = self.on_capture.as_mut() {
+                f(self.captures);
+            }
             self.h.capture(cmd, timeout_secs)
         }
         fn tree(&mut self, repo: &Path) -> Result<Tree, String> {
+            if let Some(f) = self.on_tree.as_mut() {
+                f();
+            }
             self.h.tree(repo)
         }
     }
@@ -2608,6 +2709,188 @@ quantities = ["d"]
             s["runs"][0]["attempts"][0]["tree_changed"]["tracked_changes"], 1,
             "{s}"
         );
+    }
+
+    #[test]
+    fn a_failed_session_save_is_retried_then_a_warning() {
+        let d = TestDir::new("measure-run-save");
+        let plan = plan();
+        let env = env(&d, &plan);
+        let tmp = env
+            .scratch(&plan)
+            .join(SESSIONS)
+            .join(utc::compact(at(NOW)))
+            .join("session.json.tmp");
+        // From the first driver's start a directory stands where the save writes its temporary file: every later save
+        // fails three times, with waits of 1 s and 2 s, and warns; the runs go on, and every record is written.
+        let mut h = hooked(FakeHost::new(at(NOW)));
+        fake_driver(&mut h.h, &[]);
+        for _ in 0..3 {
+            h.h.scripts.push_back(runs(60, 0));
+        }
+        let mut driver = h.h.on_spawn.take().unwrap();
+        let t = tmp.clone();
+        h.h.on_spawn = Some(Box::new(move |c: &Cmd| {
+            std::fs::create_dir_all(&t).unwrap();
+            driver(c);
+        }));
+        let (code, text) = run_hooked(&mut h, &env, &plan);
+        assert_eq!(code, Ok(EXIT_PASS), "{text}");
+        // Three runs and the finish.
+        assert_eq!(
+            text.matches("measure: warning: the session record ")
+                .count(),
+            4,
+            "{text}"
+        );
+        assert!(
+            text.contains("could not be saved after 3 tries ("),
+            "{text}"
+        );
+        assert_eq!(h.h.slept, 900 + 3 * 60 + 4 * (1 + 2), "{text}");
+        assert!(
+            text.contains("measure: PASS (3 of 3 runs exit-grade)"),
+            "{text}"
+        );
+        assert_eq!(record::list(&env.out(14)).unwrap().len(), 2);
+        assert_eq!(record::list(&env.out(6)).unwrap().len(), 1);
+        // The session record holds what the first save wrote.
+        assert_eq!(session(&env, &plan, at(NOW))["runs"], json!([]));
+        std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        std::fs::remove_dir_all(env.private.join(MEASUREMENTS)).unwrap();
+        // A save that fails once: its obstacle is made at the first tree read, after the first attempt, and removed at
+        // the next sleep, which is that save's first wait. The second try saves, and nothing warns.
+        let mut h = hooked(FakeHost::new(at(NOW)));
+        fake_driver(&mut h.h, &[]);
+        for _ in 0..3 {
+            h.h.scripts.push_back(runs(60, 0));
+        }
+        let armed = Rc::new(Cell::new(false));
+        let (t, a, trees) = (tmp.clone(), armed.clone(), Rc::new(Cell::new(0)));
+        h.on_tree = Some(Box::new(move || {
+            trees.set(trees.get() + 1);
+            if trees.get() == 1 {
+                std::fs::create_dir_all(&t).unwrap();
+                a.set(true);
+            }
+        }));
+        let t = tmp.clone();
+        h.on_sleep = Some(Box::new(move || {
+            if armed.replace(false) {
+                std::fs::remove_dir(&t).unwrap();
+            }
+        }));
+        let (code, text) = run_hooked(&mut h, &env, &plan);
+        assert_eq!(code, Ok(EXIT_PASS), "{text}");
+        assert!(!text.contains("warning"), "{text}");
+        assert_eq!(h.h.slept, 900 + 3 * 60 + 1, "{text}");
+        let s = session(&env, &plan, at(NOW));
+        assert_eq!(statuses(&s).len(), 3, "{s}");
+        assert_eq!(s["verdict"], "pass");
+    }
+
+    #[test]
+    fn a_failed_listing_ends_only_its_attempt() {
+        let d = TestDir::new("measure-run-listing");
+        let plan = plan();
+        let env = env(&d, &plan);
+        // The first driver writes its record and then leaves a file where measurement 14's record directory was, so
+        // the listing after it fails; the retry's guard puts the directory back.
+        let mut h = hooked(FakeHost::new(at(NOW)));
+        fake_driver(&mut h.h, &[]);
+        for _ in 0..4 {
+            h.h.scripts.push_back(runs(60, 0));
+        }
+        let mut driver = h.h.on_spawn.take().unwrap();
+        let (o, back) = (env.out(14), env.out(14));
+        let mut first = true;
+        h.h.on_spawn = Some(Box::new(move |c: &Cmd| {
+            driver(c);
+            if std::mem::take(&mut first) {
+                std::fs::remove_dir_all(&o).unwrap();
+                std::fs::write(&o, b"not a directory").unwrap();
+            }
+        }));
+        h.on_capture = Some(Box::new(move |n| {
+            if n == 2 {
+                std::fs::remove_file(&back).unwrap();
+                std::fs::create_dir_all(&back).unwrap();
+            }
+        }));
+        let (code, text) = run_hooked(&mut h, &env, &plan);
+        assert_eq!(code, Ok(EXIT_PASS), "{text}");
+        let s = session(&env, &plan, at(NOW));
+        let a = &s["runs"][0]["attempts"];
+        assert_eq!(a[0]["outcome"], "error", "{a}");
+        assert!(
+            a[0]["why"][0]
+                .as_str()
+                .unwrap()
+                .starts_with("the record directory could not be listed after the run: "),
+            "{a}"
+        );
+        // No record is judged, and no record is checked for a change during that attempt.
+        assert_eq!(a[0]["records"], json!([]), "{a}");
+        assert_eq!(a[0].get("records_changed"), None, "{a}");
+        assert_eq!(a[1]["outcome"], "exit-grade", "{a}");
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/csr.1e5", "exit-grade"),
+                ("14/t1.read", "exit-grade"),
+                ("6/lz4.encode", "exit-grade"),
+            ])
+        );
+        assert_eq!(h.h.spawned.len(), 4);
+    }
+
+    #[test]
+    fn a_failed_resume_listing_or_directory_ends_only_its_attempts() {
+        let d = TestDir::new("measure-run-unlistable");
+        let plan = plan();
+        let env = env(&d, &plan);
+        // A file stands where measurement 14's record directory belongs: resume cannot list it, and no attempt can make
+        // it. Each run of 14 counts no earlier record, both its attempts end as errors before a driver starts, and
+        // measurement 6 runs.
+        std::fs::create_dir_all(env.private.join(MEASUREMENTS)).unwrap();
+        std::fs::write(env.out(14), b"not a directory").unwrap();
+        let mut h = hooked(FakeHost::new(at(NOW)));
+        fake_driver(&mut h.h, &[]);
+        h.h.scripts.push_back(runs(60, 0));
+        let (code, text) = run_hooked(&mut h, &env, &plan);
+        assert_eq!(code, Ok(EXIT_FAIL), "{text}");
+        let s = session(&env, &plan, at(NOW));
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/csr.1e5", "error"),
+                ("14/t1.read", "error"),
+                ("6/lz4.encode", "exit-grade"),
+            ])
+        );
+        for r in &s["runs"].as_array().unwrap()[..2] {
+            assert!(r["resume_error"].is_string(), "{r}");
+            let a = r["attempts"].as_array().unwrap();
+            assert_eq!(a.len(), 2, "{r}");
+            for x in a {
+                assert_eq!(x["outcome"], "error", "{x}");
+                assert!(
+                    x["why"][0]
+                        .as_str()
+                        .unwrap()
+                        .starts_with("the record directory could not be made or listed: "),
+                    "{x}"
+                );
+                // No driver command: none started.
+                assert_eq!(x.get("command"), None, "{x}");
+            }
+        }
+        assert!(
+            text.contains("measure: 14/csr.1e5: the earlier records could not be listed ("),
+            "{text}"
+        );
+        // Only measurement 6's driver started, and every attempt had its guard.
+        assert_eq!((h.h.spawned.len(), h.h.captured.len()), (1, 5));
     }
 
     /// Writes a record into `/private/measurements/<n>/` before a session.

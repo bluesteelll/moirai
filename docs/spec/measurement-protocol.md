@@ -896,7 +896,8 @@ operational policy with a reviewed default (AGENTS.md):
 - **Resume.** Before a run, every `<quantity>.idle.<start>.json` in `/private/measurements/<n>/` is judged as the record
   bullet below says. When one is exit-grade and names the measured commit, the run is `done-before` and nothing starts.
   Records of other commits and records that are not exit-grade stay raw data and do not count. Starting the runner
-  again after a crash is the resume; retries count per invocation.
+  again after a crash is the resume; retries count per invocation. If `/private/measurements/<n>/` cannot be listed,
+  the run counts no earlier record, as `check` does, and its entry in the session record says why (`resume_error`).
 - **The guard before each attempt.** The runner runs `guard --volume <scratch> --ram-floor <b> --disk-floor <b>`
   (§8.2), with no `--dir`. A refusal, or a guard that fails (it fails closed, §8.1), stops the session. Before any
   driver ran, that is exit 3; later, the remaining runs are `not-run` and the session fails. No guard runs while a
@@ -935,6 +936,11 @@ operational policy with a reviewed default (AGENTS.md):
 
   The runner reads only these fields; the framework's full read-back (§7.3) stays the framework's. The runner judges
   run records only: a measurement whose driver writes idle observations (§4.7) is not one it runs.
+
+  If the directory cannot be made or listed before the driver starts, or cannot be listed after it, the attempt ends
+  as `error` and the session goes on: the run is retried like any `error`. After a failed listing after the driver, no
+  record is judged and no file is checked for a change during that attempt (`record-changed` below), so a record that
+  changed then goes unseen, and the next attempt's listing is a new baseline.
 - **One retry.** A run whose first attempt is not exit-grade gets one more attempt, with its own guard, unless that
   attempt is `budget-ended` or `window-ended`. A run stopped at its own run budget is retried, and so is a driver that
   could not be started. A retry is made only while time is left before both the measurement's budget and the window's
@@ -947,8 +953,8 @@ operational policy with a reviewed default (AGENTS.md):
     retry is not protected by the wait; the checks of §2.3 after the night decide it.
   - Any other retry is made at once, so that the plan keeps its order, with the measurements that decide bytes first.
 - **Records are never touched.**
-  - The runner creates `/private/measurements/<n>/` when it is missing. Under `/private/` it writes nothing else but
-    the private manifest.
+  - The runner creates `/private/measurements/<n>/` when it is missing; a creation that fails ends only its attempt
+    (the record bullet above). Under `/private/` it writes nothing else but the private manifest.
   - After each attempt, every file listed before the attempt must still exist with its length and modification time.
     If one does not, the session stops and fails (`record-changed`; §7.2).
 - **The tree.** After each attempt the runner reads the tree again. A moved `HEAD` or branch, or a changed tracked
@@ -956,7 +962,8 @@ operational policy with a reviewed default (AGENTS.md):
 - **The finish.** After the last run, or after a stop, the runner removes `<scratch>/work/`, writes the session record
   and rebuilds the private manifest (`cargo xtask private index`).
   - The session record is `<scratch>/sessions/<start>/session.json`, schema `moirai-xtask/measure-session/1`. It is
-    rewritten after every run. It holds the plan, the window, the commit, the toolchain, every run's status and
+    rewritten after every run. A save that fails is tried twice more, after 1 s and 2 s; then the runner prints a
+    warning, and the runs go on. It holds the plan, the window, the commit, the toolchain, every run's status and
     attempts with their guard outputs, and the verdict.
   - It lives outside `/private/`, so it adds nothing to the private manifest.
   - The runner asserts `commit` and `toolchain` on the drivers' command lines and does not check them against the
@@ -988,7 +995,10 @@ settle, under `smoke-budget-minutes`, with `--smoke` in place of `--out`.
 **Not detected.** The runner checks neither the nightly runner's lock nor builds in the lane target directories. The
 window is agreed agent-free, and no nightly run, build or agent session is started in it.
 
-Exit codes: 0 pass, 1 fail, 2 usage error, 3 refused, 4 internal error.
+Exit codes: 0 pass, 1 fail, 2 usage error, 3 refused, 4 internal error. Exit 4 inside a session (its directory, or a
+working directory, cannot be made or emptied) ends the session at once and skips the finish: the records already
+written stay, `<scratch>/work/` and the session record stay as they are, and the private manifest is not rebuilt.
+Starting the runner again resumes the night, and `cargo xtask private index` rebuilds the manifest.
 
 ## Coverage
 
