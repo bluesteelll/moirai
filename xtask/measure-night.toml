@@ -41,7 +41,7 @@ driver = "m1"
 title = "the CLI commit cycle on a 64 MiB log: open, append, data-only flush, close, with its data-only-flush floor"
 run-budget-minutes = 20
 budget-minutes = 25
-quantities = []
+quantities = ["cycle.e64mib", "close.e64mib"]
 
 [[measurement]]
 n = 14
@@ -65,7 +65,20 @@ driver = "m2"
 title = "16 writer processes on the overlapped lock: last ack, flushes per burst, fairness and the flush-byte hand-off"
 run-budget-minutes = 70
 budget-minutes = 85
-quantities = []
+quantities = [
+    "last-ack.c100",
+    "last-ack.a100",
+    "writer-wait.c100",
+    "flushes.c100",
+    "last-ack.c0",
+    "last-ack.c50",
+    "fairness.c100",
+    "handoff.c100",
+    "writer-wait.c0",
+    "flushes.c0",
+    "fairness.c0",
+    "handoff.c0",
+]
 
 [[measurement]]
 n = 10

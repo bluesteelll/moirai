@@ -2,8 +2,9 @@
 # Binaries only: it holds src/bin/*.rs wiring and nothing else. Allowed dependencies: moirai-probes, moirai-os,
 # moirai-toylog, moirai-harness-stub. Excluded from the GT20 (e) cross-target set and checked with
 # `cargo check -p moirai-probes-bin --locked --target x86_64-pc-windows-msvc`. No checked crate may depend on it.
-# Written by R-HARN: WP-50 adds `guard`, WP-51 `loadgen` and `noise`, WP-53d `m10`, WP-53e `m14`; the other binaries
-# (`peak`, `probe-p7`, the other measurement drivers) arrive with the work packages that need them.
+# Written by R-HARN: WP-50 adds `guard` and `aggregate`, WP-51 `loadgen` and `noise`, WP-52 `m1` and `m2`, WP-53d
+# `m10`, WP-53e `m14`; the other binaries (`peak`, `probe-p7`, the other measurement drivers) arrive with the work
+# packages that need them.
 [package]
 name = "moirai-probes-bin"
 version.workspace = true
@@ -43,6 +44,31 @@ bench = false
 [[bin]]
 name = "noise"
 path = "src/bin/noise.rs"
+test = false
+bench = false
+
+# A measurement's committed aggregate, docs/measurements/m0/<n>.md, rendered from its records
+# (docs/spec/measurement-protocol.md §7.4).
+[[bin]]
+name = "aggregate"
+path = "src/bin/aggregate.rs"
+test = false
+bench = false
+
+# Measurement 1's driver: the CLI commit cycle on a 64 MiB log with its data-only-flush floor, and the close
+# (docs/m0/PLAN.md §3.2 WP-52; docs/spec/measurement-protocol.md §9.7).
+[[bin]]
+name = "m1"
+path = "src/bin/m1.rs"
+test = false
+bench = false
+
+# Measurement 2's driver: 16 child writers (itself with --writer) in bursts on the toy log: last acknowledgement,
+# flushes, fairness, the flush-byte hand-off and T2's writer wait (docs/m0/PLAN.md §3.2 WP-52;
+# docs/spec/measurement-protocol.md §9.7).
+[[bin]]
+name = "m2"
+path = "src/bin/m2.rs"
 test = false
 bench = false
 
