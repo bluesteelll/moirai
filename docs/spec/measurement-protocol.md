@@ -473,7 +473,9 @@ do not set aside. A run that is not exit-grade, or is set aside, is still kept a
 Aggregates go to `docs/measurements/m0/<n>.md`, one file per measurement ([PLAN §3.2] item 5), and later milestones
 use `docs/measurements/<milestone>/<n>.md`. An aggregate holds, for every run: its condition, host kind, Windows
 version, Defender versions and real-time state, toolchain, the first 12 hex digits of the commit, its start time,
-validity and exit grade; for every arm of a run record: the quantity, the arm, the unit, the gate tier, n × repetitions,
+validity and exit grade, and for a run record its process readings of §4.6, `private_peak` and `heap_high_water`, each
+in bytes or `none` where the record holds null (an idle observation has no process readings, and its cell is empty);
+for every arm of a run record: the quantity, the arm, the unit, the gate tier, n × repetitions,
 the batch, the medians over the repetitions of p50, p95, p99 and the maximum, the gated statistic's median and its
 spread over the repetitions; for every idle observation: the CPU-time and context-switch deltas of its three windows
 and whether the gate holds; and the disqualifications of every run that is not exit-grade. It holds no samples, no

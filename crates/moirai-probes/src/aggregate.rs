@@ -2,15 +2,16 @@
 //!
 //! An aggregate holds summaries only: no samples, no paths, and no user name, host name, volume serial, machine GUID,
 //! `BootId` or process command line (the pre-commit scrub refuses them, `docs/m0/PLAN.md` §3.2 WP-03). The run
-//! records it is rendered from carry none of those either ([MP §7.1]).
+//! records it is rendered from carry none of those either ([MP §7.1]). Beside each run record's gates it shows the
+//! probe process's own readings, `private_peak` and `heap_high_water` ([MP §4.6]).
 //!
 //! [`cli`] is `moirai-probes-bin aggregate` (WP-50): it reads a measurement's records from files and directories and
 //! renders its aggregate with [`render`].
 
 use crate::host::{HostRecord, HostSnapshot};
 use crate::idle::{IDLE_SCHEMA, IdleRecord, IdleWindow};
-use crate::record::{Header, RUN_SCHEMA, RunRecord};
-use crate::units::{format_ns, format_value};
+use crate::record::{Header, ProcessReadings, RUN_SCHEMA, RunRecord};
+use crate::units::{Unit, format_ns, format_value};
 use serde_json::Value;
 use std::ffi::OsString;
 use std::fmt::Write as _;
@@ -60,13 +61,21 @@ fn host_cells(h: &HostRecord) -> (String, String) {
     (w, d)
 }
 
-/// One row of the runs table.
-fn run_row(w: &mut String, i: usize, h: &Header<'_>, valid: bool, exit_grade: bool) {
+/// The process-readings cell of a run record ([MP §4.6], §7.4): `<private_peak> / <heap_high_water>`, each in bytes
+/// or `none` where the record holds null.
+fn process_cell(p: &ProcessReadings) -> String {
+    let v = |x: Option<u64>| x.map_or_else(|| "none".to_string(), |b| format_value(Unit::Bytes, b));
+    format!("{} / {}", v(p.private_peak), v(p.heap_high_water))
+}
+
+/// One row of the runs table. `process` is the process-readings cell: [`process_cell`] for a run record, empty for an
+/// idle observation, which has no process readings ([MP §7.1]).
+fn run_row(w: &mut String, i: usize, h: &Header<'_>, valid: bool, exit_grade: bool, process: &str) {
     let (win, def) = host_cells(h.host);
     let commit: String = h.commit.chars().take(12).collect();
     let _ = writeln!(
         w,
-        "| {i} | {} | {} | {} | {win} | {def} | {} | {} | {} | {} | {} |",
+        "| {i} | {} | {} | {} | {win} | {def} | {} | {} | {} | {} | {} | {process} |",
         cell(h.quantity),
         h.condition.kind().as_str(),
         h.host.kind.as_str(),
@@ -121,11 +130,18 @@ pub fn render(
     let _ = writeln!(w);
     let _ = writeln!(
         w,
-        "| Run | Quantity | Condition | Host | Windows | Defender (product / engine / signatures) | Toolchain | Commit | Started (UTC) | Valid | Exit grade |"
+        "| Run | Quantity | Condition | Host | Windows | Defender (product / engine / signatures) | Toolchain | Commit | Started (UTC) | Valid | Exit grade | Process readings (private peak / heap high water) |"
     );
-    let _ = writeln!(w, "|---|---|---|---|---|---|---|---|---|---|---|");
+    let _ = writeln!(w, "|---|---|---|---|---|---|---|---|---|---|---|---|");
     for (i, r) in records.iter().enumerate() {
-        run_row(w, i + 1, &r.header(), r.valid(), r.exit_grade());
+        run_row(
+            w,
+            i + 1,
+            &r.header(),
+            r.valid(),
+            r.exit_grade(),
+            &process_cell(&r.process),
+        );
     }
     for (i, r) in idle.iter().enumerate() {
         run_row(
@@ -134,6 +150,16 @@ pub fn render(
             &r.header(),
             r.valid(),
             r.exit_grade(),
+            "",
+        );
+    }
+    if !records.is_empty() {
+        let _ = writeln!(w);
+        let _ = writeln!(
+            w,
+            "Process readings are the probe process's own at the end of the run ([MP §4.6]): its peak private bytes \
+             since it started, and the heap high-water mark since the runner reset it before the pilot; `none` where \
+             the record holds no reading."
         );
     }
     if !idle.is_empty() {
@@ -447,7 +473,13 @@ mod tests {
         b.arms[1].batch = 3;
         let text = render(11, "physical floors", &[a.clone(), b], &[], "").unwrap();
         assert!(text.starts_with("# Measurement 11: physical floors\n"));
-        assert!(text.contains("| 1 | spawn.empty | idle | laptop | 10.0.26200.6584 | 4.18.25080.5 / 1.1.25080.4 / 1.437.82.0, real-time on | 1.98.1 | 0123456789ab | 2026-10-04T09:30:00Z | yes | yes |"), "{text}");
+        assert!(text.contains("| 1 | spawn.empty | idle | laptop | 10.0.26200.6584 | 4.18.25080.5 / 1.1.25080.4 / 1.437.82.0, real-time on | 1.98.1 | 0123456789ab | 2026-10-04T09:30:00Z | yes | yes | 3100000 B / none |\n"), "{text}");
+        assert!(
+            text.contains(
+                "\nProcess readings are the probe process's own at the end of the run ([MP §4.6])"
+            ),
+            "{text}"
+        );
         assert!(text.contains("| 1 | op | ns | t4 | 20 × 3 | 1 | 2.009 s | 2.018 s | 2.019 s | 2.019 s | max 2.019 s | max 2 ns |"), "{text}");
         assert!(text.contains("- Run 2: host kind hosted never decides."));
         assert!(text.contains("batch means"));
@@ -473,9 +505,17 @@ mod tests {
         busy.windows[2].context_switches = Err("ETW session lost".into());
         busy.reasons = crate::idle::window_reasons(&busy.windows);
         let text = render(19, "MCP server", &[], &[quiet, busy], "").unwrap();
+        let row = text
+            .lines()
+            .find(|l| l.starts_with("| 1 | idle-cpu.mcp | idle | laptop |"))
+            .unwrap_or_else(|| panic!("{text}"));
         assert!(
-            text.contains("| 1 | idle-cpu.mcp | idle | laptop |"),
-            "{text}"
+            row.ends_with("| yes | yes |  |"),
+            "an empty process cell: {row}"
+        );
+        assert!(
+            !text.contains("Process readings are"),
+            "no run record, no process sentence"
         );
         assert!(
             text.contains("| 1 | idle-cpu.mcp | 0 ns, 0 ns, 0 ns | 0, 0, 0 | yes |"),
@@ -561,6 +601,7 @@ mod tests {
         for element in [
             "# Measurement 11: t\n",
             "## Runs",
+            "| Exit grade | Process readings (private peak / heap high water) |",
             "| 1 | spawn.empty | idle | laptop |",
             "| 2 | spawn.empty | idle | hosted |",
             "## Idle CPU",
@@ -692,6 +733,78 @@ mod tests {
         }
         let (code, out, _) = run(&os(&["--help"]));
         assert_eq!((code, out.as_str()), (0, AGGREGATE_USAGE));
+        let _ = std::fs::remove_dir_all(&dir);
+    }
+
+    /// The runs table's last column holds a run record's process readings ([MP §4.6]), `private_peak` and then
+    /// `heap_high_water`, each in bytes or `none`; an idle observation's cell is empty; a sentence under the table
+    /// says what the readings are.
+    #[test]
+    fn runs_table_shows_the_process_readings() {
+        use crate::record::ProcessReadings;
+        let dir = crate::testkit::scratch_dir("aggregate-process");
+        let a = sample_record();
+        let mut b = sample_record();
+        b.process = ProcessReadings {
+            private_peak: None,
+            heap_high_water: Some(1_200_000),
+        };
+        let mut c = sample_record();
+        c.process = ProcessReadings {
+            private_peak: Some(4_000_000),
+            heap_high_water: Some(1_500_000),
+        };
+        let mut idle = sample_idle();
+        idle.measurement = 11;
+        put(&dir.join("a.json"), &a.to_json());
+        put(&dir.join("b.json"), &b.to_json());
+        put(&dir.join("c.json"), &c.to_json());
+        put(&dir.join("d-idle.json"), &idle.to_json());
+        let (code, out, err) = run(&os(&[
+            "--measurement",
+            "11",
+            "--title",
+            "t",
+            dir.to_str().unwrap(),
+        ]));
+        assert_eq!(code, 0, "{err}");
+        let row = |start: &str| -> &str {
+            out.lines()
+                .find(|l| l.starts_with(start))
+                .unwrap_or_else(|| panic!("no row {start}: {out}"))
+        };
+        for (start, end) in [
+            (
+                "| 1 | spawn.empty | idle | laptop |",
+                "| yes | yes | 3100000 B / none |",
+            ),
+            (
+                "| 2 | spawn.empty | idle | laptop |",
+                "| yes | yes | none / 1200000 B |",
+            ),
+            (
+                "| 3 | spawn.empty | idle | laptop |",
+                "| yes | yes | 4000000 B / 1500000 B |",
+            ),
+            ("| 4 | idle-cpu.mcp | idle | laptop |", "| yes | yes |  |"),
+        ] {
+            let r = row(start);
+            assert!(r.ends_with(end), "{start} should end {end}: {r}");
+        }
+        assert!(
+            out.contains("| Exit grade | Process readings (private peak / heap high water) |\n"),
+            "{out}"
+        );
+        assert!(
+            out.contains("|---|---|---|---|---|---|---|---|---|---|---|---|\n| 1 | spawn.empty |"),
+            "12 columns: {out}"
+        );
+        assert!(
+            out.contains(
+                "\nProcess readings are the probe process's own at the end of the run ([MP §4.6])"
+            ),
+            "{out}"
+        );
         let _ = std::fs::remove_dir_all(&dir);
     }
 }
