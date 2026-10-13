@@ -28,8 +28,8 @@ composition root `moirai-probes-bin` ([PLAN §2.2], §6.2 R17); the load fixture
 `cargo xtask loadrec`. The measurements themselves and their probe bodies are the later work packages' ([PLAN §3.2]
 item 5). By the owner's decision of 2026-09-29 no measurement is run until the
 owner resumes them ([PLAN §5]), except one measurement night that the owner decided on 2026-10-12. On a date the owner
-names, it runs measurements 14, 6 (its codec half), 1, 2 and 10 idle, with nothing else running on the machine,
-through the session runner of §9.8. Every other measurement stays deferred. This protocol and its framework are written
+names, it runs measurements 14, 6 (its codec half), 1, 2 and 10 under the idle condition of §2.3, through the session
+runner of §9.8. Every other measurement stays deferred. This protocol and its framework are written
 now.
 
 ### 1.2 Normative words and citations
@@ -89,7 +89,7 @@ Each measurement is recorded idle and loaded, as two runs under this protocol ([
 
 | Condition | Definition | Checks the framework makes |
 |---|---|---|
-| **idle** | No user process beyond the OS baseline ([60 §5.1]): the run is made in an agent-free window, with no agent session, build, test, load generator or other measurement running. The driver attests the condition when it starts the run. | `Meter::available_physical` read at every round boundary (§4.3) is ≥ 1.5 GB (the guard's default RAM floor, §8.1; a `--ram-floor` override of the guard does not move it, so a record's reasons can be recomputed when it is read back, §7.3); a reading below it, or a reading that fails, makes the run invalid |
+| **idle** | No user process beyond the OS baseline ([60 §5.1]). The baseline admits only one supervising agent session that makes no tool call while a driver runs, the desktop app it runs in, the window logger of the checks below and the owner's resident applications at rest. The run is made in an agent-free window: no agent works in it, and no other agent session, build, test, load generator, workflow or other measurement runs. The driver attests the condition when it starts the run. | `Meter::available_physical` read at every round boundary (§4.3) is ≥ 1.5 GB (the guard's default RAM floor, §8.1; a `--ram-floor` override of the guard does not move it, so a record's reasons can be recomputed when it is read back, §7.3); a reading below it, or a reading that fails, makes the run invalid |
 | **loaded** | The **16-agent load fixture** — the CPU, disk and memory profile of one real 16-agent campaign of the owner, resource counters only and no content ([60 §5.2] item 16; recorded by `xtask loadrec`, WP-51a) — replayed by `moirai-probes-bin loadgen` (WP-51, §9) on the machine under test, with available physical memory held at 1.8 GB ([60 §5.1]) | every round-boundary reading of `Meter::available_physical` lies in [1.6 GB, 2.0 GB], the tolerance of "≈ 1.8 GB" (open point 5); a reading outside it, or a reading that fails, makes the run invalid |
 | **synthetic** | A load that is not the fixture: the hosted runners' synthetic load of `noise.yml` ([PLAN §3.2] WP-51), described in the record | readings are recorded, not checked |
 
@@ -105,6 +105,21 @@ loaded run can be recorded; a synthetic run never stands in for one.
 
 A hosted runner runs idle or under synthetic load, never loaded (§2.1, §6): the framework refuses a hosted loaded run
 before its pilot, and a record of one when it is read back (§7.3).
+
+**The checks after an unattended night.** The host snapshots (§2.2) see neither a scan, Automatic Maintenance, an
+install nor the power source, and the driver's attestation cannot see the owner come back. So soon after an
+unattended window ends (the session runner's night, §9.8), and before any of its runs decides, each run's
+`started`..`ended` (§7.1) is checked against:
+- the Defender Operational log (`Microsoft-Windows-Windows Defender/Operational`): events 1000, 1001 and 1002 (a scan
+  started, finished or was stopped), 2000 (the definitions were updated) and 5007 (the configuration changed);
+- the WindowsUpdateClient log (`Microsoft-Windows-WindowsUpdateClient/Operational`): installs;
+- the TaskScheduler log of Automatic Maintenance (`Microsoft-Windows-TaskScheduler/Maintenance`);
+- the System log's Kernel-Power event 105 (the power source changed);
+- the window log of a window logger started beside the runner: one line a minute with the time of the last keyboard
+  or mouse input and whether the machine runs on AC power.
+
+A run that overlaps a scan, an install, maintenance, an interval on battery or owner input does not decide, even when it
+is exit-grade (§7.3). The logs are read soon after the night because they roll over.
 
 ## 3. Sample sizes, repetitions and statistics
 
@@ -445,10 +460,13 @@ A run is **exit-grade** when it is valid and all of these hold:
 - its host kind is `laptop`;
 - its condition is idle or loaded (never synthetic);
 - both host snapshots were read, Defender real-time protection is on in both, and the start and end snapshots are
-  equal — a Windows update or a Defender signature update during the run (which starts a scan burst) makes it not
-  exit-grade (open point 10).
+  equal — a Defender product, engine or signature update during the run changes the snapshots and makes it not
+  exit-grade, and a signature update also starts a scan burst (open point 10). The Windows version's revision has been
+  seen to change only at the restart that completes an update (an observation, not a documented rule), so an update
+  that Windows installs during a run leaves the snapshots equal; §2.3's checks after the night catch it.
 
-Only an exit-grade run decides anything (§5, §6). A run that is not exit-grade is still kept as raw data.
+Only an exit-grade run decides anything (§5, §6), and of an unattended night's runs only those that the checks of §2.3
+do not set aside. A run that is not exit-grade, or is set aside, is still kept as raw data.
 
 ### 7.4 Aggregates
 
@@ -998,10 +1016,10 @@ time, memory and Windows-behaviour gates of [60 §3.13] and [60 §5.3]–[60 §5
 | 6 | The design writes budgets in MB and MiB side by side and never defines MB | MB = 10⁶ bytes, MiB = 2²⁰ bytes, each budget read as written; for "≤" budgets the decimal reading is the stricter one | R-REV-P |
 | 7 | "A nightly regression beyond the band blocks" names no baseline | the reference run (M0, then each accepted exit), never the previous night, so a drift of small steps is caught | R-REV-P |
 | 8 | "Below 25 GB free disk counted after the two lane directories and the fuzz and mutants directories" ([PLAN §3.2] WP-05) gives no formula, and "capped directory" ([PLAN §2.1]) gives no cap values | the headroom formula of §8.1, reserving each directory's growth up to its cap; the caps are WP-05's configuration, passed to the guard; a cap equal to the current size reserves nothing | WP-05, R-REV-P |
-| 9 | [PLAN §3.2] item 5 asks for "the Windows build and Defender versions" without naming sources | `ver` (locale-independent token) and `Get-MpComputerStatus` (four properties), §2.2 | R-REV-P |
-| 10 | A Defender signature update during a run starts a scan burst that no protocol row mentions | a change between the start and end snapshots makes the run not exit-grade (§7.3) | R-REV-P |
+| 9 | [PLAN §3.2] item 5 asks for "the Windows build and Defender versions" without naming sources | `ver` (locale-independent token) and `Get-MpComputerStatus` (four properties), §2.2. The snapshots show neither a scan, maintenance, an install nor the power source; after an unattended night the checks of §2.3 read those from the system's logs | R-REV-P |
+| 10 | A Defender signature update during a run starts a scan burst that no protocol row mentions | a change between the start and end snapshots makes the run not exit-grade (§7.3). The snapshots catch Defender version changes only: `ver`'s revision has been seen to change only at a restart, and scans and maintenance are left to the checks of §2.3 after the night | R-REV-P |
 | 11 | Sub-microsecond operations (the `get` budget of 5 µs is 50 ticks of `QueryPerformanceCounter`) approach the timer's resolution | timed batches below 20 × resolution, recorded and stated in the aggregate (§4.5) | R-REV-P |
-| 12 | The idle condition ("no user process beyond the OS baseline") cannot be verified through `Meter` | the driver attests it; the framework checks the available-memory floor at every round boundary | R-REV-P |
+| 12 | The idle condition ("no user process beyond the OS baseline") cannot be verified through `Meter` | the driver attests it; the framework checks the available-memory floor at every round boundary. The baseline admits one supervising agent session that makes no tool call while a driver runs, its desktop app, the window logger and the owner's resident applications at rest; owner input during a run is read from the window log after the night (§2.3) | R-REV-P |
 | 13 | [F01 §2.2] has no citation form for this file, and `docs/spec/README.md` lists it as "planned" with no cite | `[MP §x]` is proposed for [F01 §2.2]; the index row should read `[MP]`, "draft, pass 1 pending" (both files are R-SPEC's) | R-SPEC-F |
 | 14 | The idle-CPU row is one 10-minute observation, which the duration tiers (20 samples × 3 above 1 s) do not fit; read as a `t4` quantity it would need 20 × 3 windows, over 10 hours | outside the tiered runner: an idle observation of three windows, each after a request and 15 s, with its own record `moirai-probes/idle/1`; the gate holds when both maxima over the windows are zero (§4.7, §7.1) | R-REV-P |
 | 15 | [60 §5.1] measures spawn with hyperfine, which takes a whole block per invocation, while the runner samples one value at a time; the pilot of such an arm is not stated | the runner announces every block to its arm, and a bulk arm takes the block then; a spawn arm's pilot is one invocation with `--runs 5` (§4.2, §4.3, §4.9) | R-REV-P |
