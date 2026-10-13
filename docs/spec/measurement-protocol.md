@@ -997,6 +997,21 @@ settle, under `smoke-budget-minutes`, with `--smoke` in place of `--out`.
 
 `check --smoke` prints the smoke command lines.
 
+**Before the night.** One precondition cannot be checked by the runner, since Defender's exclusions cannot be read
+without administrator rights. The owner checks it with those rights before the night, and the session record does not
+carry the answer:
+- no Defender path exclusion covers `scratch`, `bins` or `%TEMP%`. Defender resolves an environment variable in an
+  exclusion as its system account does (`%TEMP%` as `C:\Windows\TEMP`), so an exclusion of the user's own temporary
+  path, written out, counts too;
+- no process exclusion covers a driver or its launcher: the runner, or the program that starts the runner. Defender
+  documents a process exclusion as skipping the files that the process opens, and says nothing of the processes it
+  starts, so the launchers count.
+
+Where an exclusion names `cargo.exe` or a shell, the runner is started as the built `xtask` executable itself, not
+through `cargo xtask` or that shell. Started so, it is in no job object (cargo keeps the processes it starts in one
+that closes with it), so a runner that is killed leaves a running driver behind; as after `tree-unstoppable`, the runner
+is not started again until no process of that driver is left.
+
 **Not detected.** The runner checks neither the nightly runner's lock nor builds in the lane target directories. The
 window is agreed agent-free as §2.3 defines it: no nightly run, build, test or working agent session is started in it,
 and its idle baseline admits only the supervising agent session that makes no tool call while a driver runs, the
