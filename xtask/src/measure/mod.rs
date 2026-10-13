@@ -33,8 +33,8 @@
 //!
 //! **The finish**: the drivers' working directories are removed, the session record
 //! `<scratch>/sessions/<start>/session.json` is written, and the private manifest is rebuilt. The session record names
-//! the processes resident at the session's start and end ([`residents`]). An internal error (exit
-//! 4: the session directory or a working directory cannot be made) ends the session at once and skips the finish.
+//! the processes resident at the session's start and end ([`residents`]). An internal error (exit 4: the session
+//! directory or a working directory cannot be made) ends the session at once and skips the finish.
 //!
 //! **`--smoke`**: each run once, outside any window and with no settle, with `--smoke` in place of `--out` under the
 //! smoke budget; no calendar, record, resume, retry or private index, and the session record goes to
@@ -970,7 +970,7 @@ fn attempt<H: Host + ?Sized>(
         Ended::Stopped(e) | Ended::Error(e) => (Outcome::Error, None, vec![e]),
     };
     // A process tree that could not be stopped makes the attempt an error, whatever ended it, and stops the session
-    // below, so its run is never retried beside it.
+    // below, so its run is never retried beside it. Otherwise a listing after the driver that failed makes it an error.
     let (outcome, why) = match (&unstoppable, &after) {
         (Some(e), _) => (Outcome::Error, vec![format!("{TREE_UNSTOPPABLE}: {e}")]),
         (None, Err(e)) => (
@@ -2526,8 +2526,7 @@ quantities = ["d"]
             (None, &json!(900))
         );
         assert!(
-            text.contains("measure: 14/csr.1e5: the host snapshot changed during the run; cooling down 15m before the retry
-"),
+            text.contains("measure: 14/csr.1e5: the host snapshot changed during the run; cooling down 15m before the retry\n"),
             "{text}"
         );
         // The settle, the cool-down and four runs of a minute.
@@ -2583,8 +2582,7 @@ quantities = ["d"]
         );
         assert_eq!(s["runs"][0]["attempts"].as_array().unwrap().len(), 1);
         assert!(
-            text.contains("measure: 14/a: the host snapshot changed during the run, and a cool-down of 15m before the retry does not fit before 2026-10-13T22:05:00Z; it is not retried
-"),
+            text.contains("measure: 14/a: the host snapshot changed during the run, and a cool-down of 15m before the retry does not fit before 2026-10-13T22:05:00Z; it is not retried\n"),
             "{text}"
         );
     }
