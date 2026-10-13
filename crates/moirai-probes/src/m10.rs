@@ -4,7 +4,7 @@
 //! decides `F17-ckpt-ops`, `-ckpt-bytes`, `-ckpt-body` (the open side), `-tail-overlay`, `-tail-overlay-quiet` and
 //! `-quiet-mult` (`docs/spec/HOLES.md:41-46`; their constraints `17-store-parameters.md:757-762`).
 //!
-//! **The grid** (31 quantities, names by [MP §4.1]). The night's 18 are F17's candidates: `ops` at P06 4,096, 2,048 and
+//! **The grid** (49 quantities, names by [MP §4.1]). The night's 18 are F17's candidates: `ops` at P06 4,096, 2,048 and
 //! 1,024 with N = 1e5 and 1e6; `rec` at P07 4, 2 and 1 MiB; `body` at P08 32, 16 and 8 MiB; `ovl` at P09 1 MiB and
 //! 512 KiB; `quiet` at P10 2 MiB and 1.5 MiB × P11 8 and 4; the last four families at N = 1e6 (cut D-3: open at 1e5 is
 //! replay(cap) + floor(1e5), the floor measured by the `ops` family at both scales). The follow-up block of 13 (u17; R-40
@@ -24,6 +24,13 @@
 //!   `params.p06` at production. P11 = 2 is in P11's range of 1–64 (`17-store-parameters.md:176`) but not one of F17's
 //!   candidates (R-42 Q3).
 //!
+//! u20's block of 18 follows, appended (u20 cut §3.5, §3.10; spec Goal 5): design-A A3's small tails in item 1a's A1 form
+//! ([`a3_points`]: `rec` at P07 128 and 256 KiB, `ovl` at P09 48 and 64 KiB and at the quiet cap P10 192 KiB, the
+//! CLI's 2× tail, and quiet at P10 192 KiB × P11 2 and 4), every other threshold at A3's drafts ([`Over::A3`]), the 1e4
+//! points first. Each production tail reaches its own cap: its seed is `seed(name) ^ k` with the first k < 64 whose tail
+//! stops on the clause it targets at 95–100 % of the cap ([`reaches_cap`], [`SEED_K`]; R-44 I-2's tails past or far
+//! below their caps are what this excludes). `--list` prints each k.
+//!
 //! Every run is measurement 10 with minimum tier t2, the tier of the open budgets ([MP §3.2],
 //! `17-store-parameters.md:757`). The test profile's thresholds and E give the smoke's versions.
 //!
@@ -35,7 +42,11 @@
 //!
 //! **The arms** ([MP §4.1]): arm 0 `replay` opens the tail's extents and reads `[checkpoint_lsn, committed_lsn)` through
 //! the fixed 64-KiB buffer, scans, validates, decodes, applies and finishes the overlay; arm 1 `floor.open` is
-//! [`crate::tail::store::open_floor`]. Open at a grid point = floor + replay (`60-roadmap.md:790`).
+//! [`crate::tail::store::open_floor`]. Open at a grid point = floor + replay (`60-roadmap.md:790`). The A1 points'
+//! arm 0 is `replay.at` ([`replay_at_arm`]; design-A's A2, M-A2): the same replay with each node's offset and length in
+//! its newest record built inside the timed region ([`crate::overlay::Overlay::replay_at`]), so `replay` is its floor,
+//! `replay.at − replay` the build's cost, and their open is `replay.at` + `floor.open`. Both replays drop their overlay
+//! inside the timed region (u20 addendum m-5).
 //!
 //! **The driver** ([MP §9.7] as merged, through the shared [`crate::m1::driver`]): `--host laptop|hosted`,
 //! `--condition idle|loaded|synthetic`, `--load-log <file>` (a loaded or synthetic run's condition is the log header's,
@@ -43,7 +54,8 @@
 //! `--commit <sha>` and `--toolchain <text>` (required), `--out <dir>` (required unless `--smoke`, refused with it; each
 //! record one JSON file directly there, created when missing, streamed, removed on a failed write, [MP §7.2]),
 //! `--smoke` (the requested quantity, or every one, at the test profile, each arm once, nothing recorded), `--help`;
-//! and, beside the contract, `m10 --list` alone (one JSON line of tail measures per quantity). Every fixture lies below
+//! and, beside the contract, `m10 --list` alone (one JSON line of tail measures per quantity, item 1a's locator bytes and
+//! the seed's k among them). Every fixture lies below
 //! the working directory ([MP §9.7] "The working directory"; R-34 B-1). Without `--quantity`, each quantity runs in a
 //! child process of its own, in grid order ([MP §4.6]: `private_peak` cannot be reset). Exit 0 done, 1 a run or arm
 //! failed or a record could not be written, 2 a usage error.
@@ -56,7 +68,7 @@ use crate::tail::store::{
     Fixture, HOT_BYTES_PER_NODE, SEALED_FILES, VfsLog, open_floor, remove_fixture, write_fixture,
 };
 use crate::tail::synth::{Clause, Tail, Target, generate};
-use crate::tail::{Params, TAIL_READ_CHUNK};
+use crate::tail::{Locator, Params, TAIL_READ_CHUNK};
 use crate::tier::Tier;
 use moirai_vfs::{Meter, RootAccess, RootRole, SealedMaps, StoreFs};
 use serde_json::json;
@@ -73,11 +85,61 @@ pub const TEST_SEALED_LEN: u64 = 4_096;
 const KIB: u64 = 1_024;
 const MIB: u64 = 1_024 * 1_024;
 
+/// What a quantity measures (u20 cut §3.5).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Kind {
+    /// A tail's open: the replay arms and the open floor.
+    Tail,
+}
+
+/// A quantity's production parameters beyond the column's design figures, P06–P11 (u20 cut §3.5); `None` keeps the
+/// production column's figure. The test profile keeps its own column.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub struct Over {
+    /// P06 `store.checkpoint.ops`.
+    pub p06: Option<u64>,
+    /// P07 `store.checkpoint.bytes`.
+    pub p07: Option<u64>,
+    /// P08 `store.checkpoint.body-bytes`.
+    pub p08: Option<u64>,
+    /// P09 `store.tail.max-overlay-bytes`.
+    pub p09: Option<u64>,
+    /// P10 `store.tail.max-overlay-bytes.quiet`.
+    pub p10: Option<u64>,
+    /// P11 `quiet.tail-cap-multiplier`.
+    pub p11: Option<u64>,
+}
+
+impl Over {
+    /// Design-A A3's drafts (`design-A.md:149-156`): P06 1,024, P07 128 KiB, P08 1 MiB, P09 64 KiB, P10 192 KiB, P11 4.
+    pub const A3: Over = Over {
+        p06: Some(1_024),
+        p07: Some(128 * KIB),
+        p08: Some(MIB),
+        p09: Some(64 * KIB),
+        p10: Some(192 * KIB),
+        p11: Some(4),
+    };
+
+    /// `p` with these figures in place.
+    pub fn apply(self, mut p: Params) -> Params {
+        p.p06 = self.p06.unwrap_or(p.p06);
+        p.p07 = self.p07.unwrap_or(p.p07);
+        p.p08 = self.p08.unwrap_or(p.p08);
+        p.p09 = self.p09.unwrap_or(p.p09);
+        p.p10 = self.p10.unwrap_or(p.p10);
+        p.p11 = self.p11.unwrap_or(p.p11);
+        p
+    }
+}
+
 /// One grid point.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Quantity {
     /// The quantity's name.
     pub name: String,
+    /// What it measures.
+    pub kind: Kind,
     /// The family.
     pub clause: Clause,
     /// The candidate threshold: P06, P07, P08, P09 or P10.
@@ -86,8 +148,14 @@ pub struct Quantity {
     pub mult: u64,
     /// The base's node count.
     pub n: u32,
-    /// The P06 of a quiet follow-up point (its `params.p06` at production); `None` is the profile's.
-    pub p06: Option<u64>,
+    /// The production parameters beyond the column's: the P06 of a quiet follow-up point, design-A A3's drafts of the A1
+    /// points.
+    pub over: Over,
+    /// The form of the tail's op frames: the night's, or A1 for u20's points.
+    pub form: Locator,
+    /// The production seed's k: the seed is `seed(name) ^ k`, the first k < 64 whose tail reaches its cap (u20 cut
+    /// D-5); 0 for the night's points and at the test profile.
+    pub seed_k: u64,
 }
 
 fn bytes_name(b: u64) -> String {
@@ -98,16 +166,20 @@ fn bytes_name(b: u64) -> String {
     }
 }
 
-/// The 31 quantities of the grid in run order: the night's 18 (`17-store-parameters.md:757-762`), one point of each
-/// family first, F17's first candidate at 1e6, then the rest in family order (R-34 B-3, M-15); then the follow-up block
-/// of 13 by the same rule (R-40 O-3, R-42 Q1 and Q3).
+/// The scale in a quantity name.
+fn scale(n: u32) -> &'static str {
+    match n {
+        10_000 => "n1e4",
+        100_000 => "n1e5",
+        _ => "n1e6",
+    }
+}
+
+/// The grid in run order: the night's 18 (`17-store-parameters.md:757-762`), one point of each family first, F17's first
+/// candidate at 1e6, then the rest in family order (R-34 B-3, M-15); then the follow-up block of 13 by the same rule
+/// (R-40 O-3, R-42 Q1 and Q3); then u20's blocks, appended (u20 cut §3.10): design-A A3's small tails in A1 (§3.5).
 pub fn grid() -> Vec<Quantity> {
     let q = |clause: Clause, threshold: u64, mult: u64, n: u32, p06: Option<u64>| {
-        let scale = match n {
-            10_000 => "n1e4",
-            100_000 => "n1e5",
-            _ => "n1e6",
-        };
         let t = match (clause, p06) {
             (Clause::Ops, _) => threshold.to_string(),
             (Clause::Quiet, None) => format!("{}-x{mult}", bytes_name(threshold)),
@@ -115,12 +187,18 @@ pub fn grid() -> Vec<Quantity> {
             _ => bytes_name(threshold),
         };
         Quantity {
-            name: format!("{}-{t}.{scale}", clause.as_str()),
+            name: format!("{}-{t}.{}", clause.as_str(), scale(n)),
+            kind: Kind::Tail,
             clause,
             threshold,
             mult,
             n,
-            p06,
+            over: Over {
+                p06,
+                ..Over::default()
+            },
+            form: Locator::None,
+            seed_k: 0,
         }
     };
     let mut g = Vec::new();
@@ -174,8 +252,145 @@ pub fn grid() -> Vec<Quantity> {
         q(Clause::Ovl, 96 * KIB, 1, e5, None),
         q(Clause::Quiet, 2 * MIB, 2, e6, Some(2_048)),
     ]);
+    lead.extend(a3_points());
     lead
 }
+
+/// Design-A A3's small tails in A1 (u20 cut §3.5, spec Goal 5): 18 points with arms `replay.at`, `replay` and
+/// `floor.open`, every other threshold at A3's drafts ([`Over::A3`]). The 1e4 points first (R-50 rules the 1e4 open clause
+/// on them), then the 1e5 and the 1e6 points, each in the table's order, and the two quiet points last:
+///
+/// | Name | Clause and cap | Derived from |
+/// |---|---|---|
+/// | `a1-rec-128kib` | `rec`, P07 = 128 KiB | `design-A.md:152` |
+/// | `a1-rec-256kib` | `rec`, 256 KiB | spec Goal 5 |
+/// | `a1-ovl-48kib` | `ovl`, P09 = 48 KiB | `report2.md:371`, about 54 KiB for 1 ms (est.) |
+/// | `a1-ovl-64kib` | `ovl`, P09 = 64 KiB | `design-A.md:154` |
+/// | `a1-ovl-192kib.n1e6` | `ovl`, 192 KiB, the quiet cap P10 | `design-A.md:155`; F17:761 |
+/// | `a1-cli2x-128kib` | the quiet machinery with q = P13 = 2 and P10 := 2 × P09 = 128 KiB: 2,048 ops, 256 KiB of records, 2 MiB of bodies, 128 KiB of overlay, whichever binds first | `design-A.md:152` |
+/// | `a1-quiet-192kib-x2-p1024.n1e6`, `-x4-` | quiet at P10 192 KiB, P11 2 and 4, ending on their record caps of 256 and 512 KiB | spec Goal 5; critique-fit-cost A-1 |
+///
+/// Each production seed is `seed(name) ^ seed_k`, the first k < 64 whose tail reaches its cap (D-5).
+pub fn a3_points() -> Vec<Quantity> {
+    let a1 =
+        |clause: Clause, threshold: u64, mult: u64, n: u32, over: Over, stem: String| Quantity {
+            name: format!("a1-{stem}.{}", scale(n)),
+            kind: Kind::Tail,
+            clause,
+            threshold,
+            mult,
+            n,
+            over,
+            form: Locator::A1,
+            seed_k: 0,
+        };
+    let mut g = Vec::new();
+    for n in [10_000, 100_000, 1_000_000] {
+        g.push(a1(
+            Clause::Rec,
+            128 * KIB,
+            1,
+            n,
+            Over::A3,
+            "rec-128kib".into(),
+        ));
+        g.push(a1(
+            Clause::Rec,
+            256 * KIB,
+            1,
+            n,
+            Over::A3,
+            "rec-256kib".into(),
+        ));
+        g.push(a1(
+            Clause::Ovl,
+            48 * KIB,
+            1,
+            n,
+            Over::A3,
+            "ovl-48kib".into(),
+        ));
+        g.push(a1(
+            Clause::Ovl,
+            64 * KIB,
+            1,
+            n,
+            Over::A3,
+            "ovl-64kib".into(),
+        ));
+        if n == 1_000_000 {
+            g.push(a1(
+                Clause::Ovl,
+                192 * KIB,
+                1,
+                n,
+                Over::A3,
+                "ovl-192kib".into(),
+            ));
+        }
+        let cli = Over {
+            p10: Some(128 * KIB),
+            p11: Some(2),
+            ..Over::A3
+        };
+        g.push(a1(
+            Clause::Quiet,
+            128 * KIB,
+            2,
+            n,
+            cli,
+            "cli2x-128kib".into(),
+        ));
+    }
+    for x in [2, 4] {
+        let quiet = Over {
+            p11: Some(x),
+            ..Over::A3
+        };
+        g.push(a1(
+            Clause::Quiet,
+            192 * KIB,
+            x,
+            1_000_000,
+            quiet,
+            format!("quiet-192kib-x{x}-p1024"),
+        ));
+    }
+    let k = |name: &str| -> u64 {
+        SEED_K
+            .iter()
+            .find(|(n, _)| *n == name)
+            .map_or(0, |(_, k)| *k)
+    };
+    for q in &mut g {
+        q.seed_k = k(&q.name);
+    }
+    g
+}
+
+/// The production k of each A1 point, the first k < 64 whose tail reaches its cap ([`reaches_cap`]; u20 cut D-5),
+/// recomputed by `a1_tails_reach_their_caps_and_stop_on_their_clauses`. A 128-KiB `rec` tail of the mix reaches 95 %
+/// of its cap for few seeds: one commit in ten is log-uniform up to P05 = 1 MiB, so the refused group is often large.
+pub const SEED_K: [(&str, u64); 18] = [
+    ("a1-rec-128kib.n1e4", 34),
+    ("a1-rec-256kib.n1e4", 11),
+    ("a1-ovl-48kib.n1e4", 1),
+    ("a1-ovl-64kib.n1e4", 0),
+    ("a1-cli2x-128kib.n1e4", 8),
+    ("a1-rec-128kib.n1e5", 4),
+    ("a1-rec-256kib.n1e5", 9),
+    ("a1-ovl-48kib.n1e5", 1),
+    ("a1-ovl-64kib.n1e5", 0),
+    ("a1-cli2x-128kib.n1e5", 4),
+    ("a1-rec-128kib.n1e6", 16),
+    ("a1-rec-256kib.n1e6", 1),
+    ("a1-ovl-48kib.n1e6", 1),
+    ("a1-ovl-64kib.n1e6", 4),
+    ("a1-ovl-192kib.n1e6", 0),
+    ("a1-cli2x-128kib.n1e6", 14),
+    ("a1-quiet-192kib-x2-p1024.n1e6", 18),
+    ("a1-quiet-192kib-x4-p1024.n1e6", 6),
+];
 
 /// The scale a run is made at.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -210,12 +425,18 @@ fn seed(name: &str) -> u64 {
     xxhash_rust::xxh3::xxh3_64(name.as_bytes())
 }
 
-/// The generator's target of `q` at `profile`; at production a quiet follow-up point's P06 is the target's.
+/// The generator's target of `q` at `profile`: at production with the point's parameters (a quiet follow-up point's
+/// P06, the A1 points' A3 drafts) and its seed's k; in the point's form at both profiles.
 pub fn target(q: &Quantity, profile: Profile) -> Target {
     let mut p = profile.params();
-    if let (Profile::Production, Some(p06)) = (profile, q.p06) {
-        p.p06 = p06;
+    if profile == Profile::Production {
+        p = q.over.apply(p);
     }
+    p.shape.locator = q.form;
+    let k = match profile {
+        Profile::Production => q.seed_k,
+        Profile::Test => 0,
+    };
     let (threshold, mult) = match profile {
         Profile::Production => (q.threshold, q.mult),
         Profile::Test => match q.clause {
@@ -231,10 +452,47 @@ pub fn target(q: &Quantity, profile: Profile) -> Target {
         threshold,
         mult,
         n: q.n,
-        seed: seed(&q.name),
+        seed: seed(&q.name) ^ k,
         params: p,
         rt_bound: None,
     }
+}
+
+/// Whether `t`'s tail reaches the cap it targets (u20 cut D-5; addendum m-4): it stops on that clause, the refused group
+/// passes the cap, and the measure is at least 95 % of it and at most the cap (a first commit past the cap, which a tail
+/// always holds, is not a tail at its cap: R-44 I-2). A `rec` or `ovl` point targets its threshold; the quiet
+/// points their record cap P11 × P07; `a1-cli2x-*` the binding quiet cap, whichever it is. Returns the clause and the
+/// measure's share of the cap in per mille.
+pub fn reaches_cap(q: &Quantity, t: &Target, tail: &Tail) -> (bool, &'static str, u64) {
+    let p = t.params;
+    let stop = binding_clause(t, tail);
+    let (clause, cap) = match (q.clause, q.name.contains("cli2x")) {
+        (Clause::Quiet, true) => (
+            stop,
+            match stop {
+                "ops" => t.mult * p.p06,
+                "rec" => t.mult * p.p07,
+                "body" => t.mult * p.p08,
+                _ => t.threshold,
+            },
+        ),
+        (Clause::Quiet, false) => ("rec", t.mult * p.p07),
+        (c, _) => (c.as_str(), t.threshold),
+    };
+    let of = |m: &crate::tail::synth::Measures| match clause {
+        "ops" => m.ops,
+        "rec" => m.rec_bytes,
+        "body" => m.body_bytes,
+        _ => m.ovl,
+    };
+    let m = of(&tail.measures);
+    let past = tail.refused.is_some_and(|r| of(&r) > cap);
+    let share = m * 1_000 / cap.max(1);
+    (
+        stop == clause && past && (950..=1_000).contains(&share) && m <= cap,
+        clause,
+        share,
+    )
 }
 
 /// The clause that ended a tail: the family's own, or for `quiet` the first cap the refused group passed.
@@ -282,6 +540,67 @@ pub fn arms<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
         open_floor(vfs, root, &fx.sealed).map_err(ArmError)
     });
     (replay, floor)
+}
+
+/// The entries of an overlay built in the offsets mode; refuses one without an offset for every node (u20 cut D-2,
+/// R-29), so a `replay.at` whose op left the offset build out of its timed region fails its sample.
+pub fn offsets_of(o: &crate::overlay::Overlay) -> Result<usize, ArmError> {
+    if o.at().len() != o.nodes().len() {
+        return Err(ArmError(format!(
+            "an overlay without offsets: {} of {} nodes",
+            o.at().len(),
+            o.nodes().len()
+        )));
+    }
+    Ok(o.entries())
+}
+
+/// Arm 0 of the A1 points, `replay.at` (u20 cut D-2, M-A2): `replay`'s work in the offsets mode, each node's offset and
+/// length in its newest record built inside the timed region. Its op refuses an overlay without them ([`offsets_of`])
+/// and drops the overlay inside the timed region, as the floor `replay` does (addendum m-5). `replay.at − replay` is
+/// the build's cost. An offset table computed at the arm's construction and attached to a plain replay would pass every
+/// test: the build is in-memory work, which the tests see only through the refusal.
+pub fn replay_at_arm<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
+    vfs: &'a V,
+    root: &'a V::Root,
+    fx: &'a Fixture,
+    tail: &'a Tail,
+    ticker: &T,
+) -> impl Arm + 'a {
+    TimedFn::new("replay.at", ticker.clone(), move || {
+        let mut log = VfsLog::new(vfs, root, fx.expect.geo);
+        let o = crate::overlay::Overlay::replay_at(
+            &mut log,
+            &fx.expect,
+            tail.start,
+            tail.end,
+            tail.chain_in,
+            tail.base,
+            TAIL_READ_CHUNK,
+        )
+        .map_err(|e| ArmError(e.to_string()))?;
+        offsets_of(&o)
+    })
+}
+
+/// The arms of `q` over a written fixture, arm 0 first: `[replay.at, replay, floor.open]` for an A1 point (u20 cut §3.5),
+/// the night's `[replay, floor.open]` for every other.
+pub fn quantity_arms<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
+    q: &Quantity,
+    vfs: &'a V,
+    root: &'a V::Root,
+    fx: &'a Fixture,
+    tail: &'a Tail,
+    ticker: &T,
+) -> Vec<Box<dyn Arm + 'a>> {
+    let (replay, floor) = arms(vfs, root, fx, tail, ticker);
+    let mut v: Vec<Box<dyn Arm + 'a>> = Vec::new();
+    if q.form == Locator::A1 {
+        v.push(Box::new(replay_at_arm(vfs, root, fx, tail, ticker)));
+    }
+    v.push(Box::new(replay));
+    v.push(Box::new(floor));
+    v
 }
 
 /// Removes its fixture when dropped, on every path out of a run, an unwinding panic included.
@@ -363,9 +682,9 @@ fn smoke<V: StoreFs + SealedMaps, T: Ticker + Clone>(
             let root = vfs
                 .open_root(&guard.fx.dir, RootRole::Other, RootAccess::Read)
                 .map_err(|e| e.to_string())?;
-            let (mut replay, mut floor) = arms(vfs, &root, &guard.fx, &tail, ticker);
+            let mut arms = quantity_arms(q, vfs, &root, &guard.fx, &tail, ticker);
             let mut lines = Vec::new();
-            for arm in [&mut replay as &mut dyn Arm, &mut floor] {
+            for arm in arms.iter_mut() {
                 arm.begin_block(1)
                     .and_then(|()| arm.sample())
                     .map(|ns| lines.push((arm.name().to_string(), ns)))
@@ -422,6 +741,8 @@ fn list<M: Meter>(meter: &M, profile: Profile, out: &mut dyn Write, err: &mut dy
             "rec_bytes": m.rec_bytes,
             "body_bytes": m.body_bytes,
             "rt_bytes": m.rt_bytes,
+            "loc_bytes": m.loc_bytes,
+            "seed_k": q.seed_k,
             "ovl": m.ovl,
             "ovl_counted": counted,
             "records": m.records,
@@ -475,7 +796,7 @@ fn run_one<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
             return EXIT_FAILED;
         }
     };
-    let (mut replay, mut floor) = arms(sys.vfs, &root, &guard.fx, &tail, &sys.ticker);
+    let mut arms = quantity_arms(q, sys.vfs, &root, &guard.fx, &tail, &sys.ticker);
     let spec = RunSpec {
         measurement: MEASUREMENT,
         quantity: q.name.clone(),
@@ -491,7 +812,8 @@ fn run_one<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
         commit: a.commit.clone().unwrap_or_default(),
     };
     let t0 = driver::now_ms();
-    let mut rec = match measure(&mut ctx, &spec, &mut [&mut replay, &mut floor]) {
+    let mut refs: Vec<&mut dyn Arm> = arms.iter_mut().map(|b| &mut **b as &mut dyn Arm).collect();
+    let mut rec = match measure(&mut ctx, &spec, &mut refs) {
         Ok(r) => r,
         Err(e) => {
             let _ = writeln!(err, "m10 {}: {e}", q.name);
@@ -666,16 +988,39 @@ mod tests {
         "quiet-2mib-x2-p2048.n1e6",
     ];
 
-    /// 31 quantities with valid, unique names ([MP §4.1], `measurement-protocol.md:169`): 8 `ops`, 5 `rec`, 5 `body`,
-    /// 4 `ovl`, 9 `quiet`; the night's 18 first, unchanged and with no P06 of their own, then the follow-up block in its
-    /// order, one point of each family first.
+    /// The A1 block in run order (u20 cut §3.5): the 1e4 points, the 1e5 and the 1e6 points, the two quiet points last.
+    const A1_BLOCK: [&str; 18] = [
+        "a1-rec-128kib.n1e4",
+        "a1-rec-256kib.n1e4",
+        "a1-ovl-48kib.n1e4",
+        "a1-ovl-64kib.n1e4",
+        "a1-cli2x-128kib.n1e4",
+        "a1-rec-128kib.n1e5",
+        "a1-rec-256kib.n1e5",
+        "a1-ovl-48kib.n1e5",
+        "a1-ovl-64kib.n1e5",
+        "a1-cli2x-128kib.n1e5",
+        "a1-rec-128kib.n1e6",
+        "a1-rec-256kib.n1e6",
+        "a1-ovl-48kib.n1e6",
+        "a1-ovl-64kib.n1e6",
+        "a1-ovl-192kib.n1e6",
+        "a1-cli2x-128kib.n1e6",
+        "a1-quiet-192kib-x2-p1024.n1e6",
+        "a1-quiet-192kib-x4-p1024.n1e6",
+    ];
+
+    /// The grid in run order with valid, unique names ([MP §4.1], `measurement-protocol.md:169`): the night's 18 first,
+    /// unchanged and with no P06 of their own, one point of each family first; the follow-up block of 13 in its order;
+    /// then u20's appended block of design-A A3's 18 small tails in A1, the 1e4 points first (u20 cut §3.5, §3.10).
+    /// By clause, 8 `ops`, 11 `rec`, 5 `body`, 11 `ovl`, 14 `quiet` (the CLI's 2× tails among them).
     #[test]
-    fn grid_has_thirty_one_valid_quantities() {
+    fn grid_lists_the_valid_quantities_in_run_order() {
         let g = grid();
-        assert_eq!(g.len(), 31);
+        assert_eq!(g.len(), 49);
         assert!(g.iter().all(|q| valid_name(&q.name)), "{g:?}");
         let names: BTreeSet<&str> = g.iter().map(|q| q.name.as_str()).collect();
-        assert_eq!(names.len(), 31, "unique");
+        assert_eq!(names.len(), 49, "unique");
         let count = |c: Clause| g.iter().filter(|q| q.clause == c).count();
         assert_eq!(
             [
@@ -686,7 +1031,7 @@ mod tests {
                 Clause::Quiet
             ]
             .map(count),
-            [8, 5, 5, 4, 9]
+            [8, 11, 5, 11, 14]
         );
         let lead: Vec<&str> = g[..5].iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
@@ -704,11 +1049,23 @@ mod tests {
         assert_eq!(g[17].name, "quiet-1536kib-x4.n1e6");
         assert!(names.contains("rec-4mib.n1e6") && names.contains("body-32mib.n1e6"));
         assert!(names.contains("ovl-512kib.n1e6") && names.contains("quiet-2mib-x8.n1e6"));
-        assert!(g[..18].iter().all(|q| q.p06.is_none()));
-        let follow: Vec<&str> = g[18..].iter().map(|q| q.name.as_str()).collect();
+        assert!(g[..18].iter().all(|q| q.over.p06.is_none()));
+        let follow: Vec<&str> = g[18..31].iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
             follow, FOLLOW_UP,
             "the follow-up block after the night's 18"
+        );
+        let a1: Vec<&str> = g[31..].iter().map(|q| q.name.as_str()).collect();
+        assert_eq!(a1, A1_BLOCK, "u20's A1 block after the follow-up block");
+        assert!(
+            g[..31]
+                .iter()
+                .all(|q| q.form == Locator::None && q.kind == Kind::Tail)
+        );
+        assert!(
+            g[31..]
+                .iter()
+                .all(|q| q.form == Locator::A1 && q.kind == Kind::Tail)
         );
     }
 
@@ -775,7 +1132,7 @@ mod tests {
                 panic!("{name} is not in the grid");
             };
             assert_eq!(
-                (q.clause, q.threshold, q.mult, q.n, q.p06),
+                (q.clause, q.threshold, q.mult, q.n, q.over.p06),
                 (clause, threshold, mult, n, p06),
                 "{name}"
             );
@@ -820,7 +1177,7 @@ mod tests {
     #[test]
     fn follow_up_tails_stop_on_their_clauses() {
         let g = grid();
-        for q in &g[18..] {
+        for q in &g[18..31] {
             let t = target(q, Profile::Production);
             let tail = generate(&t, false).unwrap_or_else(|e| panic!("{}: {e}", q.name));
             let (m, r) = (tail.measures, tail.refused);
@@ -833,11 +1190,11 @@ mod tests {
                 Clause::Rec => past(|m| m.rec_bytes),
                 Clause::Ovl => past(|m| m.ovl),
                 Clause::Quiet => {
-                    let cap = q.mult * q.p06.unwrap();
+                    let cap = q.mult * q.over.p06.unwrap();
                     binding_clause(&t, &tail) == "ops"
                         && m.ops <= cap
                         && r.is_some_and(|r| r.ops > cap)
-                        && t.params.p06 == q.p06.unwrap()
+                        && t.params.p06 == q.over.p06.unwrap()
                 }
             };
             assert!(
@@ -900,8 +1257,9 @@ mod tests {
         assert_eq!(Profile::Production.sealed_len(1_000_000), 12_375_000);
     }
 
-    /// `--smoke` runs every quantity at the test profile with each arm once: 62 lines, one per (quantity, arm), each
-    /// fixture's floor mapping 8 files; with `--quantity` it runs that one alone.
+    /// `--smoke` runs every quantity at the test profile with each arm once: 116 lines, one per (quantity, arm), the A1
+    /// points with `replay.at` first, each fixture's floor mapping 8 files and reading `HEAD` once; with `--quantity` it
+    /// runs that one alone.
     #[test]
     fn smoke_exercises_every_arm_once() {
         let fs = MemFs::with_dir(&cwd());
@@ -919,7 +1277,7 @@ mod tests {
         let (code, out, err) = run(&fs, &[&["--smoke"][..], &CT].concat());
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), 62, "{out}");
+        assert_eq!(lines.len(), 116, "{out}");
         let pairs: BTreeSet<(String, String)> = lines
             .iter()
             .map(|l| {
@@ -931,16 +1289,23 @@ mod tests {
         let expect: BTreeSet<(String, String)> = grid()
             .iter()
             .flat_map(|q| {
-                [
-                    (q.name.clone(), "replay".into()),
-                    (q.name.clone(), "floor.open".into()),
-                ]
+                let mut arms = vec![
+                    (q.name.clone(), "replay".to_string()),
+                    (q.name.clone(), "floor.open".to_string()),
+                ];
+                if q.form == Locator::A1 {
+                    arms.push((q.name.clone(), "replay.at".into()));
+                }
+                arms
             })
             .collect();
         assert_eq!(pairs, expect);
         let log = fs.log();
-        assert_eq!(log.maps.len(), 31 * SEALED_FILES);
-        assert_eq!(log.opens.iter().filter(|o| *o == "HEAD").count(), 31);
+        assert_eq!(log.maps.len(), grid().len() * SEALED_FILES);
+        assert_eq!(
+            log.opens.iter().filter(|o| *o == "HEAD").count(),
+            grid().len()
+        );
     }
 
     /// `--smoke` with the runner's contract flags records nothing: no line says recorded, every fixture is removed,
@@ -955,7 +1320,7 @@ mod tests {
         .concat();
         let (code, out, err) = run(&fs, &args);
         assert_eq!(code, EXIT_DONE, "{err}");
-        assert_eq!(out.lines().count(), 62);
+        assert_eq!(out.lines().count(), 116);
         assert!(!out.contains("recorded"));
         assert!(fs.files().is_empty(), "every fixture removed");
         let (code, _, err) = run(&fs, &[&args[..], &["--out", "/o"]].concat());
@@ -1145,7 +1510,7 @@ mod tests {
         let (code, out, _) = run(&fs, &["--help"]);
         assert_eq!((code, out.as_str()), (EXIT_DONE, USAGE));
         let (code, out, _) = run(&fs, &["--list"]);
-        assert_eq!((code, out.lines().count()), (EXIT_DONE, 31));
+        assert_eq!((code, out.lines().count()), (EXIT_DONE, 49));
         let names: Vec<String> = grid().into_iter().map(|q| q.name).collect();
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
         assert!(
@@ -1194,14 +1559,14 @@ mod tests {
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 31);
+            assert_eq!(calls.len(), 49);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 31);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 49);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
@@ -1269,8 +1634,9 @@ mod tests {
         let _ = std::fs::remove_dir_all(&dir);
     }
 
-    /// `--list` prints one JSON line per quantity, in grid order, with the tail measures of [F17 §5.1], the binding
-    /// clause, and the allocator's count (`null` without `CountingAlloc`).
+    /// `--list` prints one JSON line per quantity, in grid order, with the tail measures of [F17 §5.1] and item 1a's
+    /// locator bytes, the binding clause, the production seed's k, and the allocator's count (`null` without
+    /// `CountingAlloc`).
     #[test]
     fn list_prints_the_tail_measures() {
         let fs = MemFs::with_dir(&scratch());
@@ -1280,7 +1646,7 @@ mod tests {
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        assert_eq!(lines.len(), 31);
+        assert_eq!(lines.len(), 49);
         for (v, q) in lines.iter().zip(grid()) {
             assert_eq!(v["quantity"], q.name.as_str());
             assert_eq!(v["family"], q.clause.as_str());
@@ -1291,6 +1657,8 @@ mod tests {
                 ("rec_bytes", m.rec_bytes),
                 ("body_bytes", m.body_bytes),
                 ("rt_bytes", m.rt_bytes),
+                ("loc_bytes", m.loc_bytes),
+                ("seed_k", q.seed_k),
                 ("ovl", m.ovl),
                 ("commits", m.commits),
                 ("settles", m.settles),
@@ -1299,6 +1667,7 @@ mod tests {
                 assert_eq!(v[k].as_u64(), Some(x), "{} {k}", q.name);
             }
             assert!(m.ovl > 0 && m.bytes > 0);
+            assert_eq!(m.loc_bytes > 0, q.form == Locator::A1, "{}", q.name);
             assert!(v["ovl_counted"].is_null());
             assert!(["ops", "rec", "body", "ovl"].contains(&v["stop"].as_str().unwrap()));
             assert_eq!(v["threshold"].as_u64(), Some(t.threshold));
@@ -1341,5 +1710,315 @@ mod tests {
             code, EXIT_FAILED,
             "a store without the working directory: {err}"
         );
+    }
+
+    /// Each A1 point has the parameters of u20 cut §3.5's table: its clause, cap, P11, N and design-A A3's drafts
+    /// (`design-A.md:149-156`; the CLI's 2× tails with P10 := 2 × P09 = 128 KiB and q = 2), in A1; its production target
+    /// is the point at those parameters with the seed `seed(name) ^ seed_k`, and its test-profile target the test
+    /// column's, in A1, with k = 0.
+    #[test]
+    fn a1_points_have_their_parameters() {
+        use Clause::{Ovl, Quiet, Rec};
+        let g = grid();
+        let cli = Over {
+            p10: Some(128 * KIB),
+            p11: Some(2),
+            ..Over::A3
+        };
+        let quiet = |x: u64| Over {
+            p11: Some(x),
+            ..Over::A3
+        };
+        assert_eq!(
+            (
+                Over::A3.p06,
+                Over::A3.p07,
+                Over::A3.p08,
+                Over::A3.p09,
+                Over::A3.p10,
+                Over::A3.p11
+            ),
+            (
+                Some(1_024),
+                Some(128 * KIB),
+                Some(MIB),
+                Some(64 * KIB),
+                Some(192 * KIB),
+                Some(4)
+            )
+        );
+        let mut want: Vec<(String, Clause, u64, u64, u32, Over)> = Vec::new();
+        for (n, s) in [(10_000, "n1e4"), (100_000, "n1e5"), (1_000_000, "n1e6")] {
+            want.push((format!("a1-rec-128kib.{s}"), Rec, 128 * KIB, 1, n, Over::A3));
+            want.push((format!("a1-rec-256kib.{s}"), Rec, 256 * KIB, 1, n, Over::A3));
+            want.push((format!("a1-ovl-48kib.{s}"), Ovl, 48 * KIB, 1, n, Over::A3));
+            want.push((format!("a1-ovl-64kib.{s}"), Ovl, 64 * KIB, 1, n, Over::A3));
+            if n == 1_000_000 {
+                want.push((format!("a1-ovl-192kib.{s}"), Ovl, 192 * KIB, 1, n, Over::A3));
+            }
+            want.push((format!("a1-cli2x-128kib.{s}"), Quiet, 128 * KIB, 2, n, cli));
+        }
+        for x in [2, 4] {
+            want.push((
+                format!("a1-quiet-192kib-x{x}-p1024.n1e6"),
+                Quiet,
+                192 * KIB,
+                x,
+                1_000_000,
+                quiet(x),
+            ));
+        }
+        let got: Vec<(String, Clause, u64, u64, u32, Over)> = g[31..]
+            .iter()
+            .map(|q| (q.name.clone(), q.clause, q.threshold, q.mult, q.n, q.over))
+            .collect();
+        assert_eq!(got, want);
+        for q in &g[31..] {
+            let k = SEED_K.iter().find(|(n, _)| *n == q.name).unwrap().1;
+            assert_eq!(q.seed_k, k, "{}", q.name);
+            let mut params = q.over.apply(Params::PRODUCTION);
+            params.shape = crate::tail::Shape::A1;
+            assert_eq!(
+                target(q, Profile::Production),
+                Target {
+                    clause: q.clause,
+                    threshold: q.threshold,
+                    mult: q.mult,
+                    n: q.n,
+                    seed: seed(&q.name) ^ k,
+                    params,
+                    rt_bound: None,
+                },
+                "{}",
+                q.name
+            );
+            let t = target(q, Profile::Test);
+            let mut test = Params::TEST;
+            test.shape = crate::tail::Shape::A1;
+            assert_eq!((t.params, t.seed), (test, seed(&q.name)), "{}", q.name);
+        }
+    }
+
+    /// Each A1 point's production tail reaches its own cap and stops on the clause it targets (spec Goal 5; u20 cut D-5,
+    /// addendum m-4; `m10.md:267-268`): at `seed(name) ^ seed_k` it stops on that clause, the refused group passes the
+    /// cap, and the measure is 95–100 % of it; every smaller k fails one of these, so `seed_k` is the first. The quiet
+    /// points end on their record caps of 256 and 512 KiB. At the test profile each tail stops on a clause of its family.
+    #[test]
+    fn a1_tails_reach_their_caps_and_stop_on_their_clauses() {
+        let mut failed = Vec::new();
+        for q in &grid()[31..] {
+            let t = target(q, Profile::Production);
+            let tail = generate(&t, false).unwrap_or_else(|e| panic!("{}: {e}", q.name));
+            let (ok, clause, share) = reaches_cap(q, &t, &tail);
+            if !ok {
+                failed.push(format!(
+                    "{}: k {} stops {} at {share} per mille of its {clause} cap",
+                    q.name,
+                    q.seed_k,
+                    binding_clause(&t, &tail)
+                ));
+            }
+            if q.name.contains("-quiet-") {
+                assert_eq!(clause, "rec", "{}", q.name);
+                assert!(
+                    tail.measures.rec_bytes <= q.mult * 128 * KIB
+                        && tail.refused.unwrap().rec_bytes > q.mult * 128 * KIB,
+                    "{}: its record cap",
+                    q.name
+                );
+            }
+            for j in 0..q.seed_k {
+                let mut tj = t;
+                tj.seed = seed(&q.name) ^ j;
+                let tail = generate(&tj, false).unwrap();
+                if reaches_cap(q, &tj, &tail).0 {
+                    failed.push(format!(
+                        "{}: k {j} < {} already reaches its cap",
+                        q.name, q.seed_k
+                    ));
+                }
+            }
+            let tt = target(q, Profile::Test);
+            let small = generate(&tt, false).unwrap();
+            let stop = binding_clause(&tt, &small);
+            assert!(
+                small.refused.is_some() && (q.clause == Clause::Quiet || stop == q.clause.as_str()),
+                "{} at the test profile: {stop}",
+                q.name
+            );
+        }
+        assert!(failed.is_empty(), "{}", failed.join("\n"));
+    }
+
+    /// The A1 points' tails are in A1 (u20 cut §3.5): at the test profile and at production (the 1e4 points), the tail's
+    /// `Expect` names A1, every commit is in A1, some carry locators, and `loc_bytes` counts them; the night's points'
+    /// tails carry none.
+    #[test]
+    fn a1_tails_carry_the_a1_form() {
+        let g = grid();
+        for q in &g {
+            let profiles: &[Profile] = if q.form == Locator::A1 && q.n == 10_000 {
+                &[Profile::Test, Profile::Production]
+            } else {
+                &[Profile::Test]
+            };
+            for &profile in profiles {
+                let tail = generate(&target(q, profile), true).unwrap();
+                assert_eq!(tail.expect.locator, q.form, "{} {profile:?}", q.name);
+                let commits: Vec<&crate::tail::commit::Commit<'_>> = tail
+                    .records
+                    .iter()
+                    .filter_map(|r| match &r.payload {
+                        crate::tail::rec::Payload::Commit(c) => Some(&**c),
+                        _ => None,
+                    })
+                    .collect();
+                assert!(
+                    commits.iter().all(|c| c.form == q.form),
+                    "{} {profile:?}",
+                    q.name
+                );
+                let locs: usize = commits.iter().map(|c| c.locs.len()).sum();
+                assert_eq!(
+                    (locs > 0, tail.measures.loc_bytes > 0),
+                    (q.form == Locator::A1, q.form == Locator::A1),
+                    "{} {profile:?}",
+                    q.name
+                );
+            }
+        }
+    }
+
+    /// The night's 31 points keep their arms and tails (u20 cut D-3): arms `replay` and `floor.open`, the night's form,
+    /// their production targets the column's with only a follow-up point's P06, and the seed of their name; the A1
+    /// points add `replay.at` first.
+    #[test]
+    fn night_points_keep_their_arms_and_tails() {
+        let fs = MemFs::with_dir(&scratch());
+        let g = grid();
+        for (i, q) in g.iter().enumerate() {
+            let tail = generate(&target(q, Profile::Test), false).unwrap();
+            let fx =
+                write_fixture(&fs, &scratch(), &format!("fx{i}"), &tail, TEST_SEALED_LEN).unwrap();
+            let root = fs
+                .open_root(&fx.dir, RootRole::Other, RootAccess::Read)
+                .unwrap();
+            let arms = quantity_arms(q, &fs, &root, &fx, &tail, &MonoTicker::new());
+            let names: Vec<&str> = arms.iter().map(|a| a.name()).collect();
+            if i < 31 {
+                assert_eq!(names, ["replay", "floor.open"], "{}", q.name);
+                let mut params = Params::PRODUCTION;
+                params.p06 = q.over.p06.unwrap_or(params.p06);
+                let t = target(q, Profile::Production);
+                assert_eq!(
+                    (t.params, t.seed, q.form, q.seed_k),
+                    (params, seed(&q.name), Locator::None, 0),
+                    "{}",
+                    q.name
+                );
+                assert_eq!(t.params.shape, crate::tail::Shape::NIGHT, "{}", q.name);
+            } else {
+                assert_eq!(names, ["replay.at", "replay", "floor.open"], "{}", q.name);
+            }
+            drop(arms);
+            remove_fixture(&fs, &scratch(), &fx).unwrap();
+        }
+    }
+
+    /// A ticker over a [`MemFs`] that records how many reads the store had logged at each reading and returns 1, 2, 3, …
+    /// (R-29): `TimedFn::sample` reads it exactly at t0 and t1.
+    #[derive(Clone)]
+    struct ReadTicker<'f> {
+        fs: &'f MemFs,
+        ticks: std::rc::Rc<std::cell::RefCell<Vec<usize>>>,
+    }
+
+    impl Ticker for ReadTicker<'_> {
+        fn now_ns(&mut self) -> u64 {
+            let mut t = self.ticks.borrow_mut();
+            t.push(self.fs.log().reads.len());
+            t.len() as u64
+        }
+    }
+
+    /// `replay.at` reads the tail inside its timed region (R-29; u20 cut D-2): over a multi-extent A1 tail, each sample's
+    /// reads between its two ticks are exactly the tail's `[start, end)`, in log order, every one a `log.<n>` read of at
+    /// most 64 KiB; none falls before t0; and the sample succeeds, so its offsets were built.
+    #[test]
+    fn replay_at_arm_reads_the_tail_inside_its_timed_region() {
+        let fs = MemFs::with_dir(&scratch());
+        let mut t = crate::tail::synth::tests::a1(crate::tail::synth::tests::test_target(
+            Clause::Ops,
+            1_000,
+            21,
+        ));
+        t.threshold = 1_200;
+        t.rt_bound = Some(u64::MAX);
+        let tail = generate(&t, false).unwrap();
+        let geo = tail.expect.geo;
+        assert!(geo.extent(tail.end - 1) > geo.extent(tail.start));
+        let fx = write_fixture(&fs, &scratch(), "fx", &tail, TEST_SEALED_LEN).unwrap();
+        let root = fs
+            .open_root(&fx.dir, RootRole::Other, RootAccess::Read)
+            .unwrap();
+        let ticker = ReadTicker {
+            fs: &fs,
+            ticks: Default::default(),
+        };
+        let mut arm = replay_at_arm(&fs, &root, &fx, &tail, &ticker);
+        assert_eq!(arm.name(), "replay.at");
+        for k in 0..2 {
+            let before = fs.log().reads.len();
+            arm.sample().unwrap();
+            let ticks = ticker.ticks.borrow().clone();
+            let (t0, t1) = (ticks[ticks.len() - 2], ticks[ticks.len() - 1]);
+            assert_eq!(t0, before, "sample {k}: a read before t0");
+            let w = &fs.log().reads[t0..t1];
+            assert!(
+                w.iter()
+                    .all(|r| r.0.starts_with("log.") && r.2 <= TAIL_READ_CHUNK),
+                "sample {k}: {w:?}"
+            );
+            let mut lsn = tail.start;
+            for (name, off, len) in w {
+                let n: u64 = name.strip_prefix("log.").unwrap().parse().unwrap();
+                assert_eq!(geo.extent_start(n) + off, lsn, "sample {k}: in log order");
+                lsn += *len as u64;
+            }
+            assert_eq!(
+                lsn, tail.end,
+                "sample {k}: the whole tail between the ticks"
+            );
+        }
+    }
+
+    /// `replay.at` refuses an overlay without offsets (u20 cut D-2, R-29; addendum m-5): [`offsets_of`] gives a plain
+    /// replay's overlay of an A1 tail the error "an overlay without offsets" and the offsets-mode overlay its entries, so
+    /// a `replay.at` whose op ran the plain replay fails its sample.
+    #[test]
+    fn replay_at_arm_refuses_an_overlay_without_offsets() {
+        let mut t = crate::tail::synth::tests::a1(crate::tail::synth::tests::test_target(
+            Clause::Ops,
+            1_000,
+            5,
+        ));
+        t.threshold = 200;
+        t.rt_bound = Some(u64::MAX);
+        let tail = generate(&t, false).unwrap();
+        let plain = tail.overlay().unwrap();
+        let e = offsets_of(&plain).unwrap_err();
+        assert!(e.0.contains("an overlay without offsets"), "{e}");
+        let at = crate::overlay::Overlay::replay_at(
+            &mut crate::tail::scan::MemLog::new(tail.start, &tail.bytes),
+            &tail.expect,
+            tail.start,
+            tail.end,
+            tail.chain_in,
+            tail.base,
+            TAIL_READ_CHUNK,
+        )
+        .unwrap();
+        assert_eq!(offsets_of(&at), Ok(at.entries()));
+        assert!(!at.nodes().is_empty());
     }
 }
