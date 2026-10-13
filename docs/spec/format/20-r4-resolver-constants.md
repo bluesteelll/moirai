@@ -359,14 +359,18 @@ table:
 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
-| 1 | `n_before` | `u16` | always | number of hashes before the span, 0–`WIN`; it is also the span's offset in the window |
-| 2 | `n_after` | `u16` | always | number of hashes after the span, 0–`WIN` |
+| 1 | `n_before` | `u16` | always | number of hashes before the span, 0–16; a window computed by §2.7.2 has at most `WIN`; it is also the span's offset in the window |
+| 2 | `n_after` | `u16` | always | number of hashes after the span, 0–16; a window computed by §2.7.2 has at most `WIN` |
 | 3 | `before` | `n_before` × `u16` | always | `before(s)`, in file order |
 | 4 | `after` | `n_after` × `u16` | always | `after(e)`, in file order |
 
-Length `4 + 2 × (n_before + n_after)`, at most 68 bytes at the draft `WIN` = 16. A value with a count above `WIN` is
-invalid. [F07] (R-10) carries W as the `window` selector and [F14] (R-11) writes it as base64url without padding
-(open point 8).
+Length `4 + 2 × (n_before + n_after)`, at most 68 bytes. A value with a count above 16 is invalid
+(`WINDOW_LINES_MAX`, §7). This decoder bound is the design maximum, "up to 16" lines on each side in "≤ 68 B"
+([40 §2.7]); it does not move when HOLE(F20-window-lines) is filled, so no validity rule waits for the fill (CH-6 of the
+plan critique of 2026-10-12, as the owner's ruling R-23 of 2026-10-12, item 1, amends it). `WIN` is used only to compute
+a window: at capture (§6.1 step 6) and around a candidate at resolve time (§2.7.2, §6.3, §6.5). Decoding or validating
+a stored value never uses `WIN`: only the bound 16 applies, and the stored hashes are aligned as stored (§6.3). [F07]
+(R-10) carries W as the `window` selector and [F14] (R-11) writes it as base64url without padding (open point 8).
 
 ### 2.8 Span hash and header text
 
@@ -1205,8 +1209,8 @@ The cascade runs on the current content b′, with t′ = `atext(b′)` and N′
 
 ### 6.3 Window alignment ([40 §2.7]; the LCS-tokenisation gap of [PLAN §3.3])
 
-- **Tokens** are the u16 window hashes (§2.7.1); a window holds at most 2 × `WIN` tokens ("LCS over ≤ 32 tokens",
-  [40 §2.7]).
+- **Tokens** are the u16 window hashes (§2.7.1); a window computed at resolve time holds at most 2 × `WIN` tokens and a
+  stored one at most 2 × 16 (§2.7.3) ("LCS over ≤ 32 tokens", [40 §2.7]).
 - **Score.** For a stored window (B_s, A_s) and a candidate's window (B_c, A_c) computed around the candidate's quote
   span in t′: `wscore = (LCS(B_s, B_c) + LCS(A_s, A_c)) / (len(B_s) + len(A_s))`, where `LCS` is the length of the
   longest common subsequence of two token sequences. Before-tokens are aligned only with before-tokens and after-tokens
@@ -1293,6 +1297,7 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
 | `TINY_BYTES` | 64 | bytes | 2.6.5 | [40 §4.4] |
 | `WINDOW_BITS` | 16 | bits | 2.7.1 | [40 §2.7] |
 | `WIN` (`WINDOW_LINES`) | HOLE(F20-window-lines), draft 16 | lines per side | 2.7.2 | [40 §2.7] |
+| `WINDOW_LINES_MAX` | 16 | lines per side | 2.7.3 | [40 §2.7]; CH-6 of the plan critique of 2026-10-12, as the owner's ruling R-23 of 2026-10-12, item 1, amends it |
 | `WINNOW_K` | HOLE(F20-winnow-k), draft 5 | tokens | 2.9 | [10 §5.8b] |
 | `WINNOW_W` | HOLE(F20-winnow-w), draft 4 | k-grams | 2.9 | [10 §5.8b] |
 | `EXACT_LIMIT` | 65,536 | fingerprint lines or values per side | 2.10.5 | this chapter |
@@ -1379,7 +1384,7 @@ normative here; citations of its sections resolve through this map:
 
 | id | what | decided by (measurement n / WP) | candidates | constraint the value must meet |
 |---|---|---|---|---|
-| F20-window-lines | `WIN`: non-trivial lines hashed on each side of an anchor's quote span | replay row 2 of [40 §8.3.4] (WP-76), filled by WP-81a | 16 (draft, [40 §2.7]); 8 | window tie-break agrees with full histogram-diff mapping on ≥ 99 % of duplicate-quote cases; `4 + 4 × WIN ≤ 68` ([40 §2.7]'s bound, so WIN ≤ 16) |
+| F20-window-lines | `WIN`: non-trivial lines hashed on each side of an anchor's quote span | replay row 2 of [40 §8.3.4] (WP-76), filled by WP-81a | 16 (draft, [40 §2.7]); 8 | window tie-break agrees with full histogram-diff mapping on ≥ 99 % of duplicate-quote cases; `4 + 4 × WIN ≤ 68` ([40 §2.7]'s bound, so WIN ≤ 16); §2.7.3's decoder bound stays 16 whatever the fill (CH-6 of the plan critique of 2026-10-12, as the owner's ruling R-23 of 2026-10-12, item 1, amends it) |
 | F20-quote-lines | most non-trivial lines a `quote` span may have before it becomes a `range` | replay row 2 (WP-76) | 4 (draft, [40 §2.7]); 2; 6 | row 2: ≥ 96 % resolved, 0 silent wrong at the exact class |
 | F20-quote-max | most bytes of a `quote` span, and of a header quote | replay row 2 (WP-76) | 128 (draft, [40 §2.7]); 96 | as above; [11 §2.7]: longer quotes need fuzzy matching more often |
 | F20-quote-default | length of the start and end quotes of a `range` | replay row 2 (WP-76) | 64 (draft, [40 §2.7]); 32; 128 | as above; [11 §2.7] measured 32 B as ambiguous in 8 % of Rust cases and 256 B as fragile |
