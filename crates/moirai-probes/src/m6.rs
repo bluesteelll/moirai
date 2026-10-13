@@ -16,7 +16,11 @@
 //! **The `hist` frames** ([`frames`]): the records of four synthetic tails of measurement 10's `rec` family, without
 //! their rotation pads, cut into frames by F10 §4.2; split frames of P04-byte blocks. They follow the generator, not real
 //! logs.
+//!
+//! **The codecs** ([`codec`]): `lz4_flex` 0.14 block with and without the dictionary and `ruzstd` 0.9 at `Fastest`, each
+//! an instance with its own buffers, and the `zstd` CLI's stage below the working directory, found on `PATH` only.
 
+pub mod codec;
 pub mod corpus;
 pub mod dict;
 pub mod frames;
