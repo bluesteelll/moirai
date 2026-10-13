@@ -45,6 +45,23 @@
 //!
 //! **RSS.** A record's `private_peak` includes the setup (a `dec` quantity's encoder with it); `heap_high_water` is
 //! reset before the first pilot, so it is the run's own. Neither is under 90 §11.3's decision rule.
+//!
+//! **The driver** ([`cli`], `moirai-probes-bin m6`; [MP §9.7] through the shared [`driver`]): `--host`, `--condition`,
+//! `--load-log`, `--quantity`, `--commit` and `--toolchain` (required), `--out` (required unless `--smoke`, refused
+//! with it, created when missing), `--smoke`, `--help`. Without `--quantity`, each quantity runs in a child process
+//! of its own ([MP §4.6]), the CLI's two only when a `zstd` is on `PATH`.
+//! - **A recording run** of a notes, plan or `size.cli` quantity finds its corpus from `--out`, which must be
+//!   `<P>/measurements/6`: the notes in `P/codec-bodies/`, the plan sections in `docs/` beside `P` ([`corpus::from_out`]);
+//!   another `--out` fails naming it. A `hist` quantity reads no corpus and takes any `--out` (R-35 Q6). A `size.cli`
+//!   quantity with no `zstd` on `PATH` fails.
+//! - **The smoke** runs each requested quantity's arm once and records nothing. Its notes and plan sections are the
+//!   build checkout's when present ([`corpus::from_checkout`]), else synthetic, and one line per corpus says which with
+//!   its path and counts, never its text; `hist` is cut at the test profile. Without `--quantity` a CLI quantity with
+//!   no `zstd` on `PATH` is skipped with its reason. The binary passes the checkout it was compiled in, so the
+//!   night's readiness smoke reads the owner's notes only from a release build made in the main checkout (R-35 Q5).
+//! - Every file but the records lies below the working directory ([`work_dir`]; R-34 B-1): the CLI's stage.
+//!
+//! Exit 0 done, 1 a run or arm failed or a record could not be written, 2 a usage error.
 
 pub mod codec;
 pub mod corpus;
@@ -52,13 +69,19 @@ pub mod dict;
 pub mod frames;
 
 use crate::arm::{Arm, ArmError, Ticker, ValueFn};
+use crate::host::{CommandRunner, HostKind};
+use crate::m1::driver::{self, Args, EXIT_DONE, EXIT_FAILED, EXIT_USAGE};
+use crate::run::{Context, RunSpec, measure};
 use crate::units::Unit;
 use codec::{CliStage, Codec, CodecKind, Op, stored};
 use corpus::{Input, split};
 use frames::Frames;
+use moirai_vfs::Meter;
 use std::cell::RefCell;
+use std::ffi::OsString;
+use std::io::Write;
 use std::ops::Range;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 use std::rc::Rc;
 
 /// The measurement's row number.
@@ -462,13 +485,305 @@ fn time_arm<'a, T: Ticker + 'a>(
     Box::new(Batched::new(name, ticker, setup, run, teardown))
 }
 
+/// The scale of the `hist` frames: P03, P04 and the tails' thresholds.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Profile {
+    /// The production column (P03 256, P04 1 MiB, P07 4 MiB).
+    Production,
+    /// The test profile's column, the smoke's.
+    Test,
+}
+
+impl Profile {
+    /// The parameters.
+    pub fn params(self) -> crate::tail::Params {
+        match self {
+            Profile::Production => crate::tail::Params::PRODUCTION,
+            Profile::Test => crate::tail::Params::TEST,
+        }
+    }
+}
+
+/// What the binary passes in: the seams of the run, the process spawner and three facts of the process.
+pub struct System<'a, M, T, R> {
+    /// The measurement seam.
+    pub meter: &'a M,
+    /// The timer.
+    pub ticker: T,
+    /// The host-snapshot command runner.
+    pub runner: R,
+    /// Runs this driver again with the given arguments and returns its exit code.
+    pub spawn: &'a mut dyn FnMut(&[OsString]) -> Result<u8, String>,
+    /// The scale of a recording run's `hist` frames; a smoke cuts them at the test profile.
+    pub profile: Profile,
+    /// The `zstd` CLI on `PATH` ([`codec::zstd_on_path`]), when there is one.
+    pub zstd: Option<PathBuf>,
+    /// The working directory, below which every file but the records lies; `None` is the process's own
+    /// ([`work_dir`]).
+    pub work: Option<PathBuf>,
+    /// The checkout the binary was built in, where a smoke finds the real corpora ([`corpus::from_checkout`]);
+    /// `None` makes the smoke synthetic.
+    pub checkout: Option<PathBuf>,
+}
+
+/// The working directory: `given`, or the process's current one ([MP §9.7] "The working directory"; R-34 B-1).
+pub fn work_dir(given: Option<PathBuf>) -> Result<PathBuf, String> {
+    match given {
+        Some(p) => Ok(p),
+        None => std::env::current_dir().map_err(|e| format!("the working directory: {e}")),
+    }
+}
+
+/// The usage text.
+pub const USAGE: &str = "usage: m6 --host laptop|hosted --condition idle|loaded|synthetic [--load-log <file>]
+          [--quantity <name>] --commit <sha> --toolchain <text> --out <private>/measurements/6
+       m6 --smoke [--quantity <name>] --commit <sha> --toolchain <text>
+       m6 --help
+A notes, plan or size.cli quantity reads its corpus from --out's private root and the repository above it; a hist
+quantity takes any --out. A size.cli quantity needs a zstd executable on PATH.
+";
+
+/// The synthetic corpora's seed.
+const SYNTHETIC_SEED: u64 = 6;
+
+fn no_load(c: Corpus) -> Result<Frames, String> {
+    Err(format!("the {} corpus is not loaded here", c.name()))
+}
+
+/// `--smoke` ([MP §9.7]): every arm of each requested quantity once, nothing recorded. The notes and the plan
+/// sections are the build checkout's when present, else synthetic, and a line says which; `hist` is cut at the test
+/// profile. Without `--quantity`, a CLI quantity with no `zstd` on `PATH` is skipped with its reason.
+fn smoke<M, T: Ticker + Clone, R>(
+    sys: &System<'_, M, T, R>,
+    qs: &[Quantity],
+    asked: bool,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let checkout = sys.checkout.as_deref();
+    let mut code = EXIT_DONE;
+    let mut loaded = |c: Corpus, f: fn(Option<&Path>, u64) -> Result<corpus::Loaded, String>| {
+        if !qs.iter().any(|q| q.corpus == c) {
+            return None;
+        }
+        match f(checkout, SYNTHETIC_SEED) {
+            Ok(l) => {
+                let _ = writeln!(out, "{}", l.line(c.name()));
+                Some(l.inputs)
+            }
+            Err(e) => {
+                let _ = writeln!(err, "m6 smoke corpus {} FAILED: {e}", c.name());
+                code = EXIT_FAILED;
+                None
+            }
+        }
+    };
+    let notes = loaded(Corpus::Notes, corpus::smoke_notes);
+    let plan = loaded(Corpus::Plan, corpus::smoke_plan);
+    let load = |c: Corpus| match c {
+        Corpus::Notes => notes
+            .clone()
+            .map(Frames::singles)
+            .ok_or_else(|| "no notes".to_string()),
+        Corpus::Plan => plan
+            .clone()
+            .map(Frames::singles)
+            .ok_or_else(|| "no plan".to_string()),
+        Corpus::Hist => frames::hist(Profile::Test.params()),
+    };
+    let seams = Seams {
+        load: &load,
+        train: &dict::train,
+        codec: &RealCodecs,
+    };
+    for q in qs {
+        if q.measure == Measure::CliSize && sys.zstd.is_none() && !asked {
+            let _ = writeln!(
+                out,
+                "m6 smoke {} skipped (needs-hardware: no zstd on PATH)",
+                q.name
+            );
+            continue;
+        }
+        let run = || -> Result<(u64, Unit), String> {
+            let p = prepare(q, &seams)?;
+            let cli = Cli {
+                zstd: sys.zstd.clone(),
+                work: work_dir(sys.work.clone())?,
+            };
+            let mut a = arm(q, &p, &seams, &cli, sys.ticker.clone())?;
+            let v = a
+                .begin_block(1)
+                .and_then(|()| a.sample())
+                .map_err(|e| format!("{}: {e}", a.name()))?;
+            Ok((v, a.unit()))
+        };
+        match run() {
+            Ok((v, unit)) => {
+                let _ = writeln!(
+                    out,
+                    "m6 smoke {} {} ok {v} {}",
+                    q.name,
+                    q.arm_name(),
+                    unit.as_str()
+                );
+            }
+            Err(e) => {
+                let _ = writeln!(err, "m6 smoke {} FAILED: {e}", q.name);
+                code = EXIT_FAILED;
+            }
+        }
+    }
+    code
+}
+
+/// One recorded run of `q` in this process: its corpus (from `--out`'s private root for the notes and the plan,
+/// generated for `hist`), [`prepare`], its arm, [`measure`], and the record written directly in `--out`.
+fn run_one<M: Meter, T: Ticker + Clone, R: CommandRunner>(
+    sys: System<'_, M, T, R>,
+    a: &Args,
+    q: &Quantity,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let fail = |err: &mut dyn Write, code: u8, e: String| {
+        let _ = writeln!(err, "m6 {}: {e}", q.name);
+        code
+    };
+    let condition = match driver::condition(a) {
+        Ok(c) => c,
+        Err((code, e)) => return fail(err, code, e),
+    };
+    let dir = a.out.clone().unwrap_or_default();
+    if q.measure == Measure::CliSize && sys.zstd.is_none() {
+        return fail(
+            err,
+            EXIT_FAILED,
+            format!("{} needs a zstd executable on PATH", q.name),
+        );
+    }
+    let places = match q.corpus {
+        Corpus::Hist => None,
+        _ => match corpus::from_out(&dir) {
+            Ok(p) => Some(p),
+            Err(e) => return fail(err, EXIT_FAILED, e),
+        },
+    };
+    let profile = sys.profile;
+    let load = |c: Corpus| match (c, &places) {
+        (Corpus::Hist, _) => frames::hist(profile.params()),
+        (Corpus::Notes, Some(p)) => corpus::load_notes(&p.manifest).map(Frames::singles),
+        (Corpus::Plan, Some(p)) => corpus::load_plan(&p.docs).map(Frames::singles),
+        (c, None) => no_load(c),
+    };
+    let seams = Seams {
+        load: &load,
+        train: &dict::train,
+        codec: &RealCodecs,
+    };
+    let rec = {
+        let p = match prepare(q, &seams) {
+            Ok(p) => p,
+            Err(e) => return fail(err, EXIT_FAILED, e),
+        };
+        let cli = match work_dir(sys.work.clone()) {
+            Ok(work) => Cli {
+                zstd: sys.zstd.clone(),
+                work,
+            },
+            Err(e) => return fail(err, EXIT_FAILED, e),
+        };
+        let mut arm = match arm(q, &p, &seams, &cli, sys.ticker.clone()) {
+            Ok(a) => a,
+            Err(e) => return fail(err, EXIT_FAILED, e),
+        };
+        let spec = RunSpec {
+            measurement: MEASUREMENT,
+            quantity: q.name.clone(),
+            condition,
+            min_tier: None,
+        };
+        let mut ctx = Context {
+            meter: sys.meter,
+            ticker: sys.ticker.clone(),
+            runner: sys.runner,
+            host: a.host.unwrap_or(HostKind::Laptop),
+            toolchain: a.toolchain.clone().unwrap_or_default(),
+            commit: a.commit.clone().unwrap_or_default(),
+        };
+        let t0 = driver::now_ms();
+        let r = measure(&mut ctx, &spec, &mut [&mut *arm]);
+        let t1 = driver::now_ms();
+        match r {
+            Ok(mut rec) => {
+                driver::set_load_verdict(a, &mut rec, t0, t1, err, &format!("m6 {}", q.name));
+                rec
+            }
+            Err(e) => return fail(err, EXIT_FAILED, e.to_string()),
+        }
+    };
+    match driver::write_record(&rec, &dir) {
+        Ok(p) => {
+            let _ = writeln!(out, "m6 {} recorded {}", q.name, p.display());
+            EXIT_DONE
+        }
+        Err(e) => fail(
+            err,
+            EXIT_FAILED,
+            format!("the record could not be written: {e}"),
+        ),
+    }
+}
+
+/// The driver's command line ([MP §9.7], shared with measurements 1 and 2 through [`driver`]): parses `args`
+/// (without the program name), then runs the smoke, one quantity, or every quantity in a child process of its own;
+/// returns the exit code.
+pub fn cli<M: Meter, T: Ticker + Clone, R: CommandRunner>(
+    args: &[OsString],
+    sys: System<'_, M, T, R>,
+    out: &mut dyn Write,
+    err: &mut dyn Write,
+) -> u8 {
+    let every = quantities(true);
+    let names: Vec<&str> = every.iter().map(|q| q.name.as_str()).collect();
+    let a = match driver::parse(args, &names) {
+        Ok(a) => a,
+        Err(e) => {
+            let _ = writeln!(err, "m6: {e}");
+            let _ = err.write_all(USAGE.as_bytes());
+            return EXIT_USAGE;
+        }
+    };
+    if a.help {
+        let _ = out.write_all(USAGE.as_bytes());
+        return EXIT_DONE;
+    }
+    let asked = a
+        .quantity
+        .as_ref()
+        .and_then(|n| every.iter().find(|q| &q.name == n));
+    if a.smoke {
+        let qs: Vec<Quantity> = match asked {
+            Some(q) => vec![q.clone()],
+            None => every.clone(),
+        };
+        return smoke(&sys, &qs, asked.is_some(), out, err);
+    }
+    if let Some(q) = asked {
+        return run_one(sys, &a, q, out, err);
+    }
+    let qs = quantities(sys.zstd.is_some());
+    let names: Vec<&str> = qs.iter().map(|q| q.name.as_str()).collect();
+    driver::each_in_own_process(args, &names, sys.spawn, out, err, "m6")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::arm::valid_name;
     use crate::m6::corpus::{in_training, synthetic_notes, synthetic_plan};
     use crate::tail::Params;
-    use crate::testkit::FakeTicker;
+    use crate::testkit::{FakeTicker, scratch_dir};
     use std::cell::Cell;
     use std::collections::BTreeSet;
 
@@ -586,17 +901,11 @@ mod tests {
         }
     }
 
-    /// Every input a frame of its own.
-    fn singles(blocks: Vec<Input>) -> Frames {
-        let frames = (0..blocks.len()).map(|i| i..i + 1).collect();
-        Frames { blocks, frames }
-    }
-
     /// The test corpora: the synthetic notes and plan sections, and the `hist` frames at the test profile.
     fn corpus(c: Corpus) -> Result<Frames, String> {
         match c {
-            Corpus::Notes => Ok(singles(synthetic_notes(21))),
-            Corpus::Plan => Ok(singles(synthetic_plan(21))),
+            Corpus::Notes => Ok(Frames::singles(synthetic_notes(21))),
+            Corpus::Plan => Ok(Frames::singles(synthetic_plan(21))),
             Corpus::Hist => frames::hist(Params::TEST),
         }
     }
@@ -919,7 +1228,7 @@ mod tests {
                     id: id.clone(),
                     bytes: b"FLIP-ME and some words after".to_vec(),
                 });
-                Ok(singles(v))
+                Ok(Frames::singles(v))
             }
             c => corpus(c),
         };
@@ -972,5 +1281,493 @@ mod tests {
             let p = prepare(q, &real).unwrap();
             assert_eq!(p.encoded.len(), p.inputs.len(), "{}", q.name);
         }
+    }
+
+    fn os(args: &[&str]) -> Vec<OsString> {
+        args.iter().map(OsString::from).collect()
+    }
+
+    /// `--commit` and `--toolchain`, which every mode but `--help` needs.
+    const CT: [&str; 4] = ["--commit", "c0ffee", "--toolchain", "rustc 1.98.1"];
+
+    fn no_spawn(_: &[OsString]) -> Result<u8, String> {
+        Err("no child process in this test".into())
+    }
+
+    /// Runs the command line with the real ticker, no spawn, `zstd`, the working directory `work` and the build
+    /// checkout `checkout`; returns (exit, stdout, stderr).
+    fn run_cli(
+        args: &[&str],
+        zstd: Option<PathBuf>,
+        work: &Path,
+        checkout: Option<PathBuf>,
+    ) -> (u8, String, String) {
+        let meter = crate::testkit::FakeMeter::new(8_000_000_000);
+        let mut spawn = no_spawn;
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = cli(
+            &os(args),
+            System {
+                meter: &meter,
+                ticker: crate::arm::MonoTicker::new(),
+                runner: crate::host::tests::Canned::good(),
+                spawn: &mut spawn,
+                profile: Profile::Test,
+                zstd,
+                work: Some(work.to_path_buf()),
+                checkout,
+            },
+            &mut out,
+            &mut err,
+        );
+        (
+            code,
+            String::from_utf8(out).unwrap(),
+            String::from_utf8(err).unwrap(),
+        )
+    }
+
+    fn smoke_args(q: Option<&str>) -> Vec<&str> {
+        let mut v = vec!["--smoke"];
+        v.extend(CT);
+        if let Some(q) = q {
+            v.extend(["--quantity", q]);
+        }
+        v
+    }
+
+    /// A synthetic checkout: `private/codec-bodies/` with a manifest and 12 bodies, and `docs/` with two files.
+    fn tree(root: &Path) {
+        let bodies = root.join("private").join("codec-bodies");
+        std::fs::create_dir_all(bodies.join("notes")).unwrap();
+        let mut manifest = String::from("# synthetic\nbody\tbytes\tsha256\tsource\n");
+        for (k, b) in synthetic_notes(77).into_iter().take(12).enumerate() {
+            let rel = format!("notes/n{k:02}.md");
+            std::fs::write(bodies.join("notes").join(format!("n{k:02}.md")), &b.bytes).unwrap();
+            manifest.push_str(&format!("{rel}\t{}\t0\tsynthetic\n", b.bytes.len()));
+        }
+        std::fs::write(bodies.join("manifest.tsv"), manifest).unwrap();
+        let docs = root.join("docs");
+        std::fs::create_dir_all(docs.join("sub")).unwrap();
+        for (rel, text) in crate::m6::corpus::synthetic_docs(77).into_iter().take(4) {
+            let p = rel.split('/').fold(docs.clone(), |p, c| p.join(c));
+            std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+            std::fs::write(p, text).unwrap();
+        }
+    }
+
+    /// The raw total of the measured side of `inputs`.
+    fn measured_raw(inputs: Vec<Input>) -> u64 {
+        split(inputs)
+            .unwrap()
+            .measured
+            .iter()
+            .map(|i| i.bytes.len() as u64)
+            .sum()
+    }
+
+    /// The one record in `dir`, read back.
+    fn one_record(dir: &Path) -> crate::record::RunRecord {
+        let files: Vec<PathBuf> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().path())
+            .collect();
+        assert_eq!(files.len(), 1, "{files:?}");
+        let v: serde_json::Value =
+            serde_json::from_slice(&std::fs::read(&files[0]).unwrap()).unwrap();
+        crate::record::RunRecord::from_json(&v).unwrap()
+    }
+
+    /// `--smoke` runs each arm of every quantity once on the synthetic corpora (no checkout) with the corpus lines
+    /// first, and without `zstd` on `PATH` skips the CLI's two with their reason; `--quantity` runs that one alone.
+    #[test]
+    fn smoke_exercises_every_arm_once() {
+        let work = scratch_dir("m6-smoke");
+        let (code, out, err) = run_cli(&smoke_args(None), None, &work, None);
+        assert_eq!(code, EXIT_DONE, "{err}");
+        let lines: Vec<&str> = out.lines().collect();
+        assert!(lines[0].starts_with("m6 smoke corpus notes synthetic (no checkout) 41 inputs "));
+        assert!(lines[1].starts_with("m6 smoke corpus plan synthetic (no checkout) "));
+        let runs: Vec<&str> = lines[2..].to_vec();
+        assert_eq!(runs.len(), 29, "{out}");
+        for (l, q) in runs.iter().zip(quantities(true)) {
+            if q.measure == Measure::CliSize {
+                assert_eq!(
+                    *l,
+                    format!(
+                        "m6 smoke {} skipped (needs-hardware: no zstd on PATH)",
+                        q.name
+                    )
+                );
+                continue;
+            }
+            let w: Vec<&str> = l.split(' ').collect();
+            assert_eq!(
+                (w[0], w[1], w[2], w[3], w[4]),
+                ("m6", "smoke", q.name.as_str(), q.arm_name(), "ok"),
+                "{l}"
+            );
+            let unit = if matches!(q.measure, Measure::Enc(_) | Measure::Dec(_)) {
+                "ns"
+            } else {
+                "bytes"
+            };
+            assert_eq!(w[6], unit, "{l}");
+            if w[3] != "enc" && w[3] != "dec" {
+                assert!(w[5].parse::<u64>().unwrap() > 0, "{l}");
+            }
+        }
+        let (code, out, err) = run_cli(&smoke_args(Some("enc.lz4d.plan")), None, &work, None);
+        assert_eq!(code, EXIT_DONE, "{err}");
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 2, "{out}");
+        assert!(lines[0].starts_with("m6 smoke corpus plan synthetic"));
+        assert!(lines[1].starts_with("m6 smoke enc.lz4d.plan enc ok "));
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// `--smoke` records nothing: no file is left below the working directory and no line says "recorded".
+    #[test]
+    fn smoke_records_nothing() {
+        let work = scratch_dir("m6-smoke-nothing");
+        let (code, out, err) = run_cli(&smoke_args(None), None, &work, None);
+        assert_eq!(code, EXIT_DONE, "{err}");
+        assert!(!out.contains("recorded"));
+        assert_eq!(
+            std::fs::read_dir(&work).unwrap().count(),
+            0,
+            "nothing below the working directory"
+        );
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// A `--quantity` run writes exactly one record directly in `--out`, which is created when missing: measurement 6,
+    /// its one arm in bytes, the given commit and toolchain, and the process's own readings (`private_peak` is the
+    /// meter's, read in this process).
+    #[test]
+    fn run_writes_one_valid_record() {
+        let root = scratch_dir("m6-run");
+        let out_dir = root.join("made").join("here");
+        let o = out_dir.to_str().unwrap().to_string();
+        let mut args = vec![
+            "--quantity",
+            "raw.hist",
+            "--host",
+            "laptop",
+            "--condition",
+            "idle",
+            "--out",
+            &o,
+        ];
+        args.extend(CT);
+        let (code, out, err) = run_cli(&args, None, &root, None);
+        assert_eq!(code, EXIT_DONE, "{err}");
+        assert!(out.contains("m6 raw.hist recorded"), "{out}");
+        let rec = one_record(&out_dir);
+        assert_eq!((rec.measurement, rec.quantity.as_str()), (6, "raw.hist"));
+        assert_eq!(rec.arms.len(), 1);
+        assert_eq!(
+            (rec.arms[0].name.as_str(), rec.arms[0].unit),
+            ("raw", Unit::Bytes)
+        );
+        assert_eq!(
+            (rec.commit.as_str(), rec.toolchain.as_str()),
+            ("c0ffee", "rustc 1.98.1")
+        );
+        assert_eq!(rec.process.private_peak, Some(3_000_000));
+        let raw: u64 = frames::hist(Params::TEST)
+            .unwrap()
+            .blocks
+            .iter()
+            .map(|b| b.bytes.len() as u64)
+            .sum();
+        assert_eq!(rec.arms[0].reps[0].summary.p50, raw);
+        assert!(rec.valid(), "{:?}", rec.disqualifications());
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// Usage errors exit 2 with the reason and the usage: the shared contract's (`--commit` and `--toolchain`
+    /// required, `--smoke` with `--out`, a recording run without `--out`, `--host` or `--condition`, `--scratch`, an
+    /// unknown flag or quantity); `--help` exits 0 with the usage.
+    #[test]
+    fn cli_refuses_usage_errors() {
+        let work = scratch_dir("m6-usage");
+        let run = ["--host", "laptop", "--condition", "idle", "--out", "/o"];
+        let cases: Vec<(Vec<&str>, &str)> = vec![
+            (run.to_vec(), "--commit and --toolchain"),
+            (vec!["--smoke"], "--commit and --toolchain"),
+            (
+                [&CT[..], &["--smoke", "--out", "/o"]].concat(),
+                "takes no --out",
+            ),
+            (
+                [&CT[..], &["--host", "laptop", "--condition", "idle"]].concat(),
+                "needs --out",
+            ),
+            (
+                [&CT[..], &["--out", "/o"]].concat(),
+                "needs --host and --condition",
+            ),
+            (
+                [&CT[..], &run[..], &["--quantity", "size.brotli.notes"]].concat(),
+                "unknown quantity",
+            ),
+            (
+                [&CT[..], &run[..], &["--scratch", "s"]].concat(),
+                "unknown argument '--scratch'",
+            ),
+            (
+                [&CT[..], &run[..], &["--list"]].concat(),
+                "unknown argument '--list'",
+            ),
+        ];
+        for (args, why) in cases {
+            let (code, _, err) = run_cli(&args, None, &work, None);
+            assert_eq!(code, EXIT_USAGE, "{args:?}");
+            assert!(err.contains(why), "{args:?}: {err}");
+            assert!(err.contains("usage: m6"), "{err}");
+        }
+        let (code, out, _) = run_cli(&["--help"], None, &work, None);
+        assert_eq!((code, out.as_str()), (EXIT_DONE, USAGE));
+        let names: Vec<String> = quantities(true).into_iter().map(|q| q.name).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
+        assert!(driver::parse(&os(&[&CT[..], &run[..]].concat()), &refs).is_ok());
+        let _ = std::fs::remove_dir_all(&work);
+    }
+
+    /// Without `--quantity` each quantity runs in a child of its own, in grid order, with the same arguments plus
+    /// `--quantity <q>`: the 27, or the 29 when `zstd` is on `PATH`; the exit is the worst child's, and a child that
+    /// cannot start counts as failed.
+    #[test]
+    fn cli_without_quantity_spawns_one_process_per_run() {
+        let meter = crate::testkit::FakeMeter::new(8_000_000_000);
+        let base = os(&[
+            &CT[..],
+            &["--host", "laptop", "--condition", "idle", "--out", "/o"],
+        ]
+        .concat());
+        for (zstd, bad, expect) in [
+            (None, None, EXIT_DONE),
+            (Some(PathBuf::from("/bin/zstd")), None, EXIT_DONE),
+            (None, Some(Ok(1)), EXIT_FAILED),
+            (None, Some(Err(())), EXIT_FAILED),
+        ] {
+            let mut calls: Vec<Vec<OsString>> = Vec::new();
+            let mut spawn = |a: &[OsString]| -> Result<u8, String> {
+                calls.push(a.to_vec());
+                match (calls.len(), bad) {
+                    (5, Some(Ok(c))) => Ok(c),
+                    (5, Some(Err(()))) => Err("cannot start".into()),
+                    _ => Ok(0),
+                }
+            };
+            let (mut out, mut err) = (Vec::new(), Vec::new());
+            let cli_present = zstd.is_some();
+            let code = cli(
+                &base,
+                System {
+                    meter: &meter,
+                    ticker: crate::arm::MonoTicker::new(),
+                    runner: crate::host::tests::Canned::good(),
+                    spawn: &mut spawn,
+                    profile: Profile::Test,
+                    zstd,
+                    work: None,
+                    checkout: None,
+                },
+                &mut out,
+                &mut err,
+            );
+            assert_eq!(code, expect);
+            let qs = quantities(cli_present);
+            assert_eq!(calls.len(), qs.len());
+            for (c, q) in calls.iter().zip(qs) {
+                let mut want = base.clone();
+                want.push("--quantity".into());
+                want.push(q.name.into());
+                assert_eq!(c, &want);
+            }
+        }
+    }
+
+    /// A requested `size.cli.*` quantity with no `zstd` on `PATH` fails, in a recording run and in a smoke, with the
+    /// reason; a smoke of every quantity skips it instead (see the smoke test).
+    #[test]
+    fn a_cli_quantity_needs_zstd_on_path() {
+        let root = scratch_dir("m6-cli-q");
+        tree(&root);
+        let o = root.join("private").join("measurements").join("6");
+        let o = o.to_str().unwrap().to_string();
+        let mut args = vec![
+            "--quantity",
+            "size.cli.notes",
+            "--host",
+            "laptop",
+            "--condition",
+            "idle",
+            "--out",
+            &o,
+        ];
+        args.extend(CT);
+        let (code, _, err) = run_cli(&args, None, &root, None);
+        assert_eq!(code, EXIT_FAILED);
+        assert!(
+            err.contains("size.cli.notes needs a zstd executable on PATH"),
+            "{err}"
+        );
+        let (code, _, err) = run_cli(&smoke_args(Some("size.cli.plan")), None, &root, None);
+        assert_eq!(code, EXIT_FAILED);
+        assert!(
+            err.contains("size.cli.plan needs a zstd executable on PATH"),
+            "{err}"
+        );
+        assert!(
+            !root.join("private").join("measurements").exists(),
+            "no record"
+        );
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The night's plan lists exactly the driver's quantities in run order (R-27 Q2, R-34 M-13): the 27 without the
+    /// CLI, or the 29 once the orchestrator has inserted the CLI's two at readiness.
+    #[test]
+    fn grid_equals_the_plans_list() {
+        let plan = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../xtask/measure-night.toml");
+        let text = std::fs::read_to_string(plan).unwrap();
+        let list = driver::plan_quantities(&text, MEASUREMENT).unwrap();
+        let names = |cli| -> Vec<String> { quantities(cli).into_iter().map(|q| q.name).collect() };
+        assert!(list == names(false) || list == names(true), "{list:?}");
+        assert_eq!(list.len(), 27);
+    }
+
+    /// A recording run of a notes or plan quantity reads its corpus from `--out` = `<P>/measurements/6`: the tree's
+    /// bodies and docs, measured side only; another `--out`, or a missing manifest, fails naming the path. A `hist`
+    /// quantity takes any `--out`.
+    #[test]
+    fn recording_runs_need_their_corpora() {
+        let root = scratch_dir("m6-corpora");
+        tree(&root);
+        let out_dir = root.join("private").join("measurements").join("6");
+        let o = out_dir.to_str().unwrap().to_string();
+        let record = |q: &str, o: &str| {
+            let mut args = vec![
+                "--quantity",
+                q,
+                "--host",
+                "laptop",
+                "--condition",
+                "idle",
+                "--out",
+                o,
+            ];
+            args.extend(CT);
+            run_cli(&args, None, &root, None)
+        };
+        let places = corpus::from_checkout(&root);
+        for (q, want) in [
+            (
+                "raw.notes",
+                measured_raw(corpus::load_notes(&places.manifest).unwrap()),
+            ),
+            (
+                "raw.plan",
+                measured_raw(corpus::load_plan(&places.docs).unwrap()),
+            ),
+        ] {
+            let (code, _, err) = record(q, &o);
+            assert_eq!(code, EXIT_DONE, "{q}: {err}");
+            let rec = one_record(&out_dir);
+            assert_eq!(rec.quantity, q);
+            assert_eq!(rec.arms[0].reps[0].summary.p50, want, "{q}");
+            std::fs::remove_dir_all(&out_dir).unwrap();
+        }
+        let elsewhere = root.join("elsewhere");
+        let e = elsewhere.to_str().unwrap().to_string();
+        let (code, _, err) = record("raw.notes", &e);
+        assert_eq!(code, EXIT_FAILED);
+        assert!(
+            err.contains(&e) && err.contains("is not <private>/measurements/6"),
+            "{err}"
+        );
+        let (code, _, err) = record("raw.hist", &e);
+        assert_eq!(code, EXIT_DONE, "{err}");
+        assert_eq!(one_record(&elsewhere).quantity, "raw.hist");
+        std::fs::remove_file(&places.manifest).unwrap();
+        let (code, _, err) = record("size.lz4.notes", &o);
+        assert_eq!(code, EXIT_FAILED);
+        assert!(err.contains("manifest.tsv"), "{err}");
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// The smoke reads the build checkout's corpora when they are present, says so, and measures them: `raw.notes`
+    /// and `raw.plan` are the tree's measured totals; over an empty checkout it says synthetic and measures those.
+    #[test]
+    fn smoke_reads_the_checkouts_corpora_when_present() {
+        let root = scratch_dir("m6-smoke-tree");
+        tree(&root);
+        let places = corpus::from_checkout(&root);
+        let value = |out: &str, q: &str| -> u64 {
+            let l = out
+                .lines()
+                .find(|l| l.starts_with(&format!("m6 smoke {q} ")))
+                .unwrap();
+            l.split(' ').nth(5).unwrap().parse().unwrap()
+        };
+        let (code, out, err) = run_cli(
+            &smoke_args(Some("raw.notes")),
+            None,
+            &root,
+            Some(root.clone()),
+        );
+        assert_eq!(code, EXIT_DONE, "{err}");
+        assert!(
+            out.starts_with(&format!(
+                "m6 smoke corpus notes {} 12 inputs ",
+                places.manifest.display()
+            )),
+            "{out}"
+        );
+        let notes = corpus::load_notes(&places.manifest).unwrap();
+        assert_eq!(value(&out, "raw.notes"), measured_raw(notes));
+        let (code, out, err) = run_cli(
+            &smoke_args(Some("raw.plan")),
+            None,
+            &root,
+            Some(root.clone()),
+        );
+        assert_eq!(code, EXIT_DONE, "{err}");
+        assert!(
+            out.starts_with(&format!("m6 smoke corpus plan {} ", places.docs.display())),
+            "{out}"
+        );
+        let plan = corpus::load_plan(&places.docs).unwrap();
+        assert_eq!(value(&out, "raw.plan"), measured_raw(plan));
+        let empty = scratch_dir("m6-smoke-empty");
+        let (code, out, err) = run_cli(
+            &smoke_args(Some("raw.notes")),
+            None,
+            &empty,
+            Some(empty.clone()),
+        );
+        assert_eq!(code, EXIT_DONE, "{err}");
+        assert!(
+            out.starts_with("m6 smoke corpus notes synthetic ("),
+            "{out}"
+        );
+        assert_eq!(
+            value(&out, "raw.notes"),
+            measured_raw(synthetic_notes(SYNTHETIC_SEED))
+        );
+        let _ = std::fs::remove_dir_all(&root);
+        let _ = std::fs::remove_dir_all(&empty);
+    }
+
+    /// The working directory defaults to the process's current one in the library, where the tests see it (R-34
+    /// B-1), and a given one is kept.
+    #[test]
+    fn work_defaults_to_the_working_directory() {
+        assert_eq!(work_dir(None).unwrap(), std::env::current_dir().unwrap());
+        let p = PathBuf::from("/some/work/6");
+        assert_eq!(work_dir(Some(p.clone())).unwrap(), p);
     }
 }

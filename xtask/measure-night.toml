@@ -57,7 +57,36 @@ driver = "m6"
 title = "the codecs (lz4_flex with and without a raw-content dictionary, ruzstd, the zstd CLI as proxy): size, speed and RSS"
 run-budget-minutes = 45
 budget-minutes = 55
-quantities = []
+quantities = [
+    "raw.notes",
+    "size.lz4.notes",
+    "size.lz4d.notes",
+    "size.zstd.notes",
+    "raw.plan",
+    "size.lz4.plan",
+    "size.lz4d.plan",
+    "size.zstd.plan",
+    "raw.hist",
+    "size.lz4.hist",
+    "size.zstd.hist",
+    # With the zstd CLI on PATH at readiness, "size.cli.notes" and "size.cli.plan" go here (R-35 Q3).
+    "dec.lz4.notes",
+    "dec.lz4d.notes",
+    "dec.zstd.notes",
+    "enc.lz4.notes",
+    "enc.lz4d.notes",
+    "enc.zstd.notes",
+    "dec.lz4.plan",
+    "dec.lz4d.plan",
+    "dec.zstd.plan",
+    "enc.lz4.plan",
+    "enc.lz4d.plan",
+    "enc.zstd.plan",
+    "dec.lz4.hist",
+    "dec.zstd.hist",
+    "enc.lz4.hist",
+    "enc.zstd.hist",
+]
 
 [[measurement]]
 n = 2

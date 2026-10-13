@@ -84,6 +84,12 @@ pub struct Frames {
 }
 
 impl Frames {
+    /// Every input a frame of its own: the notes and the plan sections.
+    pub fn singles(blocks: Vec<Input>) -> Frames {
+        let frames = (0..blocks.len()).map(|i| i..i + 1).collect();
+        Frames { blocks, frames }
+    }
+
     /// Appends the frames of `tail`'s records, cut with `p`'s P03 and P04.
     pub fn push_tail(&mut self, j: u64, bytes: &[u8], p: &Params) -> Result<(), String> {
         let recs = records(bytes)?;
