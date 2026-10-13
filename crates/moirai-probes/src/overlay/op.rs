@@ -557,7 +557,7 @@ mod tests {
     use super::super::Base;
     use super::super::naive::Naive;
     use super::*;
-    use crate::tail::commit::Commit;
+    use crate::tail::commit::{Commit, TValue};
     use crate::tail::rec::{Payload, Record};
     use crate::tail::scan::MemLog;
     use crate::tail::synth::{Clause, Target, generate, tests::test_target};
@@ -1141,6 +1141,70 @@ mod tests {
             failed.len(),
             failed[0]
         );
+    }
+
+    /// The offset read's bound, k frames in at most k + 1 reads (module doc), on frames longer than a head. The generator
+    /// writes one op per owner per commit and the hand-built #3's first frame fits the first read, so the tails have no
+    /// such owner. A stub record at `START`: a zero header, then two frames of #7, a `SetField` of a 20-byte text and a
+    /// `SetBody`, each longer than [`FRAME_HEAD_MAX`], then `n_bodies` and a trailer. Read through an entry of 2 frames
+    /// at `START + 32`, `Body` is the `SetBody`'s, and the reads are 3: the first head, the rest of the first frame with
+    /// the second frame's head, and the rest of the second frame.
+    #[test]
+    fn offset_read_takes_k_plus_one_reads_over_long_frames() {
+        const N: u32 = 7;
+        let ops = [
+            Op::SetField {
+                id: N,
+                prev: 100,
+                name: 1,
+                old: TValue::absent(),
+                new: TValue::text("twenty bytes of text"),
+            },
+            Op::SetBody {
+                id: N,
+                prev: 100,
+                old: None,
+                new: Some([7; 16]),
+            },
+        ];
+        let mut bytes = vec![0u8; REC_HDR_LEN];
+        let mut lens = Vec::new();
+        for op in &ops {
+            let at = bytes.len();
+            op.encode(&mut bytes, &mut Vec::new()).unwrap();
+            lens.push((bytes.len() - at) as u64);
+        }
+        assert!(
+            lens.iter().all(|&l| l > FRAME_HEAD_MAX as u64),
+            "frames of {lens:?} bytes"
+        );
+        bytes.extend([0; 1 + TRAILER_LEN]);
+        let idx = OpIndex {
+            entries: vec![OpEntry {
+                n: N,
+                at: pack(REC_HDR_LEN as u64, 2).unwrap(),
+                lsn: START,
+            }]
+            .into_boxed_slice(),
+        };
+        let mut src = MemLog::new(START, &bytes);
+        let got = hand_built().overlay.get_op_at(
+            &idx,
+            &mut src,
+            N,
+            &Key::Body,
+            TAIL_READ_CHUNK,
+            &mut Vec::new(),
+        );
+        assert_eq!(got, Ok(Probe::Tail(Value::Body(Some([7; 16])))));
+        let first = START + REC_HDR_LEN as u64;
+        let head = FRAME_HEAD_MAX as u64;
+        let want = [
+            (first, FRAME_HEAD_MAX),
+            (first + head, lens[0] as usize),
+            (first + lens[0] + head, (lens[1] - head) as usize),
+        ];
+        assert_eq!(src.reads, want, "2 frames of {lens:?} bytes: 3 reads");
     }
 
     /// `at` packs a 24-bit offset and an 8-bit frame count: `Some` at (32, 1) and (2^24 − 1, 255), `None` at (2^24, 1),
