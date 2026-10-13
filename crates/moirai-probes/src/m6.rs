@@ -1018,7 +1018,8 @@ mod tests {
 
     /// Every `enc` and `dec` arm times exactly its codec calls on the measured side, cycled in id order: with a
     /// batch of 1 each sample is the spy's 100 + (input length) ns of the next input, and the spy saw exactly that
-    /// input (a `dec` arm its encoded form, never the raw one); with a batch of 3, the mean of 3 consecutive inputs.
+    /// input (a `dec` arm its encoded form, never the raw one); with a batch of 3, each of two samples is the mean of
+    /// the next 3 consecutive inputs, which the spy saw in order, so a batch moves on by its k.
     #[test]
     fn every_time_arm_times_its_codec_on_the_measured_split() {
         for q in time_quantities() {
@@ -1056,11 +1057,19 @@ mod tests {
                 assert_eq!(log, [Call { op, bytes: sent(i) }], "{} sample {j}", q.name);
             }
             arm.set_batch(3);
-            let start = (n + 2) % n;
-            let three: u64 = (0..3)
-                .map(|j| 100 + sent(&want[(start + j) % n]).len() as u64)
-                .sum();
-            assert_eq!(arm.sample().unwrap(), three / 3, "{}", q.name);
+            for b in 0..2 {
+                let start = (n + 2 + 3 * b) % n;
+                let three: Vec<&Input> = (0..3).map(|j| &want[(start + j) % n]).collect();
+                let mean = three
+                    .iter()
+                    .map(|i| 100 + sent(i).len() as u64)
+                    .sum::<u64>()
+                    / 3;
+                assert_eq!(arm.sample().unwrap(), mean, "{} batch {b}", q.name);
+                let log = std::mem::take(&mut *f.log.borrow_mut());
+                let calls: Vec<Call> = three.iter().map(|i| Call { op, bytes: sent(i) }).collect();
+                assert_eq!(log, calls, "{} batch {b}", q.name);
+            }
         }
     }
 
