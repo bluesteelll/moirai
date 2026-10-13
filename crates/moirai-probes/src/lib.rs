@@ -48,7 +48,7 @@
 //!
 //! | Module | What it holds | Specification |
 //! |---|---|---|
-//! | [`m6`] | the corpora: the owner's notes through their manifest, the plan sections of `docs/**`, where a run finds them, and their training and measured split; the probe's own raw-content dictionary trainer; the `hist` frames cut by F10 §4.2 from the tail generator; the codecs (`lz4_flex` with and without the dictionary, `ruzstd`, the `zstd` CLI's stage) | [60 §5.2] item 6, `90-harness-agnostic-design.md:959-974`, [MP §9.7] |
+//! | [`m6`] | the grid of 27 quantities (29 with the `zstd` CLI), every size first; the setup with its round trip of every measured input; the `raw` and `size` value arms and the batched `enc` and `dec` time arms; the corpora (the owner's notes through their manifest, the plan sections of `docs/**`, where a run finds them, their training and measured split), the probe's own raw-content dictionary trainer, the `hist` frames cut by F10 §4.2 from the tail generator, and the codecs (`lz4_flex` with and without the dictionary, `ruzstd`, the `zstd` CLI's stage) | [60 §5.2] item 6, `90-harness-agnostic-design.md:959-974`, [MP §9.7] |
 //!
 //! # Measurement 10 (WP-53d)
 //!
