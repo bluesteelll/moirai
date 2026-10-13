@@ -996,9 +996,9 @@ The tests run in this order ([40 §4.4]):
 | # | Test | Result |
 |---|---|---|
 | 1 | tiny X (§2.6.5) | no inexact pair; the chain ends (deleted) |
-| 2 | **split**: c has at least 2 added candidates, at least `SPLIT_MIN_PIECES` = 2 of them have `nio(X, a) ≥ 4/5`, and their `oin(X, a)` sum to at least 3/5 | `moved-needs-confirm (split)`, the pieces listed |
+| 2 | **split**: at least `SPLIT_MIN_PIECES` = 2 added candidates a have `nio(X, a) ≥ 4/5` (`SPLIT_NIO`), and the `oin(X, a)` of all of them sum to at least 3/5 (`SPLIT_SUM`) ([40 §4.4]; [10 §7]) | `moved-needs-confirm (split)`, the pieces listed |
 | 3 | exactly one added candidate has `gs ≥ 90` (`E6_STRONG`) | `strong` to it |
-| 4 | the best added candidate by (`gs` descending, path) has `gs ≥ 50`, `gs` at least 20 above the next, and the same `dirname` or the same basename as x (the "similarity ≥ 0.5 with margin ≥ 0.2 and one directory or basename corroboration" row of [40 §4.4], with `gs / 100` as the score) | `strong` to it |
+| 4 | the best added candidate by (`gs` descending, path) has `gs ≥ 50`, `gs` at least 20 above the next (0 when there is none), and the same `dirname` or the same basename as x (the "similarity ≥ 0.5 with margin ≥ 0.2 and one directory or basename corroboration" row of [40 §4.4], with `gs / 100` as the score) | `strong` to it |
 | 5 | a host or added candidate m with `oin(X, m) ≥ 4/5` and `nio(X, m) < 1/2`; several: the first in path order | `moved-needs-confirm (merged)` into m |
 | 6 | the best added candidate has `20 ≤ gs < 50` and `max(oin, nio) ≥ 4/5` (`E6_WEAK`, "git pair 20–49 % confirmed by containment") | `weak` to it |
 | 7 | none | no pair |
@@ -1062,7 +1062,7 @@ largest piece, which `files.policy.auto = strong` (§1.5) would apply automatica
 |---|---|---|
 | split | the test of §5.11.4 row 2, over stage 2's candidates | `moved-needs-confirm (split)` |
 | strong (similarity) | best pair score ≥ `SIM_STRONG` = 1/2, margin over the runner-up ≥ `SIM_MARGIN` = 1/5, and `dirname(q) = dirname(p)` or `basename(q) = basename(p)` | `moved-needs-confirm` (similar …) |
-| merged | `oin ≥ 4/5` (`MERGED_OIN`) and `nio < 1/2` (`MERGED_NIO_MAX`) against a host file | `moved-needs-confirm (merged)` |
+| merged | `oin ≥ 4/5` (`MERGED_OIN`) and `nio < 1/2` (`MERGED_NIO_MAX`) against a host file: a stage-2 candidate (§5.14), so never a bound path (§4.2; [40 §4.1] P4) | `moved-needs-confirm (merged)` |
 | weak | a candidate scores ≥ `SIM_WEAK` = 3/10 (the residual class) | `moved-needs-confirm` when one candidate scores ≥ 3/10, `ambiguous` when two or more do |
 | none | no score ≥ 3/10 | `missing` |
 
@@ -1071,7 +1071,8 @@ makes the class weak. So, when neither split nor merged holds, a best score ≥ 
 path shares neither `dirname` nor `basename` with p, is weak; with no score ≥ 3/10 the class is none, whatever the
 margin. [10 §7]'s strong row had no corroboration, so its weak row ("best in [0.3, 0.5), or margin < 0.2") covered the
 rest; [40 §4.4] added the corroboration without widening weak. A weak result is only ever a proposal, never an
-automatic re-bind.
+automatic re-bind. An absent runner-up counts as score 0, here and in §5.11.4 row 4, so a lone candidate meets the
+margin whenever it meets the score ([10 §7]: "margin ≥ 0.2 over the runner-up").
 
 Thresholds are exact rationals; "≥ 1/2" includes 1/2 and "< 1/2" excludes it. The rationale is [10 §7]: 1/2 lies above the
 p90 background of unrelated files (0.24 symmetric, 0.29 containment) and below the p10 score at 30 % churn (0.62).
