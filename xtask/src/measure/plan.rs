@@ -7,8 +7,9 @@ use crate::nightly::calendar::MAX_WINDOW_SECS;
 use crate::nightly::config::{MIN_DISK_FLOOR, MIN_RAM_FLOOR, parse_bytes};
 use crate::toml::{self, Table, Value};
 
-/// The binaries of `moirai-probes-bin` that are tools, not measurement drivers (as `noise.yml` lists them).
-pub const TOOLS: &[&str] = &["guard", "loadgen", "noise", "empty"];
+/// The binaries of `moirai-probes-bin` that are tools, not measurement drivers: the four that `noise.yml` lists, and
+/// `aggregate`, which reads the records after the night.
+pub const TOOLS: &[&str] = &["guard", "loadgen", "noise", "empty", "aggregate"];
 /// The largest minutes value: the longest window ([`MAX_WINDOW_SECS`], 72 hours).
 const MAX_MINUTES: i64 = MAX_WINDOW_SECS / 60;
 
@@ -285,7 +286,7 @@ pub(crate) mod tests {
             ["m1", "m14", "m6", "m2", "m10"]
         );
         assert_eq!(col(&|m| m.run_budget_secs / 60), [20, 90, 45, 70, 45]);
-        assert_eq!(col(&|m| m.budget_secs / 60), [25, 110, 55, 85, 55]);
+        assert_eq!(col(&|m| m.budget_secs / 60), [25, 120, 55, 85, 160]);
         assert_eq!((p.ram_floor, p.disk_floor), (1_500_000_000, 25_000_000_000));
         assert_eq!(
             (p.settle_secs, p.finish_margin_secs, p.smoke_budget_secs),
@@ -295,9 +296,9 @@ pub(crate) mod tests {
             (p.bins.as_str(), p.scratch.as_str()),
             ("laneA/release", "measure")
         );
-        // The settle, every measurement's budget and the finish margin fit a 6-hour window, so a hang costs only its
+        // The settle, every measurement's budget and the finish margin fit an 8-hour window, so a hang costs only its
         // own measurement.
-        assert!(p.settle_secs + p.budgets_secs() + p.finish_margin_secs <= 6 * 3_600);
+        assert!(p.settle_secs + p.budgets_secs() + p.finish_margin_secs <= 8 * 3_600);
         // The driver units fill the quantity lists; every name listed is one of [MP §4.1].
         for m in &p.measurements {
             assert!(m.quantities.iter().all(|q| quantity_name(q)), "{m:?}");
@@ -387,6 +388,10 @@ pub(crate) mod tests {
             (
                 ok.replace("driver = \"m1\"", "driver = \"guard\""),
                 "'guard' is a tool of moirai-probes-bin",
+            ),
+            (
+                ok.replace("driver = \"m1\"", "driver = \"aggregate\""),
+                "'aggregate' is a tool of moirai-probes-bin",
             ),
             (
                 ok.replace("driver = \"m1\"", "driver = \"M1\""),
