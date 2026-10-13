@@ -2937,8 +2937,10 @@ mod tests {
     }
 
     /// The setup refuses a disagreeing read (spec Goal 1): [`read_ops_agree`] is `Ok` over three sources of one tail,
-    /// and `Err`, naming the id, when the offset read's source holds one changed `SetStatus` byte (the new status of a
-    /// node's `SetStatus` in its newest record).
+    /// and `Err`, naming the id, when one changed `SetStatus` byte (the new status of a node's `SetStatus` in its newest
+    /// record) is in the offset read's source alone, and again when it is in the frame walk's source alone. The two
+    /// reads differ there: the frame walk decodes the window `locate` held, the offset read re-reads at the index's
+    /// offset, so each comparison is pinned on its own.
     #[test]
     fn read_op_setup_refuses_a_disagreeing_read() {
         let (t, b) = tail_and_base(300, 400, 1);
@@ -2997,19 +2999,25 @@ mod tests {
             .expect("a SetStatus in its owner's newest record");
         let mut bad = t.bytes.clone();
         bad[at] = new;
-        let r = read_ops_agree(
-            &o,
-            &idx,
-            &c,
-            &ids,
-            &mut clean(),
-            (&mut clean(), &mut b0),
-            (&mut MemLog::new(t.start, &bad), &mut b1),
-        );
-        assert!(
-            r.as_ref().is_err_and(|e| e.starts_with(&format!("#{n}:"))),
-            "{r:?}"
-        );
+        // The changed byte in the offset read's source, then in the frame walk's.
+        for (side, op_src, at_src) in [
+            ("the offset read's", &t.bytes, &bad),
+            ("the frame walk's", &bad, &t.bytes),
+        ] {
+            let r = read_ops_agree(
+                &o,
+                &idx,
+                &c,
+                &ids,
+                &mut clean(),
+                (&mut MemLog::new(t.start, op_src), &mut b0),
+                (&mut MemLog::new(t.start, at_src), &mut b1),
+            );
+            assert!(
+                r.as_ref().is_err_and(|e| e.starts_with(&format!("#{n}:"))),
+                "the changed byte in {side} source: {r:?}"
+            );
+        }
     }
 
     /// The naive cost of T1's whole-record read of `#n`: from the decoded records, the owner's newest record, then the
