@@ -115,4 +115,23 @@ driver = "m10"
 title = "full-tail replay at candidate thresholds into the overlay, with the lazy share and the open floor"
 run-budget-minutes = 45
 budget-minutes = 55
-quantities = []
+quantities = [
+    "ops-4096.n1e6",
+    "rec-4mib.n1e6",
+    "body-32mib.n1e6",
+    "ovl-1mib.n1e6",
+    "quiet-2mib-x8.n1e6",
+    "ops-4096.n1e5",
+    "ops-2048.n1e5",
+    "ops-1024.n1e5",
+    "ops-2048.n1e6",
+    "ops-1024.n1e6",
+    "rec-2mib.n1e6",
+    "rec-1mib.n1e6",
+    "body-16mib.n1e6",
+    "body-8mib.n1e6",
+    "ovl-512kib.n1e6",
+    "quiet-2mib-x4.n1e6",
+    "quiet-1536kib-x8.n1e6",
+    "quiet-1536kib-x4.n1e6",
+]
