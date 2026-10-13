@@ -1054,13 +1054,24 @@ Only under `links check --deep` and `links sync --deep`; never on reads or hooks
 
 ### 5.15 Classification thresholds ([40 §4.4])
 
+The rows are tested in this order, and the first that holds decides: split, strong, merged, weak, then none, the order
+of §5.11.4's tests (the orchestrator's ruling R-13 of 2026-10-11). So a file split into pieces is never strong to its
+largest piece, which `files.policy.auto = strong` (§1.5) would apply automatically ([10 §7]: "do not pick one").
+
 | Class | Condition | State |
 |---|---|---|
+| split | the test of §5.11.4 row 2, over stage 2's candidates | `moved-needs-confirm (split)` |
 | strong (similarity) | best pair score ≥ `SIM_STRONG` = 1/2, margin over the runner-up ≥ `SIM_MARGIN` = 1/5, and `dirname(q) = dirname(p)` or `basename(q) = basename(p)` | `moved-needs-confirm` (similar …) |
 | merged | `oin ≥ 4/5` (`MERGED_OIN`) and `nio < 1/2` (`MERGED_NIO_MAX`) against a host file | `moved-needs-confirm (merged)` |
-| split | the test of §5.11.4 row 2, over stage 2's candidates | `moved-needs-confirm (split)` |
-| weak | best score in [`SIM_WEAK` = 3/10, 1/2), or margin < 1/5 | `moved-needs-confirm` when one candidate scores ≥ 3/10, `ambiguous` when two or more do |
+| weak | a candidate scores ≥ `SIM_WEAK` = 3/10 (the residual class) | `moved-needs-confirm` when one candidate scores ≥ 3/10, `ambiguous` when two or more do |
 | none | no score ≥ 3/10 | `missing` |
+
+Weak is the residual class (ruling R-13): when split, strong and merged do not hold, a candidate that scores ≥ 3/10
+makes the class weak. So, when neither split nor merged holds, a best score ≥ 1/2 whose margin is below 1/5, or whose
+path shares neither `dirname` nor `basename` with p, is weak; with no score ≥ 3/10 the class is none, whatever the
+margin. [10 §7]'s strong row had no corroboration, so its weak row ("best in [0.3, 0.5), or margin < 0.2") covered the
+rest; [40 §4.4] added the corroboration without widening weak. A weak result is only ever a proposal, never an
+automatic re-bind.
 
 Thresholds are exact rationals; "≥ 1/2" includes 1/2 and "< 1/2" excludes it. The rationale is [10 §7]: 1/2 lies above the
 p90 background of unrelated files (0.24 symmetric, 0.29 containment) and below the p10 score at 30 % churn (0.62).
