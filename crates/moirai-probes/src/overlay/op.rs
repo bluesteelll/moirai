@@ -1089,6 +1089,60 @@ mod tests {
         assert!(walked > 20, "{walked} reads went on past the newest record");
     }
 
+    /// The offset read refuses a frame of another owner: the index is not this log's (module doc). For every two
+    /// owners a and b with the same newest record in the tails of `offset_read_equals_the_whole_record_read`, an index
+    /// whose entry of a holds b's `at` makes every read of a (`Status`, `Exist`, `Hier`, `Field(1)`) fail with "a frame
+    /// of #b where #a's was located", never a value built from b's frames.
+    #[test]
+    fn offset_read_refuses_another_owners_frames() {
+        let mut buf = Vec::new();
+        let mut tried = 0;
+        let mut failed = Vec::new();
+        for p in probed() {
+            let mut src = MemLog::new(p.start, &p.bytes);
+            let idx = OpIndex::build(&p.overlay, &mut src, TAIL_READ_CHUNK, &mut buf).unwrap();
+            let es = idx.entries();
+            for (i, a) in es.iter().enumerate() {
+                let Some(b) = es.iter().find(|b| b.lsn == a.lsn && b.n != a.n) else {
+                    continue;
+                };
+                let mut v = es.to_vec();
+                v[i].at = b.at;
+                let bad = OpIndex {
+                    entries: v.into_boxed_slice(),
+                };
+                let want = Err(format!(
+                    "lsn {}: a frame of #{} where #{}'s was located",
+                    a.lsn, b.n, a.n
+                ));
+                for key in [Key::Status, Key::Exist, Key::Hier, Key::Field(1)] {
+                    tried += 1;
+                    let got = p.overlay.get_op_at(
+                        &bad,
+                        &mut MemLog::new(p.start, &p.bytes),
+                        a.n,
+                        &key,
+                        TAIL_READ_CHUNK,
+                        &mut buf,
+                    );
+                    if got != want {
+                        failed.push(format!(
+                            "{} #{} {key:?} at #{}'s frames: {got:?}",
+                            p.name, a.n, b.n
+                        ));
+                    }
+                }
+            }
+        }
+        assert!(tried > 100, "{tried} reads of a shared newest record");
+        assert!(
+            failed.is_empty(),
+            "{} of {tried} reads not refused, the first: {}",
+            failed.len(),
+            failed[0]
+        );
+    }
+
     /// `at` packs a 24-bit offset and an 8-bit frame count: `Some` at (32, 1) and (2^24 − 1, 255), `None` at (2^24, 1),
     /// (32, 0) and (32, 256); `unpack` inverts `pack`; an entry is 16 bytes.
     #[test]
