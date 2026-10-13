@@ -32,7 +32,8 @@
 //!   warning, and the runs go on.
 //!
 //! **The finish**: the drivers' working directories are removed, the session record
-//! `<scratch>/sessions/<start>/session.json` is written, and the private manifest is rebuilt. An internal error (exit
+//! `<scratch>/sessions/<start>/session.json` is written, and the private manifest is rebuilt. The session record names
+//! the processes resident at the session's start and end ([`residents`]). An internal error (exit
 //! 4: the session directory or a working directory cannot be made) ends the session at once and skips the finish.
 //!
 //! **`--smoke`**: each run once, outside any window and with no settle, with `--smoke` in place of `--out` under the
@@ -46,6 +47,7 @@
 
 mod plan;
 mod record;
+mod residents;
 
 use crate::git;
 use crate::nightly::Tree;
@@ -159,6 +161,9 @@ pub struct Env {
     pub rebuild_manifest: bool,
     /// The revision whose tracked text the rebuilt manifest treats as public (`master`; `xtask private index`).
     pub public_ref: Option<String>,
+    /// Reads the image names resident in the interactive sessions ([`residents::read`]), at a session's start and its
+    /// end. It runs outside [`Host`], like `rustc --version`, so a test host's captures stay the guard's.
+    pub residents: fn() -> Result<Vec<String>, String>,
 }
 
 impl Env {
@@ -1063,6 +1068,7 @@ pub fn run<H: Host + ?Sized>(
         stamp.clone()
     });
     std::fs::create_dir_all(&dir).map_err(|e| format!("{}: {e}", dir.display()))?;
+    let residents = residents_json((env.residents)());
     let cx = Ctx {
         env,
         plan,
@@ -1091,6 +1097,7 @@ pub fn run<H: Host + ?Sized>(
             "branch": env.tree.branch,
             "toolchain": cx.toolchain,
             "settle_secs": if smoke { 0 } else { plan.settle_secs },
+            "residents": { "start": residents, "end": null },
             "runs": [],
             "stopped": null,
             "verdict": null,
@@ -1307,6 +1314,7 @@ fn finish<H: Host + ?Sized>(
     );
     ses.value["counts"] = Value::Object(counts);
     ses.value["verdict"] = json!(if pass { "pass" } else { "fail" });
+    ses.value["residents"]["end"] = residents_json((cx.env.residents)());
     ses.value["manifest"] = if cx.smoke {
         json!("not rebuilt (smoke)")
     } else if cx.env.rebuild_manifest {
@@ -1343,6 +1351,15 @@ fn finish<H: Host + ?Sized>(
     );
 }
 
+/// A resident list as the session record holds it ([MP §9.8]): `{"ok": [...]}`, or `{"error": "..."}`, which never
+/// stops the session.
+fn residents_json(r: Result<Vec<String>, String>) -> Value {
+    match r {
+        Ok(names) => json!({ "ok": names }),
+        Err(e) => json!({ "error": e }),
+    }
+}
+
 /// Resolves the environment: `/private/` and the target root as `xtask nightly` finds them, the calendar and the
 /// tree.
 fn resolve(repo: &Path, read_toolchain: bool) -> Result<Env, String> {
@@ -1365,6 +1382,7 @@ fn resolve(repo: &Path, read_toolchain: bool) -> Result<Env, String> {
         },
         rebuild_manifest: true,
         public_ref: Some("master".into()),
+        residents: residents::read,
     })
 }
 
@@ -1511,7 +1529,25 @@ quantities = ["lz4.encode"]
             toolchain: Ok(TOOLCHAIN.into()),
             rebuild_manifest: false,
             public_ref: None,
+            residents: fake_residents,
         }
+    }
+
+    thread_local! {
+        /// How often [`fake_residents`] was called on this test's thread.
+        static RESIDENT_READS: Cell<u32> = const { Cell::new(0) };
+    }
+
+    /// The test environments' resident processes: every other call differs, so a session's start and end each land
+    /// in their own field.
+    fn fake_residents() -> Result<Vec<String>, String> {
+        let k = RESIDENT_READS.with(|c| c.replace(c.get() + 1));
+        let other = if k.is_multiple_of(2) {
+            "explorer.exe"
+        } else {
+            "notepad.exe"
+        };
+        Ok(vec!["agent-app.exe".into(), other.into()])
     }
 
     /// The toolchain the test environments name.
@@ -2891,6 +2927,47 @@ quantities = ["d"]
         );
         // Only measurement 6's driver started, and every attempt had its guard.
         assert_eq!((h.h.spawned.len(), h.h.captured.len()), (1, 5));
+    }
+
+    #[test]
+    fn the_session_record_names_the_resident_processes() {
+        let d = TestDir::new("measure-run-residents");
+        let plan = plan();
+        let mut env = env(&d, &plan);
+        RESIDENT_READS.with(|c| c.set(0));
+        // The image names resident at the session's start and at its end, each in its own field.
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[]);
+        for _ in 0..3 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (code, text) = run_text(&mut h, &env, &plan);
+        let s = session(&env, &plan, at(NOW));
+        assert_eq!(
+            s["residents"],
+            json!({
+                "start": { "ok": ["agent-app.exe", "explorer.exe"] },
+                "end": { "ok": ["agent-app.exe", "notepad.exe"] },
+            }),
+            "{text}"
+        );
+        assert_eq!(code, EXIT_PASS, "{text}");
+        // A list that cannot be read is recorded with its reason, and the session still passes.
+        std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        std::fs::remove_dir_all(env.private.join(MEASUREMENTS)).unwrap();
+        env.residents = || Err("tasklist.exe exited with Some(1): synthetic".into());
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[]);
+        for _ in 0..3 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (code, text) = run_text(&mut h, &env, &plan);
+        assert_eq!(code, EXIT_PASS, "{text}");
+        let error = json!({ "error": "tasklist.exe exited with Some(1): synthetic" });
+        assert_eq!(
+            session(&env, &plan, at(NOW))["residents"],
+            json!({ "start": error, "end": error })
+        );
     }
 
     /// Writes a record into `/private/measurements/<n>/` before a session.

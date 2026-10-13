@@ -965,6 +965,11 @@ operational policy with a reviewed default (AGENTS.md):
     rewritten after every run. A save that fails is tried twice more, after 1 s and 2 s; then the runner prints a
     warning, and the runs go on. It holds the plan, the window, the commit, the toolchain, every run's status and
     attempts with their guard outputs, and the verdict.
+  - It also holds `residents`: the image names of the processes outside session 0 (the services' session) at the
+    session's start and at its finish, sorted and unique, read with `%SystemRoot%\System32\tasklist.exe /FO CSV /NH`
+    (never `/V`). Each is `{"ok": [...]}`, or `{"error": "..."}` when it cannot be read, which never stops the session.
+    It holds image names only, with no command line, user name or host name. The list names the owner's applications,
+    so it stays in the session record and is never copied into a committed file.
   - It lives outside `/private/`, so it adds nothing to the private manifest.
   - The runner asserts `commit` and `toolchain` on the drivers' command lines and does not check them against the
     binaries. Building the release binaries at the measured commit with that toolchain, and leaving them alone until
@@ -993,7 +998,10 @@ settle, under `smoke-budget-minutes`, with `--smoke` in place of `--out`.
 `check --smoke` prints the smoke command lines.
 
 **Not detected.** The runner checks neither the nightly runner's lock nor builds in the lane target directories. The
-window is agreed agent-free, and no nightly run, build or agent session is started in it.
+window is agreed agent-free as §2.3 defines it: no nightly run, build, test or working agent session is started in it,
+and its idle baseline admits only the supervising agent session that makes no tool call while a driver runs, the
+desktop app it runs in, the window logger and the owner's resident applications at rest. The session record names the
+images resident at the session's start and finish (above); the checks of §2.3 after the night read the rest.
 
 Exit codes: 0 pass, 1 fail, 2 usage error, 3 refused, 4 internal error. Exit 4 inside a session (its directory, or a
 working directory, cannot be made or emptied) ends the session at once and skips the finish: the records already
