@@ -976,7 +976,7 @@ mod tests {
     /// section `Notes` after the disqualifications, in the file's order, each under its quantity and the numbers of
     /// its runs (run records first, then idle observations), or `no record`, which is also named on stderr; its
     /// decision comes last. Without `--notes`, or with a notes file of no quantity entry, there is no `Notes`
-    /// section; with no decision entry the decision is `Not drafted yet.`.
+    /// section; with no decision entry the decision is `Not drafted yet.`. Blanks and tabs around a key are trimmed.
     #[test]
     fn notes_render_between_the_disqualifications_and_the_decision() {
         let (dir, _, _, _) = records_dir();
@@ -1048,6 +1048,22 @@ mod tests {
         assert!(
             out.ends_with(
                 "\n## Notes\n\n### spawn.empty (runs 1, 2)\n\nA note.\n\n## Decision for WP-81a\n\nNot drafted yet.\n"
+            ),
+            "{out}"
+        );
+        assert_eq!(err, "", "every note has a record");
+        // Blanks and tabs around a key are trimmed: these keys are `spawn.empty` and the decision's.
+        let padded = dir.join("p.notes.md");
+        std::fs::write(
+            &padded,
+            "##  spawn.empty\t\nA note.\n## Decision for WP-81a \t \nLeader in M1.\n",
+        )
+        .unwrap();
+        let (code, out, err) = with(&padded);
+        assert_eq!(code, 0, "{err}");
+        assert!(
+            out.ends_with(
+                "\n## Notes\n\n### spawn.empty (runs 1, 2)\n\nA note.\n\n## Decision for WP-81a\n\nLeader in M1.\n"
             ),
             "{out}"
         );
