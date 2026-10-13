@@ -74,7 +74,12 @@ No value of this chapter is a configuration key, an environment variable or a fl
   `.moi` anchor line's `v=` field is [F14]'s.
 - **Bump rule.** Any change to a function, constant, pattern or per-OS rule of this chapter or of [F21] is a new
   resolver version.
-  Filling a named hole before the `format-v1` tag is not a change: version 1 is what this chapter says at the tag.
+  Filling a named hole by M2 entry is not a change. Version 1 is what this chapter says at M2 entry: the owner's ruling
+  R-23 of 2026-10-12, item 1, moves the replay chain, which decides replay row 2's holes, before M2. A hole still open
+  at M2 entry, such as a measurement-15 or -22 fact of §1.4, takes its fill within version 1, before its first
+  consumer, that is, while no store holds a value computed under its draft value (§1.4): a captured selector, a
+  `FILEOBS` or `ANCHORRES` row, or a fingerprint value (the orchestrator's ruling R-45 of 2026-10-13, which rests on
+  that premise, after ruling R-23's "a deadline before its first consumer"). Any other fill is a change.
   Building a reserved evidence source (E2, [40 §4.7]) is a new version.
 - **Captured values are permanent.** An anchor's captured selectors (quote, prefix, suffix, end, window, hint,
   `span_hash`, occurrence) keep the values computed at capture under the version in its `resolver` field. A later
@@ -359,14 +364,18 @@ table:
 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
-| 1 | `n_before` | `u16` | always | number of hashes before the span, 0–`WIN`; it is also the span's offset in the window |
-| 2 | `n_after` | `u16` | always | number of hashes after the span, 0–`WIN` |
+| 1 | `n_before` | `u16` | always | number of hashes before the span, 0–16; a window computed by §2.7.2 has at most `WIN`; it is also the span's offset in the window |
+| 2 | `n_after` | `u16` | always | number of hashes after the span, 0–16; a window computed by §2.7.2 has at most `WIN` |
 | 3 | `before` | `n_before` × `u16` | always | `before(s)`, in file order |
 | 4 | `after` | `n_after` × `u16` | always | `after(e)`, in file order |
 
-Length `4 + 2 × (n_before + n_after)`, at most 68 bytes at the draft `WIN` = 16. A value with a count above `WIN` is
-invalid. [F07] (R-10) carries W as the `window` selector and [F14] (R-11) writes it as base64url without padding
-(open point 8).
+Length `4 + 2 × (n_before + n_after)`, at most 68 bytes. A value with a count above 16 is invalid
+(`WINDOW_LINES_MAX`, §7). This decoder bound is the design maximum, "up to 16" lines on each side in "≤ 68 B"
+([40 §2.7]); it does not move when HOLE(F20-window-lines) is filled, so no validity rule waits for the fill (CH-6 of the
+plan critique of 2026-10-12, as the owner's ruling R-23 of 2026-10-12, item 1, amends it). `WIN` is used only to compute
+a window: at capture (§6.1 step 6) and around a candidate at resolve time (§2.7.2, §6.3, §6.5). Decoding or validating
+a stored value never uses `WIN`: only the bound 16 applies, and the stored hashes are aligned as stored (§6.3). [F07]
+(R-10) carries W as the `window` selector and [F14] (R-11) writes it as base64url without padding (open point 8).
 
 ### 2.8 Span hash and header text
 
@@ -987,9 +996,9 @@ The tests run in this order ([40 §4.4]):
 | # | Test | Result |
 |---|---|---|
 | 1 | tiny X (§2.6.5) | no inexact pair; the chain ends (deleted) |
-| 2 | **split**: c has at least 2 added candidates, at least `SPLIT_MIN_PIECES` = 2 of them have `nio(X, a) ≥ 4/5`, and their `oin(X, a)` sum to at least 3/5 | `moved-needs-confirm (split)`, the pieces listed |
+| 2 | **split**: at least `SPLIT_MIN_PIECES` = 2 added candidates a have `nio(X, a) ≥ 4/5` (`SPLIT_NIO`), and the `oin(X, a)` of all of them sum to at least 3/5 (`SPLIT_SUM`) ([40 §4.4]; [10 §7]) | `moved-needs-confirm (split)`, the pieces listed |
 | 3 | exactly one added candidate has `gs ≥ 90` (`E6_STRONG`) | `strong` to it |
-| 4 | the best added candidate by (`gs` descending, path) has `gs ≥ 50`, `gs` at least 20 above the next, and the same `dirname` or the same basename as x (the "similarity ≥ 0.5 with margin ≥ 0.2 and one directory or basename corroboration" row of [40 §4.4], with `gs / 100` as the score) | `strong` to it |
+| 4 | the best added candidate by (`gs` descending, path) has `gs ≥ 50`, `gs` at least 20 above the next (0 when there is none), and the same `dirname` or the same basename as x (the "similarity ≥ 0.5 with margin ≥ 0.2 and one directory or basename corroboration" row of [40 §4.4], with `gs / 100` as the score) | `strong` to it |
 | 5 | a host or added candidate m with `oin(X, m) ≥ 4/5` and `nio(X, m) < 1/2`; several: the first in path order | `moved-needs-confirm (merged)` into m |
 | 6 | the best added candidate has `20 ≤ gs < 50` and `max(oin, nio) ≥ 4/5` (`E6_WEAK`, "git pair 20–49 % confirmed by containment") | `weak` to it |
 | 7 | none | no pair |
@@ -1045,13 +1054,25 @@ Only under `links check --deep` and `links sync --deep`; never on reads or hooks
 
 ### 5.15 Classification thresholds ([40 §4.4])
 
+The rows are tested in this order, and the first that holds decides: split, strong, merged, weak, then none, the order
+of §5.11.4's tests (the orchestrator's ruling R-13 of 2026-10-11). So a file split into pieces is never strong to its
+largest piece, which `files.policy.auto = strong` (§1.5) would apply automatically ([10 §7]: "do not pick one").
+
 | Class | Condition | State |
 |---|---|---|
-| strong (similarity) | best pair score ≥ `SIM_STRONG` = 1/2, margin over the runner-up ≥ `SIM_MARGIN` = 1/5, and `dirname(q) = dirname(p)` or `basename(q) = basename(p)` | `moved-needs-confirm` (similar …) |
-| merged | `oin ≥ 4/5` (`MERGED_OIN`) and `nio < 1/2` (`MERGED_NIO_MAX`) against a host file | `moved-needs-confirm (merged)` |
 | split | the test of §5.11.4 row 2, over stage 2's candidates | `moved-needs-confirm (split)` |
-| weak | best score in [`SIM_WEAK` = 3/10, 1/2), or margin < 1/5 | `moved-needs-confirm` when one candidate scores ≥ 3/10, `ambiguous` when two or more do |
+| strong (similarity) | best pair score ≥ `SIM_STRONG` = 1/2, margin over the runner-up ≥ `SIM_MARGIN` = 1/5, and `dirname(q) = dirname(p)` or `basename(q) = basename(p)` | `moved-needs-confirm` (similar …) |
+| merged | `oin ≥ 4/5` (`MERGED_OIN`) and `nio < 1/2` (`MERGED_NIO_MAX`) against a host file: a stage-2 candidate (§5.14), so never a bound path (§4.2; [40 §4.1] P4) | `moved-needs-confirm (merged)` |
+| weak | a candidate scores ≥ `SIM_WEAK` = 3/10 (the residual class) | `moved-needs-confirm` when one candidate scores ≥ 3/10, `ambiguous` when two or more do |
 | none | no score ≥ 3/10 | `missing` |
+
+Weak is the residual class (ruling R-13): when split, strong and merged do not hold, a candidate that scores ≥ 3/10
+makes the class weak. So, when neither split nor merged holds, a best score ≥ 1/2 whose margin is below 1/5, or whose
+path shares neither `dirname` nor `basename` with p, is weak; with no score ≥ 3/10 the class is none, whatever the
+margin. [10 §7]'s strong row had no corroboration, so its weak row ("best in [0.3, 0.5), or margin < 0.2") covered the
+rest; [40 §4.4] added the corroboration without widening weak. A weak result is only ever a proposal, never an
+automatic re-bind. An absent runner-up counts as score 0, here and in §5.11.4 row 4, so a lone candidate meets the
+margin whenever it meets the score ([10 §7]: "margin ≥ 0.2 over the runner-up").
 
 Thresholds are exact rationals; "≥ 1/2" includes 1/2 and "< 1/2" excludes it. The rationale is [10 §7]: 1/2 lies above the
 p90 background of unrelated files (0.24 symmetric, 0.29 containment) and below the p10 score at 30 % churn (0.62).
@@ -1205,8 +1226,8 @@ The cascade runs on the current content b′, with t′ = `atext(b′)` and N′
 
 ### 6.3 Window alignment ([40 §2.7]; the LCS-tokenisation gap of [PLAN §3.3])
 
-- **Tokens** are the u16 window hashes (§2.7.1); a window holds at most 2 × `WIN` tokens ("LCS over ≤ 32 tokens",
-  [40 §2.7]).
+- **Tokens** are the u16 window hashes (§2.7.1); a window computed at resolve time holds at most 2 × `WIN` tokens and a
+  stored one at most 2 × 16 (§2.7.3) ("LCS over ≤ 32 tokens", [40 §2.7]).
 - **Score.** For a stored window (B_s, A_s) and a candidate's window (B_c, A_c) computed around the candidate's quote
   span in t′: `wscore = (LCS(B_s, B_c) + LCS(A_s, A_c)) / (len(B_s) + len(A_s))`, where `LCS` is the length of the
   longest common subsequence of two token sequences. Before-tokens are aligned only with before-tokens and after-tokens
@@ -1293,6 +1314,7 @@ Every constant of resolver version 1, with the name WP-62's constant module uses
 | `TINY_BYTES` | 64 | bytes | 2.6.5 | [40 §4.4] |
 | `WINDOW_BITS` | 16 | bits | 2.7.1 | [40 §2.7] |
 | `WIN` (`WINDOW_LINES`) | HOLE(F20-window-lines), draft 16 | lines per side | 2.7.2 | [40 §2.7] |
+| `WINDOW_LINES_MAX` | 16 | lines per side | 2.7.3 | [40 §2.7]; CH-6 of the plan critique of 2026-10-12, as the owner's ruling R-23 of 2026-10-12, item 1, amends it |
 | `WINNOW_K` | HOLE(F20-winnow-k), draft 5 | tokens | 2.9 | [10 §5.8b] |
 | `WINNOW_W` | HOLE(F20-winnow-w), draft 4 | k-grams | 2.9 | [10 §5.8b] |
 | `EXACT_LIMIT` | 65,536 | fingerprint lines or values per side | 2.10.5 | this chapter |
@@ -1379,7 +1401,7 @@ normative here; citations of its sections resolve through this map:
 
 | id | what | decided by (measurement n / WP) | candidates | constraint the value must meet |
 |---|---|---|---|---|
-| F20-window-lines | `WIN`: non-trivial lines hashed on each side of an anchor's quote span | replay row 2 of [40 §8.3.4] (WP-76), filled by WP-81a | 16 (draft, [40 §2.7]); 8 | window tie-break agrees with full histogram-diff mapping on ≥ 99 % of duplicate-quote cases; `4 + 4 × WIN ≤ 68` ([40 §2.7]'s bound, so WIN ≤ 16) |
+| F20-window-lines | `WIN`: non-trivial lines hashed on each side of an anchor's quote span | replay row 2 of [40 §8.3.4] (WP-76), filled by WP-81a | 16 (draft, [40 §2.7]); 8 | window tie-break agrees with full histogram-diff mapping on ≥ 99 % of duplicate-quote cases; `4 + 4 × WIN ≤ 68` ([40 §2.7]'s bound, so WIN ≤ 16); §2.7.3's decoder bound stays 16 whatever the fill (CH-6 of the plan critique of 2026-10-12, as the owner's ruling R-23 of 2026-10-12, item 1, amends it) |
 | F20-quote-lines | most non-trivial lines a `quote` span may have before it becomes a `range` | replay row 2 (WP-76) | 4 (draft, [40 §2.7]); 2; 6 | row 2: ≥ 96 % resolved, 0 silent wrong at the exact class |
 | F20-quote-max | most bytes of a `quote` span, and of a header quote | replay row 2 (WP-76) | 128 (draft, [40 §2.7]); 96 | as above; [11 §2.7]: longer quotes need fuzzy matching more often |
 | F20-quote-default | length of the start and end quotes of a `range` | replay row 2 (WP-76) | 64 (draft, [40 §2.7]); 32; 128 | as above; [11 §2.7] measured 32 B as ambiguous in 8 % of Rust cases and 256 B as fragile |
