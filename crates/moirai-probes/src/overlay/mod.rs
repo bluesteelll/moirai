@@ -14,7 +14,8 @@
 //!
 //! A probe ([`Overlay::get`]) reads the record the node index names through a [`LogSource`], decodes the owner's ops
 //! and follows their `prev` ([F06 §7.3], `06-commit.md:705-713`) while it stays in the tail; values are never stored.
-//! The ± lists cover the bitset keys the subset changes: family 1 (kind) and 2 (kind, status) of live nodes, and
+//! T1's diagnostic read [`Overlay::get_op`] ([`op`]) returns the same values on a valid tail while it decodes only the
+//! owner's ops, located by their frames ([F06 §7.1], [F06 §7.9]). The ± lists cover the bitset keys the subset changes: family 1 (kind) and 2 (kind, status) of live nodes, and
 //! family 3 predicate 3 `deleted` (the probe's reading of [F09 §9.2]'s families; their membership rules are [F08]'s
 //! and [F13]'s, which the probe does not use).
 //!
@@ -717,6 +718,8 @@ impl Overlay {
             + self.symbols.len()
     }
 }
+
+pub mod op;
 
 #[cfg(test)]
 mod naive;
