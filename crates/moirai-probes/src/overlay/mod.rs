@@ -11,6 +11,13 @@
 //! | `UIDX` | `uid` → `#N`, sorted by `uid`, 20 B | [F11 §9.2] (`:702-714`) |
 //! | runtime index | `K_RT` rows by key → (lsn, row index), the newest per key, not decoded | [F05 §10.4] (`05-log.md:1296-1302`) |
 //! | symbols | the tail's `SymDefs` definitions in log order | [F05 §10.5] (`05-log.md:1304-1307`) |
+//! | offsets (offsets mode only) | parallel to the node index: where `#N`'s frames lie in its newest record, the offset of its first frame from the record's lsn and their bytes (8 B; no frame count, so no 255-frame cap) | design-A's A2 (`design-A.md:135-144`); u20 cut D-2 |
+//!
+//! **The offsets mode** ([`Overlay::replay_at`], u20 cut D-2, I-4) builds the node entry's offset and length during the
+//! replay, from the frame spans the decode walks anyway ([`crate::tail::scan::decode_record_spans`]), in its own builder
+//! beside the plain one. The plain [`Overlay::replay`] keeps ba4fc23's types and code: its node map holds the lsn
+//! alone, it computes no span, and its offsets are empty. The product's packed entry is 16 B (`AR:709`, R-53 F-3); the
+//! probe's offsets mode charges 24 B per node, and every stop rule keeps the generator's 16 B.
 //!
 //! A probe ([`Overlay::get`]) reads the record the node index names through a [`LogSource`], decodes the owner's ops
 //! and follows their `prev` ([F06 §7.3], `06-commit.md:705-713`) while it stays in the tail; values are never stored.
@@ -27,7 +34,9 @@
 
 use crate::tail::commit::{Op, TValue};
 use crate::tail::rec::{Payload, RecHdr, Record};
-use crate::tail::scan::{Expect, GroupView, LogSource, RawRecord, ScanError, decode_record, scan};
+use crate::tail::scan::{
+    Expect, GroupView, LogSource, RawRecord, ScanError, decode_record, decode_record_spans, scan,
+};
 use crate::tail::{Locator, REC_HDR_LEN, TRAILER_LEN};
 use std::collections::{BTreeMap, HashMap};
 use std::hash::{BuildHasherDefault, Hasher};
@@ -131,6 +140,15 @@ pub struct NodeEntry {
     pub n: u32,
     /// The lsn of the newest `Commit` whose ops have `#N` as owner.
     pub lsn: u64,
+}
+
+/// Where a node's frames lie in its newest record (u20 cut D-2; design-A's A2): 8 bytes beside its [`NodeEntry`].
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
+pub struct Loc {
+    /// The offset of its first frame from the record's lsn, the header included.
+    pub off: u32,
+    /// The bytes of its frames there.
+    pub len: u32,
 }
 
 /// The ± list of one bitset key.
@@ -549,6 +567,7 @@ impl Builder {
             start: self.start,
             locator: Locator::None,
             nodes: nodes.into_boxed_slice(),
+            at: Box::default(),
             pm: pm.into_boxed_slice(),
             alloc_first: self.alloc_first,
             alloc: self.alloc.into_boxed_slice(),
@@ -560,12 +579,53 @@ impl Builder {
     }
 }
 
+/// The offsets mode's builder (u20 cut D-2, I-4): a plain [`Builder`] and, beside it, each owner's frame span in its
+/// newest record, from [`decode_record_spans`]. Only [`Overlay::replay_at`] uses it.
+struct OffsetBuilder {
+    plain: Builder,
+    at: Map<u32, (u64, Loc)>,
+}
+
+impl OffsetBuilder {
+    /// Decodes every record of a valid group with its frame spans, applies it, and keeps each owner's newest span.
+    fn apply_group(&mut self, g: &GroupView<'_>) -> Result<(), ScanError> {
+        for raw in g.records() {
+            let (rec, spans) = decode_record_spans(&raw)?;
+            self.plain.apply(&rec);
+            for (owner, off, len) in spans {
+                self.at.insert(owner, (rec.lsn, Loc { off, len }));
+            }
+        }
+        Ok(())
+    }
+
+    /// The plain overlay with its offsets, parallel to the node index; refuses a node whose newest record's span is
+    /// missing.
+    fn finish(self) -> Result<Overlay, ScanError> {
+        let mut o = self.plain.finish();
+        let at = &self.at;
+        o.at = o
+            .nodes
+            .iter()
+            .map(|e| match at.get(&e.n) {
+                Some(&(lsn, loc)) if lsn == e.lsn => Ok(loc),
+                _ => Err(ScanError {
+                    lsn: e.lsn,
+                    what: format!("no frame span of #{} in its newest record", e.n),
+                }),
+            })
+            .collect::<Result<Box<[Loc]>, ScanError>>()?;
+        Ok(o)
+    }
+}
+
 /// The compact overlay of one tail.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Overlay {
     start: u64,
     locator: Locator,
     nodes: Box<[NodeEntry]>,
+    at: Box<[Loc]>,
     pm: Box<[PlusMinus]>,
     alloc_first: u32,
     alloc: Box<[AllocRow]>,
@@ -625,6 +685,30 @@ impl Overlay {
         Ok(o)
     }
 
+    /// [`Overlay::replay`] in the offsets mode (u20 cut D-2): the same scan, validation, decode and apply, and each
+    /// node's offset and length in its newest record built from the frame spans the decode walks, so the overlay holds
+    /// [`Overlay::at`] beside its node index.
+    pub fn replay_at<S: LogSource>(
+        source: &mut S,
+        expect: &Expect,
+        from: u64,
+        to: u64,
+        chain_in: u64,
+        base: Base,
+        chunk: usize,
+    ) -> Result<Overlay, ScanError> {
+        let mut b = OffsetBuilder {
+            plain: Builder::new(from, base),
+            at: Map::default(),
+        };
+        scan(source, expect, from, to, chain_in, chunk, &mut |g| {
+            b.apply_group(g)
+        })?;
+        let mut o = b.finish()?;
+        o.locator = expect.locator;
+        Ok(o)
+    }
+
     /// The value of `key` of node `n`: the newest op of the tail that sets it, found from the node index and the
     /// owner's `prev` chain, decoded from the log; [`Probe::NotInTail`] when the chain leaves the tail first.
     pub fn get<S: LogSource>(&self, source: &mut S, n: u32, key: &Key) -> Result<Probe, String> {
@@ -673,6 +757,11 @@ impl Overlay {
         &self.nodes
     }
 
+    /// The offsets, parallel to the node index: empty unless the overlay was built in the offsets mode.
+    pub fn at(&self) -> &[Loc] {
+        &self.at
+    }
+
     /// The ± lists, sorted by key; a list with no entry is not kept.
     pub fn plus_minus(&self) -> &[PlusMinus] {
         &self.pm
@@ -709,6 +798,7 @@ impl Overlay {
         let lists: usize = self.pm.iter().map(|p| p.plus.len() + p.minus.len()).sum();
         let text: usize = self.symbols.iter().map(|s| s.text.len()).sum();
         (self.nodes.len() * size_of::<NodeEntry>()
+            + self.at.len() * size_of::<Loc>()
             + self.pm.len() * size_of::<PlusMinus>()
             + lists * size_of::<u32>()
             + self.alloc.len() * size_of::<AllocRow>()
@@ -1340,6 +1430,232 @@ mod tests {
                     "seed {seed} #{n} {key:?}"
                 );
             }
+        }
+    }
+
+    /// The tails of the offsets-mode tests: the hand-built tail and test-profile `ops` tails of 120 ops at N = 50
+    /// (owners repeat), in the night's form and in A1: (name, expect, start, bytes, chain value, base).
+    fn offset_tails() -> Vec<(String, Expect, u64, Vec<u8>, u64, Base)> {
+        use crate::tail::synth::tests::{a1, test_target};
+        use crate::tail::synth::{Clause, generate};
+        let mut tails = Vec::new();
+        for form in [Locator::None, Locator::A1] {
+            let hb = testdata::hand_built_in(form);
+            tails.push((
+                format!("hand-built {form:?}"),
+                hb.expect,
+                START,
+                hb.bytes,
+                CHAIN_IN,
+                BASE,
+            ));
+            for seed in 1..=2 {
+                let mut t = test_target(Clause::Ops, 50, seed);
+                if form == Locator::A1 {
+                    t = a1(t);
+                }
+                t.threshold = 120;
+                t.rt_bound = Some(u64::MAX);
+                let tail = generate(&t, false).unwrap();
+                tails.push((
+                    format!("seed {seed} {form:?}"),
+                    tail.expect,
+                    tail.start,
+                    tail.bytes,
+                    tail.chain_in,
+                    tail.base,
+                ));
+            }
+        }
+        tails
+    }
+
+    /// The offsets mode (u20 cut D-2): for every node entry, `replay_at`'s offset and length are where the frame walk
+    /// ([`op::locate`]) finds the node's frames in its newest record, on [`offset_tails`] at chunks of 13 and 64 KiB;
+    /// with its offsets set aside, the overlay is the plain replay's.
+    #[test]
+    fn replay_at_offsets_equal_the_located_frames() {
+        let mut buf = Vec::new();
+        let mut checked = 0;
+        for (name, x, start, bytes, chain, base) in &offset_tails() {
+            let end = start + bytes.len() as u64;
+            for chunk in [13, TAIL_READ_CHUNK] {
+                let o = Overlay::replay_at(
+                    &mut MemLog::new(*start, bytes),
+                    x,
+                    *start,
+                    end,
+                    *chain,
+                    *base,
+                    chunk,
+                )
+                .unwrap();
+                assert_eq!(o.at().len(), o.nodes().len(), "{name}: one offset per node");
+                for (e, loc) in o.nodes().iter().zip(o.at()) {
+                    let s = op::locate(
+                        &mut MemLog::new(*start, bytes),
+                        &mut buf,
+                        TAIL_READ_CHUNK,
+                        e.lsn,
+                        e.n,
+                    )
+                    .unwrap()
+                    .unwrap();
+                    assert_eq!(
+                        (u64::from(loc.off), u64::from(loc.len)),
+                        (s.first - e.lsn, s.end - s.first),
+                        "{name} chunk {chunk} #{}",
+                        e.n
+                    );
+                    checked += 1;
+                }
+                let plain = Overlay::replay(
+                    &mut MemLog::new(*start, bytes),
+                    x,
+                    *start,
+                    end,
+                    *chain,
+                    *base,
+                    chunk,
+                )
+                .unwrap();
+                let mut stripped = o.clone();
+                stripped.at = Box::default();
+                assert_eq!(
+                    stripped, plain,
+                    "{name}: the other tables are the plain replay's"
+                );
+            }
+        }
+        assert!(checked > 300, "{checked} offsets checked");
+    }
+
+    /// No 255-frame cap (u20 cut D-2; `t1.md:348-353`): a tail whose one commit holds 300 frames of #7 (`SetField` of
+    /// names 1–300) replays in the offsets mode with #7's offset and the bytes of all 300 frames, which decode to the
+    /// 300 ops; u17's entry of an 8-bit count refuses the same record.
+    #[test]
+    fn replay_at_holds_an_owner_of_more_than_255_frames() {
+        use crate::tail::enc::Reader;
+        use crate::tail::rec::Appender;
+        let x = testdata::expect();
+        let mut app = Appender::new(x.geo, x.epoch, START, CHAIN_IN, testdata::head(&x));
+        let ops = |lsn: u64| -> Vec<Op<'static>> {
+            (1..=300)
+                .map(|name| Op::SetField {
+                    id: 7,
+                    prev: lsn - (START - 1),
+                    name,
+                    old: TValue::absent(),
+                    new: TValue::int(i64::from(name)),
+                })
+                .collect()
+        };
+        let (_, g) = app
+            .place(|lsn| {
+                let c = testdata::commit(101, START - 1, ops(lsn), "three hundred frames");
+                Ok(testdata::commit_group(lsn, c, Vec::new()))
+            })
+            .unwrap();
+        let lsn = g[0].lsn;
+        let bytes = app.into_bytes();
+        let end = START + bytes.len() as u64;
+        let o = Overlay::replay_at(
+            &mut MemLog::new(START, &bytes),
+            &x,
+            START,
+            end,
+            CHAIN_IN,
+            BASE,
+            TAIL_READ_CHUNK,
+        )
+        .unwrap();
+        assert_eq!(o.nodes(), [NodeEntry { n: 7, lsn }]);
+        assert_eq!(o.at().len(), 1, "#7's offset");
+        let loc = o.at()[0];
+        let from = (lsn - START) as usize + loc.off as usize;
+        let mut r = Reader::new(&bytes[from..from + loc.len as usize]);
+        let mut got = Vec::new();
+        while r.remaining() > 0 {
+            got.push(Op::decode(&mut r).unwrap());
+        }
+        assert_eq!(got, ops(lsn), "the 300 frames at #7's offset");
+        let e = op::OpIndex::build(
+            &o,
+            &mut MemLog::new(START, &bytes),
+            TAIL_READ_CHUNK,
+            &mut Vec::new(),
+        )
+        .unwrap_err();
+        assert!(e.contains("8-bit count"), "{e}");
+    }
+
+    /// The offsets mode charges 8 B per node beside the 16-B entry (u20 cut D-2, F-3): for every clause's test-profile
+    /// tail in both forms, `replay_at`'s `heap_bytes` is the plain replay's plus 8 × the node index's length, and the
+    /// generator's `ovl` stays the plain replay's, so every stop rule keeps the 16-B entry.
+    #[test]
+    fn replay_at_charges_its_offsets() {
+        use crate::tail::synth::tests::{a1, test_target};
+        use crate::tail::synth::{Clause, generate};
+        for clause in [
+            Clause::Ops,
+            Clause::Rec,
+            Clause::Body,
+            Clause::Ovl,
+            Clause::Quiet,
+        ] {
+            for form in [Locator::None, Locator::A1] {
+                let mut t = test_target(clause, 1_000_000, 3);
+                if form == Locator::A1 {
+                    t = a1(t);
+                }
+                let tail = generate(&t, false).unwrap();
+                let plain = tail.overlay().unwrap();
+                let at = Overlay::replay_at(
+                    &mut MemLog::new(tail.start, &tail.bytes),
+                    &tail.expect,
+                    tail.start,
+                    tail.end,
+                    tail.chain_in,
+                    tail.base,
+                    TAIL_READ_CHUNK,
+                )
+                .unwrap();
+                assert!(!plain.nodes().is_empty());
+                assert_eq!(
+                    at.heap_bytes(),
+                    plain.heap_bytes() + 8 * plain.nodes().len() as u64,
+                    "{clause:?} {form:?}"
+                );
+                assert_eq!(tail.measures.ovl, plain.heap_bytes(), "{clause:?} {form:?}");
+            }
+        }
+        assert_eq!(std::mem::size_of::<Loc>(), 8);
+    }
+
+    /// The plain replay builds no offsets (u20 cut I-4): on [`offset_tails`] its `at` is empty, and it equals the
+    /// record-by-record build of a plain [`Builder`] (ba4fc23's path) in the tail's form.
+    #[test]
+    fn plain_replay_builds_no_offsets() {
+        for (name, x, start, bytes, chain, base) in &offset_tails() {
+            let end = start + bytes.len() as u64;
+            let o = Overlay::replay(
+                &mut MemLog::new(*start, bytes),
+                x,
+                *start,
+                end,
+                *chain,
+                *base,
+                TAIL_READ_CHUNK,
+            )
+            .unwrap();
+            assert!(o.at().is_empty(), "{name}");
+            let mut b = Builder::new(*start, *base);
+            for r in decode(bytes, *start, x, *chain).unwrap() {
+                b.apply(&r);
+            }
+            let mut f = b.finish();
+            f.locator = x.locator;
+            assert_eq!(o, f, "{name}");
         }
     }
 }

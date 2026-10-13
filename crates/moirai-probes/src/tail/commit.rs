@@ -1045,7 +1045,8 @@ impl Commit<'_> {
         Ok((c, spans))
     }
 
-    fn decode_with<'p, K: SpanSink>(
+    /// [`Commit::decode_in`], reporting each frame to `sink` (offsets from the payload's start).
+    pub fn decode_with<'p, K: SpanSink>(
         payload: &'p [u8],
         form: Locator,
         sink: &mut K,

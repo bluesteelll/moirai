@@ -14,7 +14,7 @@ use super::{
     EXTENT_HEAD_GROUP_LEN, Geometry, INIT_PARAMS_LEN, Locator, MIN_GROUP_LEN, REC_HDR_LEN,
     TRAILER_LEN, flag, kind,
 };
-use crate::tail::commit::Commit;
+use crate::tail::commit::{Commit, NoSpans, SpanSink, Spans};
 use crate::tail::enc::{DecodeError, Reader};
 use crate::tail::rt::{RowBatch, TreeReg};
 
@@ -369,6 +369,27 @@ fn check_head(
 
 /// Decodes one valid record's payload ([F05 §5.4]: a malformed payload of a valid record is corrupt).
 pub fn decode_record<'g>(raw: &RawRecord<'g>) -> Result<Record<'g>, ScanError> {
+    decode_record_with(raw, &mut NoSpans).map(|(rec, _)| rec)
+}
+
+/// [`decode_record`], and where each owner's frames lie in the record: (owner, the offset of its first frame from the
+/// record's lsn, header and `SymDefs` block included, the bytes of its frames), in op order; none for a record that is
+/// not a `Commit`. The overlay's offsets mode alone calls it (u20 cut D-2, I-4).
+pub fn decode_record_spans<'g>(raw: &RawRecord<'g>) -> Result<(Record<'g>, Spans), ScanError> {
+    let mut spans = Spans::new();
+    let (rec, head) = decode_record_with(raw, &mut spans)?;
+    for s in &mut spans {
+        s.1 += head as u32;
+    }
+    Ok((rec, spans))
+}
+
+/// Decodes one record, reporting a `Commit`'s frames to `sink`; returns the record and the bytes before its commit
+/// payload (the header and the `SymDefs` block).
+fn decode_record_with<'g, K: SpanSink>(
+    raw: &RawRecord<'g>,
+    sink: &mut K,
+) -> Result<(Record<'g>, usize), ScanError> {
     let lsn = raw.hdr.lsn;
     let shift = |e: DecodeError| at(lsn, e.to_string());
     let mut r = Reader::new(raw.payload);
@@ -382,7 +403,7 @@ pub fn decode_record<'g>(raw: &RawRecord<'g>) -> Result<Record<'g>, ScanError> {
         kind::EXTENT_HEAD => Payload::ExtentHead(ExtentHead::decode(rest).map_err(shift)?),
         kind::NOOP => Payload::Noop(rest.len() as u32),
         kind::COMMIT => Payload::Commit(Box::new(
-            Commit::decode_in(rest, raw.locator).map_err(shift)?,
+            Commit::decode_with(rest, raw.locator, sink).map_err(shift)?,
         )),
         kind::TREE_REG => Payload::TreeReg(TreeReg::decode(rest).map_err(shift)?),
         kind::FILE_OBS => Payload::FileObs(RowBatch::decode(rest).map_err(shift)?),
@@ -393,12 +414,15 @@ pub fn decode_record<'g>(raw: &RawRecord<'g>) -> Result<Record<'g>, ScanError> {
             ));
         }
     };
-    Ok(Record {
-        lsn,
-        group_end: raw.hdr.group_end(),
-        symdefs,
-        payload,
-    })
+    Ok((
+        Record {
+            lsn,
+            group_end: raw.hdr.group_end(),
+            symdefs,
+            payload,
+        },
+        REC_HDR_LEN + r.pos(),
+    ))
 }
 
 /// Decodes every record of `bytes` (whose first byte is lsn `start`, a group boundary with chain value `chain_in`):

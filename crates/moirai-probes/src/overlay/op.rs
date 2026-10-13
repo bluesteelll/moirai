@@ -197,9 +197,9 @@ fn header<S: LogSource>(source: &mut S, lsn: u64) -> Result<RecHdr, String> {
 
 /// Where n's frames lie in a record: `[first, end)`, `frames` of them, held in the buffer from lsn `at` on.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
-struct Span {
-    first: u64,
-    end: u64,
+pub(super) struct Span {
+    pub(super) first: u64,
+    pub(super) end: u64,
     frames: usize,
     at: u64,
 }
@@ -214,7 +214,7 @@ impl Span {
 /// The walk's steps 1–4 on the record at `lsn`: its header, its payload's head (the `SymDefs` block and the header part
 /// up to `n_ops`), then the frames up to the first past n. Returns n's frames, held in `buf`, or `None` when the record
 /// holds no frame of n.
-fn locate<S: LogSource>(
+pub(super) fn locate<S: LogSource>(
     source: &mut S,
     buf: &mut Vec<u8>,
     chunk: usize,
