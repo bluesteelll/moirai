@@ -4,9 +4,10 @@
 //! overlay catch-up (T2, `:140`). T2's 16-writer wait is taken from measurement 2's run (R-24 Q7) and is not built
 //! here. The tails are u10's ([`crate::tail::synth`]), from [70 S8]'s spec-derived mix (R-24 Q10).
 //!
-//! **The grid** (17 quantities, names by [MP §4.1]), run with the deciding quantities first: `read-4096.n1e6`,
-//! `ckpt-4096.n5e5` and `catchup-16.n1e6`, then T1's read diagnostics `read-op-4096.n1e6` and `read-cost-4096.n1e6`
-//! (R-40 O-2, R-42), then the layout probes (R-34 B-3, M-15; R-35 Q2):
+//! **The grid** (18 quantities, names by [MP §4.1]), run with the deciding quantities first: `read-4096.n1e6`,
+//! `ckpt-4096.n5e5` and `catchup-16.n1e6`, then T1's read diagnostics `read-op-4096.n1e6`,
+//! `read-cost-records-4096.n1e6` and `read-cost-bytes-4096.n1e6` (R-40 O-2, R-42, R-44), then the layout probes (R-34
+//! B-3, M-15; R-35 Q2):
 //!
 //! | Quantity | Arms (arm 0 first) | What one sample does | Minimum tier |
 //! |---|---|---|---|
@@ -18,7 +19,8 @@
 //! | `overlay.n1e5`, `overlay.n1e6` | `probe` | looks one `#N` up in a full tail's node index ("overlay probe ~0.2 µs", `ARCHITECTURE-RESEARCH.md:968`) | — |
 //! | `read-4096.n1e6` | `read` | T1's point read: the status of a node the tail touched, through the overlay and the tail's records, else the base row | t1 (read ≤ 50 µs) |
 //! | `read-op-4096.n1e6` | `read.op`, `read.op.at` | T1's diagnostic read on `read-4096.n1e6`'s tail and nodes (its seed, [`seed_name`]): `read.op` reads the status by the frame walk ([`Overlay::get_op`]: n's ops located by their frames, decoded alone); its floor `read.op.at` by the offset read ([`Overlay::get_op_at`]: n's newest frames read from an offset kept beside the node index, in the design the node entry's spare bytes). The paired difference is the cost of locating n's frames in the newest record (R-42 Q2). The setup replays the overlay from the fixture's store, builds the offset index and refuses the run unless the whole-record read, the walk and the offset read agree on every node of the cycle ([`read_ops_agree`]) | t1 |
-//! | `read-cost-4096.n1e6` | `records`, `bytes` | T1's read cost on the same tail and nodes: each sample is one whole-record read ([`point_read`]) through [`Counted`], which counts the records it walks and the bytes it decodes ([MP §4.8]). The two arms are two counts of one read, not an operation and its floor (spec Goal 1); no gate pairs them | t1 |
+//! | `read-cost-records-4096.n1e6` | `records` | T1's read cost on the same tail and nodes: each sample is one whole-record read ([`point_read`]) through [`Counted`], and the sample is the records it walks ([MP §4.8]) | t1 |
+//! | `read-cost-bytes-4096.n1e6` | `bytes` | the same read through [`Counted`] on the same tail and nodes, and the sample is the bytes it decodes ([MP §4.8]). The records and the bytes are two counts of one read, so they are two quantities of one arm each: [MP §4.1] makes every arm after arm 0 a floor of the operation, and neither count is a floor of the other (R-44 I-1 (b), as R-30 Q1 reads §4.1) | t1 |
 //! | `ckpt-4096.n5e5` | `ckpt`, `ckpt.write` | T1's delta checkpoint over a fresh tail per sample (scoping §4.2): the setup writes sample j's tail ([`ckpt_tail`]) in place over the fixture's extent through a read-write handle kept for the run, zeroes the rest of the previous tail and flushes it (`sync(Data)`), all untimed; the timed op replays tail j from the extent, folds it over the base into a delta of the probe's subset (below), encodes `seg.d1`, then `create_new`, `write_at`, `sync(DataAndMeta)`, `seal`, `sync_dir` (`docs/spec/os/fs.md:411`, `:456`). The floor's sample j folds tail j from memory in its setup and writes and flushes the same bytes, so the pair is matched. The products (the tail, the delta and its bytes) are dropped and the sample's file is unlinked in the teardown, outside the timed region ([MP §4.1]). The setup's generation and rewrite lengthen a sample's untimed part, so the pilot's 1 s ([MP §4.2]) may take fewer than 5 samples; the declared minimum tier t3 bounds that | t3 (≤ 100 ms) |
 //! | `catchup-16.n1e6` | `catchup` | T2's MCP model: a long-lived process holds the overlay of a full tail but its last 16 commits (one per writer of T2's burst) and catches up: `HEAD` pread (8,192 B), the new records scanned from the extents, applied to its warm builder, the overlay finished again (`ARCHITECTURE-RESEARCH.md:783`). The warm builder is cloned in the setup and the finished overlay dropped in the teardown, both outside the timed region | t2 (catch-up p50 ≤ 5 ms) |
 //!
@@ -48,7 +50,7 @@
 //! every test, since the rig observes reads only (u17 critique I-2).
 //!
 //! Every run's fixture is the base `seg.base.1` at the quantity's N ([`crate::seg::base`]), written, sealed and
-//! mapped, and, for the six families that read one (the overlay probe, the read and its two diagnostics, the
+//! mapped, and, for the seven families that read one (the overlay probe, the read and its three diagnostics, the
 //! checkpoint and the catch-up), a full `ops` tail at P06 (4,096 at production) written as `log.<n>` extents with
 //! `HEAD`; it is removed on every path out of the run. The probe's choices: the ids a probe cycles through
 //! ([`PROBE_IDS`] drawn from the quantity's seed; the read's and its diagnostics' are the tail's touched nodes in the
@@ -134,8 +136,10 @@ pub enum Family {
     Read,
     /// T1's diagnostic: the read by the frame walk, and its floor by the offset read.
     ReadOp,
-    /// T1's diagnostic: the records the read walks and the bytes it decodes.
-    ReadCost,
+    /// T1's diagnostic: the records the read walks.
+    ReadCostRecords,
+    /// T1's diagnostic: the bytes the read decodes.
+    ReadCostBytes,
     /// T1's delta checkpoint.
     Ckpt,
     /// T2's MCP overlay catch-up.
@@ -154,7 +158,8 @@ impl Family {
             Family::Overlay => "overlay",
             Family::Read => "read-4096",
             Family::ReadOp => "read-op-4096",
-            Family::ReadCost => "read-cost-4096",
+            Family::ReadCostRecords => "read-cost-records-4096",
+            Family::ReadCostBytes => "read-cost-bytes-4096",
             Family::Ckpt => "ckpt-4096",
             Family::Catchup => "catchup-16",
         }
@@ -169,7 +174,8 @@ impl Family {
             Family::Overlay => &["probe"],
             Family::Read => &["read"],
             Family::ReadOp => &["read.op", "read.op.at"],
-            Family::ReadCost => &["records", "bytes"],
+            Family::ReadCostRecords => &["records"],
+            Family::ReadCostBytes => &["bytes"],
             Family::Ckpt => &["ckpt", "ckpt.write"],
             Family::Catchup => &["catchup"],
         }
@@ -178,7 +184,9 @@ impl Family {
     /// The minimum tier: the tier of the quantity's budget ([MP §3.2]); the layout probes have none.
     pub const fn min_tier(self) -> Option<Tier> {
         match self {
-            Family::Read | Family::ReadOp | Family::ReadCost => Some(Tier::T1),
+            Family::Read | Family::ReadOp | Family::ReadCostRecords | Family::ReadCostBytes => {
+                Some(Tier::T1)
+            }
             Family::Ckpt => Some(Tier::T3),
             Family::Catchup => Some(Tier::T2),
             _ => None,
@@ -192,7 +200,8 @@ impl Family {
             Family::Overlay
                 | Family::Read
                 | Family::ReadOp
-                | Family::ReadCost
+                | Family::ReadCostRecords
+                | Family::ReadCostBytes
                 | Family::Ckpt
                 | Family::Catchup
         )
@@ -210,8 +219,9 @@ pub struct Quantity {
     pub n: u32,
 }
 
-/// The 17 quantities in run order: the deciding quantities first (T1's read and checkpoint, T2's catch-up), then T1's
-/// read diagnostics, its evidence (R-40 O-2), then the layout probes at 1e5 and 1e6 (R-34 B-3, M-15).
+/// The 18 quantities in run order: the deciding quantities first (T1's read and checkpoint, T2's catch-up), then T1's
+/// read diagnostics, its evidence (R-40 O-2; the read cost's two counts as two quantities, R-44), then the layout
+/// probes at 1e5 and 1e6 (R-34 B-3, M-15).
 pub fn grid() -> Vec<Quantity> {
     let q = |family: Family, n: u32| {
         let scale = match n {
@@ -230,7 +240,8 @@ pub fn grid() -> Vec<Quantity> {
         q(Family::Ckpt, 500_000),
         q(Family::Catchup, 1_000_000),
         q(Family::ReadOp, 1_000_000),
-        q(Family::ReadCost, 1_000_000),
+        q(Family::ReadCostRecords, 1_000_000),
+        q(Family::ReadCostBytes, 1_000_000),
     ];
     for n in [100_000, 1_000_000] {
         for f in [
@@ -283,7 +294,7 @@ fn seed(name: &str) -> u64 {
 /// their tail is `read-4096`'s byte for byte and their nodes come in its order (spec Goal 1).
 pub fn seed_name(q: &Quantity) -> String {
     match q.family {
-        Family::ReadOp | Family::ReadCost => format!(
+        Family::ReadOp | Family::ReadCostRecords | Family::ReadCostBytes => format!(
             "{}{}",
             Family::Read.stem(),
             &q.name[q.family.stem().len()..]
@@ -1112,25 +1123,20 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
                 },
             )));
         }
-        Family::ReadCost => {
+        Family::ReadCostRecords | Family::ReadCostBytes => {
             let t = tail()?;
-            let geo = t.expect.geo;
             let o = replayed(p, t)?;
             let ids = read_cycle(&o, p.seed);
-            let mut records = Counted::new(VfsLog::new(p.vfs, &p.root, geo));
-            let mut bytes = Counted::new(VfsLog::new(p.vfs, &p.root, geo));
-            let (o1, ids1, mut j) = (o.clone(), ids.clone(), 0usize);
-            arms.push(Box::new(ValueFn::new("records", Unit::Count, move || {
+            let mut log = Counted::new(VfsLog::new(p.vfs, &p.root, t.expect.geo));
+            let (arm, unit, bytes) = match q.family {
+                Family::ReadCostBytes => ("bytes", Unit::Bytes, true),
+                _ => ("records", Unit::Count, false),
+            };
+            arms.push(Box::new(ValueFn::new(arm, unit, move || {
                 i += 1;
-                records.reset();
-                point_read(&mut records, &o, c, ids[i % ids.len()]).map_err(ArmError)?;
-                Ok(records.records())
-            })));
-            arms.push(Box::new(ValueFn::new("bytes", Unit::Bytes, move || {
-                j += 1;
-                bytes.reset();
-                point_read(&mut bytes, &o1, c, ids1[j % ids1.len()]).map_err(ArmError)?;
-                Ok(bytes.bytes())
+                log.reset();
+                point_read(&mut log, &o, c, ids[i % ids.len()]).map_err(ArmError)?;
+                Ok(if bytes { log.bytes() } else { log.records() })
             })));
         }
         Family::Ckpt => {
@@ -1938,13 +1944,14 @@ mod tests {
         (tail, b)
     }
 
-    /// 17 quantities with valid, unique names ([MP §4.1]): the six layout families at 1e5 and 1e6 (the sparse
-    /// AND/popcount pair of R-30 among them), the read, its two diagnostics and the catch-up at 1e6, the checkpoint at
-    /// 0.5 M; 22 arms; the minimum tiers of the budgets (t1 read ≤ 50 µs and its diagnostics, t3 checkpoint ≤ 100 ms,
-    /// t2 catch-up ≤ 5 ms, `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and no tail for the
-    /// sparse pair; the diagnostics' arms (R-42 Q2) and their tails.
+    /// 18 quantities with valid, unique names ([MP §4.1]): the six layout families at 1e5 and 1e6 (the sparse
+    /// AND/popcount pair of R-30 among them), the read, its three diagnostics and the catch-up at 1e6, the checkpoint
+    /// at 0.5 M; 22 arms; the minimum tiers of the budgets (t1 read ≤ 50 µs and its diagnostics, t3 checkpoint ≤
+    /// 100 ms, t2 catch-up ≤ 5 ms, `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and no tail
+    /// for the sparse pair; the diagnostics' arms (R-42 Q2) and their tails; the read cost's two counts as two
+    /// quantities of one arm each, since every arm after arm 0 is a floor (R-44 I-1 (b)).
     #[test]
-    fn grid_has_seventeen_valid_quantities() {
+    fn grid_has_eighteen_valid_quantities() {
         let g = grid();
         let names: Vec<&str> = g.iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
@@ -1954,7 +1961,8 @@ mod tests {
                 "ckpt-4096.n5e5",
                 "catchup-16.n1e6",
                 "read-op-4096.n1e6",
-                "read-cost-4096.n1e6",
+                "read-cost-records-4096.n1e6",
+                "read-cost-bytes-4096.n1e6",
                 "csr.n1e5",
                 "bitset.n1e5",
                 "bitset-ab.n1e5",
@@ -1971,15 +1979,20 @@ mod tests {
             "the deciding quantities first (R-34 B-3, M-15)"
         );
         assert!(names.iter().all(|n| valid_name(n)));
-        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 17);
+        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 18);
         let arms: Vec<&str> = g
             .iter()
             .flat_map(|q| q.family.arms().iter().copied())
             .collect();
         assert_eq!(arms.len(), 22);
         assert_eq!(Family::ReadOp.arms(), ["read.op", "read.op.at"]);
-        assert_eq!(Family::ReadCost.arms(), ["records", "bytes"]);
-        for f in [Family::ReadOp, Family::ReadCost] {
+        assert_eq!(Family::ReadCostRecords.arms(), ["records"]);
+        assert_eq!(Family::ReadCostBytes.arms(), ["bytes"]);
+        for f in [
+            Family::ReadOp,
+            Family::ReadCostRecords,
+            Family::ReadCostBytes,
+        ] {
             assert_eq!((f.min_tier(), f.needs_tail()), (Some(Tier::T1), true));
         }
         for f in [Family::BitsetAb, Family::BitsetAa] {
@@ -2053,7 +2066,7 @@ mod tests {
             })
             .collect();
         assert_eq!(pairs, expect);
-        assert_eq!(fs.log().maps.len(), 17, "each run maps its base once");
+        assert_eq!(fs.log().maps.len(), 18, "each run maps its base once");
     }
 
     /// `--smoke` with the runner's contract flags records nothing: no line says recorded, every fixture is removed,
@@ -2657,15 +2670,20 @@ mod tests {
         assert_eq!(ticker.count(), 2 * want.len(), "two ticks per sample");
     }
 
-    /// The read and its two diagnostics share their tail and their nodes (spec Goal 1): at both profiles their targets
-    /// are equal; at the test profile `prepare`'s three fixtures hold byte-identical tails, the same seed and the same
-    /// cycle of ids; at production `generate` gives three byte-identical tails of 4,096 ops (a production fixture would
-    /// also build a 1e6-node base). Every other quantity keeps the seed of its own name.
+    /// The read and its three diagnostics share their tail and their nodes (spec Goal 1): at both profiles their
+    /// targets are equal; at the test profile `prepare`'s four fixtures hold byte-identical tails, the same seed and the
+    /// same cycle of ids; at production `generate` gives four byte-identical tails of 4,096 ops (a production fixture
+    /// would also build a 1e6-node base). Every other quantity keeps the seed of its own name.
     #[test]
     fn read_quantities_share_the_reads_tail_and_nodes() {
         let g = grid();
         let of = |f: Family| g.iter().find(|q| q.family == f).unwrap().clone();
-        let qs = [of(Family::Read), of(Family::ReadOp), of(Family::ReadCost)];
+        let qs = [
+            of(Family::Read),
+            of(Family::ReadOp),
+            of(Family::ReadCostRecords),
+            of(Family::ReadCostBytes),
+        ];
         for profile in [Profile::Production, Profile::Test] {
             let t = target(&qs[0], profile);
             for q in &qs[1..] {
@@ -3118,27 +3136,39 @@ mod tests {
         assert_eq!(cnt.records(), 2);
     }
 
-    /// `read-cost`'s arms count, in [`Unit::Count`] and [`Unit::Bytes`], the read of the read's nodes: over one cycle,
-    /// sample k of `records` and of `bytes` is the naive cost of `ids[(k + 1) mod len]`, and the byte counts differ
-    /// between nodes, so the cycle read in another order would not pass.
+    /// The read cost's two quantities (R-44 I-1 (b)) each have one arm, `read-cost-records`'s `records` in
+    /// [`Unit::Count`] and `read-cost-bytes`'s `bytes` in [`Unit::Bytes`], and count the read of the read's nodes: over
+    /// one cycle, sample k of each is the naive cost of `ids[(k + 1) mod len]` (the records, the bytes), and the byte
+    /// counts differ between nodes, so the cycle read in another order would not pass.
     #[test]
     fn read_cost_arms_sample_the_reads_nodes() {
         let fs = MemFs::with_dir(&scratch());
-        let (q, p) = fixture(&fs, Family::ReadCost);
-        let c = Columns::parse(p.map.bytes()).unwrap();
-        let t = p.tail.as_ref().unwrap();
+        let (qr, pr) = fixture(&fs, Family::ReadCostRecords);
+        let (qb, pb) = fixture(&fs, Family::ReadCostBytes);
+        let (cr, cb) = (
+            Columns::parse(pr.map.bytes()).unwrap(),
+            Columns::parse(pb.map.bytes()).unwrap(),
+        );
+        let t = pr.tail.as_ref().unwrap();
         let o = t.overlay().unwrap();
-        let ids = read_cycle(&o, p.seed);
-        let mut arms = arms(&p, &c, &q, &MonoTicker::new()).unwrap();
-        let units: Vec<(&str, Unit)> = arms.iter().map(|a| (a.name(), a.unit())).collect();
-        assert_eq!(units, [("records", Unit::Count), ("bytes", Unit::Bytes)]);
+        let ids = read_cycle(&o, pr.seed);
+        let mut records = arms(&pr, &cr, &qr, &MonoTicker::new()).unwrap();
+        let mut bytes = arms(&pb, &cb, &qb, &MonoTicker::new()).unwrap();
+        assert_eq!(
+            (records.len(), records[0].name(), records[0].unit()),
+            (1, "records", Unit::Count)
+        );
+        assert_eq!(
+            (bytes.len(), bytes[0].name(), bytes[0].unit()),
+            (1, "bytes", Unit::Bytes)
+        );
         let mut seen = BTreeSet::new();
         for k in 0..ids.len() {
             let id = ids[(k + 1) % ids.len()];
-            let (records, bytes) = naive_cost(t, &o, id);
-            assert_eq!(arms[0].sample(), Ok(records), "sample {k}: #{id}'s records");
-            assert_eq!(arms[1].sample(), Ok(bytes), "sample {k}: #{id}'s bytes");
-            seen.insert(bytes);
+            let (r, b) = naive_cost(t, &o, id);
+            assert_eq!(records[0].sample(), Ok(r), "sample {k}: #{id}'s records");
+            assert_eq!(bytes[0].sample(), Ok(b), "sample {k}: #{id}'s bytes");
+            seen.insert(b);
         }
         assert!(
             ids.len() > 1 && seen.len() > 1,
@@ -3383,14 +3413,14 @@ mod tests {
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 17);
+            assert_eq!(calls.len(), 18);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 17);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 18);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
