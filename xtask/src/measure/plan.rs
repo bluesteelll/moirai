@@ -7,8 +7,9 @@ use crate::nightly::calendar::MAX_WINDOW_SECS;
 use crate::nightly::config::{MIN_DISK_FLOOR, MIN_RAM_FLOOR, parse_bytes};
 use crate::toml::{self, Table, Value};
 
-/// The binaries of `moirai-probes-bin` that are tools, not measurement drivers (as `noise.yml` lists them).
-pub const TOOLS: &[&str] = &["guard", "loadgen", "noise", "empty"];
+/// The binaries of `moirai-probes-bin` that are tools, not measurement drivers: the four that `noise.yml` lists, and
+/// `aggregate`, which reads the records after the night.
+pub const TOOLS: &[&str] = &["guard", "loadgen", "noise", "empty", "aggregate"];
 /// The largest minutes value: the longest window ([`MAX_WINDOW_SECS`], 72 hours).
 const MAX_MINUTES: i64 = MAX_WINDOW_SECS / 60;
 
@@ -387,6 +388,10 @@ pub(crate) mod tests {
             (
                 ok.replace("driver = \"m1\"", "driver = \"guard\""),
                 "'guard' is a tool of moirai-probes-bin",
+            ),
+            (
+                ok.replace("driver = \"m1\"", "driver = \"aggregate\""),
+                "'aggregate' is a tool of moirai-probes-bin",
             ),
             (
                 ok.replace("driver = \"m1\"", "driver = \"M1\""),

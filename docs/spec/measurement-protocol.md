@@ -850,7 +850,7 @@ operational policy with a reviewed default (AGENTS.md):
 - `[[measurement]]`, at least one, in run order. Each has:
   - `n`: the measurement's row number, at least 1 and unique;
   - `driver`: the binary's name, 1 to 64 bytes of `a`-`z`, `0`-`9` and `-` starting with a letter or digit, and not
-    one of the tools `guard`, `loadgen`, `noise` and `empty`;
+    one of the tools `guard`, `loadgen`, `noise`, `empty` and `aggregate`;
   - `title`;
   - `run-budget-minutes`: the budget of one run;
   - `budget-minutes`: the budget of every run and retry of the measurement together, at least `run-budget-minutes`;
