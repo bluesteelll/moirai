@@ -23,7 +23,8 @@
 //! - Its record is the one new file of its quantity in `/private/measurements/<n>/`, judged by [`record::judge`]; a
 //!   file that was there before and vanished or changed stops the session (`record-changed`).
 //! - An attempt that is not exit-grade, timed out at its run budget or could not start is retried once, at once, while
-//!   time is left before the measurement's budget and the window's deadline.
+//!   time is left before the measurement's budget and the window's deadline. When the only reason is a changed host
+//!   snapshot, the retry waits `settle-minutes` first, and is made only if that wait fits.
 //! - A driver whose process tree cannot be stopped stops the session (`tree-unstoppable`); its run is never retried.
 //! - After each attempt the tested tree is read again.
 //!
@@ -656,6 +657,9 @@ struct Attempt {
     stop: Option<String>,
     /// Whether a driver process was started.
     started: bool,
+    /// Whether the driver's one record has no reason not to be exit-grade but a changed host snapshot
+    /// ([`record::SNAPSHOT_CHANGED`]): its retry cools down first ([MP §9.8]).
+    snapshot_only: bool,
 }
 
 /// Whether the tested tree moved during an attempt: `HEAD` or the branch changed, a tracked file changed, or the tree
@@ -761,6 +765,7 @@ fn attempt<H: Host + ?Sized>(
         json: j,
         stop: Some(why),
         started: false,
+        snapshot_only: false,
     };
     match host
         .capture(&cx.guard, guard::TIMEOUT_SECS)
@@ -906,6 +911,7 @@ fn attempt<H: Host + ?Sized>(
         Some(e) => (Outcome::Error, vec![format!("{TREE_UNSTOPPABLE}: {e}")]),
         None => (outcome, why),
     };
+    let snapshot_only = outcome == Outcome::NotExitGrade && why == [record::SNAPSHOT_CHANGED];
     j["ended"] = json!(utc::rfc3339(end));
     j["outcome"] = json!(outcome.as_str());
     j["exit_code"] = json!(exit);
@@ -955,6 +961,7 @@ fn attempt<H: Host + ?Sized>(
         json: j,
         stop,
         started: true,
+        snapshot_only,
     })
 }
 
@@ -1100,9 +1107,13 @@ pub fn run<H: Host + ?Sized>(
                 work_made = true;
             }
             let mut k = 0;
+            let mut cool_down = None;
             loop {
                 k += 1;
-                let a = attempt(host, &cx, m, q, k, m_deadline, out)?;
+                let mut a = attempt(host, &cx, m, q, k, m_deadline, out)?;
+                if let Some(secs) = cool_down.take() {
+                    a.json["cool_down_secs"] = json!(secs);
+                }
                 if a.stop.is_some() && !started_any && !a.started {
                     refused_first = true;
                 }
@@ -1144,6 +1155,30 @@ pub fn run<H: Host + ?Sized>(
                     && host.now() < m_deadline.min(cx.deadline);
                 if !retry {
                     break;
+                }
+                // A retry whose only reason is a changed host snapshot (a Windows or Defender update during the run)
+                // first waits out the update's scan burst: `settle-minutes`, within the measurement's budget and the
+                // window's deadline.
+                if a.snapshot_only && plan.settle_secs > 0 {
+                    let until = m_deadline.min(cx.deadline);
+                    if host.now() + plan.settle_secs >= until {
+                        let _ = writeln!(
+                            out,
+                            "measure: {}/{q}: the host snapshot changed during the run, and a cool-down of {} before the retry does not fit before {}; it is not retried",
+                            m.n,
+                            utc::hm(plan.settle_secs),
+                            utc::rfc3339(until)
+                        );
+                        break;
+                    }
+                    let _ = writeln!(
+                        out,
+                        "measure: {}/{q}: the host snapshot changed during the run; cooling down {} before the retry",
+                        m.n,
+                        utc::hm(plan.settle_secs)
+                    );
+                    host.sleep(plan.settle_secs as u64);
+                    cool_down = Some(plan.settle_secs);
                 }
             }
             ses.push_run(r);
@@ -1419,6 +1454,11 @@ quantities = ["lz4.encode"]
         /// An exit-grade record of the run, after appending to the first file already in `--out`: a driver that
         /// breaks [MP §7.2].
         Overwrite,
+        /// An exit-grade record of the run but for its end snapshot, whose Defender signatures changed: a signature
+        /// update during the run.
+        SnapshotChanged,
+        /// [`Writes::SnapshotChanged`] with a reason too: a record that is not valid either.
+        SnapshotAndInvalid,
     }
 
     /// The fake driver ([MP §9.7]): when a driver starts, it writes what `writes` says directly into its `--out`,
@@ -1480,6 +1520,17 @@ quantities = ["lz4.encode"]
                         .unwrap();
                     std::io::Write::write_all(&mut f, b" ").unwrap();
                     write(now, good(now));
+                }
+                Writes::SnapshotChanged => {
+                    let mut v = good(now);
+                    v["host"]["end"]["defender"]["ok"]["signatures"] = json!("1.0.0.2");
+                    write(now, v);
+                }
+                Writes::SnapshotAndInvalid => {
+                    let mut v = good(now);
+                    v["host"]["end"]["defender"]["ok"]["signatures"] = json!("1.0.0.2");
+                    v["reasons"] = json!(["a round-boundary reading failed"]);
+                    write(now, v);
                 }
             }
         }));
@@ -2332,6 +2383,96 @@ quantities = ["d"]
         assert_eq!(a[1]["ended"], utc::rfc3339(t0 + 40 * 60));
         assert_eq!(h.killed.borrow().len(), 2);
         assert_eq!(s["runs"][0]["status"], "timed-out");
+    }
+
+    #[test]
+    fn a_snapshot_change_cools_down_before_its_retry() {
+        let d = TestDir::new("measure-run-cool-down");
+        let plan = plan();
+        let env = env(&d, &plan);
+        let t0 = at(NOW) + 15 * 60;
+        // csr.1e5's record shows a signature update during the run and nothing else: its retry waits the settle
+        // (15 minutes) after the first attempt ends, and is exit-grade.
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[Writes::SnapshotChanged]);
+        for _ in 0..4 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (code, text) = run_text(&mut h, &env, &plan);
+        let s = session(&env, &plan, at(NOW));
+        let a = &s["runs"][0]["attempts"];
+        assert_eq!(a[1]["started"], utc::rfc3339(t0 + 60 + 15 * 60), "{text}");
+        assert_eq!(code, EXIT_PASS, "{text}");
+        assert_eq!(
+            a[0]["why"],
+            json!(["the Windows or Defender versions changed during the run"])
+        );
+        assert_eq!(
+            (a[0].get("cool_down_secs"), &a[1]["cool_down_secs"]),
+            (None, &json!(900))
+        );
+        assert!(
+            text.contains("measure: 14/csr.1e5: the host snapshot changed during the run; cooling down 15m before the retry
+"),
+            "{text}"
+        );
+        // The settle, the cool-down and four runs of a minute.
+        assert_eq!(h.slept, 900 + 900 + 4 * 60);
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/csr.1e5", "exit-grade"),
+                ("14/t1.read", "exit-grade"),
+                ("6/lz4.encode", "exit-grade"),
+            ])
+        );
+        std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        std::fs::remove_dir_all(env.private.join(MEASUREMENTS)).unwrap();
+        // A snapshot change with another reason: the retry is immediate.
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[Writes::SnapshotAndInvalid]);
+        for _ in 0..4 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (code, text) = run_text(&mut h, &env, &plan);
+        assert_eq!(code, EXIT_PASS, "{text}");
+        let s = session(&env, &plan, at(NOW));
+        let a = &s["runs"][0]["attempts"];
+        assert_eq!(a[0]["why"].as_array().unwrap().len(), 2, "{a}");
+        assert_eq!(a[1]["started"], utc::rfc3339(t0 + 60), "{text}");
+        assert_eq!(a[1].get("cool_down_secs"), None);
+        assert!(!text.contains("cooling down"), "{text}");
+        std::fs::remove_dir_all(env.scratch(&plan)).unwrap();
+        std::fs::remove_dir_all(env.private.join(MEASUREMENTS)).unwrap();
+        // The cool-down does not fit: a, under a run budget of 40 minutes in a measurement budget of 50, ends 40
+        // minutes in, and 40 + 15 >= 50, so it is not retried; b, c and d run.
+        let plan =
+            Plan::parse(&BUDGETS.replace("run-budget-minutes = 30", "run-budget-minutes = 40"))
+                .unwrap();
+        let mut h = FakeHost::new(at(NOW));
+        fake_driver(&mut h, &[Writes::SnapshotChanged]);
+        h.scripts.push_back(runs(40 * 60, 0));
+        for _ in 0..3 {
+            h.scripts.push_back(runs(60, 0));
+        }
+        let (code, text) = run_text(&mut h, &env, &plan);
+        assert_eq!(code, EXIT_FAIL, "{text}");
+        let s = session(&env, &plan, at(NOW));
+        assert_eq!(
+            statuses(&s),
+            pairs(&[
+                ("14/a", "not-exit-grade"),
+                ("14/b", "exit-grade"),
+                ("14/c", "exit-grade"),
+                ("6/d", "exit-grade"),
+            ])
+        );
+        assert_eq!(s["runs"][0]["attempts"].as_array().unwrap().len(), 1);
+        assert!(
+            text.contains("measure: 14/a: the host snapshot changed during the run, and a cool-down of 15m before the retry does not fit before 2026-10-13T22:05:00Z; it is not retried
+"),
+            "{text}"
+        );
     }
 
     /// [`FakeHost`] for the tests of the runner's failure paths. With `stuck`, every driver's `kill_tree` fails, as the

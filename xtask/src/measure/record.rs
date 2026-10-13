@@ -11,6 +11,9 @@ use std::time::SystemTime;
 
 /// The schema of a run record ([MP §7.1]).
 pub const RUN_SCHEMA: &str = "moirai-probes/run/1";
+/// The reason [`judge`] gives when the start and end host snapshots differ: a Windows or Defender update during the
+/// run ([MP §7.3]). A run with no other reason is retried after a cool-down ([MP §9.8]).
+pub const SNAPSHOT_CHANGED: &str = "the Windows or Defender versions changed during the run";
 
 /// A file of a measurement's directory of raw records as the runner lists it before and after an attempt.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -134,7 +137,7 @@ pub fn judge(text: &str, n: u32, q: &str, commit: &str) -> Result<(), Vec<String
         }
     }
     if read && host["start"] != host["end"] {
-        why.push("the Windows or Defender versions changed during the run".into());
+        why.push(SNAPSHOT_CHANGED.into());
     }
     if why.is_empty() { Ok(()) } else { Err(why) }
 }
