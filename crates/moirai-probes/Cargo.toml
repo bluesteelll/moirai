@@ -24,6 +24,13 @@ serde_json.workspace = true
 # The load fixture's id (BLAKE3-256 of the file, §2.3) and its checksum (xxh3-64, §9.2).
 blake3.workspace = true
 xxhash-rust.workspace = true
+# Measurement 6's codecs (WP-54; PLAN §2.4 "lz4_flex 0.14, ruzstd 0.9", features "as measured"; 90 §11.3). lz4_flex
+# takes its block format with safe code: its defaults without `frame` (and so without `twox-hash`) and without
+# `checked-decode`, which `safe-decode` makes redundant. ruzstd takes `std` only: no `hash`, since hist frames carry
+# their own xxh3 (F10 §4.3), and no `dict_builder`, since the dictionary comes from the probe's own deterministic
+# trainer (R-33 Q1 (b)).
+lz4_flex = { workspace = true, features = ["std", "safe-encode", "safe-decode"] }
+ruzstd = { workspace = true, features = ["std"] }
 
 # Property suites of the unit tests (PLAN §2.4: dev only).
 [dev-dependencies]
