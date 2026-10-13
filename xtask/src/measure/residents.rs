@@ -141,10 +141,18 @@ mod tests {
     }
 
     /// The real `tasklist` of this machine: it runs, and its output parses. A host whose processes all run in session
-    /// 0 (a service's job) gives an empty list.
-    #[cfg(windows)]
+    /// 0 (a service's job) gives an empty list. A host without `%SystemRoot%\System32\tasklist.exe` (not Windows) has
+    /// no list to read, and `read` says so. The host is told apart while the test runs, by the program's file, since
+    /// GT20 (d) refuses an OS-specific attribute outside `moirai-os`, tests included.
     #[test]
     fn tasklist_lists_this_machine() {
+        let tasklist = std::env::var_os("SystemRoot")
+            .filter(|r| !r.is_empty())
+            .is_some_and(|r| Path::new(&r).join("System32").join(TASKLIST).is_file());
+        if !tasklist {
+            assert!(read().is_err(), "{:?}", read());
+            return;
+        }
         let names = read().unwrap();
         assert!(
             !names.iter().any(|n| n.eq_ignore_ascii_case(TASKLIST)),
