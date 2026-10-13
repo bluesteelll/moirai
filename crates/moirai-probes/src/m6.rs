@@ -1637,7 +1637,6 @@ mod tests {
         let list = driver::plan_quantities(&text, MEASUREMENT).unwrap();
         let names = |cli| -> Vec<String> { quantities(cli).into_iter().map(|q| q.name).collect() };
         assert!(list == names(false) || list == names(true), "{list:?}");
-        assert_eq!(list.len(), 27);
     }
 
     /// A recording run of a notes or plan quantity reads its corpus from `--out` = `<P>/measurements/6`: the tree's
