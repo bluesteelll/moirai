@@ -8,5 +8,10 @@
 //! **The corpora** ([`corpus`]): the notes through `/private/codec-bodies/manifest.tsv`, the plan sections split at
 //! headings outside fences, where a recording run and a smoke find them, and the split of each corpus into a training
 //! and a measured side, keyed by each input's id.
+//!
+//! **The dictionary** ([`dict`]): the probe's own deterministic trainer (R-33 Q1 (b)), the epoch cover of `ruzstd`'s
+//! `dict_builder` with exact d-mer counts, over the training side only; at most 64 KiB of raw content. A product
+//! trainer may do better or worse, so the gain the dictionary shows is this trainer's.
 
 pub mod corpus;
+pub mod dict;
