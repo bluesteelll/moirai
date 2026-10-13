@@ -32,6 +32,12 @@
 //! |---|---|---|
 //! | [`load`] | the load fixture's format, the load generator (`moirai-probes-bin loadgen`), its log and its verdict | [MP §9] |
 //!
+//! # Measurement 6 (WP-54)
+//!
+//! | Module | What it holds | Specification |
+//! |---|---|---|
+//! | [`m6`] | the corpora: the owner's notes through their manifest, the plan sections of `docs/**`, where a run finds them, and their training and measured split | [60 §5.2] item 6, `90-harness-agnostic-design.md:959-974`, [MP §9.7] |
+//!
 //! # Measurement 10 (WP-53d)
 //!
 //! | Module | What it holds | Specification |
@@ -61,6 +67,7 @@ pub mod idle;
 pub mod load;
 pub mod m10;
 pub mod m14;
+pub mod m6;
 pub mod noise;
 pub mod overlay;
 pub mod record;
