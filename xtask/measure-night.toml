@@ -190,4 +190,7 @@ quantities = [
     "a1-cli2x-128kib.n1e6",
     "a1-quiet-192kib-x2-p1024.n1e6",
     "a1-quiet-192kib-x4-p1024.n1e6",
+    "a1-load16-rec-128kib.n1e4",
+    "a1-openmod-rec-128kib.n1e4",
+    "a1-opens10.n1e5",
 ]

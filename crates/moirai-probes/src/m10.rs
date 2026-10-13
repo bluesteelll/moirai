@@ -4,7 +4,7 @@
 //! decides `F17-ckpt-ops`, `-ckpt-bytes`, `-ckpt-body` (the open side), `-tail-overlay`, `-tail-overlay-quiet` and
 //! `-quiet-mult` (`docs/spec/HOLES.md:41-46`; their constraints `17-store-parameters.md:757-762`).
 //!
-//! **The grid** (49 quantities, names by [MP §4.1]). The night's 18 are F17's candidates: `ops` at P06 4,096, 2,048 and
+//! **The grid** (52 quantities, names by [MP §4.1]). The night's 18 are F17's candidates: `ops` at P06 4,096, 2,048 and
 //! 1,024 with N = 1e5 and 1e6; `rec` at P07 4, 2 and 1 MiB; `body` at P08 32, 16 and 8 MiB; `ovl` at P09 1 MiB and
 //! 512 KiB; `quiet` at P10 2 MiB and 1.5 MiB × P11 8 and 4; the last four families at N = 1e6 (cut D-3: open at 1e5 is
 //! replay(cap) + floor(1e5), the floor measured by the `ops` family at both scales). The follow-up block of 13 (u17; R-40
@@ -31,6 +31,18 @@
 //! stops on the clause it targets at 95–100 % of the cap ([`reaches_cap`], [`SEED_K`]; R-44 I-2's tails past or far
 //! below their caps are what this excludes). `--list` prints each k.
 //!
+//! **The opens under load** (u20 cut §3.6, spec Goal 6; [`open_points`]), three more, on an A1 point's tail and seed:
+//! `a1-load16-rec-128kib.n1e4` (16 concurrent opens, critique-performance A-2), `a1-openmod-rec-128kib.n1e4` (an open
+//! after another process modified the active extent, S-1) and `a1-opens10.n1e5` (one command's 10 file opens, M-A6,
+//! reported with no minimum tier). The first two run on a pool of 17 children of the driver, `m10 --opener`, held for
+//! the run: 16 openers and the modifier, which never opens in a burst ([`ProcessPool`], [`serve`]). The line protocol
+//! carries each open's tail parameters ([`Request`], [`Reply`]; addendum I-1). A burst is 16 opens that start at one
+//! instant of the system-wide clock, each timed by its child on that clock; its values enter the arm's block in an
+//! order that rotates by 7 per burst ([`burst_arm`]). The 16 values of a burst are correlated, so a p99 over 1,000
+//! samples rests on about 63 bursts (addendum m-6). What no test sees: the children's open is the same code the
+//! in-process tests drive through a fake pool; that the real pool's children run in their own processes rests on the
+//! binary's wiring.
+//!
 //! Every run is measurement 10 with minimum tier t2, the tier of the open budgets ([MP §3.2],
 //! `17-store-parameters.md:757`). The test profile's thresholds and E give the smoke's versions.
 //!
@@ -53,28 +65,39 @@
 //! and a loaded run's replay verdict is read over its window), `--quantity <name>` (one run, in this process),
 //! `--commit <sha>` and `--toolchain <text>` (required), `--out <dir>` (required unless `--smoke`, refused with it; each
 //! record one JSON file directly there, created when missing, streamed, removed on a failed write, [MP §7.2]),
-//! `--smoke` (the requested quantity, or every one, at the test profile, each arm once, nothing recorded), `--help`;
+//! `--smoke` (the requested quantity, or every one, at the test profile, each arm once, nothing recorded), `--help`,
+//! `--opener` alone (a pool child: the line protocol on stdin and stdout);
 //! and, beside the contract, `m10 --list` alone (one JSON line of tail measures per quantity, item 1a's locator bytes and
 //! the seed's k among them). Every fixture lies below
 //! the working directory ([MP §9.7] "The working directory"; R-34 B-1). Without `--quantity`, each quantity runs in a
 //! child process of its own, in grid order ([MP §4.6]: `private_peak` cannot be reset). Exit 0 done, 1 a run or arm
 //! failed or a record could not be written, 2 a usage error.
 
-use crate::arm::{Arm, ArmError, Ticker, TimedFn};
+use crate::arm::{Arm, ArmError, BulkFn, Ticker, TimedFn};
 use crate::host::{CommandRunner, HostKind};
 use crate::m1::driver::{self, Args};
+use crate::m14::Staged;
+use crate::overlay::{Base, Overlay};
 use crate::run::{Context, RunSpec, measure};
+use crate::tail::scan::Expect;
 use crate::tail::store::{
-    Fixture, HOT_BYTES_PER_NODE, SEALED_FILES, VfsLog, open_floor, remove_fixture, write_fixture,
+    Fixture, HOT_BYTES_PER_NODE, LOCK_NAME, SEALED_FILES, SEG_HDR_LEN, VfsLog, check_seg_header,
+    extent_name, open_floor, remove_fixture, spare_extent, write_command_files, write_fixture,
 };
 use crate::tail::synth::{Clause, Tail, Target, generate};
-use crate::tail::{Locator, Params, TAIL_READ_CHUNK};
+use crate::tail::{Geometry, HEAD_LEN, INIT_PARAMS_LEN, Locator, Params, TAIL_READ_CHUNK};
 use crate::tier::Tier;
-use moirai_vfs::{Meter, RootAccess, RootRole, SealedMaps, StoreFs};
+use moirai_vfs::{
+    Access, Meter, OpenHint, RelPath, RelPathBuf, RootAccess, RootRole, SealedMaps, StoreFs,
+    SyncKind,
+};
 use serde_json::json;
 use std::ffi::OsString;
-use std::io::Write;
+use std::io::{BufRead, BufReader, Write};
 use std::path::{Path, PathBuf};
+use std::process::{Child, ChildStdin, Command, Stdio};
+use std::sync::mpsc::{Receiver, RecvTimeoutError, channel};
+use std::time::{Duration, Instant};
 
 /// The measurement's row number.
 pub const MEASUREMENT: u32 = 10;
@@ -90,6 +113,27 @@ const MIB: u64 = 1_024 * 1_024;
 pub enum Kind {
     /// A tail's open: the replay arms and the open floor.
     Tail,
+    /// 16 concurrent opens of a tail by the pool's openers (u20 cut D-7; critique-performance A-2).
+    Load,
+    /// An open of a tail whose active extent another process modified since the last open (critique-performance S-1).
+    OpenMod,
+    /// One command's file opens (M-A6).
+    Opens,
+}
+
+impl Kind {
+    /// Whether a run of the kind needs the pool of `m10 --opener` children.
+    pub const fn needs_pool(self) -> bool {
+        matches!(self, Kind::Load | Kind::OpenMod)
+    }
+
+    /// The minimum tier: m10's t2, the tier of the open budgets; none for M-A6's opens, which are reported.
+    pub const fn min_tier(self) -> Option<Tier> {
+        match self {
+            Kind::Opens => None,
+            _ => Some(Tier::T2),
+        }
+    }
 }
 
 /// A quantity's production parameters beyond the column's design figures, P06–P11 (u20 cut §3.5); `None` keeps the
@@ -156,6 +200,8 @@ pub struct Quantity {
     /// The production seed's k: the seed is `seed(name) ^ k`, the first k < 64 whose tail reaches its cap (u20 cut
     /// D-5); 0 for the night's points and at the test profile.
     pub seed_k: u64,
+    /// The point whose tail the quantity opens, which names its seed; `None` is its own.
+    pub of: Option<&'static str>,
 }
 
 fn bytes_name(b: u64) -> String {
@@ -199,6 +245,7 @@ pub fn grid() -> Vec<Quantity> {
             },
             form: Locator::None,
             seed_k: 0,
+            of: None,
         }
     };
     let mut g = Vec::new();
@@ -253,7 +300,43 @@ pub fn grid() -> Vec<Quantity> {
         q(Clause::Quiet, 2 * MIB, 2, e6, Some(2_048)),
     ]);
     lead.extend(a3_points());
+    lead.extend(open_points());
     lead
+}
+
+/// The opens under load and Defender (u20 cut §3.6, spec Goal 6), each on an A1 point's tail and seed:
+/// - `a1-load16-rec-128kib.n1e4`: 16 concurrent opens of `a1-rec-128kib.n1e4`'s tail, the A3 point expected to meet
+///   1e4 (`design-A.md:266-269`, est. 0.67 ms), one arm `open.c16` (D-7);
+/// - `a1-openmod-rec-128kib.n1e4`: an open of the same tail after another process modified its active extent, and its
+///   floor, the same open with no write since the last;
+/// - `a1-opens10.n1e5`: one command's 10 file opens on `a1-rec-128kib.n1e5`'s fixture with `LOCK` and the spare extent
+///   (M-A6), reported, no gate.
+pub fn open_points() -> Vec<Quantity> {
+    let a3 = a3_points();
+    let of = |name: &'static str, new: &str, kind: Kind| {
+        let mut q = a3
+            .iter()
+            .find(|q| q.name == name)
+            .expect("an A3 point")
+            .clone();
+        q.name = new.into();
+        q.kind = kind;
+        q.of = Some(name);
+        q
+    };
+    vec![
+        of(
+            "a1-rec-128kib.n1e4",
+            "a1-load16-rec-128kib.n1e4",
+            Kind::Load,
+        ),
+        of(
+            "a1-rec-128kib.n1e4",
+            "a1-openmod-rec-128kib.n1e4",
+            Kind::OpenMod,
+        ),
+        of("a1-rec-128kib.n1e5", "a1-opens10.n1e5", Kind::Opens),
+    ]
 }
 
 /// Design-A A3's small tails in A1 (u20 cut §3.5, spec Goal 5): 18 points with arms `replay.at`, `replay` and
@@ -283,6 +366,7 @@ pub fn a3_points() -> Vec<Quantity> {
             over,
             form: Locator::A1,
             seed_k: 0,
+            of: None,
         };
     let mut g = Vec::new();
     for n in [10_000, 100_000, 1_000_000] {
@@ -452,7 +536,7 @@ pub fn target(q: &Quantity, profile: Profile) -> Target {
         threshold,
         mult,
         n: q.n,
-        seed: seed(&q.name) ^ k,
+        seed: seed(q.of.unwrap_or(&q.name)) ^ k,
         params: p,
         rt_bound: None,
     }
@@ -583,8 +667,10 @@ pub fn replay_at_arm<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
     })
 }
 
-/// The arms of `q` over a written fixture, arm 0 first: `[replay.at, replay, floor.open]` for an A1 point (u20 cut §3.5),
-/// the night's `[replay, floor.open]` for every other.
+/// The arms of `q` over a written fixture, arm 0 first: a tail's `[replay.at, replay, floor.open]` for an A1 point (u20
+/// cut §3.5), the night's `[replay, floor.open]`; `open.c16` over the pool; `open.mod` and its floor `open`; `open.10`
+/// and its floor `open.1`. `pool` serves the kinds that need it ([`Kind::needs_pool`]); `mono` is the system-wide clock.
+#[allow(clippy::too_many_arguments)]
 pub fn quantity_arms<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
     q: &Quantity,
     vfs: &'a V,
@@ -592,15 +678,727 @@ pub fn quantity_arms<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
     fx: &'a Fixture,
     tail: &'a Tail,
     ticker: &T,
-) -> Vec<Box<dyn Arm + 'a>> {
-    let (replay, floor) = arms(vfs, root, fx, tail, ticker);
+    pool: Option<&'a mut (dyn Pool + 'a)>,
+    mono: &'a dyn Fn() -> u64,
+) -> Result<Vec<Box<dyn Arm + 'a>>, String> {
     let mut v: Vec<Box<dyn Arm + 'a>> = Vec::new();
-    if q.form == Locator::A1 {
-        v.push(Box::new(replay_at_arm(vfs, root, fx, tail, ticker)));
+    match q.kind {
+        Kind::Tail => {
+            let (replay, floor) = arms(vfs, root, fx, tail, ticker);
+            if q.form == Locator::A1 {
+                v.push(Box::new(replay_at_arm(vfs, root, fx, tail, ticker)));
+            }
+            v.push(Box::new(replay));
+            v.push(Box::new(floor));
+        }
+        Kind::Load => {
+            let pool = pool.ok_or("the load quantity needs the pool")?;
+            v.push(Box::new(burst_arm(
+                pool,
+                mono,
+                OpenSpec::of(tail),
+                fx.dir.clone(),
+            )));
+        }
+        Kind::OpenMod => {
+            let pool = pool.ok_or("the open-after-modify quantity needs the pool")?;
+            v.extend(openmod_arms(vfs, root, fx, tail, ticker, pool)?);
+        }
+        Kind::Opens => {
+            v.push(Box::new(TimedFn::new(
+                "open.10",
+                ticker.clone(),
+                move || command_opens(vfs, root, fx, tail).map_err(ArmError),
+            )));
+            v.push(Box::new(TimedFn::new(
+                "open.1",
+                ticker.clone(),
+                move || head_open(vfs, root).map_err(ArmError),
+            )));
+        }
     }
-    v.push(Box::new(replay));
-    v.push(Box::new(floor));
-    v
+    Ok(v)
+}
+
+/// The openers of a burst (u20 cut D-7: 16 sessions' CLI opens, critique-performance A-2).
+pub const OPENERS: usize = 16;
+/// The pool's size: the 16 openers and the modifier, which never opens in a burst, so a process that wrote the file is
+/// never one that is timed opening it.
+pub const POOL: usize = OPENERS + 1;
+/// The modifier's index in the pool.
+pub const MODIFIER: usize = OPENERS;
+/// How far ahead of the system-wide clock a burst starts: room to send its 16 lines.
+pub const START_MARGIN_NS: u64 = 20_000_000;
+/// How long the driver waits for one child's reply.
+pub const REPLY_TIMEOUT: Duration = Duration::from_secs(60);
+/// The bytes the open-after-modify's modifier writes past the tail's end in its active extent.
+pub const MOD_BYTES: u64 = 4_096;
+/// The sealed files one command maps (M-A6: `HEAD`, `LOCK`, two extents and 6 segment files make 10).
+pub const COMMAND_SEALED: usize = 6;
+
+/// What an opener opens (u20 addendum I-1): the tail's scan parameters, which the fixture's `HEAD` does not hold, and its
+/// base.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct OpenSpec {
+    /// What the scan checks the tail against, the form included.
+    pub expect: Expect,
+    /// `HEAD.checkpoint_lsn`, the scan's start.
+    pub from: u64,
+    /// `HEAD.committed_lsn`, its end.
+    pub to: u64,
+    /// The chain value at `from`.
+    pub chain_in: u64,
+    /// The base the tail applies to.
+    pub base: Base,
+}
+
+/// The words of an [`OpenSpec`] in a line.
+const SPEC_WORDS: usize = 12;
+
+impl OpenSpec {
+    /// The open of `tail`.
+    pub fn of(tail: &Tail) -> OpenSpec {
+        OpenSpec {
+            expect: tail.expect,
+            from: tail.start,
+            to: tail.end,
+            chain_in: tail.chain_in,
+            base: tail.base,
+        }
+    }
+
+    fn words(&self) -> String {
+        let x = &self.expect;
+        let init: String = x.init.iter().map(|b| format!("{b:02x}")).collect();
+        let form = match x.locator {
+            Locator::None => 0,
+            Locator::A1 => 1,
+        };
+        format!(
+            "{} {} {} {init} {} {form} {} {} {} {} {} {}",
+            x.geo.e(),
+            x.epoch,
+            x.epoch_lsn,
+            x.project_oid_algo,
+            self.from,
+            self.to,
+            self.chain_in,
+            self.base.n,
+            self.base.kind,
+            self.base.statuses
+        )
+    }
+
+    fn parse(w: &[&str]) -> Result<OpenSpec, String> {
+        let bad = |what: &str| format!("an open spec's {what}");
+        let num = |i: usize, what: &str| -> Result<u64, String> {
+            w.get(i)
+                .and_then(|s| s.parse().ok())
+                .ok_or_else(|| bad(what))
+        };
+        let hex = w.get(3).ok_or_else(|| bad("init"))?;
+        if hex.len() != 2 * INIT_PARAMS_LEN {
+            return Err(bad("init"));
+        }
+        let mut init = [0u8; INIT_PARAMS_LEN];
+        for (i, b) in init.iter_mut().enumerate() {
+            *b = u8::from_str_radix(&hex[2 * i..2 * i + 2], 16).map_err(|_| bad("init"))?;
+        }
+        let small = |i: usize, what: &str| -> Result<u8, String> {
+            u8::try_from(num(i, what)?).map_err(|_| bad(what))
+        };
+        Ok(OpenSpec {
+            expect: Expect {
+                geo: Geometry::new(num(0, "E")?).ok_or_else(|| bad("E"))?,
+                epoch: num(1, "epoch")?,
+                epoch_lsn: num(2, "epoch_lsn")?,
+                init,
+                project_oid_algo: small(4, "project_oid_algo")?,
+                locator: match num(5, "form")? {
+                    0 => Locator::None,
+                    1 => Locator::A1,
+                    _ => return Err(bad("form")),
+                },
+            },
+            from: num(6, "from")?,
+            to: num(7, "to")?,
+            chain_in: num(8, "chain_in")?,
+            base: Base {
+                n: u32::try_from(num(9, "n")?).map_err(|_| bad("n"))?,
+                kind: small(10, "kind")?,
+                statuses: small(11, "statuses")?,
+            },
+        })
+    }
+}
+
+/// A request to a pool child (u20 cut §3.6): one ASCII line; a path is the rest of its line, so it may hold spaces
+/// (`P/m2/child.rs:4`).
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Request {
+    /// `open <start_ns> <spec> <dir>`: at `start_ns` on the system-wide clock, `floor.open` and `replay.at` of the
+    /// store in `dir`, timed on the child's own clock.
+    Open {
+        /// The burst's start.
+        start_ns: u64,
+        /// The tail's scan parameters.
+        spec: OpenSpec,
+        /// The store.
+        dir: PathBuf,
+    },
+    /// `zero <from> <len> <path>`: `len` zero bytes at `from` of the file, flushed (`sync(Data)`), the file closed.
+    Zero {
+        /// The offset.
+        from: u64,
+        /// The bytes.
+        len: u64,
+        /// The file.
+        path: PathBuf,
+    },
+    /// `quit`: the child exits 0.
+    Quit,
+}
+
+impl Request {
+    /// The line, without its line feed.
+    pub fn line(&self) -> String {
+        match self {
+            Request::Open {
+                start_ns,
+                spec,
+                dir,
+            } => format!("open {start_ns} {} {}", spec.words(), dir.to_string_lossy()),
+            Request::Zero { from, len, path } => {
+                format!("zero {from} {len} {}", path.to_string_lossy())
+            }
+            Request::Quit => "quit".into(),
+        }
+    }
+
+    /// Parses a request line.
+    pub fn parse(line: &str) -> Result<Request, String> {
+        let bad = || format!("not a request line: '{line}'");
+        let (op, rest) = line.split_once(' ').unwrap_or((line, ""));
+        let path = |s: Option<&str>| -> Result<PathBuf, String> {
+            s.filter(|p| !p.is_empty())
+                .map(PathBuf::from)
+                .ok_or_else(bad)
+        };
+        match op {
+            "open" => {
+                let w: Vec<&str> = rest.splitn(SPEC_WORDS + 2, ' ').collect();
+                if w.len() != SPEC_WORDS + 2 {
+                    return Err(bad());
+                }
+                Ok(Request::Open {
+                    start_ns: w[0].parse().map_err(|_| bad())?,
+                    spec: OpenSpec::parse(&w[1..=SPEC_WORDS])?,
+                    dir: path(Some(w[SPEC_WORDS + 1]))?,
+                })
+            }
+            "zero" => {
+                let w: Vec<&str> = rest.splitn(3, ' ').collect();
+                let num = |i: usize| w.get(i).and_then(|s| s.parse().ok()).ok_or_else(bad);
+                Ok(Request::Zero {
+                    from: num(0)?,
+                    len: num(1)?,
+                    path: path(w.get(2).copied())?,
+                })
+            }
+            "quit" if rest.is_empty() => Ok(Request::Quit),
+            _ => Err(bad()),
+        }
+    }
+}
+
+/// A child's reply: `done <op> <t0> <t1> [<h>]` or `err <op> <message>`.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub enum Reply {
+    /// The request was served: its start and end on the child's clock, and its value (an open's entries).
+    Done {
+        /// The request's first word.
+        op: String,
+        /// Its start.
+        t0: u64,
+        /// Its end.
+        t1: u64,
+        /// Its value, when it has one.
+        h: Option<u64>,
+    },
+    /// It failed.
+    Err {
+        /// The request's first word.
+        op: String,
+        /// Why, on one line.
+        message: String,
+    },
+}
+
+impl Reply {
+    /// The line, without its line feed.
+    pub fn line(&self) -> String {
+        match self {
+            Reply::Done { op, t0, t1, h } => match h {
+                Some(h) => format!("done {op} {t0} {t1} {h}"),
+                None => format!("done {op} {t0} {t1}"),
+            },
+            Reply::Err { op, message } => {
+                format!("err {op} {}", message.replace(['\r', '\n'], " "))
+            }
+        }
+    }
+
+    /// Parses a reply line.
+    pub fn parse(line: &str) -> Result<Reply, String> {
+        let bad = || format!("not a reply line: '{line}'");
+        let w: Vec<&str> = line.splitn(3, ' ').collect();
+        match w.as_slice() {
+            ["err", op, message] => Ok(Reply::Err {
+                op: op.to_string(),
+                message: message.to_string(),
+            }),
+            ["done", op, rest] => {
+                let n: Vec<u64> = rest
+                    .split(' ')
+                    .map(|s| s.parse().map_err(|_| bad()))
+                    .collect::<Result<_, _>>()?;
+                match n.as_slice() {
+                    [t0, t1] => Ok(Reply::Done {
+                        op: op.to_string(),
+                        t0: *t0,
+                        t1: *t1,
+                        h: None,
+                    }),
+                    [t0, t1, h] => Ok(Reply::Done {
+                        op: op.to_string(),
+                        t0: *t0,
+                        t1: *t1,
+                        h: Some(*h),
+                    }),
+                    _ => Err(bad()),
+                }
+            }
+            _ => Err(bad()),
+        }
+    }
+}
+
+/// A pool of children that serve [`Request`] lines, one reply each.
+pub trait Pool {
+    /// The children.
+    fn count(&self) -> usize;
+    /// Sends `line` to child `i`.
+    fn send(&mut self, i: usize, line: &str) -> Result<(), String>;
+    /// The next reply of any child, within `timeout`.
+    fn recv(&mut self, timeout: Duration) -> Result<(usize, Reply), String>;
+}
+
+/// The pool of `<exe> <args>` children, as measurement 2's writers (`P/m2/child.rs:272-348`; u20 cut F-15): piped stdin
+/// and stdout, one reader thread per child forwarding its lines, stderr inherited. Dropping it sends `quit`, closes the
+/// pipes, waits up to 5 s for each child and kills the rest.
+pub struct ProcessPool {
+    children: Vec<Child>,
+    stdins: Vec<ChildStdin>,
+    rx: Receiver<(usize, Result<String, String>)>,
+}
+
+impl ProcessPool {
+    /// Starts `n` children of `exe` with `args` in `cwd`.
+    pub fn spawn(exe: &Path, args: &[&str], n: usize, cwd: &Path) -> Result<ProcessPool, String> {
+        let (tx, rx) = channel();
+        let mut pool = ProcessPool {
+            children: Vec::with_capacity(n),
+            stdins: Vec::with_capacity(n),
+            rx,
+        };
+        for i in 0..n {
+            let mut child = Command::new(exe)
+                .args(args)
+                .current_dir(cwd)
+                .stdin(Stdio::piped())
+                .stdout(Stdio::piped())
+                .stderr(Stdio::inherit())
+                .spawn()
+                .map_err(|e| format!("starting pool child {i}: {e}"))?;
+            let (Some(stdin), Some(stdout)) = (child.stdin.take(), child.stdout.take()) else {
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(format!("pool child {i} has no pipes"));
+            };
+            pool.children.push(child);
+            pool.stdins.push(stdin);
+            let tx = tx.clone();
+            std::thread::spawn(move || {
+                for line in BufReader::new(stdout).lines() {
+                    let msg = line.map_err(|e| e.to_string());
+                    let end = msg.is_err();
+                    if tx.send((i, msg)).is_err() || end {
+                        return;
+                    }
+                }
+                let _ = tx.send((i, Err("the child closed its output".into())));
+            });
+        }
+        Ok(pool)
+    }
+}
+
+impl Pool for ProcessPool {
+    fn count(&self) -> usize {
+        self.children.len()
+    }
+
+    fn send(&mut self, i: usize, line: &str) -> Result<(), String> {
+        let s = self
+            .stdins
+            .get_mut(i)
+            .ok_or_else(|| format!("no pool child {i}"))?;
+        writeln!(s, "{line}")
+            .and_then(|()| s.flush())
+            .map_err(|e| format!("pool child {i}: {e}"))
+    }
+
+    fn recv(&mut self, timeout: Duration) -> Result<(usize, Reply), String> {
+        match self.rx.recv_timeout(timeout) {
+            Ok((i, Ok(line))) => Reply::parse(&line).map(|r| (i, r)),
+            Ok((i, Err(e))) => Err(format!("pool child {i}: {e}")),
+            Err(RecvTimeoutError::Timeout) => {
+                Err(format!("no reply within {} s", timeout.as_secs()))
+            }
+            Err(RecvTimeoutError::Disconnected) => Err("every pool child is gone".into()),
+        }
+    }
+}
+
+impl Drop for ProcessPool {
+    fn drop(&mut self) {
+        for s in &mut self.stdins {
+            let _ = writeln!(s, "quit").and_then(|()| s.flush());
+        }
+        self.stdins.clear();
+        let deadline = Instant::now() + Duration::from_secs(5);
+        for c in &mut self.children {
+            loop {
+                match c.try_wait() {
+                    Ok(Some(_)) => break,
+                    Ok(None) if Instant::now() < deadline => {
+                        std::thread::sleep(Duration::from_millis(10));
+                    }
+                    _ => {
+                        let _ = c.kill();
+                        let _ = c.wait();
+                        break;
+                    }
+                }
+            }
+        }
+    }
+}
+
+/// The system-wide monotonic clock of a `Vfs` clock seam (`moirai_vfs::Clock::mono_ns`, comparable across the processes
+/// of one boot, `docs/spec/os/clock.md`): what the binary passes as [`System::mono`].
+pub fn mono_of<C: moirai_vfs::Clock>(clock: &C) -> u64 {
+    clock.mono_ns()
+}
+
+/// Returns once `mono` reaches `t`: sleeping while more than 2 ms remain, then spinning.
+fn wait_until(mono: &dyn Fn() -> u64, t: u64) {
+    loop {
+        let now = mono();
+        if now >= t {
+            return;
+        }
+        let left = t - now;
+        if left > 2_000_000 {
+            std::thread::sleep(Duration::from_nanos(left - 1_000_000));
+        } else {
+            std::hint::spin_loop();
+        }
+    }
+}
+
+/// The sealed files' names as relative paths.
+fn sealed_rel() -> Result<Vec<RelPathBuf>, String> {
+    crate::tail::store::sealed_names()
+        .into_iter()
+        .map(|s| RelPathBuf::from_string(s).map_err(|e| e.to_string()))
+        .collect()
+}
+
+/// One open of a store (u20 cut §3.6): `floor.open` ([`open_floor`]) then `replay.at` of the tail `spec` names; returns the
+/// overlay's entries, refusing an overlay without offsets.
+pub fn open_once<V: StoreFs + SealedMaps>(
+    vfs: &V,
+    root: &V::Root,
+    sealed: &[RelPathBuf],
+    spec: &OpenSpec,
+) -> Result<usize, String> {
+    open_floor(vfs, root, sealed)?;
+    let o = Overlay::replay_at(
+        &mut VfsLog::new(vfs, root, spec.expect.geo),
+        &spec.expect,
+        spec.from,
+        spec.to,
+        spec.chain_in,
+        spec.base,
+        TAIL_READ_CHUNK,
+    )
+    .map_err(|e| e.to_string())?;
+    offsets_of(&o).map_err(|e| e.0)
+}
+
+/// The pool child's service of one request line (`m10 --opener`; u20 cut §3.6): an open opens its store's root, waits
+/// for its start on the system-wide clock `mono`, then times [`open_once`] on `mono`; a zero writes, flushes and closes.
+pub fn serve_line<V: StoreFs + SealedMaps>(vfs: &V, mono: &dyn Fn() -> u64, line: &str) -> Reply {
+    let req = match Request::parse(line) {
+        Ok(r) => r,
+        Err(message) => {
+            return Reply::Err {
+                op: line.split(' ').next().unwrap_or("").to_string(),
+                message,
+            };
+        }
+    };
+    let (op, served) = match req {
+        Request::Open {
+            start_ns,
+            spec,
+            dir,
+        } => (
+            "open",
+            (|| -> Result<(u64, u64, Option<u64>), String> {
+                let root = vfs
+                    .open_root(&dir, RootRole::Other, RootAccess::Read)
+                    .map_err(|e| e.to_string())?;
+                let sealed = sealed_rel()?;
+                wait_until(mono, start_ns);
+                let t0 = mono();
+                let entries = open_once(vfs, &root, &sealed, &spec)?;
+                let t1 = mono();
+                Ok((t0, t1, Some(entries as u64)))
+            })(),
+        ),
+        Request::Zero { from, len, path } => (
+            "zero",
+            (|| -> Result<(u64, u64, Option<u64>), String> {
+                let io = |e: moirai_vfs::VfsError| e.to_string();
+                let (dir, name) = (
+                    path.parent().ok_or("a path without a directory")?,
+                    path.file_name().ok_or("a path without a file name")?,
+                );
+                let root = vfs
+                    .open_root(dir, RootRole::Other, RootAccess::ReadWrite)
+                    .map_err(io)?;
+                let rel = RelPathBuf::from_string(name.to_string_lossy().into_owned())
+                    .map_err(|e| e.to_string())?;
+                let f = vfs
+                    .open(
+                        &root,
+                        rel.as_rel_path(),
+                        Access::ReadWrite,
+                        OpenHint::Normal,
+                    )
+                    .map_err(io)?;
+                vfs.write_at(&f, from, &vec![0u8; len as usize])
+                    .map_err(io)?;
+                vfs.sync(&f, SyncKind::Data).map_err(|e| format!("{e:?}"))?;
+                drop(f);
+                Ok((0, 0, None))
+            })(),
+        ),
+        Request::Quit => ("quit", Ok((0, 0, None))),
+    };
+    match served {
+        Ok((t0, t1, h)) => Reply::Done {
+            op: op.into(),
+            t0,
+            t1,
+            h,
+        },
+        Err(message) => Reply::Err {
+            op: op.into(),
+            message,
+        },
+    }
+}
+
+/// The pool child's loop (`m10 --opener`): one reply per request line, flushed at once; `quit` or the end of the input
+/// ends it with 0, an unreadable input or output with 1.
+pub fn serve<V: StoreFs + SealedMaps>(
+    vfs: &V,
+    mono: &dyn Fn() -> u64,
+    input: &mut dyn BufRead,
+    output: &mut dyn Write,
+) -> u8 {
+    let mut line = String::new();
+    loop {
+        line.clear();
+        match input.read_line(&mut line) {
+            Ok(0) => return 0,
+            Ok(_) => {}
+            Err(_) => return 1,
+        }
+        let l = line.trim_end();
+        if l == "quit" {
+            return 0;
+        }
+        let reply = serve_line(vfs, mono, l);
+        if writeln!(output, "{}", reply.line())
+            .and_then(|()| output.flush())
+            .is_err()
+        {
+            return 1;
+        }
+    }
+}
+
+/// `open.c16` (u20 cut D-7; critique-performance A-2; addendum m-6): each burst sends one open request with one start
+/// on the system-wide clock to the 16 openers, never the modifier, and takes each opener's open time; a block of `len`
+/// values takes ⌈len/16⌉ bursts. A burst's 16 values enter the block in an order that rotates by 7 per burst, so a
+/// partial last burst does not always keep the same readers. An opener that started before the burst's start fails it.
+pub fn burst_arm<'a>(
+    pool: &'a mut (dyn Pool + 'a),
+    mono: &'a dyn Fn() -> u64,
+    spec: OpenSpec,
+    dir: PathBuf,
+) -> impl Arm + 'a {
+    let mut burst = 0usize;
+    BulkFn::new("open.c16", move |len: u32| {
+        let mut v = Vec::with_capacity(len as usize);
+        while v.len() < len as usize {
+            let start_ns = mono() + START_MARGIN_NS;
+            let line = Request::Open {
+                start_ns,
+                spec,
+                dir: dir.clone(),
+            }
+            .line();
+            for i in 0..OPENERS {
+                pool.send(i, &line).map_err(ArmError)?;
+            }
+            let mut times = [None; OPENERS];
+            for _ in 0..OPENERS {
+                let (i, r) = pool.recv(REPLY_TIMEOUT).map_err(ArmError)?;
+                match r {
+                    Reply::Done { op, t0, t1, .. }
+                        if op == "open" && i < OPENERS && times[i].is_none() && t0 >= start_ns =>
+                    {
+                        times[i] = Some(t1.saturating_sub(t0));
+                    }
+                    other => return Err(ArmError(format!("opener {i} in a burst: {other:?}"))),
+                }
+            }
+            let rot = (burst * 7) % OPENERS;
+            for j in 0..OPENERS {
+                v.push(times[(rot + j) % OPENERS].expect("16 replies"));
+            }
+            burst += 1;
+        }
+        v.truncate(len as usize);
+        Ok(v)
+    })
+}
+
+/// The open-after-modify arms (u20 cut §3.6; critique-performance S-1): `open.mod`, whose setup has the modifier child
+/// write [`MOD_BYTES`] zero bytes past the tail's end in its active extent, flush and close it, and whose op is this
+/// process's open ([`open_once`]); and its floor `open`, the same open with no write since the last. The tail's bytes
+/// do not change, but another process modified the file since the last open.
+pub fn openmod_arms<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
+    vfs: &'a V,
+    root: &'a V::Root,
+    fx: &'a Fixture,
+    tail: &'a Tail,
+    ticker: &T,
+    pool: &'a mut (dyn Pool + 'a),
+) -> Result<Vec<Box<dyn Arm + 'a>>, String> {
+    let geo = tail.expect.geo;
+    let from = geo.offset(tail.end - 1) + 1;
+    let len = MOD_BYTES.min(geo.e() - from);
+    if len == 0 {
+        return Err("the tail fills its last extent: no byte past it to modify".into());
+    }
+    let path = fx.dir.join(extent_name(geo.extent(tail.end - 1)));
+    let spec = OpenSpec::of(tail);
+    let zero = Request::Zero { from, len, path }.line();
+    let open = Staged::new(
+        "open.mod",
+        ticker.clone(),
+        move || -> Result<(), ArmError> {
+            pool.send(MODIFIER, &zero).map_err(ArmError)?;
+            match pool.recv(REPLY_TIMEOUT).map_err(ArmError)? {
+                (MODIFIER, Reply::Done { op, .. }) if op == "zero" => Ok(()),
+                other => Err(ArmError(format!("the modifier: {other:?}"))),
+            }
+        },
+        move |()| open_once(vfs, root, &fx.sealed, &spec).map_err(ArmError),
+        |entries: usize| {
+            std::hint::black_box(entries);
+            Ok(())
+        },
+    );
+    let floor = TimedFn::new("open", ticker.clone(), move || {
+        open_once(vfs, root, &fx.sealed, &spec).map_err(ArmError)
+    });
+    Ok(vec![Box::new(open), Box::new(floor)])
+}
+
+/// One command's file opens (M-A6; u20 cut §3.6, `17-store-parameters.md:768`): `HEAD` with one 8,192-B read, `LOCK`
+/// opened, the tail's active extent and the spare one with one 4-KiB read each, and [`COMMAND_SEALED`] sealed files
+/// each with its header read and checked and a map; every handle and map dropped at the end. Returns the files opened.
+pub fn command_opens<V: StoreFs + SealedMaps>(
+    vfs: &V,
+    root: &V::Root,
+    fx: &Fixture,
+    tail: &Tail,
+) -> Result<u64, String> {
+    let io = |e: moirai_vfs::VfsError| e.to_string();
+    let open = |name: RelPath<'_>| vfs.open(root, name, Access::Read, OpenHint::Normal);
+    let rel = |s: String| RelPathBuf::from_string(s).map_err(|e| e.to_string());
+    head_open(vfs, root)?;
+    let lock = open(RelPath::literal(LOCK_NAME)).map_err(io)?;
+    let mut page = vec![0u8; 4_096];
+    let geo = tail.expect.geo;
+    let mut extents = Vec::new();
+    for k in [geo.extent(tail.end - 1), spare_extent(tail)] {
+        let name = rel(extent_name(k))?;
+        let f = open(name.as_rel_path()).map_err(io)?;
+        vfs.read_at(&f, 0, &mut page).map_err(io)?;
+        extents.push(f);
+    }
+    let mut maps = Vec::new();
+    let mut files = Vec::new();
+    for name in fx.sealed.iter().take(COMMAND_SEALED) {
+        let f = open(name.as_rel_path()).map_err(io)?;
+        let mut h = [0u8; SEG_HDR_LEN];
+        vfs.read_exact_at(&f, 0, &mut h).map_err(io)?;
+        let total = check_seg_header(&h)?;
+        maps.push(
+            vfs.map_sealed(&f, total, name.as_rel_path())
+                .map_err(|e| e.to_string())?,
+        );
+        files.push(f);
+    }
+    let opened = 2 + extents.len() + files.len();
+    drop((lock, extents, maps, files));
+    Ok(opened as u64)
+}
+
+/// `open.1`, the floor of one command's opens: `HEAD` opened with one 8,192-B read, its first file.
+pub fn head_open<V: StoreFs>(vfs: &V, root: &V::Root) -> Result<u64, String> {
+    let head = vfs
+        .open(
+            root,
+            RelPath::literal("HEAD"),
+            Access::Read,
+            OpenHint::Normal,
+        )
+        .map_err(|e| e.to_string())?;
+    let mut buf = vec![0u8; HEAD_LEN];
+    let n = vfs.read_at(&head, 0, &mut buf).map_err(|e| e.to_string())?;
+    if n != HEAD_LEN {
+        return Err(format!("HEAD read {n} bytes, not 8,192"));
+    }
+    Ok(1)
 }
 
 /// Removes its fixture when dropped, on every path out of a run, an unwinding panic included.
@@ -616,8 +1414,11 @@ impl<V: StoreFs> Drop for FixtureGuard<'_, V> {
     }
 }
 
+/// Starts a pool of children in a working directory.
+pub type PoolStarter<'a> = dyn FnMut(&Path) -> Result<Box<dyn Pool + 'a>, String> + 'a;
+
 /// What the binary passes in: the seams and the process spawner.
-pub struct System<'a, V, M, T, R> {
+pub struct System<'a, 'p, V, M, T, R> {
     /// The store seam.
     pub vfs: &'a V,
     /// The measurement seam.
@@ -630,6 +1431,12 @@ pub struct System<'a, V, M, T, R> {
     pub spawn: &'a mut dyn FnMut(&[OsString]) -> Result<u8, String>,
     /// The scale.
     pub profile: Profile,
+    /// Starts the pool of [`POOL`] children of this driver with `--opener` in a working directory (u20 cut §3.6).
+    pub pool: &'a mut PoolStarter<'p>,
+    /// The system-wide monotonic clock, comparable across the pool's processes (u20 addendum I-1).
+    pub mono: &'a dyn Fn() -> u64,
+    /// The pool child's input (`--opener`).
+    pub input: &'a mut dyn BufRead,
 }
 
 /// The usage text.
@@ -639,6 +1446,7 @@ pub const USAGE: &str =
        m10 --smoke [--quantity <name>] --commit <sha> --toolchain <text>
        m10 --list
        m10 --help
+       m10 --opener     (a pool child: the line protocol on stdin and stdout; started by the driver)
 Every fixture lies below the working directory.
 ";
 
@@ -656,7 +1464,13 @@ fn fixture<'v, V: StoreFs>(
 ) -> Result<(Tail, FixtureGuard<'v, V>), String> {
     let tail = generate(&target(q, profile), false)?;
     let name = format!("moirai-m10-{}-{}", std::process::id(), q.name);
-    let fx = write_fixture(vfs, scratch, &name, &tail, profile.sealed_len(q.n))?;
+    let mut fx = write_fixture(vfs, scratch, &name, &tail, profile.sealed_len(q.n))?;
+    if q.kind == Kind::Opens
+        && let Err(e) = write_command_files(vfs, &mut fx, &tail)
+    {
+        let _ = remove_fixture(vfs, scratch, &fx);
+        return Err(e);
+    }
     Ok((
         tail,
         FixtureGuard {
@@ -667,22 +1481,33 @@ fn fixture<'v, V: StoreFs>(
     ))
 }
 
-fn smoke<V: StoreFs + SealedMaps, T: Ticker + Clone>(
+#[allow(clippy::too_many_arguments)]
+fn smoke<'p, V: StoreFs + SealedMaps, T: Ticker + Clone>(
     vfs: &V,
     ticker: &T,
     scratch: &Path,
     qs: &[Quantity],
+    start_pool: &mut PoolStarter<'p>,
+    mono: &dyn Fn() -> u64,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
     let mut code = EXIT_DONE;
     for q in qs {
-        let run = || -> Result<Vec<(String, u64)>, String> {
+        let mut run = || -> Result<Vec<(String, u64)>, String> {
             let (tail, guard) = fixture(vfs, scratch, q, Profile::Test)?;
             let root = vfs
                 .open_root(&guard.fx.dir, RootRole::Other, RootAccess::Read)
                 .map_err(|e| e.to_string())?;
-            let mut arms = quantity_arms(q, vfs, &root, &guard.fx, &tail, ticker);
+            let mut pool = match q.kind.needs_pool() {
+                true => Some(start_pool(scratch)?),
+                false => None,
+            };
+            let pool_ref: Option<&mut dyn Pool> = match &mut pool {
+                Some(b) => Some(b.as_mut()),
+                None => None,
+            };
+            let mut arms = quantity_arms(q, vfs, &root, &guard.fx, &tail, ticker, pool_ref, mono)?;
             let mut lines = Vec::new();
             for arm in arms.iter_mut() {
                 arm.begin_block(1)
@@ -759,7 +1584,7 @@ fn list<M: Meter>(meter: &M, profile: Profile, out: &mut dyn Write, err: &mut dy
 
 /// One recorded run of `q` in this process.
 fn run_one<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunner>(
-    sys: System<'_, V, M, T, R>,
+    sys: System<'_, '_, V, M, T, R>,
     a: &Args,
     q: &Quantity,
     out: &mut dyn Write,
@@ -796,12 +1621,41 @@ fn run_one<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
             return EXIT_FAILED;
         }
     };
-    let mut arms = quantity_arms(q, sys.vfs, &root, &guard.fx, &tail, &sys.ticker);
+    let mut pool = match q.kind.needs_pool() {
+        true => match (sys.pool)(&scratch) {
+            Ok(p) => Some(p),
+            Err(e) => {
+                let _ = writeln!(err, "m10 {}: {e}", q.name);
+                return EXIT_FAILED;
+            }
+        },
+        false => None,
+    };
+    let pool_ref: Option<&mut dyn Pool> = match &mut pool {
+        Some(b) => Some(b.as_mut()),
+        None => None,
+    };
+    let mut arms = match quantity_arms(
+        q,
+        sys.vfs,
+        &root,
+        &guard.fx,
+        &tail,
+        &sys.ticker,
+        pool_ref,
+        sys.mono,
+    ) {
+        Ok(a) => a,
+        Err(e) => {
+            let _ = writeln!(err, "m10 {}: {e}", q.name);
+            return EXIT_FAILED;
+        }
+    };
     let spec = RunSpec {
         measurement: MEASUREMENT,
         quantity: q.name.clone(),
         condition,
-        min_tier: Some(Tier::T2),
+        min_tier: q.kind.min_tier(),
     };
     let mut ctx = Context {
         meter: sys.meter,
@@ -840,12 +1694,15 @@ fn run_one<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
 /// quantity in a child process of its own; returns the exit code.
 pub fn cli<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunner>(
     args: &[OsString],
-    sys: System<'_, V, M, T, R>,
+    sys: System<'_, '_, V, M, T, R>,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
     if args.len() == 1 && args[0] == "--list" {
         return list(sys.meter, sys.profile, out, err);
+    }
+    if args.len() == 1 && args[0] == "--opener" {
+        return serve(sys.vfs, sys.mono, sys.input, out);
     }
     let g = grid();
     let names: Vec<&str> = g.iter().map(|q| q.name.as_str()).collect();
@@ -877,7 +1734,16 @@ pub fn cli<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
             Some(q) => vec![q.clone()],
             None => g.clone(),
         };
-        return smoke(sys.vfs, &sys.ticker, &scratch, &qs, out, err);
+        return smoke(
+            sys.vfs,
+            &sys.ticker,
+            &scratch,
+            &qs,
+            sys.pool,
+            sys.mono,
+            out,
+            err,
+        );
     }
     if let Some(q) = asked {
         return run_one(sys, &a, q, out, err);
@@ -916,10 +1782,74 @@ mod tests {
         std::env::current_dir().unwrap()
     }
 
-    /// Runs the command line over `fs` with a real ticker; returns (exit, stdout, stderr).
+    /// A monotonic clock in nanoseconds, the tests' stand-in for the system-wide one.
+    fn test_mono() -> u64 {
+        static T0: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+        T0.get_or_init(std::time::Instant::now).elapsed().as_nanos() as u64
+    }
+
+    /// The requests a fake pool's children got: (child, line).
+    type Requests = std::rc::Rc<std::cell::RefCell<Vec<(usize, String)>>>;
+
+    /// A pool of in-process children over a [`MemFs`] (u20 cut §3.6: the tests' pool): each request is served at once
+    /// by [`serve_line`] on the store and the clock it was given, and every request is kept.
+    struct FakePool<'f> {
+        fs: &'f MemFs,
+        mono: &'f dyn Fn() -> u64,
+        replies: std::collections::VecDeque<(usize, Reply)>,
+        log: Requests,
+    }
+
+    impl<'f> FakePool<'f> {
+        fn new(fs: &'f MemFs, mono: &'f dyn Fn() -> u64) -> FakePool<'f> {
+            FakePool {
+                fs,
+                mono,
+                replies: Default::default(),
+                log: Default::default(),
+            }
+        }
+    }
+
+    impl Pool for FakePool<'_> {
+        fn count(&self) -> usize {
+            POOL
+        }
+
+        fn send(&mut self, i: usize, line: &str) -> Result<(), String> {
+            if i >= POOL {
+                return Err(format!("no pool child {i}"));
+            }
+            self.log.borrow_mut().push((i, line.to_string()));
+            let reply = serve_line(self.fs, self.mono, line);
+            self.replies.push_back((i, reply));
+            Ok(())
+        }
+
+        fn recv(&mut self, _timeout: std::time::Duration) -> Result<(usize, Reply), String> {
+            self.replies
+                .pop_front()
+                .ok_or_else(|| "no reply".to_string())
+        }
+    }
+
+    /// A starter of fake pools over `fs` on the tests' clock.
+    fn fake_pools<'f>(
+        fs: &'f MemFs,
+    ) -> impl FnMut(&Path) -> Result<Box<dyn Pool + 'f>, String> + 'f {
+        move |_: &Path| Ok(Box::new(FakePool::new(fs, &test_mono)) as Box<dyn Pool + 'f>)
+    }
+
+    /// A starter that starts no pool.
+    fn no_pools<'f>() -> impl FnMut(&Path) -> Result<Box<dyn Pool + 'f>, String> + 'f {
+        |_: &Path| Err("no pool in this test".to_string())
+    }
+
+    /// Runs the command line over `fs` with a real ticker and a fake pool; returns (exit, stdout, stderr).
     fn run(fs: &MemFs, args: &[&str]) -> (u8, String, String) {
         let meter = FakeMeter::new(8_000_000_000);
         let mut spawn = no_spawn;
+        let mut pools = fake_pools(fs);
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = cli(
             &os(args),
@@ -930,6 +1860,9 @@ mod tests {
                 runner: Canned::good(),
                 spawn: &mut spawn,
                 profile: Profile::Test,
+                pool: &mut pools,
+                mono: &test_mono,
+                input: &mut std::io::empty(),
             },
             &mut out,
             &mut err,
@@ -949,6 +1882,7 @@ mod tests {
         let fs = MemFs::with_hook(&cwd(), move || c.advance(2 * MS));
         let meter = FakeMeter::new(8_000_000_000);
         let mut spawn = no_spawn;
+        let mut pools = no_pools();
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = cli(
             &os(args),
@@ -959,6 +1893,9 @@ mod tests {
                 runner: Canned::good(),
                 spawn: &mut spawn,
                 profile: Profile::Test,
+                pool: &mut pools,
+                mono: &test_mono,
+                input: &mut std::io::empty(),
             },
             &mut out,
             &mut err,
@@ -1017,10 +1954,10 @@ mod tests {
     #[test]
     fn grid_lists_the_valid_quantities_in_run_order() {
         let g = grid();
-        assert_eq!(g.len(), 49);
+        assert_eq!(g.len(), 52);
         assert!(g.iter().all(|q| valid_name(&q.name)), "{g:?}");
         let names: BTreeSet<&str> = g.iter().map(|q| q.name.as_str()).collect();
-        assert_eq!(names.len(), 49, "unique");
+        assert_eq!(names.len(), 52, "unique");
         let count = |c: Clause| g.iter().filter(|q| q.clause == c).count();
         assert_eq!(
             [
@@ -1031,7 +1968,7 @@ mod tests {
                 Clause::Quiet
             ]
             .map(count),
-            [8, 11, 5, 11, 14]
+            [8, 14, 5, 11, 14]
         );
         let lead: Vec<&str> = g[..5].iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
@@ -1055,7 +1992,7 @@ mod tests {
             follow, FOLLOW_UP,
             "the follow-up block after the night's 18"
         );
-        let a1: Vec<&str> = g[31..].iter().map(|q| q.name.as_str()).collect();
+        let a1: Vec<&str> = g[31..49].iter().map(|q| q.name.as_str()).collect();
         assert_eq!(a1, A1_BLOCK, "u20's A1 block after the follow-up block");
         assert!(
             g[..31]
@@ -1063,10 +2000,43 @@ mod tests {
                 .all(|q| q.form == Locator::None && q.kind == Kind::Tail)
         );
         assert!(
-            g[31..]
+            g[31..49]
                 .iter()
                 .all(|q| q.form == Locator::A1 && q.kind == Kind::Tail)
         );
+        let opens: Vec<(&str, Kind, Option<&str>)> = g[49..]
+            .iter()
+            .map(|q| (q.name.as_str(), q.kind, q.of))
+            .collect();
+        assert_eq!(
+            opens,
+            [
+                (
+                    "a1-load16-rec-128kib.n1e4",
+                    Kind::Load,
+                    Some("a1-rec-128kib.n1e4")
+                ),
+                (
+                    "a1-openmod-rec-128kib.n1e4",
+                    Kind::OpenMod,
+                    Some("a1-rec-128kib.n1e4")
+                ),
+                ("a1-opens10.n1e5", Kind::Opens, Some("a1-rec-128kib.n1e5")),
+            ],
+            "u20's opens after the A1 block"
+        );
+        for q in &g[49..] {
+            let of = g.iter().find(|p| Some(p.name.as_str()) == q.of).unwrap();
+            for profile in [Profile::Production, Profile::Test] {
+                assert_eq!(target(q, profile), target(of, profile), "{}", q.name);
+            }
+            assert_eq!(
+                q.kind.min_tier(),
+                (q.kind != Kind::Opens).then_some(Tier::T2),
+                "{}",
+                q.name
+            );
+        }
     }
 
     /// Each follow-up point has the parameters of cut §3.4, and so has its production target; the night's 18 targets are
@@ -1277,7 +2247,7 @@ mod tests {
         let (code, out, err) = run(&fs, &[&["--smoke"][..], &CT].concat());
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), 116, "{out}");
+        assert_eq!(lines.len(), 121, "{out}");
         let pairs: BTreeSet<(String, String)> = lines
             .iter()
             .map(|l| {
@@ -1289,22 +2259,36 @@ mod tests {
         let expect: BTreeSet<(String, String)> = grid()
             .iter()
             .flat_map(|q| {
-                let mut arms = vec![
-                    (q.name.clone(), "replay".to_string()),
-                    (q.name.clone(), "floor.open".to_string()),
-                ];
-                if q.form == Locator::A1 {
-                    arms.push((q.name.clone(), "replay.at".into()));
-                }
-                arms
+                let names: &[&str] = match (q.kind, q.form) {
+                    (Kind::Tail, Locator::None) => &["replay", "floor.open"],
+                    (Kind::Tail, Locator::A1) => &["replay.at", "replay", "floor.open"],
+                    (Kind::Load, _) => &["open.c16"],
+                    (Kind::OpenMod, _) => &["open.mod", "open"],
+                    (Kind::Opens, _) => &["open.10", "open.1"],
+                };
+                names
+                    .iter()
+                    .map(|a| (q.name.clone(), a.to_string()))
+                    .collect::<Vec<_>>()
             })
             .collect();
         assert_eq!(pairs, expect);
+        // Each sample of a floor or an open maps the 8 sealed files and reads `HEAD` once; a burst is 16 opens; one
+        // command maps 6 and opens `HEAD` in both its arms.
+        let (maps, heads): (Vec<usize>, Vec<usize>) = grid()
+            .iter()
+            .map(|q| match q.kind {
+                Kind::Tail => (SEALED_FILES, 1),
+                Kind::Load => (OPENERS * SEALED_FILES, OPENERS),
+                Kind::OpenMod => (2 * SEALED_FILES, 2),
+                Kind::Opens => (COMMAND_SEALED, 2),
+            })
+            .unzip();
         let log = fs.log();
-        assert_eq!(log.maps.len(), grid().len() * SEALED_FILES);
+        assert_eq!(log.maps.len(), maps.iter().sum::<usize>());
         assert_eq!(
             log.opens.iter().filter(|o| *o == "HEAD").count(),
-            grid().len()
+            heads.iter().sum::<usize>()
         );
     }
 
@@ -1320,7 +2304,7 @@ mod tests {
         .concat();
         let (code, out, err) = run(&fs, &args);
         assert_eq!(code, EXIT_DONE, "{err}");
-        assert_eq!(out.lines().count(), 116);
+        assert_eq!(out.lines().count(), 121);
         assert!(!out.contains("recorded"));
         assert!(fs.files().is_empty(), "every fixture removed");
         let (code, _, err) = run(&fs, &[&args[..], &["--out", "/o"]].concat());
@@ -1510,7 +2494,7 @@ mod tests {
         let (code, out, _) = run(&fs, &["--help"]);
         assert_eq!((code, out.as_str()), (EXIT_DONE, USAGE));
         let (code, out, _) = run(&fs, &["--list"]);
-        assert_eq!((code, out.lines().count()), (EXIT_DONE, 49));
+        assert_eq!((code, out.lines().count()), (EXIT_DONE, 52));
         let names: Vec<String> = grid().into_iter().map(|q| q.name).collect();
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
         assert!(
@@ -1554,19 +2538,22 @@ mod tests {
                     runner: Canned::good(),
                     spawn: &mut spawn,
                     profile: Profile::Test,
+                    pool: &mut no_pools(),
+                    mono: &test_mono,
+                    input: &mut std::io::empty(),
                 },
                 &mut out,
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 49);
+            assert_eq!(calls.len(), 52);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 49);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 52);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
@@ -1646,7 +2633,7 @@ mod tests {
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        assert_eq!(lines.len(), 49);
+        assert_eq!(lines.len(), 52);
         for (v, q) in lines.iter().zip(grid()) {
             assert_eq!(v["quantity"], q.name.as_str());
             assert_eq!(v["family"], q.clause.as_str());
@@ -1768,12 +2755,12 @@ mod tests {
                 quiet(x),
             ));
         }
-        let got: Vec<(String, Clause, u64, u64, u32, Over)> = g[31..]
+        let got: Vec<(String, Clause, u64, u64, u32, Over)> = g[31..49]
             .iter()
             .map(|q| (q.name.clone(), q.clause, q.threshold, q.mult, q.n, q.over))
             .collect();
         assert_eq!(got, want);
-        for q in &g[31..] {
+        for q in &g[31..49] {
             let k = SEED_K.iter().find(|(n, _)| *n == q.name).unwrap().1;
             assert_eq!(q.seed_k, k, "{}", q.name);
             let mut params = q.over.apply(Params::PRODUCTION);
@@ -1801,12 +2788,18 @@ mod tests {
 
     /// Each A1 point's production tail reaches its own cap and stops on the clause it targets (spec Goal 5; u20 cut D-5,
     /// addendum m-4; `m10.md:267-268`): at `seed(name) ^ seed_k` it stops on that clause, the refused group passes the
-    /// cap, and the measure is 95–100 % of it; every smaller k fails one of these, so `seed_k` is the first. The quiet
-    /// points end on their record caps of 256 and 512 KiB. At the test profile each tail stops on a clause of its family.
+    /// cap, and the measure is 95–100 % of it; smaller k fail one of these, so `seed_k` is the first. The PR tier checks
+    /// the k just below (about 40 production tails in a debug build); the nightly and exit tiers check every smaller k.
+    /// The quiet points end on their record caps of 256 and 512 KiB. At the test profile each tail stops on a clause of
+    /// its family.
     #[test]
     fn a1_tails_reach_their_caps_and_stop_on_their_clauses() {
+        let every = matches!(
+            std::env::var("MOIRAI_TEST_TIER").as_deref(),
+            Ok("nightly") | Ok("exit")
+        );
         let mut failed = Vec::new();
-        for q in &grid()[31..] {
+        for q in &grid()[31..49] {
             let t = target(q, Profile::Production);
             let tail = generate(&t, false).unwrap_or_else(|e| panic!("{}: {e}", q.name));
             let (ok, clause, share) = reaches_cap(q, &t, &tail);
@@ -1827,7 +2820,8 @@ mod tests {
                     q.name
                 );
             }
-            for j in 0..q.seed_k {
+            let below = if every { 0 } else { q.seed_k.saturating_sub(1) };
+            for j in below..q.seed_k {
                 let mut tj = t;
                 tj.seed = seed(&q.name) ^ j;
                 let tail = generate(&tj, false).unwrap();
@@ -1896,14 +2890,24 @@ mod tests {
     fn night_points_keep_their_arms_and_tails() {
         let fs = MemFs::with_dir(&scratch());
         let g = grid();
-        for (i, q) in g.iter().enumerate() {
+        for (i, q) in g.iter().enumerate().take(49) {
             let tail = generate(&target(q, Profile::Test), false).unwrap();
             let fx =
                 write_fixture(&fs, &scratch(), &format!("fx{i}"), &tail, TEST_SEALED_LEN).unwrap();
             let root = fs
                 .open_root(&fx.dir, RootRole::Other, RootAccess::Read)
                 .unwrap();
-            let arms = quantity_arms(q, &fs, &root, &fx, &tail, &MonoTicker::new());
+            let arms = quantity_arms(
+                q,
+                &fs,
+                &root,
+                &fx,
+                &tail,
+                &MonoTicker::new(),
+                None,
+                &test_mono,
+            )
+            .unwrap();
             let names: Vec<&str> = arms.iter().map(|a| a.name()).collect();
             if i < 31 {
                 assert_eq!(names, ["replay", "floor.open"], "{}", q.name);
@@ -2020,5 +3024,481 @@ mod tests {
         .unwrap();
         assert_eq!(offsets_of(&at), Ok(at.entries()));
         assert!(!at.nodes().is_empty());
+    }
+
+    /// The test-profile tail of `name` and its fixture in `fs` below [`scratch`], with `name`'s command files when it is
+    /// the opens quantity.
+    fn open_fixture(fs: &MemFs, name: &str) -> (Quantity, Tail, Fixture) {
+        let q = grid().into_iter().find(|q| q.name == name).unwrap();
+        let tail = generate(&target(&q, Profile::Test), false).unwrap();
+        let mut fx = write_fixture(fs, &scratch(), "fx", &tail, TEST_SEALED_LEN).unwrap();
+        if q.kind == Kind::Opens {
+            write_command_files(fs, &mut fx, &tail).unwrap();
+        }
+        (q, tail, fx)
+    }
+
+    /// The pool's line protocol (u20 cut §3.6, addendum I-1): an open request carries the tail's scan parameters, its
+    /// base and a directory with spaces, a zero request a file path with spaces, and both round-trip in each form, as do
+    /// `quit` and every reply; a reply's message is one line; malformed lines are refused.
+    #[test]
+    fn opener_lines_round_trip() {
+        let fs = MemFs::with_dir(&scratch());
+        let (_, tail, _) = open_fixture(&fs, "a1-load16-rec-128kib.n1e4");
+        let night = generate(&target(&grid()[0], Profile::Test), false).unwrap();
+        for spec in [OpenSpec::of(&tail), OpenSpec::of(&night)] {
+            let r = Request::Open {
+                start_ns: 1_234_567,
+                spec,
+                dir: PathBuf::from("C:/a dir/with spaces/fx"),
+            };
+            assert_eq!(Request::parse(&r.line()), Ok(r));
+        }
+        assert_eq!(OpenSpec::of(&tail).expect.locator, Locator::A1);
+        for r in [
+            Request::Zero {
+                from: 70_000,
+                len: MOD_BYTES,
+                path: PathBuf::from("C:/a b/log.2"),
+            },
+            Request::Quit,
+        ] {
+            assert_eq!(Request::parse(&r.line()), Ok(r));
+        }
+        for r in [
+            Reply::Done {
+                op: "open".into(),
+                t0: 5,
+                t1: 9,
+                h: Some(42),
+            },
+            Reply::Done {
+                op: "zero".into(),
+                t0: 0,
+                t1: 0,
+                h: None,
+            },
+            Reply::Err {
+                op: "open".into(),
+                message: "no such file: a b".into(),
+            },
+        ] {
+            assert_eq!(Reply::parse(&r.line()), Ok(r));
+        }
+        let two = Reply::Err {
+            op: "zero".into(),
+            message: "one\ntwo".into(),
+        };
+        assert_eq!(two.line(), "err zero one two");
+        for bad in [
+            "open 1 2",
+            "open",
+            "zero x 1 /p",
+            "zero 1 2",
+            "quit now",
+            "nope 1",
+        ] {
+            assert!(Request::parse(bad).is_err(), "{bad}");
+        }
+        for bad in ["done open 1", "done open x y", "fine open 1 2", "err"] {
+            assert!(Reply::parse(bad).is_err(), "{bad}");
+        }
+    }
+
+    /// A child times exactly its open (u20 cut §3.6): over a store whose every file open advances the child's clock by
+    /// 1 ms, an open request's `t1 − t0` is 1 ms per file the open opened (`HEAD`, the 8 sealed files and the tail's
+    /// extents, all logged between its start and its reply), the root's open before `t0` advances nothing, and its value
+    /// is the offsets-mode overlay's entries. With a start ahead of the clock, `t0` is not before it.
+    #[test]
+    fn opener_times_exactly_its_open() {
+        let clock = std::rc::Rc::new(std::cell::Cell::new(0u64));
+        let c = clock.clone();
+        let fs = MemFs::with_hook(&scratch(), move || c.set(c.get() + MS));
+        let (_, tail, fx) = open_fixture(&fs, "a1-load16-rec-128kib.n1e4");
+        let spec = OpenSpec::of(&tail);
+        let line = Request::Open {
+            start_ns: 0,
+            spec,
+            dir: fx.dir.clone(),
+        }
+        .line();
+        fs.clear_log();
+        let mono = || clock.get();
+        let Reply::Done { op, t0, t1, h } = serve_line(&fs, &mono, &line) else {
+            panic!("an open's reply");
+        };
+        let opens = fs.log().opens;
+        let geo = tail.expect.geo;
+        let extents = (geo.extent(tail.start)..=geo.extent(tail.end - 1)).count();
+        assert_eq!(opens.len(), 1 + SEALED_FILES + extents, "{opens:?}");
+        assert_eq!(op, "open");
+        assert_eq!(
+            t1 - t0,
+            opens.len() as u64 * MS,
+            "1 ms per file the open opened"
+        );
+        let o = Overlay::replay_at(
+            &mut crate::tail::scan::MemLog::new(tail.start, &tail.bytes),
+            &tail.expect,
+            tail.start,
+            tail.end,
+            tail.chain_in,
+            tail.base,
+            TAIL_READ_CHUNK,
+        )
+        .unwrap();
+        assert_eq!(h, Some(o.entries() as u64));
+        let real = MemFs::with_dir(&scratch());
+        let (_, tail, fx) = open_fixture(&real, "a1-load16-rec-128kib.n1e4");
+        let start = test_mono() + 5 * MS;
+        let line = Request::Open {
+            start_ns: start,
+            spec: OpenSpec::of(&tail),
+            dir: fx.dir.clone(),
+        }
+        .line();
+        let Reply::Done { t0, .. } = serve_line(&real, &test_mono, &line) else {
+            panic!("an open's reply");
+        };
+        assert!(t0 >= start, "{t0} before the start {start}");
+    }
+
+    /// A pool whose child i replies to an open with `t0` = the start and `t1` = the start + i + 1, or with a start one ns
+    /// early: the burst arm's scripted pool.
+    struct ScriptedPool {
+        log: Vec<(usize, String)>,
+        replies: std::collections::VecDeque<(usize, Reply)>,
+        early: bool,
+    }
+
+    impl Pool for ScriptedPool {
+        fn count(&self) -> usize {
+            POOL
+        }
+
+        fn send(&mut self, i: usize, line: &str) -> Result<(), String> {
+            self.log.push((i, line.to_string()));
+            let Ok(Request::Open { start_ns, .. }) = Request::parse(line) else {
+                return Err(format!("not an open: {line}"));
+            };
+            let t0 = start_ns - u64::from(self.early);
+            self.replies.push_back((
+                i,
+                Reply::Done {
+                    op: "open".into(),
+                    t0,
+                    t1: start_ns + i as u64 + 1,
+                    h: Some(1),
+                },
+            ));
+            Ok(())
+        }
+
+        fn recv(&mut self, _: std::time::Duration) -> Result<(usize, Reply), String> {
+            self.replies
+                .pop_front()
+                .ok_or_else(|| "no reply".to_string())
+        }
+    }
+
+    /// `open.c16` (u20 cut D-7; addendum m-6): over a fake pool, a block of 16 is one burst, one open request to each of
+    /// the 16 openers, none to the modifier, all with one start ahead of the clock, and its 16 values; a block of 20 is
+    /// two bursts, the second's values in the order rotated by 7, so the partial burst keeps openers 7–10, not 0–3; an
+    /// opener that started before the burst fails it.
+    #[test]
+    fn load16_burst_starts_16_opens_and_returns_16_times() {
+        let fs = MemFs::with_dir(&scratch());
+        let (_, tail, fx) = open_fixture(&fs, "a1-load16-rec-128kib.n1e4");
+        let mut pool = FakePool::new(&fs, &test_mono);
+        let log = pool.log.clone();
+        {
+            let mut arm = burst_arm(&mut pool, &test_mono, OpenSpec::of(&tail), fx.dir.clone());
+            assert_eq!(arm.name(), "open.c16");
+            let before = test_mono();
+            arm.begin_block(16).unwrap();
+            let values: Vec<u64> = (0..16).map(|_| arm.sample().unwrap()).collect();
+            assert!(values.iter().all(|&v| v > 0), "{values:?}");
+            let sent = log.borrow().clone();
+            let children: Vec<usize> = sent.iter().map(|s| s.0).collect();
+            assert_eq!(
+                children,
+                (0..OPENERS).collect::<Vec<_>>(),
+                "one per opener, none to the modifier"
+            );
+            let starts: BTreeSet<u64> = sent
+                .iter()
+                .map(|(_, l)| match Request::parse(l).unwrap() {
+                    Request::Open { start_ns, .. } => start_ns,
+                    r => panic!("{r:?}"),
+                })
+                .collect();
+            assert_eq!(starts.len(), 1, "one start");
+            assert!(starts.iter().all(|&s| s >= before + START_MARGIN_NS));
+            arm.begin_block(20).unwrap();
+            assert_eq!(
+                log.borrow().len(),
+                16 + 2 * OPENERS,
+                "two bursts for 20 values"
+            );
+            assert!((0..20).all(|_| arm.sample().is_ok()));
+            assert!(arm.sample().is_err(), "20 values");
+        }
+        let mut scripted = ScriptedPool {
+            log: Vec::new(),
+            replies: Default::default(),
+            early: false,
+        };
+        let mut arm = burst_arm(
+            &mut scripted,
+            &test_mono,
+            OpenSpec::of(&tail),
+            fx.dir.clone(),
+        );
+        arm.begin_block(16).unwrap();
+        let first: Vec<u64> = (0..16).map(|_| arm.sample().unwrap()).collect();
+        assert_eq!(
+            first,
+            (1..=16).collect::<Vec<u64>>(),
+            "burst 0 in opener order"
+        );
+        arm.begin_block(4).unwrap();
+        let partial: Vec<u64> = (0..4).map(|_| arm.sample().unwrap()).collect();
+        assert_eq!(
+            partial,
+            [8, 9, 10, 11],
+            "burst 1 rotated by 7: openers 7-10"
+        );
+        drop(arm);
+        let mut early = ScriptedPool {
+            log: Vec::new(),
+            replies: Default::default(),
+            early: true,
+        };
+        let mut arm = burst_arm(&mut early, &test_mono, OpenSpec::of(&tail), fx.dir.clone());
+        assert!(
+            arm.begin_block(1).is_err(),
+            "an opener started before the burst"
+        );
+    }
+
+    /// A ticker that records, at each reading, how many requests a pool's children had got and how many reads the store
+    /// had logged, and returns 1, 2, 3, … (R-29).
+    #[derive(Clone)]
+    struct PoolTicker<'f> {
+        fs: &'f MemFs,
+        log: Requests,
+        ticks: std::rc::Rc<std::cell::RefCell<Vec<(usize, usize)>>>,
+    }
+
+    impl Ticker for PoolTicker<'_> {
+        fn now_ns(&mut self) -> u64 {
+            let mut t = self.ticks.borrow_mut();
+            t.push((self.log.borrow().len(), self.fs.log().reads.len()));
+            t.len() as u64
+        }
+    }
+
+    /// The open after a modify (u20 cut §3.6; critique-performance S-1; R-29): over a fake pool, each `open.mod` sample
+    /// sends one zero request, to the modifier alone, before its t0: 4 KiB past the tail's end in its last extent, which
+    /// stays zero there while the tail's bytes do not change; between its ticks no request is sent and the open reads
+    /// `HEAD` and the whole tail. Its floor `open` sends no request at all.
+    #[test]
+    fn openmod_setup_writes_the_extent_through_another_process_before_t0() {
+        let fs = MemFs::with_dir(&scratch());
+        let (q, tail, fx) = open_fixture(&fs, "a1-openmod-rec-128kib.n1e4");
+        assert_eq!(q.kind, Kind::OpenMod);
+        let root = fs
+            .open_root(&fx.dir, RootRole::Other, RootAccess::Read)
+            .unwrap();
+        let mut pool = FakePool::new(&fs, &test_mono);
+        let log = pool.log.clone();
+        let ticker = PoolTicker {
+            fs: &fs,
+            log: log.clone(),
+            ticks: Default::default(),
+        };
+        let geo = tail.expect.geo;
+        let ext = fx.dir.join(extent_name(geo.extent(tail.end - 1)));
+        let before = fs.bytes(&ext).unwrap();
+        let mut arms = openmod_arms(&fs, &root, &fx, &tail, &ticker, &mut pool).unwrap();
+        let names: Vec<&str> = arms.iter().map(|a| a.name()).collect();
+        assert_eq!(names, ["open.mod", "open"]);
+        for k in 0..2 {
+            let sent0 = log.borrow().len();
+            arms[0].sample().unwrap();
+            let ticks = ticker.ticks.borrow().clone();
+            let ((s0, r0), (s1, r1)) = (ticks[ticks.len() - 2], ticks[ticks.len() - 1]);
+            assert_eq!(s0, sent0 + 1, "sample {k}: one request before t0");
+            assert_eq!(s1, s0, "sample {k}: no request between the ticks");
+            let (child, line) = log.borrow()[sent0].clone();
+            assert_eq!(
+                child, MODIFIER,
+                "sample {k}: the modifier writes, no opener"
+            );
+            assert_eq!(
+                Request::parse(&line),
+                Ok(Request::Zero {
+                    from: geo.offset(tail.end - 1) + 1,
+                    len: MOD_BYTES,
+                    path: ext.clone(),
+                }),
+                "sample {k}"
+            );
+            let w = &fs.log().reads[r0..r1];
+            assert!(
+                w.iter().any(|r| r.0 == "HEAD"),
+                "sample {k}: the open's HEAD read"
+            );
+            let tail_read: u64 = w
+                .iter()
+                .filter(|r| r.0.starts_with("log."))
+                .map(|r| r.2 as u64)
+                .sum();
+            assert_eq!(
+                tail_read,
+                tail.end - tail.start,
+                "sample {k}: the whole tail"
+            );
+            assert_eq!(
+                fs.bytes(&ext).unwrap(),
+                before,
+                "sample {k}: the tail's bytes stay"
+            );
+            arms[1].sample().unwrap();
+            assert_eq!(
+                log.borrow().len(),
+                sent0 + 1,
+                "sample {k}: the floor sends nothing"
+            );
+        }
+    }
+
+    /// One command's opens (u20 cut §3.6, M-A6): each `open.10` sample opens exactly `HEAD` (one 8,192-B read), `LOCK`,
+    /// the tail's last extent and the spare (one 4-KiB read at 0 each) and 6 sealed files (a 120-B header read and a map
+    /// each): 10 files; its floor `open.1` opens `HEAD` alone with its read.
+    #[test]
+    fn opens10_opens_ten_files_and_its_floor_one() {
+        let fs = MemFs::with_dir(&scratch());
+        let (q, tail, fx) = open_fixture(&fs, "a1-opens10.n1e5");
+        let root = fs
+            .open_root(&fx.dir, RootRole::Other, RootAccess::Read)
+            .unwrap();
+        let mut arms = quantity_arms(
+            &q,
+            &fs,
+            &root,
+            &fx,
+            &tail,
+            &MonoTicker::new(),
+            None,
+            &test_mono,
+        )
+        .unwrap();
+        let names: Vec<&str> = arms.iter().map(|a| a.name()).collect();
+        assert_eq!(names, ["open.10", "open.1"]);
+        let geo = tail.expect.geo;
+        let (last, spare) = (
+            extent_name(geo.extent(tail.end - 1)),
+            extent_name(spare_extent(&tail)),
+        );
+        let sealed: Vec<String> = crate::tail::store::sealed_names()
+            .into_iter()
+            .take(COMMAND_SEALED)
+            .collect();
+        for k in 0..2 {
+            fs.clear_log();
+            arms[0].sample().unwrap();
+            let log = fs.log();
+            let mut want = vec![
+                "HEAD".to_string(),
+                LOCK_NAME.to_string(),
+                last.clone(),
+                spare.clone(),
+            ];
+            want.extend(sealed.iter().cloned());
+            assert_eq!(log.opens, want, "sample {k}: 10 files");
+            let mut reads = vec![
+                ("HEAD".to_string(), 0, HEAD_LEN),
+                (last.clone(), 0, 4_096),
+                (spare.clone(), 0, 4_096),
+            ];
+            reads.extend(sealed.iter().map(|s| (s.clone(), 0, SEG_HDR_LEN)));
+            assert_eq!(log.reads, reads, "sample {k}");
+            assert_eq!(log.maps.len(), COMMAND_SEALED, "sample {k}");
+            fs.clear_log();
+            arms[1].sample().unwrap();
+            let log = fs.log();
+            assert_eq!(log.opens, ["HEAD"], "sample {k}");
+            assert_eq!(log.reads, [("HEAD".to_string(), 0, HEAD_LEN)], "sample {k}");
+        }
+    }
+
+    /// `--opener` alone serves the pool's protocol on its input (u20 cut §3.6): an open of a written fixture gets `done
+    /// open` with the offsets-mode overlay's entries, a zero `done zero`, a malformed line `err`; `quit` ends it with 0
+    /// and nothing after it is served.
+    #[test]
+    fn cli_opener_mode_serves_the_protocol() {
+        let fs = MemFs::with_dir(&scratch());
+        let (_, tail, fx) = open_fixture(&fs, "a1-load16-rec-128kib.n1e4");
+        let geo = tail.expect.geo;
+        let open = Request::Open {
+            start_ns: 0,
+            spec: OpenSpec::of(&tail),
+            dir: fx.dir.clone(),
+        }
+        .line();
+        let zero = Request::Zero {
+            from: geo.offset(tail.end - 1) + 1,
+            len: 8,
+            path: fx.dir.join(extent_name(geo.extent(tail.end - 1))),
+        }
+        .line();
+        let input = format!("{open}\n{zero}\ngarbage here\nquit\n{open}\n");
+        let meter = FakeMeter::new(8_000_000_000);
+        let mut spawn = no_spawn;
+        let mut pools = no_pools();
+        let (mut out, mut err) = (Vec::new(), Vec::new());
+        let code = cli(
+            &os(&["--opener"]),
+            System {
+                vfs: &fs,
+                meter: &meter,
+                ticker: MonoTicker::new(),
+                runner: Canned::good(),
+                spawn: &mut spawn,
+                profile: Profile::Test,
+                pool: &mut pools,
+                mono: &test_mono,
+                input: &mut input.as_bytes(),
+            },
+            &mut out,
+            &mut err,
+        );
+        assert_eq!(code, EXIT_DONE);
+        let out = String::from_utf8(out).unwrap();
+        let replies: Vec<Reply> = out.lines().map(|l| Reply::parse(l).unwrap()).collect();
+        assert_eq!(replies.len(), 3, "{out}");
+        let o = Overlay::replay_at(
+            &mut crate::tail::scan::MemLog::new(tail.start, &tail.bytes),
+            &tail.expect,
+            tail.start,
+            tail.end,
+            tail.chain_in,
+            tail.base,
+            TAIL_READ_CHUNK,
+        )
+        .unwrap();
+        assert!(
+            matches!(&replies[0], Reply::Done { op, h, .. } if op == "open" && *h == Some(o.entries() as u64)),
+            "{replies:?}"
+        );
+        assert!(
+            matches!(&replies[1], Reply::Done { op, .. } if op == "zero"),
+            "{replies:?}"
+        );
+        assert!(
+            matches!(&replies[2], Reply::Err { op, .. } if op == "garbage"),
+            "{replies:?}"
+        );
     }
 }

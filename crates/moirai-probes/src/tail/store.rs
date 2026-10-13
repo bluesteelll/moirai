@@ -12,6 +12,8 @@
 //!   (`04-head.md:119-121`), is not modelled.
 //! - **The log extents** `log.<n>` are E bytes each, the tail's bytes at their offsets and zero elsewhere
 //!   ([F05 §2.2], [F05 §2.4]); the tail starts at extent 2 and `log.1` is not written (cut addendum m-6).
+//! - **One command's files** (u20, M-A6), for `a1-opens10.n1e5` alone: `LOCK` and the spare extent after the tail's
+//!   last one ([`write_command_files`]).
 
 use super::scan::{Expect, LogSource};
 use super::synth::Tail;
@@ -239,6 +241,42 @@ pub fn write_fixture<V: StoreFs>(
     })
 }
 
+/// The store lock file ([F04 §2]'s neighbour in the store directory; `ARCHITECTURE-RESEARCH.md:783`).
+pub const LOCK_NAME: &str = "LOCK";
+
+/// The extent after the tail's last one: the spare a writer keeps prepared ([F16] P-72, P-96, as `17-store-parameters.md:768`
+/// cites them).
+pub fn spare_extent(tail: &Tail) -> u64 {
+    tail.expect.geo.extent(tail.end - 1) + 1
+}
+
+/// Writes the files one command opens beyond the open floor's (u20 cut §3.6, M-A6): `LOCK`, empty, and the spare extent
+/// `log.<k + 1>` after the tail's last extent k, E bytes. Only `a1-opens10.n1e5` writes them (u20 addendum m-7), so no
+/// other fixture changes. They join `fx.files`, so [`remove_fixture`] removes them.
+pub fn write_command_files<V: StoreFs>(
+    vfs: &V,
+    fx: &mut Fixture,
+    tail: &Tail,
+) -> Result<(), String> {
+    let io = |e: moirai_vfs::VfsError| e.to_string();
+    let root = vfs
+        .open_root(&fx.dir, RootRole::Other, RootAccess::ReadWrite)
+        .map_err(io)?;
+    let lock = vfs
+        .create_new(&root, RelPath::literal(LOCK_NAME))
+        .map_err(io)?;
+    drop(lock);
+    fx.files.push(LOCK_NAME.into());
+    let name = extent_name(spare_extent(tail));
+    let f = vfs
+        .create_new(&root, rel(name.clone())?.as_rel_path())
+        .map_err(io)?;
+    vfs.write_at(&f, tail.expect.geo.e() - 1, &[0])
+        .map_err(io)?;
+    fx.files.push(name);
+    Ok(())
+}
+
 /// Removes a fixture: its files, then its directory.
 pub fn remove_fixture<V: StoreFs>(vfs: &V, parent: &Path, fx: &Fixture) -> Result<(), String> {
     let io = |e: moirai_vfs::VfsError| e.to_string();
@@ -390,5 +428,30 @@ pub(crate) mod tests {
         remove_fixture(&fs, &scratch(), &fx).unwrap();
         assert!(fs.files().is_empty() && !fs.has_dir(&fx.dir));
         assert!(fs.has_dir(&scratch()));
+    }
+
+    /// One command's files (u20 cut §3.6, M-A6; addendum m-7): `write_command_files` adds an empty `LOCK` and the spare
+    /// extent after the tail's last one, E bytes of zeros, to the fixture and its file list, so `remove_fixture` removes
+    /// them; a fixture without them holds neither.
+    #[test]
+    fn fixture_holds_lock_and_a_spare_extent() {
+        let tail = multi_extent_tail();
+        let fs = MemFs::with_dir(&scratch());
+        let mut fx = write_fixture(&fs, &scratch(), "fx", &tail, 4_096).unwrap();
+        let spare = fx.dir.join(extent_name(spare_extent(&tail)));
+        assert!(fs.bytes(&fx.dir.join(LOCK_NAME)).is_none() && fs.bytes(&spare).is_none());
+        let before = fs.files().len();
+        write_command_files(&fs, &mut fx, &tail).unwrap();
+        assert_eq!(fs.files().len(), before + 2);
+        assert_eq!(fs.bytes(&fx.dir.join(LOCK_NAME)), Some(Vec::new()));
+        let b = fs.bytes(&spare).unwrap();
+        assert_eq!(b.len() as u64, Params::TEST.e);
+        assert!(b.iter().all(|&x| x == 0));
+        assert_eq!(
+            spare_extent(&tail),
+            tail.expect.geo.extent(tail.end - 1) + 1
+        );
+        remove_fixture(&fs, &scratch(), &fx).unwrap();
+        assert!(fs.files().is_empty() && !fs.has_dir(&fx.dir));
     }
 }
