@@ -15,7 +15,7 @@
 //! | ops per commit | `max(1, ⌊(length − 32 − header) / b⌋)`, b uniform in [190, 240] | `17-store-parameters.md:293` ([50 §5.12]) |
 //! | header | one parent, git provenance, the idempotency pair, a named mutation, a message, `affected` | `06-commit.md:523-525`, `:1209-1210` |
 //! | op mix (%) | `SetField` 35, `SetStatus` 20, `AddEdge` 15, `Create` 10, `Move` 5, `SetBody` 5, `RemoveEdge` 5, `Delete` 5 | the probe's choice: no spec states an op mix |
-//! | reaching the length | `SetField` text values and the message are sized so the record has the drawn length (or its minimum) | the probe's choice |
+//! | reaching the length | `SetField` text values and the message are sized so the record has the drawn length, or its minimum when that is longer; with no `SetField`, the message stops at F06's 65,535 bytes (`06-commit.md:252`), and a longer draw gives a shorter record | the probe's choice |
 //! | body raw size | 1,020 B in the mix (≈ 340 B stored at 3×); the body family `min(64 KiB, P05 / 2)` | `20-critique-perf-ram-windows.md:33`; `06-commit.md:1049` |
 //! | touched `#N` | uniform over [1, `N`] and the tail's creates, one op per owner per commit | the probe's choice (the worst case for the node index) |
 //!
@@ -704,7 +704,8 @@ impl Gen {
     }
 
     /// The commit group of `plan` at `lsn`, its text sized so that `len − body data` is the drawn length when it
-    /// can be (the minimum otherwise).
+    /// can be (the minimum otherwise); with no `SetField`, the message stops at F06's 65,535 bytes and a longer draw
+    /// gives a shorter record.
     fn commit_group(&self, plan: &Plan, lsn: u64) -> Result<Vec<Record<'static>>, String> {
         let fields: Vec<usize> = plan
             .ops
@@ -733,7 +734,9 @@ impl Gen {
         }
         let deficit = (plan.len - len0) as usize;
         if fields.is_empty() || deficit < 64 {
-            msg += deficit;
+            // F06's `msg` is a `vstr` of 1 to 65,535 bytes (`06-commit.md:252`): past it the record stays shorter
+            // than drawn.
+            msg = (msg + deficit).min(usize::from(u16::MAX));
         } else {
             let each = deficit / fields.len();
             for &i in &fields {
@@ -1534,6 +1537,170 @@ pub(crate) mod tests {
             assert_eq!(a.measures, b.measures);
             assert_ne!(a.bytes, c.bytes, "{clause:?}");
         }
+    }
+
+    /// A production-profile generator built by hand for `commit_group` alone. One commit is already placed, so a
+    /// record carries no `SymDefs` block and its payload is the commit. `commit_group` draws nothing (`&self`), so
+    /// `rng` is never used.
+    fn bare_gen() -> Gen {
+        let p = Params::PRODUCTION;
+        let n = 1_000;
+        Gen {
+            t: Target {
+                clause: Clause::Ops,
+                threshold: p.p06,
+                mult: 1,
+                n,
+                seed: 0,
+                params: p,
+                rt_bound: None,
+            },
+            rng: Rng(0),
+            base: Base {
+                n,
+                kind: BASE_KIND,
+                statuses: STATUSES,
+            },
+            nodes: HashMap::new(),
+            edged: Vec::new(),
+            next_id: n + 1,
+            start: p.e,
+            seq: 1_000,
+            hlc: 1_790_000_000_000u64 << 16,
+            parent: Parent {
+                id16: [7; 16],
+                lsn: p.e - 1,
+            },
+            commits: 1,
+            settles: 0,
+            session: SYMTAB_SESSIONS + 1,
+            stmt: SYMTAB_STMTS + 1,
+        }
+    }
+
+    /// A plan of `ops` whose drawn length is `len`.
+    fn plan_of(ops: Vec<Planned>, len: u64) -> Plan {
+        Plan {
+            ops,
+            len,
+            msg_seed: 3,
+            commit_id: [1; 32],
+            head: [2; 20],
+            idem: ([3; 16], [4; 16]),
+            stmt_hash: [5; 16],
+            digest: [6; 32],
+        }
+    }
+
+    /// `len − body data` of `plan`'s record at `lsn` with a message of `msg` bytes and no text added to a
+    /// `SetField`, built as `commit_group` builds it.
+    fn len_at(g: &Gen, plan: &Plan, lsn: u64, msg: usize) -> u64 {
+        let c = g.commit(plan, lsn, &vec![0; plan.ops.len()], msg);
+        let body = c.body_bytes();
+        let r = Record {
+            lsn,
+            group_end: true,
+            symdefs: g.symdefs(),
+            payload: Payload::Commit(Box::new(c)),
+        };
+        r.encoded_len().unwrap() - body
+    }
+
+    /// R-38: when no `SetField` can carry a long drawn length, the message stops at F06's 65,535 bytes
+    /// (`06-commit.md:252`) and the record is shorter than drawn. A length that the capped message reaches, or one a
+    /// step below it, is still met exactly, and a `SetField` still carries a long length with a 1-byte message. Every
+    /// case runs, and a red names each failing case with the encoder's message.
+    #[test]
+    fn message_stops_at_f06s_cap_when_no_set_field_carries_the_length() {
+        let g = bare_gen();
+        let lsn = g.start;
+        let cap = usize::from(u16::MAX);
+        let status = |len| plan_of(vec![Planned::SetStatus { id: 1, new: 2 }], len);
+        let at_cap = len_at(&g, &status(0), lsn, cap);
+        // The message's `vstr` length prefix grows from 1 byte to 3 between 1 and 65,535 bytes.
+        assert_eq!(at_cap, len_at(&g, &status(0), lsn, 1) + 65_534 + 2);
+        let field = plan_of(
+            vec![Planned::SetField {
+                id: 1,
+                name: 1,
+                old: TValue::absent().0.into_owned(),
+            }],
+            200_000,
+        );
+        // (case, plan, the record's expected `len − body data`, the expected message length)
+        let cases = [
+            ("c", status(at_cap - 2), at_cap - 2, cap - 2),
+            ("a", status(200_000), at_cap, cap),
+            ("b", status(at_cap), at_cap, cap),
+            ("e", status(at_cap - 1), at_cap - 1, cap - 1),
+            ("d", field, 200_000, 1),
+        ];
+        assert!(at_cap < 200_000, "case (a) is shorter than drawn");
+        let mut failed = Vec::new();
+        for (case, plan, want_len, want_msg) in &cases {
+            let group = match g.commit_group(plan, lsn) {
+                Ok(group) => group,
+                Err(e) => {
+                    failed.push(format!("case ({case}): {e}"));
+                    continue;
+                }
+            };
+            assert_eq!(group.len(), 1, "case ({case}): one record");
+            let r = &group[0];
+            let Payload::Commit(c) = &r.payload else {
+                panic!("case ({case}): a Commit record")
+            };
+            let len = r.encoded_len().unwrap() - c.body_bytes();
+            let msg = c.msg.as_ref().map_or(0, |m| m.len());
+            if (len, msg) != (*want_len, *want_msg) {
+                failed.push(format!(
+                    "case ({case}): length {len} with a message of {msg} bytes, not {want_len} with {want_msg}"
+                ));
+                continue;
+            }
+            // The record decodes back equal: with no `SymDefs` block, its payload is the commit alone.
+            assert!(r.symdefs.is_empty(), "case ({case})");
+            let mut payload = Vec::new();
+            r.encode_payload(&mut payload).unwrap();
+            let back = Commit::decode(&payload).unwrap_or_else(|e| panic!("case ({case}): {e}"));
+            assert_eq!(back, **c, "case ({case})");
+        }
+        assert!(failed.is_empty(), "{}", failed.join("; "));
+    }
+
+    /// R-38, the night's failure at its smallest: a production `ops` tail of one op is one commit. For each of 256
+    /// seeds the tail generates and decodes back equal; every commit whose message stops at F06's cap carries no
+    /// `SetField`, and at least one seed reaches the cap.
+    #[test]
+    fn production_tails_complete_past_the_message_cap() {
+        let cap = usize::from(u16::MAX);
+        let mut hits = 0;
+        for seed in 0..256 {
+            let t = Target {
+                clause: Clause::Ops,
+                threshold: 1,
+                mult: 1,
+                n: 1_000,
+                seed,
+                params: Params::PRODUCTION,
+                rt_bound: None,
+            };
+            let tail = generate(&t, true).unwrap_or_else(|e| panic!("seed {seed}: {e}"));
+            assert_eq!(tail.measures.ops, 1, "seed {seed}");
+            let recs = decode(&tail.bytes, tail.start, &tail.expect, tail.chain_in)
+                .unwrap_or_else(|e| panic!("seed {seed}: {e}"));
+            assert_eq!(recs, tail.records, "seed {seed}");
+            for c in commits(&tail) {
+                if c.msg.as_ref().is_some_and(|m| m.len() == cap) {
+                    hits += 1;
+                    assert!(
+                        !c.ops.iter().any(|o| matches!(o, Op::SetField { .. })),
+                        "seed {seed}: a capped message beside a SetField"
+                    );
+                }
+            }
+        }
+        assert!(hits >= 1, "{hits} of 256 seeds reach the message cap");
     }
 
     proptest! {
