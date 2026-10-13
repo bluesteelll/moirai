@@ -28,8 +28,8 @@ composition root `moirai-probes-bin` ([PLAN §2.2], §6.2 R17); the load fixture
 `cargo xtask loadrec`. The measurements themselves and their probe bodies are the later work packages' ([PLAN §3.2]
 item 5). By the owner's decision of 2026-09-29 no measurement is run until the
 owner resumes them ([PLAN §5]), except one measurement night that the owner decided on 2026-10-12. On a date the owner
-names, it runs measurements 14, 6 (its codec half), 1, 2 and 10 idle, with nothing else running on the machine,
-through the session runner of §9.8. Every other measurement stays deferred. This protocol and its framework are written
+names, it runs measurements 14, 6 (its codec half), 1, 2 and 10 under the idle condition of §2.3, through the session
+runner of §9.8. Every other measurement stays deferred. This protocol and its framework are written
 now.
 
 ### 1.2 Normative words and citations
@@ -89,7 +89,7 @@ Each measurement is recorded idle and loaded, as two runs under this protocol ([
 
 | Condition | Definition | Checks the framework makes |
 |---|---|---|
-| **idle** | No user process beyond the OS baseline ([60 §5.1]): the run is made in an agent-free window, with no agent session, build, test, load generator or other measurement running. The driver attests the condition when it starts the run. | `Meter::available_physical` read at every round boundary (§4.3) is ≥ 1.5 GB (the guard's default RAM floor, §8.1; a `--ram-floor` override of the guard does not move it, so a record's reasons can be recomputed when it is read back, §7.3); a reading below it, or a reading that fails, makes the run invalid |
+| **idle** | No user process beyond the OS baseline ([60 §5.1]). The baseline admits only one supervising agent session that makes no tool call while a driver runs, the desktop app it runs in, the window logger of the checks below and the owner's resident applications at rest. The run is made in an agent-free window: no agent works in it, and no other agent session, build, test, load generator, workflow or other measurement runs. The driver attests the condition when it starts the run. | `Meter::available_physical` read at every round boundary (§4.3) is ≥ 1.5 GB (the guard's default RAM floor, §8.1; a `--ram-floor` override of the guard does not move it, so a record's reasons can be recomputed when it is read back, §7.3); a reading below it, or a reading that fails, makes the run invalid |
 | **loaded** | The **16-agent load fixture** — the CPU, disk and memory profile of one real 16-agent campaign of the owner, resource counters only and no content ([60 §5.2] item 16; recorded by `xtask loadrec`, WP-51a) — replayed by `moirai-probes-bin loadgen` (WP-51, §9) on the machine under test, with available physical memory held at 1.8 GB ([60 §5.1]) | every round-boundary reading of `Meter::available_physical` lies in [1.6 GB, 2.0 GB], the tolerance of "≈ 1.8 GB" (open point 5); a reading outside it, or a reading that fails, makes the run invalid |
 | **synthetic** | A load that is not the fixture: the hosted runners' synthetic load of `noise.yml` ([PLAN §3.2] WP-51), described in the record | readings are recorded, not checked |
 
@@ -105,6 +105,21 @@ loaded run can be recorded; a synthetic run never stands in for one.
 
 A hosted runner runs idle or under synthetic load, never loaded (§2.1, §6): the framework refuses a hosted loaded run
 before its pilot, and a record of one when it is read back (§7.3).
+
+**The checks after an unattended night.** The host snapshots (§2.2) see neither a scan, Automatic Maintenance, an
+install nor the power source, and the driver's attestation cannot see the owner come back. So soon after an
+unattended window ends (the session runner's night, §9.8), and before any of its runs decides, each run's
+`started`..`ended` (§7.1) is checked against:
+- the Defender Operational log (`Microsoft-Windows-Windows Defender/Operational`): events 1000, 1001 and 1002 (a scan
+  started, finished or was stopped), 2000 (the definitions were updated) and 5007 (the configuration changed);
+- the WindowsUpdateClient log (`Microsoft-Windows-WindowsUpdateClient/Operational`): installs;
+- the TaskScheduler log of Automatic Maintenance (`Microsoft-Windows-TaskScheduler/Maintenance`);
+- the System log's Kernel-Power event 105 (the power source changed);
+- the window log of a window logger started beside the runner: one line a minute with the time of the last keyboard
+  or mouse input and whether the machine runs on AC power.
+
+A run that overlaps a scan, an install, maintenance, an interval on battery or owner input does not decide, even when it
+is exit-grade (§7.3). The logs are read soon after the night because they roll over.
 
 ## 3. Sample sizes, repetitions and statistics
 
@@ -445,10 +460,13 @@ A run is **exit-grade** when it is valid and all of these hold:
 - its host kind is `laptop`;
 - its condition is idle or loaded (never synthetic);
 - both host snapshots were read, Defender real-time protection is on in both, and the start and end snapshots are
-  equal — a Windows update or a Defender signature update during the run (which starts a scan burst) makes it not
-  exit-grade (open point 10).
+  equal — a Defender product, engine or signature update during the run changes the snapshots and makes it not
+  exit-grade, and a signature update also starts a scan burst (open point 10). The Windows version's revision has been
+  seen to change only at the restart that completes an update (an observation, not a documented rule), so an update
+  that Windows installs during a run leaves the snapshots equal; §2.3's checks after the night catch it.
 
-Only an exit-grade run decides anything (§5, §6). A run that is not exit-grade is still kept as raw data.
+Only an exit-grade run decides anything (§5, §6), and of an unattended night's runs only those that the checks of §2.3
+do not set aside. A run that is not exit-grade, or is set aside, is still kept as raw data.
 
 ### 7.4 Aggregates
 
@@ -850,12 +868,13 @@ operational policy with a reviewed default (AGENTS.md):
 - `[[measurement]]`, at least one, in run order. Each has:
   - `n`: the measurement's row number, at least 1 and unique;
   - `driver`: the binary's name, 1 to 64 bytes of `a`-`z`, `0`-`9` and `-` starting with a letter or digit, and not
-    one of the tools `guard`, `loadgen`, `noise` and `empty`;
+    one of the tools `guard`, `loadgen`, `noise`, `empty` and `aggregate`;
   - `title`;
   - `run-budget-minutes`: the budget of one run;
   - `budget-minutes`: the budget of every run and retry of the measurement together, at least `run-budget-minutes`;
-  - `quantities`: the names (§4.1) of the quantities the driver measures, unique. The work that builds the driver
-    fills them.
+  - `quantities`: the names (§4.1) of the quantities the driver measures, unique, in run order: the measurement's
+    deciding quantities first, so that a measurement cut short by its budget or by the window loses the least. The
+    work that builds the driver fills them.
 
   A plan with an empty `quantities` list loads but is incomplete, and `check` and `run` refuse it.
 
@@ -877,7 +896,8 @@ operational policy with a reviewed default (AGENTS.md):
 - **Resume.** Before a run, every `<quantity>.idle.<start>.json` in `/private/measurements/<n>/` is judged as the record
   bullet below says. When one is exit-grade and names the measured commit, the run is `done-before` and nothing starts.
   Records of other commits and records that are not exit-grade stay raw data and do not count. Starting the runner
-  again after a crash is the resume; retries count per invocation.
+  again after a crash is the resume; retries count per invocation. If `/private/measurements/<n>/` cannot be listed,
+  the run counts no earlier record, as `check` does, and its entry in the session record says why (`resume_error`).
 - **The guard before each attempt.** The runner runs `guard --volume <scratch> --ram-floor <b> --disk-floor <b>`
   (§8.2), with no `--dir`. A refusal, or a guard that fails (it fails closed, §8.1), stops the session. Before any
   driver ran, that is exit 3; later, the remaining runs are `not-run` and the session fails. No guard runs while a
@@ -888,6 +908,9 @@ operational policy with a reviewed default (AGENTS.md):
   /private/measurements/<n>/`, so the driver writes its record directly in that directory (§9.7).
   - It runs in the working directory `<scratch>/work/<n>/`. That directory is made empty before the measurement's
     first attempt, kept across its runs and retries, and removed after its last run.
+  - Its `TMP` and `TEMP` name that directory, in a smoke run too. So the temporary files a driver makes through the
+    system's temporary-directory lookup (`GetTempPath2`, which reads `TMP` first, and Rust's `std::env::temp_dir`) stay
+    on the scratch volume instead of the user's `%TEMP%`.
   - Its output goes to the log `<scratch>/sessions/<start>/<n>.<q>.<attempt>.log`.
 - **Budgets.** An attempt ends by the earliest of three times: its start plus `run-budget-minutes`, the measurement's
   start plus `budget-minutes`, and the window's end less the finish margin. At that time the runner stops the driver's
@@ -896,6 +919,11 @@ operational policy with a reviewed default (AGENTS.md):
     measurement.
   - A `window-ended` run leaves every later run `not-run`.
   - So a hang costs at most its own measurement's budget, and the measurements after it keep their slots.
+  - If the tree cannot be stopped (the driver's process has not exited 60 s after `taskkill /T /F`), the attempt is
+    `error`, the session stops and fails (`tree-unstoppable`), and the run is never retried beside that tree. Only a
+    driver process that does not exit is seen: a process the driver started that outlives the stop, while the driver
+    itself exits, is not detected. A session stopped `tree-unstoppable` is not started again until no process of that
+    tree is left, which whoever starts it checks first.
 - **The record.** Before an attempt the runner lists the files of `/private/measurements/<n>/`. After it, the run's
   record is the one new file named `<q>.idle.<YYYYMMDDTHHMMSSZ>.json`. The attempt is exit-grade when all of these
   hold:
@@ -908,14 +936,25 @@ operational policy with a reviewed default (AGENTS.md):
 
   The runner reads only these fields; the framework's full read-back (§7.3) stays the framework's. The runner judges
   run records only: a measurement whose driver writes idle observations (§4.7) is not one it runs.
-- **One retry.** A run whose first attempt is not exit-grade gets one more attempt at once, with its own guard, unless
-  that attempt is `budget-ended` or `window-ended`. A run stopped at its own run budget is retried, and so is a driver
-  that could not be started. A retry is made only while time is left before both the measurement's budget and the
-  window's end less the finish margin. After two attempts the run takes its second attempt's outcome. The retry is
-  immediate so that the plan keeps its order, with the measurements that decide bytes first.
+
+  If the directory cannot be made or listed before the driver starts, or cannot be listed after it, the attempt ends
+  as `error` and the session goes on: the run is retried like any `error`. After a failed listing after the driver, no
+  record is judged and no file is checked for a change during that attempt (`record-changed` below), so a record that
+  changed then goes unseen, and the next attempt's listing is a new baseline.
+- **One retry.** A run whose first attempt is not exit-grade gets one more attempt, with its own guard, unless that
+  attempt is `budget-ended` or `window-ended`. A run stopped at its own run budget is retried, and so is a driver that
+  could not be started. A retry is made only while time is left before both the measurement's budget and the window's
+  end less the finish margin. A run whose process tree could not be stopped is never retried (Budgets above). After
+  two attempts the run takes its second attempt's outcome.
+  - **The cool-down.** When the first attempt's only reason is a changed host snapshot (§7.3), the retry first waits
+    `settle-minutes`: a Defender update ends its own run's exit grade, and the scan burst of a signature update may
+    overlap what runs next. The retry is made only when that wait ends before both the measurement's budget and the
+    window's end less the finish margin, and is not made otherwise. A planned run that follows such a run without a
+    retry is not protected by the wait; the checks of §2.3 after the night decide it.
+  - Any other retry is made at once, so that the plan keeps its order, with the measurements that decide bytes first.
 - **Records are never touched.**
-  - The runner creates `/private/measurements/<n>/` when it is missing. Under `/private/` it writes nothing else but
-    the private manifest.
+  - The runner creates `/private/measurements/<n>/` when it is missing; a creation that fails ends only its attempt
+    (the record bullet above). Under `/private/` it writes nothing else but the private manifest.
   - After each attempt, every file listed before the attempt must still exist with its length and modification time.
     If one does not, the session stops and fails (`record-changed`; §7.2).
 - **The tree.** After each attempt the runner reads the tree again. A moved `HEAD` or branch, or a changed tracked
@@ -923,8 +962,14 @@ operational policy with a reviewed default (AGENTS.md):
 - **The finish.** After the last run, or after a stop, the runner removes `<scratch>/work/`, writes the session record
   and rebuilds the private manifest (`cargo xtask private index`).
   - The session record is `<scratch>/sessions/<start>/session.json`, schema `moirai-xtask/measure-session/1`. It is
-    rewritten after every run. It holds the plan, the window, the commit, the toolchain, every run's status and
+    rewritten after every run. A save that fails is tried twice more, after 1 s and 2 s; then the runner prints a
+    warning, and the runs go on. It holds the plan, the window, the commit, the toolchain, every run's status and
     attempts with their guard outputs, and the verdict.
+  - It also holds `residents`: the image names of the processes outside session 0 (the services' session) at the
+    session's start and at its finish, sorted and unique, read with `%SystemRoot%\System32\tasklist.exe /FO CSV /NH`
+    (never `/V`). Each is `{"ok": [...]}`, or `{"error": "..."}` when it cannot be read, which never stops the session.
+    It holds image names only, with no command line, user name or host name. The list names the owner's applications,
+    so it stays in the session record and is never copied into a committed file.
   - It lives outside `/private/`, so it adds nothing to the private manifest.
   - The runner asserts `commit` and `toolchain` on the drivers' command lines and does not check them against the
     binaries. Building the release binaries at the measured commit with that toolchain, and leaving them alone until
@@ -952,10 +997,31 @@ settle, under `smoke-budget-minutes`, with `--smoke` in place of `--out`.
 
 `check --smoke` prints the smoke command lines.
 
-**Not detected.** The runner checks neither the nightly runner's lock nor builds in the lane target directories. The
-window is agreed agent-free, and no nightly run, build or agent session is started in it.
+**Before the night.** One precondition cannot be checked by the runner, since Defender's exclusions cannot be read
+without administrator rights. The owner checks it with those rights before the night, and the session record does not
+carry the answer:
+- no Defender path exclusion covers `scratch`, `bins` or `%TEMP%`. Defender resolves an environment variable in an
+  exclusion as its system account does (`%TEMP%` as `C:\Windows\TEMP`), so an exclusion of the user's own temporary
+  path, written out, counts too;
+- no process exclusion covers a driver or its launcher: the runner, or the program that starts the runner. Defender
+  documents a process exclusion as skipping the files that the process opens, and says nothing of the processes it
+  starts, so the launchers count.
 
-Exit codes: 0 pass, 1 fail, 2 usage error, 3 refused, 4 internal error.
+Where an exclusion names `cargo.exe` or a shell, the runner is started as the built `xtask` executable itself, not
+through `cargo xtask` or that shell. Started so, it is in no job object (cargo keeps the processes it starts in one
+that closes with it), so a runner that is killed leaves a running driver behind; as after `tree-unstoppable`, the runner
+is not started again until no process of that driver is left.
+
+**Not detected.** The runner checks neither the nightly runner's lock nor builds in the lane target directories. The
+window is agreed agent-free as §2.3 defines it: no nightly run, build, test or working agent session is started in it,
+and its idle baseline admits only the supervising agent session that makes no tool call while a driver runs, the
+desktop app it runs in, the window logger and the owner's resident applications at rest. The session record names the
+images resident at the session's start and finish (above); the checks of §2.3 after the night read the rest.
+
+Exit codes: 0 pass, 1 fail, 2 usage error, 3 refused, 4 internal error. Exit 4 inside a session (its directory, or a
+working directory, cannot be made or emptied) ends the session at once and skips the finish: the records already
+written stay, `<scratch>/work/` and the session record stay as they are, and the private manifest is not rebuilt.
+Starting the runner again resumes the night, and `cargo xtask private index` rebuilds the manifest.
 
 ## Coverage
 
@@ -997,10 +1063,10 @@ time, memory and Windows-behaviour gates of [60 §3.13] and [60 §5.3]–[60 §5
 | 6 | The design writes budgets in MB and MiB side by side and never defines MB | MB = 10⁶ bytes, MiB = 2²⁰ bytes, each budget read as written; for "≤" budgets the decimal reading is the stricter one | R-REV-P |
 | 7 | "A nightly regression beyond the band blocks" names no baseline | the reference run (M0, then each accepted exit), never the previous night, so a drift of small steps is caught | R-REV-P |
 | 8 | "Below 25 GB free disk counted after the two lane directories and the fuzz and mutants directories" ([PLAN §3.2] WP-05) gives no formula, and "capped directory" ([PLAN §2.1]) gives no cap values | the headroom formula of §8.1, reserving each directory's growth up to its cap; the caps are WP-05's configuration, passed to the guard; a cap equal to the current size reserves nothing | WP-05, R-REV-P |
-| 9 | [PLAN §3.2] item 5 asks for "the Windows build and Defender versions" without naming sources | `ver` (locale-independent token) and `Get-MpComputerStatus` (four properties), §2.2 | R-REV-P |
-| 10 | A Defender signature update during a run starts a scan burst that no protocol row mentions | a change between the start and end snapshots makes the run not exit-grade (§7.3) | R-REV-P |
+| 9 | [PLAN §3.2] item 5 asks for "the Windows build and Defender versions" without naming sources | `ver` (locale-independent token) and `Get-MpComputerStatus` (four properties), §2.2. The snapshots show neither a scan, maintenance, an install nor the power source; after an unattended night the checks of §2.3 read those from the system's logs | R-REV-P |
+| 10 | A Defender signature update during a run starts a scan burst that no protocol row mentions | a change between the start and end snapshots makes the run not exit-grade (§7.3). The snapshots catch Defender version changes only: `ver`'s revision has been seen to change only at a restart, and scans and maintenance are left to the checks of §2.3 after the night | R-REV-P |
 | 11 | Sub-microsecond operations (the `get` budget of 5 µs is 50 ticks of `QueryPerformanceCounter`) approach the timer's resolution | timed batches below 20 × resolution, recorded and stated in the aggregate (§4.5) | R-REV-P |
-| 12 | The idle condition ("no user process beyond the OS baseline") cannot be verified through `Meter` | the driver attests it; the framework checks the available-memory floor at every round boundary | R-REV-P |
+| 12 | The idle condition ("no user process beyond the OS baseline") cannot be verified through `Meter` | the driver attests it; the framework checks the available-memory floor at every round boundary. The baseline admits one supervising agent session that makes no tool call while a driver runs, its desktop app, the window logger and the owner's resident applications at rest; owner input during a run is read from the window log after the night (§2.3); the session record names the images resident at a session's start and finish (§9.8) | R-REV-P |
 | 13 | [F01 §2.2] has no citation form for this file, and `docs/spec/README.md` lists it as "planned" with no cite | `[MP §x]` is proposed for [F01 §2.2]; the index row should read `[MP]`, "draft, pass 1 pending" (both files are R-SPEC's) | R-SPEC-F |
 | 14 | The idle-CPU row is one 10-minute observation, which the duration tiers (20 samples × 3 above 1 s) do not fit; read as a `t4` quantity it would need 20 × 3 windows, over 10 hours | outside the tiered runner: an idle observation of three windows, each after a request and 15 s, with its own record `moirai-probes/idle/1`; the gate holds when both maxima over the windows are zero (§4.7, §7.1) | R-REV-P |
 | 15 | [60 §5.1] measures spawn with hyperfine, which takes a whole block per invocation, while the runner samples one value at a time; the pilot of such an arm is not stated | the runner announces every block to its arm, and a bulk arm takes the block then; a spawn arm's pilot is one invocation with `--runs 5` (§4.2, §4.3, §4.9) | R-REV-P |
@@ -1018,6 +1084,6 @@ time, memory and Windows-behaviour gates of [60 §3.13] and [60 §5.3]–[60 §5
 | 27 | `noise.yml` runs the measurement drivers of WP-52 to WP-57, which have no common command line yet | the driver contract of §9.7 | WP-52 to WP-57, R-REV-P |
 | 28 | The token-usage rule of [PLAN §5] (owner decisions of 2026-10-06) names the parts to add, not the fields; Codex is not installed yet (V9), so its usage fields are not observed here; and a transcript or stream repeats usage (Claude Code's per-content-block assistant lines, Codex's cumulative totals), which summed would count it twice | Claude Code's three input fields as `moirai-tokcount` parses them, counted once per response (`message.id`, the last line's usage) and never added to the `result` line's totals; for Codex, the reported `input_tokens` with `cached_input_tokens` read as a part of it and `reasoning_output_tokens` as a part of `output_tokens`, as OpenAI's usage reports them, read per response or per turn and never from the cumulative `total_token_usage` (§4.10). WP-56 checks the per-response and per-turn reading and the fields on Codex 0.157 with its first recorded usage | WP-56, R-REV-P |
 | 29 | [60 §5.1] has no rule for how a nightly run treats the idle-CPU observation, which has no noise band | its gate is absolute in nightly runs too; an observation that may not decide is reported with its disqualifications, as a refused comparison is (§6) | R-REV-P |
-| 30 | The session runner of §9.8 retries a run that is not exit-grade; nothing says when, or which runs | one immediate retry with its own guard, so the plan keeps its order and the measurements that decide bytes run first; a run stopped at its own run budget is retried, and one stopped at its measurement's budget or at the window's deadline is not (§9.8). A Defender signature update ends its own run's exit grade (§7.3), and its scan burst (open point 10) may then overlap the next run, the retry or the next planned run, whose snapshots are equal, so that run passes every check; the runner does not wait after such an update | R-REV-P |
+| 30 | The session runner of §9.8 retries a run that is not exit-grade; nothing says when, or which runs | one retry with its own guard, made at once so the plan keeps its order and the measurements that decide bytes run first; within a measurement, its deciding quantities come first in its list. A run stopped at its own run budget is retried, and one stopped at its measurement's budget or at the window's deadline is not; a run whose process tree cannot be stopped is never retried, and the session stops. A Defender update ends its own run's exit grade (§7.3), and a signature update's scan burst (open point 10) may overlap what runs next: a retry whose only reason is a changed snapshot first cools down for `settle-minutes`, within the measurement's budget and the window, and a planned run after such a run is left to the checks of §2.3 (§9.8) | R-REV-P |
 | 31 | The nightly runner checks the RAM floor with the guard every 30 s while a job runs (§8); in an idle run that guard is a user process beside the measured one (§2.3) | the session runner runs the guard before each attempt and none while a driver runs; inside the run the framework's round-boundary readings hold the 1.5 GB floor (§2.3, §9.8) | R-REV-P |
 | 32 | A session resumed after a crash must know which runs are done | a run is done when `/private/measurements/<n>/` holds an exit-grade record of its quantity and of the measured commit; records of other commits, and records that are not exit-grade, stay raw data and do not count (§9.8) | R-REV-P |
