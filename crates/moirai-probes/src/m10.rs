@@ -11,7 +11,14 @@
 //! O-3, R-42 Q1 and Q3) lies below the night's candidates, chosen from its replay rates:
 //! - `ops` at P06 2,048 and 1,024 at N = 1e4, F17's unmeasured 1e4 clause (`17-store-parameters.md:757-762`);
 //! - `rec` at P07 512 and 256 KiB, `body` at P08 1 MiB and 512 KiB, `ovl` at P09 64 and 96 KiB, all at N = 1e5, the scale
-//!   of the 1.5-ms open budget, so their open is one run's replay + floor;
+//!   of the 1.5-ms open budget, so their open is one run's replay + floor. Two of them measure a tail of another size
+//!   than their cap (R-44 I-2; the production tails, seeded by their names), and both are kept and read as they are:
+//!   - `rec-256kib.n1e5` is one commit of 765,160 B of `rec_bytes` (3,390 ops), larger than `rec-512kib.n1e5`'s
+//!     523,685 B (69 commits). A tail always holds its first commit, so a commit larger than its cap crosses it, as the
+//!     product's checkpoint trigger also lets the crossing record through (`17-store-parameters.md:354`);
+//!   - `ovl-96kib.n1e5` stops at an overlay of 27,660 B (15 commits), below `ovl-64kib.n1e5`'s 65,120 B, on the stop
+//!     rule's other clause: a tail ends before the first group that would take its measure past the cap, and its 16th
+//!     commit, of 3,265 ops, would take the overlay to 99,992 B;
 //! - `quiet` at P10 2 MiB with P06 2,048 (P11 4, 8 and 2) and 1,024 (P11 4 and 8): the night's quiet tails all ended on
 //!   P06 = 4,096's ops clause (D1). A quiet name with a P06 is `quiet-<P10>-x<P11>-p<P06>`, and that P06 is the target's
 //!   `params.p06` at production. P11 = 2 is in P11's range of 1–64 (`17-store-parameters.md:176`) but not one of F17's
