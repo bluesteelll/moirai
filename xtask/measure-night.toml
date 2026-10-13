@@ -31,7 +31,7 @@ disk-floor = "25GB"
 # - run-budget-minutes is one run's budget: the upper estimate of the whole measurement until real run times exist.
 # - budget-minutes bounds every run and retry of the measurement together: the upper estimate plus its share of the
 #   retry reserve. A hang costs only its own measurement, and the five budgets with the settle and the finish margin
-#   fit a 6-hour window.
+#   fit an 8-hour window.
 # - quantities lists the names (measurement-protocol §4.1) of the quantities the driver measures, one run each. The
 #   work that builds the driver fills it; `check` and `run` refuse the plan while any list is empty.
 
@@ -48,7 +48,7 @@ n = 14
 driver = "m14"
 title = "CSR, bitsets, column scans and the overlay at 1e5 and 1e6 nodes; T1's point read and delta checkpoint; T2's writer wait and catch-up"
 run-budget-minutes = 90
-budget-minutes = 110
+budget-minutes = 120
 quantities = []
 
 [[measurement]]
@@ -85,5 +85,5 @@ n = 10
 driver = "m10"
 title = "full-tail replay at candidate thresholds into the overlay, with the lazy share and the open floor"
 run-budget-minutes = 45
-budget-minutes = 55
+budget-minutes = 160
 quantities = []
