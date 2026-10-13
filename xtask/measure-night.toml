@@ -193,4 +193,10 @@ quantities = [
     "a1-load16-rec-128kib.n1e4",
     "a1-openmod-rec-128kib.n1e4",
     "a1-opens10.n1e5",
+    "b1-psview.1gib",
+    "b1-wf.1gib",
+    "b1-pswf.1gib",
+    "b1-psview.256mib",
+    "b1-wf.256mib",
+    "b1-pswf.256mib",
 ]

@@ -4,7 +4,7 @@
 //! decides `F17-ckpt-ops`, `-ckpt-bytes`, `-ckpt-body` (the open side), `-tail-overlay`, `-tail-overlay-quiet` and
 //! `-quiet-mult` (`docs/spec/HOLES.md:41-46`; their constraints `17-store-parameters.md:757-762`).
 //!
-//! **The grid** (52 quantities, names by [MP §4.1]). The night's 18 are F17's candidates: `ops` at P06 4,096, 2,048 and
+//! **The grid** (58 quantities, names by [MP §4.1]). The night's 18 are F17's candidates: `ops` at P06 4,096, 2,048 and
 //! 1,024 with N = 1e5 and 1e6; `rec` at P07 4, 2 and 1 MiB; `body` at P08 32, 16 and 8 MiB; `ovl` at P09 1 MiB and
 //! 512 KiB; `quiet` at P10 2 MiB and 1.5 MiB × P11 8 and 4; the last four families at N = 1e6 (cut D-3: open at 1e5 is
 //! replay(cap) + floor(1e5), the floor measured by the `ops` family at both scales). The follow-up block of 13 (u17; R-40
@@ -42,6 +42,25 @@
 //! samples rests on about 63 bursts (addendum m-6). What no test sees: the children's open is the same code the
 //! in-process tests drive through a fake pool; that the real pool's children run in their own processes rests on the
 //! binary's wiring.
+//!
+//! **B-1** (u20 cut §3.7; `design-B.md:636`; R-50, R-53 Q1 (b); [`b1_points`]), six last: Defender's cost on a large
+//! file another process has just modified. The fixture is a `pages` file of 1 GiB or 256 MiB (1 MiB at the test
+//! profile) and its 64 source pages ([`crate::tail::store::write_pages_fixture`]); at production the run waits 10 s
+//! after writing it ([`B1_SETTLE`]). Arm `b1` modifies 16 pages, then bursts: the 16 openers each open the file, map it
+//! whole, copy 5 of the 16 pages, drop the map and close it, timed on their own clocks from one start; its floor
+//! `b1.floor` bursts with no write since the last. Every copy's hash must be the modification's source pages, so a
+//! modifier that writes nothing, late or elsewhere fails the run ([`b1_arms`]). The rule, reported: p99(`b1`) −
+//! p99(`b1.floor`) ≤ 1 ms at 1 GiB, for each modifier, the kill criterion for B on Windows. The modifiers
+//! ([`Modifier`]) all end with `FlushFileBuffers` (u20 addendum I-2) and differ in the write path and the process:
+//! `wf` is the pool's modifier child, `m10.exe`, by `WriteFile`; `psview` is a Windows PowerShell child writing through
+//! a read/write view (`FlushViewOfFile`) and `pswf` the same child by `FileStream.Write`, its control
+//! ([`ps_program`], [`ps_args`], [`PS_SCRIPT`]). **The confound** (R-53 Q1, R-34 B-4): the owner's Defender excludes
+//! `powershell.exe` by process, so the PowerShell child's own opens are never scanned while `m10.exe`'s may be;
+//! `psview` against `pswf` isolates the write mechanism and `wf` against `pswf` the exclusion. A view write may not
+//! update the file's last write time, and no modifier calls `SetFileTime` (u20 cut F-16), so `psview` measures
+//! Defender's reaction to a view write as it is. Every B-1 record's quantity is read with these notes. AMSI and
+//! behaviour monitoring may flag `-EncodedCommand` started by an unsigned process; a detection event during the window
+//! hits R-34 M-1's log check (u20 addendum m-8).
 //!
 //! Every run is measurement 10 with minimum tier t2, the tier of the open budgets ([MP §3.2],
 //! `17-store-parameters.md:757`). The test profile's thresholds and E give the smoke's versions.
@@ -81,15 +100,16 @@ use crate::overlay::{Base, Overlay};
 use crate::run::{Context, RunSpec, measure};
 use crate::tail::scan::Expect;
 use crate::tail::store::{
-    Fixture, HOT_BYTES_PER_NODE, LOCK_NAME, SEALED_FILES, SEG_HDR_LEN, VfsLog, check_seg_header,
-    extent_name, open_floor, remove_fixture, spare_extent, write_command_files, write_fixture,
+    Fixture, HOT_BYTES_PER_NODE, LOCK_NAME, PAGE, PAGES_NAME, SEALED_FILES, SEG_HDR_LEN, SRC_PAGES,
+    VfsLog, check_seg_header, extent_name, open_floor, pages_src, remove_fixture, spare_extent,
+    write_command_files, write_fixture, write_pages_fixture,
 };
 use crate::tail::synth::{Clause, Tail, Target, generate};
 use crate::tail::{Geometry, HEAD_LEN, INIT_PARAMS_LEN, Locator, Params, TAIL_READ_CHUNK};
 use crate::tier::Tier;
 use moirai_vfs::{
-    Access, Meter, OpenHint, RelPath, RelPathBuf, RootAccess, RootRole, SealedMaps, StoreFs,
-    SyncKind,
+    Access, Meter, OpenHint, RelPath, RelPathBuf, RootAccess, RootRole, SealedMap, SealedMaps,
+    StoreFs, SyncKind,
 };
 use serde_json::json;
 use std::ffi::OsString;
@@ -119,12 +139,51 @@ pub enum Kind {
     OpenMod,
     /// One command's file opens (M-A6).
     Opens,
+    /// B-1 (u20 cut §3.7; `design-B.md:636`): Defender's cost on a large file another process modified, read by 16
+    /// processes that each open, map, read 5 pages and close it.
+    B1(Modifier),
+}
+
+/// Who writes B-1's pages (u20 cut §3.7; R-53 Q1 (b), addendum I-2). All three end with `FlushFileBuffers`; they differ
+/// in the write path and in the process, which the owner's Defender may exclude (`powershell.exe`, R-34 B-4).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Modifier {
+    /// The pool's modifier child, `m10.exe --opener`: `write_at` per page (`WriteFile`), then `sync(DataAndMeta)`
+    /// (`FlushFileBuffers`).
+    Wf,
+    /// The PowerShell child in view mode: a read/write view of the file (.NET `MemoryMappedFile`, `ReadWrite`), each
+    /// page's `WriteArray` and the view's `Flush()` (`FlushViewOfFile`), then `FileStream.Flush($true)`
+    /// (`FlushFileBuffers`).
+    PsView,
+    /// The PowerShell child in write mode, the control: `FileStream.Seek` and `Write` per page, then `Flush($true)`.
+    PsWf,
+}
+
+impl Modifier {
+    /// The name in a quantity and in `--list`.
+    pub const fn as_str(self) -> &'static str {
+        match self {
+            Modifier::Wf => "wf",
+            Modifier::PsView => "psview",
+            Modifier::PsWf => "pswf",
+        }
+    }
+
+    /// Whether the PowerShell child writes.
+    pub const fn is_ps(self) -> bool {
+        matches!(self, Modifier::PsView | Modifier::PsWf)
+    }
 }
 
 impl Kind {
     /// Whether a run of the kind needs the pool of `m10 --opener` children.
     pub const fn needs_pool(self) -> bool {
-        matches!(self, Kind::Load | Kind::OpenMod)
+        matches!(self, Kind::Load | Kind::OpenMod | Kind::B1(_))
+    }
+
+    /// Whether a run of the kind needs the PowerShell modifier.
+    pub const fn needs_ps(self) -> bool {
+        matches!(self, Kind::B1(m) if m.is_ps())
     }
 
     /// The minimum tier: m10's t2, the tier of the open budgets; none for M-A6's opens, which are reported.
@@ -202,6 +261,8 @@ pub struct Quantity {
     pub seed_k: u64,
     /// The point whose tail the quantity opens, which names its seed; `None` is its own.
     pub of: Option<&'static str>,
+    /// B-1's pages file at production, in bytes; 0 for the other kinds.
+    pub pages: u64,
 }
 
 fn bytes_name(b: u64) -> String {
@@ -246,6 +307,7 @@ pub fn grid() -> Vec<Quantity> {
             form: Locator::None,
             seed_k: 0,
             of: None,
+            pages: 0,
         }
     };
     let mut g = Vec::new();
@@ -301,7 +363,49 @@ pub fn grid() -> Vec<Quantity> {
     ]);
     lead.extend(a3_points());
     lead.extend(open_points());
+    lead.extend(b1_points());
     lead
+}
+
+/// B-1's pages at the test profile.
+pub const TEST_PAGES: u64 = MIB;
+/// The wait after B-1's fixture is written at production, before modification 0 and the discarded burst (u20 addendum
+/// m-11): Defender's scan on close of a file `m10.exe` wrote may still run.
+pub const B1_SETTLE: Duration = Duration::from_secs(10);
+/// The pages a B-1 modification writes.
+pub const B1_MODIFIED: usize = 16;
+/// The pages a B-1 reader copies.
+pub const B1_READ: usize = 5;
+
+/// B-1's six quantities (u20 cut §3.7; R-53 Q1 (b)): the pages file at 1 GiB, which decides the rule, then at 256 MiB,
+/// each written by the PowerShell child's view, the pool's modifier child by `WriteFile`, and the PowerShell child by
+/// `WriteFile`, in that order. Each holds `a1-rec-128kib.n1e4`'s target for its seed's name; its fixture is the pages
+/// alone. Minimum tier t2.
+pub fn b1_points() -> Vec<Quantity> {
+    let base = a3_points()
+        .into_iter()
+        .find(|q| q.name == "a1-rec-128kib.n1e4")
+        .expect("an A3 point");
+    let mut v = Vec::new();
+    for (bytes, size) in [(1_024 * MIB, "1gib"), (256 * MIB, "256mib")] {
+        for m in [Modifier::PsView, Modifier::Wf, Modifier::PsWf] {
+            let mut q = base.clone();
+            q.name = format!("b1-{}.{size}", m.as_str());
+            q.kind = Kind::B1(m);
+            q.of = Some("a1-rec-128kib.n1e4");
+            q.pages = bytes;
+            v.push(q);
+        }
+    }
+    v
+}
+
+/// B-1's pages at `profile`.
+pub fn pages_len(q: &Quantity, profile: Profile) -> u64 {
+    match profile {
+        Profile::Production => q.pages,
+        Profile::Test => TEST_PAGES,
+    }
 }
 
 /// The opens under load and Defender (u20 cut §3.6, spec Goal 6), each on an A1 point's tail and seed:
@@ -367,6 +471,7 @@ pub fn a3_points() -> Vec<Quantity> {
             form: Locator::A1,
             seed_k: 0,
             of: None,
+            pages: 0,
         };
     let mut g = Vec::new();
     for n in [10_000, 100_000, 1_000_000] {
@@ -667,10 +772,20 @@ pub fn replay_at_arm<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
     })
 }
 
+/// The children a run's arms drive (u20 cut §3.6, §3.7): the pool of openers and the modifier, B-1's PowerShell
+/// modifier, and the system-wide clock they share.
+pub struct Children<'a> {
+    /// The pool, for the kinds that need it ([`Kind::needs_pool`]).
+    pub pool: Option<&'a mut (dyn Pool + 'a)>,
+    /// The PowerShell modifier, for the kinds that need it ([`Kind::needs_ps`]).
+    pub ps: Option<&'a mut (dyn Pool + 'a)>,
+    /// The system-wide monotonic clock.
+    pub mono: &'a dyn Fn() -> u64,
+}
+
 /// The arms of `q` over a written fixture, arm 0 first: a tail's `[replay.at, replay, floor.open]` for an A1 point (u20
 /// cut §3.5), the night's `[replay, floor.open]`; `open.c16` over the pool; `open.mod` and its floor `open`; `open.10`
-/// and its floor `open.1`. `pool` serves the kinds that need it ([`Kind::needs_pool`]); `mono` is the system-wide clock.
-#[allow(clippy::too_many_arguments)]
+/// and its floor `open.1`; B-1's `b1` and its floor `b1.floor`.
 pub fn quantity_arms<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
     q: &Quantity,
     vfs: &'a V,
@@ -678,9 +793,9 @@ pub fn quantity_arms<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
     fx: &'a Fixture,
     tail: &'a Tail,
     ticker: &T,
-    pool: Option<&'a mut (dyn Pool + 'a)>,
-    mono: &'a dyn Fn() -> u64,
+    kids: Children<'a>,
 ) -> Result<Vec<Box<dyn Arm + 'a>>, String> {
+    let Children { pool, ps, mono } = kids;
     let mut v: Vec<Box<dyn Arm + 'a>> = Vec::new();
     match q.kind {
         Kind::Tail => {
@@ -716,8 +831,375 @@ pub fn quantity_arms<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
                 move || head_open(vfs, root).map_err(ArmError),
             )));
         }
+        Kind::B1(m) => {
+            let readers = pool.ok_or("B-1 needs the pool")?;
+            let ps = match m.is_ps() {
+                true => Some(ps.ok_or("B-1's PowerShell modifier is not started")?),
+                false => None,
+            };
+            let f = vfs
+                .open(
+                    root,
+                    RelPath::literal(PAGES_NAME),
+                    Access::Read,
+                    OpenHint::Normal,
+                )
+                .map_err(|e| e.to_string())?;
+            let len = vfs.file_size(&f).map_err(|e| e.to_string())?;
+            drop(f);
+            v.extend(b1_arms(
+                readers,
+                ps,
+                mono,
+                fx.dir.join(PAGES_NAME),
+                len,
+                seed(&q.name),
+            )?);
+        }
     }
     Ok(v)
+}
+
+/// SplitMix64's step: B-1's draws from the run's seed.
+fn mix(x: u64) -> u64 {
+    let mut z = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// B-1's modification j (u20 cut §3.7): 16 distinct page-aligned offsets in `[0, len)` drawn from the run's seed and j,
+/// and the source rotation k = 16·j mod 64: the page at offset i gets source page (k + i) mod 64, so consecutive
+/// modifications write different bytes.
+#[derive(Clone, Debug, Eq, PartialEq)]
+pub struct Modification {
+    /// The modification's number.
+    pub j: u64,
+    /// The source rotation.
+    pub k: u64,
+    /// The 16 page offsets.
+    pub offsets: [u64; B1_MODIFIED],
+}
+
+impl Modification {
+    /// Modification `j` of a file of `len` bytes (at least 16 pages) under `seed`.
+    pub fn of(seed: u64, j: u64, len: u64) -> Modification {
+        let pages = (len / PAGE).max(1);
+        let mut offsets = [0u64; B1_MODIFIED];
+        let (mut n, mut x) = (0, 0u64);
+        while n < B1_MODIFIED {
+            let o = mix(seed ^ (j << 32) ^ x) % pages * PAGE;
+            x += 1;
+            if !offsets[..n].contains(&o) {
+                offsets[n] = o;
+                n += 1;
+            }
+        }
+        Modification {
+            j,
+            k: (B1_MODIFIED as u64 * j) % SRC_PAGES,
+            offsets,
+        }
+    }
+
+    /// Reader `r`'s 5 distinct positions among the 16 pages in burst `burst`, drawn from the seed.
+    pub fn reads(&self, seed: u64, burst: u64, r: usize) -> [usize; B1_READ] {
+        let mut pos = [0usize; B1_READ];
+        let (mut n, mut x) = (0, 0u64);
+        while n < B1_READ {
+            let p =
+                (mix(!seed ^ (burst << 24) ^ ((r as u64) << 16) ^ x) % B1_MODIFIED as u64) as usize;
+            x += 1;
+            if !pos[..n].contains(&p) {
+                pos[n] = p;
+                n += 1;
+            }
+        }
+        pos
+    }
+
+    /// The xxh3-64 a reader's copy of the pages at `pos` must hash to: the source pages this modification wrote there.
+    pub fn model(&self, src: &[u8], pos: &[usize; B1_READ]) -> u64 {
+        let mut v = Vec::with_capacity(B1_READ * PAGE as usize);
+        for &p in pos {
+            let s = (((self.k + p as u64) % SRC_PAGES) * PAGE) as usize;
+            v.extend_from_slice(&src[s..s + PAGE as usize]);
+        }
+        xxhash_rust::xxh3::xxh3_64(&v)
+    }
+}
+
+/// What B-1's two arms share for the run: the readers' pool, the PowerShell modifier (else the pool's modifier writes),
+/// the pages file, the source pages, the last modification and the counts.
+struct B1Run<'a> {
+    readers: &'a mut (dyn Pool + 'a),
+    ps: Option<&'a mut (dyn Pool + 'a)>,
+    mono: &'a dyn Fn() -> u64,
+    path: PathBuf,
+    len: u64,
+    seed: u64,
+    src: Vec<u8>,
+    last: Option<Modification>,
+    next: u64,
+    bursts: u64,
+}
+
+impl B1Run<'_> {
+    /// The next modification: the modifier writes its pages, flushes them to disk and closes the file, and only then
+    /// replies.
+    fn modify(&mut self) -> Result<(), ArmError> {
+        let m = Modification::of(self.seed, self.next, self.len);
+        self.next += 1;
+        let line = Request::Pages {
+            k: m.k,
+            offsets: m.offsets,
+            path: self.path.clone(),
+        }
+        .line();
+        let (pool, child): (&mut dyn Pool, usize) = match self.ps.as_deref_mut() {
+            Some(p) => (p, 0),
+            None => (&mut *self.readers, MODIFIER),
+        };
+        pool.send(child, &line).map_err(ArmError)?;
+        match pool.recv(REPLY_TIMEOUT).map_err(ArmError)? {
+            (i, Reply::Done { op, .. }) if i == child && op == "pages" => {}
+            other => return Err(ArmError(format!("B-1's modifier: {other:?}"))),
+        }
+        self.last = Some(m);
+        Ok(())
+    }
+
+    /// One burst over the last modification: one start for the 16 readers, each copying 5 of its pages; every copy's
+    /// hash must be the modification's model. The values enter in an order rotating by 7 per burst (addendum m-6).
+    fn burst(&mut self) -> Result<[u64; OPENERS], ArmError> {
+        let m = self
+            .last
+            .clone()
+            .ok_or_else(|| ArmError("a B-1 burst before any modification".into()))?;
+        let start_ns = (self.mono)() + START_MARGIN_NS;
+        let mut want = [0u64; OPENERS];
+        for (r, w) in want.iter_mut().enumerate() {
+            let pos = m.reads(self.seed, self.bursts, r);
+            *w = m.model(&self.src, &pos);
+            let line = Request::B1 {
+                start_ns,
+                len: self.len,
+                offsets: pos.map(|p| m.offsets[p]),
+                path: self.path.clone(),
+            }
+            .line();
+            self.readers.send(r, &line).map_err(ArmError)?;
+        }
+        let mut times = [None; OPENERS];
+        for _ in 0..OPENERS {
+            let (i, rep) = self.readers.recv(REPLY_TIMEOUT).map_err(ArmError)?;
+            match rep {
+                Reply::Done {
+                    op,
+                    t0,
+                    t1,
+                    h: Some(h),
+                } if op == "b1" && i < OPENERS && times[i].is_none() && t0 >= start_ns => {
+                    if h != want[i] {
+                        return Err(ArmError(format!(
+                            "B-1 reader {i}: a hash mismatch, {h:#018x} where modification {}'s pages give {:#018x}",
+                            m.j, want[i]
+                        )));
+                    }
+                    times[i] = Some(t1.saturating_sub(t0));
+                }
+                other => return Err(ArmError(format!("B-1 reader {i}: {other:?}"))),
+            }
+        }
+        let rot = ((self.bursts * 7) % OPENERS as u64) as usize;
+        self.bursts += 1;
+        let mut out = [0u64; OPENERS];
+        for (j, o) in out.iter_mut().enumerate() {
+            *o = times[(rot + j) % OPENERS].expect("16 replies");
+        }
+        Ok(out)
+    }
+}
+
+/// A block of `len` B-1 values: bursts, each after a modification when `write`.
+fn b1_block(
+    run: &std::cell::RefCell<B1Run<'_>>,
+    len: u32,
+    write: bool,
+) -> Result<Vec<u64>, ArmError> {
+    let mut r = run.borrow_mut();
+    let mut v = Vec::with_capacity(len as usize);
+    while v.len() < len as usize {
+        if write {
+            r.modify()?;
+        }
+        v.extend(r.burst()?);
+    }
+    v.truncate(len as usize);
+    Ok(v)
+}
+
+/// B-1's arms (u20 cut §3.7; `design-B.md:636`): `b1`, whose bursts each follow a modification of 16 pages by the
+/// modifier (the pool's modifier child for `wf`, the PowerShell child otherwise), and its floor `b1.floor`, the same burst
+/// with no write since the last. The setup makes modification 0 and one discarded burst before the pilot, so a floor
+/// burst always follows a burst and there is always a last modification. The driver never opens the pages file between
+/// a modification and a burst. What no test sees: a reader's page copies are memory reads, so their place between its
+/// `t0` and `t1` rests on the code.
+pub fn b1_arms<'a>(
+    readers: &'a mut (dyn Pool + 'a),
+    ps: Option<&'a mut (dyn Pool + 'a)>,
+    mono: &'a dyn Fn() -> u64,
+    path: PathBuf,
+    len: u64,
+    seed: u64,
+) -> Result<Vec<Box<dyn Arm + 'a>>, String> {
+    if len < B1_MODIFIED as u64 * PAGE {
+        return Err(format!(
+            "a pages file of {len} bytes holds fewer than 16 pages"
+        ));
+    }
+    let run = std::rc::Rc::new(std::cell::RefCell::new(B1Run {
+        readers,
+        ps,
+        mono,
+        path,
+        len,
+        seed,
+        src: pages_src(seed),
+        last: None,
+        next: 0,
+        bursts: 0,
+    }));
+    {
+        let mut r = run.borrow_mut();
+        r.modify().map_err(|e| e.0)?;
+        r.burst().map_err(|e| e.0)?;
+    }
+    let floor = run.clone();
+    Ok(vec![
+        Box::new(BulkFn::new("b1", move |len: u32| b1_block(&run, len, true))),
+        Box::new(BulkFn::new("b1.floor", move |len: u32| {
+            b1_block(&floor, len, false)
+        })),
+    ])
+}
+
+/// The PowerShell modifier's program (u20 cut §3.7; R-53 Q1 (b)): Windows PowerShell 5.1 below `%SystemRoot%`,
+/// resolved as [`crate::host::DEFENDER_COMMAND`] resolves it, never from `PATH` and never `pwsh.exe`.
+pub const PS_PROGRAM: crate::host::SystemCommand = crate::host::SystemCommand {
+    path: crate::host::DEFENDER_COMMAND.path,
+    args: &[],
+};
+
+/// The PowerShell modifier's program below `system_root` (the value of `%SystemRoot%`).
+pub fn ps_program(system_root: Option<&std::ffi::OsStr>) -> Result<PathBuf, String> {
+    PS_PROGRAM.resolve(system_root)
+}
+
+/// The PowerShell modifier's script (u20 cut §3.7), for Windows PowerShell 5.1 on .NET Framework 4.x, after the line that
+/// sets `$mode` ([`ps_script`]). It serves `pages` lines on stdin, one reply each on stdout, until `quit` or the end of
+/// input. Each line opens the file with `FileStream` (read and write, sharing both) and, in view mode, writes each page
+/// through a 4-KiB view of a read/write `MemoryMappedFile` made over that stream (`CreateFromFile(FileStream, String,
+/// Int64, MemoryMappedFileAccess, MemoryMappedFileSecurity, HandleInheritability, Boolean)`, an unnamed map: PowerShell
+/// passes `[NullString]::Value`, since its `$null` becomes an empty name; the stream left open), the view's `Flush()`
+/// being `FlushViewOfFile`; in `wf` mode by `Seek` and `Write`. The script calls no cmdlet, so no module loads. Both end with `Flush($true)`
+/// (`FlushFileBuffers`), so the data is on disk before the reply. No `SetFileTime`: a view write may not update the last
+/// write time (u20 cut F-16). Any exception replies `err`.
+pub const PS_SCRIPT: &str = r#"$ErrorActionPreference = 'Stop'
+$ProgressPreference = 'SilentlyContinue'
+$src = $null
+$srcPath = $null
+while ($true) {
+  $line = [Console]::In.ReadLine()
+  if ($line -eq $null -or $line -eq 'quit') { break }
+  try {
+    $w = $line.Split(' ', 19)
+    if ($w.Length -ne 19 -or $w[0] -ne 'pages') { throw 'not a pages line' }
+    $k = [int64]$w[1]
+    $path = $w[18]
+    if ($srcPath -ne ($path + '.src')) {
+      $srcPath = $path + '.src'
+      $src = [IO.File]::ReadAllBytes($srcPath)
+    }
+    $fs = [IO.FileStream]::new($path, [IO.FileMode]::Open, [IO.FileAccess]::ReadWrite, [IO.FileShare]::ReadWrite)
+    try {
+      if ($mode -eq 'view') {
+        $m = [IO.MemoryMappedFiles.MemoryMappedFile]::CreateFromFile($fs, [NullString]::Value, 0, [IO.MemoryMappedFiles.MemoryMappedFileAccess]::ReadWrite, $null, [IO.HandleInheritability]::None, $true)
+        try {
+          for ($i = 0; $i -lt 16; $i++) {
+            $o = [int64]$w[2 + $i]
+            $s = [int](($k + $i) % 64) * 4096
+            $v = $m.CreateViewAccessor($o, 4096, [IO.MemoryMappedFiles.MemoryMappedFileAccess]::ReadWrite)
+            try {
+              $v.WriteArray([int64]0, $src, $s, 4096)
+              $v.Flush()
+            } finally { $v.Dispose() }
+          }
+        } finally { $m.Dispose() }
+      } else {
+        for ($i = 0; $i -lt 16; $i++) {
+          $o = [int64]$w[2 + $i]
+          $s = [int](($k + $i) % 64) * 4096
+          [void]$fs.Seek($o, [IO.SeekOrigin]::Begin)
+          $fs.Write($src, $s, 4096)
+        }
+      }
+      $fs.Flush($true)
+    } finally { $fs.Dispose() }
+    [Console]::Out.WriteLine('done pages 0 0')
+  } catch {
+    [Console]::Out.WriteLine('err pages ' + ($_.Exception.Message -replace '\s+', ' '))
+  }
+  [Console]::Out.Flush()
+}
+"#;
+
+/// The script with its mode line: `$mode = 'view'` for [`Modifier::PsView`], `$mode = 'wf'` otherwise.
+pub fn ps_script(m: Modifier) -> String {
+    let mode = match m {
+        Modifier::PsView => "view",
+        _ => "wf",
+    };
+    format!("$mode = '{mode}'\n{PS_SCRIPT}")
+}
+
+/// The PowerShell modifier's arguments: `-NoLogo -NoProfile -NonInteractive -EncodedCommand <b64>`, `<b64>` the base64
+/// of the UTF-16LE script ([`ps_script`]).
+pub fn ps_args(m: Modifier) -> Vec<String> {
+    let utf16: Vec<u8> = ps_script(m)
+        .encode_utf16()
+        .flat_map(u16::to_le_bytes)
+        .collect();
+    vec![
+        "-NoLogo".into(),
+        "-NoProfile".into(),
+        "-NonInteractive".into(),
+        "-EncodedCommand".into(),
+        base64(&utf16),
+    ]
+}
+
+/// Base64 with padding (RFC 4648 §4), for `-EncodedCommand`.
+pub fn base64(b: &[u8]) -> String {
+    const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+    let mut s = String::with_capacity(b.len().div_ceil(3) * 4);
+    for c in b.chunks(3) {
+        let at = |i: usize| u32::from(c.get(i).copied().unwrap_or(0));
+        let n = (at(0) << 16) | (at(1) << 8) | at(2);
+        s.push(char::from(A[(n >> 18) as usize & 63]));
+        s.push(char::from(A[(n >> 12) as usize & 63]));
+        s.push(if c.len() > 1 {
+            char::from(A[(n >> 6) as usize & 63])
+        } else {
+            '='
+        });
+        s.push(if c.len() > 2 {
+            char::from(A[n as usize & 63])
+        } else {
+            '='
+        });
+    }
+    s
 }
 
 /// The openers of a burst (u20 cut D-7: 16 sessions' CLI opens, critique-performance A-2).
@@ -855,6 +1337,30 @@ pub enum Request {
         /// The file.
         path: PathBuf,
     },
+    /// `pages <k> <o_1> … <o_16> <path>`: B-1's modification (u20 cut §3.7): the page at `o_i` gets source page
+    /// (k + i) mod 64 of `<path>.src`, which the child loads on its first pages line; then the file is flushed to disk
+    /// (`sync(DataAndMeta)`, addendum I-2) and closed.
+    Pages {
+        /// The source rotation.
+        k: u64,
+        /// The 16 page offsets.
+        offsets: [u64; B1_MODIFIED],
+        /// The pages file.
+        path: PathBuf,
+    },
+    /// `b1 <start_ns> <len> <o_1> … <o_5> <path>`: B-1's reader: at `start_ns` on the system-wide clock, open the file,
+    /// map its `len` bytes, copy the 5 pages, drop the map and close, timed on the child's clock; the reply's value is
+    /// the copy's xxh3-64, computed after `t1`.
+    B1 {
+        /// The burst's start.
+        start_ns: u64,
+        /// The file's length.
+        len: u64,
+        /// The 5 page offsets.
+        offsets: [u64; B1_READ],
+        /// The pages file.
+        path: PathBuf,
+    },
     /// `quit`: the child exits 0.
     Quit,
 }
@@ -871,6 +1377,19 @@ impl Request {
             Request::Zero { from, len, path } => {
                 format!("zero {from} {len} {}", path.to_string_lossy())
             }
+            Request::Pages { k, offsets, path } => {
+                format!("pages {k} {} {}", words(offsets), path.to_string_lossy())
+            }
+            Request::B1 {
+                start_ns,
+                len,
+                offsets,
+                path,
+            } => format!(
+                "b1 {start_ns} {len} {} {}",
+                words(offsets),
+                path.to_string_lossy()
+            ),
             Request::Quit => "quit".into(),
         }
     }
@@ -903,6 +1422,33 @@ impl Request {
                     from: num(0)?,
                     len: num(1)?,
                     path: path(w.get(2).copied())?,
+                })
+            }
+            "pages" => {
+                let w: Vec<&str> = rest.splitn(B1_MODIFIED + 2, ' ').collect();
+                let num = |i: usize| w.get(i).and_then(|s| s.parse().ok()).ok_or_else(bad);
+                let mut offsets = [0u64; B1_MODIFIED];
+                for (i, o) in offsets.iter_mut().enumerate() {
+                    *o = num(1 + i)?;
+                }
+                Ok(Request::Pages {
+                    k: num(0)?,
+                    offsets,
+                    path: path(w.get(B1_MODIFIED + 1).copied())?,
+                })
+            }
+            "b1" => {
+                let w: Vec<&str> = rest.splitn(B1_READ + 3, ' ').collect();
+                let num = |i: usize| w.get(i).and_then(|s| s.parse().ok()).ok_or_else(bad);
+                let mut offsets = [0u64; B1_READ];
+                for (i, o) in offsets.iter_mut().enumerate() {
+                    *o = num(2 + i)?;
+                }
+                Ok(Request::B1 {
+                    start_ns: num(0)?,
+                    len: num(1)?,
+                    offsets,
+                    path: path(w.get(B1_READ + 2).copied())?,
                 })
             }
             "quit" if rest.is_empty() => Ok(Request::Quit),
@@ -1147,9 +1693,45 @@ pub fn open_once<V: StoreFs + SealedMaps>(
     offsets_of(&o).map_err(|e| e.0)
 }
 
-/// The pool child's service of one request line (`m10 --opener`; u20 cut §3.6): an open opens its store's root, waits
-/// for its start on the system-wide clock `mono`, then times [`open_once`] on `mono`; a zero writes, flushes and closes.
-pub fn serve_line<V: StoreFs + SealedMaps>(vfs: &V, mono: &dyn Fn() -> u64, line: &str) -> Reply {
+/// Space-separated numbers.
+fn words(v: &[u64]) -> String {
+    v.iter().map(u64::to_string).collect::<Vec<_>>().join(" ")
+}
+
+/// What a pool child keeps between requests: B-1's source pages, loaded on its first `pages` line.
+#[derive(Debug, Default)]
+pub struct ChildState {
+    src: Option<(PathBuf, Vec<u8>)>,
+}
+
+/// The root of `path`'s directory, opened with `access`, and the file's name in it.
+fn in_dir<V: StoreFs>(
+    vfs: &V,
+    path: &Path,
+    access: RootAccess,
+) -> Result<(V::Root, RelPathBuf), String> {
+    let (dir, name) = (
+        path.parent().ok_or("a path without a directory")?,
+        path.file_name().ok_or("a path without a file name")?,
+    );
+    let root = vfs
+        .open_root(dir, RootRole::Other, access)
+        .map_err(|e| e.to_string())?;
+    let rel =
+        RelPathBuf::from_string(name.to_string_lossy().into_owned()).map_err(|e| e.to_string())?;
+    Ok((root, rel))
+}
+
+/// The pool child's service of one request line (`m10 --opener`; u20 cut §3.6, §3.7): an open opens its store's root,
+/// waits for its start on the system-wide clock `mono`, then times [`open_once`] on `mono`; a zero writes, flushes and
+/// closes; a `pages` line writes B-1's 16 pages from its source and flushes them to disk; a `b1` line opens its file's
+/// root, waits for the start, and times the open, the map, the 5 pages' copy and the drops, hashing the copy after.
+pub fn serve_line<V: StoreFs + SealedMaps>(
+    vfs: &V,
+    mono: &dyn Fn() -> u64,
+    state: &mut ChildState,
+    line: &str,
+) -> Reply {
     let req = match Request::parse(line) {
         Ok(r) => r,
         Err(message) => {
@@ -1206,6 +1788,75 @@ pub fn serve_line<V: StoreFs + SealedMaps>(vfs: &V, mono: &dyn Fn() -> u64, line
                 Ok((0, 0, None))
             })(),
         ),
+        Request::Pages { k, offsets, path } => (
+            "pages",
+            (|| -> Result<(u64, u64, Option<u64>), String> {
+                let io = |e: moirai_vfs::VfsError| e.to_string();
+                let src_path = PathBuf::from(format!("{}.src", path.to_string_lossy()));
+                if state.src.as_ref().is_none_or(|(p, _)| *p != src_path) {
+                    let (root, rel) = in_dir(vfs, &src_path, RootAccess::Read)?;
+                    let f = vfs
+                        .open(&root, rel.as_rel_path(), Access::Read, OpenHint::Normal)
+                        .map_err(io)?;
+                    let mut src = vec![0u8; (SRC_PAGES * PAGE) as usize];
+                    vfs.read_exact_at(&f, 0, &mut src).map_err(io)?;
+                    state.src = Some((src_path, src));
+                }
+                let src = &state.src.as_ref().expect("loaded").1;
+                let (root, rel) = in_dir(vfs, &path, RootAccess::ReadWrite)?;
+                let f = vfs
+                    .open(
+                        &root,
+                        rel.as_rel_path(),
+                        Access::ReadWrite,
+                        OpenHint::Normal,
+                    )
+                    .map_err(io)?;
+                for (i, &o) in offsets.iter().enumerate() {
+                    let s = (((k + i as u64) % SRC_PAGES) * PAGE) as usize;
+                    vfs.write_at(&f, o, &src[s..s + PAGE as usize])
+                        .map_err(io)?;
+                }
+                vfs.sync(&f, SyncKind::DataAndMeta)
+                    .map_err(|e| format!("{e:?}"))?;
+                drop(f);
+                Ok((0, 0, None))
+            })(),
+        ),
+        Request::B1 {
+            start_ns,
+            len,
+            offsets,
+            path,
+        } => (
+            "b1",
+            (|| -> Result<(u64, u64, Option<u64>), String> {
+                if offsets.iter().any(|&o| o + PAGE > len) {
+                    return Err(format!("a page past the file's {len} bytes"));
+                }
+                let (root, rel) = in_dir(vfs, &path, RootAccess::Read)?;
+                let mut copy = vec![0u8; B1_READ * PAGE as usize];
+                wait_until(mono, start_ns);
+                let t0 = mono();
+                {
+                    let f = vfs
+                        .open(&root, rel.as_rel_path(), Access::Read, OpenHint::Normal)
+                        .map_err(|e| e.to_string())?;
+                    let map = vfs
+                        .map_sealed(&f, len, rel.as_rel_path())
+                        .map_err(|e| e.to_string())?;
+                    let b = map.bytes();
+                    for (i, &o) in offsets.iter().enumerate() {
+                        let (at, n) = (i * PAGE as usize, PAGE as usize);
+                        copy[at..at + n].copy_from_slice(&b[o as usize..o as usize + n]);
+                    }
+                    drop(map);
+                    drop(f);
+                }
+                let t1 = mono();
+                Ok((t0, t1, Some(xxhash_rust::xxh3::xxh3_64(&copy))))
+            })(),
+        ),
         Request::Quit => ("quit", Ok((0, 0, None))),
     };
     match served {
@@ -1231,6 +1882,7 @@ pub fn serve<V: StoreFs + SealedMaps>(
     output: &mut dyn Write,
 ) -> u8 {
     let mut line = String::new();
+    let mut state = ChildState::default();
     loop {
         line.clear();
         match input.read_line(&mut line) {
@@ -1242,7 +1894,7 @@ pub fn serve<V: StoreFs + SealedMaps>(
         if l == "quit" {
             return 0;
         }
-        let reply = serve_line(vfs, mono, l);
+        let reply = serve_line(vfs, mono, &mut state, l);
         if writeln!(output, "{}", reply.line())
             .and_then(|()| output.flush())
             .is_err()
@@ -1417,6 +2069,9 @@ impl<V: StoreFs> Drop for FixtureGuard<'_, V> {
 /// Starts a pool of children in a working directory.
 pub type PoolStarter<'a> = dyn FnMut(&Path) -> Result<Box<dyn Pool + 'a>, String> + 'a;
 
+/// Starts B-1's PowerShell modifier, a pool of one child, in a working directory.
+pub type PsStarter<'a> = dyn FnMut(&Path, Modifier) -> Result<Box<dyn Pool + 'a>, String> + 'a;
+
 /// What the binary passes in: the seams and the process spawner.
 pub struct System<'a, 'p, V, M, T, R> {
     /// The store seam.
@@ -1437,6 +2092,8 @@ pub struct System<'a, 'p, V, M, T, R> {
     pub mono: &'a dyn Fn() -> u64,
     /// The pool child's input (`--opener`).
     pub input: &'a mut dyn BufRead,
+    /// Starts B-1's PowerShell modifier in a working directory (u20 cut §3.7).
+    pub ps: &'a mut PsStarter<'p>,
 }
 
 /// The usage text.
@@ -1464,7 +2121,23 @@ fn fixture<'v, V: StoreFs>(
 ) -> Result<(Tail, FixtureGuard<'v, V>), String> {
     let tail = generate(&target(q, profile), false)?;
     let name = format!("moirai-m10-{}-{}", std::process::id(), q.name);
-    let mut fx = write_fixture(vfs, scratch, &name, &tail, profile.sealed_len(q.n))?;
+    let mut fx = match q.kind {
+        Kind::B1(_) => {
+            let fx = write_pages_fixture(
+                vfs,
+                scratch,
+                &name,
+                pages_len(q, profile),
+                seed(&q.name),
+                tail.expect,
+            )?;
+            if profile == Profile::Production {
+                std::thread::sleep(B1_SETTLE);
+            }
+            fx
+        }
+        _ => write_fixture(vfs, scratch, &name, &tail, profile.sealed_len(q.n))?,
+    };
     if q.kind == Kind::Opens
         && let Err(e) = write_command_files(vfs, &mut fx, &tail)
     {
@@ -1481,6 +2154,25 @@ fn fixture<'v, V: StoreFs>(
     ))
 }
 
+/// The children `q`'s arms drive, started in `scratch`: the pool when its kind needs it, and B-1's PowerShell modifier.
+#[allow(clippy::type_complexity)]
+fn start_children<'p>(
+    q: &Quantity,
+    scratch: &Path,
+    start_pool: &mut PoolStarter<'p>,
+    start_ps: &mut PsStarter<'p>,
+) -> Result<(Option<Box<dyn Pool + 'p>>, Option<Box<dyn Pool + 'p>>), String> {
+    let pool = match q.kind.needs_pool() {
+        true => Some(start_pool(scratch)?),
+        false => None,
+    };
+    let ps = match q.kind {
+        Kind::B1(m) if m.is_ps() => Some(start_ps(scratch, m)?),
+        _ => None,
+    };
+    Ok((pool, ps))
+}
+
 #[allow(clippy::too_many_arguments)]
 fn smoke<'p, V: StoreFs + SealedMaps, T: Ticker + Clone>(
     vfs: &V,
@@ -1488,6 +2180,7 @@ fn smoke<'p, V: StoreFs + SealedMaps, T: Ticker + Clone>(
     scratch: &Path,
     qs: &[Quantity],
     start_pool: &mut PoolStarter<'p>,
+    start_ps: &mut PsStarter<'p>,
     mono: &dyn Fn() -> u64,
     out: &mut dyn Write,
     err: &mut dyn Write,
@@ -1499,15 +2192,19 @@ fn smoke<'p, V: StoreFs + SealedMaps, T: Ticker + Clone>(
             let root = vfs
                 .open_root(&guard.fx.dir, RootRole::Other, RootAccess::Read)
                 .map_err(|e| e.to_string())?;
-            let mut pool = match q.kind.needs_pool() {
-                true => Some(start_pool(scratch)?),
-                false => None,
+            let (mut pool, mut ps) = start_children(q, scratch, start_pool, start_ps)?;
+            let kids = Children {
+                pool: match &mut pool {
+                    Some(b) => Some(b.as_mut()),
+                    None => None,
+                },
+                ps: match &mut ps {
+                    Some(b) => Some(b.as_mut()),
+                    None => None,
+                },
+                mono,
             };
-            let pool_ref: Option<&mut dyn Pool> = match &mut pool {
-                Some(b) => Some(b.as_mut()),
-                None => None,
-            };
-            let mut arms = quantity_arms(q, vfs, &root, &guard.fx, &tail, ticker, pool_ref, mono)?;
+            let mut arms = quantity_arms(q, vfs, &root, &guard.fx, &tail, ticker, kids)?;
             let mut lines = Vec::new();
             for arm in arms.iter_mut() {
                 arm.begin_block(1)
@@ -1568,6 +2265,11 @@ fn list<M: Meter>(meter: &M, profile: Profile, out: &mut dyn Write, err: &mut dy
             "rt_bytes": m.rt_bytes,
             "loc_bytes": m.loc_bytes,
             "seed_k": q.seed_k,
+            "pages_bytes": matches!(q.kind, Kind::B1(_)).then(|| pages_len(&q, profile)),
+            "modifier": match q.kind {
+                Kind::B1(m) => Some(m.as_str()),
+                _ => None,
+            },
             "ovl": m.ovl,
             "ovl_counted": counted,
             "records": m.records,
@@ -1621,30 +2323,25 @@ fn run_one<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
             return EXIT_FAILED;
         }
     };
-    let mut pool = match q.kind.needs_pool() {
-        true => match (sys.pool)(&scratch) {
-            Ok(p) => Some(p),
-            Err(e) => {
-                let _ = writeln!(err, "m10 {}: {e}", q.name);
-                return EXIT_FAILED;
-            }
+    let (mut pool, mut ps) = match start_children(q, &scratch, sys.pool, sys.ps) {
+        Ok(c) => c,
+        Err(e) => {
+            let _ = writeln!(err, "m10 {}: {e}", q.name);
+            return EXIT_FAILED;
+        }
+    };
+    let kids = Children {
+        pool: match &mut pool {
+            Some(b) => Some(b.as_mut()),
+            None => None,
         },
-        false => None,
+        ps: match &mut ps {
+            Some(b) => Some(b.as_mut()),
+            None => None,
+        },
+        mono: sys.mono,
     };
-    let pool_ref: Option<&mut dyn Pool> = match &mut pool {
-        Some(b) => Some(b.as_mut()),
-        None => None,
-    };
-    let mut arms = match quantity_arms(
-        q,
-        sys.vfs,
-        &root,
-        &guard.fx,
-        &tail,
-        &sys.ticker,
-        pool_ref,
-        sys.mono,
-    ) {
+    let mut arms = match quantity_arms(q, sys.vfs, &root, &guard.fx, &tail, &sys.ticker, kids) {
         Ok(a) => a,
         Err(e) => {
             let _ = writeln!(err, "m10 {}: {e}", q.name);
@@ -1740,6 +2437,7 @@ pub fn cli<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
             &scratch,
             &qs,
             sys.pool,
+            sys.ps,
             sys.mono,
             out,
             err,
@@ -1798,6 +2496,9 @@ mod tests {
         mono: &'f dyn Fn() -> u64,
         replies: std::collections::VecDeque<(usize, Reply)>,
         log: Requests,
+        states: Vec<ChildState>,
+        /// Added to a child's index in `log`, so pools that share one log stay apart.
+        tag: usize,
     }
 
     impl<'f> FakePool<'f> {
@@ -1807,6 +2508,8 @@ mod tests {
                 mono,
                 replies: Default::default(),
                 log: Default::default(),
+                states: (0..POOL).map(|_| ChildState::default()).collect(),
+                tag: 0,
             }
         }
     }
@@ -1820,8 +2523,8 @@ mod tests {
             if i >= POOL {
                 return Err(format!("no pool child {i}"));
             }
-            self.log.borrow_mut().push((i, line.to_string()));
-            let reply = serve_line(self.fs, self.mono, line);
+            self.log.borrow_mut().push((self.tag + i, line.to_string()));
+            let reply = serve_line(self.fs, self.mono, &mut self.states[i], line);
             self.replies.push_back((i, reply));
             Ok(())
         }
@@ -1845,11 +2548,27 @@ mod tests {
         |_: &Path| Err("no pool in this test".to_string())
     }
 
+    /// A starter of B-1's PowerShell modifier as a fake pool over `fs`: its child 0 serves `pages` lines as the pool's
+    /// modifier does.
+    fn fake_ps<'f>(
+        fs: &'f MemFs,
+    ) -> impl FnMut(&Path, Modifier) -> Result<Box<dyn Pool + 'f>, String> + 'f {
+        move |_: &Path, _: Modifier| {
+            Ok(Box::new(FakePool::new(fs, &test_mono)) as Box<dyn Pool + 'f>)
+        }
+    }
+
+    /// A starter that starts no PowerShell modifier.
+    fn no_ps<'f>() -> impl FnMut(&Path, Modifier) -> Result<Box<dyn Pool + 'f>, String> + 'f {
+        |_: &Path, _: Modifier| Err("no PowerShell in this test".to_string())
+    }
+
     /// Runs the command line over `fs` with a real ticker and a fake pool; returns (exit, stdout, stderr).
     fn run(fs: &MemFs, args: &[&str]) -> (u8, String, String) {
         let meter = FakeMeter::new(8_000_000_000);
         let mut spawn = no_spawn;
         let mut pools = fake_pools(fs);
+        let mut ps = fake_ps(fs);
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = cli(
             &os(args),
@@ -1863,6 +2582,7 @@ mod tests {
                 pool: &mut pools,
                 mono: &test_mono,
                 input: &mut std::io::empty(),
+                ps: &mut ps,
             },
             &mut out,
             &mut err,
@@ -1883,6 +2603,7 @@ mod tests {
         let meter = FakeMeter::new(8_000_000_000);
         let mut spawn = no_spawn;
         let mut pools = no_pools();
+        let mut ps = no_ps();
         let (mut out, mut err) = (Vec::new(), Vec::new());
         let code = cli(
             &os(args),
@@ -1896,6 +2617,7 @@ mod tests {
                 pool: &mut pools,
                 mono: &test_mono,
                 input: &mut std::io::empty(),
+                ps: &mut ps,
             },
             &mut out,
             &mut err,
@@ -1954,10 +2676,10 @@ mod tests {
     #[test]
     fn grid_lists_the_valid_quantities_in_run_order() {
         let g = grid();
-        assert_eq!(g.len(), 52);
+        assert_eq!(g.len(), 58);
         assert!(g.iter().all(|q| valid_name(&q.name)), "{g:?}");
         let names: BTreeSet<&str> = g.iter().map(|q| q.name.as_str()).collect();
-        assert_eq!(names.len(), 52, "unique");
+        assert_eq!(names.len(), 58, "unique");
         let count = |c: Clause| g.iter().filter(|q| q.clause == c).count();
         assert_eq!(
             [
@@ -1968,7 +2690,7 @@ mod tests {
                 Clause::Quiet
             ]
             .map(count),
-            [8, 14, 5, 11, 14]
+            [8, 20, 5, 11, 14]
         );
         let lead: Vec<&str> = g[..5].iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
@@ -2004,7 +2726,7 @@ mod tests {
                 .iter()
                 .all(|q| q.form == Locator::A1 && q.kind == Kind::Tail)
         );
-        let opens: Vec<(&str, Kind, Option<&str>)> = g[49..]
+        let opens: Vec<(&str, Kind, Option<&str>)> = g[49..52]
             .iter()
             .map(|q| (q.name.as_str(), q.kind, q.of))
             .collect();
@@ -2024,6 +2746,19 @@ mod tests {
                 ("a1-opens10.n1e5", Kind::Opens, Some("a1-rec-128kib.n1e5")),
             ],
             "u20's opens after the A1 block"
+        );
+        let b1: Vec<&str> = g[52..].iter().map(|q| q.name.as_str()).collect();
+        assert_eq!(
+            b1,
+            [
+                "b1-psview.1gib",
+                "b1-wf.1gib",
+                "b1-pswf.1gib",
+                "b1-psview.256mib",
+                "b1-wf.256mib",
+                "b1-pswf.256mib"
+            ],
+            "B-1 last, the 1-GiB points first"
         );
         for q in &g[49..] {
             let of = g.iter().find(|p| Some(p.name.as_str()) == q.of).unwrap();
@@ -2247,7 +2982,7 @@ mod tests {
         let (code, out, err) = run(&fs, &[&["--smoke"][..], &CT].concat());
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), 121, "{out}");
+        assert_eq!(lines.len(), 133, "{out}");
         let pairs: BTreeSet<(String, String)> = lines
             .iter()
             .map(|l| {
@@ -2265,6 +3000,7 @@ mod tests {
                     (Kind::Load, _) => &["open.c16"],
                     (Kind::OpenMod, _) => &["open.mod", "open"],
                     (Kind::Opens, _) => &["open.10", "open.1"],
+                    (Kind::B1(_), _) => &["b1", "b1.floor"],
                 };
                 names
                     .iter()
@@ -2282,6 +3018,8 @@ mod tests {
                 Kind::Load => (OPENERS * SEALED_FILES, OPENERS),
                 Kind::OpenMod => (2 * SEALED_FILES, 2),
                 Kind::Opens => (COMMAND_SEALED, 2),
+                // The setup's discarded burst, then one burst of each arm: 16 maps each, no HEAD.
+                Kind::B1(_) => (3 * OPENERS, 0),
             })
             .unzip();
         let log = fs.log();
@@ -2304,7 +3042,7 @@ mod tests {
         .concat();
         let (code, out, err) = run(&fs, &args);
         assert_eq!(code, EXIT_DONE, "{err}");
-        assert_eq!(out.lines().count(), 121);
+        assert_eq!(out.lines().count(), 133);
         assert!(!out.contains("recorded"));
         assert!(fs.files().is_empty(), "every fixture removed");
         let (code, _, err) = run(&fs, &[&args[..], &["--out", "/o"]].concat());
@@ -2494,7 +3232,7 @@ mod tests {
         let (code, out, _) = run(&fs, &["--help"]);
         assert_eq!((code, out.as_str()), (EXIT_DONE, USAGE));
         let (code, out, _) = run(&fs, &["--list"]);
-        assert_eq!((code, out.lines().count()), (EXIT_DONE, 52));
+        assert_eq!((code, out.lines().count()), (EXIT_DONE, 58));
         let names: Vec<String> = grid().into_iter().map(|q| q.name).collect();
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
         assert!(
@@ -2541,19 +3279,20 @@ mod tests {
                     pool: &mut no_pools(),
                     mono: &test_mono,
                     input: &mut std::io::empty(),
+                    ps: &mut no_ps(),
                 },
                 &mut out,
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 52);
+            assert_eq!(calls.len(), 58);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 52);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 58);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
@@ -2633,7 +3372,7 @@ mod tests {
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        assert_eq!(lines.len(), 52);
+        assert_eq!(lines.len(), 58);
         for (v, q) in lines.iter().zip(grid()) {
             assert_eq!(v["quantity"], q.name.as_str());
             assert_eq!(v["family"], q.clause.as_str());
@@ -2655,6 +3394,17 @@ mod tests {
             }
             assert!(m.ovl > 0 && m.bytes > 0);
             assert_eq!(m.loc_bytes > 0, q.form == Locator::A1, "{}", q.name);
+            match q.kind {
+                Kind::B1(m) => {
+                    assert_eq!(v["pages_bytes"].as_u64(), Some(TEST_PAGES), "{}", q.name);
+                    assert_eq!(v["modifier"], m.as_str(), "{}", q.name);
+                }
+                _ => assert!(
+                    v["pages_bytes"].is_null() && v["modifier"].is_null(),
+                    "{}",
+                    q.name
+                ),
+            }
             assert!(v["ovl_counted"].is_null());
             assert!(["ops", "rec", "body", "ovl"].contains(&v["stop"].as_str().unwrap()));
             assert_eq!(v["threshold"].as_u64(), Some(t.threshold));
@@ -2904,8 +3654,11 @@ mod tests {
                 &fx,
                 &tail,
                 &MonoTicker::new(),
-                None,
-                &test_mono,
+                Children {
+                    pool: None,
+                    ps: None,
+                    mono: &test_mono,
+                },
             )
             .unwrap();
             let names: Vec<&str> = arms.iter().map(|a| a.name()).collect();
@@ -3124,7 +3877,9 @@ mod tests {
         .line();
         fs.clear_log();
         let mono = || clock.get();
-        let Reply::Done { op, t0, t1, h } = serve_line(&fs, &mono, &line) else {
+        let Reply::Done { op, t0, t1, h } =
+            serve_line(&fs, &mono, &mut ChildState::default(), &line)
+        else {
             panic!("an open's reply");
         };
         let opens = fs.log().opens;
@@ -3157,7 +3912,9 @@ mod tests {
             dir: fx.dir.clone(),
         }
         .line();
-        let Reply::Done { t0, .. } = serve_line(&real, &test_mono, &line) else {
+        let Reply::Done { t0, .. } =
+            serve_line(&real, &test_mono, &mut ChildState::default(), &line)
+        else {
             panic!("an open's reply");
         };
         assert!(t0 >= start, "{t0} before the start {start}");
@@ -3390,8 +4147,11 @@ mod tests {
             &fx,
             &tail,
             &MonoTicker::new(),
-            None,
-            &test_mono,
+            Children {
+                pool: None,
+                ps: None,
+                mono: &test_mono,
+            },
         )
         .unwrap();
         let names: Vec<&str> = arms.iter().map(|a| a.name()).collect();
@@ -3470,6 +4230,7 @@ mod tests {
                 pool: &mut pools,
                 mono: &test_mono,
                 input: &mut input.as_bytes(),
+                ps: &mut no_ps(),
             },
             &mut out,
             &mut err,
@@ -3500,5 +4261,447 @@ mod tests {
             matches!(&replies[2], Reply::Err { op, .. } if op == "garbage"),
             "{replies:?}"
         );
+    }
+
+    /// B-1's six quantities (u20 cut §3.7): `b1-<modifier>.<size>` for the PowerShell view, the pool's `WriteFile` and the
+    /// PowerShell `WriteFile` at 1 GiB, then at 256 MiB; minimum tier t2; the pages at production and 1 MiB at the test
+    /// profile; the modifier's process: the pool's child for `wf`, PowerShell for the other two.
+    #[test]
+    fn b1_points_have_their_sizes_and_modifiers() {
+        let g = b1_points();
+        let got: Vec<(&str, Kind, u64)> = g
+            .iter()
+            .map(|q| (q.name.as_str(), q.kind, q.pages))
+            .collect();
+        assert_eq!(
+            got,
+            [
+                ("b1-psview.1gib", Kind::B1(Modifier::PsView), 1 << 30),
+                ("b1-wf.1gib", Kind::B1(Modifier::Wf), 1 << 30),
+                ("b1-pswf.1gib", Kind::B1(Modifier::PsWf), 1 << 30),
+                ("b1-psview.256mib", Kind::B1(Modifier::PsView), 256 << 20),
+                ("b1-wf.256mib", Kind::B1(Modifier::Wf), 256 << 20),
+                ("b1-pswf.256mib", Kind::B1(Modifier::PsWf), 256 << 20),
+            ]
+        );
+        for q in &g {
+            assert!(valid_name(&q.name), "{}", q.name);
+            assert_eq!(q.kind.min_tier(), Some(Tier::T2), "{}", q.name);
+            assert!(q.kind.needs_pool(), "{}: the readers", q.name);
+            let Kind::B1(m) = q.kind else { unreachable!() };
+            assert_eq!(q.kind.needs_ps(), m.is_ps(), "{}", q.name);
+            assert_eq!(pages_len(q, Profile::Production), q.pages);
+            assert_eq!(pages_len(q, Profile::Test), TEST_PAGES);
+        }
+        assert_eq!(
+            [Modifier::Wf, Modifier::PsView, Modifier::PsWf].map(Modifier::as_str),
+            ["wf", "psview", "pswf"]
+        );
+    }
+
+    /// The pages fixture of the B-1 quantity `name` at the test profile, in `fs` below [`scratch`].
+    fn b1_fixture(fs: &MemFs, name: &str) -> (Quantity, Fixture) {
+        let q = grid().into_iter().find(|q| q.name == name).unwrap();
+        let fx = crate::tail::store::write_pages_fixture(
+            fs,
+            &scratch(),
+            "b1",
+            TEST_PAGES,
+            seed(&q.name),
+            generate(&target(&q, Profile::Test), false).unwrap().expect,
+        )
+        .unwrap();
+        (q, fx)
+    }
+
+    /// A B-1 reader (u20 cut §3.7): a `b1` line opens the pages file once, maps it whole once, and replies with the
+    /// xxh3-64 of the 5 pages at its offsets, in order, and a `t0` not before the start; a page past the file is refused.
+    #[test]
+    fn b1_opener_maps_and_reads_five_pages() {
+        let fs = MemFs::with_dir(&scratch());
+        let (_, fx) = b1_fixture(&fs, "b1-wf.256mib");
+        let path = fx.dir.join(PAGES_NAME);
+        let offsets = [0, 7 * PAGE, 3 * PAGE, 200 * PAGE, 255 * PAGE];
+        let start = test_mono() + 2 * MS;
+        let line = Request::B1 {
+            start_ns: start,
+            len: TEST_PAGES,
+            offsets,
+            path: path.clone(),
+        }
+        .line();
+        fs.clear_log();
+        let reply = serve_line(&fs, &test_mono, &mut ChildState::default(), &line);
+        let Reply::Done { op, t0, t1, h } = reply else {
+            panic!("{reply:?}");
+        };
+        let bytes = fs.bytes(&path).unwrap();
+        let mut want = Vec::new();
+        for o in offsets {
+            want.extend_from_slice(&bytes[o as usize..(o + PAGE) as usize]);
+        }
+        assert_eq!(op, "b1");
+        assert_eq!(h, Some(xxhash_rust::xxh3::xxh3_64(&want)));
+        assert!(t0 >= start && t1 >= t0);
+        let log = fs.log();
+        assert_eq!(log.opens, [PAGES_NAME]);
+        assert_eq!(log.maps, [(PAGES_NAME.to_string(), TEST_PAGES)]);
+        let past = Request::B1 {
+            start_ns: 0,
+            len: TEST_PAGES,
+            offsets: [0, 0, 0, 0, 256 * PAGE],
+            path,
+        }
+        .line();
+        assert!(matches!(
+            serve_line(&fs, &test_mono, &mut ChildState::default(), &past),
+            Reply::Err { .. }
+        ));
+    }
+
+    /// B-1's arms over a fake reader pool and, for a PowerShell quantity, a fake PowerShell modifier sharing its request
+    /// log (the modifier's children logged from 100).
+    fn b1_rig<'f>(fs: &'f MemFs, name: &str) -> (Fixture, FakePool<'f>, FakePool<'f>, Requests) {
+        let (_, fx) = b1_fixture(fs, name);
+        let readers = FakePool::new(fs, &test_mono);
+        let mut ps = FakePool::new(fs, &test_mono);
+        ps.log = readers.log.clone();
+        ps.tag = 100;
+        let log = readers.log.clone();
+        (fx, readers, ps, log)
+    }
+
+    /// The modification precedes the burst, through another process (u20 cut §3.7): over fake pools, every `b1` block
+    /// sends one `pages` request, to the pool's modifier for `wf` and to the PowerShell modifier for the other two, never
+    /// to an opener, before the burst's 16 `b1` requests to the 16 openers, which share one start; the setup made
+    /// modification 0 and a burst before the arms were returned.
+    #[test]
+    fn b1_modifier_writes_through_another_process_before_the_burst() {
+        for (name, writer) in [("b1-wf.256mib", MODIFIER), ("b1-psview.256mib", 100)] {
+            let fs = MemFs::with_dir(&scratch());
+            let (fx, mut readers, mut ps, log) = b1_rig(&fs, name);
+            let ps = if writer == 100 {
+                Some(&mut ps as &mut dyn Pool)
+            } else {
+                None
+            };
+            let mut arms = b1_arms(
+                &mut readers,
+                ps,
+                &test_mono,
+                fx.dir.join(PAGES_NAME),
+                TEST_PAGES,
+                seed(name),
+            )
+            .unwrap();
+            assert_eq!(
+                arms.iter().map(|a| a.name()).collect::<Vec<_>>(),
+                ["b1", "b1.floor"]
+            );
+            assert_eq!(
+                log.borrow().len(),
+                1 + OPENERS,
+                "{name}: the setup's modification and burst"
+            );
+            for k in 0..2 {
+                let from = log.borrow().len();
+                arms[0].begin_block(OPENERS as u32).unwrap();
+                let sent = log.borrow()[from..].to_vec();
+                assert_eq!(sent.len(), 1 + OPENERS, "{name} block {k}");
+                assert_eq!(sent[0].0, writer, "{name} block {k}: the modifier writes");
+                assert!(
+                    sent[0].1.starts_with("pages "),
+                    "{name} block {k}: {}",
+                    sent[0].1
+                );
+                let readers: Vec<usize> = sent[1..].iter().map(|s| s.0).collect();
+                assert_eq!(
+                    readers,
+                    (0..OPENERS).collect::<Vec<_>>(),
+                    "{name} block {k}"
+                );
+                let starts: BTreeSet<u64> = sent[1..]
+                    .iter()
+                    .map(|(_, l)| match Request::parse(l).unwrap() {
+                        Request::B1 { start_ns, .. } => start_ns,
+                        r => panic!("{r:?}"),
+                    })
+                    .collect();
+                assert_eq!(starts.len(), 1, "{name} block {k}: one start");
+                assert!((0..OPENERS).all(|_| arms[0].sample().is_ok()));
+            }
+        }
+    }
+
+    /// The floor's bursts follow no write (u20 cut §3.7): a `b1.floor` block sends only `b1` requests, 5 offsets each among
+    /// the last modification's 16, and its values check against that modification's pages.
+    #[test]
+    fn b1_floor_burst_follows_no_write() {
+        let fs = MemFs::with_dir(&scratch());
+        let (fx, mut readers, _, log) = b1_rig(&fs, "b1-wf.256mib");
+        let mut arms = b1_arms(
+            &mut readers,
+            None,
+            &test_mono,
+            fx.dir.join(PAGES_NAME),
+            TEST_PAGES,
+            seed("b1-wf.256mib"),
+        )
+        .unwrap();
+        arms[0].begin_block(3).unwrap();
+        let last = log
+            .borrow()
+            .iter()
+            .rev()
+            .find_map(|(_, l)| match Request::parse(l).unwrap() {
+                Request::Pages { offsets, .. } => Some(offsets),
+                _ => None,
+            })
+            .unwrap();
+        let from = log.borrow().len();
+        arms[1].begin_block(20).unwrap();
+        let sent = log.borrow()[from..].to_vec();
+        assert_eq!(
+            sent.len(),
+            2 * OPENERS,
+            "two bursts for 20 values, no write"
+        );
+        for (_, l) in &sent {
+            let Request::B1 { offsets, .. } = Request::parse(l).unwrap() else {
+                panic!("{l}");
+            };
+            assert!(offsets.iter().all(|o| last.contains(o)), "{l}");
+            assert_eq!(offsets.iter().collect::<BTreeSet<_>>().len(), B1_READ);
+        }
+        assert!((0..20).all(|_| arms[1].sample().is_ok()));
+    }
+
+    /// A modifier that answers `pages` without writing anything.
+    struct SilentModifier {
+        replies: std::collections::VecDeque<(usize, Reply)>,
+    }
+
+    impl Pool for SilentModifier {
+        fn count(&self) -> usize {
+            1
+        }
+
+        fn send(&mut self, i: usize, _: &str) -> Result<(), String> {
+            self.replies.push_back((
+                i,
+                Reply::Done {
+                    op: "pages".into(),
+                    t0: 0,
+                    t1: 0,
+                    h: None,
+                },
+            ));
+            Ok(())
+        }
+
+        fn recv(&mut self, _: std::time::Duration) -> Result<(usize, Reply), String> {
+            self.replies.pop_front().ok_or_else(|| "no reply".into())
+        }
+    }
+
+    /// The readers see the modifier's pages (u20 cut §3.7, the content check): after a fake PowerShell modification the
+    /// 16 offsets hold the source pages `(k + i) mod 64`; a modifier that writes nothing fails the setup's burst with a
+    /// hash mismatch, so a silent, late or misplaced write turns the run red.
+    #[test]
+    fn b1_readers_see_the_modifiers_pages() {
+        let fs = MemFs::with_dir(&scratch());
+        let (fx, mut readers, mut ps, log) = b1_rig(&fs, "b1-pswf.256mib");
+        let path = fx.dir.join(PAGES_NAME);
+        let s = seed("b1-pswf.256mib");
+        let arms = b1_arms(
+            &mut readers,
+            Some(&mut ps),
+            &test_mono,
+            path.clone(),
+            TEST_PAGES,
+            s,
+        );
+        assert!(arms.is_ok(), "{:?}", arms.err());
+        let m = Modification::of(s, 0, TEST_PAGES);
+        let bytes = fs.bytes(&path).unwrap();
+        let src = pages_src(s);
+        for (i, o) in m.offsets.iter().enumerate() {
+            let at = ((m.k + i as u64) % SRC_PAGES * PAGE) as usize;
+            assert!(
+                bytes[*o as usize..(*o + PAGE) as usize] == src[at..at + PAGE as usize],
+                "page {i} at {o}"
+            );
+        }
+        assert!(
+            log.borrow()
+                .iter()
+                .any(|(c, l)| *c == 100 && l.starts_with("pages "))
+        );
+        drop(arms);
+        let fs = MemFs::with_dir(&scratch());
+        let (fx, mut readers, _, _) = b1_rig(&fs, "b1-pswf.256mib");
+        let mut silent = SilentModifier {
+            replies: Default::default(),
+        };
+        let e = b1_arms(
+            &mut readers,
+            Some(&mut silent),
+            &test_mono,
+            fx.dir.join(PAGES_NAME),
+            TEST_PAGES,
+            s,
+        )
+        .err()
+        .expect("a modifier that writes nothing");
+        assert!(e.contains("hash mismatch"), "{e}");
+    }
+
+    /// Base64 with padding (RFC 4648 §10's test vectors).
+    #[test]
+    fn base64_follows_rfc4648() {
+        for (raw, b64) in [
+            ("", ""),
+            ("f", "Zg=="),
+            ("fo", "Zm8="),
+            ("foo", "Zm9v"),
+            ("foob", "Zm9vYg=="),
+            ("fooba", "Zm9vYmE="),
+            ("foobar", "Zm9vYmFy"),
+        ] {
+            assert_eq!(base64(raw.as_bytes()), b64, "{raw}");
+        }
+        assert_eq!(base64(&[0xFB, 0xFF]), "+/8=");
+    }
+
+    /// Decodes base64 with padding, for the tests.
+    fn unbase64(s: &str) -> Vec<u8> {
+        const A: &[u8; 64] = b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
+        let val = |c: u8| A.iter().position(|&a| a == c).unwrap() as u32;
+        let mut out = Vec::new();
+        for q in s.as_bytes().chunks(4) {
+            let pad = q.iter().filter(|&&c| c == b'=').count();
+            let n = q
+                .iter()
+                .map(|&c| if c == b'=' { 0 } else { val(c) })
+                .fold(0u32, |acc, v| (acc << 6) | v);
+            let b = [(n >> 16) as u8, (n >> 8) as u8, n as u8];
+            out.extend_from_slice(&b[..3 - pad]);
+        }
+        out
+    }
+
+    /// The PowerShell modifier (u20 cut §3.7; R-53 Q1 (b)): Windows PowerShell below `%SystemRoot%`, where
+    /// `DEFENDER_COMMAND` finds it, refused without `%SystemRoot%`; its arguments `-NoLogo -NoProfile -NonInteractive
+    /// -EncodedCommand <b64>`, the base64 decoding to the UTF-16LE script with its mode line.
+    #[test]
+    fn powershell_modifier_runs_windows_powershell_with_an_encoded_script() {
+        let root = std::env::temp_dir();
+        let p = ps_program(Some(root.as_os_str())).unwrap();
+        assert_eq!(
+            p,
+            crate::host::DEFENDER_COMMAND
+                .resolve(Some(root.as_os_str()))
+                .unwrap()
+        );
+        assert!(p.ends_with("System32/WindowsPowerShell/v1.0/powershell.exe"));
+        assert!(ps_program(None).is_err());
+        for (m, mode) in [(Modifier::PsView, "view"), (Modifier::PsWf, "wf")] {
+            let args = ps_args(m);
+            assert_eq!(
+                args[..4],
+                [
+                    "-NoLogo",
+                    "-NoProfile",
+                    "-NonInteractive",
+                    "-EncodedCommand"
+                ]
+            );
+            assert_eq!(args.len(), 5);
+            let raw = unbase64(&args[4]);
+            let units: Vec<u16> = raw
+                .chunks(2)
+                .map(|c| u16::from_le_bytes([c[0], c[1]]))
+                .collect();
+            let script = String::from_utf16(&units).unwrap();
+            assert_eq!(script, format!("$mode = '{mode}'\n{PS_SCRIPT}"));
+            assert_eq!(script, ps_script(m));
+        }
+    }
+
+    /// The PowerShell script's two branches (u20 cut §3.7): view mode makes a read/write `MemoryMappedFile` over the
+    /// stream and writes each page through a view (`CreateViewAccessor`, `WriteArray`, the view's `Flush()`), with no
+    /// stream `Write`; write mode `Seek`s and `Write`s, with no view; both end with `Flush($true)`.
+    #[test]
+    fn powershell_script_writes_through_a_read_write_view_in_view_mode() {
+        let (view, rest) = PS_SCRIPT
+            .split_once("if ($mode -eq 'view') {")
+            .expect("a view branch");
+        let (view_branch, wf_branch) = rest.split_once("} else {").expect("a wf branch");
+        let wf_branch = wf_branch
+            .split_once("$fs.Flush($true)")
+            .expect("the final flush")
+            .0;
+        for needle in [
+            "CreateFromFile",
+            "MemoryMappedFileAccess]::ReadWrite",
+            "CreateViewAccessor",
+            "WriteArray",
+            "$v.Flush()",
+        ] {
+            assert!(view_branch.contains(needle), "view: {needle}");
+        }
+        assert!(!view_branch.contains(".Write("), "view: no stream write");
+        assert!(wf_branch.contains(".Seek(") && wf_branch.contains(".Write("));
+        assert!(!wf_branch.contains("CreateViewAccessor"));
+        assert!(PS_SCRIPT.contains("$fs.Flush($true)"));
+        assert!(view.contains("ReadAllBytes($srcPath)"));
+        assert!(!PS_SCRIPT.contains("SetFileTime"));
+    }
+
+    /// The real PowerShell modifier in both modes (u20 cut §3.7), where `%SystemRoot%` is set (Windows): on a 1-MiB pages
+    /// file in a scratch directory, one `pages` line gets `done pages`, and its 16 offsets then hold the source pages
+    /// `(k + i) mod 64` while every other byte keeps its seeded value. Elsewhere the start is refused.
+    #[test]
+    fn powershell_modifiers_write_their_pages() {
+        let Some(root) = std::env::var_os("SystemRoot") else {
+            assert!(ps_program(None).is_err());
+            return;
+        };
+        let exe = ps_program(Some(&root)).unwrap();
+        for (k, m) in [Modifier::PsView, Modifier::PsWf].into_iter().enumerate() {
+            let dir = crate::testkit::scratch_dir("b1-ps");
+            let path = dir.join(PAGES_NAME);
+            let s = 11 + k as u64;
+            let before = crate::tail::store::pages_bytes(s, 0, TEST_PAGES as usize);
+            std::fs::write(&path, &before).unwrap();
+            std::fs::write(dir.join(crate::tail::store::PAGES_SRC_NAME), pages_src(s)).unwrap();
+            let args = ps_args(m);
+            let args: Vec<&str> = args.iter().map(String::as_str).collect();
+            let mut child = ProcessPool::spawn(&exe, &args, 1, &dir).unwrap();
+            let md = Modification::of(s, 3, TEST_PAGES);
+            let line = Request::Pages {
+                k: md.k,
+                offsets: md.offsets,
+                path: path.clone(),
+            }
+            .line();
+            child.send(0, &line).unwrap();
+            let reply = child.recv(std::time::Duration::from_secs(120));
+            assert!(
+                matches!(&reply, Ok((0, Reply::Done { op, .. })) if op == "pages"),
+                "{m:?}: {reply:?}"
+            );
+            drop(child);
+            let after = std::fs::read(&path).unwrap();
+            let src = pages_src(s);
+            let mut want = before.clone();
+            for (i, o) in md.offsets.iter().enumerate() {
+                let at = ((md.k + i as u64) % SRC_PAGES * PAGE) as usize;
+                want[*o as usize..(*o + PAGE) as usize]
+                    .copy_from_slice(&src[at..at + PAGE as usize]);
+            }
+            assert!(after == want, "{m:?}: the file is not the modification's");
+            let _ = std::fs::remove_dir_all(&dir);
+        }
     }
 }
