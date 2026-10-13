@@ -907,6 +907,9 @@ operational policy with a reviewed default (AGENTS.md):
   /private/measurements/<n>/`, so the driver writes its record directly in that directory (§9.7).
   - It runs in the working directory `<scratch>/work/<n>/`. That directory is made empty before the measurement's
     first attempt, kept across its runs and retries, and removed after its last run.
+  - Its `TMP` and `TEMP` name that directory, in a smoke run too. So the temporary files a driver makes through the
+    system's temporary-directory lookup (`GetTempPath2`, which reads `TMP` first, and Rust's `std::env::temp_dir`) stay
+    on the scratch volume instead of the user's `%TEMP%`.
   - Its output goes to the log `<scratch>/sessions/<start>/<n>.<q>.<attempt>.log`.
 - **Budgets.** An attempt ends by the earliest of three times: its start plus `run-budget-minutes`, the measurement's
   start plus `budget-minutes`, and the window's end less the finish margin. At that time the runner stops the driver's

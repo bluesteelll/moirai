@@ -15,6 +15,8 @@
 //! are run in plan order, one driver process per run ([MP §9.7]).
 //! - A run with an exit-grade record of the measured commit already in `/private/measurements/<n>/` is done before
 //!   ([`done_before`]): starting the runner again after a crash resumes the night.
+//! - Each driver runs in its measurement's working directory `<scratch>/work/<n>/`, which its `TMP` and `TEMP` name
+//!   too.
 //! - Before each attempt the guard checks the RAM and disk floors; no guard runs while a driver runs.
 //! - An attempt ends by the earliest of its run budget, its measurement's budget and the window's end less the finish
 //!   margin, where its process tree is stopped.
@@ -297,8 +299,9 @@ fn refusals(env: &Env, plan: &Plan) -> Vec<Refusal> {
 }
 
 /// One run's driver command ([MP §9.7], [MP §9.8]): `--out` names the measurement's directory of raw records, or
-/// `--smoke` replaces it; the working directory is the measurement's own.
-// spec: [MP §9.7] (the driver contract), [MP §9.8] (one driver process per run)
+/// `--smoke` replaces it; the working directory is the measurement's own, and `TMP` and `TEMP` name it too, so the
+/// driver's temporary files stay on the scratch volume.
+// spec: [MP §9.7] (the driver contract), [MP §9.8] (one driver process per run, its working directory)
 fn driver_cmd(
     env: &Env,
     plan: &Plan,
@@ -308,22 +311,23 @@ fn driver_cmd(
     toolchain: &str,
     smoke: bool,
 ) -> Cmd {
-    let c = Cmd::new(
-        env.exe(plan, &m.driver).to_string_lossy(),
-        &env.work(plan, m.n),
-    )
-    .args([
-        "--host",
-        "laptop",
-        "--condition",
-        "idle",
-        "--quantity",
-        q,
-        "--commit",
-        commit,
-        "--toolchain",
-        toolchain,
-    ]);
+    let work = env.work(plan, m.n);
+    let tmp = work.to_string_lossy().into_owned();
+    let c = Cmd::new(env.exe(plan, &m.driver).to_string_lossy(), &work)
+        .env("TMP", tmp.clone())
+        .env("TEMP", tmp)
+        .args([
+            "--host",
+            "laptop",
+            "--condition",
+            "idle",
+            "--quantity",
+            q,
+            "--commit",
+            commit,
+            "--toolchain",
+            toolchain,
+        ]);
     if smoke {
         c.args(["--smoke"])
     } else {
@@ -1920,6 +1924,23 @@ quantities = ["lz4.encode"]
                 want(14, "m14", "t1.read"),
                 want(6, "m6", "lz4.encode")
             ]
+        );
+        // Each driver's TMP and TEMP name its working directory ([MP §9.8]), in a run and in a smoke run alike.
+        for c in &h.spawned {
+            let cwd = c.cwd.to_string_lossy();
+            assert_eq!(
+                (c.get_env("TMP"), c.get_env("TEMP")),
+                (Some(cwd.as_ref()), Some(cwd.as_ref())),
+                "{}",
+                c.line()
+            );
+        }
+        let m6 = &plan.measurements[1];
+        let smoke = driver_cmd(&env, &plan, m6, "lz4.encode", &commit, TOOLCHAIN, true);
+        let work = env.work(&plan, 6).to_string_lossy().into_owned();
+        assert_eq!(
+            (smoke.get_env("TMP"), smoke.get_env("TEMP")),
+            (Some(work.as_str()), Some(work.as_str()))
         );
         assert_eq!(code, EXIT_PASS, "{text}");
         // The guard before each attempt: the scratch volume and the two floors, no counted directory.
