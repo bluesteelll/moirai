@@ -32,8 +32,9 @@ disk-floor = "25GB"
 # - budget-minutes bounds every run and retry of the measurement together: the upper estimate plus its share of the
 #   retry reserve. A hang costs only its own measurement, and the five budgets with the settle and the finish margin
 #   fit an 8-hour window.
-# - quantities lists the names (measurement-protocol §4.1) of the quantities the driver measures, one run each. The
-#   work that builds the driver fills it; `check` and `run` refuse the plan while any list is empty.
+# - quantities lists the names (measurement-protocol §4.1) of the quantities the driver measures, one run each, in run
+#   order with the deciding quantities first. The work that builds the driver fills it; `check` and `run` refuse the
+#   plan while any list is empty.
 
 [[measurement]]
 n = 1
@@ -62,7 +63,7 @@ quantities = []
 [[measurement]]
 n = 2
 driver = "m2"
-title = "16 writer processes on the overlapped lock: last ack, flushes per burst, fairness and the flush-byte hand-off"
+title = "16 writer processes on the overlapped lock: last ack, T2's writer wait, flushes per burst, fairness and the flush-byte hand-off"
 run-budget-minutes = 70
 budget-minutes = 85
 quantities = [

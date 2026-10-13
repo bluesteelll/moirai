@@ -854,8 +854,9 @@ operational policy with a reviewed default (AGENTS.md):
   - `title`;
   - `run-budget-minutes`: the budget of one run;
   - `budget-minutes`: the budget of every run and retry of the measurement together, at least `run-budget-minutes`;
-  - `quantities`: the names (§4.1) of the quantities the driver measures, unique. The work that builds the driver
-    fills them.
+  - `quantities`: the names (§4.1) of the quantities the driver measures, unique, in run order: the measurement's
+    deciding quantities first, so that a measurement cut short by its budget or by the window loses the least. The
+    work that builds the driver fills them.
 
   A plan with an empty `quantities` list loads but is incomplete, and `check` and `run` refuse it.
 
