@@ -32,6 +32,18 @@
 //! |---|---|---|
 //! | [`load`] | the load fixture's format, the load generator (`moirai-probes-bin loadgen`), its log and its verdict | [MP §9] |
 //!
+//! # Measurement 1 (WP-52)
+//!
+//! | Module | What it holds | Specification |
+//! |---|---|---|
+//! | [`m1`] | the CLI commit cycle, the close and the data-only-flush floor over the toy log, the smoke and the driver's command line (`moirai-probes-bin m1`); the store seam [`m1::store`] (the `Rig`, its toy implementation, the generations); the driver contract [`m1::driver`], shared with measurement 2 | [60 §5.2] item 1, `60-roadmap.md:788`, [MP §4.1], [MP §9.7] |
+//!
+//! # Measurement 2 (WP-52)
+//!
+//! | Module | What it holds | Specification |
+//! |---|---|---|
+//! | [`m2`] | 16 child writers in bursts over the toy log: the burst and its coordinator [`m2::burst`], its runtime checks, the measures (last acknowledgement, flushes, fairness, the flush-byte hand-off, T2's writer wait), the in-lock cost draw [`m2::cost`], the lock-logging `Vfs` [`m2::locks`], the child writers [`m2::child`], the smoke and the driver's command line (`moirai-probes-bin m2`) | [60 §5.2] item 2, `ARCHITECTURE-RESEARCH.md:1797-1799`, `:1947`, [MP §4.1], [MP §9.7] |
+//!
 //! # Measurement 6 (WP-54)
 //!
 //! | Module | What it holds | Specification |
@@ -65,8 +77,10 @@ pub mod guard;
 pub mod host;
 pub mod idle;
 pub mod load;
+pub mod m1;
 pub mod m10;
 pub mod m14;
+pub mod m2;
 pub mod m6;
 pub mod noise;
 pub mod overlay;
