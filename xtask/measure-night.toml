@@ -47,10 +47,26 @@ quantities = ["cycle.e64mib", "close.e64mib"]
 [[measurement]]
 n = 14
 driver = "m14"
-title = "CSR, bitsets, column scans and the overlay at 1e5 and 1e6 nodes; T1's point read and delta checkpoint; T2's writer wait and catch-up"
+title = "CSR, bitsets, column scans and the overlay at 1e5 and 1e6 nodes; T1's point read and delta checkpoint; T2's MCP overlay catch-up (its writer wait is measurement 2's)"
 run-budget-minutes = 90
 budget-minutes = 120
-quantities = []
+quantities = [
+    "read-4096.n1e6",
+    "ckpt-4096.n5e5",
+    "catchup-16.n1e6",
+    "csr.n1e5",
+    "bitset.n1e5",
+    "bitset-ab.n1e5",
+    "bitset-aa.n1e5",
+    "scan.n1e5",
+    "overlay.n1e5",
+    "csr.n1e6",
+    "bitset.n1e6",
+    "bitset-ab.n1e6",
+    "bitset-aa.n1e6",
+    "scan.n1e6",
+    "overlay.n1e6",
+]
 
 [[measurement]]
 n = 6
@@ -58,7 +74,36 @@ driver = "m6"
 title = "the codecs (lz4_flex with and without a raw-content dictionary, ruzstd, the zstd CLI as proxy): size, speed and RSS"
 run-budget-minutes = 45
 budget-minutes = 55
-quantities = []
+quantities = [
+    "raw.notes",
+    "size.lz4.notes",
+    "size.lz4d.notes",
+    "size.zstd.notes",
+    "raw.plan",
+    "size.lz4.plan",
+    "size.lz4d.plan",
+    "size.zstd.plan",
+    "raw.hist",
+    "size.lz4.hist",
+    "size.zstd.hist",
+    # With the zstd CLI on PATH at readiness, "size.cli.notes" and "size.cli.plan" go here (R-35 Q3).
+    "dec.lz4.notes",
+    "dec.lz4d.notes",
+    "dec.zstd.notes",
+    "enc.lz4.notes",
+    "enc.lz4d.notes",
+    "enc.zstd.notes",
+    "dec.lz4.plan",
+    "dec.lz4d.plan",
+    "dec.zstd.plan",
+    "enc.lz4.plan",
+    "enc.lz4d.plan",
+    "enc.zstd.plan",
+    "dec.lz4.hist",
+    "dec.zstd.hist",
+    "enc.lz4.hist",
+    "enc.zstd.hist",
+]
 
 [[measurement]]
 n = 2
@@ -87,4 +132,23 @@ driver = "m10"
 title = "full-tail replay at candidate thresholds into the overlay, with the lazy share and the open floor"
 run-budget-minutes = 45
 budget-minutes = 160
-quantities = []
+quantities = [
+    "ops-4096.n1e6",
+    "rec-4mib.n1e6",
+    "body-32mib.n1e6",
+    "ovl-1mib.n1e6",
+    "quiet-2mib-x8.n1e6",
+    "ops-4096.n1e5",
+    "ops-2048.n1e5",
+    "ops-1024.n1e5",
+    "ops-2048.n1e6",
+    "ops-1024.n1e6",
+    "rec-2mib.n1e6",
+    "rec-1mib.n1e6",
+    "body-16mib.n1e6",
+    "body-8mib.n1e6",
+    "ovl-512kib.n1e6",
+    "quiet-2mib-x4.n1e6",
+    "quiet-1536kib-x8.n1e6",
+    "quiet-1536kib-x4.n1e6",
+]

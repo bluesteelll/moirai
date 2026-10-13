@@ -1,8 +1,9 @@
 //! `m10`: measurement 10's driver ([60 §5.2] item 10, `docs/research/design/60-roadmap.md:766`): full-tail replay at
 //! the candidate checkpoint thresholds, decoding every record into the F09/F11-shaped overlay, and the open floor of
 //! `HEAD` and 8 sealed files ([60 §5.3], `:790`). It records one run per quantity under the driver contract of
-//! [MP §9.7] (`docs/spec/measurement-protocol.md`), each in a child process of its own; `--smoke` runs every arm once
-//! at the test profile and records nothing; `--list` prints each grid tail's measures.
+//! [MP §9.7] (`docs/spec/measurement-protocol.md`), each in a child process of its own, one point of each family
+//! first; `--smoke` runs each requested arm once at the test profile and records nothing; `--list` prints each grid
+//! tail's measures. Every fixture lies below the working directory.
 //!
 //! Wiring only: the logic and its tests are `moirai_probes::m10`. This file passes it the Windows store seam
 //! (`moirai_os::OsVfs`, [OS/fs], [OS/map]), the `Meter` (`moirai_os::OsMeter`, [OS/mem]), the monotonic timer, the

@@ -44,11 +44,17 @@
 //! |---|---|---|
 //! | [`m2`] | 16 child writers in bursts over the toy log: the burst and its coordinator [`m2::burst`], its runtime checks, the measures (last acknowledgement, flushes, fairness, the flush-byte hand-off, T2's writer wait), the in-lock cost draw [`m2::cost`], the lock-logging `Vfs` [`m2::locks`], the child writers [`m2::child`], the smoke and the driver's command line (`moirai-probes-bin m2`) | [60 §5.2] item 2, `ARCHITECTURE-RESEARCH.md:1797-1799`, `:1947`, [MP §4.1], [MP §9.7] |
 //!
+//! # Measurement 6 (WP-54)
+//!
+//! | Module | What it holds | Specification |
+//! |---|---|---|
+//! | [`m6`] | the grid of 27 quantities (29 with the `zstd` CLI), every size first; the setup with its round trip of every measured input; the `raw` and `size` value arms and the batched `enc` and `dec` time arms; the smoke (on the build checkout's corpora when present) and the driver's command line (`moirai-probes-bin m6`); the corpora (the owner's notes through their manifest, the plan sections of `docs/**`, where a run finds them, their training and measured split), the probe's own raw-content dictionary trainer, the `hist` frames cut by F10 §4.2 from the tail generator, and the codecs (`lz4_flex` with and without the dictionary, `ruzstd`, the `zstd` CLI's stage) | [60 §5.2] item 6, `90-harness-agnostic-design.md:959-974`, [MP §9.7] |
+//!
 //! # Measurement 10 (WP-53d)
 //!
 //! | Module | What it holds | Specification |
 //! |---|---|---|
-//! | [`m10`] | the grid of 18 quantities, the `replay` and `floor.open` arms, the run, the smoke, the list and the driver's command line (`moirai-probes-bin m10`) | [60 §5.2] item 10, [F17 §5], [MP §9.7] |
+//! | [`m10`] | the grid of 18 quantities in run order, one point of each family first; the `replay` and `floor.open` arms, the run, the smoke, the list and the driver's command line (`moirai-probes-bin m10`) on the shared [MP §9.7] contract, with every fixture below the working directory | [60 §5.2] item 10, [F17 §5], [MP §9.7] |
 //! | [`overlay`] | the compact tail overlay: the node index, the ± lists, `ALLOC` and `UIDX`, the runtime index, the tail's symbols, and its charge `ovl(T)` | [AR §4.5] step 1, [F09 §4.6], [F11 §9], [F05 §10.4] |
 //! | [`tail`] | the F05/F06 codec of a log tail of commits and settles: records, groups, placement, the `Commit` payload, the runtime records, the streaming scan | [F05], [F06], [F11 §12.4]–§12.5 |
 //!
@@ -56,7 +62,7 @@
 //!
 //! | Module | What it holds | Specification |
 //! |---|---|---|
-//! | [`m14`] | the grid of 15 quantities: the layout probes (CSR, bitset AND/popcount over dense sets and over the array paths of sparse ones, column scans with the split-status floor, overlay probe) at 1e5 and 1e6, T1's point read and delta checkpoint, T2's MCP overlay catch-up model; the arms, the fixture, the smoke and the driver's command line (`moirai-probes-bin m14`) | [60 §5.2] item 14, `ARCHITECTURE-RESEARCH.md:130`, `:140`, [MP §9.7] |
+//! | [`m14`] | the grid of 15 quantities: the layout probes (CSR, bitset AND/popcount over dense sets and over the array paths of sparse ones, column scans with the split-status floor, overlay probe) at 1e5 and 1e6, T1's point read and delta checkpoint, T2's MCP overlay catch-up model, run with these three deciding quantities first; the arms, the fixture, the run's touch of its mapped base before the pilot, the smoke and the driver's command line (`moirai-probes-bin m14`) on the shared [MP §9.7] contract, with every fixture below the working directory | [60 §5.2] item 14, `ARCHITECTURE-RESEARCH.md:130`, `:140`, [MP §9.7] |
 //! | [`seg`] | the F09 segment builder: `SegHdr` and its section table, the 60-byte `NodeHdr`, cold columns, the forward and reverse CSR, frozen bitsets and ± lists, a synthetic base at N nodes | [F09], [F08 §3]–§4, `ARCHITECTURE-RESEARCH.md:1681` |
 //!
 //! Every reading of the machine goes through `moirai_vfs::Meter` ([OS/README §4.3]); the framework never reads a
@@ -75,6 +81,7 @@ pub mod m1;
 pub mod m10;
 pub mod m14;
 pub mod m2;
+pub mod m6;
 pub mod noise;
 pub mod overlay;
 pub mod record;

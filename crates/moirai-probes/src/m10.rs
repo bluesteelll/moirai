@@ -10,24 +10,28 @@
 //! measured by the `ops` family at both scales). Every run is measurement 10 with minimum tier t2, the tier of the open
 //! budgets ([MP §3.2], `17-store-parameters.md:757`). The test profile's thresholds and E give the smoke's versions.
 //!
+//! **The run order** (R-34 B-3, M-15; R-35 Q2, Q4): one point of each family first, F17's first candidate at 1e6, the
+//! scale of the binding open budget (`17-store-parameters.md:756-761`): `ops-4096`, `rec-4mib`, `body-32mib`, `ovl-1mib`,
+//! `quiet-2mib-x8`; then the other 13 in family order. A short window then still holds one point of every family.
+//!
 //! **The arms** ([MP §4.1]): arm 0 `replay` opens the tail's extents and reads `[checkpoint_lsn, committed_lsn)` through
 //! the fixed 64-KiB buffer, scans, validates, decodes, applies and finishes the overlay; arm 1 `floor.open` is
 //! [`crate::tail::store::open_floor`]. Open at a grid point = floor + replay (`60-roadmap.md:790`).
 //!
-//! **The driver** ([MP §9.7], `measurement-protocol.md:777-780`): `--host laptop|hosted`, `--condition
-//! idle|loaded|synthetic`, `--load-log <file>` (a loaded or synthetic run's condition is the log header's, and a loaded
-//! run's replay verdict is read over its window, `:771-776`), `--out <dir>` (each record one JSON file there, created
-//! new, streamed, removed on a failed write, [MP §7.2]); and `--quantity <name>` (one run, in this process),
-//! `--commit <text>` and `--toolchain <text>` (recorded; `unknown` when absent), `--scratch <dir>` (the fixture's parent;
-//! default the system temporary directory), `--smoke` (every quantity at the test profile, each arm once, nothing
-//! recorded), `--list` (one JSON line of tail measures per quantity), `--help`. Without `--quantity`, each quantity runs
-//! in a child process of its own, in grid order ([MP §4.6]: `private_peak` cannot be reset). Exit 0 done, 1 a run or
-//! arm failed or a record could not be written, 2 a usage error.
+//! **The driver** ([MP §9.7] as merged, through the shared [`crate::m1::driver`]): `--host laptop|hosted`,
+//! `--condition idle|loaded|synthetic`, `--load-log <file>` (a loaded or synthetic run's condition is the log header's,
+//! and a loaded run's replay verdict is read over its window), `--quantity <name>` (one run, in this process),
+//! `--commit <sha>` and `--toolchain <text>` (required), `--out <dir>` (required unless `--smoke`, refused with it; each
+//! record one JSON file directly there, created when missing, streamed, removed on a failed write, [MP §7.2]),
+//! `--smoke` (the requested quantity, or every one, at the test profile, each arm once, nothing recorded), `--help`;
+//! and, beside the contract, `m10 --list` alone (one JSON line of tail measures per quantity). Every fixture lies below
+//! the working directory ([MP §9.7] "The working directory"; R-34 B-1). Without `--quantity`, each quantity runs in a
+//! child process of its own, in grid order ([MP §4.6]: `private_peak` cannot be reset). Exit 0 done, 1 a run or arm
+//! failed or a record could not be written, 2 a usage error.
 
 use crate::arm::{Arm, ArmError, Ticker, TimedFn};
-use crate::condition::{Condition, ConditionKind};
 use crate::host::{CommandRunner, HostKind};
-use crate::load::validate::{COVER_WAIT, read_log_file, verdict_when_covered};
+use crate::m1::driver::{self, Args};
 use crate::run::{Context, RunSpec, measure};
 use crate::tail::store::{
     Fixture, HOT_BYTES_PER_NODE, SEALED_FILES, VfsLog, open_floor, remove_fixture, write_fixture,
@@ -40,16 +44,10 @@ use serde_json::json;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::time::{SystemTime, UNIX_EPOCH};
 
 /// The measurement's row number.
 pub const MEASUREMENT: u32 = 10;
-/// Exit: done.
-pub const EXIT_DONE: u8 = 0;
-/// Exit: a run or arm failed, or a record could not be written.
-pub const EXIT_FAILED: u8 = 1;
-/// Exit: a usage error.
-pub const EXIT_USAGE: u8 = 2;
+pub use driver::{EXIT_DONE, EXIT_FAILED, EXIT_USAGE};
 /// The sealed files' length at the test profile.
 pub const TEST_SEALED_LEN: u64 = 4_096;
 
@@ -79,7 +77,8 @@ fn bytes_name(b: u64) -> String {
     }
 }
 
-/// The 18 quantities of the grid, in run order (`17-store-parameters.md:757-762`).
+/// The 18 quantities of the grid (`17-store-parameters.md:757-762`) in run order: one point of each family first, F17's
+/// first candidate at 1e6, then the rest in family order (R-34 B-3, M-15).
 pub fn grid() -> Vec<Quantity> {
     let q = |clause: Clause, threshold: u64, mult: u64, n: u32| {
         let scale = if n == 100_000 { "n1e5" } else { "n1e6" };
@@ -116,7 +115,22 @@ pub fn grid() -> Vec<Quantity> {
             g.push(q(Clause::Quiet, p10, m, 1_000_000));
         }
     }
-    g
+    let first = |q: &Quantity| {
+        [
+            "ops-4096.n1e6",
+            "rec-4mib.n1e6",
+            "body-32mib.n1e6",
+            "ovl-1mib.n1e6",
+            "quiet-2mib-x8.n1e6",
+        ]
+        .iter()
+        .position(|n| *n == q.name)
+    };
+    let (mut lead, rest): (Vec<Quantity>, Vec<Quantity>) =
+        g.into_iter().partition(|q| first(q).is_some());
+    lead.sort_by_key(|q| first(q));
+    lead.extend(rest);
+    lead
 }
 
 /// The scale a run is made at.
@@ -253,105 +267,18 @@ pub struct System<'a, V, M, T, R> {
 }
 
 /// The usage text.
-pub const USAGE: &str = "usage: m10 --host laptop|hosted --condition idle|loaded|synthetic [--load-log <file>] --out <dir>
-           [--quantity <name>] [--commit <text>] [--toolchain <text>] [--scratch <dir>]
-       m10 --smoke [--scratch <dir>]
+pub const USAGE: &str =
+    "usage: m10 --host laptop|hosted --condition idle|loaded|synthetic [--load-log <file>]
+           [--quantity <name>] --commit <sha> --toolchain <text> --out <dir>
+       m10 --smoke [--quantity <name>] --commit <sha> --toolchain <text>
        m10 --list
        m10 --help
+Every fixture lies below the working directory.
 ";
 
-#[derive(Debug, Default)]
-struct Args {
-    host: Option<HostKind>,
-    condition: Option<ConditionKind>,
-    load_log: Option<PathBuf>,
-    out: Option<PathBuf>,
-    quantity: Option<String>,
-    commit: Option<String>,
-    toolchain: Option<String>,
-    scratch: Option<PathBuf>,
-    smoke: bool,
-    list: bool,
-    help: bool,
-}
-
-fn parse(args: &[OsString]) -> Result<Args, String> {
-    let mut a = Args::default();
-    let mut it = args.iter();
-    while let Some(flag) = it.next() {
-        let flag = flag.to_str().ok_or("an argument is not valid Unicode")?;
-        let mut value = |what: &str| -> Result<String, String> {
-            it.next()
-                .and_then(|v| v.to_str())
-                .map(str::to_string)
-                .ok_or_else(|| format!("{what} needs a value"))
-        };
-        match flag {
-            "--host" => {
-                let v = value("--host")?;
-                a.host = Some(HostKind::parse(&v).ok_or(format!("unknown host '{v}'"))?);
-            }
-            "--condition" => {
-                let v = value("--condition")?;
-                a.condition =
-                    Some(ConditionKind::parse(&v).ok_or(format!("unknown condition '{v}'"))?);
-            }
-            "--load-log" => a.load_log = Some(value("--load-log")?.into()),
-            "--out" => a.out = Some(value("--out")?.into()),
-            "--quantity" => a.quantity = Some(value("--quantity")?),
-            "--commit" => a.commit = Some(value("--commit")?),
-            "--toolchain" => a.toolchain = Some(value("--toolchain")?),
-            "--scratch" => a.scratch = Some(value("--scratch")?.into()),
-            "--smoke" => a.smoke = true,
-            "--list" => a.list = true,
-            "--help" | "-h" => a.help = true,
-            other => return Err(format!("unknown argument '{other}'")),
-        }
-    }
-    if let Some(q) = &a.quantity
-        && !grid().iter().any(|g| &g.name == q)
-    {
-        return Err(format!("unknown quantity '{q}'"));
-    }
-    if a.help || a.smoke || a.list {
-        return Ok(a);
-    }
-    if a.host.is_none() || a.condition.is_none() || a.out.is_none() {
-        return Err("a recording run needs --host, --condition and --out".into());
-    }
-    if a.condition != Some(ConditionKind::Idle) && a.load_log.is_none() {
-        return Err("a loaded or synthetic run needs --load-log".into());
-    }
-    Ok(a)
-}
-
-fn now_ms() -> u64 {
-    SystemTime::now()
-        .duration_since(UNIX_EPOCH)
-        .map_or(0, |d| d.as_millis() as u64)
-}
-
-/// Writes `rec` as a new file `<dir>/<raw file name>` ([MP §7.2]): created new, streamed, removed on a failed write.
-fn write_record(rec: &crate::record::RunRecord, dir: &Path) -> std::io::Result<PathBuf> {
-    let name = rec.raw_file_name().map_err(std::io::Error::other)?;
-    let path = dir.join(name);
-    let file = std::fs::OpenOptions::new()
-        .write(true)
-        .create_new(true)
-        .open(&path)?;
-    let finish = |file: std::fs::File| -> std::io::Result<()> {
-        let mut w = std::io::BufWriter::new(file);
-        rec.write_json(&mut w)?;
-        w.write_all(b"\n")?;
-        w.into_inner().map_err(|e| e.into_error())?.sync_all()
-    };
-    match finish(file) {
-        Ok(()) => Ok(path),
-        Err(e) => {
-            let _ = std::fs::remove_file(&path);
-            Err(e)
-        }
-    }
+/// The fixtures' parent: the working directory ([MP §9.7] "The working directory"; R-34 B-1).
+fn work_dir() -> Result<PathBuf, String> {
+    std::env::current_dir().map_err(|e| format!("the working directory: {e}"))
 }
 
 /// Generates `q`'s tail at `profile` and writes its fixture under `scratch`.
@@ -378,13 +305,14 @@ fn smoke<V: StoreFs + SealedMaps, T: Ticker + Clone>(
     vfs: &V,
     ticker: &T,
     scratch: &Path,
+    qs: &[Quantity],
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
     let mut code = EXIT_DONE;
-    for q in grid() {
+    for q in qs {
         let run = || -> Result<Vec<(String, u64)>, String> {
-            let (tail, guard) = fixture(vfs, scratch, &q, Profile::Test)?;
+            let (tail, guard) = fixture(vfs, scratch, q, Profile::Test)?;
             let root = vfs
                 .open_root(&guard.fx.dir, RootRole::Other, RootAccess::Read)
                 .map_err(|e| e.to_string())?;
@@ -469,30 +397,20 @@ fn run_one<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let condition = match (a.condition, &a.load_log) {
-        (Some(ConditionKind::Idle), _) => Condition::Idle,
-        (Some(kind), Some(log)) => match read_log_file(log) {
-            Ok(l) if l.header.condition().kind() == kind => l.header.condition(),
-            Ok(l) => {
-                let _ = writeln!(
-                    err,
-                    "m10: --condition {} but the load log's header gives {}",
-                    kind.as_str(),
-                    l.header.condition().kind().as_str()
-                );
-                return EXIT_USAGE;
-            }
-            Err(e) => {
-                let _ = writeln!(err, "m10: the load log: {e}");
-                return EXIT_FAILED;
-            }
-        },
-        _ => {
-            let _ = writeln!(err, "m10: a loaded or synthetic run needs --load-log");
-            return EXIT_USAGE;
+    let condition = match driver::condition(a) {
+        Ok(c) => c,
+        Err((code, e)) => {
+            let _ = writeln!(err, "m10: {e}");
+            return code;
         }
     };
-    let scratch = a.scratch.clone().unwrap_or_else(std::env::temp_dir);
+    let scratch = match work_dir() {
+        Ok(d) => d,
+        Err(e) => {
+            let _ = writeln!(err, "m10 {}: {e}", q.name);
+            return EXIT_FAILED;
+        }
+    };
     let (tail, guard) = match fixture(sys.vfs, &scratch, q, sys.profile) {
         Ok(f) => f,
         Err(e) => {
@@ -522,10 +440,10 @@ fn run_one<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
         ticker: sys.ticker.clone(),
         runner: sys.runner,
         host: a.host.unwrap_or(HostKind::Laptop),
-        toolchain: a.toolchain.clone().unwrap_or_else(|| "unknown".into()),
-        commit: a.commit.clone().unwrap_or_else(|| "unknown".into()),
+        toolchain: a.toolchain.clone().unwrap_or_default(),
+        commit: a.commit.clone().unwrap_or_default(),
     };
-    let t0 = now_ms();
+    let t0 = driver::now_ms();
     let mut rec = match measure(&mut ctx, &spec, &mut [&mut replay, &mut floor]) {
         Ok(r) => r,
         Err(e) => {
@@ -533,20 +451,10 @@ fn run_one<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
             return EXIT_FAILED;
         }
     };
-    let t1 = now_ms();
-    if a.condition == Some(ConditionKind::Loaded)
-        && let Some(log) = &a.load_log
-    {
-        match verdict_when_covered(log, t0, t1, COVER_WAIT) {
-            Ok((_, v)) => rec.set_load_replay(v.pass()),
-            Err(e) => {
-                let _ = writeln!(err, "m10 {}: the load log's verdict: {e}", q.name);
-                rec.set_load_replay(false);
-            }
-        }
-    }
+    let t1 = driver::now_ms();
+    driver::set_load_verdict(a, &mut rec, t0, t1, err, &format!("m10 {}", q.name));
     let dir = a.out.clone().unwrap_or_default();
-    match write_record(&rec, &dir) {
+    match driver::write_record(&rec, &dir) {
         Ok(p) => {
             let _ = writeln!(out, "m10 {} recorded {}", q.name, p.display());
             EXIT_DONE
@@ -558,15 +466,21 @@ fn run_one<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
     }
 }
 
-/// The driver's command line: parses `args` (without the program name), then runs the smoke, the list, one quantity,
-/// or every quantity in a child process of its own; returns the exit code.
+/// The driver's command line ([MP §9.7] through [`crate::m1::driver`]): `--list` alone prints the list; otherwise
+/// parses `args` (without the program name) by the shared contract, then runs the smoke, one quantity, or every
+/// quantity in a child process of its own; returns the exit code.
 pub fn cli<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunner>(
     args: &[OsString],
     sys: System<'_, V, M, T, R>,
     out: &mut dyn Write,
     err: &mut dyn Write,
 ) -> u8 {
-    let a = match parse(args) {
+    if args.len() == 1 && args[0] == "--list" {
+        return list(sys.meter, sys.profile, out, err);
+    }
+    let g = grid();
+    let names: Vec<&str> = g.iter().map(|q| q.name.as_str()).collect();
+    let a: Args = match driver::parse(args, &names) {
         Ok(a) => a,
         Err(e) => {
             let _ = writeln!(err, "m10: {e}");
@@ -578,43 +492,37 @@ pub fn cli<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
         let _ = out.write_all(USAGE.as_bytes());
         return EXIT_DONE;
     }
+    let asked = a
+        .quantity
+        .as_ref()
+        .and_then(|n| g.iter().find(|q| &q.name == n));
     if a.smoke {
-        let scratch = a.scratch.clone().unwrap_or_else(std::env::temp_dir);
-        return smoke(sys.vfs, &sys.ticker, &scratch, out, err);
-    }
-    if a.list {
-        return list(sys.meter, sys.profile, out, err);
-    }
-    if let Some(name) = &a.quantity {
-        let q = grid()
-            .into_iter()
-            .find(|g| &g.name == name)
-            .expect("checked by parse");
-        return run_one(sys, &a, &q, out, err);
-    }
-    let mut worst = EXIT_DONE;
-    for q in grid() {
-        let mut child = args.to_vec();
-        child.push("--quantity".into());
-        child.push(q.name.clone().into());
-        let code = match (sys.spawn)(&child) {
-            Ok(c) => c,
+        let scratch = match work_dir() {
+            Ok(d) => d,
             Err(e) => {
-                let _ = writeln!(err, "m10 {}: {e}", q.name);
-                EXIT_FAILED
+                let _ = writeln!(err, "m10 smoke: {e}");
+                return EXIT_FAILED;
             }
         };
-        let _ = writeln!(out, "m10 {} exit {code}", q.name);
-        worst = worst.max(code);
+        let qs: Vec<Quantity> = match asked {
+            Some(q) => vec![q.clone()],
+            None => g.clone(),
+        };
+        return smoke(sys.vfs, &sys.ticker, &scratch, &qs, out, err);
     }
-    worst
+    if let Some(q) = asked {
+        return run_one(sys, &a, q, out, err);
+    }
+    driver::each_in_own_process(args, &names, sys.spawn, out, err, "m10")
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
     use crate::arm::{MonoTicker, valid_name};
+    use crate::condition::Condition;
     use crate::host::tests::Canned;
+    use crate::m1::driver;
     use crate::record::RunRecord;
     use crate::tail::memfs::MemFs;
     use crate::tail::store::tests::{multi_extent_tail, scratch};
@@ -629,6 +537,14 @@ mod tests {
 
     fn no_spawn(_: &[OsString]) -> Result<u8, String> {
         Err("no child process in this test".into())
+    }
+
+    /// `--commit` and `--toolchain`, which every mode but `--help` needs.
+    const CT: [&str; 4] = ["--commit", "0123abcd", "--toolchain", "1.98.1"];
+
+    /// The working directory, the only directory a test's store holds: every fixture must lie directly below it.
+    fn cwd() -> PathBuf {
+        std::env::current_dir().unwrap()
     }
 
     /// Runs the command line over `fs` with a real ticker; returns (exit, stdout, stderr).
@@ -661,7 +577,7 @@ mod tests {
         let clock = FakeTicker::manual();
         let runner = clock.with_steps(&[1]);
         let c = clock.clone();
-        let fs = MemFs::with_hook(&scratch(), move || c.advance(2 * MS));
+        let fs = MemFs::with_hook(&cwd(), move || c.advance(2 * MS));
         let meter = FakeMeter::new(8_000_000_000);
         let mut spawn = no_spawn;
         let (mut out, mut err) = (Vec::new(), Vec::new());
@@ -707,7 +623,19 @@ mod tests {
             .map(count),
             [6, 3, 3, 2, 4]
         );
-        assert_eq!(g[0].name, "ops-4096.n1e5");
+        let lead: Vec<&str> = g[..5].iter().map(|q| q.name.as_str()).collect();
+        assert_eq!(
+            lead,
+            [
+                "ops-4096.n1e6",
+                "rec-4mib.n1e6",
+                "body-32mib.n1e6",
+                "ovl-1mib.n1e6",
+                "quiet-2mib-x8.n1e6"
+            ],
+            "one point of each family first (R-34 B-3, M-15)"
+        );
+        assert_eq!(g[5].name, "ops-4096.n1e5");
         assert_eq!(g[17].name, "quiet-1536kib-x4.n1e6");
         assert!(names.contains("rec-4mib.n1e6") && names.contains("body-32mib.n1e6"));
         assert!(names.contains("ovl-512kib.n1e6") && names.contains("quiet-2mib-x8.n1e6"));
@@ -757,18 +685,29 @@ mod tests {
             .collect();
         assert_eq!(of(Clause::Quiet), quiet);
         // At production a run's target is the candidate itself; at the test profile the profile's threshold.
-        let q = &g[9];
+        let q = g.iter().find(|q| q.name == "body-32mib.n1e6").unwrap();
         assert_eq!(target(q, Profile::Production).threshold, q.threshold);
         assert_eq!(target(q, Profile::Test).threshold, Params::TEST.p08);
         assert_eq!(Profile::Production.sealed_len(1_000_000), 12_375_000);
     }
 
     /// `--smoke` runs every quantity at the test profile with each arm once: 36 lines, one per (quantity, arm), each
-    /// fixture's floor mapping 8 files.
+    /// fixture's floor mapping 8 files; with `--quantity` it runs that one alone.
     #[test]
     fn smoke_exercises_every_arm_once() {
-        let fs = MemFs::with_dir(&scratch());
-        let (code, out, err) = run(&fs, &["--smoke", "--scratch", "/scratch"]);
+        let fs = MemFs::with_dir(&cwd());
+        let one = [&["--smoke", "--quantity", "ops-4096.n1e5"][..], &CT].concat();
+        let (code, out, err) = run(&fs, &one);
+        assert_eq!(code, EXIT_DONE, "{err}");
+        let lines: Vec<&str> = out.lines().collect();
+        assert_eq!(lines.len(), 2, "{out}");
+        assert!(
+            lines
+                .iter()
+                .all(|l| l.starts_with("m10 smoke ops-4096.n1e5 "))
+        );
+        fs.clear_log();
+        let (code, out, err) = run(&fs, &[&["--smoke"][..], &CT].concat());
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
         assert_eq!(lines.len(), 36, "{out}");
@@ -795,35 +734,24 @@ mod tests {
         assert_eq!(log.opens.iter().filter(|o| *o == "HEAD").count(), 18);
     }
 
-    /// `--smoke` with the contract flags records nothing: no file under `--out`, and every fixture is removed.
+    /// `--smoke` with the runner's contract flags records nothing: no line says recorded, every fixture is removed,
+    /// and `--smoke` with `--out` is refused.
     #[test]
     fn smoke_records_nothing() {
-        let out_dir = scratch_dir("m10-smoke");
-        let fs = MemFs::with_dir(&scratch());
-        let out_s = out_dir.to_str().unwrap().to_string();
-        let (code, out, err) = run(
-            &fs,
-            &[
-                "--host",
-                "laptop",
-                "--condition",
-                "idle",
-                "--out",
-                &out_s,
-                "--smoke",
-                "--scratch",
-                "/scratch",
-            ],
-        );
+        let fs = MemFs::with_dir(&cwd());
+        let args = [
+            &["--host", "laptop", "--condition", "idle", "--smoke"][..],
+            &CT,
+        ]
+        .concat();
+        let (code, out, err) = run(&fs, &args);
         assert_eq!(code, EXIT_DONE, "{err}");
         assert_eq!(out.lines().count(), 36);
-        assert_eq!(
-            std::fs::read_dir(&out_dir).unwrap().count(),
-            0,
-            "nothing under --out"
-        );
+        assert!(!out.contains("recorded"));
         assert!(fs.files().is_empty(), "every fixture removed");
-        let _ = std::fs::remove_dir_all(&out_dir);
+        let (code, _, err) = run(&fs, &[&args[..], &["--out", "/o"]].concat());
+        assert_eq!(code, EXIT_USAGE);
+        assert!(err.contains("takes no --out"), "{err}");
     }
 
     /// The floor arm ([60 §5.3], `60-roadmap.md:790`) reads `HEAD` once with 8,192 bytes, then reads each of 8 sealed
@@ -831,7 +759,11 @@ mod tests {
     #[test]
     fn floor_reads_head_once_and_maps_eight_files() {
         let fs = MemFs::with_dir(&scratch());
-        let tail = generate(&target(&grid()[0], Profile::Test), false).unwrap();
+        let ops = grid()
+            .into_iter()
+            .find(|q| q.name == "ops-4096.n1e5")
+            .unwrap();
+        let tail = generate(&target(&ops, Profile::Test), false).unwrap();
         let fx = write_fixture(&fs, &scratch(), "fx", &tail, TEST_SEALED_LEN).unwrap();
         let root = fs
             .open_root(&fx.dir, RootRole::Other, RootAccess::Read)
@@ -884,11 +816,12 @@ mod tests {
         assert!(log.maps.is_empty());
     }
 
-    /// A `--quantity` run writes exactly one record under `--out` that reads back: measurement 10, the two arms, t2's
-    /// 1,000 × 5 plan, the given commit and toolchain; its fixture is removed.
+    /// A `--quantity` run writes exactly one record directly in `--out`, which is created when missing, that reads
+    /// back: measurement 10, the two arms, t2's 1,000 × 5 plan, the given commit and toolchain; its fixture is removed.
     #[test]
     fn run_writes_one_valid_record() {
-        let out_dir = scratch_dir("m10-run");
+        let root = scratch_dir("m10-run");
+        let out_dir = root.join("measurements").join("10");
         let o = out_dir.to_str().unwrap().to_string();
         let (code, out, err, fs) = record(&[
             "--quantity",
@@ -899,8 +832,6 @@ mod tests {
             "idle",
             "--out",
             &o,
-            "--scratch",
-            "/scratch",
             "--commit",
             "0123abcd",
             "--toolchain",
@@ -930,51 +861,71 @@ mod tests {
         assert_eq!(rec.condition, Condition::Idle);
         assert!(rec.valid(), "{:?}", rec.disqualifications());
         assert!(fs.files().is_empty(), "the fixture is removed");
-        let _ = std::fs::remove_dir_all(&out_dir);
+        let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// Usage errors exit 2 with the reason: an unknown flag or quantity, a bad host, a run without --host, --condition
-    /// or --out, a loaded run without --load-log. `--help` and `--list` exit 0.
+    /// Usage errors exit 2 with the reason, by the shared contract ([MP §9.7]): `--commit` and `--toolchain` required,
+    /// a recording run without `--out`, `--host` or `--condition`, a loaded run without `--load-log`, `--smoke` with
+    /// `--out`, `--scratch` (every fixture lies below the working directory), an unknown flag, host, condition or
+    /// quantity. `--help` and `--list` alone exit 0.
     #[test]
     fn cli_refuses_usage_errors() {
-        let fs = MemFs::with_dir(&scratch());
+        let fs = MemFs::with_dir(&cwd());
         let contract = ["--host", "laptop", "--condition", "idle", "--out", "/o"];
+        let with = |more: &[&'static str]| -> Vec<&'static str> { [&CT[..], more].concat() };
         let cases: Vec<(Vec<&str>, &str)> = vec![
-            (vec!["--bogus"], "unknown argument"),
+            (contract.to_vec(), "--commit and --toolchain"),
             (
-                vec!["--quantity", "ops-9.n1e5", "--smoke"],
+                [&contract[..], &["--commit", "c"]].concat(),
+                "--commit and --toolchain",
+            ),
+            (with(&["--bogus"]), "unknown argument '--bogus'"),
+            (
+                with(&["--quantity", "ops-9.n1e5", "--smoke"]),
                 "unknown quantity",
             ),
             (
-                vec!["--host", "desk", "--condition", "idle", "--out", "/o"],
+                with(&["--host", "desk", "--condition", "idle", "--out", "/o"]),
                 "unknown host",
             ),
             (
-                vec!["--host", "laptop", "--condition", "busy", "--out", "/o"],
+                with(&["--host", "laptop", "--condition", "busy", "--out", "/o"]),
                 "unknown condition",
             ),
-            (vec!["--condition", "idle", "--out", "/o"], "needs --host"),
-            (vec!["--host", "laptop", "--out", "/o"], "needs --host"),
             (
-                vec!["--host", "laptop", "--condition", "idle"],
-                "needs --host",
+                with(&["--condition", "idle", "--out", "/o"]),
+                "needs --host and --condition",
             ),
             (
-                vec!["--host", "laptop", "--condition", "loaded", "--out", "/o"],
+                with(&["--host", "laptop", "--out", "/o"]),
+                "needs --host and --condition",
+            ),
+            (
+                with(&["--host", "laptop", "--condition", "idle"]),
+                "needs --out",
+            ),
+            (
+                with(&["--host", "laptop", "--condition", "loaded", "--out", "/o"]),
                 "needs --load-log",
             ),
             (
-                vec![
+                with(&[
                     "--host",
                     "laptop",
                     "--condition",
                     "synthetic",
                     "--out",
                     "/o",
-                ],
+                ]),
                 "needs --load-log",
             ),
-            (vec!["--out"], "needs a value"),
+            (with(&["--smoke", "--out", "/o"]), "takes no --out"),
+            (
+                with(&["--smoke", "--scratch", "/scratch"]),
+                "unknown argument '--scratch'",
+            ),
+            (with(&["--list"]), "unknown argument '--list'"),
+            (with(&["--out"]), "needs a value"),
         ];
         for (args, why) in cases {
             let (code, _, err) = run(&fs, &args);
@@ -986,8 +937,10 @@ mod tests {
         assert_eq!((code, out.as_str()), (EXIT_DONE, USAGE));
         let (code, out, _) = run(&fs, &["--list"]);
         assert_eq!((code, out.lines().count()), (EXIT_DONE, 18));
+        let names: Vec<String> = grid().into_iter().map(|q| q.name).collect();
+        let refs: Vec<&str> = names.iter().map(String::as_str).collect();
         assert!(
-            parse(&os(&contract)).is_ok(),
+            driver::parse(&os(&[&contract[..], &CT].concat()), &refs).is_ok(),
             "the §9.7 contract alone is a valid call"
         );
     }
@@ -996,9 +949,13 @@ mod tests {
     /// `--quantity <q>`; the exit is the worst child's, and a child that cannot start counts as failed.
     #[test]
     fn cli_without_quantity_spawns_one_process_per_run() {
-        let fs = MemFs::with_dir(&scratch());
+        let fs = MemFs::with_dir(&cwd());
         let meter = FakeMeter::new(8_000_000_000);
-        let base = os(&["--host", "laptop", "--condition", "idle", "--out", "/o"]);
+        let base = os(&[
+            &["--host", "laptop", "--condition", "idle", "--out", "/o"][..],
+            &CT,
+        ]
+        .concat());
         for (bad, expect) in [
             (None, EXIT_DONE),
             (Some(Ok(1)), EXIT_FAILED),
@@ -1072,8 +1029,10 @@ mod tests {
                 l.clone(),
                 "--out".into(),
                 o.clone(),
-                "--scratch".into(),
-                "/scratch".into(),
+                "--commit".into(),
+                "c".into(),
+                "--toolchain".into(),
+                "t".into(),
             ]
         };
         let a = args("synthetic");
@@ -1135,5 +1094,43 @@ mod tests {
             assert!(["ops", "rec", "body", "ovl"].contains(&v["stop"].as_str().unwrap()));
             assert_eq!(v["threshold"].as_u64(), Some(t.threshold));
         }
+    }
+
+    /// The night's plan lists exactly the grid's names in run order ([MP §4.1], R-27 Q2, R-34 M-13).
+    #[test]
+    fn grid_equals_the_plans_list() {
+        let plan = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../xtask/measure-night.toml");
+        let text = std::fs::read_to_string(plan).unwrap();
+        let list = driver::plan_quantities(&text, MEASUREMENT).unwrap();
+        let names: Vec<String> = grid().into_iter().map(|q| q.name).collect();
+        assert_eq!(list, names);
+    }
+
+    /// The fixtures lie below the working directory, not the system temporary directory ([MP §9.7] "The working
+    /// directory"; R-34 B-1): over a store that holds only the working directory, the smoke and a recording run make
+    /// and remove their fixtures, which they could not do anywhere else.
+    #[test]
+    fn fixtures_stay_below_the_working_directory() {
+        let fs = MemFs::with_dir(&cwd());
+        let (code, out, err) = run(
+            &fs,
+            &[&["--smoke", "--quantity", "ops-4096.n1e5"][..], &CT].concat(),
+        );
+        assert_eq!(code, EXIT_DONE, "{err}");
+        assert_eq!(out.lines().count(), 2);
+        assert!(
+            fs.log().opens.iter().any(|o| o == "HEAD"),
+            "the fixture was opened"
+        );
+        assert!(fs.files().is_empty(), "and removed");
+        let elsewhere = MemFs::with_dir(&std::env::temp_dir());
+        let (code, _, err) = run(
+            &elsewhere,
+            &[&["--smoke", "--quantity", "ops-4096.n1e5"][..], &CT].concat(),
+        );
+        assert_eq!(
+            code, EXIT_FAILED,
+            "a store without the working directory: {err}"
+        );
     }
 }
