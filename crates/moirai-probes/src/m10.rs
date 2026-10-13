@@ -4,15 +4,34 @@
 //! decides `F17-ckpt-ops`, `-ckpt-bytes`, `-ckpt-body` (the open side), `-tail-overlay`, `-tail-overlay-quiet` and
 //! `-quiet-mult` (`docs/spec/HOLES.md:41-46`; their constraints `17-store-parameters.md:757-762`).
 //!
-//! **The grid** (18 quantities, names by [MP §4.1]): `ops` at P06 4,096, 2,048 and 1,024 with N = 1e5 and 1e6;
-//! `rec` at P07 4, 2 and 1 MiB; `body` at P08 32, 16 and 8 MiB; `ovl` at P09 1 MiB and 512 KiB; `quiet` at P10 2 MiB and
-//! 1.5 MiB × P11 8 and 4; the last four families at N = 1e6 (cut D-3: open at 1e5 is replay(cap) + floor(1e5), the floor
-//! measured by the `ops` family at both scales). Every run is measurement 10 with minimum tier t2, the tier of the open
-//! budgets ([MP §3.2], `17-store-parameters.md:757`). The test profile's thresholds and E give the smoke's versions.
+//! **The grid** (31 quantities, names by [MP §4.1]). The night's 18 are F17's candidates: `ops` at P06 4,096, 2,048 and
+//! 1,024 with N = 1e5 and 1e6; `rec` at P07 4, 2 and 1 MiB; `body` at P08 32, 16 and 8 MiB; `ovl` at P09 1 MiB and
+//! 512 KiB; `quiet` at P10 2 MiB and 1.5 MiB × P11 8 and 4; the last four families at N = 1e6 (cut D-3: open at 1e5 is
+//! replay(cap) + floor(1e5), the floor measured by the `ops` family at both scales). The follow-up block of 13 (u17; R-40
+//! O-3, R-42 Q1 and Q3) lies below the night's candidates, chosen from its replay rates:
+//! - `ops` at P06 2,048 and 1,024 at N = 1e4, F17's unmeasured 1e4 clause (`17-store-parameters.md:757-762`);
+//! - `rec` at P07 512 and 256 KiB, `body` at P08 1 MiB and 512 KiB, `ovl` at P09 64 and 96 KiB, all at N = 1e5, the scale
+//!   of the 1.5-ms open budget, so their open is one run's replay + floor. Two of them measure a tail of another size
+//!   than their cap (R-44 I-2; the production tails, seeded by their names), and both are kept and read as they are:
+//!   - `rec-256kib.n1e5` is one commit of 765,160 B of `rec_bytes` (3,390 ops), larger than `rec-512kib.n1e5`'s
+//!     523,685 B (69 commits). A tail always holds its first commit, so a commit larger than its cap crosses it, as the
+//!     product's checkpoint trigger also lets the crossing record through (`17-store-parameters.md:354`);
+//!   - `ovl-96kib.n1e5` stops at an overlay of 27,660 B (15 commits), below `ovl-64kib.n1e5`'s 65,120 B, on the stop
+//!     rule's other clause: a tail ends before the first group that would take its measure past the cap, and its 16th
+//!     commit, of 3,265 ops, would take the overlay to 99,992 B;
+//! - `quiet` at P10 2 MiB with P06 2,048 (P11 4, 8 and 2) and 1,024 (P11 4 and 8): the night's quiet tails all ended on
+//!   P06 = 4,096's ops clause (D1). A quiet name with a P06 is `quiet-<P10>-x<P11>-p<P06>`, and that P06 is the target's
+//!   `params.p06` at production. P11 = 2 is in P11's range of 1–64 (`17-store-parameters.md:176`) but not one of F17's
+//!   candidates (R-42 Q3).
+//!
+//! Every run is measurement 10 with minimum tier t2, the tier of the open budgets ([MP §3.2],
+//! `17-store-parameters.md:757`). The test profile's thresholds and E give the smoke's versions.
 //!
 //! **The run order** (R-34 B-3, M-15; R-35 Q2, Q4): one point of each family first, F17's first candidate at 1e6, the
 //! scale of the binding open budget (`17-store-parameters.md:756-761`): `ops-4096`, `rec-4mib`, `body-32mib`, `ovl-1mib`,
-//! `quiet-2mib-x8`; then the other 13 in family order. A short window then still holds one point of every family.
+//! `quiet-2mib-x8`; then the other 13 in family order. A short window then still holds one point of every family. The
+//! follow-up block comes after the night's 18 by the same rule: `ops-2048.n1e4`, `quiet-2mib-x4-p2048.n1e6`,
+//! `rec-512kib.n1e5`, `body-1mib.n1e5`, `ovl-64kib.n1e5` first, then the rest, and `quiet-2mib-x2-p2048.n1e6` closes it.
 //!
 //! **The arms** ([MP §4.1]): arm 0 `replay` opens the tail's extents and reads `[checkpoint_lsn, committed_lsn)` through
 //! the fixed 64-KiB buffer, scans, validates, decodes, applies and finishes the overlay; arm 1 `floor.open` is
@@ -67,6 +86,8 @@ pub struct Quantity {
     pub mult: u64,
     /// The base's node count.
     pub n: u32,
+    /// The P06 of a quiet follow-up point (its `params.p06` at production); `None` is the profile's.
+    pub p06: Option<u64>,
 }
 
 fn bytes_name(b: u64) -> String {
@@ -77,14 +98,20 @@ fn bytes_name(b: u64) -> String {
     }
 }
 
-/// The 18 quantities of the grid (`17-store-parameters.md:757-762`) in run order: one point of each family first, F17's
-/// first candidate at 1e6, then the rest in family order (R-34 B-3, M-15).
+/// The 31 quantities of the grid in run order: the night's 18 (`17-store-parameters.md:757-762`), one point of each
+/// family first, F17's first candidate at 1e6, then the rest in family order (R-34 B-3, M-15); then the follow-up block
+/// of 13 by the same rule (R-40 O-3, R-42 Q1 and Q3).
 pub fn grid() -> Vec<Quantity> {
-    let q = |clause: Clause, threshold: u64, mult: u64, n: u32| {
-        let scale = if n == 100_000 { "n1e5" } else { "n1e6" };
-        let t = match clause {
-            Clause::Ops => threshold.to_string(),
-            Clause::Quiet => format!("{}-x{mult}", bytes_name(threshold)),
+    let q = |clause: Clause, threshold: u64, mult: u64, n: u32, p06: Option<u64>| {
+        let scale = match n {
+            10_000 => "n1e4",
+            100_000 => "n1e5",
+            _ => "n1e6",
+        };
+        let t = match (clause, p06) {
+            (Clause::Ops, _) => threshold.to_string(),
+            (Clause::Quiet, None) => format!("{}-x{mult}", bytes_name(threshold)),
+            (Clause::Quiet, Some(p)) => format!("{}-x{mult}-p{p}", bytes_name(threshold)),
             _ => bytes_name(threshold),
         };
         Quantity {
@@ -93,26 +120,27 @@ pub fn grid() -> Vec<Quantity> {
             threshold,
             mult,
             n,
+            p06,
         }
     };
     let mut g = Vec::new();
     for n in [100_000, 1_000_000] {
         for ops in [4_096, 2_048, 1_024] {
-            g.push(q(Clause::Ops, ops, 1, n));
+            g.push(q(Clause::Ops, ops, 1, n, None));
         }
     }
     for b in [4 * MIB, 2 * MIB, MIB] {
-        g.push(q(Clause::Rec, b, 1, 1_000_000));
+        g.push(q(Clause::Rec, b, 1, 1_000_000, None));
     }
     for b in [32 * MIB, 16 * MIB, 8 * MIB] {
-        g.push(q(Clause::Body, b, 1, 1_000_000));
+        g.push(q(Clause::Body, b, 1, 1_000_000, None));
     }
     for b in [MIB, 512 * KIB] {
-        g.push(q(Clause::Ovl, b, 1, 1_000_000));
+        g.push(q(Clause::Ovl, b, 1, 1_000_000, None));
     }
     for p10 in [2 * MIB, 1_536 * KIB] {
         for m in [8, 4] {
-            g.push(q(Clause::Quiet, p10, m, 1_000_000));
+            g.push(q(Clause::Quiet, p10, m, 1_000_000, None));
         }
     }
     let first = |q: &Quantity| {
@@ -130,6 +158,22 @@ pub fn grid() -> Vec<Quantity> {
         g.into_iter().partition(|q| first(q).is_some());
     lead.sort_by_key(|q| first(q));
     lead.extend(rest);
+    let (e4, e5, e6) = (10_000, 100_000, 1_000_000);
+    lead.extend([
+        q(Clause::Ops, 2_048, 1, e4, None),
+        q(Clause::Quiet, 2 * MIB, 4, e6, Some(2_048)),
+        q(Clause::Rec, 512 * KIB, 1, e5, None),
+        q(Clause::Body, MIB, 1, e5, None),
+        q(Clause::Ovl, 64 * KIB, 1, e5, None),
+        q(Clause::Ops, 1_024, 1, e4, None),
+        q(Clause::Quiet, 2 * MIB, 8, e6, Some(2_048)),
+        q(Clause::Quiet, 2 * MIB, 4, e6, Some(1_024)),
+        q(Clause::Quiet, 2 * MIB, 8, e6, Some(1_024)),
+        q(Clause::Rec, 256 * KIB, 1, e5, None),
+        q(Clause::Body, 512 * KIB, 1, e5, None),
+        q(Clause::Ovl, 96 * KIB, 1, e5, None),
+        q(Clause::Quiet, 2 * MIB, 2, e6, Some(2_048)),
+    ]);
     lead
 }
 
@@ -166,9 +210,12 @@ fn seed(name: &str) -> u64 {
     xxhash_rust::xxh3::xxh3_64(name.as_bytes())
 }
 
-/// The generator's target of `q` at `profile`.
+/// The generator's target of `q` at `profile`; at production a quiet follow-up point's P06 is the target's.
 pub fn target(q: &Quantity, profile: Profile) -> Target {
-    let p = profile.params();
+    let mut p = profile.params();
+    if let (Profile::Production, Some(p06)) = (profile, q.p06) {
+        p.p06 = p06;
+    }
     let (threshold, mult) = match profile {
         Profile::Production => (q.threshold, q.mult),
         Profile::Test => match q.clause {
@@ -602,15 +649,33 @@ mod tests {
         )
     }
 
-    /// 18 quantities with valid, unique names ([MP §4.1], `measurement-protocol.md:169`): 6 `ops`, 3 `rec`, 3 `body`,
-    /// 2 `ovl`, 4 `quiet`.
+    /// The follow-up block in run order (u17, cut §3.4).
+    const FOLLOW_UP: [&str; 13] = [
+        "ops-2048.n1e4",
+        "quiet-2mib-x4-p2048.n1e6",
+        "rec-512kib.n1e5",
+        "body-1mib.n1e5",
+        "ovl-64kib.n1e5",
+        "ops-1024.n1e4",
+        "quiet-2mib-x8-p2048.n1e6",
+        "quiet-2mib-x4-p1024.n1e6",
+        "quiet-2mib-x8-p1024.n1e6",
+        "rec-256kib.n1e5",
+        "body-512kib.n1e5",
+        "ovl-96kib.n1e5",
+        "quiet-2mib-x2-p2048.n1e6",
+    ];
+
+    /// 31 quantities with valid, unique names ([MP §4.1], `measurement-protocol.md:169`): 8 `ops`, 5 `rec`, 5 `body`,
+    /// 4 `ovl`, 9 `quiet`; the night's 18 first, unchanged and with no P06 of their own, then the follow-up block in its
+    /// order, one point of each family first.
     #[test]
-    fn grid_has_eighteen_valid_quantities() {
+    fn grid_has_thirty_one_valid_quantities() {
         let g = grid();
-        assert_eq!(g.len(), 18);
+        assert_eq!(g.len(), 31);
         assert!(g.iter().all(|q| valid_name(&q.name)), "{g:?}");
         let names: BTreeSet<&str> = g.iter().map(|q| q.name.as_str()).collect();
-        assert_eq!(names.len(), 18, "unique");
+        assert_eq!(names.len(), 31, "unique");
         let count = |c: Clause| g.iter().filter(|q| q.clause == c).count();
         assert_eq!(
             [
@@ -621,7 +686,7 @@ mod tests {
                 Clause::Quiet
             ]
             .map(count),
-            [6, 3, 3, 2, 4]
+            [8, 5, 5, 4, 9]
         );
         let lead: Vec<&str> = g[..5].iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
@@ -639,13 +704,157 @@ mod tests {
         assert_eq!(g[17].name, "quiet-1536kib-x4.n1e6");
         assert!(names.contains("rec-4mib.n1e6") && names.contains("body-32mib.n1e6"));
         assert!(names.contains("ovl-512kib.n1e6") && names.contains("quiet-2mib-x8.n1e6"));
+        assert!(g[..18].iter().all(|q| q.p06.is_none()));
+        let follow: Vec<&str> = g[18..].iter().map(|q| q.name.as_str()).collect();
+        assert_eq!(
+            follow, FOLLOW_UP,
+            "the follow-up block after the night's 18"
+        );
     }
 
-    /// The thresholds are F17's candidates (`17-store-parameters.md:757-762`; `docs/spec/HOLES.md:41-46`): P06 4,096,
-    /// 2,048, 1,024 at 1e5 and 1e6; P07 4, 2, 1 MiB; P08 32, 16, 8 MiB; P09 1 MiB, 512 KiB; P10 2 MiB, 1.5 MiB × P11 8, 4.
+    /// Each follow-up point has the parameters of cut §3.4, and so has its production target; the night's 18 targets are
+    /// unchanged: the production parameters, seeded by their names.
+    #[test]
+    fn follow_up_points_have_their_parameters() {
+        use Clause::{Body, Ops, Ovl, Quiet, Rec};
+        // (name, clause, threshold, P11, N, P06)
+        type Point = (&'static str, Clause, u64, u64, u32, Option<u64>);
+        let want: [Point; 13] = [
+            ("ops-2048.n1e4", Ops, 2_048, 1, 10_000, None),
+            (
+                "quiet-2mib-x4-p2048.n1e6",
+                Quiet,
+                2 * MIB,
+                4,
+                1_000_000,
+                Some(2_048),
+            ),
+            ("rec-512kib.n1e5", Rec, 512 * KIB, 1, 100_000, None),
+            ("body-1mib.n1e5", Body, MIB, 1, 100_000, None),
+            ("ovl-64kib.n1e5", Ovl, 64 * KIB, 1, 100_000, None),
+            ("ops-1024.n1e4", Ops, 1_024, 1, 10_000, None),
+            (
+                "quiet-2mib-x8-p2048.n1e6",
+                Quiet,
+                2 * MIB,
+                8,
+                1_000_000,
+                Some(2_048),
+            ),
+            (
+                "quiet-2mib-x4-p1024.n1e6",
+                Quiet,
+                2 * MIB,
+                4,
+                1_000_000,
+                Some(1_024),
+            ),
+            (
+                "quiet-2mib-x8-p1024.n1e6",
+                Quiet,
+                2 * MIB,
+                8,
+                1_000_000,
+                Some(1_024),
+            ),
+            ("rec-256kib.n1e5", Rec, 256 * KIB, 1, 100_000, None),
+            ("body-512kib.n1e5", Body, 512 * KIB, 1, 100_000, None),
+            ("ovl-96kib.n1e5", Ovl, 96 * KIB, 1, 100_000, None),
+            (
+                "quiet-2mib-x2-p2048.n1e6",
+                Quiet,
+                2 * MIB,
+                2,
+                1_000_000,
+                Some(2_048),
+            ),
+        ];
+        let g = grid();
+        for (name, clause, threshold, mult, n, p06) in want {
+            let Some(q) = g.iter().find(|q| q.name == name) else {
+                panic!("{name} is not in the grid");
+            };
+            assert_eq!(
+                (q.clause, q.threshold, q.mult, q.n, q.p06),
+                (clause, threshold, mult, n, p06),
+                "{name}"
+            );
+            let mut params = Params::PRODUCTION;
+            params.p06 = p06.unwrap_or(params.p06);
+            assert_eq!(
+                target(q, Profile::Production),
+                Target {
+                    clause,
+                    threshold,
+                    mult,
+                    n,
+                    seed: seed(name),
+                    params,
+                    rt_bound: None,
+                },
+                "{name}"
+            );
+        }
+        for q in &g[..18] {
+            assert_eq!(
+                target(q, Profile::Production),
+                Target {
+                    clause: q.clause,
+                    threshold: q.threshold,
+                    mult: q.mult,
+                    n: q.n,
+                    seed: seed(&q.name),
+                    params: Params::PRODUCTION,
+                    rt_bound: None,
+                },
+                "{}",
+                q.name
+            );
+        }
+        assert_eq!(Profile::Production.sealed_len(10_000), 123_750);
+    }
+
+    /// Each follow-up point's production tail stops on the clause it targets ([F17 §5.2]–§5.3): `ops` at P06, `body` at
+    /// P08, `rec` and `ovl` at most at their threshold with the refused group past it (or one commit), and every quiet
+    /// point on its ops clause, `ops` ≤ P11·P06 < the refused group's, with the point's P06 as the target's.
+    #[test]
+    fn follow_up_tails_stop_on_their_clauses() {
+        let g = grid();
+        for q in &g[18..] {
+            let t = target(q, Profile::Production);
+            let tail = generate(&t, false).unwrap_or_else(|e| panic!("{}: {e}", q.name));
+            let (m, r) = (tail.measures, tail.refused);
+            let past = |f: fn(&crate::tail::synth::Measures) -> u64| {
+                f(&m) <= q.threshold && r.is_some_and(|r| f(&r) > q.threshold) || m.commits == 1
+            };
+            let ok = match q.clause {
+                Clause::Ops => m.ops == q.threshold,
+                Clause::Body => m.body_bytes == q.threshold,
+                Clause::Rec => past(|m| m.rec_bytes),
+                Clause::Ovl => past(|m| m.ovl),
+                Clause::Quiet => {
+                    let cap = q.mult * q.p06.unwrap();
+                    binding_clause(&t, &tail) == "ops"
+                        && m.ops <= cap
+                        && r.is_some_and(|r| r.ops > cap)
+                        && t.params.p06 == q.p06.unwrap()
+                }
+            };
+            assert!(
+                ok,
+                "{}: stop {}, {m:?}, refused {r:?}",
+                q.name,
+                binding_clause(&t, &tail)
+            );
+        }
+    }
+
+    /// The night's 18 thresholds are F17's candidates (`17-store-parameters.md:757-762`; `docs/spec/HOLES.md:41-46`):
+    /// P06 4,096, 2,048, 1,024 at 1e5 and 1e6; P07 4, 2, 1 MiB; P08 32, 16, 8 MiB; P09 1 MiB, 512 KiB; P10 2 MiB,
+    /// 1.5 MiB × P11 8, 4. The follow-up block after them lies below F17's candidates (cut §3.4).
     #[test]
     fn grid_thresholds_are_f17_candidates() {
-        let g = grid();
+        let g = &grid()[..18];
         let of = |c: Clause| -> BTreeSet<(u64, u64, u32)> {
             g.iter()
                 .filter(|q| q.clause == c)
@@ -691,7 +900,7 @@ mod tests {
         assert_eq!(Profile::Production.sealed_len(1_000_000), 12_375_000);
     }
 
-    /// `--smoke` runs every quantity at the test profile with each arm once: 36 lines, one per (quantity, arm), each
+    /// `--smoke` runs every quantity at the test profile with each arm once: 62 lines, one per (quantity, arm), each
     /// fixture's floor mapping 8 files; with `--quantity` it runs that one alone.
     #[test]
     fn smoke_exercises_every_arm_once() {
@@ -710,7 +919,7 @@ mod tests {
         let (code, out, err) = run(&fs, &[&["--smoke"][..], &CT].concat());
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), 36, "{out}");
+        assert_eq!(lines.len(), 62, "{out}");
         let pairs: BTreeSet<(String, String)> = lines
             .iter()
             .map(|l| {
@@ -730,8 +939,8 @@ mod tests {
             .collect();
         assert_eq!(pairs, expect);
         let log = fs.log();
-        assert_eq!(log.maps.len(), 18 * SEALED_FILES);
-        assert_eq!(log.opens.iter().filter(|o| *o == "HEAD").count(), 18);
+        assert_eq!(log.maps.len(), 31 * SEALED_FILES);
+        assert_eq!(log.opens.iter().filter(|o| *o == "HEAD").count(), 31);
     }
 
     /// `--smoke` with the runner's contract flags records nothing: no line says recorded, every fixture is removed,
@@ -746,7 +955,7 @@ mod tests {
         .concat();
         let (code, out, err) = run(&fs, &args);
         assert_eq!(code, EXIT_DONE, "{err}");
-        assert_eq!(out.lines().count(), 36);
+        assert_eq!(out.lines().count(), 62);
         assert!(!out.contains("recorded"));
         assert!(fs.files().is_empty(), "every fixture removed");
         let (code, _, err) = run(&fs, &[&args[..], &["--out", "/o"]].concat());
@@ -936,7 +1145,7 @@ mod tests {
         let (code, out, _) = run(&fs, &["--help"]);
         assert_eq!((code, out.as_str()), (EXIT_DONE, USAGE));
         let (code, out, _) = run(&fs, &["--list"]);
-        assert_eq!((code, out.lines().count()), (EXIT_DONE, 18));
+        assert_eq!((code, out.lines().count()), (EXIT_DONE, 31));
         let names: Vec<String> = grid().into_iter().map(|q| q.name).collect();
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
         assert!(
@@ -985,14 +1194,14 @@ mod tests {
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 18);
+            assert_eq!(calls.len(), 31);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 18);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 31);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
@@ -1071,7 +1280,7 @@ mod tests {
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        assert_eq!(lines.len(), 18);
+        assert_eq!(lines.len(), 31);
         for (v, q) in lines.iter().zip(grid()) {
             assert_eq!(v["quantity"], q.name.as_str());
             assert_eq!(v["family"], q.clause.as_str());
