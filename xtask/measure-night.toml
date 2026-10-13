@@ -54,6 +54,8 @@ quantities = [
     "read-4096.n1e6",
     "ckpt-4096.n5e5",
     "catchup-16.n1e6",
+    "read-op-4096.n1e6",
+    "read-cost-4096.n1e6",
     "csr.n1e5",
     "bitset.n1e5",
     "bitset-ab.n1e5",

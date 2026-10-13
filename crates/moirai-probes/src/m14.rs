@@ -4,8 +4,9 @@
 //! overlay catch-up (T2, `:140`). T2's 16-writer wait is taken from measurement 2's run (R-24 Q7) and is not built
 //! here. The tails are u10's ([`crate::tail::synth`]), from [70 S8]'s spec-derived mix (R-24 Q10).
 //!
-//! **The grid** (15 quantities, names by [MP §4.1]), run with the deciding quantities first: `read-4096.n1e6`,
-//! `ckpt-4096.n5e5` and `catchup-16.n1e6`, then the layout probes (R-34 B-3, M-15; R-35 Q2):
+//! **The grid** (17 quantities, names by [MP §4.1]), run with the deciding quantities first: `read-4096.n1e6`,
+//! `ckpt-4096.n5e5` and `catchup-16.n1e6`, then T1's read diagnostics `read-op-4096.n1e6` and `read-cost-4096.n1e6`
+//! (R-40 O-2, R-42), then the layout probes (R-34 B-3, M-15; R-35 Q2):
 //!
 //! | Quantity | Arms (arm 0 first) | What one sample does | Minimum tier |
 //! |---|---|---|---|
@@ -16,6 +17,8 @@
 //! | `scan.n1e5`, `scan.n1e6` | `scan.status`, `scan.split` | counts the rows of one status in `NODE`'s 60-byte rows; the floor counts the same status in a dense 1-byte column built from `NODE` in the run's setup, the layout a per-field split of `NODE` would give (OP-09-21, `09-segments.md:1369-1372`; `status`, `08-data-model.md:80`). Both cycle the status through 0–3 with their own counters, so they time the same counts | — |
 //! | `overlay.n1e5`, `overlay.n1e6` | `probe` | looks one `#N` up in a full tail's node index ("overlay probe ~0.2 µs", `ARCHITECTURE-RESEARCH.md:968`) | — |
 //! | `read-4096.n1e6` | `read` | T1's point read: the status of a node the tail touched, through the overlay and the tail's records, else the base row | t1 (read ≤ 50 µs) |
+//! | `read-op-4096.n1e6` | `read.op`, `read.op.at` | T1's diagnostic read on `read-4096.n1e6`'s tail and nodes (its seed, [`seed_name`]): `read.op` reads the status by the frame walk ([`Overlay::get_op`]: n's ops located by their frames, decoded alone); its floor `read.op.at` by the offset read ([`Overlay::get_op_at`]: n's newest frames read from an offset kept beside the node index, in the design the node entry's spare bytes). The paired difference is the cost of locating n's frames in the newest record (R-42 Q2). The setup replays the overlay from the fixture's store, builds the offset index and refuses the run unless the whole-record read, the walk and the offset read agree on every node of the cycle ([`read_ops_agree`]) | t1 |
+//! | `read-cost-4096.n1e6` | `records`, `bytes` | T1's read cost on the same tail and nodes: each sample is one whole-record read ([`point_read`]) through [`Counted`], which counts the records it walks and the bytes it decodes ([MP §4.8]). The two arms are two counts of one read, not an operation and its floor (spec Goal 1); no gate pairs them | t1 |
 //! | `ckpt-4096.n5e5` | `ckpt`, `ckpt.write` | T1's delta checkpoint over a fresh tail per sample (scoping §4.2): the setup writes sample j's tail ([`ckpt_tail`]) in place over the fixture's extent through a read-write handle kept for the run, zeroes the rest of the previous tail and flushes it (`sync(Data)`), all untimed; the timed op replays tail j from the extent, folds it over the base into a delta of the probe's subset (below), encodes `seg.d1`, then `create_new`, `write_at`, `sync(DataAndMeta)`, `seal`, `sync_dir` (`docs/spec/os/fs.md:411`, `:456`). The floor's sample j folds tail j from memory in its setup and writes and flushes the same bytes, so the pair is matched. The products (the tail, the delta and its bytes) are dropped and the sample's file is unlinked in the teardown, outside the timed region ([MP §4.1]). The setup's generation and rewrite lengthen a sample's untimed part, so the pilot's 1 s ([MP §4.2]) may take fewer than 5 samples; the declared minimum tier t3 bounds that | t3 (≤ 100 ms) |
 //! | `catchup-16.n1e6` | `catchup` | T2's MCP model: a long-lived process holds the overlay of a full tail but its last 16 commits (one per writer of T2's burst) and catches up: `HEAD` pread (8,192 B), the new records scanned from the extents, applied to its warm builder, the overlay finished again (`ARCHITECTURE-RESEARCH.md:783`). The warm builder is cloned in the setup and the finished overlay dropped in the teardown, both outside the timed region | t2 (catch-up p50 ≤ 5 ms) |
 //!
@@ -39,13 +42,17 @@
 //! mechanism, and each teardown takes its arm's products by type, but an op that dropped the real tail, delta and
 //! bytes inside the timed region and returned a placeholder of the same type would still pass every test. The run's
 //! touch of every page of the mapped base before [`measure`] ([`prefault`]; R-34 M-5) is an in-memory read too: no
-//! test sees that it precedes the pilot, and `prefault_reads_one_byte_of_every_page` pins what it reads.
+//! test sees that it precedes the pilot, and `prefault_reads_one_byte_of_every_page` pins what it reads. The read
+//! diagnostics' in-memory setup (the id order, the buffers, the copy of the offset index) is seen only through the reads
+//! it leads to: an arm that did the same reads between its ticks but returned a value decoded in its setup would pass
+//! every test, since the rig observes reads only (u17 critique I-2).
 //!
 //! Every run's fixture is the base `seg.base.1` at the quantity's N ([`crate::seg::base`]), written, sealed and
-//! mapped, and, for the last four families, a full `ops` tail at P06 (4,096 at production) written as `log.<n>`
-//! extents with `HEAD`; it is removed on every path out of the run. The probe's choices: the ids a probe cycles
-//! through ([`PROBE_IDS`] drawn from the quantity's seed; the read's are the tail's touched nodes), the families'
-//! single arms, and the catch-up's burst. The sparse sets are the probe's too: A_s = {#N : mix(`SALT_A` ^ #N) mod 32
+//! mapped, and, for the six families that read one (the overlay probe, the read and its two diagnostics, the
+//! checkpoint and the catch-up), a full `ops` tail at P06 (4,096 at production) written as `log.<n>` extents with
+//! `HEAD`; it is removed on every path out of the run. The probe's choices: the ids a probe cycles through
+//! ([`PROBE_IDS`] drawn from the quantity's seed; the read's and its diagnostics' are the tail's touched nodes in the
+//! order of the read's seed, [`read_cycle`]), the families' single arms, and the catch-up's burst. The sparse sets are the probe's too: A_s = {#N : mix(`SALT_A` ^ #N) mod 32
 //! = s} and B_s likewise with `SALT_B`, for s = 0–3, about 2,048 ids per 65,536-id chunk, under the array limit of
 //! 4,096 ([`sparse_ids`]); they live in the fixture's memory, not in the base, so the base's sections are unchanged. At
 //! the test profile (N / 100) the kind-status sets are arrays too, so the smoke's `bitset-ab` takes the array × array
@@ -60,21 +67,23 @@
 //! Without `--quantity`, each quantity runs in a child process of its own ([MP §4.6]). Exit 0 done, 1 a run or arm
 //! failed or a record could not be written, 2 a usage error.
 
-use crate::arm::{Arm, ArmError, Ticker, TimedFn};
+use crate::arm::{Arm, ArmError, Ticker, TimedFn, ValueFn};
 use crate::host::{CommandRunner, HostKind};
 use crate::m1::driver::{self, Args};
+use crate::overlay::op::OpIndex;
 use crate::overlay::{Builder, Key, Overlay, Probe, Value, kind_key, kind_status_key};
 use crate::run::{Context, RunSpec, measure};
 use crate::seg::base::{self, Columns};
 use crate::seg::bitset::{Frozen, and_popcount, encode_frozen};
 use crate::seg::delta;
 use crate::seg::{NODE_HDR_LEN, STATUS_AT, u32_at};
-use crate::tail::rec::Payload;
+use crate::tail::rec::{Payload, RecHdr};
 use crate::tail::scan::{LogSource, MemLog, scan};
 use crate::tail::store::{VfsLog, extent_name};
 use crate::tail::synth::{BASE_KIND, Clause, STATUSES, Tail, Target, generate};
-use crate::tail::{HEAD_LEN, Params, TAIL_READ_CHUNK};
+use crate::tail::{HEAD_LEN, Params, REC_HDR_LEN, TAIL_READ_CHUNK, TRAILER_LEN};
 use crate::tier::Tier;
+use crate::units::Unit;
 use moirai_vfs::{
     Access, Meter, OS_SHARE_RETRY_MS, OpenHint, RelPath, RelPathBuf, RootAccess, RootRole,
     SealedMap, SealedMaps, ShareRetry, StoreFs, SyncKind, VfsErrorKind,
@@ -123,6 +132,10 @@ pub enum Family {
     Overlay,
     /// T1's point read.
     Read,
+    /// T1's diagnostic: the read by the frame walk, and its floor by the offset read.
+    ReadOp,
+    /// T1's diagnostic: the records the read walks and the bytes it decodes.
+    ReadCost,
     /// T1's delta checkpoint.
     Ckpt,
     /// T2's MCP overlay catch-up.
@@ -140,6 +153,8 @@ impl Family {
             Family::Scan => "scan",
             Family::Overlay => "overlay",
             Family::Read => "read-4096",
+            Family::ReadOp => "read-op-4096",
+            Family::ReadCost => "read-cost-4096",
             Family::Ckpt => "ckpt-4096",
             Family::Catchup => "catchup-16",
         }
@@ -153,6 +168,8 @@ impl Family {
             Family::Scan => &["scan.status", "scan.split"],
             Family::Overlay => &["probe"],
             Family::Read => &["read"],
+            Family::ReadOp => &["read.op", "read.op.at"],
+            Family::ReadCost => &["records", "bytes"],
             Family::Ckpt => &["ckpt", "ckpt.write"],
             Family::Catchup => &["catchup"],
         }
@@ -161,7 +178,7 @@ impl Family {
     /// The minimum tier: the tier of the quantity's budget ([MP §3.2]); the layout probes have none.
     pub const fn min_tier(self) -> Option<Tier> {
         match self {
-            Family::Read => Some(Tier::T1),
+            Family::Read | Family::ReadOp | Family::ReadCost => Some(Tier::T1),
             Family::Ckpt => Some(Tier::T3),
             Family::Catchup => Some(Tier::T2),
             _ => None,
@@ -172,7 +189,12 @@ impl Family {
     pub const fn needs_tail(self) -> bool {
         matches!(
             self,
-            Family::Overlay | Family::Read | Family::Ckpt | Family::Catchup
+            Family::Overlay
+                | Family::Read
+                | Family::ReadOp
+                | Family::ReadCost
+                | Family::Ckpt
+                | Family::Catchup
         )
     }
 }
@@ -188,8 +210,8 @@ pub struct Quantity {
     pub n: u32,
 }
 
-/// The 15 quantities in run order: the deciding quantities first (T1's read and checkpoint, T2's catch-up), then the
-/// layout probes at 1e5 and 1e6 (R-34 B-3, M-15).
+/// The 17 quantities in run order: the deciding quantities first (T1's read and checkpoint, T2's catch-up), then T1's
+/// read diagnostics, its evidence (R-40 O-2), then the layout probes at 1e5 and 1e6 (R-34 B-3, M-15).
 pub fn grid() -> Vec<Quantity> {
     let q = |family: Family, n: u32| {
         let scale = match n {
@@ -207,6 +229,8 @@ pub fn grid() -> Vec<Quantity> {
         q(Family::Read, 1_000_000),
         q(Family::Ckpt, 500_000),
         q(Family::Catchup, 1_000_000),
+        q(Family::ReadOp, 1_000_000),
+        q(Family::ReadCost, 1_000_000),
     ];
     for n in [100_000, 1_000_000] {
         for f in [
@@ -255,6 +279,19 @@ fn seed(name: &str) -> u64 {
     xxhash_rust::xxh3::xxh3_64(name.as_bytes())
 }
 
+/// The name `q`'s seed is drawn from: its own, except that T1's read diagnostics take the read's at the same scale, so
+/// their tail is `read-4096`'s byte for byte and their nodes come in its order (spec Goal 1).
+pub fn seed_name(q: &Quantity) -> String {
+    match q.family {
+        Family::ReadOp | Family::ReadCost => format!(
+            "{}{}",
+            Family::Read.stem(),
+            &q.name[q.family.stem().len()..]
+        ),
+        _ => q.name.clone(),
+    }
+}
+
 /// The tail of `q` at `profile`: a full `ops` tail at P06 over the base.
 pub fn target(q: &Quantity, profile: Profile) -> Target {
     let p = profile.params();
@@ -263,7 +300,7 @@ pub fn target(q: &Quantity, profile: Profile) -> Target {
         threshold: p.p06,
         mult: 1,
         n: profile.n(q.n),
-        seed: seed(&q.name),
+        seed: seed(&seed_name(q)),
         params: p,
         rt_bound: None,
     }
@@ -461,6 +498,181 @@ pub fn point_read<S: LogSource>(
         }
         Probe::NotInTail => Err(format!("#{id} has no base row")),
     }
+}
+
+/// The status a probe gives `#id`: the tail's, else the base row's `NodeHdr.status`.
+fn status_of(p: Probe, c: &Columns<'_>, id: u32) -> Result<u8, String> {
+    match p {
+        Probe::Tail(Value::Status(s, _)) => Ok(s),
+        Probe::Tail(v) => Err(format!("#{id}'s status probed as {v:?}")),
+        Probe::NotInTail if id >= 1 && id as usize <= c.rows => {
+            Ok(c.node[NODE_HDR_LEN * (id as usize - 1) + STATUS_AT])
+        }
+        Probe::NotInTail => Err(format!("#{id} has no base row")),
+    }
+}
+
+/// T1's point read by the frame walk ([`Overlay::get_op`], through `buf` in chunks of [`TAIL_READ_CHUNK`]), else the base
+/// row: the twin of [`point_read`] that decodes only `#id`'s ops.
+pub fn point_read_op<S: LogSource>(
+    log: &mut S,
+    o: &Overlay,
+    c: &Columns<'_>,
+    id: u32,
+    buf: &mut Vec<u8>,
+) -> Result<u8, String> {
+    status_of(
+        o.get_op(log, id, &Key::Status, TAIL_READ_CHUNK, buf)?,
+        c,
+        id,
+    )
+}
+
+/// T1's point read by the offset read ([`Overlay::get_op_at`] over `idx`), else the base row: the floor of
+/// [`point_read_op`].
+pub fn point_read_op_at<S: LogSource>(
+    log: &mut S,
+    o: &Overlay,
+    idx: &OpIndex,
+    c: &Columns<'_>,
+    id: u32,
+    buf: &mut Vec<u8>,
+) -> Result<u8, String> {
+    status_of(
+        o.get_op_at(idx, log, id, &Key::Status, TAIL_READ_CHUNK, buf)?,
+        c,
+        id,
+    )
+}
+
+/// The ids T1's read and its diagnostics cycle through: the node index's, ordered by `mix(seed ^ id)`.
+pub fn read_cycle(o: &Overlay, seed: u64) -> Vec<u32> {
+    let mut ids: Vec<u32> = o.nodes().iter().map(|e| e.n).collect();
+    ids.sort_by_key(|&id| mix(seed ^ u64::from(id)));
+    ids
+}
+
+/// The setup's check of the read diagnostics (spec Goal 1: the same value for every sampled node): reads every id of
+/// `ids` with [`point_read`] through `whole`, [`point_read_op`] through `op` and [`point_read_op_at`] through `at`, and
+/// refuses, naming the id, any difference or failure.
+pub fn read_ops_agree<A: LogSource, B: LogSource, C: LogSource>(
+    o: &Overlay,
+    idx: &OpIndex,
+    c: &Columns<'_>,
+    ids: &[u32],
+    whole: &mut A,
+    op: (&mut B, &mut Vec<u8>),
+    at: (&mut C, &mut Vec<u8>),
+) -> Result<(), String> {
+    let ((op, op_buf), (at, at_buf)) = (op, at);
+    for &id in ids {
+        let w = point_read(whole, o, c, id);
+        let f = point_read_op(op, o, c, id, op_buf);
+        let a = point_read_op_at(at, o, idx, c, id, at_buf);
+        if w.is_err() || f != w || a != w {
+            return Err(format!(
+                "#{id}: the whole-record read gives {w:?}, the frame walk {f:?}, the offset read {a:?}"
+            ));
+        }
+    }
+    Ok(())
+}
+
+/// A [`LogSource`] that counts what [`Overlay::get`]'s whole-record read walks and decodes, from the reads it asks for
+/// ([MP §4.8]: counted, never inferred from time). It follows `get`'s read protocol (`overlay/mod.rs`, `read_record`):
+/// a 32-byte header read at a record's lsn, then the record's other `len − 32` bytes in one or more reads. At each
+/// header it adds 1 to the records and `len − 32 − t` (t = 8 with `group_end`) to the bytes: the bytes `get` decodes. A
+/// read that breaks the protocol is an error.
+pub struct Counted<S> {
+    inner: S,
+    records: u64,
+    bytes: u64,
+    next: u64,
+    rest: u64,
+}
+
+impl<S> Counted<S> {
+    /// A counter over `inner`, at zero.
+    pub fn new(inner: S) -> Counted<S> {
+        Counted {
+            inner,
+            records: 0,
+            bytes: 0,
+            next: 0,
+            rest: 0,
+        }
+    }
+
+    /// Back to zero, a header due.
+    pub fn reset(&mut self) {
+        (self.records, self.bytes, self.rest) = (0, 0, 0);
+    }
+
+    /// The records walked since the last reset.
+    pub fn records(&self) -> u64 {
+        self.records
+    }
+
+    /// The bytes decoded since the last reset.
+    pub fn bytes(&self) -> u64 {
+        self.bytes
+    }
+}
+
+impl<S: LogSource> LogSource for Counted<S> {
+    fn read_at(&mut self, lsn: u64, buf: &mut [u8]) -> Result<usize, String> {
+        if self.rest == 0 {
+            if buf.len() != REC_HDR_LEN {
+                return Err(format!(
+                    "a read of {} bytes at lsn {lsn} where a record header is due",
+                    buf.len()
+                ));
+            }
+            let got = self.inner.read_at(lsn, buf)?;
+            if got != REC_HDR_LEN {
+                return Err(format!("a record header cut off at lsn {lsn}"));
+            }
+            let hdr = RecHdr::decode((&*buf).try_into().expect("32 bytes"));
+            let len = u64::from(hdr.len);
+            let t = if hdr.group_end() { TRAILER_LEN } else { 0 } as u64;
+            self.records += 1;
+            self.bytes += len.saturating_sub(REC_HDR_LEN as u64 + t);
+            self.rest = len.saturating_sub(REC_HDR_LEN as u64);
+            self.next = lsn + REC_HDR_LEN as u64;
+            return Ok(got);
+        }
+        if lsn != self.next || buf.len() as u64 > self.rest {
+            return Err(format!(
+                "a read of {} bytes at lsn {lsn} where {} bytes at lsn {} are due",
+                buf.len(),
+                self.rest,
+                self.next
+            ));
+        }
+        let got = self.inner.read_at(lsn, buf)?;
+        self.next += got as u64;
+        self.rest -= got as u64;
+        Ok(got)
+    }
+}
+
+/// The overlay replayed from the fixture's store (`Overlay::replay` over its extents), checked equal to the tail's own,
+/// so the replay's reads are the store's (R-29).
+fn replayed<V: StoreFs + SealedMaps>(p: &Prepared<'_, V>, t: &Tail) -> Result<Overlay, String> {
+    let o = Overlay::replay(
+        &mut VfsLog::new(p.vfs, &p.root, t.expect.geo),
+        &t.expect,
+        t.start,
+        t.end,
+        t.chain_in,
+        t.base,
+        TAIL_READ_CHUNK,
+    )
+    .map_err(|e| e.to_string())?;
+    if o != t.overlay()? {
+        return Err("the overlay replayed from the store differs from the tail's".into());
+    }
+    Ok(o)
 }
 
 /// The MCP model's warm state: the boundary `x` before the tail's last `burst` commits (keeping at least one commit
@@ -803,7 +1015,7 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
         tail,
         n,
         profile,
-        seed: seed(&q.name),
+        seed: seed(&seed_name(q)),
         operands,
         vfs,
         guard,
@@ -851,12 +1063,74 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
         Family::Read => {
             let t = tail()?;
             let o = t.overlay()?;
-            let mut ids: Vec<u32> = o.nodes().iter().map(|e| e.n).collect();
-            ids.sort_by_key(|&id| mix(p.seed ^ u64::from(id)));
+            let ids = read_cycle(&o, p.seed);
             let mut log = VfsLog::new(p.vfs, &p.root, t.expect.geo);
             arms.push(Box::new(TimedFn::new("read", ticker.clone(), move || {
                 i += 1;
                 point_read(&mut log, &o, c, ids[i % ids.len()]).map_err(ArmError)
+            })));
+        }
+        Family::ReadOp => {
+            let t = tail()?;
+            let geo = t.expect.geo;
+            let o = replayed(p, t)?;
+            let ids = read_cycle(&o, p.seed);
+            let (mut log0, mut log1) = (
+                VfsLog::new(p.vfs, &p.root, geo),
+                VfsLog::new(p.vfs, &p.root, geo),
+            );
+            let (mut buf0, mut buf1) = (
+                Vec::with_capacity(TAIL_READ_CHUNK),
+                Vec::with_capacity(TAIL_READ_CHUNK),
+            );
+            let idx = OpIndex::build(&o, &mut log1, TAIL_READ_CHUNK, &mut buf1)?;
+            read_ops_agree(
+                &o,
+                &idx,
+                c,
+                &ids,
+                &mut VfsLog::new(p.vfs, &p.root, geo),
+                (&mut log0, &mut buf0),
+                (&mut log1, &mut buf1),
+            )?;
+            let (o1, ids1, mut j) = (o.clone(), ids.clone(), 0usize);
+            arms.push(Box::new(TimedFn::new(
+                "read.op",
+                ticker.clone(),
+                move || {
+                    i += 1;
+                    point_read_op(&mut log0, &o, c, ids[i % ids.len()], &mut buf0).map_err(ArmError)
+                },
+            )));
+            arms.push(Box::new(TimedFn::new(
+                "read.op.at",
+                ticker.clone(),
+                move || {
+                    j += 1;
+                    point_read_op_at(&mut log1, &o1, &idx, c, ids1[j % ids1.len()], &mut buf1)
+                        .map_err(ArmError)
+                },
+            )));
+        }
+        Family::ReadCost => {
+            let t = tail()?;
+            let geo = t.expect.geo;
+            let o = replayed(p, t)?;
+            let ids = read_cycle(&o, p.seed);
+            let mut records = Counted::new(VfsLog::new(p.vfs, &p.root, geo));
+            let mut bytes = Counted::new(VfsLog::new(p.vfs, &p.root, geo));
+            let (o1, ids1, mut j) = (o.clone(), ids.clone(), 0usize);
+            arms.push(Box::new(ValueFn::new("records", Unit::Count, move || {
+                i += 1;
+                records.reset();
+                point_read(&mut records, &o, c, ids[i % ids.len()]).map_err(ArmError)?;
+                Ok(records.records())
+            })));
+            arms.push(Box::new(ValueFn::new("bytes", Unit::Bytes, move || {
+                j += 1;
+                bytes.reset();
+                point_read(&mut bytes, &o1, c, ids1[j % ids1.len()]).map_err(ArmError)?;
+                Ok(bytes.bytes())
             })));
         }
         Family::Ckpt => {
@@ -1027,7 +1301,7 @@ fn smoke<V: StoreFs + SealedMaps, T: Ticker + Clone>(
 ) -> u8 {
     let mut code = EXIT_DONE;
     for q in qs {
-        let run = || -> Result<Vec<(String, u64)>, String> {
+        let run = || -> Result<Vec<(String, u64, Unit)>, String> {
             let p = prepare(vfs, scratch, q, Profile::Test)?;
             let c = Columns::parse(p.map.bytes())?;
             let mut arms = arms(&p, &c, q, ticker)?;
@@ -1035,15 +1309,15 @@ fn smoke<V: StoreFs + SealedMaps, T: Ticker + Clone>(
             for arm in arms.iter_mut() {
                 arm.begin_block(1)
                     .and_then(|()| arm.sample())
-                    .map(|ns| lines.push((arm.name().to_string(), ns)))
+                    .map(|v| lines.push((arm.name().to_string(), v, arm.unit())))
                     .map_err(|e| format!("{}: {e}", arm.name()))?;
             }
             Ok(lines)
         };
         match run() {
             Ok(lines) => {
-                for (arm, ns) in lines {
-                    let _ = writeln!(out, "m14 smoke {} {arm} ok {ns} ns", q.name);
+                for (arm, v, unit) in lines {
+                    let _ = writeln!(out, "m14 smoke {} {arm} ok {v} {}", q.name, unit.as_str());
                 }
             }
             Err(e) => {
@@ -1190,10 +1464,11 @@ mod tests {
     use crate::condition::Condition;
     use crate::host::tests::Canned;
     use crate::m1::driver;
+    use crate::overlay::op::{FRAME_HEAD_MAX, unpack};
     use crate::record::RunRecord;
     use crate::seg::bitset::Container;
     use crate::seg::delta::decode;
-    use crate::tail::commit::Op;
+    use crate::tail::commit::{Commit, Op};
     use crate::tail::memfs::{MemFile, MemFs, MemMap};
     use crate::tail::store::tests::scratch;
     use crate::tail::synth::tests::test_target;
@@ -1663,12 +1938,13 @@ mod tests {
         (tail, b)
     }
 
-    /// 15 quantities with valid, unique names ([MP §4.1]): the six layout families at 1e5 and 1e6 (the sparse
-    /// AND/popcount pair of R-30 among them), the read and the catch-up at 1e6, the checkpoint at 0.5 M; 18 arms; the
-    /// minimum tiers of the budgets (t1 read ≤ 50 µs, t3 checkpoint ≤ 100 ms, t2 catch-up ≤ 5 ms,
-    /// `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and no tail for the sparse pair.
+    /// 17 quantities with valid, unique names ([MP §4.1]): the six layout families at 1e5 and 1e6 (the sparse
+    /// AND/popcount pair of R-30 among them), the read, its two diagnostics and the catch-up at 1e6, the checkpoint at
+    /// 0.5 M; 22 arms; the minimum tiers of the budgets (t1 read ≤ 50 µs and its diagnostics, t3 checkpoint ≤ 100 ms,
+    /// t2 catch-up ≤ 5 ms, `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and no tail for the
+    /// sparse pair; the diagnostics' arms (R-42 Q2) and their tails.
     #[test]
-    fn grid_has_fifteen_valid_quantities() {
+    fn grid_has_seventeen_valid_quantities() {
         let g = grid();
         let names: Vec<&str> = g.iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
@@ -1677,6 +1953,8 @@ mod tests {
                 "read-4096.n1e6",
                 "ckpt-4096.n5e5",
                 "catchup-16.n1e6",
+                "read-op-4096.n1e6",
+                "read-cost-4096.n1e6",
                 "csr.n1e5",
                 "bitset.n1e5",
                 "bitset-ab.n1e5",
@@ -1693,12 +1971,17 @@ mod tests {
             "the deciding quantities first (R-34 B-3, M-15)"
         );
         assert!(names.iter().all(|n| valid_name(n)));
-        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 15);
+        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 17);
         let arms: Vec<&str> = g
             .iter()
             .flat_map(|q| q.family.arms().iter().copied())
             .collect();
-        assert_eq!(arms.len(), 18);
+        assert_eq!(arms.len(), 22);
+        assert_eq!(Family::ReadOp.arms(), ["read.op", "read.op.at"]);
+        assert_eq!(Family::ReadCost.arms(), ["records", "bytes"]);
+        for f in [Family::ReadOp, Family::ReadCost] {
+            assert_eq!((f.min_tier(), f.needs_tail()), (Some(Tier::T1), true));
+        }
         for f in [Family::BitsetAb, Family::BitsetAa] {
             assert_eq!(f.arms(), ["and.popcount"]);
             assert_eq!((f.min_tier(), f.needs_tail()), (None, false));
@@ -1726,8 +2009,8 @@ mod tests {
         assert_eq!(target(&g[1], Profile::Test).n, 5_000);
     }
 
-    /// `--smoke` runs every quantity at the test profile with each arm once: 18 lines, one per (quantity, arm); with
-    /// `--quantity` it runs that one alone.
+    /// `--smoke` runs every quantity at the test profile with each arm once: 22 lines, one per (quantity, arm), each
+    /// ending with the arm's unit; with `--quantity` it runs that one alone.
     #[test]
     fn smoke_exercises_every_arm_once() {
         let fs = MemFs::with_dir(&cwd());
@@ -1744,12 +2027,18 @@ mod tests {
         let (code, out, err) = run(&fs, &[&["--smoke"][..], &CT].concat());
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), 18, "{out}");
+        assert_eq!(lines.len(), 22, "{out}");
         let pairs: BTreeSet<(String, String)> = lines
             .iter()
             .map(|l| {
                 let w: Vec<&str> = l.split(' ').collect();
                 assert_eq!((w[0], w[1], w[4]), ("m14", "smoke", "ok"), "{l}");
+                let unit = match w[3] {
+                    "records" => "count",
+                    "bytes" => "bytes",
+                    _ => "ns",
+                };
+                assert_eq!((w.len(), w[6]), (7, unit), "{l}");
                 (w[2].to_string(), w[3].to_string())
             })
             .collect();
@@ -1764,7 +2053,7 @@ mod tests {
             })
             .collect();
         assert_eq!(pairs, expect);
-        assert_eq!(fs.log().maps.len(), 15, "each run maps its base once");
+        assert_eq!(fs.log().maps.len(), 17, "each run maps its base once");
     }
 
     /// `--smoke` with the runner's contract flags records nothing: no line says recorded, every fixture is removed,
@@ -1779,7 +2068,7 @@ mod tests {
         .concat();
         let (code, out, err) = run(&fs, &args);
         assert_eq!(code, EXIT_DONE, "{err}");
-        assert_eq!(out.lines().count(), 18);
+        assert_eq!(out.lines().count(), 22);
         assert!(!out.contains("recorded"));
         assert!(
             fs.files().is_empty(),
@@ -2368,6 +2657,461 @@ mod tests {
         assert_eq!(ticker.count(), 2 * want.len(), "two ticks per sample");
     }
 
+    /// The read and its two diagnostics share their tail and their nodes (spec Goal 1): at both profiles their targets
+    /// are equal; at the test profile `prepare`'s three fixtures hold byte-identical tails, the same seed and the same
+    /// cycle of ids; at production `generate` gives three byte-identical tails of 4,096 ops (a production fixture would
+    /// also build a 1e6-node base). Every other quantity keeps the seed of its own name.
+    #[test]
+    fn read_quantities_share_the_reads_tail_and_nodes() {
+        let g = grid();
+        let of = |f: Family| g.iter().find(|q| q.family == f).unwrap().clone();
+        let qs = [of(Family::Read), of(Family::ReadOp), of(Family::ReadCost)];
+        for profile in [Profile::Production, Profile::Test] {
+            let t = target(&qs[0], profile);
+            for q in &qs[1..] {
+                assert_eq!(
+                    target(q, profile),
+                    t,
+                    "the targets of {} and {} differ at {profile:?}",
+                    q.name,
+                    qs[0].name
+                );
+            }
+        }
+        let fs = MemFs::with_dir(&scratch());
+        let ps: Vec<Prepared<'_, MemFs>> = qs
+            .iter()
+            .map(|q| prepare(&fs, &scratch(), q, Profile::Test).unwrap())
+            .collect();
+        let tail = |p: &Prepared<'_, MemFs>| p.tail.as_ref().unwrap().bytes.clone();
+        let cycle = |p: &Prepared<'_, MemFs>| {
+            read_cycle(&p.tail.as_ref().unwrap().overlay().unwrap(), p.seed)
+        };
+        assert!(cycle(&ps[0]).len() > 1);
+        for (q, p) in qs.iter().zip(&ps).skip(1) {
+            assert_eq!(tail(p), tail(&ps[0]), "{}'s test-profile tail", q.name);
+            assert_eq!(p.seed, ps[0].seed, "{}'s seed", q.name);
+            assert_eq!(cycle(p), cycle(&ps[0]), "{}'s cycle", q.name);
+        }
+        let tails: Vec<Tail> = qs
+            .iter()
+            .map(|q| generate(&target(q, Profile::Production), false).unwrap())
+            .collect();
+        assert_eq!(tails[0].measures.ops, 4_096);
+        for (q, t) in qs.iter().zip(&tails).skip(1) {
+            assert!(t.bytes == tails[0].bytes, "{}'s production tail", q.name);
+        }
+        for q in g.iter().filter(|q| !qs.contains(q)) {
+            assert_eq!(seed_name(q), q.name);
+            assert_eq!(
+                target(q, Profile::Production).seed,
+                seed(&q.name),
+                "{}",
+                q.name
+            );
+        }
+        assert_eq!(target(&qs[0], Profile::Production).seed, seed(&qs[0].name));
+    }
+
+    /// The status each touched node's `Create` or `SetStatus` last set, by the decoded records.
+    fn naive_status(t: &Tail) -> BTreeMap<u32, u8> {
+        let mut naive = BTreeMap::new();
+        for r in &t.records {
+            let Payload::Commit(cm) = &r.payload else {
+                continue;
+            };
+            for op in &cm.ops {
+                match op {
+                    Op::Create { id, image, .. } => {
+                        naive.insert(*id, image.status.unwrap().0);
+                    }
+                    Op::SetStatus { id, new, .. } => {
+                        naive.insert(*id, new.0);
+                    }
+                    _ => {}
+                }
+            }
+        }
+        naive
+    }
+
+    /// The read diagnostics return the whole-record read's value (spec Goal 1): for seeds 1–3, as
+    /// `t1_read_returns_the_tails_value`, [`point_read_op`] and [`point_read_op_at`] give every touched node the status
+    /// the naive map gives, which [`point_read`] gives too, and an untouched node its base row; so do they on every id
+    /// of the `read-op` fixture's cycle.
+    #[test]
+    fn read_op_returns_the_whole_record_reads_value() {
+        let mut buf = Vec::new();
+        for seed in 1..=3 {
+            let (t, b) = tail_and_base(300, 400, seed);
+            let c = Columns::parse(&b).unwrap();
+            let o = t.overlay().unwrap();
+            let idx = OpIndex::build(
+                &o,
+                &mut MemLog::new(t.start, &t.bytes),
+                TAIL_READ_CHUNK,
+                &mut buf,
+            )
+            .unwrap();
+            let naive = naive_status(&t);
+            let mut log = MemLog::new(t.start, &t.bytes);
+            let mut from_base = 0;
+            for e in o.nodes() {
+                let want = naive.get(&e.n).copied().unwrap_or_else(|| {
+                    from_base += 1;
+                    (e.n % 4) as u8
+                });
+                assert_eq!(
+                    point_read(&mut log, &o, &c, e.n),
+                    Ok(want),
+                    "seed {seed} #{}",
+                    e.n
+                );
+                assert_eq!(
+                    point_read_op(&mut log, &o, &c, e.n, &mut buf),
+                    Ok(want),
+                    "seed {seed} #{}",
+                    e.n
+                );
+                assert_eq!(
+                    point_read_op_at(&mut log, &o, &idx, &c, e.n, &mut buf),
+                    Ok(want),
+                    "seed {seed} #{}",
+                    e.n
+                );
+            }
+            assert!(naive.len() > 50 && from_base > 20, "both paths");
+            let untouched = (1..=300).find(|id| !probe(&o, *id)).unwrap();
+            assert_eq!(
+                point_read_op_at(&mut log, &o, &idx, &c, untouched, &mut buf),
+                Ok((untouched % 4) as u8)
+            );
+        }
+        let fs = MemFs::with_dir(&scratch());
+        let (_, p) = fixture(&fs, Family::ReadOp);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let t = p.tail.as_ref().unwrap();
+        let o = t.overlay().unwrap();
+        let idx = OpIndex::build(
+            &o,
+            &mut MemLog::new(t.start, &t.bytes),
+            TAIL_READ_CHUNK,
+            &mut buf,
+        )
+        .unwrap();
+        let mut log = MemLog::new(t.start, &t.bytes);
+        for id in read_cycle(&o, p.seed) {
+            let want = point_read(&mut log, &o, &c, id);
+            assert!(want.is_ok(), "#{id}: {want:?}");
+            assert_eq!(point_read_op(&mut log, &o, &c, id, &mut buf), want, "#{id}");
+            assert_eq!(
+                point_read_op_at(&mut log, &o, &idx, &c, id, &mut buf),
+                want,
+                "#{id}"
+            );
+        }
+    }
+
+    /// `reads` (lsn, length) of a `MemLog` over `geo`'s extents, as the store logs them: (file, offset, length).
+    fn as_store_reads(geo: Geometry, reads: &[(u64, usize)]) -> Vec<Read> {
+        reads
+            .iter()
+            .map(|&(lsn, len)| (extent_name(geo.extent(lsn)), geo.offset(lsn), len))
+            .collect()
+    }
+
+    /// One cycle of read-op's arm `arm` over a [`LoggedFs`] and an [`FsTicker`] (R-29). Before the first tick the store
+    /// has read the whole tail (the setup's replay, index build and pre-pass) and opened the extent. Each sample's reads
+    /// between its ticks are not empty and are exactly `reference`'s reads for `ids[(k + 1) mod len]` on a `MemLog`; no
+    /// open falls between the ticks. Returns each sample's first read as an lsn.
+    fn read_op_cycle(
+        arm: usize,
+        reference: &dyn Fn(&mut MemLog<'_>, &Overlay, &Columns<'_>, u32),
+    ) -> (Vec<u64>, Overlay, Tail) {
+        let fs = MemFs::with_dir(&scratch());
+        let lfs = LoggedFs::new(&fs);
+        let (q, p) = fixture(&lfs, Family::ReadOp);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let t = p.tail.as_ref().unwrap();
+        let geo = t.expect.geo;
+        let o = t.overlay().unwrap();
+        let ids = read_cycle(&o, p.seed);
+        assert!(ids.len() > 1, "{} ids", ids.len());
+        let ticker = FsTicker::new(&fs, p.dir(), &[]).logging(&lfs);
+        let (reads0, calls0) = (fs.log().reads.len(), lfs.calls().len());
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        let mut firsts = Vec::new();
+        for k in 0..ids.len() {
+            arms[arm].sample().unwrap();
+            let (t0, t1) = ticker.last();
+            if k == 0 {
+                let before = &fs.log().reads[reads0..t0.reads];
+                assert_eq!(
+                    lsn_cover(geo, before),
+                    [(t.start, t.end)],
+                    "the setup read the whole tail before the first tick"
+                );
+                assert!(
+                    lfs.calls()[calls0..t0.calls]
+                        .iter()
+                        .any(|c| c.0.starts_with("log.") && c.2 == Io::Open(false)),
+                    "the setup opened the extent"
+                );
+            }
+            let w = ticker.timed_reads();
+            assert!(!w.is_empty(), "sample {k}: no read between its ticks");
+            let id = ids[(k + 1) % ids.len()];
+            let mut mem = MemLog::new(t.start, &t.bytes);
+            reference(&mut mem, &o, &c, id);
+            assert_eq!(w, as_store_reads(geo, &mem.reads), "sample {k}: #{id}");
+            let opens: Vec<Call> = lfs.calls()[t0.calls..t1.calls]
+                .iter()
+                .filter(|c| matches!(c.2, Io::Open(_)))
+                .cloned()
+                .collect();
+            assert!(
+                opens.is_empty(),
+                "sample {k}: an open between the ticks: {opens:?}"
+            );
+            let (name, off, _) = &w[0];
+            let n: u64 = name.strip_prefix("log.").unwrap().parse().unwrap();
+            firsts.push(geo.extent_start(n) + off);
+        }
+        assert_eq!(ticker.count(), 2 * ids.len(), "two ticks per sample");
+        (firsts, o, t.clone())
+    }
+
+    /// `read.op` times one frame-walk read per sample (R-29, spec gate 1): over one cycle its reads between the ticks are
+    /// exactly [`point_read_op`]'s for the cycle's next node, the setup's reads come before the first tick, no open falls
+    /// between the ticks, and the first reads' lsns are the node index's, as a multiset.
+    #[test]
+    fn read_op_arm_times_one_located_read_per_sample() {
+        let (mut firsts, o, _) = read_op_cycle(0, &|mem, o, c, id| {
+            point_read_op(mem, o, c, id, &mut Vec::new()).unwrap();
+        });
+        let mut want: Vec<u64> = o.nodes().iter().map(|e| e.lsn).collect();
+        want.sort_unstable();
+        firsts.sort_unstable();
+        assert_eq!(
+            firsts, want,
+            "the cycle's first reads are the node index's lsns"
+        );
+    }
+
+    /// `read.op.at` reads the newest frames directly (R-29, spec gate 1, R-42 Q2): over one cycle its reads between the
+    /// ticks are exactly [`point_read_op_at`]'s, over an offset index built on a `MemLog`, for the cycle's next node; each
+    /// first read is [`FRAME_HEAD_MAX`] bytes at the entry's `lsn + off`, never a header at the entry's lsn; and the
+    /// first reads' lsns are the index's `lsn + off`, as a multiset.
+    #[test]
+    fn read_op_floor_reads_the_newest_frames_directly() {
+        let (mut firsts, o, t) = read_op_cycle(1, &|mem, o, c, id| {
+            let mut buf = Vec::new();
+            let idx = OpIndex::build(o, &mut mem.clone(), TAIL_READ_CHUNK, &mut buf).unwrap();
+            point_read_op_at(mem, o, &idx, c, id, &mut buf).unwrap();
+            assert_eq!(mem.reads[0].1, FRAME_HEAD_MAX, "#{id}");
+        });
+        let mut buf = Vec::new();
+        let idx = OpIndex::build(
+            &o,
+            &mut MemLog::new(t.start, &t.bytes),
+            TAIL_READ_CHUNK,
+            &mut buf,
+        )
+        .unwrap();
+        let mut want: Vec<u64> = idx
+            .entries()
+            .iter()
+            .map(|e| e.lsn + unpack(e.at).0)
+            .collect();
+        assert!(
+            idx.entries()
+                .iter()
+                .all(|e| unpack(e.at).0 > REC_HDR_LEN as u64)
+        );
+        want.sort_unstable();
+        firsts.sort_unstable();
+        assert_eq!(
+            firsts, want,
+            "the cycle's first reads are the index's lsn + off"
+        );
+    }
+
+    /// The setup refuses a disagreeing read (spec Goal 1): [`read_ops_agree`] is `Ok` over three sources of one tail,
+    /// and `Err`, naming the id, when the offset read's source holds one changed `SetStatus` byte (the new status of a
+    /// node's `SetStatus` in its newest record).
+    #[test]
+    fn read_op_setup_refuses_a_disagreeing_read() {
+        let (t, b) = tail_and_base(300, 400, 1);
+        let c = Columns::parse(&b).unwrap();
+        let o = t.overlay().unwrap();
+        let (mut b0, mut b1) = (Vec::new(), Vec::new());
+        let idx = OpIndex::build(
+            &o,
+            &mut MemLog::new(t.start, &t.bytes),
+            TAIL_READ_CHUNK,
+            &mut b1,
+        )
+        .unwrap();
+        let ids = read_cycle(&o, 7);
+        let clean = || MemLog::new(t.start, &t.bytes);
+        assert_eq!(
+            read_ops_agree(
+                &o,
+                &idx,
+                &c,
+                &ids,
+                &mut clean(),
+                (&mut clean(), &mut b0),
+                (&mut clean(), &mut b1)
+            ),
+            Ok(())
+        );
+        // A SetStatus in its owner's newest record, found by its encoded frame in the record's bytes.
+        let newest: BTreeMap<u32, u64> = o.nodes().iter().map(|e| (e.n, e.lsn)).collect();
+        let (n, at, new) = t
+            .records
+            .iter()
+            .filter_map(|r| match &r.payload {
+                Payload::Commit(cm) => Some((r, &**cm)),
+                _ => None,
+            })
+            .find_map(|(r, cm): (_, &Commit<'_>)| {
+                cm.ops.iter().find_map(|op| match op {
+                    Op::SetStatus { id, old, new, .. } if newest[id] == r.lsn => {
+                        let mut frame = Vec::new();
+                        op.encode(&mut frame, &mut Vec::new()).unwrap();
+                        let from = (r.lsn - t.start) as usize;
+                        let pos = t.bytes[from..]
+                            .windows(frame.len())
+                            .position(|w| w == frame.as_slice())?;
+                        let x = if ((new.0 + 1) % 4, new.1) == *old {
+                            (new.0 + 2) % 4
+                        } else {
+                            (new.0 + 1) % 4
+                        };
+                        Some((*id, from + pos + frame.len() - 2, x))
+                    }
+                    _ => None,
+                })
+            })
+            .expect("a SetStatus in its owner's newest record");
+        let mut bad = t.bytes.clone();
+        bad[at] = new;
+        let r = read_ops_agree(
+            &o,
+            &idx,
+            &c,
+            &ids,
+            &mut clean(),
+            (&mut clean(), &mut b0),
+            (&mut MemLog::new(t.start, &bad), &mut b1),
+        );
+        assert!(
+            r.as_ref().is_err_and(|e| e.starts_with(&format!("#{n}:"))),
+            "{r:?}"
+        );
+    }
+
+    /// The naive cost of T1's whole-record read of `#n`: from the decoded records, the owner's newest record, then the
+    /// records its `prev` names until one sets a status or the chain leaves the tail; the records walked and the Σ of
+    /// their `len − 32 − t`.
+    fn naive_cost(t: &Tail, o: &Overlay, n: u32) -> (u64, u64) {
+        let recs: BTreeMap<u64, (u64, &Commit<'_>)> = t
+            .records
+            .iter()
+            .filter_map(|r| match &r.payload {
+                Payload::Commit(cm) => {
+                    let tl = if r.group_end { TRAILER_LEN } else { 0 } as u64;
+                    let len = r.encoded_len().unwrap();
+                    Some((r.lsn, (len - REC_HDR_LEN as u64 - tl, &**cm)))
+                }
+                _ => None,
+            })
+            .collect();
+        let Ok(i) = o.nodes().binary_search_by_key(&n, |e| e.n) else {
+            return (0, 0);
+        };
+        let (mut lsn, mut records, mut bytes) = (o.nodes()[i].lsn, 0, 0);
+        loop {
+            let (b, cm) = recs[&lsn];
+            records += 1;
+            bytes += b;
+            let own: Vec<&Op<'_>> = cm.ops.iter().filter(|op| op.owner() == n).collect();
+            let sets_status = own.iter().any(|op| match op {
+                Op::SetStatus { .. } => true,
+                Op::Create { image, .. } => image.status.is_some(),
+                _ => false,
+            });
+            let prev = own[0].prev();
+            if sets_status || prev == 0 || prev > lsn || lsn - prev < t.start {
+                return (records, bytes);
+            }
+            lsn -= prev;
+        }
+    }
+
+    /// [`Counted`] counts what the whole-record read walks and decodes ([MP §4.8]): for every touched node of seeds 1–3,
+    /// one [`point_read`] through it gives the naive walk's record count and Σ `len − 32 − t`, and some reads walk
+    /// more than one record; a read that is not a header where one is due is an error.
+    #[test]
+    fn read_cost_counts_equal_a_naive_walk() {
+        for seed in 1..=3 {
+            let (t, b) = tail_and_base(300, 400, seed);
+            let c = Columns::parse(&b).unwrap();
+            let o = t.overlay().unwrap();
+            let mut more = 0;
+            let mut cnt = Counted::new(MemLog::new(t.start, &t.bytes));
+            for e in o.nodes() {
+                cnt.reset();
+                point_read(&mut cnt, &o, &c, e.n).unwrap();
+                let want = naive_cost(&t, &o, e.n);
+                assert_eq!(
+                    (cnt.records(), cnt.bytes()),
+                    want,
+                    "seed {seed} #{}: (records, bytes)",
+                    e.n
+                );
+                more += usize::from(want.0 > 1);
+            }
+            assert!(
+                more > 10,
+                "seed {seed}: {more} reads walk more than one record"
+            );
+            cnt.reset();
+            assert!(cnt.read_at(t.start, &mut [0u8; 16]).is_err());
+        }
+    }
+
+    /// `read-cost`'s arms count, in [`Unit::Count`] and [`Unit::Bytes`], the read of the read's nodes: over one cycle,
+    /// sample k of `records` and of `bytes` is the naive cost of `ids[(k + 1) mod len]`, and the byte counts differ
+    /// between nodes, so the cycle read in another order would not pass.
+    #[test]
+    fn read_cost_arms_sample_the_reads_nodes() {
+        let fs = MemFs::with_dir(&scratch());
+        let (q, p) = fixture(&fs, Family::ReadCost);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let t = p.tail.as_ref().unwrap();
+        let o = t.overlay().unwrap();
+        let ids = read_cycle(&o, p.seed);
+        let mut arms = arms(&p, &c, &q, &MonoTicker::new()).unwrap();
+        let units: Vec<(&str, Unit)> = arms.iter().map(|a| (a.name(), a.unit())).collect();
+        assert_eq!(units, [("records", Unit::Count), ("bytes", Unit::Bytes)]);
+        let mut seen = BTreeSet::new();
+        for k in 0..ids.len() {
+            let id = ids[(k + 1) % ids.len()];
+            let (records, bytes) = naive_cost(t, &o, id);
+            assert_eq!(arms[0].sample(), Ok(records), "sample {k}: #{id}'s records");
+            assert_eq!(arms[1].sample(), Ok(bytes), "sample {k}: #{id}'s bytes");
+            seen.insert(bytes);
+        }
+        assert!(
+            ids.len() > 1 && seen.len() > 1,
+            "{} ids, {} distinct byte counts",
+            ids.len(),
+            seen.len()
+        );
+    }
+
     /// A product whose drop advances the fake clock by 4 ms.
     struct Heavy(FakeTicker);
 
@@ -2603,14 +3347,14 @@ mod tests {
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 15);
+            assert_eq!(calls.len(), 17);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 15);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 17);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
