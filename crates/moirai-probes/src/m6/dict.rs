@@ -230,7 +230,7 @@ mod tests {
     /// | Epoch | Chunks | Choice | What a wrong rule picks |
     /// |---|---|---|---|
     /// | 2 | fresh, `Z`, `B1` | `B1`, the best in the last place | all windows: `Z`; the first chunk: fresh |
-    /// | 9 | fresh, `B1`, fresh | chunk 0: `B1` was zeroed, so the fresh chunks tie | no zeroing: `B1`; ties to the last: chunk 2 |
+    /// | 9 | `B1`, fresh, fresh | chunk 1: `B1` was zeroed, so the fresh chunks tie | no zeroing, or counts lowered to 1 (a tie, first): `B1`; ties to the last: chunk 2 |
     /// | 15 | `B2`, `B2`, fresh | chunk 0, a tie at 4,082 | ties to the last: chunk 1 |
     /// | 20 | fresh, `B3`, fresh | `B3`, the best in the middle | the first chunk: fresh |
     /// | 25 | fresh, fresh, `B3` | chunk 0: `B3` was zeroed | no zeroing: `B3` |
@@ -246,17 +246,18 @@ mod tests {
         let mut place = |e: usize, j: usize, c: &Vec<u8>| chunks[3 * e + j] = c.clone();
         place(2, 1, &z);
         place(2, 2, &b1);
-        place(9, 1, &b1);
+        place(9, 0, &b1);
         place(15, 0, &b2);
         place(15, 1, &b2);
         place(20, 1, &b3);
         place(25, 2, &b3);
         let training = inputs(&chunks);
         assert_eq!(sample(&training).len(), 196_608);
-        // Epoch e's choice: chunk 3e, except epochs 2 (B1, chunk 8) and 20 (B3, chunk 61).
+        // Epoch e's choice: chunk 3e, except epochs 2 (B1, chunk 8), 9 (the fresh chunk 28 after the zeroed B1) and
+        // 20 (B3, chunk 61).
         let pick = |e: usize| match e {
             2 => 3 * e + 2,
-            20 => 3 * e + 1,
+            9 | 20 => 3 * e + 1,
             _ => 3 * e,
         };
         let high = [2, 15, 20];
