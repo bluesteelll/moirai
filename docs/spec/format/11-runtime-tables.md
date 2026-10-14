@@ -1487,7 +1487,9 @@ record ([F20]). Every byte of this chapter is fixed by the design or decided her
     (pass 1, S1-9: detail 62 or 63 replaced this chapter's own 1 and 2), and [F05 §9.26] carries the row image, so its
     score is the exact rational here. Retention per A1P-16 (§12.13).
 26. **Derived-optional** (§2.8): `DIRMAP` by [80 §2.11.2]; `FPRINT`, `ANCHORRES`, `ANCESTRY` and `GITRENAMES` proposed,
-    because [40 §2.6] calls them derivable and [F20 §1.3] output-neutral. Every other section is required.
+    because [40 §2.6] calls them derivable and [F20 §1.3] output-neutral. Every other section of §2.8 is required;
+    [F09 §3.3] also makes the versioned sections `DOCLEN` and `FTSSTAT` derived-optional (the owner's ruling R-23 of
+    2026-10-12, item 1).
 27. **Every checkpoint segment carries every snapshot section** (§2.4). This keeps "the newest segment is authoritative"
     true across runtime-only folds ([AR §4.5] step 12), which otherwise would need a per-section fold bound. The snapshot
     tables are small (≈ 150 KB together at the owner's scale, est.: `REFS` ≈ 42 KB, `LEASES` ≈ 50 KB at a few hundred
