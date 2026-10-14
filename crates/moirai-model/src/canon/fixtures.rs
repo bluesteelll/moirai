@@ -766,7 +766,12 @@ fn side(
             assert_eq!(vs.len(), 6, "six observation values");
             KVal::Observation(vs)
         }
-        Aspect::Body => KVal::Body(Body::Text(json(&t[0]))),
+        // A body side is a JSON text, or `hash <32 hex>`: a body known only by its hash ([INDEX] §3.5).
+        Aspect::Body => KVal::Body(if t[0] == "hash" {
+            Body::Hash(b16(&t[1]))
+        } else {
+            Body::Text(json(&t[0]))
+        }),
         Aspect::Edge(_) => {
             assert_eq!(t[0], "present");
             KVal::Edge(edge_props(&t[1..]))
@@ -775,7 +780,7 @@ fn side(
     (Some(v), None)
 }
 
-/// A key line of a node (or of a node image): status, parent, field, counter, body, edge, at.
+/// A key line of a node (or of a node image): status, parent, field, counter, body, body-hash, edge, at.
 fn key_line(n: &mut Node, t: &[String], ids: &mut Ids, schema: &Schema) {
     match t[0].as_str() {
         "status" => {
@@ -801,6 +806,8 @@ fn key_line(n: &mut Node, t: &[String], ids: &mut Ids, schema: &Schema) {
             let b = json(&t[1]);
             n.body = (!b.is_empty()).then_some(Body::Text(b));
         }
+        // A body known only by its hash: its key value is the stored hash, never recomputed ([F07 §6.3]).
+        "body-hash" => n.body = Some(Body::Hash(b16(&t[1]))),
         "edge" => {
             let dst = ids.nid(uid_hex(&t[2]));
             n.out.insert(
@@ -1340,6 +1347,160 @@ fn every_value_case_encodes() {
         );
     }
     assert_eq!(n, 60);
+}
+
+/// The synthetic node uid of the hash-only body tests below ([F07 §6.3], §7.2-§7.4, §10.2; [F14 §11.1], §12.2 row 8).
+const HASH_TEST_UID: &str = "9a000000000000000000000000000001";
+/// A synthetic body hash; not a palindrome, so its reversed bytes differ.
+const HASH_TEST_H: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+/// A synthetic body text, whose hash twin the tests build.
+const HASH_TEST_T: &str = "Synthetic body for the hash twin.";
+/// A synthetic `theirs` body text.
+const HASH_TEST_T2: &str = "Synthetic theirs body.";
+
+/// The canonical state of a synthetic state text, with its own uid table.
+fn hash_test_cs(text: &str) -> Cs {
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let mut ids = Ids::default();
+    let st = state(&lines, &mut ids);
+    let uid = |n: Nid| ids.uid_of(n);
+    canonical_state(&st, &uid)
+}
+
+/// BLAKE3-128 of a text, from the `blake3` crate ([F01 §7.1]), not from the encoder.
+fn hash_test_b3(t: &str) -> [u8; 16] {
+    blake3::hash(t.as_bytes()).as_bytes()[..16]
+        .try_into()
+        .expect("16 bytes")
+}
+
+/// `lp(x)`, written out ([F07 §2.1]): the length as a little-endian `u32`, then the bytes.
+fn hash_test_lp(x: &[u8]) -> Vec<u8> {
+    let mut v = (x.len() as u32).to_le_bytes().to_vec();
+    v.extend_from_slice(x);
+    v
+}
+
+/// The bytes of the synthetic node uid, written out.
+fn hash_test_u() -> Vec<u8> {
+    let mut u = vec![0u8; 16];
+    u[0] = 0x9a;
+    u[15] = 1;
+    u
+}
+
+/// A `body-hash` key line holds a body known only by its hash ([F07 §6.3]; [F14 §11.1]): its key value is the stored
+/// hash, never recomputed. The hash twin of a text body is canonically equal to it, and a hash-only body is a present
+/// body key whose entry carries the stored hash ([F07 §10.2]: class 8, `cs` 0, `bf` 1, `b16`).
+#[test]
+fn a_body_hash_line_keeps_the_stored_hash() {
+    let u = HASH_TEST_UID;
+    let ht = hash_test_b3(HASH_TEST_T);
+    // (a) The twin: the text body and its hash-only twin have equal canonical values.
+    let cp = hash_test_cs(&format!("node {u} note\n  body \"{HASH_TEST_T}\"\n"));
+    let cq = hash_test_cs(&format!(
+        "node {u} note\n  body-hash {}\n",
+        crate::value::hex(&ht)
+    ));
+    assert_eq!(
+        entries(&cp, &cq),
+        Vec::<Vec<u8>>::new(),
+        "a text body and its hash twin"
+    );
+    let mut want = vec![1u8];
+    want.extend_from_slice(&hash_test_u());
+    want.extend_from_slice(&[8, 0, 1]);
+    want.extend_from_slice(&ht);
+    let all = entries(&Cs::new(), &cq);
+    assert!(
+        all.contains(&want),
+        "the hash-only body's entry {} is among {:?}",
+        crate::value::hex(&want),
+        all.iter().map(|e| crate::value::hex(e)).collect::<Vec<_>>()
+    );
+    // (b) Absent to hash-only: one entry, the stored hash.
+    let cp = hash_test_cs(&format!("node {u} note\n"));
+    let cq = hash_test_cs(&format!(
+        "node {u} note\n  body-hash {}\n",
+        crate::value::hex(&HASH_TEST_H)
+    ));
+    let mut want = vec![1u8];
+    want.extend_from_slice(&hash_test_u());
+    want.extend_from_slice(&[8, 0, 1]);
+    want.extend_from_slice(&HASH_TEST_H);
+    assert_eq!(
+        entries(&cp, &cq)
+            .iter()
+            .map(|e| crate::value::hex(e))
+            .collect::<Vec<_>>(),
+        vec![crate::value::hex(&want)]
+    );
+}
+
+/// A `hash <32 hex>` body side of a conflict ([INDEX] §3.5) is a body known only by its hash: the side's value is the
+/// stored hash ([F07 §7.3]: `cs` 1, the class, then base, ours and theirs; [F14 §12.2] row 8).
+#[test]
+fn a_hash_body_side_keeps_the_stored_hash() {
+    let u = HASH_TEST_UID;
+    let cp = hash_test_cs(&format!("node {u} note\n"));
+    let cq = hash_test_cs(&format!(
+        "node {u} note\n  conflict body TextHunk\n    base absent\n    ours hash {}\n    theirs \"{HASH_TEST_T2}\"\n",
+        crate::value::hex(&HASH_TEST_H)
+    ));
+    let mut want = vec![1u8];
+    want.extend_from_slice(&hash_test_u());
+    want.extend_from_slice(&[8, 1]);
+    want.extend_from_slice(&hash_test_lp(b"TextHunk"));
+    want.extend_from_slice(&[0, 1]);
+    want.extend_from_slice(&HASH_TEST_H);
+    want.push(1);
+    want.extend_from_slice(&hash_test_b3(HASH_TEST_T2));
+    assert_eq!(
+        entries(&cp, &cq)
+            .iter()
+            .map(|e| crate::value::hex(e))
+            .collect::<Vec<_>>(),
+        vec![crate::value::hex(&want)]
+    );
+}
+
+/// A `body-hash` line of a `live` side's node image ([INDEX] §3.5) keeps the stored hash: the image entry is class 8
+/// with `b16` ([F07 §7.4]), equal to the text body's, inside the existence conflict value ([F07 §7.2] class 1, §7.3).
+#[test]
+fn a_body_hash_image_line_keeps_the_stored_hash() {
+    let u = HASH_TEST_UID;
+    let ht = hash_test_b3(HASH_TEST_T);
+    let with = |image: &str| {
+        format!(
+            "node {u} note\n  conflict existence DeleteVsModify prov ours\n    base absent\n    ours live note\n      {image}\n    theirs deleted note \"gone\" -\n"
+        )
+    };
+    let a = hash_test_cs(&with(&format!("body \"{HASH_TEST_T}\"")));
+    let b = hash_test_cs(&with(&format!("body-hash {}", crate::value::hex(&ht))));
+    assert_eq!(a, b, "the image's text body and its hash twin");
+    let mut want = vec![1u8];
+    want.extend_from_slice(&hash_test_u());
+    want.extend_from_slice(&[1, 1]);
+    want.extend_from_slice(&hash_test_lp(b"DeleteVsModify"));
+    want.push(0);
+    want.push(1);
+    want.extend_from_slice(&hash_test_lp(b"note"));
+    want.push(1);
+    want.extend_from_slice(&1u32.to_le_bytes());
+    want.push(8);
+    want.extend_from_slice(&ht);
+    want.push(2);
+    want.extend_from_slice(&hash_test_lp(b"note"));
+    want.extend_from_slice(&hash_test_lp(b"gone"));
+    want.extend_from_slice(&hash_test_lp(b""));
+    want.extend_from_slice(&hash_test_lp(b"ours"));
+    let all = entries(&Cs::new(), &b);
+    assert!(
+        all.contains(&want),
+        "the existence conflict entry {} is among {:?}",
+        crate::value::hex(&want),
+        all.iter().map(|e| crate::value::hex(e)).collect::<Vec<_>>()
+    );
 }
 
 /// E5 on the fixtures (INDEX §5.1 item 3): the typed three-way merge of `base-state`, `p-state` (o) and
