@@ -37,7 +37,11 @@
 //! arm whose setup maps its file afresh (`ready.rows`, a copy of the base that no live view of the run holds, or
 //! `prio.col`; `prepare`'s warm-up has put both in the OS cache and dropped its maps, D-14) and whose op borrows the map,
 //! slices `NODE` by an offset `prepare` took from the base's parse and scans (addendum I-3); `willneed`, the same with
-//! `advise(WillNeed)` over the range it reads inside the timed region. **The rule**, reported, the orchestrator's to rule:
+//! `advise(WillNeed)` over the range it reads inside the timed region. `prepare` refuses the run unless [`ready_scan`]
+//! (the first-touch ops' scan) of the bytes the arms read, `NODE` at that offset and the column, gives the naive top
+//! 20 of the candidates ([`ready_agree`], triage r1 I-1): for `warm` over the run's maps, for `first` and `willneed`
+//! over the warm-up's. Each first-touch sample's teardown checks its own top 20 against that one. **The rule**,
+//! reported, the orchestrator's to rule:
 //! split `priority` if the warm `rows` p99 exceeds 1.5 ms at 5 % and 1e6, or the first-touch `rows` p99 exceeds 2.5 ms at
 //! 1e5.
 //!
@@ -65,7 +69,8 @@
 //! diagnostics' in-memory setup (the id order, the buffers, the copy of the offset index) is seen only through the reads
 //! it leads to: an arm that did the same reads between its ticks but returned a value decoded in its setup would pass
 //! every test, since the rig observes reads only (u17 critique I-2). The `ready` arms are seen through their maps, first
-//! borrows, drops and advice: an op that scanned a map made in its setup and borrowed again would pass.
+//! borrows, drops and advice: an op that scanned a map made in its setup and borrowed again would pass. The warm arms'
+//! results are checked once, by the setup over their maps, never per sample.
 //!
 //! Every run's fixture is the base `seg.base.1` at the quantity's N ([`crate::seg::base`]), written, sealed and
 //! mapped, and, for the seven families that read one (the overlay probe, the read and its three diagnostics, the
@@ -485,6 +490,81 @@ pub fn ready_top20(cands: &Frozen<'_>, prio_of: impl Fn(u32) -> u8) -> Vec<u32> 
         .into_iter()
         .map(|(_, id)| id)
         .collect()
+}
+
+/// What a `ready` scan reads of each candidate (u20 cut §3.8): byte [`PRIORITY_AT`] of its 60-byte `NODE` row (arm
+/// `rows`), or its byte of the 1-byte priority column (arm `column`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReadyScan {
+    /// `NODE`'s rows.
+    Rows,
+    /// The priority column.
+    Column,
+}
+
+/// The `ready` scan of a file's bytes (u20 cut §3.8; triage r1 I-1): [`ready_top20`] of `cands` over the `range`
+/// (offset, length) of `bytes`, read as `scan` says. The first-touch arms' op and the setup's check ([`ready_agree`])
+/// both call it. A range that leaves `bytes` is an error; a range shorter than the candidates need panics, as an index
+/// out of bounds.
+#[inline]
+pub fn ready_scan(
+    cands: &Frozen<'_>,
+    scan: ReadyScan,
+    bytes: &[u8],
+    range: (usize, usize),
+) -> Result<Vec<u32>, String> {
+    let b = range
+        .0
+        .checked_add(range.1)
+        .and_then(|end| bytes.get(range.0..end))
+        .ok_or_else(|| format!("the range {range:?} leaves the {} bytes", bytes.len()))?;
+    Ok(match scan {
+        ReadyScan::Rows => ready_top20(cands, |id| {
+            b[NODE_HDR_LEN * (id as usize - 1) + PRIORITY_AT]
+        }),
+        ReadyScan::Column => ready_top20(cands, |id| b[id as usize - 1]),
+    })
+}
+
+/// The naive top 20 of `ready` (triage r1 I-1): the candidates `ids` sorted by ([`base::ready_priority`], `#N`), the
+/// first [`READY_TOP`]. It reads no file: it is the oracle of [`ready_agree`].
+pub fn ready_naive_top20(ids: &[u32]) -> Vec<u32> {
+    let mut v: Vec<(u8, u32)> = ids
+        .iter()
+        .map(|&id| (base::ready_priority(id), id))
+        .collect();
+    v.sort_unstable();
+    v.into_iter().take(READY_TOP).map(|p| p.1).collect()
+}
+
+/// The setup's check of the `ready` arms (triage r1 I-1; spec gate 1): [`ready_scan`] of `rows` (the rows file's bytes
+/// and `NODE`'s (offset, length) in them, [`ReadyFx::node`]) and of `col` (the column file's bytes and the range the
+/// `column` arms read) each give `want`, the naive top 20 ([`ready_naive_top20`]) of an `n`-node base. It refuses,
+/// naming the rows' range and both results, a difference; and a range that leaves its file or whose length is not `n`
+/// rows or `n` bytes.
+pub fn ready_agree(
+    cands: &Frozen<'_>,
+    n: u32,
+    want: &[u32],
+    rows: (&[u8], (usize, usize)),
+    col: (&[u8], (usize, usize)),
+) -> Result<(), String> {
+    let n = n as usize;
+    if rows.1.1 != NODE_HDR_LEN * n || col.1.1 != n {
+        return Err(format!(
+            "ready's ranges {:?} and {:?} are not {n} rows and {n} bytes",
+            rows.1, col.1
+        ));
+    }
+    let r = ready_scan(cands, ReadyScan::Rows, rows.0, rows.1)?;
+    let c = ready_scan(cands, ReadyScan::Column, col.0, col.1)?;
+    if r != want || c != want {
+        return Err(format!(
+            "ready's top 20: the rows at {:?} give {r:?}, the column {c:?}, a naive sort {want:?}",
+            rows.1
+        ));
+    }
+    Ok(())
 }
 
 /// The scale a run is made at.
@@ -1306,8 +1386,8 @@ pub struct Prepared<'v, V: StoreFs + SealedMaps> {
 }
 
 /// The `ready` probe's fixture (u20 cut §3.8; addendum I-3): its candidate set, where `NODE` lies in the rows file (taken
-/// from the base's parse in `prepare`, never from a sample's map), the files' lengths, and for `warm` the run's map of
-/// the column.
+/// from the base's parse in `prepare`, never from a sample's map), the files' lengths, for `warm` the run's map of the
+/// column, and the top 20 that `prepare`'s check found both files give (triage r1 I-1).
 pub struct ReadyFx<M> {
     /// The candidate set, a frozen bitset's bytes.
     pub cands: Vec<u8>,
@@ -1319,6 +1399,9 @@ pub struct ReadyFx<M> {
     pub col_len: u64,
     /// The run's map of the column (`warm`), touched before the pilot.
     pub col: Option<M>,
+    /// The naive top 20 of the candidates ([`ready_naive_top20`]): what `prepare`'s check ([`ready_agree`]) found the
+    /// arms' scan of both files gives, and what each first-touch sample's teardown requires of its own.
+    pub top: Vec<u32>,
 }
 
 impl<V: StoreFs + SealedMaps> Prepared<'_, V> {
@@ -1433,8 +1516,13 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
                 columns.node.as_ptr() as usize - map.bytes().as_ptr() as usize,
                 columns.node.len(),
             );
+            let ids = ready_candidates(n, d.pct());
+            let top = ready_naive_top20(&ids);
             let mut cands = Vec::new();
-            encode_frozen(&ready_candidates(n, d.pct()), &mut cands)?;
+            encode_frozen(&ids, &mut cands)?;
+            drop(ids);
+            let set = Frozen::parse(&cands)?;
+            let col_range = (0, n as usize);
             let open_map = |name: &str, len: u64| -> Result<V::Map, String> {
                 let r = rel(name)?;
                 let f = vfs
@@ -1443,15 +1531,26 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
                 vfs.map_sealed(&f, len, r.as_rel_path())
                     .map_err(|e| e.to_string())
             };
+            // The setup's check (triage r1 I-1) reads the bytes the arms read: `NODE` at `node` and the column.
             let col = match mode {
-                ReadyMode::Warm => Some(open_map(PRIO_COL, u64::from(n))?),
+                ReadyMode::Warm => {
+                    // The warm arms' maps: the run's base, whose parse the `rows` arm reads, and the run's column.
+                    let col = open_map(PRIO_COL, u64::from(n))?;
+                    ready_agree(&set, n, &top, (map.bytes(), node), (col.bytes(), col_range))?;
+                    Some(col)
+                }
                 ReadyMode::First | ReadyMode::WillNeed => {
-                    // The warm-up (D-14): both files' pages into the OS cache, then no live view of them.
-                    for (name, l) in [(READY_ROWS, len), (PRIO_COL, u64::from(n))] {
-                        let m = open_map(name, l)?;
-                        prefault(m.bytes());
-                        drop(m);
-                    }
+                    // The warm-up (D-14): both files' pages into the OS cache, each through one map and the check over
+                    // it, then no live view of them.
+                    let (rows, column) = (
+                        open_map(READY_ROWS, len)?,
+                        open_map(PRIO_COL, u64::from(n))?,
+                    );
+                    let (rb, cb) = (rows.bytes(), column.bytes());
+                    prefault(rb);
+                    prefault(cb);
+                    ready_agree(&set, n, &top, (rb, node), (cb, col_range))?;
+                    drop((rows, column));
                     None
                 }
             };
@@ -1461,6 +1560,7 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
                 rows_len: len,
                 col_len: u64::from(n),
                 col,
+                top,
             })
         }
         _ => None,
@@ -1731,17 +1831,18 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
                 }
                 ReadyMode::First | ReadyMode::WillNeed => {
                     let advise = mode == ReadyMode::WillNeed;
-                    for (name, file, range, file_len, row) in [
-                        ("rows", READY_ROWS, r.node, r.rows_len, true),
+                    for (name, file, range, file_len, scan) in [
+                        ("rows", READY_ROWS, r.node, r.rows_len, ReadyScan::Rows),
                         (
                             "column",
                             PRIO_COL,
                             (0, r.col_len as usize),
                             r.col_len,
-                            false,
+                            ReadyScan::Column,
                         ),
                     ] {
                         let cands = cands.clone();
+                        let want = r.top.clone();
                         let at = rel(file)?;
                         arms.push(Box::new(Staged::new(
                             name,
@@ -1764,20 +1865,21 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
                                         Advice::WillNeed,
                                     );
                                 }
-                                let b = &m.bytes()[range.0..range.0 + range.1];
-                                let top = if row {
-                                    ready_top20(&cands, |id| {
-                                        b[NODE_HDR_LEN * (id as usize - 1) + PRIORITY_AT]
-                                    })
-                                } else {
-                                    ready_top20(&cands, |id| b[id as usize - 1])
-                                };
+                                let top = ready_scan(&cands, scan, m.bytes(), range)
+                                    .map_err(ArmError)?;
                                 Ok((m, top))
                             },
-                            |(m, top): (V::Map, Vec<u32>)| {
-                                std::hint::black_box(top);
+                            // The sample's top 20 against the one the setup checked (triage r1 I-1), untimed.
+                            move |(m, top): (V::Map, Vec<u32>)| {
+                                let same = top == want;
                                 drop(m);
-                                Ok(())
+                                if same {
+                                    Ok(())
+                                } else {
+                                    Err(ArmError(format!(
+                                        "ready {name}: the sample's top 20 {top:?}, the setup's {want:?}"
+                                    )))
+                                }
                             },
                         )));
                     }
@@ -2168,13 +2270,15 @@ mod tests {
     /// (`crates/moirai-vfs/src/map.rs:45`).
     type Calls = std::sync::Arc<std::sync::Mutex<Vec<Call>>>;
 
-    /// A map of a [`LoggedFs`]: [`MemFs`]'s map, logging its first borrow and its drop.
+    /// A map of a [`LoggedFs`]: [`MemFs`]'s map, logging its first borrow and its drop. A map of the file
+    /// [`LoggedFs::altering`] names reads `altered`, its function's image of [`MemFs`]'s bytes.
     struct LoggedMap {
         inner: MemMap,
         name: String,
         n: usize,
         calls: Calls,
         borrowed: std::sync::atomic::AtomicBool,
+        altered: Option<Vec<u8>>,
     }
 
     impl SealedMap for LoggedMap {
@@ -2188,7 +2292,9 @@ mod tests {
                     .unwrap()
                     .push((self.name.clone(), self.n, Io::Borrow));
             }
-            self.inner.bytes()
+            self.altered
+                .as_deref()
+                .unwrap_or_else(|| self.inner.bytes())
         }
 
         fn len(&self) -> u64 {
@@ -2213,12 +2319,17 @@ mod tests {
         n: usize,
     }
 
+    /// The bytes a map of a file reads, as a function of the file's own ([`LoggedFs::altering`]).
+    type Alter = fn(&[u8]) -> Vec<u8>;
+
     /// [`MemFs`] with every open, write and flush logged by file name and handle (u12 test r1 I-1, I-2): `MemFs`
     /// logs no write or flush, and not which handle a call goes through. Every call goes on to `fs` unchanged, so
-    /// `fs`'s own log, files and seals are as without the wrapper.
+    /// `fs`'s own log, files and seals are as without the wrapper; only a map of the file [`LoggedFs::altering`] names
+    /// reads other bytes than `fs` holds.
     struct LoggedFs<'f> {
         fs: &'f MemFs,
         calls: Calls,
+        alter: Option<(&'static str, Alter)>,
     }
 
     impl<'f> LoggedFs<'f> {
@@ -2226,6 +2337,16 @@ mod tests {
             LoggedFs {
                 fs,
                 calls: Calls::default(),
+                alter: None,
+            }
+        }
+
+        /// The wrapper whose maps of the file `name` read `f` of its bytes (triage r1 I-1): the file in the store
+        /// stays as written.
+        fn altering(self, name: &'static str, f: Alter) -> LoggedFs<'f> {
+            LoggedFs {
+                alter: Some((name, f)),
+                ..self
             }
         }
 
@@ -2476,6 +2597,10 @@ mod tests {
             name: RelPath<'_>,
         ) -> Result<LoggedMap, MapError> {
             let inner = self.fs.map_sealed(&f.file, expected_len, name)?;
+            let altered = match self.alter {
+                Some((file, f)) if file == name.as_str() => Some(f(inner.bytes())),
+                _ => None,
+            };
             let mut calls = self.calls.lock().unwrap();
             let n = calls.len();
             calls.push((name.as_str().to_string(), n, Io::Map));
@@ -2485,6 +2610,7 @@ mod tests {
                 n,
                 calls: self.calls.clone(),
                 borrowed: false.into(),
+                altered,
             })
         }
 
@@ -4971,6 +5097,162 @@ mod tests {
                     "{file} sample {k}"
                 );
                 from = lfs.calls().len();
+            }
+        }
+    }
+
+    /// The setup's check of the `ready` arms refuses a wrong `NODE` offset (triage r1 I-1; test r1 M4): over a base
+    /// built with the ready priorities at N = 1,000 and its priority column, at 5 % and 20 %, [`ready_agree`] is `Ok`
+    /// at `NODE`'s own offset. It refuses, naming the rows' range, the offset 0 (M4: `prepare`'s offset × 0) and one row
+    /// past `NODE`'s; and it refuses a column of other priorities, a range that leaves the file and a length that is
+    /// not N rows.
+    #[test]
+    fn ready_agree_refuses_a_wrong_node_offset() {
+        let n = 1_000u32;
+        let b = base::build_with(
+            &base::Spec {
+                n,
+                upto_lsn: 1 << 16,
+                base_seq: BASE_SEQ,
+            },
+            base::ready_priority,
+        )
+        .unwrap();
+        let c = Columns::parse(&b).unwrap();
+        let node = (c.node.as_ptr() as usize - b.as_ptr() as usize, c.node.len());
+        let col = base::priority_column(n, base::ready_priority);
+        let rotated: Vec<u8> = col.iter().map(|p| (p + 1) % 5).collect();
+        let col_range = (0, n as usize);
+        for d in [Density::P5, Density::P20] {
+            let ids = ready_candidates(n, d.pct());
+            let want = ready_naive_top20(&ids);
+            assert_eq!(want.len(), READY_TOP, "{d:?}");
+            let mut fb = Vec::new();
+            encode_frozen(&ids, &mut fb).unwrap();
+            let f = Frozen::parse(&fb).unwrap();
+            let agree = |rows: (usize, usize), col: &[u8]| {
+                ready_agree(&f, n, &want, (&b, rows), (col, col_range))
+            };
+            assert_eq!(agree(node, &col), Ok(()), "{d:?}");
+            for wrong in [(0, node.1), (node.0 + NODE_HDR_LEN, node.1)] {
+                let r = agree(wrong, &col);
+                assert!(
+                    r.as_ref()
+                        .is_err_and(|e| e
+                            .starts_with(&format!("ready's top 20: the rows at {wrong:?} give"))),
+                    "{d:?} {wrong:?}: {r:?}"
+                );
+            }
+            let r = agree(node, &rotated);
+            assert!(
+                r.as_ref().is_err_and(|e| e.starts_with("ready's top 20:")),
+                "{d:?}: {r:?}"
+            );
+            let r = agree((b.len() - node.1 + 1, node.1), &col);
+            assert!(
+                r.as_ref().is_err_and(|e| e.contains("leaves the")),
+                "{d:?}: {r:?}"
+            );
+            let r = agree((node.0, node.1 - NODE_HDR_LEN), &col);
+            assert!(
+                r.as_ref().is_err_and(|e| e.contains("are not 1000 rows")),
+                "{d:?}: {r:?}"
+            );
+        }
+    }
+
+    /// A base's bytes with every `NODE` row's priority rotated by 1 (mod 5), every other byte kept.
+    fn rotate_row_priorities(b: &[u8]) -> Vec<u8> {
+        let c = Columns::parse(b).unwrap();
+        let at = c.node.as_ptr() as usize - b.as_ptr() as usize;
+        let mut v = b.to_vec();
+        for i in 0..c.node.len() / NODE_HDR_LEN {
+            let p = &mut v[at + NODE_HDR_LEN * i + PRIORITY_AT];
+            *p = (*p + 1) % 5;
+        }
+        v
+    }
+
+    /// A priority column's bytes rotated by 1 (mod 5).
+    fn rotate_column(b: &[u8]) -> Vec<u8> {
+        b.iter().map(|p| (p + 1) % 5).collect()
+    }
+
+    /// The setup refuses `ready` files whose bytes give another top 20 (triage r1 I-1): over a [`LoggedFs`] whose maps of
+    /// one file read its priorities rotated by 1 (mod 5), `prepare` refuses every mode, naming the top 20s, when that
+    /// file is the column or the rows the mode's `rows` arm reads (the run's base for `warm`, `ready.rows` for `first`
+    /// and `willneed`). Each mode's check reads the bytes its arms map. The fixture is removed on that path too.
+    #[test]
+    fn ready_setup_refuses_files_that_give_another_top20() {
+        for mode in [ReadyMode::Warm, ReadyMode::First, ReadyMode::WillNeed] {
+            let q = grid()
+                .into_iter()
+                .find(|q| q.family == Family::Ready(mode, Density::P5))
+                .unwrap();
+            let rows = if mode == ReadyMode::Warm {
+                BASE_NAME
+            } else {
+                READY_ROWS
+            };
+            let alters: [(&'static str, Alter); 2] =
+                [(PRIO_COL, rotate_column), (rows, rotate_row_priorities)];
+            for (file, alter) in alters {
+                let fs = MemFs::with_dir(&scratch());
+                let lfs = LoggedFs::new(&fs).altering(file, alter);
+                let r = prepare(&lfs, &scratch(), &q, Profile::Test).map(|_| ());
+                assert!(
+                    r.as_ref().is_err_and(|e| e.starts_with("ready's top 20:")),
+                    "{} {file}: {r:?}",
+                    q.name
+                );
+                assert!(fs.files().is_empty(), "{} {file}: {:?}", q.name, fs.files());
+            }
+        }
+    }
+
+    /// Every `ready` fixture holds the top 20 its setup checked, and each first-touch sample's teardown checks its own
+    /// against it (triage r1 I-1; spec gate 1): over [`MemFs`] at the test profile, `prepare` of each mode keeps
+    /// [`ReadyFx::top`], the naive top 20 of the candidates. Each `first` and `willneed` sample of `rows` and `column`
+    /// passes; with the fixture's top 20 reversed before the arms exist, each fails, naming its arm.
+    #[test]
+    fn ready_first_touch_samples_give_the_setups_top20() {
+        for mode in [ReadyMode::Warm, ReadyMode::First, ReadyMode::WillNeed] {
+            let fs = MemFs::with_dir(&scratch());
+            let (q, mut p) = fixture(&fs, Family::Ready(mode, Density::P5));
+            let want = ready_naive_top20(&ready_candidates(p.n, Density::P5.pct()));
+            assert_eq!(want.len(), READY_TOP, "{}", q.name);
+            assert_eq!(p.ready.as_ref().unwrap().top, want, "{}", q.name);
+            if mode == ReadyMode::Warm {
+                continue;
+            }
+            let ticker = FsTicker::new(&fs, p.dir(), &[]);
+            for reversed in [false, true] {
+                if reversed {
+                    p.ready.as_mut().unwrap().top.reverse();
+                }
+                let c = Columns::parse(p.map.bytes()).unwrap();
+                let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+                for arm in arms.iter_mut() {
+                    let r = arm.sample();
+                    if reversed {
+                        let head = format!("ready {}: the sample's top 20", arm.name());
+                        assert!(
+                            r.as_ref().is_err_and(|e| e.0.starts_with(&head)),
+                            "{} {}: {:?}",
+                            q.name,
+                            arm.name(),
+                            r.map_err(|e| e.0)
+                        );
+                    } else {
+                        assert!(
+                            r.is_ok(),
+                            "{} {}: {:?}",
+                            q.name,
+                            arm.name(),
+                            r.map_err(|e| e.0)
+                        );
+                    }
+                }
             }
         }
     }
