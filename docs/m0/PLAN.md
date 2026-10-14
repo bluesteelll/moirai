@@ -3,8 +3,9 @@
 Issue 2, 2026-09-27. It answers the review of issue 1. This is the plan of record for milestone M0 of [60 §3.1]. It sets
 out the crates, the work packages, the order of work, who authors what, and what waits on the owner. [60 §3.1] owns the
 scope and the exit criteria. The design documents own every rule and byte. If this file disagrees with one of them, the
-design document wins and this file is corrected. §6.2 lists the open points this plan settles itself. The phase-0 review
-WP-80a confirms each one before any work that rests on it is accepted.
+design document wins and this file is corrected. Until WP-81a records R-23 and R-54 in [60], §5 "The staged freeze"
+holds where it and [60] disagree. §6.2 lists the open points this plan settles itself. The phase-0 review WP-80a
+confirms each one before any work that rests on it is accepted.
 
 Legend:
 - **u**: units of [22 §7.1], ≈ 3 per 1,000 lines including tests. The model is sized on [60 §4.6]'s basis of ≈ 2 per 1,000 lines. The rate is 5–8 u a week per lane; it is not yet measured.
@@ -12,11 +13,15 @@ Legend:
 - **V2–V10, A1–A8**: the owner-review items of 2026-09-27. In the approval checklist they are В2–В10 and А1–А8.
 - **E1–E11**: the M0 exit criteria (§7).
 - **S1–S6**: the author-separation rules (§3.1).
+- **R-23 to R-54**: rulings in `<ORCH>/RULINGS.md` (§5 "The staged freeze"), not [40]'s R-1…R-18.
+- **M0·B**: an item that R-23 moved past the `format-v1` tag, where M0 ends; it is a gate of the milestone that first needs it (§5 "The staged freeze", §7; R-54).
 
 ## 1. Purpose and sources
 
 M0 freezes format version 1 and the contract, and it gathers the evidence behind them. In one sentence: every byte layout,
-the `Vfs` fault model and protocol, the store parameters, the query surface and the R4 reservations are frozen and reviewed.
+the `Vfs` fault model and protocol, the store parameters, the query surface and the R4 reservations are frozen and reviewed,
+each by its deadline: the bytes at the `format-v1` tag, where M0 ends, and what §5 "The staged freeze" moves past
+the tag by its own, as an M0·B gate of the milestone that first needs it (R-23, R-54).
 They rest on:
 - a complete reference model and an independent format oracle;
 - a validated crash harness;
@@ -61,7 +66,9 @@ measurements need (§6.2 R1). R1 changes the approved scope, so the owner confir
 ### 2.2 Crates M0 creates
 
 Product crates are built to their final specification. Test-only crates are never linked into a product binary. Tool
-crates run on the host only. "(e)" means the crate is in the GT20 (e) cross-target check.
+crates run on the host only. "(e)" means the crate is in the GT20 (e) cross-target check. After the `format-v1` tag
+and before M1's first crate, a reviewed script renames the engine crates `klotho-*` (KC), and the M1 plan records
+their new names (§5 "The staged freeze"; R-49).
 
 | Crate | Kind | Purpose | Allowed dependencies | (e) | Author |
 |---|---|---|---|---|---|
@@ -75,7 +82,7 @@ crates run on the host only. "(e)" means the crate is in the GT20 (e) cross-targ
 | `moirai-format-oracle` | test-only | Independent decoder and test-only re-encoder of every frozen structure, and the `.moi`/carrier ABNF conformance check (E3). Compressed payloads are opaque at M0 (§6.2 R3). | `blake3`, `xxhash-rust`; no workspace crate | yes | R-ORA |
 | `moirai-lqbench` | test-only | Fixture-store generator, corpus, scorer, JSON IR → model AST converter, reference renderer, `q`/`tx`-shaped CLI shims, MCP-shaped server, the headless Claude Code runner and the generic stdio client | `moirai-model`, `moirai-harness-stub`, `moirai-tokcount`; `serde_json` | yes | R-BENCH |
 | `moirai-replay` | test-only | Replay-corpora harness: manifests, git CLI extraction as a test-only data source, targets report. FL-1's differential tests against `git hash-object`, `git check-ignore` and tsoracle's JSON output, and the P11 differential (WP-74, WP-77). | `moirai-files`, `moirai-model`; `serde_json` | yes | R-REPLAY |
-| `moirai-probes` | test-only library | Measurement-protocol framework and statistics; the permanent layout micro-benchmarks and the probe bodies of measurements 1–16 and 18–22, generic over `V: Vfs` and `M: Meter` | `moirai-vfs`, `moirai-toylog`, `moirai-harness-stub`, `moirai-tokcount`; `blake3`, `xxhash-rust`, `serde_json`, and the measurement candidates of §2.4 | yes | R-HARN |
+| `moirai-probes` | test-only library | Measurement-protocol framework and statistics; the permanent layout micro-benchmarks and the probe bodies of measurements 1–16 and 19–22, generic over `V: Vfs` and `M: Meter`. Beyond the measurement night's, each body is written when a consumer needs it, and measurement 18's goes with the rig (R-23; [workflow.md](workflow.md) §5.5). | `moirai-vfs`, `moirai-toylog`, `moirai-harness-stub`, `moirai-tokcount`; `blake3`, `xxhash-rust`, `serde_json`, and the measurement candidates of §2.4 | yes | R-HARN |
 | `moirai-probes-bin` | test-only composition root (Windows only, `roots.toml`) | Wiring only: `guard`, `peak`, `empty`, `probe-p7`, `loadgen` and the measurement drivers | `moirai-probes`, `moirai-os`, `moirai-toylog`, `moirai-harness-stub` | no (`-p` Windows check) | R-HARN |
 | `moirai-harness-stub` | test-only, permanent probe and conformance fixture | Hand-written dual-era MCP stdio loop, with `initialize` for 2025-03-26, 2025-06-18 and 2025-11-25 and `server/discover` for 2026-07-28. Stub tools with sized results, `_meta` logging, hidden `hook_*` handlers, argv/stdin echo, and Claude and Codex plugin wrappers. | `serde_json` | yes | R-HARN |
 | `moirai-tokcount` | tool | Offline o200k counts. The headless Claude Code invocation (WP-58) and the parse of its reported usage. | `tiktoken-rs`, `serde_json` | yes | R-HARN |
@@ -89,7 +96,8 @@ any checked crate to depend on it or on a root, dev-dependencies included.
 
 ### 2.3 Crates later milestones add (named here; not created at M0)
 
-These names are provisional. Each milestone's plan confirms its own crates.
+These names are provisional. Each milestone's plan confirms its own crates; the engine crates among them take
+`klotho-*` names, as §2.2 states (R-49).
 
 | Crate | Milestone | Purpose |
 |---|---|---|
@@ -97,7 +105,7 @@ These names are provisional. Each milestone's plan confirms its own crates.
 | `moirai-format` | M1 | The product codec (`zerocopy` views), written once against the hex fixtures and the oracle. Its author is neither R-FIX nor R-ORA (S1). The oracle gains its codec decoder (an own LZ4 block decoder, the `zstd` CLI for zstd frames) at M1 ([90 §10.2]). |
 | `moirai-store` | M1 | Log, `HEAD`, group commit, recovery, segments, overlay, checkpoints, GC, generic over `V: Vfs` |
 | `moirai-testkit` | M1 (grows in M3, M6) | Storage driver, generic producers, the model comparison harness of [60 §4.4] and the model-result → `--json v1` converter. Later the VCS driver (M3) and the file-link driver (M6). |
-| `moirai-projfs-sim` | FL-2, lane B from M0 exit | The `ProjectFs` simulator. The trait (WP-30) and its Windows implementation (WP-33) already exist. |
+| `moirai-projfs-sim` | FL-2, at M6 (R-23's stop-list, [workflow.md](workflow.md) §5.5) | The `ProjectFs` simulator. The trait (WP-30) and its Windows implementation (WP-33) already exist. |
 | `moirai-graph` | M2 | Graph core, derived state, schema, FL-3 |
 | `moirai-vcs` | M3 | Refs, merge engine, diff3 (built on `moirai-diff`), FL-7 |
 | `moirai-git` | M4 | Git object layer, with the deflate crate chosen by measurement 9 |
@@ -202,7 +210,7 @@ For paths claimed by two roles, the most specific path wins. `docs/m0/authors.md
 
   It then makes a seeded AI-trailer commit and a seeded private-file commit. It hands the worktree over only if both are refused.
 - **Builds and reads.** A role builds only its own crates (`cargo check -p <own crates> --locked`). Its brief states that compiling a crate is not reading it. A role that needs a forbidden file has found a gap in the specification: it files a review finding and does not read the file.
-- **The gate worktree.** The full gate runs only in a neutral, non-authoring gate worktree, as `cargo xtask gate --branch m0/<role>`, with the target directory of that branch's lane. It reports pass or fail per lint. It shows diagnostics only for paths the role may read and reduces the others to "crate X: n errors, file a review finding". It is the only place `Cargo.lock` is updated. Every merge into local `master` passes it.
+- **The gate worktree.** The full gate runs only in a neutral, non-authoring gate worktree, as `cargo xtask gate --branch m0/<role>`, with the target directory of that branch's lane. It reports pass or fail per lint. It shows diagnostics only for paths the role may read and reduces the others to "crate X: n errors, file a review finding". It is the only place `Cargo.lock` is updated. Every merge into local `master` passes it. The one exception is a combined landing (§5 "The staged freeze"): the KX renames of R-49, and every other change before the tag whose fixtures and oracle must flip together (R-54). Each role's branch is tested against a named expected-red set, and the orchestrator gates the combined tip once with a full `cargo xtask gate` without `--branch`, counts the tests by name and merges the set at once, never in part on any red (R-49, R-54).
 - **Writes.** Commit subjects start `WP-xx:`. `xtask authors` (inside the gate) checks that every path a commit touches may be written by that WP's role.
 - **Residual risk**, recorded in `authors.md`. The deny rules do not stop reads through Bash (`cat`, `git show m0/r-model:…`); briefs forbid them. A non-Claude-Code authoring session would need an equivalent rule, so M0 uses none.
 
@@ -243,7 +251,7 @@ Values that measurements decide are written as **named holes**, which WP-81a fil
 | WP-13 | R | `09-segments.md`: `SegHdr`, every section including R-8, F4–F7 and F11–F13, frozen bitsets, delta and branch segments. `10-sealed-files.md`: `hist` (F8), `blobs` with R-9's fingerprint class, `dict.D`, `gitmap`, `cs` frames; codec bytes and the body-compression placement are holes. `11-runtime-tables.md`: `REFS`, `PINS`, `HEADS`, `LEASES` ([90 §10.1]), `MARKERS` (reconciled), `IDEM`, `FILEOBS` (R-18), `OsFileId`, `JOURNALCUR`, `DIRMAP`, `TREES`/`VolumeCaps`, `ALLOC` (F17)/`UIDX`, `CONFLICTS`. | [AR §4.1, §4.4, §4.9, §5d], [80] X-F6/X-F8, [50 §8.1] | 1.25–1.75 | WP-10 |
 | WP-14 | F | `08-data-model.md`: `NodeHdr`, cold columns, field block, the 13 kinds and 25 edge kinds, schema as data (F1–F3), the R-2/R-3/R-5 fields and the uid derivations of [40 §2.3, §2.7]. `18-file-links.md`: R-12 (I-F1…I-F14, cross-listed in `13-invariants.md`), R-15 (the binding-row extension, I-F12), R-16 (the frozen state, detail and header strings), R-17 (the `relink` provenance vocabulary). | [AR §3, §2.12], [40 §2.2–§2.9, §2.11] | 1.25–1.5 | WP-10 |
 | WP-14b | R | `20-r4-resolver-constants.md`, R-14's appendix: `is_text`, EOL normalisation and `oid`; `fold_v1`; normalised and non-trivial lines; the window hash, sketch line hash, winnowing k and w, LCS tokenisation; the capture and resolve thresholds; the 50 ms quiescence; the E6 window bounds; the E3d rule; the never-candidate list with the X-F8 additions; the per-OS rules of [80 §2.11.4]. Replay-derived values are named holes, which WP-76 proposes. | [40 §2.5, §2.7, §4.3–§4.5, §2.11], [80 §2.11.4] | 0.75–1 | — (reconciled with WP-10) |
-| WP-15 | R | `14-image.md`: tree, `.moirai-image`, the `.moi` v1 ABNF (R-11 anchor lines with digests, `pathmove` blocks, F3 query files), the side ref, commit mapping and trailer order, the gate-0 carrier table | [AR §5b], [40 §5.7], [50 §4.4] | 0.75–1 | WP-12, WP-14 |
+| WP-15 | R | `14-image.md`: tree, `.klotho-image` (R-49), the `.moi` v1 ABNF (R-11 anchor lines with digests, `pathmove` blocks, F3 query files), the side ref, commit mapping and trailer order, the gate-0 carrier table | [AR §5b], [40 §5.7], [50 §4.4] | 0.75–1 | WP-12, WP-14 |
 | WP-16 | P | `15-fault-model.md` (items 1–12) first. Then `16-protocol.md`: durability class per protocol point; decisions (a)–(m); group-commit phases; I-G1 to I-G6; barrier; boot recovery; three-phase write; the `MOVEFILE_WRITE_THROUGH` rule (§6.1 #3). `17-store-parameters.md`: every threshold, init-fixed or tunable, production values as holes, the test profile. `13-invariants.md`: each invariant with its enforcement point, model function and at least one gate. Derived-state semantics (F15). | [60 §2.5], [AR §2.8, §4.5, §4.10], [80 §2.3–§2.4] | 1–1.5 | WP-10; WP-11 for `16-protocol.md` |
 | WP-17 | P | `os/`: the 12 modules with signatures, including the complete `ProjectFs` (read and write side) and the `Meter` calls (`fs::free_space`, `mem::available_physical`, `mem::peak_of_child`, `mem::CountingAlloc`); the X-F4 lock contract; X-F5 to X-F9; T1–T10 (X-F12); the mapping appendix for Windows, Linux and macOS | [80 §2–§4] | 1.5–2 | — (reconciled with WP-10) |
 | WP-18 | F | `config.md`: syntax, precedence, the unknown-key rule, registry format, `HEAD.config_gen`, and the key registry rows ([AR §13], R-13, [90 §10.8], X-F11, [50] budgets). `format/19-errors-and-output.md`: exit codes 0–10; the v1 envelope; byte units, both-ends, ASCII and `--ids` rules; header limits; F18's violation classes `QueryInvalid` and `QueryCycle` with the named-query merge validator; the error codes the format and [90 §10.1] need, including the unknown-model write code and the two exit-5 texts. | [AR §7.1, §13], [90 §6, §10.1], [50 §8.1] | 0.5–1 | WP-10 |
@@ -257,7 +265,7 @@ part, then WP-21, then WP-20, then WP-22's `gt10/` part.
 | WP-20 | `hex/**.hex`: every record kind, op, value type, section and sealed header. `LOCK`/`HEAD`, a torn slot, the 9 two-slot states, Unknown-boot, and chain cases (first group, chained group, `Noop` pad, wrong-position same-epoch record, lazy tail). Compressed payloads: codec byte `none` cases decode fully; frames of a real codec carry payloads the M0 oracle treats as opaque (§6.2 R3). `INDEX.md` maps each [60 §2.5] row to its fixtures. `xtask hex` is generic: hex, labels, and `{xxh3_64 a..b}`, `{blake3_256 a..b}` and `{len a..b}` directives, with no knowledge of any structure. | E3 (WP-95 decodes and re-encodes every one) | 1.5–2 | WP-11–14 |
 | WP-21 | `canonical/` and `r4/` first. `canonical/`: byte stream, `changeset_digest` and `commit_id` for ordinary, merge, sync, revert, cherry-pick, foreign and import-checkpoint commits; anchor full and hash-only giving the same id; normalisation; key order. `r4/`: derivations, predecessor order, P1–P12, `fold_v1`, the scanner constructs of [F21 §8]. After WP-15: `carrier/`, one exported commit per kind; `moi/`, every node kind, tombstone, conflicts, ledger, block strings, body edge cases, file and root nodes, anchors (full, hash-only, text-unavailable), query file, schema, meta, refs, superset inputs, `ImageParse` negatives. | E3: WP-91 reproduces every id, and WP-95's ABNF check passes every `moi/` and `carrier/` file. Carrier fixtures are frozen for M5. | 1–1.5 | WP-12, WP-14, WP-14b; WP-15 for `moi/`, `carrier/` |
 | WP-22 | `lq/`: the 47 conformance fixtures re-authored as token/AST streams or error codes, the 44 [50] code blocks, the ten §2.9 mistakes, error and envelope goldens. `gt10/`: the node-40 table on one branch and across branches, the [AR §7.6] walk-through, the counter merge. Register-incident expectations go to `/private/gt10/`. | GT10; E1 (the owner verifies the core set); E5 | 0.75–1.25 | WP-19 (`lq/`); WP-14 (`gt10/`) |
-| WP-20b | After the fill: fixtures for every filled hole (codec bytes and frames, store-parameter values in `HEAD`, the R-14 layout, `DOCLEN` kept or dropped) | WP-95b's E3 re-run | 0.25–0.5 | WP-81a |
+| WP-20b | After the fill: fixtures for every filled hole (codec bytes and frames, store-parameter values in `HEAD`, the R-14 layout, `DOCLEN` and `FTSSTAT` as `derived-optional` sections; R-23), and again after each later fill, by that fill's deadline (WP-81a) | WP-95b's E3 re-run | 0.25–0.5 | WP-81a |
 
 #### Item 2: Logical `Store` API (lane A, R-SPEC-F)
 
@@ -279,14 +287,14 @@ part, then WP-21, then WP-20, then WP-22's `gt10/` part.
 | WP | Outputs | Acceptance | u | Deps |
 |---|---|---|---|---|
 | WP-40 | `moirai-toylog`: `RecHdr` and chain; group commit phases 2a/2b through the flush and writer bytes; two-slot `HEAD` read-modify-write publish with the identity check; epoch; checkpoint, two-slot barrier and deletion; ref moves; idempotency; minimal markers and leases; recovery. `Bug` switches cover the 13 bugs of [60 §3.1] item 4 (both [61 B2] scenarios among them), the 13 group-commit bugs of [80 §2.4.4], the lost-group scenario, decision (f)'s acknowledgement after `ERROR_DISK_FULL`, and one bug per protocol decision of `16-protocol.md`, pass 1's additions included (≥ 28 in all). | E4. With every switch off, the full tier passes. With each switch on, the enumerator reports a violation: in the PR tier where the bug is prefix-reachable, otherwise nightly. The exception is a bug whose [F16 §17.3] row carries a disposition accepted under E4 (§7); it is handled as that row says (G5: the unit test of its ig6 detector, P-45). Each bug has one test. R-HARN-S reviews the toy's own checks (`doctor --verify`, the read check against the operations acknowledged before the read began, and the kept-view check against the replayed log, [F16] P-56; S4), and WP-32's detector follow-up is accepted. | 2–3 | WP-30, WP-16, WP-32 |
-| WP-40b | One bug per protocol decision that WP-80 pass 2 added; E4 re-run | The bug list equals `16-protocol.md`'s decision list at the tag | 0.25 | WP-80 pass 2 |
+| WP-40b | One bug per protocol decision that WP-80 pass 2 or the delta review added; E4 re-run | The bug list equals `16-protocol.md`'s decision list at the tag | 0.25 | WP-80 pass 2 and the delta review (§5 "The staged freeze") |
 
 #### Item 5: Measurements under the protocol (lane A except WP-53, WP-54 and WP-58; runs in V4 windows)
 
 Shared acceptance for WP-50 to WP-58:
-- Each measurement is recorded idle and loaded, per `docs/spec/measurement-protocol.md`: sample-size tiers, 5 or 3 repetitions, the median, interleaved floors, and the Windows build and Defender versions.
+- Each measurement is recorded idle and loaded, per `docs/spec/measurement-protocol.md`: sample-size tiers, 5 or 3 repetitions, the median, interleaved floors, and the Windows build and Defender versions. Each record is due by the measurement's deadline in §5 "The staged freeze" (R-23).
 - Raw data goes to `/private/measurements/`. Aggregates go to `docs/measurements/m0/<n>.md`.
-- Each measurement's decision is drafted for WP-81a (E8).
+- Each measurement's decision is drafted for WP-81a (E8) by the measurement's deadline (R-23).
 - Every `claude -p` call goes through WP-58's invocation.
 
 | WP | Session | Outputs | Decides | u | Deps |
@@ -298,15 +306,15 @@ Shared acceptance for WP-50 to WP-58:
 | WP-54 | M (lane B) | **Measurements 6, 8, 9.** Measurement 6 compares `lz4_flex` with and without a raw dictionary, `ruzstd` at Fastest, and the `zstd` CLI at level 1 as proxy. It runs on bodies from `/private/codec-bodies/` and on `hist`-sized frames. It also takes token ratios of five synthetic classes, the four of [90 §9.1] plus Cyrillic prose: Claude from `claude -p` usage deltas, o200k from `moirai-tokcount`, and the Codex model's reported usage. Measurement 8 covers loose objects under Defender (n = 1,000) and git gc on a synthetic 1e5-commit repository built with the git CLI. Measurement 9 is `zlib-rs` against `miniz_oxide`. | codec, dictionary form, codec bytes and frames (the rule of [90 §11.3]); where bodies are compressed (log tail raw or compressed); deflate crate; loose/pack threshold; the [90 §9.1] conversion table, including the Cyrillic-prose cell | 0.75 | WP-50, WP-58; V6, V9 |
 | WP-55 | I | **Measurement 15** with [40 §8.3.6]. Stat, enumeration with ids, and rename of one file and of a 1,000-file directory under Defender. `OpenFileById` on directories. Creation-time behaviour of `mv`, `cp`, Claude Code's tools and Codex `apply_patch`, and NTFS tunnelling, on D:. Directory-id stability. OneDrive placeholder bits read without hydration. | R4 budgets; copy-rule and tunnelling facts for R-14 | 0.25 | WP-33, WP-50; V4, V6, V9 |
 | WP-56 | I | **Measurement 7:** git on PATH, exec-form PATH resolution, `${CLAUDE_PLUGIN_DATA}`, `SubagentStart`/`SubagentStop`/`PostToolUse(Agent)` for Workflow `agent()`, the `mcp_tool` experiment, Bash caps. **Codex P1–P7, P10, P11** through `moirai-harness-stub`, with `probe-p7` copied into a scratch directory as `moirai.exe`. **Measurement 19:** the hand-written loop against rmcp on `current_thread`. **Measurement 20:** the token baseline over ≥ 20 recorded dispatches, and the default-config token ledger of a BoykoEngine-style session. | hook design and entry path; stamp route; the `integrate.codex.store-writes` default (P7); P2, P5 and P6 outcomes; MCP runtime shape; M9 token baselines | 1.25–1.75 | WP-50, WP-58; V6, V9 |
-| WP-57 | I | **Measurement 21**, first run early and re-run as the workspace grows: peak RAM and CPU of one lane and of both lanes during a build-and-test cycle. **Measurement 18**, only if the owner keeps the VHDX (§8): flush failure on a VHDX taken offline mid-flush (owner-run). | the lane build cap and windows, or lane B pauses (§4 contingency) (E10); fault-model item (3) parameters (the spec keeps the widest reading) | 0.25 | WP-01 (21); WP-33 and V8 (18) |
+| WP-57 | I | **Measurement 21**, first run early and re-run as the workspace grows: peak RAM and CPU of one lane and of both lanes during a build-and-test cycle. **Measurement 18** goes with the rig, which M0 does not provision (R-23; §6.1 #1): flush failure on a VHDX taken offline mid-flush (owner-run). | the lane build cap and windows, or lane B pauses (§4 contingency) (E10); fault-model item (3) parameters (the spec keeps the widest reading) | 0.25 | WP-01 (21); WP-33 and V8 (18) |
 | WP-58 | M (lane B) | The headless Claude Code invocation in `moirai-tokcount`. It runs the native `claude.exe` (never a `.cmd` shim) with `--model` pinned to Opus 5.5 and records the model id. It works from a scratch directory outside the repository, with a runner-owned `CLAUDE_CONFIG_DIR` (the owner logs in there once, V9) and `--strict-mcp-config`. Prompts and appended system text go through files or stdin, never argv. It parses the usage. A fake `claude` replays recorded JSON for tier-`pr` tests. | — | 0.25–0.5 | WP-01 |
 
 Acceptance for WP-58: the tier-`pr` tests pass on the fake. One real call records Opus 5.5, and its transcript carries no
 project or user CLAUDE.md and no memory text.
 
 The WP-53 probes are permanent, test-only code in `moirai-probes`. R-HARN writes them from the specification, and none of
-it is ever shared with a product crate. They are re-run against the product structures in M1–M3. Each decision reaches
-WP-81a before the freeze.
+it is ever shared with a product crate. They are re-run against the product structures in M1–M3. Each decision the
+tag needs reaches WP-81a before the freeze, and each other decision reaches it by its deadline (R-23).
 
 | WP | Measurement | Probe structure | Decides | u | Deps |
 |---|---|---|---|---|---|
@@ -330,15 +338,19 @@ WP-81a before the freeze.
 
 #### Item 8: Independent specification review and the freeze (lane A)
 
-The freeze runs in this order: WP-81a fills the holes; WP-20b and WP-95b follow it; WP-80 pass 2 reviews the integrated
-specification; WP-40b follows the review; WP-81b tags.
+The freeze runs in this order. WP-80 pass 2 reviews the integrated specification, WP-81a fills the holes the tag needs,
+and WP-20b and WP-95b follow it; a delta review then covers the fill and its fixtures (R-23). WP-40b follows the delta
+review, with WP-99 beside it (§5 "The staged freeze"). WP-81b tags `format-v1`, where M0 ends and M1 starts (R-23,
+R-54). Item 1a (R-47) and the KX renames (R-49) land before the tag. The KX renames, item 1a's follow-ups and
+WP-81a's follow-ups before the tag each land as one combined landing (§3.1; R-49, R-54); a later fill after the tag
+lands as any other change does.
 
 | WP | Role | Outputs | Acceptance | u | Deps |
 |---|---|---|---|---|---|
 | WP-80a | R-REV-P, -S, -A (S5) | Phase 0, needing no chapter. First the A1 re-review of [40] and [50] revision 2; then each §6.2 resolution, confirmed or overturned. Findings go to `docs/spec/reviews/a1-<lens>.md`. | Zero open blocker or major findings on [40]/[50] revision 2. Closes before WP-11–15, WP-19, WP-33, WP-61–64 and WP-90–93 are accepted. | 0.5–1 | — |
-| WP-80 | R-REV-P, -S, -A (S5); owner (V2) | **Pass 1** reviews each chapter as it lands. **Pass 2** reviews the integrated specification after WP-81a, WP-20b and WP-95b. Coverage: format, fault model, protocol decisions, the frozen query surface, the R4 reservations, [80] revision 2, [90 §14.6]'s three items, 100 % invariant coverage, and `COVERAGE.md` with no unmapped row. Findings go to `docs/spec/reviews/<lens>-<pass>.md` with severity and disposition. Every protocol decision a pass adds becomes a WP-40 (pass 1) or WP-40b (pass 2) bug. | E1, E2, E9: zero open blocker or major findings; the owner signs off the dispositions | 1–2 | chapters; pass 2: WP-81a, WP-20b, WP-95b |
-| WP-81a | R-SPEC | Fill every named hole from the measured decisions. Codec bytes, frames and dictionary form; where bodies are compressed; the deflate crate; store-parameter values and checkpoint thresholds; G15/G16; `store.promotion.overlay-ops`; loose/pack; R-14 constants and anchor layout; `DOCLEN` kept or dropped; lock bounds and lock-delay injection parameters; leader; T1; MCP runtime shape; stamp route; `integrate.codex.store-writes`; display spelling; BM25 or the statistics-free scorer. Record them in [AR §8.2], [AR §13] and [60 §2.5]. | E8: no hole is left. Every entry of [60 §3.1]'s "Decisions fixed at M0 exit" is recorded, checked against an 18-item checklist. [AR §4.7] states the open gate at the chosen checkpoint threshold. | 0.5–0.75 | WP-52–57, WP-72, WP-76 |
-| WP-81b | R-SPEC with the owner | Tag `format-v1` | Pass 2 closed with zero open blocker or major findings; the owner has signed the dispositions; WP-40b and WP-95b are green | 0.25 | WP-80 pass 2, WP-40b, WP-95b |
+| WP-80 | R-REV-P, -S, -A (S5); owner (V2) | **Pass 1** reviews each chapter as it lands. **Pass 2** reviews the integrated specification before the fill, and a delta review covers the fill, WP-20b and WP-95b after it (R-23). A query-surface review with the owner's sign-off follows GT13, before M2, because the query surface freezes with GT13 (R-23, critique m-3). Coverage: format, fault model, protocol decisions, the query surface, the R4 reservations, [80] revision 2, [90 §14.6]'s three items, 100 % invariant coverage, and `COVERAGE.md` with no unmapped row. Findings go to `docs/spec/reviews/<lens>-<pass>.md` with severity and disposition. Every protocol decision that a pass or the delta review adds becomes a WP-40 (pass 1) or WP-40b (pass 2 and the delta review) bug. | E1, E2, E9, and E6 for the query-surface review: zero open blocker or major findings; the owner signs off the dispositions. The owner signed pass 1's dispositions, with the A1 re-review's, on 2026-10-13, as committed in aa7c67b; the rule tables (V3) and any text changed after aa7c67b are outside that sign-off (R-46). | 1–2 | chapters; the delta review: WP-81a, WP-20b, WP-95b; the query-surface review: WP-72, WP-73 (R-23, critique m-3) |
+| WP-81a | R-SPEC | Fill the named holes from the measured decisions. Codec bytes, frames and dictionary form; where bodies are compressed; the deflate crate; store-parameter values and checkpoint thresholds; G15/G16; `store.promotion.overlay-ops`; loose/pack; R-14 constants and anchor layout; `DOCLEN` and `FTSSTAT` as `derived-optional` sections, all or nothing (R-23); lock bounds and lock-delay injection parameters; leader; T1, which is Option A, provisional until M1's exit, with item 1a and the trigger that R-50 restates (R-50); the `NODE` layout, split or not (R-51); MCP runtime shape; stamp route; `integrate.codex.store-writes`; display spelling; BM25 or the statistics-free scorer. A hole whose run has a later deadline (§5 "The staged freeze") stays open at the tag, written as [F01 §2.5] states for a hole open at the tag, with that deadline (R-23; critique I-8). WP-81a fills it by that deadline, as it fills every named hole (§3.2 item 1; R-23, R-45); each such later fill takes its WP-20b fixtures, WP-95b's E3 re-run and WP-81a's owner review ([authors.md](authors.md) §2) by the same deadline ([F01 §2.5]; [F17] "Holes"). Record them in [AR §8.2], [AR §13] and [60 §2.5], and record R-23 and R-54 in the [60] texts that §5 "The staged freeze" names (R-23, R-54). | E8 at the tag (R-23): T1, the codec and the leader are recorded; every other hole is filled, or written as open with its deadline, and each other entry of [60 §3.1]'s "Decisions fixed at M0 exit" is recorded by its deadline. The entries are checked against an 18-item checklist. [AR §4.7] states the open gate at the provisional checkpoint threshold at the tag (`store.checkpoint.ops` = 2,048; R-40), and at the final one by the deadline of R-40's later measurement 10 run (§5 "The staged freeze"). | 0.5–0.75 | WP-80 pass 2; WP-52's measurements 1 and 2, WP-53d, WP-53e and WP-54's codec half (R-23's night); the T1 checkpoint re-run (R-38) with its read diagnostic (R-40); the runs of R-50's measurement unit that can change bytes, R-51's probe among them (R-50, R-51); a later fill: its own run (R-23) |
+| WP-81b | R-SPEC with the owner | Tag `format-v1`; M0 ends and M1 starts at the tag (R-23, R-54) | Pass 2 and the delta review closed with zero open blocker or major findings; the owner has signed both sets of dispositions (R-23, R-43); WP-40b and WP-95b are green; [F01 §2.5] states how a hole open at the tag is written (WP-10; R-23, critique I-8); every criterion that §7 keeps at the tag is met, E5 and E11 among them (R-54) | 0.25 | WP-80 pass 2, the delta review, WP-40b, WP-95b; item 1a (R-47); KX (R-49); WP-94's E5 suites for E5, not WP-93b's search part, and WP-99 for E11 (R-54) |
 
 #### Item 9: Reference model and format oracle (lane B)
 
@@ -355,10 +367,10 @@ Shared rules for the model:
 | WP-91 | R-MODEL | Commit DAG; `state_at` memoised within ≤ 512 MB per case; ahead/behind; LCAs and the recursive virtual base; merge and sync over three materialised states with validators in I37′ order; revert, cherry-pick, undo and op restore through state diffs and `cleared` markers; the conflict taxonomy; the independent canonical-form encoder (≈ 300 lines) and commit ids | E3: reproduces every commit-id fixture, in `canonical/` and in `carrier/` (every `changeset-digest` and `commit-id`); E5: RVB cases | 3–4 | WP-90, WP-12, WP-21 (`canonical/`, `carrier/`) |
 | WP-92 | R-MODEL (S2) | R4: link intent as data. Exact-evidence resolution over a simulated tree (path → bytes, creation times, file ids, `VolumeCaps` as input). Derived uids, predecessor, `#N` reuse, re-key, the copy rule by definition. R-16 states. The link merge rules as a signable table. `fold_v1` from the UCD text. The brute-force anchor resolver (the P11 oracle). | Ready for WP-77 and for replay rows 1, 3 and 4 | 2.5–3 | WP-90, WP-14b |
 | WP-93a | R-MODEL | LQ-3 front end: own lexer and parser for grammar v1 including `TX` and the strict-GQL spelling mode; canonical-AST encoding; the property `parse(print(ast)) == ast`; a binder with every M0-visible diagnostic and the reading echo. It starts in week 1 from [50 §2.3], then follows WP-19. | Passes the `fixtures/lq` token, AST and error cases | 2–3 | WP-01; WP-19, WP-22 (`lq/`) |
-| WP-93b | R-MODEL | LQ-3 evaluator: nested loops, bag semantics, walks for `{m,n}`, absent values, total order, derived and runtime state at tips, link states, history relations by replay, aggregates, search with BM25 and with the statistics-free scorer. `TX` semantics with the `DRY` diff and target-set digest. The ablation switches of [50 §7.4] item 7. | Passes `fixtures/lq`; the card's 7 examples run | 3–5 | WP-93a, WP-90–92 |
+| WP-93b | R-MODEL | LQ-3 evaluator: nested loops, bag semantics, walks for `{m,n}`, absent values, total order, derived and runtime state at tips, link states, history relations by replay, aggregates, search with BM25 and with the statistics-free scorer. `TX` semantics with the `DRY` diff and target-set digest. The ablation switches of [50 §7.4] item 7. | Passes `fixtures/lq`; the card's 7 examples run. The search part (BM25 and the statistics-free scorer) is an M0·B entry gate of M2, with GT13 (R-23, R-54) | 3–5 | WP-93a, WP-90–92 |
 | WP-94 | R-MODEL | Fixture suites: the delete-policy matrix, status machines, node-40 on one branch and across branches, register incidents (laptop), RVB. **GT18 on the model:** the I26′ state oracle (≥ 10⁶ histories and ≥ 5 refs nightly; 10⁴ in the PR tier), sync residue (≥ 10⁵), uid→`#N` uniqueness, settle concurrency, lease liveness, lease-first branch resolution, `TX` target integrity, verb = named mutation. Each compares the model's incremental rules with its own from-scratch definitions (§6.2 R12). Every case runs under `probes peak` and must stay ≤ 512 MB. A section-tag coverage report. | E5, E10, GT10, GT18. No registry key with model-visible semantics lacks a model function. | 1–1.5 | WP-90–93, WP-22 (`gt10/`) |
 | WP-95 | R-ORA (S1) | `moirai-format-oracle`: decodes every frozen structure into typed values with hand-written little-endian parsing (the M1 codec uses `zerocopy`), verifies checksums and footers, and re-encodes as a test-only function; compressed payloads are opaque (§6.2 R3). The ABNF conformance check, written from `14-image.md`: every `moi/` and `carrier/` file parses, or fails as its name says; carrier trailers re-derive the canonical items. Tier `pr`. | E3: every hex fixture decodes and re-encodes byte-identically; the ABNF check passes; hosted CI green | 2.5–3 | WP-10–15, WP-20, WP-21 |
-| WP-95b | R-ORA | After the fill: the decoder for the filled holes; E3 re-run (decode, byte-identical re-encode, ABNF check, WP-91's commit ids) | E3 at the tag | 0.25–0.5 | WP-81a, WP-20b |
+| WP-95b | R-ORA | After the fill: the decoder for the filled holes; E3 re-run (decode, byte-identical re-encode, ABNF check, WP-91's commit ids); again after each later fill, by that fill's deadline (WP-81a) | E3 at the tag, and after each later fill | 0.25–0.5 | WP-81a, WP-20b |
 
 #### Item 10: LQ-Bench, GT13 (lane B, R-BENCH)
 
@@ -383,7 +395,7 @@ Shared rules for the model:
 |---|---|---|---|---|
 | WP-74 | `moirai-tsoracle` (host-only). `moirai-replay`'s differential tests of FL-1: `git hash-object` (WP-62), `git check-ignore` (WP-61b), tsoracle's JSON (WP-63). No owner data. | The differentials run in the replay job | 0.5–1 | WP-02 |
 | WP-75 | Snapshots frozen by manifest in `/private/corpora/r4/MANIFEST` (commit ids, file lists, BLAKE3). Git CLI extraction: renames at the exact class, rename chains, delete/re-add events, worktree HEADs. The transcript census. All eight [40 §8.3.4] corpora are prepared; rows 5–7 are frozen for M6 (A7). Each extraction runs `xtask private index`. | A re-extraction gives identical manifests | 0.75–1.25 | WP-62; V6 |
-| WP-76 | **Row 1:** exact renames, through the model's exact-evidence resolution with git renames as data: 100 % `moved-auto`, 0 wrong. **Row 2:** 1,180 citations captured at authoring and resolved at HEAD: ≥ 96 % resolved, 0 silent wrong at the exact class, window tie-break ≥ 99 % against the full histogram diff. **Row 3:** 188 mentions found through aliases and `path_moves`. **Row 4:** 58 dead paths re-bound through their unique chains. **Row 8:** scanner agreement ≥ 99.5 % on 1,573 files. It proposes the R-14 values and the anchor layout to chapter 20 before WP-81a. The committed report holds counts and rates; per-item rows stay in `/private/`. | E7: the five targets are met on the frozen snapshot | 0.5–1 | WP-63, WP-64, WP-75, WP-77, WP-92 |
+| WP-76 | **Row 1:** exact renames, through the model's exact-evidence resolution with git renames as data: 100 % `moved-auto`, 0 wrong. **Row 2:** 1,180 citations captured at authoring and resolved at HEAD: ≥ 96 % resolved, 0 silent wrong at the exact class, window tie-break ≥ 99 % against the full histogram diff. **Row 3:** 188 mentions found through aliases and `path_moves`. **Row 4:** 58 dead paths re-bound through their unique chains. **Row 8:** scanner agreement ≥ 99.5 % on 1,573 files. It proposes the R-14 values and the anchor layout to chapter 20 before M2 starts (R-23). The committed report holds counts and rates; per-item rows stay in `/private/`. | E7: the five targets are met on the frozen snapshot | 0.5–1 | WP-63, WP-64, WP-75, WP-77, WP-92 |
 | WP-77 | The P11 differential in `moirai-replay`: FL-1's resolver against WP-92's brute force on generated files. The answer must be subset-consistent: the same state or a more conservative one, never a different target. | P11 holds on the PR and nightly seeds | 0.5–0.75 | WP-64, WP-92 |
 
 #### Exit
@@ -452,10 +464,18 @@ flowchart TD
   V6((V6)) --> REP[WP-75/76 replay]
   OID & ANC & SCAN & R4M & P11 --> REP
   A1R -. gates acceptance .-> SF & SP & SR & OS & PATH & OID & ANC & MC & LQB
-  MEAS & LAY & M21 & GT13 & REP --> FILL[WP-81a fill]
-  FILL --> FIX2[WP-20b] --> ORA2[WP-95b] --> REV2[WP-80 pass 2]
-  REV1 --> REV2 --> TOY2[WP-40b] --> TAG[WP-81b tag format-v1] --> EXIT[M0 exit]
-  ORA & SUITE & TOY & SIMI & IGN & PATH & FZ --> EXIT
+  %% R-23 and R-54: pass 2 before the fill, a delta review after it; M0 ends and M1 starts at the tag. Of the runs,
+  %% the tag waits only on TAGR, those that R-23, R-38, R-40, R-50 and R-51 keep before it. Item 1a (R-47) and KX
+  %% (R-49) land before the tag. Each item R-23 moved past the tag is an M0·B gate of its first consumer (§5, §7).
+  PRB & TOY --> TAGR[tag runs: the R-23 night of WP-52 m1 and m2, WP-53d, WP-53e and WP-54 codec half, the T1 re-run with its read diagnostic, and the R-50 and R-51 runs that can change bytes]
+  IA[item 1a: R-SPEC, then R-FIX and R-ORA] --> TAGR --> FILL[WP-81a fill]
+  REV1 --> REV2[WP-80 pass 2] --> FILL --> FIX2[WP-20b] --> ORA2[WP-95b] --> DREV[delta review] --> TOY2[WP-40b]
+  TOY2 --> TAG[WP-81b tag format-v1: M0 ends, M1 starts]
+  KX[KX: the Klotho renames in the format bytes] --> TAG
+  VEL[WP-99 velocity, calendar re-issue] --> TAG
+  ORA & SUITE & TOY & IGN & PATH & M21 --> TAG
+  GT13 & REP & SIMI & FZ --> M2G[M0·B: entry gates of M2]
+  MEAS & LAY --> LATE[M0·B: the later runs, each by its deadline in §5]
 ```
 
 **Sessions and phases** (two lanes, profile L; ≈ 8.5 weeks at P50, §3.2 Sums):
@@ -463,21 +483,29 @@ flowchart TD
 | Phase | Lane A | Lane B | Owner |
 |---|---|---|---|
 | 0: days 1–3 | Wave 1a (§8): R-SPEC-F WP-10 → 14 → 25; R-SPEC-P WP-17 → 16; R-SPEC-R WP-14b; WP-80a; R-HARN-I writes WP-01/03 files. After the day-1 bundle: WP-01 → 03 → 02 → 04, WP-06, WP-05 skeleton, WP-51a, first WP-57 run | Wave 1a: R-MODEL rule-table drafts; R-BENCH's synthetic corpus. After the bundle: WP-93a, WP-90, WP-58, WP-60, WP-74 | the day-1 bundle (§8) |
-| 1: weeks 1–3 | R-SPEC-F: 12 → 19 → 18. R-SPEC-P: 11 → rest of 16. R-SPEC-R: 13 → 15. R-HARN-S: 30 → 31 → 32. R-HARN-O: 33 → 50. R-TOY: 40 once 30 and 16 exist. R-FL1A: 61, 62. R-FIX: 22 (`lq/`) → 21 (`canonical/`, `r4/`). | R-MODEL: 90 → 91, with 93a in parallel. R-ORA: 95 per chapter. R-BENCH: 70. R-FL1B: 60 → 63 → 61b. R-REPLAY: 74. | V5 campaign (week 1); V6 paths; V3 tables start |
+| 1: weeks 1–3 | R-SPEC-F: 12 → 19 → 18. R-SPEC-P: 11 → rest of 16. R-SPEC-R: 13 → 15. R-HARN-S: 30 → 31 → 32. R-HARN-O: 33 → 50. R-TOY: 40 once 30 and 16 exist. R-FL1A: 61, 62. R-FIX: 22 (`lq/`) → 21 (`canonical/`, `r4/`). | R-MODEL: 90 → 91, with 93a in parallel. R-ORA: 95 per chapter. R-BENCH: 70. R-FL1B: 60 → 63 → 61b. R-REPLAY: 74. | V6 paths; V3 tables start |
 | 2: weeks 3–6 | R-FIX: 21 (`moi/`, `carrier/`) → 20 → 22 (`gt10/`). WP-80 pass 1. Measurement sessions WP-52, 55, 56. WP-64. WP-40 validation (E4). | WP-92 → 93b → 94. WP-71a, 71b and the smoke run. WP-66. WP-75. WP-77. R-HARN-M: 53a–e, 54. | V4 windows, V8 (measurement 22, VHDX if kept), V9 steps, V3 signing |
-| 3: weeks 6–10 | WP-81a → WP-20b; WP-80 pass 2 → WP-40b; WP-81b; WP-99 | WP-72 with WP-73 across quota windows; WP-76; WP-67; WP-65; WP-95b | GT13 quota windows, gold sample, dispositions, final signatures |
+| 3: weeks 6–10 | WP-80 pass 2 → WP-81a → WP-20b; the delta review → WP-40b, with WP-99 beside it; WP-81b, where M0 ends and M1 starts (R-54) | WP-95b; as M0·B gates before M2 (R-23, R-54): WP-72 with WP-73 across quota windows, WP-76, WP-67, WP-65 | V5 in the week of 2026-10-13 (R-43, R-47); dispositions in two sessions (R-43); final signatures; as M0·B gates before M2 (R-23, R-54): GT13 quota windows, gold sample |
 
 **Critical path.** WP-10 → WP-14 → WP-25 (≈ 3 u, R-SPEC-F, week 1) → WP-90 (≈ 6) → WP-91 (≈ 3.5, with WP-12 and WP-21's
 `canonical/`) → WP-93b (≈ 4, with WP-93a built in parallel from week 1 and WP-22's `lq/`) → WP-71b (≈ 2, after WP-71a) → WP-72
 with WP-73 (quota windows and remedy iterations, ≥ 2–3 weeks of calendar) → WP-81a → WP-20b → WP-95b → WP-80 pass 2 → WP-40b →
 WP-81b.
 
+R-23 changes this path. The tag no longer waits on LQ-Bench and GT13 (WP-71b to WP-73) or on the replay chain (WP-75
+to WP-77), which are M0·B gates before M2 (R-23, R-54). The freeze runs WP-80 pass 2 → WP-81a → WP-20b → WP-95b
+→ the delta review (R-23) → WP-40b → WP-81b, with WP-99 beside WP-40b, and item 1a (R-47) and the KX renames (R-49)
+land before the tag, where M0 ends (R-54). Chain 2 below then reaches WP-81a's later fill before M2, not the tag
+(R-23). Each run in the phases above is due by its deadline in §5 "The staged freeze" (R-23).
+
 **Resources.** Inside a lane, the sessions on the critical path take the lane's rate first:
 - Lane A: R-SPEC-F until WP-25, then R-HARN-S and R-HARN-O.
 - Lane B: R-MODEL (≈ 55 % of the lane), then R-BENCH.
 
-At that share, WP-72 starts after ≈ 3.5–7.5 weeks and M0 ends after ≈ 6–12. That matches the lane-capacity bound of
-5.3–12 weeks, so lane B has no slack. WP-66 and WP-67 yield first in lane B, and WP-64 and WP-65 in lane A.
+At that share, WP-72 starts after ≈ 3.5–7.5 weeks, and the work that issue 2 gave M0 ends after ≈ 6–12. That
+matches the lane-capacity bound of 5.3–12 weeks, so lane B has no slack. WP-66 and WP-67 yield first in lane B,
+and WP-64 and WP-65 in lane A. Under R-54, M0 itself ends at the `format-v1` tag, and the rest runs as M0·B
+(§5 "The staged freeze"); WP-99 re-issues [60 §7]'s calendar (E11).
 
 Four chains sit close to critical:
 1. V5 → WP-51 → every loaded row of WP-52 to WP-56.
@@ -488,7 +516,8 @@ Four chains sit close to critical:
 Mitigations:
 - WP-93a, WP-70's corpus and the rule tables start in week 1.
 - GT13 quota windows are booked with the owner in phase 0.
-- V5 is scheduled for week 1.
+- V5 is recorded in the week of 2026-10-13 (R-43). With the loaded night, it is due before M1 builds segments, the
+  overlay, checkpoints, `hist` and `blobs` (R-23, R-47).
 
 **Contingency.** Measurement 21 may show that the two lanes do not fit on the laptop. Then lane B pauses ([60 §3.14] #2):
 - its WPs serialise after lane A's critical items (WP-10 → WP-25, the WP-30 → WP-40 harness chain and WP-33);
@@ -519,13 +548,13 @@ request and goes through a PR under V10's ruleset. Until WP-03 is installed, the
 | Waits on | For | Smallest ask | Needed by |
 |---|---|---|---|
 | **Day-1 bundle** | Every build, commit and download of wave 1b (§8) | One message covering the ten points of §8 | Day 1 |
-| **V5** recorded 16-agent campaign | Measurement 16 and every "loaded" row | Run one normal 16-agent campaign with `xtask loadrec` running. It records system-wide resource counters only. | Week 1, after WP-51a |
-| **V6** data in `/private/` | WP-75/76, WP-70 real-session stratum, measurements 6, 15 and 20, GT10 register incidents | Paths to the repositories, transcripts and notes, with consent to read-only walks. Agents then extract into `/private/` under a manifest (`xtask private index`). The owner confirms the ≈ 30 real-session questions. | Corpora by week 3; prompts by week 5; codec bodies and dispatches by the WP-54/56 session |
-| **V4** agent-free windows | WP-52–57 idle and loaded (1–2 windows of 4–8 h; profile L budgets 2–4); nightly GT1, GT18 and fuzz; 24 h fuzzing; GT16 (6–29 h) | A calendar in `/private/windows.toml` | First session about week 3–4; 24 h fuzzing and GT16 near exit |
-| **V8** owner-run operations | Measurement 18 and the VHDX half of measurement 22, if the owner keeps the VHDX; measurement 22's guard locations (ReFS, exFAT, `subst`, UNC, OneDrive) and its clock step, sleep, hibernation and reboot | Prepare the test locations; create and mount one small VHDX as admin if kept; perform the measurement 22 system actions in the session | The measurement 22 session (week 4–5) |
-| **V9** Claude Code and Codex | WP-56 (measurement 7, P1–P7, P10, P11, measurement 20), measurement 15's tool rows, WP-54, WP-58, WP-71/72 | Confirm the versions. Log in once in WP-58's runner `CLAUDE_CONFIG_DIR`. Run the printed plugin-install, `/hooks` trust and `writable_roots` steps. Grant quota windows for a ≤ 10-prompt smoke run and for GT13 on Opus 5.5 (≈ 53 M tokens of mostly cached input, under the shrink rule). | WP-56 in weeks 2–4; GT13 in weeks 6–10 |
-| **V3** signatures and verification | E1: rule tables, including the link merge rules, pack classes and `policy-keys`; GT10 core fixtures; a sample of the LQ-Bench gold results; review of the replay-derived constants; re-signing after a WP-73 rule change | Commit `docs/spec/rules/SIGNED.md` with the table digests; verify the `fixtures/gt10` core set | Tables from week 3–4; final before WP-81a |
-| **V2** time | Review sign-off (8–16 h), signatures (15–25 h), GT10 and gold sample (10–20 h), profile L (3–7 h), velocity (2–4 h) ([60 §3.15]) | A weekly slot of ≈ 4–6 h from week 3 | Week 3 onward |
+| **V5** recorded 16-agent campaign | Measurement 16 and every "loaded" row | Run one normal 16-agent campaign with `xtask loadrec` running. It records system-wide resource counters only. | Recorded in the week of 2026-10-13 ([v5-load-recording.md](../measurements/v5-load-recording.md); R-43, R-47); with the loaded night, due before M1 builds segments, the overlay, checkpoints, `hist` and `blobs` (R-23, R-47) |
+| **V6** data in `/private/` | WP-75/76, WP-70 real-session stratum, measurements 6, 15 and 20, GT10 register incidents, T1's mix (R-50) | Paths to the repositories, transcripts and notes, with consent to read-only walks. Agents then extract into `/private/` under a manifest (`xtask private index`). The owner confirms the ≈ 30 real-session questions. | Corpora with the replay chain and prompts with GT13, both before M2 (R-23, R-54); codec bodies by the night (R-23, R-25); dispatches with measurement 20, before M8–M10 (R-23, R-54); T1's mix by M1's exit (R-50) |
+| **V4** agent-free windows | WP-52–57 idle and loaded (1–2 windows of 4–8 h; profile L budgets 2–4); nightly GT1, GT18 and fuzz; 24 h fuzzing; GT16 (6–29 h) | A calendar in `/private/windows.toml` | Before the tag: R-23's night, the T1 checkpoint re-run with the read diagnostic (R-23, R-38, R-40), and R-50's measurement window, whose runs that can change bytes land before the tag (R-50). The loaded night before M1 builds segments, the overlay, checkpoints, `hist` and `blobs` (R-23, R-47). Every other window by its run's deadline in §5 "The staged freeze"; 24 h fuzzing and GT16 before M2 (R-23) |
+| **V8** owner-run operations | Measurement 18 and the VHDX half of measurement 22, if the owner keeps the VHDX; measurement 22's guard locations (ReFS, exFAT, `subst`, UNC, OneDrive) and its clock step, sleep, hibernation and reboot | Prepare the test locations; create and mount one small VHDX as admin if kept; perform the measurement 22 system actions in the session | The measurement 22 session, at M1's `Vfs` certification (R-23); measurement 18 goes with the rig (R-23) |
+| **V9** Claude Code and Codex | WP-56 (measurement 7, P1–P7, P10, P11, measurement 20), measurement 15's tool rows, WP-54, WP-58, WP-71/72 | Confirm the versions. Log in once in WP-58's runner `CLAUDE_CONFIG_DIR`. Run the printed plugin-install, `/hooks` trust and `writable_roots` steps. Grant quota windows for a ≤ 10-prompt smoke run and for GT13 on Opus 5.5 (≈ 53 M tokens of mostly cached input, under the shrink rule). | WP-56 before M8–M10, measurement 15's tool rows before M6, measurement 6's token half before M9, and GT13 before M2, each an M0·B gate (R-23, R-54) |
+| **V3** signatures and verification | E1: rule tables, including the link merge rules, pack classes and `policy-keys`; GT10 core fixtures; a sample of the LQ-Bench gold results; review of the replay-derived constants; re-signing after a WP-73 rule change | Commit `docs/spec/rules/SIGNED.md` with the table digests; verify the `fixtures/gt10` core set | Tables from week 3–4; the rule tables and the GT10 core final before WP-81a; the gold sample, the review of the replay-derived constants and any re-signing after a WP-73 rule change before M2, with GT13 and the replay chain (R-23) |
+| **V2** time | Review sign-off (8–16 h), signatures (15–25 h), GT10 and gold sample (10–20 h), profile L (3–7 h), velocity (2–4 h) ([60 §3.15]) | A weekly slot of ≈ 4–6 h from week 3 | Week 3 onward. The owner signed off pass 1, with the A1 re-review, on 2026-10-13 (R-46); session 1, 2–4 h, follows pass 2's close; session 2, 3–5 days later, takes the delta dispositions, the tag and the M1 plan (R-43). The query-surface sign-off follows GT13, before M2 (R-23, critique m-3) |
 | #39 signing | Measurement 11's signed arm | Either a self-signed test certificate (a certificate-store change the owner makes), or dropping the signed arm | The measurement 11 session |
 | Push | Publishing the M0 tree | "Push" after reviewing WP-01 to WP-04, as a PR (A3 already accepted the docs) | End of phase 0 |
 
@@ -534,7 +563,13 @@ request and goes through a PR under V10's ruleset. Until WP-03 is installed, the
   `master` ruleset keeps only its deletion and non-fast-forward rules, and `pr.yml` still runs on every push to `master`.
 - **Measurements and benchmarks are deferred.** V4, V5 and V9 wait until the owner resumes them. So do the runs of
   WP-51 to WP-57 and WP-72/73, and LQ-Bench's real-session stratum. The tools may still be built, but nothing is run
-  or recorded.
+  or recorded. R-23 lifted the deferral for one agent-free night of measurements 14, 6 (the codec half), 1, 2 and 10,
+  run idle, which started as soon as the tools were ready (R-32). Before the tag, R-38 orders the T1 checkpoint re-run,
+  R-40 adds a read diagnostic beside it, and R-50 adds a measurement unit in one agent-free window of 2–4 h. R-40 put
+  V5 and a loaded night before the tag; R-47 returned them to their R-23 deadline, and V5 is still recorded in the week
+  of 2026-10-13 (R-43, R-47). R-40 also adds a later measurement 10 run with smaller candidates, which does not block
+  the freeze (R-40). Every other run waits until the owner resumes it, and each run has the deadline that §5
+  "The staged freeze" gives (R-23).
 - **V6 is delegated, and the owner confirmed the sources.** The replay corpora of [40 §8.3.4] come from the owner's
   repository, its Claude Code transcripts and its auto-memory, as in the research reports. The paths are recorded
   only in the gitignored `/private/sources.toml`. The extraction scripts process file contents mechanically: the
@@ -638,6 +673,114 @@ options everywhere"). This block is the plan issue that records them; the PLAN r
   2026-09-30 with varied codes, the pattern of faulty RAM or an unstable XMP/EXPO profile. Wave 3b follows. (The owner
   declined the memory test the same day; wave 3b ran and was merged.)
 
+**The staged freeze: owner decisions of 2026-10-12 and 2026-10-13.** The owner asked for the plan to be optimized and
+chose every recommendation of the two audits of 2026-10-12, among them a staged freeze ("Да, поэтапно (Recommended)",
+"yes, in stages") (R-23). This block is the plan issue that records R-23 item 1 and the later rulings on the freeze
+path, and the PLAN rows they change are edited in place (the owner's R-23, R-25, R-32, R-40, R-43, R-46 to R-50 and
+R-54; the orchestrator's R-38, which orders the T1 checkpoint re-run, R-45, which applies R-23's rule, and R-51,
+which adds a probe before the tag). The rulings are kept in `<ORCH>/RULINGS.md` ([workflow.md](workflow.md)
+"Rulings"), and "critique I-2" and "plan §3.3" name items of the first audit, `<ORCH>/plan-2026-10-12/critique.md`
+and `plan.md`, whose recommendations R-23 adopted. R-23 and R-54 change [60] (below), which owns M0's scope and exit
+criteria (this plan's opening paragraph); until WP-81a records them there, this block holds where the two disagree
+(R-23). [workflow.md](workflow.md) records R-23's tiers (§5.1), its two units at a time (§4) and six of the nine
+items of its stop-list (§5.5); this block does not restate them, and §2.2 and §2.3 follow the stop-list for the
+probe bodies and `moirai-projfs-sim`.
+- **The tag.** `format-v1` freezes the bytes as soon as T1, the codec and the leader are measured, and M1 starts
+  at the tag (WP-81b; R-23). M0 is finished at the tag (R-54). Every criterion of §7 that R-23 did not move is met
+  there, E5 and E11 among them, so WP-99 runs beside WP-40b (R-54; plan §3.3); each item that R-23 moved is an M0·B
+  gate (below).
+- **`DOCLEN` and `FTSSTAT`** become `derived-optional`, all or nothing: every layer of a view carries both sections,
+  or a reader recomputes them for the whole view (R-23). [F09]'s row fold changes to match (WP-13; R-23, critique I-3).
+- **Resolver v1.** Before the tag, [F20]'s decoder bound is the design maximum 16 (R-23), and only the writer uses
+  `WIN` (WP-14b; R-23, critique I-2). Resolver version 1 is [F20] as it stands at M2 entry, not at the tag (R-23),
+  and a hole still open then, such as those that measurement 15 decides, takes its fill within version 1, before its
+  first consumer (R-45). A replay finding on a fixed value or rule that changes [F08 §10.3]'s anchor layout after the
+  tag re-opens M0 under [60] P4 (R-23, critique I-2).
+- **The review.** WP-80 pass 2 reviews the integrated specification before the fill, and a delta review covers the
+  fill and its fixtures after it (R-23). WP-40b follows the delta review, so that a protocol decision that pass 2 or
+  the delta review adds becomes a WP-40b bug before the tag (plan §3.3). The query surface freezes with GT13, after
+  pass 2, so a query-surface review with the owner's sign-off follows GT13, before M2 (R-23, critique m-3).
+- **Every other M0 run moves to a deadline before its first consumer** (R-23). M0 is finished at the tag, and each
+  item moved past it becomes a gate of the milestone that first needs it, tracked as "M0·B" (R-54):
+  - GT13, still on LQ-3, and the replay chain (WP-75 to WP-77) before M2 starts, with FL-1's 24 h fuzzing and
+    GT16 (R-23, R-54);
+  - V5 and the loaded T1 night before M1 builds segments, the overlay, checkpoints, `hist` and `blobs`, which Option B
+    would replace (R-23, critique I-1); R-40 put V5 and a loaded night before the tag, and R-47 returned them here
+    (below);
+  - measurement 22 at M1's `Vfs` certification (R-23);
+  - measurements 8 and 9 before M4, 15 before M6, and 7, 19 and 20 before M8–M10 (R-23, R-54);
+  - measurements 17 and 18 with the rig (R-23).
+
+  R-23's rule also homes the runs it does not name, at their first consumer (R-23), as M0·B gates (R-54):
+  measurement 12 before M1's GT3 and GT4 runs; measurements 3 and 5, on the product, before M1's exit; measurements
+  11 and 13 at M1's exit; measurement 4 before M3; GT18 long before M2; measurement 6's token half before M9;
+  R-40's later measurement 10 run, which does not block the freeze (R-40), before M1's open gate; and the loaded
+  rows of measurements 1, 2, 6 (the codec half), 10, 12 and 14 before M1's exit, T1's before M1 builds segments
+  (above). Measurement 21 sets the lane build cap and is met at the tag, with E10. WP-81a fills each hole these
+  runs decide by the run's deadline (R-23, R-45), and each such later fill takes its WP-20b fixtures, WP-95b's E3
+  re-run and WP-81a's owner review by the same deadline ([F01 §2.5]; [authors.md](authors.md) §2).
+- **What R-23 revisits**: the owner-review items A6 (GT13's timing; it still runs on LQ-3) and A7 (the five replay
+  targets gate M2's entry, not M0's exit); E2's measurement-22 clause; E6–E8 (§7); and M1's "Depends on. M0."
+  ([60 §3.2]), which stays true, because M0 ends at the tag, where M1 starts (R-23, R-54). WP-81a records R-23 and
+  R-54 in these [60] texts, with the owner's review: in §3.1's exit criteria, which E2, E6–E8 and E10 follow, and
+  its "Gates (mandatory from M0)" line, so that each moved clause leaves them (R-23, R-54); in §3.14, the table of decisions due before each milestone, which
+  gains the M0·B gates (R-54); in §2.4 item 6 (the evidence gathered before the freeze), §2.5's store-parameters
+  row ("Production defaults are fixed by M0 measurements") and §3.1's "Decisions fixed at M0 exit" (R-23, critique
+  I-2 and m-4); and in §3.1's item 8, whose review covers "the frozen query surface" (R-23, critique m-3). [60]'s
+  other "M0 exit" texts, P4 and §2.5's opening line among them, stay true, because M0 ends at the tag (R-54).
+- **The night.** R-23 item 2 lifted the 2026-09-29 deferral for one night, as the deferral bullet above records
+  (R-23, R-32).
+- **Codec bodies** (R-25). V6's delegation covers measurement 6's codec bodies: agents extract text bodies from the
+  owner's notes and the agents' memory into `/private/codec-bodies/`, never committed and never sent to CI, and
+  `cargo xtask private index` runs after the extraction (R-25).
+- **T1's mix** (R-50). The owner consents to a synthetic commit-size and hotness profile derived from the private
+  corpora, for M1's exit: numbers only (distributions and frequencies), under `private/` and never committed (R-50).
+- **After the night** (R-40, R-43, R-46, R-47):
+  - The checkpoint margin at 1e4, with [F17]'s P08 = 8 MiB, was 1.57×, under 2× (R-40). Under the guard rule that
+    R-40 names (`<ORCH>/night-2026-10-19/scoping.md` §1), an idle margin under 2× of a trigger moves that loaded run
+    before the freeze, so R-40 put V5 and a loaded night before the tag (R-40).
+  - After the second session, the codec's margin at the chosen P08 is far above 2× and T1's checkpoint guard does not
+    fire, so V5 and the loaded night left the tag path for their R-23 deadline (above). V5 is still recorded in the
+    week of 2026-10-13 with `xtask loadrec` (R-43, R-47).
+  - The owner's time: the owner signed off pass 1's dispositions, with the A1 re-review's, on 2026-10-13, from a
+    one-page summary (R-43, R-46); session 1, 2–4 h, follows pass 2's close, for its dispositions; session 2, 3–5 days
+    later, takes the delta dispositions, the tag and the M1 plan (R-43).
+- **Item 1a and T1** (R-47, R-50):
+  - Before the tag, the format gains item 1a, an affordance that lets a read reach an op inside an older record
+    without walking it. A HEAVY R-SPEC unit chooses the minimal form, with R-FIX and R-ORA follow-ups, and a short
+    session then re-measures the read (R-47). R-50 fixes its form: `prev_at` and `prev_len`, unhashed, in each owner's
+    first op frame (R-50).
+  - On the T1 checkpoint re-run, the read diagnostic (R-38, R-40) and a comparison of both options, the owner chose
+    T1 Option A, provisional until M1's exit, with item 1a. Option B is the format-v2 fallback, decided at M1's exit
+    (R-50).
+  - T1's trigger is restated: the product's point read is the offset read with item 1a, at the chosen thresholds,
+    checked at M1's exit at the owner's mix, idle and loaded. WP-81a records it in [AR] (R-50).
+  - R-50's measurement unit runs in one agent-free window of 2–4 h. Its runs that can change bytes (the read with
+    item 1a, the full checkpoint at 0.5 M and 1e6, and item 1a's bytes per op) land before the tag. It also measures
+    smaller tails with a 1e4 point; if they miss, [F17]'s 1e4 open clause goes to M1's open gate (R-50).
+- **The `NODE` layout** (R-51). R-51 calls no split, provisional on a probe shaped like `ready` that runs in
+  R-50's measurement unit and can change bytes. If its rule fires, `priority` alone splits into a `PRIO` column of
+  [F09], and [F08]'s byte 3 becomes reserved: a byte change before the tag, which goes to the owner. Otherwise
+  `NODE` stays as 60-byte rows, and WP-81a records "no split" (R-51).
+- **Klotho and Moirai** (R-48, R-49). The engine is named Klotho and the product keeps the name Moirai: one binary,
+  `moirai`, with Klotho a library inside it.
+  - **KX, before the tag.** Every format byte that carries the name changes: the six magics take the prefix `K`
+    (`KLTH`, `KLCK`, `KSEG`, `KDIC`, `KGMP`, `KSWP`), and [F01 §4.5]'s rule says that a magic begins with `K`; the 22
+    hash-domain strings become `klotho-…-v1`; the git image takes Klotho names, among them the `Klotho-*` trailers,
+    `.klotho-image` and `refs/klotho/*`; and `moirai_branch` becomes `store_branch`. `.moi`, `.moirai/`,
+    `<git-common-dir>/moirai/`, `moiraidir:` and `MOIRAI_*` stay. Every byte change goes in KX, the code's byte
+    constants included. Each role changes only its own paths on its own branch, and the set lands as one combined
+    landing (below; R-49).
+  - **KC, after the tag and before M1's first crate.** A reviewed token-map script renames the engine crates
+    `klotho-*`. It changes no pin, the full gate and the by-name count verify it, and it lands as an owner commit. The
+    M1 plan records the new names (§2.2; R-49).
+- **The combined landing** (R-49, R-54). KX lands as one set. Each role's branch is tested against a named
+  expected-red set; the orchestrator runs one full `cargo xtask gate` without `--branch` on the combined tip, in
+  the gate worktree, counts the tests by name, and merges the set at once, with no partial merge on any red (R-49,
+  R-54). R-54 extends this landing, with the same checks, to every change before the tag whose fixtures and oracle
+  must flip together: item 1a's R-FIX and R-ORA follow-ups, a `NODE` `priority` split if R-51's probe fires, a
+  pass-2 fix to item 1a's bytes, and WP-81a's follow-ups (R-54). It is the one exception to §3.1's gate rule.
+
 ## 6. Changes
 
 ### 6.1 Changes to the approved roadmap from the 2026-09-27 decisions
@@ -647,7 +790,7 @@ Most of these are already written into the live documents, which another workflo
 | # | Roadmap element | Change | Recorded in |
 |---|---|---|---|
 | 1 | Item 7: OS-crash rig (Server 2025 Core guest, VirtualBox/VMware, WSL2/Memory Integrity) | Not provisioned in M0. Its provisioning units stay as contingency until WP-99. | [60 §3.1] item 7, §10.14 |
-| 2 | Measurement 17 (rig calibration) and the exit bullet "rig passes calibration" | Deferred. The exit criterion now reads "measurements 1–16 and 18–22". | [60 §3.1] exit, §5.2 row 17 |
+| 2 | Measurement 17 (rig calibration) and the exit bullet "rig passes calibration" | Deferred. The exit criterion now reads "measurements 1–16 and 18–22". R-23 then moved measurement 18 with the rig too, and E8 reads "1–16 and 19–22" (§7). | [60 §3.1] exit, §5.2 row 17 |
 | 3 | Protocol decision (h), "measurement 17 decides `MOVEFILE_WRITE_THROUGH`" | Frozen instead: Windows `file mv` uses `MOVEFILE_WRITE_THROUGH` as well as the directory flush on both parents, until a calibration after the release shows it is not needed (WP-16) | [AR §4.10], V7 |
 | 4 | Crash evidence for M0–M11 | GT1 (the toy log at M0), GT3 and the GT4 kill loops. Power loss is an explicit unverified residual risk ([AR §10] risk 17). GT15's specification and every field and rule it would test stay frozen. | [AR] V7 entry |
 | 5 | M1 exit "≥ 1,000 OS-crash cycles"; RG3 "≥ 5,000" | Leave M0–M11. No M0 spec text may rely on them. | [60 §3.2, §6] |
@@ -659,7 +802,7 @@ Most of these are already written into the live documents, which another workflo
 | 11 | Entry condition "re-review of [40]/[50] rev 2" (A1) | Moves inside the review: WP-80a in phase 0, before the chapters and code built on those revisions are accepted | [60 §3.1] entry |
 | 12 | Lane windows (A8) | Agreed at M0 start; measurement 21 only sets the build cap | [60 §3.1] entry, exit |
 | 13 | Calendar | The rig's machine time leaves. M0 keeps its 2–4 exit windows. Re-issued at WP-99. | [60 §7], §10.14 |
-| 14 | VHDX | Asked on day 1 (§8). The brief lists a "VHDX drill" among the deferred items, but the documents of record keep the owner-run VHDX (V8) for measurements 18 and 22 (the RG7 drill is M1+). If the owner defers it: measurement 18 joins measurement 17 with no format change, because fault-model item (3) already takes the widest reading; and measurement 22 tests the in-page-error handler with an in-process raised `EXCEPTION_IN_PAGE_ERROR`. | [60 §10.14], [AR] V7/V8 |
+| 14 | VHDX | Asked on day 1 (§8). The brief lists a "VHDX drill" among the deferred items, but the documents of record keep the owner-run VHDX (V8) for measurements 18 and 22 (the RG7 drill is M1+). If the owner defers it: measurement 18 joins measurement 17 with no format change, because fault-model item (3) already takes the widest reading; and measurement 22 tests the in-page-error handler with an in-process raised `EXCEPTION_IN_PAGE_ERROR`. R-23 moves measurement 18 with the rig. | [60 §10.14], [AR] V7/V8 |
 
 ### 6.2 Resolutions this plan makes
 
@@ -694,18 +837,23 @@ amended in place below, and the conditions the three lenses attached to the othe
 
 ## 7. Definition of done for M0
 
-- [ ] **E1.** The specification review closes with zero open blocker or major findings before the freeze. That covers WP-80a's A1 re-review and both passes. `COVERAGE.md` has no unmapped row. The owner has signed the rule tables (merge table, status machines, delete-policy matrix, link merge rules, pack classes, `policy-keys`, the I26′ definition with its marker-cache rules) and verified the GT10 core fixtures (register incidents, node-40, the [AR §7.6] walk-through).
-- [ ] **E2.** [80] rev 2 passes the review with zero open blocker or major findings. Measurement 22 has verified the Windows boot-identity source, or Windows runs in Unknown-boot mode.
+Under the staged freeze, M0 is finished at the `format-v1` tag (WP-81b), where M1 starts (R-23, R-54). A clause
+below that R-23 moved past the tag is not an M0 exit criterion: it is a gate of the milestone that first needs it,
+due by the deadline that it names and tracked as "M0·B" (§5 "The staged freeze"; R-54). Every other criterion, E5
+and E11 among them, is met at the tag, before M1 starts (R-54).
+
+- [ ] **E1.** The specification review closes with zero open blocker or major findings before the freeze. That covers WP-80a's A1 re-review, both passes and the delta review after the fill (R-23). `COVERAGE.md` has no unmapped row. The owner has signed the rule tables (merge table, status machines, delete-policy matrix, link merge rules, pack classes, `policy-keys`, the I26′ definition with its marker-cache rules) and verified the GT10 core fixtures (register incidents, node-40, the [AR §7.6] walk-through).
+- [ ] **E2.** [80] rev 2 passes the review with zero open blocker or major findings. Measurement 22 has verified the Windows boot-identity source, or Windows runs in Unknown-boot mode. That clause is an M0·B gate at M1's `Vfs` certification, not due at the tag (R-23, R-54).
 - [ ] **E3.** After the fill (WP-20b, WP-95b), the oracle decodes every hand-written hex fixture and re-encodes it byte-identically, with compressed payloads opaque (R3). Every `moi/` and `carrier/` file passes the ABNF conformance check. The model's encoder reproduces every commit-id fixture.
 - [ ] **E4.** The toy-log enumeration finds every seeded bug, including both [61 B2] scenarios, the 13 of [80 §2.4.4] (G5 by a unit test of its detector, which the flush byte masks, [F16 §17.3] P-45) and decision (f)'s. A catalogue bug that another rule masks in every reachable toy state carries a written disposition in its [F16 §17.3] row (re-vehicled to a milestone gate, re-formed into a reachable bug, or covered by a unit test of its detector), accepted at WP-80; P-59 and P-79 stay at M1. The bug list equals `16-protocol.md`'s protocol-decision list at the tag (WP-40b).
 - [ ] **E5.** The model passes its suite: the delete-policy matrix, status machines, node-40 on one branch and across branches, register incidents, and the RVB cases.
-- [ ] **E6.** GT13, run on LQ-3 with Opus 5.5, meets the normative list of [AR §7.7.5] and [50 §7.4] item 6, and the query surface is frozen.
-- [ ] **E7.** The five replay targets are met. FL-1 passes 24 h of fuzzing on every parser target (selectors, path specs, the authoring-spec parser, the three scanners, the ignore patterns, the part-2 inputs). GT16 kills ≥ 90 % of mutants (lower bound ≥ 88 %).
-- [ ] **E8.** Measurements 1–16 and 18–22 are recorded idle and loaded. If the owner defers the VHDX, it is 1–16 and 19–22, with measurement 18 deferred. Every entry of [60 §3.1]'s "Decisions fixed at M0 exit" is recorded in [AR §8.2], [AR §13] and [60 §2.5], and [AR §4.7] states the gate at the chosen checkpoint threshold. The configuration registry is specified, and the model implements every allowed value of each policy key. `format-v1` is tagged (WP-81b).
+- [ ] **E6.** GT13, run on LQ-3 with Opus 5.5, meets the normative list of [AR §7.7.5] and [50 §7.4] item 6, and the query surface is frozen. Both are an M0·B entry gate of M2, not due at the tag (R-23, R-54), and a query-surface review with the owner's sign-off follows GT13 (R-23, critique m-3). After the tag, a remedy for a failed gate keeps to [60 §3.1]'s list (the card, an error text, a lint, a built-in, the compatibility table or the semantics), and one that needs a byte change re-opens M0 under [60] P4 (R-23, critique m-3).
+- [ ] **E7.** The five replay targets are met. FL-1 passes 24 h of fuzzing on every parser target (selectors, path specs, the authoring-spec parser, the three scanners, the ignore patterns, the part-2 inputs). GT16 kills ≥ 90 % of mutants (lower bound ≥ 88 %). These are M0·B entry gates of M2, not due at the tag (R-23, R-54).
+- [ ] **E8.** Measurements 1–16 and 19–22 are recorded idle and loaded, and measurement 18 goes with the rig (R-23). Every entry of [60 §3.1]'s "Decisions fixed at M0 exit" is recorded in [AR §8.2], [AR §13] and [60 §2.5], and [AR §4.7] states the gate at the chosen checkpoint threshold. At the tag: the runs that §5 "The staged freeze" keeps before the tag are recorded; T1 (Option A, provisional until M1's exit; R-50), the codec and the leader are recorded, and every other hole is filled or written as open with its deadline (WP-81a); and [AR §4.7] states the gate at the provisional `store.checkpoint.ops` = 2,048 (R-40). The rest are M0·B gates of the milestones that first need them, each by its deadline in §5 "The staged freeze": every other record, the loaded rows included, every other entry, and the final threshold by the deadline of R-40's later measurement 10 run (R-23, R-54). The configuration registry is specified, and the model implements every allowed value of each policy key. `format-v1` is tagged (WP-81b).
 - [ ] **E9.** The review has re-checked the integrated [AR] text.
-- [ ] **E10.** Hosted CI is green on the model, the oracle and FL-1. Nightly runs complete in agreed windows. The authorship, AI-marker (hook, gate and CI) and local-corpus checks refuse their seeded violations, a partial copy of a private file included. The model stays ≤ 512 MB per case. Measurement 21 has set the build cap, or shown that lane B must pause.
+- [ ] **E10.** Hosted CI is green on the model, the oracle and FL-1. The authorship, AI-marker (hook, gate and CI) and local-corpus checks refuse their seeded violations, a partial copy of a private file included. Measurement 21 has set the build cap, or shown that lane B must pause. At the tag, GT1's full tier has run green (R-23). The other nightly runs complete in agreed windows, the model stays ≤ 512 MB per case, and GT18 long, a nightly job, runs: these are M0·B entry gates of M2, their first consumer, under R-23's rule (§5 "The staged freeze"; R-54).
 - [ ] **E11.** Velocity is measured and [60 §7] is re-issued.
-- [ ] **Gates green:** GT10, seeded-bug validation, GT13, GT5 and GT16 on FL-1, GT20 (b) on both lockfiles and (e) on every crate (the roots by their Windows check), and GT18 on the model.
+- [ ] **Gates green:** GT10, seeded-bug validation, GT13, GT5 and GT16 on FL-1, GT20 (b) on both lockfiles and (e) on every crate (the roots by their Windows check), and GT18 on the model. GT13, GT5 and GT16 on FL-1, and GT18 long are M0·B entry gates of M2 (R-23, R-54; E6, E7, E10).
 
 ## 8. The first wave (start now)
 
