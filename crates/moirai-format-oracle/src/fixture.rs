@@ -1817,7 +1817,8 @@ mod tests {
     }
 
     /// [F05 §10.3] into [F11 §13.4]: a segment's `DROPPED` section is the rows below plus a row per hash of each
-    /// `BodyDrop` of its window, the first row staying; conditional (§2.4); the records must cover the window.
+    /// `BodyDrop` of its window `[from, upto)`, the first row staying, with its own `drop_lsn`, `hlc` and `reason`;
+    /// conditional (§2.4); the records must cover the window.
     #[test]
     fn dropped_fold() {
         use runtime::SegKind::{Base, Delta};
@@ -1878,6 +1879,21 @@ mod tests {
             base(&[(h1, 300, A, 1), (h2, 300, B, 1)], &r, &none),
             &["§13.4", "drop_lsn"],
         );
+        // hlc and reason are the record's own, each compared on its own.
+        for (what, rows, field) in [
+            (
+                "D-2 another BodyDrop's hlc",
+                [(h1, 100, B, 1), (h2, 300, B, 1)],
+                "hlc",
+            ),
+            (
+                "D-2 another reason",
+                [(h1, 100, A, 2), (h2, 300, B, 1)],
+                "reason",
+            ),
+        ] {
+            refused(&mut fails, what, base(&rows, &r, &none), &["§13.4", field]);
+        }
         // D-3: a window above 0 over the previous segment's rows.
         let mut below = TableView::default();
         below.dropped.insert(
@@ -1939,6 +1955,25 @@ mod tests {
                 &["F05 §10.3", "window"],
             );
         }
+        // D-7: the window is [from, upto): a BodyDrop at from_lsn is folded, one at upto_lsn is not ([F09 §2.3]).
+        let v = [
+            (500, body_drop(&[h1], 1, A)),
+            (1000, body_drop(&[h2], 2, B)),
+        ];
+        let r = recs(500, 1100, &v);
+        pass(&mut fails, "D-7", delta(&[(h1, 500, A, 1)], &r, &none));
+        refused(
+            &mut fails,
+            "D-7 a row for the BodyDrop at upto_lsn",
+            delta(&[(h1, 500, A, 1), (h2, 1000, B, 2)], &r, &none),
+            &["§13.4", "not given by the fold"],
+        );
+        refused(
+            &mut fails,
+            "D-7 no row for the BodyDrop at from_lsn",
+            delta(&[], &r, &none),
+            &["§13.4", "no row"],
+        );
         // D-6: the segment wrapper reads the kind, the window and the section by tag.
         let seg = segment::tests::small_base();
         pass(
@@ -1987,8 +2022,8 @@ mod tests {
 
     /// [F05 §10.3] into [F11 §13.5]: a `HARVEST` base is the snapshot of the fold, a delta's layer holds every source its
     /// window touched with its full state, or dead when it has no row at `upto_lsn` (R-70); a range's `commit_lsn` is the
-    /// lsn of the `Commit` it names; a forget above 0 keeps the ranges below it; the view under a layer composes base
-    /// and delta layers (§2.4).
+    /// lsn of the `Commit` it names; a forget above 0 keeps the ranges below it; the last mark sets `head`, `seen` and
+    /// `path`; only the records of `[from, upto)` fold; the view under a layer composes base and delta layers (§2.4).
     #[test]
     fn harvest_fold() {
         use runtime::SegKind::{Base, Delta};
@@ -2031,6 +2066,31 @@ mod tests {
             base(&[("claude:a", Some(&a160))]),
             &["§13.5", "commit_lsn"],
         );
+        // The last mark sets head, seen and path, each compared on its own: one field is the first mark's.
+        for (what, row, field) in [
+            (
+                "H-1 the first mark's head",
+                hrow(1, 20, "p2", &[(0, 10, 0xC1, 150)]),
+                "head",
+            ),
+            (
+                "H-1 the first mark's seen",
+                hrow(2, 10, "p2", &[(0, 10, 0xC1, 150)]),
+                "seen",
+            ),
+            (
+                "H-1 the first mark's path",
+                hrow(2, 20, "p1", &[(0, 10, 0xC1, 150)]),
+                "path",
+            ),
+        ] {
+            refused(
+                &mut fails,
+                what,
+                base(&[("claude:a", Some(&row))]),
+                &["§13.5", field],
+            );
+        }
         // H-8: the view under a layer: a base, then a delta layer with a dead and a changed row.
         let b = hrow(3, 90, "pb", &[(0, 50, 0xC1, 150), (50, 80, 0xC1, 150)]);
         let c = hrow(4, 30, "pc", &[]);
@@ -2195,6 +2255,37 @@ mod tests {
                 cites,
             );
         }
+        // H-9: the window is [from, upto): a Harvest at from_lsn is folded, one at upto_lsn is not ([F09 §2.3]).
+        let v = [
+            (500, harvest("codex:g", mark("pg", 0xA, 1))),
+            (1000, harvest("codex:h", mark("ph", 0xB, 2))),
+        ];
+        let r = recs(500, 1100, &v);
+        let g = hrow(0xA, 1, "pg", &[]);
+        let h = hrow(0xB, 2, "ph", &[]);
+        let edge = |rows: &[(&str, Option<&HarvestRow>)]| {
+            check_table_folds(
+                Delta,
+                (500, 1000),
+                None,
+                harvest_sec(rows, Delta).as_ref(),
+                &none,
+                &r,
+            )
+        };
+        pass(&mut fails, "H-9", edge(&[("codex:g", Some(&g))]));
+        refused(
+            &mut fails,
+            "H-9 a row for the Harvest at upto_lsn",
+            edge(&[("codex:g", Some(&g)), ("codex:h", Some(&h))]),
+            &["§13.5", "not given by the fold"],
+        );
+        refused(
+            &mut fails,
+            "H-9 no row for the Harvest at from_lsn",
+            edge(&[]),
+            &["§13.5", "no row"],
+        );
         assert!(fails.is_empty(), "{}", fails.join("\n"));
     }
 
