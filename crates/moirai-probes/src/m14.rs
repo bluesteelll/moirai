@@ -40,8 +40,9 @@
 //! `advise(WillNeed)` over the range it reads inside the timed region. `prepare` refuses the run unless [`ready_scan`]
 //! (the first-touch ops' scan) of the bytes the arms read, `NODE` at that offset and the column, gives the naive top
 //! 20 of the candidates ([`ready_agree`], triage r1 I-1): for `warm` over the run's maps, for `first` and `willneed`
-//! over the warm-up's. Each first-touch sample's teardown checks its own top 20 against that one. **The rule**,
-//! reported, the orchestrator's to rule:
+//! over the warm-up's. [`arms`] runs each warm arm's own op once, untimed, and refuses the run unless it gives that
+//! top 20 ([`ready_warm_agree`], triage r2 I-1). Each first-touch sample's teardown checks its own top 20 against that
+//! one. **The rule**, reported, the orchestrator's to rule:
 //! split `priority` if the warm `rows` p99 exceeds 1.5 ms at 5 % and 1e6, or the first-touch `rows` p99 exceeds 2.5 ms at
 //! 1e5.
 //!
@@ -69,8 +70,9 @@
 //! diagnostics' in-memory setup (the id order, the buffers, the copy of the offset index) is seen only through the reads
 //! it leads to: an arm that did the same reads between its ticks but returned a value decoded in its setup would pass
 //! every test, since the rig observes reads only (u17 critique I-2). The `ready` arms are seen through their maps, first
-//! borrows, drops and advice: an op that scanned a map made in its setup and borrowed again would pass. The warm arms'
-//! results are checked once, by the setup over their maps, never per sample.
+//! borrows, drops and advice: an op that scanned a map made in its setup and borrowed again would pass. A warm arm's
+//! result is checked once, when [`arms`] runs its op untimed before the arm exists ([`ready_warm_agree`]), and never
+//! per sample: a warm op whose result changed after that first call would pass every test.
 //!
 //! Every run's fixture is the base `seg.base.1` at the quantity's N ([`crate::seg::base`]), written, sealed and
 //! mapped, and, for the seven families that read one (the overlay probe, the read and its three diagnostics, the
@@ -565,6 +567,22 @@ pub fn ready_agree(
         ));
     }
     Ok(())
+}
+
+/// The check of the warm `ready` arms (triage r2 I-1; spec gate 1): `got` holds each warm arm's name and the top 20
+/// its own op gave when [`arms`] ran it once, untimed, as it built the arm. Each must be `want`, the top 20 the setup
+/// checked ([`ReadyFx::top`]). It refuses, naming every arm that differs, its top 20 and `want`.
+pub fn ready_warm_agree(want: &[u32], got: &[(&str, Vec<u32>)]) -> Result<(), String> {
+    let wrong: Vec<String> = got
+        .iter()
+        .filter(|(_, top)| top != want)
+        .map(|(name, top)| format!("ready warm {name}: its top 20 {top:?}, the setup's {want:?}"))
+        .collect();
+    if wrong.is_empty() {
+        Ok(())
+    } else {
+        Err(wrong.join("; "))
+    }
 }
 
 /// The scale a run is made at.
@@ -1400,7 +1418,8 @@ pub struct ReadyFx<M> {
     /// The run's map of the column (`warm`), touched before the pilot.
     pub col: Option<M>,
     /// The naive top 20 of the candidates ([`ready_naive_top20`]): what `prepare`'s check ([`ready_agree`]) found the
-    /// arms' scan of both files gives, and what each first-touch sample's teardown requires of its own.
+    /// arms' scan of both files gives, what [`arms`] requires of each warm arm's own op ([`ready_warm_agree`]), and
+    /// what each first-touch sample's teardown requires of its own.
     pub top: Vec<u32>,
 }
 
@@ -1581,7 +1600,8 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
 }
 
 /// The arms of `q` over a prepared fixture, arm 0 first; their setup (the overlay, the warm builder, the floor's
-/// bytes) runs here, outside every timed region. The AND/popcount and scan arms time the calls of [`count_ops`].
+/// bytes, the warm `ready` ops' check) runs here, outside every timed region. The AND/popcount and scan arms time the
+/// calls of [`count_ops`].
 pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
     p: &'p Prepared<'_, V>,
     c: &'p Columns<'p>,
@@ -1818,16 +1838,24 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
                 ReadyMode::Warm => {
                     let col = r.col.as_ref().ok_or("no run map of the column")?.bytes();
                     let (c1, c2) = (cands.clone(), cands);
-                    arms.push(Box::new(TimedFn::new("rows", ticker.clone(), move || {
+                    let rows = move || -> Result<Vec<u32>, ArmError> {
                         Ok(ready_top20(&c1, |id| {
                             c.node[NODE_HDR_LEN * (id as usize - 1) + PRIORITY_AT]
                         }))
-                    })));
-                    arms.push(Box::new(TimedFn::new(
-                        "column",
-                        ticker.clone(),
-                        move || Ok(ready_top20(&c2, |id| col[id as usize - 1])),
-                    )));
+                    };
+                    let column = move || -> Result<Vec<u32>, ArmError> {
+                        Ok(ready_top20(&c2, |id| col[id as usize - 1]))
+                    };
+                    // Each arm's own op, run once here, untimed, against the top 20 the setup checked (triage r2 I-1).
+                    ready_warm_agree(
+                        &r.top,
+                        &[
+                            ("rows", rows().map_err(|e| e.0)?),
+                            ("column", column().map_err(|e| e.0)?),
+                        ],
+                    )?;
+                    arms.push(Box::new(TimedFn::new("rows", ticker.clone(), rows)));
+                    arms.push(Box::new(TimedFn::new("column", ticker.clone(), column)));
                 }
                 ReadyMode::First | ReadyMode::WillNeed => {
                     let advise = mode == ReadyMode::WillNeed;
@@ -5254,6 +5282,63 @@ mod tests {
                     }
                 }
             }
+        }
+    }
+
+    /// The warm arms' own ops give the setup's top 20 (triage r2 I-1; spec gate 1): over [`MemFs`] at the test profile,
+    /// at 5 % and 20 %, [`arms`] runs the warm `rows` and `column` ops once, untimed, finds the fixture's top 20 and
+    /// builds both arms. With the fixture's top 20 reversed before the arms exist, it refuses, naming both arms. And
+    /// [`ready_warm_agree`] names only the arm whose top 20 differs.
+    #[test]
+    fn ready_warm_arms_give_the_setups_top20() {
+        for d in [Density::P5, Density::P20] {
+            let fs = MemFs::with_dir(&scratch());
+            let (q, mut p) = fixture(&fs, Family::Ready(ReadyMode::Warm, d));
+            let ticker = FsTicker::new(&fs, p.dir(), &[]);
+            for reversed in [false, true] {
+                if reversed {
+                    p.ready.as_mut().unwrap().top.reverse();
+                }
+                let c = Columns::parse(p.map.bytes()).unwrap();
+                let r = arms(&p, &c, &q, &ticker).map(|built| {
+                    built
+                        .iter()
+                        .map(|a| a.name().to_string())
+                        .collect::<Vec<_>>()
+                });
+                if reversed {
+                    assert!(
+                        r.as_ref()
+                            .is_err_and(|e| e.starts_with("ready warm rows: its top 20")
+                                && e.contains("; ready warm column: its top 20")),
+                        "{}: {r:?}",
+                        q.name
+                    );
+                } else {
+                    assert_eq!(r, Ok(vec!["rows".into(), "column".into()]), "{}", q.name);
+                }
+            }
+        }
+        let want: Vec<u32> = (1..=20).collect();
+        let other: Vec<u32> = (2..=21).collect();
+        assert_eq!(
+            ready_warm_agree(&want, &[("rows", want.clone()), ("column", want.clone())]),
+            Ok(())
+        );
+        for (got, name) in [
+            ([("rows", other.clone()), ("column", want.clone())], "rows"),
+            (
+                [("rows", want.clone()), ("column", other.clone())],
+                "column",
+            ),
+        ] {
+            let r = ready_warm_agree(&want, &got);
+            assert!(
+                r.as_ref().is_err_and(|e| e
+                    .starts_with(&format!("ready warm {name}: its top 20 {other:?}"))
+                    && !e.contains("; ")),
+                "{name}: {r:?}"
+            );
         }
     }
 }
