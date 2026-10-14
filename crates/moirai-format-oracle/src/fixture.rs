@@ -791,6 +791,9 @@ impl Fold {
                 self.hlc_seq = self.hlc_seq.max(h.hlc_seq);
                 self.hlc_commit = self.hlc_commit.max(h.hlc_commit);
             }
+            // [F05 §7] rows 29 and 30, §10.2: both raise `hlc_seq`.
+            Payload::BodyDrop(d) => self.hlc_seq = self.hlc_seq.max(d.hlc),
+            Payload::Harvest(h) => self.hlc_seq = self.hlc_seq.max(h.hlc),
             _ => {}
         }
     }
@@ -1117,6 +1120,82 @@ mod tests {
         assert_eq!(recs[0].decoded, Ok(12));
         assert!(recs[1].decoded.is_err());
         assert!(walk_tail(&ext, 338 + 2 * stale.len()).unwrap().is_empty());
+    }
+
+    /// [F05 §7] rows 29 and 30, §10.2: a `BodyDrop` and a `Harvest` raise `hlc_seq` to their `hlc`. A log of an extent
+    /// head and one record of each kind folds to a slot with that `hlc_seq`; a slot that kept 0 is refused.
+    #[test]
+    fn head_fold_body_drop_and_harvest() {
+        use crate::head::tests::initial_slot;
+        use crate::log::tests::{EPOCH, head, rec};
+        const X1: u64 = (2 << 16) | 1;
+        const X2: u64 = (3 << 16) | 2;
+        let body_drop = Payload::BodyDrop(Box::new(log::BodyDrop {
+            hashes: vec![[5; 16]],
+            reason: 1,
+            note: String::new(),
+            actor: 0,
+            hlc: X1,
+            origin: 2,
+        }));
+        let harvest = Payload::Harvest(Box::new(log::Harvest {
+            source: "claude:s".into(),
+            op: log::HarvestOp::Mark {
+                path: "t".into(),
+                head: [0xAB; 16],
+                seen: 3,
+            },
+            hlc: X2,
+        }));
+        let mut fails = Vec::new();
+        for (what, kind, payload, hlc) in [
+            ("BodyDrop", 29, body_drop, X1),
+            ("Harvest", 30, harvest, X2),
+        ] {
+            let mut ext = vec![0u8; 1 << 16];
+            let b0 = log::encode_group(
+                &log::Group {
+                    lsn: 0,
+                    records: vec![head(0, log::epoch_seed(EPOCH))],
+                    len: 0,
+                },
+                log::epoch_seed(EPOCH),
+            );
+            ext[..b0.len()].copy_from_slice(&b0);
+            let seed = u64::from_le_bytes(b0[b0.len() - 8..].try_into().unwrap());
+            let b1 = log::encode_group(
+                &log::Group {
+                    lsn: 138,
+                    records: vec![rec(kind, 2, 138, payload, None)],
+                    len: 0,
+                },
+                seed,
+            );
+            ext[138..138 + b1.len()].copy_from_slice(&b1);
+            let end = 138 + b1.len() as u64;
+            let mut slot = initial_slot(1);
+            (slot.next_ref_id, slot.refs_lsn) = (0, 0);
+            (slot.committed_lsn, slot.durable_lsn, slot.hlc_seq) = (end, end, hlc);
+            let lc = match check_log(&[(1, &ext)], &slot) {
+                Ok(lc) => lc,
+                Err(e) => {
+                    fails.push(format!("{what}: the log: {e}"));
+                    continue;
+                }
+            };
+            if lc.scan.end != end {
+                fails.push(format!("{what}: the scan ends at {}", lc.scan.end));
+            }
+            if let Err(e) = check_head_fold(&slot, &lc.scan) {
+                fails.push(format!("{what}: hlc_seq {hlc}: {e}"));
+            }
+            slot.hlc_seq = 0;
+            match check_head_fold(&slot, &lc.scan) {
+                Err(e) if e.reason.contains("hlc_seq") => {}
+                other => fails.push(format!("{what}: hlc_seq 0: {other:?}")),
+            }
+        }
+        assert!(fails.is_empty(), "{}", fails.join("\n"));
     }
 
     /// [F02 §6.3] names and [F09 §17.1] V-3: a segment whose `file_no` is not its name's is refused.
