@@ -522,6 +522,9 @@ Each is a commit id, then SP and the time text of that commit's `hlc` (§2.7) wh
 - **created(u, C)** is the commit K of H(C) with the least (`gen`, commit id), compared as (`u32`, bytes), such that u exists
   in CS(K) and not in CS(P1(K)). For a node created once, K holds its `Create`; for a derived uid created on two lines, K is
   [40 §2.3]'s "creating commit with the least (generation, commit id) among the creating commits the view's history holds".
+  A uid′ that a re-key lands ([F12 §7.6]; [RULES/link-merge-rules] RK-005) is in no state before the merge that
+  re-keys it, so that merge is K; when uid′ has more than one creating commit, the rule above picks K among them
+  (W3D-SF-7; the orchestrator's ruling R-52 of 2026-10-13).
 - **updated(u, C)** is C when u has no node file at P1(C), or when u's node files at C and at P1(C), each read without its
   `updated:` line, differ; otherwise updated(u, P1(C)). The `updated:` line therefore changes exactly when the rest of the
   file does.
@@ -1976,6 +1979,9 @@ the quote and context lengths ([F20 §6.1]); the codec holes of [F10] never reac
 23. **Provenance lines are functions of the commit graph** (§6.3): `created` by [40 §2.3]'s least (generation, commit id)
     rule, `updated` as the last first-parent commit that changed the file, `deleted` following the side that deleted the
     node. [F08]'s `created_tx`/`updated_tx` are store-local `seq`s and are not what the image writes.
+    A uid′ that a re-key lands is in no state before the merge that re-keys it, so its `created` is that merge;
+    when uid′ has more than one creating commit, the same least (generation, commit id) rule picks among them (§6.3;
+    W3D-SF-7; the orchestrator's ruling R-52 of 2026-10-13).
 24. **The ledger is one line per stored `Incr` on the first-parent chain** (§6.5). [AR §5b.2] rule 3's "one per `Incr` op"
     is read over the view's first-parent chain: a merge's or sync's net delta is one line with the merge's id, so the lines
     always sum to the counter, stay append-only along a ref, and do not depend on a merge base. A foreign commit's
