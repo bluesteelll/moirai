@@ -13,6 +13,7 @@
 //! | [`bitset`] | the frozen bitset with per-chunk cardinality and its AND/popcount, the ± list | [F09 §4.5], [F09 §4.6] (`09-segments.md:288-332`) |
 //! | [`base`] | the synthetic base `seg.base.1` at N: rows, cold columns, forward and reverse CSR, `BMDIR` and its frozen bitsets | [F09 §5], §7.1, §9, §16.1 (`09-segments.md:376-416`, `:479-505`, `:569-599`, `:1077-1083`); `ARCHITECTURE-RESEARCH.md:1677-1681` |
 //! | [`delta`] | the delta `seg.d<K>` a checkpoint folds from a tail over the base: the touched rows with complete states and the ± lists against the base | [F09 §16.2] (`09-segments.md:1085-1089`), §5.1 (`:378-382`), §4.6; [F08 §3.5] (`08-data-model.md:157-169`) |
+//! | [`text`] | tokenizer v1 restricted to ASCII (u20 cut F-5), the term index of a segment's documents, `TERMS` (front-coded in blocks of 16), `POST`, `DOCLEN` and `FTSSTAT` (`HOLE(F09-doclen)`'s "kept" candidate), and their readers | [F09 §12] (`09-segments.md:761-848`, `:1263`) |
 //!
 //! **The subset** (spec Goal 1: "the 60-byte `NodeHdr`, CSR, frozen bitsets, cold columns and delta"): the probe
 //! writes `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE`, the six CSR columns, `BMDIR` and `BM.<i>`
@@ -26,6 +27,7 @@
 pub mod base;
 pub mod bitset;
 pub mod delta;
+pub mod text;
 
 use crate::tail::store::{SEG_HDR_LEN, SEG_MAGIC};
 use xxhash_rust::xxh3::xxh3_64;
@@ -79,6 +81,14 @@ pub mod tag {
     pub const IN_KIND: u16 = 0x0025;
     /// `BMDIR`, fixed table of 4-byte rows (`:179`).
     pub const BMDIR: u16 = 0x0040;
+    /// `TERMS`, the term dictionary (`:180`).
+    pub const TERMS: u16 = 0x0050;
+    /// `POST`, the postings (`:181`).
+    pub const POST: u16 = 0x0051;
+    /// `DOCLEN`, column of 6 B (`:182`).
+    pub const DOCLEN: u16 = 0x0052;
+    /// `FTSSTAT`, fixed record of 48 B (`:183`).
+    pub const FTSSTAT: u16 = 0x0053;
 
     /// `BM.<i>` = `0x8000 + i`, i 0–32,766 (`:205`, `:233`).
     pub const fn bm(i: u16) -> u16 {
@@ -159,7 +169,8 @@ fn u32_le(b: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(b[at..at + 4].try_into().expect("4 bytes"))
 }
 
-fn u64_at(b: &[u8], at: usize) -> u64 {
+/// The little-endian `u64` at byte `at`.
+pub(crate) fn u64_at(b: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(b[at..at + 8].try_into().expect("8 bytes"))
 }
 
