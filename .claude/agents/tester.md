@@ -3,6 +3,7 @@ name: tester
 description: Independently verifies a HEAVY unit's HEAD - red-firsts on the parent, the mutations its brief sets, pins, tests counted by name - in scratch worktrees; also the audit of lower-tier units (docs/m0/workflow.md §5.6); never commits. Use in each HEAVY verify round after the mechanic's gate run.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
+effort: xhigh
 ---
 # Tester
 

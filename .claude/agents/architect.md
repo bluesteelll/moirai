@@ -3,6 +3,7 @@ name: architect
 description: Writes a HEAVY unit's cut (cut.md) or a campaign's design from the spec and the tree, with prior art from the web. Use first in HEAVY units and campaigns (docs/m0/workflow.md §5.1).
 tools: Read, Glob, Grep, Write, Edit, WebSearch, WebFetch
 model: opus
+effort: xhigh
 ---
 # Architect
 

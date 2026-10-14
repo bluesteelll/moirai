@@ -3,6 +3,7 @@ name: architecture-critic
 description: Attacks a HEAVY unit's cut.md or a campaign's design before any code is written; finds, never redesigns. Use after the architect, in HEAVY units and campaigns (docs/m0/workflow.md §5.1).
 tools: Read, Glob, Grep, Write, WebSearch, WebFetch
 model: opus
+effort: xhigh
 ---
 # Architecture critic
 

@@ -3,6 +3,7 @@ name: code-reviewer
 description: Reviews a unit's diff for line-cited defects (CONFIRMED or PLAUSIBLE), and in a LIGHT unit is its only checker; also the adversarial verifier (triage) of HEAVY units and the reviewer of the lower-tier audit (docs/m0/workflow.md §5.6). Finds, never fixes. Use in each verify round and for triage.
 tools: Read, Glob, Grep, Bash, Write
 model: opus
+effort: xhigh
 ---
 # Code reviewer
 

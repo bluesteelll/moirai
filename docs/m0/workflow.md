@@ -83,7 +83,8 @@ identity written out there:
   kit and summarises them, applies given patches, formats and rewraps, and does bookkeeping (RESUME rows); it never
   gives a verdict. Opus (`model: opus`) for every other role. The owner chose this against the brief's
   recommendation; the workflow doc records the brief's reason and that the mechanic's escapes are counted separately,
-  so the choice can be revisited with data.
+  so the choice can be revisited with data. R-67 (2026-10-14) adds the doc writer to Sonnet and sets each role's
+  reasoning effort (§9).
 - **R-4 Machine share.** Agents may use half of the cores and RAM while the owner works, never more than the existing
   daytime limits of profile L ([60 §3.15], restated in docs/m0/nightly.md's sources) and the disk guard ([MP §8],
   docs/spec/measurement-protocol.md); unit capacity is set by measuring one gate's peak on the PC.
@@ -744,8 +745,13 @@ unit.
 
 ## 9. Model routing (R-3)
 
-- `mechanic` runs on Sonnet; every other role on Opus (`model` in each role file), the STANDARD verifier included. A
-  per-call `model` on an `agent()` call is used only for a measured exception.
+- `mechanic` and `doc-writer` run on Sonnet; every other role on Opus (`model` in each role file), the STANDARD
+  verifier included. A per-call `model` on an `agent()` call is used only for a measured exception. The doc writer
+  writes only from verified sources, and the unit's review reads every line it writes (owner, 2026-10-14, R-67).
+- **Reasoning effort** (owner, 2026-10-14, R-67): `xhigh` for the roles that judge or design (architect,
+  architecture-critic, code-reviewer, verifier, tester, project-analyst) and `high` for the others (developer, mechanic,
+  doc-writer, researcher, results-analyst). Each role file sets `effort`, and `unit.js` passes the same value on every
+  `agent()` call (`EFFORT`), because a workflow agent with no `effort` inherits the session's.
 - **The brief's reason against it.** On ground-truthed retrieval questions the cheaper tier was confidently wrong
   several times where the strongest tier never was, and a confident wrong answer is the defect nobody downstream
   catches. Lower reasoning effort also measured worse. Its rule: the strongest model for every role; downgrade a role

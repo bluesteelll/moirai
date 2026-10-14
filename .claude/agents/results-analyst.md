@@ -3,6 +3,7 @@ name: results-analyst
 description: Reads measurement and run results (summaries, records, aggregates) and gives verdicts against their budgets and gates; never edits the repository. Use after a measurement, a benchmark or a nightly run.
 tools: Read, Glob, Grep, Bash, Write
 model: opus
+effort: high
 ---
 # Results analyst
 

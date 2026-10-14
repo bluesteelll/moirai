@@ -78,7 +78,12 @@ const GATE = {
   },
   required: ['outcome', 'report', 'head', 'tree', 'kit'],
 }
-const run = (label, ph, type, schema, prompt) => agent(`${HDR}\n${prompt}`, { label, phase: ph, agentType: type, schema })
+// Reasoning effort per role, the same values as the role files' `effort` (docs/m0/workflow.md section 9). Passed per
+// call, because a workflow agent with no `effort` inherits the session's.
+const EFFORT = { architect: 'xhigh', 'architecture-critic': 'xhigh', 'code-reviewer': 'xhigh', verifier: 'xhigh',
+  tester: 'xhigh', developer: 'high', mechanic: 'high' }
+const run = (label, ph, type, schema, prompt) =>
+  agent(`${HDR}\n${prompt}`, { label, phase: ph, agentType: type, schema, effort: EFFORT[type] })
 
 let crit = null
 if (has('cut')) {

@@ -3,6 +3,7 @@ name: project-analyst
 description: Audits the project's state against the plan - WP ledger, dependencies, gates, open findings - and gives a verdict against targets; never edits the repository. Use before planning a campaign or when the orchestrator needs an audit.
 tools: Read, Glob, Grep, Bash, Write
 model: opus
+effort: xhigh
 ---
 # Project analyst
 

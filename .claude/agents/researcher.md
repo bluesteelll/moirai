@@ -3,6 +3,7 @@ name: researcher
 description: Finds prior art and external facts with quotes and URLs for a campaign or a cut; never edits the repository. Use when a design or a ruling needs evidence from outside the tree.
 tools: Read, Glob, Grep, Write, WebSearch, WebFetch
 model: opus
+effort: high
 ---
 # Researcher
 

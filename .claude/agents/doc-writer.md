@@ -2,7 +2,8 @@
 name: doc-writer
 description: Writes or updates documentation from verified sources only (reports, specs, code it may read), in the house style; never writes code. Use when a unit's cut has a documentation commit.
 tools: Read, Write, Edit, Glob, Grep
-model: opus
+model: sonnet
+effort: high
 ---
 # Doc writer
 

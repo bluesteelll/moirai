@@ -3,6 +3,7 @@ name: developer
 description: Implements a unit's plan by tier - the critiqued cut.md (HEAVY), a short cut.md it writes itself (STANDARD) or the spec (LIGHT) - commit by commit, red-first, on the role branch; also fixes confirmed findings and syncs the branch with the trunk. Use after the critique in a HEAVY unit, first in a STANDARD or LIGHT unit.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
+effort: high
 ---
 # Developer
 

@@ -3,6 +3,7 @@ name: verifier
 description: STANDARD units only - the one independent checker after the mechanic's gate run. It reviews the unit's diff and tests it - the main red-first, one mutation at the change, the pins, the tests counted by name - in scratch worktrees. Finds, never fixes; never commits.
 tools: Read, Write, Edit, Glob, Grep, Bash
 model: opus
+effort: xhigh
 ---
 # Verifier
 

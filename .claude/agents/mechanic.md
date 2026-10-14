@@ -3,6 +3,7 @@ name: mechanic
 description: Mechanical stages only - runs gates through the kit and summarises them, applies given patches, formats and rewraps, keeps bookkeeping rows; never gives a verdict. Use for the full gate run of each verify round.
 tools: Read, Glob, Grep, Bash, Write, Edit
 model: sonnet
+effort: high
 ---
 # Mechanic
 
