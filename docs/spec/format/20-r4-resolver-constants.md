@@ -77,9 +77,10 @@ No value of this chapter is a configuration key, an environment variable or a fl
   Filling a named hole by M2 entry is not a change. Version 1 is what this chapter says at M2 entry: the owner's ruling
   R-23 of 2026-10-12, item 1, moves the replay chain, which decides replay row 2's holes, before M2. A hole still open
   at M2 entry, such as a measurement-15 or -22 fact of §1.4, takes its fill within version 1, before its first
-  consumer, that is, while no store holds a value computed under its draft value (§1.4): a captured selector, a
-  `FILEOBS` or `ANCHORRES` row, or a fingerprint value (the orchestrator's ruling R-45 of 2026-10-13, which rests on
-  that premise, after ruling R-23's "a deadline before its first consumer"). Any other fill is a change.
+  consumer, that is, while no store holds a value computed under its draft value (§1.4) or, for a hole with no draft
+  value (`F20-clock-skew`), under any value of the hole: a captured selector, a `FILEOBS` or `ANCHORRES` row, or a
+  fingerprint value (the orchestrator's ruling R-45 of 2026-10-13, which rests on that premise, after ruling R-23's
+  "a deadline before its first consumer"). Any other fill is a change.
   Building a reserved evidence source (E2, [40 §4.7]) is a new version.
 - **Captured values are permanent.** An anchor's captured selectors (quote, prefix, suffix, end, window, hint,
   `span_hash`, occurrence) keep the values computed at capture under the version in its `resolver` field. A later
@@ -996,7 +997,7 @@ The tests run in this order ([40 §4.4]):
 | # | Test | Result |
 |---|---|---|
 | 1 | tiny X (§2.6.5) | no inexact pair; the chain ends (deleted) |
-| 2 | **split**: at least `SPLIT_MIN_PIECES` = 2 added candidates a have `nio(X, a) ≥ 4/5` (`SPLIT_NIO`), and the `oin(X, a)` of all of them sum to at least 3/5 (`SPLIT_SUM`) ([40 §4.4]; [10 §7]) | `moved-needs-confirm (split)`, the pieces listed |
+| 2 | **split**: the set P of the added candidates a with `nio(X, a) ≥ 4/5` (`SPLIT_NIO`) has at least `SPLIT_MIN_PIECES` = 2 members, and the `oin(X, a)` of the members of P sum to at least 3/5 (`SPLIT_SUM`) ([40 §4.4]; [10 §7]) | `moved-needs-confirm (split)`, the pieces listed |
 | 3 | exactly one added candidate has `gs ≥ 90` (`E6_STRONG`) | `strong` to it |
 | 4 | the best added candidate by (`gs` descending, path) has `gs ≥ 50`, `gs` at least 20 above the next (0 when there is none), and the same `dirname` or the same basename as x (the "similarity ≥ 0.5 with margin ≥ 0.2 and one directory or basename corroboration" row of [40 §4.4], with `gs / 100` as the score) | `strong` to it |
 | 5 | a host or added candidate m with `oin(X, m) ≥ 4/5` and `nio(X, m) < 1/2`; several: the first in path order | `moved-needs-confirm (merged)` into m |
