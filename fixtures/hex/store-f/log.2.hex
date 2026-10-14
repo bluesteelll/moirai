@@ -1,0 +1,152 @@
+# fixtures/hex/store-f/log.2.hex: extent 2 of store F's log (lsns 65,536-131,071). It opens with its extent
+# head (chain_in = the trailer of log.1's pad), written by the purge's forced rotation; then the purge's
+# delta checkpoint (P-101 step 2), its publish with the retirement of extent 1 (step 7), and a later
+# BodyDrop of H2, whose hlc is the greatest of the HLC sequence: HEAD.hlc_seq comes from it ([F05 §10.2]).
+# Zero beyond the end of the valid log, 66029 ([F05 §2.4]).
+
+# === group g9 at lsn 65536: the extent head of log.2, written by the forced rotation ([F05 §4.5], §9.28; [F16] P-101 step 1) (durable)
+g9:
+# --- record g9.r1: kind 28 `ExtentHead` at lsn 65536 (group_end)
+g9.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g9.r1..g9.r1.end}                     # len: header, payload and chain trailer
+  1c                                         # kind 28 ExtentHead
+  02                                         # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                    # _reserved
+  {u64 65536}                                # lsn = the record's own position
+  {u64 0x3c6ef372fe94f82b}                   # epoch
+  {xxh3_64 g9.r1..g9.r1+24 g9.r1+32..g9.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g9.r1.p:
+    {u64 0}                                    # epoch_lsn
+    c0 f5 82 04 75 aa 59 d7                    # chain_in: the trailer of log.1's pad
+    # init: InitParams (32 B, [F04 §4.4])
+      {u64 65536}                                # log_extent_bytes
+      {u32 4}                                    # hist_frame_commits
+      {u32 4096}                                 # hist_frame_bytes
+      57 01 de 00 00 00 00 00 00 00 00 00 00 00 00 08  # store_id
+    01                                         # project_oid_algo (1 sha1: the store has no repository, [CFG §7.6])
+    00                                         # hflags (bit 0 quiet, bit 1 readonly)
+    {u64 2}                                    # commit_seq
+    {u32 4}                                    # next_id
+    {u32 1}                                    # next_anchor
+    {u64 0}                                    # fence
+    {u32 2}                                    # next_file_no
+    {u32 2}                                    # next_ref_id
+    {u64 0x1a0c454ffe00000}                    # hlc_seq
+    {u64 0x1a0c45156600000}                    # hlc_commit
+g9.r1.pl:
+g9.tr:
+{xxh3_64 g9..g9.tr seed=0xd759aa750482f5c0}  # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the chain value at the group's first byte
+g9.end:
+g9.r1.end:
+
+# === group g10 at lsn 65674: checkpoint group: the purge's delta checkpoint ([F16] P-101 step 2): seg.d2 over [0, 65674), blobs.3 added; DROPPED enters H1 and H3, and no body of them is sealed (durable)
+g10:
+# --- record g10.r1: kind 9 `Checkpoint` at lsn 65674 (group_end)
+g10.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g10.r1..g10.r1.end}                   # len: header, payload and chain trailer
+  09                                         # kind 9 Checkpoint
+  02                                         # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                    # _reserved
+  {u64 65674}                                # lsn = the record's own position
+  {u64 0x3c6ef372fe94f82b}                   # epoch
+  {xxh3_64 g10.r1..g10.r1+24 g10.r1+32..g10.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g10.r1.p:
+    {u16 35}                                   # ckflags: set_change, window, files_added
+    {u64 0x1a0c455ea400000}                    # append_hlc
+    {uvar 4}                                   # next_file_no
+    {uvar 65674}                               # upto_lsn: the end of g9, > 1 x E (EX-5)
+    {uvar 1}                                   # active_log
+    01                                         # n_segments
+    {u32 2}                                    # segments[0].file_no
+    02                                         # segments[0].kind (delta)
+    {u64 65674}                                # segments[0].upto_lsn
+    3e fc 84 6b d5 58 e3 87 a9 75 bf 0c 26 07 bd 04  # segments[0].blake3_16
+    {uvar 0}                                   # window_start
+    {uvar 2}                                   # n_refs
+    {uvar 0}                                   # RefList.ref_id (main)
+    {uvar 1}                                   # RefList.n
+    {uvar 387}                                 # dlsn (lsn 387, f1)
+    {uvar 117309443932160000}                  # dhlc (append_hlc 0x1a0c45156600000)
+    {uvar 1}                                   # RefList.ref_id (import/1)
+    {uvar 1}                                   # RefList.n
+    {uvar 1670}                                # dlsn (lsn 1670, f2)
+    {uvar 117309455728640001}                  # dhlc (append_hlc 0x1a0c45415800001)
+    {uvar 1}                                   # n_added
+    06                                         # added.family 6 blobs
+    {uvar 3}                                   # added.file_no
+    {uvar 341}                                 # added.total_len
+    83 96 ed 5f 6e f9 e7 cc 19 1e 0b d0 0c fe d0 e7  # added.digest
+g10.r1.pl:
+g10.tr:
+{xxh3_64 g10..g10.tr seed=g9.tr..g9.end}  # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g10.end:
+g10.r1.end:
+
+# === group g11 at lsn 65808: checkpoint group: the purge's publish ([F16] P-101 step 7): the same set and checkpoint_lsn, and the retirement of extent 1 into hist.4 (EX-3, EX-4, EX-5; bit 4 needs bit 0) (durable)
+g11:
+# --- record g11.r1: kind 9 `Checkpoint` at lsn 65808 (group_end)
+g11.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g11.r1..g11.r1.end}                   # len: header, payload and chain trailer
+  09                                         # kind 9 Checkpoint
+  02                                         # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                    # _reserved
+  {u64 65808}                                # lsn = the record's own position
+  {u64 0x3c6ef372fe94f82b}                   # epoch
+  {xxh3_64 g11.r1..g11.r1+24 g11.r1+32..g11.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g11.r1.p:
+    {u16 17}                                   # ckflags: set_change, retirements
+    {u64 0x1a0c455ee280000}                    # append_hlc
+    {uvar 5}                                   # next_file_no
+    {uvar 65674}                               # upto_lsn: the current checkpoint_lsn (no log record folded)
+    {uvar 2}                                   # active_log
+    01                                         # n_segments
+    {u32 2}                                    # segments[0].file_no
+    02                                         # segments[0].kind (delta)
+    {u64 65674}                                # segments[0].upto_lsn
+    3e fc 84 6b d5 58 e3 87 a9 75 bf 0c 26 07 bd 04  # segments[0].blake3_16
+    {uvar 1}                                   # n_retirements
+    {uvar 1}                                   # Retirement.extent
+    {uvar 4}                                   # Retirement.hist_file
+    {uvar 3284}                                # Retirement.total_len
+    33 6a bd 67 9e a5 61 b1 f2 e1 39 87 8c 5d 96 80  # Retirement.digest
+g11.r1.pl:
+g11.tr:
+{xxh3_64 g11..g11.tr seed=g10.tr..g10.end}  # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g11.end:
+g11.r1.end:
+
+# === group g12 at lsn 65914: body-drop group: BodyDrop (origin command) of #2's body H2, reason private; its purge found the maintenance byte busy, so a purge is pending again. The newest record that raises hlc_seq (durable)
+g12:
+# --- record g12.r1: kind 29 `BodyDrop` at lsn 65914 (group_end)
+g12.r1:
+  # RecHdr (32 B, [F05 §3.1])
+  {len g12.r1..g12.r1.end}                   # len: header, payload and chain trailer
+  1d                                         # kind 29 BodyDrop
+  02                                         # flags: lazy=0, group_end=1, symdefs=0
+  {u16 0}                                    # _reserved
+  {u64 65914}                                # lsn = the record's own position
+  {u64 0x3c6ef372fe94f82b}                   # epoch
+  {xxh3_64 g12.r1..g12.r1+24 g12.r1+32..g12.r1.pl}  # xxh3_64: header [0,24) and payload ([F05 §3.4])
+  # payload
+g12.r1.p:
+    {uvar 1}                                   # n
+    d2 3f 09 3e c8 7d 06 18 99 82 bb 7e 2d 7e b7 1d  # hashes[0]
+    02                                         # reason 2 `private` ([F06 §8.1] DB-2)
+    {uvar 46}                                  # note: length 46
+    "synthetic: note #2 holds made-up personal text"
+    {uvar 1}                                   # actor `owner`
+    {u64 0x1a0c456d4a00000}                    # hlc
+    01                                         # origin 1 `command`
+g12.r1.pl:
+g12.tr:
+{xxh3_64 g12..g12.tr seed=g11.tr..g11.end}  # chain trailer: XXH3-64 over the group's bytes before the trailer, seeded with the preceding trailer
+g12.end:
+g12.r1.end:
+
+{pad_to 65536}                             # zero to the end of the extent ([F05 §2.4])
