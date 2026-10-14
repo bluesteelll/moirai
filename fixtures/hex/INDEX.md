@@ -53,7 +53,7 @@ R-ORA (S1). Every value is synthetic: no owner data, no real paths, users, hosts
 | Name | Value | Where |
 |---|---|---|
 | Wall time | `MS0` = 1,790,000,000,000 ms (2026-09-21T14:13:20Z, the `unix_ms` of [F01 §5.7]'s example); `hlc` values are `(ms << 16) \| counter` with ms = `MS0` + a few seconds per event | every `hlc`, `append_hlc`, `Stamp.wall` |
-| Commit ids | `BLAKE3-256("moirai-fixture-commit:" ‖ label)`, label `A/c1` … `A/c18`, `B/b1` … `B/b7`, `C/c1`, `D/c1`, `E/c1` … `E/c3`, `U/c1`; not the canonical form of any commit (the canonical commit-id fixtures are `canonical/`). Commit-id and changeset-digest correctness are C-rules ([F06 §4.3] orders 2 and 38, [F07 §12] intro; spec sync 2b S2B-F-14): a decoder never recomputes them, so records with these synthetic ids are valid | commit records, parents, `ref_old`, `REFS.tip`, markers, `HCIDX`, `gitmap` |
+| Commit ids | `BLAKE3-256("moirai-fixture-commit:" ‖ label)`, label `A/c1` … `A/c18`, `B/b1` … `B/b7`, `C/c1`, `D/c1`, `E/c1` … `E/c3`, `U/c1`; not the canonical form of any commit (the canonical commit-id fixtures are `canonical/`). Commit-id and changeset-digest correctness are C-rules ([F06 §4.3] orders 2 and 39, [F07 §12] intro; spec sync 2b S2B-F-14): a decoder never recomputes them, so records with these synthetic ids are valid | commit records, parents, `ref_old`, `REFS.tip`, markers, `HCIDX`, `gitmap` |
 | Changeset digests | `BLAKE3-256("moirai-fixture-commit:" ‖ label ‖ "/changeset")`: synthetic, like the ids | `changeset_digest` |
 | Other 16-byte ids | `BLAKE3-128("moirai-fixture:" ‖ label)`: `values/U` (the uid U of [F08 §5.6]), `anchors/src`, `vol-C`, idempotency keys, statement hashes | fragments, runtime rows |
 | Other 32-byte ids | `values/C`, `values/C2`, `values/D256` (C, C2 and D256 of [F08 §5.6]) as commit ids above | fragments |
@@ -436,7 +436,7 @@ item instead; "outside `hex/`" names the fixture family that holds it.
 | Structure | Values in `hex/` | Not covered, and why |
 |---|---|---|
 | Record kinds ([F05 §7]) | 1–28 | — |
-| Commit kinds, import provenance, presence bits ([F06 §3], §4.2) | kinds 0–5, provenance 0–3, bits 0–17 | bit 18 `stage` and its order-45 group ([F06 §4.4.16]; spec sync 2b S2B-F-1): the format oracle decodes the group now, but no fixture can hold it yet. Store A's staged c11 had no `--base`, policy override or `strict`, so its group is absent, and no fragment kind holds a lone commit record; a new fixture file needs its own row in the format oracle's fixture table first, so none is added in this update |
+| Commit kinds, import provenance, presence bits ([F06 §3], §4.2) | kinds 0–5, provenance 0–3, bits 0–17 | bit 18 `stage` and its order-46 group ([F06 §4.4.16]; spec sync 2b S2B-F-1): the format oracle decodes the group now, but no fixture can hold it yet. Store A's staged c11 had no `--base`, policy override or `strict`, so its group is absent, and no fragment kind holds a lone commit record; a new fixture file needs its own row in the format oracle's fixture table first, so none is added in this update |
 | `stmt_origin`, `actor_src` ([F06 §3.4], §3.5) | 0–6 each | — |
 | Op tags ([F06 §7.2]) | 1–16 | — |
 | Value-conflict classes ([F12 §6.1]) | 1, 2, 3, 4, 6, 7 | 5 `SupersedeFork`: which key holds it is open in [F12] ([RULES/merge-table] open point 9) |
