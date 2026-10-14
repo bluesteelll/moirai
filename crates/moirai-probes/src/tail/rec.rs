@@ -1,7 +1,8 @@
 //! Records, groups and placement ([F05 §3], [F05 §4], `docs/spec/format/05-log.md:116-266`): `RecHdr`, the record
 //! checksum, the chain trailer and the chain value at a boundary, the `SymDefs` block ([F05 §8.1], `:419-460`), the
 //! `Noop` pad ([F05 §9.12], `:887-894`) and `ExtentHead` ([F05 §9.28], `:1111-1139`), the record type of the subset,
-//! [`encode`], and [`Appender`], which places groups by G-1 to G-5.
+//! [`encode`], [`Appender`], which places groups by G-1 to G-5, and [`raw_group`], the one-record group of a record of
+//! any kind (u21 cut §3.7: the `Checkpoint` record of [`super::ckpt`]).
 
 use super::commit::Commit;
 use super::enc::{DecodeError, Reader, put_u32, put_u64, put_uvar, put_vstr};
@@ -652,6 +653,40 @@ impl Appender {
     }
 }
 
+/// The one-record group of a record of `kind` with `payload`, framed at `lsn` ([F05 §3.1]–§3.4, §4.2,
+/// `05-log.md:116-176`): its `RecHdr` with `group_end` (and `lazy` for a lazy kind of the subset), its checksum, and the
+/// trailer, XXH3-64 over the group's bytes before it seeded with `seed`, the chain value at `lsn`. The record need not be
+/// of the encoder's subset: a `Checkpoint` (kind 9, [`super::ckpt`]) is framed here, and the scan refuses it. The
+/// caller places the group (G-1 to G-5).
+pub fn raw_group(
+    kind: u8,
+    payload: &[u8],
+    lsn: u64,
+    epoch: u64,
+    seed: u64,
+) -> Result<Vec<u8>, String> {
+    let len = record_len(payload.len(), true) as usize;
+    let len32 = u32::try_from(len).map_err(|_| format!("a record of {len} bytes"))?;
+    let hdr = RecHdr {
+        len: len32,
+        kind,
+        flags: flag::GROUP_END | if lazy_kind(kind) { flag::LAZY } else { 0 },
+        reserved: 0,
+        lsn,
+        epoch,
+        xxh3: 0,
+    };
+    let mut out = Vec::with_capacity(len);
+    out.extend_from_slice(&hdr.encode());
+    out.extend_from_slice(payload);
+    out.extend_from_slice(&[0u8; TRAILER_LEN]);
+    let sum = record_checksum(&out, true);
+    out[24..32].copy_from_slice(&sum.to_le_bytes());
+    let c = chain(&out[..len - TRAILER_LEN], seed);
+    out[len - TRAILER_LEN..].copy_from_slice(&c.to_le_bytes());
+    Ok(out)
+}
+
 /// Gives `records` consecutive lsns from `lsn`.
 pub fn sequence(lsn: u64, records: &mut [Record<'_>]) -> Result<(), String> {
     let mut at = lsn;
@@ -854,6 +889,39 @@ mod tests {
             ..rec
         };
         assert!(with_defs.encoded_len().is_err());
+    }
+
+    /// [`raw_group`] frames one record as the encoder does ([F05 §3.1]–§3.4, §4.2): a `Noop` group of 16 zero bytes at
+    /// [`START`] after the chain value [`CHAIN_IN`] is the encoder's group byte for byte, `lazy` and `group_end` set; a
+    /// durable kind (a `Checkpoint`, 9) gets `group_end` alone; another seed gives another trailer.
+    #[test]
+    fn raw_group_equals_the_encoders_group() {
+        let x = testdata::expect();
+        let rec = Record {
+            lsn: START,
+            group_end: true,
+            symdefs: Vec::new(),
+            payload: Payload::Noop(16),
+        };
+        let want = encode(&[rec], x.geo, START, x.epoch, CHAIN_IN).unwrap();
+        let got = raw_group(kind::NOOP, &[0; 16], START, x.epoch, CHAIN_IN).unwrap();
+        assert_eq!(got, want, "the encoder's Noop group");
+        assert_eq!(got.len(), 32 + 16 + 8);
+        assert_eq!(got[5], flag::LAZY | flag::GROUP_END);
+        let other = raw_group(kind::NOOP, &[0; 16], START, x.epoch, CHAIN_IN ^ 1).unwrap();
+        assert_ne!(
+            other[56 - 8..],
+            got[56 - 8..],
+            "the trailer depends on the seed"
+        );
+        let ck = raw_group(9, &[1, 2, 3], START, x.epoch, CHAIN_IN).unwrap();
+        let h = RecHdr::decode(ck[..32].try_into().unwrap());
+        assert_eq!(
+            (h.len, h.kind, h.flags, h.lsn, h.epoch),
+            (43, 9, flag::GROUP_END, START, x.epoch)
+        );
+        assert_eq!(h.xxh3, record_checksum(&ck, true));
+        assert_eq!(&ck[35..], &chain(&ck[..35], CHAIN_IN).to_le_bytes());
     }
 
     /// G-3 (`05-log.md:196-210`): a group that does not fit the rest of its extent goes to the next one after exactly
