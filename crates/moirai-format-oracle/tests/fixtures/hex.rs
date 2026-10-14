@@ -274,6 +274,18 @@ fn table() -> Vec<(&'static str, Expect)> {
             Log("store-b/HEAD.bin", &["store-b/log.2.bin"], Zero, NO_TAIL),
         ),
         ("store-b/seg.d3.bin", File(Kind::Segment)),
+        // Store F (INDEX.md §3.11): both slots hold one state after g12's publish (HEAD.hex, slot_seq 10 and 11).
+        ("store-f/HEAD.bin", Head(Sel::Some)),
+        ("store-f/blobs.3.bin", File(Kind::Blobs)),
+        ("store-f/cs.1.bin", File(Kind::Segment)),
+        ("store-f/hist.4.bin", File(Kind::Hist)),
+        // Both extents in one scan from lsn 0: log.2's ExtentHead carries the trailer of log.1's pad, and zero follows
+        // the end of the valid log, 66029 (log.2.hex); HEAD.hlc_seq is g12's BodyDrop hlc (INDEX.md §3.11).
+        (
+            "store-f/log.1.bin",
+            Log("store-f/HEAD.bin", &["store-f/log.2.bin"], Zero, NO_TAIL),
+        ),
+        ("store-f/seg.d2.bin", File(Kind::Segment)),
         ("unknown-boot/HEAD.bin", Head(Sel::Some)),
         ("unknown-boot/LOCK.bin", File(Kind::Lock)),
         (
