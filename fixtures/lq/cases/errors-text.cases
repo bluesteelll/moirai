@@ -7,6 +7,8 @@
 # Part 2: unlocated error texts and warning and notice texts for a stated situation (the notes give the values
 # the templates of [LQ/errors §5] are filled with). A renderer test builds the situation and compares the text.
 # Only templates whose every placeholder has a fixed rendering are goldened here; the others are gaps G-8 and G-9.
+# A part-2 error case may also give its JSON error envelope ([LQ/errors §4.1], §5.7); its '%% context branch' and
+# '%% context rev' lines give the envelope's branch and rev, as in part 1 (the E404 PATCH cases, spec sync 3).
 # Format: fixtures/lq/INDEX.md §2.
 
 %% case e005-argv
@@ -375,6 +377,58 @@ error[E401 expect_mismatch]: statement 1 matched 0 bindings, expected 1
   #89 now: status=done rev=4470 (changed at c3e9a1f00 by dev#2 on lane/l5np: "complete L-17")
   nothing was written
   = help: re-read with moirai q show ids=89
+%% end
+
+%% case e404-patch-twice
+%% source [LQ/errors §5.5] E404 (PATCH: the removed text occurs 2 or more times)
+%% source [LQ/errors §4.1], §5.7 E404 (PATCH case keys)
+%% source [LQ/std §7.2] PATCH
+%% context branch main
+%% context rev 4480
+%% note Statement 1 of a TX on main (tip rev 4480) is PATCH #133.body REMOVE $old ADD $new. $old occurs twice in #133's
+%% note body, at two byte offsets that start body lines 2 and 4 (not overlapping): the count is 2. Nothing is replaced and
+%% note nothing is written. The JSON envelope gives the PATCH case's keys after detail (spec sync 3, S3-F-20, S3-F-21).
+%% text
+error[E404 transition_refused]: statement 1: PATCH #133.body refused: the removed text occurs 2 times
+  occurrence at line 2
+  occurrence at line 4
+  nothing was written
+  = help: add neighbouring lines to the removed text until it occurs once
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E404","name":"transition_refused","severity":"error","span":null,"message":"statement 1: PATCH #133.body refused: the removed text occurs 2 times","suggest":[],"expected":[],"help":"add neighbouring lines to the removed text until it occurs once","detail":["occurrence at line 2","occurrence at line 4","nothing was written"],"statement":1,"occurrences":2,"lines":[2,4],"written":false}],"exit":6}
+%% end
+
+%% case e404-patch-empty
+%% source [LQ/errors §5.5] E404 (PATCH: the removed text is empty)
+%% source [LQ/errors §4.1], §5.7 E404 (PATCH case keys)
+%% source [LQ/std §7.2] PATCH
+%% context branch main
+%% context rev 4480
+%% note Statement 1 of a TX on main (tip rev 4480) is PATCH #133.body REMOVE $old ADD $new with $old the empty text.
+%% note Nothing is replaced and nothing is written. occurrences is null for an empty removed text, and lines is empty.
+%% text
+error[E404 transition_refused]: statement 1: PATCH #133.body refused: the removed text is empty
+  nothing was written
+  = help: name the text to replace, or write the whole body with SET #133.body = $text
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E404","name":"transition_refused","severity":"error","span":null,"message":"statement 1: PATCH #133.body refused: the removed text is empty","suggest":[],"expected":[],"help":"name the text to replace, or write the whole body with SET #133.body = $text","detail":["nothing was written"],"statement":1,"occurrences":null,"lines":[],"written":false}],"exit":6}
+%% end
+
+%% case e404-patch-absent
+%% source [LQ/errors §5.5] E404 (PATCH: the removed text occurs 0 times)
+%% source [LQ/errors §4.1], §5.7 E404 (PATCH case keys)
+%% source [LQ/std §7.2] PATCH
+%% context branch main
+%% context rev 4480
+%% note Statement 1 of a TX on main (tip rev 4480) is PATCH #133.body REMOVE $old ADD $new. $old occurs nowhere in
+%% note #133's body: the count is 0. Nothing is replaced and nothing is written; lines is empty with fewer than 2
+%% note occurrences. gt10's w4c refuses with this form.
+%% text
+error[E404 transition_refused]: statement 1: PATCH #133.body refused: the removed text occurs 0 times
+  nothing was written
+  = help: copy the removed text exactly from moirai show #133 --full
+%% json
+{"v":1,"branch":"main","rev":4480,"errors":[{"code":"E404","name":"transition_refused","severity":"error","span":null,"message":"statement 1: PATCH #133.body refused: the removed text occurs 0 times","suggest":[],"expected":[],"help":"copy the removed text exactly from moirai show #133 --full","detail":["nothing was written"],"statement":1,"occurrences":0,"lines":[],"written":false}],"exit":6}
 %% end
 
 %% case e406-unleased
