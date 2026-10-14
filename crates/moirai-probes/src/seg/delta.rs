@@ -18,6 +18,8 @@
 //!   Nor does it write `TITLE_BLOB`, `UID` rows for creates, `TOMB` rows for deletes, new symbols or the store-level
 //!   tables ([F09 §16.2], `09-segments.md:1085-1089`): a delta checkpoint that wrote them does more work, so the
 //!   checkpoint measurement 14 times over this delta is a lower bound (`m14`, "What the checkpoint omits").
+//!   [`super::full`] writes them for `ckpt-full-4096` (u21 cut §3.3): its fold wraps this one, which stays as it is,
+//!   so the night's deltas keep their bytes (`night_delta_bytes_are_unchanged`).
 //! - **Derived columns** (`open_blockers`, the counters, `container`, `topo` order) are not recomputed: the probe's
 //!   choice, since the base holds no precedence order to keep; a created row's `topo` is its `#N`.
 //! - **± lists** (`09-segments.md:319-332`, `:591-594`): per bitset key, the ids that joined and left it relative to
@@ -740,5 +742,17 @@ mod tests {
             unchanged.iter().sum::<usize>() > 0,
             "visited rows equal to their base, per seed: {unchanged:?}"
         );
+    }
+
+    /// The night's delta keeps its bytes (u21 cut §6, the identity gate's quick form): the XXH3-64 of [`encode`] of the
+    /// fold of the test tail `tail(200, 400, 1)` over its base, pinned at 8916d63, before the full delta wrapped
+    /// [`Fold`].
+    #[test]
+    fn night_delta_bytes_are_unchanged() {
+        let t = tail(200, 400, 1);
+        let b = base_for(&t);
+        let c = Columns::parse(&b).unwrap();
+        let bytes = encode(&fold_of(&t, &c)).unwrap();
+        assert_eq!(xxhash_rust::xxh3::xxh3_64(&bytes), 0x8eef_cae3_302e_f545);
     }
 }
