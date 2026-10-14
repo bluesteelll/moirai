@@ -1280,6 +1280,10 @@ demoted without hashing, §12.1), whose recomputed id (§11) differs from `Moira
 git message as its message ([F07 §12.5]); its children still verify against the ids their trailers state. A foreign commit
 with more than two parents stages `ImageParse` ([F07 §12.3]).
 
+A native candidate's `hlc` is item 3 as its `hlc` trailer states (§10.4, §12.1); the importer does not compare it with
+its parents' `hlc`, so a value that does not exceed a parent's is neither staged nor demoted (W3C-ARB-7; the
+orchestrator's ruling R-52 of 2026-10-13; open point 53).
+
 A verified native candidate whose `Moirai-Commit` names a commit the store already holds is a **twin**: nothing is
 appended ([F07 §12.2] imports only a commit the store does not hold), and its children's stated ids name the held commit
 as usual. `gitmap` holds one git id per commit and destination ([F10 §7.3]): when the held commit has none in this
@@ -2088,3 +2092,14 @@ the quote and context lengths ([F20 §6.1]); the codec holes of [F10] never reac
     `prov` for a production and for an existence conflict's side), the `DROPPED` table's lsn and HLC and the drop
     record's note and actor, and the harvest cursor. (f) New fixture rows for `moi/` and `carrier/` (§12.6, §16); no
     existing fixture byte changes, since none holds a dropped body.
+53. **A native commit's `hlc` is not checked against its parents'** (§10.9; W3C-ARB-7; the orchestrator's ruling R-52
+    of 2026-10-13). The importer keeps item 3 as the `hlc` trailer states (§12.1 row 3), and it neither stages nor
+    demotes a native candidate whose `hlc` does not exceed a parent's, for three reasons. (a) Since K2, the (`hlc`,
+    commit id) order only compares origins ([RULES/merge-table] MR-040 and open point 35), so no merge rule reads it as
+    ancestry. (b) `hlc` is item 3 and so hashed ([F07 §3.4]): every store that holds the commit holds the same value,
+    and origins stay deterministic. (c) A check would misfire below a demoted parent: that parent becomes foreign, with
+    item 3 from its committer time ([F07 §12.3], [F07 §12.5]), which can lie above its child's after a git rewrite of
+    the parent, while the child still verifies against the ids its trailers state (§10.9); a refusal would stage a
+    commit that [F07 §12.5] imports. A crafted image can then only choose which of two allowed values a two-sided key
+    takes (ALT-13, `reviews/wave-3d-alternatives.md`). **Reopen:** if OQ-A-13's fallback K4 is ever taken ([AR §11]
+    OQ-A-13), the question returns, since K3 and K4 need the (`hlc`, commit id) order to put ancestors first.
