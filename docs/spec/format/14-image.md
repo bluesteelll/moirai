@@ -1697,9 +1697,9 @@ file; it also carries the ledger line of the reopen (§6.3, §6.5).
 ### 17.2 A file node, the root node and a referrer's anchors
 
 The uids and `captured` values computed in this section follow [F08 §11.2]–[F08 §11.4]'s rules with the domain
-strings `klotho-file-v1`, `klotho-root-v1` and `klotho-anchor-v1`; a `captured` value takes them through the file uid
-it hashes. The owner's ruling R-49 of 2026-10-13 gives every domain string its `klotho-…-v1` name, and [F08 §11.1]
-takes these three in its own Klotho rename.
+strings `klotho-file-v1`, `klotho-root-v1` and `klotho-anchor-v1`; a `captured` value takes `klotho-file-v1` through
+the file uid it hashes. The owner's ruling R-49 of 2026-10-13 gives every domain string its `klotho-…-v1` name, and
+[F08 §11.1] takes these three in its own Klotho rename.
 
 The file `crates/engine/src/lock.rs` registered in root `project` with no predecessor has the uid
 `19143eabafc5ec1c2f8ddb102a731ae3` (computed, [F08 §11.2]); after a move its file
