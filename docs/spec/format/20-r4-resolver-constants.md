@@ -997,7 +997,7 @@ The tests run in this order ([40 §4.4]):
 | # | Test | Result |
 |---|---|---|
 | 1 | tiny X (§2.6.5) | no inexact pair; the chain ends (deleted) |
-| 2 | **split**: at least `SPLIT_MIN_PIECES` = 2 added candidates a have `nio(X, a) ≥ 4/5` (`SPLIT_NIO`), and the `oin(X, a)` of all of them sum to at least 3/5 (`SPLIT_SUM`) ([40 §4.4]; [10 §7]) | `moved-needs-confirm (split)`, the pieces listed |
+| 2 | **split**: the set P of the added candidates a with `nio(X, a) ≥ 4/5` (`SPLIT_NIO`) has at least `SPLIT_MIN_PIECES` = 2 members, and the `oin(X, a)` of the members of P sum to at least 3/5 (`SPLIT_SUM`) ([40 §4.4]; [10 §7]) | `moved-needs-confirm (split)`, the pieces listed |
 | 3 | exactly one added candidate has `gs ≥ 90` (`E6_STRONG`) | `strong` to it |
 | 4 | the best added candidate by (`gs` descending, path) has `gs ≥ 50`, `gs` at least 20 above the next (0 when there is none), and the same `dirname` or the same basename as x (the "similarity ≥ 0.5 with margin ≥ 0.2 and one directory or basename corroboration" row of [40 §4.4], with `gs / 100` as the score) | `strong` to it |
 | 5 | a host or added candidate m with `oin(X, m) ≥ 4/5` and `nio(X, m) < 1/2`; several: the first in path order | `moved-needs-confirm (merged)` into m |
