@@ -241,17 +241,18 @@ only when they hold a row (§14.5). A `hist` file carries only the tags `0x0300`
   output-neutral), and the tier-2 statistics `DOCLEN` and `FTSSTAT` (§12.4; the owner's ruling R-23 of 2026-10-12, item
   1). A writer sets it on these and on no other tag that §3.1 lists, and a reader treats the flag on any other tag that
   §3.1 lists as a format violation; a section added after `format-v1` carries it as the last item states. `DIRMAP` and
-  the caches are store-level and marked O in §3.1: present or absent in a base or delta.
-  `DOCLEN` and `FTSSTAT` are versioned and marked CO: allowed only in a segment whose `tok_ver` is 1 (§12), `FTSSTAT`
-  never in a changeset segment, and there present or absent under the all-or-nothing rule below.
+  the caches are store-level and marked O in §3.1: present or absent in a base or delta. The two statistics are
+  versioned and marked CO, as the all-or-nothing rule below states.
 - A reader that finds a store-level `derived-optional` section absent treats the table as empty: `DIRMAP`'s Linux
   frontier then enumerates the tree and E7 loses its filter ([80 §2.11.3]); the caches recompute on use. Nothing becomes
   wrong. A versioned `derived-optional` section is read by the all-or-nothing rule instead.
 - **The all-or-nothing rule** (CH-1 of the plan critique of 2026-10-12, as the owner's ruling R-23 of 2026-10-12, item
-  1, adopts it). A versioned `derived-optional` section, together with every versioned `derived-optional` section
-  derived from the same data, forms a **group**. In format v1 the one group is `DOCLEN` (fold "row") and `FTSSTAT`
-  (fold "full (view)"), both derived from the token counts of §12.1. A **group layer** of a view is a layer in which the
-  group's own condition allows it: for this group, a layer whose `tok_ver` is 1 (§12).
+  1, adopts it). `DOCLEN` and `FTSSTAT` are versioned and marked CO in §3.1: allowed only in a segment whose `tok_ver`
+  is 1 (§12), `FTSSTAT` never in a changeset segment, and there present or absent under this rule. A versioned
+  `derived-optional` section, together with every versioned `derived-optional` section derived from the same data,
+  forms a **group**. In format v1 the one group is `DOCLEN` (fold "row") and `FTSSTAT` (fold "full (view)"), both
+  derived from the token counts of §12.1. A **group layer** of a view is a layer in which the group's own condition
+  allows it: for this group, a layer whose `tok_ver` is 1 (§12).
   - **Readers.** A reader uses a group in a view only if every group layer of the view carries each section of the
     group that its segment kind admits. Otherwise it treats the group as absent in every layer of the view: it reads
     none of its sections and derives what it needs of their data for the whole view from the view's content (for this
