@@ -4514,6 +4514,94 @@ mod tests {
         );
     }
 
+    /// The setup refuses a hop that item 1a's read took unlocated (triage r1 I-2): over the hand-built A1 tail
+    /// ([`crate::tail::testdata::hand_built_with`]; base N = 50) whose writer wrote (0, 0) for #3's `prev` into the
+    /// tail, the whole-record read, the frame walk, the offset read and item 1a's read give #3's status alike, and item
+    /// 1a's read refuses no locator; [`read_1a_agree`] over the base's nodes of the cycle still refuses, naming #3 and
+    /// its one unlocated hop. Over the clean tail it is `Ok`.
+    #[test]
+    fn read_1a_setup_refuses_an_unlocated_hop() {
+        use crate::tail::PrevLoc;
+        use crate::tail::testdata::{CHAIN_IN, START, hand_built_with};
+        let base = crate::overlay::Base {
+            n: 50,
+            kind: 1,
+            statuses: 4,
+        };
+        let b = base::build(&base::Spec {
+            n: base.n,
+            upto_lsn: START,
+            base_seq: BASE_SEQ,
+        })
+        .unwrap();
+        let c = Columns::parse(&b).unwrap();
+        for zero3 in [false, true] {
+            let hb = hand_built_with(
+                Locator::A1,
+                &move |o: u32, loc: PrevLoc, _: &[(u32, PrevLoc)]| {
+                    if zero3 && o == 3 {
+                        PrevLoc::default()
+                    } else {
+                        loc
+                    }
+                },
+            );
+            let src = || MemLog::new(START, &hb.bytes);
+            let end = START + hb.bytes.len() as u64;
+            let o = Overlay::replay_at(
+                &mut src(),
+                &hb.expect,
+                START,
+                end,
+                CHAIN_IN,
+                base,
+                TAIL_READ_CHUNK,
+            )
+            .unwrap();
+            let idx = OpIndex::build(&o, &mut src(), TAIL_READ_CHUNK, &mut Vec::new()).unwrap();
+            // The base's nodes: a status read of a node the tail created and the base lacks ends in "no base row".
+            let mut ids = read_cycle(&o, 7);
+            ids.retain(|&id| id <= base.n);
+            assert!(ids.contains(&3), "#3 in the cycle");
+            let r = read_1a_agree(
+                &o,
+                &idx,
+                &c,
+                &ids,
+                &Key::Status,
+                &mut src(),
+                &mut src(),
+                &mut src(),
+                &mut src(),
+            );
+            if !zero3 {
+                assert_eq!(r, Ok(()), "the clean tail");
+                continue;
+            }
+            let w = read_by(
+                ReadPath::Whole,
+                &mut src(),
+                &o,
+                &idx,
+                &c,
+                3,
+                &Key::Status,
+                &mut Vec::new(),
+                &mut ReadStats::default(),
+            );
+            assert!(w.is_ok(), "#3: {w:?}");
+            let all = format!(
+                "gives {w:?}, the frame walk {w:?}, the offset read {w:?}, item 1a {w:?} with"
+            );
+            assert!(
+                r.as_ref().is_err_and(|e| e.starts_with("#3:")
+                    && e.contains(&all)
+                    && e.contains("unlocated: 1, fallbacks: 0 }")),
+                "{r:?}"
+            );
+        }
+    }
+
     /// The depth arm reads the hot node through d records (u20 cut §3.4; critique m-1): at production each depth arm's
     /// seed `seed(name) ^ k` takes the pinned [`Family::seed_k`], the first k < 64 whose tail holds at least d commits,
     /// and the hot node #500,000 is in exactly its first d; at the test profile (k = 0) #5,000 is in its first
