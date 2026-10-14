@@ -529,8 +529,8 @@ fn carrier_cases() {
     let cases = Cases::load();
     assert_eq!(
         cases.list.len(),
-        45,
-        "fixtures/carrier/INDEX.md §5 lists 45 cases"
+        49,
+        "fixtures/carrier/INDEX.md §5 lists 49 cases"
     );
     run_all(
         "fixtures/carrier",
