@@ -7,25 +7,26 @@
 | Acceptance | E3: WP-95's ABNF check passes every `.moi` file under `carrier/*/new/` and `carrier/*/old/` and re-derives the canonical items from the trailers; WP-91 reproduces every `changeset-digest` and `commit-id`. Gate 0 ([F14 §12.6], [AR §5b.7]) runs on these cases at M5. **Frozen for M5** ([PLAN §3.2] WP-21): a change needs a specification change that moves a byte |
 | Separation | S1 ([PLAN §3.1]): written from the specification text only. The author read no line of `moirai-format-oracle`, `moirai-model`, `moirai-toylog` or any product crate, and ran no project code. The cases were produced by throw-away scripts: an exporter of [F14] (trees, provenance and ledgers by §6.3 and §6.5, commit objects and trailers by §10) over the synthetic histories of `fixtures/canonical/` and new ones, and an importer that rebuilds every item from the carriers of §12 alone. Every native case verifies (its rebuilt id equals its `Moirai-Commit`), every native case of `fixtures/canonical/` keeps its id there, and git itself agrees with every tree and commit id: each destination was written to a scratch bare repository with `git hash-object -w` and passed `git fsck --strict` (SHA-1 and SHA-256) |
 | Sources | [F14 §10]–§12 (normative for the commit objects, trailers and the reconstruction), §3–§9 (trees and `.moi` bytes); [F07] (items, entries, C, `changeset_digest`, `commit_id`; §5 message normalisation; §12 ids per kind); [F06 §4.4.4] (the foreign `hlc`); [F08 §11] (derivations); [RULES/link-merge-rules] PC-002 (PathClaim); [RULES/merge-table] MC-014 (named queries); [git-objects] |
-| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28); updated for spec sync 2b (`docs/spec/reviews/spec-sync-2b.md`): the case `demoted-ops` and the widened class `demoted` (S2B-R-12), §8's findings settled |
+| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28); updated for spec sync 2b (`docs/spec/reviews/spec-sync-2b.md`): the case `demoted-ops` and the widened class `demoted` (S2B-R-12), §8's findings settled; updated for spec sync 3 (`docs/spec/reviews/spec-sync-3.md`): destination D, S1's body drop and the group "+ dropped bodies" of [F14 §12.6]: `dropped-line`, `dropped-texthunk`, `dropped-reencode` and the support case `lane-t-1` (S3-R-16) |
 
 Every value is synthetic: no owner data, no real paths, users or hosts; the store ids, the other store's commit ids and the observed git ids are labels hashed. `.gitattributes` gives `fixtures/** -text`: every byte is kept.
 
 ## 1. Destinations and stores
 
-A destination is one git repository ([F14 §13.2]). The cases come from six:
+A destination is one git repository ([F14 §13.2]). The cases come from seven:
 
 | Destination | Object format | Anchor-text mode | Written by | Cases |
 |---|---|---|---|---|
-| A | sha1 | full | store S1 (native exports) and by hand (`hand-edit`, `demoted`, `demoted-child`, `demoted-ops`) | the local history, R4, R5, trailers, the foreign hand edit, the demotions |
+| A | sha1 | full | store S1 (native exports) and by hand (`hand-edit`, `demoted`, `demoted-child`, `demoted-ops`) | the local history, R4, R5, trailers, the foreign hand edit, the demotions, the dropped bodies (`lane-t-1`, `dropped-reencode`, `dropped-texthunk`) |
+| D | sha1 | full | store S1 after its body drop | `dropped-line` (parent `root`, the same git object as A's: root's tree holds no dropped body) |
 | C | sha1 | hash-only | store S1 | `anchor-full-hash-only`, `anchors-plus-hash-only` (parent chain `root` → `anchor-full-hash-only`) |
 | H | sha1 | full | by hand | `defaults-explicit` (parent `root`) |
 | F | sha1 | — | people with git (no trailer) | `foreign-root`, `foreign-child`, `foreign-clock-behind`, `foreign-merge` (ref `lane/tracker`) |
 | K | sha1 | full | a store S3 at checkpoint granularity (ref `plan/storage`) | `checkpoint-first`, `checkpoint-first-sym`, `checkpoint-next`, `checkpoint-undo` |
 | B | sha256 | full | store S2 (native re-exports) | `b-root`, `b-foreign-root`, `b-checkpoint-first`, `b-demoted`, `b-demoted-child` |
 
-- **S1**, the local store, holds the histories of `fixtures/canonical/commits.cases`, `tombstones.cases`, `anchors.cases` and `normalisation.cases` (`defaults-omitted`), and twelve new commits: `anchors-plus`, `r4-register`, `r4-claim`, `r4-merge`, `q-define`, `q-change`, `q-lane`, `q-merge`, `trailers-json`, the commits P (`pre-demote`) and Y (`demote-child`) whose exports a person rewrote in destination A, and the commit Z on `lane/ops` (parent `root`), whose export's `Moirai-Ops` trailer a person rewrote in A (`demoted-ops`; Z is exported nowhere else, so no twin arises). Its node files' `created:`, `updated:` and `deleted:` lines and its ledgers are the functions of its commit graph ([F14 §6.3], §6.5). The case `root` is one git commit in A, C and H (its tree has no anchor line).
-- **S2** is a fresh store that imports A, C, H, F and K and re-exports five commits to B. S3 (the writer of K) is not in the fixtures: its commit ids in K (`Moirai-Head`, `Moirai-Folded`, provenance lines, ledger tokens) are unhashed labels that an importer keeps ([F14 §11.3]).
+- **S1**, the local store, holds the histories of `fixtures/canonical/commits.cases`, `tombstones.cases`, `anchors.cases` and `normalisation.cases` (`defaults-omitted`), and twelve new commits: `anchors-plus`, `r4-register`, `r4-claim`, `r4-merge`, `q-define`, `q-change`, `q-lane`, `q-merge`, `trailers-json`, the commits P (`pre-demote`) and Y (`demote-child`) whose exports a person rewrote in destination A, and the commit Z on `lane/ops` (parent `root`), whose export's `Moirai-Ops` trailer a person rewrote in A (`demoted-ops`; Z is exported nowhere else, so no twin arises). Its node files' `created:`, `updated:` and `deleted:` lines and its ledgers are the functions of its commit graph ([F14 §6.3], §6.5). The case `root` is one git commit in A, C and H (its tree has no anchor line). After every export above, S1's owner drops `ordinary`'s body (#1's body, hash `6d1aec75c193e1f1e47212b4598b9887`, reason `secret`; [F06 §8.1] DB-3); exports already written are not rewritten (DB-10). S1 then writes `ordinary`'s commit to D (`dropped-line`), and three more commits to A: `lane-t-1` on `lane/t` (BranchCreate from `root`), `dropped-reencode` on `lane/d` (BranchCreate from the commit `ordinary`) and `dropped-texthunk`, the merge of `lane/t` into `lane/d` (spec sync 3). Their trees write the dropped body as its hash and reason ([F14 §3.3], §6.8, §6.9).
+- **S2** is a fresh store that imports A, C, D, H, F and K and re-exports five commits to B; D's `dropped-line` is a twin of A's `ordinary` ([F14 §10.9]). S3 (the writer of K) is not in the fixtures: its commit ids in K (`Moirai-Head`, `Moirai-Folded`, provenance lines, ledger tokens) are unhashed labels that an importer keeps ([F14 §11.3]).
 - The importer's view of a commit (the `p-state` and `q-state` of a case) is always S2's: the states it builds from the trees ([F14 §11.1]–§11.2).
 
 ## 2. A case directory
@@ -126,8 +127,12 @@ The parents' ids a case needs (item 2 and the foreign `hlc`) are the `commit-id`
 | `b-checkpoint-first` | B | native | checkpoint | 0 | 24 | `d8741d715ca09d1b` | 6 | 0 |
 | `b-demoted` | B | native | ordinary | 1 | 2 | `18464969ee21c7aa` | 1 | 1 |
 | `b-demoted-child` | B | native | ordinary | 1 | 1 | `c79ab57d62c0ac72` | 1 | 1 |
+| `lane-t-1` | A | native | ordinary | 1 | 1 | `4feab2439f5a108e` | 1 | 1 |
+| `dropped-reencode` | A | native | ordinary | 1 | 1 | `61c0ce4a0d1396f2` | 2 | 2 |
+| `dropped-texthunk` | A | native | merge | 2 | 1 | `5c867fa636989fbe` | 1 | 1 |
+| `dropped-line` | D | native | ordinary | 1 | 6 | `163e88e25904ad16` | 1 | 1 |
 
-Twins with one id: `anchor-full` = `anchor-full-hash-only`, `anchors-plus` = `anchors-plus-hash-only`, `defaults-omitted` = `defaults-explicit`, `root` = `b-root`; `demoted-child` = `b-demoted-child`, `demoted` = `b-demoted` (foreign id), `foreign-root` = `b-foreign-root`, `checkpoint-first` = `b-checkpoint-first`. `checkpoint-first-sym` has `checkpoint-first`'s item 10 and another id (item 9 is its own git id), and `demoted-ops` has the item 10 of `demoted-child` and `b-demoted-child` with its own foreign id. The table holds 45 cases.
+Twins with one id: `anchor-full` = `anchor-full-hash-only`, `anchors-plus` = `anchors-plus-hash-only`, `defaults-omitted` = `defaults-explicit`, `root` = `b-root`; `demoted-child` = `b-demoted-child`, `demoted` = `b-demoted` (foreign id), `foreign-root` = `b-foreign-root`, `checkpoint-first` = `b-checkpoint-first`, `dropped-line` = `ordinary` (the `--- dropped` line in place of the body section; `ordinary`'s case is frozen and does not name its twin). `checkpoint-first-sym` has `checkpoint-first`'s item 10 and another id (item 9 is its own git id), and `demoted-ops` has the item 10 of `demoted-child` and `b-demoted-child` with its own foreign id. The table holds 49 cases.
 
 ## 6. Coverage
 
@@ -151,15 +156,19 @@ Twins with one id: `anchor-full` = `anchor-full-hash-only`, `anchors-plus` = `an
 | + R4 | `r4-register` (a file node with `origin_pred`, `aliases` and `observed_blob`; a root node gaining a `path_moves` entry; a `relink` change), `r4-merge` (`conflict observation class=PathClaim` on two nodes) |
 | + R5 | `q-define` (defined), `q-change` (changed and dropped), `q-merge` (`FieldEdit` on a definition and `DeleteVsModify` with an absent side) |
 | + trailers | `trailers-json` (`Moirai-Actor: "[bot] ci"`, a `Moirai-Worktree` with an HT); `revert` and others without git provenance; every `b-*` case in the SHA-256 destination B |
+| + dropped bodies | `dropped-line` (`ordinary`'s commit in destination D after the drop: #1's body written as the `--- dropped` line, the same `commit_id` as `ordinary`); `dropped-texthunk` (a body `TextHunk` with the side `dropped:6d1aec75…:secret`; its second parent is the support case `lane-t-1`); `dropped-reencode` (#1's file re-encoded after the drop, with no item-10 entry for it; the commit also changes #2's `estimate`, since no commit has an empty changeset, R-63 Q5) |
 
 ### 6.2 Specification sections
 
 | Section | Cases |
 |---|---|
 | [F14 §3] tree, fan-out, modes and order | every `tree.lst` |
+| [F14 §3.3] reuse, the dropped-bodies exception | `dropped-reencode` (a file re-encoded after the drop: a changed blob, no entry) |
 | [F14 §4] marker | every tree; B's markers name sha256 |
 | [F14 §6.3] provenance lines | every native tree; the override of an import-checkpoint (`b-checkpoint-first`) |
 | [F14 §6.5] ledgers | `ordinary`, `revert`, `delete`, `undelete`, `trailers-json`, `hand-edit`, `checkpoint-*`, `b-checkpoint-first` |
+| [F14 §6.8] a dropped body side | `dropped-texthunk` |
+| [F14 §6.9] the dropped line | `dropped-line`, `dropped-reencode` |
 | [F14 §8] refs row files | `checkpoint-*` |
 | [F14 §9.1] superset | `hand-edit`, `defaults-explicit`, `foreign-*` (no provenance lines) |
 | [F14 §10.1]–§10.2 commit bytes and identities | every case; an empty role (`<@moirai.invalid>`) in `b-demoted` and `b-checkpoint-first` |
@@ -167,7 +176,7 @@ Twins with one id: `anchor-full` = `anchor-full-hash-only`, `anchors-plus` = `an
 | [F14 §10.4]–§10.5 trailers and order | every native case; `Moirai-Parent` in `b-demoted-child`; `Moirai-Idem` in `ordinary`, `trailers-json` |
 | [F14 §10.7] checkpoint commits | `checkpoint-*` |
 | [F14 §10.9] classification | every case (`class`); demotion by an id mismatch (`demoted`) and by a `Moirai-Ops` mismatch without hashing (`demoted-ops`); a message part that fails [F07 §5.1] step 1 has no case ([F14 §12.6] asks for none) |
-| [F14 §11.2] file transitions | `hand-edit` (live → absent), `merge` (absent → tombstone), `delete`, `undelete` |
+| [F14 §11.2] file transitions | `hand-edit` (live → absent), `merge` (absent → tombstone), `delete`, `undelete`; dropped bodies, whose hash is the body key (`dropped-line`, `dropped-reencode`, `dropped-texthunk`) |
 | [F14 §12] carrier table | every case |
 | [F07 §12.2]–§12.5 ids per kind | native, foreign, checkpoint and demoted cases |
 

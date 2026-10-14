@@ -1,0 +1,151 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case dropped-reencode
+%% source [F14 §3.3]
+%% source [F14 §6.3]
+%% source [F14 §6.9]
+%% source [F14 §11.1]
+%% source [F14 §12.6]
+%% source [F06 §8.1] DB-10, DB-11
+%% source [API] open point 28
+%% note Gate-0 row + dropped bodies, item 3 ([F14 §12.6]; spec sync 3, S3-R-16): on lane/d, which BranchCreate made from
+%% note the commit ordinary, exported to A after S1 dropped #1's body. ordinary's A tree, written before the drop, holds
+%% note #1's body section and is not rewritten ([F06 §8.1] DB-10); this tree re-encodes #1's file with the line `---
+%% note dropped 6d1aec75c193e1f1e47212b4598b9887 secret` ([F14 §3.3] "Dropped bodies"). The file contributes no item-10
+%% note entry: the line's hash is the body key the p-state already holds. Its `updated:` line keeps ordinary's id: under
+%% note the store's dropped set #1's file at ordinary and here differ in no other line ([F14 §6.3]). [API] open point 28
+%% note admits no commit with an empty changeset, so the commit also sets #2's estimate from 5 to 8 (R-63 Q5; the
+%% note wording "whose only tree change" of [F14 §12.6] is a finding for R-SPEC-R): one entry, two touched files.
+%% destination A sha1 full
+%% class native
+%% git-commit 6e7861d2d807ca40b437a2085cf5563559b9a90a
+%% git-tree 3bfa626ece7e369f254ae1366c61fc3a4fda8621
+%% git-parent ccad424446fa053d2897aa44b21b74b9ebf6ad37 ordinary
+%% trailer-commit 61c0ce4a0d1396f27fe35e0218e451f9134b3d046cae99a181927968e6f4fe29
+%% touched-new 2
+%% touched-old 2
+%% p-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body "Timeout fires before the lock holder's flush completes."
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 5
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body-hash 6d1aec75c193e1f1e47212b4598b9887
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 8
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+1a000000000000000000000000000002 field estimate = int 8
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000002 field estimate
+011a0000000000000000000000000000020408000000657374696d61746500030800000000000000
+; u64 entry count = 1
+0100000000000000
+%% entry-count 1
+%% changeset-digest 91a1a81e52dfb0f9ef4a4ef1903efa9ac24cf04f8dbf571c7346932d57ed8811
+%% commit
+kind ordinary
+parent 163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+hlc 01a0c49341600000
+actor "dev#1"
+role "developer"
+session "claude:s1"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "lane d: re-estimate #2"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+080000006f7264696e617279
+; item 2: n_parents
+01000000
+; item 2: parent 1
+163e88e25904ad166e7034449500622243f70ca1c1309e771d46d443d2b9ff9f
+; item 3: hlc
+0000604193c4a001
+; item 4: actor
+050000006465762331
+; item 4: role
+09000000646576656c6f706572
+; item 4: session
+09000000636c617564653a7331
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+160000006c616e6520643a2072652d657374696d617465202332
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+91a1a81e52dfb0f9ef4a4ef1903efa9ac24cf04f8dbf571c7346932d57ed8811
+%% commit-id 61c0ce4a0d1396f27fe35e0218e451f9134b3d046cae99a181927968e6f4fe29
+%% end
