@@ -793,7 +793,7 @@ fn check_store(dir: &str, head: &str, log: &str, more: &[&str]) -> Result<(), St
     }
 }
 
-/// [F09 §17.1] V-8: stores A and B reference their sealed files consistently.
+/// [F09 §17.1] V-8: stores A, B and F reference their sealed files consistently.
 #[test]
 fn hex_store_references() {
     let mut failures = Vec::new();
@@ -809,6 +809,12 @@ fn hex_store_references() {
             "store-b/HEAD.bin",
             "store-b/log.1.bin",
             &["store-b/log.2.bin"][..],
+        ),
+        (
+            "store-f",
+            "store-f/HEAD.bin",
+            "store-f/log.1.bin",
+            &["store-f/log.2.bin"][..],
         ),
     ] {
         if let Err(e) = check_store(dir, head, log, more) {
@@ -927,7 +933,7 @@ fn check_views(dir: &str, head: &str, log: &str, more: &[&str]) -> Result<(), St
     }
 }
 
-/// [F09 §17.1] V-12 and the set-wide name order: stores A and B.
+/// [F09 §17.1] V-12 and the set-wide name order: stores A, B and F.
 #[test]
 fn hex_store_views() {
     let mut failures = Vec::new();
@@ -943,6 +949,12 @@ fn hex_store_views() {
             "store-b/HEAD.bin",
             "store-b/log.1.bin",
             &["store-b/log.2.bin"][..],
+        ),
+        (
+            "store-f",
+            "store-f/HEAD.bin",
+            "store-f/log.1.bin",
+            &["store-f/log.2.bin"][..],
         ),
     ] {
         if let Err(e) = check_views(dir, head, log, more) {
