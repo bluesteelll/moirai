@@ -6,7 +6,7 @@
 | Chapter | [F09], `docs/spec/format/09-segments.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-13a (the `09-segments.md` part of WP-13, [PLAN §3.2] item 1), author role R-SPEC-R |
-| Sources | [AR §3.1] (the 60-byte header, row = `#N` − 1, cold columns `uid`, `topo`, `defer_until`, `due`, `CREATOR`; the field block); [AR §3.3] (edge key with the R4 discriminator, one CSR entry per (src, dst) for `at`, `pinned_commit` props); [AR §3.5] (the persisted bitsets); [AR §4.1] (rows `seg.base.G`, `seg.dK`, `seg.b<ref_id>.K`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, file count); [AR §4.2] (`SegRef`, `refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `next_id`, `next_anchor`); [AR §4.3] (bulk commits: "delta-segment layout", "readers map it as one more delta layer"; lazy runtime records decoded on use); [AR §4.4] (the whole section: `SegHdr`, the section tables, frozen bitsets, delta segments, hot bytes per node); [AR §4.5] step 12 (delta checkpoint, runtime-only fold, promotion); [AR §4.6] "Reserved in format v1" (the R4/R5 table and the audit, port and harness lists as they touch segments); [AR §4.7] (size check before mapping, `SYMTAB` probed in place); [AR §4.8] (the index table); [AR §4.9] (delta checkpoint, tiered fold, rollup, pins, `MARKERS_OLD`, GC); [AR §4.10] (`doctor --fsck`, `repair --rebuild-from-log`); [AR §5a.1] (ref, pin); [AR §5a.3] (the view formula, promotion, `TOUCH`); [AR §5d.1] (versioned versus store-level runtime state); [AR §2.11] T11 (tier-2 text search: front-coded dictionary, delta-varint postings per delta segment); [AR §2.12] T12 (schema as data per branch); [40 §2.4] (`PATHIDX` order), [40 §2.6] (runtime tables), [40 §2.7] (anchor handles `aN`, anchor uid), [40 §2.8] (`at` edges and the `ANCHORS` key), [40 §2.11] R-4, R-8, R-9, R-18 (authoritative); [50 §5.5] (search tokenisation "fixed in the format spec with a version byte", ranking statistics on the view), [50 §8.1] F3, F4, F5, F6, F7, F11, F12, F13, F17; [80 §2.5] rule 4, [80 §3.1] X-F6, X-F8, [80 §3.2] (8-byte section alignment); [60 §2.5] ([AR] row "Segments"; audit row "Segments"; the R4 and R5 tables), [60 §2.6] (the section-producer registry and its layout classes); [PLAN §3.2] WP-13, [PLAN §3.3] (WP-13's gaps: `MARKERS` field set, which sealed files carry `SegHdr`); `docs/spec/reviews/a1-S.md` S-09, S-22 and `a1-P.md` A1P-16 (dispositions in the open points); the sibling drafts [F04 §4.1] (`SegRef`), [F06 §7.3, §8, §9] (`prev`, bodies, bulk commits BK-1–BK-6), [F08 §3, §8.3, §8.4.3, §10.1] (`NodeHdr`, store-local schema ids, `index`, edges) and [F11 §1.3, §2] (runtime section bodies, forms and proposed tags), with which this chapter is reconciled (OP-09-23). Spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F16] P-80, P-101, P-102 (the dropped `BlobRef`, full-text indexing, the `DROPPED` tag); [AR §11] OQ-A-9 with [F01 §8.2] (symbol class `model`); [AR §11] OQ-A-10 with [API §8.8] (the `HARVEST` tag); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the segment header's magic) |
+| Sources | [AR §3.1] (the 60-byte header, row = `#N` − 1, cold columns `uid`, `topo`, `defer_until`, `due`, `CREATOR`; the field block); [AR §3.3] (edge key with the R4 discriminator, one CSR entry per (src, dst) for `at`, `pinned_commit` props); [AR §3.5] (the persisted bitsets); [AR §4.1] (rows `seg.base.G`, `seg.dK`, `seg.b<ref_id>.K`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, file count); [AR §4.2] (`SegRef`, `refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `next_id`, `next_anchor`); [AR §4.3] (bulk commits: "delta-segment layout", "readers map it as one more delta layer"; lazy runtime records decoded on use); [AR §4.4] (the whole section: `SegHdr`, the section tables, frozen bitsets, delta segments, hot bytes per node); [AR §4.5] step 12 (delta checkpoint, runtime-only fold, promotion); [AR §4.6] "Reserved in format v1" (the R4/R5 table and the audit, port and harness lists as they touch segments); [AR §4.7] (size check before mapping, `SYMTAB` probed in place); [AR §4.8] (the index table); [AR §4.9] (delta checkpoint, tiered fold, rollup, pins, `MARKERS_OLD`, GC); [AR §4.10] (`doctor --fsck`, `repair --rebuild-from-log`); [AR §5a.1] (ref, pin); [AR §5a.3] (the view formula, promotion, `TOUCH`); [AR §5d.1] (versioned versus store-level runtime state); [AR §2.11] T11 (tier-2 text search: front-coded dictionary, delta-varint postings per delta segment); [AR §2.12] T12 (schema as data per branch); [40 §2.4] (`PATHIDX` order), [40 §2.6] (runtime tables), [40 §2.7] (anchor handles `aN`, anchor uid), [40 §2.8] (`at` edges and the `ANCHORS` key), [40 §2.11] R-4, R-8, R-9, R-18 (authoritative); [50 §5.5] (search tokenisation "fixed in the format spec with a version byte", ranking statistics on the view), [50 §8.1] F3, F4, F5, F6, F7, F11, F12, F13, F17; [80 §2.5] rule 4, [80 §3.1] X-F6, X-F8, [80 §3.2] (8-byte section alignment); [60 §2.5] ([AR] row "Segments"; audit row "Segments"; the R4 and R5 tables), [60 §2.6] (the section-producer registry and its layout classes); [PLAN §3.2] WP-13, [PLAN §3.3] (WP-13's gaps: `MARKERS` field set, which sealed files carry `SegHdr`); `docs/spec/reviews/a1-S.md` S-09, S-22 and `a1-P.md` A1P-16 (dispositions in the open points); the sibling drafts [F04 §4.1] (`SegRef`), [F06 §7.3, §8, §9] (`prev`, bodies, bulk commits BK-1–BK-6), [F08 §3, §8.3, §8.4.3, §10.1] (`NodeHdr`, store-local schema ids, `index`, edges) and [F11 §1.3, §2] (runtime section bodies, forms and proposed tags), with which this chapter is reconciled (OP-09-23). Spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F16] P-80, P-101, P-102 (the dropped `BlobRef`, full-text indexing, the `DROPPED` tag); [AR §11] OQ-A-9 with [F01 §8.2] (symbol class `model`); [AR §11] OQ-A-10 with [API §8.8] (the `HARVEST` tag); the `priority` column `PRIO`: the owner's ruling R-66 of 2026-10-14 (OP-09-21); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the segment header's magic) |
 | Depends on | [F01], [F02]; cites [F04], [F05], [F06], [F07], [F08], [F10], [F11], [F12], [F13], [F15], [F16], [F17], [F19], [F20], [OS/map], [OS/fs], [LQ/std], [API] |
 
 ## 1. Scope
@@ -163,6 +163,7 @@ placement.
 | `0x0006` | `DUE` | column `u32` | row | R | R | R | R | [F08] (value) | §5.4 |
 | `0x0007` | `UID` | fixed table (20 B) | index | R | R | R | R | this chapter | §5.5 |
 | `0x0008` | `TOUCH` | frozen bitset | — | — | — | R | — | this chapter | §16.3 |
+| `0x0009` | `PRIO` | column `u8` | row | R | R | R | R | [F08] (value) | §5.4 |
 | `0x0010` | `TITLE_BLOB` | pool | row | R | R | R | R | this chapter | §6.1 |
 | `0x0011` | `FIELDS_BLOB` | pool | row | R | R | R | R | [F08 §6] (block) | §6.2 |
 | `0x0012` | `BLOBTAB` | fixed table (36 B) | row | R | R | R | R | this chapter | §6.3 |
@@ -346,9 +347,9 @@ A reader combines the layers of a view, oldest first, then the tail ([AR §4.4] 
 
 - **row.** The state of `#N` r is the one held by the newest layer that has r as a row: an upper layer whose `IDS` holds r,
   else the base if `r ≤ n_rows` there. That layer supplies *every* row-scoped section of r: `NODE`, `CREATOR`, `TOPO`,
-  `DEFER`, `DUE`, the title, the field block, the body reference, both adjacency lists with their `EDGE_PROPS`, `TOMB`,
-  `CONFLICTS` ([F11 §10]: "a reader masks older layers' rows of those nodes"), `DOCLEN`, and each promoted column the layer
-  carries (list-replacement semantics, [AR §4.4]). No layer holds a partial row.
+  `DEFER`, `DUE`, `PRIO`, the title, the field block, the body reference, both adjacency lists with their `EDGE_PROPS`,
+  `TOMB`, `CONFLICTS` ([F11 §10]: "a reader masks older layers' rows of those nodes"), `DOCLEN`, and each promoted
+  column the layer carries (list-replacement semantics, [AR §4.4]). No layer holds a partial row.
 - **index.** An entry of a value-keyed index (`UID`, `PATHIDX`, `ALIASIDX`, `ANCHORS`, `ANCHOR_UID`, `GLOBIDX`, `TERMS`/`POST`)
   in layer L belongs to one row r. It is **live** iff L is r's newest layer; a lookup probes every layer and discards
   entries that are not live.
@@ -395,7 +396,8 @@ of its fields:
   node its pinned set holds and the branch never had — has `kind` = 0 and all 60 bytes zero ([F08 §3]). Every other
   row-scoped section holds its zero value for it: zero column elements, empty adjacency lists, no `TOMB`, `CONFLICTS`,
   index or ± entry, no promoted value.
-- **Deleted row.** A deleted node keeps its row with its `deleted` flag set and its retained out-edges ([AR §3.1], I39′).
+- **Deleted row.** A deleted node keeps its row with its `deleted` flag set, its retained out-edges ([AR §3.1], I39′)
+  and its `PRIO` (§5.4).
 
 ### 5.3 `CREATOR` ([50] F4)
 
@@ -407,13 +409,17 @@ Column of 6-byte elements, set at `Create` and never changed ([AR §3.1]; the va
 | 4 | 2 | `u16` | `role` | symbol of class `role`; 0 for an absent row |
 | total | 6 | | | |
 
-### 5.4 `TOPO`, `DEFER`, `DUE`
+### 5.4 `TOPO`, `DEFER`, `DUE`, `PRIO`
 
-Columns of `u32` ([AR §3.1], [AR §4.4]).
+`TOPO`, `DEFER` and `DUE` are columns of `u32` ([AR §3.1], [AR §4.4]); `PRIO` is a column of `u8` (the owner's ruling
+R-66 of 2026-10-14).
 
 - `TOPO`: the node's Pearce–Kelly position in the view's combined precedence graph (I5′); 0 for an absent row. Its
   properties are [F13]'s I9 ("a topological order", OP-13-03). A rollup renumbers the positions ([AR §4.9]).
 - `DEFER` holds `defer_until`, `DUE` holds `due`; unit and "none" value are [F08]'s.
+- `PRIO` holds the node's `priority`; its values and default are [F08]'s. It is 0 for an absent row, as every column
+  element is (§5.2); a reader tells an absent row by `NODE.kind` = 0, never by `PRIO`. A deleted row keeps the node's
+  priority in `PRIO`, as [F08 §3.5] keeps `priority` in a tombstone (the orchestrator's ruling R-69 of 2026-10-14).
 
 ### 5.5 `UID`
 
@@ -1125,7 +1131,7 @@ them from its base state):
 |---|---|
 | created nodes with uid, kind and creator | `IDS`, `NODE`, `UID`, `CREATOR` |
 | deleted nodes with reason and replacement; undeleted nodes | `NODE` (`deleted`), `TOMB`; an undelete is a touched row no longer deleted |
-| nodes that go from absent to deleted ([F06 §7.4] `CreateDeleted`) with kind, reason, replacement and creator | a touched row that is deleted here and absent in the state the segment applies to: `NODE` (`deleted`, `kind`, the retained title), `UID`, `CREATOR`, `TOMB`, and its retained out-edges in the CSR and `EDGE_PROPS` (pass 1, S1-6) |
+| nodes that go from absent to deleted ([F06 §7.4] `CreateDeleted`) with kind, reason, replacement and creator | a touched row that is deleted here and absent in the state the segment applies to: `NODE` (`deleted`, `kind`, the retained title), `PRIO` (as §5.4 states for a deleted row), `UID`, `CREATOR`, `TOMB`, and its retained out-edges in the CSR and `EDGE_PROPS` (pass 1, S1-6) |
 | per touched row, its `prev` | `PREV` (below) |
 | conflict values; resolutions | `CONFLICTS`; a resolution is the touched row without the conflict and with the chosen value |
 | violations (a bulk merge that stages) | `VIOLATIONS` (below) |
@@ -1366,7 +1372,10 @@ The following decisions of other work packages condition this chapter without be
 - **OP-09-20 (derived-optional sections in v1).** `DIRMAP` ([80] X-F8) and the four caches [F11 §2.8] proposes (`FPRINT`,
   `ANCESTRY`, `GITRENAMES`, `ANCHORRES`). Other derived sections (`STATS`, `TERMS`/`POST`, `GLOBIDX`, the bitsets) are
   rebuildable too, but a reader must find them; making them optional would add fallbacks to every read path.
-- **OP-09-21 (measurement 14 and the layouts).** The `NODE` layout (an array of 60-byte headers) follows [AR §4.4]'s
+- **OP-09-21 (measurement 14 and the layouts) — closed by the owner's ruling R-66 of 2026-10-14.** `priority`
+  alone moves out of `NODE`'s 60-byte rows into the row-scoped column `PRIO` (`0x0009`, a `u8`; §3.1, §4.7, §5.4);
+  every other field stays in `NODE`, whose bytes are [F08 §3]'s. The original text:
+  The `NODE` layout (an array of 60-byte headers) follows [AR §4.4]'s
   `[NodeHdr; n]`, while [AR §3.1] speaks of structure-of-arrays columns. The hot header is one column group read per row; the
   cold columns are separate arrays. Measurement 14's column-scan probe runs on this layout; if it shows a per-field column
   split is needed, that is a finding against this chapter before the freeze.
