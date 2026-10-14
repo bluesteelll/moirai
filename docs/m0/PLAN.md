@@ -758,10 +758,11 @@ probe bodies and `moirai-projfs-sim`.
   - R-50's measurement unit runs in one agent-free window of 2–4 h. Its runs that can change bytes (the read with
     item 1a, the full checkpoint at 0.5 M and 1e6, and item 1a's bytes per op) land before the tag. It also measures
     smaller tails with a 1e4 point; if they miss, [F17]'s 1e4 open clause goes to M1's open gate (R-50).
-- **The `NODE` layout** (R-51). R-51 calls no split, provisional on a probe shaped like `ready` that runs in
-  R-50's measurement unit and can change bytes. If its rule fires, `priority` alone splits into a `PRIO` column of
-  [F09], and [F08]'s byte 3 becomes reserved: a byte change before the tag, which goes to the owner. Otherwise
-  `NODE` stays as 60-byte rows, and WP-81a records "no split" (R-51).
+- **The `NODE` layout** (R-51, R-66). R-51 called no split, provisional on a probe shaped like `ready`. W1's probe
+  fired the rule marginally (R-64), and the owner took the split (R-66): `priority` alone moves into a `PRIO` row
+  column of [F09] (u25, R-69), and [F08]'s byte 3 becomes reserved (S4). `NodeHdr` stays 60 B, `priority` keeps its
+  storage class and its canonical forms, and a tombstone keeps it. The fixtures and the oracle follow in the combined
+  landing L-NS (R-54), and WP-81a records the column with W1's numbers.
 - **Klotho and Moirai** (R-48, R-49). The engine is named Klotho and the product keeps the name Moirai: one binary,
   `moirai`, with Klotho a library inside it.
   - **KX, before the tag.** Every format byte that carries the name changes: the six magics take the prefix `K`

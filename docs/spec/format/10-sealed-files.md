@@ -6,8 +6,8 @@
 | Chapter | [F10], `docs/spec/format/10-sealed-files.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-13a (the `10-sealed-files.md` part of WP-13, [PLAN §3.2] item 1), author role R-SPEC-R |
-| Sources | [AR §4.1] (rows `hist.NNNN`, `blobs.NNNN`, `dict.D`, `gitmap.NNNN`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, CL3); [AR §4.3] (bodies in the tail raw with a codec byte; bulk commits; "if the M0 measurement shows the tail must hold compressed bodies…"; ≈ 1.5–2.5× `hist` ratio); [AR §4.4] (`SegHdr` `seg_kind` `hist`, `blobs`; `BLOBTAB`); [AR §4.7] (one reused 64 KiB body buffer); [AR §4.8] ("commit id → lsn: per-frame fan-out index in `hist`"); [AR §4.9] (delta checkpoint sealing bodies; tiered fold and rollup merging blob files; dictionary retraining; history retirement; GC: `hist` rewrite, blob GC, `gitmap` compaction); [AR §4.6] "Reserved in format v1" (byte-bounded `hist` frames; the harness list's codec items); [AR §5a.6] (a cold `hist` frame decodes in ≤ 0.1–0.5 ms); [AR §5b.6] (export frontier through `gitmap`); [AR §2.6] T6 (bodies ≤ 64 KiB, content-addressed BLAKE3-128); [AR §2.10] T10 (the pure-Rust codec); [40 §2.5] (fingerprints: ≈ 300 B, runtime, retention), [40 §2.11] R-9; [50 §8.1] F8; [80 §2.5] rules 1–4, [80 §3.1] X-F6; [90 §10.1] (codec row), [90 §11.3] (options (1)–(4) and the decision rule), [90 §11.4]; [60 §2.5] ([AR] row "Segments"; audit rows "Segments" and "Commit body"; the harness row), [60 §3.1] "Decisions fixed at M0 exit", [60 §5.2] row 6; [71 RAM-B1] (≤ 2 MB per commit decode), [71 RAM-m3] (`gitmap` sorted with a fan-out table), [71 RAM-M6] (≤ 0.5 MB compression context); [PLAN §3.2] WP-13, WP-54, [PLAN §3.3] (WP-13's gaps: `gitmap` entry size 41 vs 50 B; which sealed files carry `SegHdr`; R-9's fingerprint blob class), [PLAN §6.2] R3; spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] DB-8, DB-9 and [F16] P-80, P-101, P-102; external: [RFC 8878] (zstd frames and dictionaries), [LZ4-block] (the LZ4 block format) |
-| Depends on | [F01], [F02], [F09]; cites [F04], [F05], [F06], [F11], [F13], [F14], [F15], [F16], [F17], [F19], [F20], [OS/fs], [OS/map] |
+| Sources | [AR §4.1] (rows `hist.NNNN`, `blobs.NNNN`, `dict.D`, `gitmap.NNNN`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, CL3); [AR §4.3] (bodies in the tail raw with a codec byte; bulk commits; "if the M0 measurement shows the tail must hold compressed bodies…"; ≈ 1.5–2.5× `hist` ratio); [AR §4.4] (`SegHdr` `seg_kind` `hist`, `blobs`; `BLOBTAB`); [AR §4.7] (one reused 64 KiB body buffer); [AR §4.8] ("commit id → lsn: per-frame fan-out index in `hist`"); [AR §4.9] (delta checkpoint sealing bodies; tiered fold and rollup merging blob files; dictionary retraining; history retirement; GC: `hist` rewrite, blob GC, `gitmap` compaction); [AR §4.6] "Reserved in format v1" (byte-bounded `hist` frames; the harness list's codec items); [AR §5a.6] (a cold `hist` frame decodes in ≤ 0.1–0.5 ms); [AR §5b.6] (export frontier through `gitmap`); [AR §2.6] T6 (bodies ≤ 64 KiB, content-addressed BLAKE3-128); [AR §2.10] T10 (the pure-Rust codec); [40 §2.5] (fingerprints: ≈ 300 B, runtime, retention), [40 §2.11] R-9; [50 §8.1] F8; [80 §2.5] rules 1–4, [80 §3.1] X-F6; [90 §10.1] (codec row), [90 §11.3] (options (1)–(4) and the decision rule), [90 §11.4]; [60 §2.5] ([AR] row "Segments"; audit rows "Segments" and "Commit body"; the harness row), [60 §3.1] "Decisions fixed at M0 exit", [60 §5.2] row 6; [71 RAM-B1] (≤ 2 MB per commit decode), [71 RAM-m3] (`gitmap` sorted with a fan-out table), [71 RAM-M6] (≤ 0.5 MB compression context); [PLAN §3.2] WP-13, WP-54, [PLAN §3.3] (WP-13's gaps: `gitmap` entry size 41 vs 50 B; which sealed files carry `SegHdr`; R-9's fingerprint blob class), [PLAN §6.2] R3; spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] DB-8, DB-9 and [F16] P-80, P-101, P-102; external: [RFC 8878] (zstd frames and dictionaries), [LZ4-block] (the LZ4 block format); the `hist` codec: the owner's ruling R-43 of 2026-10-13, OI-1b, and the orchestrator's ruling R-69 of 2026-10-14 (`store.hist-codec`); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the dictionary header's and the `gitmap` page header's magics) |
+| Depends on | [F01], [F02], [F09]; cites [F04], [F05], [F06], [F11], [F13], [F14], [F15], [F16], [F17], [F19], [F20], [CFG], [OS/fs], [OS/map] |
 
 ## 1. Scope
 
@@ -21,9 +21,9 @@ This chapter specifies the sealed files other than the graph segments: `hist.<n>
 - dictionary files (§6) and `gitmap` pages (§7);
 - `cs.<n>` as a sealed file (§8), and validation (§9).
 
-The values that measurement 6 decides — which codec values exist, which codec each structure uses, the dictionary form and
-whether the log tail holds compressed bodies — are named holes (§3, Holes). Every width, offset and field around them is
-fixed here.
+The values that measurement 6 decides — which codec values exist, which codec each structure uses (for `hist` frames,
+the default of the store parameter `store.hist-codec`, §3.4), the dictionary form and whether the log tail holds
+compressed bodies — are named holes (§3, Holes). Every width, offset and field around them is fixed here.
 
 `SegHdr`, the section table, the layout classes and the canonical placement rules are [F09 §2]–[F09 §4]'s. The sealing
 protocol (create under the final number, `durable+meta`, `seal`, `durable-name`, then the record that names the file) is
@@ -74,7 +74,8 @@ extents are not sealed files.
 - **Self-identification.** A sealed file's header names its own number (`file_no` in `SegHdr` and `GitmapHdr`); `dict`
   files are named by their number alone (§6.3).
 - **Canonical encoding.** Everything outside a compressed payload is encoded uniquely by the rules of this chapter and
-  [F09 §17.3]. A compressed payload is the output of the codec implementation the product pins; the format oracle treats it
+  [F09 §17.3], given the codec each payload uses (for a `hist` frame, the one `store.hist-codec` names, §3.4). A
+  compressed payload is the output of the codec implementation the product pins; the format oracle treats it
   as opaque at M0 ([PLAN §6.2] R3) and decodes it from M1 ([90 §10.2]) (OP-10-12).
 
 ## 3. Codec
@@ -134,11 +135,22 @@ decoder and the `zstd` CLI ([90 §11.3]).
 |---|---|---|
 | body blob sealed into `blobs` (§5.3) | HOLE(F10-blob-codec), or 0 when the codec's output is not shorter than the raw bytes | hole (measurement 6) |
 | fingerprint blob (§5.3) | 0 | fixed (OP-10-05) |
-| `hist` frame and its blocks (§4.3) | HOLE(F10-hist-codec), or 0 for a frame whose compressed blocks are not together shorter than its raw bytes | hole (measurement 6); never a dictionary codec ([90 §11.3]: "frames without a dictionary") |
+| `hist` frame and its blocks (§4.3) | any admitted non-dictionary codec: the one `store.hist-codec` names when the frame is written (below), or 0 for a frame whose compressed blocks are not together shorter than its raw bytes; a reader decodes any of them | the admitted set is `HOLE(F10-codec-values)`'s; the key's default is HOLE(F10-hist-codec); never a dictionary codec ([90 §11.3]: "frames without a dictionary") |
 | a body carried by a log record ([F06 §8]) | 0, or also HOLE(F10-blob-codec) if HOLE(F10-body-placement) puts compressed bodies in the tail | hole (measurement 6) |
 | changeset segments, graph segments, `gitmap`, `dict` | not compressed | fixed: mapped in place ([AR §4.3] "readers map it as one more delta layer") |
 
-The fallback to 0 is decided per payload by comparing lengths, so it is deterministic.
+The fallback to 0 is decided per payload by comparing lengths, so for a given codec it is deterministic; a `hist`
+frame's codec also depends on the value of `store.hist-codec` when it is written (below).
+
+**`hist` frames** (the owner's ruling R-43 of 2026-10-13, OI-1b; the orchestrator's ruling R-69 of 2026-10-14). Every
+`hist` writer — retirement (§4.1), the `gc` rewrite and the purge rewrite (§4.6) — compresses each frame it writes with
+the codec that the store parameter `store.hist-codec` names, or with 0 by the fallback above. [F17] gives the parameter
+and [CFG] registers the key. Its values are the admitted non-dictionary codecs (§3.1), and its default is
+HOLE(F10-hist-codec). It is a tunable key of reload class `hot` ([F17 §1.1]): each frame records its codec in
+`FrameHdr.codec` (§4.3), so a reader decodes every admitted non-dictionary codec and never needs the key, as it never
+needs P03 or P04 (§4.2). Unlike P03 and P04, which are init-fixed, the key may change while the store lives: a changed
+value takes effect at the next decision point, and a frame written under an earlier value stays valid ([F17 §1.4]
+SP-R1).
 
 ### 3.5 Dictionaries
 
@@ -225,7 +237,7 @@ exactly three sections:
 | 64 | 4 | `u32` | `n_records` | records in the frame, ≥ 1 |
 | 68 | 4 | `u32` | `n_commits` | `Commit` records in the frame |
 | 72 | 2 | `u16` | `n_blocks` | ≥ 1; > 1 only for a split frame (§4.2 rule 3) |
-| 74 | 1 | `u8` | `codec` | the codec of every block of the frame (§3.4): 0 or HOLE(F10-hist-codec); never a dictionary codec |
+| 74 | 1 | `u8` | `codec` | the codec of every block of the frame (§3.4): 0, or the admitted non-dictionary codec that `store.hist-codec` named when the frame was written; a reader decodes any admitted non-dictionary codec; never a dictionary codec |
 | 75 | 1 | `u8` | `_reserved` | reserved-zero |
 | 76 | 4 | `u32` | `_reserved` | reserved-zero |
 | 80 | 8 | `u64` | `raw_xxh3` | XXH3-64, seed 0, over the frame's raw bytes; checked after every decode |
@@ -296,7 +308,8 @@ rewrite writes a new `hist` file under a new number and never changes an existin
 file and rewrites, by the rules above and under a new number, each one that holds a `Commit` record with a body entry
 whose hash it purges, or a bulk `Commit` whose `cs.<n>` it rewrote (§8): the body entries of those hashes are left out as
 §4.1 states, and the bulk commit's `cs_ref` (`file`, `len`, `b3`) names the rewritten `cs.<n>`, with `RecHdr.len` and
-`RecHdr.xxh3_64` recomputed. It drops no commit and changes no other byte; the replaced file is released by the purge's
+`RecHdr.xxh3_64` recomputed. It drops no commit and changes no other byte of a kept record (its frames are cut and
+compressed again by the rules above, §3.4); the replaced file is released by the purge's
 `Checkpoint` ([F05 §9.9]).
 
 `hist` file numbers are their own family ([F02 §6.2]); they do not equal the number of the retired extent, and `from_lsn`
@@ -392,11 +405,12 @@ Values 0 and 3–255 are reserved.
 
 ### 6.1 `DictHdr`
 
-The 32-byte header of [80 §2.5] rule 4, `{magic "MDIC", total_len u64, blake3_16, _ [4]}`:
+The 32-byte header that [80 §2.5] rule 4 requires, `{magic, total_len u64, blake3_16, _ [4]}`, which begins with
+[F01 §4.5]'s magic `"KDIC"`:
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
-| 0 | 4 | `[4]u8` | `magic` | `"MDIC"` = `4D 44 49 43` |
+| 0 | 4 | `[4]u8` | `magic` | `"KDIC"` = `4B 44 49 43` |
 | 4 | 8 | `u64` | `total_len` | the file's exact length ([80] X-F6) |
 | 12 | 16 | `b16` | `digest` | BLAKE3-128 over `[32, total_len)`, the dictionary bytes |
 | 28 | 4 | `[4]u8` | `_reserved` | reserved-zero |
@@ -462,7 +476,7 @@ The `gitmap` page header of [80 §2.5] rule 4:
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
-| 0 | 4 | `[4]u8` | `magic` | `"MGMP"` = `4D 47 4D 50` ([F01 §4.5]) |
+| 0 | 4 | `[4]u8` | `magic` | `"KGMP"` = `4B 47 4D 50` ([F01 §4.5]) |
 | 4 | 2 | `u16` | `format` | format version, 1 ([F01 §9.1]) |
 | 6 | 1 | `u8` | `dest` | the image destination's number, as `HEAD.image_cursor` uses it ([AR §4.2]); numbers are declared by `GitMap` records ([F04] open point 7, [F05]) |
 | 7 | 1 | `u8` | `algo` | the git object format of the destination: 1 `sha1` or 2 `sha256` ([F01 §7.5]); 0 is invalid |
@@ -562,9 +576,9 @@ A decode of a `hist` frame also checks `raw_xxh3` at run time; a mismatch is exi
 
 | id | what | decided by | candidates | constraint the value must meet |
 |---|---|---|---|---|
-| `F10-codec-values` | the codec values admitted in format v1 besides 0 `none`, and the payload format of each (§3.1, §3.3) | measurement 6 (WP-54), filled by WP-81a ([60 §3.1] "the codec among pure-Rust options", [90 §11.3]) | numbering fixed for every candidate: 1 `lz4`, 2 `lz4-dict`, 3 `zstd`, 4 `zstd-dict`, formats as §3.3. The admitted set is {0} ∪ {`F10-blob-codec`} ∪ {`F10-hist-codec`}: option (1) with a dictionary {0, 2, 3} (expected); option (1) without a dictionary {0, 1, 3}; option (2) {0, 3}; option (3) {0, 3, 4}; with `lz4` chosen for `hist`, 1 replaces 3 in the set. Values outside the admitted set stay reserved | exactly the values `F10-blob-codec` and `F10-hist-codec` name, plus 0 (`F10-body-placement` adds none); a dictionary value only if `F10-dict-form` is not "absent"; every admitted value decodable by a pure-Rust product decoder and by the oracle ([90 §11.2–§11.3]) |
+| `F10-codec-values` | the codec values admitted in format v1 besides 0 `none`, and the payload format of each (§3.1, §3.3) | measurement 6 (WP-54) and the owner's ruling R-43 of 2026-10-13, OI-1b; filled by WP-81a ([60 §3.1] "the codec among pure-Rust options", [90 §11.3]) | numbering fixed for every candidate: 1 `lz4`, 2 `lz4-dict`, 3 `zstd`, 4 `zstd-dict`, formats as §3.3. The admitted set holds 0, the value of `F10-blob-codec` and the codecs `hist` frames may use; the owner's ruling R-43 of 2026-10-13 admits both non-dictionary candidates, 1 and 3, for `hist` frames, which gives {0, 1, 3}. The other options of [90 §11.3] were option (1) with a dictionary {0, 2, 3}, option (2) {0, 3} and option (3) {0, 3, 4}. Values outside the admitted set stay reserved | {0, 1, 3}, as the owner's ruling R-43 of 2026-10-13 decided (`F10-body-placement` adds none): the set holds no dictionary value, so `F10-blob-codec` takes a non-dictionary value of the set and `F10-dict-form` is "absent" when WP-81a fills them; every admitted value decodable by a pure-Rust product decoder and by the oracle ([90 §11.2–§11.3]) |
 | `F10-blob-codec` | the codec a seal writes for body blobs (§3.4) | measurement 6 (WP-54) | 2 `lz4-dict` (option (1), expected); 1 `lz4` (option (1) without a dictionary); 3 `zstd` (option (2)); 4 `zstd-dict` (option (3)) | [90 §11.3]'s decision rule: option (1) unless a disk, page-cache or body-read budget of [AR §8.1]/[AR §8.3] fails with it and option (3), measured by the `zstd` CLI proxy, meets it; option (2) only if a dictionary gains < 1.2× over none on the owner's bodies; body decode in µs within one reused 64 KiB buffer ([AR §4.7]) |
-| `F10-hist-codec` | the codec retirement writes for `hist` frames (§3.4, §4.3) | measurement 6 (WP-54) | 3 `zstd` (expected, [90 §11.3]); 1 `lz4` ("the first lever" if `ruzstd`'s encoder misses a budget, [90 §11.4]) | never a dictionary codec; a 1 MiB frame decodes within the as-of and history budgets (est. 2–7 ms for `ruzstd`, [90 §11.4]; a cold frame ≤ 0.1–0.5 ms per [AR §5a.6] for typical frames); retirement and rollup compression within their budgets (rollup ≤ 3 s at 1e6, [AR §4.9]) |
+| `F10-hist-codec` | the default of the store parameter `store.hist-codec`: the codec every `hist` writer uses for its frames unless the key names another (§3.4, §4.3) | measurement 6 (WP-54) | 3 `zstd` (expected, [90 §11.3]); 1 `lz4` ("the first lever" if `ruzstd`'s encoder misses a budget, [90 §11.4]) | an admitted value (`F10-codec-values`); never a dictionary codec; a 1 MiB frame decodes within the as-of and history budgets (est. 2–7 ms for `ruzstd`, [90 §11.4]; a cold frame ≤ 0.1–0.5 ms per [AR §5a.6] for typical frames); retirement and rollup compression within their budgets (rollup ≤ 3 s at 1e6, [AR §4.9]) |
 | `F10-dict-form` | the dictionary form of `dict.<D>` files (§6.2) | measurement 6 (WP-54) | absent; raw content (≤ 64 KiB); formatted zstd dictionary (32–110 KiB, `Dictionary_ID` = D) | equals `HOLE(F02-dict-file)`; "absent" iff `F10-blob-codec` is not a dictionary codec; raw content iff it is 2; formatted iff it is 4 |
 | `F10-body-placement` | whether bodies in the log tail may be compressed (§3.4) | measurement 6 (WP-54: "where bodies are compressed (log tail raw or compressed)") | **raw**: a body in a log record always has codec 0 and is compressed only when a checkpoint seals it (the design's default, [AR §4.3]); **compressed**: a body in a log record may also carry `F10-blob-codec`, encoded with that codec's smallest-window parameters and a by-reference dictionary | "compressed" only if the measurement shows the tail must hold compressed bodies, and then no writing process builds a compression context above 0.5 MB ([AR §4.3], [71 RAM-M6]); [F17 §5.1]'s `body_bytes` counts what this decides |
 
@@ -589,9 +603,10 @@ A decode of a `hist` frame also checks `raw_xxh3` at run time; a mismatch is exi
   fan-out index". A fan-out table per frame of at most 256 commits costs 1 KiB per frame and saves nothing over one index
   per file whose entries give the `lsn`, from which the frame follows by binary search. This chapter keeps one `HCIDX` per
   file. The review should confirm the reading.
-- **OP-10-05 (codec 0 as a fallback; fingerprints uncompressed).** A seal or a retirement writes codec 0 when the chosen codec
-  would not shrink the payload; the rule compares lengths, so it is deterministic. Fingerprint blobs (≤ 276 bytes of hash
-  values) are always codec 0: compression cannot shrink them and a context would cost more than the blob.
+- **OP-10-05 (codec 0 as a fallback; fingerprints uncompressed).** A seal or a `hist` writer (retirement, a `gc` or
+  purge rewrite, §3.4) writes codec 0 when its codec would not shrink the payload; the rule compares lengths, so it is
+  deterministic. Fingerprint blobs (≤ 276 bytes of hash values) are always codec 0: compression cannot shrink them and a
+  context would cost more than the blob.
 - **OP-10-06 (the current dictionary; closed with [F04]).** A seal must know which `dict.<D>` is current. [F04 §4.1] lists it
   as the `dict` entry of `HEAD.segments` (closing [F17] OP-17-06). Older dictionaries that `blobs` files of pinned sets still
   name are live too; `FILES` lists every live dictionary so GC and `doctor` can find them.
@@ -612,7 +627,8 @@ A decode of a `hist` frame also checks `raw_xxh3` at run time; a mismatch is exi
   with the orphan sweep rule of [F02] open point 5.
 - **OP-10-12 (determinism of compressed bytes).** Byte-identical rebuilds of `hist` and `blobs` hold only for one pinned codec
   implementation and version; a codec upgrade changes compressed bytes, never raw content, ids or `hash`es. The format oracle
-  treats compressed payloads as opaque at M0 ([PLAN §6.2] R3).
+  treats compressed payloads as opaque at M0 ([PLAN §6.2] R3). For `hist` they also need the same value of
+  `store.hist-codec`; a frame records its codec, so no reader depends on the value (§3.4).
 - **OP-10-13 (zstd frame constraints).** A payload is exactly one zstd frame, with no skippable frame, and a stated
   `Frame_Content_Size` must equal the raw length. Whether a frame carries a content checksum is left to the encoder, since
   `raw_xxh3` and the blob `hash` already verify content.

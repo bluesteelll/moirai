@@ -6,7 +6,7 @@
 | Chapter | [F09], `docs/spec/format/09-segments.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-13a (the `09-segments.md` part of WP-13, [PLAN §3.2] item 1), author role R-SPEC-R |
-| Sources | [AR §3.1] (the 60-byte header, row = `#N` − 1, cold columns `uid`, `topo`, `defer_until`, `due`, `CREATOR`; the field block); [AR §3.3] (edge key with the R4 discriminator, one CSR entry per (src, dst) for `at`, `pinned_commit` props); [AR §3.5] (the persisted bitsets); [AR §4.1] (rows `seg.base.G`, `seg.dK`, `seg.b<ref_id>.K`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, file count); [AR §4.2] (`SegRef`, `refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `next_id`, `next_anchor`); [AR §4.3] (bulk commits: "delta-segment layout", "readers map it as one more delta layer"; lazy runtime records decoded on use); [AR §4.4] (the whole section: `SegHdr`, the section tables, frozen bitsets, delta segments, hot bytes per node); [AR §4.5] step 12 (delta checkpoint, runtime-only fold, promotion); [AR §4.6] "Reserved in format v1" (the R4/R5 table and the audit, port and harness lists as they touch segments); [AR §4.7] (size check before mapping, `SYMTAB` probed in place); [AR §4.8] (the index table); [AR §4.9] (delta checkpoint, tiered fold, rollup, pins, `MARKERS_OLD`, GC); [AR §4.10] (`doctor --fsck`, `repair --rebuild-from-log`); [AR §5a.1] (ref, pin); [AR §5a.3] (the view formula, promotion, `TOUCH`); [AR §5d.1] (versioned versus store-level runtime state); [AR §2.11] T11 (tier-2 text search: front-coded dictionary, delta-varint postings per delta segment); [AR §2.12] T12 (schema as data per branch); [40 §2.4] (`PATHIDX` order), [40 §2.6] (runtime tables), [40 §2.7] (anchor handles `aN`, anchor uid), [40 §2.8] (`at` edges and the `ANCHORS` key), [40 §2.11] R-4, R-8, R-9, R-18 (authoritative); [50 §5.5] (search tokenisation "fixed in the format spec with a version byte", ranking statistics on the view), [50 §8.1] F3, F4, F5, F6, F7, F11, F12, F13, F17; [80 §2.5] rule 4, [80 §3.1] X-F6, X-F8, [80 §3.2] (8-byte section alignment); [60 §2.5] ([AR] row "Segments"; audit row "Segments"; the R4 and R5 tables), [60 §2.6] (the section-producer registry and its layout classes); [PLAN §3.2] WP-13, [PLAN §3.3] (WP-13's gaps: `MARKERS` field set, which sealed files carry `SegHdr`); `docs/spec/reviews/a1-S.md` S-09, S-22 and `a1-P.md` A1P-16 (dispositions in the open points); the sibling drafts [F04 §4.1] (`SegRef`), [F06 §7.3, §8, §9] (`prev`, bodies, bulk commits BK-1–BK-6), [F08 §3, §8.3, §8.4.3, §10.1] (`NodeHdr`, store-local schema ids, `index`, edges) and [F11 §1.3, §2] (runtime section bodies, forms and proposed tags), with which this chapter is reconciled (OP-09-23). Spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F16] P-80, P-101, P-102 (the dropped `BlobRef`, full-text indexing, the `DROPPED` tag); [AR §11] OQ-A-9 with [F01 §8.2] (symbol class `model`); [AR §11] OQ-A-10 with [API §8.8] (the `HARVEST` tag) |
+| Sources | [AR §3.1] (the 60-byte header, row = `#N` − 1, cold columns `uid`, `topo`, `defer_until`, `due`, `CREATOR`; the field block); [AR §3.3] (edge key with the R4 discriminator, one CSR entry per (src, dst) for `at`, `pinned_commit` props); [AR §3.5] (the persisted bitsets); [AR §4.1] (rows `seg.base.G`, `seg.dK`, `seg.b<ref_id>.K`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, file count); [AR §4.2] (`SegRef`, `refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `next_id`, `next_anchor`); [AR §4.3] (bulk commits: "delta-segment layout", "readers map it as one more delta layer"; lazy runtime records decoded on use); [AR §4.4] (the whole section: `SegHdr`, the section tables, frozen bitsets, delta segments, hot bytes per node); [AR §4.5] step 12 (delta checkpoint, runtime-only fold, promotion); [AR §4.6] "Reserved in format v1" (the R4/R5 table and the audit, port and harness lists as they touch segments); [AR §4.7] (size check before mapping, `SYMTAB` probed in place); [AR §4.8] (the index table); [AR §4.9] (delta checkpoint, tiered fold, rollup, pins, `MARKERS_OLD`, GC); [AR §4.10] (`doctor --fsck`, `repair --rebuild-from-log`); [AR §5a.1] (ref, pin); [AR §5a.3] (the view formula, promotion, `TOUCH`); [AR §5d.1] (versioned versus store-level runtime state); [AR §2.11] T11 (tier-2 text search: front-coded dictionary, delta-varint postings per delta segment); [AR §2.12] T12 (schema as data per branch); [40 §2.4] (`PATHIDX` order), [40 §2.6] (runtime tables), [40 §2.7] (anchor handles `aN`, anchor uid), [40 §2.8] (`at` edges and the `ANCHORS` key), [40 §2.11] R-4, R-8, R-9, R-18 (authoritative); [50 §5.5] (search tokenisation "fixed in the format spec with a version byte", ranking statistics on the view), [50 §8.1] F3, F4, F5, F6, F7, F11, F12, F13, F17; [80 §2.5] rule 4, [80 §3.1] X-F6, X-F8, [80 §3.2] (8-byte section alignment); [60 §2.5] ([AR] row "Segments"; audit row "Segments"; the R4 and R5 tables), [60 §2.6] (the section-producer registry and its layout classes); [PLAN §3.2] WP-13, [PLAN §3.3] (WP-13's gaps: `MARKERS` field set, which sealed files carry `SegHdr`); `docs/spec/reviews/a1-S.md` S-09, S-22 and `a1-P.md` A1P-16 (dispositions in the open points); the sibling drafts [F04 §4.1] (`SegRef`), [F06 §7.3, §8, §9] (`prev`, bodies, bulk commits BK-1–BK-6), [F08 §3, §8.3, §8.4.3, §10.1] (`NodeHdr`, store-local schema ids, `index`, edges) and [F11 §1.3, §2] (runtime section bodies, forms and proposed tags), with which this chapter is reconciled (OP-09-23). Spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F16] P-80, P-101, P-102 (the dropped `BlobRef`, full-text indexing, the `DROPPED` tag); [AR §11] OQ-A-9 with [F01 §8.2] (symbol class `model`); [AR §11] OQ-A-10 with [API §8.8] (the `HARVEST` tag); `DOCLEN` and `FTSSTAT` `derived-optional`, all or nothing: the owner's ruling R-23 of 2026-10-12, item 1; the format version of a `derived-optional` section added after the tag: the orchestrator's ruling R-51 of 2026-10-13, N-1; the `priority` column `PRIO`: the owner's ruling R-66 of 2026-10-14 (OP-09-21); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the segment header's magic) |
 | Depends on | [F01], [F02]; cites [F04], [F05], [F06], [F07], [F08], [F10], [F11], [F12], [F13], [F15], [F16], [F17], [F19], [F20], [OS/map], [OS/fs], [LQ/std], [API] |
 
 ## 1. Scope
@@ -50,10 +50,10 @@ Every graph segment, every `hist` file and every `blobs` file begins with `SegHd
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
-| 0 | 4 | `[4]u8` | `magic` | `"MSEG"` = `4D 53 45 47` ([F01 §4.5]) |
+| 0 | 4 | `[4]u8` | `magic` | `"KSEG"` = `4B 53 45 47` ([F01 §4.5]) |
 | 4 | 2 | `u16` | `format` | format version, 1 ([F01 §9.1]) |
 | 6 | 1 | `u8` | `seg_kind` | the file's family in [F11 §2.5]'s `FileFamily` registry: 3 `seg-base`, 4 `seg-delta`, 5 `seg-branch`, 9 `cs` (this chapter), 2 `hist`, 6 `blobs` ([F10]); every other value is invalid here |
-| 7 | 1 | `u8` | `tok_ver` | the tokenizer version byte ([50] F12): 0 = the segment carries no tier-2 text sections; 1 = it carries them, built with tokenizer v1 (§12.1). Values 2–255 are reserved |
+| 7 | 1 | `u8` | `tok_ver` | the tokenizer version byte ([50] F12): 0 = the segment carries no tier-2 text sections; 1 = it carries `TERMS` and `POST`, and may carry `DOCLEN` and `FTSSTAT` (§3.3), all built with tokenizer v1 (§12.1). Values 2–255 are reserved |
 | 8 | 4 | `u32` | `n_rows` | the row count of §2.3 |
 | 12 | 2 | `u16` | `n_sections` | the number of section-table entries |
 | 14 | 2 | `u16` | `_reserved` | reserved-zero ([F01 §10]) |
@@ -96,7 +96,7 @@ is a multiple of 8.
 
 | bit | name | meaning |
 |---|---|---|
-| 0 | `derived-optional` | the section is rebuildable from the log; a reader that does not know its tag ignores it; a reader that knows it may find it absent and derives the data otherwise (§3.3) |
+| 0 | `derived-optional` | the section is rebuildable from the log; a reader that does not know its tag ignores it; a reader that knows it may find it absent and derives the data otherwise (§3.3; for a versioned section, for the whole view) |
 
 Bits 1–15 are reserved-zero.
 
@@ -150,8 +150,9 @@ Tags are `u16`. Tag 0 and every tag not listed are reserved: a segment that carr
 invalid ([F01 §9.3]). The class column names the layout class (§4, or "RtHdr body" for [F11 §2.1]'s body); the fold column
 names the composition rule of §4.7; the placement columns give, per segment kind, **R** required (present, possibly with
 `count` = 0), **C** conditional (the condition is in the section's own subsection), **O** optional and `derived-optional`,
-**—** forbidden. "Rows" names the chapter that owns the bytes of one row where this chapter owns only the tag and the
-placement.
+**CO** conditional and `derived-optional` (allowed only where the section's condition holds, and there present or absent
+under §3.3's all-or-nothing rule), **—** forbidden. "Rows" names the chapter that owns the bytes of one row where this
+chapter owns only the tag and the placement.
 
 | tag | name | class | fold | base | delta | branch | cs | rows | section |
 |---|---|---|---|---|---|---|---|---|---|
@@ -163,6 +164,7 @@ placement.
 | `0x0006` | `DUE` | column `u32` | row | R | R | R | R | [F08] (value) | §5.4 |
 | `0x0007` | `UID` | fixed table (20 B) | index | R | R | R | R | this chapter | §5.5 |
 | `0x0008` | `TOUCH` | frozen bitset | — | — | — | R | — | this chapter | §16.3 |
+| `0x0009` | `PRIO` | column `u8` | row | R | R | R | R | [F08] (value) | §5.4 |
 | `0x0010` | `TITLE_BLOB` | pool | row | R | R | R | R | this chapter | §6.1 |
 | `0x0011` | `FIELDS_BLOB` | pool | row | R | R | R | R | [F08 §6] (block) | §6.2 |
 | `0x0012` | `BLOBTAB` | fixed table (36 B) | row | R | R | R | R | this chapter | §6.3 |
@@ -179,8 +181,8 @@ placement.
 | `0x0040` | `BMDIR` | fixed table (4 B) | — | R | C | C | C | this chapter | §9.2 |
 | `0x0050` | `TERMS` | term dictionary | index | C | C | C | C | this chapter | §12.2 |
 | `0x0051` | `POST` | postings | index | C | C | C | C | this chapter | §12.3 |
-| `0x0052` | `DOCLEN` | column (6 B) | row | C | C | C | C | this chapter | §12.4 |
-| `0x0053` | `FTSSTAT` | fixed record (48 B) | full (view) | C | C | C | — | this chapter | §12.4 |
+| `0x0052` | `DOCLEN` | column (6 B) | row | CO | CO | CO | CO | this chapter | §12.4 |
+| `0x0053` | `FTSSTAT` | fixed record (48 B) | full (view) | CO | CO | CO | — | this chapter | §12.4 |
 | `0x0060` | `STATS` | statistics | full (view) | R | — | — | — | this chapter | §11 |
 | `0x0061` | `FPROMO` | fixed table (12 B) | — | C | C | C | C | this chapter | §10.1 |
 | `0x0080` | `PATHIDX` | variable table | index | R | R | R | R | this chapter | §13.1 |
@@ -234,14 +236,56 @@ only when they hold a row (§14.5). A `hist` file carries only the tags `0x0300`
 
 ### 3.3 `derived-optional`
 
-- In format v1 the flag is set on exactly these sections: `DIRMAP` ([80] X-F8, [80 §2.11.2]) and the four runtime caches
+- In format v1 the flag is set on exactly these sections: `DIRMAP` ([80] X-F8, [80 §2.11.2]), the four runtime caches
   `FPRINT`, `ANCESTRY`, `GITRENAMES` and `ANCHORRES` ([F11 §2.8]; [40 §2.6] calls them derivable, [F20 §1.3]
-  output-neutral). A writer sets it on these and on no other v1 tag; a v1 reader treats the flag on any other known tag as a
-  format violation. The five are marked O in §3.1: present or absent in a base or delta.
-- A reader that finds one of them absent treats the table as empty: `DIRMAP`'s Linux frontier then enumerates the tree and
-  E7 loses its filter ([80 §2.11.3]); the caches recompute on use. Nothing becomes wrong.
-- A later format may add a derived index with a new tag and this flag; a v1 reader ignores it, and `repair
-  --rebuild-from-log` rebuilds it ([AR §4.4], [74 A23]). A section that is not derivable from the log never carries the flag.
+  output-neutral), and the tier-2 statistics `DOCLEN` and `FTSSTAT` (§12.4; the owner's ruling R-23 of 2026-10-12, item
+  1). A writer sets it on these and on no other tag that §3.1 lists, and a reader treats the flag on any other tag that
+  §3.1 lists as a format violation; a section added after `format-v1` carries it as the last item states. `DIRMAP` and
+  the caches are store-level and marked O in §3.1: present or absent in a base or delta. The two statistics are
+  versioned and marked CO, as the all-or-nothing rule below states.
+- A reader that finds a store-level `derived-optional` section absent treats the table as empty: `DIRMAP`'s Linux
+  frontier then enumerates the tree and E7 loses its filter ([80 §2.11.3]); the caches recompute on use. Nothing becomes
+  wrong. A versioned `derived-optional` section is read by the all-or-nothing rule instead.
+- **The all-or-nothing rule** (CH-1 of the plan critique of 2026-10-12, as the owner's ruling R-23 of 2026-10-12, item
+  1, adopts it). `DOCLEN` and `FTSSTAT` are versioned and marked CO in §3.1: allowed only in a segment whose `tok_ver`
+  is 1 (§12), `FTSSTAT` never in a changeset segment, and there present or absent under this rule. A versioned
+  `derived-optional` section, together with every versioned `derived-optional` section derived from the same data,
+  forms a **group**. In format v1 the one group is `DOCLEN` (fold "row") and `FTSSTAT` (fold "full (view)"), both
+  derived from the token counts of §12.1. A **group layer** of a view is a layer in which the group's own condition
+  allows it: for this group, a layer whose `tok_ver` is 1 (§12).
+  - **Readers.** A reader uses a group in a view only if every group layer of the view carries each section of the
+    group that its segment kind admits. Otherwise it treats the group as absent in every layer of the view: it reads
+    none of its sections and derives what it needs of their data for the whole view from the view's content (for this
+    group, by tokenising, §12.1). It never takes a group's sections from some layers and an empty table, or an older
+    layer's copy, for the others.
+  - **A changeset layer** admits `DOCLEN` and never `FTSSTAT` (§3.1, §16.4), so it is complete with `DOCLEN` alone; a
+    reader adjusts the view's statistics through it (§12.4).
+  - **A layer whose `tok_ver` is 0** is not a group layer: it carries neither section by §12's condition, not by the
+    flag, so it neither completes nor breaks the group. Its rows have no `DOCLEN` entry, and a reader tokenises them, as
+    it reads that layer by the tier-1 scan ([F17 §6.4] "mixed segment sets"). An `FTSSTAT` describes the view as of its
+    own layer (§12.4): the newest one counts the rows of such a layer below it, and a reader adjusts it for the rows of
+    one above it by tokenising them (§12.4).
+  - **Writers.** A layer carries either every section of the group that its kind admits or none. A delta, branch or
+    changeset segment carries the group only if every group layer below it in the view it extends carries it; a base
+    holds its whole view and may carry it wherever the group's condition holds. A changeset segment is judged on the
+    view its producer reads when it streams the segment, and a promotion on its pinned set (§16.3). These rules bind
+    every writer of a group layer in format v1: a delta checkpoint and a runtime-only fold (§15.1), the tiered fold
+    (§16.2), a rollup and the base of `repair --rebuild-from-log` (§16.1), a promotion (§16.3), a bulk commit's
+    changeset segment (§16.4) and the body purge's rewrite of a graph segment ([F16] P-101 step 4; §12.1). Whatever
+    writes a section of the group writes the data §12.4 defines for its layer (V-13); the tiered fold may take it from
+    inputs that carry it. Within these rules, whether writers write the group is decided outside this section: for this
+    group, by `HOLE(F09-doclen)`.
+  - **Validity.** A view that breaks the writer rules is read as a view without the group; it is not invalid. A
+    present section of a group is encoded canonically (§17.3); V-7 checks its `flags` as this section states and never
+    requires it.
+- **A `derived-optional` section added after `format-v1`** (the orchestrator's ruling R-51 of 2026-10-13, N-1). A
+  later edition of this chapter may add a section that is derivable from the log, with a new tag and this flag. Its
+  writer stamps format version 1 ([F01 §9.1]): the format frozen as v1 includes this item, so such a section is "an
+  additive change, not a format version bump" ([AR §4.4]), and a store that holds it is a format-1 store. A format-1
+  reader that does not know the tag ignores the section ([F01 §9.3]), and `repair --rebuild-from-log` rebuilds it
+  ([AR §4.4], [74 A23]). A store-level one is read as the second item states; a versioned one is read by the
+  all-or-nothing rule above, as `DOCLEN` and `FTSSTAT` are. A section that is not derivable from the log never carries
+  the flag.
 
 ## 4. Layout classes and layer composition
 
@@ -346,15 +390,19 @@ A reader combines the layers of a view, oldest first, then the tail ([AR §4.4] 
 
 - **row.** The state of `#N` r is the one held by the newest layer that has r as a row: an upper layer whose `IDS` holds r,
   else the base if `r ≤ n_rows` there. That layer supplies *every* row-scoped section of r: `NODE`, `CREATOR`, `TOPO`,
-  `DEFER`, `DUE`, the title, the field block, the body reference, both adjacency lists with their `EDGE_PROPS`, `TOMB`,
-  `CONFLICTS` ([F11 §10]: "a reader masks older layers' rows of those nodes"), `DOCLEN`, and each promoted column the layer
-  carries (list-replacement semantics, [AR §4.4]). No layer holds a partial row.
+  `DEFER`, `DUE`, `PRIO`, the title, the field block, the body reference, both adjacency lists with their `EDGE_PROPS`,
+  `TOMB`, `CONFLICTS` ([F11 §10]: "a reader masks older layers' rows of those nodes"), `DOCLEN`, and each promoted
+  column the layer carries (list-replacement semantics, [AR §4.4]). No layer holds a partial row: a layer that leaves
+  out a versioned `derived-optional` section leaves it out for all its rows, and §3.3's all-or-nothing rule then reads
+  it for the whole view.
 - **index.** An entry of a value-keyed index (`UID`, `PATHIDX`, `ALIASIDX`, `ANCHORS`, `ANCHOR_UID`, `GLOBIDX`, `TERMS`/`POST`)
   in layer L belongs to one row r. It is **live** iff L is r's newest layer; a lookup probes every layer and discards
   entries that are not live.
 - **bitset.** Membership in the base's frozen bitset, then each upper layer's ± list applied in order. A layer without a
   ± list for a set leaves it unchanged. A set with no frozen bitset in the base is empty there.
-- **full (view).** The section describes the whole view as of its layer; the newest layer that carries it wins.
+- **full (view).** The section describes the whole view as of its layer; the newest layer that carries it wins. For a
+  `derived-optional` section this holds only within §3.3's all-or-nothing rule, so an older layer's copy never stands in
+  for a group layer that lacks it.
 - **snapshot, layer.** The forms of [F11 §2.4], for store-level sections: a snapshot is the complete table as of its
   segment's bound, and the newest main-set layer's snapshot is authoritative; a layer holds the rows that changed after the
   next-older segment (dead rows included where [F11] allows them), probed newest first after the tail. "Snapshot / layer"
@@ -395,7 +443,8 @@ of its fields:
   node its pinned set holds and the branch never had — has `kind` = 0 and all 60 bytes zero ([F08 §3]). Every other
   row-scoped section holds its zero value for it: zero column elements, empty adjacency lists, no `TOMB`, `CONFLICTS`,
   index or ± entry, no promoted value.
-- **Deleted row.** A deleted node keeps its row with its `deleted` flag set and its retained out-edges ([AR §3.1], I39′).
+- **Deleted row.** A deleted node keeps its row with its `deleted` flag set, its retained out-edges ([AR §3.1], I39′)
+  and its `PRIO` (§5.4).
 
 ### 5.3 `CREATOR` ([50] F4)
 
@@ -407,13 +456,17 @@ Column of 6-byte elements, set at `Create` and never changed ([AR §3.1]; the va
 | 4 | 2 | `u16` | `role` | symbol of class `role`; 0 for an absent row |
 | total | 6 | | | |
 
-### 5.4 `TOPO`, `DEFER`, `DUE`
+### 5.4 `TOPO`, `DEFER`, `DUE`, `PRIO`
 
-Columns of `u32` ([AR §3.1], [AR §4.4]).
+`TOPO`, `DEFER` and `DUE` are columns of `u32` ([AR §3.1], [AR §4.4]); `PRIO` is a column of `u8` (the owner's ruling
+R-66 of 2026-10-14).
 
 - `TOPO`: the node's Pearce–Kelly position in the view's combined precedence graph (I5′); 0 for an absent row. Its
   properties are [F13]'s I9 ("a topological order", OP-13-03). A rollup renumbers the positions ([AR §4.9]).
 - `DEFER` holds `defer_until`, `DUE` holds `due`; unit and "none" value are [F08]'s.
+- `PRIO` holds the node's `priority`; its values and default are [F08]'s. It is 0 for an absent row, as every column
+  element is (§5.2); a reader tells an absent row by `NODE.kind` = 0, never by `PRIO`. A deleted row keeps the node's
+  priority in `PRIO`, as [F08 §3.5] keeps `priority` in a tombstone (the orchestrator's ruling R-69 of 2026-10-14).
 
 ### 5.5 `UID`
 
@@ -760,8 +813,9 @@ view, so a rebuild reproduces it.
 
 ## 12. Full-text tier 2 ([AR §2.11] T11, [50] F12)
 
-`TERMS`, `POST` and (if kept) `DOCLEN` and `FTSSTAT` exist in a segment iff its `tok_ver` is 1. When they are written is
-[F17 §6.4]'s rule (`store.fts.tier2-nodes`, `HEAD.flags` bit 1); a segment set may mix segments with and without them.
+`TERMS` and `POST` exist in a segment iff its `tok_ver` is 1; `DOCLEN` and `FTSSTAT` may exist only then, as the
+`derived-optional` group of §3.3 (`FTSSTAT` never in a changeset segment). When they are written is [F17 §6.4]'s rule
+(`store.fts.tier2-nodes`, `HEAD.flags` bit 1); a segment set may mix segments with and without them.
 
 ### 12.1 Tokenizer v1
 
@@ -828,13 +882,16 @@ postings of an upper segment cover its touched rows only, and fold "index" appli
 
 ### 12.4 `DOCLEN` and `FTSSTAT`
 
-Both exist only if `HOLE(F09-doclen)` keeps them; otherwise neither tag is written, both stay reserved, and `TERMS` and
-`POST` are unchanged ([AR §2.11], [74 A15], LQ-Bench's BM25 ablation).
+Both are `derived-optional` and form §3.3's one group: a layer whose `tok_ver` is 1 carries both (in a changeset
+segment, `DOCLEN` alone) or neither, under the all-or-nothing rule, and whether writers write them is
+`HOLE(F09-doclen)`. Their tags, layouts and flag are fixed in format v1 either way, and `TERMS` and `POST` do not depend
+on them ([AR §2.11], [74 A15], LQ-Bench's BM25 ablation; the owner's ruling R-23 of 2026-10-12, item 1).
 
 - **`DOCLEN`**: column of `[3]u16` per row, fold "row": the token counts of title, abstract and body, each saturating at
   65,535 ([50] F12, "u16 tokens for title, abstract, body"; [F08 §4] lists the column); zero for absent and deleted rows.
 - **`FTSSTAT`**: exactly 48 bytes, no header, fold "full (view)", in base, delta and branch segments that carry `TERMS`
-  (never in a changeset segment); `count` = 3. Three records, for title, abstract and body in that order:
+  and the group (§3.3) (never in a changeset segment); `count` = 3. Three records, for title, abstract and body in that
+  order:
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
@@ -843,8 +900,10 @@ Both exist only if `HOLE(F09-doclen)` keeps them; otherwise neither tag is writt
 | 8 | 8 | `u64` | `total_len` | Σ of the field's token count over the view's non-deleted documents, as of this layer |
 | total | 16 | | | |
 
-A reader obtains the view's statistics from the newest layer's `FTSSTAT` and adjusts them for changeset layers and the
-tail through `DOCLEN` and re-tokenisation ([50 §5.5] "Ranking statistics are defined on the view"). The arithmetic of BM25
+When the view carries the group (§3.3), a reader obtains the view's statistics from the newest `FTSSTAT`, which
+describes the view as of its layer, and adjusts them for every layer above that one (a changeset layer through its
+`DOCLEN`; a layer whose `tok_ver` is 0 by tokenising its rows) and for the tail by re-tokenisation; otherwise it derives
+them for the whole view by tokenising ([50 §5.5] "Ranking statistics are defined on the view"). The arithmetic of BM25
 itself is [LQ/std]'s (review S-22, OP-09-12).
 
 ## 13. R4 link sections, versioned ([40] R-8, [50] F13)
@@ -1052,9 +1111,9 @@ The lazy runtime record kinds `K_RT` = {`FileObs`, `Pending`, `FPrint`, `Journal
   ([F11] open point 27: "every snapshot section … and no graph section" with content); of the conditional sections
   (§14.5) it carries `DROPPED` exactly when the layer below does and no `HARVEST`, whose records fold against `upto_lsn`
   (spec sync 3). A runtime-only fold is not a
-  tier-2 decision point ([F17 §6.4]); one that runs after `HEAD.flags` bit 1 is set writes `tok_ver` 1 and carries the
-  tier-2 sections like every other segment: `TERMS`, `POST` and `DOCLEN` empty, and `FTSSTAT`, if kept, equal to the
-  layer below's (spec sync 2b).
+  tier-2 decision point ([F17 §6.4]); one that runs after `HEAD.flags` bit 1 is set writes `tok_ver` 1 and carries
+  `TERMS` and `POST` empty, like every other segment, and, when the view below it carries the `DOCLEN` and `FTSSTAT`
+  group (§3.3), `DOCLEN` empty and `FTSSTAT` equal to the layer below's; otherwise neither (spec sync 2b).
 - A regular delta checkpoint sets `rt_upto_lsn = upto_lsn`.
 - A reader applies a tail record of a `K_RT` kind only if its `lsn ≥` the newest layer's `rt_upto_lsn`, and any other tail
   record only if its `lsn ≥` that layer's `upto_lsn` ([F11 §2.4] "the bound is [F09]'s").
@@ -1065,8 +1124,8 @@ The lazy runtime record kinds `K_RT` = {`FileObs`, `Pending`, `FPrint`, `Journal
 `TREES`, `FILEOBS` (R-18), `PENDING`, `FSINTENT`, `FPRINT`, `JOURNALCUR`, `DIRMAP`, `PREFIXEV`, `ANCESTRY` and `GITRENAMES`
 (together [40 §2.6]'s `GITFACTS`) and `ANCHORRES` (tags `0x0210`–`0x021A`): bodies, rows (the tagged `OsFileId`, `FsTime`,
 `VolumeCaps` of X-F8 included), keys, forms, retention (review A1P-16) and lookup are [F11 §2.4, §12]'s. This chapter fixes
-their tags, their placement in every `seg-base` and `seg-delta` (R, or O for the five `derived-optional` sections of §3.3)
-and nowhere else, and their fold window (§15.1).
+their tags, their placement in every `seg-base` and `seg-delta` (R, or O for `DIRMAP` and the four runtime caches, the
+store-level `derived-optional` sections of §3.3) and nowhere else, and their fold window (§15.1).
 
 **`FPRINT` and R-9.** `FPRINT`'s row maps an `oid` to the content address of a fingerprint blob and the number of the
 `blobs` file that holds it ([F11 §12.8]; OP-09-14 adopted, pass 1, P1-22); the blob itself is [F10 §5.3]'s fingerprint
@@ -1095,7 +1154,7 @@ touched rows…"). Written by a delta checkpoint or a runtime-only fold under th
 - each ± list of d′ is the composition of the inputs' lists over the base's membership, dropped if empty;
 - snapshot sections from dk; layer sections merged as [F11 §2.4] "Folds" states; `SYMTAB` ranges concatenated per class;
 - the result is the canonical encoding of that content (§17.3), so it equals what one delta checkpoint over the same window
-  would have written.
+  would have written, with the same choice for the `derived-optional` group of §3.3.
 
 ### 16.3 Promoted branch (`seg.b<ref_id>.<K>`) and `TOUCH`
 
@@ -1125,7 +1184,7 @@ them from its base state):
 |---|---|
 | created nodes with uid, kind and creator | `IDS`, `NODE`, `UID`, `CREATOR` |
 | deleted nodes with reason and replacement; undeleted nodes | `NODE` (`deleted`), `TOMB`; an undelete is a touched row no longer deleted |
-| nodes that go from absent to deleted ([F06 §7.4] `CreateDeleted`) with kind, reason, replacement and creator | a touched row that is deleted here and absent in the state the segment applies to: `NODE` (`deleted`, `kind`, the retained title), `UID`, `CREATOR`, `TOMB`, and its retained out-edges in the CSR and `EDGE_PROPS` (pass 1, S1-6) |
+| nodes that go from absent to deleted ([F06 §7.4] `CreateDeleted`) with kind, reason, replacement and creator | a touched row that is deleted here and absent in the state the segment applies to: `NODE` (`deleted`, `kind`, the retained title), `PRIO` (as §5.4 states for a deleted row), `UID`, `CREATOR`, `TOMB`, and its retained out-edges in the CSR and `EDGE_PROPS` (pass 1, S1-6) |
 | per touched row, its `prev` | `PREV` (below) |
 | conflict values; resolutions | `CONFLICTS`; a resolution is the touched row without the conflict and with the chosen value |
 | violations (a bulk merge that stages) | `VIOLATIONS` (below) |
@@ -1223,8 +1282,9 @@ checked against the whole set, as is §10.1's presence rule (spec sync 2b).
 Every rule of this chapter that orders, places or chooses an encoding does so uniquely: section order and placement (P-1–P-4),
 row orders, pool orders, `BLOBTAB` order, the frozen-bitset container choice, slot assignment, front coding with maximal
 `shared`, varints in their shortest form ([F01 §5.2]), zero padding; [F11 §2.3] does the same for the `RtHdr` bodies. The
-bytes of a segment are therefore a function of its kind, its header fields and its content. This is what lets the
-section-producer registry's byte-identical rebuild ([60 §2.6]) and the format oracle's byte-identical re-encode (E3) hold.
+bytes of a segment are therefore a function of its kind, its header fields and its content (which `derived-optional`
+sections it carries is part of its content, §3.3). This is what lets the section-producer registry's byte-identical
+rebuild ([60 §2.6]) and the format oracle's byte-identical re-encode (E3) hold.
 
 ## Coverage
 
@@ -1241,7 +1301,7 @@ section-producer registry's byte-identical rebuild ([60 §2.6]) and the format o
 | [50] F6 | complete: per-chunk `card` and per-bitset totals in `SecEnt.count` | §4.5, §9 |
 | [50] F7 | complete: `STATS` | §11 |
 | [50] F11 | the `CONFLICTS` tag, placement and fold; the rows are [F11 §10]'s | §8.2 |
-| [50] F12 | complete except the kept-or-dropped decision (`HOLE(F09-doclen)`): `TERMS`, `POST`, `DOCLEN`, `FTSSTAT`, the tokenizer version byte and tokenizer v1 | §2.1, §12 |
+| [50] F12 | complete, with whether writers write `DOCLEN` and `FTSSTAT` left to `HOLE(F09-doclen)` (GT13, before M2): `TERMS`, `POST`, `DOCLEN`, `FTSSTAT`, the tokenizer version byte and tokenizer v1 | §2.1, §3.3, §12 |
 | [50] F13 | complete: `PATHIDX`, `ALIASIDX`, `ANCHORS` (the `at` discriminator is [F08]'s R-4 part) | §13.1–§13.3 |
 | [50] F17 | the `ALLOC` tag and placement; the section is [F11 §9.1]'s | §14.5 |
 | [40] R-4 | the CSR's one entry per (src, kind, dst), anchors in `ANCHORS` keyed by the handle and by uid; the record and op are [F08]'s and [F06]'s | §7.1, §13.3, §13.4 |
@@ -1260,7 +1320,7 @@ section-producer registry's byte-identical rebuild ([60 §2.6]) and the format o
 
 | id | what | decided by | candidates | constraint the value must meet |
 |---|---|---|---|---|
-| `F09-doclen` | whether the sections `DOCLEN` (`0x0052`) and `FTSSTAT` (`0x0053`) exist in format v1 | LQ-Bench's search-stratum ablation, BM25 against the statistics-free scorer (WP-72, GT13), filled by WP-81a ([60 §3.1] "BM25 or the statistics-free scorer", [74 A15], [AR §2.11]) | **kept**: both sections exist with the layouts of §12.4 in every segment whose `tok_ver` is 1 (`FTSSTAT` not in changeset segments); **dropped**: neither tag is written, both stay reserved (a v1 reader treats them as unknown tags without `derived-optional`, so invalid), and `TERMS`, `POST`, the tokenizer and every other section are unchanged | kept only if BM25 beats the statistics-free scorer beyond the benchmark's noise; if kept, [LQ/std] fixes BM25's arithmetic before the freeze (review S-22) |
+| `F09-doclen` | whether a writer writes the `derived-optional` sections `DOCLEN` (`0x0052`) and `FTSSTAT` (`0x0053`) (§3.3, §12.4); their tags, layouts and flag are fixed in format v1, so the value changes no byte rule | LQ-Bench's search-stratum ablation, BM25 against the statistics-free scorer (WP-72, GT13), before M2 (the owner's ruling R-23 of 2026-10-12, item 1, and the owner's ruling R-54 of 2026-10-13); WP-81a records the hole, still open, in this table at the tag ([60 §3.1] "BM25 or the statistics-free scorer", [74 A15], [AR §2.11]) | **kept**: writers write both sections, with the layouts of §12.4, in every segment whose `tok_ver` is 1 (`FTSSTAT` not in changeset segments), under §3.3's all-or-nothing rule; **dropped**: writers write neither, a segment written with them stays valid and a reader may ignore them (§3.3), and `TERMS`, `POST`, the tokenizer and every other section are unchanged | kept only if BM25 beats the statistics-free scorer beyond the benchmark's noise; if kept, [LQ/std] fixes BM25's arithmetic before M2, with GT13 (review S-22) |
 
 The following decisions of other work packages condition this chapter without being holes of it:
 
@@ -1327,9 +1387,9 @@ The following decisions of other work packages condition this chapter without be
   full case mapping or case folding, so one scalar value maps to one; combining marks separate tokens (a strict reading of
   "letter/digit runs"; only text in decomposed form tokenises differently); a 64-byte cut per term. [LQ/std] (WP-19)
   should cite §12.1 for query terms.
-- **OP-09-12 (BM25 arithmetic; review S-22).** If `HOLE(F09-doclen)` keeps BM25, [LQ/std] fixes the formula, summation
-  order and rounding; this chapter supplies exact per-layer inputs (`tf`, `n_docs`, `DOCLEN`, `FTSSTAT`). If the
-  statistics-free scorer wins, S-22 is moot.
+- **OP-09-12 (BM25 arithmetic; review S-22).** If GT13 keeps BM25, so that writers write `DOCLEN` and `FTSSTAT`
+  (`HOLE(F09-doclen)`), [LQ/std] fixes the formula, summation order and rounding before M2; this chapter supplies exact
+  per-layer inputs (`tf`, `n_docs`, `DOCLEN`, `FTSSTAT`). If the statistics-free scorer wins, S-22 is moot.
 - **OP-09-13 (`CONFLICTS` and `GLOBIDX` rows).** [PLAN §3.2] lists `CONFLICTS` under both `09-segments.md` ("F11–F13") and
   `11-runtime-tables.md`. [F11 §10–§11] specifies both sections' rows; this chapter adopts them and keeps only the tag,
   placement and fold. Both are versioned, not runtime: they compose along a view's layers ("row" and "index", §4.7), which
@@ -1365,8 +1425,13 @@ The following decisions of other work packages condition this chapter without be
   A `set` field with `index` = `column` uses `FCOL`'s set form.
 - **OP-09-20 (derived-optional sections in v1).** `DIRMAP` ([80] X-F8) and the four caches [F11 §2.8] proposes (`FPRINT`,
   `ANCESTRY`, `GITRENAMES`, `ANCHORRES`). Other derived sections (`STATS`, `TERMS`/`POST`, `GLOBIDX`, the bitsets) are
-  rebuildable too, but a reader must find them; making them optional would add fallbacks to every read path.
-- **OP-09-21 (measurement 14 and the layouts).** The `NODE` layout (an array of 60-byte headers) follows [AR §4.4]'s
+  rebuildable too, but a reader must find them; making them optional would add fallbacks to every read path. `DOCLEN`
+  and `FTSSTAT` joined them under §3.3's all-or-nothing rule (the owner's ruling R-23 of 2026-10-12, item 1), so that
+  GT13 can decide before M2 whether writers write them; their fallback is one per view, not one per read.
+- **OP-09-21 (measurement 14 and the layouts) — closed by the owner's ruling R-66 of 2026-10-14.** `priority`
+  alone moves out of `NODE`'s 60-byte rows into the row-scoped column `PRIO` (`0x0009`, a `u8`; §3.1, §4.7, §5.4);
+  every other field stays in `NODE`, whose bytes are [F08 §3]'s. The original text:
+  The `NODE` layout (an array of 60-byte headers) follows [AR §4.4]'s
   `[NodeHdr; n]`, while [AR §3.1] speaks of structure-of-arrays columns. The hot header is one column group read per row; the
   cold columns are separate arrays. Measurement 14's column-scan probe runs on this layout; if it shows a per-field column
   split is needed, that is a finding against this chapter before the freeze.
