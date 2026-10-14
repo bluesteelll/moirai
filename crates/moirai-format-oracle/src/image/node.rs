@@ -138,6 +138,58 @@ pub struct AnchorLine {
     pub props: AProps,
 }
 
+/// The reason a body was dropped ([F14 §6.1] `drop-reason`, [F06 §8.1] DB-2).
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub enum DropReason {
+    /// `secret`.
+    Secret,
+    /// `private`.
+    Private,
+    /// `other`.
+    Other,
+}
+
+impl DropReason {
+    /// The reason's name as the image writes it.
+    pub fn name(self) -> &'static str {
+        match self {
+            DropReason::Secret => "secret",
+            DropReason::Private => "private",
+            DropReason::Other => "other",
+        }
+    }
+
+    /// The reason of a name; `None` for any text other than the three names.
+    pub fn of_name(s: &str) -> Option<DropReason> {
+        match s {
+            "secret" => Some(DropReason::Secret),
+            "private" => Some(DropReason::Private),
+            "other" => Some(DropReason::Other),
+            _ => None,
+        }
+    }
+}
+
+/// A body the exporting store has dropped ([F14 §6.9]; as a side, §6.8 "A dropped side"): the body key and the drop's
+/// reason, with no bytes.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct Dropped {
+    /// The body key: the BLAKE3-128 of the dropped bytes, as the line or token writes it.
+    pub hash: [u8; 16],
+    /// The drop's reason.
+    pub reason: DropReason,
+}
+
+/// A body in the image: its text, or a dropped body's key and reason ([F14 §6.9], §6.8, §6.8.1). A node holds a body
+/// section or the `--- dropped` line, never both.
+#[derive(Clone, Debug, PartialEq, Eq)]
+pub enum IBody {
+    /// The body's text.
+    Text(String),
+    /// A dropped body.
+    Dropped(Dropped),
+}
+
 /// One side of a conflict line ([F14 §6.8]), by key.
 #[derive(Clone, Debug, PartialEq)]
 pub enum Side {
@@ -147,8 +199,8 @@ pub enum Side {
     Status(String, Option<String>),
     /// `parent`: (parent uid, order).
     Parent(Option<[u8; 16]>, Option<String>),
-    /// `body`: the body text.
-    Body(String),
+    /// `body`: the body text, or a dropped body.
+    Body(IBody),
     /// `edge.<kind>.<dst>`: `present`, `pin=…` or `flagged`.
     Edge(Option<[u8; 32]>, bool),
     /// `edge.at.<dst>.<anchor>`: the anchor's properties.
@@ -174,8 +226,8 @@ pub enum ExSide {
         labels: BTreeSet<String>,
         /// Counter totals.
         totals: BTreeMap<String, i64>,
-        /// Body.
-        body: Option<String>,
+        /// Body: its text, or a dropped body.
+        body: Option<IBody>,
     },
     /// `deleted <kind>` with reason and replacement.
     Deleted {
@@ -236,8 +288,8 @@ pub struct NodeFile {
     pub anchors: Vec<AnchorLine>,
     /// `conflict` lines by key text.
     pub conflicts: BTreeMap<String, ConflictLine>,
-    /// The body.
-    pub body: Option<String>,
+    /// The body section's text, or the `--- dropped` line's body key and reason ([F14 §6.9]).
+    pub body: Option<IBody>,
     /// A tombstone's `field reason:`.
     pub t_reason: Option<String>,
     /// A tombstone's `field replaced_by:`.
@@ -1689,7 +1741,7 @@ fn parse_ex(schema: &Schema, t: &str, at: usize) -> Result<ExSide> {
                 );
             }
             if !b.is_empty() {
-                body = Some(b);
+                body = Some(IBody::Text(b));
             }
         } else {
             return parse_err(
@@ -1754,12 +1806,19 @@ fn ex_text(schema: &Schema, e: &ExSide) -> String {
             for (n, v) in totals {
                 o.push_str(&format!("\ntotal {n} {v}"));
             }
-            if let Some(b) = body {
-                o.push_str(&format!("\nbody {}", jstring(b)));
+            match body {
+                Some(IBody::Text(b)) => o.push_str(&format!("\nbody {}", jstring(b))),
+                Some(IBody::Dropped(d)) => o.push_str(&format!("\nbody {}", dropped_tok_text(d))),
+                None => {}
             }
             o
         }
     }
+}
+
+/// A dropped body as a side or a snapshot `body` value ([F14 §6.8] `dropped-tok`): `dropped:<hash>:<reason>`.
+fn dropped_tok_text(d: &Dropped) -> String {
+    format!("dropped:{}:{}", hex(&d.hash), d.reason.name())
 }
 
 fn check_kind(schema: &Schema, kind: &str, at: usize) -> Result<()> {
@@ -1838,7 +1897,7 @@ fn parse_side(
         }
         Side::Parent(p, o)
     } else if key == "body" {
-        Side::Body(t.to_owned())
+        Side::Body(IBody::Text(t.to_owned()))
     } else if key == "existence" {
         Side::Existence(Box::new(parse_ex(schema, t, at)?))
     } else if key == "observation" {
@@ -1898,7 +1957,8 @@ fn side_text(schema: &Schema, kind: &str, s: &Option<Side>, key: &str) -> String
             p.map_or_else(|| "-".into(), |u| hex(&u)),
             o.clone().unwrap_or_else(|| "-".into())
         ),
-        Some(Side::Body(b)) => jstring(b),
+        Some(Side::Body(IBody::Text(b))) => jstring(b),
+        Some(Side::Body(IBody::Dropped(d))) => dropped_tok_text(d),
         Some(Side::Edge(pin, flagged)) => match (pin, flagged) {
             (Some(c), _) => format!("pin=c{}", hex(c)),
             (None, true) => "flagged".into(),
@@ -2101,7 +2161,7 @@ pub fn parse(bytes: &[u8], cx: &Ctx<'_>) -> Result<NodeFile> {
                 return parse_err(Rule::NoProduction, body_start, "a body holds CR [F08 §7.2]");
             }
             if !body.is_empty() {
-                nf.body = Some(body.to_owned());
+                nf.body = Some(IBody::Text(body.to_owned()));
             }
             once("---".into(), at)?;
             break;
@@ -2815,9 +2875,16 @@ pub fn encode(nf: &NodeFile, schema: &Schema) -> Vec<u8> {
             side_text(schema, &nf.kind, &c.sides[2], key)
         ));
     }
-    if let Some(b) = &nf.body {
-        line("---".into());
-        line(b.clone());
+    match &nf.body {
+        Some(IBody::Text(b)) => {
+            line("---".into());
+            line(b.clone());
+        }
+        // [F14 §6.9]: the one line in place of the `---` line and the bytes; the file ends in its LF.
+        Some(IBody::Dropped(d)) => {
+            line(format!("--- dropped {} {}", hex(&d.hash), d.reason.name()))
+        }
+        None => {}
     }
     o.into_bytes()
 }
@@ -2872,10 +2939,11 @@ See #52 for the reader registry this depends on.\n\
     fn task_example() {
         let nf = check_canonical(TASK_EXAMPLE);
         assert_eq!(
-            nf.body.as_deref(),
-            Some(
+            nf.body,
+            Some(IBody::Text(
                 "Writers lock byte ranges of LOCK, never the whole file.\nSee #52 for the reader registry this depends on.\n"
-            )
+                    .into()
+            ))
         );
         assert_eq!(nf.fields["estimate"], IVal::Int(3));
     }
