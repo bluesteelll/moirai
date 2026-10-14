@@ -1889,15 +1889,64 @@ fn check_carrier_case(name: &str, all: &BTreeMap<String, Carrier>) {
     }
 }
 
-/// E3 on `fixtures/carrier/` (its INDEX's acceptance): every one of the 45 cases reproduces its item 10,
-/// `changeset_digest`, C and `commit_id`; a native case verifies against its `Moirai-Commit`; a foreign, checkpoint or
-/// demoted case's items 1–9 follow from its git commit and its parents' cases; `foreign-merge`'s item 10 is the typed
-/// merge's; a demoted case's native reconstruction fails, or its `Moirai-Ops` is not its entry count ([F14 §12.1]);
-/// twins share their ids and the cases `canonical` names agree.
+/// The case names of a carrier INDEX's §5 table: the first cell of each row, without its backticks. §5 runs from the
+/// line that starts `## 5.` to the next line that starts `## `; a first cell counts only when it is wrapped in
+/// backticks, so the header and the separator row do not.
+fn index_case_names(index: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let mut in5 = false;
+    for l in index.lines() {
+        if l.starts_with("## ") {
+            in5 = l.starts_with("## 5.");
+            continue;
+        }
+        let Some(row) = l.strip_prefix('|').filter(|_| in5) else {
+            continue;
+        };
+        let cell = row.split('|').next().unwrap_or("").trim();
+        if let Some(name) = cell
+            .strip_prefix('`')
+            .and_then(|c| c.strip_suffix('`'))
+            .filter(|c| !c.is_empty())
+        {
+            out.insert(name.to_string());
+        }
+    }
+    out
+}
+
+/// The case names of a carrier INDEX's §5 against the case directories: (the §5 names with no directory, the
+/// directories with no §5 row), each sorted.
+fn case_set_mismatch(index: &str, dirs: &BTreeSet<String>) -> (Vec<String>, Vec<String>) {
+    let names = index_case_names(index);
+    (
+        names.difference(dirs).cloned().collect(),
+        dirs.difference(&names).cloned().collect(),
+    )
+}
+
+/// E3 on `fixtures/carrier/` (its INDEX's acceptance): the case names of its §5 table equal the case directories, and
+/// every case reproduces its item 10, `changeset_digest`, C and `commit_id`; a native case verifies against its
+/// `Moirai-Commit`; a foreign, checkpoint or demoted case's items 1–9 follow from its git commit and its parents' cases;
+/// `foreign-merge`'s item 10 is the typed merge's; a demoted case's native reconstruction fails, or its `Moirai-Ops` is
+/// not its entry count ([F14 §12.1]); twins share their ids and the cases `canonical` names agree.
 #[test]
 fn every_carrier_case_reproduces_its_id() {
+    let index_path = carrier_dir().join("INDEX.md");
+    let index = std::fs::read_to_string(&index_path)
+        .unwrap_or_else(|e| panic!("{}: {e}", index_path.display()));
     let all = carrier_cases();
-    assert_eq!(all.len(), 45, "INDEX §5 lists 45 cases");
+    assert!(
+        !all.is_empty(),
+        "{}: no case directory",
+        carrier_dir().display()
+    );
+    let dirs: BTreeSet<String> = all.keys().cloned().collect();
+    assert_eq!(
+        case_set_mismatch(&index, &dirs),
+        (Vec::new(), Vec::new()),
+        "INDEX §5's case names against the case directories: (rows with no directory, directories with no row)"
+    );
     for name in all.keys() {
         check_carrier_case(name, &all);
     }
@@ -1911,4 +1960,56 @@ fn base64url_texts_decode() {
     assert_eq!(b64url("_-8"), [0xff, 0xef]);
     assert_eq!(atext_h("%Q2Fm6SBsb2NraW5n"), b3_128(b"Caf\xe9 locking"));
     assert_eq!(atext_h("\"x\""), b3_128(b"x"));
+}
+
+/// A synthetic carrier INDEX: §5's table holds the cases `a` and `b`; the tables of §4 and §6 hold other names.
+const CASE_CHECK_INDEX: &str = "# Synthetic INDEX
+
+## 4. Other
+
+| Case | X |
+|---|---|
+| `not-a-case` | x |
+
+## 5. The cases
+
+| Case | Dest |
+|---|---|
+| `a` | A |
+| `b` | A |
+
+### 5.1 A subsection
+
+## 6. Coverage
+
+| Case | X |
+|---|---|
+| `also-not-a-case` | x |
+";
+
+/// The set of carrier case directories named.
+fn case_dirs(names: &[&str]) -> BTreeSet<String> {
+    names.iter().map(|n| n.to_string()).collect()
+}
+
+/// The case check finds a §5 row with no case directory, and takes no name from outside §5.
+#[test]
+fn the_case_check_finds_an_index_row_with_no_directory() {
+    assert_eq!(
+        case_set_mismatch(CASE_CHECK_INDEX, &case_dirs(&["a"])),
+        (vec!["b".to_string()], Vec::new())
+    );
+    assert_eq!(
+        case_set_mismatch(CASE_CHECK_INDEX, &case_dirs(&["a", "b"])),
+        (Vec::new(), Vec::new())
+    );
+}
+
+/// The case check finds a case directory with no §5 row.
+#[test]
+fn the_case_check_finds_a_directory_with_no_index_row() {
+    assert_eq!(
+        case_set_mismatch(CASE_CHECK_INDEX, &case_dirs(&["a", "b", "c"])),
+        (Vec::new(), vec!["c".to_string()])
+    );
 }
