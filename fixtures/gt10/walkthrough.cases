@@ -256,7 +256,7 @@ main $t89 gated no
 %% case w4c
 %% from w4b
 %% core yes
-%% source [AR §7.6] step 4 "doc patch 133 --remove old.txt --add new.txt (engine refuses if the removed text is not a substring)"; [LQ/errors §5.5] E404; [F19 §7] (the exit is open point 7 of [F19])
+%% source [AR §7.6] step 4 "doc patch 133 --remove old.txt --add new.txt (engine refuses if the removed text is not a substring)"; [LQ/errors §5.5] E404 (its PATCH form: the removed text occurs 0 times); [F19 §7.3] (exit 6; [F19] open point 7, settled in spec sync 3)
 %% script
 33 Mutation tx.doc_patch @door=mcp @lease=L-2 section=$s133 old="Sleeping bodies are batched at once." new="Bodies woken during the step join the next batch."
 %% result
