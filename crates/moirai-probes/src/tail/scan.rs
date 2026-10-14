@@ -11,10 +11,10 @@ use super::rec::{
     ExtentHead, Payload, RecHdr, Record, chain, decode_symdefs, lazy_kind, record_checksum,
 };
 use super::{
-    EXTENT_HEAD_GROUP_LEN, Geometry, INIT_PARAMS_LEN, MIN_GROUP_LEN, REC_HDR_LEN, TRAILER_LEN,
-    flag, kind,
+    EXTENT_HEAD_GROUP_LEN, Geometry, INIT_PARAMS_LEN, Locator, MIN_GROUP_LEN, REC_HDR_LEN,
+    TRAILER_LEN, flag, kind,
 };
-use crate::tail::commit::Commit;
+use crate::tail::commit::{Commit, NoSpans, SpanSink, Spans};
 use crate::tail::enc::{DecodeError, Reader};
 use crate::tail::rt::{RowBatch, TreeReg};
 
@@ -73,6 +73,9 @@ pub struct Expect {
     pub init: [u8; INIT_PARAMS_LEN],
     /// `HEAD.project_oid_algo`.
     pub project_oid_algo: u8,
+    /// The form of item 1a's locator in the tail's op frames (u20 cut §3.1): the probe's store parameter, not a `HEAD`
+    /// field. Every record is decoded in it.
+    pub locator: Locator,
 }
 
 /// Why the scan stopped: the lsn of the record or group and the rule it breaks.
@@ -106,6 +109,8 @@ pub struct RawRecord<'g> {
     pub hdr: RecHdr,
     /// The payload, the `SymDefs` block included, without the trailer.
     pub payload: &'g [u8],
+    /// The form its op frames are in.
+    pub locator: Locator,
 }
 
 /// One valid group, as the scan hands it over.
@@ -116,18 +121,20 @@ pub struct GroupView<'g> {
     /// The group's bytes.
     pub bytes: &'g [u8],
     recs: &'g [(RecHdr, u32)],
+    locator: Locator,
 }
 
 impl<'g> GroupView<'g> {
     /// The group's records in order.
     pub fn records(&self) -> impl Iterator<Item = RawRecord<'g>> + 'g {
-        let bytes = self.bytes;
+        let (bytes, locator) = (self.bytes, self.locator);
         self.recs.iter().map(move |&(hdr, off)| {
             let off = off as usize;
             let t = if hdr.group_end() { TRAILER_LEN } else { 0 };
             RawRecord {
                 hdr,
                 payload: &bytes[off + REC_HDR_LEN..off + hdr.len as usize - t],
+                locator,
             }
         })
     }
@@ -305,6 +312,7 @@ pub fn scan<S: LogSource>(
             start: p,
             bytes: &group,
             recs: &recs,
+            locator: expect.locator,
         };
         for raw in view.records() {
             match raw.hdr.kind {
@@ -361,6 +369,27 @@ fn check_head(
 
 /// Decodes one valid record's payload ([F05 §5.4]: a malformed payload of a valid record is corrupt).
 pub fn decode_record<'g>(raw: &RawRecord<'g>) -> Result<Record<'g>, ScanError> {
+    decode_record_with(raw, &mut NoSpans).map(|(rec, _)| rec)
+}
+
+/// [`decode_record`], and where each owner's frames lie in the record: (owner, the offset of its first frame from the
+/// record's lsn, header and `SymDefs` block included, the bytes of its frames), in op order; none for a record that is
+/// not a `Commit`. The overlay's offsets mode alone calls it (u20 cut D-2, I-4).
+pub fn decode_record_spans<'g>(raw: &RawRecord<'g>) -> Result<(Record<'g>, Spans), ScanError> {
+    let mut spans = Spans::new();
+    let (rec, head) = decode_record_with(raw, &mut spans)?;
+    for s in &mut spans {
+        s.1 += head as u32;
+    }
+    Ok((rec, spans))
+}
+
+/// Decodes one record, reporting a `Commit`'s frames to `sink`; returns the record and the bytes before its commit
+/// payload (the header and the `SymDefs` block).
+fn decode_record_with<'g, K: SpanSink>(
+    raw: &RawRecord<'g>,
+    sink: &mut K,
+) -> Result<(Record<'g>, usize), ScanError> {
     let lsn = raw.hdr.lsn;
     let shift = |e: DecodeError| at(lsn, e.to_string());
     let mut r = Reader::new(raw.payload);
@@ -373,7 +402,9 @@ pub fn decode_record<'g>(raw: &RawRecord<'g>) -> Result<Record<'g>, ScanError> {
     let payload = match raw.hdr.kind {
         kind::EXTENT_HEAD => Payload::ExtentHead(ExtentHead::decode(rest).map_err(shift)?),
         kind::NOOP => Payload::Noop(rest.len() as u32),
-        kind::COMMIT => Payload::Commit(Box::new(Commit::decode(rest).map_err(shift)?)),
+        kind::COMMIT => Payload::Commit(Box::new(
+            Commit::decode_with(rest, raw.locator, sink).map_err(shift)?,
+        )),
         kind::TREE_REG => Payload::TreeReg(TreeReg::decode(rest).map_err(shift)?),
         kind::FILE_OBS => Payload::FileObs(RowBatch::decode(rest).map_err(shift)?),
         k => {
@@ -383,12 +414,15 @@ pub fn decode_record<'g>(raw: &RawRecord<'g>) -> Result<Record<'g>, ScanError> {
             ));
         }
     };
-    Ok(Record {
-        lsn,
-        group_end: raw.hdr.group_end(),
-        symdefs,
-        payload,
-    })
+    Ok((
+        Record {
+            lsn,
+            group_end: raw.hdr.group_end(),
+            symdefs,
+            payload,
+        },
+        REC_HDR_LEN + r.pos(),
+    ))
 }
 
 /// Decodes every record of `bytes` (whose first byte is lsn `start`, a group boundary with chain value `chain_in`):
@@ -425,6 +459,7 @@ pub fn decode<'a>(
             decode_record(&RawRecord {
                 hdr: RecHdr::decode(rec[..REC_HDR_LEN].try_into().expect("32 bytes")),
                 payload: &rec[REC_HDR_LEN..rec.len() - t],
+                locator: expect.locator,
             })
         })
         .collect()
@@ -700,5 +735,36 @@ mod tests {
         b.extend(raw(kind::NOOP, flag::LAZY, &[0; 8], after, x.epoch, seed));
         let recs = decode(&b, START, &x, CHAIN_IN).unwrap();
         assert_eq!(recs.last().map(Record::kind), Some(kind::NOOP));
+    }
+
+    /// A tail in A1 (u20 cut §3.1) decodes under its own form: the hand-built A1 tail's records come back with their
+    /// locators and re-encode byte for byte, and some commit carries one; read in the night's form, the same bytes do
+    /// not give its records.
+    #[test]
+    fn a1_tail_decodes_under_its_own_form() {
+        let a1 = testdata::hand_built_in(Locator::A1);
+        assert_eq!(a1.expect.locator, Locator::A1);
+        let recs = decode(&a1.bytes, START, &a1.expect, CHAIN_IN).unwrap();
+        assert_eq!(recs, a1.records);
+        assert_eq!(
+            encode(&recs, a1.expect.geo, START, a1.expect.epoch, CHAIN_IN).unwrap(),
+            a1.bytes
+        );
+        let located: usize = recs
+            .iter()
+            .filter_map(|r| match &r.payload {
+                Payload::Commit(c) => Some((c.form, c.locs.len())),
+                _ => None,
+            })
+            .map(|(form, n)| {
+                assert_eq!(form, Locator::A1);
+                n
+            })
+            .sum();
+        assert!(located >= 8, "{located} locators in the hand-built A1 tail");
+        let night = testdata::hand_built();
+        assert_ne!(night.bytes, a1.bytes);
+        let as_night = decode(&a1.bytes, START, &testdata::expect(), CHAIN_IN);
+        assert!(as_night.as_ref() != Ok(&a1.records), "{as_night:?}");
     }
 }

@@ -12,13 +12,16 @@
 //!   (`04-head.md:119-121`), is not modelled.
 //! - **The log extents** `log.<n>` are E bytes each, the tail's bytes at their offsets and zero elsewhere
 //!   ([F05 §2.2], [F05 §2.4]); the tail starts at extent 2 and `log.1` is not written (cut addendum m-6).
+//! - **One command's files** (u20, M-A6), for `a1-opens10.n1e5` alone: `LOCK` and the spare extent after the tail's
+//!   last one ([`write_command_files`]).
+//! - **B-1's fixture** (u20): `pages`, seeded bytes, and its 64 source pages `pages.src` ([`write_pages_fixture`]).
 
 use super::scan::{Expect, LogSource};
 use super::synth::Tail;
 use super::{Geometry, HEAD_LEN};
 use moirai_vfs::{
     Access, OS_SHARE_RETRY_MS, OpenHint, RelPath, RelPathBuf, RootAccess, RootRole, SealedMaps,
-    ShareRetry, StoreFs,
+    ShareRetry, StoreFs, SyncKind,
 };
 use std::path::{Path, PathBuf};
 use xxhash_rust::xxh3::xxh3_64;
@@ -239,6 +242,131 @@ pub fn write_fixture<V: StoreFs>(
     })
 }
 
+/// The store lock file ([F04 §2]'s neighbour in the store directory; `ARCHITECTURE-RESEARCH.md:783`).
+pub const LOCK_NAME: &str = "LOCK";
+
+/// The extent after the tail's last one: the spare a writer keeps prepared ([F16] P-72, P-96, as `17-store-parameters.md:768`
+/// cites them).
+pub fn spare_extent(tail: &Tail) -> u64 {
+    tail.expect.geo.extent(tail.end - 1) + 1
+}
+
+/// Writes the files one command opens beyond the open floor's (u20 cut §3.6, M-A6): `LOCK`, empty, and the spare extent
+/// `log.<k + 1>` after the tail's last extent k, E bytes. Only `a1-opens10.n1e5` writes them (u20 addendum m-7), so no
+/// other fixture changes. They join `fx.files`, so [`remove_fixture`] removes them.
+pub fn write_command_files<V: StoreFs>(
+    vfs: &V,
+    fx: &mut Fixture,
+    tail: &Tail,
+) -> Result<(), String> {
+    let io = |e: moirai_vfs::VfsError| e.to_string();
+    let root = vfs
+        .open_root(&fx.dir, RootRole::Other, RootAccess::ReadWrite)
+        .map_err(io)?;
+    let lock = vfs
+        .create_new(&root, RelPath::literal(LOCK_NAME))
+        .map_err(io)?;
+    drop(lock);
+    fx.files.push(LOCK_NAME.into());
+    let name = extent_name(spare_extent(tail));
+    let f = vfs
+        .create_new(&root, rel(name.clone())?.as_rel_path())
+        .map_err(io)?;
+    vfs.write_at(&f, tail.expect.geo.e() - 1, &[0])
+        .map_err(io)?;
+    fx.files.push(name);
+    Ok(())
+}
+
+/// B-1's file of pages (u20 cut §3.7; `design-B.md:636`): another process modifies it, 16 readers map it.
+pub const PAGES_NAME: &str = "pages";
+/// B-1's source pages: every modifier writes these bytes, read once from `<pages>.src`.
+pub const PAGES_SRC_NAME: &str = "pages.src";
+/// A page.
+pub const PAGE: u64 = 4_096;
+/// The source pages.
+pub const SRC_PAGES: u64 = 64;
+/// The chunk the pages file is written in.
+pub const PAGES_CHUNK: u64 = 64 * 1_024 * 1_024;
+
+/// SplitMix64's step.
+fn splitmix(x: u64) -> u64 {
+    let mut z = x.wrapping_add(0x9E37_79B9_7F4A_7C15);
+    z = (z ^ (z >> 30)).wrapping_mul(0xBF58_476D_1CE4_E5B9);
+    z = (z ^ (z >> 27)).wrapping_mul(0x94D0_49BB_1331_11EB);
+    z ^ (z >> 31)
+}
+
+/// Seeded bytes: `len` bytes from the 8-byte words `splitmix(seed ^ i)` for i from `first_word`.
+fn seeded(seed: u64, first_word: u64, len: usize) -> Vec<u8> {
+    let mut v = Vec::with_capacity(len.next_multiple_of(8));
+    let mut i = first_word;
+    while v.len() < len {
+        v.extend_from_slice(&splitmix(seed ^ i).to_le_bytes());
+        i += 1;
+    }
+    v.truncate(len);
+    v
+}
+
+/// The bytes of the pages file of `seed` at `off` (a multiple of 8), `len` of them.
+pub fn pages_bytes(seed: u64, off: u64, len: usize) -> Vec<u8> {
+    seeded(seed, off / 8, len)
+}
+
+/// The 64 source pages of `seed`: 256 KiB.
+pub fn pages_src(seed: u64) -> Vec<u8> {
+    seeded(!seed, 0, (SRC_PAGES * PAGE) as usize)
+}
+
+/// Writes B-1's fixture as a store directory `<parent>/<name>` (u20 cut §3.7): `pages`, `len` seeded bytes written in
+/// 64-MiB chunks and flushed ([`pages_bytes`]), and `pages.src`, the 64 source pages ([`pages_src`]), flushed. Neither
+/// is sealed: the modifiers write `pages`, and `map_sealed` checks only the length. `expect` is kept for the fixture's
+/// form.
+pub fn write_pages_fixture<V: StoreFs>(
+    vfs: &V,
+    parent: &Path,
+    name: &str,
+    len: u64,
+    seed: u64,
+    expect: Expect,
+) -> Result<Fixture, String> {
+    let dir = parent.join(name);
+    let root = vfs
+        .create_root(&dir, RootRole::Other)
+        .map_err(|e| format!("{}: {e}", dir.display()))?;
+    let io = |e: moirai_vfs::VfsError| e.to_string();
+    let flush = |e: moirai_vfs::DurabilityFailure| format!("{e:?}");
+    let mut files = Vec::new();
+    let pages = vfs
+        .create_new(&root, RelPath::literal(PAGES_NAME))
+        .map_err(io)?;
+    files.push(PAGES_NAME.to_string());
+    let mut off = 0;
+    while off < len {
+        let n = PAGES_CHUNK.min(len - off);
+        vfs.write_at(&pages, off, &pages_bytes(seed, off, n as usize))
+            .map_err(io)?;
+        off += n;
+    }
+    vfs.sync(&pages, SyncKind::DataAndMeta).map_err(flush)?;
+    drop(pages);
+    let src = vfs
+        .create_new(&root, RelPath::literal(PAGES_SRC_NAME))
+        .map_err(io)?;
+    files.push(PAGES_SRC_NAME.to_string());
+    vfs.write_at(&src, 0, &pages_src(seed)).map_err(io)?;
+    vfs.sync(&src, SyncKind::DataAndMeta).map_err(flush)?;
+    drop(src);
+    Ok(Fixture {
+        dir,
+        name: name.to_string(),
+        files,
+        sealed: Vec::new(),
+        expect,
+    })
+}
+
 /// Removes a fixture: its files, then its directory.
 pub fn remove_fixture<V: StoreFs>(vfs: &V, parent: &Path, fx: &Fixture) -> Result<(), String> {
     let io = |e: moirai_vfs::VfsError| e.to_string();
@@ -390,5 +518,53 @@ pub(crate) mod tests {
         remove_fixture(&fs, &scratch(), &fx).unwrap();
         assert!(fs.files().is_empty() && !fs.has_dir(&fx.dir));
         assert!(fs.has_dir(&scratch()));
+    }
+
+    /// B-1's fixture (u20 cut §3.7): `pages` holds `len` seeded bytes, the same at every chunk boundary whichever chunk
+    /// wrote them, and `pages.src` the 64 seeded source pages; both are in the file list, not sealed, and removed with the
+    /// fixture.
+    #[test]
+    fn pages_fixture_holds_its_seeded_pages_and_source() {
+        let fs = MemFs::with_dir(&scratch());
+        let tail = multi_extent_tail();
+        let len = 3 * 4_096 + 512;
+        let fx = write_pages_fixture(&fs, &scratch(), "b1", len, 7, tail.expect).unwrap();
+        assert_eq!(fx.files, [PAGES_NAME, PAGES_SRC_NAME]);
+        let pages = fs.bytes(&fx.dir.join(PAGES_NAME)).unwrap();
+        assert_eq!(pages, pages_bytes(7, 0, len as usize));
+        assert_eq!(pages[4_096..8_192], pages_bytes(7, 4_096, 4_096)[..]);
+        assert_ne!(pages[..4_096], pages[4_096..8_192]);
+        let src = fs.bytes(&fx.dir.join(PAGES_SRC_NAME)).unwrap();
+        assert_eq!(src, pages_src(7));
+        assert_eq!(src.len() as u64, SRC_PAGES * PAGE);
+        assert_ne!(pages_src(7), pages_src(8));
+        assert!(!fs.is_sealed(&fx.dir.join(PAGES_NAME)));
+        remove_fixture(&fs, &scratch(), &fx).unwrap();
+        assert!(fs.files().is_empty() && !fs.has_dir(&fx.dir));
+    }
+
+    /// One command's files (u20 cut §3.6, M-A6; addendum m-7): `write_command_files` adds an empty `LOCK` and the spare
+    /// extent after the tail's last one, E bytes of zeros, to the fixture and its file list, so `remove_fixture` removes
+    /// them; a fixture without them holds neither.
+    #[test]
+    fn fixture_holds_lock_and_a_spare_extent() {
+        let tail = multi_extent_tail();
+        let fs = MemFs::with_dir(&scratch());
+        let mut fx = write_fixture(&fs, &scratch(), "fx", &tail, 4_096).unwrap();
+        let spare = fx.dir.join(extent_name(spare_extent(&tail)));
+        assert!(fs.bytes(&fx.dir.join(LOCK_NAME)).is_none() && fs.bytes(&spare).is_none());
+        let before = fs.files().len();
+        write_command_files(&fs, &mut fx, &tail).unwrap();
+        assert_eq!(fs.files().len(), before + 2);
+        assert_eq!(fs.bytes(&fx.dir.join(LOCK_NAME)), Some(Vec::new()));
+        let b = fs.bytes(&spare).unwrap();
+        assert_eq!(b.len() as u64, Params::TEST.e);
+        assert!(b.iter().all(|&x| x == 0));
+        assert_eq!(
+            spare_extent(&tail),
+            tail.expect.geo.extent(tail.end - 1) + 1
+        );
+        remove_fixture(&fs, &scratch(), &fx).unwrap();
+        assert!(fs.files().is_empty() && !fs.has_dir(&fx.dir));
     }
 }

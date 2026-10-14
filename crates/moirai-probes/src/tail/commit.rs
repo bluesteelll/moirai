@@ -12,12 +12,79 @@
 //! ([F06 §7.8], `:943-967`), the op order of [F06 §7.9] (`:969-978`), one `prev` per owner ([F06 §7.3], `:722`), and
 //! BD-1 and BD-2's length rule ([F06 §8], `:1055-1057`). C-rules (digests, `prev` targets, before-images) are not
 //! tested on replay ([F06 §2.4]).
+//!
+//! **Item 1a's locator** (R-47, R-50; u20 cut §3.1). A payload is in the form its [`Commit::form`] names. In design-A's
+//! A1 (`design-A.md:104-129`), the first frame of each owner carries `prev_at` and `prev_len` after `prev` when `prev`
+//! ≠ 0 ([`put_loc`], [`get_loc`]); `prev` is store-local and unhashed (`06-commit.md:512`), so no digest covers them.
+//! The night's form carries none, and its bytes are those of F06. A decoder reads a payload in the form its caller
+//! names ([`Commit::decode_in`]); [`Commit::decode`] is the night's.
 
 use super::BODY_RAW_CAP;
 use super::enc::{
     DecodeError, Reader, put_bool8, put_svar, put_u32, put_u64, put_uvar, put_vbytes, put_vstr,
+    uvar_len,
 };
+use super::{Locator, PrevLoc};
 use std::borrow::Cow;
+
+/// Writes `loc` in `form` after an op's `prev` (u20 cut D-1): nothing in the night's form; in A1 `prev_at`, then
+/// `prev_len`, each a `uvar32`.
+pub fn put_loc(out: &mut Vec<u8>, form: Locator, loc: PrevLoc) {
+    match form {
+        Locator::None => {}
+        Locator::A1 => {
+            put_uvar(out, u64::from(loc.at));
+            put_uvar(out, u64::from(loc.len));
+        }
+    }
+}
+
+/// Reads a locator in `form` after an op's `prev`: `None` in the night's form.
+pub fn get_loc(r: &mut Reader<'_>, form: Locator) -> Result<Option<PrevLoc>, DecodeError> {
+    Ok(match form {
+        Locator::None => None,
+        Locator::A1 => Some(PrevLoc {
+            at: r.uvar32()?,
+            len: r.uvar32()?,
+        }),
+    })
+}
+
+/// The bytes `loc` takes in `form` (item 1a's growth, M-A5).
+pub fn loc_len(form: Locator, loc: PrevLoc) -> u64 {
+    match form {
+        Locator::None => 0,
+        Locator::A1 => (uvar_len(u64::from(loc.at)) + uvar_len(u64::from(loc.len))) as u64,
+    }
+}
+
+/// Where each owner's frames lie in a payload, in op order: (owner, the offset of its first frame from the payload's
+/// start, the bytes of its frames). An owner's frames are adjacent ([F06 §7.9]), so one entry per owner.
+pub type Spans = Vec<(u32, u32, u32)>;
+
+/// What the codec reports of each frame it passes (u20 cut I-4): nothing on the plain path ([`NoSpans`], a zero-sized
+/// no-op the compiler removes), each owner's span in the overlay's offsets mode and for the generator ([`Spans`]).
+pub trait SpanSink {
+    /// The frame of `owner` at payload offset `at`, `len` bytes, the frame's head included.
+    fn frame(&mut self, owner: u32, at: usize, len: usize);
+}
+
+/// The plain path's sink: it keeps nothing.
+pub struct NoSpans;
+
+impl SpanSink for NoSpans {
+    #[inline(always)]
+    fn frame(&mut self, _owner: u32, _at: usize, _len: usize) {}
+}
+
+impl SpanSink for Spans {
+    fn frame(&mut self, owner: u32, at: usize, len: usize) {
+        match self.last_mut() {
+            Some(s) if s.0 == owner => s.2 += len as u32,
+            _ => self.push((owner, at as u32, len as u32)),
+        }
+    }
+}
 
 /// The presence bits of the subset ([F06 §4.2], `06-commit.md:186-208`).
 pub mod presence {
@@ -368,11 +435,18 @@ impl Op<'_> {
         (self.owner(), rank, detail)
     }
 
-    /// Appends the op's body (the fields of [F06 §7.4]–§7.5, without the frame).
-    fn encode_body(&self, out: &mut Vec<u8>) -> Result<(), String> {
+    /// Appends the op's body (the fields of [F06 §7.4]–§7.5, without the frame), with `loc` after `prev` when given.
+    fn encode_body(
+        &self,
+        out: &mut Vec<u8>,
+        loc: Option<(Locator, PrevLoc)>,
+    ) -> Result<(), String> {
         let head = |out: &mut Vec<u8>, id: u32, prev: u64| {
             put_uvar(out, u64::from(id));
             put_uvar(out, prev);
+            if let Some((form, l)) = loc {
+                put_loc(out, form, l);
+            }
         };
         match self {
             Op::Create {
@@ -471,16 +545,37 @@ impl Op<'_> {
 
     /// Appends the op with its frame ([F06 §7.1]): `op` u8, `len` uvar32, the body.
     pub fn encode(&self, out: &mut Vec<u8>, scratch: &mut Vec<u8>) -> Result<(), String> {
+        self.encode_loc(out, scratch, None)
+    }
+
+    /// Appends the op with its frame, carrying `loc` in its form after `prev` when given (the first frame of its owner
+    /// in a record whose form has a locator, with `prev` ≠ 0).
+    pub fn encode_loc(
+        &self,
+        out: &mut Vec<u8>,
+        scratch: &mut Vec<u8>,
+        loc: Option<(Locator, PrevLoc)>,
+    ) -> Result<(), String> {
         scratch.clear();
-        self.encode_body(scratch)?;
+        self.encode_body(scratch, loc)?;
         out.push(self.tag());
         put_uvar(out, scratch.len() as u64);
         out.extend_from_slice(scratch);
         Ok(())
     }
 
-    /// Reads one framed op ([F06 §7.1]); its body must fill `len` exactly (V).
+    /// Reads one framed op ([F06 §7.1]) in the night's form; its body must fill `len` exactly (V).
     pub fn decode<'a>(r: &mut Reader<'a>) -> Result<Op<'a>, DecodeError> {
+        Op::decode_in(r, Locator::None, None).map(|(op, _)| op)
+    }
+
+    /// Reads one framed op in `form`. `last` is the owner of the record's previous frame (`None` at the first frame):
+    /// when the frame is the first of its owner and its `prev` ≠ 0, its locator follows `prev` and is returned.
+    pub fn decode_in<'a>(
+        r: &mut Reader<'a>,
+        form: Locator,
+        last: Option<u32>,
+    ) -> Result<(Op<'a>, Option<PrevLoc>), DecodeError> {
         let t = r.u8()?;
         let len = r.uvar32()? as usize;
         let at = r.pos();
@@ -490,15 +585,49 @@ impl Op<'_> {
             at: at + e.at,
             what: e.what,
         };
-        let op = Op::decode_body(t, &mut b).map_err(shift)?;
+        let op = Op::decode_body(t, &mut b, form, last).map_err(shift)?;
         b.end().map_err(shift)?;
         Ok(op)
     }
 
-    fn decode_body<'a>(t: u8, b: &mut Reader<'a>) -> Result<Op<'a>, DecodeError> {
+    fn decode_body<'a>(
+        t: u8,
+        b: &mut Reader<'a>,
+        form: Locator,
+        last: Option<u32>,
+    ) -> Result<(Op<'a>, Option<PrevLoc>), DecodeError> {
+        match t {
+            tag::CREATE
+            | tag::DELETE
+            | tag::SET_FIELD
+            | tag::SET_STATUS
+            | tag::SET_BODY
+            | tag::ADD_EDGE
+            | tag::REMOVE_EDGE
+            | tag::MOVE => {}
+            3 | 6 | 10 | 12..=16 => return Err(subset(b, format_args!("op tag {t}"))),
+            _ => return Err(b.err(format!("op tag {t} is invalid"))),
+        }
+        // Every op of the subset begins with its owner and `prev` ([F06 §7.4], [F06 §7.5.1]).
+        let (id, prev) = (b.uvar32()?, b.uvar64()?);
+        let loc = if prev != 0 && last != Some(id) {
+            get_loc(b, form)?
+        } else {
+            None
+        };
+        let op = Op::decode_rest(t, b, id, prev)?;
+        Ok((op, loc))
+    }
+
+    /// The fields after the owner, `prev` and any locator.
+    fn decode_rest<'a>(
+        t: u8,
+        b: &mut Reader<'a>,
+        id: u32,
+        prev: u64,
+    ) -> Result<Op<'a>, DecodeError> {
         Ok(match t {
             tag::CREATE => {
-                let (id, prev) = (b.uvar32()?, b.uvar64()?);
                 let uid = b.array()?;
                 let kind = b.u8()?;
                 let c_actor = b.uvar32()?;
@@ -517,14 +646,14 @@ impl Op<'_> {
                 }
             }
             tag::DELETE => Op::Delete {
-                id: b.uvar32()?,
-                prev: b.uvar64()?,
+                id,
+                prev,
                 reason: b.uvar32()?,
                 replaced_by: b.uvar32()?,
                 before: Image::decode(b)?,
             },
             tag::SET_FIELD => {
-                let (id, prev, name) = (b.uvar32()?, b.uvar64()?, b.uvar32()?);
+                let name = b.uvar32()?;
                 let old = TValue::decode(b)?;
                 let new = TValue::decode(b)?;
                 if old == new {
@@ -539,7 +668,6 @@ impl Op<'_> {
                 }
             }
             tag::SET_STATUS => {
-                let (id, prev) = (b.uvar32()?, b.uvar64()?);
                 let old = (b.u8()?, b.u8()?);
                 let new = (b.u8()?, b.u8()?);
                 if old == new {
@@ -548,7 +676,6 @@ impl Op<'_> {
                 Op::SetStatus { id, prev, old, new }
             }
             tag::SET_BODY => {
-                let (id, prev) = (b.uvar32()?, b.uvar64()?);
                 let f = b.u8()?;
                 if f == 0 || f & !3 != 0 {
                     return Err(b.err(format!("SetBody bflags {f:#04x}")));
@@ -561,7 +688,7 @@ impl Op<'_> {
                 Op::SetBody { id, prev, old, new }
             }
             tag::ADD_EDGE | tag::REMOVE_EDGE => {
-                let (src, prev) = (b.uvar32()?, b.uvar64()?);
+                let src = id;
                 let ekind = b.u8()?;
                 let dst = b.uvar32()?;
                 let dflag = b.u8()?;
@@ -591,7 +718,6 @@ impl Op<'_> {
                 }
             }
             tag::MOVE => {
-                let (id, prev) = (b.uvar32()?, b.uvar64()?);
                 let old_parent = b.uvar32()?;
                 let new_parent = b.uvar32()?;
                 let old_order = b.vstr()?;
@@ -608,7 +734,6 @@ impl Op<'_> {
                     new_order: Cow::Borrowed(new_order),
                 }
             }
-            3 | 6 | 10 | 12..=16 => return Err(subset(b, format_args!("op tag {t}"))),
             _ => return Err(b.err(format!("op tag {t} is invalid"))),
         })
     }
@@ -715,6 +840,11 @@ pub struct Commit<'a> {
     pub changeset_digest: [u8; 32],
     /// Orders 41–42, in op order.
     pub ops: Vec<Op<'a>>,
+    /// The form of item 1a's locator in the op frames ([`Locator::None`], the night's: F06's bytes).
+    pub form: Locator,
+    /// The locators, by owner ascending: exactly one per owner whose first op has `prev` ≠ 0 when `form` has a
+    /// locator, none otherwise; the encoder refuses any other table.
+    pub locs: Vec<(u32, PrevLoc)>,
     /// Orders 43–44, by hash ascending.
     pub bodies: Vec<Body<'a>>,
 }
@@ -746,6 +876,19 @@ impl Commit<'_> {
 
     /// Appends the payload.
     pub fn encode(&self, out: &mut Vec<u8>) -> Result<(), String> {
+        self.encode_with(out, &mut NoSpans)
+    }
+
+    /// Where each owner's frames lie in the encoded payload (u20 cut §3.1: the writer's stand-in for its overlay
+    /// entry): (owner, offset from the payload's start, the bytes of its frames), in op order.
+    pub fn op_spans(&self) -> Result<Spans, String> {
+        let mut spans = Spans::new();
+        self.encode_with(&mut Vec::new(), &mut spans)?;
+        Ok(spans)
+    }
+
+    fn encode_with<K: SpanSink>(&self, out: &mut Vec<u8>, sink: &mut K) -> Result<(), String> {
+        let start = out.len();
         put_u32(out, self.presence());
         out.extend_from_slice(&self.commit_id);
         match &self.parent {
@@ -835,11 +978,39 @@ impl Commit<'_> {
         out.extend_from_slice(&self.changeset_digest);
         put_uvar(out, self.ops.len() as u64);
         let mut scratch = Vec::new();
+        let mut j = 0;
         for (i, op) in self.ops.iter().enumerate() {
             if i > 0 && self.ops[i - 1].order_key() >= op.order_key() {
                 return Err("ops are not in strictly ascending op order (F06 §7.9, NF-1)".into());
             }
-            op.encode(out, &mut scratch)?;
+            let first = i == 0 || self.ops[i - 1].owner() != op.owner();
+            let loc = if self.form != Locator::None && first && op.prev() != 0 {
+                match self.locs.get(j) {
+                    Some(&(owner, l)) if owner == op.owner() => {
+                        j += 1;
+                        Some((self.form, l))
+                    }
+                    other => {
+                        return Err(format!(
+                            "the locs table holds {other:?} where #{}'s first op, prev {}, needs its locator",
+                            op.owner(),
+                            op.prev()
+                        ));
+                    }
+                }
+            } else {
+                None
+            };
+            let at = out.len();
+            op.encode_loc(out, &mut scratch, loc)?;
+            sink.frame(op.owner(), at - start, out.len() - at);
+        }
+        if j != self.locs.len() {
+            return Err(format!(
+                "the locs table holds {} entries beyond the owners whose first op has prev ≠ 0 in form {:?}",
+                self.locs.len() - j,
+                self.form
+            ));
         }
         put_uvar(out, self.bodies.len() as u64);
         for (i, b) in self.bodies.iter().enumerate() {
@@ -857,8 +1028,29 @@ impl Commit<'_> {
         Ok(())
     }
 
-    /// Decodes a payload of the subset; the fields fill it exactly ([F06 §4.1], V).
+    /// Decodes a payload of the subset in the night's form; the fields fill it exactly ([F06 §4.1], V).
     pub fn decode(payload: &[u8]) -> Result<Commit<'_>, DecodeError> {
+        Commit::decode_in(payload, Locator::None)
+    }
+
+    /// Decodes a payload of the subset in `form`: each owner's first frame carries its locator when its `prev` ≠ 0.
+    pub fn decode_in(payload: &[u8], form: Locator) -> Result<Commit<'_>, DecodeError> {
+        Commit::decode_with(payload, form, &mut NoSpans)
+    }
+
+    /// [`Commit::decode_in`], and where each owner's frames lie in `payload` (the offsets mode, u20 cut D-2).
+    pub fn decode_spans(payload: &[u8], form: Locator) -> Result<(Commit<'_>, Spans), DecodeError> {
+        let mut spans = Spans::new();
+        let c = Commit::decode_with(payload, form, &mut spans)?;
+        Ok((c, spans))
+    }
+
+    /// [`Commit::decode_in`], reporting each frame to `sink` (offsets from the payload's start).
+    pub fn decode_with<'p, K: SpanSink>(
+        payload: &'p [u8],
+        form: Locator,
+        sink: &mut K,
+    ) -> Result<Commit<'p>, DecodeError> {
         let mut r = Reader::new(payload);
         let p = r.u32()?;
         if p & presence::RESERVED != 0 {
@@ -1006,9 +1198,14 @@ impl Commit<'_> {
         let changeset_digest = r.array()?;
         let n_ops = r.uvar32()?;
         let mut ops: Vec<Op<'_>> = Vec::with_capacity(n_ops.min(1 << 16) as usize);
+        let mut locs = Vec::new();
         for _ in 0..n_ops {
             let at = r.pos();
-            let op = Op::decode(&mut r)?;
+            let (op, loc) = Op::decode_in(&mut r, form, ops.last().map(Op::owner))?;
+            sink.frame(op.owner(), at, r.pos() - at);
+            if let Some(l) = loc {
+                locs.push((op.owner(), l));
+            }
             let err = |what: &str| DecodeError {
                 at,
                 what: what.into(),
@@ -1076,6 +1273,8 @@ impl Commit<'_> {
             affected,
             changeset_digest,
             ops,
+            form,
+            locs,
             bodies,
         })
     }
@@ -1148,6 +1347,8 @@ mod tests {
                 old: (0, 0),
                 new: (1, 0),
             }],
+            form: Locator::None,
+            locs: Vec::new(),
             bodies: Vec::new(),
         }
     }
@@ -1468,5 +1669,230 @@ mod tests {
             new: TValue::int(1),
         };
         assert!(same.encode(&mut Vec::new(), &mut scratch).is_err());
+    }
+
+    /// The ops of [`op_set`] (one per owner, #51's a `Create`) and two ops of #60 in one record (`SetStatus`, then
+    /// `SetField` 1, one `prev`).
+    fn ops_with_two_frames() -> Vec<Op<'static>> {
+        let mut ops = op_set();
+        ops.push(Op::SetStatus {
+            id: 60,
+            prev: 7,
+            old: (1, 0),
+            new: (2, 0),
+        });
+        ops.push(Op::SetField {
+            id: 60,
+            prev: 7,
+            name: 1,
+            old: TValue::absent(),
+            new: TValue::int(9),
+        });
+        ops
+    }
+
+    /// An A1 table for `ops`: one locator per owner whose first op has `prev` ≠ 0, distinct, #53's of 3-byte fields.
+    fn a1_locs(ops: &[Op<'_>]) -> Vec<(u32, PrevLoc)> {
+        let mut locs = Vec::new();
+        for (i, op) in ops.iter().enumerate() {
+            if (i == 0 || ops[i - 1].owner() != op.owner()) && op.prev() != 0 {
+                let o = op.owner();
+                let loc = if o == 53 {
+                    PrevLoc {
+                        at: 1 << 20,
+                        len: 70_000,
+                    }
+                } else {
+                    PrevLoc {
+                        at: 32 + 7 * o,
+                        len: o + 3,
+                    }
+                };
+                locs.push((o, loc));
+            }
+        }
+        locs
+    }
+
+    /// A1 (u20 cut §3.1, `design-A.md:109-112`): a commit with a locator in each owner's first frame round-trips
+    /// through `decode_in` with every locator; its payload is the night's payload with each locator's `uvar32`s added,
+    /// and in each such frame they follow `prev`.
+    #[test]
+    fn a1_locator_round_trips_in_each_owners_first_frame() {
+        let ops = ops_with_two_frames();
+        let mut night = example();
+        night.ops = ops.clone();
+        let mut c = night.clone();
+        c.form = Locator::A1;
+        c.locs = a1_locs(&ops);
+        assert_eq!(
+            c.locs.len(),
+            8,
+            "#52 to #58 and #60; #51's Create has prev 0"
+        );
+        let (mut a1, mut plain) = (Vec::new(), Vec::new());
+        c.encode(&mut a1).unwrap();
+        night.encode(&mut plain).unwrap();
+        let back = Commit::decode_in(&a1, Locator::A1).unwrap();
+        assert_eq!(back.locs, c.locs, "locs lost");
+        assert_eq!(back, c);
+        let grown: u64 = c.locs.iter().map(|(_, l)| loc_len(Locator::A1, *l)).sum();
+        assert_eq!(
+            grown,
+            7 * (2 + 1) + 3 + 3,
+            "a 2-byte prev_at and a 1-byte prev_len each, #53's two 3-byte fields"
+        );
+        assert_eq!(a1.len() as u64, plain.len() as u64 + grown);
+        // Each located frame: tag, len, the owner, prev, then prev_at and prev_len.
+        let spans = c.op_spans().unwrap();
+        for (owner, loc) in &c.locs {
+            let &(_, at, _) = spans.iter().find(|s| s.0 == *owner).unwrap();
+            let mut r = Reader::new(&a1[at as usize..]);
+            r.u8().unwrap();
+            r.uvar32().unwrap();
+            assert_eq!(r.uvar32().unwrap(), *owner);
+            assert_ne!(r.uvar64().unwrap(), 0);
+            assert_eq!(
+                (r.uvar32().unwrap(), r.uvar32().unwrap()),
+                (loc.at, loc.len),
+                "#{owner}: the locator follows prev"
+            );
+        }
+        // The night's form decodes as before and carries no locator.
+        let n = Commit::decode(&plain).unwrap();
+        assert_eq!((n.form, n.locs.len()), (Locator::None, 0));
+        assert_eq!(n, night);
+    }
+
+    /// A1 carries no locator when `prev` is 0 (#51's `Create`) and none in an owner's later frames (#60's `SetField`):
+    /// walking the frames with `Op::decode_in`, only the first frame of an owner with `prev` ≠ 0 returns one, and #60's
+    /// second frame is the night's bytes.
+    #[test]
+    fn a1_locator_is_absent_when_prev_is_zero_and_in_later_frames() {
+        let ops = ops_with_two_frames();
+        let mut c = example();
+        c.ops = ops.clone();
+        c.form = Locator::A1;
+        c.locs = a1_locs(&ops);
+        assert!(!c.locs.iter().any(|(o, _)| *o == 51));
+        let mut a1 = Vec::new();
+        c.encode(&mut a1).unwrap();
+        let spans = c.op_spans().unwrap();
+        let mut r = Reader::new(&a1[spans[0].1 as usize..]);
+        let mut last = None;
+        let mut seen = Vec::new();
+        for op in &ops {
+            let (got, loc) = Op::decode_in(&mut r, Locator::A1, last).unwrap();
+            assert_eq!(&got, op);
+            seen.push((got.owner(), loc.is_some()));
+            last = Some(got.owner());
+        }
+        let want: Vec<(u32, bool)> = ops
+            .iter()
+            .enumerate()
+            .map(|(i, op)| {
+                let first = i == 0 || ops[i - 1].owner() != op.owner();
+                (op.owner(), first && op.prev() != 0)
+            })
+            .collect();
+        assert_eq!(seen, want);
+        assert_eq!(seen[0], (51, false), "prev 0: no locator");
+        assert_eq!(
+            &seen[8..],
+            [(60, true), (60, false)],
+            "#60's second frame has none"
+        );
+        // #60's second frame is the same bytes as in the night's form.
+        let (mut night, mut scratch) = (Vec::new(), Vec::new());
+        ops[9].encode(&mut night, &mut scratch).unwrap();
+        let (_, at, len) = spans[spans.len() - 1];
+        let end = (at + len) as usize;
+        assert_eq!(&a1[end - night.len()..end], &night[..]);
+    }
+
+    /// The encoder refuses a locator table that is not exactly one entry per owner whose first op has `prev` ≠ 0, in op
+    /// order: a missing entry, an entry for a `Create` (prev 0), two entries out of order, one past the ops, and any
+    /// entry in the night's form.
+    #[test]
+    fn encoder_refuses_a_locs_table_that_does_not_match_the_ops() {
+        let ops = ops_with_two_frames();
+        let good = a1_locs(&ops);
+        let encode = |form: Locator, locs: Vec<(u32, PrevLoc)>| {
+            let mut c = example();
+            c.ops = ops.clone();
+            c.form = form;
+            c.locs = locs;
+            c.encode(&mut Vec::new())
+        };
+        assert!(encode(Locator::A1, good.clone()).is_ok());
+        let l = PrevLoc { at: 40, len: 9 };
+        let mut missing = good.clone();
+        missing.remove(3);
+        let mut create = good.clone();
+        create.insert(0, (51, l));
+        let mut swapped = good.clone();
+        swapped.swap(0, 1);
+        let mut past = good.clone();
+        past.push((61, l));
+        for (what, form, locs) in [
+            ("missing", Locator::A1, missing),
+            ("a Create's", Locator::A1, create),
+            ("swapped", Locator::A1, swapped),
+            ("past the ops", Locator::A1, past),
+            ("in the night's form", Locator::None, good.clone()),
+        ] {
+            let e = encode(form, locs).unwrap_err();
+            assert!(e.contains("locs table"), "{what}: {e}");
+        }
+        assert!(
+            encode(Locator::None, Vec::new()).is_ok(),
+            "the night's form, no table"
+        );
+    }
+
+    /// `op_spans` gives each owner's (first frame's offset, frames' bytes) in the payload, one entry per owner in op
+    /// order, contiguous; each span decodes to exactly that owner's ops, and `decode_spans` finds the same spans, in the
+    /// night's form and in A1.
+    #[test]
+    fn op_spans_locate_each_owners_frames() {
+        let ops = ops_with_two_frames();
+        for form in [Locator::None, Locator::A1] {
+            let mut c = example();
+            c.ops = ops.clone();
+            c.form = form;
+            c.locs = if form == Locator::A1 {
+                a1_locs(&ops)
+            } else {
+                Vec::new()
+            };
+            let mut b = Vec::new();
+            c.encode(&mut b).unwrap();
+            let spans = c.op_spans().unwrap();
+            let owners: Vec<u32> = spans.iter().map(|s| s.0).collect();
+            assert_eq!(owners, [51, 52, 53, 54, 55, 56, 57, 58, 60], "{form:?}");
+            for w in spans.windows(2) {
+                assert_eq!(w[0].1 + w[0].2, w[1].1, "{form:?}: contiguous");
+            }
+            for &(owner, at, len) in &spans {
+                let mut r = Reader::new(&b[at as usize..(at + len) as usize]);
+                let mut got = Vec::new();
+                let mut last = None;
+                while r.remaining() > 0 {
+                    let (op, _) = Op::decode_in(&mut r, form, last).unwrap();
+                    last = Some(op.owner());
+                    got.push(op);
+                }
+                let want: Vec<Op<'_>> =
+                    ops.iter().filter(|o| o.owner() == owner).cloned().collect();
+                assert_eq!(got, want, "{form:?} #{owner}");
+            }
+            let (mut x, mut s) = (Vec::new(), Vec::new());
+            let loc = c.locs.last().map(|(_, l)| (form, *l));
+            ops[8].encode_loc(&mut x, &mut s, loc).unwrap();
+            ops[9].encode(&mut x, &mut s).unwrap();
+            assert_eq!(spans[8].2 as usize, x.len(), "{form:?}: #60's two frames");
+            let (back, found) = Commit::decode_spans(&b, form).unwrap();
+            assert_eq!((back, found), (c.clone(), spans), "{form:?}");
+        }
     }
 }

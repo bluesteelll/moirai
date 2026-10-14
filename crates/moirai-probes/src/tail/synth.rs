@@ -28,11 +28,18 @@
 //! `m·q·P12` (`:329-333`: m = P13 and q = 1, or m = 1 and q = P11 in quiet mode, `:362-363`); the generator refuses a
 //! target that would break it.
 
-use super::commit::{Affected, Body, Commit, Edge, Git, Image, Op, Parent, TValue, blake3_16};
-use super::rec::{Appender, ExtentHead, InitParams, Payload, Record, SymDef, sequence, sym};
+use super::commit::{
+    Affected, Body, Commit, Edge, Git, Image, Op, Parent, TValue, blake3_16, loc_len,
+};
+use super::rec::{
+    Appender, ExtentHead, InitParams, Payload, Record, SymDef, encode_symdefs, sequence, sym,
+};
 use super::rt::{Epoch, FileObsRow, Row, RowBatch, TreeReg};
 use super::scan::{Expect, MemLog};
-use super::{BODY_RAW_CAP, EXTENT_HEAD_GROUP_LEN, Params, REC_HDR_LEN, TAIL_READ_CHUNK, in_k_rt};
+use super::{
+    BODY_RAW_CAP, EXTENT_HEAD_GROUP_LEN, Locator, Params, PrevLoc, REC_HDR_LEN, TAIL_READ_CHUNK,
+    in_k_rt,
+};
 use crate::overlay::{Base, Builder, Overlay};
 use std::borrow::Cow;
 use std::collections::{BTreeMap, BTreeSet, HashMap};
@@ -72,6 +79,14 @@ pub const FIELDS: u32 = 8;
 pub const EKINDS: u8 = 4;
 /// Trees settled in turn.
 pub const TREES: u8 = 4;
+/// The field the depth option's first op sets: one the mix never sets ([`FIELDS`] + 1), so a read of it walks every
+/// record of the hot node's chain (u20 cut §3.4).
+pub const HOT_FIELD: u32 = FIELDS + 1;
+
+/// The depth option's node at a base of `n` nodes: #⌈n/2⌉, a base node at every profile (u20 critique m-1).
+pub const fn hot_node(n: u32) -> u32 {
+    n.div_ceil(2)
+}
 /// The `SYMTAB` the tail is assumed to start from: its greatest `session` and `stmt` ids (SD-1).
 pub const SYMTAB_SESSIONS: u32 = 16;
 /// Its greatest `stmt` id.
@@ -176,6 +191,8 @@ pub struct Measures {
     pub body_bytes: u64,
     /// `rt_bytes(T)`: the lengths of the `K_RT` records.
     pub rt_bytes: u64,
+    /// The bytes of item 1a's locators in the tail's op frames, part of `rec_bytes` (M-A5; 0 in the night's form).
+    pub loc_bytes: u64,
     /// `ovl(T)`: the overlay's charge.
     pub ovl: u64,
     /// Records.
@@ -292,6 +309,9 @@ struct Node {
     order: String,
     edges: BTreeSet<(u8, u32)>,
     last: Option<u64>,
+    /// Where the node's frames lie in `last` (A1 only): the writer's overlay entry the locator is taken from (u20 cut
+    /// §3.1, SoT-1).
+    at: Option<PrevLoc>,
 }
 
 /// One op of a commit's plan: every value but `prev`, which follows from the record's lsn.
@@ -394,6 +414,7 @@ impl Gen {
             order: String::new(),
             edges: BTreeSet::new(),
             last: None,
+            at: None,
         })
     }
 
@@ -403,15 +424,48 @@ impl Gen {
             .map_or(id >= 1 && id <= self.base.n, |n| n.live)
     }
 
-    /// A live owner not yet used by this commit.
+    /// A live owner not yet used by this commit, never the depth option's node.
     fn pick(&mut self, used: &BTreeSet<u32>) -> Option<u32> {
+        let hot = self.hot();
         for _ in 0..64 {
             let id = self.rng.range(1, u64::from(self.next_id - 1)) as u32;
-            if self.live(id) && !used.contains(&id) {
+            if self.live(id) && !used.contains(&id) && Some(id) != hot {
                 return Some(id);
             }
         }
         None
+    }
+
+    /// The depth option's node, when the shape has one.
+    fn hot(&self) -> Option<u32> {
+        (self.t.params.shape.hot > 0).then(|| hot_node(self.base.n))
+    }
+
+    /// The depth option's op of the next commit: in each of the first d commits, the hot node's field
+    /// [`HOT_FIELD`] in the first and its status in the later ones.
+    fn plan_hot(&mut self, used: &mut BTreeSet<u32>) -> Option<Planned> {
+        let id = self.hot()?;
+        if self.commits >= u64::from(self.t.params.shape.hot) {
+            return None;
+        }
+        used.insert(id);
+        let n = self.node(id);
+        Some(if self.commits == 0 {
+            Planned::SetField {
+                id,
+                name: HOT_FIELD,
+                old: n
+                    .fields
+                    .get(&HOT_FIELD)
+                    .cloned()
+                    .unwrap_or_else(|| TValue::absent().0.into_owned()),
+            }
+        } else {
+            Planned::SetStatus {
+                id,
+                new: (n.status.0 + 1) % STATUSES,
+            }
+        })
     }
 
     fn draw_kind(&mut self) -> OpKind {
@@ -536,13 +590,16 @@ impl Gen {
         }
     }
 
-    /// The ops of `plan` for a record at `lsn`, in op order, and the bodies they carry.
+    /// The ops of `plan` for a record at `lsn`, in op order, the bodies they carry, and their locators in the tail's
+    /// form: for each owner whose first op has `prev` ≠ 0, where its frames lie in the record `prev` names (SoT-1), or
+    /// (0, 0) when that record is below the tail (SoT-4, a base node's first op).
+    #[allow(clippy::type_complexity)]
     fn ops(
         &self,
         plan: &Plan,
         lsn: u64,
         extra: &[usize],
-    ) -> (Vec<Op<'static>>, Vec<Body<'static>>) {
+    ) -> (Vec<Op<'static>>, Vec<Body<'static>>, Vec<(u32, PrevLoc)>) {
         let mut ops = Vec::with_capacity(plan.ops.len());
         let mut bodies = Vec::new();
         for (i, p) in plan.ops.iter().enumerate() {
@@ -640,11 +697,20 @@ impl Gen {
         }
         ops.sort_by_key(Op::order_key);
         bodies.sort_by_key(|b| b.hash);
-        (ops, bodies)
+        let mut locs = Vec::new();
+        if self.t.params.shape.locator != Locator::None {
+            for (i, op) in ops.iter().enumerate() {
+                if (i == 0 || ops[i - 1].owner() != op.owner()) && op.prev() != 0 {
+                    let at = self.nodes.get(&op.owner()).and_then(|n| n.at);
+                    locs.push((op.owner(), at.unwrap_or_default()));
+                }
+            }
+        }
+        (ops, bodies, locs)
     }
 
     fn commit(&self, plan: &Plan, lsn: u64, extra: &[usize], msg: usize) -> Commit<'static> {
-        let (ops, bodies) = self.ops(plan, lsn, extra);
+        let (ops, bodies, locs) = self.ops(plan, lsn, extra);
         let mut ids: Vec<u32> = ops.iter().map(Op::owner).collect();
         ids.dedup();
         Commit {
@@ -681,6 +747,8 @@ impl Gen {
             }),
             changeset_digest: plan.digest,
             ops,
+            form: self.t.params.shape.locator,
+            locs,
             bodies,
         }
     }
@@ -785,6 +853,9 @@ impl Gen {
         let mut creates = 0u32;
         let mut ops = Vec::new();
         let mut cs_body = 0u64;
+        if let Some(op) = self.plan_hot(&mut used) {
+            ops.push(op);
+        }
         if body_family && let Some(op) = self.plan_op(OpKind::SetBody, &mut used, &mut creates, fb)
         {
             cs_body += fb + 24;
@@ -809,12 +880,13 @@ impl Gen {
                 }
             }
         }
-        // A long commit carries at least one SetField, whose text takes up its length.
+        // A long commit carries at least one SetField, whose text takes up its length (never the hot node's op).
+        let hot = self.hot();
         if ops.len() > 50
             && !ops.iter().any(|o| matches!(o, Planned::SetField { .. }))
             && let Some(pos) = ops
                 .iter()
-                .position(|o| matches!(o, Planned::SetStatus { .. }))
+                .position(|o| matches!(o, Planned::SetStatus { .. }) && Some(o.owner()) != hot)
         {
             let id = ops[pos].owner();
             let name = 1;
@@ -838,8 +910,28 @@ impl Gen {
         }
     }
 
-    /// Applies a placed commit to the state.
-    fn commit_state(&mut self, c: &Commit<'_>, lsn: u64, creates: u32) {
+    /// Applies a placed commit to the state; in a form with a locator, also where each owner's frames lie in it,
+    /// counted from `lsn` with the header and the record's `SymDefs` block `defs` included.
+    fn commit_state(
+        &mut self,
+        c: &Commit<'_>,
+        lsn: u64,
+        creates: u32,
+        defs: &[SymDef<'_>],
+    ) -> Result<(), String> {
+        let mut spans = Vec::new();
+        if c.form != Locator::None {
+            let mut block = Vec::new();
+            if !defs.is_empty() {
+                encode_symdefs(defs, &mut block)?;
+            }
+            let head = (REC_HDR_LEN + block.len()) as u32;
+            spans = c
+                .op_spans()?
+                .into_iter()
+                .map(|(owner, at, len)| (owner, PrevLoc { at: head + at, len }))
+                .collect();
+        }
         for op in &c.ops {
             let id = op.owner();
             let mut n = self.node(id);
@@ -882,6 +974,7 @@ impl Gen {
                 }
             }
             n.last = Some(lsn);
+            n.at = spans.iter().find(|s| s.0 == id).map(|s| s.1);
             self.nodes.insert(id, n);
         }
         self.next_id += creates;
@@ -892,6 +985,7 @@ impl Gen {
         self.seq += 1;
         self.hlc += 1_000 << 16;
         self.commits += 1;
+        Ok(())
     }
 
     /// The next settle's group at `lsn`.
@@ -964,14 +1058,16 @@ impl Gen {
     }
 }
 
-/// The measures a group adds: (records, `rec_bytes`, `body_bytes`, `rt_bytes`, ops).
-fn group_measures(group: &[Record<'_>]) -> Result<(u64, u64, u64, u64, u64), String> {
-    let (mut rec, mut body, mut rt, mut ops) = (0, 0, 0, 0);
+/// The measures a group adds: (records, `rec_bytes`, `body_bytes`, `rt_bytes`, ops, `loc_bytes`).
+#[allow(clippy::type_complexity)]
+fn group_measures(group: &[Record<'_>]) -> Result<(u64, u64, u64, u64, u64, u64), String> {
+    let (mut rec, mut body, mut rt, mut ops, mut loc) = (0, 0, 0, 0, 0);
     for r in group {
         let len = r.encoded_len()?;
         let b = match &r.payload {
             Payload::Commit(c) => {
                 ops += c.ops.len() as u64;
+                loc += c.locs.iter().map(|(_, l)| loc_len(c.form, *l)).sum::<u64>();
                 c.body_bytes()
             }
             _ => 0,
@@ -983,7 +1079,7 @@ fn group_measures(group: &[Record<'_>]) -> Result<(u64, u64, u64, u64, u64), Str
         }
         body += b;
     }
-    Ok((group.len() as u64, rec, body, rt, ops))
+    Ok((group.len() as u64, rec, body, rt, ops, loc))
 }
 
 /// Generates the tail of `t`; keeps every record when `keep` is set.
@@ -1005,6 +1101,7 @@ pub fn generate(t: &Target, keep: bool) -> Result<Tail, String> {
         }
         .encode(),
         project_oid_algo: 1,
+        locator: p.shape.locator,
     };
     let start = p.e;
     let chain_in = rng.next();
@@ -1126,7 +1223,7 @@ pub fn generate(t: &Target, keep: bool) -> Result<Tail, String> {
             EXTENT_HEAD_GROUP_LEN => 1,
             _ => 2,
         };
-        let (n_rec, rec, body, rt, ops) = group_measures(&group)?;
+        let (n_rec, rec, body, rt, ops, loc) = group_measures(&group)?;
         for r in &group {
             builder.apply(r);
         }
@@ -1135,6 +1232,7 @@ pub fn generate(t: &Target, keep: bool) -> Result<Tail, String> {
             rec_bytes: m.rec_bytes + pre + rec,
             body_bytes: m.body_bytes + body,
             rt_bytes: m.rt_bytes + rt,
+            loc_bytes: m.loc_bytes + loc,
             ovl: builder.charge(),
             records: m.records + pre_records + n_rec,
             groups: m.groups + pre_records + 1,
@@ -1165,7 +1263,7 @@ pub fn generate(t: &Target, keep: bool) -> Result<Tail, String> {
         }
         let prelude = app.append(&group)?;
         if let Some(Payload::Commit(c)) = group.first().map(|r| &r.payload) {
-            g.commit_state(c, lsn, creates);
+            g.commit_state(c, lsn, creates, &group[0].symdefs)?;
             app.head.commit_seq = g.seq - 1;
             app.head.next_id = g.next_id;
             app.head.hlc_seq = g.hlc - (1_000 << 16);
@@ -1252,6 +1350,32 @@ pub(crate) mod tests {
         t.threshold = ops;
         t.rt_bound = Some(u64::MAX);
         generate(&t, true).unwrap()
+    }
+
+    /// `t` with its tail in A1 (u20 cut §3.1).
+    pub(crate) fn a1(mut t: Target) -> Target {
+        t.params.shape = crate::tail::Shape::A1;
+        t
+    }
+
+    /// [`long`] in A1.
+    fn long_a1(ops: u64, n: u32, seed: u64) -> Tail {
+        let mut t = a1(test_target(Clause::Ops, n, seed));
+        t.threshold = ops;
+        t.rt_bound = Some(u64::MAX);
+        generate(&t, true).unwrap()
+    }
+
+    /// The commits of `tail`'s bytes, decoded under its own form, with their lsns.
+    fn decoded_commits(tail: &Tail) -> Vec<(u64, Commit<'_>)> {
+        decode(&tail.bytes, tail.start, &tail.expect, tail.chain_in)
+            .unwrap()
+            .into_iter()
+            .filter_map(|r| match r.payload {
+                Payload::Commit(c) => Some((r.lsn, *c)),
+                _ => None,
+            })
+            .collect()
     }
 
     const CLAUSES: [Clause; 5] = [
@@ -1701,6 +1825,226 @@ pub(crate) mod tests {
             }
         }
         assert!(hits >= 1, "{hits} of 256 seeds reach the message cap");
+    }
+
+    /// A1's locator names the owner's frames in the record its `prev` names (u20 cut §3.1, SoT-1; `design-A.md:109-112`):
+    /// over A1 test-profile tails at N = 50 (owners repeat), decoded from their bytes, every owner's first op with
+    /// `prev` ≠ 0 carries a locator, and when `prev` names a record of the tail, the locator's `prev_len` bytes at
+    /// `prev_at` from that record's lsn decode to exactly the owner's ops there, the first in the first-of-owner form.
+    #[test]
+    fn a1_locator_names_the_owners_frames_in_the_record_prev_names() {
+        let mut checked = 0;
+        for seed in [5, 6] {
+            let tail = long_a1(600, 50, seed);
+            let commits = decoded_commits(&tail);
+            let by_lsn: BTreeMap<u64, &Commit<'_>> = commits.iter().map(|(l, c)| (*l, c)).collect();
+            for (lsn, c) in &commits {
+                assert_eq!(c.form, Locator::A1);
+                for (i, op) in c.ops.iter().enumerate() {
+                    let o = op.owner();
+                    if (i > 0 && c.ops[i - 1].owner() == o) || op.prev() == 0 {
+                        continue;
+                    }
+                    let Some(&(_, loc)) = c.locs.iter().find(|(x, _)| *x == o) else {
+                        panic!("seed {seed} lsn {lsn}: no locator in #{o}'s first frame");
+                    };
+                    let older = lsn - op.prev();
+                    let Some(prev_rec) = by_lsn.get(&older) else {
+                        assert!(
+                            older < tail.start,
+                            "seed {seed} lsn {lsn} #{o}: prev {older}"
+                        );
+                        continue;
+                    };
+                    assert!(
+                        loc.at as usize > REC_HDR_LEN && loc.len > 0,
+                        "#{o}: {loc:?}"
+                    );
+                    let from = (older - tail.start) as usize + loc.at as usize;
+                    let mut r =
+                        crate::tail::enc::Reader::new(&tail.bytes[from..from + loc.len as usize]);
+                    let mut got = Vec::new();
+                    let mut last = None;
+                    while r.remaining() > 0 {
+                        let (x, _) = Op::decode_in(&mut r, Locator::A1, last).unwrap_or_else(|e| {
+                            panic!("seed {seed} #{o} at {older} + {}: {e}", loc.at)
+                        });
+                        last = Some(x.owner());
+                        got.push(x);
+                    }
+                    let want: Vec<&Op<'_>> =
+                        prev_rec.ops.iter().filter(|x| x.owner() == o).collect();
+                    assert_eq!(
+                        got.iter().collect::<Vec<_>>(),
+                        want,
+                        "seed {seed} lsn {lsn} #{o}"
+                    );
+                    checked += 1;
+                }
+            }
+        }
+        assert!(checked > 100, "{checked} locators into the tail");
+    }
+
+    /// SoT-4 (u20 cut §3.1; `design-A.md:120-122`): a locator whose `prev` names a record below the tail's start, a base
+    /// node's first op in the tail, is (0, 0); every locator into the tail is not. At N = 1e6 most owners are base nodes
+    /// touched once, so both cases occur.
+    #[test]
+    fn a1_locator_is_zero_below_the_checkpoint() {
+        let (mut below, mut inside) = (0, 0);
+        for clause in CLAUSES {
+            let tail = generate(&a1(test_target(clause, 1_000_000, 7)), true).unwrap();
+            for (lsn, c) in decoded_commits(&tail) {
+                for (o, loc) in &c.locs {
+                    let op = c.ops.iter().find(|x| x.owner() == *o).unwrap();
+                    if lsn - op.prev() < tail.start {
+                        assert_eq!(*loc, PrevLoc::default(), "{clause:?} lsn {lsn} #{o}");
+                        below += 1;
+                    } else {
+                        assert_ne!(*loc, PrevLoc::default(), "{clause:?} lsn {lsn} #{o}");
+                        inside += 1;
+                    }
+                }
+            }
+        }
+        let tail = long_a1(600, 50, 5);
+        for (lsn, c) in decoded_commits(&tail) {
+            for (o, loc) in &c.locs {
+                let op = c.ops.iter().find(|x| x.owner() == *o).unwrap();
+                if lsn - op.prev() >= tail.start {
+                    assert_ne!(*loc, PrevLoc::default());
+                    inside += 1;
+                }
+            }
+        }
+        assert!(below > 20 && inside > 20, "{below} below, {inside} inside");
+    }
+
+    /// M-A5's count (u20 cut D-10): `loc_bytes` is the sum of the A1 fields' bytes in the tail's decoded commits, part of
+    /// `rec_bytes`; it is 0 in the night's form, whose tails are the same plans without them.
+    #[test]
+    fn loc_bytes_count_the_a1_fields() {
+        for clause in CLAUSES {
+            let t = test_target(clause, 1_000_000, 7);
+            let night = generate(&t, false).unwrap();
+            assert_eq!(night.measures.loc_bytes, 0, "{clause:?}");
+            let tail = generate(&a1(t), true).unwrap();
+            let sum: u64 = decoded_commits(&tail)
+                .iter()
+                .flat_map(|(_, c)| c.locs.iter().map(|(_, l)| loc_len(c.form, *l)))
+                .sum();
+            assert_eq!(tail.measures.loc_bytes, sum, "{clause:?}");
+            assert!(
+                sum > 0 && sum < tail.measures.rec_bytes,
+                "{clause:?}: {sum}"
+            );
+        }
+        let tail = long_a1(600, 50, 5);
+        let pairs: u64 = decoded_commits(&tail)
+            .iter()
+            .map(|(_, c)| c.locs.len() as u64)
+            .sum();
+        assert!(tail.measures.loc_bytes >= 2 * pairs && pairs > 100);
+    }
+
+    /// The depth option (u20 cut §3.4; critique m-1): with `hot` = d, the base node #⌈N/2⌉ is an owner in each of the
+    /// tail's first d commits and in no later one, its first op setting field 9 (`HOT_FIELD`, which the mix never sets)
+    /// and the later ones its status; at the test profile's N = 10,000 that is #5,000, and with d past the tail's
+    /// commits it is in every commit. The night's shape has no depth option.
+    #[test]
+    fn hot_node_sits_in_the_first_d_commits() {
+        assert_eq!(
+            (hot_node(1_000_000), hot_node(10_000), hot_node(7)),
+            (500_000, 5_000, 4)
+        );
+        for (d, n) in [(3u32, 10_000u32), (16, 1_000_000), (400, 10_000)] {
+            let mut t = a1(test_target(Clause::Ops, n, 11));
+            t.threshold = 300;
+            t.rt_bound = Some(u64::MAX);
+            t.params.shape.hot = d;
+            let tail = generate(&t, true).unwrap();
+            let hot = hot_node(n);
+            let commits = decoded_commits(&tail);
+            assert!(commits.len() > 20, "{} commits", commits.len());
+            for (i, (lsn, c)) in commits.iter().enumerate() {
+                let own: Vec<&Op<'_>> = c.ops.iter().filter(|o| o.owner() == hot).collect();
+                if i < d as usize {
+                    assert_eq!(own.len(), 1, "d {d}: commit {i} at {lsn}");
+                    match (i, own[0]) {
+                        (0, Op::SetField { name, .. }) => assert_eq!(*name, HOT_FIELD),
+                        (0, op) => panic!("d {d}: the first hot op is {op:?}"),
+                        (_, Op::SetStatus { .. }) => {}
+                        (_, op) => panic!("d {d}: commit {i}'s hot op is {op:?}"),
+                    }
+                } else {
+                    assert!(own.is_empty(), "d {d}: #{hot} in commit {i}");
+                }
+                let nines = c
+                    .ops
+                    .iter()
+                    .filter(|o| matches!(o, Op::SetField { name, .. } if *name == HOT_FIELD))
+                    .count();
+                assert_eq!(nines, usize::from(i == 0), "d {d}: field 9 in commit {i}");
+            }
+        }
+        assert_eq!(test_target(Clause::Ops, 10_000, 11).params.shape.hot, 0);
+    }
+
+    /// The identity rule (u20 cut D-3; R-38, R-40): a tail in the night's form is byte-identical to ba4fc23's. The
+    /// xxh3-64 of chosen tails, computed at ba4fc23 in a scratch worktree: each clause at the test profile (N = 1e6,
+    /// seed 7), [`long`]`(600, 50, 5)`, production `ops` tails of one op for seeds 0–3, the hand-built tail, and a
+    /// production `ops` tail of 64 ops (N = 1e6, seed 99).
+    #[test]
+    fn night_form_tails_are_unchanged() {
+        use xxhash_rust::xxh3::xxh3_64;
+        let mut got: Vec<u64> = Vec::new();
+        for clause in CLAUSES {
+            let t = test_target(clause, 1_000_000, 7);
+            assert_eq!(t.params.shape, crate::tail::Shape::NIGHT);
+            got.push(xxh3_64(&generate(&t, false).unwrap().bytes));
+        }
+        got.push(xxh3_64(&long(600, 50, 5).bytes));
+        for seed in 0..4 {
+            let t = Target {
+                clause: Clause::Ops,
+                threshold: 1,
+                mult: 1,
+                n: 1_000,
+                seed,
+                params: Params::PRODUCTION,
+                rt_bound: None,
+            };
+            got.push(xxh3_64(&generate(&t, false).unwrap().bytes));
+        }
+        got.push(xxh3_64(&crate::tail::testdata::hand_built().bytes));
+        let t = Target {
+            clause: Clause::Ops,
+            threshold: 64,
+            mult: 1,
+            n: 1_000_000,
+            seed: 99,
+            params: Params::PRODUCTION,
+            rt_bound: None,
+        };
+        got.push(xxh3_64(&generate(&t, false).unwrap().bytes));
+        assert_eq!(
+            got,
+            [
+                0x4a20_2b6b_05a8_79ab,
+                0xf4e2_1e08_c730_d9df,
+                0x59e2_02b8_718e_3ea8,
+                0x109a_0f47_0f66_84f5,
+                0x4a20_2b6b_05a8_79ab,
+                0xc124_4784_f4cd_9fbe,
+                0x9915_1f95_1532_6f66,
+                0x256d_c71f_9e2d_4401,
+                0x3743_05f8_feda_a220,
+                0x363f_7f07_ea2c_554a,
+                0xb55e_aebf_cc35_d351,
+                0x5354_863d_c7a2_93b3,
+            ],
+            "a night-form tail moved"
+        );
     }
 
     proptest! {

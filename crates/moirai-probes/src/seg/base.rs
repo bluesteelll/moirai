@@ -15,6 +15,11 @@
 //!
 //! Its hot index (`NODE`, the CSR, `BMDIR` and the bitsets) is ≈ 99 B per node: 60 + 8 + 30 + ≈ 0.6
 //! (`ARCHITECTURE-RESEARCH.md:1681`); the cold columns add 18 B.
+//!
+//! For measurement 14's `ready` probe (u20 cut D-12; OP-09-21), [`build_with`] builds the same base with each row's
+//! `priority` from a function ([`ready_priority`]: P0–P4, `08-data-model.md:82`), and [`priority_column`] holds those
+//! priorities as the 1-byte column a split of `priority` alone would give (`op-09-21-note` §5). [`build`] keeps the
+//! default 2, so every other base keeps its bytes.
 
 use super::bitset::{Frozen, encode_frozen};
 use super::{
@@ -295,13 +300,38 @@ pub fn out_csr(spec: &Spec) -> Csr {
     Csr::of_lists((1..=spec.n).map(|id| spec.out_edges(id)))
 }
 
-/// Builds the base segment of `spec`.
+/// Builds the base segment of `spec`, every row's `priority` the default 2.
 pub fn build(spec: &Spec) -> Result<Vec<u8>, String> {
+    build_with(spec, |_| 2)
+}
+
+/// The salt of the `ready` probe's priorities.
+pub const SALT_P: u64 = 0x6D31_345F_7072_696F;
+
+/// The `ready` probe's priority of row #`id` (u20 cut D-12): `mix(SALT_P ^ #N) mod 5`, P0–P4 (`08-data-model.md:82`).
+pub fn ready_priority(id: u32) -> u8 {
+    (mix(SALT_P ^ u64::from(id)) % 5) as u8
+}
+
+/// The 1-byte column of the rows' priorities #1..=`n`: byte i is `prio(i + 1)`.
+pub fn priority_column(n: u32, prio: impl Fn(u32) -> u8) -> Vec<u8> {
+    (1..=n).map(prio).collect()
+}
+
+/// Builds the base segment of `spec` with row #N's `priority` = `prio(#N)` (u20 cut D-12); every other byte is
+/// [`build`]'s.
+pub fn build_with(spec: &Spec, prio: impl Fn(u32) -> u8) -> Result<Vec<u8>, String> {
     if spec.n < MIN_N {
         return Err(format!("a base has at least {MIN_N} nodes"));
     }
     let ids = 1..=spec.n;
-    let nodes: Vec<NodeHdr> = ids.clone().map(|id| spec.row(id)).collect();
+    let nodes: Vec<NodeHdr> = ids
+        .clone()
+        .map(|id| NodeHdr {
+            priority: prio(id),
+            ..spec.row(id)
+        })
+        .collect();
     let creators: Vec<Creator> = ids.clone().map(|id| spec.creator(id)).collect();
     let topo: Vec<u32> = ids.clone().map(|id| spec.topo(id)).collect();
     let defer: Vec<u32> = ids.clone().map(|id| spec.defer(id)).collect();
@@ -624,5 +654,44 @@ pub(crate) mod tests {
             );
         }
         assert!(build(&spec(MIN_N - 1)).is_err());
+    }
+
+    /// The `ready` probe's base (u20 cut D-12): `build_with` gives row #N the priority its function gives, here
+    /// [`ready_priority`], whose values are P0–P4 and all occur; every other field is the row's; and `build` is
+    /// `build_with` at the default 2, byte for byte, so every other base keeps its bytes.
+    #[test]
+    fn ready_priorities_follow_their_function_and_the_default_stays_2() {
+        let s = spec(3_000);
+        let b = build_with(&s, ready_priority).unwrap();
+        let c = Columns::parse(&b).unwrap();
+        let mut seen = BTreeSet::new();
+        for id in 1..=s.n {
+            let row = c.node(id as usize - 1);
+            assert_eq!(row.priority, ready_priority(id), "#{id}");
+            assert_eq!(
+                NodeHdr { priority: 2, ..row },
+                s.row(id),
+                "#{id}: the other fields"
+            );
+            seen.insert(row.priority);
+        }
+        assert_eq!(seen, (0..=4).collect::<BTreeSet<u8>>());
+        assert_eq!(build(&s).unwrap(), build_with(&s, |_| 2).unwrap());
+        let plain = Columns::parse(&build(&s).unwrap()).unwrap().node(9);
+        assert_eq!(plain.priority, 2);
+    }
+
+    /// The priority column holds each row's priority, byte #N − 1 the `NODE` row's `priority` (byte 3) of the base
+    /// built with the same function.
+    #[test]
+    fn priority_column_holds_each_rows_priority() {
+        let s = spec(2_000);
+        let b = build_with(&s, ready_priority).unwrap();
+        let c = Columns::parse(&b).unwrap();
+        let col = priority_column(s.n, ready_priority);
+        assert_eq!(col.len(), 2_000);
+        for (i, &p) in col.iter().enumerate() {
+            assert_eq!(p, c.node[NODE_HDR_LEN * i + 3], "#{}", i + 1);
+        }
     }
 }

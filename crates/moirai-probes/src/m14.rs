@@ -4,10 +4,10 @@
 //! overlay catch-up (T2, `:140`). T2's 16-writer wait is taken from measurement 2's run (R-24 Q7) and is not built
 //! here. The tails are u10's ([`crate::tail::synth`]), from [70 S8]'s spec-derived mix (R-24 Q10).
 //!
-//! **The grid** (18 quantities, names by [MP §4.1]), run with the deciding quantities first: `read-4096.n1e6`,
-//! `ckpt-4096.n5e5` and `catchup-16.n1e6`, then T1's read diagnostics `read-op-4096.n1e6`,
+//! **The grid** (35 quantities, names by [MP §4.1]). The night's 18 run with the deciding quantities first:
+//! `read-4096.n1e6`, `ckpt-4096.n5e5` and `catchup-16.n1e6`, then T1's read diagnostics `read-op-4096.n1e6`,
 //! `read-cost-records-4096.n1e6` and `read-cost-bytes-4096.n1e6` (R-40 O-2, R-42, R-44), then the layout probes (R-34
-//! B-3, M-15; R-35 Q2):
+//! B-3, M-15; R-35 Q2). u20's blocks follow, appended (u20 cut §3.10): T1's read with item 1a (M-A1, R-50):
 //!
 //! | Quantity | Arms (arm 0 first) | What one sample does | Minimum tier |
 //! |---|---|---|---|
@@ -23,6 +23,28 @@
 //! | `read-cost-bytes-4096.n1e6` | `bytes` | the same read through [`Counted`] on the same tail and nodes, and the sample is the bytes it decodes ([MP §4.8]). The records and the bytes are two counts of one read, so they are two quantities of one arm each: [MP §4.1] makes every arm after arm 0 a floor of the operation, and neither count is a floor of the other (R-44 I-1 (b), as R-30 Q1 reads §4.1) | t1 |
 //! | `ckpt-4096.n5e5` | `ckpt`, `ckpt.write` | T1's delta checkpoint over a fresh tail per sample (scoping §4.2): the setup writes sample j's tail ([`ckpt_tail`]) in place over the fixture's extent through a read-write handle kept for the run, zeroes the rest of the previous tail and flushes it (`sync(Data)`), all untimed; the timed op replays tail j from the extent, folds it over the base into a delta of the probe's subset (below), encodes `seg.d1`, then `create_new`, `write_at`, `sync(DataAndMeta)`, `seal`, `sync_dir` (`docs/spec/os/fs.md:411`, `:456`). The floor's sample j folds tail j from memory in its setup and writes and flushes the same bytes, so the pair is matched. The products (the tail, the delta and its bytes) are dropped and the sample's file is unlinked in the teardown, outside the timed region ([MP §4.1]). The setup's generation and rewrite lengthen a sample's untimed part, so the pilot's 1 s ([MP §4.2]) may take fewer than 5 samples; the declared minimum tier t3 bounds that | t3 (≤ 100 ms) |
 //! | `catchup-16.n1e6` | `catchup` | T2's MCP model: a long-lived process holds the overlay of a full tail but its last 16 commits (one per writer of T2's burst) and catches up: `HEAD` pread (8,192 B), the new records scanned from the extents, applied to its warm builder, the overlay finished again (`ARCHITECTURE-RESEARCH.md:783`). The warm builder is cloned in the setup and the finished overlay dropped in the teardown, both outside the timed region | t2 (catch-up p50 ≤ 5 ms) |
+//! | `read-1a-4096.n1e6`, `read-1a-1024.n1e6` | `read`, `read.op`, `read.op.at`, `read.1a` | T1's read of a node's status in an A1 tail (`design-A.md:104-129`) at P06 4,096, and at 1,024 (design-A A3's draft), from `read-<P06>.n1e6`'s seed, so their plans and read cycle are the whole read's ([`seed_name`]; the locators move lsns, u20 cut F-11). Each arm is a floor of the one before ([MP §4.1]): the whole record ([`Overlay::get`]), the frame walk, u17's offset read over an index built in the setup, and item 1a's read ([`Overlay::get_1a`]: n's newest frames from the offsets [`Overlay::replay_at`] built, then one read per hop at each record's locator). The setup replays the offsets-mode overlay from the fixture's store and refuses the run unless the four agree on every node of the cycle and no locator is refused ([`read_1a_agree`]) | t1 |
+//! | `read-1a-d4.n1e6`, `read-1a-d16.n1e6`, `read-1a-d64.n1e6` | the same four | the depth arm: the 4,096-op A1 tail with one base node, #500,000, in each of its first d commits ([`crate::tail::Shape::hot`]), its field 9 set in the first; every sample reads that field, so it walks all d records. The seed is `seed(name) ^ k` with the first k < 64 whose production tail holds at least d commits ([`Family::seed_k`]). Reported, no gate | — |
+//!
+//! Item 1a's bytes per op (M-A5) are a pinned count, not a time quantity (`a1_bytes_per_op_are_pinned_on_the_read_tails`).
+//!
+//! The probe shaped like `ready` follows (u20 cut §3.8; OP-09-21, R-51; [`ready_quantities`]), 12 quantities
+//! `ready-<mode>-<pct>pct.<N>`, the rule's three first, no minimum tier: the top 20 by (`priority`, `#N`) over an
+//! unblocked-like candidate set of 5 % or 20 % of the nodes ([`ready_candidates`], a frozen bitset), at 1e5 and 1e6,
+//! by [`ready_top20`]. Arm `rows` reads byte 3 of each candidate's 60-byte `NODE` row of a base built with the ready
+//! priorities ([`crate::seg::base::build_with`]); its floor `column` reads a 1-byte `priority` column, the sealed file
+//! `prio.col`, which changes no spec byte. The modes: `warm`, the run's maps, touched before the pilot; `first`, a staged
+//! arm whose setup maps its file afresh (`ready.rows`, a copy of the base that no live view of the run holds, or
+//! `prio.col`; `prepare`'s warm-up has put both in the OS cache and dropped its maps, D-14) and whose op borrows the map,
+//! slices `NODE` by an offset `prepare` took from the base's parse and scans (addendum I-3); `willneed`, the same with
+//! `advise(WillNeed)` over the range it reads inside the timed region. `prepare` refuses the run unless [`ready_scan`]
+//! (the first-touch ops' scan) of the bytes the arms read, `NODE` at that offset and the column, gives the naive top
+//! 20 of the candidates ([`ready_agree`], triage r1 I-1): for `warm` over the run's maps, for `first` and `willneed`
+//! over the warm-up's. [`arms`] runs each warm arm's own op once, untimed, and refuses the run unless it gives that
+//! top 20 ([`ready_warm_agree`], triage r2 I-1). Each first-touch sample's teardown checks its own top 20 against that
+//! one. **The rule**, reported, the orchestrator's to rule:
+//! split `priority` if the warm `rows` p99 exceeds 1.5 ms at 5 % and 1e6, or the first-touch `rows` p99 exceeds 2.5 ms at
+//! 1e5.
 //!
 //! **What the checkpoint omits** (review m-4). `ckpt-4096.n5e5` times a delta of the probe's subset of sections
 //! ([`crate::seg`]), not the whole delta of [F09 §16.2] (`09-segments.md:1085-1089`; the sections `:156-206`). Its
@@ -47,7 +69,10 @@
 //! test sees that it precedes the pilot, and `prefault_reads_one_byte_of_every_page` pins what it reads. The read
 //! diagnostics' in-memory setup (the id order, the buffers, the copy of the offset index) is seen only through the reads
 //! it leads to: an arm that did the same reads between its ticks but returned a value decoded in its setup would pass
-//! every test, since the rig observes reads only (u17 critique I-2).
+//! every test, since the rig observes reads only (u17 critique I-2). The `ready` arms are seen through their maps, first
+//! borrows, drops and advice: an op that scanned a map made in its setup and borrowed again would pass. A warm arm's
+//! result is checked once, when [`arms`] runs its op untimed before the arm exists ([`ready_warm_agree`]), and never
+//! per sample: a warm op whose result changed after that first call would pass every test.
 //!
 //! Every run's fixture is the base `seg.base.1` at the quantity's N ([`crate::seg::base`]), written, sealed and
 //! mapped, and, for the seven families that read one (the overlay probe, the read and its three diagnostics, the
@@ -72,7 +97,7 @@
 use crate::arm::{Arm, ArmError, Ticker, TimedFn, ValueFn};
 use crate::host::{CommandRunner, HostKind};
 use crate::m1::driver::{self, Args};
-use crate::overlay::op::OpIndex;
+use crate::overlay::op::{OpIndex, ReadStats};
 use crate::overlay::{Builder, Key, Overlay, Probe, Value, kind_key, kind_status_key};
 use crate::run::{Context, RunSpec, measure};
 use crate::seg::base::{self, Columns};
@@ -82,12 +107,14 @@ use crate::seg::{NODE_HDR_LEN, STATUS_AT, u32_at};
 use crate::tail::rec::{Payload, RecHdr};
 use crate::tail::scan::{LogSource, MemLog, scan};
 use crate::tail::store::{VfsLog, extent_name};
-use crate::tail::synth::{BASE_KIND, Clause, STATUSES, Tail, Target, generate};
-use crate::tail::{HEAD_LEN, Params, REC_HDR_LEN, TAIL_READ_CHUNK, TRAILER_LEN};
+use crate::tail::synth::{
+    BASE_KIND, Clause, HOT_FIELD, STATUSES, Tail, Target, generate, hot_node,
+};
+use crate::tail::{HEAD_LEN, Locator, Params, REC_HDR_LEN, Shape, TAIL_READ_CHUNK, TRAILER_LEN};
 use crate::tier::Tier;
 use crate::units::Unit;
 use moirai_vfs::{
-    Access, Meter, OS_SHARE_RETRY_MS, OpenHint, RelPath, RelPathBuf, RootAccess, RootRole,
+    Access, Advice, Meter, OS_SHARE_RETRY_MS, OpenHint, RelPath, RelPathBuf, RootAccess, RootRole,
     SealedMap, SealedMaps, ShareRetry, StoreFs, SyncKind, VfsErrorKind,
 };
 use std::ffi::OsString;
@@ -144,6 +171,51 @@ pub enum Family {
     Ckpt,
     /// T2's MCP overlay catch-up.
     Catchup,
+    /// T1 with item 1a (M-A1; u20 cut §3.4): `read-4096.n1e6`'s tail and nodes in A1, read by the whole record, the
+    /// frame walk, the offset read and item 1a's locator.
+    Read1a4096,
+    /// The same at P06 1,024, design-A A3's draft, from `read-1024.n1e6`'s seed.
+    Read1a1024,
+    /// The depth arm: one node in each of the 4,096-op A1 tail's first 4 commits, read through all of them.
+    Read1aDepth4,
+    /// The depth arm at 16 commits.
+    Read1aDepth16,
+    /// The depth arm at 64 commits.
+    Read1aDepth64,
+    /// The probe shaped like `ready` (u20 cut §3.8; OP-09-21): the top 20 by (`priority`, `#N`) over a candidate set,
+    /// read from `NODE`'s 60-byte rows and, as the floor, from a 1-byte `priority` column.
+    Ready(ReadyMode, Density),
+}
+
+/// How the `ready` probe touches its pages (u20 cut §3.8).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ReadyMode {
+    /// In-process, the pages resident: the run's maps, touched before the pilot.
+    Warm,
+    /// First touch: each sample maps its file afresh, the pages in the OS cache but in no live view of the process
+    /// (D-14), as a fresh CLI process finds them.
+    First,
+    /// First touch with `advise(WillNeed)` over the range it reads, inside the timed region: a reader pays for it.
+    WillNeed,
+}
+
+/// The `ready` probe's candidate density: the share of nodes in the unblocked-like set.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum Density {
+    /// 5 %.
+    P5,
+    /// 20 %.
+    P20,
+}
+
+impl Density {
+    /// The share in percent.
+    pub const fn pct(self) -> u64 {
+        match self {
+            Density::P5 => 5,
+            Density::P20 => 20,
+        }
+    }
 }
 
 impl Family {
@@ -162,6 +234,17 @@ impl Family {
             Family::ReadCostBytes => "read-cost-bytes-4096",
             Family::Ckpt => "ckpt-4096",
             Family::Catchup => "catchup-16",
+            Family::Read1a4096 => "read-1a-4096",
+            Family::Read1a1024 => "read-1a-1024",
+            Family::Read1aDepth4 => "read-1a-d4",
+            Family::Read1aDepth16 => "read-1a-d16",
+            Family::Read1aDepth64 => "read-1a-d64",
+            Family::Ready(ReadyMode::Warm, Density::P5) => "ready-warm-5pct",
+            Family::Ready(ReadyMode::Warm, Density::P20) => "ready-warm-20pct",
+            Family::Ready(ReadyMode::First, Density::P5) => "ready-first-5pct",
+            Family::Ready(ReadyMode::First, Density::P20) => "ready-first-20pct",
+            Family::Ready(ReadyMode::WillNeed, Density::P5) => "ready-willneed-5pct",
+            Family::Ready(ReadyMode::WillNeed, Density::P20) => "ready-willneed-20pct",
         }
     }
 
@@ -178,15 +261,24 @@ impl Family {
             Family::ReadCostBytes => &["bytes"],
             Family::Ckpt => &["ckpt", "ckpt.write"],
             Family::Catchup => &["catchup"],
+            Family::Read1a4096
+            | Family::Read1a1024
+            | Family::Read1aDepth4
+            | Family::Read1aDepth16
+            | Family::Read1aDepth64 => &["read", "read.op", "read.op.at", "read.1a"],
+            Family::Ready(..) => &["rows", "column"],
         }
     }
 
     /// The minimum tier: the tier of the quantity's budget ([MP §3.2]); the layout probes have none.
     pub const fn min_tier(self) -> Option<Tier> {
         match self {
-            Family::Read | Family::ReadOp | Family::ReadCostRecords | Family::ReadCostBytes => {
-                Some(Tier::T1)
-            }
+            Family::Read
+            | Family::ReadOp
+            | Family::ReadCostRecords
+            | Family::ReadCostBytes
+            | Family::Read1a4096
+            | Family::Read1a1024 => Some(Tier::T1),
             Family::Ckpt => Some(Tier::T3),
             Family::Catchup => Some(Tier::T2),
             _ => None,
@@ -204,7 +296,45 @@ impl Family {
                 | Family::ReadCostBytes
                 | Family::Ckpt
                 | Family::Catchup
+                | Family::Read1a4096
+                | Family::Read1a1024
+                | Family::Read1aDepth4
+                | Family::Read1aDepth16
+                | Family::Read1aDepth64
         )
+    }
+
+    /// The P06 of item 1a's quantities' A1 tail at production, else `None`.
+    pub const fn read_1a_p06(self) -> Option<u64> {
+        match self {
+            Family::Read1a4096
+            | Family::Read1aDepth4
+            | Family::Read1aDepth16
+            | Family::Read1aDepth64 => Some(4_096),
+            Family::Read1a1024 => Some(1_024),
+            _ => None,
+        }
+    }
+
+    /// The depth arm's d: the commits the hot node is in, all of which its read walks.
+    pub const fn depth(self) -> Option<u32> {
+        match self {
+            Family::Read1aDepth4 => Some(4),
+            Family::Read1aDepth16 => Some(16),
+            Family::Read1aDepth64 => Some(64),
+            _ => None,
+        }
+    }
+
+    /// The production k of the seed `seed(name) ^ k` (u20 cut §3.4): for a depth arm the first k < 64 whose production
+    /// tail holds at least d commits, pinned here and recomputed by
+    /// `depth_arms_read_the_hot_node_through_d_records`; 0 for every other family and at the test profile. A 4,096-op
+    /// tail of the mix holds about 40–90 commits, its long commits carrying hundreds of ops.
+    pub const fn seed_k(self) -> u64 {
+        match self {
+            Family::Read1aDepth64 => 2,
+            _ => 0,
+        }
     }
 }
 
@@ -219,9 +349,10 @@ pub struct Quantity {
     pub n: u32,
 }
 
-/// The 18 quantities in run order: the deciding quantities first (T1's read and checkpoint, T2's catch-up), then T1's
-/// read diagnostics, its evidence (R-40 O-2; the read cost's two counts as two quantities, R-44), then the layout
-/// probes at 1e5 and 1e6 (R-34 B-3, M-15).
+/// The quantities in run order: the night's 18, the deciding quantities first (T1's read and checkpoint, T2's
+/// catch-up), then T1's read diagnostics, its evidence (R-40 O-2; the read cost's two counts as two quantities, R-44),
+/// then the layout probes at 1e5 and 1e6 (R-34 B-3, M-15); then u20's block, appended (u20 cut §3.10): T1's read with
+/// item 1a at P06 4,096 and 1,024, then its depth arm at 4, 16 and 64 records (§3.4).
 pub fn grid() -> Vec<Quantity> {
     let q = |family: Family, n: u32| {
         let scale = match n {
@@ -255,7 +386,203 @@ pub fn grid() -> Vec<Quantity> {
             g.push(q(f, n));
         }
     }
+    for f in [
+        Family::Read1a4096,
+        Family::Read1a1024,
+        Family::Read1aDepth4,
+        Family::Read1aDepth16,
+        Family::Read1aDepth64,
+    ] {
+        g.push(q(f, 1_000_000));
+    }
+    g.extend(ready_quantities());
     g
+}
+
+/// The `ready` probe's 12 quantities (u20 cut §3.8): the rule's first (warm at 5 % and 1e6, first touch at 5 % and 20 %
+/// and 1e5), then the rest by mode, density and N. No minimum tier: the rule is reported, and the orchestrator rules
+/// OP-09-21 on it.
+pub fn ready_quantities() -> Vec<Quantity> {
+    use Density::{P5, P20};
+    use ReadyMode::{First, Warm, WillNeed};
+    let q = |mode: ReadyMode, d: Density, n: u32| {
+        let f = Family::Ready(mode, d);
+        Quantity {
+            name: format!(
+                "{}.{}",
+                f.stem(),
+                if n == 100_000 { "n1e5" } else { "n1e6" }
+            ),
+            family: f,
+            n,
+        }
+    };
+    let (e5, e6) = (100_000, 1_000_000);
+    vec![
+        q(Warm, P5, e6),
+        q(First, P5, e5),
+        q(First, P20, e5),
+        q(Warm, P5, e5),
+        q(Warm, P20, e5),
+        q(Warm, P20, e6),
+        q(First, P5, e6),
+        q(First, P20, e6),
+        q(WillNeed, P5, e5),
+        q(WillNeed, P5, e6),
+        q(WillNeed, P20, e5),
+        q(WillNeed, P20, e6),
+    ]
+}
+
+/// The salt of the `ready` probe's candidate set.
+pub const SALT_R: u64 = 0x6D31_345F_7265_6479;
+/// The rows `ready` returns.
+pub const READY_TOP: usize = 20;
+/// The offset of `NodeHdr.priority` in a row (`08-data-model.md:82`).
+pub const PRIORITY_AT: usize = 3;
+/// The first-touch arms' copy of the base, which no live view of the run holds (D-14).
+pub const READY_ROWS: &str = "ready.rows";
+/// The 1-byte `priority` column, a sealed file (u20 cut D-12).
+pub const PRIO_COL: &str = "prio.col";
+
+/// The unblocked-like candidates of `ready` among #1..=`n` (u20 cut D-12): `{#N : mix(SALT_R ^ #N) mod 100 < pct}`,
+/// ascending.
+pub fn ready_candidates(n: u32, pct: u64) -> Vec<u32> {
+    (1..=n)
+        .filter(|&id| mix(SALT_R ^ u64::from(id)) % 100 < pct)
+        .collect()
+}
+
+/// The `ready` probe's operation (u20 cut D-11): the members of `cands` ascending, each one's priority from `prio_of`,
+/// the top [`READY_TOP`] by (priority, `#N`) kept in a 20-entry heap; returns their ids by (priority, `#N`). Every
+/// candidate is read: the scan does not assume that priority 0 is the least, so it never stops early.
+pub fn ready_top20(cands: &Frozen<'_>, prio_of: impl Fn(u32) -> u8) -> Vec<u32> {
+    let mut heap: std::collections::BinaryHeap<(u8, u32)> =
+        std::collections::BinaryHeap::with_capacity(READY_TOP + 1);
+    let mut take = |id: u32| {
+        let key = (prio_of(id), id);
+        if heap.len() < READY_TOP {
+            heap.push(key);
+        } else if heap.peek().is_some_and(|top| key < *top) {
+            heap.pop();
+            heap.push(key);
+        }
+    };
+    for &(hi, _, c) in cands.chunks() {
+        let top = u32::from(hi) << 16;
+        match c {
+            crate::seg::bitset::Container::Array(a) => {
+                for l in a.as_chunks::<2>().0 {
+                    take(top | u32::from(u16::from_le_bytes(*l)));
+                }
+            }
+            crate::seg::bitset::Container::Bitmap(m) => {
+                for (i, &byte) in m.iter().enumerate() {
+                    let mut b = byte;
+                    while b != 0 {
+                        let bit = b.trailing_zeros();
+                        take(top | (8 * i as u32 + bit));
+                        b &= b - 1;
+                    }
+                }
+            }
+        }
+    }
+    heap.into_sorted_vec()
+        .into_iter()
+        .map(|(_, id)| id)
+        .collect()
+}
+
+/// What a `ready` scan reads of each candidate (u20 cut §3.8): byte [`PRIORITY_AT`] of its 60-byte `NODE` row (arm
+/// `rows`), or its byte of the 1-byte priority column (arm `column`).
+#[derive(Clone, Copy, Debug, Eq, PartialEq)]
+pub enum ReadyScan {
+    /// `NODE`'s rows.
+    Rows,
+    /// The priority column.
+    Column,
+}
+
+/// The `ready` scan of a file's bytes (u20 cut §3.8; triage r1 I-1): [`ready_top20`] of `cands` over the `range`
+/// (offset, length) of `bytes`, read as `scan` says. The first-touch arms' op and the setup's check ([`ready_agree`])
+/// both call it. A range that leaves `bytes` is an error; a range shorter than the candidates need panics, as an index
+/// out of bounds.
+#[inline]
+pub fn ready_scan(
+    cands: &Frozen<'_>,
+    scan: ReadyScan,
+    bytes: &[u8],
+    range: (usize, usize),
+) -> Result<Vec<u32>, String> {
+    let b = range
+        .0
+        .checked_add(range.1)
+        .and_then(|end| bytes.get(range.0..end))
+        .ok_or_else(|| format!("the range {range:?} leaves the {} bytes", bytes.len()))?;
+    Ok(match scan {
+        ReadyScan::Rows => ready_top20(cands, |id| {
+            b[NODE_HDR_LEN * (id as usize - 1) + PRIORITY_AT]
+        }),
+        ReadyScan::Column => ready_top20(cands, |id| b[id as usize - 1]),
+    })
+}
+
+/// The naive top 20 of `ready` (triage r1 I-1): the candidates `ids` sorted by ([`base::ready_priority`], `#N`), the
+/// first [`READY_TOP`]. It reads no file: it is the oracle of [`ready_agree`].
+pub fn ready_naive_top20(ids: &[u32]) -> Vec<u32> {
+    let mut v: Vec<(u8, u32)> = ids
+        .iter()
+        .map(|&id| (base::ready_priority(id), id))
+        .collect();
+    v.sort_unstable();
+    v.into_iter().take(READY_TOP).map(|p| p.1).collect()
+}
+
+/// The setup's check of the `ready` arms (triage r1 I-1; spec gate 1): [`ready_scan`] of `rows` (the rows file's bytes
+/// and `NODE`'s (offset, length) in them, [`ReadyFx::node`]) and of `col` (the column file's bytes and the range the
+/// `column` arms read) each give `want`, the naive top 20 ([`ready_naive_top20`]) of an `n`-node base. It refuses,
+/// naming the rows' range and both results, a difference; and a range that leaves its file or whose length is not `n`
+/// rows or `n` bytes.
+pub fn ready_agree(
+    cands: &Frozen<'_>,
+    n: u32,
+    want: &[u32],
+    rows: (&[u8], (usize, usize)),
+    col: (&[u8], (usize, usize)),
+) -> Result<(), String> {
+    let n = n as usize;
+    if rows.1.1 != NODE_HDR_LEN * n || col.1.1 != n {
+        return Err(format!(
+            "ready's ranges {:?} and {:?} are not {n} rows and {n} bytes",
+            rows.1, col.1
+        ));
+    }
+    let r = ready_scan(cands, ReadyScan::Rows, rows.0, rows.1)?;
+    let c = ready_scan(cands, ReadyScan::Column, col.0, col.1)?;
+    if r != want || c != want {
+        return Err(format!(
+            "ready's top 20: the rows at {:?} give {r:?}, the column {c:?}, a naive sort {want:?}",
+            rows.1
+        ));
+    }
+    Ok(())
+}
+
+/// The check of the warm `ready` arms (triage r2 I-1; spec gate 1): `got` holds each warm arm's name and the top 20
+/// its own op gave when [`arms`] ran it once, untimed, as it built the arm. Each must be `want`, the top 20 the setup
+/// checked ([`ReadyFx::top`]). It refuses, naming every arm that differs, its top 20 and `want`.
+pub fn ready_warm_agree(want: &[u32], got: &[(&str, Vec<u32>)]) -> Result<(), String> {
+    let wrong: Vec<String> = got
+        .iter()
+        .filter(|(_, top)| top != want)
+        .map(|(name, top)| format!("ready warm {name}: its top 20 {top:?}, the setup's {want:?}"))
+        .collect();
+    if wrong.is_empty() {
+        Ok(())
+    } else {
+        Err(wrong.join("; "))
+    }
 }
 
 /// The scale a run is made at.
@@ -291,27 +618,45 @@ fn seed(name: &str) -> u64 {
 }
 
 /// The name `q`'s seed is drawn from: its own, except that T1's read diagnostics take the read's at the same scale, so
-/// their tail is `read-4096`'s byte for byte and their nodes come in its order (spec Goal 1).
+/// their tail is `read-4096`'s byte for byte and their nodes come in its order (spec Goal 1); and that item 1a's reads
+/// at P06 take `read-<P06>`'s, so their plans and read cycle are the whole read's (u20 cut §3.4). The depth arms keep
+/// their own name's, with [`Family::seed_k`] at production.
 pub fn seed_name(q: &Quantity) -> String {
+    let scale = &q.name[q.family.stem().len()..];
     match q.family {
-        Family::ReadOp | Family::ReadCostRecords | Family::ReadCostBytes => format!(
-            "{}{}",
-            Family::Read.stem(),
-            &q.name[q.family.stem().len()..]
-        ),
+        Family::ReadOp | Family::ReadCostRecords | Family::ReadCostBytes => {
+            format!("{}{scale}", Family::Read.stem())
+        }
+        Family::Read1a4096 | Family::Read1a1024 => {
+            format!("read-{}{scale}", q.family.read_1a_p06().expect("a P06"))
+        }
         _ => q.name.clone(),
     }
 }
 
-/// The tail of `q` at `profile`: a full `ops` tail at P06 over the base.
+/// The tail of `q` at `profile`: a full `ops` tail at P06 over the base; for item 1a's quantities in A1, at their P06 at
+/// production, with the depth arm's option and its seed's k.
 pub fn target(q: &Quantity, profile: Profile) -> Target {
-    let p = profile.params();
+    let mut p = profile.params();
+    let k = match profile {
+        Profile::Production => q.family.seed_k(),
+        Profile::Test => 0,
+    };
+    if let Some(p06) = q.family.read_1a_p06() {
+        if profile == Profile::Production {
+            p.p06 = p06;
+        }
+        p.shape = Shape {
+            locator: Locator::A1,
+            hot: q.family.depth().unwrap_or(0),
+        };
+    }
     Target {
         clause: Clause::Ops,
         threshold: p.p06,
         mult: 1,
         n: profile.n(q.n),
-        seed: seed(&seed_name(q)),
+        seed: seed(&seed_name(q)) ^ k,
         params: p,
         rt_bound: None,
     }
@@ -556,6 +901,96 @@ pub fn point_read_op_at<S: LogSource>(
     )
 }
 
+/// How one of item 1a's four arms reads (u20 cut §3.4): each a floor of the one before it ([MP §4.1]).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum ReadPath {
+    /// `read`: the whole record ([`Overlay::get`]).
+    Whole,
+    /// `read.op`: the frame walk ([`Overlay::get_op`]).
+    Walk,
+    /// `read.op.at`: u17's offset read ([`Overlay::get_op_at`]).
+    Offset,
+    /// `read.1a`: item 1a's locator ([`Overlay::get_1a`]).
+    Item1a,
+}
+
+/// The key item 1a's quantities read: the status, or for the depth arm the hot node's field [`HOT_FIELD`].
+pub fn read_1a_key(f: Family) -> Key {
+    match f.depth() {
+        Some(_) => Key::Field(HOT_FIELD),
+        None => Key::Status,
+    }
+}
+
+/// A read's value as one number the arms return and the setup compares: a status byte (the tail's, else the base
+/// row's `NodeHdr.status`), or a field's xxh3-64 (0 when the tail does not set it: the base holds no field).
+fn value_of(p: Probe, c: &Columns<'_>, id: u32, key: &Key) -> Result<u64, String> {
+    match key {
+        Key::Status => status_of(p, c, id).map(u64::from),
+        Key::Field(_) => match p {
+            Probe::Tail(Value::Field(b)) => Ok(xxhash_rust::xxh3::xxh3_64(&b)),
+            Probe::NotInTail => Ok(0),
+            Probe::Tail(v) => Err(format!("#{id}'s {key:?} probed as {v:?}")),
+        },
+        k => Err(format!("item 1a's reads read no {k:?}")),
+    }
+}
+
+/// T1's read of `key` of `#id` by `path` through `log`: the value item 1a's arms time ([`value_of`]). `idx` serves the
+/// offset read, `o`'s offsets the read through item 1a; `buf` and `stats` are the arm's own.
+#[allow(clippy::too_many_arguments)]
+pub fn read_by<S: LogSource>(
+    path: ReadPath,
+    log: &mut S,
+    o: &Overlay,
+    idx: &OpIndex,
+    c: &Columns<'_>,
+    id: u32,
+    key: &Key,
+    buf: &mut Vec<u8>,
+    stats: &mut ReadStats,
+) -> Result<u64, String> {
+    let p = match path {
+        ReadPath::Whole => o.get(log, id, key)?,
+        ReadPath::Walk => o.get_op(log, id, key, TAIL_READ_CHUNK, buf)?,
+        ReadPath::Offset => o.get_op_at(idx, log, id, key, TAIL_READ_CHUNK, buf)?,
+        ReadPath::Item1a => o.get_1a(log, id, key, buf, stats)?,
+    };
+    value_of(p, c, id, key)
+}
+
+/// The setup's check of item 1a's quantities (u20 cut §3.4, `read_1a_agree`): reads `key` of every id of `ids` by the
+/// four paths, each through its own source, and refuses, naming the id, any difference, any failure, or a read through
+/// item 1a that refused a locator or met a (0, 0) one in the tail.
+#[allow(clippy::too_many_arguments)]
+pub fn read_1a_agree<A: LogSource, B: LogSource, C: LogSource, D: LogSource>(
+    o: &Overlay,
+    idx: &OpIndex,
+    c: &Columns<'_>,
+    ids: &[u32],
+    key: &Key,
+    whole: &mut A,
+    walk: &mut B,
+    at: &mut C,
+    item: &mut D,
+) -> Result<(), String> {
+    let mut buf = Vec::new();
+    for &id in ids {
+        let mut s = ReadStats::default();
+        let w = read_by(ReadPath::Whole, whole, o, idx, c, id, key, &mut buf, &mut s);
+        let f = read_by(ReadPath::Walk, walk, o, idx, c, id, key, &mut buf, &mut s);
+        let a = read_by(ReadPath::Offset, at, o, idx, c, id, key, &mut buf, &mut s);
+        let x = read_by(ReadPath::Item1a, item, o, idx, c, id, key, &mut buf, &mut s);
+        if w.is_err() || f != w || a != w || x != w || s.fallbacks > 0 || s.unlocated > 0 {
+            return Err(format!(
+                "#{id}: the whole-record read gives {w:?}, the frame walk {f:?}, the offset read {a:?}, item 1a \
+                 {x:?} with {s:?}"
+            ));
+        }
+    }
+    Ok(())
+}
+
 /// The ids T1's read and its diagnostics cycle through: the node index's, ordered by `mix(seed ^ id)`.
 pub fn read_cycle(o: &Overlay, seed: u64) -> Vec<u32> {
     let mut ids: Vec<u32> = o.nodes().iter().map(|e| e.n).collect();
@@ -681,6 +1116,35 @@ fn replayed<V: StoreFs + SealedMaps>(p: &Prepared<'_, V>, t: &Tail) -> Result<Ov
     )
     .map_err(|e| e.to_string())?;
     if o != t.overlay()? {
+        return Err("the overlay replayed from the store differs from the tail's".into());
+    }
+    Ok(o)
+}
+
+/// The overlay in the offsets mode replayed from the fixture's store (`Overlay::replay_at` over its extents), checked
+/// equal to the offsets-mode replay of the tail's bytes in memory, so the replay's reads are the store's (R-29).
+fn replayed_at<V: StoreFs + SealedMaps>(p: &Prepared<'_, V>, t: &Tail) -> Result<Overlay, String> {
+    let o = Overlay::replay_at(
+        &mut VfsLog::new(p.vfs, &p.root, t.expect.geo),
+        &t.expect,
+        t.start,
+        t.end,
+        t.chain_in,
+        t.base,
+        TAIL_READ_CHUNK,
+    )
+    .map_err(|e| e.to_string())?;
+    let mem = Overlay::replay_at(
+        &mut MemLog::new(t.start, &t.bytes),
+        &t.expect,
+        t.start,
+        t.end,
+        t.chain_in,
+        t.base,
+        TAIL_READ_CHUNK,
+    )
+    .map_err(|e| e.to_string())?;
+    if o != mem {
         return Err("the overlay replayed from the store differs from the tail's".into());
     }
     Ok(o)
@@ -932,9 +1396,31 @@ pub struct Prepared<'v, V: StoreFs + SealedMaps> {
     pub seed: u64,
     /// What the counting arms read besides the base ([`operands`]).
     pub operands: Operands,
+    /// The `ready` probe's fixture, for its family.
+    pub ready: Option<ReadyFx<V::Map>>,
     /// The store seam.
     pub vfs: &'v V,
     guard: FixtureGuard<'v, V>,
+}
+
+/// The `ready` probe's fixture (u20 cut §3.8; addendum I-3): its candidate set, where `NODE` lies in the rows file (taken
+/// from the base's parse in `prepare`, never from a sample's map), the files' lengths, for `warm` the run's map of the
+/// column, and the top 20 that `prepare`'s check found both files give (triage r1 I-1).
+pub struct ReadyFx<M> {
+    /// The candidate set, a frozen bitset's bytes.
+    pub cands: Vec<u8>,
+    /// `NODE`'s offset and length in the base's bytes.
+    pub node: (usize, usize),
+    /// The rows file's length.
+    pub rows_len: u64,
+    /// The column file's length, N.
+    pub col_len: u64,
+    /// The run's map of the column (`warm`), touched before the pilot.
+    pub col: Option<M>,
+    /// The naive top 20 of the candidates ([`ready_naive_top20`]): what `prepare`'s check ([`ready_agree`]) found the
+    /// arms' scan of both files gives, what [`arms`] requires of each warm arm's own op ([`ready_warm_agree`]), and
+    /// what each first-touch sample's teardown requires of its own.
+    pub top: Vec<u32>,
 }
 
 impl<V: StoreFs + SealedMaps> Prepared<'_, V> {
@@ -972,14 +1458,36 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
     let root = vfs
         .create_root(&dir, RootRole::Other)
         .map_err(|e| format!("{}: {e}", dir.display()))?;
-    let bytes = base::build(&base::Spec {
+    let spec = base::Spec {
         n,
         upto_lsn: p.e,
         base_seq: BASE_SEQ,
-    })?;
+    };
+    let ready_mode = match q.family {
+        Family::Ready(mode, _) => Some(mode),
+        _ => None,
+    };
+    let bytes = match ready_mode {
+        Some(_) => base::build_with(&spec, base::ready_priority)?,
+        None => base::build(&spec)?,
+    };
     let len = bytes.len() as u64;
     guard.files.push(BASE_NAME.into());
     seal_new(vfs, &root, BASE_NAME, &bytes).map_err(|e| e.0)?;
+    if let Some(mode) = ready_mode {
+        guard.files.push(PRIO_COL.into());
+        seal_new(
+            vfs,
+            &root,
+            PRIO_COL,
+            &base::priority_column(n, base::ready_priority),
+        )
+        .map_err(|e| e.0)?;
+        if mode != ReadyMode::Warm {
+            guard.files.push(READY_ROWS.into());
+            seal_new(vfs, &root, READY_ROWS, &bytes).map_err(|e| e.0)?;
+        }
+    }
     drop(bytes);
     if let Some(t) = &tail {
         let geo = t.expect.geo;
@@ -1019,7 +1527,64 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
         .map_sealed(&f, len, base_rel.as_rel_path())
         .map_err(|e| e.to_string())?;
     drop(f);
-    let operands = operands(q.family, &Columns::parse(map.bytes())?)?;
+    let columns = Columns::parse(map.bytes())?;
+    let operands = operands(q.family, &columns)?;
+    let ready = match q.family {
+        Family::Ready(mode, d) => {
+            let node = (
+                columns.node.as_ptr() as usize - map.bytes().as_ptr() as usize,
+                columns.node.len(),
+            );
+            let ids = ready_candidates(n, d.pct());
+            let top = ready_naive_top20(&ids);
+            let mut cands = Vec::new();
+            encode_frozen(&ids, &mut cands)?;
+            drop(ids);
+            let set = Frozen::parse(&cands)?;
+            let col_range = (0, n as usize);
+            let open_map = |name: &str, len: u64| -> Result<V::Map, String> {
+                let r = rel(name)?;
+                let f = vfs
+                    .open(&root, r.as_rel_path(), Access::Read, OpenHint::Normal)
+                    .map_err(io)?;
+                vfs.map_sealed(&f, len, r.as_rel_path())
+                    .map_err(|e| e.to_string())
+            };
+            // The setup's check (triage r1 I-1) reads the bytes the arms read: `NODE` at `node` and the column.
+            let col = match mode {
+                ReadyMode::Warm => {
+                    // The warm arms' maps: the run's base, whose parse the `rows` arm reads, and the run's column.
+                    let col = open_map(PRIO_COL, u64::from(n))?;
+                    ready_agree(&set, n, &top, (map.bytes(), node), (col.bytes(), col_range))?;
+                    Some(col)
+                }
+                ReadyMode::First | ReadyMode::WillNeed => {
+                    // The warm-up (D-14): both files' pages into the OS cache, each through one map and the check over
+                    // it, then no live view of them.
+                    let (rows, column) = (
+                        open_map(READY_ROWS, len)?,
+                        open_map(PRIO_COL, u64::from(n))?,
+                    );
+                    let (rb, cb) = (rows.bytes(), column.bytes());
+                    prefault(rb);
+                    prefault(cb);
+                    ready_agree(&set, n, &top, (rb, node), (cb, col_range))?;
+                    drop((rows, column));
+                    None
+                }
+            };
+            Some(ReadyFx {
+                cands,
+                node,
+                rows_len: len,
+                col_len: u64::from(n),
+                col,
+                top,
+            })
+        }
+        _ => None,
+    };
+    drop(columns);
     Ok(Prepared {
         map,
         root,
@@ -1028,13 +1593,15 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
         profile,
         seed: seed(&seed_name(q)),
         operands,
+        ready,
         vfs,
         guard,
     })
 }
 
 /// The arms of `q` over a prepared fixture, arm 0 first; their setup (the overlay, the warm builder, the floor's
-/// bytes) runs here, outside every timed region. The AND/popcount and scan arms time the calls of [`count_ops`].
+/// bytes, the warm `ready` ops' check) runs here, outside every timed region. The AND/popcount and scan arms time the
+/// calls of [`count_ops`].
 pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
     p: &'p Prepared<'_, V>,
     c: &'p Columns<'p>,
@@ -1218,6 +1785,135 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
                 },
             )));
         }
+        Family::Read1a4096
+        | Family::Read1a1024
+        | Family::Read1aDepth4
+        | Family::Read1aDepth16
+        | Family::Read1aDepth64 => {
+            let t = tail()?;
+            let geo = t.expect.geo;
+            let o = replayed_at(p, t)?;
+            let key = read_1a_key(q.family);
+            let ids = match q.family.depth() {
+                Some(_) => vec![hot_node(t.base.n)],
+                None => read_cycle(&o, p.seed),
+            };
+            let idx = OpIndex::build(
+                &o,
+                &mut VfsLog::new(p.vfs, &p.root, geo),
+                TAIL_READ_CHUNK,
+                &mut Vec::with_capacity(TAIL_READ_CHUNK),
+            )?;
+            // Each arm's own source; the setup's check reads through them, so every extent a sample reads is open
+            // before the pilot.
+            let mut logs: [VfsLog<'p, V>; 4] =
+                std::array::from_fn(|_| VfsLog::new(p.vfs, &p.root, geo));
+            let [l0, l1, l2, l3] = &mut logs;
+            read_1a_agree(&o, &idx, c, &ids, &key, l0, l1, l2, l3)?;
+            for ((name, path), mut log) in [
+                ("read", ReadPath::Whole),
+                ("read.op", ReadPath::Walk),
+                ("read.op.at", ReadPath::Offset),
+                ("read.1a", ReadPath::Item1a),
+            ]
+            .into_iter()
+            .zip(logs)
+            {
+                let (o, idx, ids, key) = (o.clone(), idx.clone(), ids.clone(), key.clone());
+                let mut buf = Vec::with_capacity(TAIL_READ_CHUNK);
+                let mut stats = ReadStats::default();
+                let mut k = 0usize;
+                arms.push(Box::new(TimedFn::new(name, ticker.clone(), move || {
+                    k += 1;
+                    let id = ids[k % ids.len()];
+                    read_by(path, &mut log, &o, &idx, c, id, &key, &mut buf, &mut stats)
+                        .map_err(ArmError)
+                })));
+            }
+        }
+        Family::Ready(mode, _) => {
+            let r = p.ready.as_ref().ok_or("the fixture holds no ready set")?;
+            let cands = Frozen::parse(&r.cands)?;
+            match mode {
+                ReadyMode::Warm => {
+                    let col = r.col.as_ref().ok_or("no run map of the column")?.bytes();
+                    let (c1, c2) = (cands.clone(), cands);
+                    let rows = move || -> Result<Vec<u32>, ArmError> {
+                        Ok(ready_top20(&c1, |id| {
+                            c.node[NODE_HDR_LEN * (id as usize - 1) + PRIORITY_AT]
+                        }))
+                    };
+                    let column = move || -> Result<Vec<u32>, ArmError> {
+                        Ok(ready_top20(&c2, |id| col[id as usize - 1]))
+                    };
+                    // Each arm's own op, run once here, untimed, against the top 20 the setup checked (triage r2 I-1).
+                    ready_warm_agree(
+                        &r.top,
+                        &[
+                            ("rows", rows().map_err(|e| e.0)?),
+                            ("column", column().map_err(|e| e.0)?),
+                        ],
+                    )?;
+                    arms.push(Box::new(TimedFn::new("rows", ticker.clone(), rows)));
+                    arms.push(Box::new(TimedFn::new("column", ticker.clone(), column)));
+                }
+                ReadyMode::First | ReadyMode::WillNeed => {
+                    let advise = mode == ReadyMode::WillNeed;
+                    for (name, file, range, file_len, scan) in [
+                        ("rows", READY_ROWS, r.node, r.rows_len, ReadyScan::Rows),
+                        (
+                            "column",
+                            PRIO_COL,
+                            (0, r.col_len as usize),
+                            r.col_len,
+                            ReadyScan::Column,
+                        ),
+                    ] {
+                        let cands = cands.clone();
+                        let want = r.top.clone();
+                        let at = rel(file)?;
+                        arms.push(Box::new(Staged::new(
+                            name,
+                            ticker.clone(),
+                            move || -> Result<V::Map, ArmError> {
+                                let f = p
+                                    .vfs
+                                    .open(&p.root, at.as_rel_path(), Access::Read, OpenHint::Normal)
+                                    .map_err(arm_err)?;
+                                p.vfs
+                                    .map_sealed(&f, file_len, at.as_rel_path())
+                                    .map_err(arm_err)
+                            },
+                            move |m: V::Map| -> Result<(V::Map, Vec<u32>), ArmError> {
+                                if advise {
+                                    p.vfs.advise(
+                                        &m,
+                                        range.0 as u64,
+                                        range.1 as u64,
+                                        Advice::WillNeed,
+                                    );
+                                }
+                                let top = ready_scan(&cands, scan, m.bytes(), range)
+                                    .map_err(ArmError)?;
+                                Ok((m, top))
+                            },
+                            // The sample's top 20 against the one the setup checked (triage r1 I-1), untimed.
+                            move |(m, top): (V::Map, Vec<u32>)| {
+                                let same = top == want;
+                                drop(m);
+                                if same {
+                                    Ok(())
+                                } else {
+                                    Err(ArmError(format!(
+                                        "ready {name}: the sample's top 20 {top:?}, the setup's {want:?}"
+                                    )))
+                                }
+                            },
+                        )));
+                    }
+                }
+            }
+        }
         Family::Catchup => {
             let t = tail()?;
             let (x, chain, warm) = warm(t, BURST)?;
@@ -1379,6 +2075,9 @@ fn run_one<V: StoreFs + SealedMaps, M: Meter, T: Ticker + Clone, R: CommandRunne
         }
     };
     prefault(p.map.bytes());
+    if let Some(col) = p.ready.as_ref().and_then(|r| r.col.as_ref()) {
+        prefault(col.bytes());
+    }
     let spec = RunSpec {
         measurement: MEASUREMENT,
         quantity: q.name.clone(),
@@ -1512,7 +2211,7 @@ mod tests {
         fs: &'f MemFs,
         dir: PathBuf,
         watch: Vec<String>,
-        calls: Rc<RefCell<Vec<Call>>>,
+        calls: Calls,
         ticks: Rc<RefCell<Vec<Tick>>>,
     }
 
@@ -1523,7 +2222,7 @@ mod tests {
                 fs,
                 dir: dir.to_path_buf(),
                 watch: watch.iter().map(|w| w.to_string()).collect(),
-                calls: Rc::default(),
+                calls: Calls::default(),
                 ticks: Rc::default(),
             }
         }
@@ -1571,23 +2270,74 @@ mod tests {
             let mut t = self.ticks.borrow_mut();
             t.push(Tick {
                 reads: self.fs.log().reads.len(),
-                calls: self.calls.borrow().len(),
+                calls: self.calls.lock().unwrap().len(),
                 files,
             });
             t.len() as u64
         }
     }
 
-    /// A call that [`LoggedFs`] logs on a file: an open (whether its handle may write), a write or a flush.
+    /// A call that [`LoggedFs`] logs on a file: an open (whether its handle may write), a write or a flush; and on a
+    /// map (u20 cut D-14, addendum m-3): the map, its first borrow of the bytes, its drop, and a `WillNeed` advice over
+    /// (offset, length).
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     enum Io {
         Open(bool),
         Write,
         Sync(SyncKind),
+        Map,
+        Borrow,
+        Unmap,
+        Advise(u64, u64),
     }
 
-    /// A logged call: the file's name, the number of the handle it went through, and the call.
+    /// A logged call: the file's name, the number of the handle or map it went through, and the call.
     type Call = (String, usize, Io);
+
+    /// The calls a [`LoggedFs`] and its maps log, shared with the maps, which must be `Send + Sync`
+    /// (`crates/moirai-vfs/src/map.rs:45`).
+    type Calls = std::sync::Arc<std::sync::Mutex<Vec<Call>>>;
+
+    /// A map of a [`LoggedFs`]: [`MemFs`]'s map, logging its first borrow and its drop. A map of the file
+    /// [`LoggedFs::altering`] names reads `altered`, its function's image of [`MemFs`]'s bytes.
+    struct LoggedMap {
+        inner: MemMap,
+        name: String,
+        n: usize,
+        calls: Calls,
+        borrowed: std::sync::atomic::AtomicBool,
+        altered: Option<Vec<u8>>,
+    }
+
+    impl SealedMap for LoggedMap {
+        fn bytes(&self) -> &[u8] {
+            if !self
+                .borrowed
+                .swap(true, std::sync::atomic::Ordering::Relaxed)
+            {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push((self.name.clone(), self.n, Io::Borrow));
+            }
+            self.altered
+                .as_deref()
+                .unwrap_or_else(|| self.inner.bytes())
+        }
+
+        fn len(&self) -> u64 {
+            self.inner.len()
+        }
+    }
+
+    impl Drop for LoggedMap {
+        fn drop(&mut self) {
+            self.calls
+                .lock()
+                .unwrap()
+                .push((self.name.clone(), self.n, Io::Unmap));
+        }
+    }
 
     /// An open file of a [`LoggedFs`]: [`MemFs`]'s handle, the file's name, and the handle's number (the index of its
     /// open in the log).
@@ -1597,29 +2347,44 @@ mod tests {
         n: usize,
     }
 
+    /// The bytes a map of a file reads, as a function of the file's own ([`LoggedFs::altering`]).
+    type Alter = fn(&[u8]) -> Vec<u8>;
+
     /// [`MemFs`] with every open, write and flush logged by file name and handle (u12 test r1 I-1, I-2): `MemFs`
     /// logs no write or flush, and not which handle a call goes through. Every call goes on to `fs` unchanged, so
-    /// `fs`'s own log, files and seals are as without the wrapper.
+    /// `fs`'s own log, files and seals are as without the wrapper; only a map of the file [`LoggedFs::altering`] names
+    /// reads other bytes than `fs` holds.
     struct LoggedFs<'f> {
         fs: &'f MemFs,
-        calls: Rc<RefCell<Vec<Call>>>,
+        calls: Calls,
+        alter: Option<(&'static str, Alter)>,
     }
 
     impl<'f> LoggedFs<'f> {
         fn new(fs: &'f MemFs) -> LoggedFs<'f> {
             LoggedFs {
                 fs,
-                calls: Rc::default(),
+                calls: Calls::default(),
+                alter: None,
+            }
+        }
+
+        /// The wrapper whose maps of the file `name` read `f` of its bytes (triage r1 I-1): the file in the store
+        /// stays as written.
+        fn altering(self, name: &'static str, f: Alter) -> LoggedFs<'f> {
+            LoggedFs {
+                alter: Some((name, f)),
+                ..self
             }
         }
 
         /// The calls so far.
         fn calls(&self) -> Vec<Call> {
-            self.calls.borrow().clone()
+            self.calls.lock().unwrap().clone()
         }
 
         fn log(&self, f: &LoggedFile, io: Io) {
-            self.calls.borrow_mut().push((f.name.clone(), f.n, io));
+            self.calls.lock().unwrap().push((f.name.clone(), f.n, io));
         }
 
         /// `file`, just opened as `rel`, numbered and logged.
@@ -1627,7 +2392,7 @@ mod tests {
             let f = LoggedFile {
                 file,
                 name: rel.as_str().to_string(),
-                n: self.calls.borrow().len(),
+                n: self.calls.lock().unwrap().len(),
             };
             self.log(&f, Io::Open(write));
             f
@@ -1851,19 +2616,40 @@ mod tests {
     }
 
     impl SealedMaps for LoggedFs<'_> {
-        type Map = MemMap;
+        type Map = LoggedMap;
 
         fn map_sealed(
             &self,
             f: &LoggedFile,
             expected_len: u64,
             name: RelPath<'_>,
-        ) -> Result<MemMap, MapError> {
-            self.fs.map_sealed(&f.file, expected_len, name)
+        ) -> Result<LoggedMap, MapError> {
+            let inner = self.fs.map_sealed(&f.file, expected_len, name)?;
+            let altered = match self.alter {
+                Some((file, f)) if file == name.as_str() => Some(f(inner.bytes())),
+                _ => None,
+            };
+            let mut calls = self.calls.lock().unwrap();
+            let n = calls.len();
+            calls.push((name.as_str().to_string(), n, Io::Map));
+            Ok(LoggedMap {
+                inner,
+                name: name.as_str().to_string(),
+                n,
+                calls: self.calls.clone(),
+                borrowed: false.into(),
+                altered,
+            })
         }
 
-        fn advise(&self, map: &MemMap, offset: u64, len: u64, advice: Advice) {
-            self.fs.advise(map, offset, len, advice)
+        fn advise(&self, map: &LoggedMap, offset: u64, len: u64, advice: Advice) {
+            if advice == Advice::WillNeed {
+                self.calls
+                    .lock()
+                    .unwrap()
+                    .push((map.name.clone(), map.n, Io::Advise(offset, len)));
+            }
+            self.fs.advise(&map.inner, offset, len, advice)
         }
     }
 
@@ -1944,14 +2730,17 @@ mod tests {
         (tail, b)
     }
 
-    /// 18 quantities with valid, unique names ([MP §4.1]): the six layout families at 1e5 and 1e6 (the sparse
-    /// AND/popcount pair of R-30 among them), the read, its three diagnostics and the catch-up at 1e6, the checkpoint
-    /// at 0.5 M; 22 arms; the minimum tiers of the budgets (t1 read ≤ 50 µs and its diagnostics, t3 checkpoint ≤
-    /// 100 ms, t2 catch-up ≤ 5 ms, `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and no tail
-    /// for the sparse pair; the diagnostics' arms (R-42 Q2) and their tails; the read cost's two counts as two
-    /// quantities of one arm each, since every arm after arm 0 is a floor (R-44 I-1 (b)).
+    /// The grid in run order with valid, unique names ([MP §4.1]): the night's 18 (the six layout families at 1e5 and
+    /// 1e6, the sparse AND/popcount pair of R-30 among them, the read, its three diagnostics and the catch-up at 1e6, the
+    /// checkpoint at 0.5 M), then u20's appended blocks of item 1a's 5 reads (u20 cut §3.4, §3.10) and the `ready`
+    /// probe's 12 (§3.8); 66 arms; the minimum
+    /// tiers of the budgets (t1 read ≤ 50 µs, its diagnostics and the reads with item 1a; t3 checkpoint ≤ 100 ms; t2
+    /// catch-up ≤ 5 ms, `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and the depth arms, no
+    /// tail for the sparse pair; the diagnostics' arms (R-42 Q2) and their tails; the read cost's two counts as two
+    /// quantities of one arm each, since every arm after arm 0 is a floor (R-44 I-1 (b)); item 1a's four arms, each a
+    /// floor of the one before, and their A1 targets: P06 4,096 or 1,024 at production, the depth option at d.
     #[test]
-    fn grid_has_eighteen_valid_quantities() {
+    fn grid_lists_the_valid_quantities_in_run_order() {
         let g = grid();
         let names: Vec<&str> = g.iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
@@ -1974,17 +2763,80 @@ mod tests {
                 "bitset-ab.n1e6",
                 "bitset-aa.n1e6",
                 "scan.n1e6",
-                "overlay.n1e6"
+                "overlay.n1e6",
+                "read-1a-4096.n1e6",
+                "read-1a-1024.n1e6",
+                "read-1a-d4.n1e6",
+                "read-1a-d16.n1e6",
+                "read-1a-d64.n1e6",
+                "ready-warm-5pct.n1e6",
+                "ready-first-5pct.n1e5",
+                "ready-first-20pct.n1e5",
+                "ready-warm-5pct.n1e5",
+                "ready-warm-20pct.n1e5",
+                "ready-warm-20pct.n1e6",
+                "ready-first-5pct.n1e6",
+                "ready-first-20pct.n1e6",
+                "ready-willneed-5pct.n1e5",
+                "ready-willneed-5pct.n1e6",
+                "ready-willneed-20pct.n1e5",
+                "ready-willneed-20pct.n1e6"
             ],
-            "the deciding quantities first (R-34 B-3, M-15)"
+            "the night's 18 with the deciding quantities first (R-34 B-3, M-15), then u20's block"
         );
         assert!(names.iter().all(|n| valid_name(n)));
-        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 18);
+        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 35);
         let arms: Vec<&str> = g
             .iter()
             .flat_map(|q| q.family.arms().iter().copied())
             .collect();
-        assert_eq!(arms.len(), 22);
+        assert_eq!(arms.len(), 66);
+        for q in &g[18..23] {
+            assert_eq!(
+                q.family.arms(),
+                ["read", "read.op", "read.op.at", "read.1a"],
+                "{}",
+                q.name
+            );
+            assert!(q.family.needs_tail(), "{}", q.name);
+            let t = target(q, Profile::Production);
+            let depth = q.family.depth();
+            assert_eq!(
+                (t.params.shape.locator, t.params.shape.hot, t.n),
+                (Locator::A1, depth.unwrap_or(0), 1_000_000),
+                "{}",
+                q.name
+            );
+            assert_eq!(t.threshold, q.family.read_1a_p06().unwrap(), "{}", q.name);
+            assert_eq!(t.params.p06, t.threshold, "{}", q.name);
+            assert_eq!(
+                q.family.min_tier(),
+                depth.map_or(Some(Tier::T1), |_| None),
+                "{}: t1 for the reads, none for the depth arms",
+                q.name
+            );
+            let tt = target(q, Profile::Test);
+            assert_eq!(
+                (tt.threshold, tt.n),
+                (Params::TEST.p06, 10_000),
+                "{}",
+                q.name
+            );
+        }
+        assert_eq!(
+            g[18..23]
+                .iter()
+                .map(|q| (q.family.read_1a_p06(), q.family.depth()))
+                .collect::<Vec<_>>(),
+            [
+                (Some(4_096), None),
+                (Some(1_024), None),
+                (Some(4_096), Some(4)),
+                (Some(4_096), Some(16)),
+                (Some(4_096), Some(64))
+            ]
+        );
+        assert!(g[..18].iter().all(|q| q.family.read_1a_p06().is_none()));
         assert_eq!(Family::ReadOp.arms(), ["read.op", "read.op.at"]);
         assert_eq!(Family::ReadCostRecords.arms(), ["records"]);
         assert_eq!(Family::ReadCostBytes.arms(), ["bytes"]);
@@ -2022,8 +2874,8 @@ mod tests {
         assert_eq!(target(&g[1], Profile::Test).n, 5_000);
     }
 
-    /// `--smoke` runs every quantity at the test profile with each arm once: 22 lines, one per (quantity, arm), each
-    /// ending with the arm's unit; with `--quantity` it runs that one alone.
+    /// `--smoke` runs every quantity at the test profile with each arm once: 42 lines, one per (quantity, arm), each
+    /// ending with the arm's unit; with `--quantity` it runs that one alone; each run maps its base once.
     #[test]
     fn smoke_exercises_every_arm_once() {
         let fs = MemFs::with_dir(&cwd());
@@ -2040,7 +2892,7 @@ mod tests {
         let (code, out, err) = run(&fs, &[&["--smoke"][..], &CT].concat());
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), 22, "{out}");
+        assert_eq!(lines.len(), 66, "{out}");
         let pairs: BTreeSet<(String, String)> = lines
             .iter()
             .map(|l| {
@@ -2066,7 +2918,17 @@ mod tests {
             })
             .collect();
         assert_eq!(pairs, expect);
-        assert_eq!(fs.log().maps.len(), 18, "each run maps its base once");
+        // Each run maps its base once; a warm `ready` run its column too; a first-touch one maps its two files in the
+        // warm-up and once more in each of its two samples.
+        let maps: usize = grid()
+            .iter()
+            .map(|q| match q.family {
+                Family::Ready(ReadyMode::Warm, _) => 2,
+                Family::Ready(..) => 5,
+                _ => 1,
+            })
+            .sum();
+        assert_eq!(fs.log().maps.len(), maps);
     }
 
     /// `--smoke` with the runner's contract flags records nothing: no line says recorded, every fixture is removed,
@@ -2081,7 +2943,7 @@ mod tests {
         .concat();
         let (code, out, err) = run(&fs, &args);
         assert_eq!(code, EXIT_DONE, "{err}");
-        assert_eq!(out.lines().count(), 22);
+        assert_eq!(out.lines().count(), 66);
         assert!(!out.contains("recorded"));
         assert!(
             fs.files().is_empty(),
@@ -2673,7 +3535,8 @@ mod tests {
     /// The read and its three diagnostics share their tail and their nodes (spec Goal 1): at both profiles their
     /// targets are equal; at the test profile `prepare`'s four fixtures hold byte-identical tails, the same seed and the
     /// same cycle of ids; at production `generate` gives four byte-identical tails of 4,096 ops (a production fixture
-    /// would also build a 1e6-node base). Every other quantity keeps the seed of its own name.
+    /// would also build a 1e6-node base). Every other quantity of the night's 18 keeps the seed of its own name; u20's
+    /// reads with item 1a have their own rule (`read_1a_quantities_share_the_read_tails_seed_and_nodes`).
     #[test]
     fn read_quantities_share_the_reads_tail_and_nodes() {
         let g = grid();
@@ -2719,7 +3582,7 @@ mod tests {
         for (q, t) in qs.iter().zip(&tails).skip(1) {
             assert!(t.bytes == tails[0].bytes, "{}'s production tail", q.name);
         }
-        for q in g.iter().filter(|q| !qs.contains(q)) {
+        for q in g[..18].iter().filter(|q| !qs.contains(q)) {
             assert_eq!(seed_name(q), q.name);
             assert_eq!(
                 target(q, Profile::Production).seed,
@@ -3413,14 +4276,14 @@ mod tests {
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 18);
+            assert_eq!(calls.len(), 35);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 18);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 35);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
@@ -3463,6 +4326,1019 @@ mod tests {
             let b: Vec<u8> = (0..len).map(|i| u8::from(i % PAGE == 0)).collect();
             let pages = len.div_ceil(PAGE);
             assert_eq!(prefault(&b), (pages, pages as u64), "len {len}");
+        }
+    }
+
+    /// A test-profile A1 tail of `ops` ops over N = `n`, records kept, and its base's bytes.
+    fn a1_tail_and_base(n: u32, ops: u64, seed: u64) -> (Tail, Vec<u8>) {
+        let mut t = crate::tail::synth::tests::a1(test_target(Clause::Ops, n, seed));
+        t.threshold = ops;
+        t.rt_bound = Some(u64::MAX);
+        let tail = generate(&t, true).unwrap();
+        let b = base::build(&base::Spec {
+            n,
+            upto_lsn: tail.start,
+            base_seq: BASE_SEQ,
+        })
+        .unwrap();
+        (tail, b)
+    }
+
+    /// The offsets-mode overlay of `t`, replayed from memory.
+    fn overlay_at(t: &Tail) -> Overlay {
+        Overlay::replay_at(
+            &mut MemLog::new(t.start, &t.bytes),
+            &t.expect,
+            t.start,
+            t.end,
+            t.chain_in,
+            t.base,
+            TAIL_READ_CHUNK,
+        )
+        .unwrap()
+    }
+
+    /// The four reads of item 1a's quantities of `key` of `id` through clean sources of `t`, with the stats of the read
+    /// through item 1a.
+    fn four_reads(
+        t: &Tail,
+        o: &Overlay,
+        idx: &OpIndex,
+        c: &Columns<'_>,
+        id: u32,
+        key: &Key,
+    ) -> ([Result<u64, String>; 4], ReadStats) {
+        let mut stats = ReadStats::default();
+        let mut buf = Vec::new();
+        let reads = [
+            ReadPath::Whole,
+            ReadPath::Walk,
+            ReadPath::Offset,
+            ReadPath::Item1a,
+        ]
+        .map(|path| {
+            let mut log = MemLog::new(t.start, &t.bytes);
+            read_by(path, &mut log, o, idx, c, id, key, &mut buf, &mut stats)
+        });
+        (reads, stats)
+    }
+
+    /// The offset index of `o` over `t`'s bytes.
+    fn index_of(t: &Tail, o: &Overlay) -> OpIndex {
+        OpIndex::build(
+            o,
+            &mut MemLog::new(t.start, &t.bytes),
+            TAIL_READ_CHUNK,
+            &mut Vec::new(),
+        )
+        .unwrap()
+    }
+
+    /// Item 1a's reads share the whole read's plans and nodes (u20 cut §3.4; F-11): `read-1a-4096` draws `read-4096`'s
+    /// seed and `read-1a-1024` that of `read-1024.n1e6`, while the depth arms keep their own names'; at production each
+    /// A1 read tail holds, commit by commit, the owners and op kinds of the night-form tail of the same target (for
+    /// `read-1a-4096` that is `read-4096`'s), so the read cycle is the same; only the A1 tail carries locator bytes.
+    #[test]
+    fn read_1a_quantities_share_the_read_tails_seed_and_nodes() {
+        let g = grid();
+        let of = |f: Family| g.iter().find(|q| q.family == f).unwrap().clone();
+        let read = of(Family::Read);
+        let (r4, r1) = (of(Family::Read1a4096), of(Family::Read1a1024));
+        assert_eq!(seed_name(&r4), read.name);
+        assert_eq!(seed_name(&r1), "read-1024.n1e6");
+        for f in [
+            Family::Read1aDepth4,
+            Family::Read1aDepth16,
+            Family::Read1aDepth64,
+        ] {
+            assert_eq!(seed_name(&of(f)), of(f).name);
+        }
+        let plans = |tail: &Tail| -> Vec<Vec<(u32, u8)>> {
+            tail.records
+                .iter()
+                .filter_map(|r| match &r.payload {
+                    Payload::Commit(c) => {
+                        Some(c.ops.iter().map(|o| (o.owner(), o.tag())).collect())
+                    }
+                    _ => None,
+                })
+                .collect()
+        };
+        for (q, p06) in [(&r4, 4_096), (&r1, 1_024)] {
+            let t = target(q, Profile::Production);
+            let mut night = t;
+            night.params.shape = Shape::NIGHT;
+            if p06 == 4_096 {
+                assert_eq!(night, target(&read, Profile::Production));
+            }
+            let (a, b) = (generate(&t, true).unwrap(), generate(&night, true).unwrap());
+            assert_eq!((a.measures.ops, b.measures.ops), (p06, p06), "{}", q.name);
+            assert_eq!(plans(&a), plans(&b), "{}: the same plans", q.name);
+            assert_eq!(
+                read_cycle(&a.overlay().unwrap(), t.seed),
+                read_cycle(&b.overlay().unwrap(), night.seed),
+                "{}: the same read cycle",
+                q.name
+            );
+            assert!(
+                a.measures.loc_bytes > 0 && b.measures.loc_bytes == 0,
+                "{}",
+                q.name
+            );
+        }
+    }
+
+    /// Item 1a's four reads return the whole-record read's value (spec Goal 1, u20 cut §3.4): on A1 tails of seeds 1–3
+    /// over N = 300 (owners repeat), every touched node's status is the naive map's or its base row's by all four paths,
+    /// with no locator refused; on the `read-1a-4096` test fixture every id of the cycle reads the same by all four; on
+    /// the `read-1a-d16` fixture so does the hot node's field 9, which the tail sets.
+    #[test]
+    fn read_1a_arms_return_the_whole_record_reads_value() {
+        for seed in 1..=3 {
+            let (t, b) = a1_tail_and_base(300, 400, seed);
+            let c = Columns::parse(&b).unwrap();
+            let o = overlay_at(&t);
+            let idx = index_of(&t, &o);
+            let naive = naive_status(&t);
+            let (mut from_base, mut hops) = (0, 0);
+            for e in o.nodes() {
+                let want = naive.get(&e.n).copied().unwrap_or_else(|| {
+                    from_base += 1;
+                    (e.n % 4) as u8
+                });
+                let (reads, stats) = four_reads(&t, &o, &idx, &c, e.n, &Key::Status);
+                for (i, r) in reads.iter().enumerate() {
+                    assert_eq!(r, &Ok(u64::from(want)), "seed {seed} #{} path {i}", e.n);
+                }
+                assert_eq!((stats.unlocated, stats.fallbacks), (0, 0));
+                hops += stats.located;
+            }
+            assert!(
+                naive.len() > 50 && from_base > 20 && hops > 20,
+                "both paths and hops"
+            );
+        }
+        let fs = MemFs::with_dir(&scratch());
+        for (family, depth) in [(Family::Read1a4096, false), (Family::Read1aDepth16, true)] {
+            let (q, p) = fixture(&fs, family);
+            let c = Columns::parse(p.map.bytes()).unwrap();
+            let t = p.tail.as_ref().unwrap();
+            let o = overlay_at(t);
+            let idx = index_of(t, &o);
+            let key = read_1a_key(family);
+            let ids = if depth {
+                vec![hot_node(t.base.n)]
+            } else {
+                read_cycle(&o, p.seed)
+            };
+            assert!(!ids.is_empty(), "{}", q.name);
+            for id in ids {
+                let (reads, _) = four_reads(t, &o, &idx, &c, id, &key);
+                assert!(reads[0].is_ok(), "{} #{id}: {:?}", q.name, reads[0]);
+                assert!(
+                    reads.iter().all(|r| r == &reads[0]),
+                    "{} #{id}: {reads:?}",
+                    q.name
+                );
+                assert!(!depth || reads[0] != Ok(0), "{}: field 9 is set", q.name);
+            }
+        }
+    }
+
+    /// `read.1a` times one read per hop (R-29, spec gate 1; u20 cut §3.4): over a [`LoggedFs`] and an [`FsTicker`] on
+    /// the `read-1a-4096` test fixture, one cycle of arm 3: before the first tick the setup has read the whole tail;
+    /// each sample's reads between its ticks are not empty and are exactly [`Overlay::get_1a`]'s on a `MemLog` for the
+    /// cycle's next node, the first at its newest frames' offset, never a 32-byte header; no open falls between the
+    /// ticks; and the first reads' lsns are the node index's `lsn + off`, as a multiset.
+    #[test]
+    fn read_1a_arm_times_one_read_per_hop() {
+        let fs = MemFs::with_dir(&scratch());
+        let lfs = LoggedFs::new(&fs);
+        let (q, p) = fixture(&lfs, Family::Read1a4096);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let t = p.tail.as_ref().unwrap();
+        let geo = t.expect.geo;
+        let o = overlay_at(t);
+        let ids = read_cycle(&o, p.seed);
+        assert!(ids.len() > 1, "{} ids", ids.len());
+        let ticker = FsTicker::new(&fs, p.dir(), &[]).logging(&lfs);
+        let reads0 = fs.log().reads.len();
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        assert_eq!(arms[3].name(), "read.1a");
+        let mut firsts = Vec::new();
+        let mut hops = 0;
+        for k in 0..ids.len() {
+            arms[3].sample().unwrap();
+            let (t0, t1) = ticker.last();
+            if k == 0 {
+                assert_eq!(
+                    lsn_cover(geo, &fs.log().reads[reads0..t0.reads]),
+                    [(t.start, t.end)],
+                    "the setup read the whole tail before the first tick"
+                );
+            }
+            let w = ticker.timed_reads();
+            assert!(!w.is_empty(), "sample {k}: no read between its ticks");
+            let id = ids[(k + 1) % ids.len()];
+            let mut mem = MemLog::new(t.start, &t.bytes);
+            let mut stats = ReadStats::default();
+            o.get_1a(&mut mem, id, &Key::Status, &mut Vec::new(), &mut stats)
+                .unwrap();
+            assert_eq!(w, as_store_reads(geo, &mem.reads), "sample {k}: #{id}");
+            assert!(
+                w.iter().all(|r| r.2 != REC_HDR_LEN),
+                "sample {k}: a header read"
+            );
+            hops += stats.located;
+            let opens: Vec<Call> = lfs.calls()[t0.calls..t1.calls]
+                .iter()
+                .filter(|c| matches!(c.2, Io::Open(_)))
+                .cloned()
+                .collect();
+            assert!(
+                opens.is_empty(),
+                "sample {k}: an open between the ticks: {opens:?}"
+            );
+            let (name, off, _) = &w[0];
+            let n: u64 = name.strip_prefix("log.").unwrap().parse().unwrap();
+            firsts.push(geo.extent_start(n) + off);
+        }
+        let mut want: Vec<u64> = o
+            .nodes()
+            .iter()
+            .zip(o.at())
+            .map(|(e, l)| e.lsn + u64::from(l.off))
+            .collect();
+        want.sort_unstable();
+        firsts.sort_unstable();
+        assert_eq!(
+            firsts, want,
+            "the cycle's first reads are the newest frames' offsets"
+        );
+        assert_eq!(ticker.count(), 2 * ids.len(), "two ticks per sample");
+        let _ = hops;
+    }
+
+    /// The setup refuses a disagreeing read (spec Goal 1; u20 cut §3.4): [`read_1a_agree`] is `Ok` over four clean
+    /// sources of an A1 tail; it refuses, naming the node, a changed `SetStatus` byte in the read through item 1a's
+    /// source alone, and a locator whose `prev_len` is one byte longer in that source alone, which the read refuses and
+    /// reads by the frame walk: the same value, one fallback.
+    #[test]
+    fn read_1a_setup_refuses_a_disagreeing_read() {
+        let (t, b) = a1_tail_and_base(300, 400, 1);
+        let c = Columns::parse(&b).unwrap();
+        let o = overlay_at(&t);
+        let idx = index_of(&t, &o);
+        let ids = read_cycle(&o, 7);
+        let agree = |item: &Vec<u8>| {
+            read_1a_agree(
+                &o,
+                &idx,
+                &c,
+                &ids,
+                &Key::Status,
+                &mut MemLog::new(t.start, &t.bytes),
+                &mut MemLog::new(t.start, &t.bytes),
+                &mut MemLog::new(t.start, &t.bytes),
+                &mut MemLog::new(t.start, item),
+            )
+        };
+        assert_eq!(agree(&t.bytes), Ok(()));
+        let newest: BTreeMap<u32, u64> = o.nodes().iter().map(|e| (e.n, e.lsn)).collect();
+        let commits: Vec<(u64, &Commit<'_>)> = t
+            .records
+            .iter()
+            .filter_map(|r| match &r.payload {
+                Payload::Commit(cm) => Some((r.lsn, &**cm)),
+                _ => None,
+            })
+            .collect();
+        // A SetStatus in its owner's newest record: its new status changed.
+        let (n, at) = commits
+            .iter()
+            .find_map(|(lsn, cm)| {
+                cm.ops.iter().find_map(|op| match op {
+                    Op::SetStatus { id, .. } if newest[id] == *lsn => {
+                        let (_, off, len) =
+                            cm.op_spans().unwrap().into_iter().find(|s| s.0 == *id)?;
+                        let end = (*lsn - t.start) as usize + REC_HDR_LEN + (off + len) as usize;
+                        Some((*id, end - 2))
+                    }
+                    _ => None,
+                })
+            })
+            .expect("a SetStatus in its owner's newest record");
+        let mut bad = t.bytes.clone();
+        bad[at] = (bad[at] + 1) % 4;
+        let r = agree(&bad);
+        assert!(
+            r.as_ref().is_err_and(|e| e.starts_with(&format!("#{n}:"))),
+            "{r:?}"
+        );
+        // A node whose status read hops: its newest record's locator, prev_len one byte longer.
+        let (n, at) = commits
+            .iter()
+            .find_map(|(lsn, cm)| {
+                cm.locs.iter().find_map(|(id, loc)| {
+                    let own: Vec<&Op<'_>> = cm.ops.iter().filter(|o| o.owner() == *id).collect();
+                    let sets = own.iter().any(|o| matches!(o, Op::SetStatus { .. }));
+                    if newest[id] != *lsn || sets || *lsn - own[0].prev() < t.start || loc.len >= 127 {
+                        return None;
+                    }
+                    let (_, off, _) = cm.op_spans().unwrap().into_iter().find(|s| s.0 == *id)?;
+                    let frame = (*lsn - t.start) as usize + REC_HDR_LEN + off as usize;
+                    let mut r = crate::tail::enc::Reader::new(&t.bytes[frame..]);
+                    r.u8().ok()?;
+                    r.uvar32().ok()?;
+                    r.uvar32().ok()?;
+                    r.uvar64().ok()?;
+                    r.uvar32().ok()?;
+                    let pos = r.pos();
+                    (r.uvar32().ok()? == loc.len).then_some((*id, frame + pos))
+                })
+            })
+            .expect("a node whose newest record does not set its status and whose chain stays in the tail");
+        let mut longer = t.bytes.clone();
+        longer[at] += 1;
+        let r = agree(&longer);
+        assert!(
+            r.as_ref()
+                .is_err_and(|e| e.starts_with(&format!("#{n}:")) && e.contains("fallbacks: 1")),
+            "{r:?}"
+        );
+    }
+
+    /// The setup refuses a hop that item 1a's read took unlocated (triage r1 I-2): over the hand-built A1 tail
+    /// ([`crate::tail::testdata::hand_built_with`]; base N = 50) whose writer wrote (0, 0) for #3's `prev` into the
+    /// tail, the whole-record read, the frame walk, the offset read and item 1a's read give #3's status alike, and item
+    /// 1a's read refuses no locator; [`read_1a_agree`] over the base's nodes of the cycle still refuses, naming #3 and
+    /// its one unlocated hop. Over the clean tail it is `Ok`.
+    #[test]
+    fn read_1a_setup_refuses_an_unlocated_hop() {
+        use crate::tail::PrevLoc;
+        use crate::tail::testdata::{CHAIN_IN, START, hand_built_with};
+        let base = crate::overlay::Base {
+            n: 50,
+            kind: 1,
+            statuses: 4,
+        };
+        let b = base::build(&base::Spec {
+            n: base.n,
+            upto_lsn: START,
+            base_seq: BASE_SEQ,
+        })
+        .unwrap();
+        let c = Columns::parse(&b).unwrap();
+        for zero3 in [false, true] {
+            let hb = hand_built_with(
+                Locator::A1,
+                &move |o: u32, loc: PrevLoc, _: &[(u32, PrevLoc)]| {
+                    if zero3 && o == 3 {
+                        PrevLoc::default()
+                    } else {
+                        loc
+                    }
+                },
+            );
+            let src = || MemLog::new(START, &hb.bytes);
+            let end = START + hb.bytes.len() as u64;
+            let o = Overlay::replay_at(
+                &mut src(),
+                &hb.expect,
+                START,
+                end,
+                CHAIN_IN,
+                base,
+                TAIL_READ_CHUNK,
+            )
+            .unwrap();
+            let idx = OpIndex::build(&o, &mut src(), TAIL_READ_CHUNK, &mut Vec::new()).unwrap();
+            // The base's nodes: a status read of a node the tail created and the base lacks ends in "no base row".
+            let mut ids = read_cycle(&o, 7);
+            ids.retain(|&id| id <= base.n);
+            assert!(ids.contains(&3), "#3 in the cycle");
+            let r = read_1a_agree(
+                &o,
+                &idx,
+                &c,
+                &ids,
+                &Key::Status,
+                &mut src(),
+                &mut src(),
+                &mut src(),
+                &mut src(),
+            );
+            if !zero3 {
+                assert_eq!(r, Ok(()), "the clean tail");
+                continue;
+            }
+            let w = read_by(
+                ReadPath::Whole,
+                &mut src(),
+                &o,
+                &idx,
+                &c,
+                3,
+                &Key::Status,
+                &mut Vec::new(),
+                &mut ReadStats::default(),
+            );
+            assert!(w.is_ok(), "#3: {w:?}");
+            let all = format!(
+                "gives {w:?}, the frame walk {w:?}, the offset read {w:?}, item 1a {w:?} with"
+            );
+            assert!(
+                r.as_ref().is_err_and(|e| e.starts_with("#3:")
+                    && e.contains(&all)
+                    && e.contains("unlocated: 1, fallbacks: 0 }")),
+                "{r:?}"
+            );
+        }
+    }
+
+    /// The depth arm reads the hot node through d records (u20 cut §3.4; critique m-1): at production each depth arm's
+    /// seed `seed(name) ^ k` takes the pinned [`Family::seed_k`], the first k < 64 whose tail holds at least d commits,
+    /// and the hot node #500,000 is in exactly its first d; at the test profile (k = 0) #5,000 is in its first
+    /// min(d, commits). Item 1a's read of the hot node's field 9 returns the first commit's value after d − 1 (or
+    /// min(d, commits) − 1) hops through locators, none refused.
+    #[test]
+    fn depth_arms_read_the_hot_node_through_d_records() {
+        let g = grid();
+        let mut buf = Vec::new();
+        for f in [
+            Family::Read1aDepth4,
+            Family::Read1aDepth16,
+            Family::Read1aDepth64,
+        ] {
+            let q = g.iter().find(|q| q.family == f).unwrap();
+            let d = f.depth().unwrap() as usize;
+            for profile in [Profile::Production, Profile::Test] {
+                let t = target(q, profile);
+                let tail = generate(&t, true).unwrap();
+                let hot = hot_node(t.n);
+                let commits: Vec<&Commit<'_>> = tail
+                    .records
+                    .iter()
+                    .filter_map(|r| match &r.payload {
+                        Payload::Commit(c) => Some(&**c),
+                        _ => None,
+                    })
+                    .collect();
+                if profile == Profile::Production {
+                    assert_eq!(hot, 500_000);
+                    assert!(commits.len() >= d, "{}: {} commits", q.name, commits.len());
+                    let k = f.seed_k();
+                    assert_eq!(t.seed, seed(&q.name) ^ k, "{}", q.name);
+                    for j in 0..k {
+                        let mut tj = t;
+                        tj.seed = seed(&q.name) ^ j;
+                        let m = generate(&tj, false).unwrap().measures;
+                        assert!(
+                            m.commits < d as u64,
+                            "{}: k = {j} already holds {} commits",
+                            q.name,
+                            m.commits
+                        );
+                    }
+                }
+                let records = d.min(commits.len());
+                let with: Vec<bool> = commits
+                    .iter()
+                    .map(|c| c.ops.iter().any(|o| o.owner() == hot))
+                    .collect();
+                assert!(
+                    with[..records].iter().all(|&w| w) && !with[records..].iter().any(|&w| w),
+                    "{} {profile:?}: #{hot} in exactly the first {records} commits",
+                    q.name
+                );
+                let o = overlay_at(&tail);
+                let mut stats = ReadStats::default();
+                let got = o.get_1a(
+                    &mut MemLog::new(tail.start, &tail.bytes),
+                    hot,
+                    &Key::Field(HOT_FIELD),
+                    &mut buf,
+                    &mut stats,
+                );
+                assert!(matches!(got, Ok(Probe::Tail(Value::Field(_)))), "{got:?}");
+                assert_eq!(
+                    stats,
+                    ReadStats {
+                        located: records as u64 - 1,
+                        unlocated: 0,
+                        fallbacks: 0,
+                    },
+                    "{} {profile:?}",
+                    q.name
+                );
+            }
+        }
+    }
+
+    /// M-A5, item 1a's bytes per op (u20 cut D-10; `design-A.md:117` estimates 0.5–3 %): on the two production read tails
+    /// in A1, (ops, `rec_bytes`, `loc_bytes`) are pinned. `read-1a-4096.n1e6`: 4,096 ops, 1,748,587 B of records of which
+    /// 7,564 B are locators, a growth `loc_bytes / (rec_bytes − loc_bytes)` of 0.43 %, 1.85 B per op;
+    /// `read-1a-1024.n1e6`: 1,024 ops, 379,323 B and 1,859 B, 0.49 %, 1.82 B per op. The mix's long commits carry most
+    /// ops, one locator per touched node, so the growth sits at the low end of design-A's estimate.
+    #[test]
+    fn a1_bytes_per_op_are_pinned_on_the_read_tails() {
+        let g = grid();
+        let mut got = Vec::new();
+        for f in [Family::Read1a4096, Family::Read1a1024] {
+            let q = g.iter().find(|q| q.family == f).unwrap();
+            let m = generate(&target(q, Profile::Production), false)
+                .unwrap()
+                .measures;
+            got.push((m.ops, m.rec_bytes, m.loc_bytes));
+        }
+        assert_eq!(got, [(4_096, 1_748_587, 7_564), (1_024, 379_323, 1_859)]);
+    }
+
+    /// The `ready` operation (u20 cut D-11, D-12): over bases built with the ready priorities at N = 1,000 and 70,000
+    /// (two chunks; at 20 % the first chunk is a bitmap, at 5 % an array), `ready_top20` over `NODE`'s rows equals it
+    /// over the priority column and a naive sort of the candidates by (priority, `#N`), the first 20; the candidates are
+    /// about the density's share; and a column with other priorities gives another top 20, so the floor reads its own
+    /// column.
+    #[test]
+    fn ready_top20_rows_equal_the_column_and_a_naive_sort() {
+        for n in [1_000u32, 70_000] {
+            let b = base::build_with(
+                &base::Spec {
+                    n,
+                    upto_lsn: 1 << 16,
+                    base_seq: BASE_SEQ,
+                },
+                base::ready_priority,
+            )
+            .unwrap();
+            let c = Columns::parse(&b).unwrap();
+            let col = base::priority_column(n, base::ready_priority);
+            for d in [Density::P5, Density::P20] {
+                let ids = ready_candidates(n, d.pct());
+                let want = u64::from(n) * d.pct() / 100;
+                assert!(
+                    (ids.len() as u64).abs_diff(want) < want / 4 + 10,
+                    "N {n} {d:?}: {} candidates",
+                    ids.len()
+                );
+                let mut fb = Vec::new();
+                encode_frozen(&ids, &mut fb).unwrap();
+                let f = Frozen::parse(&fb).unwrap();
+                if n == 70_000 {
+                    let first_bitmap = matches!(f.chunks()[0].2, Container::Bitmap(_));
+                    assert_eq!(first_bitmap, d == Density::P20, "N {n} {d:?}");
+                }
+                let rows = ready_top20(&f, |id| {
+                    c.node[NODE_HDR_LEN * (id as usize - 1) + PRIORITY_AT]
+                });
+                let column = ready_top20(&f, |id| col[id as usize - 1]);
+                let mut naive: Vec<(u8, u32)> = ids
+                    .iter()
+                    .map(|&id| (base::ready_priority(id), id))
+                    .collect();
+                naive.sort_unstable();
+                let naive: Vec<u32> = naive.iter().take(READY_TOP).map(|p| p.1).collect();
+                assert_eq!(rows, naive, "N {n} {d:?}: rows");
+                assert_eq!(column, rows, "N {n} {d:?}: column");
+                let rotated: Vec<u8> = col.iter().map(|p| (p + 1) % 5).collect();
+                assert_ne!(
+                    ready_top20(&f, |id| rotated[id as usize - 1]),
+                    rows,
+                    "N {n} {d:?}: the column's own priorities"
+                );
+            }
+        }
+    }
+
+    /// The `ready` probe's 12 quantities (u20 cut §3.8): every mode at 5 % and 20 % at 1e5 and 1e6, the rule's three
+    /// first; arms `rows` and its floor `column`; no minimum tier, no tail; N / 100 at the test profile.
+    #[test]
+    fn ready_quantities_have_their_modes_densities_and_sizes() {
+        let g = ready_quantities();
+        let got: Vec<(&str, Family, u32)> =
+            g.iter().map(|q| (q.name.as_str(), q.family, q.n)).collect();
+        use Density::{P5, P20};
+        use ReadyMode::{First, Warm, WillNeed};
+        assert_eq!(
+            got,
+            [
+                ("ready-warm-5pct.n1e6", Family::Ready(Warm, P5), 1_000_000),
+                ("ready-first-5pct.n1e5", Family::Ready(First, P5), 100_000),
+                ("ready-first-20pct.n1e5", Family::Ready(First, P20), 100_000),
+                ("ready-warm-5pct.n1e5", Family::Ready(Warm, P5), 100_000),
+                ("ready-warm-20pct.n1e5", Family::Ready(Warm, P20), 100_000),
+                ("ready-warm-20pct.n1e6", Family::Ready(Warm, P20), 1_000_000),
+                ("ready-first-5pct.n1e6", Family::Ready(First, P5), 1_000_000),
+                (
+                    "ready-first-20pct.n1e6",
+                    Family::Ready(First, P20),
+                    1_000_000
+                ),
+                (
+                    "ready-willneed-5pct.n1e5",
+                    Family::Ready(WillNeed, P5),
+                    100_000
+                ),
+                (
+                    "ready-willneed-5pct.n1e6",
+                    Family::Ready(WillNeed, P5),
+                    1_000_000
+                ),
+                (
+                    "ready-willneed-20pct.n1e5",
+                    Family::Ready(WillNeed, P20),
+                    100_000
+                ),
+                (
+                    "ready-willneed-20pct.n1e6",
+                    Family::Ready(WillNeed, P20),
+                    1_000_000
+                ),
+            ]
+        );
+        for q in &g {
+            assert!(valid_name(&q.name), "{}", q.name);
+            assert_eq!(q.family.arms(), ["rows", "column"]);
+            assert_eq!((q.family.min_tier(), q.family.needs_tail()), (None, false));
+            assert_eq!(Profile::Test.n(q.n), q.n / TEST_SCALE);
+        }
+        assert_eq!(grid()[23..], g[..]);
+    }
+
+    /// The calls of `lfs` from `from` to `to` on the file `name`.
+    fn calls_on(lfs: &LoggedFs<'_>, from: usize, to: usize, name: &str) -> Vec<(usize, Io)> {
+        lfs.calls()[from..to]
+            .iter()
+            .filter(|c| c.0 == name)
+            .map(|c| (c.1, c.2))
+            .collect()
+    }
+
+    /// The warm arms read the run's resident maps (u20 cut §3.8): over a [`LoggedFs`], `prepare` keeps the base's map and
+    /// the column's for the run, and each `rows` and `column` sample makes no map, no drop, no advice and no read between
+    /// its ticks: its pages are the run's.
+    #[test]
+    fn ready_warm_arms_read_the_resident_maps() {
+        let fs = MemFs::with_dir(&scratch());
+        let lfs = LoggedFs::new(&fs);
+        let (q, p) = fixture(&lfs, Family::Ready(ReadyMode::Warm, Density::P5));
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        assert!(
+            p.ready.as_ref().unwrap().col.is_some(),
+            "{}: the run's column",
+            q.name
+        );
+        let ticker = FsTicker::new(&fs, p.dir(), &[]).logging(&lfs);
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        assert_eq!(
+            arms.iter().map(|a| a.name()).collect::<Vec<_>>(),
+            ["rows", "column"]
+        );
+        for k in 0..2 {
+            for arm in arms.iter_mut() {
+                arm.sample().unwrap();
+                let (t0, t1) = ticker.last();
+                let between = &lfs.calls()[t0.calls..t1.calls];
+                assert!(between.is_empty(), "{} sample {k}: {between:?}", arm.name());
+                assert!(ticker.timed_reads().is_empty(), "{} sample {k}", arm.name());
+            }
+        }
+        let live = |name: &str| {
+            let all = calls_on(&lfs, 0, lfs.calls().len(), name);
+            all.iter().filter(|c| c.1 == Io::Map).count()
+                - all.iter().filter(|c| c.1 == Io::Unmap).count()
+        };
+        assert_eq!(
+            (live(BASE_NAME), live(PRIO_COL)),
+            (1, 1),
+            "the run's two maps"
+        );
+    }
+
+    /// First touch maps afresh (u20 cut §3.8, D-14; addendum I-3): over a [`LoggedFs`], `prepare`'s warm-up maps
+    /// `ready.rows` and `prio.col` once each, borrows each, and drops both before the arms exist. Then every `rows` and
+    /// `column` sample maps its file once in its setup, before t0, where no other map of that file is alive; the fresh
+    /// map's first borrow falls between the ticks, with no other map, and the map is dropped after t1, in the teardown.
+    /// The run's base map is `seg.base.1`, which the first-touch arms never map.
+    #[test]
+    fn ready_first_touch_maps_afresh_each_sample() {
+        let fs = MemFs::with_dir(&scratch());
+        let lfs = LoggedFs::new(&fs);
+        let (q, p) = fixture(&lfs, Family::Ready(ReadyMode::First, Density::P5));
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let before = lfs.calls().len();
+        for name in [READY_ROWS, PRIO_COL] {
+            let warmup: Vec<Io> = calls_on(&lfs, 0, before, name)
+                .into_iter()
+                .map(|c| c.1)
+                .filter(|io| matches!(io, Io::Map | Io::Borrow | Io::Unmap))
+                .collect();
+            assert_eq!(
+                warmup,
+                [Io::Map, Io::Borrow, Io::Unmap],
+                "{}: {name}'s warm-up",
+                q.name
+            );
+        }
+        let ticker = FsTicker::new(&fs, p.dir(), &[]).logging(&lfs);
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        let mut from = lfs.calls().len();
+        for k in 0..2 {
+            for (arm, file) in arms.iter_mut().zip([READY_ROWS, PRIO_COL]) {
+                arm.sample().unwrap();
+                let (t0, t1) = ticker.last();
+                let setup = calls_on(&lfs, from, t0.calls, file);
+                let maps: Vec<usize> = setup
+                    .iter()
+                    .filter(|c| c.1 == Io::Map)
+                    .map(|c| c.0)
+                    .collect();
+                assert_eq!(
+                    maps.len(),
+                    1,
+                    "{file} sample {k}: one map in the setup: {setup:?}"
+                );
+                let fresh = maps[0];
+                let upto = calls_on(&lfs, 0, t0.calls, file);
+                let alive = upto.iter().filter(|c| c.1 == Io::Map).count()
+                    - upto.iter().filter(|c| c.1 == Io::Unmap).count();
+                assert_eq!(alive, 1, "{file} sample {k}: a warm-up map alive at t0");
+                let timed = calls_on(&lfs, t0.calls, t1.calls, file);
+                assert_eq!(
+                    timed,
+                    [(fresh, Io::Borrow)],
+                    "{file} sample {k}: the first borrow between the ticks"
+                );
+                assert!(
+                    lfs.calls()[t0.calls..t1.calls]
+                        .iter()
+                        .all(|c| c.2 != Io::Map),
+                    "{file} sample {k}: a map between the ticks"
+                );
+                let after = calls_on(&lfs, t1.calls, lfs.calls().len(), file);
+                assert_eq!(
+                    after,
+                    [(fresh, Io::Unmap)],
+                    "{file} sample {k}: dropped in the teardown"
+                );
+                from = lfs.calls().len();
+            }
+        }
+        assert!(
+            calls_on(&lfs, before, lfs.calls().len(), BASE_NAME).is_empty(),
+            "the arms never touch the run's base map"
+        );
+    }
+
+    /// `willneed` advises inside the timed region (u20 cut §3.8): over a [`LoggedFs`], each sample's `WillNeed` advice,
+    /// over `NODE`'s range of `ready.rows` for `rows` and the whole column for `column`, falls between its ticks on the
+    /// fresh map, before that map's first borrow, and never in the setup.
+    #[test]
+    fn ready_willneed_advises_inside_the_timed_region() {
+        let fs = MemFs::with_dir(&scratch());
+        let lfs = LoggedFs::new(&fs);
+        let (q, p) = fixture(&lfs, Family::Ready(ReadyMode::WillNeed, Density::P5));
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let r = p.ready.as_ref().unwrap();
+        let node = (r.node.0 as u64, r.node.1 as u64);
+        let ticker = FsTicker::new(&fs, p.dir(), &[]).logging(&lfs);
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        let mut from = lfs.calls().len();
+        for k in 0..2 {
+            for (arm, (file, range)) in arms
+                .iter_mut()
+                .zip([(READY_ROWS, node), (PRIO_COL, (0, u64::from(p.n)))])
+            {
+                arm.sample().unwrap();
+                let (t0, t1) = ticker.last();
+                let setup = calls_on(&lfs, from, t0.calls, file);
+                assert!(
+                    !setup.iter().any(|c| matches!(c.1, Io::Advise(..))),
+                    "{} {file} sample {k}: advice in the setup",
+                    q.name
+                );
+                let fresh = setup.iter().find(|c| c.1 == Io::Map).unwrap().0;
+                let timed = calls_on(&lfs, t0.calls, t1.calls, file);
+                assert_eq!(
+                    timed,
+                    [(fresh, Io::Advise(range.0, range.1)), (fresh, Io::Borrow)],
+                    "{file} sample {k}"
+                );
+                from = lfs.calls().len();
+            }
+        }
+    }
+
+    /// The setup's check of the `ready` arms refuses a wrong `NODE` offset (triage r1 I-1; test r1 M4): over a base
+    /// built with the ready priorities at N = 1,000 and its priority column, at 5 % and 20 %, [`ready_agree`] is `Ok`
+    /// at `NODE`'s own offset. It refuses, naming the rows' range, the offset 0 (M4: `prepare`'s offset × 0) and one row
+    /// past `NODE`'s; and it refuses a column of other priorities, a range that leaves the file and a length that is
+    /// not N rows.
+    #[test]
+    fn ready_agree_refuses_a_wrong_node_offset() {
+        let n = 1_000u32;
+        let b = base::build_with(
+            &base::Spec {
+                n,
+                upto_lsn: 1 << 16,
+                base_seq: BASE_SEQ,
+            },
+            base::ready_priority,
+        )
+        .unwrap();
+        let c = Columns::parse(&b).unwrap();
+        let node = (c.node.as_ptr() as usize - b.as_ptr() as usize, c.node.len());
+        let col = base::priority_column(n, base::ready_priority);
+        let rotated: Vec<u8> = col.iter().map(|p| (p + 1) % 5).collect();
+        let col_range = (0, n as usize);
+        for d in [Density::P5, Density::P20] {
+            let ids = ready_candidates(n, d.pct());
+            let want = ready_naive_top20(&ids);
+            assert_eq!(want.len(), READY_TOP, "{d:?}");
+            let mut fb = Vec::new();
+            encode_frozen(&ids, &mut fb).unwrap();
+            let f = Frozen::parse(&fb).unwrap();
+            let agree = |rows: (usize, usize), col: &[u8]| {
+                ready_agree(&f, n, &want, (&b, rows), (col, col_range))
+            };
+            assert_eq!(agree(node, &col), Ok(()), "{d:?}");
+            for wrong in [(0, node.1), (node.0 + NODE_HDR_LEN, node.1)] {
+                let r = agree(wrong, &col);
+                assert!(
+                    r.as_ref()
+                        .is_err_and(|e| e
+                            .starts_with(&format!("ready's top 20: the rows at {wrong:?} give"))),
+                    "{d:?} {wrong:?}: {r:?}"
+                );
+            }
+            let r = agree(node, &rotated);
+            assert!(
+                r.as_ref().is_err_and(|e| e.starts_with("ready's top 20:")),
+                "{d:?}: {r:?}"
+            );
+            let r = agree((b.len() - node.1 + 1, node.1), &col);
+            assert!(
+                r.as_ref().is_err_and(|e| e.contains("leaves the")),
+                "{d:?}: {r:?}"
+            );
+            let r = agree((node.0, node.1 - NODE_HDR_LEN), &col);
+            assert!(
+                r.as_ref().is_err_and(|e| e.contains("are not 1000 rows")),
+                "{d:?}: {r:?}"
+            );
+        }
+    }
+
+    /// A base's bytes with every `NODE` row's priority rotated by 1 (mod 5), every other byte kept.
+    fn rotate_row_priorities(b: &[u8]) -> Vec<u8> {
+        let c = Columns::parse(b).unwrap();
+        let at = c.node.as_ptr() as usize - b.as_ptr() as usize;
+        let mut v = b.to_vec();
+        for i in 0..c.node.len() / NODE_HDR_LEN {
+            let p = &mut v[at + NODE_HDR_LEN * i + PRIORITY_AT];
+            *p = (*p + 1) % 5;
+        }
+        v
+    }
+
+    /// A priority column's bytes rotated by 1 (mod 5).
+    fn rotate_column(b: &[u8]) -> Vec<u8> {
+        b.iter().map(|p| (p + 1) % 5).collect()
+    }
+
+    /// The setup refuses `ready` files whose bytes give another top 20 (triage r1 I-1): over a [`LoggedFs`] whose maps of
+    /// one file read its priorities rotated by 1 (mod 5), `prepare` refuses every mode, naming the top 20s, when that
+    /// file is the column or the rows the mode's `rows` arm reads (the run's base for `warm`, `ready.rows` for `first`
+    /// and `willneed`). Each mode's check reads the bytes its arms map. The fixture is removed on that path too.
+    #[test]
+    fn ready_setup_refuses_files_that_give_another_top20() {
+        for mode in [ReadyMode::Warm, ReadyMode::First, ReadyMode::WillNeed] {
+            let q = grid()
+                .into_iter()
+                .find(|q| q.family == Family::Ready(mode, Density::P5))
+                .unwrap();
+            let rows = if mode == ReadyMode::Warm {
+                BASE_NAME
+            } else {
+                READY_ROWS
+            };
+            let alters: [(&'static str, Alter); 2] =
+                [(PRIO_COL, rotate_column), (rows, rotate_row_priorities)];
+            for (file, alter) in alters {
+                let fs = MemFs::with_dir(&scratch());
+                let lfs = LoggedFs::new(&fs).altering(file, alter);
+                let r = prepare(&lfs, &scratch(), &q, Profile::Test).map(|_| ());
+                assert!(
+                    r.as_ref().is_err_and(|e| e.starts_with("ready's top 20:")),
+                    "{} {file}: {r:?}",
+                    q.name
+                );
+                assert!(fs.files().is_empty(), "{} {file}: {:?}", q.name, fs.files());
+            }
+        }
+    }
+
+    /// Every `ready` fixture holds the top 20 its setup checked, and each first-touch sample's teardown checks its own
+    /// against it (triage r1 I-1; spec gate 1): over [`MemFs`] at the test profile, `prepare` of each mode keeps
+    /// [`ReadyFx::top`], the naive top 20 of the candidates. Each `first` and `willneed` sample of `rows` and `column`
+    /// passes; with the fixture's top 20 reversed before the arms exist, each fails, naming its arm.
+    #[test]
+    fn ready_first_touch_samples_give_the_setups_top20() {
+        for mode in [ReadyMode::Warm, ReadyMode::First, ReadyMode::WillNeed] {
+            let fs = MemFs::with_dir(&scratch());
+            let (q, mut p) = fixture(&fs, Family::Ready(mode, Density::P5));
+            let want = ready_naive_top20(&ready_candidates(p.n, Density::P5.pct()));
+            assert_eq!(want.len(), READY_TOP, "{}", q.name);
+            assert_eq!(p.ready.as_ref().unwrap().top, want, "{}", q.name);
+            if mode == ReadyMode::Warm {
+                continue;
+            }
+            let ticker = FsTicker::new(&fs, p.dir(), &[]);
+            for reversed in [false, true] {
+                if reversed {
+                    p.ready.as_mut().unwrap().top.reverse();
+                }
+                let c = Columns::parse(p.map.bytes()).unwrap();
+                let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+                for arm in arms.iter_mut() {
+                    let r = arm.sample();
+                    if reversed {
+                        let head = format!("ready {}: the sample's top 20", arm.name());
+                        assert!(
+                            r.as_ref().is_err_and(|e| e.0.starts_with(&head)),
+                            "{} {}: {:?}",
+                            q.name,
+                            arm.name(),
+                            r.map_err(|e| e.0)
+                        );
+                    } else {
+                        assert!(
+                            r.is_ok(),
+                            "{} {}: {:?}",
+                            q.name,
+                            arm.name(),
+                            r.map_err(|e| e.0)
+                        );
+                    }
+                }
+            }
+        }
+    }
+
+    /// The warm arms' own ops give the setup's top 20 (triage r2 I-1; spec gate 1): over [`MemFs`] at the test profile,
+    /// at 5 % and 20 %, [`arms`] runs the warm `rows` and `column` ops once, untimed, finds the fixture's top 20 and
+    /// builds both arms. With the fixture's top 20 reversed before the arms exist, it refuses, naming both arms. And
+    /// [`ready_warm_agree`] names only the arm whose top 20 differs.
+    #[test]
+    fn ready_warm_arms_give_the_setups_top20() {
+        for d in [Density::P5, Density::P20] {
+            let fs = MemFs::with_dir(&scratch());
+            let (q, mut p) = fixture(&fs, Family::Ready(ReadyMode::Warm, d));
+            let ticker = FsTicker::new(&fs, p.dir(), &[]);
+            for reversed in [false, true] {
+                if reversed {
+                    p.ready.as_mut().unwrap().top.reverse();
+                }
+                let c = Columns::parse(p.map.bytes()).unwrap();
+                let r = arms(&p, &c, &q, &ticker).map(|built| {
+                    built
+                        .iter()
+                        .map(|a| a.name().to_string())
+                        .collect::<Vec<_>>()
+                });
+                if reversed {
+                    assert!(
+                        r.as_ref()
+                            .is_err_and(|e| e.starts_with("ready warm rows: its top 20")
+                                && e.contains("; ready warm column: its top 20")),
+                        "{}: {r:?}",
+                        q.name
+                    );
+                } else {
+                    assert_eq!(r, Ok(vec!["rows".into(), "column".into()]), "{}", q.name);
+                }
+            }
+        }
+        let want: Vec<u32> = (1..=20).collect();
+        let other: Vec<u32> = (2..=21).collect();
+        assert_eq!(
+            ready_warm_agree(&want, &[("rows", want.clone()), ("column", want.clone())]),
+            Ok(())
+        );
+        for (got, name) in [
+            ([("rows", other.clone()), ("column", want.clone())], "rows"),
+            (
+                [("rows", want.clone()), ("column", other.clone())],
+                "column",
+            ),
+        ] {
+            let r = ready_warm_agree(&want, &got);
+            assert!(
+                r.as_ref().is_err_and(|e| e
+                    .starts_with(&format!("ready warm {name}: its top 20 {other:?}"))
+                    && !e.contains("; ")),
+                "{name}: {r:?}"
+            );
         }
     }
 }

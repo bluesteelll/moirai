@@ -9,7 +9,7 @@
 //! |---|---|---|
 //! | [`enc`] | `uvar16/32/64`, `svar64`, `bool8`, `vbytes`, `vstr`, little-endian fixed widths, and a refusing reader | [F01 §5], [F01 §6.2] (`01-conventions.md:236-377`) |
 //! | [`rec`] | `RecHdr`, the record checksum, groups and the chain trailer, the chain value at a boundary, `ExtentHead`, `Noop`, `SymDefs`, placement G-1 to G-5, and `encode` | [F05 §3], [F05 §4], [F05 §8.1], [F05 §9.12], [F05 §9.28] (`05-log.md:116-266`, `:419-460`, `:887-894`, `:1111-1139`) |
-//! | [`commit`] | the `Commit` payload of a local ordinary commit and its eight op kinds | [F06 §4], [F06 §5], [F06 §6], [F06 §7], [F06 §8] (`06-commit.md:168-534`, `:536-576`, `:600-865`, `:1040-1067`) |
+//! | [`commit`] | the `Commit` payload of a local ordinary commit and its eight op kinds; item 1a's locator in the form a tail chooses ([`Locator`]: none, or design-A's A1), and each owner's frame span in a payload | [F06 §4], [F06 §5], [F06 §6], [F06 §7], [F06 §8] (`06-commit.md:168-534`, `:536-576`, `:600-865`, `:1040-1067`); `design-A.md:104-129` (A1, a probe form until the 1a spec unit, R-47) |
 //! | [`rt`] | `TreeReg` (sub 2, the settle epoch) and the `FileObs` row batch with the 187-byte row image | [F05 §8.5], [F05 §9.18], [F05 §9.23] (`05-log.md:507-521`, `:974-981`, `:1006-1032`); [F11 §2.9], [F11 §12.1]–§12.5 (`11-runtime-tables.md:278-298`, `:764-914`) |
 //! | [`scan`] | `LogSource` and `MemLog`, the streaming scan with record and group validity, and `decode` | [F05 §5], [F05 §10] (`05-log.md:268-341`, `:1232-1307`) |
 //! | [`store`] | `VfsLog` (a `LogSource` over `log.<n>` files), the open floor (`HEAD` with one 8,192-B read, 8 sealed files read and mapped), the fixture writer | `60-roadmap.md:790`; [F04 §2], [F04 §4.1]; [F09 §2.1]; `docs/spec/os/map.md:84-90` |
@@ -136,6 +136,57 @@ impl Geometry {
     }
 }
 
+/// The form of item 1a's locator in a tail's op frames (R-47 item 1a, R-50; design-A's A1, u20 cut D-1). The form is a
+/// parameter of the probe, not a frozen byte: the 1a spec unit's form, if it differs, is one more variant with its own
+/// [`commit::put_loc`], [`commit::get_loc`] and validation, and a re-run.
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash)]
+pub enum Locator {
+    /// No locator: the night's form, [F06 §7.4]'s op bodies as they are.
+    #[default]
+    None,
+    /// Design-A's A1 (`design-A.md:104-129`): in the first frame of each owner in a record, when `prev` ≠ 0, `prev_at`
+    /// and `prev_len` (`uvar32` each) follow `prev`. Later frames of the same owner carry none.
+    A1,
+}
+
+/// Item 1a's value: where the owner's frames lie in the record its `prev` names. `at` counts from that record's lsn,
+/// its header included; `len` is the bytes of the owner's frames there. (0, 0) when the writer does not know them: the
+/// record lies below the checkpoint (SoT-4), the writer's overlay holds no entry for it (SoT-2, a lane), or it is a bulk
+/// commit (SoT-3) (u20 cut §3.1).
+#[derive(Copy, Clone, Debug, Default, Eq, PartialEq, Hash, PartialOrd, Ord)]
+pub struct PrevLoc {
+    /// `prev_at`.
+    pub at: u32,
+    /// `prev_len`.
+    pub len: u32,
+}
+
+/// The shape of a tail beyond F17's parameters: the locator's form and the depth option.
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub struct Shape {
+    /// The form of item 1a's locator.
+    pub locator: Locator,
+    /// The depth option (u20 cut §3.4, M-A1's depth arm): when d > 0, the base node #⌈N/2⌉
+    /// ([`synth::hot_node`]) is an owner in each of the tail's first d commits and in no other, its first op setting
+    /// field [`synth::HOT_FIELD`] and the later ones its status; 0 is none.
+    pub hot: u32,
+}
+
+impl Shape {
+    /// The night's shape, no locator. Every quantity measured before u20 keeps it, so its tails stay byte-identical
+    /// (u20 cut D-3).
+    pub const NIGHT: Shape = Shape {
+        locator: Locator::None,
+        hot: 0,
+    };
+
+    /// Design-A's A1, the decided format (R-50).
+    pub const A1: Shape = Shape {
+        locator: Locator::A1,
+        hot: 0,
+    };
+}
+
 /// The store parameters a tail depends on ([F17 §3], `17-store-parameters.md:164-178`). The holes P06–P11 take their
 /// design figures until WP-81a fills them ([F17 §3], `:215-217`), which is also what the grid's candidates replace.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -164,6 +215,8 @@ pub struct Params {
     pub p12: u64,
     /// P13 `maintenance.cli-threshold-multiplier`.
     pub p13: u64,
+    /// The tail's shape: [`Shape::NIGHT`] in both columns.
+    pub shape: Shape,
 }
 
 const KIB: u64 = 1_024;
@@ -184,6 +237,7 @@ impl Params {
         p11: 8,
         p12: 2 * MIB,
         p13: 2,
+        shape: Shape::NIGHT,
     };
 
     /// The test profile column (`17-store-parameters.md:166-178`).
@@ -200,6 +254,7 @@ impl Params {
         p11: 2,
         p12: KIB,
         p13: 2,
+        shape: Shape::NIGHT,
     };
 
     /// The geometry of E.
