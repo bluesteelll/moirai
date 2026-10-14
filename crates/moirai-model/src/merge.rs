@@ -1880,7 +1880,8 @@ pub(crate) struct HOutput {
 fn text_of(v: &KState) -> String {
     match flat(v) {
         Some(KVal::Value(Value::Text(s))) => s,
-        Some(KVal::Body(s)) => s,
+        // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+        Some(KVal::Body(b)) => b.text().to_string(),
         _ => String::new(),
     }
 }
@@ -1891,7 +1892,7 @@ fn text_value(k: &Key, r: String) -> Option<KVal> {
         return None;
     }
     Some(match k {
-        Key::Node(_, Aspect::Body) => KVal::Body(r),
+        Key::Node(_, Aspect::Body) => KVal::Body(crate::state::Body::Text(r)),
         _ => KVal::Value(Value::Text(r)),
     })
 }

@@ -15,7 +15,7 @@ use crate::schema::{
     Schema, Storage, UidDerivation, type_names,
 };
 use crate::state::{
-    Aspect, Conflict, EdgeProps, Image, KState, KVal, Node, OBSERVATION, Side, State,
+    Aspect, Body, Conflict, EdgeProps, Image, KState, KVal, Node, OBSERVATION, Side, State,
 };
 use crate::value::{Algo, F64, MoveClass, Nid, Oid, PathMove, PathVal, Uid, Value, lp};
 use std::collections::{BTreeMap, BTreeSet};
@@ -600,10 +600,21 @@ pub fn hierarchy_value(parent: Option<Uid>, order: Option<&str>) -> Vec<u8> {
     out
 }
 
-/// The body value: `bf` 1 and the BLAKE3-128 of the body bytes (§7.2).
-pub fn body_value(body: &[u8]) -> Vec<u8> {
+/// The body key: the BLAKE3-128 of the body text, or the stored hash of a body known only by its hash, never
+/// recomputed (§6.3, §7.2).
+// spec: [F07 §6.3]
+// spec: [F07 §7.2]
+pub fn body_hash(b: &Body) -> [u8; 16] {
+    match b {
+        Body::Text(t) => b3_128(t.as_bytes()),
+        Body::Hash(h) => *h,
+    }
+}
+
+/// The body value: `bf` 1 and the body key, the BLAKE3-128 of the text or the stored hash (§7.2).
+pub fn body_value(b: &Body) -> Vec<u8> {
     let mut out = vec![1u8];
-    out.extend_from_slice(&b3_128(body));
+    out.extend_from_slice(&body_hash(b));
     out
 }
 
@@ -652,9 +663,7 @@ pub fn image_entries(img: &Image, uid: &dyn Fn(Nid) -> Uid) -> Vec<ImageEntry> {
                 b.extend_from_slice(&t.to_le_bytes());
                 out.push((6, f.clone(), b));
             }
-            (Aspect::Body, KVal::Body(t)) => {
-                out.push((8, String::new(), b3_128(t.as_bytes()).to_vec()))
-            }
+            (Aspect::Body, KVal::Body(b)) => out.push((8, String::new(), body_hash(b).to_vec())),
             (a, v) => panic!("a node image holds value keys only, not {a:?} = {v:?}"),
         }
     }
@@ -741,7 +750,7 @@ pub fn kval_bytes(
         (Aspect::Counter(_), KVal::Value(v)) => cv(Some(v), uid),
         (Aspect::Observation, KVal::Observation(vs)) => observation_value(vs, uid),
         (Aspect::Edge(_), KVal::Edge(p)) => edge_value(p),
-        (Aspect::Body, KVal::Body(b)) => body_value(b.as_bytes()),
+        (Aspect::Body, KVal::Body(b)) => body_value(b),
         (a, v) => panic!("key value {v:?} does not fit aspect {a:?}"),
     }
 }
@@ -1534,7 +1543,7 @@ mod tests {
         let mut live = task(1);
         live.set_field(&s, "priority", Some(Value::Enum("P1".into())));
         live.fields.insert("reopen_count".into(), Value::Counter(2));
-        live.body = Some("b".into());
+        live.body = Some(Body::Text("b".into()));
         live.out.insert(
             EdgeKey {
                 kind: "cites".into(),

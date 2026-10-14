@@ -10,7 +10,7 @@
 use crate::canon::Anchor;
 use crate::dag::Commit;
 use crate::schema::{Ends, Item, ItemKey};
-use crate::state::{Aspect, Conflict, EdgeKey, EdgeProps, KState, KVal, Key, Node, State};
+use crate::state::{Aspect, Body, Conflict, EdgeKey, EdgeProps, KState, KVal, Key, Node, State};
 use crate::value::{Oid, PathVal, Value};
 use std::collections::BTreeMap;
 use std::mem::size_of;
@@ -65,6 +65,15 @@ no_heap!(
 impl Heap for String {
     fn heap(&self) -> usize {
         self.capacity()
+    }
+}
+
+impl Heap for Body {
+    fn heap(&self) -> usize {
+        match self {
+            Body::Text(t) => t.heap(),
+            Body::Hash(_) => unreachable!("{}", crate::state::BODY_DROP),
+        }
     }
 }
 
@@ -353,7 +362,7 @@ mod tests {
         let one = state_bytes(&st);
         assert!(one > base + size_of::<Node>(), "{one}");
         let x = st.nodes.get_mut(&crate::value::Nid(1)).unwrap();
-        x.body = Some("b".repeat(1000));
+        x.body = Some(Body::Text("b".repeat(1000)));
         x.fields
             .insert("title".into(), Value::Text("t".repeat(100)));
         assert!(state_bytes(&st) >= one + 1100);

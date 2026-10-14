@@ -1968,7 +1968,7 @@ impl<'a> Cand<'a> {
         if b.as_ref().is_some_and(|s| s.len() > 65_536) {
             return Err(bad("body", "at most 65536 bytes", "more"));
         }
-        self.st.nodes.get_mut(&n).expect("node").body = b;
+        self.st.nodes.get_mut(&n).expect("node").body = b.map(crate::state::Body::Text);
         self.touch(n);
         Ok(())
     }
@@ -2116,7 +2116,12 @@ impl<'a> Cand<'a> {
     pub fn patch(&mut self, target: &Target, remove: &str, add: &str) -> Res<()> {
         let n = self.resolve(target)?;
         self.lease_first_write(n)?;
-        let body = self.st.nodes[&n].body.clone().unwrap_or_default();
+        // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+        let body = self.st.nodes[&n]
+            .body
+            .as_ref()
+            .map(|b| b.text().to_string())
+            .unwrap_or_default();
         let remove = norm_text(remove);
         let i = self.patch_at(n, &body, &remove)?;
         let nb = format!(
@@ -3916,14 +3921,17 @@ impl<'a> Cand<'a> {
                 }
             }
             if let Some(b) = &x.body {
-                t.push_str(b);
+                // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+                t.push_str(b.text());
             }
             t
         };
         let same_texts = |x: &Node, y: &Node| {
             x.fields.get("title") == y.fields.get("title")
                 && x.fields.get("abstract") == y.fields.get("abstract")
-                && x.body == y.body
+                // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+                && x.body.as_ref().map(crate::state::Body::text)
+                    == y.body.as_ref().map(crate::state::Body::text)
         };
         let changed: Vec<Nid> = self
             .st

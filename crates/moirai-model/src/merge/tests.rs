@@ -2,7 +2,7 @@
 //! RS-007's hierarchy rule, the existence policies, and properties over random edits of both sides.
 
 use super::*;
-use crate::state::{Creator, EdgeProps, Tomb};
+use crate::state::{Body, Creator, EdgeProps, Tomb};
 use proptest::prelude::*;
 
 fn uid(n: Nid) -> Uid {
@@ -185,7 +185,7 @@ fn apply(st: &mut State, edits: &[Edit]) {
                 };
                 x.set_field(&s, "reopen_count", Some(Value::Counter(c + d)));
             }
-            Edit::Body(_, b) => x.body = Some(format!("line a\nline {b}\nline c\n")),
+            Edit::Body(_, b) => x.body = Some(Body::Text(format!("line a\nline {b}\nline c\n"))),
             Edit::Edge(_, d, on) => {
                 let k = EdgeKey {
                     kind: "relates".into(),
@@ -377,7 +377,7 @@ fn typed_rules_merge_text_counters_and_sets() {
     let b = {
         let mut b = base();
         let x = b.nodes.get_mut(&Nid(1)).unwrap();
-        x.body = Some("a\nb\nc\n".into());
+        x.body = Some(Body::Text("a\nb\nc\n".into()));
         x.fields.insert("reopen_count".into(), Value::Counter(2));
         x.fields.insert(
             "labels".into(),
@@ -388,7 +388,7 @@ fn typed_rules_merge_text_counters_and_sets() {
     let side = |body: &str, count: i64, labels: &[&str]| {
         let mut s = b.clone();
         let x = s.nodes.get_mut(&Nid(1)).unwrap();
-        x.body = Some(body.into());
+        x.body = Some(Body::Text(body.into()));
         x.fields
             .insert("reopen_count".into(), Value::Counter(count));
         x.fields.insert(
@@ -401,7 +401,7 @@ fn typed_rules_merge_text_counters_and_sets() {
     let t = side("a\nb\nC\n", 5, &["k", "r", "t"]);
     let m = run(&b, &o, &t, Op::Merge);
     let x = &m.st.nodes[&Nid(1)];
-    assert_eq!(x.body.as_deref(), Some("A\nb\nC\n"));
+    assert_eq!(x.body.as_ref().map(Body::text), Some("A\nb\nC\n"));
     assert_eq!(x.fields["reopen_count"], Value::Counter(6));
     assert_eq!(
         x.fields["labels"],
@@ -813,7 +813,7 @@ fn delete_versus_modify_follows_the_existence_policy() {
     let b = base();
     let mut o = b.clone();
     apply(&mut o, &[Edit::Priority(1, 0)]);
-    o.nodes.get_mut(&Nid(5)).unwrap().body = Some("edited".into());
+    o.nodes.get_mut(&Nid(5)).unwrap().body = Some(Body::Text("edited".into()));
     let mut t = b.clone();
     for n in [1u32, 5] {
         let x = t.nodes.get_mut(&Nid(n)).unwrap();
@@ -838,7 +838,7 @@ fn delete_versus_modify_follows_the_existence_policy() {
     let note = &m.st.nodes[&Nid(5)];
     assert!(note.live());
     assert_eq!(note.conflicts[&Aspect::Existence].prov, Some(Side::Ours));
-    assert_eq!(note.body.as_deref(), Some("edited"));
+    assert_eq!(note.body.as_ref().map(Body::text), Some("edited"));
     let auto: BTreeMap<String, String> = [("task".to_string(), "theirs".to_string())]
         .into_iter()
         .collect();

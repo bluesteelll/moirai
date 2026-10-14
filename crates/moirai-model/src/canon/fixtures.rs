@@ -766,7 +766,7 @@ fn side(
             assert_eq!(vs.len(), 6, "six observation values");
             KVal::Observation(vs)
         }
-        Aspect::Body => KVal::Body(json(&t[0])),
+        Aspect::Body => KVal::Body(Body::Text(json(&t[0]))),
         Aspect::Edge(_) => {
             assert_eq!(t[0], "present");
             KVal::Edge(edge_props(&t[1..]))
@@ -799,7 +799,7 @@ fn key_line(n: &mut Node, t: &[String], ids: &mut Ids, schema: &Schema) {
         }
         "body" => {
             let b = json(&t[1]);
-            n.body = (!b.is_empty()).then_some(b);
+            n.body = (!b.is_empty()).then_some(Body::Text(b));
         }
         "edge" => {
             let dst = ids.nid(uid_hex(&t[2]));

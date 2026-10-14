@@ -450,7 +450,11 @@ impl<'a> Ev<'a> {
             "resolution" => self.enum_v(&x.kind, "resolution", &x.resolution),
             "parent" => x.parent.map_or(V::Absent, V::Node),
             "order" => x.order.clone().map_or(V::Absent, V::Text),
-            "body" => x.body.clone().map_or(V::Absent, V::Text),
+            // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+            "body" => x
+                .body
+                .as_ref()
+                .map_or(V::Absent, |b| V::Text(b.text().to_string())),
             "created" => rev(self.local(n).1),
             "created_at" => self.commit_ms(self.local(n).1).map_or(V::Absent, V::Time),
             "created_by" => V::text(x.creator.actor.clone()),

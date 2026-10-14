@@ -170,13 +170,19 @@ type Doc = (Nid, Vec<(String, Toks)>, Vec<String>);
 /// The searched fields in scoring order, with their weights.
 const FIELDS: [(&str, f64); 3] = [("title", 3.0), ("abstract", 2.0), ("body", 1.0)];
 
-/// The tokens of one field of a live node; a dropped or absent body has none ([F09 §12.1]).
+/// The tokens of one field of a live node; an absent body has none. A body known only by its hash has no text and
+/// cannot reach here before `BodyDrop` ([`crate::state::BODY_DROP`]).
 fn field_tokens(ev: &Ev<'_>, n: Nid, field: &str) -> (String, Vec<(usize, String)>) {
     let Some(x) = ev.st().live(n) else {
         return (String::new(), Vec::new());
     };
     let text = match field {
-        "body" => x.body.clone().unwrap_or_default(),
+        // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+        "body" => x
+            .body
+            .as_ref()
+            .map(|b| b.text().to_string())
+            .unwrap_or_default(),
         f => x.text(f).unwrap_or("").to_string(),
     };
     let t = tokens(&text);

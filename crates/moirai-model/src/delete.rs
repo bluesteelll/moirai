@@ -739,7 +739,7 @@ mod tests {
         t.set_field(&s, "title", Some(Value::Text("t".into())));
         t.set_field(&s, "priority", Some(Value::Enum("P0".into())));
         t.set_field(&s, "estimate", Some(Value::Int(3)));
-        t.body = Some("b".into());
+        t.body = Some(crate::state::Body::Text("b".into()));
         tombstone_keys(&mut t, &s);
         assert_eq!(
             t.fields.keys().collect::<Vec<_>>(),
