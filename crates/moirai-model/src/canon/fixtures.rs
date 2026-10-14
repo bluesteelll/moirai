@@ -1962,7 +1962,8 @@ fn base64url_texts_decode() {
     assert_eq!(atext_h("\"x\""), b3_128(b"x"));
 }
 
-/// A synthetic carrier INDEX: §5's table holds the cases `a` and `b`; the tables of §4 and §6 hold other names.
+/// A synthetic carrier INDEX: §5's table holds the cases `a` and `b`, and the table of its `### 5.1` subsection the
+/// case `d`, which §5 still holds because a `### ` line does not end it; the tables of §4 and §6 hold other names.
 const CASE_CHECK_INDEX: &str = "# Synthetic INDEX
 
 ## 4. Other
@@ -1980,6 +1981,10 @@ const CASE_CHECK_INDEX: &str = "# Synthetic INDEX
 
 ### 5.1 A subsection
 
+| Case | Dest |
+|---|---|
+| `d` | A |
+
 ## 6. Coverage
 
 | Case | X |
@@ -1992,15 +1997,16 @@ fn case_dirs(names: &[&str]) -> BTreeSet<String> {
     names.iter().map(|n| n.to_string()).collect()
 }
 
-/// The case check finds a §5 row with no case directory, and takes no name from outside §5.
+/// The case check finds a §5 row with no case directory, a row under a `### ` subsection of §5 included, and takes no
+/// name from outside §5.
 #[test]
 fn the_case_check_finds_an_index_row_with_no_directory() {
     assert_eq!(
         case_set_mismatch(CASE_CHECK_INDEX, &case_dirs(&["a"])),
-        (vec!["b".to_string()], Vec::new())
+        (vec!["b".to_string(), "d".to_string()], Vec::new())
     );
     assert_eq!(
-        case_set_mismatch(CASE_CHECK_INDEX, &case_dirs(&["a", "b"])),
+        case_set_mismatch(CASE_CHECK_INDEX, &case_dirs(&["a", "b", "d"])),
         (Vec::new(), Vec::new())
     );
 }
@@ -2009,7 +2015,7 @@ fn the_case_check_finds_an_index_row_with_no_directory() {
 #[test]
 fn the_case_check_finds_a_directory_with_no_index_row() {
     assert_eq!(
-        case_set_mismatch(CASE_CHECK_INDEX, &case_dirs(&["a", "b", "c"])),
+        case_set_mismatch(CASE_CHECK_INDEX, &case_dirs(&["a", "b", "c", "d"])),
         (Vec::new(), vec!["c".to_string()])
     );
 }
