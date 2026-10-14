@@ -15,6 +15,10 @@ reports in [docs/research/](docs/research/).
 - In the unit workflow ("Agent work" below), the owner's standing permission of 2026-10-07 (R-2) applies: agents
   commit on their unit's role branch; only the orchestrator merges into local `master`, after a green
   `cargo xtask gate --branch m0/<role>` in the gate worktree, and then pushes it with `git push origin master`.
+  The one exception (owner, R-49 and R-54): before the `format-v1` tag, a set of units whose fixture and oracle changes
+  must land together (the Klotho renames, item 1a and the like) lands as one combined landing. Each branch is tested
+  against a named expected-red set, the orchestrator runs one full `cargo xtask gate` on the combined tip in the gate
+  worktree with `master` frozen, counts the tests by name, and merges the whole set at once, or none of it on any red.
   Outside that workflow, commit or push only when the owner asks. Never use `--force` or `--no-verify` without
   explicit permission.
 
@@ -46,17 +50,19 @@ reports in [docs/research/](docs/research/).
 
 The procedure, the orchestrator's loop and the Claude Code mechanics are in
 [docs/m0/workflow.md](docs/m0/workflow.md). A **unit** is one reviewable portion of one WP by one author role, or a
-batch of one role's LIGHT or STANDARD text fixes across its WPs that carry no decision (each commit names its own WP),
-on the role's branch `m0/<role>` in its worktree (PLAN §3.1 "Mechanics"). Every unit runs at a tier, LIGHT, STANDARD
-or HEAVY (workflow.md §5.1). The orchestrator session launches each unit itself (workflow.md §6.3). The trunk is local
-`master`. `<ORCH>` is the orchestration state outside the repository (workflow.md §3).
+batch of one role's LIGHT or STANDARD text fixes across its WPs that carry no decision, or a HEAVY unit of one role
+across several of its WPs (owner, R-43); each commit names its own WP. A unit works on the role's branch `m0/<role>`
+in its worktree (PLAN §3.1 "Mechanics"). Every unit runs at a tier, LIGHT, STANDARD or HEAVY (workflow.md §5.1). The
+orchestrator session launches each unit itself (workflow.md §6.3). The trunk is local `master`. `<ORCH>` is the
+orchestration state outside the repository (workflow.md §3).
 
 - **Layout.** `crates/` (the workspace, PLAN §2.2), `xtask/` (the gate and its lints; author roles and lanes in
   `xtask/roles.toml`), `docs/spec/` (the specification), `docs/m0/` (the M0 plan, `authors.md`, tools, nightly,
   workflow), `fixtures/`, `fuzz/`, `.githooks/`. Lane target directories live outside the repository (PLAN §2.1).
 - **Gates.**
   - The full verdict: `cargo xtask gate --branch m0/<role>`, only in the neutral gate worktree detached at the branch
-    tip, run through the kit. It is the only place `Cargo.lock` changes. CI runs `cargo xtask gate --ci`.
+    tip, run through the kit; for a combined landing, `cargo xtask gate` on the combined tip ("Git" above). It is the
+    only place `Cargo.lock` changes. CI runs `cargo xtask gate --ci`.
   - Per commit, the developer runs only its own crates: `cargo fmt -p <crates> -- --check`,
     `cargo clippy --locked -p <crates> --all-targets -- -D warnings` and
     `MOIRAI_TEST_TIER=pr cargo test --locked -p <crates> --no-fail-fast`.
