@@ -1697,12 +1697,12 @@ file; it also carries the ledger line of the reopen (§6.3, §6.5).
 ### 17.2 A file node, the root node and a referrer's anchors
 
 The file `crates/engine/src/lock.rs` registered in root `project` with no predecessor has the uid
-`d706fcde60f0b6cbf56c23297162b652` (computed, [F08 §11.2]); after a move its file
-`nodes/d7/06/d706fcde60f0b6cbf56c23297162b652.moi` reads:
+`19143eabafc5ec1c2f8ddb102a731ae3` (computed, [F08 §11.2]); after a move its file
+`nodes/19/14/19143eabafc5ec1c2f8ddb102a731ae3.moi` reads:
 
 ```
 klotho-node 1
-uid: d706fcde60f0b6cbf56c23297162b652
+uid: 19143eabafc5ec1c2f8ddb102a731ae3
 kind: artifact
 status: present
 created: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df 2026-09-21T14:02:11.483Z
@@ -1719,11 +1719,11 @@ field relink: lazy/file-id
 field root: project
 ```
 
-The root node of `project` has the uid `5bd0e29e6afc4a73557e4cbdf7d34c33` (computed, [F08 §11.3]):
+The root node of `project` has the uid `721354ad0f367138746bf0429056d772` (computed, [F08 §11.3]):
 
 ```
 klotho-node 1
-uid: 5bd0e29e6afc4a73557e4cbdf7d34c33
+uid: 721354ad0f367138746bf0429056d772
 kind: area
 title: root:project
 status: active
@@ -1745,14 +1745,14 @@ anchor only by import (a capture refuses the `path::A/B` form); its bytes and li
 of the referrer's file, sorted by (dst uid, anchor uid), in `full` mode:
 
 ```
-anchor 6b8c72caccb5d1cb7d3c9fc37f1ac98e -> d706fcde60f0b6cbf56c23297162b652 kind=file mode=live watch=header blob=sha1:de177738b58e970465382658e69b18745029e248 captured=bcf306557fb04ecf570128703b7ac5fe v=1
-anchor a11bbeaab98f3fa9a695506f8ded56e0 -> d706fcde60f0b6cbf56c23297162b652 kind=symbol mode=live watch=header scope="rust:struct LockFile/impl LockFile/fn acquire" quote_h=3e747c4056197b57203a29bb675bdccf prefix_h=2622bf4975bc646f601cc36a812296a0 suffix_h=1144314642f739afb24bcd5aeaec0b44 quote="pub fn acquire(&self, timeout: Duration) -> Result<Guard>" prefix=" Blocks until the byte is ours.\n" suffix=" {\nlet mut spins = 0u32;\nloop {\n" hint=88-131 window=AwACAB86Apx9DrRRyNI span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 git=sha1:75bea42e34a5942eb6593b2867480e8fbc95eed1 captured=f6ba05cb0b8d5577c95cd8082b4367c4 v=1
+anchor 6a49c1797315fca432f54040700ab381 -> 19143eabafc5ec1c2f8ddb102a731ae3 kind=symbol mode=live watch=header scope="rust:struct LockFile/impl LockFile/fn acquire" quote_h=3e747c4056197b57203a29bb675bdccf prefix_h=2622bf4975bc646f601cc36a812296a0 suffix_h=1144314642f739afb24bcd5aeaec0b44 quote="pub fn acquire(&self, timeout: Duration) -> Result<Guard>" prefix=" Blocks until the byte is ours.\n" suffix=" {\nlet mut spins = 0u32;\nloop {\n" hint=88-131 window=AwACAB86Apx9DrRRyNI span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 git=sha1:75bea42e34a5942eb6593b2867480e8fbc95eed1 captured=8856fc02927f89608d0a57eb57ed2337 v=1
+anchor de8edb59215a406d849289841739d59b -> 19143eabafc5ec1c2f8ddb102a731ae3 kind=file mode=live watch=header blob=sha1:de177738b58e970465382658e69b18745029e248 captured=c81b5793ae8794402388225c48c0048f v=1
 ```
 
 The same symbol anchor in `hash-only` mode, which yields the same selector block and the same commit id ([F07 §8.3]):
 
 ```
-anchor a11bbeaab98f3fa9a695506f8ded56e0 -> d706fcde60f0b6cbf56c23297162b652 kind=symbol mode=live watch=header scope="rust:struct LockFile/impl LockFile/fn acquire" quote_h=3e747c4056197b57203a29bb675bdccf prefix_h=2622bf4975bc646f601cc36a812296a0 suffix_h=1144314642f739afb24bcd5aeaec0b44 hint=88-131 window=AwACAB86Apx9DrRRyNI span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 git=sha1:75bea42e34a5942eb6593b2867480e8fbc95eed1 captured=f6ba05cb0b8d5577c95cd8082b4367c4 v=1
+anchor 6a49c1797315fca432f54040700ab381 -> 19143eabafc5ec1c2f8ddb102a731ae3 kind=symbol mode=live watch=header scope="rust:struct LockFile/impl LockFile/fn acquire" quote_h=3e747c4056197b57203a29bb675bdccf prefix_h=2622bf4975bc646f601cc36a812296a0 suffix_h=1144314642f739afb24bcd5aeaec0b44 hint=88-131 window=AwACAB86Apx9DrRRyNI span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 git=sha1:75bea42e34a5942eb6593b2867480e8fbc95eed1 captured=8856fc02927f89608d0a57eb57ed2337 v=1
 ```
 
 The window value is `03 00 02 00 1F 3A 02 9C 7D 0E B4 51 C8 D2` ([F20 §2.7.3]: `n_before` 3, `n_after` 2, then the five
