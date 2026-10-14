@@ -11,8 +11,12 @@
 //! |---|---|---|
 //! | this one | `SegHdr` with `total_len`, `seg_digest`, `table_xxh3` and `hdr_xxh3`; `SecEnt`; the placement P-1 to P-4; a parser that checks them; `NodeHdr` and `Creator` | [F09 §2.1]–§2.3 (`09-segments.md:51-136`); [F08 §3.1], [F08 §4] (`08-data-model.md:77-100`, `:185-191`) |
 //! | [`bitset`] | the frozen bitset with per-chunk cardinality and its AND/popcount, the ± list | [F09 §4.5], [F09 §4.6] (`09-segments.md:288-332`) |
-//! | [`base`] | the synthetic base `seg.base.1` at N: rows, cold columns, forward and reverse CSR, `BMDIR` and its frozen bitsets | [F09 §5], §7.1, §9, §16.1 (`09-segments.md:376-416`, `:479-505`, `:569-599`, `:1077-1083`); `ARCHITECTURE-RESEARCH.md:1677-1681` |
+//! | [`base`] | the synthetic base `seg.base.1` at N: rows, cold columns, forward and reverse CSR, `BMDIR` and its frozen bitsets; the full base of the full checkpoint, with titles, fields, uids, `DOCLEN`, `FTSSTAT` and the `REFS`, `ALLOC`, `TREES` and `FILES` snapshots | [F09 §5], §7.1, §9, §16.1 (`09-segments.md:376-416`, `:479-505`, `:569-599`, `:1077-1083`); `ARCHITECTURE-RESEARCH.md:1677-1681` |
+//! | [`blobs`] | the `blobs.<n>` file a delta checkpoint seals its window's bodies into: `BLOBIDX` and `BLOBDATA`, each body `lz4` (R-40 O-1) or `none` when lz4 is not shorter; `BlobRef`, `BlobIdx`; the reader | [F10 §3.1]–§3.4, §5.1–§5.4 (`10-sealed-files.md:82-141`, `:305-376`); [F09 §6.3] (`09-segments.md:445-475`) |
+//! | [`full`] | the full delta of a checkpoint: [`full::FullBase`] (the full base's extra sections), [`full::FullFold`] (the night's fold, wrapped), every section a delta of its window requires, and its writer and reader | [F09 §3.1] delta column (`09-segments.md:156-206`), §5–§16.2; u21 cut §3.3 |
 //! | [`delta`] | the delta `seg.d<K>` a checkpoint folds from a tail over the base: the touched rows with complete states and the ± lists against the base | [F09 §16.2] (`09-segments.md:1085-1089`), §5.1 (`:378-382`), §4.6; [F08 §3.5] (`08-data-model.md:157-169`) |
+//! | [`rt`] | [F11 §2.1]'s section body (`RtHdr`, rows, index region, heap); the row sizes and forms of the store-level and runtime sections; the rows of `REFS` with its name index, `IDEM` as a hash table, `ALLOC`, `UIDX`, `TREES`, `FILEOBS` and `FILES`; the bodies with no row; their readers | [F11 §1.3], §2.1–§2.5, §3, §8, §9, §12.4–§12.5 (`11-runtime-tables.md:49-76`, `:88-210`, `:300-446`, `:633-714`, `:826-960`); [F09 §14.3]–§14.4 (`09-segments.md:968-1024`) |
+//! | [`text`] | tokenizer v1 restricted to ASCII (u20 cut F-5), the term index of a segment's documents, `TERMS` (front-coded in blocks of 16), `POST`, `DOCLEN` and `FTSSTAT` (`HOLE(F09-doclen)`'s "kept" candidate), and their readers | [F09 §12] (`09-segments.md:761-848`, `:1263`) |
 //!
 //! **The subset** (spec Goal 1: "the 60-byte `NodeHdr`, CSR, frozen bitsets, cold columns and delta"): the probe
 //! writes `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE`, the six CSR columns, `BMDIR` and `BM.<i>`
@@ -22,10 +26,21 @@
 //! therefore `NONE32` and `body_ref` 0 in every row (`09-segments.md:389-393`). The T1 checkpoint is the exception:
 //! there the omitted sections are work a real delta checkpoint does, so `ckpt-4096.n5e5` times a reduced delta, a lower
 //! bound, as `m14`'s "What the checkpoint omits" states (review m-4).
+//!
+//! **The full checkpoint** (u21 cut §3.2–§3.6; R-53 Q2) is the second exception: [`base::build_full`] adds to the
+//! subset's base the sections a fold reads (titles, fields, uids, `DOCLEN`, `FTSSTAT` and the store-level snapshots),
+//! and [`full`] writes every section §3.1 requires of a delta of its window, with its [`blobs`] file, for
+//! `ckpt-full-4096`. Its sections' rows are the probe's (u20 cut F-4 to F-8, u21 cut F-12 and F-17, as `m14` labels
+//! them); its base still carries no `TERMS`, `POST`, `STATS` or the other required sections, so it is not valid under
+//! V-7 either.
 
 pub mod base;
 pub mod bitset;
+pub mod blobs;
 pub mod delta;
+pub mod full;
+pub mod rt;
+pub mod text;
 
 use crate::tail::store::{SEG_HDR_LEN, SEG_MAGIC};
 use xxhash_rust::xxh3::xxh3_64;
@@ -49,6 +64,8 @@ pub mod seg_kind {
     pub const BASE: u8 = 3;
     /// `seg-delta`.
     pub const DELTA: u8 = 4;
+    /// `blobs` ([F10 §5.1], `10-sealed-files.md:309`).
+    pub const BLOBS: u8 = 6;
 }
 
 /// The section tags the probe writes (`09-segments.md:156-206`, ranges `:231-233`).
@@ -65,6 +82,14 @@ pub mod tag {
     pub const DEFER: u16 = 0x0005;
     /// `DUE`, column `u32` (`:163`).
     pub const DUE: u16 = 0x0006;
+    /// `UID`, fixed table of 20 B (`:164`, §5.5).
+    pub const UID: u16 = 0x0007;
+    /// `TITLE_BLOB`, a pool of `vstr` (`:166`, §6.1).
+    pub const TITLE_BLOB: u16 = 0x0010;
+    /// `FIELDS_BLOB`, a pool of `vbytes` (`:167`, §6.2).
+    pub const FIELDS_BLOB: u16 = 0x0011;
+    /// `BLOBTAB`, fixed table of 36-B `BlobRef` (`:168`, §6.3).
+    pub const BLOBTAB: u16 = 0x0012;
     /// `OUT_OFF`, column `u32` (`:169`).
     pub const OUT_OFF: u16 = 0x0020;
     /// `OUT_DST`, column `u32` (`:170`).
@@ -77,8 +102,92 @@ pub mod tag {
     pub const IN_SRC: u16 = 0x0024;
     /// `IN_KIND`, column `u8` (`:174`).
     pub const IN_KIND: u16 = 0x0025;
+    /// `EDGE_PROPS`, fixed table of 40 B (`:175`, §7.2).
+    pub const EDGE_PROPS: u16 = 0x0026;
+    /// `TOMB`, fixed table of 16 B (`:176`, §8.1).
+    pub const TOMB: u16 = 0x0030;
     /// `BMDIR`, fixed table of 4-byte rows (`:179`).
     pub const BMDIR: u16 = 0x0040;
+    /// `TERMS`, the term dictionary (`:180`).
+    pub const TERMS: u16 = 0x0050;
+    /// `POST`, the postings (`:181`).
+    pub const POST: u16 = 0x0051;
+    /// `DOCLEN`, column of 6 B (`:182`).
+    pub const DOCLEN: u16 = 0x0052;
+    /// `FTSSTAT`, fixed record of 48 B (`:183`).
+    pub const FTSSTAT: u16 = 0x0053;
+    /// `CONFLICTS`, an `RtHdr` body (`:177`; [F11 §10]).
+    pub const CONFLICTS: u16 = 0x0031;
+    /// `PATHIDX`, variable table (`:186`, §13.1).
+    pub const PATHIDX: u16 = 0x0080;
+    /// `ALIASIDX`, variable table (`:187`, §13.2).
+    pub const ALIASIDX: u16 = 0x0081;
+    /// `ANCHORS`, variable table (`:188`, §13.3).
+    pub const ANCHORS: u16 = 0x0082;
+    /// `ANCHOR_UID`, fixed table of 28 B (`:189`, §13.4).
+    pub const ANCHOR_UID: u16 = 0x0083;
+    /// `GLOBIDX`, an `RtHdr` body (`:190`; [F11 §11]).
+    pub const GLOBIDX: u16 = 0x0084;
+    /// `SYMTAB`, the symbol table (`:194`, §14.2).
+    pub const SYMTAB: u16 = 0x0100;
+    /// `SCHEMAIDS`, an `RtHdr` body (`:195`, §14.3).
+    pub const SCHEMAIDS: u16 = 0x0101;
+    /// `FILES`, an `RtHdr` body (`:196`, §14.4).
+    pub const FILES: u16 = 0x0102;
+    /// `REFS` (`:197`, `:212`).
+    pub const REFS: u16 = 0x0201;
+    /// `PINS`.
+    pub const PINS: u16 = 0x0202;
+    /// `HEADS`.
+    pub const HEADS: u16 = 0x0203;
+    /// `LEASES`.
+    pub const LEASES: u16 = 0x0204;
+    /// `MARKERS`.
+    pub const MARKERS: u16 = 0x0205;
+    /// `MARKERS_OLD`.
+    pub const MARKERS_OLD: u16 = 0x0206;
+    /// `IDEM`.
+    pub const IDEM: u16 = 0x0207;
+    /// `ALLOC`.
+    pub const ALLOC: u16 = 0x0208;
+    /// `UIDX`.
+    pub const UIDX: u16 = 0x0209;
+    /// `CURSORS`.
+    pub const CURSORS: u16 = 0x020A;
+    /// `SESSMARKS`.
+    pub const SESSMARKS: u16 = 0x020B;
+    /// `BACKUPS`.
+    pub const BACKUPS: u16 = 0x020C;
+    /// `DROPPED`, conditional (`:198`).
+    pub const DROPPED: u16 = 0x020D;
+    /// `HARVEST`, conditional (`:199`).
+    pub const HARVEST: u16 = 0x020E;
+    /// `TREES` (`:200`, `:212-219`).
+    pub const TREES: u16 = 0x0210;
+    /// `FILEOBS`.
+    pub const FILEOBS: u16 = 0x0211;
+    /// `PENDING`.
+    pub const PENDING: u16 = 0x0212;
+    /// `FSINTENT`.
+    pub const FSINTENT: u16 = 0x0213;
+    /// `FPRINT`, `derived-optional` (§3.3).
+    pub const FPRINT: u16 = 0x0214;
+    /// `JOURNALCUR`.
+    pub const JOURNALCUR: u16 = 0x0215;
+    /// `DIRMAP`, `derived-optional`.
+    pub const DIRMAP: u16 = 0x0216;
+    /// `PREFIXEV`.
+    pub const PREFIXEV: u16 = 0x0217;
+    /// `ANCESTRY`, `derived-optional`.
+    pub const ANCESTRY: u16 = 0x0218;
+    /// `GITRENAMES`, `derived-optional`.
+    pub const GITRENAMES: u16 = 0x0219;
+    /// `ANCHORRES`, `derived-optional`.
+    pub const ANCHORRES: u16 = 0x021A;
+    /// `BLOBIDX`, a `blobs` file's index (`:202`; [F10 §5.2]).
+    pub const BLOBIDX: u16 = 0x0310;
+    /// `BLOBDATA`, its payloads.
+    pub const BLOBDATA: u16 = 0x0311;
 
     /// `BM.<i>` = `0x8000 + i`, i 0–32,766 (`:205`, `:233`).
     pub const fn bm(i: u16) -> u16 {
@@ -159,7 +268,8 @@ fn u32_le(b: &[u8], at: usize) -> u32 {
     u32::from_le_bytes(b[at..at + 4].try_into().expect("4 bytes"))
 }
 
-fn u64_at(b: &[u8], at: usize) -> u64 {
+/// The little-endian `u64` at byte `at`.
+pub(crate) fn u64_at(b: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(b[at..at + 8].try_into().expect("8 bytes"))
 }
 
@@ -540,6 +650,48 @@ pub fn put_fixed(out: &mut Vec<u8>, row_w: u32, rows: &[&[u8]]) {
     }
 }
 
+/// Appends a variable table ([F09 §4.3], `09-segments.md:270-281`): `n`, `_reserved` 0, `off[n + 1]` with `off[0]` 0,
+/// then the rows, already in the table's order; with no row it is 12 bytes. An empty row is refused.
+pub fn put_variable(out: &mut Vec<u8>, rows: &[&[u8]]) -> Result<(), String> {
+    if rows.iter().any(|r| r.is_empty()) {
+        return Err("a variable table holds no empty row".into());
+    }
+    out.extend_from_slice(&(rows.len() as u32).to_le_bytes());
+    out.extend_from_slice(&[0; 4]);
+    let mut off = 0u32;
+    out.extend_from_slice(&off.to_le_bytes());
+    for r in rows {
+        off = off
+            .checked_add(r.len() as u32)
+            .ok_or("a variable table past 4 GiB")?;
+        out.extend_from_slice(&off.to_le_bytes());
+    }
+    for r in rows {
+        out.extend_from_slice(r);
+    }
+    Ok(())
+}
+
+/// The rows of a variable table; refuses a non-zero `_reserved`, `off[0]` ≠ 0, an empty row and a length other than
+/// `8 + 4(n + 1) + off[n]`.
+pub fn variable_rows(b: &[u8]) -> Result<Vec<&[u8]>, String> {
+    if b.len() < 12 || u32_le(b, 4) != 0 || u32_le(b, 8) != 0 {
+        return Err("a variable table without its header or off[0] = 0".into());
+    }
+    let n = u32_le(b, 0) as usize;
+    let rows_at = 8 + 4 * (n + 1);
+    if b.len() < rows_at {
+        return Err(format!("a variable table of {n} rows cut short"));
+    }
+    let off = |i: usize| u32_le(b, 8 + 4 * i) as usize;
+    if b.len() != rows_at + off(n) || (0..n).any(|i| off(i + 1) <= off(i)) {
+        return Err(format!("a variable table of {n} rows breaks its offsets"));
+    }
+    Ok((0..n)
+        .map(|i| &b[rows_at + off(i)..rows_at + off(i + 1)])
+        .collect())
+}
+
 /// The rows of a fixed table whose rows are `row_w` bytes wide.
 pub fn fixed_rows(b: &[u8], row_w: u32) -> Result<Vec<&[u8]>, String> {
     if b.len() < 8 || u32_le(b, 4) != row_w {
@@ -779,5 +931,95 @@ mod tests {
                 role: 0x0605
             }
         );
+    }
+
+    /// The tags the probe writes are [F09 §3.1]'s (`09-segments.md:156-206`, the runtime ranges `:210-222`, `BM.<i>`
+    /// §3.2 `:233`) and [F10 §5.2]'s (`10-sealed-files.md:316-319`), and `seg_kind` [F11 §2.5]'s `FileFamily`
+    /// (`11-runtime-tables.md:200-210`): every constant against the chapters' tables, written out.
+    #[test]
+    fn section_tags_follow_f09_3_1() {
+        let table: [(&str, u16, u16); 59] = [
+            ("IDS", tag::IDS, 0x0001),
+            ("NODE", tag::NODE, 0x0002),
+            ("CREATOR", tag::CREATOR, 0x0003),
+            ("TOPO", tag::TOPO, 0x0004),
+            ("DEFER", tag::DEFER, 0x0005),
+            ("DUE", tag::DUE, 0x0006),
+            ("UID", tag::UID, 0x0007),
+            ("TITLE_BLOB", tag::TITLE_BLOB, 0x0010),
+            ("FIELDS_BLOB", tag::FIELDS_BLOB, 0x0011),
+            ("BLOBTAB", tag::BLOBTAB, 0x0012),
+            ("OUT_OFF", tag::OUT_OFF, 0x0020),
+            ("OUT_DST", tag::OUT_DST, 0x0021),
+            ("OUT_KIND", tag::OUT_KIND, 0x0022),
+            ("IN_OFF", tag::IN_OFF, 0x0023),
+            ("IN_SRC", tag::IN_SRC, 0x0024),
+            ("IN_KIND", tag::IN_KIND, 0x0025),
+            ("EDGE_PROPS", tag::EDGE_PROPS, 0x0026),
+            ("TOMB", tag::TOMB, 0x0030),
+            ("CONFLICTS", tag::CONFLICTS, 0x0031),
+            ("BMDIR", tag::BMDIR, 0x0040),
+            ("TERMS", tag::TERMS, 0x0050),
+            ("POST", tag::POST, 0x0051),
+            ("DOCLEN", tag::DOCLEN, 0x0052),
+            ("FTSSTAT", tag::FTSSTAT, 0x0053),
+            ("PATHIDX", tag::PATHIDX, 0x0080),
+            ("ALIASIDX", tag::ALIASIDX, 0x0081),
+            ("ANCHORS", tag::ANCHORS, 0x0082),
+            ("ANCHOR_UID", tag::ANCHOR_UID, 0x0083),
+            ("GLOBIDX", tag::GLOBIDX, 0x0084),
+            ("SYMTAB", tag::SYMTAB, 0x0100),
+            ("SCHEMAIDS", tag::SCHEMAIDS, 0x0101),
+            ("FILES", tag::FILES, 0x0102),
+            ("REFS", tag::REFS, 0x0201),
+            ("PINS", tag::PINS, 0x0202),
+            ("HEADS", tag::HEADS, 0x0203),
+            ("LEASES", tag::LEASES, 0x0204),
+            ("MARKERS", tag::MARKERS, 0x0205),
+            ("MARKERS_OLD", tag::MARKERS_OLD, 0x0206),
+            ("IDEM", tag::IDEM, 0x0207),
+            ("ALLOC", tag::ALLOC, 0x0208),
+            ("UIDX", tag::UIDX, 0x0209),
+            ("CURSORS", tag::CURSORS, 0x020A),
+            ("SESSMARKS", tag::SESSMARKS, 0x020B),
+            ("BACKUPS", tag::BACKUPS, 0x020C),
+            ("DROPPED", tag::DROPPED, 0x020D),
+            ("HARVEST", tag::HARVEST, 0x020E),
+            ("TREES", tag::TREES, 0x0210),
+            ("FILEOBS", tag::FILEOBS, 0x0211),
+            ("PENDING", tag::PENDING, 0x0212),
+            ("FSINTENT", tag::FSINTENT, 0x0213),
+            ("FPRINT", tag::FPRINT, 0x0214),
+            ("JOURNALCUR", tag::JOURNALCUR, 0x0215),
+            ("DIRMAP", tag::DIRMAP, 0x0216),
+            ("PREFIXEV", tag::PREFIXEV, 0x0217),
+            ("ANCESTRY", tag::ANCESTRY, 0x0218),
+            ("GITRENAMES", tag::GITRENAMES, 0x0219),
+            ("ANCHORRES", tag::ANCHORRES, 0x021A),
+            ("BLOBIDX", tag::BLOBIDX, 0x0310),
+            ("BLOBDATA", tag::BLOBDATA, 0x0311),
+        ];
+        for (name, got, want) in table {
+            assert_eq!(got, want, "{name}: {got:#06x}, F09 gives {want:#06x}");
+        }
+        assert_eq!((tag::bm(0), tag::bm(32_766)), (0x8000, 0xFFFE));
+        assert_eq!(
+            (seg_kind::BASE, seg_kind::DELTA, seg_kind::BLOBS),
+            (3, 4, 6)
+        );
+        // Variable tables ([F09 §4.3]): with no row 12 bytes; rows after `off`.
+        let mut b = Vec::new();
+        put_variable(&mut b, &[]).unwrap();
+        assert_eq!(b, [0; 12]);
+        let mut b = Vec::new();
+        put_variable(&mut b, &[b"ab", b"c"]).unwrap();
+        assert_eq!(
+            b,
+            [
+                2, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 2, 0, 0, 0, 3, 0, 0, 0, b'a', b'b', b'c'
+            ]
+        );
+        assert_eq!(variable_rows(&b).unwrap(), [&b"ab"[..], &b"c"[..]]);
+        assert!(put_variable(&mut Vec::new(), &[b""]).is_err());
     }
 }

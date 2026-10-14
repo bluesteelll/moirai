@@ -11,8 +11,10 @@
 //! | [`rec`] | `RecHdr`, the record checksum, groups and the chain trailer, the chain value at a boundary, `ExtentHead`, `Noop`, `SymDefs`, placement G-1 to G-5, and `encode` | [F05 §3], [F05 §4], [F05 §8.1], [F05 §9.12], [F05 §9.28] (`05-log.md:116-266`, `:419-460`, `:887-894`, `:1111-1139`) |
 //! | [`commit`] | the `Commit` payload of a local ordinary commit and its eight op kinds; item 1a's locator in the form a tail chooses ([`Locator`]: none, or design-A's A1), and each owner's frame span in a payload | [F06 §4], [F06 §5], [F06 §6], [F06 §7], [F06 §8] (`06-commit.md:168-534`, `:536-576`, `:600-865`, `:1040-1067`); `design-A.md:104-129` (A1, a probe form until the 1a spec unit, R-47) |
 //! | [`rt`] | `TreeReg` (sub 2, the settle epoch) and the `FileObs` row batch with the 187-byte row image | [F05 §8.5], [F05 §9.18], [F05 §9.23] (`05-log.md:507-521`, `:974-981`, `:1006-1032`); [F11 §2.9], [F11 §12.1]–§12.5 (`11-runtime-tables.md:278-298`, `:764-914`) |
+//! | [`ckpt`] | the `Checkpoint` record (kind 9, durable) of a delta checkpoint: its payload, the `SegRef` and `FileEntry` forms, and its one-record group, framed by [`rec::raw_group`] outside the encoder's and the scan's subset | [F05 §8.2], [F05 §8.4], [F05 §9.9] (`05-log.md:462-505`, `:728-807`) |
 //! | [`scan`] | `LogSource` and `MemLog`, the streaming scan with record and group validity, and `decode` | [F05 §5], [F05 §10] (`05-log.md:268-341`, `:1232-1307`) |
 //! | [`store`] | `VfsLog` (a `LogSource` over `log.<n>` files), the open floor (`HEAD` with one 8,192-B read, 8 sealed files read and mapped), the fixture writer | `60-roadmap.md:790`; [F04 §2], [F04 §4.1]; [F09 §2.1]; `docs/spec/os/map.md:84-90` |
+//! | [`head`] | `HeadSlot` with its `xxh3_128`, the slot checks, the selection of F04 §8.1 and the publish into the other slot | [F04 §3], [F04 §7], [F04 §8.1], [F04 §9.1] (`04-head.md:34-121`, `:342-397`, `:421-438`) |
 //! | [`synth`] | the generator of measurement 10's tails: the spec-derived mix, the stop rules, the tail measures | [F17 §5.1]–§5.3 (`17-store-parameters.md:313-369`); [70 S8]; [60 §5.2] item 2 |
 //!
 //! **The subset.** The tail holds exactly five kinds: `ExtentHead` (28), `Noop` (12, the rotation pad), `Commit` (1),
@@ -22,8 +24,10 @@
 //! codes the probe chooses in small fixed ranges ([F08], [F18] and [F20] enumerate them; the probe uses no table of
 //! theirs).
 
+pub mod ckpt;
 pub mod commit;
 pub mod enc;
+pub mod head;
 pub mod rec;
 pub mod rt;
 pub mod scan;

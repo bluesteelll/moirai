@@ -22,11 +22,16 @@
 //! default 2, so every other base keeps its bytes.
 
 use super::bitset::{Frozen, encode_frozen};
+use super::blobs::BLOB_REF_LEN;
+use super::rt::{self, FileRow, RefRow, TreeRow, put_files, put_refs, put_trees};
+use super::text::{self, FtsStat, put_doclen, put_ftsstat, tokenize};
 use super::{
     CREATOR_LEN, Creator, Header, NODE_HDR_LEN, NONE32, NodeHdr, SegView, Writer, fixed_rows,
     put_fixed, put_u32s, seg_kind, tag, u32_at,
 };
 use crate::overlay::{Base, BitsetKey, kind_key, kind_status_key};
+use crate::tail::enc::{put_uvar, put_vbytes, uvar_len};
+use crate::tail::rt::Epoch;
 use crate::tail::synth::{BASE_KIND, EKINDS, STATUSES};
 
 /// Out-edges per base node (`ARCHITECTURE-RESEARCH.md:1677`).
@@ -225,7 +230,8 @@ impl Csr {
     }
 }
 
-fn put_csr(w: &mut Writer, c: &Csr, tags: [u16; 3]) -> Result<(), String> {
+/// Writes one CSR direction: the offsets, the `#N`s and the kinds under `tags` (`09-segments.md:483-505`).
+pub fn put_csr(w: &mut Writer, c: &Csr, tags: [u16; 3]) -> Result<(), String> {
     let e = c.ids.len() as u32;
     w.push(tags[0], c.off.len() as u32, |o| {
         put_u32s(o, &c.off);
@@ -245,13 +251,28 @@ fn put_csr(w: &mut Writer, c: &Csr, tags: [u16; 3]) -> Result<(), String> {
 pub fn put_bitsets(
     w: &mut Writer,
     sets: &[(BitsetKey, u32)],
-    mut put: impl FnMut(usize, &mut Vec<u8>) -> Result<(), String>,
+    put: impl FnMut(usize, &mut Vec<u8>) -> Result<(), String>,
 ) -> Result<(), String> {
+    put_bmdir(w, sets)?;
+    put_bm(w, sets, put)
+}
+
+/// Writes `BMDIR`: the keys of `sets` (`09-segments.md:577-587`). A segment with sections between `BMDIR` and
+/// `BM.<0>` in tag order writes them between this and [`put_bm`].
+pub fn put_bmdir(w: &mut Writer, sets: &[(BitsetKey, u32)]) -> Result<(), String> {
     w.push(tag::BMDIR, sets.len() as u32, |o| {
         let rows: Vec<&[u8]> = sets.iter().map(|(k, _)| &k[..]).collect();
         put_fixed(o, BMDIR_ROW, &rows);
         Ok(())
-    })?;
+    })
+}
+
+/// Writes one section per bitset of `sets`, `BM.<i>`, its bytes from `put`.
+pub fn put_bm(
+    w: &mut Writer,
+    sets: &[(BitsetKey, u32)],
+    mut put: impl FnMut(usize, &mut Vec<u8>) -> Result<(), String>,
+) -> Result<(), String> {
     for (i, (_, count)) in sets.iter().enumerate() {
         w.push(tag::bm(i as u16), *count, |o| put(i, o))?;
     }
@@ -349,6 +370,389 @@ pub fn build_with(spec: &Spec, prio: impl Fn(u32) -> u8) -> Result<Vec<u8>, Stri
         encode_frozen(&sets[i].1, o).map(|_| ())
     })?;
     w.finish(&spec.header())
+}
+
+/// The salt of the full base's uids (u21 cut §3.2).
+pub const SALT_U: u64 = 0x6D31_345F_7569_6431;
+/// The salt of its vocabulary.
+pub const SALT_W: u64 = 0x6D31_345F_776F_7264;
+/// The salt of its titles.
+pub const SALT_T: u64 = 0x6D31_345F_7469_746C;
+/// The salt of its fields.
+pub const SALT_F: u64 = 0x6D31_345F_6669_656C;
+/// The words of its vocabulary.
+pub const VOCAB: u32 = 4_096;
+/// A title's bytes (`ARCHITECTURE-RESEARCH.md:1677`).
+pub const TITLE_LEN: usize = 60;
+/// A field value's bytes (`ARCHITECTURE-RESEARCH.md:1677`).
+pub const FIELD_LEN: usize = 24;
+/// The field the probe stores as a row's title (the probe's convention, [F08 §7.1]; u20 cut §3.9).
+pub const TITLE_FIELD: u32 = 1;
+/// The field the probe takes as a document's abstract ([F08 §9]; [F09 §12.1]).
+pub const ABSTRACT_FIELD: u32 = 2;
+/// The refs of the full base: `main` and 49 lanes (`ARCHITECTURE-RESEARCH.md:1677`, "~50 live refs worst case").
+pub const REFS: u32 = 50;
+/// The `hist` files the full base's `FILES` names (u20 cut F-8).
+pub const HIST_FILES: std::ops::RangeInclusive<u32> = 2..=9;
+/// The `blobs` files it names.
+pub const BLOBS_FILES: std::ops::RangeInclusive<u32> = 10..=13;
+/// The `hlc` of the full base's trees' settle: below the generator's first commit's (`tail/synth.rs`).
+pub const BASE_SETTLE_HLC: u64 = 1_789_999_999_000 << 16;
+
+/// The full base's vocabulary: word i is 3–9 lowercase letters drawn from `mix(SALT_W ^ i)`.
+#[derive(Clone, Debug)]
+pub struct Vocab(Vec<Vec<u8>>);
+
+impl Default for Vocab {
+    fn default() -> Vocab {
+        Vocab::new()
+    }
+}
+
+impl Vocab {
+    /// The [`VOCAB`] words.
+    pub fn new() -> Vocab {
+        Vocab(
+            (0..VOCAB)
+                .map(|i| {
+                    let h = mix(SALT_W ^ u64::from(i));
+                    let len = 3 + (h % 7) as usize;
+                    (0..len)
+                        .map(|k| b'a' + (((h >> (3 + 5 * k)) & 31) % 26) as u8)
+                        .collect()
+                })
+                .collect(),
+        )
+    }
+
+    /// Word `i`.
+    pub fn word(&self, i: u32) -> &[u8] {
+        &self.0[i as usize]
+    }
+
+    /// `size` bytes of text: words drawn by `mix(seed ^ k)` mod [`VOCAB`] for k = 0, 1, …, separated by one space, cut
+    /// to `size`.
+    pub fn text(&self, seed: u64, size: usize) -> Vec<u8> {
+        let mut out = Vec::with_capacity(size + 10);
+        let mut k = 0u64;
+        while out.len() < size {
+            if !out.is_empty() {
+                out.push(b' ');
+            }
+            out.extend_from_slice(&self.0[(mix(seed ^ k) % u64::from(VOCAB)) as usize]);
+            k += 1;
+        }
+        out.truncate(size);
+        out
+    }
+
+    /// Row #`id`'s title in the full base: 60 bytes.
+    pub fn title(&self, id: u32) -> Vec<u8> {
+        self.text(SALT_T ^ u64::from(id), TITLE_LEN)
+    }
+
+    /// Row #`id`'s stored fields in the full base, by name: the abstract (field 2) and 1–3 of the fields 3–8, chosen by
+    /// `mix(SALT_F ^ #N)`, each a 24-byte text.
+    pub fn fields(&self, id: u32) -> Vec<(u32, Vec<u8>)> {
+        let h = mix(SALT_F ^ u64::from(id));
+        let k = 1 + (h % 3) as u32;
+        let first = ((h >> 8) % 6) as u32;
+        let mut names: Vec<u32> = (0..k).map(|j| 3 + (first + j) % 6).collect();
+        names.sort_unstable();
+        let at = |name: u32| SALT_F ^ (u64::from(id) << 8 | u64::from(name));
+        let mut v = vec![(ABSTRACT_FIELD, self.text(at(ABSTRACT_FIELD), FIELD_LEN))];
+        v.extend(
+            names
+                .into_iter()
+                .map(|name| (name, self.text(at(name), FIELD_LEN))),
+        );
+        v
+    }
+}
+
+/// The typed value of a text ([F08 §5.1]–§5.2: type byte 6, then a `vstr`), as a field entry stores it.
+pub fn text_value(s: &[u8]) -> Vec<u8> {
+    let mut v = Vec::with_capacity(2 + s.len());
+    v.push(crate::tail::commit::ty::TEXT);
+    put_vbytes(&mut v, s);
+    v
+}
+
+/// The [F08 §6.1] field block of `fields` (name, typed value bytes), already by name ascending: `n`, then each entry's
+/// `field_sym` and its typed value.
+pub fn field_block(fields: &[(u32, Vec<u8>)]) -> Vec<u8> {
+    let mut b = Vec::with_capacity(1 + fields.iter().map(|f| 2 + f.1.len()).sum::<usize>());
+    put_uvar(&mut b, fields.len() as u64);
+    for (name, v) in fields {
+        put_uvar(&mut b, u64::from(*name));
+        b.extend_from_slice(v);
+    }
+    b
+}
+
+/// Row #`id`'s field block in the full base.
+pub fn full_block(vocab: &Vocab, id: u32) -> Vec<u8> {
+    let f: Vec<(u32, Vec<u8>)> = vocab
+        .fields(id)
+        .into_iter()
+        .map(|(n, t)| (n, text_value(&t)))
+        .collect();
+    field_block(&f)
+}
+
+/// Row #`id`'s uid in the full base: `mix(SALT_U ^ #N)` then `mix(SALT_U ^ #N ^ 0xFF…)`, little-endian.
+pub fn full_uid(id: u32) -> [u8; 16] {
+    let x = SALT_U ^ u64::from(id);
+    let mut u = [0u8; 16];
+    u[..8].copy_from_slice(&mix(x).to_le_bytes());
+    u[8..].copy_from_slice(&mix(x ^ u64::MAX).to_le_bytes());
+    u
+}
+
+/// The `id16` of `main`'s tip in the full base: the commit just below the tail.
+pub fn full_tip() -> [u8; 16] {
+    full_uid(0)
+}
+
+/// The full base's `REFS` (u20 cut §3.9; u21 cut §3.2): `main` (`ref_id` 0, kind 1 `work`) at the commit just below
+/// the tail, `seq` = `base_seq`, and `lane/l01` … `lane/l49` (kind 1) forked from it with no commit of their own, by
+/// [F11 §3.6]'s fork rule with no pinned set; `next_ref_id` 50.
+pub fn full_refs(spec: &Spec) -> Vec<RefRow> {
+    let ops = 4 * spec.base_seq;
+    let bytes = 1_000 * spec.base_seq;
+    let tip_lsn = spec.upto_lsn.saturating_sub(1);
+    let seq32 = spec.base_seq as u32;
+    let main = RefRow {
+        ref_id: 0,
+        kind: 1,
+        tip: full_tip(),
+        tip_lsn,
+        gen_no: seq32,
+        ref_seq_next: seq32 + 1,
+        ops_since_fork: ops as u32,
+        overlay_ops: ops as u32,
+        overlay_bytes: bytes as u32,
+        ops_total: ops,
+        bytes_total: bytes,
+        name: "main".into(),
+        absorbed: vec![(0, seq32)],
+        moves: vec![tip_lsn],
+        ..RefRow::default()
+    };
+    let mut v = vec![main];
+    for i in 1..REFS {
+        v.push(RefRow {
+            ref_id: i,
+            kind: 1,
+            tip: full_tip(),
+            tip_lsn,
+            gen_no: seq32,
+            ref_seq_next: 1,
+            fork_commit: full_tip(),
+            fork_lsn: tip_lsn,
+            fork_seq: spec.base_seq,
+            fork_ref_id: 0,
+            overlay_ops: ops as u32,
+            overlay_bytes: bytes as u32,
+            trunk_mark_ops: ops,
+            trunk_mark_bytes: bytes,
+            name: format!("lane/l{i:02}"),
+            absorbed: vec![(0, seq32)],
+            ..RefRow::default()
+        });
+    }
+    v
+}
+
+/// The full base's `TREES`: the generator's [`crate::tail::synth::TREES`] trees, keys `[0xE0 + i; 16]`
+/// (`tail/synth.rs`), `os` 1, `first_settle_done`, an NTFS root id, each with one `full-tree` epoch at
+/// [`BASE_SETTLE_HLC`].
+pub fn full_trees() -> Vec<TreeRow> {
+    (0..crate::tail::synth::TREES)
+        .map(|i| {
+            let mut root_id = [0u8; 57];
+            root_id[0] = 1;
+            root_id[1..17].copy_from_slice(&full_uid(0xE000 + u32::from(i)));
+            root_id[17..33].copy_from_slice(&full_uid(0xE100 + u32::from(i)));
+            let mut last_head = [0u8; 33];
+            last_head[0] = 1;
+            last_head[1..17].copy_from_slice(&full_uid(0xE200 + u32::from(i)));
+            TreeRow {
+                key: [0xE0 + i; 16],
+                os: 1,
+                flags: 1,
+                root_id,
+                caps: [0; 16],
+                last_head,
+                last_settle_hlc: BASE_SETTLE_HLC,
+                dirty_count: 0,
+                dirty_head: [0; 33],
+                dirty_hlc: 0,
+                root_text: format!("C:/probe/tree{i}"),
+                sens: Vec::new(),
+                epochs: vec![Epoch {
+                    scope_kind: 0,
+                    scope_ref: 0,
+                    digest: [0; 16],
+                    hlc: BASE_SETTLE_HLC,
+                }],
+            }
+        })
+        .collect()
+}
+
+/// The full base's `FILES` (u20 cut F-8): `hist.2` … `hist.9`, which cover `[0, upto_lsn)` in eighths, and
+/// `blobs.10` … `blobs.13`; lengths and digests are the probe's.
+pub fn full_files(spec: &Spec) -> Vec<FileRow> {
+    let step = spec.upto_lsn / 8;
+    let digest = |k: u32| full_uid(0xF000 + k);
+    let mut v: Vec<FileRow> = HIST_FILES
+        .map(|k| FileRow {
+            family: 2,
+            file_no: k,
+            from_lsn: u64::from(k - 2) * step,
+            upto_lsn: u64::from(k - 1) * step,
+            total_len: 4_096 * u64::from(k),
+            digest16: digest(k),
+            ..FileRow::default()
+        })
+        .collect();
+    v.extend(BLOBS_FILES.map(|k| FileRow {
+        family: 6,
+        file_no: k,
+        total_len: 65_536 * u64::from(k),
+        digest16: digest(k),
+        ..FileRow::default()
+    }));
+    v
+}
+
+/// A text's token count for `DOCLEN`, saturating at 65,535 ([F09 §12.4]).
+fn tokens(s: &[u8]) -> Result<u16, String> {
+    Ok(u16::try_from(tokenize(s, |_| {})?).unwrap_or(u16::MAX))
+}
+
+/// The sections of a full base with `bitsets` bitsets: [`sections`]'s 12 + k, `UID`, `TITLE_BLOB`, `FIELDS_BLOB`,
+/// `BLOBTAB`, `DOCLEN`, `FTSSTAT`, `FILES`, `REFS`, `ALLOC` and `TREES`.
+pub const fn full_sections(bitsets: usize) -> usize {
+    sections(bitsets, false) + 10
+}
+
+/// Builds the full base of `spec` (u21 cut §3.2, D-4): everything [`build`] writes, each row's `title_off` and
+/// `fields_off` pointing into the base's own pools, and the sections a fold reads to give a touched row its complete
+/// state and the store-level snapshots it starts from: `UID`, `TITLE_BLOB`, `FIELDS_BLOB`, an empty `BLOBTAB`,
+/// `DOCLEN`, `FTSSTAT`, `FILES`, `REFS`, `ALLOC` and `TREES`. `tok_ver` is 1. No `TERMS` or `POST` (u21 cut F-17): the
+/// checkpoint never reads them, and the base stays invalid under V-7 (`09-segments.md:1197`), as [`build`]'s is.
+pub fn build_full(spec: &Spec) -> Result<Vec<u8>, String> {
+    if spec.n < MIN_N {
+        return Err(format!("a base has at least {MIN_N} nodes"));
+    }
+    let vocab = Vocab::new();
+    let n = spec.n as usize;
+    let ids = 1..=spec.n;
+    // Pass 1: each row's pool offsets and DOCLEN; the pools themselves are written in the sections' closures.
+    let mut nodes = Vec::with_capacity(n);
+    let mut doclen = Vec::with_capacity(n);
+    let (mut toff, mut foff) = (0u64, 0u64);
+    for id in ids.clone() {
+        let title = vocab.title(id);
+        let fields = vocab.fields(id);
+        let typed: Vec<(u32, Vec<u8>)> = fields.iter().map(|(n, t)| (*n, text_value(t))).collect();
+        let block = field_block(&typed);
+        nodes.push(NodeHdr {
+            title_off: u32::try_from(toff).map_err(|_| "TITLE_BLOB past 4 GiB")?,
+            fields_off: u32::try_from(foff).map_err(|_| "FIELDS_BLOB past 4 GiB")?,
+            ..spec.row(id)
+        });
+        toff += (uvar_len(title.len() as u64) + title.len()) as u64;
+        foff += (uvar_len(block.len() as u64) + block.len()) as u64;
+        doclen.push([tokens(&title)?, tokens(&fields[0].1)?, 0]);
+    }
+    let mut stat = [FtsStat::default(); 3];
+    for d in &doclen {
+        for f in 0..3 {
+            if d[f] > 0 {
+                stat[f].docs += 1;
+                stat[f].total_len += u64::from(d[f]);
+            }
+        }
+    }
+    let creators: Vec<Creator> = ids.clone().map(|id| spec.creator(id)).collect();
+    let topo: Vec<u32> = ids.clone().map(|id| spec.topo(id)).collect();
+    let defer: Vec<u32> = ids.clone().map(|id| spec.defer(id)).collect();
+    let due: Vec<u32> = ids.clone().map(|id| spec.due(id)).collect();
+    let mut uids: Vec<([u8; 16], u32)> = ids.clone().map(|id| (full_uid(id), id)).collect();
+    uids.sort_unstable();
+    let out = out_csr(spec);
+    let inn = out.reverse(spec.n);
+    let sets = spec.bitsets();
+    let dir: Vec<(BitsetKey, u32)> = sets.iter().map(|(k, m)| (*k, m.len() as u32)).collect();
+    let mut w = Writer::new(full_sections(sets.len()), 330 * n);
+    put_rows(&mut w, &nodes, &creators, [&topo, &defer, &due])?;
+    drop((nodes, creators, topo, defer, due));
+    w.push(tag::UID, spec.n, |o| {
+        o.reserve(8 + 20 * n);
+        o.extend_from_slice(&spec.n.to_le_bytes());
+        o.extend_from_slice(&20u32.to_le_bytes());
+        for (uid, id) in &uids {
+            o.extend_from_slice(uid);
+            o.extend_from_slice(&id.to_le_bytes());
+        }
+        Ok(())
+    })?;
+    drop(uids);
+    w.push(tag::TITLE_BLOB, spec.n, |o| {
+        for id in ids.clone() {
+            put_vbytes(o, &vocab.title(id));
+        }
+        Ok(())
+    })?;
+    w.push(tag::FIELDS_BLOB, spec.n, |o| {
+        for id in ids.clone() {
+            put_vbytes(o, &full_block(&vocab, id));
+        }
+        Ok(())
+    })?;
+    w.push(tag::BLOBTAB, 0, |o| {
+        put_fixed(o, BLOB_REF_LEN as u32, &[]);
+        Ok(())
+    })?;
+    put_csr(&mut w, &out, [tag::OUT_OFF, tag::OUT_DST, tag::OUT_KIND])?;
+    put_csr(&mut w, &inn, [tag::IN_OFF, tag::IN_SRC, tag::IN_KIND])?;
+    drop((out, inn));
+    put_bmdir(&mut w, &dir)?;
+    w.push(tag::DOCLEN, spec.n, |o| {
+        put_doclen(o, &doclen);
+        Ok(())
+    })?;
+    w.push(tag::FTSSTAT, 3, |o| {
+        put_ftsstat(o, &stat);
+        Ok(())
+    })?;
+    let files = full_files(spec);
+    w.push(tag::FILES, files.len() as u32, |o| put_files(o, &files))?;
+    let refs = full_refs(spec);
+    w.push(tag::REFS, refs.len() as u32, |o| {
+        put_refs(o, rt::form::SNAPSHOT, &refs, REFS)
+    })?;
+    w.push(tag::ALLOC, spec.n, |o| {
+        let mut rows = Vec::with_capacity(24 * n);
+        for id in ids.clone() {
+            rows.extend_from_slice(&full_uid(id));
+            rows.extend_from_slice(&0u32.to_le_bytes());
+            rows.extend_from_slice(&1u32.to_le_bytes());
+        }
+        rt::put_body(o, 24, rt::form::SNAPSHOT, 1, &rows, &[], &[])
+    })?;
+    let trees = full_trees();
+    w.push(tag::TREES, trees.len() as u32, |o| put_trees(o, &trees))?;
+    put_bm(&mut w, &dir, |i, o| {
+        encode_frozen(&sets[i].1, o).map(|_| ())
+    })?;
+    w.finish(&Header {
+        tok_ver: text::TOK_VER,
+        ..spec.header()
+    })
 }
 
 /// The row sections of a parsed segment, row `i` being #N = i + 1 in a base and `IDS[i]` in an upper segment
@@ -693,5 +1097,155 @@ pub(crate) mod tests {
         for (i, &p) in col.iter().enumerate() {
             assert_eq!(p, c.node[NODE_HDR_LEN * i + 3], "#{}", i + 1);
         }
+    }
+
+    /// The full base (u21 cut §3.2, D-4) at N = 3,000: [`build`]'s sections with the same bytes but `NODE`, whose rows are
+    /// [`Spec::row`]'s with `title_off` and `fields_off` set, and ten more in tag order (`UID`, `TITLE_BLOB`,
+    /// `FIELDS_BLOB`, an empty `BLOBTAB`, `DOCLEN`, `FTSSTAT`, `FILES`, `REFS`, `ALLOC`, `TREES`); `tok_ver` 1. Each row's
+    /// title is 60 bytes of words of 3–9 lowercase letters, its block the abstract (field 2) and 1–3 of the fields 3–8,
+    /// each 24 bytes of text; `UID` holds every (uid, #N) by uid; `ALLOC` from #1 (uid, 0, 1); `DOCLEN` each row's
+    /// token counts and `FTSSTAT` their totals; `REFS`, `TREES` and `FILES` the generators' 50 refs, 4 trees and 12 files.
+    #[test]
+    fn full_base_rows_carry_titles_fields_and_uids() {
+        let s = spec(3_000);
+        let full = build_full(&s).unwrap();
+        let plain = build(&s).unwrap();
+        let (v, p) = (
+            SegView::parse(&full).unwrap(),
+            SegView::parse(&plain).unwrap(),
+        );
+        v.check_digests().unwrap();
+        assert_eq!(
+            v.header,
+            Header {
+                tok_ver: 1,
+                ..s.header()
+            }
+        );
+        let mut want: Vec<u16> = p.table.iter().map(|e| e.tag).collect();
+        want.extend([
+            tag::UID,
+            tag::TITLE_BLOB,
+            tag::FIELDS_BLOB,
+            tag::BLOBTAB,
+            tag::DOCLEN,
+            tag::FTSSTAT,
+            tag::FILES,
+            tag::REFS,
+            tag::ALLOC,
+            tag::TREES,
+        ]);
+        want.sort_unstable();
+        assert_eq!(v.table.iter().map(|e| e.tag).collect::<Vec<_>>(), want);
+        assert_eq!(v.table.len(), full_sections(5));
+        for e in p.table.iter().filter(|e| e.tag != tag::NODE) {
+            assert_eq!(v.section(e.tag), p.section(e.tag), "{:#06x}", e.tag);
+        }
+        let c = Columns::parse(&full).unwrap();
+        let vocab = Vocab::new();
+        let (titles, fields) = (
+            v.need(tag::TITLE_BLOB).unwrap(),
+            v.need(tag::FIELDS_BLOB).unwrap(),
+        );
+        let doclen = text::decode_doclen(v.need(tag::DOCLEN).unwrap()).unwrap();
+        let mut stat = [FtsStat::default(); 3];
+        let mut names = std::collections::BTreeSet::new();
+        for id in 1..=s.n {
+            let h = c.node(id as usize - 1);
+            assert_eq!(
+                NodeHdr {
+                    title_off: NONE32,
+                    fields_off: NONE32,
+                    ..h
+                },
+                s.row(id),
+                "#{id}"
+            );
+            let title = crate::tail::enc::Reader::new(&titles[h.title_off as usize..])
+                .vstr()
+                .unwrap();
+            assert_eq!(title.as_bytes(), &vocab.title(id)[..], "#{id} title");
+            assert_eq!(title.len(), TITLE_LEN);
+            assert!(
+                title
+                    .split(' ')
+                    .all(|w| w.len() <= 9 && w.bytes().all(|b| b.is_ascii_lowercase()))
+            );
+            let block = crate::tail::enc::Reader::new(&fields[h.fields_off as usize..])
+                .vbytes()
+                .unwrap();
+            assert_eq!(block, &full_block(&vocab, id)[..], "#{id} fields");
+            let f = vocab.fields(id);
+            assert!((2..=4).contains(&f.len()) && f[0].0 == ABSTRACT_FIELD);
+            assert!(
+                f.windows(2).all(|w| w[0].0 < w[1].0)
+                    && f[1..].iter().all(|x| (3..=8).contains(&x.0))
+            );
+            assert!(f.iter().all(|x| x.1.len() == FIELD_LEN));
+            names.extend(f.iter().map(|x| x.0));
+            let t = [
+                tokens(title.as_bytes()).unwrap(),
+                tokens(&f[0].1).unwrap(),
+                0,
+            ];
+            assert_eq!(doclen[id as usize - 1], t, "#{id} DOCLEN");
+            for k in 0..2 {
+                stat[k].docs += u32::from(t[k] > 0);
+                stat[k].total_len += u64::from(t[k]);
+            }
+        }
+        assert_eq!(names, (2..=8).collect(), "every field 2–8 occurs");
+        assert_eq!(
+            text::decode_ftsstat(v.need(tag::FTSSTAT).unwrap()).unwrap(),
+            stat
+        );
+        let uid = fixed_rows(v.need(tag::UID).unwrap(), 20).unwrap();
+        let mut want_uid: Vec<Vec<u8>> = (1..=s.n)
+            .map(|id| [&full_uid(id)[..], &id.to_le_bytes()].concat())
+            .collect();
+        want_uid.sort_unstable();
+        assert_eq!(uid, want_uid.iter().map(Vec::as_slice).collect::<Vec<_>>());
+        let (first, alloc) = rt::decode_alloc(v.need(tag::ALLOC).unwrap()).unwrap();
+        assert_eq!(first, 1);
+        assert!(
+            alloc
+                .iter()
+                .enumerate()
+                .all(|(i, r)| (r.uid, r.ref_id, r.create_seq) == (full_uid(i as u32 + 1), 0, 1))
+        );
+        assert_eq!(alloc.len(), 3_000);
+        assert_eq!(
+            rt::decode_refs(v.need(tag::REFS).unwrap()).unwrap(),
+            (full_refs(&s), REFS)
+        );
+        assert_eq!(
+            rt::decode_trees(v.need(tag::TREES).unwrap()).unwrap(),
+            full_trees()
+        );
+        assert_eq!(
+            rt::decode_files(v.need(tag::FILES).unwrap()).unwrap(),
+            full_files(&s)
+        );
+        assert_eq!(full_files(&s).len(), 12);
+        assert_eq!(v.need(tag::BLOBTAB).unwrap(), &[0, 0, 0, 0, 36, 0, 0, 0]);
+        assert!(build_full(&spec(MIN_N - 1)).is_err());
+    }
+
+    /// The plain base keeps its bytes (u21 cut §6, the identity gate's quick form): the XXH3-64 of [`build`] and of
+    /// [`build_with`] at the `ready` priorities, N = 3,000, pinned at 8916d63, before the full base's change of the
+    /// writers' helpers.
+    #[test]
+    fn plain_base_bytes_are_unchanged() {
+        let s = spec(3_000);
+        assert_eq!(
+            xxhash_rust::xxh3::xxh3_64(&build(&s).unwrap()),
+            0x7e8d_26b9_d0a6_412e,
+            "build"
+        );
+        assert_eq!(
+            xxhash_rust::xxh3::xxh3_64(&build_with(&s, ready_priority).unwrap()),
+            0x30a7_aaf7_f078_d013,
+            "build_with(ready_priority)"
+        );
     }
 }

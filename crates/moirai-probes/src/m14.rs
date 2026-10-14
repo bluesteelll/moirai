@@ -1,10 +1,11 @@
 //! Measurement 14 (WP-53e, [60 §5.2] item 14, `60-roadmap.md:770`; `docs/m0/PLAN.md:317`): the layout probes over
 //! the F09 segment of [`crate::seg`], at 1e5 and 1e6 nodes, and the T1 and T2 trigger quantities: a point read after
 //! a full 4,096-op tail and a delta checkpoint at 0.5 M nodes (T1, `ARCHITECTURE-RESEARCH.md:130`), and the MCP
-//! overlay catch-up (T2, `:140`). T2's 16-writer wait is taken from measurement 2's run (R-24 Q7) and is not built
-//! here. The tails are u10's ([`crate::tail::synth`]), from [70 S8]'s spec-derived mix (R-24 Q10).
+//! overlay catch-up (T2, `:140`), and T1's full delta checkpoint at 0.5 M and 1e6 nodes (M-A4, R-53 Q2). T2's 16-writer
+//! wait is taken from measurement 2's run (R-24 Q7) and is not built here. The tails are u10's
+//! ([`crate::tail::synth`]), from [70 S8]'s spec-derived mix (R-24 Q10).
 //!
-//! **The grid** (35 quantities, names by [MP §4.1]). The night's 18 run with the deciding quantities first:
+//! **The grid** (37 quantities, names by [MP §4.1]). The night's 18 run with the deciding quantities first:
 //! `read-4096.n1e6`, `ckpt-4096.n5e5` and `catchup-16.n1e6`, then T1's read diagnostics `read-op-4096.n1e6`,
 //! `read-cost-records-4096.n1e6` and `read-cost-bytes-4096.n1e6` (R-40 O-2, R-42, R-44), then the layout probes (R-34
 //! B-3, M-15; R-35 Q2). u20's blocks follow, appended (u20 cut §3.10): T1's read with item 1a (M-A1, R-50):
@@ -46,6 +47,22 @@
 //! split `priority` if the warm `rows` p99 exceeds 1.5 ms at 5 % and 1e6, or the first-touch `rows` p99 exceeds 2.5 ms at
 //! 1e5.
 //!
+//! **The full delta checkpoint** follows, appended (u21 cut §3.8; M-A4, R-53 Q2): `ckpt-full-4096.n5e5` and
+//! `ckpt-full-4096.n1e6`, arm 0 `ckpt.full` and its floor `ckpt.full.write`, minimum tier t3. One sample of arm 0 folds a
+//! fresh 4,096-op tail, `ckpt-4096`'s at the same scale ([`seed_name`], [`ckpt_target`]; u21 cut D-2), over the full base
+//! ([`crate::seg::base::build_full`]) into every section a delta of its window carries ([`crate::seg::full`]), read
+//! from the store; encodes it, compressing the window's bodies into `blobs.15` (`lz4`, or `none` when lz4 is not
+//! shorter, R-40 O-1); seals `blobs.15` and `seg.d14` ([`seal_file`]: `create_new`, `write_at`, `sync(DataAndMeta)`,
+//! `seal`) and flushes the directory once; appends the `Checkpoint` group ([`full_checkpoint`]) at the tail's end and
+//! flushes the extent data-only; publishes into the other `HEAD` slot, not flushed ([`crate::tail::head::publish`]); and
+//! reads the group's trailer back, the identity check (`ARCHITECTURE-RESEARCH.md:715-737`). The setup, untimed, writes
+//! tail j over the extent, zeroes past it, flushes it and restores `HEAD` ([`restored_head`]); the teardown drops the
+//! products and unlinks both files. The floor's setup also folds tail j from the store and encodes it, so its op times
+//! the same writes, append, publish and identity read: the pair splits a sample into fold and encode against writes and
+//! publish. The bounds are M-A4's (`design-A.md:557`; spec Goal 2): ≤ 50 ms at 0.5 M and ≤ 100 ms at 1e6, after
+//! `ARCHITECTURE-RESEARCH.md:1709` (10–50 ms at 1e5, 20–100 ms at 1e6). T1's trigger stays `:130`'s > 100 ms at 0.5 M,
+//! so a result between 50 and 100 ms at 0.5 M misses M-A4's bound and not T1's (critique m-1).
+//!
 //! **What the checkpoint omits** (review m-4). `ckpt-4096.n5e5` times a delta of the probe's subset of sections
 //! ([`crate::seg`]), not the whole delta of [F09 §16.2] (`09-segments.md:1085-1089`; the sections `:156-206`). Its
 //! delta has no `TITLE_BLOB` or `FIELDS_BLOB` for the touched rows, though `SetField` and `SetBody` are 35 % and 5 % of
@@ -56,7 +73,33 @@
 //! `sync_dir`: the `Checkpoint` record's append under the writer byte, its group commit and the publish that makes the
 //! new set visible (`ARCHITECTURE-RESEARCH.md:736`, [AR §4.5] step 12; [F16 P-80], `16-protocol.md:721-723`) are not
 //! timed. The results analyst reads the quantity as a lower bound of the delta checkpoint of
-//! `ARCHITECTURE-RESEARCH.md:130`.
+//! `ARCHITECTURE-RESEARCH.md:130`. `ckpt-full-4096` (below) times the rest.
+//!
+//! **What the full checkpoint leaves out** (u21 cut §3.9; R-53 Q2, R-59 Q2). `ckpt-full-4096.<N>` times every section
+//! F09 §3.1 lists for a delta of its window, the window's `blobs` file, the `Checkpoint` group with its data-only
+//! flush, the publish into the other `HEAD` slot and the identity read (`ARCHITECTURE-RESEARCH.md:715-737`). The results
+//! analyst reads it as a lower bound of the delta checkpoint of `ARCHITECTURE-RESEARCH.md:130` in seven parts, and as an
+//! upper bound in one:
+//! - lower bound (u20 cut F-4): of the predicate bitsets only `deleted` is maintained; the others need F08's and F13's
+//!   membership rules, which the probe does not have;
+//! - lower bound (u20 cut F-5): the tokenizer is tokenizer v1 restricted to ASCII, and the bodies, random bytes, are
+//!   not tokenized;
+//! - lower bound (u20 cut F-7): the checkpoint takes no writer, flush or maintenance byte and re-writes no pending range
+//!   `(durable_lsn, E]`, and the publish applies the `Checkpoint`'s effects without a scan;
+//! - lower bound (u20 cut F-8): the store-level tables are at the probe's sizes: 50 refs, 4 trees and 13 file rows, and
+//!   no pin, head, lease or marker;
+//! - lower bound (u21 cut F-12): the bodies are random, so lz4 never wins and every body is stored raw (codec 0). The
+//!   time includes only a compress attempt that fails, the lower-bound side; the `blobs` bytes written and flushed are
+//!   incompressible bodies' bytes, about 2–3× a text body's compressed size (est.), the other side (critique m-2). The
+//!   codec's real ratio is measurement 6's;
+//! - lower bound (u21 cut F-16): no arm times one section alone, so a miss splits only into fold and encode (the
+//!   floor's setup) against writes and publish (the floor);
+//! - lower bound (u21 cut F-17): the base holds no `TERMS` or `POST`. The checkpoint never reads them, and the fixture
+//!   is that much smaller than a store's base;
+//! - upper bound (u20 cut F-6): `DOCLEN` and `FTSSTAT` are written as `HOLE(F09-doclen)`'s "kept" candidate
+//!   (`09-segments.md:1263`).
+//!
+//! A field-1 value can exceed F08 §7.1's 200-B title limit. It is stored in `TITLE_BLOB` as it is (u21 cut F-13).
 //!
 //! **What no test sees** (u12 review r1 m-1, test r1 m-1). The tests watch the fixture's store at each sample's two
 //! ticks: its reads, and for the checkpoint also its opens, writes and flushes, and the files' bytes and seals.
@@ -72,12 +115,17 @@
 //! every test, since the rig observes reads only (u17 critique I-2). The `ready` arms are seen through their maps, first
 //! borrows, drops and advice: an op that scanned a map made in its setup and borrowed again would pass. A warm arm's
 //! result is checked once, when [`arms`] runs its op untimed before the arm exists ([`ready_warm_agree`]), and never
-//! per sample: a warm op whose result changed after that first call would pass every test.
+//! per sample: a warm op whose result changed after that first call would pass every test. The full checkpoint's fold
+//! is seen through the log reads it makes, its files, group and publish through the store's calls, bytes and seals at
+//! the ticks (the directory's flush included, through `LoggedFs`); its in-memory work is not seen: arm 0's encode and
+//! compress (op) and the floor's encode (setup) rest on the code alone, as does the drop of the products (teardown).
 //!
 //! Every run's fixture is the base `seg.base.1` at the quantity's N ([`crate::seg::base`]), written, sealed and
-//! mapped, and, for the seven families that read one (the overlay probe, the read and its three diagnostics, the
-//! checkpoint and the catch-up), a full `ops` tail at P06 (4,096 at production) written as `log.<n>` extents with
-//! `HEAD`; it is removed on every path out of the run. The probe's choices: the ids a probe cycles through
+//! mapped, and, for the thirteen families that read one (the overlay probe, the read and its three diagnostics, the
+//! checkpoint and the catch-up, item 1a's five reads, and the full checkpoint), a full `ops` tail at P06 (4,096 at
+//! production; the full checkpoint's 64 at the test profile, D-3) written as `log.<n>` extents with `HEAD`; the full
+//! checkpoint's base is the full base, with titles, fields, uids and store tables ([`crate::seg::base::build_full`],
+//! about 330 B per node, est.); it is removed on every path out of the run. The probe's choices: the ids a probe cycles through
 //! ([`PROBE_IDS`] drawn from the quantity's seed; the read's and its diagnostics' are the tail's touched nodes in the
 //! order of the read's seed, [`read_cycle`]), the families' single arms, and the catch-up's burst. The sparse sets are the probe's too: A_s = {#N : mix(`SALT_A` ^ #N) mod 32
 //! = s} and B_s likewise with `SALT_B`, for s = 0–3, about 2,048 ids per 65,536-id chunk, under the array limit of
@@ -102,24 +150,34 @@ use crate::overlay::{Builder, Key, Overlay, Probe, Value, kind_key, kind_status_
 use crate::run::{Context, RunSpec, measure};
 use crate::seg::base::{self, Columns};
 use crate::seg::bitset::{Frozen, and_popcount, encode_frozen};
+use crate::seg::blobs::Packer;
 use crate::seg::delta;
-use crate::seg::{NODE_HDR_LEN, STATUS_AT, u32_at};
+use crate::seg::full::{self, Encoded, Folded, FullBase};
+use crate::seg::{NODE_HDR_LEN, STATUS_AT, seg_kind as file_family, u32_at};
+use crate::tail::ckpt::{self, Checkpoint, FileEntry, RefList, ckflag};
+use crate::tail::commit::Op;
+use crate::tail::head::{self, HeadSlot, Published, SegRef, VfsSlot};
 use crate::tail::rec::{Payload, RecHdr};
 use crate::tail::scan::{LogSource, MemLog, scan};
 use crate::tail::store::{VfsLog, extent_name};
 use crate::tail::synth::{
     BASE_KIND, Clause, HOT_FIELD, STATUSES, Tail, Target, generate, hot_node,
 };
-use crate::tail::{HEAD_LEN, Locator, Params, REC_HDR_LEN, Shape, TAIL_READ_CHUNK, TRAILER_LEN};
+use crate::tail::{
+    HEAD_LEN, Locator, MIN_GROUP_LEN, Params, REC_HDR_LEN, Shape, TAIL_READ_CHUNK, TRAILER_LEN,
+};
 use crate::tier::Tier;
 use crate::units::Unit;
 use moirai_vfs::{
     Access, Advice, Meter, OS_SHARE_RETRY_MS, OpenHint, RelPath, RelPathBuf, RootAccess, RootRole,
     SealedMap, SealedMaps, ShareRetry, StoreFs, SyncKind, VfsErrorKind,
 };
+use std::cell::Cell;
+use std::collections::BTreeMap;
 use std::ffi::OsString;
 use std::io::Write;
 use std::path::{Path, PathBuf};
+use std::rc::Rc;
 
 /// The measurement's row number.
 pub const MEASUREMENT: u32 = 14;
@@ -143,6 +201,21 @@ pub const BASE_NAME: &str = "seg.base.1";
 pub const DELTA_NAME: &str = "seg.d1";
 /// The checkpoint floor's file.
 pub const FLOOR_NAME: &str = "seg.d2";
+/// The full checkpoint's delta number K (u21 cut D-5): the base is G = 1 and the full base's `FILES` names `hist.2` …
+/// `hist.9` and `blobs.10` … `blobs.13`, so the delta is 14 and its `blobs` file 15.
+pub const FULL_DELTA_NO: u32 = 14;
+/// The full checkpoint's `blobs` file number.
+pub const FULL_BLOBS_NO: u32 = 15;
+/// The full checkpoint's delta file.
+pub const FULL_DELTA_NAME: &str = "seg.d14";
+/// The full checkpoint's `blobs` file.
+pub const FULL_BLOBS_NAME: &str = "blobs.15";
+/// `HEAD.next_file_no` the full checkpoint's setup restores: the next after the base's files.
+pub const RESTORED_NEXT_FILE_NO: u32 = 14;
+/// `next_file_no` after the full checkpoint ([F05 §9.9]: greater than every number its record names; [F04 §5.13]).
+pub const FULL_NEXT_FILE_NO: u32 = 16;
+/// The full checkpoint's P06 at the test profile (u21 cut D-3): 64 ops, so that most samples carry a body.
+pub const TEST_FULL_P06: u64 = 64;
 
 /// A probe family.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
@@ -169,6 +242,9 @@ pub enum Family {
     ReadCostBytes,
     /// T1's delta checkpoint.
     Ckpt,
+    /// T1's full delta checkpoint (u21 cut §3.8; M-A4, R-53 Q2): every section of the window's delta over a full base,
+    /// its `blobs` file, the `Checkpoint` group and the publish into the other `HEAD` slot.
+    CkptFull,
     /// T2's MCP overlay catch-up.
     Catchup,
     /// T1 with item 1a (M-A1; u20 cut §3.4): `read-4096.n1e6`'s tail and nodes in A1, read by the whole record, the
@@ -233,6 +309,7 @@ impl Family {
             Family::ReadCostRecords => "read-cost-records-4096",
             Family::ReadCostBytes => "read-cost-bytes-4096",
             Family::Ckpt => "ckpt-4096",
+            Family::CkptFull => "ckpt-full-4096",
             Family::Catchup => "catchup-16",
             Family::Read1a4096 => "read-1a-4096",
             Family::Read1a1024 => "read-1a-1024",
@@ -260,6 +337,7 @@ impl Family {
             Family::ReadCostRecords => &["records"],
             Family::ReadCostBytes => &["bytes"],
             Family::Ckpt => &["ckpt", "ckpt.write"],
+            Family::CkptFull => &["ckpt.full", "ckpt.full.write"],
             Family::Catchup => &["catchup"],
             Family::Read1a4096
             | Family::Read1a1024
@@ -279,7 +357,7 @@ impl Family {
             | Family::ReadCostBytes
             | Family::Read1a4096
             | Family::Read1a1024 => Some(Tier::T1),
-            Family::Ckpt => Some(Tier::T3),
+            Family::Ckpt | Family::CkptFull => Some(Tier::T3),
             Family::Catchup => Some(Tier::T2),
             _ => None,
         }
@@ -295,6 +373,7 @@ impl Family {
                 | Family::ReadCostRecords
                 | Family::ReadCostBytes
                 | Family::Ckpt
+                | Family::CkptFull
                 | Family::Catchup
                 | Family::Read1a4096
                 | Family::Read1a1024
@@ -352,7 +431,8 @@ pub struct Quantity {
 /// The quantities in run order: the night's 18, the deciding quantities first (T1's read and checkpoint, T2's
 /// catch-up), then T1's read diagnostics, its evidence (R-40 O-2; the read cost's two counts as two quantities, R-44),
 /// then the layout probes at 1e5 and 1e6 (R-34 B-3, M-15); then u20's block, appended (u20 cut §3.10): T1's read with
-/// item 1a at P06 4,096 and 1,024, then its depth arm at 4, 16 and 64 records (§3.4).
+/// item 1a at P06 4,096 and 1,024, then its depth arm at 4, 16 and 64 records (§3.4), then the `ready` probe's 12
+/// (§3.8); then u21's two, appended (u21 cut §3.8): T1's full delta checkpoint at 0.5 M and 1e6 nodes.
 pub fn grid() -> Vec<Quantity> {
     let q = |family: Family, n: u32| {
         let scale = match n {
@@ -396,6 +476,8 @@ pub fn grid() -> Vec<Quantity> {
         g.push(q(f, 1_000_000));
     }
     g.extend(ready_quantities());
+    g.push(q(Family::CkptFull, 500_000));
+    g.push(q(Family::CkptFull, 1_000_000));
     g
 }
 
@@ -619,8 +701,10 @@ fn seed(name: &str) -> u64 {
 
 /// The name `q`'s seed is drawn from: its own, except that T1's read diagnostics take the read's at the same scale, so
 /// their tail is `read-4096`'s byte for byte and their nodes come in its order (spec Goal 1); and that item 1a's reads
-/// at P06 take `read-<P06>`'s, so their plans and read cycle are the whole read's (u20 cut §3.4). The depth arms keep
-/// their own name's, with [`Family::seed_k`] at production.
+/// at P06 take `read-<P06>`'s, so their plans and read cycle are the whole read's (u20 cut §3.4); and that the full
+/// checkpoint takes `ckpt-4096`'s at the same scale, so at production its fixture tail and its samples' tails are the
+/// night's checkpoint's byte for byte (u21 cut D-2). The depth arms keep their own name's, with [`Family::seed_k`] at
+/// production.
 pub fn seed_name(q: &Quantity) -> String {
     let scale = &q.name[q.family.stem().len()..];
     match q.family {
@@ -630,18 +714,25 @@ pub fn seed_name(q: &Quantity) -> String {
         Family::Read1a4096 | Family::Read1a1024 => {
             format!("read-{}{scale}", q.family.read_1a_p06().expect("a P06"))
         }
+        Family::CkptFull => format!("{}{scale}", Family::Ckpt.stem()),
         _ => q.name.clone(),
     }
 }
 
 /// The tail of `q` at `profile`: a full `ops` tail at P06 over the base; for item 1a's quantities in A1, at their P06 at
-/// production, with the depth arm's option and its seed's k.
+/// production, with the depth arm's option and its seed's k; for the full checkpoint at the test profile, P06
+/// [`TEST_FULL_P06`] (u21 cut D-3) with C2's bound lifted, since a 64-op tail at the test profile's P12 holds more
+/// settles than C2's 2 KiB allows (u21 cut D-3, addendum); at production its target is `ckpt-4096`'s.
 pub fn target(q: &Quantity, profile: Profile) -> Target {
     let mut p = profile.params();
     let k = match profile {
         Profile::Production => q.family.seed_k(),
         Profile::Test => 0,
     };
+    let full_test = q.family == Family::CkptFull && profile == Profile::Test;
+    if full_test {
+        p.p06 = TEST_FULL_P06;
+    }
     if let Some(p06) = q.family.read_1a_p06() {
         if profile == Profile::Production {
             p.p06 = p06;
@@ -658,7 +749,7 @@ pub fn target(q: &Quantity, profile: Profile) -> Target {
         n: profile.n(q.n),
         seed: seed(&seed_name(q)) ^ k,
         params: p,
-        rt_bound: None,
+        rt_bound: full_test.then_some(u64::MAX),
     }
 }
 
@@ -1200,13 +1291,17 @@ pub fn catch_up<S: LogSource>(
 /// Checkpoint sample `j`'s tail (scoping §4.2: "a fresh tail per sample outside the timed region"): a full `ops` tail
 /// at P06 over the base like the fixture's, from a seed of its own, so it is deterministic and distinct per `j`.
 pub fn ckpt_tail(q: &Quantity, profile: Profile, j: u64) -> Result<Tail, String> {
-    generate(
-        &Target {
-            seed: mix(seed(&q.name) ^ (j + 1)),
-            ..target(q, profile)
-        },
-        false,
-    )
+    generate(&ckpt_target(q, profile, j), false)
+}
+
+/// The target of checkpoint sample `j`'s tail: [`target`]'s with the seed `mix(seed(seed_name(q)) ^ (j + 1))`. For the
+/// night's checkpoint [`seed_name`] is its own name, so its tails are the night's; the full checkpoint's are
+/// `ckpt-4096`'s at the same scale (u21 cut D-2).
+pub fn ckpt_target(q: &Quantity, profile: Profile, j: u64) -> Target {
+    Target {
+        seed: mix(seed(&seed_name(q)) ^ (j + 1)),
+        ..target(q, profile)
+    }
 }
 
 /// T1's checkpoint fold: the whole tail of `t`, read from `log`, over the base `c`, into `seg.d1`.
@@ -1225,6 +1320,286 @@ pub fn fold_tail<S: LogSource>(
         c,
         1,
     )
+}
+
+/// The base's `SegRef` ([F04 §4.1], `04-head.md:94-100`): G = 1, `kind` base, its header's `upto_lsn` and the first 16
+/// bytes of its `seg_digest`.
+pub fn base_ref(c: &Columns<'_>) -> SegRef {
+    SegRef {
+        file_no: 1,
+        kind: head::seg_kind::BASE,
+        upto_lsn: c.view.header.upto_lsn,
+        blake3_16: c.view.bytes[72..88].try_into().expect("16 bytes"),
+    }
+}
+
+/// The `HEAD` the full checkpoint's setup restores before each sample (u21 cut §3.7, D-8; critique I-4), as [A, B]:
+/// slot A at `slot_seq` 2 and slot B the same state at 1, both valid by [F04 §7]. The state: `flags` `fts_tier2`; the
+/// tail's `epoch`, `epoch_lsn`, `init` and `project_oid_algo` (`Expect`); `committed_lsn` = `durable_lsn` = the tail's
+/// end; `checkpoint_lsn` = the tail's start, the base's `upto_lsn`; `segments` = [the base]; `active_log` 1;
+/// `next_file_no` [`RESTORED_NEXT_FILE_NO`]; `next_ref_id` the base's `REFS.aux`; `commit_seq`, `next_id` and the HLCs
+/// from the tail's records (which must be kept); `next_anchor` and `fence` 1; no `seq_ring` or `image_cursor` entry.
+pub fn restored_head(t: &Tail, base: SegRef, next_ref_id: u32) -> Result<[HeadSlot; 2], String> {
+    let (mut seq, mut hlc, mut next_id, mut commits) = (0u64, 0u64, t.base.n + 1, 0);
+    for r in &t.records {
+        if let Payload::Commit(c) = &r.payload {
+            (seq, hlc, commits) = (c.seq, c.hlc, commits + 1);
+            for op in &c.ops {
+                if let Op::Create { id, .. } = op {
+                    next_id = next_id.max(id + 1);
+                }
+            }
+        }
+    }
+    if commits == 0 {
+        return Err("the tail's records are not kept, or it holds no commit".into());
+    }
+    let a = HeadSlot {
+        format: 1,
+        flags: head::flags::FTS_TIER2,
+        slot_seq: 2,
+        epoch: t.expect.epoch,
+        committed_lsn: t.end,
+        durable_lsn: t.end,
+        checkpoint_lsn: t.start,
+        commit_seq: seq,
+        next_id,
+        next_anchor: 1,
+        fence: 1,
+        active_log: 1,
+        segments: vec![base],
+        init: t.expect.init,
+        epoch_lsn: t.expect.epoch_lsn,
+        next_file_no: RESTORED_NEXT_FILE_NO,
+        next_ref_id,
+        project_oid_algo: t.expect.project_oid_algo,
+        hlc_seq: hlc,
+        hlc_commit: hlc,
+        ..HeadSlot::default()
+    };
+    let b = HeadSlot {
+        slot_seq: 1,
+        ..a.clone()
+    };
+    Ok([a, b])
+}
+
+/// The full checkpoint's `Checkpoint` group (u21 cut §3.7).
+#[derive(Clone, Debug)]
+pub struct FullGroup {
+    /// The group's bytes, at the tail's end.
+    pub bytes: Vec<u8>,
+    /// Its trailer, which the identity read checks.
+    pub trailer: u64,
+    /// The new delta's `SegRef`.
+    pub delta: SegRef,
+}
+
+/// The `Checkpoint` group of the full checkpoint of `t` ([F05 §9.9], `05-log.md:734-777`; u21 cut §3.7): `ckflags` bits
+/// 0, 1 and 5 (5 only with a `blobs` file); `append_hlc` the last commit's `hlc` + 1; `next_file_no`
+/// [`FULL_NEXT_FILE_NO`]; `upto_lsn` the tail's end; `active_log` 1; `segments` = [the base, `seg.d14`]; `window_start`
+/// the tail's start; one `RefList` per ref with each commit's (lsn, `hlc`); `added` = [`blobs.15`]. One record at the
+/// tail's end, chained from the tail's last trailer; refused when it would cross the extent or leave 1–39 bytes in it
+/// (G-1, G-4, `05-log.md:189-215`).
+pub fn full_checkpoint(
+    t: &Tail,
+    folded: &Folded,
+    files: &Encoded,
+    base: SegRef,
+) -> Result<FullGroup, String> {
+    let delta = SegRef {
+        file_no: FULL_DELTA_NO,
+        kind: head::seg_kind::DELTA,
+        upto_lsn: t.end,
+        blake3_16: files.seg[72..88].try_into().expect("16 bytes"),
+    };
+    let mut lists: BTreeMap<u32, Vec<(u64, u64)>> = BTreeMap::new();
+    for m in &folded.marks {
+        lists.entry(m.ref_id).or_default().push((m.lsn, m.hlc));
+    }
+    let last_hlc = folded.marks.iter().map(|m| m.hlc).max().unwrap_or(0);
+    let added: Vec<FileEntry> = files
+        .blobs
+        .iter()
+        .map(|(_, row)| FileEntry {
+            family: file_family::BLOBS,
+            ref_id: 0,
+            file_no: row.file_no,
+            total_len: row.total_len,
+            digest: row.digest16,
+        })
+        .collect();
+    let c = Checkpoint {
+        ckflags: ckflag::SET_CHANGE
+            | ckflag::WINDOW
+            | if added.is_empty() {
+                0
+            } else {
+                ckflag::FILES_ADDED
+            },
+        append_hlc: last_hlc + 1,
+        next_file_no: FULL_NEXT_FILE_NO,
+        upto_lsn: t.end,
+        active_log: 1,
+        segments: vec![base, delta],
+        window_start: t.start,
+        ref_lists: lists
+            .into_iter()
+            .map(|(ref_id, entries)| RefList { ref_id, entries })
+            .collect(),
+        added,
+    };
+    let tl = t.bytes.len();
+    let seed = u64::from_le_bytes(t.bytes[tl - TRAILER_LEN..].try_into().expect("8 bytes"));
+    let bytes = ckpt::group(&c, t.end, t.expect.epoch, seed)?;
+    let geo = t.expect.geo;
+    let ge = t.end + bytes.len() as u64;
+    if geo.offset(t.end) == 0 || geo.extent(ge - 1) != geo.extent(t.end) {
+        return Err(format!(
+            "the Checkpoint group at lsn {} crosses its extent (G-1)",
+            t.end
+        ));
+    }
+    let left = geo.extent_end(ge - 1) - ge;
+    if left > 0 && left < MIN_GROUP_LEN {
+        return Err(format!(
+            "the Checkpoint group leaves {left} bytes in its extent (G-4)"
+        ));
+    }
+    let trailer = u64::from_le_bytes(
+        bytes[bytes.len() - TRAILER_LEN..]
+            .try_into()
+            .expect("8 bytes"),
+    );
+    Ok(FullGroup {
+        bytes,
+        trailer,
+        delta,
+    })
+}
+
+/// What the full checkpoint's floor's setup makes for its op (u21 cut §3.8): sample j's tail, its fold, both files'
+/// bytes and the group.
+#[derive(Debug)]
+pub struct FullIn {
+    /// The sample's tail.
+    pub tail: Tail,
+    /// Its fold.
+    pub folded: Folded,
+    /// `seg.d14` and `blobs.15`.
+    pub files: Encoded,
+    /// The `Checkpoint` group.
+    pub group: FullGroup,
+}
+
+/// What one sample of the full checkpoint made: its tail, the fold, the files, the group and the published slot. The
+/// op returns it and the teardown drops it, outside the timed region.
+#[derive(Debug)]
+pub struct FullOut {
+    /// The sample's tail.
+    pub tail: Tail,
+    /// Its fold.
+    pub folded: Folded,
+    /// `seg.d14` and `blobs.15`.
+    pub files: Encoded,
+    /// The `Checkpoint` group.
+    pub group: FullGroup,
+    /// The publish.
+    pub published: Published,
+}
+
+/// The full checkpoint's setup of sample `j` (u21 cut §3.8), untimed: tail j (records kept, for `HEAD`) written over
+/// the fixture's extent through the run's handle, the rest up to the high-water `hw` zeroed and the extent flushed
+/// (`sync(Data)`), then `HEAD`'s two slots restored with one 8,192-byte `write_at`, not flushed.
+#[allow(clippy::too_many_arguments)]
+fn full_setup<V: StoreFs>(
+    vfs: &V,
+    q: &Quantity,
+    profile: Profile,
+    j: u64,
+    start: u64,
+    ext: &V::File,
+    head_file: &V::File,
+    hw: &Cell<u64>,
+    base: SegRef,
+    next_ref_id: u32,
+) -> Result<Tail, ArmError> {
+    let tj = generate(&ckpt_target(q, profile, j), true).map_err(ArmError)?;
+    let geo = tj.expect.geo;
+    if tj.start != start || geo.extent(tj.end - 1) != geo.extent(start) {
+        return Err(ArmError(format!(
+            "checkpoint tail {j} leaves the fixture's extent"
+        )));
+    }
+    vfs.write_at(ext, geo.offset(tj.start), &tj.bytes)
+        .map_err(arm_err)?;
+    if hw.get() > tj.end {
+        let zeros = vec![0u8; (hw.get() - tj.end) as usize];
+        vfs.write_at(ext, geo.offset(tj.end), &zeros)
+            .map_err(arm_err)?;
+    }
+    vfs.sync(ext, SyncKind::Data).map_err(arm_err)?;
+    let [a, b] = restored_head(&tj, base, next_ref_id).map_err(ArmError)?;
+    vfs.write_at(head_file, 0, &head::image(&a, &b).map_err(ArmError)?)
+        .map_err(arm_err)?;
+    Ok(tj)
+}
+
+/// The full checkpoint's writes (u21 cut §3.7–§3.8; `docs/spec/os/fs.md:409-412`): `blobs.15` and `seg.d14` sealed
+/// (`create_new`, `write_at`, `sync(DataAndMeta)`, `seal`) in that order, one `sync_dir`, the `Checkpoint` group
+/// written at the tail's end through the run's extent handle and flushed data-only, the publish into the other `HEAD`
+/// slot ([F04 §9.1], not flushed), and the identity read of the group's trailer (`ARCHITECTURE-RESEARCH.md:728`). The
+/// publish's S′: `segments` = [the base, `seg.d14`], `checkpoint_lsn` the tail's end, `active_log` 1, `next_file_no` 16,
+/// `committed_lsn` = `durable_lsn` = the group's end.
+#[allow(clippy::too_many_arguments)]
+fn full_land<V: StoreFs>(
+    vfs: &V,
+    root: &V::Root,
+    ext: &V::File,
+    head_file: &V::File,
+    t: &Tail,
+    files: &Encoded,
+    g: &FullGroup,
+    base: SegRef,
+) -> Result<Published, ArmError> {
+    let geo = t.expect.geo;
+    if let Some((b, _)) = &files.blobs {
+        seal_file(vfs, root, FULL_BLOBS_NAME, b)?;
+    }
+    seal_file(vfs, root, FULL_DELTA_NAME, &files.seg)?;
+    vfs.sync_dir(root, None).map_err(arm_err)?;
+    vfs.write_at(ext, geo.offset(t.end), &g.bytes)
+        .map_err(arm_err)?;
+    vfs.sync(ext, SyncKind::Data).map_err(arm_err)?;
+    let ge = t.end + g.bytes.len() as u64;
+    let published = head::publish(
+        &mut VfsSlot {
+            vfs,
+            file: head_file,
+        },
+        |s| {
+            s.segments = vec![base, g.delta];
+            s.checkpoint_lsn = t.end;
+            s.active_log = 1;
+            s.next_file_no = s.next_file_no.max(FULL_NEXT_FILE_NO);
+            s.committed_lsn = ge;
+            s.durable_lsn = ge;
+        },
+    )
+    .map_err(ArmError)?;
+    let mut trailer = [0u8; TRAILER_LEN];
+    let got = vfs
+        .read_at(ext, geo.offset(ge - TRAILER_LEN as u64), &mut trailer)
+        .map_err(arm_err)?;
+    if got != TRAILER_LEN || u64::from_le_bytes(trailer) != g.trailer {
+        return Err(ArmError(format!(
+            "the identity read at lsn {} gives {:#018x}, not the group's trailer {:#018x}",
+            ge - TRAILER_LEN as u64,
+            u64::from_le_bytes(trailer),
+            g.trailer
+        )));
+    }
+    Ok(published)
 }
 
 /// A time arm whose sample runs `setup` untimed, times `op` on its result, then hands the op's product to `teardown`
@@ -1322,14 +1697,26 @@ pub fn seal_new<V: StoreFs>(
     name: &str,
     bytes: &[u8],
 ) -> Result<u64, ArmError> {
+    let n = seal_file(vfs, root, name, bytes)?;
+    vfs.sync_dir(root, None).map_err(arm_err)?;
+    Ok(n)
+}
+
+/// A sealed file's write without the directory's flush: `create_new` under its final name, `write_at`,
+/// `sync(DataAndMeta)`, `seal` (`fs.md:411`). The full checkpoint seals its two files and then flushes the directory
+/// once (u21 cut D-9). Returns the bytes written.
+pub fn seal_file<V: StoreFs>(
+    vfs: &V,
+    root: &V::Root,
+    name: &str,
+    bytes: &[u8],
+) -> Result<u64, ArmError> {
     let f = vfs
         .create_new(root, rel(name).map_err(ArmError)?.as_rel_path())
         .map_err(arm_err)?;
     vfs.write_at(&f, 0, bytes).map_err(arm_err)?;
     vfs.sync(&f, SyncKind::DataAndMeta).map_err(arm_err)?;
     vfs.seal(&f).map_err(arm_err)?;
-    drop(f);
-    vfs.sync_dir(root, None).map_err(arm_err)?;
     Ok(bytes.len() as u64)
 }
 
@@ -1351,7 +1738,7 @@ impl<V: StoreFs> FixtureGuard<'_, V> {
                 .vfs
                 .open_root(&self.dir, RootRole::Other, RootAccess::ReadWrite)
                 .map_err(io)?;
-            for f in [DELTA_NAME, FLOOR_NAME] {
+            for f in [DELTA_NAME, FLOOR_NAME, FULL_DELTA_NAME, FULL_BLOBS_NAME] {
                 unlink_if(self.vfs, &root, f).map_err(|e| e.0)?;
             }
             let retry = ShareRetry::Bounded {
@@ -1467,9 +1854,10 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
         Family::Ready(mode, _) => Some(mode),
         _ => None,
     };
-    let bytes = match ready_mode {
-        Some(_) => base::build_with(&spec, base::ready_priority)?,
-        None => base::build(&spec)?,
+    let bytes = match (ready_mode, q.family) {
+        (Some(_), _) => base::build_with(&spec, base::ready_priority)?,
+        (None, Family::CkptFull) => base::build_full(&spec)?,
+        (None, _) => base::build(&spec)?,
     };
     let len = bytes.len() as u64;
     guard.files.push(BASE_NAME.into());
@@ -1782,6 +2170,156 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
                 move |bytes: Vec<u8>| {
                     drop(bytes);
                     unlink_if(p.vfs, &p.root, FLOOR_NAME)
+                },
+            )));
+        }
+        Family::CkptFull => {
+            let t = tail()?;
+            let geo = t.expect.geo;
+            let k = geo.extent(t.start);
+            if geo.extent(t.end - 1) != k {
+                return Err("the checkpoint's tail spans more than one extent".into());
+            }
+            let fb = Rc::new(FullBase::parse(c)?);
+            let (base, next_ref_id) = (base_ref(c), fb.next_ref_id);
+            let open_rw = |name: &str| -> Result<Rc<V::File>, String> {
+                let f = p
+                    .vfs
+                    .open(
+                        &p.root,
+                        rel(name)?.as_rel_path(),
+                        Access::ReadWrite,
+                        OpenHint::Normal,
+                    )
+                    .map_err(|e| e.to_string())?;
+                Ok(Rc::new(f))
+            };
+            // The extent and HEAD are opened once each, for writing, held for the run and shared by both arms, with the
+            // high-water of the extent's written bytes (u21 cut D-10).
+            let ext = open_rw(&extent_name(k))?;
+            let head_file = open_rw("HEAD")?;
+            let hw = Rc::new(Cell::new(t.end));
+            let (profile, start) = (p.profile, t.start);
+            {
+                let (q0, e0, h0, w0) = (q.clone(), ext.clone(), head_file.clone(), hw.clone());
+                let (e1, h1, fb1, w1) = (ext.clone(), head_file.clone(), fb.clone(), hw.clone());
+                let mut j = 0u64;
+                let mut log = VfsLog::new(p.vfs, &p.root, geo);
+                let mut packer = Packer::default();
+                arms.push(Box::new(Staged::new(
+                    "ckpt.full",
+                    ticker.clone(),
+                    move || -> Result<Tail, ArmError> {
+                        let tj = full_setup(
+                            p.vfs,
+                            &q0,
+                            profile,
+                            j,
+                            start,
+                            &e0,
+                            &h0,
+                            &w0,
+                            base,
+                            next_ref_id,
+                        )?;
+                        j += 1;
+                        Ok(tj)
+                    },
+                    move |tj: Tail| -> Result<FullOut, ArmError> {
+                        let folded = full::fold(
+                            &mut log,
+                            &tj.expect,
+                            tj.start,
+                            tj.end,
+                            tj.chain_in,
+                            TAIL_READ_CHUNK,
+                            &fb1,
+                            FULL_DELTA_NO,
+                        )
+                        .map_err(ArmError)?;
+                        let files = full::encode(&folded.delta, FULL_BLOBS_NO, &mut packer)
+                            .map_err(ArmError)?;
+                        let group =
+                            full_checkpoint(&tj, &folded, &files, base).map_err(ArmError)?;
+                        let published =
+                            full_land(p.vfs, &p.root, &e1, &h1, &tj, &files, &group, base)?;
+                        Ok(FullOut {
+                            tail: tj,
+                            folded,
+                            files,
+                            group,
+                            published,
+                        })
+                    },
+                    move |out: FullOut| {
+                        w1.set(out.tail.end + out.group.bytes.len() as u64);
+                        drop(out);
+                        unlink_if(p.vfs, &p.root, FULL_DELTA_NAME)?;
+                        unlink_if(p.vfs, &p.root, FULL_BLOBS_NAME)
+                    },
+                )));
+            }
+            let (q1, e0, h0, w0, fb0) = (q.clone(), ext.clone(), head_file.clone(), hw.clone(), fb);
+            let (e1, h1, w1) = (ext, head_file, hw);
+            let mut j = 0u64;
+            let mut log = VfsLog::new(p.vfs, &p.root, geo);
+            let mut packer = Packer::default();
+            arms.push(Box::new(Staged::new(
+                "ckpt.full.write",
+                ticker.clone(),
+                move || -> Result<FullIn, ArmError> {
+                    let tj = full_setup(
+                        p.vfs,
+                        &q1,
+                        profile,
+                        j,
+                        start,
+                        &e0,
+                        &h0,
+                        &w0,
+                        base,
+                        next_ref_id,
+                    )?;
+                    j += 1;
+                    // The floor folds from the store in its setup, so a fold moved into its op would show as a log
+                    // read between its ticks (u21 cut D-11).
+                    let folded = full::fold(
+                        &mut log,
+                        &tj.expect,
+                        tj.start,
+                        tj.end,
+                        tj.chain_in,
+                        TAIL_READ_CHUNK,
+                        &fb0,
+                        FULL_DELTA_NO,
+                    )
+                    .map_err(ArmError)?;
+                    let files = full::encode(&folded.delta, FULL_BLOBS_NO, &mut packer)
+                        .map_err(ArmError)?;
+                    let group = full_checkpoint(&tj, &folded, &files, base).map_err(ArmError)?;
+                    Ok(FullIn {
+                        tail: tj,
+                        folded,
+                        files,
+                        group,
+                    })
+                },
+                move |x: FullIn| -> Result<FullOut, ArmError> {
+                    let published =
+                        full_land(p.vfs, &p.root, &e1, &h1, &x.tail, &x.files, &x.group, base)?;
+                    Ok(FullOut {
+                        tail: x.tail,
+                        folded: x.folded,
+                        files: x.files,
+                        group: x.group,
+                        published,
+                    })
+                },
+                move |out: FullOut| {
+                    w1.set(out.tail.end + out.group.bytes.len() as u64);
+                    drop(out);
+                    unlink_if(p.vfs, &p.root, FULL_DELTA_NAME)?;
+                    unlink_if(p.vfs, &p.root, FULL_BLOBS_NAME)
                 },
             )));
         }
@@ -2277,14 +2815,16 @@ mod tests {
         }
     }
 
-    /// A call that [`LoggedFs`] logs on a file: an open (whether its handle may write), a write or a flush; and on a
-    /// map (u20 cut D-14, addendum m-3): the map, its first borrow of the bytes, its drop, and a `WillNeed` advice over
-    /// (offset, length).
+    /// A call that [`LoggedFs`] logs on a file: an open (whether its handle may write), a write, a flush or a seal; on the
+    /// directory (u21 critique I-3): its flush, under the name `.`; and on a map (u20 cut D-14, addendum m-3): the map, its
+    /// first borrow of the bytes, its drop, and a `WillNeed` advice over (offset, length).
     #[derive(Clone, Copy, Debug, Eq, PartialEq)]
     enum Io {
         Open(bool),
         Write,
         Sync(SyncKind),
+        Seal,
+        SyncDir,
         Map,
         Borrow,
         Unmap,
@@ -2350,8 +2890,9 @@ mod tests {
     /// The bytes a map of a file reads, as a function of the file's own ([`LoggedFs::altering`]).
     type Alter = fn(&[u8]) -> Vec<u8>;
 
-    /// [`MemFs`] with every open, write and flush logged by file name and handle (u12 test r1 I-1, I-2): `MemFs`
-    /// logs no write or flush, and not which handle a call goes through. Every call goes on to `fs` unchanged, so
+    /// [`MemFs`] with every open, write, flush and seal logged by file name and handle, and every flush of the directory
+    /// (u12 test r1 I-1, I-2; u21 critique I-3): `MemFs` logs no write, flush or seal, and not which handle a call goes
+    /// through. Every call goes on to `fs` unchanged, so
     /// `fs`'s own log, files and seals are as without the wrapper; only a map of the file [`LoggedFs::altering`] names
     /// reads other bytes than `fs` holds.
     struct LoggedFs<'f> {
@@ -2478,6 +3019,8 @@ mod tests {
             root: &PathBuf,
             dir: Option<RelPath<'_>>,
         ) -> Result<(), DurabilityFailure> {
+            let name = dir.map_or(".".to_string(), |d| d.as_str().to_string());
+            self.calls.lock().unwrap().push((name, 0, Io::SyncDir));
             self.fs.sync_dir(root, dir)
         }
 
@@ -2527,6 +3070,7 @@ mod tests {
         }
 
         fn seal(&self, f: &LoggedFile) -> Result<(), VfsError> {
+            self.log(f, Io::Seal);
             self.fs.seal(&f.file)
         }
 
@@ -2733,12 +3277,14 @@ mod tests {
     /// The grid in run order with valid, unique names ([MP §4.1]): the night's 18 (the six layout families at 1e5 and
     /// 1e6, the sparse AND/popcount pair of R-30 among them, the read, its three diagnostics and the catch-up at 1e6, the
     /// checkpoint at 0.5 M), then u20's appended blocks of item 1a's 5 reads (u20 cut §3.4, §3.10) and the `ready`
-    /// probe's 12 (§3.8); 66 arms; the minimum
-    /// tiers of the budgets (t1 read ≤ 50 µs, its diagnostics and the reads with item 1a; t3 checkpoint ≤ 100 ms; t2
-    /// catch-up ≤ 5 ms, `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and the depth arms, no
-    /// tail for the sparse pair; the diagnostics' arms (R-42 Q2) and their tails; the read cost's two counts as two
-    /// quantities of one arm each, since every arm after arm 0 is a floor (R-44 I-1 (b)); item 1a's four arms, each a
-    /// floor of the one before, and their A1 targets: P06 4,096 or 1,024 at production, the depth option at d.
+    /// probe's 12 (§3.8), then u21's full checkpoint at 0.5 M and 1e6 (u21 cut §3.8); 70 arms; the minimum
+    /// tiers of the budgets (t1 read ≤ 50 µs, its diagnostics and the reads with item 1a; t3 checkpoint ≤ 100 ms, and the
+    /// full checkpoint's; t2 catch-up ≤ 5 ms, `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and
+    /// the depth arms, no tail for the sparse pair; the diagnostics' arms (R-42 Q2) and their tails; the read cost's two
+    /// counts as two quantities of one arm each, since every arm after arm 0 is a floor (R-44 I-1 (b)); item 1a's four
+    /// arms, each a floor of the one before, and their A1 targets: P06 4,096 or 1,024 at production, the depth option at
+    /// d; the full checkpoint's two arms, its tail, and its targets: 4,096 ops at production, 64 at the test profile with
+    /// C2's bound lifted.
     #[test]
     fn grid_lists_the_valid_quantities_in_run_order() {
         let g = grid();
@@ -2780,17 +3326,39 @@ mod tests {
                 "ready-willneed-5pct.n1e5",
                 "ready-willneed-5pct.n1e6",
                 "ready-willneed-20pct.n1e5",
-                "ready-willneed-20pct.n1e6"
+                "ready-willneed-20pct.n1e6",
+                "ckpt-full-4096.n5e5",
+                "ckpt-full-4096.n1e6"
             ],
-            "the night's 18 with the deciding quantities first (R-34 B-3, M-15), then u20's block"
+            "the night's 18 with the deciding quantities first (R-34 B-3, M-15), then u20's block, then u21's"
         );
         assert!(names.iter().all(|n| valid_name(n)));
-        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 35);
+        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 37);
         let arms: Vec<&str> = g
             .iter()
             .flat_map(|q| q.family.arms().iter().copied())
             .collect();
-        assert_eq!(arms.len(), 66);
+        assert_eq!(arms.len(), 70);
+        for (q, n) in g[35..].iter().zip([500_000, 1_000_000]) {
+            assert_eq!(
+                (q.family, q.n, q.family.arms()),
+                (Family::CkptFull, n, &["ckpt.full", "ckpt.full.write"][..])
+            );
+            assert_eq!(
+                (q.family.min_tier(), q.family.needs_tail()),
+                (Some(Tier::T3), true)
+            );
+            let t = target(q, Profile::Production);
+            assert_eq!(
+                (t.clause, t.threshold, t.n, t.rt_bound),
+                (Clause::Ops, 4_096, n, None)
+            );
+            let tt = target(q, Profile::Test);
+            assert_eq!(
+                (tt.threshold, tt.params.p06, tt.n, tt.rt_bound),
+                (TEST_FULL_P06, 64, n / TEST_SCALE, Some(u64::MAX))
+            );
+        }
         for q in &g[18..23] {
             assert_eq!(
                 q.family.arms(),
@@ -2874,7 +3442,7 @@ mod tests {
         assert_eq!(target(&g[1], Profile::Test).n, 5_000);
     }
 
-    /// `--smoke` runs every quantity at the test profile with each arm once: 42 lines, one per (quantity, arm), each
+    /// `--smoke` runs every quantity at the test profile with each arm once: 70 lines, one per (quantity, arm), each
     /// ending with the arm's unit; with `--quantity` it runs that one alone; each run maps its base once.
     #[test]
     fn smoke_exercises_every_arm_once() {
@@ -2892,7 +3460,7 @@ mod tests {
         let (code, out, err) = run(&fs, &[&["--smoke"][..], &CT].concat());
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), 66, "{out}");
+        assert_eq!(lines.len(), 70, "{out}");
         let pairs: BTreeSet<(String, String)> = lines
             .iter()
             .map(|l| {
@@ -2932,7 +3500,8 @@ mod tests {
     }
 
     /// `--smoke` with the runner's contract flags records nothing: no line says recorded, every fixture is removed,
-    /// the checkpoint's files included, and `--smoke` with `--out` is refused.
+    /// the checkpoints' files (`seg.d1`, `seg.d2`, `seg.d14`, `blobs.15`) and `HEAD` included, and `--smoke` with `--out`
+    /// is refused.
     #[test]
     fn smoke_records_nothing() {
         let fs = MemFs::with_dir(&cwd());
@@ -2943,7 +3512,7 @@ mod tests {
         .concat();
         let (code, out, err) = run(&fs, &args);
         assert_eq!(code, EXIT_DONE, "{err}");
-        assert_eq!(out.lines().count(), 66);
+        assert_eq!(out.lines().count(), 70);
         assert!(!out.contains("recorded"));
         assert!(
             fs.files().is_empty(),
@@ -3458,6 +4027,500 @@ mod tests {
             from = t1.calls;
         }
         assert_eq!(ticker.count(), 6, "two ticks per sample");
+    }
+
+    /// The full checkpoint's quantities (u21 cut §3.8, D-2, D-3): `ckpt-full-4096.n5e5` and `.n1e6` take `ckpt-4096`'s
+    /// seed name at their scale, so at production their fixture's target and every sample's target equal
+    /// `ckpt-4096.n5e5`'s (n5e5), compared without generating; `ckpt-4096`'s own targets keep the night's seeds. At the
+    /// test profile (critique m-7: only there is a base built here) the fixture is the full base at N / 100 with
+    /// `tok_ver` 1 and its 50 refs, a 64-op tail and `HEAD`.
+    #[test]
+    fn ckpt_full_quantities_share_ckpt_4096s_tails_and_hold_the_full_base() {
+        let g = grid();
+        let of = |name: &str| g.iter().find(|q| q.name == name).unwrap().clone();
+        let (full5, full6, ckpt5) = (
+            of("ckpt-full-4096.n5e5"),
+            of("ckpt-full-4096.n1e6"),
+            of("ckpt-4096.n5e5"),
+        );
+        assert_eq!(
+            [seed_name(&full5), seed_name(&full6), seed_name(&ckpt5)],
+            ["ckpt-4096.n5e5", "ckpt-4096.n1e6", "ckpt-4096.n5e5"]
+        );
+        let prod = Profile::Production;
+        assert_eq!(
+            target(&full5, prod),
+            target(&ckpt5, prod),
+            "the fixture's tail"
+        );
+        for j in 0..3 {
+            assert_eq!(
+                ckpt_target(&full5, prod, j),
+                ckpt_target(&ckpt5, prod, j),
+                "sample {j}'s tail"
+            );
+        }
+        assert_eq!(
+            ckpt_target(&ckpt5, prod, 0).seed,
+            mix(seed("ckpt-4096.n5e5") ^ 1),
+            "the night's seeds"
+        );
+        assert_eq!(ckpt_target(&full6, prod, 0).n, 1_000_000);
+        let fs = MemFs::with_dir(&scratch());
+        let p = prepare(&fs, &scratch(), &full5, Profile::Test).unwrap();
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let fb = FullBase::parse(&c).unwrap();
+        assert_eq!(
+            (c.rows, c.view.header.tok_ver, fb.refs.len()),
+            (5_000, 1, 50)
+        );
+        assert_eq!(p.tail.as_ref().unwrap().measures.ops, 64);
+        assert!(fs.bytes(&p.dir().join("HEAD")).is_some());
+    }
+
+    /// The handles of the opens for writing among `lfs`'s calls from `before`: the extent's and `HEAD`'s, which [`arms`]
+    /// opens for the full checkpoint.
+    fn rw_handles(lfs: &LoggedFs<'_>, before: usize) -> (usize, usize) {
+        let opened: Vec<Call> = lfs.calls()[before..]
+            .iter()
+            .filter(|c| c.2 == Io::Open(true))
+            .cloned()
+            .collect();
+        assert_eq!(
+            opened.len(),
+            2,
+            "arms opens two files for writing: {opened:?}"
+        );
+        (opened[0].1, opened[1].1)
+    }
+
+    /// The full checkpoint's fixture over a [`LoggedFs`], its arms over an [`FsTicker`] watching `seg.d14`,
+    /// `blobs.15`, `HEAD` and the extent, and the handles [`arms`] opened on the extent and on `HEAD`.
+    struct FullRig<'f> {
+        ticker: FsTicker<'f>,
+        ext: String,
+        he: usize,
+        hh: usize,
+    }
+
+    fn full_rig<'f>(
+        fs: &'f MemFs,
+        lfs: &LoggedFs<'_>,
+        p: &Prepared<'_, LoggedFs<'_>>,
+    ) -> FullRig<'f> {
+        let t = p.tail.as_ref().unwrap();
+        let ext = extent_name(t.expect.geo.extent(t.start));
+        let ticker = FsTicker::new(
+            fs,
+            p.dir(),
+            &[FULL_DELTA_NAME, FULL_BLOBS_NAME, "HEAD", &ext],
+        )
+        .logging(lfs);
+        FullRig {
+            ticker,
+            ext,
+            he: 0,
+            hh: 0,
+        }
+    }
+
+    /// The full checkpoint's setup (u21 cut §3.8, D-8, D-10) for both arms: [`arms`] opens the extent and `HEAD` once
+    /// each, for writing; in every sample, before t0, the extent holds tail j's image and zeros after it, every write and
+    /// flush on it goes through the run's handle and the last is `sync(Data)`; `HEAD` holds the restored slots (A at
+    /// `slot_seq` 2, B at 1, both valid), written with one write through the run's `HEAD` handle and never flushed.
+    #[test]
+    fn ckpt_full_setup_restores_head_and_the_extent_before_t0() {
+        let fs = MemFs::with_dir(&scratch());
+        let lfs = LoggedFs::new(&fs);
+        let (q, p) = fixture(&lfs, Family::CkptFull);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let fb = FullBase::parse(&c).unwrap();
+        let mut rig = full_rig(&fs, &lfs, &p);
+        let before = lfs.calls().len();
+        let mut arms = arms(&p, &c, &q, &rig.ticker).unwrap();
+        let mut from = lfs.calls().len();
+        let opened: Vec<Call> = lfs.calls()[before..from]
+            .iter()
+            .filter(|c| matches!(c.2, Io::Open(_)))
+            .cloned()
+            .collect();
+        let [(e, he, Io::Open(true)), (h, hh, Io::Open(true))] = opened.as_slice() else {
+            panic!("arms opens the extent and HEAD once each, for writing: {opened:?}");
+        };
+        assert_eq!((e.as_str(), h.as_str()), (rig.ext.as_str(), "HEAD"));
+        (rig.he, rig.hh) = (*he, *hh);
+        let geo = p.tail.as_ref().unwrap().expect.geo;
+        for k in 0..2 {
+            let tj = generate(&ckpt_target(&q, Profile::Test, k), true).unwrap();
+            for (arm, name) in [(0, "ckpt.full"), (1, "ckpt.full.write")] {
+                arms[arm].sample().unwrap();
+                let (t0, _) = rig.ticker.last();
+                let mut image = vec![0u8; geo.e() as usize];
+                let at = geo.offset(tj.start) as usize;
+                image[at..at + tj.bytes.len()].copy_from_slice(&tj.bytes);
+                assert!(
+                    t0.files[&rig.ext].0 == image,
+                    "{name} sample {k}: the extent at t0 is not tail {k}'s image"
+                );
+                let [a, b] = restored_head(&tj, base_ref(&c), fb.next_ref_id).unwrap();
+                assert_eq!(a.slot_seq, 2);
+                assert_eq!(
+                    t0.files["HEAD"].0,
+                    head::image(&a, &b).unwrap(),
+                    "{name} sample {k}: HEAD at t0 is not the restored state"
+                );
+                for slot in [&t0.files["HEAD"].0[..4_096], &t0.files["HEAD"].0[4_096..]] {
+                    assert!(matches!(head::classify(slot), head::Class::Valid(_)));
+                }
+                let ext_calls: Vec<(usize, Io)> = calls_on(&lfs, from, t0.calls, &rig.ext)
+                    .into_iter()
+                    .filter(|c| !matches!(c.1, Io::Open(false)))
+                    .collect();
+                assert!(
+                    ext_calls.iter().all(|&(n, _)| n == rig.he)
+                        && ext_calls.contains(&(rig.he, Io::Write)),
+                    "{name} sample {k}: the extent written before t0 through another handle than the run's: {ext_calls:?}"
+                );
+                assert_eq!(
+                    ext_calls.last(),
+                    Some(&(rig.he, Io::Sync(SyncKind::Data))),
+                    "{name} sample {k}: the setup's last call on the extent is not its flush"
+                );
+                assert_eq!(
+                    calls_on(&lfs, from, t0.calls, "HEAD"),
+                    [(rig.hh, Io::Write)],
+                    "{name} sample {k}: HEAD restored with one write, not flushed"
+                );
+                from = lfs.calls().len();
+            }
+        }
+    }
+
+    /// The full checkpoint's arm 0 runs every write inside its timed region (spec gate 1, R-29; critique I-3): at sample
+    /// j's t0 `blobs.15` and `seg.d14` are absent and the extent holds no group after tail j; between the ticks the store
+    /// reads the log over exactly `[start, end)` (the fold) and the group's trailer (the identity read), and `HEAD` once
+    /// (8,192 B at 0); `blobs.15` then `seg.d14` are each created, written, flushed (`DataAndMeta`) and sealed, then the
+    /// directory is flushed once, then the group is written at the tail's end through the run's handle and flushed
+    /// (`Data`), then `HEAD` is written once through the run's handle and never flushed; at t1 both files are present and
+    /// sealed, the extent holds the group, `HEAD`'s slot A (which holds S) is unchanged and slot B is not. Every sample
+    /// carries a body, so `blobs.15` exists (D-3).
+    #[test]
+    fn ckpt_full_arm_writes_every_file_inside_its_timed_region() {
+        let fs = MemFs::with_dir(&scratch());
+        let lfs = LoggedFs::new(&fs);
+        let (q, p) = fixture(&lfs, Family::CkptFull);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let mut rig = full_rig(&fs, &lfs, &p);
+        let before = lfs.calls().len();
+        let mut arms = arms(&p, &c, &q, &rig.ticker).unwrap();
+        (rig.he, rig.hh) = rw_handles(&lfs, before);
+        let geo = p.tail.as_ref().unwrap().expect.geo;
+        for k in 0..3 {
+            let tj = generate(&ckpt_target(&q, Profile::Test, k), true).unwrap();
+            arms[0].sample().unwrap();
+            let (t0, t1) = rig.ticker.last();
+            check_full_timed(&lfs, &rig, &tj, geo, &t0, &t1, "ckpt.full", k, true);
+        }
+        assert_eq!(rig.ticker.count(), 6, "two ticks per sample");
+    }
+
+    /// The checks of one full-checkpoint sample's timed region (both arms): the files at t0 and t1, the reads and the
+    /// calls between the ticks, as [`ckpt_full_arm_writes_every_file_inside_its_timed_region`] states. `folds` says
+    /// whether the fold's log reads belong between the ticks (arm 0) or not (the floor).
+    #[allow(clippy::too_many_arguments)]
+    fn check_full_timed(
+        lfs: &LoggedFs<'_>,
+        rig: &FullRig<'_>,
+        tj: &Tail,
+        geo: Geometry,
+        t0: &Tick,
+        t1: &Tick,
+        name: &str,
+        k: u64,
+        folds: bool,
+    ) {
+        assert!(
+            !t0.files.contains_key(FULL_BLOBS_NAME),
+            "{name} sample {k}: blobs.15 present at t0"
+        );
+        assert!(
+            !t0.files.contains_key(FULL_DELTA_NAME),
+            "{name} sample {k}: seg.d14 present at t0"
+        );
+        let at = geo.offset(tj.end) as usize;
+        assert!(
+            t0.files[&rig.ext].0[at..at + REC_HDR_LEN]
+                .iter()
+                .all(|&b| b == 0),
+            "{name} sample {k}: a group in the extent at t0"
+        );
+        for f in [FULL_BLOBS_NAME, FULL_DELTA_NAME] {
+            assert_eq!(
+                t1.files.get(f).map(|x| x.1),
+                Some(true),
+                "{name} sample {k}: {f} sealed at t1"
+            );
+        }
+        let ext1 = &t1.files[&rig.ext].0;
+        let len = u32::from_le_bytes(ext1[at..at + 4].try_into().unwrap()) as usize;
+        let seed = u64::from_le_bytes(tj.bytes[tj.bytes.len() - 8..].try_into().unwrap());
+        ckpt::read_group(&ext1[at..at + len], tj.end, tj.expect.epoch, seed).unwrap_or_else(|e| {
+            panic!("{name} sample {k}: no Checkpoint group at the tail's end at t1: {e}")
+        });
+        let ge = tj.end + len as u64;
+        let (h0, h1) = (&t0.files["HEAD"].0, &t1.files["HEAD"].0);
+        assert_eq!(
+            h1[..4_096],
+            h0[..4_096],
+            "{name} sample {k}: the slot that holds S written"
+        );
+        assert!(
+            h1[4_096..] != h0[4_096..],
+            "{name} sample {k}: HEAD's other slot unchanged at t1"
+        );
+        let reads = lfs.fs.log().reads[t0.reads..t1.reads].to_vec();
+        let head: Vec<&Read> = reads.iter().filter(|r| r.0 == "HEAD").collect();
+        assert_eq!(
+            head,
+            [&("HEAD".to_string(), 0, HEAD_LEN)],
+            "{name} sample {k}"
+        );
+        let log: Vec<Read> = reads.iter().filter(|r| r.0 != "HEAD").cloned().collect();
+        assert!(
+            log.iter().all(|r| r.0.starts_with("log.")),
+            "{name} sample {k}: {log:?}"
+        );
+        let want: Vec<(u64, u64)> = if folds {
+            vec![(tj.start, tj.end), (ge - 8, ge)]
+        } else {
+            vec![(ge - 8, ge)]
+        };
+        assert_eq!(
+            lsn_cover(geo, &log),
+            want,
+            "{name} sample {k}: the log reads between the ticks (a log read between the floor's ticks is its fold)"
+        );
+        let timed = &lfs.calls()[t0.calls..t1.calls];
+        let pos = |file: &str, io: Io| {
+            timed
+                .iter()
+                .position(|c| c.0 == file && c.2 == io)
+                .unwrap_or_else(|| {
+                    panic!("{name} sample {k}: no {io:?} on {file} between the ticks: {timed:?}")
+                })
+        };
+        for f in [FULL_BLOBS_NAME, FULL_DELTA_NAME] {
+            let calls: Vec<Io> = timed.iter().filter(|c| c.0 == f).map(|c| c.2).collect();
+            assert_eq!(
+                calls,
+                [
+                    Io::Open(true),
+                    Io::Write,
+                    Io::Sync(SyncKind::DataAndMeta),
+                    Io::Seal
+                ],
+                "{name} sample {k}: {f}"
+            );
+        }
+        let dirs: Vec<&Call> = timed.iter().filter(|c| c.2 == Io::SyncDir).collect();
+        assert_eq!(
+            dirs.len(),
+            1,
+            "{name} sample {k}: one sync_dir between the ticks: {dirs:?}"
+        );
+        let ext: Vec<(usize, Io)> = timed
+            .iter()
+            .filter(|c| c.0 == rig.ext && c.2 != Io::Open(false))
+            .map(|c| (c.1, c.2))
+            .collect();
+        assert_eq!(
+            ext,
+            [(rig.he, Io::Write), (rig.he, Io::Sync(SyncKind::Data))],
+            "{name} sample {k}: the extent between the ticks"
+        );
+        let heads: Vec<(usize, Io)> = timed
+            .iter()
+            .filter(|c| c.0 == "HEAD")
+            .map(|c| (c.1, c.2))
+            .collect();
+        assert_eq!(
+            heads,
+            [(rig.hh, Io::Write)],
+            "{name} sample {k}: HEAD written once, never flushed"
+        );
+        let order = [
+            pos(FULL_BLOBS_NAME, Io::Seal),
+            pos(FULL_DELTA_NAME, Io::Open(true)),
+            pos(FULL_DELTA_NAME, Io::Seal),
+            pos(".", Io::SyncDir),
+            pos(&rig.ext, Io::Write),
+            pos(&rig.ext, Io::Sync(SyncKind::Data)),
+            pos("HEAD", Io::Write),
+        ];
+        assert!(
+            order.windows(2).all(|w| w[0] < w[1]),
+            "{name} sample {k}: seal blobs.15, seal seg.d14, sync_dir, append, flush, publish: {order:?}"
+        );
+    }
+
+    /// The full checkpoint's floor writes what arm 0 writes without folding (u21 cut §3.8, D-11; spec gate 1, R-29):
+    /// for samples j = 0, 1 its setup reads the log over `[start, end)` before t0, and between its ticks it reads only
+    /// the group's trailer and `HEAD`, with the same calls, in the same order, as arm 0's; at t1 `seg.d14`, `blobs.15`, the
+    /// extent and `HEAD` hold exactly what arm 0's sample j left.
+    #[test]
+    fn ckpt_full_floor_writes_the_same_files_without_folding() {
+        let fs = MemFs::with_dir(&scratch());
+        let lfs = LoggedFs::new(&fs);
+        let (q, p) = fixture(&lfs, Family::CkptFull);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let mut rig = full_rig(&fs, &lfs, &p);
+        let before = lfs.calls().len();
+        let mut arms = arms(&p, &c, &q, &rig.ticker).unwrap();
+        (rig.he, rig.hh) = rw_handles(&lfs, before);
+        let geo = p.tail.as_ref().unwrap().expect.geo;
+        for k in 0..2 {
+            let tj = generate(&ckpt_target(&q, Profile::Test, k), true).unwrap();
+            arms[0].sample().unwrap();
+            let (_, a1) = rig.ticker.last();
+            let reads0 = fs.log().reads.len();
+            arms[1].sample().unwrap();
+            let (t0, t1) = rig.ticker.last();
+            let setup: Vec<Read> = fs.log().reads[reads0..t0.reads].to_vec();
+            assert_eq!(
+                lsn_cover(geo, &setup),
+                [(tj.start, tj.end)],
+                "sample {k}: the floor's setup does not read the tail from the store"
+            );
+            check_full_timed(&lfs, &rig, &tj, geo, &t0, &t1, "ckpt.full.write", k, false);
+            for f in [FULL_DELTA_NAME, FULL_BLOBS_NAME, "HEAD", rig.ext.as_str()] {
+                assert!(
+                    t1.files[f] == a1.files[f],
+                    "sample {k}: the floor's {f} differs from arm 0's"
+                );
+            }
+        }
+    }
+
+    /// The full checkpoint's products read back (u21 cut §3.6–§3.7; spec gate 1): for samples j = 0, 1, 2 of arm 0,
+    /// `seg.d14` and `blobs.15` at t1 decode ([`full::decode`]) to the fold of tail j read from memory, with a body; the
+    /// group at the tail's end is the `Checkpoint` of [F05 §9.9] (`ckflags` 0x0023, `append_hlc` the last commit's + 1,
+    /// `next_file_no` 16, the set [base, `seg.d14` with its digest], the window from the tail's start, one `RefList` of
+    /// every commit's (lsn, `hlc`), `blobs.15` added with its length and digest), chained from the tail's last trailer;
+    /// `HEAD` selects slot B, S′ = the restored S with `slot_seq` 3, the set, `checkpoint_lsn` the tail's end,
+    /// `committed_lsn` = `durable_lsn` = the group's end and `next_file_no` 16, valid by [F04 §7] as S is (critique I-4).
+    #[test]
+    fn ckpt_full_products_read_back() {
+        let fs = MemFs::with_dir(&scratch());
+        let (q, p) = fixture(&fs, Family::CkptFull);
+        let c = Columns::parse(p.map.bytes()).unwrap();
+        let fb = FullBase::parse(&c).unwrap();
+        let base = base_ref(&c);
+        let t = p.tail.as_ref().unwrap();
+        let (geo, ext) = (t.expect.geo, extent_name(t.expect.geo.extent(t.start)));
+        let ticker = FsTicker::new(
+            &fs,
+            p.dir(),
+            &[FULL_DELTA_NAME, FULL_BLOBS_NAME, "HEAD", &ext],
+        );
+        let mut arms = arms(&p, &c, &q, &ticker).unwrap();
+        for k in 0..3 {
+            let tj = generate(&ckpt_target(&q, Profile::Test, k), true).unwrap();
+            arms[0].sample().unwrap();
+            let (_, t1) = ticker.last();
+            let seg = &t1.files[FULL_DELTA_NAME].0;
+            let blobs = &t1.files[FULL_BLOBS_NAME].0;
+            let want = full::fold(
+                &mut MemLog::new(tj.start, &tj.bytes),
+                &tj.expect,
+                tj.start,
+                tj.end,
+                tj.chain_in,
+                TAIL_READ_CHUNK,
+                &fb,
+                FULL_DELTA_NO,
+            )
+            .unwrap();
+            assert!(
+                !want.delta.bodies.is_empty(),
+                "sample {k} carries a body (D-3)"
+            );
+            assert_eq!(
+                full::decode(seg, Some(blobs)).unwrap(),
+                want.delta,
+                "sample {k}: seg.d14 and blobs.15 are the fold of tail {k}"
+            );
+            let at = geo.offset(tj.end) as usize;
+            let e1 = &t1.files[&ext].0;
+            let len = u32::from_le_bytes(e1[at..at + 4].try_into().unwrap()) as usize;
+            let seed = u64::from_le_bytes(tj.bytes[tj.bytes.len() - 8..].try_into().unwrap());
+            let (ck, trailer) =
+                ckpt::read_group(&e1[at..at + len], tj.end, tj.expect.epoch, seed).unwrap();
+            let ge = tj.end + len as u64;
+            let d14 = SegRef {
+                file_no: 14,
+                kind: head::seg_kind::DELTA,
+                upto_lsn: tj.end,
+                blake3_16: seg[72..88].try_into().unwrap(),
+            };
+            let commits: Vec<(u64, u64)> = tj
+                .records
+                .iter()
+                .filter_map(|r| match &r.payload {
+                    Payload::Commit(cm) => Some((r.lsn, cm.hlc)),
+                    _ => None,
+                })
+                .collect();
+            assert_eq!(
+                ck,
+                Checkpoint {
+                    ckflags: 0x0023,
+                    append_hlc: commits.last().unwrap().1 + 1,
+                    next_file_no: 16,
+                    upto_lsn: tj.end,
+                    active_log: 1,
+                    segments: vec![base, d14],
+                    window_start: tj.start,
+                    ref_lists: vec![RefList {
+                        ref_id: 0,
+                        entries: commits,
+                    }],
+                    added: vec![FileEntry {
+                        family: 6,
+                        ref_id: 0,
+                        file_no: 15,
+                        total_len: blobs.len() as u64,
+                        digest: blobs[72..88].try_into().unwrap(),
+                    }],
+                },
+                "sample {k}: the Checkpoint record"
+            );
+            assert_eq!(
+                trailer,
+                u64::from_le_bytes(e1[at + len - 8..at + len].try_into().unwrap()),
+                "sample {k}: the trailer the identity read checks"
+            );
+            let hb = &t1.files["HEAD"].0;
+            let [a, _] = restored_head(&tj, base, fb.next_ref_id).unwrap();
+            let s2 = HeadSlot {
+                slot_seq: 3,
+                segments: vec![base, d14],
+                checkpoint_lsn: tj.end,
+                committed_lsn: ge,
+                durable_lsn: ge,
+                next_file_no: 16,
+                ..a.clone()
+            };
+            assert_eq!(
+                head::select(hb),
+                Ok((1, s2)),
+                "sample {k}: the published slot"
+            );
+            assert_eq!(
+                head::classify(&hb[..4_096]),
+                head::Class::Valid(Box::new(a)),
+                "sample {k}: S"
+            );
+        }
     }
 
     /// The catch-up runs inside its timed region (spec Goal 2, audit mutation D): between the ticks the store reads
@@ -4276,14 +5339,14 @@ mod tests {
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 35);
+            assert_eq!(calls.len(), 37);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 35);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 37);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
@@ -4962,7 +6025,7 @@ mod tests {
             assert_eq!((q.family.min_tier(), q.family.needs_tail()), (None, false));
             assert_eq!(Profile::Test.n(q.n), q.n / TEST_SCALE);
         }
-        assert_eq!(grid()[23..], g[..]);
+        assert_eq!(grid()[23..35], g[..]);
     }
 
     /// The calls of `lfs` from `from` to `to` on the file `name`.
