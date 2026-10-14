@@ -1500,7 +1500,7 @@ stream, `changeset_digest` and `commit_id`. The set keeps every row of [F07 §14
 | + R4 | a file node registered with `origin_pred`, `aliases` and `observed_blob`; a root node gaining a `path_moves` entry; a `relink` change; an `observation` conflict (`PathClaim`) |
 | + R5 | a named query defined, changed, and dropped, and a `FieldEdit` on a definition |
 | + trailers | JSON-escaped `Klotho-Actor` and `Klotho-Worktree` values; a commit without git provenance; a commit in a SHA-256 destination |
-| + dropped bodies | an `ordinary` commit that sets a body the exporting store has dropped, written as the `--- dropped` line, with the same `commit_id` as with the body section; a body `TextHunk` with a dropped side; a commit whose only tree change is a node file re-encoded after a drop (§3.3), with no item-10 entry for it (spec sync 3) |
+| + dropped bodies | an `ordinary` commit that sets a body the exporting store has dropped, written as the `--- dropped` line, with the same `commit_id` as with the body section; a body `TextHunk` with a dropped side; a commit that changes one key of another node and whose tree also re-encodes a node file after a drop (§3.3); that file gives no item-10 entry, and the other change keeps the changeset from being empty ([API] open point 28; spec sync 3) |
 
 ## 13. Refs and destinations
 
@@ -1697,9 +1697,9 @@ file; it also carries the ledger line of the reopen (§6.3, §6.5).
 ### 17.2 A file node, the root node and a referrer's anchors
 
 The uids and `captured` values computed in this section follow [F08 §11.2]–[F08 §11.4]'s rules with the domain
-strings `klotho-file-v1`, `klotho-root-v1` and `klotho-anchor-v1`; a `captured` value takes them through the file uid
-it hashes. The owner's ruling R-49 of 2026-10-13 gives every domain string its `klotho-…-v1` name, and [F08 §11.1]
-takes these three in its own Klotho rename.
+strings `klotho-file-v1`, `klotho-root-v1` and `klotho-anchor-v1`; a `captured` value takes `klotho-file-v1` through
+the file uid it hashes. The owner's ruling R-49 of 2026-10-13 gives every domain string its `klotho-…-v1` name, and
+[F08 §11.1] takes these three in its own Klotho rename.
 
 The file `crates/engine/src/lock.rs` registered in root `project` with no predecessor has the uid
 `19143eabafc5ec1c2f8ddb102a731ae3` (computed, [F08 §11.2]); after a move its file
