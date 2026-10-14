@@ -3,9 +3,10 @@
 //! selects or why none is ([F04 §8.1]); where and why a log's scan ends ([F05 §5.3]), what lies after that point, and
 //! that the `HEAD` is the fold of the log it covers ([F04 §6], [F05 §10.2]); that a sealed file's header matches its name
 //! ([F09 §17.1] V-3) and every reference in its store that names it (V-8); that every view a store's log and `HEAD`
-//! name passes the set-wide checks (V-12, names resolved through every `SYMTAB` of the set); and that a fragment decodes
-//! to its end, its schema items in item key order and every `Schema` op's `item_key` its items' stored key form, with
-//! the symbols its first comment names ([F08 §8.5], [F06 §7.6]).
+//! name passes the set-wide checks (V-12, names resolved through every `SYMTAB` of the set); that the `DROPPED` and
+//! `HARVEST` sections of every layer whose window the store's log covers are the fold of that window ([F05 §10.3],
+//! [F11 §13.4], §13.5); and that a fragment decodes to its end, its schema items in item key order and every `Schema`
+//! op's `item_key` its items' stored key form, with the symbols its first comment names ([F08 §8.5], [F06 §7.6]).
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -962,6 +963,87 @@ fn hex_store_views() {
         }
     }
     assert!(failures.is_empty(), "{}", failures.join("\n"));
+}
+
+/// [F05 §10.3] into [F11 §13.4] and §13.5 over one store: every main set the `HEAD` and the scanned `Checkpoint` records
+/// name is pushed layer by layer, base first, into the view of the layers under the next ([`fixture::TableView`]);
+/// each layer whose window `[from_lsn, upto_lsn)` the scanned records cover has its `DROPPED` and `HARVEST` sections
+/// checked against the fold of that window ([`fixture::check_segment_folds`]), a layer without them for their absence.
+/// The segment `named` must be one of the checked layers.
+fn check_store_folds(
+    dir: &str,
+    (head, log, more): (&str, &str, &[&str]),
+    named: &str,
+) -> Result<(), String> {
+    let base = family("hex");
+    let mut segs: BTreeMap<FileName, (String, segment::Segment)> = BTreeMap::new();
+    for p in walk(&base.join(dir)) {
+        let r = rel(&p, &base);
+        let Some(name) =
+            FileName::parse(stem(&r)).filter(|n| r.ends_with(".bin") && matches!(n.family, 3 | 4))
+        else {
+            continue;
+        };
+        let s = segment::decode_segment(&read(&p)).map_err(|e| format!("{r}: {e}"))?;
+        segs.insert(name, (r, s));
+    }
+    let (slot, lc, _) = scan_of(head, log, more)?;
+    let records = fixture::FoldRecords::of_scan(&lc.scan);
+    let mut sets = vec![main_set(&slot.segments[..usize::from(slot.n_segments)])];
+    for rec in lc.scan.groups.iter().flat_map(|g| &g.records) {
+        if let Payload::Checkpoint(ck) = &rec.payload
+            && let Some((_, _, s)) = &ck.set
+        {
+            sets.push(main_set(s));
+        }
+    }
+    sets.sort();
+    sets.dedup();
+    let mut failures = Vec::new();
+    let mut checked = false;
+    for set in &sets {
+        let mut view = fixture::TableView::default();
+        for n in set {
+            let (path, seg) = segs.get(n).ok_or_else(|| {
+                format!("{dir}/{} is named by the store but not a fixture", n.name())
+            })?;
+            if records.start <= seg.hdr.from_lsn && seg.hdr.upto_lsn <= records.end {
+                if let Err(e) = fixture::check_segment_folds(seg, &view, &records) {
+                    failures.push(format!("{path}: {e}"));
+                }
+                checked |= n.name() == named;
+            }
+            view.push_segment(seg).map_err(|e| format!("{path}: {e}"))?;
+        }
+    }
+    if !checked {
+        failures.push(format!(
+            "{dir}/{named}: in no main set of the store whose window the records [{}, {}) cover",
+            records.start, records.end
+        ));
+    }
+    if failures.is_empty() {
+        Ok(())
+    } else {
+        Err(failures.join("\n"))
+    }
+}
+
+/// [F05 §10.3] into [F11 §13.4] and §13.5 (spec sync 3): store F's `DROPPED` and `HARVEST` sections, which `seg.d2`
+/// carries (INDEX.md §3.11), are the fold of its log over the segment's window.
+#[test]
+fn hex_store_table_folds() {
+    if let Err(e) = check_store_folds(
+        "store-f",
+        (
+            "store-f/HEAD.bin",
+            "store-f/log.1.bin",
+            &["store-f/log.2.bin"],
+        ),
+        "seg.d2",
+    ) {
+        panic!("store-f: {e}");
+    }
 }
 
 /// [F04 §6], [F05 §10.2]: every valid slot of store A's `HEAD` fixtures (`init`, the two-slot states, the flag
