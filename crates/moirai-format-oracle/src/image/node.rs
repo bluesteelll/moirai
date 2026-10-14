@@ -1732,17 +1732,23 @@ fn parse_ex(schema: &Schema, t: &str, at: usize) -> Result<ExSide> {
                 );
             }
         } else if let Some(v) = l.strip_prefix("body ") {
-            let (b, n) = read_jstring(v, at)?;
-            if n != v.len() || body.is_some() {
+            // `snap-line`'s `body ( jstring / dropped-tok )`: a JSON string, or a dropped body's bare token.
+            let one = if body.is_some() {
+                None
+            } else if v.starts_with('"') {
+                let (b, n) = read_jstring(v, at)?;
+                (n == v.len()).then_some((!b.is_empty()).then_some(IBody::Text(b)))
+            } else {
+                parse_dropped_tok(v).map(|d| Some(IBody::Dropped(d)))
+            };
+            let Some(b) = one else {
                 return parse_err(
                     Rule::NoProduction,
                     at,
-                    "a snapshot body is not one JSON string [F14 §6.8.1]",
+                    "a snapshot body is not one JSON string or `dropped:<dg16>:<drop-reason>` [F14 §6.8.1]",
                 );
-            }
-            if !b.is_empty() {
-                body = Some(IBody::Text(b));
-            }
+            };
+            body = b;
         } else {
             return parse_err(
                 Rule::NoProduction,
@@ -1839,6 +1845,15 @@ fn parse_dropped_line(line: &str, at: usize) -> Result<Dropped> {
     }
 }
 
+/// A `dropped-tok` ([F14 §6.8]), `dropped:<dg16>:<drop-reason>`; `None` for any other text.
+fn parse_dropped_tok(t: &str) -> Option<Dropped> {
+    let (h, r) = t.strip_prefix("dropped:")?.split_once(':')?;
+    Some(Dropped {
+        hash: is_lhex(h, 32).then(|| unhex(h))??.try_into().ok()?,
+        reason: DropReason::of_name(r)?,
+    })
+}
+
 /// A dropped body as a side or a snapshot `body` value ([F14 §6.8] `dropped-tok`): `dropped:<hash>:<reason>`.
 fn dropped_tok_text(d: &Dropped) -> String {
     format!("dropped:{}:{}", hex(&d.hash), d.reason.name())
@@ -1855,12 +1870,12 @@ fn check_kind(schema: &Schema, kind: &str, at: usize) -> Result<()> {
     Ok(())
 }
 
-/// Parses one conflict side for `key` of a node of `kind`.
+/// Parses one conflict side for `key` of a node of `kind`; `json` tells a JSON-string token from a bare one.
 fn parse_side(
     schema: &Schema,
     kind: &str,
     key: &str,
-    t: &str,
+    (t, json): (&str, bool),
     root_node: bool,
     at: usize,
 ) -> Result<Option<Side>> {
@@ -1920,7 +1935,21 @@ fn parse_side(
         }
         Side::Parent(p, o)
     } else if key == "body" {
-        Side::Body(IBody::Text(t.to_owned()))
+        // [F14 §6.8]: a body text is always a JSON string; a dropped body is the bare `dropped-tok`, and any other bare
+        // token does not parse by the key's type (§9.2).
+        if json {
+            Side::Body(IBody::Text(t.to_owned()))
+        } else if let Some(d) = parse_dropped_tok(t) {
+            Side::Body(IBody::Dropped(d))
+        } else {
+            return parse_err(
+                Rule::ValueType,
+                at,
+                format!(
+                    "a body side is a JSON string or `dropped:<dg16>:<drop-reason>`, not the bare token {t:?} [F14 §6.8, §9.2]"
+                ),
+            );
+        }
     } else if key == "existence" {
         Side::Existence(Box::new(parse_ex(schema, t, at)?))
     } else if key == "observation" {
@@ -2030,8 +2059,9 @@ fn check_ckey(schema: &Schema, kind: &str, key: &str, at: usize) -> Result<()> {
     Ok(())
 }
 
-/// Splits a conflict line's tail (after the key) into class and three side texts.
-fn split_conflict(s: &str, at: usize) -> Result<(String, [String; 3])> {
+/// Splits a conflict line's tail (after the key) into class and three side texts, each with whether it was written as a
+/// JSON string.
+fn split_conflict(s: &str, at: usize) -> Result<(String, [(String, bool); 3])> {
     let Some(rest) = s.strip_prefix(" class=") else {
         return parse_err(
             Rule::NoProduction,
@@ -2049,7 +2079,7 @@ fn split_conflict(s: &str, at: usize) -> Result<(String, [String; 3])> {
         );
     }
     let mut rest = &rest[n..];
-    let mut sides: [String; 3] = Default::default();
+    let mut sides: [(String, bool); 3] = Default::default();
     for (i, k) in [" base=", " ours=", " theirs="].iter().enumerate() {
         let Some(r) = rest.strip_prefix(k) else {
             return parse_err(
@@ -2062,8 +2092,8 @@ fn split_conflict(s: &str, at: usize) -> Result<(String, [String; 3])> {
         if rest.is_empty() || rest.starts_with(' ') {
             continue;
         }
-        let (t, n, _) = read_token(rest, at)?;
-        sides[i] = t;
+        let (t, n, json) = read_token(rest, at)?;
+        sides[i] = (t, json);
         rest = &rest[n..];
     }
     if !rest.is_empty() {
@@ -2719,7 +2749,8 @@ pub fn parse(bytes: &[u8], cx: &Ctx<'_>) -> Result<NodeFile> {
         }
         let mut parsed: [Option<Side>; 3] = Default::default();
         for j in 0..3 {
-            parsed[j] = parse_side(schema, &kind, key, &sides[j], root_node, *at)?;
+            let (t, json) = &sides[j];
+            parsed[j] = parse_side(schema, &kind, key, (t, *json), root_node, *at)?;
         }
         if nf
             .conflicts
@@ -3345,6 +3376,131 @@ deleted: ca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7ad 2026-
         ];
         for (what, src, rule, cites) in &rows {
             expect_refused(&mut fails, what, src, *rule, cites);
+        }
+        assert!(fails.is_empty(), "{}", fails.join("\n"));
+    }
+
+    /// The `existence` side `ours` of a node file: the live snapshot of a side whose `body` line is `body_line`.
+    fn existence_line(body_line: &str) -> String {
+        format!(
+            r#"conflict existence class=DeleteVsModify base="live task\nstatus: open\ntitle: t" ours="live task\nstatus: open\ntitle: t\n{body_line}" theirs="deleted task\nreason: gone"
+"#
+        )
+    }
+
+    /// [F14 §6.8] "A dropped side", `dropped-tok`, §6.8.1 `snap-line`: a body side and an existence snapshot's `body`
+    /// line of a dropped body are the bare token `dropped:<hash>:<reason>`; the parse holds the body key and the reason,
+    /// and the encoder writes the bare token back. A JSON string that reads `dropped:…` is a body whose bytes are that
+    /// text.
+    #[test]
+    fn dropped_sides_round_trip() {
+        let mut fails = Vec::new();
+        // (a) A body `TextHunk` with a dropped side.
+        let a = format!(
+            "{LIVE_HEAD}{}",
+            format_args!(
+                r#"conflict body class=TextHunk base="a\n" ours=dropped:{H}:secret theirs="c\n"
+"#
+            )
+        );
+        let s = Schema::core();
+        let cx = Ctx {
+            schema: &s,
+            path_uid: None,
+        };
+        match parse(a.as_bytes(), &cx) {
+            Ok(nf) => {
+                let want = [
+                    Some(Side::Body(IBody::Text("a\n".into()))),
+                    Some(Side::Body(IBody::Dropped(Dropped {
+                        hash: h16(H),
+                        reason: DropReason::Secret,
+                    }))),
+                    Some(Side::Body(IBody::Text("c\n".into()))),
+                ];
+                if nf.conflicts["body"].sides != want {
+                    fails.push(format!("(a): sides {:?}", nf.conflicts["body"].sides));
+                }
+                let back = String::from_utf8(encode(&nf, &s)).expect("utf-8");
+                if back != a {
+                    fails.push(format!("(a): re-encodes to {back:?}"));
+                }
+            }
+            Err(e) => fails.push(format!("(a): {e}")),
+        }
+        // (b) The same text as a JSON string is a body text.
+        let b = format!(
+            "{LIVE_HEAD}{}",
+            format_args!(
+                r#"conflict body class=TextHunk base="a\n" ours="dropped:{H}:secret" theirs="c\n"
+"#
+            )
+        );
+        match try_canonical(&b) {
+            Ok(nf)
+                if nf.conflicts["body"].sides[1]
+                    == Some(Side::Body(IBody::Text(format!("dropped:{H}:secret")))) => {}
+            other => fails.push(format!("(b): {other:?}")),
+        }
+        // (c) An existence snapshot whose `body` line is dropped, in a live file and in a tombstone ([F14 §16]).
+        for (what, head) in [("live", LIVE_HEAD), ("tombstone", TOMB_HEAD)] {
+            let src = format!(
+                "{head}{}",
+                existence_line(&format!("body dropped:{H}:private"))
+            );
+            match try_canonical(&src) {
+                Ok(nf) => match &nf.conflicts["existence"].sides[1] {
+                    Some(Side::Existence(e))
+                        if matches!(&**e, ExSide::Live { body: Some(IBody::Dropped(d)), .. }
+                            if *d == Dropped { hash: h16(H), reason: DropReason::Private }) => {}
+                    other => fails.push(format!("(c) {what}: side {other:?}")),
+                },
+                Err(e) => fails.push(format!("(c) {what}: {e}")),
+            }
+        }
+        assert!(fails.is_empty(), "{}", fails.join("\n"));
+    }
+
+    /// [F14 §6.8], §9.2, §16: in a body side a bare token that is not a `dropped-tok` does not parse by the key's type
+    /// (`value-type`); an existence snapshot's `body` line that is neither one JSON string nor a `dropped-tok` matches no
+    /// production of §6.8.1 (`no-production`).
+    #[test]
+    fn dropped_side_refusals() {
+        let mut fails = Vec::new();
+        let upper = H.to_uppercase();
+        for (what, side) in [
+            ("a bare text", "hello".to_owned()),
+            ("an upper-case hash", format!("dropped:{upper}:secret")),
+            ("an unknown reason", format!("dropped:{H}:public")),
+            ("no reason", format!("dropped:{H}")),
+        ] {
+            let src = format!(
+                "{LIVE_HEAD}{}",
+                format_args!(
+                    r#"conflict body class=TextHunk base="a\n" ours={side} theirs="c\n"
+"#
+                )
+            );
+            expect_refused(
+                &mut fails,
+                &format!("body side, {what}"),
+                &src,
+                Rule::ValueType,
+                &["§6.8"],
+            );
+        }
+        for (what, line) in [
+            ("a bare text", "body hello".to_owned()),
+            ("an unknown reason", format!("body dropped:{H}:public")),
+        ] {
+            let src = format!("{LIVE_HEAD}{}", existence_line(&line));
+            expect_refused(
+                &mut fails,
+                &format!("snapshot body, {what}"),
+                &src,
+                Rule::NoProduction,
+                &["§6.8.1"],
+            );
         }
         assert!(fails.is_empty(), "{}", fails.join("\n"));
     }
