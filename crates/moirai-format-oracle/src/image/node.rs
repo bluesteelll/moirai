@@ -1,6 +1,6 @@
 //! [F14 §6] node files: the grammar of §6.1, the header lines (§6.2), provenance (§6.3), field and label lines (§6.4),
-//! ledgers (§6.5), edges (§6.6), anchors (§6.7), conflicts with existence sides (§6.8), the body (§6.9), tombstones
-//! (§6.10) and R4's file and root nodes (§6.11); values in their text forms (§5).
+//! ledgers (§6.5), edges (§6.6), anchors (§6.7), conflicts with existence sides (§6.8), the body or a dropped
+//! body's line (§6.9), tombstones (§6.10) and R4's file and root nodes (§6.11); values in their text forms (§5).
 //!
 //! [`parse`] reads the importer's superset (§9.1) and applies every `ImageParse` rule of §9.2 that one file and the
 //! effective schema decide; [`encode`] writes the exporter's canonical bytes. A file is canonical when
@@ -1816,6 +1816,29 @@ fn ex_text(schema: &Schema, e: &ExSide) -> String {
     }
 }
 
+/// The `--- dropped <dg16> <drop-reason>` line ([F14 §6.1] `dropped-body`, §6.9), trailing SP and HT removed.
+fn parse_dropped_line(line: &str, at: usize) -> Result<Dropped> {
+    let d = line
+        .strip_prefix("--- dropped ")
+        .and_then(|r| r.split_once(' '))
+        .and_then(|(h, r)| {
+            Some(Dropped {
+                hash: is_lhex(h, 32).then(|| unhex(h))??.try_into().ok()?,
+                reason: DropReason::of_name(r)?,
+            })
+        });
+    match d {
+        Some(d) => Ok(d),
+        None => parse_err(
+            Rule::NoProduction,
+            at,
+            format!(
+                "a `--- dropped` line is not `--- dropped <dg16> <drop-reason>`: {line:?} [F14 §6.1, §6.9]"
+            ),
+        ),
+    }
+}
+
 /// A dropped body as a side or a snapshot `body` value ([F14 §6.8] `dropped-tok`): `dropped:<hash>:<reason>`.
 fn dropped_tok_text(d: &Dropped) -> String {
     format!("dropped:{}:{}", hex(&d.hash), d.reason.name())
@@ -2150,6 +2173,7 @@ pub fn parse(bytes: &[u8], cx: &Ctx<'_>) -> Result<NodeFile> {
     let mut raw_conflicts: Vec<(usize, String, String)> = Vec::new();
     let mut raw_edges: Vec<(usize, String, String)> = Vec::new();
     let mut raw_labels: Vec<(usize, String)> = Vec::new();
+    let mut dropped_at: Option<usize> = None;
     let mut i = 1;
     while i < lines.len() {
         let (at, raw) = lines[i];
@@ -2357,6 +2381,21 @@ pub fn parse(bytes: &[u8], cx: &Ctx<'_>) -> Result<NodeFile> {
         } else if let Some(rest) = line.strip_prefix("conflict ") {
             let n = rest.find(' ').unwrap_or(rest.len());
             raw_conflicts.push((at, rest[..n].to_owned(), rest[n..].to_owned()));
+        } else if line == "--- dropped" || line.starts_with("--- dropped ") {
+            // [F14 §6.9]: a dropped body's line, in place of the `---` line and the bytes; the file ends in its LF
+            // (§9.1 rules 4 and 5), so no line follows it.
+            let d = parse_dropped_line(line, at)?;
+            if let Some(&(next, _)) = lines.get(i + 1) {
+                return parse_err(
+                    Rule::NoProduction,
+                    next,
+                    "a line after the `--- dropped` line, which ends the file [F14 §6.9, §9.1]",
+                );
+            }
+            once("---".into(), at)?;
+            nf.body = Some(IBody::Dropped(d));
+            dropped_at = Some(at);
+            break;
         } else {
             return parse_err(
                 unmatched_line_rule(line),
@@ -2393,6 +2432,13 @@ pub fn parse(bytes: &[u8], cx: &Ctx<'_>) -> Result<NodeFile> {
     let root_node = kind == "area" && raw_fields.iter().any(|(_, n, _)| n == "root");
     // Form rules (§6.10, §6.11, §9.2).
     if nf.tomb {
+        if let Some(at) = dropped_at {
+            return parse_err(
+                Rule::LineNotAllowed,
+                at,
+                "a `--- dropped` line in a tombstone file, which has no body [F14 §6.9, §6.10]",
+            );
+        }
         let bad = nf.created.is_some()
             || nf.updated.is_some()
             || raw_status.is_some()
@@ -2723,7 +2769,14 @@ pub fn parse(bytes: &[u8], cx: &Ctx<'_>) -> Result<NodeFile> {
             _ => false,
         };
         if clash {
-            // [F14 §9.2]: a body with a body conflict is its own clause.
+            // [F14 §9.2]: a body, or a `--- dropped` line (§6.9), with a body conflict is its own clause.
+            if let (Some(at), "body") = (dropped_at, key.as_str()) {
+                return parse_err(
+                    Rule::BodyAndConflict,
+                    at,
+                    "a `--- dropped` line with a body conflict [F14 §6.9, §9.2]",
+                );
+            }
             let rule = if key == "body" {
                 Rule::BodyAndConflict
             } else {
@@ -3110,6 +3163,190 @@ updated: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n";
             "{head}anchor a11bbeaab98f3fa9a695506f8ded56e0 -> d706fcde60f0b6cbf56c23297162b652 kind=quote mode=live watch=span quote_h=af1349b9f5f9a1a6a0404dea36dcc949 prefix_h=2622bf4975bc646f601cc36a812296a0 suffix_h=1144314642f739afb24bcd5aeaec0b44 hint=88-131 window=AwACAB86Apx9DrRRyNI span=xxh3:9c1f0a2b3c4d5e6f blob=sha1:de177738b58e970465382658e69b18745029e248 captured=f6ba05cb0b8d5577c95cd8082b4367c4 v=1\n"
         );
         assert!(parse(empty_quote.as_bytes(), &cx).is_err());
+    }
+
+    /// A live task file's header lines, before its conflict lines and its body or `--- dropped` line.
+    const LIVE_HEAD: &str = "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e77\nkind: task\ntitle: t\nstatus: open\n\
+created: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n\
+updated: cc4e084fb20d5ba50ba22ca5874d846c8ccda0ca92161fac5ae87e00eb07440df\n";
+
+    /// A tombstone's lines ([F14 §17.3]).
+    const TOMB_HEAD: &str = "moirai-node 1\nuid: 018f3c2e7a117b3c9d5e4c2f1a0b9e40\nkind: task\ntitle: Reader registry\n\
+deleted: ca0f95ceb140682ca1c5c708146ed5080c9dbee17d53c7bd9eb509b1207f4f7ad 2026-09-26T09:12:40.118Z\n";
+
+    /// A body key in lower-case hexadecimal ([F14 §2.3] `dg16`) and a second one.
+    const H: &str = "5f0c1e2d3c4b5a69788796a5b4c3e1a2";
+    const H2: &str = "0123456789abcdef0123456789abcdef";
+
+    fn h16(h: &str) -> [u8; 16] {
+        unhex(h).expect("hex").try_into().expect("16")
+    }
+
+    /// `src` parsed with the core schema; it must re-encode to `src` byte for byte.
+    fn try_canonical(src: &str) -> core::result::Result<NodeFile, String> {
+        let s = Schema::core();
+        let cx = Ctx {
+            schema: &s,
+            path_uid: None,
+        };
+        let nf = parse(src.as_bytes(), &cx).map_err(|e| format!("{e}"))?;
+        let back = String::from_utf8(encode(&nf, &s)).expect("utf-8");
+        if back != src {
+            return Err(format!("re-encodes to {back:?}"));
+        }
+        Ok(nf)
+    }
+
+    /// `src` must be refused with `rule`, its reason citing each of `cites`; a failure is pushed to `fails`.
+    fn expect_refused(fails: &mut Vec<String>, what: &str, src: &str, rule: Rule, cites: &[&str]) {
+        let s = Schema::core();
+        let cx = Ctx {
+            schema: &s,
+            path_uid: None,
+        };
+        match parse(src.as_bytes(), &cx) {
+            Ok(nf) => fails.push(format!("{what}: accepted as {:?}", nf.body)),
+            Err(e) if e.rule != Some(rule) || cites.iter().any(|c| !e.reason.contains(c)) => {
+                fails.push(format!(
+                    "{what}: want rule {} citing {cites:?}, got {e}",
+                    rule.id()
+                ));
+            }
+            Err(_) => {}
+        }
+    }
+
+    /// [F14 §6.1] `dropped-body`, §6.9, §9.1 rules 3–5: a live file may end with `--- dropped <hash> <reason>` in place of
+    /// a body; the parse holds the body key and the reason, and the encoder writes the line back byte for byte. Trailing
+    /// SP and HT and a missing final LF are the superset; the same text after a body's `---` line is body text.
+    #[test]
+    fn dropped_body_line_round_trips() {
+        let mut fails = Vec::new();
+        let mut parsed = Vec::new();
+        for (name, reason) in [
+            ("secret", DropReason::Secret),
+            ("private", DropReason::Private),
+            ("other", DropReason::Other),
+        ] {
+            let src = format!("{LIVE_HEAD}--- dropped {H} {name}\n");
+            match try_canonical(&src) {
+                Ok(nf) => {
+                    let want = Some(IBody::Dropped(Dropped {
+                        hash: h16(H),
+                        reason,
+                    }));
+                    if nf.body != want {
+                        fails.push(format!("{name}: body {:?}, want {want:?}", nf.body));
+                    }
+                    parsed.push(nf);
+                }
+                Err(e) => fails.push(format!("{name}: {e}")),
+            }
+        }
+        if parsed.len() == 3 && (parsed[0] == parsed[1] || parsed[1] == parsed[2]) {
+            fails.push("two reasons parse to one node file".into());
+        }
+        let s = Schema::core();
+        let cx = Ctx {
+            schema: &s,
+            path_uid: None,
+        };
+        let canon = format!("{LIVE_HEAD}--- dropped {H} secret\n");
+        for (what, sloppy) in [
+            (
+                "trailing SP and HT",
+                format!("{LIVE_HEAD}--- dropped {H} secret \t\n"),
+            ),
+            ("no final LF", format!("{LIVE_HEAD}--- dropped {H} secret")),
+        ] {
+            match parse(sloppy.as_bytes(), &cx) {
+                Ok(nf) if encode(&nf, &s) == canon.as_bytes() => {}
+                Ok(nf) => fails.push(format!("{what}: re-encodes to {:?}", encode(&nf, &s))),
+                Err(e) => fails.push(format!("{what}: {e}")),
+            }
+        }
+        match (
+            try_canonical(&canon),
+            try_canonical(&format!("{LIVE_HEAD}--- dropped {H2} secret\n")),
+        ) {
+            (Ok(a), Ok(b)) if a != b => {}
+            (a, b) => fails.push(format!("another hash: {a:?} / {b:?}")),
+        }
+        // [F14 §6.9]: after a body's `---` line the same text is part of the body.
+        let text = format!("{LIVE_HEAD}---\n--- dropped {H} secret\n");
+        match try_canonical(&text) {
+            Ok(nf) if nf.body == Some(IBody::Text(format!("--- dropped {H} secret"))) => {}
+            other => fails.push(format!("the line as body text: {other:?}")),
+        }
+        assert!(fails.is_empty(), "{}", fails.join("\n"));
+    }
+
+    /// [F14 §9.2], §16: each `--- dropped` negative is refused by its own rule, citing §6.9: an unknown reason, an
+    /// upper-case hash, a hash of 31 digits and a missing reason (`no-production`, §6.1); the line in a tombstone
+    /// (`line-not-allowed`, §6.10); a body section or any other line after it (`no-production`, §9.1 rule 5); the line
+    /// with a body conflict (`body-and-conflict`, §9.2).
+    #[test]
+    fn dropped_body_line_refusals() {
+        let mut fails = Vec::new();
+        let upper = H.to_uppercase();
+        let rows: [(&str, String, Rule, &[&str]); 8] = [
+            (
+                "an unknown reason",
+                format!("{LIVE_HEAD}--- dropped {H} public\n"),
+                Rule::NoProduction,
+                &["§6.9"],
+            ),
+            (
+                "an upper-case hash",
+                format!("{LIVE_HEAD}--- dropped {upper} secret\n"),
+                Rule::NoProduction,
+                &["§6.9"],
+            ),
+            (
+                "a hash of 31 digits",
+                format!("{LIVE_HEAD}--- dropped {} secret\n", &H[..31]),
+                Rule::NoProduction,
+                &["§6.9"],
+            ),
+            (
+                "no reason",
+                format!("{LIVE_HEAD}--- dropped {H}\n"),
+                Rule::NoProduction,
+                &["§6.9"],
+            ),
+            (
+                "in a tombstone",
+                format!("{TOMB_HEAD}--- dropped {H} secret\n"),
+                Rule::LineNotAllowed,
+                &["§6.9", "§6.10"],
+            ),
+            (
+                "followed by a body section",
+                format!("{LIVE_HEAD}--- dropped {H} secret\n---\nbytes\n"),
+                Rule::NoProduction,
+                &["§6.9"],
+            ),
+            (
+                "followed by a label line",
+                format!("{LIVE_HEAD}--- dropped {H} secret\nlabel x\n"),
+                Rule::NoProduction,
+                &["§6.9"],
+            ),
+            (
+                "with a body conflict",
+                format!(
+                    "{LIVE_HEAD}{}--- dropped {H} secret\n",
+                    r#"conflict body class=TextHunk base="a\n" ours="b\n" theirs="c\n"
+"#
+                ),
+                Rule::BodyAndConflict,
+                &["§6.9", "§9.2"],
+            ),
+        ];
+        for (what, src, rule, cites) in &rows {
+            expect_refused(&mut fails, what, src, *rule, cites);
+        }
+        assert!(fails.is_empty(), "{}", fails.join("\n"));
     }
 }
 
