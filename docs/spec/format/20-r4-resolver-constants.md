@@ -77,9 +77,10 @@ No value of this chapter is a configuration key, an environment variable or a fl
   Filling a named hole by M2 entry is not a change. Version 1 is what this chapter says at M2 entry: the owner's ruling
   R-23 of 2026-10-12, item 1, moves the replay chain, which decides replay row 2's holes, before M2. A hole still open
   at M2 entry, such as a measurement-15 or -22 fact of §1.4, takes its fill within version 1, before its first
-  consumer, that is, while no store holds a value computed under its draft value (§1.4): a captured selector, a
-  `FILEOBS` or `ANCHORRES` row, or a fingerprint value (the orchestrator's ruling R-45 of 2026-10-13, which rests on
-  that premise, after ruling R-23's "a deadline before its first consumer"). Any other fill is a change.
+  consumer, that is, while no store holds a value computed under its draft value (§1.4) or, for a hole with no draft
+  value (`F20-clock-skew`), under any value of the hole: a captured selector, a `FILEOBS` or `ANCHORRES` row, or a
+  fingerprint value (the orchestrator's ruling R-45 of 2026-10-13, which rests on that premise, after ruling R-23's
+  "a deadline before its first consumer"). Any other fill is a change.
   Building a reserved evidence source (E2, [40 §4.7]) is a new version.
 - **Captured values are permanent.** An anchor's captured selectors (quote, prefix, suffix, end, window, hint,
   `span_hash`, occurrence) keep the values computed at capture under the version in its `resolver` field. A later
