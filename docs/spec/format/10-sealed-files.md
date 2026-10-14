@@ -6,7 +6,7 @@
 | Chapter | [F10], `docs/spec/format/10-sealed-files.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-13a (the `10-sealed-files.md` part of WP-13, [PLAN §3.2] item 1), author role R-SPEC-R |
-| Sources | [AR §4.1] (rows `hist.NNNN`, `blobs.NNNN`, `dict.D`, `gitmap.NNNN`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, CL3); [AR §4.3] (bodies in the tail raw with a codec byte; bulk commits; "if the M0 measurement shows the tail must hold compressed bodies…"; ≈ 1.5–2.5× `hist` ratio); [AR §4.4] (`SegHdr` `seg_kind` `hist`, `blobs`; `BLOBTAB`); [AR §4.7] (one reused 64 KiB body buffer); [AR §4.8] ("commit id → lsn: per-frame fan-out index in `hist`"); [AR §4.9] (delta checkpoint sealing bodies; tiered fold and rollup merging blob files; dictionary retraining; history retirement; GC: `hist` rewrite, blob GC, `gitmap` compaction); [AR §4.6] "Reserved in format v1" (byte-bounded `hist` frames; the harness list's codec items); [AR §5a.6] (a cold `hist` frame decodes in ≤ 0.1–0.5 ms); [AR §5b.6] (export frontier through `gitmap`); [AR §2.6] T6 (bodies ≤ 64 KiB, content-addressed BLAKE3-128); [AR §2.10] T10 (the pure-Rust codec); [40 §2.5] (fingerprints: ≈ 300 B, runtime, retention), [40 §2.11] R-9; [50 §8.1] F8; [80 §2.5] rules 1–4, [80 §3.1] X-F6; [90 §10.1] (codec row), [90 §11.3] (options (1)–(4) and the decision rule), [90 §11.4]; [60 §2.5] ([AR] row "Segments"; audit rows "Segments" and "Commit body"; the harness row), [60 §3.1] "Decisions fixed at M0 exit", [60 §5.2] row 6; [71 RAM-B1] (≤ 2 MB per commit decode), [71 RAM-m3] (`gitmap` sorted with a fan-out table), [71 RAM-M6] (≤ 0.5 MB compression context); [PLAN §3.2] WP-13, WP-54, [PLAN §3.3] (WP-13's gaps: `gitmap` entry size 41 vs 50 B; which sealed files carry `SegHdr`; R-9's fingerprint blob class), [PLAN §6.2] R3; spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] DB-8, DB-9 and [F16] P-80, P-101, P-102; external: [RFC 8878] (zstd frames and dictionaries), [LZ4-block] (the LZ4 block format) |
+| Sources | [AR §4.1] (rows `hist.NNNN`, `blobs.NNNN`, `dict.D`, `gitmap.NNNN`, `cs.NNNN`; the rules paragraph: sealing, `total_len`, CL3); [AR §4.3] (bodies in the tail raw with a codec byte; bulk commits; "if the M0 measurement shows the tail must hold compressed bodies…"; ≈ 1.5–2.5× `hist` ratio); [AR §4.4] (`SegHdr` `seg_kind` `hist`, `blobs`; `BLOBTAB`); [AR §4.7] (one reused 64 KiB body buffer); [AR §4.8] ("commit id → lsn: per-frame fan-out index in `hist`"); [AR §4.9] (delta checkpoint sealing bodies; tiered fold and rollup merging blob files; dictionary retraining; history retirement; GC: `hist` rewrite, blob GC, `gitmap` compaction); [AR §4.6] "Reserved in format v1" (byte-bounded `hist` frames; the harness list's codec items); [AR §5a.6] (a cold `hist` frame decodes in ≤ 0.1–0.5 ms); [AR §5b.6] (export frontier through `gitmap`); [AR §2.6] T6 (bodies ≤ 64 KiB, content-addressed BLAKE3-128); [AR §2.10] T10 (the pure-Rust codec); [40 §2.5] (fingerprints: ≈ 300 B, runtime, retention), [40 §2.11] R-9; [50 §8.1] F8; [80 §2.5] rules 1–4, [80 §3.1] X-F6; [90 §10.1] (codec row), [90 §11.3] (options (1)–(4) and the decision rule), [90 §11.4]; [60 §2.5] ([AR] row "Segments"; audit rows "Segments" and "Commit body"; the harness row), [60 §3.1] "Decisions fixed at M0 exit", [60 §5.2] row 6; [71 RAM-B1] (≤ 2 MB per commit decode), [71 RAM-m3] (`gitmap` sorted with a fan-out table), [71 RAM-M6] (≤ 0.5 MB compression context); [PLAN §3.2] WP-13, WP-54, [PLAN §3.3] (WP-13's gaps: `gitmap` entry size 41 vs 50 B; which sealed files carry `SegHdr`; R-9's fingerprint blob class), [PLAN §6.2] R3; spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] DB-8, DB-9 and [F16] P-80, P-101, P-102; external: [RFC 8878] (zstd frames and dictionaries), [LZ4-block] (the LZ4 block format); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the dictionary header's and the `gitmap` page header's magics) |
 | Depends on | [F01], [F02], [F09]; cites [F04], [F05], [F06], [F11], [F13], [F14], [F15], [F16], [F17], [F19], [F20], [OS/fs], [OS/map] |
 
 ## 1. Scope
@@ -392,11 +392,12 @@ Values 0 and 3–255 are reserved.
 
 ### 6.1 `DictHdr`
 
-The 32-byte header of [80 §2.5] rule 4, `{magic "MDIC", total_len u64, blake3_16, _ [4]}`:
+The 32-byte header that [80 §2.5] rule 4 requires, `{magic, total_len u64, blake3_16, _ [4]}`, which begins with
+[F01 §4.5]'s magic `"KDIC"`:
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
-| 0 | 4 | `[4]u8` | `magic` | `"MDIC"` = `4D 44 49 43` |
+| 0 | 4 | `[4]u8` | `magic` | `"KDIC"` = `4B 44 49 43` |
 | 4 | 8 | `u64` | `total_len` | the file's exact length ([80] X-F6) |
 | 12 | 16 | `b16` | `digest` | BLAKE3-128 over `[32, total_len)`, the dictionary bytes |
 | 28 | 4 | `[4]u8` | `_reserved` | reserved-zero |
@@ -462,7 +463,7 @@ The `gitmap` page header of [80 §2.5] rule 4:
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
-| 0 | 4 | `[4]u8` | `magic` | `"MGMP"` = `4D 47 4D 50` ([F01 §4.5]) |
+| 0 | 4 | `[4]u8` | `magic` | `"KGMP"` = `4B 47 4D 50` ([F01 §4.5]) |
 | 4 | 2 | `u16` | `format` | format version, 1 ([F01 §9.1]) |
 | 6 | 1 | `u8` | `dest` | the image destination's number, as `HEAD.image_cursor` uses it ([AR §4.2]); numbers are declared by `GitMap` records ([F04] open point 7, [F05]) |
 | 7 | 1 | `u8` | `algo` | the git object format of the destination: 1 `sha1` or 2 `sha256` ([F01 §7.5]); 0 is invalid |
