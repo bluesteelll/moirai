@@ -12,6 +12,7 @@
 //! | this one | `SegHdr` with `total_len`, `seg_digest`, `table_xxh3` and `hdr_xxh3`; `SecEnt`; the placement P-1 to P-4; a parser that checks them; `NodeHdr` and `Creator` | [F09 §2.1]–§2.3 (`09-segments.md:51-136`); [F08 §3.1], [F08 §4] (`08-data-model.md:77-100`, `:185-191`) |
 //! | [`bitset`] | the frozen bitset with per-chunk cardinality and its AND/popcount, the ± list | [F09 §4.5], [F09 §4.6] (`09-segments.md:288-332`) |
 //! | [`base`] | the synthetic base `seg.base.1` at N: rows, cold columns, forward and reverse CSR, `BMDIR` and its frozen bitsets | [F09 §5], §7.1, §9, §16.1 (`09-segments.md:376-416`, `:479-505`, `:569-599`, `:1077-1083`); `ARCHITECTURE-RESEARCH.md:1677-1681` |
+//! | [`blobs`] | the `blobs.<n>` file a delta checkpoint seals its window's bodies into: `BLOBIDX` and `BLOBDATA`, each body `lz4` (R-40 O-1) or `none` when lz4 is not shorter; `BlobRef`, `BlobIdx`; the reader | [F10 §3.1]–§3.4, §5.1–§5.4 (`10-sealed-files.md:82-141`, `:305-376`); [F09 §6.3] (`09-segments.md:445-475`) |
 //! | [`delta`] | the delta `seg.d<K>` a checkpoint folds from a tail over the base: the touched rows with complete states and the ± lists against the base | [F09 §16.2] (`09-segments.md:1085-1089`), §5.1 (`:378-382`), §4.6; [F08 §3.5] (`08-data-model.md:157-169`) |
 //! | [`rt`] | [F11 §2.1]'s section body (`RtHdr`, rows, index region, heap); the row sizes and forms of the store-level and runtime sections; the rows of `REFS` with its name index, `IDEM` as a hash table, `ALLOC`, `UIDX`, `TREES`, `FILEOBS` and `FILES`; the bodies with no row; their readers | [F11 §1.3], §2.1–§2.5, §3, §8, §9, §12.4–§12.5 (`11-runtime-tables.md:49-76`, `:88-210`, `:300-446`, `:633-714`, `:826-960`); [F09 §14.3]–§14.4 (`09-segments.md:968-1024`) |
 //! | [`text`] | tokenizer v1 restricted to ASCII (u20 cut F-5), the term index of a segment's documents, `TERMS` (front-coded in blocks of 16), `POST`, `DOCLEN` and `FTSSTAT` (`HOLE(F09-doclen)`'s "kept" candidate), and their readers | [F09 §12] (`09-segments.md:761-848`, `:1263`) |
@@ -27,6 +28,7 @@
 
 pub mod base;
 pub mod bitset;
+pub mod blobs;
 pub mod delta;
 pub mod rt;
 pub mod text;
@@ -53,6 +55,8 @@ pub mod seg_kind {
     pub const BASE: u8 = 3;
     /// `seg-delta`.
     pub const DELTA: u8 = 4;
+    /// `blobs` ([F10 §5.1], `10-sealed-files.md:309`).
+    pub const BLOBS: u8 = 6;
 }
 
 /// The section tags the probe writes (`09-segments.md:156-206`, ranges `:231-233`).
@@ -149,6 +153,10 @@ pub mod tag {
     pub const GITRENAMES: u16 = 0x0219;
     /// `ANCHORRES`, `derived-optional`.
     pub const ANCHORRES: u16 = 0x021A;
+    /// `BLOBIDX`, a `blobs` file's index (`:202`; [F10 §5.2]).
+    pub const BLOBIDX: u16 = 0x0310;
+    /// `BLOBDATA`, its payloads.
+    pub const BLOBDATA: u16 = 0x0311;
 
     /// `BM.<i>` = `0x8000 + i`, i 0–32,766 (`:205`, `:233`).
     pub const fn bm(i: u16) -> u16 {
