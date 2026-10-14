@@ -13,6 +13,7 @@
 //! | [`bitset`] | the frozen bitset with per-chunk cardinality and its AND/popcount, the ± list | [F09 §4.5], [F09 §4.6] (`09-segments.md:288-332`) |
 //! | [`base`] | the synthetic base `seg.base.1` at N: rows, cold columns, forward and reverse CSR, `BMDIR` and its frozen bitsets | [F09 §5], §7.1, §9, §16.1 (`09-segments.md:376-416`, `:479-505`, `:569-599`, `:1077-1083`); `ARCHITECTURE-RESEARCH.md:1677-1681` |
 //! | [`delta`] | the delta `seg.d<K>` a checkpoint folds from a tail over the base: the touched rows with complete states and the ± lists against the base | [F09 §16.2] (`09-segments.md:1085-1089`), §5.1 (`:378-382`), §4.6; [F08 §3.5] (`08-data-model.md:157-169`) |
+//! | [`rt`] | [F11 §2.1]'s section body (`RtHdr`, rows, index region, heap); the row sizes and forms of the store-level and runtime sections; the rows of `REFS` with its name index, `IDEM` as a hash table, `ALLOC`, `UIDX`, `TREES`, `FILEOBS` and `FILES`; the bodies with no row; their readers | [F11 §1.3], §2.1–§2.5, §3, §8, §9, §12.4–§12.5 (`11-runtime-tables.md:49-76`, `:88-210`, `:300-446`, `:633-714`, `:826-960`); [F09 §14.3]–§14.4 (`09-segments.md:968-1024`) |
 //! | [`text`] | tokenizer v1 restricted to ASCII (u20 cut F-5), the term index of a segment's documents, `TERMS` (front-coded in blocks of 16), `POST`, `DOCLEN` and `FTSSTAT` (`HOLE(F09-doclen)`'s "kept" candidate), and their readers | [F09 §12] (`09-segments.md:761-848`, `:1263`) |
 //!
 //! **The subset** (spec Goal 1: "the 60-byte `NodeHdr`, CSR, frozen bitsets, cold columns and delta"): the probe
@@ -27,6 +28,7 @@
 pub mod base;
 pub mod bitset;
 pub mod delta;
+pub mod rt;
 pub mod text;
 
 use crate::tail::store::{SEG_HDR_LEN, SEG_MAGIC};
@@ -89,6 +91,64 @@ pub mod tag {
     pub const DOCLEN: u16 = 0x0052;
     /// `FTSSTAT`, fixed record of 48 B (`:183`).
     pub const FTSSTAT: u16 = 0x0053;
+    /// `CONFLICTS`, an `RtHdr` body (`:177`; [F11 §10]).
+    pub const CONFLICTS: u16 = 0x0031;
+    /// `GLOBIDX`, an `RtHdr` body (`:190`; [F11 §11]).
+    pub const GLOBIDX: u16 = 0x0084;
+    /// `SCHEMAIDS`, an `RtHdr` body (`:195`, §14.3).
+    pub const SCHEMAIDS: u16 = 0x0101;
+    /// `FILES`, an `RtHdr` body (`:196`, §14.4).
+    pub const FILES: u16 = 0x0102;
+    /// `REFS` (`:197`, `:212`).
+    pub const REFS: u16 = 0x0201;
+    /// `PINS`.
+    pub const PINS: u16 = 0x0202;
+    /// `HEADS`.
+    pub const HEADS: u16 = 0x0203;
+    /// `LEASES`.
+    pub const LEASES: u16 = 0x0204;
+    /// `MARKERS`.
+    pub const MARKERS: u16 = 0x0205;
+    /// `MARKERS_OLD`.
+    pub const MARKERS_OLD: u16 = 0x0206;
+    /// `IDEM`.
+    pub const IDEM: u16 = 0x0207;
+    /// `ALLOC`.
+    pub const ALLOC: u16 = 0x0208;
+    /// `UIDX`.
+    pub const UIDX: u16 = 0x0209;
+    /// `CURSORS`.
+    pub const CURSORS: u16 = 0x020A;
+    /// `SESSMARKS`.
+    pub const SESSMARKS: u16 = 0x020B;
+    /// `BACKUPS`.
+    pub const BACKUPS: u16 = 0x020C;
+    /// `DROPPED`, conditional (`:198`).
+    pub const DROPPED: u16 = 0x020D;
+    /// `HARVEST`, conditional (`:199`).
+    pub const HARVEST: u16 = 0x020E;
+    /// `TREES` (`:200`, `:212-219`).
+    pub const TREES: u16 = 0x0210;
+    /// `FILEOBS`.
+    pub const FILEOBS: u16 = 0x0211;
+    /// `PENDING`.
+    pub const PENDING: u16 = 0x0212;
+    /// `FSINTENT`.
+    pub const FSINTENT: u16 = 0x0213;
+    /// `FPRINT`, `derived-optional` (§3.3).
+    pub const FPRINT: u16 = 0x0214;
+    /// `JOURNALCUR`.
+    pub const JOURNALCUR: u16 = 0x0215;
+    /// `DIRMAP`, `derived-optional`.
+    pub const DIRMAP: u16 = 0x0216;
+    /// `PREFIXEV`.
+    pub const PREFIXEV: u16 = 0x0217;
+    /// `ANCESTRY`, `derived-optional`.
+    pub const ANCESTRY: u16 = 0x0218;
+    /// `GITRENAMES`, `derived-optional`.
+    pub const GITRENAMES: u16 = 0x0219;
+    /// `ANCHORRES`, `derived-optional`.
+    pub const ANCHORRES: u16 = 0x021A;
 
     /// `BM.<i>` = `0x8000 + i`, i 0–32,766 (`:205`, `:233`).
     pub const fn bm(i: u16) -> u16 {
