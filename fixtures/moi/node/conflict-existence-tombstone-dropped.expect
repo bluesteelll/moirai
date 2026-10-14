@@ -1,0 +1,34 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/conflict-existence-tombstone-dropped.moi
+%% file node
+%% context core
+%% source [F14 §6.8.1]
+%% source [F14 §6.10]
+%% source [F14 §12.2] conflict values
+%% source [F06 §8.1] DB-11
+%% note Conflicts: the twin of node/conflict-existence-tombstone.moi whose store dropped the live side's body (reason
+%% note private): the ours snapshot's `body` line is `body dropped:<hash>:private` (spec sync 3, S3-R-12, S3-R-17).
+%% note The hash is BLAKE3-128 of the twin's body text "Measure with the scanner on."; everything else is the twin's,
+%% note byte for byte. A tombstone carries the dropped form only in its snapshot.
+%% canonical self
+%% keys
+node 1a000000000000000000000000000013 task deleted "obsolete" -
+  field title text "Measure the flush p99"
+  edge blocks 1a000000000000000000000000000012 flagged
+  conflict existence DeleteVsModify prov theirs
+    base live task
+      field title text "Measure the flush p99"
+      field work_kind enum measure
+    ours live task
+      status in_progress none
+      field labels set text 1 "perf"
+      field title text "Measure the flush p99"
+      field work_kind enum measure
+      counter reopen_count 1
+      body-hash 26321da82b4422d53353d7f1a51d6361
+    theirs deleted task "obsolete" -
+%% image
+deleted cbf36ebd4642ba363780cb5b1263a4625348a84f64cb16bfacfceb6ecdcd42fef 2026-09-21T16:13:20.000Z
+dropped 26321da82b4422d53353d7f1a51d6361 private
+%% end
