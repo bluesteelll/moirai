@@ -1,0 +1,11 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/body-and-conflict--dropped.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% source [F14 §6.9]
+%% note node/conflict-body-dropped.moi plus the line `--- dropped <hash> secret`: a `--- dropped` line with a body
+%% note conflict (§9.2; spec sync 3, S3-R-15).
+%% refuse ImageParse body-and-conflict
+%% end

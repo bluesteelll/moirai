@@ -1,0 +1,374 @@
+# fixtures/hex/store-f/hist.4.hex: the hist file ([F10 §4]) that holds extent 1 of store F's log, written
+# by the purge ([F16] P-101 step 6) for the retirement of log.2 g11 (step 7): every record but the pad, in
+# lsn order, the ExtentHead first, in one frame (2 commits, 1892 raw bytes, codec 0). f1 is kept without
+# #1's body entry, whose hash H1 is in the dropped set of the retirement's scanned log ([F10 §4.1], spec sync
+# 3, S3-R-8): n_bodies 1, RecHdr.len and RecHdr.xxh3_64 recomputed, RecHdr.lsn kept; [F10 §9]: "a Commit record
+# without some of its body entries is valid". f2 keeps its cs_ref (cs.1 holds no live BlobRef of the purge set
+# and names no replaced file). Both BodyDrop records are kept. The last record held is g7's BodyDrop, so
+# upto_lsn is its end, 2018; the shortened f1 is not the last record. Every other record is a literal copy of
+# log.1.bin; HCIDX indexes f1 and f2.
+
+# SegHdr (120 B, [F09 §2.1])
+seghdr:
+  "MSEG"                                     # magic
+  {u16 1}                                    # format
+  02                                         # seg_kind 2 `hist`
+  00                                         # tok_ver
+  {u32 2}                                    # n_rows
+  {u16 3}                                    # n_sections
+  {u16 0}                                    # _reserved
+  {u32 4}                                    # file_no
+  {u32 0}                                    # ref_id
+  {u32 0}                                    # dict_no
+  {u32 0}                                    # _reserved
+  {u64 2}                                    # base_seq
+  {u64 0}                                    # from_lsn
+  {u64 2018}                                 # upto_lsn
+  {u64 0}                                    # rt_upto_lsn
+  {len 0..end u64}                           # total_len
+  {blake3_256 data..end}                     # seg_digest: BLAKE3-256 over [data_off, total_len)
+  {xxh3_64 table..data}                      # table_xxh3 over the section table
+  {xxh3_64 0..112}                           # hdr_xxh3 over [0, 112)
+# section table (3 entries of 32 B, [F09 §2.2])
+table:
+  # SecEnt HFRAMES (0x0300)
+  {u16 768}                                  # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_0300 u64}                        # off (absolute)
+  {len s_0300..s_0300.e u64}                 # len
+  {xxh3_64 s_0300..s_0300.e}                 # xxh3
+  # SecEnt HCIDX (0x0301)
+  {u16 769}                                  # tag
+  {u16 0}                                    # flags
+  {u32 2}                                    # count
+  {len 0..s_0301 u64}                        # off (absolute)
+  {len s_0301..s_0301.e u64}                 # len
+  {xxh3_64 s_0301..s_0301.e}                 # xxh3
+  # SecEnt HDATA (0x0302)
+  {u16 770}                                  # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_0302 u64}                        # off (absolute)
+  {len s_0302..s_0302.e u64}                 # len
+  {xxh3_64 s_0302..s_0302.e}                 # xxh3
+data:
+
+# === section HFRAMES (0x0300)
+s_0300:
+  {u32 1}                                    # n
+  {u32 88}                                   # row_w
+  # row 0: the one frame
+    {u64 0}                                    # first_lsn
+    {u64 1884}                                 # last_lsn
+    {u64 1}                                    # first_seq
+    {u64 2}                                    # last_seq
+    {u64 0x1a0c45156600000}                    # first_append_hlc
+    {u64 0x1a0c45415800001}                    # last_append_hlc
+    {len 0..fr0 u64}                           # off: absolute offset of the frame's block table
+    {len fr0..fr0.e}                           # stored_len
+    {u32 1892}                                 # raw_len
+    {u32 12}                                   # n_records
+    {u32 2}                                    # n_commits
+    {u16 1}                                    # n_blocks
+    00                                         # codec 0 `none`
+    00                                         # _reserved
+    {u32 0}                                    # _reserved
+    {xxh3_64 fr0.d..fr0.e}                     # raw_xxh3: XXH3-64 of the frame's raw bytes
+s_0300.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section HCIDX (0x0301)
+s_0301:
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # fan[0..15]
+  00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00  # fan[16..31]
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00  # fan[32..47]
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00  # fan[48..63]
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00  # fan[64..79]
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00  # fan[80..95]
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00  # fan[96..111]
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00  # fan[112..127]
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00  # fan[128..143]
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00  # fan[144..159]
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00  # fan[160..175]
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00  # fan[176..191]
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 01 00 00 00 01 00 00 00
+  01 00 00 00 01 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00  # fan[192..207]
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00  # fan[208..223]
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00  # fan[224..239]
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00  # fan[240..255]
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  02 00 00 00 02 00 00 00 02 00 00 00 02 00 00 00
+  07 3c 82 77 c0 e3 84 2b a2 94 36 af 6d 1a ce 20  # id16
+  {u64 387}                                  # lsn
+  be 1a 0b ab 49 b4 9a 32 1b ed da 1e 44 72 e7 f8  # id16
+  {u64 1670}                                 # lsn
+s_0301.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section HDATA (0x0302)
+s_0302:
+  # frame 0: 12 record(s), 1892 raw bytes, 1 block
+fr0:
+  {u32 1892}                                 # block 0: stored_len (codec 0: the raw bytes)
+  {u32 1892}                                 # block 0: raw_len
+fr0.d:
+  8a 00 00 00 1c 02 00 00 00 00 00 00 00 00 00 00  # record at lsn 0: kind 28, 138 bytes, as [F05] wrote it (copied from log.1)
+  2b f8 94 fe 72 f3 6e 3c 08 49 5e 82 7a 92 76 6e
+  00 00 00 00 00 00 00 00 dc c1 dd 68 41 e9 9e c9
+  00 00 01 00 00 00 00 00 04 00 00 00 00 10 00 00
+  57 01 de 00 00 00 00 00 00 00 00 00 00 00 00 08
+  01 00 00 00 00 00 00 00 00 00 01 00 00 00 01 00
+  00 00 00 00 00 00 00 00 00 00 01 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 34 ca 11 45 56 42 4a 1b
+  75 00 00 00 02 04 00 00 8a 00 00 00 00 00 00 00  # record at lsn 138: kind 2, 117 bytes, as [F05] wrote it (copied from log.1)
+  2b f8 94 fe 72 f3 6e 3c 0e 81 89 c3 dd bc 78 1f
+  01 01 01 05 6f 77 6e 65 72 01 00 01 00 00 10 93
+  50 c4 a0 01 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00
+  84 00 00 00 0a 06 00 00 ff 00 00 00 00 00 00 00  # record at lsn 255: kind 10, 132 bytes, as [F05] wrote it (copied from log.1)
+  2b f8 94 fe 72 f3 6e 3c 6e 51 d1 3f d7 12 a1 18
+  01 04 01 04 6d 61 69 6e 01 01 00 01 01 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 01 00 00 00 00 00 00 00 0b 31 d1 9d
+  97 4b c8 4d
+  # record at lsn 387: kind 1, 515 bytes: f1 without #1's body entry (its hash H1 is dropped, [F10 §4.1], [F06 §8.1] DB-9): n_bodies 1, RecHdr.len and RecHdr.xxh3_64 recomputed, RecHdr.lsn kept
+f1:
+  {len f1..f1.end}                           # len: header and payload (recomputed)
+  01 04 00 00 83 01 00 00 00 00 00 00 2b f8 94 fe  # kind 1, flags 0x04 (symdefs), _reserved, lsn 387, epoch
+  72 f3 6e 3c
+  {xxh3_64 f1..f1+24 f1+32..f1.end}          # xxh3_64 (recomputed, [F05 §3.4])
+f1.p:
+    # SymDefs block ([F05 §8.1]): 6 definition(s)
+      {uvar 6}                                   # n_defs
+      01                                         # class 1 `actor`
+      {uvar 2}                                   # id
+      {uvar 5}                                   # text: length 5
+      "dev#1"
+      02                                         # class 2 `role`
+      {uvar 1}                                   # id
+      {uvar 9}                                   # text: length 9
+      "developer"
+      03                                         # class 3 `session`
+      {uvar 1}                                   # id
+      {uvar 43}                                  # text: length 43
+      "claude:5e551070-0000-4000-8000-000000000001"
+      07                                         # class 7 `stmt`
+      {uvar 1}                                   # id
+      {uvar 5}                                   # text: length 5
+      "apply"
+      0a                                         # class 10 `name`
+      {uvar 1}                                   # id
+      {uvar 5}                                   # text: length 5
+      "title"
+      0c                                         # class 12 `model`
+      {uvar 1}                                   # id
+      {uvar 17}                                  # text: length 17
+      "synthetic-model-1"
+    # Commit payload ([F06 §4.3])
+    {u32 552960}                               # presence: stmt_hash, msg, affected, prov (bit 19)
+    07 3c 82 77 c0 e3 84 2b a2 94 36 af 6d 1a ce 20  # commit_id (synthetic: BLAKE3-256("moirai-fixture-commit:F/f1"), [hex/INDEX.md §2])
+    86 94 0f 60 43 bc a0 53 88 1f 2b 14 1f 55 4f 0e
+    00                                         # n_parents: the root commit of main
+    {uvar 1}                                   # gen
+    {uvar 1}                                   # seq
+    {uvar 1}                                   # ref symbol `main`
+    {uvar 0}                                   # ref_id
+    {uvar 1}                                   # ref_seq
+    00                                         # kind `ordinary`
+    00                                         # import `local`
+    {u64 0x1a0c45156600000}                    # hlc
+    {uvar 2}                                   # actor `dev#1`
+    {uvar 1}                                   # role `developer`
+    {uvar 1}                                   # session `claude:5e551070-0000-4000-8000-000000000001`
+    {uvar 1}                                   # schema_version
+    02                                         # stmt_origin `tx` (an apply batch)
+    04                                         # actor_src `declared`
+    {uvar 1}                                   # stmt_sym `apply` ([F06 §3.4])
+    7f 8c 6d ff 34 93 bf 3b 14 5d 2c 1c 38 a5 e9 13  # stmt_hash (synthetic: BLAKE3-128("moirai-fixture:F/f1/stmt"))
+    {svar 0}                                   # append_delta (append_hlc - hlc; 0 for a local commit)
+    # prov: the provenance group ([F06 §4.4.17]; spec sync 3), order 36
+      03                                         # prov.actor_kind 3 `agent` ([F06 §3.6])
+      {uvar 1}                                   # prov.model: symbol class 12 `model` id 1 `synthetic-model-1`
+    {uvar 26}                                  # msg: length 26
+    "harvest batch 1: two notes"
+    {uvar 2}                                   # affected_len
+    01                                         # affected_complete
+    {uvar 1}                                   # first
+    {uvar 1}                                   # gap
+    6b 07 81 62 bd 0e d3 37 81 fd 64 8f 39 49 c0 5e  # changeset_digest (synthetic: BLAKE3-256("moirai-fixture-commit:F/f1/changeset"))
+    b8 5b b3 6d 7f 1f 66 78 01 e7 c1 68 f8 0c 49 5e
+    {uvar 2}                                   # n_ops
+    # op 1: Create
+      01                                         # op tag 1 Create
+      {uvar 53}                                  # len of the body
+      {uvar 1}                                   # id #1
+      {uvar 0}                                   # prev: 0 (no earlier op of the owner on this ref)
+      f0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 01  # uid
+      03                                         # kind 3 `note`
+      {uvar 2}                                   # c_actor `dev#1`
+      {uvar 1}                                   # c_role `developer`
+      # image: node image ([F06 §6.3]), 3 entries
+        {uvar 3}                                   # n_entries
+        00                                         # ie 0 status
+        00                                         # status `active`
+        00                                         # resolution
+        01                                         # ie 1 body
+        d0 81 33 61 32 4d f4 c4 62 db d7 6c f3 fa 29 ba  # body hash: BLAKE3-128 of #1's dropped body (its entry is not kept)
+        02                                         # ie 2 field
+        {uvar 1}                                   # name 1 `title`
+        06                                         # title: type 6 text
+        {uvar 7}                                   # title: text: length 7
+        "Note F1"
+    # op 2: Create
+      01                                         # op tag 1 Create
+      {uvar 53}                                  # len of the body
+      {uvar 2}                                   # id #2
+      {uvar 0}                                   # prev: 0 (no earlier op of the owner on this ref)
+      f0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 02  # uid
+      03                                         # kind 3 `note`
+      {uvar 2}                                   # c_actor `dev#1`
+      {uvar 1}                                   # c_role `developer`
+      # image: node image ([F06 §6.3]), 3 entries
+        {uvar 3}                                   # n_entries
+        00                                         # ie 0 status
+        00                                         # status `active`
+        00                                         # resolution
+        01                                         # ie 1 body
+        {blake3_128 body2.d..body2.e}              # body hash: BLAKE3-128 of #2's body
+        02                                         # ie 2 field
+        {uvar 1}                                   # name 1 `title`
+        06                                         # title: type 6 text
+        {uvar 7}                                   # title: text: length 7
+        "Note F2"
+    {uvar 1}                                   # n_bodies (1: #1's entry is left out, its hash is dropped)
+    # body entry ([F06 §8]): #2's body
+      {blake3_128 body2.d..body2.e}              # hash: BLAKE3-128 of the raw stored bytes
+      00                                         # codec 0 `none`
+      {uvar 108}                                 # raw_len
+      {uvar 108}                                 # data length
+body2.d:
+      "Synthetic body of note #2 in store F: an ordinary paragraph that the owner drops as private after the purge."  # data (raw bytes, codec none)
+body2.e:
+f1.end:
+  93 00 00 00 1e 00 00 00 04 04 00 00 00 00 00 00  # record at lsn 1028: kind 30, 147 bytes, as [F05] wrote it (copied from log.1)
+  2b f8 94 fe 72 f3 6e 3c a3 9d 54 5f 0d 06 28 fd
+  01 2b 63 6c 61 75 64 65 3a 35 65 35 35 31 30 37
+  30 2d 30 30 30 30 2d 34 30 30 30 2d 38 30 30 30
+  2d 30 30 30 30 30 30 30 30 30 30 30 31 25 2f 73
+  79 6e 74 68 65 74 69 63 2f 74 72 61 6e 73 63 72
+  69 70 74 73 2f 35 65 35 35 31 30 37 30 2e 6a 73
+  6f 6e 6c 4f fa 0d fd 3d e4 6f c7 cc d3 ee 78 75
+  00 c7 95 40 00 00 00 00 00 00 00 01 00 60 56 51
+  c4 a0 01
+  7d 00 00 00 1e 02 00 00 97 04 00 00 00 00 00 00  # record at lsn 1175: kind 30, 125 bytes, as [F05] wrote it (copied from log.1)
+  2b f8 94 fe 72 f3 6e 3c c9 9c 7f f0 c4 05 4b 6e
+  02 2b 63 6c 61 75 64 65 3a 35 65 35 35 31 30 37
+  30 2d 30 30 30 30 2d 34 30 30 30 2d 38 30 30 30
+  2d 30 30 30 30 30 30 30 30 30 30 30 31 00 00 00
+  00 00 00 00 00 40 00 00 00 00 00 00 00 07 3c 82
+  77 c0 e3 84 2b a2 94 36 af 6d 1a ce 20 02 00 60
+  56 51 c4 a0 01 a5 19 63 de 1e be dd 90
+  6c 00 00 00 02 00 00 00 14 05 00 00 00 00 00 00  # record at lsn 1300: kind 2, 108 bytes, as [F05] wrote it (copied from log.1)
+  2b f8 94 fe 72 f3 6e 3c 7c 26 7f c0 05 1d f3 a8
+  01 01 01 00 00 c0 40 52 c4 a0 01 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00
+  88 00 00 00 0a 06 00 00 80 05 00 00 00 00 00 00  # record at lsn 1408: kind 10, 136 bytes, as [F05] wrote it (copied from log.1)
+  2b f8 94 fe 72 f3 6e 3c 86 32 8b 64 e5 d8 89 7f
+  01 04 02 08 69 6d 70 6f 72 74 2f 31 01 01 01 02
+  04 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00
+  00 00 00 00 00 00 00 00 01 00 00 00 00 00 00 00
+  8d 24 97 15 65 94 2a c9
+  41 00 00 00 1b 06 00 00 08 06 00 00 00 00 00 00  # record at lsn 1544: kind 27, 65 bytes, as [F05] wrote it (copied from log.1)
+  2b f8 94 fe 72 f3 6e 3c 85 02 2e 25 f7 3c 43 a5
+  01 01 03 05 64 65 76 23 32 01 00 00 20 2b 53 c4
+  a0 01 01 00 03 01 00 00 00 8c 49 a6 6b 3f 0a 95
+  10
+  3d 00 00 00 1d 00 00 00 49 06 00 00 00 00 00 00  # record at lsn 1609: kind 29, 61 bytes, as [F05] wrote it (copied from log.1)
+  2b f8 94 fe 72 f3 6e 3c 8e 37 bc 7f 88 a2 a2 0f
+  01 fe 04 73 56 92 f1 b6 01 49 02 37 cf b6 8a 01
+  ed 03 00 01 00 00 80 15 54 c4 a0 01 02
+  d6 00 00 00 01 02 00 00 86 06 00 00 00 00 00 00  # record at lsn 1670: kind 1, 214 bytes, as [F05] wrote it (copied from log.1)
+  2b f8 94 fe 72 f3 6e 3c 5b b5 d9 26 d2 8e 46 47
+  00 e2 00 00 be 1a 0b ab 49 b4 9a 32 1b ed da 1e
+  44 72 e7 f8 ab 3b 4f 95 8a 85 46 d0 75 26 ca 77
+  4c 54 74 55 00 01 02 02 01 01 00 01 00 00 00 10
+  2a bf a0 01 03 01 00 01 01 05 00 00 82 80 80 d8
+  c0 ca 02 32 69 6d 70 6f 72 74 20 6e 6f 74 65 20
+  33 2c 20 77 68 6f 73 65 20 62 6f 64 79 20 69 74
+  73 20 65 78 70 6f 72 74 65 72 20 68 61 64 20 64
+  72 6f 70 70 65 64 01 01 03 8c 80 1e 89 54 10 16
+  65 fc f9 3a 0b 5d bc ce f2 47 fd 82 ab 03 60 ca
+  f4 4e de ca eb b3 dd ab 8a 01 84 0b 7a df 7b 00
+  d8 5f a1 d7 70 4f 3e 65 d1 24 d5 ff 00 00 5e 2f
+  cc 19 4b fa 4f 2b
+  86 00 00 00 1d 02 00 00 5c 07 00 00 00 00 00 00  # record at lsn 1884: kind 29, 134 bytes, as [F05] wrote it (copied from log.1)
+  2b f8 94 fe 72 f3 6e 3c b2 5f e0 a3 13 ee 7d db
+  01 d0 81 33 61 32 4d f4 c4 62 db d7 6c f3 fa 29
+  ba 01 41 73 79 6e 74 68 65 74 69 63 3a 20 61 20
+  6d 61 64 65 2d 75 70 20 74 6f 6b 65 6e 20 77 61
+  73 20 70 61 73 74 65 64 20 69 6e 74 6f 20 6e 6f
+  74 65 20 23 31 3b 20 69 74 20 69 73 20 72 6f 74
+  61 74 65 64 01 00 00 e0 ff 54 c4 a0 01 01 2f f4
+  1d c4 ca e6 cc 75
+fr0.e:
+s_0302.e:
+end:

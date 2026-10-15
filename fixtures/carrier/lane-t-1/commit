@@ -1,0 +1,16 @@
+tree 6137b13a7be2d966dabc064991b6bd2d5fcffee2
+parent 018e6a12ce584771b360c194bc69088493ee821e
+author moirai/dev#8 <developer@moirai.invalid> 1790004320 +0000
+committer moirai/dev#8 <developer@moirai.invalid> 1790004320 +0000
+
+lane t: write the plan into #1's body
+
+Moirai-Commit: c4feab2439f5a108eda5787d199fc00ed98a43f206b54fdd93a236b93f8cd7062
+Moirai-Kind: ordinary
+Moirai-Ref: lane/t
+Moirai-Hlc: 117309723115520000
+Moirai-Actor: dev#8
+Moirai-Role: developer
+Moirai-Session: claude:s8
+Moirai-Schema: 1
+Moirai-Ops: 1

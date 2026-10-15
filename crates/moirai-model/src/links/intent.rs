@@ -1012,7 +1012,8 @@ impl Store {
             let text = format!(
                 "{}\n{}",
                 x.text("title").unwrap_or(""),
-                x.body.as_deref().unwrap_or("")
+                // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+                x.body.as_ref().map_or("", crate::state::Body::text)
             );
             if removed.iter().any(|r| text.contains(r.as_str())) {
                 im.mentions.push(*n);

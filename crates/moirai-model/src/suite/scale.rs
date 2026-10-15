@@ -183,7 +183,7 @@ fn measured_history(nodes: u32, commits: u64, lanes: usize) -> Measured {
         let title = text(&mut rng, 40);
         x.set_field(&st0.schema, "title", Some(Value::Text(title)));
         let len = 200 + rng.below(400) as usize;
-        x.body = Some(text(&mut rng, len));
+        x.body = Some(crate::state::Body::Text(text(&mut rng, len)));
         st0.nodes.insert(id, x);
     }
     let one_state = state_bytes(&st0);

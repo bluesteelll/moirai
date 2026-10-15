@@ -1,0 +1,468 @@
+# fixtures/hex/store-f/cs.1.hex: the changeset segment of store F's bulk commit f2 on import/1 ([F09 §16.4],
+# [F06 §9]): row #3 as created, a note whose body the import found dropped. Its BLAKE3-128 stands in BLOBTAB as
+# a dropped BlobRef (file = off = len = raw_len = 0, [F09 §6.3]; spec sync 3, S3-R-5): a bulk commit streamed
+# with its import's own drop seals no such body and writes the dropped entry ([F09 §16.4] "Dropped bodies").
+# Values fixed at append (rev_seq, created_tx, updated_tx 0; last_op_lsn 2^64 - 1), PREV 0, no store-level
+# section; base_seq, from_lsn, upto_lsn and rt_upto_lsn 0 ([F09 §2.3]). Its number is the Reserve's (log.1 g5).
+
+# SegHdr (120 B, [F09 §2.1])
+seghdr:
+  "MSEG"                                     # magic
+  {u16 1}                                    # format
+  09                                         # seg_kind 9 `cs`
+  00                                         # tok_ver
+  {u32 1}                                    # n_rows
+  {u16 28}                                   # n_sections
+  {u16 0}                                    # _reserved
+  {u32 1}                                    # file_no
+  {u32 0}                                    # ref_id
+  {u32 0}                                    # dict_no
+  {u32 0}                                    # _reserved
+  {u64 0}                                    # base_seq
+  {u64 0}                                    # from_lsn
+  {u64 0}                                    # upto_lsn
+  {u64 0}                                    # rt_upto_lsn
+  {len 0..end u64}                           # total_len
+  {blake3_256 data..end}                     # seg_digest: BLAKE3-256 over [data_off, total_len)
+  {xxh3_64 table..data}                      # table_xxh3 over the section table
+  {xxh3_64 0..112}                           # hdr_xxh3 over [0, 112)
+# section table (28 entries of 32 B, [F09 §2.2])
+table:
+  # SecEnt IDS (0x0001)
+  {u16 1}                                    # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_0001 u64}                        # off (absolute)
+  {len s_0001..s_0001.e u64}                 # len
+  {xxh3_64 s_0001..s_0001.e}                 # xxh3
+  # SecEnt NODE (0x0002)
+  {u16 2}                                    # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_0002 u64}                        # off (absolute)
+  {len s_0002..s_0002.e u64}                 # len
+  {xxh3_64 s_0002..s_0002.e}                 # xxh3
+  # SecEnt CREATOR (0x0003)
+  {u16 3}                                    # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_0003 u64}                        # off (absolute)
+  {len s_0003..s_0003.e u64}                 # len
+  {xxh3_64 s_0003..s_0003.e}                 # xxh3
+  # SecEnt TOPO (0x0004)
+  {u16 4}                                    # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_0004 u64}                        # off (absolute)
+  {len s_0004..s_0004.e u64}                 # len
+  {xxh3_64 s_0004..s_0004.e}                 # xxh3
+  # SecEnt DEFER (0x0005)
+  {u16 5}                                    # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_0005 u64}                        # off (absolute)
+  {len s_0005..s_0005.e u64}                 # len
+  {xxh3_64 s_0005..s_0005.e}                 # xxh3
+  # SecEnt DUE (0x0006)
+  {u16 6}                                    # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_0006 u64}                        # off (absolute)
+  {len s_0006..s_0006.e u64}                 # len
+  {xxh3_64 s_0006..s_0006.e}                 # xxh3
+  # SecEnt UID (0x0007)
+  {u16 7}                                    # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_0007 u64}                        # off (absolute)
+  {len s_0007..s_0007.e u64}                 # len
+  {xxh3_64 s_0007..s_0007.e}                 # xxh3
+  # SecEnt TITLE_BLOB (0x0010)
+  {u16 16}                                   # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_0010 u64}                        # off (absolute)
+  {len s_0010..s_0010.e u64}                 # len
+  {xxh3_64 s_0010..s_0010.e}                 # xxh3
+  # SecEnt FIELDS_BLOB (0x0011)
+  {u16 17}                                   # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0011 u64}                        # off (absolute)
+  {len s_0011..s_0011.e u64}                 # len
+  {xxh3_64 s_0011..s_0011.e}                 # xxh3
+  # SecEnt BLOBTAB (0x0012)
+  {u16 18}                                   # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_0012 u64}                        # off (absolute)
+  {len s_0012..s_0012.e u64}                 # len
+  {xxh3_64 s_0012..s_0012.e}                 # xxh3
+  # SecEnt OUT_OFF (0x0020)
+  {u16 32}                                   # tag
+  {u16 0}                                    # flags
+  {u32 2}                                    # count
+  {len 0..s_0020 u64}                        # off (absolute)
+  {len s_0020..s_0020.e u64}                 # len
+  {xxh3_64 s_0020..s_0020.e}                 # xxh3
+  # SecEnt OUT_DST (0x0021)
+  {u16 33}                                   # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0021 u64}                        # off (absolute)
+  {len s_0021..s_0021.e u64}                 # len
+  {xxh3_64 s_0021..s_0021.e}                 # xxh3
+  # SecEnt OUT_KIND (0x0022)
+  {u16 34}                                   # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0022 u64}                        # off (absolute)
+  {len s_0022..s_0022.e u64}                 # len
+  {xxh3_64 s_0022..s_0022.e}                 # xxh3
+  # SecEnt IN_OFF (0x0023)
+  {u16 35}                                   # tag
+  {u16 0}                                    # flags
+  {u32 2}                                    # count
+  {len 0..s_0023 u64}                        # off (absolute)
+  {len s_0023..s_0023.e u64}                 # len
+  {xxh3_64 s_0023..s_0023.e}                 # xxh3
+  # SecEnt IN_SRC (0x0024)
+  {u16 36}                                   # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0024 u64}                        # off (absolute)
+  {len s_0024..s_0024.e u64}                 # len
+  {xxh3_64 s_0024..s_0024.e}                 # xxh3
+  # SecEnt IN_KIND (0x0025)
+  {u16 37}                                   # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0025 u64}                        # off (absolute)
+  {len s_0025..s_0025.e u64}                 # len
+  {xxh3_64 s_0025..s_0025.e}                 # xxh3
+  # SecEnt EDGE_PROPS (0x0026)
+  {u16 38}                                   # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0026 u64}                        # off (absolute)
+  {len s_0026..s_0026.e u64}                 # len
+  {xxh3_64 s_0026..s_0026.e}                 # xxh3
+  # SecEnt TOMB (0x0030)
+  {u16 48}                                   # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0030 u64}                        # off (absolute)
+  {len s_0030..s_0030.e u64}                 # len
+  {xxh3_64 s_0030..s_0030.e}                 # xxh3
+  # SecEnt CONFLICTS (0x0031)
+  {u16 49}                                   # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0031 u64}                        # off (absolute)
+  {len s_0031..s_0031.e u64}                 # len
+  {xxh3_64 s_0031..s_0031.e}                 # xxh3
+  # SecEnt BMDIR (0x0040)
+  {u16 64}                                   # tag
+  {u16 0}                                    # flags
+  {u32 2}                                    # count
+  {len 0..s_0040 u64}                        # off (absolute)
+  {len s_0040..s_0040.e u64}                 # len
+  {xxh3_64 s_0040..s_0040.e}                 # xxh3
+  # SecEnt PATHIDX (0x0080)
+  {u16 128}                                  # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0080 u64}                        # off (absolute)
+  {len s_0080..s_0080.e u64}                 # len
+  {xxh3_64 s_0080..s_0080.e}                 # xxh3
+  # SecEnt ALIASIDX (0x0081)
+  {u16 129}                                  # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0081 u64}                        # off (absolute)
+  {len s_0081..s_0081.e u64}                 # len
+  {xxh3_64 s_0081..s_0081.e}                 # xxh3
+  # SecEnt ANCHORS (0x0082)
+  {u16 130}                                  # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0082 u64}                        # off (absolute)
+  {len s_0082..s_0082.e u64}                 # len
+  {xxh3_64 s_0082..s_0082.e}                 # xxh3
+  # SecEnt ANCHOR_UID (0x0083)
+  {u16 131}                                  # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0083 u64}                        # off (absolute)
+  {len s_0083..s_0083.e u64}                 # len
+  {xxh3_64 s_0083..s_0083.e}                 # xxh3
+  # SecEnt GLOBIDX (0x0084)
+  {u16 132}                                  # tag
+  {u16 0}                                    # flags
+  {u32 0}                                    # count
+  {len 0..s_0084 u64}                        # off (absolute)
+  {len s_0084..s_0084.e u64}                 # len
+  {xxh3_64 s_0084..s_0084.e}                 # xxh3
+  # SecEnt PREV (0x00c0)
+  {u16 192}                                  # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_00c0 u64}                        # off (absolute)
+  {len s_00c0..s_00c0.e u64}                 # len
+  {xxh3_64 s_00c0..s_00c0.e}                 # xxh3
+  # SecEnt BM.0 (0x8000)
+  {u16 32768}                                # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_8000 u64}                        # off (absolute)
+  {len s_8000..s_8000.e u64}                 # len
+  {xxh3_64 s_8000..s_8000.e}                 # xxh3
+  # SecEnt BM.1 (0x8001)
+  {u16 32769}                                # tag
+  {u16 0}                                    # flags
+  {u32 1}                                    # count
+  {len 0..s_8001 u64}                        # off (absolute)
+  {len s_8001..s_8001.e u64}                 # len
+  {xxh3_64 s_8001..s_8001.e}                 # xxh3
+data:
+
+# === section IDS (0x0001)
+s_0001:
+  {u32 3}                                    # IDS[0]
+s_0001.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section NODE (0x0002)
+s_0002:
+  # row: #3 (NodeHdr #3, values fixed at append ([F09 §16.4]))
+    03                                         # kind 3 `note`
+    00                                         # status `active`
+    00                                         # resolution
+    02                                         # priority P2
+    02                                         # criticality normal
+    00                                         # confidence unset
+    04                                         # authority agent
+    {u16 0}                                    # flags
+    {u64 0}                                    # rev_seq
+    {u32 0}                                    # parent
+    {u32 0}                                    # created_tx
+    {u32 0}                                    # updated_tx
+    {u64 0xffffffffffffffff}                   # last_op_lsn (2^64 - 1: fixed at append)
+    {u16 0}                                    # open_blockers
+    {u16 0}                                    # open_blockers_exo
+    {u16 0}                                    # children_total
+    {u16 0}                                    # children_done
+    {u32 0}                                    # title_off
+    {u32 0xffffffff}                           # fields_off (NONE32)
+    {u32 1}                                    # body_ref (1-based BLOBTAB index)
+    00 00 00                                   # _reserved
+s_0002.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section CREATOR (0x0003)
+s_0003:
+  {u32 3}                                    # #3 CREATOR.actor `dev#2` (the imported commit's creator, [F06 §7.4])
+  {u16 1}                                    # #3 CREATOR.role `developer`
+s_0003.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section TOPO (0x0004)
+s_0004:
+  {u32 3}                                    # TOPO[0]
+s_0004.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section DEFER (0x0005)
+s_0005:
+  {u32 0}                                    # DEFER[0]
+s_0005.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section DUE (0x0006)
+s_0006:
+  {u32 0}                                    # DUE[0]
+s_0006.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section UID (0x0007)
+s_0007:
+  {u32 1}                                    # n
+  {u32 20}                                   # row_w
+  # row 0
+    f0 00 00 00 00 00 00 00 00 00 00 00 00 00 00 03  # uid
+    {u32 3}                                    # id
+s_0007.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section TITLE_BLOB (0x0010)
+s_0010:
+  {uvar 18}                                  # #3 title: length 18
+  "Note F3 (imported)"
+s_0010.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section FIELDS_BLOB (0x0011)
+s_0011:
+s_0011.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BLOBTAB (0x0012)
+s_0012:
+  {u32 1}                                    # n
+  {u32 36}                                   # row_w
+  # row 0: a dropped BlobRef ([F09 §6.3], §16.4)
+    fe 04 73 56 92 f1 b6 01 49 02 37 cf b6 8a 01 ed  # hash: #3's body, dropped by the import (g6.r1 of log.1)
+    {u32 0}                                    # file 0: dropped
+    {u64 0}                                    # off 0
+    {u32 0}                                    # len 0
+    {u32 0}                                    # raw_len 0
+s_0012.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section OUT_OFF (0x0020)
+s_0020:
+  {u32 0}                                    # OUT_OFF[0]
+  {u32 0}                                    # OUT_OFF[1]
+s_0020.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section OUT_DST (0x0021)
+s_0021:
+s_0021.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section OUT_KIND (0x0022)
+s_0022:
+s_0022.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section IN_OFF (0x0023)
+s_0023:
+  {u32 0}                                    # IN_OFF[0]
+  {u32 0}                                    # IN_OFF[1]
+s_0023.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section IN_SRC (0x0024)
+s_0024:
+s_0024.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section IN_KIND (0x0025)
+s_0025:
+s_0025.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section EDGE_PROPS (0x0026)
+s_0026:
+  {u32 0}                                    # n
+  {u32 40}                                   # row_w
+s_0026.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section TOMB (0x0030)
+s_0030:
+  {u32 0}                                    # n
+  {u32 16}                                   # row_w
+s_0030.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section CONFLICTS (0x0031)
+s_0031:
+  # CONFLICTS: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                    # n_rows
+  {u16 56}                                   # row_size
+  02                                         # form 2 (layer)
+  00                                         # _reserved
+  {u32 0}                                    # aux
+  {u32 0}                                    # index_len
+  {u64 0}                                    # heap_len
+s_0031.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BMDIR (0x0040)
+s_0040:
+  {u32 2}                                    # n
+  {u32 4}                                    # row_w
+  # row 0
+    01                                         # family
+    03                                         # kind
+    00                                         # status
+    00                                         # pred
+  # row 1
+    02                                         # family
+    03                                         # kind
+    00                                         # status
+    00                                         # pred
+s_0040.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section PATHIDX (0x0080)
+s_0080:
+  {u32 0}                                    # n
+  {u32 0}                                    # _reserved
+  {u32 0}                                    # off[0]
+s_0080.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section ALIASIDX (0x0081)
+s_0081:
+  {u32 0}                                    # n
+  {u32 0}                                    # _reserved
+  {u32 0}                                    # off[0]
+s_0081.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section ANCHORS (0x0082)
+s_0082:
+  {u32 0}                                    # n
+  {u32 0}                                    # _reserved
+  {u32 0}                                    # off[0]
+s_0082.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section ANCHOR_UID (0x0083)
+s_0083:
+  {u32 0}                                    # n
+  {u32 28}                                   # row_w
+s_0083.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section GLOBIDX (0x0084)
+s_0084:
+  # GLOBIDX: RtHdr body, 0 rows
+  # RtHdr (24 B, [F11 §2.1])
+  {u32 0}                                    # n_rows
+  {u16 20}                                   # row_size
+  02                                         # form 2 (layer)
+  00                                         # _reserved
+  {u32 0}                                    # aux
+  {u32 0}                                    # index_len
+  {u64 0}                                    # heap_len
+s_0084.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section PREV (0x00c0)
+s_00c0:
+  {u64 0}                                    # PREV[0] (absolute lsn; 0 = none: #3 has no earlier commit on import/1)
+s_00c0.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BM.0 (0x8000)
+s_8000:
+  # BMDIR entry (1, 3, 0, 0)
+  {u32 1}                                    # ± list: n_plus
+  {u32 0}                                    # ± list: n_minus
+  {u32 3}                                    # plus
+s_8000.e:
+{align 8}                                  # sections start at multiples of 8 ([F09 §2.2] P-2)
+
+# === section BM.1 (0x8001)
+s_8001:
+  # BMDIR entry (2, 3, 0, 0)
+  {u32 1}                                    # ± list: n_plus
+  {u32 0}                                    # ± list: n_minus
+  {u32 3}                                    # plus
+s_8001.e:
+end:

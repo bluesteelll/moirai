@@ -1,0 +1,157 @@
+# Carrier fixture (WP-21, R-FIX). Format: fixtures/carrier/INDEX.md section 2.
+
+%% case dropped-texthunk
+%% source [F14 §6.8]
+%% source [F14 §10.6]
+%% source [F14 §11.2]
+%% source [F14 §12.2]
+%% source [F14 §12.6]
+%% source [F06 §8.1] DB-7
+%% note Gate-0 row + dropped bodies, item 2 ([F14 §12.6]; spec sync 3, S3-R-16): lane/t merged into lane/d (dst tip
+%% note dropped-reencode first, src tip lane-t-1 second), LCA root. #1's body is absent at the base,
+%% note 6d1aec75c193e1f1e47212b4598b9887 on ours, which S1 has dropped, and B2 on theirs: the text rule needs the
+%% note dropped body's lines, so the key holds a TextHunk conflict value ([F06 §8.1] DB-7 (d), [F12 §7.5]). #1's file
+%% note carries `conflict body class=TextHunk base= ours=dropped:6d1aec75c193e1f1e47212b4598b9887:secret theirs="..."`
+%% note and no body section ([F14 §6.8] "A dropped side"). One entry, the body conflict value; the dropped side's
+%% note canonical side is its hash ([F14 §11.2], §12.2).
+%% destination A sha1 full
+%% class native
+%% git-commit ca58fbaf7da4ee524c5a7bfebd62dcc390c82ce8
+%% git-tree d31dc7c126cfec3d1f0f771e1667ec6ba4279c37
+%% git-parent 6e7861d2d807ca40b437a2085cf5563559b9a90a dropped-reencode
+%% git-parent 206bd4e9ce085f6f0af0df20225706db63383167 lane-t-1
+%% trailer-commit 5c867fa636989fbeb55890345fbff73013a2b5aa598d835481149cc9ab53b2f3
+%% touched-new 1
+%% touched-old 1
+%% p-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  body-hash 6d1aec75c193e1f1e47212b4598b9887
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 8
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% q-state
+node 1a000000000000000000000000000001 task
+  status in_progress none
+  parent a0000000000000000000000000000001 "V"
+  field estimate int 3
+  field labels set text 3 "l5" "perf" "storage"
+  field priority enum P0
+  field title text "Fix the lock timeout"
+  counter reopen_count 1
+  edge blocks 1a000000000000000000000000000002
+  edge cites 5d000000000000000000000000000001 pin 64930f4cffe947e95357b0a342e7869009f4d7a48623a8f47d8fb8f4474b4541
+  conflict body TextHunk
+    base absent
+    ours hash 6d1aec75c193e1f1e47212b4598b9887
+    theirs "Synthetic plan: raise the lock timeout to 30 s, then measure the flush p99 again."
+node 1a000000000000000000000000000002 task
+  parent a0000000000000000000000000000001 "k"
+  field estimate int 8
+  field title text "Write the recovery test"
+node 1a000000000000000000000000000003 task
+  field title text "Measure the flush p99"
+  field work_kind enum measure
+node 3b000000000000000000000000000001 note
+  field note_kind enum hazard
+  field title text "Flush stalls under real-time scanning"
+  body "Real-time scanning adds 40 ms to FlushFileBuffers."
+node 5d000000000000000000000000000001 decision
+  status accepted none
+  field title text "Group commit with one flush"
+  field what text "One FlushFileBuffers per group."
+node a0000000000000000000000000000001 area
+  field title text "Storage engine"
+%% entries
+1a000000000000000000000000000001 body = conflict TextHunk base (absent) ours (hash 6d1aec75c193e1f1e47212b4598b9887) theirs (hash 5a80746cb717ac79f5baaae8a9bec869)
+%% digest-input
+; lp("moirai-changeset-v1")
+130000006d6f697261692d6368616e67657365742d7631
+; entry 1: 1a000000000000000000000000000001 body
+011a0000000000000000000000000000010801080000005465787448756e6b00016d1aec75c193e1f1e47212b4598b98
+87015a80746cb717ac79f5baaae8a9bec869
+; u64 entry count = 1
+0100000000000000
+%% entry-count 1
+%% changeset-digest 4c1a9fa70806d6f29f6fd6a3a5fa19154644f174a682375ae6911129320065c8
+%% commit
+kind merge
+parent 61c0ce4a0d1396f27fe35e0218e451f9134b3d046cae99a181927968e6f4fe29
+parent 4feab2439f5a108eda5787d199fc00ed98a43f206b54fdd93a236b93f8cd7062
+hlc 01a0c4942bc00000
+actor "orch"
+role "orchestrator"
+session "claude:s0"
+git-head -
+git-branch ""
+git-worktree ""
+git-base -
+message "merge lane/t into lane/d"
+schema-version 1
+origin -
+foreign -
+%% c
+; domain lp("moirai-commit-v1")
+100000006d6f697261692d636f6d6d69742d7631
+; item 1: kind
+050000006d65726765
+; item 2: n_parents
+02000000
+; item 2: parent 1
+61c0ce4a0d1396f27fe35e0218e451f9134b3d046cae99a181927968e6f4fe29
+; item 2: parent 2
+4feab2439f5a108eda5787d199fc00ed98a43f206b54fdd93a236b93f8cd7062
+; item 3: hlc
+0000c02b94c4a001
+; item 4: actor
+040000006f726368
+; item 4: role
+0c0000006f7263686573747261746f72
+; item 4: session
+09000000636c617564653a7330
+; item 5: git_algo
+00000000
+; item 5: git_head
+00000000
+; item 5: git_branch
+00000000
+; item 5: git_worktree
+00000000
+; item 5: git_base
+00000000
+; item 6: message
+180000006d65726765206c616e652f7420696e746f206c616e652f64
+; item 7: schema_version
+01000000
+; item 8: origin
+00000000
+; item 9: foreign_algo
+00000000
+; item 9: foreign_oid
+00000000
+; item 10: changeset_digest
+4c1a9fa70806d6f29f6fd6a3a5fa19154644f174a682375ae6911129320065c8
+%% commit-id 5c867fa636989fbeb55890345fbff73013a2b5aa598d835481149cc9ab53b2f3
+%% end

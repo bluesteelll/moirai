@@ -131,12 +131,43 @@ pub enum KVal {
     Value(Value),
     /// The six observation values.
     Observation(Vec<Option<Value>>),
-    /// The body text.
-    Body(String),
+    /// The body: its text, or a body known only by its hash.
+    Body(Body),
     /// An edge's properties.
     Edge(EdgeProps),
     /// A schema item.
     Item(Item),
+}
+
+/// The message of every unreachable arm a body known only by its hash meets.
+pub const BODY_DROP: &str = concat!(
+    "a body known only by its hash has no text to read: no model command makes one before BodyDrop ",
+    "(spec sync 3 S3-M-9; deferred R-MODEL item)"
+);
+
+/// A node's body ([F07 §6.3], §7.2; [F14 §11.1], §12.2 row 8).
+///
+/// `Text` is the body text. `Hash` is a body known only by its BLAKE3-128: its key value is that stored hash, never
+/// recomputed ([F07 §6.3]). Only the fixture parser makes a `Hash`; no model command makes one before `BodyDrop`
+/// ([API §8.7]). A reader of a body's text reaches [`Body::text`] or the heap measure, whose arm for a hash-only body
+/// is unreachable and names [`BODY_DROP`]; a fixture that brings a hash-only body to such a reader (a merge case, for
+/// one) panics with that message by design, not by a model defect.
+#[derive(Clone, PartialEq, Eq, Debug)]
+pub enum Body {
+    /// The body text.
+    Text(String),
+    /// A body known only by its BLAKE3-128.
+    Hash([u8; 16]),
+}
+
+impl Body {
+    /// The body text. A body known only by its hash has none: see [`BODY_DROP`].
+    pub fn text(&self) -> &str {
+        match self {
+            Body::Text(t) => t,
+            Body::Hash(_) => unreachable!("{BODY_DROP}"),
+        }
+    }
 }
 
 /// The provisional side of an existence conflict ([F06 §6.2] `prov`).
@@ -204,8 +235,8 @@ pub struct Node {
     /// Every other present field by name: the title, the header enumerations other than status, the flags, cold
     /// columns, kind fields and counters (as [`Value::Counter`]). A default or empty value is never held.
     pub fields: BTreeMap<String, Value>,
-    /// The body.
-    pub body: Option<String>,
+    /// The body: a text body, a body known only by its hash, or none.
+    pub body: Option<Body>,
     /// The out-edges.
     pub out: BTreeMap<EdgeKey, EdgeProps>,
     /// `CREATOR`.
@@ -245,7 +276,13 @@ impl Node {
             "resolution" => return Some(Value::Enum(self.resolution.clone())),
             "parent" => return self.parent.map(Value::Ref),
             "order" => return self.order.clone().map(Value::Text),
-            "body" => return self.body.clone().map(Value::Text),
+            // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+            "body" => {
+                return self
+                    .body
+                    .as_ref()
+                    .map(|b| Value::Text(b.text().to_string()));
+            }
             _ => {}
         }
         self.fields
@@ -789,7 +826,7 @@ mod tests {
                 }
                 Op::Body(n, b) => {
                     if let Some(x) = st.nodes.get_mut(&Nid(*n)) {
-                        x.body = b.map(|b| format!("body {b}"));
+                        x.body = b.map(|b| Body::Text(format!("body {b}")));
                     }
                 }
             }

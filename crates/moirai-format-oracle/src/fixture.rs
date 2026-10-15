@@ -8,15 +8,20 @@
 //! - A log is checked with the `HEAD` of its store by [`check_log`]: the scan of [F05 §5] over its extents, every valid
 //!   group re-encoded with its chain trailer; [`check_head_fold`] compares the slot with the [F05 §10.2] fold of the
 //!   groups it covers, and [`walk_tail`] decodes the records after the end of the scan on their own.
+//! - A base or delta segment's `DROPPED` and `HARVEST` sections ([F11 §13.4], §13.5) are checked against the [F05 §10.3]
+//!   fold of the log records of its window over the view of the layers under it ([`TableView`]) by
+//!   [`check_segment_folds`] and [`check_table_folds`].
 //! - What a sealed file states about itself for the references that name it ([F09 §17.1] V-8) is [`Sealed`].
 //! - A fragment, a sequence of one structure to the end of the file, by [`check_fragment`].
 //! - The `.expect` and `case.txt` files by [`parse_framed`] and [`hex_block`] (the framing of
 //!   `fixtures/canonical/INDEX.md` §2.1 and §2.3).
 
+use std::collections::{BTreeMap, BTreeSet};
+
 use crate::head::{HeadFile, HeadSlot, SlotClass};
 use crate::lock::LockFile;
 use crate::log::{self, Payload, Scan};
-use crate::prim::{Error, Reader, Result, Writer, err};
+use crate::prim::{Error, Reader, Result, Writer, err, hex};
 use crate::runtime::{self, BindingExt, FsTime, OsFileId, Table, VolumeCaps};
 use crate::value::{AnchorRec, Item, Value, decode_field_block, encode_field_block};
 use crate::{canon, commit, sealed, segment};
@@ -791,6 +796,9 @@ impl Fold {
                 self.hlc_seq = self.hlc_seq.max(h.hlc_seq);
                 self.hlc_commit = self.hlc_commit.max(h.hlc_commit);
             }
+            // [F05 §7] rows 29 and 30, §10.2: both raise `hlc_seq`.
+            Payload::BodyDrop(d) => self.hlc_seq = self.hlc_seq.max(d.hlc),
+            Payload::Harvest(h) => self.hlc_seq = self.hlc_seq.max(h.hlc),
             _ => {}
         }
     }
@@ -933,6 +941,464 @@ pub fn check_head_fold(slot: &HeadSlot, scan: &Scan) -> Result<()> {
         None => {}
     }
     Ok(())
+}
+
+/// The records of a log range `[start, end)` in log order, as (record lsn, payload): the input of the table folds
+/// ([F05 §10.1]: groups in log order, records in group order).
+#[derive(Clone, Debug)]
+pub struct FoldRecords<'a> {
+    /// The first lsn the records cover.
+    pub start: u64,
+    /// The end of the range they cover.
+    pub end: u64,
+    /// The records, in log order.
+    pub records: Vec<(u64, &'a Payload)>,
+}
+
+impl<'a> FoldRecords<'a> {
+    /// Every record of every valid group of a scan: from the first group's lsn (or the scan's end, with no group) to the
+    /// end of the valid log.
+    pub fn of_scan(scan: &'a Scan) -> FoldRecords<'a> {
+        FoldRecords {
+            start: scan.groups.first().map_or(scan.end, |g| g.lsn),
+            end: scan.end,
+            records: scan
+                .groups
+                .iter()
+                .flat_map(|g| g.records.iter().map(|r| (r.hdr.lsn, &r.payload)))
+                .collect(),
+        }
+    }
+}
+
+/// A `DROPPED` row's value ([F11 §13.4]), keyed by its `hash`.
+#[derive(Clone, Copy, Debug, PartialEq, Eq)]
+pub struct DroppedRow {
+    /// The lsn of the `BodyDrop` record that dropped the hash first.
+    pub drop_lsn: u64,
+    /// That record's `hlc`.
+    pub hlc: u64,
+    /// Its `reason`.
+    pub reason: u8,
+}
+
+/// A live `HARVEST` row's value ([F11 §13.5]), keyed by its `source`.
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct HarvestRow {
+    /// `head`.
+    pub head: [u8; 16],
+    /// `seen`.
+    pub seen: u64,
+    /// `path`.
+    pub path: String,
+    /// `ranges`, in the order added.
+    pub ranges: Vec<runtime::HarvestRange>,
+}
+
+/// The `DROPPED` and `HARVEST` tables as of a stored layer of a segment set ([F11 §2.4]).
+#[derive(Clone, Debug, Default, PartialEq, Eq)]
+pub struct TableView {
+    /// `DROPPED` by hash.
+    pub dropped: BTreeMap<[u8; 16], DroppedRow>,
+    /// `HARVEST` by source.
+    pub harvest: BTreeMap<String, HarvestRow>,
+}
+
+const DROPPED_TAG: u16 = 0x020D;
+const HARVEST_TAG: u16 = 0x020E;
+
+/// The kind of a segment that may carry the two tables ([F11 §2.4]: base and delta segments only).
+fn table_seg_kind(seg_kind: u8) -> Result<runtime::SegKind> {
+    match seg_kind {
+        3 => Ok(runtime::SegKind::Base),
+        4 => Ok(runtime::SegKind::Delta),
+        k => err(
+            0,
+            format!("seg_kind {k} carries no DROPPED or HARVEST section [F11 §2.4]"),
+        ),
+    }
+}
+
+/// A segment's `DROPPED` and `HARVEST` sections, each `None` when absent ([F11 §2.4] "Conditional sections").
+fn table_sections(
+    seg: &segment::Segment,
+) -> (Option<&runtime::Section>, Option<&runtime::Section>) {
+    let get = |tag: u16| {
+        seg.sections.iter().find_map(|(e, s)| match s {
+            segment::Sec::Runtime(r) if e.tag == tag => Some(&**r),
+            _ => None,
+        })
+    };
+    (get(DROPPED_TAG), get(HARVEST_TAG))
+}
+
+fn want_table(s: &runtime::Section, tag: u16) -> Result<()> {
+    if s.table.tag() != tag {
+        return err(
+            0,
+            format!(
+                "a {} section given for tag 0x{tag:04X} [F11 §2.8]",
+                s.table.name()
+            ),
+        );
+    }
+    Ok(())
+}
+
+/// The rows of a `DROPPED` section; an absent one is the empty table ([F11 §2.4]).
+fn dropped_rows(s: Option<&runtime::Section>) -> Result<BTreeMap<[u8; 16], DroppedRow>> {
+    let mut m = BTreeMap::new();
+    if let Some(s) = s {
+        want_table(s, DROPPED_TAG)?;
+        for r in &s.rows {
+            let hash: [u8; 16] = r.bytes("hash").try_into().expect("b16");
+            m.insert(
+                hash,
+                DroppedRow {
+                    drop_lsn: r.u("drop_lsn"),
+                    hlc: r.u("hlc"),
+                    reason: r.u("reason") as u8,
+                },
+            );
+        }
+    }
+    Ok(m)
+}
+
+/// The rows of a `HARVEST` section by source, `None` for a dead row ([F11 §2.4]); an absent one has no row.
+fn harvest_rows(s: Option<&runtime::Section>) -> Result<BTreeMap<String, Option<HarvestRow>>> {
+    let mut m = BTreeMap::new();
+    if let Some(s) = s {
+        want_table(s, HARVEST_TAG)?;
+        for r in &s.rows {
+            let text = |n: &str| match r.slice(n) {
+                runtime::Slice::Text(t) => t.clone(),
+                other => panic!("HARVEST {n} is not text: {other:?}"),
+            };
+            let row = (r.u("flags") & 0x80 == 0).then(|| HarvestRow {
+                head: r.bytes("head").try_into().expect("b16"),
+                seen: r.u("seen"),
+                path: text("path"),
+                ranges: match r.slice("ranges") {
+                    runtime::Slice::HarvestRanges(v) => v.clone(),
+                    other => panic!("HARVEST ranges is not a range list: {other:?}"),
+                },
+            });
+            m.insert(text("source"), row);
+        }
+    }
+    Ok(m)
+}
+
+impl TableView {
+    /// Adds one stored layer on top ([F11 §2.4]): `DROPPED` is a snapshot in a base and in a delta, and replaces the view
+    /// (an absent section is the empty table); `HARVEST` replaces it in a base, and in a delta sets each live row and
+    /// removes each dead row's key.
+    pub fn push(
+        &mut self,
+        kind: runtime::SegKind,
+        dropped: Option<&runtime::Section>,
+        harvest: Option<&runtime::Section>,
+    ) -> Result<()> {
+        self.dropped = dropped_rows(dropped)?;
+        let rows = harvest_rows(harvest)?;
+        if kind == runtime::SegKind::Base {
+            self.harvest.clear();
+        }
+        for (source, row) in rows {
+            match row {
+                Some(r) => {
+                    self.harvest.insert(source, r);
+                }
+                None => {
+                    self.harvest.remove(&source);
+                }
+            }
+        }
+        Ok(())
+    }
+
+    /// [`TableView::push`] for a base or delta segment.
+    pub fn push_segment(&mut self, seg: &segment::Segment) -> Result<()> {
+        let kind = table_seg_kind(seg.hdr.seg_kind)?;
+        let (d, h) = table_sections(seg);
+        self.push(kind, d, h)
+    }
+}
+
+/// [F05 §10.3] into [F11 §13.4] and §13.5: the `DROPPED` and `HARVEST` sections of a base or delta segment whose window is
+/// `[from, upto)` ([F09 §2.3]) against the fold of the window's records over `below`, the view of the stored layers
+/// under it (unused for a base, whose window starts at 0).
+///
+/// - `records` must cover the window: `start` ≤ `from` and `upto` ≤ `end`.
+/// - `DROPPED` is a snapshot in both kinds: the rows below (none for a base) plus a row per hash of each `BodyDrop` of
+///   the window, with the record's lsn as `drop_lsn`, its `hlc` and its `reason`; a hash that has a row keeps it.
+/// - `HARVEST` folds each `Harvest` of the window onto the rows below: a mark creates the row or sets `path`, `head` and
+///   `seen`; a range appends `{start, end, commit, commit_lsn}`, `commit_lsn` being the lsn of the newest earlier
+///   `Commit` record whose `commit_id` begins with `commit`; a forget keeps the ranges whose `start` is below `from`, and
+///   with 0 removes the row. A base holds the snapshot; a delta's layer holds a row for every source the window touched,
+///   live with its full state, or dead when the source has no row at `upto` (R-70).
+/// - An absent section equals an empty expectation (§2.4 "Conditional sections"). The first difference is refused,
+///   naming the table, the key, the field and both values.
+pub fn check_table_folds(
+    kind: runtime::SegKind,
+    (from, upto): (u64, u64),
+    dropped: Option<&runtime::Section>,
+    harvest: Option<&runtime::Section>,
+    below: &TableView,
+    records: &FoldRecords<'_>,
+) -> Result<()> {
+    if records.start > from || upto > records.end {
+        return err(
+            0,
+            format!(
+                "the records given cover [{}, {}), not the window [{from}, {upto}) [F05 §10.3, F09 §2.3]",
+                records.start, records.end
+            ),
+        );
+    }
+    let base = kind == runtime::SegKind::Base;
+    let in_window = |lsn: u64| from <= lsn && lsn < upto;
+    // DROPPED ([F11 §13.4]).
+    let mut want_d = if base {
+        BTreeMap::new()
+    } else {
+        below.dropped.clone()
+    };
+    for (lsn, p) in &records.records {
+        if let (true, Payload::BodyDrop(d)) = (in_window(*lsn), p) {
+            for h in &d.hashes {
+                want_d.entry(*h).or_insert(DroppedRow {
+                    drop_lsn: *lsn,
+                    hlc: d.hlc,
+                    reason: d.reason,
+                });
+            }
+        }
+    }
+    let got_d = dropped_rows(dropped)?;
+    let cite_d = "[F11 §13.4, F05 §10.3]";
+    for h in got_d.keys().chain(want_d.keys()).collect::<BTreeSet<_>>() {
+        let hx = hex(h);
+        match (got_d.get(h), want_d.get(h)) {
+            (Some(_), None) => {
+                return err(
+                    0,
+                    format!("DROPPED row {hx}: not given by the fold {cite_d}"),
+                );
+            }
+            (None, Some(w)) => {
+                return err(
+                    0,
+                    format!("DROPPED: no row for {hx}, which the fold gives as {w:?} {cite_d}"),
+                );
+            }
+            (Some(g), Some(w)) => {
+                for (f, a, b) in [
+                    ("drop_lsn", g.drop_lsn, w.drop_lsn),
+                    ("hlc", g.hlc, w.hlc),
+                    ("reason", u64::from(g.reason), u64::from(w.reason)),
+                ] {
+                    if a != b {
+                        return err(
+                            0,
+                            format!("DROPPED row {hx}: {f} {a}, the fold gives {b} {cite_d}"),
+                        );
+                    }
+                }
+            }
+            (None, None) => {}
+        }
+    }
+    // HARVEST ([F11 §13.5]).
+    let cite_h = "[F11 §13.5, F05 §10.3]";
+    let mut state = if base {
+        BTreeMap::new()
+    } else {
+        below.harvest.clone()
+    };
+    let mut touched = BTreeSet::new();
+    let mut commits: BTreeMap<[u8; 16], u64> = BTreeMap::new();
+    for (lsn, p) in &records.records {
+        match p {
+            Payload::Commit(c) => {
+                commits.insert(c.commit_id[..16].try_into().expect("16"), *lsn);
+            }
+            Payload::Harvest(h) if in_window(*lsn) => {
+                touched.insert(h.source.clone());
+                match &h.op {
+                    log::HarvestOp::Mark { path, head, seen } => {
+                        let row: &mut HarvestRow = state.entry(h.source.clone()).or_default();
+                        (row.path, row.head, row.seen) = (path.clone(), *head, *seen);
+                    }
+                    log::HarvestOp::Range { start, end, commit } => {
+                        let Some(row) = state.get_mut(&h.source) else {
+                            return err(
+                                0,
+                                format!(
+                                    "HARVEST: the range at lsn {lsn} is for source {:?}, which has no row [F11 §13.5]",
+                                    h.source
+                                ),
+                            );
+                        };
+                        let Some(&commit_lsn) = commits.get(commit) else {
+                            return err(
+                                0,
+                                format!(
+                                    "HARVEST: the range at lsn {lsn} names commit {}, which no earlier Commit record carries [F11 §13.5, F05 §9.30]",
+                                    hex(commit)
+                                ),
+                            );
+                        };
+                        row.ranges.push(runtime::HarvestRange {
+                            start: *start,
+                            end: *end,
+                            commit: *commit,
+                            commit_lsn,
+                        });
+                    }
+                    log::HarvestOp::Forget { from: f } => {
+                        if *f == 0 {
+                            state.remove(&h.source);
+                        } else if let Some(row) = state.get_mut(&h.source) {
+                            row.ranges.retain(|r| r.start < *f);
+                        }
+                    }
+                }
+            }
+            _ => {}
+        }
+    }
+    let want_h: BTreeMap<String, Option<HarvestRow>> = if base {
+        state.into_iter().map(|(s, r)| (s, Some(r))).collect()
+    } else {
+        touched
+            .into_iter()
+            .map(|s| {
+                let r = state.get(&s).cloned();
+                (s, r)
+            })
+            .collect()
+    };
+    let got_h = harvest_rows(harvest)?;
+    for s in got_h.keys().chain(want_h.keys()).collect::<BTreeSet<_>>() {
+        let live = |r: &Option<HarvestRow>| {
+            if r.is_some() {
+                "a live row"
+            } else {
+                "a dead row"
+            }
+        };
+        match (got_h.get(s), want_h.get(s)) {
+            (Some(_), None) => {
+                return err(
+                    0,
+                    format!("HARVEST row {s:?}: not given by the fold {cite_h}"),
+                );
+            }
+            (None, Some(w)) => {
+                return err(
+                    0,
+                    format!(
+                        "HARVEST: no row for {s:?}, which the fold gives as {} {cite_h}",
+                        live(w)
+                    ),
+                );
+            }
+            (Some(Some(g)), Some(Some(w))) => {
+                let field = if g.head != w.head {
+                    Some(("head", hex(&g.head), hex(&w.head)))
+                } else if g.seen != w.seen {
+                    Some(("seen", g.seen.to_string(), w.seen.to_string()))
+                } else if g.path != w.path {
+                    Some(("path", format!("{:?}", g.path), format!("{:?}", w.path)))
+                } else {
+                    None
+                };
+                if let Some((f, a, b)) = field {
+                    return err(
+                        0,
+                        format!("HARVEST row {s:?}: {f} {a}, the fold gives {b} {cite_h}"),
+                    );
+                }
+                if g.ranges != w.ranges {
+                    let same_but_lsn = g.ranges.len() == w.ranges.len()
+                        && g.ranges
+                            .iter()
+                            .zip(&w.ranges)
+                            .all(|(a, b)| (a.start, a.end, a.commit) == (b.start, b.end, b.commit));
+                    if same_but_lsn {
+                        let (i, (a, b)) = g
+                            .ranges
+                            .iter()
+                            .zip(&w.ranges)
+                            .enumerate()
+                            .find(|(_, (a, b))| a.commit_lsn != b.commit_lsn)
+                            .expect("a range differs");
+                        return err(
+                            0,
+                            format!(
+                                "HARVEST row {s:?}: ranges[{i}] commit_lsn {}, the fold gives {} {cite_h}",
+                                a.commit_lsn, b.commit_lsn
+                            ),
+                        );
+                    }
+                    let show = |v: &[runtime::HarvestRange]| {
+                        v.iter()
+                            .map(|r| {
+                                format!(
+                                    "({}, {}, {}, {})",
+                                    r.start,
+                                    r.end,
+                                    hex(&r.commit),
+                                    r.commit_lsn
+                                )
+                            })
+                            .collect::<Vec<_>>()
+                            .join(", ")
+                    };
+                    return err(
+                        0,
+                        format!(
+                            "HARVEST row {s:?}: ranges [{}], the fold gives [{}] {cite_h}",
+                            show(&g.ranges),
+                            show(&w.ranges)
+                        ),
+                    );
+                }
+            }
+            (Some(g), Some(w)) if g.is_some() != w.is_some() => {
+                return err(
+                    0,
+                    format!(
+                        "HARVEST row {s:?}: {}, the fold gives {} {cite_h}",
+                        live(g),
+                        live(w)
+                    ),
+                );
+            }
+            _ => {}
+        }
+    }
+    Ok(())
+}
+
+/// [`check_table_folds`] for a base or delta segment: its kind, its window `[from_lsn, upto_lsn)` and its two sections.
+pub fn check_segment_folds(
+    seg: &segment::Segment,
+    below: &TableView,
+    records: &FoldRecords<'_>,
+) -> Result<()> {
+    let kind = table_seg_kind(seg.hdr.seg_kind)?;
+    let (d, h) = table_sections(seg);
+    check_table_folds(
+        kind,
+        (seg.hdr.from_lsn, seg.hdr.upto_lsn),
+        d,
+        h,
+        below,
+        records,
+    )
 }
 
 /// One record found after the end of a scan ([F05 §5.3]).
@@ -1117,6 +1583,710 @@ mod tests {
         assert_eq!(recs[0].decoded, Ok(12));
         assert!(recs[1].decoded.is_err());
         assert!(walk_tail(&ext, 338 + 2 * stale.len()).unwrap().is_empty());
+    }
+
+    /// [F05 §7] rows 29 and 30, §10.2: a `BodyDrop` and a `Harvest` raise `hlc_seq` to their `hlc`. A log of an extent
+    /// head and one record of each kind folds to a slot with that `hlc_seq`; a slot that kept 0 is refused.
+    #[test]
+    fn head_fold_body_drop_and_harvest() {
+        use crate::head::tests::initial_slot;
+        use crate::log::tests::{EPOCH, head, rec};
+        const X1: u64 = (2 << 16) | 1;
+        const X2: u64 = (3 << 16) | 2;
+        let body_drop = Payload::BodyDrop(Box::new(log::BodyDrop {
+            hashes: vec![[5; 16]],
+            reason: 1,
+            note: String::new(),
+            actor: 0,
+            hlc: X1,
+            origin: 2,
+        }));
+        let harvest = Payload::Harvest(Box::new(log::Harvest {
+            source: "claude:s".into(),
+            op: log::HarvestOp::Mark {
+                path: "t".into(),
+                head: [0xAB; 16],
+                seen: 3,
+            },
+            hlc: X2,
+        }));
+        let mut fails = Vec::new();
+        for (what, kind, payload, hlc) in [
+            ("BodyDrop", 29, body_drop, X1),
+            ("Harvest", 30, harvest, X2),
+        ] {
+            let mut ext = vec![0u8; 1 << 16];
+            let b0 = log::encode_group(
+                &log::Group {
+                    lsn: 0,
+                    records: vec![head(0, log::epoch_seed(EPOCH))],
+                    len: 0,
+                },
+                log::epoch_seed(EPOCH),
+            );
+            ext[..b0.len()].copy_from_slice(&b0);
+            let seed = u64::from_le_bytes(b0[b0.len() - 8..].try_into().unwrap());
+            let b1 = log::encode_group(
+                &log::Group {
+                    lsn: 138,
+                    records: vec![rec(kind, 2, 138, payload, None)],
+                    len: 0,
+                },
+                seed,
+            );
+            ext[138..138 + b1.len()].copy_from_slice(&b1);
+            let end = 138 + b1.len() as u64;
+            let mut slot = initial_slot(1);
+            (slot.next_ref_id, slot.refs_lsn) = (0, 0);
+            (slot.committed_lsn, slot.durable_lsn, slot.hlc_seq) = (end, end, hlc);
+            let lc = match check_log(&[(1, &ext)], &slot) {
+                Ok(lc) => lc,
+                Err(e) => {
+                    fails.push(format!("{what}: the log: {e}"));
+                    continue;
+                }
+            };
+            if lc.scan.end != end {
+                fails.push(format!("{what}: the scan ends at {}", lc.scan.end));
+            }
+            if let Err(e) = check_head_fold(&slot, &lc.scan) {
+                fails.push(format!("{what}: hlc_seq {hlc}: {e}"));
+            }
+            slot.hlc_seq = 0;
+            match check_head_fold(&slot, &lc.scan) {
+                Err(e) if e.reason.contains("hlc_seq") => {}
+                other => fails.push(format!("{what}: hlc_seq 0: {other:?}")),
+            }
+        }
+        assert!(fails.is_empty(), "{}", fails.join("\n"));
+    }
+
+    /// An [F11 §2.1] section of `tag` from its header fields, its rows and its heap, decoded by
+    /// `runtime::decode_section` in a segment of kind `seg`.
+    fn rt_section(
+        tag: u16,
+        form: u8,
+        (n_rows, row_size): (usize, u16),
+        rows: &[u8],
+        heap: &[u8],
+        seg: runtime::SegKind,
+    ) -> runtime::Section {
+        let mut w = Writer::new();
+        w.u32(n_rows as u32);
+        w.u16(row_size);
+        w.u8(form);
+        w.u8(0);
+        w.u32(0);
+        w.u32(0);
+        w.u64(heap.len() as u64);
+        w.bytes(rows);
+        w.bytes(heap);
+        let t = runtime::Table::from_tag(tag).expect("tag");
+        runtime::decode_section(t, &w.into_vec(), 0, seg).unwrap_or_else(|e| panic!("{e}"))
+    }
+
+    /// A `DROPPED` section ([F11 §13.4]) of rows (hash, `drop_lsn`, `hlc`, `reason`), sorted by hash; `None` (absent)
+    /// with no row.
+    fn dropped_sec(
+        rows: &[([u8; 16], u64, u64, u8)],
+        seg: runtime::SegKind,
+    ) -> Option<runtime::Section> {
+        let mut v = rows.to_vec();
+        v.sort();
+        let mut w = Writer::new();
+        for (h, lsn, hlc, reason) in &v {
+            w.bytes(h);
+            w.u64(*lsn);
+            w.u64(*hlc);
+            w.u8(*reason);
+            w.zeros(7);
+        }
+        (!v.is_empty()).then(|| rt_section(0x020D, 1, (v.len(), 40), &w.into_vec(), &[], seg))
+    }
+
+    /// A `HARVEST` section ([F11 §13.5]) of (source, live row or `None` for a dead row), sorted by source: each row's
+    /// 56 fixed bytes with its `HeapRef`s at the running heap offset, then its `source`, `path` and `ranges` slices
+    /// (§2.3); the snapshot form in a base, the layer form in a delta; `None` (absent) with no row.
+    fn harvest_sec(
+        rows: &[(&str, Option<&HarvestRow>)],
+        seg: runtime::SegKind,
+    ) -> Option<runtime::Section> {
+        let mut v = rows.to_vec();
+        v.sort_by_key(|r| r.0);
+        let mut fixed = Writer::new();
+        let mut heap = Vec::new();
+        for (source, row) in &v {
+            let dead = HarvestRow::default();
+            let r = row.unwrap_or(&dead);
+            fixed.bytes(&r.head);
+            fixed.u64(r.seen);
+            fixed.u8(if row.is_some() { 0 } else { 0x80 });
+            fixed.zeros(7);
+            let mut ranges = Writer::new();
+            for x in &r.ranges {
+                ranges.u64(x.start);
+                ranges.u64(x.end);
+                ranges.bytes(&x.commit);
+                ranges.u64(x.commit_lsn);
+            }
+            for s in [source.as_bytes(), r.path.as_bytes(), &ranges.into_vec()] {
+                fixed.u32(heap.len() as u32);
+                fixed.u32(s.len() as u32);
+                heap.extend_from_slice(s);
+            }
+        }
+        let form = if seg == runtime::SegKind::Base { 1 } else { 2 };
+        (!v.is_empty())
+            .then(|| rt_section(0x020E, form, (v.len(), 56), &fixed.into_vec(), &heap, seg))
+    }
+
+    fn body_drop(hashes: &[[u8; 16]], reason: u8, hlc: u64) -> Payload {
+        Payload::BodyDrop(Box::new(log::BodyDrop {
+            hashes: hashes.to_vec(),
+            reason,
+            note: String::new(),
+            actor: 0,
+            hlc,
+            origin: 1,
+        }))
+    }
+
+    fn harvest(source: &str, op: log::HarvestOp) -> Payload {
+        Payload::Harvest(Box::new(log::Harvest {
+            source: source.into(),
+            op,
+            hlc: 0,
+        }))
+    }
+
+    fn mark(path: &str, head: u8, seen: u64) -> log::HarvestOp {
+        log::HarvestOp::Mark {
+            path: path.into(),
+            head: [head; 16],
+            seen,
+        }
+    }
+
+    /// A `Commit` record whose `commit_id` is 32 × `id`, so its `id16` is 16 × `id`.
+    fn commit_rec(id: u8) -> Payload {
+        Payload::Commit(Box::new(commit::Commit {
+            commit_id: [id; 32],
+            ..commit::tests::base_commit()
+        }))
+    }
+
+    fn hrow(head: u8, seen: u64, path: &str, ranges: &[(u64, u64, u8, u64)]) -> HarvestRow {
+        HarvestRow {
+            head: [head; 16],
+            seen,
+            path: path.into(),
+            ranges: ranges
+                .iter()
+                .map(|&(start, end, c, commit_lsn)| runtime::HarvestRange {
+                    start,
+                    end,
+                    commit: [c; 16],
+                    commit_lsn,
+                })
+                .collect(),
+        }
+    }
+
+    fn recs(start: u64, end: u64, v: &[(u64, Payload)]) -> FoldRecords<'_> {
+        FoldRecords {
+            start,
+            end,
+            records: v.iter().map(|(l, p)| (*l, p)).collect(),
+        }
+    }
+
+    fn pass(fails: &mut Vec<String>, what: &str, r: Result<()>) {
+        if let Err(e) = r {
+            fails.push(format!("{what}: refused: {e}"));
+        }
+    }
+
+    fn refused(fails: &mut Vec<String>, what: &str, r: Result<()>, cites: &[&str]) {
+        match r {
+            Ok(()) => fails.push(format!("{what}: accepted")),
+            Err(e) if cites.iter().any(|c| !e.reason.contains(c)) => {
+                fails.push(format!("{what}: want {cites:?}, got {e}"));
+            }
+            Err(_) => {}
+        }
+    }
+
+    /// [F05 §10.3] into [F11 §13.4]: a segment's `DROPPED` section is the rows below plus a row per hash of each
+    /// `BodyDrop` of its window `[from, upto)`, the first row staying, with its own `drop_lsn`, `hlc` and `reason`;
+    /// conditional (§2.4); the records must cover the window.
+    #[test]
+    fn dropped_fold() {
+        use runtime::SegKind::{Base, Delta};
+        const A: u64 = (1 << 16) | 1;
+        const B: u64 = (2 << 16) | 1;
+        const C: u64 = (3 << 16) | 1;
+        let (h1, h2, h3, h9) = ([1u8; 16], [2u8; 16], [3u8; 16], [9u8; 16]);
+        let none = TableView::default();
+        let mut fails = Vec::new();
+        let base = |rows: &[([u8; 16], u64, u64, u8)], r: &FoldRecords<'_>, below: &TableView| {
+            check_table_folds(
+                Base,
+                (0, 1000),
+                dropped_sec(rows, Base).as_ref(),
+                None,
+                below,
+                r,
+            )
+        };
+        let delta = |rows: &[([u8; 16], u64, u64, u8)], r: &FoldRecords<'_>, below: &TableView| {
+            check_table_folds(
+                Delta,
+                (500, 1000),
+                dropped_sec(rows, Delta).as_ref(),
+                None,
+                below,
+                r,
+            )
+        };
+        // D-1: a hash dropped twice keeps its first row.
+        let v = [
+            (100, body_drop(&[h1, h2], 1, A)),
+            (300, body_drop(&[h1], 2, B)),
+        ];
+        let r = recs(0, 1000, &v);
+        pass(
+            &mut fails,
+            "D-1",
+            base(&[(h1, 100, A, 1), (h2, 100, A, 1)], &r, &none),
+        );
+        refused(
+            &mut fails,
+            "D-1 the later row",
+            base(&[(h1, 300, B, 2), (h2, 100, A, 1)], &r, &none),
+            &["§13.4", "drop_lsn"],
+        );
+        // D-2: drop_lsn is the lsn of the record that dropped the hash.
+        let v = [(100, body_drop(&[h1], 1, A)), (300, body_drop(&[h2], 1, B))];
+        let r = recs(0, 1000, &v);
+        pass(
+            &mut fails,
+            "D-2",
+            base(&[(h1, 100, A, 1), (h2, 300, B, 1)], &r, &none),
+        );
+        refused(
+            &mut fails,
+            "D-2 another BodyDrop's lsn",
+            base(&[(h1, 300, A, 1), (h2, 300, B, 1)], &r, &none),
+            &["§13.4", "drop_lsn"],
+        );
+        // hlc and reason are the record's own, each compared on its own.
+        for (what, rows, field) in [
+            (
+                "D-2 another BodyDrop's hlc",
+                [(h1, 100, B, 1), (h2, 300, B, 1)],
+                "hlc",
+            ),
+            (
+                "D-2 another reason",
+                [(h1, 100, A, 2), (h2, 300, B, 1)],
+                "reason",
+            ),
+        ] {
+            refused(&mut fails, what, base(&rows, &r, &none), &["§13.4", field]);
+        }
+        // D-3: a window above 0 over the previous segment's rows.
+        let mut below = TableView::default();
+        below.dropped.insert(
+            h1,
+            DroppedRow {
+                drop_lsn: 100,
+                hlc: A,
+                reason: 1,
+            },
+        );
+        let v = [
+            (200, body_drop(&[h9], 1, A)),
+            (600, body_drop(&[h1, h3], 3, C)),
+        ];
+        let r = recs(0, 1000, &v);
+        pass(
+            &mut fails,
+            "D-3",
+            delta(&[(h1, 100, A, 1), (h3, 600, C, 3)], &r, &below),
+        );
+        for (what, rows, cite) in [
+            (
+                "D-3 a row from below the window",
+                vec![(h1, 100, A, 1), (h3, 600, C, 3), (h9, 200, A, 1)],
+                "not given by the fold",
+            ),
+            (
+                "D-3 a row below replaced",
+                vec![(h1, 600, C, 3), (h3, 600, C, 3)],
+                "drop_lsn",
+            ),
+            ("D-3 a row below lost", vec![(h3, 600, C, 3)], "no row"),
+        ] {
+            refused(&mut fails, what, delta(&rows, &r, &below), &["§13.4", cite]);
+        }
+        // D-4: the section is carried exactly when it has a row.
+        let r = recs(0, 1000, &[]);
+        pass(&mut fails, "D-4", base(&[], &r, &none));
+        refused(
+            &mut fails,
+            "D-4 a row with no BodyDrop",
+            base(&[(h1, 100, A, 1)], &r, &none),
+            &["§13.4", "not given by the fold"],
+        );
+        let v = [(400, body_drop(&[h1], 1, A))];
+        refused(
+            &mut fails,
+            "D-4 a BodyDrop with no section",
+            base(&[], &recs(0, 1000, &v), &none),
+            &["§13.4", "no row"],
+        );
+        // D-5: the records must cover the window.
+        pass(&mut fails, "D-5", delta(&[], &recs(500, 1000, &[]), &none));
+        for (what, s, e) in [("D-5 from 600", 600, 1000), ("D-5 to 900", 500, 900)] {
+            refused(
+                &mut fails,
+                what,
+                delta(&[], &recs(s, e, &[]), &none),
+                &["F05 §10.3", "window"],
+            );
+        }
+        // D-7: the window is [from, upto): a BodyDrop at from_lsn is folded, one at upto_lsn is not ([F09 §2.3]).
+        let v = [
+            (500, body_drop(&[h1], 1, A)),
+            (1000, body_drop(&[h2], 2, B)),
+        ];
+        let r = recs(500, 1100, &v);
+        pass(&mut fails, "D-7", delta(&[(h1, 500, A, 1)], &r, &none));
+        refused(
+            &mut fails,
+            "D-7 a row for the BodyDrop at upto_lsn",
+            delta(&[(h1, 500, A, 1), (h2, 1000, B, 2)], &r, &none),
+            &["§13.4", "not given by the fold"],
+        );
+        refused(
+            &mut fails,
+            "D-7 no row for the BodyDrop at from_lsn",
+            delta(&[], &r, &none),
+            &["§13.4", "no row"],
+        );
+        // D-6: the segment wrapper reads the kind, the window and the section by tag.
+        let seg = segment::tests::small_base();
+        pass(
+            &mut fails,
+            "D-6",
+            check_segment_folds(&seg, &none, &recs(0, 1000, &[])),
+        );
+        let v = [(500, body_drop(&[h1], 1, A))];
+        let r = recs(0, 1000, &v);
+        let mut with = seg.clone();
+        let at = with
+            .sections
+            .iter()
+            .position(|(e, _)| e.tag > 0x020D)
+            .unwrap_or(with.sections.len());
+        with.sections.insert(
+            at,
+            (
+                segment::tests::ent(0x020D, 1),
+                segment::Sec::Runtime(Box::new(
+                    dropped_sec(&[(h1, 500, A, 1)], Base).expect("a row"),
+                )),
+            ),
+        );
+        pass(
+            &mut fails,
+            "D-6 with a section",
+            check_segment_folds(&with, &none, &r),
+        );
+        refused(
+            &mut fails,
+            "D-6 a BodyDrop with no section",
+            check_segment_folds(&seg, &none, &r),
+            &["§13.4", "no row"],
+        );
+        let mut cs = seg.clone();
+        cs.hdr.seg_kind = 9;
+        refused(
+            &mut fails,
+            "D-6 seg_kind 9",
+            check_segment_folds(&cs, &none, &r),
+            &["§2.4"],
+        );
+        assert!(fails.is_empty(), "{}", fails.join("\n"));
+    }
+
+    /// [F05 §10.3] into [F11 §13.5]: a `HARVEST` base is the snapshot of the fold, a delta's layer holds every source its
+    /// window touched with its full state, or dead when it has no row at `upto_lsn` (R-70); a range's `commit_lsn` is the
+    /// lsn of the `Commit` it names; a forget above 0 keeps the ranges below it; the last mark sets `head`, `seen` and
+    /// `path`; only the records of `[from, upto)` fold; the view under a layer composes base and delta layers (§2.4).
+    #[test]
+    fn harvest_fold() {
+        use runtime::SegKind::{Base, Delta};
+        let mut fails = Vec::new();
+        // H-1: a range's commit_lsn is the lsn of the Commit record it names.
+        let v = [
+            (100, harvest("claude:a", mark("p1", 1, 10))),
+            (150, commit_rec(0xC1)),
+            (
+                160,
+                harvest(
+                    "claude:a",
+                    log::HarvestOp::Range {
+                        start: 0,
+                        end: 10,
+                        commit: [0xC1; 16],
+                    },
+                ),
+            ),
+            (200, harvest("claude:a", mark("p2", 2, 20))),
+        ];
+        let r = recs(0, 500, &v);
+        let none = TableView::default();
+        let base = |rows: &[(&str, Option<&HarvestRow>)]| {
+            check_table_folds(
+                Base,
+                (0, 500),
+                None,
+                harvest_sec(rows, Base).as_ref(),
+                &none,
+                &r,
+            )
+        };
+        let a = hrow(2, 20, "p2", &[(0, 10, 0xC1, 150)]);
+        pass(&mut fails, "H-1", base(&[("claude:a", Some(&a))]));
+        let a160 = hrow(2, 20, "p2", &[(0, 10, 0xC1, 160)]);
+        refused(
+            &mut fails,
+            "H-1 the Harvest record's lsn",
+            base(&[("claude:a", Some(&a160))]),
+            &["§13.5", "commit_lsn"],
+        );
+        // The last mark sets head, seen and path, each compared on its own: one field is the first mark's.
+        for (what, row, field) in [
+            (
+                "H-1 the first mark's head",
+                hrow(1, 20, "p2", &[(0, 10, 0xC1, 150)]),
+                "head",
+            ),
+            (
+                "H-1 the first mark's seen",
+                hrow(2, 10, "p2", &[(0, 10, 0xC1, 150)]),
+                "seen",
+            ),
+            (
+                "H-1 the first mark's path",
+                hrow(2, 20, "p1", &[(0, 10, 0xC1, 150)]),
+                "path",
+            ),
+        ] {
+            refused(
+                &mut fails,
+                what,
+                base(&[("claude:a", Some(&row))]),
+                &["§13.5", field],
+            );
+        }
+        // H-8: the view under a layer: a base, then a delta layer with a dead and a changed row.
+        let b = hrow(3, 90, "pb", &[(0, 50, 0xC1, 150), (50, 80, 0xC1, 150)]);
+        let c = hrow(4, 30, "pc", &[]);
+        let u = hrow(5, 40, "pu", &[]);
+        let y = hrow(6, 1, "py", &[]);
+        let z = hrow(7, 1, "pz", &[]);
+        let z2 = hrow(8, 2, "pz2", &[]);
+        let mut view = TableView::default();
+        let base_d = dropped_sec(&[([1; 16], 100, 1, 1)], Base);
+        let base_h = harvest_sec(
+            &[
+                ("claude:a", Some(&a)),
+                ("claude:b", Some(&b)),
+                ("claude:c", Some(&c)),
+                ("claude:u", Some(&u)),
+                ("claude:y", Some(&y)),
+                ("claude:z", Some(&z)),
+            ],
+            Base,
+        );
+        let layer = harvest_sec(&[("claude:y", None), ("claude:z", Some(&z2))], Delta);
+        pass(
+            &mut fails,
+            "H-8 base",
+            view.push(Base, base_d.as_ref(), base_h.as_ref()),
+        );
+        pass(
+            &mut fails,
+            "H-8 delta",
+            view.push(Delta, None, layer.as_ref()),
+        );
+        let want: BTreeMap<String, HarvestRow> = [
+            ("claude:a", &a),
+            ("claude:b", &b),
+            ("claude:c", &c),
+            ("claude:u", &u),
+            ("claude:z", &z2),
+        ]
+        .into_iter()
+        .map(|(s, r)| (s.to_owned(), r.clone()))
+        .collect();
+        if view.harvest != want || !view.dropped.is_empty() {
+            fails.push(format!("H-8: the view is {view:?}"));
+        }
+        // H-2 to H-6: one delta [500, 1000) over that view, its records covering [0, 1000).
+        let range = |start: u64, end: u64, c: u8| log::HarvestOp::Range {
+            start,
+            end,
+            commit: [c; 16],
+        };
+        let v = [
+            (300, harvest("codex:d", mark("pd", 9, 5))),
+            (650, commit_rec(0xC2)),
+            (660, harvest("claude:a", range(10, 20, 0xC2))),
+            (
+                700,
+                harvest("claude:b", log::HarvestOp::Forget { from: 50 }),
+            ),
+            (710, harvest("claude:c", log::HarvestOp::Forget { from: 0 })),
+            (720, harvest("codex:e", mark("pe", 0xE, 7))),
+            (730, harvest("codex:e", log::HarvestOp::Forget { from: 0 })),
+            (740, harvest("claude:u", mark("pu", 5, 40))),
+        ];
+        let r = recs(0, 1000, &v);
+        let delta = |rows: &[(&str, Option<&HarvestRow>)]| {
+            check_table_folds(
+                Delta,
+                (500, 1000),
+                None,
+                harvest_sec(rows, Delta).as_ref(),
+                &view,
+                &r,
+            )
+        };
+        let a2 = hrow(2, 20, "p2", &[(0, 10, 0xC1, 150), (10, 20, 0xC2, 650)]);
+        let b2 = hrow(3, 90, "pb", &[(0, 50, 0xC1, 150)]);
+        let clean: Vec<(&str, Option<&HarvestRow>)> = vec![
+            ("claude:a", Some(&a2)),
+            ("claude:b", Some(&b2)),
+            ("claude:c", None),
+            ("claude:u", Some(&u)),
+            ("codex:e", None),
+        ];
+        pass(&mut fails, "H-2..H-6", delta(&clean));
+        let a_only = hrow(2, 20, "p2", &[(10, 20, 0xC2, 650)]);
+        let d = hrow(9, 5, "pd", &[]);
+        /// The clean layer with the row of `key` left out, or replaced by `row` when given.
+        fn with<'a>(
+            clean: &[(&'a str, Option<&'a HarvestRow>)],
+            key: &'a str,
+            row: Option<Option<&'a HarvestRow>>,
+        ) -> Vec<(&'a str, Option<&'a HarvestRow>)> {
+            let mut v: Vec<_> = clean.iter().filter(|x| x.0 != key).copied().collect();
+            if let Some(row) = row {
+                v.push((key, row));
+            }
+            v
+        }
+        let variant = |key, row| with(&clean, key, row);
+        for (what, rows, cites) in [
+            (
+                "H-2 a forget above 0 kept both ranges",
+                variant("claude:b", Some(Some(&b))),
+                &["§13.5", "ranges"][..],
+            ),
+            (
+                "H-3 a forget at 0 left no dead row",
+                variant("claude:c", None),
+                &["§13.5", "no row", "dead"][..],
+            ),
+            (
+                "H-4 a layer row without the ranges below",
+                variant("claude:a", Some(Some(&a_only))),
+                &["§13.5", "ranges"][..],
+            ),
+            (
+                "H-5 a mark below the window",
+                variant("codex:d", Some(Some(&d))),
+                &["§13.5", "not given by the fold"][..],
+            ),
+            (
+                "H-6 a source created and forgotten left no dead row",
+                variant("codex:e", None),
+                &["§13.5", "no row", "dead"][..],
+            ),
+            (
+                "H-6 an untouched source's row",
+                variant("claude:z", Some(Some(&z2))),
+                &["§13.5", "not given by the fold"][..],
+            ),
+            (
+                "H-6 a touched source with its value below left no row",
+                variant("claude:u", None),
+                &["§13.5", "no row"][..],
+            ),
+        ] {
+            refused(&mut fails, what, delta(&rows), cites);
+        }
+        // H-7: a range for a source with no row, and one naming a commit no earlier Commit record carries.
+        for (what, op_src, cites) in [
+            (
+                "H-7 a range with no row",
+                "codex:f",
+                &["§13.5", "no row"][..],
+            ),
+            (
+                "H-7 a range naming no commit",
+                "claude:a",
+                &["§13.5", "no earlier Commit"][..],
+            ),
+        ] {
+            let c = if op_src == "codex:f" { 0xC2 } else { 0xC3 };
+            let v = [
+                (650, commit_rec(0xC2)),
+                (660, harvest(op_src, range(0, 5, c))),
+            ];
+            let r = recs(0, 1000, &v);
+            refused(
+                &mut fails,
+                what,
+                check_table_folds(Delta, (500, 1000), None, None, &view, &r),
+                cites,
+            );
+        }
+        // H-9: the window is [from, upto): a Harvest at from_lsn is folded, one at upto_lsn is not ([F09 §2.3]).
+        let v = [
+            (500, harvest("codex:g", mark("pg", 0xA, 1))),
+            (1000, harvest("codex:h", mark("ph", 0xB, 2))),
+        ];
+        let r = recs(500, 1100, &v);
+        let g = hrow(0xA, 1, "pg", &[]);
+        let h = hrow(0xB, 2, "ph", &[]);
+        let edge = |rows: &[(&str, Option<&HarvestRow>)]| {
+            check_table_folds(
+                Delta,
+                (500, 1000),
+                None,
+                harvest_sec(rows, Delta).as_ref(),
+                &none,
+                &r,
+            )
+        };
+        pass(&mut fails, "H-9", edge(&[("codex:g", Some(&g))]));
+        refused(
+            &mut fails,
+            "H-9 a row for the Harvest at upto_lsn",
+            edge(&[("codex:g", Some(&g)), ("codex:h", Some(&h))]),
+            &["§13.5", "not given by the fold"],
+        );
+        refused(
+            &mut fails,
+            "H-9 no row for the Harvest at from_lsn",
+            edge(&[]),
+            &["§13.5", "no row"],
+        );
+        assert!(fails.is_empty(), "{}", fails.join("\n"));
     }
 
     /// [F02 §6.3] names and [F09 §17.1] V-3: a segment whose `file_no` is not its name's is refused.

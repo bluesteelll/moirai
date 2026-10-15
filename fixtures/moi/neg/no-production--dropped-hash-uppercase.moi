@@ -1,0 +1,8 @@
+moirai-node 1
+uid: 3b000000000000000000000000000021
+kind: note
+title: body-dropped-secret
+status: active
+created: c4f4ad52b78bee855020bf28a6fa24cf516961b00ec57a21af738c0bb9e06f954 2026-09-21T14:13:20.000Z
+updated: c4d4c5f8ef22ec7a9f5840b6eaabba638e1182acbd7a04971209efdf77aea8e55 2026-09-21T15:43:20.000Z
+--- dropped E6E04BE01A990A1B74D29F84D603C829 secret

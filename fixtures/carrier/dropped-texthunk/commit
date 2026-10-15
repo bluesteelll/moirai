@@ -1,0 +1,17 @@
+tree d31dc7c126cfec3d1f0f771e1667ec6ba4279c37
+parent 6e7861d2d807ca40b437a2085cf5563559b9a90a
+parent 206bd4e9ce085f6f0af0df20225706db63383167
+author moirai/orch <orchestrator@moirai.invalid> 1790004440 +0000
+committer moirai/orch <orchestrator@moirai.invalid> 1790004440 +0000
+
+merge lane/t into lane/d
+
+Moirai-Commit: c5c867fa636989fbeb55890345fbff73013a2b5aa598d835481149cc9ab53b2f3
+Moirai-Kind: merge
+Moirai-Ref: lane/d
+Moirai-Hlc: 117309730979840000
+Moirai-Actor: orch
+Moirai-Role: orchestrator
+Moirai-Session: claude:s0
+Moirai-Schema: 1
+Moirai-Ops: 1

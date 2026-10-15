@@ -1,0 +1,11 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture neg/value-type--body-side-bare-token.moi
+%% file node
+%% context core
+%% source [F14 §9.2]
+%% source [F14 §6.8]
+%% note node/conflict-body-dropped.moi with the ours side `dropped:<hash>`, without its reason: in a body side a bare
+%% note token that is not `dropped:<hash>:<reason>` does not parse by the key's type (§6.8, §9.2).
+%% refuse ImageParse value-type
+%% end

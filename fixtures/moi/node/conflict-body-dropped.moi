@@ -1,0 +1,8 @@
+moirai-node 1
+uid: 1a000000000000000000000000000021
+kind: task
+title: Rotate the signing key
+status: open
+created: ce3d5a85347b6b391ff0113324851f6cdd2520bfe43b6015d6284ffee5791a23d 2026-09-21T14:13:20.000Z
+updated: c233cada5a94ee36cba02d3cb2a3325971a1d0abade55e62260c3338a3644d415 2026-09-21T15:43:20.000Z
+conflict body class=TextHunk base="Rotate the signing key every 90 days.\n" ours=dropped:5fe079ec9a9fbb88ee6b91d18621e63c:secret theirs="Rotate the signing key every 30 days.\n"

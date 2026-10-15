@@ -462,7 +462,7 @@ impl Ev<'_> {
                     })
                     .collect(),
             ),
-            (_, KVal::Body(b)) => V::text(hex(&crate::canon::b3_128(b.as_bytes()))),
+            (_, KVal::Body(b)) => V::text(hex(&crate::canon::body_hash(b))),
             (Aspect::Edge(k), KVal::Edge(p)) => {
                 let mut props = Vec::new();
                 if p.flagged {

@@ -2,12 +2,12 @@
 
 | | |
 |---|---|
-| Title | The hand-written byte fixtures of format version 1: every record kind, op, value type, segment section and sealed-file header; `LOCK` and `HEAD` with a torn slot, the nine two-slot states and the fatal slots; Unknown-boot; the log chain cases (first group, chained group, `Noop` pad and `ExtentHead`, a wrong-position record of the same epoch, a lost lazy tail, corruption below `durable_lsn`, an epoch re-roll); codec `none` payloads in full and candidate-codec payloads that the M0 oracle treats as opaque |
+| Title | The hand-written byte fixtures of format version 1: every record kind, op, value type, segment section and sealed-file header; `LOCK` and `HEAD` with a torn slot, the nine two-slot states and the fatal slots; Unknown-boot; the log chain cases (first group, chained group, `Noop` pad and `ExtentHead`, a wrong-position record of the same epoch, a lost lazy tail, corruption below `durable_lsn`, an epoch re-roll); codec `none` payloads in full and candidate-codec payloads that the M0 oracle treats as opaque; store F (spec sync 3): presence bit 19 and its provenance group, the class-12 `model` symbol, `BodyDrop` and `Harvest` records, the `DROPPED` and `HARVEST` sections, dropped `BlobRef`s and a `hist` record without a dropped body's entry |
 | Work package | WP-20 (R-FIX; [PLAN §3.2] item 1) |
 | Acceptance | E3: WP-95's format oracle decodes every `.bin` here and re-encodes it byte-identically, compressed payloads opaque ([PLAN §6.2] R3); WP-20b replaces the files that depend on a filled hole (§4) |
 | Separation | S1 ([PLAN §3.1]): written from the specification text only. The author read no line of `moirai-format-oracle`, `moirai-model`, `moirai-toylog` or any product crate. The only project code run was `cargo xtask hex`, the generic assembler (R-HARN's; it knows no structure). Throw-away scripts that implement only what the chapters say wrote the `.hex` text and a byte model of each file; their BLAKE3 was checked against the canonical fixtures' derivations and their XXH3 against the assembler's directives on random inputs, and every assembled `.bin` was compared with the model byte for byte, hash outputs included. Candidate-codec payloads were decoded back with `lz4_flex` 0.14.0 and `ruzstd` 0.9.0, the pure-Rust decoders of [90 §11.2] (§3.10) |
 | Sources | [F01]–[F11], [F17], [F18 §3], [F19 §12], [F20 §2.6–§2.8], [OS/clock §3], [OS/proc §4–§5] (normative for every byte here); [60 §2.5] and `docs/spec/COVERAGE.md` for §5; `docs/spec/HOLES.md` for §4 |
-| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28) and spec sync 2a (`docs/spec/reviews/spec-sync-2a.md`); updated for spec sync 2b (`docs/spec/reviews/spec-sync-2b.md`): store A's promoted-field sections and `IDEM` results (S2B-R-1, S2B-R-6), g44 (S2B-P-24), §2's commit ids (S2B-F-14), the frames appended to `fragments/ops/variants.hex` (a `Resolve` with `choice` 5 `drop`, `Schema` ops of the item classes 1–4 and 6; S2B-F-10, S2B-F-13, S2B-F-21), the class-6 item appended to `fragments/schema/items.hex` (S2B-F-21), and §3.9, §5.1 and §6 with them (bit 18 `stage` stays uncovered, S2B-F-1). A specification change that moves a byte updates the files it touches (commit subject `WP-20:`, `WP-20b:` or `WP-73:`) |
+| Status | Written against the specification after review pass 1 (owner answers of 2026-09-28) and spec sync 2a (`docs/spec/reviews/spec-sync-2a.md`); updated for spec sync 2b (`docs/spec/reviews/spec-sync-2b.md`): store A's promoted-field sections and `IDEM` results (S2B-R-1, S2B-R-6), g44 (S2B-P-24), §2's commit ids (S2B-F-14), the frames appended to `fragments/ops/variants.hex` (a `Resolve` with `choice` 5 `drop`, `Schema` ops of the item classes 1–4 and 6; S2B-F-10, S2B-F-13, S2B-F-21), the class-6 item appended to `fragments/schema/items.hex` (S2B-F-21), and §3.9, §5.1 and §6 with them (bit 18 `stage` stays uncovered, S2B-F-1); updated for spec sync 3 (`docs/spec/reviews/spec-sync-3.md`): §2's commit-order citations (S3-F-11) and store F, `hex/store-f/` (§3.11: S3-F-11, S3-F-13, S3-P-2, S3-P-4, S3-R-1, S3-R-2, S3-R-5, S3-R-7, S3-R-8), with §1, §2, §5 and §6. A specification change that moves a byte updates the files it touches (commit subject `WP-20:`, `WP-20b:` or `WP-73:`) |
 
 The consumers are the format oracle (WP-95, WP-95b) and, from M1, the product codec, whose author is neither R-FIX nor
 R-ORA (S1). Every value is synthetic: no owner data, no real paths, users, hosts, machine ids or boot ids.
@@ -47,20 +47,21 @@ R-ORA (S1). Every value is synthetic: no owner data, no real paths, users, hosts
 | `hex/decode-only/` | 2 | store J: the reserved record kind `JournalCursor` (§3.8) |
 | `hex/fragments/` | 10 | structures outside a file of their own: values, anchor records, schema items, op variants, OS ids, `BindingExt` (§3.9) |
 | `hex/codec/` | 7 | `dict` files and `blobs` and `hist` files under the candidate codecs (§3.10) |
+| `hex/store-f/` | 7 | store F: two extents, a body drop and the purge's checkpoint and retirement, its `HEAD` (§3.11; spec sync 3) |
 
 ## 2. Synthetic values
 
 | Name | Value | Where |
 |---|---|---|
 | Wall time | `MS0` = 1,790,000,000,000 ms (2026-09-21T14:13:20Z, the `unix_ms` of [F01 §5.7]'s example); `hlc` values are `(ms << 16) \| counter` with ms = `MS0` + a few seconds per event | every `hlc`, `append_hlc`, `Stamp.wall` |
-| Commit ids | `BLAKE3-256("moirai-fixture-commit:" ‖ label)`, label `A/c1` … `A/c18`, `B/b1` … `B/b7`, `C/c1`, `D/c1`, `E/c1` … `E/c3`, `U/c1`; not the canonical form of any commit (the canonical commit-id fixtures are `canonical/`). Commit-id and changeset-digest correctness are C-rules ([F06 §4.3] orders 2 and 38, [F07 §12] intro; spec sync 2b S2B-F-14): a decoder never recomputes them, so records with these synthetic ids are valid | commit records, parents, `ref_old`, `REFS.tip`, markers, `HCIDX`, `gitmap` |
+| Commit ids | `BLAKE3-256("moirai-fixture-commit:" ‖ label)`, label `A/c1` … `A/c18`, `B/b1` … `B/b7`, `C/c1`, `D/c1`, `E/c1` … `E/c3`, `U/c1`, `F/f1`, `F/f2`; not the canonical form of any commit (the canonical commit-id fixtures are `canonical/`). Commit-id and changeset-digest correctness are C-rules ([F06 §4.3] orders 2 and 39, [F07 §12] intro; spec sync 2b S2B-F-14): a decoder never recomputes them, so records with these synthetic ids are valid | commit records, parents, `ref_old`, `REFS.tip`, markers, `HCIDX`, `gitmap` |
 | Changeset digests | `BLAKE3-256("moirai-fixture-commit:" ‖ label ‖ "/changeset")`: synthetic, like the ids | `changeset_digest` |
 | Other 16-byte ids | `BLAKE3-128("moirai-fixture:" ‖ label)`: `values/U` (the uid U of [F08 §5.6]), `anchors/src`, `vol-C`, idempotency keys, statement hashes | fragments, runtime rows |
 | Other 32-byte ids | `values/C`, `values/C2`, `values/D256` (C, C2 and D256 of [F08 §5.6]) as commit ids above | fragments |
 | Fixed digests | D = `d94db1affb1bddd9491cd7666232dfce915c3110` (SHA-1), `SHA256_D` = `5e4b1c31…8f18a27`, `docs/storage/lock.md`'s oid `a936e37c…89fd77ae`, git heads `83bcc6a1…69b5f074` and `9e8d7c6b…79881203`, lane base `7c1e0a4d5b3a92c1e6f40d8a7b2c9e0133445566`: the values `canonical/` uses | values, anchors, `BindingExt`, runtime rows |
-| Store ids | `5701de00…0001` (A), `…0002` (B), `…0003`–`…0007` (C, D, E, U, J) | `InitParams.store_id` |
-| Epochs | A `0x3141592653589793`, B `0x2718281828459045`, C `0x1111222233334444`, D `0x5555666677778888`, E `0x9999aaaabbbbcccc`, U `0x0f1e2d3c4b5a6978`, J `0x2468ace013579bdf`, re-rolled A `0x6a09e667f3bcc908` | `HEAD.epoch`, `RecHdr.epoch`, chain seeds |
-| Node uids | store A: small fixed patterns (`1a00…0001`), except #4 = the root-node derivation of `project` and #5 = the file derivation of `project:docs/storage/lock.md` ([F08 §11.2]–[F08 §11.3]); store B: `b0…0n` | `Create`, `UID`, `ALLOC`, `UIDX` |
+| Store ids | `5701de00…0001` (A), `…0002` (B), `…0003`–`…0007` (C, D, E, U, J), `…0008` (F) | `InitParams.store_id` |
+| Epochs | A `0x3141592653589793`, B `0x2718281828459045`, C `0x1111222233334444`, D `0x5555666677778888`, E `0x9999aaaabbbbcccc`, U `0x0f1e2d3c4b5a6978`, J `0x2468ace013579bdf`, re-rolled A `0x6a09e667f3bcc908`, F `0x3c6ef372fe94f82b` | `HEAD.epoch`, `RecHdr.epoch`, chain seeds |
+| Node uids | store A: small fixed patterns (`1a00…0001`), except #4 = the root-node derivation of `project` and #5 = the file derivation of `project:docs/storage/lock.md` ([F08 §11.2]–[F08 §11.3]); store B: `b0…0n`; store F: `f0…01`–`f0…03` | `Create`, `UID`, `ALLOC`, `UIDX` |
 | Boot identities | [OS/proc §4.2]'s derivations over fixed inputs: Windows counter 7 (and 8 after a reboot) with MachineGuid `00000000-0000-4000-8000-00000000000a`; Linux boot uuid `…00b1`; macOS `…00c1`; `boot_hash` = low 64 bits with bit 0 set ([OS/proc §4.3]) | `HEAD.boot_id`, `ProcId`, `Anchor`, `Stamp` |
 | Session identities | `claude:5e551070-0000-4000-8000-000000000001` (and `…002` after `/clear`), `codex:0199aa00-0000-7000-8000-000000000009`; session hash = BLAKE3-128 of the identity ([F03 §9]) | `SlotRec`, `Anchor`, `LEASES`, `HEADS`, cursors |
 | Parameters | the test profile of [F17 §12]: P01 `log_extent_bytes` 65,536, P03 4, P04 4,096 in `InitParams`; tunable values as the test profile gives them (P18 = 16 rows) | every `HEAD`, extent sizes, `hist` frames |
@@ -265,6 +266,50 @@ A compressed blob's hash and a compressed frame's `raw_xxh3` are directives over
 bytes, so the raw content is in the file and the assembler checks the hash (a raw content above 4,096 bytes has its hash
 as literal bytes instead).
 
+### 3.11 Store F (`hex/store-f/`)
+
+A Linux store (`project_oid_algo` 1, the boot identity of store B), E = 65,536, written as an M9–M10 engine writes it:
+presence bit 19 and its provenance group ([F06 §4.4.17]), the class-12 symbol `model` ([F05 §8.1], [F09 §14.1]) and
+`Harvest` records ([F05 §9.30]) are reserved until M9–M10, and every format-v1 reader decodes them (spec sync 3, item 9
+of `docs/spec/reviews/spec-sync-3.md`). Its history is a body drop and the purge that follows it ([F16] P-101 steps 1, 2,
+6 and 7; steps 3–5 find nothing to rewrite, since nothing was sealed before the drop), and one later drop whose purge
+waits. The bodies are stated synthetic texts H1, H2 and H3, quoted with their hashes at the top of `log.1.hex`.
+
+| Group | lsn | Content |
+|---|---|---|
+| g1 | 0 | the epoch-start group: `ExtentHead` of log.1 |
+| g2 | 138 | init: `RefUpdate` create `main` (ref id 0), `RefTable` |
+| g3 | 387 | an `Apply` batch's commit group ([F05 §4.7]): f1 (seq 1, the root commit of `main`; presence bit 19, `actor_kind` 3 `agent`, `model` 1 `synthetic-model-1`; `Create` #1 with body H1 and #2 with H2, both carried at codec 0), then a `Harvest` mark (`source` the session identity of §2, `seen` 64, `head` over 64 stated bytes) and a `Harvest` range [0, 64) naming f1 |
+| g4 | 1300 | create the staging ref `import/1` (ref id 1, kind import) |
+| g5 | 1544 | `Reserve`: #3 and `cs.1`, no `blobs` file; it defines the actor `dev#2` that `cs.1` uses |
+| g6 | 1609 | the import's commit group: `BodyDrop` of origin 2 `import` (H3, reason 3 `other`, empty note) first, then f2 (seq 2), a bulk native import on `import/1` (`verified` 1, `cs_ref` = `cs.1`, `n_ops` = `n_bodies` = 0, BK-1) that creates note #3, whose image ends `--- dropped <H3> other` ([F05 §9.29] "Origin", "Group"; [F14 §11.2]) |
+| g7 | 1884 | a body-drop group: `BodyDrop` of origin 1 `command`, H1, reason 1 `secret`, with a note (DB-1, DB-3) |
+| g8 | 2018 | the purge's forced rotation (P-101 step 1, [F05 §4.4] G-3): one lazy `Noop` to the extent's end |
+| g9 | 65536 | log.2's `ExtentHead` (`chain_in` = the pad's trailer; the counters and HLC maxima before it) |
+| g10 | 65674 | P-101 step 2: the delta checkpoint (`ckflags` bits 0, 1, 5): `upto_lsn` 65,674, the end of g9 (> 1·E, EX-5), per-ref lists of `main` and `import/1`, `segments` {`seg.d2`}, `added` {`blobs.3`} |
+| g11 | 65808 | P-101 step 7: the publish (bits 0 and 4): the same set and `upto_lsn`, `active_log` 2, the retirement of extent 1 into `hist.4` |
+| g12 | 65914 | `BodyDrop` of origin 1, H2, reason 2 `private`; the purge is pending again. The newest record that raises `hlc_seq`, so `HEAD.hlc_seq` is its `hlc` ([F05 §10.2]) |
+
+Sealed files, numbered by the allocator in the order they were named ([F04 §5.13]):
+
+| File | Kind | Holds |
+|---|---|---|
+| `cs.1.hex` | `cs` | f2's changeset: row #3 as created (values fixed at append), `PREV` 0, and `BLOBTAB` with one dropped `BlobRef` for H3 (`file` = `off` = `len` = `raw_len` = 0, [F09 §6.3], §16.4), which #3's `body_ref` names |
+| `seg.d2.hex` | `seg-delta` | the step-2 delta over [0, 65,674), the only layer of the main set: rows #1 and #2 (#3 lives only on `import/1` and has no row, [F09 §5.1]); `BLOBTAB` with H1 as a dropped `BlobRef` and H2 live in `blobs.3`, sorted by hash; `SYMTAB` with class 12; `DROPPED` (H1 and H3, each `drop_lsn` below `upto_lsn`) and `HARVEST` (one live row in layer form), both conditional and present because they hold rows ([F09 §14.5], [F11 §2.4]); `REFS` with `main` and `import/1`, `ALLOC` and `UIDX` with #1–#3, `IDEM` with 16 empty slots, `FILES` with `cs.1` only: `blobs.3` enters with g10, which lies at `upto_lsn` ([F09 §14.4]); the derived-optional caches absent; no tier-2 section |
+| `blobs.3.hex` | `blobs` | H2 only (class 1, codec 0): the fold seals no body of the dropped set (P-101 step 2, [F10 §5.4]) |
+| `hist.4.hex` | `hist` | extent 1's records but the pad, in one frame of 1,892 raw bytes, codec 0; f1 without H1's body entry (`n_bodies` 1, `RecHdr.len` and `RecHdr.xxh3_64` recomputed, `RecHdr.lsn` kept; [F10 §4.1], [F06 §8.1] DB-9); f2 keeps its `cs_ref`; both `BodyDrop` records kept; `HCIDX` over f1 and f2. The last record held is g7's `BodyDrop`, so `upto_lsn` is its end and the shortened f1 is not the last record |
+| `HEAD.hex` | `HEAD` | after g12's publish, both slots equal: `active_log` 2, `checkpoint_lsn` 65,674, `segments` {`seg.d2`}, `commit_seq` 2, `next_id` 4, `next_file_no` 5, `next_ref_id` 2, `hlc_seq` = g12's `hlc`, `hlc_commit` = f1's `hlc` (f2 keeps an older imported `hlc`) |
+
+- **Not covered**, and why: the `HARVEST` snapshot form of a base, a dead `HARVEST` row and a `Harvest` forget, and a
+  `DROPPED` section in a base (store F has no base); `actor_kind` values other than 3 (bytes of the same layout).
+- **Readings recorded, not claimed by the text.** f2 is a bulk commit although its changeset part is far below P05 =
+  4 KiB ([F17 §4.4] W1), as store A's c14 is: the timing caveat of §1 applies. `cs.1` is streamed after g5's `Reserve`
+  and before g6, whose `BodyDrop` names H3 in f2's own group; [F09 §16.4]'s "a bulk commit streamed after a drop writes a
+  dropped `BlobRef`" is read here as covering a drop the bulk commit's own import appends ([F05 §9.29] "Group" allows the
+  record in the commit's group).
+- **Consumers.** Store F needs its rows in the format oracle's fixture table, and the oracle's `HEAD` fold needs the arms
+  of kinds 29 and 30 ([F05 §10.2]); R-ORA adds both (S8), and this directory and the oracle land together (R-54).
+
 ## 4. Holes and candidates
 
 The fixtures are written before WP-81a fills the holes of `docs/spec/HOLES.md`. Files outside this table depend on no
@@ -292,20 +337,20 @@ item instead; "outside `hex/`" names the fixture family that holds it.
 |---|---|
 | 60-pre | every `HEAD` (`format` 1 in both slots), every `SegHdr` and `GitmapHdr` (`format` 1); `hex/head/fatal/format-2.hex` (a newer version refused) |
 | 60-AR-LOCK | `hex/lock/init.hex`, `hex/lock/live.hex`, `hex/unknown-boot/LOCK.hex`; the lock bytes beyond EOF are not file content (§3.4) |
-| 60-AR-HEAD | `hex/head/*.hex`, `hex/head/two-slot/*.hex`, `hex/head/flags/*.hex`, `hex/store-b/HEAD.hex`, `hex/chain/*/HEAD.hex`, `hex/unknown-boot/HEAD.hex`, `hex/decode-only/journal-cursor/HEAD.hex`; `refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `image_cursor` and 17 `seq_ring` entries in `hex/head/two-slot/*.hex`; flag bits 0 (the `new` slots of `hex/head/two-slot/`), 1 (every store-A state after g46), 2 (`flags/readonly.hex`); a reserved bit in `hex/head/fatal/reserved-bit.hex` |
+| 60-AR-HEAD | `hex/head/*.hex`, `hex/head/two-slot/*.hex`, `hex/head/flags/*.hex`, `hex/store-b/HEAD.hex`, `hex/chain/*/HEAD.hex`, `hex/unknown-boot/HEAD.hex`, `hex/decode-only/journal-cursor/HEAD.hex`, `hex/store-f/HEAD.hex`; `refs_lsn`/`pins_lsn`/`heads_lsn`/`markers_lsn`, `image_cursor` and 17 `seq_ring` entries in `hex/head/two-slot/*.hex`; flag bits 0 (the `new` slots of `hex/head/two-slot/`), 1 (every store-A state after g46), 2 (`flags/readonly.hex`); a reserved bit in `hex/head/fatal/reserved-bit.hex` |
 | 60-AR-HEAD-params | `InitParams` in every `HEAD`; `hex/head/fatal/init-mismatch.hex`; `project_oid_algo` 1 (store A) and 2 (`hex/store-b/HEAD.hex`) |
-| 60-AR-Log-extents | every `log.*.hex` is exactly E = 65,536 bytes and zero beyond its valid log; extent 2: `hex/store-b/log.2.hex`, `hex/chain/re-roll/log.2.hex` |
-| 60-AR-Log-RecHdr | every record of every `log.*.hex` and every record inside `hex/store-b/hist.*.hex` |
-| 60-AR-Log-chain | every `log.*.hex`; groups never spanning extents: `hex/store-b/log.1.hex` (pad) and `log.2.hex` (`ExtentHead.chain_in`) |
-| 60-AR-Log-kinds | `hex/store-a/log.1.hex` (kinds 1–11, 13–20, 22–28), `hex/store-b/log.1.hex` (12 `Noop`), `hex/decode-only/journal-cursor/log.1.hex` (21); `Marker` settled, deleted, cleared, holders, nonlinear; `Checkpoint` with per-ref lists (g22, g46) and a promotion (g24) |
-| 60-AR-CommitBody | `hex/store-a/log.1.hex` (every presence bit but `pruned` and `stage` (§6): `ref_old`, `prev_on_ref`, `sync_base`, `absorbed` (c6, c8), `foreign_git`, `verified`, every `import`); `hex/store-b/hist.5.hex` (`pruned`) |
+| 60-AR-Log-extents | every `log.*.hex` is exactly E = 65,536 bytes and zero beyond its valid log; extent 2: `hex/store-b/log.2.hex`, `hex/chain/re-roll/log.2.hex`, `hex/store-f/log.2.hex`; the retirement of an extent written by a purge: `hex/store-f/log.2.hex` g11 |
+| 60-AR-Log-RecHdr | every record of every `log.*.hex` and every record inside `hex/store-b/hist.*.hex` and `hex/store-f/hist.4.hex` (f1's recomputed `len` and `xxh3_64`) |
+| 60-AR-Log-chain | every `log.*.hex`; groups never spanning extents: `hex/store-b/log.1.hex` (pad) and `log.2.hex` (`ExtentHead.chain_in`); a forced rotation: `hex/store-f/log.1.hex` (pad) and `log.2.hex` |
+| 60-AR-Log-kinds | `hex/store-a/log.1.hex` (kinds 1–11, 13–20, 22–28), `hex/store-b/log.1.hex` (12 `Noop`), `hex/decode-only/journal-cursor/log.1.hex` (21), `hex/store-f/log.1.hex` (29 `BodyDrop` of origins 1 and 2, 30 `Harvest` mark and range) and `log.2.hex` (29); `Marker` settled, deleted, cleared, holders, nonlinear; `Checkpoint` with per-ref lists (g22, g46) and a promotion (g24) |
+| 60-AR-CommitBody | `hex/store-a/log.1.hex` (every presence bit but `pruned` and `stage` (§6): `ref_old`, `prev_on_ref`, `sync_base`, `absorbed` (c6, c8), `foreign_git`, `verified`, every `import`); `hex/store-b/hist.5.hex` (`pruned`); `hex/store-f/log.1.hex` (bit 19 `prov` with `actor_kind` and `model`, f1), `hex/store-f/hist.4.hex` (a record without a dropped body's entry) |
 | 60-AR-Ops | `hex/store-a/log.1.hex` (every op tag, with before-images and `prev`); `hex/fragments/ops/variants.hex` |
 | 60-AR-Values | `hex/fragments/values/op-values.hex`, `field-block.hex`, `cv.hex`; stored values throughout store A's ops, field blocks and promoted columns |
 | 60-AR-Canonical | outside `hex/`: `canonical/`, `carrier/` (WP-21). The commit ids and digests in `hex/` are synthetic (§2) |
-| 60-AR-Seg-hdr | `hex/store-a/seg.*.hex`, `hex/store-a/cs.6.hex`, `hex/store-b/seg.d3.hex`: every section tag of [F09 §3.1]; `EDGE_PROPS` in each; `TERMS`/`POST` in `seg.d7`, `seg.d8`, `seg.base.10` |
-| 60-AR-Seg-runtime | `REFS`, `PINS`, `HEADS`, `MARKERS` in `hex/store-a/seg.d1.hex`, `seg.d7.hex`, `seg.d8.hex`, `seg.base.10.hex`, `hex/store-b/seg.d3.hex`; the `RefTable`, `Pin`, `ClientHead` and `Marker` records of `hex/store-a/log.1.hex` that fold into them; `hex/fragments/binding/heads-row.hex` |
+| 60-AR-Seg-hdr | `hex/store-a/seg.*.hex`, `hex/store-a/cs.6.hex`, `hex/store-b/seg.d3.hex`: every section tag of [F09 §3.1] (`0x020D` and `0x020E` in `hex/store-f/seg.d2.hex` only); a dropped `BlobRef` in `hex/store-f/seg.d2.hex` and `cs.1.hex`; `EDGE_PROPS` in each; `TERMS`/`POST` in `seg.d7`, `seg.d8`, `seg.base.10` |
+| 60-AR-Seg-runtime | `REFS`, `PINS`, `HEADS`, `MARKERS` in `hex/store-a/seg.d1.hex`, `seg.d7.hex`, `seg.d8.hex`, `seg.base.10.hex`, `hex/store-b/seg.d3.hex`; the `RefTable`, `Pin`, `ClientHead` and `Marker` records of `hex/store-a/log.1.hex` that fold into them; `hex/fragments/binding/heads-row.hex`; `DROPPED` and `HARVEST` in `hex/store-f/seg.d2.hex`, folded from the `BodyDrop` and `Harvest` records of `hex/store-f/log.1.hex` |
 | 60-AR-Seg-branch | `hex/store-a/seg.b1.5.hex` (`TOUCH`) |
-| 60-AR-Seg-sealed | `hex/store-b/hist.2.hex`, `hist.5.hex`, `hex/codec/hist.*.hex` (frames, split frames, `HCIDX`); `hex/store-a/blobs.*.hex`, `hex/store-b/blobs.4.hex`, `hex/codec/blobs.*.hex`, `hex/codec/dict.*.hex`; `hex/store-a/gitmap.3.hex`, `gitmap.4.hex` |
+| 60-AR-Seg-sealed | `hex/store-b/hist.2.hex`, `hist.5.hex`, `hex/codec/hist.*.hex`, `hex/store-f/hist.4.hex` (frames, split frames, `HCIDX`); `hex/store-a/blobs.*.hex`, `hex/store-b/blobs.4.hex`, `hex/store-f/blobs.3.hex`, `hex/codec/blobs.*.hex`, `hex/codec/dict.*.hex`; `hex/store-a/gitmap.3.hex`, `gitmap.4.hex` |
 | 60-AR-Schema | `SCHEMA` in `hex/store-a/seg.d1.hex`, `seg.base.10.hex`, `cs.6.hex`; the `Schema` op of c1; `hex/fragments/schema/items.hex` (item classes 1–6); the `Schema` ops of `hex/fragments/ops/variants.hex` (modes 0 and 1, item classes 1–6, stored keys) |
 | 60-AR-Image | outside `hex/`: `moi/`, `carrier/` (WP-21) |
 | 60-AR-Layout-dir | not a byte structure: the file names of every store directory here follow [F02 §5]–§6; directory contents are checked by the engine's and the simulator's tests |
@@ -346,13 +391,13 @@ item instead; "outside `hex/`" names the fixture family that holds it.
 | 60-AU-Commit-digest | every commit's `changeset_digest` (synthetic, §2) |
 | 60-AU-Commit-csref | c14 in `hex/store-a/log.1.hex`, `hex/store-a/cs.6.hex`; the unlanded reservation of `hex/store-b/log.2.hex` (`FILES` `reserved` in `seg.d3`) |
 | 60-AU-Commit-inline | not a byte structure: P05 decides inline or bulk; both forms are here (c17 inline, c14 bulk) |
-| 60-AU-Seg-cs | `hex/store-a/cs.6.hex` |
+| 60-AU-Seg-cs | `hex/store-a/cs.6.hex`, `hex/store-f/cs.1.hex` (a dropped `BlobRef`) |
 | 60-AU-Seg-derivedopt | `hex/store-a/seg.d8.hex`, `seg.base.10.hex` (the five sections with the flag), `seg.d7.hex` (absent) |
 | 60-AU-Seg-markers | `MARKERS`, `MARKERS_OLD` in store A's segments |
 | 60-AU-Seg-leases | `LEASES` in store A's segments and `hex/store-b/seg.d3.hex` (a run-scoped lease); the anchors (`session`, `session-ttl`, `none`), `Stamp` deadlines and `files_owned` globs of the `Lease` records in `hex/store-a/log.1.hex` and `hex/store-b/log.2.hex` |
 | 60-AU-Seg-alloc | `ALLOC`, `UIDX` in store A's segments; the reserved holes in `hex/store-b/seg.d3.hex` |
 | 60-AU-Seg-r4rt | `ANCHORRES`, `GLOBIDX`, `TREES` in `hex/store-a/seg.d8.hex`, `seg.base.10.hex` |
-| 60-AU-Seg-hist | `hex/store-b/hist.2.hex`, `hist.5.hex`, `hex/codec/hist.*.hex` (the frame rule at the test values P03 4, P04 4,096) |
+| 60-AU-Seg-hist | `hex/store-b/hist.2.hex`, `hist.5.hex`, `hex/codec/hist.*.hex` (the frame rule at the test values P03 4, P04 4,096); `hex/store-f/hist.4.hex` (a retirement in a purge's publish) |
 | 60-AU-RefTable | `overlay_ops`, `overlay_bytes` in `REFS` rows and `RefTable` entries of store A |
 | 60-AU-Schema-lane | not a byte structure (the core schema row, [F08 §9.3]); no store holds a lane node |
 | 60-AU-Canon-digest, -lineorder, -anchordigest | outside `hex/`: `canonical/`, `carrier/`; the hash-only anchor records of `hex/fragments/anchors/records.hex` hold the digests |
@@ -435,8 +480,8 @@ item instead; "outside `hex/`" names the fixture family that holds it.
 
 | Structure | Values in `hex/` | Not covered, and why |
 |---|---|---|
-| Record kinds ([F05 §7]) | 1–28 | — |
-| Commit kinds, import provenance, presence bits ([F06 §3], §4.2) | kinds 0–5, provenance 0–3, bits 0–17 | bit 18 `stage` and its order-45 group ([F06 §4.4.16]; spec sync 2b S2B-F-1): the format oracle decodes the group now, but no fixture can hold it yet. Store A's staged c11 had no `--base`, policy override or `strict`, so its group is absent, and no fragment kind holds a lone commit record; a new fixture file needs its own row in the format oracle's fixture table first, so none is added in this update |
+| Record kinds ([F05 §7]) | 1–30 (29 and 30 in `hex/store-f/`) | — |
+| Commit kinds, import provenance, presence bits ([F06 §3], §4.2) | kinds 0–5, provenance 0–3, bits 0–17 and 19 (f1 of `hex/store-f/log.1.hex`: `actor_kind` 3, `model` 1) | `actor_kind` values other than 3 (1–6 and 255 valid, 7–254 reserved and accepted, 0 invalid, [F06 §3.6]): values of one byte with no other layout; bit 18 `stage` and its order-46 group ([F06 §4.4.16]; spec sync 2b S2B-F-1): the format oracle decodes the group now, but no fixture can hold it yet. Store A's staged c11 had no `--base`, policy override or `strict`, so its group is absent, and no fragment kind holds a lone commit record; a new fixture file needs its own row in the format oracle's fixture table first, so none is added in this update |
 | `stmt_origin`, `actor_src` ([F06 §3.4], §3.5) | 0–6 each | — |
 | Op tags ([F06 §7.2]) | 1–16 | — |
 | Value-conflict classes ([F12 §6.1]) | 1, 2, 3, 4, 6, 7 | 5 `SupersedeFork`: which key holds it is open in [F12] ([RULES/merge-table] open point 9) |
@@ -446,7 +491,11 @@ item instead; "outside `hex/`" names the fixture family that holds it.
 | Value types ([F08 §5]) | 0–13, sets of every element type | — |
 | Anchor records ([F08 §10.3]) | kinds 1–6, every `aflags` bit, scopes for `rust` and `markdown` | scope `lang` 3 `toml`: bytes identical in form |
 | Schema items ([F08 §8.5]) | classes 1–6 (6 `policy`, [F08 §8.5.6]; spec sync 2b S2B-F-21), retired | — |
-| Section tags ([F09 §3.1]) | every tag and both ranges (`FCOL`, `FIDX`, `BM`) | — |
+| Section tags ([F09 §3.1]) | every tag and both ranges (`FCOL`, `FIDX`, `BM`); `0x020D` `DROPPED` and `0x020E` `HARVEST` in `hex/store-f/seg.d2.hex` only: both are conditional and absent elsewhere | — |
+| Symbol classes ([F05 §8.1], [F09 §14.1]) | 1–11 in the `SymDefs` blocks of the stores; 12 `model` in f1's `SymDefs` (`hex/store-f/log.1.hex`) and in `SYMTAB` of `hex/store-f/seg.d2.hex` | — |
+| `BodyDrop` origins and reasons ([F05 §9.29]) | origins 1 `command` and 2 `import`; reasons 1 `secret`, 2 `private`, 3 `other` (`hex/store-f/log.1.hex` g6, g7; `log.2.hex` g12) | — |
+| Dropped `BlobRef` ([F09 §6.3]) | in a graph segment's `BLOBTAB` (`hex/store-f/seg.d2.hex`) and a `cs.<n>`'s (`hex/store-f/cs.1.hex`) | — |
+| `DROPPED`, `HARVEST` ([F11 §13.4], §13.5) | `DROPPED` in a delta (two rows, both origins); `HARVEST` in layer form, one live row with one range (`hex/store-f/seg.d2.hex`) | the `HARVEST` snapshot form of a base, a dead row and a `Harvest` forget; `DROPPED` in a base: store F has no base |
 | `SegHdr.seg_kind` | 2, 3, 4, 5, 6, 9 | — |
 | Sealed headers | `SegHdr`, `GitmapHdr` (`sha1`, `sha256`), `DictHdr` (raw and formatted content) | — |
 | Codec byte ([F10 §3.1]) | 0 in every store; 1–4 in `hex/codec/` | — |

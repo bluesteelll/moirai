@@ -1,0 +1,25 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/body-dropped-private.moi
+%% file node
+%% context core
+%% source [F14 §6.1]
+%% source [F14 §6.9]
+%% source [F14 §11.1]
+%% source [F14 §12.2] item 8
+%% source [F06 §8.1] DB-2, DB-6, DB-11
+%% note Bodies: a dropped body, reason private (spec sync 3, S3-R-12, S3-R-13). The file ends with the line
+%% note `--- dropped <hash> private` in place of the `---` section. The hash is the body key: BLAKE3-128 of the
+%% note dropped bytes, here the stated synthetic text below, which the file does not hold. Keys: `body-hash` (§3); the
+%% note reason is image data, not a key.
+%% note The dropped text: "Synthetic body of body-dropped-private: a made-up personal note that the owner dropped as private.\n"
+%% canonical self
+%% keys
+node 3b000000000000000000000000000022 note
+  field title text "body-dropped-private"
+  body-hash 564d99cacfeb8acfc597ac37ef267b3f
+%% image
+created c389f8345e86f2a022ae54b8ab4bd427dd15377a6e66668a1888456a5fe7376cd 2026-09-21T14:13:20.000Z
+updated c06997395069c8a59a4a198b5abc62f95aafc64d8ea0ab97bad1906caebdbeb54 2026-09-21T15:43:20.000Z
+dropped 564d99cacfeb8acfc597ac37ef267b3f private
+%% end

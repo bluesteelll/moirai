@@ -766,7 +766,12 @@ fn side(
             assert_eq!(vs.len(), 6, "six observation values");
             KVal::Observation(vs)
         }
-        Aspect::Body => KVal::Body(json(&t[0])),
+        // A body side is a JSON text, or `hash <32 hex>`: a body known only by its hash ([INDEX] §3.5).
+        Aspect::Body => KVal::Body(if t[0] == "hash" {
+            Body::Hash(b16(&t[1]))
+        } else {
+            Body::Text(json(&t[0]))
+        }),
         Aspect::Edge(_) => {
             assert_eq!(t[0], "present");
             KVal::Edge(edge_props(&t[1..]))
@@ -775,7 +780,7 @@ fn side(
     (Some(v), None)
 }
 
-/// A key line of a node (or of a node image): status, parent, field, counter, body, edge, at.
+/// A key line of a node (or of a node image): status, parent, field, counter, body, body-hash, edge, at.
 fn key_line(n: &mut Node, t: &[String], ids: &mut Ids, schema: &Schema) {
     match t[0].as_str() {
         "status" => {
@@ -799,8 +804,10 @@ fn key_line(n: &mut Node, t: &[String], ids: &mut Ids, schema: &Schema) {
         }
         "body" => {
             let b = json(&t[1]);
-            n.body = (!b.is_empty()).then_some(b);
+            n.body = (!b.is_empty()).then_some(Body::Text(b));
         }
+        // A body known only by its hash: its key value is the stored hash, never recomputed ([F07 §6.3]).
+        "body-hash" => n.body = Some(Body::Hash(b16(&t[1]))),
         "edge" => {
             let dst = ids.nid(uid_hex(&t[2]));
             n.out.insert(
@@ -1342,6 +1349,160 @@ fn every_value_case_encodes() {
     assert_eq!(n, 60);
 }
 
+/// The synthetic node uid of the hash-only body tests below ([F07 §6.3], §7.2-§7.4, §10.2; [F14 §11.1], §12.2 row 8).
+const HASH_TEST_UID: &str = "9a000000000000000000000000000001";
+/// A synthetic body hash; not a palindrome, so its reversed bytes differ.
+const HASH_TEST_H: [u8; 16] = [0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15];
+/// A synthetic body text, whose hash twin the tests build.
+const HASH_TEST_T: &str = "Synthetic body for the hash twin.";
+/// A synthetic `theirs` body text.
+const HASH_TEST_T2: &str = "Synthetic theirs body.";
+
+/// The canonical state of a synthetic state text, with its own uid table.
+fn hash_test_cs(text: &str) -> Cs {
+    let lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let mut ids = Ids::default();
+    let st = state(&lines, &mut ids);
+    let uid = |n: Nid| ids.uid_of(n);
+    canonical_state(&st, &uid)
+}
+
+/// BLAKE3-128 of a text, from the `blake3` crate ([F01 §7.1]), not from the encoder.
+fn hash_test_b3(t: &str) -> [u8; 16] {
+    blake3::hash(t.as_bytes()).as_bytes()[..16]
+        .try_into()
+        .expect("16 bytes")
+}
+
+/// `lp(x)`, written out ([F07 §2.1]): the length as a little-endian `u32`, then the bytes.
+fn hash_test_lp(x: &[u8]) -> Vec<u8> {
+    let mut v = (x.len() as u32).to_le_bytes().to_vec();
+    v.extend_from_slice(x);
+    v
+}
+
+/// The bytes of the synthetic node uid, written out.
+fn hash_test_u() -> Vec<u8> {
+    let mut u = vec![0u8; 16];
+    u[0] = 0x9a;
+    u[15] = 1;
+    u
+}
+
+/// A `body-hash` key line holds a body known only by its hash ([F07 §6.3]; [F14 §11.1]): its key value is the stored
+/// hash, never recomputed. The hash twin of a text body is canonically equal to it, and a hash-only body is a present
+/// body key whose entry carries the stored hash ([F07 §10.2]: class 8, `cs` 0, `bf` 1, `b16`).
+#[test]
+fn a_body_hash_line_keeps_the_stored_hash() {
+    let u = HASH_TEST_UID;
+    let ht = hash_test_b3(HASH_TEST_T);
+    // (a) The twin: the text body and its hash-only twin have equal canonical values.
+    let cp = hash_test_cs(&format!("node {u} note\n  body \"{HASH_TEST_T}\"\n"));
+    let cq = hash_test_cs(&format!(
+        "node {u} note\n  body-hash {}\n",
+        crate::value::hex(&ht)
+    ));
+    assert_eq!(
+        entries(&cp, &cq),
+        Vec::<Vec<u8>>::new(),
+        "a text body and its hash twin"
+    );
+    let mut want = vec![1u8];
+    want.extend_from_slice(&hash_test_u());
+    want.extend_from_slice(&[8, 0, 1]);
+    want.extend_from_slice(&ht);
+    let all = entries(&Cs::new(), &cq);
+    assert!(
+        all.contains(&want),
+        "the hash-only body's entry {} is among {:?}",
+        crate::value::hex(&want),
+        all.iter().map(|e| crate::value::hex(e)).collect::<Vec<_>>()
+    );
+    // (b) Absent to hash-only: one entry, the stored hash.
+    let cp = hash_test_cs(&format!("node {u} note\n"));
+    let cq = hash_test_cs(&format!(
+        "node {u} note\n  body-hash {}\n",
+        crate::value::hex(&HASH_TEST_H)
+    ));
+    let mut want = vec![1u8];
+    want.extend_from_slice(&hash_test_u());
+    want.extend_from_slice(&[8, 0, 1]);
+    want.extend_from_slice(&HASH_TEST_H);
+    assert_eq!(
+        entries(&cp, &cq)
+            .iter()
+            .map(|e| crate::value::hex(e))
+            .collect::<Vec<_>>(),
+        vec![crate::value::hex(&want)]
+    );
+}
+
+/// A `hash <32 hex>` body side of a conflict ([INDEX] §3.5) is a body known only by its hash: the side's value is the
+/// stored hash ([F07 §7.3]: `cs` 1, the class, then base, ours and theirs; [F14 §12.2] row 8).
+#[test]
+fn a_hash_body_side_keeps_the_stored_hash() {
+    let u = HASH_TEST_UID;
+    let cp = hash_test_cs(&format!("node {u} note\n"));
+    let cq = hash_test_cs(&format!(
+        "node {u} note\n  conflict body TextHunk\n    base absent\n    ours hash {}\n    theirs \"{HASH_TEST_T2}\"\n",
+        crate::value::hex(&HASH_TEST_H)
+    ));
+    let mut want = vec![1u8];
+    want.extend_from_slice(&hash_test_u());
+    want.extend_from_slice(&[8, 1]);
+    want.extend_from_slice(&hash_test_lp(b"TextHunk"));
+    want.extend_from_slice(&[0, 1]);
+    want.extend_from_slice(&HASH_TEST_H);
+    want.push(1);
+    want.extend_from_slice(&hash_test_b3(HASH_TEST_T2));
+    assert_eq!(
+        entries(&cp, &cq)
+            .iter()
+            .map(|e| crate::value::hex(e))
+            .collect::<Vec<_>>(),
+        vec![crate::value::hex(&want)]
+    );
+}
+
+/// A `body-hash` line of a `live` side's node image ([INDEX] §3.5) keeps the stored hash: the image entry is class 8
+/// with `b16` ([F07 §7.4]), equal to the text body's, inside the existence conflict value ([F07 §7.2] class 1, §7.3).
+#[test]
+fn a_body_hash_image_line_keeps_the_stored_hash() {
+    let u = HASH_TEST_UID;
+    let ht = hash_test_b3(HASH_TEST_T);
+    let with = |image: &str| {
+        format!(
+            "node {u} note\n  conflict existence DeleteVsModify prov ours\n    base absent\n    ours live note\n      {image}\n    theirs deleted note \"gone\" -\n"
+        )
+    };
+    let a = hash_test_cs(&with(&format!("body \"{HASH_TEST_T}\"")));
+    let b = hash_test_cs(&with(&format!("body-hash {}", crate::value::hex(&ht))));
+    assert_eq!(a, b, "the image's text body and its hash twin");
+    let mut want = vec![1u8];
+    want.extend_from_slice(&hash_test_u());
+    want.extend_from_slice(&[1, 1]);
+    want.extend_from_slice(&hash_test_lp(b"DeleteVsModify"));
+    want.push(0);
+    want.push(1);
+    want.extend_from_slice(&hash_test_lp(b"note"));
+    want.push(1);
+    want.extend_from_slice(&1u32.to_le_bytes());
+    want.push(8);
+    want.extend_from_slice(&ht);
+    want.push(2);
+    want.extend_from_slice(&hash_test_lp(b"note"));
+    want.extend_from_slice(&hash_test_lp(b"gone"));
+    want.extend_from_slice(&hash_test_lp(b""));
+    want.extend_from_slice(&hash_test_lp(b"ours"));
+    let all = entries(&Cs::new(), &b);
+    assert!(
+        all.contains(&want),
+        "the existence conflict entry {} is among {:?}",
+        crate::value::hex(&want),
+        all.iter().map(|e| crate::value::hex(e)).collect::<Vec<_>>()
+    );
+}
+
 /// E5 on the fixtures (INDEX §5.1 item 3): the typed three-way merge of `base-state`, `p-state` (o) and
 /// `theirs-state` gives CS(`q-state`), and each key the three states disagree on is decided by the row, or a row of
 /// the case, that `merge-rows` names.
@@ -1728,15 +1889,64 @@ fn check_carrier_case(name: &str, all: &BTreeMap<String, Carrier>) {
     }
 }
 
-/// E3 on `fixtures/carrier/` (its INDEX's acceptance): every one of the 45 cases reproduces its item 10,
-/// `changeset_digest`, C and `commit_id`; a native case verifies against its `Moirai-Commit`; a foreign, checkpoint or
-/// demoted case's items 1–9 follow from its git commit and its parents' cases; `foreign-merge`'s item 10 is the typed
-/// merge's; a demoted case's native reconstruction fails, or its `Moirai-Ops` is not its entry count ([F14 §12.1]);
-/// twins share their ids and the cases `canonical` names agree.
+/// The case names of a carrier INDEX's §5 table: the first cell of each row, without its backticks. §5 runs from the
+/// line that starts `## 5.` to the next line that starts `## `; a first cell counts only when it is wrapped in
+/// backticks, so the header and the separator row do not.
+fn index_case_names(index: &str) -> BTreeSet<String> {
+    let mut out = BTreeSet::new();
+    let mut in5 = false;
+    for l in index.lines() {
+        if l.starts_with("## ") {
+            in5 = l.starts_with("## 5.");
+            continue;
+        }
+        let Some(row) = l.strip_prefix('|').filter(|_| in5) else {
+            continue;
+        };
+        let cell = row.split('|').next().unwrap_or("").trim();
+        if let Some(name) = cell
+            .strip_prefix('`')
+            .and_then(|c| c.strip_suffix('`'))
+            .filter(|c| !c.is_empty())
+        {
+            out.insert(name.to_string());
+        }
+    }
+    out
+}
+
+/// The case names of a carrier INDEX's §5 against the case directories: (the §5 names with no directory, the
+/// directories with no §5 row), each sorted.
+fn case_set_mismatch(index: &str, dirs: &BTreeSet<String>) -> (Vec<String>, Vec<String>) {
+    let names = index_case_names(index);
+    (
+        names.difference(dirs).cloned().collect(),
+        dirs.difference(&names).cloned().collect(),
+    )
+}
+
+/// E3 on `fixtures/carrier/` (its INDEX's acceptance): the case names of its §5 table equal the case directories, and
+/// every case reproduces its item 10, `changeset_digest`, C and `commit_id`; a native case verifies against its
+/// `Moirai-Commit`; a foreign, checkpoint or demoted case's items 1–9 follow from its git commit and its parents' cases;
+/// `foreign-merge`'s item 10 is the typed merge's; a demoted case's native reconstruction fails, or its `Moirai-Ops` is
+/// not its entry count ([F14 §12.1]); twins share their ids and the cases `canonical` names agree.
 #[test]
 fn every_carrier_case_reproduces_its_id() {
+    let index_path = carrier_dir().join("INDEX.md");
+    let index = std::fs::read_to_string(&index_path)
+        .unwrap_or_else(|e| panic!("{}: {e}", index_path.display()));
     let all = carrier_cases();
-    assert_eq!(all.len(), 45, "INDEX §5 lists 45 cases");
+    assert!(
+        !all.is_empty(),
+        "{}: no case directory",
+        carrier_dir().display()
+    );
+    let dirs: BTreeSet<String> = all.keys().cloned().collect();
+    assert_eq!(
+        case_set_mismatch(&index, &dirs),
+        (Vec::new(), Vec::new()),
+        "INDEX §5's case names against the case directories: (rows with no directory, directories with no row)"
+    );
     for name in all.keys() {
         check_carrier_case(name, &all);
     }
@@ -1750,4 +1960,62 @@ fn base64url_texts_decode() {
     assert_eq!(b64url("_-8"), [0xff, 0xef]);
     assert_eq!(atext_h("%Q2Fm6SBsb2NraW5n"), b3_128(b"Caf\xe9 locking"));
     assert_eq!(atext_h("\"x\""), b3_128(b"x"));
+}
+
+/// A synthetic carrier INDEX: §5's table holds the cases `a` and `b`, and the table of its `### 5.1` subsection the
+/// case `d`, which §5 still holds because a `### ` line does not end it; the tables of §4 and §6 hold other names.
+const CASE_CHECK_INDEX: &str = "# Synthetic INDEX
+
+## 4. Other
+
+| Case | X |
+|---|---|
+| `not-a-case` | x |
+
+## 5. The cases
+
+| Case | Dest |
+|---|---|
+| `a` | A |
+| `b` | A |
+
+### 5.1 A subsection
+
+| Case | Dest |
+|---|---|
+| `d` | A |
+
+## 6. Coverage
+
+| Case | X |
+|---|---|
+| `also-not-a-case` | x |
+";
+
+/// The set of carrier case directories named.
+fn case_dirs(names: &[&str]) -> BTreeSet<String> {
+    names.iter().map(|n| n.to_string()).collect()
+}
+
+/// The case check finds a §5 row with no case directory, a row under a `### ` subsection of §5 included, and takes no
+/// name from outside §5.
+#[test]
+fn the_case_check_finds_an_index_row_with_no_directory() {
+    assert_eq!(
+        case_set_mismatch(CASE_CHECK_INDEX, &case_dirs(&["a"])),
+        (vec!["b".to_string(), "d".to_string()], Vec::new())
+    );
+    assert_eq!(
+        case_set_mismatch(CASE_CHECK_INDEX, &case_dirs(&["a", "b", "d"])),
+        (Vec::new(), Vec::new())
+    );
+}
+
+/// The case check finds a case directory with no §5 row.
+#[test]
+fn the_case_check_finds_a_directory_with_no_index_row() {
+    assert_eq!(
+        case_set_mismatch(CASE_CHECK_INDEX, &case_dirs(&["a", "b", "c", "d"])),
+        (Vec::new(), vec!["c".to_string()])
+    );
 }

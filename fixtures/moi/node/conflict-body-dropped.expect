@@ -1,0 +1,28 @@
+# moi fixture (WP-21, R-FIX). Format: fixtures/moi/INDEX.md section 2.
+
+%% fixture node/conflict-body-dropped.moi
+%% file node
+%% context core
+%% source [F14 §6.8]
+%% source [F14 §6.1]
+%% source [F14 §11.1]
+%% source [F14 §12.2] conflict values
+%% source [F06 §8.1] DB-7 (d), DB-11
+%% note Conflicts: a body TextHunk with a dropped side (spec sync 3, S3-R-12, S3-R-17). The ours side is
+%% note `dropped:<hash>:secret`, a bare token; base and theirs keep their JSON-string texts. No body section (§6.8).
+%% note The canonical ours side is the hash (`hash <32 hex>`, fixtures/canonical/INDEX.md §3.5), BLAKE3-128 of the
+%% note stated synthetic text "Synthetic body: rotate the signing key with the made-up token k-0000 every 60 days.\n";
+%% note the reason is image data. `status: open` is the task's initial status, read as absent.
+%% canonical self
+%% keys
+node 1a000000000000000000000000000021 task
+  field title text "Rotate the signing key"
+  conflict body TextHunk
+    base "Rotate the signing key every 90 days.\n"
+    ours hash 5fe079ec9a9fbb88ee6b91d18621e63c
+    theirs "Rotate the signing key every 30 days.\n"
+%% image
+created ce3d5a85347b6b391ff0113324851f6cdd2520bfe43b6015d6284ffee5791a23d 2026-09-21T14:13:20.000Z
+updated c233cada5a94ee36cba02d3cb2a3325971a1d0abade55e62260c3338a3644d415 2026-09-21T15:43:20.000Z
+dropped 5fe079ec9a9fbb88ee6b91d18621e63c secret
+%% end
