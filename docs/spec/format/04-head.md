@@ -227,9 +227,11 @@ update needs an OS crash, after which every process starts again and reads `conf
 | `next_anchor` | the next anchor handle number `aN` ([40] R-6, [40 §2.7]) | 1 | the `aN` that anchor-creating ops carry ([F06]; A1P-12) |
 | `fence` | the greatest fencing token allocated; a claim takes `fence + 1` ([AR §5d.1]) | 0 | `Lease` records |
 
-A counter never decreases (I-G6). A publish sets each to the maximum of the newest slot's value and the value the covered
-records imply. A write that would need `next_id` or `next_anchor` beyond 2^32 − 1 is refused with exit 7 and nothing is
-written ([AR §4.5] step 4 states the rule for `seq`; [F19] assigns the codes).
+A counter never decreases (I-G6). A publish sets each to the maximum of the newest slot's value and the value the
+covered records imply. The last `#N` a write may allocate is 2^32 − 2, and so is the last anchor handle `aN`, so
+`next_id` and `next_anchor` never exceed 2^32 − 1 and stay `u32` (§3.1). A write that would need `#N` or `aN` = 2^32 − 1
+is refused with exit 7 `id_space_exhausted` and nothing is written (W3D-SF-6; the orchestrator's ruling R-74 of
+2026-10-15; [AR §4.5] step 4 states the rule for `seq`, and [F19] assigns the codes).
 
 ### 5.8 `active_log`
 
