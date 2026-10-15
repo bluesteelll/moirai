@@ -237,7 +237,8 @@ marker or lease it read or wrote changed, and no commit in the window touched a 
 `MATCH` reads, runtime predicates (`ready`, `claimed`, `settled_elsewhere`, `deleted_elsewhere`) included ([AR §4.5]
 step 7, S-06); else it is recomputed under the lock within `tx.max-work-in-lock`, or the writer byte is released and
 phase 1 re-run at most twice before exit 4 with the current values. An inline commit is re-validated **by key**: its
-`prev` values are re-serialised under the writer byte ([F06 §7.3]). A **bulk** commit is re-validated **by node**: every
+`prev` values and their locators are re-serialised under the writer byte ([F06 §7.3], [F06 §7.3.1]). A **bulk** commit
+is re-validated **by node**: every
 node that owns a row of its `cs.<n>` counts as read and written as a whole, so any commit in the window that touched any
 key of such a node forces a phase-1 re-run, which re-streams the file; the sealed `prev` of each row ([F09 §16.4],
 [F06 §9] BK-5) therefore still names that node's newest earlier op (pass 1, S1-20). A `BodyDrop` record in the window
@@ -284,10 +285,19 @@ increasing in log order, and `append_hlc` strictly in `seq` order (I43′), whic
 commit's `commit_id` is computed from its final `hlc` here, in O(1) over the unchanged `changeset_digest` ([F07]). The
 maxima never restart: an epoch re-roll carries them in its epoch-start extent head (P-75, P-97).
 
-**P-37 (the append).** Filling the ids of P-31 into an inline commit re-serialises its `prev` deltas, `#N` placeholders,
-record checksum and chain under the writer byte, which is O(`cs_bytes`), up to P05 ([F06] open point 16); measurement 2
-sweeps inline sizes up to P05 and reports the writer hold, and [F06] names the fallback if the hold gate fails (pass 1,
-P1-26). The appender writes the group in one `write_at` at E_v, the end of the valid log it scanned —
+**P-37 (the append).** Filling the ids of P-31 into an inline commit re-serialises its `prev` deltas with their
+locators ([F06 §7.3.1]), `#N` placeholders, record checksum and chain under the writer byte, which is O(`cs_bytes`), up
+to P05 ([F06] open point 16); measurement 2 sweeps inline sizes up to P05 and reports the writer hold, and [F06] names
+the fallback if the hold gate fails (pass 1, P1-26). The appender takes each owner's locator with its `prev`, from the
+same chain-head entry ([F06 §7.3.1] SL-1). The replay of P-25 and the scan of P-29, its scratch layer (P-30) included,
+record in every chain-head entry that they set from an inline `Commit` record where the owner's prev run lies in that
+record ([F06 §7.1.1]); the appender writes the locator known whenever the entry holds that span, and unknown (0, 0)
+otherwise, so filling it reads no log byte under the writer byte. The phase-1 encoding (P-25) carries every locator
+unknown, so [F17 §4.4] W1 is decided there without the known locators' bytes. If P-35's re-check of W1 or W3 on the
+final encoding fails with the known locators and passes with every locator unknown, the appender writes every locator
+unknown. So whether a locator is known never refuses a commit and never sends it to the bulk path (item 1a; the owner's
+rulings R-47 and R-50 of 2026-10-13 and R-73 of 2026-10-15). The appender writes the group in one `write_at` at E_v,
+the end of the valid log it scanned —
 never at the published `committed_lsn` and never elsewhere — with every record's `lsn` equal to its position and the
 trailer seeded with the chain value at E_v ([F05 §4.3]). It remembers E_g and the chain value at E_g. A group that does not
 fit the rest of the extent goes through P-72.
