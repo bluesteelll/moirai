@@ -1135,9 +1135,10 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
   which re-derives from the log's records the invariants that the comparison would find broken in the rows below (state,
   markers, leases, ids and results). That check and the other checks that need the toy's own state (read visibility
   against its replayed view) are the toy's, written in the toy and reviewed by R-HARN-S as a WP-40 acceptance step. S4
-  names only the enumerator's author, so these checks do not break it; the review is what keeps them from being fitted
-  to the toy's bugs. From M1 the `crash` functions of `moirai-model` ([F13 §1.4]) and the comparison with that reference
-  model are the functions of record ([F13] OP-13-02; OWNER O-2 confirms the authorship).
+  also says that the detectors are the enumerator author's, or reviewed by that author: these checks meet that through
+  R-HARN-S's review, which is also what keeps them from being fitted to the toy's bugs. From M1 the `crash` functions of
+  `moirai-model` ([F13 §1.4]) and the comparison with that reference model are the functions of record ([F13] OP-13-02;
+  the owner decided this authorship on 2026-10-06, OQ-A-2 (a)).
 
 ### 17.3 Catalogue
 
@@ -1457,12 +1458,14 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
     refuses an extent without its head at every scan), P-45 masked and carried by a unit test of ig6 (E4's acceptance of
     that is OWNER O-1), and sixteen "Detected by" cells corrected to what reports the bug in the toy (the reasons are in
     `moirai-toylog`'s `TOY_DETECTION`); §17.2 widens avail to an unexplained `outcome_unknown`, places the toy's generic
-    detectors in `moirai-vfs-sim` and its `model` family in its own `doctor --verify` (OWNER O-2). The independent check
+    detectors in `moirai-vfs-sim` and its `model` family in its own `doctor --verify` (the owner decided this on
+    2026-10-06, OQ-A-2 (a)). The independent check
     of the sync aligned [F04 §9.1], [F05 §10.2] and the I-G6 cells with P-50's fold from `durable_lsn`; its second round
     restated PLAN S4 as PLAN does (it names only the enumerator's author; the generic ns check sits with the simulator's
     namespace model, and the toy's own checks are kept honest by R-HARN-S's review), named `doctor --verify` in the
     `model` bullet for the toy, and said in P-65 that the `Marker` records carry the holder-set and flag changes of
-    ME-001 to ME-011, not the storage moves of ME-012 and ME-013.
+    ME-001 to ME-011, not the storage moves of ME-012 and ME-013. The owner's decision of 2026-10-06, OQ-A-2 (a), adds
+    the detector rule to PLAN's S4; §17.2 now states the amended S4.
 31. **Spec sync 3** ([AR §11] #33, OQ-A-7 (a), decided 2026-10-06; [F06 §8.1] DB-8). The protocol of a body drop:
     - **The record.** `BodyDrop` ([F05 §9.29]) is a semantic durable record (P-36, P-6): it is a command's record, the
       model executes it, and it raises the HLC sequence as every other such record does. A `BodyDrop` command writes it

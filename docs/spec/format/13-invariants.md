@@ -72,9 +72,10 @@ invariants of the design of record, and no row is kept for them (OP-13-01).
   model. I-G1 to I-G3 (ack, fresh, chain) and avail are the enumerator's own verdicts there. I-G5 has no predicate of its
   own on the toy: its adoption-or-loss and identity-check clauses are judged by ack and chain, and its exact retry by the
   `model` family, which for the toy is the toy's own `doctor --verify` (I14′), written in the toy and reviewed by
-  R-HARN-S ([F16 §17.2]). S4 names only the enumerator's author, so a check in the toy does not break it; the review is
-  what keeps such a check from being fitted to the toy's bugs. The `crash` functions of `moirai-model` above serve the
-  engine's gates from M1 ([F16 §17.2]; OWNER O-2 confirms the authorship).
+  R-HARN-S ([F16 §17.2]). S4 also says that the detectors are the enumerator author's, or reviewed by that author: a
+  check in the toy meets that through R-HARN-S's review, which is also what keeps it from being fitted to the toy's
+  bugs. The `crash` functions of `moirai-model` above serve the engine's gates from M1 ([F16 §17.2]; the owner decided
+  this authorship on 2026-10-06, OQ-A-2 (a)).
 - **How they are used.** The model's own suite (WP-94) evaluates every state predicate after every command. GT2 compares
   the engine with the model. GT1 and GT3 call the `crash` functions after every crash state.
 
@@ -482,7 +483,7 @@ are specified in [F17], where the production values that measurements decide are
     enumerator's verdicts; checks that need the toy's own state
     (`doctor --verify`, which carries the `model` family, and read visibility against its replayed view) stay the toy's
     and are reviewed by R-HARN-S as a WP-40 acceptance step. R-MODEL keeps the `crash` functions for the
-    engine's gates from M1. The authorship is PLAN's (OWNER O-2).
+    engine's gates from M1. The authorship is PLAN's (the owner decided it on 2026-10-06, OQ-A-2 (a)).
 - **OP-13-03 (`topo`).** I9 lists `topo` among the structures that "equal a full recomputation". A Pearce–Kelly position is
   not a function of the graph. The resolution:
   - I9 is read for `topo` as "is a topological order of the combined precedence graph";
@@ -561,7 +562,8 @@ are specified in [F17], where the production values that measurements decide are
   set and flag and write no record; `gc` drops `MARKERS_OLD` rows after its inertness move), where MC-6 still had ME-013
   flag a returned row nonlinear; I14′ says that a default key, which hashes the branch name ([API §7.2]), meets the
   cross-branch rule only when that name names another ref; §1.4 states PLAN S4 as PLAN does (it names only the
-  enumerator's author).
+  enumerator's author). The owner's decision of 2026-10-06, OQ-A-2 (a), adds the detector rule to PLAN's S4; §1.4 now
+  states the amended S4.
 - **OP-13-16 (spec sync 3: dropped bodies).** [AR §11] #33 and OQ-A-7 (a), decided 2026-10-06, add the invariant I-D1
   (§3.10) over [F06 §8.1]'s dropped bodies. Its three clauses come from R-SPEC-F's design: (a) no `Commit` appended after
   a `BodyDrop` carries a body it drops; (b) a dropped `BlobRef` (`file` = 0) appears exactly for dropped hashes; (c) after
