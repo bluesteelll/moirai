@@ -1455,8 +1455,9 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
     second way to lose both slots and a fatal slot's repair path, P-85's flags from step 1's head and its scan-start
     checks. §17.3: P-40 and P-13 re-formed, P-54, P-55 and P-61 carried through setup-injected states, P-59 and P-79
     re-vehicled to M1, P-97 re-vehicled to the toy (its retirement and slot-less `repair` reach the bug, and [F05 §5.4]
-    refuses an extent without its head at every scan), P-45 masked and carried by a unit test of ig6 (E4's acceptance of
-    that is OWNER O-1), and sixteen "Detected by" cells corrected to what reports the bug in the toy (the reasons are in
+    refuses an extent without its head at every scan), P-45 masked and carried by a unit test of ig6 (the owner accepted
+    that for E4 on 2026-10-06, OQ-A-1 (a)), and sixteen "Detected by" cells corrected to what reports the bug in the toy
+    (the reasons are in
     `moirai-toylog`'s `TOY_DETECTION`); §17.2 widens avail to an unexplained `outcome_unknown`, places the toy's generic
     detectors in `moirai-vfs-sim` and its `model` family in its own `doctor --verify` (the owner decided this on
     2026-10-06, OQ-A-2 (a)). The independent check
