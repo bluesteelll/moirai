@@ -655,10 +655,16 @@ pass 1 S1-16). ME-012's move of a row to `MARKERS_OLD` and ME-013's return of on
 change neither: each is derived from the rows and the absorbed vectors and writes no entry, so the records are the same
 whether or not a fold ran (spec sync 2b).
 
+**Entry order** (W3D-SF-4; the orchestrator's ruling R-74 of 2026-10-15). A record's entries are written in this order,
+which no fold changes: for a commit landing, a ref move or a fork, by `#N` ascending, a node's leaving entry (ME-004)
+before its joining entry; for a ref deletion (ME-005), ascending by identity over both sections; then the `nonlinear`
+entries of ME-011, ascending by identity over both sections. Identities are ordered as [F11 §7]'s sort key orders them:
+by `#N`, then by the origin `ref_id`, then by the origin commit's `id16` bytewise ([F01 §6.6]).
+
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `n` | `uvar32` | always | ≥ 1 |
-| 2 | `markers` | `n` × `MarkerEntry` | always | applied in order |
+| 2 | `markers` | `n` × `MarkerEntry` | always | in the entry order above; applied in that order |
 
 `MarkerEntry`:
 
@@ -1233,8 +1239,8 @@ Rules:
 
 ### 10.1 Order
 
-Groups apply in log order, records in group order, rows and entries in record order. A group applies all or nothing
-(§4.1).
+Groups apply in log order, records in group order, rows and entries in record order (a `Marker` record's entries in
+§9.5's entry order). A group applies all or nothing (§4.1).
 
 ### 10.2 The `HEAD` fold
 
