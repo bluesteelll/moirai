@@ -1110,7 +1110,11 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
   simulator (a durable record whose file or name a crash lost); **avail** — a store that refuses to open or loops after
   a state the protocol must accept, or an operation that ends `outcome_unknown` in a run without a failed flush or read
   (P-47); **fsck** — `doctor --fsck`'s check of [F13] I-D1 on the store at the end of a run and in every recovered
-  state (a dropped body's bytes left in a store file, or carried after its drop).
+  state (a dropped body's bytes left in a store file, or carried after its drop); **verify** — `doctor --verify`'s check
+  of [F06 §7.3.1] LC-1 at the end of a run: a carried known locator that does not name exactly its owner's prev run. A
+  reader refuses such a locator by [F06 §7.3.1] LR-1–LR-3 and takes the path it took before item 1a, so no result
+  changes and **model** cannot see it, unless the locator names its owner's whole prev run in another record, whose
+  values the read then returns (item 1a).
 - **Vehicle**: **toy** — WP-40's toy log over the in-memory `Vfs` at M0 (group commit, two-slot `HEAD`, epoch, extents,
   checkpoint, barrier and deletion, ref moves, idempotency, minimal markers and leases, recovery, plain `repair` from the
   extent heads (P-85), and a namespace model of intents over `Vfs` renames); a milestone gate — the mechanism is built
@@ -1248,8 +1252,8 @@ Every source bug of §17.1 appears in exactly one row, except G12, whose two hal
 
 Some protocol rules that the lock and liveness layers rely on are stated outside this chapter, and so is the rule of
 [F02 §3.6] for a store left `retired` after `restore` (P-85, P-86). Each gets one seeded bug here, so that E4 reaches
-them and GT18 (lease liveness) has bugs to catch (pass 1, A1-27; L-9 pass 1, round 3). The rule text stays with its
-owner.
+them and GT18 (lease liveness) has bugs to catch (pass 1, A1-27; L-9 pass 1, round 3). So does [F06 §7.3.1]'s locator
+rule, which P-37 fills, so that E4 reaches it (L-10, item 1a). The rule text stays with its owner.
 
 | Id | Rule | Primary seeded bug | Detected by | Vehicle |
 |---|---|---|---|---|
@@ -1262,6 +1266,7 @@ owner.
 | L-7 | [OS/lock §5.4] I-L6: a grant that races the deadline is returned or released | a grant that arrives after the waiter's deadline is neither returned nor released; the byte stays held by a client that returned `Busy`, and every later writer times out | avail | toy |
 | L-8 | [F03 §3.1] rule 2: quiet mode is on while any quiet byte is `Held` or `Unknown` | the maintenance decider probes only the first quiet byte; a checkpoint runs while another requester holds a later quiet byte (pass 1, P1-10) | trace (a checkpoint during quiet mode) | toy |
 | L-9 | [F02 §3.6]: a store that discovery yields again with `HEAD.retired` set and no swap intent is probed with P-86's delays, then refused with exit 7 `store_retired` ([F19 §10.2]) | a process that finds `retired` set re-runs discovery without a bound; after a `restore` that ended without clearing the flag, every command on the store loops instead of exiting 7 (pass 1, round 3; open point 10) | avail | M1 |
+| L-10 | [F06 §7.3.1] LC-1, which P-37 fills: a carried known locator names exactly the owner's prev run in the record `prev` names | the replay and the scan record as the span only the first frame of the owner's prev run in a record, so the known locator of an owner with two or more frames there covers only that run's first frame (item 1a) | verify | M1 |
 
 ## Coverage
 
@@ -1308,9 +1313,10 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
    of writer-created files, P-93 mapping, P-94 the guard, P-95 the leader, P-26 server settles, P-98 long holdings, P-99
    the pointer file, P-101 and P-102 the body purge and the dropped-set lookup at M2, spec sync 3). P-45, which every
    reachable state masks, is carried by a unit test of its detector (spec sync 2b; the owner accepted that for E4 on
-   2026-10-06, OQ-A-1 (a)). §17.4 adds nine bugs for rules of [F03], [OS/proc]
-   and [OS/lock] that the lock and liveness layers rely on and for [F02 §3.6]'s retired store (three in the toy log,
-   five in GT18, L-9 at M1 with P-85 and P-86). If the review wants all 102 in the toy log at M0,
+   2026-10-06, OQ-A-1 (a)). §17.4 adds ten bugs for rules of [F03], [OS/proc]
+   and [OS/lock] that the lock and liveness layers rely on, for [F02 §3.6]'s retired store and for [F06 §7.3.1]'s
+   locator (three in the toy log, five in GT18, L-9 at M1 with P-85 and P-86, L-10 at M1 with P-37). If the review
+   wants all 102 in the toy log at M0,
    WP-40 must model those mechanisms minimally, and WP-40's estimate (2–3 u) grows.
 2. **[60 §3.1] item 4 lists fourteen bugs**, not thirteen as [PLAN §3.2] WP-40 says: the A1 re-review added T14 (the
    intent roll-forward without the re-barrier). §17 carries all fourteen.
