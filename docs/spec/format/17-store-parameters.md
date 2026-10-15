@@ -668,6 +668,7 @@ the reference model and the engine reach every threshold-gated path at model sca
 | `hist` retirement, frame bounds, split frames | P02, P03, P04 | 2 active extents; 4-commit, 4 KiB frames; a commit with a body above 4 KiB |
 | bulk commit (`cs.<n>`) | P05 | a merge or import of a few dozen ops |
 | delta checkpoint by ops, bytes, bodies or overlay | P06–P09 | 8 ops; 2 KiB of records; 8 KiB of bodies; a 1 KiB overlay charge |
+| the in-tail `prev` hop through a known locator ([F06 §7.3.1]): one read of the owner's prev run, also when that run has two or more frames and its own `prev` is 0; the hop through an unknown locator after a checkpoint | P06, P07 | two commits that touch one node inside one tail of 8 ops or 2 KiB of records, the earlier creating it with two or more frames; a third that touches it after the next delta checkpoint |
 | quiet cap and the one bounded checkpoint | P10, P11 | quiet mode on with 2× multiplier and a 2 KiB overlay cap |
 | runtime-only fold | P12 | 1 KiB of R4 runtime records (M6 generators) |
 | CLI versus MCP multiplier | P13 | simulated client kinds in GT2 and GT3 |
