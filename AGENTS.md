@@ -15,8 +15,9 @@ reports in [docs/research/](docs/research/).
 - In the unit workflow ("Agent work" below), the owner's standing permission of 2026-10-07 (R-2) applies: agents
   commit on their unit's role branch; only the orchestrator merges into local `master`, after a green
   `cargo xtask gate --branch m0/<role>` in the gate worktree, and then pushes it with `git push origin master`.
-  The one exception (owner, R-49 and R-54): before the `format-v1` tag, a set of units whose fixture and oracle changes
-  must land together (the Klotho renames, item 1a and the like) lands as one combined landing. Each branch is tested
+  The one exception (owner, R-49, R-54 and R-75): before the `format-v1` tag, a set of units that must land together,
+  because a test of one reads another's text or bytes at test time (fixtures and the oracle, a spec chapter and the
+  model that reads it; the Klotho renames, item 1a and the like), lands as one combined landing. Each branch is tested
   against a named expected-red set, the orchestrator runs one full `cargo xtask gate` on the combined tip in the gate
   worktree with `master` frozen, counts the tests by name, and merges the whole set at once, or none of it on any red.
   Outside that workflow, commit or push only when the owner asks. Never use `--force` or `--no-verify` without
