@@ -5,7 +5,7 @@
 | Title | Every named hole of `docs/spec/`: the value an M0 measurement or benchmark decides, where it sits, what decides it and its candidates; the ids that alias a hole owned elsewhere; the rule-file "holes" that are already decided; the measured decisions that are not holes |
 | Chapter | `docs/spec/HOLES.md` (an index; no citation tag) |
 | Status | draft, pass 1 pending |
-| Work package | assembled by R-SPEC-F from every chapter's Holes section ([PLAN §3.2] item 1); WP-81a fills the holes and records each value in the owning chapter |
+| Work package | assembled by R-SPEC-F from every chapter's Holes section ([PLAN §3.2] item 1); WP-81a fills the holes, each by the tag or, for a hole open at the tag, by its deadline ([F01 §2.5]), and records each value in the owning chapter |
 | Sources | [F01 §2.5] (the hole convention); the Holes section of every file in `docs/spec/`; [60 §3.1] "Decisions fixed at M0 exit"; [60 §5.2] (the M0 measurements) |
 | Depends on | every chapter that owns a hole; [COVERAGE.md](COVERAGE.md) for the rows the holes affect |
 
@@ -19,6 +19,7 @@
   the draft value where there is one.
 - When WP-81a fills a hole, the value replaces the inline `HOLE(...)` in the owning chapter and the owner's Holes row
   stays with the value and the measurement record ([F01 §2.5]). This file then gets the value in its `candidates` cell.
+  A hole open at the tag stays `HOLE(<id>)`, and its row names the deadline in its `decided by` cell ([F01 §2.5]).
 - Counts: 53 holes to fill (§2), all in the `<part>-<name>` form. The 3 rule-file "holes" of §3 are decided and written
   as values, and the 7 ids of §4 are renamed to their owners' ids (review pass 1, S1-40, P1-33, A1-42), so a scan of
   every `HOLE(` in `docs/spec/` outside `reviews/` finds exactly the ids of §2. First checked on 2026-09-28 by a scan of

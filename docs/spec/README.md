@@ -18,7 +18,8 @@ finding ([F01 §2.4]). The execution plan is `docs/m0/PLAN.md`.
 - **Chapter structure.** Every chapter opens with a header block (title, chapter, status, work package, sources,
   dependencies) and ends with Coverage, Holes, and Open points for the review ([F01 §2.3]).
 - **Named holes.** A value an M0 measurement decides is written `HOLE(<id>)` and listed in its chapter's Holes table;
-  WP-81a fills every hole before the freeze ([F01 §2.5]). [HOLES.md](HOLES.md) indexes every hole of every part.
+  WP-81a fills every hole, by the tag or, for a hole open at the tag, by its deadline ([F01 §2.5]). [HOLES.md](HOLES.md)
+  indexes every hole of every part.
 - **Coverage.** [COVERAGE.md](COVERAGE.md) maps every row of [60 §2.5], R-1…R-18, F1–F18, X-F1–X-F12 and every
   [90 §10.1] item to the sections that specify it, with the fixture and model-function columns that `xtask coverage`
   checks ([F01 §2.7]).
