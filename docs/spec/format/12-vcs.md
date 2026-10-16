@@ -503,8 +503,10 @@ virtual merge fixes (dst is never `main`, VM-1; no strict and no policy override
 merge). Neither depends on `#N`, symbol ids, store-local schema ids, lsns, `seq`, `append_hlc`, a `Resolve` op's
 `choice` (§6.5), any other configuration or flag of the outer command (`--base` bypasses VBase), the process, or the
 order in which an implementation enumerates LCAs.
-Two stores that hold the same commits compute the same virtual base and emit merge commits with the same canonical form
-(I28′, I30′).
+Two stores that hold the same commits and the same set of dropped bodies compute the same virtual base and, given the
+same rest of §7.1's list (whether dst is `main`, the effective strict, the policy override and the operation), emit
+merge commits with the same canonical form (I28′, I30′). The dropped set is store-local and a drop changes no commit
+id ([F06 §8.1]), so two stores that hold the same commits can still differ here (open point 31).
 
 *(Informative)* An engine that computes base values per key by folds ([AR §5a.7] step 3) must produce exactly the values of
 this definition for every key its rules read; counters and hierarchy keys need the base even when o = t.
