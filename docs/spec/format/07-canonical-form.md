@@ -6,7 +6,7 @@
 | Chapter | [F07], `docs/spec/format/07-canonical-form.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-12b, the canonical-form part of WP-12 ([PLAN §3.2] item 1), author role R-SPEC-F |
-| Sources | [AR §4.6] (items 1–10; "Not hashed"; "Net changeset = state diff"; the reservation tables for R4, R5, the audits, the ports and [90 §10.1]); [AR §4.3] (the `Commit` body fields `kind`, `import`, `foreign_git`, `changeset_digest`, `cs_ref`; per-key coalescing; bulk commits); [AR §4.5] step 4 (the canonical form and `changeset_digest` computed in phase 1), step 7 (re-parent over the unchanged `changeset_digest`), step 8 (`#N` allocation after the candidate); [AR §5a.1] (commit identity), [AR §5a.3] (the `sync` residue and "window ⊕ residue"), [AR §5a.5] (revert, cherry-pick), [AR §5a.7] steps 1 and 7, [AR §5a.8] (conflict classes); [AR §5b.1] (tree layout and fan-out), [AR §5b.2] rules 1–9 (line order, values, tombstones, R4 and R5 forms), [AR §5b.3] (the marker), [AR §5b.4] (commit mapping, the canonical field → carrier table, trailer order, foreign and import-checkpoint ids), [AR §5b.5] rules 7 and 8, [AR §5b.6] steps 2–5 (native, foreign and checkpoint import, demotion), [AR §5b.7] (gates 0–3); [AR §2.15] T15 (N4, N5, N6, N12, N13a, N13c, CB1, CM2); [40 §2.2] (the observation composite, `relink`), [40 §2.3], [40 §2.4] (`pathmove`), [40 §2.7] (the anchor record, `captured`, `pred`), [40 §2.11] R-1, R-2, R-4, R-5, R-10, R-11 (authoritative), [40 §5.5], [40 §5.7] (anchor lines, anchor text, hash-only destinations); [50 §4.4] (portable form; a definition is one atomic value), [50 §8.1] F1, F2, F3, F10, F14, F16, F17, F18; [60 §2.5] rows "Canonical form" and "Gate-0 carrier table", the audit row "Canonical form" and the R-10 row; [80 §3.1] X-F7, X-F9, [80 §3.2] row "Canonical commit form"; [90 §10.1] row "Commit header"; [PLAN §3.2] WP-12, WP-21; [PLAN §3.3] (the WP-12 gaps); reviews `docs/spec/reviews/a1-S.md` S-02, S-03, S-04, S-19, S-20 and `a1-A.md` A-M2 |
+| Sources | [AR §4.6] (items 1–10; "Not hashed"; "Net changeset = state diff"; the reservation tables for R4, R5, the audits, the ports and [90 §10.1]); [AR §4.3] (the `Commit` body fields `kind`, `import`, `foreign_git`, `changeset_digest`, `cs_ref`; per-key coalescing; bulk commits); [AR §4.5] step 4 (the canonical form and `changeset_digest` computed in phase 1), step 7 (re-parent over the unchanged `changeset_digest`), step 8 (`#N` allocation after the candidate); [AR §5a.1] (commit identity), [AR §5a.3] (the `sync` residue and "window ⊕ residue"), [AR §5a.5] (revert, cherry-pick), [AR §5a.7] steps 1 and 7, [AR §5a.8] (conflict classes); [AR §5b.1] (tree layout and fan-out), [AR §5b.2] rules 1–9 (line order, values, tombstones, R4 and R5 forms), [AR §5b.3] (the marker), [AR §5b.4] (commit mapping, the canonical field → carrier table, trailer order, foreign and import-checkpoint ids), [AR §5b.5] rules 7 and 8, [AR §5b.6] steps 2–5 (native, foreign and checkpoint import, demotion), [AR §5b.7] (gates 0–3); [AR §2.15] T15 (N4, N5, N6, N12, N13a, N13c, CB1, CM2); [40 §2.2] (the observation composite, `relink`), [40 §2.3], [40 §2.4] (`pathmove`), [40 §2.7] (the anchor record, `captured`, `pred`), [40 §2.11] R-1, R-2, R-4, R-5, R-10, R-11 (authoritative), [40 §5.5], [40 §5.7] (anchor lines, anchor text, hash-only destinations); [50 §4.4] (portable form; a definition is one atomic value), [50 §8.1] F1, F2, F3, F10, F14, F16, F17, F18; [60 §2.5] rows "Canonical form" and "Gate-0 carrier table", the audit row "Canonical form" and the R-10 row; [80 §3.1] X-F7, X-F9, [80 §3.2] row "Canonical commit form"; [90 §10.1] row "Commit header"; [PLAN §3.2] WP-12, WP-21; [PLAN §3.3] (the WP-12 gaps); reviews `docs/spec/reviews/a1-S.md` S-02, S-03, S-04, S-19, S-20 and `a1-A.md` A-M2; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the hash-domain strings, the git-image trailers and the message rule, headers, marker and ref namespace, and the hex of the examples) |
 | Depends on | [F01], [F06], [F08]; cites [F02], [F05], [F09], [F10], [F11], [F12], [F13], [F14], [F16], [F18], [F19], [F20], [OS/path], [OS/clock], [API], [RULES/merge-table], [RULES/link-merge-rules] |
 
 ## 1. Scope
@@ -111,8 +111,8 @@ BLAKE3-256 and BLAKE3-128 are [F01 §7.1]'s. The two digests of this chapter use
 
 | Digest | Domain prefix |
 |---|---|
-| `commit_id` | `lp("moirai-commit-v1")` |
-| `changeset_digest` | `lp("moirai-changeset-v1")` |
+| `commit_id` | `lp("klotho-commit-v1")` |
+| `changeset_digest` | `lp("klotho-changeset-v1")` |
 
 ## 3. The commit id
 
@@ -126,7 +126,7 @@ C is the concatenation, with no padding, of:
 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
-| 1 | `domain` | `lp("moirai-commit-v1")` | always | domain separation (§2.5) |
+| 1 | `domain` | `lp("klotho-commit-v1")` | always | domain separation (§2.5) |
 | 2 | `kind` | `lp(name)` | always | item 1: the commit kind (§4) |
 | 3 | `n_parents` | `u32` | always | item 2: the number of parents, 0, 1 or 2 |
 | 4 | `parents` | `n_parents` × `b32` | always | item 2: the parents' **stated** ids, in order (§3.3) |
@@ -236,7 +236,7 @@ The 32 bytes of `changeset_digest` ([F06 §4.3] order 39), which §10.4 defines.
 | 4 | `cherry-pick` | 1 | the picked commit | `cherry-pick` ([AR §5a.5]) |
 | 5 | `checkpoint` | 0 or 1 | empty | checkpoint-granularity import: the **import-checkpoint** kind (N13a, [AR §5b.4]) |
 
-- The names are the values of the `Moirai-Kind` trailer ([AR §5b.4]; [F14]).
+- The names are the values of the `Klotho-Kind` trailer ([AR §5b.4]; [F14]).
 - The provenance byte `import` ([F06 §3.2]: `local`, `native`, `foreign`, `checkpoint`) is not hashed. A verified native
   import keeps the original kind and id ([AR §4.6] item 1).
 - [AR §4.6] item 1 lists five kinds. The sixth, `checkpoint`, is the kind [AR §5b.4] gives an import-checkpoint commit "in
@@ -265,7 +265,7 @@ The write is refused with exit 2 ([F19] `bad_value`, open point 15) and nothing 
 
 - m breaks step 1;
 - N(m) is longer than 65,535 bytes (the bound of `msg`, [F06 §4.3] order 37);
-- the **last paragraph** of N(m) begins with the seven bytes `Moirai-` (`4D 6F 69 72 61 69 2D`), compared case-sensitively
+- the **last paragraph** of N(m) begins with the seven bytes `Klotho-` (`4B 6C 6F 74 68 6F 2D`), compared case-sensitively
   ([AR §4.6] item 6). A paragraph is a maximal run of non-empty lines; the last paragraph is the one after the last empty
   line, or the whole of N(m) when it has no empty line; it "begins with" those bytes when its first line does.
 
@@ -283,13 +283,13 @@ object and is normalised by N_imp, which never refuses:
 3. **Length.** If the result is longer than 65,535 bytes, it is cut at the last scalar-value boundary at or before 65,535
    bytes, and steps 3 and 4 of §5.1 are applied once more.
 
-The `Moirai-` rule of §5.2 does not apply: an imported message may end in a paragraph that begins with `Moirai-` (a demoted
+The `Klotho-` rule of §5.2 does not apply: an imported message may end in a paragraph that begins with `Klotho-` (a demoted
 commit's message keeps its old trailer block, §12.5). [F14] therefore separates the trailer block by the **final**
 paragraph only ([AR §5b.4]).
 
 A **native** import (§12.2) applies N — steps 1–4 of §5.1 — (not N_imp) to the message part [F14] extracts; only step 1
 can fail, and a message part that breaks it cannot verify and is demoted (§12.5). None of §5.2's refusals applies there: a
-message part whose last paragraph begins with `Moirai-` verifies as it stands, since a demoted commit that is re-exported
+message part whose last paragraph begins with `Klotho-` verifies as it stands, since a demoted commit that is re-exported
 natively keeps its old trailer paragraph in its message (§12.5), and refusing it would leave that commit unverifiable for
 good (spec sync 2b).
 
@@ -303,8 +303,8 @@ Bytes are written as C-style escapes.
 | `a\rb\t\n` | `a\nb` | lone CR becomes LF; trailing HT removed |
 | `\n\nsubject` | `\n\nsubject` | leading empty lines are kept |
 | ` \t\n` | (empty) | the `msg` group is absent |
-| `done\n\nMoirai-Ref: main` | refused | last paragraph begins with `Moirai-` |
-| `done\n\nnote\nMoirai-Ref: main` | `done\n\nnote\nMoirai-Ref: main` | the last paragraph begins with `note` |
+| `done\n\nKlotho-Ref: main` | refused | last paragraph begins with `Klotho-` |
+| `done\n\nnote\nKlotho-Ref: main` | `done\n\nnote\nKlotho-Ref: main` | the last paragraph begins with `note` |
 
 ## 6. The canonical state of a view
 
@@ -782,11 +782,11 @@ Entries are written in this order, with no two entries of one key:
 ### 10.4 The digest
 
 ```
-changeset_digest = BLAKE3-256( lp("moirai-changeset-v1") ‖ E_1 ‖ … ‖ E_n ‖ u64(n) )
+changeset_digest = BLAKE3-256( lp("klotho-changeset-v1") ‖ E_1 ‖ … ‖ E_n ‖ u64(n) )
 ```
 
 where E_1 … E_n are the entries in the order of §10.3 and n is their number, as a `u64`. An empty changeset (n = 0) has
-the digest of `lp("moirai-changeset-v1") ‖ 00 00 00 00 00 00 00 00`. The same n is the `Moirai-Ops` trailer's entry
+the digest of `lp("klotho-changeset-v1") ‖ 00 00 00 00 00 00 00 00`. The same n is the `Klotho-Ops` trailer's entry
 count ([AR §5b.4] row 10; §14.2).
 
 ### 10.5 `sync`
@@ -823,7 +823,7 @@ Every field of the stored record that §3 does not name, and every stored datum 
 |---|---|
 | `commit_id` itself, `parents[].id16` and `parents[].lsn` (the actual parents: item 2 hashes the stated ids), `gen`, `seq` | [F06 §4.3] orders 2, 4, 7, 8 |
 | `ref`, `ref_id`, `ref_old`, `prev_on_ref`, `ref_seq` | orders 9–13 |
-| `import`, `verified`, `ckpt` (`Moirai-Head`, `Moirai-Folded`), `xtr` (`Moirai-Ref`, `Moirai-Idem` as imported) | orders 15, 28–30 |
+| `import`, `verified`, `ckpt` (`Klotho-Head`, `Klotho-Folded`), `xtr` (`Klotho-Ref`, `Klotho-Idem` as imported) | orders 15, 28–30 |
 | `idem_key`, `idem_payload` | orders 24–25 |
 | `sync_base` (item 2 hashes the same id as the second parent) and the absorbed vector | orders 26–27 |
 | `stmt_origin`, `stmt_sym`, `stmt_hash` ([50] F10), `actor_src` ([90 §10.1]), `append_hlc` ([50] F14) | orders 31–35 |
@@ -871,13 +871,13 @@ hashed. A `merge --continue` computes a new merge commit against the current dst
 
 ### 12.2 Native import
 
-A git commit with a `Moirai-Commit` trailer that the store does not hold ([AR §5b.6] step 2). The importer rebuilds C from
-the carriers of §14 and verifies BLAKE3-256(C) = `Moirai-Commit`:
+A git commit with a `Klotho-Commit` trailer that the store does not hold ([AR §5b.6] step 2). The importer rebuilds C from
+the carriers of §14 and verifies BLAKE3-256(C) = `Klotho-Commit`:
 
 - items 1, 3, 4, 5, 7, 8, 9 from their trailers; a missing trailer is the empty value (item 4, item 5 components,
   items 8 and 9);
-- item 2: for each git parent in order, the id its `Moirai-Commit` trailer names (the **stated** id, even when that parent
-  was demoted, §12.5); for a parent without a `Moirai-Commit` trailer, the id this store holds for that git object
+- item 2: for each git parent in order, the id its `Klotho-Commit` trailer names (the **stated** id, even when that parent
+  was demoted, §12.5); for a parent without a `Klotho-Commit` trailer, the id this store holds for that git object
   through `gitmap`;
 - item 6: N (§5.1) of the message part that [F14] separates from the trailer block;
 - item 10: the entries of the tree diff against the **first** parent's tree, for every kind, `sync` included (CM2): P is
@@ -888,7 +888,7 @@ keeps its residue in the stored record; its item 10 is the full diff.
 
 ### 12.3 Foreign commits
 
-A git commit with no `Moirai-Commit` trailer that is not a checkpoint commit, or with an unknown trailer ([AR §5b.4],
+A git commit with no `Klotho-Commit` trailer that is not a checkpoint commit, or with an unknown trailer ([AR §5b.4],
 [AR §5b.6] step 3). Its id is a pure function of the git commit and its parents' ids, so two stores that import it agree
 (I28′):
 
@@ -900,17 +900,17 @@ A git commit with no `Moirai-Commit` trailer that is not a checkpoint commit, or
 | 4 | actor `git:` followed by the author's email (the bytes between `<` and `>` of the author line, decoded as in §5.3 step 1); role and session empty |
 | 5 | all empty |
 | 6 | N_imp (§5.3) of the whole git message |
-| 7 | the `schema-version:` of the `.moirai-image` marker in the commit's tree ([AR §5b.3]) |
+| 7 | the `schema-version:` of the `.klotho-image` marker in the commit's tree ([AR §5b.3]) |
 | 8 | empty |
 | 9 | the destination's object format and the git commit's own object id |
 | 10 | 0 or 1 parent: the tree diff against the first parent's tree (the empty tree for a root commit). 2 parents: the diff against the first parent's state of the state that the typed three-way merge over the two parents' imported states produces (I30′, [AR §5b.6] step 3) |
 
 A git commit with more than two parents has no moirai kind: the import stages `ImageParse` ([F06 §3.3] allows at most two
-parents; open point 17). A tree without a readable `.moirai-image` marker stages `ImageParse`.
+parents; open point 17). A tree without a readable `.klotho-image` marker stages `ImageParse`.
 
 ### 12.4 Import-checkpoint commits
 
-A checkpoint commit (`Moirai-Kind: checkpoint` and no `Moirai-Commit`, [AR §5b.4], N13a) gets a deterministic id:
+A checkpoint commit (`Klotho-Kind: checkpoint` and no `Klotho-Commit`, [AR §5b.4], N13a) gets a deterministic id:
 
 | Item | Value |
 |---|---|
@@ -919,20 +919,20 @@ A checkpoint commit (`Moirai-Kind: checkpoint` and no `Moirai-Commit`, [AR §5b.
 | 3 | as for a foreign commit (§12.3) |
 | 4 | actor `image:checkpoint`; role and session empty |
 | 5 | all empty |
-| 6 | N_imp of the message part before the trailer block ([F14] strips the final paragraph at its first `Moirai-Kind:` line, [AR §5b.4]) |
+| 6 | N_imp of the message part before the trailer block ([F14] strips the final paragraph at its first `Klotho-Kind:` line, [AR §5b.4]) |
 | 7 | the marker's `schema-version:` |
 | 8 | empty |
 | 9 | the destination's object format and the checkpoint commit's object id |
 | 10 | the tree diff against the git parent's tree, or against the empty tree |
 
-`Moirai-Head` and `Moirai-Folded` are stored unhashed ([F06 §4.4.11]). A checkpoint that carries a whole store is a bulk
+`Klotho-Head` and `Klotho-Folded` are stored unhashed ([F06 §4.4.11]). A checkpoint that carries a whole store is a bulk
 commit whose entries stream in tree order (§10.6). A re-export of an import-checkpoint commit to another destination is
-written natively with `Moirai-Commit` and `Moirai-Foreign-Git` ([AR §5b.4] row 9), and imports there as §12.2 with kind
+written natively with `Klotho-Commit` and `Klotho-Foreign-Git` ([AR §5b.4] row 9), and imports there as §12.2 with kind
 `checkpoint`.
 
 ### 12.5 Demotion
 
-A commit whose recomputed hash differs from its `Moirai-Commit` trailer is demoted: it alone becomes a foreign commit with
+A commit whose recomputed hash differs from its `Klotho-Commit` trailer is demoted: it alone becomes a foreign commit with
 §12.3's id and `verified = 0` ([F06 §4.4.10], N5, I29′). Its message is the whole git message, trailers included (§5.3).
 Its children still verify against the ids their trailers state: a child's item 2 is the stated id, and its record keeps
 the demoted commit as its actual parent ([F06 §4.4.1] `stated` group).
@@ -975,20 +975,20 @@ ABNF and the verification steps, and keeps every row below.
 
 | Item | Native commit | Foreign commit (§12.3) | Import-checkpoint commit (§12.4) |
 |---|---|---|---|
-| 1 kind | trailer `Moirai-Kind: <name>` (§4) | derived: git parent count | `Moirai-Kind: checkpoint` |
-| 2 parents' stated ids | the git parents, each mapped to its own `Moirai-Commit` trailer, order preserved; the second parent of a `sync` also as `Moirai-Sync-Base: c<64 hex>` (unhashed, must equal) | the git parents through `gitmap` | the git parent through `gitmap` |
-| 3 `hlc` | trailer `Moirai-Hlc: <u64 decimal>` (authoritative; the author and committer times are `hlc >> 16` rounded to seconds and never read back) | derived: committer time and parents | derived, as foreign |
-| 4 actor, role, session | trailers `Moirai-Actor`, `Moirai-Role`, `Moirai-Session`, each omitted when empty | derived: author email | derived: `image:checkpoint` |
-| 5 git provenance | trailers `Moirai-Git-Head: <algo>:<hex>`, `Moirai-Git-Branch`, `Moirai-Worktree`, `Moirai-Git-Base: <algo>:<hex>`, each omitted when empty; `git_algo` is the `<algo>` of head or base (both must agree) and empty when neither is present (§3.6) | empty | empty |
+| 1 kind | trailer `Klotho-Kind: <name>` (§4) | derived: git parent count | `Klotho-Kind: checkpoint` |
+| 2 parents' stated ids | the git parents, each mapped to its own `Klotho-Commit` trailer, order preserved; the second parent of a `sync` also as `Klotho-Sync-Base: c<64 hex>` (unhashed, must equal) | the git parents through `gitmap` | the git parent through `gitmap` |
+| 3 `hlc` | trailer `Klotho-Hlc: <u64 decimal>` (authoritative; the author and committer times are `hlc >> 16` rounded to seconds and never read back) | derived: committer time and parents | derived, as foreign |
+| 4 actor, role, session | trailers `Klotho-Actor`, `Klotho-Role`, `Klotho-Session`, each omitted when empty | derived: author email | derived: `image:checkpoint` |
+| 5 git provenance | trailers `Klotho-Git-Head: <algo>:<hex>`, `Klotho-Git-Branch`, `Klotho-Worktree`, `Klotho-Git-Base: <algo>:<hex>`, each omitted when empty; `git_algo` is the `<algo>` of head or base (both must agree) and empty when neither is present (§3.6) | empty | empty |
 | 6 message | the git message before the trailer block | the whole git message | the git message before the trailer block |
-| 7 schema version | trailer `Moirai-Schema: <n>` | the `.moirai-image` marker's `schema-version:` line | the marker's `schema-version:` line |
-| 8 origin | trailer `Moirai-Origin: c<64 hex>` | empty | empty |
-| 9 `foreign_git` | trailer `Moirai-Foreign-Git: <algo>:<hex>` | the destination's object format and the commit's oid | the destination's object format and the commit's oid |
+| 7 schema version | trailer `Klotho-Schema: <n>` | the `.klotho-image` marker's `schema-version:` line | the marker's `schema-version:` line |
+| 8 origin | trailer `Klotho-Origin: c<64 hex>` | empty | empty |
+| 9 `foreign_git` | trailer `Klotho-Foreign-Git: <algo>:<hex>` | the destination's object format and the commit's oid | the destination's object format and the commit's oid |
 
 ### 14.2 Item 10 by key class
 
 Item 10 is carried by the tree diff against the first parent's tree ([AR §5b.4] row 10, [AR §5b.6] step 2), node files
-parsed through the `.moi` codec; `Moirai-Ops: <n>` carries §10.4's entry count as a pre-check.
+parsed through the `.moi` codec; `Klotho-Ops: <n>` carries §10.4's entry count as a pre-check.
 
 | Key class | Tree path | Carrier lines ([AR §5b.2]; [F14] fixes the grammar) |
 |---|---|---|
@@ -1007,14 +1007,14 @@ parsed through the `.moi` codec; `Moirai-Ops: <n>` carries §10.4's entry count 
 
 These are in the git commit or the tree and carry no hashed item; an importer never builds C from them:
 
-- trailers `Moirai-Commit` (the id being verified), `Moirai-Ref` and `Moirai-Idem` (informational), `Moirai-Ops` (a
-  pre-check), `Moirai-Sync-Base` (a copy of parent 2), and a checkpoint's `Moirai-Head` and `Moirai-Folded`;
+- trailers `Klotho-Commit` (the id being verified), `Klotho-Ref` and `Klotho-Idem` (informational), `Klotho-Ops` (a
+  pre-check), `Klotho-Sync-Base` (a copy of parent 2), and a checkpoint's `Klotho-Head` and `Klotho-Folded`;
 - the author and committer lines ([AR §5b.4]);
-- the `.moi` lines `moirai-node 1`, `uid:` (the key itself), `created:`, `updated:` and `deleted:` (commit references
+- the `.moi` lines `klotho-node 1`, `uid:` (the key itself), `created:`, `updated:` and `deleted:` (commit references
   derived from history; `deleted:` marks the tombstone form);
-- the `.moirai-image` lines `moirai-image 1` and `object-format:`;
+- the `.klotho-image` lines `klotho-image 1` and `object-format:`;
 - `refs/heads.moi` and `refs/tags.moi` of a checkpoint image, and every object of the unhashed side ref
-  `refs/moirai/meta/<store-id>` ([AR §5b.1]).
+  `refs/klotho/meta/<store-id>` ([AR §5b.1]).
 
 ### 14.4 Gate-0 fixtures
 
@@ -1054,7 +1054,7 @@ round-trip corpus runs ([AR §5b.7], [AR §5b.5] rule 8). [PLAN §3.2] WP-21 wri
 - **At write** ([F19]): §5.2's message refusals (exit 2, `bad_value`); a store-local number without its replacement
   (§2.3) is `store_corrupt` (exit 7). An `lp()` argument of 2^32 bytes or more ([F01 §6.3]) cannot occur: every hashed
   component is a part of one stored record or `cs.<n>` row, which fits one log extent or one sealed file ([F06 §4.6]).
-- **At import** ([AR §5b.6] step 4): a carrier that does not parse, a `Moirai-Git-Head` and `Moirai-Git-Base` whose
+- **At import** ([AR §5b.6] step 4): a carrier that does not parse, a `Klotho-Git-Head` and `Klotho-Git-Base` whose
   algorithms differ, a schema version other than 1, a git commit with more than two parents, or a tree without a readable
   marker stages `ImageParse`; a hash mismatch demotes (§12.5).
 - **`doctor --verify`** recomputes, for every commit it reaches, `changeset_digest` from the states (§10.1) and
@@ -1080,14 +1080,14 @@ Fixtures are written from the rules above, never from these examples.
 04 00 00 00 6E 6F 6E 65                        lp("none")
 ```
 
-The digest input of a commit with only this entry is 74 bytes: `13 00 00 00 6D 6F 69 72 61 69 2D 63 68 61 6E 67 65 73 65
-74 2D 76 31` (`lp("moirai-changeset-v1")`), the entry, and `01 00 00 00 00 00 00 00` (n = 1).
+The digest input of a commit with only this entry is 74 bytes: `13 00 00 00 6B 6C 6F 74 68 6F 2D 63 68 61 6E 67 65 73 65
+74 2D 76 31` (`lp("klotho-changeset-v1")`), the entry, and `01 00 00 00 00 00 00 00` (n = 1).
 
 **The commit input C** of that commit: kind `ordinary`, one parent, `hlc` `0x01A0C4506C000003` ([F01 §5.7]), actor
 `dev#1`, role `developer`, session `claude:s1`, no git provenance, message `claim --start` (196 bytes):
 
 ```
-10 00 00 00 6D 6F 69 72 61 69 2D 63 6F 6D 6D 69 74 2D 76 31   lp("moirai-commit-v1")
+10 00 00 00 6B 6C 6F 74 68 6F 2D 63 6F 6D 6D 69 74 2D 76 31   lp("klotho-commit-v1")
 08 00 00 00 6F 72 64 69 6E 61 72 79                          lp("ordinary")
 01 00 00 00  P… (32)                                         one parent
 03 00 00 6C 50 C4 A0 01                                      hlc
@@ -1233,16 +1233,16 @@ depends on the fill. The codec holes of [F10] do not reach the canonical form, w
     the conflict class enters by name. The names are frozen with their tables; a rename would be a new value.
 15. **Message refusal codes.** §5.2 uses [F19]'s `bad_value` (exit 2); [F19] should add the cases `message-utf8`,
     `message-length` and `message-trailer` with texts. The whitespace set of §5.1 step 3 is ASCII HT, VT, FF and SP only;
-    leading empty lines are kept; the `Moirai-` test is case-sensitive on the last paragraph's first line.
+    leading empty lines are kept; the `Klotho-` test is case-sensitive on the last paragraph's first line.
 16. **`checkpoint` in item 1** (§4). [AR §4.6] item 1 and [AR §4.3]'s `kind` comment list five kinds; [AR §5b.4] gives
     import-checkpoint commits kind `checkpoint` "in the local record" and [F06 §3.1] stores it as 5. The canonical name is
-    `checkpoint`, matching `Moirai-Kind`. [AR §4.6] item 1 should list it at WP-81a. §4 also reads the `Resolve` commits
+    `checkpoint`, matching `Klotho-Kind`. [AR §4.6] item 1 should list it at WP-81a. §4 also reads the `Resolve` commits
     that `resolve` appends on a staging ref ([AR §5a.7] step 8) as kind `ordinary`, since [AR] names no kind for them;
     [F12] confirms.
 17. **Foreign-commit details** (§12.3): a git commit with more than two parents stages `ImageParse` ([AR §5b.4] names
-    kinds for one and two parents only); item 7 comes from the tree's `.moirai-image` marker; the author email is decoded
+    kinds for one and two parents only); item 7 comes from the tree's `.klotho-image` marker; the author email is decoded
     as the message is. [F14] confirms.
-18. **Item 7 carriers differ by import class** (§14.1): `Moirai-Schema` for native commits, the marker for foreign and
+18. **Item 7 carriers differ by import class** (§14.1): `Klotho-Schema` for native commits, the marker for foreign and
     checkpoint commits. [F14] checks that a native commit's trailer equals its tree's marker.
 19. **`pathmove.hlc`** is hashed as data and compared with nothing (S-20, A-M2); a re-parent leaves it and
     `changeset_digest` unchanged (§3.12).
@@ -1257,7 +1257,7 @@ depends on the fill. The codec holes of [F10] do not reach the canonical form, w
 23. **Tombstone `field reason` and `field replaced_by` lines** carry the existence value (§14.2), while a live artifact
     has fields named `reason` and `replaced_by` ([F08 §9.2], §9.3); [F14] distinguishes them by the tombstone form
     (`deleted:` line).
-24. **The entry count ends the digest input** (§10.4) and equals `Moirai-Ops`; streaming producers know it only at the
+24. **The entry count ends the digest input** (§10.4) and equals `Klotho-Ops`; streaming producers know it only at the
     end, which is where it is.
 25. **One ordering rule inside values** (§2.4): the bytewise order of the encodings, so a text set's order compares the
     little-endian length bytes of `lp()` before the text, and an `int` set's order is not numeric. The order only has to

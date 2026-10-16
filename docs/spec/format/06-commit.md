@@ -6,7 +6,7 @@
 | Chapter | [F06], `docs/spec/format/06-commit.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-12a, the commit-record part of WP-12 ([PLAN §3.2] item 1), author role R-SPEC-F |
-| Sources | [AR §4.3] (the `Commit` body, the op list and coalescing, "Encoding and size", bulk commits, bodies in the log tail); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation tables for R4, R5, the audits and [90 §10.1]); [AR §4.5] steps 4, 7, 8 and 9 (candidate, re-parent, `#N` allocation, append); [AR §4.1] rows `cs.NNNN`, `blobs.NNNN` and rules; [AR §3.1] (field block and the closed type set; `CREATOR`); [AR §3.3] (edge properties, discriminator); [AR §5a.1] (commit content, schema version; ref fields); [AR §5a.2] (`ref_old`, `ref_seq`); [AR §5a.3] (sync residue); [AR §5a.5] (revert, cherry-pick, before-images); [AR §5a.7] steps 4, 7 and 8; [AR §5a.8] (conflict and violation classes); [AR §5b.4] (foreign and import-checkpoint ids, `hlc` rule, trailers, carrier table); [AR §5b.6] steps 2–5 (import flags, `verified`, stated parents); [AR §5b.7] (round-trip table: idempotency key hash); [AR §5d.1] (absorbed vectors); [AR §6.4] (idempotency, default keys); [40 §2.2] (artifact fields, `relink`), [40 §2.3], [40 §2.4] (`pathmove` and its `hlc`), [40 §2.7] (anchor record, `aN`, `captured`, `pred`), [40 §2.8], [40 §2.11] R-1, R-4, R-5, R-6, R-10; [50 §3.10] items 6, 8 and 11; [50 §4.4] (named-query definitions); [50 §8.1] F3, F10, F14, F15, F16, F18; [90 §4.1] (the actor row), [90 §4.2], [90 §10.1] (row "Commit header"); [60 §2.5] rows "Commit body" and "Ops and values", audit row "Commit body"; [PLAN §3.3] (the WP-12 gaps); reviews `a1-A.md` A-M2, `a1-S.md` S-03, S-04, S-09, S-19, S-20, `a1-P.md` A1P-12; [RULES/merge-table] open points 5, 9, 11, 18 and 20; [F17 §4.4] and OP-17-05; [OS/clock §7]; [LQ/canonical-ast §7.2] and its open points C-9, C-10; [AR §11] #33, OQ-A-7 and OQ-A-9 (spec sync 3); [90 §4.1] (the Model row); item 1a: the owner's rulings R-47 and R-50 of 2026-10-13 and R-73 of 2026-10-15, the orchestrator's ruling R-53 of 2026-10-13 (F-1, F-2) |
+| Sources | [AR §4.3] (the `Commit` body, the op list and coalescing, "Encoding and size", bulk commits, bodies in the log tail); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation tables for R4, R5, the audits and [90 §10.1]); [AR §4.5] steps 4, 7, 8 and 9 (candidate, re-parent, `#N` allocation, append); [AR §4.1] rows `cs.NNNN`, `blobs.NNNN` and rules; [AR §3.1] (field block and the closed type set; `CREATOR`); [AR §3.3] (edge properties, discriminator); [AR §5a.1] (commit content, schema version; ref fields); [AR §5a.2] (`ref_old`, `ref_seq`); [AR §5a.3] (sync residue); [AR §5a.5] (revert, cherry-pick, before-images); [AR §5a.7] steps 4, 7 and 8; [AR §5a.8] (conflict and violation classes); [AR §5b.4] (foreign and import-checkpoint ids, `hlc` rule, trailers, carrier table); [AR §5b.6] steps 2–5 (import flags, `verified`, stated parents); [AR §5b.7] (round-trip table: idempotency key hash); [AR §5d.1] (absorbed vectors); [AR §6.4] (idempotency, default keys); [40 §2.2] (artifact fields, `relink`), [40 §2.3], [40 §2.4] (`pathmove` and its `hlc`), [40 §2.7] (anchor record, `aN`, `captured`, `pred`), [40 §2.8], [40 §2.11] R-1, R-4, R-5, R-6, R-10; [50 §3.10] items 6, 8 and 11; [50 §4.4] (named-query definitions); [50 §8.1] F3, F10, F14, F15, F16, F18; [90 §4.1] (the actor row), [90 §4.2], [90 §10.1] (row "Commit header"); [60 §2.5] rows "Commit body" and "Ops and values", audit row "Commit body"; [PLAN §3.3] (the WP-12 gaps); reviews `a1-A.md` A-M2, `a1-S.md` S-03, S-04, S-09, S-19, S-20, `a1-P.md` A1P-12; [RULES/merge-table] open points 5, 9, 11, 18 and 20; [F17 §4.4] and OP-17-05; [OS/clock §7]; [LQ/canonical-ast §7.2] and its open points C-9, C-10; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the git-image trailers, the idempotency hash-domain strings); [AR §11] #33, OQ-A-7 and OQ-A-9 (spec sync 3); [90 §4.1] (the Model row); item 1a: the owner's rulings R-47 and R-50 of 2026-10-13 and R-73 of 2026-10-15, the orchestrator's ruling R-53 of 2026-10-13 (F-1, F-2) |
 | Depends on | [F01], [F02]; cites [F04], [F05], [F07], [F08], [F09], [F10], [F11], [F12], [F13], [F14], [F16], [F17], [F18], [F19], [F20], [API], [LQ/canonical-ast], [LQ/envelope], [OS/clock], [RULES/merge-table], [RULES/link-merge-rules] |
 
 ## 1. Scope
@@ -85,9 +85,9 @@ which a reader accepts (§3.6).
 | 2 | `sync` | `merge main --into <lane>`: stores the residue only ([AR §5a.3]) |
 | 3 | `revert` | the inverse of an origin commit ([AR §5a.5]) |
 | 4 | `cherry-pick` | the three-way application of an origin commit ([AR §5a.5]) |
-| 5 | `checkpoint` | a commit created by checkpoint-granularity import (`Moirai-Kind: checkpoint`, [AR §5b.4], N13a): the **import-checkpoint** kind |
+| 5 | `checkpoint` | a commit created by checkpoint-granularity import (`Klotho-Kind: checkpoint`, [AR §5b.4], N13a): the **import-checkpoint** kind |
 
-The names are the frozen spellings of `Moirai-Kind` ([F14]) and of every text rendering. How the kind enters the
+The names are the frozen spellings of `Klotho-Kind` ([F14]) and of every text rendering. How the kind enters the
 canonical bytes (number or name) is [F07]'s.
 
 ### 3.2 Import provenance (not hashed)
@@ -95,9 +95,9 @@ canonical bytes (number or name) is [F07]'s.
 | value | name | meaning ([AR §4.3] `import`) |
 |---|---|---|
 | 0 | `local` | written by this store's own write path |
-| 1 | `native` | imported with a `Moirai-Commit` trailer whose canonical hash verified (N5) |
+| 1 | `native` | imported with a `Klotho-Commit` trailer whose canonical hash verified (N5) |
 | 2 | `foreign` | imported without a trailer, with an unknown trailer, or demoted after a hash mismatch |
-| 3 | `checkpoint` | imported from a checkpoint commit (`Moirai-Kind: checkpoint`, no `Moirai-Commit`) |
+| 3 | `checkpoint` | imported from a checkpoint commit (`Klotho-Kind: checkpoint`, no `Klotho-Commit`) |
 
 ### 3.3 Valid combinations (V)
 
@@ -106,7 +106,7 @@ canonical bytes (number or name) is [F07]'s.
 | `local` | `ordinary` | 0 (the store's root commit only, C) or 1 | absent | absent |
 | `local` | `merge`, `sync` | 2 | absent | absent |
 | `local` | `revert`, `cherry-pick` | 1 | absent | present |
-| `native` | any of 0–5 | as for the same kind under `local`; `checkpoint` 0 or 1 | present iff the source commit carried `Moirai-Foreign-Git` | present iff kind is `revert` or `cherry-pick` |
+| `native` | any of 0–5 | as for the same kind under `local`; `checkpoint` 0 or 1 | present iff the source commit carried `Klotho-Foreign-Git` | present iff kind is `revert` or `cherry-pick` |
 | `foreign` | `ordinary` (0 or 1 parent), `merge` (2) | 0, 1 or 2 as the kind says | present | absent |
 | `checkpoint` | `checkpoint` | 0 or 1 (the previous checkpoint of the ref) | present | absent |
 
@@ -197,7 +197,7 @@ absent and takes no bytes.
 | 8 | `absorbed` | kind is `merge` or `sync` and the absorbed vector, without the commit's own ref, is non-empty; only for those kinds (V) |
 | 9 | `verified` | `import = native`, or `import = foreign` after a demotion (§4.4.10); never for other imports (V) |
 | 10 | `ckpt` | kind is `checkpoint` (V) |
-| 11 | `xtr` | `import` is `native` or `checkpoint` and the source commit carried `Moirai-Ref` or `Moirai-Idem`; never for `local` or `foreign` (V) |
+| 11 | `xtr` | `import` is `native` or `checkpoint` and the source commit carried `Klotho-Ref` or `Klotho-Idem`; never for `local` or `foreign` (V) |
 | 12 | `stmt_hash` | as §3.4's last column |
 | 13 | `msg` | the message is non-empty |
 | 14 | `affected` | `affected` is non-empty or `affected_complete = 0` |
@@ -296,7 +296,7 @@ value as invalid (V).
   changes a commit id ([F17 §1.5] SP-1). The value is also the commit's `append_hlc`. The engine keeps the two maxima
   the rule needs, `hlc_seq` and `hlc_commit`, in `HEAD` ([F04 §5.15]) and carries them across an epoch re-roll in the
   extent head ([F05 §9.28]).
-- A **native** import keeps the `hlc` of its `Moirai-Hlc` trailer.
+- A **native** import keeps the `hlc` of its `Klotho-Hlc` trailer.
 - A **foreign** or **import-checkpoint** commit gets the deterministic value ([AR §5b.4], N13c), with the unit gap of
   [PLAN §3.3] closed as follows:
 
@@ -332,7 +332,7 @@ invalid (V). It is this store's HLC when the record was appended: the next value
 | 3 | `head` | digest, 20 or 32 bytes by `algo` | `gflags` bit 0 | the git `HEAD` commit of the caller's tree |
 | 4 | `branch` | `uvar32` | always | symbol, class `git-branch`; 0 = empty |
 | 5 | `worktree` | `uvar32` | always | symbol, class `git-worktree`; 0 = empty |
-| 6 | `base` | digest, 20 or 32 bytes by `algo` | `gflags` bit 1 | the lane's base commit (`Moirai-Git-Base`) |
+| 6 | `base` | digest, 20 or 32 bytes by `algo` | `gflags` bit 1 | the lane's base commit (`Klotho-Git-Base`) |
 
 The group is present iff at least one of `algo`, `head`, `branch`, `worktree`, `base` is non-empty (C). An unborn
 repository gives `algo` set with neither digest.
@@ -340,8 +340,8 @@ repository gives `algo` set with neither digest.
 #### 4.4.7 The idempotency pair
 
 - `idem_key` = BLAKE3-128 of the key, framed for domain separation ([F01 §7.3]):
-  - an explicit key k (its UTF-8 bytes): `BLAKE3-128( lp("moirai-idem-key-v1") ‖ lp(k) )`;
-  - a default key ([AR §6.4]): `BLAKE3-128( lp("moirai-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(b) ‖ lp(H) )`, where s is
+  - an explicit key k (its UTF-8 bytes): `BLAKE3-128( lp("klotho-idem-key-v1") ‖ lp(k) )`;
+  - a default key ([AR §6.4]): `BLAKE3-128( lp("klotho-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(b) ‖ lp(H) )`, where s is
     the namespaced session `<harness>:<id>` (empty when none), a is the attested thread or agent (`codex:<threadId>`,
     `claude:<agent_id>`) where one exists and otherwise the resolved actor's string, b is the name of the branch the
     command writes ([API §7.2], §7.4; spec sync 2b), and H is [LQ/canonical-ast §7.2]'s 16-byte hash of the `TX` root
@@ -349,7 +349,7 @@ repository gives `algo` set with neither digest.
 - `idem_payload` = H, the canonical bound AST hash of the payload ([LQ/canonical-ast §7.2]); for a verb that compiles to
   no `TX` block, the payload hash [API] defines for that verb.
 - Only `import = local` commits carry the group (§4.2), and only they satisfy idempotency lookups ([F16]); an imported
-  commit's `Moirai-Idem` goes to `xtr` (§4.4.12).
+  commit's `Klotho-Idem` goes to `xtr` (§4.4.12).
 
 #### 4.4.8 `sync_base`
 
@@ -369,29 +369,29 @@ of both sides. It excludes the entry of the commit's own `ref_id`, which is the 
 
 #### 4.4.10 `verified`
 
-`1` for `import = native` (the canonical hash matched `Moirai-Commit`); `0` for a `foreign` commit that carried a
-`Moirai-Commit` trailer which did not verify (a demotion, N5); absent otherwise (V: value 1 only with `native`, 0 only
+`1` for `import = native` (the canonical hash matched `Klotho-Commit`); `0` for a `foreign` commit that carried a
+`Klotho-Commit` trailer which did not verify (a demotion, N5); absent otherwise (V: value 1 only with `native`, 0 only
 with `foreign`).
 
 #### 4.4.11 `ckpt`: checkpoint origin
 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
-| 1 | `head` | `b32` | always | `Moirai-Head`: the head moirai commit whose state the checkpoint carries |
-| 2 | `n_folded` | `uvar32` | always | the `<n>` of `Moirai-Folded` |
+| 1 | `head` | `b32` | always | `Klotho-Head`: the head moirai commit whose state the checkpoint carries |
+| 2 | `n_folded` | `uvar32` | always | the `<n>` of `Klotho-Folded` |
 | 3 | `first` | `b32` | always | the first folded commit (`from c…`); all zero exactly when `n_folded` = 0 (V) |
 | 4 | `last` | `b32` | always | the last folded commit (`to c…`); all zero exactly when `n_folded` = 0 (V) |
 
 Not hashed. Kept so that `show` and a re-export can reproduce the checkpoint's trailers ([AR §5b.4]). `n_folded` = 0 is a
-checkpoint that folds nothing (after an `undo`, `Moirai-Folded: 0` with no `from … to …`, [F14 §10.7]; pass 1, S1-23).
+checkpoint that folds nothing (after an `undo`, `Klotho-Folded: 0` with no `from … to …`, [F14 §10.7]; pass 1, S1-23).
 
 #### 4.4.12 `xtr`: informational trailers of an imported commit
 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
-| 1 | `xflags` | `u8` | always | bit 0 `Moirai-Ref` present, bit 1 `Moirai-Idem` present; bits 2–7 reserved-zero; not 0 (V) |
-| 2 | `x_ref` | `uvar32` | `xflags` bit 0 | symbol, class `ref`: the `Moirai-Ref` value as imported |
-| 3 | `x_idem` | `b16` | `xflags` bit 1 | the `Moirai-Idem` value as imported |
+| 1 | `xflags` | `u8` | always | bit 0 `Klotho-Ref` present, bit 1 `Klotho-Idem` present; bits 2–7 reserved-zero; not 0 (V) |
+| 2 | `x_ref` | `uvar32` | `xflags` bit 0 | symbol, class `ref`: the `Klotho-Ref` value as imported |
+| 3 | `x_idem` | `b16` | `xflags` bit 1 | the `Klotho-Idem` value as imported |
 
 Not hashed. A re-export of the imported commit writes these values, so gate 1's byte-identical round trip holds for
 commits whose landing ref differs from the exporter's ([AR §5b.7], [F14]).
@@ -1236,7 +1236,7 @@ stored bytes (§6.2, §6.3, [F07 §6.3]), and no hashed field holds the bytes. S
   deleted files. The hash stays in every commit, so a body of low entropy (a short PIN) can be recovered from it by trial.
   The remedy for a leaked secret is to rotate it; the drop stops the store from serving it.
 - **DB-11 Export and import.** A node file of a dropped body carries its hash and reason in place of the body section
-  ([F14 §6.9]), so a native commit's `Moirai-Commit` hash still verifies after export; the image tree of a commit is then a
+  ([F14 §6.9]), so a native commit's `Klotho-Commit` hash still verifies after export; the image tree of a commit is then a
   function of its state and of the exporting store's dropped set. An importer stores no bytes for such a body. For a hash
   its store neither holds (DB-4) nor has dropped, and whose bytes the import supplies nowhere, it records the hash as
   dropped by a `BodyDrop` record of origin `import` with the image's reason, an empty note and the importing command's
@@ -1385,8 +1385,8 @@ changing any width or presence rule: [F10]'s codec-byte values (the `codec` byte
    it (item 7) and the revert/cherry-pick origin (item 8), but [AR §4.3]'s layout has neither. Added as
    `schema_version` (always) and `origin` (`b32`, full, because the origin may not be local after an import). Also
    added: `stated` (the demoted-parent case of N5 needs the stated id, which is hashed and not recoverable from the actual
-   parent), `ckpt` (`Moirai-Head` and `Moirai-Folded`, which [AR §5b.6] step 2 says an import records) and `xtr`
-   (`Moirai-Ref` and `Moirai-Idem` as imported, which gate 1's byte-identical round trip needs because both are in the git
+   parent), `ckpt` (`Klotho-Head` and `Klotho-Folded`, which [AR §5b.6] step 2 says an import records) and `xtr`
+   (`Klotho-Ref` and `Klotho-Idem` as imported, which gate 1's byte-identical round trip needs because both are in the git
    commit object, [AR §5b.7]). [F14] should confirm that the carrier table needs nothing else unhashed.
 3. **`ref_old` and `prev_on_ref` are optional.** [AR §4.3] lists them as always present. The first commit of a store (and
    of a ref that had no tip) has neither, and an all-zero sentinel would depend on [F05]'s lsn origin. Two presence bits
