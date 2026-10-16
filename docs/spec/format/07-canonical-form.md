@@ -830,7 +830,7 @@ Every field of the stored record that §3 does not name, and every stored datum 
 | the provenance group `prov`: the actor kind and the declared model id ([AR §11] OQ-A-9; spec sync 3) | order 36, [F06 §4.4.17] |
 | `affected`, `affected_len`, `affected_complete` ([50] F15, F16) | order 38 |
 | `cs_ref` (a bulk commit hashes its entries, not its file) | order 40 |
-| inside ops: every `#N`, `aN`, `prev`, symbol id, before-image, `Create.c_actor`/`c_role` (`CREATOR`), `Violation` ops | [F06 §7] |
+| inside ops: every `#N`, `aN`, `prev` and its locator, the op byte's flags, symbol id, before-image, `Create.c_actor`/`c_role` (`CREATOR`), `Violation` ops | [F06 §7], [F06 §7.1.1], [F06 §7.3.1] |
 | anchor `quote`, `prefix`, `suffix` and `end` texts (their digests are hashed) and the `text-unavailable` state | [F08 §10.3] |
 | an import-checkpoint's image-only data (`ckimg`) and the header-only form's `pruned` bit | [F06 §4.4.14], [F06 §4.4.15] |
 | a staged commit's staging arguments (`stage`) | [F06 §4.4.16] |
