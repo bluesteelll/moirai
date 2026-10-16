@@ -6,7 +6,7 @@
 | Chapter | [API], `docs/spec/store-api.md`; examples in `docs/spec/store-api/examples/*.json` |
 | Status | draft, pass 1 pending |
 | Work package | WP-25 (R-SPEC-F), [PLAN §3.2] item 2 |
-| Sources | [60 §3.1] item 2 and item 9; [60 §4.1]–[60 §4.4] (the model's role, scope, what is out of scope, how engine and model are compared); [60 §3.13] GT2, GT18; [60 §2.5] rows "Store parameters", "Derived-state semantics", "Harness-agnostic interface and pure Rust"; [AR §2.13] (T13: the `Store` API is an M0 deliverable); [AR §2.16] (T16: versioned versus runtime state); [AR §3.1]–[AR §3.6]; [AR §4.5] steps 2–11 (the three-phase write, idempotency order, markers from net ops, the printed result); [AR §4.6] "Not hashed" and "Net changeset = state diff"; [AR §5a.1]–[AR §5a.9]; [AR §5d.1]–[AR §5d.3]; [AR §6.2]–[AR §6.6]; [AR §7.1] (verbs, flags, conventions, exit codes), [AR §7.2] (MCP tools, branch resolution), [AR §7.3], [AR §7.6]; [AR §8.3] row "GT2 differential, runtime tables included"; [50 §3.1], [50 §3.8]–[50 §3.10], [50 §4.2], [50 §4.4]; [90 §4.1]–[90 §4.4], [90 §7.1]–[90 §7.2], [90 §10.1]; [40 §3.2]–[40 §3.7], [40 §8.3.2] (subset consistency); [80 §2.7.1], [80 §2.7.2]; [PLAN §3.2] WP-25 and WP-90, [PLAN §6.2] R4; the delegations of the written chapters: [F05 §8.7] and §9.6 (`Idem.result`), [F06 §4.4.7] (the payload of a verb without a `TX` block), [F06 §5.5] (`pathmove.hlc` under the injected clock), [F08 §5.4.4] (order-key generation), [F11 §8] and its open point 4, [F17 §1.5] SP-1, SP-2 and OP-17-17, [F19 §1.2], §8.2 and its open point 30, [CFG §7.6] and its open point 11, [OS/clock §1], [RULES/status-machines] open point 16 (rows CO-002, CO-003), [RULES/role-write-policy] WS-004, [RULES/pack-classes] NR-001 (the names of the digest parameter); the rules this chapter follows from chapters written after its first draft: [F12 §2.4]–§2.6 (ref-name rules and completion), §3.2 and §3.8 (commit literals and forms), §6.6 (key texts), §9 (staging); [F07 §6.3] (canonical values, defaults absent); [LQ/std §4.15] (the `diff` order) and §7.3 (procedure yields); [LQ/errors §5.7] (code-specific keys); [RULES/role-write-policy] WR-005; [RULES/delete-policy-matrix] DP-003; [OS/clock §7] |
+| Sources | [60 §3.1] item 2 and item 9; [60 §4.1]–[60 §4.4] (the model's role, scope, what is out of scope, how engine and model are compared); [60 §3.13] GT2, GT18; [60 §2.5] rows "Store parameters", "Derived-state semantics", "Harness-agnostic interface and pure Rust"; [AR §2.13] (T13: the `Store` API is an M0 deliverable); [AR §2.16] (T16: versioned versus runtime state); [AR §3.1]–[AR §3.6]; [AR §4.5] steps 2–11 (the three-phase write, idempotency order, markers from net ops, the printed result); [AR §4.6] "Not hashed" and "Net changeset = state diff"; [AR §5a.1]–[AR §5a.9]; [AR §5d.1]–[AR §5d.3]; [AR §6.2]–[AR §6.6]; [AR §7.1] (verbs, flags, conventions, exit codes), [AR §7.2] (MCP tools, branch resolution), [AR §7.3], [AR §7.6]; [AR §8.3] row "GT2 differential, runtime tables included"; [50 §3.1], [50 §3.8]–[50 §3.10], [50 §4.2], [50 §4.4]; [90 §4.1]–[90 §4.4], [90 §7.1]–[90 §7.2], [90 §10.1]; [40 §3.2]–[40 §3.7], [40 §8.3.2] (subset consistency); [80 §2.7.1], [80 §2.7.2]; [PLAN §3.2] WP-25 and WP-90, [PLAN §6.2] R4; the delegations of the written chapters: [F05 §8.7] and §9.6 (`Idem.result`), [F06 §4.4.7] (the payload of a verb without a `TX` block), [F06 §5.5] (`pathmove.hlc` under the injected clock), [F08 §5.4.4] (order-key generation), [F11 §8] and its open point 4, [F17 §1.5] SP-1, SP-2 and OP-17-17, [F19 §1.2], §8.2 and its open point 30, [CFG §7.6] and its open point 11, [OS/clock §1], [RULES/status-machines] open point 16 (rows CO-002, CO-003), [RULES/role-write-policy] WS-004, [RULES/pack-classes] NR-001 (the names of the digest parameter); the rules this chapter follows from chapters written after its first draft: [F12 §2.4]–§2.6 (ref-name rules and completion), §3.2 and §3.8 (commit literals and forms), §6.6 (key texts), §9 (staging); [F07 §6.3] (canonical values, defaults absent); [LQ/std §4.15] (the `diff` order) and §7.3 (procedure yields); [LQ/errors §5.7] (code-specific keys); [RULES/role-write-policy] WR-005; [RULES/delete-policy-matrix] DP-003; [OS/clock §7]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the hash-domain strings, the trailer prefix of the message rule, the branch field of the `lane` kind) |
 | Depends on | [F01], [F02], [F05], [F06], [F08]; cites [F03], [F04], [F07], [F11], [F12], [F13], [F14], [F16], [F17], [F18], [F19], [F20], [CFG], [OS/clock], [OS/proc], [OS/path], [LQ/envelope], [LQ/errors], [LQ/std], [LQ/canonical-ast], [LQ/json-ir], [RULES/state-definition], [RULES/status-machines], [RULES/role-write-policy], [RULES/delete-policy-matrix], [RULES/merge-table], [RULES/link-merge-rules], [RULES/pack-classes] |
 
 ## 1. Scope
@@ -272,7 +272,7 @@ reference model encodes these rows as data ([60 §3.13] GT2 row, M8); the ids ar
 | CX-2 | **Branch** | `ctx.branch` → the presented lease's branch, for a task lease or a run-scoped role lease (the session role lease carries no branch, [RULES/role-write-policy] WR-005, open point 40) → the binding (longest bound prefix, [F11 §5]) of `ctx.meta.sandboxCwd`, else of `ctx.stamp.cwd` → `ctx.env.MOIRAI_BRANCH` → the `branch=` field of `ctx.marker` → the client head of `ctx.client`, else of `ctx.env.MOIRAI_CLIENT` → the binding of `ctx.cwd` → the binding of the git top-level that contains `ctx.cwd` (the git-worktree hint, §6.5) → for `door` = `mcp`, the session's client head `session:<harness>:<id>` → the `default-branch` key ([CFG]) |
 | CX-3 | **Actor** and `actor_src` | the presented lease's holder (`lease`) → `codex:` + `ctx.meta.threadId` (`meta`) → `claude:` + `ctx.stamp.agent_id` (`stamp`) → `ctx.agent` as written (`declared`) → `ctx.env.MOIRAI_AGENT` as written, else `codex:` + `CODEX_THREAD_ID`, else `session:claude:` + `CLAUDE_CODE_SESSION_ID` (`env`) → `client:` + `ctx.client_info` (`client`) → the resolved session identity prefixed `session:`, else the empty string (`none`) ([F06 §3.5]) |
 | CX-4 | **Session** (the liveness identity) | `codex:` + `ctx.meta.threadId` → `ctx.stamp.session_id` with the prefix of the detected harness (CX-7) → `codex:` + `CODEX_THREAD_ID` → `claude:` + `CLAUDE_CODE_SESSION_ID` → none; never a `MOIRAI_*` variable |
-| CX-5 | **Tree** | `ctx.tree` → `ctx.meta.sandboxCwd` → `ctx.stamp.cwd` → the `worktree_path` of the lane whose `moirai_branch` is the presented lease's branch (a task lease or a run-scoped role lease) → `ctx.cwd` |
+| CX-5 | **Tree** | `ctx.tree` → `ctx.meta.sandboxCwd` → `ctx.stamp.cwd` → the `worktree_path` of the lane whose `store_branch` is the presented lease's branch (a task lease or a run-scoped role lease) → `ctx.cwd` |
 | CX-6 | **Model** | the `model` field ([F08 §9.3] `run`, decl 30; spec sync 2b) of the run the presented lease is scoped to, else of the run `ctx.env.MOIRAI_RUN` names → the `model=` field of `ctx.marker` → `ctx.model`, else `ctx.env.MOIRAI_MODEL` → `ctx.hook_model` → `lq.model-profile.default.<client>` ([90 §8.2], [CFG]) |
 | CX-7 | **Client** (profile) | `ctx.client`, else `ctx.env.MOIRAI_CLIENT` → the `client.profile` key ([CFG §10.9]) when its effective value is not `auto` (spec sync 2b) → `ctx.client_info` (`codex-mcp-client` → `codex`; a Claude Code name → `claude`; anything else → `generic`) → detection from `ctx.env`: the variables of exactly one harness (`CLAUDECODE`, `CLAUDE_CODE_SESSION_ID` or `AI_AGENT` = `claude-code_*` → `claude`; `CODEX_THREAD_ID` → `codex`; `GEMINI_CLI`, `CURSOR_AGENT`, `AGENT` → their label with the `generic` profile); variables of more than one harness → `generic` and **no session identity** (CX-4 yields none) and the warning `two_harnesses` ([F19 §10.4]) → `generic` |
 | CX-8 | **Effective role** | the presented lease's role; a `ctx.hook_label` that differs narrows it to the intersection of the two rows of [RULES/role-write-policy], with the warning `hook_label_narrowed`; no lease → `general-purpose` ([90 §4.3]) |
@@ -506,7 +506,7 @@ model use this section. Environment commands take no `ctx`, are never keyed and 
   values. Only an `EnvClock` command changes them. The monotonic clock of in-process intervals ([OS/clock §2]) is not
   observable in a result; an implementation may derive it from `boot_ns`.
 - **CK-2 (boot identity).** The simulated `boot_id` of boot k is
-  `BLAKE3-128( lp("moirai-boot-id-v1") ‖ lp("api-sim-boot") ‖ lp(u64le(k)) )`, the framing of [OS/proc §4.2] with the source
+  `BLAKE3-128( lp("klotho-boot-id-v1") ‖ lp("api-sim-boot") ‖ lp(u64le(k)) )`, the framing of [OS/proc §4.2] with the source
   name `api-sim-boot`; `boot_hash` is [OS/proc §4.3]'s. In Unknown-boot mode both are unknown and every stamp carries
   `boot_hash` = 0 ([OS/proc §5] U4).
 - **CK-3 (now).** The stamp `now` is [OS/clock §3.2]'s over (`wall_ms`, `boot`, `boot_ns`). Deadlines, their evaluation and
@@ -671,8 +671,8 @@ tree gate of [40 §5.2].
 ### 7.2 The key hash
 
 `idem_key` is [F06 §4.4.7]'s:
-- an explicit key k: `BLAKE3-128( lp("moirai-idem-key-v1") ‖ lp(k) )`;
-- the default key: `BLAKE3-128( lp("moirai-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(b) ‖ lp(P) )`, where s is the resolved
+- an explicit key k: `BLAKE3-128( lp("klotho-idem-key-v1") ‖ lp(k) )`;
+- the default key: `BLAKE3-128( lp("klotho-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(b) ‖ lp(P) )`, where s is the resolved
   session (CX-4, namespaced; empty with none), a is the attested thread or agent (`codex:` + `ctx.meta.threadId`, else
   `claude:` + `ctx.stamp.agent_id`) and otherwise the resolved actor (CX-3), b is the name of the command's branch (§7.4),
   and P is the payload of §7.3 (16 bytes). With b in the key, one command on two branches within the default window has
@@ -696,7 +696,7 @@ tree gate of [40 §5.2].
   `TX` block":
 
   ```
-  payload(c) = BLAKE3-128( lp("moirai-api-payload-v1") ‖ lp(name) ‖ lp(CJ(args′)) )
+  payload(c) = BLAKE3-128( lp("klotho-api-payload-v1") ‖ lp(name) ‖ lp(CJ(args′)) )
   ```
 
   where `name` is the command name in ASCII and `args′` is the command's `args` with: every node id replaced by its uid
@@ -955,7 +955,7 @@ A `TX` block: the semantic core of every graph write ([50 §3.10], [AR §4.5]).
 | `lq` | string | — | a `TX { … }` block in LQ text ([LQ/grammar-v1.ebnf]); the engine accepts it from M7, the model from M0 (LQ-3) |
 | `ir` | string | — | a `tx` JSON IR document ([LQ/json-ir]) |
 | `params` | object | `{}` | parameter values for `lq` and `ir` ([50 §6.1], [50 §3.2]) |
-| `message` | string | `""` | the commit message, normalised by [F07] ([AR §4.6] item 6); a last paragraph beginning `Moirai-` is `bad_value`, exit 2 |
+| `message` | string | `""` | the commit message, normalised by [F07] ([AR §4.6] item 6); a last paragraph beginning `Klotho-` is `bad_value`, exit 2 |
 | `if_targets` | 32 hex | none | `IF TARGETS` ([50 §3.10] item 4); only with `lq` or `ir` |
 
 `ctx.branch`, `ctx.lease`, `ctx.key`, `ctx.dry` and `ctx.if_tip` are the block's `ON`, `LEASE`, `KEY`, `DRY` and `IF TIP`
@@ -1058,7 +1058,7 @@ committed as one `TX` block ([AR §6.4], [50 §4.2]).
 | `stmts` | array of data-level statements | `[]` | an op batch; its record format on the CLI is M8's ([LQ/json-ir §9]) |
 | `message` | string | `""` | the commit message |
 
-**Branch.** `ctx.branch` when given, else the branch of the run's lane (`run` → `runs_in` → lane → `moirai_branch`), else the
+**Branch.** `ctx.branch` when given, else the branch of the run's lane (`run` → `runs_in` → lane → `store_branch`), else the
 resolved branch (CX-2) ([AR §6.4] D6; N13e: a run bound to a closed lane resolves to the branch the lane merged into).
 
 **Expansion** (one block, in this order):
@@ -1450,7 +1450,7 @@ refused: the result carries the warning `not_a_tree` ([F19 §10.4]). **Result.**
 `main` creating the `lane` node (below); then `BranchCreate(lane/<name>, from: main)`, which forks `lane/<name>` from that
 commit (`data.fork`), so the lane holds its own lane node and `RunOpen` on the lane can add `runs_in`; then
 `WorktreeBind(worktree, lane/<name>)` with the designation of [F18 §3.5] row `lane open`. The lane node: `title` = `name`, status `active`, `worktree_path` = the path value of `worktree` (root `abs`), `git_branch`,
-`base_sha`, `moirai_branch` = `lane/<name>` ([F08 §9.3]). The idempotency pair is on that commit. **Refusals.** As
+`base_sha`, `store_branch` = `lane/<name>` ([F08 §9.3]). The idempotency pair is on that commit. **Refusals.** As
 `BranchCreate` and `WorktreeBind`; `worktree` not a tree: exit 2 ([F18 §3.5]). **Result.** `branch` = `main`; `data` =
 `{"lane":"#N","ref":"lane/<name>","ref_id":<int>,"fork":<commit>,"binding":<the WorktreeBind data>}`.
 
@@ -1868,8 +1868,8 @@ diff, [AR §4.6]):
 ### 15.6 Digests
 
 ```
-content_digest = BLAKE3-256( lp("moirai-api-content-v1") ‖ lp(CJ(content)) )
-state_digest   = BLAKE3-256( lp("moirai-api-state-v1") ‖ lp(CJ(content)) ‖ lp(CJ(local)) ‖ lp(CJ(derived)) )
+content_digest = BLAKE3-256( lp("klotho-api-content-v1") ‖ lp(CJ(content)) )
+state_digest   = BLAKE3-256( lp("klotho-api-state-v1") ‖ lp(CJ(content)) ‖ lp(CJ(local)) ‖ lp(CJ(derived)) )
 ```
 
 `CJ` is §5.6, `lp()` and BLAKE3-256 are [F01 §6.3] and §7.1; the digests are written as 64 lower-case hexadecimal digits. Each
@@ -1895,7 +1895,7 @@ snapshot on a mismatch ([60 §4.4] item 2).
 | `intents` | every `FsIntent` of the last `gc.trash-expire` window: `{"intent":"i-n","op":…,"items":[…],"state":"open"\|"done"\|"aborted","outcomes":[…]}` ([F11 §12.7]) |
 | `dropped` | every dropped body ([F06 §8.1]), by hash: `{"hash":<32 hex>,"reason":"secret"\|"private"\|"other"}`; `[]` when none (spec sync 3) |
 | `quiet` | bool |
-| `digest` | `BLAKE3-256( lp("moirai-api-runtime-v1") ‖ lp(CJ(<this object without digest>)) )`, 64 hex |
+| `digest` | `BLAKE3-256( lp("klotho-api-runtime-v1") ‖ lp(CJ(<this object without digest>)) )`, 64 hex |
 
 Excluded by construction: lsns (`emit_lsn`, `origin_lsn`, `tip_lsn`, `fork_lsn`), `ProcId`s, pins' file sets, the overlay and
 total counters, `ops_since_fork`, `promoted_seg`, `base_pin`, the move cache, `config_gen`, `FILEOBS`, `PENDING`, `FPRINT`,
@@ -2064,7 +2064,7 @@ The result k satisfies a < k < b bytewise and never ends in `0`. *(Informative)*
 
 ### 17.3 The store id
 
-`store_id = BLAKE3-128( lp("moirai-api-store-id-v1") ‖ lp(u64le(seed)) ‖ lp(u32le(t)) )`, with t = 0, then 1, 2, … until the
+`store_id = BLAKE3-128( lp("klotho-api-store-id-v1") ‖ lp(u64le(seed)) ‖ lp(u32le(t)) )`, with t = 0, then 1, 2, … until the
 value is not all zero ([F02 §4]). Only under the injected entropy; a production `init` draws the OS random source.
 
 ### 17.4 Random uids
@@ -2072,7 +2072,7 @@ value is not all zero ([F02 §4]). Only under the injected entropy; a production
 The uid of the i-th node with `uid_derivation` = `random` ([F08 §2.2]) that command n creates (i from 0, in §9.6's order):
 
 ```
-uid = BLAKE3-128( lp("moirai-api-uid-v1") ‖ lp(u64le(seed)) ‖ lp(u64le(n)) ‖ lp(u32le(i)) ‖ lp(u32le(t)) )
+uid = BLAKE3-128( lp("klotho-api-uid-v1") ‖ lp(u64le(seed)) ‖ lp(u64le(n)) ‖ lp(u32le(i)) ‖ lp(u32le(t)) )
 ```
 
 with t = 0, then 1, 2, … while the value is all zero or names a uid `UIDX` holds ([F08 §2.2] "drawn again"). A command that runs
