@@ -30,7 +30,7 @@
 
 | id | chapter § | what | decided by | candidates |
 |---|---|---|---|---|
-| `F02-dict-file` | [F02 §5.1]; [F04 §4.1], [F10 §2.1], [F10 §3.5], [F17 §6.3] | whether a store holds `dict.<D>` files | measurement 6 (WP-54), filled with `F10-dict-form` (one decision in two chapters) | absent; present with a raw-content dictionary behind the `MDIC` header; present with a formatted zstd dictionary behind it |
+| `F02-dict-file` | [F02 §5.1]; [F04 §4.1], [F10 §2.1], [F10 §3.5], [F17 §6.3] | whether a store holds `dict.<D>` files | measurement 6 (WP-54), filled with `F10-dict-form` (one decision in two chapters) | absent; present with a raw-content dictionary behind the `KDIC` header; present with a formatted zstd dictionary behind it |
 | `F09-doclen` | [F09 §12.4] | whether the sections `DOCLEN` (`0x0052`) and `FTSSTAT` (`0x0053`) exist in format v1 | LQ-Bench's search-stratum ablation, BM25 against the statistics-free scorer (WP-72, GT13) | kept (the layouts of [F09 §12.4]); dropped (both tags stay reserved; `TERMS`, `POST` and the tokenizer unchanged) |
 | `F10-codec-values` | [F10 §3.1], [F10 §3.3] | the codec values admitted besides 0 `none`, and each one's payload format | measurement 6 (WP-54) | numbering fixed (1 `lz4`, 2 `lz4-dict`, 3 `zstd`, 4 `zstd-dict`); admitted set {0, 2, 3} (expected), {0, 1, 3}, {0, 3} or {0, 3, 4}, with 1 replacing 3 if `lz4` is chosen for `hist` |
 | `F10-blob-codec` | [F10 §3.4], [F10 §5.3] | the codec a seal writes for body blobs | measurement 6 (WP-54), by [90 §11.3]'s decision rule | 2 `lz4-dict` (expected); 1 `lz4`; 3 `zstd`; 4 `zstd-dict` |
