@@ -1138,8 +1138,9 @@ DT-4 in detail. Within one command:
 2. `#N`s: in the order the command's candidate creates nodes, which is statement order and, within a statement, the order of
    its LQ equivalent; the root node of R4 before the file nodes it is created with ([F08 §11.3]); a node that lands with a uid
    `UIDX` already knows reuses its `#N` (I1); nodes a merge, sync, cherry-pick, revert or import lands with uids new to the store
-   take `#N`s in ascending uid order. These landing `#N`s are allocated under the writer byte ([AR §4.5] step 8; [F16] P-31),
-   after the phase-1 validators ran over placeholder `#N`s; every `#N` the reply reports — in a conflict or violation key, a
+   take `#N`s in ascending uid order. An inline commit allocates these landing `#N`s under the writer byte ([AR §4.5] step 8;
+   [F16] P-31), after the phase-1 validators ran over placeholder `#N`s; a bulk commit reserves them before it streams ([F16]
+   P-84), and its file carries the final ids. Either way, every `#N` the reply reports — in a conflict or violation key, a
    validator's description, `conflicts` and `violations` (§11.7) — is rendered from that allocation, the `#N` the node lands
    with, never a placeholder such as `#4294967295` (W3D-SF-5). A preview or a dry merge
    (`ctx.dry`, `merge-check`) allocates nothing: for a uid new to the store it reports the `#N` that the same command would
