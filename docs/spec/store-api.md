@@ -1138,7 +1138,12 @@ DT-4 in detail. Within one command:
 2. `#N`s: in the order the command's candidate creates nodes, which is statement order and, within a statement, the order of
    its LQ equivalent; the root node of R4 before the file nodes it is created with ([F08 §11.3]); a node that lands with a uid
    `UIDX` already knows reuses its `#N` (I1); nodes a merge, sync, cherry-pick, revert or import lands with uids new to the store
-   take `#N`s in ascending uid order.
+   take `#N`s in ascending uid order. These landing `#N`s are allocated before the command's validators run, so every `#N`
+   the reply reports — in a conflict or violation key, a validator's description, `conflicts` and `violations` (§11.7) — is
+   the `#N` the node lands with, never a provisional one such as `#4294967295` (W3D-SF-5). A preview or a dry merge
+   (`ctx.dry`, `merge-check`) allocates nothing: for a uid new to the store it reports the `#N` that the same command would
+   allocate at the same tip, so the k-th new uid in ascending uid order (k = 1, 2, …) reports `HEAD.next_id` + k − 1, and a
+   later run reports the same `#N`s when no command allocated in between.
 3. Random uids (§17.4): the ordinal i counts the command's random-derivation creates in the order of item 2.
 4. Anchor handles `aN`: in the order the anchors are created (the order of the `--at` specs).
 5. Leases: in the order of `Claim.ids` as given, one fencing token each.
@@ -1615,7 +1620,9 @@ uid, `oid` over its bytes ([F20 §2.3]) and, on the root's first file, the root 
 on the root's first link, and the `at` edge with one anchor per spec (`AddEdge`, with `aN` allocated in spec order). A planned
 link records the planning tree's HEAD in `observed_git`. `UnlinkFile` takes `node` and exactly one of `anchor` (`aN`) or `path`:
 one commit removing that anchor, or every anchor into the file at the path, and the edge with its last anchor ([40 §3.2]).
-**Refusals.** `anchor_spec`, `ambiguous_path`, `bad_path` (exit 2); `not_found` (`anchor`), exit 3. **Yields:** one row per anchor:
+**Refusals.** `anchor_spec`, `ambiguous_path`, `bad_path` (exit 2); `not_found` (`anchor`) for an `aN` the node does not
+hold, and `not_found` (`edge`, `value` `<id> at <path>`) for a `path` to whose file the node has no `at` edge, a path that
+names no file node included, exit 3 (the orchestrator's ruling R-74 of 2026-10-15). **Yields:** one row per anchor:
 `{"file":"#N","path":<path>,"anchor":"a<n>","kind":<anchor kind>,"created":<bool>}` (`created` false for a de-duplicated capture,
 [F08 §11.4]).
 
@@ -1849,7 +1856,9 @@ diff, [AR §4.6]):
 - `rev` (`rev_seq`, the `--if-rev` target, [AR §3.1]): the seq of the newest commit on the chain whose net changeset changes a key
   that n owns ([F06 §2.3]);
 - `created` (`created_tx`): the seq of the newest commit on the chain whose net changeset takes n's existence from absent to live
-  or deleted;
+  or deleted; for a uid′ that a re-key lands ([F12 §7.6]), the merge that re-keys it. This seq is store-local; the image's
+  `created:` line is [F14 §6.3]'s creating commit, and the two name the same commit except for a node created on more than
+  one line (W3D-SF-7; the orchestrator's ruling R-52 of 2026-10-13);
 - `updated` (`updated_tx`): the seq of the newest commit on the chain whose net changeset changes n's existence, hierarchy,
   status, body, a field or a counter.
 
