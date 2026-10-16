@@ -2,15 +2,16 @@
 
 | | |
 |---|---|
-| Title | Store parameters: every threshold that switches a code path of the storage engine, init-fixed in `HEAD` or tunable as a store-scope `config` key; production values (named holes where an M0 measurement decides them) and the test profile |
+| Title | Store parameters: every threshold or codec choice that switches a code path of the storage engine, init-fixed in `HEAD` or tunable as a store-scope `config` key; production values (named holes where an M0 measurement decides them) and the test profile |
 | Chapter | [F17], `docs/spec/format/17-store-parameters.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-16c, the store-parameter part of WP-16 ([PLAN §3.2] item 1), author role R-SPEC-P |
-| Sources | [60 §2.5]: the rows "`HEAD`" and "Log" of the [AR] rows, the row "Store parameters" of the issue-2 rows, the audit rows "Commit body", "Segments" and "Ref table", and the paragraph "New store parameters" that follows the audit rows; [60 §3.1] "Decisions fixed at M0 exit"; [60 §4.3]; [60 §4.4] items 1, 2 and 8; [60 §5.1]; [60 §5.2] rows 2, 3, 5, 6, 8, 10, 12 and 14. [AR §2.2] (quiet cap), [AR §2.3] (promotion), [AR §2.5] (the `suspect` budget), [AR §2.11] (FTS tier 2), [AR §2.15] (loose/pack), [AR §3.5] (`suspect`), [AR §4.1] (files, extents, `hist`, `cs`, `dict`, the deletion grace), [AR §4.2] (`HEAD` flags), [AR §4.3] (commit size bound), [AR §4.5] steps 4, 7 and 12, [AR §4.7], [AR §4.9], [AR §5a.3], [AR §5a.7] step 6, [AR §5b.6], [AR §6.4], [AR §6.6], [AR §8.1]–[AR §8.3] (RAM and SPEED rows), [AR §13] (tables "Store parameters", "Durability, quiet mode, maintenance, locks, leases, retention", "Memory", "Queries and `TX`", and "Never a key"). [74 §5.1] item 5 (A10); [71] RAM-B1, RAM-M5, RAM-M6, RAM-m3; [70] S1, S9, S15; [20] G10, G16, G26; [80 §2.2.1], [80 §2.2.3], [80 §2.3.3], [80 §2.4.3], [80 §3] X-F3 and X-F11; [50 §5.8], [50 §5.10], [50 §8.1] F12, F15, F16; [90 §11.3] |
+| Sources | [60 §2.5]: the rows "`HEAD`" and "Log" of the [AR] rows, the row "Store parameters" of the issue-2 rows, the audit rows "Commit body", "Segments" and "Ref table", and the paragraph "New store parameters" that follows the audit rows; [60 §3.1] "Decisions fixed at M0 exit"; [60 §4.3]; [60 §4.4] items 1, 2 and 8; [60 §5.1]; [60 §5.2] rows 2, 3, 5, 6, 8, 10, 12 and 14. [AR §2.2] (quiet cap), [AR §2.3] (promotion), [AR §2.5] (the `suspect` budget), [AR §2.11] (FTS tier 2), [AR §2.15] (loose/pack), [AR §3.5] (`suspect`), [AR §4.1] (files, extents, `hist`, `cs`, `dict`, the deletion grace), [AR §4.2] (`HEAD` flags), [AR §4.3] (commit size bound), [AR §4.5] steps 4, 7 and 12, [AR §4.7], [AR §4.9], [AR §5a.3], [AR §5a.7] step 6, [AR §5b.6], [AR §6.4], [AR §6.6], [AR §8.1]–[AR §8.3] (RAM and SPEED rows), [AR §13] (tables "Store parameters", "Durability, quiet mode, maintenance, locks, leases, retention", "Memory", "Queries and `TX`", and "Never a key"). [74 §5.1] item 5 (A10); [71] RAM-B1, RAM-M5, RAM-M6, RAM-m3; [70] S1, S9, S15; [20] G10, G16, G26; [80 §2.2.1], [80 §2.2.3], [80 §2.3.3], [80 §2.4.3], [80 §3] X-F3 and X-F11; [50 §5.8], [50 §5.10], [50 §8.1] F12, F15, F16; [90 §11.3]; [F10 §3.4] and `store.hist-codec` (P35, §4.5): the owner's ruling R-43 of 2026-10-13, OI-1b, the orchestrator's ruling R-69 of 2026-10-14 and the orchestrator's ruling R-74 of 2026-10-15 |
 | Depends on | [F01]; cites [F02], [F04], [F05], [F06], [F09], [F10], [F11], [F13], [F15], [F16], [F19], [F20], [CFG], [API] |
 
-This chapter lists every threshold that switches a code path of the storage engine. For each one it gives the key, the
-type and unit, the valid range, the production value, the test-profile value, the decision point and what the value
+This chapter lists every threshold or codec choice that switches a code path of the storage engine. For each one it
+gives the key, the type and unit, the valid range, the production value, the test-profile value, the decision point
+and what the value
 counts. Production values that an M0 measurement decides are named holes ([F01 §2.5]), listed in the Holes section.
 The configuration syntax, precedence, unknown-key rule and registry format are [CFG]'s. The protocol that uses the values
 is [F16]'s. The byte layouts of the structures the parameters compare against belong to [F04], [F05], [F06], [F09], [F10]
@@ -21,9 +22,10 @@ and [F11].
 ### 1.1 What a store parameter is
 
 A **store parameter** is a value that switches a code path of the storage engine: a trigger (a checkpoint, a fold, a
-promotion, a rollup, a retirement), a bound (a commit size, a frame size, a pack size, a lock wait), a fallback (full Kahn,
-tier-2 search), or a retention window. By [60 §2.5] every such value is format-visible and is never a compile-time
-constant. It has exactly one of two reload classes ([74 §5.1] item 5, [AR §13]):
+promotion, a rollup, a retirement), a bound (a commit size, a frame size, a pack size, a lock wait), a fallback (full
+Kahn, tier-2 search), a codec choice (the `hist` writer's, §4.5), or a retention window. By [60 §2.5] every such value
+is format-visible and is never a compile-time constant. It has exactly one of two reload classes ([74 §5.1] item 5,
+[AR §13]):
 
 - **init-fixed**: chosen at `init`, recorded in `HEAD` (§2), and never changed afterwards;
 - **tunable**: a store-scope `config` key with reload class `hot`, read at the parameter's decision point (§1.4).
@@ -47,8 +49,9 @@ Every production value is of one of two kinds:
   decides it. WP-81a records the value unchanged in [AR §13], together with the filled holes. A later measurement can
   change a D value only through the revisit path of the design section that set it.
 - **M (measured).** [AR §8.2], [60 §5.2] or [60 §3.1] name an M0 measurement that decides the value. The production value
-  is written as HOLE(<id>). The design's own figure is listed as the leading candidate in the Holes section. It is never
-  used as the production value before WP-81a fills the hole.
+  is written as HOLE(<id>). The design's own figure is listed as the leading candidate in the Holes section of the
+  chapter that owns the hole (this chapter's; [F10]'s for P35). It is never used as the production value before WP-81a
+  fills the hole.
 
 [60 §3.1] fixes "the production value of every store parameter" at M0 exit. For D values, WP-81a fixes them by recording
 them (OP-17-01).
@@ -158,8 +161,9 @@ without a repository ([CFG §7.6]). It is not a threshold, so it has no row in �
 ## 3. Parameter table
 
 Class: `init` = init-fixed (§2); `hot` = tunable store-scope key. The Vis. column holds the visibility class of §1.5. A
-production value written HOLE(…) is listed in the Holes section, with the design's figure in brackets. Keys marked
-*(new)* were fixed by the design as constants without a key; this chapter registers them (OP-17-03).
+production value written HOLE(…) is listed in the Holes section of the chapter that owns the hole (this chapter's;
+[F10]'s for P35), with the design's figure in brackets. Keys marked *(new)* were fixed by the design as constants
+without a key; this chapter registers them (OP-17-03).
 
 | # | Key | Class | Type (unit) | Valid range | Production | Test profile | Vis. | § |
 |---|---|---|---|---|---|---|---|---|
@@ -197,6 +201,7 @@ production value written HOLE(…) is listed in the Holes section, with the desi
 | P32 | `gc.trash-expire` | hot | duration | 0 to 3,650 d | 14 d (D) | 30 min | I | 11.3 |
 | P33 | `gc.fileobs-idle-expire` | hot | duration | 1 h to 3,650 d | 30 d (D) | 1 h | I (R4 subset-consistent, §11.3) | 11.3 |
 | P34 | `gc.delete-grace` *(new)* | hot | duration | 0 to 1 h | 60 s (D) | 1 s | I | 11.4 |
+| P35 | `store.hist-codec` | hot | enum | `lz4` (1) or `zstd` (3) ([F10 §3.4]; the owner's ruling R-43 of 2026-10-13, OI-1b); never 0 and never a dictionary codec; a frame is still written with 0 when its compressed blocks are not shorter than its raw bytes, whatever the key holds | HOLE(F10-hist-codec) [zstd] | `lz4` | I | 4.5 |
 
 Cross-parameter constraints (pass 1, P1-12). `init` checks them over its `--set` values and the production values of every
 other key, and refuses a violating combination with exit 2 (`config_value` naming the constraint) before anything is
@@ -301,6 +306,24 @@ agent verbs, because the refusal depends on the stored encoding, which the model
 
 **Test value 4 KiB.** A merge, `rm --cascade` or import of a few dozen ops at model scale then takes the bulk path. With
 P01 = 64 KiB and the model's scale (≤ 2e3 nodes, so an `affected` list of ≤ 8 KB), C-1 and W3 hold.
+
+### 4.5 `store.hist-codec` (P35)
+
+- **Meaning.** `store.hist-codec` names the codec of every `hist` frame a writer starts: retirement, the `gc` rewrite
+  and the purge rewrite. The writer compresses the frame's blocks with that codec, or writes the frame with 0 when they
+  are not together shorter than its raw bytes, and records the codec in `FrameHdr.codec` ([F10 §3.4], [F10 §4.3]; the
+  owner's ruling R-43 of 2026-10-13, OI-1b; the orchestrator's ruling R-69 of 2026-10-14).
+- **Decision point.** Each frame a writer starts. A frame written under an earlier value stays valid (SP-R1).
+- **Why hot.** `FrameHdr.codec` records each frame's codec, so no reader consults the key to decode a frame (SP-R2), as
+  no reader consults P03 or P04 (§4.3). Unlike P03 and P04, which [AR §13] makes init-fixed, the key may change while
+  the store lives (the orchestrator's ruling R-69 of 2026-10-14).
+- **Range.** `lz4` (1) or `zstd` (3): the non-dictionary candidates of [F10 §3.3] that the owner's ruling R-43 of
+  2026-10-13, OI-1b, admits for `hist` frames. Never 0, since a frame falls back to 0 by itself ([F10 §3.4]), and never
+  a dictionary codec (the orchestrator's ruling R-74 of 2026-10-15).
+- **Visibility.** I: the codec changes a `hist` frame's stored bytes, never a record, a commit id or a result
+  ([F10] OP-10-12).
+- **Test value `lz4`**, so that the PR tier writes `hist` frames with the codec other than the expected production one
+  (TP-4).
 
 ## 5. Tail, checkpoint and runtime-fold triggers
 
@@ -429,15 +452,18 @@ dictionary exists.
 
 ### 6.4 `store.fts.tier2-nodes` (P18)
 
-- **Meaning.** Full-text tier 2 (`TERMS`, `POST` and, if kept, `DOCLEN`, [AR §4.4], [50] F12) is built once the store's row
-  count reaches P18. The count is `HEAD.next_id − 1`. It is monotonic and store-wide, so every branch view uses the same
-  tier (OP-17-02).
+- **Meaning.** Full-text tier 2 (`TERMS` and `POST`, with the `derived-optional` group `DOCLEN` and `FTSSTAT` where
+  [F09 §3.3]'s writer rule puts it, [AR §4.4], [50] F12) is built once the store's row count reaches P18; whether
+  writers write the group is `HOLE(F09-doclen)`'s ([F09 §3.3]). The count is `HEAD.next_id − 1`. It is monotonic and
+  store-wide, so every branch view uses the same tier (OP-17-02).
 - **Decision point.** Each delta checkpoint and each rollup. A runtime-only fold (§5.4) is not a decision point. A
-  delta that a runtime-only fold writes after bit 1 is set carries the tier-2 sections like every other segment: `TERMS`,
-  `POST` and `DOCLEN` are empty, and `FTSSTAT`, if kept, equals the layer below's ([F09 §15.1]).
+  delta that a runtime-only fold writes after bit 1 is set carries `TERMS` and `POST` empty, like every other segment,
+  and, when the view below it carries the `DOCLEN` and `FTSSTAT` group, `DOCLEN` empty and `FTSSTAT` equal to the layer
+  below's; otherwise neither ([F09 §15.1]).
   - At the first decision point where `next_id − 1 ≥ P18`, the maintenance holder builds tier 2 for the segment it writes.
   - The publish that covers that `Checkpoint` sets `HEAD.flags` bit 1 (`fts_tier2`).
-  - From then on, every segment written carries the tier-2 sections, and the next rollup builds them for the base.
+  - From then on, every segment written carries `TERMS` and `POST`, and the `DOCLEN` and `FTSSTAT` group where
+    [F09 §3.3]'s writer rule puts it; the next rollup builds them for the base.
   - Bit 1 is never cleared. Raising P18 later does not switch tier 2 off; lowering it switches tier 2 on at the next
     decision point.
 - **Mixed segment sets.** A segment set may mix segments with and without tier-2 sections. A reader searches a segment
@@ -665,9 +691,10 @@ the reference model and the engine reach every threshold-gated path at model sca
 | Threshold-gated path | Parameters | Reached at model scale by |
 |---|---|---|
 | extent rotation, `Noop` padding | P01 | ≈ 60 extents of log per 1e4 commands |
-| `hist` retirement, frame bounds, split frames | P02, P03, P04 | 2 active extents; 4-commit, 4 KiB frames; a commit with a body above 4 KiB |
+| `hist` retirement, frame bounds, split frames, frame codec | P02, P03, P04, P35 | 2 active extents; 4-commit, 4 KiB frames; a commit with a body above 4 KiB; `lz4` frames |
 | bulk commit (`cs.<n>`) | P05 | a merge or import of a few dozen ops |
 | delta checkpoint by ops, bytes, bodies or overlay | P06–P09 | 8 ops; 2 KiB of records; 8 KiB of bodies; a 1 KiB overlay charge |
+| the in-tail `prev` hop through a known locator ([F06 §7.3.1]): one read of the owner's prev run, also when that run has two or more frames and its own `prev` is 0; the hop through an unknown locator after a checkpoint | P06, P07 | two commits that touch one node inside one tail of 8 ops or 2 KiB of records, the earlier creating it with two or more frames; a third that touches it after the next delta checkpoint |
 | quiet cap and the one bounded checkpoint | P10, P11 | quiet mode on with 2× multiplier and a 2 KiB overlay cap |
 | runtime-only fold | P12 | 1 KiB of R4 runtime records (M6 generators) |
 | CLI versus MCP multiplier | P13 | simulated client kinds in GT2 and GT3 |
@@ -748,9 +775,10 @@ change, not a configuration change.
 
 ## Holes
 
-Every hole below is filled by WP-81a from the measurement named in the "Decided by" column, recorded in [AR §13], and given
-a fixture by WP-20b (store-parameter values in `HEAD`, [60 §3.1]). Measurement numbers are those of [AR §8.2] and
-[60 §5.2]. WP numbers are those of [PLAN §3.2].
+Every hole below is filled from the measurement named in the "Decided by" column, recorded in [AR §13], and given a
+fixture by WP-20b (store-parameter values in `HEAD`, [60 §3.1]): by WP-81a, unless its deciding measurement has a
+deadline after the tag, in which case the hole stays open at the tag, as [F01 §2.5] states (the orchestrator's ruling
+R-74 of 2026-10-15). Measurement numbers are those of [AR §8.2] and [60 §5.2]. WP numbers are those of [PLAN §3.2].
 
 | Id | What | Decided by | Candidates | Constraint the value must meet |
 |---|---|---|---|---|
@@ -769,7 +797,9 @@ a fixture by WP-20b (store-parameter values in `HEAD`, [60 §3.1]). Measurement 
 
 The following holes of other chapters condition this one. P16 and P17 are inert without a dictionary, which is
 `HOLE(F02-dict-file)` ([F02 §5.1], [F10]; measurement 6). `body_bytes` counts raw or compressed bytes according to [F10]'s
-body-placement hole (measurement 6).
+body-placement hole (measurement 6). P35's production value is `HOLE(F10-hist-codec)` ([F10 §3.4]; measurement 6):
+[F10]'s Holes section lists it, and this table gains no row for it. Whether writers write [F09 §3.3]'s
+`derived-optional` group, `DOCLEN` and `FTSSTAT` (§6.4), is `HOLE(F09-doclen)` (GT13, before M2).
 
 ## Open points for the review
 
@@ -778,7 +808,8 @@ body-placement hole (measurement 6).
   cap (item 10), the promotion thresholds (items 3 and 5), loose/pack (item 8) and the lock waits (items 2 and 12). The other
   values are design-fixed, and WP-81a records them unchanged. A reviewer who reads [60 §3.1] as requiring every value to be
   measured would turn the D values into holes with no deciding measurement. The chapter rejects that reading, because it
-  would leave values undecidable.
+  would leave values undecidable. P35's default is [F10]'s hole `F10-hist-codec` (measurement 6), which this chapter
+  cites and does not list (§4.5).
 - **OP-17-02 (FTS tier-2 count).** [AR §2.11] says "above ~20k nodes" without defining the count. The chapter resolves it as
   `HEAD.next_id − 1`, store-wide and monotonic, with `HEAD.flags` bit 1 set once and never cleared. Every view then uses one
   tier, and a raised threshold never switches tier 2 off.
@@ -920,3 +951,9 @@ body-placement hole (measurement 6).
   from publishing. **Closure check of spec sync 3:** §11.2 gains the release of abandoned reservations that [F16] P-84
   already cited, and a reservation whose `blobs.<n>` holds a dropped body is released without waiting for P31, since its
   `Commit` can no longer land carrying it ([F05 §9.29] "Origin", [F13] I-D1).
+- **OP-17-30 (`store.hist-codec`; the owner's ruling R-43 of 2026-10-13, OI-1b; the orchestrator's rulings R-69 of
+  2026-10-14 and R-74 of 2026-10-15).** [F10 §3.4] makes the codec of the `hist` frames a writer starts a store
+  parameter. §3 registers it as P35, appended after P34 so that no P-number or section number moves, and §4.5 gives its
+  meaning: class `hot`, because each frame records its codec (SP-R2), never init-fixed; values `lz4` and `zstd`, never
+  0, because a frame falls back to 0 by itself; production `HOLE(F10-hist-codec)` [zstd], [F10]'s hole, which WP-81a
+  fills; test value `lz4`, which TP-4's `hist` row reaches. [CFG] registers the key.

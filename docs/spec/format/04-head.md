@@ -6,7 +6,7 @@
 | Chapter | [F04], `docs/spec/format/04-head.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-11 (R-SPEC-P), [60 §3.1] item 1 |
-| Sources | [AR §4.2] (the `HeadSlot` G18 layout, the durable bound, the boot check, the two-slot barrier, `retired`); [AR §4.1] `HEAD` row; [AR §4.5] steps 1, 6, 10 (read, scan, publish); [AR §4.7] (open path); [AR §4.9], [AR §4.10]; [AR §5a.2] (refs), [AR §5a.3] (pins, promotion), [AR §5b.6] (`image_cursor`), [AR §6.3] (`seq_ring`), [AR §6.6] (quiet mode), [AR §13] (`config_gen`); [80 §2.3.2] (the `HEAD` publish and barrier rows), [80 §2.3.5] items (1), (3), (7); [80 §2.4.3] (the publish, boot-change recovery, readers, I-G6); [80 §2.7.1] (`boot_id`, Unknown-boot mode); [80 §3.1] X-F2, X-F3; [40 §2.11] R-6; [60 §2.5] the [AR] row "`HEAD`", the audit row "`HEAD`", the issue-2 row "Store parameters", the "Protocol decisions" row (decisions (c), (d), (g), (k)), the "Cross-platform" row; [72 B1], [72 M2]; [F02] open points 2, 4, 14; [F15] OP-1; [F17 §2] and OP-17-06, OP-17-21; [PLAN §3.2] WP-11, [PLAN §3.3] (the `HeadSlot` order and `SegRef` padding; the home of `init`-scope parameters) |
+| Sources | [AR §4.2] (the `HeadSlot` G18 layout, the durable bound, the boot check, the two-slot barrier, `retired`); [AR §4.1] `HEAD` row; [AR §4.5] steps 1, 6, 10 (read, scan, publish); [AR §4.7] (open path); [AR §4.9], [AR §4.10]; [AR §5a.2] (refs), [AR §5a.3] (pins, promotion), [AR §5b.6] (`image_cursor`), [AR §6.3] (`seq_ring`), [AR §6.6] (quiet mode), [AR §13] (`config_gen`); [80 §2.3.2] (the `HEAD` publish and barrier rows), [80 §2.3.5] items (1), (3), (7); [80 §2.4.3] (the publish, boot-change recovery, readers, I-G6); [80 §2.7.1] (`boot_id`, Unknown-boot mode); [80 §3.1] X-F2, X-F3; [40 §2.11] R-6; [60 §2.5] the [AR] row "`HEAD`", the audit row "`HEAD`", the issue-2 row "Store parameters", the "Protocol decisions" row (decisions (c), (d), (g), (k)), the "Cross-platform" row; [72 B1], [72 M2]; [F02] open points 2, 4, 14; [F15] OP-1; [F17 §2] and OP-17-06, OP-17-21; [PLAN §3.2] WP-11, [PLAN §3.3] (the `HeadSlot` order and `SegRef` padding; the home of `init`-scope parameters); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the `HEAD` slot's magic, and the dictionary header's magic that `SegRef` names) |
 | Depends on | [F01], [F02], [F03], [F05], [F17]; cites [F09], [F10], [F11], [F15], [F16], [F19], [OS/proc], [OS/clock], [OS/fs] |
 
 ## 1. Scope
@@ -40,7 +40,7 @@ fields are therefore not 8-aligned, which readers tolerate ([F01 §4.3]). Offset
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
-| 0 | 4 | `[4]u8` | `magic` | `"MOIR"`: `4D 4F 49 52` ([F01 §4.5]) |
+| 0 | 4 | `[4]u8` | `magic` | `"KLTH"`: `4B 4C 54 48` ([F01 §4.5]) |
 | 4 | 2 | `u16` | `format` | the format version ([F01 §9.1]); 1 |
 | 6 | 2 | `u16` | `flags` | §5.2 |
 | 8 | 8 | `u64` | `slot_seq` | the publish counter; the valid slot with the greater value is the newest (§8) |
@@ -96,7 +96,7 @@ Byte-packed, as [AR §4.2] states (the 29-byte size is the [PLAN §3.3] gap this
 | 0 | 4 | `u32` | `file_no` | the file number: `G` of `seg.base.<G>`, `K` of `seg.d<K>`, `D` of `dict.<D>` ([F02 §6]); ≥ 1 |
 | 4 | 1 | `u8` | `kind` | the enumeration below |
 | 5 | 8 | `u64` | `upto_lsn` | base and delta: the log position up to which the segment folds the log, equal to the `upto_lsn` in its header ([F09]); dict: 0 |
-| 13 | 16 | `b16` | `blake3_16` | the first 16 bytes of the BLAKE3-256 content digest that the file's own header or footer records ([F09] for segments, [F10] for the dictionary's `MDIC` header) |
+| 13 | 16 | `b16` | `blake3_16` | the first 16 bytes of the BLAKE3-256 content digest that the file's own header or footer records ([F09] for segments, [F10] for the dictionary's `KDIC` header) |
 | total | 29 | | | |
 
 | value | name | meaning |
@@ -227,9 +227,11 @@ update needs an OS crash, after which every process starts again and reads `conf
 | `next_anchor` | the next anchor handle number `aN` ([40] R-6, [40 §2.7]) | 1 | the `aN` that anchor-creating ops carry ([F06]; A1P-12) |
 | `fence` | the greatest fencing token allocated; a claim takes `fence + 1` ([AR §5d.1]) | 0 | `Lease` records |
 
-A counter never decreases (I-G6). A publish sets each to the maximum of the newest slot's value and the value the covered
-records imply. A write that would need `next_id` or `next_anchor` beyond 2^32 − 1 is refused with exit 7 and nothing is
-written ([AR §4.5] step 4 states the rule for `seq`; [F19] assigns the codes).
+A counter never decreases (I-G6). A publish sets each to the maximum of the newest slot's value and the value the
+covered records imply. The last `#N` a write may allocate is 2^32 − 2, and so is the last anchor handle `aN`, so
+`next_id` and `next_anchor` never exceed 2^32 − 1 and stay `u32` (§3.1). A write that would need `#N` or `aN` = 2^32 − 1
+is refused with exit 7 `id_space_exhausted` and nothing is written (W3D-SF-6; the orchestrator's ruling R-74 of
+2026-10-15; [AR §4.5] step 4 states the rule for `seq`, and [F19] assigns the codes).
 
 ### 5.8 `active_log`
 
@@ -343,7 +345,7 @@ and the `quiet` and `readonly` flags, and the log-derived counters as of each he
 
 A process classifies each slot it reads by these checks, in order:
 
-1. **Magic.** `magic` ≠ `"MOIR"` → the slot is **absent**.
+1. **Magic.** `magic` ≠ `"KLTH"` → the slot is **absent**.
 2. **Checksum.** `xxh3_128` does not match bytes `[0, 4080)` → the slot is **absent** (torn, never written, or damaged).
 3. **Version.** `format` = 0 → **absent**. `format` > 1 → **fatal**: exit 7, naming `HEAD` and both versions
    ([F01 §9.1]).
@@ -483,7 +485,7 @@ that creates `main` (ref id 0), with the `ClientHead` binding of `main` when the
 
 | Field | Value |
 |---|---|
-| `magic`, `format`, `flags` | `"MOIR"`, 1, 0 |
+| `magic`, `format`, `flags` | `"KLTH"`, 1, 0 |
 | `slot_seq` | 1 in slot A, 2 in slot B; every other field equal (the two `xxh3_128` values differ with `slot_seq`) |
 | `epoch` | a random non-zero `u64` |
 | `committed_lsn`, `durable_lsn` | the end of the `main` group, which begins at lsn 138, right after the 138-byte epoch-start group |

@@ -5,7 +5,7 @@
 | Title | `os::fs` — store-file operations, durability classes, renames, sharing modes and error mapping |
 | Status | draft, pass 1 pending |
 | Work package | WP-17a (role R-SPEC-P), part 1 of WP-17 |
-| Sources | [80 §2.1] (`os::fs` row, boundary rules); [80 §2.3.1] (classes and calls); [80 §2.3.2] (protocol points, owned by [F16]); [80 §2.3.3] (extent creation); [80 §2.3.4] (flush failure); [80 §2.3.5] items (2), (3), (5), (8), (10), (12); [80 §2.5] rule 2 (seal); [80 §2.12] rows "Bulk passes", "Store files' sharing", "Temporary files", "Store `config` rewrite"; [80 §3.1] X-F5; [AR §2.8] T8; [AR §4.1] rules paragraph; [AR §4.10]; [AR §6.5]; [40 §3.4] step 3 (errors 5/32, `--retry-ms`); [60 §2.5] fault-model row items (5), (8), protocol decisions (a), (c), (f), (h); [60 §5.1] "Counts"; [90 §5.4] (store-directory ACE); PLAN §6.1 #3 (`MOVEFILE_WRITE_THROUGH`); `docs/spec/reviews/a1-P.md` A1P-07; research reports [X17 §3.1–§3.8], [13 §1.4], [05 §6] as cited by [80] |
+| Sources | [80 §2.1] (`os::fs` row, boundary rules); [80 §2.3.1] (classes and calls); [80 §2.3.2] (protocol points, owned by [F16]); [80 §2.3.3] (extent creation); [80 §2.3.4] (flush failure); [80 §2.3.5] items (2), (3), (5), (8), (10), (12); [80 §2.5] rule 2 (seal); [80 §2.12] rows "Bulk passes", "Store files' sharing", "Temporary files", "Store `config` rewrite"; [80 §3.1] X-F5; [AR §2.8] T8; [AR §4.1] rules paragraph; [AR §4.10]; [AR §6.5]; [40 §3.4] step 3 (errors 5/32, `--retry-ms`); [60 §2.5] fault-model row items (5), (8), protocol decisions (a), (c), (f), (h); [60 §5.1] "Counts"; [90 §5.4] (store-directory ACE); PLAN §6.1 #3 (`MOVEFILE_WRITE_THROUGH`); `docs/spec/reviews/a1-P.md` A1P-07; research reports [X17 §3.1–§3.8], [13 §1.4], [05 §6] as cited by [80]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the swap intent's magic) |
 
 ---
 
@@ -562,7 +562,7 @@ File `<a>.swap` in `a_parent`. Fixed header of 64 bytes, then three UTF-8 paths,
 
 | Offset | Width | Type | Name | Meaning |
 |---|---|---|---|---|
-| 0 | 4 | [u8; 4] | `magic` | ASCII `MSWP` |
+| 0 | 4 | [u8; 4] | `magic` | ASCII `KSWP` |
 | 4 | 2 | u16 | `version` | 1 |
 | 6 | 2 | u16 | `flags` | reserved, must be 0 |
 | 8 | 24 | `FileIdentity` (§2.6) | `a_id` | identity of `A` before step 4 |

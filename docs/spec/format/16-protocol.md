@@ -6,7 +6,7 @@
 | Chapter | [F16], `docs/spec/format/16-protocol.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-16b, the protocol part of WP-16 ([PLAN §3.2] item 1), author role R-SPEC-P |
-| Sources | [60 §2.5]: the issue-2 row "Protocol decisions" (decisions (a)–(f), (j)–(m)) and the paragraph after the audit-rows table that restates (a)–(c) and adds (g)–(i); the audit rows "`HEAD`", "Log", "`Vfs`/`ProjectFs`" and "Cross-platform" (X-F2–X-F6, protocol part); [60 §3.1] items 3 and 4 (the seeded-bug list) and the exit criteria; [60 §3.13] GT1, GT3, GT4; [60 §4.4] item 4. [80 §2.2.1] items 2–5, 7, 9; [80 §2.2.3]; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.2] (choice D and why positions are not enough); [80 §2.4.3] (the whole protocol, "Invariants" and "Costs"); [80 §2.4.4]; [80 §2.5] rules 1–6 and 8; [80 §2.6]; [80 §2.7.1] (boot-identity rule, Unknown-boot mode); [80 §3.1] X-F2–X-F6. [AR §2.8]; [AR §4.1] "Rules"; [AR §4.2] (durable bound, boot check, two-slot barrier, `retired`); [AR §4.3] (validity, groups, bulk commits); [AR §4.5] steps 1–12 and "Flush grouping"; [AR §4.7]; [AR §4.9]; [AR §4.10]; [AR §6.1]; [AR §6.2] (claims, fencing, holder liveness); [AR §6.4]; [AR §6.5]. [40 §3.4] (the `file mv` protocol and its recovery table, step 5's re-barrier), [40 §3.5]. [72 B1], [72 M1], [72 M2], [72 M3], [72 M8], [72 M9]; [61 B2]; [81 B1], [81 M6], [81 M7], [81 m4]. Reviews: `a1-P.md` A1P-01, A1P-02, A1P-06; `a1-S.md` S-06; `a1-dispositions.md` FS-4 and the chapter-16 rows. [PLAN §3.2] WP-16 and WP-40; [PLAN §3.3] (the `MOVEFILE_WRITE_THROUGH` gap); [PLAN §6.1] #3 and #14; [PLAN §7] E4 |
+| Sources | [60 §2.5]: the issue-2 row "Protocol decisions" (decisions (a)–(f), (j)–(m)) and the paragraph after the audit-rows table that restates (a)–(c) and adds (g)–(i); the audit rows "`HEAD`", "Log", "`Vfs`/`ProjectFs`" and "Cross-platform" (X-F2–X-F6, protocol part); [60 §3.1] items 3 and 4 (the seeded-bug list) and the exit criteria; [60 §3.13] GT1, GT3, GT4; [60 §4.4] item 4. [80 §2.2.1] items 2–5, 7, 9; [80 §2.2.3]; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.2] (choice D and why positions are not enough); [80 §2.4.3] (the whole protocol, "Invariants" and "Costs"); [80 §2.4.4]; [80 §2.5] rules 1–6 and 8; [80 §2.6]; [80 §2.7.1] (boot-identity rule, Unknown-boot mode); [80 §3.1] X-F2–X-F6. [AR §2.8]; [AR §4.1] "Rules"; [AR §4.2] (durable bound, boot check, two-slot barrier, `retired`); [AR §4.3] (validity, groups, bulk commits); [AR §4.5] steps 1–12 and "Flush grouping"; [AR §4.7]; [AR §4.9]; [AR §4.10]; [AR §6.1]; [AR §6.2] (claims, fencing, holder liveness); [AR §6.4]; [AR §6.5]. [40 §3.4] (the `file mv` protocol and its recovery table, step 5's re-barrier), [40 §3.5]. [72 B1], [72 M1], [72 M2], [72 M3], [72 M8], [72 M9]; [61 B2]; [81 B1], [81 M6], [81 M7], [81 m4]. Reviews: `a1-P.md` A1P-01, A1P-02, A1P-06; `a1-S.md` S-06; `a1-dispositions.md` FS-4 and the chapter-16 rows. [PLAN §3.2] WP-16 and WP-40; [PLAN §3.3] (the `MOVEFILE_WRITE_THROUGH` gap); [PLAN §6.1] #3 and #14; [PLAN §7] E4; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the backup manifest's domain string) |
 | Depends on | [F01], [F02], [F03], [F04], [F05], [F13], [F15], [F17]; cites [F06], [F07], [F09], [F10], [F11], [F12], [F14], [F18], [F19], [F20], [API], [CFG], [OS/fs], [OS/lock], [OS/map], [OS/env], [OS/proc], [OS/clock], [OS/project] |
 
 ## 1. Scope
@@ -237,7 +237,8 @@ marker or lease it read or wrote changed, and no commit in the window touched a 
 `MATCH` reads, runtime predicates (`ready`, `claimed`, `settled_elsewhere`, `deleted_elsewhere`) included ([AR §4.5]
 step 7, S-06); else it is recomputed under the lock within `tx.max-work-in-lock`, or the writer byte is released and
 phase 1 re-run at most twice before exit 4 with the current values. An inline commit is re-validated **by key**: its
-`prev` values are re-serialised under the writer byte ([F06 §7.3]). A **bulk** commit is re-validated **by node**: every
+`prev` values and their locators are re-serialised under the writer byte ([F06 §7.3], [F06 §7.3.1]). A **bulk** commit
+is re-validated **by node**: every
 node that owns a row of its `cs.<n>` counts as read and written as a whole, so any commit in the window that touched any
 key of such a node forces a phase-1 re-run, which re-streams the file; the sealed `prev` of each row ([F09 §16.4],
 [F06 §9] BK-5) therefore still names that node's newest earlier op (pass 1, S1-20). A `BodyDrop` record in the window
@@ -284,10 +285,19 @@ increasing in log order, and `append_hlc` strictly in `seq` order (I43′), whic
 commit's `commit_id` is computed from its final `hlc` here, in O(1) over the unchanged `changeset_digest` ([F07]). The
 maxima never restart: an epoch re-roll carries them in its epoch-start extent head (P-75, P-97).
 
-**P-37 (the append).** Filling the ids of P-31 into an inline commit re-serialises its `prev` deltas, `#N` placeholders,
-record checksum and chain under the writer byte, which is O(`cs_bytes`), up to P05 ([F06] open point 16); measurement 2
-sweeps inline sizes up to P05 and reports the writer hold, and [F06] names the fallback if the hold gate fails (pass 1,
-P1-26). The appender writes the group in one `write_at` at E_v, the end of the valid log it scanned —
+**P-37 (the append).** Filling the ids of P-31 into an inline commit re-serialises its `prev` deltas with their
+locators ([F06 §7.3.1]), `#N` placeholders, record checksum and chain under the writer byte, which is O(`cs_bytes`), up
+to P05 ([F06] open point 16); measurement 2 sweeps inline sizes up to P05 and reports the writer hold, and [F06] names
+the fallback if the hold gate fails (pass 1, P1-26). The appender takes each owner's locator with its `prev`, from the
+same chain-head entry ([F06 §7.3.1] SL-1). The replay of P-25 and the scan of P-29, its scratch layer (P-30) included,
+record in every chain-head entry that they set from an inline `Commit` record where the owner's prev run lies in that
+record ([F06 §7.1.1]); the appender writes the locator known whenever the entry holds that span, and unknown (0, 0)
+otherwise, so filling it reads no log byte under the writer byte. The phase-1 encoding (P-25) carries every locator
+unknown, so [F17 §4.4] W1 is decided there without the known locators' bytes. If P-35's re-check of W1 or W3 on the
+final encoding fails with the known locators and passes with every locator unknown, the appender writes every locator
+unknown. So whether a locator is known never refuses a commit and never sends it to the bulk path (item 1a; the owner's
+rulings R-47 and R-50 of 2026-10-13 and R-73 of 2026-10-15). The appender writes the group in one `write_at` at E_v,
+the end of the valid log it scanned —
 never at the published `committed_lsn` and never elsewhere — with every record's `lsn` equal to its position and the
 trailer seeded with the chain value at E_v ([F05 §4.3]). It remembers E_g and the chain value at E_g. A group that does not
 fit the rest of the extent goes through P-72.
@@ -951,7 +961,7 @@ if the intent is still there and `a` is still not a store, it exits 7 `swap_in_p
 4. computes the manifest digest below and appends the durable `Backup` group `{dir, committed_lsn = S.committed_lsn,
    digest}` ([F05 §9.13]); it reports success only after P-46; then it releases the maintenance byte.
 
-The **manifest** is the byte string `lp("moirai-backup-manifest-v1") ‖ u32-le(k) ‖ e_1 ‖ … ‖ e_k`, where the k entries,
+The **manifest** is the byte string `lp("klotho-backup-manifest-v1") ‖ u32-le(k) ‖ e_1 ‖ … ‖ e_k`, where the k entries,
 one per file of the backup directory sorted bytewise by name ([F01 §6.6]), are `e_i = lp(name_i) ‖ u64-le(len_i) ‖
 BLAKE3-256(content_i)` and `name_i` is the store-relative name with `/` separators. `digest` = BLAKE3-256(manifest)
 ([F01 §7.1]). Every operand except the names has a fixed width, so the framing is unambiguous ([F01 §7.3]).
@@ -1100,7 +1110,11 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
   simulator (a durable record whose file or name a crash lost); **avail** — a store that refuses to open or loops after
   a state the protocol must accept, or an operation that ends `outcome_unknown` in a run without a failed flush or read
   (P-47); **fsck** — `doctor --fsck`'s check of [F13] I-D1 on the store at the end of a run and in every recovered
-  state (a dropped body's bytes left in a store file, or carried after its drop).
+  state (a dropped body's bytes left in a store file, or carried after its drop); **verify** — `doctor --verify`'s check
+  of [F06 §7.3.1] LC-1 at the end of a run: a carried known locator that does not name exactly its owner's prev run. A
+  reader refuses such a locator by [F06 §7.3.1] LR-1–LR-3 and takes the path it took before item 1a, so no result
+  changes and **model** cannot see it, unless the locator names its owner's whole prev run in another record, whose
+  values the read then returns (item 1a).
 - **Vehicle**: **toy** — WP-40's toy log over the in-memory `Vfs` at M0 (group commit, two-slot `HEAD`, epoch, extents,
   checkpoint, barrier and deletion, ref moves, idempotency, minimal markers and leases, recovery, plain `repair` from the
   extent heads (P-85), and a namespace model of intents over `Vfs` renames); a milestone gate — the mechanism is built
@@ -1121,9 +1135,10 @@ acknowledges a forwarded write only by P-46 ([80 §2.4.2] "Leader", [AR §6.1]).
   which re-derives from the log's records the invariants that the comparison would find broken in the rows below (state,
   markers, leases, ids and results). That check and the other checks that need the toy's own state (read visibility
   against its replayed view) are the toy's, written in the toy and reviewed by R-HARN-S as a WP-40 acceptance step. S4
-  names only the enumerator's author, so these checks do not break it; the review is what keeps them from being fitted
-  to the toy's bugs. From M1 the `crash` functions of `moirai-model` ([F13 §1.4]) and the comparison with that reference
-  model are the functions of record ([F13] OP-13-02; OWNER O-2 confirms the authorship).
+  also says that the detectors are the enumerator author's, or reviewed by that author: these checks meet that through
+  R-HARN-S's review, which is also what keeps them from being fitted to the toy's bugs. From M1 the `crash` functions of
+  `moirai-model` ([F13 §1.4]) and the comparison with that reference model are the functions of record ([F13] OP-13-02;
+  the owner decided this authorship on 2026-10-06, OQ-A-2 (a)).
 
 ### 17.3 Catalogue
 
@@ -1238,8 +1253,8 @@ Every source bug of §17.1 appears in exactly one row, except G12, whose two hal
 
 Some protocol rules that the lock and liveness layers rely on are stated outside this chapter, and so is the rule of
 [F02 §3.6] for a store left `retired` after `restore` (P-85, P-86). Each gets one seeded bug here, so that E4 reaches
-them and GT18 (lease liveness) has bugs to catch (pass 1, A1-27; L-9 pass 1, round 3). The rule text stays with its
-owner.
+them and GT18 (lease liveness) has bugs to catch (pass 1, A1-27; L-9 pass 1, round 3). So does [F06 §7.3.1]'s locator
+rule, which P-37 fills, so that E4 reaches it (L-10, item 1a). The rule text stays with its owner.
 
 | Id | Rule | Primary seeded bug | Detected by | Vehicle |
 |---|---|---|---|---|
@@ -1252,6 +1267,7 @@ owner.
 | L-7 | [OS/lock §5.4] I-L6: a grant that races the deadline is returned or released | a grant that arrives after the waiter's deadline is neither returned nor released; the byte stays held by a client that returned `Busy`, and every later writer times out | avail | toy |
 | L-8 | [F03 §3.1] rule 2: quiet mode is on while any quiet byte is `Held` or `Unknown` | the maintenance decider probes only the first quiet byte; a checkpoint runs while another requester holds a later quiet byte (pass 1, P1-10) | trace (a checkpoint during quiet mode) | toy |
 | L-9 | [F02 §3.6]: a store that discovery yields again with `HEAD.retired` set and no swap intent is probed with P-86's delays, then refused with exit 7 `store_retired` ([F19 §10.2]) | a process that finds `retired` set re-runs discovery without a bound; after a `restore` that ended without clearing the flag, every command on the store loops instead of exiting 7 (pass 1, round 3; open point 10) | avail | M1 |
+| L-10 | [F06 §7.3.1] LC-1, which P-37 fills: a carried known locator names exactly the owner's prev run in the record `prev` names | the replay and the scan record as the span only the first frame of the owner's prev run in a record, so the known locator of an owner with two or more frames there covers only that run's first frame (item 1a) | verify | M1 |
 
 ## Coverage
 
@@ -1298,9 +1314,10 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
    of writer-created files, P-93 mapping, P-94 the guard, P-95 the leader, P-26 server settles, P-98 long holdings, P-99
    the pointer file, P-101 and P-102 the body purge and the dropped-set lookup at M2, spec sync 3). P-45, which every
    reachable state masks, is carried by a unit test of its detector (spec sync 2b; the owner accepted that for E4 on
-   2026-10-06, OQ-A-1 (a)). §17.4 adds nine bugs for rules of [F03], [OS/proc]
-   and [OS/lock] that the lock and liveness layers rely on and for [F02 §3.6]'s retired store (three in the toy log,
-   five in GT18, L-9 at M1 with P-85 and P-86). If the review wants all 102 in the toy log at M0,
+   2026-10-06, OQ-A-1 (a)). §17.4 adds ten bugs for rules of [F03], [OS/proc]
+   and [OS/lock] that the lock and liveness layers rely on, for [F02 §3.6]'s retired store and for [F06 §7.3.1]'s
+   locator (three in the toy log, five in GT18, L-9 at M1 with P-85 and P-86, L-10 at M1 with P-37). If the review
+   wants all 102 in the toy log at M0,
    WP-40 must model those mechanisms minimally, and WP-40's estimate (2–3 u) grows.
 2. **[60 §3.1] item 4 lists fourteen bugs**, not thirteen as [PLAN §3.2] WP-40 says: the A1 re-review added T14 (the
    intent roll-forward without the re-barrier). §17 carries all fourteen.
@@ -1438,15 +1455,18 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
     second way to lose both slots and a fatal slot's repair path, P-85's flags from step 1's head and its scan-start
     checks. §17.3: P-40 and P-13 re-formed, P-54, P-55 and P-61 carried through setup-injected states, P-59 and P-79
     re-vehicled to M1, P-97 re-vehicled to the toy (its retirement and slot-less `repair` reach the bug, and [F05 §5.4]
-    refuses an extent without its head at every scan), P-45 masked and carried by a unit test of ig6 (E4's acceptance of
-    that is OWNER O-1), and sixteen "Detected by" cells corrected to what reports the bug in the toy (the reasons are in
+    refuses an extent without its head at every scan), P-45 masked and carried by a unit test of ig6 (the owner accepted
+    that for E4 on 2026-10-06, OQ-A-1 (a)), and sixteen "Detected by" cells corrected to what reports the bug in the toy
+    (the reasons are in
     `moirai-toylog`'s `TOY_DETECTION`); §17.2 widens avail to an unexplained `outcome_unknown`, places the toy's generic
-    detectors in `moirai-vfs-sim` and its `model` family in its own `doctor --verify` (OWNER O-2). The independent check
+    detectors in `moirai-vfs-sim` and its `model` family in its own `doctor --verify` (the owner decided this on
+    2026-10-06, OQ-A-2 (a)). The independent check
     of the sync aligned [F04 §9.1], [F05 §10.2] and the I-G6 cells with P-50's fold from `durable_lsn`; its second round
     restated PLAN S4 as PLAN does (it names only the enumerator's author; the generic ns check sits with the simulator's
     namespace model, and the toy's own checks are kept honest by R-HARN-S's review), named `doctor --verify` in the
     `model` bullet for the toy, and said in P-65 that the `Marker` records carry the holder-set and flag changes of
-    ME-001 to ME-011, not the storage moves of ME-012 and ME-013.
+    ME-001 to ME-011, not the storage moves of ME-012 and ME-013. The owner's decision of 2026-10-06, OQ-A-2 (a), adds
+    the detector rule to PLAN's S4; §17.2 now states the amended S4.
 31. **Spec sync 3** ([AR §11] #33, OQ-A-7 (a), decided 2026-10-06; [F06 §8.1] DB-8). The protocol of a body drop:
     - **The record.** `BodyDrop` ([F05 §9.29]) is a semantic durable record (P-36, P-6): it is a command's record, the
       model executes it, and it raises the HLC sequence as every other such record does. A `BodyDrop` command writes it

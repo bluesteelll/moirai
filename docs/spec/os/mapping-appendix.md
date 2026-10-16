@@ -5,7 +5,7 @@
 | Title | OS layer specification, part 2: one table per OS mapping every method of `ProjectFs`, `Clock`, `ProcHost`, `Entropy`, `Meter`, `os::path`, `os::ipc`, `os::term` and `os::test_host` to its calls, and an index of part 1's mappings for `StoreFs`, `Locks`, `SealedMaps` and `EnvGuard` |
 | Status | draft, pass 1 pending |
 | Work package | WP-17b (role R-SPEC-P), part 2 of WP-17 ([PLAN §3.2] item 1: "the mapping appendix for Windows, Linux and macOS") |
-| Sources | [80 §2.1]–[80 §2.13] (every per-OS row); [AR §14] (compact mapping); [80 §5.2] (port scope); the part-2 chapters [OS/proc], [OS/clock], [OS/mem], [OS/project], [OS/path], [OS/shell], and [OS/README §4.6] for `Entropy`, whose text is normative where this table abbreviates it |
+| Sources | [80 §2.1]–[80 §2.13] (every per-OS row); [AR §14] (compact mapping); [80 §5.2] (port scope); the part-2 chapters [OS/proc], [OS/clock], [OS/mem], [OS/project], [OS/path], [OS/shell], and [OS/README §4.6] for `Entropy`, whose text is normative where this table abbreviates it; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the Windows pipe name) |
 | Reconciled with | [OS/README §1.3, §3, Appendix A]; the Appendix A of [OS/fs], [OS/lock], [OS/map] and [OS/env] (part 1's own per-OS tables, indexed in §5 and not repeated) |
 
 ---
@@ -115,7 +115,7 @@
 
 | Function | Windows calls | Spec |
 |---|---|---|
-| `bind_endpoint` | `GetTokenInformation(TokenUser)` + `ConvertSidToStringSidW` (the `<u>` part) → `InitializeSecurityDescriptor` + `SetEntriesInAclW` (the user's SID only) → `CreateNamedPipeW(\\.\pipe\moirai-<u>-<s>, PIPE_ACCESS_DUPLEX \| FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_TYPE_BYTE \| PIPE_REJECT_REMOTE_CLIENTS, …)` | [OS/proc §12] |
+| `bind_endpoint` | `GetTokenInformation(TokenUser)` + `ConvertSidToStringSidW` (the `<u>` part) → `InitializeSecurityDescriptor` + `SetEntriesInAclW` (the user's SID only) → `CreateNamedPipeW(\\.\pipe\klotho-<u>-<s>, PIPE_ACCESS_DUPLEX \| FILE_FLAG_FIRST_PIPE_INSTANCE, PIPE_TYPE_BYTE \| PIPE_REJECT_REMOTE_CLIENTS, …)` | [OS/proc §12] |
 | `accept` / `connect` | `ConnectNamedPipe` / `CreateFileW(\\.\pipe\…, GENERIC_READ \| GENERIC_WRITE, 0, OPEN_EXISTING)` | [OS/proc §12] |
 | `peer` | `GetNamedPipeClientProcessId` (server side), `GetNamedPipeServerProcessId` (client side) | [OS/proc §12] |
 

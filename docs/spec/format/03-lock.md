@@ -6,7 +6,7 @@
 | Chapter | [F03], `docs/spec/format/03-lock.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-11 (R-SPEC-P), [60 §3.1] item 1 |
-| Sources | [80 §3.1] X-F1 (the `LOCK` layout v1 and the lock bytes) and X-F2 (`ProcId`, `Anchor`, the liveness rules, the boot-identity rule, Unknown-boot mode); [80 §2.2.1] items 1, 6, 9; [80 §2.2.3] (the lock map and order); [80 §2.7.1] (the `ProcId` table, `boot_id`, `boot_hash` in anchors); [80 §2.7.2] (the anchor table, "How it works", race windows, slot choice, the MCP server lifetime); [80 §2.8] (`LeaderRec`); [80 §8.7] (the X-F2 amendment); [90 §4.1] (the session and actor rows of the caller-context resolver, harness detection); [90 §4.4] (slots per harness, the frozen amendment, slot pressure); [90 §10.1] row "Holder anchor (X-F2)" and row "`LEASES` runtime rows"; [AR §4.1] `LOCK` row; [AR §6.1] (processes and locks); [AR §6.2] (holder liveness, lease kinds and anchors); [AR §4.4] `LEASES` row (the anchor); [40 §2.6] `FSINTENT` row, [40 §3.4] step 5; [60 §2.5] the [AR] row "`LOCK`", the audit row "`LOCK`", the "Cross-platform" row and the "Harness-agnostic interface" row; `docs/spec/reviews/a1-P.md` (no `LOCK` finding; §4 checks); [PLAN §3.2] WP-11, [PLAN §3.3] |
+| Sources | [80 §3.1] X-F1 (the `LOCK` layout v1 and the lock bytes) and X-F2 (`ProcId`, `Anchor`, the liveness rules, the boot-identity rule, Unknown-boot mode); [80 §2.2.1] items 1, 6, 9; [80 §2.2.3] (the lock map and order); [80 §2.7.1] (the `ProcId` table, `boot_id`, `boot_hash` in anchors); [80 §2.7.2] (the anchor table, "How it works", race windows, slot choice, the MCP server lifetime); [80 §2.8] (`LeaderRec`); [80 §8.7] (the X-F2 amendment); [90 §4.1] (the session and actor rows of the caller-context resolver, harness detection); [90 §4.4] (slots per harness, the frozen amendment, slot pressure); [90 §10.1] row "Holder anchor (X-F2)" and row "`LEASES` runtime rows"; [AR §4.1] `LOCK` row; [AR §6.1] (processes and locks); [AR §6.2] (holder liveness, lease kinds and anchors); [AR §4.4] `LEASES` row (the anchor); [40 §2.6] `FSINTENT` row, [40 §3.4] step 5; [60 §2.5] the [AR] row "`LOCK`", the audit row "`LOCK`", the "Cross-platform" row and the "Harness-agnostic interface" row; `docs/spec/reviews/a1-P.md` (no `LOCK` finding; §4 checks); [PLAN §3.2] WP-11, [PLAN §3.3]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the `LOCK` header's magic) |
 | Depends on | [F01]; cites [F02], [F04], [F05], [F11], [F15], [F16], [F17], [F19], [OS/lock], [OS/proc], [OS/clock], [OS/fs] |
 
 ## 1. Scope
@@ -126,7 +126,7 @@ design's quiet-advisory byte) and quiet 1 … quiet 8 = `ROLE_BASE` + 5 … `ROL
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
-| 0 | 4 | `[4]u8` | `magic` | `"MLCK"`: `4D 4C 43 4B` ([F01 §4.5]) |
+| 0 | 4 | `[4]u8` | `magic` | `"KLCK"`: `4B 4C 43 4B` ([F01 §4.5]) |
 | 4 | 2 | `u16` | `format` | the format version ([F01 §9.1]); 1 |
 | 6 | 2 | `u16` | `flags` | no bit is defined in format v1; every bit reserved-zero |
 | 8 | 2 | `u16` | `n_slots` | 256 |

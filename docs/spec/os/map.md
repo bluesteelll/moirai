@@ -5,7 +5,7 @@
 | Title | `os::map` — what may be mapped, the `total_len` size check, typed access, the mapping registry and the in-page-error / `SIGBUS` handler |
 | Status | draft, pass 1 pending |
 | Work package | WP-17a (role R-SPEC-P), part 1 of WP-17 |
-| Sources | [80 §2.1] (`os::map` row); [80 §2.5] rules 1–8; [80 §2.3.2] (sealed-file protocol point); [80 §2.3.5] items (9), (10); [80 §3.1] X-F6; [AR §4.1] `Mapped?` column and rules paragraph; [AR §4.7]; [AR §4.10] "Mappings"; [AR §6.1] (region arenas released on a segment-set change); [AR §7.1] exit code 7; [60 §2.5] protocol decision (m) and fault-model items (9), (10); [60 §5.2] item 22; PLAN §6.1 #14 (VHDX deferred: an in-process raised `EXCEPTION_IN_PAGE_ERROR`); research report [X17 §4] as cited by [80] |
+| Sources | [80 §2.1] (`os::map` row); [80 §2.5] rules 1–8; [80 §2.3.2] (sealed-file protocol point); [80 §2.3.5] items (9), (10); [80 §3.1] X-F6; [AR §4.1] `Mapped?` column and rules paragraph; [AR §4.7]; [AR §4.10] "Mappings"; [AR §6.1] (region arenas released on a segment-set change); [AR §7.1] exit code 7; [60 §2.5] protocol decision (m) and fault-model items (9), (10); [60 §5.2] item 22; PLAN §6.1 #14 (VHDX deferred: an in-process raised `EXCEPTION_IN_PAGE_ERROR`); research report [X17 §4] as cited by [80]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the dictionary header's magic) |
 
 ---
 
@@ -82,7 +82,7 @@ keeps the file referenced on every OS.
 ## 4. The size check (rule 4)
 
 Every sealed kind's header carries `total_len u64`, the file's exact length ([80 §2.5] rule 4, X-F6): `SegHdr`
-(segments, `cs`, `hist`, `blobs`, [F09]), the `gitmap` page header and the 32-byte `dict` header `{magic "MDIC",
+(segments, `cs`, `hist`, `blobs`, [F09]), the `gitmap` page header and the 32-byte `dict` header `{magic "KDIC",
 total_len u64, blake3_16, _ [4]}` ([F10]). Before mapping:
 
 1. The caller reads the header with one `read_exact_at` ([OS/fs §4.3]) and checks the header's own magic and checksum
