@@ -2,11 +2,11 @@
 
 | | |
 |---|---|
-| Title | The commit record: the payload of a `Commit` log record — the header with its presence bitmap and every field of [AR §4.3], the unhashed fields of [50] F10, F14 and F16 and [90 §10.1]'s `actor_src`; the commit-kind and provenance enumerations, import-checkpoint included; the reserved provenance group ([AR §11] OQ-A-9); the closed value set with R-1's `path`, `oid` and `pathmove`; every op with its before-image and `prev` delta, R-4's edge property block and anchor record included; the bodies a commit carries and how a body is dropped ([AR §11] #33); bulk commits through `cs.<n>` |
+| Title | The commit record: the payload of a `Commit` log record — the header with its presence bitmap and every field of [AR §4.3], the unhashed fields of [50] F10, F14 and F16 and [90 §10.1]'s `actor_src`; the commit-kind and provenance enumerations, import-checkpoint included; the reserved provenance group ([AR §11] OQ-A-9); the closed value set with R-1's `path`, `oid` and `pathmove`; every op with its before-image, its `prev` delta, item 1a's locator and the op byte's flags, R-4's edge property block and anchor record included; the bodies a commit carries and how a body is dropped ([AR §11] #33); bulk commits through `cs.<n>` |
 | Chapter | [F06], `docs/spec/format/06-commit.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-12a, the commit-record part of WP-12 ([PLAN §3.2] item 1), author role R-SPEC-F |
-| Sources | [AR §4.3] (the `Commit` body, the op list and coalescing, "Encoding and size", bulk commits, bodies in the log tail); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation tables for R4, R5, the audits and [90 §10.1]); [AR §4.5] steps 4, 7, 8 and 9 (candidate, re-parent, `#N` allocation, append); [AR §4.1] rows `cs.NNNN`, `blobs.NNNN` and rules; [AR §3.1] (field block and the closed type set; `CREATOR`); [AR §3.3] (edge properties, discriminator); [AR §5a.1] (commit content, schema version; ref fields); [AR §5a.2] (`ref_old`, `ref_seq`); [AR §5a.3] (sync residue); [AR §5a.5] (revert, cherry-pick, before-images); [AR §5a.7] steps 4, 7 and 8; [AR §5a.8] (conflict and violation classes); [AR §5b.4] (foreign and import-checkpoint ids, `hlc` rule, trailers, carrier table); [AR §5b.6] steps 2–5 (import flags, `verified`, stated parents); [AR §5b.7] (round-trip table: idempotency key hash); [AR §5d.1] (absorbed vectors); [AR §6.4] (idempotency, default keys); [40 §2.2] (artifact fields, `relink`), [40 §2.3], [40 §2.4] (`pathmove` and its `hlc`), [40 §2.7] (anchor record, `aN`, `captured`, `pred`), [40 §2.8], [40 §2.11] R-1, R-4, R-5, R-6, R-10; [50 §3.10] items 6, 8 and 11; [50 §4.4] (named-query definitions); [50 §8.1] F3, F10, F14, F15, F16, F18; [90 §4.1] (the actor row), [90 §4.2], [90 §10.1] (row "Commit header"); [60 §2.5] rows "Commit body" and "Ops and values", audit row "Commit body"; [PLAN §3.3] (the WP-12 gaps); reviews `a1-A.md` A-M2, `a1-S.md` S-03, S-04, S-09, S-19, S-20, `a1-P.md` A1P-12; [RULES/merge-table] open points 5, 9, 11, 18 and 20; [F17 §4.4] and OP-17-05; [OS/clock §7]; [LQ/canonical-ast §7.2] and its open points C-9, C-10; [AR §11] #33, OQ-A-7 and OQ-A-9 (spec sync 3); [90 §4.1] (the Model row) |
+| Sources | [AR §4.3] (the `Commit` body, the op list and coalescing, "Encoding and size", bulk commits, bodies in the log tail); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation tables for R4, R5, the audits and [90 §10.1]); [AR §4.5] steps 4, 7, 8 and 9 (candidate, re-parent, `#N` allocation, append); [AR §4.1] rows `cs.NNNN`, `blobs.NNNN` and rules; [AR §3.1] (field block and the closed type set; `CREATOR`); [AR §3.3] (edge properties, discriminator); [AR §5a.1] (commit content, schema version; ref fields); [AR §5a.2] (`ref_old`, `ref_seq`); [AR §5a.3] (sync residue); [AR §5a.5] (revert, cherry-pick, before-images); [AR §5a.7] steps 4, 7 and 8; [AR §5a.8] (conflict and violation classes); [AR §5b.4] (foreign and import-checkpoint ids, `hlc` rule, trailers, carrier table); [AR §5b.6] steps 2–5 (import flags, `verified`, stated parents); [AR §5b.7] (round-trip table: idempotency key hash); [AR §5d.1] (absorbed vectors); [AR §6.4] (idempotency, default keys); [40 §2.2] (artifact fields, `relink`), [40 §2.3], [40 §2.4] (`pathmove` and its `hlc`), [40 §2.7] (anchor record, `aN`, `captured`, `pred`), [40 §2.8], [40 §2.11] R-1, R-4, R-5, R-6, R-10; [50 §3.10] items 6, 8 and 11; [50 §4.4] (named-query definitions); [50 §8.1] F3, F10, F14, F15, F16, F18; [90 §4.1] (the actor row), [90 §4.2], [90 §10.1] (row "Commit header"); [60 §2.5] rows "Commit body" and "Ops and values", audit row "Commit body"; [PLAN §3.3] (the WP-12 gaps); reviews `a1-A.md` A-M2, `a1-S.md` S-03, S-04, S-09, S-19, S-20, `a1-P.md` A1P-12; [RULES/merge-table] open points 5, 9, 11, 18 and 20; [F17 §4.4] and OP-17-05; [OS/clock §7]; [LQ/canonical-ast §7.2] and its open points C-9, C-10; [AR §11] #33, OQ-A-7 and OQ-A-9 (spec sync 3); [90 §4.1] (the Model row); item 1a: the owner's rulings R-47 and R-50 of 2026-10-13 and R-73 of 2026-10-15, the orchestrator's ruling R-53 of 2026-10-13 (F-1, F-2) |
 | Depends on | [F01], [F02]; cites [F04], [F05], [F07], [F08], [F09], [F10], [F11], [F12], [F13], [F14], [F16], [F17], [F18], [F19], [F20], [API], [LQ/canonical-ast], [LQ/envelope], [OS/clock], [RULES/merge-table], [RULES/link-merge-rules] |
 
 ## 1. Scope
@@ -17,7 +17,8 @@ This chapter specifies the **payload of a `Commit` log record**: every byte that
 - the header part: the presence bitmap and every header field, hashed or not (§4);
 - the rules for values inside a commit; their bytes are [F08 §5]'s, which this chapter cites and never restates (§5);
 - the stored encoding of keys, key values, conflict values and node images (§6);
-- every op of the changeset, its before-image, its `prev` delta, the net form and the op order (§7); the edge property
+- every op of the changeset, its before-image, its `prev` delta with its locator, the op byte's flags, the net form and
+  the op order (§7); the edge property
   block and the anchor record the edge ops carry are [F08 §10.2] and [F08 §10.3]'s;
 - the bodies a commit record carries, and what dropping a body's bytes means for every structure that names it (§8,
   §8.1);
@@ -509,7 +510,8 @@ Every other field is **not hashed**, exactly [AR §4.6]'s list: `lsn` and `paren
 `ref_old`, `prev_on_ref`, `ref_seq`, symbol numbers, `import`, `verified`, the idempotency pair, `absorbed`, `affected`
 and `affected_complete`, `stmt_origin`, `stmt_sym`, `stmt_hash`, `append_hlc`, `actor_src`, `prov` (§4.4.17), `ckpt`,
 `xtr`, `cs_ref`, `ckimg`, `stage`, the `pruned` bit, and,
-inside the changeset part, every `#N`, `aN`, `prev`, before-image, `Violation` op, `creator` of a `Create`, and anchor
+inside the changeset part, every `#N`, `aN`, `prev` and its locator (§7.3.1), the op byte's flags (§7.1.1),
+before-image, `Violation` op, `creator` of a `Create`, and anchor
 quote, prefix, suffix and `end` text (their digests are hashed, R-10). A body's bytes are never hashed: its key's
 value is its hash (§6.2), which is why a body can be dropped without changing any id (§8.1).
 
@@ -672,11 +674,28 @@ An entry is `ie` `u8` then:
 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
-| 1 | `op` | `u8` | always | the op tag (§7.2) |
+| 1 | `op` | `u8` | always | the op byte: bits 0–5 the op tag (§7.2); bit 6 `more` and bit 7 `cont`, the flags of §7.1.1 |
 | 2 | `len` | `uvar32` | always | byte length of the body |
 | 3 | body | `len` bytes | always | the op's fields (§7.4–§7.7), which fill `len` exactly (V) |
 
 The length lets a reader skip ops without decoding them: the compact overlay decodes values on probe ([AR §4.5] step 1).
+
+#### 7.1.1 The op byte's flags (item 1a)
+
+The flags let a reader that lands on a frame tell whether the frame begins or ends its owner's ops in the record, and so
+whether a locator (§7.3.1) follows its `prev`, without reading the frames around it (the owner's rulings R-47 and R-50
+of 2026-10-13 and R-73 of 2026-10-15; the orchestrator's ruling R-53 of 2026-10-13, F-1).
+
+- **Prev run.** In one record, the frames whose op carries `prev` (§7.2) and whose owner (§7.9) is n are adjacent:
+  §7.9 sorts n's keyed ops, of ranks 1–8, before any `Violation` of n, of rank 10, and a schema key has no owner. They
+  are n's **prev run** in that record. An inline record whose changeset touches n (§7.3) holds exactly one prev run of
+  n; a node-keyed `Violation` is not part of it.
+- **`cont`** (bit 7, `0x80`) is set on every frame of a prev run except its first, and on no other frame (V).
+- **`more`** (bit 6, `0x40`) is set on every frame of a prev run except its last, and on no other frame (V).
+- So a frame whose op carries no `prev` (`Schema`, `Violation`, a `Conflict` or `Resolve` on a schema key) has bits 6
+  and 7 clear, and so does a one-frame prev run: its op byte equals its tag, as before item 1a.
+- The flags are store-local and not hashed (§4.5): an op is its tag whatever its flags hold, and the canonical form
+  never sees them (§7.10).
 
 ### 7.2 Op tags
 
@@ -699,7 +718,7 @@ The length lets a reader skip ops without decoding them: the compact overlay dec
 | 15 | `Resolve` | its `key` | iff the key has an owner |
 | 16 | `CreateDeleted` | existence | yes |
 
-0 and 17–255 are invalid (V): a zeroed op area never decodes. There is no op for directory moves: `path_moves` is an
+The tag is bits 0–5 of the op byte (§7.1); tags 0 and 17–63 are invalid (V): a zeroed op area never decodes. There is no op for directory moves: `path_moves` is an
 ordinary set field ([40] R-5).
 
 ### 7.3 `prev`
@@ -721,9 +740,77 @@ history is a chain within a ref; walkers hop to the parent ref at a fork and int
   touches one forces a phase-1 re-run and a re-stream (pass 1, S1-20).
 - A record keeps its lsn for life (adoption re-writes it in place; `hist` keeps it, [F10]), so `prev` never goes stale.
 
+#### 7.3.1 The locator (item 1a)
+
+A **locator** lets a reader that follows `prev` reach the owner's frames in the record `prev` names with one read,
+instead of walking that record's header part and the frames before them (the owner's rulings R-47 and R-50 of
+2026-10-13 and R-73 of 2026-10-15). It follows `prev` in the first frame of every prev run (§7.1.1) whose `prev` is not
+0, the frame whose `cont` is clear, and in no other frame (V). A decoder therefore knows from the frame alone whether a
+locator follows `prev`.
+
+| order | name | encoding | present when | meaning |
+|---|---|---|---|---|
+| 1 | `prev_at` | `uvar32` | `cont` clear and `prev` ≠ 0 | where the owner's prev run begins in the record that `prev` names: the offset of its first frame's op byte from that record's first byte, the first byte of its `RecHdr` ([F05 §3.3]); 0 in the unknown locator |
+| 2 | `prev_len` | `uvar32` | `cont` clear and `prev` ≠ 0 | the length of that prev run: all its frames, each with its op byte, `len` and body, and no `Violation` of the owner (§7.1.1); 0 in the unknown locator |
+
+- **LV-1** (V). Either `prev_at` = `prev_len` = 0, the **unknown** locator, or `prev_at` ≥ 32, `prev_len` ≥ 1 and
+  `prev_at` + `prev_len` ≤ `prev`, a **known** locator, whose named bytes lie after the named record's `RecHdr` and
+  before this record. Every other pair is invalid.
+- **LC-1** (C). A known locator names exactly the owner's prev run in the record `prev` names: the bytes
+  [`lsn` − `prev` + `prev_at`, `lsn` − `prev` + `prev_at` + `prev_len`) are that run, no more and no less. That record
+  is therefore an inline `Commit` record: a bulk commit has no frames (§9 BK-1), so no known locator names one.
+- **Unknown.** The unknown locator is valid whatever record `prev` names, and claims nothing about it: a reader then
+  takes the path it took before item 1a. When a writer writes a known locator is [F16] P-37's rule.
+- **Stable.** A `Commit` record keeps its lsn for life (§7.3), and its bytes from the end of its `RecHdr` through its
+  last op never change after its append: adoption re-writes the same bytes (§7.3), `hist` keeps them ([F10]), and §8.1
+  DB-9 removes only body entries, which follow the ops, so a `hist` rewrite recomputes `RecHdr.len`, its
+  checksum and `n_bodies`, which follows the ops; the header-only form of §4.4.15 is on no live chain. So every op keeps its offset from the record's first
+  byte and its bytes, and a known locator stays exact in the log and in `hist`.
+
+**Sources of truth** (the orchestrator's ruling R-53 of 2026-10-13, F-2).
+
+- **SL-1, one entry.** The writer takes each owner's locator together with its `prev`, from the same chain-head entry,
+  under the writer byte (§7.3, [F16] P-37). Its replay and its scan of the groups after it, pending groups included, set
+  that entry ([F16] P-29, P-30), so after an intervening commit that touched the owner, `prev` and the locator both name
+  that commit's record. The locator is known when the entry holds the owner's prev run in that record, and unknown
+  otherwise.
+- **SL-2, lanes.** `prev` is per ref (§7.3). On a lane, `prev` and the locator name the lane's own newest record that
+  touches the owner: never a record of `main` that a sync window applies by reference ([AR §5a.3]), and never another
+  ref's record, even when that record is the owner's newest in the lane's view. When the owner has no earlier op on the
+  lane, `prev` is 0 and the frame carries no locator; the hop to the parent ref at the fork ([AR §5a.6]) has none.
+- **SL-3, bulk commits.** A bulk commit carries no op, so no locator; its rows keep their absolute `PREV`
+  ([F09 §16.4]). A frame whose `prev` names a bulk commit carries the unknown locator: the owner's row there is read
+  through that commit's `cs.<n>` layer (§9 BK-6, [F09 §4.7]).
+- **SL-4, below the checkpoint.** A chain head that the writer takes from a segment row (`last_op_lsn`, [F08 §3.1])
+  holds no span, so the frame carries the unknown locator. A current read never follows `prev` below its view's
+  `checkpoint_lsn`, since the layers hold the node's values there ([F09 §4.7]); a history walk walks those records.
+
+**Reading** (the orchestrator's ruling R-53, F-1). A reader that follows `prev` from a frame with a known locator reads
+the `prev_len` bytes at `lsn` − `prev` + `prev_at` only if n(`lsn` − `prev`) = n(`lsn` − `prev` + `prev_at` + `prev_len`
+− 1) ([F05 §2.3]): the bytes then lie inside the extent that holds the named record, as every record does
+([F05 §4.4] G-1), so such a read is never longer than E − 32 bytes. It uses the bytes only if:
+
+- **LR-1.** they decode as whole frames that fill `prev_len` exactly, each frame valid by §7.1–§7.9;
+- **LR-2.** every frame has the owner of the frame that carries the locator, and its op carries `prev`;
+- **LR-3.** the first frame has `cont` clear and the last frame has `more` clear, so the bytes are the owner's whole
+  prev run: not a start one or more frames late, which owners and length alone cannot show when the named run's `prev`
+  is 0, and not an end one or more frames early.
+
+Otherwise, when the bytes leave that extent, and for the unknown locator, the reader takes the path it took before
+item 1a: it walks the named record, or reads a bulk commit's row through its `cs.<n>` layer (SL-3). The result is the
+same; a refused locator never changes a read's result and never stops a read. A known locator refused over intact bytes
+breaks LC-1, a corruption finding of `doctor --verify` (§2.4). Over bytes damaged after the replay validated them
+([F15] FM-3.2) even an exact locator can be refused, and then the damage is the finding, not the locator. LR-1 to LR-3
+refuse every wrong known locator that names whole frames of the named record. They cannot refuse one that names the
+owner's whole prev run in another record, between the named record and this one in the same extent, as a writer that
+took its chain-head entry from another ref would write against SL-2: the read then returns that record's values, and
+LC-1 under `doctor --verify` finds the locator. One that names other bytes, or damaged bytes, is refused unless those
+bytes happen to decode as the owner's whole prev run.
+
 ### 7.4 Node ops
 
-Every node op begins with `id` (`uvar32`, the owner `#N`) and `prev` (§7.3).
+Every node op begins with `id` (`uvar32`, the owner `#N`) and `prev` (§7.3), then the locator (§7.3.1) when the frame is
+the first of its prev run and `prev` is not 0; every table of §7.4, §7.5.1 and §7.7 shows it in its `prev` row.
 
 **Base state.** An op's "before" values are the key's values in the commit's **base state**: the state at the first
 parent; for a `sync` commit, the lane parent's state with `main`'s window `(M_{k−1}, M_k]` applied by reference, so
@@ -734,7 +821,7 @@ that the residue ops turn "what the window alone yields" into the merged value (
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `id` | `uvar32` | always | the `#N`: newly allocated, or the `#N` the store already binds to `uid` (I1, `UIDX`) |
-| 2 | `prev` | `uvar64` | always | §7.3 |
+| 2 | `prev` | `uvar64` | always | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `uid` | `b16` | always | random, or derived per the kind's `uid_derivation` ([F08]) |
 | 4 | `kind` | `u8` | always | the node kind ([F08]) |
 | 5 | `c_actor` | `uvar32` | always | symbol, class `actor`: the `CREATOR` actor ([50] F4) |
@@ -750,7 +837,7 @@ the importing commit's actor and role (C; open point 12). They are not hashed.
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `id` | `uvar32` | always | the node |
-| 2 | `prev` | `uvar64` | always | §7.3 |
+| 2 | `prev` | `uvar64` | always | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `reason` | `uvar32` | always | symbol, class `reason` (`TOMB.reason_sym`); 0 = empty; a foreign file removal uses `image:file-removed` |
 | 4 | `replaced_by` | `uvar32` | always | `#N` of the replacement, 0 = none |
 | 5 | `before` | node image | always | the full before-image: every value key of the node in the base state ([AR §2.5] "tombstone in history with the full before-image") |
@@ -763,7 +850,7 @@ node's hierarchy key and edges change by their own ops in the same commit (the d
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `id` | `uvar32` | always | the node |
-| 2 | `prev` | `uvar64` | always | §7.3 |
+| 2 | `prev` | `uvar64` | always | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `reason` | `uvar32` | always | before-image: the tombstone's reason (class `reason`) |
 | 4 | `replaced_by` | `uvar32` | always | before-image: the tombstone's replacement, 0 = none |
 | 5 | `image` | node image | always | every value key of the node at the end of the commit |
@@ -776,7 +863,7 @@ created and later deleted the node, and when an import-checkpoint brings in a to
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `id` | `uvar32` | always | the `#N` the store binds to `uid` (I1, `UIDX`), newly allocated if the store has never seen the uid |
-| 2 | `prev` | `uvar64` | always | §7.3 |
+| 2 | `prev` | `uvar64` | always | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `uid` | `b16` | always | the node's uid |
 | 4 | `kind` | `u8` | always | the node kind ([F08]) |
 | 5 | `c_actor` | `uvar32` | always | symbol, class `actor`: the `CREATOR` actor, by `Create`'s rule: the original creator for a merge, sync or native import, the importing commit's actor for a foreign or checkpoint import (C) |
@@ -793,7 +880,7 @@ ops of the same record.
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `id` | `uvar32` | always | the node |
-| 2 | `prev` | `uvar64` | always | §7.3 |
+| 2 | `prev` | `uvar64` | always | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `name` | `uvar32` | always | the field, symbol class `name` |
 | 4 | `old` | `tvalue` | always | before-image |
 | 5 | `new` | `tvalue` | always | the new value; `old` ≠ `new` (V, bytewise) |
@@ -803,7 +890,7 @@ ops of the same record.
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `id` | `uvar32` | always | the node |
-| 2 | `prev` | `uvar64` | always | §7.3 |
+| 2 | `prev` | `uvar64` | always | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `old_status` | `u8` | always | before-image ([F08]'s status code of the node's kind) |
 | 4 | `old_resolution` | `u8` | always | before-image ([F08]'s resolution code, whose "none" value [F08] fixes) |
 | 5 | `new_status` | `u8` | always | new status |
@@ -814,7 +901,7 @@ ops of the same record.
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `id` | `uvar32` | always | the node |
-| 2 | `prev` | `uvar64` | always | §7.3 |
+| 2 | `prev` | `uvar64` | always | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `name` | `uvar32` | always | the counter field, class `name` |
 | 4 | `delta` | `svar64` | always | the net delta, not 0 (V) |
 
@@ -823,7 +910,7 @@ ops of the same record.
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `id` | `uvar32` | always | the node |
-| 2 | `prev` | `uvar64` | always | §7.3 |
+| 2 | `prev` | `uvar64` | always | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `bflags` | `u8` | always | bit 0 `old` present, bit 1 `new` present; bits 2–7 reserved-zero; not 0 (V) |
 | 4 | `old` | `b16` | `bflags` bit 0 | before-image: BLAKE3-128 of the old body |
 | 5 | `new` | `b16` | `bflags` bit 1 | BLAKE3-128 of the new stored body ([AR §5b.2] rule 7); differs from `old` (V). Clear when the body becomes empty: an empty body is no body ([F08 §7.2]) |
@@ -833,7 +920,7 @@ ops of the same record.
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `id` | `uvar32` | always | the node |
-| 2 | `prev` | `uvar64` | always | §7.3 |
+| 2 | `prev` | `uvar64` | always | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `old_parent` | `uvar32` | always | before-image, `#N`, 0 = none |
 | 4 | `new_parent` | `uvar32` | always | `#N`, 0 = none |
 | 5 | `old_order` | `vstr` | always | before-image, the fractional index, empty = none |
@@ -849,7 +936,7 @@ before-image.
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `src` | `uvar32` | always | the source node (the owner) |
-| 2 | `prev` | `uvar64` | always | §7.3 |
+| 2 | `prev` | `uvar64` | always | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `ekind` | `u8` | always | the edge kind ([F08]) |
 | 4 | `dst` | `uvar32` | always | the destination node |
 | 5 | `dflag` | `u8` | always | bit 0: `disc` follows; bits 1–7 reserved-zero (V) |
@@ -870,7 +957,7 @@ after: an anchor repin or pin, a `pinned_commit` re-pin, a flag set by a delete 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `src` | `uvar32` | always | the source node |
-| 2 | `prev` | `uvar64` | always | §7.3 |
+| 2 | `prev` | `uvar64` | always | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `ekind` | `u8` | always | the edge kind |
 | 4 | `dst` | `uvar32` | always | the destination node |
 | 5 | `dflag` | `u8` | always | as above |
@@ -929,7 +1016,7 @@ store-local fields `kind_id`, `edge_id`, `value`), so the `Schema` op that first
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `key` | `ckey` | always | the conflicted key |
-| 2 | `prev` | `uvar64` | the key has an owner | §7.3 |
+| 2 | `prev` | `uvar64` | the key has an owner | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `old` | `cstate` | always | before-image: the key's value in the base state (dst's), possibly an earlier conflict value |
 | 4 | `class` | `u8` | always | the value-conflict class ([F12]): `FieldEdit`, `StatusFork`, `TextHunk`, `DeleteVsModify`, `SupersedeFork`, `OwnerFieldEdited`, `PathClaim` |
 | 5 | `base` | `kval` | always | base side |
@@ -958,7 +1045,7 @@ value. The canonical form records the resulting value, not the choice ([AR §5b.
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `key` | `ckey` | always | the resolved key |
-| 2 | `prev` | `uvar64` | the key has an owner | §7.3 |
+| 2 | `prev` | `uvar64` | the key has an owner | §7.3; then the locator (§7.3.1) on a prev run's first frame when `prev` ≠ 0 |
 | 3 | `choice` | `u8` | always | 0 `ours`, 1 `theirs`, 2 `base`, 3 `value`, 4 `repoint`, 5 `drop`; 6–255 invalid (V) |
 | 4 | `target` | `uvar32` | `choice` = 4 | the `#N` the edge is re-pointed to |
 | 5 | `old` | `cstate` | always | before-image |
@@ -1034,7 +1121,7 @@ looks for; [F07] sorts canonically by uid and names.
   ([AR §5a.5]; I34′; there is no `DATA` class, [F12 §6.1]). A `sync` is never reverted; a bulk commit's before-images come
   from its base state (§9). A pruned commit (§4.4.15) is never reverted.
 - **Canonical relation.** Every stored op maps to item-10 entries keyed by uid and names ([AR §4.6]); the mapping, and the
-  full state diff of a `sync`, are [F07]'s. No stored-only datum enters it: `#N`, `aN`, `prev`, symbol numbers,
+  full state diff of a `sync`, are [F07]'s. No stored-only datum enters it: `#N`, `aN`, `prev` and its locator, the op byte's flags, symbol numbers,
   before-images, `creator`, `Violation` ops and anchor texts stay out (§4.5).
 
 ## 8. Bodies carried by a commit
@@ -1234,11 +1321,17 @@ S… (16)                      stmt_hash
 01 01 0C                     affected: 1 id, complete, #12
 D… (32)                      changeset_digest
 01                           n_ops
-05 07 0C C0 25 00 00 01 00   SetStatus, len 7: #12, prev 4,800 back, open/none -> in_progress/none
+05 0A 0C C0 25 E3 01 0B 00 00 01 00   SetStatus, len 10: #12, prev 4,800 back, locator (227, 11), open/none -> in_progress/none
 00                           n_bodies
 ```
 
-The payload is 205 bytes, 237 with the 32-byte `RecHdr` ([AR §4.3]'s estimate: ≈ 0.35–0.5 KB with git provenance).
+The payload is 208 bytes, 240 with the 32-byte `RecHdr` ([AR §4.3]'s estimate: ≈ 0.35–0.5 KB with git provenance).
+
+The `SetStatus` is a one-frame prev run (§7.1.1), so its op byte is its tag, and its `prev` is not 0, so a locator
+follows `prev` (§7.3.1). The locator is known: the record 4,800 bytes back has this record's shape, and its own
+`SetStatus` of #12, which carries the unknown locator (0, 0), lies at offset 227 and is 11 bytes long. A writer whose
+entry held no span for #12, because that record lies below its checkpoint (§7.3.1 SL-4), writes the unknown locator
+instead: the op reads `05 09 0C C0 25 00 00 00 00 01 00`, and the payload is 207 bytes.
 
 ## Coverage
 
@@ -1345,13 +1438,19 @@ changing any width or presence rule: [F10]'s codec-byte values (the `codec` byte
     needs the record's lsn, which the writer knows only under the writer byte. The writer re-serialises the ops there in
     any case to fill in the `#N` placeholders ([AR §4.5] step 8), so the O(1) re-parent keeps its meaning for the
     header and `changeset_digest` only. Consequence for [F17 §4.4]: W1 is decided on the phase-1 encoding, and the final
-    encoding differs by at most 4 bytes per placeholder plus the `prev` widths; [F16] states that W1 and W3 are re-checked
-    on the final encoding. **Pass 1 (P1-26):** the re-serialisation (the ops with `prev` and `#N`, the record's XXH3 and
+    encoding differs by at most 4 bytes per placeholder plus the `prev` widths and the locators (an unknown locator is 2
+    bytes and a known one at most 10, §7.3.1); [F16] states that the phase-1 encoding carries every locator unknown,
+    that W1 and W3 are re-checked on the final encoding, and that a writer writes every locator unknown where the known
+    locators alone would fail that re-check. **Pass 1 (P1-26):** the re-serialisation (the ops with `prev` and `#N`, the record's XXH3 and
     the chain) is O(`cs_bytes`) under the writer byte, up to ≈ 1 ms at the inline bound, against a hold budget of tens of
     µs. Decision: keep the encoding and **measure** it: measurement 2 sweeps the inline size up to P05
     (`store.commit.inline-max-bytes`) and reports the writer hold per size ([F17 §3], [60 §5.2]). If the hold exceeds the
     M1 gate, the fallback is to encode `prev` against a base lsn known in phase 1 (the tip's lsn), which moves the
-    re-serialisation out of the writer byte and changes only this field's meaning, before the freeze.
+    re-serialisation out of the writer byte and changes only this field's meaning, before the freeze. The locator
+    (§7.3.1) is filled with `prev` from the same chain-head entry (SL-1); its offsets count from the named record's own
+    first byte, so its bytes do not depend on the base `prev` is encoded against, and under the fallback it is computed
+    with `prev` (item 1a). Under the fallback too, W1's phase-1 decision counts every locator unknown, and P-35's
+    re-check and its all-unknown fallback apply to the final encoding.
 17. **An over-long commit.** §4.6 refuses a commit whose group cannot fit one extent even as a bulk commit (exit 7). Only
     `affected` (≤ 5 B per node), the message (≤ 64 KiB) and the absorbed vector (≤ 10 B per ref) can grow the header
     part; at the production extent (64 MiB) the refusal needs ≈ 12 M affected ids. [F19] assigns the code; [F17]
@@ -1375,7 +1474,9 @@ changing any width or presence rule: [F10]'s codec-byte values (the `codec` byte
     of the `kval` in §6.2 before the freeze.
 22. **Net form and op order are V-rules where decidable.** One op per key, image and delete folding, and the op order are
     checked by every decoder, so a decode followed by a re-encode is byte-identical (E3) and one net changeset has one
-    stored encoding per store.
+    stored encoding per store, up to its locators' values: whether a locator is known or unknown depends on what the
+    writer's replay or scan holds (§7.3.1) and on P-35's size re-check ([F16] P-37); the flags of §7.1.1 and where a
+    locator stands follow from the op list and `prev`.
 23. **`seq` above 2^32 − 1 is invalid on read** (§4.4.3), matching the write refusal of [AR §4.5] step 4.
 24. **`ref_seq` starts at 1** and the absorbed vector omits the commit's own ref (§4.4.2, §4.4.9); [F11]'s `ref_seq_next`
     must start at 1.
@@ -1451,3 +1552,37 @@ changing any width or presence rule: [F10]'s codec-byte values (the `codec` byte
       make a later kind, such as a pipeline or harvester actor at M9–M10, a format change that format-v1 readers refuse,
       which is what reserving the field before the freeze avoids. They are not a C-rule either, since a C-rule break is a
       corruption finding of `doctor --verify`. Value 0 stays invalid, so a zero byte is never read as a kind.
+38. **Item 1a: the op byte's flags and the locator** (§7.1.1, §7.3.1; the owner's rulings R-47 and R-50 of 2026-10-13
+    and R-73 of 2026-10-15; the orchestrator's ruling R-53 of 2026-10-13, F-1 and F-2). Before the tag the format gains a
+    way for a read to reach an owner's frames inside an older record without walking it.
+    - **The locator** is the pair `prev_at`, `prev_len` (two `uvar32` after `prev`, in the first frame of the owner's
+      prev run, not hashed), present whenever that `prev` is not 0, with (0, 0) for "unknown": design A's A1 as
+      measurement 14 measured it (R-73). An unknown locator costs 2 bytes, and a writer that does not hold the span
+      stays valid. A1's "owner's frames" are the prev run: a `Violation` of the owner carries no `prev`, is not on the
+      chain that `prev` follows (§7.3), and inside a span would let a locator one frame short pass LR-3.
+    - **`cont` and `more`** let a reader check that the bytes it was sent to are the owner's whole run (LR-3), and tell
+      from a frame alone whether a locator follows its `prev`. A later frame of an owner looks like its first frame when
+      the run's `prev` is 0, so a locator one frame late passes a check of owners and length; a locator one frame short
+      passes it at any `prev`. The two flags close both ends with no byte, and a one-frame run keeps its op byte equal
+      to its tag.
+    - **The cost in tags.** The tag keeps bits 0–5 of the op byte, so the free tag values fall from 239 (17–255) to 47
+      (17–63). A format-v1 reader refuses every unknown tag (§7.2), so a later op type is a format change whatever the
+      free space; 47 values stay for it.
+    - **Not taken.**
+      - An optional locator flagged by a third bit of the op byte: it saves an unknown locator's 2 bytes, at the cost of
+        32 more tag values and a form other than the one measured (R-73).
+      - A frame count in the locator: a writer that derives the count from the same wrong span passes it.
+      - A frame count in the run's first frame: a pointer that lands on a later frame cannot find it, and it costs a
+        byte per owner in every record.
+      - A checksum of the run: bytes in every locator, a hash on every hop, and the run's bytes under the writer byte.
+      - An op directory per record: measurement 14's read meets its gate without one.
+      - A skip locator for deep chains: the lever for depth is an engine cache.
+    - **Elsewhere.**
+      - [F16] P-34 and P-37 fill the locator under the writer byte; phase 1 encodes every locator unknown, and P-37
+        writes every locator unknown where the known locators alone would fail P-35's re-check, so whether a locator
+        is known never decides W1 or W3; [F16 §17.4] L-10 seeds a known locator that covers only the first frame of
+        its owner's run.
+      - [F17 §12] TP-4 covers the located hop, and [F07 §11] lists the new store-local data.
+      - [F05] does not change: the payload is this chapter's.
+      - [F09] does not change: a bulk commit carries no op, and a `VIOLATIONS` row carries no `prev`, so its op byte
+        keeps its tag.
