@@ -43,7 +43,10 @@ are [F01 §8]'s.
 
 - `#N` is a `u32` from 1 to 2^32 − 1; 0 means "no node". It is allocated store-wide under the writer byte from
   `HEAD.next_id` ([F04]), in increasing order, and never reused, not even after the node is deleted, on any branch,
-  across imports and GC ([AR §2.4], I1). A write that would need `#N` = 2^32 is refused ([F19]).
+  across imports and GC ([AR §2.4], I1). The last allocatable `#N` is 2^32 − 2, and so is the last anchor handle `aN`
+  (§10.3): a write that would need `#N` or `aN` = 2^32 − 1 is refused with exit 7, `id_space_exhausted` ([F19 §10.5]),
+  and nothing is written. `HEAD.next_id` and `HEAD.next_anchor` stay `u32` ([F04]); no byte changes, and a literal
+  `#4294967295` still parses and names no node (W3D-SF-6; the orchestrator's ruling R-74 of 2026-10-15).
 - `#N` is the display identity (`#812`) and the key of every runtime table ([AR §5d.1]). It is store-local: it never
   appears in hashed content or the image (N4, [AR §4.6]).
 - Row r of every dense per-node column (§3, §4) belongs to `#N` = r + 1 ([AR §3.1]).
@@ -184,7 +187,7 @@ owns their sections. The logical columns:
 | `defer_until` | `u32` | Unix seconds (UTC, [F01 §5.7] without the millisecond scale): the node is not dispatchable before this time ([AR §3.5]); 0 = none. The largest value, 2^32 − 1, is 2106-02-07T06:28:15Z |
 | `due` | `u32` | Unix seconds, as `defer_until`; 0 = none |
 | `priority` | `u8` | 0–4 = P0–P4 (§9.4); default 2. The node's priority, which [AR §3.1] puts at `NodeHdr` byte 3; it is stored in [F09]'s row column `PRIO` ([F09 §5.4]) (the owner's ruling R-66 of 2026-10-14). Its field storage stays `header`, code 1 (§8.4.2, §9.2; the orchestrator's ruling R-69 of 2026-10-14) |
-| `CREATOR` | `Creator` (below) | the actor and role of the creating commit, set at `Create` and never changed ([50] F4) |
+| `CREATOR` | `Creator` (below) | the actor and role of the creating commit, set at `Create` and never changed ([50] F4); for a merged or re-keyed node, the original creator ([F06 §7.4]; W3D-SF-7; the orchestrator's ruling R-52 of 2026-10-13) |
 | `DOCLEN` | [F09] | [50] F12's per-field token lengths; whether a writer writes it is [F09]'s hole `F09-doclen`, decided by GT13 before M2 (the orchestrator's ruling R-69 of 2026-10-14) |
 
 `Creator` (6 bytes, [F01 §8.3]):
@@ -1313,8 +1316,12 @@ the image line is [F14]'s (R-11).
 
 **Validity** (V for every decoder: [F06], [F09], the format oracle). Every enumeration holds a listed value; `resolver` ≥ 1;
 `hint_last` ≥ `hint_first` ≥ 1; `text_unavailable` only when `kind` carries a quote (`heading`, `symbol`, `quote`,
-`range`); `scope`, `window` and `marker` are non-empty when present; `window` is a valid window value of [F20 §2.7.3];
-`occurrence` ≥ 1; `blob` has `algo` `none` only when `kind` = `file`; `git` has `algo` ≠ `none`. **Consistency** (C):
+`range`); `scope`, `window` and `marker` are non-empty when present; `marker` is one line of at most 64 bytes and a
+scope value has 1–64 segments (`n`, §10.3.1), the bounds their rows state; `window` is a valid window value of
+[F20 §2.7.3]; `occurrence` ≥ 1; `blob` has `algo` `none` only when `kind` = `file`; `git` has `algo` ≠ `none`. Beyond
+these rules, `hint_first` and `hint_last` (any `u32` values that meet the rule above), `quote`, `prefix`, `suffix` and
+`end` have no decoder bound: the text caps (`QUOTE_MAX`, `CONTEXT_MAX`, [F20 §7]; `SCOPE_MAX_BYTES`, §10.3.1) bind
+writers only (the orchestrator's ruling R-74 of 2026-10-15). **Consistency** (C):
 when the texts are held, each digest [F07 §8.2] computes from them is the digest of the exact bytes; an import whose
 `anchor` line carries both a text and a digest that disagree is `ImageParse` ([40 §5.7], [F14]).
 
