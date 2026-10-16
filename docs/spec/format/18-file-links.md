@@ -625,8 +625,8 @@ repository`, `no tree`, `git`, `size` — plus three this chapter adds: `unreada
 read, [80 §2.11.4] rule 9, [F20 §4.8]), `unmapped root` (a named root with no `roots.<name>` mapping on this machine,
 [40 §2.4], [F02 §7.3]) and `oid algorithm differs` (a `file` anchor with `span` watch whose `blob` has another algorithm than
 the current content, [F20 §6.5]). [F20]'s internal reason `unstable` renders `budget` ([F20 §1.5]). The additions are
-frozen-string additions for the owner's sign-off, which is owner question OQ-F-4 (`reviews/owner-questions.md`; open
-point 12); they stand as written until it is answered.
+frozen-string additions, and they are signed: the owner decided owner question OQ-F-4 (a) on 2026-10-06
+(`reviews/owner-questions.md`; open point 12).
 
 **Intent-recovery strings.** `doctor` and `brief` render the outcome of an `FsIntent` recovery ([40 §3.4]) with these texts,
 which are not link details:
@@ -968,11 +968,11 @@ are fixed here, and the thresholds they mention are [F20]'s holes.
     names the command for the orchestrator and owner.
 12. **Three additions to the closed `unverified` set** (§4.6): `unreadable` ([F20] open point 22, [80 §2.11.4] rule 9),
     `unmapped root` ([40 §2.4] and [F02 §7.3] name this rendering, which [40 §2.9]'s closed set lacks) and `oid algorithm
-    differs` ([F20 §6.5]). Each is a frozen-string addition, like `none` and `unresolved` at the A1 re-review, and needs the
-    owner's sign-off. Alternative if the owner declines: `unmapped root` renders `no tree`, and the other two render `budget`,
-    which [F20] open point 22 shows to be misleading. **Spec sync 2a:** the three additions were not among the owner
-    questions decided on 2026-09-28, so they are raised as owner question OQ-F-4 (`reviews/owner-questions.md`); this
-    point stays open until it is answered.
+    differs` ([F20 §6.5]). Each is a frozen-string addition, like `none` and `unresolved` at the A1 re-review, and needed
+    the owner's sign-off. **Spec sync 2a:** the three additions were raised as owner question OQ-F-4
+    (`reviews/owner-questions.md`). **Decided 2026-10-06** (OQ-F-4, option (a)): the three additions are signed, and
+    WP-81a adds them to [40 §2.9]. The alternative the owner declined: `unmapped root` renders `no tree`, and the other two
+    render `budget`, which [F20] open point 22 shows to be misleading.
 13. **Anchor state `unverified` and a total `unresolved`** (§4.3, §4.4). [AR §5e.3] and [F20 §6.5] produce `unverified (size)`
     for anchors; [40 §2.9]'s anchor table and [50 §2.6]'s `a.state` list lack it. This chapter adds anchor code 6 and extends
     `unresolved` to `replaced` content and `pinned` anchors, where the cascade also does not run, so that `a.state` is total.
