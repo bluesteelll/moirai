@@ -6,7 +6,7 @@
 | Chapter | [F08], `docs/spec/format/08-data-model.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-14a (R-SPEC-F): the data-model part of WP-14 ([PLAN §3.2] item 1); chapter 18 is the other part |
-| Sources | [AR §2.4] T4 (the two ids); [AR §2.5] T5 (delete policies, tombstones); [AR §2.6] T6 (title ≤ 200 B, abstract, bodies ≤ 64 KiB); [AR §2.12] T12 (schema as data, weakening and strengthening, R4 and R5 additions); [AR §3.1] (node header, cold columns, field block, closed type set, virtual `done`); [AR §3.2] (13 kinds, fields, status sets); [AR §3.3] (25 edge kinds, classes, policies, acyclicity, cardinality, discriminator, edge properties, sigil rule); [AR §3.4] I1–I7, I11, I-F1…I-F14 row; [AR §3.5] (derived columns and flags); [AR §3.6] (status machines); [AR §4.3] (`Create` and the ops that carry values; commit size bound); [AR §4.4] (`NODE`, `UID`, `TOPO`, `DEFER`, `DUE`, `TITLE_*`, `FIELDS_*`, `BODY_REF`, `EDGE_PROPS`, `CREATOR`); [AR §4.6] items 7 and 10 and "Not hashed"; [AR §5a.7] step 4 (merge classes); [AR §5b.2] rules 2–4, 8, 9 (field names, value forms, source-truth flags, tombstones); [AR §5e.2]; [AR §7.1] (`--about`, `--applies-to`, `retract --reason`); [AR §7.3] (deviation findings, `artifact{…}` kinds, doc-writer `derived_from`); [AR §7.4] step 5 (`consumed` with `pinned_commit`); [40 §2.1]–[40 §2.9]; [40 §2.10] I-F1, I-F2, I-F3, I-F8, I-F9, I-F14; [40 §2.11] R-1–R-5, R-17 (authoritative); [40 §5.5] (re-key row); [40 §5.7] (field names, `origin_pred` presence); [50 §2.5] (schema vocabulary, edge table, readings, properties); [50 §3.2] (coercion); [50 §3.3] (absent values, defaults); [50 §3.5] (enum ranks); [50 §4.4] (named queries); [50 §8.1] F1–F5, F13; [60 §2.5] rows "Ops and values", "Schema as data", audit rows "Schema" and "Commit body", R-1–R-5, F1–F5; [80 §2.10] P1, P3, P4, P7, P12 through [OS/path §2–§3]; reviews `docs/spec/reviews/a1-S.md` S-01, S-03, S-19, S-20; open points of [RULES/merge-table], [RULES/link-merge-rules], [RULES/status-machines], [RULES/delete-policy-matrix], [RULES/pack-classes] and [RULES/role-write-policy] addressed to WP-14; the owner's ruling R-66 of 2026-10-14 (`priority` leaves `NodeHdr`); the orchestrator's ruling R-69 of 2026-10-14 (its storage code, its tombstone value, `DOCLEN`) |
+| Sources | [AR §2.4] T4 (the two ids); [AR §2.5] T5 (delete policies, tombstones); [AR §2.6] T6 (title ≤ 200 B, abstract, bodies ≤ 64 KiB); [AR §2.12] T12 (schema as data, weakening and strengthening, R4 and R5 additions); [AR §3.1] (node header, cold columns, field block, closed type set, virtual `done`); [AR §3.2] (13 kinds, fields, status sets); [AR §3.3] (25 edge kinds, classes, policies, acyclicity, cardinality, discriminator, edge properties, sigil rule); [AR §3.4] I1–I7, I11, I-F1…I-F14 row; [AR §3.5] (derived columns and flags); [AR §3.6] (status machines); [AR §4.3] (`Create` and the ops that carry values; commit size bound); [AR §4.4] (`NODE`, `UID`, `TOPO`, `DEFER`, `DUE`, `TITLE_*`, `FIELDS_*`, `BODY_REF`, `EDGE_PROPS`, `CREATOR`); [AR §4.6] items 7 and 10 and "Not hashed"; [AR §5a.7] step 4 (merge classes); [AR §5b.2] rules 2–4, 8, 9 (field names, value forms, source-truth flags, tombstones); [AR §5e.2]; [AR §7.1] (`--about`, `--applies-to`, `retract --reason`); [AR §7.3] (deviation findings, `artifact{…}` kinds, doc-writer `derived_from`); [AR §7.4] step 5 (`consumed` with `pinned_commit`); [40 §2.1]–[40 §2.9]; [40 §2.10] I-F1, I-F2, I-F3, I-F8, I-F9, I-F14; [40 §2.11] R-1–R-5, R-17 (authoritative); [40 §5.5] (re-key row); [40 §5.7] (field names, `origin_pred` presence); [50 §2.5] (schema vocabulary, edge table, readings, properties); [50 §3.2] (coercion); [50 §3.3] (absent values, defaults); [50 §3.5] (enum ranks); [50 §4.4] (named queries); [50 §8.1] F1–F5, F13; [60 §2.5] rows "Ops and values", "Schema as data", audit rows "Schema" and "Commit body", R-1–R-5, F1–F5; [80 §2.10] P1, P3, P4, P7, P12 through [OS/path §2–§3]; reviews `docs/spec/reviews/a1-S.md` S-01, S-03, S-19, S-20; open points of [RULES/merge-table], [RULES/link-merge-rules], [RULES/status-machines], [RULES/delete-policy-matrix], [RULES/pack-classes] and [RULES/role-write-policy] addressed to WP-14; the owner's ruling R-66 of 2026-10-14 (`priority` leaves `NodeHdr`); the orchestrator's ruling R-69 of 2026-10-14 (its storage code, its tombstone value, `DOCLEN`); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the derivation hash-domain strings and their hex, the image marker's name, the branch field of the `lane` kind) |
 | Depends on | [F01]; cites [F02], [F04], [F06], [F07], [F09], [F10], [F11], [F12], [F13], [F14], [F17], [F18], [F19], [F20], [OS/path], [LQ/lexical], [LQ/grammar-v1.ebnf], [LQ/canonical-ast], [LQ/envelope], [LQ/std], [API], [CFG], [RULES/merge-table], [RULES/link-merge-rules], [RULES/status-machines], [RULES/delete-policy-matrix], [RULES/pack-classes], [RULES/role-write-policy] |
 
 ## 1. Scope
@@ -496,7 +496,7 @@ values (also of core enumerations), project edge kinds, project named queries ([
 [CFG §10.13] (§8.5.6; spec sync 2b).
 
 - **Schema version.** Format v1 defines schema version **1**: the core schema of §9. It is the value of canonical item 7
-  ([AR §4.6]) for every commit of a format-v1 store and the `schema-version` line of `.moirai-image` ([AR §5b.3]). A
+  ([AR §4.6]) for every commit of a format-v1 store and the `schema-version` line of `.klotho-image` ([AR §5b.3]). A
   commit or image of another schema version is refused as a newer format is ([F01 §9.1]; open point 8).
 - **Core items are fixed.** No schema item may change, retire or shadow a core kind, field, enumeration value or edge
   kind; items may add fields to core kinds and values to core enumerations.
@@ -1062,7 +1062,7 @@ The title is derived from `path`.
 | 22 | `base_sha` | `oid` | scalar | optional | — | a git commit id |
 | 23 | `tip_sha` | `oid` | scalar | optional | — | a git commit id |
 | 24 | `target_dir` | `path` | scalar | optional | — | root `abs` |
-| 25 | `moirai_branch` | `sym` | scalar | optional | — | a ref name ([F12]) |
+| 25 | `store_branch` | `sym` | scalar | optional | — | a ref name ([F12]) |
 
 **area**
 
@@ -1379,7 +1379,7 @@ Every derivation is BLAKE3-128 ([F01 §7.1]) over `lp()`-framed arguments ([F01 
 
 | argument | bytes |
 |---|---|
-| a domain string (`"moirai-file-v1"`, `"moirai-root-v1"`, `"moirai-anchor-v1"`) | its ASCII bytes |
+| a domain string (`"klotho-file-v1"`, `"klotho-root-v1"`, `"klotho-anchor-v1"`) | its ASCII bytes |
 | a root name | its UTF-8 bytes (never its symbol id) |
 | a path (`origin_path`) | the path text's exact bytes, without its root |
 | a uid (`origin_pred`, file uid, src uid, `pred`) | its 16 bytes |
@@ -1394,7 +1394,7 @@ Every derivation is BLAKE3-128 ([F01 §7.1]) over `lp()`-framed arguments ([F01 
 ### 11.2 File uids
 
 ```
-uid_file(r, p, q) = BLAKE3-128( lp("moirai-file-v1") ‖ lp(r) ‖ lp(p) ‖ lp(q or empty) )
+uid_file(r, p, q) = BLAKE3-128( lp("klotho-file-v1") ‖ lp(r) ‖ lp(p) ‖ lp(q or empty) )
 ```
 
 with r the root name, p the registration path, q the predecessor uid ([40 §2.3]).
@@ -1424,13 +1424,13 @@ spelling; never case-folded ([40 §2.3]). A uid created on one line while anothe
 over its stored inputs is accepted as foreign, flagged by `image doctor`, and treated as random ([40 §2.3]).
 
 *(Informative)* For root `project`, path `docs/a.md` and no predecessor, the 46 hashed bytes are
-`0E 00 00 00` `6D 6F 69 72 61 69 2D 66 69 6C 65 2D 76 31` `07 00 00 00` `70 72 6F 6A 65 63 74` `09 00 00 00`
+`0E 00 00 00` `6B 6C 6F 74 68 6F 2D 66 69 6C 65 2D 76 31` `07 00 00 00` `70 72 6F 6A 65 63 74` `09 00 00 00`
 `64 6F 63 73 2F 61 2E 6D 64` `00 00 00 00`.
 
 ### 11.3 Root nodes (R-5)
 
 ```
-uid_root(r) = BLAKE3-128( lp("moirai-root-v1") ‖ lp(r) )
+uid_root(r) = BLAKE3-128( lp("klotho-root-v1") ‖ lp(r) )
 ```
 
 - Each root that holds at least one file node on a view has one **root node** there: kind `area`, uid `uid_root(r)`,
@@ -1451,7 +1451,7 @@ uid_root(r) = BLAKE3-128( lp("moirai-root-v1") ‖ lp(r) )
 ```
 captured      = BLAKE3-128( lp(file uid at capture) ‖ lp(kind) ‖ lp(scope) ‖ lp(quote.exact) ‖ lp(prefix.exact)
                             ‖ lp(suffix.exact) ‖ lp(end.exact) ‖ lp(occurrence) ‖ lp(window if kind = lines, else empty) )
-uid_anchor(s, c, p) = BLAKE3-128( lp("moirai-anchor-v1") ‖ lp(s) ‖ lp(c) ‖ lp(p or empty) )
+uid_anchor(s, c, p) = BLAKE3-128( lp("klotho-anchor-v1") ‖ lp(s) ‖ lp(c) ‖ lp(p or empty) )
 ```
 
 with the argument bytes of §11.1, s the referrer's (source's) uid, c = `captured` and p the predecessor term
