@@ -772,9 +772,10 @@ change, not a configuration change.
 
 ## Holes
 
-Every hole below is filled by WP-81a from the measurement named in the "Decided by" column, recorded in [AR §13], and given
-a fixture by WP-20b (store-parameter values in `HEAD`, [60 §3.1]). Measurement numbers are those of [AR §8.2] and
-[60 §5.2]. WP numbers are those of [PLAN §3.2].
+Every hole below is filled from the measurement named in the "Decided by" column, recorded in [AR §13], and given a
+fixture by WP-20b (store-parameter values in `HEAD`, [60 §3.1]): by WP-81a, unless its deciding measurement has a
+deadline after the tag, in which case the hole stays open at the tag, as [F01 §2.5] states (the orchestrator's ruling
+R-74 of 2026-10-15). Measurement numbers are those of [AR §8.2] and [60 §5.2]. WP numbers are those of [PLAN §3.2].
 
 | Id | What | Decided by | Candidates | Constraint the value must meet |
 |---|---|---|---|---|
