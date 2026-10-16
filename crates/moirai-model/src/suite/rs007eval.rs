@@ -294,10 +294,21 @@ pub(crate) struct Tri {
     pub touch: Option<(Vec<bool>, Vec<bool>)>,
     /// The command ran under an effective `--strict` or `merge.strict` (never a revert or a cherry-pick, R-15 Q2).
     pub strict: bool,
-    /// Each task the result holds with a conflict value on its existence key (by index; missing: not fixed): the
-    /// existence rule fixed the node and copied it whole from a side ([F12 §6.3]; PR-007), so its hierarchy value is
-    /// that side's, not one RS-007 decides. The oracle takes it from the result (R-15 Q5).
+    /// Each task the existence rule fixed (by index; missing: not fixed): RS-008's kept cases, which copy the node
+    /// whole from a side ([F12 §6.3] "The node's other keys"; PR-007), so its hierarchy value is that side's, not one
+    /// RS-007 decides. A task is fixed when the result holds it with a `DeleteVsModify` value on its existence key that
+    /// has exactly one live side and equals neither o's nor t's existence value by canonical equality ([F07 §7.3]): a
+    /// value this merge made, one-live (the existence policy's value, or RS-010's or RS-015's one-live value). The
+    /// harness's events set no automatic side (AP-002, AP-003). A value a `conflicted-key` row took unchanged, or a new
+    /// one that is not one-live, fixes nothing: RS-007 decides the node's hierarchy key (the owner's ruling R-43 of
+    /// 2026-10-13, OI-1g). The oracle takes a fixed task's value from the result (R-15 Q5).
     pub fixed: Vec<bool>,
+    /// The canonical bytes of each task's existence key state on o and on t ([F07 §7.3]), which [`Tri::fixed`]
+    /// compares the result's value with; empty when not read.
+    pub ex: Vec<(Vec<u8>, Vec<u8>)>,
+    /// Each task the result holds live with a conflict value on its existence key that [`Tri::fixed`] does not fix (a
+    /// value a `conflicted-key` row gave): a node RS-007 now decides ([`KStats::ckr_one_sided`]).
+    pub ckr: Vec<bool>,
 }
 
 /// One merge-family command (or edit) of a history, as its store ran it.
@@ -433,7 +444,8 @@ pub(crate) fn oracle(b: &Hier, o: &Hier, t: &Hier, r: &Hier) -> Oracle {
 /// 13.6 (a)); `absent` is a value (a side where the task is not live holds it), and it is never an allowed value: a
 /// class whose value is `absent` falls back to the live values among o's and t's, the side the result took the node's
 /// existence from. The oracle takes existence from the result (R-15 Q5): a node the existence rule fixed, which it
-/// copied whole from a live side ([F12 §6.3]), may hold either live side's value.
+/// copied whole from a live side in RS-008's kept cases ([F12 §6.3]; [`Tri::fixed`]), may hold either live side's
+/// value.
 pub(crate) fn oracle_touch(
     b: &Hier,
     o: &Hier,
@@ -817,15 +829,55 @@ impl Run {
         hier_of(&st, self.tasks)
     }
 
-    /// The tasks commit `c` holds live with a conflict value on their existence key ([`Tri::fixed`]).
-    fn fixed_at(&self, c: Option<u64>) -> Vec<bool> {
-        let st = self.s.st.dag.state_at(c, &self.s.st.alloc);
+    /// The canonical bytes of each task's existence key state in `st` ([F07 §7.3]; [`Tri::ex`]).
+    fn ex_of(&self, st: &State) -> Vec<Vec<u8>> {
+        let uid = |n: Nid| self.s.st.alloc.uid(n);
+        let a = crate::state::Aspect::Existence;
         (1..=self.tasks)
             .map(|i| {
-                st.live(Nid(i))
-                    .is_some_and(|x| x.conflicts.contains_key(&crate::state::Aspect::Existence))
+                let v = crate::merge::cval(st, Nid(i), &a);
+                crate::canon::cstate(crate::canon::kstate_cval(&a, &v, &uid).as_ref())
             })
             .collect()
+    }
+
+    /// The existence bytes of o (`o`, a commit) and t (`t`, a state) per task ([`Tri::ex`]).
+    fn ex_pair(&self, o: Option<u64>, t: &State) -> Vec<(Vec<u8>, Vec<u8>)> {
+        let so = self.s.st.dag.state_at(o, &self.s.st.alloc);
+        self.ex_of(&so).into_iter().zip(self.ex_of(t)).collect()
+    }
+
+    /// The tasks commit `c` holds with a conflict value on their existence key that the existence rule fixed, by
+    /// [`Tri::fixed`]'s predicate over the existence bytes `ex` of o and t, and the tasks it holds live with such a
+    /// value that is not fixed ([`Tri::ckr`]).
+    fn fixed_at(&self, c: Option<u64>, ex: &[(Vec<u8>, Vec<u8>)]) -> (Vec<bool>, Vec<bool>) {
+        let st = self.s.st.dag.state_at(c, &self.s.st.alloc);
+        let uid = |n: Nid| self.s.st.alloc.uid(n);
+        let a = crate::state::Aspect::Existence;
+        let live = |v: &Option<crate::state::KVal>| matches!(v, Some(crate::state::KVal::Live(_)));
+        (1..=self.tasks)
+            .map(|i| {
+                let Some(x) = st.nodes.get(&Nid(i)) else {
+                    return (false, false);
+                };
+                let Some(c) = x.conflicts.get(&a) else {
+                    return (false, false);
+                };
+                let r = crate::canon::cstate(
+                    crate::canon::kstate_cval(
+                        &a,
+                        &crate::state::KState::Conflict(Box::new(c.clone())),
+                        &uid,
+                    )
+                    .as_ref(),
+                );
+                let made = ex
+                    .get(i as usize - 1)
+                    .is_none_or(|(o, t)| r != *o && r != *t);
+                let fixed = c.class == "DeleteVsModify" && live(&c.ours) != live(&c.theirs) && made;
+                (fixed, !fixed && x.live())
+            })
+            .unzip()
     }
 
     fn note_pool(&mut self) {
@@ -920,6 +972,8 @@ impl Run {
             touch: Some(touch),
             strict: self.strict,
             fixed: Vec::new(),
+            ex: self.ex_pair(o, &self.s.st.dag.state_at(t, &self.s.st.alloc)),
+            ckr: Vec::new(),
         }
     }
 
@@ -974,10 +1028,14 @@ impl Run {
                 vec![],
             ),
         };
-        let tri = result.map(|c| Tri {
-            r: self.hier_at(c),
-            fixed: self.fixed_at(c),
-            ..inputs
+        let tri = result.map(|c| {
+            let (fixed, ckr) = self.fixed_at(c, &inputs.ex);
+            Tri {
+                r: self.hier_at(c),
+                fixed,
+                ckr,
+                ..inputs
+            }
         });
         let verdict = match &tri {
             Some(tri) => judge(&got, tri, &vs),
@@ -1094,9 +1152,11 @@ impl Run {
         }
         // Step 0 landed: its entry, judged on the lane's new tip, then the merge itself.
         let sc = sync.commit;
+        let (fixed, ckr) = self.fixed_at(sc, &inputs.ex);
         let tri = Tri {
             r: self.hier_at(sc),
-            fixed: self.fixed_at(sc),
+            fixed,
+            ckr,
             ..inputs
         };
         let vs: Vec<(String, String)> = Vec::new();
@@ -1181,6 +1241,8 @@ impl Run {
             // A revert or a cherry-pick takes no strict (R-15 Q2).
             strict: false,
             fixed: Vec::new(),
+            ex: self.ex_pair(o, &t),
+            ckr: Vec::new(),
         };
         let r = self.s.run(cmd, fresh_on(onto));
         self.record(op, kind, &r, onto, inputs, take);
@@ -1352,6 +1414,8 @@ fn dummy_tri(n: u32) -> Tri {
         touch: None,
         strict: false,
         fixed: Vec::new(),
+        ex: Vec::new(),
+        ckr: Vec::new(),
     }
 }
 
@@ -1475,6 +1539,11 @@ pub(crate) struct KStats {
     /// side, so RS-007 does not decide it); one side's value has b's parent and another order, the other side's
     /// another parent; the result holds the order-only side's value; no hint names the key.
     pub reparent_lost: usize,
+    /// Judged tasks that the result holds live with a conflict value on their existence key that the existence rule
+    /// did not fix ([`Tri::ckr`]: a value a `conflicted-key` row gave), of class `only-o` or `only-t` under the primary
+    /// oracle: the tasks where RS-007 now decides a key the copy of the whole node would have decided otherwise (the
+    /// owner's ruling R-43 of 2026-10-13, OI-1g; R-85 ruling 2). Reported, never asserted.
+    pub ckr_one_sided: usize,
 }
 
 impl KStats {
@@ -1499,6 +1568,14 @@ impl KStats {
             self.reparent_lost += reparents_lost(t, &e.hints);
         }
         if let Some(t) = &e.tri {
+            if t.ckr.iter().any(|c| *c) {
+                let or = oracle_touch(&t.b, &t.o, &t.t, &t.r, &t.fixed, None);
+                self.ckr_one_sided += (0..t.ckr.len())
+                    .filter(|i| {
+                        t.ckr[*i] && matches!(or.class.get(*i), Some(Class::OnlyO | Class::OnlyT))
+                    })
+                    .count();
+            }
             let partial =
                 t.b.iter()
                     .zip(&t.o)
@@ -2945,7 +3022,7 @@ pub(crate) fn corpus() -> Vec<Case> {
         case(
             "FIXED-COPY",
             "this harness (policy:2:100 at the nightly tier, shrunk); [F12 §6.3]; R-15 Q5",
-            "main puts #1 under #2; lane/x deletes #1 and, under resurrect, syncs: #1 holds a DeleteVsModify value; lane/x into lane/y; main puts #1 under #5; sync lane/y copies #1 whole from lane/y",
+            "main puts #1 under #2; lane/x deletes #1 and, under resurrect, syncs: #1 holds a DeleteVsModify value; lane/x into lane/y; main puts #1 under #5; sync lane/y takes lane/y's value unchanged (MR-003) and RS-007 puts #1 under #5 (R-43 (b))",
             5,
             &[X, Y],
             vec![
@@ -2956,6 +3033,38 @@ pub(crate) fn corpus() -> Vec<Case> {
                 Mv(M, 1, Some(5)),
                 Merge(X, Y, Abort),
                 Sync(Y, Theirs),
+            ],
+            &[],
+        ),
+        case(
+            "SF2B-TAKEN",
+            "[F12 §6.3] \"The node's other keys\"; the owner's ruling R-43 of 2026-10-13, OI-1g; R-85 ruling 2",
+            "lane/x sets #1's priority, lane/y deletes #1; merge lane/y --into lane/x --policy resurrect (MR-042, kept: #1 fixed, live); main puts #1 under #2; sync lane/x takes lane/x's value unchanged (MR-003) and RS-007 puts #1 under #2",
+            3,
+            &[X, Y],
+            vec![
+                Prio(X, 1, 1),
+                Del(Y, 1, false),
+                PolicyMerge(Y, X, "resurrect", Ours),
+                Mv(M, 1, Some(2)),
+                Sync(X, Ours),
+            ],
+            &[],
+        ),
+        case(
+            "SF2B-SHORTCUT",
+            "[F12 §6.3] \"The node's other keys\"; the owner's ruling R-43 of 2026-10-13, OI-1g; R-85 ruling 2",
+            "lane/x sets #1's priority, lane/y deletes #1; merge lane/y --into lane/x --policy resurrect; lane/x into lane/y (MR-004: both hold the value); lane/x sets #1's priority again, lane/y puts #1 under #2; merge lane/y --into lane/x over b, o and t that hold one value: RS-007 puts #1 under #2",
+            3,
+            &[X, Y],
+            vec![
+                Prio(X, 1, 1),
+                Del(Y, 1, false),
+                PolicyMerge(Y, X, "resurrect", Ours),
+                Merge(X, Y, Ours),
+                Prio(X, 1, 3),
+                Mv(Y, 1, Some(2)),
+                Merge(Y, X, Ours),
             ],
             &[],
         ),
@@ -4118,6 +4227,8 @@ fn rs007_eval_oracle_classifies_by_state() {
         touch: None,
         strict: false,
         fixed: Vec::new(),
+        ex: Vec::new(),
+        ckr: Vec::new(),
     };
     let hc = |n: u32| vec![(format!("#{n}.parent"), "HierarchyCycle".to_string())];
     assert_eq!(
@@ -4148,6 +4259,8 @@ fn rs007_eval_oracle_classifies_by_state() {
         touch: None,
         strict: false,
         fixed: Vec::new(),
+        ex: Vec::new(),
+        ckr: Vec::new(),
     };
     assert_eq!(
         judge(&Got::Staged(vec![]), &t3, &hc(2)),
@@ -4200,6 +4313,8 @@ fn rs007_eval_oracle_classifies_by_state() {
         touch: None,
         strict: false,
         fixed: Vec::new(),
+        ex: Vec::new(),
+        ckr: Vec::new(),
     };
     assert_eq!(
         judge(&Got::Landed, &w, &[]),
@@ -4241,6 +4356,8 @@ fn rs007_eval_oracle_judges_every_node_live_in_the_result() {
         touch: None,
         strict: false,
         fixed: Vec::new(),
+        ex: Vec::new(),
+        ckr: Vec::new(),
     };
     let or = oracle(&tri.b, &tri.o, &tri.t, &tri.r);
     assert_eq!(
@@ -4313,8 +4430,8 @@ fn rs007_eval_oracle_judges_every_node_live_in_the_result() {
 /// The oracle takes existence from the result (R-15 Q5): a node the existence rule fixed and copied whole from a side
 /// ([F12 §6.3]; [`Tri::fixed`]) may hold either live side's value, which RS-007 does not decide. In the corpus case
 /// `FIXED-COPY` lane/y holds #1 with a `DeleteVsModify` value on its existence key, which `sync lane/y` takes unchanged
-/// (MR-003) while it merges #1's other keys key by key ([F12 §6.3]; the owner's ruling R-43 of 2026-10-13, OI-1g), so
-/// RS-007 puts #1 under #5, where main put it.
+/// (MR-003) while it merges #1's other keys key by key ([F12 §6.3]; the owner's ruling R-43 of 2026-10-13, OI-1g): the
+/// value is no kept case, so #1 is not fixed, and RS-007 puts it under #5, where main put it.
 #[test]
 fn rs007_eval_oracle_takes_a_fixed_nodes_value_from_the_result() {
     let v = |p: Option<u32>| Some((p, None::<String>));
@@ -4330,6 +4447,8 @@ fn rs007_eval_oracle_takes_a_fixed_nodes_value_from_the_result() {
         touch: None,
         strict: false,
         fixed: vec![true, false, false],
+        ex: Vec::new(),
+        ckr: Vec::new(),
     };
     assert_eq!(
         judge(&Got::Landed, &tri, &[]),
@@ -4354,7 +4473,43 @@ fn rs007_eval_oracle_takes_a_fixed_nodes_value_from_the_result() {
     let t = e.tri.as_ref().expect("judged");
     assert_eq!(
         (&e.got, t.fixed[0], t.r[0].as_ref().map(|x| x.0)),
-        (&Got::Landed, true, Some(Some(5))),
+        (&Got::Landed, false, Some(Some(5))),
+        "{}",
+        trace_text(&c.hist, &l)
+    );
+    assert!(
+        matches!(e.verdict, Some(Verdict::LandedOk { .. })),
+        "{}",
+        trace_text(&c.hist, &l)
+    );
+}
+
+/// R-43 (b) in the harness (the owner's ruling R-43 of 2026-10-13, OI-1g; R-85 ruling 2): a task whose existence value
+/// a `conflicted-key` row took unchanged is not fixed, and RS-007 decides its hierarchy key; a task in RS-008's kept
+/// case is. In the corpus case `SF2B-TAKEN`, `merge lane/y --into lane/x --policy resurrect` (event 3, MR-042) fixes #1
+/// live on lane/x, and `sync lane/x` (event 5) takes that value unchanged (MR-003) while main put #1 under #2: the
+/// sync's #1 is judged, `only-t`, and lands under #2.
+#[test]
+fn rs007_eval_judges_a_conflicted_key_row_task_and_fixes_a_kept_case_task() {
+    let c = corpus_case("SF2B-TAKEN").expect("the case");
+    let l = run(&c.hist);
+    let at = |op: usize| -> &Entry {
+        l.entries
+            .iter()
+            .find(|e| e.op == op && e.kind != Kind::Edit)
+            .unwrap_or_else(|| panic!("no entry for event {op}\n{}", trace_text(&c.hist, &l)))
+    };
+    let kept = at(2).tri.as_ref().expect("judged");
+    assert!(
+        kept.fixed[0],
+        "MR-042 under resurrect fixes #1\n{}",
+        trace_text(&c.hist, &l)
+    );
+    let e = at(4);
+    let t = e.tri.as_ref().expect("judged");
+    assert_eq!(
+        (&e.got, t.fixed[0], t.r[0].as_ref().map(|x| x.0)),
+        (&Got::Landed, false, Some(Some(2))),
         "{}",
         trace_text(&c.hist, &l)
     );
@@ -4385,6 +4540,8 @@ fn rs007_eval_a_fixed_node_loses_no_reparent() {
         touch: None,
         strict: false,
         fixed: vec![true, false, false],
+        ex: Vec::new(),
+        ckr: Vec::new(),
     };
     assert_eq!(reparents_lost(&tri, &[]), 0, "a fixed node is not judged");
     let merged = Tri {
@@ -4415,6 +4572,8 @@ fn rs007_eval_a_fixed_node_is_never_a_requested_key() {
         touch: None,
         strict: true,
         fixed: vec![true, false, false],
+        ex: Vec::new(),
+        ckr: Vec::new(),
     };
     let de = vec![("#1.parent".to_string(), "DanglingEdge".to_string())];
     let staged = Got::Staged(vec![]);
@@ -4499,6 +4658,8 @@ fn rs007_eval_oracle_calls_a_strict_staging_of_a_two_sided_key_requested() {
         touch: None,
         strict,
         fixed: Vec::new(),
+        ex: Vec::new(),
+        ckr: Vec::new(),
     };
     let viol = |k: &str, c: &str| (k.to_string(), c.to_string());
     let all_root = vec![root.clone(); 3];
@@ -4775,7 +4936,7 @@ fn rs007_eval_absolute_acceptance() {
             }
         }
         let line = format!(
-            "RS007ACCEPT gen={} histories={hists} merges={} landed={} staged={} genuine={} requested={} avoidable={} wrong={} stuck={} staged_other_wrong={} reparent_lost={} hints={} link_broken={broken} link_na={na} one_sided_off_t={} pick_off_o={} panics={panics} not_forest={not_forest} nondet={nondet}",
+            "RS007ACCEPT gen={} histories={hists} merges={} landed={} staged={} genuine={} requested={} avoidable={} wrong={} stuck={} staged_other_wrong={} reparent_lost={} hints={} link_broken={broken} link_na={na} one_sided_off_t={} pick_off_o={} panics={panics} not_forest={not_forest} nondet={nondet} ckr_one_sided={}",
             g.name(),
             ks.n,
             ks.landed,
@@ -4789,7 +4950,8 @@ fn rs007_eval_absolute_acceptance() {
             ks.reparent_lost,
             ks.hints,
             ks.one_sided_not_t,
-            ks.pick_no_hier_not_o
+            ks.pick_no_hier_not_o,
+            ks.ckr_one_sided
         );
         eprintln!("{line}");
         lines.push(line);
