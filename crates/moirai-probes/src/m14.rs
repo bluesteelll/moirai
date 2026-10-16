@@ -5,7 +5,7 @@
 //! wait is taken from measurement 2's run (R-24 Q7) and is not built here. The tails are u10's
 //! ([`crate::tail::synth`]), from [70 S8]'s spec-derived mix (R-24 Q10).
 //!
-//! **The grid** (25 quantities, names by [MP §4.1]). The night's 18 run with the deciding quantities first:
+//! **The grid** (29 quantities, names by [MP §4.1]). The night's 18 run with the deciding quantities first:
 //! `read-4096.n1e6`, `ckpt-4096.n5e5` and `catchup-16.n1e6`, then T1's read diagnostics `read-op-4096.n1e6`,
 //! `read-cost-records-4096.n1e6` and `read-cost-bytes-4096.n1e6` (R-40 O-2, R-42, R-44), then the layout probes (R-34
 //! B-3, M-15; R-35 Q2). u20's blocks follow, appended (u20 cut §3.10): T1's read with item 1a (M-A1, R-50):
@@ -87,34 +87,55 @@
 //!
 //! A field-1 value can exceed F08 §7.1's 200-B title limit. It is stored in `TITLE_BLOB` as it is (u21 cut F-13).
 //!
+//! **The full checkpoint at R-b's record caps** follows, appended (R-64; R-86 ruling 2; [`Family::CkptFullRec`]):
+//! `ckpt-full-rec-64kib.n5e5`, `ckpt-full-rec-64kib.n1e6`, `ckpt-full-rec-128kib.n5e5` and `ckpt-full-rec-128kib.n1e6`,
+//! in the full checkpoint's family: its two arms, timed region, setup and full base, tier t3, and the lower-bound and
+//! upper-bound labels above, which apply to them. Their tails are `rec` tails at R-b's values ([`crate::m10::Over::RB`]:
+//! P06 1,024, P07 64 KiB, P08 1 MiB, P09 48 KiB, P10 128 KiB, P11 4), each stopped by its own record cap of 64 or
+//! 128 KiB, its `threshold` (R-87 item 6). Every timed tail is a full tail at that cap ([`full_at_cap`]; [F17 §5.2]):
+//! it stops on the cap, its records are 95–100 % of it, by m10's rule, and its ops are at most P06. The fixture's tail
+//! and each sample's are the first full tail of a seed sequence below [`FULL_K_BOUND`] (1,024): the fixture's
+//! `seed(name) ^ k` ([`fixture_target`]), sample j's `mix(seed(name) ^ (j + 1)) ^ k` ([`sample_target`]). The search runs
+//! in `prepare` or in the sample's setup, untimed; a sample with no full tail below the bound is refused before t0 with a
+//! reason that names it, so no tail below or past its cap is ever timed. At the test profile the cap is the test
+//! column's P07 (2,048 B), with the full checkpoint's P06 64 and C2's bound lifted. **The label** (R-86 ruling 2): the
+//! tails ignore R-b's P08 and P09, which the product's C1 applies ([F17 §5.2]), so a timed tail may be longer than the
+//! product's tail at those values: W1's 128-KiB tails of the mix carried 21,436 B of overlay at 1e6, under P09's
+//! 49,152 B, and 65,120 B at 1e5, past it; 0.5 M was not measured (est.: between the two). The tails are in the night's
+//! form, so they carry none of R1's locator bytes (A1 is the decided form): a lower bound by about the locators' share
+//! of the records, 0.43–0.49 % on M-A5's pinned tails (`a1_bytes_per_op_are_pinned_on_the_read_tails`). A miss is
+//! unattributed (u21 cut F-16), and one at 0.5 M goes first to a diagnostic unit (R-86 ruling 5).
+//!
 //! **What no test sees** (u12 review r1 m-1, test r1 m-1). The tests watch the fixture's store at each sample's two
 //! ticks: its reads, and for the checkpoint also its opens, writes and flushes, and the files' bytes and seals.
 //! In-memory work leaves no trace there, so these placements rest on the code alone: the catch-up's clone of its warm
-//! builder (setup); the floor `ckpt.write`'s generation, fold and encode of tail j (setup; in its op they would
-//! inflate the floor); and the drop of the products (teardown). `staged_arm_times_only_the_operation` pins the
-//! mechanism, and each teardown takes its arm's products by type, but an op that dropped the real tail, delta and
-//! bytes inside the timed region and returned a placeholder of the same type would still pass every test. The run's
-//! touch of every page of the mapped base before [`measure`] ([`prefault`]; R-34 M-5) is an in-memory read too: no
-//! test sees that it precedes the pilot, and `prefault_reads_one_byte_of_every_page` pins what it reads. The read
-//! diagnostics' in-memory setup (the id order, the buffers, the copy of the offset index) is seen only through the reads
-//! it leads to: an arm that did the same reads between its ticks but returned a value decoded in its setup would pass
-//! every test, since the rig observes reads only (u17 critique I-2). The full checkpoint's fold
-//! is seen through the log reads it makes, its files, group and publish through the store's calls, bytes and seals at
-//! the ticks (the directory's flush included, through `LoggedFs`); its in-memory work is not seen: arm 0's encode and
-//! compress (op) and the floor's encode (setup) rest on the code alone, as does the drop of the products (teardown).
+//! builder (setup); the floor `ckpt.write`'s generation, fold and encode of tail j (setup; in its op they would inflate
+//! the floor); and the drop of the products (teardown). `staged_arm_times_only_the_operation` pins the mechanism, and
+//! each teardown takes its arm's products by type, but an op that dropped the real tail, delta and bytes inside the
+//! timed region and returned a placeholder of the same type would still pass every test. The run's touch of every page
+//! of the mapped base before [`measure`] ([`prefault`]; R-34 M-5) is an in-memory read too: no test sees that it
+//! precedes the pilot, and `prefault_reads_one_byte_of_every_page` pins what it reads. The read diagnostics' in-memory
+//! setup (the id order, the buffers, the copy of the offset index) is seen only through the reads it leads to: an arm
+//! that did the same reads between its ticks but returned a value decoded in its setup would pass every test, since the
+//! rig observes reads only (u17 critique I-2). The full checkpoint's fold is seen through the log reads it makes, its
+//! files, group and publish through the store's calls, bytes and seals at the ticks (the directory's flush included,
+//! through `LoggedFs`); its in-memory work is not seen: arm 0's encode and compress (op) and the floor's encode (setup)
+//! rest on the code alone, as does the drop of the products (teardown).
 //!
-//! Every run's fixture is the base `seg.base.1` at the quantity's N ([`crate::seg::base`]), written, sealed and
-//! mapped, and, for the thirteen families that read one (the overlay probe, the read and its three diagnostics, the
-//! checkpoint and the catch-up, item 1a's five reads, and the full checkpoint), a full `ops` tail at P06 (4,096 at
-//! production; the full checkpoint's 64 at the test profile, D-3) written as `log.<n>` extents with `HEAD`; the full
-//! checkpoint's base is the full base, with titles, fields, uids and store tables ([`crate::seg::base::build_full`],
-//! about 330 B per node, est.); it is removed on every path out of the run. The probe's choices: the ids a probe cycles through
+//! Every run's fixture is the base `seg.base.1` at the quantity's N ([`crate::seg::base`]), written, sealed and mapped,
+//! and, for the fourteen families that read one (the overlay probe, the read and its three diagnostics, the checkpoint
+//! and the catch-up, item 1a's five reads, the full checkpoint and the full checkpoint at its record caps), a tail
+//! written as `log.<n>` extents with `HEAD`: a full `ops` tail at P06 (4,096 at production; the full checkpoint's 64 at
+//! the test profile, D-3), and for the last family its first full `rec` tail at its cap (above); the full checkpoints'
+//! base is the full base, with titles, fields, uids and store tables ([`crate::seg::base::build_full`], about 330 B per
+//! node, est.); it is removed on every path out of the run. The probe's choices: the ids a probe cycles through
 //! ([`PROBE_IDS`] drawn from the quantity's seed; the read's and its diagnostics' are the tail's touched nodes in the
-//! order of the read's seed, [`read_cycle`]), the families' single arms, and the catch-up's burst. The sparse sets are the probe's too: A_s = {#N : mix(`SALT_A` ^ #N) mod 32
-//! = s} and B_s likewise with `SALT_B`, for s = 0–3, about 2,048 ids per 65,536-id chunk, under the array limit of
-//! 4,096 ([`sparse_ids`]); they live in the fixture's memory, not in the base, so the base's sections are unchanged. At
-//! the test profile (N / 100) the kind-status sets are arrays too, so the smoke's `bitset-ab` takes the array × array
-//! path; the array × bitmap path at production N is pinned by `sparse_bitset_arms_take_the_array_paths`.
+//! order of the read's seed, [`read_cycle`]), the families' single arms, and the catch-up's burst. The sparse sets are
+//! the probe's too: A_s = {#N : mix(`SALT_A` ^ #N) mod 32 = s} and B_s likewise with `SALT_B`, for s = 0–3, about 2,048
+//! ids per 65,536-id chunk, under the array limit of 4,096 ([`sparse_ids`]); they live in the fixture's memory, not in
+//! the base, so the base's sections are unchanged. At the test profile (N / 100) the kind-status sets are arrays too,
+//! so the smoke's `bitset-ab` takes the array × array path; the array × bitmap path at production N is pinned by
+//! `sparse_bitset_arms_take_the_array_paths`.
 //!
 //! **The driver** ([MP §9.7] as merged, through the shared [`crate::m1::driver`]): `--host`, `--condition`,
 //! `--load-log`, `--quantity`, `--commit` and `--toolchain` (required), `--out` (required unless `--smoke`, refused
@@ -228,6 +249,14 @@ pub enum Family {
     /// T1's full delta checkpoint (u21 cut §3.8; M-A4, R-53 Q2): every section of the window's delta over a full base,
     /// its `blobs` file, the `Checkpoint` group and the publish into the other `HEAD` slot.
     CkptFull,
+    /// The full checkpoint at R-b's record caps (R-86 ruling 2): `CkptFull`'s arms, setup and base, over full tails at
+    /// `cap` ([`full_at_cap`]), each sample's found by [`sample_target`] below `bound` ([`FULL_K_BOUND`] in the grid).
+    CkptFullRec {
+        /// The record cap.
+        cap: RecCap,
+        /// The bound of the seed search: k < `bound`.
+        bound: u64,
+    },
     /// T2's MCP overlay catch-up.
     Catchup,
     /// T1 with item 1a (M-A1; u20 cut §3.4): `read-4096.n1e6`'s tail and nodes in A1, read by the whole record, the
@@ -242,6 +271,30 @@ pub enum Family {
     /// The depth arm at 64 commits.
     Read1aDepth64,
 }
+
+/// A full checkpoint's record cap at R-b's values (R-64; R-86 ruling 2).
+#[derive(Copy, Clone, Debug, Eq, PartialEq)]
+pub enum RecCap {
+    /// 64 KiB, R-b's P07.
+    K64,
+    /// 128 KiB.
+    K128,
+}
+
+impl RecCap {
+    /// The cap in bytes.
+    pub const fn bytes(self) -> u64 {
+        match self {
+            RecCap::K64 => 65_536,
+            RecCap::K128 => 131_072,
+        }
+    }
+}
+
+/// The search bound of the full checkpoint at its record caps (R-86 ruling 2): a sample takes the first full tail among
+/// k < 1,024. At a rate of 1 in 33 the chance that 1,024 candidates hold none is about e^-31 (est.); the bound only caps
+/// the worst case, and the expected search is the inverse of the rate.
+pub const FULL_K_BOUND: u64 = 1_024;
 
 impl Family {
     /// The quantity name's stem.
@@ -259,6 +312,12 @@ impl Family {
             Family::ReadCostBytes => "read-cost-bytes-4096",
             Family::Ckpt => "ckpt-4096",
             Family::CkptFull => "ckpt-full-4096",
+            Family::CkptFullRec {
+                cap: RecCap::K64, ..
+            } => "ckpt-full-rec-64kib",
+            Family::CkptFullRec {
+                cap: RecCap::K128, ..
+            } => "ckpt-full-rec-128kib",
             Family::Catchup => "catchup-16",
             Family::Read1a4096 => "read-1a-4096",
             Family::Read1a1024 => "read-1a-1024",
@@ -280,7 +339,7 @@ impl Family {
             Family::ReadCostRecords => &["records"],
             Family::ReadCostBytes => &["bytes"],
             Family::Ckpt => &["ckpt", "ckpt.write"],
-            Family::CkptFull => &["ckpt.full", "ckpt.full.write"],
+            Family::CkptFull | Family::CkptFullRec { .. } => &["ckpt.full", "ckpt.full.write"],
             Family::Catchup => &["catchup"],
             Family::Read1a4096
             | Family::Read1a1024
@@ -299,7 +358,7 @@ impl Family {
             | Family::ReadCostBytes
             | Family::Read1a4096
             | Family::Read1a1024 => Some(Tier::T1),
-            Family::Ckpt | Family::CkptFull => Some(Tier::T3),
+            Family::Ckpt | Family::CkptFull | Family::CkptFullRec { .. } => Some(Tier::T3),
             Family::Catchup => Some(Tier::T2),
             _ => None,
         }
@@ -316,6 +375,7 @@ impl Family {
                 | Family::ReadCostBytes
                 | Family::Ckpt
                 | Family::CkptFull
+                | Family::CkptFullRec { .. }
                 | Family::Catchup
                 | Family::Read1a4096
                 | Family::Read1a1024
@@ -374,7 +434,9 @@ pub struct Quantity {
 /// catch-up), then T1's read diagnostics, its evidence (R-40 O-2; the read cost's two counts as two quantities, R-44),
 /// then the layout probes at 1e5 and 1e6 (R-34 B-3, M-15); then u20's block, appended (u20 cut §3.10): T1's read with
 /// item 1a at P06 4,096 and 1,024, then its depth arm at 4, 16 and 64 records (§3.4); then u21's two, appended (u21
-/// cut §3.8): T1's full delta checkpoint at 0.5 M and 1e6 nodes. u20's `ready` probe (§3.8) is retired (R-86 ruling 6).
+/// cut §3.8): T1's full delta checkpoint at 0.5 M and 1e6 nodes; then u22's four, appended (R-86 ruling 2): the full
+/// checkpoint at R-b's record caps of 64 and 128 KiB, each at 0.5 M and 1e6. u20's `ready` probe (§3.8) is retired
+/// (R-86 ruling 6).
 pub fn grid() -> Vec<Quantity> {
     let q = |family: Family, n: u32| {
         let scale = match n {
@@ -419,6 +481,17 @@ pub fn grid() -> Vec<Quantity> {
     }
     g.push(q(Family::CkptFull, 500_000));
     g.push(q(Family::CkptFull, 1_000_000));
+    for cap in [RecCap::K64, RecCap::K128] {
+        for n in [500_000, 1_000_000] {
+            g.push(q(
+                Family::CkptFullRec {
+                    cap,
+                    bound: FULL_K_BOUND,
+                },
+                n,
+            ));
+        }
+    }
     g
 }
 
@@ -459,7 +532,7 @@ fn seed(name: &str) -> u64 {
 /// at P06 take `read-<P06>`'s, so their plans and read cycle are the whole read's (u20 cut §3.4); and that the full
 /// checkpoint takes `ckpt-4096`'s at the same scale, so at production its fixture tail and its samples' tails are the
 /// night's checkpoint's byte for byte (u21 cut D-2). The depth arms keep their own name's, with [`Family::seed_k`] at
-/// production.
+/// production, and so does the full checkpoint at its record caps (R-86 ruling 2), whose search starts from it.
 pub fn seed_name(q: &Quantity) -> String {
     let scale = &q.name[q.family.stem().len()..];
     match q.family {
@@ -477,8 +550,34 @@ pub fn seed_name(q: &Quantity) -> String {
 /// The tail of `q` at `profile`: a full `ops` tail at P06 over the base; for item 1a's quantities in A1, at their P06 at
 /// production, with the depth arm's option and its seed's k; for the full checkpoint at the test profile, P06
 /// [`TEST_FULL_P06`] (u21 cut D-3) with C2's bound lifted, since a 64-op tail at the test profile's P12 holds more
-/// settles than C2's 2 KiB allows (u21 cut D-3, addendum); at production its target is `ckpt-4096`'s.
+/// settles than C2's 2 KiB allows (u21 cut D-3, addendum); at production its target is `ckpt-4096`'s. The full
+/// checkpoint at its record caps (R-86 ruling 2) takes a `rec` tail: at production its cap at R-b's values
+/// ([`crate::m10::Over::RB`]), in the night's form; at the test profile the test column's P07 (2,048 B) as its cap,
+/// with the family's P06 and lifted bound. Its seed is its own name's; [`fixture_target`] and [`sample_target`] search
+/// from it for a full tail.
 pub fn target(q: &Quantity, profile: Profile) -> Target {
+    if let Family::CkptFullRec { cap, .. } = q.family {
+        let mut p = profile.params();
+        let (threshold, rt_bound) = match profile {
+            Profile::Production => {
+                p = crate::m10::Over::RB.apply(p);
+                (cap.bytes(), None)
+            }
+            Profile::Test => {
+                p.p06 = TEST_FULL_P06;
+                (p.p07, Some(u64::MAX))
+            }
+        };
+        return Target {
+            clause: Clause::Rec,
+            threshold,
+            mult: 1,
+            n: profile.n(q.n),
+            seed: seed(&seed_name(q)),
+            params: p,
+            rt_bound,
+        };
+    }
     let mut p = profile.params();
     let k = match profile {
         Profile::Production => q.family.seed_k(),
@@ -1044,9 +1143,60 @@ pub fn catch_up<S: LogSource>(
 }
 
 /// Checkpoint sample `j`'s tail (scoping §4.2: "a fresh tail per sample outside the timed region"): a full `ops` tail
-/// at P06 over the base like the fixture's, from a seed of its own, so it is deterministic and distinct per `j`.
+/// at P06 over the base like the fixture's, from a seed of its own, so it is deterministic and distinct per `j`; for the
+/// full checkpoint at its record caps, the first full tail of [`sample_target`]'s search.
 pub fn ckpt_tail(q: &Quantity, profile: Profile, j: u64) -> Result<Tail, String> {
-    generate(&ckpt_target(q, profile, j), false)
+    generate(&sample_target(q, profile, j)?, false)
+}
+
+/// Whether `tail` (of target `t`) is a full tail at `q`'s record cap (R-86 ruling 2; [F17 §5.2]: a full tail is a tail
+/// at the threshold): it stops on the `rec` clause, its refused group passes the cap, its `rec_bytes` is 95-100 % of
+/// the cap, by m10's rule ([`crate::m10::reaches_cap`]), and its `ops` is at most P06. The cap is the target's own
+/// `threshold`, not P07 (R-87 item 6).
+pub fn full_at_cap(q: &Quantity, t: &Target, tail: &Tail) -> bool {
+    crate::m10::reaches_cap(&q.name, t, tail).0 && tail.measures.ops <= t.params.p06
+}
+
+/// The first full tail's target among `base` with `seed ^ k` for k < `bound` ([`full_at_cap`]); a generation error
+/// goes up; none found is a refusal that names `q` and `what` (R-86 ruling 2). It never returns a candidate that is
+/// not full.
+fn first_full(q: &Quantity, base: Target, bound: u64, what: &str) -> Result<Target, String> {
+    for k in 0..bound {
+        let t = Target {
+            seed: base.seed ^ k,
+            ..base
+        };
+        if full_at_cap(q, &t, &generate(&t, false)?) {
+            return Ok(t);
+        }
+    }
+    Err(format!(
+        "{} {what}: no full tail at its {}-B record cap among k < {bound} (R-86 ruling 2)",
+        q.name, base.threshold
+    ))
+}
+
+/// The target of checkpoint sample `j`'s tail: [`ckpt_target`]'s, except that the full checkpoint at its record caps
+/// takes the first full tail of the sequence `ckpt_target(q, profile, j)` with `seed ^ k`, k < its bound, and refuses
+/// the sample when there is none (R-86 ruling 2). The search runs in the setup, outside the timed region.
+pub fn sample_target(q: &Quantity, profile: Profile, j: u64) -> Result<Target, String> {
+    match q.family {
+        Family::CkptFullRec { bound, .. } => {
+            first_full(q, ckpt_target(q, profile, j), bound, &format!("sample {j}"))
+        }
+        _ => Ok(ckpt_target(q, profile, j)),
+    }
+}
+
+/// The target of the fixture's tail: [`target`]'s, except that the full checkpoint at its record caps takes the first
+/// full tail of `target(q, profile)` with `seed ^ k`, k < its bound (R-86 ruling 2).
+pub fn fixture_target(q: &Quantity, profile: Profile) -> Result<Target, String> {
+    match q.family {
+        Family::CkptFullRec { bound, .. } => {
+            first_full(q, target(q, profile), bound, "the fixture")
+        }
+        _ => Ok(target(q, profile)),
+    }
 }
 
 /// The target of checkpoint sample `j`'s tail: [`target`]'s with the seed `mix(seed(seed_name(q)) ^ (j + 1))`. For the
@@ -1279,7 +1429,7 @@ fn full_setup<V: StoreFs>(
     base: SegRef,
     next_ref_id: u32,
 ) -> Result<Tail, ArmError> {
-    let tj = generate(&ckpt_target(q, profile, j), true).map_err(ArmError)?;
+    let tj = generate(&sample_target(q, profile, j).map_err(ArmError)?, true).map_err(ArmError)?;
     let geo = tj.expect.geo;
     if tj.start != start || geo.extent(tj.end - 1) != geo.extent(start) {
         return Err(ArmError(format!(
@@ -1561,7 +1711,7 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
     let p = profile.params();
     let n = profile.n(q.n);
     let tail = if q.family.needs_tail() {
-        Some(generate(&target(q, profile), true)?)
+        Some(generate(&fixture_target(q, profile)?, true)?)
     } else {
         None
     };
@@ -1584,7 +1734,7 @@ pub fn prepare<'v, V: StoreFs + SealedMaps>(
         base_seq: BASE_SEQ,
     };
     let bytes = match q.family {
-        Family::CkptFull => base::build_full(&spec)?,
+        Family::CkptFull | Family::CkptFullRec { .. } => base::build_full(&spec)?,
         _ => base::build(&spec)?,
     };
     let len = bytes.len() as u64;
@@ -1831,7 +1981,7 @@ pub fn arms<'p, V: StoreFs + SealedMaps, T: Ticker + Clone + 'p>(
                 },
             )));
         }
-        Family::CkptFull => {
+        Family::CkptFull | Family::CkptFullRec { .. } => {
             let t = tail()?;
             let geo = t.expect.geo;
             let k = geo.extent(t.start);
@@ -2832,7 +2982,10 @@ mod tests {
     /// counts as two quantities of one arm each, since every arm after arm 0 is a floor (R-44 I-1 (b)); item 1a's four
     /// arms, each a floor of the one before, and their A1 targets: P06 4,096 or 1,024 at production, the depth option at
     /// d; the full checkpoint's two arms, its tail, and its targets: 4,096 ops at production, 64 at the test profile with
-    /// C2's bound lifted.
+    /// C2's bound lifted; then u22's four, the full checkpoint at R-b's record caps of 64 and 128 KiB at 0.5 M and 1e6
+    /// (R-86 ruling 2), with the full checkpoint's arms, tier and tail, and `rec` targets: at production each at its own
+    /// cap (R-87 item 6) with R-b's P06-P11, in the night's form, seeded by its name; at the test profile the test
+    /// column's P07 as its cap, P06 64 and C2's bound lifted. 54 arms.
     #[test]
     fn grid_lists_the_valid_quantities_in_run_order() {
         let g = grid();
@@ -2864,18 +3017,22 @@ mod tests {
                 "read-1a-d16.n1e6",
                 "read-1a-d64.n1e6",
                 "ckpt-full-4096.n5e5",
-                "ckpt-full-4096.n1e6"
+                "ckpt-full-4096.n1e6",
+                "ckpt-full-rec-64kib.n5e5",
+                "ckpt-full-rec-64kib.n1e6",
+                "ckpt-full-rec-128kib.n5e5",
+                "ckpt-full-rec-128kib.n1e6"
             ],
             "the night's 18 with the deciding quantities first (R-34 B-3, M-15), then u20's block, then u21's"
         );
         assert!(names.iter().all(|n| valid_name(n)));
-        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 25);
+        assert_eq!(names.iter().collect::<BTreeSet<_>>().len(), 29);
         let arms: Vec<&str> = g
             .iter()
             .flat_map(|q| q.family.arms().iter().copied())
             .collect();
-        assert_eq!(arms.len(), 46);
-        for (q, n) in g[23..].iter().zip([500_000, 1_000_000]) {
+        assert_eq!(arms.len(), 54);
+        for (q, n) in g[23..25].iter().zip([500_000, 1_000_000]) {
             assert_eq!(
                 (q.family, q.n, q.family.arms()),
                 (Family::CkptFull, n, &["ckpt.full", "ckpt.full.write"][..])
@@ -2893,6 +3050,44 @@ mod tests {
             assert_eq!(
                 (tt.threshold, tt.params.p06, tt.n, tt.rt_bound),
                 (TEST_FULL_P06, 64, n / TEST_SCALE, Some(u64::MAX))
+            );
+        }
+        // u22's four (R-86 ruling 2), compared through their arms, tier, tail and targets.
+        let caps = [65_536u64, 65_536, 131_072, 131_072];
+        let ns = [500_000u32, 1_000_000, 500_000, 1_000_000];
+        for ((q, cap), n) in g[25..].iter().zip(caps).zip(ns) {
+            assert_eq!(
+                (q.n, q.family.arms()),
+                (n, &["ckpt.full", "ckpt.full.write"][..]),
+                "{}",
+                q.name
+            );
+            assert_eq!(
+                (q.family.min_tier(), q.family.needs_tail()),
+                (Some(Tier::T3), true),
+                "{}",
+                q.name
+            );
+            let t = target(q, Profile::Production);
+            let p = t.params;
+            assert_eq!(
+                (t.clause, t.threshold, t.mult, t.n, t.rt_bound, t.seed),
+                (Clause::Rec, cap, 1, n, None, seed(&q.name)),
+                "{}: production",
+                q.name
+            );
+            assert_eq!(
+                (p.p06, p.p07, p.p08, p.p09, p.p10, p.p11, p.shape.locator),
+                (1_024, 65_536, 1_048_576, 49_152, 131_072, 4, Locator::None),
+                "{}: R-b's values",
+                q.name
+            );
+            let tt = target(q, Profile::Test);
+            assert_eq!(
+                (tt.clause, tt.threshold, tt.params.p06, tt.n, tt.rt_bound),
+                (Clause::Rec, 2_048, 64, n / TEST_SCALE, Some(u64::MAX)),
+                "{}: test profile",
+                q.name
             );
         }
         for q in &g[18..23] {
@@ -2978,7 +3173,7 @@ mod tests {
         assert_eq!(target(&g[1], Profile::Test).n, 5_000);
     }
 
-    /// `--smoke` runs every quantity at the test profile with each arm once: 46 lines, one per (quantity, arm), each
+    /// `--smoke` runs every quantity at the test profile with each arm once: 54 lines, one per (quantity, arm), each
     /// ending with the arm's unit; with `--quantity` it runs that one alone; each run maps its base once.
     #[test]
     fn smoke_exercises_every_arm_once() {
@@ -2996,7 +3191,7 @@ mod tests {
         let (code, out, err) = run(&fs, &[&["--smoke"][..], &CT].concat());
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), 46, "{out}");
+        assert_eq!(lines.len(), 54, "{out}");
         let pairs: BTreeSet<(String, String)> = lines
             .iter()
             .map(|l| {
@@ -3039,7 +3234,7 @@ mod tests {
         .concat();
         let (code, out, err) = run(&fs, &args);
         assert_eq!(code, EXIT_DONE, "{err}");
-        assert_eq!(out.lines().count(), 46);
+        assert_eq!(out.lines().count(), 54);
         assert!(!out.contains("recorded"));
         assert!(
             fs.files().is_empty(),
@@ -4866,14 +5061,14 @@ mod tests {
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 25);
+            assert_eq!(calls.len(), 29);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 25);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 29);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
@@ -5442,6 +5637,194 @@ mod tests {
             got.push((m.ops, m.rec_bytes, m.loc_bytes));
         }
         assert_eq!(got, [(4_096, 1_748_587, 7_564), (1_024, 379_323, 1_859)]);
+    }
+
+    /// The first full k of samples j = 0..8 of u22's four at production (R-86 ruling 2), found by a scratch search over
+    /// k < 1,024 (cut annex D); each k is the first whose tail is full at its record cap.
+    const FULL_REC_K: [(&str, [u64; 8]); 4] = [
+        ("ckpt-full-rec-64kib.n5e5", [16, 13, 2, 28, 1, 1, 1, 20]),
+        ("ckpt-full-rec-64kib.n1e6", [5, 1, 0, 6, 2, 12, 7, 18]),
+        ("ckpt-full-rec-128kib.n5e5", [24, 14, 29, 24, 10, 0, 32, 10]),
+        ("ckpt-full-rec-128kib.n1e6", [2, 7, 6, 4, 13, 3, 1, 5]),
+    ];
+
+    /// The test's own oracle of a full tail at the cap `t.threshold` (R-86 ruling 2): it stops on its record cap, so its
+    /// refused group passes the cap; its records are 95-100 % of the cap; and its ops are at most the target's P06.
+    fn is_full(t: &Target, tail: &Tail) -> bool {
+        let (cap, m) = (t.threshold, tail.measures);
+        tail.refused.is_some_and(|r| r.rec_bytes > cap)
+            && m.rec_bytes <= cap
+            && m.rec_bytes * 1_000 / cap >= 950
+            && m.ops <= t.params.p06
+    }
+
+    /// u22's four tails are full tails at their own record caps (R-86 ruling 2, RF-8; R-87 item 6): at production, for
+    /// each quantity's samples j = 0..5 (every tier) the pinned k of [`FULL_REC_K`] gives a full tail of
+    /// `ckpt_target(q, Production, j)` with `seed ^ k`, and k − 1 does not; the nightly and exit tiers check j = 0..8,
+    /// every smaller k, and that [`ckpt_tail`] returns the pinned tail. Every tier also runs the production search
+    /// itself for the sample of j < 5 with the smallest pinned k (critique I-1), so a search measured against P07 instead
+    /// of the quantity's cap is caught on the 128-KiB quantities. At the test profile, for j = 0..8, the first full k
+    /// (cap 2,048 B, P06 64) is below 1,024, [`ckpt_tail`] returns that tail byte for byte, and some j needs k > 0.
+    #[test]
+    fn ckpt_full_rec_tails_are_full_at_their_record_caps() {
+        let every = matches!(
+            std::env::var("MOIRAI_TEST_TIER").as_deref(),
+            Ok("nightly") | Ok("exit")
+        );
+        let g = grid();
+        for (name, ks) in FULL_REC_K {
+            let q = g
+                .iter()
+                .find(|q| q.name == name)
+                .unwrap_or_else(|| panic!("{name} is not in the grid"));
+            let at = |base: Target, k: u64| Target {
+                seed: base.seed ^ k,
+                ..base
+            };
+            for j in 0..if every { 8 } else { 5 } {
+                let base = ckpt_target(q, Profile::Production, j);
+                let k = ks[j as usize];
+                let tail = generate(&at(base, k), false).unwrap();
+                assert!(
+                    is_full(&at(base, k), &tail),
+                    "{name} sample {j}: k {k} is not full: {:?}",
+                    tail.measures
+                );
+                let below = if every { 0 } else { k.saturating_sub(1) };
+                for i in below..k {
+                    let t = at(base, i);
+                    assert!(
+                        !is_full(&t, &generate(&t, false).unwrap()),
+                        "{name} sample {j}: k {i} < {k} is full"
+                    );
+                }
+                if every {
+                    let got = ckpt_tail(q, Profile::Production, j).unwrap();
+                    assert_eq!(
+                        got.bytes, tail.bytes,
+                        "{name} sample {j}: the search's tail"
+                    );
+                }
+            }
+            let (j, k) = (0..5u64)
+                .map(|j| (j, ks[j as usize]))
+                .min_by_key(|&(j, k)| (k, j))
+                .unwrap();
+            let want = generate(&at(ckpt_target(q, Profile::Production, j), k), false).unwrap();
+            let got = ckpt_tail(q, Profile::Production, j)
+                .unwrap_or_else(|e| panic!("{name} sample {j}: the production search: {e}"));
+            assert_eq!(
+                (got.bytes, got.measures),
+                (want.bytes, want.measures),
+                "{name} sample {j}: the production search returns k {k}"
+            );
+            let mut later = 0;
+            for j in 0..8 {
+                let base = ckpt_target(q, Profile::Test, j);
+                let k = (0..1_024)
+                    .find(|&k| is_full(&at(base, k), &generate(&at(base, k), false).unwrap()))
+                    .unwrap_or_else(|| panic!("{name} test sample {j}: no full tail below 1,024"));
+                let want = generate(&at(base, k), false).unwrap();
+                let got = ckpt_tail(q, Profile::Test, j).unwrap();
+                assert_eq!(got.bytes, want.bytes, "{name} test sample {j}: k {k}");
+                later += usize::from(k > 0);
+            }
+            assert!(
+                later > 0,
+                "{name}: every test-profile sample is full at k = 0"
+            );
+        }
+    }
+
+    /// Ruling 2's refusal (RF-8b; R-86 ruling 13; critique I-2): over a [`LoggedFs`] at the test profile, the first of
+    /// u22's four whose sample 0 has a first full k K ≥ 1 is prepared as the grid has it, and its arms are built with the
+    /// search bound K: each arm's first sample is refused before t0 with a reason naming `<name> sample 0`, no tick is
+    /// taken, and nothing is written to the extent or `HEAD` after the arms exist. With the bound K + 1 the same samples
+    /// pass, and arm 0's sample 0 times the tail at k = K (the extent holds its image at t0).
+    #[test]
+    fn ckpt_full_rec_setup_refuses_a_sample_without_a_full_tail() {
+        assert_eq!(FULL_K_BOUND, 1_024);
+        let g = grid();
+        let (q0, kk) = g
+            .iter()
+            .filter(|q| matches!(q.family, Family::CkptFullRec { .. }))
+            .find_map(|q| {
+                let base = ckpt_target(q, Profile::Test, 0);
+                let k = (0..FULL_K_BOUND).find(|&k| {
+                    let t = Target {
+                        seed: base.seed ^ k,
+                        ..base
+                    };
+                    is_full(&t, &generate(&t, false).unwrap())
+                })?;
+                (k >= 1).then(|| (q.clone(), k))
+            })
+            .expect("no quantity's sample 0 has a first full k >= 1 at the test profile");
+        for (bound, refused) in [(kk, true), (kk + 1, false)] {
+            let Family::CkptFullRec { cap, .. } = q0.family else {
+                unreachable!()
+            };
+            let q = Quantity {
+                family: Family::CkptFullRec { cap, bound },
+                ..q0.clone()
+            };
+            let fs = MemFs::with_dir(&scratch());
+            let lfs = LoggedFs::new(&fs);
+            let p = prepare(&lfs, &scratch(), &q0, Profile::Test).unwrap();
+            let c = Columns::parse(p.map.bytes()).unwrap();
+            let rig = full_rig(&fs, &lfs, &p);
+            let mut arms = arms(&p, &c, &q, &rig.ticker).unwrap();
+            let from = lfs.calls().len();
+            let geo = p.tail.as_ref().unwrap().expect.geo;
+            for (i, arm) in arms.iter_mut().enumerate() {
+                let r = arm.sample();
+                if refused {
+                    let e = r.expect_err("the sample passed with no full tail below its bound");
+                    assert!(
+                        e.0.contains(&format!("{} sample 0", q.name)),
+                        "arm {i}: {}",
+                        e.0
+                    );
+                } else {
+                    r.unwrap_or_else(|e| panic!("arm {i} with the bound K + 1: {}", e.0));
+                    if i == 0 {
+                        let base = ckpt_target(&q, Profile::Test, 0);
+                        let tj = generate(
+                            &Target {
+                                seed: base.seed ^ kk,
+                                ..base
+                            },
+                            true,
+                        )
+                        .unwrap();
+                        let (t0, _) = rig.ticker.last();
+                        let mut image = vec![0u8; geo.e() as usize];
+                        let at = geo.offset(tj.start) as usize;
+                        image[at..at + tj.bytes.len()].copy_from_slice(&tj.bytes);
+                        assert!(
+                            t0.files[&rig.ext].0 == image,
+                            "arm 0 sample 0: the extent at t0 is not the tail at k = {kk}"
+                        );
+                    }
+                }
+            }
+            if refused {
+                assert_eq!(rig.ticker.count(), 0, "a refused sample takes no tick");
+                let written: Vec<Call> = lfs.calls()[from..]
+                    .iter()
+                    .filter(|c| {
+                        (c.0 == rig.ext || c.0 == "HEAD") && matches!(c.2, Io::Write | Io::Sync(_))
+                    })
+                    .cloned()
+                    .collect();
+                assert!(
+                    written.is_empty(),
+                    "written after the arms exist: {written:?}"
+                );
+            } else {
+                assert_eq!(rig.ticker.count(), 4, "two ticks per arm's sample");
+            }
+        }
     }
 
     /// The calls of `lfs` from `from` to `to` on the file `name`.
