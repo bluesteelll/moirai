@@ -729,8 +729,9 @@ section and [F17]'s); **scope**
 
 ### 10.2 Store parameters
 
-[F17] is normative for each key's meaning, valid range (by its row P01–P34), decision point, test-profile value and class
-([F17 §1.2]); this table registers them. All are store-scope. Holes are [F17]'s.
+[F17] is normative for each key's meaning, valid range (by its row P01–P35), decision point, test-profile value and class
+([F17 §1.2]); this table registers them. All are store-scope. Holes are [F17]'s, except `HOLE(F10-hist-codec)`, P35's
+default, which is [F10]'s (the orchestrator's rulings R-69 of 2026-10-14 and R-74 of 2026-10-15).
 
 | key | [F17] row; type | default | reload | vis | effect point | read by |
 |---|---|---|---|---|---|---|
@@ -768,6 +769,7 @@ section and [F17]'s); **scope**
 | `gc.trash-expire` | P32; `duration` | `14d` | hot | I | each `gc` run ([F17 §11.3]) | `moirai-store` gc |
 | `gc.fileobs-idle-expire` | P33; `duration` | `30d` | hot | I | each `gc` run ([F17 §11.3]) | `moirai-store` gc |
 | `gc.delete-grace` | P34; `duration` | `1m` (60 s) | hot | I | each deletion decision ([F17 §11.4]); registered here as [F17] OP-17-03 asks | `moirai-store` maintenance, gc |
+| `store.hist-codec` | P35; `enum(lz4\|zstd)` | `HOLE(F10-hist-codec)` | hot | I | each `hist` frame a writer starts: retirement, the `gc` rewrite and the purge rewrite ([F17 §4.5], [F10 §3.4]) | `moirai-store` retirement, gc |
 
 Constraints C-1 to C-4 are [F17 §3]'s; §5.3 applies them.
 
@@ -1086,8 +1088,8 @@ layout and protocol constants of [F17 §13.2] are not keys either.
 
 This chapter's own holes. The store-parameter holes (`F17-ckpt-ops`, `F17-ckpt-bytes`, `F17-ckpt-body`, `F17-tail-overlay`,
 `F17-tail-overlay-quiet`, `F17-quiet-mult`, `F17-promo-ops`, `F17-promo-bytes`, `F17-promo-age`, `F17-loose-pack`,
-`F17-lock-writer`, `F17-lock-flush`) are [F17]'s; §10.2 references them. The share-retry bound of the configuration rename is
-[OS/fs]'s `OS-share-retry-ms`.
+`F17-lock-writer`, `F17-lock-flush`) are [F17]'s, and `F10-hist-codec`, the default of `store.hist-codec` (P35), is
+[F10]'s; §10.2 references them. The share-retry bound of the configuration rename is [OS/fs]'s `OS-share-retry-ms`.
 
 | id | what | decided by | candidates | constraint the value must meet |
 |---|---|---|---|---|
