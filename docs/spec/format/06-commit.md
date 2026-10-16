@@ -6,7 +6,7 @@
 | Chapter | [F06], `docs/spec/format/06-commit.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-12a, the commit-record part of WP-12 ([PLAN §3.2] item 1), author role R-SPEC-F |
-| Sources | [AR §4.3] (the `Commit` body, the op list and coalescing, "Encoding and size", bulk commits, bodies in the log tail); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation tables for R4, R5, the audits and [90 §10.1]); [AR §4.5] steps 4, 7, 8 and 9 (candidate, re-parent, `#N` allocation, append); [AR §4.1] rows `cs.NNNN`, `blobs.NNNN` and rules; [AR §3.1] (field block and the closed type set; `CREATOR`); [AR §3.3] (edge properties, discriminator); [AR §5a.1] (commit content, schema version; ref fields); [AR §5a.2] (`ref_old`, `ref_seq`); [AR §5a.3] (sync residue); [AR §5a.5] (revert, cherry-pick, before-images); [AR §5a.7] steps 4, 7 and 8; [AR §5a.8] (conflict and violation classes); [AR §5b.4] (foreign and import-checkpoint ids, `hlc` rule, trailers, carrier table); [AR §5b.6] steps 2–5 (import flags, `verified`, stated parents); [AR §5b.7] (round-trip table: idempotency key hash); [AR §5d.1] (absorbed vectors); [AR §6.4] (idempotency, default keys); [40 §2.2] (artifact fields, `relink`), [40 §2.3], [40 §2.4] (`pathmove` and its `hlc`), [40 §2.7] (anchor record, `aN`, `captured`, `pred`), [40 §2.8], [40 §2.11] R-1, R-4, R-5, R-6, R-10; [50 §3.10] items 6, 8 and 11; [50 §4.4] (named-query definitions); [50 §8.1] F3, F10, F14, F15, F16, F18; [90 §4.1] (the actor row), [90 §4.2], [90 §10.1] (row "Commit header"); [60 §2.5] rows "Commit body" and "Ops and values", audit row "Commit body"; [PLAN §3.3] (the WP-12 gaps); reviews `a1-A.md` A-M2, `a1-S.md` S-03, S-04, S-09, S-19, S-20, `a1-P.md` A1P-12; [RULES/merge-table] open points 5, 9, 11, 18 and 20; [F17 §4.4] and OP-17-05; [OS/clock §7]; [LQ/canonical-ast §7.2] and its open points C-9, C-10; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the git-image trailers, the idempotency hash-domain strings); [AR §11] #33, OQ-A-7 and OQ-A-9 (spec sync 3); [90 §4.1] (the Model row); item 1a: the owner's rulings R-47 and R-50 of 2026-10-13 and R-73 of 2026-10-15, the orchestrator's ruling R-53 of 2026-10-13 (F-1, F-2) |
+| Sources | [AR §4.3] (the `Commit` body, the op list and coalescing, "Encoding and size", bulk commits, bodies in the log tail); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation tables for R4, R5, the audits and [90 §10.1]); [AR §4.5] steps 4, 7, 8 and 9 (candidate, re-parent, `#N` allocation, append); [AR §4.1] rows `cs.NNNN`, `blobs.NNNN` and rules; [AR §3.1] (field block and the closed type set; `CREATOR`); [AR §3.3] (edge properties, discriminator); [AR §5a.1] (commit content, schema version; ref fields); [AR §5a.2] (`ref_old`, `ref_seq`); [AR §5a.3] (sync residue); [AR §5a.5] (revert, cherry-pick, before-images); [AR §5a.7] steps 4, 7 and 8; [AR §5a.8] (conflict and violation classes); [AR §5b.4] (foreign and import-checkpoint ids, `hlc` rule, trailers, carrier table); [AR §5b.6] steps 2–5 (import flags, `verified`, stated parents); [AR §5b.7] (round-trip table: idempotency key hash); [AR §5d.1] (absorbed vectors); [AR §6.4] (idempotency, default keys); [40 §2.2] (artifact fields, `relink`), [40 §2.3], [40 §2.4] (`pathmove` and its `hlc`), [40 §2.7] (anchor record, `aN`, `captured`, `pred`), [40 §2.8], [40 §2.11] R-1, R-4, R-5, R-6, R-10; [50 §3.10] items 6, 8 and 11; [50 §4.4] (named-query definitions); [50 §8.1] F3, F10, F14, F15, F16, F18; [90 §4.1] (the actor row), [90 §4.2], [90 §10.1] (row "Commit header"); [60 §2.5] rows "Commit body" and "Ops and values", audit row "Commit body"; [PLAN §3.3] (the WP-12 gaps); reviews `a1-A.md` A-M2, `a1-S.md` S-03, S-04, S-09, S-19, S-20, `a1-P.md` A1P-12; [RULES/merge-table] open points 5, 9, 11, 18 and 20; [F17 §4.4] and OP-17-05; [OS/clock §7]; [LQ/canonical-ast §7.2] and its open points C-9, C-10; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the git-image trailers, the idempotency hash-domain strings); W3D-SF-7 and W3C-ARB-7: the orchestrator's ruling R-52 of 2026-10-13 (§4.4.4's native `hlc`, §7.4's re-keyed creator); [AR §11] #33, OQ-A-7 and OQ-A-9 (spec sync 3); [90 §4.1] (the Model row); item 1a: the owner's rulings R-47 and R-50 of 2026-10-13 and R-73 of 2026-10-15, the orchestrator's ruling R-53 of 2026-10-13 (F-1, F-2) |
 | Depends on | [F01], [F02]; cites [F04], [F05], [F07], [F08], [F09], [F10], [F11], [F12], [F13], [F14], [F16], [F17], [F18], [F19], [F20], [API], [LQ/canonical-ast], [LQ/envelope], [OS/clock], [RULES/merge-table], [RULES/link-merge-rules] |
 
 ## 1. Scope
@@ -296,7 +296,7 @@ value as invalid (V).
   changes a commit id ([F17 §1.5] SP-1). The value is also the commit's `append_hlc`. The engine keeps the two maxima
   the rule needs, `hlc_seq` and `hlc_commit`, in `HEAD` ([F04 §5.15]) and carries them across an epoch re-roll in the
   extent head ([F05 §9.28]).
-- A **native** import keeps the `hlc` of its `Klotho-Hlc` trailer.
+- A **native** import keeps the `hlc` of its `Klotho-Hlc` trailer, unchecked against its parents' ([F14 §10.9]; W3C-ARB-7).
 - A **foreign** or **import-checkpoint** commit gets the deterministic value ([AR §5b.4], N13c), with the unit gap of
   [PLAN §3.3] closed as follows:
 
@@ -831,6 +831,9 @@ that the residue ops turn "what the window alone yields" into the merged value (
 `c_actor` and `c_role` are the creating commit's `actor` and `role` for a local create; a merge, sync, cherry-pick or
 native import that lands a `Create` made elsewhere keeps the op's original creator; a foreign or checkpoint import uses
 the importing commit's actor and role (C; open point 12). They are not hashed.
+
+A merge that re-keys a uid U ([F12 §7.6]) writes uid′'s `Create` with U's creator on side S, so the re-key moves no
+ownership (W3D-SF-7; the orchestrator's ruling R-52 of 2026-10-13).
 
 **`Delete`** — the node is deleted (canonical `deleted(reason, replaced_by)`).
 
@@ -1419,7 +1422,7 @@ changing any width or presence rule: [F10]'s codec-byte values (the `codec` byte
 12. **`Create` carries its creator.** `CREATOR` ([50] F4) is "set at `Create`, never changed", but a merge commit that
     lands a lane's `Create` on `main` has the orchestrator as its actor. The op therefore stores `c_actor` and `c_role`
     (store-local, unhashed), which merges, syncs, cherry-picks and native imports keep. [F09] (the `CREATOR` column) and
-    [F08] should confirm.
+    [F08] should confirm. A re-key keeps U's creator for uid′ (§7.4; W3D-SF-7).
 13. **`Undelete` carries the restored image; conflict sides may carry a snapshot.** [AR §4.3] gives `Undelete` only a
     before-image; the restored values need a home, and NF-4 folds them into the op as it folds a `Create`'s. For
     `DeleteVsModify` under `delete-wins`, a `live` side carries its node image (§6.2), which settles [RULES/merge-table]
