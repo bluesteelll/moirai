@@ -1856,12 +1856,14 @@ first parent, and so on to a root; the **net changeset** of a commit is against 
 diff, [AR §4.6]):
 - `rev` (`rev_seq`, the `--if-rev` target, [AR §3.1]): the seq of the newest commit on the chain whose net changeset changes a key
   that n owns ([F06 §2.3]);
-- `created` (`created_tx`): the seq of the newest commit on the chain whose net changeset takes n's existence from absent to live
-  or deleted; for a uid′ that a re-key lands ([F12 §7.6]), the merge that re-keys it. This seq is store-local, and the image's
-  `created:` line is [F14 §6.3]'s creating commit, the least (`gen`, id) one in H(C). They name the same commit when V's
-  first-parent chain holds the creating commit. For a node that a merge brought onto the chain, `created` names that merge
-  and `created:` names the creating commit on the merged line (open point 21). For a re-keyed uid′, both name the re-keying
-  merge (W3D-SF-7; the orchestrator's ruling R-52 of 2026-10-13);
+- `created` (`created_tx`): the seq of the newest commit on the chain whose net changeset takes n's existence from absent to
+  live or deleted; for a uid′ that a re-key lands with one creating commit ([F12 §7.6]), the merge that re-keys it. This seq is
+  store-local, and the image's `created:` line is [F14 §6.3]'s creating commit K, the least (`gen`, id) one among the creating
+  commits that V's history holds ([F14 §1]'s H(c), c the commit V names). For a re-keyed uid′ with one creating commit, both
+  name the re-keying merge, wherever it lies (W3D-SF-7; the orchestrator's ruling R-52 of 2026-10-13). Otherwise they name the
+  same commit when V's first-parent chain holds K. When the chain does not hold K, `created:` names K and `created` names a
+  commit on the chain: the merge or `sync` that brought n onto the chain (open point 21), or, when n also has a creating commit
+  on the chain, that commit;
 - `updated` (`updated_tx`): the seq of the newest commit on the chain whose net changeset changes n's existence, hierarchy,
   status, body, a field or a counter.
 
