@@ -68,7 +68,9 @@ pub mod seg_kind {
     pub const BLOBS: u8 = 6;
 }
 
-/// The section tags the probe writes (`09-segments.md:156-206`, ranges `:231-233`).
+/// The section tags of [F09 §3.1] (its ranges [F09 §3.2]) and [F10 §5.2] that the probe names, only some of which it
+/// writes; [F09 §3.3]'s `derived-optional` set, [`tag::DERIVED_OPTIONAL`]; and the predicates [`tag::listed`] and
+/// [`tag::derived_optional`] that the writer's flags and [`SegView::parse`]'s check use.
 pub mod tag {
     /// `IDS`, column `u32` (`:158`).
     pub const IDS: u16 = 0x0001;
@@ -84,6 +86,8 @@ pub mod tag {
     pub const DUE: u16 = 0x0006;
     /// `UID`, fixed table of 20 B (`:164`, §5.5).
     pub const UID: u16 = 0x0007;
+    /// `PRIO`, column `u8`: the cold column `priority` ([F09 §3.1], [F09 §5.4]; R-66).
+    pub const PRIO: u16 = 0x0009;
     /// `TITLE_BLOB`, a pool of `vstr` (`:166`, §6.1).
     pub const TITLE_BLOB: u16 = 0x0010;
     /// `FIELDS_BLOB`, a pool of `vbytes` (`:167`, §6.2).
@@ -193,6 +197,48 @@ pub mod tag {
     pub const fn bm(i: u16) -> u16 {
         0x8000 + i
     }
+
+    /// The sections that carry `SecEnt.flags` bit 0, `derived-optional`, in format v1: exactly [F09 §3.3]'s seven, in
+    /// its order (`DIRMAP`, the four runtime caches, the two tier-2 statistics).
+    pub const DERIVED_OPTIONAL: [u16; 7] = [
+        DIRMAP, FPRINT, ANCESTRY, GITRENAMES, ANCHORRES, DOCLEN, FTSSTAT,
+    ];
+
+    /// Whether `t` is one of [`DERIVED_OPTIONAL`].
+    pub const fn derived_optional(t: u16) -> bool {
+        let mut i = 0;
+        while i < DERIVED_OPTIONAL.len() {
+            if DERIVED_OPTIONAL[i] == t {
+                return true;
+            }
+            i += 1;
+        }
+        false
+    }
+
+    /// Whether [F09 §3.1]'s table lists `t`, as a tag or inside a listed range. Tag 0, `0x020F`, `0xFFFF` and every
+    /// tag not listed are reserved.
+    pub const fn listed(t: u16) -> bool {
+        matches!(
+            t,
+            0x0001..=0x0009
+                | 0x0010..=0x0012
+                | 0x0020..=0x0026
+                | 0x0030..=0x0032
+                | 0x0040
+                | 0x0050..=0x0053
+                | 0x0060..=0x0061
+                | 0x0080..=0x0084
+                | 0x00C0..=0x00C2
+                | 0x0100..=0x0102
+                | 0x0201..=0x020E
+                | 0x0210..=0x021A
+                | 0x0300..=0x0302
+                | 0x0310..=0x0311
+                | 0x4000..=0x5FFF
+                | 0x8000..=0xFFFE
+        )
+    }
 }
 
 /// The `SegHdr` fields a writer chooses (`09-segments.md:51-72`; per kind `:119-129`). `magic`, `format`, `n_sections`,
@@ -226,7 +272,9 @@ pub struct Header {
 pub struct SecEnt {
     /// `tag` (offset 0).
     pub tag: u16,
-    /// `flags` (offset 2): bit 0 `derived-optional`, never set on the probe's tags (`:95-101`, `:237-240`).
+    /// `flags` (offset 2): bit 0 `derived-optional`, which [`Writer::push`] sets on exactly [F09 §3.3]'s seven tags
+    /// ([`tag::DERIVED_OPTIONAL`]); bits 1–15 are reserved-zero ([F09 §2.2]). [`SegView::parse`] refuses bit 0 on any
+    /// other tag [F09 §3.1] lists and any of bits 1–15 ([F09 §17.1] V-7).
     pub flags: u16,
     /// `count` (offset 4): the items the section holds, as its class defines them.
     pub count: u32,
@@ -312,7 +360,7 @@ impl Writer {
     }
 
     /// Appends the next section: `fill` writes its bytes at the end of the buffer it is given; `count` is its
-    /// `SecEnt.count`.
+    /// `SecEnt.count`. Its `SecEnt.flags` is bit 0 on [F09 §3.3]'s seven tags and 0 on every other.
     pub fn push(
         &mut self,
         tag: u16,
@@ -333,7 +381,7 @@ impl Writer {
         fill(&mut self.buf)?;
         self.table.push(SecEnt {
             tag,
-            flags: 0,
+            flags: u16::from(tag::derived_optional(tag)),
             count,
             off: off as u64,
             len: (self.buf.len() - off) as u64,
@@ -386,8 +434,8 @@ impl Writer {
     }
 }
 
-/// A parsed segment over its bytes: the open checks V-1, V-2, V-4 and V-6 and the placement P-1 to P-4
-/// (`09-segments.md:1189-1197`); [`SegView::check_digests`] adds V-9.
+/// A parsed segment over its bytes: the open checks V-1, V-2, V-4 and V-6, the placement P-1 to P-4 and V-7's `flags`
+/// ([F09 §17.1]); [`SegView::check_digests`] adds V-9.
 #[derive(Clone, Debug)]
 pub struct SegView<'a> {
     /// The segment's bytes.
@@ -428,6 +476,20 @@ impl<'a> SegView<'a> {
         for (i, e) in table.iter().enumerate() {
             if i > 0 && table[i - 1].tag >= e.tag {
                 return Err(format!("tag {:#06x} out of order (P-1)", e.tag));
+            }
+            // V-7's `flags` ([F09 §3.3]): bits 1-15 reserved-zero; bit 0 on a listed tag only where §3.3 sets it,
+            // accepted and never required there, and accepted on a tag §3.1 does not list (§3.3's last item).
+            if e.flags & !1 != 0 {
+                return Err(format!(
+                    "section {:#06x} sets a reserved SecEnt.flags bit (V-7)",
+                    e.tag
+                ));
+            }
+            if e.flags & 1 != 0 && tag::listed(e.tag) && !tag::derived_optional(e.tag) {
+                return Err(format!(
+                    "section {:#06x} is flagged derived-optional outside F09 §3.3 (V-7)",
+                    e.tag
+                ));
             }
             let off = end.next_multiple_of(SECTION_ALIGN);
             if e.off != off as u64 || bytes[end..off.min(bytes.len())].iter().any(|&b| b != 0) {
@@ -706,9 +768,23 @@ pub fn fixed_rows(b: &[u8], row_w: u32) -> Result<Vec<&[u8]>, String> {
 }
 
 #[cfg(test)]
-mod tests {
+pub(crate) mod tests {
     use super::*;
     use crate::tail::store::check_seg_header;
+
+    /// `seg` with entry `i`'s `SecEnt.flags` set to `flags`, its `table_xxh3` and `hdr_xxh3` recomputed, so only the
+    /// flags differ to a parser.
+    pub(crate) fn with_flags(seg: &[u8], i: usize, flags: u16) -> Vec<u8> {
+        let mut b = seg.to_vec();
+        let at = SEG_HDR_LEN + SEC_ENT_LEN * i + 2;
+        b[at..at + 2].copy_from_slice(&flags.to_le_bytes());
+        let n = usize::from(u16::from_le_bytes([b[12], b[13]]));
+        let table = xxh3_64(&b[SEG_HDR_LEN..SEG_HDR_LEN + SEC_ENT_LEN * n]);
+        b[104..112].copy_from_slice(&table.to_le_bytes());
+        let sum = xxh3_64(&b[..112]);
+        b[112..120].copy_from_slice(&sum.to_le_bytes());
+        b
+    }
 
     fn header() -> Header {
         Header {
@@ -933,12 +1009,50 @@ mod tests {
         );
     }
 
+    /// `SecEnt.flags` as [F09 §3.3] and V-7 ([F09 §17.1]) give them: over a segment of `NODE` (0x0002), an unlisted tag
+    /// (0x000A), `DOCLEN` (0x0052) and `FTSSTAT` (0x0053), the parser refuses bit 0 on `NODE`, any of bits 1-15 on a tag
+    /// and bit 1 beside bit 0 on `DOCLEN`, and accepts bit 0 on `DOCLEN` and `FTSSTAT` (never requiring it: cleared is
+    /// accepted too) and on a tag §3.1 does not list (§3.3's last item: a format-1 reader ignores such a section).
+    #[test]
+    fn sec_ent_flags_follow_f09_3_3() {
+        let mut w = Writer::new(4, 0);
+        for t in [0x0002u16, 0x000A, 0x0052, 0x0053] {
+            w.push(t, 1, |o| {
+                o.push(0xA5);
+                Ok(())
+            })
+            .unwrap();
+        }
+        let seg = w.finish(&header()).unwrap();
+        let refused = [
+            (0, 1u16, "0x0002"),
+            (0, 2, "0x0002"),
+            (2, 3, "0x0052"),
+            (3, 0x8000, "0x0053"),
+            (1, 2, "0x000a"),
+        ];
+        for (i, flags, name) in refused {
+            let b = with_flags(&seg, i, flags);
+            let r = SegView::parse(&b).map(|_| ());
+            assert!(
+                r.as_ref()
+                    .is_err_and(|e| e.contains(name) && e.contains("V-7")),
+                "parse accepted flags {flags:#06x} on {name}: {r:?}"
+            );
+        }
+        for (i, flags) in [(2, 1u16), (3, 1), (2, 0), (3, 0), (1, 1)] {
+            let b = with_flags(&seg, i, flags);
+            let v = SegView::parse(&b).unwrap_or_else(|e| panic!("entry {i} flags {flags}: {e}"));
+            assert_eq!(v.table[i].flags, flags);
+        }
+    }
+
     /// The tags the probe writes are [F09 §3.1]'s (`09-segments.md:156-206`, the runtime ranges `:210-222`, `BM.<i>`
     /// §3.2 `:233`) and [F10 §5.2]'s (`10-sealed-files.md:316-319`), and `seg_kind` [F11 §2.5]'s `FileFamily`
     /// (`11-runtime-tables.md:200-210`): every constant against the chapters' tables, written out.
     #[test]
     fn section_tags_follow_f09_3_1() {
-        let table: [(&str, u16, u16); 59] = [
+        let table: [(&str, u16, u16); 60] = [
             ("IDS", tag::IDS, 0x0001),
             ("NODE", tag::NODE, 0x0002),
             ("CREATOR", tag::CREATOR, 0x0003),
@@ -946,6 +1060,7 @@ mod tests {
             ("DEFER", tag::DEFER, 0x0005),
             ("DUE", tag::DUE, 0x0006),
             ("UID", tag::UID, 0x0007),
+            ("PRIO", tag::PRIO, 0x0009),
             ("TITLE_BLOB", tag::TITLE_BLOB, 0x0010),
             ("FIELDS_BLOB", tag::FIELDS_BLOB, 0x0011),
             ("BLOBTAB", tag::BLOBTAB, 0x0012),
@@ -1003,6 +1118,47 @@ mod tests {
             assert_eq!(got, want, "{name}: {got:#06x}, F09 gives {want:#06x}");
         }
         assert_eq!((tag::bm(0), tag::bm(32_766)), (0x8000, 0xFFFE));
+        // [F09 §3.1]'s listed tags and ranges, at each edge, and the reserved tags between them.
+        let listed: [(u16, u16); 16] = [
+            (0x0001, 0x0009),
+            (0x0010, 0x0012),
+            (0x0020, 0x0026),
+            (0x0030, 0x0032),
+            (0x0040, 0x0040),
+            (0x0050, 0x0053),
+            (0x0060, 0x0061),
+            (0x0080, 0x0084),
+            (0x00C0, 0x00C2),
+            (0x0100, 0x0102),
+            (0x0201, 0x020E),
+            (0x0210, 0x021A),
+            (0x0300, 0x0302),
+            (0x0310, 0x0311),
+            (0x4000, 0x5FFF),
+            (0x8000, 0xFFFE),
+        ];
+        for (a, b) in listed {
+            assert!(tag::listed(a) && tag::listed(b), "{a:#06x}..={b:#06x}");
+            assert!(
+                !tag::listed(a - 1) && !tag::listed(b + 1),
+                "around {a:#06x}..={b:#06x}"
+            );
+        }
+        for t in [0x0000, 0x000A, 0x020F, 0x0303, 0x6000, 0x7FFF, 0xFFFF] {
+            assert!(!tag::listed(t), "{t:#06x} is reserved");
+        }
+        for (name, t, _) in table {
+            assert!(tag::listed(t), "{name}");
+        }
+        // [F09 §3.3]: `derived-optional` on exactly seven tags.
+        let flagged: Vec<u16> = (0..=u16::MAX)
+            .filter(|&t| tag::derived_optional(t))
+            .collect();
+        assert_eq!(
+            flagged,
+            [0x0052, 0x0053, 0x0214, 0x0216, 0x0218, 0x0219, 0x021A],
+            "DOCLEN, FTSSTAT, FPRINT, DIRMAP, ANCESTRY, GITRENAMES, ANCHORRES"
+        );
         assert_eq!(
             (seg_kind::BASE, seg_kind::DELTA, seg_kind::BLOBS),
             (3, 4, 6)

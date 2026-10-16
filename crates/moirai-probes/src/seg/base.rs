@@ -1084,7 +1084,8 @@ pub(crate) mod tests {
     /// `FIELDS_BLOB`, an empty `BLOBTAB`, `DOCLEN`, `FTSSTAT`, `FILES`, `REFS`, `ALLOC`, `TREES`); `tok_ver` 1. Each row's
     /// title is 60 bytes of words of 3–9 lowercase letters, its block the abstract (field 2) and 1–3 of the fields 3–8,
     /// each 24 bytes of text; `UID` holds every (uid, #N) by uid; `ALLOC` from #1 (uid, 0, 1); `DOCLEN` each row's
-    /// token counts and `FTSSTAT` their totals; `REFS`, `TREES` and `FILES` the generators' 50 refs, 4 trees and 12 files.
+    /// token counts and `FTSSTAT` their totals; `REFS`, `TREES` and `FILES` the generators' 50 refs, 4 trees and 12 files;
+    /// `SecEnt.flags` bit 0 on `DOCLEN` and `FTSSTAT` and 0 on every other entry ([F09 §3.3]).
     #[test]
     fn full_base_rows_carry_titles_fields_and_uids() {
         let s = spec(3_000);
@@ -1118,6 +1119,10 @@ pub(crate) mod tests {
         want.sort_unstable();
         assert_eq!(v.table.iter().map(|e| e.tag).collect::<Vec<_>>(), want);
         assert_eq!(v.table.len(), full_sections(5));
+        for e in &v.table {
+            let want = u16::from(e.tag == 0x0052 || e.tag == 0x0053);
+            assert_eq!(e.flags, want, "{:#06x} flags {}", e.tag, e.flags);
+        }
         for e in p.table.iter().filter(|e| e.tag != tag::NODE) {
             assert_eq!(v.section(e.tag), p.section(e.tag), "{:#06x}", e.tag);
         }

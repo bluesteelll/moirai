@@ -44,7 +44,8 @@
 //!
 //! Absent, as §3.1 allows: `TOUCH` (branch segments only), `SCHEMA` (no `Schema` op), `STATS` (base only), `FPROMO`,
 //! `FCOL` and `FIDX` (no promoted field), `PREV`, `VIOLATIONS` and `CKIMG` (`cs` only), `DROPPED` and `HARVEST` (no row).
-//! Every `SecEnt.flags` is 0. The header has `seg_kind` 4 and `tok_ver` 1 and is otherwise [`delta::Fold::finish`]'s.
+//! `DOCLEN` and `FTSSTAT` carry `SecEnt.flags` bit 0, `derived-optional` ([F09 §3.3]); every other entry's flags are
+//! 0. The header has `seg_kind` 4 and `tok_ver` 1 and is otherwise [`delta::Fold::finish`]'s.
 
 use super::base::{
     ABSTRACT_FIELD, Columns, Csr, TITLE_FIELD, field_block, put_bm, put_bmdir, put_csr, put_rows,
@@ -1119,9 +1120,6 @@ pub fn decode(seg: &[u8], blobs: Option<&[u8]>) -> Result<FullDelta, String> {
     if v.header.seg_kind != seg_kind::DELTA || v.header.tok_ver != text::TOK_VER {
         return Err("not a seg-delta of tok_ver 1".into());
     }
-    if v.table.iter().any(|x| x.flags != 0) {
-        return Err("a section flagged derived-optional".into());
-    }
     let graph = delta::decode(seg)?;
     let n = graph.rows.len();
     let uid_rows = fixed_rows(v.need(tag::UID)?, UID_ROW)?;
@@ -1358,7 +1356,8 @@ pub(crate) mod tests {
     /// `POST`, `DOCLEN`, `FTSSTAT`, `PATHIDX` … `GLOBIDX`, `SYMTAB`, `SCHEMAIDS`, `FILES`, `REFS` … `BACKUPS`, `TREES`,
     /// `FILEOBS`, `PENDING`, `FSINTENT`, `JOURNALCUR`, `PREFIXEV` and the ± lists, in tag order; none of `TOUCH`,
     /// `SCHEMA`, `STATS`, `FPROMO`, `FCOL`, `FIDX`, `PREV`, `VIOLATIONS`, `CKIMG`, `DROPPED`, `HARVEST` and the five
-    /// `derived-optional` runtime sections; every `flags` 0; `seg_kind` 4, `tok_ver` 1, `file_no` 14; each F11 body in its
+    /// `derived-optional` runtime sections; `flags` bit 0 on `DOCLEN` and `FTSSTAT` and 0 on every other entry ([F09 §3.3]);
+    /// `seg_kind` 4, `tok_ver` 1, `file_no` 14; each F11 body in its
     /// delta form and row size with `count` its `n_rows`; the empty tables' exact bytes.
     #[test]
     fn full_delta_carries_every_section_a_delta_requires() {
@@ -1403,7 +1402,10 @@ pub(crate) mod tests {
             tags.iter().all(|t| !(0x4000..0x6000).contains(t)),
             "no FCOL or FIDX"
         );
-        assert!(v.table.iter().all(|e| e.flags == 0));
+        for e in &v.table {
+            let want = u16::from(e.tag == 0x0052 || e.tag == 0x0053);
+            assert_eq!(e.flags, want, "{:#06x} flags {}", e.tag, e.flags);
+        }
         assert_eq!(
             (v.header.seg_kind, v.header.tok_ver, v.header.file_no),
             (4, 1, 14)
@@ -1438,6 +1440,36 @@ pub(crate) mod tests {
             v.entry(tag::DOCLEN).unwrap().count as usize,
             d.graph.rows.len()
         );
+    }
+
+    /// The reader takes `DOCLEN`'s and `FTSSTAT`'s `derived-optional` bit as [F09 §3.3] gives it, accepted and never
+    /// required: the full delta of `case(200, 400, 1)` decodes equal to its fold with both entries' bit 0 set and with it
+    /// cleared; with bit 0 on `NODE` it is refused (V-7).
+    #[test]
+    fn decode_accepts_doclen_and_ftsstat_with_or_without_bit_0() {
+        use crate::seg::tests::with_flags;
+        let c = case(200, 400, 1);
+        let cols = Columns::parse(&c.base).unwrap();
+        let fb = FullBase::parse(&cols).unwrap();
+        let d = fold_mem(&c.tail, &fb).delta;
+        let enc = files_of(&d);
+        let blobs = enc.blobs.as_ref().map(|b| b.0.as_slice());
+        let at = |t: u16| {
+            SegView::parse(&enc.seg)
+                .unwrap()
+                .table
+                .iter()
+                .position(|e| e.tag == t)
+                .unwrap()
+        };
+        let (dl, fs, node) = (at(0x0052), at(0x0053), at(0x0002));
+        for flags in [1u16, 0] {
+            let seg = with_flags(&with_flags(&enc.seg, dl, flags), fs, flags);
+            let got = decode(&seg, blobs).unwrap_or_else(|e| panic!("flags {flags}: {e}"));
+            assert_eq!(got, d, "DOCLEN and FTSSTAT with flags {flags}");
+        }
+        let r = decode(&with_flags(&enc.seg, node, 1), blobs);
+        assert!(r.is_err(), "bit 0 on NODE is accepted");
     }
 
     /// A full delta reads back equal to its fold, from its segment and its `blobs` file, with every digest right (V-9)
