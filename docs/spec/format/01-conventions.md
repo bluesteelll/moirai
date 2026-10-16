@@ -585,6 +585,10 @@ may add a class before the freeze; its width is `u32` unless S5's condition hold
   row) has the version of the store, which is `HEAD.format`.
 - Format version 1 is the format frozen at M0 exit and tagged `format-v1` ([60 §2.5], WP-81b). The value 0 is never
   valid.
+- A writer that adds a `derived-optional` section ([F09 §3.3]) to a store after the tag stamps format version 1: such a
+  section is an additive change, not a format version bump ([AR §4.4]), so the store stays a format-1 store, and a
+  format-1 reader that does not know the section's tag ignores it (§9.3) (the orchestrator's rulings R-51 of
+  2026-10-13, N-1, and R-69 of 2026-10-14).
 - All files of one store carry the same format version. A store whose files carry different versions is invalid.
 - A reader of format 1 that finds:
   - version 1: reads the structure;
