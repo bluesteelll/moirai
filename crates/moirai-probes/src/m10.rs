@@ -4,7 +4,7 @@
 //! decides `F17-ckpt-ops`, `-ckpt-bytes`, `-ckpt-body` (the open side), `-tail-overlay`, `-tail-overlay-quiet` and
 //! `-quiet-mult` (`docs/spec/HOLES.md:41-46`; their constraints `17-store-parameters.md:757-762`).
 //!
-//! **The grid** (58 quantities, names by [MP §4.1]). The night's 18 are F17's candidates: `ops` at P06 4,096, 2,048 and
+//! **The grid** (64 quantities, names by [MP §4.1]). The night's 18 are F17's candidates: `ops` at P06 4,096, 2,048 and
 //! 1,024 with N = 1e5 and 1e6; `rec` at P07 4, 2 and 1 MiB; `body` at P08 32, 16 and 8 MiB; `ovl` at P09 1 MiB and
 //! 512 KiB; `quiet` at P10 2 MiB and 1.5 MiB × P11 8 and 4; the last four families at N = 1e6 (cut D-3: open at 1e5 is
 //! replay(cap) + floor(1e5), the floor measured by the `ops` family at both scales). The follow-up block of 13 (u17; R-40
@@ -43,24 +43,30 @@
 //! in-process tests drive through a fake pool; that the real pool's children run in their own processes rests on the
 //! binary's wiring.
 //!
-//! **B-1** (u20 cut §3.7; `design-B.md:636`; R-50, R-53 Q1 (b); [`b1_points`]), six last: Defender's cost on a large
-//! file another process has just modified. The fixture is a `pages` file of 1 GiB or 256 MiB (1 MiB at the test
-//! profile) and its 64 source pages ([`crate::tail::store::write_pages_fixture`]); at production the run waits 10 s
-//! after writing it ([`B1_SETTLE`]). Arm `b1` modifies 16 pages, then bursts: the 16 openers each open the file, map it
-//! whole, copy 5 of the 16 pages, drop the map and close it, timed on their own clocks from one start; its floor
+//! **B-1** (u20 cut §3.7; `design-B.md:636`; R-50, R-53 Q1 (b); [`b1_points`]), six, before u22's block: Defender's
+//! cost on a large file another process has just modified. The fixture is a `pages` file of 1 GiB or 256 MiB (1 MiB at
+//! the test profile) and its 64 source pages ([`crate::tail::store::write_pages_fixture`]); at production the run waits
+//! 10 s after writing it ([`B1_SETTLE`]). Arm `b1` modifies 16 pages, then bursts: the 16 openers each open the file,
+//! map it whole, copy 5 of the 16 pages, drop the map and close it, timed on their own clocks from one start; its floor
 //! `b1.floor` bursts with no write since the last. Every copy's hash must be the modification's source pages, so a
 //! modifier that writes nothing, late or elsewhere fails the run ([`b1_arms`]). The rule, reported: p99(`b1`) −
 //! p99(`b1.floor`) ≤ 1 ms at 1 GiB, for each modifier, the kill criterion for B on Windows. The modifiers
-//! ([`Modifier`]) all end with `FlushFileBuffers` (u20 addendum I-2) and differ in the write path and the process:
-//! `wf` is the pool's modifier child, `m10.exe`, by `WriteFile`; `psview` is a Windows PowerShell child writing through
-//! a read/write view (`FlushViewOfFile`) and `pswf` the same child by `FileStream.Write`, its control
-//! ([`ps_program`], [`ps_args`], [`PS_SCRIPT`]). **The confound** (R-53 Q1, R-34 B-4): the owner's Defender excludes
-//! `powershell.exe` by process, so the PowerShell child's own opens are never scanned while `m10.exe`'s may be;
-//! `psview` against `pswf` isolates the write mechanism and `wf` against `pswf` the exclusion. A view write may not
-//! update the file's last write time, and no modifier calls `SetFileTime` (u20 cut F-16), so `psview` measures
-//! Defender's reaction to a view write as it is. Every B-1 record's quantity is read with these notes. AMSI and
-//! behaviour monitoring may flag `-EncodedCommand` started by an unsigned process; a detection event during the window
-//! hits R-34 M-1's log check (u20 addendum m-8).
+//! ([`Modifier`]) all end with `FlushFileBuffers` (u20 addendum I-2) and differ in the write path and the process: `wf`
+//! is the pool's modifier child, `m10.exe`, by `WriteFile`; `psview` is a Windows PowerShell child writing through a
+//! read/write view (`FlushViewOfFile`) and `pswf` the same child by `FileStream.Write`, its control ([`ps_program`],
+//! [`ps_args`], [`PS_SCRIPT`]). **The confound** (R-53 Q1, R-34 B-4): the owner's Defender excludes `powershell.exe` by
+//! process, so the PowerShell child's own opens are never scanned while `m10.exe`'s may be; `psview` against `pswf`
+//! isolates the write mechanism and `wf` against `pswf` the exclusion. A view write may not update the file's last
+//! write time, and no modifier calls `SetFileTime` (u20 cut F-16), so `psview` measures Defender's reaction to a view
+//! write as it is. Every B-1 record's quantity is read with these notes. AMSI and behaviour monitoring may flag
+//! `-EncodedCommand` started by an unsigned process; a detection event during the window hits R-34 M-1's log check (u20
+//! addendum m-8).
+//!
+//! **u22's block** (R-64; R-86 ruling 3; [`rb_points`]), six last: R-b's configuration in A1 ([`Over::RB`]: P06 1,024,
+//! P07 64 KiB, P08 1 MiB, P09 48 KiB, P10 128 KiB, P11 4) at 1e4, 1e5 and 1e6: `a1-rec-64kib`, at its 64-KiB record
+//! cap, then `a1-cli2x-p07-64kib`, a CLI's 2× tail by [F17 §5.2]'s caps, which ends on whichever binds first: 2,048 ops,
+//! 128 KiB of records, 2 MiB of bodies, or the overlay cap 48 KiB, which is never multiplied. Each production tail
+//! reaches its own cap, its seed `seed(name) ^ k` as for u20's points ([`SEED_K`]: every k below 64).
 //!
 //! Every run is measurement 10 with minimum tier t2, the tier of the open budgets ([MP §3.2],
 //! `17-store-parameters.md:757`). The test profile's thresholds and E give the smoke's versions.
@@ -224,6 +230,17 @@ impl Over {
         p11: Some(4),
     };
 
+    /// R-b's values, the configuration W2 measures (R-64, R-65; R-86 ruling 3): P06 1,024, P07 64 KiB, P08 1 MiB, P09
+    /// 48 KiB, P10 128 KiB, P11 4. P06 and P08 are A3's drafts, which W1's R-b table keeps.
+    pub const RB: Over = Over {
+        p06: Some(1_024),
+        p07: Some(64 * KIB),
+        p08: Some(MIB),
+        p09: Some(48 * KIB),
+        p10: Some(128 * KIB),
+        p11: Some(4),
+    };
+
     /// `p` with these figures in place.
     pub fn apply(self, mut p: Params) -> Params {
         p.p06 = self.p06.unwrap_or(p.p06);
@@ -284,7 +301,8 @@ fn scale(n: u32) -> &'static str {
 
 /// The grid in run order: the night's 18 (`17-store-parameters.md:757-762`), one point of each family first, F17's first
 /// candidate at 1e6, then the rest in family order (R-34 B-3, M-15); then the follow-up block of 13 by the same rule
-/// (R-40 O-3, R-42 Q1 and Q3); then u20's blocks, appended (u20 cut §3.10): design-A A3's small tails in A1 (§3.5).
+/// (R-40 O-3, R-42 Q1 and Q3); then u20's blocks, appended (u20 cut §3.10): design-A A3's small tails in A1 (§3.5), the
+/// opens and B-1; then u22's six at R-b's values ([`rb_points`]; R-86 ruling 3), appended.
 pub fn grid() -> Vec<Quantity> {
     let q = |clause: Clause, threshold: u64, mult: u64, n: u32, p06: Option<u64>| {
         let t = match (clause, p06) {
@@ -364,6 +382,7 @@ pub fn grid() -> Vec<Quantity> {
     lead.extend(a3_points());
     lead.extend(open_points());
     lead.extend(b1_points());
+    lead.extend(rb_points());
     lead
 }
 
@@ -454,7 +473,7 @@ pub fn open_points() -> Vec<Quantity> {
 /// | `a1-ovl-48kib` | `ovl`, P09 = 48 KiB | `report2.md:371`, about 54 KiB for 1 ms (est.) |
 /// | `a1-ovl-64kib` | `ovl`, P09 = 64 KiB | `design-A.md:154` |
 /// | `a1-ovl-192kib.n1e6` | `ovl`, 192 KiB, the quiet cap P10 | `design-A.md:155`; F17:761 |
-/// | `a1-cli2x-128kib` | the quiet machinery with q = P13 = 2 and P10 := 2 × P09 = 128 KiB: 2,048 ops, 256 KiB of records, 2 MiB of bodies, 128 KiB of overlay, whichever binds first | `design-A.md:152` |
+/// | `a1-cli2x-128kib` | the quiet machinery with q = P13 = 2 and P10 := 2 × P09 = 128 KiB: 2,048 ops, 256 KiB of records, 2 MiB of bodies, 128 KiB of overlay, whichever binds first. Label (R-86 ruling 3): its overlay cap 2 × P09 departs from [F17 §5.2], which never multiplies P09; W1's tails of it ended on their record caps with overlays of 44,068 B (1e4) and 64,316 B (1e5), under A3's unmultiplied 64 KiB, and the 1e6 run past it is set aside (R-64), so the label changes no W1 number that decides anything | `design-A.md:152` |
 /// | `a1-quiet-192kib-x2-p1024.n1e6`, `-x4-` | quiet at P10 192 KiB, P11 2 and 4, ending on their record caps of 256 and 512 KiB | spec Goal 5; critique-fit-cost A-1 |
 ///
 /// Each production seed is `seed(name) ^ seed_k`, the first k < 64 whose tail reaches its cap (D-5).
@@ -557,10 +576,49 @@ pub fn a3_points() -> Vec<Quantity> {
     g
 }
 
+/// R-64's P07 = 64 KiB points (R-86 ruling 3), u22's block of six after B-1, in A1 at R-b's values ([`Over::RB`]): at
+/// 1e4, 1e5 and 1e6, the single point `a1-rec-64kib` (`rec`, its record cap 64 KiB) and then the CLI point
+/// `a1-cli2x-p07-64kib`, named by the P07 under test, which sets its 2 × P07 record cap. The CLI point is the quiet
+/// machinery with q = P13 = 2 and [`Over::RB`] unchanged, and its `threshold` is the overlay cap P09 = 48 KiB: its tail
+/// ends on whichever of [F17 §5.2]'s CLI caps binds first, 2,048 ops, 128 KiB of records, 2 MiB of bodies, or the
+/// overlay cap 48 KiB, which is never multiplied ([`reaches_cap`] picks the binding one). Each production seed is
+/// `seed(name) ^ seed_k` ([`SEED_K`]). At the test profile [`target`] gives them the test column's caps, as for u20's
+/// points.
+pub fn rb_points() -> Vec<Quantity> {
+    let mut g = Vec::new();
+    for n in [10_000, 100_000, 1_000_000] {
+        for (clause, threshold, mult, stem) in [
+            (Clause::Rec, 64 * KIB, 1, "rec-64kib"),
+            (Clause::Quiet, 48 * KIB, 2, "cli2x-p07-64kib"),
+        ] {
+            let name = format!("a1-{stem}.{}", scale(n));
+            g.push(Quantity {
+                seed_k: SEED_K
+                    .iter()
+                    .find(|(k, _)| *k == name)
+                    .map_or(0, |(_, k)| *k),
+                name,
+                kind: Kind::Tail,
+                clause,
+                threshold,
+                mult,
+                n,
+                over: Over::RB,
+                form: Locator::A1,
+                of: None,
+                pages: 0,
+            });
+        }
+    }
+    g
+}
+
 /// The production k of each A1 point, the first k < 64 whose tail reaches its cap ([`reaches_cap`]; u20 cut D-5),
 /// recomputed by `a1_tails_reach_their_caps_and_stop_on_their_clauses`. A 128-KiB `rec` tail of the mix reaches 95 %
 /// of its cap for few seeds: one commit in ten is log-uniform up to P05 = 1 MiB, so the refused group is often large.
-pub const SEED_K: [(&str, u64); 18] = [
+/// u20's 18 rows come first, then u22's six ([`rb_points`]). The bound 64 may rise only for one of u22's rows that has
+/// no k < 64, to that row's first k that reaches its cap (R-87 item 7); none needed it: their k are all below 64.
+pub const SEED_K: [(&str, u64); 24] = [
     ("a1-rec-128kib.n1e4", 34),
     ("a1-rec-256kib.n1e4", 11),
     ("a1-ovl-48kib.n1e4", 1),
@@ -579,6 +637,12 @@ pub const SEED_K: [(&str, u64); 18] = [
     ("a1-cli2x-128kib.n1e6", 14),
     ("a1-quiet-192kib-x2-p1024.n1e6", 18),
     ("a1-quiet-192kib-x4-p1024.n1e6", 6),
+    ("a1-rec-64kib.n1e4", 0),
+    ("a1-cli2x-p07-64kib.n1e4", 9),
+    ("a1-rec-64kib.n1e5", 19),
+    ("a1-cli2x-p07-64kib.n1e5", 16),
+    ("a1-rec-64kib.n1e6", 0),
+    ("a1-cli2x-p07-64kib.n1e6", 56),
 ];
 
 /// The scale a run is made at.
@@ -2672,15 +2736,16 @@ mod tests {
 
     /// The grid in run order with valid, unique names ([MP §4.1], `measurement-protocol.md:169`): the night's 18 first,
     /// unchanged and with no P06 of their own, one point of each family first; the follow-up block of 13 in its order;
-    /// then u20's appended block of design-A A3's 18 small tails in A1, the 1e4 points first (u20 cut §3.5, §3.10).
-    /// By clause, 8 `ops`, 11 `rec`, 5 `body`, 11 `ovl`, 14 `quiet` (the CLI's 2× tails among them).
+    /// then u20's appended block of design-A A3's 18 small tails in A1, the 1e4 points first (u20 cut §3.5, §3.10), its
+    /// opens and B-1; then u22's six at R-b's values last (R-86 ruling 3). By clause, 8 `ops`, 23 `rec` (the opens and
+    /// B-1 carry their point's), 5 `body`, 11 `ovl`, 17 `quiet` (the CLI's 2× tails among them).
     #[test]
     fn grid_lists_the_valid_quantities_in_run_order() {
         let g = grid();
-        assert_eq!(g.len(), 58);
+        assert_eq!(g.len(), 64);
         assert!(g.iter().all(|q| valid_name(&q.name)), "{g:?}");
         let names: BTreeSet<&str> = g.iter().map(|q| q.name.as_str()).collect();
-        assert_eq!(names.len(), 58, "unique");
+        assert_eq!(names.len(), 64, "unique");
         let count = |c: Clause| g.iter().filter(|q| q.clause == c).count();
         assert_eq!(
             [
@@ -2691,7 +2756,7 @@ mod tests {
                 Clause::Quiet
             ]
             .map(count),
-            [8, 20, 5, 11, 14]
+            [8, 23, 5, 11, 17]
         );
         let lead: Vec<&str> = g[..5].iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
@@ -2748,7 +2813,7 @@ mod tests {
             ],
             "u20's opens after the A1 block"
         );
-        let b1: Vec<&str> = g[52..].iter().map(|q| q.name.as_str()).collect();
+        let b1: Vec<&str> = g[52..58].iter().map(|q| q.name.as_str()).collect();
         assert_eq!(
             b1,
             [
@@ -2759,9 +2824,22 @@ mod tests {
                 "b1-wf.256mib",
                 "b1-pswf.256mib"
             ],
-            "B-1 last, the 1-GiB points first"
+            "B-1, the 1-GiB points first, before u22's six"
         );
-        for q in &g[49..] {
+        let rb: Vec<&str> = g[58..].iter().map(|q| q.name.as_str()).collect();
+        assert_eq!(
+            rb,
+            [
+                "a1-rec-64kib.n1e4",
+                "a1-cli2x-p07-64kib.n1e4",
+                "a1-rec-64kib.n1e5",
+                "a1-cli2x-p07-64kib.n1e5",
+                "a1-rec-64kib.n1e6",
+                "a1-cli2x-p07-64kib.n1e6"
+            ],
+            "u22's six last (R-86 ruling 3)"
+        );
+        for q in &g[49..58] {
             let of = g.iter().find(|p| Some(p.name.as_str()) == q.of).unwrap();
             for profile in [Profile::Production, Profile::Test] {
                 assert_eq!(target(q, profile), target(of, profile), "{}", q.name);
@@ -2963,7 +3041,7 @@ mod tests {
         assert_eq!(Profile::Production.sealed_len(1_000_000), 12_375_000);
     }
 
-    /// `--smoke` runs every quantity at the test profile with each arm once: 116 lines, one per (quantity, arm), the A1
+    /// `--smoke` runs every quantity at the test profile with each arm once: 151 lines, one per (quantity, arm), the A1
     /// points with `replay.at` first, each fixture's floor mapping 8 files and reading `HEAD` once; with `--quantity` it
     /// runs that one alone.
     #[test]
@@ -2983,7 +3061,7 @@ mod tests {
         let (code, out, err) = run(&fs, &[&["--smoke"][..], &CT].concat());
         assert_eq!(code, EXIT_DONE, "{err}");
         let lines: Vec<&str> = out.lines().collect();
-        assert_eq!(lines.len(), 133, "{out}");
+        assert_eq!(lines.len(), 151, "{out}");
         let pairs: BTreeSet<(String, String)> = lines
             .iter()
             .map(|l| {
@@ -3043,7 +3121,7 @@ mod tests {
         .concat();
         let (code, out, err) = run(&fs, &args);
         assert_eq!(code, EXIT_DONE, "{err}");
-        assert_eq!(out.lines().count(), 133);
+        assert_eq!(out.lines().count(), 151);
         assert!(!out.contains("recorded"));
         assert!(fs.files().is_empty(), "every fixture removed");
         let (code, _, err) = run(&fs, &[&args[..], &["--out", "/o"]].concat());
@@ -3233,7 +3311,7 @@ mod tests {
         let (code, out, _) = run(&fs, &["--help"]);
         assert_eq!((code, out.as_str()), (EXIT_DONE, USAGE));
         let (code, out, _) = run(&fs, &["--list"]);
-        assert_eq!((code, out.lines().count()), (EXIT_DONE, 58));
+        assert_eq!((code, out.lines().count()), (EXIT_DONE, 64));
         let names: Vec<String> = grid().into_iter().map(|q| q.name).collect();
         let refs: Vec<&str> = names.iter().map(String::as_str).collect();
         assert!(
@@ -3286,14 +3364,14 @@ mod tests {
                 &mut err,
             );
             assert_eq!(code, expect);
-            assert_eq!(calls.len(), 58);
+            assert_eq!(calls.len(), 64);
             for (c, q) in calls.iter().zip(grid()) {
                 let mut want = base.clone();
                 want.push("--quantity".into());
                 want.push(q.name.into());
                 assert_eq!(c, &want);
             }
-            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 58);
+            assert_eq!(String::from_utf8(out).unwrap().lines().count(), 64);
         }
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
@@ -3373,7 +3451,7 @@ mod tests {
             .lines()
             .map(|l| serde_json::from_str(l).unwrap())
             .collect();
-        assert_eq!(lines.len(), 58);
+        assert_eq!(lines.len(), 64);
         for (v, q) in lines.iter().zip(grid()) {
             assert_eq!(v["quantity"], q.name.as_str());
             assert_eq!(v["family"], q.clause.as_str());
@@ -3535,14 +3613,65 @@ mod tests {
             test.shape = crate::tail::Shape::A1;
             assert_eq!((t.params, t.seed), (test, seed(&q.name)), "{}", q.name);
         }
+        // u22's six (R-86 ruling 3): R-b's values, P06 1,024, P07 64 KiB, P08 1 MiB, P09 48 KiB, P10 128 KiB and P11 4;
+        // the single point a `rec` tail at 64 KiB, the CLI point the quiet machinery with q = 2 and its threshold the
+        // overlay cap P09 = 48 KiB, R-b's P10 and P11 not overridden.
+        let rb = Over {
+            p06: Some(1_024),
+            p07: Some(64 * KIB),
+            p08: Some(MIB),
+            p09: Some(48 * KIB),
+            p10: Some(128 * KIB),
+            p11: Some(4),
+        };
+        let mut want: Vec<(String, Clause, u64, u64, u32, Over)> = Vec::new();
+        for (n, s) in [(10_000, "n1e4"), (100_000, "n1e5"), (1_000_000, "n1e6")] {
+            want.push((format!("a1-rec-64kib.{s}"), Rec, 65_536, 1, n, rb));
+            want.push((format!("a1-cli2x-p07-64kib.{s}"), Quiet, 49_152, 2, n, rb));
+        }
+        let six = g
+            .get(58..64)
+            .unwrap_or_else(|| panic!("no u22 points: {} quantities", g.len()));
+        let got: Vec<(String, Clause, u64, u64, u32, Over)> = six
+            .iter()
+            .map(|q| (q.name.clone(), q.clause, q.threshold, q.mult, q.n, q.over))
+            .collect();
+        assert_eq!(got, want);
+        for q in six {
+            assert_eq!(q.form, Locator::A1, "{}", q.name);
+            let k = SEED_K.iter().find(|(n, _)| *n == q.name).unwrap().1;
+            assert_eq!(q.seed_k, k, "{}", q.name);
+            let mut params = rb.apply(Params::PRODUCTION);
+            params.shape = crate::tail::Shape::A1;
+            assert_eq!(
+                target(q, Profile::Production),
+                Target {
+                    clause: q.clause,
+                    threshold: q.threshold,
+                    mult: q.mult,
+                    n: q.n,
+                    seed: seed(&q.name) ^ k,
+                    params,
+                    rt_bound: None,
+                },
+                "{}",
+                q.name
+            );
+            let t = target(q, Profile::Test);
+            let mut test = Params::TEST;
+            test.shape = crate::tail::Shape::A1;
+            assert_eq!((t.params, t.seed), (test, seed(&q.name)), "{}", q.name);
+        }
     }
 
     /// Each A1 point's production tail reaches its own cap and stops on the clause it targets (spec Goal 5; u20 cut D-5,
     /// addendum m-4; `m10.md:267-268`): at `seed(name) ^ seed_k` it stops on that clause, the refused group passes the
     /// cap, and the measure is 95–100 % of it; smaller k fail one of these, so `seed_k` is the first. The PR tier checks
     /// the k just below (about 40 production tails in a debug build); the nightly and exit tiers check every smaller k.
-    /// The quiet points end on their record caps of 256 and 512 KiB. At the test profile each tail stops on a clause of
-    /// its family.
+    /// The quiet points end on their record caps of 256 and 512 KiB. u22's six (R-86 ruling 3) are checked the same way:
+    /// a `cli2x-p07` point's target has the overlay cap 48 KiB as its threshold, q = 2 and P09 48 KiB, and its cap is the
+    /// one that binds by [F17 §5.2]'s CLI caps, P09 not multiplied. At the test profile each tail stops on a clause of its
+    /// family.
     #[test]
     fn a1_tails_reach_their_caps_and_stop_on_their_clauses() {
         let every = matches!(
@@ -3550,8 +3679,22 @@ mod tests {
             Ok("nightly") | Ok("exit")
         );
         let mut failed = Vec::new();
-        for q in &grid()[31..49] {
+        let g = grid();
+        let points: Vec<&Quantity> = g[31..49]
+            .iter()
+            .chain(g.get(58..64).unwrap_or(&[]))
+            .collect();
+        assert_eq!(points.len(), 24, "u20's 18 A1 points and u22's six");
+        for q in points {
             let t = target(q, Profile::Production);
+            if q.name.contains("-cli2x-p07-") {
+                assert_eq!(
+                    (t.threshold, t.mult, t.params.p09),
+                    (49_152, 2, 49_152),
+                    "{}: the overlay cap P09, unmultiplied",
+                    q.name
+                );
+            }
             let tail = generate(&t, false).unwrap_or_else(|e| panic!("{}: {e}", q.name));
             let (ok, clause, share) = reaches_cap(&q.name, &t, &tail);
             if !ok {

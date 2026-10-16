@@ -201,4 +201,10 @@ quantities = [
     "b1-psview.256mib",
     "b1-wf.256mib",
     "b1-pswf.256mib",
+    "a1-rec-64kib.n1e4",
+    "a1-cli2x-p07-64kib.n1e4",
+    "a1-rec-64kib.n1e5",
+    "a1-cli2x-p07-64kib.n1e5",
+    "a1-rec-64kib.n1e6",
+    "a1-cli2x-p07-64kib.n1e6",
 ]
