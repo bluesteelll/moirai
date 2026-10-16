@@ -6,7 +6,7 @@
 | Status | draft, pass 1 pending |
 | Work package | WP-17b (role R-SPEC-P), part 2 of WP-17 ([PLAN §3.2] item 1) |
 | Files of part 2 | `proc.md` (this file), `clock.md`, `mem.md`, `project.md`, `path.md`, `shell.md`, `mapping-appendix.md` |
-| Sources | [80 §1] X5, X6, X9; [80 §2.1] (`os::proc` row); [80 §2.2.3] (slot bytes); [80 §2.7.1] (`ProcId`, `boot_id`, `pidns`, boot clock, `alive`, the boot-identity rule, Unknown-boot mode, the private-API position); [80 §2.7.2] (lock-anchored liveness, the anchor table, "How it works", the MCP server lifetime); [80 §2.9] (child peak); [80 §3.1] X-F1, X-F2; [80 §8.1] M2, M3, m13; [80 §8.7] (the X-F2 amendment); [90 §4.1] (session row), [90 §4.4] (slots per harness, the frozen amendment), [90 §10.1] row "Holder anchor (X-F2)"; [AR §4.2] (`boot_id`, boot check), [AR §6.2] (holder liveness); [AR §8.2] item 22; [60 §2.5] rows `HEAD` (audits), `LOCK`, "Cross-platform", fault-model item (7); [60 §5.2] item 22; for §11–§13: [80 §2.6] (no `gc` child from a foreign PID namespace), [80 §2.8] (IPC endpoint), [80 §2.12] rows "Detached `moirai gc --rollup` child", "Bulk passes", [AR §4.9], [AR §8.2] (GT4 variants), [60 §3.5] M4 gate (the one product spawn), [60 §3.13] GT4; [F01 §3.2, §6.3, §7] (OS tags, `lp()`, hash framing); [F15] FM-7.4; [X18 §8.1] (research input only) |
+| Sources | [80 §1] X5, X6, X9; [80 §2.1] (`os::proc` row); [80 §2.2.3] (slot bytes); [80 §2.7.1] (`ProcId`, `boot_id`, `pidns`, boot clock, `alive`, the boot-identity rule, Unknown-boot mode, the private-API position); [80 §2.7.2] (lock-anchored liveness, the anchor table, "How it works", the MCP server lifetime); [80 §2.9] (child peak); [80 §3.1] X-F1, X-F2; [80 §8.1] M2, M3, m13; [80 §8.7] (the X-F2 amendment); [90 §4.1] (session row), [90 §4.4] (slots per harness, the frozen amendment), [90 §10.1] row "Holder anchor (X-F2)"; [AR §4.2] (`boot_id`, boot check), [AR §6.2] (holder liveness); [AR §8.2] item 22; [60 §2.5] rows `HEAD` (audits), `LOCK`, "Cross-platform", fault-model item (7); [60 §5.2] item 22; for §11–§13: [80 §2.6] (no `gc` child from a foreign PID namespace), [80 §2.8] (IPC endpoint), [80 §2.12] rows "Detached `moirai gc --rollup` child", "Bulk passes", [AR §4.9], [AR §8.2] (GT4 variants), [60 §3.5] M4 gate (the one product spawn), [60 §3.13] GT4; [F01 §3.2, §6.3, §7] (OS tags, `lp()`, hash framing); [F15] FM-7.4; [X18 §8.1] (research input only); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the domain prefix, the boot-identity and IPC domain strings, and the IPC endpoints) |
 | Reconciled with | [OS/README] (§3 `os::proc` row, §4.1 `Vfs`, §4.3 `Meter`, §4.4 `Clock`, §5.1 rule 3) |
 
 Citation forms: `[OS/<file> §x]` for `docs/spec/os/`, `[Fnn]` for format chapters (cited by chapter only; their section
@@ -111,10 +111,10 @@ keeps the boot identity (it is not a reboot; the page cache survives it), consis
 ### 4.2 Derivation per OS
 
 Every OS derives the 16 bytes the same way, from one source per OS, with the hash-input framing of [F01 §6.3, §7.3]
-(each operand length-prefixed by `lp()`, a fixed `lp("moirai-…-v1")` domain prefix):
+(each operand length-prefixed by `lp()`, a fixed `lp("klotho-…-v1")` domain prefix):
 
 ```
-boot_id = BLAKE3-128( lp("moirai-boot-id-v1") ‖ lp(N) ‖ lp(S1) [‖ lp(S2)] )
+boot_id = BLAKE3-128( lp("klotho-boot-id-v1") ‖ lp(N) ‖ lp(S1) [‖ lp(S2)] )
 ```
 
 `N` names the source (ASCII); `S1` and, on Windows, `S2` are the source values, encoded as the table states. BLAKE3-128
@@ -457,8 +457,8 @@ that cannot connect uses the direct path, which is complete ([80 §2.8]).
 
 | | Windows | Linux (port) | macOS (port) |
 |---|---|---|---|
-| Endpoint | `\\.\pipe\moirai-<u>-<s>` | `$XDG_RUNTIME_DIR/moirai/<s>.s` when `XDG_RUNTIME_DIR` is set, owned by the user and mode 0700; else `/tmp/moirai-<uid>/<s>.s` | `<confstr(_CS_DARWIN_USER_TEMP_DIR)>/moirai/<s>.s` |
-| Name parts | `<u>` = 16 lower-case hex digits of the first 8 bytes of BLAKE3-128(`lp("moirai-ipc-user-v1") ‖ lp(user SID in "S-1-…" form)`); `<s>` as on Unix | `<s>` = 16 lower-case hex digits of the first 8 bytes of BLAKE3-128(`lp("moirai-ipc-store-v1") ‖ lp(canonical store path, [OS/path §5])`) | as Linux |
+| Endpoint | `\\.\pipe\klotho-<u>-<s>` | `$XDG_RUNTIME_DIR/klotho/<s>.s` when `XDG_RUNTIME_DIR` is set, owned by the user and mode 0700; else `/tmp/klotho-<uid>/<s>.s` | `<confstr(_CS_DARWIN_USER_TEMP_DIR)>/klotho/<s>.s` |
+| Name parts | `<u>` = 16 lower-case hex digits of the first 8 bytes of BLAKE3-128(`lp("klotho-ipc-user-v1") ‖ lp(user SID in "S-1-…" form)`); `<s>` as on Unix | `<s>` = 16 lower-case hex digits of the first 8 bytes of BLAKE3-128(`lp("klotho-ipc-store-v1") ‖ lp(canonical store path, [OS/path §5])`) | as Linux |
 | Creation | `CreateNamedPipeW` with `FILE_FLAG_FIRST_PIPE_INSTANCE`, `PIPE_REJECT_REMOTE_CLIENTS`, a DACL granting only the user's SID | the directory created mode 0700 and checked with `lstat` (not a link; uid = euid; mode 0700); `socket(AF_UNIX, SOCK_STREAM \| SOCK_CLOEXEC)`, `bind`, `listen` | as Linux |
 | Peer check | `GetNamedPipeClientProcessId`, `GetNamedPipeServerProcessId` | `getsockopt(SO_PEERCRED)` | `getpeereid`, `getsockopt(LOCAL_PEERPID)` |
 | Never | — | an abstract socket; a location derived from `$TMPDIR`; a socket inside `.git/moirai` | same |
@@ -525,7 +525,7 @@ The rows of `COVERAGE.md` that cite this file ([F01 §2.7]). The random source t
 |---|---|---|---|
 | 1 | [80 §2.1] calls `os::proc` "injected"; where does the process seam sit? | resolved with [OS/README §4.1]: `ProcHost` is a supertrait of `Vfs`, so every store process reaches the boot identity through `V: Vfs` | — |
 | 2 | The OS-tag values were needed by [F03] and [F11] | fixed here first; [F01 §3.2] restates them and proposes itself as the owner; this file now cites [F01 §3.2] (§2) | WP-10 |
-| 3 | [80 §2.7.1] names the sources of `boot_id` but not the bytes, and `boot_hash` ("its hash in anchors") had no definition | `boot_id` = BLAKE3-128 over `lp()`-framed operands with a `moirai-boot-id-v1` domain prefix on every OS ([F01 §6.3, §7.3]); `boot_hash` = the first 8 bytes read LE ([F01 §7.2]) with bit 0 forced to 1, so 0 means unknown (§4.3). Linux and macOS UUIDs are hashed rather than stored raw, which separates the OSes | R-REV-P, WP-11 |
+| 3 | [80 §2.7.1] names the sources of `boot_id` but not the bytes, and `boot_hash` ("its hash in anchors") had no definition | `boot_id` = BLAKE3-128 over `lp()`-framed operands with a `klotho-boot-id-v1` domain prefix on every OS ([F01 §6.3, §7.3]); `boot_hash` = the first 8 bytes read LE ([F01 §7.2]) with bit 0 forced to 1, so 0 means unknown (§4.3). Linux and macOS UUIDs are hashed rather than stored raw, which separates the OSes | R-REV-P, WP-11 |
 | 4 | [80 §2.7.1] answers `Unknown` for a different boot only in its Linux row; [X18 §8.1] (research) proposed `Dead` | `Unknown` on every OS (§6.1 row 2): `alive` is diagnostics only, and the conservative answer costs nothing | R-REV-P |
 | 5 | `ProcId.start` units: [80 §2.7.1] names the Windows and macOS sources but no unit | nanoseconds on every OS, since the Unix epoch on Windows and macOS and since boot on Linux, the latter flagged by `start_boot_relative` (§3.2); [80 §3.2]'s "FILETIME is converted in `os::proc`" is followed | WP-11 |
 | 6 | Child peaks on Unix need work before the spawn (Linux) or before the reap (macOS) | [OS/README §4.3] adopted `prepare_child`/`bind_child`; Windows needs neither; the Linux leaf cgroup and the macOS non-reaping read are port-phase items (§9) | port phase |
