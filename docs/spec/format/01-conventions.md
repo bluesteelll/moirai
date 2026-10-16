@@ -104,12 +104,12 @@ hole**, written inline as `HOLE(<id>)`.
   that is neither fixed nor measured is decided by the chapter (§2.4 rule 3).
 - **What a hole may leave open.** A value. It never leaves open a width, an offset, or whether a later field exists,
   unless its candidates column lays out every alternative completely (for example, a section that is kept or dropped).
-- **Filling.** WP-81a fills every hole. A hole whose deciding run has a deadline after the tag stays **open at the
-  tag**, written `HOLE(<id>)`: its Holes row keeps the five columns above and names the deadline in its "decided by"
-  cell, and WP-81a fills it by that deadline, with its WP-20b fixtures, WP-95b's E3 re-run and WP-81a's owner review
-  ([PLAN §3.2] WP-81a, WP-81b; the owner's ruling R-23 of 2026-10-12; the orchestrator's ruling R-74 of 2026-10-15). A
-  filled value then replaces the inline `HOLE(...)` text, and the Holes row stays, with the value and a reference to the
-  measurement record. Fixtures that depend on a holed value are written after the
+- **Filling.** WP-81a fills every hole. A hole whose deciding run has a deadline after the tag stays
+  **open at the tag**, written `HOLE(<id>)`: its Holes row keeps the five columns above and names the deadline in its
+  "decided by" cell, and WP-81a fills it by that deadline, with its WP-20b fixtures, WP-95b's E3 re-run and WP-81a's
+  owner review ([PLAN §3.2] WP-81a, WP-81b; the owner's ruling R-23 of 2026-10-12; the orchestrator's ruling R-74 of
+  2026-10-15). A filled value then replaces the inline `HOLE(...)` text, and the Holes row stays, with the value and a
+  reference to the measurement record. Fixtures that depend on a holed value are written after the
   fill (WP-20b); before it, a fixture uses the test profile of [F17] or does not exist.
 
 ### 2.6 Offset tables, sequence tables, bit tables and enumeration tables
