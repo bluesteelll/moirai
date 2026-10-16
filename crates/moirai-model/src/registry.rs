@@ -249,7 +249,7 @@ pub const DEFS: &[Def] = &[
         V,
     )
     .scope(UserQ),
-    // §10.2 Store parameters ([F17 §3] P01–P34; HOLEs read the design figure in [F17]'s brackets).
+    // §10.2 Store parameters ([F17 §3] P01–P35; HOLEs read the design figure in [F17]'s brackets).
     def(
         "store.log-extent-bytes",
         Ty::SizePow2(1 << 16, 1 << 30),
@@ -453,6 +453,13 @@ pub const DEFS: &[Def] = &[
     )
     .test("1h"),
     def("gc.delete-grace", Ty::Duration(0, H), Val("1m"), I).test("1s"),
+    def(
+        "store.hist-codec",
+        Ty::Enum(&["lz4", "zstd"]),
+        Hole("F10-hist-codec", "zstd"),
+        I,
+    )
+    .test("lz4"),
     // §10.3 Durability, quiet mode, maintenance, leases.
     def(
         "durability.lazy-kinds",

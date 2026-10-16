@@ -178,6 +178,7 @@ Column notes:
 | KY-038 | `gc.trash-expire` | `gc.trash-expire` | I | `invariance` | 14d, 0d, 3650d, 30m | SP-1 | design | [CFG §10.2] | - |
 | KY-039 | `gc.fileobs-idle-expire` | `gc.fileobs-idle-expire` | I | `invariance` | 30d, 1h, 3650d | SP-1 | design | [CFG §10.2] | - |
 | KY-040 | `gc.delete-grace` | `gc.delete-grace` | I | `invariance` | 1m, 0d, 1h, 1s | SP-1 | design | [CFG §10.2] | - |
+| KY-170 | `store.hist-codec` | `store.hist-codec` | I | `invariance` | zstd, lz4 | SP-1 | design | [CFG §10.2] | - |
 | KY-041 | `durability.lazy-kinds` | `durability.lazy-kinds` | V | `crash::survives` | heartbeat,cursor,session-mark, (empty), heartbeat, cursor, session-mark | GT3 | design | [CFG §10.3]; [API §6.7] | The kinds whose records a crash may lose; a lazy heartbeat renewal may revert its deadline. No Store API command shows the effect: `EnvCrash` `between` is a process crash that keeps every lazy record, and no candidate of `in-next` loses one, so GT2 cannot observe the key and GT3 alone consumes `crash::survives`. [API §6.7] gets no OS-crash form (spec sync 2b): the key stays class V and GT3's crash harness alone checks it (review of WP-90b). |
 | KY-042 | `quiet.from-lane-measuring` | `quiet.from-lane-measuring` | V | `quiet::in_quiet_mode` | true, false | GT2 | design | [CFG §10.3] | A lane with status `measuring` implies quiet mode, which refuses `Gc` without `force`. |
 | KY-043 | `maintenance.rollup` | `maintenance.rollup` | I | `invariance` | auto, explicit | SP-1 | design | [CFG §10.3] | - |
