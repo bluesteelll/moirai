@@ -16,10 +16,9 @@
 //! Its hot index (`NODE`, the CSR, `BMDIR` and the bitsets) is ≈ 99 B per node: 60 + 8 + 30 + ≈ 0.6
 //! (`ARCHITECTURE-RESEARCH.md:1681`); the cold columns add 18 B.
 //!
-//! For measurement 14's `ready` probe (u20 cut D-12; OP-09-21), [`build_with`] builds the same base with each row's
-//! `priority` from a function ([`ready_priority`]: P0–P4, `08-data-model.md:82`), and [`priority_column`] holds those
-//! priorities as the 1-byte column a split of `priority` alone would give (`op-09-21-note` §5). [`build`] keeps the
-//! default 2, so every other base keeps its bytes.
+//! [`build_with`] builds the same base with each row's `priority` from a function ([`ready_priority`]: P0–P4, the
+//! `priority` column of [F08 §4]): a base whose priorities are not all the default, which the tests of the delta's
+//! fold and the pins use (R-86 ruling 6). [`build`] keeps the default 2, so every other base keeps its bytes.
 
 use super::bitset::{Frozen, encode_frozen};
 use super::blobs::BLOB_REF_LEN;
@@ -326,17 +325,12 @@ pub fn build(spec: &Spec) -> Result<Vec<u8>, String> {
     build_with(spec, |_| 2)
 }
 
-/// The salt of the `ready` probe's priorities.
+/// The salt of the non-default priorities (u20 cut D-12, the retired `ready` probe's).
 pub const SALT_P: u64 = 0x6D31_345F_7072_696F;
 
-/// The `ready` probe's priority of row #`id` (u20 cut D-12): `mix(SALT_P ^ #N) mod 5`, P0–P4 (`08-data-model.md:82`).
+/// The non-default priority of row #`id` (u20 cut D-12): `mix(SALT_P ^ #N) mod 5`, P0–P4 ([F08 §4]).
 pub fn ready_priority(id: u32) -> u8 {
     (mix(SALT_P ^ u64::from(id)) % 5) as u8
-}
-
-/// The 1-byte column of the rows' priorities #1..=`n`: byte i is `prio(i + 1)`.
-pub fn priority_column(n: u32, prio: impl Fn(u32) -> u8) -> Vec<u8> {
-    (1..=n).map(prio).collect()
 }
 
 /// Builds the base segment of `spec` with row #N's `priority` = `prio(#N)` (u20 cut D-12); every other byte is
@@ -1083,20 +1077,6 @@ pub(crate) mod tests {
         assert_eq!(build(&s).unwrap(), build_with(&s, |_| 2).unwrap());
         let plain = Columns::parse(&build(&s).unwrap()).unwrap().node(9);
         assert_eq!(plain.priority, 2);
-    }
-
-    /// The priority column holds each row's priority, byte #N − 1 the `NODE` row's `priority` (byte 3) of the base
-    /// built with the same function.
-    #[test]
-    fn priority_column_holds_each_rows_priority() {
-        let s = spec(2_000);
-        let b = build_with(&s, ready_priority).unwrap();
-        let c = Columns::parse(&b).unwrap();
-        let col = priority_column(s.n, ready_priority);
-        assert_eq!(col.len(), 2_000);
-        for (i, &p) in col.iter().enumerate() {
-            assert_eq!(p, c.node[NODE_HDR_LEN * i + 3], "#{}", i + 1);
-        }
     }
 
     /// The full base (u21 cut §3.2, D-4) at N = 3,000: [`build`]'s sections with the same bytes but `NODE`, whose rows are
