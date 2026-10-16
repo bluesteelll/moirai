@@ -853,3 +853,99 @@ fn land_or_stage_reads_its_table() {
     assert_eq!(land_or_stage(0, 2, false), "land-conflicted");
     assert_eq!(land_or_stage(0, 0, true), "land");
 }
+
+/// A kept case of [F12 §6.3] "The node's other keys" (RS-008; PR-007): the existence policy's `DeleteVsModify` over two
+/// plain sides (MR-042) fixes the node to RS-008's provisional state. Under `--policy resurrect` the modifying side is
+/// provisional and the node is live "with that side's keys": b's #1 holds a priority, o retitles #1 and leaves the
+/// priority, t deletes #1. The priority stays, where a key-by-key merge would take the tombstone's `absent`.
+#[test]
+fn a_policy_delete_versus_modify_under_resurrect_keeps_an_untouched_key() {
+    let mut b = base();
+    apply(&mut b, &[Edit::Priority(1, 1)]);
+    let mut o = b.clone();
+    apply(&mut o, &[Edit::Title(1, 1)]);
+    let mut t = b.clone();
+    apply(&mut t, &[Edit::Delete(1)]);
+    let auto = BTreeMap::new();
+    let mut cx = ctx(&auto, Op::Merge);
+    cx.policy = Some("resurrect");
+    let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
+    assert_eq!(
+        m.rows
+            .get(&Key::Node(Nid(1), Aspect::Existence))
+            .map(String::as_str),
+        Some("MR-042")
+    );
+    let x = &m.st.nodes[&Nid(1)];
+    let c = &x.conflicts[&Aspect::Existence];
+    assert_eq!(
+        (c.class.as_str(), c.prov, x.live()),
+        ("DeleteVsModify", Some(Side::Ours), true)
+    );
+    assert_eq!(x.text("title"), Some("title 1"));
+    assert_eq!(
+        x.fields.get("priority"),
+        Some(&Value::Enum("P1".into())),
+        "RS-008: live with the modifying side's keys"
+    );
+}
+
+/// The other kept case of [F12 §6.3] "The node's other keys" (RS-015; RS-008): a new `DeleteVsModify` whose flat sides
+/// are one live and one deleted takes RS-008's provisional state. b's #1 holds a priority; o holds #1 with its own
+/// `DeleteVsModify` value provisional on the live side, retitled, its priority untouched; t deletes #1. MR-005 makes a
+/// new `DeleteVsModify` over a live and a deleted flat side, provisional on ours under `--policy resurrect`, so #1 is
+/// live with o's keys and keeps the priority a key-by-key merge would drop.
+#[test]
+fn a_new_one_live_delete_versus_modify_under_resurrect_keeps_rs008s_state() {
+    let s = Schema::default();
+    let mut b = base();
+    apply(&mut b, &[Edit::Priority(1, 1)]);
+    let mut o = b.clone();
+    apply(&mut o, &[Edit::Title(1, 2)]);
+    let gone = KVal::Deleted {
+        kind: "task".into(),
+        reason: Some("gone".into()),
+        replaced_by: None,
+    };
+    let image = |st: &State| canon::node_image(&s, &st.nodes[&Nid(1)]);
+    let held = Conflict {
+        class: "DeleteVsModify".into(),
+        base: Some(KVal::Live("task".into())),
+        ours: Some(KVal::Live("task".into())),
+        theirs: Some(gone),
+        prov: Some(Side::Ours),
+        images: [Some(image(&b)), Some(image(&o)), None],
+    };
+    o.nodes
+        .get_mut(&Nid(1))
+        .unwrap()
+        .conflicts
+        .insert(Aspect::Existence, held);
+    let mut t = b.clone();
+    apply(&mut t, &[Edit::Delete(1)]);
+    let auto = BTreeMap::new();
+    let mut cx = ctx(&auto, Op::Merge);
+    cx.policy = Some("resurrect");
+    let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
+    assert_eq!(
+        m.rows
+            .get(&Key::Node(Nid(1), Aspect::Existence))
+            .map(String::as_str),
+        Some("MR-005")
+    );
+    let x = &m.st.nodes[&Nid(1)];
+    let c = &x.conflicts[&Aspect::Existence];
+    assert_eq!(
+        (c.class.as_str(), c.prov, x.live()),
+        ("DeleteVsModify", Some(Side::Ours), true)
+    );
+    assert!(
+        matches!(c.ours, Some(KVal::Live(_))) && matches!(c.theirs, Some(KVal::Deleted { .. }))
+    );
+    assert_eq!(x.text("title"), Some("title 2"));
+    assert_eq!(
+        x.fields.get("priority"),
+        Some(&Value::Enum("P1".into())),
+        "RS-008: live with the modifying side's keys"
+    );
+}

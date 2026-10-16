@@ -4312,8 +4312,9 @@ fn rs007_eval_oracle_judges_every_node_live_in_the_result() {
 
 /// The oracle takes existence from the result (R-15 Q5): a node the existence rule fixed and copied whole from a side
 /// ([F12 §6.3]; [`Tri::fixed`]) may hold either live side's value, which RS-007 does not decide. In the corpus case
-/// `FIXED-COPY` lane/y holds #1 with a `DeleteVsModify` value on its existence key, so `sync lane/y` copies #1 whole
-/// from lane/y, at #2, where main put it under #5.
+/// `FIXED-COPY` lane/y holds #1 with a `DeleteVsModify` value on its existence key, which `sync lane/y` takes unchanged
+/// (MR-003) while it merges #1's other keys key by key ([F12 §6.3]; the owner's ruling R-43 of 2026-10-13, OI-1g), so
+/// RS-007 puts #1 under #5, where main put it.
 #[test]
 fn rs007_eval_oracle_takes_a_fixed_nodes_value_from_the_result() {
     let v = |p: Option<u32>| Some((p, None::<String>));
@@ -4353,7 +4354,7 @@ fn rs007_eval_oracle_takes_a_fixed_nodes_value_from_the_result() {
     let t = e.tri.as_ref().expect("judged");
     assert_eq!(
         (&e.got, t.fixed[0], t.r[0].as_ref().map(|x| x.0)),
-        (&Got::Landed, true, Some(Some(2))),
+        (&Got::Landed, true, Some(Some(5))),
         "{}",
         trace_text(&c.hist, &l)
     );

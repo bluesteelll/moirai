@@ -311,19 +311,25 @@ enum From {
     Theirs,
 }
 
-/// How a uid's keys are decided after its existence key ([RULES/merge-table] PR-007).
+/// How a uid's keys are decided after its existence key ([RULES/merge-table] PR-007; [F12 §6.3] "The node's other
+/// keys").
 #[derive(Clone, Debug)]
 enum Mode {
     /// The node is absent from the result.
     Absent,
-    /// The node is copied whole from a side, with this conflict value on its existence key (RS-008, RS-010, RS-015; a
-    /// tombstone one side left while the other only read the node; an automatic side; a staged `IdCollision`).
+    /// The node is copied whole from a side, with this conflict value on its existence key: RS-008's provisional
+    /// state, for the existence policy's `DeleteVsModify` (MR-042, LM-010) and for a new `DeleteVsModify` whose flat
+    /// sides are one live and one deleted (RS-010, RS-015); a tombstone one side left while the other only read the
+    /// node; an automatic side (AP-002, AP-003); a staged `IdCollision`.
     Fixed(From, Option<Box<Conflict>>),
-    /// The node is a tombstone on both sides: copied from the side whose existence value won, its title and retained
-    /// out-edges merged key by key ([AR §3.4] I39′).
-    Tomb(From),
-    /// The node is live and every other key is merged by its own class.
-    Merged,
+    /// The node is a tombstone in the result: copied from the side whose node holds that tombstone, its title and
+    /// retained out-edges merged key by key ([AR §3.4] I39′). With a conflict value: the value a `conflicted-key` row
+    /// gave the existence key, whose provisional value is deleted; it stays on the tombstone ([F12 §6.3]).
+    Tomb(From, Option<Box<Conflict>>),
+    /// The node is live and every other key is merged by its own class. With a conflict value: the value a
+    /// `conflicted-key` row gave the existence key, whose provisional value is live, attached ([F12 §6.3]: the value
+    /// fixes none of the node's other keys; the owner's ruling R-43 of 2026-10-13, OI-1g).
+    Merged(Option<Box<Conflict>>),
 }
 
 /// One key's decision.
@@ -334,6 +340,10 @@ struct Decided {
     /// The side whose value the key takes as that side holds it: ours for `take-o` and `stage-take-o`, theirs for
     /// `take-t`, the side of an automatic policy (AP-002, AP-003); `None` for a value the row computes.
     taken: Option<From>,
+    /// The value is a conflict value this merge made that fixes the node to RS-008's provisional state: a `policy`
+    /// row's (RS-008), or RS-010's or RS-015's `DeleteVsModify` whose flat sides are one live and one deleted
+    /// ([F12 §5.4]; [F12 §6.3]).
+    kept: bool,
 }
 
 /// The merge engine over three states: b, o and t borrowed, the side the re-key rewrites copied on its first change.
@@ -731,6 +741,7 @@ impl Engine<'_, '_> {
                     t.clone()
                 };
                 return Decided {
+                    kept: false,
                     value: v,
                     row: format!(
                         "{}+{}",
@@ -754,11 +765,21 @@ impl Engine<'_, '_> {
                 "take-t" => Some(From::Theirs),
                 _ => None,
             };
+            let kept = match r.tok("result") {
+                "policy" => true,
+                "conflict-as-class" | "conflict-plain-base" => matches!(
+                    &value,
+                    KState::Conflict(c) if c.class == "DeleteVsModify"
+                        && is_live(&c.ours) != is_live(&c.theirs)
+                ),
+                _ => false,
+            };
             return Decided {
                 value,
                 row: r.id.clone(),
                 violation,
                 taken,
+                kept,
             };
         }
         panic!("class {class} has no row for {k:?}: its rows are not exhaustive")
@@ -927,7 +948,7 @@ impl Engine<'_, '_> {
 
     /// The provisional side of a `DeleteVsModify` (RS-008): `delete-wins` the deleting side, `resurrect` the modifying
     /// side, `none` dst's; `--policy` overrides the kind's EP row outside a virtual merge (AP-004, AP-005, VB-019).
-    /// When neither or both sides are live, dst's (RS-010's "o's values otherwise").
+    /// When neither or both sides are live, dst's ([F12 §5.4]: `ours` outside the one-live case).
     fn prov(&self, n: Nid, fo: &Option<KVal>, ft: &Option<KVal>) -> Side {
         if is_live(fo) == is_live(ft) {
             return Side::Ours;
@@ -1323,7 +1344,7 @@ impl Engine<'_, '_> {
             let k = Key::Node(n, Aspect::Existence);
             let (b, o, t) = (self.val(0, &k), self.val(1, &k), self.val(2, &k));
             if self.eq(&k, &b, &o) && self.eq(&k, &o, &t) {
-                modes.insert(n, self.mode_of(n, &o, None, &b, &o, &t, false));
+                modes.insert(n, self.mode_of(n, &o, None, &b, &o, &t, false, false));
                 continue;
             }
             let d = self.decide(&k, &b, &o, &t);
@@ -1339,6 +1360,7 @@ impl Engine<'_, '_> {
                 &o,
                 &t,
                 fixed_policy || d.violation.is_some(),
+                d.kept,
             );
             if let KState::Conflict(c) = &d.value
                 && !self.eq(&k, &d.value, &o)
@@ -1352,15 +1374,19 @@ impl Engine<'_, '_> {
     }
 
     /// The mode of a uid from its existence result `r`; `taken` is the side whose value `r` is, as that side holds it,
-    /// when the key takes a side's value. A conflict value fixes the node: it is copied whole, with `r` on its
-    /// existence key, from a side that holds it in `r`'s provisional state ([F12 §6.3]). For a value this merge makes
-    /// (RS-008, RS-010, RS-015) that is the side its `prov` names, a side of this merge (a conflict-valued side
-    /// contributes its provisional node). For a value the key takes from one side (MR-003, MR-004, AP-002, AP-003) it
-    /// is that side: the value is carried whole, its `prov` names a side of the merge that made it, and the side that
-    /// holds the value holds the node in its provisional state. When o and t both hold `r` (b, o and t equal, or
-    /// MR-001), both hold the node in that state and [`Engine::shared_holder`] picks the side. A tombstone is copied
-    /// from the side that holds it; an automatic side or a staged value fixes the node to that side; a live result
-    /// merges the other keys.
+    /// when the key takes a side's value. A conflict value fixes the node only in RS-008's kept cases ([F12 §6.3] "The
+    /// node's other keys"; PR-007): `kept`, a value this merge made that takes RS-008's provisional state (the
+    /// existence policy's `DeleteVsModify`, or a new `DeleteVsModify` whose flat sides are one live and one deleted),
+    /// and `fixed`, an automatic side or a staged value. Such a node is copied whole, with `r` on its existence key,
+    /// from the side `taken` or `r`'s `prov` names. Any other conflict value a `conflicted-key` row gives (a side's,
+    /// taken unchanged: MR-001, MR-003, MR-004 and the b ≈ o ≈ t short-cut; or a new one over a conflicted base or side,
+    /// MR-002 or MR-005, that is not one-live) fixes none of the node's other keys: they merge key by key, with `r`
+    /// attached when its provisional value P is live, and as a tombstone merge ([AR §3.4] I39′) when P is deleted (the
+    /// owner's ruling R-43 of 2026-10-13, OI-1g). That tombstone is the one the side holding `r` holds: the side `taken`
+    /// names, ours when o and t hold `r` alike, and for a new value the side its `prov` names (`ours` outside the
+    /// one-live case). A plain tombstone is merged key by key when o and t are tombstones and otherwise copied from the
+    /// side that holds it; an automatic side or a staged value fixes the node to that side; a live result merges the
+    /// other keys.
     // spec: [F12 §6.3]
     // spec: [RULES/merge-table] PR-007
     #[allow(clippy::too_many_arguments)]
@@ -1373,9 +1399,10 @@ impl Engine<'_, '_> {
         o: &KState,
         t: &KState,
         fixed: bool,
+        kept: bool,
     ) -> Mode {
+        let key = Key::Node(n, Aspect::Existence);
         let side_of = |v: &KState| -> From {
-            let key = Key::Node(n, Aspect::Existence);
             if self.eq(&key, v, o) {
                 From::Ours
             } else if self.eq(&key, v, t) {
@@ -1388,43 +1415,31 @@ impl Engine<'_, '_> {
         };
         match r {
             KState::Conflict(c) => {
-                let from = if self.eq(&Key::Node(n, Aspect::Existence), o, t) {
-                    self.shared_holder(n)
-                } else {
-                    taken.unwrap_or(match c.prov {
-                        Some(Side::Theirs) => From::Theirs,
-                        _ => From::Ours,
-                    })
+                let prov_side = match c.prov {
+                    Some(Side::Theirs) => From::Theirs,
+                    _ => From::Ours,
                 };
-                Mode::Fixed(from, Some(c.clone()))
+                if fixed || kept {
+                    return Mode::Fixed(taken.unwrap_or(prov_side), Some(c.clone()));
+                }
+                if is_live(&flat(r)) {
+                    return Mode::Merged(Some(c.clone()));
+                }
+                let new = !self.eq(&key, r, o) && !self.eq(&key, r, t);
+                let from = taken.unwrap_or(if new { prov_side } else { From::Ours });
+                Mode::Tomb(from, Some(c.clone()))
             }
             KState::Plain(None) => Mode::Absent,
             KState::Plain(Some(KVal::Deleted { .. })) => {
                 let tomb = |v: &KState| matches!(v, KState::Plain(Some(KVal::Deleted { .. })));
                 if tomb(o) && tomb(t) {
-                    Mode::Tomb(side_of(r))
+                    Mode::Tomb(side_of(r), None)
                 } else {
                     Mode::Fixed(side_of(r), None)
                 }
             }
             KState::Plain(Some(_)) if fixed => Mode::Fixed(side_of(r), None),
-            KState::Plain(Some(_)) => Mode::Merged,
-        }
-    }
-
-    /// The side a uid is copied from when o and t hold the same conflict value on its existence key, so both hold the
-    /// node in the value's provisional state ([F12 §6.3]): theirs when theirs changed one of the node's keys since the
-    /// base (CS-014's "modified") and ours did not, ours otherwise. When at most one side changed the node, its keys are
-    /// then the ones PR-007's key-by-key merge gives them, each key one side did not touch taking the other side's
-    /// value ([AR §3.4] I25′; the `ours-only` and `theirs-only` rows). When both changed it, ours is copied and theirs'
-    /// changes are lost, which PR-007 read literally does not call for (an open specification question).
-    // spec: [RULES/merge-table] PR-007
-    // spec: [F12 §6.3]
-    fn shared_holder(&self, n: Nid) -> From {
-        if self.modified(2, n) && !self.modified(1, n) {
-            From::Theirs
-        } else {
-            From::Ours
+            KState::Plain(Some(_)) => Mode::Merged(None),
         }
     }
 
@@ -1450,8 +1465,8 @@ impl Engine<'_, '_> {
         }
         for (n, m) in modes {
             let tomb = match m {
-                Mode::Merged => false,
-                Mode::Tomb(_) => true,
+                Mode::Merged(_) => false,
+                Mode::Tomb(..) => true,
                 Mode::Fixed(from, None) => {
                     // A tombstone copied from one side: its title and retained edges are that side's; the rows that
                     // decide them are recorded for the record only.
@@ -1499,6 +1514,16 @@ impl Engine<'_, '_> {
                     continue;
                 }
                 let d = self.decide(&k, &b, &o, &t);
+                // A tombstone merge over a conflict-valued existence key keeps only the retained out-edges ([AR §3.4]
+                // I39′; [F12 §6.3]; PR-007): a decided edge that is neither flagged nor of a historical kind is no key
+                // of the tombstone, so it is neither recorded nor kept.
+                if let (Mode::Tomb(_, Some(_)), Key::Node(_, Aspect::Edge(e))) = (m, &k)
+                    && let Some(KVal::Edge(p)) = flat(&d.value)
+                    && !p.flagged
+                    && !self.historical(&e.kind)
+                {
+                    continue;
+                }
                 // A composition's pre-composition path joins the node's aliases (CP-007, LR-004).
                 if d.row == "LM-005"
                     && let Some((before, _)) = self.composer(&k, &b, &o, &t)
@@ -1522,6 +1547,16 @@ impl Engine<'_, '_> {
             out.insert(k, d.value);
         }
         out
+    }
+
+    /// Whether an edge kind is historical in dst's schema, or in src's when dst's does not know it: a tombstone keeps its
+    /// historical out-edges ([AR §3.4] I39′).
+    fn historical(&self, kind: &str) -> bool {
+        self.st(1)
+            .schema
+            .edge(kind)
+            .or_else(|| self.st(2).schema.edge(kind))
+            .is_some_and(|e| e.class == crate::schema::EdgeClass::Historical)
     }
 
     /// Records a key's decision: its violation, and its conflict value when the merge lands one dst did not hold
@@ -1572,7 +1607,7 @@ impl Engine<'_, '_> {
         let get = |st: &State, n: Nid| -> Option<KVal> { flat(&cval(st, n, &Aspect::Hierarchy)) };
         let merged: BTreeSet<Nid> = modes
             .iter()
-            .filter(|(_, m)| matches!(m, Mode::Merged))
+            .filter(|(_, m)| matches!(m, Mode::Merged(_)))
             .map(|(n, _)| *n)
             .collect();
         for n in &merged {
@@ -1588,10 +1623,10 @@ impl Engine<'_, '_> {
             let mut init: BTreeMap<Nid, Option<KVal>> = BTreeMap::new();
             for (n, m) in modes {
                 let i = match m {
-                    Mode::Fixed(From::Base, _) | Mode::Tomb(From::Base) => 0,
-                    Mode::Fixed(From::Ours, _) | Mode::Tomb(From::Ours) => 1,
-                    Mode::Fixed(From::Theirs, _) | Mode::Tomb(From::Theirs) => 2,
-                    Mode::Merged | Mode::Absent => continue,
+                    Mode::Fixed(From::Base, _) | Mode::Tomb(From::Base, _) => 0,
+                    Mode::Fixed(From::Ours, _) | Mode::Tomb(From::Ours, _) => 1,
+                    Mode::Fixed(From::Theirs, _) | Mode::Tomb(From::Theirs, _) => 2,
+                    Mode::Merged(_) | Mode::Absent => continue,
                 };
                 init.insert(*n, get(self.st(i), *n));
             }
@@ -1611,7 +1646,7 @@ impl Engine<'_, '_> {
                 live: modes
                     .iter()
                     .filter(|(n, m)| match m {
-                        Mode::Merged => true,
+                        Mode::Merged(_) => true,
                         Mode::Fixed(f, _) => {
                             let i = match f {
                                 From::Base => 0,
@@ -1620,7 +1655,7 @@ impl Engine<'_, '_> {
                             };
                             self.st(i).live(**n).is_some()
                         }
-                        Mode::Tomb(_) | Mode::Absent => false,
+                        Mode::Tomb(..) | Mode::Absent => false,
                     })
                     .map(|(n, _)| *n)
                     .collect(),
@@ -1709,7 +1744,7 @@ impl Engine<'_, '_> {
                     }
                     st.nodes.insert(*n, x);
                 }
-                Mode::Tomb(from) => {
+                Mode::Tomb(from, c) => {
                     let i = match from {
                         From::Base => 0,
                         From::Ours => 1,
@@ -1726,9 +1761,13 @@ impl Engine<'_, '_> {
                         }
                         x.set_kstate(&st.schema, a, v.clone());
                     }
+                    // The existence key keeps its conflict value on the tombstone ([F12 §6.3]).
+                    if let Some(c) = c {
+                        x.conflicts.insert(Aspect::Existence, (**c).clone());
+                    }
                     st.nodes.insert(*n, x);
                 }
-                Mode::Merged => {
+                Mode::Merged(c) => {
                     let proto = [1, 2, 0]
                         .iter()
                         .find_map(|i| self.st(*i).nodes.get(n).filter(|x| x.live()))
@@ -1746,6 +1785,9 @@ impl Engine<'_, '_> {
                     }
                     if let Some(h) = hier.get(n) {
                         x.set_kstate(&st.schema, &Aspect::Hierarchy, KState::Plain(h.clone()));
+                    }
+                    if let Some(c) = c {
+                        x.conflicts.insert(Aspect::Existence, (**c).clone());
                     }
                     st.nodes.insert(*n, x);
                 }
