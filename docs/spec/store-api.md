@@ -1857,9 +1857,11 @@ diff, [AR §4.6]):
 - `rev` (`rev_seq`, the `--if-rev` target, [AR §3.1]): the seq of the newest commit on the chain whose net changeset changes a key
   that n owns ([F06 §2.3]);
 - `created` (`created_tx`): the seq of the newest commit on the chain whose net changeset takes n's existence from absent to live
-  or deleted; for a uid′ that a re-key lands ([F12 §7.6]), the merge that re-keys it. This seq is store-local; the image's
-  `created:` line is [F14 §6.3]'s creating commit, and the two name the same commit except for a node created on more than
-  one line (W3D-SF-7; the orchestrator's ruling R-52 of 2026-10-13);
+  or deleted; for a uid′ that a re-key lands ([F12 §7.6]), the merge that re-keys it. This seq is store-local, and the image's
+  `created:` line is [F14 §6.3]'s creating commit, the least (`gen`, id) one in H(C). They name the same commit when V's
+  first-parent chain holds the creating commit. For a node that a merge brought onto the chain, `created` names that merge
+  and `created:` names the creating commit on the merged line (open point 21). For a re-keyed uid′, both name the re-keying
+  merge (W3D-SF-7; the orchestrator's ruling R-52 of 2026-10-13);
 - `updated` (`updated_tx`): the seq of the newest commit on the chain whose net changeset changes n's existence, hierarchy,
   status, body, a field or a counter.
 
