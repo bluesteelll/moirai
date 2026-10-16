@@ -438,9 +438,10 @@ own merge's orientation, so without the exchange VBC-3 would be clean for one si
 - **One side untouched** (RVB-2, RVB-3): a side that still holds the virtual base's conflict value has not touched k since
   the base (I25′). This reads [60 §3.4]'s "conflicts whenever they differ" as "whenever both changed it and differ"
   (open point 2).
-- When RVB-4's class is `DeleteVsModify` on an existence key, the node's other keys take the provisional state of
-  [RULES/merge-table] RS-008 if exactly one of flat(o), flat(t) is live, and o's values otherwise; the conflict value's
-  provisional side (§6.3) is set accordingly.
+- When RVB-4's class is `DeleteVsModify` on an existence key and exactly one of flat(o), flat(t) is live, the node's
+  other keys take the provisional state of [RULES/merge-table] RS-008; otherwise they merge key by key as §6.3 states
+  (the owner's ruling R-43 of 2026-10-13, OI-1g). The conflict value's provisional side (§6.3) is the side RS-008's
+  policy names when exactly one is live, and `ours` otherwise.
 
 [RULES/merge-table] states these rows in its evaluation order MR-001 (RVB-1), MR-003 (RVB-3), MR-004 (RVB-2) and MR-002
 (RVB-4, with RS-010 and VB-018; review pass 1 S1-15).
@@ -609,6 +610,17 @@ order wins and the later rule sees the key already conflicted (the conflicted-ke
   image carries it as the node file's form (a tombstone file when P is `deleted`, [AR §5b.2] rule 8). [F06 §6.2] stores it
   after `theirs` in the `cstate` and in the `Conflict` op ([F06 §7.7]), [F07 §7.3] hashes it by name, and [F11 §10]
   keeps it in the `CONFLICTS` row (pass 1, S1-5, A1-9; open point 4).
+- **A side's conflict value, taken unchanged** (W3D-SF-1). When the rows of [RULES/merge-table] take a side's conflict
+  value as a key's result (MR-001, MR-003, MR-004), the value keeps all its fields: its `base`, `ours`, `theirs` and `prov`
+  are those of the merge that made it, so `prov` names a side of that merge, never of this one, and P is read from it as
+  above.
+- **The node's other keys** (the owner's ruling R-43 of 2026-10-13, OI-1g; W3D-SF-2). When a node's existence key holds
+  a conflict value that a `conflicted-key` row gives (a side's, taken unchanged, or a new one made over a conflicted base
+  or side, §5.4), the node's other keys still merge key by key (§7.2; [RULES/merge-table] PR-008), and a change made by one
+  side only is kept: with the conflict value attached when its provisional value P is live, and as a tombstone merge
+  ([AR §3.4] I39′) when P is deleted. The value fixes none of those keys to the side it came from. A new `DeleteVsModify`
+  whose flat sides are one live and one deleted takes RS-008's provisional state instead (§5.4), as the existence
+  policy's `DeleteVsModify` over two plain sides does (RS-008, PR-007).
 
 ### 6.4 Flat sides
 
