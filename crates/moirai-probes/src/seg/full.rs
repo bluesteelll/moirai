@@ -25,6 +25,7 @@
 //! |---|---|
 //! | `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE` | as [`delta::encode`], with `title_off`, `fields_off` and `body_ref` into this segment's pools (`:389-393`) |
 //! | `UID` | `(uid, #N)` per listed row that is not absent, by (uid, #N) (§5.5) |
+//! | `PRIO` | each listed row's `priority`, as [`delta::encode`] writes it ([F09 §5.4]; R-66) |
 //! | `TITLE_BLOB`, `FIELDS_BLOB` | pools in row order: the title as `vstr`, the [F08 §6] field block as `vbytes` (§6.1–§6.2) |
 //! | `BLOBTAB` | one `BlobRef` per distinct body hash the rows name, by hash, into `blobs.<n>`; `body_ref` 1-based (§6.3) |
 //! | the CSR | as [`delta::encode`] |
@@ -48,7 +49,8 @@
 //! 0. The header has `seg_kind` 4 and `tok_ver` 1 and is otherwise [`delta::Fold::finish`]'s.
 
 use super::base::{
-    ABSTRACT_FIELD, Columns, Csr, TITLE_FIELD, field_block, put_bm, put_bmdir, put_csr, put_rows,
+    ABSTRACT_FIELD, Columns, Csr, TITLE_FIELD, field_block, put_bm, put_bmdir, put_csr, put_prio,
+    put_rows,
 };
 use super::bitset::encode_plus_minus;
 use super::blobs::{self, BLOB_REF_LEN, BlobRef, Packer};
@@ -848,9 +850,10 @@ pub struct Encoded {
     pub blobs: Option<(Vec<u8>, FileRow)>,
 }
 
-/// The sections of a full delta with `lists` ± lists: 49, and `BMDIR` and the lists when a set changed.
+/// The sections of a full delta with `lists` ± lists: 50 (`PRIO` among them), and `BMDIR` and the lists when a set
+/// changed.
 pub const fn full_delta_sections(lists: usize) -> usize {
-    49 + if lists > 0 { 1 + lists } else { 0 }
+    50 + if lists > 0 { 1 + lists } else { 0 }
 }
 
 /// The tables of [F11 §1.3] a delta carries that hold no row in the probe's window, in tag order, with their form.
@@ -922,6 +925,8 @@ pub fn encode(d: &FullDelta, blobs_no: u32, packer: &mut Packer) -> Result<Encod
         put_fixed(o, UID_ROW, &b.iter().map(|x| &x[..]).collect::<Vec<_>>());
         Ok(())
     })?;
+    let prios: Vec<u8> = rows.iter().map(|r| r.prio).collect();
+    put_prio(&mut w, &prios)?;
     for (t, pick) in [
         (
             tag::TITLE_BLOB,
@@ -1351,14 +1356,14 @@ pub(crate) mod tests {
         .unwrap()
     }
 
-    /// The section table of a full delta (u21 cut §3.3; [F09 §3.1], `09-segments.md:156-206`): exactly `IDS` …
-    /// `DUE`, `UID`, `TITLE_BLOB`, `FIELDS_BLOB`, `BLOBTAB`, the CSR, `EDGE_PROPS`, `TOMB`, `CONFLICTS`, `BMDIR`, `TERMS`,
-    /// `POST`, `DOCLEN`, `FTSSTAT`, `PATHIDX` … `GLOBIDX`, `SYMTAB`, `SCHEMAIDS`, `FILES`, `REFS` … `BACKUPS`, `TREES`,
+    /// The section table of a full delta (u21 cut §3.3; [F09 §3.1]): exactly `IDS` … `DUE`, `UID`, `PRIO`,
+    /// `TITLE_BLOB`, `FIELDS_BLOB`, `BLOBTAB`, the CSR, `EDGE_PROPS`, `TOMB`, `CONFLICTS`, `BMDIR`, `TERMS`, `POST`,
+    /// `DOCLEN`, `FTSSTAT`, `PATHIDX` … `GLOBIDX`, `SYMTAB`, `SCHEMAIDS`, `FILES`, `REFS` … `BACKUPS`, `TREES`,
     /// `FILEOBS`, `PENDING`, `FSINTENT`, `JOURNALCUR`, `PREFIXEV` and the ± lists, in tag order; none of `TOUCH`,
     /// `SCHEMA`, `STATS`, `FPROMO`, `FCOL`, `FIDX`, `PREV`, `VIOLATIONS`, `CKIMG`, `DROPPED`, `HARVEST` and the five
-    /// `derived-optional` runtime sections; `flags` bit 0 on `DOCLEN` and `FTSSTAT` and 0 on every other entry ([F09 §3.3]);
-    /// `seg_kind` 4, `tok_ver` 1, `file_no` 14; each F11 body in its
-    /// delta form and row size with `count` its `n_rows`; the empty tables' exact bytes.
+    /// `derived-optional` runtime sections; `flags` bit 0 on `DOCLEN` and `FTSSTAT` and 0 on every other entry
+    /// ([F09 §3.3]); `seg_kind` 4, `tok_ver` 1, `file_no` 14; each F11 body in its delta form and row size with `count`
+    /// its `n_rows`; the empty tables' exact bytes.
     #[test]
     fn full_delta_carries_every_section_a_delta_requires() {
         let c = case(200, 400, 1);
@@ -1375,6 +1380,7 @@ pub(crate) mod tests {
         let v = SegView::parse(&enc.seg).unwrap();
         let tags: Vec<u16> = v.table.iter().map(|e| e.tag).collect();
         let mut want: Vec<u16> = (0x0001..=0x0007).collect();
+        want.push(0x0009);
         want.extend([0x0010, 0x0011, 0x0012]);
         want.extend(0x0020..=0x0026);
         want.extend([0x0030, 0x0031, 0x0040]);
@@ -1440,6 +1446,51 @@ pub(crate) mod tests {
             v.entry(tag::DOCLEN).unwrap().count as usize,
             d.graph.rows.len()
         );
+    }
+
+    /// Byte 3 of every `NODE` row the probe writes is 0 ([F08 §3.1]: `_reserved`; R-66): in [`base::build`]'s and
+    /// [`base::build_full`]'s bases at N = 1,000, in the night's delta of `case(200, 400, 1)`'s tail over
+    /// [`base::build`] of its spec, and in its full delta over its full base.
+    #[test]
+    fn every_node_row_written_has_byte_3_zero() {
+        let c = case(200, 400, 1);
+        let t = &c.tail;
+        let plain = base::build(&spec_of(t)).unwrap();
+        let pc = Columns::parse(&plain).unwrap();
+        let night = delta::encode(
+            &delta::fold(
+                &mut MemLog::new(t.start, &t.bytes),
+                &t.expect,
+                t.start,
+                t.end,
+                t.chain_in,
+                TAIL_READ_CHUNK,
+                &pc,
+                1,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let cols = Columns::parse(&c.base).unwrap();
+        let fb = FullBase::parse(&cols).unwrap();
+        let full = files_of(&fold_mem(t, &fb).delta).seg;
+        let s1 = crate::seg::base::tests::spec(1_000);
+        let inputs = [
+            ("build", base::build(&s1).unwrap()),
+            ("build_full", base::build_full(&s1).unwrap()),
+            ("the night's delta", night),
+            ("the full delta", full),
+        ];
+        for (input, bytes) in &inputs {
+            let v = SegView::parse(bytes).unwrap();
+            let node = v.need(tag::NODE).unwrap();
+            let ids = v.section(tag::IDS);
+            for (i, row) in node.chunks(crate::seg::NODE_HDR_LEN).enumerate() {
+                let id = ids.map_or(i as u32 + 1, |x| crate::seg::u32_at(x, i));
+                let b = row[3];
+                assert_eq!(b, 0, "{input}: byte 3 of #{id} is {b}");
+            }
+        }
     }
 
     /// The reader takes `DOCLEN`'s and `FTSSTAT`'s `derived-optional` bit as [F09 §3.3] gives it, accepted and never

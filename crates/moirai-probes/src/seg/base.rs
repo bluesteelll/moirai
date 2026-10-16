@@ -1,24 +1,31 @@
-//! The synthetic base segment `seg.base.1` at N nodes ([F09 §16.1], `09-segments.md:1077-1083`): every row of the
-//! probe's subset, its forward and reverse CSR and its frozen bitsets, and [`Columns`], the reader of a segment's row
-//! sections that the probes, the delta fold and the tests share.
+//! The synthetic base segment `seg.base.1` at N nodes ([F09 §16.1]): every row of the probe's subset, its forward and
+//! reverse CSR and its frozen bitsets, and [`Columns`], the reader of a segment's row sections that the probes, the
+//! delta fold and the tests share.
 //!
 //! The base is the segment form of u10's [`crate::overlay::Base`], so a tail of [`crate::tail::synth`] applies to it:
 //!
 //! | Column | Value of row #N | Source |
 //! |---|---|---|
-//! | `NODE` | kind 1, status #N mod 4, resolution 0; priority 2, criticality 2, confidence 0, authority 4 (the defaults); no flag, parent or counter; `rev_seq`, `created_tx`, `updated_tx` the base's `base_seq`; `last_op_lsn` the notional record just below the tail (`upto_lsn − 1`, as u10's `prev`); `title_off`, `fields_off` `NONE32`, `body_ref` 0 | `08-data-model.md:77-100`; the probe's choice beyond the overlay's base |
-//! | `CREATOR` | actor 5, role 2: the tail's creator symbols | `08-data-model.md:185-191` |
-//! | `TOPO` | #N, distinct (the base has no precedence order to keep) | `09-segments.md:414-415` |
-//! | `DEFER`, `DUE` | 0; `due` 1,790,000,000 + #N on every fourth row | `08-data-model.md:180-181` |
-//! | adjacency | 3 out-edges per node, kinds 1–4 (u10's edge codes), destinations drawn from a hash of (#N, j), stored twice: the out-lists and their reverse | `ARCHITECTURE-RESEARCH.md:1677` ("3 edges/node stored twice"); `09-segments.md:479-505` |
-//! | bitsets | family 1 kind 1 (every row) and family 2 (kind 1, status s) for s = 0–3 | `09-segments.md:577-594`; the overlay's families |
+//! | `NODE` | kind 1, status #N mod 4, resolution 0; byte 3 `_reserved`, 0; criticality 2, confidence 0, authority 4 (the defaults); no flag, parent or counter; `rev_seq`, `created_tx`, `updated_tx` the base's `base_seq`; `last_op_lsn` the notional record just below the tail (`upto_lsn − 1`, as u10's `prev`); `title_off`, `fields_off` `NONE32`, `body_ref` 0 | [F08 §3.1]; the probe's choice beyond the overlay's base |
+//! | `CREATOR` | actor 5, role 2: the tail's creator symbols | [F08 §4] |
+//! | `TOPO` | #N, distinct (the base has no precedence order to keep) | [F09 §5.4] |
+//! | `DEFER`, `DUE` | 0; `due` 1,790,000,000 + #N on every fourth row | [F08 §4] |
+//! | `PRIO` | the default `priority`, 2 ([`DEFAULT_PRIORITY`]); in [`build_with`]'s base, its function of #N | [F08 §4], [F09 §5.4] (R-66) |
+//! | adjacency | 3 out-edges per node, kinds 1–4 (u10's edge codes), destinations drawn from a hash of (#N, j), stored twice: the out-lists and their reverse | [AR §8.1] ("3 edges/node stored twice"); [F09 §7.1] |
+//! | bitsets | family 1 kind 1 (every row) and family 2 (kind 1, status s) for s = 0–3 | [F09 §9.2]; the overlay's families |
 //!
-//! Its hot index (`NODE`, the CSR, `BMDIR` and the bitsets) is ≈ 99 B per node: 60 + 8 + 30 + ≈ 0.6
-//! (`ARCHITECTURE-RESEARCH.md:1681`); the cold columns add 18 B.
+//! Its hot index (`NODE`, the CSR, `BMDIR` and the bitsets) is ≈ 99 B per node: 60 + 8 + 30 + ≈ 0.6 ([AR §8.1]); the
+//! cold columns (`CREATOR`, `TOPO`, `DEFER`, `DUE` and `PRIO`) add 19 B.
 //!
 //! [`build_with`] builds the same base with each row's `priority` from a function ([`ready_priority`]: P0–P4, the
 //! `priority` column of [F08 §4]): a base whose priorities are not all the default, which the tests of the delta's
 //! fold and the pins use (R-86 ruling 6). [`build`] keeps the default 2, so every other base keeps its bytes.
+//!
+//! [`build_full`] builds the full checkpoint's base (u21 cut §3.2, D-4): [`build`]'s sections, each row's `title_off`
+//! and `fields_off` pointing into the base's own pools, and ten more sections that a fold reads: `UID`, `TITLE_BLOB`,
+//! `FIELDS_BLOB`, an empty `BLOBTAB`, `DOCLEN` and `FTSSTAT` (both `derived-optional`, [F09 §3.3]), and the snapshots
+//! `FILES`, `REFS`, `ALLOC` and `TREES` ([F11 §1.3]); its titles and fields come from [`Vocab`], and its `tok_ver` is 1
+//! ([F09 §12.4]). It carries no `TERMS` or `POST` (u21 cut F-17), so it is not valid under V-7 either.
 
 use super::bitset::{Frozen, encode_frozen};
 use super::blobs::BLOB_REF_LEN;
@@ -80,7 +87,6 @@ impl Spec {
             kind: BASE_KIND,
             status: self.base().status(id),
             resolution: 0,
-            priority: 2,
             criticality: 2,
             confidence: 0,
             authority: 4,
@@ -278,7 +284,8 @@ pub fn put_bm(
     Ok(())
 }
 
-/// The row sections a writer puts before the CSR, in tag order: `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE`.
+/// The row sections a writer puts first, in tag order: `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE`. `PRIO` follows
+/// ([`put_prio`]): right after these in a subset segment, after `UID` in a full one (P-1).
 pub fn put_rows(
     w: &mut Writer,
     nodes: &[NodeHdr],
@@ -309,10 +316,18 @@ pub fn put_rows(
     Ok(())
 }
 
-/// The sections of a segment with `bitsets` bitsets: 5 row columns, 6 CSR columns, `BMDIR` and the bitsets, plus
-/// `IDS` in an upper segment.
+/// Writes `PRIO` ([F09 §5.4]): one `u8` per row, `count` = the rows (R-66).
+pub fn put_prio(w: &mut Writer, prios: &[u8]) -> Result<(), String> {
+    w.push(tag::PRIO, prios.len() as u32, |o| {
+        o.extend_from_slice(prios);
+        Ok(())
+    })
+}
+
+/// The sections of a segment with `bitsets` bitsets: 6 row columns (`PRIO` among them), 6 CSR columns, `BMDIR` and the
+/// bitsets, plus `IDS` in an upper segment.
 pub const fn sections(bitsets: usize, upper: bool) -> usize {
-    5 + 6 + 1 + bitsets + upper as usize
+    6 + 6 + 1 + bitsets + upper as usize
 }
 
 /// The forward CSR of a base.
@@ -320,9 +335,12 @@ pub fn out_csr(spec: &Spec) -> Csr {
     Csr::of_lists((1..=spec.n).map(|id| spec.out_edges(id)))
 }
 
+/// The default `priority`, P2 ([F08 §4]).
+pub const DEFAULT_PRIORITY: u8 = 2;
+
 /// Builds the base segment of `spec`, every row's `priority` the default 2.
 pub fn build(spec: &Spec) -> Result<Vec<u8>, String> {
-    build_with(spec, |_| 2)
+    build_with(spec, |_| DEFAULT_PRIORITY)
 }
 
 /// The salt of the non-default priorities (u20 cut D-12, the retired `ready` probe's).
@@ -333,20 +351,15 @@ pub fn ready_priority(id: u32) -> u8 {
     (mix(SALT_P ^ u64::from(id)) % 5) as u8
 }
 
-/// Builds the base segment of `spec` with row #N's `priority` = `prio(#N)` (u20 cut D-12); every other byte is
-/// [`build`]'s.
+/// Builds the base segment of `spec` with row #N's `priority` = `prio(#N)` in `PRIO` (u20 cut D-12; R-66); every other
+/// byte is [`build`]'s.
 pub fn build_with(spec: &Spec, prio: impl Fn(u32) -> u8) -> Result<Vec<u8>, String> {
     if spec.n < MIN_N {
         return Err(format!("a base has at least {MIN_N} nodes"));
     }
     let ids = 1..=spec.n;
-    let nodes: Vec<NodeHdr> = ids
-        .clone()
-        .map(|id| NodeHdr {
-            priority: prio(id),
-            ..spec.row(id)
-        })
-        .collect();
+    let nodes: Vec<NodeHdr> = ids.clone().map(|id| spec.row(id)).collect();
+    let prios: Vec<u8> = ids.clone().map(prio).collect();
     let creators: Vec<Creator> = ids.clone().map(|id| spec.creator(id)).collect();
     let topo: Vec<u32> = ids.clone().map(|id| spec.topo(id)).collect();
     let defer: Vec<u32> = ids.clone().map(|id| spec.defer(id)).collect();
@@ -355,8 +368,9 @@ pub fn build_with(spec: &Spec, prio: impl Fn(u32) -> u8) -> Result<Vec<u8>, Stri
     let inn = out.reverse(spec.n);
     let sets = spec.bitsets();
     let n = spec.n as usize;
-    let mut w = Writer::new(sections(sets.len(), false), 120 * n);
+    let mut w = Writer::new(sections(sets.len(), false), 121 * n);
     put_rows(&mut w, &nodes, &creators, [&topo, &defer, &due])?;
+    put_prio(&mut w, &prios)?;
     put_csr(&mut w, &out, [tag::OUT_OFF, tag::OUT_DST, tag::OUT_KIND])?;
     put_csr(&mut w, &inn, [tag::IN_OFF, tag::IN_SRC, tag::IN_KIND])?;
     let dir: Vec<(BitsetKey, u32)> = sets.iter().map(|(k, m)| (*k, m.len() as u32)).collect();
@@ -626,7 +640,7 @@ fn tokens(s: &[u8]) -> Result<u16, String> {
     Ok(u16::try_from(tokenize(s, |_| {})?).unwrap_or(u16::MAX))
 }
 
-/// The sections of a full base with `bitsets` bitsets: [`sections`]'s 12 + k, `UID`, `TITLE_BLOB`, `FIELDS_BLOB`,
+/// The sections of a full base with `bitsets` bitsets: [`sections`]'s 13 + k, `UID`, `TITLE_BLOB`, `FIELDS_BLOB`,
 /// `BLOBTAB`, `DOCLEN`, `FTSSTAT`, `FILES`, `REFS`, `ALLOC` and `TREES`.
 pub const fn full_sections(bitsets: usize) -> usize {
     sections(bitsets, false) + 10
@@ -695,6 +709,7 @@ pub fn build_full(spec: &Spec) -> Result<Vec<u8>, String> {
         Ok(())
     })?;
     drop(uids);
+    put_prio(&mut w, &vec![DEFAULT_PRIORITY; n])?;
     w.push(tag::TITLE_BLOB, spec.n, |o| {
         for id in ids.clone() {
             put_vbytes(o, &vocab.title(id));
@@ -769,6 +784,8 @@ pub struct Columns<'a> {
     pub defer: &'a [u8],
     /// `DUE`.
     pub due: &'a [u8],
+    /// `PRIO`, required ([F09 §3.1]: R in every segment kind).
+    pub prio: &'a [u8],
     /// `OUT_OFF`, `OUT_DST`, `OUT_KIND`.
     pub out: [&'a [u8]; 3],
     /// `IN_OFF`, `IN_SRC`, `IN_KIND`.
@@ -795,6 +812,7 @@ impl<'a> Columns<'a> {
         let node = get(tag::NODE, NODE_HDR_LEN)?;
         let creator = get(tag::CREATOR, CREATOR_LEN)?;
         let (topo, defer, due) = (get(tag::TOPO, 4)?, get(tag::DEFER, 4)?, get(tag::DUE, 4)?);
+        let prio = get(tag::PRIO, 1)?;
         let csr = |t: [u16; 3]| -> Result<[&'a [u8]; 3], String> {
             let off = view.need(t[0])?;
             if off.len() != 4 * (rows + 1) || u32_at(off, 0) != 0 {
@@ -834,6 +852,7 @@ impl<'a> Columns<'a> {
             topo,
             defer,
             due,
+            prio,
             out,
             inn,
             keys,
@@ -848,6 +867,11 @@ impl<'a> Columns<'a> {
     /// Row `i`'s `CREATOR`.
     pub fn creator(&self, i: usize) -> Creator {
         Creator::at(self.creator, i)
+    }
+
+    /// Row `i`'s `priority`, from `PRIO`.
+    pub fn prio(&self, i: usize) -> u8 {
+        self.prio[i]
     }
 
     /// Row `i`'s (`topo`, `defer_until`, `due`).
@@ -925,10 +949,10 @@ pub(crate) mod tests {
         }
     }
 
-    /// Each section's length and `count` as [F09] gives them (`09-segments.md:254-268`, `:288-317`, `:483-505`,
-    /// `:579-594`) at N = 1,000 and N = 70,000 (two chunks): `NODE` 60·N, `CREATOR` 6·N, `TOPO`/`DEFER`/`DUE` 4·N, the
-    /// offsets 4(N + 1), `*_DST`/`*_SRC` 4e and `*_KIND` e with e = 3N, `BMDIR` 8 + 4k; each frozen bitset as §4.5
-    /// sizes it; the sections placed from `data_off` = 120 + 32 · 17.
+    /// Each section's length and `count` as [F09] gives them ([F09 §4.1], [F09 §4.5], [F09 §7.1], [F09 §9.2]) at N =
+    /// 1,000 and N = 70,000 (two chunks): `NODE` 60·N, `CREATOR` 6·N, `TOPO`/`DEFER`/`DUE` 4·N, `PRIO` N after `DUE`
+    /// ([F09 §5.4]), the offsets 4(N + 1), `*_DST`/`*_SRC` 4e and `*_KIND` e with e = 3N, `BMDIR` 8 + 4k; each frozen
+    /// bitset as §4.5 sizes it; the sections placed from `data_off` = 120 + 32 · 18.
     #[test]
     fn base_sections_have_f09_sizes() {
         for n in [1_000u32, 70_000] {
@@ -942,6 +966,7 @@ pub(crate) mod tests {
                 (tag::TOPO, n, 4 * nn),
                 (tag::DEFER, n, 4 * nn),
                 (tag::DUE, n, 4 * nn),
+                (0x0009, n, nn),
                 (tag::OUT_OFF, n + 1, 4 * (nn + 1)),
                 (tag::OUT_DST, 3 * n, 4 * e),
                 (tag::OUT_KIND, 3 * n, e),
@@ -957,15 +982,15 @@ pub(crate) mod tests {
                 v.table.iter().map(|e| (e.tag, e.count, e.len)).collect();
             assert_eq!(got, want, "N = {n}");
             assert_eq!(v.table.len(), sections(5, false));
-            assert_eq!(v.table[0].off, data_off(17) as u64);
+            assert_eq!(v.table[0].off, data_off(18) as u64);
             assert!(v.table.iter().all(|e| e.off % 8 == 0));
             assert_eq!(v.header, s.header());
             assert_eq!(v.header.n_rows, n);
         }
     }
 
-    /// The hot index is about 99 B per node at 1e5 (`ARCHITECTURE-RESEARCH.md:1681`: 60 B header + 8 B CSR offsets +
-    /// 30 B edges + ~1 B bitsets), and the cold columns 18 B (`CREATOR` 6 + 3 × 4).
+    /// The hot index is about 99 B per node at 1e5 ([AR §8.1]: 60 B header + 8 B CSR offsets + 30 B edges + ~1 B
+    /// bitsets), and the cold columns 19 B (`CREATOR` 6 + 3 × 4 + `PRIO` 1).
     #[test]
     fn hot_index_is_about_99_bytes_per_node() {
         let n = 100_000u32;
@@ -973,11 +998,11 @@ pub(crate) mod tests {
         let v = SegView::parse(&b).unwrap();
         let per = hot_bytes(&v) as f64 / f64::from(n);
         assert!((98.0..=100.0).contains(&per), "{per} B per node");
-        let cold: u64 = [tag::CREATOR, tag::TOPO, tag::DEFER, tag::DUE]
+        let cold: u64 = [tag::CREATOR, tag::TOPO, tag::DEFER, tag::DUE, tag::PRIO]
             .iter()
             .map(|&t| v.entry(t).unwrap().len)
             .sum();
-        assert_eq!(cold, 18 * u64::from(n));
+        assert_eq!(cold, 19 * u64::from(n));
         v.check_digests().unwrap();
     }
 
@@ -1054,29 +1079,53 @@ pub(crate) mod tests {
         assert!(build(&spec(MIN_N - 1)).is_err());
     }
 
-    /// The `ready` probe's base (u20 cut D-12): `build_with` gives row #N the priority its function gives, here
-    /// [`ready_priority`], whose values are P0–P4 and all occur; every other field is the row's; and `build` is
-    /// `build_with` at the default 2, byte for byte, so every other base keeps its bytes.
+    /// [`build_with`]'s base (R-86 ruling 6) at N = 3,000: `PRIO` byte #N − 1 is the function's priority of #N, here
+    /// [`ready_priority`], whose values P0–P4 all occur ([F08 §4]); byte 3 of every `NODE` row is 0 and every other
+    /// `NODE` field is [`Spec::row`]'s ([F08 §3.1]: byte 3 is `_reserved`, R-66); and [`build`] is `build_with` at the
+    /// default 2, byte for byte.
     #[test]
-    fn ready_priorities_follow_their_function_and_the_default_stays_2() {
+    fn build_with_puts_each_rows_priority_in_prio_and_zero_in_byte_3() {
         let s = spec(3_000);
         let b = build_with(&s, ready_priority).unwrap();
-        let c = Columns::parse(&b).unwrap();
+        let v = SegView::parse(&b).unwrap();
+        let prio = v.need(0x0009).unwrap();
+        assert_eq!(prio.len(), 3_000);
+        let node = v.need(tag::NODE).unwrap();
         let mut seen = BTreeSet::new();
         for id in 1..=s.n {
-            let row = c.node(id as usize - 1);
-            assert_eq!(row.priority, ready_priority(id), "#{id}");
-            assert_eq!(
-                NodeHdr { priority: 2, ..row },
-                s.row(id),
-                "#{id}: the other fields"
-            );
-            seen.insert(row.priority);
+            let i = id as usize - 1;
+            assert_eq!(prio[i], ready_priority(id), "#{id}: PRIO");
+            seen.insert(prio[i]);
+            let row = &node[NODE_HDR_LEN * i..NODE_HDR_LEN * (i + 1)];
+            assert_eq!(row[3], 0, "#{id}: byte 3");
+            assert_eq!(NodeHdr::decode(row), s.row(id), "#{id}: the other fields");
         }
         assert_eq!(seen, (0..=4).collect::<BTreeSet<u8>>());
         assert_eq!(build(&s).unwrap(), build_with(&s, |_| 2).unwrap());
-        let plain = Columns::parse(&build(&s).unwrap()).unwrap().node(9);
-        assert_eq!(plain.priority, 2);
+    }
+
+    /// `Columns` requires `PRIO` ([F09 §3.1]: R in a base and every upper segment; R-86 ruling 6): [`build`]'s base
+    /// written again with every section but `PRIO` is refused, naming `0x0009`.
+    #[test]
+    fn columns_refuse_a_segment_without_prio() {
+        let b = build(&spec(1_000)).unwrap();
+        let v = SegView::parse(&b).unwrap();
+        let keep: Vec<_> = v.table.iter().filter(|e| e.tag != 0x0009).collect();
+        let mut w = Writer::new(keep.len(), b.len());
+        for e in &keep {
+            let sec = v.section(e.tag).unwrap();
+            w.push(e.tag, e.count, |o| {
+                o.extend_from_slice(sec);
+                Ok(())
+            })
+            .unwrap();
+        }
+        let without = w.finish(&v.header).unwrap();
+        let r = Columns::parse(&without).map(|c| c.rows);
+        assert!(
+            r.as_ref().is_err_and(|e| e.contains("0x0009")),
+            "Columns parsed a segment without 0x0009: {r:?}"
+        );
     }
 
     /// The full base (u21 cut §3.2, D-4) at N = 3,000: [`build`]'s sections with the same bytes but `NODE`, whose rows are
@@ -1216,20 +1265,135 @@ pub(crate) mod tests {
         assert!(build_full(&spec(MIN_N - 1)).is_err());
     }
 
+    /// A segment's section directory before `PRIO`, with each section's XXH3: (tag, count, len, XXH3).
+    pub(crate) type Pre = [(u16, u32, u64, u64)];
+
+    /// Ruling 8's derivation (R-86): `bytes`, written with `PRIO`, follow from the pre-`PRIO` segment whose literals
+    /// were recorded on the parent of the `PRIO` commit (4036cbf): the directory is `pre`'s with `(0x0009, rows, rows)`
+    /// inserted after `DUE` (P-1), every other count and length unchanged; every section but `NODE` and `PRIO` has its
+    /// recorded XXH3; `NODE` the recorded XXH3 of the old `NODE` with byte 3 of every row zeroed (`node0`); and
+    /// `PRIO`'s bytes the recorded XXH3 of the old byte-3 sequence (`byte3`).
+    pub(crate) fn follows_from_pre_prio(
+        name: &str,
+        bytes: &[u8],
+        pre: &Pre,
+        node0: u64,
+        byte3: u64,
+        rows: u32,
+    ) {
+        use xxhash_rust::xxh3::xxh3_64;
+        let v = SegView::parse(bytes).unwrap();
+        let prio = v.need(0x0009).unwrap();
+        assert_eq!(
+            (prio.len() as u64, v.entry(0x0009).unwrap().count),
+            (u64::from(rows), rows),
+            "{name}: PRIO's size"
+        );
+        assert_eq!(
+            xxh3_64(prio),
+            byte3,
+            "{name}: PRIO is the old byte-3 sequence"
+        );
+        assert_eq!(
+            xxh3_64(v.need(tag::NODE).unwrap()),
+            node0,
+            "{name}: NODE is the old NODE with byte 3 zeroed"
+        );
+        let mut want: Vec<(u16, u32, u64)> = Vec::new();
+        for &(t, c, l, _) in pre {
+            want.push((t, c, l));
+            if t == tag::DUE {
+                want.push((0x0009, rows, u64::from(rows)));
+            }
+        }
+        let got: Vec<(u16, u32, u64)> = v.table.iter().map(|e| (e.tag, e.count, e.len)).collect();
+        assert_eq!(got, want, "{name}: the directory");
+        for &(t, _, _, x) in pre.iter().filter(|p| p.0 != tag::NODE) {
+            assert_eq!(xxh3_64(v.section(t).unwrap()), x, "{name}: {t:#06x}");
+        }
+    }
+
+    /// [`build`]'s base at N = 3,000 before `PRIO` (recorded on 4036cbf; annex E).
+    const BUILD_PRE: [(u16, u32, u64, u64); 17] = [
+        (0x0002, 3_000, 180_000, 0x5274_81af_a561_f807),
+        (0x0003, 3_000, 18_000, 0xbf09_e4c2_2bb4_a185),
+        (0x0004, 3_000, 12_000, 0x2e5a_4097_38e0_e148),
+        (0x0005, 3_000, 12_000, 0xfe5a_4cf1_2b4c_e3db),
+        (0x0006, 3_000, 12_000, 0xce85_b37e_1279_e668),
+        (0x0020, 3_001, 12_004, 0xc5f0_c205_5737_9c58),
+        (0x0021, 9_000, 36_000, 0x4ab1_de69_85bd_555f),
+        (0x0022, 9_000, 9_000, 0xd3d4_c283_587f_4178),
+        (0x0023, 3_001, 12_004, 0xc104_8752_0860_595c),
+        (0x0024, 9_000, 36_000, 0xcdc3_f1d1_1657_1596),
+        (0x0025, 9_000, 9_000, 0xcdca_64b9_de65_f78b),
+        (0x0040, 5, 28, 0x1bbc_e98e_3e2d_3f11),
+        (0x8000, 3_000, 6_024, 0xda80_6f78_1a9f_2711),
+        (0x8001, 750, 1_524, 0x5f04_7e7e_f21a_9e4f),
+        (0x8002, 750, 1_524, 0xa46b_d01b_ba47_3efd),
+        (0x8003, 750, 1_524, 0x2a39_e399_7fde_22f6),
+        (0x8004, 750, 1_524, 0xa965_a41c_d4fa_9961),
+    ];
+
+    /// [`build_with`]'s base at the [`ready_priority`] priorities, N = 3,000, before `PRIO` (recorded on 4036cbf).
+    const BUILD_WITH_PRE: [(u16, u32, u64, u64); 17] = [
+        (0x0002, 3_000, 180_000, 0x748f_e4af_cd9a_dc86),
+        (0x0003, 3_000, 18_000, 0xbf09_e4c2_2bb4_a185),
+        (0x0004, 3_000, 12_000, 0x2e5a_4097_38e0_e148),
+        (0x0005, 3_000, 12_000, 0xfe5a_4cf1_2b4c_e3db),
+        (0x0006, 3_000, 12_000, 0xce85_b37e_1279_e668),
+        (0x0020, 3_001, 12_004, 0xc5f0_c205_5737_9c58),
+        (0x0021, 9_000, 36_000, 0x4ab1_de69_85bd_555f),
+        (0x0022, 9_000, 9_000, 0xd3d4_c283_587f_4178),
+        (0x0023, 3_001, 12_004, 0xc104_8752_0860_595c),
+        (0x0024, 9_000, 36_000, 0xcdc3_f1d1_1657_1596),
+        (0x0025, 9_000, 9_000, 0xcdca_64b9_de65_f78b),
+        (0x0040, 5, 28, 0x1bbc_e98e_3e2d_3f11),
+        (0x8000, 3_000, 6_024, 0xda80_6f78_1a9f_2711),
+        (0x8001, 750, 1_524, 0x5f04_7e7e_f21a_9e4f),
+        (0x8002, 750, 1_524, 0xa46b_d01b_ba47_3efd),
+        (0x8003, 750, 1_524, 0x2a39_e399_7fde_22f6),
+        (0x8004, 750, 1_524, 0xa965_a41c_d4fa_9961),
+    ];
+
+    /// Ruling 8's derivation of the two plain-base pins: [`build`]'s and [`build_with`]'s bytes at N = 3,000 follow
+    /// from their pre-`PRIO` bytes ([`follows_from_pre_prio`]); the two old `NODE`s differ only in byte 3, so their
+    /// zeroed hashes are equal.
+    #[test]
+    fn plain_base_bytes_follow_from_the_pre_prio_bytes() {
+        let s = spec(3_000);
+        follows_from_pre_prio(
+            "build",
+            &build(&s).unwrap(),
+            &BUILD_PRE,
+            0x0518_4c8e_5ad2_460a,
+            0x4a1c_5a68_7665_c786,
+            3_000,
+        );
+        follows_from_pre_prio(
+            "build_with(ready_priority)",
+            &build_with(&s, ready_priority).unwrap(),
+            &BUILD_WITH_PRE,
+            0x0518_4c8e_5ad2_460a,
+            0x73e2_0345_adad_9234,
+            3_000,
+        );
+    }
+
     /// The plain base keeps its bytes (u21 cut §6, the identity gate's quick form): the XXH3-64 of [`build`] and of
-    /// [`build_with`] at the `ready` priorities, N = 3,000, pinned at 8916d63, before the full base's change of the
-    /// writers' helpers.
+    /// [`build_with`] at the [`ready_priority`] priorities, N = 3,000. Pinned at 8916d63, before the full base's change
+    /// of the writers' helpers; re-pinned when `PRIO` moved `priority` out of byte 3 (R-66), with the new bytes derived
+    /// from the old ones by `plain_base_bytes_follow_from_the_pre_prio_bytes` (R-86 ruling 8).
     #[test]
     fn plain_base_bytes_are_unchanged() {
         let s = spec(3_000);
         assert_eq!(
             xxhash_rust::xxh3::xxh3_64(&build(&s).unwrap()),
-            0x7e8d_26b9_d0a6_412e,
+            0x50d0_1c05_37e6_0eb1,
             "build"
         );
         assert_eq!(
             xxhash_rust::xxh3::xxh3_64(&build_with(&s, ready_priority).unwrap()),
-            0x30a7_aaf7_f078_d013,
+            0xbcbf_336b_0ff2_3cb6,
             "build_with(ready_priority)"
         );
     }

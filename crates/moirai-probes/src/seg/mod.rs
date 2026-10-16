@@ -19,7 +19,7 @@
 //! | [`text`] | tokenizer v1 restricted to ASCII (u20 cut F-5), the term index of a segment's documents, `TERMS` (front-coded in blocks of 16), `POST`, `DOCLEN` and `FTSSTAT` (`HOLE(F09-doclen)`'s "kept" candidate), and their readers | [F09 §12] (`09-segments.md:761-848`, `:1263`) |
 //!
 //! **The subset** (spec Goal 1: "the 60-byte `NodeHdr`, CSR, frozen bitsets, cold columns and delta"): the probe
-//! writes `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE`, the six CSR columns, `BMDIR` and `BM.<i>`
+//! writes `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE`, `PRIO`, the six CSR columns, `BMDIR` and `BM.<i>`
 //! (`09-segments.md:158-179`, `:205`), and none of the other sections §3.1 requires, so its segments are not valid
 //! under V-7 (`:1197`). Their bytes follow the chapters; what the sections the probe omits would add is outside the
 //! hot index measurement 14 times (`ARCHITECTURE-RESEARCH.md:1681`). `NodeHdr.title_off` and `fields_off` are
@@ -570,10 +570,9 @@ pub struct NodeHdr {
     pub kind: u8,
     /// `status` (1).
     pub status: u8,
-    /// `resolution` (2).
+    /// `resolution` (2). Byte 3 is `_reserved`, written 0 and not read: `priority` is the cold column `PRIO`
+    /// ([F08 §3.1], [F08 §4]; R-66).
     pub resolution: u8,
-    /// `priority` (3), default 2.
-    pub priority: u8,
     /// `criticality` (4), default 2.
     pub criticality: u8,
     /// `confidence` (5), default 0.
@@ -619,7 +618,7 @@ impl NodeHdr {
             self.kind,
             self.status,
             self.resolution,
-            self.priority,
+            0,
             self.criticality,
             self.confidence,
             self.authority,
@@ -640,13 +639,13 @@ impl NodeHdr {
         b
     }
 
-    /// Decodes a row (the reserved bytes are not tested, as a runtime reader does not, `09-segments.md:1218-1219`).
+    /// Decodes a row (the reserved bytes, byte 3 and 57–59, are not tested, as a runtime reader does not,
+    /// [F09 §17.2]).
     pub fn decode(b: &[u8]) -> NodeHdr {
         NodeHdr {
             kind: b[0],
             status: b[1],
             resolution: b[2],
-            priority: b[3],
             criticality: b[4],
             confidence: b[5],
             authority: b[6],
@@ -944,15 +943,15 @@ pub(crate) mod tests {
         assert!(v.check_digests().unwrap_err().contains("0x0020"));
     }
 
-    /// `NodeHdr` ([F08 §3.1], `08-data-model.md:77-100`): 60 bytes, each field at its offset, reserved bytes 57–59
-    /// zero, decoded back; `Creator` 6 bytes (`:185-191`).
+    /// `NodeHdr` ([F08 §3.1]): 60 bytes, each field at its offset, the reserved byte 3 (R-66: `priority` is the `PRIO`
+    /// column) and bytes 57–59 zero, decoded back, and a row whose byte 3 is not zero decodes to the same header;
+    /// `Creator` 6 bytes ([F08 §4]).
     #[test]
     fn node_hdr_is_60_bytes_at_f08_offsets() {
         let h = NodeHdr {
             kind: 1,
             status: 2,
             resolution: 3,
-            priority: 4,
             criticality: 5,
             confidence: 6,
             authority: 7,
@@ -972,7 +971,7 @@ pub(crate) mod tests {
         };
         let b = h.encode();
         assert_eq!(b.len(), 60);
-        let mut want: Vec<u8> = (1..=7).collect();
+        let mut want: Vec<u8> = vec![1, 2, 3, 0, 5, 6, 7];
         want.extend([
             0x08, 0x09, // flags at 7
             0x10, 0x11, 0x12, 0x13, 0x14, 0x15, 0x16, 0x17, // rev_seq at 9
@@ -988,6 +987,9 @@ pub(crate) mod tests {
         ]);
         assert_eq!(b.to_vec(), want);
         assert_eq!(NodeHdr::decode(&b), h);
+        let mut other = b;
+        other[3] = 4;
+        assert_eq!(NodeHdr::decode(&other), h, "byte 3 is not read");
         assert_eq!(b[STATUS_AT], h.status);
         let mut col = vec![0u8; NODE_HDR_LEN];
         col.extend_from_slice(&b);
