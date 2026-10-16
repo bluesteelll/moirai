@@ -18,7 +18,8 @@ finding ([F01 §2.4]). The execution plan is `docs/m0/PLAN.md`.
 - **Chapter structure.** Every chapter opens with a header block (title, chapter, status, work package, sources,
   dependencies) and ends with Coverage, Holes, and Open points for the review ([F01 §2.3]).
 - **Named holes.** A value an M0 measurement decides is written `HOLE(<id>)` and listed in its chapter's Holes table;
-  WP-81a fills every hole before the freeze ([F01 §2.5]). [HOLES.md](HOLES.md) indexes every hole of every part.
+  WP-81a fills every hole, by the tag or, for a hole open at the tag, by its deadline ([F01 §2.5]). [HOLES.md](HOLES.md)
+  indexes every hole of every part.
 - **Coverage.** [COVERAGE.md](COVERAGE.md) maps every row of [60 §2.5], R-1…R-18, F1–F18, X-F1–X-F12 and every
   [90 §10.1] item to the sections that specify it, with the fixture and model-function columns that `xtask coverage`
   checks ([F01 §2.7]).
@@ -57,7 +58,7 @@ The header block of each file is authoritative for its status; this index record
 | [format/11-runtime-tables.md](format/11-runtime-tables.md) | [F11] | `REFS`, `PINS`, `HEADS`, `LEASES`, `MARKERS`, `IDEM`, `ALLOC` (F17)/`UIDX`, `CONFLICTS`, `GLOBIDX`, the R4 runtime tables (`FILEOBS` (R-18), `OsFileId`, `VolumeCaps`, `TREES`, `JOURNALCUR`, `DIRMAP`, …), the session tables `CURSORS` (change-feed and pack cursors) and `SESSMARKS`, the `BACKUPS` registry, and the row images that log records carry | WP-13b (R-SPEC-R) | draft, pass 1 pending |
 | [format/12-vcs.md](format/12-vcs.md) | [F12] | Ref names (X-F9 P11 (b)), revisions, the recursive-virtual-base addendum, the conflict-class enumeration, the typed three-way merge contract, staging refs | WP-12c (R-SPEC-F) | draft, pass 1 pending |
 | [format/13-invariants.md](format/13-invariants.md) | [F13] | Every invariant with its enforcement point, model function and gate; I-F1…I-F14 cross-listed; I26′, the I37′ validator order, derived-state semantics (F15) | WP-16c (R-SPEC-P), with WP-14 | draft, pass 1 pending |
-| [format/14-image.md](format/14-image.md) | [F14] | The git image: tree, `.moirai-image`, the `.moi` v1 ABNF (R-11, F3), commit mapping, trailers, the gate-0 carrier table, refs, destinations, side refs | WP-15 (R-SPEC-R) | draft, pass 1 pending |
+| [format/14-image.md](format/14-image.md) | [F14] | The git image: tree, `.klotho-image`, the `.moi` v1 ABNF (R-11, F3), commit mapping, trailers, the gate-0 carrier table, refs, destinations, side refs | WP-15 (R-SPEC-R) | draft, pass 1 pending |
 | [format/15-fault-model.md](format/15-fault-model.md) | [F15] | The `Vfs` fault model, items 1–12, the durability classes and namespace operations, the crash-gate contract | WP-16a (R-SPEC-P) | draft, pass 1 pending |
 | [format/16-protocol.md](format/16-protocol.md) | [F16] | Durability class per protocol point, protocol decisions (a)–(m), group commit, I-G1–I-G6, the chain rule, barrier, recovery, the three-phase write, the rules P-1–P-100, the seeded-bug catalogue | WP-16b (R-SPEC-P) | draft, pass 1 pending |
 | [format/17-store-parameters.md](format/17-store-parameters.md) | [F17] | Every threshold, fixed at `init` or tunable, with production values as holes and the test profile; the `InitParams` block | WP-16c (R-SPEC-P) | draft, pass 1 pending |

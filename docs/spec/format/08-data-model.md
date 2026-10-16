@@ -6,7 +6,7 @@
 | Chapter | [F08], `docs/spec/format/08-data-model.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-14a (R-SPEC-F): the data-model part of WP-14 ([PLAN §3.2] item 1); chapter 18 is the other part |
-| Sources | [AR §2.4] T4 (the two ids); [AR §2.5] T5 (delete policies, tombstones); [AR §2.6] T6 (title ≤ 200 B, abstract, bodies ≤ 64 KiB); [AR §2.12] T12 (schema as data, weakening and strengthening, R4 and R5 additions); [AR §3.1] (node header, cold columns, field block, closed type set, virtual `done`); [AR §3.2] (13 kinds, fields, status sets); [AR §3.3] (25 edge kinds, classes, policies, acyclicity, cardinality, discriminator, edge properties, sigil rule); [AR §3.4] I1–I7, I11, I-F1…I-F14 row; [AR §3.5] (derived columns and flags); [AR §3.6] (status machines); [AR §4.3] (`Create` and the ops that carry values; commit size bound); [AR §4.4] (`NODE`, `UID`, `TOPO`, `DEFER`, `DUE`, `TITLE_*`, `FIELDS_*`, `BODY_REF`, `EDGE_PROPS`, `CREATOR`); [AR §4.6] items 7 and 10 and "Not hashed"; [AR §5a.7] step 4 (merge classes); [AR §5b.2] rules 2–4, 8, 9 (field names, value forms, source-truth flags, tombstones); [AR §5e.2]; [AR §7.1] (`--about`, `--applies-to`, `retract --reason`); [AR §7.3] (deviation findings, `artifact{…}` kinds, doc-writer `derived_from`); [AR §7.4] step 5 (`consumed` with `pinned_commit`); [40 §2.1]–[40 §2.9]; [40 §2.10] I-F1, I-F2, I-F3, I-F8, I-F9, I-F14; [40 §2.11] R-1–R-5, R-17 (authoritative); [40 §5.5] (re-key row); [40 §5.7] (field names, `origin_pred` presence); [50 §2.5] (schema vocabulary, edge table, readings, properties); [50 §3.2] (coercion); [50 §3.3] (absent values, defaults); [50 §3.5] (enum ranks); [50 §4.4] (named queries); [50 §8.1] F1–F5, F13; [60 §2.5] rows "Ops and values", "Schema as data", audit rows "Schema" and "Commit body", R-1–R-5, F1–F5; [80 §2.10] P1, P3, P4, P7, P12 through [OS/path §2–§3]; reviews `docs/spec/reviews/a1-S.md` S-01, S-03, S-19, S-20; open points of [RULES/merge-table], [RULES/link-merge-rules], [RULES/status-machines], [RULES/delete-policy-matrix], [RULES/pack-classes] and [RULES/role-write-policy] addressed to WP-14 |
+| Sources | [AR §2.4] T4 (the two ids); [AR §2.5] T5 (delete policies, tombstones); [AR §2.6] T6 (title ≤ 200 B, abstract, bodies ≤ 64 KiB); [AR §2.12] T12 (schema as data, weakening and strengthening, R4 and R5 additions); [AR §3.1] (node header, cold columns, field block, closed type set, virtual `done`); [AR §3.2] (13 kinds, fields, status sets); [AR §3.3] (25 edge kinds, classes, policies, acyclicity, cardinality, discriminator, edge properties, sigil rule); [AR §3.4] I1–I7, I11, I-F1…I-F14 row; [AR §3.5] (derived columns and flags); [AR §3.6] (status machines); [AR §4.3] (`Create` and the ops that carry values; commit size bound); [AR §4.4] (`NODE`, `UID`, `TOPO`, `DEFER`, `DUE`, `TITLE_*`, `FIELDS_*`, `BODY_REF`, `EDGE_PROPS`, `CREATOR`); [AR §4.6] items 7 and 10 and "Not hashed"; [AR §5a.7] step 4 (merge classes); [AR §5b.2] rules 2–4, 8, 9 (field names, value forms, source-truth flags, tombstones); [AR §5e.2]; [AR §7.1] (`--about`, `--applies-to`, `retract --reason`); [AR §7.3] (deviation findings, `artifact{…}` kinds, doc-writer `derived_from`); [AR §7.4] step 5 (`consumed` with `pinned_commit`); [40 §2.1]–[40 §2.9]; [40 §2.10] I-F1, I-F2, I-F3, I-F8, I-F9, I-F14; [40 §2.11] R-1–R-5, R-17 (authoritative); [40 §5.5] (re-key row); [40 §5.7] (field names, `origin_pred` presence); [50 §2.5] (schema vocabulary, edge table, readings, properties); [50 §3.2] (coercion); [50 §3.3] (absent values, defaults); [50 §3.5] (enum ranks); [50 §4.4] (named queries); [50 §8.1] F1–F5, F13; [60 §2.5] rows "Ops and values", "Schema as data", audit rows "Schema" and "Commit body", R-1–R-5, F1–F5; [80 §2.10] P1, P3, P4, P7, P12 through [OS/path §2–§3]; reviews `docs/spec/reviews/a1-S.md` S-01, S-03, S-19, S-20; open points of [RULES/merge-table], [RULES/link-merge-rules], [RULES/status-machines], [RULES/delete-policy-matrix], [RULES/pack-classes] and [RULES/role-write-policy] addressed to WP-14; the owner's ruling R-66 of 2026-10-14 (`priority` leaves `NodeHdr`); the orchestrator's ruling R-69 of 2026-10-14 (its storage code, its tombstone value, `DOCLEN`); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the derivation hash-domain strings and their hex, the image marker's name, the branch field of the `lane` kind) |
 | Depends on | [F01]; cites [F02], [F04], [F06], [F07], [F09], [F10], [F11], [F12], [F13], [F14], [F17], [F18], [F19], [F20], [OS/path], [LQ/lexical], [LQ/grammar-v1.ebnf], [LQ/canonical-ast], [LQ/envelope], [LQ/std], [API], [CFG], [RULES/merge-table], [RULES/link-merge-rules], [RULES/status-machines], [RULES/delete-policy-matrix], [RULES/pack-classes], [RULES/role-write-policy] |
 
 ## 1. Scope
@@ -43,7 +43,10 @@ are [F01 §8]'s.
 
 - `#N` is a `u32` from 1 to 2^32 − 1; 0 means "no node". It is allocated store-wide under the writer byte from
   `HEAD.next_id` ([F04]), in increasing order, and never reused, not even after the node is deleted, on any branch,
-  across imports and GC ([AR §2.4], I1). A write that would need `#N` = 2^32 is refused ([F19]).
+  across imports and GC ([AR §2.4], I1). The last allocatable `#N` is 2^32 − 2, and so is the last anchor handle `aN`
+  (§10.3): a write that would need `#N` or `aN` = 2^32 − 1 is refused with exit 7, `id_space_exhausted` ([F19 §10.5]),
+  and nothing is written. `HEAD.next_id` and `HEAD.next_anchor` stay `u32` ([F04]); no byte changes, and a literal
+  `#4294967295` still parses and names no node (W3D-SF-6; the orchestrator's ruling R-74 of 2026-10-15).
 - `#N` is the display identity (`#812`) and the key of every runtime table ([AR §5d.1]). It is store-local: it never
   appears in hashed content or the image (N4, [AR §4.6]).
 - Row r of every dense per-node column (§3, §4) belongs to `#N` = r + 1 ([AR §3.1]).
@@ -71,15 +74,16 @@ are [F01 §8]'s.
 ### 3.1 Layout
 
 Every row of a view is one `NodeHdr` of exactly 60 bytes ([AR §3.1]). It is byte-packed ([F01 §4.3]), little-endian,
-and in the field order of [AR §3.1]; no field is aligned (open point 2). [F09] places the rows (the `NODE` section:
-`[NodeHdr; n]`, [AR §4.4]; open point 1).
+and in the field order of [AR §3.1], except that byte 3, [AR §3.1]'s `priority`, is `_reserved`: `priority` is the cold
+column of §4 (the owner's ruling R-66 of 2026-10-14; WP-81a corrects [AR §3.1] and [AR §4.4]). No field is aligned
+(open point 2). [F09] places the rows (the `NODE` section: `[NodeHdr; n]`, [AR §4.4]; open point 1).
 
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
 | 0 | 1 | `u8` | `kind` | the node's kind id (§3.3): 0 = no node on this view, 1–13 core kinds, 64–254 project kinds |
 | 1 | 1 | `u8` | `status` | the kind's status value (§9.5); `blocked` and a container's `done` are never stored (I8) |
 | 2 | 1 | `u8` | `resolution` | §9.4; 0 = none. Non-zero only on a task whose status is `done` or `cancelled` and on a finding whose status is not `open` ([RULES/status-machines] GR-014) |
-| 3 | 1 | `u8` | `priority` | 0–4 = P0–P4 (§9.4); default 2 |
+| 3 | 1 | `u8` | `_reserved` | zero ([F01 §10]); `priority` is a cold column (§4) |
 | 4 | 1 | `u8` | `criticality` | §9.4; default 2 (`normal`) |
 | 5 | 1 | `u8` | `confidence` | §9.4; default 0 (`unset`) |
 | 6 | 1 | `u8` | `authority` | §9.4; default 4 (`agent`) |
@@ -125,16 +129,18 @@ query library's and the pack classes' ([LQ/std], [RULES/pack-classes]).
 - **`kind`.** 0 marks a row with no node on this view: a `#N` allocated on another branch, or never created here.
   1–13 are the core kinds of §9.1. 14–63 are reserved for core kinds of later schema versions and invalid in version 1.
   64–254 are project kinds, whose ids are store-local (§8.3). 255 is invalid.
-- **Header enumerations** (`status`, `resolution`, `priority`, `criticality`, `confidence`, `authority`) hold the
-  integer of an enumeration value of §9.4–§9.5, or a store-local integer of a project value (§8.3). A header value always
-  exists: a node never has an absent header column ([50 §3.3]); where a column does not apply, it holds the value named
-  as its default.
+- **Header enumerations** (`status`, `resolution`, `priority`, `criticality`, `confidence`, `authority`; storage
+  `header`, §8.4.2) hold the integer of an enumeration value of §9.4–§9.5, or a store-local integer of a project value
+  (§8.3). `priority` is held in its cold column (§4), the others in `NodeHdr` (the owner's ruling R-66 of 2026-10-14). A
+  header value always exists: a node never has an absent header enumeration ([50 §3.3]); where one does not apply, it
+  holds the value named as its default.
 - **Offsets.** `title_off` and `fields_off` are offsets into blobs of the segment that holds the row ([F09]); `NONE32`
   is never a valid offset. A delta segment's row points into that delta segment's blobs.
 - **Row validity** (tested by the format oracle and `doctor --fsck`, not on every read: [F01 §10], [F01] open point 6):
-  `kind` is valid; `status` is a value of the kind; `resolution` obeys the column rule; `priority` ≤ 4; the other
-  enumerations hold known values; the reserved bits and bytes are zero; `parent` is 0 or an allocated `#N` other than
-  the row's own; a row with `kind` = 0 has all 60 bytes zero.
+  `kind` is valid; `status` is a value of the kind; `resolution` obeys the column rule; the other enumerations hold
+  known values; the reserved bits and bytes, byte 3 included, are zero; `parent` is 0 or an allocated `#N` other than
+  the row's own; a row with `kind` = 0 has all 60 bytes zero. The cold column `priority` (§4) holds a value ≤ 4 on every
+  row, under the same tests.
 
 ### 3.4 Derived columns
 
@@ -156,9 +162,10 @@ fixes only their storage:
 
 A `Delete` turns the row into a tombstone ([AR §2.5]; the op and its before-image are [F06]'s):
 
-- `kind`, `status`, `resolution`, `priority`, `criticality`, `confidence`, `authority`, `created_tx` and the title are
-  kept, so a tombstone renders with its kind and title at deletion ([50 §3.6]); an artifact, whose title is not stored
-  while it lives (§7.1), is given its last `path` text as its stored title. The status, the resolution and the header
+- `kind`, `status`, `resolution`, `priority`, `criticality`, `confidence`, `authority`, `created_tx` and the title
+  are kept (`priority` in its cold column, [F09]'s `PRIO`: the orchestrator's ruling R-69 of 2026-10-14), so a
+  tombstone renders with its kind and title at deletion ([50 §3.6]); an artifact, whose title is not stored while it
+  lives (§7.1), is given its last `path` text as its stored title. The status, the resolution and the header
   enumerations are kept for rendering only: the canonical form and the tombstone file carry none of them ([F07 §6.4],
   [RULES/delete-policy-matrix] TB-012), and `content` shows them as the kind's initial values and the enumerations'
   defaults ([API §15.3]; spec sync 2b);
@@ -166,7 +173,7 @@ A `Delete` turns the row into a tombstone ([AR §2.5]; the op and its before-ima
 - `updated_tx` and `rev_seq` name the deleting commit; `last_op_lsn` names the `Delete`;
 - the reason and replacement live in the `TOMB` section ([AR §4.4], [F09]); the retained out-edges (flagged structural
   edges and historical edges, I39′) stay in the adjacency;
-- the cold columns keep `uid` and `CREATOR`; `topo`, `defer_until` and `due` become 0.
+- the cold columns keep `uid`, `CREATOR` and `priority`; `topo`, `defer_until` and `due` become 0.
 
 ## 4. Cold columns
 
@@ -179,8 +186,9 @@ owns their sections. The logical columns:
 | `topo` | `u32` | Pearce–Kelly position in the precedence graph (§3.4); derived |
 | `defer_until` | `u32` | Unix seconds (UTC, [F01 §5.7] without the millisecond scale): the node is not dispatchable before this time ([AR §3.5]); 0 = none. The largest value, 2^32 − 1, is 2106-02-07T06:28:15Z |
 | `due` | `u32` | Unix seconds, as `defer_until`; 0 = none |
-| `CREATOR` | `Creator` (below) | the actor and role of the creating commit, set at `Create` and never changed ([50] F4) |
-| `DOCLEN` | [F09] | [50] F12's per-field token lengths; kept or dropped by the LQ-Bench decision of WP-72 ([F09]'s hole) |
+| `priority` | `u8` | 0–4 = P0–P4 (§9.4); default 2. The node's priority, which [AR §3.1] puts at `NodeHdr` byte 3; it is stored in [F09]'s row column `PRIO` ([F09 §5.4]) (the owner's ruling R-66 of 2026-10-14). Its field storage stays `header`, code 1 (§8.4.2, §9.2; the orchestrator's ruling R-69 of 2026-10-14) |
+| `CREATOR` | `Creator` (below) | the actor and role of the creating commit, set at `Create` and never changed ([50] F4); for a merged or re-keyed node, the original creator ([F06 §7.4]; W3D-SF-7; the orchestrator's ruling R-52 of 2026-10-13) |
+| `DOCLEN` | [F09] | [50] F12's per-field token lengths; whether a writer writes it is [F09]'s hole `F09-doclen`, decided by GT13 before M2 (the orchestrator's ruling R-69 of 2026-10-14) |
 
 `Creator` (6 bytes, [F01 §8.3]):
 
@@ -491,7 +499,7 @@ values (also of core enumerations), project edge kinds, project named queries ([
 [CFG §10.13] (§8.5.6; spec sync 2b).
 
 - **Schema version.** Format v1 defines schema version **1**: the core schema of §9. It is the value of canonical item 7
-  ([AR §4.6]) for every commit of a format-v1 store and the `schema-version` line of `.moirai-image` ([AR §5b.3]). A
+  ([AR §4.6]) for every commit of a format-v1 store and the `schema-version` line of `.klotho-image` ([AR §5b.3]). A
   commit or image of another schema version is refused as a newer format is ([F01 §9.1]; open point 8).
 - **Core items are fixed.** No schema item may change, retire or shadow a core kind, field, enumeration value or edge
   kind; items may add fields to core kinds and values to core enumerations.
@@ -572,9 +580,9 @@ open point 7):
 
 | value | name | where the value lives |
 |---|---|---|
-| 1 | `header` | a `NodeHdr` column |
+| 1 | `header` | a `NodeHdr` column, or for `priority` the `PRIO` row column ([F09]) |
 | 2 | `flag` | a source-truth bit of `NodeHdr.flags` |
-| 3 | `cold` | a cold column (§4) |
+| 3 | `cold` | a cold column (§4) other than `priority`, whose storage is `header` |
 | 4 | `field` | the field block (§6) |
 | 5 | `title` | `TITLE_BLOB` (§7.1) |
 | 6 | `body` | the body (§7.2) |
@@ -1057,7 +1065,7 @@ The title is derived from `path`.
 | 22 | `base_sha` | `oid` | scalar | optional | — | a git commit id |
 | 23 | `tip_sha` | `oid` | scalar | optional | — | a git commit id |
 | 24 | `target_dir` | `path` | scalar | optional | — | root `abs` |
-| 25 | `moirai_branch` | `sym` | scalar | optional | — | a ref name ([F12]) |
+| 25 | `store_branch` | `sym` | scalar | optional | — | a ref name ([F12]) |
 
 **area**
 
@@ -1308,8 +1316,12 @@ the image line is [F14]'s (R-11).
 
 **Validity** (V for every decoder: [F06], [F09], the format oracle). Every enumeration holds a listed value; `resolver` ≥ 1;
 `hint_last` ≥ `hint_first` ≥ 1; `text_unavailable` only when `kind` carries a quote (`heading`, `symbol`, `quote`,
-`range`); `scope`, `window` and `marker` are non-empty when present; `window` is a valid window value of [F20 §2.7.3];
-`occurrence` ≥ 1; `blob` has `algo` `none` only when `kind` = `file`; `git` has `algo` ≠ `none`. **Consistency** (C):
+`range`); `scope`, `window` and `marker` are non-empty when present; `marker` is one line of at most 64 bytes and a
+scope value has 1–64 segments (`n`, §10.3.1), the bounds their rows state; `window` is a valid window value of
+[F20 §2.7.3]; `occurrence` ≥ 1; `blob` has `algo` `none` only when `kind` = `file`; `git` has `algo` ≠ `none`. Beyond
+these rules, `hint_first` and `hint_last` (any `u32` values that meet the rule above), `quote`, `prefix`, `suffix` and
+`end` have no decoder bound: the text caps (`QUOTE_MAX`, `CONTEXT_MAX`, [F20 §7]; `SCOPE_MAX_BYTES`, §10.3.1) bind
+writers only (the orchestrator's ruling R-74 of 2026-10-15). **Consistency** (C):
 when the texts are held, each digest [F07 §8.2] computes from them is the digest of the exact bytes; an import whose
 `anchor` line carries both a text and a digest that disagree is `ImageParse` ([40 §5.7], [F14]).
 
@@ -1374,7 +1386,7 @@ Every derivation is BLAKE3-128 ([F01 §7.1]) over `lp()`-framed arguments ([F01 
 
 | argument | bytes |
 |---|---|
-| a domain string (`"moirai-file-v1"`, `"moirai-root-v1"`, `"moirai-anchor-v1"`) | its ASCII bytes |
+| a domain string (`"klotho-file-v1"`, `"klotho-root-v1"`, `"klotho-anchor-v1"`) | its ASCII bytes |
 | a root name | its UTF-8 bytes (never its symbol id) |
 | a path (`origin_path`) | the path text's exact bytes, without its root |
 | a uid (`origin_pred`, file uid, src uid, `pred`) | its 16 bytes |
@@ -1389,7 +1401,7 @@ Every derivation is BLAKE3-128 ([F01 §7.1]) over `lp()`-framed arguments ([F01 
 ### 11.2 File uids
 
 ```
-uid_file(r, p, q) = BLAKE3-128( lp("moirai-file-v1") ‖ lp(r) ‖ lp(p) ‖ lp(q or empty) )
+uid_file(r, p, q) = BLAKE3-128( lp("klotho-file-v1") ‖ lp(r) ‖ lp(p) ‖ lp(q or empty) )
 ```
 
 with r the root name, p the registration path, q the predecessor uid ([40 §2.3]).
@@ -1419,13 +1431,13 @@ spelling; never case-folded ([40 §2.3]). A uid created on one line while anothe
 over its stored inputs is accepted as foreign, flagged by `image doctor`, and treated as random ([40 §2.3]).
 
 *(Informative)* For root `project`, path `docs/a.md` and no predecessor, the 46 hashed bytes are
-`0E 00 00 00` `6D 6F 69 72 61 69 2D 66 69 6C 65 2D 76 31` `07 00 00 00` `70 72 6F 6A 65 63 74` `09 00 00 00`
+`0E 00 00 00` `6B 6C 6F 74 68 6F 2D 66 69 6C 65 2D 76 31` `07 00 00 00` `70 72 6F 6A 65 63 74` `09 00 00 00`
 `64 6F 63 73 2F 61 2E 6D 64` `00 00 00 00`.
 
 ### 11.3 Root nodes (R-5)
 
 ```
-uid_root(r) = BLAKE3-128( lp("moirai-root-v1") ‖ lp(r) )
+uid_root(r) = BLAKE3-128( lp("klotho-root-v1") ‖ lp(r) )
 ```
 
 - Each root that holds at least one file node on a view has one **root node** there: kind `area`, uid `uid_root(r)`,
@@ -1446,7 +1458,7 @@ uid_root(r) = BLAKE3-128( lp("moirai-root-v1") ‖ lp(r) )
 ```
 captured      = BLAKE3-128( lp(file uid at capture) ‖ lp(kind) ‖ lp(scope) ‖ lp(quote.exact) ‖ lp(prefix.exact)
                             ‖ lp(suffix.exact) ‖ lp(end.exact) ‖ lp(occurrence) ‖ lp(window if kind = lines, else empty) )
-uid_anchor(s, c, p) = BLAKE3-128( lp("moirai-anchor-v1") ‖ lp(s) ‖ lp(c) ‖ lp(p or empty) )
+uid_anchor(s, c, p) = BLAKE3-128( lp("klotho-anchor-v1") ‖ lp(s) ‖ lp(c) ‖ lp(p or empty) )
 ```
 
 with the argument bytes of §11.1, s the referrer's (source's) uid, c = `captured` and p the predecessor term
@@ -1523,17 +1535,18 @@ None of these is a store parameter or a configuration key.
 
 None. No value of this chapter is decided by an M0 measurement or benchmark. Values this chapter stores whose size
 depends on a hole are owned elsewhere: the window value's length (HOLE(F20-window-lines)) and the quote and context
-lengths ([F20 §7]); whether `DOCLEN` exists ([F09]).
+lengths ([F20 §7]); whether a writer writes `DOCLEN` ([F09]).
 
 ## Open points for the review
 
 1. **`NodeHdr` as rows** (conflict inside [AR]). [AR §3.1] says the header is "stored as structure-of-arrays columns",
    [AR §4.4] says `NODE` is `[NodeHdr; n]`, 60 B fixed. This chapter specifies the 60-byte row and reads §3.1 as the
    hot/cold split (the header's columns are one fixed row; cold columns are separate arrays). [F09] (WP-13) confirms
-   the section form; the row's bytes do not change either way.
-2. **Field order.** The offset table keeps [AR §3.1]'s field order, which leaves `rev_seq` and `last_op_lsn` unaligned.
-   With a 60-byte stride no ordering keeps 8-byte fields aligned in every row, readers never assume alignment
-   ([F01 §4.3]), and the design's order is the least surprising.
+   the section form. `priority` alone leaves the row: byte 3 is `_reserved`, and `priority` is a cold column, [F09]'s
+   row column `PRIO` (the owner's ruling R-66 of 2026-10-14); every other byte of the row stays.
+2. **Field order.** The offset table keeps [AR §3.1]'s field order (byte 3 is now `_reserved`, open point 1), which
+   leaves `rev_seq` and `last_op_lsn` unaligned. With a 60-byte stride no ordering keeps 8-byte fields aligned in every
+   row, readers never assume alignment ([F01 §4.3]), and the design's order is the least surprising.
 3. **Integer codes** of kinds, statuses, resolutions and every core enumeration (§9) are assigned here
    ([RULES/status-machines] open point 2): core kinds 1–13 in [AR §3.2]'s order, statuses in lattice order with side
    states after, other values in the design's listing order. `kind` = 0 marks an unused row, so an all-zero row is valid.

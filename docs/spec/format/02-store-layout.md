@@ -6,7 +6,7 @@
 | Chapter | [F02], `docs/spec/format/02-store-layout.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-10 (R-SPEC-F), [60 §3.1] item 1 |
-| Sources | [AR §2.14] (discovery, placement CM6, `init` guard D4, `doctor store`); [AR §2.13] (scope); [AR §4.1] (files table and rules, file count CL3); [AR §4.9] (delta files, retirement, GC of `cs`, `tmp/` and `trash/`); [AR §4.10] (namespace durability, `restore` swap); [AR §7.1] (`init`, `backup`, `restore`, `doctor` flags; exit codes); [AR §11] #17 (one store per repository), #36, #37; [AR §13] (two scopes; `discovery.git-hint`; user-scope keys); [AR §14]; [80 §2.3.2] (durability class per protocol point), [80 §2.5] (sealed files), [80 §2.6] (environment guard), [80 §2.10] P1, P9, P11, P12, [80 §2.12] (temporary files, user-scope config, `config` rewrite), [80 §3.1] X-F10, X-F11, [80 §3.2] (pointer files), [80 §4.2] T5; [90 §2.1] (`MOIRAI_DIR`), [90 §2.2] (the MCP server's store discovery), [90 §4.5] (lazy open); [H21 §2.1] (the Codex MCP server's environment); [40 §3.5] (`trash/`); [60 §2.5] "Store layout" row and the Cross-platform row; [PLAN §3.2] WP-10, [PLAN §3.3] (pointer-file encoding) |
+| Sources | [AR §2.14] (discovery, placement CM6, `init` guard D4, `doctor store`); [AR §2.13] (scope); [AR §4.1] (files table and rules, file count CL3); [AR §4.9] (delta files, retirement, GC of `cs`, `tmp/` and `trash/`); [AR §4.10] (namespace durability, `restore` swap); [AR §7.1] (`init`, `backup`, `restore`, `doctor` flags; exit codes); [AR §11] #17 (one store per repository), #36, #37; [AR §13] (two scopes; `discovery.git-hint`; user-scope keys); [AR §14]; [80 §2.3.2] (durability class per protocol point), [80 §2.5] (sealed files), [80 §2.6] (environment guard), [80 §2.10] P1, P9, P11, P12, [80 §2.12] (temporary files, user-scope config, `config` rewrite), [80 §3.1] X-F10, X-F11, [80 §3.2] (pointer files), [80 §4.2] T5; [90 §2.1] (`MOIRAI_DIR`), [90 §2.2] (the MCP server's store discovery), [90 §4.5] (lazy open); [H21 §2.1] (the Codex MCP server's environment); [40 §3.5] (`trash/`); [60 §2.5] "Store layout" row and the Cross-platform row; [PLAN §3.2] WP-10, [PLAN §3.3] (pointer-file encoding); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the image's ref namespace, the dictionary header's magic) |
 | Depends on | [F01]; cites [F03], [F04], [F05], [F09], [F10], [F11], [F14], [F15], [F16], [F17], [F18], [F19], [CFG], `[OS/fs]`, `[OS/env]`, `[OS/path]` |
 
 ## 1. Scope
@@ -280,7 +280,7 @@ two store directories that carry the same store id (a copied store).
 - It is recorded in `HEAD` among the parameters fixed at `init` ([F04], [F17 §2]; open point 2), and every process reads
   it from there.
 - Its text form is 32 lower-case hexadecimal digits ([F01 §6.4]). It appears in pointer files (§3.3), in the image's side
-  ref `refs/moirai/meta/<store-id>` and its `meta.moi`, in `refs/moirai/ops/<store-id>`, and in the alias map's origin
+  ref `refs/klotho/meta/<store-id>` and its `meta.moi`, in `refs/klotho/ops/<store-id>`, and in the alias map's origin
   store ([AR §5b.1], [AR §5b.6] step 5, [F14]).
 - It is never part of a canonical form or of hashed image content ([AR §4.6], [AR §5b.5] rule 7).
 
@@ -517,7 +517,7 @@ environment can make the server resolve another file than the CLI (open point 20
 
 | id | what | decided by | candidates | constraint the value must meet |
 |---|---|---|---|---|
-| `F02-dict-file` | whether a store holds `dict.<D>` files | measurement 6 (WP-54), filled by WP-81a ([60 §3.1] "dictionary compression", [90 §11.3]) | absent (no dictionary); present, holding a raw-content dictionary behind the `MDIC` header; present, holding a formatted zstd dictionary behind that header ([80 §2.5] rule 4, [AR §4.1]) | must equal the dictionary form [F10] adopts for the same decision; the name `dict.<D>` and the rules of §5.2 and §6 hold in every case |
+| `F02-dict-file` | whether a store holds `dict.<D>` files | measurement 6 (WP-54), filled by WP-81a ([60 §3.1] "dictionary compression", [90 §11.3]) | absent (no dictionary); present, holding a raw-content dictionary behind the `KDIC` header; present, holding a formatted zstd dictionary behind that header ([80 §2.5] rule 4, [AR §4.1]) | must equal the dictionary form [F10] adopts for the same decision; the name `dict.<D>` and the rules of §5.2 and §6 hold in every case |
 
 ## Open points for the review
 

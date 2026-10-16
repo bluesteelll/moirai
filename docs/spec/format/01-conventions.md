@@ -6,7 +6,7 @@
 | Chapter | [F01], `docs/spec/format/01-conventions.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-10 (R-SPEC-F), [60 §3.1] item 1 |
-| Sources | [80 §1] principles X1–X9 (summarised in [AR §14]); [80 §2.7.1] (`ProcId.os`, `boot_id`); [80 §2.13] (byte order and word size); [80 §3.1] X-F1, X-F2, X-F3, X-F9; [80 §3.2] (HLC and timestamps, config line ends); [80 §4.2] T6, T7; [AR §2.12] (symbols never collected, enum integers never reused); [AR §3.1] (field block, value types, `CREATOR`); [AR §4.2] (`HEAD` slot checksum); [AR §4.3] (`RecHdr`, commit header encoding: presence bitmap, LEB128 varints, symbol fields); [AR §4.4] (`SegHdr`, `SYMTAB`, `TOMB`, `IDEM`, `LEASES`); [AR §4.6] (canonical form; what is not hashed); [AR §12] (no auto-migration); [40 §2.3] (`lp()`), [40 §2.5] (`oid`), [40 §2.11] R-1, R-3; [50 §8.1] F1, F3, F4, F10; [60 §2.5] (preamble: format version 1); [71 RAM-m6] (actor width); [90 §4.4], [90 §10.1]; [PLAN §3.2] WP-10, [PLAN §3.3] (the symbol-width gap) |
+| Sources | [80 §1] principles X1–X9 (summarised in [AR §14]); [80 §2.7.1] (`ProcId.os`, `boot_id`); [80 §2.13] (byte order and word size); [80 §3.1] X-F1, X-F2, X-F3, X-F9; [80 §3.2] (HLC and timestamps, config line ends); [80 §4.2] T6, T7; [AR §2.12] (symbols never collected, enum integers never reused); [AR §3.1] (field block, value types, `CREATOR`); [AR §4.2] (`HEAD` slot checksum); [AR §4.3] (`RecHdr`, commit header encoding: presence bitmap, LEB128 varints, symbol fields); [AR §4.4] (`SegHdr`, `SYMTAB`, `TOMB`, `IDEM`, `LEASES`); [AR §4.6] (canonical form; what is not hashed); [AR §12] (no auto-migration); [40 §2.3] (`lp()`), [40 §2.5] (`oid`), [40 §2.11] R-1, R-3; [50 §8.1] F1, F3, F4, F10; [60 §2.5] (preamble: format version 1); [71 RAM-m6] (actor width); [90 §4.4], [90 §10.1]; [PLAN §3.2] WP-10, [PLAN §3.3] (the symbol-width gap); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the magic numbers and their first-letter rule, the hash-domain prefix, the hex of §6.3's example, the image marker's name); `KGMP` in §4.5's list: the orchestrator's ruling R-74 of 2026-10-15 |
 | Depends on | nothing; every other part depends on this chapter |
 
 ## 1. Scope
@@ -104,8 +104,12 @@ hole**, written inline as `HOLE(<id>)`.
   that is neither fixed nor measured is decided by the chapter (§2.4 rule 3).
 - **What a hole may leave open.** A value. It never leaves open a width, an offset, or whether a later field exists,
   unless its candidates column lays out every alternative completely (for example, a section that is kept or dropped).
-- **Filling.** WP-81a fills every hole. The value then replaces the inline `HOLE(...)` text, and the Holes row stays,
-  with the value and a reference to the measurement record. Fixtures that depend on a holed value are written after the
+- **Filling.** WP-81a fills every hole. A hole whose deciding run has a deadline after the tag stays
+  **open at the tag**, written `HOLE(<id>)`: its Holes row keeps the five columns above and names the deadline in its
+  "decided by" cell, and WP-81a fills it by that deadline, with its WP-20b fixtures, WP-95b's E3 re-run and WP-81a's
+  owner review ([PLAN §3.2] WP-81a, WP-81b; the owner's ruling R-23 of 2026-10-12; the orchestrator's ruling R-74 of
+  2026-10-15). A filled value then replaces the inline `HOLE(...)` text, and the Holes row stays, with the value and a
+  reference to the measurement record. Fixtures that depend on a holed value are written after the
   fill (WP-20b); before it, a fixture uses the test profile of [F17] or does not exist.
 
 ### 2.6 Offset tables, sequence tables, bit tables and enumeration tables
@@ -227,10 +231,11 @@ kind of an `OsFileId`) are also the owning chapter's ([F11]).
 ### 4.5 Magic numbers
 
 A magic number is a fixed ASCII byte string at a fixed offset, stored first byte first and compared as bytes, never as
-an integer: `"MOIR"` is the bytes `4D 4F 49 52`. A new magic is four printable ASCII bytes beginning with `M`.
+an integer: `"KLTH"` is the bytes `4B 4C 54 48`. A new magic is four printable ASCII bytes beginning with `K`.
 
-*(Informative)* Magics named in the design: `MOIR` (`HEAD` slot, [F04]), `MLCK` (`LOCK` header, [F03]), `MSEG` (segment
-header, [F09]), `MDIC` (dictionary header, [F10]); and `MSWP`, the `restore` swap intent that `[OS/fs §4.9.3]` defines.
+*(Informative)* Magics named in the design: `KLTH` (`HEAD` slot, [F04]), `KLCK` (`LOCK` header, [F03]), `KSEG` (segment
+header, [F09]), `KDIC` (dictionary header, [F10]), `KGMP` (`gitmap` page header, [F10]); and `KSWP`, the `restore` swap
+intent that `[OS/fs §4.9.3]` defines.
 The owning chapter is authoritative.
 
 ## 5. Integers and scalar values
@@ -395,7 +400,7 @@ exactly as [40 §2.3] defines it: the byte length of `x` as a little-endian `u32
 - The length-prefix scheme of the canonical commit encoding ([AR §4.6]) is [F07]'s (a WP-12 gap of [PLAN §3.3]). If
   [F07] uses `lp()`, it cites this section.
 
-*(Informative)* `lp("moirai-file-v1")` is `0E 00 00 00 6D 6F 69 72 61 69 2D 66 69 6C 65 2D 76 31`.
+*(Informative)* `lp("klotho-file-v1")` is `0E 00 00 00 6B 6C 6F 74 68 6F 2D 66 69 6C 65 2D 76 31`.
 
 ### 6.4 Hexadecimal text
 
@@ -447,7 +452,7 @@ store and user configuration files.
 | SHA-256 | [FIPS 180-4] | `b32` | git object ids in a repository whose object format is `sha256`; `oid` values with algorithm `sha256`; the SHA-256 pins of the Unicode data files ([PLAN §2.4]) |
 
 - BLAKE3's keyed mode and key-derivation mode are not used in format v1. A chapter that needs domain separation puts a
-  fixed `lp("moirai-…-v1")` prefix in the input, as [40 §2.3] does.
+  fixed `lp("klotho-…-v1")` prefix in the input, as [40 §2.3] does.
 - SHA-1 and SHA-256 compute git object ids and file pins only, never a moirai commit id or uid.
 - `id16` is the first 16 bytes of a commit id; for any input it equals BLAKE3-128 of that input.
 - *(Informative)* The implementations are the pure-Rust crates of [PLAN §2.4] (`blake3` with `pure`, `xxhash-rust`,
@@ -482,7 +487,7 @@ store and user configuration files.
 - An input made of several operands frames each operand with `lp()` (§6.3), unless the owning chapter gives another
   framing and says why it is unambiguous.
 - *(Informative)* A fixture writes such an input with `xtask hex`'s literal operands, the framing written out:
-  `{blake3_128 {len "moirai-file-v1"} "moirai-file-v1" a..b}` is BLAKE3-128 of `lp("moirai-file-v1")` followed by the
+  `{blake3_128 {len "klotho-file-v1"} "klotho-file-v1" a..b}` is BLAKE3-128 of `lp("klotho-file-v1")` followed by the
   bytes a..b, which must themselves be framed operands (spec sync 2b).
 
 ### 7.4 Checksum ranges
@@ -584,6 +589,10 @@ may add a class before the freeze; its width is `u32` unless S5's condition hold
   row) has the version of the store, which is `HEAD.format`.
 - Format version 1 is the format frozen at M0 exit and tagged `format-v1` ([60 §2.5], WP-81b). The value 0 is never
   valid.
+- A writer that adds a `derived-optional` section ([F09 §3.3]) to a store after the tag stamps format version 1: such a
+  section is an additive change, not a format version bump ([AR §4.4]), so the store stays a format-1 store, and a
+  format-1 reader that does not know the section's tag ignores it (§9.3) (the orchestrator's rulings R-51 of
+  2026-10-13, N-1, and R-69 of 2026-10-14).
 - All files of one store carry the same format version. A store whose files carry different versions is invalid.
 - A reader of format 1 that finds:
   - version 1: reads the structure;
@@ -602,7 +611,7 @@ These are not format versions; each has its owning chapter and its own compariso
 | resolver version | R-14's constant table; `ANCHORRES` keys; `FILEOBS.resolver_version` ([40 §2.6]) | [F20], [F11] |
 | tokenizer version byte | segment header ([50] F12) | [F09] |
 | LQ grammar version (`u16`) | `QUERIES` items ([50] F3) | [F08], `[LQ/...]` |
-| image format version | the `.moirai-image` marker and the `.moi` codec ([AR §5b.3]) | [F14] |
+| image format version | the `.klotho-image` marker and the `.moi` codec ([AR §5b.3]) | [F14] |
 | output envelope version | `"v":1` of `--json v1` ([AR §7.1]) | [F19] |
 | record versions inside `LOCK` | `SlotRec.ver` ([80] X-F1) | [F03] |
 

@@ -5,7 +5,7 @@
 | Title | Every named hole of `docs/spec/`: the value an M0 measurement or benchmark decides, where it sits, what decides it and its candidates; the ids that alias a hole owned elsewhere; the rule-file "holes" that are already decided; the measured decisions that are not holes |
 | Chapter | `docs/spec/HOLES.md` (an index; no citation tag) |
 | Status | draft, pass 1 pending |
-| Work package | assembled by R-SPEC-F from every chapter's Holes section ([PLAN §3.2] item 1); WP-81a fills the holes and records each value in the owning chapter |
+| Work package | assembled by R-SPEC-F from every chapter's Holes section ([PLAN §3.2] item 1); WP-81a fills the holes, each by the tag or, for a hole open at the tag, by its deadline ([F01 §2.5]), and records each value in the owning chapter |
 | Sources | [F01 §2.5] (the hole convention); the Holes section of every file in `docs/spec/`; [60 §3.1] "Decisions fixed at M0 exit"; [60 §5.2] (the M0 measurements) |
 | Depends on | every chapter that owns a hole; [COVERAGE.md](COVERAGE.md) for the rows the holes affect |
 
@@ -19,6 +19,7 @@
   the draft value where there is one.
 - When WP-81a fills a hole, the value replaces the inline `HOLE(...)` in the owning chapter and the owner's Holes row
   stays with the value and the measurement record ([F01 §2.5]). This file then gets the value in its `candidates` cell.
+  A hole open at the tag stays `HOLE(<id>)`, and its row names the deadline in its `decided by` cell ([F01 §2.5]).
 - Counts: 53 holes to fill (§2), all in the `<part>-<name>` form. The 3 rule-file "holes" of §3 are decided and written
   as values, and the 7 ids of §4 are renamed to their owners' ids (review pass 1, S1-40, P1-33, A1-42), so a scan of
   every `HOLE(` in `docs/spec/` outside `reviews/` finds exactly the ids of §2. First checked on 2026-09-28 by a scan of
@@ -30,11 +31,11 @@
 
 | id | chapter § | what | decided by | candidates |
 |---|---|---|---|---|
-| `F02-dict-file` | [F02 §5.1]; [F04 §4.1], [F10 §2.1], [F10 §3.5], [F17 §6.3] | whether a store holds `dict.<D>` files | measurement 6 (WP-54), filled with `F10-dict-form` (one decision in two chapters) | absent; present with a raw-content dictionary behind the `MDIC` header; present with a formatted zstd dictionary behind it |
-| `F09-doclen` | [F09 §12.4] | whether the sections `DOCLEN` (`0x0052`) and `FTSSTAT` (`0x0053`) exist in format v1 | LQ-Bench's search-stratum ablation, BM25 against the statistics-free scorer (WP-72, GT13) | kept (the layouts of [F09 §12.4]); dropped (both tags stay reserved; `TERMS`, `POST` and the tokenizer unchanged) |
-| `F10-codec-values` | [F10 §3.1], [F10 §3.3] | the codec values admitted besides 0 `none`, and each one's payload format | measurement 6 (WP-54) | numbering fixed (1 `lz4`, 2 `lz4-dict`, 3 `zstd`, 4 `zstd-dict`); admitted set {0, 2, 3} (expected), {0, 1, 3}, {0, 3} or {0, 3, 4}, with 1 replacing 3 if `lz4` is chosen for `hist` |
+| `F02-dict-file` | [F02 §5.1]; [F04 §4.1], [F10 §2.1], [F10 §3.5], [F17 §6.3] | whether a store holds `dict.<D>` files | measurement 6 (WP-54), filled with `F10-dict-form` (one decision in two chapters) | absent; present with a raw-content dictionary behind the `KDIC` header; present with a formatted zstd dictionary behind it |
+| `F09-doclen` | [F09 §12.4], [F09 §3.3] | whether a writer writes the `derived-optional` sections `DOCLEN` (`0x0052`) and `FTSSTAT` (`0x0053`) | LQ-Bench's search-stratum ablation, BM25 against the statistics-free scorer (WP-72, GT13), before M2 | kept: writers write both (the layouts of [F09 §12.4]); dropped: writers write neither, and a reader may ignore them |
+| `F10-codec-values` | [F10 §3.1], [F10 §3.3] | the codec values admitted besides 0 `none`, and each one's payload format | measurement 6 (WP-54) and the owner's ruling R-43 of 2026-10-13, OI-1b | numbering fixed (1 `lz4`, 2 `lz4-dict`, 3 `zstd`, 4 `zstd-dict`); admitted set {0, 1, 3}, as the owner's ruling R-43 of 2026-10-13 decided |
 | `F10-blob-codec` | [F10 §3.4], [F10 §5.3] | the codec a seal writes for body blobs | measurement 6 (WP-54), by [90 §11.3]'s decision rule | 2 `lz4-dict` (expected); 1 `lz4`; 3 `zstd`; 4 `zstd-dict` |
-| `F10-hist-codec` | [F10 §3.4], [F10 §4.3] | the codec retirement writes for `hist` frames | measurement 6 (WP-54) | 3 `zstd` (expected); 1 `lz4` |
+| `F10-hist-codec` | [F10 §3.4], [F10 §4.3]; [F17 §3] P35, [F17 §4.5]; [CFG §10.2] | the default of `store.hist-codec`: the codec every `hist` writer uses unless the key names another | measurement 6 (WP-54) | 3 `zstd` (expected); 1 `lz4` |
 | `F10-dict-form` | [F10 §6.2], [F10 §3.5], [F10 §9] | the form of `dict.<D>` files | measurement 6 (WP-54) | absent; raw content (≤ 64 KiB); formatted zstd dictionary (32–110 KiB, `Dictionary_ID` = D) |
 | `F10-body-placement` | [F10 §3.4]; touches [F06 §8] and [F17 §5.1] | whether bodies in the log tail may be compressed | measurement 6 (WP-54) | raw (the design's default); compressed with `F10-blob-codec` |
 | `F15-lock-release` | [F15 §3.8] FM-8.1; used by [F03] Holes and [F16] Holes (the release delays the gates inject); alias in [OS/lock §7.3] | the lock-release delay after `TerminateProcess` per byte kind (writer, flush, slot), idle and loaded: p50, p99, max and the CDF the in-memory `Vfs` samples | measurement 12 (WP-52) | prior evidence ≤ 32 ms observed, p99 1–8 ms; the unbounded tail always stays |
