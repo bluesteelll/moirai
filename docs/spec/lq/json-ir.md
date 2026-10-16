@@ -6,7 +6,7 @@
 | Chapter | [LQ/json-ir], `docs/spec/lq/json-ir.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-19a (R-SPEC-F), part of WP-19 ([PLAN §3.2] item 1); closes the [PLAN §3.3] gap "JSON IR schema" |
-| Sources | [50 §0.3] decision 1 (no JSON AST for agents); [50 §4.2] ("the JSON op batch of `moirai apply` is the JSON form of the same IR … (`--ast` prints it)"); [50 §5.1] pipeline (text, named query, JSON IR); [50 §5.2] error JSON; [50 §7.4] items 3 and 7; [50 §8.2] LQ-Bench row ("LQ, LQ with strict GQL spellings, and the JSON IR as input"); [60 §3.1] exit (the alternative surfaces are ablations); [90 §6.6] MPSP rules 3–5; [90 §7.2]; [AR §7.1] (`apply`); [AR §7.7.2]; [PLAN §2.2] (`moirai-lqbench`: "JSON IR → model AST converter"), WP-71b, WP-72 |
+| Sources | [50 §0.3] decision 1 (no JSON AST for agents); [50 §4.2] ("the JSON op batch of `moirai apply` is the JSON form of the same IR … (`--ast` prints it)"); [50 §5.1] pipeline (text, named query, JSON IR); [50 §5.2] error JSON; [50 §7.4] items 3 and 7; [50 §8.2] LQ-Bench row ("LQ, LQ with strict GQL spellings, and the JSON IR as input"); [60 §3.1] exit (the alternative surfaces are ablations); [90 §6.6] MPSP rules 3–5; [90 §7.2]; [AR §7.1] (`apply`); [AR §7.7.2]; [PLAN §2.2] (`moirai-lqbench`: "JSON IR → model AST converter"), WP-71b, WP-72; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the JSON Schema identifier) |
 | Depends on | [LQ/canonical-ast] (the S-AST catalogue this IR writes as JSON, §3.2–§3.4), [LQ/grammar-v1.ebnf] (Annex P, R, G), [LQ/lexical] (literal forms and limits, §5, §8; positions, §2.3; JSON strings, §11.1), [LQ/errors] (texts), [F01] (UTF-8, §6.1) |
 
 ## 1. What the JSON IR is
@@ -169,7 +169,7 @@ parser's codes: `smatch.expect` is optional here (its absence is E007) and `tx.s
 ```json
 {
  "$schema": "https://json-schema.org/draft/2020-12/schema",
- "$id": "urn:moirai:lq:json-ir:1",
+ "$id": "urn:klotho:lq:json-ir:1",
  "title": "LQ JSON IR, grammar version 1",
  "oneOf": [{"$ref": "#/$defs/read"}, {"$ref": "#/$defs/tx"}, {"$ref": "#/$defs/define"}],
  "$defs": {

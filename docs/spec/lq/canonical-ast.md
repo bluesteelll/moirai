@@ -6,7 +6,7 @@
 | Chapter | [LQ/canonical-ast], `docs/spec/lq/canonical-ast.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-19a (R-SPEC-F), part of WP-19 ([PLAN §3.2] item 1); closes the [PLAN §3.3] gap "Canonical-AST encoding" |
-| Sources | [50 §2.3] parser notes; [50 §2.5] edge table (LQ names, reverse aliases, symmetric kinds); [50 §2.6] built-ins and table functions; [50 §2.8] accepted spellings; [50 §3.2] typing and coercion; [50 §3.4] rules 3–4; [50 §3.5] cursors; [50 §3.7] rule 3; [50 §3.10] items 2, 3, 6, 8, 9, 11; [50 §4.1]–[50 §4.4] (named queries, portable form, F3 storage, merge); [50 §5.1]; [50 §5.3] canonical form; [50 §5.11] EXPLAIN id; [50 §8.1] F1, F2, F3, F10; [50 §8.3] property tests; [AR §4.3] commit header (`idem_payload`, `stmt_hash`); [AR §4.6] "Not hashed"; [AR §6.4] idempotency; [AR §7.7.1]–[AR §7.7.2]; [90 §8.1] L1; [72 m3]; the A1 review's S-02 and S-10 (`docs/spec/reviews/a1-S.md`) |
+| Sources | [50 §2.3] parser notes; [50 §2.5] edge table (LQ names, reverse aliases, symmetric kinds); [50 §2.6] built-ins and table functions; [50 §2.8] accepted spellings; [50 §3.2] typing and coercion; [50 §3.4] rules 3–4; [50 §3.5] cursors; [50 §3.7] rule 3; [50 §3.10] items 2, 3, 6, 8, 9, 11; [50 §4.1]–[50 §4.4] (named queries, portable form, F3 storage, merge); [50 §5.1]; [50 §5.3] canonical form; [50 §5.11] EXPLAIN id; [50 §8.1] F1, F2, F3, F10; [50 §8.3] property tests; [AR §4.3] commit header (`idem_payload`, `stmt_hash`); [AR §4.6] "Not hashed"; [AR §6.4] idempotency; [AR §7.7.1]–[AR §7.7.2]; [90 §8.1] L1; [72 m3]; the A1 review's S-02 and S-10 (`docs/spec/reviews/a1-S.md`); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the C-AST hash-domain string and its hex, the targets digest's domain string) |
 | Depends on | [F01] (fixed-width types §5.1, `bool8` §5.4, `f64` §5.5, `b16`/`b32` §5.6, `lp()` §6.3, hex text §6.4, the hash set §7.1, input framing §7.3); [LQ/grammar-v1.ebnf] (the productions); [LQ/lexical] (tokens and literal values); [LQ/std] (signatures, §2.9; lookup, §2.1); [LQ/gql-spelling] (the spelling table); [F06] (commit header layout); [F08] (the F1 and F2 schema rows); [F12], [RULES/merge-table] (the named-query merge rule) |
 
 LQ text is parsed into a syntax tree, the **S-AST**. The binder turns the S-AST into the **canonical AST (C-AST)**: names
@@ -564,7 +564,7 @@ node. All integers are little-endian ([F01 §4.1]).
 | offset | width | type | name | meaning |
 |---|---|---|---|---|
 | 0 | 4 | `u32` | `magic_len` | 16, the byte length of `magic` |
-| 4 | 16 | `[16]u8` | `magic` | the ASCII bytes `moirai-lq-ast-v1`; offsets 0–19 are `lp("moirai-lq-ast-v1")`, the domain-separation prefix [F01 §7.1] asks for |
+| 4 | 16 | `[16]u8` | `magic` | the ASCII bytes `klotho-lq-ast-v1`; offsets 0–19 are `lp("klotho-lq-ast-v1")`, the domain-separation prefix [F01 §7.1] asks for |
 | 20 | 2 | `u16` | `lq` | the grammar version whose canonical-AST algorithm this is: 1 |
 | total | 22 | | | |
 
@@ -749,7 +749,7 @@ enumeration tables of [F01 §2.6] are merged into one table with a leading `enum
 The C-AST of §4.4 encodes to these 174 bytes (hex, 32 per line):
 
 ```
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
 01 31 33 01 3a 3b 00 00 00 00 06 00 00 00 73 74 61 74 75 73 58 04 00 00 00 6f 70 65 6e 33 04 3a
 3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74 79 52 01 00 00 00 00 00 00 00 14 00 00 01 00 00
@@ -772,7 +772,7 @@ both texts of §4.4 is BLAKE3-128 of these bytes; WP-22 records it in the fixtur
 BLAKE3's default, unkeyed mode, so `H(x)` = BLAKE3-256(encoding)[0..16], which is what a fixture assembled with
 `xtask hex`'s `{blake3_128 a..b}` directive gives, or the first 16 bytes of what `{blake3_256 a..b}` gives (that directive
 emits 32 bytes) ([PLAN §3.2] WP-20; spec sync 2b). `H` is a `b16` ([F01 §5.6]). The encoding's
-leading `lp("moirai-lq-ast-v1")` separates this hash from every other BLAKE3 derivation of the format.
+leading `lp("klotho-lq-ast-v1")` separates this hash from every other BLAKE3 derivation of the format.
 
 ### 7.2 Values
 
@@ -901,7 +901,7 @@ does not touch this chapter (§1.3).
 
 | # | Point | Resolution here |
 |---|---|---|
-| C-1 | **PLAN §3.3 gap "Canonical-AST encoding" (WP-19).** [50 §5.3] lists what the canonical form normalises and that BLAKE3-128 of "its encoding" is the query hash, but defines no encoding. | Resolved: a tagged pre-order binary encoding with fixed-width little-endian integers, `lp()` strings, explicit list counts and presence bytes, under an `lp("moirai-lq-ast-v1")` + `lq` header (§6); every tag, field and code is fixed; a text form mirrors it for fixtures (§4). Fixed widths rather than varints keep two independent encoders (the model's LQ-3 and the product's LQ-2) trivially identical. |
+| C-1 | **PLAN §3.3 gap "Canonical-AST encoding" (WP-19).** [50 §5.3] lists what the canonical form normalises and that BLAKE3-128 of "its encoding" is the query hash, but defines no encoding. | Resolved: a tagged pre-order binary encoding with fixed-width little-endian integers, `lp()` strings, explicit list counts and presence bytes, under an `lp("klotho-lq-ast-v1")` + `lq` header (§6); every tag, field and code is fixed; a text form mirrors it for fixtures (§4). Fixed widths rather than varints keep two independent encoders (the model's LQ-3 and the product's LQ-2) trivially identical. |
 | C-2 | Which `TX` options belong to the idempotency payload. [50 §3.10] item 8 lists what is normalised away but not the options. | `ON`, `KEY`, `LEASE` and `DRY` are dropped: the branch and the key are bound separately by the idempotency record ([AR §6.4]); the lease is authority, checked by fencing, and a retry after a re-claim must still replay; a `DRY` and its apply then share one hash. `IF TIP`, `IF TARGETS` and `MESSAGE` stay: they are part of the request, and the message is part of the commit. The CLI flags and MCP fields join the block first (R3), so the flag and clause forms hash alike. |
 | C-3 | Column names. [50 §5.3] renames variables, but an unaliased `RETURN t` names its column after the variable. | `RETURN` aliases are kept as strings (they are output names, like property names, and an alias change is a real change of output); the display name of an unaliased column is not hashed. Consequence: two definitions that differ only in the variable behind an unaliased column have one hash, so a merge that changed both sides that way does not conflict, and the landing side's column name wins. |
 | C-4 | [50 §4.4] rewrites `#N`, `s<seq>` and commit prefixes, but a literal the binder coerces (`{id: 40}`, `t.rev = 4466`, `t.rev = s4466`) is just as store-local. | The rewrite covers coerced node and revision literals too (§8.1 step 4), and the binding check of §8.2 verifies it on export and import (C-18). |
@@ -911,7 +911,7 @@ does not touch this chapter (§1.3).
 | C-8 | [50 §2.5] lists `SUBTASK_OF` as a synonym of `CHILD_OF`, but F1 has `lq_name` and `reverse_names` only. | Resolved here as a forward synonym (no direction flip). **Closed at pass 1 (A1-56):** §5.4's synonym table owns it; [F08] adds no forward-name list. |
 | C-9 | F10's `stmt_hash` for commits not produced by an LQ statement. | Absent (presence bit clear) for `stmt_origin` merge, import and file verb. WP-12 ([F06]) owns the presence bitmap and confirms. |
 | C-10 | [AR §6.4]'s default key hashes "the canonical bound AST" with other inputs. | This chapter supplies `H`; the framing (the `lp()` of each input and their order) is [F06]/[API]'s. |
-| C-11 | **Unassigned gap: the `IF TARGETS` target-set digest** ([50 §3.10] items 4, 9; [72 m1]). [PLAN §3.3] assigns it to no WP, yet the model (WP-93b) must compute it and fixtures must print it. | Proposal for WP-19's envelope part or WP-80a to adopt: digest = BLAKE3-128 of `lp("moirai-lq-targets-v1")` ‖ `lq` u16 ‖ for each `MATCH … EXPECT` statement in order: its 1-based index u32 ‖ its binding count u32 ‖ the bindings sorted bytewise, each the concatenation, in variable-index order, of the values of the variables its mutations use (a node as its 16-byte uid; an edge as source uid, `lp(lq_name)`, destination uid and the 16-byte discriminator or zeros); printed and written as 32 lower-case hex digits in `IF TARGETS '<hex>'`. |
+| C-11 | **Unassigned gap: the `IF TARGETS` target-set digest** ([50 §3.10] items 4, 9; [72 m1]). [PLAN §3.3] assigns it to no WP, yet the model (WP-93b) must compute it and fixtures must print it. | Proposal for WP-19's envelope part or WP-80a to adopt: digest = BLAKE3-128 of `lp("klotho-lq-targets-v1")` ‖ `lq` u16 ‖ for each `MATCH … EXPECT` statement in order: its 1-based index u32 ‖ its binding count u32 ‖ the bindings sorted bytewise, each the concatenation, in variable-index order, of the values of the variables its mutations use (a node as its 16-byte uid; an edge as source uid, `lp(lq_name)`, destination uid and the 16-byte discriminator or zeros); printed and written as 32 lower-case hex digits in `IF TARGETS '<hex>'`. |
 | C-12 | Two normalisations not listed in [50 §5.3]: `(#N)` = `({id: #N})` (§3.1 item 7) and a subquery that is one `MATCH` = its pattern form (N1). | Adopted: each maps two spellings of one meaning to one tree, which [50 §5.3] asks for ("Cypher and GQL spellings mapped to one form"). |
 | C-13 | Which revisions the C-AST resolves. | Sequence numbers and commit prefixes become full ids (they are store-local); refs, `HEAD` and suffixes stay symbolic. So `USE main~5` hashes the same whatever `main` points to, and the pinned cursor records the view's commit separately ([50 §3.5]). |
 | C-14 | §5.7's scope rules are the binder's name resolution; [50] states them only in part (Cypher's `WITH` and `ORDER BY` visibility is implied by "as in Cypher"). | Stated here in full because the renaming depends on them; LQ-3 (WP-93a) and LQ-2 (M7) implement the same table. The review should check V4 and V5 against Cypher's visibility rules. |

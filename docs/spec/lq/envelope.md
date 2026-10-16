@@ -6,7 +6,7 @@
 | Chapter | [LQ/envelope], `docs/spec/lq/envelope.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-19b (R-SPEC-F), part of WP-19 of [PLAN §3.2] item 1 |
-| Sources | [50 §6.4] (the envelope, shapes, node lines, untrusted text, JSON, footers), [50 §2.4], [50 §2.5] (edge readings, reverse aliases), [50 §2.8] (display spelling), [50 §2.9] (every example output), [50 §3.5] (total order, pages, pinned and live cursors, byte identity), [50 §3.6], [50 §3.9], [50 §3.10] items 8–9, [50 §4.4] (the `DEFINE` result), [50 §5.3] (canonical hash), [50 §5.10] (budgets), [50 §5.11], [50 §6.1], [50 §6.3], [50 §7.4] items 2 and 4; [AR §5a.1] (display ids), [AR §7.1] (the output contract), [AR §7.2], [AR §8.3] TOKENS rows; [90 §2.1], [90 §2.2], [90 §6.1]–[90 §6.3], [90 §6.7], [90 §8.1] L1, L3, L5, L8, [90 §10.1] row "Output contract"; [80 §4] T7; [40 §2.9], [40 §6.1]–[40 §6.2]; research [16 §6.4] (cursor contents) |
+| Sources | [50 §6.4] (the envelope, shapes, node lines, untrusted text, JSON, footers), [50 §2.4], [50 §2.5] (edge readings, reverse aliases), [50 §2.8] (display spelling), [50 §2.9] (every example output), [50 §3.5] (total order, pages, pinned and live cursors, byte identity), [50 §3.6], [50 §3.9], [50 §3.10] items 8–9, [50 §4.4] (the `DEFINE` result), [50 §5.3] (canonical hash), [50 §5.10] (budgets), [50 §5.11], [50 §6.1], [50 §6.3], [50 §7.4] items 2 and 4; [AR §5a.1] (display ids), [AR §7.1] (the output contract), [AR §7.2], [AR §8.3] TOKENS rows; [90 §2.1], [90 §2.2], [90 §6.1]–[90 §6.3], [90 §6.7], [90 §8.1] L1, L3, L5, L8, [90 §10.1] row "Output contract"; [80 §4] T7; [40 §2.9], [40 §6.1]–[40 §6.2]; research [16 §6.4] (cursor contents); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the targets digest's domain string) |
 | Depends on | [F19] (exit codes, byte unit, both-ends, ASCII, `--ids` page, header limits), [F18] (R-16 strings), [F06] (F10 origins), [F08] (F1 readings, field order), [F12] (conflict keys), [LQ/canonical-ast] (query hash), [LQ/errors], [LQ/std], [LQ/gql-spelling] |
 
 ## 1. Scope and precedence
@@ -502,7 +502,7 @@ open point C-11 proposes for this chapter to adopt; `lp()`, `u16`, `u32` and the
 
 | # | Field | Encoding | Meaning |
 |---|---|---|---|
-| 1 | domain | `lp("moirai-lq-targets-v1")` | domain separation |
+| 1 | domain | `lp("klotho-lq-targets-v1")` | domain separation |
 | 2 | `lq` | u16 | the grammar version, 1 |
 | 3 | per `MATCH … EXPECT` statement, in block order | u32 index (1-based), u32 binding count, then the bindings sorted bytewise | only `MATCH … EXPECT` statements bind target sets; literal and parameter targets cannot be swapped |
 | 3a | a binding | the concatenation, in variable-index order ([LQ/canonical-ast §5.7]), of the values of the variables the statement's mutations use | a node: its 16-byte uid; an edge: source uid (16), `lp(<LQ name of the stored kind>)`, destination uid (16), and the 16-byte discriminator or 16 zero bytes |
