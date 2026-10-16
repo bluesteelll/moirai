@@ -3510,8 +3510,8 @@ fn a_swap_in_one_commit_merges_clean() {
 }
 
 /// [F12 §6.5] "A `live` existence side": resolving a provisionally deleted node's `DeleteVsModify` to the live side
-/// restores its value keys from the side's node image and its hierarchy key from that side's state at the conflict's
-/// introducing commit.
+/// restores its value keys from the side's node image and its hierarchy key from that side's state at M, the merge that
+/// made the conflict value.
 #[test]
 fn a_live_existence_side_restores_the_node() {
     let mut s = S::base();
@@ -4860,5 +4860,53 @@ fn a_new_delete_versus_modify_over_two_live_provisional_sides_merges_key_by_key(
     );
     assert_eq!(field(&s, "lane/x", 1, "priority"), prio("P0"));
     states_verify(&s, 1).unwrap();
+    ids_verify(&s);
+}
+
+/// [F12 §6.5] (W3D-SF-3): a value a merge carried unchanged from a side restores from M, the merge that made it. lane/x
+/// puts #3 under #2 while lane/y deletes it, and `merge lane/y --into lane/x` makes `#3.existence DeleteVsModify`
+/// (task's EP-001 `delete-wins`: #3 a tombstone). `merge lane/x --into lane/z` carries the value unchanged (MR-004). On
+/// each lane, `resolve #3.existence --take ours` restores #3's hierarchy key from the state of M's first parent, where
+/// lane/x put #3 under #2: the walk from lane/z's tip passes to its merge's second parent, which holds the value.
+#[test]
+fn a_carried_conflict_restores_from_the_merge_that_made_it() {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("p1", "p1"),
+            task("p2", "p2"),
+            child("k", "k", Target::Var("p1".into())),
+        ]),
+        orch(),
+    );
+    for l in ["x", "y", "z"] {
+        s.ok(branch(l, "main"), orch());
+    }
+    s.ok(mv(3, Some(2)), fresh_on("lane/x"));
+    s.ok(delete(3), fresh_on("lane/y"));
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(
+        data(&r).conflicts,
+        vec![("#3.existence".to_string(), "DeleteVsModify".to_string())]
+    );
+    let r = s.run(merge("lane/x", "lane/z"), fresh_on("lane/z"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    for l in ["lane/x", "lane/z"] {
+        let st = state(&s, l);
+        let x = &st.nodes[&Nid(3)];
+        assert!(
+            !x.live() && x.conflicts.contains_key(&Aspect::Existence),
+            "{l}"
+        );
+    }
+    s.ok(resolve("#3.existence", Take::Ours), fresh_on("lane/x"));
+    s.ok(resolve("#3.existence", Take::Ours), fresh_on("lane/z"));
+    for l in ["lane/x", "lane/z"] {
+        let st = state(&s, l);
+        let x = &st.nodes[&Nid(3)];
+        assert!(x.live() && x.conflicts.is_empty(), "{l}");
+        assert_eq!(x.parent, Some(Nid(2)), "{l}: the hierarchy of ours at M");
+    }
     ids_verify(&s);
 }
