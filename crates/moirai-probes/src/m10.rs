@@ -650,12 +650,13 @@ pub fn target(q: &Quantity, profile: Profile) -> Target {
 /// Whether `t`'s tail reaches the cap it targets (u20 cut D-5; addendum m-4): it stops on that clause, the refused group
 /// passes the cap, and the measure is at least 95 % of it and at most the cap (a first commit past the cap, which a tail
 /// always holds, is not a tail at its cap: R-44 I-2). A `rec` or `ovl` point targets its threshold; the quiet
-/// points their record cap P11 × P07; `a1-cli2x-*` the binding quiet cap, whichever it is. Returns the clause and the
-/// measure's share of the cap in per mille.
-pub fn reaches_cap(q: &Quantity, t: &Target, tail: &Tail) -> (bool, &'static str, u64) {
+/// points their record cap P11 × P07; a quantity whose `name` holds `cli2x` the binding quiet cap, whichever it is.
+/// Returns the clause and the measure's share of the cap in per mille. It reads the target's clause and the quantity's
+/// name only, so m14's full checkpoint at its record caps shares it (R-87 item 5).
+pub fn reaches_cap(name: &str, t: &Target, tail: &Tail) -> (bool, &'static str, u64) {
     let p = t.params;
     let stop = binding_clause(t, tail);
-    let (clause, cap) = match (q.clause, q.name.contains("cli2x")) {
+    let (clause, cap) = match (t.clause, name.contains("cli2x")) {
         (Clause::Quiet, true) => (
             stop,
             match stop {
@@ -3552,7 +3553,7 @@ mod tests {
         for q in &grid()[31..49] {
             let t = target(q, Profile::Production);
             let tail = generate(&t, false).unwrap_or_else(|e| panic!("{}: {e}", q.name));
-            let (ok, clause, share) = reaches_cap(q, &t, &tail);
+            let (ok, clause, share) = reaches_cap(&q.name, &t, &tail);
             if !ok {
                 failed.push(format!(
                     "{}: k {} stops {} at {share} per mille of its {clause} cap",
@@ -3575,7 +3576,7 @@ mod tests {
                 let mut tj = t;
                 tj.seed = seed(&q.name) ^ j;
                 let tail = generate(&tj, false).unwrap();
-                if reaches_cap(q, &tj, &tail).0 {
+                if reaches_cap(&q.name, &tj, &tail).0 {
                     failed.push(format!(
                         "{}: k {j} < {} already reaches its cap",
                         q.name, q.seed_k
