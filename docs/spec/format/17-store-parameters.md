@@ -452,15 +452,18 @@ dictionary exists.
 
 ### 6.4 `store.fts.tier2-nodes` (P18)
 
-- **Meaning.** Full-text tier 2 (`TERMS`, `POST` and, if kept, `DOCLEN`, [AR §4.4], [50] F12) is built once the store's row
-  count reaches P18. The count is `HEAD.next_id − 1`. It is monotonic and store-wide, so every branch view uses the same
-  tier (OP-17-02).
+- **Meaning.** Full-text tier 2 (`TERMS` and `POST`, with the `derived-optional` group `DOCLEN` and `FTSSTAT` where
+  [F09 §3.3]'s writer rule puts it, [AR §4.4], [50] F12) is built once the store's row count reaches P18; whether
+  writers write the group is `HOLE(F09-doclen)`'s ([F09 §3.3]). The count is `HEAD.next_id − 1`. It is monotonic and
+  store-wide, so every branch view uses the same tier (OP-17-02).
 - **Decision point.** Each delta checkpoint and each rollup. A runtime-only fold (§5.4) is not a decision point. A
-  delta that a runtime-only fold writes after bit 1 is set carries the tier-2 sections like every other segment: `TERMS`,
-  `POST` and `DOCLEN` are empty, and `FTSSTAT`, if kept, equals the layer below's ([F09 §15.1]).
+  delta that a runtime-only fold writes after bit 1 is set carries `TERMS` and `POST` empty, like every other segment,
+  and, when the view below it carries the `DOCLEN` and `FTSSTAT` group, `DOCLEN` empty and `FTSSTAT` equal to the layer
+  below's; otherwise neither ([F09 §15.1]).
   - At the first decision point where `next_id − 1 ≥ P18`, the maintenance holder builds tier 2 for the segment it writes.
   - The publish that covers that `Checkpoint` sets `HEAD.flags` bit 1 (`fts_tier2`).
-  - From then on, every segment written carries the tier-2 sections, and the next rollup builds them for the base.
+  - From then on, every segment written carries `TERMS` and `POST`, and the `DOCLEN` and `FTSSTAT` group where
+    [F09 §3.3]'s writer rule puts it; the next rollup builds them for the base.
   - Bit 1 is never cleared. Raising P18 later does not switch tier 2 off; lowering it switches tier 2 on at the next
     decision point.
 - **Mixed segment sets.** A segment set may mix segments with and without tier-2 sections. A reader searches a segment
@@ -795,7 +798,8 @@ R-74 of 2026-10-15). Measurement numbers are those of [AR §8.2] and [60 §5.2].
 The following holes of other chapters condition this one. P16 and P17 are inert without a dictionary, which is
 `HOLE(F02-dict-file)` ([F02 §5.1], [F10]; measurement 6). `body_bytes` counts raw or compressed bytes according to [F10]'s
 body-placement hole (measurement 6). P35's production value is `HOLE(F10-hist-codec)` ([F10 §3.4]; measurement 6):
-[F10]'s Holes section lists it, and this table gains no row for it.
+[F10]'s Holes section lists it, and this table gains no row for it. Whether writers write [F09 §3.3]'s
+`derived-optional` group, `DOCLEN` and `FTSSTAT` (§6.4), is `HOLE(F09-doclen)` (GT13, before M2).
 
 ## Open points for the review
 
