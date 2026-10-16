@@ -1,22 +1,22 @@
-//! The delta segment `seg.d<K>` of a delta checkpoint ([F09 §16.2], `09-segments.md:1085-1089`; [AR §4.5] step 12):
+//! The delta segment `seg.d<K>` of a delta checkpoint ([F09 §16.2]; [AR §4.5] step 12):
 //! the fold of a tail's commits over the base, as touched rows with complete states and ± lists, in the probe's subset
 //! of sections.
 //!
-//! - **Touched rows** (`09-segments.md:378-382`): a row is listed in `IDS` iff a row-scoped section of it differs from
+//! - **Touched rows** ([F09 §5.1]): a row is listed in `IDS` iff a row-scoped section of it differs from
 //!   its state in the base. The fold visits the owner of every op, both endpoints of an added or removed edge (I-P3,
-//!   `:502-504`), and the old and new parent of a `Move`, whose in-lists hold the reverse of `parent` (`:499-501`), and
+//!   [F09 §7.1]), and the old and new parent of a `Move`, whose in-lists hold the reverse of `parent` ([F09 §7.1]), and
 //!   [`Fold::finish`] drops a visited row whose state ends equal to the base's, such as an endpoint of an edge added
 //!   and removed again; an owner always differs, by `rev_seq`. Each listed row carries its complete state; the other
 //!   rows stay in the base.
 //! - **The ops** ([F06 §7.4]–§7.5): `Create` makes a row of its kind, status and resolution with the commit's `seq` as
-//!   `created_tx` and its creator (`08-data-model.md:89-91`, `:182`); `Delete` makes a tombstone (`flags` = `deleted`
+//!   `created_tx` and its creator ([F08 §3.1], [F08 §4]); `Delete` makes a tombstone (`flags` = `deleted`
 //!   only, `parent` 0, counters 0, `fields_off` `NONE32`, `body_ref` 0, `topo`, `defer_until` and `due` 0, the out-list
-//!   kept, `08-data-model.md:157-169`); `SetStatus` sets the status and resolution; `AddEdge` and `RemoveEdge` change
+//!   kept, [F08 §3.5]); `SetStatus` sets the status and resolution; `AddEdge` and `RemoveEdge` change
 //!   the source's out-list and the destination's in-list; `Move` sets `parent`. Every op sets its owner's `rev_seq`,
-//!   `updated_tx` and `last_op_lsn` (`:87-91`). `SetField` and `SetBody` change only these: the field blocks and
+//!   `updated_tx` and `last_op_lsn` ([F08 §3.1]). `SetField` and `SetBody` change only these: the field blocks and
 //!   `BLOBTAB` are outside the subset. Settles (`K_RT` records) fold into runtime sections the probe does not write.
 //!   Nor does it write `TITLE_BLOB`, `UID` rows for creates, `TOMB` rows for deletes, new symbols or the store-level
-//!   tables ([F09 §16.2], `09-segments.md:1085-1089`): a delta checkpoint that wrote them does more work, so the
+//!   tables ([F09 §16.2]): a delta checkpoint that wrote them does more work, so the
 //!   checkpoint measurement 14 times over this delta is a lower bound (`m14`, "What the checkpoint omits").
 //!   [`super::full`] writes them for `ckpt-full-4096` (u21 cut §3.3): its fold wraps this one, which stays as it is,
 //!   so the night's deltas keep their bytes (`night_delta_bytes_are_unchanged`).
@@ -24,13 +24,13 @@
 //!   other op leaves it; an absent row's is 0. A touched base row starts from the base's `PRIO`.
 //! - **Derived columns** (`open_blockers`, the counters, `container`, `topo` order) are not recomputed: the probe's
 //!   choice, since the base holds no precedence order to keep; a created row's `topo` is its `#N`.
-//! - **± lists** (`09-segments.md:319-332`, `:591-594`): per bitset key, the ids that joined and left it relative to
+//! - **± lists** ([F09 §4.6], [F09 §9.2]): per bitset key, the ids that joined and left it relative to
 //!   the base, for the overlay's families (kind and kind-status of live rows, predicate `deleted`), so the delta's lists
 //!   equal [`crate::overlay::Overlay::plus_minus`] over the same tail. `BMDIR` and the lists are absent when no set
 //!   changed.
-//! - **The header** (`09-segments.md:119-128`): `n_rows` the `IDS` length, `from_lsn` the base's `upto_lsn`,
+//! - **The header** ([F09 §2.3]): `n_rows` the `IDS` length, `from_lsn` the base's `upto_lsn`,
 //!   `upto_lsn` and `rt_upto_lsn` the tail's end, `base_seq` the largest `seq` folded. `rt_upto_lsn` = `upto_lsn`
-//!   because a main-set layer needs `rt_upto_lsn ≥ upto_lsn` (`:128`, `:136`), although no runtime section is folded.
+//!   because a main-set layer needs `rt_upto_lsn ≥ upto_lsn` ([F09 §2.3]), although no runtime section is folded.
 
 use super::base::{Columns, Csr, DEFAULT_PRIORITY, put_bitsets, put_prio, put_rows, sections};
 use super::bitset::{decode_plus_minus, encode_plus_minus};
@@ -240,7 +240,7 @@ impl<'c, 'a> Fold<'c, 'a> {
                 base_seq: self.seq,
                 from_lsn: base.view.header.upto_lsn,
                 upto_lsn,
-                // F09 requires rt_upto_lsn >= upto_lsn in a main-set layer (09-segments.md:128, :136); the probe folds
+                // F09 requires rt_upto_lsn >= upto_lsn in a main-set layer ([F09 §2.3]); the probe folds
                 // no runtime section (the module docs).
                 rt_upto_lsn: upto_lsn,
                 ..Header::default()
@@ -433,7 +433,7 @@ mod tests {
     }
 
     /// A delta's bytes read back to the delta that was encoded (spec gate 1, "a re-read delta equal to its input"),
-    /// with the header of `09-segments.md:119-128`, `IDS` strictly ascending, every column sized by the rows and every
+    /// with the header of [F09 §2.3], `IDS` strictly ascending, every column sized by the rows and every
     /// digest right; a delta with no set change carries no `BMDIR`.
     #[test]
     fn delta_reads_back_equal_to_its_input() {
@@ -609,7 +609,7 @@ mod tests {
                 Op::Delete { .. } => {
                     self.set_parent(o, 0);
                     let v = self.get(o);
-                    // F08 §3.5 (`08-data-model.md:157-169`): the enumerations, `created_tx` and the title kept;
+                    // [F08 §3.5]: the enumerations, `created_tx` and the title kept;
                     // `flags` = deleted only, `parent` 0, the counters 0, no field block or body; `CREATOR` kept,
                     // `topo`, `defer_until` and `due` 0.
                     v.hdr = NodeHdr {

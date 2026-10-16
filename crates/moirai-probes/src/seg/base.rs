@@ -40,7 +40,7 @@ use crate::tail::enc::{put_uvar, put_vbytes, uvar_len};
 use crate::tail::rt::Epoch;
 use crate::tail::synth::{BASE_KIND, EKINDS, STATUSES};
 
-/// Out-edges per base node (`ARCHITECTURE-RESEARCH.md:1677`).
+/// Out-edges per base node ([AR §8.1]).
 pub const OUT_EDGES: usize = 3;
 /// The creator actor of every base node (the tail's `c_actor`).
 pub const ACTOR: u32 = 5;
@@ -50,7 +50,7 @@ pub const ROLE: u16 = 2;
 pub const DUE_FROM: u32 = 1_790_000_000;
 /// The smallest base: 3 distinct out-edges per node need room.
 pub const MIN_N: u32 = 8;
-/// `BMDIR`'s row width (`09-segments.md:579-587`).
+/// `BMDIR`'s row width ([F09 §9.2]).
 pub const BMDIR_ROW: u32 = 4;
 
 /// What a base is built from.
@@ -58,9 +58,9 @@ pub const BMDIR_ROW: u32 = 4;
 pub struct Spec {
     /// N: rows #1..=N.
     pub n: u32,
-    /// `upto_lsn`: the tail's first lsn (`09-segments.md:127`).
+    /// `upto_lsn`: the tail's first lsn ([F09 §2.3]).
     pub upto_lsn: u64,
-    /// `base_seq`: the largest `seq` below `upto_lsn` (`09-segments.md:125`).
+    /// `base_seq`: the largest `seq` below `upto_lsn` ([F09 §2.3]).
     pub base_seq: u64,
 }
 
@@ -130,7 +130,7 @@ impl Spec {
     }
 
     /// Row #`id`'s out-list: [`OUT_EDGES`] distinct `(kind, dst)`, no self-edge, sorted by `(kind, dst)`
-    /// (`09-segments.md:494-495`).
+    /// ([F09 §7.1]).
     pub fn out_edges(&self, id: u32) -> Vec<(u8, u32)> {
         let n = u64::from(self.n);
         let mut out: Vec<(u8, u32)> = Vec::with_capacity(OUT_EDGES);
@@ -147,7 +147,7 @@ impl Spec {
         out
     }
 
-    /// The header (`09-segments.md:119-129`, seg-base column).
+    /// The header ([F09 §2.3], seg-base column).
     pub fn header(&self) -> Header {
         Header {
             seg_kind: seg_kind::BASE,
@@ -175,7 +175,7 @@ impl Spec {
     }
 }
 
-/// Adjacency in CSR form: `off` (rows + 1), `ids`, `kinds` (`09-segments.md:483-493`).
+/// Adjacency in CSR form: `off` (rows + 1), `ids`, `kinds` ([F09 §7.1]).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Csr {
     /// Offsets.
@@ -205,7 +205,7 @@ impl Csr {
     }
 
     /// The reverse of a base's forward CSR (rows #1..=n): row d's in-list holds `(k, s)` for every `(k, d)` in s's
-    /// out-list, sorted by `(kind, src)` (I-P3, `09-segments.md:502-504`).
+    /// out-list, sorted by `(kind, src)` (I-P3, [F09 §7.1]).
     pub fn reverse(&self, n: u32) -> Csr {
         let mut count = vec![0u32; n as usize + 1];
         for &d in &self.ids {
@@ -235,7 +235,7 @@ impl Csr {
     }
 }
 
-/// Writes one CSR direction: the offsets, the `#N`s and the kinds under `tags` (`09-segments.md:483-505`).
+/// Writes one CSR direction: the offsets, the `#N`s and the kinds under `tags` ([F09 §7.1]).
 pub fn put_csr(w: &mut Writer, c: &Csr, tags: [u16; 3]) -> Result<(), String> {
     let e = c.ids.len() as u32;
     w.push(tags[0], c.off.len() as u32, |o| {
@@ -262,7 +262,7 @@ pub fn put_bitsets(
     put_bm(w, sets, put)
 }
 
-/// Writes `BMDIR`: the keys of `sets` (`09-segments.md:577-587`). A segment with sections between `BMDIR` and
+/// Writes `BMDIR`: the keys of `sets` ([F09 §9.2]). A segment with sections between `BMDIR` and
 /// `BM.<0>` in tag order writes them between this and [`put_bm`].
 pub fn put_bmdir(w: &mut Writer, sets: &[(BitsetKey, u32)]) -> Result<(), String> {
     w.push(tag::BMDIR, sets.len() as u32, |o| {
@@ -390,15 +390,15 @@ pub const SALT_T: u64 = 0x6D31_345F_7469_746C;
 pub const SALT_F: u64 = 0x6D31_345F_6669_656C;
 /// The words of its vocabulary.
 pub const VOCAB: u32 = 4_096;
-/// A title's bytes (`ARCHITECTURE-RESEARCH.md:1677`).
+/// A title's bytes ([AR §8.1]).
 pub const TITLE_LEN: usize = 60;
-/// A field value's bytes (`ARCHITECTURE-RESEARCH.md:1677`).
+/// A field value's bytes ([AR §8.1]).
 pub const FIELD_LEN: usize = 24;
 /// The field the probe stores as a row's title (the probe's convention, [F08 §7.1]; u20 cut §3.9).
 pub const TITLE_FIELD: u32 = 1;
 /// The field the probe takes as a document's abstract ([F08 §9]; [F09 §12.1]).
 pub const ABSTRACT_FIELD: u32 = 2;
-/// The refs of the full base: `main` and 49 lanes (`ARCHITECTURE-RESEARCH.md:1677`, "~50 live refs worst case").
+/// The refs of the full base: `main` and 49 lanes ([AR §8.1], "~50 live refs worst case").
 pub const REFS: u32 = 50;
 /// The `hist` files the full base's `FILES` names (u20 cut F-8).
 pub const HIST_FILES: std::ops::RangeInclusive<u32> = 2..=9;
@@ -650,7 +650,7 @@ pub const fn full_sections(bitsets: usize) -> usize {
 /// `fields_off` pointing into the base's own pools, and the sections a fold reads to give a touched row its complete
 /// state and the store-level snapshots it starts from: `UID`, `TITLE_BLOB`, `FIELDS_BLOB`, an empty `BLOBTAB`,
 /// `DOCLEN`, `FTSSTAT`, `FILES`, `REFS`, `ALLOC` and `TREES`. `tok_ver` is 1. No `TERMS` or `POST` (u21 cut F-17): the
-/// checkpoint never reads them, and the base stays invalid under V-7 (`09-segments.md:1197`), as [`build`]'s is.
+/// checkpoint never reads them, and the base stays invalid under V-7 ([F09 §17.1]), as [`build`]'s is.
 pub fn build_full(spec: &Spec) -> Result<Vec<u8>, String> {
     if spec.n < MIN_N {
         return Err(format!("a base has at least {MIN_N} nodes"));
@@ -765,7 +765,7 @@ pub fn build_full(spec: &Spec) -> Result<Vec<u8>, String> {
 }
 
 /// The row sections of a parsed segment, row `i` being #N = i + 1 in a base and `IDS[i]` in an upper segment
-/// (`09-segments.md:138-143`).
+/// ([F09 §2.4]).
 #[derive(Clone, Debug)]
 pub struct Columns<'a> {
     /// The segment.
@@ -920,7 +920,7 @@ impl<'a> Columns<'a> {
     }
 }
 
-/// The hot index of a segment: `NODE`, the six CSR columns, `BMDIR` and every `BM.<i>` (`ARCHITECTURE-RESEARCH.md:1681`).
+/// The hot index of a segment: `NODE`, the six CSR columns, `BMDIR` and every `BM.<i>` ([AR §8.1]).
 pub fn hot_bytes(v: &SegView<'_>) -> u64 {
     v.table
         .iter()
@@ -1006,7 +1006,7 @@ pub(crate) mod tests {
         v.check_digests().unwrap();
     }
 
-    /// The CSR equals the naive edge lists (`09-segments.md:492-504`): row #N's out-list is the generator's 3 edges
+    /// The CSR equals the naive edge lists ([F09 §7.1]): row #N's out-list is the generator's 3 edges
     /// sorted by (kind, dst), and its in-list holds exactly the (kind, src) of every edge into #N, sorted (I-P3).
     #[test]
     fn csr_equals_naive_edges() {

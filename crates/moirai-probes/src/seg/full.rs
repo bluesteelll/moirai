@@ -1,6 +1,6 @@
 //! The full delta of a delta checkpoint (u21 cut §3.3; u20 cut §3.9; spec Goal 1): the fold of a tail over the full base
 //! ([`super::base::build_full`]) into every section [F09 §3.1] requires of a delta of its window
-//! (`09-segments.md:156-206`), and the writer and reader of its bytes.
+//! ([F09 §3.1]), and the writer and reader of its bytes.
 //!
 //! - **[`FullBase`]** reads the full base's extra sections: each row's title and field block through its `NodeHdr`, its
 //!   uid from `ALLOC`, its `DOCLEN`, the base's `FTSSTAT`, and the `REFS`, `TREES` and `FILES` snapshots.
@@ -12,18 +12,18 @@
 //!   full base's, never a tail's `old` value or `Delete` image (u21 cut F-19).
 //! - **[`FullFold::finish`]** gives each listed row its complete state: the base's title and fields overlaid with the
 //!   window's changes; a tombstone keeps its title and drops its fields and body ([F08 §3.5],
-//!   `08-data-model.md:155-169`). It sets each row's `title_off`, `fields_off` and `body_ref` into this segment's pools
+//!   [F08 §3.5]). It sets each row's `title_off`, `fields_off` and `body_ref` into this segment's pools
 //!   and `BLOBTAB`, indexes the live rows' title and abstract (field 2) with tokenizer v1 on ASCII (bodies are random
 //!   bytes, so untokenized: u20 cut F-5), and sets `FTSSTAT` to the base's, less each touched base row's old
 //!   contribution (from the base's `DOCLEN`), plus each listed row's new one (u21 cut D-7).
 //! - **[`encode`]** seals the bodies `BLOBTAB` names into `blobs.<n>` ([`super::blobs`]; u21 cut D-6), adds that file's
 //!   row to `FILES`, and writes the segment; **[`decode`]** reads both back and checks them.
 //!
-//! The sections, in tag order (`09-segments.md:156-206`; the F11 forms and row sizes of [`super::rt`]):
+//! The sections, in tag order ([F09 §3.1]; the F11 forms and row sizes of [`super::rt`]):
 //!
 //! | Tags | Written as |
 //! |---|---|
-//! | `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE` | as [`delta::encode`], with `title_off`, `fields_off` and `body_ref` into this segment's pools (`:389-393`) |
+//! | `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE` | as [`delta::encode`], with `title_off`, `fields_off` and `body_ref` into this segment's pools ([F09 §5.2]) |
 //! | `UID` | `(uid, #N)` per listed row that is not absent, by (uid, #N) (§5.5) |
 //! | `PRIO` | each listed row's `priority`, as [`delta::encode`] writes it ([F09 §5.4]; R-66) |
 //! | `TITLE_BLOB`, `FIELDS_BLOB` | pools in row order: the title as `vstr`, the [F08 §6] field block as `vbytes` (§6.1–§6.2) |
@@ -68,15 +68,15 @@ use crate::tail::rec::{Payload, Record};
 use crate::tail::scan::{Expect, LogSource, ScanError, decode_record_spans, scan};
 use std::collections::{BTreeMap, HashMap};
 
-/// `TOMB`'s row width (`09-segments.md:536-544`).
+/// `TOMB`'s row width ([F09 §8.1]).
 pub const TOMB_ROW: u32 = 16;
-/// `EDGE_PROPS`' row width (`09-segments.md:512-518`).
+/// `EDGE_PROPS`' row width ([F09 §7.2]).
 pub const EDGE_PROPS_ROW: u32 = 40;
-/// `ANCHOR_UID`'s row width (`09-segments.md:892-898`).
+/// `ANCHOR_UID`'s row width ([F09 §13.4]).
 pub const ANCHOR_UID_ROW: u32 = 28;
-/// `UID`'s row width (`09-segments.md:422-426`).
+/// `UID`'s row width ([F09 §5.5]).
 pub const UID_ROW: u32 = 20;
-/// `SYMTAB`'s class entry (`09-segments.md:947-955`).
+/// `SYMTAB`'s class entry ([F09 §14.2]).
 pub const SYMTAB_CLASS_LEN: usize = 20;
 
 fn e(d: crate::tail::enc::DecodeError) -> String {
@@ -226,7 +226,7 @@ impl<'c, 'a> FullBase<'c, 'a> {
     }
 }
 
-/// A `TOMB` row's fields beside its `id` (`09-segments.md:538-544`).
+/// A `TOMB` row's fields beside its `id` ([F09 §8.1]).
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct Tomb {
     /// `tx`: the deleting commit's `seq`.
@@ -287,7 +287,7 @@ pub struct FullDelta {
     pub files: Vec<FileRow>,
 }
 
-/// One commit of the window, for the `Checkpoint` record's per-ref lists ([F05 §9.9], `05-log.md:771-777`).
+/// One commit of the window, for the `Checkpoint` record's per-ref lists ([F05 §9.9]).
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct CommitMark {
     /// The ref it lands on.
@@ -740,7 +740,7 @@ pub fn fold<S: LogSource>(
     f.finish(file_no, to)
 }
 
-/// Appends `SYMTAB` (§14.2, `09-segments.md:933-966`): the header, one 20-byte entry per class, each class's `by_id`
+/// Appends `SYMTAB` ([F09 §14.2]): the header, one 20-byte entry per class, each class's `by_id`
 /// (pool offsets) and `by_str` (the ids by string) arrays, then the pool of `vstr`s in (class, id) order. `syms` are by
 /// (class, id), each class's ids contiguous.
 pub fn put_symtab(out: &mut Vec<u8>, syms: &[(u8, u32, String)]) -> Result<(), String> {
@@ -1738,7 +1738,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// `TOMB` follows the deletes ([F09 §8.1], `09-segments.md:534-547`): on the hand-built tail, whose `Delete` of #9 in
+    /// `TOMB` follows the deletes ([F09 §8.1]): on the hand-built tail, whose `Delete` of #9 in
     /// the commit of `seq` 103 has `reason` 3 and `replaced_by` 52, `TOMB` is the one row (9, 103, 3, 52), so a swap of
     /// `reason` and `replaced_by` shows; #9 is a tombstone with its base title and uid, no field and no body.
     #[test]
@@ -1857,7 +1857,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// `SYMTAB` holds the window's new symbols ([F09 §14.2], `09-segments.md:933-966`): the overlay's symbols by (class,
+    /// `SYMTAB` holds the window's new symbols ([F09 §14.2]): the overlay's symbols by (class,
     /// id), here `session` 17 and `stmt` 9 (`tail/synth.rs`), in the layout of §14.2: the header, a 20-byte entry per
     /// class with `first_id`, `n` and its arrays' offsets, `by_id` (pool offsets) and `by_str`, then the `vstr` pool.
     #[test]

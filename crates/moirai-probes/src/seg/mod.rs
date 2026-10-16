@@ -3,29 +3,29 @@
 //! a tail over it.
 //!
 //! `[F09 §x]` cites `docs/spec/format/09-segments.md` and `[F08 §x]` `08-data-model.md`; every size, offset and code
-//! below also names its line, so a reviewer can check it against the chapter (R-24 Q3). The writer is a probe's, not
-//! the product's: no frozen byte depends on it, but measurement 14 decides T1's layout from it
-//! (`09-segments.md:1267-1268`).
+//! below also names its section and, where the section holds one, its item id, so a reviewer can check it against the
+//! chapter (R-24 Q3, as R-74 ruling 10 and R-86 ruling 9 amend it). The writer is a probe's, not the product's: no
+//! frozen byte depends on it, but measurement 14 decides T1's layout from it ([F09 Holes], "T1's structure"; [F09]
+//! OP-09-01).
 //!
 //! | Module | What it holds | Specification |
 //! |---|---|---|
-//! | this one | `SegHdr` with `total_len`, `seg_digest`, `table_xxh3` and `hdr_xxh3`; `SecEnt`; the placement P-1 to P-4; a parser that checks them; `NodeHdr` and `Creator` | [F09 §2.1]–§2.3 (`09-segments.md:51-136`); [F08 §3.1], [F08 §4] (`08-data-model.md:77-100`, `:185-191`) |
-//! | [`bitset`] | the frozen bitset with per-chunk cardinality and its AND/popcount, the ± list | [F09 §4.5], [F09 §4.6] (`09-segments.md:288-332`) |
-//! | [`base`] | the synthetic base `seg.base.1` at N: rows, cold columns, forward and reverse CSR, `BMDIR` and its frozen bitsets; the full base of the full checkpoint, with titles, fields, uids, `DOCLEN`, `FTSSTAT` and the `REFS`, `ALLOC`, `TREES` and `FILES` snapshots | [F09 §5], §7.1, §9, §16.1 (`09-segments.md:376-416`, `:479-505`, `:569-599`, `:1077-1083`); `ARCHITECTURE-RESEARCH.md:1677-1681` |
-//! | [`blobs`] | the `blobs.<n>` file a delta checkpoint seals its window's bodies into: `BLOBIDX` and `BLOBDATA`, each body `lz4` (R-40 O-1) or `none` when lz4 is not shorter; `BlobRef`, `BlobIdx`; the reader | [F10 §3.1]–§3.4, §5.1–§5.4 (`10-sealed-files.md:82-141`, `:305-376`); [F09 §6.3] (`09-segments.md:445-475`) |
-//! | [`full`] | the full delta of a checkpoint: [`full::FullBase`] (the full base's extra sections), [`full::FullFold`] (the night's fold, wrapped), every section a delta of its window requires, and its writer and reader | [F09 §3.1] delta column (`09-segments.md:156-206`), §5–§16.2; u21 cut §3.3 |
-//! | [`delta`] | the delta `seg.d<K>` a checkpoint folds from a tail over the base: the touched rows with complete states and the ± lists against the base | [F09 §16.2] (`09-segments.md:1085-1089`), §5.1 (`:378-382`), §4.6; [F08 §3.5] (`08-data-model.md:157-169`) |
-//! | [`rt`] | [F11 §2.1]'s section body (`RtHdr`, rows, index region, heap); the row sizes and forms of the store-level and runtime sections; the rows of `REFS` with its name index, `IDEM` as a hash table, `ALLOC`, `UIDX`, `TREES`, `FILEOBS` and `FILES`; the bodies with no row; their readers | [F11 §1.3], §2.1–§2.5, §3, §8, §9, §12.4–§12.5 (`11-runtime-tables.md:49-76`, `:88-210`, `:300-446`, `:633-714`, `:826-960`); [F09 §14.3]–§14.4 (`09-segments.md:968-1024`) |
-//! | [`text`] | tokenizer v1 restricted to ASCII (u20 cut F-5), the term index of a segment's documents, `TERMS` (front-coded in blocks of 16), `POST`, `DOCLEN` and `FTSSTAT` (`HOLE(F09-doclen)`'s "kept" candidate), and their readers | [F09 §12] (`09-segments.md:761-848`, `:1263`) |
+//! | this one | `SegHdr` with `total_len`, `seg_digest`, `table_xxh3` and `hdr_xxh3`; `SecEnt`; the placement P-1 to P-4; a parser that checks them; `NodeHdr` and `Creator` | [F09 §2.1]–§2.3; [F08 §3.1], [F08 §4] |
+//! | [`bitset`] | the frozen bitset with per-chunk cardinality and its AND/popcount, the ± list | [F09 §4.5], [F09 §4.6] |
+//! | [`base`] | the synthetic base `seg.base.1` at N: rows, cold columns, forward and reverse CSR, `BMDIR` and its frozen bitsets; the full base of the full checkpoint, with titles, fields, uids, `DOCLEN`, `FTSSTAT` and the `REFS`, `ALLOC`, `TREES` and `FILES` snapshots | [F09 §5], §7.1, §9, §16.1; [AR §8.1] |
+//! | [`blobs`] | the `blobs.<n>` file a delta checkpoint seals its window's bodies into: `BLOBIDX` and `BLOBDATA`, each body `lz4` (R-40 O-1) or `none` when lz4 is not shorter; `BlobRef`, `BlobIdx`; the reader | [F10 §3.1]–§3.4, §5.1–§5.4; [F09 §6.3] |
+//! | [`full`] | the full delta of a checkpoint: [`full::FullBase`] (the full base's extra sections), [`full::FullFold`] (the night's fold, wrapped), every section a delta of its window requires, and its writer and reader | [F09 §3.1] delta column, §5–§16.2; u21 cut §3.3 |
+//! | [`delta`] | the delta `seg.d<K>` a checkpoint folds from a tail over the base: the touched rows with complete states and the ± lists against the base | [F09 §16.2], §5.1, §4.6; [F08 §3.5] |
+//! | [`rt`] | [F11 §2.1]'s section body (`RtHdr`, rows, index region, heap); the row sizes and forms of the store-level and runtime sections; the rows of `REFS` with its name index, `IDEM` as a hash table, `ALLOC`, `UIDX`, `TREES`, `FILEOBS` and `FILES`; the bodies with no row; their readers | [F11 §1.3], §2.1–§2.5, §3, §8, §9, §12.4–§12.5; [F09 §14.3]–§14.4 |
+//! | [`text`] | tokenizer v1 restricted to ASCII (u20 cut F-5), the term index of a segment's documents, `TERMS` (front-coded in blocks of 16), `POST`, `DOCLEN` and `FTSSTAT` (`HOLE(F09-doclen)`'s "kept" candidate), and their readers | [F09 §12]; [F09 Holes] |
 //!
-//! **The subset** (spec Goal 1: "the 60-byte `NodeHdr`, CSR, frozen bitsets, cold columns and delta"): the probe
-//! writes `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE`, `PRIO`, the six CSR columns, `BMDIR` and `BM.<i>`
-//! (`09-segments.md:158-179`, `:205`), and none of the other sections §3.1 requires, so its segments are not valid
-//! under V-7 (`:1197`). Their bytes follow the chapters; what the sections the probe omits would add is outside the
-//! hot index measurement 14 times (`ARCHITECTURE-RESEARCH.md:1681`). `NodeHdr.title_off` and `fields_off` are
-//! therefore `NONE32` and `body_ref` 0 in every row (`09-segments.md:389-393`). The T1 checkpoint is the exception:
-//! there the omitted sections are work a real delta checkpoint does, so `ckpt-4096.n5e5` times a reduced delta, a lower
-//! bound, as `m14`'s "What the checkpoint omits" states (review m-4).
+//! **The subset** (spec Goal 1: "the 60-byte `NodeHdr`, CSR, frozen bitsets, cold columns and delta"): the probe writes
+//! `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE`, `PRIO`, the six CSR columns, `BMDIR` and `BM.<i>` ([F09 §3.1]),
+//! and none of the other sections §3.1 requires, so its segments are not valid under V-7 ([F09 §17.1]). Their bytes
+//! follow the chapters; what the sections the probe omits would add is outside the hot index measurement 14 times
+//! ([AR §8.1]). `NodeHdr.title_off` and `fields_off` are therefore `NONE32` and `body_ref` 0 in every row ([F09 §5.2]).
+//! The T1 checkpoint is the exception: there the omitted sections are work a real delta checkpoint does, so
+//! `ckpt-4096.n5e5` times a reduced delta, a lower bound, as `m14`'s "What the checkpoint omits" states (review m-4).
 //!
 //! **The full checkpoint** (u21 cut §3.2–§3.6; R-53 Q2) is the second exception: [`base::build_full`] adds to the
 //! subset's base the sections a fold reads (titles, fields, uids, `DOCLEN`, `FTSSTAT` and the store-level snapshots),
@@ -45,26 +45,26 @@ pub mod text;
 use crate::tail::store::{SEG_HDR_LEN, SEG_MAGIC};
 use xxhash_rust::xxh3::xxh3_64;
 
-/// `SegHdr.format`, format version 1 (`09-segments.md:54`).
+/// `SegHdr.format`, format version 1 ([F09 §2.1]).
 pub const FORMAT: u16 = 1;
-/// `SecEnt`'s length (`09-segments.md:80`, `:85-93`).
+/// `SecEnt`'s length ([F09 §2.2]).
 pub const SEC_ENT_LEN: usize = 32;
-/// Sections start at multiples of 8 (P-2, `09-segments.md:106-108`).
+/// Sections start at multiples of 8 (P-2, [F09 §2.2]).
 pub const SECTION_ALIGN: usize = 8;
-/// `NONE32` (`09-segments.md:389-390`; `08-data-model.md:96`).
+/// `NONE32` ([F09 §5.2]; [F08 §3.1]).
 pub const NONE32: u32 = 0xFFFF_FFFF;
-/// `NodeHdr`'s length (`08-data-model.md:73`, `:100`).
+/// `NodeHdr`'s length ([F08 §3.1]).
 pub const NODE_HDR_LEN: usize = 60;
-/// `Creator`'s length (`08-data-model.md:185-191`; `09-segments.md:402-408`).
+/// `Creator`'s length ([F08 §4]; [F09 §5.3]).
 pub const CREATOR_LEN: usize = 6;
 
-/// `SegHdr.seg_kind`, the [F11 §2.5] `FileFamily` value (`09-segments.md:55`).
+/// `SegHdr.seg_kind`, the [F11 §2.5] `FileFamily` value ([F09 §2.1]).
 pub mod seg_kind {
     /// `seg-base`.
     pub const BASE: u8 = 3;
     /// `seg-delta`.
     pub const DELTA: u8 = 4;
-    /// `blobs` ([F10 §5.1], `10-sealed-files.md:309`).
+    /// `blobs` ([F10 §5.1]).
     pub const BLOBS: u8 = 6;
 }
 
@@ -72,73 +72,73 @@ pub mod seg_kind {
 /// writes; [F09 §3.3]'s `derived-optional` set, [`tag::DERIVED_OPTIONAL`]; and the predicates [`tag::listed`] and
 /// [`tag::derived_optional`] that the writer's flags and [`SegView::parse`]'s check use.
 pub mod tag {
-    /// `IDS`, column `u32` (`:158`).
+    /// `IDS`, column `u32` ([F09 §3.1]).
     pub const IDS: u16 = 0x0001;
-    /// `NODE`, column `NodeHdr` (`:159`).
+    /// `NODE`, column `NodeHdr` ([F09 §3.1]).
     pub const NODE: u16 = 0x0002;
-    /// `CREATOR`, column of 6 B (`:160`).
+    /// `CREATOR`, column of 6 B ([F09 §3.1]).
     pub const CREATOR: u16 = 0x0003;
-    /// `TOPO`, column `u32` (`:161`).
+    /// `TOPO`, column `u32` ([F09 §3.1]).
     pub const TOPO: u16 = 0x0004;
-    /// `DEFER`, column `u32` (`:162`).
+    /// `DEFER`, column `u32` ([F09 §3.1]).
     pub const DEFER: u16 = 0x0005;
-    /// `DUE`, column `u32` (`:163`).
+    /// `DUE`, column `u32` ([F09 §3.1]).
     pub const DUE: u16 = 0x0006;
-    /// `UID`, fixed table of 20 B (`:164`, §5.5).
+    /// `UID`, fixed table of 20 B ([F09 §3.1], §5.5).
     pub const UID: u16 = 0x0007;
     /// `PRIO`, column `u8`: the cold column `priority` ([F09 §3.1], [F09 §5.4]; R-66).
     pub const PRIO: u16 = 0x0009;
-    /// `TITLE_BLOB`, a pool of `vstr` (`:166`, §6.1).
+    /// `TITLE_BLOB`, a pool of `vstr` ([F09 §3.1], §6.1).
     pub const TITLE_BLOB: u16 = 0x0010;
-    /// `FIELDS_BLOB`, a pool of `vbytes` (`:167`, §6.2).
+    /// `FIELDS_BLOB`, a pool of `vbytes` ([F09 §3.1], §6.2).
     pub const FIELDS_BLOB: u16 = 0x0011;
-    /// `BLOBTAB`, fixed table of 36-B `BlobRef` (`:168`, §6.3).
+    /// `BLOBTAB`, fixed table of 36-B `BlobRef` ([F09 §3.1], §6.3).
     pub const BLOBTAB: u16 = 0x0012;
-    /// `OUT_OFF`, column `u32` (`:169`).
+    /// `OUT_OFF`, column `u32` ([F09 §3.1]).
     pub const OUT_OFF: u16 = 0x0020;
-    /// `OUT_DST`, column `u32` (`:170`).
+    /// `OUT_DST`, column `u32` ([F09 §3.1]).
     pub const OUT_DST: u16 = 0x0021;
-    /// `OUT_KIND`, column `u8` (`:171`).
+    /// `OUT_KIND`, column `u8` ([F09 §3.1]).
     pub const OUT_KIND: u16 = 0x0022;
-    /// `IN_OFF`, column `u32` (`:172`).
+    /// `IN_OFF`, column `u32` ([F09 §3.1]).
     pub const IN_OFF: u16 = 0x0023;
-    /// `IN_SRC`, column `u32` (`:173`).
+    /// `IN_SRC`, column `u32` ([F09 §3.1]).
     pub const IN_SRC: u16 = 0x0024;
-    /// `IN_KIND`, column `u8` (`:174`).
+    /// `IN_KIND`, column `u8` ([F09 §3.1]).
     pub const IN_KIND: u16 = 0x0025;
-    /// `EDGE_PROPS`, fixed table of 40 B (`:175`, §7.2).
+    /// `EDGE_PROPS`, fixed table of 40 B ([F09 §3.1], §7.2).
     pub const EDGE_PROPS: u16 = 0x0026;
-    /// `TOMB`, fixed table of 16 B (`:176`, §8.1).
+    /// `TOMB`, fixed table of 16 B ([F09 §3.1], §8.1).
     pub const TOMB: u16 = 0x0030;
-    /// `BMDIR`, fixed table of 4-byte rows (`:179`).
+    /// `BMDIR`, fixed table of 4-byte rows ([F09 §3.1]).
     pub const BMDIR: u16 = 0x0040;
-    /// `TERMS`, the term dictionary (`:180`).
+    /// `TERMS`, the term dictionary ([F09 §3.1]).
     pub const TERMS: u16 = 0x0050;
-    /// `POST`, the postings (`:181`).
+    /// `POST`, the postings ([F09 §3.1]).
     pub const POST: u16 = 0x0051;
-    /// `DOCLEN`, column of 6 B (`:182`).
+    /// `DOCLEN`, column of 6 B ([F09 §3.1]).
     pub const DOCLEN: u16 = 0x0052;
-    /// `FTSSTAT`, fixed record of 48 B (`:183`).
+    /// `FTSSTAT`, fixed record of 48 B ([F09 §3.1]).
     pub const FTSSTAT: u16 = 0x0053;
-    /// `CONFLICTS`, an `RtHdr` body (`:177`; [F11 §10]).
+    /// `CONFLICTS`, an `RtHdr` body ([F09 §3.1]; [F11 §10]).
     pub const CONFLICTS: u16 = 0x0031;
-    /// `PATHIDX`, variable table (`:186`, §13.1).
+    /// `PATHIDX`, variable table ([F09 §3.1], §13.1).
     pub const PATHIDX: u16 = 0x0080;
-    /// `ALIASIDX`, variable table (`:187`, §13.2).
+    /// `ALIASIDX`, variable table ([F09 §3.1], §13.2).
     pub const ALIASIDX: u16 = 0x0081;
-    /// `ANCHORS`, variable table (`:188`, §13.3).
+    /// `ANCHORS`, variable table ([F09 §3.1], §13.3).
     pub const ANCHORS: u16 = 0x0082;
-    /// `ANCHOR_UID`, fixed table of 28 B (`:189`, §13.4).
+    /// `ANCHOR_UID`, fixed table of 28 B ([F09 §3.1], §13.4).
     pub const ANCHOR_UID: u16 = 0x0083;
-    /// `GLOBIDX`, an `RtHdr` body (`:190`; [F11 §11]).
+    /// `GLOBIDX`, an `RtHdr` body ([F09 §3.1]; [F11 §11]).
     pub const GLOBIDX: u16 = 0x0084;
-    /// `SYMTAB`, the symbol table (`:194`, §14.2).
+    /// `SYMTAB`, the symbol table ([F09 §3.1], §14.2).
     pub const SYMTAB: u16 = 0x0100;
-    /// `SCHEMAIDS`, an `RtHdr` body (`:195`, §14.3).
+    /// `SCHEMAIDS`, an `RtHdr` body ([F09 §3.1], §14.3).
     pub const SCHEMAIDS: u16 = 0x0101;
-    /// `FILES`, an `RtHdr` body (`:196`, §14.4).
+    /// `FILES`, an `RtHdr` body ([F09 §3.1], §14.4).
     pub const FILES: u16 = 0x0102;
-    /// `REFS` (`:197`, `:212`).
+    /// `REFS` ([F09 §3.1]).
     pub const REFS: u16 = 0x0201;
     /// `PINS`.
     pub const PINS: u16 = 0x0202;
@@ -162,11 +162,11 @@ pub mod tag {
     pub const SESSMARKS: u16 = 0x020B;
     /// `BACKUPS`.
     pub const BACKUPS: u16 = 0x020C;
-    /// `DROPPED`, conditional (`:198`).
+    /// `DROPPED`, conditional ([F09 §3.1]).
     pub const DROPPED: u16 = 0x020D;
-    /// `HARVEST`, conditional (`:199`).
+    /// `HARVEST`, conditional ([F09 §3.1]).
     pub const HARVEST: u16 = 0x020E;
-    /// `TREES` (`:200`, `:212-219`).
+    /// `TREES` ([F09 §3.1]).
     pub const TREES: u16 = 0x0210;
     /// `FILEOBS`.
     pub const FILEOBS: u16 = 0x0211;
@@ -188,12 +188,12 @@ pub mod tag {
     pub const GITRENAMES: u16 = 0x0219;
     /// `ANCHORRES`, `derived-optional`.
     pub const ANCHORRES: u16 = 0x021A;
-    /// `BLOBIDX`, a `blobs` file's index (`:202`; [F10 §5.2]).
+    /// `BLOBIDX`, a `blobs` file's index ([F09 §3.1]; [F10 §5.2]).
     pub const BLOBIDX: u16 = 0x0310;
     /// `BLOBDATA`, its payloads.
     pub const BLOBDATA: u16 = 0x0311;
 
-    /// `BM.<i>` = `0x8000 + i`, i 0–32,766 (`:205`, `:233`).
+    /// `BM.<i>` = `0x8000 + i`, i 0–32,766 ([F09 §3.1], [F09 §3.2]).
     pub const fn bm(i: u16) -> u16 {
         0x8000 + i
     }
@@ -241,7 +241,7 @@ pub mod tag {
     }
 }
 
-/// The `SegHdr` fields a writer chooses (`09-segments.md:51-72`; per kind `:119-129`). `magic`, `format`, `n_sections`,
+/// The `SegHdr` fields a writer chooses ([F09 §2.1]; per kind [F09 §2.3]). `magic`, `format`, `n_sections`,
 /// `total_len`, `seg_digest`, `table_xxh3` and `hdr_xxh3` follow from the content.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct Header {
@@ -267,7 +267,7 @@ pub struct Header {
     pub rt_upto_lsn: u64,
 }
 
-/// One entry of the section table, `SecEnt` (`09-segments.md:85-93`).
+/// One entry of the section table, `SecEnt` ([F09 §2.2]).
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct SecEnt {
     /// `tag` (offset 0).
@@ -321,7 +321,7 @@ pub(crate) fn u64_at(b: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(b[at..at + 8].try_into().expect("8 bytes"))
 }
 
-/// Element `i` of a `u32` column ([F09 §4.1], `09-segments.md:254-257`).
+/// Element `i` of a `u32` column ([F09 §4.1]).
 pub fn u32_at(col: &[u8], i: usize) -> u32 {
     u32_le(col, 4 * i)
 }
@@ -334,7 +334,7 @@ pub fn put_u32s(out: &mut Vec<u8>, v: &[u32]) {
     }
 }
 
-/// `data_off = 120 + 32 × n_sections` (`09-segments.md:80-81`).
+/// `data_off = 120 + 32 × n_sections` ([F09 §2.2]).
 pub const fn data_off(n_sections: usize) -> usize {
     SEG_HDR_LEN + SEC_ENT_LEN * n_sections
 }
@@ -391,7 +391,7 @@ impl Writer {
     }
 
     /// Writes the section table, `seg_digest` (BLAKE3-256 over `[data_off, total_len)`), `table_xxh3` and the header
-    /// with `hdr_xxh3` (`09-segments.md:68-76`); returns the segment's bytes.
+    /// with `hdr_xxh3` ([F09 §2.1]); returns the segment's bytes.
     pub fn finish(mut self, h: &Header) -> Result<Vec<u8>, String> {
         if self.table.len() != self.n_sections {
             return Err(format!(
@@ -541,7 +541,7 @@ impl<'a> SegView<'a> {
             .ok_or_else(|| format!("no section {tag:#06x}"))
     }
 
-    /// V-9: each section's `xxh3` and `seg_digest` (`09-segments.md:1199`).
+    /// V-9: each section's `xxh3` and `seg_digest` ([F09 §17.1]).
     pub fn check_digests(&self) -> Result<(), String> {
         for e in &self.table {
             let s = &self.bytes[e.off as usize..(e.off + e.len) as usize];
@@ -560,10 +560,10 @@ impl<'a> SegView<'a> {
     }
 }
 
-/// `NodeHdr.flags` bit 0, `deleted` (`08-data-model.md:109`).
+/// `NodeHdr.flags` bit 0, `deleted` ([F08 §3.2]).
 pub const FLAG_DELETED: u16 = 1;
 
-/// One row of `NODE`: [F08 §3.1]'s `NodeHdr`, 60 bytes, byte-packed, little-endian (`08-data-model.md:73-100`).
+/// One row of `NODE`: [F08 §3.1]'s `NodeHdr`, 60 bytes, byte-packed, little-endian.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct NodeHdr {
     /// `kind` (offset 0); 0 = no node on this view.
@@ -607,7 +607,7 @@ pub struct NodeHdr {
     pub body_ref: u32,
 }
 
-/// The offset of `NodeHdr.status` in a row (`08-data-model.md:80`).
+/// The offset of `NodeHdr.status` in a row ([F08 §3.1]).
 pub const STATUS_AT: usize = 1;
 
 impl NodeHdr {
@@ -676,7 +676,7 @@ impl NodeHdr {
     }
 }
 
-/// One element of `CREATOR` (`08-data-model.md:185-191`; `09-segments.md:402-408`).
+/// One element of `CREATOR` ([F08 §4]; [F09 §5.3]).
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct Creator {
     /// `actor` (offset 0), a symbol of class `actor`.
@@ -702,7 +702,7 @@ impl Creator {
     }
 }
 
-/// Appends a fixed table ([F09 §4.2], `09-segments.md:259-268`): `n`, `row_w`, then the rows, already sorted.
+/// Appends a fixed table ([F09 §4.2]): `n`, `row_w`, then the rows, already sorted.
 pub fn put_fixed(out: &mut Vec<u8>, row_w: u32, rows: &[&[u8]]) {
     out.extend_from_slice(&(rows.len() as u32).to_le_bytes());
     out.extend_from_slice(&row_w.to_le_bytes());
@@ -711,7 +711,7 @@ pub fn put_fixed(out: &mut Vec<u8>, row_w: u32, rows: &[&[u8]]) {
     }
 }
 
-/// Appends a variable table ([F09 §4.3], `09-segments.md:270-281`): `n`, `_reserved` 0, `off[n + 1]` with `off[0]` 0,
+/// Appends a variable table ([F09 §4.3]): `n`, `_reserved` 0, `off[n + 1]` with `off[0]` 0,
 /// then the rows, already in the table's order; with no row it is 12 bytes. An empty row is refused.
 pub fn put_variable(out: &mut Vec<u8>, rows: &[&[u8]]) -> Result<(), String> {
     if rows.iter().any(|r| r.is_empty()) {
@@ -813,7 +813,7 @@ pub(crate) mod tests {
         w.finish(&header()).unwrap()
     }
 
-    /// `SegHdr` ([F09 §2.1], `09-segments.md:51-72`): 120 bytes, every field at its offset, `hdr_xxh3` over
+    /// `SegHdr` ([F09 §2.1]): 120 bytes, every field at its offset, `hdr_xxh3` over
     /// `[0, 112)`, `table_xxh3` over `[120, data_off)`, `seg_digest` BLAKE3-256 over `[data_off, total_len)`; u10's
     /// open-floor check reads the same header.
     #[test]
@@ -844,7 +844,7 @@ pub(crate) mod tests {
         v.check_digests().unwrap();
     }
 
-    /// `SecEnt` ([F09 §2.2], `09-segments.md:85-93`): 32 bytes, little-endian, `tag` at 0 (2 B), `flags` at 2 (2 B),
+    /// `SecEnt` ([F09 §2.2]): 32 bytes, little-endian, `tag` at 0 (2 B), `flags` at 2 (2 B),
     /// `count` at 4 (4 B), `off` at 8 (8 B), `len` at 16 (8 B) and `xxh3` at 24 (8 B). A hand-built entry with a
     /// distinct byte per position encodes to its literal and decodes back, and in `four()`'s segment entry 2 (tag
     /// 0x0020, 13 bytes at `data_off + 8`) holds each field at its offset; a writer and a reader that agreed on other
@@ -876,7 +876,7 @@ pub(crate) mod tests {
         assert_eq!(&raw[24..32], &xxh3_64(section).to_le_bytes(), "xxh3 at 24");
     }
 
-    /// The section table and placement (`09-segments.md:80-110`): 32-byte entries sorted by tag; each section at the
+    /// The section table and placement ([F09 §2.2]): 32-byte entries sorted by tag; each section at the
     /// first multiple of 8 at or after the previous one's end, zeros between, `total_len` at the last one's end; the
     /// entry's `xxh3` covers the section. Out-of-order or surplus sections are refused, and the parser refuses a
     /// changed header, table, length or padding byte, while V-9 catches a changed section byte.
@@ -1049,9 +1049,8 @@ pub(crate) mod tests {
         }
     }
 
-    /// The tags the probe writes are [F09 §3.1]'s (`09-segments.md:156-206`, the runtime ranges `:210-222`, `BM.<i>`
-    /// §3.2 `:233`) and [F10 §5.2]'s (`10-sealed-files.md:316-319`), and `seg_kind` [F11 §2.5]'s `FileFamily`
-    /// (`11-runtime-tables.md:200-210`): every constant against the chapters' tables, written out.
+    /// The tags the probe writes are [F09 §3.1]'s (its runtime ranges among them; `BM.<i>` [F09 §3.2]) and
+    /// [F10 §5.2]'s, and `seg_kind` [F11 §2.5]'s `FileFamily`: every constant against the chapters' tables, written out.
     #[test]
     fn section_tags_follow_f09_3_1() {
         let table: [(&str, u16, u16); 60] = [
