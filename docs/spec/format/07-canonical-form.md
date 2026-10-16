@@ -395,8 +395,9 @@ A deleted node's canonical state is exactly what its image tombstone carries ([A
   props, `at` edges with their anchors (I39′, [40 §5.7]).
 
 Every other key of a tombstone is absent: status, hierarchy, every field except `title`, every counter, the body. The
-header columns that [F08 §3.5] keeps in a tombstone's `NodeHdr` (status, the header enumerations) are store-local
-rendering aids and are not part of the canonical state (open point 10).
+header values that [F08 §3.5] keeps in a tombstone's row (status and the header enumerations in `NodeHdr`, and
+`priority` in its cold column `PRIO`; the owner's ruling R-66 of 2026-10-14) are store-local rendering aids and are not
+part of the canonical state (open point 10).
 
 A node that is neither live nor deleted on V — never created there, or a tombstone reference with a `#N` but no node
 ([F08 §2.1]) — has no key in CS(V).
@@ -1215,8 +1216,8 @@ depends on the fill. The codec holes of [F10] do not reach the canonical form, w
    them: empty text and set are absent, `commitref` and `pinned_commit` are 32 bytes, the anchor record is [F08]'s with the
    binary scope and kind-driven presence, and `blob` may be empty for a planned target. The canonical form is unchanged.
 10. **The tombstone's canonical state is the image's** (§6.4): title, reason, replaced_by and retained out-edges.
-    [F08 §3.5] keeps status and the header enumerations in a tombstone's `NodeHdr`; they are store-local and unhashed, since
-    no carrier holds them.
+    [F08 §3.5] keeps status and the header enumerations in a tombstone's row (`priority` in `PRIO`, the owner's ruling
+    R-66 of 2026-10-14); they are store-local and unhashed, since no carrier holds them.
 11. **Item 5 details** (§3.6). The algorithm enters only with a digest: an unborn repository's algorithm has no trailer
     carrier, so hashing it would demote every such commit on import. `git.branch` uses [F18 §3.2] rule 1's short form,
     and is empty when `HEAD` is detached, outside `refs/heads/` or not UTF-8. [F06 §4.4.6] should state the same when it
