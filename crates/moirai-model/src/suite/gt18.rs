@@ -706,3 +706,103 @@ fn a_branch_deletion_clears_three_markers_in_identity_order_across_both_sections
             .collect();
     assert_eq!(cleared, [Some(Nid(1)), Some(Nid(2)), Some(Nid(3))]);
 }
+
+/// The origin commit's `id16` of a marker identity ([F01 §6.6]): the first 16 bytes of its commit id.
+fn id16(s: &S, k: &crate::markers::MKey) -> [u8; 16] {
+    let mut a = [0u8; 16];
+    a.copy_from_slice(&s.st.dag.commits[&k.2].id[..16]);
+    a
+}
+
+/// u29 F-4, W3D-SF-4 ([F05 §9.5] "Entry order"; [F11 §7]): ME-011's `nonlinear` entries are written ascending by
+/// identity, (`#N`, origin `ref_id`, origin commit's `id16` bytewise). `main` completes #1 (c1), reopens it, completes it
+/// again (c3), is moved back before c1 by three `undo`s, and lands a priority write, which flags both main-landed markers
+/// of #1 in one record: a tie on (`#N`, `ref_id`). Eight variants of the first two writes change the commit ids; in
+/// each the two entries follow `id16`, and in at least one the commit seq orders them otherwise, so the test tells the
+/// two orders apart (R-85 ruling 13).
+#[test]
+fn nonlinear_ties_on_one_ref_follow_the_origin_commits_id16() {
+    let (mut seen, mut differ) = (0, 0);
+    for v in 0..8i64 {
+        let ops = vec![
+            G::Set(2, 0, v % 4),
+            G::Set(3, 0, v / 4),
+            G::Complete(1, 0),
+            G::Reopen(1, 0),
+            G::Complete(1, 0),
+            G::Undo(0),
+            G::Undo(0),
+            G::Undo(0),
+            G::Set(4, 0, 1),
+        ];
+        let s = history(ops, false).unwrap();
+        let tip = s.st.dag.live(REFS[0]).and_then(|x| x.tip).expect("a tip");
+        let keys: Vec<crate::markers::MKey> =
+            s.st.markers
+                .group(Group::Commit(tip))
+                .iter()
+                .filter(|e| e.mkind == 5 && e.key.0 == Nid(1))
+                .map(|e| e.key)
+                .collect();
+        assert_eq!(keys.len(), 2, "variant {v}: two nonlinear markers of #1");
+        seen += 1;
+        assert_eq!(keys[0].1, keys[1].1, "variant {v}: a tie on the ref");
+        let mut by_id16 = keys.clone();
+        by_id16.sort_by_key(|k| (k.0, k.1, id16(&s, k)));
+        assert_eq!(keys, by_id16, "variant {v}: the entries follow id16");
+        let mut by_seq = keys.clone();
+        by_seq.sort();
+        if by_seq != by_id16 {
+            differ += 1;
+        }
+    }
+    assert_eq!(seen, 8);
+    assert!(differ > 0, "no variant where seq and id16 order differ");
+}
+
+/// R-87 item 7 ([F05 §9.5] "Entry order"; ME-004, ME-001): for a commit landing, a node's leaving entry comes before its
+/// joining entry. `lane/a` completes #1 (origin c), `main` takes it by a merge (ME-002) and deletes #1 (commit d): d's
+/// record holds main's leaving entry for (#1, `lane/a`, c) before the entry that writes (#1, `main`, d) (ME-001).
+/// `main`'s `ref_id` is below `lane/a`'s, so identity order would put the second first; the two orders differ here.
+#[test]
+fn a_landing_writes_a_nodes_leaving_entry_before_its_joining_entry() {
+    let mut s = start();
+    complete(&mut s, 1, "lane/a").expect("a lease");
+    s.ok(
+        Cmd::Merge {
+            src: "lane/a".into(),
+            into: Some("main".into()),
+            policy: None,
+            strict: None,
+            base: None,
+            message: String::new(),
+        },
+        admin(),
+    );
+    s.ok(
+        tx(vec![Stmt::Delete {
+            target: Target::Id(Nid(1)),
+            policy: None,
+            replaced_by: None,
+            release: true,
+            reason: Some("r".into()),
+        }]),
+        admin(),
+    );
+    let main = s.st.dag.live("main").expect("main");
+    let lane = s.st.dag.live("lane/a").expect("lane/a");
+    let d = main.tip.expect("d");
+    let c = lane.tip.expect("c");
+    let keys: Vec<crate::markers::MKey> =
+        s.st.markers
+            .group(Group::Commit(d))
+            .iter()
+            .filter(|e| e.key.0 == Nid(1) && e.mkind != 5)
+            .map(|e| e.key)
+            .collect();
+    let (leaving, joining) = ((Nid(1), lane.id, c), (Nid(1), main.id, d));
+    let mut by_identity = vec![leaving, joining];
+    by_identity.sort_by_key(|k| (k.0, k.1, id16(&s, k)));
+    assert_eq!(by_identity, vec![joining, leaving], "the two orders differ");
+    assert_eq!(keys, vec![leaving, joining], "ME-004 before ME-001");
+}
