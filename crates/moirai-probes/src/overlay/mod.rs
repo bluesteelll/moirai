@@ -1,26 +1,26 @@
 //! Measurement 10's compact tail overlay (WP-53d): what a process builds when it replays a log tail on open
-//! (`docs/ARCHITECTURE-RESEARCH.md:709`, [AR §4.5] step 1): "a sorted `#N` → newest record lsn index (12–16 B per op)
+//! ([AR §4.5] step 1): "a sorted `#N` → newest record lsn index (12–16 B per op)
 //! plus the derived-state ± lists, values decoded on probe … lazy runtime records are indexed by key". Its tables
 //! have the shapes of the segment and runtime-table chapters:
 //!
 //! | Table | Shape | Specification |
 //! |---|---|---|
-//! | node index | `#N` → the lsn of the newest `Commit` whose ops have `#N` as owner, sorted, unique (16 B) | `AR:709`; owners [F06 §2.3] (`06-commit.md:55-59`) |
-//! | ± lists | per bitset key, `plus` and `minus` strictly ascending, disjoint, no 0, relative to the base | [F09 §4.6] (`09-segments.md:319-332`); keys [F09 §9.2] (`:577-594`) |
-//! | `ALLOC` | the tail's new `#N`, dense from the first: (`uid`, `ref_id`, `create_seq`), 24 B | [F11 §9.1] (`11-runtime-tables.md:669-700`) |
-//! | `UIDX` | `uid` → `#N`, sorted by `uid`, 20 B | [F11 §9.2] (`:702-714`) |
-//! | runtime index | `K_RT` rows by key → (lsn, row index), the newest per key, not decoded | [F05 §10.4] (`05-log.md:1296-1302`) |
-//! | symbols | the tail's `SymDefs` definitions in log order | [F05 §10.5] (`05-log.md:1304-1307`) |
+//! | node index | `#N` → the lsn of the newest `Commit` whose ops have `#N` as owner, sorted, unique (16 B) | [AR §4.5]; owners [F06 §2.3] |
+//! | ± lists | per bitset key, `plus` and `minus` strictly ascending, disjoint, no 0, relative to the base | [F09 §4.6]; keys [F09 §9.2] |
+//! | `ALLOC` | the tail's new `#N`, dense from the first: (`uid`, `ref_id`, `create_seq`), 24 B | [F11 §9.1] |
+//! | `UIDX` | `uid` → `#N`, sorted by `uid`, 20 B | [F11 §9.2] |
+//! | runtime index | `K_RT` rows by key → (lsn, row index), the newest per key, not decoded | [F05 §10.4] |
+//! | symbols | the tail's `SymDefs` definitions in log order | [F05 §10.5] |
 //! | offsets (offsets mode only) | parallel to the node index: where `#N`'s frames lie in its newest record, the offset of its first frame from the record's lsn and their bytes (8 B; no frame count, so no 255-frame cap) | design-A's A2 (`design-A.md:135-144`); u20 cut D-2 |
 //!
 //! **The offsets mode** ([`Overlay::replay_at`], u20 cut D-2, I-4) builds the node entry's offset and length during the
 //! replay, from the frame spans the decode walks anyway ([`crate::tail::scan::decode_record_spans`]), in its own builder
 //! beside the plain one. The plain [`Overlay::replay`] keeps ba4fc23's types and code: its node map holds the lsn
-//! alone, it computes no span, and its offsets are empty. The product's packed entry is 16 B (`AR:709`, R-53 F-3); the
-//! probe's offsets mode charges 24 B per node, and every stop rule keeps the generator's 16 B.
+//! alone, it computes no span, and its offsets are empty. The product's packed entry is 16 B ([AR §4.5], R-53 F-3);
+//! the probe's offsets mode charges 24 B per node, and every stop rule keeps the generator's 16 B.
 //!
 //! A probe ([`Overlay::get`]) reads the record the node index names through a [`LogSource`], decodes the owner's ops
-//! and follows their `prev` ([F06 §7.3], `06-commit.md:705-713`) while it stays in the tail; values are never stored.
+//! and follows their `prev` ([F06 §7.3]) while it stays in the tail; values are never stored.
 //! T1's diagnostic reads [`Overlay::get_op`] and [`Overlay::get_op_at`] ([`op`]) return the same values on a valid tail
 //! while they decode only the owner's ops, located by their frames ([F06 §7.1], [F06 §7.9]) or by an offset kept beside
 //! the node index. The ± lists cover the bitset keys the subset changes: family 1 (kind) and 2 (kind, status) of live nodes, and
@@ -29,8 +29,8 @@
 //!
 //! **The charge.** [`Overlay::heap_bytes`] is Σ `len × size_of` over the overlay's owned slices; after
 //! [`Builder::finish`] every table is a `Box<[T]>` of exact length, so this is what a counting allocator sees
-//! (`crates/moirai-os/src/windows/mem.rs:57-64`: requested sizes). It is the probe's `ovl(T)` ([F17 §5.1],
-//! `17-store-parameters.md:319`), a function of the tail alone.
+//! (`crates/moirai-os/src/windows/mem.rs:57-64`: requested sizes). It is the probe's `ovl(T)` ([F17 §5.1]), a
+//! function of the tail alone.
 
 use crate::tail::commit::{Op, TValue};
 use crate::tail::rec::{Payload, RecHdr, Record};
@@ -195,7 +195,7 @@ pub struct FileObsEntry {
     pub lsn: u64,
 }
 
-/// The newest `TreeReg` epoch of one key (`tree`, `scope_kind`, `scope_ref`) ([F05 §9.23], `05-log.md:1030`): 32 bytes.
+/// The newest `TreeReg` epoch of one key (`tree`, `scope_kind`, `scope_ref`) ([F05 §9.23]): 32 bytes.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct EpochEntry {
     /// The tree key.
@@ -219,7 +219,7 @@ pub struct Symbol {
     pub text: Box<str>,
 }
 
-/// A key of the subset a probe asks for ([F06 §6.1], `06-commit.md:600-612`).
+/// A key of the subset a probe asks for ([F06 §6.1]).
 #[derive(Clone, Debug, Eq, PartialEq, Ord, PartialOrd)]
 pub enum Key {
     /// The existence key.
@@ -952,7 +952,7 @@ mod tests {
         assert_eq!(epochs, b.naive.epochs);
     }
 
-    /// The node index (`AR:709`): sorted by `#N`, unique, each entry the lsn of the newest commit that touched it.
+    /// The node index ([AR §4.5]): sorted by `#N`, unique, each entry the lsn of the newest commit that touched it.
     #[test]
     fn node_index_is_sorted_with_the_newest_lsn() {
         let b = built();
@@ -1083,7 +1083,7 @@ mod tests {
     }
 
     /// A probe of a key the newest record of its owner does not set follows the owner's `prev` back
-    /// ([F06 §7.3], `06-commit.md:707-713`): #51's title is in the `Create` two records back, and #3's status in the
+    /// ([F06 §7.3]): #51's title is in the `Create` two records back, and #3's status in the
     /// record before its newest.
     #[test]
     fn probe_walks_the_prev_chain() {
@@ -1119,7 +1119,7 @@ mod tests {
         );
     }
 
-    /// The ± lists ([F09 §4.6], `09-segments.md:319-332`): strictly ascending, disjoint, no 0, every `plus` id outside
+    /// The ± lists ([F09 §4.6]): strictly ascending, disjoint, no 0, every `plus` id outside
     /// the base set and every `minus` id inside it.
     #[test]
     fn plus_minus_lists_are_sorted_disjoint_without_zero() {
@@ -1160,7 +1160,7 @@ mod tests {
         assert_eq!(pm.len(), 6);
     }
 
-    /// `ALLOC` ([F11 §9.1], `11-runtime-tables.md:673-684`): the tail's new ids, dense from the first, with the creating
+    /// `ALLOC` ([F11 §9.1]): the tail's new ids, dense from the first, with the creating
     /// commit's `ref_id` and `seq`.
     #[test]
     fn alloc_rows_are_dense_from_the_first_new_id() {
@@ -1179,7 +1179,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<AllocRow>(), 24);
     }
 
-    /// `UIDX` ([F11 §9.2], `11-runtime-tables.md:704-711`): `uid → #N`, sorted by uid.
+    /// `UIDX` ([F11 §9.2]): `uid → #N`, sorted by uid.
     #[test]
     fn uidx_is_sorted_by_uid() {
         let b = built();
@@ -1188,7 +1188,7 @@ mod tests {
         assert_eq!(std::mem::size_of::<UidxRow>(), 20);
     }
 
-    /// Runtime rows are indexed by key, the newest per key winning ([F05 §10.4], `05-log.md:1298-1299`): file 11's row
+    /// Runtime rows are indexed by key, the newest per key winning ([F05 §10.4]): file 11's row
     /// is the second settle's, file 10's the first's, and the tree's epoch the second's.
     #[test]
     fn runtime_index_keeps_the_newest_row_per_key() {
@@ -1215,7 +1215,7 @@ mod tests {
         assert_eq!((epochs[0].tree, epochs[0].lsn), ([0xE1; 16], regs[1]));
     }
 
-    /// Tail symbols register in log order ([F05 §10.5], `05-log.md:1306-1307`).
+    /// Tail symbols register in log order ([F05 §10.5]).
     #[test]
     fn tail_symbols_register_in_log_order() {
         let b = built();

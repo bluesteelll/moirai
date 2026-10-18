@@ -2,14 +2,14 @@
 //! open floor of [60 §5.3] (`60-roadmap.md:790`: "`HEAD` pread + map of 8 files"); and the fixture a measurement-10
 //! run writes and removes.
 //!
-//! - **`HEAD`** is 8,192 bytes, read with one `read_at` ([F04 §2], `04-head.md:25`, `:31`). The floor does not check the
+//! - **`HEAD`** is 8,192 bytes, read with one `read_at` ([F04 §2]). The floor does not check the
 //!   slots' checksums.
-//! - **The sealed files** are the 8 entries of a full segment set ([F04 §4.1], `04-head.md:94-120`: one base, up to five
-//!   deltas, a yield delta and a dictionary), each 99·N/8 bytes at production (`ARCHITECTURE-RESEARCH.md:1681`: 99 B
+//! - **The sealed files** are the 8 entries of a full segment set ([F04 §4.1]: one base, up to five
+//!   deltas, a yield delta and a dictionary), each 99·N/8 bytes at production ([AR §8.1]: 99 B
 //!   of hot index per node). Before mapping one, the floor reads its 120-byte `SegHdr` with one `read_exact_at` and
-//!   checks its magic and `hdr_xxh3` (`docs/spec/os/map.md:84-90`; [F09 §2.1], `09-segments.md:51-75`), then maps it
-//!   with the header's `total_len` (`ARCHITECTURE-RESEARCH.md:783`). The `SegRef` identity check, a 16-byte compare
-//!   (`04-head.md:119-121`), is not modelled.
+//!   checks its magic and `hdr_xxh3` ([OS/map §4]; [F09 §2.1]), then maps it
+//!   with the header's `total_len` ([AR §4.7]). The `SegRef` identity check, a 16-byte compare
+//!   ([F04 §4.1]), is not modelled.
 //! - **The log extents** `log.<n>` are E bytes each, the tail's bytes at their offsets and zero elsewhere
 //!   ([F05 §2.2], [F05 §2.4]); the tail starts at extent 2 and `log.1` is not written (cut addendum m-6).
 //! - **One command's files** (u20, M-A6), for `a1-opens10.n1e5` alone: `LOCK` and the spare extent after the tail's
@@ -26,13 +26,13 @@ use moirai_vfs::{
 use std::path::{Path, PathBuf};
 use xxhash_rust::xxh3::xxh3_64;
 
-/// The sealed files of a full segment set ([F04 §4.1], `04-head.md:111-114`).
+/// The sealed files of a full segment set ([F04 §4.1]).
 pub const SEALED_FILES: usize = 8;
-/// `SegHdr`'s length ([F09 §2.1], `09-segments.md:51-75`).
+/// `SegHdr`'s length ([F09 §2.1]).
 pub const SEG_HDR_LEN: usize = 120;
-/// `SegHdr.magic` (`09-segments.md:53`).
+/// `SegHdr.magic` ([F09 §2.1]).
 pub const SEG_MAGIC: [u8; 4] = *b"MSEG";
-/// Hot-index bytes per node (`ARCHITECTURE-RESEARCH.md:1681`).
+/// Hot-index bytes per node ([AR §8.1]).
 pub const HOT_BYTES_PER_NODE: u64 = 99;
 
 /// The sealed files' names: `seg.base.1` and `seg.d1` … `seg.d7` ([F02 §6] name families).
@@ -72,7 +72,7 @@ fn rel(s: String) -> Result<RelPathBuf, String> {
     RelPathBuf::from_string(s).map_err(|e| e.to_string())
 }
 
-/// The name of extent `n` ([F05 §2.1], `05-log.md:41-43`).
+/// The name of extent `n` ([F05 §2.1]).
 pub fn extent_name(n: u64) -> String {
     format!("log.{n}")
 }
@@ -179,7 +179,7 @@ pub struct Fixture {
 
 /// Writes `tail` as a store directory `<parent>/<name>`: `log.<n>` for every extent the tail touches (E bytes each),
 /// `HEAD` (8,192 bytes, the slot magic `MOIR` at 0 and 4,096) and the [`SEALED_FILES`] sealed files of `sealed_len`
-/// bytes each, sealed. Nothing is flushed: the measurement is warm (`ARCHITECTURE-RESEARCH.md:785`).
+/// bytes each, sealed. Nothing is flushed: the measurement is warm ([AR §4.7]).
 pub fn write_fixture<V: StoreFs>(
     vfs: &V,
     parent: &Path,
@@ -242,11 +242,11 @@ pub fn write_fixture<V: StoreFs>(
     })
 }
 
-/// The store lock file ([F04 §2]'s neighbour in the store directory; `ARCHITECTURE-RESEARCH.md:783`).
+/// The store lock file ([F04 §2]'s neighbour in the store directory; [AR §4.7]).
 pub const LOCK_NAME: &str = "LOCK";
 
-/// The extent after the tail's last one: the spare a writer keeps prepared ([F16] P-72, P-96, as `17-store-parameters.md:768`
-/// cites them).
+/// The extent after the tail's last one: the spare a writer keeps prepared ([F16] P-72, P-96, as
+/// [F17 Holes] HOLE(F17-lock-flush) cites them).
 pub fn spare_extent(tail: &Tail) -> u64 {
     tail.expect.geo.extent(tail.end - 1) + 1
 }

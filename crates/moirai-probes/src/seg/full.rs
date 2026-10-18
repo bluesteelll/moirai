@@ -1,6 +1,6 @@
 //! The full delta of a delta checkpoint (u21 cut §3.3; u20 cut §3.9; spec Goal 1): the fold of a tail over the full base
 //! ([`super::base::build_full`]) into every section [F09 §3.1] requires of a delta of its window
-//! (`09-segments.md:156-206`), and the writer and reader of its bytes.
+//! ([F09 §3.1]), and the writer and reader of its bytes.
 //!
 //! - **[`FullBase`]** reads the full base's extra sections: each row's title and field block through its `NodeHdr`, its
 //!   uid from `ALLOC`, its `DOCLEN`, the base's `FTSSTAT`, and the `REFS`, `TREES` and `FILES` snapshots.
@@ -12,19 +12,20 @@
 //!   full base's, never a tail's `old` value or `Delete` image (u21 cut F-19).
 //! - **[`FullFold::finish`]** gives each listed row its complete state: the base's title and fields overlaid with the
 //!   window's changes; a tombstone keeps its title and drops its fields and body ([F08 §3.5],
-//!   `08-data-model.md:155-169`). It sets each row's `title_off`, `fields_off` and `body_ref` into this segment's pools
+//!   [F08 §3.5]). It sets each row's `title_off`, `fields_off` and `body_ref` into this segment's pools
 //!   and `BLOBTAB`, indexes the live rows' title and abstract (field 2) with tokenizer v1 on ASCII (bodies are random
 //!   bytes, so untokenized: u20 cut F-5), and sets `FTSSTAT` to the base's, less each touched base row's old
 //!   contribution (from the base's `DOCLEN`), plus each listed row's new one (u21 cut D-7).
 //! - **[`encode`]** seals the bodies `BLOBTAB` names into `blobs.<n>` ([`super::blobs`]; u21 cut D-6), adds that file's
 //!   row to `FILES`, and writes the segment; **[`decode`]** reads both back and checks them.
 //!
-//! The sections, in tag order (`09-segments.md:156-206`; the F11 forms and row sizes of [`super::rt`]):
+//! The sections, in tag order ([F09 §3.1]; the F11 forms and row sizes of [`super::rt`]):
 //!
 //! | Tags | Written as |
 //! |---|---|
-//! | `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE` | as [`delta::encode`], with `title_off`, `fields_off` and `body_ref` into this segment's pools (`:389-393`) |
+//! | `IDS`, `NODE`, `CREATOR`, `TOPO`, `DEFER`, `DUE` | as [`delta::encode`], with `title_off`, `fields_off` and `body_ref` into this segment's pools ([F09 §5.2]) |
 //! | `UID` | `(uid, #N)` per listed row that is not absent, by (uid, #N) (§5.5) |
+//! | `PRIO` | each listed row's `priority`, as [`delta::encode`] writes it ([F09 §5.4]; R-66) |
 //! | `TITLE_BLOB`, `FIELDS_BLOB` | pools in row order: the title as `vstr`, the [F08 §6] field block as `vbytes` (§6.1–§6.2) |
 //! | `BLOBTAB` | one `BlobRef` per distinct body hash the rows name, by hash, into `blobs.<n>`; `body_ref` 1-based (§6.3) |
 //! | the CSR | as [`delta::encode`] |
@@ -44,10 +45,12 @@
 //!
 //! Absent, as §3.1 allows: `TOUCH` (branch segments only), `SCHEMA` (no `Schema` op), `STATS` (base only), `FPROMO`,
 //! `FCOL` and `FIDX` (no promoted field), `PREV`, `VIOLATIONS` and `CKIMG` (`cs` only), `DROPPED` and `HARVEST` (no row).
-//! Every `SecEnt.flags` is 0. The header has `seg_kind` 4 and `tok_ver` 1 and is otherwise [`delta::Fold::finish`]'s.
+//! `DOCLEN` and `FTSSTAT` carry `SecEnt.flags` bit 0, `derived-optional` ([F09 §3.3]); every other entry's flags are
+//! 0. The header has `seg_kind` 4 and `tok_ver` 1 and is otherwise [`delta::Fold::finish`]'s.
 
 use super::base::{
-    ABSTRACT_FIELD, Columns, Csr, TITLE_FIELD, field_block, put_bm, put_bmdir, put_csr, put_rows,
+    ABSTRACT_FIELD, Columns, Csr, TITLE_FIELD, field_block, put_bm, put_bmdir, put_csr, put_prio,
+    put_rows,
 };
 use super::bitset::encode_plus_minus;
 use super::blobs::{self, BLOB_REF_LEN, BlobRef, Packer};
@@ -65,15 +68,15 @@ use crate::tail::rec::{Payload, Record};
 use crate::tail::scan::{Expect, LogSource, ScanError, decode_record_spans, scan};
 use std::collections::{BTreeMap, HashMap};
 
-/// `TOMB`'s row width (`09-segments.md:536-544`).
+/// `TOMB`'s row width ([F09 §8.1]).
 pub const TOMB_ROW: u32 = 16;
-/// `EDGE_PROPS`' row width (`09-segments.md:512-518`).
+/// `EDGE_PROPS`' row width ([F09 §7.2]).
 pub const EDGE_PROPS_ROW: u32 = 40;
-/// `ANCHOR_UID`'s row width (`09-segments.md:892-898`).
+/// `ANCHOR_UID`'s row width ([F09 §13.4]).
 pub const ANCHOR_UID_ROW: u32 = 28;
-/// `UID`'s row width (`09-segments.md:422-426`).
+/// `UID`'s row width ([F09 §5.5]).
 pub const UID_ROW: u32 = 20;
-/// `SYMTAB`'s class entry (`09-segments.md:947-955`).
+/// `SYMTAB`'s class entry ([F09 §14.2]).
 pub const SYMTAB_CLASS_LEN: usize = 20;
 
 fn e(d: crate::tail::enc::DecodeError) -> String {
@@ -223,7 +226,7 @@ impl<'c, 'a> FullBase<'c, 'a> {
     }
 }
 
-/// A `TOMB` row's fields beside its `id` (`09-segments.md:538-544`).
+/// A `TOMB` row's fields beside its `id` ([F09 §8.1]).
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct Tomb {
     /// `tx`: the deleting commit's `seq`.
@@ -284,7 +287,7 @@ pub struct FullDelta {
     pub files: Vec<FileRow>,
 }
 
-/// One commit of the window, for the `Checkpoint` record's per-ref lists ([F05 §9.9], `05-log.md:771-777`).
+/// One commit of the window, for the `Checkpoint` record's per-ref lists ([F05 §9.9]).
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct CommitMark {
     /// The ref it lands on.
@@ -737,7 +740,7 @@ pub fn fold<S: LogSource>(
     f.finish(file_no, to)
 }
 
-/// Appends `SYMTAB` (§14.2, `09-segments.md:933-966`): the header, one 20-byte entry per class, each class's `by_id`
+/// Appends `SYMTAB` ([F09 §14.2]): the header, one 20-byte entry per class, each class's `by_id`
 /// (pool offsets) and `by_str` (the ids by string) arrays, then the pool of `vstr`s in (class, id) order. `syms` are by
 /// (class, id), each class's ids contiguous.
 pub fn put_symtab(out: &mut Vec<u8>, syms: &[(u8, u32, String)]) -> Result<(), String> {
@@ -847,9 +850,10 @@ pub struct Encoded {
     pub blobs: Option<(Vec<u8>, FileRow)>,
 }
 
-/// The sections of a full delta with `lists` ± lists: 49, and `BMDIR` and the lists when a set changed.
+/// The sections of a full delta with `lists` ± lists: 50 (`PRIO` among them), and `BMDIR` and the lists when a set
+/// changed.
 pub const fn full_delta_sections(lists: usize) -> usize {
-    49 + if lists > 0 { 1 + lists } else { 0 }
+    50 + if lists > 0 { 1 + lists } else { 0 }
 }
 
 /// The tables of [F11 §1.3] a delta carries that hold no row in the probe's window, in tag order, with their form.
@@ -921,6 +925,8 @@ pub fn encode(d: &FullDelta, blobs_no: u32, packer: &mut Packer) -> Result<Encod
         put_fixed(o, UID_ROW, &b.iter().map(|x| &x[..]).collect::<Vec<_>>());
         Ok(())
     })?;
+    let prios: Vec<u8> = rows.iter().map(|r| r.prio).collect();
+    put_prio(&mut w, &prios)?;
     for (t, pick) in [
         (
             tag::TITLE_BLOB,
@@ -1118,9 +1124,6 @@ pub fn decode(seg: &[u8], blobs: Option<&[u8]>) -> Result<FullDelta, String> {
     v.check_digests()?;
     if v.header.seg_kind != seg_kind::DELTA || v.header.tok_ver != text::TOK_VER {
         return Err("not a seg-delta of tok_ver 1".into());
-    }
-    if v.table.iter().any(|x| x.flags != 0) {
-        return Err("a section flagged derived-optional".into());
     }
     let graph = delta::decode(seg)?;
     let n = graph.rows.len();
@@ -1353,13 +1356,14 @@ pub(crate) mod tests {
         .unwrap()
     }
 
-    /// The section table of a full delta (u21 cut §3.3; [F09 §3.1], `09-segments.md:156-206`): exactly `IDS` …
-    /// `DUE`, `UID`, `TITLE_BLOB`, `FIELDS_BLOB`, `BLOBTAB`, the CSR, `EDGE_PROPS`, `TOMB`, `CONFLICTS`, `BMDIR`, `TERMS`,
-    /// `POST`, `DOCLEN`, `FTSSTAT`, `PATHIDX` … `GLOBIDX`, `SYMTAB`, `SCHEMAIDS`, `FILES`, `REFS` … `BACKUPS`, `TREES`,
+    /// The section table of a full delta (u21 cut §3.3; [F09 §3.1]): exactly `IDS` … `DUE`, `UID`, `PRIO`,
+    /// `TITLE_BLOB`, `FIELDS_BLOB`, `BLOBTAB`, the CSR, `EDGE_PROPS`, `TOMB`, `CONFLICTS`, `BMDIR`, `TERMS`, `POST`,
+    /// `DOCLEN`, `FTSSTAT`, `PATHIDX` … `GLOBIDX`, `SYMTAB`, `SCHEMAIDS`, `FILES`, `REFS` … `BACKUPS`, `TREES`,
     /// `FILEOBS`, `PENDING`, `FSINTENT`, `JOURNALCUR`, `PREFIXEV` and the ± lists, in tag order; none of `TOUCH`,
     /// `SCHEMA`, `STATS`, `FPROMO`, `FCOL`, `FIDX`, `PREV`, `VIOLATIONS`, `CKIMG`, `DROPPED`, `HARVEST` and the five
-    /// `derived-optional` runtime sections; every `flags` 0; `seg_kind` 4, `tok_ver` 1, `file_no` 14; each F11 body in its
-    /// delta form and row size with `count` its `n_rows`; the empty tables' exact bytes.
+    /// `derived-optional` runtime sections; `flags` bit 0 on `DOCLEN` and `FTSSTAT` and 0 on every other entry
+    /// ([F09 §3.3]); `seg_kind` 4, `tok_ver` 1, `file_no` 14; each F11 body in its delta form and row size with `count`
+    /// its `n_rows`; the empty tables' exact bytes.
     #[test]
     fn full_delta_carries_every_section_a_delta_requires() {
         let c = case(200, 400, 1);
@@ -1376,6 +1380,7 @@ pub(crate) mod tests {
         let v = SegView::parse(&enc.seg).unwrap();
         let tags: Vec<u16> = v.table.iter().map(|e| e.tag).collect();
         let mut want: Vec<u16> = (0x0001..=0x0007).collect();
+        want.push(0x0009);
         want.extend([0x0010, 0x0011, 0x0012]);
         want.extend(0x0020..=0x0026);
         want.extend([0x0030, 0x0031, 0x0040]);
@@ -1403,7 +1408,10 @@ pub(crate) mod tests {
             tags.iter().all(|t| !(0x4000..0x6000).contains(t)),
             "no FCOL or FIDX"
         );
-        assert!(v.table.iter().all(|e| e.flags == 0));
+        for e in &v.table {
+            let want = u16::from(e.tag == 0x0052 || e.tag == 0x0053);
+            assert_eq!(e.flags, want, "{:#06x} flags {}", e.tag, e.flags);
+        }
         assert_eq!(
             (v.header.seg_kind, v.header.tok_ver, v.header.file_no),
             (4, 1, 14)
@@ -1438,6 +1446,81 @@ pub(crate) mod tests {
             v.entry(tag::DOCLEN).unwrap().count as usize,
             d.graph.rows.len()
         );
+    }
+
+    /// Byte 3 of every `NODE` row the probe writes is 0 ([F08 §3.1]: `_reserved`; R-66): in [`base::build`]'s and
+    /// [`base::build_full`]'s bases at N = 1,000, in the night's delta of `case(200, 400, 1)`'s tail over
+    /// [`base::build`] of its spec, and in its full delta over its full base.
+    #[test]
+    fn every_node_row_written_has_byte_3_zero() {
+        let c = case(200, 400, 1);
+        let t = &c.tail;
+        let plain = base::build(&spec_of(t)).unwrap();
+        let pc = Columns::parse(&plain).unwrap();
+        let night = delta::encode(
+            &delta::fold(
+                &mut MemLog::new(t.start, &t.bytes),
+                &t.expect,
+                t.start,
+                t.end,
+                t.chain_in,
+                TAIL_READ_CHUNK,
+                &pc,
+                1,
+            )
+            .unwrap(),
+        )
+        .unwrap();
+        let cols = Columns::parse(&c.base).unwrap();
+        let fb = FullBase::parse(&cols).unwrap();
+        let full = files_of(&fold_mem(t, &fb).delta).seg;
+        let s1 = crate::seg::base::tests::spec(1_000);
+        let inputs = [
+            ("build", base::build(&s1).unwrap()),
+            ("build_full", base::build_full(&s1).unwrap()),
+            ("the night's delta", night),
+            ("the full delta", full),
+        ];
+        for (input, bytes) in &inputs {
+            let v = SegView::parse(bytes).unwrap();
+            let node = v.need(tag::NODE).unwrap();
+            let ids = v.section(tag::IDS);
+            for (i, row) in node.chunks(crate::seg::NODE_HDR_LEN).enumerate() {
+                let id = ids.map_or(i as u32 + 1, |x| crate::seg::u32_at(x, i));
+                let b = row[3];
+                assert_eq!(b, 0, "{input}: byte 3 of #{id} is {b}");
+            }
+        }
+    }
+
+    /// The reader takes `DOCLEN`'s and `FTSSTAT`'s `derived-optional` bit as [F09 §3.3] gives it, accepted and never
+    /// required: the full delta of `case(200, 400, 1)` decodes equal to its fold with both entries' bit 0 set and with it
+    /// cleared; with bit 0 on `NODE` it is refused (V-7).
+    #[test]
+    fn decode_accepts_doclen_and_ftsstat_with_or_without_bit_0() {
+        use crate::seg::tests::with_flags;
+        let c = case(200, 400, 1);
+        let cols = Columns::parse(&c.base).unwrap();
+        let fb = FullBase::parse(&cols).unwrap();
+        let d = fold_mem(&c.tail, &fb).delta;
+        let enc = files_of(&d);
+        let blobs = enc.blobs.as_ref().map(|b| b.0.as_slice());
+        let at = |t: u16| {
+            SegView::parse(&enc.seg)
+                .unwrap()
+                .table
+                .iter()
+                .position(|e| e.tag == t)
+                .unwrap()
+        };
+        let (dl, fs, node) = (at(0x0052), at(0x0053), at(0x0002));
+        for flags in [1u16, 0] {
+            let seg = with_flags(&with_flags(&enc.seg, dl, flags), fs, flags);
+            let got = decode(&seg, blobs).unwrap_or_else(|e| panic!("flags {flags}: {e}"));
+            assert_eq!(got, d, "DOCLEN and FTSSTAT with flags {flags}");
+        }
+        let r = decode(&with_flags(&enc.seg, node, 1), blobs);
+        assert!(r.is_err(), "bit 0 on NODE is accepted");
     }
 
     /// A full delta reads back equal to its fold, from its segment and its `blobs` file, with every digest right (V-9)
@@ -1655,7 +1738,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// `TOMB` follows the deletes ([F09 §8.1], `09-segments.md:534-547`): on the hand-built tail, whose `Delete` of #9 in
+    /// `TOMB` follows the deletes ([F09 §8.1]): on the hand-built tail, whose `Delete` of #9 in
     /// the commit of `seq` 103 has `reason` 3 and `replaced_by` 52, `TOMB` is the one row (9, 103, 3, 52), so a swap of
     /// `reason` and `replaced_by` shows; #9 is a tombstone with its base title and uid, no field and no body.
     #[test]
@@ -1774,7 +1857,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// `SYMTAB` holds the window's new symbols ([F09 §14.2], `09-segments.md:933-966`): the overlay's symbols by (class,
+    /// `SYMTAB` holds the window's new symbols ([F09 §14.2]): the overlay's symbols by (class,
     /// id), here `session` 17 and `stmt` 9 (`tail/synth.rs`), in the layout of §14.2: the header, a 20-byte entry per
     /// class with `first_id`, `n` and its arrays' offsets, `by_id` (pool offsets) and `by_str`, then the `vstr` pool.
     #[test]

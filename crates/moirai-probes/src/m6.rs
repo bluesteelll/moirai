@@ -3,7 +3,7 @@
 //! `ruzstd` 0.9 at `Fastest`, and of the `zstd` CLI at level 1 as option (3)'s proxy, on the owner's notes, on the plan
 //! sections of `docs/**` and on `hist` frames (`90-harness-agnostic-design.md:959-974`). It decides
 //! `F02-dict-file`, `F10-codec-values`, `-blob-codec`, `-hist-codec`, `-dict-form` and `-body-placement`
-//! (`docs/spec/HOLES.md:33-39`).
+//! ([HOLES.md §2.1]).
 //!
 //! **The corpora** ([`corpus`]): the notes through `/private/codec-bodies/manifest.tsv`, the plan sections split at
 //! headings outside fences, where a recording run and a smoke find them, and the split of each corpus into a training
@@ -23,7 +23,7 @@
 //! **The grid** ([`quantities`], names by [MP §4.1]): 27 quantities, and 2 more when a `zstd` CLI is on `PATH`, in run
 //! order with every size first (R-34 B-3, M-15; R-35 Q3):
 //! - `raw.<c>` and `size.<codec>.<c>` for the notes and the plan sections (`lz4`, `lz4d`, `zstd`), and for `hist`
-//!   (`lz4`, `zstd`: a `hist` frame never uses a dictionary, `10-sealed-files.md:137`); then `size.cli.notes` and
+//!   (`lz4`, `zstd`: a `hist` frame never uses a dictionary, [F10 §3.4]); then `size.cli.notes` and
 //!   `size.cli.plan` when the CLI is present;
 //! - then `dec.<codec>.<c>` and `enc.<codec>.<c>` for the notes, the plan sections and `hist`.
 //!
@@ -32,7 +32,7 @@
 //!
 //! **The arms.** `raw` is the measured side's raw bytes. `size` is the payload F10 would store, summed over the
 //! measured side: per input, or per `hist` frame, the codec's output, or the raw bytes when the output is not shorter
-//! (`10-sealed-files.md:135-141`); every sample encodes the side again. `enc` and `dec` time one input of the measured
+//! ([F10 §3.4]); every sample encodes the side again. `enc` and `dec` time one input of the measured
 //! side, cycled in id order, or with a batch of k ([MP §4.5]) k consecutive inputs and their mean ([`Batched`]): the
 //! untimed setup picks the inputs, the timed operation is exactly the k codec calls into the arm's own buffers, and the
 //! untimed teardown checks each call's output ([`codec::Codec::check`]). The CLI's size is its time-free proxy only:
@@ -376,7 +376,7 @@ fn arm_err(e: String) -> ArmError {
 }
 
 /// The stored payload of every frame of `p` with `c`: per frame, the codec's outputs summed, or the frame's raw bytes
-/// when they are not shorter (`10-sealed-files.md:135-141`).
+/// when they are not shorter ([F10 §3.4]).
 fn stored_size<'a>(c: &mut dyn Codec<'a>, p: &'a Prepared) -> Result<u64, ArmError> {
     let mut total = 0u64;
     for f in &p.frames {

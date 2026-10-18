@@ -1,12 +1,12 @@
-//! The `Checkpoint` record of a delta checkpoint ([F05 §9.9], `05-log.md:728-807`; u21 cut §3.7): kind 9, durable, its
+//! The `Checkpoint` record of a delta checkpoint ([F05 §9.9]; u21 cut §3.7): kind 9, durable, its
 //! payload with bits 0 (`set_change`), 1 (`window`) and 5 (`files_added`), the record forms of `SegRef` ([F04 §4.1],
-//! embedded, `05-log.md:490`) and `FileEntry` ([F05 §8.4], `:492-505`), and its one-record group, framed by
+//! embedded, [F05 §8.3]) and `FileEntry` ([F05 §8.4]), and its one-record group, framed by
 //! [`super::rec::raw_group`]: kind 9 is outside the encoder's and the scan's subset (`tail/mod.rs`), which refuse it.
 //!
-//! The payload's fields in order (`05-log.md:734-754`): `ckflags` `u16`; `append_hlc` `hlc` (`u64`); `next_file_no`
+//! The payload's fields in order ([F05 §9.9]): `ckflags` `u16`; `append_hlc` `hlc` (`u64`); `next_file_no`
 //! `uvar32`; with bit 0 `upto_lsn` (`lsnv`), `active_log` (`uvar32`), `n_segments` (`u8`) and the `SegRef`s; with bit 1
 //! `window_start` (`lsnv`), `n_refs` (`uvar32`) and the `RefList`s, each `ref_id`, `n` and n × (`dlsn`, `dhlc`), both
-//! `uvar64` (`:771-777`); with bit 5 `n_added` (`uvar32`) and the `FileEntry`s. Bits 2, 3, 4 and 6 (a runtime-only
+//! `uvar64` ([F05 §9.9]); with bit 5 `n_added` (`uvar32`) and the `FileEntry`s. Bits 2, 3, 4 and 6 (a runtime-only
 //! fold, promotions, retirements, released files) are outside the probe's subset; bits 10–15 are reserved-zero.
 
 use super::enc::{Reader, put_uvar};
@@ -14,10 +14,10 @@ use super::head::{SEG_REF_LEN, SegRef};
 use super::rec::{RecHdr, chain, raw_group, record_checksum};
 use super::{REC_HDR_LEN, TRAILER_LEN, flag};
 
-/// The record kind ([F05 §7], `05-log.md:381`).
+/// The record kind ([F05 §7]).
 pub const KIND: u8 = 9;
 
-/// The `ckflags` bits ([F05 §9.9], `05-log.md:756-769`).
+/// The `ckflags` bits ([F05 §9.9]).
 pub mod ckflag {
     /// Bit 0 `set_change`: fields 4–7.
     pub const SET_CHANGE: u16 = 1 << 0;
@@ -39,7 +39,7 @@ pub mod ckflag {
     pub const RESERVED: u16 = 0xFC00;
 }
 
-/// `FileEntry` ([F05 §8.4], `05-log.md:498-505`): `FileRefV` (`family` `u8`, `ref_id` `refid` for family 5,
+/// `FileEntry` ([F05 §8.4]): `FileRefV` (`family` `u8`, `ref_id` `refid` for family 5,
 /// `file_no` `uvar32`), then `total_len` `uvar64` and `digest` `b16`.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct FileEntry {
@@ -55,7 +55,7 @@ pub struct FileEntry {
     pub digest: [u8; 16],
 }
 
-/// A ref's commits in the window ([F05 §9.9] `RefList`, `05-log.md:771-777`): (lsn, `append_hlc`) per commit, lsns
+/// A ref's commits in the window ([F05 §9.9] `RefList`): (lsn, `append_hlc`) per commit, lsns
 /// strictly increasing.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RefList {
@@ -329,7 +329,7 @@ mod tests {
         }
     }
 
-    /// The `Checkpoint` payload ([F05 §9.9], `05-log.md:734-777`; `SegRef` [F04 §4.1], `FileEntry` [F05 §8.4]): the
+    /// The `Checkpoint` payload ([F05 §9.9]; `SegRef` [F04 §4.1], `FileEntry` [F05 §8.4]): the
     /// literal bytes of bits 0, 1 and 5 (`ckflags` 0x0023): `ckflags`, `append_hlc`, `next_file_no` 16, `upto_lsn`,
     /// `active_log`, two 29-byte `SegRef`s, `window_start`, one `RefList` whose entries are deltas from `window_start`
     /// and from hlc 0, one `FileEntry`; the round trip; refusals of bits 10–15, of bit 1 without bit 0, of bit 2 (outside

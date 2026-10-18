@@ -6,7 +6,7 @@
 //! product trainer may do better or worse, so the gain this dictionary shows is this trainer's.
 //!
 //! - **The sample** `S`: the training inputs in id order, up to the last whole input that fits in P16 = 4 MiB
-//!   (`17-store-parameters.md:181`), concatenated. When `|S|` is at most [`DICT_MAX`], the dictionary is `S`.
+//!   ([F17 §3]), concatenated. When `|S|` is at most [`DICT_MAX`], the dictionary is `S`.
 //! - **The parameters**: d-mers of [`D`] = 8 bytes (`ruzstd`'s cover uses `K` = 16) and segments of [`SEGMENT`] =
 //!   2,048 bytes (`ruzstd`'s `segment_size`), so [`EPOCHS`] = 32 epochs fill 65,536 bytes.
 //! - **Epoch `e`** is `S[e·L/32 .. (e+1)·L/32)` with integer division; its candidates are its non-overlapping
@@ -16,7 +16,7 @@
 //! - **The choice**: epoch by epoch, the highest-scoring chunk, ties to the earliest; then the counts of its d-mers
 //!   are set to 0.
 //! - **The output**: the 32 chosen chunks in ascending order of their score at choice time, ties by position, so the
-//!   best lies nearest the input, as in `ruzstd`. At most [`DICT_MAX`] bytes (`10-sealed-files.md:408-413`).
+//!   best lies nearest the input, as in `ruzstd`. At most [`DICT_MAX`] bytes ([F10 §6.2]).
 //!
 //! The counts live in a hash map that is only looked up, never iterated, and every tie is broken by position, so no
 //! map order can decide the output.
@@ -25,9 +25,9 @@ use super::corpus::Input;
 use std::collections::HashMap;
 use std::hash::{BuildHasherDefault, Hasher};
 
-/// The largest dictionary: `dict.D`'s raw content is at most 65,536 bytes (`10-sealed-files.md:408-413`).
+/// The largest dictionary: `dict.D`'s raw content is at most 65,536 bytes ([F10 §6.2]).
 pub const DICT_MAX: usize = 65_536;
-/// P16, the training sample's cap (`17-store-parameters.md:181`, `:423`).
+/// P16, the training sample's cap ([F17 §3], [F17 §6.3]).
 pub const P16: usize = 4 * 1_024 * 1_024;
 /// The d-mer length.
 pub const D: usize = 8;

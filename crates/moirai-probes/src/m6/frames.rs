@@ -1,18 +1,18 @@
 //! Measurement 6's `hist` frames (cut D-3): the records of the probe's synthetic log tails, cut into frames by
-//! F10 §4.2 (`10-sealed-files.md:182-199`), as the inputs of the `hist` quantities.
+//! [F10 §4.2], as the inputs of the `hist` quantities.
 //!
 //! - **The tails**: four tails of measurement 10's `rec` family at the profile ([`crate::tail::synth::generate`]):
 //!   threshold P07 (4 MiB in production), N = 1e6, seeds `xxh3_64("m6.hist.<j>")` for j = 0 to 3.
 //! - **The records**: each tail is walked from its first byte one `RecHdr` at a time, and its `Noop` records (the
-//!   rotation pads) are dropped, since retirement keeps every record but the pad (`10-sealed-files.md:157-159`).
+//!   rotation pads) are dropped, since retirement keeps every record but the pad ([F10 §4.1]).
 //! - **The cut**: each tail is one retired extent. Before a record joins the current frame, the frame is closed if it
 //!   is not empty and its raw bytes plus the record's would exceed P04, or the record is a `Commit` and the frame
 //!   already holds P03 of them. A record longer than P04 is a split frame of its own, of ⌈len / P04⌉ blocks, all but
 //!   the last of exactly P04 bytes. Every other frame is one block. P03 and P04 are 256 and 1 MiB in production, 4 and
 //!   4 KiB in the test profile ([`crate::tail::Params`]).
 //!
-//! The measured inputs are the blocks, each at most 1 MiB raw (`10-sealed-files.md:195`), and every frame is measured:
-//! a `hist` frame never uses a dictionary (`10-sealed-files.md:137`). They follow the generator (its filler text and
+//! The measured inputs are the blocks, each at most 1 MiB raw ([F10 §4.2]), and every frame is measured:
+//! a `hist` frame never uses a dictionary ([F10 §3.4]). They follow the generator (its filler text and
 //! random body bytes), not real logs, so `F10-hist-codec` gets no real-log evidence from them.
 
 use super::corpus::Input;

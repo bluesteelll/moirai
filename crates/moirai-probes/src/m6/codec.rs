@@ -9,7 +9,7 @@
 //!   dictionary again, and that is in its time.
 //! - **`zstd`** ([`Zstd`]): one `FrameCompressor` at `Fastest` kept for the arm, given each input as its source and
 //!   its reused output as the drain; one `FrameDecoder` with `decode_all`. Without the `hash` feature the encoder
-//!   writes no content checksum: `hist` frames carry their own `raw_xxh3` (`10-sealed-files.md:231`).
+//!   writes no content checksum: `hist` frames carry their own `raw_xxh3` ([F10 §4.3]).
 //! - **The CLI** ([`CliStage`], [`zstd_on_path`]): looked up on `PATH` only. Its working files lie below the working
 //!   directory, `<work>/m6-cli/` (a stale one is replaced): `dict.raw`, one file per input and a file list; `zstd -1
 //!   -D dict.raw --no-check --single-thread -q --output-dir-flat out --filelist list.txt` writes one frame per input,
@@ -177,7 +177,7 @@ pub fn make<'a>(kind: CodecKind, dict: &[u8], max_input: usize) -> Box<dyn Codec
     }
 }
 
-/// The stored payload of one input (`10-sealed-files.md:135-141`): the codec's output, or the raw bytes when the
+/// The stored payload of one input ([F10 §3.4]): the codec's output, or the raw bytes when the
 /// output is not shorter.
 pub fn stored(raw: usize, encoded: usize) -> usize {
     encoded.min(raw)

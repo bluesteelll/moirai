@@ -1,27 +1,26 @@
-//! The `blobs.<n>` file a delta checkpoint seals its window's bodies into ([F10 §5], `10-sealed-files.md:305-376`;
-//! [F10 §5.4] "A delta checkpoint seals the bodies of its window into one new `blobs` file, compressing them here",
-//! `:360`), the `BlobRef` that names a body in it ([F09 §6.3], `09-segments.md:445-475`), and the reader of the tests.
+//! The `blobs.<n>` file a delta checkpoint seals its window's bodies into ([F10 §5];
+//! [F10 §5.4] "A delta checkpoint seals the bodies of its window into one new `blobs` file, compressing them here"),
+//! the `BlobRef` that names a body in it ([F09 §6.3]), and the reader of the tests.
 //!
-//! - **The payload** ([F10 §3.2], `10-sealed-files.md:98-115`): `BlobEnc` is the codec byte, then the data. The codec is
-//!   `lz4` (1, one LZ4 block, `:123`), R-40 O-1's choice for `HOLE(F10-blob-codec)`, or `none` (0, the raw bytes) when
-//!   the block is not shorter than the raw bytes (§3.4, `:135`, `:141`). The fallback compares lengths, so it is
-//!   deterministic.
-//! - **The file** (§5.1–§5.2, `:307-338`): `SegHdr` with `seg_kind` 6, `tok_ver` 0, `n_rows` = the blobs, `dict_no` 0,
-//!   `file_no` n and every other field 0 ([F09 §2.3], `09-segments.md:119-129`); exactly two sections, `BLOBIDX`
+//! - **The payload** ([F10 §3.2]): `BlobEnc` is the codec byte, then the data. The codec is `lz4` (1, one LZ4 block,
+//!   [F10 §3.3]), R-40 O-1's choice for `HOLE(F10-blob-codec)`, or `none` (0, the raw bytes) when the block is not
+//!   shorter than the raw bytes ([F10 §3.4]). The fallback compares lengths, so it is deterministic.
+//! - **The file** ([F10 §5.1]–§5.2): `SegHdr` with `seg_kind` 6, `tok_ver` 0, `n_rows` = the blobs, `dict_no` 0,
+//!   `file_no` n and every other field 0 ([F09 §2.3]); exactly two sections, `BLOBIDX`
 //!   (`0x0310`, a fixed table of 36-byte `BlobIdx` rows sorted by (`hash`, `class`)) and `BLOBDATA` (`0x0311`, the
 //!   payloads contiguous in `BLOBIDX` order, the first at the section's first byte); every `off` is absolute.
 //! - **`BlobRef`** (36 B: `hash`, `file`, `off`, `len`, `raw_len`): the same `hash`, `off`, `len` and `raw_len` as the
-//!   body's `BlobIdx` row, with `file` = n (F10:336). Every body here is of class 1 `body` (§5.3, `:344`).
+//!   body's `BlobIdx` row, with `file` = n ([F10 §5.2]). Every body here is of class 1 `body` ([F10 §5.3]).
 
 use super::{Header, SegView, Writer, data_off, fixed_rows, put_fixed, seg_kind, tag};
 use crate::tail::commit::blake3_16;
 
-/// `BlobRef`'s length (`09-segments.md:449-456`).
+/// `BlobRef`'s length ([F09 §6.3]).
 pub const BLOB_REF_LEN: usize = 36;
-/// `BlobIdx`'s length (`10-sealed-files.md:323-331`).
+/// `BlobIdx`'s length ([F10 §5.2]).
 pub const BLOB_IDX_LEN: usize = 36;
 
-/// The codec byte ([F10 §3.1], `10-sealed-files.md:87-96`).
+/// The codec byte ([F10 §3.1]).
 pub mod codec {
     /// `none`: the raw bytes.
     pub const NONE: u8 = 0;
@@ -29,7 +28,7 @@ pub mod codec {
     pub const LZ4: u8 = 1;
 }
 
-/// The blob class `body` ([F10 §5.3], `10-sealed-files.md:342-344`).
+/// The blob class `body` ([F10 §5.3]).
 pub const CLASS_BODY: u8 = 1;
 
 fn u32_le(b: &[u8], at: usize) -> u32 {
@@ -40,7 +39,7 @@ fn u64_le(b: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(b[at..at + 8].try_into().expect("8 bytes"))
 }
 
-/// `BlobRef` ([F09 §6.3], `09-segments.md:447-456`).
+/// `BlobRef` ([F09 §6.3]).
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq, PartialOrd, Ord)]
 pub struct BlobRef {
     /// `hash` (offset 0): BLAKE3-128 of the raw bytes.
@@ -79,7 +78,7 @@ impl BlobRef {
     }
 }
 
-/// `BlobIdx` ([F10 §5.2], `10-sealed-files.md:323-331`).
+/// `BlobIdx` ([F10 §5.2]).
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct BlobIdx {
     /// `hash` (offset 0).
@@ -129,7 +128,7 @@ pub struct Packer {
 
 impl Packer {
     /// Appends the `BlobEnc` payload of `raw` to `out` and returns its codec: `lz4` when the block is shorter than the
-    /// raw bytes, else `none` with the raw bytes ([F10 §3.4], `10-sealed-files.md:135`, `:141`).
+    /// raw bytes, else `none` with the raw bytes ([F10 §3.4]).
     pub fn pack(&mut self, raw: &[u8], out: &mut Vec<u8>) -> Result<u8, String> {
         let max = lz4_flex::block::get_maximum_output_size(raw.len());
         if self.buf.len() < max {
@@ -148,7 +147,7 @@ impl Packer {
     }
 }
 
-/// Decodes a `BlobEnc` payload ([F10 §3.2] "Decoding", `10-sealed-files.md:112-115`): refuses an unknown codec, a
+/// Decodes a `BlobEnc` payload ([F10 §3.2] "Decoding"): refuses an unknown codec, a
 /// decoded length other than `raw_len` (for codec 0, `len − 1`), and bytes whose BLAKE3-128 is not `hash`.
 pub fn unpack(payload: &[u8], raw_len: u32, hash: &[u8; 16]) -> Result<Vec<u8>, String> {
     let (&c, data) = payload.split_first().ok_or("an empty payload")?;
@@ -338,7 +337,7 @@ mod tests {
         seal(&refs, 15, &mut Packer::default()).unwrap()
     }
 
-    /// The `blobs` file ([F10 §5.1]–§5.2, `10-sealed-files.md:307-338`): `SegHdr` with `seg_kind` 6, `tok_ver` 0,
+    /// The `blobs` file ([F10 §5.1]–§5.2): `SegHdr` with `seg_kind` 6, `tok_ver` 0,
     /// `n_rows` 3, `file_no` 15 and every other field 0; exactly `BLOBIDX` (`0x0310`, 8 + 3 × 36 bytes) and `BLOBDATA`
     /// (`0x0311`), each `count` 3; rows sorted by hash, class 1, reserved zero; no gap: the first `off` is `BLOBDATA`'s
     /// first byte and each next `off` is the previous `off` + `len`, the last payload ending the section; each payload
@@ -436,7 +435,7 @@ mod tests {
         assert!(seal(&[], 15, &mut Packer::default()).is_err());
     }
 
-    /// The codec ([F10 §3.4], `10-sealed-files.md:135`, `:141`; R-40 O-1): a body that lz4 shortens is codec 1, one LZ4
+    /// The codec ([F10 §3.4]; R-40 O-1): a body that lz4 shortens is codec 1, one LZ4
     /// block that decodes to it; a body that lz4 does not shorten (random bytes, two bytes) is codec 0 with its raw
     /// bytes, `len − 1` = `raw_len`; an unknown codec, a wrong length or a wrong hash is refused.
     #[test]
@@ -475,7 +474,7 @@ mod tests {
         assert!(unpack(&out, 300, &bodies[1].0).is_err(), "another hash");
     }
 
-    /// `BlobRef` ([F09 §6.3], `09-segments.md:449-456`) and `BlobIdx` ([F10 §5.2], `10-sealed-files.md:323-331`), 36
+    /// `BlobRef` ([F09 §6.3]) and `BlobIdx` ([F10 §5.2]), 36
     /// bytes each, little-endian: `hash` at 0, `file` (or `class` and 3 reserved bytes) at 16, `off` at 20, `len` at 28,
     /// `raw_len` at 32.
     #[test]
