@@ -1,10 +1,10 @@
-//! The scan of [F05 §5] (`docs/spec/format/05-log.md:268-341`): from a group boundary whose chain value it knows, it
+//! The scan of [F05 §5]: from a group boundary whose chain value it knows, it
 //! reads the log through a fixed buffer, checks every record ([F05 §5.2]) and group ([F05 §4.6]), the two placement
-//! defects of [F05 §5.4] and the `ExtentHead` rules of [F05 §9.28] (`:1133-1135`), and hands each valid group to its
-//! caller in log order ([F05 §10.1], `:1234-1236`).
+//! defects of [F05 §5.4] and the `ExtentHead` rules of [F05 §9.28], and hands each valid group to its
+//! caller in log order ([F05 §10.1]).
 //!
 //! The probe's tail lies wholly below `HEAD.durable_lsn`, so every invalid record or group is corruption, never the end
-//! of the log ([F05 §5.3], `:305-309`): the scan returns an error. A kind outside the probe's subset is refused with an
+//! of the log ([F05 §5.3]): the scan returns an error. A kind outside the probe's subset is refused with an
 //! error that says so.
 
 use super::rec::{
@@ -338,7 +338,7 @@ pub fn scan<S: LogSource>(
     Ok(chain_at)
 }
 
-/// The rules of [F05 §9.28] (`05-log.md:1133-1135`).
+/// The rules of [F05 §9.28].
 fn check_head(
     h: &ExtentHead,
     lsn: u64,
@@ -542,8 +542,8 @@ mod tests {
         assert_eq!(hb.commits.len(), 7);
     }
 
-    /// Every rule of [F05 §5.2] (`05-log.md:286-296`), the group rules of §4.6 and §5.3, the placement defects of
-    /// §5.4 (`:331-335`), the `ExtentHead` rules of §9.28 (`:1133-1135`) and a malformed payload refuse the tail with
+    /// Every rule of [F05 §5.2], the group rules of §4.6 and §5.3, the placement defects of
+    /// [F05 §5.4], the `ExtentHead` rules of [F05 §9.28] and a malformed payload refuse the tail with
     /// their reason; the unmodified tail decodes.
     #[test]
     fn scan_refuses_each_invalid_record_and_group() {
@@ -664,7 +664,7 @@ mod tests {
         assert!(err(short, &x).what.contains("inside"));
     }
 
-    /// The scan reads through a fixed buffer ([AR §4.7], `ARCHITECTURE-RESEARCH.md:871`): with a 64-byte chunk every
+    /// The scan reads through a fixed buffer ([AR §4.7], [AR §5a.3]): with a 64-byte chunk every
     /// read is at most 64 bytes, never across an extent, and the groups, the chain value and the records are those of
     /// a whole-buffer scan.
     #[test]

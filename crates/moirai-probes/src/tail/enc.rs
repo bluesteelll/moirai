@@ -1,13 +1,13 @@
-//! The integer and string encodings of [F01 §5] and [F01 §6.2] (`docs/spec/format/01-conventions.md:236-377`), and a
+//! The integer and string encodings of [F01 §5] and [F01 §6.2], and a
 //! reader that refuses what [F01 §5.2] refuses.
 //!
-//! - Fixed widths are little-endian (`01-conventions.md:240-252`).
+//! - Fixed widths are little-endian ([F01 §5.1]).
 //! - `uvar` is unsigned LEB128 in its shortest form; the bounds `uvar16`, `uvar32`, `uvar64` have maximum lengths 3,
-//!   5 and 10 bytes (`:256-268`). Decoding refuses a non-canonical encoding, one longer than the bound's maximum, a
+//!   5 and 10 bytes ([F01 §5.2]). Decoding refuses a non-canonical encoding, one longer than the bound's maximum, a
 //!   value above the bound and one cut off by its container.
-//! - `svar64` is zigzag then `uvar64` (`:290-295`).
-//! - `bool8` is `00` or `01` (`:306`).
-//! - `vbytes` is a `uvar32` length then the bytes; `vstr` is a `vbytes` of valid UTF-8 (`:356-358`).
+//! - `svar64` is zigzag then `uvar64` ([F01 §5.3]).
+//! - `bool8` is `00` or `01` ([F01 §5.4]).
+//! - `vbytes` is a `uvar32` length then the bytes; `vstr` is a `vbytes` of valid UTF-8 ([F01 §6.1]).
 
 /// Why bytes do not decode: the rule they break, with the offset in the decoded structure.
 #[derive(Clone, Debug, Eq, PartialEq)]
@@ -26,7 +26,7 @@ impl core::fmt::Display for DecodeError {
 
 impl std::error::Error for DecodeError {}
 
-/// The declared bound of a varint field ([F01 §5.2], `01-conventions.md:256-259`).
+/// The declared bound of a varint field ([F01 §5.2]).
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub enum Bound {
     /// `uvar16`: at most 3 bytes, at most 65,535.
@@ -38,7 +38,7 @@ pub enum Bound {
 }
 
 impl Bound {
-    /// The maximum encoded length: 3, 5, 10 (`01-conventions.md:258-259`).
+    /// The maximum encoded length: 3, 5, 10 ([F01 §5.2]).
     pub const fn max_len(self) -> usize {
         match self {
             Bound::U16 => 3,
@@ -277,7 +277,7 @@ impl<'a> Reader<'a> {
         })
     }
 
-    /// Refuses bytes left after the last field ([F05 §8.8], `05-log.md:546-549`).
+    /// Refuses bytes left after the last field ([F05 §8.8]).
     pub fn end(&self) -> Result<(), DecodeError> {
         if self.remaining() == 0 {
             Ok(())
@@ -322,7 +322,7 @@ pub(crate) mod tests {
         out
     }
 
-    /// The examples of [F01 §5.2] (`01-conventions.md:270-283`).
+    /// The examples of [F01 §5.2].
     #[test]
     fn uvar_examples_of_f01() {
         let table: [(u64, &[u8]); 10] = [
@@ -349,7 +349,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// [F01 §5.2]'s refusals (`01-conventions.md:260-264`, `:285`), each with its reason, beside the valid form.
+    /// [F01 §5.2]'s refusals, each with its reason, beside the valid form.
     #[test]
     fn uvar_refuses_non_canonical_and_overlong() {
         let refused = |b: &[u8], bound: Bound| Reader::new(b).uvar(bound).unwrap_err().what;
@@ -387,7 +387,7 @@ pub(crate) mod tests {
         assert_eq!(r.pos(), 0);
     }
 
-    /// The examples of [F01 §5.3] (`01-conventions.md:293-302`).
+    /// The examples of [F01 §5.3].
     #[test]
     fn svar_examples_of_f01() {
         let table: [(i64, u64, &[u8]); 8] = [
@@ -415,8 +415,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// The `vstr` example of [F01 §6.2] (`01-conventions.md:373`) and the `hlc` example of [F01 §5.7]
-    /// (`01-conventions.md:340-341`).
+    /// The `vstr` example of [F01 §6.2] and the `hlc` example of [F01 §5.7].
     #[test]
     fn vstr_and_hlc_examples_of_f01() {
         let mut out = Vec::new();
