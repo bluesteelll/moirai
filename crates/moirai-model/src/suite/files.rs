@@ -2951,3 +2951,59 @@ fn a_dry_cherry_pick_reports_next_id_for_a_new_uid() {
     assert!(!placeholder(&all), "{all}");
     assert_eq!(written(&s), before, "a dry run writes nothing");
 }
+
+/// A `LinkFile` of #2 to `specs` in the tree, under `dry` when `dry`.
+fn link_specs(s: &mut S, specs: &[&str], dry: bool) -> Reply {
+    s.run(
+        Cmd::LinkFile {
+            node: Target::Id(Nid(2)),
+            specs: specs.iter().map(|x| x.to_string()).collect(),
+            watch: None,
+            planned: false,
+            quote: None,
+            end: None,
+        },
+        Ctx { dry, ..in_tree() },
+    )
+}
+
+/// W3D-SF-6 ([F04 §5.7]; [F19] `id_space_exhausted`): the last anchor handle a write may allocate is `a4294967294`
+/// (2^32 − 2). At `next_anchor` = 2^32 − 1 a `LinkFile` that creates one anchor is refused with exit 7, a dry one too,
+/// and nothing is written; at 2^32 − 2 one new anchor takes `a4294967294`, and two are refused.
+#[test]
+fn an_anchor_that_needs_the_last_handle_is_refused() {
+    let last = u64::from(u32::MAX);
+    for dry in [false, true] {
+        let mut s = bound();
+        bind(&mut s);
+        s.st.next_anchor = last;
+        let before = written(&s);
+        let r = link_specs(&mut s, &["docs/api.md:3"], dry);
+        assert_eq!(r.outcome, Outcome::Refused, "dry {dry}");
+        assert_eq!(
+            r.error.as_ref().map(|e| (e.code.as_str(), e.exit)),
+            Some(("id_space_exhausted", 7))
+        );
+        assert_eq!(written(&s), before);
+        assert_eq!(s.st.next_anchor, last);
+        assert!(s.st.files.anchors.is_empty());
+    }
+    let mut s = bound();
+    bind(&mut s);
+    s.st.next_anchor = last - 1;
+    let r = link_specs(&mut s, &["docs/api.md:3"], false);
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(row(&r, "anchor"), "a4294967294", "the last handle");
+    assert_eq!(s.st.next_anchor, last);
+    let mut s = bound();
+    bind(&mut s);
+    s.st.next_anchor = last - 1;
+    let before = written(&s);
+    let r = link_specs(&mut s, &["docs/api.md:3", "docs/api.md:5"], false);
+    assert_eq!(
+        r.error.as_ref().map(|e| (e.code.as_str(), e.exit)),
+        Some(("id_space_exhausted", 7))
+    );
+    assert_eq!(written(&s), before);
+    assert_eq!(s.st.next_anchor, last - 1);
+}
