@@ -1531,7 +1531,7 @@ fn every_merge_case_merges() {
 /// E5 on one case: the typed merge of its `base-state`, `p-state` (o) and `theirs-state` gives CS(`q-state`) with no
 /// violation, and each key of its `merge-rows` block was decided by the row, or a row of the case, it names.
 fn check_merge_case(c: &Case, op: crate::merge::Op, dst_main: bool) {
-    use crate::merge::{Ctx, Fresh, merge};
+    use crate::merge::{Ctx, Fresh, NO_DROPPED, merge};
     let id = c.id.as_str();
     let mut ids = Ids::default();
     let b = state(c.block("base-state"), &mut ids);
@@ -1553,6 +1553,7 @@ fn check_merge_case(c: &Case, op: crate::merge::Op, dst_main: bool) {
         nid: &nid,
         origin: None,
         strict: false,
+        dropped: &NO_DROPPED,
     };
     let m = merge(&b, &o, &t, &cx, &mut Fresh::default());
     let got = canonical_state(&m.st, &uid);

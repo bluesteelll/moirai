@@ -401,6 +401,7 @@ impl Store {
         let uid = |n: Nid| self.alloc.uid(n);
         let nid = |u: Uid| self.uidx(u);
         let mut bases = Bases::new(&self.dag, &self.alloc, &uid, &nid);
+        bases.dropped = &self.dropped;
         let base = bases.base(dst_tip, src_tip, forced);
         let o = self.dag.state_at(dst_tip, &self.alloc);
         let t = self.dag.state_at(src_tip, &self.alloc);
@@ -428,6 +429,7 @@ impl Store {
             nid: &nid,
             origin: Some(&og),
             strict,
+            dropped: &self.dropped,
         };
         let mut fresh = bases.fresh.clone();
         let mut p = merge::typed(&base.st, &o, &t, &cx, &mut fresh);
@@ -497,6 +499,7 @@ impl Store {
             origin: Some(&og),
             // A revert or a cherry-pick records no strict group: it keeps its behaviour (R-15 Q2).
             strict: false,
+            dropped: &self.dropped,
         };
         let mut fresh = Fresh::default();
         let mut p = merge::typed(&b, &o, &t, &cx, &mut fresh);

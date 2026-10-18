@@ -135,7 +135,15 @@ pub struct Ctx<'a> {
     /// record no strict group) and a virtual merge (VB-019). RS-007 reads it (13.3 (b)); the landing takes it from its
     /// caller ([`land_or_stage`]).
     pub strict: bool,
+    /// The store's set of dropped bodies, by body hash ([F06 §8.1] DB-1), which a merge reads and only the text rule
+    /// reads ([RULES/merge-table] PR-016, CS-011); empty until a command fills it, and no model command does before
+    /// `BodyDrop`. A virtual merge reads the same set ([F12 §5.6]).
+    pub dropped: &'a BTreeSet<[u8; 16]>,
 }
+
+/// An empty dropped set ([`Ctx::dropped`]): the input of a merge whose store has dropped no body, a hand-built merge's
+/// and a fixture's.
+pub static NO_DROPPED: BTreeSet<[u8; 16]> = BTreeSet::new();
 
 /// The origin of a side's hierarchy value of a node ([`Ctx::origin`]): side 1 is dst, 2 is src; the flag says whether
 /// the node is live on the side (a flat value reads `None` for `absent` and for a live root with no order).
