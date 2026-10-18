@@ -3007,3 +3007,81 @@ fn an_anchor_that_needs_the_last_handle_is_refused() {
     assert_eq!(written(&s), before);
     assert_eq!(s.st.next_anchor, last - 1);
 }
+
+/// R-52 SF-7 with R-83 ([RULES/link-merge-rules] RK-005; [API §15.4]): uid′'s creating commit is the merge that
+/// re-keys it, so on `lane/x`, whose first-parent chain holds that merge, LQ's `created` of uid′ reads the merge
+/// (`Dag::local_seqs_all`, the newest first-parent-chain commit that takes the existence from absent).
+#[test]
+fn a_re_keyed_uids_created_is_the_re_keying_merge_on_the_chain() {
+    let mut s = past_successor_lanes();
+    let d = merge_lanes(&mut s, "y", "x");
+    assert_eq!(d.outcome, "landed");
+    let n2 = s.st.alloc.uidx[&past_successor_uid(&s)];
+    let tip = s.st.dag.live("lane/x").and_then(|x| x.tip);
+    assert_eq!(
+        s.st.dag.local_seqs_all(tip).get(&n2).map(|t| t.1),
+        tip,
+        "API §15.4: the re-keying merge on the chain"
+    );
+}
+
+/// R-52 SF-7 ([RULES/link-merge-rules] RK-005; [F06 §7.4]; [F08 §4] `CREATOR`): a merge keeps a `Create`'s original
+/// creator, so a re-keyed uid′ takes U's creator on S, not the merge caller's. `orch2` registers `docs/f.md` (U) on
+/// `lane/x`; `lane/y` registers it, removes it and registers it again; the orchestrator merges `lane/y` into `lane/x`,
+/// which re-keys U to uid′ (RK-004). uid′'s allocation row and its node name `orch2`.
+#[test]
+fn a_re_keyed_uid_keeps_its_predecessors_creator() {
+    let mut s = bound();
+    s.ok(env_tree(vec![w("docs/f.md", "eff\n")]), Ctx::default());
+    for l in ["x", "y"] {
+        s.ok(
+            Cmd::BranchCreate {
+                name: l.into(),
+                from: Some("main".into()),
+                kind: None,
+            },
+            orch(),
+        );
+    }
+    bind_lane(&mut s, "x", false);
+    let other = second_orchestrator(&mut s);
+    s.ok(
+        Cmd::FileAdd {
+            paths: vec!["docs/f.md".into()],
+            kind: None,
+            root: None,
+        },
+        Ctx {
+            branch: Some("lane/x".into()),
+            no_dedupe: true,
+            ..other
+        },
+    );
+    let u_creator = state_of(&s, "lane/x").nodes[&Nid(5)].creator.clone();
+    assert_eq!(u_creator.actor, "orch2");
+    assert_eq!(s.st.alloc.rows[&Nid(5)].1, u_creator);
+    bind_lane(&mut s, "y", true);
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(5)]);
+    s.ok(
+        Cmd::FileRm {
+            paths: vec!["docs/f.md".into()],
+            reason: None,
+            replaced_by: None,
+            trash: false,
+            recursive: false,
+            yes: true,
+        },
+        on_lane("y"),
+    );
+    s.ok(env_tree(vec![w("docs/f.md", "new eff\n")]), Ctx::default());
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(6)]);
+    let d = merge_lanes(&mut s, "y", "x");
+    assert_eq!(d.outcome, "landed");
+    let n2 = s.st.alloc.uidx[&past_successor_uid(&s)];
+    assert_eq!(s.st.alloc.rows[&n2].1, u_creator, "the allocation row");
+    assert_eq!(
+        state_of(&s, "lane/x").nodes[&n2].creator,
+        u_creator,
+        "the node"
+    );
+}
