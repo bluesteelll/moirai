@@ -4,7 +4,7 @@
 //!
 //! | Shape | Q below the median | to p99 | to the maximum | p50 | p99 | max |
 //! |---|---|---|---|---|---|---|
-//! | `Design` (`c`) | linear from 0 | log-linear | linear | 50 µs (AR:1717) | 5 ms (AR:1798) | 20 ms (AR:1798) |
+//! | `Design` (`c`) | linear from 0 | log-linear | linear | 50 µs ([AR §8.1]) | 5 ms ([AR §8.3]) | 20 ms ([AR §8.3]) |
 //! | `Uniform` (`a`) | linear from 0 | linear | linear | 5 ms × 0.5 / 0.99 ≈ 2.525 ms | 5 ms | 20 ms |
 
 use crate::m1::store::draw64;

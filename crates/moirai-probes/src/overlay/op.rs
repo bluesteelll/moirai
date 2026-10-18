@@ -7,12 +7,12 @@
 //!
 //! | Fact | Specification |
 //! |---|---|
-//! | `RecHdr.len` and `kind`: the payload's extent and the record's kind, without its payload | [F05 §3.1] (`05-log.md:118-129`), [F05 §3.3] (`:141-151`) |
-//! | a `SymDefs` block opens the payload when flag bit 2 is set, walkable by `n_defs` and each `vstr` length | [F05 §8.1] (`05-log.md:419-435`) |
-//! | the changeset follows the header part and precedes `n_bodies` and the bodies | [F06 §4.1] (`06-commit.md:170-179`), [F06 §4.3] (`:252-259`) |
-//! | the op frame: `op` u8, `len` uvar32, the body; "The length lets a reader skip ops without decoding them" | [F06 §7.1] (`06-commit.md:671-679`) |
-//! | every op begins with its owner (`id`, or an edge's `src`), then `prev` | [F06 §7.4] (`06-commit.md:726`), [F06 §7.5.1] (`:849-852`) |
-//! | the ops are sorted by (owner, rank, detail), so a reader stops once it passes the owner it looks for | [F06 §7.9] (`06-commit.md:1008-1018`) |
+//! | `RecHdr.len` and `kind`: the payload's extent and the record's kind, without its payload | [F05 §3.1], [F05 §3.3] |
+//! | a `SymDefs` block opens the payload when flag bit 2 is set, walkable by `n_defs` and each `vstr` length | [F05 §8.1] |
+//! | the changeset follows the header part and precedes `n_bodies` and the bodies | [F06 §4.1], [F06 §4.3] |
+//! | the op frame: `op` u8, `len` uvar32, the body; "The length lets a reader skip ops without decoding them" | [F06 §7.1] |
+//! | every op begins with its owner (`id`, or an edge's `src`), then `prev` | [F06 §7.4], [F06 §7.5.1] |
+//! | the ops are sorted by (owner, rank, detail), so a reader stops once it passes the owner it looks for | [F06 §7.9] |
 //!
 //! **The frame walk** ([`Overlay::get_op`]). For each record of the owner's chain, from the node index's lsn:
 //! - one 32-byte header read, with [`Overlay::get`]'s refusals;
@@ -28,7 +28,7 @@
 //! older record or out of the tail.
 //!
 //! **The offset read** ([`Overlay::get_op_at`], the floor `read.op.at` of R-42 Q2). The node index's entry has 4 spare
-//! bytes (u32 `n` and u64 `lsn` make 16 B with padding; `AR:709` budgets "12–16 B per op"). Process state can hold
+//! bytes (u32 `n` and u64 `lsn` make 16 B with padding; [AR §4.5] budgets "12–16 B per op"). Process state can hold
 //! there where n's frames start in its newest record and how many there are ([`OpEntry`]: a 24-bit offset from the
 //! record's lsn, header included, and an 8-bit frame count), so no format change is needed. The probe keeps that state
 //! in a copy of the node index, [`OpIndex`], built in its setup by the frame walk; in the design these are the node
@@ -46,8 +46,8 @@
 //! **What differs from `get`.** The buffer is the caller's and is reused: only its allocation carries over, and the bytes
 //! it holds are dropped at each record's start, so a read never reuses an earlier record's I/O. No trailer is read; no
 //! frame of another owner is decoded, and none past the held window is read; no body is read. It does not re-validate:
-//! the replay's scan validated every record ([F05 §5.2]), and a replay never hashes bodies ([F06 §8] BD-2,
-//! `06-commit.md:1053-1054`). So both reads return what `get` returns for every (n, key) on a valid tail; on a corrupt
+//! the replay's scan validated every record ([F05 §5.2]), and a replay never hashes bodies ([F06 §8] BD-2).
+//! So both reads return what `get` returns for every (n, key) on a valid tail; on a corrupt
 //! record they may differ, because `get` decodes every op of the record.
 //!
 //! **The read through item 1a** ([`Overlay::get_1a`], u20 cut §3.3; design-A's A2 with A1). The newest record of n is
@@ -61,9 +61,11 @@
 //!   record is read by the frame walk instead.
 //!
 //! In the newest record a frame of another owner is an error, as in the offset read: the offsets are the process's own.
-//! The residual case V-L1 to V-L3 cannot see is a locator on a later frame of the same owner with the matching shorter
-//! length, when that owner's `prev` is 0 (u20 cut F-1, R-53: the 1a spec unit's). The read decodes all of n's frames in
-//! each record it reads before it applies `get`'s rule, so V-L2 sees the whole span.
+//! The residual case V-L1 to V-L3 cannot see, a locator on a later frame of the same owner with the matching shorter
+//! length when that owner's `prev` is 0 (u20 cut F-1), F06 closes with the op byte's `cont` and `more` flags
+//! ([F06 §7.1.1]; LR-3 of [F06 §7.3.1]), which the probe does not check: its tails hold one-frame runs only, so R1
+//! lies inside the probe's parameter (R-74 ruling 29, CR1 Q4). The read decodes all of n's frames in each record it
+//! reads before it applies `get`'s rule, so V-L2 sees the whole span.
 
 use super::{Key, Loc, NodeEntry, Overlay, Probe, Value, sets};
 use crate::tail::commit::{Op, presence};
@@ -407,7 +409,7 @@ pub struct OpEntry {
     pub lsn: u64,
 }
 
-// The offset and the frame count cost no RAM beyond the node entry's 16 B (`AR:709`).
+// The offset and the frame count cost no RAM beyond the node entry's 16 B ([AR §4.5]).
 const _: () = assert!(
     std::mem::size_of::<OpEntry>() == std::mem::size_of::<NodeEntry>()
         && std::mem::size_of::<NodeEntry>() == 16
@@ -932,7 +934,7 @@ mod tests {
     /// owner's first frame to `n_bodies` (test-profile tails at N = 1e6, so the record is its owners' newest), a read of
     /// its first owner with a key that owner's first op sets there, at `chunk` 64: the value is `get`'s, fewer bytes than
     /// the payload are read, and none at or past `n_bodies`. With the second owner's frame tag set to 0 (invalid,
-    /// `06-commit.md:702`), `get` fails on it and the walk still returns the first owner's value.
+    /// [F06 §7.2]), `get` fails on it and the walk still returns the first owner's value.
     #[test]
     fn op_read_skips_other_owners_without_decoding_them() {
         const CHUNK: usize = 64;

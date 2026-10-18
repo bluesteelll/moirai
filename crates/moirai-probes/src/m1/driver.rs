@@ -1,4 +1,4 @@
-//! The driver contract of [MP §9.7] as merged (R-27 Q3, `docs/spec/measurement-protocol.md:781-809`), shared by the
+//! The driver contract of [MP §9.7] as merged (R-27 Q3), shared by the
 //! drivers of measurements 1 and 2: the arguments, the condition from the load log, the record written directly in
 //! `--out`, one process per run, and a loaded run's replay verdict. It lives under `m1/` only because this unit's lock
 //! set holds no shared path; the follow-up of measurements 10 and 14 may move it to a `crate::driver` (R-31 F-4).

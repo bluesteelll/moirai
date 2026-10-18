@@ -1,7 +1,7 @@
-//! Measurement 14 (WP-53e, [60 §5.2] item 14, `60-roadmap.md:770`; `docs/m0/PLAN.md:317`): the layout probes over
+//! Measurement 14 (WP-53e, [60 §5.2] item 14, `60-roadmap.md:770`; [PLAN §3.2] item 5): the layout probes over
 //! the F09 segment of [`crate::seg`], at 1e5 and 1e6 nodes, and the T1 and T2 trigger quantities: a point read after
-//! a full 4,096-op tail and a delta checkpoint at 0.5 M nodes (T1, `ARCHITECTURE-RESEARCH.md:130`), and the MCP
-//! overlay catch-up (T2, `:140`), and T1's full delta checkpoint at 0.5 M and 1e6 nodes (M-A4, R-53 Q2). T2's 16-writer
+//! a full 4,096-op tail and a delta checkpoint at 0.5 M nodes (T1, [AR §2.1]), and the MCP overlay catch-up (T2,
+//! [AR §2.2]), and T1's full delta checkpoint at 0.5 M and 1e6 nodes (M-A4, R-53 Q2). T2's 16-writer
 //! wait is taken from measurement 2's run (R-24 Q7) and is not built here. The tails are u10's
 //! ([`crate::tail::synth`]), from [70 S8]'s spec-derived mix (R-24 Q10).
 //!
@@ -12,18 +12,18 @@
 //!
 //! | Quantity | Arms (arm 0 first) | What one sample does | Minimum tier |
 //! |---|---|---|---|
-//! | `csr.n1e5`, `csr.n1e6` | `expand` | reads one node's out-list and in-list from the six CSR columns (`09-segments.md:479-505`) | — |
+//! | `csr.n1e5`, `csr.n1e6` | `expand` | reads one node's out-list and in-list from the six CSR columns ([F09 §7.1]) | — |
 //! | `bitset.n1e5`, `bitset.n1e6` | `and.popcount` | ANDs the kind bitset with one kind-status bitset and counts ([50] F6) | — |
-//! | `bitset-ab.n1e5`, `bitset-ab.n1e6` | `and.popcount` | ANDs one kind-status bitset (bitmap chunks at these N) with the sparse set A_s (array chunks) and counts: the array × bitmap path of the frozen AND ([F09 §4.5], `09-segments.md:288-317`; R-30) | — |
+//! | `bitset-ab.n1e5`, `bitset-ab.n1e6` | `and.popcount` | ANDs one kind-status bitset (bitmap chunks at these N) with the sparse set A_s (array chunks) and counts: the array × bitmap path of the frozen AND ([F09 §4.5]; R-30) | — |
 //! | `bitset-aa.n1e5`, `bitset-aa.n1e6` | `and.popcount` | ANDs A_s with the second sparse set B_s and counts: the array × array path | — |
-//! | `scan.n1e5`, `scan.n1e6` | `scan.status`, `scan.split` | counts the rows of one status in `NODE`'s 60-byte rows; the floor counts the same status in a dense 1-byte column built from `NODE` in the run's setup, the layout a per-field split of `NODE` would give (OP-09-21, `09-segments.md:1369-1372`; `status`, `08-data-model.md:80`). Both cycle the status through 0–3 with their own counters, so they time the same counts | — |
-//! | `overlay.n1e5`, `overlay.n1e6` | `probe` | looks one `#N` up in a full tail's node index ("overlay probe ~0.2 µs", `ARCHITECTURE-RESEARCH.md:968`) | — |
+//! | `scan.n1e5`, `scan.n1e6` | `scan.status`, `scan.split` | counts the rows of one status in `NODE`'s 60-byte rows; the floor counts the same status in a dense 1-byte column built from `NODE` in the run's setup, the layout a per-field split of `NODE` would give ([F09] OP-09-21; `status`, [F08 §3.1]). Both cycle the status through 0–3 with their own counters, so they time the same counts | — |
+//! | `overlay.n1e5`, `overlay.n1e6` | `probe` | looks one `#N` up in a full tail's node index ("overlay probe ~0.2 µs", [AR §5a.10]) | — |
 //! | `read-4096.n1e6` | `read` | T1's point read: the status of a node the tail touched, through the overlay and the tail's records, else the base row | t1 (read ≤ 50 µs) |
 //! | `read-op-4096.n1e6` | `read.op`, `read.op.at` | T1's diagnostic read on `read-4096.n1e6`'s tail and nodes (its seed, [`seed_name`]): `read.op` reads the status by the frame walk ([`Overlay::get_op`]: n's ops located by their frames, decoded alone); its floor `read.op.at` by the offset read ([`Overlay::get_op_at`]: n's newest frames read from an offset kept beside the node index, in the design the node entry's spare bytes). The paired difference is the cost of locating n's frames in the newest record (R-42 Q2). The setup replays the overlay from the fixture's store, builds the offset index and refuses the run unless the whole-record read, the walk and the offset read agree on every node of the cycle ([`read_ops_agree`]) | t1 |
 //! | `read-cost-records-4096.n1e6` | `records` | T1's read cost on the same tail and nodes: each sample is one whole-record read ([`point_read`]) through [`Counted`], and the sample is the records it walks ([MP §4.8]) | t1 |
 //! | `read-cost-bytes-4096.n1e6` | `bytes` | the same read through [`Counted`] on the same tail and nodes, and the sample is the bytes it decodes ([MP §4.8]). The records and the bytes are two counts of one read, so they are two quantities of one arm each: [MP §4.1] makes every arm after arm 0 a floor of the operation, and neither count is a floor of the other (R-44 I-1 (b), as R-30 Q1 reads §4.1) | t1 |
-//! | `ckpt-4096.n5e5` | `ckpt`, `ckpt.write` | T1's delta checkpoint over a fresh tail per sample (scoping §4.2): the setup writes sample j's tail ([`ckpt_tail`]) in place over the fixture's extent through a read-write handle kept for the run, zeroes the rest of the previous tail and flushes it (`sync(Data)`), all untimed; the timed op replays tail j from the extent, folds it over the base into a delta of the probe's subset (below), encodes `seg.d1`, then `create_new`, `write_at`, `sync(DataAndMeta)`, `seal`, `sync_dir` (`docs/spec/os/fs.md:411`, `:456`). The floor's sample j folds tail j from memory in its setup and writes and flushes the same bytes, so the pair is matched. The products (the tail, the delta and its bytes) are dropped and the sample's file is unlinked in the teardown, outside the timed region ([MP §4.1]). The setup's generation and rewrite lengthen a sample's untimed part, so the pilot's 1 s ([MP §4.2]) may take fewer than 5 samples; the declared minimum tier t3 bounds that | t3 (≤ 100 ms) |
-//! | `catchup-16.n1e6` | `catchup` | T2's MCP model: a long-lived process holds the overlay of a full tail but its last 16 commits (one per writer of T2's burst) and catches up: `HEAD` pread (8,192 B), the new records scanned from the extents, applied to its warm builder, the overlay finished again (`ARCHITECTURE-RESEARCH.md:783`). The warm builder is cloned in the setup and the finished overlay dropped in the teardown, both outside the timed region | t2 (catch-up p50 ≤ 5 ms) |
+//! | `ckpt-4096.n5e5` | `ckpt`, `ckpt.write` | T1's delta checkpoint over a fresh tail per sample (scoping §4.2): the setup writes sample j's tail ([`ckpt_tail`]) in place over the fixture's extent through a read-write handle kept for the run, zeroes the rest of the previous tail and flushes it (`sync(Data)`), all untimed; the timed op replays tail j from the extent, folds it over the base into a delta of the probe's subset (below), encodes `seg.d1`, then `create_new`, `write_at`, `sync(DataAndMeta)`, `seal`, `sync_dir` ([OS/fs §4.4.6], [OS/fs §4.6]). The floor's sample j folds tail j from memory in its setup and writes and flushes the same bytes, so the pair is matched. The products (the tail, the delta and its bytes) are dropped and the sample's file is unlinked in the teardown, outside the timed region ([MP §4.1]). The setup's generation and rewrite lengthen a sample's untimed part, so the pilot's 1 s ([MP §4.2]) may take fewer than 5 samples; the declared minimum tier t3 bounds that | t3 (≤ 100 ms) |
+//! | `catchup-16.n1e6` | `catchup` | T2's MCP model: a long-lived process holds the overlay of a full tail but its last 16 commits (one per writer of T2's burst) and catches up: `HEAD` pread (8,192 B), the new records scanned from the extents, applied to its warm builder, the overlay finished again ([AR §4.7]). The warm builder is cloned in the setup and the finished overlay dropped in the teardown, both outside the timed region | t2 (catch-up p50 ≤ 5 ms) |
 //! | `read-1a-4096.n1e6`, `read-1a-1024.n1e6` | `read`, `read.op`, `read.op.at`, `read.1a` | T1's read of a node's status in an A1 tail (`design-A.md:104-129`) at P06 4,096, and at 1,024 (design-A A3's draft), from `read-<P06>.n1e6`'s seed, so their plans and read cycle are the whole read's ([`seed_name`]; the locators move lsns, u20 cut F-11). Each arm is a floor of the one before ([MP §4.1]): the whole record ([`Overlay::get`]), the frame walk, u17's offset read over an index built in the setup, and item 1a's read ([`Overlay::get_1a`]: n's newest frames from the offsets [`Overlay::replay_at`] built, then one read per hop at each record's locator). The setup replays the offsets-mode overlay from the fixture's store and refuses the run unless the four agree on every node of the cycle and no locator is refused ([`read_1a_agree`]) | t1 |
 //! | `read-1a-d4.n1e6`, `read-1a-d16.n1e6`, `read-1a-d64.n1e6` | the same four | the depth arm: the 4,096-op A1 tail with one base node, #500,000, in each of its first d commits ([`crate::tail::Shape::hot`]), its field 9 set in the first; every sample reads that field, so it walks all d records. The seed is `seed(name) ^ k` with the first k < 64 whose production tail holds at least d commits ([`Family::seed_k`]). Reported, no gate | — |
 //!
@@ -41,30 +41,30 @@
 //! shorter, R-40 O-1); seals `blobs.15` and `seg.d14` ([`seal_file`]: `create_new`, `write_at`, `sync(DataAndMeta)`,
 //! `seal`) and flushes the directory once; appends the `Checkpoint` group ([`full_checkpoint`]) at the tail's end and
 //! flushes the extent data-only; publishes into the other `HEAD` slot, not flushed ([`crate::tail::head::publish`]); and
-//! reads the group's trailer back, the identity check (`ARCHITECTURE-RESEARCH.md:715-737`). The setup, untimed, writes
+//! reads the group's trailer back, the identity check ([AR §4.5]). The setup, untimed, writes
 //! tail j over the extent, zeroes past it, flushes it and restores `HEAD` ([`restored_head`]); the teardown drops the
 //! products and unlinks both files. The floor's setup also folds tail j from the store and encodes it, so its op times
 //! the same writes, append, publish and identity read: the pair splits a sample into fold and encode against writes and
 //! publish. The bounds are M-A4's (`design-A.md:557`; spec Goal 2): ≤ 50 ms at 0.5 M and ≤ 100 ms at 1e6, after
-//! `ARCHITECTURE-RESEARCH.md:1709` (10–50 ms at 1e5, 20–100 ms at 1e6). T1's trigger stays `:130`'s > 100 ms at 0.5 M,
+//! [AR §8.1] (10–50 ms at 1e5, 20–100 ms at 1e6). T1's trigger stays [AR §2.1]'s > 100 ms at 0.5 M,
 //! so a result between 50 and 100 ms at 0.5 M misses M-A4's bound and not T1's (critique m-1).
 //!
 //! **What the checkpoint omits** (review m-4). `ckpt-4096.n5e5` times a delta of the probe's subset of sections
-//! ([`crate::seg`]), not the whole delta of [F09 §16.2] (`09-segments.md:1085-1089`; the sections `:156-206`). Its
+//! ([`crate::seg`]), not the whole delta of [F09 §16.2] (the sections of [F09 §3.1]). Its
 //! delta has no `TITLE_BLOB` or `FIELDS_BLOB` for the touched rows, though `SetField` and `SetBody` are 35 % and 5 % of
 //! the mix ([`crate::tail::synth`]); no `BLOBTAB`; no `UID` rows for the creates; no `TOMB` rows for the deletes; no
 //! new symbols; none of the store-level tables; and it folds none of the tail's settles into the runtime-window
 //! sections. It still writes `rt_upto_lsn` = `upto_lsn`, because F09 requires `rt_upto_lsn ≥ upto_lsn` in every
-//! main-set layer (`:128`, `:136`), although no runtime section is folded. The timed region ends at `seg.d1`'s
+//! main-set layer ([F09 §2.3]), although no runtime section is folded. The timed region ends at `seg.d1`'s
 //! `sync_dir`: the `Checkpoint` record's append under the writer byte, its group commit and the publish that makes the
-//! new set visible (`ARCHITECTURE-RESEARCH.md:736`, [AR §4.5] step 12; [F16 P-80], `16-protocol.md:721-723`) are not
+//! new set visible ([AR §4.5] step 12; [F16 §12] P-80) are not
 //! timed. The results analyst reads the quantity as a lower bound of the delta checkpoint of
-//! `ARCHITECTURE-RESEARCH.md:130`. `ckpt-full-4096` (below) times the rest.
+//! [AR §2.1]. `ckpt-full-4096` (below) times the rest.
 //!
 //! **What the full checkpoint leaves out** (u21 cut §3.9; R-53 Q2, R-59 Q2). `ckpt-full-4096.<N>` times every section
 //! F09 §3.1 lists for a delta of its window, the window's `blobs` file, the `Checkpoint` group with its data-only
-//! flush, the publish into the other `HEAD` slot and the identity read (`ARCHITECTURE-RESEARCH.md:715-737`). The results
-//! analyst reads it as a lower bound of the delta checkpoint of `ARCHITECTURE-RESEARCH.md:130` in seven parts, and as an
+//! flush, the publish into the other `HEAD` slot and the identity read ([AR §4.5]). The results
+//! analyst reads it as a lower bound of the delta checkpoint of [AR §2.1] in seven parts, and as an
 //! upper bound in one:
 //! - lower bound (u20 cut F-4): of the predicate bitsets only `deleted` is maintained; the others need F08's and F13's
 //!   membership rules, which the probe does not have;
@@ -83,7 +83,7 @@
 //! - lower bound (u21 cut F-17): the base holds no `TERMS` or `POST`. The checkpoint never reads them, and the fixture
 //!   is that much smaller than a store's base;
 //! - upper bound (u20 cut F-6): `DOCLEN` and `FTSSTAT` are written as `HOLE(F09-doclen)`'s "kept" candidate
-//!   (`09-segments.md:1263`).
+//!   ([F09 Holes]).
 //!
 //! A field-1 value can exceed F08 §7.1's 200-B title limit. It is stored in `TITLE_BLOB` as it is (u21 cut F-13).
 //!
@@ -191,7 +191,7 @@ pub const EXIT_DONE: u8 = 0;
 pub const EXIT_FAILED: u8 = 1;
 /// Exit: a usage error.
 pub const EXIT_USAGE: u8 = 2;
-/// The commits the MCP model catches up: one per writer of T2's 16 (`ARCHITECTURE-RESEARCH.md:140`).
+/// The commits the MCP model catches up: one per writer of T2's 16 ([AR §2.2]).
 pub const BURST: usize = 16;
 /// The ids a probe arm cycles through.
 pub const PROBE_IDS: usize = 4_096;
@@ -500,7 +500,7 @@ pub fn grid() -> Vec<Quantity> {
 pub enum Profile {
     /// The quantity's N and the production parameters.
     Production,
-    /// N / 100 and the test profile's parameters (`17-store-parameters.md:166-178`), the smoke's.
+    /// N / 100 and the test profile's parameters ([F17 §3]), the smoke's.
     Test,
 }
 
@@ -642,7 +642,7 @@ pub fn scan_status(c: &Columns<'_>, s: u8) -> u64 {
 }
 
 /// The split status column: byte [`STATUS_AT`] of every 60-byte `NODE` row, in row order, the dense 1-byte column a
-/// per-field split of `NODE` would give (OP-09-21, `09-segments.md:1369-1372`; `08-data-model.md:80`).
+/// per-field split of `NODE` would give ([F09] OP-09-21; [F08 §3.1]).
 pub fn split_status(c: &Columns<'_>) -> Vec<u8> {
     let (rows, _) = c.node.as_chunks::<NODE_HDR_LEN>();
     rows.iter().map(|row| row[STATUS_AT]).collect()
@@ -1227,7 +1227,7 @@ pub fn fold_tail<S: LogSource>(
     )
 }
 
-/// The base's `SegRef` ([F04 §4.1], `04-head.md:94-100`): G = 1, `kind` base, its header's `upto_lsn` and the first 16
+/// The base's `SegRef` ([F04 §4.1]): G = 1, `kind` base, its header's `upto_lsn` and the first 16
 /// bytes of its `seg_digest`.
 pub fn base_ref(c: &Columns<'_>) -> SegRef {
     SegRef {
@@ -1300,12 +1300,12 @@ pub struct FullGroup {
     pub delta: SegRef,
 }
 
-/// The `Checkpoint` group of the full checkpoint of `t` ([F05 §9.9], `05-log.md:734-777`; u21 cut §3.7): `ckflags` bits
+/// The `Checkpoint` group of the full checkpoint of `t` ([F05 §9.9]; u21 cut §3.7): `ckflags` bits
 /// 0, 1 and 5 (5 only with a `blobs` file); `append_hlc` the last commit's `hlc` + 1; `next_file_no`
 /// [`FULL_NEXT_FILE_NO`]; `upto_lsn` the tail's end; `active_log` 1; `segments` = [the base, `seg.d14`]; `window_start`
 /// the tail's start; one `RefList` per ref with each commit's (lsn, `hlc`); `added` = [`blobs.15`]. One record at the
 /// tail's end, chained from the tail's last trailer; refused when it would cross the extent or leave 1–39 bytes in it
-/// (G-1, G-4, `05-log.md:189-215`).
+/// (G-1, G-4, [F05 §4.4]).
 pub fn full_checkpoint(
     t: &Tail,
     folded: &Folded,
@@ -1450,10 +1450,10 @@ fn full_setup<V: StoreFs>(
     Ok(tj)
 }
 
-/// The full checkpoint's writes (u21 cut §3.7–§3.8; `docs/spec/os/fs.md:409-412`): `blobs.15` and `seg.d14` sealed
+/// The full checkpoint's writes (u21 cut §3.7–§3.8; [OS/fs §4.4.6]): `blobs.15` and `seg.d14` sealed
 /// (`create_new`, `write_at`, `sync(DataAndMeta)`, `seal`) in that order, one `sync_dir`, the `Checkpoint` group
 /// written at the tail's end through the run's extent handle and flushed data-only, the publish into the other `HEAD`
-/// slot ([F04 §9.1], not flushed), and the identity read of the group's trailer (`ARCHITECTURE-RESEARCH.md:728`). The
+/// slot ([F04 §9.1], not flushed), and the identity read of the group's trailer ([AR §4.5]). The
 /// publish's S′: `segments` = [the base, `seg.d14`], `checkpoint_lsn` the tail's end, `active_log` 1, `next_file_no` 16,
 /// `committed_lsn` = `durable_lsn` = the group's end.
 #[allow(clippy::too_many_arguments)]
@@ -1594,7 +1594,7 @@ pub struct CkptOut {
     pub bytes: Vec<u8>,
 }
 
-/// A sealed file's write ([OS/fs] `fs.md:411`, `:456`): `create_new` under its final name, `write_at`,
+/// A sealed file's write ([OS/fs §4.4.6], [OS/fs §4.6]): `create_new` under its final name, `write_at`,
 /// `sync(DataAndMeta)`, `seal`, then `sync_dir`. Returns the bytes written.
 pub fn seal_new<V: StoreFs>(
     vfs: &V,
@@ -1608,8 +1608,8 @@ pub fn seal_new<V: StoreFs>(
 }
 
 /// A sealed file's write without the directory's flush: `create_new` under its final name, `write_at`,
-/// `sync(DataAndMeta)`, `seal` (`fs.md:411`). The full checkpoint seals its two files and then flushes the directory
-/// once (u21 cut D-9). Returns the bytes written.
+/// `sync(DataAndMeta)`, `seal` ([OS/fs §4.4.6]). The full checkpoint seals its two files and then flushes the
+/// directory once (u21 cut D-9). Returns the bytes written.
 pub fn seal_file<V: StoreFs>(
     vfs: &V,
     root: &V::Root,
@@ -2977,7 +2977,7 @@ mod tests {
     /// checkpoint at 0.5 M), then u20's appended block of item 1a's 5 reads (u20 cut §3.4, §3.10), then u21's full
     /// checkpoint at 0.5 M and 1e6 (u21 cut §3.8); 46 arms (the `ready` probe's 12 retired, R-86 ruling 6); the minimum
     /// tiers of the budgets (t1 read ≤ 50 µs, its diagnostics and the reads with item 1a; t3 checkpoint ≤ 100 ms, and the
-    /// full checkpoint's; t2 catch-up ≤ 5 ms, `ARCHITECTURE-RESEARCH.md:130`, `:140`), none for the layout families and
+    /// full checkpoint's; t2 catch-up ≤ 5 ms, [AR §2.1], [AR §2.2]), none for the layout families and
     /// the depth arms, no tail for the sparse pair; the diagnostics' arms (R-42 Q2) and their tails; the read cost's two
     /// counts as two quantities of one arm each, since every arm after arm 0 is a floor (R-44 I-1 (b)); item 1a's four
     /// arms, each a floor of the one before, and their A1 targets: P06 4,096 or 1,024 at production, the depth option at

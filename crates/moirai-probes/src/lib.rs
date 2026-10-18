@@ -42,7 +42,7 @@
 //!
 //! | Module | What it holds | Specification |
 //! |---|---|---|
-//! | [`m2`] | 16 child writers in bursts over the toy log: the burst and its coordinator [`m2::burst`], its runtime checks, the measures (last acknowledgement, flushes, fairness, the flush-byte hand-off, T2's writer wait), the in-lock cost draw [`m2::cost`], the lock-logging `Vfs` [`m2::locks`], the child writers [`m2::child`], the smoke and the driver's command line (`moirai-probes-bin m2`) | [60 §5.2] item 2, `ARCHITECTURE-RESEARCH.md:1797-1799`, `:1947`, [MP §4.1], [MP §9.7] |
+//! | [`m2`] | 16 child writers in bursts over the toy log: the burst and its coordinator [`m2::burst`], its runtime checks, the measures (last acknowledgement, flushes, fairness, the flush-byte hand-off, T2's writer wait), the in-lock cost draw [`m2::cost`], the lock-logging `Vfs` [`m2::locks`], the child writers [`m2::child`], the smoke and the driver's command line (`moirai-probes-bin m2`) | [60 §5.2] item 2, [AR §8.3], [MP §4.1], [MP §9.7] |
 //!
 //! # Measurement 6 (WP-54)
 //!

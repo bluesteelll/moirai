@@ -1,7 +1,7 @@
 //! Measurement 1 (WP-52, [60 §5.2] item 1, `60-roadmap.md:757`): the CLI commit cycle on a 64 MiB log — open, append,
 //! data-only flush, close — on the real `Vfs` with the toy log's production profile, the Defender close cost, and the
 //! data-only-flush floor the cycle is gated against (`60-roadmap.md:788`), in the same run ([MP §4.1], [MP §4.3]).
-//! It decides whether CLI commits exceed 20 ms, the trigger of the optional leader (`ARCHITECTURE-RESEARCH.md:140`),
+//! It decides whether CLI commits exceed 20 ms, the trigger of the optional leader ([AR §2.2]),
 //! judged on p99 at tier t2 (R-24 Q9). The arms are generic over [`store::Rig`]; the composition root passes
 //! `store::ToyRig` over `moirai_os::OsVfs`.
 //!
