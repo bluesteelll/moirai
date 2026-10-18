@@ -1,38 +1,38 @@
-//! The full-text sections of a segment at `tok_ver` 1 ([F09 §12], `09-segments.md:761-848`): tokenizer v1 restricted
+//! The full-text sections of a segment at `tok_ver` 1 ([F09 §12]): tokenizer v1 restricted
 //! to ASCII, the term index of a set of documents, `TERMS` (front-coded, blocks of 16), `POST`, `DOCLEN` and
 //! `FTSSTAT`, and their readers for the tests.
 //!
-//! - **Tokenizer v1, ASCII only** (§12.1, `:766-789`; u20 cut F-5). Tokenizer v1 needs the UCD 17.0.0 tables
-//!   (`:772-773`), which the probe does not have. On ASCII text it is exact: a token is a maximal run of `[A-Za-z0-9]`
+//! - **Tokenizer v1, ASCII only** ([F09 §12.1]; u20 cut F-5). Tokenizer v1 needs the UCD 17.0.0 tables
+//!   ([F09 §12.1]), which the probe does not have. On ASCII text it is exact: a token is a maximal run of `[A-Za-z0-9]`
 //!   (letters and decimal digits), each byte mapped to lowercase, the term cut to 64 bytes; every other ASCII byte
 //!   separates tokens. A byte above `0x7F` is refused with an error that names F-5. A field's length is its token count.
-//! - **Documents** (§12.3, `:826-827`): a non-absent, non-deleted row; its three fields are its title, its abstract
+//! - **Documents** ([F09 §12.3]): a non-absent, non-deleted row; its three fields are its title, its abstract
 //!   ([F08 §9]'s field 2 by the probe's convention) and its body. The caller passes each field's text; the probe's
 //!   bodies are random bytes (`tail/synth.rs`), so its caller passes them as empty (F-5).
-//! - **`TERMS`** (§12.2, `:791-813`): `n_terms`, `n_blocks` = ⌈n_terms / 16⌉, `block_off[n_blocks]` from the section's
+//! - **`TERMS`** ([F09 §12.2]): `n_terms`, `n_blocks` = ⌈n_terms / 16⌉, `block_off[n_blocks]` from the section's
 //!   first byte, then the blocks; the first term of a block is `len`, its bytes and `post_off` (`uvar64`); every later
 //!   term `shared` (maximal), `suffix_len`, the suffix and `post_off`. `count` = `n_terms`.
-//! - **`POST`** (§12.3, `:815-827`): per term in term order, `n_docs` (`uvar32`), then per posting in ascending `#N`
+//! - **`POST`** ([F09 §12.3]): per term in term order, `n_docs` (`uvar32`), then per posting in ascending `#N`
 //!   `ddoc` (`uvar32`, the first `#N`, then the difference), `fmask` (bit 0 title, 1 abstract, 2 body) and one `tf`
 //!   (`uvar16`) per set bit in bit order. `count` = `n_terms`.
-//! - **`DOCLEN`** (§12.4, `:834-835`): `[3]u16` per row, each count saturating at 65,535; zero for absent and deleted
-//!   rows. **`FTSSTAT`** (`:836-845`): 48 bytes, three records (title, abstract, body) of `docs` `u32`, `_reserved` `u32`
-//!   and `total_len` `u64`; `count` = 3. Both are `HOLE(F09-doclen)`'s "kept" candidate (`:1263`), which measurement 14
-//!   writes as an upper bound of that hole's cost (u20 cut F-6).
+//! - **`DOCLEN`** ([F09 §12.4]): `[3]u16` per row, each count saturating at 65,535; zero for absent and deleted
+//!   rows. **`FTSSTAT`** ([F09 §12.4]): 48 bytes, three records (title, abstract, body) of `docs` `u32`, `_reserved`
+//!   `u32` and `total_len` `u64`; `count` = 3. Both are `HOLE(F09-doclen)`'s "kept" candidate ([F09 Holes]), which
+//!   measurement 14 writes as an upper bound of that hole's cost (u20 cut F-6).
 
 use super::{u32_at, u64_at};
 use crate::tail::enc::{Reader, put_uvar};
 use std::collections::BTreeMap;
 
-/// The segment's `tok_ver` when it carries these sections (`09-segments.md:129`, `:763`).
+/// The segment's `tok_ver` when it carries these sections ([F09 §2.3], [F09 §12]).
 pub const TOK_VER: u8 = 1;
-/// The longest term, in bytes (`09-segments.md:778-779`).
+/// The longest term, in bytes ([F09 §12.1]).
 pub const TERM_MAX: usize = 64;
-/// Terms per `TERMS` block (`09-segments.md:802`).
+/// Terms per `TERMS` block ([F09 §12.2]).
 pub const BLOCK: usize = 16;
-/// The fields of a document, in `fmask` bit order: title, abstract, body (`09-segments.md:823`).
+/// The fields of a document, in `fmask` bit order: title, abstract, body ([F09 §12.3]).
 pub const FIELDS: usize = 3;
-/// `FTSSTAT`'s length (`09-segments.md:836-844`).
+/// `FTSSTAT`'s length ([F09 §12.4]).
 pub const FTSSTAT_LEN: usize = 48;
 
 /// Calls `each` with every term of `text` in order (tokenizer v1 on ASCII, §12.1) and returns the token count. A byte
@@ -75,7 +75,7 @@ pub struct Doc<'a> {
     pub fields: [&'a [u8]; FIELDS],
 }
 
-/// A document's `DOCLEN` entry: the token count of each field, saturating at 65,535 (`09-segments.md:834-835`).
+/// A document's `DOCLEN` entry: the token count of each field, saturating at 65,535 ([F09 §12.4]).
 pub fn doclen(doc: &Doc<'_>) -> Result<[u16; FIELDS], String> {
     let mut out = [0u16; FIELDS];
     for (f, text) in doc.fields.iter().enumerate() {
@@ -98,7 +98,7 @@ pub struct TextIndex {
 
 impl TextIndex {
     /// The index of `docs`, which must be in strictly ascending `#N`. A term frequency above 65,535 (`tf` is a
-    /// `uvar16`, `09-segments.md:824`) is refused.
+    /// `uvar16`, [F09 §12.3]) is refused.
     pub fn of(docs: &[Doc<'_>]) -> Result<TextIndex, String> {
         let mut ix = TextIndex::default();
         let mut counts: BTreeMap<Vec<u8>, [u32; FIELDS]> = BTreeMap::new();
@@ -401,7 +401,7 @@ mod tests {
         v.iter().map(|x| x.as_bytes().to_vec()).collect()
     }
 
-    /// Tokenizer v1 on ASCII ([F09 §12.1], `09-segments.md:774-780`): maximal runs of letters and digits, mapped to
+    /// Tokenizer v1 on ASCII ([F09 §12.1]): maximal runs of letters and digits, mapped to
     /// lowercase; every other byte, `_` and `-` included, separates; a run longer than 64 bytes is cut to 64; the count
     /// is the number of tokens; a byte above `0x7F` is refused naming F-5.
     #[test]
@@ -454,7 +454,7 @@ mod tests {
         TextIndex { terms }
     }
 
-    /// `TERMS` ([F09 §12.2], `09-segments.md:791-813`): `n_terms` 18, `n_blocks` 2, `block_off` from the section's
+    /// `TERMS` ([F09 §12.2]): `n_terms` 18, `n_blocks` 2, `block_off` from the section's
     /// first byte; block 0's first term as `len`, bytes, `post_off`; a later term as `shared` (maximal), `suffix_len`,
     /// the suffix, `post_off`; block 1 (term 16) again a whole term; `post_off` the offsets `POST` gives. It reads back,
     /// a `shared` that is not maximal is refused, and the tokenizer's index of the two documents is this one.
@@ -522,7 +522,7 @@ mod tests {
         assert_eq!(of, ix, "the tokenizer's index");
     }
 
-    /// `POST` ([F09 §12.3], `09-segments.md:815-827`): per term `n_docs`, then per posting `ddoc` (the first `#N`, then
+    /// `POST` ([F09 §12.3]): per term `n_docs`, then per posting `ddoc` (the first `#N`, then
     /// the difference), `fmask` (title 1, abstract 2, body 4) and one `tf` per set bit in bit order: literal bytes of an
     /// index written out, which is the tokenizer's index of its three documents. Documents come in ascending `#N`.
     #[test]
@@ -576,7 +576,7 @@ mod tests {
         );
     }
 
-    /// `DOCLEN` and `FTSSTAT` ([F09 §12.4], `09-segments.md:829-845`): `FTSSTAT` is exactly 48 bytes, three records of
+    /// `DOCLEN` and `FTSSTAT` ([F09 §12.4]): `FTSSTAT` is exactly 48 bytes, three records of
     /// `docs` `u32`, `_reserved` 0 and `total_len` `u64`, in title, abstract, body order; `DOCLEN` is `[3]u16` per row,
     /// little-endian, a count saturating at 65,535. Both read back.
     #[test]
