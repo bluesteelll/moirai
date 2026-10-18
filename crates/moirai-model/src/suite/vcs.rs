@@ -4911,6 +4911,60 @@ fn a_carried_conflict_restores_from_the_merge_that_made_it() {
     ids_verify(&s);
 }
 
+/// [F12 §6.5] (W3D-SF-3): the walk to M takes the first parent when both parents hold the value. lane/x puts #3 under
+/// #2, lane/w moves it to the root, and lane/y deletes it; `merge lane/y` into lane/x and into lane/w makes two equal
+/// `#3.existence DeleteVsModify` values, by two merges whose first parents differ in #3's hierarchy key. `merge lane/w
+/// --into lane/x` lands with both parents holding the value, so `resolve #3.existence --take ours` on lane/x walks to
+/// lane/x's merge and puts #3 under #2; on lane/w the same resolve puts #3 at the root, its merge's first parent.
+#[test]
+fn a_carried_conflict_held_by_both_parents_walks_the_first() {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("p1", "p1"),
+            task("p2", "p2"),
+            child("k", "k", Target::Var("p1".into())),
+        ]),
+        orch(),
+    );
+    for l in ["x", "y", "w"] {
+        s.ok(branch(l, "main"), orch());
+    }
+    s.ok(mv(3, Some(2)), fresh_on("lane/x"));
+    s.ok(mv(3, None), fresh_on("lane/w"));
+    s.ok(delete(3), fresh_on("lane/y"));
+    for dst in ["lane/x", "lane/w"] {
+        let r = s.run(merge("lane/y", dst), fresh_on(dst));
+        assert_eq!(r.outcome, Outcome::Ok, "{dst}: {:?}", r.error);
+        assert_eq!(
+            data(&r).conflicts,
+            vec![("#3.existence".to_string(), "DeleteVsModify".to_string())],
+            "{dst}"
+        );
+    }
+    let cx = state(&s, "lane/x").nodes[&Nid(3)].conflicts[&Aspect::Existence].clone();
+    let cw = state(&s, "lane/w").nodes[&Nid(3)].conflicts[&Aspect::Existence].clone();
+    assert_eq!(cx, cw, "two equal conflict values, one on each parent");
+    let r = s.run(merge("lane/w", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(
+        state(&s, "lane/x").nodes[&Nid(3)]
+            .conflicts
+            .get(&Aspect::Existence),
+        Some(&cx),
+        "the merge carries the value both parents hold"
+    );
+    s.ok(resolve("#3.existence", Take::Ours), fresh_on("lane/x"));
+    s.ok(resolve("#3.existence", Take::Ours), fresh_on("lane/w"));
+    for (l, under) in [("lane/x", Some(Nid(2))), ("lane/w", None)] {
+        let st = state(&s, l);
+        let x = &st.nodes[&Nid(3)];
+        assert!(x.live() && x.conflicts.is_empty(), "{l}");
+        assert_eq!(x.parent, under, "{l}: the hierarchy of ours at M");
+    }
+    ids_verify(&s);
+}
+
 /// [RULES/delete-policy-matrix] UD-001 (R-52, u06p F-1): a revert of a delete brings the hierarchy key back by its own
 /// `Move` ([F06 §7.10]), which V05 checks ([F13] V05). #1 to #12 form a chain, #12 at depth 11 (a root at depth 0);
 /// #14 is a child of the root #13. #14 is deleted, then #13 moves under #12, to depth 12, the bound. A revert of the
