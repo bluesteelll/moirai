@@ -2,26 +2,26 @@
 //! thresholds, decoding every record and applying it into the F09/F11-shaped overlay, with the spec-derived lazy share
 //! of [70 S8]; and the open floor it is gated against ("`HEAD` pread + map of 8 files", `60-roadmap.md:790`). It
 //! decides `F17-ckpt-ops`, `-ckpt-bytes`, `-ckpt-body` (the open side), `-tail-overlay`, `-tail-overlay-quiet` and
-//! `-quiet-mult` (`docs/spec/HOLES.md:41-46`; their constraints `17-store-parameters.md:757-762`).
+//! `-quiet-mult` ([HOLES.md §2.1]; their constraints [F17 Holes]).
 //!
 //! **The grid** (64 quantities, names by [MP §4.1]). The night's 18 are F17's candidates: `ops` at P06 4,096, 2,048 and
 //! 1,024 with N = 1e5 and 1e6; `rec` at P07 4, 2 and 1 MiB; `body` at P08 32, 16 and 8 MiB; `ovl` at P09 1 MiB and
 //! 512 KiB; `quiet` at P10 2 MiB and 1.5 MiB × P11 8 and 4; the last four families at N = 1e6 (cut D-3: open at 1e5 is
 //! replay(cap) + floor(1e5), the floor measured by the `ops` family at both scales). The follow-up block of 13 (u17; R-40
 //! O-3, R-42 Q1 and Q3) lies below the night's candidates, chosen from its replay rates:
-//! - `ops` at P06 2,048 and 1,024 at N = 1e4, F17's unmeasured 1e4 clause (`17-store-parameters.md:757-762`);
+//! - `ops` at P06 2,048 and 1,024 at N = 1e4, F17's unmeasured 1e4 clause ([F17 Holes] HOLE(F17-ckpt-ops));
 //! - `rec` at P07 512 and 256 KiB, `body` at P08 1 MiB and 512 KiB, `ovl` at P09 64 and 96 KiB, all at N = 1e5, the scale
 //!   of the 1.5-ms open budget, so their open is one run's replay + floor. Two of them measure a tail of another size
 //!   than their cap (R-44 I-2; the production tails, seeded by their names), and both are kept and read as they are:
 //!   - `rec-256kib.n1e5` is one commit of 765,160 B of `rec_bytes` (3,390 ops), larger than `rec-512kib.n1e5`'s
 //!     523,685 B (69 commits). A tail always holds its first commit, so a commit larger than its cap crosses it, as the
-//!     product's checkpoint trigger also lets the crossing record through (`17-store-parameters.md:354`);
+//!     product's checkpoint trigger also lets the crossing record through ([F17 §5.2]);
 //!   - `ovl-96kib.n1e5` stops at an overlay of 27,660 B (15 commits), below `ovl-64kib.n1e5`'s 65,120 B, on the stop
 //!     rule's other clause: a tail ends before the first group that would take its measure past the cap, and its 16th
 //!     commit, of 3,265 ops, would take the overlay to 99,992 B;
 //! - `quiet` at P10 2 MiB with P06 2,048 (P11 4, 8 and 2) and 1,024 (P11 4 and 8): the night's quiet tails all ended on
 //!   P06 = 4,096's ops clause (D1). A quiet name with a P06 is `quiet-<P10>-x<P11>-p<P06>`, and that P06 is the target's
-//!   `params.p06` at production. P11 = 2 is in P11's range of 1–64 (`17-store-parameters.md:176`) but not one of F17's
+//!   `params.p06` at production. P11 = 2 is in P11's range of 1–64 ([F17 §3]) but not one of F17's
 //!   candidates (R-42 Q3).
 //!
 //! u20's block of 18 follows, appended (u20 cut §3.5, §3.10; spec Goal 5): design-A A3's small tails in item 1a's A1 form
@@ -69,13 +69,14 @@
 //! reaches its own cap, its seed `seed(name) ^ k` as for u20's points ([`SEED_K`]: every k below 64).
 //!
 //! Every run is measurement 10 with minimum tier t2, the tier of the open budgets ([MP §3.2],
-//! `17-store-parameters.md:757`). The test profile's thresholds and E give the smoke's versions.
+//! [F17 Holes] HOLE(F17-ckpt-ops)). The test profile's thresholds and E give the smoke's versions.
 //!
 //! **The run order** (R-34 B-3, M-15; R-35 Q2, Q4): one point of each family first, F17's first candidate at 1e6, the
-//! scale of the binding open budget (`17-store-parameters.md:756-761`): `ops-4096`, `rec-4mib`, `body-32mib`, `ovl-1mib`,
-//! `quiet-2mib-x8`; then the other 13 in family order. A short window then still holds one point of every family. The
-//! follow-up block comes after the night's 18 by the same rule: `ops-2048.n1e4`, `quiet-2mib-x4-p2048.n1e6`,
-//! `rec-512kib.n1e5`, `body-1mib.n1e5`, `ovl-64kib.n1e5` first, then the rest, and `quiet-2mib-x2-p2048.n1e6` closes it.
+//! scale of the binding open budget ([F17 Holes] F17-ckpt-ops to F17-tail-overlay-quiet): `ops-4096`, `rec-4mib`,
+//! `body-32mib`, `ovl-1mib`, `quiet-2mib-x8`; then the other 13 in family order. A short window then still holds one
+//! point of every family. The follow-up block comes after the night's 18 by the same rule: `ops-2048.n1e4`,
+//! `quiet-2mib-x4-p2048.n1e6`, `rec-512kib.n1e5`, `body-1mib.n1e5`, `ovl-64kib.n1e5` first, then the rest, and
+//! `quiet-2mib-x2-p2048.n1e6` closes it.
 //!
 //! **The arms** ([MP §4.1]): arm 0 `replay` opens the tail's extents and reads `[checkpoint_lsn, committed_lsn)` through
 //! the fixed 64-KiB buffer, scans, validates, decodes, applies and finishes the overlay; arm 1 `floor.open` is
@@ -299,10 +300,10 @@ fn scale(n: u32) -> &'static str {
     }
 }
 
-/// The grid in run order: the night's 18 (`17-store-parameters.md:757-762`), one point of each family first, F17's first
-/// candidate at 1e6, then the rest in family order (R-34 B-3, M-15); then the follow-up block of 13 by the same rule
-/// (R-40 O-3, R-42 Q1 and Q3); then u20's blocks, appended (u20 cut §3.10): design-A A3's small tails in A1 (§3.5), the
-/// opens and B-1; then u22's six at R-b's values ([`rb_points`]; R-86 ruling 3), appended.
+/// The grid in run order: the night's 18 ([F17 Holes] F17-ckpt-ops to F17-quiet-mult), one point of each family first,
+/// F17's first candidate at 1e6, then the rest in family order (R-34 B-3, M-15); then the follow-up block of 13 by the
+/// same rule (R-40 O-3, R-42 Q1 and Q3); then u20's blocks, appended (u20 cut §3.10): design-A A3's small tails in A1
+/// (§3.5), the opens and B-1; then u22's six at R-b's values ([`rb_points`]; R-86 ruling 3), appended.
 pub fn grid() -> Vec<Quantity> {
     let q = |clause: Clause, threshold: u64, mult: u64, n: u32, p06: Option<u64>| {
         let t = match (clause, p06) {
@@ -472,7 +473,7 @@ pub fn open_points() -> Vec<Quantity> {
 /// | `a1-rec-256kib` | `rec`, 256 KiB | spec Goal 5 |
 /// | `a1-ovl-48kib` | `ovl`, P09 = 48 KiB | `report2.md:371`, about 54 KiB for 1 ms (est.) |
 /// | `a1-ovl-64kib` | `ovl`, P09 = 64 KiB | `design-A.md:154` |
-/// | `a1-ovl-192kib.n1e6` | `ovl`, 192 KiB, the quiet cap P10 | `design-A.md:155`; F17:761 |
+/// | `a1-ovl-192kib.n1e6` | `ovl`, 192 KiB, the quiet cap P10 | `design-A.md:155`; [F17 Holes] HOLE(F17-tail-overlay-quiet) |
 /// | `a1-cli2x-128kib` | the quiet machinery with q = P13 = 2 and P10 := 2 × P09 = 128 KiB: 2,048 ops, 256 KiB of records, 2 MiB of bodies, 128 KiB of overlay, whichever binds first. Label (R-86 ruling 3): its overlay cap 2 × P09 departs from [F17 §5.2], which never multiplies P09; W1's tails of it ended on their record caps with overlays of 44,068 B (1e4) and 64,316 B (1e5), under A3's unmultiplied 64 KiB, and the 1e6 run past it is set aside (R-64), so the label changes no W1 number that decides anything | `design-A.md:152` |
 /// | `a1-quiet-192kib-x2-p1024.n1e6`, `-x4-` | quiet at P10 192 KiB, P11 2 and 4, ending on their record caps of 256 and 512 KiB | spec Goal 5; critique-fit-cost A-1 |
 ///
@@ -650,7 +651,7 @@ pub const SEED_K: [(&str, u64); 24] = [
 pub enum Profile {
     /// The production column and the grid's candidates.
     Production,
-    /// The test profile's thresholds and E (`17-store-parameters.md:166-178`), the smoke's.
+    /// The test profile's thresholds and E ([F17 §3]), the smoke's.
     Test,
 }
 
@@ -663,7 +664,7 @@ impl Profile {
         }
     }
 
-    /// The length of each sealed file: 99·N/8 at production (`ARCHITECTURE-RESEARCH.md:1681`), 4,096 B in the test
+    /// The length of each sealed file: 99·N/8 at production ([AR §8.1]), 4,096 B in the test
     /// profile.
     pub fn sealed_len(self, n: u32) -> u64 {
         match self {
@@ -2059,9 +2060,10 @@ pub fn openmod_arms<'a, V: StoreFs + SealedMaps, T: Ticker + Clone + 'a>(
     Ok(vec![Box::new(open), Box::new(floor)])
 }
 
-/// One command's file opens (M-A6; u20 cut §3.6, `17-store-parameters.md:768`): `HEAD` with one 8,192-B read, `LOCK`
-/// opened, the tail's active extent and the spare one with one 4-KiB read each, and [`COMMAND_SEALED`] sealed files
-/// each with its header read and checked and a map; every handle and map dropped at the end. Returns the files opened.
+/// One command's file opens (M-A6; u20 cut §3.6, [F17 Holes] HOLE(F17-lock-flush)): `HEAD` with one 8,192-B read,
+/// `LOCK` opened, the tail's active extent and the spare one with one 4-KiB read each, and [`COMMAND_SEALED`] sealed
+/// files each with its header read and checked and a map; every handle and map dropped at the end. Returns the files
+/// opened.
 pub fn command_opens<V: StoreFs + SealedMaps>(
     vfs: &V,
     root: &V::Root,
@@ -2734,7 +2736,7 @@ mod tests {
         "a1-quiet-192kib-x4-p1024.n1e6",
     ];
 
-    /// The grid in run order with valid, unique names ([MP §4.1], `measurement-protocol.md:169`): the night's 18 first,
+    /// The grid in run order with valid, unique names ([MP §4.1]): the night's 18 first,
     /// unchanged and with no P06 of their own, one point of each family first; the follow-up block of 13 in its order;
     /// then u20's appended block of design-A A3's 18 small tails in A1, the 1e4 points first (u20 cut §3.5, §3.10), its
     /// opens and B-1; then u22's six at R-b's values last (R-86 ruling 3). By clause, 8 `ops`, 23 `rec` (the opens and
@@ -2990,7 +2992,7 @@ mod tests {
         }
     }
 
-    /// The night's 18 thresholds are F17's candidates (`17-store-parameters.md:757-762`; `docs/spec/HOLES.md:41-46`):
+    /// The night's 18 thresholds are F17's candidates ([F17 Holes] F17-ckpt-ops to F17-quiet-mult; [HOLES.md §2.1]):
     /// P06 4,096, 2,048, 1,024 at 1e5 and 1e6; P07 4, 2, 1 MiB; P08 32, 16, 8 MiB; P09 1 MiB, 512 KiB; P10 2 MiB,
     /// 1.5 MiB × P11 8, 4. The follow-up block after them lies below F17's candidates (cut §3.4).
     #[test]
@@ -3376,7 +3378,7 @@ mod tests {
         assert!(fs.files().is_empty(), "the parent writes no fixture");
     }
 
-    /// A synthetic run's condition is the load log header's ([MP §9.7], `measurement-protocol.md:771-776`), and a
+    /// A synthetic run's condition is the load log header's ([MP §9.7]), and a
     /// `--condition` the header contradicts is a usage error.
     #[test]
     fn cli_condition_comes_from_the_load_log() {

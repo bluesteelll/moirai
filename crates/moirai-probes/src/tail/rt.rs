@@ -1,29 +1,29 @@
-//! The runtime records of a settle ([F05 §8.5], [F05 §9.18], [F05 §9.23]; `docs/spec/format/05-log.md:507-521`,
-//! `:974-981`, `:1006-1032`): the `TreeReg` settle epoch (sub 2) and the `FileObs` row batch whose rows are images of
-//! [F11 §12.5]'s 187-byte `FILEOBS` row ([F11 §2.9], `11-runtime-tables.md:278-298`, `:889-914`). A settle writes one
+//! The runtime records of a settle ([F05 §8.5], [F05 §9.18], [F05 §9.23]): the `TreeReg` settle epoch (sub 2) and
+//! the `FileObs` row batch whose rows are images of
+//! [F11 §12.5]'s 187-byte `FILEOBS` row ([F11 §2.9]). A settle writes one
 //! `TreeReg` epoch and the rows that changed ([70 S8] fix (1), `70-audit-speed.md:300`).
 
 use super::enc::{DecodeError, Reader, put_u32, put_u64, put_uvar, put_vbytes};
 use std::borrow::Cow;
 
-/// `Epoch` ([F11 §12.4], `11-runtime-tables.md:855-864`): `scope_kind` u8 at 0, `_reserved` [3] at 1, `scope_ref` u32 at
+/// `Epoch` ([F11 §12.4]): `scope_kind` u8 at 0, `_reserved` [3] at 1, `scope_ref` u32 at
 /// 4, `digest` b16 at 8, `hlc` u64 at 24.
 pub const EPOCH_LEN: usize = 32;
-/// The `TreeReg` sub-2 payload: `sub` (1) + `tree` (16) + `epoch` (32) ([F05 §9.23], `05-log.md:1010-1023`). F05's
-/// "with the tree key before it the epoch payload is 48 bytes" (`:1028-1030`) counts the tree key and the epoch; the
+/// The `TreeReg` sub-2 payload: `sub` (1) + `tree` (16) + `epoch` (32) ([F05 §9.23]). F05's
+/// "with the tree key before it the epoch payload is 48 bytes" ([F05 §9.23]) counts the tree key and the epoch; the
 /// `sub` byte, the discriminant, makes the record payload 49.
 pub const TREE_REG_EPOCH_PAYLOAD_LEN: usize = 49;
-/// `OsFileId` ([F11 §12.1], `11-runtime-tables.md:764-778`).
+/// `OsFileId` ([F11 §12.1]).
 pub const OS_FILE_ID_LEN: usize = 57;
-/// `FsTime` ([F11 §12.2], `:791-798`).
+/// `FsTime` ([F11 §12.2]).
 pub const FS_TIME_LEN: usize = 9;
-/// `FileAttrs` ([F11 §12.2], `:803-805`).
+/// `FileAttrs` ([F11 §12.2]).
 pub const FILE_ATTRS_LEN: usize = 4;
-/// `OidSlot` ([F11 §2.5], `:180-186`).
+/// `OidSlot` ([F11 §2.5]).
 pub const OID_SLOT_LEN: usize = 33;
-/// `HeapRef` ([F11 §2.3], `:121-126`).
+/// `HeapRef` ([F11 §2.3]).
 pub const HEAP_REF_LEN: usize = 8;
-/// The fixed part of a `FILEOBS` row ([F11 §12.5], `:895-914`).
+/// The fixed part of a `FILEOBS` row ([F11 §12.5]).
 pub const FILEOBS_ROW_LEN: usize = 187;
 
 /// The settle epoch ([F11 §12.4]).
@@ -92,7 +92,7 @@ impl TreeReg {
     }
 }
 
-/// The fields of one `FILEOBS` row ([F11 §12.5], `11-runtime-tables.md:895-914`) with an empty `var` sequence.
+/// The fields of one `FILEOBS` row ([F11 §12.5]) with an empty `var` sequence.
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct FileObsRow {
     /// `n`, the file node's `#F`.
@@ -145,7 +145,7 @@ impl FileObsRow {
     }
 }
 
-/// One row of a batch ([F05 §8.5], `05-log.md:517-521`): `op` 1 (upsert), then the row image.
+/// One row of a batch ([F05 §8.5]): `op` 1 (upsert), then the row image.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Row<'a> {
     /// 1 upsert.
@@ -155,8 +155,8 @@ pub struct Row<'a> {
 }
 
 impl Row<'_> {
-    /// The row's key (`n`, `tree`), the image's first 20 bytes ([F05 §8.5], `05-log.md:515`;
-    /// `11-runtime-tables.md:897-898`): a replay indexes it without decoding the value.
+    /// The row's key (`n`, `tree`), the image's first 20 bytes ([F05 §8.5];
+    /// [F11 §12.5]): a replay indexes it without decoding the value.
     pub fn key(&self) -> (u32, [u8; 16]) {
         let n = u32::from_le_bytes(self.image[0..4].try_into().expect("4 bytes"));
         let mut tree = [0u8; 16];
@@ -173,7 +173,7 @@ pub struct RowBatch<'a> {
 }
 
 /// Checks one `FILEOBS` upsert image of the subset: 187 bytes plus its `var` slice, `var` = (0, `len`), the reserved
-/// flag bits zero, a recorded state code ([F11 §12.5], `11-runtime-tables.md:916-922`) and at most 3 proposals; rows
+/// flag bits zero, a recorded state code ([F11 §12.5]) and at most 3 proposals; rows
 /// with a `var` sequence (a path seen, details, proposals, a moved-auto target) are outside the subset.
 fn check_image(r: &Reader<'_>, image: &[u8]) -> Result<(), DecodeError> {
     if image.len() < FILEOBS_ROW_LEN {
@@ -265,8 +265,8 @@ mod tests {
         }
     }
 
-    /// The `TreeReg` sub-2 payload ([F05 §9.23], `05-log.md:1010-1023`): `sub` u8, `tree` b16, then the 32-byte
-    /// `Epoch` of [F11 §12.4] (`11-runtime-tables.md:855-864`): 49 bytes. F05's "48 bytes" (`:1028-1030`) counts the
+    /// The `TreeReg` sub-2 payload ([F05 §9.23]): `sub` u8, `tree` b16, then the 32-byte
+    /// `Epoch` of [F11 §12.4]: 49 bytes. F05's "48 bytes" ([F05 §9.23]) counts the
     /// tree key and the epoch, without the `sub` discriminant.
     #[test]
     fn treereg_epoch_payload_is_49_bytes() {
@@ -333,9 +333,9 @@ mod tests {
         }
     }
 
-    /// The `FILEOBS` row ([F11 §12.5], `11-runtime-tables.md:895-914`): `OsFileId` 57, `FsTime` 9, `FileAttrs` 4,
-    /// `OidSlot` 33 and `HeapRef` 8 (`:180-193`) make 187 bytes; the image with an empty `var` is the 187 fixed bytes
-    /// with `var` = (0, 0) ([F11 §2.9], `:282-286`).
+    /// The `FILEOBS` row ([F11 §12.5]): `OsFileId` 57, `FsTime` 9, `FileAttrs` 4,
+    /// `OidSlot` 33 and `HeapRef` 8 ([F11 §2.5]) make 187 bytes; the image with an empty `var` is the 187 fixed bytes
+    /// with `var` = (0, 0) ([F11 §2.9]).
     #[test]
     fn fileobs_row_image_is_187_bytes() {
         assert_eq!(
@@ -378,7 +378,7 @@ mod tests {
         assert_eq!(r.key(), (0x0403_0201, [0xB2; 16]));
     }
 
-    /// A row batch ([F05 §8.5], `05-log.md:512-521`): `n_rows` uvar32, then each row as `vbytes` of `op` and the
+    /// A row batch ([F05 §8.5]): `n_rows` uvar32, then each row as `vbytes` of `op` and the
     /// image, consumed exactly; a delete row and a row with a `var` sequence are outside the subset.
     #[test]
     fn row_batch_frames_each_row() {
