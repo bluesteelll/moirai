@@ -4910,3 +4910,38 @@ fn a_carried_conflict_restores_from_the_merge_that_made_it() {
     }
     ids_verify(&s);
 }
+
+/// [RULES/delete-policy-matrix] UD-001 (R-52, u06p F-1): a revert of a delete brings the hierarchy key back by its own
+/// `Move` ([F06 §7.10]), which V05 checks ([F13] V05). #1 to #12 form a chain, #12 at depth 11 (a root at depth 0);
+/// #14 is a child of the root #13. #14 is deleted, then #13 moves under #12, to depth 12, the bound. A revert of the
+/// delete puts #14 back under #13, at depth 13, so it stages `DepthExceeded` on `#14.parent` ([F12 §7.9]).
+#[test]
+fn a_revert_of_a_delete_under_a_parent_moved_to_depth_12_stages_depth_exceeded() {
+    let mut s = S::base();
+    let mut stmts = vec![task("a1", "a1")];
+    for i in 2..=12u32 {
+        stmts.push(child(
+            &format!("a{i}"),
+            &format!("a{i}"),
+            Target::Var(format!("a{}", i - 1)),
+        ));
+    }
+    stmts.push(task("p", "p"));
+    stmts.push(child("c", "c", Target::Var("p".into())));
+    s.ok(tx(stmts), orch());
+    assert_eq!(state(&s, "main").nodes[&Nid(14)].parent, Some(Nid(13)));
+    let d = s.ok(delete(14), orch()).commit.expect("a commit");
+    s.ok(mv(13, Some(12)), orch());
+    let r = s.run(
+        Cmd::Revert {
+            commit: format!("s{d}"),
+            onto: Some("main".into()),
+            mainline: None,
+            message: String::new(),
+        },
+        orch(),
+    );
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    assert_eq!(violations(data(&r)), vec![("#14.parent", "DepthExceeded")]);
+    ids_verify(&s);
+}
