@@ -586,9 +586,9 @@ impl Engine<'_, '_> {
                     .iter()
                     .any(|v| matches!(v, Some(KVal::Value(Value::Enum(e))) if e == "owner"))
             }
-            "both-diff3-clean" => both && self.diff3(b, o, t).is_some(),
+            "both-diff3-clean" => both && self.diff3(k, b, o, t).is_some(),
             "both-guard-fail" => {
-                both && self.diff3(b, o, t).is_some_and(|r| {
+                both && self.diff3(k, b, o, t).is_some_and(|r| {
                     let (bt, ot, tt) = (text_of(b), text_of(o), text_of(t));
                     text3::guard_fails(&bt, &ot, &tt, &r)
                 })
@@ -691,9 +691,24 @@ impl Engine<'_, '_> {
             && (below(Some(&so), &stt) || below(Some(&stt), &so))
     }
 
-    fn diff3(&self, b: &KState, o: &KState, t: &KState) -> Option<String> {
+    /// diff3 of (b, o, t) within the length bound (CS-011). On a body key, none if b, o or t is a dropped body: a
+    /// dropped body has no readable lines, so diff3 is not run and the key falls to the class's `both` row, a `TextHunk`
+    /// over the three bodies ([RULES/merge-table] CS-011, PR-016; [F12 §7.5] "A dropped body").
+    fn diff3(&self, k: &Key, b: &KState, o: &KState, t: &KState) -> Option<String> {
+        if matches!(k, Key::Node(_, Aspect::Body))
+            && [b, o, t].into_iter().any(|v| self.dropped_body(v))
+        {
+            return None;
+        }
         let r = text3::diff3(&text_of(b), &text_of(o), &text_of(t))?;
         (r.len() <= text3::MAX_TEXT).then_some(r)
+    }
+
+    /// Whether a key state's flat value is a body in the store's dropped set ([`Ctx::dropped`]). Membership is by the
+    /// body's hash, so a body held as its text counts as a body known only by that hash does ([F07 §7.3]).
+    fn dropped_body(&self, v: &KState) -> bool {
+        !self.cx.dropped.is_empty()
+            && matches!(flat(v), Some(KVal::Body(x)) if self.cx.dropped.contains(&canon::body_hash(&x)))
     }
 
     /// CS-019: both definitions bind and their canonical-AST encodings are equal ([50 §4.4]).
@@ -846,7 +861,7 @@ impl Engine<'_, '_> {
             "union3-compose" => KState::Plain(self.union3_compose(k, b, o, t)),
             "diff3" | "stage-diff3" => {
                 let r = self
-                    .diff3(b, o, t)
+                    .diff3(k, b, o, t)
                     .expect("the row's case holds a clean diff3");
                 KState::Plain(text_value(k, r))
             }
@@ -1930,7 +1945,8 @@ pub(crate) struct HOutput {
 fn text_of(v: &KState) -> String {
     match flat(v) {
         Some(KVal::Value(Value::Text(s))) => s,
-        // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+        // A dropped body never reaches this arm: diff3 is not run over it (CS-011). A body known only by a hash outside
+        // the dropped set reaches Body::text's unreachable arm (BODY_DROP).
         Some(KVal::Body(b)) => b.text().to_string(),
         _ => String::new(),
     }

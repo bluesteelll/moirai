@@ -950,3 +950,108 @@ fn a_new_one_live_delete_versus_modify_under_resurrect_keeps_rs008s_state() {
         "RS-008: live with the modifying side's keys"
     );
 }
+
+/// b, o and t of a dropped-body case: #1, a task, holds a `text` body key and #6, a `doc` section, a `section-text`
+/// one ([RULES/merge-table] MR-032, MR-038). Each side's body of both nodes is `side(i, base)`.
+fn dropped_body_states(side: impl Fn(usize, &str) -> Body) -> [State; 3] {
+    let s = Schema::default();
+    let mut b = base();
+    let mut doc = Node::new(uid(Nid(6)), "doc", &s, Creator::default());
+    doc.set_field(&s, "title", Some(Value::Text("t6".into())));
+    doc.fields
+        .insert("doc_kind".into(), Value::Enum("section".into()));
+    b.nodes.insert(Nid(6), doc);
+    [0, 1, 2].map(|i| {
+        let mut st = b.clone();
+        for n in [1, 6] {
+            st.nodes.get_mut(&Nid(n)).unwrap().body = Some(side(i, "a\nb\nc\n"));
+        }
+        st
+    })
+}
+
+/// The merge of b, o and t with `dropped` as the store's dropped set.
+fn merge_dropping(st: &[State; 3], dropped: &BTreeSet<[u8; 16]>) -> Merged {
+    let auto = BTreeMap::new();
+    let mut cx = ctx(&auto, Op::Merge);
+    cx.dropped = dropped;
+    merge(&st[0], &st[1], &st[2], &cx, &mut Fresh::default())
+}
+
+/// The body key of `n` holds a `TextHunk` (MR-032 for #1's `text`, MR-038 for #6's `section-text`) whose base, ours
+/// and theirs are canonically the three bodies, compared by their hashes ([F07 §7.3]).
+fn assert_text_hunk(m: &Merged, n: u32, want: [[u8; 16]; 3]) {
+    let row = if n == 1 { "MR-032" } else { "MR-038" };
+    let key = Key::Node(Nid(n), Aspect::Body);
+    assert_eq!(m.rows.get(&key).map(String::as_str), Some(row), "#{n}");
+    let c = &m.st.nodes[&Nid(n)].conflicts[&Aspect::Body];
+    let hash = |v: &Option<KVal>| match v {
+        Some(KVal::Body(x)) => canon::body_hash(x),
+        other => panic!("#{n}: not a body: {other:?}"),
+    };
+    assert_eq!(c.class, "TextHunk", "#{n}");
+    assert_eq!(
+        [hash(&c.base), hash(&c.ours), hash(&c.theirs)],
+        want,
+        "#{n}"
+    );
+}
+
+/// S3-M-9 ([RULES/merge-table] CS-011, PR-016; [F12 §7.5] "A dropped body"): a two-sided body key one of whose sides
+/// is a body known only by a hash in the store's dropped set runs no diff3, which would read its text, and takes the
+/// class's `both` row: a `TextHunk` whose sides are the three bodies' hashes, under `text` (MR-032) and `section-text`
+/// (MR-038). With an empty dropped set the same bodies merge by diff3.
+#[test]
+fn a_body_key_with_a_dropped_hash_side_takes_a_text_hunk_of_the_three_hashes() {
+    let ours = "A\nb\nc\n";
+    let h = canon::body_hash(&Body::Text(ours.into()));
+    let st = dropped_body_states(|i, b| match i {
+        0 => Body::Text(b.into()),
+        1 => Body::Hash(h),
+        _ => Body::Text("a\nb\nC\n".into()),
+    });
+    let m = merge_dropping(&st, &BTreeSet::from([h]));
+    let want = [
+        canon::body_hash(&Body::Text("a\nb\nc\n".into())),
+        h,
+        canon::body_hash(&Body::Text("a\nb\nC\n".into())),
+    ];
+    for n in [1, 6] {
+        assert_text_hunk(&m, n, want);
+    }
+}
+
+/// S3-M-9's membership by hash ([RULES/merge-table] CS-011: "a hash in the store's dropped set"; [F07 §7.3]): a side
+/// that holds the dropped body as its text counts as a hash-only side does, so edits diff3 would merge cleanly still
+/// take a `TextHunk` of the three hashes. The rows that compare hashes and read no dropped set (`same`, `ours-only`,
+/// `theirs-only`) give the same result with the body dropped as with an empty dropped set.
+#[test]
+fn a_dropped_body_held_as_text_counts_by_its_hash() {
+    let (b, ours, theirs) = ("a\nb\nc\n", "A\nb\nc\n", "a\nb\nC\n");
+    let hash = |x: &str| canon::body_hash(&Body::Text(x.into()));
+    let text = |x: &str| Body::Text(x.into());
+    let st = dropped_body_states(|i, _| text([b, ours, theirs][i]));
+    let clean = merge_dropping(&st, &NO_DROPPED);
+    assert_eq!(
+        clean.st.nodes[&Nid(1)].body,
+        Some(text("A\nb\nC\n")),
+        "an empty dropped set: diff3 (MR-031)"
+    );
+    let m = merge_dropping(&st, &BTreeSet::from([hash(ours)]));
+    for n in [1, 6] {
+        assert_text_hunk(&m, n, [hash(b), hash(ours), hash(theirs)]);
+    }
+    // `same`, `ours-only` and `theirs-only` of the dropped body.
+    for sides in [[b, ours, ours], [b, ours, b], [b, b, ours]] {
+        let st = dropped_body_states(|i, _| text(sides[i]));
+        let dropped = merge_dropping(&st, &BTreeSet::from([hash(ours)]));
+        let kept = merge_dropping(&st, &NO_DROPPED);
+        assert_eq!(cs(&dropped.st), cs(&kept.st), "{sides:?}");
+        assert_eq!(dropped.rows, kept.rows, "{sides:?}");
+        assert_eq!(
+            dropped.st.nodes[&Nid(1)].body,
+            Some(text(ours)),
+            "{sides:?}"
+        );
+    }
+}
