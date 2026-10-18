@@ -266,7 +266,7 @@ gives in state terms.
 <!-- table: undelete -->
 | row | item | effect | basis | source | note |
 |---|---|---|---|---|---|
-| UD-001 | node | restored | design | [AR §4.3] `Undelete{id, before-image}`; [AR §5d.3] `revert` row | Fields, status, body and parent come back from the before-image; the `deleted` flag is cleared. |
+| UD-001 | node | restored | design | [AR §4.3] `Undelete{id, before-image}`; [AR §5d.3] `revert` row | Fields, status and body come back from the before-image; the hierarchy key comes back by its own `Move` (a revert's inverse, [F06 §7.10]; a merge's per-key op, [F12 §7.8]), which V05 checks ([F13] V05); the `deleted` flag is cleared. |
 | UD-002 | flagged-edges | unflagged | derived | [AR §5a.5]; [RULES/delete-policy-matrix FL-009] | - |
 | UD-003 | repointed-edges | restored-if-live | design | [AR §5d.3] "re-pointed edges restored if their targets still exist, else `NotFound` staged" | The re-pointed edge is removed and the original restored; if an endpoint is no longer live, the revert stages with `NotFound` ([RULES/merge-table DM-012]). |
 | UD-004 | dropped-edges | restored-if-live | derived | [AR §5a.5] "before-images make inversion exact"; [RULES/merge-table DM-012] | As UD-003. |
