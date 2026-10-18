@@ -2319,3 +2319,769 @@ fn a_sync_that_re_keys_three_file_nodes_lands_them_in_uid_order() {
     }
     s.st.dag.verify_ids(&s.st.alloc).unwrap();
 }
+
+/// What a refused command must leave as it was ([F04 §5.7]: "nothing is written"): every live ref with its tip,
+/// staging refs included, `next_id`, `commit_seq` and the `#N` allocation table's size.
+fn written(s: &S) -> (BTreeMap<String, Option<u64>>, u32, u64, usize) {
+    let refs =
+        s.st.dag
+            .refs
+            .values()
+            .filter(|r| !r.deleted)
+            .map(|r| (r.name.clone(), r.tip))
+            .collect();
+    (refs, s.st.next_id, s.st.commit_seq, s.st.alloc.rows.len())
+}
+
+/// `Merge` of `src` into `into`, with `strict` and `base` as given.
+fn merge_cmd(src: &str, into: &str, strict: Option<bool>, base: Option<String>) -> Cmd {
+    Cmd::Merge {
+        src: src.into(),
+        into: Some(into.into()),
+        policy: None,
+        strict,
+        base,
+        message: String::new(),
+    }
+}
+
+/// The history of [`a_re_key_derives_again_past_a_successor_the_other_side_registered`] up to its merge: the merge of
+/// `lane/y` into `lane/x` re-keys `lane/x`'s U to one new uid′ ([RULES/link-merge-rules] RK-004, RK-008), with two
+/// `PathClaim` conflict values.
+fn past_successor_lanes() -> S {
+    let mut s = bound();
+    s.ok(env_tree(vec![w("docs/f.md", "eff\n")]), Ctx::default());
+    for l in ["x", "y"] {
+        s.ok(
+            Cmd::BranchCreate {
+                name: l.into(),
+                from: Some("main".into()),
+                kind: None,
+            },
+            orch(),
+        );
+    }
+    bind_lane(&mut s, "x", false);
+    assert_eq!(add_on(&mut s, "x", &["docs/f.md"]), vec![Nid(5)]);
+    bind_lane(&mut s, "y", true);
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(5)]);
+    s.ok(
+        Cmd::FileRm {
+            paths: vec!["docs/f.md".into()],
+            reason: None,
+            replaced_by: None,
+            trash: false,
+            recursive: false,
+            yes: true,
+        },
+        on_lane("y"),
+    );
+    s.ok(env_tree(vec![w("docs/f.md", "new eff\n")]), Ctx::default());
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(6)]);
+    s
+}
+
+/// The uid′ the merge of [`past_successor_lanes`] gives `lane/x`'s U (RK-004).
+fn past_successor_uid(s: &S) -> crate::value::Uid {
+    let u = s.st.alloc.uids[&Nid(5)];
+    let u1 = crate::r4::uid::uid_file("project", "docs/f.md", Some(u));
+    crate::r4::uid::uid_file("project", "docs/f.md", Some(u1))
+}
+
+/// W3D-SF-6 ([F04 §5.7]; [F19] `id_space_exhausted`): the last `#N` a write may allocate is 2^32 − 2, so a merge whose
+/// landing needs one new `#N` with `next_id` = 2^32 − 1 is refused with exit 7 and writes nothing: no commit, no
+/// staging ref, no `#N`. At `next_id` = 2^32 − 2 the same merge lands, and uid′ takes the last allocatable `#N`.
+#[test]
+fn a_landing_that_needs_the_last_node_id_is_refused_and_writes_nothing() {
+    let mut s = past_successor_lanes();
+    s.st.next_id = u32::MAX;
+    let before = written(&s);
+    let r = s.refused(
+        merge_cmd("lane/y", "lane/x", None, None),
+        orch(),
+        "id_space_exhausted",
+    );
+    assert_eq!(r.exit, 7);
+    assert_eq!(written(&s), before, "nothing was written");
+    let mut s = past_successor_lanes();
+    s.st.next_id = u32::MAX - 1;
+    let d = merge_lanes(&mut s, "y", "x");
+    assert_eq!(d.outcome, "landed");
+    let u2 = past_successor_uid(&s);
+    assert_eq!(
+        s.st.alloc.uidx[&u2],
+        Nid(4294967294),
+        "F04 §5.7: the last #N"
+    );
+    assert_eq!(s.st.next_id, u32::MAX);
+}
+
+/// W3D-SF-6 ([F04 §5.7]): the check precedes every append, staging included. Under strict the merge of
+/// [`past_successor_lanes`] stages its `PathClaim` values (LS-002); with `next_id` = 2^32 − 1 it is refused with exit 7
+/// and creates no staging ref.
+#[test]
+fn a_staging_landing_that_needs_the_last_node_id_is_refused() {
+    let mut s = past_successor_lanes();
+    let r = s.run(merge_cmd("lane/y", "lane/x", Some(true), None), orch());
+    assert_eq!(r.outcome, Outcome::Staged, "LS-002: strict stages");
+    assert!(s.st.dag.live("merge/lane/x/from/lane/y").is_some());
+    let mut s = past_successor_lanes();
+    s.st.next_id = u32::MAX;
+    let before = written(&s);
+    let r = s.refused(
+        merge_cmd("lane/y", "lane/x", Some(true), None),
+        orch(),
+        "id_space_exhausted",
+    );
+    assert_eq!(r.exit, 7);
+    assert_eq!(written(&s), before, "nothing was written");
+    assert!(s.st.dag.live("merge/lane/x/from/lane/y").is_none());
+}
+
+/// `lane/x` registers `files` (#5 on); `main` registers the same files (the same uids, so the same `#N`s) and deletes
+/// them, so a `sync` of `lane/x` re-keys each on `lane/x` (LC-003; RK-003), as in
+/// [`a_sync_that_re_keys_three_file_nodes_lands_them_in_uid_order`].
+fn sync_rekey_lanes(files: &[&str]) -> S {
+    let mut s = bound();
+    s.ok(
+        env_tree(files.iter().map(|f| w(f, "eff\n")).collect()),
+        Ctx::default(),
+    );
+    s.ok(
+        Cmd::BranchCreate {
+            name: "x".into(),
+            from: Some("main".into()),
+            kind: None,
+        },
+        orch(),
+    );
+    bind_lane(&mut s, "x", false);
+    let nids = add_on(&mut s, "x", files);
+    s.ok(
+        Cmd::WorktreeBind {
+            dir: TREE.into(),
+            ref_: "main".into(),
+            replace: true,
+        },
+        orch(),
+    );
+    s.ok(
+        Cmd::FileAdd {
+            paths: files.iter().map(|p| p.to_string()).collect(),
+            kind: None,
+            root: None,
+        },
+        Ctx {
+            branch: Some("main".into()),
+            no_dedupe: true,
+            ..in_tree()
+        },
+    );
+    for n in nids {
+        s.ok(
+            tx(vec![Stmt::Delete {
+                target: Target::Id(n),
+                policy: None,
+                replaced_by: None,
+                release: false,
+                reason: None,
+            }]),
+            orch_on("main"),
+        );
+    }
+    s
+}
+
+/// W3D-SF-6 ([F04 §5.7]; [F12 §9.6]): a merge into `main` lands its step-0 sync first, and that sync is a landing.
+/// When the sync must give a re-keyed uid′ a new `#N` and `next_id` = 2^32 − 1, the merge is refused with exit 7: no
+/// sync commit on `lane/x`, nothing on `main`, no staging ref.
+#[test]
+fn a_step_0_sync_that_needs_the_last_node_id_is_refused() {
+    let mut s = sync_rekey_lanes(&["docs/a.md"]);
+    s.st.next_id = u32::MAX;
+    let before = written(&s);
+    let r = s.refused(
+        merge_cmd("lane/x", "main", None, None),
+        orch(),
+        "id_space_exhausted",
+    );
+    assert_eq!(r.exit, 7);
+    assert_eq!(written(&s), before, "nothing was written");
+}
+
+/// W3D-SF-6 ([F04 §5.7]) with a real node at `#N` = 2^32 − 2: `main` creates it last, which leaves `next_id` =
+/// 2^32 − 1, and a `sync` of `lane/x` brings two new uids, whose provisional `#N`s count down from 2^32 − 1. The sync is
+/// refused with exit 7, and the real node keeps its `#N`, uid and state on every ref.
+#[test]
+fn a_landing_past_a_real_node_at_the_last_but_one_id_is_refused() {
+    let mut s = sync_rekey_lanes(&["docs/a.md", "docs/b.md"]);
+    s.st.next_id = u32::MAX - 1;
+    s.ok(tx(vec![task("last", "the last node")]), orch_on("main"));
+    assert_eq!(s.st.next_id, u32::MAX);
+    let last = Nid(4294967294);
+    let uid = s.st.alloc.uids[&last];
+    let held = state_of(&s, "main").nodes[&last].clone();
+    let before = written(&s);
+    let r = s.refused(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check: false,
+        },
+        Ctx {
+            no_dedupe: true,
+            ..orch_on("lane/x")
+        },
+        "id_space_exhausted",
+    );
+    assert_eq!(r.exit, 7);
+    assert_eq!(written(&s), before, "nothing was written");
+    assert_eq!(s.st.alloc.uids[&last], uid);
+    assert_eq!(s.st.alloc.uidx[&uid], last);
+    assert_eq!(state_of(&s, "main").nodes[&last], held);
+    assert!(!state_of(&s, "lane/x").nodes.contains_key(&last));
+}
+
+/// The history of R-87 item 1's `--base` case: `main` registers `docs/f.md` (U) after commit X; `lane/x` forks,
+/// deletes U, and `main` makes another commit, so a merge of `lane/x` into `main` runs step 0. The step-0 sync runs
+/// over [F12 §4.3]'s base, where U is live, and lands clean; the merge over X finds U absent in its base, live on
+/// `main` and deleted on `lane/x`, and re-keys it (LC-003): uid′ needs a new `#N`. Returns the store, X and U's `#N`.
+fn based_rekey_lanes() -> (S, u64, Nid) {
+    let mut s = bound();
+    s.ok(env_tree(vec![w("docs/f.md", "eff\n")]), Ctx::default());
+    let x = s.st.dag.live("main").and_then(|r| r.tip).expect("X");
+    s.ok(
+        Cmd::WorktreeBind {
+            dir: TREE.into(),
+            ref_: "main".into(),
+            replace: true,
+        },
+        orch(),
+    );
+    let r = s.ok(
+        Cmd::FileAdd {
+            paths: vec!["docs/f.md".into()],
+            kind: None,
+            root: None,
+        },
+        Ctx {
+            branch: Some("main".into()),
+            no_dedupe: true,
+            ..in_tree()
+        },
+    );
+    let Data::FileAdd(added) = &r.data else {
+        panic!("{:?}", r.data)
+    };
+    let u = added[0].1;
+    s.ok(
+        Cmd::BranchCreate {
+            name: "x".into(),
+            from: Some("main".into()),
+            kind: None,
+        },
+        orch(),
+    );
+    s.ok(
+        tx(vec![Stmt::Delete {
+            target: Target::Id(u),
+            policy: None,
+            replaced_by: None,
+            release: false,
+            reason: None,
+        }]),
+        orch_on("lane/x"),
+    );
+    s.ok(tx(vec![task("later", "a later task")]), orch_on("main"));
+    (s, x, u)
+}
+
+/// R-87 item 1, option (A) ([F04 §5.7]; [F19] `id_space_exhausted`, "nothing was written"; [F12 §9.6]: the clean sync
+/// and the merge are one group): `merge lane/x --into main --base X`, whose step-0 sync lands clean while the merge then
+/// needs a new `#N`, is refused with exit 7 at `next_id` = 2^32 − 1 and writes nothing: no sync on `lane/x`, no merge on
+/// `main`, no staging ref, `next_id` and `commit_seq` unchanged. At a lower `next_id` the sync lands on `lane/x` and the
+/// merge re-keys U.
+#[test]
+fn a_based_merge_into_main_that_needs_the_last_node_id_writes_no_sync() {
+    let (mut s, x, n) = based_rekey_lanes();
+    let src_tip = s.st.dag.live("lane/x").and_then(|r| r.tip);
+    let r = s.ok(
+        merge_cmd("lane/x", "main", None, Some(format!("s{x}"))),
+        orch(),
+    );
+    let Data::Merge(d) = &r.data else {
+        panic!("{:?}", r.data)
+    };
+    assert!(d.sync.is_some(), "step 0 ran");
+    assert_ne!(
+        s.st.dag.live("lane/x").and_then(|r| r.tip),
+        src_tip,
+        "the sync landed on lane/x"
+    );
+    let u = s.st.alloc.uids[&n];
+    let u2 = crate::r4::uid::uid_file("project", "docs/f.md", Some(u));
+    assert!(s.st.alloc.uidx.contains_key(&u2), "LC-003 re-keyed U");
+    let (mut s, x, _) = based_rekey_lanes();
+    s.st.next_id = u32::MAX;
+    let before = written(&s);
+    let r = s.refused(
+        merge_cmd("lane/x", "main", None, Some(format!("s{x}"))),
+        orch(),
+        "id_space_exhausted",
+    );
+    assert_eq!(r.exit, 7);
+    assert_eq!(written(&s), before, "nothing was written");
+    for g in ["merge/lane/x/from/main", "merge/main/from/lane/x"] {
+        assert!(s.st.dag.live(g).is_none(), "{g}");
+    }
+}
+
+/// [`past_successor_lanes`] with two more files registered on `main` before the lanes fork, F = `docs/p.md` (#5) and
+/// G = `docs/q.md` (#6), so U is #7 and the re-created file #8; `lane/x` adds `U duplicate_of F` and `lane/y` adds
+/// `F duplicate_of G`. The merge of `lane/y` into `lane/x` moves U's edge to uid′ (RK-006).
+fn staged_successor_lanes() -> S {
+    let mut s = bound();
+    s.ok(
+        env_tree(vec![
+            w(
+                "docs/p.md",
+                "pee
+",
+            ),
+            w(
+                "docs/q.md",
+                "queue
+",
+            ),
+            w(
+                "docs/f.md",
+                "eff
+",
+            ),
+        ]),
+        Ctx::default(),
+    );
+    s.ok(
+        Cmd::WorktreeBind {
+            dir: TREE.into(),
+            ref_: "main".into(),
+            replace: true,
+        },
+        orch(),
+    );
+    let r = s.ok(
+        Cmd::FileAdd {
+            paths: vec!["docs/p.md".into(), "docs/q.md".into()],
+            kind: None,
+            root: None,
+        },
+        Ctx {
+            branch: Some("main".into()),
+            no_dedupe: true,
+            ..in_tree()
+        },
+    );
+    let Data::FileAdd(added) = &r.data else {
+        panic!("{:?}", r.data)
+    };
+    assert_eq!(
+        added.iter().map(|f| f.1).collect::<Vec<_>>(),
+        vec![Nid(5), Nid(6)]
+    );
+    for l in ["x", "y"] {
+        s.ok(
+            Cmd::BranchCreate {
+                name: l.into(),
+                from: Some("main".into()),
+                kind: None,
+            },
+            orch(),
+        );
+    }
+    bind_lane(&mut s, "x", true);
+    assert_eq!(add_on(&mut s, "x", &["docs/f.md"]), vec![Nid(7)]);
+    s.ok(
+        tx(vec![super::link(7, "duplicate_of", 5)]),
+        orch_on("lane/x"),
+    );
+    bind_lane(&mut s, "y", true);
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(7)]);
+    s.ok(
+        Cmd::FileRm {
+            paths: vec!["docs/f.md".into()],
+            reason: None,
+            replaced_by: None,
+            trash: false,
+            recursive: false,
+            yes: true,
+        },
+        on_lane("y"),
+    );
+    s.ok(
+        env_tree(vec![w(
+            "docs/f.md",
+            "new eff
+",
+        )]),
+        Ctx::default(),
+    );
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(8)]);
+    s.ok(
+        tx(vec![super::link(5, "duplicate_of", 6)]),
+        orch_on("lane/y"),
+    );
+    s
+}
+
+/// Whether a reply text names a provisional `#N` ([API §9.6] item 2: never a placeholder such as `#4294967295`).
+fn placeholder(text: &str) -> bool {
+    text.contains("#4294967")
+}
+
+/// W3D-SF-5 ([API §9.6] item 2; [RULES/link-merge-rules] RK-008): every `#N` a merge-family reply reports is the `#N`
+/// the node lands with. The merge of [`past_successor_lanes`] lands uid′ as `#L`, L the `next_id` read before it, and
+/// its `conflicts` name `#L.observation`. In [`staged_successor_lanes`] the re-keyed edge `uid′ duplicate_of F` heads a
+/// chain of two (V07, `Cardinality`), so the merge stages: the staged reply's violation key, `description` and
+/// `suggested` name `#L`, and so do the staged commit's stored `Violation` op's ([F06 §7.7]; R-85 ruling 5).
+#[test]
+fn a_re_keying_merge_reports_landing_ids_landed_and_staged() {
+    let mut s = past_successor_lanes();
+    let l = s.st.next_id;
+    let d = merge_lanes(&mut s, "y", "x");
+    assert_eq!(d.outcome, "landed");
+    let mut keys: Vec<String> = d.conflicts.iter().map(|(k, _)| k.clone()).collect();
+    keys.sort();
+    let mut want = vec!["#6.observation".to_string(), format!("#{l}.observation")];
+    want.sort();
+    assert_eq!(keys, want);
+    assert_eq!(s.st.alloc.uidx[&past_successor_uid(&s)], Nid(l));
+    let mut s = staged_successor_lanes();
+    let l = s.st.next_id;
+    let r = s.run(merge_cmd("lane/y", "lane/x", None, None), orch());
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    let Data::Merge(d) = &r.data else {
+        panic!("{:?}", r.data)
+    };
+    let ln = format!("#{l}");
+    assert!(
+        d.conflicts
+            .iter()
+            .any(|(k, _)| *k == format!("{ln}.observation")),
+        "{:?}",
+        d.conflicts
+    );
+    let v: Vec<_> = d
+        .violations
+        .iter()
+        .filter(|v| v.class == "Cardinality")
+        .collect();
+    assert_eq!(v.len(), 1, "{:?}", d.violations);
+    let v = v[0];
+    assert_eq!(v.key, format!("edge:{ln}:duplicate_of:#5"));
+    assert!(v.description.contains(&ln), "{}", v.description);
+    assert!(v.suggested.contains(&ln), "{}", v.suggested);
+    let all = format!("{:?} {:?} {:?}", d.conflicts, d.violations, r.error);
+    assert!(!placeholder(&all), "{all}");
+    let g = s.st.dag.live("merge/lane/x/from/lane/y").expect("staged");
+    let c = &s.st.dag.commits[&g.tip.expect("a staged commit")];
+    let op = c
+        .violations
+        .iter()
+        .find(|v| v.class == "Cardinality")
+        .expect("the stored Violation op");
+    assert!(matches!(&op.key, Some(Key::Node(n, Aspect::Edge(_))) if *n == Nid(l)));
+    assert!(op.description.contains(&ln), "{}", op.description);
+    assert!(op.suggested.contains(&ln), "{}", op.suggested);
+    assert!(!placeholder(&format!("{:?}", c.violations)));
+}
+
+/// [`sync_rekey_lanes`] over `docs/a.md`, after which `main` registers the re-created file again (#6, the uid derived
+/// from U, F08 §11.2): a `sync` of `lane/x` re-keys U past it (RK-004) to one new uid′, and both live files at
+/// `docs/a.md` hold a `PathClaim` conflict value (PC-001, PC-002).
+fn sync_past_successor_lanes() -> S {
+    let mut s = sync_rekey_lanes(&["docs/a.md"]);
+    s.ok(env_tree(vec![w("docs/a.md", "new a\n")]), Ctx::default());
+    let r = s.ok(
+        Cmd::FileAdd {
+            paths: vec!["docs/a.md".into()],
+            kind: None,
+            root: None,
+        },
+        Ctx {
+            branch: Some("main".into()),
+            no_dedupe: true,
+            ..in_tree()
+        },
+    );
+    let Data::FileAdd(added) = &r.data else {
+        panic!("{:?}", r.data)
+    };
+    assert_eq!(added[0].1, Nid(6));
+    s
+}
+
+/// A `sync` of `lane/x`, a `--check` preview when `check`, run under `dry` when `dry`.
+fn sync_x(s: &mut S, check: bool, dry: bool) -> crate::api::Reply {
+    s.run(
+        Cmd::Sync {
+            lane: Some("lane/x".into()),
+            check,
+        },
+        Ctx {
+            no_dedupe: true,
+            dry,
+            ..orch_on("lane/x")
+        },
+    )
+}
+
+/// W3D-SF-5, R-87 item 5 ([API §9.6] item 2): a preview or a dry run allocates nothing and reports, for the k-th new uid
+/// in ascending uid order, `HEAD.next_id` + k − 1. `sync --check` and a dry `sync` of [`sync_past_successor_lanes`],
+/// which bring one new uid, name it `#<next_id>` in `conflicts` and in `affected`, name no placeholder, and leave
+/// `next_id` and every tip as they were.
+#[test]
+fn a_checked_or_dry_sync_reports_next_id_for_a_new_uid() {
+    for (check, dry) in [(true, false), (false, true)] {
+        let mut s = sync_past_successor_lanes();
+        let next = s.st.next_id;
+        let before = written(&s);
+        let r = sync_x(&mut s, check, dry);
+        assert!(
+            matches!(r.outcome, Outcome::Ok | Outcome::Dry),
+            "{:?}",
+            r.error
+        );
+        let Data::Merge(d) = &r.data else {
+            panic!("{:?}", r.data)
+        };
+        assert!(
+            d.conflicts
+                .iter()
+                .any(|(k, _)| *k == format!("#{next}.observation")),
+            "{check} {dry}: {:?}",
+            d.conflicts
+        );
+        assert!(d.affected.contains(&Nid(next)), "{:?}", d.affected);
+        let all = format!("{:?} {:?} {:?}", d.conflicts, d.violations, d.hints);
+        assert!(!placeholder(&all), "{all}");
+        assert!(
+            d.affected.iter().all(|n| n.0 < u32::MAX - 16),
+            "{:?}",
+            d.affected
+        );
+        assert_eq!(written(&s), before, "a preview writes nothing");
+    }
+}
+
+/// W3D-SF-6 for a preview (critique I-2; [API §9.6], "the would-be result"; [F04 §5.7]): at `next_id` = 2^32 − 1,
+/// `sync --check` and a dry `sync` that would need one new `#N` return the refusal the landing would, exit 7
+/// `id_space_exhausted`, and leave every tip and `next_id` as they were.
+#[test]
+fn a_checked_or_dry_sync_at_the_last_node_id_is_refused() {
+    for (check, dry) in [(true, false), (false, true)] {
+        let mut s = sync_past_successor_lanes();
+        s.st.next_id = u32::MAX;
+        let before = written(&s);
+        let r = sync_x(&mut s, check, dry);
+        assert_eq!(r.outcome, Outcome::Refused, "{check} {dry}");
+        assert_eq!(
+            r.error.as_ref().map(|e| (e.code.as_str(), e.exit)),
+            Some(("id_space_exhausted", 7))
+        );
+        assert_eq!(written(&s), before);
+    }
+}
+
+/// W3D-SF-5, R-87 item 5 ([API §9.6] item 2): a dry cherry-pick reports a new uid as `#<next_id>`. `lane/y` registers
+/// `docs/f.md` (U, commit C), removes it and registers it again (#6, the uid derived from U). A dry `cherry-pick C
+/// --onto lane/y` re-keys U past #6 (LC-003 over b = parent(C), o = `lane/y`, t = state(C); RK-004): its `conflicts`
+/// name `#<next_id>.observation` and no placeholder, and nothing is written.
+#[test]
+fn a_dry_cherry_pick_reports_next_id_for_a_new_uid() {
+    let mut s = bound();
+    s.ok(env_tree(vec![w("docs/f.md", "eff\n")]), Ctx::default());
+    s.ok(
+        Cmd::BranchCreate {
+            name: "y".into(),
+            from: Some("main".into()),
+            kind: None,
+        },
+        orch(),
+    );
+    bind_lane(&mut s, "y", false);
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(5)]);
+    let c = s.st.dag.live("lane/y").and_then(|r| r.tip).expect("C");
+    s.ok(
+        Cmd::FileRm {
+            paths: vec!["docs/f.md".into()],
+            reason: None,
+            replaced_by: None,
+            trash: false,
+            recursive: false,
+            yes: true,
+        },
+        on_lane("y"),
+    );
+    s.ok(env_tree(vec![w("docs/f.md", "new eff\n")]), Ctx::default());
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(6)]);
+    let next = s.st.next_id;
+    let before = written(&s);
+    let r = s.run(
+        Cmd::CherryPick {
+            commit: format!("s{c}"),
+            onto: Some("lane/y".into()),
+            message: String::new(),
+        },
+        Ctx {
+            dry: true,
+            ..orch()
+        },
+    );
+    assert_eq!(r.outcome, Outcome::Dry, "{:?}", r.error);
+    let Data::Merge(d) = &r.data else {
+        panic!("{:?}", r.data)
+    };
+    assert!(
+        d.conflicts
+            .iter()
+            .any(|(k, _)| *k == format!("#{next}.observation")),
+        "{:?}",
+        d.conflicts
+    );
+    let all = format!("{:?} {:?} {:?}", d.conflicts, d.violations, d.hints);
+    assert!(!placeholder(&all), "{all}");
+    assert_eq!(written(&s), before, "a dry run writes nothing");
+}
+
+/// A `LinkFile` of #2 to `specs` in the tree, under `dry` when `dry`.
+fn link_specs(s: &mut S, specs: &[&str], dry: bool) -> Reply {
+    s.run(
+        Cmd::LinkFile {
+            node: Target::Id(Nid(2)),
+            specs: specs.iter().map(|x| x.to_string()).collect(),
+            watch: None,
+            planned: false,
+            quote: None,
+            end: None,
+        },
+        Ctx { dry, ..in_tree() },
+    )
+}
+
+/// W3D-SF-6 ([F04 §5.7]; [F19] `id_space_exhausted`): the last anchor handle a write may allocate is `a4294967294`
+/// (2^32 − 2). At `next_anchor` = 2^32 − 1 a `LinkFile` that creates one anchor is refused with exit 7, a dry one too,
+/// and nothing is written; at 2^32 − 2 one new anchor takes `a4294967294`, and two are refused.
+#[test]
+fn an_anchor_that_needs_the_last_handle_is_refused() {
+    let last = u64::from(u32::MAX);
+    for dry in [false, true] {
+        let mut s = bound();
+        bind(&mut s);
+        s.st.next_anchor = last;
+        let before = written(&s);
+        let r = link_specs(&mut s, &["docs/api.md:3"], dry);
+        assert_eq!(r.outcome, Outcome::Refused, "dry {dry}");
+        assert_eq!(
+            r.error.as_ref().map(|e| (e.code.as_str(), e.exit)),
+            Some(("id_space_exhausted", 7))
+        );
+        assert_eq!(written(&s), before);
+        assert_eq!(s.st.next_anchor, last);
+        assert!(s.st.files.anchors.is_empty());
+    }
+    let mut s = bound();
+    bind(&mut s);
+    s.st.next_anchor = last - 1;
+    let r = link_specs(&mut s, &["docs/api.md:3"], false);
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(row(&r, "anchor"), "a4294967294", "the last handle");
+    assert_eq!(s.st.next_anchor, last);
+    let mut s = bound();
+    bind(&mut s);
+    s.st.next_anchor = last - 1;
+    let before = written(&s);
+    let r = link_specs(&mut s, &["docs/api.md:3", "docs/api.md:5"], false);
+    assert_eq!(
+        r.error.as_ref().map(|e| (e.code.as_str(), e.exit)),
+        Some(("id_space_exhausted", 7))
+    );
+    assert_eq!(written(&s), before);
+    assert_eq!(s.st.next_anchor, last - 1);
+}
+
+/// R-52 SF-7 with R-83 ([RULES/link-merge-rules] RK-005; [API §15.4]): uid′'s creating commit is the merge that
+/// re-keys it, so on `lane/x`, whose first-parent chain holds that merge, LQ's `created` of uid′ reads the merge
+/// (`Dag::local_seqs_all`, the newest first-parent-chain commit that takes the existence from absent).
+#[test]
+fn a_re_keyed_uids_created_is_the_re_keying_merge_on_the_chain() {
+    let mut s = past_successor_lanes();
+    let d = merge_lanes(&mut s, "y", "x");
+    assert_eq!(d.outcome, "landed");
+    let n2 = s.st.alloc.uidx[&past_successor_uid(&s)];
+    let tip = s.st.dag.live("lane/x").and_then(|x| x.tip);
+    assert_eq!(
+        s.st.dag.local_seqs_all(tip).get(&n2).map(|t| t.1),
+        tip,
+        "API §15.4: the re-keying merge on the chain"
+    );
+}
+
+/// R-52 SF-7 ([RULES/link-merge-rules] RK-005; [F06 §7.4]; [F08 §4] `CREATOR`): a merge keeps a `Create`'s original
+/// creator, so a re-keyed uid′ takes U's creator on S, not the merge caller's. `orch2` registers `docs/f.md` (U) on
+/// `lane/x`; `lane/y` registers it, removes it and registers it again; the orchestrator merges `lane/y` into `lane/x`,
+/// which re-keys U to uid′ (RK-004). uid′'s allocation row and its node name `orch2`.
+#[test]
+fn a_re_keyed_uid_keeps_its_predecessors_creator() {
+    let mut s = bound();
+    s.ok(env_tree(vec![w("docs/f.md", "eff\n")]), Ctx::default());
+    for l in ["x", "y"] {
+        s.ok(
+            Cmd::BranchCreate {
+                name: l.into(),
+                from: Some("main".into()),
+                kind: None,
+            },
+            orch(),
+        );
+    }
+    bind_lane(&mut s, "x", false);
+    let other = second_orchestrator(&mut s);
+    s.ok(
+        Cmd::FileAdd {
+            paths: vec!["docs/f.md".into()],
+            kind: None,
+            root: None,
+        },
+        Ctx {
+            branch: Some("lane/x".into()),
+            no_dedupe: true,
+            ..other
+        },
+    );
+    let u_creator = state_of(&s, "lane/x").nodes[&Nid(5)].creator.clone();
+    assert_eq!(u_creator.actor, "orch2");
+    assert_eq!(s.st.alloc.rows[&Nid(5)].1, u_creator);
+    bind_lane(&mut s, "y", true);
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(5)]);
+    s.ok(
+        Cmd::FileRm {
+            paths: vec!["docs/f.md".into()],
+            reason: None,
+            replaced_by: None,
+            trash: false,
+            recursive: false,
+            yes: true,
+        },
+        on_lane("y"),
+    );
+    s.ok(env_tree(vec![w("docs/f.md", "new eff\n")]), Ctx::default());
+    assert_eq!(add_on(&mut s, "y", &["docs/f.md"]), vec![Nid(6)]);
+    let d = merge_lanes(&mut s, "y", "x");
+    assert_eq!(d.outcome, "landed");
+    let n2 = s.st.alloc.uidx[&past_successor_uid(&s)];
+    assert_eq!(s.st.alloc.rows[&n2].1, u_creator, "the allocation row");
+    assert_eq!(
+        state_of(&s, "lane/x").nodes[&n2].creator,
+        u_creator,
+        "the node"
+    );
+}

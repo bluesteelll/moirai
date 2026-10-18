@@ -2609,8 +2609,8 @@ impl<'a> Cand<'a> {
     /// A conflict value takes its `ours`, `theirs` or `base` side, or a given value of a field or counter ([F12 §6.5]).
     /// A `SupersedeFork` refuses `value` (usage); its `theirs` keeps the edge and removes, by `RemoveEdge`, every
     /// other active `supersedes` edge to the target (I6). A `live` existence side restores the node's value keys from
-    /// its node image, and for `ours` and `theirs` its hierarchy key and out-edges from that side's state at the
-    /// conflict's introducing commit ([`Cand::restore_live`]).
+    /// its node image, and for `ours` and `theirs` its hierarchy key and out-edges from that side's state at M, the
+    /// merge that made the conflict value ([`Cand::restore_live`]).
     fn resolve_conflict(
         &mut self,
         key: &str,
@@ -2672,10 +2672,10 @@ impl<'a> Cand<'a> {
 
     /// [F12 §6.5] "A `live` existence side": the node's value keys from the side's node image (`snap` = 1), and for
     /// `ours` (`side` 1) and `theirs` (2) its hierarchy key and out-edges from `state(first parent of M)` and
-    /// `state(second parent of M)`, M being the conflict's introducing commit, as companion `Move`, `AddEdge` and
-    /// `SetEdgeProps` ops. A parent that is not live on the view refuses as a `MOVE` under it does (`not_found`); a
-    /// structural edge to a deleted target is the deferred checks' (E405); I4 on the restored node follows VO-3
-    /// ([`Cand::check_forest`]).
+    /// `state(second parent of M)`, M being the merge that made the conflict value ([`Cand::introducing`]), as
+    /// companion `Move`, `AddEdge` and `SetEdgeProps` ops. A parent that is not live on the view refuses as a `MOVE`
+    /// under it does (`not_found`); a structural edge to a deleted target is the deferred checks' (E405); I4 on the
+    /// restored node follows VO-3 ([`Cand::check_forest`]).
     fn restore_live(&mut self, n: Nid, c: &Conflict, side: usize) -> Res<()> {
         let schema = self.st.schema.clone();
         if let Some(img) = &c.images[side] {
@@ -2745,8 +2745,10 @@ impl<'a> Cand<'a> {
         self.check_forest(n, &std::cell::OnceCell::new())
     }
 
-    /// M of [F12 §6.5]: the commit on the view's first-parent chain whose `Conflict` op set the key's conflict value
-    /// (`CONFLICTS.commit`, [F11 §10]) — the oldest commit of the chain from the tip that still holds it.
+    /// M of [F12 §6.5], the merge that made the key's conflict value (W3D-SF-3): from the view's tip, which holds the
+    /// value, the walk moves to a parent whose state holds an equal conflict value ([F12 §7.3]), the first parent when
+    /// both do, while one does; M is the first commit none of whose parents does. A value a merge carried unchanged
+    /// from a side (MR-004) is so traced, through that merge's second parent, to the merge that made it.
     fn introducing(&self, n: Nid, a: &Aspect, c: &Conflict) -> Option<u64> {
         let dag = self.cx.dag;
         let mut at = dag.live(&self.cx.branch).and_then(|r| r.tip)?;
@@ -2762,10 +2764,12 @@ impl<'a> Cand<'a> {
         if !holds(Some(at)) {
             return None;
         }
-        while let Some(p) = dag.commits[&at].parents.first().copied() {
-            if !holds(Some(p)) {
-                break;
-            }
+        while let Some(p) = dag.commits[&at]
+            .parents
+            .iter()
+            .copied()
+            .find(|p| holds(Some(*p)))
+        {
             at = p;
         }
         Some(at)

@@ -3510,8 +3510,8 @@ fn a_swap_in_one_commit_merges_clean() {
 }
 
 /// [F12 §6.5] "A `live` existence side": resolving a provisionally deleted node's `DeleteVsModify` to the live side
-/// restores its value keys from the side's node image and its hierarchy key from that side's state at the conflict's
-/// introducing commit.
+/// restores its value keys from the side's node image and its hierarchy key from that side's state at M, the merge that
+/// made the conflict value.
 #[test]
 fn a_live_existence_side_restores_the_node() {
     let mut s = S::base();
@@ -3564,8 +3564,9 @@ fn states_verify(s: &S, from: u64) -> Result<(), String> {
 }
 
 /// [RULES/merge-table] MR-003 with [F12 §6.3] "The provisional side is a stored byte" (ADV-C-2): a merge that takes a
-/// side's `DeleteVsModify` value carries it whole, its `prov` naming a side of the merge that made it, and the node
-/// keeps the provisional state that side holds it in. lane/y deletes #5 while lane/x puts it under #1; `merge lane/y
+/// side's `DeleteVsModify` value carries it unchanged, its `prov` naming a side of the merge that made it, and the node
+/// keeps the provisional state that side holds it in, its other keys merged key by key ([F12 §6.3] "The node's other
+/// keys"; here src left them all as the base holds them). lane/y deletes #5 while lane/x puts it under #1; `merge lane/y
 /// --into lane/x` lands `#5.existence DeleteVsModify` provisional on theirs, the deleting side (task's EP-001
 /// `delete-wins`), so #5 is a tombstone on lane/x. main sets #6.priority, and `sync lane/x`, whose src (main) holds #5
 /// live and untouched since the base, keeps lane/x's value (MR-003): the sync's net changeset is #6.priority alone, #5
@@ -4636,5 +4637,365 @@ fn a_merge_over_an_existence_value_both_sides_hold_keeps_a_change_only_dst_made(
     let x = &st.nodes[&Nid(1)];
     assert_eq!((x.live(), x.text("title")), (true, Some("newer")));
     states_verify(&s, 1).unwrap();
+    ids_verify(&s);
+}
+
+/// `merge src --into dst --policy P`.
+fn merge_p(src: &str, into: &str, policy: &str) -> Cmd {
+    Cmd::Merge {
+        src: src.into(),
+        into: Some(into.into()),
+        policy: Some(policy.into()),
+        strict: None,
+        base: None,
+        message: String::new(),
+    }
+}
+
+/// `sync` of a lane.
+fn sync(lane: &str) -> Cmd {
+    Cmd::Sync {
+        lane: Some(lane.into()),
+        check: false,
+    }
+}
+
+/// [F12 §6.3] "The node's other keys" with MR-003, P live (W3D-SF-2 (b); the owner's ruling R-43 of 2026-10-13,
+/// OI-1g): lane/x sets #1's priority while lane/y deletes it, and `merge lane/y --into lane/x --policy resurrect`
+/// lands `#1.existence DeleteVsModify` provisional on the live side. main retitles #1, and `sync lane/x` takes
+/// lane/x's value unchanged (MR-003: main left #1's existence key as the base holds it) and merges #1's other keys key
+/// by key: main's one-sided retitle lands, lane/x's priority stays, and the value stays on #1, carried, so the sync
+/// emits no new conflict.
+#[test]
+fn a_sync_keeps_a_carried_live_existence_value_and_lands_mains_one_sided_change() {
+    let mut s = S::base();
+    s.ok(tx(vec![task("k", "task k")]), orch());
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    s.ok(
+        tx(vec![set(1, &[("priority", P::Int(0))])]),
+        fresh_on("lane/x"),
+    );
+    s.ok(delete(1), fresh_on("lane/y"));
+    let r = s.run(merge_p("lane/y", "lane/x", "resurrect"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let before = state(&s, "lane/x").nodes[&Nid(1)].clone();
+    assert!(before.live(), "resurrect: P live");
+    let c = before.conflicts[&Aspect::Existence].clone();
+    s.ok(
+        tx(vec![set(1, &[("title", t("main title"))])]),
+        fresh_on("main"),
+    );
+    let r = s.run(sync("lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert!(
+        data(&r).conflicts.is_empty(),
+        "a carried value is no new conflict"
+    );
+    let st = state(&s, "lane/x");
+    let x = &st.nodes[&Nid(1)];
+    assert!(x.live());
+    assert_eq!(
+        x.text("title"),
+        Some("main title"),
+        "main's one-sided retitle lands"
+    );
+    assert_eq!(field(&s, "lane/x", 1, "priority"), prio("P0"));
+    assert_eq!(
+        x.conflicts.get(&Aspect::Existence),
+        Some(&c),
+        "the value is carried unchanged"
+    );
+    states_verify(&s, 1).unwrap();
+    ids_verify(&s);
+}
+
+/// [F12 §6.3] "The node's other keys" with MR-003, P deleted: lane/x holds #1's `DeleteVsModify` provisional on the
+/// deleting side (task's EP-001 `delete-wins`), so #1 is a tombstone there. main retitles #1 and adds a historical
+/// out-edge (`cites` to note #2) and a structural one (`blocks` to #3). `sync lane/x` takes lane/x's value unchanged and
+/// merges the tombstone key by key ([AR §3.4] I39′; PR-007): main's title and its historical edge land, the structural
+/// edge, no key of a tombstone, does not, and the existence key keeps its conflict value.
+#[test]
+fn a_sync_keeps_a_carried_deleted_existence_value_and_merges_its_tombstone_key_by_key() {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("k", "task k"),
+            node("a", "note", &[("title", t("a"))]),
+            task("b", "b"),
+        ]),
+        orch(),
+    );
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    s.ok(delete(1), fresh_on("lane/y"));
+    s.ok(
+        tx(vec![set(1, &[("priority", P::Int(0))])]),
+        fresh_on("lane/x"),
+    );
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let before = state(&s, "lane/x").nodes[&Nid(1)].clone();
+    assert!(!before.live(), "delete-wins: P deleted");
+    let c = before.conflicts[&Aspect::Existence].clone();
+    s.ok(
+        tx(vec![
+            set(1, &[("title", t("main title"))]),
+            link(1, "cites", 2),
+            link(1, "blocks", 3),
+        ]),
+        fresh_on("main"),
+    );
+    let r = s.run(sync("lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let st = state(&s, "lane/x");
+    let x = &st.nodes[&Nid(1)];
+    assert!(!x.live());
+    assert_eq!(
+        x.text("title"),
+        Some("main title"),
+        "the tombstone's title merges key by key"
+    );
+    let kinds: Vec<(&str, Nid)> = x.out.keys().map(|k| (k.kind.as_str(), k.dst)).collect();
+    assert_eq!(kinds, vec![("cites", Nid(2))], "only the retained out-edge");
+    assert_eq!(
+        x.conflicts.get(&Aspect::Existence),
+        Some(&c),
+        "the value stays on the tombstone"
+    );
+    states_verify(&s, 1).unwrap();
+    ids_verify(&s);
+}
+
+/// [F12 §6.3] "The node's other keys" over b ≈ o ≈ t: lane/x and lane/y hold the same `DeleteVsModify` value on #1
+/// (lane/x deleted #1, lane/y set its priority, and the two lanes merged each other under `resurrect`); lane/x then
+/// retitles #1 and lane/y sets its priority again. `merge lane/y --into lane/x` keeps the value and merges #1's other
+/// keys key by key, so both one-sided changes land.
+#[test]
+fn a_merge_over_an_existence_value_both_sides_hold_lands_both_sides_changes() {
+    let mut s = S::base();
+    s.ok(tx(vec![task("k", "task k")]), orch());
+    s.ok(branch("x", "main"), orch());
+    s.ok(branch("y", "main"), orch());
+    s.ok(delete(1), fresh_on("lane/x"));
+    s.ok(
+        tx(vec![set(1, &[("priority", P::Int(0))])]),
+        fresh_on("lane/y"),
+    );
+    for (src, dst) in [("lane/y", "lane/x"), ("lane/x", "lane/y")] {
+        let r = s.run(merge_p(src, dst, "resurrect"), fresh_on(dst));
+        assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    }
+    let c = state(&s, "lane/x").nodes[&Nid(1)].conflicts[&Aspect::Existence].clone();
+    s.ok(
+        tx(vec![set(1, &[("title", t("x title"))])]),
+        fresh_on("lane/x"),
+    );
+    s.ok(
+        tx(vec![set(1, &[("priority", P::Int(3))])]),
+        fresh_on("lane/y"),
+    );
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    let st = state(&s, "lane/x");
+    let x = &st.nodes[&Nid(1)];
+    assert_eq!((x.live(), x.text("title")), (true, Some("x title")));
+    assert_eq!(
+        field(&s, "lane/x", 1, "priority"),
+        prio("P3"),
+        "theirs' one-sided change lands"
+    );
+    assert_eq!(x.conflicts.get(&Aspect::Existence), Some(&c));
+    states_verify(&s, 1).unwrap();
+    ids_verify(&s);
+}
+
+/// RS-015's case outside the one-live case ([F12 §5.4]; [F12 §6.3]; RS-010's last two sentences): lane/x and lane/y
+/// each hold their own `DeleteVsModify` on #1, provisional on the live side under `resurrect` (lane/x set #1's
+/// priority, lane/y retitled it). `merge lane/y --into lane/x` makes a new `DeleteVsModify` over two live flat sides
+/// (MR-005), provisional on `ours`, which fixes none of #1's other keys: they merge key by key, so #1 holds lane/x's
+/// priority and lane/y's title.
+#[test]
+fn a_new_delete_versus_modify_over_two_live_provisional_sides_merges_key_by_key() {
+    use crate::state::Side;
+    let mut s = S::base();
+    s.ok(tx(vec![task("k", "task k")]), orch());
+    for l in ["x", "y", "z", "w"] {
+        s.ok(branch(l, "main"), orch());
+    }
+    s.ok(
+        tx(vec![set(1, &[("priority", P::Int(0))])]),
+        fresh_on("lane/x"),
+    );
+    s.ok(delete(1), fresh_on("lane/z"));
+    s.ok(
+        tx(vec![set(1, &[("title", t("y title"))])]),
+        fresh_on("lane/y"),
+    );
+    s.ok(delete(1), fresh_on("lane/w"));
+    for (src, dst) in [("lane/z", "lane/x"), ("lane/w", "lane/y")] {
+        let r = s.run(merge_p(src, dst, "resurrect"), fresh_on(dst));
+        assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+        assert!(state(&s, dst).nodes[&Nid(1)].live());
+    }
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(
+        data(&r).conflicts,
+        vec![("#1.existence".to_string(), "DeleteVsModify".to_string())]
+    );
+    let st = state(&s, "lane/x");
+    let x = &st.nodes[&Nid(1)];
+    let c = &x.conflicts[&Aspect::Existence];
+    assert_eq!(c.prov, Some(Side::Ours));
+    assert!(
+        matches!(c.ours, Some(KVal::Live(_))) && matches!(c.theirs, Some(KVal::Live(_))),
+        "two live flat sides"
+    );
+    assert!(x.live());
+    assert_eq!(
+        x.text("title"),
+        Some("y title"),
+        "theirs' one-sided retitle lands"
+    );
+    assert_eq!(field(&s, "lane/x", 1, "priority"), prio("P0"));
+    states_verify(&s, 1).unwrap();
+    ids_verify(&s);
+}
+
+/// [F12 §6.5] (W3D-SF-3): a value a merge carried unchanged from a side restores from M, the merge that made it. lane/x
+/// puts #3 under #2 while lane/y deletes it, and `merge lane/y --into lane/x` makes `#3.existence DeleteVsModify`
+/// (task's EP-001 `delete-wins`: #3 a tombstone). `merge lane/x --into lane/z` carries the value unchanged (MR-004). On
+/// each lane, `resolve #3.existence --take ours` restores #3's hierarchy key from the state of M's first parent, where
+/// lane/x put #3 under #2: the walk from lane/z's tip passes to its merge's second parent, which holds the value.
+#[test]
+fn a_carried_conflict_restores_from_the_merge_that_made_it() {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("p1", "p1"),
+            task("p2", "p2"),
+            child("k", "k", Target::Var("p1".into())),
+        ]),
+        orch(),
+    );
+    for l in ["x", "y", "z"] {
+        s.ok(branch(l, "main"), orch());
+    }
+    s.ok(mv(3, Some(2)), fresh_on("lane/x"));
+    s.ok(delete(3), fresh_on("lane/y"));
+    let r = s.run(merge("lane/y", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(
+        data(&r).conflicts,
+        vec![("#3.existence".to_string(), "DeleteVsModify".to_string())]
+    );
+    let r = s.run(merge("lane/x", "lane/z"), fresh_on("lane/z"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    for l in ["lane/x", "lane/z"] {
+        let st = state(&s, l);
+        let x = &st.nodes[&Nid(3)];
+        assert!(
+            !x.live() && x.conflicts.contains_key(&Aspect::Existence),
+            "{l}"
+        );
+    }
+    s.ok(resolve("#3.existence", Take::Ours), fresh_on("lane/x"));
+    s.ok(resolve("#3.existence", Take::Ours), fresh_on("lane/z"));
+    for l in ["lane/x", "lane/z"] {
+        let st = state(&s, l);
+        let x = &st.nodes[&Nid(3)];
+        assert!(x.live() && x.conflicts.is_empty(), "{l}");
+        assert_eq!(x.parent, Some(Nid(2)), "{l}: the hierarchy of ours at M");
+    }
+    ids_verify(&s);
+}
+
+/// [F12 §6.5] (W3D-SF-3): the walk to M takes the first parent when both parents hold the value. lane/x puts #3 under
+/// #2, lane/w moves it to the root, and lane/y deletes it; `merge lane/y` into lane/x and into lane/w makes two equal
+/// `#3.existence DeleteVsModify` values, by two merges whose first parents differ in #3's hierarchy key. `merge lane/w
+/// --into lane/x` lands with both parents holding the value, so `resolve #3.existence --take ours` on lane/x walks to
+/// lane/x's merge and puts #3 under #2; on lane/w the same resolve puts #3 at the root, its merge's first parent.
+#[test]
+fn a_carried_conflict_held_by_both_parents_walks_the_first() {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("p1", "p1"),
+            task("p2", "p2"),
+            child("k", "k", Target::Var("p1".into())),
+        ]),
+        orch(),
+    );
+    for l in ["x", "y", "w"] {
+        s.ok(branch(l, "main"), orch());
+    }
+    s.ok(mv(3, Some(2)), fresh_on("lane/x"));
+    s.ok(mv(3, None), fresh_on("lane/w"));
+    s.ok(delete(3), fresh_on("lane/y"));
+    for dst in ["lane/x", "lane/w"] {
+        let r = s.run(merge("lane/y", dst), fresh_on(dst));
+        assert_eq!(r.outcome, Outcome::Ok, "{dst}: {:?}", r.error);
+        assert_eq!(
+            data(&r).conflicts,
+            vec![("#3.existence".to_string(), "DeleteVsModify".to_string())],
+            "{dst}"
+        );
+    }
+    let cx = state(&s, "lane/x").nodes[&Nid(3)].conflicts[&Aspect::Existence].clone();
+    let cw = state(&s, "lane/w").nodes[&Nid(3)].conflicts[&Aspect::Existence].clone();
+    assert_eq!(cx, cw, "two equal conflict values, one on each parent");
+    let r = s.run(merge("lane/w", "lane/x"), fresh_on("lane/x"));
+    assert_eq!(r.outcome, Outcome::Ok, "{:?}", r.error);
+    assert_eq!(
+        state(&s, "lane/x").nodes[&Nid(3)]
+            .conflicts
+            .get(&Aspect::Existence),
+        Some(&cx),
+        "the merge carries the value both parents hold"
+    );
+    s.ok(resolve("#3.existence", Take::Ours), fresh_on("lane/x"));
+    s.ok(resolve("#3.existence", Take::Ours), fresh_on("lane/w"));
+    for (l, under) in [("lane/x", Some(Nid(2))), ("lane/w", None)] {
+        let st = state(&s, l);
+        let x = &st.nodes[&Nid(3)];
+        assert!(x.live() && x.conflicts.is_empty(), "{l}");
+        assert_eq!(x.parent, under, "{l}: the hierarchy of ours at M");
+    }
+    ids_verify(&s);
+}
+
+/// [RULES/delete-policy-matrix] UD-001 (R-52, u06p F-1): a revert of a delete brings the hierarchy key back by its own
+/// `Move` ([F06 §7.10]), which V05 checks ([F13] V05). #1 to #12 form a chain, #12 at depth 11 (a root at depth 0);
+/// #14 is a child of the root #13. #14 is deleted, then #13 moves under #12, to depth 12, the bound. A revert of the
+/// delete puts #14 back under #13, at depth 13, so it stages `DepthExceeded` on `#14.parent` ([F12 §7.9]).
+#[test]
+fn a_revert_of_a_delete_under_a_parent_moved_to_depth_12_stages_depth_exceeded() {
+    let mut s = S::base();
+    let mut stmts = vec![task("a1", "a1")];
+    for i in 2..=12u32 {
+        stmts.push(child(
+            &format!("a{i}"),
+            &format!("a{i}"),
+            Target::Var(format!("a{}", i - 1)),
+        ));
+    }
+    stmts.push(task("p", "p"));
+    stmts.push(child("c", "c", Target::Var("p".into())));
+    s.ok(tx(stmts), orch());
+    assert_eq!(state(&s, "main").nodes[&Nid(14)].parent, Some(Nid(13)));
+    let d = s.ok(delete(14), orch()).commit.expect("a commit");
+    s.ok(mv(13, Some(12)), orch());
+    let r = s.run(
+        Cmd::Revert {
+            commit: format!("s{d}"),
+            onto: Some("main".into()),
+            mainline: None,
+            message: String::new(),
+        },
+        orch(),
+    );
+    assert_eq!(r.outcome, Outcome::Staged, "{:?}", r.error);
+    assert_eq!(violations(data(&r)), vec![("#14.parent", "DepthExceeded")]);
     ids_verify(&s);
 }

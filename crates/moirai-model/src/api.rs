@@ -1053,6 +1053,9 @@ pub struct Store {
     pub heads: Heads,
     /// The commits a `Gc` dropped: they stop resolving ([API §8.5]).
     pub pruned: BTreeSet<u64>,
+    /// The store's set of dropped bodies, by body hash ([F06 §8.1] DB-1), which every merge reads
+    /// ([`crate::merge::Ctx::dropped`]): filled by no command before `BodyDrop`, so empty.
+    pub dropped: BTreeSet<[u8; 16]>,
     /// The refs some of whose moves a `Gc` run no longer holds, with the newest move dropped ([F12 §3.5]; [API §11.11]
     /// `OpRestore`'s second E301).
     pub(crate) moves_dropped: BTreeMap<u32, crate::dag::RefMove>,
@@ -1183,6 +1186,7 @@ impl Store {
             feed: Feed::default(),
             heads: Heads::default(),
             pruned: BTreeSet::new(),
+            dropped: BTreeSet::new(),
             moves_dropped: BTreeMap::new(),
             idem: idem::Table::default(),
             hlc: Hlc::default(),

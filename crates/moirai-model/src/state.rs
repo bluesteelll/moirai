@@ -142,7 +142,7 @@ pub enum KVal {
 /// The message of every unreachable arm a body known only by its hash meets.
 pub const BODY_DROP: &str = concat!(
     "a body known only by its hash has no text to read: no model command makes one before BodyDrop ",
-    "(spec sync 3 S3-M-9; deferred R-MODEL item)"
+    "(spec sync 3 S3-F-10, S3-M-10)"
 );
 
 /// A node's body ([F07 §6.3], §7.2; [F14 §11.1], §12.2 row 8).
@@ -151,7 +151,11 @@ pub const BODY_DROP: &str = concat!(
 /// recomputed ([F07 §6.3]). Only the fixture parser makes a `Hash`; no model command makes one before `BodyDrop`
 /// ([API §8.7]). A reader of a body's text reaches [`Body::text`] or the heap measure, whose arm for a hash-only body
 /// is unreachable and names [`BODY_DROP`]; a fixture that brings a hash-only body to such a reader (a merge case, for
-/// one) panics with that message by design, not by a model defect.
+/// one) panics with that message by design, not by a model defect. A merge runs no diff3 over a body in the store's
+/// dropped set ([RULES/merge-table] CS-011), so such a body never reaches the text rule's reader.
+///
+/// Its derived `==` is not the canonical equality ([F07 §7.3]): `Text(t)` and `Hash` of t's hash are canonically
+/// equal. Compare bodies canonically, by [`crate::canon::body_hash`].
 #[derive(Clone, PartialEq, Eq, Debug)]
 pub enum Body {
     /// The body text.

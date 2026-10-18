@@ -622,12 +622,20 @@ impl Markers {
         // ME-011: a commit landing on X that does not descend from the origin of an X-landed marker, in `MARKERS` or
         // `MARKERS_OLD` (ME-012).
         let mut anc = Anc::default();
-        let diverged: Vec<(MKey, u64)> = self
+        let mut diverged: Vec<(MKey, u64)> = self
             .rows()
             .filter(|m| m.key.1 == x.id && !m.nonlinear)
             .filter(|m| !dag.on_fp_chain(m.key.2, c) && !anc.contains(dag, Some(c), m.key.2))
             .map(|m| (m.key, m.ref_seq))
             .collect();
+        // [F05 §9.5] "Entry order" (W3D-SF-4): ME-011's entries ascend by identity, (`#N`, origin `ref_id`, origin
+        // commit's `id16` bytewise). `MKey`'s third part is a commit seq, whose order a tie on (`#N`, `ref_id`) need not
+        // share, so the entries are sorted by the `id16` before they are written.
+        diverged.sort_by_key(|(k, _)| {
+            let mut id16 = [0u8; 16];
+            id16.copy_from_slice(&dag.commits[&k.2].id[..16]);
+            (k.0, k.1, id16)
+        });
         for (key, ref_seq) in diverged {
             out.push(Self::keep_entry(5, key, ref_seq, Vec::new(), Cause::Ops));
         }
@@ -808,11 +816,13 @@ impl Markers {
         )
     }
 
-    /// Every marker row, ascending by identity (`#N`, origin ref, origin commit) whichever section holds it: the order
-    /// of `MARKERS`, whose sort key `MARKERS_OLD` shares ([F11 §7]). ME-012's move changes only a row's storage layer,
-    /// so the rules that scan the rows (ME-005, ME-011) write their entries in the order a store without a fold
-    /// writes them, and the fold reaches no record nor, through a record's entry order, the change feed
-    /// ([LQ/std §2.15] "Ties"; [API §2.5] DT-2). The model holds an identity in one section at most.
+    /// Every marker row, ascending by (`#N`, origin ref, origin commit seq) whichever section holds it, the model's
+    /// `MKey` order. ME-012's move changes only a row's storage layer, so the rules that scan the rows (ME-005, ME-011)
+    /// see the rows a store without a fold sees, and the fold reaches no record nor, through a record's entry order,
+    /// the change feed ([LQ/std §2.15] "Ties"; [API §2.5] DT-2). A writer orders its entries by [F05 §9.5]'s identity,
+    /// whose third part is the origin commit's `id16` ([F11 §7]'s sort key), not its seq: ME-011 sorts them so; ME-005's
+    /// entries cannot tie on (`#N`, ref), since a ref holds one hold per node. The model holds an identity in one
+    /// section at most.
     // spec: [F11 §7]
     // rule: ME-012
     pub fn rows(&self) -> impl Iterator<Item = &Marker> {

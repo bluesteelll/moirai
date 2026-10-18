@@ -244,6 +244,9 @@ pub struct Bases<'a> {
     memo: BTreeMap<Vec<u64>, StateAnc>,
     /// The `#N`s the virtual merges gave re-keyed uids.
     pub fresh: Fresh,
+    /// The store's dropped set ([`Ctx::dropped`]), which every virtual merge reads ([F12 §5.6]): empty unless the
+    /// caller sets it.
+    pub dropped: &'a BTreeSet<[u8; 16]>,
 }
 
 impl<'a> Bases<'a> {
@@ -261,6 +264,7 @@ impl<'a> Bases<'a> {
             nid,
             memo: BTreeMap::new(),
             fresh: Fresh::default(),
+            dropped: &merge::NO_DROPPED,
         }
     }
 
@@ -340,6 +344,7 @@ impl<'a> Bases<'a> {
                 origin: Some(&og),
                 // A virtual merge stages nothing (VB-019).
                 strict: false,
+                dropped: self.dropped,
             };
             let merged = merge::merge(&b, &v, &src, &cx, &mut self.fresh);
             v = Rc::new(merged.st);

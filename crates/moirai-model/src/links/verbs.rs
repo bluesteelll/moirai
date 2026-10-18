@@ -839,6 +839,18 @@ impl Store {
                 ("created".into(), created.to_string()),
             ]);
         }
+        // [F04 §5.7] (W3D-SF-6): the last anchor handle a write may allocate is `a4294967294` (2^32 − 2), so `need`
+        // new handles need `next_anchor` + need − 1 ≤ 2^32 − 2. Past it the write is refused before anything is
+        // written, a dry one too (its would-be result, [API §9.6]).
+        let need = fresh.len() as u64;
+        if need > 0 && self.next_anchor + need > u64::from(u32::MAX) {
+            return Err(Refusal::new(
+                "id_space_exhausted",
+                7,
+                "the anchor handle space of this store is full at 4294967294",
+            )
+            .line("nothing was written"));
+        }
         let land = crate::links::Landing {
             caller: &caller,
             ctx,
