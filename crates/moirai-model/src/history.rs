@@ -576,8 +576,37 @@ impl Store {
         }
     }
 
-    /// The uids new to the store that a merge result holds get `#N`s in ascending uid order ([API §9.6] item 2).
-    fn renumber(&mut self, st: &mut State, fresh: &Fresh) -> Vec<(Nid, Uid)> {
+    /// The uids new to the store that a merge result holds get the `#N`s of the landing map ([`Store::landing_map`]),
+    /// which allocates them from `next_id` in ascending uid order ([API §9.6] item 2): the new `(#N, uid)` pairs.
+    fn renumber(
+        &mut self,
+        st: &mut State,
+        fresh: &Fresh,
+        map: &BTreeMap<Nid, Nid>,
+    ) -> Vec<(Nid, Uid)> {
+        let mut out: Vec<(Nid, Uid)> = map.iter().map(|(tmp, n)| (*n, fresh.uid[tmp])).collect();
+        out.sort();
+        self.next_id += map.len() as u32;
+        if !map.is_empty() {
+            map_nids(st, &|n| map.get(&n).copied().unwrap_or(n));
+        }
+        out
+    }
+
+    /// The landing map of a plan ([API §9.6] item 2): the provisional `#N` of each uid new to the store that the
+    /// result holds → the `#N` it lands with, `next_id` + k − 1 for the k-th in ascending uid order. Every reply of
+    /// the plan renders its `#N`s through it, a preview's and a dry run's included: `next_id` does not move before the
+    /// landing, so they are the `#N`s the same command allocates. Past the last `#N` it is the landing's refusal
+    /// ([`Store::id_room`]), for a preview too (the would-be result, [API §9.6]).
+    fn landing_map(&self, st: &State, fresh: &Fresh) -> Res<BTreeMap<Nid, Nid>> {
+        self.id_room(st, fresh)?;
+        // Every provisional `#N` the plan allocated (a virtual merge's re-keys included) lies at or above `next_id`, so
+        // the map and `map_text` are unambiguous. Provisional `#N`s count down from 2^32 − 1 by every uid the plan
+        // allocated, which may exceed the uids that land; within that many ids of the end this fails (critique m-3).
+        assert!(
+            fresh.uid.keys().all(|n| n.0 >= self.next_id),
+            "internal error: a provisional #N of this merge lies below next_id; the provisional numbering needs the store's next_id"
+        );
         let mut new: Vec<(Uid, Nid)> = fresh
             .uid
             .iter()
@@ -585,18 +614,11 @@ impl Store {
             .map(|(n, u)| (*u, *n))
             .collect();
         new.sort();
-        let mut map: BTreeMap<Nid, Nid> = BTreeMap::new();
-        let mut out = Vec::new();
-        for (u, tmp) in new {
-            let n = Nid(self.next_id);
-            self.next_id += 1;
-            map.insert(tmp, n);
-            out.push((n, u));
-        }
-        if !map.is_empty() {
-            map_nids(st, &|n| map.get(&n).copied().unwrap_or(n));
-        }
-        out
+        Ok(new
+            .into_iter()
+            .enumerate()
+            .map(|(i, (_, tmp))| (tmp, Nid(self.next_id + i as u32)))
+            .collect())
     }
 
     /// The landing's `#N` check ([F04 §5.7]; W3D-SF-6): the last `#N` a write may allocate is 2^32 − 2, so a result that
@@ -619,7 +641,8 @@ impl Store {
     /// PR-012; [F12 §8.1], §9.2): the commit's net changeset against dst's tip, its `affected`, its markers (none on a
     /// staging ref, RE-004) and dst's absorbed vector. `restage` names the open staging ref of a `merge --continue`,
     /// which a staged result is appended to instead of a new one ([F12 §9.4] step 4). A result that needs a `#N` past
-    /// the last is refused first, and nothing is written ([`Store::id_room`]).
+    /// the last is refused first, and nothing is written ([`Store::id_room`]). The stored `Violation` ops name the
+    /// landed `#N`s in their keys, descriptions and `suggested` statements ([`Store::landing_map`]).
     // rule: PR-011, PR-012, RE-001, RE-002, RE-003, RE-004, RE-005, RE-006, RE-007, RE-008, RE-009, RE-010, RE-011
     // rule: RE-012, RE-013, RE-014, RE-015, LF-007, FL-010, CP-012
     fn land(
@@ -631,17 +654,13 @@ impl Store {
         idem: Option<([u8; 16], [u8; 16])>,
         restage: Option<&str>,
     ) -> Res<Landed> {
-        self.id_room(&plan.m.st, &plan.fresh)?;
+        let renum = self.landing_map(&plan.m.st, &plan.fresh)?;
         let decision =
             merge::land_or_stage(plan.m.violations.len(), plan.m.conflicts.len(), strict);
         let dst_tip = self.dag.live(&plan.dst).and_then(|r| r.tip);
         let mut st = std::mem::take(&mut plan.m.st);
         let fresh = std::mem::take(&mut plan.fresh);
-        let new = self.renumber(&mut st, &fresh);
-        let renum: BTreeMap<Nid, Nid> = new
-            .iter()
-            .filter_map(|(n, u)| fresh.by_uid.get(u).map(|t| (*t, *n)))
-            .collect();
+        let new = self.renumber(&mut st, &fresh, &renum);
         let on = match (decision, restage) {
             ("stage", Some(g)) => g.to_string(),
             ("stage", None) => {
@@ -692,13 +711,16 @@ impl Store {
         if decision == "stage" {
             // [F12 §9.2] item 3: the command's arguments in the `stage` group ([F06 §4.4.16]).
             c.stage = plan.stage.clone();
-            // [F12 §9.2] item 3: one `Violation` op per structural violation, its key on the landed `#N`s.
+            // [F12 §9.2] item 3: one `Violation` op per structural violation, its key, description and `suggested` on the
+            // landed `#N`s ([F06 §7.7]; R-85 ruling 5).
             c.violations = plan
                 .m
                 .violations
                 .iter()
                 .map(|v| Violation {
                     key: v.key.as_ref().map(|k| map_key(k, &f)),
+                    description: map_text(&v.description, &renum),
+                    suggested: map_text(&v.suggested, &renum),
                     ..v.clone()
                 })
                 .collect();
@@ -804,27 +826,51 @@ impl Store {
         Some((id, old))
     }
 
-    fn violations_out(&self, v: &[Violation]) -> Vec<ViolationOut> {
+    /// A plan's violations as its reply lists them, every `#N` through the landing map `lm` ([API §9.6] item 2).
+    fn violations_out(&self, v: &[Violation], lm: &BTreeMap<Nid, Nid>) -> Vec<ViolationOut> {
         let uid = |n: Nid| self.alloc.uid(n);
+        let f = |n: Nid| lm.get(&n).copied().unwrap_or(n);
         v.iter()
             .map(|x| ViolationOut {
-                key: x
-                    .key
-                    .as_ref()
-                    .map_or_else(|| "-".to_string(), |k| merge::key_text(k, &uid)),
+                key: x.key.as_ref().map_or_else(
+                    || "-".to_string(),
+                    |k| merge::key_text(&map_key(k, &f), &uid),
+                ),
                 class: x.class.to_string(),
                 code: x.code,
-                description: x.description.clone(),
-                suggested: x.suggested.clone(),
+                description: map_text(&x.description, lm),
+                suggested: map_text(&x.suggested, lm),
             })
             .collect()
     }
 
-    fn conflicts_out(&self, c: &[(Key, String)]) -> Vec<(String, String)> {
+    /// A plan's conflict keys as its reply lists them, every `#N` through the landing map `lm` ([API §9.6] item 2).
+    fn conflicts_out(&self, c: &[(Key, String)], lm: &BTreeMap<Nid, Nid>) -> Vec<(String, String)> {
         let uid = |n: Nid| self.alloc.uid(n);
+        let f = |n: Nid| lm.get(&n).copied().unwrap_or(n);
         c.iter()
-            .map(|(k, cl)| (merge::key_text(k, &uid), cl.clone()))
+            .map(|(k, cl)| (merge::key_text(&map_key(k, &f), &uid), cl.clone()))
             .collect()
+    }
+
+    /// Renders a plan's conflicts, violations and hints into `data` through its landing map, then lands it: the
+    /// landing's refusal comes from either ([`Store::landing_map`], [`Store::land`]).
+    #[allow(clippy::too_many_arguments)]
+    fn render_land(
+        &mut self,
+        data: &mut MergeData,
+        caller: &Caller,
+        plan: Plan,
+        strict: bool,
+        message: &str,
+        idem: Option<([u8; 16], [u8; 16])>,
+        restage: Option<&str>,
+    ) -> Res<Landed> {
+        let lm = self.landing_map(&plan.m.st, &plan.fresh)?;
+        data.conflicts = self.conflicts_out(&plan.m.conflicts, &lm);
+        data.violations = self.violations_out(&plan.m.violations, &lm);
+        data.hints = hints_out(&plan.m.hints, &lm);
+        self.land(caller, plan, strict, message, idem, restage)
     }
 
     /// A ref's absorbed vector by ref name.
@@ -1075,9 +1121,10 @@ impl Store {
             let mut plan =
                 self.plan_merge(Op::Sync, src, "main", d.tip, None, policy, None, strict);
             plan.stage = Stage::of(None, policy, strict);
-            let conflicts = self.conflicts_out(&plan.m.conflicts);
-            let violations = self.violations_out(&plan.m.violations);
-            let hints = hints_out(&plan.m.hints);
+            let lm = self.landing_map(&plan.m.st, &plan.fresh)?;
+            let conflicts = self.conflicts_out(&plan.m.conflicts, &lm);
+            let violations = self.violations_out(&plan.m.violations, &lm);
+            let hints = hints_out(&plan.m.hints, &lm);
             let decision =
                 merge::land_or_stage(plan.m.violations.len(), plan.m.conflicts.len(), strict);
             // R-87 item 1, option (A): a clean step-0 sync and the merge over a `--base` are one group ([F12 §9.6]), so
@@ -1139,10 +1186,10 @@ impl Store {
         plan.stage = Stage::of(forced, policy, strict);
         data.lca = plan.lcas.clone();
         data.virtual_base = plan.virtual_base;
-        data.conflicts = self.conflicts_out(&plan.m.conflicts);
-        data.violations = self.violations_out(&plan.m.violations);
-        data.hints = hints_out(&plan.m.hints);
-        let landed = match self.land(
+        // R-87 item 1: the restore below covers the merge's rendering through its landing map as well as its landing
+        // (critique m-1).
+        let landed = match self.render_land(
+            &mut data,
             &caller,
             plan,
             strict,
@@ -1292,9 +1339,10 @@ impl Store {
         plan.stage = Stage::of(None, None, strict);
         data.lca = plan.lcas.clone();
         data.virtual_base = plan.virtual_base;
-        data.conflicts = self.conflicts_out(&plan.m.conflicts);
-        data.violations = self.violations_out(&plan.m.violations);
-        data.hints = hints_out(&plan.m.hints);
+        let lm = self.landing_map(&plan.m.st, &plan.fresh)?;
+        data.conflicts = self.conflicts_out(&plan.m.conflicts, &lm);
+        data.violations = self.violations_out(&plan.m.violations, &lm);
+        data.hints = hints_out(&plan.m.hints, &lm);
         if check || ctx.dry {
             // `--check` and DRY: the preview ([AR §5a.7] step 0, D5); nothing is appended.
             data.outcome =
@@ -1305,10 +1353,13 @@ impl Store {
                 } else {
                     "landed"
                 };
+            // `affected` names a new uid by the `#N` the landing allocates, too (critique I-3).
             data.affected =
                 crate::state::touched(&diff(&self.dag.state_at(d.tip, &self.alloc), &plan.m.st))
                     .into_iter()
+                    .map(|n| lm.get(&n).copied().unwrap_or(n))
                     .collect();
+            data.affected.sort();
             reply.outcome = if ctx.dry { Outcome::Dry } else { Outcome::Ok };
             reply.data = Data::Merge(Box::new(data));
             return Ok(reply);
@@ -1532,6 +1583,7 @@ impl Store {
         plan.src = src_name.clone();
         // A re-staged commit copies s's group ([F06 §4.4.16]).
         plan.stage = sc.stage.clone();
+        let lm = self.landing_map(&plan.m.st, &plan.fresh)?;
         let data = MergeData {
             src: src_name.clone(),
             into: dst.clone(),
@@ -1539,15 +1591,15 @@ impl Store {
             sync: None,
             lca: plan.lcas.clone(),
             virtual_base: plan.virtual_base,
-            conflicts: self.conflicts_out(&plan.m.conflicts),
-            violations: self.violations_out(&plan.m.violations),
+            conflicts: self.conflicts_out(&plan.m.conflicts, &lm),
+            violations: self.violations_out(&plan.m.violations, &lm),
             staging_ref: None,
             absorbed: BTreeMap::new(),
             markers: Vec::new(),
             affected: Vec::new(),
             origin: plan.origin,
             notices,
-            hints: hints_out(&plan.m.hints),
+            hints: hints_out(&plan.m.hints, &lm),
         };
         let mut reply = Reply::ok(Data::None);
         reply.branch = Some(dst.clone());
@@ -1692,6 +1744,7 @@ impl Store {
         // lands a conflict value ([API §11.10]; [F06 §4.4.16]; [CFG §10] `merge.strict`).
         let strict = false;
         let plan = self.plan_pick(&onto, c, revert, None);
+        let lm = self.landing_map(&plan.m.st, &plan.fresh)?;
         let data = MergeData {
             src: plan.src.clone(),
             into: onto.clone(),
@@ -1699,15 +1752,15 @@ impl Store {
             sync: None,
             lca: Vec::new(),
             virtual_base: false,
-            conflicts: self.conflicts_out(&plan.m.conflicts),
-            violations: self.violations_out(&plan.m.violations),
+            conflicts: self.conflicts_out(&plan.m.conflicts, &lm),
+            violations: self.violations_out(&plan.m.violations, &lm),
             staging_ref: None,
             absorbed: BTreeMap::new(),
             markers: Vec::new(),
             affected: Vec::new(),
             origin: Some(c),
             notices: Vec::new(),
-            hints: hints_out(&plan.m.hints),
+            hints: hints_out(&plan.m.hints, &lm),
         };
         let mut reply = Reply::ok(Data::None);
         reply.branch = Some(onto.clone());
@@ -2249,11 +2302,38 @@ impl Store {
     }
 }
 
-/// The hints of a merge as a merge-family result lists them, `(class, text)`: the typed step's, then V13's.
-fn hints_out(h: &[merge::Hint]) -> Vec<(String, String)> {
+/// The hints of a merge as a merge-family result lists them, `(class, text)`: the typed step's, then V13's, every
+/// `#N` through the landing map `lm` ([API §9.6] item 2).
+fn hints_out(h: &[merge::Hint], lm: &BTreeMap<Nid, Nid>) -> Vec<(String, String)> {
     h.iter()
-        .map(|h| (h.class.to_string(), h.text.clone()))
+        .map(|h| (h.class.to_string(), map_text(&h.text, lm)))
         .collect()
+}
+
+/// `text` with every `#<digits>` token whose `#N` the landing map `lm` holds rewritten to the `#N` it lands with: a
+/// stored `Violation` op's `description` and `suggested`, a reply's texts ([API §9.6] item 2). Unambiguous: every real
+/// `#N` lies below `next_id`, and every provisional one at or above it ([`Store::landing_map`]).
+fn map_text(text: &str, lm: &BTreeMap<Nid, Nid>) -> String {
+    if lm.is_empty() {
+        return text.to_string();
+    }
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    while let Some(i) = rest.find('#') {
+        out.push_str(&rest[..=i]);
+        rest = &rest[i + 1..];
+        let end = rest
+            .find(|c: char| !c.is_ascii_digit())
+            .unwrap_or(rest.len());
+        let digits = &rest[..end];
+        match digits.parse::<u32>().ok().and_then(|v| lm.get(&Nid(v))) {
+            Some(n) => out.push_str(&n.0.to_string()),
+            None => out.push_str(digits),
+        }
+        rest = &rest[end..];
+    }
+    out.push_str(rest);
+    out
 }
 
 /// `conflicted_src` of [F19 §10.2] (PR-003), with [F19 §10.3]'s keys: `keys` (at most 10) and `sync`, the step-0
