@@ -412,7 +412,7 @@ absorbed vectors), [F03]'s (`LOCK` slots, `Anchor`), [F05]'s (`Marker`, `Lease`,
 commit's `absorbed` vector, `ref_seq`).
 
 Model functions are named as `COVERAGE.md` names them (`xtask coverage` resolves them so): the module of the source
-file in `crates/moirai-model/src/`, then the function (spec sync 2b).
+file in the model crate's `src/`, then the function (spec sync 2b).
 
 | Checklist row | Covered by | Fixture | Model function |
 |---|---|---|---|

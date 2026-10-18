@@ -9,7 +9,7 @@
 
 ## 1. What a rule table is
 
-A rule table is the single source of truth for one family of rules of the reference model (`moirai-model`, [60 §4]).
+A rule table is the single source of truth for one family of rules of the reference model ([m0/PLAN §2.2], [60 §4]).
 The model does not restate these rules in code comments or constants. It includes each rule file with `include_str!`,
 parses the machine-readable tables in it, and either evaluates the rows as data or checks that its code implements
 exactly the rows listed. The owner reads and signs the same bytes the model parses (§6), so a signed table and the
@@ -292,9 +292,9 @@ A column written `basis:enum` or `disposition:enum` without a set uses the share
 
 ## 8. How the model loads and uses the tables
 
-- **Inclusion.** `crates/moirai-model/src/rules.rs` includes every rule file except `SIGNED.md` (§6) with a path
+- **Inclusion.** The model's `src/rules.rs` includes every rule file except `SIGNED.md` (§6) with a path
   relative to that source file, for example `include_str!("../../../docs/spec/rules/merge-table.md")`. The files in
-  `docs/spec/rules/` are the only copy: nothing is duplicated under `crates/moirai-model/` (see Open point 1).
+  `docs/spec/rules/` are the only copy: nothing is duplicated under the model crate (see Open point 1).
   `include_str!` makes rustc record each file as a build dependency, so an edit rebuilds the model.
 - **Parsing.** All files are parsed once per test process into typed Rust tables behind a `OnceLock`, before any
   model function runs. Any violation of §2–§7 panics with the file, the line, the table id and the column; a rule
@@ -326,8 +326,8 @@ None. The contract contains no value that an M0 measurement decides.
 
 ## Open points for the review
 
-1. **One copy of the tables.** [m0/PLAN §3.2] item 9 says "Rule tables are data under `crates/moirai-model/rules/`,
-   published as `docs/spec/rules/*.md`". This contract keeps a single copy in `docs/spec/rules/`, included by relative
+1. **One copy of the tables.** [m0/PLAN §3.2] item 9 places the tables in a `rules/` directory of the model crate,
+   "published as `docs/spec/rules/*.md`". This contract keeps a single copy in `docs/spec/rules/`, included by relative
    path, because two copies could diverge and the signed bytes must be the parsed bytes. Proposed: PLAN.md's wording is
    corrected to "the model includes `docs/spec/rules/*.md`".
 2. **Unsigned tables before the freeze.** Unsigned files fail only in tier `exit` (§6), so pass-1 work is not blocked
