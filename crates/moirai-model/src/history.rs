@@ -148,6 +148,17 @@ struct Landed {
 /// resolution applies, with its value at tip(G).
 type Overlay = BTreeMap<Key, KState>;
 
+/// The refusal of a write that needs a `#N` past the last allocatable one, 2^32 − 2 ([F04 §5.7]; [F19]
+/// `id_space_exhausted`; W3D-SF-6).
+fn id_space_exhausted() -> Refusal {
+    Refusal::new(
+        "id_space_exhausted",
+        7,
+        "the node id space of this store is full at 4294967294",
+    )
+    .line("nothing was written")
+}
+
 /// The staging ref of a pair ([F12 §9.1]).
 pub fn staging_name(dst: &str, src: &str) -> String {
     format!("merge/{dst}/from/{src}")
@@ -588,10 +599,27 @@ impl Store {
         out
     }
 
+    /// The landing's `#N` check ([F04 §5.7]; W3D-SF-6): the last `#N` a write may allocate is 2^32 − 2, so a result that
+    /// holds k uids new to the store needs `next_id` + k − 1 ≤ 2^32 − 2, computed without overflow; past it the landing
+    /// is refused before anything is written, a staging ref included.
+    fn id_room(&self, st: &State, fresh: &Fresh) -> Res<()> {
+        let k = fresh
+            .uid
+            .keys()
+            .filter(|n| st.nodes.contains_key(n))
+            .count() as u64;
+        // next_id + k − 1 ≥ 2^32 − 1, that is next_id + k > 2^32 − 1.
+        if k > 0 && u64::from(self.next_id) + k > u64::from(u32::MAX) {
+            return Err(id_space_exhausted());
+        }
+        Ok(())
+    }
+
     /// Lands a plan on dst, or stages it on its staging ref, by [`merge::land_or_stage`] ([RULES/merge-table] PR-011,
     /// PR-012; [F12 §8.1], §9.2): the commit's net changeset against dst's tip, its `affected`, its markers (none on a
     /// staging ref, RE-004) and dst's absorbed vector. `restage` names the open staging ref of a `merge --continue`,
-    /// which a staged result is appended to instead of a new one ([F12 §9.4] step 4).
+    /// which a staged result is appended to instead of a new one ([F12 §9.4] step 4). A result that needs a `#N` past
+    /// the last is refused first, and nothing is written ([`Store::id_room`]).
     // rule: PR-011, PR-012, RE-001, RE-002, RE-003, RE-004, RE-005, RE-006, RE-007, RE-008, RE-009, RE-010, RE-011
     // rule: RE-012, RE-013, RE-014, RE-015, LF-007, FL-010, CP-012
     fn land(
@@ -602,7 +630,8 @@ impl Store {
         message: &str,
         idem: Option<([u8; 16], [u8; 16])>,
         restage: Option<&str>,
-    ) -> Landed {
+    ) -> Res<Landed> {
+        self.id_room(&plan.m.st, &plan.fresh)?;
         let decision =
             merge::land_or_stage(plan.m.violations.len(), plan.m.conflicts.len(), strict);
         let dst_tip = self.dag.live(&plan.dst).and_then(|r| r.tip);
@@ -687,7 +716,7 @@ impl Store {
                 .commit_lands(&self.dag, seq, old, &[], &mut self.hlc, self.env.wall_ms);
         let markers = self.listed(&entries);
         self.feed_markers(&entries, Some(seq));
-        Landed {
+        Ok(Landed {
             outcome: if decision == "stage" {
                 "staged"
             } else {
@@ -697,7 +726,7 @@ impl Store {
             staging: (decision == "stage").then_some(on),
             markers,
             affected: affected.into_iter().collect(),
-        }
+        })
     }
 
     /// Creates a staging ref at dst's tip ([F12 §9.2] items 1 and 2): a fork of dst, kind `merge`, `RefUpdate` create.
@@ -1036,6 +1065,7 @@ impl Store {
         // override and effective `strict` over §4.3's base, never with its `--base`; a staged step-0 sync records the
         // override and `strict` but no base ([F06 §4.4.16]).
         let mut src_tip = s.tip;
+        let mut before: Option<Box<Store>> = None;
         let src_branch = matches!(s.kind, RefKind::Work | RefKind::Plan);
         if into == "main"
             && src_branch
@@ -1050,7 +1080,13 @@ impl Store {
             let hints = hints_out(&plan.m.hints);
             let decision =
                 merge::land_or_stage(plan.m.violations.len(), plan.m.conflicts.len(), strict);
-            let landed = self.land(&caller, plan, strict, "", None, None);
+            // R-87 item 1, option (A): a clean step-0 sync and the merge over a `--base` are one group ([F12 §9.6]), so
+            // a refusal of the merge's landing writes neither ([F04 §5.7]); the store from before the sync is kept to
+            // restore it.
+            if forced.is_some() && decision == "land" {
+                before = Some(Box::new(self.clone()));
+            }
+            let landed = self.land(&caller, plan, strict, "", None, None)?;
             let sync = SyncOut {
                 commit: Some(landed.commit),
                 outcome: landed.outcome,
@@ -1106,14 +1142,30 @@ impl Store {
         data.conflicts = self.conflicts_out(&plan.m.conflicts);
         data.violations = self.violations_out(&plan.m.violations);
         data.hints = hints_out(&plan.m.hints);
-        let landed = self.land(
+        let landed = match self.land(
             &caller,
             plan,
             strict,
             &msg,
             key.map(|(k, _)| (k, payload)),
             None,
-        );
+        ) {
+            Ok(l) => l,
+            Err(e) => {
+                if data.sync.is_some() {
+                    // R-87 item 1, option (A): the landed step-0 sync is undone with the merge. Without `--base` the
+                    // merge's base after the sync is `main`'s tip (b = o), where LC-003 re-keys nothing, so no new
+                    // `#N` and no refusal can follow a landed sync.
+                    let b = before.expect(
+                        "internal error: a merge refused after its step-0 sync landed without --base",
+                    );
+                    let n = self.n;
+                    *self = *b;
+                    self.n = n;
+                }
+                return Err(e);
+            }
+        };
         self.finish_merge(
             reply,
             data,
@@ -1268,7 +1320,7 @@ impl Store {
             "",
             key.map(|(k, _)| (k, payload)),
             None,
-        );
+        )?;
         self.finish_merge(
             reply,
             data,
@@ -1517,7 +1569,7 @@ impl Store {
             &msg,
             key.map(|(k, _)| (k, payload)),
             Some(&g.name),
-        );
+        )?;
         if landed.outcome == "landed" {
             self.delete_staging(&g.name, &caller.actor);
         }
@@ -1684,7 +1736,7 @@ impl Store {
             &msg,
             key.map(|(k, _)| (k, payload)),
             None,
-        );
+        )?;
         let op_text = format!(
             "{} of c{c8} onto {onto}",
             if revert { "revert" } else { "cherry-pick" }
