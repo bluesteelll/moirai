@@ -1,14 +1,13 @@
-//! The section body of [F11 §2.1] (`11-runtime-tables.md:88-108`) and the rows a delta checkpoint's store-level and
-//! runtime sections hold: `RtHdr`, the rows, the index region and the heap; the row sizes and forms of [F11 §1.3]
-//! (`:49-76`) and of `SCHEMAIDS` and `FILES` ([F09 §14.3]–§14.4, `09-segments.md:968-1009`); the rows of `REFS` with its
-//! name index ([F11 §3], `:300-446`), `IDEM` as a hash table ([F11 §8], `:633-667`), `ALLOC` and `UIDX` ([F11 §9],
-//! `:669-714`), `TREES` and `FILEOBS` ([F11 §12.4]–§12.5, `:826-960`) and `FILES`; the bodies of the tables with no row;
+//! The section body of [F11 §2.1] and the rows a delta checkpoint's store-level and runtime sections hold: `RtHdr`,
+//! the rows, the index region and the heap; the row sizes and forms of [F11 §1.3] and of `SCHEMAIDS` and `FILES`
+//! ([F09 §14.3]–§14.4); the rows of `REFS` with its name index ([F11 §3]), `IDEM` as a hash table ([F11 §8]), `ALLOC`
+//! and `UIDX` ([F11 §9]), `TREES` and `FILEOBS` ([F11 §12.4]–§12.5) and `FILES`; the bodies of the tables with no row;
 //! and a reader for the tests.
 //!
 //! - **The body** (§2.1): `RtHdr` (24 B: `n_rows`, `row_size`, `form` 1 snapshot or 2 layer, `_reserved`, `aux`,
 //!   `index_len`, `heap_len`), then `n_rows` rows of `row_size` bytes, the index region, the heap, with no gap; the
 //!   section's `len` is `24 + n_rows × row_size + index_len + heap_len`. A section with no row is still written.
-//! - **The heap** (§2.3, `:117-140`): every slice in row order and, within a row, in the order of its `HeapRef` fields,
+//! - **The heap** ([F11 §2.3]): every slice in row order and, within a row, in the order of its `HeapRef` fields,
 //!   with no gap; each `HeapRef` is (`off`, `len`) with `off` the running offset, also when `len` is 0.
 //! - **`IDEM`** (§8): an open-addressing table of capacity C, the smallest power of two ≥ max(16, 2n); an entry's home
 //!   slot is `u64le(key[0..8]) & (C − 1)`; entries are inserted in ascending key order by linear probing; an empty slot
@@ -20,10 +19,10 @@ use crate::overlay::{AllocRow, UidxRow};
 use crate::seg::tag;
 use crate::tail::rt::{EPOCH_LEN, Epoch, FILEOBS_ROW_LEN, HEAP_REF_LEN};
 
-/// `RtHdr`'s length (`11-runtime-tables.md:93-102`).
+/// `RtHdr`'s length ([F11 §2.1]).
 pub const RT_HDR_LEN: usize = 24;
 
-/// `RtHdr.form` (`11-runtime-tables.md:97`, §2.4).
+/// `RtHdr.form` ([F11 §2.1], §2.4).
 pub mod form {
     /// `snapshot`: the complete table as of the segment's `upto_lsn`.
     pub const SNAPSHOT: u8 = 1;
@@ -31,8 +30,8 @@ pub mod form {
     pub const LAYER: u8 = 2;
 }
 
-/// The row size of `tag`'s section ([F11 §1.3], `11-runtime-tables.md:49-76`; `SCHEMAIDS` and `FILES`,
-/// `09-segments.md:975-985`, `:998-1009`); `None` for a tag whose body is not [F11 §2.1]'s.
+/// The row size of `tag`'s section ([F11 §1.3]; `SCHEMAIDS` and `FILES`,
+/// [F09 §14.3], [F09 §14.4]); `None` for a tag whose body is not [F11 §2.1]'s.
 pub fn row_size(t: u16) -> Option<u16> {
     Some(match t {
         tag::REFS => 164,
@@ -120,7 +119,7 @@ fn b16(b: &[u8], at: usize) -> [u8; 16] {
     b[at..at + 16].try_into().expect("16 bytes")
 }
 
-/// `RtHdr` (`11-runtime-tables.md:93-102`).
+/// `RtHdr` ([F11 §2.1]).
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct RtHdr {
     /// `n_rows` (offset 0): the rows, or `IDEM`'s slots.
@@ -279,7 +278,7 @@ impl Heap {
     }
 }
 
-/// One `REFS` row ([F11 §3.1], `11-runtime-tables.md:306-333`), its heap slices decoded.
+/// One `REFS` row ([F11 §3.1]), its heap slices decoded.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct RefRow {
     /// `ref_id` (offset 0).
@@ -332,7 +331,7 @@ pub struct RefRow {
     pub message: String,
 }
 
-/// `REFS`' move cache length (`11-runtime-tables.md:371`).
+/// `REFS`' move cache length ([F11 §3.5]).
 pub const MOVES_MAX: usize = 32;
 /// `REFS`' row size.
 pub const REFS_ROW: usize = 164;
@@ -466,7 +465,7 @@ pub fn decode_refs(b: &[u8]) -> Result<(Vec<RefRow>, u32), String> {
     Ok((rows, body.hdr.aux))
 }
 
-/// One `IDEM` entry ([F11 §8], `11-runtime-tables.md:638-650`) of a `Commit`'s `idem_key`/`idem_payload`: no inline
+/// One `IDEM` entry ([F11 §8]) of a `Commit`'s `idem_key`/`idem_payload`: no inline
 /// result, so `result` is (0, 0).
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct IdemEntry {
@@ -653,7 +652,7 @@ pub fn decode_uidx(b: &[u8]) -> Result<Vec<UidxRow>, String> {
         .collect())
 }
 
-/// Appends a settle epoch's 32 bytes ([F11 §12.4], `11-runtime-tables.md:855-864`).
+/// Appends a settle epoch's 32 bytes ([F11 §12.4]).
 pub fn put_epoch(out: &mut Vec<u8>, e: &Epoch) {
     out.push(e.scope_kind);
     out.extend_from_slice(&[0; 3]);
@@ -662,7 +661,7 @@ pub fn put_epoch(out: &mut Vec<u8>, e: &Epoch) {
     out.extend_from_slice(&e.hlc.to_le_bytes());
 }
 
-/// One `TREES` row ([F11 §12.4], `11-runtime-tables.md:830-845`), its heap slices decoded.
+/// One `TREES` row ([F11 §12.4]), its heap slices decoded.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct TreeRow {
     /// `key` (offset 0).
@@ -831,7 +830,7 @@ pub fn decode_fileobs(b: &[u8]) -> Result<Vec<Vec<u8>>, String> {
     Ok(out)
 }
 
-/// One `FILES` row ([F09 §14.4], `09-segments.md:998-1009`).
+/// One `FILES` row ([F09 §14.4]).
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct FileRow {
     /// `file.family` (offset 0).
@@ -944,11 +943,11 @@ mod tests {
         (0x0040, 0, 0),
     ];
 
-    /// The section body ([F11 §2.1], `11-runtime-tables.md:88-108`): `RtHdr` is 24 bytes with `n_rows` at 0, `row_size`
+    /// The section body ([F11 §2.1]): `RtHdr` is 24 bytes with `n_rows` at 0, `row_size`
     /// at 4, `form` at 6, `_reserved` at 7, `aux` at 8, `index_len` at 12, `heap_len` at 16; the body's length is the
     /// identity; an empty `IDEM` holds 16 zero slots with `aux` 0; every other table with no row is a bare `RtHdr`; a
     /// wrong `row_size`, a cut body and a form other than 1 or 2 are refused; and each tag's row size and delta form are
-    /// the chapters' (`:49-76`; `09-segments.md:975-985`, `:998-1009`).
+    /// the chapters' ([F11 §1.3]; [F09 §14.3], [F09 §14.4]).
     #[test]
     fn rt_bodies_follow_f11_2_1() {
         let h = RtHdr {
@@ -1052,7 +1051,7 @@ mod tests {
         ]
     }
 
-    /// `REFS` ([F11 §3.1], `11-runtime-tables.md:306-333`): 164-byte rows sorted by `ref_id`, each field at its offset;
+    /// `REFS` ([F11 §3.1]): 164-byte rows sorted by `ref_id`, each field at its offset;
     /// the heap holds each row's `name`, `absorbed`, `moves` and `message` in row order, each `HeapRef` at the running
     /// offset; the index region is the row positions ordered by (`name`, `ref_id`) (§3.3); `aux` is `next_ref_id`. It
     /// reads back, and rows out of `ref_id` order are refused.
@@ -1137,7 +1136,7 @@ mod tests {
         }
     }
 
-    /// `IDEM` ([F11 §8], `11-runtime-tables.md:633-667`): capacity C = the smallest power of two ≥ max(16, 2n); the home
+    /// `IDEM` ([F11 §8]): capacity C = the smallest power of two ≥ max(16, 2n); the home
     /// slot is `u64le(key[0..8]) & (C − 1)`; insertion in ascending key order by linear probing. Keys with homes 15,
     /// 15, 0 and 5 land in slots 15, 0 (a collision that wraps), 1 (its home taken) and 5; every other slot is zero;
     /// `aux` = 4; each field sits at its offset; a lookup finds each key and misses an absent one, even through the
@@ -1188,7 +1187,7 @@ mod tests {
         assert!(put_idem(&mut Vec::new(), &[entry(0x0F, 1), entry(0x0F, 1)]).is_err());
     }
 
-    /// `ALLOC` and `UIDX` ([F11 §9], `11-runtime-tables.md:669-714`): `ALLOC` is a dense layer from `aux` = the first
+    /// `ALLOC` and `UIDX` ([F11 §9]): `ALLOC` is a dense layer from `aux` = the first
     /// `#N`, rows (`uid`, `ref_id`, `create_seq`) of 24 bytes; with no row `aux` is 0; a hole is refused. `UIDX` rows are
     /// (`uid`, `n`), 20 bytes, strictly ascending by `uid`.
     #[test]
@@ -1253,8 +1252,8 @@ mod tests {
         assert!(put_uidx(&mut Vec::new(), form::LAYER, &[u[1], u[0]]).is_err());
     }
 
-    /// `TREES`, `FILEOBS` and `FILES` ([F11 §12.4]–§12.5, `11-runtime-tables.md:826-914`; [F09 §14.4],
-    /// `09-segments.md:998-1009`): a `TREES` row of 201 bytes with each field at its offset and its `root_text`, `sens`
+    /// `TREES`, `FILEOBS` and `FILES` ([F11 §12.4]–§12.5; [F09 §14.4]): a `TREES` row of 201 bytes with each field at
+    /// its offset and its `root_text`, `sens`
     /// and `epochs` (32 B each) in the heap in that order; `FILEOBS` rows copied from their images, sorted by (`n`,
     /// `tree`), each `var` at its running heap offset; `FILES` rows of 56 bytes sorted by (`family`, `ref_id`,
     /// `file_no`). All read back; unsorted rows are refused.

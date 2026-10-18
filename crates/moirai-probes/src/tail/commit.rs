@@ -1,21 +1,20 @@
 //! The `Commit` payload of [F06] (`docs/spec/format/06-commit.md`) for the subset a tail of local agent commits holds:
-//! a local `ordinary` commit on one ref with at most one parent ([F06 §3.3], `:100-108`), the presence groups `ref_old`,
-//! `prev_on_ref`, `git`, `idem`, `stmt_hash`, `msg` and `affected` ([F06 §4.2], `:186-208`), `append_delta` 0
-//! ([F06 §4.4.5], `:321`), the ops `Create`, `Delete`, `SetField`, `SetStatus`, `SetBody`, `AddEdge`, `RemoveEdge` and
-//! `Move` ([F06 §7.2], `:683-700`) on plain edges, typed values `absent`, `int` and `text` ([F06 §5.1], `:540-547`;
-//! [F08 §5.1], `08-data-model.md:210-218`), and bodies with codec `none` ([F06 §8], `:1040-1053`; [F10 §3.1],
-//! `10-sealed-files.md:88`).
+//! a local `ordinary` commit on one ref with at most one parent ([F06 §3.3]), the presence groups `ref_old`,
+//! `prev_on_ref`, `git`, `idem`, `stmt_hash`, `msg` and `affected` ([F06 §4.2]), `append_delta` 0
+//! ([F06 §4.4.5]), the ops `Create`, `Delete`, `SetField`, `SetStatus`, `SetBody`, `AddEdge`, `RemoveEdge` and
+//! `Move` ([F06 §7.2]) on plain edges, typed values `absent`, `int` and `text` ([F06 §5.1];
+//! [F08 §5.1]), and bodies with codec `none` ([F06 §8]; [F10 §3.1]).
 //!
-//! The decoder applies the V-rules ([F06 §2.4], `:61-69`; [F06 §10], `:1199-1205`) that the subset's bytes decide:
+//! The decoder applies the V-rules ([F06 §2.4]; [F06 §10]) that the subset's bytes decide:
 //! reserved bits, the bounds of `seq` and `role`, `append_delta` = 0, the `git` group's `algo` and `gflags`, the message
 //! length, `affected`'s gaps, `bool8`s, each op's frame and the op's own rules, image order, NF-1, NF-4 and NF-5
-//! ([F06 §7.8], `:943-967`), the op order of [F06 §7.9] (`:969-978`), one `prev` per owner ([F06 §7.3], `:722`), and
-//! BD-1 and BD-2's length rule ([F06 §8], `:1055-1057`). C-rules (digests, `prev` targets, before-images) are not
+//! ([F06 §7.8]), the op order of [F06 §7.9], one `prev` per owner ([F06 §7.3]), and
+//! BD-1 and BD-2's length rule ([F06 §8]). C-rules (digests, `prev` targets, before-images) are not
 //! tested on replay ([F06 §2.4]).
 //!
 //! **Item 1a's locator** (R-47, R-50; u20 cut §3.1). A payload is in the form its [`Commit::form`] names. In design-A's
 //! A1 (`design-A.md:104-129`), the first frame of each owner carries `prev_at` and `prev_len` after `prev` when `prev`
-//! ≠ 0 ([`put_loc`], [`get_loc`]); `prev` is store-local and unhashed (`06-commit.md:512`), so no digest covers them.
+//! ≠ 0 ([`put_loc`], [`get_loc`]); `prev` is store-local and unhashed ([F06 §4.5]), so no digest covers them.
 //! The night's form carries none, and its bytes are those of F06. A decoder reads a payload in the form its caller
 //! names ([`Commit::decode_in`]); [`Commit::decode`] is the night's.
 
@@ -86,7 +85,7 @@ impl SpanSink for Spans {
     }
 }
 
-/// The presence bits of the subset ([F06 §4.2], `06-commit.md:186-208`).
+/// The presence bits of the subset ([F06 §4.2]).
 pub mod presence {
     /// Bit 0 `ref_old`.
     pub const REF_OLD: u32 = 1 << 0;
@@ -108,7 +107,7 @@ pub mod presence {
     pub const RESERVED: u32 = 0xFFF0_0000;
 }
 
-/// The op tags of the subset ([F06 §7.2], `06-commit.md:683-700`).
+/// The op tags of the subset ([F06 §7.2]).
 pub mod tag {
     /// `Create`.
     pub const CREATE: u8 = 1;
@@ -128,7 +127,7 @@ pub mod tag {
     pub const MOVE: u8 = 11;
 }
 
-/// The type bytes of the subset ([F08 §5.1], `08-data-model.md:210-218`).
+/// The type bytes of the subset ([F08 §5.1]).
 pub mod ty {
     /// `absent`: no value bytes.
     pub const ABSENT: u8 = 0;
@@ -203,7 +202,7 @@ impl TValue<'_> {
     }
 }
 
-/// A node image ([F06 §6.3], `06-commit.md:647-667`): the status entry, the body entry, then field entries by name
+/// A node image ([F06 §6.3]): the status entry, the body entry, then field entries by name
 /// ascending; a field never holds `absent`.
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct Image<'a> {
@@ -274,8 +273,8 @@ impl Image<'_> {
     }
 }
 
-/// A plain edge's key and `prev` ([F06 §7.5.1], `06-commit.md:844-857`): `dflag` 0 and the one-byte property block
-/// `00` ([F08 §10.2], `08-data-model.md:1233-1249`).
+/// A plain edge's key and `prev` ([F06 §7.5.1]): `dflag` 0 and the one-byte property block
+/// `00` ([F08 §10.2]).
 #[derive(Copy, Clone, Debug, Eq, PartialEq)]
 pub struct Edge {
     /// The source node (the owner).
@@ -392,7 +391,7 @@ impl Op<'_> {
         }
     }
 
-    /// The owner ([F06 §2.3], `06-commit.md:55-59`): the node, or an edge's source.
+    /// The owner ([F06 §2.3]): the node, or an edge's source.
     pub fn owner(&self) -> u32 {
         match self {
             Op::Create { id, .. }
@@ -418,7 +417,7 @@ impl Op<'_> {
         }
     }
 
-    /// The op-order key of [F06 §7.9] (`06-commit.md:971-976`): (owner, rank, detail), the rank the key class
+    /// The op-order key of [F06 §7.9]: (owner, rank, detail), the rank the key class
     /// (existence 1, status 2, hierarchy 3, field 4, edge 7, body 8), the detail the field name or the edge's
     /// (`ekind`, `dst`, `dflag`). Two ops with equal keys have the same key (NF-1).
     pub fn order_key(&self) -> (u32, u8, u64) {
@@ -739,7 +738,7 @@ impl Op<'_> {
     }
 }
 
-/// A body carried with codec `none` ([F06 §8], `06-commit.md:1043-1050`).
+/// A body carried with codec `none` ([F06 §8]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Body<'a> {
     /// BLAKE3-128 of the raw bytes.
@@ -755,7 +754,7 @@ pub fn blake3_16(b: &[u8]) -> [u8; 16] {
     h
 }
 
-/// The `git` provenance group ([F06 §4.4.6], `06-commit.md:327-337`).
+/// The `git` provenance group ([F06 §4.4.6]).
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Git<'a> {
     /// 1 `sha1`, 2 `sha256`; 0 only without digests.
@@ -770,7 +769,7 @@ pub struct Git<'a> {
     pub base: Option<Cow<'a, [u8]>>,
 }
 
-/// `affected` ([F06 §4.4.13], `06-commit.md:398-407`): ids strictly ascending.
+/// `affected` ([F06 §4.4.13]): ids strictly ascending.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Affected {
     /// `affected_complete`.
@@ -788,7 +787,7 @@ pub struct Parent {
     pub lsn: u64,
 }
 
-/// A `Commit` payload of the subset ([F06 §4.3], `06-commit.md:214-261`). `kind` (0 `ordinary`), `import` (0 `local`) and
+/// A `Commit` payload of the subset ([F06 §4.3]). `kind` (0 `ordinary`), `import` (0 `local`) and
 /// `append_delta` (0) are fixed by the subset.
 #[derive(Clone, Debug, Eq, PartialEq)]
 pub struct Commit<'a> {
@@ -868,7 +867,7 @@ impl Commit<'_> {
         p
     }
 
-    /// `body_bytes(r)` of [F17 §5.1] (`17-store-parameters.md:317`): the `data` bytes of the carried bodies (the rest
+    /// `body_bytes(r)` of [F17 §5.1]: the `data` bytes of the carried bodies (the rest
     /// of each entry counts in `rec_bytes`; cut finding F-2).
     pub fn body_bytes(&self) -> u64 {
         self.bodies.iter().map(|b| b.data.len() as u64).sum()
@@ -1280,7 +1279,7 @@ impl Commit<'_> {
     }
 }
 
-/// NF-4 and NF-5 ([F06 §7.8], `06-commit.md:955-958`): a record with a `Create` or a `Delete` of n holds no `SetField`,
+/// NF-4 and NF-5 ([F06 §7.8]): a record with a `Create` or a `Delete` of n holds no `SetField`,
 /// `SetStatus` or `SetBody` of n. Ops are in op order, so an owner's ops are adjacent and its existence op is first.
 fn nf_folding(ops: &[Op<'_>]) -> Result<(), String> {
     let mut i = 0;
@@ -1309,7 +1308,7 @@ mod tests {
     use super::*;
     use crate::tail::rec::record_len;
 
-    /// The commit of [F06 §11] (`06-commit.md:1214-1239`): `C…`, `P…`, `K…`, `Q…`, `S…` and `D…` as fixed bytes.
+    /// The commit of [F06 §11]: `C…`, `P…`, `K…`, `Q…`, `S…` and `D…` as fixed bytes.
     fn example() -> Commit<'static> {
         Commit {
             commit_id: [0xC0; 32],
@@ -1353,7 +1352,7 @@ mod tests {
         }
     }
 
-    /// The example's bytes as the chapter lists them (`06-commit.md:1214-1239`).
+    /// The example's bytes as the chapter lists them ([F06 §11]).
     fn example_bytes() -> Vec<u8> {
         let mut b = vec![0x43, 0x70, 0x00, 0x00];
         b.extend([0xC0; 32]);
@@ -1379,8 +1378,8 @@ mod tests {
         b
     }
 
-    /// [F06 §11]: "The payload is 205 bytes, 237 with the 32-byte `RecHdr`" (`06-commit.md:1241`); its header part
-    /// without git is 194 B (`:523-525`).
+    /// [F06 §11]: "The payload is 205 bytes, 237 with the 32-byte `RecHdr`"; its header part
+    /// without git is 194 B ([F06 §4.6]).
     #[test]
     fn f06_example_commit_is_205_bytes() {
         let c = example();
@@ -1389,12 +1388,12 @@ mod tests {
         assert_eq!(out, example_bytes());
         assert_eq!(out.len(), 205);
         assert_eq!(record_len(out.len(), false), 237);
-        // The header part runs to `changeset_digest` (`06-commit.md:173`): 205 − n_ops − op − n_bodies.
+        // The header part runs to `changeset_digest` ([F06 §4.1]): 205 − n_ops − op − n_bodies.
         assert_eq!(out.len() - 1 - 9 - 1, 194);
         assert_eq!(Commit::decode(&out), Ok(c));
     }
 
-    /// Its `SetStatus` op ([F06 §7.1], §7.4, `06-commit.md:1237`): `05 07 0C C0 25 00 00 01 00`.
+    /// Its `SetStatus` op ([F06 §7.1], §7.4; [F06 §11]): `05 07 0C C0 25 00 00 01 00`.
     #[test]
     fn f06_example_setstatus_op_bytes() {
         let op = Op::SetStatus {
@@ -1417,7 +1416,7 @@ mod tests {
         );
     }
 
-    /// The informative values of [F06 §5.1] (`06-commit.md:546-547`) in the subset, and the refusal of the others.
+    /// The informative values of [F06 §5.1] in the subset, and the refusal of the others.
     #[test]
     fn tvalue_examples_of_f06() {
         assert_eq!(TValue::int(3).0.as_ref(), [0x02, 0x06]);
@@ -1441,7 +1440,7 @@ mod tests {
         assert!(what(&[0x06, 0x05, 0x61]).contains("cut off"));
     }
 
-    /// The presence bitmap ([F06 §4.2], `06-commit.md:186-208`): each group sets its bit; bits 20–31 are reserved and
+    /// The presence bitmap ([F06 §4.2]): each group sets its bit; bits 20–31 are reserved and
     /// the bits of groups outside the subset are refused as such.
     #[test]
     fn presence_bits_follow_f06() {

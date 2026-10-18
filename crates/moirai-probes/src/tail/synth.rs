@@ -3,30 +3,30 @@
 //!
 //! A tail is a function of (clause, threshold, `N`, seed, profile). It starts at the first byte of extent 2 of an epoch
 //! whose `epoch_lsn` is 0, with the extent head whose `chain_in` stands for extent 1's last trailer
-//! (`05-log.md:111-112`, `:183-184`, `:1119`); the scan starts there (`:278-279`). Groups are placed by G-3. The base
+//! ([F05 §2.7], [F05 §4.3], [F05 §9.28]); the scan starts there ([F05 §5.1]). Groups are placed by G-3. The base
 //! is [`Base`]: nodes `1..=N` live, kind 1, status `#N mod 4`; new `#N` start at `N + 1`.
 //!
 //! | Mix constant | Value | Source |
 //! |---|---|---|
 //! | commits per settle | 5: about 500 commits a day on `main` and 100 settles a day | `60-roadmap.md:759` ([70 S1]); `70-audit-speed.md:298` (the upper end of 50–100) |
-//! | a settle | one lazy group: a `TreeReg` sub-2 epoch and one `FileObs` batch | `70-audit-speed.md:300` fix (1); `11-runtime-tables.md:891-892` |
-//! | settle rows | `max(1, ⌊83 × P12 / 2 MiB⌋)` rows of state 1 `ok`, no `var`: 83 is the most whose group stays ≤ 16,000 B | `70-audit-speed.md:300` ("< 16 KB", read as 10^3 by `measurement-protocol.md:45-46`) |
+//! | a settle | one lazy group: a `TreeReg` sub-2 epoch and one `FileObs` batch | `70-audit-speed.md:300` fix (1); [F11 §12.5] |
+//! | settle rows | `max(1, ⌊83 × P12 / 2 MiB⌋)` rows of state 1 `ok`, no `var`: 83 is the most whose group stays ≤ 16,000 B | `70-audit-speed.md:300` ("< 16 KB", read as 10^3 by [MP §1.3]) |
 //! | commit length (without body data) | 9 in 10 uniform in [300, 600] B; 1 in 10 log-uniform in [600, P05] | shape `60-roadmap.md:758`; the split and the form are the probe's |
-//! | ops per commit | `max(1, ⌊(length − 32 − header) / b⌋)`, b uniform in [190, 240] | `17-store-parameters.md:293` ([50 §5.12]) |
-//! | header | one parent, git provenance, the idempotency pair, a named mutation, a message, `affected` | `06-commit.md:523-525`, `:1209-1210` |
+//! | ops per commit | `max(1, ⌊(length − 32 − header) / b⌋)`, b uniform in [190, 240] | [F17 §4.4] ([50 §5.12]) |
+//! | header | one parent, git provenance, the idempotency pair, a named mutation, a message, `affected` | [F06 §4.6], [F06 §11] |
 //! | op mix (%) | `SetField` 35, `SetStatus` 20, `AddEdge` 15, `Create` 10, `Move` 5, `SetBody` 5, `RemoveEdge` 5, `Delete` 5 | the probe's choice: no spec states an op mix |
-//! | reaching the length | `SetField` text values and the message are sized so the record has the drawn length, or its minimum when that is longer; with no `SetField`, the message stops at F06's 65,535 bytes (`06-commit.md:252`), and a longer draw gives a shorter record | the probe's choice |
-//! | body raw size | 1,020 B in the mix (≈ 340 B stored at 3×); the body family `min(64 KiB, P05 / 2)` | `20-critique-perf-ram-windows.md:33`; `06-commit.md:1049` |
+//! | reaching the length | `SetField` text values and the message are sized so the record has the drawn length, or its minimum when that is longer; with no `SetField`, the message stops at F06's 65,535 bytes ([F06 §4.3]), and a longer draw gives a shorter record | the probe's choice |
+//! | body raw size | 1,020 B in the mix (≈ 340 B stored at 3×); the body family `min(64 KiB, P05 / 2)` | `20-critique-perf-ram-windows.md:33`; [F06 §8] |
 //! | touched `#N` | uniform over [1, `N`] and the tail's creates, one op per owner per commit | the probe's choice (the worst case for the node index) |
 //!
-//! **Stop rules** (a full tail is a tail at the threshold, `17-store-parameters.md:353-354`; groups are whole): `ops`
+//! **Stop rules** (a full tail is a tail at the threshold, [F17 §5.2]; groups are whole): `ops`
 //! ends when `ops(T)` = P06, the last commit cut to fit; `body` ends when `body_bytes(T)` = P08, one body of the
 //! family size per commit; `rec`, `ovl` and `quiet` end before the first group that would take their measure past the
 //! threshold (`quiet`: `ops` ≤ q·P06, `rec_bytes` ≤ q·P07, `body_bytes` ≤ q·P08 and `ovl` ≤ P10, q = P11, the other
-//! thresholds at their design figures, `:356-369`, `:215-217`), except that a tail always holds its first commit
-//! (`:354`: a writer's own commit may pass the threshold). Every tail keeps `rt_bytes(T)` within C2's
-//! `m·q·P12` (`:329-333`: m = P13 and q = 1, or m = 1 and q = P11 in quiet mode, `:362-363`); the generator refuses a
-//! target that would break it.
+//! thresholds at their design figures, [F17 §5.3], [F17 §3]), except that a tail always holds its first commit
+//! ([F17 §5.2]: a writer's own commit may pass the threshold). Every tail keeps `rt_bytes(T)` within C2's
+//! `m·q·P12` ([F17 §5.2]: m = P13 and q = 1, or m = 1 and q = P11 in quiet mode, [F17 §5.3]); the generator refuses
+//! a target that would break it.
 
 use super::commit::{
     Affected, Body, Commit, Edge, Git, Image, Op, Parent, TValue, blake3_16, loc_len,
@@ -52,7 +52,7 @@ pub const SETTLE_GROUP_CAP: u64 = 16_000;
 pub const SETTLE_ROWS_PRODUCTION: u64 = 83;
 /// The short commit lengths, 9 in 10 (`60-roadmap.md:758`: typical 0.3–0.6 KB).
 pub const SHORT_LEN: (u64, u64) = (300, 600);
-/// Bytes per op (`17-store-parameters.md:293`: ≈ 190–240 B per op).
+/// Bytes per op ([F17 §4.4]: ≈ 190–240 B per op).
 pub const OP_BYTES: (u64, u64) = (190, 240);
 /// The op mix in percent, in the order of [`OpKind`].
 pub const OP_MIX: [(OpKind, u64); 8] = [
@@ -180,7 +180,7 @@ pub fn family_body(p: &Params) -> u64 {
     u64::from(BODY_RAW_CAP).min(p.p05 / 2)
 }
 
-/// The tail measures of [F17 §5.1] (`17-store-parameters.md:313-321`) and counts.
+/// The tail measures of [F17 §5.1] and counts.
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct Measures {
     /// `ops(T)`.
@@ -802,7 +802,7 @@ impl Gen {
         }
         let deficit = (plan.len - len0) as usize;
         if fields.is_empty() || deficit < 64 {
-            // F06's `msg` is a `vstr` of 1 to 65,535 bytes (`06-commit.md:252`): past it the record stays shorter
+            // F06's `msg` is a `vstr` of 1 to 65,535 bytes ([F06 §4.3]): past it the record stays shorter
             // than drawn.
             msg = (msg + deficit).min(usize::from(u16::MAX));
         } else {
@@ -1256,7 +1256,7 @@ pub fn generate(t: &Target, keep: bool) -> Result<Tail, String> {
             Clause::Ops | Clause::Body => false,
         };
         // A tail holds at least one commit: when the first alone passes the threshold, the tail is that commit
-        // (a writer's own commit may take a tail past its threshold, `17-store-parameters.md:354`).
+        // (a writer's own commit may take a tail past its threshold, [F17 §5.2]).
         if over && m.commits > 0 {
             refused = Some(next);
             break;
@@ -1322,7 +1322,7 @@ pub(crate) mod tests {
     use crate::tail::{Geometry, kind};
     use proptest::prelude::*;
 
-    /// A target at the test profile ([F17 §3], `17-store-parameters.md:166-178`) with the profile's threshold of
+    /// A target at the test profile ([F17 §3]) with the profile's threshold of
     /// `clause`.
     pub(crate) fn test_target(clause: Clause, n: u32, seed: u64) -> Target {
         let p = Params::TEST;
@@ -1422,7 +1422,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// Each family stops at its rule ([F17 §5.2]–§5.3; a full tail is a tail at the threshold, `:353-354`): `ops`
+    /// Each family stops at its rule ([F17 §5.2]–§5.3; a full tail is a tail at the threshold): `ops`
     /// and `body` exactly at P06 and P08; `rec`, `ovl` and `quiet` at most at their thresholds, the next group
     /// passing one.
     #[test]
@@ -1456,7 +1456,8 @@ pub(crate) mod tests {
                 "the next group passes one quiet clause"
             );
         }
-        // The production design figures and the grid's candidates are those of F17 (`:170-176`, `:757-762`).
+        // The production design figures and the grid's candidates are those of F17 ([F17 §3] P05 to P11;
+        // [F17 Holes] F17-ckpt-ops to F17-quiet-mult).
         let pp = Params::PRODUCTION;
         assert_eq!(
             (pp.p06, pp.p07, pp.p08, pp.p09, pp.p10, pp.p11),
@@ -1549,7 +1550,7 @@ pub(crate) mod tests {
         assert!(prod(83) <= SETTLE_GROUP_CAP && prod(84) > SETTLE_GROUP_CAP);
     }
 
-    /// C2 ([F17 §5.2], `17-store-parameters.md:329-333`): every grid-shaped tail keeps `rt_bytes` within `m·q·P12`,
+    /// C2 ([F17 §5.2]): every grid-shaped tail keeps `rt_bytes` within `m·q·P12`,
     /// and the generator refuses a target that would break it.
     #[test]
     fn generated_tails_respect_c2() {
@@ -1577,7 +1578,7 @@ pub(crate) mod tests {
         assert!(e.contains("C2"), "{e}");
     }
 
-    /// Every op's `prev` ([F06 §7.3], `06-commit.md:705-722`) names its owner's previous commit in the tail, is 0 for a
+    /// Every op's `prev` ([F06 §7.3]) names its owner's previous commit in the tail, is 0 for a
     /// node the commit creates, and leaves the tail for a base node's first op; owners repeat at N = 50.
     #[test]
     fn generated_prev_chains_link_each_owner() {
@@ -1731,7 +1732,7 @@ pub(crate) mod tests {
     }
 
     /// R-38: when no `SetField` can carry a long drawn length, the message stops at F06's 65,535 bytes
-    /// (`06-commit.md:252`) and the record is shorter than drawn. A length that the capped message reaches, or one a
+    /// ([F06 §4.3]) and the record is shorter than drawn. A length that the capped message reaches, or one a
     /// step below it, is still met exactly, and a `SetField` still carries a long length with a 1-byte message. Every
     /// case runs, and a red names each failing case with the encoder's message.
     #[test]

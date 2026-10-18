@@ -10,7 +10,7 @@ use super::scan::Expect;
 use super::{Geometry, Locator, PrevLoc, REC_HDR_LEN};
 use std::borrow::Cow;
 
-/// E = 2^16, the test profile's extent ([F17] P01, `17-store-parameters.md:166`).
+/// E = 2^16, the test profile's extent ([F17 §3] P01).
 pub const E: u64 = 1 << 16;
 /// The tail starts at extent 2's first byte.
 pub const START: u64 = E;

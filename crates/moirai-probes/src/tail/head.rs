@@ -1,15 +1,15 @@
-//! The `HEAD` file's slot ([F04 §3], `04-head.md:34-121`; u21 cut §3.7): `HeadSlot` of 4,096 bytes with its
-//! `xxh3_128`, the slot checks of [F04 §7] (`:342-367`), the selection of [F04 §8.1] (`:369-397`) and the publish of
-//! [F04 §9.1] (`:421-438`): read both slots with one 8,192-byte `read_at`, select the newest valid slot S, build S′ from
+//! The `HEAD` file's slot ([F04 §3]; u21 cut §3.7): `HeadSlot` of 4,096 bytes with its
+//! `xxh3_128`, the slot checks of [F04 §7], the selection of [F04 §8.1] and the publish of
+//! [F04 §9.1]: read both slots with one 8,192-byte `read_at`, select the newest valid slot S, build S′ from
 //! it with the publish's changes and `slot_seq` + 1, and write S′ with one 4,096-byte `write_at` into the slot that
-//! does not hold S. `HEAD` is never flushed on this path (1PC+C, `:435`): the publish reaches the file only through
-//! [`SlotFile`], which has no flush.
+//! does not hold S. `HEAD` is never flushed on this path (1PC+C, [F04 §9.1]): the publish reaches the file only
+//! through [`SlotFile`], which has no flush.
 //!
 //! - **`HeadSlot`** (§3.1): every field at its offset, byte-packed; `segments[k]` at 100 + 29k, `image_cursor[k]` at
 //!   364 + 10k, `seq_ring[k]` at 404 + 16k (§3.2); `xxh3_128` over `[0, 4080)` at 4080 as (`low64`, `high64`), each
 //!   little-endian ([F01 §7.2]), which is `u128::to_le_bytes`.
 //! - **The checks** (§7): magic, checksum and format (absent or fatal), reserved bytes (check 4) and ranges (check 5,
-//!   with [F17 §2.2] IP-2 for `init` and `project_oid_algo`, `17-store-parameters.md:140-146`).
+//!   with [F17 §2.2] IP-2 for `init` and `project_oid_algo`).
 //! - **The selection** (§8.1): a fatal slot is an error; of two valid slots the greater `slot_seq`, equal ones requiring
 //!   identical bytes, and both requiring identical `init` and `project_oid_algo` (IP-3); one valid slot; no valid slot
 //!   is an error (the probe does not re-read).
@@ -17,18 +17,18 @@
 use moirai_vfs::StoreFs;
 use xxhash_rust::xxh3::xxh3_128;
 
-/// A slot's length (`04-head.md:25`, `:78`).
+/// A slot's length ([F04 §2], [F04 §3.1]).
 pub const SLOT_LEN: usize = 4_096;
-/// `magic` (`04-head.md:43`).
+/// `magic` ([F04 §3.1]).
 pub const MAGIC: [u8; 4] = *b"MOIR";
-/// `SegRef`'s length ([F04 §4.1], `04-head.md:94-100`).
+/// `SegRef`'s length ([F04 §4.1]).
 pub const SEG_REF_LEN: usize = 29;
-/// The entries of `segments` (`04-head.md:60`).
+/// The entries of `segments` ([F04 §3.1]).
 pub const SEGMENTS_MAX: usize = 8;
-/// Where `xxh3_128` sits (`04-head.md:77`).
+/// Where `xxh3_128` sits ([F04 §3.1]).
 pub const XXH3_AT: usize = 4_080;
 
-/// `SegRef.kind` ([F04 §4.1], `04-head.md:102-107`).
+/// `SegRef.kind` ([F04 §4.1]).
 pub mod seg_kind {
     /// `base`.
     pub const BASE: u8 = 1;
@@ -38,7 +38,7 @@ pub mod seg_kind {
     pub const DICT: u8 = 3;
 }
 
-/// `HEAD.flags` ([F04 §5.2], `04-head.md:167-174`).
+/// `HEAD.flags` ([F04 §5.2]).
 pub mod flags {
     /// Bit 0 `quiet`.
     pub const QUIET: u16 = 1;
@@ -60,8 +60,8 @@ fn u64_le(b: &[u8], at: usize) -> u64 {
     u64::from_le_bytes(b[at..at + 8].try_into().expect("8 bytes"))
 }
 
-/// `SegRef` ([F04 §4.1], `04-head.md:94-100`): `file_no` `u32` at 0, `kind` `u8` at 4, `upto_lsn` `u64` at 5, `blake3_16`
-/// at 13. A `Checkpoint` record embeds the same 29 bytes ([F05 §8.3], `05-log.md:490`).
+/// `SegRef` ([F04 §4.1]): `file_no` `u32` at 0, `kind` `u8` at 4, `upto_lsn` `u64` at 5, `blake3_16`
+/// at 13. A `Checkpoint` record embeds the same 29 bytes ([F05 §8.3]).
 #[derive(Copy, Clone, Debug, Default, Eq, PartialEq)]
 pub struct SegRef {
     /// `file_no`.
@@ -96,7 +96,7 @@ impl SegRef {
     }
 }
 
-/// One `HeadSlot` ([F04 §3.1], `04-head.md:41-78`).
+/// One `HeadSlot` ([F04 §3.1]).
 #[derive(Clone, Debug, Default, Eq, PartialEq)]
 pub struct HeadSlot {
     /// `format` (offset 4).
@@ -266,7 +266,7 @@ pub enum Class {
     Valid(Box<HeadSlot>),
 }
 
-/// [F17 §2.2] IP-2 on an `init` block (`17-store-parameters.md:123-128`, `:140-143`): `log_extent_bytes` a power of
+/// [F17 §2.2] IP-2 on an `init` block ([F17 §2.1], [F17 §2.2]): `log_extent_bytes` a power of
 /// two in [2^16, 2^30], `hist_frame_commits` 1–65,536, `hist_frame_bytes` 4,096–1,048,576, `store_id` not all zero.
 fn ip2(init: &[u8; 32]) -> bool {
     let e = u64_le(init, 0);
@@ -278,7 +278,7 @@ fn ip2(init: &[u8; 32]) -> bool {
         && init[16..32].iter().any(|&x| x != 0)
 }
 
-/// Classifies one slot's bytes by [F04 §7]'s checks 1–5 (`04-head.md:344-361`).
+/// Classifies one slot's bytes by [F04 §7]'s checks 1–5.
 pub fn classify(b: &[u8]) -> Class {
     if b.len() != SLOT_LEN || b[0..4] != MAGIC {
         return Class::Absent;
@@ -381,7 +381,7 @@ pub fn classify(b: &[u8]) -> Class {
     Class::Valid(Box::new(s))
 }
 
-/// Selects the newest valid slot of `HEAD`'s 8,192 bytes by [F04 §8.1] (`04-head.md:375-388`): (0 for A or 1 for B,
+/// Selects the newest valid slot of `HEAD`'s 8,192 bytes by [F04 §8.1]: (0 for A or 1 for B,
 /// the slot). A fatal slot, two valid slots with equal `slot_seq` and different bytes or with different `init` or
 /// `project_oid_algo` (IP-3), and two absent slots are errors.
 pub fn select(both: &[u8]) -> Result<(usize, HeadSlot), String> {
@@ -417,7 +417,7 @@ pub fn select(both: &[u8]) -> Result<(usize, HeadSlot), String> {
     }
 }
 
-/// `HEAD` as a publish reaches it: positional reads and writes, and no flush (1PC+C, `04-head.md:435`).
+/// `HEAD` as a publish reaches it: positional reads and writes, and no flush (1PC+C, [F04 §9.1]).
 pub trait SlotFile {
     /// Reads up to `buf.len()` bytes at `off`.
     fn read_at(&mut self, off: u64, buf: &mut [u8]) -> Result<usize, String>;
@@ -458,7 +458,7 @@ pub struct Published {
     pub bytes: [u8; SLOT_LEN],
 }
 
-/// A publish ([F04 §9.1], `04-head.md:421-438`): one 8,192-byte `read_at`, the newest valid slot S by §8, S′ = S with
+/// A publish ([F04 §9.1]): one 8,192-byte `read_at`, the newest valid slot S by §8, S′ = S with
 /// `change` applied and `slot_seq` + 1, `xxh3_128` recomputed, and one 4,096-byte `write_at` of S′ into the slot that
 /// does not hold S. No flush.
 pub fn publish<F: SlotFile>(
@@ -535,7 +535,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// `HeadSlot` ([F04 §3.1]–§3.2, `04-head.md:41-87`): each field at its offset, little-endian; `n_segments` at 96 and
+    /// `HeadSlot` ([F04 §3.1]–§3.2): each field at its offset, little-endian; `n_segments` at 96 and
     /// `segments[k]` at 100 + 29k (`SegRef`: `file_no`, `kind`, `upto_lsn`, `blake3_16`); `image_cursor[k]` at 364 + 10k;
     /// `seq_ring[k]` at 404 + 16k; `init` at 1024; `xxh3_128` at 4080 = XXH3-128 of `[0, 4080)` as (`low64`, `high64`);
     /// the fields read back.
@@ -630,7 +630,7 @@ pub(crate) mod tests {
         assert_eq!(classify(&b), Class::Valid(Box::new(s)));
     }
 
-    /// The slot checks ([F04 §7], `04-head.md:344-367`): the restored state is valid; check 1–3 make a slot absent (magic,
+    /// The slot checks ([F04 §7]): the restored state is valid; check 1–3 make a slot absent (magic,
     /// checksum, format 0) or fatal (format 2); check 4 and check 5 make it fatal, each on one field.
     #[test]
     fn slot_checks_follow_f04_7() {
@@ -709,7 +709,7 @@ pub(crate) mod tests {
         );
     }
 
-    /// The selection ([F04 §8.1], `04-head.md:375-388`) row by row: a fatal slot either side is an error; of two valid
+    /// The selection ([F04 §8.1]) row by row: a fatal slot either side is an error; of two valid
     /// slots the greater `slot_seq` (A newer, B newer); equal `slot_seq` with identical bytes is that state, with
     /// different bytes an error; different `init` (IP-3) an error; one valid slot is chosen; none is an error.
     #[test]
@@ -787,7 +787,7 @@ pub(crate) mod tests {
         }
     }
 
-    /// The publish ([F04 §9.1], `04-head.md:423-435`): one 8,192-byte read at 0, then exactly one 4,096-byte write into
+    /// The publish ([F04 §9.1]): one 8,192-byte read at 0, then exactly one 4,096-byte write into
     /// the slot that does not hold S (B when S is A, then A when S is B), the slot that holds S untouched; S′ is valid,
     /// S with the change and `slot_seq` + 1. The publish reaches `HEAD` only through [`SlotFile`], which has no flush;
     /// that the arm flushes nothing on `HEAD` is the timed-region test's (`m14`).

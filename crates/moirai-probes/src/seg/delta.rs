@@ -1,36 +1,38 @@
-//! The delta segment `seg.d<K>` of a delta checkpoint ([F09 §16.2], `09-segments.md:1085-1089`; [AR §4.5] step 12):
+//! The delta segment `seg.d<K>` of a delta checkpoint ([F09 §16.2]; [AR §4.5] step 12):
 //! the fold of a tail's commits over the base, as touched rows with complete states and ± lists, in the probe's subset
 //! of sections.
 //!
-//! - **Touched rows** (`09-segments.md:378-382`): a row is listed in `IDS` iff a row-scoped section of it differs from
+//! - **Touched rows** ([F09 §5.1]): a row is listed in `IDS` iff a row-scoped section of it differs from
 //!   its state in the base. The fold visits the owner of every op, both endpoints of an added or removed edge (I-P3,
-//!   `:502-504`), and the old and new parent of a `Move`, whose in-lists hold the reverse of `parent` (`:499-501`), and
+//!   [F09 §7.1]), and the old and new parent of a `Move`, whose in-lists hold the reverse of `parent` ([F09 §7.1]), and
 //!   [`Fold::finish`] drops a visited row whose state ends equal to the base's, such as an endpoint of an edge added
 //!   and removed again; an owner always differs, by `rev_seq`. Each listed row carries its complete state; the other
 //!   rows stay in the base.
 //! - **The ops** ([F06 §7.4]–§7.5): `Create` makes a row of its kind, status and resolution with the commit's `seq` as
-//!   `created_tx` and its creator (`08-data-model.md:89-91`, `:182`); `Delete` makes a tombstone (`flags` = `deleted`
+//!   `created_tx` and its creator ([F08 §3.1], [F08 §4]); `Delete` makes a tombstone (`flags` = `deleted`
 //!   only, `parent` 0, counters 0, `fields_off` `NONE32`, `body_ref` 0, `topo`, `defer_until` and `due` 0, the out-list
-//!   kept, `08-data-model.md:157-169`); `SetStatus` sets the status and resolution; `AddEdge` and `RemoveEdge` change
+//!   kept, [F08 §3.5]); `SetStatus` sets the status and resolution; `AddEdge` and `RemoveEdge` change
 //!   the source's out-list and the destination's in-list; `Move` sets `parent`. Every op sets its owner's `rev_seq`,
-//!   `updated_tx` and `last_op_lsn` (`:87-91`). `SetField` and `SetBody` change only these: the field blocks and
+//!   `updated_tx` and `last_op_lsn` ([F08 §3.1]). `SetField` and `SetBody` change only these: the field blocks and
 //!   `BLOBTAB` are outside the subset. Settles (`K_RT` records) fold into runtime sections the probe does not write.
 //!   Nor does it write `TITLE_BLOB`, `UID` rows for creates, `TOMB` rows for deletes, new symbols or the store-level
-//!   tables ([F09 §16.2], `09-segments.md:1085-1089`): a delta checkpoint that wrote them does more work, so the
+//!   tables ([F09 §16.2]): a delta checkpoint that wrote them does more work, so the
 //!   checkpoint measurement 14 times over this delta is a lower bound (`m14`, "What the checkpoint omits").
 //!   [`super::full`] writes them for `ckpt-full-4096` (u21 cut §3.3): its fold wraps this one, which stays as it is,
 //!   so the night's deltas keep their bytes (`night_delta_bytes_are_unchanged`).
+//! - **`PRIO`** ([F09 §5.4]; R-66): a created row's is the default 2 ([F08 §4]), a deleted row keeps its own, and every
+//!   other op leaves it; an absent row's is 0. A touched base row starts from the base's `PRIO`.
 //! - **Derived columns** (`open_blockers`, the counters, `container`, `topo` order) are not recomputed: the probe's
 //!   choice, since the base holds no precedence order to keep; a created row's `topo` is its `#N`.
-//! - **± lists** (`09-segments.md:319-332`, `:591-594`): per bitset key, the ids that joined and left it relative to
+//! - **± lists** ([F09 §4.6], [F09 §9.2]): per bitset key, the ids that joined and left it relative to
 //!   the base, for the overlay's families (kind and kind-status of live rows, predicate `deleted`), so the delta's lists
 //!   equal [`crate::overlay::Overlay::plus_minus`] over the same tail. `BMDIR` and the lists are absent when no set
 //!   changed.
-//! - **The header** (`09-segments.md:119-128`): `n_rows` the `IDS` length, `from_lsn` the base's `upto_lsn`,
+//! - **The header** ([F09 §2.3]): `n_rows` the `IDS` length, `from_lsn` the base's `upto_lsn`,
 //!   `upto_lsn` and `rt_upto_lsn` the tail's end, `base_seq` the largest `seq` folded. `rt_upto_lsn` = `upto_lsn`
-//!   because a main-set layer needs `rt_upto_lsn ≥ upto_lsn` (`:128`, `:136`), although no runtime section is folded.
+//!   because a main-set layer needs `rt_upto_lsn ≥ upto_lsn` ([F09 §2.3]), although no runtime section is folded.
 
-use super::base::{Columns, Csr, put_bitsets, put_rows, sections};
+use super::base::{Columns, Csr, DEFAULT_PRIORITY, put_bitsets, put_prio, put_rows, sections};
 use super::bitset::{decode_plus_minus, encode_plus_minus};
 use super::{Creator, FLAG_DELETED, Header, NONE32, NodeHdr, Writer, put_u32s, seg_kind, tag};
 use crate::overlay::{BitsetKey, DELETED_KEY, kind_key, kind_status_key};
@@ -55,6 +57,8 @@ pub struct Row {
     pub creator: Creator,
     /// `TOPO`, `DEFER`, `DUE`.
     pub cold: [u32; 3],
+    /// `PRIO`, the `priority` ([F08 §4]).
+    pub prio: u8,
     /// The out-list, `(kind, dst)` sorted.
     pub out: Vec<(u8, u32)>,
     /// The in-list, `(kind, src)` sorted.
@@ -143,7 +147,6 @@ impl<'c, 'a> Fold<'c, 'a> {
                         kind: *kind,
                         status,
                         resolution,
-                        priority: 2,
                         criticality: 2,
                         authority: 4,
                         created_tx: seq as u32,
@@ -156,6 +159,7 @@ impl<'c, 'a> Fold<'c, 'a> {
                         role: *c_role as u16,
                     };
                     r.cold = [*id, 0, 0];
+                    r.prio = DEFAULT_PRIORITY;
                 }
                 Op::Delete { id, .. } => {
                     let old = self.row(*id).node.parent;
@@ -236,7 +240,7 @@ impl<'c, 'a> Fold<'c, 'a> {
                 base_seq: self.seq,
                 from_lsn: base.view.header.upto_lsn,
                 upto_lsn,
-                // F09 requires rt_upto_lsn >= upto_lsn in a main-set layer (09-segments.md:128, :136); the probe folds
+                // F09 requires rt_upto_lsn >= upto_lsn in a main-set layer ([F09 §2.3]); the probe folds
                 // no runtime section (the module docs).
                 rt_upto_lsn: upto_lsn,
                 ..Header::default()
@@ -265,6 +269,7 @@ fn base_row(base: &Columns<'_>, id: u32) -> Row {
             node: base.node(i),
             creator: base.creator(i),
             cold: base.cold(i),
+            prio: base.prio(i),
             out: base.out_list(i),
             inn: base.in_list(i),
         }
@@ -300,7 +305,8 @@ pub fn fold<S: LogSource>(
     Ok(f.finish(file_no, to))
 }
 
-/// The delta's bytes: `IDS`, the row columns, both CSR directions, then `BMDIR` and the ± lists when a set changed.
+/// The delta's bytes: `IDS`, the row columns, `PRIO`, both CSR directions, then `BMDIR` and the ± lists when a set
+/// changed.
 pub fn encode(d: &Delta) -> Result<Vec<u8>, String> {
     let n = d.rows.len();
     let k = d.lists.len();
@@ -316,6 +322,8 @@ pub fn encode(d: &Delta) -> Result<Vec<u8>, String> {
     let cold: Vec<[u32; 3]> = d.rows.iter().map(|r| r.cold).collect();
     let col = |j: usize| -> Vec<u32> { cold.iter().map(|c| c[j]).collect() };
     put_rows(&mut w, &nodes, &creators, [&col(0), &col(1), &col(2)])?;
+    let prios: Vec<u8> = d.rows.iter().map(|r| r.prio).collect();
+    put_prio(&mut w, &prios)?;
     for (lists, tags) in [
         (
             Csr::of_lists(d.rows.iter().map(|r| r.out.as_slice())),
@@ -365,6 +373,7 @@ pub fn decode(bytes: &[u8]) -> Result<Delta, String> {
             node: c.node(i),
             creator: c.creator(i),
             cold: c.cold(i),
+            prio: c.prio(i),
             out: c.out_list(i),
             inn: c.in_list(i),
         })
@@ -424,7 +433,7 @@ mod tests {
     }
 
     /// A delta's bytes read back to the delta that was encoded (spec gate 1, "a re-read delta equal to its input"),
-    /// with the header of `09-segments.md:119-128`, `IDS` strictly ascending, every column sized by the rows and every
+    /// with the header of [F09 §2.3], `IDS` strictly ascending, every column sized by the rows and every
     /// digest right; a delta with no set change carries no `BMDIR`.
     #[test]
     fn delta_reads_back_equal_to_its_input() {
@@ -503,13 +512,14 @@ mod tests {
         }
     }
 
-    /// Naive per-node state: the whole `NodeHdr`, `CREATOR` and the cold columns (`topo`, `defer_until`, `due`) as F08
-    /// gives them, and the out- and in-sets.
+    /// Naive per-node state: the whole `NodeHdr`, `CREATOR`, the cold columns (`topo`, `defer_until`, `due`) and
+    /// `priority` as F08 gives them, and the out- and in-sets.
     #[derive(Clone, Debug, Default, Eq, PartialEq)]
     struct Naive {
         hdr: NodeHdr,
         creator: Creator,
         cold: [u32; 3],
+        prio: u8,
         out: BTreeSet<(u8, u32)>,
         inn: BTreeSet<(u8, u32)>,
     }
@@ -532,6 +542,7 @@ mod tests {
                 hdr: s.row(id),
                 creator: s.creator(id),
                 cold: [s.topo(id), s.defer(id), s.due(id)],
+                prio: 2,
                 out: s.out_edges(id).into_iter().collect(),
                 inn: (1..=s.n)
                     .flat_map(|src| s.out_edges(src).into_iter().map(move |e| (src, e)))
@@ -580,7 +591,6 @@ mod tests {
                         kind: *kind,
                         status,
                         resolution,
-                        priority: 2,
                         criticality: 2,
                         confidence: 0,
                         authority: 4,
@@ -594,11 +604,12 @@ mod tests {
                         role: *c_role as u16,
                     };
                     v.cold = [o, 0, 0];
+                    v.prio = 2;
                 }
                 Op::Delete { .. } => {
                     self.set_parent(o, 0);
                     let v = self.get(o);
-                    // F08 §3.5 (`08-data-model.md:157-169`): the enumerations, `created_tx` and the title kept;
+                    // [F08 §3.5]: the enumerations, `created_tx` and the title kept;
                     // `flags` = deleted only, `parent` 0, the counters 0, no field block or body; `CREATOR` kept,
                     // `topo`, `defer_until` and `due` 0.
                     v.hdr = NodeHdr {
@@ -689,6 +700,7 @@ mod tests {
                 assert_eq!(h, v.hdr, "#{} NodeHdr", r.id);
                 assert_eq!(r.creator, v.creator, "#{} CREATOR", r.id);
                 assert_eq!(r.cold, v.cold, "#{} topo, defer_until, due", r.id);
+                assert_eq!(r.prio, v.prio, "#{} PRIO", r.id);
                 assert_eq!(
                     r.out,
                     v.out.iter().copied().collect::<Vec<_>>(),
@@ -744,15 +756,125 @@ mod tests {
         );
     }
 
+    /// `PRIO` through a fold over a base with its own priorities (RF-3; [F09 §5.4], R-66): over [`base::build_with`] at
+    /// [`base::ready_priority`] and `tail(200, 400, seed)` for seeds 1-4, the encoded delta's `PRIO` (0x0009) holds one
+    /// byte per listed row; a created row (#N > N) holds 2, and every other listed row its base priority, deleted or
+    /// not. Over the seeds some live touched base row's priority is not 2, some deleted base row's is neither 0 nor 2,
+    /// and some row is created, so a fold that took a touched row's priority as 2, or zeroed it on a delete, is caught.
+    #[test]
+    fn prio_follows_the_fold_over_a_base_with_its_own_priorities() {
+        let (mut kept, mut deleted, mut created) = (0, 0, 0);
+        for seed in 1..=4 {
+            let t = tail(200, 400, seed);
+            let b = base::build_with(
+                &base::Spec {
+                    n: t.base.n,
+                    upto_lsn: t.start,
+                    base_seq: 999,
+                },
+                base::ready_priority,
+            )
+            .unwrap();
+            let c = Columns::parse(&b).unwrap();
+            let bytes = encode(&fold_of(&t, &c)).unwrap();
+            let rows = decode(&bytes).unwrap().rows;
+            let v = SegView::parse(&bytes).unwrap();
+            let prio = v.need(0x0009).unwrap();
+            assert_eq!(prio.len(), rows.len(), "seed {seed}: one byte per row");
+            for (r, &p) in rows.iter().zip(prio) {
+                if r.id > t.base.n {
+                    assert_eq!(p, 2, "seed {seed}: created #{}", r.id);
+                    created += 1;
+                    continue;
+                }
+                let want = base::ready_priority(r.id);
+                assert_eq!(
+                    p,
+                    want,
+                    "seed {seed}: #{} (deleted {})",
+                    r.id,
+                    r.node.deleted()
+                );
+                if r.node.deleted() && want != 0 && want != 2 {
+                    deleted += 1;
+                }
+                if !r.node.deleted() && want != 2 {
+                    kept += 1;
+                }
+            }
+        }
+        assert!(
+            kept > 0 && deleted > 0 && created > 0,
+            "kept {kept}, deleted {deleted}, created {created}"
+        );
+    }
+
+    /// The night's delta of `tail(200, 400, 1)` over its base, before `PRIO` (recorded on 4036cbf; annex E).
+    const NIGHT_DELTA_PRE: [(u16, u32, u64, u64); 33] = [
+        (0x0001, 212, 848, 0xe4e3_c1f9_a022_23fe),
+        (0x0002, 212, 12_720, 0x3b28_95a2_6a11_da57),
+        (0x0003, 212, 1_272, 0x4e8d_0746_f76d_05d1),
+        (0x0004, 212, 848, 0xf788_d291_b693_7a42),
+        (0x0005, 212, 848, 0xce2a_99d4_65f4_9083),
+        (0x0006, 212, 848, 0x28bd_ac54_d9ea_8885),
+        (0x0020, 213, 852, 0xb67d_c3f1_451b_9d6a),
+        (0x0021, 591, 2_364, 0x55a1_bfd3_c0fe_d6b6),
+        (0x0022, 591, 591, 0xcefd_fb5c_de46_f53f),
+        (0x0023, 213, 852, 0x980c_f165_72f1_4ca9),
+        (0x0024, 607, 2_428, 0x66e4_a43d_0b14_b2b0),
+        (0x0025, 607, 607, 0x86f4_589b_2e24_02b2),
+        (0x0040, 20, 88, 0xc1a6_584a_03f8_8669),
+        (0x8000, 26, 112, 0x1641_a3cf_9d8f_1e37),
+        (0x8001, 8, 40, 0xa70e_b94f_0f65_1997),
+        (0x8002, 5, 28, 0xf226_362f_9607_5956),
+        (0x8003, 9, 44, 0x89f6_e600_48b0_e290),
+        (0x8004, 36, 152, 0xeb96_a007_2786_9462),
+        (0x8005, 33, 140, 0x63dd_b087_f696_b9a8),
+        (0x8006, 42, 176, 0xb816_84c0_f5ab_7290),
+        (0x8007, 41, 172, 0xd743_b901_e0ef_4e1c),
+        (0x8008, 4, 24, 0x966b_f213_c287_27e5),
+        (0x8009, 1, 12, 0x84e2_e03f_939f_b210),
+        (0x800a, 2, 16, 0x4c08_2093_40c7_96ee),
+        (0x800b, 1, 12, 0x4f3b_464a_757f_5b18),
+        (0x800c, 2, 16, 0x1007_d814_1426_0614),
+        (0x800d, 1, 12, 0x2073_58c6_1e0e_7736),
+        (0x800e, 2, 16, 0xffa9_d9d0_eb0f_d9f2),
+        (0x800f, 2, 16, 0xb648_d6d8_4c5d_e49b),
+        (0x8010, 1, 12, 0x7abf_950d_bc65_d557),
+        (0x8011, 4, 24, 0x7e4a_300d_74dc_9cd0),
+        (0x8012, 2, 16, 0x6004_be62_bc09_f562),
+        (0x8013, 23, 100, 0x307f_d018_9fc1_890e),
+    ];
+
+    /// Ruling 8's derivation of the night-delta pin: the encoded fold of `tail(200, 400, 1)` over its base follows from
+    /// its pre-`PRIO` bytes ([`base::tests::follows_from_pre_prio`]): a created row's `PRIO` is 2 and every other
+    /// listed row's its base row's, the old byte 3 each.
+    #[test]
+    fn night_delta_bytes_follow_from_the_pre_prio_bytes() {
+        let t = tail(200, 400, 1);
+        let b = base_for(&t);
+        let c = Columns::parse(&b).unwrap();
+        let bytes = encode(&fold_of(&t, &c)).unwrap();
+        base::tests::follows_from_pre_prio(
+            "the night's delta",
+            &bytes,
+            &NIGHT_DELTA_PRE,
+            0x8541_8bea_82ad_4917,
+            0xef15_937d_159a_8b03,
+            212,
+        );
+    }
+
     /// The night's delta keeps its bytes (u21 cut §6, the identity gate's quick form): the XXH3-64 of [`encode`] of the
-    /// fold of the test tail `tail(200, 400, 1)` over its base, pinned at 8916d63, before the full delta wrapped
-    /// [`Fold`].
+    /// fold of the test tail `tail(200, 400, 1)` over its base. Pinned at 8916d63, before the full delta wrapped
+    /// [`Fold`]; re-pinned when `PRIO` moved `priority` out of byte 3 (R-66), with the new bytes derived from the old ones
+    /// by `night_delta_bytes_follow_from_the_pre_prio_bytes` (R-86 ruling 8).
     #[test]
     fn night_delta_bytes_are_unchanged() {
         let t = tail(200, 400, 1);
         let b = base_for(&t);
         let c = Columns::parse(&b).unwrap();
         let bytes = encode(&fold_of(&t, &c)).unwrap();
-        assert_eq!(xxhash_rust::xxh3::xxh3_64(&bytes), 0x8eef_cae3_302e_f545);
+        assert_eq!(xxhash_rust::xxh3::xxh3_64(&bytes), 0x4139_da21_1b45_710e);
     }
 }

@@ -1,5 +1,4 @@
-//! The frozen bitset ([F09 §4.5], `09-segments.md:288-317`) with its AND/popcount, and the ± list ([F09 §4.6],
-//! `:319-332`).
+//! The frozen bitset ([F09 §4.5]) with its AND/popcount, and the ± list ([F09 §4.6]).
 //!
 //! A frozen bitset splits the ids into chunks of 65,536 (`hi = #N >> 16`): an 8-byte header (`n_chunks`, reserved),
 //! a chunk index of 16-byte entries (`hi`, reserved, `card`, `off`) sorted by `hi`, then each chunk's container at the
@@ -10,15 +9,15 @@
 
 use super::{SECTION_ALIGN, u32_at};
 
-/// The bits of `#N` that select its chunk: `hi = #N >> 16` (`09-segments.md:290-291`).
+/// The bits of `#N` that select its chunk: `hi = #N >> 16` ([F09 §4.5]).
 pub const CHUNK_SHIFT: u32 = 16;
-/// The largest cardinality held as an array (`09-segments.md:312`).
+/// The largest cardinality held as an array ([F09 §4.5]).
 pub const ARRAY_MAX: u32 = 4_096;
-/// A bitmap container's length (`09-segments.md:313`).
+/// A bitmap container's length ([F09 §4.5]).
 pub const BITMAP_LEN: usize = 8_192;
-/// The frozen bitset's header (`09-segments.md:293-297`).
+/// The frozen bitset's header ([F09 §4.5]).
 pub const FROZEN_HDR_LEN: usize = 8;
-/// One chunk-index entry (`09-segments.md:301-307`).
+/// One chunk-index entry ([F09 §4.5]).
 pub const CHUNK_ENT_LEN: usize = 16;
 
 fn check_ids(ids: &[u32], what: &str) -> Result<(), String> {
@@ -238,7 +237,7 @@ pub fn and_popcount(a: &Frozen<'_>, b: &Frozen<'_>) -> u64 {
     n
 }
 
-/// Appends a ± list ([F09 §4.6], `09-segments.md:319-332`); returns `n_plus + n_minus`, its `SecEnt.count`. Refuses
+/// Appends a ± list ([F09 §4.6]); returns `n_plus + n_minus`, its `SecEnt.count`. Refuses
 /// unsorted, overlapping or 0 ids and an empty list, which is never written.
 pub fn encode_plus_minus(plus: &[u32], minus: &[u32], out: &mut Vec<u8>) -> Result<u32, String> {
     check_ids(plus, "a ± list's plus")?;
@@ -300,7 +299,7 @@ pub(crate) mod tests {
         len
     }
 
-    /// Container by `card` alone (`09-segments.md:312-315`): 4,096 ids in chunk 0 are an array, 4,097 in chunk 1 a
+    /// Container by `card` alone ([F09 §4.5]): 4,096 ids in chunk 0 are an array, 4,097 in chunk 1 a
     /// bitmap, 1 id in chunk 3 an array, each at the next multiple of 8 relative to the section; the index carries
     /// `hi`, `card` and `off`; the count is the total; members read back; 0 and unsorted ids are refused.
     #[test]

@@ -13,13 +13,13 @@ use moirai_vfs::{Classification, ClassifyDepth, RelPath, RootRole, SyncKind, Vfs
 use std::collections::BTreeSet;
 use std::path::{Path, PathBuf};
 
-/// P06 `store.checkpoint.ops` at its design figure, 4,096 (`docs/spec/format/17-store-parameters.md:171`): a generation
+/// P06 `store.checkpoint.ops` at its design figure, 4,096 ([F17 §3]): a generation
 /// retires once it holds this many commits.
 pub const GEN_COMMITS: u64 = 4_096;
-/// P07 `store.checkpoint.bytes` at its design figure, 4 MiB (`17-store-parameters.md:172`): a generation retires once
-/// its fillers reach this many bytes. The CLI checkpoints at P13 = 2 times the figures (`:329`), so a CLI-only store's
-/// tail can reach twice this; the design figure is the lower bound, and the replay a probe's open makes stays within
-/// what a product open replays after a checkpoint.
+/// P07 `store.checkpoint.bytes` at its design figure, 4 MiB ([F17 §3]): a generation retires once its fillers reach
+/// this many bytes. The CLI checkpoints at P13 = 2 times the figures ([F17 §5.2]), so a CLI-only store's tail can
+/// reach twice this; the design figure is the lower bound, and the replay a probe's open makes stays within what a
+/// product open replays after a checkpoint.
 pub const GEN_BYTES: u64 = 4 << 20;
 
 /// The toy's configuration of one CLI commit: [`Config::production`] with measurement 2's injected in-lock cost
