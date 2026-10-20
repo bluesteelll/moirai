@@ -951,6 +951,220 @@ fn a_new_one_live_delete_versus_modify_under_resurrect_keeps_rs008s_state() {
     );
 }
 
+/// The tombstone value of a task deleted for the reason `gone`.
+fn gone() -> KVal {
+    KVal::Deleted {
+        kind: "task".into(),
+        reason: Some("gone".into()),
+        replaced_by: None,
+    }
+}
+
+/// #1's node image on a state.
+fn img(st: &State) -> Image {
+    canon::node_image(&Schema::default(), &st.nodes[&Nid(1)])
+}
+
+/// A `DeleteVsModify` value of #1 over a live base: ours live and theirs `gone` when `ours_live`, else the reverse.
+fn dvm(ours_live: bool, prov: Side, images: [Option<Image>; 3]) -> Conflict {
+    let (ours, theirs) = if ours_live {
+        (Some(KVal::Live("task".into())), Some(gone()))
+    } else {
+        (Some(gone()), Some(KVal::Live("task".into())))
+    };
+    Conflict {
+        class: "DeleteVsModify".into(),
+        base: Some(KVal::Live("task".into())),
+        ours,
+        theirs,
+        prov: Some(prov),
+        images,
+    }
+}
+
+/// Sets #1's existence key on a state to a conflict value.
+fn hold(st: &mut State, c: Conflict) {
+    st.nodes
+        .get_mut(&Nid(1))
+        .unwrap()
+        .conflicts
+        .insert(Aspect::Existence, c);
+}
+
+/// A real merge under `merge.policy.task` = `side`.
+fn run_auto(b: &State, o: &State, t: &State, side: &str) -> Merged {
+    let auto: BTreeMap<String, String> = [("task".to_string(), side.to_string())]
+        .into_iter()
+        .collect();
+    merge(b, o, t, &ctx(&auto, Op::Merge), &mut Fresh::default())
+}
+
+/// The row that decided #1's existence key.
+fn existence_row(m: &Merged) -> Option<&str> {
+    m.rows
+        .get(&Key::Node(Nid(1), Aspect::Existence))
+        .map(String::as_str)
+}
+
+/// An automatic side's existence value whose flat sides are one live and one deleted ([RULES/merge-table] PR-007,
+/// AP-002; RS-007's scope): the node is taken whole from that side, live with its keys, and counts as a node an
+/// existence policy fixed. b's #1 holds a priority; o holds #1 with its own `DeleteVsModify` value provisional on the
+/// live side, retitled, its priority untouched; t deletes #1. Under `ours` MR-005 takes o's value: #1 is o's node,
+/// title and priority included, where a key-by-key merge would take the tombstone's `absent` priority.
+#[test]
+fn an_automatic_ours_keeps_its_live_conflicted_node_whole_against_a_deleted_side() {
+    let mut b = base();
+    apply(&mut b, &[Edit::Priority(1, 1)]);
+    let mut o = b.clone();
+    apply(&mut o, &[Edit::Title(1, 2)]);
+    let held = dvm(true, Side::Ours, [Some(img(&b)), Some(img(&o)), None]);
+    hold(&mut o, held.clone());
+    let mut t = b.clone();
+    apply(&mut t, &[Edit::Delete(1)]);
+    let m = run_auto(&b, &o, &t, "ours");
+    assert_eq!(existence_row(&m), Some("MR-005+AP-002"));
+    let x = &m.st.nodes[&Nid(1)];
+    assert!(x.live());
+    assert_eq!(x.text("title"), Some("title 2"));
+    assert_eq!(
+        x.fields.get("priority"),
+        Some(&Value::Enum("P1".into())),
+        "taken whole from the automatic side, live with its keys"
+    );
+    assert_eq!(x.conflicts.get(&Aspect::Existence), Some(&held));
+    assert!(m.conflicts.is_empty());
+}
+
+/// As the case above with o's value provisional on `theirs` ([RULES/merge-table] PR-007, AP-002; RS-007's scope): the
+/// node is taken whole from the automatic side, not from the side the value's `prov` names, so #1 is o's live node.
+#[test]
+fn an_automatic_ours_keeps_its_node_whole_when_its_values_prov_names_theirs() {
+    let mut b = base();
+    apply(&mut b, &[Edit::Priority(1, 1)]);
+    let mut o = b.clone();
+    apply(&mut o, &[Edit::Title(1, 2)]);
+    let held = dvm(false, Side::Theirs, [Some(img(&b)), None, Some(img(&o))]);
+    hold(&mut o, held.clone());
+    let mut t = b.clone();
+    apply(&mut t, &[Edit::Delete(1)]);
+    let m = run_auto(&b, &o, &t, "ours");
+    assert_eq!(existence_row(&m), Some("MR-005+AP-002"));
+    let x = &m.st.nodes[&Nid(1)];
+    assert!(x.live());
+    assert_eq!(x.text("title"), Some("title 2"));
+    assert_eq!(x.fields.get("priority"), Some(&Value::Enum("P1".into())));
+    assert_eq!(x.conflicts.get(&Aspect::Existence), Some(&held));
+}
+
+/// An automatic `theirs` over flat sides one live and one deleted ([RULES/merge-table] PR-007, AP-003; RS-007's
+/// scope): o holds #1 retitled with a `DeleteVsModify` value provisional on the live side, t deletes #1. MR-005 takes
+/// t's plain tombstone, and the node is t's tombstone whole: its title is t's `t1`, where a tombstone merge would take
+/// o's retitle.
+#[test]
+fn an_automatic_theirs_keeps_its_tombstone_whole_against_a_live_conflicted_side() {
+    let mut b = base();
+    apply(&mut b, &[Edit::Priority(1, 1)]);
+    let mut o = b.clone();
+    apply(&mut o, &[Edit::Title(1, 2)]);
+    let held = dvm(true, Side::Ours, [Some(img(&b)), Some(img(&o)), None]);
+    hold(&mut o, held);
+    let mut t = b.clone();
+    apply(&mut t, &[Edit::Delete(1)]);
+    let m = run_auto(&b, &o, &t, "theirs");
+    assert_eq!(existence_row(&m), Some("MR-005+AP-003"));
+    let x = &m.st.nodes[&Nid(1)];
+    assert!(!x.live());
+    assert_eq!(x.text("title"), Some("t1"), "t's tombstone whole");
+    assert!(!x.conflicts.contains_key(&Aspect::Existence));
+    assert!(m.conflicts.is_empty());
+}
+
+/// An automatic `ours` whose side holds a `DeleteVsModify` value provisionally deleted, against a live side
+/// ([RULES/merge-table] PR-007, AP-002; RS-007's scope): o deleted #1 and holds such a value, its title left at b's;
+/// t retitled #1 and holds its own value provisional on the live side, so its existence changed since b too. The node
+/// is o's tombstone whole, with o's value: its title stays `t1`, where a tombstone merge would take t's retitle.
+#[test]
+fn an_automatic_ours_keeps_its_deleted_conflicted_node_whole_against_a_live_side() {
+    let b = base();
+    let mut o = b.clone();
+    apply(&mut o, &[Edit::Delete(1)]);
+    let held = dvm(true, Side::Theirs, [Some(img(&b)), Some(img(&b)), None]);
+    hold(&mut o, held.clone());
+    let mut t = b.clone();
+    apply(&mut t, &[Edit::Title(1, 3)]);
+    let other = dvm(true, Side::Ours, [Some(img(&b)), Some(img(&t)), None]);
+    hold(&mut t, other);
+    let m = run_auto(&b, &o, &t, "ours");
+    assert_eq!(existence_row(&m), Some("MR-005+AP-002"));
+    let x = &m.st.nodes[&Nid(1)];
+    assert!(!x.live());
+    assert_eq!(x.text("title"), Some("t1"), "o's tombstone whole");
+    assert_eq!(x.conflicts.get(&Aspect::Existence), Some(&held));
+}
+
+/// An automatic `ours` whose side resolved a conflicted base live, against a side whose value is provisionally deleted
+/// ([RULES/merge-table] MR-002, PR-007, AP-002; RS-007's scope): b's #1 holds a priority and a `DeleteVsModify` value
+/// provisional on the live side; o resolved it, plain live; t deleted #1 and holds the value provisional on the deleted
+/// side. The node is o's whole: it keeps b's priority, where a key-by-key merge would take the tombstone's `absent`.
+#[test]
+fn an_automatic_ours_keeps_its_plain_live_node_whole_against_a_deleted_conflicted_side() {
+    let mut b = base();
+    apply(&mut b, &[Edit::Priority(1, 1)]);
+    let base_value = dvm(true, Side::Ours, [Some(img(&b)), Some(img(&b)), None]);
+    let o = b.clone();
+    hold(&mut b, base_value.clone());
+    let mut t = b.clone();
+    apply(&mut t, &[Edit::Delete(1)]);
+    hold(
+        &mut t,
+        Conflict {
+            prov: Some(Side::Theirs),
+            ..base_value
+        },
+    );
+    let m = run_auto(&b, &o, &t, "ours");
+    assert_eq!(existence_row(&m), Some("MR-002+AP-002"));
+    let x = &m.st.nodes[&Nid(1)];
+    assert!(x.live());
+    assert_eq!(
+        x.fields.get("priority"),
+        Some(&Value::Enum("P1".into())),
+        "taken whole from the automatic side, live with its keys"
+    );
+    assert!(!x.conflicts.contains_key(&Aspect::Existence));
+}
+
+/// MR-042 under an automatic side ([RULES/merge-table] MR-042, PR-007, AP-002, AP-003): the value that side takes fixes
+/// the node, which takes that side's state whole. b's #1 holds a priority; one side retitles #1, the other deletes it.
+/// With the automatic side on the retitling side, #1 is that side's node and keeps the priority, where a key-by-key
+/// merge would take the tombstone's `absent`.
+#[test]
+fn an_automatic_side_keeps_the_modified_node_whole_over_a_delete_versus_modify() {
+    let mut b = base();
+    apply(&mut b, &[Edit::Priority(1, 1)]);
+    let mut edited = b.clone();
+    apply(&mut edited, &[Edit::Title(1, 1)]);
+    let mut deleted = b.clone();
+    apply(&mut deleted, &[Edit::Delete(1)]);
+    for (o, t, side, row) in [
+        (&edited, &deleted, "ours", "MR-042+AP-002"),
+        (&deleted, &edited, "theirs", "MR-042+AP-003"),
+    ] {
+        let m = run_auto(&b, o, t, side);
+        assert_eq!(existence_row(&m), Some(row));
+        let x = &m.st.nodes[&Nid(1)];
+        assert!(x.live(), "{side}");
+        assert_eq!(x.text("title"), Some("title 1"), "{side}");
+        assert_eq!(
+            x.fields.get("priority"),
+            Some(&Value::Enum("P1".into())),
+            "{side}: the side's state whole"
+        );
+        assert!(!x.conflicts.contains_key(&Aspect::Existence), "{side}");
+        assert!(m.conflicts.is_empty(), "{side}");
+    }
+}
+
 /// b, o and t of a dropped-body case: #1, a task, holds a `text` body key and #6, a `doc` section, a `section-text`
 /// one ([RULES/merge-table] MR-032, MR-038). Each side's body of both nodes is `side(i, base)`.
 fn dropped_body_states(side: impl Fn(usize, &str) -> Body) -> [State; 3] {
