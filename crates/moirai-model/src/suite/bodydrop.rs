@@ -1019,3 +1019,27 @@ fn search_reads_a_dropped_body_as_no_text() {
         "the score of a node without a body"
     );
 }
+
+/// [F08 §10.4] with [F06 §8.1] DB-6 (WR-013): a write that recomputes a node's mentions reads its dropped body as no
+/// text, so a title write drops the `mentions` edges only the dropped body named.
+#[test]
+fn a_title_write_drops_the_mentions_of_a_dropped_body() {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task("a", "task a"),
+            task_with_body("b", "task b", "see #1"),
+        ]),
+        orch(),
+    );
+    let mentions = |s: &S| {
+        tip_state(s, "main").nodes[&Nid(2)]
+            .out
+            .keys()
+            .any(|k| k.kind == "mentions" && k.dst == Nid(1))
+    };
+    assert!(mentions(&s), "the body names #1");
+    s.ok(drop_owner(&[hb("see #1")]), on(None));
+    s.ok(tx(vec![set(2, &[("title", t("plain"))])]), on(None));
+    assert!(!mentions(&s), "a dropped body names nothing");
+}

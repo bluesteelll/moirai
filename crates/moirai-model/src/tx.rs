@@ -3947,6 +3947,7 @@ impl<'a> Cand<'a> {
             return;
         }
         let next_id = self.next_id;
+        let (dropped, reasons) = (self.cx.dropped, self.cx.drop_reasons);
         let texts = |x: &Node| -> String {
             let mut t = String::new();
             for f in ["title", "abstract"] {
@@ -3955,8 +3956,11 @@ impl<'a> Cand<'a> {
                     t.push('\n');
                 }
             }
-            if let Some(b) = &x.body {
-                // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+            // A dropped body is no text ([F06 §8.1] DB-6); a body known only by its hash, which only the fixture
+            // parser makes, would reach Body::text's unreachable arm (BODY_DROP).
+            if let Some(b) = &x.body
+                && crate::bodydrop::dropped_as(dropped, reasons, b).is_none()
+            {
                 t.push_str(b.text());
             }
             t
