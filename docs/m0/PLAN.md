@@ -669,6 +669,9 @@ options everywhere"). This block is the plan issue that records them; the PLAN r
   the absolute acceptance on a widened oracle. Wave 3e applies it: R-MODEL prototypes the hint, `--strict` and the
   reparent rule in K2 and widens the harness, makes K2 the model's rule and removes the replay machinery; R-MODEL,
   R-SPEC-F and WP-81a rewrite the texts the decision names; a spec arbiter re-runs the widened harness.
+  Outcome (wave 3e, `docs/spec/reviews/wave-3e-arbiter-s.md`, 2026-10-20): the acceptance is met at the nightly and exit
+  tiers, every asserted count 0 on all nine generators; K4 is not needed; the arbiter's text findings go to their
+  owners. 13.4 (a) is read by state (the owner's ruling of 2026-10-12, R-20).
 - **Next steps.** The owner runs a memory test before wave 3b: the host had about ten blue screens from 2026-08-17 to
   2026-09-30 with varied codes, the pattern of faulty RAM or an unstable XMP/EXPO profile. Wave 3b follows. (The owner
   declined the memory test the same day; wave 3b ran and was merged.)
