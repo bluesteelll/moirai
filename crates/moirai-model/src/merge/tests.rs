@@ -1165,6 +1165,69 @@ fn an_automatic_side_keeps_the_modified_node_whole_over_a_delete_versus_modify()
     }
 }
 
+/// An automatic side's plain live value over two live flat sides ([RULES/merge-table] MR-002, PR-007, AP-002;
+/// [F12 §6.3]): b's #1 holds a priority and a `DeleteVsModify` value provisional on the live side; o resolved it, plain
+/// live; t set another priority and holds another value provisional on the live side. MR-002 takes o's value, which
+/// fixes none of #1's other keys: they merge key by key, so t's one-sided priority lands.
+#[test]
+fn an_automatic_ours_plain_live_value_over_a_live_conflicted_side_merges_key_by_key() {
+    let mut b = base();
+    apply(&mut b, &[Edit::Priority(1, 1)]);
+    let base_value = dvm(true, Side::Ours, [Some(img(&b)), Some(img(&b)), None]);
+    let o = b.clone();
+    hold(&mut b, base_value.clone());
+    let mut t = b.clone();
+    apply(&mut t, &[Edit::Priority(1, 3)]);
+    let mut images = base_value.images.clone();
+    images[1] = Some(img(&t));
+    hold(
+        &mut t,
+        Conflict {
+            images,
+            ..base_value
+        },
+    );
+    let m = run_auto(&b, &o, &t, "ours");
+    assert_eq!(existence_row(&m), Some("MR-002+AP-002"));
+    let x = &m.st.nodes[&Nid(1)];
+    assert!(x.live());
+    assert_eq!(
+        x.fields.get("priority"),
+        Some(&Value::Enum("P3".into())),
+        "theirs' one-sided priority lands"
+    );
+    assert!(!x.conflicts.contains_key(&Aspect::Existence));
+}
+
+/// An automatic side's plain tombstone over two deleted flat sides ([RULES/merge-table] MR-005, PR-007, AP-002;
+/// [F12 §6.3]; [AR §3.4] I39′): o deleted #1; t retitled #1, then deleted it, and holds a `DeleteVsModify` value
+/// provisional on the deleted side. MR-005 takes o's tombstone, which fixes none of #1's other keys: the tombstone
+/// merges key by key, so t's one-sided retitle lands.
+#[test]
+fn an_automatic_ours_plain_tombstone_over_a_deleted_conflicted_side_merges_the_tombstone() {
+    let b = base();
+    let mut o = b.clone();
+    apply(&mut o, &[Edit::Delete(1)]);
+    let mut t = b.clone();
+    apply(&mut t, &[Edit::Title(1, 9)]);
+    let retitled = img(&t);
+    apply(&mut t, &[Edit::Delete(1)]);
+    hold(
+        &mut t,
+        dvm(true, Side::Theirs, [Some(img(&b)), Some(retitled), None]),
+    );
+    let m = run_auto(&b, &o, &t, "ours");
+    assert_eq!(existence_row(&m), Some("MR-005+AP-002"));
+    let x = &m.st.nodes[&Nid(1)];
+    assert!(!x.live());
+    assert_eq!(
+        x.text("title"),
+        Some("title 9"),
+        "the tombstone's title merges key by key"
+    );
+    assert!(!x.conflicts.contains_key(&Aspect::Existence));
+}
+
 /// b, o and t of a dropped-body case: #1, a task, holds a `text` body key and #6, a `doc` section, a `section-text`
 /// one ([RULES/merge-table] MR-032, MR-038). Each side's body of both nodes is `side(i, base)`.
 fn dropped_body_states(side: impl Fn(usize, &str) -> Body) -> [State; 3] {
