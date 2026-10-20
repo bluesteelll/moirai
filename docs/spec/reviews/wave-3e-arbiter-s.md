@@ -135,7 +135,7 @@ gate result (all at f71c6b1).
 
 | Row | Text | Verdict | Evidence and notes |
 |---|---|---|---|
-| TX-1 | MT RS-007 | MEETS | Every sentence checked: scope, **Values**, **Three-way**, 13.5 (b), MR-040's tie, **Origin** (the revert and cherry-pick case, the virtual case, F2), **Cycle repair** (the participants, step (1)'s tie-breaks in their order, step (2)'s order and the dead-parent preference), the hint and strict, **Guarantees**. Its scope has two exceptions it does not state: W3E-ARB-S-1, W3E-ARB-S-2 |
+| TX-1 | MT RS-007 | MISSES | Its scope, "a node live in the result with no existence policy", has two exceptions it does not state: W3E-ARB-S-1, W3E-ARB-S-2 (as TX-2). Every other sentence meets: **Values**, **Three-way**, 13.5 (b), MR-040's tie, **Origin** (the revert and cherry-pick case, the virtual case, F2), **Cycle repair** (the participants, step (1)'s tie-breaks in their order, step (2)'s order and the dead-parent preference), the hint and strict, **Guarantees** |
 | TX-2 | MT RS-010 and PR-007 | MISSES | W3E-ARB-S-1, W3E-ARB-S-2 |
 | TX-3 | MT MR-039 | MEETS | |
 | TX-4 | MT MR-040 | MEETS | |
@@ -176,7 +176,7 @@ gate result (all at f71c6b1).
 
 | Row | Check | Verdict | Evidence |
 |---|---|---|---|
-| SC-1 | Who decides the hierarchy key of a node whose existence key holds a conflict value a `conflicted-key` row gave: RS-007 when the provisional value is live (RS-007's "no existence policy"; [F12 §6.3] "The node's other keys"; PR-007; the owner's ruling R-43 of 2026-10-13, OI-1g), RS-008's provisional state for a new one-live `DeleteVsModify` | MEETS, with two cases outside the texts | The texts and the model agree for every case they name; the two they do not name are W3E-ARB-S-1 and W3E-ARB-S-2 |
+| SC-1 | Who decides the hierarchy key of a node whose existence key holds a conflict value a `conflicted-key` row gave: RS-007 when the provisional value is live (RS-007's "no existence policy"; [F12 §6.3] "The node's other keys"; PR-007; the owner's ruling R-43 of 2026-10-13, OI-1g), RS-008's provisional state for a new one-live `DeleteVsModify` | MISSES | The texts and the model agree for every case they name; RS-007's scope and PR-007 do not name two cases: W3E-ARB-S-1 and W3E-ARB-S-2 (as TX-1 and TX-2) |
 | SC-2 | The oracle's IF-1 handling still judges such a node | MEETS | `suite::rs007eval::rs007_eval_judges_a_conflicted_key_row_task_and_fixes_a_kept_case_task` ok; the corpus cases SF2B-TAKEN, SF2B-SHORTCUT and FIXED-COPY pass inside the acceptance at both tiers; ckr_one_sided non-zero (AC-16) |
 | SC-3 | Where the oracle's "fixed" and the model's fixed node differ: (i) an automatic side | finding | W3E-ARB-S-1 |
 | SC-4 | (ii) a one-live `DeleteVsModify` equal to a side's value | finding | W3E-ARB-S-7 |
@@ -191,7 +191,7 @@ Each is another review's claim, checked as a claim.
 |---|---|---|---|
 | RT-1 | PR-007 and RS-010 do not except the automatic sides AP-002 and AP-003, which the model fixes | MISSES | W3E-ARB-S-1 (as TX-2) |
 | RT-2 | RK-008 does not state the refusal at the last `#N` for a preview or a dry run | MISSES | W3E-ARB-S-3. [API §9.6]'s same gap is already in R-SPEC-F's queue: recorded, not re-raised |
-| RT-3 | The harness's fixed-node test can disagree with the model's, and "no verdict changes" | the claim MEETS; finding | No verdict changes: in a one-live value the dead side's key is `absent`, so the allowed values fall back to the live side's, which a live fixed result copied. The disagreement itself: W3E-ARB-S-7 |
+| RT-3 | The harness's fixed-node test can disagree with the model's, and "no verdict changes" | the claim MEETS; finding | No verdict changes: checked by reading, without a probe (PLAUSIBLE, as W3E-ARB-S-7). The disagreement itself: W3E-ARB-S-7 |
 | RT-4 | [API §9.6] item 2 for `merge --continue`: every `#N` the reply reports is the `#N` the node lands with | MEETS | The text states it for every merge-family reply, and the model renders the continue's reply so. No test fails if it did not: W3E-ARB-S-6 |
 | RT-5 | [F05 §9.5] "Entry order" and [F13 §4] MC-6, re-checked independently | MEETS | Ascending `#N`, a leaving entry before a joining one; ME-005's and ME-011's entries by identity over both sections; `suite::gt18::a_branch_deletion_clears_in_identity_order_whichever_section_holds_them`, `suite::gt18::a_branch_deletion_clears_three_markers_in_identity_order_across_both_sections` and `suite::gt18::a_commit_flags_nonlinear_markers_in_identity_order_whichever_section_holds_them` ok |
 | RT-6 | RS-007, VA-004, VA-005 and XB-004 on a two-sided key both of whose values have a deleted parent | MEETS | The dead-parent preference needs the other value's parent live or none, so the three-way value stays and VA-004 stages it; `merge::tests::a_two_sided_key_with_both_values_under_deleted_parents_stages_outside_strict` ok |
@@ -314,8 +314,9 @@ line for OQ-A-13.
   checked for presence, order, form, the tier's histories, the tier word and the 11 counts; the nightly's against a
   fresh nightly reference at the same commit, equal byte for byte; own seeds' first line, `histories` rows (600 per
   generator, 5,400 in all) and eight counts.
-- Test outcomes: the full gate (`cargo xtask gate --branch m0/r-rev-s`) at f71c6b1, 2,811 test ids, 2,805 ok and 6
-  ignored; each test this report names is `ok` there.
+- Test outcomes: the full gate (`cargo xtask gate --branch m0/r-rev-s`) at f71c6b1, 2,812 tests, 2,806 ok and 6
+  ignored (the sum of its `test result:` lines); each test this report names is `ok` there, except
+  `suite::rs007eval::rs007_eval_report`, which the gate ignores (`generator`) and the own-seeds run of §1 ran `ok`.
 - Each text of §2.3 read against the model's merge, its validators, its origin walk, its virtual base, its continue
   and its markers at f71c6b1; each closing commit of §2.6 read with `git show --stat`.
 - No probe, no mutation and no edit outside this file.
