@@ -474,3 +474,44 @@ fn the_target_state_clause_holds_for_each_citing_kind() {
         }
     }
 }
+
+/// [F17 §8.2]'s model function over a write commit's first parent and the commit equals the `affected` and
+/// `affected_complete` the write stored: for a commit that adds a pinned edge, which changes no `P_F15` value, and for
+/// one that supersedes the target, which makes the citer suspect. Neither commit deletes or restores a node, so no
+/// notified node joins `affected`.
+#[test]
+fn affected_with_budget_equals_the_stored_affected_of_a_write() {
+    let (mut s, n, m) = citer_and_target();
+    let c1 = s
+        .ok(
+            tx(vec![pin_link(n, "cites", m, Some("main"))]),
+            fresh("main"),
+        )
+        .commit
+        .expect("the link commits");
+    let c2 = s
+        .ok(tx(supersede("note", "the successor", m)), fresh("main"))
+        .commit
+        .expect("the supersede commits");
+    assert!(
+        s.st.dag.commits[&c2].affected.contains(&n),
+        "the superseded target makes the citer suspect, so the comparison is not vacuous"
+    );
+    for c in [c1, c2] {
+        let x = &s.st.dag.commits[&c];
+        let parent = s.st.dag.state_at(Some(x.parents[0]), &s.st.alloc);
+        let child = s.st.dag.state_at(Some(c), &s.st.alloc);
+        let (affected, complete) =
+            crate::derived::affected_with_budget(&parent, &child, s.st.cfg.suspect_budget);
+        assert_eq!(
+            (
+                affected
+                    .into_iter()
+                    .collect::<std::collections::BTreeSet<Nid>>(),
+                complete
+            ),
+            (x.affected.iter().copied().collect(), x.affected_complete),
+            "commit s{c}"
+        );
+    }
+}
