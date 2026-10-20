@@ -1635,8 +1635,10 @@ lengths ([F20 §7]); whether a writer writes `DOCLEN` ([F09]).
     write ([RULES/status-machines] open point 23). **`topo`** validity replaces equality in I9 (§3.4), because
     Pearce–Kelly's order is one valid order among many.
 30. **`suspect`** ([RULES/delete-policy-matrix] open point 10): [AR §2.5] speaks of a transitive closure, [AR §3.5]
-    defines a one-hop predicate. This chapter stores the flag; the definition is [F13]'s (F15), and the proposal is
-    [AR §3.5]'s one-hop definition, reading "closure" as the set of direct referrers of every changed target.
+    defines a one-hop predicate. This chapter stores the flag; the definition is [F13 §6.2]'s (F15), [AR §3.5]'s
+    one-hop predicate without the pinned clause that the owner's ruling R-90 of 2026-10-19 drops, so an edit of a
+    target's content flags no referrer; "closure" is read as the set of referrers whose single-hop value a commit
+    changes, the set [F17 §8.2] budgets, a reading the owner signed on 2026-09-28 (OQ-P-1 (a)).
 31. **`consumed` carries `pinned_commit`** ([AR §7.4] step 5, `--record-run`), although [AR §3.3] and [50 §2.5] list
     the property only for `cites`, `implements` and `derived_from`.
 32. **Added enumeration values**: `f_kind = deviation` ([AR §7.3] "deviation findings"; [RULES/role-write-policy] open
