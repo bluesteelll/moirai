@@ -450,10 +450,12 @@ impl<'a> Ev<'a> {
             "resolution" => self.enum_v(&x.kind, "resolution", &x.resolution),
             "parent" => x.parent.map_or(V::Absent, V::Node),
             "order" => x.order.clone().map_or(V::Absent, V::Text),
-            // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+            // A dropped body reads as absent ([F06 §8.1] DB-6); a body known only by its hash, which only the fixture
+            // parser makes, would reach Body::text's unreachable arm (BODY_DROP).
             "body" => x
                 .body
                 .as_ref()
+                .filter(|b| self.w.store.dropped_as(b).is_none())
                 .map_or(V::Absent, |b| V::Text(b.text().to_string())),
             "created" => rev(self.local(n).1),
             "created_at" => self.commit_ms(self.local(n).1).map_or(V::Absent, V::Time),

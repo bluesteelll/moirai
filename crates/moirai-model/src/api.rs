@@ -4,7 +4,7 @@
 //! data of [API §3] (the model has no JSON code, [PLAN §3.2] item 9).
 //!
 //! The commands of this module are groups E (`EnvClock`, `EnvSlots`, `EnvCrash`), S (`Init`, `ConfigSet`,
-//! `ConfigUnset` in [`crate::confcmd`], `Quiet`, `Maintain`, `Gc` in [`crate::gc`]), G (`Tx` in its data-level form,
+//! `ConfigUnset` in [`crate::confcmd`], `Quiet`, `Maintain`, `Gc` in [`crate::gc`], `BodyDrop` in [`crate::bodydrop`]), G (`Tx` in its data-level form,
 //! `Mutation`, `Schema`, `Apply` in [`crate::apply`]), C (`Claim`, `Heartbeat`, `Release`, `Reclaim`, `Complete`,
 //! `RunOpen`, `RunClose`), the ref commands `BranchCreate`, `BranchDelete`, `Checkout`, `WorktreeBind` and
 //! `WorktreeUnbind` ([`crate::heads`]), and O (`State`, `Runtime`, `History`). Every commit and ref move feeds the
@@ -547,6 +547,18 @@ pub enum Cmd {
         /// `force`.
         force: bool,
     },
+    /// `BodyDrop` ([API §8.7]; [`crate::bodydrop`]).
+    BodyDrop {
+        /// `hashes`: the BLAKE3-128 hashes of the bodies to drop, as given (32 lower-case hexadecimal digits each).
+        hashes: Vec<String>,
+        /// `reason`: `secret`, `private` or `other`.
+        reason: String,
+        /// `note`: 0 to 200 bytes.
+        note: String,
+        /// The owner attestation: `--by owner` of the CLI verb ([RULES/role-write-policy] WT-012); absent is not
+        /// attested.
+        by: Option<String>,
+    },
     /// `FileAdd` ([API §12.2]).
     FileAdd {
         /// `paths`.
@@ -814,6 +826,8 @@ pub struct RuntimeSnap {
     pub alloc: Vec<(Nid, Uid, String, u64)>,
     /// `intents`: every intent of the last `gc.trash-expire` window, open ones always, in the order opened.
     pub intents: Vec<crate::links::IntentRow>,
+    /// `dropped`: every dropped body with its reason, by hash ([F06 §8.1]).
+    pub dropped: Vec<([u8; 16], crate::bodydrop::DropReason)>,
     /// The quiet flag.
     pub quiet: bool,
 }
@@ -868,6 +882,8 @@ pub enum Data {
     LaneClose(Nid, String, Option<String>),
     /// `Gc`: reachable commits, commits that stopped resolving.
     Gc(u64, u64),
+    /// `BodyDrop`.
+    BodyDrop(Box<crate::bodydrop::BodyDropData>),
     /// `Apply`.
     Apply(Box<crate::apply::ApplyData>),
     /// `State`.
@@ -1054,8 +1070,11 @@ pub struct Store {
     /// The commits a `Gc` dropped: they stop resolving ([API §8.5]).
     pub pruned: BTreeSet<u64>,
     /// The store's set of dropped bodies, by body hash ([F06 §8.1] DB-1), which every merge reads
-    /// ([`crate::merge::Ctx::dropped`]): filled by no command before `BodyDrop`, so empty.
+    /// ([`crate::merge::Ctx::dropped`]) and every reader of a body consults (DB-6); `BodyDrop` fills it
+    /// ([`crate::bodydrop`]).
     pub dropped: BTreeSet<[u8; 16]>,
+    /// The reason of each hash of [`Store::dropped`] ([F06 §8.1] DB-2), with the same keys: `BodyDrop` writes both.
+    pub drop_reasons: BTreeMap<[u8; 16], crate::bodydrop::DropReason>,
     /// The refs some of whose moves a `Gc` run no longer holds, with the newest move dropped ([F12 §3.5]; [API §11.11]
     /// `OpRestore`'s second E301).
     pub(crate) moves_dropped: BTreeMap<u32, crate::dag::RefMove>,
@@ -1187,6 +1206,7 @@ impl Store {
             heads: Heads::default(),
             pruned: BTreeSet::new(),
             dropped: BTreeSet::new(),
+            drop_reasons: BTreeMap::new(),
             moves_dropped: BTreeMap::new(),
             idem: idem::Table::default(),
             hlc: Hlc::default(),
@@ -1348,6 +1368,12 @@ impl Store {
                 // Class I: the model executes nothing ([API §8.4]).
                 Ok(Reply::ok(Data::Maintain(op.clone(), false)))
             }
+            Cmd::BodyDrop {
+                hashes,
+                reason,
+                note,
+                by,
+            } => self.body_drop(hashes, reason, note, by.as_deref(), ctx),
             Cmd::Mutation {
                 name,
                 params,
@@ -3019,6 +3045,8 @@ impl Store {
                     .is_some_and(|m| m.thread_id.is_some() && m.thread_id != m.session_id)
                 || Self::env_var(ctx, "MOIRAI_LEASE").is_some()
                 || Self::env_var(ctx, "MOIRAI_RUN").is_some(),
+            dropped: &self.dropped,
+            drop_reasons: &self.drop_reasons,
         };
         let mut cand = Cand::new(cx, base.clone(), self.leases.clone());
         cand.door = exp.and_then(|(_, e, _)| e.door);
@@ -4792,6 +4820,7 @@ impl Store {
                 .map(|(n, (u, _, r, s))| (*n, *u, r.clone(), *s))
                 .collect(),
             intents: self.listed_intents(),
+            dropped: self.drop_reasons.iter().map(|(h, r)| (*h, *r)).collect(),
             quiet: self.quiet,
         }
     }

@@ -302,11 +302,12 @@ pub(crate) fn newest_staged(dag: &Dag, g: u32) -> Option<u64> {
 /// as a `Resolve` on a violation's key reads it ([F06 §7.7]; [F12 §6.5]): `side` 0 is the base (for a merge or sync
 /// the `--base` its `stage` group records ([F06 §4.4.16]), else the base of §4.3 for (D₀, P₂); for a revert or
 /// cherry-pick its DM row's), 1 ours (the state of D₀), 2 theirs (the state of P₂, or the revert's or cherry-pick's
-/// src, [`pick_states`]).
+/// src, [`pick_states`]). A virtual base reads the store's `dropped` set, as the merge's own does ([F12 §5.6]).
 pub(crate) fn staged_side(
     dag: &Dag,
     alloc: &dyn Alloc,
     uidx: &BTreeMap<Uid, Nid>,
+    dropped: &BTreeSet<[u8; 16]>,
     s: u64,
     side: usize,
 ) -> Rc<State> {
@@ -324,7 +325,9 @@ pub(crate) fn staged_side(
             let forced = c.stage.as_ref().and_then(|g| g.base);
             let uid = |n: Nid| alloc.uid(n);
             let nid = |u: Uid| uidx.get(&u).copied();
-            Bases::new(dag, alloc, &uid, &nid).base(d0, p2, forced).st
+            let mut bases = Bases::new(dag, alloc, &uid, &nid);
+            bases.dropped = dropped;
+            bases.base(d0, p2, forced).st
         }
         _ => {
             let origin = c

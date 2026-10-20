@@ -3085,3 +3085,66 @@ fn a_re_keyed_uid_keeps_its_predecessors_creator() {
         "the node"
     );
 }
+
+/// `FileRm`'s mention test ([API §12.4] `impact.mentions`) reads a dropped body as no text ([F06 §8.1] DB-6; [F08
+/// §10.4]): a node whose body names the removed path and whose title does not is listed before its body is dropped and
+/// no longer after.
+#[test]
+fn file_rm_reads_a_dropped_body_as_no_text() {
+    let mut s = bound();
+    s.ok(env_tree(vec![w("docs/v2.md", API_TEXT)]), Ctx::default());
+    bind(&mut s);
+    let body = "the commands are in docs/api.md";
+    s.ok(
+        tx(vec![
+            node("m", "task", &[("title", t("Read the chapter"))]),
+            Stmt::Set {
+                target: Target::Var("m".into()),
+                fields: vec![],
+                incr: vec![],
+                body: Some(Some(body.into())),
+                guard: None,
+            },
+        ]),
+        orch(),
+    );
+    let m = *tip_state(&s)
+        .nodes
+        .iter()
+        .find(|(_, x)| x.text("title") == Some("Read the chapter"))
+        .unwrap()
+        .0;
+    let rm = Cmd::FileRm {
+        paths: vec!["docs/api.md".into()],
+        reason: Some("superseded".into()),
+        replaced_by: Some("docs/v2.md".into()),
+        trash: false,
+        recursive: false,
+        yes: false,
+    };
+    let mentions = |s: &S| -> Vec<Nid> {
+        let mut c = S { st: s.st.clone() };
+        let r = c.ok(rm.clone(), in_tree());
+        assert_eq!(r.outcome, Outcome::Dry);
+        let Data::Intent(d) = &r.data else {
+            panic!("{:?}", r.data)
+        };
+        d.impact.as_ref().unwrap().mentions.clone()
+    };
+    assert_eq!(mentions(&s), vec![m], "the body names the path");
+    let hash = crate::canon::body_hash(&crate::state::Body::Text(body.into()));
+    s.ok(
+        Cmd::BodyDrop {
+            hashes: vec![crate::value::hex(&hash)],
+            reason: "secret".into(),
+            note: String::new(),
+            by: Some("owner".into()),
+        },
+        in_tree(),
+    );
+    assert_eq!(
+        mentions(&s),
+        Vec::<Nid>::new(),
+        "a dropped body has no text"
+    );
+}

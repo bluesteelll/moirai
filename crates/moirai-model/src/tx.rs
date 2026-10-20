@@ -558,6 +558,10 @@ pub struct Ctx<'a> {
     pub root_session: Option<[u8; 16]>,
     /// Known subagent (WT-014) or dispatched worker (WT-015).
     pub subagent_or_worker: bool,
+    /// The store's dropped set ([F06 §8.1] DB-1), which the virtual base a `Resolve` reads takes ([F12 §5.6]).
+    pub dropped: &'a BTreeSet<[u8; 16]>,
+    /// The DB-2 reason of each hash of `dropped`, which `body_dropped` names ([F19 §10.3]).
+    pub drop_reasons: &'a BTreeMap<[u8; 16], crate::bodydrop::DropReason>,
 }
 
 /// The configuration values the kernel reads ([CFG] §10.3, [AR §13] policy data, [F17 §8.2]).
@@ -1968,9 +1972,22 @@ impl<'a> Cand<'a> {
         if b.as_ref().is_some_and(|s| s.len() > 65_536) {
             return Err(bad("body", "at most 65536 bytes", "more"));
         }
-        self.st.nodes.get_mut(&n).expect("node").body = b.map(crate::state::Body::Text);
+        let b = b.map(crate::state::Body::Text);
+        // DB-7 (b): the bytes of a dropped body are never stored again.
+        if let Some((h, r)) = b.as_ref().and_then(|b| self.dropped_as(b)) {
+            return Err(crate::bodydrop::body_dropped(n, &h, r, "supplied"));
+        }
+        self.st.nodes.get_mut(&n).expect("node").body = b;
         self.touch(n);
         Ok(())
+    }
+
+    /// The hash and reason of a body the owner dropped, or `None` ([F06 §8.1] DB-6).
+    fn dropped_as(
+        &self,
+        b: &crate::state::Body,
+    ) -> Option<([u8; 16], crate::bodydrop::DropReason)> {
+        crate::bodydrop::dropped_as(self.cx.dropped, self.cx.drop_reasons, b)
     }
 
     /// `set` ([API §9.2]).
@@ -2116,7 +2133,15 @@ impl<'a> Cand<'a> {
     pub fn patch(&mut self, target: &Target, remove: &str, add: &str) -> Res<()> {
         let n = self.resolve(target)?;
         self.lease_first_write(n)?;
-        // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+        // DB-7 (c): a dropped body is refused before E404's cases; a body known only by its hash, which only the
+        // fixture parser makes, would reach Body::text's unreachable arm (BODY_DROP).
+        if let Some((h, r)) = self.st.nodes[&n]
+            .body
+            .as_ref()
+            .and_then(|b| self.dropped_as(b))
+        {
+            return Err(crate::bodydrop::body_dropped(n, &h, r, "patch"));
+        }
         let body = self.st.nodes[&n]
             .body
             .as_ref()
@@ -2883,8 +2908,14 @@ impl<'a> Cand<'a> {
                     Take::Ours => 1,
                     _ => 2,
                 };
-                let st =
-                    crate::history::staged_side(self.cx.dag, self.cx.alloc, self.cx.uidx, s, side);
+                let st = crate::history::staged_side(
+                    self.cx.dag,
+                    self.cx.alloc,
+                    self.cx.uidx,
+                    self.cx.dropped,
+                    s,
+                    side,
+                );
                 match k {
                     Key::Node(n, a) => crate::merge::flat(&crate::merge::cval(&st, *n, a)),
                     Key::Schema(_) => crate::merge::flat(&st.kstate(k)),
@@ -3916,6 +3947,7 @@ impl<'a> Cand<'a> {
             return;
         }
         let next_id = self.next_id;
+        let (dropped, reasons) = (self.cx.dropped, self.cx.drop_reasons);
         let texts = |x: &Node| -> String {
             let mut t = String::new();
             for f in ["title", "abstract"] {
@@ -3924,8 +3956,11 @@ impl<'a> Cand<'a> {
                     t.push('\n');
                 }
             }
-            if let Some(b) = &x.body {
-                // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
+            // A dropped body is no text ([F06 §8.1] DB-6); a body known only by its hash, which only the fixture
+            // parser makes, would reach Body::text's unreachable arm (BODY_DROP).
+            if let Some(b) = &x.body
+                && crate::bodydrop::dropped_as(dropped, reasons, b).is_none()
+            {
                 t.push_str(b.text());
             }
             t
