@@ -3,7 +3,7 @@
 | | |
 |---|---|
 | Title | Questions that need the owner's call, raised by the author roles while closing review pass 1 |
-| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Decided 2026-10-06**: the owner accepted every recommendation ("Зафиксируй везде рекомендуемые варианты", "record the recommended options everywhere"): OQ-F-4 (a), OQ-A-1 (a), OQ-A-2 (a), OQ-A-3 (a), OQ-A-4 (a), OQ-A-5 (a), OQ-A-6 (a), OQ-A-7 (a), OQ-A-8 (c), OQ-A-9 (a), OQ-A-10 (a); each entry's Decision line names the follow-up. OQ-A-11, raised by the review of wave 3b's RS-007 change, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): 11.1 (A) together with (B), (A) alone as the fallback; 11.2 (a); 11.3 (a); applied in wave 3c. OQ-A-12, raised by wave 3c's spec arbiter, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): (b) together with (c), prototyped in wave 3d, (d) as the fallback. Its prototype did not meet the acceptance (wave 3d). OQ-A-13, raised 2026-10-07 by the comparison of alternatives that followed wave 3d, was decided the same day as recommended ("Рекомендации", "the recommendations"): 13.1 (a) with the exactness fixes, (b) as the fallback; 13.2 (a); 13.3 (b); 13.4 (a); 13.5 (b), (c) as the fallback; 13.6 (a); applied in wave 3e. **Nothing is open.** |
+| Status | **decided 2026-09-28**: the owner accepted every recommendation ("Подтверждаю все", "I confirm all"): OQ-R-1 (a), OQ-R-2 (a) with (b) as the fallback, OQ-R-3 (a), OQ-R-4 (a), OQ-P-1 (a), OQ-P-2 (a), OQ-P-3 (a), OQ-F-1 (a), OQ-F-2 (a), OQ-F-3 (b), OQ-M-1 (a) (the rows are accepted; the owner's signature in `rules/SIGNED.md` follows under V3), OQ-M-2 (a). WP-81a edits the [AR], [60] and [50] texts each entry names. **Decided 2026-10-06**: the owner accepted every recommendation ("Зафиксируй везде рекомендуемые варианты", "record the recommended options everywhere"): OQ-F-4 (a), OQ-A-1 (a), OQ-A-2 (a), OQ-A-3 (a), OQ-A-4 (a), OQ-A-5 (a), OQ-A-6 (a), OQ-A-7 (a), OQ-A-8 (c), OQ-A-9 (a), OQ-A-10 (a); each entry's Decision line names the follow-up. OQ-A-11, raised by the review of wave 3b's RS-007 change, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): 11.1 (A) together with (B), (A) alone as the fallback; 11.2 (a); 11.3 (a); applied in wave 3c. OQ-A-12, raised by wave 3c's spec arbiter, was decided the same day as recommended ("Согласно рекомендации запиши", "record it as recommended"): (b) together with (c), prototyped in wave 3d, (d) as the fallback. Its prototype did not meet the acceptance (wave 3d). OQ-A-13, raised 2026-10-07 by the comparison of alternatives that followed wave 3d, was decided the same day as recommended ("Рекомендации", "the recommendations"): 13.1 (a) with the exactness fixes, (b) as the fallback; 13.2 (a); 13.3 (b); 13.4 (a); 13.5 (b), (c) as the fallback; 13.6 (a); applied in wave 3e. OQ-A-14, raised 2026-10-20 by the audit of the S lens arbiter's wave 3e report, was decided the same day: (A) ("A"); the texts it names follow. **Nothing is open.** |
 | Scope | only questions that change an approved design decision or need the owner's call; runtime policy goes to config keys ([AGENTS.md]) and is not listed |
 
 Each entry names the raising role, the findings, the options and the role's recommendation. Roles append entries; ids
@@ -848,3 +848,31 @@ comparison of alternatives that followed it (`wave-3d-alternatives.md`); asked i
   (`docs/spec/reviews/wave-3e-arbiter-s.md`): 13.6 (a) is met at the nightly and exit tiers on all nine generators,
   every asserted count 0, every corpus case and link fixture passing. K4 is not needed. The arbiter's findings on the
   rule and spec texts are routed to their owners (the report's section 3).
+
+## 2026-10-20, the audit of the S lens arbiter's wave 3e report
+
+Raised by the orchestrator from the audit of `docs/spec/reviews/wave-3e-arbiter-s.md` (W3E-ARB-S-1), and asked in chat
+on 2026-10-20. The id continues the A series.
+
+### OQ-A-14 — Under an automatic side, a node live on one side and deleted on the other
+
+- **Raised by** the orchestrator, from the audit of the S lens arbiter's wave 3e report. **Where** [RULES/merge-table]
+  RS-007 (its scope, "a node live in the result with no existence policy"), PR-007, AP-002, AP-003; [F12 §6.3] "The
+  node's other keys", [F12 §6.4]; [F13 §5] V01; the owner's ruling R-43 of 2026-10-13, OI-1g.
+- **Question.** Under `merge.policy.<kind>` = `ours` or `theirs`, the automatic side decides a node's existence key in
+  place of the conflict value MR-002 or MR-005 would make. When both flat sides are live, the node's other keys merge
+  key by key (OI-1g). When the flat sides are one live and one deleted, key by key has no stated meaning: a tombstone
+  holds no keys but `title` ([F07 §6.4]). No text says what the node takes, and a node live in the result with no
+  existence policy falls under RS-007's hierarchy rule by its scope. It was asked with the example of a task live on one
+  side, holding an unresolved delete-versus-modify conflict, and deleted on the other.
+- **Options.** (A) Take the node whole from the automatic side, live with that side's keys if that side is live,
+  deleted if it is deleted, and state it in the rules: such a node counts as one an existence policy fixed, so RS-007's
+  hierarchy rule does not decide it (RS-007's scope, PR-007's, AP-002's and AP-003's notes, [F12 §6.3], [F13 §5] V01).
+  (B) Merge it key by key: a new rule for a live side against a tombstone, and the texts after it.
+- **Recommendation.** (A). It is the outcome the policy names for the existence key, carried to the whole node; (B)
+  would need a rule that no text has, for keys a tombstone does not hold.
+- **Decision (2026-10-20).** (A) ("A"); the rules cite it as R-109. It applies to the case by flat sides, whichever
+  side holds a conflict value (the orchestrator's reading R-110 of 2026-10-20). The merge makes no conflict value; a
+  conflict value the automatic side holds is carried and reported as PR-011 states. The texts, each by its owner:
+  R-MODEL ([RULES/merge-table] RS-007's scope, PR-007's, AP-002's and AP-003's notes; WP-90), R-SPEC-F ([F12 §6.3];
+  WP-12), R-SPEC-P ([F13 §5] V01; WP-16).
