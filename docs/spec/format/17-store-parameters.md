@@ -531,7 +531,7 @@ model scale.
 **Sets.** For a commit `c` landing on ref R:
 
 - `S(c)`: the nodes whose `suspect` value on R's view differs between `state_at(first parent of c)` and `state_at(c)`. The
-  predicate is [AR §3.5]'s single-hop predicate.
+  predicate is [F13 §6.2]'s single-hop predicate.
 - `A(c)`: the nodes whose value of any other predicate of the set `P_F15` of [F13 §6] differs between the same two states.
 
 **Rule** (for both branches, the `suspect` bitset itself is always maintained completely, so I9 holds):
@@ -553,7 +553,8 @@ This reading resolves the "violation record beyond it" of [AR §2.5] and [20 §7
 **Model function.** `moirai_model::derived::affected_with_budget(parent: &State, child: &State, budget: u32)
 -> (Vec<Nid>, bool)`, tagged `spec: [F17 §8.2]`. `suspect` is a function of each state alone ([F13 §6.2]).
 
-**Test value 4.** A delete or edit of a node cited by five nodes then takes the incomplete path at model scale.
+**Test value 4.** A delete, retraction or supersession of a node cited by five nodes changes their `suspect` value
+([F13 §6.2]) and then takes the incomplete path at model scale.
 
 ## 9. Git image export
 
@@ -700,7 +701,7 @@ the reference model and the engine reach every threshold-gated path at model sca
 | FTS tier 2 and mixed segment sets | P18 | 16 rows |
 | promotion by ops, bytes or age; after rollup | P19–P21 | 16 ops, 1 KiB, 2 checkpoints |
 | full Kahn | P22 | 5 precedence edges in one candidate |
-| incomplete `affected` | P23 | a node with more than 4 citers changed or deleted |
+| incomplete `affected` | P23 | a node with more than 4 citers deleted, retracted or superseded |
 | loose objects versus packs; pack split | P24, P25 | exports of ≤ 2 and > 16 objects (M4, M5 streams) |
 | lock timeout | P26, P27 | the simulator's lock-delay tail |
 | idempotency expiry; default-key window | P28, P29 | clock advances of > 1 h and > 1 min |
