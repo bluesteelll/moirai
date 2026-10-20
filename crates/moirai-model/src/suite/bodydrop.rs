@@ -946,3 +946,76 @@ fn a_patch_of_a_dropped_body_is_body_dropped_first() {
         assert_body_dropped(&s, &r, 1, b, "other", "patch", before);
     }
 }
+
+/// The rows of an LQ read on `main`.
+fn query(s: &mut S, text: &str) -> Vec<Vec<crate::lq::eval::V>> {
+    let r = s.run(
+        Cmd::Query {
+            input: crate::api::QueryInput::Lq(text.into()),
+            params: crate::lq::ctx::Params::new(),
+            at: None,
+            mode: crate::lq::eval::Mode::Run,
+            strict_gql: false,
+            ablations: crate::lq::eval::Ablations::default(),
+        },
+        orch(),
+    );
+    match r.data {
+        Data::Query(o) => o.rows,
+        other => panic!("{text}: {other:?} {:?}", r.error),
+    }
+}
+
+/// [F06 §8.1] DB-6; [API §8.7] "Effect": LQ reads a dropped body as `absent`; another node's body still reads as its
+/// text.
+#[test]
+fn lq_reads_a_dropped_body_as_absent() {
+    use crate::lq::eval::V;
+    let mut s = two_bodies();
+    s.ok(drop_owner(&[hb("body one")]), on(None));
+    let rows = query(&mut s, "MATCH (n:task) RETURN n.id, n.body ORDER BY n.id");
+    assert_eq!(
+        rows,
+        vec![
+            vec![V::Node(Nid(1)), V::Absent],
+            vec![V::Node(Nid(2)), V::text("body two")],
+        ]
+    );
+}
+
+/// [F06 §8.1] DB-6: search over the body field ([LQ/std §2.9] `fields`) reads a dropped body as no text, with no
+/// tokens and length 0: a term only the dropped body holds finds nothing, and a term the title also holds scores as on
+/// the same node without a body.
+#[test]
+fn search_reads_a_dropped_body_as_no_text() {
+    use crate::lq::eval::V;
+    let make = |body: Option<&str>| {
+        let mut s = S::base();
+        let c = match body {
+            Some(b) => task_with_body("a", "alpha zeta", b),
+            None => task("a", "alpha zeta"),
+        };
+        s.ok(tx(vec![c, task_with_body("b", "task b", "gamma")]), orch());
+        s
+    };
+    let mut a = make(Some("alpha beta"));
+    a.ok(drop_owner(&[hb("alpha beta")]), on(None));
+    let mut b = make(None);
+    let search = |s: &mut S, term: &str| {
+        let call = format!("CALL search('{term}', fields: ['title', 'abstract', 'body'])");
+        query(
+            s,
+            &format!("{call} YIELD node, score, field RETURN node, score, field"),
+        )
+    };
+    assert_eq!(search(&mut a, "beta"), Vec::<Vec<V>>::new());
+    let got = search(&mut a, "alpha");
+    assert_eq!(got.len(), 1, "{got:?}");
+    assert_eq!(got[0][0], V::Node(Nid(1)));
+    assert_eq!(got[0][2], V::text("title"));
+    assert_eq!(
+        got,
+        search(&mut b, "alpha"),
+        "the score of a node without a body"
+    );
+}

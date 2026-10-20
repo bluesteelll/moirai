@@ -227,6 +227,11 @@ impl Store {
         Ok(r)
     }
 
+    /// The hash and the reason of a body the owner dropped, or `None` ([F06 §8.1] DB-6), for the store's readers.
+    pub(crate) fn dropped_as(&self, b: &Body) -> Option<([u8; 16], DropReason)> {
+        dropped_as(&self.dropped, &self.drop_reasons, b)
+    }
+
     /// The hashes of `wanted` the store holds as a body ([F06 §8.1] DB-4): a body of a node, or of a conflict value's
     /// side, in the state of a commit the store still resolves (a `Gc` stops a commit resolving, [API §8.5]). One pass
     /// over the resolvable commits' states, stopping once every wanted hash is found: O(R·N) body hashes at most for R
