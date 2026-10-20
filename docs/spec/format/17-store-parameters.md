@@ -550,11 +550,8 @@ This reading resolves the "violation record beyond it" of [AR §2.5] and [20 §7
 
 **Visibility.** V.
 
-**Model function.** `moirai_model::derived::affected_with_budget(parent: &State, child: &State, budget: u32,
-current_parent: Current<'_>, current_child: Current<'_>) -> (Vec<Nid>, bool)`, tagged `spec: [F17 §8.2]`. The two
-`Current` arguments (`&dyn Fn(Nid) -> Option<[u8; 32]>`) give each node's current commit on R's view at the parent and at
-`c` ([API §15.4] `rev`): `suspect`'s pinned clause compares an edge's `pinned_commit` with its target's current commit
-([F13 §6.2]), which is a fact of the view's history, not of its state alone.
+**Model function.** `moirai_model::derived::affected_with_budget(parent: &State, child: &State, budget: u32)
+-> (Vec<Nid>, bool)`, tagged `spec: [F17 §8.2]`. `suspect` is a function of each state alone ([F13 §6.2]).
 
 **Test value 4.** A delete or edit of a node cited by five nodes then takes the incomplete path at model scale.
 
