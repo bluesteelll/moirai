@@ -659,3 +659,192 @@ fn env_crash_in_next_treats_body_drop_as_a_write() {
             .expect("the store without the command");
     assert!(without.runtime().dropped.is_empty());
 }
+
+/// A three-line body whose line `i` (1-based) is `x` for each `(i, x)` of `edits`, else `l<i>`: one-line edits on
+/// lines 1 and 3 leave line 2 stable, so diff3 merges them clean ([F12 §7.5]).
+fn three(edits: &[(usize, &str)]) -> String {
+    (1..=3)
+        .map(|i| {
+            edits
+                .iter()
+                .find(|(l, _)| *l == i)
+                .map_or(format!("l{i}"), |(_, x)| x.to_string())
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
+}
+
+/// The `data` of a merge-family reply.
+fn merged(r: &Reply) -> &crate::history::MergeData {
+    match &r.data {
+        Data::Merge(d) => d,
+        other => panic!("not a merge result: {other:?}"),
+    }
+}
+
+/// The state at a ref's tip.
+fn tip_state(s: &S, r: &str) -> std::rc::Rc<crate::state::State> {
+    let tip = s.st.dag.live(r).expect("the ref").tip;
+    s.st.dag.state_at(tip, &s.st.alloc)
+}
+
+/// A `BranchCreate` of `lane/<name>` from `from`.
+fn lane(s: &mut S, name: &str, from: &str) {
+    s.ok(
+        Cmd::BranchCreate {
+            name: name.into(),
+            from: Some(from.into()),
+            kind: None,
+        },
+        on(None),
+    );
+}
+
+/// The store with task #1 on `main`, whose body is X0 = `three(&[])`.
+fn one_body() -> S {
+    let mut s = S::base();
+    s.ok(tx(vec![task_with_body("x", "task x", &three(&[]))]), orch());
+    s
+}
+
+/// Runs `op` on a copy of the store without the drop, where #1's body merges clean to `clean` at `into`; then drops
+/// `dropped` and runs `op` on the store, where #1's body is a `TextHunk` whose base, ours and theirs bodies hash to
+/// `sides` (CS-011; MR-032, MR-038), listed in the reply's `conflicts`.
+fn takes_a_text_hunk(s: &mut S, op: Cmd, into: &str, clean: &str, dropped: &str, sides: [&str; 3]) {
+    let mut c = S { st: s.st.clone() };
+    let r = c.ok(op.clone(), on(None));
+    assert_eq!(
+        merged(&r).conflicts,
+        Vec::<(String, String)>::new(),
+        "without the drop the body merges clean"
+    );
+    assert_eq!(
+        tip_state(&c, into).nodes[&Nid(1)].body,
+        Some(Body::Text(clean.into()))
+    );
+    s.ok(drop_owner(&[hb(dropped)]), on(None));
+    let r = s.ok(op, on(None));
+    assert_eq!(
+        merged(&r).conflicts,
+        vec![("#1.body".to_string(), "TextHunk".to_string())]
+    );
+    let st = tip_state(s, into);
+    let k = &st.nodes[&Nid(1)].conflicts[&Aspect::Body];
+    assert_eq!(k.class, "TextHunk");
+    let h = |v: &Option<KVal>| match v {
+        Some(KVal::Body(b)) => Some(body_hash(b)),
+        other => panic!("not a body: {other:?}"),
+    };
+    assert_eq!(
+        [h(&k.base), h(&k.ours), h(&k.theirs)],
+        sides.map(|x| Some(hb(x))),
+        "base, ours, theirs"
+    );
+}
+
+/// CS-011 ([RULES/merge-table]; [F12 §7.5]): a merge whose base body was dropped takes `TextHunk` with the three
+/// bodies, where it would have merged clean.
+#[test]
+fn a_merge_over_a_dropped_body_takes_a_text_hunk() {
+    let mut s = one_body();
+    lane(&mut s, "a", "main");
+    lane(&mut s, "b", "main");
+    let (x0, xa, xb) = (three(&[]), three(&[(1, "A")]), three(&[(3, "B")]));
+    s.ok(tx(vec![set_body(1, &xa)]), on(Some("lane/a")));
+    s.ok(tx(vec![set_body(1, &xb)]), on(Some("lane/b")));
+    let op = Cmd::Merge {
+        src: "lane/b".into(),
+        into: Some("lane/a".into()),
+        policy: None,
+        strict: None,
+        base: None,
+        message: String::new(),
+    };
+    takes_a_text_hunk(
+        &mut s,
+        op,
+        "lane/a",
+        &three(&[(1, "A"), (3, "B")]),
+        &x0,
+        [&x0, &xa, &xb],
+    );
+}
+
+/// CS-011: a sync whose base body was dropped takes `TextHunk` with the three bodies (ours the lane's, theirs
+/// `main`'s).
+#[test]
+fn a_sync_over_a_dropped_body_takes_a_text_hunk() {
+    let mut s = one_body();
+    lane(&mut s, "x", "main");
+    let (x0, xa, xb) = (three(&[]), three(&[(1, "A")]), three(&[(3, "B")]));
+    s.ok(tx(vec![set_body(1, &xa)]), on(None));
+    s.ok(tx(vec![set_body(1, &xb)]), on(Some("lane/x")));
+    let op = Cmd::Sync {
+        lane: Some("lane/x".into()),
+        check: false,
+    };
+    takes_a_text_hunk(
+        &mut s,
+        op,
+        "lane/x",
+        &three(&[(1, "A"), (3, "B")]),
+        &x0,
+        [&x0, &xb, &xa],
+    );
+}
+
+/// CS-011: a revert whose base, the reverted commit's body, was dropped takes `TextHunk` with the three bodies (base
+/// the commit's, ours the tip's, theirs its parent's: DM-004).
+#[test]
+fn a_revert_over_a_dropped_body_takes_a_text_hunk() {
+    let mut s = one_body();
+    lane(&mut s, "x", "main");
+    let (x0, xa, xa2) = (three(&[]), three(&[(1, "A")]), three(&[(1, "A"), (3, "C")]));
+    let c = s
+        .ok(tx(vec![set_body(1, &xa)]), on(Some("lane/x")))
+        .commit
+        .expect("C commits");
+    s.ok(tx(vec![set_body(1, &xa2)]), on(Some("lane/x")));
+    let op = Cmd::Revert {
+        commit: format!("s{c}"),
+        onto: Some("lane/x".into()),
+        mainline: None,
+        message: String::new(),
+    };
+    takes_a_text_hunk(
+        &mut s,
+        op,
+        "lane/x",
+        &three(&[(3, "C")]),
+        &xa,
+        [&xa, &xa2, &x0],
+    );
+}
+
+/// CS-011: a cherry-pick whose base, the picked commit's parent's body, was dropped takes `TextHunk` with the three
+/// bodies.
+#[test]
+fn a_cherry_pick_over_a_dropped_body_takes_a_text_hunk() {
+    let mut s = one_body();
+    lane(&mut s, "x", "main");
+    lane(&mut s, "y", "main");
+    let (x0, xa, xb) = (three(&[]), three(&[(1, "A")]), three(&[(3, "B")]));
+    let c = s
+        .ok(tx(vec![set_body(1, &xb)]), on(Some("lane/y")))
+        .commit
+        .expect("C commits");
+    s.ok(tx(vec![set_body(1, &xa)]), on(Some("lane/x")));
+    let op = Cmd::CherryPick {
+        commit: format!("s{c}"),
+        onto: Some("lane/x".into()),
+        message: String::new(),
+    };
+    takes_a_text_hunk(
+        &mut s,
+        op,
+        "lane/x",
+        &three(&[(1, "A"), (3, "B")]),
+        &x0,
+        [&x0, &xa, &xb],
+    );
+}
