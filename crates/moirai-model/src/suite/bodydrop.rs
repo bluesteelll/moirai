@@ -581,6 +581,118 @@ fn runtime_dropped_shows_each_hash_with_its_first_reason() {
     assert_eq!(s.st.runtime().dropped, want, "the first reason stays");
 }
 
+/// [F06 §8.1] DB-4; [API §8.7] "Checks": a body that only an existence image of a conflict value carries is held. In a
+/// criss-cross, lane/a deletes task #1 and `merge lane/b --into lane/a` meets lane/b's live #1, whose body differs from
+/// the virtual base's: a `DeleteVsModify` on #1.existence ([F12 §5]), provisional on lane/a, the deleting side
+/// (EP-001 `delete-wins`), which fixes the node whole as lane/a's tombstone ([F12 §6.3]), so no body key is merged.
+/// V, the virtual base's text, is then in no commit's state as a node's body or as a conflict value's side, only in
+/// the conflict value's base image.
+#[test]
+fn a_body_held_only_in_a_conflict_image_is_held() {
+    let lines = |edits: &[(usize, &str)]| -> String {
+        (1..=9)
+            .map(|i| {
+                edits
+                    .iter()
+                    .find(|(l, _)| *l == i)
+                    .map_or(format!("l{i}"), |(_, x)| x.to_string())
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let mut s = S::base();
+    s.ok(tx(vec![task_with_body("x", "task x", &lines(&[]))]), orch());
+    let branch = |s: &mut S, name: &str, from: &str| {
+        s.ok(
+            Cmd::BranchCreate {
+                name: name.into(),
+                from: Some(from.into()),
+                kind: None,
+            },
+            on(None),
+        );
+    };
+    let merge = |s: &mut S, src: &str, into: &str| -> Reply {
+        s.ok(
+            Cmd::Merge {
+                src: src.into(),
+                into: Some(into.into()),
+                policy: None,
+                strict: None,
+                base: None,
+                message: String::new(),
+            },
+            on(None),
+        )
+    };
+    let edit = |s: &mut S, b: &str, text: String| {
+        s.ok(tx(vec![set_body(1, &text)]), on(Some(b)));
+    };
+    branch(&mut s, "a", "main");
+    branch(&mut s, "b", "main");
+    edit(&mut s, "lane/a", lines(&[(1, "A")]));
+    edit(&mut s, "lane/b", lines(&[(9, "D")]));
+    branch(&mut s, "c", "lane/a");
+    branch(&mut s, "d", "lane/b");
+    edit(&mut s, "lane/a", lines(&[(1, "A"), (3, "B")]));
+    edit(&mut s, "lane/b", lines(&[(7, "C"), (9, "D")]));
+    // The criss-cross: lane/a takes lane/b's first edit, lane/b takes lane/a's.
+    merge(&mut s, "lane/d", "lane/a");
+    merge(&mut s, "lane/c", "lane/b");
+    s.ok(
+        tx(vec![Stmt::Delete {
+            target: Target::Id(Nid(1)),
+            policy: None,
+            replaced_by: None,
+            release: false,
+            reason: Some("gone".into()),
+        }]),
+        on(Some("lane/a")),
+    );
+    let r = merge(&mut s, "lane/b", "lane/a");
+    let Data::Merge(m) = &r.data else {
+        panic!("{:?}", r.data)
+    };
+    assert!(m.virtual_base, "two LCAs: a virtual base");
+    assert_eq!(
+        m.conflicts,
+        vec![("#1.existence".to_string(), "DeleteVsModify".to_string())]
+    );
+    // V, the virtual base's text: no state of any commit holds it as a node's body or as a conflict value's side.
+    let v = hb(&lines(&[(1, "A"), (9, "D")]));
+    let is_v = |x: &Option<KVal>| matches!(x, Some(KVal::Body(b)) if body_hash(b) == v);
+    for c in s.st.dag.commits.keys() {
+        let st = s.st.dag.state_at(Some(*c), &s.st.alloc);
+        for x in st.nodes.values() {
+            assert_ne!(
+                x.body.as_ref().map(body_hash),
+                Some(v),
+                "commit s{c} holds V as a body"
+            );
+            for k in x.conflicts.values() {
+                assert!(
+                    !is_v(&k.base) && !is_v(&k.ours) && !is_v(&k.theirs),
+                    "commit s{c} holds V as a conflict side"
+                );
+            }
+        }
+    }
+    // The merge's tombstone #1 carries V in its existence conflict's base image.
+    let tip = s.st.dag.live("lane/a").unwrap().tip;
+    let st = s.st.dag.state_at(tip, &s.st.alloc);
+    let x = &st.nodes[&Nid(1)];
+    assert!(!x.live(), "the provisional side is lane/a's tombstone");
+    let image = x.conflicts[&Aspect::Existence].images[0].as_ref();
+    assert!(
+        image.is_some_and(|i| is_v(&i.get(&Aspect::Body).cloned())),
+        "{image:?}"
+    );
+    let r = s.run(drop_owner(&[v]), on(None));
+    assert!(r.error.is_none(), "{:?}", r.error);
+    assert_eq!(data(&r).dropped, vec![v]);
+    assert_eq!(s.st.runtime().dropped, vec![(v, DropReason::Secret)]);
+}
+
 /// [API §8.7] "a hash named twice counts once".
 #[test]
 fn a_hash_named_twice_counts_once() {
