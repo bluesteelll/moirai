@@ -355,14 +355,17 @@ fn a_pin_written_in_the_tx_that_edits_its_target_is_not_suspect() {
 #[test]
 fn a_commit_that_adds_a_pinned_edge_leaves_its_source_out_of_affected() {
     let (mut s, n, m) = citer_and_target();
-    let c = s
-        .ok(
-            tx(vec![pin_link(n, "cites", m, Some("main"))]),
-            fresh("main"),
-        )
-        .commit
-        .expect("the link commits");
-    assert!(edge(&s, "main", n, "cites", m).is_some_and(|p| p.is_some()));
+    let r = s.ok(
+        tx(vec![pin_link(n, "cites", m, Some("main"))]),
+        fresh("main"),
+    );
+    let c = r.commit.expect("the link commits");
+    let pin = Some(id(&s, r.rev.expect("main's tip before the link")));
+    assert_eq!(
+        edge(&s, "main", n, "cites", m),
+        Some(pin),
+        "the edge is pinned at the commit `main` names"
+    );
     let x = &s.st.dag.commits[&c];
     assert_eq!(
         (x.affected.clone(), x.affected_complete),
@@ -428,7 +431,14 @@ fn the_target_state_clause_holds_for_each_citing_kind() {
         .iter()
         .map(|c| pin_link(id[&name(c)], c.1, id[c.2], c.3.then_some("main")))
         .collect();
-    s.ok(tx(links), fresh("main"));
+    let r = s.ok(tx(links), fresh("main"));
+    // `id` names the map of nodes here; `self::id` is the id of a commit.
+    let pin = self::id(&s, r.rev.expect("main's tip before the links"));
+    let pin_of = |c: &(&str, &str, &str, bool)| Some(c.3.then_some(pin));
+    for c in &citers {
+        let e = edge(&s, "main", id[&name(c)], c.1, id[c.2]);
+        assert_eq!(e, pin_of(c), "{}: the edge and its pin", name(c));
+    }
     for c in citers.iter().filter(|c| !c.3) {
         assert!(!suspect(&s, "main", id[&name(c)]), "{} before", name(c));
     }
@@ -469,7 +479,7 @@ fn the_target_state_clause_holds_for_each_citing_kind() {
                 name(c)
             );
         } else {
-            assert!(e.is_some(), "{}: the edge stays", name(c));
+            assert_eq!(e, pin_of(c), "{}: the edge stays with its pin", name(c));
             assert!(suspect(&s, "main", a), "{}: suspect", name(c));
         }
     }
