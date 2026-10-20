@@ -1,0 +1,661 @@
+//! `BodyDrop` through the Store API ([API §8.7]; [F06 §8.1]): the owner-attested CLI caller (WV-051, WT-012), the
+//! argument bounds, the held check over the resolvable commits' states, the dropped set with its reasons in
+//! `Runtime.dropped` ([API §15.7]), CK-4's one draw per written record ([API §6.2]), and the readers and writers of a
+//! dropped body.
+
+use super::*;
+use crate::api::{Data, Door, RuntimeSnap};
+use crate::bodydrop::{BodyDropData, DropReason};
+use crate::canon::body_hash;
+use crate::state::{Aspect, Body, KVal};
+use crate::value::{blake3_128, hex};
+
+/// The 32 hex digits of a body text's hash.
+fn hx(text: &str) -> String {
+    hex(&hb(text))
+}
+
+/// A body text's hash ([F07 §6.3]).
+fn hb(text: &str) -> [u8; 16] {
+    body_hash(&Body::Text(text.into()))
+}
+
+/// A `BodyDrop` of hashes given as text, with a reason, a note and the attestation.
+fn drop_raw(hashes: Vec<String>, reason: &str, note: &str, by: Option<&str>) -> Cmd {
+    Cmd::BodyDrop {
+        hashes,
+        reason: reason.into(),
+        note: note.into(),
+        by: by.map(str::to_string),
+    }
+}
+
+/// An owner-attested `BodyDrop` of these hashes for `secret`.
+fn drop_owner(hashes: &[[u8; 16]]) -> Cmd {
+    drop_raw(
+        hashes.iter().map(|h| hex(h)).collect(),
+        "secret",
+        "",
+        Some("owner"),
+    )
+}
+
+/// The `data` of a `BodyDrop` reply.
+fn data(r: &Reply) -> &BodyDropData {
+    match &r.data {
+        Data::BodyDrop(d) => d,
+        other => panic!("not a BodyDrop result: {other:?}"),
+    }
+}
+
+/// The orchestrator without the default idempotency key, on a branch when one is named.
+fn on(branch: Option<&str>) -> Ctx {
+    Ctx {
+        branch: branch.map(str::to_string),
+        no_dedupe: true,
+        ..orch()
+    }
+}
+
+/// A `set` of a node's body.
+fn set_body(n: u32, text: &str) -> Stmt {
+    Stmt::Set {
+        target: Target::Id(Nid(n)),
+        fields: vec![],
+        incr: vec![],
+        body: Some(Some(text.into())),
+        guard: None,
+    }
+}
+
+/// A `create` of a task with a body.
+fn task_with_body(name: &str, title: &str, body: &str) -> Stmt {
+    match task(name, title) {
+        Stmt::Create {
+            name,
+            kind,
+            fields,
+            under,
+            position,
+            edges_out,
+            edges_in,
+            ..
+        } => Stmt::Create {
+            name,
+            kind,
+            fields,
+            body: Some(body.into()),
+            under,
+            position,
+            edges_out,
+            edges_in,
+        },
+        _ => unreachable!(),
+    }
+}
+
+/// The `hlc` the next local commit takes: a note committed on a copy of the store.
+fn next_hlc(s: &S) -> u64 {
+    let mut c = S { st: s.st.clone() };
+    let r = c.ok(
+        tx(vec![node("probe", "note", &[("title", t("probe"))])]),
+        on(None),
+    );
+    c.st.dag.commits[&r.rev_new.expect("the probe commits")].hlc
+}
+
+/// The base stream with tasks #1 and #2 on `main`, whose bodies are `body one` and `body two`.
+fn two_bodies() -> S {
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task_with_body("a", "task a", "body one"),
+            task_with_body("b", "task b", "body two"),
+        ]),
+        orch(),
+    );
+    s
+}
+
+/// An E406 that refuses the call as a whole: exit 6, `statement` null, `written` false ([LQ/errors §5.7]).
+fn assert_verb_e406(r: &Reply) {
+    let e = r.error.as_ref().expect("refused");
+    assert_eq!((e.code.as_str(), r.exit), ("E406", 6), "{e:?}");
+    assert_eq!(e.get("statement"), Some(&crate::err::Kv::Null), "{e:?}");
+    assert_eq!(
+        e.get("written"),
+        Some(&crate::err::Kv::Bool(false)),
+        "{e:?}"
+    );
+}
+
+/// S3-M-10 (WV-051; WT-012; [API §8.7] "Caller"): a call that is not owner-attested is E406, exit 6, before its
+/// arguments are checked, and writes and draws nothing: the session role lease without the attestation or with another
+/// `by`, a task lease, each run-scoped role lease of `role-rows`, no lease, and `by = owner` with any lease but the
+/// session role lease or with none.
+#[test]
+fn a_call_that_is_not_owner_attested_is_e406_before_its_arguments() {
+    let mut s = two_bodies();
+    // A task lease: a developer's self-claim of #1.
+    let dev = Ctx {
+        agent: Some("dev".into()),
+        no_dedupe: true,
+        ..Default::default()
+    };
+    s.ok(
+        Cmd::Claim {
+            ids: vec![Target::Id(Nid(1))],
+            next: false,
+            scope: None,
+            role: None,
+            agent: None,
+            ttl: None,
+            start: false,
+            run: None,
+            session: false,
+        },
+        dev,
+    );
+    // A run-scoped role lease for every role of `role-rows` that a run-role lease carries (WO rows), one holder each.
+    s.ok(
+        Cmd::RunOpen {
+            name: "r1".into(),
+            fields: vec![],
+        },
+        on(None),
+    );
+    let roles: Vec<String> = crate::rules::rules()
+        .table("role-rows")
+        .rows
+        .iter()
+        .filter(|r| r.toks("carried_by").contains(&"run-role-lease"))
+        .map(|r| r.tok("role").to_string())
+        .collect();
+    assert_eq!(roles.len(), 10, "WO-003 to WO-012: {roles:?}");
+    for role in &roles {
+        s.ok(
+            Cmd::Claim {
+                ids: vec![],
+                next: false,
+                scope: None,
+                role: Some(role.clone()),
+                agent: Some(format!("w-{role}")),
+                ttl: None,
+                start: false,
+                run: Some("r1".into()),
+                session: false,
+            },
+            on(None),
+        );
+    }
+    let lease_of = |s: &S, holder: &str| -> String {
+        let l =
+            s.st.leases
+                .values()
+                .find(|l| l.holder == holder && l.ended.is_none())
+                .unwrap_or_else(|| panic!("no lease held by {holder}"));
+        format!("L-{}", l.id)
+    };
+    let task_lease = lease_of(&s, "dev");
+    assert!(
+        s.st.leases
+            .values()
+            .any(|l| l.holder == "dev" && l.task == Some(Nid(1)))
+    );
+    let role_leases: Vec<String> = roles
+        .iter()
+        .map(|r| lease_of(&s, &format!("w-{r}")))
+        .collect();
+    let r0 = s.st.runtime();
+    let h0 = next_hlc(&s);
+    let held = vec![hx("body one")];
+    let presented = |lease: Option<&str>| Ctx {
+        lease: lease.map(str::to_string),
+        no_dedupe: true,
+        ..Default::default()
+    };
+    let mut calls: Vec<(String, Cmd, Ctx)> = vec![
+        (
+            "L-1 without by".into(),
+            drop_raw(held.clone(), "secret", "", None),
+            on(None),
+        ),
+        (
+            "L-1 with by = orchestrator".into(),
+            drop_raw(held.clone(), "secret", "", Some("orchestrator")),
+            on(None),
+        ),
+        (
+            "L-1 with by = Owner".into(),
+            drop_raw(held.clone(), "secret", "", Some("Owner")),
+            on(None),
+        ),
+        (
+            "a task lease".into(),
+            drop_raw(held.clone(), "secret", "", None),
+            presented(Some(&task_lease)),
+        ),
+        (
+            "no lease".into(),
+            drop_raw(held.clone(), "secret", "", None),
+            presented(None),
+        ),
+        (
+            "by = owner with a task lease".into(),
+            drop_raw(held.clone(), "secret", "", Some("owner")),
+            presented(Some(&task_lease)),
+        ),
+        (
+            "by = owner with no lease".into(),
+            drop_raw(held.clone(), "secret", "", Some("owner")),
+            presented(None),
+        ),
+        (
+            "L-1 without by, empty hashes".into(),
+            drop_raw(vec![], "secret", "", None),
+            on(None),
+        ),
+    ];
+    for (role, lease) in roles.iter().zip(&role_leases) {
+        calls.push((
+            format!("the run-scoped {role} lease"),
+            drop_raw(held.clone(), "secret", "", None),
+            presented(Some(lease)),
+        ));
+        calls.push((
+            format!("by = owner with the run-scoped {role} lease"),
+            drop_raw(held.clone(), "secret", "", Some("owner")),
+            presented(Some(lease)),
+        ));
+    }
+    for (what, cmd, ctx) in calls {
+        let r = s.run(cmd, ctx);
+        assert_eq!(r.outcome, Outcome::Refused, "{what}: was not refused");
+        assert_verb_e406(&r);
+        assert_eq!(s.st.runtime(), r0, "{what}: the call wrote something");
+        assert_eq!(next_hlc(&s), h0, "{what}: the call drew an HLC value");
+    }
+}
+
+/// WV-051; [API §8.7] "No MCP tool, hook or `Apply` batch carries the command": through any door but the CLI an
+/// attested call is E406 before its arguments.
+#[test]
+fn mcp_hook_and_apply_doors_are_e406_even_attested() {
+    let mut s = two_bodies();
+    let r0 = s.st.runtime();
+    let h0 = next_hlc(&s);
+    for door in [Door::Mcp, Door::Hook, Door::Apply] {
+        let ctx = Ctx { door, ..on(None) };
+        let r = s.run(drop_owner(&[hb("body one")]), ctx);
+        assert_eq!(r.outcome, Outcome::Refused, "{door:?}: was not refused");
+        assert_verb_e406(&r);
+        assert_eq!(s.st.runtime(), r0, "{door:?}: the call wrote something");
+        assert_eq!(next_hlc(&s), h0, "{door:?}: the call drew an HLC value");
+    }
+}
+
+/// [API §8.7] "Effect", "Result"; [F06 §8.1] DB-5; [API §15.7] `dropped`: an attested drop of two held bodies lists
+/// them ascending in `dropped` and in `Runtime.dropped` with their reason, and changes no state, commit id or counter.
+#[test]
+fn an_attested_drop_lists_the_held_hashes_and_changes_no_id_or_state() {
+    let mut s = two_bodies();
+    let mut hs = [hb("body one"), hb("body two")];
+    hs.sort();
+    let state = |s: &mut S| {
+        s.ok(
+            Cmd::State {
+                ref_: Some("main".into()),
+                at: None,
+                parts: None,
+            },
+            on(None),
+        )
+        .data
+    };
+    let commits = |s: &S| -> Vec<(u64, [u8; 32], u64)> {
+        s.st.dag
+            .commits
+            .values()
+            .map(|c| (c.seq, c.id, c.hlc))
+            .collect()
+    };
+    let (st0, c0, n0) = (state(&mut s), commits(&s), s.st.commit_seq);
+    let rt0 = s.st.runtime();
+    assert!(rt0.dropped.is_empty());
+    // Named in descending order.
+    let r = s.ok(drop_owner(&[hs[1], hs[0]]), on(None));
+    assert_eq!((r.outcome, r.exit), (Outcome::Ok, 0));
+    assert_eq!(
+        data(&r),
+        &BodyDropData {
+            dropped: hs.to_vec(),
+            already: vec![],
+            backups: vec![],
+            purged: true,
+        }
+    );
+    let rt = s.st.runtime();
+    assert_eq!(
+        rt.dropped,
+        vec![(hs[0], DropReason::Secret), (hs[1], DropReason::Secret)]
+    );
+    assert_eq!(state(&mut s), st0, "the State snapshot of main");
+    assert_eq!(commits(&s), c0, "every commit's seq, id and hlc");
+    assert_eq!(s.st.commit_seq, n0);
+    let others = |r: &RuntimeSnap| RuntimeSnap {
+        dropped: vec![],
+        ..r.clone()
+    };
+    assert_eq!(others(&rt), others(&rt0), "every other Runtime member");
+}
+
+/// [API §8.7] "Refusals": `usage`, exit 2, naming the argument, with nothing written and nothing drawn; 2,048 hashes
+/// and a 200-byte note pass the argument check, and the first unheld hash in ascending order is then `not_found`.
+#[test]
+fn bad_arguments_are_usage_and_the_bounds_pass() {
+    let mut s = two_bodies();
+    let r0 = s.st.runtime();
+    let h0 = next_hlc(&s);
+    let one = hx("body one");
+    let many = |n: usize| -> Vec<String> {
+        (0..n)
+            .map(|i| hex(&blake3_128(&[format!("unheld {i}").as_bytes()])))
+            .collect()
+    };
+    let cases: Vec<(&str, Cmd, &str)> = vec![
+        (
+            "empty",
+            drop_raw(vec![], "secret", "", Some("owner")),
+            "hashes",
+        ),
+        (
+            "2,049",
+            drop_raw(many(2049), "secret", "", Some("owner")),
+            "hashes",
+        ),
+        (
+            "31 digits",
+            drop_raw(vec![one[..31].to_string()], "secret", "", Some("owner")),
+            "hashes",
+        ),
+        (
+            "33 digits",
+            drop_raw(vec![format!("{one}0")], "secret", "", Some("owner")),
+            "hashes",
+        ),
+        (
+            "upper case",
+            drop_raw(vec![one.to_uppercase()], "secret", "", Some("owner")),
+            "hashes",
+        ),
+        (
+            "unknown reason",
+            drop_raw(vec![one.clone()], "leaked", "", Some("owner")),
+            "reason",
+        ),
+        (
+            "201-byte note",
+            drop_raw(vec![one.clone()], "secret", &"n".repeat(201), Some("owner")),
+            "note",
+        ),
+    ];
+    assert!(
+        one.chars().any(|c| c.is_ascii_alphabetic()),
+        "the upper-case case changes the text"
+    );
+    for (what, cmd, arg) in cases {
+        let r = s.run(cmd, on(None));
+        let e = r
+            .error
+            .as_ref()
+            .unwrap_or_else(|| panic!("{what}: was not refused"));
+        assert_eq!((e.code.as_str(), r.exit), ("usage", 2), "{what}: {e:?}");
+        assert_eq!(e.get_str("argument"), Some(arg), "{what}: {e:?}");
+        assert_eq!(s.st.runtime(), r0, "{what}: the call wrote something");
+        assert_eq!(next_hlc(&s), h0, "{what}: the call drew an HLC value");
+    }
+    // The bounds: 2,048 distinct unheld hashes and a 200-byte note pass the argument check.
+    let hashes = many(2048);
+    let smallest = hashes.iter().min().unwrap().clone();
+    let r = s.run(
+        drop_raw(hashes, "private", &"n".repeat(200), Some("owner")),
+        on(None),
+    );
+    let e = r.error.as_ref().expect("refused");
+    assert_eq!((e.code.as_str(), r.exit), ("not_found", 3), "{e:?}");
+    assert_eq!(e.get_str("what"), Some("body"));
+    assert_eq!(e.get_str("value"), Some(smallest.as_str()));
+    assert_eq!(s.st.runtime(), r0);
+    assert_eq!(next_hlc(&s), h0);
+}
+
+/// [API §8.7] "Checks": a hash the store neither dropped nor holds as a body refuses the whole command with
+/// `not_found` (`what` = `body`), exit 3, and the held hashes named with it are not dropped.
+#[test]
+fn an_unheld_hash_is_not_found_and_nothing_drops() {
+    let mut s = two_bodies();
+    let held = [hb("body one"), hb("body two")];
+    let top = *held.iter().max().unwrap();
+    let u = (0..)
+        .map(|i| blake3_128(&[format!("unheld {i}").as_bytes()]))
+        .find(|h| *h > top)
+        .unwrap();
+    let h0 = next_hlc(&s);
+    let r = s.run(drop_owner(&[held[0], u, held[1]]), on(None));
+    let e = r.error.as_ref().expect("refused");
+    assert_eq!((e.code.as_str(), r.exit), ("not_found", 3), "{e:?}");
+    assert_eq!(e.get_str("what"), Some("body"));
+    assert_eq!(e.get_str("value"), Some(hex(&u).as_str()));
+    assert!(
+        s.st.runtime().dropped.is_empty(),
+        "the held hashes are not dropped"
+    );
+    assert!(s.st.dropped.is_empty());
+    assert_eq!(next_hlc(&s), h0);
+}
+
+/// [F06 §8.1] DB-4; [API §8.7] "Checks": a body that a conflict value of a resolvable commit's state carries is held,
+/// also when no state holds it as a node's body: the virtual base of a criss-cross merge, the base side of the outer
+/// merge's `TextHunk` ([F12 §5]; [RULES/merge-table] MR-032).
+#[test]
+fn a_body_held_only_as_a_conflict_side_is_held() {
+    let lines = |edits: &[(usize, &str)]| -> String {
+        (1..=9)
+            .map(|i| {
+                edits
+                    .iter()
+                    .find(|(l, _)| *l == i)
+                    .map_or(format!("l{i}"), |(_, x)| x.to_string())
+            })
+            .collect::<Vec<_>>()
+            .join("\n")
+    };
+    let mut s = S::base();
+    s.ok(tx(vec![task_with_body("x", "task x", &lines(&[]))]), orch());
+    let branch = |s: &mut S, name: &str, from: &str| {
+        s.ok(
+            Cmd::BranchCreate {
+                name: name.into(),
+                from: Some(from.into()),
+                kind: None,
+            },
+            on(None),
+        );
+    };
+    let merge = |s: &mut S, src: &str, into: &str| -> Reply {
+        s.ok(
+            Cmd::Merge {
+                src: src.into(),
+                into: Some(into.into()),
+                policy: None,
+                strict: None,
+                base: None,
+                message: String::new(),
+            },
+            on(None),
+        )
+    };
+    let edit = |s: &mut S, b: &str, text: String| {
+        s.ok(tx(vec![set_body(1, &text)]), on(Some(b)));
+    };
+    branch(&mut s, "a", "main");
+    branch(&mut s, "b", "main");
+    edit(&mut s, "lane/a", lines(&[(1, "A")]));
+    edit(&mut s, "lane/b", lines(&[(9, "D")]));
+    branch(&mut s, "c", "lane/a");
+    branch(&mut s, "d", "lane/b");
+    edit(&mut s, "lane/a", lines(&[(1, "A"), (3, "B")]));
+    edit(&mut s, "lane/b", lines(&[(7, "C"), (9, "D")]));
+    // The criss-cross: lane/a takes lane/b's first edit, lane/b takes lane/a's.
+    merge(&mut s, "lane/d", "lane/a");
+    merge(&mut s, "lane/c", "lane/b");
+    edit(
+        &mut s,
+        "lane/a",
+        lines(&[(1, "A"), (3, "B"), (5, "P"), (9, "D")]),
+    );
+    edit(
+        &mut s,
+        "lane/b",
+        lines(&[(1, "A"), (5, "Q"), (7, "C"), (9, "D")]),
+    );
+    let r = merge(&mut s, "lane/b", "lane/a");
+    let Data::Merge(m) = &r.data else {
+        panic!("{:?}", r.data)
+    };
+    assert!(m.virtual_base, "two LCAs: a virtual base");
+    assert_eq!(
+        m.conflicts,
+        vec![("#1.body".to_string(), "TextHunk".to_string())]
+    );
+    // V, the virtual base's text: no state of any commit holds it as a node's body; the outer merge's conflict base
+    // carries it.
+    let v = hb(&lines(&[(1, "A"), (9, "D")]));
+    for c in s.st.dag.commits.keys() {
+        let st = s.st.dag.state_at(Some(*c), &s.st.alloc);
+        assert!(
+            st.nodes
+                .values()
+                .all(|x| x.body.as_ref().map(body_hash) != Some(v)),
+            "commit s{c} holds V as a body"
+        );
+    }
+    let tip = s.st.dag.live("lane/a").unwrap().tip;
+    let st = s.st.dag.state_at(tip, &s.st.alloc);
+    let base = &st.nodes[&Nid(1)].conflicts[&Aspect::Body].base;
+    assert!(
+        matches!(base, Some(KVal::Body(b)) if body_hash(b) == v),
+        "{base:?}"
+    );
+    let r = s.ok(drop_owner(&[v]), on(None));
+    assert_eq!(data(&r).dropped, vec![v]);
+    assert_eq!(s.st.runtime().dropped, vec![(v, DropReason::Secret)]);
+}
+
+/// [API §8.7] "a hash named twice counts once".
+#[test]
+fn a_hash_named_twice_counts_once() {
+    let mut s = two_bodies();
+    let h = hb("body one");
+    let r = s.ok(drop_owner(&[h, h]), on(None));
+    assert_eq!(data(&r).dropped, vec![h]);
+    assert_eq!(data(&r).already, Vec::<[u8; 16]>::new());
+    assert_eq!(s.st.runtime().dropped, vec![(h, DropReason::Secret)]);
+}
+
+/// [API §8.7] "When every hash is already dropped, nothing is written"; open point 50: a retry finds the hashes
+/// already dropped and writes nothing, and draws no HLC value.
+#[test]
+fn a_redrop_writes_and_draws_nothing() {
+    let mut s = two_bodies();
+    let h = hb("body one");
+    s.ok(drop_owner(&[h]), on(None));
+    let (rt, h0) = (s.st.runtime(), next_hlc(&s));
+    let r = s.ok(drop_owner(&[h]), on(None));
+    assert_eq!(data(&r).dropped, Vec::<[u8; 16]>::new());
+    assert_eq!(data(&r).already, vec![h]);
+    assert_eq!(s.st.runtime(), rt);
+    assert_eq!(next_hlc(&s), h0);
+}
+
+/// [API §8.7] "Checks": a dropped hash goes to `already` "before and whether or not the store holds it as a body":
+/// after a `Gc` pruned the only commit that held it, it is `already`, not `not_found`.
+#[test]
+fn a_dropped_hash_whose_commits_were_pruned_is_already() {
+    let mut s = two_bodies();
+    s.ok(
+        Cmd::BranchCreate {
+            name: "x".into(),
+            from: Some("main".into()),
+            kind: None,
+        },
+        on(None),
+    );
+    let r = s.ok(
+        tx(vec![task_with_body("y", "task y", "lane body")]),
+        on(Some("lane/x")),
+    );
+    let c = r.rev_new.unwrap();
+    let x = hb("lane body");
+    s.ok(drop_owner(&[x]), on(None));
+    s.ok(
+        Cmd::BranchDelete {
+            name: "lane/x".into(),
+            force: true,
+        },
+        on(None),
+    );
+    s.ok(
+        Cmd::Gc {
+            reflog_expire_ms: Some(0),
+            cruft_delay_ms: Some(0),
+            force: false,
+        },
+        on(None),
+    );
+    assert!(
+        s.st.pruned.contains(&c),
+        "the lane's commit stopped resolving"
+    );
+    let r = s.ok(drop_owner(&[x]), on(None));
+    assert_eq!(data(&r).already, vec![x]);
+    assert_eq!(data(&r).dropped, Vec::<[u8; 16]>::new());
+}
+
+/// CK-4 ([API §6.2]; [API §8.7] "it draws one value from CK-4's sequence"): a written record draws one value, so the
+/// next local commit's `hlc` is one above what it would have been; a call that writes nothing draws none.
+#[test]
+fn a_written_record_draws_one_hlc_value() {
+    let mut s = two_bodies();
+    let h0 = next_hlc(&s);
+    s.ok(drop_owner(&[hb("body one")]), on(None));
+    assert_eq!(next_hlc(&s), h0 + 1);
+    s.ok(drop_owner(&[hb("body one")]), on(None));
+    assert_eq!(next_hlc(&s), h0 + 1, "an all-already call draws nothing");
+}
+
+/// [API §8.7] "Quiet mode does not refuse the command".
+#[test]
+fn quiet_mode_does_not_refuse_body_drop() {
+    let mut s = two_bodies();
+    s.ok(Cmd::Quiet { on: true }, on(None));
+    let r = s.ok(drop_owner(&[hb("body one")]), on(None));
+    assert_eq!(data(&r).dropped, vec![hb("body one")]);
+}
+
+/// [API §6.7]: `BodyDrop` is a write for `EnvCrash in-next`: applied, `outcome_unknown`, and the store without it kept.
+#[test]
+fn env_crash_in_next_treats_body_drop_as_a_write() {
+    let mut s = two_bodies();
+    s.ok(Cmd::EnvCrash { in_next: true }, Ctx::default());
+    let h = hb("body one");
+    let r = s.run(drop_owner(&[h]), on(None));
+    let e = r.error.as_ref().expect("refused");
+    assert_eq!((e.code.as_str(), r.exit), ("outcome_unknown", 7), "{e:?}");
+    assert_eq!(s.st.runtime().dropped, vec![(h, DropReason::Secret)]);
+    let without =
+        s.st.without
+            .as_ref()
+            .expect("the store without the command");
+    assert!(without.runtime().dropped.is_empty());
+}

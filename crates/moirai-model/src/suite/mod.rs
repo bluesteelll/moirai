@@ -3,6 +3,7 @@
 //! that compare the model's incremental answers with its from-scratch definitions ([PLAN §6.2] R12).
 
 mod apply;
+mod bodydrop;
 mod checks;
 mod feed;
 mod files;

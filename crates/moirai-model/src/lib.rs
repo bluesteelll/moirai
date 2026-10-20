@@ -9,6 +9,7 @@
 
 pub mod api;
 pub mod apply;
+pub mod bodydrop;
 pub mod budget;
 pub mod canon;
 pub mod clock;
