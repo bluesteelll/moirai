@@ -552,6 +552,35 @@ fn a_body_held_only_as_a_conflict_side_is_held() {
     assert_eq!(s.st.runtime().dropped, vec![(v, DropReason::Secret)]);
 }
 
+/// [API §15.7] `dropped`; [F06 §8.1] DB-2: `Runtime.dropped` lists each dropped hash with the reason its drop named,
+/// `private` and `other` as well as `secret`; a later call that names a dropped hash with another reason finds it
+/// `already`, and the hash keeps its first reason.
+#[test]
+fn runtime_dropped_shows_each_hash_with_its_first_reason() {
+    let mut s = two_bodies();
+    let (one, two) = (hb("body one"), hb("body two"));
+    s.ok(
+        drop_raw(vec![hex(&one)], "private", "", Some("owner")),
+        on(None),
+    );
+    s.ok(
+        drop_raw(vec![hex(&two)], "other", "", Some("owner")),
+        on(None),
+    );
+    let mut want = vec![(one, DropReason::Private), (two, DropReason::Other)];
+    want.sort_by_key(|(h, _)| *h);
+    assert_eq!(s.st.runtime().dropped, want, "each drop's own reason");
+    let r = s.ok(
+        drop_raw(vec![hex(&one), hex(&two)], "secret", "", Some("owner")),
+        on(None),
+    );
+    let mut both = vec![one, two];
+    both.sort();
+    assert_eq!(data(&r).already, both);
+    assert_eq!(data(&r).dropped, Vec::<[u8; 16]>::new());
+    assert_eq!(s.st.runtime().dropped, want, "the first reason stays");
+}
+
 /// [API §8.7] "a hash named twice counts once".
 #[test]
 fn a_hash_named_twice_counts_once() {
