@@ -3,18 +3,13 @@
 //! terms evaluated as data from the table `blocker-terms`. The engine maintains the same predicates incrementally;
 //! GT6 and GT2 compare the two, and [`affected`] is the model's `affected` list of a commit ([F13 §6.3]).
 //!
-//! The pinned clause of `suspect` compares an edge's `pinned_commit` with its target's current commit, which is a fact
-//! of the view's history, not of its state: every function here takes it as `current`.
+//! `suspect` is a function of each view's state alone: `pinned_commit` is data and no predicate reads it ([F13 §6.2]).
 
 use crate::rules::rules;
 use crate::state::{EdgeKey, EdgeProps, State};
 use crate::value::{Nid, Value};
 use std::cell::RefCell;
 use std::collections::{BTreeMap, BTreeSet};
-
-/// The current commit of a node on the view: the id of the newest commit of the view's first-parent chain whose net
-/// changeset changed a key the node owns ([API §15.4] `rev`), when commit ids are known.
-pub type Current<'a> = &'a dyn Fn(Nid) -> Option<[u8; 32]>;
 
 /// The `P_F15` values of one live node ([F13 §6.2]; [API §15.5] with `gated`).
 #[derive(Clone, PartialEq, Eq, Debug, Default)]
@@ -412,15 +407,15 @@ pub fn depth(ix: &Index<'_>, n: Nid) -> u32 {
     ix.ancestors(n).len() as u32
 }
 
-/// `suspect`, single hop ([F13 §6.2]; [AR §3.5]): a `derived_from`, `cites`, `implements` or `depends_on` target is
-/// retracted, superseded or deleted, or its current commit differs from the edge's `pinned_commit`; or an `at` target
-/// file node is `removed` or deleted.
+/// `suspect`, single hop ([F13 §6.2]): a `derived_from`, `cites`, `implements` or `depends_on` target is retracted,
+/// superseded or deleted; or an `at` target file node is `removed` or deleted. `pinned_commit` is data; no predicate
+/// reads it.
 // spec: [F13 §6.2] suspect
-pub fn suspect(ix: &Index<'_>, n: Nid, current: Current<'_>) -> bool {
+pub fn suspect(ix: &Index<'_>, n: Nid) -> bool {
     let Some(node) = ix.st.live(n) else {
         return false;
     };
-    for (k, p) in &node.out {
+    for k in node.out.keys() {
         let target = ix.st.nodes.get(&k.dst);
         match k.kind.as_str() {
             "derived_from" | "cites" | "implements" | "depends_on" => {
@@ -429,8 +424,7 @@ pub fn suspect(ix: &Index<'_>, n: Nid, current: Current<'_>) -> bool {
                     Some(t) if !t.live() => true,
                     Some(t) => t.status == "retracted" || t.status == "superseded",
                 };
-                let moved = p.pinned.is_some_and(|pin| current(k.dst) != Some(pin));
-                if bad || moved {
+                if bad {
                     return true;
                 }
             }
@@ -442,7 +436,7 @@ pub fn suspect(ix: &Index<'_>, n: Nid, current: Current<'_>) -> bool {
 }
 
 /// Every `P_F15` value of one live node.
-pub fn row(ix: &Index<'_>, n: Nid, current: Current<'_>) -> Row {
+pub fn row(ix: &Index<'_>, n: Nid) -> Row {
     let ct = children_total(ix, n);
     Row {
         done: done(ix, n),
@@ -456,7 +450,7 @@ pub fn row(ix: &Index<'_>, n: Nid, current: Current<'_>) -> Row {
         children_done: children_done(ix, n),
         ready_to_close: ready_to_close(ix, n),
         container: ct > 0,
-        suspect: suspect(ix, n, current),
+        suspect: suspect(ix, n),
         answered: answered(ix, n),
         conflicted: conflicted(ix, n),
         has_dangling: has_dangling(ix, n),
@@ -468,12 +462,12 @@ pub fn row(ix: &Index<'_>, n: Nid, current: Current<'_>) -> Row {
 /// Every live node's `P_F15` values, recomputed from scratch ([F13] I9: the model's from-scratch definitions are the
 /// oracle).
 // spec: [F13 §3.3] I9
-pub fn recompute_all(st: &State, current: Current<'_>) -> BTreeMap<Nid, Row> {
+pub fn recompute_all(st: &State) -> BTreeMap<Nid, Row> {
     let ix = Index::new(st);
     st.nodes
         .iter()
         .filter(|(_, x)| x.live())
-        .map(|(n, _)| (*n, row(&ix, *n, current)))
+        .map(|(n, _)| (*n, row(&ix, *n)))
         .collect()
 }
 
@@ -496,15 +490,9 @@ pub fn affected(parent: &BTreeMap<Nid, Row>, child: &BTreeMap<Nid, Row>) -> BTre
 // spec: [F17 §8.2]
 // spec: [F13 §3.6] I42′
 // rule: DS-010
-pub fn affected_with_budget(
-    parent: &State,
-    child: &State,
-    budget: u32,
-    current_parent: Current<'_>,
-    current_child: Current<'_>,
-) -> (Vec<Nid>, bool) {
-    let p = recompute_all(parent, current_parent);
-    let c = recompute_all(child, current_child);
+pub fn affected_with_budget(parent: &State, child: &State, budget: u32) -> (Vec<Nid>, bool) {
+    let p = recompute_all(parent);
+    let c = recompute_all(child);
     affected_rows(&p, &c, budget)
 }
 
@@ -775,10 +763,6 @@ mod tests {
         );
     }
 
-    fn none(_: Nid) -> Option<[u8; 32]> {
-        None
-    }
-
     /// The node-40 starting state `c0` of [RULES/delete-policy-matrix] `n40-nodes`, `n40-edges` (NX-001 to NX-003).
     #[test]
     fn node_40_starts_blocked() {
@@ -895,13 +879,13 @@ mod tests {
             if i5p_cycle_witness(&st).is_some() || crate::inv::i4_parent_forest(&st).is_err() {
                 return Ok(());
             }
-            let before = recompute_all(&st, &none);
+            let before = recompute_all(&st);
             let from = st.nodes[&Nid(who)].status.clone();
             let to = if to_done { "done" } else { "open" };
             let subjects = effect_subjects(&Index::new(&st), Nid(who), "task", &from, to);
             let mut after_st = st.clone();
             after_st.nodes.get_mut(&Nid(who)).unwrap().status = to.into();
-            let after = recompute_all(&after_st, &none);
+            let after = recompute_all(&after_st);
             for n in affected(&before, &after) {
                 prop_assert!(subjects.contains(&n), "{} changed but derived-effects names {:?}", n, subjects);
             }
@@ -929,7 +913,7 @@ mod tests {
                 }
             }
             prop_assert_eq!(i5p_cycle_witness(&st).is_some(), kahn_cyclic(&st));
-            let _ = recompute_all(&st, &none);
+            let _ = recompute_all(&st);
         }
     }
 }

@@ -1181,7 +1181,7 @@ impl Store {
         }
         self.next_id = self.next_id.max(c.next_id);
         let st_after = Rc::new(c.st);
-        let child_rows = Rc::new(crate::derived::recompute_all(&st_after, &|_| None));
+        let child_rows = Rc::new(crate::derived::recompute_all(&st_after));
         let (affected, complete) =
             crate::derived::affected_rows(&parent_rows, &child_rows, self.cfg.suspect_budget);
         let seq = self.append_commit(

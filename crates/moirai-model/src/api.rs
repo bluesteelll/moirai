@@ -2696,7 +2696,7 @@ impl Store {
             return r.clone();
         }
         let st = self.dag.state_at(Some(s), &self.alloc);
-        let rows = Rc::new(derived::recompute_all(&st, &|_| None));
+        let rows = Rc::new(derived::recompute_all(&st));
         self.rows.insert(s, rows.clone());
         self.prune_rows();
         rows
@@ -3245,7 +3245,7 @@ impl Store {
         self.fence = fence;
         let mut commit_seq = None;
         if !cs.is_empty() || !resolves.is_empty() {
-            let child_rows = Rc::new(derived::recompute_all(&st_after, &|_| None));
+            let child_rows = Rc::new(derived::recompute_all(&st_after));
             let (affected, complete) =
                 derived::affected_rows(&parent_rows, &child_rows, self.cfg.suspect_budget);
             // DS-010: beyond the budget the command prints the hint `SuspectBudget` and keeps its exit code
@@ -4709,7 +4709,7 @@ impl Store {
     // spec: [API §15.1]
     pub fn snapshot(&self, ref_: &str, commit: Option<u64>) -> Snapshot {
         let st = self.dag.state_at(commit, &self.alloc);
-        let rows = derived::recompute_all(&st, &|_| None);
+        let rows = derived::recompute_all(&st);
         let local = self.dag.local_seqs_all(commit);
         let mut nodes: Vec<SnapNode> = st
             .nodes

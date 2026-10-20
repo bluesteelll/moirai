@@ -773,7 +773,7 @@ fn links_fix_drop_restore_and_same_as() {
     let st = tip_state(&s);
     assert_eq!(st.nodes[&Nid(5)].status, "removed");
     assert_eq!(st.nodes[&Nid(5)].text("reason"), Some("obsolete"));
-    let rows = crate::derived::recompute_all(&st, &|_| None);
+    let rows = crate::derived::recompute_all(&st);
     assert!(
         rows[&Nid(2)].suspect,
         "an at edge into a removed file makes its source suspect"

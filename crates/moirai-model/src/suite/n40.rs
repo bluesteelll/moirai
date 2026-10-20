@@ -14,6 +14,8 @@ struct N40 {
     s: S,
     ids: BTreeMap<String, Nid>,
     lease19: Option<u64>,
+    /// The commit of the TX that created the `n40-nodes` rows, as its reply returned it.
+    nodes: u64,
 }
 
 impl N40 {
@@ -23,10 +25,33 @@ impl N40 {
             .get(fixture)
             .unwrap_or_else(|| panic!("no fixture node {fixture}"))
     }
+
+    /// The pin an `n40-edges` row's `props` token names: `-` is none, and `pinned_commit=created(#N)` is the commit
+    /// that created #N ([API §15.4] `created`), written as the revision `s<seq>`. Every fixture node is created by the
+    /// nodes TX, an earlier commit than the edges TX: a pin never names the commit that writes it ([F08 §10.2]).
+    fn pin(&self, row: &crate::rules::Row) -> Option<String> {
+        let props = row.tok("props");
+        if props == "-" {
+            return None;
+        }
+        let node = props
+            .strip_prefix("pinned_commit=created(")
+            .and_then(|x| x.strip_suffix(')'))
+            .unwrap_or_else(|| panic!("{}: unknown props {props}", row.id));
+        let tip = self.s.st.dag.live("main").and_then(|z| z.tip);
+        let created = self.s.st.dag.local_seqs(tip, self.id(node)).1;
+        assert_eq!(
+            created, self.nodes,
+            "{}: {node} is created by the nodes TX",
+            row.id
+        );
+        Some(format!("s{created}"))
+    }
 }
 
 /// `c0`, optionally with `edges.blocks.on-src-deleted = drop-notify` on `main` (a `policy` item written by `Schema`,
-/// [F08 §8.5.6]; the lanes forked later carry it).
+/// [F08 §8.5.6]; the lanes forked later carry it). The nodes are created in one TX and the edges written in the next,
+/// each `n40-edges` row's `props` token read as its pin ([`N40::pin`]; NG-005).
 fn c0(drop_notify: bool) -> N40 {
     let mut s = S::base();
     if drop_notify {
@@ -60,7 +85,10 @@ fn c0(drop_notify: bool) -> N40 {
             edges_in: vec![],
         });
     }
-    s.ok(tx(stmts), orch());
+    let nodes = s
+        .ok(tx(stmts), orch())
+        .commit
+        .expect("the nodes TX writes a commit");
     let ids: BTreeMap<String, Nid> = r
         .table("n40-nodes")
         .rows
@@ -68,9 +96,15 @@ fn c0(drop_notify: bool) -> N40 {
         .enumerate()
         .map(|(i, row)| (row.tok("node").to_string(), Nid(i as u32 + 1)))
         .collect();
+    let mut x = N40 {
+        s,
+        ids,
+        lease19: None,
+        nodes,
+    };
     let mut stmts = Vec::new();
     for row in &r.table("n40-edges").rows {
-        let (a, b) = (ids[row.tok("src")], ids[row.tok("dst")]);
+        let (a, b) = (x.id(row.tok("src")), x.id(row.tok("dst")));
         match row.tok("kind") {
             "parent" => {}
             "mentions" => stmts.push(Stmt::Set {
@@ -84,13 +118,13 @@ fn c0(drop_notify: bool) -> N40 {
                 src: Target::Id(a),
                 kind: k.into(),
                 dst: Target::Id(b),
-                pinned: None,
+                pinned: x.pin(row),
             }),
         }
     }
-    s.ok(tx(stmts), orch());
+    x.s.ok(tx(stmts), orch());
     for lane in ["x", "y"] {
-        s.ok(
+        x.s.ok(
             Cmd::BranchCreate {
                 name: lane.into(),
                 from: Some("main".into()),
@@ -99,11 +133,7 @@ fn c0(drop_notify: bool) -> N40 {
             orch(),
         );
     }
-    N40 {
-        s,
-        ids,
-        lease19: None,
-    }
+    x
 }
 
 /// The state a case starts from (`n40-cases` `after`).
@@ -338,7 +368,7 @@ fn property(x: &N40, reply: &Reply, r: &str, subject: &str, prop: &str) -> Optio
         "unblocked" => yn(derived::unblocked(&ix, n)),
         "has_dangling" => yn(derived::has_dangling(&ix, n)),
         "is_blocker" => yn(derived::is_blocker(&ix, n)),
-        "suspect" => yn(derived::suspect(&ix, n, &|_| None)),
+        "suspect" => yn(derived::suspect(&ix, n)),
         "replaced_by" => node?.tomb.as_ref()?.replaced_by.map_or("-".into(), name_of),
         "hold" => coord::hold(&st, n).to_string(),
         "deleted_elsewhere" => yn(o.deleted_elsewhere(r, n)),
@@ -409,4 +439,37 @@ fn node_40_rows_hold() {
             "{l} ({case}) is not a merge, revert or import case"
         );
     }
+}
+
+/// NG-005 at `c0`: #17's `derived_from` edge to #40 on `main` is pinned at the commit that created #40, the nodes TX's
+/// commit as its reply returned it; and #17 is not suspect, since #40 is live and open and no predicate reads the pin
+/// ([F13 §6.2]; NN-007, NP-010).
+#[test]
+fn c0_pins_17_at_the_commit_that_created_40_and_17_is_not_suspect() {
+    let mut x = c0(false);
+    let (n17, n40) = (x.id("#17"), x.id("#40"));
+    let st =
+        x.s.st
+            .dag
+            .state_at(x.s.st.dag.live("main").and_then(|z| z.tip), &x.s.st.alloc);
+    let pin = st.nodes[&n17]
+        .out
+        .get(&EdgeKey {
+            kind: "derived_from".into(),
+            dst: n40,
+            disc: None,
+        })
+        .expect("NG-005's edge")
+        .pinned;
+    assert_eq!(
+        pin,
+        Some(x.s.st.dag.commits[&x.nodes].id),
+        "NG-005: pinned at the nodes TX's commit"
+    );
+    let reply = run_action(&mut x, "main", "none").expect("a reply");
+    assert_eq!(
+        property(&x, &reply, "main", "#17", "suspect").as_deref(),
+        Some("no"),
+        "#40 is live and open ([F13 §6.2])"
+    );
 }

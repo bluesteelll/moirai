@@ -296,7 +296,7 @@ pub fn ready_set(
     let rows = match rows {
         Some(r) => r,
         None => {
-            computed = derived::recompute_all(&st, &|_| None);
+            computed = derived::recompute_all(&st);
             &computed
         }
     };

@@ -324,7 +324,7 @@ impl<'a> Ev<'a> {
         if let Some(r) = self.rows.borrow().get(&n) {
             return r.clone();
         }
-        let r = Rc::new(derived::row(self.ix(), n, &|_| None));
+        let r = Rc::new(derived::row(self.ix(), n));
         self.rows.borrow_mut().insert(n, r.clone());
         r
     }
