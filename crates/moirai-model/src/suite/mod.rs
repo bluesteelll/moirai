@@ -18,6 +18,7 @@ mod rs007eval;
 mod scale;
 mod scenarios;
 mod streams;
+mod suspect;
 mod tags;
 mod vcs;
 

@@ -705,8 +705,8 @@ mod tests {
         assert!(has(&after, 17, "derived_from", 40), "NX-018");
         let ix = Index::new(&after);
         assert_eq!(derived::open_blockers(&ix, Nid(12)), 1, "NX-014");
-        assert!(derived::suspect(&ix, Nid(17), &|_| None), "NX-017");
-        assert!(!derived::suspect(&ix, Nid(77), &|_| None), "NX-019");
+        assert!(derived::suspect(&ix, Nid(17)), "NX-017");
+        assert!(!derived::suspect(&ix, Nid(77)), "NX-019");
         assert!(crate::inv::i2_structural_edges_live(&after).is_ok());
     }
 

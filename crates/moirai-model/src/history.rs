@@ -691,7 +691,7 @@ impl Store {
         let base = self.dag.state_at(dst_tip, &self.alloc);
         let cs = diff(&base, &st);
         let parent_rows = self.rows_at(dst_tip);
-        let child_rows = Rc::new(derived::recompute_all(&st, &|_| None));
+        let child_rows = Rc::new(derived::recompute_all(&st));
         let (affected, complete) =
             derived::affected_rows(&parent_rows, &child_rows, self.cfg.suspect_budget);
         let mut c = Commit::new(0, 0, 0, plan.kind, plan.parents.clone(), 0, cs);

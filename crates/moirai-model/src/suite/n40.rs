@@ -368,7 +368,7 @@ fn property(x: &N40, reply: &Reply, r: &str, subject: &str, prop: &str) -> Optio
         "unblocked" => yn(derived::unblocked(&ix, n)),
         "has_dangling" => yn(derived::has_dangling(&ix, n)),
         "is_blocker" => yn(derived::is_blocker(&ix, n)),
-        "suspect" => yn(derived::suspect(&ix, n, &|_| None)),
+        "suspect" => yn(derived::suspect(&ix, n)),
         "replaced_by" => node?.tomb.as_ref()?.replaced_by.map_or("-".into(), name_of),
         "hold" => coord::hold(&st, n).to_string(),
         "deleted_elsewhere" => yn(o.deleted_elsewhere(r, n)),
@@ -439,4 +439,37 @@ fn node_40_rows_hold() {
             "{l} ({case}) is not a merge, revert or import case"
         );
     }
+}
+
+/// NG-005 at `c0`: #17's `derived_from` edge to #40 on `main` is pinned at the commit that created #40, the nodes TX's
+/// commit as its reply returned it; and #17 is not suspect, since #40 is live and open and no predicate reads the pin
+/// ([F13 §6.2]; NN-007, NP-010).
+#[test]
+fn c0_pins_17_at_the_commit_that_created_40_and_17_is_not_suspect() {
+    let mut x = c0(false);
+    let (n17, n40) = (x.id("#17"), x.id("#40"));
+    let st =
+        x.s.st
+            .dag
+            .state_at(x.s.st.dag.live("main").and_then(|z| z.tip), &x.s.st.alloc);
+    let pin = st.nodes[&n17]
+        .out
+        .get(&EdgeKey {
+            kind: "derived_from".into(),
+            dst: n40,
+            disc: None,
+        })
+        .expect("NG-005's edge")
+        .pinned;
+    assert_eq!(
+        pin,
+        Some(x.s.st.dag.commits[&x.nodes].id),
+        "NG-005: pinned at the nodes TX's commit"
+    );
+    let reply = run_action(&mut x, "main", "none").expect("a reply");
+    assert_eq!(
+        property(&x, &reply, "main", "#17", "suspect").as_deref(),
+        Some("no"),
+        "#40 is live and open ([F13 §6.2])"
+    );
 }
