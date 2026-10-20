@@ -6,7 +6,7 @@
 | Chapter | [F13], `docs/spec/format/13-invariants.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-16c, the invariants part of WP-16 ([PLAN §3.2] item 1), author role R-SPEC-P |
-| Sources | [AR §3.4] (every invariant, including the table heading's re-check rule), [AR §3.5] (derived state), [AR §3.6] (status machines), [AR §4.5] steps 1–12 (the enforcement points of the write path), [AR §4.6], [AR §4.9], [AR §4.10], [AR §5a.1]–[AR §5a.9] (merge, validators, markers, `undo`, `-D`), [AR §5b.4]–[AR §5b.7] (image round trip and gates 0–3), [AR §5d.1], [AR §5e.8], [AR §6.2]–[AR §6.4], [AR §8.2] "Correctness gates", [AR §8.3] CORRECTNESS table (row "Invariant coverage"); [21 §8] (I35′, which [AR §3.4] I1 cites); [40 §2.10] (I-F1…I-F14, authoritative), [40 §8.3.2] (P1–P15), [40 §8.1] (FL placement); [80 §2.4.3] ("Invariants": I-G1–I-G6), [80 §2.4.4]; [50 §3.8], [50 §5.8], [50 §5.9], [50 §8.1] F15, F16, F18; [60 §2.5] rows "Derived-state semantics" and "Protocol decisions" (k); [60 §2.6] (validator table); [60 §3.13] (gate catalogue); [60 §4.2]–[60 §4.4]; [72] M4 (I26′ on states). |
+| Sources | [AR §3.4] (every invariant, including the table heading's re-check rule), [AR §3.5] (derived state), [AR §3.6] (status machines), [AR §4.5] steps 1–12 (the enforcement points of the write path), [AR §4.6], [AR §4.9], [AR §4.10], [AR §5a.1]–[AR §5a.9] (merge, validators, markers, `undo`, `-D`), [AR §5b.4]–[AR §5b.7] (image round trip and gates 0–3), [AR §5d.1], [AR §5e.8], [AR §6.2]–[AR §6.4], [AR §8.2] "Correctness gates", [AR §8.3] CORRECTNESS table (row "Invariant coverage"); [21 §8] (I35′, which [AR §3.4] I1 cites); [40 §2.10] (I-F1…I-F14, authoritative), [40 §8.3.2] (P1–P15), [40 §8.1] (FL placement); [80 §2.4.3] ("Invariants": I-G1–I-G6), [80 §2.4.4]; [50 §3.8], [50 §5.8], [50 §5.9], [50 §8.1] F15, F16, F18; [60 §2.5] rows "Derived-state semantics" and "Protocol decisions" (k); [60 §2.6] (validator table); [60 §3.13] (gate catalogue); [60 §4.2]–[60 §4.4]; [72] M4 (I26′ on states); the owner's ruling R-90 of 2026-10-19 (`suspect` without its pinned clause: §6.2, OP-13-14). |
 | Depends on | [F01]; cites [F04], [F05], [F06], [F08], [F11], [F12], [F14], [F15], [F16], [F17], [F18], [F19], [F20], [API] |
 
 This chapter lists every invariant of the design of record. For each one it gives the enforcement point, the check class,
@@ -404,7 +404,7 @@ once, is shared by the write path, the verbs and LQ ([50 §3.8]), and is recompu
 | `is_blocker` | not done ∧ has an outgoing `blocks` edge to a task that is not done | `BM_is_blocker` | yes |
 | `children_total`, `children_done`, `ready_to_close` | direct children; a container whose children are all done | `NodeHdr` u16 columns | yes |
 | `container` | has children ([AR §3.1] flags bit 4) | flags, `BM_container` | yes |
-| `suspect` | a `derived_from`, `cites`, `implements` or `depends_on` target is retracted, superseded or deleted, or its current commit differs from the edge's `pinned_commit`; or an `at` target file node is `removed` or deleted. Single-hop ([AR §3.5]) | `BM_suspect` | yes; the `suspect` budget applies ([F17 §8.2]) |
+| `suspect` | a `derived_from`, `cites`, `implements` or `depends_on` target is retracted, superseded or deleted; or an `at` target file node is `removed` or deleted. Single-hop ([AR §3.5]) | `BM_suspect` | yes; the `suspect` budget applies ([F17 §8.2]) |
 | `answered` | a live `answers` edge is visible | — | yes |
 | `conflicted` | an unresolved conflict value exists on the node on this view | flags, `BM_conflicted` | yes |
 | `has_dangling` | the node has a flagged dangling structural in-edge | flags, `BM_has_dangling` | yes |
@@ -418,6 +418,12 @@ once, is shared by the write path, the verbs and LQ ([50 §3.8]), and is recompu
 [AR §3.5] does, would keep a task gated by an `open` `fail_fixable` verdict out of `ready`, so nobody could claim the fix
 that lets the verdict be accepted. Review pass 1 (S1-30) adopted the rule table's reading above; [AR §3.5] is edited at
 WP-81a.
+
+`suspect` has no pinned clause: the owner's ruling R-90 of 2026-10-19 drops [AR §3.5]'s "or its current commit
+differs from the edge's `pinned_commit`". `pinned_commit` is data; no predicate of `P_F15` reads it. It is stored in
+the edge's property block ([F08 §10.2]) and exported as `pin=` ([F14 §6.6]). [AR §3.5]'s row keeps the clause,
+and [AR §2.17] X8 still reads `suspect` as "purely derived from `(target state, edge.pinned_commit)`"; both are
+edited at WP-81a.
 
 ### 6.3 `affected` and `affected_complete` (F15, F16, I42′)
 
@@ -553,6 +559,8 @@ are specified in [F17], where the production values that measurements decide are
     as the set of referrers whose single-hop value a commit changes; [F17 §8.2] budgets that set.
   - If the review wants transitive propagation, `P_F15`, the model's `derived` module and [F17 §8.2]'s `S(c)` change
     together.
+  - **The owner's ruling R-90 of 2026-10-19:** §6.2's `suspect` no longer follows [AR §3.5]'s pinned clause, which the
+    ruling drops; [AR §3.5] keeps the clause until WP-81a.
 - **OP-13-15 (spec sync 2b).** Three readings met by WP-32, WP-90b and WP-91: I-G2's post-crash clause is stated
   precisely after the §3.8 table (boot mode, the judged first read, deaths without a crash, lazy values); MC-1 says that
   a commit on another ref kind changes no holder set but can still flag markers nonlinear (ME-008, ME-011); VO-3 lets a
