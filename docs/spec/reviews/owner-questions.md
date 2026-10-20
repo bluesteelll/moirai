@@ -840,3 +840,11 @@ comparison of alternatives that followed it (`wave-3d-alternatives.md`); asked i
   applies it before the merge table's V3 signature and before the engine implements RS-007: the hint, the `--strict`
   staging and 13.5 (b) are prototyped in K2 and the harness is widened first; then the work splits as the
   recommendation says.
+- **Ruling (2026-10-12): 13.4 (a) is read by state** ("По состоянию", "by state"; the rules cite it as R-20). A
+  resolution whose landed value equals a parent's value passes that parent's origin on; every other resolution to base
+  or to a value produces a new origin. The format does not change, and the merge result stays a function of the commit
+  DAG, the states, the canonical hlc and the rule tables.
+- **Outcome (2026-10-20).** Wave 3e applied the decision, and the S lens arbiter re-ran the widened harness
+  (`docs/spec/reviews/wave-3e-arbiter-s.md`): 13.6 (a) is met at the nightly and exit tiers on all nine generators,
+  every asserted count 0, every corpus case and link fixture passing. K4 is not needed. The arbiter's findings on the
+  rule and spec texts are routed to their owners (the report's section 3).
