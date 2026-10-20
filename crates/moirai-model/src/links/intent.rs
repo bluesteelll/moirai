@@ -1012,8 +1012,12 @@ impl Store {
             let text = format!(
                 "{}\n{}",
                 x.text("title").unwrap_or(""),
-                // A body known only by its hash reaches Body::text's unreachable arm (BODY_DROP).
-                x.body.as_ref().map_or("", crate::state::Body::text)
+                // A dropped body is no text ([F06 §8.1] DB-6); a body known only by its hash, which only the fixture
+                // parser makes, would reach Body::text's unreachable arm (BODY_DROP).
+                x.body
+                    .as_ref()
+                    .filter(|b| self.dropped_as(b).is_none())
+                    .map_or("", crate::state::Body::text)
             );
             if removed.iter().any(|r| text.contains(r.as_str())) {
                 im.mentions.push(*n);
