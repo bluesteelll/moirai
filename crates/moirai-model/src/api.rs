@@ -3045,6 +3045,7 @@ impl Store {
                     .is_some_and(|m| m.thread_id.is_some() && m.thread_id != m.session_id)
                 || Self::env_var(ctx, "MOIRAI_LEASE").is_some()
                 || Self::env_var(ctx, "MOIRAI_RUN").is_some(),
+            dropped: &self.dropped,
         };
         let mut cand = Cand::new(cx, base.clone(), self.leases.clone());
         cand.door = exp.and_then(|(_, e, _)| e.door);

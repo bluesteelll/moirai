@@ -558,6 +558,8 @@ pub struct Ctx<'a> {
     pub root_session: Option<[u8; 16]>,
     /// Known subagent (WT-014) or dispatched worker (WT-015).
     pub subagent_or_worker: bool,
+    /// The store's dropped set ([F06 §8.1] DB-1), which the virtual base a `Resolve` reads takes ([F12 §5.6]).
+    pub dropped: &'a BTreeSet<[u8; 16]>,
 }
 
 /// The configuration values the kernel reads ([CFG] §10.3, [AR §13] policy data, [F17 §8.2]).
@@ -2883,8 +2885,14 @@ impl<'a> Cand<'a> {
                     Take::Ours => 1,
                     _ => 2,
                 };
-                let st =
-                    crate::history::staged_side(self.cx.dag, self.cx.alloc, self.cx.uidx, s, side);
+                let st = crate::history::staged_side(
+                    self.cx.dag,
+                    self.cx.alloc,
+                    self.cx.uidx,
+                    self.cx.dropped,
+                    s,
+                    side,
+                );
                 match k {
                     Key::Node(n, a) => crate::merge::flat(&crate::merge::cval(&st, *n, a)),
                     Key::Schema(_) => crate::merge::flat(&st.kstate(k)),
