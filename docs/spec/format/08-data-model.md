@@ -1241,7 +1241,7 @@ only definition of its bytes (pass 1, S1-2, A1-3, P1-1): the ops of [F06 §7.5] 
 | order | name | encoding | present when | meaning |
 |---|---|---|---|---|
 | 1 | `pflags` | `u8` | always | bit table below |
-| 2 | `pinned_commit` | `b32` | `has_pin` | the full id of the pinned commit ([AR §3.3], [AR §7.4] step 5); ≠ all zero; the full id for the reasons of `commitref` (§5.1) |
+| 2 | `pinned_commit` | `b32` | `has_pin` | the full id of the pinned commit ([AR §3.3], [AR §7.4] step 5); ≠ all zero; the full id for the reasons of `commitref` (§5.1). `pinned_commit` is data; no predicate of `P_F15` reads it ([F13 §6.2]; the owner's ruling R-90 of 2026-10-19): it is stored in [F09]'s `EDGE_PROPS` row, hashed ([F07 §8.1]), exported as `pin=` ([F14 §6.6]) and returned in an edge's `props` ([API §15.3]) |
 | 3 | `anchor` | the anchor record (§10.3) | `anchor` | the anchor of an `at` edge |
 
 `pflags`:
