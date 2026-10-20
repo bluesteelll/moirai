@@ -328,15 +328,20 @@ enum Mode {
     /// The node is copied whole from a side, with this conflict value on its existence key: RS-008's provisional
     /// state, for the existence policy's `DeleteVsModify` (MR-042, LM-010) and for a new `DeleteVsModify` whose flat
     /// sides are one live and one deleted (RS-010, RS-015); a tombstone one side left while the other only read the
-    /// node; an automatic side (AP-002, AP-003); a staged `IdCollision`.
+    /// node; the value an automatic side (AP-002, AP-003) takes on MR-042, and on MR-002 or MR-005 when the flat sides
+    /// are one live and one deleted, where the node counts as a node an existence policy fixed (PR-007; RS-007's
+    /// scope); a staged `IdCollision`.
     Fixed(From, Option<Box<Conflict>>),
     /// The node is a tombstone in the result: copied from the side whose node holds that tombstone, its title and
     /// retained out-edges merged key by key ([AR §3.4] I39′). With a conflict value: the value a `conflicted-key` row
-    /// gave the existence key, whose provisional value is deleted; it stays on the tombstone ([F12 §6.3]).
+    /// gave the existence key, or that an automatic side (AP-002, AP-003) took over two deleted flat sides (PR-007),
+    /// whose provisional value is deleted; it stays on the tombstone ([F12 §6.3]). With none: a plain tombstone o and
+    /// t both hold, or one an automatic side took over two deleted flat sides (PR-007).
     Tomb(From, Option<Box<Conflict>>),
     /// The node is live and every other key is merged by its own class. With a conflict value: the value a
-    /// `conflicted-key` row gave the existence key, whose provisional value is live, attached ([F12 §6.3]: the value
-    /// fixes none of the node's other keys; the owner's ruling R-43 of 2026-10-13, OI-1g).
+    /// `conflicted-key` row gave the existence key, an automatic side's (AP-002, AP-003) over two live flat sides
+    /// included, whose provisional value is live, attached ([F12 §6.3]: the value fixes none of the node's other keys;
+    /// the owner's ruling R-43 of 2026-10-13, OI-1g).
     Merged(Option<Box<Conflict>>),
 }
 
@@ -346,7 +351,9 @@ struct Decided {
     row: String,
     violation: Option<&'static str>,
     /// The side whose value the key takes as that side holds it: ours for `take-o` and `stage-take-o`, theirs for
-    /// `take-t`, the side of an automatic policy (AP-002, AP-003); `None` for a value the row computes.
+    /// `take-t`, the side of an automatic policy (AP-002, AP-003), which on an existence key is also the side a node it
+    /// fixes is copied from whole, or whose tombstone holds a tombstone merge (PR-007); `None` for a value the row
+    /// computes.
     taken: Option<From>,
     /// The value is a conflict value this merge made that fixes the node to RS-008's provisional state: a `policy`
     /// row's (RS-008), or RS-010's or RS-015's `DeleteVsModify` whose flat sides are one live and one deleted
@@ -1367,14 +1374,23 @@ impl Engine<'_, '_> {
             let k = Key::Node(n, Aspect::Existence);
             let (b, o, t) = (self.val(0, &k), self.val(1, &k), self.val(2, &k));
             if self.eq(&k, &b, &o) && self.eq(&k, &o, &t) {
-                modes.insert(n, self.mode_of(n, &o, None, &b, &o, &t, false, false));
+                modes.insert(
+                    n,
+                    self.mode_of(n, &o, None, &b, &o, &t, false, false, false),
+                );
                 continue;
             }
             let d = self.decide(&k, &b, &o, &t);
             if let Some(class) = d.violation {
                 self.violation(class, Some(k.clone()));
             }
+            // An automatic side's value fixes the node to that side only over flat sides one live and one deleted
+            // (MR-042's plain sides always are), where the node counts as a node an existence policy fixed (PR-007;
+            // RS-007's scope); over two live or two deleted flat sides it fixes none of the other keys (PR-007).
             let fixed_policy = d.row.contains("AP-00");
+            let (fo, ft) = (flat(&o), flat(&t));
+            let keyed = fixed_policy
+                && ((is_live(&fo) && is_live(&ft)) || (is_deleted(&fo) && is_deleted(&ft)));
             let mode = self.mode_of(
                 n,
                 &d.value,
@@ -1382,8 +1398,9 @@ impl Engine<'_, '_> {
                 &b,
                 &o,
                 &t,
-                fixed_policy || d.violation.is_some(),
+                (fixed_policy && !keyed) || d.violation.is_some(),
                 d.kept,
+                keyed,
             );
             if let KState::Conflict(c) = &d.value
                 && !self.eq(&k, &d.value, &o)
@@ -1400,16 +1417,20 @@ impl Engine<'_, '_> {
     /// when the key takes a side's value. A conflict value fixes the node only in RS-008's kept cases ([F12 §6.3] "The
     /// node's other keys"; PR-007): `kept`, a value this merge made that takes RS-008's provisional state (the
     /// existence policy's `DeleteVsModify`, or a new `DeleteVsModify` whose flat sides are one live and one deleted),
-    /// and `fixed`, an automatic side or a staged value. Such a node is copied whole, with `r` on its existence key,
-    /// from the side `taken` or `r`'s `prov` names. Any other conflict value a `conflicted-key` row gives (a side's,
-    /// taken unchanged: MR-001, MR-003, MR-004 and the b ≈ o ≈ t short-cut; or a new one over a conflicted base or side,
-    /// MR-002 or MR-005, that is not one-live) fixes none of the node's other keys: they merge key by key, with `r`
-    /// attached when its provisional value P is live, and as a tombstone merge ([AR §3.4] I39′) when P is deleted (the
-    /// owner's ruling R-43 of 2026-10-13, OI-1g). That tombstone is the one the side holding `r` holds: the side `taken`
-    /// names, ours when o and t hold `r` alike, and for a new value the side its `prov` names (`ours` outside the
-    /// one-live case). A plain tombstone is merged key by key when o and t are tombstones and otherwise copied from the
-    /// side that holds it; an automatic side or a staged value fixes the node to that side; a live result merges the
-    /// other keys.
+    /// and `fixed`, a staged value, or an automatic side's value (AP-002, AP-003) on MR-042 or over flat sides one live
+    /// and one deleted, where the node counts as a node an existence policy fixed (PR-007; RS-007's scope). Such a node
+    /// is copied whole, with `r` on its existence key, from the side `taken` or `r`'s `prov` names. Any other conflict
+    /// value a `conflicted-key` row gives (a side's, taken unchanged: MR-001, MR-003, MR-004 and the b ≈ o ≈ t
+    /// short-cut; a new one over a conflicted base or side, MR-002 or MR-005, that is not one-live; or a side's value an
+    /// automatic side takes on MR-002 or MR-005 over two live or two deleted flat sides) fixes none of the node's other
+    /// keys: they merge key by key, with `r` attached when its provisional value P is live, and as a tombstone merge
+    /// ([AR §3.4] I39′) when P is deleted (the owner's ruling R-43 of 2026-10-13, OI-1g). That tombstone is the one the
+    /// side holding `r` holds: the side `taken` names, ours when o and t hold `r` alike, and for a new value the side its
+    /// `prov` names (`ours` outside the one-live case). `keyed` is an automatic side's value over two live or two
+    /// deleted flat sides: a plain tombstone it took is merged key by key from that side. A plain tombstone is merged key
+    /// by key when o and t are tombstones or when `keyed`, and otherwise copied from the side that holds it; a staged
+    /// value or an automatic side's live value under `fixed` fixes the node to that side; any other live result merges
+    /// the other keys.
     // spec: [F12 §6.3]
     // spec: [RULES/merge-table] PR-007
     #[allow(clippy::too_many_arguments)]
@@ -1423,6 +1444,7 @@ impl Engine<'_, '_> {
         t: &KState,
         fixed: bool,
         kept: bool,
+        keyed: bool,
     ) -> Mode {
         let key = Key::Node(n, Aspect::Existence);
         let side_of = |v: &KState| -> From {
@@ -1457,6 +1479,8 @@ impl Engine<'_, '_> {
                 let tomb = |v: &KState| matches!(v, KState::Plain(Some(KVal::Deleted { .. })));
                 if tomb(o) && tomb(t) {
                     Mode::Tomb(side_of(r), None)
+                } else if keyed {
+                    Mode::Tomb(taken.unwrap_or_else(|| side_of(r)), None)
                 } else {
                     Mode::Fixed(side_of(r), None)
                 }
