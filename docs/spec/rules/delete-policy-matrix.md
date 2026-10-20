@@ -312,7 +312,7 @@ rows have their defaults (`flag`) unless a case says otherwise. No lease exists 
 | NN-004 | #41 | task | open | #40 | A child of #40, so #40 is a container. |
 | NN-005 | #52 | task | open | - | The replacement. |
 | NN-006 | #203 | task | open | - | Blocks #40. |
-| NN-007 | #17 | note | active | - | Derived from #40, pinned at `c0` (the design's `cites`, [OP-15]). |
+| NN-007 | #17 | note | active | - | Derived from #40, pinned at the commit that created #40 (NG-005; the design's `cites`, [OP-15]). |
 | NN-008 | #77 | note | active | - | Mentions #40 in its body. |
 
 <!-- table: n40-edges -->
@@ -322,7 +322,7 @@ rows have their defaults (`flag`) unless a case says otherwise. No lease exists 
 | NG-002 | #203 | blocks | #40 | - | - |
 | NG-003 | #41 | parent | #40 | - | - |
 | NG-004 | #40 | parent | #9 | - | - |
-| NG-005 | #17 | derived_from | #40 | pinned_commit=c0 | The design's `#17 cites #40`; `cites` ends only at knowledge ([F08 §9.6]) and #40 is a task, so the row uses `derived_from`, whose delete policy is the same (EG-035; [OP-15]). |
+| NG-005 | #17 | derived_from | #40 | pinned_commit=created(#40) | The design's `#17 cites #40`; `cites` ends only at knowledge ([F08 §9.6]) and #40 is a task, so the row uses `derived_from`, whose delete policy is the same (EG-035; [OP-15]). `created(#40)` is the commit that created #40 ([API §15.4] `created`), an earlier commit than the one that writes this edge: a pin is hashed into the commit that writes it ([F08 §10.2]), so it never names that commit. The pin is data and changes no expected value ([F13 §6.2]). |
 | NG-006 | #77 | mentions | #40 | - | - |
 
 **Cases.** `ref` is where the action runs; `after` is the state it starts from (`c0`, or the state a named case left;
@@ -372,7 +372,7 @@ can lease it (PD-005, PD-006, PD-017; spec sync 2b). Actions are written `verb:a
 | NP-007 | unblocked | [RULES/state-definition] PD rows. |
 | NP-008 | has_dangling | FL-003. |
 | NP-009 | is_blocker | [AR §3.5]. |
-| NP-010 | suspect | [AR §3.5]. |
+| NP-010 | suspect | [F13 §6.2]. |
 | NP-011 | replaced_by | The tombstone's `replaced_by`. |
 | NP-012 | hold | The node's hold on the ref ([RULES/state-definition] HV rows): `done`, `cancelled`, `deleted` or `none`. |
 | NP-013 | deleted_elsewhere | [RULES/state-definition] PD-013. |
