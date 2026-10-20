@@ -628,10 +628,10 @@ order wins and the later rule sees the key already conflicted (the conflicted-ke
   policy's `DeleteVsModify` over two plain sides does (RS-008, PR-007). Under `merge.policy.<kind>` = `ours` or `theirs`
   ([RULES/merge-table] AP-002, AP-003; never inside a virtual merge, §5.3 VM-2), a node whose existence key takes o
   under `ours` or t under `theirs` in place of the conflict value MR-002 or MR-005 would make, and whose flat sides are
-  one live and one deleted, is taken whole from that side, not key by key: live with that side's keys when that side is
-  live and deleted when it is deleted; the merge makes no conflict value for it, a conflict value that side holds is
-  carried and reported as PR-011 states, and such a node counts as a node an existence policy fixed, so RS-007's
-  hierarchy rule does not decide it (the owner's ruling R-109 of 2026-10-20).
+  one live and one deleted, is taken whole from the side whose value its existence key takes, not key by key: live with
+  that side's keys when that side is live and deleted when it is deleted; the merge makes no conflict value for it, a
+  conflict value that side holds is carried and reported as PR-011 states, and such a node counts as a node an existence
+  policy fixed, so RS-007's hierarchy rule does not decide it (the owner's ruling R-109 of 2026-10-20).
 
 ### 6.4 Flat sides
 
