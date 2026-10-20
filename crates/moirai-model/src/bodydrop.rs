@@ -5,9 +5,10 @@
 //! (`backups` is empty) and keeps neither the note nor the actor, which no result shows.
 
 use crate::api::{Ctx, Data, Door, Reply, Store};
-use crate::err::{Refusal, Res};
+use crate::err::{Kv, Refusal, Res};
 use crate::state::{Aspect, Body, KVal, Node};
-use std::collections::BTreeSet;
+use crate::value::Nid;
+use std::collections::{BTreeMap, BTreeSet};
 
 /// The most hashes one call names ([API §8.7] `hashes`).
 pub const MAX_HASHES: usize = 2048;
@@ -59,6 +60,48 @@ pub struct BodyDropData {
     /// `purged`: always true, no purge being pending in a model that runs none (excluded from the comparison,
     /// [API §16.3]).
     pub purged: bool,
+}
+
+/// The hash and the reason of a body the owner dropped ([F06 §8.1] DB-6: a reader first looks the body's hash up in the
+/// dropped set); `None` for a body that is not dropped. An empty set hashes nothing, so a store without a drop pays no
+/// BLAKE3 per body read.
+pub(crate) fn dropped_as(
+    dropped: &BTreeSet<[u8; 16]>,
+    reasons: &BTreeMap<[u8; 16], DropReason>,
+    b: &Body,
+) -> Option<([u8; 16], DropReason)> {
+    if dropped.is_empty() {
+        return None;
+    }
+    let h = crate::canon::body_hash(b);
+    // `BodyDrop` writes a hash into both or neither.
+    dropped
+        .contains(&h)
+        .then(|| (h, *reasons.get(&h).expect("a dropped hash has its reason")))
+}
+
+/// `body_dropped`, exit 6 ([F19 §10.2]; [F06 §8.1] DB-7): a write that supplies the bytes of a dropped body (`case`
+/// `supplied`), or a `PATCH` of a dropped body (`case` `patch`, [LQ/std §7.2]); its keys `node`, `hash`, `reason` and
+/// `case` in that order ([F19 §10.3]).
+// spec: [F06 §8.1]
+pub(crate) fn body_dropped(n: Nid, hash: &[u8; 16], reason: DropReason, case: &str) -> Refusal {
+    let detail = if case == "patch" {
+        format!(
+            "PATCH {n}.body refused: the owner dropped this body ({}), so the removed text cannot be matched",
+            reason.name()
+        )
+    } else {
+        format!(
+            "{n}'s new body has the hash of a body the owner dropped ({})",
+            reason.name()
+        )
+    };
+    Refusal::new("body_dropped", 6, detail)
+        .key("node", Kv::Node(n))
+        .key("hash", crate::value::hex(hash))
+        .key("reason", reason.name())
+        .key("case", case)
+        .help("write a different text; a dropped text is never stored again")
 }
 
 /// A hash argument: exactly 32 lower-case hexadecimal digits ([API §8.7] `hashes`).

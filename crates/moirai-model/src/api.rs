@@ -3046,6 +3046,7 @@ impl Store {
                 || Self::env_var(ctx, "MOIRAI_LEASE").is_some()
                 || Self::env_var(ctx, "MOIRAI_RUN").is_some(),
             dropped: &self.dropped,
+            drop_reasons: &self.drop_reasons,
         };
         let mut cand = Cand::new(cx, base.clone(), self.leases.clone());
         cand.door = exp.and_then(|(_, e, _)| e.door);

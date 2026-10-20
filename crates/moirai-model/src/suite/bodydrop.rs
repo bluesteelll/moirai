@@ -848,3 +848,101 @@ fn a_cherry_pick_over_a_dropped_body_takes_a_text_hunk() {
         [&x0, &xa, &xb],
     );
 }
+
+/// A `body_dropped` refusal ([F19 §10.3]): exit 6, its keys in order `node`, `hash`, `reason`, `case`, and nothing
+/// written: the store's commit count and `main`'s tip as before.
+fn assert_body_dropped(
+    s: &S,
+    r: &Reply,
+    n: u32,
+    text: &str,
+    reason: &str,
+    case: &str,
+    before: (u64, Option<u64>),
+) {
+    let e = r.error.as_ref().expect("refused");
+    assert_eq!((e.code.as_str(), r.exit), ("body_dropped", 6), "{e:?}");
+    assert_eq!(e.key_names(), ["node", "hash", "reason", "case"], "{e:?}");
+    assert_eq!(e.get("node"), Some(&crate::err::Kv::Node(Nid(n))), "{e:?}");
+    assert_eq!(e.get_str("hash"), Some(hx(text).as_str()), "{e:?}");
+    assert_eq!(e.get_str("reason"), Some(reason), "{e:?}");
+    assert_eq!(e.get_str("case"), Some(case), "{e:?}");
+    assert_eq!(
+        (s.st.commit_seq, s.st.dag.live("main").unwrap().tip),
+        before,
+        "nothing written"
+    );
+}
+
+/// [F06 §8.1] DB-7 (b); [F19 §10.2] `body_dropped`: a write whose new body has the hash of a dropped body is refused
+/// with `case` `supplied`, whichever door supplies it: a `TX` `set` and `create`, the `tx.add` mutation, an `Apply`
+/// batch's statement, and a text that normalises to the dropped one ([F08 §5.3]).
+#[test]
+fn a_write_that_supplies_a_dropped_text_is_body_dropped() {
+    let d = "dropped\ntext";
+    let mut s = S::base();
+    s.ok(
+        tx(vec![
+            task_with_body("a", "task a", d),
+            task_with_body("b", "task b", "other"),
+        ]),
+        orch(),
+    );
+    s.ok(
+        drop_raw(vec![hx(d)], "private", "", Some("owner")),
+        on(None),
+    );
+    let before = (s.st.commit_seq, s.st.dag.live("main").unwrap().tip);
+    let r = s.run(tx(vec![set_body(2, d)]), on(None));
+    assert_body_dropped(&s, &r, 2, d, "private", "supplied", before);
+    let r = s.run(tx(vec![task_with_body("c", "task c", d)]), on(None));
+    assert_body_dropped(&s, &r, 3, d, "private", "supplied", before);
+    let r = s.run(
+        Cmd::Mutation {
+            name: "tx.add".into(),
+            params: vec![
+                ("kind".into(), t("task")),
+                ("title".into(), t("task c")),
+                ("body".into(), t(d)),
+            ],
+            message: String::new(),
+            move_lease: None,
+        },
+        on(None),
+    );
+    assert_body_dropped(&s, &r, 3, d, "private", "supplied", before);
+    let r = s.run(
+        Cmd::Apply {
+            run: None,
+            results: vec![],
+            stmts: vec![set_body(2, d)],
+            message: String::new(),
+        },
+        on(None),
+    );
+    assert_body_dropped(&s, &r, 2, d, "private", "supplied", before);
+    let r = s.run(tx(vec![set_body(2, "dropped\r\ntext")]), on(None));
+    assert_body_dropped(&s, &r, 2, d, "private", "supplied", before);
+}
+
+/// [LQ/std §7.2] `PATCH`: "A `PATCH` of a dropped body is `body_dropped` ([F06 §8.1] DB-7), checked first": before
+/// E404's three cases, whether the removed text occurs once, never, twice, or is empty.
+#[test]
+fn a_patch_of_a_dropped_body_is_body_dropped_first() {
+    let b = "one two two";
+    let mut s = S::base();
+    s.ok(tx(vec![task_with_body("a", "task a", b)]), orch());
+    s.ok(drop_raw(vec![hx(b)], "other", "", Some("owner")), on(None));
+    let before = (s.st.commit_seq, s.st.dag.live("main").unwrap().tip);
+    for remove in ["one", "three", "two", ""] {
+        let r = s.run(
+            tx(vec![Stmt::Patch {
+                target: Target::Id(Nid(1)),
+                remove: remove.into(),
+                add: "x".into(),
+            }]),
+            on(None),
+        );
+        assert_body_dropped(&s, &r, 1, b, "other", "patch", before);
+    }
+}
