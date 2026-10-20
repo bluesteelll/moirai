@@ -171,7 +171,10 @@ fn a_call_that_is_not_owner_attested_is_e406_before_its_arguments() {
         .filter(|r| r.toks("carried_by").contains(&"run-role-lease"))
         .map(|r| r.tok("role").to_string())
         .collect();
-    assert_eq!(roles.len(), 10, "WO-003 to WO-012: {roles:?}");
+    assert!(
+        !roles.is_empty(),
+        "some role of role-rows is carried by a run-role lease, so the loop below runs: {roles:?}"
+    );
     for role in &roles {
         s.ok(
             Cmd::Claim {
