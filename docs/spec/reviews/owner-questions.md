@@ -862,9 +862,9 @@ on 2026-10-20. The id continues the A series.
 - **Question.** Under `merge.policy.<kind>` = `ours` or `theirs`, the automatic side decides a node's existence key in
   place of the conflict value MR-002 or MR-005 would make. When both flat sides are live, the node's other keys merge
   key by key (OI-1g). When the flat sides are one live and one deleted, key by key has no stated meaning: a tombstone
-  holds no keys but `title` ([F07 §6.4]). No text says what the node takes, and a node live in the result with no
-  existence policy falls under RS-007's hierarchy rule by its scope. It was asked with the example of a task live on one
-  side, holding an unresolved delete-versus-modify conflict, and deleted on the other.
+  keeps only its `title` and its retained out-edges ([F07 §6.4]). No text says what the node takes, and a node live in
+  the result with no existence policy falls under RS-007's hierarchy rule by its scope. It was asked with the example
+  of a task live on one side, holding an unresolved delete-versus-modify conflict, and deleted on the other.
 - **Options.** (A) Take the node whole from the automatic side, live with that side's keys if that side is live,
   deleted if it is deleted, and state it in the rules: such a node counts as one an existence policy fixed, so RS-007's
   hierarchy rule does not decide it (RS-007's scope, PR-007's, AP-002's and AP-003's notes, [F12 §6.3], [F13 §5] V01).
