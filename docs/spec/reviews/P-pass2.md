@@ -39,7 +39,7 @@ row a written disposition (N-P7). What remains:
    has no cost bound and no budget (P2-3), and the per-merge text budget question is scheduled after the freeze
    although a budget that changes results would have to be format-fixed (P2-4).
 
-The minors are pointers and FM citations ([F16] P-35, P-29, P-48, P-50), a restore step order that OS/fs and F15
+The minors are pointers and FM citations ([F16] P-35, P-29, P-48, P-50, P-101's deletion step; [F04 §9.1]), a restore step order that OS/fs and F15
 restate against [F16] P-85, a contradiction about who runs a body purge, an unstated locator read bound, and two
 reserved surfaces (the similar-records notice and the harvest cursor) without a work bound.
 
@@ -159,8 +159,8 @@ repository):
 | N-P5 | Does the specification carry [80]'s decisions (§2.2–§2.12, §3.1) without contradiction, its X-F rows mapped? `COVERAGE.md` maps X-F1–X-F12, 12 of 12, none unmapped (`docs/spec/COVERAGE.md:54`, `docs/spec/COVERAGE.md:241-256`); the lock map (F03:81-89, `docs/spec/os/lock.md:30-39`), the durability calls (F15:687-693), extent preparation (F16:117) and the mapping policy (F16:1070-1076) agree with [80]; the departures (the nine quiet bytes, F03:96-121; the restore swap; the writer's refusal on a read error, P-92) are recorded as signed pass-1 resolutions | MEETS |
 | N-P6 | [90 §14.6]'s two layout items: the 32 B anchor holds the 16 B BLAKE3 session hash and its kinds (F03:437-445), the 128 B slot record (F03:290-308) and every `LOCK` offset are unchanged (F03:81-89, `docs/spec/os/lock.md:30-39`); `LEASES` rows are sorted by (`n`, `lease_id`) with `n` = 0 for a role lease (F11:535), and a Codex holder's root session is a 16 B hash, zero otherwise (F11:554) | MEETS |
 | N-P7 | Every [F16 §17.3] row of a catalogue bug that another rule masks in every reachable toy state carries its written disposition: P-45 masked and carried by a unit test (F16:1191; the exit criterion at `docs/m0/PLAN.md:852` names that test, owner-accepted as OQ-A-1 (a)); P-59 and P-79 re-vehicled with their reason (F16:1205, F16:1225); P-40 and P-13 re-formed into reachable bugs (F16:1186, F16:1159); P-54, P-55 and P-61 carried through setup-injected states (F16:1200-1207); the list is [F16]'s open point 30 (F16:1455-1459). The lens rates the dispositions as sound and accepts none; acceptance is the owner's | MEETS |
-| N-P8 | Does the lens want a decoder bound for [F08 §10.3] that the tree does not imply? [F08 §10.3] bounds `marker` (one line, at most 64 bytes) and a scope (1–64 segments) for every decoder, and leaves the text fields bounded by writers only (F08:1317-1325); every such field lies inside one record, which lies inside one extent, so a decoder's memory per field is already bounded. The lens wants no further decoder bound | MEETS |
-| N-P9 | [F15]'s fault model is complete: every item (1)–(12) of [60 §2.5] has its FM section (`docs/spec/COVERAGE.md:108-119` map them to [F15 §3.1]–§3.12), and every behaviour a delta added to [F03], [F04], [F05], [F16] or [F17] that depends on a failure names the FM item it rests on. The first half holds; three added [F16] behaviours name none (P-29 at F16:204-210, P-48 at F16:368-370, P-50 at F16:377-381) | MISSES: P2-6 |
+| N-P8 | Does the lens want a decoder bound for [F08 §10.3] that the tree does not imply? [F08 §10.3] bounds `marker` (one line, at most 64 bytes) and a scope (1–64 segments) for every decoder, and leaves the text fields bounded by writers only (F08:1317-1325); each such field is a length-prefixed value inside a framed container, so a decoder's memory per field is already bounded by that container: for [F06]'s decoder, one record inside one extent; for [F09]'s, one field-block entry of a pool (F09:495) inside its section, whose `len` the section table gives (F09:91) and which ends within the segment's `total_len` (F09:109). The lens wants no further decoder bound | MEETS |
+| N-P9 | [F15]'s fault model is complete: every item (1)–(12) of [60 §2.5] has its FM section (`docs/spec/COVERAGE.md:108-119` map them to [F15 §3.1]–§3.12), and every behaviour a delta added to [F03], [F04], [F05], [F16] or [F17] that depends on a failure names the FM item it rests on. The first half holds; five added behaviours name none (P-29 at F16:204-210, P-48 at F16:368-370, P-50 at F16:377-381, P-101's deletion step at F16:836-837, and [F04 §9.1]'s fold after a crash at F04:431-433) | MISSES: P2-6 |
 
 ## 3. Findings at a glance
 
@@ -171,7 +171,7 @@ repository):
 | P2-3 | major | F12:656-664 | The walk from `CONFLICTS.commit` to the merge M has no cost bound | R-SPEC-F WP-12 (with R-SPEC-R WP-13 for one remedy); owner call |
 | P2-4 | major | F12:1277-1283 | The per-merge text budget is decided after the freeze, though such a budget would be format-fixed | R-SPEC-F WP-12; owner call |
 | P2-5 | minor | F16:251-256 | P-35 states no pointer to P-37's all-unknown fallback | R-SPEC-P WP-16 |
-| P2-6 | minor | F16:204-210, F16:368-370, F16:377-381 | Three failure-dependent behaviours of [F16] name no FM item | R-SPEC-P WP-16 |
+| P2-6 | minor | F16:204-210, F16:368-370, F16:377-381, F16:836-837, F04:431-433 | Five failure-dependent behaviours of [F16] and [F04] name no FM item | R-SPEC-P WP-16, WP-11 |
 | P2-7 | minor | `docs/spec/os/fs.md:606-612`, `docs/spec/os/lock.md:389` | OS/fs, OS/lock and F15 restate restore's swap under both bytes, against P-85's order | R-SPEC-P WP-17, WP-16 |
 | P2-8 | minor | F16:662-664, F16:749-754 | P-76 says no CLI process runs a purge; `BodyDrop`, a CLI verb, runs one | R-SPEC-P WP-16 |
 | P2-9 | minor | F06:788-791, F06:756-758 | A known locator's read is bounded only by the extent | R-SPEC-F WP-12; owner call |
@@ -233,8 +233,9 @@ help says that `moirai doctor agents` names the holder (F19:741), with no record
 **Evidence.** The cited lines. [OS/proc §11]'s argument that lowered priority never lengthens the tail
 (`docs/spec/os/proc.md:439-441`) assumes the job keeps running its steps; it says nothing of a job that stops.
 
-**Fix.** R-SPEC-P, WP-11 for [F03] and WP-16 for [F16] and [F17]; R-SPEC-F, WP-18 for [F19]'s help text. Two remedies;
-the review chooses neither:
+**Fix.** R-SPEC-P, WP-11 for [F03] and WP-16 for [F16] and [F17]; R-SPEC-F, WP-18 for [F19]'s help text. The owner's
+ruling R-50 of 2026-10-13 already carries a liveness rule for the maintenance byte into the specification; either
+remedy answers it. Two remedies; the review chooses neither:
 - (a) a maintenance-holder record in `LOCK`'s reserved region (the holder's `ProcId`, its job and the hlc of its last
   step), written at each step boundary and read by a process that finds the byte busy while C1 holds, and by `doctor`,
   with a staleness bound past which the process reports the stall: adds a protocol decision, and the bound and the
@@ -303,20 +304,29 @@ refused with E501, and that a group no extent can hold is refused with `commit_t
 re-check fails with the known locators and passes with every locator unknown, the appender writes every locator unknown
 instead, so a locator never refuses a commit. A reader of P-35 alone takes its outcomes as final.
 
+**Evidence.** The cited lines: P-35's outcomes (F16:251-256) and P-37's fallback (F16:295-299), with no pointer
+between them.
+
 **Fix.** R-SPEC-P, WP-16: P-35 names P-37's fallback as the step that runs first.
 
 **Disposition:** open.
 
-**P2-6 — Three failure-dependent behaviours of [F16] name no FM item (minor).**
+**P2-6 — Five failure-dependent behaviours of [F16] and [F04] name no FM item (minor).**
 
 **Where:** [F16] P-29 (F16:204-210, a lazy tail lost after a crash or a failed flush), P-48 (F16:368-370, a publisher's
-scan after a failed flush), P-50 (F16:377-381, `HEAD` reverting to an older slot after a crash).
+scan after a failed flush), P-50 (F16:377-381, `HEAD` reverting to an older slot after a crash), P-101's deletion step
+(F16:836-837, a deletion that fails, or a crash, leaves the file to the next maintenance run); [F04 §9.1] step 2
+(F04:431-433, the fold from `durable_lsn` after a crash, restating P-50).
 
 **Problem.** Each behaviour was added since pass 1 and rests on a fault of [F15] (lost sectors after a crash, FM-1; a
-failed flush, FM-3), yet none cites it, while [F16]'s neighbouring rules do (F16:309, F16:335). A reader cannot check
-the behaviour against the fault's exact guarantee.
+failed flush, FM-3; a sharing violation or a delete-pending name on an unlink, FM-8.2 and FM-8.3; namespace durability
+at a crash, FM-2.3), yet none cites it, while [F16]'s neighbouring rules do (F16:309, F16:335) and [F04]'s slot
+selection does (F04:392-393, F04:412-414). A reader cannot check the behaviour against the fault's exact guarantee.
 
-**Fix.** R-SPEC-P, WP-16: cite FM-1 and FM-3 (with their items) at the three rules.
+**Evidence.** The cited lines; each lies in a hunk added since pass 1's base.
+
+**Fix.** R-SPEC-P, WP-16 for [F16] and WP-11 for [F04]: cite the FM items above (with their sub-items) at the five
+sites.
 
 **Disposition:** open.
 
@@ -334,6 +344,8 @@ maintenance bytes. The new accepted-limit paragraph (`docs/spec/os/fs.md:606-610
 (`docs/spec/os/fs.md:612`) say the old store gets `HEAD.retired` after `Completed`, while P-85 and F02:258-261 set it
 before the swap intent exists.
 
+**Evidence.** The cited lines, read against P-85 step 2 (F16:901-904) and F02:258-261.
+
 **Fix.** R-SPEC-P, WP-17 for `os/fs.md` and `os/lock.md`, WP-16 for [F15]: state P-85's order (retired durable, both
 bytes released, handles closed, then the swap) or cite P-85 instead of restating it.
 
@@ -346,6 +358,8 @@ bytes released, handles closed, then the swap) or cite P-85 instead of restating
 **Problem.** P-76 calls a purge "a long job of a rollup's size … which no CLI, hook or MCP process runs", while P-101
 has the `BodyDrop` command, which is the CLI verb `moirai body drop`, run a pending purge after its acknowledgement.
 The intent is that no automatic trigger runs one; the sentence says more.
+
+**Evidence.** The cited lines; `moirai body drop` is the CLI verb of `BodyDrop` (`docs/spec/store-api.md:855`).
 
 **Fix.** R-SPEC-P, WP-16: say that no automatic trigger and no hook or MCP process runs a purge, and name `BodyDrop`,
 `gc` and `backup` as the three explicit runs.
@@ -362,6 +376,8 @@ than E − 32 bytes" (F06:791): up to 64 MiB at the production extent size for o
 (F17:213), so a valid writer never needs more, but a reader that meets a corrupt or hostile `prev_len` reads up to the
 extent, on a read path the lens wants short.
 
+**Evidence.** The cited lines; P01 is 64 MiB by default (F17:170).
+
 **Fix.** R-SPEC-F, WP-12: a validity bound on `prev_len` in LV-1 (for example `prev_len` ≤ P05), so a reader treats a
 longer locator as unknown. The bound narrows which locators are valid: owner call.
 
@@ -376,6 +392,8 @@ changes the title, the abstract or the kind's text field of one, runs `similar()
 (`docs/spec/config.md:852`). Neither text names the budget: its class, its value, or the key that sets it, though
 `similar()` counts one work unit per compared term over every candidate of the kind (`docs/spec/lq/std.md:278-279`).
 The cost lands on the commit path of every knowledge write.
+
+**Evidence.** The cited lines.
 
 **Fix.** R-SPEC-F, WP-18 (and WP-19 for [LQ/std §2.16]): name the budget of the notice's computation (a class of
 [LQ/std] or a work value) before the surface is reserved further.
@@ -392,6 +410,8 @@ the list. Liveness is computed at each read from each range's commit and the liv
 `harvest` member checks overlap against the live ranges of its row (`docs/spec/store-api.md:923`). So one transcript's
 row grows without limit, and each `harvest()` read and each such `Apply` costs one reachability test per range. The
 bytes are reserved before the freeze; a cap, if any, belongs with them.
+
+**Evidence.** The cited lines, with the 40-byte range layout (F11:1296-1304).
 
 **Fix.** R-SPEC-R, WP-13 for [F11], with R-SPEC-F, WP-25 for [API §8.8]: a cap on a row's ranges (a refusal, or the
 merge of adjacent live ranges), or a statement that the cost is accepted. The cap's value is an owner call.
