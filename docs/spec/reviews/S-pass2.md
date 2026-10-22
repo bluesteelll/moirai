@@ -42,10 +42,11 @@ conflict value" and its second parent, and no text says what a revert or cherry-
 
 ## 1. Method
 
-1. Depth (one row per file below): **full** is every line; **delta** is every changed hunk since aa7c67b and every
-   cross-reference into it, rule rows row by row; **lens** is pass 1's "read for the lens" (these files did not change
-   since aa7c67b). Item 1a's lines in [F06], [F07], [F16] and [F17] were read at full depth. [F12] and [F13] were read
-   whole.
+1. Depth (one row per file below): **full** is every line; **delta** is every changed hunk since aa7c67b, rule rows
+   row by row, with the cross-references followed where a change touched a datum another text lays out (fewer in
+   `os/`, in `lq/` other than `std.md` and `envelope.md`, and in [F15], [F19] and [F20]); **lens** is pass 1's "read
+   for the lens" (these files did not change since aa7c67b). Item 1a's lines in [F06], [F07], [F16] and [F17] were
+   read at full depth. [F12] and [F13] were read whole.
 2. Integration: for every datum a change touched, the chapters that lay it out were compared field by field (the
    policy override, the `prev` chain, the scope value, the anchor derivations, the error codes, the record kinds).
 3. Mechanical checks, each with its result line:
@@ -144,7 +145,7 @@ conflict value" and its second parent, and no text says what a revert or cherry-
 | Id | Check | Verdict |
 |---|---|---|
 | N-S1 | [F12 §6.5]: a conflict value whose maker M has one parent; is `theirs` defined for the restore of a live side? | MISSES: S2-5 |
-| N-S2 | [F12 §7.9]'s `HierarchyCycle` key (F12:962) against [F13 §5] V05's outcome (F13:347) and [F19 §12.2] code 64 (F19:1022) | MEETS: all three key every cycle V05 finds by the hierarchy key of its least uid; V05 and code 64 list the same three sources of a cycle |
+| N-S2 | [F12 §7.9]'s `HierarchyCycle` key (F12:962) against [F13 §5] V05's outcome (F13:347) and [F19 §12.2] code 64 (F19:1022) | MEETS: all three key every cycle V05 finds by the hierarchy key of its least uid; [F12 §7.9] and code 64 list the same three sources of a cycle (one RS-007 left, one an applying resolution closes at `merge --continue`, one a candidate's `Move` ops close), and V05 names the first, its candidates (`Move`, `Create` or `Undelete`) and leaves the key to [F12 §7.9] |
 | N-S3 | [F05 §9.5]'s marker entry order (F05:658-662) with [F13 §4.2] MC-6 (F13:329): total, stable, stated once | MEETS: one order, stated once and cited by MC-6 and [F05 §10.1]; per `#N` a record has at most one leaving and one joining entry, so the order is total; folds write no entry, so it is stable |
 | N-S4 | Store A's commit c11 (`fixtures/hex/store-a/log.1.hex`) against [F06 §7.3] (F06:724) and SL-2 (F06:777) | MISSES: S2-2 |
 | N-S5 | [F21] and the interim scanner rule (F21:1193-1198; F20:1193-1197): every blocker and major against [F21] | MEETS: this lens has no blocker or major against [F21]; its two minors are S2-11 and S2-12 |
@@ -191,13 +192,13 @@ of `--policy` on `merge` and `resolve --all`" and adds that "the model implement
 of `merge.policy.<kind>` and `--policy`"; [F12 §6.5] resolves with "the side P names ([RULES/merge-table]
 `auto-policy`)". Two read as the narrow set: open point 26 ("`--policy` takes the last two") and [API §11.7], whose
 `policy` argument is "`delete-wins` or `resurrect`", as [AR §5a.7] writes it. So an engine built from [API §11.7]
-refuses `merge --policy ours` as usage, while the model accepts it (GT2 diverges). A staged merge cannot record
-`--policy ours` at all: the `stage` group's override is two bits, 0 none, 1 `delete-wins`, 2 `resurrect` (F06:463), so
-`merge --continue` could not recompute such a staged merge ([F12 §9.4] step 1). Under the narrow set, `resolve --all
---policy delete-wins` names no side for a conflict value other than `DeleteVsModify` (a `FieldEdit`, a `TextHunk`), and
-[F12 §6.5] does not say what happens to it. [API §11.7]'s default cell names the kinds' existence policies only, not
-`merge.policy.<kind>`, which the `auto-policy` rows let `--policy` override. `docs/spec/config.md:997` names the two
-overrides and no value set.
+refuses `merge --policy ours` as usage, while one built from `auto-policy`, PV-011 or RG-010 accepts it. A staged merge
+cannot record `--policy ours` at all: the `stage` group's override is two bits, 0 none, 1 `delete-wins`, 2 `resurrect`
+(F06:463), so `merge --continue` could not recompute such a staged merge ([F12 §9.4] step 1). Under the narrow set,
+`resolve --all --policy delete-wins` names no side for a conflict value other than `DeleteVsModify` (a `FieldEdit`, a
+`TextHunk`), and [F12 §6.5] does not say what happens to it. [API §11.7]'s default cell names the kinds' existence
+policies only, not `merge.policy.<kind>`, which the `auto-policy` rows let `--policy` override.
+`docs/spec/config.md:997` names the two overrides and no value set.
 **Evidence:** a search of `docs/spec/` and [AR] for `--policy`: the lines above are every statement of its values; no
 other text states a set.
 **Fix** (two remedies; the owner's disposition chooses):
@@ -207,7 +208,7 @@ conflict value that is not `DeleteVsModify` (refused, or left as it is); [API §
 [F06 §4.4.16] already holds it; R-SPEC-F, WP-25 names `merge.policy.<kind>` in the default cell.
 (b) `--policy` takes every `auto-policy` value: R-MODEL, WP-90 rewrites open point 26; R-SPEC-F, WP-25 widens
 [API §11.7]; R-SPEC-F, WP-12 widens the `stage` group's override field (F06:463), a byte choice the tree does not imply;
-WP-81a edits [AR §5a.7]'s row. **Owner call** for (b): a byte choice, and a departure from the design of record.
+R-SPEC, WP-81a edits [AR §5a.7]'s row. **Owner call** for (b): a byte choice, and a departure from the design of record.
 **Disposition:** open.
 
 **S2-2 — Store A's staged commit c11 carries `prev`s that name another ref's records (major, DIVERGENCE).**
@@ -219,9 +220,8 @@ and `ref_seq` 1), `fixtures/hex/store-a/log.1.hex:2865` and `fixtures/hex/store-
 its existence `Conflict` on #11 carries `prev` 1478, which names c7 on `main` (lsn 9555 − 8077). [F06 §7.3] makes `prev`
 0 "when the owner has no earlier op on this ref" and otherwise the distance to the newest earlier record "with the same
 `ref_id`"; SL-2 states the same per-ref rule for lanes ("never another ref's record"). The staging ref has no earlier
-record, so by the rule both are 0. A writer built from [F06 §7.3] writes 0; the fixture, and the format oracle that
-decodes it, hold `main`'s distances. Once item 1a's fields enter the fixture, c11's two frames carry locators that a
-writer following the rule never writes.
+record, so by the rule both are 0. A writer built from [F06 §7.3] writes 0; the fixture holds `main`'s distances. Once
+item 1a's fields enter the fixture, c11's two frames carry locators that a writer following the rule never writes.
 **Fix** (two remedies; the owner's disposition chooses):
 (fixture) R-FIX, WP-20 sets c11's two `prev`s to 0, so their locators vanish, and store A ripples again from g18, with
 the format oracle's matching change by R-ORA, WP-95, in their own landing;
@@ -244,8 +244,7 @@ automatic side resolves, and the node it takes whole.
 **Disposition:** open.
 
 **S2-4 — A settle writes `removed` through a door that I-F7 does not list (major, DIVERGENCE).**
-**Where:** [F18 §2.7] (`docs/spec/format/18-file-links.md:193-196`) against [F18 §2.1]
-(`docs/spec/format/18-file-links.md:99-101`); [F13 §3.9] I-F7 (F13:240); TR-081
+**Where:** [F18 §2.7] (F18:193-196) against [F18 §2.1] (F18:99-101); [F13 §3.9] I-F7 (F13:240); TR-081
 (`docs/spec/rules/status-machines.md:226`); LV-005 (`docs/spec/rules/link-merge-rules.md:152`);
 [RULES/status-machines] open point 26 (`docs/spec/rules/status-machines.md:524-528`).
 **Problem.** I-F7, as [F18 §2.7] states it from [40 §2.10], lists the only doors through which a file node becomes
@@ -253,16 +252,17 @@ automatic side resolves, and the node it takes whole.
 enforces it at EP-W4 ("only these doors emit `→ removed`"). TR-081 lets the door `settle` move an artifact from
 `present` to `removed{reason: same-as}` when it unifies a `PathClaim` by an exact rename in a fresh writer tree (LV-005,
 [40 §2.3] "settle performs the unification itself"), a door I-F7 does not list. An engine that enforces I-F7 as [F18]
-and [F13] state never writes the unification, while the model writes it by TR-081: after such a settle the two hold
-different statuses for the claimants. [F18] disagrees with itself: its I-F1 text resolves a `PathClaim` by
+and [F13] state never writes the unification, while one built from TR-081 and LV-005 writes it: after such a settle the
+two hold different statuses for the claimants. [F18] disagrees with itself: its I-F1 text resolves a `PathClaim` by
 "`links fix --same-as`, or a settle that unifies the two by an E6 rename in a writer tree fresh for both", which
 "leaves at most one". Open point 26 records the conflict and asks [F18 §2.7] to list the door; neither [F18 §2.7] nor
 [F13] does.
 **Fix** (two remedies; the owner's disposition chooses):
 (a) I-F7 lists the settle's `PathClaim` unification as a door: R-SPEC-F, WP-14 ([F18 §2.7]), R-SPEC-P, WP-16 ([F13 §3.9]
-I-F7's row and its EP-W4 clause), and [40 §2.10] at WP-81a;
+I-F7's row and its EP-W4 clause), and [40 §2.10] at R-SPEC, WP-81a;
 (b) a settle never writes `removed`: R-MODEL, WP-92 withdraws TR-081 and LV-005's unification, and the `PathClaim` value
-stands until `links fix --same-as`; [40 §2.3]'s sentence is edited at WP-81a.
+stands until `links fix --same-as`; R-SPEC-F, WP-14 removes the settle from [F18 §2.1]'s I-F1 text (F18:99-101);
+[40 §2.3]'s sentence is edited at R-SPEC, WP-81a.
 **Owner call:** each remedy changes what an invariant of the design of record admits, or a rule it states.
 **Disposition:** open.
 
@@ -280,12 +280,13 @@ revert or a cherry-pick commit has one parent, tip R, and its origin (F12:988-98
 (F12:1111), so it can be M. Its `ours` restores from tip R; its `theirs` has no second parent. On plain sides the case
 does not arise: a `DeleteVsModify` needs a live base (CS-014), and a revert or cherry-pick whose src changed a node that
 is live in the base and deleted on dst stages `NotFound` instead (DM-012), so `theirs` is never the live side there. No
-text says so, and DM-012 does not say whether a dst side whose conflict value has a deleted provisional value (MR-005)
-counts as "deleted on dst". [F12 §6.5]'s bullet on a violation key names the source state of a revert or a cherry-pick
-("the state [RULES/merge-table]'s DM row reads as src", F12:677-678); the bullet on a conflict value does not.
+text says so. (A dst side whose conflict value holds a deleted provisional value, MR-005, is deleted in dst's state by
+RS-008, "the node is deleted", so DM-012 covers it too.) [F12 §6.5]'s bullet on a violation key names the source state
+of a revert or a cherry-pick ("the state [RULES/merge-table]'s DM row reads as src", F12:677-678); the bullet on a
+conflict value does not.
 **Fix:** R-SPEC-F, WP-12: [F12 §6.5] calls M the commit that made the conflict value and, for an M of kind `revert` or
 `cherry-pick`, takes `theirs`' state from the src state of M's DM row (DM-003 to DM-005), as F12:677-678 does;
-R-MODEL, WP-90: RS-008 and open point 5 (c) follow, and DM-012 states whether a provisional value counts as deleted.
+R-MODEL, WP-90: RS-008 and open point 5 (c) follow.
 **Disposition:** open.
 
 **S2-6 — Two invariants name an enforcement point without a check class (minor, UNDERSPECIFIED).**
@@ -337,9 +338,9 @@ which test the deleted set that DS-002 (step 2) defines. It is unchanged at the 
 **Where:** [F21 §4.6] (F21:543-544, F21:555), §4.9 (F21:594-596), open point 9 (F21:1232-1235); §4.2's rules 5 and 7.
 **Problem.** The container rule recognises only a list item's first line "so that a heading inside one is not taken for
 a document heading", and §4.9 and open point 9 name one exception, a heading "after a blank line". By §4.2, a heading
-on the line right after a list item's marker line, indented 0 to 3 columns (`- item⏎  # Sub`), is a document heading
-too: rule 5 classifies it before rule 7 makes it a container line, while CommonMark puts it inside the list item. The
-result is deterministic, but no text states it and no construct of §8.2 pins it.
+on the line right after a list item's marker line, indented to the item's content column (`- item⏎  # Sub`), is a
+document heading too: rule 5 classifies it before rule 7 makes it a container line, while CommonMark puts it inside the
+list item. The result is deterministic, but no text states it and no construct of §8.2 pins it.
 **Fix** (two remedies; the owner's disposition chooses): R-SPEC-R, WP-14b (a) names the case in §4.9 and open point 9
 and adds a construct to §8.2; or (b) makes a shallow line inside a container run, indented to the marker's content, a
 container line, with a construct (which changes which headings are items).
