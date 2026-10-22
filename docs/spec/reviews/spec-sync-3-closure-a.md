@@ -13,10 +13,12 @@
 ## 0. Verdict
 
 **CLOSED, with three rows changed since: 0 findings.** Spec sync 3 has one commit, c6c2214, which holds the sync, its
-independent check and the fixes its closure check applied. For each item the fix is in the text as the sync states it,
-`git blame` at the base gives every cited line to c6c2214 or an older commit, and the later commits on each file change
-other lines (§2, §6). Nine items are CLOSED. CC-10's fixture-index row was rewritten after the sync, when a later fixture
-covered bit 19, and NC-11's texts were rewritten when the owner answered OQ-F-3; both were judged again and are correct.
+independent check and the fixes its closure check applied. For each item the fix is in the text as the sync states it.
+`git blame` at the base gives every cited line to c6c2214 or an older commit except one, PR-016
+(`docs/spec/rules/merge-table.md:568`), which cf11a90 rewrote in place after the sync; the other later commits on each
+file change other lines (§2, §6). Eight items are CLOSED. CC-2's PR-016 row was rewritten after the sync and keeps the
+dropped-body clause, CC-10's fixture-index row was rewritten after the sync, when a later fixture covered bit 19, and
+NC-11's texts were rewritten when the owner answered OQ-F-3; all three were judged again and are correct.
 NC-12 is CLOSED. One defect met beside NC-11, in a text the re-read compares, is a finding of the lens's pass-2 report
 (`docs/spec/reviews/A-pass2.md`, A2-20), not of this check.
 
@@ -53,7 +55,7 @@ outcomes of the four tests the sync names, in the full gate's log at a base whos
 | Id | Item | Verdict |
 |---|---|---|
 | CC-1 | [CFG §10.5] and [CFG §10.7] keys without a policy-keys row (`docs/spec/reviews/spec-sync-3.md:31-40`) | CLOSED: KY-168 after KY-167 (`docs/spec/rules/policy-keys.md:231`), KY-169 after KY-120 (`docs/spec/rules/policy-keys.md:264`) and open point 6 (`docs/spec/rules/policy-keys.md:381-393`) state what the sync says, against [CFG]'s rows (`docs/spec/config.md:852`, `docs/spec/config.md:898`); the only later change of the file adds KY-170 (b4bd12e); the four named tests pass |
-| CC-2 | [F12 §7.5]'s "A dropped body" bullet, open point 31 and §6.2's `TextHunk` row (`docs/spec/reviews/spec-sync-3.md:141-146`) | CLOSED: the bullet cites CS-011, MR-032 and MR-038 (F12:892-895), open point 31 says how the table carries the case (F12:1322-1330), the `TextHunk` row names the dropped-body rule (F12:579); the merge table agrees (`docs/spec/rules/merge-table.md:128`, `docs/spec/rules/merge-table.md:195`, `docs/spec/rules/merge-table.md:201`, `docs/spec/rules/merge-table.md:568`, `docs/spec/rules/merge-table.md:734`) |
+| CC-2 | [F12 §7.5]'s "A dropped body" bullet, open point 31 and §6.2's `TextHunk` row (`docs/spec/reviews/spec-sync-3.md:141-146`) | CHANGED SINCE: the bullet cites CS-011, MR-032 and MR-038 (F12:892-895), open point 31 says how the table carries the case (F12:1322-1330), the `TextHunk` row names the dropped-body rule (F12:579); the merge table agrees (`docs/spec/rules/merge-table.md:128`, `docs/spec/rules/merge-table.md:195`, `docs/spec/rules/merge-table.md:201`, `docs/spec/rules/merge-table.md:734`). PR-016 (`docs/spec/rules/merge-table.md:568`) was rewritten in place by cf11a90 after the sync, when RS-007's origin of a landed resolution came to be stated by state; it still names the store's set of dropped bodies as an input that only the text rule reads (CS-011). Judged again: correct |
 | CC-3 | P-101 step 7 and P-84 step 3: a bulk `Commit` after the publish naming a deleted `blobs` file (`docs/spec/reviews/spec-sync-3.md:224-231`) | CLOSED: P-84 step 3 also checks every `blobs` file its `cs.<n>`'s `BLOBTAB` names (F16:878-883), and step 7 hands a later bulk commit to it (F16:811-813) |
 | CC-4 | P-78's second form claiming the purge's unnamed outputs; P-79, P-98, step 7 (`docs/spec/reviews/spec-sync-3.md:231-237`) | CLOSED: P-78 (F16:709-716), P-79 (F16:721-722), P-98 (F16:678-679) and step 7 (F16:805-807) state it |
 | CC-5 | bytes held only by an unlanded reservation's `blobs.<n>` are not "held" (`docs/spec/reviews/spec-sync-3.md:237-246`) | CLOSED: [F05 §9.29] "Origin" and "The purge" (F05:1177-1188), P-84's last paragraph (F16:887-892), I-D1 (c) (F13:261) |
@@ -88,8 +90,9 @@ report's A2-20.
 - History since c6c2214, per file: `docs/spec/rules/policy-keys.md` b4bd12e (KY-170 only); F12 fifteen later commits,
   none on the cited lines; F16 five (the locator, item 1a, names and owner-question citations); F05 one (the `Marker`
   entry order); F14 seven (names, re-key, §17.2 values); F09 five and F10 two (statistics, names, codecs); F11 two;
-  `fixtures/hex/INDEX.md` two (747ae9b, fe57b51). `git blame` gives every cited line of CC-1 to CC-9 and NC-12 to
-  c6c2214 or an earlier commit.
+  `fixtures/hex/INDEX.md` two (747ae9b, fe57b51); `docs/spec/rules/merge-table.md` twelve, of which cf11a90 rewrote
+  PR-016 (CC-2) and the others change other lines. `git blame` gives every cited line of CC-1 to CC-9 and NC-12 to
+  c6c2214 or an earlier commit, except `docs/spec/rules/merge-table.md:568` (cf11a90, CC-2).
 - The four named tests pass (§1).
 - [F11 §14]'s `MARKERS` example: `RtHdr` 24 B, row 72 B, heap 4 B; `hlc`, `seq`, `emit_lsn`, `n` and `ref_seq` in
   little-endian as stated.
