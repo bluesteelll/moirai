@@ -29,7 +29,7 @@ its total (94 tables, 607 rows, §1), every re-derived example byte string match
 now keep the tail bounded by yield checkpoints ([F16] P-98, [F17 §5.2]), and the seeded-bug catalogue gives each masked
 row a written disposition (N-P7). What remains:
 
-1. **One byte departure in the fixtures.** Store A's staged commit c11 carries `prev` deltas, with locators, into
+1. **One byte departure in the fixtures.** Store A's staged commit c11 carries `prev` deltas into
    records of `main`, which [F06 §7.3] and SL-2 forbid (P2-1). Either the fixture or the rule changes; the choice is the
    owner's.
 2. **Liveness of the maintenance byte.** Nothing tells a process that a maintenance holder has stopped; a paused or
@@ -138,7 +138,7 @@ repository):
 
 - **Offset tables.** A script summed every offset table of the 76 files (each row's offset against the previous row's
   offset plus width, and the `total` row): `offsets: 94 offset tables, 607 rows checked`, no mismatch. The same script
-  on a copy of [F04] with one width changed from 1088 to 1089 reported the two rows after it, so it can fail.
+  on a copy of [F04] with one offset changed from 1088 to 1089 reported that row and the row after it, so it can fail.
 - **Example bytes**, by `cargo xtask hex --digest`, each printed literal against a file derived from the rule:
   [F06 §11]'s `SetStatus` op with the known locator, `12 bytes`, equal digests; the same op with the unknown locator,
   `11 bytes`, equal digests; [F21 §2.3]'s Markdown scope, `25 bytes`, and its TOML scope, `19 bytes`, equal digests;
@@ -175,7 +175,7 @@ repository):
 | P2-7 | minor | `docs/spec/os/fs.md:606-612`, `docs/spec/os/lock.md:389` | OS/fs, OS/lock and F15 restate restore's swap under both bytes, against P-85's order | R-SPEC-P WP-17, WP-16 |
 | P2-8 | minor | F16:662-664, F16:749-754 | P-76 says no CLI process runs a purge; `BodyDrop`, a CLI verb, runs one | R-SPEC-P WP-16 |
 | P2-9 | minor | F06:788-791, F06:756-758 | A known locator's read is bounded only by the extent | R-SPEC-F WP-12; owner call |
-| P2-10 | minor | `docs/spec/config.md:852`, `docs/spec/lq/std.md:279-280` | The similar-records notice after every knowledge write names no budget | R-SPEC-F WP-18, WP-19 |
+| P2-10 | minor | `docs/spec/config.md:852`, `docs/spec/lq/std.md:278-279` | The similar-records notice after every knowledge write names no budget | R-SPEC-F WP-18, WP-19 |
 | P2-11 | minor | F11:1293, F11:1315-1319 | The harvest row's range list has no cap, and each read tests every range's reachability | R-SPEC-R WP-13, R-SPEC-F WP-25; owner call |
 
 ## 4. Findings by severity
@@ -278,7 +278,7 @@ The bound, and the byte change of (a), are an owner call.
 
 **Problem.** One adversarial text key costs about 32 ms of diff3 at the 65,536-byte bound (F12:862-866), against
 ≤ 50 ms for the whole merge of a 2k-op lane at 1e5 (GT11), so two such keys exceed the gate. Open point 29 leaves the
-choice to be decided "before GT11's merge row is written" (F12:1279-1280), which falls after the `format-v1` tag (the milestone of that row starts at the tag, `docs/m0/PLAN.md:344`), and itself says that
+choice to be decided "before GT11's merge row is written" (F12:1279-1280), which falls after the `format-v1` tag (the milestone of that row starts at the tag, `docs/m0/PLAN.md:343`), and itself says that
 a budget that changes the merge result would have to be a format-fixed rule, since a merged text enters commit ids
 (F12:1281-1283). A rule that must be format-fixed cannot be decided after the freeze, so the open point's schedule
 contradicts its own condition.
@@ -369,12 +369,12 @@ longer locator as unknown. The bound narrows which locators are valid: owner cal
 
 **P2-10 — The similar-records notice after every knowledge write names no budget (minor).**
 
-**Where:** `knowledge.similar-notice` (`docs/spec/config.md:852`); `similar()`'s work (`docs/spec/lq/std.md:279-280`).
+**Where:** `knowledge.similar-notice` (`docs/spec/config.md:852`); `similar()`'s work (`docs/spec/lq/std.md:278-279`).
 
 **Problem.** From its milestone on, every `Tx`, `Mutation` or `Apply` that creates a rule, decision, note or finding, or
 changes the title, the abstract or the kind's text field of one, runs `similar()` on the new tip, outside the writer byte, and "a budget cut gives no notice"
 (`docs/spec/config.md:852`). Neither text names the budget: its class, its value, or the key that sets it, though
-`similar()` counts one work unit per compared term over every candidate of the kind (`docs/spec/lq/std.md:279-280`).
+`similar()` counts one work unit per compared term over every candidate of the kind (`docs/spec/lq/std.md:278-279`).
 The cost lands on the commit path of every knowledge write.
 
 **Fix.** R-SPEC-F, WP-18 (and WP-19 for [LQ/std §2.16]): name the budget of the notice's computation (a class of
