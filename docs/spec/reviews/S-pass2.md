@@ -22,22 +22,23 @@ otherwise.
 
 ## 0. Verdict
 
-**CHANGES REQUIRED: 0 blockers, 5 majors, 10 minors (15 findings).**
+**CHANGES REQUIRED: 0 blockers, 4 majors, 11 minors (15 findings).**
 
 The changes since pass 1 are, again, careful within each chapter: every worked example this pass recomputed is right
 (§6), every protocol rule of [F16] has its seeded bug, every invariant of [F13] has an enforcement point and a gate,
 the item-1a texts agree with each other, and the owner's answer OQ-A-14 is stated as one outcome by every text that
-carries it. The new scope-scanner chapter [F21] has no blocker or major finding of this lens. The five majors are
+carries it. The new scope-scanner chapter [F21] has no blocker or major finding of this lens. The four majors are
 again between texts:
 
 1. **`--policy` has two value sets** (S2-1): four texts give it every automatic-policy value, two give it
    `delete-wins` and `resurrect` only, and the staged commit's bytes hold only the second.
-2. **A one-parent conflict maker** (S2-2): `resolve --take theirs` restores from "the second parent" of the commit
-   that made the conflict value, which a revert or cherry-pick does not have.
-3. **Store A's staged commit** (S2-3): its ops chain into another ref, against [F06 §7.3].
-4. **The commutation property** (S2-4) leaves out the automatic policies.
-5. **I-F7 against the settle** (S2-5): a rule row lets a settle write `removed` through a door the invariant does not
-   list.
+2. **Store A's staged commit** (S2-2): its ops chain into another ref, against [F06 §7.3].
+3. **The commutation property** (S2-3) leaves out the automatic policies.
+4. **I-F7 against the settle** (S2-4): a rule row lets a settle write `removed` through a door the invariant does not
+   list, while [F18]'s own I-F1 text admits it.
+
+Of the minors, S2-5 answers the one-parent question of [F12 §6.5]: the restore names "the merge that made the
+conflict value" and its second parent, and no text says what a revert or cherry-pick that made one restores from.
 
 ## 1. Method
 
@@ -142,10 +143,10 @@ again between texts:
 
 | Id | Check | Verdict |
 |---|---|---|
-| N-S1 | [F12 §6.5]: a conflict value whose maker M has one parent; is `theirs` defined for the restore of a live side? | MISSES: S2-2 |
+| N-S1 | [F12 §6.5]: a conflict value whose maker M has one parent; is `theirs` defined for the restore of a live side? | MISSES: S2-5 |
 | N-S2 | [F12 §7.9]'s `HierarchyCycle` key (F12:962) against [F13 §5] V05's outcome (F13:347) and [F19 §12.2] code 64 (F19:1022) | MEETS: all three key every cycle V05 finds by the hierarchy key of its least uid; V05 and code 64 list the same three sources of a cycle |
 | N-S3 | [F05 §9.5]'s marker entry order (F05:658-662) with [F13 §4.2] MC-6 (F13:329): total, stable, stated once | MEETS: one order, stated once and cited by MC-6 and [F05 §10.1]; per `#N` a record has at most one leaving and one joining entry, so the order is total; folds write no entry, so it is stable |
-| N-S4 | Store A's commit c11 (`fixtures/hex/store-a/log.1.hex`) against [F06 §7.3] (F06:724) and SL-2 (F06:777) | MISSES: S2-3 |
+| N-S4 | Store A's commit c11 (`fixtures/hex/store-a/log.1.hex`) against [F06 §7.3] (F06:724) and SL-2 (F06:777) | MISSES: S2-2 |
 | N-S5 | [F21] and the interim scanner rule (F21:1193-1198; F20:1193-1197): every blocker and major against [F21] | MEETS: this lens has no blocker or major against [F21]; its two minors are S2-11 and S2-12 |
 | N-S6 | Review a1-S's deferred minors S-16 and S-22 (`docs/spec/reviews/a1-dispositions.md:63`, `docs/spec/reviews/a1-dispositions.md:69`) | MISSES: S2-8. S-16 is closed in the text ([F20] open point 15, F20:1467-1480; pass 1's S1-31, closed by the owner). S-22 is deferred with its owner and milestone in [F09] OP-09-12 (F09:1390-1392), and [LQ/envelope] gives it to another owner (S2-8) |
 | N-S7 | Pass 1's editorial residues (`docs/spec/reviews/pass1-closure.md:225-236`, `docs/spec/reviews/pass1-closure.md:322-326`) | MISSES: S2-9, S2-10. PX-011 and [RULES/pack-classes] open point 8 now state OQ-F-3's decision (closed); OQ-F-3's own text is the owner's record of the question as asked |
@@ -160,10 +161,10 @@ again between texts:
 | Id | Sev. | Where | Finding | Owner |
 |---|---|---|---|---|
 | S2-1 | major | [RULES/merge-table] `auto-policy`, open point 26; PV-011; RG-010; [F12 §6.5]; [API §11.7]; [F06 §4.4.16] | `--policy` takes two value sets; the staged bytes hold one | R-MODEL WP-90; R-SPEC-F WP-12, WP-25 |
-| S2-2 | major | [F12 §6.5]; RS-008 | `--take theirs` of a value a revert or cherry-pick made restores from a parent that does not exist | R-SPEC-F WP-12; R-MODEL WP-90 |
-| S2-3 | major | `fixtures/hex/store-a/` c11; [F06 §7.3] | A staged commit's `prev`s name another ref's records | R-FIX WP-20 with R-ORA WP-95, or R-SPEC-F WP-12 |
-| S2-4 | major | [F12 §7.7] | The directional rows omit the automatic policies | R-SPEC-F WP-12 |
-| S2-5 | major | [F18 §2.7], [F13 §3.9] I-F7; TR-081, LV-005 | A settle writes `removed` through a door I-F7 does not list | R-SPEC-F WP-14, R-SPEC-P WP-16, or R-MODEL WP-92 |
+| S2-2 | major | `fixtures/hex/store-a/` c11; [F06 §7.3] | A staged commit's `prev`s name another ref's records | R-FIX WP-20 with R-ORA WP-95, or R-SPEC-F WP-12 |
+| S2-3 | major | [F12 §7.7] | The directional rows omit the automatic policies | R-SPEC-F WP-12 |
+| S2-4 | major | [F18 §2.7], [F13 §3.9] I-F7; TR-081, LV-005 | A settle writes `removed` through a door I-F7 does not list | R-SPEC-F WP-14, R-SPEC-P WP-16, or R-MODEL WP-92 |
+| S2-5 | minor | [F12 §6.5]; RS-008; DM-012 | The restore of a side names a merge's second parent; a revert or cherry-pick that made the value has none | R-SPEC-F WP-12; R-MODEL WP-90 |
 | S2-6 | minor | [F13 §3.2] I6, I7 | Two enforcement points without a check class | R-SPEC-P WP-16 |
 | S2-7 | minor | `COVERAGE.md` | No row maps the design-of-record invariants | R-SPEC-F WP-10 |
 | S2-8 | minor | [LQ/envelope] open point 8; [F09] OP-09-12 | Two texts give the BM25 arithmetic to each other | R-SPEC-F WP-19 |
@@ -209,27 +210,7 @@ conflict value that is not `DeleteVsModify` (refused, or left as it is); [API §
 WP-81a edits [AR §5a.7]'s row. **Owner call** for (b): a byte choice, and a departure from the design of record.
 **Disposition:** open.
 
-**S2-2 — `resolve --take theirs` of a conflict value that a revert or a cherry-pick made restores from a parent that
-does not exist (major, UNDERSPECIFIED).**
-**Where:** [F12 §6.5] (F12:656-660); RS-008 (`docs/spec/rules/merge-table.md:148`); [RULES/merge-table] open point 5 (c)
-(`docs/spec/rules/merge-table.md:789-792`).
-**Problem.** A `live` existence side that a resolution takes has its hierarchy key and out-edges restored "from that
-side's state at M, the merge that made the conflict value: `state(first parent of M)` for `ours`, `state(second parent
-of M)` for `theirs`"; RS-008 repeats it, and open point 5 (c) speaks of "the merge that made the conflict value". A
-revert or a cherry-pick commit has one parent, tip R, and its origin (F12:988-989), and it lands conflict values
-(F12:1111). DM-003 gives a cherry-pick src = state(c) (`docs/spec/rules/merge-table.md:647`): a cherry-pick of a commit
-c that modified node n onto a ref R that deleted n meets MR-042 and lands a `DeleteVsModify` whose `theirs` side is
-live. Its M is the cherry-pick, which has no second parent, so the state that `resolve --take theirs` restores the
-hierarchy key and out-edges from is undefined. Two implementations write different `Move` and `AddEdge` ops into the
-`Resolve` commit (different commit ids), or one refuses. [F12 §6.5]'s own bullet on a violation key already names the
-source state for a revert or cherry-pick ("the state [RULES/merge-table]'s DM row reads as src", F12:677-678); the
-bullet on a conflict value does not.
-**Fix:** R-SPEC-F, WP-12: [F12 §6.5] calls M the commit that made the conflict value and, for an M of kind `revert` or
-`cherry-pick`, takes `theirs`' state from the src state of M's DM row (DM-003 to DM-005, over M's origin), as
-F12:677-678 does; R-MODEL, WP-90: RS-008 and open point 5 (c) follow.
-**Disposition:** open.
-
-**S2-3 — Store A's staged commit c11 carries `prev`s that name another ref's records (major, DIVERGENCE).**
+**S2-2 — Store A's staged commit c11 carries `prev`s that name another ref's records (major, DIVERGENCE).**
 **Where:** [F06 §7.3] (F06:726-727) and SL-2 (F06:777-780); `fixtures/hex/store-a/log.1.hex:2830-2832` (c11's ref id 2
 and `ref_seq` 1), `fixtures/hex/store-a/log.1.hex:2865` and `fixtures/hex/store-a/log.1.hex:2899` (its two `prev`s);
 `fixtures/hex/INDEX.md:97-98`; [F12 §9.2] item 3 (F12:1039-1041).
@@ -248,7 +229,7 @@ the format oracle's matching change by R-ORA, WP-95, in their own landing;
 chain. **Owner call** for (rule): it makes a format rule.
 **Disposition:** open.
 
-**S2-4 — The directional rows of [F12 §7.7] omit the automatic policies (major, WRONG ANSWER).**
+**S2-3 — The directional rows of [F12 §7.7] omit the automatic policies (major, WRONG ANSWER).**
 **Where:** [F12 §7.7] (F12:933-938) and open point 12 (F12:1210-1212); AP-002 and AP-003
 (`docs/spec/rules/merge-table.md:325-326`).
 **Problem.** [F12 §7.7] states that merge(A into B) and merge(B into A) give equal states, sides exchanged, "except at
@@ -262,8 +243,9 @@ written from §7.7 reports a false failure under them, or must exclude them with
 automatic side resolves, and the node it takes whole.
 **Disposition:** open.
 
-**S2-5 — A settle writes `removed` through a door that I-F7 does not list (major, DIVERGENCE).**
-**Where:** [F18 §2.7] (`docs/spec/format/18-file-links.md:193-196`); [F13 §3.9] I-F7 (F13:240); TR-081
+**S2-4 — A settle writes `removed` through a door that I-F7 does not list (major, DIVERGENCE).**
+**Where:** [F18 §2.7] (`docs/spec/format/18-file-links.md:193-196`) against [F18 §2.1]
+(`docs/spec/format/18-file-links.md:99-101`); [F13 §3.9] I-F7 (F13:240); TR-081
 (`docs/spec/rules/status-machines.md:226`); LV-005 (`docs/spec/rules/link-merge-rules.md:152`);
 [RULES/status-machines] open point 26 (`docs/spec/rules/status-machines.md:524-528`).
 **Problem.** I-F7, as [F18 §2.7] states it from [40 §2.10], lists the only doors through which a file node becomes
@@ -272,8 +254,10 @@ enforces it at EP-W4 ("only these doors emit `→ removed`"). TR-081 lets the do
 `present` to `removed{reason: same-as}` when it unifies a `PathClaim` by an exact rename in a fresh writer tree (LV-005,
 [40 §2.3] "settle performs the unification itself"), a door I-F7 does not list. An engine that enforces I-F7 as [F18]
 and [F13] state never writes the unification, while the model writes it by TR-081: after such a settle the two hold
-different statuses for the claimants. Open point 26 records the conflict and asks [F18 §2.7] to list the door; neither
-[F18] nor [F13] does.
+different statuses for the claimants. [F18] disagrees with itself: its I-F1 text resolves a `PathClaim` by
+"`links fix --same-as`, or a settle that unifies the two by an E6 rename in a writer tree fresh for both", which
+"leaves at most one". Open point 26 records the conflict and asks [F18 §2.7] to list the door; neither [F18 §2.7] nor
+[F13] does.
 **Fix** (two remedies; the owner's disposition chooses):
 (a) I-F7 lists the settle's `PathClaim` unification as a door: R-SPEC-F, WP-14 ([F18 §2.7]), R-SPEC-P, WP-16 ([F13 §3.9]
 I-F7's row and its EP-W4 clause), and [40 §2.10] at WP-81a;
@@ -283,6 +267,26 @@ stands until `links fix --same-as`; [40 §2.3]'s sentence is edited at WP-81a.
 **Disposition:** open.
 
 ### Minors
+
+**S2-5 — The restore of a taken side names a merge's second parent; a revert or cherry-pick that made the conflict
+value has none (minor, UNDERSPECIFIED).**
+**Where:** [F12 §6.5] (F12:656-660); RS-008 (`docs/spec/rules/merge-table.md:148`); [RULES/merge-table] open point 5 (c)
+(`docs/spec/rules/merge-table.md:789-792`); DM-012 (`docs/spec/rules/merge-table.md:656`); CS-014
+(`docs/spec/rules/merge-table.md:131`).
+**Problem.** A `live` existence side that a resolution takes has its hierarchy key and out-edges restored "from that
+side's state at M, the merge that made the conflict value: `state(first parent of M)` for `ours`, `state(second parent
+of M)` for `theirs`"; RS-008 repeats it, and open point 5 (c) speaks of "the merge that made the conflict value". A
+revert or a cherry-pick commit has one parent, tip R, and its origin (F12:988-989), and it lands conflict values
+(F12:1111), so it can be M. Its `ours` restores from tip R; its `theirs` has no second parent. On plain sides the case
+does not arise: a `DeleteVsModify` needs a live base (CS-014), and a revert or cherry-pick whose src changed a node that
+is live in the base and deleted on dst stages `NotFound` instead (DM-012), so `theirs` is never the live side there. No
+text says so, and DM-012 does not say whether a dst side whose conflict value has a deleted provisional value (MR-005)
+counts as "deleted on dst". [F12 §6.5]'s bullet on a violation key names the source state of a revert or a cherry-pick
+("the state [RULES/merge-table]'s DM row reads as src", F12:677-678); the bullet on a conflict value does not.
+**Fix:** R-SPEC-F, WP-12: [F12 §6.5] calls M the commit that made the conflict value and, for an M of kind `revert` or
+`cherry-pick`, takes `theirs`' state from the src state of M's DM row (DM-003 to DM-005), as F12:677-678 does;
+R-MODEL, WP-90: RS-008 and open point 5 (c) follow, and DM-012 states whether a provisional value counts as deleted.
+**Disposition:** open.
 
 **S2-6 — Two invariants name an enforcement point without a check class (minor, UNDERSPECIFIED).**
 **Where:** [F13 §3.2] I6 and I7 (F13:140-141).
@@ -379,7 +383,7 @@ token list and names both classes, or splits VA-005 into two rows at order 5.
 ## 5. Known open findings met (cited, not re-raised)
 
 - **R-SPEC-F:** F07:1229's "the conflict's introducing commit" against [F12 §6.5], RS-008 and open point 5 (c) (beside
-  S2-2, which concerns the second parent, not the word); "They" at `docs/spec/store-api.md:1864`; the `COVERAGE.md`
+  S2-5, which concerns the second parent, not the word); "They" at `docs/spec/store-api.md:1864`; the `COVERAGE.md`
   rows 60-AR-HEAD, 60-AR-Log-extents, 60-AR-Log-RecHdr and 60-AR-Log-chain name no store file of their own;
   [F19 §10.2]'s `body_dropped` row, `docs/spec/store-api.md:860` against `docs/spec/store-api.md:296` (the E406 and
   E407 order), and whether [API §2.3]'s `dry` covers the admin verbs; [F08] open point 30's "content"; the sentence for
@@ -458,9 +462,9 @@ Recomputed or cross-checked, needing no change; a later pass need not repeat the
 
 ## 7. Open points for the disposition
 
-1. **Owner calls:** S2-1 remedy (b), S2-3 remedy (rule), S2-5 (either remedy).
-2. **Two remedies, neither chosen here:** S2-1, S2-3, S2-5, S2-7, S2-11, S2-13, S2-15.
-3. **Severity.** S2-3 and S2-5 are rated major: in each, a reader following the text writes one thing and the fixture or
+1. **Owner calls:** S2-1 remedy (b), S2-2 remedy (rule), S2-4 (either remedy).
+2. **Two remedies, neither chosen here:** S2-1, S2-2, S2-4, S2-7, S2-11, S2-13, S2-15.
+3. **Severity.** S2-2 and S2-4 are rated major: in each, a reader following the text writes one thing and the fixture or
    the model another, but the rule's intent is not broken (`prev` is unhashed and per ref; I-F7's subject is absence).
    The disposition may rate either a blocker under WP-80's first clause.
 4. **[F21] and its interim rule.** This lens has no blocker or major against [F21]; whether the interim scanner rule
