@@ -128,7 +128,7 @@ committed; each takes its files from the reviewed set's list):
 
 | Check | Result |
 |---|---|
-| bracketed citations (`[Fnn §…]`, `[OS/…]`, `[LQ/…]`, `[API]`, `[CFG]`, `[RULES/…]`, `[HOLES.md]`) against the headings and numbered paragraphs of their targets | 11,412 citations; every section reference resolves. Seven name no file: five generic `[OS/...]`/`[LQ/...]` examples in F01, `[RULES/SIGNED]` (a planned file, `docs/spec/README.md:132`) and `[RULES/delete-policy]` quoted as the old name it corrects (`docs/spec/config.md:1219`) |
+| bracketed citations (`[Fnn §…]`, `[OS/…]`, `[LQ/…]`, `[API]`, `[CFG]`, `[RULES/…]`, `[HOLES.md]`) against the headings and numbered paragraphs of their targets | 11,412 citations; every section reference resolves but one, `§X.n` at `docs/spec/lq/grammar-v1.ebnf:6`, the header's own example of an annex citation. Seven name no file: five generic `[OS/...]`/`[LQ/...]` examples in F01, `[RULES/SIGNED]` (a planned file, `docs/spec/README.md:132`) and `[RULES/delete-policy]` quoted as the old name it corrects (`docs/spec/config.md:1219`) |
 | "[X] open point N" references | 267; all resolve |
 | offset tables against their `total` rows | 102 tables, 100 fully numeric; contiguity and totals hold; the two variable totals (F10:499, `docs/spec/os/fs.md:579`) are correct |
 | rule tables by [RULES/README] §2–§4 and §7 | 115 registry rows, 114 tables in 9 files, 2,240 row ids, all unique, no bad cell |
@@ -168,7 +168,7 @@ committed; each takes its files from the reviewed set's list):
 | A2-9 | major | [LQ/std §5] `pack_hazards` against [RULES/pack-classes] PM-023, PM-024, CL-007 | C7 holds decisions by the rules and not by the query | R-SPEC-F, WP-19; R-MODEL, WP-90 |
 | A2-10 | minor | the header Status rows; `HOLES.md` §3, §4; `COVERAGE.md` open point 5; [F01] open point 15; [F21] open point 11 | status rows and "until pass 2" records | R-SPEC-F, WP-10; each chapter's role |
 | A2-11 | minor | `docs/spec/README.md` index; [CFG] RG-6, open point 35 | `rules/policy-keys.md` still called planned | R-SPEC-F, WP-10 and WP-18 |
-| A2-12 | minor | chapter headers; `docs/m0/authors.md` §2 | header work packages the ledger does not list | R-HARN-I, WP-01; the chapters' roles |
+| A2-12 | minor | the headers of `rules/policy-keys.md` and [F21]; `docs/m0/authors.md` §2 | two header work packages the ledger does not cover | R-HARN-I, WP-01; R-MODEL, WP-90 |
 | A2-13 | minor | [LQ/errors §1.1], [F19 §1.2] | stale LQ code ranges | R-SPEC-F, WP-19 and WP-18 |
 | A2-14 | minor | [F19 §10.2] `harvest_overlap`; [CFG §6.2] CFG06, CFG10 | a non-ASCII ellipsis inside three templates | R-SPEC-F, WP-18 |
 | A2-15 | minor | [F19 §2.4] against [F19 §10.2], [CFG §6.2] | byte quantities spelled three ways | R-SPEC-F, WP-18 |
@@ -228,8 +228,9 @@ model function, and how such a cell is written, is an owner call. Disposition: o
 **A2-3 — The R5 rows' model cells name functions of other items (major).** Where: `COVERAGE.md` §9
 (`docs/spec/COVERAGE.md:222-239`), filled by the rule of `docs/spec/COVERAGE.md:29-34` ("a `spec:` tag that cites one of
 the row's citations ... or the row's item id"). Problem: the row ids `F1` to `F18` of §9 are also prefixes of the chapter
-tags `[F10 …]` to `[F18 …]` and suffixes of the invariant labels I-F1 to I-F14, so a tag that names a chapter or an
-invariant reads as the row's item id. The cells show it: row `F2` (schema field columns, `docs/spec/COVERAGE.md:223`)
+tags `[F10 …]` to `[F18 …]` and suffixes of the invariant labels I-F1 to I-F14, and the cells read as if a tag that
+names a chapter or an invariant had matched the row's item id (an inference from the cells' content; neither the tool's
+matching nor the model functions were read). The cells: row `F2` (schema field columns, `docs/spec/COVERAGE.md:223`)
 names four anchor-matching functions; rows `F4`, `F6`, `F7`, `F8`, `F9` and `F10` name the checks of invariants I-F4,
 I-F6, I-F7, I-F8, I-F9 and I-F10; row `F12` (full-text search, `docs/spec/COVERAGE.md:233`) names the ref-name checks of
 [F12 §2]; row `F13` (`PATHIDX`, `ALIASIDX`, `ANCHORS`) names the derived-state functions of [F13]; row `F18`
@@ -305,23 +306,27 @@ task's files enters C7 by the rule table and not by the query, so the model and 
 the decision's text is either spent or missing in every pack of that task. The design's C7 reads "scoped
 hazards/notes" ([AR §7.4]). Evidence: the cited rows. Fix: one of two remedies: (a) R-SPEC-F, WP-19 adds `decision` to
 `pack_hazards`' `AT` part with its authoritative status (`accepted`), and `fixtures/lq/std/pack_hazards.lq` follows
-(R-FIX); or (b) R-MODEL, WP-90 drops `decision` from PM-023, PM-024 and CL-007, and `pack_hazards_proposed` follows.
+(R-FIX, WP-22); or (b) R-MODEL, WP-90 drops `decision` from the authoritative rows PM-023 and PM-024 and from CL-007's
+authoritative part, so that C7's authoritative entries are notes and rules; PM-029 and `pack_hazards_proposed` stay as
+they are, so a proposed decision anchored in T's files is still in C7, marked (`docs/spec/rules/pack-classes.md:226`;
+OQ-A-8's decision that packs do not hide proposed records, `docs/spec/reviews/owner-questions.md:536`).
 Disposition: open.
 
 ### Minors
 
 **A2-10 — Status rows and "until pass 2" records (minor).** Where: the Status rows of the chapter headers against
 [F01 §2.3] (F01:70); `HOLES.md` §3 and §4 (`docs/spec/HOLES.md:127`, `docs/spec/HOLES.md:139`); `COVERAGE.md` open point
-5 (`docs/spec/COVERAGE.md:298`); [F01] open point 15 (F01:719); [F21] open point 11 (F21:1243-1249). Problem: 53 of the
-reviewed set's 55 `.md` files read "draft, pass 1 pending" though pass 1 is closed and signed; `rules/policy-keys.md`,
-written after pass 1 closed, reads "draft, pass 1 pending; needs the owner's signature"
+5 (`docs/spec/COVERAGE.md:298`); [F01] open point 15 (F01:719); [F21] open point 11 (F21:1243-1249). Problem: 52 of the
+reviewed set's 55 `.md` files have the Status value "draft, pass 1 pending" alone, though pass 1 is closed and signed;
+`rules/policy-keys.md`, written after pass 1 closed, reads "draft, pass 1 pending; needs the owner's signature"
 (`docs/spec/rules/policy-keys.md:5`) where [F01 §2.3] gives "draft, pass 2 pending" for that case, as F21 uses (F21:7);
 the old and new hole ids are kept "until pass 2", which has now come; F21 open point 11 is a "Proposal for pass 2" (a
-TOML anchor's header) that this pass cannot adopt, since it changes [F20 §2.8]'s hashed header text. Evidence: 53 files
-with the plain row; the cited lines. Fix: R-SPEC-F, WP-10 for `README.md`, `HOLES.md`, `COVERAGE.md` and [F01]; each
-chapter's role for its own Status row at the owner's disposition of pass 2 (R-SPEC-F WP-10, WP-12, WP-14, WP-18, WP-19,
-WP-25; R-SPEC-P WP-11, WP-16, WP-17; R-SPEC-R WP-13, WP-14b, WP-15; R-MODEL WP-90 for the rule files). F21 open point 11
-is an owner call (a hashed header text). Disposition: open.
+TOML anchor's header) that this pass cannot adopt, since it changes [F20 §2.8]'s hashed header text. Evidence: 52 files
+with the plain value; of the other three, `rules/policy-keys.md` has the variant above, F21 has "draft, pass 2 pending"
+and `docs/spec/README.md` has no header Status row; the cited lines. Fix: R-SPEC-F, WP-10 for `README.md`, `HOLES.md`,
+`COVERAGE.md` and [F01]; each chapter's role for its own Status row at the owner's disposition of pass 2 (R-SPEC-F
+WP-10, WP-12, WP-14, WP-18, WP-19, WP-25; R-SPEC-P WP-11, WP-16, WP-17; R-SPEC-R WP-13, WP-14b, WP-15; R-MODEL WP-90 for
+the rule files). F21 open point 11 is an owner call (a hashed header text). Disposition: open.
 
 **A2-11 — `rules/policy-keys.md` still called planned (minor).** Where: `docs/spec/README.md:131` (the index lists it
 "planned", without a link); `docs/spec/config.md:641-643` (RG-6: "a rule file ... that the index lists as planned");
@@ -329,15 +334,16 @@ is an owner call (a hashed header text). Disposition: open.
 lines) and is reviewed here. Fix: R-SPEC-F, WP-10 links it in the index with its status, and R-SPEC-F, WP-18 drops
 "planned" from RG-6 and open point 35. Disposition: open.
 
-**A2-12 — Header work packages that the ledger does not list (minor).** Where: the Work package rows of the chapter
-headers against `docs/m0/authors.md:26-101` (§2). Problem: the headers name WP-12a, WP-12b, WP-12c, WP-13a, WP-13b,
-WP-14a, WP-16a, WP-16b, WP-16c, WP-17a, WP-17b, WP-18a (`docs/spec/config.md:8`), WP-18b (F19:8), WP-19a, WP-19b
-(`docs/spec/lq/card.md:8`, `docs/spec/lq/errors.md:8`, `docs/spec/lq/envelope.md:8`) and WP-90b
-(`docs/spec/rules/policy-keys.md:6`); §2 lists none of them, and WP-14b, which F21's header names (F21:8), carries the
-path `format/20` only. A commit subject must name a ledger WP, so the headers do not say which WP a fix of the file
-uses. Fix: one of two remedies: (a) R-HARN-I, WP-01 adds the sub-packages, and `format/21` to WP-14b's paths, to
-`docs/m0/authors.md` §2; or (b) each chapter's role writes the ledger WP in its header with the part in words.
-Disposition: open.
+**A2-12 — Two header work packages that the ledger does not cover (minor).** Where: the Work package rows of
+`docs/spec/rules/policy-keys.md:6` and F21:8 against `docs/m0/authors.md:26-101` (§2). Problem: most chapter headers
+name a sub-package that §2 does not list, but each of them also names its ledger WP in words (`docs/spec/config.md:8`
+"the configuration part of WP-18", F19:8 "the `format/19` half of WP-18", `docs/spec/lq/card.md:8` "part of WP-19",
+and the headers of F06 to F18 and of `os/`), so a fix of those files can name the ledger WP. Two cannot:
+`rules/policy-keys.md` names WP-90b only, which §2 does not list, and F21's header names WP-14b, whose §2 row carries
+the path `format/20` only. A commit subject must name a ledger WP, so for these two files the header does not say
+which WP a fix uses. Fix: R-HARN-I, WP-01 adds `format/21` to WP-14b's paths in `docs/m0/authors.md` §2; for WP-90b,
+one of two remedies: (a) R-HARN-I, WP-01 adds it to §2 as a part of WP-90; or (b) R-MODEL, WP-90 names WP-90 in the
+header with the part in words. Disposition: open.
 
 **A2-13 — Stale LQ code ranges (minor).** Where: [LQ/errors §1.1] (`docs/spec/lq/errors.md:14-15`: "`N01`–`N12`") and
 [F19 §1.2] (F19:32: "`W01`–`W09`, `N01`–`N12`"). Problem: N13 is in [LQ/errors §5.1] (`docs/spec/lq/errors.md:304`) and
@@ -415,7 +421,7 @@ Cited, not re-raised:
 - The R-SPEC-F item on whether [API §2.3]'s `dry` covers the admin verbs: [API §8.7] `BodyDrop` still says nothing of
   `ctx.dry`.
 - The R-SPEC-F item on "They" (`docs/spec/store-api.md:1864`): unchanged.
-- The status rows (53 files): rated once here, as A2-10.
+- The status rows (52 files): rated once here, as A2-10.
 - The R-MODEL item on an automatic side over a node with an absent flat side: met while reading [F12 §6.3]; not rated.
 
 ## 6. Checked and found correct
