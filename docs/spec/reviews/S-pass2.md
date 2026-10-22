@@ -59,7 +59,9 @@ conflict value" and its second parent, and no text says what a revert or cherry-
      root uid, both `captured` values, both anchor uids, `quote_h`, `prefix_h`, `suffix_h` and window; [F07 §16]'s
      BLAKE3-128 of the empty string (§6);
    - the old byte names: exactly the six known sites (the known state).
-4. Every search excluded the other lenses' pass-2 files by file name.
+4. Every search of record excluded the other lenses' pass-2 files by file name. Four directory or glob searches were
+   first run without that exclusion, over paths that held no pass-2 file (none exists at the base); each was re-run with
+   it, with the same result.
 
 | File | Depth |
 |---|---|
@@ -161,10 +163,10 @@ conflict value" and its second parent, and no text says what a revert or cherry-
 
 | Id | Sev. | Where | Finding | Owner |
 |---|---|---|---|---|
-| S2-1 | major | [RULES/merge-table] `auto-policy`, open point 26; PV-011; RG-010; [F12 §6.5]; [API §11.7]; [F06 §4.4.16] | `--policy` takes two value sets; the staged bytes hold one | R-MODEL WP-90; R-SPEC-F WP-12, WP-25 |
+| S2-1 | major | [RULES/merge-table] `auto-policy`, open point 26; PV-011; RG-010; [F12 §6.5]; [API §11.7]; [F06 §4.4.16] | `--policy` takes two value sets; the staged bytes hold one | R-MODEL WP-90; R-SPEC-F WP-12, WP-25; R-SPEC WP-81a |
 | S2-2 | major | `fixtures/hex/store-a/` c11; [F06 §7.3] | A staged commit's `prev`s name another ref's records | R-FIX WP-20 with R-ORA WP-95, or R-SPEC-F WP-12 |
 | S2-3 | major | [F12 §7.7] | The directional rows omit the automatic policies | R-SPEC-F WP-12 |
-| S2-4 | major | [F18 §2.7], [F13 §3.9] I-F7; TR-081, LV-005 | A settle writes `removed` through a door I-F7 does not list | R-SPEC-F WP-14, R-SPEC-P WP-16, or R-MODEL WP-92 |
+| S2-4 | major | [F18 §2.7], [F13 §3.9] I-F7; TR-081, LV-005 | A settle writes `removed` through a door I-F7 does not list | (a) R-SPEC-F WP-14, R-SPEC-P WP-16, R-SPEC WP-81a; or (b) R-MODEL WP-92, R-SPEC-F WP-14, R-SPEC WP-81a |
 | S2-5 | minor | [F12 §6.5]; RS-008; DM-012 | The restore of a side names a merge's second parent; a revert or cherry-pick that made the value has none | R-SPEC-F WP-12; R-MODEL WP-90 |
 | S2-6 | minor | [F13 §3.2] I6, I7 | Two enforcement points without a check class | R-SPEC-P WP-16 |
 | S2-7 | minor | `COVERAGE.md` | No row maps the design-of-record invariants | R-SPEC-F WP-10 |
@@ -262,7 +264,9 @@ two hold different statuses for the claimants. [F18] disagrees with itself: its 
 I-F7's row and its EP-W4 clause), and [40 §2.10] at R-SPEC, WP-81a;
 (b) a settle never writes `removed`: R-MODEL, WP-92 withdraws TR-081 and LV-005's unification, and the `PathClaim` value
 stands until `links fix --same-as`; R-SPEC-F, WP-14 removes the settle from [F18 §2.1]'s I-F1 text (F18:99-101);
-[40 §2.3]'s sentence is edited at R-SPEC, WP-81a.
+[40 §2.3]'s sentence (docs/research/design/40-file-links-design.md:277) and [40 §5.5]'s `(root, exact path)` row
+(docs/research/design/40-file-links-design.md:1233), which states the same unification and which I-F1's text, LV-005
+and TR-081 cite, are edited at R-SPEC, WP-81a.
 **Owner call:** each remedy changes what an invariant of the design of record admits, or a rule it states.
 **Disposition:** open.
 
