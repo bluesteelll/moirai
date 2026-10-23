@@ -6,7 +6,7 @@
 | Chapter | [F11], `docs/spec/format/11-runtime-tables.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-13b, the runtime-table part of WP-13 ([PLAN §3.2] item 1), author role R-SPEC-R |
-| Sources | [AR §2.16] (T16: what is store-level runtime); [AR §3.4] I1, I14′, I17′, I26′, I27′, I36′; [AR §4.2] (the ref-table paragraph with `overlay_ops`/`overlay_bytes` and the absorbed vector; `next_id`, `fence`; `refs_lsn`, `pins_lsn`, `heads_lsn`, `markers_lsn`); [AR §4.3] (record kinds; commit-header fields `ref_id`, `ref_seq`, `idem_key`, `idem_payload`, absorbed vector); [AR §4.4] (section rows `IDEM`, `LEASES`/`MARKERS`/`MARKERS_OLD`, `REFS`/`PINS`/`HEADS`, `ANCESTRY`, "R4 link sections", "R5 sections"; the `derived-optional` flag); [AR §4.5] steps 4 (markers from net ops), 6 (replay by record kind), 8 (`ALLOC`, `UIDX`), 12 (runtime-only fold); [AR §4.6] ("Not hashed"); [AR §4.8] (indexes); [AR §4.9] (inert markers at the fold, pins, GC of the runtime tables); [AR §5a.1] (object model: ref, reflog, client head, tag, pin, runtime records); [AR §5a.2] (`ref_seq`, the 32 cached moves); [AR §5a.3] (fork pins, promotion and its counters, sync); [AR §5a.4] (client keys, bindings, R-15); [AR §5a.5] (`undo` and the absorbed vector; marker recomputation); [AR §5a.7] steps 7–8 (absorbed vector at merge; staging refs); [AR §5a.9] (`branch -d`/`-D`); [AR §5d.1] (the versioned-versus-runtime table); [AR §6.2] (leases, holder anchor, deadline, renewal); [AR §6.4] (idempotency); [AR §6.5] (durability classes). [40 §2.1], [40 §2.5] (`FPRINT` retention), [40 §2.6] (runtime tables, stat quadruple, OS id paragraph), [40 §2.9] (states), [40 §2.11] R-7, R-8, R-9, R-15, R-18 (authoritative), [40 §3.4] (`FsIntent`, recovery table), [40 §5.1], [40 §5.3] (tree identity, writer tree, expected ref). [50 §8.1] F11, F17. [80 §2.7.1], [80 §2.7.2] (deadline form, anchors), [80 §2.10] P9, [80 §2.11.1]–[80 §2.11.3] (capabilities, tagged layouts, frontier), [80 §3.1] X-F2, X-F5, X-F7, X-F8. [90 §4.1] (the environment-lease binding rule), [90 §4.3] (lease kinds), [90 §4.4] (anchors per harness), [90 §10.1] (rows "`LEASES` runtime rows", "Holder anchor (X-F2)"). [60 §2.5] rows "Segments" ([AR] rows and audit rows), "Ref table", "`Vfs`/`ProjectFs`", "Cross-platform", "Harness-agnostic interface and pure Rust", and the R4 rows R-7, R-8, R-9, R-15, R-18 and the R5 rows F11, F17. Audits [70] S1, S4, S5, S7, S8, S17; [72] B2, M4, M7. Reviews `docs/spec/reviews/a1-P.md` A1P-04, A1P-11, A1P-16 and `a1-S.md` S-09 (dispositions in the open points). [PLAN §3.2] WP-13; [PLAN §3.3] (the `MARKERS` field set). Spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F05 §9.29] (`DROPPED`); [AR §11] #46 and OQ-A-10 with [API §8.8] and [F05 §9.30] (`HARVEST`); [F05 §9.8] (a pin a purge moves); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the domain string of the `lane-owned` scope digest); review pass 2: `docs/spec/reviews/P-pass2.md` P2-3 and `S-pass2.md` S2-5, with the owner's ruling R-127 of 2026-10-22, F2-Q3a (`CONFLICTS.maker`, open point 45) |
+| Sources | [AR §2.16] (T16: what is store-level runtime); [AR §3.4] I1, I14′, I17′, I26′, I27′, I36′; [AR §4.2] (the ref-table paragraph with `overlay_ops`/`overlay_bytes` and the absorbed vector; `next_id`, `fence`; `refs_lsn`, `pins_lsn`, `heads_lsn`, `markers_lsn`); [AR §4.3] (record kinds; commit-header fields `ref_id`, `ref_seq`, `idem_key`, `idem_payload`, absorbed vector); [AR §4.4] (section rows `IDEM`, `LEASES`/`MARKERS`/`MARKERS_OLD`, `REFS`/`PINS`/`HEADS`, `ANCESTRY`, "R4 link sections", "R5 sections"; the `derived-optional` flag); [AR §4.5] steps 4 (markers from net ops), 6 (replay by record kind), 8 (`ALLOC`, `UIDX`), 12 (runtime-only fold); [AR §4.6] ("Not hashed"); [AR §4.8] (indexes); [AR §4.9] (inert markers at the fold, pins, GC of the runtime tables); [AR §5a.1] (object model: ref, reflog, client head, tag, pin, runtime records); [AR §5a.2] (`ref_seq`, the 32 cached moves); [AR §5a.3] (fork pins, promotion and its counters, sync); [AR §5a.4] (client keys, bindings, R-15); [AR §5a.5] (`undo` and the absorbed vector; marker recomputation); [AR §5a.7] steps 7–8 (absorbed vector at merge; staging refs); [AR §5a.9] (`branch -d`/`-D`); [AR §5d.1] (the versioned-versus-runtime table); [AR §6.2] (leases, holder anchor, deadline, renewal); [AR §6.4] (idempotency); [AR §6.5] (durability classes). [40 §2.1], [40 §2.5] (`FPRINT` retention), [40 §2.6] (runtime tables, stat quadruple, OS id paragraph), [40 §2.9] (states), [40 §2.11] R-7, R-8, R-9, R-15, R-18 (authoritative), [40 §3.4] (`FsIntent`, recovery table), [40 §5.1], [40 §5.3] (tree identity, writer tree, expected ref). [50 §8.1] F11, F17. [80 §2.7.1], [80 §2.7.2] (deadline form, anchors), [80 §2.10] P9, [80 §2.11.1]–[80 §2.11.3] (capabilities, tagged layouts, frontier), [80 §3.1] X-F2, X-F5, X-F7, X-F8. [90 §4.1] (the environment-lease binding rule), [90 §4.3] (lease kinds), [90 §4.4] (anchors per harness), [90 §10.1] (rows "`LEASES` runtime rows", "Holder anchor (X-F2)"). [60 §2.5] rows "Segments" ([AR] rows and audit rows), "Ref table", "`Vfs`/`ProjectFs`", "Cross-platform", "Harness-agnostic interface and pure Rust", and the R4 rows R-7, R-8, R-9, R-15, R-18 and the R5 rows F11, F17. Audits [70] S1, S4, S5, S7, S8, S17; [72] B2, M4, M7. Reviews `docs/spec/reviews/a1-P.md` A1P-04, A1P-11, A1P-16 and `a1-S.md` S-09 (dispositions in the open points). [PLAN §3.2] WP-13; [PLAN §3.3] (the `MARKERS` field set). Spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F05 §9.29] (`DROPPED`); [AR §11] #46 and OQ-A-10 with [API §8.8] and [F05 §9.30] (`HARVEST`); [F05 §9.8] (a pin a purge moves); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the domain string of the `lane-owned` scope digest); review pass 2: `docs/spec/reviews/P-pass2.md` P2-3 and P2-11 and `S-pass2.md` S2-5, with the owner's rulings R-127 of 2026-10-22, F2-Q3a and F2-Q8 (b) (`CONFLICTS.maker`, open point 45; the `HARVEST` range merges, open point 46), R-139 of 2026-10-23 (the merge at a `gc` run) and R-142 of 2026-10-23 (an import's chain, a ground of "fixed on `main`"), and the orchestrator's ruling R-142 of 2026-10-23 (the stream of rule (2); the forget's cut) |
 | Depends on | [F01], [F02]; cites [F03] (`Anchor`), [F04] (`HEAD` counters and the `*_lsn` pointers), [F05] (record kinds and payloads), [F06] (commit header, the `Conflict` op key), [F07] (key classes), [F08] (value encodings, schema), [F09] (`SegHdr`, section tags, the versioned delta rule), [F10] (the fingerprint blob class), [F12] (ref names, conflict classes), [F13] (I26′ and the marker-cache rules MC-1–MC-7), [F14] (export of refs), [F16] (protocol, folds), [F17] (retention and promotion parameters), [F18] (strings, the `relink` vocabulary, I-F12), [F19] (exit codes), [F20] (the resolver), [OS/proc], [OS/clock], [OS/project], [OS/path], [API], [CFG] |
 
 ## 1. Scope
@@ -1340,7 +1340,7 @@ segment carries the section, and a format-v1 reader decodes it.
 | 25 | 7 | `[7]u8` | `_reserved` | zero |
 | 32 | 8 | `HeapRef` | `source` | `text`: the key, the transcript's identity, 1 to 200 bytes, each in `0x21`–`0x7E` (printable ASCII without SP; `<harness>:<session or thread id>` by convention, [API §8.8]) |
 | 40 | 8 | `HeapRef` | `path` | `text`: the file's path when it was last reported; informative and machine-local, never compared |
-| 48 | 8 | `HeapRef` | `ranges` | `list<HarvestRange>`, in the order the ranges were added |
+| 48 | 8 | `HeapRef` | `ranges` | `list<HarvestRange>`, in the order the ranges were added; a merged range stands at its first member's place (Fold) |
 | total | 56 | | | |
 
 `HarvestRange` (40 bytes):
@@ -1349,32 +1349,98 @@ segment carries the section, and a format-v1 reader decodes it.
 |---|---|---|---|---|
 | 0 | 8 | `u64` | `start` | the first byte of the half-open byte range [`start`, `end`) |
 | 8 | 8 | `u64` | `end` | the end of the range; greater than `start` |
-| 16 | 16 | `b16` | `commit` | `id16` of the commit of the `Apply` that harvested the range ([API §9.4]) |
+| 16 | 16 | `b16` | `commit` | `id16` of the commit of the `Apply` that harvested the range ([API §9.4]); for a range a `gc` run merged, the commit of its member with the greatest `commit_lsn` (Fold). After a forget cuts such a range, that commit may have harvested none of the bytes left; the range's liveness stays exact, since its members are live together |
 | 32 | 8 | `u64` | `commit_lsn` | the lsn of that commit's `Commit` record (§2.5) |
 | total | 40 | | | |
 
 **Fold.** A `Harvest` record applies one of three operations, its `op`, to the row of its `source` ([F05 §9.30] "Fold";
-[API §8.8]):
+[API §8.8]), and a `gc` run's checkpoint fold merges ranges once more (below):
 - **mark** (`HarvestMark`, and the row update of an `Apply` result entry's `harvest` member, [API §9.4]) creates the
   row with no ranges, or sets its `path`, `head` and `seen`;
-- **range** (an `Apply` result entry's range, in the batch's group after its `Commit` record, [F05 §4.7]) appends one
-  `HarvestRange` at the end of `ranges`, with `commit` and `commit_lsn` naming that `Commit` record;
-- **forget** (`HarvestForget` with its `from`) removes every range whose `start` is at least `from`, and with `from` = 0
-  the row itself (in a delta layer, a dead row, §2.4).
+- **range** (an `Apply` result entry's range, in the batch's group after its `Commit` record, [F05 §4.7]) adds one
+  `HarvestRange`, with `commit` and `commit_lsn` naming that `Commit` record. The ranges one batch adds to a row merge
+  when adjacent, at that batch's harvest (rule (1); the owner's rulings R-127 of 2026-10-22, F2-Q8 (b), and R-139 of
+  2026-10-23; review pass 2, P2-11). Two ranges are **adjacent** when the `end` of one is the `start` of the other. A
+  range of the row with the same `commit_lsn` whose `end` is the new `start`, and one whose `start` is the new `end`,
+  merge with the new range into one range from the least `start` to the greatest `end`. That range takes the place in
+  `ranges` of the first of those members; any other member leaves the list. The ranges of one batch never overlap
+  ([API §8.8]), so there is at most one of each. A new range adjacent to no range of its batch is appended at the end
+  of `ranges`;
+- **forget** (`HarvestForget` with its `from`) removes every range whose `start` is at least `from`, and cuts a range
+  with `start` < `from` < `end` to [`start`, `from`), which keeps its `commit`, `commit_lsn` and place (the owner's
+  ruling R-139 of 2026-10-23 and the orchestrator's ruling R-142 of 2026-10-23; review pass 2, P2-11). With `from` = 0
+  it removes the row itself (in a delta layer, a dead row, §2.4). So after a forget the row's ranges cover exactly the
+  bytes below `from` that they covered before, whatever merges came first.
+
+**Merge at a `gc` run** (rule (2); the owner's ruling R-139 of 2026-10-23; review pass 2, P2-11). A `gc` run's
+checkpoint fold, after the run's move drop ([F12 §3.5]), merges the adjacent ranges of a row whose commits are both
+fixed on `main`. Each set of such ranges that a chain of adjacent pairs links becomes one range from the least `start`
+to the greatest `end`. That range stands at the place in `ranges` of the member that comes first there, with the
+`commit` and `commit_lsn` of the member with the greatest `commit_lsn`. Its other members leave the list; every other
+range keeps its bytes and its place in the order.
+
+**Fixed on `main`** (the owner's rulings R-139 and R-142 of 2026-10-23; review pass 2, P2-11). At a `gc` run, a commit
+is fixed on `main` when, after the run's move drop, it is an ancestor of each value of `main` that `main`'s held moves
+record, or is that value: the tip, and the `old` and `new` of each held move ([F12 §3.5]). The zero value descends from
+no commit. So while a move of `main` from or to zero is held (its creation at `init`, its first commit's), no commit is
+fixed. A fixed commit is an ancestor of every value that `main` takes later, so a range that names it never reads lost:
+- `main` is never deleted ([F12 §2.6]);
+- a commit that a local verb lands on `main` replaces the tip that `ref_old` names, its first parent ([F06 §4.3]
+  orders 4 and 11), so the move's `new` descends from its `old`;
+- an image import puts on `main` only commits that descend from its tip. Any other chain lands on `import/main` and
+  reaches `main` through a merge ([AR §5b.6] step 4; [72] M10; [F12 §9.6] "Imports"; the owner's ruling R-142 of
+  2026-10-23). The import's own records are [F14]'s, which is to state this (open point 46);
+- `main`'s other moves are `undo` and `op restore` ([F05 §9.2] reasons 3 and 4). Reason 1 creates `main` only at
+  `init` ([F12 §8.2]), reason 2 is refused for it ([F12 §2.6]), and reason 5 moves an `orphans` ref only. Each of these
+  moves takes `main` to a value that its held moves record: `undo n` to the `old` of its n-th newest held move, and
+  `op restore` by replaying them, refused before the oldest ([API §11.11]; [F12 §3.5]);
+- a later `gc` run only drops moves, which takes values out of that set. It never prunes a fixed commit, since its
+  reachable set holds every commit a ref reaches ([F17 §11.2]).
+
+**Liveness of a merged range** (the owner's ruling R-139 of 2026-10-23; review pass 2, P2-11). The members of a merged
+range are live or lost together: rule (1)'s share one commit, and rule (2)'s are fixed, so they never read lost. So a
+merged range never reads live while a byte in it was harvested by a commit that no live ref reaches, and never reads
+lost while a byte in it was harvested by a commit that a live ref reaches ([API §8.8]). No merge loses a harvest or lets
+a record be harvested twice. No `undo` passes a fixed commit, and one past a recent batch meets an unmerged range, as
+without merges. *(Informative)* Batch A on `main` harvests [0, 100); batch B, whose commit descends from A's, then
+harvests [100, 200). B's harvest does not merge them, since they are two batches. An `undo` past B's commit alone
+leaves [100, 200) lost and [0, 100) live, so `std.unharvested` lists the transcript again ([API §8.8]). A `gc` run
+merges the two only once both commits are fixed. From then on no `undo` or `op restore` takes `main` below B's commit,
+and [0, 200) stays live. A range whose commit is on a lane L is not fixed while that commit is not on `main`: deleting
+L first leaves the range lost, and no merge has joined it to a live range.
 
 **Rules.** `source` as its row says and `start` < `end` in every range (V). Ranges stay in the order they were added and
-are not sorted. Two ranges of one row whose commits are both reachable from a live ref never overlap (C: liveness depends
-on the refs, so it is checked against them, not from the section alone; [API §8.8] refuses such a range with
-`harvest_overlap`). A row with no ranges is a transcript registered and not yet harvested. Whether a range is **live** or
-**lost** is computed when it is read, from `commit` and the live refs ([API §8.8]); the row stores no liveness bit.
+are not sorted; a merged range stands at its first member's place, and its other members leave the list (the owner's
+ruling R-139 of 2026-10-23; review pass 2, P2-11). At the `Apply` that adds a range, the range overlaps no live range of
+its row and no other range of its batch (C: liveness depends on the refs, so it is checked against them, not from the
+section alone; [API §8.8] refuses such a range with `harvest_overlap`). The rule holds at that `Apply`, not across later
+ref operations: an `undo` that returns a ref to a commit it had left, or an `op restore` that brings back a deleted ref,
+can make a lost range live again beside a later range over the same bytes ([API §11.11]; the owner's ruling R-139 of
+2026-10-23). A merge changes no overlap, since a merged range covers exactly its members' bytes. A row with no ranges
+is a transcript registered and not yet harvested. Whether a range is **live** or **lost** is computed when it is read,
+from `commit` and the live refs ([API §8.8]); the row stores no liveness bit.
+
+**Determinism** (the owner's ruling R-139 of 2026-10-23 and the orchestrator's ruling R-142 of 2026-10-23; review pass
+2, P2-11). Rule (1)'s merge is a function of the log: of the batch's range records up to the one it folds. Rule (2)'s
+merge is a function of the `Store` API command stream at the `gc` run ([F17] SP-1), as §7's `MARKERS_OLD` retention is
+([F17 §11.2]): of the run's place in the stream, its reflog window (P30, or the run's `reflog_expire`, [API §8.5]) and
+`main`'s moves held after the run's move drop. It runs after that drop, so it does not depend on when earlier folds
+ran. `backup`, `restore` and `repair --rebuild-from-log` keep the table as they keep every runtime table ([API §8.8]).
 
 **Form and placement.** `snapshot` in a base and `layer` in a delta (§1.3), carried exactly when it has a row (§2.4,
-"Conditional sections"): a delta holds only the rows its window changed or removed, so a checkpoint never rewrites the
-whole table.
+"Conditional sections"): a delta holds only the rows its window changed or removed and those a `gc` run's merge changed
+(the owner's ruling R-139 of 2026-10-23), so a checkpoint never rewrites the whole table.
 
 **Retention.** None: a row leaves only by a forget with `from` = 0; a rollup drops dead rows as everywhere (§2.4).
-*(Informative)* A row costs 56 B plus its `source` and `path` and 40 B per range, about 0.4 KB for a transcript
-harvested in five batches.
+*(Informative)* A row costs 56 B plus its `source` and `path` and 40 B per range: about 0.4 KB for a transcript
+harvested in five batches that no merge joined. After a `gc` run, a transcript harvested in order on `main` keeps one
+range for the fixed batches that cover it without a gap. The growth that remains is accepted (the owner's ruling R-139
+of 2026-10-23; review pass 2, P2-11): one range per batch still inside the reflog window (P30, 90 days by default,
+[F17 §11.2]), one per batch whose commit is off `main`, and each lost range until a forget. A read (`harvest()`, an
+`Apply`'s overlap check, [API §8.8]) tests reachability once per distinct commit of the row's ranges, so its cost
+follows the same count. Rule (1) costs a range record's fold a look at its batch's earlier ranges, which are the last
+ones of the list. Rule (2) costs a `gc` run one pass over each row with more than one range: for each distinct commit
+of its ranges, one ancestry test against each value that `main`'s held moves record.
 
 ## 14. Worked example *(informative)*
 
@@ -1429,7 +1495,7 @@ heap 0  03 00 00 00                                      holders = [3]
 | [90 §10.1] `LEASES` runtime rows | complete | §6 |
 | [90 §10.1] holder anchor (X-F2 amendment) | the anchor field of `LEASES` and its allowed kinds (0, 1, 4); the anchor layout is [F03]'s | §6 |
 | [AR §11] #33 and OQ-A-7 (bodies droppable by hash without changing commit ids; spec sync 3) | the store-level side: the `DROPPED` table, its fold from `BodyDrop`, its placement and no retention; the `PINS` fold of a pin a purge moves. What a drop is, is [F06 §8.1]'s; the record [F05 §9.29]'s; the purge [F16] P-101's | §2.4, §4, §13.4 |
-| [AR §11] #46 and OQ-A-10 (the harvest cursor, reserved before the freeze; spec sync 3) | the `HARVEST` row layout, its fold operations, placement and retention; the verbs and refusals are [API §8.8]'s, the `Harvest` record [F05 §9.30]'s | §2.4, §13.5 |
+| [AR §11] #46 and OQ-A-10 (the harvest cursor, reserved before the freeze; spec sync 3) | the `HARVEST` row layout, its fold operations, the merges of adjacent ranges at a batch's harvest and at a `gc` run (review pass 2, P2-11), placement and retention; the verbs and refusals are [API §8.8]'s, the `Harvest` record [F05 §9.30]'s | §2.4, §13.5 |
 
 ## Holes
 
@@ -1617,7 +1683,8 @@ record ([F20]). Every byte of this chapter is fixed by the design or decided her
     commit in a row), tag `0x020E`. Its delta form is `layer`, not `snapshot`: a store may register thousands of
     transcripts (≈ 0.4 KB each), which a snapshot would rewrite at every checkpoint against open point 27's ≈ 150 KB for
     all snapshot tables together; a forget with `from` = 0 is a dead row. The `Harvest` record kind, its payload and its
-    group are [F05 §9.30]'s (kind 30, reserved; spec sync 3), whose fold §13.5 matches. (c) **Placement departs from
+    group are [F05 §9.30]'s (kind 30, reserved; spec sync 3); the row's fold, with the merges and the forget's cut of
+    open point 46, is §13.5's, which [F05 §9.30] and [F05 §10.3] cite. (c) **Placement departs from
     R-SPEC-F's design**, which marked `DROPPED` required (R) in bases and deltas: both tables are conditional, carried
     exactly when they hold a row (§2.4). A required section would make every existing base and delta fixture
     (`fixtures/hex` `store-a/seg.base.10`, `seg.d1`, `seg.d7`, `seg.d8`, `store-b/seg.d3`) invalid under [F09 §17.1]
@@ -1637,3 +1704,25 @@ record ([F20]). Every byte of this chapter is fixed by the design or decided her
     change the owner chose. `maker` is an `id16` with no lsn (§10). For a value an import made, M is the import commit,
     which may have no second parent. How a `Resolve` then restores `theirs` is left to [F12], with S2-5's revert and
     cherry-pick case.
+46. **`HARVEST` range merges** (review pass 2, P2-11; the owner's rulings R-127 of 2026-10-22, F2-Q8 (b), R-139 of
+    2026-10-23 and R-142 of 2026-10-23; the orchestrator's ruling R-142 of 2026-10-23). Review pass 2 found that a row's
+    range list had no cap, and that each read tested every range's reachability. The owner chose the merge of adjacent
+    ranges (F2-Q8 (b)), and then its form (R-139): a batch's ranges merge at its harvest, and a `gc` run merges adjacent
+    ranges whose commits are both fixed on `main` (§13.5). A merge across batches at a batch's own harvest would not be
+    exact. A merged range carries one commit and liveness is binary, while one `undo` past the later batch is always
+    admitted ([API §11.11]). So the merged range would keep bytes harvested whose records are gone, or lose bytes whose
+    records stand. Decided with the rule:
+    - two ranges are adjacent when the `end` of one is the `start` of the other;
+    - a merged range keeps the commit of its member with the greatest `commit_lsn`, which is exact since its members
+      are live together, and it stands at its first member's place;
+    - a forget cuts a range that holds `from` to end at `from`, whether a merge made it or not, since a merged range
+      carries no mark; so what a forget leaves does not depend on earlier merges (the orchestrator's ruling R-142);
+    - an image import puts on `main` only commits that descend from its tip, and any other chain reaches `main` through
+      `import/main` and a merge (the owner's ruling R-142, with [72] M10). It is a ground of "fixed on `main`", and
+      [F14], which owns the import's records, is to state it;
+    - rule (1) is a function of the log, and rule (2) of the `Store` API command stream at the `gc` run, as §7's
+      `MARKERS_OLD` retention is (the orchestrator's ruling R-142). No log record of a `gc` run is added, and for
+      `repair --rebuild-from-log` §13.5 claims only what [API §8.8] claims.
+
+    No byte changes: the row and `HarvestRange` keep their layouts, and `ranges` holds fewer entries. The growth that
+    remains (batches inside the reflog window, batches off `main`, lost ranges) is accepted.
