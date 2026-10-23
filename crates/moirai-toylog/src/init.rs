@@ -26,7 +26,7 @@ pub const LOCK_LEN: usize = 36_864;
 /// `LockHdr` ([F03 §4.1]): 64 bytes at offset 0.
 pub fn lock_header(created_hlc: u64) -> [u8; 64] {
     let mut b = [0u8; 64];
-    b[0..4].copy_from_slice(b"MLCK");
+    b[0..4].copy_from_slice(b"KLCK");
     b[4..6].copy_from_slice(&1u16.to_le_bytes());
     b[8..10].copy_from_slice(&256u16.to_le_bytes());
     b[10..12].copy_from_slice(&128u16.to_le_bytes());
@@ -371,7 +371,7 @@ mod tests {
             "refs_lsn names the RefTable record"
         );
         // LockHdr: magic and checksum.
-        assert_eq!(&img.lock[..4], b"MLCK");
+        assert_eq!(&img.lock[..4], b"KLCK");
         assert_eq!(
             u64::from_le_bytes(img.lock[56..64].try_into().unwrap_or([0; 8])),
             hash64(&img.lock[..56])
