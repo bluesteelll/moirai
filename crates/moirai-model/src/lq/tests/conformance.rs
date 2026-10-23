@@ -1207,7 +1207,7 @@ fn the_runner_reads_case_files() {
         assert_eq!(run_cases(&dir).map(|t| t.checked), Ok(8));
         // Input bytes in hex, decoding errors located over the well-formed prefix, success, C-AST values, renderings
         // and the JSON IR's file.
-        let enc = "10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+        let enc = "10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
 01 31 33 01 3a 3b 00 00 00 00 06 00 00 00 73 74 61 74 75 73 58 04 00 00 00 6f 70 65 6e 33 04 3a
 3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74 79 52 01 00 00 00 00 00 00 00 14 00 00 01 00 00
@@ -1228,8 +1228,8 @@ fn the_runner_reads_case_files() {
                  %% cast\n(QUERY (PART _ (CLAUSES [(MATCH false [(PATH (NODEP 0 [\"task\"] [] _) [])]\n \
                  (AND (CMP = (PROP (VAR 0) \"status\") (ENUM \"open\")) (CMP <= (PROP (VAR 0) \"priority\") (INT 1))))]\n \
                  (RETURN false false [(RITEM (VAR 0) _)] [(SORT (PROP (VAR 0) \"priority\") false)] (INT 5)))) [])\n\
-                 %% encoding\n{enc}\n%% hash blake3_256 0..174 first 16 = 073f2b4d1d0af442d00ad286347b22fb\n\
-                 %% explain-id q:073f2b4d\n%% cursor-query-hash 0x42f40a1d4d2b3f07\n%% end\n\
+                 %% encoding\n{enc}\n%% hash blake3_256 0..174 first 16 = dd40959e46cfb9855c6ce4a71cac09c1\n\
+                 %% explain-id q:dd40959e\n%% cursor-query-hash 0x85b9cf469e9540dd\n%% end\n\
                  %% case s44-lower\n%% entry read\n%% context schema core\n%% input\n\
                  match (x:Task) where x.status = open and x.priority <= 'P1' return x order by x.priority limit 5\n\
                  %% cast-same-as s44\n%% end\n\
@@ -1270,7 +1270,7 @@ fn the_runner_reads_case_files() {
         let failures = run_cases(&dir).unwrap_err();
         assert_eq!(failures.len(), 2, "{failures:?}");
         assert!(
-            failures[0].contains("EXPLAIN id q:073f2b4d"),
+            failures[0].contains("EXPLAIN id q:dd40959e"),
             "{failures:?}"
         );
         assert!(failures[1].contains("case no-input"), "{failures:?}");
@@ -1750,7 +1750,7 @@ fn ast_cases_of_canonical_ast_4_4() {
     (return false false [(item (ident "t") _)] [] [(sort (prop (ident "t") "priority") asc)] (int 5))
     _)]
   []))"#;
-    let bytes = "10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+    let bytes = "10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
 01 31 33 01 3a 3b 00 00 00 00 06 00 00 00 73 74 61 74 75 73 58 04 00 00 00 6f 70 65 6e 33 04 3a
 3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74 79 52 01 00 00 00 00 00 00 00 14 00 00 01 00 00

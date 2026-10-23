@@ -750,7 +750,7 @@ pub enum Root<'a> {
 }
 
 /// The header's domain-separation string ([LQ/canonical-ast §6.1]).
-pub const MAGIC: &[u8; 16] = b"moirai-lq-ast-v1";
+pub const MAGIC: &[u8; 16] = b"klotho-lq-ast-v1";
 
 /// The grammar version of this canonical-AST algorithm.
 pub const LQ_VERSION: u16 = 1;
@@ -1815,7 +1815,7 @@ mod tests {
 
     #[test]
     fn worked_example_of_6_5_encodes_to_its_174_bytes() {
-        let want = "10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+        let want = "10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
                     01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
                     01 31 33 01 3a 3b 00 00 00 00 06 00 00 00 73 74 61 74 75 73 58 04 00 00 00 6f 70 65 6e 33 04 3a
                     3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74 79 52 01 00 00 00 00 00 00 00 14 00 00 01 00 00
