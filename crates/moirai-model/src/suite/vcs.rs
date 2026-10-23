@@ -361,7 +361,7 @@ fn every_merge_family_reply_lists_its_hints() {
     };
     assert_eq!(
         (hints(&sync), step0, hints(&into_main), hints(&pick)),
-        (h(2, 3), h(2, 4), h(2, 4), h(2, 5)),
+        (h(3, 2), h(4, 2), h(4, 2), h(5, 4)),
         "sync, step 0, merge into main, cherry-pick"
     );
     ids_verify(&s);

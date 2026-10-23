@@ -117,19 +117,19 @@ impl Cj {
     }
 }
 
-/// An explicit key's hash: `BLAKE3-128(lp("moirai-idem-key-v1") ‖ lp(k))` ([API §7.2]; [F06 §4.4.7]).
+/// An explicit key's hash: `BLAKE3-128(lp("klotho-idem-key-v1") ‖ lp(k))` ([API §7.2]; [F06 §4.4.7]).
 // spec: [API §7.2]
 pub fn explicit_key(k: &str) -> [u8; 16] {
-    blake3_128(&[b"moirai-idem-key-v1", k.as_bytes()])
+    blake3_128(&[b"klotho-idem-key-v1", k.as_bytes()])
 }
 
-/// The default key: `BLAKE3-128(lp("moirai-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(b) ‖ lp(P))` over the resolved
+/// The default key: `BLAKE3-128(lp("klotho-idem-default-v1") ‖ lp(s) ‖ lp(a) ‖ lp(b) ‖ lp(P))` over the resolved
 /// session `s`, the attested thread or agent `a`, the name `b` of the command's branch and the payload `P` ([API §7.2];
 /// [F06 §4.4.7]): one command on two branches within the default window has two keys.
 // spec: [API §7.2]
 pub fn default_key(session: &str, agent: &str, branch: &str, payload: &[u8; 16]) -> [u8; 16] {
     blake3_128(&[
-        b"moirai-idem-default-v1",
+        b"klotho-idem-default-v1",
         session.as_bytes(),
         agent.as_bytes(),
         branch.as_bytes(),
@@ -137,13 +137,13 @@ pub fn default_key(session: &str, agent: &str, branch: &str, payload: &[u8; 16])
     ])
 }
 
-/// The payload of a keyed command that compiles to no `TX` block: `BLAKE3-128(lp("moirai-api-payload-v1") ‖ lp(name) ‖
+/// The payload of a keyed command that compiles to no `TX` block: `BLAKE3-128(lp("klotho-api-payload-v1") ‖ lp(name) ‖
 /// lp(CJ(args′)))` ([API §7.3]); `args` is `args′` already (uids for node ids, full commit ids, omitted defaults
 /// omitted, keys bytewise).
 // spec: [API §7.3]
 pub fn payload(name: &str, args: &BTreeMap<String, Cj>) -> [u8; 16] {
     let cj = Cj::Map(args.clone()).text();
-    blake3_128(&[b"moirai-api-payload-v1", name.as_bytes(), cj.as_bytes()])
+    blake3_128(&[b"klotho-api-payload-v1", name.as_bytes(), cj.as_bytes()])
 }
 
 /// One item a replay rebuilds a family-W result from ([API §7.5]): the items of an `IdemResult` section

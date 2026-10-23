@@ -48,11 +48,11 @@ pub enum Deadline {
     BootChanged,
 }
 
-/// `boot_id` of the simulated boot k: `BLAKE3-128(lp("moirai-boot-id-v1") ‖ lp("api-sim-boot") ‖ lp(u64le(k)))`
+/// `boot_id` of the simulated boot k: `BLAKE3-128(lp("klotho-boot-id-v1") ‖ lp("api-sim-boot") ‖ lp(u64le(k)))`
 /// ([API §6.2] CK-2).
 // spec: [API §6.2] CK-2
 pub fn boot_id(k: u64) -> [u8; 16] {
-    blake3_128(&[b"moirai-boot-id-v1", b"api-sim-boot", &k.to_le_bytes()])
+    blake3_128(&[b"klotho-boot-id-v1", b"api-sim-boot", &k.to_le_bytes()])
 }
 
 /// `boot_hash(boot_id) = u64::from_le_bytes(boot_id[0..8]) | 1` ([OS/proc §4.3]).

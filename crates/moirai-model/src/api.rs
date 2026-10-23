@@ -1787,7 +1787,7 @@ impl Store {
         let mut t: u32 = 0;
         let store_id = loop {
             let id = blake3_128(&[
-                b"moirai-api-store-id-v1",
+                b"klotho-api-store-id-v1",
                 &seed.to_le_bytes(),
                 &t.to_le_bytes(),
             ]);

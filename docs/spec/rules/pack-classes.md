@@ -399,7 +399,7 @@ little-endian; there is no padding.
 <!-- table: notice-digest -->
 | row | offset | width | type | name | basis | source | meaning |
 |---|---|---|---|---|---|---|---|
-| ND-001 | 0 | 21 | bytes | tag | proposed | [OP-11] | The ASCII bytes `moirai-pack-digest-v1`. |
+| ND-001 | 0 | 21 | bytes | tag | proposed | [OP-11] | The ASCII bytes `klotho-pack-digest-v1`. |
 | ND-002 | 21 | 16 | uid | target | proposed | [F07] uid encoding | T's uid, as the canonical form encodes a uid. |
 | ND-003 | 37 | 2 | u16 | role_len | proposed | [OP-11] | Byte length of the role name, 1 to 64. |
 | ND-004 | 39 | role_len | bytes | role | proposed | [OP-11] | R's name, ASCII. |
