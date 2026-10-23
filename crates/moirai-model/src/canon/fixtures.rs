@@ -1057,7 +1057,7 @@ pub fn git_commit(lines: &[String]) -> GitCommit {
 /// The item-10 input of a case: `lp(domain) ‖ entries ‖ u64(n)`.
 fn digest_input(es: &[Vec<u8>]) -> Vec<u8> {
     let mut v = Vec::new();
-    lp(&mut v, b"moirai-changeset-v1");
+    lp(&mut v, b"klotho-changeset-v1");
     for e in es {
         v.extend_from_slice(e);
     }

@@ -1031,7 +1031,7 @@ pub fn entries(p: &Cs, q: &Cs) -> Vec<Vec<u8>> {
 pub fn digest_of(entries: &[Vec<u8>]) -> [u8; 32] {
     let mut h = blake3::Hasher::new();
     let mut dom = Vec::new();
-    lp(&mut dom, b"moirai-changeset-v1");
+    lp(&mut dom, b"klotho-changeset-v1");
     h.update(&dom);
     for e in entries {
         h.update(e);
@@ -1177,7 +1177,7 @@ pub struct Header {
 // spec: [F07 §3.1]
 pub fn commit_input(h: &Header, digest: &[u8; 32]) -> Vec<u8> {
     let mut out = Vec::with_capacity(256);
-    lp(&mut out, b"moirai-commit-v1");
+    lp(&mut out, b"klotho-commit-v1");
     lp(&mut out, h.kind.as_bytes());
     out.extend_from_slice(&(h.parents.len() as u32).to_le_bytes());
     for p in &h.parents {
@@ -1366,7 +1366,7 @@ mod tests {
         .concat();
         assert_eq!(e, want);
         let mut input = Vec::new();
-        lp(&mut input, b"moirai-changeset-v1");
+        lp(&mut input, b"klotho-changeset-v1");
         input.extend_from_slice(&e);
         input.extend_from_slice(&1u64.to_le_bytes());
         assert_eq!(input.len(), 74);
