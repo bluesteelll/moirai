@@ -1118,7 +1118,7 @@ pub const STD_TEXTS: [&str; 45] = [
     r#"DEFINE QUERY lane_conflicts($a: node, $b: node) SHAPE table BUDGET medium AS {
   MATCH (la:lane {id: $a}), (lb:lane {id: $b}), (ta:task), (tb:task)
   WHERE ta.claimed AND tb.claimed AND ta <> tb
-    AND ta.lease.branch = la.moirai_branch AND tb.lease.branch = lb.moirai_branch
+    AND ta.lease.branch = la.store_branch AND tb.lease.branch = lb.store_branch
   UNWIND ta.files_owned AS ga
   UNWIND tb.files_owned AS gb
   WITH ta, tb, ga, gb WHERE glob_match(ga, gb) OR glob_match(gb, ga)

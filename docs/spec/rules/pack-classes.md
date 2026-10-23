@@ -67,7 +67,7 @@ Every table follows [RULES/README]. In addition:
 | PT-005 | A | input | design | [90 §4.1] Actor row; [AR §7.4] C2 | The agent: the resolved actor, the presented lease's holder first. Keys `mark(A)` and `cursor(A,T)`. |
 | PT-006 | E | input | design | [AR §7.4]; [90 §6.4] | The effective byte budget of this pack (PX-001). |
 | PT-007 | k | input | design | [AR §7.4] step 1; [AR §7.1] `--since-round` | The round: `--since-round` (MCP `since_round`) when given; otherwise the `round` of the verdict v visible on view B with (v)-[:ABOUT]->(T) or (v)-[:GATES]->(T) whose `created` seq is greatest; 0 when there is none. |
-| PT-008 | LB | input | derived | [AR §3.2] `lane`; [AR §5a.4] | The lane of B: the live `lane` node on view B with `moirai_branch` = B and status not in {`merged`, `abandoned`}; absent for `main` and for a branch no lane binds. |
+| PT-008 | LB | input | derived | [AR §3.2] `lane`; [AR §5a.4] | The lane of B: the live `lane` node on view B with `store_branch` = B and status not in {`merged`, `abandoned`}; absent for `main` and for a branch no lane binds. |
 | PT-009 | U | set | design | [50 §4.3] `pack_rules_unmerged`; [AR §7.4] C2 | Empty when B = main. Otherwise the nodes that `diff(tip(B)...tip(main))` yields with side `theirs` or `both`: changed on main since the merge base and not yet merged into B. |
 | PT-010 | live(n) | pred | design | [AR §3.1] flags | n exists on the view and its `deleted` flag is clear. |
 | PT-011 | auth(n) | pred | derived | [50 §4.1] `notes`; [AR §3.2] status sets | live(n), and status(n) is the authoritative status of its kind: `rule` active, `decision` accepted, `note` active, `doc` current. False for every other kind. A `conflicted` node stays authoritative and renders by RN-006. |
