@@ -1124,7 +1124,7 @@ fn yield_value(t: &str) -> V {
 // spec: [LQ/envelope §9.4]
 pub fn digest(stmts: &[(u32, Vec<Vec<u8>>)]) -> [u8; 16] {
     let mut b = Vec::new();
-    lp(&mut b, b"moirai-lq-targets-v1");
+    lp(&mut b, b"klotho-lq-targets-v1");
     b.extend_from_slice(&1u16.to_le_bytes());
     for (i, bindings) in stmts {
         b.extend_from_slice(&i.to_le_bytes());
