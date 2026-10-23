@@ -6,7 +6,7 @@
 | Chapter | [F11], `docs/spec/format/11-runtime-tables.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-13b, the runtime-table part of WP-13 ([PLAN §3.2] item 1), author role R-SPEC-R |
-| Sources | [AR §2.16] (T16: what is store-level runtime); [AR §3.4] I1, I14′, I17′, I26′, I27′, I36′; [AR §4.2] (the ref-table paragraph with `overlay_ops`/`overlay_bytes` and the absorbed vector; `next_id`, `fence`; `refs_lsn`, `pins_lsn`, `heads_lsn`, `markers_lsn`); [AR §4.3] (record kinds; commit-header fields `ref_id`, `ref_seq`, `idem_key`, `idem_payload`, absorbed vector); [AR §4.4] (section rows `IDEM`, `LEASES`/`MARKERS`/`MARKERS_OLD`, `REFS`/`PINS`/`HEADS`, `ANCESTRY`, "R4 link sections", "R5 sections"; the `derived-optional` flag); [AR §4.5] steps 4 (markers from net ops), 6 (replay by record kind), 8 (`ALLOC`, `UIDX`), 12 (runtime-only fold); [AR §4.6] ("Not hashed"); [AR §4.8] (indexes); [AR §4.9] (inert markers at the fold, pins, GC of the runtime tables); [AR §5a.1] (object model: ref, reflog, client head, tag, pin, runtime records); [AR §5a.2] (`ref_seq`, the 32 cached moves); [AR §5a.3] (fork pins, promotion and its counters, sync); [AR §5a.4] (client keys, bindings, R-15); [AR §5a.5] (`undo` and the absorbed vector; marker recomputation); [AR §5a.7] steps 7–8 (absorbed vector at merge; staging refs); [AR §5a.9] (`branch -d`/`-D`); [AR §5d.1] (the versioned-versus-runtime table); [AR §6.2] (leases, holder anchor, deadline, renewal); [AR §6.4] (idempotency); [AR §6.5] (durability classes). [40 §2.1], [40 §2.5] (`FPRINT` retention), [40 §2.6] (runtime tables, stat quadruple, OS id paragraph), [40 §2.9] (states), [40 §2.11] R-7, R-8, R-9, R-15, R-18 (authoritative), [40 §3.4] (`FsIntent`, recovery table), [40 §5.1], [40 §5.3] (tree identity, writer tree, expected ref). [50 §8.1] F11, F17. [80 §2.7.1], [80 §2.7.2] (deadline form, anchors), [80 §2.10] P9, [80 §2.11.1]–[80 §2.11.3] (capabilities, tagged layouts, frontier), [80 §3.1] X-F2, X-F5, X-F7, X-F8. [90 §4.1] (the environment-lease binding rule), [90 §4.3] (lease kinds), [90 §4.4] (anchors per harness), [90 §10.1] (rows "`LEASES` runtime rows", "Holder anchor (X-F2)"). [60 §2.5] rows "Segments" ([AR] rows and audit rows), "Ref table", "`Vfs`/`ProjectFs`", "Cross-platform", "Harness-agnostic interface and pure Rust", and the R4 rows R-7, R-8, R-9, R-15, R-18 and the R5 rows F11, F17. Audits [70] S1, S4, S5, S7, S8, S17; [72] B2, M4, M7. Reviews `docs/spec/reviews/a1-P.md` A1P-04, A1P-11, A1P-16 and `a1-S.md` S-09 (dispositions in the open points). [PLAN §3.2] WP-13; [PLAN §3.3] (the `MARKERS` field set). Spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F05 §9.29] (`DROPPED`); [AR §11] #46 and OQ-A-10 with [API §8.8] and [F05 §9.30] (`HARVEST`); [F05 §9.8] (a pin a purge moves); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the domain string of the `lane-owned` scope digest) |
+| Sources | [AR §2.16] (T16: what is store-level runtime); [AR §3.4] I1, I14′, I17′, I26′, I27′, I36′; [AR §4.2] (the ref-table paragraph with `overlay_ops`/`overlay_bytes` and the absorbed vector; `next_id`, `fence`; `refs_lsn`, `pins_lsn`, `heads_lsn`, `markers_lsn`); [AR §4.3] (record kinds; commit-header fields `ref_id`, `ref_seq`, `idem_key`, `idem_payload`, absorbed vector); [AR §4.4] (section rows `IDEM`, `LEASES`/`MARKERS`/`MARKERS_OLD`, `REFS`/`PINS`/`HEADS`, `ANCESTRY`, "R4 link sections", "R5 sections"; the `derived-optional` flag); [AR §4.5] steps 4 (markers from net ops), 6 (replay by record kind), 8 (`ALLOC`, `UIDX`), 12 (runtime-only fold); [AR §4.6] ("Not hashed"); [AR §4.8] (indexes); [AR §4.9] (inert markers at the fold, pins, GC of the runtime tables); [AR §5a.1] (object model: ref, reflog, client head, tag, pin, runtime records); [AR §5a.2] (`ref_seq`, the 32 cached moves); [AR §5a.3] (fork pins, promotion and its counters, sync); [AR §5a.4] (client keys, bindings, R-15); [AR §5a.5] (`undo` and the absorbed vector; marker recomputation); [AR §5a.7] steps 7–8 (absorbed vector at merge; staging refs); [AR §5a.9] (`branch -d`/`-D`); [AR §5d.1] (the versioned-versus-runtime table); [AR §6.2] (leases, holder anchor, deadline, renewal); [AR §6.4] (idempotency); [AR §6.5] (durability classes). [40 §2.1], [40 §2.5] (`FPRINT` retention), [40 §2.6] (runtime tables, stat quadruple, OS id paragraph), [40 §2.9] (states), [40 §2.11] R-7, R-8, R-9, R-15, R-18 (authoritative), [40 §3.4] (`FsIntent`, recovery table), [40 §5.1], [40 §5.3] (tree identity, writer tree, expected ref). [50 §8.1] F11, F17. [80 §2.7.1], [80 §2.7.2] (deadline form, anchors), [80 §2.10] P9, [80 §2.11.1]–[80 §2.11.3] (capabilities, tagged layouts, frontier), [80 §3.1] X-F2, X-F5, X-F7, X-F8. [90 §4.1] (the environment-lease binding rule), [90 §4.3] (lease kinds), [90 §4.4] (anchors per harness), [90 §10.1] (rows "`LEASES` runtime rows", "Holder anchor (X-F2)"). [60 §2.5] rows "Segments" ([AR] rows and audit rows), "Ref table", "`Vfs`/`ProjectFs`", "Cross-platform", "Harness-agnostic interface and pure Rust", and the R4 rows R-7, R-8, R-9, R-15, R-18 and the R5 rows F11, F17. Audits [70] S1, S4, S5, S7, S8, S17; [72] B2, M4, M7. Reviews `docs/spec/reviews/a1-P.md` A1P-04, A1P-11, A1P-16 and `a1-S.md` S-09 (dispositions in the open points). [PLAN §3.2] WP-13; [PLAN §3.3] (the `MARKERS` field set). Spec sync 3: [AR §11] #33 and OQ-A-7 with [F06 §8.1] and [F05 §9.29] (`DROPPED`); [AR §11] #46 and OQ-A-10 with [API §8.8] and [F05 §9.30] (`HARVEST`); [F05 §9.8] (a pin a purge moves); the Klotho names: the owner's ruling R-49 of 2026-10-13 (the domain string of the `lane-owned` scope digest); review pass 2: `docs/spec/reviews/P-pass2.md` P2-3 and `S-pass2.md` S2-5, with the owner's ruling R-127 of 2026-10-22, F2-Q3a (`CONFLICTS.maker`, open point 45) |
 | Depends on | [F01], [F02]; cites [F03] (`Anchor`), [F04] (`HEAD` counters and the `*_lsn` pointers), [F05] (record kinds and payloads), [F06] (commit header, the `Conflict` op key), [F07] (key classes), [F08] (value encodings, schema), [F09] (`SegHdr`, section tags, the versioned delta rule), [F10] (the fingerprint blob class), [F12] (ref names, conflict classes), [F13] (I26′ and the marker-cache rules MC-1–MC-7), [F14] (export of refs), [F16] (protocol, folds), [F17] (retention and promotion parameters), [F18] (strings, the `relink` vocabulary, I-F12), [F19] (exit codes), [F20] (the resolver), [OS/proc], [OS/clock], [OS/project], [OS/path], [API], [CFG] |
 
 ## 1. Scope
@@ -57,7 +57,7 @@ are [F05]'s; their durability tags are [F05]'s too ([80] X-F5) and are given her
 | idempotency | `IDEM` | runtime | snapshot / layer (hash tables) | `key` | `Commit` (`idem_key`, `idem_payload`), `Idem` | durable | no | 72 | 8 |
 | id allocation | `ALLOC` | runtime | snapshot / layer (dense) | `#N` | `Commit` (`Create` ops); `Reserve` (reserved ids, holes until their commit folds, §9.1) | durable | no | 24 | 9.1 |
 | uid index | `UIDX` | runtime | snapshot / layer | `uid` | `Commit` (`Create` ops) | durable | no | 20 | 9.2 |
-| conflict values | `CONFLICTS` | versioned | [F09] | (`n`, key bytes) | `Commit` (`Conflict`, `Resolve` ops) | durable | no | 56 | 10 |
+| conflict values | `CONFLICTS` | versioned | [F09] | (`n`, key bytes) | `Commit` (`Conflict`, `Resolve` ops) | durable | no | 72 | 10 |
 | glob index | `GLOBIDX` | versioned | [F09] | (prefix, `n`, `field`, glob) | `Commit` (ops on glob fields) | durable | no | 20 | 11 |
 | trees | `TREES` | runtime | snapshot / snapshot | `key` | `TreeReg` | lazy | no | 201 | 12.4 |
 | file observations | `FILEOBS` | runtime | snapshot / layer | (`n`, `tree`) | `FileObs` | lazy | no | 187 | 12.5 |
@@ -732,7 +732,8 @@ a layer without `SCHEMA` carries none.
 | 32 | 8 | `HeapRef` | `base` | the base side: the `kval` bytes of [F06 §6.2] for the key's class, exactly as the `Conflict` op holds them |
 | 40 | 8 | `HeapRef` | `ours` | as `base` |
 | 48 | 8 | `HeapRef` | `theirs` | as `base` |
-| total | 56 | | | |
+| 56 | 16 | `b16` | `maker` | `id16` of M, the commit that made the conflict value, by a `Conflict` op or in a bulk commit's `cs.<n>` ([F06 §9]), reverts and cherry-picks included; never a commit that only carried it (below; review pass 2, P2-3 and S2-5) |
+| total | 72 | | | |
 
 Sort key: (`n`, key bytes). The row is the conflict part of the key's `cstate` ([F06 §6.2] orders 3–5) with the key in
 front, so every conflict class a `Conflict` op can hold — an existence side with its node image, a status and resolution
@@ -740,6 +741,55 @@ pair, a body hash, an edge property block with its anchor record, a schema item 
 (pass 1, S1-7, S1-5, P1-1). A side is never an empty slice: every `kval` encodes to at least one byte, an absent side
 included (`ex` 0, `st` 0, type 0 of [F08 §5.1], `parent` 0 with an empty `order`, and so on). A `Resolve` removes the
 row in the view where it lands.
+
+**`maker`** (the owner's ruling R-127 of 2026-10-22, F2-Q3a; review pass 2, P2-3 and S2-5). The row records M, the
+commit that made the conflict value. A reader that needs M, as the restore of a live existence side by a `Resolve` does
+([F12 §6.5]), reads it here and searches no history. `commit` keeps its meaning (the table above) and equals `maker`
+unless the commit it names carried the value.
+
+Every writer of a row sets `maker` by one rule: the fold of a commit's ops, and the producer of a bulk commit's
+`cs.<n>`, which holds conflict values as rows and no ops ([F06 §9] BK-1, BK-5). A commit c **puts** a conflict value on
+a key k when c holds a `Conflict` op on k, or when c is a bulk commit whose `cs.<n>` holds a row for k with a conflict
+value that differs from k's value in c's base state ([F06 §7.4] "Base state"). Then c carried the value when a parent of
+c holds on k, in its state, a conflict value equal to it ([F12 §7.3] rule 4: the class, the three sides and `prov`);
+`maker` is then the `maker` of k's row in that parent's state, the first parent's if both hold it. Otherwise c made the
+value, and `maker` is c's `id16`. A row that c does not put keeps its bytes from c's base state, `maker` included, also
+where a layer re-states it for a touched node (above). A sync's base state is the lane parent's with `main`'s window
+applied by reference, so a row that an op of the window sets has the `maker` that the rule gave it at that op's own
+commit on `main`. By route:
+- **Make.** A commit that puts a value no parent holds is its own M: a merge ([F12 §7.8]); a sync, a merge-family commit
+  with two parents that lands conflict values of its own ([F12 §8.1]); a revert or a cherry-pick whose before-image
+  mismatch lands as a conflict value ([F12 §6.1], [F12 §9.6]); the staged commit on a staging ref and a re-staged one
+  ([F12 §9.2], [F12 §9.4]); the commit that `merge --continue` lands on DST ([F12 §9.4]); and a bulk commit whose
+  `cs.<n>` holds such a value (a long merge can be bulk, [F06 §9] BK-5). No merge fast-forwards ([F12 §8.1]).
+- **Carry.** A merge that takes a side's conflict value unchanged ([RULES/merge-table] MR-001, MR-003, MR-004) keeps all
+  its fields, `maker` with them ([F12 §6.3]). Under MR-001 and MR-003 the value is dst's and no op is emitted, so the
+  row stays as it was. Under MR-004 the merge holds a new `Conflict` op ([F12 §7.8]), `commit` names that merge, and
+  `maker` is the src side's.
+- **Sync.** A sync stores its residue over its base state, not its diff against the lane parent ([F12 §7.8]). A value
+  that `main`'s window brings and the residue leaves keeps the row that the window's op set, with the `maker` it has on
+  `main`, and the sync writes no op for it. A residue `Conflict` op whose value a parent holds carries that parent's
+  `maker`, the lane parent's if both hold it; one whose value neither parent holds makes the value.
+- **Copy.** A ref move that shares a view writes no commit and changes no row: a branch or tag created at its fork
+  commit, `undo` and `op restore` ([F12 §8.2]). A checkpoint fold, a rollup and a promotion copy the row's bytes,
+  `maker` included (§2.4).
+- **Import.** For a value that an import made, M is the import commit that wrote it ([F14]): the bulk import checkpoint
+  whose `cs.<n>` holds the row is its own M. How a `Resolve` restores `theirs` from an M with fewer than two parents (a
+  revert, a cherry-pick, an import) is [F12]'s (open point 45).
+
+The rule reads only the log and the states its commits name, so a checkpoint fold, the tail replay and
+`repair --rebuild-from-log` give the same bytes ([F09 §17.3]). Like `commit`, `maker` is an `id16` without the lsn that
+§2.5 pairs with a commit a row reads. A bulk commit that makes a value names itself in its `cs.<n>` ([F06 §9] BK-5),
+which is sealed before the commit's record has an lsn (BK-3), so no lsn could be written there.
+
+*(Informative)* A `Resolve` reads M's `id16` from the row and walks no history. With no lsn, finding M's record probes
+the `HCIDX` of each `hist` file and the log ([F10 §4.5]; [F12 §3.4], the commit-literal lookup), once per `Resolve` that
+needs it. A fold pays for the carry route, in its parents' states. Outside a sync, a commit's base state is its first
+parent's, which never holds the value put ([F12 §6.3]: the op's `old`; [F12 §7.8]), so a commit with one parent costs
+nothing more, and one with two parents costs one keyed read, the key in the second parent's state. A sync's base state
+is the window-applied one, so its residue op costs up to two keyed reads, the key in each parent's state. At a
+checkpoint fold, the tail replay or a rebuild a parent is in general no ref's tip, so each read is one of a past
+commit's state.
 
 ## 11. `GLOBIDX`
 
@@ -1578,3 +1628,12 @@ record ([F20]). Every byte of this chapter is fixed by the design or decided her
     after a purge moves a pin ([F05 §9.8], [F16] P-101 step 7), the holder protects the files its newest `Pin` record
     lists, not those of the `Checkpoint` at `set_lsn`; the unpin and the pin of one (`holder`, `ref_id`, `set_lsn`) fold
     in group order, so a file in both lists keeps the holder.
+45. **`CONFLICTS.maker`** (review pass 2, P2-3 with S2-5; the owner's ruling R-127 of 2026-10-22, F2-Q3a). The restore
+    of a live existence side by a `Resolve` reads the states of the parents of M, the commit that made the conflict
+    value ([F12 §6.5]). Review pass 2 found that finding M from `commit` had no cost bound (P2-3), and that M can be a
+    revert or a cherry-pick with one parent (S2-5). The owner chose that the row records M (F2-Q3a (A)), not a work
+    budget for finding it. Layout: the row's 2 reserved bytes at offset 6 cannot hold an `id16`, so `maker` is appended
+    at offset 56, where no existing offset moves. The row grows from 56 to 72 bytes (§1.3, §2.1 `row_size`), the byte
+    change the owner chose. `maker` is an `id16` with no lsn (§10). For a value an import made, M is the import commit,
+    which may have no second parent. How a `Resolve` then restores `theirs` is left to [F12], with S2-5's revert and
+    cherry-pick case.
