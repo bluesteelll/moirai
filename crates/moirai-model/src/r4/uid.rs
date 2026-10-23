@@ -6,22 +6,22 @@ use crate::err::Refusal;
 use crate::r4::anchor::Kind;
 use crate::value::{Uid, blake3_128};
 
-/// `uid_file(r, p, q) = BLAKE3-128(lp("moirai-file-v1") ‖ lp(r) ‖ lp(p) ‖ lp(q or empty))`.
+/// `uid_file(r, p, q) = BLAKE3-128(lp("klotho-file-v1") ‖ lp(r) ‖ lp(p) ‖ lp(q or empty))`.
 // spec: [F08 §11.2]; [40 §2.3]
 pub fn uid_file(root: &str, path: &str, q: Option<Uid>) -> Uid {
     let q = q.map(|u| u.0.to_vec()).unwrap_or_default();
     Uid(blake3_128(&[
-        b"moirai-file-v1",
+        b"klotho-file-v1",
         root.as_bytes(),
         path.as_bytes(),
         &q,
     ]))
 }
 
-/// `uid_root(r) = BLAKE3-128(lp("moirai-root-v1") ‖ lp(r))`.
+/// `uid_root(r) = BLAKE3-128(lp("klotho-root-v1") ‖ lp(r))`.
 // spec: [F08 §11.3]; [40 §2.3]
 pub fn uid_root(root: &str) -> Uid {
-    Uid(blake3_128(&[b"moirai-root-v1", root.as_bytes()]))
+    Uid(blake3_128(&[b"klotho-root-v1", root.as_bytes()]))
 }
 
 /// The selector inputs of a capture ([F08 §11.1], §11.4): the current selectors an anchor is compared by, and the
@@ -120,11 +120,11 @@ pub fn captured(file: Uid, sel: &Selectors) -> [u8; 16] {
     ])
 }
 
-/// `uid_anchor(s, c, p) = BLAKE3-128(lp("moirai-anchor-v1") ‖ lp(s) ‖ lp(c) ‖ lp(p or empty))`.
+/// `uid_anchor(s, c, p) = BLAKE3-128(lp("klotho-anchor-v1") ‖ lp(s) ‖ lp(c) ‖ lp(p or empty))`.
 // spec: [F08 §11.4]; [40 §2.7]
 pub fn uid_anchor(src: Uid, captured: [u8; 16], pred: Option<Uid>) -> Uid {
     let p = pred.map(|u| u.0.to_vec()).unwrap_or_default();
-    Uid(blake3_128(&[b"moirai-anchor-v1", &src.0, &captured, &p]))
+    Uid(blake3_128(&[b"klotho-anchor-v1", &src.0, &captured, &p]))
 }
 
 /// The status of a file node as registration reads it.
@@ -447,14 +447,14 @@ mod tests {
                     };
                     let q = pred.map(|u| u.0.to_vec()).unwrap_or_default();
                     (
-                        framed(&[b"moirai-file-v1", root.as_bytes(), path.as_bytes(), &q]),
+                        framed(&[b"klotho-file-v1", root.as_bytes(), path.as_bytes(), &q]),
                         uid_file(&root, &path, pred).hex(),
                     )
                 }
                 "uid_root" => {
                     let root = json(arg(c, "root"));
                     (
-                        framed(&[b"moirai-root-v1", root.as_bytes()]),
+                        framed(&[b"klotho-root-v1", root.as_bytes()]),
                         uid_root(&root).hex(),
                     )
                 }
@@ -509,7 +509,7 @@ mod tests {
                     };
                     let p = pred.map(|u| u.0.to_vec()).unwrap_or_default();
                     (
-                        framed(&[b"moirai-anchor-v1", &src.0, &cap, &p]),
+                        framed(&[b"klotho-anchor-v1", &src.0, &cap, &p]),
                         uid_anchor(src, cap, pred).hex(),
                     )
                 }
