@@ -1177,7 +1177,7 @@ fn p_cj(v: &P) -> Cj {
 
 /// N(m) of [F07 §5.1] with the refusals of §5.2 (`bad_value`, exit 2): U+0000; CR LF and every remaining CR become
 /// LF; the bytes HT, VT, FF and SP are stripped from the end of every line; every trailing LF is removed; the result is
-/// at most 65,535 bytes and its last paragraph does not begin with `Moirai-`. The empty result is the absent message.
+/// at most 65,535 bytes and its last paragraph does not begin with `Klotho-`. The empty result is the absent message.
 // spec: [F07 §5.1]
 // spec: [F07 §5.2]
 pub fn normalize_message(m: &str) -> Res<String> {

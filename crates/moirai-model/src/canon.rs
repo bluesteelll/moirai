@@ -1071,12 +1071,12 @@ fn trim_lines(s: &str) -> String {
 pub const MESSAGE_UTF8: &str = "the commit message is not valid UTF-8 or contains U+0000";
 /// [F19 §10.2] `bad_value`, the commit-message row: a result above 65,535 bytes ([F07 §5.2]).
 pub const MESSAGE_LENGTH: &str = "the commit message is longer than 65,535 bytes";
-/// [F19 §10.2] `bad_value`, the commit-message row: a last paragraph that begins with `Moirai-` ([F07 §5.2]).
-pub const MESSAGE_TRAILER: &str = "the commit message ends in a paragraph that begins with Moirai-";
+/// [F19 §10.2] `bad_value`, the commit-message row: a last paragraph that begins with `Klotho-` ([F07 §5.2]).
+pub const MESSAGE_TRAILER: &str = "the commit message ends in a paragraph that begins with Klotho-";
 
 /// N(m) at write time with the refusals of [F07 §5.2] (`bad_value`, exit 2, case `message` of [F19 §10.3], with
 /// [F19 §10.2]'s texts; spec sync 2b S2B-F-16): U+0000; a result above 65,535 bytes; a last paragraph whose first line
-/// begins with `Moirai-`. The empty result is the absent message. A `&str` is valid UTF-8; [`normalise_message_bytes`]
+/// begins with `Klotho-`. The empty result is the absent message. A `&str` is valid UTF-8; [`normalise_message_bytes`]
 /// takes raw bytes.
 // spec: [F07 §5.1]
 // spec: [F07 §5.2]
@@ -1093,7 +1093,7 @@ pub fn normalise_message(m: &str) -> Res<String> {
         .iter()
         .rposition(|l| l.is_empty())
         .map_or(0, |i| i + 1);
-    if lines.get(start).is_some_and(|l| l.starts_with("Moirai-")) {
+    if lines.get(start).is_some_and(|l| l.starts_with("Klotho-")) {
         return Err(Refusal::bad_value("message", MESSAGE_TRAILER));
     }
     Ok(out)
@@ -1253,7 +1253,7 @@ pub struct GitCommit {
     pub author_email: Vec<u8>,
     /// The message bytes (the whole message, or the part before the trailer block for a checkpoint).
     pub message: Vec<u8>,
-    /// The `.moirai-image` marker's `schema-version:`.
+    /// The `.klotho-image` marker's `schema-version:`.
     pub schema_version: u32,
     /// The commit's own object id.
     pub oid: Oid,
@@ -1494,17 +1494,17 @@ mod tests {
             ("a\rb\t\n", Some("a\nb")),
             ("\n\nsubject", Some("\n\nsubject")),
             (" \t\n", Some("")),
-            ("done\n\nMoirai-Ref: main", None),
+            ("done\n\nKlotho-Ref: main", None),
             (
-                "done\n\nnote\nMoirai-Ref: main",
-                Some("done\n\nnote\nMoirai-Ref: main"),
+                "done\n\nnote\nKlotho-Ref: main",
+                Some("done\n\nnote\nKlotho-Ref: main"),
             ),
         ] {
             assert_eq!(normalise_message(m).ok().as_deref(), want, "{m:?}");
         }
         assert_eq!(
-            normalise_imported(b"a\0b\xFF\r\nMoirai-X: y\n\n"),
-            "a\u{FFFD}b\u{FFFD}\nMoirai-X: y"
+            normalise_imported(b"a\0b\xFF\r\nKlotho-X: y\n\n"),
+            "a\u{FFFD}b\u{FFFD}\nKlotho-X: y"
         );
         let long = "é".repeat(40_000);
         let n = normalise_imported(long.as_bytes());
@@ -1647,7 +1647,7 @@ mod tests {
     use proptest::prelude::*;
 
     /// A commit message built from pieces that reach every step of N and N_imp: line ends of each kind, trailing blanks,
-    /// empty lines, `Moirai-` paragraphs and multi-byte characters.
+    /// empty lines, `Klotho-` paragraphs and multi-byte characters.
     fn message() -> impl Strategy<Value = String> {
         let piece = prop_oneof![
             Just("fix lock"),
@@ -1660,8 +1660,8 @@ mod tests {
             Just("\r\n"),
             Just("\r"),
             Just("\n\n"),
-            Just("Moirai-"),
-            Just("Moirai-Ref: main"),
+            Just("Klotho-"),
+            Just("Klotho-Ref: main"),
             Just("é"),
             Just("жук"),
             Just("日本"),
@@ -1792,19 +1792,19 @@ mod tests {
 
     proptest! {
         /// N is idempotent, N_imp of a message N accepts is N, and N refuses exactly the messages whose last paragraph
-        /// begins with `Moirai-`, which N_imp keeps ([F07 §5.1]–§5.3).
+        /// begins with `Klotho-`, which N_imp keeps ([F07 §5.1]–§5.3).
         #[test]
         fn normalisation_is_idempotent(m in message()) {
             match normalise_message(&m) {
                 Ok(n) => {
                     prop_assert_eq!(normalise_message(&n).unwrap(), n.clone());
                     prop_assert_eq!(normalise_imported(m.as_bytes()), n.clone());
-                    prop_assert!(!last_paragraph_head(&n).starts_with("Moirai-"));
+                    prop_assert!(!last_paragraph_head(&n).starts_with("Klotho-"));
                 }
                 Err(e) => {
                     prop_assert_eq!(e.get_str("case"), Some("message"));
                     let imp = normalise_imported(m.as_bytes());
-                    prop_assert!(last_paragraph_head(&imp).starts_with("Moirai-"), "{imp:?}");
+                    prop_assert!(last_paragraph_head(&imp).starts_with("Klotho-"), "{imp:?}");
                     prop_assert_eq!(normalise_imported(imp.as_bytes()), imp.clone());
                 }
             }
