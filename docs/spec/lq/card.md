@@ -6,7 +6,7 @@
 | Chapter | [LQ/card], `docs/spec/lq/card.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-19b (R-SPEC-F), part of WP-19 of [PLAN §3.2] item 1 |
-| Sources | [50 §7.1] (channels and the card's budget), [50 §7.2] (the card draft), [50 §7.3] (few-shot selection), [50 §7.4] items 3, 6 and 7 (the card in LQ-Bench, the ≤ 1,000-token gate, the 0/4/7-example and display-spelling ablations), [50 §2.8] (display spelling), [50 §6.2] (transport rules); [AR §7.5] (skills and their budgets), [AR §7.7.3], [AR §7.7.5], [AR §8.3] TOKENS row "`moirai-ql` card"; [90 §2.4] (the portable skill, byte limits, bare tool names), [90 §8.1] L1, L5, L6, [90 §8.3] (the tokenizer ledger), [90 §9.1]; [80 §4] T1, T5; the A1 review's A-M5 |
+| Sources | [50 §7.1] (channels and the card's budget), [50 §7.2] (the card draft), [50 §7.3] (few-shot selection), [50 §7.4] items 3, 6 and 7 (the card in LQ-Bench, the ≤ 1,000-token gate, the 0/4/7-example and display-spelling ablations), [50 §2.8] (display spelling), [50 §6.2] (transport rules); [AR §7.5] (skills and their budgets), [AR §7.7.3], [AR §7.7.5], [AR §8.3] TOKENS row "`moirai-ql` card"; [90 §2.4] (the portable skill, byte limits, bare tool names), [90 §8.1] L1, L5, L6, [90 §8.3] (the tokenizer ledger), [90 §9.1]; [80 §4] T1, T5; the A1 review's A-M5; step 7 as the first shrink step that reaches the gate (§7.3): the owner's ruling R-127 of 2026-10-22 (F2-Q10 (6); review pass 2, A2-17) |
 | Depends on | [LQ/gql-spelling] (display spelling), [LQ/std] (named queries the card names), [LQ/errors] (retry advice), [LQ/grammar-v1.ebnf] (the examples parse) |
 
 ## 1. Constraints
@@ -167,8 +167,9 @@ bytes it names (a whole line with its LF, or a sentence with the one space named
 remain keep their numbers' order, renumbered from 1.
 
 Steps 1–4 save 291 B (9.3 %), steps 1–8 567 B (18.2 %). At the upper estimate of §7.2 (1,160 tokens) and a constant bytes-per-token
-ratio, 13.8 % reaches the gate, which step 6 attains (429 B), and step 8 leaves ≈ 950 tokens; so `HOLE(LQ-card-shrink)` always has
-a candidate inside the estimate's range (pass 1, P1-42). A card still over the gate after step 8 is a WP-73 remedy that re-runs
+ratio, the gate needs 13.8 % of the 3,116-byte body, ≈ 430 B: steps 1–6 save 429 B (13.77 %), so step 7 is the first step
+that reaches it, with 471 B (15.1 %), and step 8 leaves ≈ 950 tokens; so `HOLE(LQ-card-shrink)` always has a candidate inside
+the estimate's range (pass 1, P1-42; review pass 2, A2-17; the owner's ruling R-127 of 2026-10-22, F2-Q10 (6)). A card still over the gate after step 8 is a WP-73 remedy that re-runs
 the baseline ([50 §7.4] item 6).
 
 ## Coverage
@@ -184,7 +185,7 @@ the baseline ([50 §7.4] item 6).
 
 | Id | What | Decided by | Candidates | Constraint the value must meet |
 |---|---|---|---|---|
-| HOLE(LQ-card-shrink) | how many shrink steps of §7.3 the card takes (0 when the body passes as written) | the card's token count: WP-58's with/without usage delta (Claude) and `moirai-tokcount` (o200k), gated in WP-72 | 0 to 8 steps (the body is ≈ 870–1,160 tokens, est.; step 6 covers the upper estimate) | max(Claude, o200k) ≤ 1,000 tokens and bytes ≤ 3,500 after the steps; beyond step 8 the fix is a WP-73 remedy |
+| HOLE(LQ-card-shrink) | how many shrink steps of §7.3 the card takes (0 when the body passes as written) | the card's token count: WP-58's with/without usage delta (Claude) and `moirai-tokcount` (o200k), gated in WP-72 | 0 to 8 steps (the body is ≈ 870–1,160 tokens, est.; step 7 covers the upper estimate) | max(Claude, o200k) ≤ 1,000 tokens and bytes ≤ 3,500 after the steps; beyond step 8 the fix is a WP-73 remedy |
 | HOLE(LQ-card-examples) | how many examples the frozen card keeps | LQ-Bench 0/4/7 ablation, WP-72 ([50 §7.4] item 7) | 7 (§3), 4 (§6.2), 0 (§6.2) | the chosen card meets every GT13 gate; the model runs every example kept |
 
 Lines 10 and 27 of the body also depend on `HOLE(LQ-display-spelling)` of [LQ/gql-spelling]: §3 is the Cypher candidate
