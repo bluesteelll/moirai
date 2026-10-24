@@ -662,14 +662,15 @@ plan branch a flagged edge, by a plain value (`new`):
   two parents (a `merge` or a `sync`, landed or staged, §8.1, §9.2), `ours` restores from `state(first parent of M)` and
   `theirs` from `state(second parent of M)`. When M is a `revert` or a `cherry-pick`, whose one parent is tip R (§8.1),
   `ours` restores from the state of that parent and `theirs` from the src state of M's DM row ([RULES/merge-table]
-  DM-003 to DM-005), as for a violation's key below (review pass 2, S2-5). An M that an import made has no second
-  parent (open point 34). The `Resolve` commit carries, as ordinary ops of the
-  same commit, a `Move` that sets the node's (parent, order) to that state's and an `AddEdge` or `SetEdgeProps` for each
-  out-edge of the node in that state that the view lacks or holds with other props (pass 1, S1-22). The write path's
-  checks apply to them as to any write ([F08 §8.6]); a restore that would break an invariant (a parent that is no longer
-  live, a structural edge to a deleted target) refuses the `resolve` with that check's code, and the caller clears the
-  obstacle first. The node image keeps only value keys ([F06 §6.3], [F07 §7.4]), so no hashed byte changes; the model
-  computes the same side state from history.
+  DM-003 to DM-005), as for a violation's key below (review pass 2, S2-5). When an import made M, which has no second
+  parent, `ours` restores from `state(first parent of M)` as for an M with two parents; the `theirs` restore, and the
+  `ours` restore of an import-checkpoint commit with no parent at all ([F14 §10.6]), are open point 34's. The `Resolve`
+  commit carries, as ordinary ops of the same commit, a `Move` that sets the node's (parent, order) to that state's and
+  an `AddEdge` or `SetEdgeProps` for each out-edge of the node in that state that the view lacks or holds with other
+  props (pass 1, S1-22). The write path's checks apply to them as to any write ([F08 §8.6]); a restore that would break
+  an invariant (a parent that is no longer live, a structural edge to a deleted target) refuses the `resolve` with that
+  check's code, and the caller clears the obstacle first. The node image keeps only value keys ([F06 §6.3], [F07 §7.4]),
+  so no hashed byte changes; the model computes the same side state from history.
 - **`SupersedeFork`.** `ours` and `base` remove S's edge (`absent`). `theirs` keeps S's edge and the same commit removes, by
   `RemoveEdge`, every other active `supersedes` edge to T, so at most one remains (I6). `value` is refused (usage, exit 2)
   (open point 7).
@@ -1372,7 +1373,9 @@ rule 3 (open points 11 and 13), not measured values.
     rebuild. [F13 §3.5] I25′ and [F13 §5] V01 and V05 follow in an R-SPEC-P unit.
 34. **M of a conflict value an import made** (§6.5; review pass 2, P2-3 with S2-5; the owner's ruling R-127 of
     2026-10-22, F2-Q3a). For a value that an import made, M is the import commit that wrote it ([F11 §10]), the bulk
-    import checkpoint whose `cs.<n>` holds the row. That commit has fewer than two parents ([F11 §10]), and §6.5's
-    routes for an M with one parent are a `revert`'s and a `cherry-pick`'s DM rows, so §6.5 names no state from which a
-    `Resolve` that takes `theirs` towards a `live` existence side restores the node's hierarchy key and out-edges.
-    Recorded here, not decided: that restore is open.
+    import checkpoint whose `cs.<n>` holds the row. That commit has fewer than two parents ([F11 §10]): one, or no
+    parent at all when it is a root commit ([F14 §10.6]). §6.5 restores `ours` from `state(first parent of M)`, as it
+    does for every M with a first parent, and its other routes for an M with one parent are a `revert`'s and a
+    `cherry-pick`'s DM rows. So §6.5 names no state from which a `Resolve` that takes `theirs` towards a `live`
+    existence side restores the node's hierarchy key and out-edges, and, for an import commit with no parent, none
+    from which one that takes `ours` restores them. Recorded here, not decided: both restores are open.
