@@ -14,7 +14,7 @@
 %% source §7.1
 %% entry read
 %% context schema core
-%% note The C-AST, the 174 bytes and H of [LQ/canonical-ast §4.4] and §6.5; H[0..4] gives the EXPLAIN id q:073f2b4d.
+%% note The C-AST, the 174 bytes and H of [LQ/canonical-ast §4.4] and §6.5; H[0..4] gives the EXPLAIN id q:dd40959e.
 %% input
 MATCH (t:task) WHERE t.status = 'open' AND t.priority <= 1 RETURN t ORDER BY t.priority LIMIT 5
 %% cast
@@ -28,15 +28,15 @@ MATCH (t:task) WHERE t.status = 'open' AND t.priority <= 1 RETURN t ORDER BY t.p
    (RETURN false false [(RITEM (VAR 0) _)] [(SORT (PROP (VAR 0) "priority") false)] (INT 5))))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
 01 31 33 01 3a 3b 00 00 00 00 06 00 00 00 73 74 61 74 75 73 58 04 00 00 00 6f 70 65 6e 33 04 3a
 3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74 79 52 01 00 00 00 00 00 00 00 14 00 00 01 00 00
 00 16 3b 00 00 00 00 00 01 00 00 00 18 3a 3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74 79 00
 01 52 05 00 00 00 00 00 00 00 00 00 00 00
-%% hash blake3_256 0..174 first 16 = 073f2b4d1d0af442d00ad286347b22fb
-%% explain-id q:073f2b4d
-%% cursor-query-hash 0x42f40a1d4d2b3f07
+%% hash blake3_256 0..174 first 16 = dd40959e46cfb9855c6ce4a71cac09c1
+%% explain-id q:dd40959e
+%% cursor-query-hash 0x85b9cf469e9540dd
 %% end
 
 %% case s44-bare-words
@@ -66,7 +66,7 @@ RETURN t ORDER BY t.priority ASC LIMIT 5
 %% source [LQ/canonical-ast §5.2]
 %% entry read
 %% context schema core
-%% note read.mode and match.mode are removed: the EXPLAIN id is the hash of the query itself (q:073f2b4d).
+%% note read.mode and match.mode are removed: the EXPLAIN id is the hash of the query itself (q:dd40959e).
 %% input
 EXPLAIN MATCH TRAIL (t:task) WHERE t.status = 'open' AND t.priority <= 1 RETURN t ORDER BY t.priority LIMIT 5
 %% cast-same-as s44-quoted
@@ -105,12 +105,12 @@ MATCH (#51)-[:BLOCKED_BY]->(b) RETURN b
    (RETURN false false [(RITEM (VAR 0) _)] [] _)))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
 01 00 00 00 20 21 00 00 00 00 00 01 00 00 00 02 00 00 00 69 64 57 01 8f 3c 2e 7a 11 7b 3c 9d 5e
 4c 2f 1a 0b 9e 51 00 01 00 00 00 22 24 00 00 01 00 00 00 06 00 00 00 42 4c 4f 43 4b 53 02 00 00
 00 00 00 00 21 01 00 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00 16 3b 00 00 00
 00 00 00 00 00 00 00 00 00 00 00
-%% hash blake3_256 0..139 first 16 = 96802eff210c49167ba10e7909c42326
+%% hash blake3_256 0..139 first 16 = 77570cbf0bf1ac8c4a7ae96e52d0a71b
 %% end
 
 %% case reverse-alias-stored
@@ -151,12 +151,12 @@ MATCH (a:rule)-[:CONTRADICTS]->(b) RETURN a
    (RETURN false false [(RITEM (VAR 0) _)] [] _)))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 72 75 6c 65 00 00 00 00 00 01 00 00 00
 22 24 00 00 01 00 00 00 0b 00 00 00 43 4f 4e 54 52 41 44 49 43 54 53 03 00 00 00 00 00 00 21 01
 01 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00 16 3b 00 00 00 00 00 00 00 00 00
 00 00 00 00 00
-%% hash blake3_256 0..133 first 16 = 4a519281184ecb82c39601a960b6d87e
+%% hash blake3_256 0..133 first 16 = 2daeca5261341014e85126d92d23cc7a
 %% end
 
 %% case symmetric-kind-left
@@ -184,12 +184,12 @@ MATCH (x:task)-[:BLOCKS*1..3]->(y) RETURN x
    (RETURN false false [(RITEM (VAR 0) _)] [] _)))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 01 00 00 00
 22 24 00 00 01 00 00 00 06 00 00 00 42 4c 4f 43 4b 53 01 01 26 01 00 00 00 01 03 00 00 00 00 00
 00 00 00 21 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00 16 3b 00 00 00 00
 00 00 00 00 00 00 00 00 00 00
-%% hash blake3_256 0..138 first 16 = 95f60b5655c7e3dd9fa294b0a9a98762
+%% hash blake3_256 0..138 first 16 = 0fe81c89c1f00157d39b5b0fe03e43c6
 %% end
 
 %% case quantifier-gql
@@ -218,12 +218,12 @@ MATCH (a)-[:BLOCKS|BLOCKED_BY]->(b) RETURN a
    (RETURN false false [(RITEM (VAR 0) _)] [] _)))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
 01 00 00 00 20 21 01 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 22 24 00 00 02 00 00 00
 06 00 00 00 42 4c 4f 43 4b 53 01 06 00 00 00 42 4c 4f 43 4b 53 02 00 00 00 00 00 00 21 01 01 00
 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00 16 3b 00 00 00 00 00 00 00 00 00 00 00
 00 00 00
-%% hash blake3_256 0..131 first 16 = a16684f5c16acc86548428a4c3e33841
+%% hash blake3_256 0..131 first 16 = c1a95347cdcfdadd302190ff70e7d8fb
 %% end
 
 %% case exists-property
@@ -240,11 +240,11 @@ MATCH (t:task) WHERE exists(t.assignee) RETURN t
    (RETURN false false [(RITEM (VAR 0) _)] [] _)))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
 01 34 01 3a 3b 00 00 00 00 08 00 00 00 61 73 73 69 67 6e 65 65 14 00 00 01 00 00 00 16 3b 00 00
 00 00 00 00 00 00 00 00 00 00 00 00
-%% hash blake3_256 0..108 first 16 = 99960ebd67c99795e212b76d6e0f4621
+%% hash blake3_256 0..108 first 16 = 9039f6fe4c4ce73cdf3359529bd0b16a
 %% end
 
 %% case is-not-null
@@ -273,12 +273,12 @@ MATCH (a:task) WHERE EXISTS { MATCH (a)-->(b) } RETURN a
    (RETURN false false [(RITEM (VAR 0) _)] [] _)))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
 01 3e 41 01 00 00 00 20 21 01 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 22 24 00 01 00
 00 00 00 00 00 00 00 00 00 21 01 01 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00
 16 3b 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-%% hash blake3_256 0..144 first 16 = 360ffe2e768ee378c934b88b702058c4
+%% hash blake3_256 0..144 first 16 = e089f788a298becd26d49aca472864b3
 %% end
 
 %% case n1-subquery-pattern
@@ -316,14 +316,14 @@ MATCH (a)-[:BLOCKS]->(b) WITH b AS x MATCH (x)<-[:CHILD_OF]-(c) RETURN c
    (RETURN false false [(RITEM (VAR 3) _)] [] _)))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 03 00 00 00 10 00
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 03 00 00 00 10 00
 01 00 00 00 20 21 01 00 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 22 24 00 00 01 00 00 00
 06 00 00 00 42 4c 4f 43 4b 53 01 00 00 00 00 00 00 21 01 01 00 00 00 00 00 00 00 00 00 00 00 00
 00 13 00 00 01 00 00 00 15 3b 01 00 00 00 02 00 00 00 00 00 00 00 00 00 10 00 01 00 00 00 20 21
 01 02 00 00 00 00 00 00 00 00 00 00 00 00 01 00 00 00 22 24 00 00 01 00 00 00 08 00 00 00 43 48
 49 4c 44 5f 4f 46 02 00 00 00 00 00 00 21 01 03 00 00 00 00 00 00 00 00 00 00 00 00 00 14 00 00
 01 00 00 00 16 3b 03 00 00 00 00 00 00 00 00 00 00 00 00 00
-%% hash blake3_256 0..212 first 16 = 440f0cda29099ff69b49a3b44c707a1a
+%% hash blake3_256 0..212 first 16 = 01c70b683483cef754fb29a189e8f1ac
 %% end
 
 %% case variables-renamed
@@ -350,11 +350,11 @@ CALL blockers(#51, transitive: true) YIELD blocker
   (SCALL "blockers" [(ARG "n" (NODE "018f3c2e7a117b3c9d5e4c2f1a0b9e51")) (ARG "transitive" (BOOL true))] items [(YIELD "blocker" 0)] _ [] _))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 04 08 00 00 00 62 6c
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 04 08 00 00 00 62 6c
 6f 63 6b 65 72 73 02 00 00 00 19 01 01 00 00 00 6e 57 01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b
 9e 51 19 01 0a 00 00 00 74 72 61 6e 73 69 74 69 76 65 51 01 02 01 00 00 00 17 07 00 00 00 62 6c
 6f 63 6b 65 72 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-%% hash blake3_256 0..115 first 16 = 64e081a4206ea2b092fa0ca72874ff6c
+%% hash blake3_256 0..115 first 16 = f75b719be305b75e8a9b064e7bec616a
 %% end
 
 %% case named-arguments-reordered
@@ -379,10 +379,10 @@ TX ON lane/l5np KEY 'k1' LEASE 'L-18' { SET #89.done = true } DRY
 %% cast
 (TX _ _ _ [(SMUTS [(MSET [[(NODE "018f3c2e7a117b3c9d5e4c2f1a0b9e89") "done" (BOOL true)]])])])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 70 00 00 00 01 00 00 00 72 01
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 70 00 00 00 01 00 00 00 72 01
 00 00 00 80 01 00 00 00 57 01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b 9e 89 04 00 00 00 64 6f 6e
 65 51 01
-%% hash blake3_256 0..67 first 16 = 932c98565f86fa6f2e0cc23b78533c68
+%% hash blake3_256 0..67 first 16 = 9ee8bda5705ee1a2cceb1746d81dde1b
 %% end
 
 %% case tx-bare
@@ -407,10 +407,10 @@ TX IF TIP main MESSAGE 'm' { SET #89.done = true }
 %% cast
 (TX (RREF "main") _ "m" [(SMUTS [(MSET [[(NODE "018f3c2e7a117b3c9d5e4c2f1a0b9e89") "done" (BOOL true)]])])])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 70 01 61 04 00 00 00 6d 61 69
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 70 01 61 04 00 00 00 6d 61 69
 6e 00 01 01 00 00 00 6d 01 00 00 00 72 01 00 00 00 80 01 00 00 00 57 01 8f 3c 2e 7a 11 7b 3c 9d
 5e 4c 2f 1a 0b 9e 89 04 00 00 00 64 6f 6e 65 51 01
-%% hash blake3_256 0..81 first 16 = 1ba214247ccea73bc2a9ef7e10001ba6
+%% hash blake3_256 0..81 first 16 = 27259d1900114bcd6bf7784eeebe75dc
 %% end
 
 %% case revision-seq
@@ -427,11 +427,11 @@ USE s4466 MATCH (t:task) RETURN t
   (CLAUSES [(MATCH false [(PATH (NODEP 0 ["task"] [] _) [])] _)] (RETURN false false [(RITEM (VAR 0) _)] [] _)))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 01 62 41 d7 e0 b0 55 bb
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 01 62 41 d7 e0 b0 55 bb
 78 a3 70 f2 eb 04 7e 4a 54 dc c0 34 2d db 0e 84 b9 b0 a6 7f 3a ff 87 34 80 ef 03 01 00 00 00 10
 00 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00
 00 00 14 00 00 01 00 00 00 16 3b 00 00 00 00 00 00 00 00 00 00 00 00 00 00
-%% hash blake3_256 0..121 first 16 = 2b6703d74e2a0e12e56b4e893be4785f
+%% hash blake3_256 0..121 first 16 = 644ccfb2a29e336ffd5413f15aba1003
 %% end
 
 %% case revision-prefix
@@ -459,11 +459,11 @@ USE main~2 MATCH (t:task) RETURN t
   (CLAUSES [(MATCH false [(PATH (NODEP 0 ["task"] [] _) [])] _)] (RETURN false false [(RITEM (VAR 0) _)] [] _)))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 01 63 61 04 00 00 00 6d
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 01 63 61 04 00 00 00 6d
 61 69 6e 01 02 00 00 00 00 00 00 00 03 01 00 00 00 10 00 01 00 00 00 20 21 01 00 00 00 00 01 00
 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00 00 14 00 00 01 00 00 00 16 3b 00 00 00
 00 00 00 00 00 00 00 00 00 00 00
-%% hash blake3_256 0..107 first 16 = 3672a25515e071a339c4b5db789f0e86
+%% hash blake3_256 0..107 first 16 = 5ae702da90fcc978149ef63eb5e8d4d9
 %% end
 
 %% case define-portable
@@ -509,7 +509,7 @@ USE main~2 MATCH (t:task) RETURN t
     (RETURN true false [(RITEM (VAR 0) _)] [(SORT (PROP (VAR 0) "updated_at") false)] _)))
   []))
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 90 0e 00 00 00 73 74 61 6c 65
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 90 0e 00 00 00 73 74 61 6c 65
 5f 62 6c 6f 63 6b 65 72 73 02 00 00 00 91 05 00 00 00 73 63 6f 70 65 92 04 00 00 00 6e 6f 64 65
 00 00 01 57 01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b 9e 09 91 04 00 00 00 64 61 79 73 92 03 00
 00 00 69 6e 74 00 00 01 52 03 00 00 00 00 00 00 00 01 04 00 00 00 6e 6f 64 65 00 01 02 00 03 01
@@ -521,7 +521,7 @@ USE main~2 MATCH (t:task) RETURN t
 0a 00 00 00 75 70 64 61 74 65 64 5f 61 74 38 02 42 03 00 00 00 6e 6f 77 00 00 00 00 00 38 03 3c
 01 00 00 00 55 00 5c 26 05 00 00 00 00 14 01 00 01 00 00 00 16 3b 00 00 00 00 00 01 00 00 00 18
 3a 3b 00 00 00 00 0a 00 00 00 75 70 64 61 74 65 64 5f 61 74 00 00 00 00 00 00
-%% hash blake3_256 0..378 first 16 = 56024d5df84ca25093452efb78b825ea
+%% hash blake3_256 0..378 first 16 = 298402d1647723082e4e00baf3a125a4
 %% portable
 DEFINE QUERY stale_blockers($scope: node = #u:018f3c2e7a117b3c9d5e4c2f1a0b9e09, $days: int = 3) SHAPE node AS {
   MATCH (b:task)-[:BLOCKS]->(t:task)
@@ -550,13 +550,13 @@ DEFINE QUERY q40() AS { MATCH (t {id: 40}) WHERE t.rev = 4466 RETURN t }
     (RETURN false false [(RITEM (VAR 0) _)] [] _)))
   []))
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 90 03 00 00 00 71 34 30 00 00
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 90 03 00 00 00 71 34 30 00 00
 00 00 00 00 01 02 00 03 01 00 00 00 10 00 01 00 00 00 20 21 01 00 00 00 00 00 00 00 00 01 00 00
 00 02 00 00 00 69 64 57 01 8f 3c 2e 7a 11 7b 3c 9d 5e 4c 2f 1a 0b 9e 40 00 00 00 00 00 01 33 01
 3a 3b 00 00 00 00 03 00 00 00 72 65 76 62 41 d7 e0 b0 55 bb 78 a3 70 f2 eb 04 7e 4a 54 dc c0 34
 2d db 0e 84 b9 b0 a6 7f 3a ff 87 34 80 ef 14 00 00 01 00 00 00 16 3b 00 00 00 00 00 00 00 00 00
 00 00 00 00 00
-%% hash blake3_256 0..165 first 16 = 7f4237fd1abceb7443e3883c0f67d7eb
+%% hash blake3_256 0..165 first 16 = 90e7ef76e4505be90a15b3e1bac21bb8
 %% portable
 DEFINE QUERY q40() AS { MATCH (t {id: #u:018f3c2e7a117b3c9d5e4c2f1a0b9e40}) WHERE t.rev = 'c41d7e0b055bb78a370f2eb047e4a54dcc0342ddb0e84b9b0a67f3aff873480ef' RETURN t }
 %% end
@@ -577,13 +577,13 @@ MATCH (t:task) WHERE t.status = 'open' RETURN t ORDER BY t.priority
    (RETURN false false [(RITEM (VAR 0) _)] [(SORT (PROP (VAR 0) "priority") false)] _)))
  [])
 %% encoding
-10 00 00 00 6d 6f 69 72 61 69 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
+10 00 00 00 6b 6c 6f 74 68 6f 2d 6c 71 2d 61 73 74 2d 76 31 01 00 01 02 00 03 01 00 00 00 10 00
 01 00 00 00 20 21 01 00 00 00 00 01 00 00 00 04 00 00 00 74 61 73 6b 00 00 00 00 00 00 00 00 00
 01 33 01 3a 3b 00 00 00 00 06 00 00 00 73 74 61 74 75 73 58 04 00 00 00 6f 70 65 6e 14 00 00 01
 00 00 00 16 3b 00 00 00 00 00 01 00 00 00 18 3a 3b 00 00 00 00 08 00 00 00 70 72 69 6f 72 69 74
 79 00 00 00 00 00 00
-%% hash blake3_256 0..135 first 16 = bdc668698aa3eae102b548db83f0b24e
-%% cursor-query-hash 0xe1eaa38a6968c6bd
+%% hash blake3_256 0..135 first 16 = a9008382cbfc542185f98cd1f7e5c99d
+%% cursor-query-hash 0x2154fccb828300a9
 %% end
 
 %% case define-reflog-e117
