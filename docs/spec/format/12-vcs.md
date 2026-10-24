@@ -6,7 +6,7 @@
 | Chapter | [F12], `docs/spec/format/12-vcs.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-12c, the version-control part of WP-12 ([PLAN §3.2] item 1), author role R-SPEC-F |
-| Sources | [AR §5a.1] (object model: ref names, kinds, reserved segments, `gen`); [AR §5a.2] (`ref_old` and the CAS, `RefUpdate` only for non-commit moves, `ref_seq` never reused, reflog); [AR §5a.3] (fork, `sync` residue, the fold of a side since the LCA, CM9); [AR §5a.4] (client resolution, `checkout`, detached heads); [AR §5a.5] (`undo`, `op restore`, `revert`, `cherry-pick`, `NotFound`/`DATA`, `--mainline 1`); [AR §5a.6] (`log`, `diff A..B`, `diff A...B`, as-of, the revision forms); [AR §5a.7] steps 0–8 and the typed-rule table; [AR §5a.8] (the conflict and violation taxonomy, conflict rendering); [AR §5a.9] (tags, branch delete); [AR §2.7] T7; [AR §3.4] I12, I25′, I26′, I27′, I31′, I33′, I34′, I37′, I41′; [AR §4.3] (commit header); [AR §4.6] items 2, 3 and 10, "Not hashed", "Net changeset = state diff"; [AR §5b.2] rule 3 (`conflict` lines) and rule 8; [AR §5b.4] (ref mapping to git; staging refs never exported); [AR §5b.6] steps 3–4 (foreign merges, import staging); [AR §7.1] (the VCS verbs; exit codes); [60 §3.1] item 1 ("the recursive-virtual-base addendum … is part of this specification") and its exit criterion "the recursive-virtual-base cases (both sides equal → clean)"; [60 §3.4] ("The recursive virtual base"; GT6 I31′ properties); [60 §3.13] GT6; [60 §4.2] (the model's LCA and virtual base by definition); [60 §4.4] item 5; [80 §2.10] P5, P6, P11 (b); [80 §3.1] X-F9; [80 §3.2] (refs row); [50 §2.2] rule 6 (as amended after the A1 re-review, S-11); [50 §2.3] (`revspec`, `rev_arg`, `ref_name`); [50 §2.4] (revision meaning); [50 §3.9] items 4, 6, 7 and 9; [50 §3.10] item 6 (`RESOLVE`); [50 §4.4] "Versioning and merge" (S-10); [40 §2.11] R-2, R-3; [40 §5.5] (link merge rules, the edge-complete re-key); [40 §8.3.2] P8; [90 §4.1] (the Branch row that resolves `HEAD`); [72 M5] (re-keys in a sync's residue); `docs/spec/reviews/a1-S.md` S-01, S-10, S-11, S-15; `docs/spec/reviews/a1-dispositions.md` §2 FB-3 and §5 (the obligations of chapter 12); [RULES/merge-table] (every table; open points 5, 9, 13, 14, 18, 19, 20); [RULES/link-merge-rules] PC-002, RK-001–RK-010; [F05 §9.2], [F05 §9.10]; [F06 §3], [F06 §4], [F06 §6], [F06 §7.7]–[F06 §7.9]; [F08 §8.2], [F08 §8.5], [F08 §11.2]; [F11 §3], [F11 §10]; [F13 §4], [F13 §5]; [F19 §10], [F19 §12]; [LQ/lexical §4], [LQ/lexical §7]; [LQ/errors] E301, E305; [LQ/envelope §5.10]; [PLAN §3.2] WP-12, [PLAN §3.3]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the image's ref namespace); u06's and u06p's text minors (§5.5a, §5.6, §7.9: m-1, m-2, F-9, F-10, F-2): the orchestrator's rulings R-22 of 2026-10-12 and R-74 of 2026-10-15; a node with one live and one deleted flat side under `merge.policy.<kind>` = `ours` or `theirs` (§6.3): the owner's ruling R-109 of 2026-10-20 |
+| Sources | [AR §5a.1] (object model: ref names, kinds, reserved segments, `gen`); [AR §5a.2] (`ref_old` and the CAS, `RefUpdate` only for non-commit moves, `ref_seq` never reused, reflog); [AR §5a.3] (fork, `sync` residue, the fold of a side since the LCA, CM9); [AR §5a.4] (client resolution, `checkout`, detached heads); [AR §5a.5] (`undo`, `op restore`, `revert`, `cherry-pick`, `NotFound`/`DATA`, `--mainline 1`); [AR §5a.6] (`log`, `diff A..B`, `diff A...B`, as-of, the revision forms); [AR §5a.7] steps 0–8 and the typed-rule table; [AR §5a.8] (the conflict and violation taxonomy, conflict rendering); [AR §5a.9] (tags, branch delete); [AR §2.7] T7; [AR §3.4] I12, I25′, I26′, I27′, I31′, I33′, I34′, I37′, I41′; [AR §4.3] (commit header); [AR §4.6] items 2, 3 and 10, "Not hashed", "Net changeset = state diff"; [AR §5b.2] rule 3 (`conflict` lines) and rule 8; [AR §5b.4] (ref mapping to git; staging refs never exported); [AR §5b.6] steps 3–4 (foreign merges, import staging); [AR §7.1] (the VCS verbs; exit codes); [60 §3.1] item 1 ("the recursive-virtual-base addendum … is part of this specification") and its exit criterion "the recursive-virtual-base cases (both sides equal → clean)"; [60 §3.4] ("The recursive virtual base"; GT6 I31′ properties); [60 §3.13] GT6; [60 §4.2] (the model's LCA and virtual base by definition); [60 §4.4] item 5; [80 §2.10] P5, P6, P11 (b); [80 §3.1] X-F9; [80 §3.2] (refs row); [50 §2.2] rule 6 (as amended after the A1 re-review, S-11); [50 §2.3] (`revspec`, `rev_arg`, `ref_name`); [50 §2.4] (revision meaning); [50 §3.9] items 4, 6, 7 and 9; [50 §3.10] item 6 (`RESOLVE`); [50 §4.4] "Versioning and merge" (S-10); [40 §2.11] R-2, R-3; [40 §5.5] (link merge rules, the edge-complete re-key); [40 §8.3.2] P8; [90 §4.1] (the Branch row that resolves `HEAD`); [72 M5] (re-keys in a sync's residue); `docs/spec/reviews/a1-S.md` S-01, S-10, S-11, S-15; `docs/spec/reviews/a1-dispositions.md` §2 FB-3 and §5 (the obligations of chapter 12); [RULES/merge-table] (every table; open points 5, 9, 13, 14, 18, 19, 20); [RULES/link-merge-rules] PC-002, RK-001–RK-010; [F05 §9.2], [F05 §9.10]; [F06 §3], [F06 §4], [F06 §6], [F06 §7.7]–[F06 §7.9]; [F08 §8.2], [F08 §8.5], [F08 §11.2]; [F11 §3], [F11 §10]; [F13 §4], [F13 §5]; [F19 §10], [F19 §12]; [LQ/lexical §4], [LQ/lexical §7]; [LQ/errors] E301, E305; [LQ/envelope §5.10]; [PLAN §3.2] WP-12, [PLAN §3.3]; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the image's ref namespace); u06's and u06p's text minors (§5.5a, §5.6, §7.9: m-1, m-2, F-9, F-10, F-2): the orchestrator's rulings R-22 of 2026-10-12 and R-74 of 2026-10-15; a node with one live and one deleted flat side under `merge.policy.<kind>` = `ours` or `theirs` (§6.3): the owner's ruling R-109 of 2026-10-20; M, the commit that made a conflict value, read from the `CONFLICTS` row (§6.3, §6.5, open points 28 and 34), the two values of `resolve --all --policy` (§6.5) and GT11's scope (§7.5, open point 29): the owner's ruling R-127 of 2026-10-22 (F2-Q3a, F2-Q4, F2-Q3b) |
 | Depends on | [F01], [F05], [F06], [F08]; cites [F02], [F04], [F07], [F09], [F10], [F11], [F13], [F14], [F16], [F17], [F18], [F19], [F20], [LQ/lexical], [LQ/errors], [LQ/envelope], [LQ/std], [LQ/canonical-ast], [API], [CFG], [RULES/merge-table], [RULES/link-merge-rules] |
 
 ## 1. Scope
@@ -593,8 +593,10 @@ order wins and the later rule sees the key already conflicted (the conflicted-ke
   before-image `cstate` (dst's value, possibly an earlier conflict value), `class`, `base`, `ours`, `theirs` ([F06 §7.7]).
   Any later commit that replaces it carries a `Resolve` op (NF-9 of [F06 §7.8]).
 - **In a view.** The key's value is the conflict value. The view's `CONFLICTS` section holds one row per conflicted key:
-  `n` = the key's owner `#N` (**0 for a `schema` key**, which has no owner), the class, the `id16` of the introducing commit,
-  the key and the three sides ([F11 §10]; open point 18).
+  `n` = the key's owner `#N` (**0 for a `schema` key**, which has no owner), the class, the `id16` of the introducing commit
+  (`commit`: M, or a merge that carried the value), the key, the three sides, and the `id16` of M, the commit that made
+  the value (`maker`, §6.5) ([F11 §10]; open point 18; the owner's ruling R-127 of 2026-10-22, F2-Q3a; review pass 2,
+  P2-3).
 - **`conflicted`.** A node is `conflicted` on a view exactly when it owns a key ([F06 §2.3]) that holds a conflict value
   there ([F08 §3.2] flag 5, [RULES/merge-table] RE-008). A conflicted node leaves `ready` ([AR §5a.8]).
 - **Provisional value.** Every reader, derived predicate, index and validator that needs a plain value of a conflicted key
@@ -654,19 +656,21 @@ plan branch a flagged edge, by a plain value (`new`):
 | 5 `drop` | flagged edges only: the edge key becomes `absent` |
 
 - A `live` existence side restores the node's value keys from its node image (`snap` = 1, [F06 §6.2]). Its **hierarchy
-  key and out-edges** are restored from that side's state at M, the merge that made the conflict value (W3D-SF-3):
-  `state(first parent of M)` for `ours`, `state(second parent of M)` for `theirs`. A reader finds M from the commit that
-  `CONFLICTS.commit` names ([F11 §10]) by moving to a parent whose state holds a conflict value equal to the key's
-  (§7.3: its class, `base`, `ours`, `theirs` and `prov`), the first parent when both do, while one does; M is the first
-  commit none of whose parents does. A value that a merge carried unchanged from a side ([RULES/merge-table] MR-004,
-  which gives the carrying merge a new `Conflict` op, §7.8) is so traced to the merge that made it; `CONFLICTS.commit`
-  keeps its meaning, and names M when the value was not carried. The `Resolve` commit carries, as ordinary ops of the
-  same commit, a `Move` that sets the node's (parent, order) to that state's and an `AddEdge` or `SetEdgeProps` for each
-  out-edge of the node in that state that the view lacks or holds with other props (pass 1, S1-22). The write path's
-  checks apply to them as to any write ([F08 §8.6]); a restore that would break an invariant (a parent that is no longer
-  live, a structural edge to a deleted target) refuses the `resolve` with that check's code, and the caller clears the
-  obstacle first. The node image keeps only value keys ([F06 §6.3], [F07 §7.4]), so no hashed byte changes; the model
-  computes the same side state from history.
+  key and out-edges** are restored from that side's state at M, the commit that made the conflict value (W3D-SF-3),
+  which the key's `CONFLICTS` row records as `maker` for every row, a bulk commit's rows included ([F11 §10]): a reader
+  reads M there and walks no history (the owner's ruling R-127 of 2026-10-22, F2-Q3a; review pass 2, P2-3). When M has
+  two parents (a `merge` or a `sync`, landed or staged, §8.1, §9.2), `ours` restores from `state(first parent of M)` and
+  `theirs` from `state(second parent of M)`. When M is a `revert` or a `cherry-pick`, whose one parent is tip R (§8.1),
+  `ours` restores from the state of that parent and `theirs` from the src state of M's DM row ([RULES/merge-table]
+  DM-003 to DM-005), as for a violation's key below (review pass 2, S2-5). When an import made M, which has no second
+  parent, `ours` restores from `state(first parent of M)` as for an M with two parents; the `theirs` restore, and the
+  `ours` restore of an import-checkpoint commit with no parent at all ([F14 §10.6]), are open point 34's. The `Resolve`
+  commit carries, as ordinary ops of the same commit, a `Move` that sets the node's (parent, order) to that state's and
+  an `AddEdge` or `SetEdgeProps` for each out-edge of the node in that state that the view lacks or holds with other
+  props (pass 1, S1-22). The write path's checks apply to them as to any write ([F08 §8.6]); a restore that would break
+  an invariant (a parent that is no longer live, a structural edge to a deleted target) refuses the `resolve` with that
+  check's code, and the caller clears the obstacle first. The node image keeps only value keys ([F06 §6.3], [F07 §7.4]),
+  so no hashed byte changes; the model computes the same side state from history.
 - **`SupersedeFork`.** `ours` and `base` remove S's edge (`absent`). `theirs` keeps S's edge and the same commit removes, by
   `RemoveEdge`, every other active `supersedes` edge to T, so at most one remains (I6). `value` is refused (usage, exit 2)
   (open point 7).
@@ -689,8 +693,11 @@ plan branch a flagged edge, by a plain value (`new`):
   RVB-2), the merge commit carries a `Resolve` op with `choice` 3 and `new` = the result (§7.8).
 - **A write to a conflicted key** is always a `Resolve` (`choice` 3 for a plain `SET`, [F06 §7.7]); `RESOLVE` statements
   ([50 §3.10] item 6) write on a branch where a conflict value stands, or on a staging ref.
-- `resolve --all --policy P` resolves every conflict value of the view with the side P names ([RULES/merge-table]
-  `auto-policy`) and leaves violations alone.
+- `resolve --all --policy P`, with P `delete-wins` or `resurrect`, the two values of `policy` ([API §11.7];
+  [F06 §4.4.16] bits 1–2), resolves every `DeleteVsModify` conflict value of the view with the side P names
+  ([RULES/merge-table] AP-004, AP-005: the deleting side under `delete-wins`, the modifying side under `resurrect`). A
+  conflict value of another class stays as it is, in the view's `CONFLICTS` row, so `CALL conflicts()` ([LQ/std]) lists
+  it as still open; violations are left alone (the owner's ruling R-127 of 2026-10-22, F2-Q4; review pass 2, S2-1).
 - **The origin of a resolved hierarchy value** ([RULES/merge-table] RS-007, MR-040; [AR §11] OQ-A-13 13.4 (a), read by
   state). §7.4's origin walk reads the commit a `merge --continue` lands (§9.4 step 4) by state, like any other commit:
   a resolution whose landed value equals a parent's value passes that parent's origin on, whatever its `choice` (`base`
@@ -863,8 +870,8 @@ the usual edit O(n). Texts and bodies are at most 65,536 bytes ([F08 §5.3]), so
 measured HD and diff3 at that bound: on repeated-rare-line inputs a direct implementation took 1–12 s per HD and up to
 23.9 s per diff3, so WP-60 built a faster equivalent of the same function, which takes about 16–22 ms per HD and about
 32 ms per diff3 on those inputs, about 40 µs per HD and 78 µs per diff3 on the usual edits, with at most 1.6 MB of scratch
-memory. The constant 64 stays and no work cap is needed; how an adversarial text key counts against the merge gate of
-[AR §1] row 12 is open point 29.
+memory. The constant 64 stays and no work cap is needed; an adversarial text key lies outside the merge gate of
+[AR §1] row 12, which measures ordinary workloads (open point 29).
 
 **diff3(Ob, Ao, Bt)** takes the base, ours and theirs texts. Let O = lines(Ob), A = lines(Ao), B = lines(Bt), MA = HD(O, A),
 MB = HD(O, B), and ma(i), mb(i) the partner of O's line i in MA, MB when it has one. From (p, q, r) = (0, 0, 0), repeat:
@@ -934,7 +941,9 @@ A merge's result is a function of (dst, src), not of the unordered pair ([AR §5
 give equal states, with each conflict value's `ours` and `theirs` exchanged, except at the keys decided by these directional
 rows: MR-011 and MR-016 (`main` wins), MR-046 and LM-014 (dst's deletion data), MR-061 (dst's text when both named-query
 hashes are equal, [50 §4.4] as amended by S-10), LM-004 (dst's composite on the same path), RS-008 with policy `none`
-(dst's state), and the provisional value (§6.3, ours first). This is the "commutativity" of [40 §8.3.2] P8 and GT6
+(dst's state), AP-002 and AP-003 under `merge.policy.<kind>` = `ours` or `theirs` (the key an automatic side resolves
+takes dst's or src's value, and a node that §6.3 takes whole comes from that side; review pass 2, S2-3), and the
+provisional value (§6.3, ours first). This is the "commutativity" of [40 §8.3.2] P8 and GT6
 ([60 §3.13]) stated exactly (review S-15; open point 12).
 
 ### 7.8 From results to ops
@@ -1208,7 +1217,8 @@ rule 3 (open points 11 and 13), not measured values.
     end of the text to the other. That gives more conflicting chunks than git's histogram diff would, but never a wrong
     merge: HD still returns a valid common subsequence, and diff3 resolves only chunks where one side equals the base.
 12. **Directional rules** (§7.7, review S-15). GT6's "merge commutation" and [40 §8.3.2] P8 are equality up to the listed
-    directional rows and side exchange; the alternative the review offered (a state order for the same-path composite)
+    directional rows, AP-002 and AP-003 among them (review pass 2, S2-3), and side exchange; the alternative the review
+    offered (a state order for the same-path composite)
     would change [40 §5.5]'s "take dst's composite" and is not adopted.
 13. **Ref-name decisions** (§2). (a) Every ref name has a namespace; `feature-x` alone is refused. (b) User parts may have
     several segments (`tags/release/1.0`), so RN-8 (the prefix rule git's loose refs need) is required. (c) RN-6's 128
@@ -1273,14 +1283,18 @@ rule 3 (open points 11 and 13), not measured values.
     absent to deleted; §6.5 restores a taken live side's hierarchy key and out-edges from that side's state at the
     introducing commit (images stay value keys only); §7.3 cites [F07 §7.3] as the one equality rule; §6.2 uses the
     renumbered `ckey` classes; §5.5a charges virtual-base work to the merge's budgets and §7.5 states HD's complexity for
-    WP-60 to measure.
+    WP-60 to measure. Review pass 2 (P2-3): that commit is M, the commit that made the conflict value, which
+    `CONFLICTS.maker` records (§6.5).
 29. **An adversarial text key against the merge gate** (§7.5; spec sync 2a, WP-60 review). WP-60's faster HD takes about
     32 ms for one diff3 of repeated rare lines at the 65,536-byte bound, against the ≤ 50 ms for the merge of a 2k-op lane
     at 1e5 of [AR §1] row 12 (GT11). One such key thus takes most of a merge's budget, and two exceed it. To decide
     before GT11's merge row is written (M1): whether GT11 measures workloads only (the 2k-op lane of ordinary edits, where
     a text key costs about 78 µs) and an adversarial text is outside the gate, or whether a merge needs a per-merge text
     budget, which would have to be a format-fixed rule (a merged text enters commit ids, so a budget that changes the
-    result could never be a configuration key; one that only reports cannot change the result).
+    result could never be a configuration key; one that only reports cannot change the result). **Decided** (the owner's
+    ruling R-127 of 2026-10-22, F2-Q3b; review pass 2, P2-4): GT11 measures ordinary workloads, the 2k-op lane of
+    ordinary edits, and an adversarial text lies outside the gate. No format rule follows, so no budget changes a merge
+    result. Closed.
 30. **Spec sync 2b** (WP-91 review, fix and closure). (a) **`merge --continue` re-uses the staged merge's arguments**
     (§9.2 step 3, §9.4 step 1; [F06 §4.4.16]). Contested between recording `--base`, the policy override and `strict` with
     the staged commit and stating that continue drops them (the model's reading). Recorded, because a continue is the same
@@ -1357,3 +1371,11 @@ rule 3 (open points 11 and 13), not measured values.
     [RULES/merge-table] RS-007 cites it), so no origin reads a `choice` and §5.6 holds. The per-commit replay that open
     points 30 (d), 30 (i) and 32 describe is history; commit c3e1657 is its reference, which OQ-A-13's fallback K4 would
     rebuild. [F13 §3.5] I25′ and [F13 §5] V01 and V05 follow in an R-SPEC-P unit.
+34. **M of a conflict value an import made** (§6.5; review pass 2, P2-3 with S2-5; the owner's ruling R-127 of
+    2026-10-22, F2-Q3a). For a value that an import made, M is the import commit that wrote it ([F11 §10]), the bulk
+    import checkpoint whose `cs.<n>` holds the row. That commit has fewer than two parents ([F11 §10]): one, or no
+    parent at all when it is a root commit ([F14 §10.6]). §6.5 restores `ours` from `state(first parent of M)`, as it
+    does for every M with a first parent, and its other routes for an M with one parent are a `revert`'s and a
+    `cherry-pick`'s DM rows. So §6.5 names no state from which a `Resolve` that takes `theirs` towards a `live`
+    existence side restores the node's hierarchy key and out-edges, and, for an import commit with no parent, none
+    from which one that takes `ours` restores them. Recorded here, not decided: both restores are open.

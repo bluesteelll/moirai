@@ -6,7 +6,7 @@
 | Chapter | [F06], `docs/spec/format/06-commit.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-12a, the commit-record part of WP-12 ([PLAN §3.2] item 1), author role R-SPEC-F |
-| Sources | [AR §4.3] (the `Commit` body, the op list and coalescing, "Encoding and size", bulk commits, bodies in the log tail); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation tables for R4, R5, the audits and [90 §10.1]); [AR §4.5] steps 4, 7, 8 and 9 (candidate, re-parent, `#N` allocation, append); [AR §4.1] rows `cs.NNNN`, `blobs.NNNN` and rules; [AR §3.1] (field block and the closed type set; `CREATOR`); [AR §3.3] (edge properties, discriminator); [AR §5a.1] (commit content, schema version; ref fields); [AR §5a.2] (`ref_old`, `ref_seq`); [AR §5a.3] (sync residue); [AR §5a.5] (revert, cherry-pick, before-images); [AR §5a.7] steps 4, 7 and 8; [AR §5a.8] (conflict and violation classes); [AR §5b.4] (foreign and import-checkpoint ids, `hlc` rule, trailers, carrier table); [AR §5b.6] steps 2–5 (import flags, `verified`, stated parents); [AR §5b.7] (round-trip table: idempotency key hash); [AR §5d.1] (absorbed vectors); [AR §6.4] (idempotency, default keys); [40 §2.2] (artifact fields, `relink`), [40 §2.3], [40 §2.4] (`pathmove` and its `hlc`), [40 §2.7] (anchor record, `aN`, `captured`, `pred`), [40 §2.8], [40 §2.11] R-1, R-4, R-5, R-6, R-10; [50 §3.10] items 6, 8 and 11; [50 §4.4] (named-query definitions); [50 §8.1] F3, F10, F14, F15, F16, F18; [90 §4.1] (the actor row), [90 §4.2], [90 §10.1] (row "Commit header"); [60 §2.5] rows "Commit body" and "Ops and values", audit row "Commit body"; [PLAN §3.3] (the WP-12 gaps); reviews `a1-A.md` A-M2, `a1-S.md` S-03, S-04, S-09, S-19, S-20, `a1-P.md` A1P-12; [RULES/merge-table] open points 5, 9, 11, 18 and 20; [F17 §4.4] and OP-17-05; [OS/clock §7]; [LQ/canonical-ast §7.2] and its open points C-9, C-10; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the git-image trailers, the idempotency hash-domain strings); W3D-SF-7 and W3C-ARB-7: the orchestrator's ruling R-52 of 2026-10-13 (§4.4.4's native `hlc`, §7.4's re-keyed creator); [AR §11] #33, OQ-A-7 and OQ-A-9 (spec sync 3); [90 §4.1] (the Model row); item 1a: the owner's rulings R-47 and R-50 of 2026-10-13 and R-73 of 2026-10-15, the orchestrator's ruling R-53 of 2026-10-13 (F-1, F-2) |
+| Sources | [AR §4.3] (the `Commit` body, the op list and coalescing, "Encoding and size", bulk commits, bodies in the log tail); [AR §4.6] (items 1–10, "Not hashed", "Net changeset = state diff", the reservation tables for R4, R5, the audits and [90 §10.1]); [AR §4.5] steps 4, 7, 8 and 9 (candidate, re-parent, `#N` allocation, append); [AR §4.1] rows `cs.NNNN`, `blobs.NNNN` and rules; [AR §3.1] (field block and the closed type set; `CREATOR`); [AR §3.3] (edge properties, discriminator); [AR §5a.1] (commit content, schema version; ref fields); [AR §5a.2] (`ref_old`, `ref_seq`); [AR §5a.3] (sync residue); [AR §5a.5] (revert, cherry-pick, before-images); [AR §5a.7] steps 4, 7 and 8; [AR §5a.8] (conflict and violation classes); [AR §5b.4] (foreign and import-checkpoint ids, `hlc` rule, trailers, carrier table); [AR §5b.6] steps 2–5 (import flags, `verified`, stated parents); [AR §5b.7] (round-trip table: idempotency key hash); [AR §5d.1] (absorbed vectors); [AR §6.4] (idempotency, default keys); [40 §2.2] (artifact fields, `relink`), [40 §2.3], [40 §2.4] (`pathmove` and its `hlc`), [40 §2.7] (anchor record, `aN`, `captured`, `pred`), [40 §2.8], [40 §2.11] R-1, R-4, R-5, R-6, R-10; [50 §3.10] items 6, 8 and 11; [50 §4.4] (named-query definitions); [50 §8.1] F3, F10, F14, F15, F16, F18; [90 §4.1] (the actor row), [90 §4.2], [90 §10.1] (row "Commit header"); [60 §2.5] rows "Commit body" and "Ops and values", audit row "Commit body"; [PLAN §3.3] (the WP-12 gaps); reviews `a1-A.md` A-M2, `a1-S.md` S-03, S-04, S-09, S-19, S-20, `a1-P.md` A1P-12; [RULES/merge-table] open points 5, 9, 11, 18 and 20; [F17 §4.4] and OP-17-05; [OS/clock §7]; [LQ/canonical-ast §7.2] and its open points C-9, C-10; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the git-image trailers, the idempotency hash-domain strings); W3D-SF-7 and W3C-ARB-7: the orchestrator's ruling R-52 of 2026-10-13 (§4.4.4's native `hlc`, §7.4's re-keyed creator); [AR §11] #33, OQ-A-7 and OQ-A-9 (spec sync 3); [90 §4.1] (the Model row); item 1a: the owner's rulings R-47 and R-50 of 2026-10-13 and R-73 of 2026-10-15, the orchestrator's ruling R-53 of 2026-10-13 (F-1, F-2); LV-1's long locator (§7.3.1): the owner's ruling R-127 of 2026-10-22 (F2-Q1b; review pass 2, P2-9) |
 | Depends on | [F01], [F02]; cites [F04], [F05], [F07], [F08], [F09], [F10], [F11], [F12], [F13], [F14], [F16], [F17], [F18], [F19], [F20], [API], [LQ/canonical-ast], [LQ/envelope], [OS/clock], [RULES/merge-table], [RULES/link-merge-rules] |
 
 ## 1. Scope
@@ -754,8 +754,9 @@ locator follows `prev`.
 | 2 | `prev_len` | `uvar32` | `cont` clear and `prev` ≠ 0 | the length of that prev run: all its frames, each with its op byte, `len` and body, and no `Violation` of the owner (§7.1.1); 0 in the unknown locator |
 
 - **LV-1** (V). Either `prev_at` = `prev_len` = 0, the **unknown** locator, or `prev_at` ≥ 32, `prev_len` ≥ 1 and
-  `prev_at` + `prev_len` ≤ `prev`, a **known** locator, whose named bytes lie after the named record's `RecHdr` and
-  before this record. Every other pair is invalid.
+  `prev_at` + `prev_len` ≤ `prev`, whose named bytes lie after the named record's `RecHdr` and before this record: a
+  **known** locator when `prev_len` ≤ P05 ([F17 §4.4]), and a **long** locator otherwise (the owner's ruling R-127 of
+  2026-10-22, F2-Q1b; review pass 2, P2-9). Every other pair is invalid.
 - **LC-1** (C). A known locator names exactly the owner's prev run in the record `prev` names: the bytes
   [`lsn` − `prev` + `prev_at`, `lsn` − `prev` + `prev_at` + `prev_len`) are that run, no more and no less. That record
   is therefore an inline `Commit` record: a bulk commit has no frames (§9 BK-1), so no known locator names one.
@@ -785,10 +786,16 @@ locator follows `prev`.
   holds no span, so the frame carries the unknown locator. A current read never follows `prev` below its view's
   `checkpoint_lsn`, since the layers hold the node's values there ([F09 §4.7]); a history walk walks those records.
 
-**Reading** (the orchestrator's ruling R-53, F-1). A reader that follows `prev` from a frame with a known locator reads
+**Reading** (the orchestrator's ruling R-53, F-1). A reader reads a long locator (LV-1) as the unknown locator: the pair
+is valid and claims nothing about the record `prev` names. A writer writes the locator of SL-1 and [F16] P-37, the
+owner's exact prev run, whatever its length, and P05 is a hot key ([F17 §3]), so a pair whose `prev_len` exceeds the
+P05 in force when it is read is long, whether it was written before a reload lowered P05 or after it: it stays valid,
+and only its reading changes, never a read's result (below) (the owner's ruling R-127 of 2026-10-22, F2-Q1b; review
+pass 2, P2-9). A reader that follows `prev` from a frame with a known locator reads
 the `prev_len` bytes at `lsn` − `prev` + `prev_at` only if n(`lsn` − `prev`) = n(`lsn` − `prev` + `prev_at` + `prev_len`
 − 1) ([F05 §2.3]): the bytes then lie inside the extent that holds the named record, as every record does
-([F05 §4.4] G-1), so such a read is never longer than E − 32 bytes. It uses the bytes only if:
+([F05 §4.4] G-1), and such a read is never longer than P05 bytes, since a known locator's `prev_len` is at most P05
+(LV-1). It uses the bytes only if:
 
 - **LR-1.** they decode as whole frames that fill `prev_len` exactly, each frame valid by §7.1–§7.9;
 - **LR-2.** every frame has the owner of the frame that carries the locator, and its op carries `prev`;

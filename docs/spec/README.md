@@ -35,6 +35,7 @@ The header block of each file is authoritative for its status; this index record
 | planned | not yet written |
 | draft, pass 1 pending | written; waiting for review pass 1 (WP-80) |
 | pass 1 closed | review pass 1 left no open blocker or major finding |
+| draft, pass 2 pending | written after review pass 1 closed; waiting for review pass 2 ([F01 §2.3]) |
 | pass 2 closed | the integrated review pass 2 left no open blocker or major finding |
 | frozen (format-v1) | part of the tag `format-v1` (WP-81b) |
 | review | a review file of WP-80a or WP-80; its own header names the pass |
@@ -128,14 +129,14 @@ contract for every rule file.
 | [rules/pack-classes.md](rules/pack-classes.md) | [RULES/pack-classes] | The context-pack and brief classes, levels, budgets and the stale-pack notice | WP-90 (R-MODEL) | draft, pass 1 pending |
 | [rules/state-definition.md](rules/state-definition.md) | [RULES/state-definition] | The I26′ state definition with its marker-cache rules; `ready`, `unblocked`, markers, absorbed vectors, leases | WP-90 (R-MODEL) | draft, pass 1 pending |
 | [rules/role-write-policy.md](rules/role-write-policy.md) | [RULES/role-write-policy] | The role write policy: roles × verbs, kinds, fields and edges → allowed or refused | WP-90 (R-MODEL) | draft, pass 1 pending |
-| rules/policy-keys.md | [RULES/policy-keys] | Every operational-policy key and policy-data row mapped to a model function | WP-90 (R-MODEL) | planned |
+| [rules/policy-keys.md](rules/policy-keys.md) | [RULES/policy-keys] | Every operational-policy key and policy-data row mapped to a model function | WP-90 (R-MODEL) | draft, pass 1 pending; needs the owner's signature ([RULES/README] §6) |
 | rules/SIGNED.md | [RULES/SIGNED] | The owner-committed BLAKE3 digest of each table | owner (V3) | planned |
 
 ### Coverage, holes and reviews
 
 | File | Cite | Content | WP (role) | Status |
 |---|---|---|---|---|
-| [COVERAGE.md](COVERAGE.md) | — | One row per [60 §2.5] row (multi-part rows split), R-1…R-18, F1–F18, X-F1–X-F12 and [90 §10.1] item: chapter sections, fixture, model function; 152 rows, none unmapped | WP-10 (R-SPEC-F) skeleton; rows from every chapter's WP, assembled by R-SPEC-F | draft, pass 1 pending |
+| [COVERAGE.md](COVERAGE.md) | — | One row per [60 §2.5] row (multi-part rows split), R-1…R-18, F1–F18, X-F1–X-F12 and [90 §10.1] item, and per invariant of the design of record ([F13 §3]): chapter sections, fixture, model function; 190 rows, none unmapped | WP-10 (R-SPEC-F) skeleton; rows from every chapter's WP, assembled by R-SPEC-F | draft, pass 1 pending |
 | [HOLES.md](HOLES.md) | — | Every named hole of every part: where it sits, what decides it, its candidates; aliases; decided rule-file holes; measured decisions that are not holes | R-SPEC-F; filled by WP-81a | draft, pass 1 pending |
 | [reviews/a1-P.md](reviews/a1-P.md) | — | Phase-0 re-review of [40] and [50] revision 2 and the [PLAN §6.2] confirmations, lens P (performance, RAM, Windows) | WP-80a (R-REV-P) | review |
 | [reviews/a1-S.md](reviews/a1-S.md) | — | The same, lens S (semantics and correctness) | WP-80a (R-REV-S) | review |

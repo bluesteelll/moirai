@@ -88,7 +88,7 @@
 | id | chapter § | what | decided by | candidates |
 |---|---|---|---|---|
 | `LQ-display-spelling` | [LQ/gql-spelling §4]; [LQ/card §1], [LQ/card §3], [LQ/card §4], [LQ/envelope §4], [LQ/errors §2] | the quantifier forms that every printed text uses: the card, `--show-query` and `--show-tx`, error replacement texts and the reading echo | LQ-Bench display-spelling ablation (WP-72, [90 §8.1] L1) | the Cypher column of [LQ/gql-spelling §4] (kept unless GQL wins beyond the run-to-run spread); the GQL column |
-| `LQ-card-shrink` | [LQ/card §1], [LQ/card §7] | how many shrink steps of [LQ/card] §7.3 the card takes (0 when the body passes as written) | the card's token count: WP-58 (Claude) and `moirai-tokcount` (o200k), gated in WP-72 | 0 to 8 steps (pass 1, P1-42: step 6 covers the 1,160-token upper estimate) |
+| `LQ-card-shrink` | [LQ/card §1], [LQ/card §7] | how many shrink steps of [LQ/card] §7.3 the card takes (0 when the body passes as written) | the card's token count: WP-58 (Claude) and `moirai-tokcount` (o200k), gated in WP-72 | 0 to 8 steps (pass 1, P1-42; review pass 2, A2-17: step 7 covers the 1,160-token upper estimate) |
 | `LQ-card-examples` | [LQ/card §6] | how many examples the frozen card keeps | LQ-Bench 0/4/7 ablation (WP-72, [50 §7.4] item 7) | 7; 4; 0 |
 
 ### 2.4 Configuration
@@ -124,7 +124,8 @@
 
 These were written `HOLE(...)` in rule files, but a naming or code choice is not a measured value ([F01 §2.5]), and the
 work packages named in them have decided each one. R-MODEL has replaced the inline `HOLE(...)` with the value and dropped
-the rows from the files' Holes sections (review pass 1, S1-40); the rows stay here until pass 2 as the record.
+the rows from the files' Holes sections (review pass 1, S1-40); the rows stay here as the record until the `format-v1` tag
+(WP-81b; review pass 2, A2-10).
 
 | id | chapter § | what | decided by | candidates |
 |---|---|---|---|---|
@@ -136,7 +137,7 @@ the rows from the files' Holes sections (review pass 1, S1-40); the rows stay he
 
 Ids that were used in place of a hole's own id. Each named the same value as the owning id. [F01] open point 15, adopted
 in review pass 1 (S1-40, P1-33, A1-42), renamed them, so one check finds every hole by its `<part>-` prefix; this table
-records the old and the new id until pass 2.
+records the old and the new id until the `format-v1` tag (WP-81b; review pass 2, A2-10).
 
 | old id | was used in | now |
 |---|---|---|

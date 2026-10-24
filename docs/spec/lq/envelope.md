@@ -587,8 +587,9 @@ target-set digest and every text of this chapter are decided here, with no measu
 7. **The display printer** used by §4, §10.3 and the replacement texts is specified in [LQ/gql-spelling §5] rather than in
    [LQ/canonical-ast], because it depends on the display spelling and not on the canonical encoding.
 8. **Not closed here.** The BM25 arithmetic that makes the two search tiers rank identically (the A1 review's S-22) is needed only
-   if the search-stratum ablation keeps BM25; it belongs with F12's statistics ([F09]), and this chapter fixes only how `score` is
-   printed. Goldens (WP-71a) are authored from this text, never copied from [50 §2.9]'s examples (S-24).
+   if the search-stratum ablation keeps BM25; it belongs with [LQ/std] (WP-19), which fixes the formula, summation order and
+   rounding before M2 over the per-layer inputs that [F09] supplies (`tf`, `n_docs`, `DOCLEN`, `FTSSTAT`; [F09] OP-09-12), and
+   this chapter fixes only how `score` is printed (review pass 2, S2-8). Goldens (WP-71a) are authored from this text, never copied from [50 §2.9]'s examples (S-24).
 9. **The comparison form** (§11) is offered to WP-70; if WP-70's scorer defines another, §11 follows it.
 10. **Pass 1 changes** (A1-30, A1-31, A1-48). The `DRY` header drops `nothing written` and counts `tx (dry)` in the base part,
     and composite parts drop their `<c8>` (§3.2, §3.3, §9.3), as [F19] open point 1 proposed, so every golden header meets the
