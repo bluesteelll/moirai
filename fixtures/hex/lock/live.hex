@@ -5,7 +5,7 @@
 # Every slot record sits at the slot its holder chose by [F03 §8.7]; the index is stated with each record.
 # LockHdr (64 B at offset 0, [F03 §4.1])
 hdr:
-  "MLCK"                                    # magic
+  "KLCK"                                    # magic
   {u16 1}                                   # format
   {u16 0}                                   # flags (no bit defined in format v1)
   {u16 256}                                 # n_slots
@@ -51,7 +51,7 @@ lr:
   01                                        # endpoint_kind 1 (named pipe)
   00 00 00 00 00                            # _reserved
   {u16 50}                                  # endpoint: fstr<200> length
-  "\\\\.\\pipe\\moirai-5701de0000000000000000000000000001"
+  "\\\\.\\pipe\\klotho-5701de0000000000000000000000000001"
   00*148                                    # endpoint: zero fill
   4f 6e 28 c1 4c 14 6d 67 d3 ac d1 1d e9 d3 cc 9a  # nonce
   00*240                                    # _reserved2

@@ -3953,7 +3953,7 @@ g32.r1.p:
     01                                      # foreign_git.algo
     dd 44 dd 44 dd 44 dd 44 dd 44 dd 44 dd 44 dd 44  # foreign_git: digest
     dd 44 dd 44
-    45 f6 a1 96 8b bd dd 31 37 f2 9c 3c e7 58 a2 a9  # ckpt.head (Moirai-Head)
+    45 f6 a1 96 8b bd dd 31 37 f2 9c 3c e7 58 a2 a9  # ckpt.head (Klotho-Head)
     08 fb a9 70 a3 46 e8 86 41 29 d5 b6 40 b1 5d 83
     {uvar 0}                                # ckpt.n_folded
     00 00 00 00 00 00 00 00 00 00 00 00 00 00 00 00  # ckpt.first
@@ -3983,7 +3983,7 @@ g32.tr:
 g32.end:
 g32.r1.end:
 
-# === group g33 at lsn 13654: commit c15 (seq 15): a foreign import, demoted after a Moirai-Commit mismatch (verified 0) (durable)
+# === group g33 at lsn 13654: commit c15 (seq 15): a foreign import, demoted after a Klotho-Commit mismatch (verified 0) (durable)
 g33:
 # --- record g33.r1: kind 1 `Commit` at lsn 13654 (group_end)
 g33.r1:
@@ -4183,7 +4183,7 @@ g35.r1.p:
     01                                      # foreign_git.algo
     cc 33 cc 33 cc 33 cc 33 cc 33 cc 33 cc 33 cc 33  # foreign_git: digest
     cc 33 cc 33
-    a0 16 26 37 76 47 98 ea 38 c2 ea e6 d3 46 49 7f  # ckpt.head (Moirai-Head)
+    a0 16 26 37 76 47 98 ea 38 c2 ea e6 d3 46 49 7f  # ckpt.head (Klotho-Head)
     43 21 81 82 6b e3 a6 cb 35 23 35 80 4f 69 4e 7b
     {uvar 3}                                # ckpt.n_folded
     a8 2a 13 55 08 69 e6 e2 34 e3 fe ef 73 46 ce 58  # ckpt.first

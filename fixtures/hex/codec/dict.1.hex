@@ -6,7 +6,7 @@
 
 # DictHdr (32 B, [F10 §6.1])
 hdr:
-  "MDIC"                                    # magic
+  "KDIC"                                    # magic
   {len 0..end u64}                          # total_len: the file's exact length
   {blake3_128 32..end}                      # digest: BLAKE3-128 over [32, total_len), the dictionary bytes
   00 00 00 00                               # _reserved

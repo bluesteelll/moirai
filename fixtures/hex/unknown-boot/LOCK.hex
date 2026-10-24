@@ -2,7 +2,7 @@
 # Its slot record's ProcId has boot_known = 0 and boot_hash = 0 (rule U4); the header is as `init` wrote it.
 # LockHdr (64 B at offset 0, [F03 §4.1])
 hdr:
-  "MLCK"                                    # magic
+  "KLCK"                                    # magic
   {u16 1}                                   # format
   {u16 0}                                   # flags (no bit defined in format v1)
   {u16 256}                                 # n_slots

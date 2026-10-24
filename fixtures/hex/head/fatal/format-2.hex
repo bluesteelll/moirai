@@ -3,7 +3,7 @@
 
 # HeadSlot `slotA`: valid ([F04 §3])
 slotA:
-  "MOIR"                                    # magic
+  "KLTH"                                    # magic
   {u16 1}                                   # format
   {u16 2}                                   # flags: quiet=0, fts_tier2=1, readonly=0, retired=0
   {u64 41}                                  # slot_seq
@@ -112,7 +112,7 @@ slotA:
   {xxh3_128 slotA..slotA+4080}              # xxh3_128 over [0, 4080) (low64, high64)
 # HeadSlot `slotB`: format 2 ([F04 §3])
 slotB:
-  "MOIR"                                    # magic
+  "KLTH"                                    # magic
   {u16 2}                                   # format
   {u16 3}                                   # flags: quiet=1, fts_tier2=1, readonly=0, retired=0
   {u64 43}                                  # slot_seq

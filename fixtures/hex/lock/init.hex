@@ -3,7 +3,7 @@
 # checksum, so it reads as absent. 36,864 bytes ([F03 §2.1]). Store A (fixtures/hex/INDEX.md §2).
 # LockHdr (64 B at offset 0, [F03 §4.1])
 hdr:
-  "MLCK"                                    # magic
+  "KLCK"                                    # magic
   {u16 1}                                   # format
   {u16 0}                                   # flags (no bit defined in format v1)
   {u16 256}                                 # n_slots

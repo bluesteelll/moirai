@@ -6,7 +6,7 @@
 
 # SegHdr (120 B, [F09 §2.1])
 seghdr:
-  "MSEG"                                    # magic
+  "KSEG"                                    # magic
   {u16 1}                                   # format
   04                                        # seg_kind 4 `seg-delta`
   01                                        # tok_ver

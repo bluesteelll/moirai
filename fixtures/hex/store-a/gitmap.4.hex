@@ -1,7 +1,7 @@
 # fixtures/hex/store-a/gitmap.4.hex: a gitmap page of destination 2 `mirror-256`, SHA-256 (48-byte entries).
 
 # GitmapHdr (48 B, [F10 §7.2])
-  "MGMP"                                    # magic
+  "KGMP"                                    # magic
   {u16 1}                                   # format
   02                                        # dest
   02                                        # algo

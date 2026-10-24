@@ -2,7 +2,7 @@
 # entries): the GitMap entries the first checkpoint folded.
 
 # GitmapHdr (48 B, [F10 §7.2])
-  "MGMP"                                    # magic
+  "KGMP"                                    # magic
   {u16 1}                                   # format
   01                                        # dest
   01                                        # algo
