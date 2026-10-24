@@ -6,7 +6,7 @@
 | Chapter | [F16], `docs/spec/format/16-protocol.md` |
 | Status | draft, pass 1 pending |
 | Work package | WP-16b, the protocol part of WP-16 ([PLAN §3.2] item 1), author role R-SPEC-P |
-| Sources | [60 §2.5]: the issue-2 row "Protocol decisions" (decisions (a)–(f), (j)–(m)) and the paragraph after the audit-rows table that restates (a)–(c) and adds (g)–(i); the audit rows "`HEAD`", "Log", "`Vfs`/`ProjectFs`" and "Cross-platform" (X-F2–X-F6, protocol part); [60 §3.1] items 3 and 4 (the seeded-bug list) and the exit criteria; [60 §3.13] GT1, GT3, GT4; [60 §4.4] item 4. [80 §2.2.1] items 2–5, 7, 9; [80 §2.2.3]; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.2] (choice D and why positions are not enough); [80 §2.4.3] (the whole protocol, "Invariants" and "Costs"); [80 §2.4.4]; [80 §2.5] rules 1–6 and 8; [80 §2.6]; [80 §2.7.1] (boot-identity rule, Unknown-boot mode); [80 §3.1] X-F2–X-F6. [AR §2.8]; [AR §4.1] "Rules"; [AR §4.2] (durable bound, boot check, two-slot barrier, `retired`); [AR §4.3] (validity, groups, bulk commits); [AR §4.5] steps 1–12 and "Flush grouping"; [AR §4.7]; [AR §4.9]; [AR §4.10]; [AR §6.1]; [AR §6.2] (claims, fencing, holder liveness); [AR §6.4]; [AR §6.5]. [40 §3.4] (the `file mv` protocol and its recovery table, step 5's re-barrier), [40 §3.5]. [72 B1], [72 M1], [72 M2], [72 M3], [72 M8], [72 M9]; [61 B2]; [81 B1], [81 M6], [81 M7], [81 m4]. Reviews: `a1-P.md` A1P-01, A1P-02, A1P-06; `a1-S.md` S-06; `a1-dispositions.md` FS-4 and the chapter-16 rows. [PLAN §3.2] WP-16 and WP-40; [PLAN §3.3] (the `MOVEFILE_WRITE_THROUGH` gap); [PLAN §6.1] #3 and #14; [PLAN §7] E4; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the backup manifest's domain string); review pass 2: `docs/spec/reviews/P-pass2.md` P2-2 and P2-8, with the owner's ruling R-127 of 2026-10-22 (the maintenance holder record and the stall report: P-76, P-98; a purge's three explicit runs: P-76, open point 31), P2-5 (P-35's pointer to P-37's fallback) and P2-6 (the fault-model items of P-29, P-48, P-50 and P-101 step 8) |
+| Sources | [60 §2.5]: the issue-2 row "Protocol decisions" (decisions (a)–(f), (j)–(m)) and the paragraph after the audit-rows table that restates (a)–(c) and adds (g)–(i); the audit rows "`HEAD`", "Log", "`Vfs`/`ProjectFs`" and "Cross-platform" (X-F2–X-F6, protocol part); [60 §3.1] items 3 and 4 (the seeded-bug list) and the exit criteria; [60 §3.13] GT1, GT3, GT4; [60 §4.4] item 4. [80 §2.2.1] items 2–5, 7, 9; [80 §2.2.3]; [80 §2.3.1]–[80 §2.3.5]; [80 §2.4.2] (choice D and why positions are not enough); [80 §2.4.3] (the whole protocol, "Invariants" and "Costs"); [80 §2.4.4]; [80 §2.5] rules 1–6 and 8; [80 §2.6]; [80 §2.7.1] (boot-identity rule, Unknown-boot mode); [80 §3.1] X-F2–X-F6. [AR §2.8]; [AR §4.1] "Rules"; [AR §4.2] (durable bound, boot check, two-slot barrier, `retired`); [AR §4.3] (validity, groups, bulk commits); [AR §4.5] steps 1–12 and "Flush grouping"; [AR §4.7]; [AR §4.9]; [AR §4.10]; [AR §6.1]; [AR §6.2] (claims, fencing, holder liveness); [AR §6.4]; [AR §6.5]. [40 §3.4] (the `file mv` protocol and its recovery table, step 5's re-barrier), [40 §3.5]. [72 B1], [72 M1], [72 M2], [72 M3], [72 M8], [72 M9]; [61 B2]; [81 B1], [81 M6], [81 M7], [81 m4]. Reviews: `a1-P.md` A1P-01, A1P-02, A1P-06; `a1-S.md` S-06; `a1-dispositions.md` FS-4 and the chapter-16 rows. [PLAN §3.2] WP-16 and WP-40; [PLAN §3.3] (the `MOVEFILE_WRITE_THROUGH` gap); [PLAN §6.1] #3 and #14; [PLAN §7] E4; the Klotho names: the owner's ruling R-49 of 2026-10-13 (the backup manifest's domain string); review pass 2: `docs/spec/reviews/P-pass2.md` P2-2 and P2-8, with the owner's ruling R-127 of 2026-10-22 (the maintenance holder record and the stall report: P-76, P-98; a purge's three explicit runs: P-76, open point 31), P2-5 (P-35's pointer to P-37's fallback) and P2-6 (the fault-model items of P-29, P-48, P-50 and P-101 step 8), N-P7 and P2-11, with the owner's ruling R-127 of 2026-10-22 (open points 12 and 30; the A lens's open point 4, `docs/spec/reviews/A-pass2.md`) and the orchestrator's ruling R-142 of 2026-10-23 (the rebuild keeps `HARVEST`: §13.3) |
 | Depends on | [F01], [F02], [F03], [F04], [F05], [F13], [F15], [F17]; cites [F06], [F07], [F09], [F10], [F11], [F12], [F14], [F18], [F19], [F20], [API], [CFG], [OS/fs], [OS/lock], [OS/map], [OS/env], [OS/proc], [OS/clock], [OS/project] |
 
 ## 1. Scope
@@ -919,7 +919,9 @@ as held (spec sync 3).
    `doctor`. A failure of kind `FlushFailed` (a flush embedded in the swap failed, [OS/fs §4.1]) exits 7 at once in
    either case: `restore` issues no further call, and the intent and `retired` stay for `doctor`.
 
-`repair --rebuild-from-log` builds its rebuilt store beside the store and puts it in place by steps 2–4. Plain `repair` of
+`repair --rebuild-from-log` builds its rebuilt store beside the store and puts it in place by steps 2–4; it keeps
+`HARVEST` as it keeps every runtime table, as `backup` and `restore` do ([API §8.8]; review pass 2, P2-11; the
+orchestrator's ruling R-142 of 2026-10-23). Plain `repair` of
 a store with no valid `HEAD` slot, or with a fatal slot (treated as absent, and the other slot is not trusted either;
 P-61), holds the maintenance and flush bytes throughout (`Busy` on the maintenance byte:
 exit 7 `maintenance_busy`) and rebuilds the slot state from the extent heads (P-97; [F04 §8.1], [F05 §4.5], §9.28):
@@ -1396,6 +1398,8 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
 12. **A reader that cannot run boot-change recovery** (P-60). A read-only principal after a reboot cannot write the store.
     It reads under the Unknown-boot rules, whose documented loss ([80 §2.7.1]) is that a commit acknowledged before the
     crash stays invisible until a writer runs. X5 would prefer a mark; the review decides whether [F19] adds a notice.
+    **Review pass 2 (the A lens's open point 4, `docs/spec/reviews/A-pass2.md`): closed** by the owner's ruling R-127 of
+    2026-10-22: [F19] adds a notice for such a reader; its code and text are [F19]'s.
 13. **`durable_lsn` is a lower bound after a crash.** An OS crash can leave a `HEAD` slot older than the durable log
     ([72 B1]), and a failed `HEAD` flush can do the same (FM-3). `durable_lsn` then understates the durable end. A
     persistent read error ([F15] FM-12) in `(durable_lsn, true end]` ends the log there (P-92), and the next append would
@@ -1477,7 +1481,8 @@ here (P-82). Whether the optional leader is built (measurements 1 and 2) changes
     namespace model, and the toy's own checks are kept honest by R-HARN-S's review), named `doctor --verify` in the
     `model` bullet for the toy, and said in P-65 that the `Marker` records carry the holder-set and flag changes of
     ME-001 to ME-011, not the storage moves of ME-012 and ME-013. The owner's decision of 2026-10-06, OQ-A-2 (a), adds
-    the detector rule to PLAN's S4; §17.2 now states the amended S4.
+    the detector rule to PLAN's S4; §17.2 now states the amended S4. **Review pass 2 (N-P7): accepted.** The owner's
+    ruling R-127 of 2026-10-22 accepts the masked-bug dispositions above as written; no §17.3 row changes.
 31. **Spec sync 3** ([AR §11] #33, OQ-A-7 (a), decided 2026-10-06; [F06 §8.1] DB-8). The protocol of a body drop:
     - **The record.** `BodyDrop` ([F05 §9.29]) is a semantic durable record (P-36, P-6): it is a command's record, the
       model executes it, and it raises the HLC sequence as every other such record does. A `BodyDrop` command writes it
