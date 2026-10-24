@@ -638,9 +638,8 @@ A unit test of `moirai-config` and `xtask coverage` check them.
 - **RG-4.** No key begins with the segment `stores`; no key reuses a retired name (§6.4).
 - **RG-5.** Every environment variable begins `MOIRAI_`, is named by one key only, and contains none of `KEY`, `TOKEN`,
   `SECRET`, `PASSWORD` ([90 §2.1]: harnesses strip such variables from MCP server environments).
-- **RG-6.** Every key of visibility class V (§9.4) has a model function in [RULES/policy-keys] ([PLAN §3.2] WP-90, WP-94), a
-  rule file that R-MODEL writes in WP-90 and that the index lists as planned; the citation is made before the file exists as
-  [F01 §2.2] allows (pass 1, A1-50).
+- **RG-6.** Every key of visibility class V (§9.4) has a model function in [RULES/policy-keys] ([PLAN §3.2] WP-90, WP-94),
+  the rule file of R-MODEL's WP-90 that the index lists (pass 1, A1-50; review pass 2, A2-11).
 - **RG-7.** Every key pattern is at most 255 bytes and 16 segments, and each fixed segment follows §3.2's `segment` rule in
   lower case.
 
@@ -798,7 +797,7 @@ Constraints C-1 to C-4 are [F17 §3]'s; §5.3 applies them.
 | `mem.rss-gate.cli-per-view` | `size[0..64MiB]` | `1MiB` | store | hot | Rs | as above | as above | as above |
 | `mem.rss-gate.mcp` | `size[1MiB..1GiB]` | `15625KiB` (16,000,000 B) | store | hot | Rs | the MCP server: headroom = this − private bytes | as above | as above |
 | `files.max-read-bytes` | `size[128KiB..4GiB]` | `16MiB` | store | hot | V | every project-file content read: a larger file is `Unavailable(size)` ([F20], [40 §2.5]) | `moirai-files` reader; model `links::content_available` | [40] R-13 |
-| `files.max-line-hashes` | `int[1024..16777216]` | `65536` | store | hot | V | anchor resolution: beyond it, window-only anchors are `unverified (size)` ([F20]; never the similarity limit, [F20 §2.10.5]) | `moirai-files` anchors; model `anchors::window_available` | [40] R-13, [71] RAM-M4 |
+| `files.max-line-hashes` | `int[1024..16777216]` | `65536` | store | hot | V | anchor resolution: beyond it, window-only anchors are `unverified (size)` ([F20]; never the similarity limit, [F20 §2.10.5]) | `moirai-files` anchors; model `links::window_available` | [40] R-13, [71] RAM-M4 |
 | `files.deep.threads` | `int[1..64]` | `8` | store | hot | I | `links check\|sync --deep`: walk threads | `moirai-links` | [AR §13] |
 | `files.deep.content-readers` | `int[1..8]` | `2` | store | hot | I | `--deep`: files read at once | `moirai-links` | [AR §13] |
 
@@ -1216,8 +1215,9 @@ This chapter's own holes. The store-parameter holes (`F17-ckpt-ops`, `F17-ckpt-b
     `TX` and E501 names the split. `init` refuses a set of values that fails C-1–C-4 (exit 2, §7.6), and a tunable's
     fallback is min(default, the largest admissible value under the recorded `init` values) (§5.3, RG-2).
     `input.max-bytes` (16 MiB) bounds stdin and `-f` input before any budget. Root names start with a letter, as
-    [F08 §5.4.1] requires. `[RULES/delete-policy]` is corrected to `delete-policy-matrix`; `[RULES/policy-keys]` stays
-    cited as a planned file. The configuration duration grammar and LQ's differ on purpose, and both chapters say so
+    [F08 §5.4.1] requires. `[RULES/delete-policy]` is corrected to `delete-policy-matrix`; `[RULES/policy-keys]` is
+    cited as the written rule file it now is (review pass 2, A2-11). The configuration duration
+    grammar and LQ's differ on purpose, and both chapters say so
     (§4.1, [LQ/lexical §5.6]).
 34. **Spec sync 2b.** The `read by` and `model` cells take [RULES/policy-keys]' bound names, which are normative (§9.4).
     `client.profile` is class V and read by [API §4.2] CX-7. `durability.lazy-kinds` is checked by GT3 only, since no
